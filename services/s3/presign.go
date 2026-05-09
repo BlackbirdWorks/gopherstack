@@ -97,7 +97,7 @@ func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.Respons
 
 	if time.Now().UTC().After(expiresAt) {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "AccessDenied",
+			Code:    errAccessDenied,
 			Message: "Request has expired.",
 		}, http.StatusForbidden)
 

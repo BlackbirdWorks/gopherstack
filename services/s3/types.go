@@ -58,6 +58,11 @@ type StoredObjectVersion struct {
 	ChecksumSHA256     *string                 `json:"checksumSHA256,omitempty"`
 	ChecksumCRC32      *string                 `json:"checksumCRC32,omitempty"`
 	ChecksumCRC32C     *string                 `json:"checksumCRC32C,omitempty"`
+	ChecksumCRC64NVME  *string                 `json:"checksumCRC64NVME,omitempty"`
+	SSEAlgorithm       string                  `json:"sseAlgorithm,omitempty"`
+	SSEKMSKeyID        string                  `json:"sseKMSKeyID,omitempty"`
+	SSECAlgorithm      string                  `json:"sseCAlgorithm,omitempty"`
+	SSECKeyMD5         string                  `json:"sseCKeyMD5,omitempty"`
 	Key                string                  `json:"key"`
 	ETag               string                  `json:"etag"`
 	ContentType        string                  `json:"contentType"`

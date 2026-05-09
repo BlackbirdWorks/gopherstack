@@ -28,7 +28,9 @@ import (
 func newTestHandler(t *testing.T) (*s3.S3Handler, *s3.InMemoryBackend) {
 	t.Helper()
 
-	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
+	// WithSkipMultipartSizeCheck disables the 5 MiB minimum non-last-part size
+	// check so existing tests can use small parts without hitting EntityTooSmall.
+	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{}).WithSkipMultipartSizeCheck()
 	handler := s3.NewHandler(backend).WithJanitor(s3.Settings{})
 
 	return handler, backend

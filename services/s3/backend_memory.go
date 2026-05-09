@@ -32,8 +32,10 @@ import (
 )
 
 type md5ContextKey struct{}
+type sseContextKey struct{}
 
 var md5Key = md5ContextKey{} //nolint:gochecknoglobals // internal context key
+var sseKey = sseContextKey{} //nolint:gochecknoglobals // internal context key
 
 // objectVersionIDBytes is the number of random bytes used to generate a version ID.
 // 16 bytes produces a 32-character lowercase hex string.
@@ -56,7 +58,38 @@ const defaultRegionName = config.DefaultRegion
 
 // objectChecksums holds the optional checksum values supplied with a PutObject request.
 type objectChecksums struct {
-	crc32, crc32c, sha1, sha256 *string
+	crc32, crc32c, sha1, sha256, crc64nvme *string
+}
+
+// populateComputed fills the appropriate checksum field when the client requested
+// server-side computation (supplied algorithm but no value).
+func (c *objectChecksums) populateComputed(computed, algo string) {
+	if computed == "" {
+		return
+	}
+
+	switch algo {
+	case ChecksumCRC32:
+		if c.crc32 == nil {
+			c.crc32 = aws.String(computed)
+		}
+	case ChecksumCRC32C:
+		if c.crc32c == nil {
+			c.crc32c = aws.String(computed)
+		}
+	case ChecksumSHA1:
+		if c.sha1 == nil {
+			c.sha1 = aws.String(computed)
+		}
+	case ChecksumSHA256:
+		if c.sha256 == nil {
+			c.sha256 = aws.String(computed)
+		}
+	case ChecksumCRC64NVME:
+		if c.crc64nvme == nil {
+			c.crc64nvme = aws.String(computed)
+		}
+	}
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -80,6 +113,17 @@ type InMemoryBackend struct {
 	compressor          Compressor
 	defaultRegion       string
 	compressionMinBytes int
+	// skipMultipartSizeCheck disables the 5 MiB minimum part size check during
+	// CompleteMultipartUpload. This is intended for use in unit tests only.
+	skipMultipartSizeCheck bool
+}
+
+// WithSkipMultipartSizeCheck disables the 5 MiB minimum non-last-part size
+// enforcement in CompleteMultipartUpload. Use only in tests.
+func (b *InMemoryBackend) WithSkipMultipartSizeCheck() *InMemoryBackend {
+	b.skipMultipartSizeCheck = true
+
+	return b
 }
 
 func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
@@ -328,39 +372,31 @@ func (b *InMemoryBackend) PutObject(
 	}
 
 	// 2. Prepare data and metadata outside the lock.
-	originalSize, storedData, isCompressed, etag, computedChecksumB64, err := b.prepareObjectData(ctx, input)
+	originalSize, storedData, isCompressed, etag, computedChecksumB64, err := b.prepareObjectData(
+		ctx,
+		input,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	checksums := objectChecksums{
-		input.ChecksumCRC32, input.ChecksumCRC32C,
-		input.ChecksumSHA1, input.ChecksumSHA256,
+		crc32:     input.ChecksumCRC32,
+		crc32c:    input.ChecksumCRC32C,
+		sha1:      input.ChecksumSHA1,
+		sha256:    input.ChecksumSHA256,
+		crc64nvme: input.ChecksumCRC64NVME,
 	}
 
 	// When the client specifies a checksum algorithm but omits the checksum value
 	// (requesting server-side computation), populate the computed value.
-	if computedChecksumB64 != "" {
-		algo := strings.ToUpper(string(input.ChecksumAlgorithm))
-		switch algo {
-		case ChecksumCRC32:
-			if checksums.crc32 == nil {
-				checksums.crc32 = aws.String(computedChecksumB64)
-			}
-		case ChecksumCRC32C:
-			if checksums.crc32c == nil {
-				checksums.crc32c = aws.String(computedChecksumB64)
-			}
-		case ChecksumSHA1:
-			if checksums.sha1 == nil {
-				checksums.sha1 = aws.String(computedChecksumB64)
-			}
-		case ChecksumSHA256:
-			if checksums.sha256 == nil {
-				checksums.sha256 = aws.String(computedChecksumB64)
-			}
-		}
-	}
+	checksums.populateComputed(
+		computedChecksumB64,
+		strings.ToUpper(string(input.ChecksumAlgorithm)),
+	)
+
+	// Extract SSE info from context (set by putObject handler).
+	sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
 
 	finalQuotedETag := "\"" + etag + "\""
 	newVersion := &StoredObjectVersion{
@@ -379,7 +415,12 @@ func (b *InMemoryBackend) PutObject(
 		ChecksumCRC32C:     checksums.crc32c,
 		ChecksumSHA1:       checksums.sha1,
 		ChecksumSHA256:     checksums.sha256,
+		ChecksumCRC64NVME:  checksums.crc64nvme,
 		ChecksumAlgorithm:  input.ChecksumAlgorithm,
+		SSEAlgorithm:       sseFromCtx.Algorithm,
+		SSEKMSKeyID:        sseFromCtx.KMSKeyID,
+		SSECAlgorithm:      sseFromCtx.SSECAlgorithm,
+		SSECKeyMD5:         sseFromCtx.SSECKeyMD5,
 		IsLatest:           true,
 	}
 
@@ -395,12 +436,13 @@ func (b *InMemoryBackend) PutObject(
 		"versionId", newVersionID)
 
 	return &s3.PutObjectOutput{
-		ETag:           aws.String(finalQuotedETag),
-		VersionId:      aws.String(newVersionID),
-		ChecksumCRC32:  checksums.crc32,
-		ChecksumCRC32C: checksums.crc32c,
-		ChecksumSHA1:   checksums.sha1,
-		ChecksumSHA256: checksums.sha256,
+		ETag:              aws.String(finalQuotedETag),
+		VersionId:         aws.String(newVersionID),
+		ChecksumCRC32:     checksums.crc32,
+		ChecksumCRC32C:    checksums.crc32c,
+		ChecksumSHA1:      checksums.sha1,
+		ChecksumSHA256:    checksums.sha256,
+		ChecksumCRC64NVME: checksums.crc64nvme,
 	}, nil
 }
 
@@ -440,21 +482,15 @@ func (b *InMemoryBackend) prepareObjectData(
 	return n, data, false, etag, computedChecksumB64, nil
 }
 
-func (b *InMemoryBackend) finalizeChecksum(s3Hasher hash.Hash, input *s3.PutObjectInput) (string, error) {
+func (b *InMemoryBackend) finalizeChecksum(
+	s3Hasher hash.Hash,
+	input *s3.PutObjectInput,
+) (string, error) {
 	if s3Hasher == nil {
 		return "", nil
 	}
 
-	computedSum := s3Hasher.Sum(nil)
-	// Go's crc32 Sum(nil) may not be big-endian. S3 expects big-endian for CRC32/CRC32C.
-	if h32, ok := s3Hasher.(hash.Hash32); ok {
-		const checksumSize = 4
-		b := make([]byte, checksumSize)
-		binary.BigEndian.PutUint32(b, h32.Sum32())
-		computedSum = b
-	}
-
-	computedChecksumB64 := base64.StdEncoding.EncodeToString(computedSum)
+	computedChecksumB64 := checksumBytesToB64(s3Hasher)
 	algo := strings.ToUpper(string(input.ChecksumAlgorithm))
 
 	var supplied *string
@@ -468,6 +504,8 @@ func (b *InMemoryBackend) finalizeChecksum(s3Hasher hash.Hash, input *s3.PutObje
 		supplied = input.ChecksumSHA1
 	case ChecksumSHA256:
 		supplied = input.ChecksumSHA256
+	case ChecksumCRC64NVME:
+		supplied = input.ChecksumCRC64NVME
 	}
 
 	if supplied != nil && *supplied != "" && computedChecksumB64 != *supplied {
@@ -554,49 +592,70 @@ func (b *InMemoryBackend) GetObject(
 		return nil, ErrNoSuchKey
 	}
 
-	// Copy data out for decompression outside the lock
+	// Copy data + metadata under the lock; decompression happens outside.
 	dataToDecompress := ver.Data
 	isCompressed := ver.IsCompressed
 	size := ver.Size
-	contentType := ver.ContentType
-	contentEncoding := ver.ContentEncoding
-	contentDisposition := ver.ContentDisposition
-	etag := ver.ETag
-	lastModified := ver.LastModified
 	metadata := maps.Clone(ver.Metadata)
 	versionIDStr := ver.VersionID
-	checksumCRC32 := ver.ChecksumCRC32
-	checksumCRC32C := ver.ChecksumCRC32C
-	checksumSHA1 := ver.ChecksumSHA1
-	checksumSHA256 := ver.ChecksumSHA256
 
-	data := dataToDecompress
-	if isCompressed {
-		if b.compressor == nil {
-			return nil, ErrNoCompressor
-		}
-		var decompressErr error
-		data, decompressErr = b.compressor.Decompress(data)
-		if decompressErr != nil {
-			return nil, decompressErr
-		}
+	data, err := b.decompressObjectData(dataToDecompress, isCompressed)
+	if err != nil {
+		return nil, err
 	}
 
+	return buildGetObjectOutput(data, size, ver, metadata, versionIDStr), nil
+}
+
+// decompressObjectData decompresses storedData when isCompressed is true.
+func (b *InMemoryBackend) decompressObjectData(
+	storedData []byte,
+	isCompressed bool,
+) ([]byte, error) {
+	if !isCompressed {
+		return storedData, nil
+	}
+
+	if b.compressor == nil {
+		return nil, ErrNoCompressor
+	}
+
+	data, err := b.compressor.Decompress(storedData)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
+}
+
+// buildGetObjectOutput assembles a GetObjectOutput from decompressed data and version fields.
+func buildGetObjectOutput(
+	data []byte,
+	size int64,
+	ver *StoredObjectVersion,
+	metadata map[string]string,
+	versionIDStr string,
+) *s3.GetObjectOutput {
 	return &s3.GetObjectOutput{
-		Body:               io.NopCloser(bytes.NewReader(data)),
-		ContentLength:      aws.Int64(size),
-		ContentType:        aws.String(contentType),
-		ContentEncoding:    nilStringIfEmpty(contentEncoding),
-		ContentDisposition: nilStringIfEmpty(contentDisposition),
-		ETag:               aws.String(etag),
-		LastModified:       aws.Time(lastModified),
-		Metadata:           metadata,
-		VersionId:          aws.String(versionIDStr),
-		ChecksumCRC32:      checksumCRC32,
-		ChecksumCRC32C:     checksumCRC32C,
-		ChecksumSHA1:       checksumSHA1,
-		ChecksumSHA256:     checksumSHA256,
-	}, nil
+		Body:                 io.NopCloser(bytes.NewReader(data)),
+		ContentLength:        aws.Int64(size),
+		ContentType:          aws.String(ver.ContentType),
+		ContentEncoding:      nilStringIfEmpty(ver.ContentEncoding),
+		ContentDisposition:   nilStringIfEmpty(ver.ContentDisposition),
+		ETag:                 aws.String(ver.ETag),
+		LastModified:         aws.Time(ver.LastModified),
+		Metadata:             metadata,
+		VersionId:            aws.String(versionIDStr),
+		ChecksumCRC32:        ver.ChecksumCRC32,
+		ChecksumCRC32C:       ver.ChecksumCRC32C,
+		ChecksumSHA1:         ver.ChecksumSHA1,
+		ChecksumSHA256:       ver.ChecksumSHA256,
+		ChecksumCRC64NVME:    ver.ChecksumCRC64NVME,
+		ServerSideEncryption: types.ServerSideEncryption(ver.SSEAlgorithm),
+		SSEKMSKeyId:          nilStringIfEmpty(ver.SSEKMSKeyID),
+		SSECustomerAlgorithm: nilStringIfEmpty(ver.SSECAlgorithm),
+		SSECustomerKeyMD5:    nilStringIfEmpty(ver.SSECKeyMD5),
+	}
 }
 
 func (b *InMemoryBackend) HeadObject(
@@ -662,18 +721,23 @@ func (b *InMemoryBackend) HeadObject(
 		"foundContentType", ver.ContentType)
 
 	return &s3.HeadObjectOutput{
-		ContentLength:      aws.Int64(ver.Size),
-		ContentType:        aws.String(ver.ContentType),
-		ContentEncoding:    nilStringIfEmpty(ver.ContentEncoding),
-		ContentDisposition: nilStringIfEmpty(ver.ContentDisposition),
-		ETag:               aws.String(ver.ETag),
-		LastModified:       aws.Time(ver.LastModified),
-		Metadata:           maps.Clone(ver.Metadata),
-		VersionId:          aws.String(ver.VersionID),
-		ChecksumCRC32:      ver.ChecksumCRC32,
-		ChecksumCRC32C:     ver.ChecksumCRC32C,
-		ChecksumSHA1:       ver.ChecksumSHA1,
-		ChecksumSHA256:     ver.ChecksumSHA256,
+		ContentLength:        aws.Int64(ver.Size),
+		ContentType:          aws.String(ver.ContentType),
+		ContentEncoding:      nilStringIfEmpty(ver.ContentEncoding),
+		ContentDisposition:   nilStringIfEmpty(ver.ContentDisposition),
+		ETag:                 aws.String(ver.ETag),
+		LastModified:         aws.Time(ver.LastModified),
+		Metadata:             maps.Clone(ver.Metadata),
+		VersionId:            aws.String(ver.VersionID),
+		ChecksumCRC32:        ver.ChecksumCRC32,
+		ChecksumCRC32C:       ver.ChecksumCRC32C,
+		ChecksumSHA1:         ver.ChecksumSHA1,
+		ChecksumSHA256:       ver.ChecksumSHA256,
+		ChecksumCRC64NVME:    ver.ChecksumCRC64NVME,
+		ServerSideEncryption: types.ServerSideEncryption(ver.SSEAlgorithm),
+		SSEKMSKeyId:          nilStringIfEmpty(ver.SSEKMSKeyID),
+		SSECustomerAlgorithm: nilStringIfEmpty(ver.SSECAlgorithm),
+		SSECustomerKeyMD5:    nilStringIfEmpty(ver.SSECKeyMD5),
 	}, nil
 }
 
@@ -848,7 +912,11 @@ func deleteSpecificVersion(
 
 // deleteLatestVersion deletes the latest version of an object (or marks it deleted if versioning is enabled).
 // Must be called with bucket.mu held by the caller.
-func deleteLatestVersion(bucket *StoredBucket, obj *StoredObject, key string) *s3.DeleteObjectOutput {
+func deleteLatestVersion(
+	bucket *StoredBucket,
+	obj *StoredObject,
+	key string,
+) *s3.DeleteObjectOutput {
 	// Delete latest (Versioning enabled -> add delete marker, Suspended -> delete null version)
 	if bucket.Versioning == types.BucketVersioningStatusEnabled {
 		newVersionID := newObjectVersionID()
@@ -987,7 +1055,10 @@ func (b *InMemoryBackend) deleteSingleObject(
 	return deleted, tagKey, nil
 }
 
-func applyDelimiter(prefix, delimiter string, contents []types.Object) ([]types.Object, []types.CommonPrefix) {
+func applyDelimiter(
+	prefix, delimiter string,
+	contents []types.Object,
+) ([]types.Object, []types.CommonPrefix) {
 	var filtered []types.Object
 	var cpList []types.CommonPrefix
 	seenPrefixes := make(map[string]struct{})
@@ -1287,7 +1358,10 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 }
 
 // seekVersionMarker advances the snapshot slice past the (keyMarker, versionIDMarker) cursor.
-func seekVersionMarker(snapshots []versionSnapshot, keyMarker, versionIDMarker string) []versionSnapshot {
+func seekVersionMarker(
+	snapshots []versionSnapshot,
+	keyMarker, versionIDMarker string,
+) []versionSnapshot {
 	if keyMarker == "" {
 		return snapshots
 	}
@@ -1313,7 +1387,10 @@ func seekVersionMarker(snapshots []versionSnapshot, keyMarker, versionIDMarker s
 // applyVersionDelimiter groups snapshot keys that share a common prefix
 // (when delimiter is set) and returns the remaining non-grouped snapshots
 // together with the sorted list of discovered common-prefix strings.
-func applyVersionDelimiter(snapshots []versionSnapshot, prefix, delimiter string) ([]versionSnapshot, []string) {
+func applyVersionDelimiter(
+	snapshots []versionSnapshot,
+	prefix, delimiter string,
+) ([]versionSnapshot, []string) {
 	if delimiter == "" {
 		return snapshots, nil
 	}
@@ -1369,7 +1446,10 @@ func buildVersionPage(snapshots []versionSnapshot, maxKeys int32) (
 				VersionId:    aws.String(snap.versionID),
 				IsLatest:     aws.Bool(snap.isLatest),
 				LastModified: aws.Time(snap.lastModified),
-				Owner:        &types.Owner{ID: aws.String(gopherstackName), DisplayName: aws.String(gopherstackName)},
+				Owner: &types.Owner{
+					ID:          aws.String(gopherstackName),
+					DisplayName: aws.String(gopherstackName),
+				},
 			})
 		} else {
 			versions = append(versions, types.ObjectVersion{
@@ -1824,6 +1904,73 @@ type multipartAssemblyResult struct {
 	isCompressed   bool
 }
 
+// collectPartsData gathers raw data and part MD5 bytes under upload.mu.RLock.
+// Returns the combined buffer and MD5-concatenation used for multipart ETag.
+// Must be called without upload.mu held; acquires and releases it internally.
+func (b *InMemoryBackend) collectPartsData(
+	upload *StoredMultipartUpload,
+	parts []types.CompletedPart,
+) ([]byte, []byte, error) {
+	upload.mu.RLock(opCompleteMultipartUpload)
+
+	// Validate ascending order.
+	for i := 1; i < len(parts); i++ {
+		if *parts[i].PartNumber <= *parts[i-1].PartNumber {
+			upload.mu.RUnlock()
+
+			return nil, nil, ErrInvalidPartOrder
+		}
+	}
+
+	// Pre-calculate total size.
+	totalSize := 0
+	for _, part := range parts {
+		if sp, ok := upload.Parts[*part.PartNumber]; ok {
+			totalSize += len(sp.Data)
+		}
+	}
+
+	buf := bytes.NewBuffer(make([]byte, 0, totalSize))
+	partMD5s := make([]byte, 0, len(parts)*md5.Size)
+
+	for i, part := range parts {
+		pNum := *part.PartNumber
+		storedPart, ok := upload.Parts[pNum]
+		if !ok {
+			upload.mu.RUnlock()
+
+			return nil, nil, ErrInvalidPart
+		}
+
+		if *part.ETag != storedPart.ETag {
+			upload.mu.RUnlock()
+
+			return nil, nil, ErrInvalidPart
+		}
+
+		isLastPart := i == len(parts)-1
+		if !isLastPart && storedPart.Size < multipartMinPartSize && !b.skipMultipartSizeCheck {
+			upload.mu.RUnlock()
+
+			return nil, nil, ErrEntityTooSmall
+		}
+
+		buf.Write(storedPart.Data)
+
+		rawETag := strings.Trim(storedPart.ETag, "\"")
+		rawBytes, decErr := hex.DecodeString(rawETag)
+		if decErr != nil {
+			upload.mu.RUnlock()
+
+			return nil, nil, ErrInvalidPart
+		}
+		partMD5s = append(partMD5s, rawBytes...)
+	}
+	upload.mu.RUnlock()
+
+	return buf.Bytes(), partMD5s, nil
+}
+
 // assembleMultipartData reads all parts under the per-upload read lock, assembles
 // the combined payload, compresses it, and returns the assembled result.
 //
@@ -1833,64 +1980,12 @@ func (b *InMemoryBackend) assembleMultipartData(
 	upload *StoredMultipartUpload,
 	input *s3.CompleteMultipartUploadInput,
 ) (multipartAssemblyResult, error) {
-	upload.mu.RLock(opCompleteMultipartUpload)
 	parts := input.MultipartUpload.Parts
 
-	// Validate parts are in strictly ascending order (AWS requirement).
-	for i := 1; i < len(parts); i++ {
-		if *parts[i].PartNumber <= *parts[i-1].PartNumber {
-			upload.mu.RUnlock()
-
-			return multipartAssemblyResult{}, ErrInvalidPartOrder
-		}
+	data, partMD5s, err := b.collectPartsData(upload, parts)
+	if err != nil {
+		return multipartAssemblyResult{}, err
 	}
-
-	// Pre-calculate total size to avoid O(n²) repeated re-allocation from append.
-	totalSize := 0
-	for _, part := range parts {
-		if sp, ok := upload.Parts[*part.PartNumber]; ok {
-			totalSize += len(sp.Data)
-		}
-	}
-
-	// Allocate buf with exact capacity to avoid O(n²) re-allocation.
-	buf := bytes.NewBuffer(make([]byte, 0, totalSize))
-
-	// partMD5s accumulates the raw (binary) MD5 bytes of each part for the AWS
-	// multipart ETag computation: MD5(part1_md5_bytes || ... || partN_md5_bytes).
-	partMD5s := make([]byte, 0, len(parts)*md5.Size)
-
-	for _, part := range parts {
-		pNum := *part.PartNumber
-		storedPart, ok := upload.Parts[pNum]
-		if !ok {
-			upload.mu.RUnlock()
-
-			return multipartAssemblyResult{}, ErrInvalidPart
-		}
-		if *part.ETag != storedPart.ETag {
-			upload.mu.RUnlock()
-
-			return multipartAssemblyResult{}, ErrInvalidPart
-		}
-
-		buf.Write(storedPart.Data)
-
-		// Decode the stored ETag (quoted hex, e.g. `"d41d8..."`) into raw bytes.
-		// A decode failure means a corrupted/malformed part ETag was stored,
-		// which should not occur in normal operation but is treated as invalid.
-		rawETag := strings.Trim(storedPart.ETag, "\"")
-		rawBytes, decErr := hex.DecodeString(rawETag)
-		if decErr != nil {
-			upload.mu.RUnlock()
-
-			return multipartAssemblyResult{}, ErrInvalidPart
-		}
-		partMD5s = append(partMD5s, rawBytes...)
-	}
-	upload.mu.RUnlock()
-
-	data := buf.Bytes()
 
 	var compressedData []byte
 	var isCompressed bool
@@ -1932,7 +2027,11 @@ func (b *InMemoryBackend) commitMultipartObject(
 
 	obj, exists := bucket.Objects[key]
 	if !exists {
-		obj = &StoredObject{Key: key, Versions: make(map[string]*StoredObjectVersion), mu: lockmetrics.New("s3.object")}
+		obj = &StoredObject{
+			Key:      key,
+			Versions: make(map[string]*StoredObjectVersion),
+			mu:       lockmetrics.New("s3.object"),
+		}
 		bucket.Objects[key] = obj
 	}
 
@@ -2022,7 +2121,11 @@ func (b *InMemoryBackend) ListMultipartUploads(
 	}
 
 	uploads := b.collectAndSortUploads(bucketName, aws.ToString(input.Prefix))
-	uploads = seekMultipartMarker(uploads, aws.ToString(input.KeyMarker), aws.ToString(input.UploadIdMarker))
+	uploads = seekMultipartMarker(
+		uploads,
+		aws.ToString(input.KeyMarker),
+		aws.ToString(input.UploadIdMarker),
+	)
 
 	isTruncated, nextKeyMarker, nextUploadIDMarker := truncateUploads(&uploads, maxUploads)
 
@@ -2066,7 +2169,10 @@ func (b *InMemoryBackend) collectAndSortUploads(bucketName, prefix string) []typ
 
 // seekMultipartMarker skips all upload entries that come at or before the
 // (keyMarker, uploadIDMarker) pagination cursor.
-func seekMultipartMarker(uploads []types.MultipartUpload, keyMarker, uploadIDMarker string) []types.MultipartUpload {
+func seekMultipartMarker(
+	uploads []types.MultipartUpload,
+	keyMarker, uploadIDMarker string,
+) []types.MultipartUpload {
 	if keyMarker == "" {
 		return uploads
 	}
@@ -2088,7 +2194,8 @@ func seekMultipartMarker(uploads []types.MultipartUpload, keyMarker, uploadIDMar
 // truncateUploads enforces the MaxUploads page size, returning the IsTruncated flag and
 // the next-page markers. The uploads slice is truncated in-place.
 func truncateUploads(uploads *[]types.MultipartUpload, maxUploads int32) (bool, string, string) {
-	if int32(len(*uploads)) <= maxUploads { //nolint:gosec // len() is bounded by maxUploads which is at most 1000
+	uploadCount := int32(len(*uploads)) //nolint:gosec // G115: len is bounded by maxUploads limit
+	if uploadCount <= maxUploads {
 		return false, "", ""
 	}
 
@@ -2100,6 +2207,8 @@ func truncateUploads(uploads *[]types.MultipartUpload, maxUploads int32) (bool, 
 }
 
 // ListParts returns the parts that have been uploaded for a specific multipart upload.
+const listPartsDefaultMax = int32(1000)
+
 func (b *InMemoryBackend) ListParts(
 	_ context.Context,
 	input *s3.ListPartsInput,
@@ -2115,6 +2224,18 @@ func (b *InMemoryBackend) ListParts(
 		return nil, ErrNoSuchUpload
 	}
 
+	maxParts := listPartsDefaultMax
+	if input.MaxParts != nil && *input.MaxParts > 0 && *input.MaxParts < listPartsDefaultMax {
+		maxParts = *input.MaxParts
+	}
+
+	partNumberMarker := int32(0)
+	if input.PartNumberMarker != nil && *input.PartNumberMarker != "" {
+		if n, parseErr := strconv.ParseInt(*input.PartNumberMarker, 10, 32); parseErr == nil {
+			partNumberMarker = int32(n)
+		}
+	}
+
 	upload.mu.RLock("ListParts")
 	partNumbers := make([]int32, 0, len(upload.Parts))
 	for pn := range upload.Parts {
@@ -2123,8 +2244,17 @@ func (b *InMemoryBackend) ListParts(
 
 	slices.Sort(partNumbers)
 
+	// Apply part-number-marker: skip parts whose number is <= marker.
+	startIdx := sort.Search(len(partNumbers), func(i int) bool {
+		return partNumbers[i] > partNumberMarker
+	})
+	partNumbers = partNumbers[startIdx:]
+
 	var parts []types.Part
 	for _, pn := range partNumbers {
+		if int32(len(parts)) >= maxParts { //nolint:gosec // safe: len bounded by slice
+			break
+		}
 		p := upload.Parts[pn]
 		parts = append(parts, types.Part{
 			PartNumber: aws.Int32(pn),
@@ -2134,11 +2264,23 @@ func (b *InMemoryBackend) ListParts(
 	}
 	upload.mu.RUnlock()
 
+	partsCount := int32(len(parts)) //nolint:gosec // G115: bounded by maxParts
+	isTruncated := partsCount == maxParts && int(partsCount) < len(partNumbers)
+	var nextPartNumberMarker *string
+	if isTruncated && len(parts) > 0 {
+		last := parts[len(parts)-1]
+		nextPartNumberMarker = aws.String(strconv.Itoa(int(aws.ToInt32(last.PartNumber))))
+	}
+
 	return &s3.ListPartsOutput{
-		Bucket:   input.Bucket,
-		Key:      input.Key,
-		UploadId: input.UploadId,
-		Parts:    parts,
+		Bucket:               input.Bucket,
+		Key:                  input.Key,
+		UploadId:             input.UploadId,
+		Parts:                parts,
+		IsTruncated:          aws.Bool(isTruncated),
+		MaxParts:             aws.Int32(maxParts),
+		PartNumberMarker:     input.PartNumberMarker,
+		NextPartNumberMarker: nextPartNumberMarker,
 	}, nil
 }
 
@@ -2303,7 +2445,10 @@ func (b *InMemoryBackend) DeleteBucketCORS(_ context.Context, bucketName string)
 }
 
 // PutBucketLifecycleConfiguration stores the lifecycle configuration for a bucket.
-func (b *InMemoryBackend) PutBucketLifecycleConfiguration(_ context.Context, bucketName, lifecycleXML string) error {
+func (b *InMemoryBackend) PutBucketLifecycleConfiguration(
+	_ context.Context,
+	bucketName, lifecycleXML string,
+) error {
 	b.mu.RLock("PutBucketLifecycleConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2321,7 +2466,10 @@ func (b *InMemoryBackend) PutBucketLifecycleConfiguration(_ context.Context, buc
 }
 
 // GetBucketLifecycleConfiguration returns the lifecycle configuration for a bucket.
-func (b *InMemoryBackend) GetBucketLifecycleConfiguration(_ context.Context, bucketName string) (string, error) {
+func (b *InMemoryBackend) GetBucketLifecycleConfiguration(
+	_ context.Context,
+	bucketName string,
+) (string, error) {
 	b.mu.RLock("GetBucketLifecycleConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2341,7 +2489,10 @@ func (b *InMemoryBackend) GetBucketLifecycleConfiguration(_ context.Context, buc
 }
 
 // DeleteBucketLifecycleConfiguration clears the lifecycle configuration for a bucket.
-func (b *InMemoryBackend) DeleteBucketLifecycleConfiguration(_ context.Context, bucketName string) error {
+func (b *InMemoryBackend) DeleteBucketLifecycleConfiguration(
+	_ context.Context,
+	bucketName string,
+) error {
 	b.mu.RLock("DeleteBucketLifecycleConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2415,7 +2566,10 @@ func (b *InMemoryBackend) DeleteBucketWebsite(_ context.Context, bucketName stri
 }
 
 // PutBucketEncryption stores the server-side encryption configuration for a bucket.
-func (b *InMemoryBackend) PutBucketEncryption(_ context.Context, bucketName, encryptionXML string) error {
+func (b *InMemoryBackend) PutBucketEncryption(
+	_ context.Context,
+	bucketName, encryptionXML string,
+) error {
 	b.mu.RLock("PutBucketEncryption")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2433,7 +2587,10 @@ func (b *InMemoryBackend) PutBucketEncryption(_ context.Context, bucketName, enc
 }
 
 // GetBucketEncryption returns the server-side encryption configuration for a bucket.
-func (b *InMemoryBackend) GetBucketEncryption(_ context.Context, bucketName string) (string, error) {
+func (b *InMemoryBackend) GetBucketEncryption(
+	_ context.Context,
+	bucketName string,
+) (string, error) {
 	b.mu.RLock("GetBucketEncryption")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2471,7 +2628,10 @@ func (b *InMemoryBackend) DeleteBucketEncryption(_ context.Context, bucketName s
 }
 
 // PutPublicAccessBlock stores the public access block configuration for a bucket.
-func (b *InMemoryBackend) PutPublicAccessBlock(_ context.Context, bucketName, configXML string) error {
+func (b *InMemoryBackend) PutPublicAccessBlock(
+	_ context.Context,
+	bucketName, configXML string,
+) error {
 	b.mu.RLock("PutPublicAccessBlock")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2489,7 +2649,10 @@ func (b *InMemoryBackend) PutPublicAccessBlock(_ context.Context, bucketName, co
 }
 
 // GetPublicAccessBlock returns the public access block configuration for a bucket.
-func (b *InMemoryBackend) GetPublicAccessBlock(_ context.Context, bucketName string) (string, error) {
+func (b *InMemoryBackend) GetPublicAccessBlock(
+	_ context.Context,
+	bucketName string,
+) (string, error) {
 	b.mu.RLock("GetPublicAccessBlock")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2527,7 +2690,10 @@ func (b *InMemoryBackend) DeletePublicAccessBlock(_ context.Context, bucketName 
 }
 
 // PutBucketOwnershipControls stores the ownership controls configuration for a bucket.
-func (b *InMemoryBackend) PutBucketOwnershipControls(_ context.Context, bucketName, configXML string) error {
+func (b *InMemoryBackend) PutBucketOwnershipControls(
+	_ context.Context,
+	bucketName, configXML string,
+) error {
 	b.mu.RLock("PutBucketOwnershipControls")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2545,7 +2711,10 @@ func (b *InMemoryBackend) PutBucketOwnershipControls(_ context.Context, bucketNa
 }
 
 // GetBucketOwnershipControls returns the ownership controls configuration for a bucket.
-func (b *InMemoryBackend) GetBucketOwnershipControls(_ context.Context, bucketName string) (string, error) {
+func (b *InMemoryBackend) GetBucketOwnershipControls(
+	_ context.Context,
+	bucketName string,
+) (string, error) {
 	b.mu.RLock("GetBucketOwnershipControls")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2565,7 +2734,10 @@ func (b *InMemoryBackend) GetBucketOwnershipControls(_ context.Context, bucketNa
 }
 
 // DeleteBucketOwnershipControls removes the ownership controls configuration for a bucket.
-func (b *InMemoryBackend) DeleteBucketOwnershipControls(_ context.Context, bucketName string) error {
+func (b *InMemoryBackend) DeleteBucketOwnershipControls(
+	_ context.Context,
+	bucketName string,
+) error {
 	b.mu.RLock("DeleteBucketOwnershipControls")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2619,7 +2791,10 @@ func (b *InMemoryBackend) GetBucketLogging(_ context.Context, bucketName string)
 }
 
 // PutBucketReplication stores the replication configuration for a bucket.
-func (b *InMemoryBackend) PutBucketReplication(_ context.Context, bucketName, replicationXML string) error {
+func (b *InMemoryBackend) PutBucketReplication(
+	_ context.Context,
+	bucketName, replicationXML string,
+) error {
 	b.mu.RLock("PutBucketReplication")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2637,7 +2812,10 @@ func (b *InMemoryBackend) PutBucketReplication(_ context.Context, bucketName, re
 }
 
 // GetBucketReplication returns the replication configuration for a bucket.
-func (b *InMemoryBackend) GetBucketReplication(_ context.Context, bucketName string) (string, error) {
+func (b *InMemoryBackend) GetBucketReplication(
+	_ context.Context,
+	bucketName string,
+) (string, error) {
 	b.mu.RLock("GetBucketReplication")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2673,7 +2851,11 @@ func (b *InMemoryBackend) DeleteBucketReplication(_ context.Context, bucketName 
 
 	return nil
 }
-func (b *InMemoryBackend) PutBucketNotificationConfiguration(_ context.Context, bucketName, notifXML string) error {
+
+func (b *InMemoryBackend) PutBucketNotificationConfiguration(
+	_ context.Context,
+	bucketName, notifXML string,
+) error {
 	b.mu.RLock("PutBucketNotificationConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2691,7 +2873,10 @@ func (b *InMemoryBackend) PutBucketNotificationConfiguration(_ context.Context, 
 }
 
 // GetBucketNotificationConfiguration returns the notification configuration for a bucket.
-func (b *InMemoryBackend) GetBucketNotificationConfiguration(_ context.Context, bucketName string) (string, error) {
+func (b *InMemoryBackend) GetBucketNotificationConfiguration(
+	_ context.Context,
+	bucketName string,
+) (string, error) {
 	b.mu.RLock("GetBucketNotificationConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2708,7 +2893,10 @@ func (b *InMemoryBackend) GetBucketNotificationConfiguration(_ context.Context, 
 }
 
 // PutObjectLockConfiguration stores the object lock configuration for a bucket.
-func (b *InMemoryBackend) PutObjectLockConfiguration(_ context.Context, bucketName, configXML string) error {
+func (b *InMemoryBackend) PutObjectLockConfiguration(
+	_ context.Context,
+	bucketName, configXML string,
+) error {
 	b.mu.RLock("PutObjectLockConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2726,7 +2914,10 @@ func (b *InMemoryBackend) PutObjectLockConfiguration(_ context.Context, bucketNa
 }
 
 // GetObjectLockConfiguration retrieves the object lock configuration for a bucket.
-func (b *InMemoryBackend) GetObjectLockConfiguration(_ context.Context, bucketName string) (string, error) {
+func (b *InMemoryBackend) GetObjectLockConfiguration(
+	_ context.Context,
+	bucketName string,
+) (string, error) {
 	b.mu.RLock("GetObjectLockConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2863,7 +3054,11 @@ func (b *InMemoryBackend) GetObjectLegalHold(
 
 // findObjectVersion returns the specified object version (or the latest version if versionID is nil).
 // Must be called with at least a read lock on bucket.mu.
-func findObjectVersion(bucket *StoredBucket, key string, versionID *string) (*StoredObjectVersion, error) {
+func findObjectVersion(
+	bucket *StoredBucket,
+	key string,
+	versionID *string,
+) (*StoredObjectVersion, error) {
 	obj, exists := bucket.Objects[key]
 	if !exists {
 		return nil, ErrNoSuchKey
@@ -2896,7 +3091,11 @@ func findObjectVersion(bucket *StoredBucket, key string, versionID *string) (*St
 }
 
 // PutBucketTagging sets the tag set for a bucket.
-func (b *InMemoryBackend) PutBucketTagging(_ context.Context, bucketName string, tags []types.Tag) error {
+func (b *InMemoryBackend) PutBucketTagging(
+	_ context.Context,
+	bucketName string,
+	tags []types.Tag,
+) error {
 	b.mu.RLock("PutBucketTagging")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2914,7 +3113,10 @@ func (b *InMemoryBackend) PutBucketTagging(_ context.Context, bucketName string,
 }
 
 // GetBucketTagging returns the tag set for a bucket.
-func (b *InMemoryBackend) GetBucketTagging(_ context.Context, bucketName string) ([]types.Tag, error) {
+func (b *InMemoryBackend) GetBucketTagging(
+	_ context.Context,
+	bucketName string,
+) ([]types.Tag, error) {
 	b.mu.RLock("GetBucketTagging")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2955,7 +3157,10 @@ func (b *InMemoryBackend) DeleteBucketTagging(_ context.Context, bucketName stri
 }
 
 // PutBucketAnalyticsConfiguration stores an analytics configuration for a bucket by ID.
-func (b *InMemoryBackend) PutBucketAnalyticsConfiguration(_ context.Context, bucketName, id, configXML string) error {
+func (b *InMemoryBackend) PutBucketAnalyticsConfiguration(
+	_ context.Context,
+	bucketName, id, configXML string,
+) error {
 	b.mu.RLock("PutBucketAnalyticsConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2977,7 +3182,10 @@ func (b *InMemoryBackend) PutBucketAnalyticsConfiguration(_ context.Context, buc
 }
 
 // GetBucketAnalyticsConfiguration returns an analytics configuration for a bucket by ID.
-func (b *InMemoryBackend) GetBucketAnalyticsConfiguration(_ context.Context, bucketName, id string) (string, error) {
+func (b *InMemoryBackend) GetBucketAnalyticsConfiguration(
+	_ context.Context,
+	bucketName, id string,
+) (string, error) {
 	b.mu.RLock("GetBucketAnalyticsConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -2998,7 +3206,10 @@ func (b *InMemoryBackend) GetBucketAnalyticsConfiguration(_ context.Context, buc
 }
 
 // DeleteBucketAnalyticsConfiguration removes an analytics configuration from a bucket by ID.
-func (b *InMemoryBackend) DeleteBucketAnalyticsConfiguration(_ context.Context, bucketName, id string) error {
+func (b *InMemoryBackend) DeleteBucketAnalyticsConfiguration(
+	_ context.Context,
+	bucketName, id string,
+) error {
 	b.mu.RLock("DeleteBucketAnalyticsConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3016,7 +3227,10 @@ func (b *InMemoryBackend) DeleteBucketAnalyticsConfiguration(_ context.Context, 
 }
 
 // ListBucketAnalyticsConfigurations returns all analytics configurations for a bucket.
-func (b *InMemoryBackend) ListBucketAnalyticsConfigurations(_ context.Context, bucketName string) ([]string, error) {
+func (b *InMemoryBackend) ListBucketAnalyticsConfigurations(
+	_ context.Context,
+	bucketName string,
+) ([]string, error) {
 	b.mu.RLock("ListBucketAnalyticsConfigurations")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3131,7 +3345,10 @@ func (b *InMemoryBackend) ListBucketIntelligentTieringConfigurations(
 }
 
 // PutBucketInventoryConfiguration stores an inventory configuration for a bucket by ID.
-func (b *InMemoryBackend) PutBucketInventoryConfiguration(_ context.Context, bucketName, id, configXML string) error {
+func (b *InMemoryBackend) PutBucketInventoryConfiguration(
+	_ context.Context,
+	bucketName, id, configXML string,
+) error {
 	b.mu.RLock("PutBucketInventoryConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3153,7 +3370,10 @@ func (b *InMemoryBackend) PutBucketInventoryConfiguration(_ context.Context, buc
 }
 
 // GetBucketInventoryConfiguration returns an inventory configuration for a bucket by ID.
-func (b *InMemoryBackend) GetBucketInventoryConfiguration(_ context.Context, bucketName, id string) (string, error) {
+func (b *InMemoryBackend) GetBucketInventoryConfiguration(
+	_ context.Context,
+	bucketName, id string,
+) (string, error) {
 	b.mu.RLock("GetBucketInventoryConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3174,7 +3394,10 @@ func (b *InMemoryBackend) GetBucketInventoryConfiguration(_ context.Context, buc
 }
 
 // DeleteBucketInventoryConfiguration removes an inventory configuration from a bucket by ID.
-func (b *InMemoryBackend) DeleteBucketInventoryConfiguration(_ context.Context, bucketName, id string) error {
+func (b *InMemoryBackend) DeleteBucketInventoryConfiguration(
+	_ context.Context,
+	bucketName, id string,
+) error {
 	b.mu.RLock("DeleteBucketInventoryConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3192,7 +3415,10 @@ func (b *InMemoryBackend) DeleteBucketInventoryConfiguration(_ context.Context, 
 }
 
 // ListBucketInventoryConfigurations returns all inventory configurations for a bucket.
-func (b *InMemoryBackend) ListBucketInventoryConfigurations(_ context.Context, bucketName string) ([]string, error) {
+func (b *InMemoryBackend) ListBucketInventoryConfigurations(
+	_ context.Context,
+	bucketName string,
+) ([]string, error) {
 	b.mu.RLock("ListBucketInventoryConfigurations")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3213,7 +3439,10 @@ func (b *InMemoryBackend) ListBucketInventoryConfigurations(_ context.Context, b
 }
 
 // PutBucketMetricsConfiguration stores a metrics configuration for a bucket by ID.
-func (b *InMemoryBackend) PutBucketMetricsConfiguration(_ context.Context, bucketName, id, configXML string) error {
+func (b *InMemoryBackend) PutBucketMetricsConfiguration(
+	_ context.Context,
+	bucketName, id, configXML string,
+) error {
 	b.mu.RLock("PutBucketMetricsConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3235,7 +3464,10 @@ func (b *InMemoryBackend) PutBucketMetricsConfiguration(_ context.Context, bucke
 }
 
 // GetBucketMetricsConfiguration returns a metrics configuration for a bucket by ID.
-func (b *InMemoryBackend) GetBucketMetricsConfiguration(_ context.Context, bucketName, id string) (string, error) {
+func (b *InMemoryBackend) GetBucketMetricsConfiguration(
+	_ context.Context,
+	bucketName, id string,
+) (string, error) {
 	b.mu.RLock("GetBucketMetricsConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3256,7 +3488,10 @@ func (b *InMemoryBackend) GetBucketMetricsConfiguration(_ context.Context, bucke
 }
 
 // DeleteBucketMetricsConfiguration removes a metrics configuration from a bucket by ID.
-func (b *InMemoryBackend) DeleteBucketMetricsConfiguration(_ context.Context, bucketName, id string) error {
+func (b *InMemoryBackend) DeleteBucketMetricsConfiguration(
+	_ context.Context,
+	bucketName, id string,
+) error {
 	b.mu.RLock("DeleteBucketMetricsConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3274,7 +3509,10 @@ func (b *InMemoryBackend) DeleteBucketMetricsConfiguration(_ context.Context, bu
 }
 
 // ListBucketMetricsConfigurations returns all metrics configurations for a bucket.
-func (b *InMemoryBackend) ListBucketMetricsConfigurations(_ context.Context, bucketName string) ([]string, error) {
+func (b *InMemoryBackend) ListBucketMetricsConfigurations(
+	_ context.Context,
+	bucketName string,
+) ([]string, error) {
 	b.mu.RLock("ListBucketMetricsConfigurations")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3301,7 +3539,10 @@ func (b *InMemoryBackend) DeleteBucketLifecycle(ctx context.Context, bucketName 
 }
 
 // CreateBucketMetadataConfiguration stores the metadata configuration for a bucket.
-func (b *InMemoryBackend) CreateBucketMetadataConfiguration(_ context.Context, bucketName, configXML string) error {
+func (b *InMemoryBackend) CreateBucketMetadataConfiguration(
+	_ context.Context,
+	bucketName, configXML string,
+) error {
 	b.mu.RLock("CreateBucketMetadataConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3319,7 +3560,10 @@ func (b *InMemoryBackend) CreateBucketMetadataConfiguration(_ context.Context, b
 }
 
 // GetBucketMetadataConfiguration returns the metadata configuration for a bucket.
-func (b *InMemoryBackend) GetBucketMetadataConfiguration(_ context.Context, bucketName string) (string, error) {
+func (b *InMemoryBackend) GetBucketMetadataConfiguration(
+	_ context.Context,
+	bucketName string,
+) (string, error) {
 	b.mu.RLock("GetBucketMetadataConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3339,7 +3583,10 @@ func (b *InMemoryBackend) GetBucketMetadataConfiguration(_ context.Context, buck
 }
 
 // DeleteBucketMetadataConfiguration clears the metadata configuration for a bucket.
-func (b *InMemoryBackend) DeleteBucketMetadataConfiguration(_ context.Context, bucketName string) error {
+func (b *InMemoryBackend) DeleteBucketMetadataConfiguration(
+	_ context.Context,
+	bucketName string,
+) error {
 	b.mu.RLock("DeleteBucketMetadataConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3378,7 +3625,10 @@ func (b *InMemoryBackend) CreateBucketMetadataTableConfiguration(
 }
 
 // GetBucketMetadataTableConfiguration returns the metadata table configuration for a bucket.
-func (b *InMemoryBackend) GetBucketMetadataTableConfiguration(_ context.Context, bucketName string) (string, error) {
+func (b *InMemoryBackend) GetBucketMetadataTableConfiguration(
+	_ context.Context,
+	bucketName string,
+) (string, error) {
 	b.mu.RLock("GetBucketMetadataTableConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3398,7 +3648,10 @@ func (b *InMemoryBackend) GetBucketMetadataTableConfiguration(_ context.Context,
 }
 
 // DeleteBucketMetadataTableConfiguration clears the metadata table configuration for a bucket.
-func (b *InMemoryBackend) DeleteBucketMetadataTableConfiguration(_ context.Context, bucketName string) error {
+func (b *InMemoryBackend) DeleteBucketMetadataTableConfiguration(
+	_ context.Context,
+	bucketName string,
+) error {
 	b.mu.RLock("DeleteBucketMetadataTableConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -3505,7 +3758,10 @@ func (b *InMemoryBackend) Reset() {
 	b.uploads = make(map[string]map[string]*StoredMultipartUpload)
 }
 
-func (b *InMemoryBackend) GetBucketMetadata(_ context.Context, bucketName string) (string, string, []types.Tag, error) {
+func (b *InMemoryBackend) GetBucketMetadata(
+	_ context.Context,
+	bucketName string,
+) (string, string, []types.Tag, error) {
 	b.mu.RLock("GetBucketMetadata")
 	region, ok := b.bucketIndex[bucketName]
 	if !ok {
@@ -3525,7 +3781,11 @@ func (b *InMemoryBackend) GetBucketMetadata(_ context.Context, bucketName string
 }
 
 // verifyChecksum validates the S3 checksum if a hasher is provided.
-func (b *InMemoryBackend) verifyChecksum(input *s3.UploadPartInput, s3Hasher hash.Hash, algo string) error {
+func (b *InMemoryBackend) verifyChecksum(
+	input *s3.UploadPartInput,
+	s3Hasher hash.Hash,
+	algo string,
+) error {
 	if s3Hasher == nil {
 		return nil
 	}
@@ -3579,7 +3839,11 @@ func (b *InMemoryBackend) verifyChecksum(input *s3.UploadPartInput, s3Hasher has
 }
 
 // storePart saves a multipart upload part under the per-upload lock.
-func (b *InMemoryBackend) storePart(bucketName, uploadID string, partNumber int32, part *StoredPart) error {
+func (b *InMemoryBackend) storePart(
+	bucketName, uploadID string,
+	partNumber int32,
+	part *StoredPart,
+) error {
 	b.mu.RLock("storePart")
 	bucketUploads, ok := b.uploads[bucketName]
 	b.mu.RUnlock()
@@ -3631,7 +3895,11 @@ func (b *InMemoryBackend) checkPutObjectAuthAndLock(bucketName, key string) (*St
 }
 
 // saveObjectVersion saves an object version under the bucket lock.
-func (b *InMemoryBackend) saveObjectVersion(bucket *StoredBucket, key string, ver *StoredObjectVersion) string {
+func (b *InMemoryBackend) saveObjectVersion(
+	bucket *StoredBucket,
+	key string,
+	ver *StoredObjectVersion,
+) string {
 	bucket.mu.Lock("saveObjectVersion")
 	defer bucket.mu.Unlock()
 
@@ -3688,6 +3956,8 @@ func (b *InMemoryBackend) computeObjectHashes(
 			s3Hasher = sha1.New()
 		case ChecksumSHA256:
 			s3Hasher = sha256.New()
+		case ChecksumCRC64NVME:
+			s3Hasher = NewCRC64NVME()
 		}
 		if s3Hasher != nil {
 			writers = append(writers, s3Hasher)

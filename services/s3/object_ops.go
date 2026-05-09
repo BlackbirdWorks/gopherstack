@@ -22,16 +22,21 @@ import (
 )
 
 type objectCommonDetails struct {
-	Metadata       map[string]string
-	ETag           *string
-	ContentType    *string
-	ContentLength  *int64
-	LastModified   *time.Time
-	VersionID      *string
-	ChecksumCRC32  *string
-	ChecksumCRC32C *string
-	ChecksumSHA1   *string
-	ChecksumSHA256 *string
+	Metadata          map[string]string
+	ETag              *string
+	ContentType       *string
+	ContentLength     *int64
+	LastModified      *time.Time
+	VersionID         *string
+	ChecksumCRC32     *string
+	ChecksumCRC32C    *string
+	ChecksumSHA1      *string
+	ChecksumSHA256    *string
+	ChecksumCRC64NVME *string
+	SSEAlgorithm      string
+	SSEKMSKeyID       string
+	SSECAlgorithm     string
+	SSECKeyMD5        string
 }
 
 func (h *S3Handler) handleObjectOperation(
@@ -156,6 +161,13 @@ func (h *S3Handler) headObject(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "HeadObject")
+
+	if err := validateExpectedBucketOwner(r); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
 
@@ -190,6 +202,14 @@ func (h *S3Handler) headObject(
 		return
 	}
 
+	if sseErr := validateSSECOnRead(
+		r, aws.ToString(out.SSECustomerAlgorithm), aws.ToString(out.SSECustomerKeyMD5),
+	); sseErr != nil {
+		WriteError(ctx, w, r, sseErr)
+
+		return
+	}
+
 	if status, ok := checkConditionalHeaders(r, aws.ToString(out.ETag), aws.ToTime(out.LastModified)); !ok {
 		w.WriteHeader(status)
 
@@ -197,19 +217,25 @@ func (h *S3Handler) headObject(
 	}
 
 	details := objectCommonDetails{
-		Metadata:       out.Metadata,
-		ETag:           out.ETag,
-		ContentType:    out.ContentType,
-		ContentLength:  out.ContentLength,
-		LastModified:   out.LastModified,
-		VersionID:      out.VersionId,
-		ChecksumCRC32:  out.ChecksumCRC32,
-		ChecksumCRC32C: out.ChecksumCRC32C,
-		ChecksumSHA1:   out.ChecksumSHA1,
-		ChecksumSHA256: out.ChecksumSHA256,
+		Metadata:          out.Metadata,
+		ETag:              out.ETag,
+		ContentType:       out.ContentType,
+		ContentLength:     out.ContentLength,
+		LastModified:      out.LastModified,
+		VersionID:         out.VersionId,
+		ChecksumCRC32:     out.ChecksumCRC32,
+		ChecksumCRC32C:    out.ChecksumCRC32C,
+		ChecksumSHA1:      out.ChecksumSHA1,
+		ChecksumSHA256:    out.ChecksumSHA256,
+		ChecksumCRC64NVME: out.ChecksumCRC64NVME,
+		SSEAlgorithm:      string(out.ServerSideEncryption),
+		SSEKMSKeyID:       aws.ToString(out.SSEKMSKeyId),
+		SSECAlgorithm:     aws.ToString(out.SSECustomerAlgorithm),
+		SSECKeyMD5:        aws.ToString(out.SSECustomerKeyMD5),
 	}
 
 	h.setCommonHeaders(w, details)
+	setSSEHeaders(w, details)
 
 	// Set x-amz-expiration header if a lifecycle rule matches this object.
 	h.setExpirationHeader(ctx, w, bucketName, key, out.LastModified)
@@ -229,12 +255,13 @@ func (h *S3Handler) headObject(
 func (h *S3Handler) setPutObjectResponseHeaders(w http.ResponseWriter, ver *s3.PutObjectOutput) {
 	w.Header().Set("ETag", *ver.ETag)
 	details := objectCommonDetails{
-		ETag:           ver.ETag,
-		VersionID:      ver.VersionId,
-		ChecksumCRC32:  ver.ChecksumCRC32,
-		ChecksumCRC32C: ver.ChecksumCRC32C,
-		ChecksumSHA1:   ver.ChecksumSHA1,
-		ChecksumSHA256: ver.ChecksumSHA256,
+		ETag:              ver.ETag,
+		VersionID:         ver.VersionId,
+		ChecksumCRC32:     ver.ChecksumCRC32,
+		ChecksumCRC32C:    ver.ChecksumCRC32C,
+		ChecksumSHA1:      ver.ChecksumSHA1,
+		ChecksumSHA256:    ver.ChecksumSHA256,
+		ChecksumCRC64NVME: ver.ChecksumCRC64NVME,
 	}
 	h.setChecksumHeaders(w, details)
 	if ver.VersionId != nil && *ver.VersionId != NullVersion {
@@ -249,6 +276,23 @@ func (h *S3Handler) putObject(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "PutObject")
+
+	if err := validateExpectedBucketOwner(r); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	// Extract and validate SSE-* headers.
+	sse, sseErr := extractSSEInfo(r)
+	if sseErr != nil {
+		WriteError(ctx, w, r, sseErr)
+
+		return
+	}
+
+	ctx = context.WithValue(ctx, sseKey, sse)
+
 	logger.Load(ctx).DebugContext(ctx, "S3 putObject input",
 		"bucket", bucketName, "key", key, "contentType", r.Header.Get("Content-Type"))
 
@@ -257,11 +301,12 @@ func (h *S3Handler) putObject(
 	}
 
 	algo, crc32p, crc32cp, sha1p, sha256p := extractAlgoAndChecksums(r)
+	crc64nvmeP := extractCRC64NVMEChecksum(r)
 
 	// We pass r.Body directly to the backend to avoid an intermediate buffer in the handler.
 	// The backend computes ETag/checksums while reading.
 	ver, err := h.Backend.PutObject(ctx, buildPutObjectInput(r, bucketName, key, r.Body,
-		algo, crc32p, crc32cp, sha1p, sha256p, parseUserMetadata(r.Header)))
+		algo, crc32p, crc32cp, sha1p, sha256p, crc64nvmeP, parseUserMetadata(r.Header)))
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -269,6 +314,7 @@ func (h *S3Handler) putObject(
 	}
 
 	h.setPutObjectResponseHeaders(w, ver)
+	setSSEResponseHeaders(w, sse)
 
 	logger.Load(ctx).DebugContext(ctx, "S3 putObject output",
 		"bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag),
@@ -305,7 +351,7 @@ func buildPutObjectInput(
 	r *http.Request,
 	bucketName, key string,
 	body io.Reader,
-	algo string, crc32p, crc32cp, sha1p, sha256p *string,
+	algo string, crc32p, crc32cp, sha1p, sha256p, crc64nvmeP *string,
 	userMeta map[string]string,
 ) *s3.PutObjectInput {
 	return &s3.PutObjectInput{
@@ -321,6 +367,7 @@ func buildPutObjectInput(
 		ChecksumCRC32C:     crc32cp,
 		ChecksumSHA1:       sha1p,
 		ChecksumSHA256:     sha256p,
+		ChecksumCRC64NVME:  crc64nvmeP,
 		Tagging:            aws.String(r.Header.Get("X-Amz-Tagging")),
 	}
 }
@@ -363,6 +410,12 @@ func (h *S3Handler) copyObject(
 ) {
 	h.setOperation(ctx, "CopyObject")
 
+	if err := validateExpectedBucketOwner(r); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	srcVer, err := h.copySourceData(ctx, r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
@@ -371,23 +424,20 @@ func (h *S3Handler) copyObject(
 	}
 	defer srcVer.Body.Close()
 
-	userMeta := srcVer.Metadata
-	contentType := srcVer.ContentType
+	// Evaluate x-amz-copy-source-if-* conditionals against the source object.
+	if status, ok := checkCopySourceConditionals(r, aws.ToString(srcVer.ETag), aws.ToTime(srcVer.LastModified)); !ok {
+		w.WriteHeader(status)
+
+		return
+	}
+
+	userMeta, contentType := buildCopyMetadata(r, srcVer.Metadata, srcVer.ContentType)
+	tagging, taggingReplace := buildCopyTagging(r)
 
 	logger.Load(ctx).DebugContext(ctx, "CopyObject source info",
-		"srcBucket", aws.ToString(srcVer.ContentType),
-		"srcContentType", aws.ToString(contentType))
-
-	if r.Header.Get("X-Amz-Metadata-Directive") == "REPLACE" {
-		ct := r.Header.Get("Content-Type")
-		logger.Load(ctx).DebugContext(ctx, "Metadata directive REPLACE detected", "headerContentType", ct)
-		if ct != "" && !strings.Contains(ct, "form-urlencoded") {
-			contentType = aws.String(ct)
-		}
-		userMeta = parseUserMetadata(r.Header)
-		logger.Load(ctx).DebugContext(ctx, "Metadata directive REPLACE applied",
-			"newContentType", aws.ToString(contentType), "newUserMeta", userMeta)
-	}
+		"srcContentType", aws.ToString(contentType),
+		"metadataDirective", r.Header.Get("X-Amz-Metadata-Directive"),
+		"taggingDirective", r.Header.Get("X-Amz-Tagging-Directive"))
 
 	putInput := &s3.PutObjectInput{
 		Bucket:      aws.String(destBucket),
@@ -395,6 +445,21 @@ func (h *S3Handler) copyObject(
 		Body:        srcVer.Body,
 		Metadata:    userMeta,
 		ContentType: contentType,
+	}
+
+	if taggingReplace {
+		putInput.Tagging = aws.String(tagging)
+	} else {
+		// COPY directive (default): preserve source tags on destination.
+		srcBucket, srcKey, _, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
+		if ok {
+			if tagOut, tagErr := h.Backend.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+				Bucket: aws.String(srcBucket),
+				Key:    aws.String(srcKey),
+			}); tagErr == nil && len(tagOut.TagSet) > 0 {
+				putInput.Tagging = aws.String(tagSetToQueryString(tagOut.TagSet))
+			}
+		}
 	}
 
 	destVer, err := h.Backend.PutObject(ctx, putInput)
@@ -444,6 +509,13 @@ func (h *S3Handler) getObject(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "GetObject")
+
+	if err := validateExpectedBucketOwner(r); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	versionID := r.URL.Query().Get("versionId")
 	logger.Load(ctx).DebugContext(
 		ctx,
@@ -479,6 +551,14 @@ func (h *S3Handler) getObject(
 	}
 	defer ver.Body.Close()
 
+	if sseErr := validateSSECOnRead(
+		r, aws.ToString(ver.SSECustomerAlgorithm), aws.ToString(ver.SSECustomerKeyMD5),
+	); sseErr != nil {
+		WriteError(ctx, w, r, sseErr)
+
+		return
+	}
+
 	if status, ok := checkConditionalHeaders(r, aws.ToString(ver.ETag), aws.ToTime(ver.LastModified)); !ok {
 		w.WriteHeader(status)
 
@@ -486,46 +566,27 @@ func (h *S3Handler) getObject(
 	}
 
 	details := objectCommonDetails{
-		Metadata:       ver.Metadata,
-		ETag:           ver.ETag,
-		ContentType:    ver.ContentType,
-		ContentLength:  ver.ContentLength,
-		LastModified:   ver.LastModified,
-		VersionID:      ver.VersionId,
-		ChecksumCRC32:  ver.ChecksumCRC32,
-		ChecksumCRC32C: ver.ChecksumCRC32C,
-		ChecksumSHA1:   ver.ChecksumSHA1,
-		ChecksumSHA256: ver.ChecksumSHA256,
+		Metadata:          ver.Metadata,
+		ETag:              ver.ETag,
+		ContentType:       ver.ContentType,
+		ContentLength:     ver.ContentLength,
+		LastModified:      ver.LastModified,
+		VersionID:         ver.VersionId,
+		ChecksumCRC32:     ver.ChecksumCRC32,
+		ChecksumCRC32C:    ver.ChecksumCRC32C,
+		ChecksumSHA1:      ver.ChecksumSHA1,
+		ChecksumSHA256:    ver.ChecksumSHA256,
+		ChecksumCRC64NVME: ver.ChecksumCRC64NVME,
+		SSEAlgorithm:      string(ver.ServerSideEncryption),
+		SSEKMSKeyID:       aws.ToString(ver.SSEKMSKeyId),
+		SSECAlgorithm:     aws.ToString(ver.SSECustomerAlgorithm),
+		SSECKeyMD5:        aws.ToString(ver.SSECustomerKeyMD5),
 	}
 
-	h.setCommonHeaders(w, details)
+	h.setGetObjectResponseHeaders(ctx, w, r, bucketName, key, ver, details)
 
-	// Set x-amz-expiration header if a lifecycle rule matches this object.
-	h.setExpirationHeader(ctx, w, bucketName, key, ver.LastModified)
-
-	if ce := aws.ToString(ver.ContentEncoding); ce != "" {
-		w.Header().Set("Content-Encoding", ce)
-	}
-
-	if cd := aws.ToString(ver.ContentDisposition); cd != "" {
-		w.Header().Set("Content-Disposition", cd)
-	}
-
-	if r.Header.Get("X-Amz-Checksum-Mode") == "ENABLED" {
-		h.handleChecksumMode(w, ver, details)
-	}
-
-	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
-		data, readErr := io.ReadAll(ver.Body)
-		if readErr != nil {
-			WriteError(ctx, w, r, readErr)
-
-			return
-		}
-		if h.serveRange(ctx, w, data, rangeHeader) {
-			return
-		}
-		ver.Body = io.NopCloser(bytes.NewReader(data))
+	if served := h.serveObjectBody(ctx, w, r, ver); served {
+		return
 	}
 
 	logger.Load(ctx).DebugContext(ctx,
@@ -539,6 +600,61 @@ func (h *S3Handler) getObject(
 	if _, copyErr := io.Copy(w, ver.Body); copyErr != nil {
 		logger.Load(ctx).ErrorContext(ctx, "failed to write object data", "error", copyErr)
 	}
+}
+
+// setGetObjectResponseHeaders writes all response headers for GetObject.
+func (h *S3Handler) setGetObjectResponseHeaders(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+	ver *s3.GetObjectOutput,
+	details objectCommonDetails,
+) {
+	h.setCommonHeaders(w, details)
+	setSSEHeaders(w, details)
+	h.setExpirationHeader(ctx, w, bucketName, key, ver.LastModified)
+
+	if ce := aws.ToString(ver.ContentEncoding); ce != "" {
+		w.Header().Set("Content-Encoding", ce)
+	}
+
+	if cd := aws.ToString(ver.ContentDisposition); cd != "" {
+		w.Header().Set("Content-Disposition", cd)
+	}
+
+	if r.Header.Get("X-Amz-Checksum-Mode") == "ENABLED" {
+		h.handleChecksumMode(w, ver, details)
+	}
+}
+
+// serveObjectBody handles range requests and writes the object body.
+// Returns true if the response was fully handled (range served or error written).
+func (h *S3Handler) serveObjectBody(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	ver *s3.GetObjectOutput,
+) bool {
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader == "" {
+		return false
+	}
+
+	data, readErr := io.ReadAll(ver.Body)
+	if readErr != nil {
+		WriteError(ctx, w, r, readErr)
+
+		return true
+	}
+
+	if h.serveRange(ctx, w, data, rangeHeader) {
+		return true
+	}
+
+	ver.Body = io.NopCloser(bytes.NewReader(data))
+
+	return false
 }
 
 func (h *S3Handler) deleteObject(
@@ -908,11 +1024,51 @@ func (h *S3Handler) setChecksumHeaders(w http.ResponseWriter, out objectCommonDe
 		algo, val = ChecksumSHA1, *out.ChecksumSHA1
 	case out.ChecksumSHA256 != nil:
 		algo, val = ChecksumSHA256, *out.ChecksumSHA256
+	case out.ChecksumCRC64NVME != nil:
+		algo, val = ChecksumCRC64NVME, *out.ChecksumCRC64NVME
 	}
 
 	if algo != "" {
 		w.Header().Set("X-Amz-Checksum-"+algo, val)
 		w.Header().Set("X-Amz-Checksum-Algorithm", algo)
+	}
+}
+
+// setSSEHeaders writes SSE response headers based on stored object SSE info.
+// validateSSECOnRead checks that a GET/HEAD request includes the required SSE-C
+// headers when the stored object uses SSE-C, and that the supplied key-MD5 matches.
+func validateSSECOnRead(r *http.Request, storedAlg, storedKeyMD5 string) error {
+	if storedAlg == "" {
+		return nil
+	}
+
+	if r.Header.Get(headerSSECAlgorithm) == "" || r.Header.Get(headerSSECKeyMD5) == "" {
+		return ErrSSECRequired
+	}
+
+	suppliedMD5 := r.Header.Get(headerSSECKeyMD5)
+	if storedKeyMD5 != "" && suppliedMD5 != storedKeyMD5 {
+		return ErrBadChecksum
+	}
+
+	return nil
+}
+
+func setSSEHeaders(w http.ResponseWriter, out objectCommonDetails) {
+	if out.SSEAlgorithm != "" {
+		w.Header().Set(headerSSEAlgorithm, out.SSEAlgorithm)
+	}
+
+	if out.SSEKMSKeyID != "" {
+		w.Header().Set(headerSSEKMSKeyID, out.SSEKMSKeyID)
+	}
+
+	if out.SSECAlgorithm != "" {
+		w.Header().Set(headerSSECAlgorithm, out.SSECAlgorithm)
+	}
+
+	if out.SSECKeyMD5 != "" {
+		w.Header().Set(headerSSECKeyMD5, out.SSECKeyMD5)
 	}
 }
 
@@ -938,11 +1094,34 @@ func extractChecksumPointers(h http.Header, algo string) (*string, *string, *str
 	case ChecksumSHA256:
 		return nil, nil, nil, aws.String(checksum)
 	default:
+		// CRC64NVME and future algorithms: not mapped to individual pointer fields.
 		return nil, nil, nil, nil
 	}
 }
 
+// extractCRC64NVMEChecksum reads the x-amz-checksum-crc64nvme header if present.
+func extractCRC64NVMEChecksum(r *http.Request) *string {
+	// Use the canonical header name per Go's net/http canonicalization.
+	v := r.Header.Get("X-Amz-Checksum-Crc64nvme")
+	if v == "" {
+		return nil
+	}
+
+	return aws.String(v)
+}
+
 const copySourceMinParts = 2
+
+// tagSetToQueryString converts a tag set to the URL query-string format used by
+// PutObject's Tagging field (e.g., "key1=val1&key2=val2").
+func tagSetToQueryString(tags []types.Tag) string {
+	v := url.Values{}
+	for _, t := range tags {
+		v.Set(aws.ToString(t.Key), aws.ToString(t.Value))
+	}
+
+	return v.Encode()
+}
 
 func parseCopySource(src string) (string, string, string, bool) {
 	src = strings.TrimPrefix(src, "/")
@@ -998,6 +1177,8 @@ func (h *S3Handler) getStoredChecksum(out objectCommonDetails) (string, string) 
 		return ChecksumSHA1, *out.ChecksumSHA1
 	case out.ChecksumSHA256 != nil:
 		return ChecksumSHA256, *out.ChecksumSHA256
+	case out.ChecksumCRC64NVME != nil:
+		return ChecksumCRC64NVME, *out.ChecksumCRC64NVME
 	default:
 		return "", ""
 	}
@@ -1088,25 +1269,17 @@ func parseRange(header string, size int64) (int64, int64, bool) {
 // checkConditionalHeaders evaluates HTTP conditional request headers per AWS/HTTP spec.
 // Returns (304, false) or (412, false) if a condition fails, or (0, true) if all pass.
 func checkConditionalHeaders(r *http.Request, etag string, lastModified time.Time) (int, bool) {
-	stripQuotes := func(s string) string { return strings.Trim(s, "\"") }
-	normalizedETag := stripQuotes(etag)
-
-	// 1. If-Match and If-Unmodified-Since return 412 Precondition Failed
-	if ifMatch := r.Header.Get("If-Match"); ifMatch != "" {
-		if stripQuotes(ifMatch) != normalizedETag {
-			return http.StatusPreconditionFailed, false
-		}
+	// First evaluate 412-returning conditions (If-Match, If-Unmodified-Since).
+	if status, ok := evaluatePreconditions(r.Header, standardConditionals, etag, lastModified); !ok {
+		return status, false
 	}
 
-	if ifUnmodSince := r.Header.Get("If-Unmodified-Since"); ifUnmodSince != "" {
-		if t, err := http.ParseTime(ifUnmodSince); err == nil && lastModified.After(t) {
-			return http.StatusPreconditionFailed, false
-		}
-	}
+	// Then evaluate 304-returning conditions (If-None-Match, If-Modified-Since).
+	stripQ := func(s string) string { return strings.Trim(s, "\"") }
+	normalizedETag := stripQ(etag)
 
-	// 2. If-None-Match and If-Modified-Since return 304 Not Modified
 	if ifNoneMatch := r.Header.Get("If-None-Match"); ifNoneMatch != "" {
-		if stripQuotes(ifNoneMatch) == normalizedETag {
+		if stripQ(ifNoneMatch) == normalizedETag {
 			return http.StatusNotModified, false
 		}
 	}
