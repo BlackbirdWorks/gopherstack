@@ -1442,3 +1442,662 @@ func TestBackup_DeleteAndDescribe_ReturnsError(t *testing.T) {
 	})
 	auditAssertErrorCode(t, err, "ResourceNotFoundException")
 }
+
+// ─── Section 14: Table name validation ──────────────────────────────────────
+// validateTableName is called at the HTTP dispatch layer. Tests call the exported
+// wrapper to verify the constraint logic directly.
+
+func TestTableName_TooShort_Rejected(t *testing.T) {
+	t.Parallel()
+	err := ddb.ValidateTableName("ab") // 2 chars — minimum is 3
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestTableName_TooLong_Rejected(t *testing.T) {
+	t.Parallel()
+	err := ddb.ValidateTableName(strings.Repeat("a", 256))
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestTableName_InvalidChars_Rejected(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"my table!", "no/slash", "has@at"} {
+		err := ddb.ValidateTableName(name)
+		auditAssertErrorCode(t, err, "ValidationException")
+	}
+}
+
+func TestTableName_ValidNames_Accepted(t *testing.T) {
+	t.Parallel()
+	validNames := []string{
+		"abc",
+		"my-table",
+		"my_table",
+		"my.table",
+		strings.Repeat("a", 255),
+	}
+
+	for _, name := range validNames {
+		if err := ddb.ValidateTableName(name); err != nil {
+			t.Fatalf("expected valid table name %q to be accepted, got: %v", name, err)
+		}
+	}
+}
+
+func TestTableName_SingleChar_Rejected(t *testing.T) {
+	t.Parallel()
+	err := ddb.ValidateTableName("a")
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestTableName_ExactMinLength_Accepted(t *testing.T) {
+	t.Parallel()
+	if err := ddb.ValidateTableName("abc"); err != nil {
+		t.Fatalf("3-char name should be accepted: %v", err)
+	}
+}
+
+func TestTableName_ExactMaxLength_Accepted(t *testing.T) {
+	t.Parallel()
+	if err := ddb.ValidateTableName(strings.Repeat("a", 255)); err != nil {
+		t.Fatalf("255-char name should be accepted: %v", err)
+	}
+}
+
+// ─── Section 15: PutItem / DeleteItem ReturnValues restriction ──────────────
+
+func TestPutItem_ReturnValues_AllNew_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		ReturnValues: types.ReturnValueAllNew,
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+	if err != nil && !strings.Contains(err.Error(), "ALL_OLD") {
+		t.Fatalf("expected message to mention ALL_OLD, got: %v", err)
+	}
+}
+
+func TestPutItem_ReturnValues_UpdatedOld_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		ReturnValues: types.ReturnValueUpdatedOld,
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestPutItem_ReturnValues_AllOld_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	// Pre-populate an item so we can return the old one.
+	auditPutItem(t, db, "tbl", map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "p1"},
+		"sk": &types.AttributeValueMemberS{Value: "s1"},
+		"v":  &types.AttributeValueMemberS{Value: "old"},
+	})
+
+	out, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+			"v":  &types.AttributeValueMemberS{Value: "new"},
+		},
+		ReturnValues: types.ReturnValueAllOld,
+	})
+	if err != nil {
+		t.Fatalf("ALL_OLD should be accepted: %v", err)
+	}
+	if out.Attributes == nil {
+		t.Fatal("expected old attributes in response, got nil")
+	}
+}
+
+func TestDeleteItem_ReturnValues_AllNew_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String("tbl"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		ReturnValues: types.ReturnValueAllNew,
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestDeleteItem_ReturnValues_UpdatedNew_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String("tbl"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		ReturnValues: types.ReturnValueUpdatedNew,
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+// ─── Section 16: TransactWriteItems / TransactGetItems 100-item limit ───────
+
+func TestTransactWriteItems_Exceeds100_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	items := make([]types.TransactWriteItem, 101)
+	for i := range items {
+		items[i] = types.TransactWriteItem{
+			Put: &types.Put{
+				TableName: aws.String("tbl"),
+				Item: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("p%d", i)},
+					"sk": &types.AttributeValueMemberS{Value: "s1"},
+				},
+			},
+		}
+	}
+
+	_, err := db.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+		TransactItems: items,
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestTransactWriteItems_Exactly100_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	items := make([]types.TransactWriteItem, 100)
+	for i := range items {
+		items[i] = types.TransactWriteItem{
+			Put: &types.Put{
+				TableName: aws.String("tbl"),
+				Item: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("p%d", i)},
+					"sk": &types.AttributeValueMemberS{Value: "s1"},
+				},
+			},
+		}
+	}
+
+	_, err := db.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+		TransactItems: items,
+	})
+	if err != nil {
+		t.Fatalf("100 items should be accepted: %v", err)
+	}
+}
+
+func TestTransactGetItems_Exceeds100_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	items := make([]types.TransactGetItem, 101)
+	for i := range items {
+		items[i] = types.TransactGetItem{
+			Get: &types.Get{
+				TableName: aws.String("tbl"),
+				Key: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("p%d", i)},
+					"sk": &types.AttributeValueMemberS{Value: "s1"},
+				},
+			},
+		}
+	}
+
+	_, err := db.TransactGetItems(ctx, &dynamodb.TransactGetItemsInput{
+		TransactItems: items,
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+// ─── Section 17: ExpressionAttributeNames validation ────────────────────────
+
+func TestEAN_KeyWithoutHash_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		ConditionExpression:       aws.String("attribute_not_exists(nopk)"),
+		ExpressionAttributeNames:  map[string]string{"nopk": "pk"}, // missing #
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+	if err != nil && !strings.Contains(err.Error(), "ExpressionAttributeNames") {
+		t.Fatalf("error should mention ExpressionAttributeNames, got: %v", err)
+	}
+}
+
+func TestEAN_EmptyValue_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		ConditionExpression:       aws.String("attribute_not_exists(#pk)"),
+		ExpressionAttributeNames:  map[string]string{"#pk": ""}, // empty value
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestEAN_ValidHash_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		ConditionExpression:       aws.String("attribute_not_exists(#pk)"),
+		ExpressionAttributeNames:  map[string]string{"#pk": "pk"},
+	})
+	if err != nil {
+		t.Fatalf("valid EAN with # prefix should be accepted: %v", err)
+	}
+}
+
+// ─── Section 18: Unused ExpressionAttributeNames / ExpressionAttributeValues ─
+
+func TestUnusedEAN_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		// #unused is in EAN but never referenced in ConditionExpression
+		ExpressionAttributeNames: map[string]string{"#unused": "someAttr"},
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+	if err != nil && !strings.Contains(err.Error(), "unused in expressions") {
+		t.Fatalf("expected 'unused in expressions' in error, got: %v", err)
+	}
+}
+
+func TestUnusedEAV_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		// :val is provided but not used in any expression
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":val": &types.AttributeValueMemberS{Value: "test"},
+		},
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+	if err != nil && !strings.Contains(err.Error(), "unused in expressions") {
+		t.Fatalf("expected 'unused in expressions' in error, got: %v", err)
+	}
+}
+
+func TestUnusedEAV_DeleteItem_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String("tbl"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		// :x is provided but not used in ConditionExpression
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":x": &types.AttributeValueMemberS{Value: "v"},
+		},
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestUsedEAV_PutItem_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		ConditionExpression: aws.String("v = :val"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":val": &types.AttributeValueMemberS{Value: "test"},
+		},
+	})
+	// May succeed or fail on condition, but NOT with unused-EAV error
+	if err != nil && strings.Contains(err.Error(), "unused in expressions") {
+		t.Fatalf("used EAV should not trigger unused error: %v", err)
+	}
+}
+
+// ─── Section 19: UpdateItem key attribute modification guard ─────────────────
+
+func TestUpdateItem_CannotModifyPartitionKey(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	auditPutItem(t, db, "tbl", map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "p1"},
+		"sk": &types.AttributeValueMemberS{Value: "s1"},
+		"v":  &types.AttributeValueMemberS{Value: "old"},
+	})
+
+	_, err := db.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String("tbl"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		UpdateExpression: aws.String("SET pk = :newpk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":newpk": &types.AttributeValueMemberS{Value: "p2"},
+		},
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+	if err != nil && !strings.Contains(err.Error(), "part of the key") {
+		t.Fatalf("expected 'part of the key' in error, got: %v", err)
+	}
+}
+
+func TestUpdateItem_CannotModifySortKey(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	auditPutItem(t, db, "tbl", map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "p1"},
+		"sk": &types.AttributeValueMemberS{Value: "s1"},
+		"v":  &types.AttributeValueMemberS{Value: "old"},
+	})
+
+	_, err := db.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String("tbl"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		UpdateExpression: aws.String("SET sk = :newsk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":newsk": &types.AttributeValueMemberS{Value: "s2"},
+		},
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestUpdateItem_CannotModifyKeyViaAlias(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String("tbl"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		UpdateExpression: aws.String("SET #k = :newval"),
+		ExpressionAttributeNames: map[string]string{
+			"#k": "pk",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":newval": &types.AttributeValueMemberS{Value: "p2"},
+		},
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestUpdateItem_NonKeyAttribute_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	auditPutItem(t, db, "tbl", map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "p1"},
+		"sk": &types.AttributeValueMemberS{Value: "s1"},
+		"v":  &types.AttributeValueMemberS{Value: "old"},
+	})
+
+	_, err := db.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String("tbl"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		UpdateExpression: aws.String("SET v = :newv"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":newv": &types.AttributeValueMemberS{Value: "new"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("updating non-key attribute should succeed: %v", err)
+	}
+}
+
+// ─── Section 20: ListTables Limit validation ─────────────────────────────────
+
+func TestListTables_LimitZero_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	ctx := context.Background()
+
+	limit := int32(0)
+	_, err := db.ListTables(ctx, &dynamodb.ListTablesInput{
+		Limit: &limit,
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestListTables_LimitNegative_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	ctx := context.Background()
+
+	limit := int32(-1)
+	_, err := db.ListTables(ctx, &dynamodb.ListTablesInput{
+		Limit: &limit,
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestListTables_LimitOver100_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	ctx := context.Background()
+
+	limit := int32(101)
+	_, err := db.ListTables(ctx, &dynamodb.ListTablesInput{
+		Limit: &limit,
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestListTables_LimitExact100_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	ctx := context.Background()
+
+	limit := int32(100)
+	_, err := db.ListTables(ctx, &dynamodb.ListTablesInput{
+		Limit: &limit,
+	})
+	if err != nil {
+		t.Fatalf("Limit=100 should be accepted: %v", err)
+	}
+}
+
+func TestListTables_NilLimit_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	ctx := context.Background()
+
+	_, err := db.ListTables(ctx, &dynamodb.ListTablesInput{})
+	if err != nil {
+		t.Fatalf("nil Limit should be accepted: %v", err)
+	}
+}
+
+// ─── Section 21: Query / Scan Limit=0 rejection ──────────────────────────────
+
+func TestQuery_LimitZero_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	limit := int32(0)
+	_, err := db.Query(ctx, &dynamodb.QueryInput{
+		TableName:              aws.String("tbl"),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: "p1"},
+		},
+		Limit: &limit,
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestScan_LimitZero_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	limit := int32(0)
+	_, err := db.Scan(ctx, &dynamodb.ScanInput{
+		TableName: aws.String("tbl"),
+		Limit:     &limit,
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestQuery_LimitPositive_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	limit := int32(10)
+	_, err := db.Query(ctx, &dynamodb.QueryInput{
+		TableName:              aws.String("tbl"),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: "p1"},
+		},
+		Limit: &limit,
+	})
+	if err != nil {
+		t.Fatalf("positive Limit should be accepted: %v", err)
+	}
+}
+
+// ─── Section 22: Empty string elements in SS sets ────────────────────────────
+
+func TestSS_EmptyString_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk":   &types.AttributeValueMemberS{Value: "p1"},
+			"sk":   &types.AttributeValueMemberS{Value: "s1"},
+			"tags": &types.AttributeValueMemberSS{Value: []string{"valid", ""}},
+		},
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+	if err != nil && !strings.Contains(err.Error(), "empty string") {
+		t.Fatalf("expected 'empty string' in error, got: %v", err)
+	}
+}
+
+func TestSS_NonEmptyStrings_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk":   &types.AttributeValueMemberS{Value: "p1"},
+			"sk":   &types.AttributeValueMemberS{Value: "s1"},
+			"tags": &types.AttributeValueMemberSS{Value: []string{"a", "b", "c"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SS with non-empty strings should be accepted: %v", err)
+	}
+}

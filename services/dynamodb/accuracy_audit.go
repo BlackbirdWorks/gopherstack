@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -607,4 +609,335 @@ func isItemExpiredWithGrace(item map[string]any, ttlAttr string, gracePeriod tim
 	expiry := time.Unix(int64(ts), 0).Add(gracePeriod)
 
 	return time.Now().After(expiry)
+}
+
+// ============================================================
+// Section 14: Table name validation
+// ============================================================
+
+// tableNameRegex matches the AWS DynamoDB table name rules:
+// 3–255 characters, only letters, digits, underscores, hyphens, and dots.
+var tableNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_.\-]{3,255}$`)
+
+// validateTableName returns a ValidationException when name does not satisfy the
+// DynamoDB table-name constraints (3–255 chars, alphanumeric/_/./−).
+func validateTableName(name string) error {
+	if !tableNameRegex.MatchString(name) {
+		return NewValidationException(
+			fmt.Sprintf(
+				"Value '%s' at 'tableName' failed to satisfy constraint: "+
+					"Member must satisfy regular expression pattern: [a-zA-Z0-9_.-]{3,255}",
+				name,
+			),
+		)
+	}
+
+	return nil
+}
+
+// ============================================================
+// Section 15: PutItem / DeleteItem ReturnValues restriction
+// ============================================================
+
+// validatePutDeleteReturnValues enforces that PutItem and DeleteItem only accept
+// NONE or ALL_OLD. AWS rejects ALL_NEW, UPDATED_OLD, and UPDATED_NEW for these ops.
+func validatePutDeleteReturnValues(rv types.ReturnValue) error {
+	switch rv {
+	case "", types.ReturnValueNone, types.ReturnValueAllOld:
+		return nil
+	}
+
+	return NewValidationException(
+		"ReturnValues can only be ALL_OLD or NONE",
+	)
+}
+
+// ============================================================
+// Section 16: TransactWriteItems / TransactGetItems item count limit
+// ============================================================
+
+const maxTransactItems = 100
+
+// validateTransactItemCount returns a ValidationException when the item count
+// exceeds maxTransactItems (100). AWS enforces this limit on both Transact ops.
+func validateTransactItemCount(n int, opName string) error {
+	if n > maxTransactItems {
+		return NewValidationException(
+			fmt.Sprintf(
+				"Member must have length less than or equal to %d",
+				maxTransactItems,
+			),
+		)
+	}
+
+	_ = opName // reserved for future context-specific messages
+
+	return nil
+}
+
+// ============================================================
+// Section 17: ExpressionAttributeNames validation
+// ============================================================
+
+// validateExpressionAttributeNames checks that every key starts with '#' and
+// every value is a non-empty string. AWS rejects both conditions.
+func validateExpressionAttributeNames(ean map[string]string) error {
+	for k, v := range ean {
+		if !strings.HasPrefix(k, "#") {
+			return NewValidationException(
+				fmt.Sprintf(
+					"ExpressionAttributeNames contains invalid key: "+
+						"Syntax error; token: '%s', near: '%s'",
+					k, k,
+				),
+			)
+		}
+
+		if v == "" {
+			return NewValidationException(
+				fmt.Sprintf(
+					"ExpressionAttributeNames contains invalid value: "+
+						"empty string for key %s",
+					k,
+				),
+			)
+		}
+	}
+
+	return nil
+}
+
+// ============================================================
+// Section 18: Unused ExpressionAttributeNames / ExpressionAttributeValues
+// ============================================================
+
+// checkUnusedExpressionAttributeNames returns a ValidationException when any key
+// in ean is not referenced in any of the supplied expression strings.
+func checkUnusedExpressionAttributeNames(ean map[string]string, exprs ...string) error {
+	if len(ean) == 0 {
+		return nil
+	}
+
+	combined := strings.Join(exprs, " ")
+	var unused []string
+
+	for k := range ean {
+		if !strings.Contains(combined, k) {
+			unused = append(unused, k)
+		}
+	}
+
+	if len(unused) == 0 {
+		return nil
+	}
+
+	sort.Strings(unused)
+
+	return NewValidationException(
+		fmt.Sprintf(
+			"Value provided in ExpressionAttributeNames unused in expressions: keys: {%s}",
+			strings.Join(unused, ", "),
+		),
+	)
+}
+
+// checkUnusedExpressionAttributeValues returns a ValidationException when any key
+// in eav is not referenced in any of the supplied expression strings.
+func checkUnusedExpressionAttributeValues(eav map[string]any, exprs ...string) error {
+	if len(eav) == 0 {
+		return nil
+	}
+
+	combined := strings.Join(exprs, " ")
+	var unused []string
+
+	for k := range eav {
+		if !strings.Contains(combined, k) {
+			unused = append(unused, k)
+		}
+	}
+
+	if len(unused) == 0 {
+		return nil
+	}
+
+	sort.Strings(unused)
+
+	return NewValidationException(
+		fmt.Sprintf(
+			"Value provided in ExpressionAttributeValues unused in expressions: keys: {%s}",
+			strings.Join(unused, ", "),
+		),
+	)
+}
+
+// ============================================================
+// Section 19: UpdateItem key attribute modification guard
+// ============================================================
+
+// validateUpdateDoesNotModifyKeys returns a ValidationException when the
+// UpdateExpression attempts to SET or REMOVE a primary-key attribute.
+// AWS DynamoDB forbids mutations to the partition key or sort key.
+func validateUpdateDoesNotModifyKeys(
+	updateExpr string,
+	ean map[string]string,
+	keySchema []models.KeySchemaElement,
+) error {
+	if updateExpr == "" {
+		return nil
+	}
+
+	keyAttrs := make(map[string]struct{}, len(keySchema))
+	for _, k := range keySchema {
+		keyAttrs[k.AttributeName] = struct{}{}
+	}
+
+	// Build reverse map: #alias → real attribute name.
+	reverseEAN := make(map[string]string, len(ean))
+	for alias, real := range ean {
+		reverseEAN[alias] = real
+	}
+
+	// Tokenise the expression to find attribute references in SET/REMOVE clauses.
+	// We look for bare identifiers and #aliases that map to key attributes.
+	tokens := tokenizeUpdateExpression(updateExpr)
+	inSetOrRemove := false
+
+	for _, tok := range tokens {
+		upper := strings.ToUpper(tok)
+		if upper == "SET" || upper == "REMOVE" {
+			inSetOrRemove = true
+			continue
+		}
+
+		if upper == "ADD" || upper == "DELETE" {
+			inSetOrRemove = false
+			continue
+		}
+
+		if !inSetOrRemove {
+			continue
+		}
+
+		// Resolve alias if present.
+		attrName := tok
+		if strings.HasPrefix(tok, "#") {
+			if resolved, ok := reverseEAN[tok]; ok {
+				attrName = resolved
+			}
+		}
+
+		if _, isKey := keyAttrs[attrName]; isKey {
+			return NewValidationException(
+				fmt.Sprintf(
+					"One or more parameter values were invalid: Cannot update attribute %s. "+
+						"This attribute is part of the key",
+					attrName,
+				),
+			)
+		}
+	}
+
+	return nil
+}
+
+// tokenizeUpdateExpression splits an UpdateExpression into tokens (keywords and
+// attribute names), ignoring punctuation and EAV placeholders.
+func tokenizeUpdateExpression(expr string) []string {
+	var tokens []string
+
+	for _, part := range strings.FieldsFunc(expr, func(r rune) bool {
+		return r == ',' || r == '=' || r == '+' || r == '-' || r == '(' || r == ')' || r == ' '
+	}) {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" || strings.HasPrefix(trimmed, ":") {
+			continue
+		}
+
+		tokens = append(tokens, trimmed)
+	}
+
+	return tokens
+}
+
+// ============================================================
+// Section 20: ListTables Limit validation
+// ============================================================
+
+const (
+	minListTablesLimit = 1
+	maxListTablesLimit = 100
+)
+
+// validateListTablesLimit returns a ValidationException when Limit is outside
+// the allowed range [1, 100]. A nil Limit is valid (defaults to 100).
+func validateListTablesLimit(limit *int32) error {
+	if limit == nil {
+		return nil
+	}
+
+	v := *limit
+	if v < minListTablesLimit || v > maxListTablesLimit {
+		return NewValidationException(
+			fmt.Sprintf(
+				"Value '%d' at 'limit' failed to satisfy constraint: "+
+					"Member must have value greater than or equal to %d",
+				v, minListTablesLimit,
+			),
+		)
+	}
+
+	return nil
+}
+
+// ============================================================
+// Section 21: Query / Scan Limit=0 rejection
+// ============================================================
+
+// validatePositiveLimit returns a ValidationException when Limit is explicitly
+// set to 0 or a negative number. AWS DynamoDB requires Limit ≥ 1 when provided.
+func validatePositiveLimit(limit *int32) error {
+	if limit == nil {
+		return nil
+	}
+
+	if *limit <= 0 {
+		return NewValidationException(
+			fmt.Sprintf(
+				"Value '%d' at 'limit' failed to satisfy constraint: "+
+					"Member must have value greater than or equal to 1",
+				*limit,
+			),
+		)
+	}
+
+	return nil
+}
+
+// ============================================================
+// Section 22: Empty string elements in SS sets
+// ============================================================
+
+// validateStringSetNoEmptyElements returns a ValidationException when any element
+// in a String Set (SS) attribute value is an empty string. AWS rejects this.
+func validateStringSetNoEmptyElements(k string, items []any) error {
+	for _, item := range items {
+		s, ok := item.(string)
+		if !ok {
+			continue
+		}
+
+		if s == "" {
+			return NewValidationException(
+				fmt.Sprintf(
+					"One or more parameter values are not valid. "+
+						"An AttributeValue may not contain an empty string. "+
+						"Key: %s",
+					k,
+				),
+			)
+		}
+	}
+
+	return nil
 }

@@ -398,8 +398,19 @@ func normalizeSetList(k, t string, val any) ([]any, error) {
 func validateSetItem(k, t string, item any) error {
 	switch t {
 	case typeSS:
-		if _, ok := item.(string); !ok {
+		s, ok := item.(string)
+		if !ok {
 			return NewValidationException(fmt.Sprintf("Attribute %s elements must be strings", k))
+		}
+
+		if s == "" {
+			return NewValidationException(
+				fmt.Sprintf(
+					"One or more parameter values are not valid. "+
+						"An AttributeValue may not contain an empty string. Key: %s",
+					k,
+				),
+			)
 		}
 	case typeNS:
 		s, ok := item.(string)

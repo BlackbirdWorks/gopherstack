@@ -33,7 +33,7 @@ func setupPartiQLTable(t *testing.T, rows []map[string]any) *dynamodb.DynamoDBHa
 	handler := dynamodb.NewHandler(db)
 
 	createBody := mustMarshal(t, map[string]any{
-		"TableName": "T",
+		"TableName": "TT1",
 		"KeySchema": []map[string]string{
 			{"AttributeName": "pk", "KeyType": "HASH"},
 		},
@@ -45,7 +45,7 @@ func setupPartiQLTable(t *testing.T, rows []map[string]any) *dynamodb.DynamoDBHa
 	doRequest(t, handler, "DynamoDB_20120810.CreateTable", createBody)
 
 	for _, row := range rows {
-		putBody := mustMarshal(t, map[string]any{"TableName": "T", "Item": row})
+		putBody := mustMarshal(t, map[string]any{"TableName": "TT1", "Item": row})
 		doRequest(t, handler, "DynamoDB_20120810.PutItem", putBody)
 	}
 
@@ -60,7 +60,7 @@ func setupPartiQLCompositeTable(t *testing.T, rows []map[string]any) *dynamodb.D
 	handler := dynamodb.NewHandler(db)
 
 	createBody := mustMarshal(t, map[string]any{
-		"TableName": "T",
+		"TableName": "TT1",
 		"KeySchema": []map[string]string{
 			{"AttributeName": "pk", "KeyType": "HASH"},
 			{"AttributeName": "sk", "KeyType": "RANGE"},
@@ -74,7 +74,7 @@ func setupPartiQLCompositeTable(t *testing.T, rows []map[string]any) *dynamodb.D
 	doRequest(t, handler, "DynamoDB_20120810.CreateTable", createBody)
 
 	for _, row := range rows {
-		putBody := mustMarshal(t, map[string]any{"TableName": "T", "Item": row})
+		putBody := mustMarshal(t, map[string]any{"TableName": "TT1", "Item": row})
 		doRequest(t, handler, "DynamoDB_20120810.PutItem", putBody)
 	}
 
@@ -112,18 +112,18 @@ func TestPartiQL_Select(t *testing.T) {
 	}{
 		{
 			name:      "select all",
-			statement: `SELECT * FROM "T"`,
+			statement: `SELECT * FROM "TT1"`,
 			wantCount: 3,
 			rows:      partiqlRows(),
 		},
 		{
 			name:      "select all empty table",
-			statement: `SELECT * FROM "T"`,
+			statement: `SELECT * FROM "TT1"`,
 			wantCount: 0,
 		},
 		{
 			name:      "select WHERE param equals",
-			statement: `SELECT * FROM "T" WHERE pk = ?`,
+			statement: `SELECT * FROM "TT1" WHERE pk = ?`,
 			params:    []map[string]any{{"S": "a"}},
 			wantCount: 1,
 			wantPKs:   []string{"a"},
@@ -131,14 +131,14 @@ func TestPartiQL_Select(t *testing.T) {
 		},
 		{
 			name:      "select WHERE string literal",
-			statement: `SELECT * FROM "T" WHERE pk = 'a'`,
+			statement: `SELECT * FROM "TT1" WHERE pk = 'a'`,
 			wantCount: 1,
 			wantPKs:   []string{"a"},
 			rows:      partiqlRows(),
 		},
 		{
 			name:      "select WHERE escaped quote in literal",
-			statement: `SELECT * FROM "T" WHERE pk = 'O''Reilly'`,
+			statement: `SELECT * FROM "TT1" WHERE pk = 'O''Reilly'`,
 			wantCount: 1,
 			wantPKs:   []string{"O'Reilly"},
 			rows: []map[string]any{
@@ -148,19 +148,19 @@ func TestPartiQL_Select(t *testing.T) {
 		},
 		{
 			name:      "select WHERE literal question mark is not a param",
-			statement: `SELECT * FROM "T" WHERE pk = '?'`,
+			statement: `SELECT * FROM "TT1" WHERE pk = '?'`,
 			wantCount: 0, // no item has pk='?'
 			rows:      partiqlRows(),
 		},
 		{
 			name:      "select LIMIT",
-			statement: `SELECT * FROM "T" LIMIT 2`,
+			statement: `SELECT * FROM "TT1" LIMIT 2`,
 			wantCount: 2,
 			rows:      partiqlRows(),
 		},
 		{
 			name:      "select projection specific columns",
-			statement: `SELECT pk, status FROM "T"`,
+			statement: `SELECT pk, status FROM "TT1"`,
 			wantCount: 1,
 			skipAttrs: []string{"secret"},
 			rows: []map[string]any{
@@ -239,7 +239,7 @@ func TestPartiQL_Insert(t *testing.T) {
 	}{
 		{
 			name:      "insert with question mark params",
-			statement: `INSERT INTO "T" VALUE {'pk': ?, 'val': ?}`,
+			statement: `INSERT INTO "TT1" VALUE {'pk': ?, 'val': ?}`,
 			params:    []map[string]any{{"S": "k1"}, {"S": "hello"}},
 			lookupPK:  "k1",
 			wantAttr:  "val",
@@ -247,56 +247,56 @@ func TestPartiQL_Insert(t *testing.T) {
 		},
 		{
 			name:      "insert with string literal",
-			statement: `INSERT INTO "T" VALUE {'pk': 'lit1', 'label': 'world'}`,
+			statement: `INSERT INTO "TT1" VALUE {'pk': 'lit1', 'label': 'world'}`,
 			lookupPK:  "lit1",
 			wantAttr:  "label",
 			wantVal:   map[string]any{"S": "world"},
 		},
 		{
 			name:      "insert with numeric literal",
-			statement: `INSERT INTO "T" VALUE {'pk': 'num1', 'count': 42}`,
+			statement: `INSERT INTO "TT1" VALUE {'pk': 'num1', 'count': 42}`,
 			lookupPK:  "num1",
 			wantAttr:  "count",
 			wantVal:   map[string]any{"N": "42"},
 		},
 		{
 			name:      "insert with boolean literal",
-			statement: `INSERT INTO "T" VALUE {'pk': 'bool1', 'active': TRUE}`,
+			statement: `INSERT INTO "TT1" VALUE {'pk': 'bool1', 'active': TRUE}`,
 			lookupPK:  "bool1",
 			wantAttr:  "active",
 			wantVal:   map[string]any{"BOOL": true},
 		},
 		{
 			name:      "insert with null literal",
-			statement: `INSERT INTO "T" VALUE {'pk': 'null1', 'x': NULL}`,
+			statement: `INSERT INTO "TT1" VALUE {'pk': 'null1', 'x': NULL}`,
 			lookupPK:  "null1",
 			wantAttr:  "x",
 			wantVal:   map[string]any{"NULL": true},
 		},
 		{
 			name:      "insert with escaped quote in string literal",
-			statement: `INSERT INTO "T" VALUE {'pk': 'O''Reilly', 'note': 'it''s fine'}`,
+			statement: `INSERT INTO "TT1" VALUE {'pk': 'O''Reilly', 'note': 'it''s fine'}`,
 			lookupPK:  "O'Reilly",
 			wantAttr:  "note",
 			wantVal:   map[string]any{"S": "it's fine"},
 		},
 		{
 			name:      "insert with comma in string value",
-			statement: `INSERT INTO "T" VALUE {'pk': 'comma1', 'csv': 'hello, world'}`,
+			statement: `INSERT INTO "TT1" VALUE {'pk': 'comma1', 'csv': 'hello, world'}`,
 			lookupPK:  "comma1",
 			wantAttr:  "csv",
 			wantVal:   map[string]any{"S": "hello, world"},
 		},
 		{
 			name:      "insert question mark in string is not a param",
-			statement: `INSERT INTO "T" VALUE {'pk': 'q1', 'note': '?'}`,
+			statement: `INSERT INTO "TT1" VALUE {'pk': 'q1', 'note': '?'}`,
 			lookupPK:  "q1",
 			wantAttr:  "note",
 			wantVal:   map[string]any{"S": "?"},
 		},
 		{
 			name:      "insert missing VALUE clause",
-			statement: `INSERT INTO "T" {'pk': 'bad'}`,
+			statement: `INSERT INTO "TT1" {'pk': 'bad'}`,
 			wantErr:   true,
 		},
 	}
@@ -323,7 +323,7 @@ func TestPartiQL_Insert(t *testing.T) {
 
 			// Verify the item was actually inserted.
 			getBody := mustMarshal(t, map[string]any{
-				"TableName": "T",
+				"TableName": "TT1",
 				"Key":       map[string]any{"pk": map[string]string{"S": tc.lookupPK}},
 			})
 			getRec := doRequest(t, handler, "DynamoDB_20120810.GetItem", getBody)
@@ -354,7 +354,7 @@ func TestPartiQL_Update(t *testing.T) {
 	}{
 		{
 			name:      "update with params",
-			statement: `UPDATE "T" SET status = ? WHERE pk = ?`,
+			statement: `UPDATE "TT1" SET status = ? WHERE pk = ?`,
 			params:    []map[string]any{{"S": "new"}, {"S": "a"}},
 			lookupPK:  "a",
 			wantAttr:  "status",
@@ -362,7 +362,7 @@ func TestPartiQL_Update(t *testing.T) {
 		},
 		{
 			name:      "update with string literal in SET",
-			statement: `UPDATE "T" SET status = 'updated' WHERE pk = ?`,
+			statement: `UPDATE "TT1" SET status = 'updated' WHERE pk = ?`,
 			params:    []map[string]any{{"S": "b"}},
 			lookupPK:  "b",
 			wantAttr:  "status",
@@ -370,13 +370,13 @@ func TestPartiQL_Update(t *testing.T) {
 		},
 		{
 			name:      "update no WHERE clause",
-			statement: `UPDATE "T" SET status = ?`,
+			statement: `UPDATE "TT1" SET status = ?`,
 			params:    []map[string]any{{"S": "new"}},
 			wantErr:   true,
 		},
 		{
 			name:      "update no SET clause",
-			statement: `UPDATE "T" WHERE pk = ?`,
+			statement: `UPDATE "TT1" WHERE pk = ?`,
 			params:    []map[string]any{{"S": "a"}},
 			wantErr:   true,
 		},
@@ -403,7 +403,7 @@ func TestPartiQL_Update(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			getBody := mustMarshal(t, map[string]any{
-				"TableName": "T",
+				"TableName": "TT1",
 				"Key":       map[string]any{"pk": map[string]string{"S": tc.lookupPK}},
 			})
 			getRec := doRequest(t, handler, "DynamoDB_20120810.GetItem", getBody)
@@ -432,27 +432,27 @@ func TestPartiQL_Delete(t *testing.T) {
 	}{
 		{
 			name:        "delete with param",
-			statement:   `DELETE FROM "T" WHERE pk = ?`,
+			statement:   `DELETE FROM "TT1" WHERE pk = ?`,
 			params:      []map[string]any{{"S": "a"}},
 			deletedPK:   "a",
 			survivingPK: "b",
 		},
 		{
 			name:        "delete with string literal",
-			statement:   `DELETE FROM "T" WHERE pk = 'b'`,
+			statement:   `DELETE FROM "TT1" WHERE pk = 'b'`,
 			deletedPK:   "b",
 			survivingPK: "a",
 		},
 		{
 			name:        "delete with lowercase where keyword",
-			statement:   `DELETE FROM "T" where pk = ?`,
+			statement:   `DELETE FROM "TT1" where pk = ?`,
 			params:      []map[string]any{{"S": "c"}},
 			deletedPK:   "c",
 			survivingPK: "a",
 		},
 		{
 			name:      "delete no WHERE clause",
-			statement: `DELETE FROM "T"`,
+			statement: `DELETE FROM "TT1"`,
 			wantErr:   true,
 		},
 	}
@@ -479,7 +479,7 @@ func TestPartiQL_Delete(t *testing.T) {
 
 			// Deleted item must be gone.
 			getBody := mustMarshal(t, map[string]any{
-				"TableName": "T",
+				"TableName": "TT1",
 				"Key":       map[string]any{"pk": map[string]string{"S": tc.deletedPK}},
 			})
 			getRec := doRequest(t, handler, "DynamoDB_20120810.GetItem", getBody)
@@ -490,7 +490,7 @@ func TestPartiQL_Delete(t *testing.T) {
 
 			// Surviving item must still be there.
 			getBody2 := mustMarshal(t, map[string]any{
-				"TableName": "T",
+				"TableName": "TT1",
 				"Key":       map[string]any{"pk": map[string]string{"S": tc.survivingPK}},
 			})
 			getRec2 := doRequest(t, handler, "DynamoDB_20120810.GetItem", getBody2)
@@ -531,7 +531,7 @@ func TestPartiQL_CompositeKey_CaseInsensitiveAND(t *testing.T) {
 	}{
 		{
 			name:      "update with lowercase and in WHERE",
-			statement: `UPDATE "T" SET total = ? WHERE pk = ? and sk = ?`,
+			statement: `UPDATE "TT1" SET total = ? WHERE pk = ? and sk = ?`,
 			params:    []map[string]any{{"N": "999"}, {"S": "user1"}, {"S": "order1"}},
 			lookupSK:  "order1",
 			wantAttr:  "total",
@@ -539,14 +539,14 @@ func TestPartiQL_CompositeKey_CaseInsensitiveAND(t *testing.T) {
 		},
 		{
 			name:      "delete with uppercase AND in WHERE",
-			statement: `DELETE FROM "T" WHERE pk = ? AND sk = ?`,
+			statement: `DELETE FROM "TT1" WHERE pk = ? AND sk = ?`,
 			params:    []map[string]any{{"S": "user1"}, {"S": "order2"}},
 			lookupSK:  "order2",
 			wantGone:  true,
 		},
 		{
 			name:      "delete with mixed-case And in WHERE",
-			statement: `DELETE FROM "T" WHERE pk = ? And sk = ?`,
+			statement: `DELETE FROM "TT1" WHERE pk = ? And sk = ?`,
 			params:    []map[string]any{{"S": "user1"}, {"S": "order1"}},
 			lookupSK:  "order1",
 			wantGone:  true,
@@ -568,7 +568,7 @@ func TestPartiQL_CompositeKey_CaseInsensitiveAND(t *testing.T) {
 
 			// Look up the item by composite key.
 			getBody := mustMarshal(t, map[string]any{
-				"TableName": "T",
+				"TableName": "TT1",
 				"Key": map[string]any{
 					"pk": map[string]string{"S": "user1"},
 					"sk": map[string]string{"S": tc.lookupSK},
@@ -610,7 +610,7 @@ func TestPartiQL_Batch(t *testing.T) {
 		{
 			name: "batch select all returns first item each",
 			statements: []map[string]any{
-				{"Statement": `SELECT * FROM "T"`},
+				{"Statement": `SELECT * FROM "TT1"`},
 			},
 			wantLen:     1,
 			wantFirstPK: "ba",
@@ -619,11 +619,11 @@ func TestPartiQL_Batch(t *testing.T) {
 			name: "batch select with per-statement WHERE",
 			statements: []map[string]any{
 				{
-					"Statement":  `SELECT * FROM "T" WHERE pk = ?`,
+					"Statement":  `SELECT * FROM "TT1" WHERE pk = ?`,
 					"Parameters": []map[string]any{{"S": "ba"}},
 				},
 				{
-					"Statement":  `SELECT * FROM "T" WHERE pk = ?`,
+					"Statement":  `SELECT * FROM "TT1" WHERE pk = ?`,
 					"Parameters": []map[string]any{{"S": "bb"}},
 				},
 			},
@@ -635,7 +635,7 @@ func TestPartiQL_Batch(t *testing.T) {
 			name: "batch with one invalid statement returns error entry",
 			statements: []map[string]any{
 				{
-					"Statement":  `SELECT * FROM "T" WHERE pk = ?`,
+					"Statement":  `SELECT * FROM "TT1" WHERE pk = ?`,
 					"Parameters": []map[string]any{{"S": "ba"}},
 				},
 				{"Statement": `SELECT * FROM badformat`},

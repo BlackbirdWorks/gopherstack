@@ -21,6 +21,24 @@ func (db *InMemoryDB) PutItem(
 		return nil, NewValidationException("Table name is required")
 	}
 
+	if err := validatePutDeleteReturnValues(input.ReturnValues); err != nil {
+		return nil, err
+	}
+
+	if err := validateExpressionAttributeNames(input.ExpressionAttributeNames); err != nil {
+		return nil, err
+	}
+
+	condExpr := aws.ToString(input.ConditionExpression)
+	if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
+		return nil, err
+	}
+
+	wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
+	if err := checkUnusedExpressionAttributeValues(wireEAV, condExpr); err != nil {
+		return nil, err
+	}
+
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
@@ -272,6 +290,24 @@ func (db *InMemoryDB) DeleteItem(
 ) (*dynamodb.DeleteItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
 
+	if err := validatePutDeleteReturnValues(input.ReturnValues); err != nil {
+		return nil, err
+	}
+
+	if err := validateExpressionAttributeNames(input.ExpressionAttributeNames); err != nil {
+		return nil, err
+	}
+
+	condExpr := aws.ToString(input.ConditionExpression)
+	if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
+		return nil, err
+	}
+
+	wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
+	if err := checkUnusedExpressionAttributeValues(wireEAV, condExpr); err != nil {
+		return nil, err
+	}
+
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
@@ -408,6 +444,27 @@ func (db *InMemoryDB) UpdateItem(
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = validateExpressionAttributeNames(input.ExpressionAttributeNames); err != nil {
+		return nil, err
+	}
+
+	updateExpr := aws.ToString(input.UpdateExpression)
+	condExpr := aws.ToString(input.ConditionExpression)
+	allExprs := []string{updateExpr, condExpr}
+
+	if err = checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, allExprs...); err != nil {
+		return nil, err
+	}
+
+	wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
+	if err = checkUnusedExpressionAttributeValues(wireEAV, allExprs...); err != nil {
+		return nil, err
+	}
+
+	if err = validateUpdateDoesNotModifyKeys(updateExpr, input.ExpressionAttributeNames, table.KeySchema); err != nil {
 		return nil, err
 	}
 

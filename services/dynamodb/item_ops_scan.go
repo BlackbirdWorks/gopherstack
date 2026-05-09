@@ -51,6 +51,10 @@ func (db *InMemoryDB) ScanWithContext(
 	default:
 	}
 
+	if err := validatePositiveLimit(input.Limit); err != nil {
+		return nil, err
+	}
+
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {

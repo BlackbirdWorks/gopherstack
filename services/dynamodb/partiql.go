@@ -564,7 +564,12 @@ func (r *partiQLRunner) executePartiQLUpdate(
 		return nil, err
 	}
 
-	sdkEAV, err := partiqlBuildSDKEAV(eav)
+	// Filter EAV to only the values actually referenced in the SET clause.
+	// The WHERE clause params were used for key extraction above; including them
+	// in ExpressionAttributeValues would trigger an unused-EAV validation error.
+	setEAV := filterEAVByExpression(eav, setClause)
+
+	sdkEAV, err := partiqlBuildSDKEAV(setEAV)
 	if err != nil {
 		return nil, err
 	}
@@ -948,6 +953,26 @@ func partiqlParseScalar(token string, params []map[string]any, paramIdx *int) (m
 	}
 
 	return nil, fmt.Errorf("%w: unsupported value token %q in VALUE clause", ErrInvalidStatement, token)
+}
+
+// filterEAVByExpression returns a subset of eav containing only the keys that
+// are referenced in expr. This is used by the PartiQL UPDATE path to avoid
+// passing WHERE-clause parameters to UpdateItem's ExpressionAttributeValues,
+// which would trigger an unused-EAV validation error.
+func filterEAVByExpression(eav map[string]any, expr string) map[string]any {
+	if len(eav) == 0 {
+		return eav
+	}
+
+	out := make(map[string]any, len(eav))
+
+	for k, v := range eav {
+		if strings.Contains(expr, k) {
+			out[k] = v
+		}
+	}
+
+	return out
 }
 
 // partiqlBuildSDKEAV converts a wire-format EAV map to the SDK AttributeValue map.

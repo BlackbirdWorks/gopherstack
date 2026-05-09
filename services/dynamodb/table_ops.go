@@ -1206,6 +1206,10 @@ func (db *InMemoryDB) ListTables(
 	ctx context.Context,
 	input *dynamodb.ListTablesInput,
 ) (*dynamodb.ListTablesOutput, error) {
+	if err := validateListTablesLimit(input.Limit); err != nil {
+		return nil, err
+	}
+
 	region := getRegionFromContext(ctx, db)
 
 	// Snapshot table names under lock, then release immediately

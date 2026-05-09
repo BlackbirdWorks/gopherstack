@@ -459,6 +459,42 @@ func ValidateScanSegment(segment, totalSegments int32) error {
 	return validateScanSegment(segment, totalSegments)
 }
 
+func ValidateTableName(name string) error {
+	return validateTableName(name)
+}
+
+func ValidateListTablesLimit(limit *int32) error {
+	return validateListTablesLimit(limit)
+}
+
+func ValidatePositiveLimit(limit *int32) error {
+	return validatePositiveLimit(limit)
+}
+
+func ValidatePutDeleteReturnValues(rv types.ReturnValue) error {
+	return validatePutDeleteReturnValues(rv)
+}
+
+func ValidateTransactItemCount(n int, opName string) error {
+	return validateTransactItemCount(n, opName)
+}
+
+func ValidateExpressionAttributeNames(ean map[string]string) error {
+	return validateExpressionAttributeNames(ean)
+}
+
+func CheckUnusedExpressionAttributeNames(ean map[string]string, exprs ...string) error {
+	return checkUnusedExpressionAttributeNames(ean, exprs...)
+}
+
+func CheckUnusedExpressionAttributeValues(eav map[string]any, exprs ...string) error {
+	return checkUnusedExpressionAttributeValues(eav, exprs...)
+}
+
+func ValidateUpdateDoesNotModifyKeys(updateExpr string, ean map[string]string, keySchema []models.KeySchemaElement) error {
+	return validateUpdateDoesNotModifyKeys(updateExpr, ean, keySchema)
+}
+
 // HandleRequest exposes the handler's dispatch method for use in tests.
 // It calls the internal dispatch function and returns the result.
 func (h *DynamoDBHandler) HandleRequest(ctx context.Context, action string, body []byte) (any, error) {
