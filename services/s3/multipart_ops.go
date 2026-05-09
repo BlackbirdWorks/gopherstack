@@ -354,7 +354,7 @@ func (h *S3Handler) listParts(
 
 			return
 		}
-		maxParts = int32(n) //nolint:gosec // ParseInt with bitSize=32 guarantees int32 range
+		maxParts = int32(n)
 	}
 
 	partNumberMarkerStr := q.Get("part-number-marker")

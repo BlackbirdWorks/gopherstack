@@ -151,7 +151,8 @@ func coreErrorTable() []s3ErrorEntry {
 		}},
 		{ErrSSECRequired, s3ErrorInfo{
 			"InvalidRequest",
-			"The object was stored using a form of Server Side Encryption. The correct parameters must be provided to retrieve the object.",
+			"The object was stored using a form of Server Side Encryption. " +
+				"The correct parameters must be provided to retrieve the object.",
 			http.StatusBadRequest,
 		}},
 	}

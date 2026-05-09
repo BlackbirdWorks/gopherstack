@@ -862,6 +862,184 @@ func TestCopyObject_ExpectedBucketOwner_Mismatch(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 }
 
+// ─── SSE-C enforcement on GET/HEAD ───────────────────────────────────────────
+
+func ssecHeaders(keyB64, keyMD5 string) map[string]string {
+	return map[string]string{
+		"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+		"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+		"X-Amz-Server-Side-Encryption-Customer-Key-Md5":   keyMD5,
+	}
+}
+
+func mustPutSSECObject(t *testing.T, handler *s3.S3Handler, bucket, key, content string) (keyB64, keyMD5 string) {
+	t.Helper()
+
+	rawKey := make([]byte, 32)
+	for i := range rawKey {
+		rawKey[i] = byte(i + 7)
+	}
+
+	keyB64 = base64.StdEncoding.EncodeToString(rawKey)
+	sum := md5.Sum(rawKey)
+	keyMD5 = base64.StdEncoding.EncodeToString(sum[:])
+
+	rec := doRequest(handler, http.MethodPut, "/"+bucket+"/"+key,
+		strings.NewReader(content), ssecHeaders(keyB64, keyMD5))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	return keyB64, keyMD5
+}
+
+func TestSSEC_GetObject_MissingHeaders_Returns400(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-get-missing")
+	keyB64, keyMD5 := mustPutSSECObject(t, handler, "ssec-get-missing", "obj", "data")
+	_ = keyMD5
+
+	// GET without any SSE-C headers → 400.
+	rec := doRequest(handler, http.MethodGet, "/ssec-get-missing/obj", nil, nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// GET with algorithm only (no key-MD5) → 400.
+	rec = doRequest(handler, http.MethodGet, "/ssec-get-missing/obj", nil, map[string]string{
+		"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+		"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSSEC_GetObject_WrongMD5_Returns400(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-get-wrong")
+	keyB64, _ := mustPutSSECObject(t, handler, "ssec-get-wrong", "obj", "data")
+
+	wrongMD5 := base64.StdEncoding.EncodeToString(make([]byte, 16))
+	rec := doRequest(handler, http.MethodGet, "/ssec-get-wrong/obj", nil, map[string]string{
+		"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+		"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+		"X-Amz-Server-Side-Encryption-Customer-Key-Md5":   wrongMD5,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSSEC_GetObject_ValidHeaders_Returns200(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-get-valid")
+	keyB64, keyMD5 := mustPutSSECObject(t, handler, "ssec-get-valid", "obj", "hello")
+
+	rec := doRequest(handler, http.MethodGet, "/ssec-get-valid/obj", nil, ssecHeaders(keyB64, keyMD5))
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestSSEC_HeadObject_MissingHeaders_Returns400(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-head-missing")
+	keyB64, keyMD5 := mustPutSSECObject(t, handler, "ssec-head-missing", "obj", "data")
+	_ = keyMD5
+
+	rec := doRequest(handler, http.MethodHead, "/ssec-head-missing/obj", nil, nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// algorithm only → 400.
+	rec = doRequest(handler, http.MethodHead, "/ssec-head-missing/obj", nil, map[string]string{
+		"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+		"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSSEC_HeadObject_WrongMD5_Returns400(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-head-wrong")
+	keyB64, _ := mustPutSSECObject(t, handler, "ssec-head-wrong", "obj", "data")
+
+	wrongMD5 := base64.StdEncoding.EncodeToString(make([]byte, 16))
+	rec := doRequest(handler, http.MethodHead, "/ssec-head-wrong/obj", nil, map[string]string{
+		"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+		"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+		"X-Amz-Server-Side-Encryption-Customer-Key-Md5":   wrongMD5,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSSEC_HeadObject_ValidHeaders_Returns200(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-head-valid")
+	keyB64, keyMD5 := mustPutSSECObject(t, handler, "ssec-head-valid", "obj", "hello")
+
+	rec := doRequest(handler, http.MethodHead, "/ssec-head-valid/obj", nil, ssecHeaders(keyB64, keyMD5))
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// ─── CopyObject tagging COPY directive ───────────────────────────────────────
+
+func TestCopyObject_TaggingDirective_COPY_InheritsSourceTags(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "tag-copy-src")
+	mustCreateBucket(t, backend, "tag-copy-dst")
+	mustPutObject(t, backend, "tag-copy-src", "src", []byte("content"))
+
+	// Tag the source object.
+	tagRec := doRequest(handler, http.MethodPut, "/tag-copy-src/src?tagging", strings.NewReader(
+		`<Tagging><TagSet><Tag><Key>env</Key><Value>prod</Value></Tag></TagSet></Tagging>`,
+	), map[string]string{"Content-Type": "application/xml"})
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	// CopyObject with explicit COPY directive → destination should have source tags.
+	copyRec := doRequest(handler, http.MethodPut, "/tag-copy-dst/dst", nil, map[string]string{
+		"X-Amz-Copy-Source":        "tag-copy-src/src",
+		"X-Amz-Tagging-Directive":  "COPY",
+	})
+	require.Equal(t, http.StatusOK, copyRec.Code)
+
+	// Verify destination has the tags.
+	getTagRec := doRequest(handler, http.MethodGet, "/tag-copy-dst/dst?tagging", nil, nil)
+	require.Equal(t, http.StatusOK, getTagRec.Code)
+	assert.Contains(t, getTagRec.Body.String(), "env")
+	assert.Contains(t, getTagRec.Body.String(), "prod")
+}
+
+func TestCopyObject_NoTaggingDirective_InheritsSourceTags(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "tag-nodir-src")
+	mustCreateBucket(t, backend, "tag-nodir-dst")
+	mustPutObject(t, backend, "tag-nodir-src", "src", []byte("content"))
+
+	// Tag the source object.
+	tagRec := doRequest(handler, http.MethodPut, "/tag-nodir-src/src?tagging", strings.NewReader(
+		`<Tagging><TagSet><Tag><Key>tier</Key><Value>gold</Value></Tag></TagSet></Tagging>`,
+	), map[string]string{"Content-Type": "application/xml"})
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	// CopyObject without a Tagging-Directive (defaults to COPY).
+	copyRec := doRequest(handler, http.MethodPut, "/tag-nodir-dst/dst", nil, map[string]string{
+		"X-Amz-Copy-Source": "tag-nodir-src/src",
+	})
+	require.Equal(t, http.StatusOK, copyRec.Code)
+
+	getTagRec := doRequest(handler, http.MethodGet, "/tag-nodir-dst/dst?tagging", nil, nil)
+	require.Equal(t, http.StatusOK, getTagRec.Code)
+	assert.Contains(t, getTagRec.Body.String(), "tier")
+	assert.Contains(t, getTagRec.Body.String(), "gold")
+}
+
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
 func mustParseRetentionTime(t *testing.T, s string) time.Time {

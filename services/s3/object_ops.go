@@ -202,19 +202,10 @@ func (h *S3Handler) headObject(
 		return
 	}
 
-	if storedSSECAlg := aws.ToString(out.SSECustomerAlgorithm); storedSSECAlg != "" {
-		if r.Header.Get(headerSSECAlgorithm) == "" || r.Header.Get(headerSSECKeyMD5) == "" {
-			WriteError(ctx, w, r, ErrSSECRequired)
+	if err := validateSSECOnRead(r, aws.ToString(out.SSECustomerAlgorithm), aws.ToString(out.SSECustomerKeyMD5)); err != nil {
+		WriteError(ctx, w, r, err)
 
-			return
-		}
-
-		suppliedMD5 := r.Header.Get(headerSSECKeyMD5)
-		if storedMD5 := aws.ToString(out.SSECustomerKeyMD5); storedMD5 != "" && suppliedMD5 != storedMD5 {
-			WriteError(ctx, w, r, ErrBadChecksum)
-
-			return
-		}
+		return
 	}
 
 	if status, ok := checkConditionalHeaders(r, aws.ToString(out.ETag), aws.ToTime(out.LastModified)); !ok {
@@ -558,19 +549,10 @@ func (h *S3Handler) getObject(
 	}
 	defer ver.Body.Close()
 
-	if storedSSECAlg := aws.ToString(ver.SSECustomerAlgorithm); storedSSECAlg != "" {
-		if r.Header.Get(headerSSECAlgorithm) == "" || r.Header.Get(headerSSECKeyMD5) == "" {
-			WriteError(ctx, w, r, ErrSSECRequired)
+	if err := validateSSECOnRead(r, aws.ToString(ver.SSECustomerAlgorithm), aws.ToString(ver.SSECustomerKeyMD5)); err != nil {
+		WriteError(ctx, w, r, err)
 
-			return
-		}
-
-		suppliedMD5 := r.Header.Get(headerSSECKeyMD5)
-		if storedMD5 := aws.ToString(ver.SSECustomerKeyMD5); storedMD5 != "" && suppliedMD5 != storedMD5 {
-			WriteError(ctx, w, r, ErrBadChecksum)
-
-			return
-		}
+		return
 	}
 
 	if status, ok := checkConditionalHeaders(r, aws.ToString(ver.ETag), aws.ToTime(ver.LastModified)); !ok {
@@ -1049,6 +1031,25 @@ func (h *S3Handler) setChecksumHeaders(w http.ResponseWriter, out objectCommonDe
 }
 
 // setSSEHeaders writes SSE response headers based on stored object SSE info.
+// validateSSECOnRead checks that a GET/HEAD request includes the required SSE-C
+// headers when the stored object uses SSE-C, and that the supplied key-MD5 matches.
+func validateSSECOnRead(r *http.Request, storedAlg, storedKeyMD5 string) error {
+	if storedAlg == "" {
+		return nil
+	}
+
+	if r.Header.Get(headerSSECAlgorithm) == "" || r.Header.Get(headerSSECKeyMD5) == "" {
+		return ErrSSECRequired
+	}
+
+	suppliedMD5 := r.Header.Get(headerSSECKeyMD5)
+	if storedKeyMD5 != "" && suppliedMD5 != storedKeyMD5 {
+		return ErrBadChecksum
+	}
+
+	return nil
+}
+
 func setSSEHeaders(w http.ResponseWriter, out objectCommonDetails) {
 	if out.SSEAlgorithm != "" {
 		w.Header().Set(headerSSEAlgorithm, out.SSEAlgorithm)
