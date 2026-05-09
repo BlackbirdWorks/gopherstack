@@ -25,6 +25,7 @@ const (
 	elbv2Version   = "2015-12-01"
 	elbv2XMLNS     = "http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"
 	attrValueFalse = "false"
+	attrValueTrue  = "true"
 )
 
 // Handler is the Echo HTTP handler for ELBv2 operations.

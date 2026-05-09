@@ -177,7 +177,7 @@ type QueryStringPair struct {
 type AuthenticateCognitoConfig struct {
 	AuthenticationRequestExtraParams map[string]string `json:"authenticationRequestExtraParams,omitempty"`
 	UserPoolArn                      string            `json:"userPoolArn"`
-	UserPoolClientId                 string            `json:"userPoolClientId"`
+	UserPoolClientID                 string            `json:"userPoolClientId"`
 	UserPoolDomain                   string            `json:"userPoolDomain"`
 	SessionCookieName                string            `json:"sessionCookieName,omitempty"`
 	Scope                            string            `json:"scope,omitempty"`
@@ -192,7 +192,7 @@ type AuthenticateOidcConfig struct {
 	AuthorizationEndpoint            string            `json:"authorizationEndpoint"`
 	TokenEndpoint                    string            `json:"tokenEndpoint"`
 	UserInfoEndpoint                 string            `json:"userInfoEndpoint"`
-	ClientId                         string            `json:"clientId"`
+	ClientID                         string            `json:"clientId"`
 	ClientSecret                     string            `json:"clientSecret,omitempty"`
 	SessionCookieName                string            `json:"sessionCookieName,omitempty"`
 	Scope                            string            `json:"scope,omitempty"`
@@ -483,8 +483,8 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 
 	lbType := input.Type
 	switch lbType {
-	case "", "application":
-		lbType = "application"
+	case "", lbTypeApplication:
+		lbType = lbTypeApplication
 	case "network", "gateway":
 		// valid as-is
 	default:
@@ -659,7 +659,7 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 
 	proto := input.Protocol
 	if proto == "" {
-		proto = "HTTP"
+		proto = protoHTTP
 	}
 
 	targetType := input.TargetType
@@ -672,46 +672,9 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 		t.Set(kv.Key, kv.Value)
 	}
 
-	hcProtocol := input.HealthCheckProtocol
-	if hcProtocol == "" {
-		hcProtocol = proto
-	}
-
-	hcPort := input.HealthCheckPort
-	if hcPort == "" {
-		hcPort = "traffic-port"
-	}
-
-	hcPath := input.HealthCheckPath
-	if hcPath == "" && (proto == "HTTP" || proto == "HTTPS") {
-		hcPath = "/"
-	}
-
 	// Apply health-check defaults.
-	hcInterval := input.HealthCheckIntervalSeconds
-	if hcInterval == 0 {
-		hcInterval = 30
-	}
-
-	hcTimeout := input.HealthCheckTimeoutSeconds
-	if hcTimeout == 0 {
-		hcTimeout = 5
-	}
-
-	healthyThreshold := input.HealthyThresholdCount
-	if healthyThreshold == 0 {
-		healthyThreshold = 3
-	}
-
-	unhealthyThreshold := input.UnhealthyThresholdCount
-	if unhealthyThreshold == 0 {
-		unhealthyThreshold = 3
-	}
-
-	matcher := input.Matcher
-	if matcher.HTTPCode == "" && matcher.GrpcCode == "" && (hcProtocol == "HTTP" || hcProtocol == "HTTPS") {
-		matcher.HTTPCode = "200"
-	}
+	input = applyTGHealthCheckDefaults(proto, input)
+	matcher := defaultTGMatcher(input.HealthCheckProtocol, input.Matcher)
 
 	tg := &TargetGroup{
 		TargetGroupArn:             tgArn,
@@ -721,15 +684,15 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 		Port:                       input.Port,
 		VpcID:                      input.VpcID,
 		TargetType:                 targetType,
-		HealthCheckProtocol:        hcProtocol,
-		HealthCheckPort:            hcPort,
-		HealthCheckPath:            hcPath,
+		HealthCheckProtocol:        input.HealthCheckProtocol,
+		HealthCheckPort:            input.HealthCheckPort,
+		HealthCheckPath:            input.HealthCheckPath,
 		Matcher:                    matcher,
 		HealthCheckEnabled:         input.HealthCheckEnabled,
-		HealthCheckIntervalSeconds: hcInterval,
-		HealthCheckTimeoutSeconds:  hcTimeout,
-		HealthyThresholdCount:      healthyThreshold,
-		UnhealthyThresholdCount:    unhealthyThreshold,
+		HealthCheckIntervalSeconds: input.HealthCheckIntervalSeconds,
+		HealthCheckTimeoutSeconds:  input.HealthCheckTimeoutSeconds,
+		HealthyThresholdCount:      input.HealthyThresholdCount,
+		UnhealthyThresholdCount:    input.UnhealthyThresholdCount,
 		CrossZoneLoadBalancing:     true,
 		Targets:                    []Target{},
 		TargetGroupAttributes: map[string]string{
@@ -749,37 +712,119 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 	return &cp, nil
 }
 
-// tgArnsForLB returns the set of target group ARNs referenced by listeners and rules on the given LB.
-// Caller must hold b.mu (read or write).
-func (b *InMemoryBackend) tgArnsForLB(lbArn string) map[string]bool {
-	arns := make(map[string]bool)
+func applyTGHealthCheckDefaults(proto string, input CreateTargetGroupInput) CreateTargetGroupInput {
+	if input.HealthCheckProtocol == "" {
+		input.HealthCheckProtocol = proto
+	}
 
-	collectActions := func(actions []Action) {
-		for _, a := range actions {
-			if a.TargetGroupArn != "" {
-				arns[a.TargetGroupArn] = true
-			}
+	if input.HealthCheckPort == "" {
+		input.HealthCheckPort = "traffic-port"
+	}
 
-			if a.ForwardConfig != nil {
-				for _, tgt := range a.ForwardConfig.TargetGroups {
-					if tgt.TargetGroupArn != "" {
-						arns[tgt.TargetGroupArn] = true
-					}
+	if input.HealthCheckPath == "" && (proto == protoHTTP || proto == protoHTTPS) {
+		input.HealthCheckPath = "/"
+	}
+
+	if input.HealthCheckIntervalSeconds == 0 {
+		input.HealthCheckIntervalSeconds = 30
+	}
+
+	if input.HealthCheckTimeoutSeconds == 0 {
+		input.HealthCheckTimeoutSeconds = 5
+	}
+
+	if input.HealthyThresholdCount == 0 {
+		input.HealthyThresholdCount = 3
+	}
+
+	if input.UnhealthyThresholdCount == 0 {
+		input.UnhealthyThresholdCount = 3
+	}
+
+	return input
+}
+
+func defaultTGMatcher(hcProtocol string, matcher Matcher) Matcher {
+	if matcher.HTTPCode == "" && matcher.GrpcCode == "" && (hcProtocol == protoHTTP || hcProtocol == protoHTTPS) {
+		matcher.HTTPCode = "200"
+	}
+
+	return matcher
+}
+
+func collectTGArns(actions []Action, arns map[string]bool) {
+	for _, a := range actions {
+		if a.TargetGroupArn != "" {
+			arns[a.TargetGroupArn] = true
+		}
+
+		if a.ForwardConfig != nil {
+			for _, tgt := range a.ForwardConfig.TargetGroups {
+				if tgt.TargetGroupArn != "" {
+					arns[tgt.TargetGroupArn] = true
 				}
 			}
 		}
 	}
+}
+
+func collectLBArnsForTG(lbArn string, actions []Action, result map[string]map[string]bool) {
+	for _, a := range actions {
+		if a.TargetGroupArn != "" {
+			if result[a.TargetGroupArn] == nil {
+				result[a.TargetGroupArn] = make(map[string]bool)
+			}
+
+			result[a.TargetGroupArn][lbArn] = true
+		}
+
+		if a.ForwardConfig != nil {
+			for _, tgt := range a.ForwardConfig.TargetGroups {
+				if tgt.TargetGroupArn != "" {
+					if result[tgt.TargetGroupArn] == nil {
+						result[tgt.TargetGroupArn] = make(map[string]bool)
+					}
+
+					result[tgt.TargetGroupArn][lbArn] = true
+				}
+			}
+		}
+	}
+}
+
+func actionsReferenceTG(actions []Action, tgArn string) bool {
+	for _, a := range actions {
+		if a.TargetGroupArn == tgArn {
+			return true
+		}
+
+		if a.ForwardConfig != nil {
+			for _, tgt := range a.ForwardConfig.TargetGroups {
+				if tgt.TargetGroupArn == tgArn {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// tgArnsForLB returns the set of target group ARNs referenced by listeners and rules on the given LB.
+// Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) tgArnsForLB(lbArn string) map[string]bool {
+	arns := make(map[string]bool)
 
 	for _, l := range b.listeners {
 		if l.LoadBalancerArn != lbArn {
 			continue
 		}
 
-		collectActions(l.DefaultActions)
+		collectTGArns(l.DefaultActions, arns)
 
 		for _, r := range b.rules {
 			if r.ListenerArn == l.ListenerArn {
-				collectActions(r.Actions)
+				collectTGArns(r.Actions, arns)
 			}
 		}
 	}
@@ -792,36 +837,12 @@ func (b *InMemoryBackend) tgArnsForLB(lbArn string) map[string]bool {
 func (b *InMemoryBackend) tgToLBArnsLocked() map[string]map[string]bool {
 	result := make(map[string]map[string]bool)
 
-	collectActions := func(lbArn string, actions []Action) {
-		for _, a := range actions {
-			if a.TargetGroupArn != "" {
-				if result[a.TargetGroupArn] == nil {
-					result[a.TargetGroupArn] = make(map[string]bool)
-				}
-
-				result[a.TargetGroupArn][lbArn] = true
-			}
-
-			if a.ForwardConfig != nil {
-				for _, tgt := range a.ForwardConfig.TargetGroups {
-					if tgt.TargetGroupArn != "" {
-						if result[tgt.TargetGroupArn] == nil {
-							result[tgt.TargetGroupArn] = make(map[string]bool)
-						}
-
-						result[tgt.TargetGroupArn][lbArn] = true
-					}
-				}
-			}
-		}
-	}
-
 	for _, l := range b.listeners {
-		collectActions(l.LoadBalancerArn, l.DefaultActions)
+		collectLBArnsForTG(l.LoadBalancerArn, l.DefaultActions, result)
 
 		for _, r := range b.rules {
 			if r.ListenerArn == l.ListenerArn {
-				collectActions(l.LoadBalancerArn, r.Actions)
+				collectLBArnsForTG(l.LoadBalancerArn, r.Actions, result)
 			}
 		}
 	}
@@ -891,32 +912,14 @@ func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lb
 // isTGInUseLocked returns true if the target group ARN is referenced by any listener or rule.
 // Caller must hold b.mu (read or write).
 func (b *InMemoryBackend) isTGInUseLocked(tgArn string) bool {
-	refersToTG := func(actions []Action) bool {
-		for _, a := range actions {
-			if a.TargetGroupArn == tgArn {
-				return true
-			}
-
-			if a.ForwardConfig != nil {
-				for _, tgt := range a.ForwardConfig.TargetGroups {
-					if tgt.TargetGroupArn == tgArn {
-						return true
-					}
-				}
-			}
-		}
-
-		return false
-	}
-
 	for _, l := range b.listeners {
-		if refersToTG(l.DefaultActions) {
+		if actionsReferenceTG(l.DefaultActions, tgArn) {
 			return true
 		}
 	}
 
 	for _, r := range b.rules {
-		if refersToTG(r.Actions) {
+		if actionsReferenceTG(r.Actions, tgArn) {
 			return true
 		}
 	}
@@ -1018,14 +1021,85 @@ func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]TargetHealthDesc
 	return result, nil
 }
 
-// albProtocols is the set of protocols valid for Application Load Balancers.
-var albProtocols = map[string]bool{"HTTP": true, "HTTPS": true}
+const (
+	protoHTTP         = "HTTP"
+	protoHTTPS        = "HTTPS"
+	protoTLS          = "TLS"
+	lbTypeApplication = "application"
+	priorityDefault   = "default"
+)
 
-// nlbProtocols is the set of protocols valid for Network Load Balancers.
-var nlbProtocols = map[string]bool{"TCP": true, "UDP": true, "TLS": true, "TCP_UDP": true}
+func isALBProtocol(proto string) bool {
+	switch proto {
+	case protoHTTP, protoHTTPS:
+		return true
+	}
 
-// gwlbProtocols is the set of protocols valid for Gateway Load Balancers.
-var gwlbProtocols = map[string]bool{"GENEVE": true}
+	return false
+}
+
+func isNLBProtocol(proto string) bool {
+	switch proto {
+	case "TCP", "UDP", protoTLS, "TCP_UDP":
+		return true
+	}
+
+	return false
+}
+
+func isGWLBProtocol(proto string) bool { return proto == "GENEVE" }
+
+func validateListenerProtocol(lbType, proto string) error {
+	switch lbType {
+	case lbTypeApplication:
+		if !isALBProtocol(proto) {
+			return fmt.Errorf(
+				"%w: protocol %s is not supported for Application Load Balancers; use HTTP or HTTPS",
+				ErrInvalidConfigurationRequest, proto,
+			)
+		}
+	case "network":
+		if !isNLBProtocol(proto) {
+			return fmt.Errorf(
+				"%w: protocol %s is not supported for Network Load Balancers; use TCP, UDP, TLS, or TCP_UDP",
+				ErrInvalidConfigurationRequest, proto,
+			)
+		}
+	case "gateway":
+		if !isGWLBProtocol(proto) {
+			return fmt.Errorf(
+				"%w: protocol %s is not supported for Gateway Load Balancers; use GENEVE",
+				ErrInvalidConfigurationRequest, proto,
+			)
+		}
+	}
+
+	return nil
+}
+
+func requireCertsForProtocol(proto string, certs []Certificate) error {
+	if (proto == protoHTTPS || proto == protoTLS) && len(certs) == 0 {
+		return fmt.Errorf(
+			"%w: %s listener requires at least one certificate",
+			ErrInvalidParameter, proto,
+		)
+	}
+
+	return nil
+}
+
+func checkDuplicateListenerPort(listeners map[string]*Listener, lbArn string, port int32) error {
+	for _, existing := range listeners {
+		if existing.LoadBalancerArn == lbArn && existing.Port == port {
+			return fmt.Errorf(
+				"%w: a listener on port %d already exists on this load balancer",
+				ErrDuplicateListener, port,
+			)
+		}
+	}
+
+	return nil
+}
 
 // CreateListener creates a new listener on a load balancer.
 func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, error) {
@@ -1039,48 +1113,16 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 
 	// Validate protocol against LB type.
 	proto := input.Protocol
-	switch lb.Type {
-	case "application":
-		if !albProtocols[proto] {
-			return nil, fmt.Errorf(
-				"%w: protocol %s is not supported for Application Load Balancers; use HTTP or HTTPS",
-				ErrInvalidConfigurationRequest, proto,
-			)
-		}
-	case "network":
-		if !nlbProtocols[proto] {
-			return nil, fmt.Errorf(
-				"%w: protocol %s is not supported for Network Load Balancers; use TCP, UDP, TLS, or TCP_UDP",
-				ErrInvalidConfigurationRequest, proto,
-			)
-		}
-	case "gateway":
-		if !gwlbProtocols[proto] {
-			return nil, fmt.Errorf(
-				"%w: protocol %s is not supported for Gateway Load Balancers; use GENEVE",
-				ErrInvalidConfigurationRequest, proto,
-			)
-		}
+	if err := validateListenerProtocol(lb.Type, proto); err != nil {
+		return nil, err
 	}
 
-	// Enforce ≥1 certificate for HTTPS and TLS listeners.
-	if proto == "HTTPS" || proto == "TLS" {
-		if len(input.Certificates) == 0 {
-			return nil, fmt.Errorf(
-				"%w: %s listener requires at least one certificate",
-				ErrInvalidParameter, proto,
-			)
-		}
+	if err := requireCertsForProtocol(proto, input.Certificates); err != nil {
+		return nil, err
 	}
 
-	// Check for duplicate listener port.
-	for _, existing := range b.listeners {
-		if existing.LoadBalancerArn == input.LoadBalancerArn && existing.Port == input.Port {
-			return nil, fmt.Errorf(
-				"%w: a listener on port %d already exists on this load balancer",
-				ErrDuplicateListener, input.Port,
-			)
-		}
+	if err := checkDuplicateListenerPort(b.listeners, input.LoadBalancerArn, input.Port); err != nil {
+		return nil, err
 	}
 
 	listenerArn := b.listenerARN(lb.LoadBalancerName, input.Port)
@@ -1092,7 +1134,7 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 
 	// Initialize default listener attributes based on protocol.
 	listenerAttrs := map[string]string{}
-	if proto == "HTTP" || proto == "HTTPS" {
+	if proto == protoHTTP || proto == protoHTTPS {
 		listenerAttrs["routing.http2.enabled"] = "true"
 		listenerAttrs["idle_timeout.timeout_seconds"] = "60"
 		listenerAttrs["routing.http.desync_mitigation_mode"] = "defensive"
@@ -1115,14 +1157,14 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 	b.listeners[listenerArn] = listener
 
 	// Auto-create default rule (AWS behaviour: every listener has a default rule).
-	defaultRuleArn := b.ruleARN(listenerArn, "default")
+	defaultRuleArn := b.ruleARN(listenerArn, priorityDefault)
 	defaultTags := tags.New("elbv2.rule." + defaultRuleArn + ".tags")
 	defaultActions := make([]Action, len(input.DefaultActions))
 	copy(defaultActions, input.DefaultActions)
 	b.rules[defaultRuleArn] = &Rule{
 		RuleArn:     defaultRuleArn,
 		ListenerArn: listenerArn,
-		Priority:    "default",
+		Priority:    priorityDefault,
 		IsDefault:   true,
 		Actions:     defaultActions,
 		Tags:        defaultTags,
@@ -1241,7 +1283,7 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 	}
 
 	// Validate and check for duplicate priority.
-	if input.Priority != "" && input.Priority != "default" {
+	if input.Priority != "" && input.Priority != priorityDefault {
 		p, parseErr := strconv.ParseInt(input.Priority, 10, 32)
 		if parseErr != nil || p < 1 || p > 50000 {
 			return nil, fmt.Errorf("%w: priority must be an integer between 1 and 50000", ErrInvalidParameter)
@@ -1310,11 +1352,11 @@ func (b *InMemoryBackend) DescribeRules(listenerArn string, ruleArns []string) (
 			return false
 		}
 
-		if pi == "default" {
+		if pi == priorityDefault {
 			return false
 		}
 
-		if pj == "default" {
+		if pj == priorityDefault {
 			return true
 		}
 
@@ -1670,7 +1712,7 @@ func (b *InMemoryBackend) RemoveListenerCertificates(listenerArn string, certArn
 		}
 	}
 
-	if len(remaining) == 0 && (listener.Protocol == "HTTPS" || listener.Protocol == "TLS") {
+	if len(remaining) == 0 && (listener.Protocol == protoHTTPS || listener.Protocol == protoTLS) {
 		return fmt.Errorf(
 			"%w: Cannot remove the last certificate from an HTTPS/TLS listener",
 			ErrInvalidParameter,
