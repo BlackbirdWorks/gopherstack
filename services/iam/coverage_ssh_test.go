@@ -33,9 +33,9 @@ func TestIAM_BackendReset(t *testing.T) {
 	be.Reset()
 
 	// Verify reset worked
-	users, _, err := be.ListUsers("", 100)
+	usersPage, err := be.ListUsers("", 100)
 	require.NoError(t, err)
-	assert.Empty(t, users)
+	assert.Empty(t, usersPage.Items)
 }
 
 func TestIAM_AccessKey(t *testing.T) {
