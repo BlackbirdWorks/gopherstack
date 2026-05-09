@@ -82,6 +82,7 @@ type TargetGroup struct {
 	TargetGroupArn             string            `json:"targetGroupArn"`
 	TargetGroupName            string            `json:"targetGroupName"`
 	Protocol                   string            `json:"protocol"`
+	ProtocolVersion            string            `json:"protocolVersion,omitempty"`
 	VpcID                      string            `json:"vpcId"`
 	TargetType                 string            `json:"targetType"`
 	HealthCheckProtocol        string            `json:"healthCheckProtocol"`
@@ -89,6 +90,7 @@ type TargetGroup struct {
 	HealthCheckPath            string            `json:"healthCheckPath"`
 	Matcher                    Matcher           `json:"matcher"`
 	Targets                    []Target          `json:"targets"`
+	LoadBalancerArns           []string          `json:"loadBalancerArns,omitempty"`
 	Port                       int32             `json:"port"`
 	HealthCheckIntervalSeconds int32             `json:"healthCheckIntervalSeconds"`
 	HealthCheckTimeoutSeconds  int32             `json:"healthCheckTimeoutSeconds"`
@@ -320,6 +322,7 @@ type CreateLoadBalancerInput struct {
 type CreateTargetGroupInput struct {
 	Name                       string
 	Protocol                   string
+	ProtocolVersion            string
 	VpcID                      string
 	TargetType                 string
 	HealthCheckProtocol        string
@@ -399,6 +402,7 @@ type InMemoryBackend struct {
 	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
+	ruleCounter   int // monotonically increasing counter for rule ARN generation
 }
 
 // NewInMemoryBackend creates a new in-memory ELBv2 backend.
@@ -413,6 +417,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:        region,
 		mu:            lockmetrics.New("elbv2"),
 	}
+}
+
+// validatePort returns ErrInvalidParameter if port is not in the valid range 1-65535.
+func validatePort(port int32) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("%w: port must be between 1 and 65535", ErrInvalidParameter)
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) lbARN(name string) string {
@@ -469,8 +482,16 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	lbArn := b.lbARN(input.Name)
 
 	lbType := input.Type
-	if lbType == "" {
+	switch lbType {
+	case "", "application":
 		lbType = "application"
+	case "network", "gateway":
+		// valid as-is
+	default:
+		return nil, fmt.Errorf(
+			"%w: invalid Type %q; must be application, network, or gateway",
+			ErrInvalidParameter, lbType,
+		)
 	}
 
 	scheme := input.Scheme
@@ -666,22 +687,49 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 		hcPath = "/"
 	}
 
+	// Apply health-check defaults.
+	hcInterval := input.HealthCheckIntervalSeconds
+	if hcInterval == 0 {
+		hcInterval = 30
+	}
+
+	hcTimeout := input.HealthCheckTimeoutSeconds
+	if hcTimeout == 0 {
+		hcTimeout = 5
+	}
+
+	healthyThreshold := input.HealthyThresholdCount
+	if healthyThreshold == 0 {
+		healthyThreshold = 3
+	}
+
+	unhealthyThreshold := input.UnhealthyThresholdCount
+	if unhealthyThreshold == 0 {
+		unhealthyThreshold = 3
+	}
+
+	matcher := input.Matcher
+	if matcher.HTTPCode == "" && matcher.GrpcCode == "" && (hcProtocol == "HTTP" || hcProtocol == "HTTPS") {
+		matcher.HTTPCode = "200"
+	}
+
 	tg := &TargetGroup{
 		TargetGroupArn:             tgArn,
 		TargetGroupName:            input.Name,
 		Protocol:                   proto,
+		ProtocolVersion:            input.ProtocolVersion,
 		Port:                       input.Port,
 		VpcID:                      input.VpcID,
 		TargetType:                 targetType,
 		HealthCheckProtocol:        hcProtocol,
 		HealthCheckPort:            hcPort,
 		HealthCheckPath:            hcPath,
-		Matcher:                    input.Matcher,
+		Matcher:                    matcher,
 		HealthCheckEnabled:         input.HealthCheckEnabled,
-		HealthCheckIntervalSeconds: input.HealthCheckIntervalSeconds,
-		HealthCheckTimeoutSeconds:  input.HealthCheckTimeoutSeconds,
-		HealthyThresholdCount:      input.HealthyThresholdCount,
-		UnhealthyThresholdCount:    input.UnhealthyThresholdCount,
+		HealthCheckIntervalSeconds: hcInterval,
+		HealthCheckTimeoutSeconds:  hcTimeout,
+		HealthyThresholdCount:      healthyThreshold,
+		UnhealthyThresholdCount:    unhealthyThreshold,
 		CrossZoneLoadBalancing:     true,
 		Targets:                    []Target{},
 		TargetGroupAttributes: map[string]string{
@@ -739,6 +787,48 @@ func (b *InMemoryBackend) tgArnsForLB(lbArn string) map[string]bool {
 	return arns
 }
 
+// tgToLBArnsLocked returns a map from target group ARN to the set of LB ARNs that reference it.
+// Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) tgToLBArnsLocked() map[string]map[string]bool {
+	result := make(map[string]map[string]bool)
+
+	collectActions := func(lbArn string, actions []Action) {
+		for _, a := range actions {
+			if a.TargetGroupArn != "" {
+				if result[a.TargetGroupArn] == nil {
+					result[a.TargetGroupArn] = make(map[string]bool)
+				}
+
+				result[a.TargetGroupArn][lbArn] = true
+			}
+
+			if a.ForwardConfig != nil {
+				for _, tgt := range a.ForwardConfig.TargetGroups {
+					if tgt.TargetGroupArn != "" {
+						if result[tgt.TargetGroupArn] == nil {
+							result[tgt.TargetGroupArn] = make(map[string]bool)
+						}
+
+						result[tgt.TargetGroupArn][lbArn] = true
+					}
+				}
+			}
+		}
+	}
+
+	for _, l := range b.listeners {
+		collectActions(l.LoadBalancerArn, l.DefaultActions)
+
+		for _, r := range b.rules {
+			if r.ListenerArn == l.ListenerArn {
+				collectActions(l.LoadBalancerArn, r.Actions)
+			}
+		}
+	}
+
+	return result
+}
+
 // DescribeTargetGroups returns target groups filtered by ARNs, names, or load balancer ARN.
 // The returned TargetGroup values contain a Tags pointer that is backend-owned; callers must treat it as read-only.
 func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lbArn string) ([]TargetGroup, error) {
@@ -760,6 +850,9 @@ func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lb
 		lbTGArns = b.tgArnsForLB(lbArn)
 	}
 
+	// Build TG -> LB ARNs mapping to populate LoadBalancerArns field.
+	tgLBMap := b.tgToLBArnsLocked()
+
 	result := make([]TargetGroup, 0)
 
 	for _, tg := range b.targetGroups {
@@ -775,7 +868,17 @@ func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lb
 			continue
 		}
 
-		result = append(result, *tg)
+		cp := *tg
+
+		// Populate LoadBalancerArns from the computed map.
+		lbArns := make([]string, 0, len(tgLBMap[tg.TargetGroupArn]))
+		for lb := range tgLBMap[tg.TargetGroupArn] {
+			lbArns = append(lbArns, lb)
+		}
+
+		sort.Strings(lbArns)
+		cp.LoadBalancerArns = lbArns
+		result = append(result, cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -785,6 +888,42 @@ func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lb
 	return result, nil
 }
 
+// isTGInUseLocked returns true if the target group ARN is referenced by any listener or rule.
+// Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) isTGInUseLocked(tgArn string) bool {
+	refersToTG := func(actions []Action) bool {
+		for _, a := range actions {
+			if a.TargetGroupArn == tgArn {
+				return true
+			}
+
+			if a.ForwardConfig != nil {
+				for _, tgt := range a.ForwardConfig.TargetGroups {
+					if tgt.TargetGroupArn == tgArn {
+						return true
+					}
+				}
+			}
+		}
+
+		return false
+	}
+
+	for _, l := range b.listeners {
+		if refersToTG(l.DefaultActions) {
+			return true
+		}
+	}
+
+	for _, r := range b.rules {
+		if refersToTG(r.Actions) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // DeleteTargetGroup deletes a target group by ARN.
 func (b *InMemoryBackend) DeleteTargetGroup(tgArn string) error {
 	b.mu.Lock("DeleteTargetGroup")
@@ -792,6 +931,10 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgArn string) error {
 
 	if _, ok := b.targetGroups[tgArn]; !ok {
 		return ErrTargetGroupNotFound
+	}
+
+	if b.isTGInUseLocked(tgArn) {
+		return fmt.Errorf("%w: target group %s is still in use by a listener or rule", ErrTargetGroupInUse, tgArn)
 	}
 
 	b.targetGroups[tgArn].Tags.Close()
@@ -947,6 +1090,14 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		t.Set(kv.Key, kv.Value)
 	}
 
+	// Initialize default listener attributes based on protocol.
+	listenerAttrs := map[string]string{}
+	if proto == "HTTP" || proto == "HTTPS" {
+		listenerAttrs["routing.http2.enabled"] = "true"
+		listenerAttrs["idle_timeout.timeout_seconds"] = "60"
+		listenerAttrs["routing.http.desync_mitigation_mode"] = "defensive"
+	}
+
 	listener := &Listener{
 		ListenerArn:          listenerArn,
 		LoadBalancerArn:      input.LoadBalancerArn,
@@ -957,6 +1108,7 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		SSLPolicy:            input.SSLPolicy,
 		AlpnPolicy:           input.AlpnPolicy,
 		MutualAuthentication: input.MutualAuthentication,
+		Attributes:           listenerAttrs,
 		Tags:                 t,
 	}
 
@@ -1102,8 +1254,8 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 		}
 	}
 
-	idx := strconv.Itoa(len(b.rules))
-	ruleArn := b.ruleARN(input.ListenerArn, idx)
+	b.ruleCounter++
+	ruleArn := b.ruleARN(input.ListenerArn, strconv.Itoa(b.ruleCounter))
 
 	t := tags.New("elbv2.rule." + ruleArn + ".tags")
 	for _, kv := range input.Tags {
@@ -1151,8 +1303,28 @@ func (b *InMemoryBackend) DescribeRules(listenerArn string, ruleArns []string) (
 		result = append(result, *r)
 	}
 
+	// Sort numerically by priority; "default" sorts last (highest priority number).
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].RuleArn < result[j].RuleArn
+		pi, pj := result[i].Priority, result[j].Priority
+		if pi == pj {
+			return false
+		}
+
+		if pi == "default" {
+			return false
+		}
+
+		if pj == "default" {
+			return true
+		}
+
+		ni, errI := strconv.Atoi(pi)
+		nj, errJ := strconv.Atoi(pj)
+		if errI != nil || errJ != nil {
+			return pi < pj
+		}
+
+		return ni < nj
 	})
 
 	return result, nil
@@ -1496,6 +1668,13 @@ func (b *InMemoryBackend) RemoveListenerCertificates(listenerArn string, certArn
 		if !remove[c.CertificateArn] {
 			remaining = append(remaining, c)
 		}
+	}
+
+	if len(remaining) == 0 && (listener.Protocol == "HTTPS" || listener.Protocol == "TLS") {
+		return fmt.Errorf(
+			"%w: Cannot remove the last certificate from an HTTPS/TLS listener",
+			ErrInvalidParameter,
+		)
 	}
 
 	listener.Certificates = remaining

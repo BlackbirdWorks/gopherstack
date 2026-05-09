@@ -29,12 +29,16 @@ const (
 
 // Handler is the Echo HTTP handler for ELBv2 operations.
 type Handler struct {
-	Backend StorageBackend
+	Backend       StorageBackend
+	dispatchTable map[string]dispatchFunc
 }
 
 // NewHandler creates a new ELBv2 handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.dispatchTable = h.buildDispatchTable()
+
+	return h
 }
 
 // Name returns the service name.
@@ -261,9 +265,7 @@ func (h *Handler) buildDispatchTable() map[string]dispatchFunc {
 }
 
 func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
-	table := h.buildDispatchTable()
-
-	fn, ok := table[action]
+	fn, ok := h.dispatchTable[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownAction, action)
 	}
@@ -459,8 +461,12 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 	}
 
 	port, err := parseInt32(portStr)
-	if err != nil || port <= 0 {
+	if err != nil {
 		return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+	}
+
+	if err := validatePort(port); err != nil {
+		return nil, err
 	}
 
 	tagKVs := parseTagKVs(vals)
@@ -478,6 +484,7 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 	tg, createErr := h.Backend.CreateTargetGroup(CreateTargetGroupInput{
 		Name:                name,
 		Protocol:            vals.Get("Protocol"),
+		ProtocolVersion:     vals.Get("ProtocolVersion"),
 		Port:                port,
 		VpcID:               vals.Get("VpcId"),
 		TargetType:          vals.Get("TargetType"),
@@ -731,8 +738,12 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 	}
 
 	port, err := parseInt32(portStr)
-	if err != nil || port <= 0 {
+	if err != nil {
 		return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+	}
+
+	if err := validatePort(port); err != nil {
+		return nil, err
 	}
 
 	protocol := vals.Get("Protocol")
@@ -741,6 +752,9 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 	}
 
 	actions := parseActions(vals, "DefaultActions.member")
+	if len(actions) == 0 {
+		return nil, fmt.Errorf("%w: DefaultActions must contain at least one action", ErrInvalidParameter)
+	}
 	tagKVs := parseTagKVs(vals)
 	certs := parseCerts(vals)
 
@@ -954,6 +968,9 @@ func (h *Handler) handleCreateRule(vals url.Values) (any, error) {
 	}
 
 	actions := parseActions(vals, "Actions.member")
+	if len(actions) == 0 {
+		return nil, fmt.Errorf("%w: Actions must contain at least one action", ErrInvalidParameter)
+	}
 
 	conditions, err := parseConditions(vals, "Conditions.member")
 	if err != nil {
@@ -1738,6 +1755,8 @@ func elbv2ErrorCode(opErr error) (string, int) {
 		{ErrTargetGroupAlreadyExists, "DuplicateTargetGroupName", http.StatusConflict},
 		{ErrTrustStoreAlreadyExists, "DuplicateTrustStoreName", http.StatusConflict},
 		{ErrDuplicateListener, "DuplicateListener", http.StatusConflict},
+		{ErrDuplicateRulePriority, "DuplicatePriority", http.StatusBadRequest},
+		{ErrTargetGroupInUse, "TargetGroupAssociationLimit", http.StatusBadRequest},
 		{ErrOperationNotPermitted, "OperationNotPermitted", http.StatusBadRequest},
 		{ErrInvalidConfigurationRequest, "InvalidConfigurationRequest", http.StatusBadRequest},
 		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
@@ -2110,6 +2129,7 @@ func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
 		TargetGroupArn:             tg.TargetGroupArn,
 		TargetGroupName:            tg.TargetGroupName,
 		Protocol:                   tg.Protocol,
+		ProtocolVersion:            tg.ProtocolVersion,
 		Port:                       tg.Port,
 		VpcID:                      tg.VpcID,
 		TargetType:                 tg.TargetType,
@@ -2129,6 +2149,9 @@ func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
 			HttpCode: tg.Matcher.HTTPCode,
 			GrpcCode: tg.Matcher.GrpcCode,
 		}
+	} else if tg.HealthCheckProtocol == "HTTP" || tg.HealthCheckProtocol == "HTTPS" {
+		// Default matcher for HTTP/HTTPS health checks.
+		xtg.Matcher = &xmlMatcher{HttpCode: "200"}
 	}
 
 	return xtg
@@ -2225,6 +2248,15 @@ func toXMLListener(l *Listener) xmlListener {
 			TrustStoreArn:                     l.MutualAuthentication.TrustStoreArn,
 			IgnoreClientCertificateExpiration: l.MutualAuthentication.IgnoreClientCertificateExpiration,
 		}
+	}
+
+	if len(l.Certificates) > 0 {
+		certs := make([]xmlListenerCertificate, 0, len(l.Certificates))
+		for _, c := range l.Certificates {
+			certs = append(certs, xmlListenerCertificate{CertificateArn: c.CertificateArn, IsDefault: c.IsDefault})
+		}
+
+		xl.Certificates = &xmlListenerCertificateList{Members: certs}
 	}
 
 	return xl
@@ -2467,6 +2499,7 @@ type xmlTargetGroup struct {
 	TargetGroupArn             string      `xml:"TargetGroupArn"`
 	TargetGroupName            string      `xml:"TargetGroupName"`
 	Protocol                   string      `xml:"Protocol"`
+	ProtocolVersion            string      `xml:"ProtocolVersion,omitempty"`
 	VpcID                      string      `xml:"VpcId,omitempty"`
 	TargetType                 string      `xml:"TargetType"`
 	HealthCheckProtocol        string      `xml:"HealthCheckProtocol"`
@@ -2658,14 +2691,15 @@ type xmlActionList struct {
 }
 
 type xmlListener struct {
-	MutualAuthentication *xmlMutualAuthentication `xml:"MutualAuthentication,omitempty"`
-	ListenerArn          string                   `xml:"ListenerArn"`
-	LoadBalancerArn      string                   `xml:"LoadBalancerArn"`
-	Protocol             string                   `xml:"Protocol"`
-	SslPolicy            string                   `xml:"SslPolicy,omitempty"`
-	AlpnPolicy           string                   `xml:"AlpnPolicy,omitempty"`
-	DefaultActions       xmlActionList            `xml:"DefaultActions"`
-	Port                 int32                    `xml:"Port"`
+	MutualAuthentication *xmlMutualAuthentication    `xml:"MutualAuthentication,omitempty"`
+	Certificates         *xmlListenerCertificateList `xml:"Certificates,omitempty"`
+	ListenerArn          string                      `xml:"ListenerArn"`
+	LoadBalancerArn      string                      `xml:"LoadBalancerArn"`
+	Protocol             string                      `xml:"Protocol"`
+	SslPolicy            string                      `xml:"SslPolicy,omitempty"`
+	AlpnPolicy           string                      `xml:"AlpnPolicy,omitempty"`
+	DefaultActions       xmlActionList               `xml:"DefaultActions"`
+	Port                 int32                       `xml:"Port"`
 }
 
 type xmlListenerList struct {

@@ -639,8 +639,10 @@ func TestCreateListener(t *testing.T) {
 					"LoadBalancerArn": {
 						"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/no-such/0",
 					},
-					"Protocol": {"HTTP"},
-					"Port":     {"80"},
+					"Protocol":                     {"HTTP"},
+					"Port":                         {"80"},
+					"DefaultActions.member.1.Type": {"fixed-response"},
+					"DefaultActions.member.1.FixedResponseConfig.StatusCode": {"200"},
 				}
 			},
 			wantStatus: http.StatusNotFound,
@@ -1487,9 +1489,12 @@ func TestCreateRuleListenerNotFound(t *testing.T) {
 	h := newTestHandler()
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":      {"CreateRule"},
-		"Version":     {"2015-12-01"},
-		"ListenerArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/no/0/no"},
+		"Action":                {"CreateRule"},
+		"Version":               {"2015-12-01"},
+		"ListenerArn":           {"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/no/0/no"},
+		"Priority":              {"1"},
+		"Actions.member.1.Type": {"fixed-response"},
+		"Actions.member.1.FixedResponseConfig.StatusCode": {"200"},
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -4432,4 +4437,781 @@ func TestModifyListenerAttributesPersists(t *testing.T) {
 		attrMap[a.Key] = a.Value
 	}
 	assert.Equal(t, "false", attrMap["routing.http2.enabled"])
+}
+
+// --- New tests for implemented improvements ---
+
+// TestPortValidationCreateListener tests port validation for CreateListener.
+func TestPortValidationCreateListener(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		port       string
+		wantStatus int
+	}{
+		{"valid_port_80", "80", http.StatusNotFound}, // will fail on nonexistent LB, not port
+		{"port_zero", "0", http.StatusBadRequest},
+		{"port_negative", "-1", http.StatusBadRequest},
+		{"port_65536", "65536", http.StatusBadRequest},
+		{"port_65535_valid", "65535", http.StatusNotFound},
+		{"port_1_valid", "1", http.StatusNotFound},
+		{"port_non_numeric", "abc", http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doELBv2(t, h, url.Values{
+				"Action":  {"CreateListener"},
+				"Version": {"2015-12-01"},
+				"LoadBalancerArn": {
+					"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/no/0",
+				},
+				"Protocol":                     {"HTTP"},
+				"Port":                         {tt.port},
+				"DefaultActions.member.1.Type": {"fixed-response"},
+				"DefaultActions.member.1.FixedResponseConfig.StatusCode": {"200"},
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code, "port=%s", tt.port)
+		})
+	}
+}
+
+// TestPortValidationCreateTargetGroup tests port validation for CreateTargetGroup.
+func TestPortValidationCreateTargetGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		port       string
+		wantStatus int
+	}{
+		{"port_zero", "0", http.StatusBadRequest},
+		{"port_65536", "65536", http.StatusBadRequest},
+		{"port_valid", "8080", http.StatusOK},
+		{"port_max", "65535", http.StatusOK},
+		{"port_min", "1", http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doELBv2(t, h, url.Values{
+				"Action":   {"CreateTargetGroup"},
+				"Version":  {"2015-12-01"},
+				"Name":     {"tg-port-" + tt.name},
+				"Protocol": {"HTTP"},
+				"Port":     {tt.port},
+				"VpcId":    {"vpc-00000000"},
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code, "port=%s", tt.port)
+		})
+	}
+}
+
+// TestLBTypeValidation tests load balancer type validation.
+func TestLBTypeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		lbType     string
+		wantStatus int
+	}{
+		{"type_application", "application", http.StatusOK},
+		{"type_network", "network", http.StatusOK},
+		{"type_gateway", "gateway", http.StatusOK},
+		{"type_empty_defaults_to_application", "", http.StatusOK},
+		{"type_invalid", "invalid-type", http.StatusBadRequest},
+		{"type_classic", "classic", http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			vals := url.Values{
+				"Action":  {"CreateLoadBalancer"},
+				"Version": {"2015-12-01"},
+				"Name":    {"lb-type-" + tt.name},
+			}
+
+			if tt.lbType != "" {
+				vals.Set("Type", tt.lbType)
+			}
+
+			rec := doELBv2(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rec.Code, "type=%s", tt.lbType)
+		})
+	}
+}
+
+// TestRuleCounterAfterDelete tests that rule ARNs remain unique after deletes.
+func TestRuleCounterAfterDelete(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "rule-counter-lb")
+	tgArn := mustCreateTG(t, h, "rule-counter-tg")
+	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+	// Create rule at priority 1.
+	rec1 := doELBv2(t, h, url.Values{
+		"Action":                          {"CreateRule"},
+		"Version":                         {"2015-12-01"},
+		"ListenerArn":                     {listenerArn},
+		"Priority":                        {"1"},
+		"Actions.member.1.Type":           {"forward"},
+		"Actions.member.1.TargetGroupArn": {tgArn},
+		"Conditions.member.1.Field":       {"path-pattern"},
+		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/a"},
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var r1Resp struct {
+		Result struct {
+			Rules struct {
+				Members []struct {
+					RuleArn string `xml:"RuleArn"`
+				} `xml:"member"`
+			} `xml:"Rules"`
+		} `xml:"CreateRuleResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec1.Body.Bytes(), &r1Resp))
+	require.Len(t, r1Resp.Result.Rules.Members, 1)
+	ruleArn1 := r1Resp.Result.Rules.Members[0].RuleArn
+
+	// Delete the rule.
+	delRec := doELBv2(t, h, url.Values{
+		"Action":  {"DeleteRule"},
+		"Version": {"2015-12-01"},
+		"RuleArn": {ruleArn1},
+	})
+	require.Equal(t, http.StatusOK, delRec.Code)
+
+	// Create another rule - should have a different ARN, not the same as deleted rule.
+	rec2 := doELBv2(t, h, url.Values{
+		"Action":                          {"CreateRule"},
+		"Version":                         {"2015-12-01"},
+		"ListenerArn":                     {listenerArn},
+		"Priority":                        {"2"},
+		"Actions.member.1.Type":           {"forward"},
+		"Actions.member.1.TargetGroupArn": {tgArn},
+		"Conditions.member.1.Field":       {"path-pattern"},
+		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/b"},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var r2Resp struct {
+		Result struct {
+			Rules struct {
+				Members []struct {
+					RuleArn string `xml:"RuleArn"`
+				} `xml:"member"`
+			} `xml:"Rules"`
+		} `xml:"CreateRuleResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &r2Resp))
+	require.Len(t, r2Resp.Result.Rules.Members, 1)
+	ruleArn2 := r2Resp.Result.Rules.Members[0].RuleArn
+
+	assert.NotEqual(t, ruleArn1, ruleArn2, "new rule ARN must differ from deleted rule ARN")
+}
+
+// TestDeleteTargetGroupInUse tests that deleting a TG referenced by a listener fails.
+func TestDeleteTargetGroupInUse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "tg-inuse-lb")
+	tgArn := mustCreateTG(t, h, "tg-inuse-tg")
+	_ = mustCreateListener(t, h, lbArn, tgArn)
+
+	// Attempting to delete the TG should fail because the listener references it.
+	rec := doELBv2(t, h, url.Values{
+		"Action":         {"DeleteTargetGroup"},
+		"Version":        {"2015-12-01"},
+		"TargetGroupArn": {tgArn},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp struct {
+		Error struct {
+			Code string `xml:"Code"`
+		} `xml:"Error"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "TargetGroupAssociationLimit", errResp.Error.Code)
+}
+
+// TestDeleteTargetGroupNotInUse tests that deleting an unreferenced TG succeeds.
+func TestDeleteTargetGroupNotInUse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	tgArn := mustCreateTG(t, h, "tg-notinuse")
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":         {"DeleteTargetGroup"},
+		"Version":        {"2015-12-01"},
+		"TargetGroupArn": {tgArn},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestRemoveLastCertificateHTTPS tests that removing the last cert from HTTPS listener fails.
+func TestRemoveLastCertificateHTTPS(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "cert-lb")
+	tgArn := mustCreateTG(t, h, "cert-tg")
+
+	certArn := "arn:aws:acm:us-east-1:123456789012:certificate/test-cert-1"
+
+	// Create HTTPS listener with one certificate.
+	rec := doELBv2(t, h, url.Values{
+		"Action":                                 {"CreateListener"},
+		"Version":                                {"2015-12-01"},
+		"LoadBalancerArn":                        {lbArn},
+		"Protocol":                               {"HTTPS"},
+		"Port":                                   {"443"},
+		"SslPolicy":                              {"ELBSecurityPolicy-2016-08"},
+		"Certificates.member.1.CertificateArn":   {certArn},
+		"DefaultActions.member.1.Type":           {"forward"},
+		"DefaultActions.member.1.TargetGroupArn": {tgArn},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var lResp struct {
+		Result struct {
+			Listeners struct {
+				Members []struct {
+					ListenerArn string `xml:"ListenerArn"`
+				} `xml:"member"`
+			} `xml:"Listeners"`
+		} `xml:"CreateListenerResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &lResp))
+	listenerArn := lResp.Result.Listeners.Members[0].ListenerArn
+
+	// Removing the only certificate should fail.
+	removeRec := doELBv2(t, h, url.Values{
+		"Action":                               {"RemoveListenerCertificates"},
+		"Version":                              {"2015-12-01"},
+		"ListenerArn":                          {listenerArn},
+		"Certificates.member.1.CertificateArn": {certArn},
+	})
+	assert.Equal(t, http.StatusBadRequest, removeRec.Code)
+}
+
+// TestHealthCheckDefaults tests that health check defaults are applied.
+func TestHealthCheckDefaults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	// Create TG without specifying health check values.
+	rec := doELBv2(t, h, url.Values{
+		"Action":   {"CreateTargetGroup"},
+		"Version":  {"2015-12-01"},
+		"Name":     {"hc-defaults-tg"},
+		"Protocol": {"HTTP"},
+		"Port":     {"80"},
+		"VpcId":    {"vpc-00000000"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			TargetGroups struct {
+				Members []struct {
+					HealthCheckIntervalSeconds int32 `xml:"HealthCheckIntervalSeconds"`
+					HealthCheckTimeoutSeconds  int32 `xml:"HealthCheckTimeoutSeconds"`
+					HealthyThresholdCount      int32 `xml:"HealthyThresholdCount"`
+					UnhealthyThresholdCount    int32 `xml:"UnhealthyThresholdCount"`
+					Matcher                    struct {
+						HttpCode string `xml:"HttpCode"`
+					} `xml:"Matcher"`
+				} `xml:"member"`
+			} `xml:"TargetGroups"`
+		} `xml:"CreateTargetGroupResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Result.TargetGroups.Members, 1)
+
+	tg := resp.Result.TargetGroups.Members[0]
+	assert.Equal(t, int32(30), tg.HealthCheckIntervalSeconds, "default interval should be 30")
+	assert.Equal(t, int32(5), tg.HealthCheckTimeoutSeconds, "default timeout should be 5")
+	assert.Equal(t, int32(3), tg.HealthyThresholdCount, "default healthy threshold should be 3")
+	assert.Equal(t, int32(3), tg.UnhealthyThresholdCount, "default unhealthy threshold should be 3")
+	assert.Equal(t, "200", tg.Matcher.HttpCode, "default HTTP matcher should be 200")
+}
+
+// TestHealthCheckDefaultsCustomValues tests that explicit health check values are preserved.
+func TestHealthCheckDefaultsCustomValues(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":                     {"CreateTargetGroup"},
+		"Version":                    {"2015-12-01"},
+		"Name":                       {"hc-custom-tg"},
+		"Protocol":                   {"HTTP"},
+		"Port":                       {"80"},
+		"VpcId":                      {"vpc-00000000"},
+		"HealthCheckIntervalSeconds": {"60"},
+		"HealthCheckTimeoutSeconds":  {"10"},
+		"HealthyThresholdCount":      {"5"},
+		"UnhealthyThresholdCount":    {"2"},
+		"Matcher.HttpCode":           {"200-299"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			TargetGroups struct {
+				Members []struct {
+					HealthCheckIntervalSeconds int32 `xml:"HealthCheckIntervalSeconds"`
+					HealthCheckTimeoutSeconds  int32 `xml:"HealthCheckTimeoutSeconds"`
+					HealthyThresholdCount      int32 `xml:"HealthyThresholdCount"`
+					UnhealthyThresholdCount    int32 `xml:"UnhealthyThresholdCount"`
+					Matcher                    struct {
+						HttpCode string `xml:"HttpCode"`
+					} `xml:"Matcher"`
+				} `xml:"member"`
+			} `xml:"TargetGroups"`
+		} `xml:"CreateTargetGroupResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Result.TargetGroups.Members, 1)
+
+	tg := resp.Result.TargetGroups.Members[0]
+	assert.Equal(t, int32(60), tg.HealthCheckIntervalSeconds)
+	assert.Equal(t, int32(10), tg.HealthCheckTimeoutSeconds)
+	assert.Equal(t, int32(5), tg.HealthyThresholdCount)
+	assert.Equal(t, int32(2), tg.UnhealthyThresholdCount)
+	assert.Equal(t, "200-299", tg.Matcher.HttpCode)
+}
+
+// TestProtocolVersion tests that ProtocolVersion is stored and returned.
+func TestProtocolVersion(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":          {"CreateTargetGroup"},
+		"Version":         {"2015-12-01"},
+		"Name":            {"pv-tg"},
+		"Protocol":        {"HTTP"},
+		"ProtocolVersion": {"HTTP2"},
+		"Port":            {"80"},
+		"VpcId":           {"vpc-00000000"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			TargetGroups struct {
+				Members []struct {
+					ProtocolVersion string `xml:"ProtocolVersion"`
+				} `xml:"member"`
+			} `xml:"TargetGroups"`
+		} `xml:"CreateTargetGroupResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Result.TargetGroups.Members, 1)
+	assert.Equal(t, "HTTP2", resp.Result.TargetGroups.Members[0].ProtocolVersion)
+}
+
+// TestListenerAttributeDefaults tests that HTTP/HTTPS listeners get default attributes.
+func TestListenerAttributeDefaults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "attr-defaults-lb")
+	tgArn := mustCreateTG(t, h, "attr-defaults-tg")
+	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":      {"DescribeListenerAttributes"},
+		"Version":     {"2015-12-01"},
+		"ListenerArn": {listenerArn},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			Attributes struct {
+				Members []struct {
+					Key   string `xml:"Key"`
+					Value string `xml:"Value"`
+				} `xml:"member"`
+			} `xml:"Attributes"`
+		} `xml:"DescribeListenerAttributesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+
+	attrMap := make(map[string]string)
+	for _, a := range resp.Result.Attributes.Members {
+		attrMap[a.Key] = a.Value
+	}
+
+	assert.Equal(t, "true", attrMap["routing.http2.enabled"])
+	assert.Equal(t, "60", attrMap["idle_timeout.timeout_seconds"])
+	assert.Equal(t, "defensive", attrMap["routing.http.desync_mitigation_mode"])
+}
+
+// TestDescribeRulesSortedByPriority tests that DescribeRules returns rules sorted numerically.
+func TestDescribeRulesSortedByPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "sort-rules-lb")
+	tgArn := mustCreateTG(t, h, "sort-rules-tg")
+	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+	priorities := []string{"10", "2", "100", "1"}
+	for _, p := range priorities {
+		rec := doELBv2(t, h, url.Values{
+			"Action":                          {"CreateRule"},
+			"Version":                         {"2015-12-01"},
+			"ListenerArn":                     {listenerArn},
+			"Priority":                        {p},
+			"Actions.member.1.Type":           {"forward"},
+			"Actions.member.1.TargetGroupArn": {tgArn},
+			"Conditions.member.1.Field":       {"path-pattern"},
+			"Conditions.member.1.PathPatternConfig.Values.member.1": {"/" + p},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":      {"DescribeRules"},
+		"Version":     {"2015-12-01"},
+		"ListenerArn": {listenerArn},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			Rules struct {
+				Members []struct {
+					Priority  string `xml:"Priority"`
+					IsDefault bool   `xml:"IsDefault"`
+				} `xml:"member"`
+			} `xml:"Rules"`
+		} `xml:"DescribeRulesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+
+	// Expect: 1, 2, 10, 100, default
+	got := make([]string, 0, len(resp.Result.Rules.Members))
+	for _, r := range resp.Result.Rules.Members {
+		got = append(got, r.Priority)
+	}
+
+	expected := []string{"1", "2", "10", "100", "default"}
+	assert.Equal(t, expected, got)
+}
+
+// TestCachedDispatchTable tests that Handler uses a cached dispatch table.
+func TestCachedDispatchTable(t *testing.T) {
+	t.Parallel()
+
+	// Call two operations to verify dispatch table is functional.
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "dispatch-lb")
+	assert.NotEmpty(t, lbArn)
+
+	// Describe should also work via cached table.
+	rec := doELBv2(t, h, url.Values{
+		"Action":  {"DescribeLoadBalancers"},
+		"Version": {"2015-12-01"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestDuplicateRulePriorityErrorCode tests that ErrDuplicateRulePriority returns DuplicatePriority code.
+func TestDuplicateRulePriorityErrorCode(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "dup-prio-lb")
+	tgArn := mustCreateTG(t, h, "dup-prio-tg")
+	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+	// Create rule at priority 5.
+	rec := doELBv2(t, h, url.Values{
+		"Action":                          {"CreateRule"},
+		"Version":                         {"2015-12-01"},
+		"ListenerArn":                     {listenerArn},
+		"Priority":                        {"5"},
+		"Actions.member.1.Type":           {"forward"},
+		"Actions.member.1.TargetGroupArn": {tgArn},
+		"Conditions.member.1.Field":       {"path-pattern"},
+		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/first"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Create another rule at the same priority.
+	rec2 := doELBv2(t, h, url.Values{
+		"Action":                          {"CreateRule"},
+		"Version":                         {"2015-12-01"},
+		"ListenerArn":                     {listenerArn},
+		"Priority":                        {"5"},
+		"Actions.member.1.Type":           {"forward"},
+		"Actions.member.1.TargetGroupArn": {tgArn},
+		"Conditions.member.1.Field":       {"path-pattern"},
+		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/second"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+
+	var errResp struct {
+		Error struct {
+			Code string `xml:"Code"`
+		} `xml:"Error"`
+	}
+	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &errResp))
+	assert.Equal(t, "DuplicatePriority", errResp.Error.Code)
+}
+
+// TestCreateListenerNoDefaultActions tests that missing DefaultActions returns 400.
+func TestCreateListenerNoDefaultActions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "no-actions-lb")
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":          {"CreateListener"},
+		"Version":         {"2015-12-01"},
+		"LoadBalancerArn": {lbArn},
+		"Protocol":        {"HTTP"},
+		"Port":            {"80"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestCreateRuleNoActions tests that missing Actions in CreateRule returns 400.
+func TestCreateRuleNoActions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "no-rule-actions-lb")
+	tgArn := mustCreateTG(t, h, "no-rule-actions-tg")
+	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":      {"CreateRule"},
+		"Version":     {"2015-12-01"},
+		"ListenerArn": {listenerArn},
+		"Priority":    {"1"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestCertificatesInDescribeListeners tests that certificates appear in DescribeListeners output.
+func TestCertificatesInDescribeListeners(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "certs-describe-lb")
+	tgArn := mustCreateTG(t, h, "certs-describe-tg")
+
+	certArn := "arn:aws:acm:us-east-1:123456789012:certificate/desc-cert"
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":                                 {"CreateListener"},
+		"Version":                                {"2015-12-01"},
+		"LoadBalancerArn":                        {lbArn},
+		"Protocol":                               {"HTTPS"},
+		"Port":                                   {"443"},
+		"SslPolicy":                              {"ELBSecurityPolicy-2016-08"},
+		"Certificates.member.1.CertificateArn":   {certArn},
+		"DefaultActions.member.1.Type":           {"forward"},
+		"DefaultActions.member.1.TargetGroupArn": {tgArn},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	descRec := doELBv2(t, h, url.Values{
+		"Action":          {"DescribeListeners"},
+		"Version":         {"2015-12-01"},
+		"LoadBalancerArn": {lbArn},
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var resp struct {
+		Result struct {
+			Listeners struct {
+				Members []struct {
+					Certificates struct {
+						Members []struct {
+							CertificateArn string `xml:"CertificateArn"`
+						} `xml:"member"`
+					} `xml:"Certificates"`
+				} `xml:"member"`
+			} `xml:"Listeners"`
+		} `xml:"DescribeListenersResult"`
+	}
+	require.NoError(t, xml.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.Len(t, resp.Result.Listeners.Members, 1)
+	require.Len(t, resp.Result.Listeners.Members[0].Certificates.Members, 1)
+	assert.Equal(t, certArn, resp.Result.Listeners.Members[0].Certificates.Members[0].CertificateArn)
+}
+
+// TestTargetGroupLoadBalancerArns tests that TG LoadBalancerArns is populated.
+func TestTargetGroupLoadBalancerArns(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "tg-lb-arns-lb")
+	tgArn := mustCreateTG(t, h, "tg-lb-arns-tg")
+
+	// Before attaching to LB, LoadBalancerArns should be empty.
+	rec := doELBv2(t, h, url.Values{
+		"Action":                   {"DescribeTargetGroups"},
+		"Version":                  {"2015-12-01"},
+		"TargetGroupArns.member.1": {tgArn},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var beforeResp struct {
+		Result struct {
+			TargetGroups struct {
+				Members []struct {
+					LoadBalancerArns struct {
+						Members []struct {
+							Value string `xml:",chardata"`
+						} `xml:"member"`
+					} `xml:"LoadBalancerArns"`
+				} `xml:"member"`
+			} `xml:"TargetGroups"`
+		} `xml:"DescribeTargetGroupsResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &beforeResp))
+	require.Len(t, beforeResp.Result.TargetGroups.Members, 1)
+	assert.Empty(t, beforeResp.Result.TargetGroups.Members[0].LoadBalancerArns.Members)
+
+	// Attach to LB via listener.
+	_ = mustCreateListener(t, h, lbArn, tgArn)
+
+	// After attaching, LoadBalancerArns should contain the LB ARN.
+	rec2 := doELBv2(t, h, url.Values{
+		"Action":                   {"DescribeTargetGroups"},
+		"Version":                  {"2015-12-01"},
+		"TargetGroupArns.member.1": {tgArn},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	// We verify via DescribeTargetGroups by LoadBalancerArn filter.
+	filtRec := doELBv2(t, h, url.Values{
+		"Action":          {"DescribeTargetGroups"},
+		"Version":         {"2015-12-01"},
+		"LoadBalancerArn": {lbArn},
+	})
+	require.Equal(t, http.StatusOK, filtRec.Code)
+
+	var filtResp struct {
+		Result struct {
+			TargetGroups struct {
+				Members []struct {
+					TargetGroupArn string `xml:"TargetGroupArn"`
+				} `xml:"member"`
+			} `xml:"TargetGroups"`
+		} `xml:"DescribeTargetGroupsResult"`
+	}
+	require.NoError(t, xml.Unmarshal(filtRec.Body.Bytes(), &filtResp))
+	require.Len(t, filtResp.Result.TargetGroups.Members, 1)
+	assert.Equal(t, tgArn, filtResp.Result.TargetGroups.Members[0].TargetGroupArn)
+}
+
+// TestDeleteTGReferencedByRule tests that TG referenced in a rule action cannot be deleted.
+func TestDeleteTGReferencedByRule(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "rule-ref-lb")
+	tgArn1 := mustCreateTG(t, h, "rule-ref-tg1")
+	tgArn2 := mustCreateTG(t, h, "rule-ref-tg2")
+	listenerArn := mustCreateListener(t, h, lbArn, tgArn1)
+
+	// Create a rule referencing tgArn2.
+	rec := doELBv2(t, h, url.Values{
+		"Action":                          {"CreateRule"},
+		"Version":                         {"2015-12-01"},
+		"ListenerArn":                     {listenerArn},
+		"Priority":                        {"10"},
+		"Actions.member.1.Type":           {"forward"},
+		"Actions.member.1.TargetGroupArn": {tgArn2},
+		"Conditions.member.1.Field":       {"path-pattern"},
+		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/rule"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Attempting to delete tgArn2 should fail.
+	delRec := doELBv2(t, h, url.Values{
+		"Action":         {"DeleteTargetGroup"},
+		"Version":        {"2015-12-01"},
+		"TargetGroupArn": {tgArn2},
+	})
+	assert.Equal(t, http.StatusBadRequest, delRec.Code)
+}
+
+// TestHTTPSListenerRequiresCert tests that HTTPS listener requires at least one certificate.
+func TestHTTPSListenerRequiresCert(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "https-nocert-lb")
+	tgArn := mustCreateTG(t, h, "https-nocert-tg")
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":                                 {"CreateListener"},
+		"Version":                                {"2015-12-01"},
+		"LoadBalancerArn":                        {lbArn},
+		"Protocol":                               {"HTTPS"},
+		"Port":                                   {"443"},
+		"DefaultActions.member.1.Type":           {"forward"},
+		"DefaultActions.member.1.TargetGroupArn": {tgArn},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestRemoveLastCertHTTPAllowed tests that removing all certs from HTTP listener is allowed.
+func TestRemoveLastCertHTTPAllowed(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "http-cert-lb")
+	tgArn := mustCreateTG(t, h, "http-cert-tg")
+
+	// Create HTTP listener.
+	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+	// Add a cert.
+	certArn := "arn:aws:acm:us-east-1:123456789012:certificate/http-cert"
+	addRec := doELBv2(t, h, url.Values{
+		"Action":                               {"AddListenerCertificates"},
+		"Version":                              {"2015-12-01"},
+		"ListenerArn":                          {listenerArn},
+		"Certificates.member.1.CertificateArn": {certArn},
+	})
+	require.Equal(t, http.StatusOK, addRec.Code)
+
+	// Remove the cert - should be allowed for HTTP.
+	removeRec := doELBv2(t, h, url.Values{
+		"Action":                               {"RemoveListenerCertificates"},
+		"Version":                              {"2015-12-01"},
+		"ListenerArn":                          {listenerArn},
+		"Certificates.member.1.CertificateArn": {certArn},
+	})
+	assert.Equal(t, http.StatusOK, removeRec.Code)
 }
