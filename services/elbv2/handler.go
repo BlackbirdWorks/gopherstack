@@ -25,6 +25,7 @@ const (
 	elbv2Version   = "2015-12-01"
 	elbv2XMLNS     = "http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"
 	attrValueFalse = "false"
+	attrValueTrue  = "true"
 )
 
 // Handler is the Echo HTTP handler for ELBv2 operations.
@@ -281,6 +282,17 @@ func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	scheme := vals.Get("Scheme")
+	switch scheme {
+	case "internet-facing", "internal", "":
+		// valid
+	default:
+		return nil, fmt.Errorf(
+			"%w: Scheme must be internet-facing or internal, got %q",
+			ErrInvalidParameter, scheme,
+		)
+	}
+
 	azs := parseMembers(vals, "AvailabilityZones.member")
 	sgs := parseMembers(vals, "SecurityGroups.member")
 	tagKVs := parseTagKVs(vals)
@@ -414,11 +426,56 @@ func (h *Handler) handleSetSecurityGroups(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
+	sgs := parseMembers(vals, "SecurityGroups.member")
+
+	lb, err := h.Backend.SetSecurityGroups(lbArn, sgs)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlStringValue, 0, len(lb.SecurityGroups))
+	for _, sg := range lb.SecurityGroups {
+		members = append(members, xmlStringValue{Value: sg})
+	}
+
 	return &setSecurityGroupsResponse{
 		Xmlns:            elbv2XMLNS,
-		Result:           setSecurityGroupsResult{SecurityGroupIDs: xmlStringList{Members: []xmlStringValue{}}},
+		Result:           setSecurityGroupsResult{SecurityGroupIDs: xmlStringList{Members: members}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-sgs"},
 	}, nil
+}
+
+// parseAvailabilityZones collects subnet IDs from SubnetMappings.member.N.SubnetId
+// and plain Subnets.member.N fields.
+func parseAvailabilityZones(vals url.Values) []string {
+	result := make([]string, 0)
+	seen := make(map[string]bool)
+
+	for i := 1; ; i++ {
+		s := vals.Get(fmt.Sprintf("SubnetMappings.member.%d.SubnetId", i))
+		if s == "" {
+			break
+		}
+
+		if !seen[s] {
+			result = append(result, s)
+			seen[s] = true
+		}
+	}
+
+	for i := 1; ; i++ {
+		s := vals.Get(fmt.Sprintf("Subnets.member.%d", i))
+		if s == "" {
+			break
+		}
+
+		if !seen[s] {
+			result = append(result, s)
+			seen[s] = true
+		}
+	}
+
+	return result
 }
 
 func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
@@ -427,9 +484,21 @@ func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
+	azs := parseAvailabilityZones(vals)
+
+	lb, err := h.Backend.SetSubnets(lbArn, azs)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlStringValue, 0, len(lb.AvailabilityZones))
+	for _, az := range lb.AvailabilityZones {
+		members = append(members, xmlStringValue{Value: az})
+	}
+
 	return &setSubnetsResponse{
 		Xmlns:            elbv2XMLNS,
-		Result:           setSubnetsResult{AvailabilityZones: xmlStringList{Members: []xmlStringValue{}}},
+		Result:           setSubnetsResult{AvailabilityZones: xmlStringList{Members: members}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-subnets"},
 	}, nil
 }
@@ -440,9 +509,16 @@ func (h *Handler) handleSetIPAddressType(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
+	ipType := vals.Get("IpAddressType")
+
+	lb, err := h.Backend.SetIPAddressType(lbArn, ipType)
+	if err != nil {
+		return nil, err
+	}
+
 	return &setIPAddressTypeResponse{
 		Xmlns:            elbv2XMLNS,
-		Result:           setIPAddressTypeResult{IPAddressType: vals.Get("IpAddressType")},
+		Result:           setIPAddressTypeResult{IPAddressType: lb.IPAddressType},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-ip-type"},
 	}, nil
 }
@@ -455,18 +531,33 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	targetType := vals.Get("TargetType")
+
 	portStr := vals.Get("Port")
-	if portStr == "" {
-		return nil, fmt.Errorf("%w: Port is required", ErrInvalidParameter)
-	}
+	var port int32
 
-	port, err := parseInt32(portStr)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
-	}
+	if targetType != "lambda" {
+		if portStr == "" {
+			return nil, fmt.Errorf("%w: Port is required", ErrInvalidParameter)
+		}
 
-	if err := validatePort(port); err != nil {
-		return nil, err
+		p, err := parseInt32(portStr)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+		}
+
+		if err := validatePort(p); err != nil {
+			return nil, err
+		}
+
+		port = p
+	} else if portStr != "" {
+		p, err := parseInt32(portStr)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+		}
+
+		port = p
 	}
 
 	tagKVs := parseTagKVs(vals)
@@ -487,7 +578,7 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		ProtocolVersion:     vals.Get("ProtocolVersion"),
 		Port:                port,
 		VpcID:               vals.Get("VpcId"),
-		TargetType:          vals.Get("TargetType"),
+		TargetType:          targetType,
 		Tags:                tagKVs,
 		HealthCheckProtocol: vals.Get("HealthCheckProtocol"),
 		HealthCheckPort:     vals.Get("HealthCheckPort"),
@@ -1324,12 +1415,11 @@ func (h *Handler) handleAddListenerCertificates(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: ListenerArn is required", ErrInvalidParameter)
 	}
 
-	certArns := parseCertArns(vals)
-	if len(certArns) == 0 {
+	certs := parseCerts(vals)
+	if len(certs) == 0 {
 		return nil, fmt.Errorf("%w: at least one certificate ARN is required", ErrInvalidParameter)
 	}
 
-	certs := parseCerts(vals)
 	if err := h.Backend.AddListenerCertificates(listenerArn, certs); err != nil {
 		return nil, err
 	}
@@ -1442,7 +1532,7 @@ func (h *Handler) handleDescribeCapacityReservation(vals url.Values) (any, error
 	}, nil
 }
 
-func (h *Handler) handleDescribeSSLPolicies(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeSSLPolicies(vals url.Values) (any, error) {
 	const (
 		priority1 = 1
 		priority2 = 2
@@ -1482,6 +1572,24 @@ func (h *Handler) handleDescribeSSLPolicies(_ url.Values) (any, error) {
 				{Value: "TLSv1.3"},
 			}},
 		},
+	}
+
+	// Filter by requested names if provided.
+	requestedNames := parseMembers(vals, "Names.member")
+	if len(requestedNames) > 0 {
+		nameSet := make(map[string]bool, len(requestedNames))
+		for _, n := range requestedNames {
+			nameSet[n] = true
+		}
+
+		filtered := policies[:0]
+		for _, p := range policies {
+			if nameSet[p.Name] {
+				filtered = append(filtered, p)
+			}
+		}
+
+		policies = filtered
 	}
 
 	return &describeSSLPoliciesResponse{
@@ -3107,7 +3215,7 @@ func toXMLTrustStore(ts *TrustStore) xmlTrustStore {
 		Name:                ts.Name,
 		Status:              ts.Status,
 		NumberOfCaCerts:     0,
-		TotalRevokedEntries: int64(len(ts.Revocations)),
+		TotalRevokedEntries: ts.TotalRevokedEntries,
 	}
 }
 
