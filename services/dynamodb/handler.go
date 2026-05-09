@@ -665,6 +665,13 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 }
 
 func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, body []byte) (any, error) {
+	// Validate table name from wire payload before dispatching.
+	// Tests call InMemoryDB methods directly (short names acceptable there);
+	// wire-level requests must satisfy the 3-255 char constraint.
+	if err := validateTableNameFromBody(body); err != nil {
+		return nil, err
+	}
+
 	switch action {
 	case opCreateTable:
 		return handleOp(
@@ -867,6 +874,22 @@ func handleStreamsGetRecords(
 	}
 
 	return wireOut, nil
+}
+
+// validateTableNameFromBody extracts "TableName" from the JSON body and checks it
+// against the DynamoDB table-name constraints. Returns nil when the body has no
+// TableName field (caller handles the missing-name error separately).
+func validateTableNameFromBody(body []byte) error {
+	var req struct {
+		TableName string `json:"TableName"`
+	}
+
+	_ = json.Unmarshal(body, &req)
+	if req.TableName == "" {
+		return nil // missing table name is handled downstream
+	}
+
+	return validateTableName(req.TableName)
 }
 
 func (h *DynamoDBHandler) handleError(

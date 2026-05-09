@@ -367,6 +367,10 @@ func validateSetValue(k, t string, val any) error {
 		}
 	}
 
+	if dupErr := validateSetNoDuplicates(k, list); dupErr != nil {
+		return dupErr
+	}
+
 	return nil
 }
 
@@ -398,8 +402,19 @@ func normalizeSetList(k, t string, val any) ([]any, error) {
 func validateSetItem(k, t string, item any) error {
 	switch t {
 	case typeSS:
-		if _, ok := item.(string); !ok {
+		s, ok := item.(string)
+		if !ok {
 			return NewValidationException(fmt.Sprintf("Attribute %s elements must be strings", k))
+		}
+
+		if s == "" {
+			return NewValidationException(
+				fmt.Sprintf(
+					"One or more parameter values are not valid. "+
+						"An AttributeValue may not contain an empty string. Key: %s",
+					k,
+				),
+			)
 		}
 	case typeNS:
 		s, ok := item.(string)
@@ -443,6 +458,9 @@ func validateScalarValue(k, t string, val any) error {
 			return NewValidationException(
 				fmt.Sprintf("Attribute %s of type N must be a valid number", k),
 			)
+		}
+		if err := validateNumberNoLeadingZeros(k, valStr); err != nil {
+			return err
 		}
 	case typeBOOL:
 		if _, ok := val.(bool); !ok {

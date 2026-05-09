@@ -52,6 +52,10 @@ func (db *InMemoryDB) QueryWithContext(
 	default:
 	}
 
+	if err := validatePositiveLimit(input.Limit); err != nil {
+		return nil, err
+	}
+
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
@@ -80,6 +84,7 @@ func (db *InMemoryDB) QueryWithContext(
 	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
 	copy(attrDefs, table.AttributeDefinitions)
 	ttlAttr := table.TTLAttribute
+	billingMode := table.BillingMode
 
 	// Copy only the index entries we actually need:
 	// - GSI/LSI queries never use the primary index, so skip it entirely.
@@ -118,10 +123,16 @@ func (db *InMemoryDB) QueryWithContext(
 		return nil, err
 	}
 
-	// Enforce throughput: charge 0.5 RCU per scanned candidate (eventually-consistent).
+	// Enforce throughput: charge RCU per scanned candidate.
+	// Double cost for strongly-consistent reads; bypass for PAY_PER_REQUEST.
 	region := getRegionFromContext(ctx, db)
-	if err = db.throttler.ConsumeRead(throttleKey(region, tableName), rcuForCount(len(candidates))); err != nil {
-		return nil, err
+	consistentRead := aws.ToBool(input.ConsistentRead)
+	rcuUnits := applyConsistentReadMultiplier(rcuForCount(len(candidates)), consistentRead)
+
+	if !isOnDemandTable(billingMode) {
+		if err = db.throttler.ConsumeRead(throttleKey(region, tableName), rcuUnits); err != nil {
+			return nil, err
+		}
 	}
 
 	_, skDef := getPKAndSK(keySchema)

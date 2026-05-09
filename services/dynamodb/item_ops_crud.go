@@ -21,6 +21,24 @@ func (db *InMemoryDB) PutItem(
 		return nil, NewValidationException("Table name is required")
 	}
 
+	if err := validatePutDeleteReturnValues(input.ReturnValues); err != nil {
+		return nil, err
+	}
+
+	if err := validateExpressionAttributeNames(input.ExpressionAttributeNames); err != nil {
+		return nil, err
+	}
+
+	condExpr := aws.ToString(input.ConditionExpression)
+	if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
+		return nil, err
+	}
+
+	wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
+	if err := checkUnusedExpressionAttributeValues(wireEAV, condExpr); err != nil {
+		return nil, err
+	}
+
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
@@ -41,12 +59,16 @@ func (db *InMemoryDB) PutItem(
 	}
 
 	// Enforce throughput after validation, before mutating state.
+	// PAY_PER_REQUEST tables bypass throttling.
 	wcu := WriteCapacityUnits(wireItem)
 	region := getRegionFromContext(ctx, db)
-	if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), wcu); throttleErr != nil {
-		table.mu.Unlock()
 
-		return nil, throttleErr
+	if !isOnDemandTable(table.BillingMode) {
+		if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), wcu); throttleErr != nil {
+			table.mu.Unlock()
+
+			return nil, throttleErr
+		}
 	}
 
 	oldItem, matchIndex := db.findMatchForPut(table, wireItem)
@@ -144,9 +166,14 @@ func (db *InMemoryDB) doPut(table *Table, item map[string]any, matchIndex int) {
 }
 
 func (db *InMemoryDB) validateItem(item map[string]any, table *Table) error {
+	if err := validateAttributeNames(item); err != nil {
+		return err
+	}
+
 	if err := ValidateDataTypes(item); err != nil {
 		return err
 	}
+
 	if err := ValidateItemSize(item); err != nil {
 		return err
 	}
@@ -204,6 +231,12 @@ func (db *InMemoryDB) GetItem(
 		return nil, err
 	}
 
+	// Validate projection params before taking any lock.
+	projExpr := aws.ToString(input.ProjectionExpression)
+	if projErr := validateProjectionParams(projExpr, input.AttributesToGet); projErr != nil {
+		return nil, projErr
+	}
+
 	table.mu.RLock("GetItem")
 	defer table.mu.RUnlock()
 
@@ -214,13 +247,18 @@ func (db *InMemoryDB) GetItem(
 	}
 
 	// Enforce throughput after key validation so that invalid requests do not
-	// consume tokens.
+	// consume tokens. Double RCU for strongly-consistent reads.
+	consistentRead := aws.ToBool(input.ConsistentRead)
+	rcu := applyConsistentReadMultiplier(models.ConsumedReadUnit, consistentRead)
 	region := getRegionFromContext(ctx, db)
-	if throttleErr := db.throttler.ConsumeRead(
-		throttleKey(region, tableName),
-		models.ConsumedReadUnit,
-	); throttleErr != nil {
-		return nil, throttleErr
+
+	if !isOnDemandTable(table.BillingMode) {
+		if throttleErr := db.throttler.ConsumeRead(
+			throttleKey(region, tableName),
+			rcu,
+		); throttleErr != nil {
+			return nil, throttleErr
+		}
 	}
 
 	pkDef, skDef := getPKAndSK(table.KeySchema)
@@ -230,10 +268,12 @@ func (db *InMemoryDB) GetItem(
 		return &dynamodb.GetItemOutput{}, nil
 	}
 
+	// Resolve effective projection (fallback to AttributesToGet).
+	effectiveProj := resolveProjection(projExpr, input.AttributesToGet)
 	result := item
-	proj := aws.ToString(input.ProjectionExpression)
-	if proj != "" {
-		result = projectItem(item, proj, input.ExpressionAttributeNames)
+
+	if effectiveProj != "" {
+		result = projectItem(item, effectiveProj, input.ExpressionAttributeNames)
 	}
 
 	sdkItem, err := models.ToSDKItem(result)
@@ -249,6 +289,24 @@ func (db *InMemoryDB) DeleteItem(
 	input *dynamodb.DeleteItemInput,
 ) (*dynamodb.DeleteItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
+
+	if err := validatePutDeleteReturnValues(input.ReturnValues); err != nil {
+		return nil, err
+	}
+
+	if err := validateExpressionAttributeNames(input.ExpressionAttributeNames); err != nil {
+		return nil, err
+	}
+
+	condExpr := aws.ToString(input.ConditionExpression)
+	if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
+		return nil, err
+	}
+
+	wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
+	if err := checkUnusedExpressionAttributeValues(wireEAV, condExpr); err != nil {
+		return nil, err
+	}
 
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
@@ -266,12 +324,15 @@ func (db *InMemoryDB) DeleteItem(
 	}
 
 	// Enforce throughput after key validation so that invalid requests do not
-	// consume tokens.
+	// consume tokens. PAY_PER_REQUEST tables bypass throttling.
 	region := getRegionFromContext(ctx, db)
-	if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); throttleErr != nil {
-		table.mu.Unlock()
 
-		return nil, throttleErr
+	if !isOnDemandTable(table.BillingMode) {
+		if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); throttleErr != nil {
+			table.mu.Unlock()
+
+			return nil, throttleErr
+		}
 	}
 
 	pkDef, skDef := getPKAndSK(table.KeySchema)
@@ -386,6 +447,27 @@ func (db *InMemoryDB) UpdateItem(
 		return nil, err
 	}
 
+	if err = validateExpressionAttributeNames(input.ExpressionAttributeNames); err != nil {
+		return nil, err
+	}
+
+	updateExpr := aws.ToString(input.UpdateExpression)
+	condExpr := aws.ToString(input.ConditionExpression)
+	allExprs := []string{updateExpr, condExpr}
+
+	if err = checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, allExprs...); err != nil {
+		return nil, err
+	}
+
+	wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
+	if err = checkUnusedExpressionAttributeValues(wireEAV, allExprs...); err != nil {
+		return nil, err
+	}
+
+	if err = validateUpdateDoesNotModifyKeys(updateExpr, input.ExpressionAttributeNames, table.KeySchema); err != nil {
+		return nil, err
+	}
+
 	table.mu.Lock("UpdateItem")
 
 	wireKey := models.FromSDKItem(input.Key)
@@ -397,12 +479,15 @@ func (db *InMemoryDB) UpdateItem(
 	}
 
 	// Enforce throughput after key validation so that invalid requests do not
-	// consume tokens.
+	// consume tokens. PAY_PER_REQUEST tables bypass throttling.
 	region := getRegionFromContext(ctx, db)
-	if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); throttleErr != nil {
-		table.mu.Unlock()
 
-		return nil, throttleErr
+	if !isOnDemandTable(table.BillingMode) {
+		if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); throttleErr != nil {
+			table.mu.Unlock()
+
+			return nil, throttleErr
+		}
 	}
 
 	existing, matchIndex := db.findMatchForPut(table, wireKey)

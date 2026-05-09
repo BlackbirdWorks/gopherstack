@@ -51,10 +51,24 @@ func (db *InMemoryDB) ScanWithContext(
 	default:
 	}
 
+	if err := validatePositiveLimit(input.Limit); err != nil {
+		return nil, err
+	}
+
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
+	}
+
+	// Validate Segment/TotalSegments before doing any work.
+	if input.TotalSegments != nil {
+		if segErr := validateScanSegment(
+			aws.ToInt32(input.Segment),
+			aws.ToInt32(input.TotalSegments),
+		); segErr != nil {
+			return nil, segErr
+		}
 	}
 
 	// Snapshot items and metadata under lock, release immediately.
@@ -72,6 +86,7 @@ func (db *InMemoryDB) ScanWithContext(
 	copy(lsiList, table.LocalSecondaryIndexes)
 	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
 	copy(attrDefs, table.AttributeDefinitions)
+	billingMode := table.BillingMode
 	table.mu.RUnlock()
 
 	// Get key schema definitions (reconstruct the table temporarily for getScanKeySchema)
@@ -90,11 +105,17 @@ func (db *InMemoryDB) ScanWithContext(
 	// Process scan outside the lock
 	items, lastKey, scannedCount := db.doScan(ctx, itemsCopy, ttlAttr, snapshotTable, input, pkDef, skDef)
 
-	// Enforce throughput: charge 0.5 RCU per scanned item (eventually-consistent).
+	// Enforce throughput: charge RCU per scanned item.
+	// Double for strongly-consistent; bypass for PAY_PER_REQUEST.
 	n := int(scannedCount) // #nosec G115 -- scannedCount is bounded by len(table.Items) which fits in int
 	region := getRegionFromContext(ctx, db)
-	if err = db.throttler.ConsumeRead(throttleKey(region, tableName), rcuForCount(n)); err != nil {
-		return nil, err
+	consistentRead := aws.ToBool(input.ConsistentRead)
+	rcuUnits := applyConsistentReadMultiplier(rcuForCount(n), consistentRead)
+
+	if !isOnDemandTable(billingMode) {
+		if err = db.throttler.ConsumeRead(throttleKey(region, tableName), rcuUnits); err != nil {
+			return nil, err
+		}
 	}
 
 	outItems := make([]map[string]types.AttributeValue, len(items))

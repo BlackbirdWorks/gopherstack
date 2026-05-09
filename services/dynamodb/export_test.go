@@ -421,6 +421,100 @@ func NthSmallestForTest(ts []time.Time, n int) time.Time {
 	return nthSmallest(ts, n)
 }
 
+// ---- accuracy_audit.go exports ----
+
+// ValidateEAVTypes exposes validateEAVTypes for external tests.
+func ValidateEAVTypes(eav map[string]any) error {
+	return validateEAVTypes(eav)
+}
+
+// ValidateAttributeNames exposes validateAttributeNames for external tests.
+func ValidateAttributeNames(item map[string]any) error {
+	return validateAttributeNames(item)
+}
+
+// IsItemExpiredWithGrace exposes isItemExpiredWithGrace for external tests.
+func IsItemExpiredWithGrace(item map[string]any, ttlAttr string, grace time.Duration) bool {
+	return isItemExpiredWithGrace(item, ttlAttr, grace)
+}
+
+// BuildConsumedCapacityWithIndexes exposes buildConsumedCapacityWithIndexes for external tests.
+func BuildConsumedCapacityWithIndexes(
+	tableName string,
+	req types.ReturnConsumedCapacity,
+	tableRCU, tableWCU float64,
+	gsiRCU, gsiWCU map[string]float64,
+	lsiRCU, lsiWCU map[string]float64,
+) *types.ConsumedCapacity {
+	return buildConsumedCapacityWithIndexes(tableName, req, tableRCU, tableWCU, gsiRCU, gsiWCU, lsiRCU, lsiWCU)
+}
+
+// ValidateTransactWriteItems exposes validateTransactWriteItems for external tests.
+func ValidateTransactWriteItems(items []types.TransactWriteItem, tables map[string]*Table) error {
+	return validateTransactWriteItems(items, tables)
+}
+
+// ValidateScanSegment exposes validateScanSegment for external tests.
+func ValidateScanSegment(segment, totalSegments int32) error {
+	return validateScanSegment(segment, totalSegments)
+}
+
+func ValidateTableName(name string) error {
+	return validateTableName(name)
+}
+
+func ValidateListTablesLimit(limit *int32) error {
+	return validateListTablesLimit(limit)
+}
+
+func ValidatePositiveLimit(limit *int32) error {
+	return validatePositiveLimit(limit)
+}
+
+func ValidatePutDeleteReturnValues(rv types.ReturnValue) error {
+	return validatePutDeleteReturnValues(rv)
+}
+
+func ValidateTransactItemCount(n int, opName string) error {
+	return validateTransactItemCount(n, opName)
+}
+
+func ValidateExpressionAttributeNames(ean map[string]string) error {
+	return validateExpressionAttributeNames(ean)
+}
+
+func CheckUnusedExpressionAttributeNames(ean map[string]string, exprs ...string) error {
+	return checkUnusedExpressionAttributeNames(ean, exprs...)
+}
+
+func CheckUnusedExpressionAttributeValues(eav map[string]any, exprs ...string) error {
+	return checkUnusedExpressionAttributeValues(eav, exprs...)
+}
+
+func ValidateUpdateDoesNotModifyKeys(
+	updateExpr string,
+	ean map[string]string,
+	keySchema []models.KeySchemaElement,
+) error {
+	return validateUpdateDoesNotModifyKeys(updateExpr, ean, keySchema)
+}
+
+func ValidateSetNoDuplicates(k string, items []any) error {
+	return validateSetNoDuplicates(k, items)
+}
+
+func ValidateCreateTableKeySchema(schema []models.KeySchemaElement) error {
+	return validateCreateTableKeySchema(schema)
+}
+
+func ValidateProvisionedThroughput(pt *types.ProvisionedThroughput, billingMode types.BillingMode) error {
+	return validateProvisionedThroughput(pt, billingMode)
+}
+
+func ValidateNumberNoLeadingZeros(k, n string) error {
+	return validateNumberNoLeadingZeros(k, n)
+}
+
 // HandleRequest exposes the handler's dispatch method for use in tests.
 // It calls the internal dispatch function and returns the result.
 func (h *DynamoDBHandler) HandleRequest(ctx context.Context, action string, body []byte) (any, error) {

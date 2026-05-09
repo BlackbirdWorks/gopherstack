@@ -36,6 +36,10 @@ func (db *InMemoryDB) TransactWriteItems(
 		return nil, NewValidationException("TransactItems must not be empty")
 	}
 
+	if err := validateTransactItemCount(len(input.TransactItems), "TransactWriteItems"); err != nil {
+		return nil, err
+	}
+
 	token := aws.ToString(input.ClientRequestToken)
 	done, out, cleanupToken, err := db.checkTransactToken(token)
 	if done {
@@ -81,6 +85,11 @@ func (db *InMemoryDB) executeTransactWrite(
 			t.mu.Unlock()
 		}
 	}()
+
+	// Pre-phase: validate duplicate keys and total size.
+	if dupErr := validateTransactWriteItems(input.TransactItems, tables); dupErr != nil {
+		return nil, dupErr
+	}
 
 	// Phase 1: Check conditions.
 	reasons := make([]CancellationReason, len(input.TransactItems))
@@ -164,7 +173,7 @@ func (db *InMemoryDB) collectTransactReplicationPayloads(
 				globalTableName: table.GlobalTableName,
 				region:          currentRegion,
 				item:            deepCopyItem(wireKey),
-				op:              "DELETE",
+				op:              replicationOpDelete,
 			})
 
 		case ti.Update != nil:
@@ -300,6 +309,10 @@ func (db *InMemoryDB) TransactGetItems(
 ) (*dynamodb.TransactGetItemsOutput, error) {
 	if len(input.TransactItems) == 0 {
 		return nil, NewValidationException("TransactItems must not be empty")
+	}
+
+	if err := validateTransactItemCount(len(input.TransactItems), "TransactGetItems"); err != nil {
+		return nil, err
 	}
 
 	tableNames := make([]string, 0)
