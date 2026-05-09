@@ -20,7 +20,6 @@ func createKAV2App(t *testing.T, h *kinesisanalyticsv2.Handler, name string) {
 		"ApplicationConfiguration": map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-
 }
 
 func TestKAV2_TagOperations(t *testing.T) {
