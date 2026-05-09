@@ -43,6 +43,8 @@ func TestPinpoint_EmailTemplate_GetUpdateDelete(t *testing.T) {
 }
 
 func TestPinpoint_InAppTemplate_GetUpdateDelete(t *testing.T) {
+	t.Parallel()
+
 	h := newHandlerForTest(t)
 
 	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/templates/my-inapp/inapp", map[string]any{
@@ -136,7 +138,7 @@ func TestPinpoint_Endpoints_CRUD(t *testing.T) {
 				"Address":     "+15555550100",
 			}},
 		})
-	assert.True(t, rec.Code > 0) // PutEndpoints batch may not be implemented
+	assert.Positive(t, rec.Code) // PutEndpoints batch may not be implemented
 
 	rec = doPinpointRequest(t, h, http.MethodGet,
 		fmt.Sprintf("/v1/apps/%s/users/%s", appID, "user-1"), nil)
