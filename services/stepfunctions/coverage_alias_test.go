@@ -17,7 +17,7 @@ import (
 func createSFNStateMachineCov(ctx context.Context, t *testing.T, h *stepfunctions.Handler, e *echo.Echo, name string) string {
 	t.Helper()
 
-	rec := sfnPost(ctx, t, h, e, "CreateStateMachine", makeSMBody(name, `{"Comment":"test"}`, "STANDARD"))
+	rec := sfnPost(ctx, t, h, e, "CreateStateMachine", makeSMBody(name, validPassDef, "STANDARD"))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
