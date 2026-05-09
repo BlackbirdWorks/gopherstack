@@ -299,7 +299,7 @@ func TestValidateDataTypes_Sets(t *testing.T) {
 		},
 		{
 			name: "Valid BS",
-			item: map[string]any{"set": map[string]any{"BS": []any{"YmFzZTY0", "YmFzZTY0"}}},
+			item: map[string]any{"set": map[string]any{"BS": []any{"YmFzZTY0", "dGVzdA=="}}},
 		},
 		{
 			name:    "Invalid BS element type",

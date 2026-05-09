@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	ddb "github.com/blackbirdworks/gopherstack/services/dynamodb"
+	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -2100,4 +2101,243 @@ func TestSS_NonEmptyStrings_Accepted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SS with non-empty strings should be accepted: %v", err)
 	}
+}
+
+// ─── Section 23: Set duplicate value detection ───────────────────────────────
+
+func TestSS_DuplicateValues_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk":   &types.AttributeValueMemberS{Value: "p1"},
+			"sk":   &types.AttributeValueMemberS{Value: "s1"},
+			"tags": &types.AttributeValueMemberSS{Value: []string{"dup", "dup"}},
+		},
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+	if err != nil && !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("expected 'duplicate' in error, got: %v", err)
+	}
+}
+
+func TestNS_DuplicateValues_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk":    &types.AttributeValueMemberS{Value: "p1"},
+			"sk":    &types.AttributeValueMemberS{Value: "s1"},
+			"nums":  &types.AttributeValueMemberNS{Value: []string{"1", "2", "1"}},
+		},
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestSS_UniqueValues_Accepted(t *testing.T) {
+	t.Parallel()
+
+	err := ddb.ValidateSetNoDuplicates("tags", []any{"a", "b", "c"})
+	if err != nil {
+		t.Fatalf("unique SS values should be accepted: %v", err)
+	}
+}
+
+func TestSS_DuplicateValues_DirectValidation(t *testing.T) {
+	t.Parallel()
+
+	err := ddb.ValidateSetNoDuplicates("tags", []any{"x", "y", "x"})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+// ─── Section 24: CreateTable KeySchema structure validation ──────────────────
+
+func TestCreateTable_NoHashKey_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	ctx := context.Background()
+
+	_, err := db.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName: aws.String("tbl"),
+		KeySchema: []types.KeySchemaElement{
+			// Only a RANGE key — no HASH key
+			{AttributeName: aws.String("sk"), KeyType: types.KeyTypeRange},
+		},
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
+		},
+		BillingMode: types.BillingModePayPerRequest,
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestCreateTable_TwoHashKeys_Rejected(t *testing.T) {
+	t.Parallel()
+
+	keySchema := []ddbmodels.KeySchemaElement{
+		{AttributeName: "pk1", KeyType: ddbmodels.KeyTypeHash},
+		{AttributeName: "pk2", KeyType: ddbmodels.KeyTypeHash},
+	}
+	err := ddb.ValidateCreateTableKeySchema(keySchema)
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestCreateTable_HashAndRange_Accepted(t *testing.T) {
+	t.Parallel()
+
+	keySchema := []ddbmodels.KeySchemaElement{
+		{AttributeName: "pk", KeyType: ddbmodels.KeyTypeHash},
+		{AttributeName: "sk", KeyType: ddbmodels.KeyTypeRange},
+	}
+	if err := ddb.ValidateCreateTableKeySchema(keySchema); err != nil {
+		t.Fatalf("valid hash+range schema should be accepted: %v", err)
+	}
+}
+
+func TestCreateTable_HashOnly_Accepted(t *testing.T) {
+	t.Parallel()
+
+	keySchema := []ddbmodels.KeySchemaElement{
+		{AttributeName: "pk", KeyType: ddbmodels.KeyTypeHash},
+	}
+	if err := ddb.ValidateCreateTableKeySchema(keySchema); err != nil {
+		t.Fatalf("hash-only schema should be accepted: %v", err)
+	}
+}
+
+// ─── Section 25: ProvisionedThroughput > 0 validation ───────────────────────
+
+func TestProvisionedThroughput_ZeroRead_Rejected(t *testing.T) {
+	t.Parallel()
+
+	zero := int64(0)
+	one := int64(1)
+	pt := &types.ProvisionedThroughput{
+		ReadCapacityUnits:  &zero,
+		WriteCapacityUnits: &one,
+	}
+	err := ddb.ValidateProvisionedThroughput(pt, types.BillingModeProvisioned)
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestProvisionedThroughput_ZeroWrite_Rejected(t *testing.T) {
+	t.Parallel()
+
+	one := int64(1)
+	zero := int64(0)
+	pt := &types.ProvisionedThroughput{
+		ReadCapacityUnits:  &one,
+		WriteCapacityUnits: &zero,
+	}
+	err := ddb.ValidateProvisionedThroughput(pt, types.BillingModeProvisioned)
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+func TestProvisionedThroughput_PayPerRequest_NoCheck(t *testing.T) {
+	t.Parallel()
+
+	// PAY_PER_REQUEST: ProvisionedThroughput constraints don't apply.
+	zero := int64(0)
+	pt := &types.ProvisionedThroughput{ReadCapacityUnits: &zero, WriteCapacityUnits: &zero}
+	if err := ddb.ValidateProvisionedThroughput(pt, types.BillingModePayPerRequest); err != nil {
+		t.Fatalf("PAY_PER_REQUEST should skip throughput validation: %v", err)
+	}
+}
+
+func TestProvisionedThroughput_NilPT_Accepted(t *testing.T) {
+	t.Parallel()
+
+	// nil ProvisionedThroughput uses server-side defaults.
+	if err := ddb.ValidateProvisionedThroughput(nil, types.BillingModeProvisioned); err != nil {
+		t.Fatalf("nil PT should be accepted (default applies): %v", err)
+	}
+}
+
+func TestProvisionedThroughput_Positive_Accepted(t *testing.T) {
+	t.Parallel()
+
+	rcu := int64(5)
+	wcu := int64(5)
+	pt := &types.ProvisionedThroughput{ReadCapacityUnits: &rcu, WriteCapacityUnits: &wcu}
+	if err := ddb.ValidateProvisionedThroughput(pt, types.BillingModeProvisioned); err != nil {
+		t.Fatalf("positive throughput should be accepted: %v", err)
+	}
+}
+
+func TestCreateTable_ExplicitZeroThroughput_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	ctx := context.Background()
+
+	_, err := db.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName: aws.String("tbl"),
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+		},
+		BillingMode: types.BillingModeProvisioned,
+		ProvisionedThroughput: &types.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(0),
+			WriteCapacityUnits: aws.Int64(5),
+		},
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
+}
+
+// ─── Section 29: Number string leading-zero rejection ────────────────────────
+
+func TestNumber_LeadingZero_Rejected(t *testing.T) {
+	t.Parallel()
+	cases := []string{"007", "01", "01.5", "-01"}
+
+	for _, n := range cases {
+		n := n
+		t.Run(n, func(t *testing.T) {
+			t.Parallel()
+			err := ddb.ValidateNumberNoLeadingZeros("attr", n)
+			auditAssertErrorCode(t, err, "ValidationException")
+		})
+	}
+}
+
+func TestNumber_Valid_Accepted(t *testing.T) {
+	t.Parallel()
+	cases := []string{"0", "1", "-1", "0.5", "123", "1.23e10", "-0.5"}
+
+	for _, n := range cases {
+		n := n
+		t.Run(n, func(t *testing.T) {
+			t.Parallel()
+			if err := ddb.ValidateNumberNoLeadingZeros("attr", n); err != nil {
+				t.Fatalf("valid number %q should be accepted: %v", n, err)
+			}
+		})
+	}
+}
+
+func TestPutItem_LeadingZeroNumber_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newAuditTestDB(t)
+	auditCreateSimpleTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk":  &types.AttributeValueMemberS{Value: "p1"},
+			"sk":  &types.AttributeValueMemberS{Value: "s1"},
+			"cnt": &types.AttributeValueMemberN{Value: "007"},
+		},
+	})
+	auditAssertErrorCode(t, err, "ValidationException")
 }

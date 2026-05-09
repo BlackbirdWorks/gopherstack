@@ -941,3 +941,188 @@ func validateStringSetNoEmptyElements(k string, items []any) error {
 
 	return nil
 }
+
+// ============================================================
+// Section 23: Set duplicate value detection
+// ============================================================
+
+// validateSetNoDuplicates returns a ValidationException when a set attribute (SS,
+// NS, or BS) contains duplicate values. AWS DynamoDB enforces set uniqueness.
+func validateSetNoDuplicates(k string, items []any) error {
+	seen := make(map[string]struct{}, len(items))
+
+	for _, item := range items {
+		var key string
+
+		switch v := item.(type) {
+		case string:
+			key = v
+		default:
+			continue
+		}
+
+		if _, exists := seen[key]; exists {
+			return NewValidationException(
+				fmt.Sprintf(
+					"Input collection %s contains duplicates",
+					k,
+				),
+			)
+		}
+
+		seen[key] = struct{}{}
+	}
+
+	return nil
+}
+
+// ============================================================
+// Section 24: CreateTable KeySchema structure validation
+// ============================================================
+
+// validateCreateTableKeySchema ensures the table KeySchema has exactly one HASH
+// key and at most one RANGE key. AWS rejects any other structure.
+func validateCreateTableKeySchema(schema []models.KeySchemaElement) error {
+	hashCount := 0
+	rangeCount := 0
+
+	for _, k := range schema {
+		switch k.KeyType {
+		case models.KeyTypeHash:
+			hashCount++
+		case models.KeyTypeRange:
+			rangeCount++
+		default:
+			return NewValidationException(
+				fmt.Sprintf("Unknown key type: %s", k.KeyType),
+			)
+		}
+	}
+
+	if hashCount != 1 {
+		return NewValidationException(
+			"One and only one hash key may be defined",
+		)
+	}
+
+	if rangeCount > 1 {
+		return NewValidationException(
+			"No more than one range key may be defined",
+		)
+	}
+
+	return nil
+}
+
+// ============================================================
+// Section 25: ProvisionedThroughput must be > 0 for PROVISIONED tables
+// ============================================================
+
+// validateProvisionedThroughput returns a ValidationException when a PROVISIONED
+// table is created or updated with ReadCapacityUnits or WriteCapacityUnits explicitly
+// set to 0 or negative. Nil values are allowed (they receive server-side defaults).
+// PAY_PER_REQUEST tables skip this check.
+func validateProvisionedThroughput(pt *types.ProvisionedThroughput, billingMode types.BillingMode) error {
+	if billingMode == types.BillingModePayPerRequest {
+		return nil
+	}
+
+	if pt == nil {
+		return nil // caller relies on defaults; validated by the SDK in production
+	}
+
+	if pt.ReadCapacityUnits != nil && *pt.ReadCapacityUnits <= 0 {
+		return NewValidationException(
+			"One or more parameter values were invalid: " +
+				"ReadCapacityUnits must be a positive number",
+		)
+	}
+
+	if pt.WriteCapacityUnits != nil && *pt.WriteCapacityUnits <= 0 {
+		return NewValidationException(
+			"One or more parameter values were invalid: " +
+				"WriteCapacityUnits must be a positive number",
+		)
+	}
+
+	return nil
+}
+
+// ============================================================
+// Section 26: GetItem / Query / Scan EAN+EAV validation
+// ============================================================
+
+// validateGetItemEAN runs ExpressionAttributeNames validation for read operations
+// (GetItem, Query, Scan) which only have ProjectionExpression.
+func validateReadExpressionAttributeNames(ean map[string]string, projExpr string) error {
+	if err := validateExpressionAttributeNames(ean); err != nil {
+		return err
+	}
+
+	return checkUnusedExpressionAttributeNames(ean, projExpr)
+}
+
+// ============================================================
+// Section 27: BatchWriteItem empty RequestItems rejection
+// ============================================================
+
+// validateBatchWriteNotEmpty returns a ValidationException when RequestItems is
+// nil or empty. AWS rejects empty batch writes.
+func validateBatchWriteNotEmpty(n int) error {
+	if n == 0 {
+		return NewValidationException(
+			"Value null at 'requestItems' failed to satisfy constraint: " +
+				"Member must not be null",
+		)
+	}
+
+	return nil
+}
+
+// ============================================================
+// Section 28: Query KeyConditionExpression required
+// ============================================================
+
+// validateQueryHasKeyCondition returns a ValidationException when
+// KeyConditionExpression is empty or missing. AWS requires it for Query.
+func validateQueryHasKeyCondition(expr string) error {
+	if strings.TrimSpace(expr) == "" {
+		return NewValidationException(
+			"KeyConditionExpression is required for Query",
+		)
+	}
+
+	return nil
+}
+
+// ============================================================
+// Section 29: Number string leading-zero rejection
+// ============================================================
+
+// validateNumberNoLeadingZeros returns a ValidationException when a number string
+// has a meaningless leading zero (like "007", "01.5"). AWS normalizes numbers but
+// rejects canonical representations with leading zeros.
+func validateNumberNoLeadingZeros(k, n string) error {
+	if len(n) < 2 {
+		return nil
+	}
+
+	// Negative numbers: check after the minus sign.
+	s := n
+	if s[0] == '-' {
+		s = s[1:]
+	}
+
+	// "0" alone is fine; "0.5" is fine (decimal); "01", "007" are not.
+	if len(s) >= 2 && s[0] == '0' && s[1] != '.' && s[1] != 'e' && s[1] != 'E' {
+		return NewValidationException(
+			fmt.Sprintf(
+				"The parameter cannot be converted to a numeric value: %s. "+
+					"Key: %s",
+				n, k,
+			),
+		)
+	}
+
+	return nil
+}

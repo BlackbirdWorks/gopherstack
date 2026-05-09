@@ -69,6 +69,14 @@ func (db *InMemoryDB) CreateTable(
 		return nil, err
 	}
 
+	if err := validateCreateTableKeySchema(models.FromSDKKeySchema(input.KeySchema)); err != nil {
+		return nil, err
+	}
+
+	if err := validateProvisionedThroughput(input.ProvisionedThroughput, input.BillingMode); err != nil {
+		return nil, err
+	}
+
 	// Enforce GSI/LSI count limits before constructing the table.
 	if err := validateGSICount(nil, len(input.GlobalSecondaryIndexes)); err != nil {
 		return nil, err

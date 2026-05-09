@@ -495,6 +495,22 @@ func ValidateUpdateDoesNotModifyKeys(updateExpr string, ean map[string]string, k
 	return validateUpdateDoesNotModifyKeys(updateExpr, ean, keySchema)
 }
 
+func ValidateSetNoDuplicates(k string, items []any) error {
+	return validateSetNoDuplicates(k, items)
+}
+
+func ValidateCreateTableKeySchema(schema []models.KeySchemaElement) error {
+	return validateCreateTableKeySchema(schema)
+}
+
+func ValidateProvisionedThroughput(pt *types.ProvisionedThroughput, billingMode types.BillingMode) error {
+	return validateProvisionedThroughput(pt, billingMode)
+}
+
+func ValidateNumberNoLeadingZeros(k, n string) error {
+	return validateNumberNoLeadingZeros(k, n)
+}
+
 // HandleRequest exposes the handler's dispatch method for use in tests.
 // It calls the internal dispatch function and returns the result.
 func (h *DynamoDBHandler) HandleRequest(ctx context.Context, action string, body []byte) (any, error) {

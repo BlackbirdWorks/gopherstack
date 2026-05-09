@@ -367,6 +367,10 @@ func validateSetValue(k, t string, val any) error {
 		}
 	}
 
+	if err := validateSetNoDuplicates(k, list); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -454,6 +458,9 @@ func validateScalarValue(k, t string, val any) error {
 			return NewValidationException(
 				fmt.Sprintf("Attribute %s of type N must be a valid number", k),
 			)
+		}
+		if err := validateNumberNoLeadingZeros(k, valStr); err != nil {
+			return err
 		}
 	case typeBOOL:
 		if _, ok := val.(bool); !ok {
