@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labstack/echo/v5"
+
 	pkglogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
-	"github.com/labstack/echo/v5"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

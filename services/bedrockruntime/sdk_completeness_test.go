@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	bedrockruntimesdk "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 )

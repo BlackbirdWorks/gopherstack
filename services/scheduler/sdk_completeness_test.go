@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	schedulersdk "github.com/aws/aws-sdk-go-v2/service/scheduler"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/scheduler"
 )

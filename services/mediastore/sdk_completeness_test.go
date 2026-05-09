@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	mediastoresdk "github.com/aws/aws-sdk-go-v2/service/mediastore"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/mediastore"
 )

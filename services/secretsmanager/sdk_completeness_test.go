@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )

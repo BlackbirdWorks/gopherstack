@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	rdsdatasdk "github.com/aws/aws-sdk-go-v2/service/rdsdata"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/rdsdata"
 )

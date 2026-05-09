@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )

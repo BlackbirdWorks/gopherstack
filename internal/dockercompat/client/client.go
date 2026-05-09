@@ -4,12 +4,13 @@ import (
 	"context"
 	"io"
 
+	mobyclient "github.com/moby/moby/client"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
 	compatbuild "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/build"
 	compatcontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 	compatimage "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	compatnetwork "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
-	mobyclient "github.com/moby/moby/client"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // Opt aliases the Moby client option type.

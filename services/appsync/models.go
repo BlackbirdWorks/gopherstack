@@ -1,8 +1,9 @@
 package appsync
 
 import (
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/vektah/gqlparser/v2/ast"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // AuthenticationType represents the authentication type for a GraphQL API.

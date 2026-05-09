@@ -867,6 +867,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 	}
 
 	inst := &DBInstance{
+		InstanceCreateTime:               time.Now().UTC(),
 		DBInstanceIdentifier:             id,
 		DbiResourceID:                    id,
 		DBInstanceClass:                  instanceClass,
@@ -978,6 +979,7 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	delete(b.tags, b.rdsARN("db", id))
 	delete(b.instanceRoles, id)
 	delete(b.instanceReadyAt, id)
+	delete(b.automatedBackups, id)
 
 	b.mu.Unlock()
 
@@ -1010,6 +1012,15 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 		instances = append(instances, *inst)
 	}
 	b.mu.RUnlock()
+	slices.SortFunc(instances, func(a, b DBInstance) int {
+		if a.DBInstanceIdentifier < b.DBInstanceIdentifier {
+			return -1
+		}
+		if a.DBInstanceIdentifier > b.DBInstanceIdentifier {
+			return 1
+		}
+		return 0
+	})
 
 	return instances, nil
 }
@@ -1195,6 +1206,7 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 	}
 
 	snap := &DBSnapshot{
+		SnapshotCreateTime:   time.Now().UTC(),
 		DBSnapshotIdentifier: snapshotID,
 		DBInstanceIdentifier: instanceID,
 		Engine:               inst.Engine,
@@ -1206,6 +1218,7 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 		StorageEncrypted:     inst.StorageEncrypted,
 		SnapshotType:         "manual",
 		OptionGroupName:      inst.OptionGroupName,
+		PercentProgress:      100,
 	}
 	if inst.StorageEncrypted {
 		snap.KmsKeyID = inst.KmsKeyID
@@ -1235,6 +1248,15 @@ func (b *InMemoryBackend) DescribeDBSnapshots(snapshotID string) ([]DBSnapshot, 
 	for _, snap := range b.snapshots {
 		snaps = append(snaps, *snap)
 	}
+	slices.SortFunc(snaps, func(a, b DBSnapshot) int {
+		if a.DBSnapshotIdentifier < b.DBSnapshotIdentifier {
+			return -1
+		}
+		if a.DBSnapshotIdentifier > b.DBSnapshotIdentifier {
+			return 1
+		}
+		return 0
+	})
 
 	return snaps, nil
 }
@@ -1285,6 +1307,7 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 	}
 
 	snap := &DBSnapshot{
+		SnapshotCreateTime:   time.Now().UTC(),
 		DBSnapshotIdentifier: targetSnapshotID,
 		DBInstanceIdentifier: src.DBInstanceIdentifier,
 		Engine:               src.Engine,
@@ -1297,6 +1320,7 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 		KmsKeyID:             kmsKeyID,
 		SourceRegion:         opts.SourceRegion,
 		OptionGroupName:      src.OptionGroupName,
+		PercentProgress:      100,
 	}
 	b.snapshots[targetSnapshotID] = snap
 	cp := *snap
@@ -1675,6 +1699,15 @@ func (b *InMemoryBackend) DescribeDBParameterGroups(name string) ([]DBParameterG
 	for _, pg := range b.parameterGroups {
 		result = append(result, copyDBParameterGroup(pg))
 	}
+	slices.SortFunc(result, func(a, b DBParameterGroup) int {
+		if a.DBParameterGroupName < b.DBParameterGroupName {
+			return -1
+		}
+		if a.DBParameterGroupName > b.DBParameterGroupName {
+			return 1
+		}
+		return 0
+	})
 
 	return result, nil
 }
@@ -1720,6 +1753,15 @@ func (b *InMemoryBackend) DescribeDBParameters(groupName string) ([]DBParameter,
 	for _, p := range pg.Parameters {
 		result = append(result, p)
 	}
+	slices.SortFunc(result, func(a, b DBParameter) int {
+		if a.ParameterName < b.ParameterName {
+			return -1
+		}
+		if a.ParameterName > b.ParameterName {
+			return 1
+		}
+		return 0
+	})
 
 	return result, nil
 }
@@ -1801,6 +1843,15 @@ func (b *InMemoryBackend) DescribeOptionGroups(name string) ([]OptionGroup, erro
 		copy(cp.Options, og.Options)
 		result = append(result, cp)
 	}
+	slices.SortFunc(result, func(a, b OptionGroup) int {
+		if a.OptionGroupName < b.OptionGroupName {
+			return -1
+		}
+		if a.OptionGroupName > b.OptionGroupName {
+			return 1
+		}
+		return 0
+	})
 
 	return result, nil
 }
@@ -1875,6 +1926,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	}
 	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 	cluster := &DBCluster{
+		ClusterCreateTime:            time.Now().UTC(),
 		DBClusterIdentifier:          id,
 		Engine:                       engine,
 		EngineVersion:                opts.EngineVersion,
@@ -1922,6 +1974,15 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 	for _, cluster := range b.clusters {
 		result = append(result, *cluster)
 	}
+	slices.SortFunc(result, func(a, b DBCluster) int {
+		if a.DBClusterIdentifier < b.DBClusterIdentifier {
+			return -1
+		}
+		if a.DBClusterIdentifier > b.DBClusterIdentifier {
+			return 1
+		}
+		return 0
+	})
 
 	return result, nil
 }
@@ -1935,6 +1996,12 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 	cp := *cluster
+	// Clear the cluster association on any member instances so they appear standalone.
+	for _, member := range cluster.DBClusterMembers {
+		if inst, ok := b.instances[member.DBInstanceIdentifier]; ok {
+			inst.DBClusterIdentifier = ""
+		}
+	}
 	delete(b.clusters, id)
 	delete(b.tags, b.rdsARN("cluster", id))
 	delete(b.fisFailoverFaults, id)
@@ -2035,6 +2102,15 @@ func (b *InMemoryBackend) DescribeDBClusterParameterGroups(name string) ([]DBPar
 	for _, pg := range b.clusterParameterGroups {
 		result = append(result, copyDBParameterGroup(pg))
 	}
+	slices.SortFunc(result, func(a, b DBParameterGroup) int {
+		if a.DBParameterGroupName < b.DBParameterGroupName {
+			return -1
+		}
+		if a.DBParameterGroupName > b.DBParameterGroupName {
+			return 1
+		}
+		return 0
+	})
 
 	return result, nil
 }
@@ -2057,10 +2133,14 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 	snap := &DBClusterSnapshot{
+		SnapshotCreateTime:          time.Now().UTC(),
 		DBClusterSnapshotIdentifier: snapshotID,
 		DBClusterIdentifier:         clusterID,
 		Engine:                      cluster.Engine,
+		EngineVersion:               cluster.EngineVersion,
 		Status:                      instanceStatusAvailable,
+		PercentProgress:             100,
+		StorageEncrypted:            cluster.StorageEncrypted,
 	}
 	b.clusterSnapshots[snapshotID] = snap
 	cp := *snap
@@ -2085,6 +2165,15 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID string) ([]DBClu
 	for _, snap := range b.clusterSnapshots {
 		result = append(result, *snap)
 	}
+	slices.SortFunc(result, func(a, b DBClusterSnapshot) int {
+		if a.DBClusterSnapshotIdentifier < b.DBClusterSnapshotIdentifier {
+			return -1
+		}
+		if a.DBClusterSnapshotIdentifier > b.DBClusterSnapshotIdentifier {
+			return 1
+		}
+		return 0
+	})
 
 	return result, nil
 }

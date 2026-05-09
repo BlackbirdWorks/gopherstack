@@ -11,10 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
-	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/docker"
 )

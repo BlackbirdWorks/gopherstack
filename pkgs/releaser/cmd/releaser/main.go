@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/alecthomas/kong"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/releaser"
 )
 

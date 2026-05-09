@@ -10,11 +10,12 @@ import (
 	"strconv"
 	"sync"
 
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
 	dockertypes "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 	dockerimage "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	dockernetwork "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )

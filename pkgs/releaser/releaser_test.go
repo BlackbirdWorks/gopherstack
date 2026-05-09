@@ -5,8 +5,9 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/releaser"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/releaser"
 )
 
 func TestBuildPrompt(t *testing.T) {

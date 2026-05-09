@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	s3tablessdk "github.com/aws/aws-sdk-go-v2/service/s3tables"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/s3tables"
 )

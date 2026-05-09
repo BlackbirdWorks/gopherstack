@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	apigatewayv2sdk "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	sesv2sdk "github.com/aws/aws-sdk-go-v2/service/sesv2"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/sesv2"
 )

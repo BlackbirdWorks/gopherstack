@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	resourcegroupssdk "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroups"
 )

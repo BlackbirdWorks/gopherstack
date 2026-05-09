@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	dynamodbstreamssdk "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"

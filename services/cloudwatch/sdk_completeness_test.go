@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )

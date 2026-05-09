@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -758,8 +759,11 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 		StorageThroughput:                storageThroughput,
 		MonitoringInterval:               monitoringInterval,
 		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
+		MultiAZSet:                       vals.Get("MultiAZ") != "",
 		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		IAMDatabaseAuthSet:               vals.Get("EnableIAMDatabaseAuthentication") != "",
 		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
+		DeletionProtectionSet:            vals.Get("DeletionProtection") != "",
 		CopyTagsToSnapshot:               vals.Get("CopyTagsToSnapshot") == formTrue,
 		AllowMajorVersionUpgrade:         vals.Get("AllowMajorVersionUpgrade") == formTrue,
 		ApplyImmediately:                 vals.Get("ApplyImmediately") == formTrue,
@@ -920,6 +924,10 @@ func (h *Handler) handleRemoveTagsFromResource(vals url.Values) (any, error) {
 }
 
 func toXMLInstance(inst *DBInstance) xmlDBInstance {
+	var instanceCreateTime string
+	if !inst.InstanceCreateTime.IsZero() {
+		instanceCreateTime = inst.InstanceCreateTime.UTC().Format(time.RFC3339)
+	}
 	result := xmlDBInstance{
 		DBInstanceIdentifier:              inst.DBInstanceIdentifier,
 		DbiResourceID:                     inst.DbiResourceID,
@@ -955,6 +963,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		CopyTagsToSnapshot:                inst.CopyTagsToSnapshot,
 		PubliclyAccessible:                inst.PubliclyAccessible,
 		PerformanceInsightsEnabled:        inst.PerformanceInsightsEnabled,
+		InstanceCreateTime:                instanceCreateTime,
 	}
 
 	if inst.DBInstanceStatus == instanceStatusModifying {
@@ -998,6 +1007,11 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 }
 
 func toXMLSnapshot(snap *DBSnapshot) xmlDBSnapshot {
+	var snapshotCreateTime string
+	if !snap.SnapshotCreateTime.IsZero() {
+		snapshotCreateTime = snap.SnapshotCreateTime.UTC().Format(time.RFC3339)
+	}
+
 	return xmlDBSnapshot{
 		DBSnapshotIdentifier: snap.DBSnapshotIdentifier,
 		DBInstanceIdentifier: snap.DBInstanceIdentifier,
@@ -1011,6 +1025,8 @@ func toXMLSnapshot(snap *DBSnapshot) xmlDBSnapshot {
 		KmsKeyID:             snap.KmsKeyID,
 		SourceRegion:         snap.SourceRegion,
 		SnapshotType:         snap.SnapshotType,
+		SnapshotCreateTime:   snapshotCreateTime,
+		PercentProgress:      snap.PercentProgress,
 		CopyTagsToSnapshot:   snap.CopyTagsToSnapshot,
 		Encrypted:            snap.StorageEncrypted,
 	}
@@ -1198,6 +1214,7 @@ type xmlDBInstance struct {
 	PreferredMaintenanceWindow        string                        `xml:"PreferredMaintenanceWindow,omitempty"`
 	PreferredBackupWindow             string                        `xml:"PreferredBackupWindow,omitempty"`
 	KmsKeyID                          string                        `xml:"KmsKeyId,omitempty"`
+	InstanceCreateTime                string                        `xml:"InstanceCreateTime,omitempty"`
 	Port                              int                           `xml:"Endpoint>Port"`
 	AllocatedStorage                  int                           `xml:"AllocatedStorage"`
 	Iops                              int                           `xml:"Iops,omitempty"`
@@ -1253,8 +1270,10 @@ type xmlDBSnapshot struct {
 	KmsKeyID             string `xml:"KmsKeyId,omitempty"`
 	SourceRegion         string `xml:"SourceRegion,omitempty"`
 	SnapshotType         string `xml:"SnapshotType,omitempty"`
+	SnapshotCreateTime   string `xml:"SnapshotCreateTime,omitempty"`
 	AllocatedStorage     int    `xml:"AllocatedStorage,omitempty"`
 	Port                 int    `xml:"Port,omitempty"`
+	PercentProgress      int    `xml:"PercentProgress,omitempty"`
 	Encrypted            bool   `xml:"Encrypted,omitempty"`
 	CopyTagsToSnapshot   bool   `xml:"CopyTagsToSnapshot,omitempty"`
 }
@@ -2243,6 +2262,10 @@ func toXMLOptionGroup(og *OptionGroup) xmlOptionGroup {
 }
 
 func toXMLCluster(c *DBCluster) xmlDBCluster {
+	var clusterCreateTime string
+	if !c.ClusterCreateTime.IsZero() {
+		clusterCreateTime = c.ClusterCreateTime.UTC().Format(time.RFC3339)
+	}
 	x := xmlDBCluster{
 		DBClusterIdentifier:             c.DBClusterIdentifier,
 		Engine:                          c.Engine,
@@ -2261,6 +2284,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		PreferredMaintenanceWindow:      c.PreferredMaintenanceWindow,
 		KmsKeyID:                        c.KmsKeyID,
 		MonitoringRoleArn:               c.MonitoringRoleArn,
+		ClusterCreateTime:               clusterCreateTime,
 		BacktrackWindow:                 c.BacktrackWindow,
 		MonitoringInterval:              c.MonitoringInterval,
 		MultiAZ:                         c.MultiAZ,
@@ -2335,11 +2359,20 @@ func parseServerlessV2ScalingConfig(vals url.Values) (*ServerlessV2ScalingConfig
 }
 
 func toXMLClusterSnapshot(s *DBClusterSnapshot) xmlDBClusterSnapshot {
+	var snapshotCreateTime string
+	if !s.SnapshotCreateTime.IsZero() {
+		snapshotCreateTime = s.SnapshotCreateTime.UTC().Format(time.RFC3339)
+	}
+
 	return xmlDBClusterSnapshot{
 		DBClusterSnapshotIdentifier: s.DBClusterSnapshotIdentifier,
 		DBClusterIdentifier:         s.DBClusterIdentifier,
 		Engine:                      s.Engine,
+		EngineVersion:               s.EngineVersion,
 		Status:                      s.Status,
+		SnapshotCreateTime:          snapshotCreateTime,
+		PercentProgress:             s.PercentProgress,
+		StorageEncrypted:            s.StorageEncrypted,
 	}
 }
 
@@ -2501,6 +2534,7 @@ type xmlDBCluster struct {
 	PreferredMaintenanceWindow       string                   `xml:"PreferredMaintenanceWindow,omitempty"`
 	KmsKeyID                         string                   `xml:"KmsKeyId,omitempty"`
 	MonitoringRoleArn                string                   `xml:"MonitoringRoleArn,omitempty"`
+	ClusterCreateTime                string                   `xml:"ClusterCreateTime,omitempty"`
 	Port                             int                      `xml:"Port"`
 	BacktrackWindow                  int64                    `xml:"BacktrackWindow,omitempty"`
 	MonitoringInterval               int                      `xml:"MonitoringInterval,omitempty"`
@@ -2561,7 +2595,11 @@ type xmlDBClusterSnapshot struct {
 	DBClusterSnapshotIdentifier string `xml:"DBClusterSnapshotIdentifier"`
 	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
 	Engine                      string `xml:"Engine"`
+	EngineVersion               string `xml:"EngineVersion,omitempty"`
 	Status                      string `xml:"Status"`
+	SnapshotCreateTime          string `xml:"SnapshotCreateTime,omitempty"`
+	PercentProgress             int    `xml:"PercentProgress,omitempty"`
+	StorageEncrypted            bool   `xml:"StorageEncrypted,omitempty"`
 }
 
 type xmlDBClusterSnapshotList struct {
@@ -3225,14 +3263,17 @@ func (h *Handler) handleCreateBlueGreenDeployment(vals url.Values) (any, error) 
 func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 	ids := make([]string, len(sub.SourceIDs))
 	copy(ids, sub.SourceIDs)
+	cats := make([]string, len(sub.EventCategories))
+	copy(cats, sub.EventCategories)
 
 	return xmlEventSubscription{
-		CustSubscriptionID: sub.SubscriptionName,
-		SnsTopicArn:        sub.SnsTopicArn,
-		Status:             sub.Status,
-		SourceType:         sub.SourceType,
-		Enabled:            sub.Enabled,
-		SourceIDsList:      xmlSourceIDList{Members: ids},
+		CustSubscriptionID:  sub.SubscriptionName,
+		SnsTopicArn:         sub.SnsTopicArn,
+		Status:              sub.Status,
+		SourceType:          sub.SourceType,
+		Enabled:             sub.Enabled,
+		SourceIDsList:       xmlSourceIDList{Members: ids},
+		EventCategoriesList: xmlEventCategoryList{Members: cats},
 	}
 }
 
@@ -3283,13 +3324,18 @@ type xmlSourceIDList struct {
 	Members []string `xml:"member"`
 }
 
+type xmlEventCategoryList struct {
+	Members []string `xml:"EventCategory"`
+}
+
 type xmlEventSubscription struct {
-	CustSubscriptionID string          `xml:"CustSubscriptionId"`
-	SnsTopicArn        string          `xml:"SnsTopicArn,omitempty"`
-	Status             string          `xml:"Status"`
-	SourceType         string          `xml:"SourceType,omitempty"`
-	SourceIDsList      xmlSourceIDList `xml:"SourceIdsList"`
-	Enabled            bool            `xml:"Enabled,omitempty"`
+	CustSubscriptionID  string               `xml:"CustSubscriptionId"`
+	SnsTopicArn         string               `xml:"SnsTopicArn,omitempty"`
+	Status              string               `xml:"Status"`
+	SourceType          string               `xml:"SourceType,omitempty"`
+	SourceIDsList       xmlSourceIDList      `xml:"SourceIdsList"`
+	EventCategoriesList xmlEventCategoryList `xml:"EventCategoriesList,omitempty"`
+	Enabled             bool                 `xml:"Enabled,omitempty"`
 }
 
 type addSourceIdentifierToSubscriptionResponse struct {

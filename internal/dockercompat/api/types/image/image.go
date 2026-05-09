@@ -1,8 +1,9 @@
 package image
 
 import (
-	compatfilters "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/filters"
 	mobyimage "github.com/moby/moby/api/types/image"
+
+	compatfilters "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/filters"
 )
 
 // Summary aliases the Moby image summary type.

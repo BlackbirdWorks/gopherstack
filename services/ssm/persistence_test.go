@@ -3,9 +3,10 @@ package ssm_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/ssm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
 func TestInMemoryBackend_SnapshotRestore(t *testing.T) {

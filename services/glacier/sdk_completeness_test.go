@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	glaciersdk "github.com/aws/aws-sdk-go-v2/service/glacier"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 )

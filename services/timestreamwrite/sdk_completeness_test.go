@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	timestreamwritesdk "github.com/aws/aws-sdk-go-v2/service/timestreamwrite"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 )

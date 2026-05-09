@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	sagemakerruntimesdk "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 )

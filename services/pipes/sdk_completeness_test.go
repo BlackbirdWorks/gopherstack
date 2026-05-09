@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	pipessdk "github.com/aws/aws-sdk-go-v2/service/pipes"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/pipes"
 )

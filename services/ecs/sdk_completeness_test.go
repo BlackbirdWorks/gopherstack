@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	ecssdk "github.com/aws/aws-sdk-go-v2/service/ecs"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )

@@ -242,8 +242,9 @@ func (b *InMemoryBackend) ModifyDBProxy(
 		proxy.Auth = auth
 	}
 	proxy.UpdatedDate = time.Now()
+	cp := *proxy
 
-	return proxy, nil
+	return &cp, nil
 }
 
 // ---- DB Proxy Target operations ----

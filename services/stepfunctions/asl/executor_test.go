@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
 // Test sentinel errors — used as mock return values in Lambda error tests.

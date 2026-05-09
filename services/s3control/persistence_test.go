@@ -3,9 +3,10 @@ package s3control_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/s3control"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/s3control"
 )
 
 func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
