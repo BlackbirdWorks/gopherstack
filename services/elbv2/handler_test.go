@@ -5614,7 +5614,7 @@ func TestModifyListenerSyncDefaultRule(t *testing.T) {
 	var rulesResp struct {
 		Result struct {
 			Rules struct {
-				Members []struct {
+				Members []struct { //nolint:govet // field order is for readability
 					IsDefault bool `xml:"IsDefault"`
 					Actions   struct {
 						Members []struct {
