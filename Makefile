@@ -1,4 +1,4 @@
-.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all
+.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -77,6 +77,30 @@ install-deps:
 	else \
 		echo "fieldalignment is already installed."; \
 	fi
+	@$(MAKE) --no-print-directory dev-mcp-install
+
+# Dev-only MCP servers consumed by Claude Code / compatible IDE clients via
+# the project's .mcp.json. NOT linked into the gopherstack runtime binary.
+# Safe to skip in CI / production builds.
+dev-mcp-install:
+	@echo "Checking dev MCP server CLIs (read by .mcp.json)..."
+	@command -v gopls >/dev/null 2>&1 || { \
+		echo "Installing gopls..."; \
+		go install golang.org/x/tools/gopls@latest; \
+	}
+	@command -v mcp-language-server >/dev/null 2>&1 || { \
+		echo "Installing mcp-language-server..."; \
+		go install github.com/isaacphi/mcp-language-server@latest; \
+	}
+	@command -v terraform-mcp-server >/dev/null 2>&1 || { \
+		echo "Installing terraform-mcp-server..."; \
+		go install github.com/hashicorp/terraform-mcp-server/cmd/terraform-mcp-server@latest; \
+	}
+	@command -v npx >/dev/null 2>&1 || echo "WARN: npx not found — Playwright MCP needs Node.js."
+	@echo "Dev MCP CLIs ready. Playwright MCP runs on demand via 'npx -y @playwright/mcp@latest'."
+
+dev-mcp-check:
+	@bash scripts/dev-mcp-check.sh
 
 TOFU_VERSION ?= latest
 
