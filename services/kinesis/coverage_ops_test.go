@@ -71,8 +71,8 @@ func TestKinesis_UpdateStreamWarmThroughput(t *testing.T) {
 	createKinesisStream(t, h, "warm-stream")
 
 	rec := doRequest(t, h, "UpdateStreamWarmThroughput", map[string]any{
-		"StreamName":           "warm-stream",
-		"ConsumersToPut":       1,
+		"StreamName":            "warm-stream",
+		"ConsumersToPut":        1,
 		"WriteProvisionedUnits": 100,
 	})
 	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)

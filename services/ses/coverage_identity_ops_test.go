@@ -24,8 +24,8 @@ func TestSES_IdentityPolicy(t *testing.T) {
 
 	// GetIdentityPolicies
 	rec = postForm(t, h, url.Values{
-		"Action":              []string{"GetIdentityPolicies"},
-		"Identity":            []string{"test@example.com"},
+		"Action":               []string{"GetIdentityPolicies"},
+		"Identity":             []string{"test@example.com"},
 		"PolicyNames.member.1": []string{"my-policy"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)
@@ -75,24 +75,24 @@ func TestSES_IdentityAttributes(t *testing.T) {
 
 	// SetIdentityDkimEnabled
 	rec = postForm(t, h, url.Values{
-		"Action":   []string{"SetIdentityDkimEnabled"},
-		"Identity": []string{"attr@example.com"},
+		"Action":      []string{"SetIdentityDkimEnabled"},
+		"Identity":    []string{"attr@example.com"},
 		"DkimEnabled": []string{"true"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)
 
 	// SetIdentityFeedbackForwardingEnabled
 	rec = postForm(t, h, url.Values{
-		"Action":                    []string{"SetIdentityFeedbackForwardingEnabled"},
-		"Identity":                  []string{"attr@example.com"},
-		"ForwardingEnabled":         []string{"true"},
+		"Action":            []string{"SetIdentityFeedbackForwardingEnabled"},
+		"Identity":          []string{"attr@example.com"},
+		"ForwardingEnabled": []string{"true"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)
 
 	// SetIdentityMailFromDomain
 	rec = postForm(t, h, url.Values{
-		"Action":       []string{"SetIdentityMailFromDomain"},
-		"Identity":     []string{"attr@example.com"},
+		"Action":         []string{"SetIdentityMailFromDomain"},
+		"Identity":       []string{"attr@example.com"},
 		"MailFromDomain": []string{"mail.example.com"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)

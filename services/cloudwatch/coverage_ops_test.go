@@ -33,7 +33,7 @@ func TestCW_GetMetricWidgetImage(t *testing.T) {
 	h := newCWHandler()
 
 	rec := postForm(t, h, url.Values{
-		"Action":      []string{"GetMetricWidgetImage"},
+		"Action":       []string{"GetMetricWidgetImage"},
 		"MetricWidget": []string{`{"metrics":[]}`},
 	}.Encode())
 	assert.True(t, rec.Code >= 200 && rec.Code < 300)

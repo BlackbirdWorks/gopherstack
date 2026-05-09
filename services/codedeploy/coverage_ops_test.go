@@ -27,7 +27,7 @@ func TestCodeDeploy_UpdateApplication(t *testing.T) {
 	createCDApp(t, h, "update-app")
 
 	rec := doRequest(t, h, "UpdateApplication", map[string]any{
-		"applicationName": "update-app",
+		"applicationName":    "update-app",
 		"newApplicationName": "update-app-v2",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -77,9 +77,9 @@ func TestCodeDeploy_UpdateDeploymentGroup(t *testing.T) {
 	})
 
 	rec := doRequest(t, h, "UpdateDeploymentGroup", map[string]any{
-		"applicationName":     "update-dg-app",
+		"applicationName":            "update-dg-app",
 		"currentDeploymentGroupName": "my-dg",
-		"newDeploymentGroupName": "my-dg-v2",
+		"newDeploymentGroupName":     "my-dg-v2",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }

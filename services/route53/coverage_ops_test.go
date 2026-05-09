@@ -13,8 +13,14 @@ import (
 func createZone(t *testing.T, h *route53.Handler, name string) string {
 	t.Helper()
 
-	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", `<CreateHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
-<Name>`+name+`</Name><CallerReference>ref-`+name+`</CallerReference></CreateHostedZoneRequest>`)
+	rec := send(
+		t,
+		h,
+		http.MethodPost,
+		"/2013-04-01/hostedzone",
+		`<CreateHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+<Name>`+name+`</Name><CallerReference>ref-`+name+`</CallerReference></CreateHostedZoneRequest>`,
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	// Extract zone ID from response
@@ -71,8 +77,13 @@ func TestRoute53_ReusableDelegationSets(t *testing.T) {
 	h := newHandler(t)
 
 	// CreateReusableDelegationSet
-	rec := send(t, h, http.MethodPost, "/2013-04-01/delegationset",
-		`<CreateReusableDelegationSetRequest><CallerReference>ref-ds-1</CallerReference></CreateReusableDelegationSetRequest>`)
+	rec := send(
+		t,
+		h,
+		http.MethodPost,
+		"/2013-04-01/delegationset",
+		`<CreateReusableDelegationSetRequest><CallerReference>ref-ds-1</CallerReference></CreateReusableDelegationSetRequest>`,
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	// ListReusableDelegationSets

@@ -14,10 +14,10 @@ func TestRDS_EventSubscriptions(t *testing.T) {
 
 	// CreateEventSubscription
 	rec := postRDSForm(t, h, url.Values{
-		"Action":              []string{"CreateEventSubscription"},
-		"SubscriptionName":    []string{"my-sub"},
-		"SnsTopicArn":         []string{"arn:aws:sns:us-east-1:123456789012:rds-events"},
-		"Enabled":             []string{"true"},
+		"Action":           []string{"CreateEventSubscription"},
+		"SubscriptionName": []string{"my-sub"},
+		"SnsTopicArn":      []string{"arn:aws:sns:us-east-1:123456789012:rds-events"},
+		"Enabled":          []string{"true"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)
 
@@ -75,11 +75,11 @@ func TestRDS_OptionGroups(t *testing.T) {
 
 	// CreateOptionGroup
 	rec := postRDSForm(t, h, url.Values{
-		"Action":                  []string{"CreateOptionGroup"},
-		"OptionGroupName":         []string{"my-option-group"},
-		"EngineName":              []string{"mysql"},
-		"MajorEngineVersion":      []string{"8.0"},
-		"OptionGroupDescription":  []string{"My option group"},
+		"Action":                 []string{"CreateOptionGroup"},
+		"OptionGroupName":        []string{"my-option-group"},
+		"EngineName":             []string{"mysql"},
+		"MajorEngineVersion":     []string{"8.0"},
+		"OptionGroupDescription": []string{"My option group"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)
 
