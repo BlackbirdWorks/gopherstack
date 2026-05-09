@@ -15,7 +15,7 @@ func TestIAM_ServiceLastAccessedDetails(t *testing.T) {
 	_, be := newTestHandler(t)
 
 	// GetServiceLastAccessedDetails — exercises the backend function
-	_, err := be.GetServiceLastAccessedDetails("arn:aws:iam::123456789012:user/test-user")
+	_, _, err := be.GetServiceLastAccessedDetails("arn:aws:iam::123456789012:user/test-user")
 	// May return empty or error — just exercises the code path
 	assert.NoError(t, err)
 }
