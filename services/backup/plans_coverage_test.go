@@ -19,7 +19,7 @@ func createBackupPlan(t *testing.T, h *backup.Handler, name string) string {
 		"BackupPlan": map[string]any{
 			"BackupPlanName": name,
 			"Rules": []map[string]any{{
-				"RuleName":        "daily",
+				"RuleName":              "daily",
 				"TargetBackupVaultName": name + "-vault",
 				"ScheduleExpression":    "cron(0 12 * * ? *)",
 			}},

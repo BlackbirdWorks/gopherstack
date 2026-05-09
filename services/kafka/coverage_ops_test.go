@@ -21,7 +21,7 @@ func parseKafkaResp(t *testing.T, rec *httptest.ResponseRecorder) map[string]any
 	return resp
 }
 
-func createCoverageCluster(t *testing.T, h *kafka.Handler, be *kafka.InMemoryBackend, name string) string {
+func createCoverageCluster(t *testing.T, h *kafka.Handler, _ *kafka.InMemoryBackend, name string) string {
 	t.Helper()
 
 	rec := doKafkaRequest(t, h, http.MethodPost, "/v1/clusters", map[string]any{
@@ -220,8 +220,8 @@ func TestKafkaCoverage_ClusterOperations(t *testing.T) {
 	assert.NotEmpty(t, ops2)
 
 	if len(ops2) > 0 {
-		op, err := be.DescribeClusterOperationV2(ops2[0].ClusterOperationArn)
-		require.NoError(t, err)
+		op, opErr := be.DescribeClusterOperationV2(ops2[0].ClusterOperationArn)
+		require.NoError(t, opErr)
 		assert.Equal(t, ops2[0].ClusterOperationArn, op.ClusterOperationArn)
 	}
 }

@@ -580,7 +580,6 @@ func TestStubOperations(t *testing.T) {
 	h := newHandler()
 
 	for _, action := range stubOps {
-		action := action
 		t.Run(action, func(t *testing.T) {
 			t.Parallel()
 			rec := postForm(t, h, "Action="+action+"&Version=2016-11-15")

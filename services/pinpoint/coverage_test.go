@@ -54,7 +54,13 @@ func TestCoverage_CampaignCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// GetCampaignDateRangeKpi.
-	rec = doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/campaigns/"+campaignID+"/kpis/daterange/test-kpi", nil)
+	rec = doPinpointRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/v1/apps/"+appID+"/campaigns/"+campaignID+"/kpis/daterange/test-kpi",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// DeleteCampaign.
@@ -157,7 +163,13 @@ func TestCoverage_JourneyCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// GetJourneyDateRangeKpi.
-	rec = doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/journeys/"+journeyID+"/kpis/daterange/test-kpi", nil)
+	rec = doPinpointRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/v1/apps/"+appID+"/journeys/"+journeyID+"/kpis/daterange/test-kpi",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// GetJourneyExecutionMetrics.
@@ -165,7 +177,13 @@ func TestCoverage_JourneyCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// GetJourneyExecutionActivityMetrics.
-	rec = doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/journeys/"+journeyID+"/activities/act-1/execution/metrics", nil)
+	rec = doPinpointRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/v1/apps/"+appID+"/journeys/"+journeyID+"/activities/act-1/execution/metrics",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// GetJourneyRuns.
@@ -173,11 +191,23 @@ func TestCoverage_JourneyCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// GetJourneyRunExecutionMetrics.
-	rec = doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/journeys/"+journeyID+"/runs/run-1/execution/metrics", nil)
+	rec = doPinpointRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/v1/apps/"+appID+"/journeys/"+journeyID+"/runs/run-1/execution/metrics",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// GetJourneyRunExecutionActivityMetrics.
-	rec = doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/journeys/"+journeyID+"/runs/run-1/activities/act-1/execution/metrics", nil)
+	rec = doPinpointRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/v1/apps/"+appID+"/journeys/"+journeyID+"/runs/run-1/activities/act-1/execution/metrics",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// DeleteJourney.
@@ -197,15 +227,34 @@ func TestCoverage_ChannelOperations(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// UpdateChannel (email).
-	rec = doPinpointRequest(t, h, http.MethodPut, "/v1/apps/"+appID+"/channels/email",
-		map[string]any{"Enabled": true, "FromAddress": "test@example.com", "Identity": "arn:aws:ses:us-east-1:123:identity/test@example.com"})
+	rec = doPinpointRequest(
+		t,
+		h,
+		http.MethodPut,
+		"/v1/apps/"+appID+"/channels/email",
+		map[string]any{
+			"Enabled":     true,
+			"FromAddress": "test@example.com",
+			"Identity":    "arn:aws:ses:us-east-1:123:identity/test@example.com",
+		},
+	)
 	assert.True(t, rec.Code == http.StatusOK || rec.Code == http.StatusCreated, "expected 200 or 201, got %d", rec.Code)
 
 	// GetChannel (email).
 	rec = doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/channels/email", nil)
-	assert.True(t, rec.Code == http.StatusOK || rec.Code == http.StatusNotFound, "expected 200 or 404, got %d", rec.Code)
+	assert.True(
+		t,
+		rec.Code == http.StatusOK || rec.Code == http.StatusNotFound,
+		"expected 200 or 404, got %d",
+		rec.Code,
+	)
 
 	// DeleteChannel (email).
 	rec = doPinpointRequest(t, h, http.MethodDelete, "/v1/apps/"+appID+"/channels/email", nil)
-	assert.True(t, rec.Code == http.StatusOK || rec.Code == http.StatusNotFound, "expected 200 or 404, got %d", rec.Code)
+	assert.True(
+		t,
+		rec.Code == http.StatusOK || rec.Code == http.StatusNotFound,
+		"expected 200 or 404, got %d",
+		rec.Code,
+	)
 }

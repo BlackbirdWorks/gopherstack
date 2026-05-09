@@ -35,7 +35,11 @@ func TestHandlerDeleteEgressOnlyInternetGateway(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "DeleteEgressOnlyInternetGatewayResponse")
 
 	// Delete not found.
-	rec = postForm(t, h, "Action=DeleteEgressOnlyInternetGateway&Version=2016-11-15&EgressOnlyInternetGatewayId=eigw-notfound")
+	rec = postForm(
+		t,
+		h,
+		"Action=DeleteEgressOnlyInternetGateway&Version=2016-11-15&EgressOnlyInternetGatewayId=eigw-notfound",
+	)
 	assert.NotEqual(t, http.StatusOK, rec.Code)
 }
 
@@ -68,7 +72,11 @@ func TestHandlerReplaceRouteTableAssociation(t *testing.T) {
 	require.NotEmpty(t, assocID)
 
 	// Replace association to point at rt2 via handler.
-	rec := postForm(t, h, "Action=ReplaceRouteTableAssociation&Version=2016-11-15&AssociationId="+assocID+"&RouteTableId="+rt2.ID)
+	rec := postForm(
+		t,
+		h,
+		"Action=ReplaceRouteTableAssociation&Version=2016-11-15&AssociationId="+assocID+"&RouteTableId="+rt2.ID,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ReplaceRouteTableAssociationResponse")
 
@@ -92,12 +100,20 @@ func TestHandlerDeleteTransitGatewayRouteTable(t *testing.T) {
 	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
 	require.NoError(t, err)
 
-	rec := postForm(t, h, "Action=DeleteTransitGatewayRouteTable&Version=2016-11-15&TransitGatewayRouteTableId="+rt.RouteTableID)
+	rec := postForm(
+		t,
+		h,
+		"Action=DeleteTransitGatewayRouteTable&Version=2016-11-15&TransitGatewayRouteTableId="+rt.RouteTableID,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "DeleteTransitGatewayRouteTableResponse")
 
 	// Not found.
-	rec = postForm(t, h, "Action=DeleteTransitGatewayRouteTable&Version=2016-11-15&TransitGatewayRouteTableId=tgw-rtb-notfound")
+	rec = postForm(
+		t,
+		h,
+		"Action=DeleteTransitGatewayRouteTable&Version=2016-11-15&TransitGatewayRouteTableId=tgw-rtb-notfound",
+	)
 	assert.NotEqual(t, http.StatusOK, rec.Code)
 }
 
@@ -472,7 +488,11 @@ func TestHandlerVpcPeeringConnectionHandlers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reject it.
-	rec = postForm(t, h, "Action=RejectVpcPeeringConnection&Version=2016-11-15&VpcPeeringConnectionId="+pc2.VpcPeeringConnectionID)
+	rec = postForm(
+		t,
+		h,
+		"Action=RejectVpcPeeringConnection&Version=2016-11-15&VpcPeeringConnectionId="+pc2.VpcPeeringConnectionID,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "RejectVpcPeeringConnectionResponse")
 
@@ -496,7 +516,11 @@ func TestHandlerDescribeTransitGatewaysAndDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	// Describe with ID filter.
-	rec := postForm(t, h, "Action=DescribeTransitGateways&Version=2016-11-15&TransitGatewayIds.TransitGatewayId.1="+tgw.ID)
+	rec := postForm(
+		t,
+		h,
+		"Action=DescribeTransitGateways&Version=2016-11-15&TransitGatewayIds.TransitGatewayId.1="+tgw.ID,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "DescribeTransitGatewaysResponse")
 	assert.Contains(t, rec.Body.String(), tgw.ID)
@@ -519,7 +543,7 @@ func TestHandlerDescribeTransitGatewaysAndDelete(t *testing.T) {
 // It looks for <tag>value</tag> patterns.
 func extractXMLField(body, field string) string {
 	open := "<" + field + ">"
-	close := "</" + field + ">"
+	closeTag := "</" + field + ">"
 
 	start := indexOf(body, open)
 	if start < 0 {
@@ -527,7 +551,7 @@ func extractXMLField(body, field string) string {
 	}
 
 	valStart := start + len(open)
-	end := indexOf(body[valStart:], close)
+	end := indexOf(body[valStart:], closeTag)
 
 	if end < 0 {
 		return ""

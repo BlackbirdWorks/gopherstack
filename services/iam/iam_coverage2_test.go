@@ -147,15 +147,15 @@ func TestCoverage2_ServiceSpecificCredentials(t *testing.T) {
 
 	// UpdateServiceSpecificCredential.
 	rec = callIAM(t, h, "UpdateServiceSpecificCredential", map[string]string{
-		"UserName":                  "ssc-user",
+		"UserName":                    "ssc-user",
 		"ServiceSpecificCredentialId": cred.ServiceSpecificCredentialID,
-		"Status":                    "Inactive",
+		"Status":                      "Inactive",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// DeleteServiceSpecificCredential.
 	rec = callIAM(t, h, "DeleteServiceSpecificCredential", map[string]string{
-		"UserName":                  "ssc-user",
+		"UserName":                    "ssc-user",
 		"ServiceSpecificCredentialId": cred.ServiceSpecificCredentialID,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -187,12 +187,16 @@ func TestCoverage2_RemoveClientIDFromOpenIDConnectProvider(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	oidc, err := b.CreateOpenIDConnectProvider("https://example.com", []string{"client-id-1"}, []string{"sts.amazonaws.com"})
+	oidc, err := b.CreateOpenIDConnectProvider(
+		"https://example.com",
+		[]string{"client-id-1"},
+		[]string{"sts.amazonaws.com"},
+	)
 	require.NoError(t, err)
 
 	rec := callIAM(t, h, "RemoveClientIDFromOpenIDConnectProvider", map[string]string{
 		"OpenIDConnectProviderArn": oidc.Arn,
-		"ClientID":                "client-id-1",
+		"ClientID":                 "client-id-1",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -207,7 +211,10 @@ func TestCoverage2_GetServiceLinkedRoleDeletionStatus(t *testing.T) {
 		"DeletionTaskId": "task-123",
 	})
 	// Returns either 200 or 404 — we just exercise the handler.
-	assert.True(t, rec.Code == http.StatusOK || rec.Code == http.StatusNotFound || rec.Code == http.StatusInternalServerError)
+	assert.True(
+		t,
+		rec.Code == http.StatusOK || rec.Code == http.StatusNotFound || rec.Code == http.StatusInternalServerError,
+	)
 }
 
 // TestCoverage2_ComprehensiveBackendReset covers ResetComprehensiveBackend and related.
@@ -220,7 +227,11 @@ func TestCoverage2_ComprehensiveBackendReset(t *testing.T) {
 	exists := b.OIDCProviderExists("https://nonexistent.com")
 	assert.False(t, exists)
 
-	oidc, err := b.CreateOpenIDConnectProvider("https://testoidc.com", []string{"sts.amazonaws.com"}, []string{"client-1"})
+	oidc, err := b.CreateOpenIDConnectProvider(
+		"https://testoidc.com",
+		[]string{"sts.amazonaws.com"},
+		[]string{"client-1"},
+	)
 	require.NoError(t, err)
 
 	exists = b.OIDCProviderExists("https://testoidc.com")

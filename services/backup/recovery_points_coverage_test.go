@@ -15,6 +15,7 @@ import (
 
 func newHandlerAndBackend() (*backup.Handler, *backup.InMemoryBackend) {
 	be := backup.NewInMemoryBackend("123456789012", config.DefaultRegion)
+
 	return backup.NewHandler(be), be
 }
 
@@ -29,14 +30,14 @@ func seedVaultAndRP(t *testing.T, h *backup.Handler, be *backup.InMemoryBackend,
 	rpArn := fmt.Sprintf("arn:aws:backup:us-east-1:123456789012:recovery-point:rp-%s-001", vaultName)
 	now := time.Now().UTC()
 	rp := &backup.RecoveryPoint{
-		RecoveryPointArn: rpArn,
-		BackupVaultName:  vaultName,
-		BackupVaultArn:   fmt.Sprintf("arn:aws:backup:us-east-1:123456789012:backup-vault:%s", vaultName),
-		ResourceArn:      "arn:aws:ec2:us-east-1:123456789012:instance/i-test",
-		ResourceType:     "EC2",
-		IAMRoleArn:       "arn:aws:iam::123456789012:role/AWSBackupDefaultServiceRole",
-		Status:           "COMPLETED",
-		CreationDate:     now,
+		RecoveryPointArn:  rpArn,
+		BackupVaultName:   vaultName,
+		BackupVaultArn:    fmt.Sprintf("arn:aws:backup:us-east-1:123456789012:backup-vault:%s", vaultName),
+		ResourceArn:       "arn:aws:ec2:us-east-1:123456789012:instance/i-test",
+		ResourceType:      "EC2",
+		IAMRoleArn:        "arn:aws:iam::123456789012:role/AWSBackupDefaultServiceRole",
+		Status:            "COMPLETED",
+		CreationDate:      now,
 		BackupSizeInBytes: 1024,
 	}
 	err := be.AddRecoveryPoint(vaultName, rp)
