@@ -3607,6 +3607,7 @@ func TestDefaultRuleDeletionProtected(t *testing.T) {
 	for _, r := range rulesResp.Result.Rules.Members {
 		if r.IsDefault {
 			defaultRuleArn = r.RuleArn
+
 			break
 		}
 	}
@@ -3914,7 +3915,7 @@ func TestAuthenticateCognitoAction(t *testing.T) {
 							Type                      string `xml:"Type"`
 							AuthenticateCognitoConfig struct {
 								UserPoolArn              string `xml:"UserPoolArn"`
-								UserPoolClientId         string `xml:"UserPoolClientId"`
+								UserPoolClientID         string `xml:"UserPoolClientId"`
 								UserPoolDomain           string `xml:"UserPoolDomain"`
 								OnUnauthenticatedRequest string `xml:"OnUnauthenticatedRequest"`
 							} `xml:"AuthenticateCognitoConfig"`
@@ -3936,7 +3937,7 @@ func TestAuthenticateCognitoAction(t *testing.T) {
 		"arn:aws:cognito-idp:us-east-1:123:userpool/us-east-1_abc",
 		cognitoAction.AuthenticateCognitoConfig.UserPoolArn,
 	)
-	assert.Equal(t, "client123", cognitoAction.AuthenticateCognitoConfig.UserPoolClientId)
+	assert.Equal(t, "client123", cognitoAction.AuthenticateCognitoConfig.UserPoolClientID)
 	assert.Equal(t, "deny", cognitoAction.AuthenticateCognitoConfig.OnUnauthenticatedRequest)
 }
 
@@ -3980,7 +3981,7 @@ func TestAuthenticateOidcAction(t *testing.T) {
 							AuthenticateOidcConfig struct {
 								Issuer                string `xml:"Issuer"`
 								AuthorizationEndpoint string `xml:"AuthorizationEndpoint"`
-								ClientId              string `xml:"ClientId"`
+								ClientID              string `xml:"ClientId"`
 							} `xml:"AuthenticateOidcConfig"`
 						} `xml:"member"`
 					} `xml:"Actions"`
@@ -3994,10 +3995,10 @@ func TestAuthenticateOidcAction(t *testing.T) {
 	require.Len(t, actions, 2)
 	assert.Equal(t, "authenticate-oidc", actions[0].Type)
 	assert.Equal(t, "https://idp.example.com", actions[0].AuthenticateOidcConfig.Issuer)
-	assert.Equal(t, "myapp", actions[0].AuthenticateOidcConfig.ClientId)
+	assert.Equal(t, "myapp", actions[0].AuthenticateOidcConfig.ClientID)
 }
 
-// TestTargetGroupMatcherPersisted verifies Matcher (HttpCode/GrpcCode) is stored and returned.
+// TestTargetGroupMatcherPersisted verifies Matcher (HTTPCode/GrpcCode) is stored and returned.
 func TestTargetGroupMatcherPersisted(t *testing.T) {
 	t.Parallel()
 
@@ -4010,7 +4011,7 @@ func TestTargetGroupMatcherPersisted(t *testing.T) {
 		"Protocol":         {"HTTP"},
 		"Port":             {"80"},
 		"VpcId":            {"vpc-00000000"},
-		"Matcher.HttpCode": {"200-299"},
+		"Matcher.HTTPCode": {"200-299"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -4020,7 +4021,7 @@ func TestTargetGroupMatcherPersisted(t *testing.T) {
 				Members []struct {
 					TargetGroupArn string `xml:"TargetGroupArn"`
 					Matcher        struct {
-						HttpCode string `xml:"HttpCode"`
+						HTTPCode string `xml:"HTTPCode"`
 					} `xml:"Matcher"`
 				} `xml:"member"`
 			} `xml:"TargetGroups"`
@@ -4028,7 +4029,7 @@ func TestTargetGroupMatcherPersisted(t *testing.T) {
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp.Result.TargetGroups.Members, 1)
-	assert.Equal(t, "200-299", resp.Result.TargetGroups.Members[0].Matcher.HttpCode)
+	assert.Equal(t, "200-299", resp.Result.TargetGroups.Members[0].Matcher.HTTPCode)
 }
 
 // TestTargetGroupGrpcMatcherPersisted verifies GrpcCode matcher is stored.
@@ -4108,7 +4109,7 @@ func TestModifyTargetGroupPersistsFields(t *testing.T) {
 		"HealthCheckPort":            {"8443"},
 		"HealthCheckPath":            {"/health"},
 		"HealthCheckEnabled":         {"true"},
-		"Matcher.HttpCode":           {"200-204"},
+		"Matcher.HTTPCode":           {"200-204"},
 		"HealthCheckIntervalSeconds": {"30"},
 		"HealthyThresholdCount":      {"3"},
 	})
@@ -4118,15 +4119,15 @@ func TestModifyTargetGroupPersistsFields(t *testing.T) {
 		Result struct {
 			TargetGroups struct {
 				Members []struct {
-					HealthCheckProtocol string `xml:"HealthCheckProtocol"`
-					HealthCheckPort     string `xml:"HealthCheckPort"`
-					HealthCheckPath     string `xml:"HealthCheckPath"`
-					HealthCheckEnabled  bool   `xml:"HealthCheckEnabled"`
-					Matcher             struct {
-						HttpCode string `xml:"HttpCode"`
+					Matcher struct {
+						HTTPCode string `xml:"HTTPCode"`
 					} `xml:"Matcher"`
-					HealthCheckIntervalSeconds int32 `xml:"HealthCheckIntervalSeconds"`
-					HealthyThresholdCount      int32 `xml:"HealthyThresholdCount"`
+					HealthCheckProtocol        string `xml:"HealthCheckProtocol"`
+					HealthCheckPort            string `xml:"HealthCheckPort"`
+					HealthCheckPath            string `xml:"HealthCheckPath"`
+					HealthCheckIntervalSeconds int32  `xml:"HealthCheckIntervalSeconds"`
+					HealthyThresholdCount      int32  `xml:"HealthyThresholdCount"`
+					HealthCheckEnabled         bool   `xml:"HealthCheckEnabled"`
 				} `xml:"member"`
 			} `xml:"TargetGroups"`
 		} `xml:"ModifyTargetGroupResult"`
@@ -4138,7 +4139,7 @@ func TestModifyTargetGroupPersistsFields(t *testing.T) {
 	assert.Equal(t, "8443", tg.HealthCheckPort)
 	assert.Equal(t, "/health", tg.HealthCheckPath)
 	assert.True(t, tg.HealthCheckEnabled)
-	assert.Equal(t, "200-204", tg.Matcher.HttpCode)
+	assert.Equal(t, "200-204", tg.Matcher.HTTPCode)
 	assert.Equal(t, int32(30), tg.HealthCheckIntervalSeconds)
 	assert.Equal(t, int32(3), tg.HealthyThresholdCount)
 }
@@ -4348,7 +4349,7 @@ func TestRegisterTargetsDedupByPort(t *testing.T) {
 			TargetHealthDescriptions struct {
 				Members []struct {
 					Target struct {
-						Id   string `xml:"Id"`
+						ID   string `xml:"Id"`
 						Port int32  `xml:"Port"`
 					} `xml:"Target"`
 				} `xml:"member"`
@@ -4732,13 +4733,13 @@ func TestHealthCheckDefaults(t *testing.T) {
 		Result struct {
 			TargetGroups struct {
 				Members []struct {
+					Matcher struct {
+						HTTPCode string `xml:"HTTPCode"`
+					} `xml:"Matcher"`
 					HealthCheckIntervalSeconds int32 `xml:"HealthCheckIntervalSeconds"`
 					HealthCheckTimeoutSeconds  int32 `xml:"HealthCheckTimeoutSeconds"`
 					HealthyThresholdCount      int32 `xml:"HealthyThresholdCount"`
 					UnhealthyThresholdCount    int32 `xml:"UnhealthyThresholdCount"`
-					Matcher                    struct {
-						HttpCode string `xml:"HttpCode"`
-					} `xml:"Matcher"`
 				} `xml:"member"`
 			} `xml:"TargetGroups"`
 		} `xml:"CreateTargetGroupResult"`
@@ -4751,7 +4752,7 @@ func TestHealthCheckDefaults(t *testing.T) {
 	assert.Equal(t, int32(5), tg.HealthCheckTimeoutSeconds, "default timeout should be 5")
 	assert.Equal(t, int32(3), tg.HealthyThresholdCount, "default healthy threshold should be 3")
 	assert.Equal(t, int32(3), tg.UnhealthyThresholdCount, "default unhealthy threshold should be 3")
-	assert.Equal(t, "200", tg.Matcher.HttpCode, "default HTTP matcher should be 200")
+	assert.Equal(t, "200", tg.Matcher.HTTPCode, "default HTTP matcher should be 200")
 }
 
 // TestHealthCheckDefaultsCustomValues tests that explicit health check values are preserved.
@@ -4771,7 +4772,7 @@ func TestHealthCheckDefaultsCustomValues(t *testing.T) {
 		"HealthCheckTimeoutSeconds":  {"10"},
 		"HealthyThresholdCount":      {"5"},
 		"UnhealthyThresholdCount":    {"2"},
-		"Matcher.HttpCode":           {"200-299"},
+		"Matcher.HTTPCode":           {"200-299"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -4779,13 +4780,13 @@ func TestHealthCheckDefaultsCustomValues(t *testing.T) {
 		Result struct {
 			TargetGroups struct {
 				Members []struct {
+					Matcher struct {
+						HTTPCode string `xml:"HTTPCode"`
+					} `xml:"Matcher"`
 					HealthCheckIntervalSeconds int32 `xml:"HealthCheckIntervalSeconds"`
 					HealthCheckTimeoutSeconds  int32 `xml:"HealthCheckTimeoutSeconds"`
 					HealthyThresholdCount      int32 `xml:"HealthyThresholdCount"`
 					UnhealthyThresholdCount    int32 `xml:"UnhealthyThresholdCount"`
-					Matcher                    struct {
-						HttpCode string `xml:"HttpCode"`
-					} `xml:"Matcher"`
 				} `xml:"member"`
 			} `xml:"TargetGroups"`
 		} `xml:"CreateTargetGroupResult"`
@@ -4798,7 +4799,7 @@ func TestHealthCheckDefaultsCustomValues(t *testing.T) {
 	assert.Equal(t, int32(10), tg.HealthCheckTimeoutSeconds)
 	assert.Equal(t, int32(5), tg.HealthyThresholdCount)
 	assert.Equal(t, int32(2), tg.UnhealthyThresholdCount)
-	assert.Equal(t, "200-299", tg.Matcher.HttpCode)
+	assert.Equal(t, "200-299", tg.Matcher.HTTPCode)
 }
 
 // TestProtocolVersion tests that ProtocolVersion is stored and returned.

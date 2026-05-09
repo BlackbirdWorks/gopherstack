@@ -466,8 +466,8 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
 	}
 
-	if err := validatePort(port); err != nil {
-		return nil, err
+	if vErr := validatePort(port); vErr != nil {
+		return nil, vErr
 	}
 
 	tagKVs := parseTagKVs(vals)
@@ -478,7 +478,7 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 	unhealthyThreshold, _ := parseInt32(vals.Get("UnhealthyThresholdCount"))
 
 	hcEnabled := true
-	if hce := vals.Get("HealthCheckEnabled"); hce == "false" {
+	if hce := vals.Get("HealthCheckEnabled"); hce == attrValueFalse {
 		hcEnabled = false
 	}
 
@@ -494,7 +494,7 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		HealthCheckPort:     vals.Get("HealthCheckPort"),
 		HealthCheckPath:     vals.Get("HealthCheckPath"),
 		Matcher: Matcher{
-			HTTPCode: vals.Get("Matcher.HttpCode"),
+			HTTPCode: vals.Get("Matcher.HTTPCode"),
 			GrpcCode: vals.Get("Matcher.GrpcCode"),
 		},
 		HealthCheckIntervalSeconds: hcInterval,
@@ -569,7 +569,7 @@ func (h *Handler) handleModifyTargetGroup(vals url.Values) (any, error) {
 	healthyThreshold, _ := parseInt32(vals.Get("HealthyThresholdCount"))
 	unhealthyThreshold, _ := parseInt32(vals.Get("UnhealthyThresholdCount"))
 
-	hcEnabled := vals.Get("HealthCheckEnabled") == "true"
+	hcEnabled := vals.Get("HealthCheckEnabled") == attrValueTrue
 
 	tg, err := h.Backend.ModifyTargetGroup(ModifyTargetGroupInput{
 		TargetGroupArn:      tgArn,
@@ -577,7 +577,7 @@ func (h *Handler) handleModifyTargetGroup(vals url.Values) (any, error) {
 		HealthCheckPort:     vals.Get("HealthCheckPort"),
 		HealthCheckPath:     vals.Get("HealthCheckPath"),
 		Matcher: Matcher{
-			HTTPCode: vals.Get("Matcher.HttpCode"),
+			HTTPCode: vals.Get("Matcher.HTTPCode"),
 			GrpcCode: vals.Get("Matcher.GrpcCode"),
 		},
 		HealthCheckEnabled:         hcEnabled,
@@ -743,8 +743,8 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
 	}
 
-	if err := validatePort(port); err != nil {
-		return nil, err
+	if vErr := validatePort(port); vErr != nil {
+		return nil, vErr
 	}
 
 	protocol := vals.Get("Protocol")
@@ -771,7 +771,7 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 			TrustStoreArn: vals.Get("MutualAuthentication.TrustStoreArn"),
 			IgnoreClientCertificateExpiration: vals.Get(
 				"MutualAuthentication.IgnoreClientCertificateExpiration",
-			) == "true",
+			) == attrValueTrue,
 		}
 	} else if tsArn := vals.Get("MutualAuthentication.TrustStoreArn"); tsArn != "" {
 		mutualAuth = &MutualAuthentication{
@@ -870,7 +870,7 @@ func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 			TrustStoreArn: vals.Get("MutualAuthentication.TrustStoreArn"),
 			IgnoreClientCertificateExpiration: vals.Get(
 				"MutualAuthentication.IgnoreClientCertificateExpiration",
-			) == "true",
+			) == attrValueTrue,
 		}
 	} else if tsArn := vals.Get("MutualAuthentication.TrustStoreArn"); tsArn != "" {
 		mutualAuth = &MutualAuthentication{
@@ -1337,7 +1337,7 @@ func (h *Handler) handleAddListenerCertificates(vals url.Values) (any, error) {
 
 	members := make([]xmlListenerCertificate, 0, len(certs))
 	for _, c := range certs {
-		members = append(members, xmlListenerCertificate{CertificateArn: c.CertificateArn, IsDefault: c.IsDefault})
+		members = append(members, xmlListenerCertificate(c))
 	}
 
 	return &addListenerCertificatesResponse{
@@ -1362,7 +1362,7 @@ func (h *Handler) handleDescribeListenerCertificates(vals url.Values) (any, erro
 
 	members := make([]xmlListenerCertificate, 0, len(certs))
 	for _, c := range certs {
-		members = append(members, xmlListenerCertificate{CertificateArn: c.CertificateArn, IsDefault: c.IsDefault})
+		members = append(members, xmlListenerCertificate(c))
 	}
 
 	return &describeListenerCertificatesResponse{
@@ -1917,66 +1917,80 @@ func parseActions(vals url.Values, prefix string) []Action {
 			Order:          order,
 		}
 
-		switch actionType {
-		case "redirect":
-			action.RedirectConfig = &RedirectConfig{
-				Protocol:   vals.Get(p + ".RedirectConfig.Protocol"),
-				Port:       vals.Get(p + ".RedirectConfig.Port"),
-				Host:       vals.Get(p + ".RedirectConfig.Host"),
-				Path:       vals.Get(p + ".RedirectConfig.Path"),
-				Query:      vals.Get(p + ".RedirectConfig.Query"),
-				StatusCode: vals.Get(p + ".RedirectConfig.StatusCode"),
-			}
-		case "fixed-response":
-			action.FixedResponseConfig = &FixedResponseConfig{
-				StatusCode:  vals.Get(p + ".FixedResponseConfig.StatusCode"),
-				MessageBody: vals.Get(p + ".FixedResponseConfig.MessageBody"),
-				ContentType: vals.Get(p + ".FixedResponseConfig.ContentType"),
-			}
-		case "forward":
-			tgs := parseForwardConfigTargetGroups(vals, p+".ForwardConfig.TargetGroups.member")
-			if len(tgs) > 0 {
-				action.ForwardConfig = &ForwardConfig{TargetGroups: tgs}
-			}
-		case "authenticate-cognito":
-			action.AuthenticateCognitoConfig = &AuthenticateCognitoConfig{
-				UserPoolArn:              vals.Get(p + ".AuthenticateCognitoConfig.UserPoolArn"),
-				UserPoolClientID:         vals.Get(p + ".AuthenticateCognitoConfig.UserPoolClientId"),
-				UserPoolDomain:           vals.Get(p + ".AuthenticateCognitoConfig.UserPoolDomain"),
-				SessionCookieName:        vals.Get(p + ".AuthenticateCognitoConfig.SessionCookieName"),
-				Scope:                    vals.Get(p + ".AuthenticateCognitoConfig.Scope"),
-				OnUnauthenticatedRequest: vals.Get(p + ".AuthenticateCognitoConfig.OnUnauthenticatedRequest"),
-			}
-			if st := vals.Get(p + ".AuthenticateCognitoConfig.SessionTimeout"); st != "" {
-				n, err := strconv.ParseInt(st, 10, 64)
-				if err == nil {
-					action.AuthenticateCognitoConfig.SessionTimeout = n
-				}
-			}
-		case "authenticate-oidc":
-			action.AuthenticateOidcConfig = &AuthenticateOidcConfig{
-				Issuer:                   vals.Get(p + ".AuthenticateOidcConfig.Issuer"),
-				AuthorizationEndpoint:    vals.Get(p + ".AuthenticateOidcConfig.AuthorizationEndpoint"),
-				TokenEndpoint:            vals.Get(p + ".AuthenticateOidcConfig.TokenEndpoint"),
-				UserInfoEndpoint:         vals.Get(p + ".AuthenticateOidcConfig.UserInfoEndpoint"),
-				ClientID:                 vals.Get(p + ".AuthenticateOidcConfig.ClientId"),
-				ClientSecret:             vals.Get(p + ".AuthenticateOidcConfig.ClientSecret"),
-				SessionCookieName:        vals.Get(p + ".AuthenticateOidcConfig.SessionCookieName"),
-				Scope:                    vals.Get(p + ".AuthenticateOidcConfig.Scope"),
-				OnUnauthenticatedRequest: vals.Get(p + ".AuthenticateOidcConfig.OnUnauthenticatedRequest"),
-			}
-			if st := vals.Get(p + ".AuthenticateOidcConfig.SessionTimeout"); st != "" {
-				n, err := strconv.ParseInt(st, 10, 64)
-				if err == nil {
-					action.AuthenticateOidcConfig.SessionTimeout = n
-				}
-			}
-		}
-
+		applyActionConfig(vals, p, actionType, &action)
 		result = append(result, action)
 	}
 
 	return result
+}
+
+// applyActionConfig populates action-type-specific config fields from form values.
+func applyActionConfig(vals url.Values, p, actionType string, action *Action) {
+	switch actionType {
+	case "redirect":
+		action.RedirectConfig = &RedirectConfig{
+			Protocol:   vals.Get(p + ".RedirectConfig.Protocol"),
+			Port:       vals.Get(p + ".RedirectConfig.Port"),
+			Host:       vals.Get(p + ".RedirectConfig.Host"),
+			Path:       vals.Get(p + ".RedirectConfig.Path"),
+			Query:      vals.Get(p + ".RedirectConfig.Query"),
+			StatusCode: vals.Get(p + ".RedirectConfig.StatusCode"),
+		}
+	case "fixed-response":
+		action.FixedResponseConfig = &FixedResponseConfig{
+			StatusCode:  vals.Get(p + ".FixedResponseConfig.StatusCode"),
+			MessageBody: vals.Get(p + ".FixedResponseConfig.MessageBody"),
+			ContentType: vals.Get(p + ".FixedResponseConfig.ContentType"),
+		}
+	case "forward":
+		tgs := parseForwardConfigTargetGroups(vals, p+".ForwardConfig.TargetGroups.member")
+		if len(tgs) > 0 {
+			action.ForwardConfig = &ForwardConfig{TargetGroups: tgs}
+		}
+	case "authenticate-cognito":
+		applyAuthCognitoConfig(vals, p, action)
+	case "authenticate-oidc":
+		applyAuthOidcConfig(vals, p, action)
+	}
+}
+
+func applyAuthCognitoConfig(vals url.Values, p string, action *Action) {
+	action.AuthenticateCognitoConfig = &AuthenticateCognitoConfig{
+		UserPoolArn:              vals.Get(p + ".AuthenticateCognitoConfig.UserPoolArn"),
+		UserPoolClientID:         vals.Get(p + ".AuthenticateCognitoConfig.UserPoolClientId"),
+		UserPoolDomain:           vals.Get(p + ".AuthenticateCognitoConfig.UserPoolDomain"),
+		SessionCookieName:        vals.Get(p + ".AuthenticateCognitoConfig.SessionCookieName"),
+		Scope:                    vals.Get(p + ".AuthenticateCognitoConfig.Scope"),
+		OnUnauthenticatedRequest: vals.Get(p + ".AuthenticateCognitoConfig.OnUnauthenticatedRequest"),
+	}
+
+	if st := vals.Get(p + ".AuthenticateCognitoConfig.SessionTimeout"); st != "" {
+		n, err := strconv.ParseInt(st, 10, 64)
+		if err == nil {
+			action.AuthenticateCognitoConfig.SessionTimeout = n
+		}
+	}
+}
+
+func applyAuthOidcConfig(vals url.Values, p string, action *Action) {
+	action.AuthenticateOidcConfig = &AuthenticateOidcConfig{
+		Issuer:                   vals.Get(p + ".AuthenticateOidcConfig.Issuer"),
+		AuthorizationEndpoint:    vals.Get(p + ".AuthenticateOidcConfig.AuthorizationEndpoint"),
+		TokenEndpoint:            vals.Get(p + ".AuthenticateOidcConfig.TokenEndpoint"),
+		UserInfoEndpoint:         vals.Get(p + ".AuthenticateOidcConfig.UserInfoEndpoint"),
+		ClientID:                 vals.Get(p + ".AuthenticateOidcConfig.ClientId"),
+		ClientSecret:             vals.Get(p + ".AuthenticateOidcConfig.ClientSecret"),
+		SessionCookieName:        vals.Get(p + ".AuthenticateOidcConfig.SessionCookieName"),
+		Scope:                    vals.Get(p + ".AuthenticateOidcConfig.Scope"),
+		OnUnauthenticatedRequest: vals.Get(p + ".AuthenticateOidcConfig.OnUnauthenticatedRequest"),
+	}
+
+	if st := vals.Get(p + ".AuthenticateOidcConfig.SessionTimeout"); st != "" {
+		n, err := strconv.ParseInt(st, 10, 64)
+		if err == nil {
+			action.AuthenticateOidcConfig.SessionTimeout = n
+		}
+	}
 }
 
 // parseForwardConfigTargetGroups extracts weighted target groups from ForwardConfig form values.
@@ -1996,15 +2010,17 @@ func parseForwardConfigTargetGroups(vals url.Values, prefix string) []TargetGrou
 	return result
 }
 
-// validHTTPMethods is the whitelist of allowed HTTP methods for http-request-method conditions.
-var validHTTPMethods = map[string]bool{
-	"GET":     true,
-	"HEAD":    true,
-	"POST":    true,
-	"PUT":     true,
-	"DELETE":  true,
-	"OPTIONS": true,
-	"PATCH":   true,
+// allowedHTTPMethods returns the whitelist of allowed HTTP methods for http-request-method conditions.
+func allowedHTTPMethods() map[string]bool {
+	return map[string]bool{
+		"GET":     true,
+		"HEAD":    true,
+		"POST":    true,
+		"PUT":     true,
+		"DELETE":  true,
+		"OPTIONS": true,
+		"PATCH":   true,
+	}
 }
 
 // parseConditions extracts rule conditions from form values.
@@ -2045,7 +2061,7 @@ func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition
 	case "http-request-method":
 		methods := parseMembers(vals, fmt.Sprintf("%s.%d.HttpRequestMethodConfig.Values.member", prefix, i))
 		for _, m := range methods {
-			if !validHTTPMethods[strings.ToUpper(m)] {
+			if !allowedHTTPMethods()[strings.ToUpper(m)] {
 				return false, fmt.Errorf(
 					"%w: invalid HTTP method %q; valid methods are GET, HEAD, POST, PUT, DELETE, OPTIONS, PATCH",
 					ErrInvalidParameter, m,
@@ -2147,12 +2163,12 @@ func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
 
 	if tg.Matcher.HTTPCode != "" || tg.Matcher.GrpcCode != "" {
 		xtg.Matcher = &xmlMatcher{
-			HttpCode: tg.Matcher.HTTPCode,
+			HTTPCode: tg.Matcher.HTTPCode,
 			GrpcCode: tg.Matcher.GrpcCode,
 		}
 	} else if tg.HealthCheckProtocol == "HTTP" || tg.HealthCheckProtocol == "HTTPS" {
 		// Default matcher for HTTP/HTTPS health checks.
-		xtg.Matcher = &xmlMatcher{HttpCode: "200"}
+		xtg.Matcher = &xmlMatcher{HTTPCode: "200"}
 	}
 
 	return xtg
@@ -2187,10 +2203,7 @@ func toXMLAction(a Action) xmlAction {
 	if a.ForwardConfig != nil {
 		tuples := make([]xmlTargetGroupTuple, 0, len(a.ForwardConfig.TargetGroups))
 		for _, tgt := range a.ForwardConfig.TargetGroups {
-			tuples = append(tuples, xmlTargetGroupTuple{
-				TargetGroupArn: tgt.TargetGroupArn,
-				Weight:         tgt.Weight,
-			})
+			tuples = append(tuples, xmlTargetGroupTuple(tgt))
 		}
 
 		xa.ForwardConfig = &xmlForwardConfig{
@@ -2254,7 +2267,7 @@ func toXMLListener(l *Listener) xmlListener {
 	if len(l.Certificates) > 0 {
 		certs := make([]xmlListenerCertificate, 0, len(l.Certificates))
 		for _, c := range l.Certificates {
-			certs = append(certs, xmlListenerCertificate{CertificateArn: c.CertificateArn, IsDefault: c.IsDefault})
+			certs = append(certs, xmlListenerCertificate(c))
 		}
 
 		xl.Certificates = &xmlListenerCertificateList{Members: certs}
@@ -2642,7 +2655,7 @@ type xmlForwardConfig struct {
 // xmlAuthenticateCognitoConfig serialises AuthenticateCognitoConfig.
 type xmlAuthenticateCognitoConfig struct {
 	UserPoolArn              string `xml:"UserPoolArn"`
-	UserPoolClientID string `xml:"UserPoolClientId"`
+	UserPoolClientID         string `xml:"UserPoolClientId"`
 	UserPoolDomain           string `xml:"UserPoolDomain"`
 	SessionCookieName        string `xml:"SessionCookieName,omitempty"`
 	Scope                    string `xml:"Scope,omitempty"`
@@ -2672,7 +2685,7 @@ type xmlMutualAuthentication struct {
 
 // xmlMatcher serialises Matcher for XML responses.
 type xmlMatcher struct {
-	HttpCode string `xml:"HttpCode,omitempty"`
+	HTTPCode string `xml:"HTTPCode,omitempty"`
 	GrpcCode string `xml:"GrpcCode,omitempty"`
 }
 

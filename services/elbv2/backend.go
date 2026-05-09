@@ -510,17 +510,17 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	}
 
 	defaultAttrs := map[string]string{
-		"access_logs.s3.enabled":                          "false",
-		"deletion_protection.enabled":                     "false",
+		"access_logs.s3.enabled":                          attrValueFalse,
+		"deletion_protection.enabled":                     attrValueFalse,
 		"idle_timeout.timeout_seconds":                    "60",
-		"routing.http2.enabled":                           "true",
+		"routing.http2.enabled":                           attrValueTrue,
 		"routing.http.desync_mitigation_mode":             "defensive",
-		"routing.http.drop_invalid_header_fields.enabled": "false",
-		"routing.http.preserve_host_header.enabled":       "false",
-		"routing.http.xff_client_port.enabled":            "false",
+		"routing.http.drop_invalid_header_fields.enabled": attrValueFalse,
+		"routing.http.preserve_host_header.enabled":       attrValueFalse,
+		"routing.http.xff_client_port.enabled":            attrValueFalse,
 		"routing.http.xff_header_processing.mode":         "append",
-		"load_balancing.cross_zone.enabled":               "true",
-		"waf.fail_open.enabled":                           "false",
+		"load_balancing.cross_zone.enabled":               attrValueTrue,
+		"waf.fail_open.enabled":                           attrValueFalse,
 	}
 
 	lb := &LoadBalancer{
@@ -697,7 +697,7 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 		Targets:                    []Target{},
 		TargetGroupAttributes: map[string]string{
 			"deregistration_delay.timeout_seconds": "300",
-			"stickiness.enabled":                   "false",
+			"stickiness.enabled":                   attrValueFalse,
 			"stickiness.type":                      "lb_cookie",
 			"load_balancing.algorithm.type":        "round_robin",
 			"slow_start.duration_seconds":          "0",
@@ -1135,7 +1135,7 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 	// Initialize default listener attributes based on protocol.
 	listenerAttrs := map[string]string{}
 	if proto == protoHTTP || proto == protoHTTPS {
-		listenerAttrs["routing.http2.enabled"] = "true"
+		listenerAttrs["routing.http2.enabled"] = attrValueTrue
 		listenerAttrs["idle_timeout.timeout_seconds"] = "60"
 		listenerAttrs["routing.http.desync_mitigation_mode"] = "defensive"
 	}
