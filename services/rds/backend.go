@@ -96,6 +96,7 @@ const (
 	blueGreenDeploymentStatusAvailable = "available"
 	ipRangeStatusAuthorized            = "authorized"
 	instanceTransitionDelay            = 250 * time.Millisecond
+	monitoringIntervalFive             = 5
 	reconcilerDivisor                  = 5
 	maxEvents                          = 512
 
