@@ -43,7 +43,7 @@ func TestIAM_AccessKey(t *testing.T) {
 
 	_, be := newTestHandler(t)
 
-	_, err := be.CreateUser("key-user", "/", nil)
+	_, err := be.CreateUser("key-user", "/", "")
 	require.NoError(t, err)
 
 	// CreateAccessKey
