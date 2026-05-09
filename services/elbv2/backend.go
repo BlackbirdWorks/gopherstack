@@ -200,8 +200,8 @@ type AuthenticateOidcConfig struct {
 
 // MutualAuthentication holds mTLS configuration for a listener.
 type MutualAuthentication struct {
-	TrustStoreArn                    string `json:"trustStoreArn,omitempty"`
-	Mode                             string `json:"mode"`
+	TrustStoreArn                     string `json:"trustStoreArn,omitempty"`
+	Mode                              string `json:"mode"`
 	IgnoreClientCertificateExpiration bool   `json:"ignoreClientCertificateExpiration,omitempty"`
 }
 
@@ -221,7 +221,7 @@ type Certificate struct {
 type Listener struct {
 	Tags                 *tags.Tags            `json:"tags,omitempty"`
 	Attributes           map[string]string     `json:"attributes,omitempty"`
-	MutualAuthentication *MutualAuthentication  `json:"mutualAuthentication,omitempty"`
+	MutualAuthentication *MutualAuthentication `json:"mutualAuthentication,omitempty"`
 	ListenerArn          string                `json:"listenerArn"`
 	LoadBalancerArn      string                `json:"loadBalancerArn"`
 	Protocol             string                `json:"protocol"`
@@ -489,17 +489,17 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	}
 
 	defaultAttrs := map[string]string{
-		"access_logs.s3.enabled":                             "false",
-		"deletion_protection.enabled":                        "false",
-		"idle_timeout.timeout_seconds":                       "60",
-		"routing.http2.enabled":                              "true",
-		"routing.http.desync_mitigation_mode":                "defensive",
-		"routing.http.drop_invalid_header_fields.enabled":    "false",
-		"routing.http.preserve_host_header.enabled":          "false",
-		"routing.http.xff_client_port.enabled":               "false",
-		"routing.http.xff_header_processing.mode":            "append",
-		"load_balancing.cross_zone.enabled":                  "true",
-		"waf.fail_open.enabled":                              "false",
+		"access_logs.s3.enabled":                          "false",
+		"deletion_protection.enabled":                     "false",
+		"idle_timeout.timeout_seconds":                    "60",
+		"routing.http2.enabled":                           "true",
+		"routing.http.desync_mitigation_mode":             "defensive",
+		"routing.http.drop_invalid_header_fields.enabled": "false",
+		"routing.http.preserve_host_header.enabled":       "false",
+		"routing.http.xff_client_port.enabled":            "false",
+		"routing.http.xff_header_processing.mode":         "append",
+		"load_balancing.cross_zone.enabled":               "true",
+		"waf.fail_open.enabled":                           "false",
 	}
 
 	lb := &LoadBalancer{
@@ -688,8 +688,8 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 			"deregistration_delay.timeout_seconds": "300",
 			"stickiness.enabled":                   "false",
 			"stickiness.type":                      "lb_cookie",
-			"load_balancing.algorithm.type":         "round_robin",
-			"slow_start.duration_seconds":           "0",
+			"load_balancing.algorithm.type":        "round_robin",
+			"slow_start.duration_seconds":          "0",
 		},
 		Tags: t,
 	}

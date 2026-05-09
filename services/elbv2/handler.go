@@ -476,16 +476,19 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 	}
 
 	tg, createErr := h.Backend.CreateTargetGroup(CreateTargetGroupInput{
-		Name:                       name,
-		Protocol:                   vals.Get("Protocol"),
-		Port:                       port,
-		VpcID:                      vals.Get("VpcId"),
-		TargetType:                 vals.Get("TargetType"),
-		Tags:                       tagKVs,
-		HealthCheckProtocol:        vals.Get("HealthCheckProtocol"),
-		HealthCheckPort:            vals.Get("HealthCheckPort"),
-		HealthCheckPath:            vals.Get("HealthCheckPath"),
-		Matcher:                    Matcher{HTTPCode: vals.Get("Matcher.HttpCode"), GrpcCode: vals.Get("Matcher.GrpcCode")},
+		Name:                name,
+		Protocol:            vals.Get("Protocol"),
+		Port:                port,
+		VpcID:               vals.Get("VpcId"),
+		TargetType:          vals.Get("TargetType"),
+		Tags:                tagKVs,
+		HealthCheckProtocol: vals.Get("HealthCheckProtocol"),
+		HealthCheckPort:     vals.Get("HealthCheckPort"),
+		HealthCheckPath:     vals.Get("HealthCheckPath"),
+		Matcher: Matcher{
+			HTTPCode: vals.Get("Matcher.HttpCode"),
+			GrpcCode: vals.Get("Matcher.GrpcCode"),
+		},
 		HealthCheckIntervalSeconds: hcInterval,
 		HealthCheckTimeoutSeconds:  hcTimeout,
 		HealthyThresholdCount:      healthyThreshold,
@@ -561,11 +564,14 @@ func (h *Handler) handleModifyTargetGroup(vals url.Values) (any, error) {
 	hcEnabled := vals.Get("HealthCheckEnabled") == "true"
 
 	tg, err := h.Backend.ModifyTargetGroup(ModifyTargetGroupInput{
-		TargetGroupArn:             tgArn,
-		HealthCheckProtocol:        vals.Get("HealthCheckProtocol"),
-		HealthCheckPort:            vals.Get("HealthCheckPort"),
-		HealthCheckPath:            vals.Get("HealthCheckPath"),
-		Matcher:                    Matcher{HTTPCode: vals.Get("Matcher.HttpCode"), GrpcCode: vals.Get("Matcher.GrpcCode")},
+		TargetGroupArn:      tgArn,
+		HealthCheckProtocol: vals.Get("HealthCheckProtocol"),
+		HealthCheckPort:     vals.Get("HealthCheckPort"),
+		HealthCheckPath:     vals.Get("HealthCheckPath"),
+		Matcher: Matcher{
+			HTTPCode: vals.Get("Matcher.HttpCode"),
+			GrpcCode: vals.Get("Matcher.GrpcCode"),
+		},
 		HealthCheckEnabled:         hcEnabled,
 		HealthCheckIntervalSeconds: hcInterval,
 		HealthCheckTimeoutSeconds:  hcTimeout,
@@ -746,9 +752,11 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 	var mutualAuth *MutualAuthentication
 	if mode := vals.Get("MutualAuthentication.Mode"); mode != "" {
 		mutualAuth = &MutualAuthentication{
-			Mode:                             mode,
-			TrustStoreArn:                    vals.Get("MutualAuthentication.TrustStoreArn"),
-			IgnoreClientCertificateExpiration: vals.Get("MutualAuthentication.IgnoreClientCertificateExpiration") == "true",
+			Mode:          mode,
+			TrustStoreArn: vals.Get("MutualAuthentication.TrustStoreArn"),
+			IgnoreClientCertificateExpiration: vals.Get(
+				"MutualAuthentication.IgnoreClientCertificateExpiration",
+			) == "true",
 		}
 	} else if tsArn := vals.Get("MutualAuthentication.TrustStoreArn"); tsArn != "" {
 		mutualAuth = &MutualAuthentication{
@@ -843,9 +851,11 @@ func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 	var mutualAuth *MutualAuthentication
 	if mode := vals.Get("MutualAuthentication.Mode"); mode != "" {
 		mutualAuth = &MutualAuthentication{
-			Mode:                             mode,
-			TrustStoreArn:                    vals.Get("MutualAuthentication.TrustStoreArn"),
-			IgnoreClientCertificateExpiration: vals.Get("MutualAuthentication.IgnoreClientCertificateExpiration") == "true",
+			Mode:          mode,
+			TrustStoreArn: vals.Get("MutualAuthentication.TrustStoreArn"),
+			IgnoreClientCertificateExpiration: vals.Get(
+				"MutualAuthentication.IgnoreClientCertificateExpiration",
+			) == "true",
 		}
 	} else if tsArn := vals.Get("MutualAuthentication.TrustStoreArn"); tsArn != "" {
 		mutualAuth = &MutualAuthentication{
@@ -1309,7 +1319,7 @@ func (h *Handler) handleAddListenerCertificates(vals url.Values) (any, error) {
 
 	members := make([]xmlListenerCertificate, 0, len(certs))
 	for _, c := range certs {
-		members = append(members, xmlListenerCertificate{CertificateArn: c.CertificateArn})
+		members = append(members, xmlListenerCertificate{CertificateArn: c.CertificateArn, IsDefault: c.IsDefault})
 	}
 
 	return &addListenerCertificatesResponse{
@@ -1334,7 +1344,7 @@ func (h *Handler) handleDescribeListenerCertificates(vals url.Values) (any, erro
 
 	members := make([]xmlListenerCertificate, 0, len(certs))
 	for _, c := range certs {
-		members = append(members, xmlListenerCertificate{CertificateArn: c.CertificateArn})
+		members = append(members, xmlListenerCertificate{CertificateArn: c.CertificateArn, IsDefault: c.IsDefault})
 	}
 
 	return &describeListenerCertificatesResponse{
@@ -2211,8 +2221,8 @@ func toXMLListener(l *Listener) xmlListener {
 
 	if l.MutualAuthentication != nil {
 		xl.MutualAuthentication = &xmlMutualAuthentication{
-			Mode:                             l.MutualAuthentication.Mode,
-			TrustStoreArn:                    l.MutualAuthentication.TrustStoreArn,
+			Mode:                              l.MutualAuthentication.Mode,
+			TrustStoreArn:                     l.MutualAuthentication.TrustStoreArn,
 			IgnoreClientCertificateExpiration: l.MutualAuthentication.IgnoreClientCertificateExpiration,
 		}
 	}
@@ -2621,8 +2631,8 @@ type xmlAuthenticateOidcConfig struct {
 
 // xmlMutualAuthentication serialises MutualAuthentication for XML responses.
 type xmlMutualAuthentication struct {
-	TrustStoreArn                    string `xml:"TrustStoreArn,omitempty"`
-	Mode                             string `xml:"Mode"`
+	TrustStoreArn                     string `xml:"TrustStoreArn,omitempty"`
+	Mode                              string `xml:"Mode"`
 	IgnoreClientCertificateExpiration bool   `xml:"IgnoreClientCertificateExpiration,omitempty"`
 }
 
