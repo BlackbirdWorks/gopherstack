@@ -26,8 +26,8 @@ func TestRDSCoverage_StubOps(t *testing.T) {
 		{
 			"CreateIntegration",
 			"IntegrationName=test-integration" +
-			"&SourceArn=arn:aws:rds:us-east-1:000000000000:db:test" +
-			"&TargetArn=arn:aws:redshift:us-east-1:000000000000:namespace:test",
+				"&SourceArn=arn:aws:rds:us-east-1:000000000000:db:test" +
+				"&TargetArn=arn:aws:redshift:us-east-1:000000000000:namespace:test",
 		},
 		{"DeleteIntegration", "IntegrationIdentifier=test-integration"},
 		{"DescribeIntegrations", ""},
@@ -87,6 +87,6 @@ func TestRDSCoverage_BackendOps(t *testing.T) {
 
 	for _, body := range ops {
 		rec := postRDSForm(t, h, body)
-		assert.True(t, rec.Code >= 200, "expected non-negative status for %s", body)
+		assert.GreaterOrEqual(t, rec.Code, 200, "expected non-negative status for %s", body)
 	}
 }
