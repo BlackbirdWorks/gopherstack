@@ -26,7 +26,7 @@ func TestIAM_BackendReset(t *testing.T) {
 	_, be := newTestHandler(t)
 
 	// Create some resources
-	_, err := be.CreateUser("reset-user", "/", nil)
+	_, err := be.CreateUser("reset-user", "/", "")
 	require.NoError(t, err)
 
 	// Reset exercises collectAndDeleteFunctions and cleanup paths
@@ -52,7 +52,7 @@ func TestIAM_AccessKey(t *testing.T) {
 	assert.NotEmpty(t, key.AccessKeyID)
 
 	// ListAccessKeys
-	keys, err := be.ListAccessKeys("key-user", "", 100)
+	keysPage, err := be.ListAccessKeys("key-user", "", 100)
 	require.NoError(t, err)
-	assert.Len(t, keys, 1)
+	assert.Len(t, keysPage.Items, 1)
 }
