@@ -367,8 +367,8 @@ func validateSetValue(k, t string, val any) error {
 		}
 	}
 
-	if err := validateSetNoDuplicates(k, list); err != nil {
-		return err
+	if dupErr := validateSetNoDuplicates(k, list); dupErr != nil {
+		return dupErr
 	}
 
 	return nil

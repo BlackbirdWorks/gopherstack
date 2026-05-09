@@ -1701,8 +1701,8 @@ func TestEAN_KeyWithoutHash_Rejected(t *testing.T) {
 			"pk": &types.AttributeValueMemberS{Value: "p1"},
 			"sk": &types.AttributeValueMemberS{Value: "s1"},
 		},
-		ConditionExpression:       aws.String("attribute_not_exists(nopk)"),
-		ExpressionAttributeNames:  map[string]string{"nopk": "pk"}, // missing #
+		ConditionExpression:      aws.String("attribute_not_exists(nopk)"),
+		ExpressionAttributeNames: map[string]string{"nopk": "pk"}, // missing #
 	})
 	auditAssertErrorCode(t, err, "ValidationException")
 	if err != nil && !strings.Contains(err.Error(), "ExpressionAttributeNames") {
@@ -1722,8 +1722,8 @@ func TestEAN_EmptyValue_Rejected(t *testing.T) {
 			"pk": &types.AttributeValueMemberS{Value: "p1"},
 			"sk": &types.AttributeValueMemberS{Value: "s1"},
 		},
-		ConditionExpression:       aws.String("attribute_not_exists(#pk)"),
-		ExpressionAttributeNames:  map[string]string{"#pk": ""}, // empty value
+		ConditionExpression:      aws.String("attribute_not_exists(#pk)"),
+		ExpressionAttributeNames: map[string]string{"#pk": ""}, // empty value
 	})
 	auditAssertErrorCode(t, err, "ValidationException")
 }
@@ -1740,8 +1740,8 @@ func TestEAN_ValidHash_Accepted(t *testing.T) {
 			"pk": &types.AttributeValueMemberS{Value: "p1"},
 			"sk": &types.AttributeValueMemberS{Value: "s1"},
 		},
-		ConditionExpression:       aws.String("attribute_not_exists(#pk)"),
-		ExpressionAttributeNames:  map[string]string{"#pk": "pk"},
+		ConditionExpression:      aws.String("attribute_not_exists(#pk)"),
+		ExpressionAttributeNames: map[string]string{"#pk": "pk"},
 	})
 	if err != nil {
 		t.Fatalf("valid EAN with # prefix should be accepted: %v", err)
@@ -2134,9 +2134,9 @@ func TestNS_DuplicateValues_Rejected(t *testing.T) {
 	_, err := db.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName: aws.String("tbl"),
 		Item: map[string]types.AttributeValue{
-			"pk":    &types.AttributeValueMemberS{Value: "p1"},
-			"sk":    &types.AttributeValueMemberS{Value: "s1"},
-			"nums":  &types.AttributeValueMemberNS{Value: []string{"1", "2", "1"}},
+			"pk":   &types.AttributeValueMemberS{Value: "p1"},
+			"sk":   &types.AttributeValueMemberS{Value: "s1"},
+			"nums": &types.AttributeValueMemberNS{Value: []string{"1", "2", "1"}},
 		},
 	})
 	auditAssertErrorCode(t, err, "ValidationException")
@@ -2301,7 +2301,6 @@ func TestNumber_LeadingZero_Rejected(t *testing.T) {
 	cases := []string{"007", "01", "01.5", "-01"}
 
 	for _, n := range cases {
-		n := n
 		t.Run(n, func(t *testing.T) {
 			t.Parallel()
 			err := ddb.ValidateNumberNoLeadingZeros("attr", n)
@@ -2315,7 +2314,6 @@ func TestNumber_Valid_Accepted(t *testing.T) {
 	cases := []string{"0", "1", "-1", "0.5", "123", "1.23e10", "-0.5"}
 
 	for _, n := range cases {
-		n := n
 		t.Run(n, func(t *testing.T) {
 			t.Parallel()
 			if err := ddb.ValidateNumberNoLeadingZeros("attr", n); err != nil {

@@ -491,7 +491,11 @@ func CheckUnusedExpressionAttributeValues(eav map[string]any, exprs ...string) e
 	return checkUnusedExpressionAttributeValues(eav, exprs...)
 }
 
-func ValidateUpdateDoesNotModifyKeys(updateExpr string, ean map[string]string, keySchema []models.KeySchemaElement) error {
+func ValidateUpdateDoesNotModifyKeys(
+	updateExpr string,
+	ean map[string]string,
+	keySchema []models.KeySchemaElement,
+) error {
 	return validateUpdateDoesNotModifyKeys(updateExpr, ean, keySchema)
 }
 

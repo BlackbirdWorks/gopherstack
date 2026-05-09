@@ -173,7 +173,7 @@ func (db *InMemoryDB) collectTransactReplicationPayloads(
 				globalTableName: table.GlobalTableName,
 				region:          currentRegion,
 				item:            deepCopyItem(wireKey),
-				op:              "DELETE",
+				op:              replicationOpDelete,
 			})
 
 		case ti.Update != nil:

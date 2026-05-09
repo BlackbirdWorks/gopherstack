@@ -884,7 +884,8 @@ func validateTableNameFromBody(body []byte) error {
 		TableName string `json:"TableName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil || req.TableName == "" {
+	_ = json.Unmarshal(body, &req)
+	if req.TableName == "" {
 		return nil // missing table name is handled downstream
 	}
 

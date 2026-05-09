@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"sort"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
@@ -39,6 +41,10 @@ const (
 	shardIteratorTTL = 15 * time.Minute
 	// shardIteratorTokenLen is the number of random bytes used in each opaque iterator token.
 	shardIteratorTokenLen = 16
+	// replicationOpDelete is the mutation op string for item deletion in global-table replication.
+	replicationOpDelete = "DELETE"
+	// minLeadingZeroCheckLen is the minimum number string length that can have a leading zero.
+	minLeadingZeroCheckLen = 2
 )
 
 // buildConsumedCapacityWithIndexes constructs a ConsumedCapacity response that
@@ -329,10 +335,11 @@ func validateTransactWriteItems(
 		// Resolve the table to extract only the key attributes.
 		if table, ok := tables[tableName]; ok {
 			pkDef, skDef := getPKAndSK(table.KeySchema)
-			wireKey = map[string]any{pkDef.AttributeName: wireKey[pkDef.AttributeName]}
+			keyOnly := map[string]any{pkDef.AttributeName: wireKey[pkDef.AttributeName]}
 			if skDef.AttributeName != "" {
-				wireKey[skDef.AttributeName] = keyItem[skDef.AttributeName]
+				keyOnly[skDef.AttributeName] = wireKey[skDef.AttributeName]
 			}
+			wireKey = keyOnly
 		}
 
 		keyBytes, err := json.Marshal(wireKey)
@@ -403,11 +410,6 @@ func makeDuplicateKeyReasons(items []types.TransactWriteItem, idx int) []Cancell
 // validateScanSegment returns a ValidationException when Segment or TotalSegments
 // are out of range. AWS requires: 0 ≤ Segment < TotalSegments, 1 ≤ TotalSegments ≤ 1_000_000.
 func validateScanSegment(segment, totalSegments int32) error {
-	if totalSegments < 0 {
-		// Not set — single-segment scan, no validation needed.
-		return nil
-	}
-
 	if totalSegments < 1 || totalSegments > maxParallelScanSegments {
 		return NewValidationException(
 			fmt.Sprintf(
@@ -645,6 +647,8 @@ func validatePutDeleteReturnValues(rv types.ReturnValue) error {
 	switch rv {
 	case "", types.ReturnValueNone, types.ReturnValueAllOld:
 		return nil
+	case types.ReturnValueUpdatedOld, types.ReturnValueAllNew, types.ReturnValueUpdatedNew:
+		// These are invalid for PutItem/DeleteItem — fall through to error.
 	}
 
 	return NewValidationException(
@@ -794,9 +798,7 @@ func validateUpdateDoesNotModifyKeys(
 
 	// Build reverse map: #alias → real attribute name.
 	reverseEAN := make(map[string]string, len(ean))
-	for alias, real := range ean {
-		reverseEAN[alias] = real
-	}
+	maps.Copy(reverseEAN, ean)
 
 	// Tokenise the expression to find attribute references in SET/REMOVE clauses.
 	// We look for bare identifiers and #aliases that map to key attributes.
@@ -807,11 +809,13 @@ func validateUpdateDoesNotModifyKeys(
 		upper := strings.ToUpper(tok)
 		if upper == "SET" || upper == "REMOVE" {
 			inSetOrRemove = true
+
 			continue
 		}
 
-		if upper == "ADD" || upper == "DELETE" {
+		if upper == "ADD" || upper == replicationOpDelete {
 			inSetOrRemove = false
+
 			continue
 		}
 
@@ -909,34 +913,6 @@ func validatePositiveLimit(limit *int32) error {
 				*limit,
 			),
 		)
-	}
-
-	return nil
-}
-
-// ============================================================
-// Section 22: Empty string elements in SS sets
-// ============================================================
-
-// validateStringSetNoEmptyElements returns a ValidationException when any element
-// in a String Set (SS) attribute value is an empty string. AWS rejects this.
-func validateStringSetNoEmptyElements(k string, items []any) error {
-	for _, item := range items {
-		s, ok := item.(string)
-		if !ok {
-			continue
-		}
-
-		if s == "" {
-			return NewValidationException(
-				fmt.Sprintf(
-					"One or more parameter values are not valid. "+
-						"An AttributeValue may not contain an empty string. "+
-						"Key: %s",
-					k,
-				),
-			)
-		}
 	}
 
 	return nil
@@ -1103,7 +1079,7 @@ func validateQueryHasKeyCondition(expr string) error {
 // has a meaningless leading zero (like "007", "01.5"). AWS normalizes numbers but
 // rejects canonical representations with leading zeros.
 func validateNumberNoLeadingZeros(k, n string) error {
-	if len(n) < 2 {
+	if len(n) < minLeadingZeroCheckLen {
 		return nil
 	}
 
@@ -1114,7 +1090,7 @@ func validateNumberNoLeadingZeros(k, n string) error {
 	}
 
 	// "0" alone is fine; "0.5" is fine (decimal); "01", "007" are not.
-	if len(s) >= 2 && s[0] == '0' && s[1] != '.' && s[1] != 'e' && s[1] != 'E' {
+	if len(s) >= minLeadingZeroCheckLen && s[0] == '0' && s[1] != '.' && s[1] != 'e' && s[1] != 'E' {
 		return NewValidationException(
 			fmt.Sprintf(
 				"The parameter cannot be converted to a numeric value: %s. "+

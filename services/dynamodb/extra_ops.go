@@ -1351,7 +1351,7 @@ func (db *InMemoryDB) applyMutationToReplica(
 
 	replica.mu.Lock("applyMutationToReplica-mutate")
 
-	if op == "DELETE" {
+	if op == replicationOpDelete {
 		db.deleteReplicaItemByKey(replica, finalItem)
 	} else {
 		_, matchIdx := db.findMatchForPut(replica, finalItem)
