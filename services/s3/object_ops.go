@@ -202,7 +202,9 @@ func (h *S3Handler) headObject(
 		return
 	}
 
-	if err := validateSSECOnRead(r, aws.ToString(out.SSECustomerAlgorithm), aws.ToString(out.SSECustomerKeyMD5)); err != nil {
+	if err := validateSSECOnRead(
+		r, aws.ToString(out.SSECustomerAlgorithm), aws.ToString(out.SSECustomerKeyMD5),
+	); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return

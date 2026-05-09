@@ -872,7 +872,7 @@ func ssecHeaders(keyB64, keyMD5 string) map[string]string {
 	}
 }
 
-func mustPutSSECObject(t *testing.T, handler *s3.S3Handler, bucket, key, content string) (keyB64, keyMD5 string) {
+func mustPutSSECObject(t *testing.T, handler *s3.S3Handler, bucket, key, content string) (string, string) {
 	t.Helper()
 
 	rawKey := make([]byte, 32)
@@ -880,9 +880,9 @@ func mustPutSSECObject(t *testing.T, handler *s3.S3Handler, bucket, key, content
 		rawKey[i] = byte(i + 7)
 	}
 
-	keyB64 = base64.StdEncoding.EncodeToString(rawKey)
+	keyB64 := base64.StdEncoding.EncodeToString(rawKey)
 	sum := md5.Sum(rawKey)
-	keyMD5 = base64.StdEncoding.EncodeToString(sum[:])
+	keyMD5 := base64.StdEncoding.EncodeToString(sum[:])
 
 	rec := doRequest(handler, http.MethodPut, "/"+bucket+"/"+key,
 		strings.NewReader(content), ssecHeaders(keyB64, keyMD5))
@@ -1002,8 +1002,8 @@ func TestCopyObject_TaggingDirective_COPY_InheritsSourceTags(t *testing.T) {
 
 	// CopyObject with explicit COPY directive → destination should have source tags.
 	copyRec := doRequest(handler, http.MethodPut, "/tag-copy-dst/dst", nil, map[string]string{
-		"X-Amz-Copy-Source":        "tag-copy-src/src",
-		"X-Amz-Tagging-Directive":  "COPY",
+		"X-Amz-Copy-Source":       "tag-copy-src/src",
+		"X-Amz-Tagging-Directive": "COPY",
 	})
 	require.Equal(t, http.StatusOK, copyRec.Code)
 
