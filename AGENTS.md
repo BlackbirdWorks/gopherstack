@@ -11,6 +11,12 @@ go vet ./services/<pkg>/...
 golangci-lint run ./services/<pkg>/...
 ```
 
+
+**Checkpoint commits for long tasks:** For tasks taking >1 hour, commit and push every ~30 minutes:
+```bash
+git add -A && git commit -m "WIP: checkpoint" && git push origin HEAD
+```
+This prevents losing 3+ hours of work if your session dies (rate limits kill sessions after ~180min).
 This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
 
 ## Quick Reference
