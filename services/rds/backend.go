@@ -98,6 +98,7 @@ const (
 	instanceTransitionDelay            = 250 * time.Millisecond
 	reconcilerDivisor                  = 5
 	maxEvents                          = 512
+	percentProgressComplete            = 100
 
 	engineMySQL            = "mysql"
 	engineMariaDB          = "mariadb"
@@ -1019,6 +1020,7 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 		if a.DBInstanceIdentifier > b.DBInstanceIdentifier {
 			return 1
 		}
+
 		return 0
 	})
 
@@ -1218,7 +1220,7 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 		StorageEncrypted:     inst.StorageEncrypted,
 		SnapshotType:         "manual",
 		OptionGroupName:      inst.OptionGroupName,
-		PercentProgress:      100,
+		PercentProgress:      percentProgressComplete,
 	}
 	if inst.StorageEncrypted {
 		snap.KmsKeyID = inst.KmsKeyID
@@ -1255,6 +1257,7 @@ func (b *InMemoryBackend) DescribeDBSnapshots(snapshotID string) ([]DBSnapshot, 
 		if a.DBSnapshotIdentifier > b.DBSnapshotIdentifier {
 			return 1
 		}
+
 		return 0
 	})
 
@@ -1320,7 +1323,7 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 		KmsKeyID:             kmsKeyID,
 		SourceRegion:         opts.SourceRegion,
 		OptionGroupName:      src.OptionGroupName,
-		PercentProgress:      100,
+		PercentProgress:      percentProgressComplete,
 	}
 	b.snapshots[targetSnapshotID] = snap
 	cp := *snap
@@ -1706,6 +1709,7 @@ func (b *InMemoryBackend) DescribeDBParameterGroups(name string) ([]DBParameterG
 		if a.DBParameterGroupName > b.DBParameterGroupName {
 			return 1
 		}
+
 		return 0
 	})
 
@@ -1760,6 +1764,7 @@ func (b *InMemoryBackend) DescribeDBParameters(groupName string) ([]DBParameter,
 		if a.ParameterName > b.ParameterName {
 			return 1
 		}
+
 		return 0
 	})
 
@@ -1850,6 +1855,7 @@ func (b *InMemoryBackend) DescribeOptionGroups(name string) ([]OptionGroup, erro
 		if a.OptionGroupName > b.OptionGroupName {
 			return 1
 		}
+
 		return 0
 	})
 
@@ -1981,6 +1987,7 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 		if a.DBClusterIdentifier > b.DBClusterIdentifier {
 			return 1
 		}
+
 		return 0
 	})
 
@@ -2109,6 +2116,7 @@ func (b *InMemoryBackend) DescribeDBClusterParameterGroups(name string) ([]DBPar
 		if a.DBParameterGroupName > b.DBParameterGroupName {
 			return 1
 		}
+
 		return 0
 	})
 
@@ -2139,7 +2147,7 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 		Engine:                      cluster.Engine,
 		EngineVersion:               cluster.EngineVersion,
 		Status:                      instanceStatusAvailable,
-		PercentProgress:             100,
+		PercentProgress:             percentProgressComplete,
 		StorageEncrypted:            cluster.StorageEncrypted,
 	}
 	b.clusterSnapshots[snapshotID] = snap
@@ -2172,6 +2180,7 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID string) ([]DBClu
 		if a.DBClusterSnapshotIdentifier > b.DBClusterSnapshotIdentifier {
 			return 1
 		}
+
 		return 0
 	})
 

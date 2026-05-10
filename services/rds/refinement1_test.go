@@ -91,7 +91,9 @@ func TestDeleteEventSubscription(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateEventSubscription(tt.subName, "arn:aws:sns:us-east-1:123456789012:topic", "", nil, nil)
+				_, err := b.CreateEventSubscription(
+					tt.subName, "arn:aws:sns:us-east-1:123456789012:topic", "", nil, nil,
+				)
 				require.NoError(t, err)
 			}
 			got, err := b.DeleteEventSubscription(tt.subName)

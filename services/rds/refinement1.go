@@ -138,6 +138,7 @@ func (b *InMemoryBackend) DescribeEvents(sourceID, sourceType string, durationMi
 		if a.CreatedAt.After(b.CreatedAt) {
 			return 1
 		}
+
 		return 0
 	})
 

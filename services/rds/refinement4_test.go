@@ -19,8 +19,8 @@ func TestInstanceCreateTime(t *testing.T) {
 	require.NoError(t, err)
 	after := time.Now().UTC()
 	assert.False(t, inst.InstanceCreateTime.IsZero(), "InstanceCreateTime should be set")
-	assert.True(t, !inst.InstanceCreateTime.Before(before), "InstanceCreateTime should be after test start")
-	assert.True(t, !inst.InstanceCreateTime.After(after), "InstanceCreateTime should be before test end")
+	assert.False(t, inst.InstanceCreateTime.Before(before), "InstanceCreateTime should be after test start")
+	assert.False(t, inst.InstanceCreateTime.After(after), "InstanceCreateTime should be before test end")
 }
 
 // TestSnapshotCreateTime verifies SnapshotCreateTime and PercentProgress on CreateDBSnapshot.
@@ -34,8 +34,8 @@ func TestSnapshotCreateTime(t *testing.T) {
 	require.NoError(t, err)
 	after := time.Now().UTC()
 	assert.False(t, snap.SnapshotCreateTime.IsZero(), "SnapshotCreateTime should be set")
-	assert.True(t, !snap.SnapshotCreateTime.Before(before))
-	assert.True(t, !snap.SnapshotCreateTime.After(after))
+	assert.False(t, snap.SnapshotCreateTime.Before(before))
+	assert.False(t, snap.SnapshotCreateTime.After(after))
 	assert.Equal(t, 100, snap.PercentProgress, "completed snapshot should have 100% progress")
 }
 
@@ -48,8 +48,8 @@ func TestClusterCreateTime(t *testing.T) {
 	require.NoError(t, err)
 	after := time.Now().UTC()
 	assert.False(t, c.ClusterCreateTime.IsZero(), "ClusterCreateTime should be set")
-	assert.True(t, !c.ClusterCreateTime.Before(before))
-	assert.True(t, !c.ClusterCreateTime.After(after))
+	assert.False(t, c.ClusterCreateTime.Before(before))
+	assert.False(t, c.ClusterCreateTime.After(after))
 }
 
 // TestClusterSnapshotCreateTime verifies new fields on CreateDBClusterSnapshot.
@@ -106,8 +106,8 @@ func TestDescribeDBSnapshotsSorted(t *testing.T) {
 	_, err := b.CreateDBInstance("db-sort", "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{})
 	require.NoError(t, err)
 	for _, id := range []string{"snap-z", "snap-a", "snap-m"} {
-		_, err := b.CreateDBSnapshot(id, "db-sort")
-		require.NoError(t, err)
+		_, snapErr := b.CreateDBSnapshot(id, "db-sort")
+		require.NoError(t, snapErr)
 	}
 	got, err := b.DescribeDBSnapshots("")
 	require.NoError(t, err)
@@ -124,8 +124,8 @@ func TestDescribeDBClusterSnapshotsSorted(t *testing.T) {
 	_, err := b.CreateDBCluster("cluster-sort", "aurora-postgresql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
 	for _, id := range []string{"csnap-z", "csnap-a", "csnap-m"} {
-		_, err := b.CreateDBClusterSnapshot(id, "cluster-sort")
-		require.NoError(t, err)
+		_, snapErr := b.CreateDBClusterSnapshot(id, "cluster-sort")
+		require.NoError(t, snapErr)
 	}
 	got, err := b.DescribeDBClusterSnapshots("")
 	require.NoError(t, err)
@@ -189,7 +189,9 @@ func TestDeleteDBClusterClearsMemberInstances(t *testing.T) {
 	// Instance's cluster identifier should be cleared.
 	inst, err = b.DescribeDBInstances("member-inst")
 	require.NoError(t, err)
-	assert.Empty(t, inst[0].DBClusterIdentifier, "member instance DBClusterIdentifier should be cleared on cluster delete")
+	assert.Empty(
+		t, inst[0].DBClusterIdentifier, "member instance DBClusterIdentifier should be cleared on cluster delete",
+	)
 }
 
 // TestRebootDBClusterTransitionsState verifies RebootDBCluster requires available state and transitions to rebooting.
@@ -238,7 +240,9 @@ func TestEventSubscriptionEventCategories(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend(t)
 	cats := []string{"backup", "availability"}
-	sub, err := b.CreateEventSubscription("cat-sub", "arn:aws:sns:us-east-1:123456789012:topic", "db-instance", nil, cats)
+	sub, err := b.CreateEventSubscription(
+		"cat-sub", "arn:aws:sns:us-east-1:123456789012:topic", "db-instance", nil, cats,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, cats, sub.EventCategories)
 	// Modify to update categories.
@@ -282,8 +286,8 @@ func TestCopyDBSnapshotSetsTimestamp(t *testing.T) {
 	require.NoError(t, err)
 	after := time.Now().UTC()
 	assert.False(t, copied.SnapshotCreateTime.IsZero())
-	assert.True(t, !copied.SnapshotCreateTime.Before(before))
-	assert.True(t, !copied.SnapshotCreateTime.After(after))
+	assert.False(t, copied.SnapshotCreateTime.Before(before))
+	assert.False(t, copied.SnapshotCreateTime.After(after))
 	assert.Equal(t, 100, copied.PercentProgress)
 }
 
