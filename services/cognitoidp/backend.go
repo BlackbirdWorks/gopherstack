@@ -168,12 +168,18 @@ type refreshTokenEntry struct {
 	Username  string    `json:"username"`
 }
 
+// mfaSessionTTL is the lifetime of an MFA or challenge session token.
+const mfaSessionTTL = 3 * time.Minute
+
 // mfaSessionEntry holds the pending challenge context (MFA or NEW_PASSWORD_REQUIRED).
 type mfaSessionEntry struct {
+	ExpiresAt     time.Time
 	PoolID        string
 	ClientID      string
 	Username      string
-	ChallengeType string // "SOFTWARE_TOKEN_MFA", "NEW_PASSWORD_REQUIRED", "SMS_MFA", "EMAIL_OTP"
+	ChallengeType string // "SOFTWARE_TOKEN_MFA", "NEW_PASSWORD_REQUIRED", "SMS_MFA", "EMAIL_OTP", "SRP_A"
+	// SRPPassword holds the user's password for USER_SRP_AUTH second-step validation.
+	SRPPassword string
 }
 
 // AuthResult is the result of a successful authentication or a pending challenge.
@@ -487,12 +493,17 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 		return fmt.Errorf("%w: confirmation code is required", ErrCodeMismatch)
 	}
 
+	if !user.ConfirmCodeExpiresAt.IsZero() && time.Now().After(user.ConfirmCodeExpiresAt) {
+		return fmt.Errorf("%w: confirmation code has expired", ErrExpiredCode)
+	}
+
 	if user.ConfirmCode != "" && confirmationCode != user.ConfirmCode {
 		return fmt.Errorf("%w: invalid confirmation code", ErrCodeMismatch)
 	}
 
 	user.Status = UserStatusConfirmed
 	user.ConfirmCode = ""
+	user.ConfirmCodeExpiresAt = time.Time{}
 
 	return nil
 }
@@ -764,6 +775,17 @@ func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPas
 		return fmt.Errorf("%w: invalid reset code", ErrCodeMismatch)
 	}
 
+	if !user.ConfirmCodeExpiresAt.IsZero() && time.Now().After(user.ConfirmCodeExpiresAt) {
+		return fmt.Errorf("%w: password reset code has expired", ErrExpiredCode)
+	}
+
+	pool, ok2 := b.pools[client.UserPoolID]
+	if ok2 {
+		if err2 := validatePassword(pool.PasswordPolicy, newPassword); err2 != nil {
+			return err2
+		}
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcryptCost)
 	if err != nil {
 		return fmt.Errorf("hashing password: %w", err)
@@ -771,6 +793,7 @@ func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPas
 
 	user.PasswordHash = string(hash)
 	user.ConfirmCode = ""
+	user.ConfirmCodeExpiresAt = time.Time{}
 	user.Status = UserStatusConfirmed
 
 	return nil
@@ -793,6 +816,7 @@ func (b *InMemoryBackend) GetUser(accessToken string) (*User, error) {
 }
 
 // ChangePassword changes the password for an authenticated user (via access token).
+// The pool's PasswordPolicy is enforced on the proposed password.
 func (b *InMemoryBackend) ChangePassword(accessToken, previousPassword, proposedPassword string) error {
 	b.mu.Lock("ChangePassword")
 	defer b.mu.Unlock()
@@ -806,9 +830,15 @@ func (b *InMemoryBackend) ChangePassword(accessToken, previousPassword, proposed
 		return fmt.Errorf("%w: previous password is incorrect", ErrNotAuthorized)
 	}
 
-	hash, err3 := bcrypt.GenerateFromPassword([]byte(proposedPassword), bcryptCost)
-	if err3 != nil {
-		return fmt.Errorf("hashing password: %w", err3)
+	if pool, ok := b.pools[u.UserPoolID]; ok {
+		if err3 := validatePassword(pool.PasswordPolicy, proposedPassword); err3 != nil {
+			return err3
+		}
+	}
+
+	hash, err4 := bcrypt.GenerateFromPassword([]byte(proposedPassword), bcryptCost)
+	if err4 != nil {
+		return fmt.Errorf("hashing password: %w", err4)
 	}
 
 	u.PasswordHash = string(hash)
@@ -897,6 +927,9 @@ func (b *InMemoryBackend) findUserByClientID(clientID, username string) (*User, 
 	return user, pool, nil
 }
 
+// challengePasswordVerifier is returned for USER_SRP_AUTH after credentials are validated.
+const challengePasswordVerifier = "PASSWORD_VERIFIER"
+
 // authenticate validates a user's credentials and returns tokens or a challenge.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) authenticate(
@@ -907,7 +940,7 @@ func (b *InMemoryBackend) authenticate(
 ) (*AuthResult, error) {
 	switch authFlow {
 	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "USER_SRP_AUTH":
-		// fall through to password validation
+		// fall through to credential validation
 	default:
 		return nil, fmt.Errorf("%w: unsupported auth flow %q", ErrInvalidUserPoolConfig, authFlow)
 	}
@@ -943,6 +976,24 @@ func (b *InMemoryBackend) authenticate(
 		return nil, fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
 	}
 
+	// USER_SRP_AUTH: credentials are verified above; return PASSWORD_VERIFIER challenge so
+	// the caller can complete the two-step SRP handshake. The session encodes the verified user.
+	if authFlow == "USER_SRP_AUTH" {
+		sessionToken := randomAlphanumeric(mfaSessionLen)
+		b.mfaSessions[sessionToken] = &mfaSessionEntry{
+			PoolID:        pool.ID,
+			ClientID:      clientID,
+			Username:      user.Username,
+			ChallengeType: challengePasswordVerifier,
+			ExpiresAt:     time.Now().Add(mfaSessionTTL),
+		}
+
+		return &AuthResult{
+			MFASession:    sessionToken,
+			ChallengeName: challengePasswordVerifier,
+		}, nil
+	}
+
 	// Issue NEW_PASSWORD_REQUIRED challenge when user must set a permanent password.
 	if user.Status == UserStatusForceChangePassword {
 		sessionToken := randomAlphanumeric(mfaSessionLen)
@@ -951,6 +1002,7 @@ func (b *InMemoryBackend) authenticate(
 			ClientID:      clientID,
 			Username:      user.Username,
 			ChallengeType: challengeNewPasswordRequired,
+			ExpiresAt:     time.Now().Add(mfaSessionTTL),
 		}
 
 		return &AuthResult{
@@ -972,6 +1024,7 @@ func (b *InMemoryBackend) authenticate(
 			ClientID:      clientID,
 			Username:      user.Username,
 			ChallengeType: challengeType,
+			ExpiresAt:     time.Now().Add(mfaSessionTTL),
 		}
 
 		return &AuthResult{
@@ -1122,6 +1175,12 @@ func (b *InMemoryBackend) RespondToMFAChallenge(clientID, session, totpCode stri
 
 	entry, ok := b.mfaSessions[session]
 	if !ok {
+		return nil, fmt.Errorf("%w: MFA session not found or expired", ErrNotAuthorized)
+	}
+
+	if !entry.ExpiresAt.IsZero() && time.Now().After(entry.ExpiresAt) {
+		delete(b.mfaSessions, session)
+
 		return nil, fmt.Errorf("%w: MFA session not found or expired", ErrNotAuthorized)
 	}
 

@@ -14,7 +14,6 @@ func (h *Handler) completenessDispatchTable() map[string]service.JSONOpFunc {
 		"AdminLinkProviderForUser":             service.WrapOp(h.handleAdminLinkProviderForUser),
 		"AdminListDevices":                     service.WrapOp(h.handleAdminListDevices),
 		"AdminListUserAuthEvents":              service.WrapOp(h.handleAdminListUserAuthEvents),
-		"AdminRespondToAuthChallenge":          service.WrapOp(h.handleAdminRespondToAuthChallenge),
 		"AdminSetUserMFAPreference":            service.WrapOp(h.handleAdminSetUserMFAPreference),
 		"AdminSetUserSettings":                 service.WrapOp(h.handleAdminSetUserSettings),
 		"AdminUpdateAuthEventFeedback":         service.WrapOp(h.handleAdminUpdateAuthEventFeedback),
@@ -150,45 +149,6 @@ func (h *Handler) handleAdminListUserAuthEvents(
 	return &adminListUserAuthEventsOutput{AuthEvents: []map[string]any{}}, nil
 }
 
-type adminRespondToAuthChallengeInput struct {
-	UserPoolID         string            `json:"UserPoolId"`
-	ClientID           string            `json:"ClientId"`
-	ChallengeName      string            `json:"ChallengeName"`
-	ChallengeResponses map[string]string `json:"ChallengeResponses"`
-	Session            string            `json:"Session"`
-}
-
-type adminRespondToAuthChallengeOutput struct {
-	AuthenticationResult *authResult `json:"AuthenticationResult,omitempty"`
-	ChallengeName        string      `json:"ChallengeName,omitempty"`
-	Session              string      `json:"Session,omitempty"`
-}
-
-func (h *Handler) handleAdminRespondToAuthChallenge(
-	_ context.Context,
-	in *adminRespondToAuthChallengeInput,
-) (*adminRespondToAuthChallengeOutput, error) {
-	if in.ChallengeName != "SOFTWARE_TOKEN_MFA" {
-		return &adminRespondToAuthChallengeOutput{}, nil
-	}
-
-	totpCode := in.ChallengeResponses["SOFTWARE_TOKEN_MFA_CODE"]
-
-	tokens, err := h.Backend.RespondToMFAChallenge(in.ClientID, in.Session, totpCode)
-	if err != nil {
-		return nil, err
-	}
-
-	return &adminRespondToAuthChallengeOutput{
-		AuthenticationResult: &authResult{
-			AccessToken:  tokens.AccessToken,
-			IDToken:      tokens.IDToken,
-			RefreshToken: tokens.RefreshToken,
-			TokenType:    authTypeBearer,
-			ExpiresIn:    tokens.ExpiresIn,
-		},
-	}, nil
-}
 
 type adminSetUserMFAPreferenceInput struct {
 	SMSMfaSettings           *mfaSettings `json:"SMSMfaSettings,omitempty"`

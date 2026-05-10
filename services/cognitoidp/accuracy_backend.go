@@ -733,3 +733,109 @@ func (b *InMemoryBackend) DeleteResourceServer(userPoolID, identifier string) er
 
 	return nil
 }
+
+// RespondToSRPChallenge completes the USER_SRP_AUTH two-step flow. The session token
+// was issued by authenticate() after credentials were verified; this call issues tokens.
+func (b *InMemoryBackend) RespondToSRPChallenge(clientID, session string) (*TokenResult, error) {
+	b.mu.Lock("RespondToSRPChallenge")
+	defer b.mu.Unlock()
+
+	entry, ok := b.mfaSessions[session]
+	if !ok {
+		return nil, fmt.Errorf("%w: SRP session not found or expired", ErrNotAuthorized)
+	}
+
+	if !entry.ExpiresAt.IsZero() && time.Now().After(entry.ExpiresAt) {
+		delete(b.mfaSessions, session)
+
+		return nil, fmt.Errorf("%w: SRP session not found or expired", ErrNotAuthorized)
+	}
+
+	if entry.ChallengeType != challengePasswordVerifier {
+		return nil, fmt.Errorf("%w: session is not a PASSWORD_VERIFIER challenge", ErrNotAuthorized)
+	}
+
+	if entry.ClientID != clientID {
+		return nil, fmt.Errorf("%w: session was issued for a different client", ErrNotAuthorized)
+	}
+
+	pool, ok := b.pools[entry.PoolID]
+	if !ok {
+		return nil, fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, entry.PoolID)
+	}
+
+	user, ok := b.users[entry.PoolID][entry.Username]
+	if !ok {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
+	}
+
+	delete(b.mfaSessions, session)
+
+	result, err := b.issueTokensLocked(pool, clientID, user)
+	if err != nil {
+		return nil, err
+	}
+
+	return result.Tokens, nil
+}
+
+// AdminCreateUserWithPolicy creates a new user in the pool with FORCE_CHANGE_PASSWORD status,
+// enforcing the pool's PasswordPolicy on the temporary password.
+func (b *InMemoryBackend) AdminCreateUserWithPolicy(
+	userPoolID, username, tempPassword string,
+	userAttributes map[string]string,
+) (*User, error) {
+	b.mu.Lock("AdminCreateUserWithPolicy")
+	defer b.mu.Unlock()
+
+	pool, ok := b.pools[userPoolID]
+	if !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	poolUsers, ok := b.users[userPoolID]
+	if !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, exists := poolUsers[username]; exists {
+		return nil, fmt.Errorf("%w: user %q already exists", ErrUserAlreadyExists, username)
+	}
+
+	if tempPassword != "" {
+		if err := validatePassword(pool.PasswordPolicy, tempPassword); err != nil {
+			return nil, err
+		}
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcryptCost)
+	if err != nil {
+		return nil, fmt.Errorf("hashing password: %w", err)
+	}
+
+	attrs := make(map[string]string, len(userAttributes))
+	maps.Copy(attrs, userAttributes)
+
+	if tempPassword != "" {
+		attrs["custom:temporaryPassword"] = tempPassword
+	}
+
+	user := &User{
+		Sub:          uuid.New().String(),
+		Username:     username,
+		UserPoolID:   userPoolID,
+		PasswordHash: string(hash),
+		Status:       UserStatusForceChangePassword,
+		Attributes:   attrs,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+		Enabled:      true,
+	}
+
+	poolUsers[username] = user
+	b.usersBySub[userPoolID+":"+user.Sub] = username
+
+	cp := *user
+
+	return &cp, nil
+}

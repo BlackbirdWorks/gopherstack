@@ -6,17 +6,28 @@ package cognitoidp
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 // accuracyDispatchTable returns extra dispatch entries for the operations implemented in this file.
-func (h *Handler) accuracyDispatchTable() map[string]func(context.Context, []byte) (any, error) {
-	return map[string]func(context.Context, []byte) (any, error){
+func (h *Handler) accuracyDispatchTable() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
 		"AssociateSoftwareToken":  wrapAccuracy(h.handleAssociateSoftwareTokenAccurate),
 		"VerifySoftwareToken":     wrapAccuracy(h.handleVerifySoftwareTokenAccurate),
 		"SetUserMFAPreference":    wrapAccuracy(h.handleSetUserMFAPreferenceAccurate),
 		"AdminSetUserMFASetting":  wrapAccuracy(h.handleAdminSetUserMFASetting),
-		"CreateUserPoolWithOpts":  wrapAccuracy(h.handleCreateUserPoolWithOpts),
+		"CreateUserPool":          wrapAccuracy(h.handleCreateUserPoolWithOpts),
+		"UpdateUserPool":          wrapAccuracy(h.handleUpdateUserPoolWithOpts),
+		"CreateUserPoolClient":    wrapAccuracy(h.handleCreateUserPoolClientWithOpts),
+		"UpdateUserPoolClient":    wrapAccuracy(h.handleUpdateUserPoolClientWithOpts),
+		"SignUp":                  wrapAccuracy(h.handleSignUpAccurate),
+		"GetUser":                 wrapAccuracy(h.handleGetUserAccurate),
+		"DescribeUserPool":        wrapAccuracy(h.handleDescribeUserPoolAccurate),
+		"DescribeUserPoolClient":  wrapAccuracy(h.handleDescribeUserPoolClientAccurate),
+		"ListUserPoolClients":     wrapAccuracy(h.handleListUserPoolClientsAccurate),
 		"CreateResourceServer":    wrapAccuracy(h.handleCreateResourceServerAccurate),
 		"DescribeResourceServer":  wrapAccuracy(h.handleDescribeResourceServerAccurate),
 		"ListResourceServers":     wrapAccuracy(h.handleListResourceServersAccurate),
@@ -28,8 +39,8 @@ func (h *Handler) accuracyDispatchTable() map[string]func(context.Context, []byt
 }
 
 // wrapAccuracy adapts a typed handler function to the generic dispatch signature.
-func wrapAccuracy[I any, O any](fn func(context.Context, *I) (*O, error)) func(context.Context, []byte) (any, error) {
-	return wrapJSONOp(fn)
+func wrapAccuracy[I any, O any](fn func(context.Context, *I) (*O, error)) service.JSONOpFunc {
+	return service.WrapOp(fn)
 }
 
 // ---- getUserOutput with MFA fields ----
@@ -501,6 +512,17 @@ func (h *Handler) handleRespondToAuthChallengeAccurate(
 			AuthenticationResult: authResultFromTokenResult(tokens),
 		}, nil
 
+	case challengePasswordVerifier:
+		// USER_SRP_AUTH second step: credentials were verified in InitiateAuth; just issue tokens.
+		tokens, err := h.Backend.RespondToSRPChallenge(in.ClientID, in.Session)
+		if err != nil {
+			return nil, err
+		}
+
+		return &respondToAuthChallengeAccurateOutput{
+			AuthenticationResult: authResultFromTokenResult(tokens),
+		}, nil
+
 	default:
 		return &respondToAuthChallengeAccurateOutput{}, nil
 	}
@@ -560,6 +582,16 @@ func (h *Handler) handleAdminRespondToAuthChallengeAccurate(
 			AuthenticationResult: authResultFromTokenResult(tokens),
 		}, nil
 
+	case challengePasswordVerifier:
+		tokens, err := h.Backend.RespondToSRPChallenge(in.ClientID, in.Session)
+		if err != nil {
+			return nil, err
+		}
+
+		return &adminRespondToAuthChallengeOutput{
+			AuthenticationResult: authResultFromTokenResult(tokens),
+		}, nil
+
 	default:
 		return &adminRespondToAuthChallengeOutput{}, nil
 	}
@@ -603,14 +635,260 @@ func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
 	}
 }
 
-// wrapJSONOp is a helper that wraps a typed handler into the generic dispatch function format.
-func wrapJSONOp[I any, O any](fn func(context.Context, *I) (*O, error)) func(context.Context, []byte) (any, error) {
-	return func(ctx context.Context, body []byte) (any, error) {
-		var in I
-		if err := decodeJSON(body, &in); err != nil {
-			return nil, err
-		}
-
-		return fn(ctx, &in)
+// jsonDecode is a helper that unmarshals JSON body bytes.
+func jsonDecode[T any](body []byte) (*T, error) {
+	var v T
+	if err := json.Unmarshal(body, &v); err != nil {
+		return nil, err
 	}
+
+	return &v, nil
+}
+
+// ---- UpdateUserPool with opts ----
+
+type updateUserPoolWithOptsInput struct {
+	UserPoolID             string                 `json:"UserPoolId"`
+	MfaConfiguration       string                 `json:"MfaConfiguration,omitempty"`
+	Policies               *userPoolPoliciesInput `json:"Policies,omitempty"`
+	AutoVerifiedAttributes []string               `json:"AutoVerifiedAttributes,omitempty"`
+}
+
+type updateUserPoolWithOptsOutput struct{}
+
+func (h *Handler) handleUpdateUserPoolWithOpts(
+	_ context.Context,
+	in *updateUserPoolWithOptsInput,
+) (*updateUserPoolWithOptsOutput, error) {
+	opts := UserPoolOptions{
+		AutoVerifiedAttributes: in.AutoVerifiedAttributes,
+	}
+
+	if in.Policies != nil && in.Policies.PasswordPolicy != nil {
+		pp := in.Policies.PasswordPolicy
+		opts.PasswordPolicy = &PasswordPolicy{
+			MinimumLength:                 pp.MinimumLength,
+			RequireUppercase:              pp.RequireUppercase,
+			RequireLowercase:              pp.RequireLowercase,
+			RequireNumbers:                pp.RequireNumbers,
+			RequireSymbols:                pp.RequireSymbols,
+			TemporaryPasswordValidityDays: pp.TemporaryPasswordValidityDays,
+		}
+	}
+
+	if err := h.Backend.UpdateUserPoolWithOpts(in.UserPoolID, in.MfaConfiguration, opts); err != nil {
+		return nil, err
+	}
+
+	return &updateUserPoolWithOptsOutput{}, nil
+}
+
+// ---- CreateUserPoolClient with OAuth fields ----
+
+type createUserPoolClientWithOptsInput struct {
+	UserPoolID            string   `json:"UserPoolId"`
+	ClientName            string   `json:"ClientName"`
+	AllowedOAuthFlows     []string `json:"AllowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes    []string `json:"AllowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows     []string `json:"ExplicitAuthFlows,omitempty"`
+	GenerateSecret        bool     `json:"GenerateSecret,omitempty"`
+	EnableTokenRevocation bool     `json:"EnableTokenRevocation,omitempty"`
+}
+
+type createUserPoolClientWithOptsOutput struct {
+	UserPoolClient clientDataAccurate `json:"UserPoolClient"`
+}
+
+func (h *Handler) handleCreateUserPoolClientWithOpts(
+	_ context.Context,
+	in *createUserPoolClientWithOptsInput,
+) (*createUserPoolClientWithOptsOutput, error) {
+	opts := UserPoolClientOptions{
+		AllowedOAuthFlows:     in.AllowedOAuthFlows,
+		AllowedOAuthScopes:    in.AllowedOAuthScopes,
+		ExplicitAuthFlows:     in.ExplicitAuthFlows,
+		GenerateSecret:        in.GenerateSecret,
+		EnableTokenRevocation: in.EnableTokenRevocation,
+	}
+
+	client, err := h.Backend.CreateUserPoolClientWithOpts(in.UserPoolID, in.ClientName, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createUserPoolClientWithOptsOutput{UserPoolClient: clientToAccurateData(client)}, nil
+}
+
+// ---- UpdateUserPoolClient with OAuth fields ----
+
+type updateUserPoolClientWithOptsInput struct {
+	UserPoolID            string   `json:"UserPoolId"`
+	ClientID              string   `json:"ClientId"`
+	ClientName            string   `json:"ClientName,omitempty"`
+	AllowedOAuthFlows     []string `json:"AllowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes    []string `json:"AllowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows     []string `json:"ExplicitAuthFlows,omitempty"`
+	EnableTokenRevocation bool     `json:"EnableTokenRevocation,omitempty"`
+}
+
+type updateUserPoolClientWithOptsOutput struct {
+	UserPoolClient clientDataAccurate `json:"UserPoolClient"`
+}
+
+func (h *Handler) handleUpdateUserPoolClientWithOpts(
+	_ context.Context,
+	in *updateUserPoolClientWithOptsInput,
+) (*updateUserPoolClientWithOptsOutput, error) {
+	opts := UserPoolClientOptions{
+		AllowedOAuthFlows:     in.AllowedOAuthFlows,
+		AllowedOAuthScopes:    in.AllowedOAuthScopes,
+		ExplicitAuthFlows:     in.ExplicitAuthFlows,
+		EnableTokenRevocation: in.EnableTokenRevocation,
+	}
+
+	client, err := h.Backend.UpdateUserPoolClientWithOpts(in.UserPoolID, in.ClientID, in.ClientName, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateUserPoolClientWithOptsOutput{UserPoolClient: clientToAccurateData(client)}, nil
+}
+
+// ---- SignUp with PasswordPolicy enforcement and AutoVerifiedAttributes ----
+
+type signUpAccurateInput struct {
+	Username       string          `json:"Username"`
+	Password       string          `json:"Password"`
+	ClientID       string          `json:"ClientId"`
+	UserAttributes []attributeType `json:"UserAttributes"`
+}
+
+type signUpAccurateOutput struct {
+	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
+	UserSub             string            `json:"UserSub"`
+	UserConfirmed       bool              `json:"UserConfirmed"`
+}
+
+func (h *Handler) handleSignUpAccurate(
+	_ context.Context,
+	in *signUpAccurateInput,
+) (*signUpAccurateOutput, error) {
+	attrs := attributeListToMap(in.UserAttributes)
+
+	user, err := h.Backend.SignUpWithValidation(in.ClientID, in.Username, in.Password, attrs)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &signUpAccurateOutput{
+		UserSub:       user.Sub,
+		UserConfirmed: user.Status == UserStatusConfirmed,
+	}
+
+	if user.ConfirmCode != "" {
+		out.CodeDeliveryDetails = map[string]string{
+			keyDeliveryMedium:   medEmail,
+			keyDestination:      "mock",
+			keyAttributeName:    attrEmail,
+			keyConfirmationCode: user.ConfirmCode,
+		}
+	}
+
+	return out, nil
+}
+
+// ---- GetUser with MFA fields ----
+
+type getUserAccurateInput struct {
+	AccessToken string `json:"AccessToken"`
+}
+
+func (h *Handler) handleGetUserAccurate(
+	_ context.Context,
+	in *getUserAccurateInput,
+) (*getUserWithMFAOutput, error) {
+	user, err := h.Backend.GetUser(in.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getUserWithMFAOutput{
+		Username:            user.Username,
+		UserAttributes:      sortedAttributeList(userAttrsWithSub(user)),
+		UserMFASettingList:  user.UserMFASettingList,
+		PreferredMfaSetting: user.PreferredMfaSetting,
+	}, nil
+}
+
+// ---- DescribeUserPool with full fields ----
+
+type describeUserPoolAccurateInput struct {
+	UserPoolID string `json:"UserPoolId"`
+}
+
+type describeUserPoolAccurateOutput struct {
+	UserPool userPoolDataAccurate `json:"UserPool"`
+}
+
+func (h *Handler) handleDescribeUserPoolAccurate(
+	_ context.Context,
+	in *describeUserPoolAccurateInput,
+) (*describeUserPoolAccurateOutput, error) {
+	pool, err := h.Backend.DescribeUserPool(in.UserPoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeUserPoolAccurateOutput{UserPool: poolToAccurateData(pool)}, nil
+}
+
+// ---- DescribeUserPoolClient with OAuth fields ----
+
+type describeUserPoolClientAccurateInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	ClientID   string `json:"ClientId"`
+}
+
+type describeUserPoolClientAccurateOutput struct {
+	UserPoolClient clientDataAccurate `json:"UserPoolClient"`
+}
+
+func (h *Handler) handleDescribeUserPoolClientAccurate(
+	_ context.Context,
+	in *describeUserPoolClientAccurateInput,
+) (*describeUserPoolClientAccurateOutput, error) {
+	client, err := h.Backend.DescribeUserPoolClient(in.UserPoolID, in.ClientID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeUserPoolClientAccurateOutput{UserPoolClient: clientToAccurateData(client)}, nil
+}
+
+// ---- ListUserPoolClients with OAuth fields ----
+
+type listUserPoolClientsAccurateInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type listUserPoolClientsAccurateOutput struct {
+	UserPoolClients []clientDataAccurate `json:"UserPoolClients"`
+}
+
+func (h *Handler) handleListUserPoolClientsAccurate(
+	_ context.Context,
+	in *listUserPoolClientsAccurateInput,
+) (*listUserPoolClientsAccurateOutput, error) {
+	clients, err := h.Backend.ListUserPoolClients(in.UserPoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]clientDataAccurate, 0, len(clients))
+	for _, c := range clients {
+		items = append(items, clientToAccurateData(c))
+	}
+
+	return &listUserPoolClientsAccurateOutput{UserPoolClients: items}, nil
 }

@@ -362,6 +362,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"GetSigningCertificate":       service.WrapOp(h.handleGetSigningCertificate),
 	}
 	maps.Copy(table, h.completenessDispatchTable())
+	maps.Copy(table, h.accuracyDispatchTable())
 
 	return table
 }
@@ -820,7 +821,7 @@ func authResultFromTokenResult(tokens *TokenResult) *authResult {
 // authOutputFromResult converts an AuthResult to an authOutput.
 func authOutputFromResult(result *AuthResult) *authOutput {
 	if result.MFASession != "" {
-		name := challengeName
+		name := result.ChallengeName
 
 		return &authOutput{
 			ChallengeName:       &name,
@@ -918,7 +919,7 @@ type adminCreateUserOutput struct {
 func (h *Handler) handleAdminCreateUser(_ context.Context, in *adminCreateUserInput) (*adminCreateUserOutput, error) {
 	attrs := attributeListToMap(in.UserAttributes)
 
-	user, err := h.Backend.AdminCreateUser(in.UserPoolID, in.Username, in.TemporaryPassword, attrs)
+	user, err := h.Backend.AdminCreateUserWithPolicy(in.UserPoolID, in.Username, in.TemporaryPassword, attrs)
 	if err != nil {
 		return nil, err
 	}
