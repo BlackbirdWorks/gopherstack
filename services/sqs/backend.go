@@ -279,24 +279,25 @@ func (b *InMemoryBackend) lookupQueueByName(region, name string) (*Queue, bool) 
 	return q, ok
 }
 
-// lookupQueueByURL finds a queue by its URL with strict region enforcement.
-// When a region is supplied (i.e., the caller threaded the SigV4 region from
-// the request) the queue MUST live in that region; a queue with the same URL
-// in a different region is treated as not found, matching real AWS where the
-// region in the SigV4 signature must match the regional endpoint.
+// lookupQueueByURL finds a queue by its URL.
 //
-// When region is empty the lookup falls back to a URL scan across all regions
-// to support callers that have not yet been wired to thread region through.
-// New code should always pass the request region.
+// When a region is supplied (the caller threaded the SigV4 region from the
+// request) the queue MUST live in that region; a queue with the same name in
+// a different region is treated as not found, matching real AWS where the
+// SigV4 region must match the regional endpoint. Lookup uses the queue name
+// extracted from the URL plus the region — we do NOT require the stored
+// q.URL to be byte-identical to the caller's queueURL because SDKs and proxy
+// hops may rewrite the host/port (e.g. host.docker.internal vs localhost).
+//
+// When region is empty the lookup falls back to a URL-string scan across all
+// regions to support callers that have not yet been wired to thread region
+// through. New code should always pass the request region.
 func (b *InMemoryBackend) lookupQueueByURL(region, queueURL string) (*Queue, bool) {
 	name := queueNameFromInput(queueURL)
 
 	if region != "" {
 		q, ok := b.queues[queueKey(region, name)]
 		if !ok {
-			return nil, false
-		}
-		if q.URL != queueURL {
 			return nil, false
 		}
 
