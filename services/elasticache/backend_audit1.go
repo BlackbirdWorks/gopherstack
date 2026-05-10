@@ -43,6 +43,12 @@ const redisClusterHashSlots = 16384
 // dataTieringMinMajorVersion is the minimum engine major version required for data tiering (gap #9).
 const dataTieringMinMajorVersion = 7
 
+// semverSplitParts is the max parts to split a semver string into for major version extraction.
+const semverSplitParts = 2
+
+// decimalBase is the base for decimal digit accumulation.
+const decimalBase = 10
+
 // ----------------------------------------
 // Audit-1 errors
 // ----------------------------------------
@@ -62,10 +68,10 @@ var (
 
 // CacheNodeMember represents a Memcached cluster node member (gap #3).
 type CacheNodeMember struct {
-	CacheClusterID            string `json:"cacheClusterId"`
-	CacheNodeID               string `json:"cacheNodeId"`
-	CacheNodeStatus           string `json:"cacheNodeStatus"`
-	PreferredAvailabilityZone string `json:"preferredAvailabilityZone"`
+	CacheClusterID            string    `json:"cacheClusterId"`
+	CacheNodeID               string    `json:"cacheNodeId"`
+	CacheNodeStatus           string    `json:"cacheNodeStatus"`
+	PreferredAvailabilityZone string    `json:"preferredAvailabilityZone"`
 	CacheNodeCreateTime       time.Time `json:"cacheNodeCreateTime"`
 	Endpoint                  struct {
 		Address string `json:"address"`
@@ -86,10 +92,10 @@ type NodeGroupNode struct {
 // NodeGroup represents a shard / node group in a cluster-mode-enabled replication group (gap #2).
 type NodeGroup struct {
 	PrimaryNode *NodeGroupNode  `json:"primaryNode,omitempty"`
-	Replicas    []NodeGroupNode `json:"replicas,omitempty"`
 	NodeGroupID string          `json:"nodeGroupId"`
 	Status      string          `json:"status"`
 	Slots       string          `json:"slots"`
+	Replicas    []NodeGroupNode `json:"replicas,omitempty"`
 }
 
 // RGPendingModifiedValues holds modifications queued for the next maintenance window (gap #7).
@@ -124,7 +130,7 @@ type ReplicationGroupCreateOpts struct {
 	MaintenanceWindow         string
 	SnapshotWindow            string
 	AuthToken                 string
-	KmsKeyId                  string
+	KmsKeyID                  string
 	NotificationTopicArn      string
 	TransitEncryptionMode     string
 	Engine                    string
@@ -145,7 +151,6 @@ type ReplicationGroupCreateOpts struct {
 
 // ReplicationGroupModifyOpts carries all fields for full replication-group modification.
 type ReplicationGroupModifyOpts struct {
-	LogDeliveryConfigurations []LogDeliveryConfig
 	SnapshotRetentionLimit    *int
 	ReplicaCount              *int32
 	AutomaticFailoverEnabled  *bool
@@ -160,6 +165,7 @@ type ReplicationGroupModifyOpts struct {
 	AuthTokenUpdateStrategy   string
 	NotificationTopicArn      string
 	TransitEncryptionMode     string
+	LogDeliveryConfigurations []LogDeliveryConfig
 	ApplyImmediately          bool
 }
 
@@ -252,7 +258,7 @@ func validateDataTiering(nodeType, engine, engineVersion string) error {
 
 // majorVersion parses the leading integer from a semver string.
 func majorVersion(v string) int {
-	parts := strings.SplitN(v, ".", 2)
+	parts := strings.SplitN(v, ".", semverSplitParts)
 	if len(parts) == 0 {
 		return 0
 	}
@@ -262,7 +268,7 @@ func majorVersion(v string) int {
 		if r < '0' || r > '9' {
 			break
 		}
-		n = n*10 + int(r-'0')
+		n = n*decimalBase + int(r-'0')
 	}
 
 	return n
@@ -316,7 +322,7 @@ func (b *InMemoryBackend) buildReplicationGroupFromCreateOpts(opts ReplicationGr
 		AtRestEncryptionEnabled:    opts.AtRestEncryptionEnabled,
 		TransitEncryptionEnabled:   opts.TransitEncryptionEnabled,
 		TransitEncryptionMode:      opts.TransitEncryptionMode,
-		KmsKeyId:                   opts.KmsKeyId,
+		KmsKeyID:                   opts.KmsKeyID,
 		NotificationTopicArn:       opts.NotificationTopicArn,
 		DataTieringEnabled:         opts.DataTieringEnabled,
 		MultiAZEnabled:             opts.MultiAZEnabled,
@@ -389,10 +395,7 @@ func (b *InMemoryBackend) ModifyReplicationGroupFull(
 		}
 	}
 
-	if err := b.applyModifyOptsLocked(rg, opts); err != nil {
-		return nil, err
-	}
-
+	b.applyModifyOptsLocked(rg, opts)
 	b.appendEventLocked(id, "replication-group", "replication group modified")
 
 	cp := *rg
@@ -401,7 +404,7 @@ func (b *InMemoryBackend) ModifyReplicationGroupFull(
 }
 
 // applyModifyOptsLocked applies modification options to an existing replication group.
-func (b *InMemoryBackend) applyModifyOptsLocked(rg *ReplicationGroup, opts ReplicationGroupModifyOpts) error {
+func (b *InMemoryBackend) applyModifyOptsLocked(rg *ReplicationGroup, opts ReplicationGroupModifyOpts) {
 	if opts.Description != "" {
 		rg.Description = opts.Description
 	}
@@ -451,8 +454,6 @@ func (b *InMemoryBackend) applyModifyOptsLocked(rg *ReplicationGroup, opts Repli
 	applyAuthTokenModify(rg, opts.AuthToken, opts.AuthTokenUpdateStrategy)
 	applyTransitEncryptionModify(rg, opts.TransitEncryptionMode)
 	applyPendingChanges(rg, opts)
-
-	return nil
 }
 
 func applyAutoFailoverModify(rg *ReplicationGroup, enabled *bool) {
@@ -510,6 +511,7 @@ func applyTransitEncryptionModify(rg *ReplicationGroup, mode string) {
 func applyPendingChanges(rg *ReplicationGroup, opts ReplicationGroupModifyOpts) {
 	if opts.ApplyImmediately {
 		rg.PendingModifiedValues = nil
+
 		return
 	}
 
