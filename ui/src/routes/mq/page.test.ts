@@ -224,26 +224,42 @@ describe("MQ Page", () => {
       .mockResolvedValueOnce({ BrokerId: "broker-new", BrokerArn: "arn:..." })
       .mockResolvedValueOnce({
         BrokerSummaries: [
-          { BrokerName: "new-broker", BrokerId: "broker-new", BrokerState: "CREATION_IN_PROGRESS", EngineType: "ACTIVEMQ" },
+          {
+            BrokerName: "new-broker",
+            BrokerId: "broker-new",
+            BrokerState: "CREATION_IN_PROGRESS",
+            EngineType: "ACTIVEMQ",
+          },
         ],
       });
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("No brokers found")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("No brokers found")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByText("Create Broker"));
     const nameInput = screen.getByLabelText("Broker Name");
     await fireEvent.input(nameInput, { target: { value: "new-broker" } });
     await fireEvent.click(screen.getByText("Create Broker", { selector: "button[type='submit']" }));
-    await waitFor(() => expect(screen.getByText("new-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("new-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
   });
 
   it("opens delete broker modal from list", async () => {
     mockSend.mockResolvedValue({
       BrokerSummaries: [
-        { BrokerName: "del-broker", BrokerId: "broker-del", BrokerState: "RUNNING", EngineType: "ACTIVEMQ" },
+        {
+          BrokerName: "del-broker",
+          BrokerId: "broker-del",
+          BrokerState: "RUNNING",
+          EngineType: "ACTIVEMQ",
+        },
       ],
     });
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("del-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("del-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     const deleteBtn = screen.getByTitle("Delete broker");
     await fireEvent.click(deleteBtn);
     expect(screen.getByText(/Are you sure you want to delete broker/)).toBeInTheDocument();
@@ -253,11 +269,18 @@ describe("MQ Page", () => {
   it("cancels delete broker modal", async () => {
     mockSend.mockResolvedValue({
       BrokerSummaries: [
-        { BrokerName: "del-broker", BrokerId: "broker-del", BrokerState: "RUNNING", EngineType: "ACTIVEMQ" },
+        {
+          BrokerName: "del-broker",
+          BrokerId: "broker-del",
+          BrokerState: "RUNNING",
+          EngineType: "ACTIVEMQ",
+        },
       ],
     });
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("del-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("del-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByTitle("Delete broker"));
     await fireEvent.click(screen.getByText("Cancel"));
     expect(screen.queryByText(/Are you sure you want to delete broker/)).not.toBeInTheDocument();
@@ -267,24 +290,38 @@ describe("MQ Page", () => {
     mockSend
       .mockResolvedValueOnce({
         BrokerSummaries: [
-          { BrokerName: "gone-broker", BrokerId: "broker-gone", BrokerState: "RUNNING", EngineType: "ACTIVEMQ" },
+          {
+            BrokerName: "gone-broker",
+            BrokerId: "broker-gone",
+            BrokerState: "RUNNING",
+            EngineType: "ACTIVEMQ",
+          },
         ],
       })
       .mockResolvedValueOnce({ BrokerId: "broker-gone" })
       .mockResolvedValueOnce({ BrokerSummaries: [] });
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("gone-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("gone-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByTitle("Delete broker"));
     const confirmBtn = screen.getByRole("button", { name: "Delete Broker" });
     await fireEvent.click(confirmBtn);
-    await waitFor(() => expect(screen.getByText("No brokers found")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("No brokers found")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
   });
 
   it("reboots broker from detail panel", async () => {
     mockSend
       .mockResolvedValueOnce({
         BrokerSummaries: [
-          { BrokerName: "reboot-broker", BrokerId: "broker-reboot", BrokerState: "RUNNING", EngineType: "ACTIVEMQ" },
+          {
+            BrokerName: "reboot-broker",
+            BrokerId: "broker-reboot",
+            BrokerState: "RUNNING",
+            EngineType: "ACTIVEMQ",
+          },
         ],
       })
       .mockResolvedValueOnce({
@@ -299,7 +336,9 @@ describe("MQ Page", () => {
       })
       .mockResolvedValueOnce({});
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("reboot-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("reboot-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByText("reboot-broker"));
     await waitFor(() => expect(screen.getByText("Reboot")).toBeInTheDocument(), { timeout: 3000 });
     await fireEvent.click(screen.getByText("Reboot"));
@@ -310,7 +349,12 @@ describe("MQ Page", () => {
     mockSend
       .mockResolvedValueOnce({
         BrokerSummaries: [
-          { BrokerName: "update-broker", BrokerId: "broker-upd", BrokerState: "RUNNING", EngineType: "ACTIVEMQ" },
+          {
+            BrokerName: "update-broker",
+            BrokerId: "broker-upd",
+            BrokerState: "RUNNING",
+            EngineType: "ACTIVEMQ",
+          },
         ],
       })
       .mockResolvedValueOnce({
@@ -325,7 +369,9 @@ describe("MQ Page", () => {
         BrokerInstances: [],
       });
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("update-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("update-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByText("update-broker"));
     await waitFor(() => expect(screen.getByText("Update")).toBeInTheDocument(), { timeout: 3000 });
     await fireEvent.click(screen.getByText("Update"));
@@ -338,7 +384,12 @@ describe("MQ Page", () => {
     mockSend
       .mockResolvedValueOnce({
         BrokerSummaries: [
-          { BrokerName: "update-broker", BrokerId: "broker-upd", BrokerState: "RUNNING", EngineType: "ACTIVEMQ" },
+          {
+            BrokerName: "update-broker",
+            BrokerId: "broker-upd",
+            BrokerState: "RUNNING",
+            EngineType: "ACTIVEMQ",
+          },
         ],
       })
       .mockResolvedValueOnce({
@@ -353,7 +404,9 @@ describe("MQ Page", () => {
         BrokerInstances: [],
       });
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("update-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("update-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByText("update-broker"));
     await waitFor(() => expect(screen.getByText("Update")).toBeInTheDocument(), { timeout: 3000 });
     await fireEvent.click(screen.getByText("Update"));
@@ -365,7 +418,12 @@ describe("MQ Page", () => {
     mockSend
       .mockResolvedValueOnce({
         BrokerSummaries: [
-          { BrokerName: "user-broker", BrokerId: "broker-usr", BrokerState: "RUNNING", EngineType: "ACTIVEMQ" },
+          {
+            BrokerName: "user-broker",
+            BrokerId: "broker-usr",
+            BrokerState: "RUNNING",
+            EngineType: "ACTIVEMQ",
+          },
         ],
       })
       .mockResolvedValueOnce({
@@ -382,21 +440,31 @@ describe("MQ Page", () => {
         Users: [{ Username: "alice" }, { Username: "bob" }],
       });
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("user-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("user-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByText("user-broker"));
     await waitFor(() => expect(screen.getByText("Users")).toBeInTheDocument(), { timeout: 3000 });
     await fireEvent.click(screen.getByText("Users"));
-    await waitFor(() => {
-      expect(screen.getByText("alice")).toBeInTheDocument();
-      expect(screen.getByText("bob")).toBeInTheDocument();
-    }, { timeout: 3000 });
+    await waitFor(
+      () => {
+        expect(screen.getByText("alice")).toBeInTheDocument();
+        expect(screen.getByText("bob")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
   });
 
   it("shows Add User button when users panel is open", async () => {
     mockSend
       .mockResolvedValueOnce({
         BrokerSummaries: [
-          { BrokerName: "user-broker", BrokerId: "broker-usr", BrokerState: "RUNNING", EngineType: "ACTIVEMQ" },
+          {
+            BrokerName: "user-broker",
+            BrokerId: "broker-usr",
+            BrokerState: "RUNNING",
+            EngineType: "ACTIVEMQ",
+          },
         ],
       })
       .mockResolvedValueOnce({
@@ -410,18 +478,27 @@ describe("MQ Page", () => {
       })
       .mockResolvedValueOnce({ BrokerId: "broker-usr", Users: [] });
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("user-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("user-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByText("user-broker"));
     await waitFor(() => expect(screen.getByText("Users")).toBeInTheDocument(), { timeout: 3000 });
     await fireEvent.click(screen.getByText("Users"));
-    await waitFor(() => expect(screen.getByText("Add User")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("Add User")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
   });
 
   it("opens create user modal", async () => {
     mockSend
       .mockResolvedValueOnce({
         BrokerSummaries: [
-          { BrokerName: "user-broker", BrokerId: "broker-usr", BrokerState: "RUNNING", EngineType: "ACTIVEMQ" },
+          {
+            BrokerName: "user-broker",
+            BrokerId: "broker-usr",
+            BrokerState: "RUNNING",
+            EngineType: "ACTIVEMQ",
+          },
         ],
       })
       .mockResolvedValueOnce({
@@ -435,11 +512,15 @@ describe("MQ Page", () => {
       })
       .mockResolvedValueOnce({ BrokerId: "broker-usr", Users: [] });
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("user-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("user-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByText("user-broker"));
     await waitFor(() => expect(screen.getByText("Users")).toBeInTheDocument(), { timeout: 3000 });
     await fireEvent.click(screen.getByText("Users"));
-    await waitFor(() => expect(screen.getByText("Add User")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("Add User")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByText("Add User"));
     expect(screen.getByText("Username")).toBeInTheDocument();
     expect(screen.getByText("Console Access")).toBeInTheDocument();
@@ -449,7 +530,12 @@ describe("MQ Page", () => {
     mockSend
       .mockResolvedValueOnce({
         BrokerSummaries: [
-          { BrokerName: "user-broker", BrokerId: "broker-usr", BrokerState: "RUNNING", EngineType: "ACTIVEMQ" },
+          {
+            BrokerName: "user-broker",
+            BrokerId: "broker-usr",
+            BrokerState: "RUNNING",
+            EngineType: "ACTIVEMQ",
+          },
         ],
       })
       .mockResolvedValueOnce({
@@ -463,11 +549,15 @@ describe("MQ Page", () => {
       })
       .mockResolvedValueOnce({ BrokerId: "broker-usr", Users: [] });
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("user-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("user-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByText("user-broker"));
     await waitFor(() => expect(screen.getByText("Users")).toBeInTheDocument(), { timeout: 3000 });
     await fireEvent.click(screen.getByText("Users"));
-    await waitFor(() => expect(screen.getByText("Add User")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("Add User")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByText("Add User"));
     await fireEvent.click(screen.getByText("Cancel"));
     expect(screen.queryByText("Username")).not.toBeInTheDocument();
@@ -477,7 +567,12 @@ describe("MQ Page", () => {
     mockSend
       .mockResolvedValueOnce({
         BrokerSummaries: [
-          { BrokerName: "user-broker", BrokerId: "broker-usr", BrokerState: "RUNNING", EngineType: "ACTIVEMQ" },
+          {
+            BrokerName: "user-broker",
+            BrokerId: "broker-usr",
+            BrokerState: "RUNNING",
+            EngineType: "ACTIVEMQ",
+          },
         ],
       })
       .mockResolvedValueOnce({
@@ -494,7 +589,9 @@ describe("MQ Page", () => {
         Users: [{ Username: "charlie" }],
       });
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("user-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("user-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByText("user-broker"));
     await waitFor(() => expect(screen.getByText("Users")).toBeInTheDocument(), { timeout: 3000 });
     await fireEvent.click(screen.getByText("Users"));
@@ -508,7 +605,12 @@ describe("MQ Page", () => {
     mockSend
       .mockResolvedValueOnce({
         BrokerSummaries: [
-          { BrokerName: "inst-broker", BrokerId: "broker-inst", BrokerState: "RUNNING", EngineType: "ACTIVEMQ" },
+          {
+            BrokerName: "inst-broker",
+            BrokerId: "broker-inst",
+            BrokerState: "RUNNING",
+            EngineType: "ACTIVEMQ",
+          },
         ],
       })
       .mockResolvedValueOnce({
@@ -518,18 +620,21 @@ describe("MQ Page", () => {
         EngineType: "ACTIVEMQ",
         EngineVersion: "5.15.14",
         DeploymentMode: "SINGLE_INSTANCE",
-        BrokerInstances: [
-          { ConsoleURL: "https://console.mq.example.com", IpAddress: "10.0.0.1" },
-        ],
+        BrokerInstances: [{ ConsoleURL: "https://console.mq.example.com", IpAddress: "10.0.0.1" }],
       });
     render(MQPage);
-    await waitFor(() => expect(screen.getByText("inst-broker")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("inst-broker")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
     await fireEvent.click(screen.getByText("inst-broker"));
-    await waitFor(() => {
-      expect(screen.getByText("Broker Instances")).toBeInTheDocument();
-      expect(screen.getByText("https://console.mq.example.com")).toBeInTheDocument();
-      expect(screen.getByText("IP: 10.0.0.1")).toBeInTheDocument();
-    }, { timeout: 3000 });
+    await waitFor(
+      () => {
+        expect(screen.getByText("Broker Instances")).toBeInTheDocument();
+        expect(screen.getByText("https://console.mq.example.com")).toBeInTheDocument();
+        expect(screen.getByText("IP: 10.0.0.1")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
   });
 
   it("shows select placeholder when no broker selected", () => {
