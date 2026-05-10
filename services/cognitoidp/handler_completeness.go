@@ -149,7 +149,6 @@ func (h *Handler) handleAdminListUserAuthEvents(
 	return &adminListUserAuthEventsOutput{AuthEvents: []map[string]any{}}, nil
 }
 
-
 type adminSetUserMFAPreferenceInput struct {
 	SMSMfaSettings           *mfaSettings `json:"SMSMfaSettings,omitempty"`
 	SoftwareTokenMfaSettings *mfaSettings `json:"SoftwareTokenMfaSettings,omitempty"`

@@ -804,9 +804,6 @@ type authOutput struct {
 	ChallengeParameters  map[string]string `json:"ChallengeParameters,omitempty"`
 }
 
-// challengeName is the Cognito challenge name for software token MFA.
-const challengeName = "SOFTWARE_TOKEN_MFA"
-
 // authResultFromTokenResult converts a TokenResult to an authResult.
 func authResultFromTokenResult(tokens *TokenResult) *authResult {
 	return &authResult{

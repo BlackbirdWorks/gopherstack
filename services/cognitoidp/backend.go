@@ -214,7 +214,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		mfaSessions:           make(map[string]*mfaSessionEntry),
 		groups:                make(map[string]map[string]*Group),
 		groupMembers:          make(map[string]map[string]map[string]struct{}),
-		resourceServers:        make(map[string]map[string]*ResourceServer),
+		resourceServers:       make(map[string]map[string]*ResourceServer),
 		tokenRevokedBefore:    make(map[string]time.Time),
 		accountID:             accountID,
 		region:                region,
@@ -930,6 +930,49 @@ func (b *InMemoryBackend) findUserByClientID(clientID, username string) (*User, 
 // challengePasswordVerifier is returned for USER_SRP_AUTH after credentials are validated.
 const challengePasswordVerifier = "PASSWORD_VERIFIER"
 
+// isAuthFlowAllowed checks whether the given flow is permitted by the client's ExplicitAuthFlows list.
+// Returns true when no restriction is configured.
+func (b *InMemoryBackend) isAuthFlowAllowed(clientID, authFlow string) bool {
+	client, ok := b.clients[clientID]
+	if !ok || len(client.ExplicitAuthFlows) == 0 {
+		return true
+	}
+
+	for _, f := range client.ExplicitAuthFlows {
+		if f == authFlow || f == "ALLOW_"+authFlow {
+			return true
+		}
+	}
+
+	return false
+}
+
+// newMFASession stores a new session entry and returns an AuthResult with the challenge.
+func (b *InMemoryBackend) newMFASession(pool *UserPool, clientID, username, challengeType string) *AuthResult {
+	sessionToken := randomAlphanumeric(mfaSessionLen)
+	b.mfaSessions[sessionToken] = &mfaSessionEntry{
+		PoolID:        pool.ID,
+		ClientID:      clientID,
+		Username:      username,
+		ChallengeType: challengeType,
+		ExpiresAt:     time.Now().Add(mfaSessionTTL),
+	}
+
+	return &AuthResult{
+		MFASession:    sessionToken,
+		ChallengeName: challengeType,
+	}
+}
+
+// mfaChallengeType returns the challenge type to use given pool config and user preference.
+func mfaChallengeType(pool *UserPool, user *User) string {
+	if user.PreferredMfaSetting != "" {
+		return user.PreferredMfaSetting
+	}
+
+	return challengeSoftwareTokenMFA
+}
+
 // authenticate validates a user's credentials and returns tokens or a challenge.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) authenticate(
@@ -940,28 +983,17 @@ func (b *InMemoryBackend) authenticate(
 ) (*AuthResult, error) {
 	switch authFlow {
 	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "USER_SRP_AUTH":
-		// fall through to credential validation
+		// valid flows
 	default:
 		return nil, fmt.Errorf("%w: unsupported auth flow %q", ErrInvalidUserPoolConfig, authFlow)
 	}
 
-	// Validate ExplicitAuthFlows restriction on the client.
-	if client, ok := b.clients[clientID]; ok && len(client.ExplicitAuthFlows) > 0 {
-		allowed := false
-		for _, f := range client.ExplicitAuthFlows {
-			if f == authFlow || f == "ALLOW_"+authFlow {
-				allowed = true
-
-				break
-			}
-		}
-		if !allowed {
-			return nil, fmt.Errorf(
-				"%w: auth flow %q is not in client ExplicitAuthFlows",
-				ErrInvalidUserPoolConfig,
-				authFlow,
-			)
-		}
+	if !b.isAuthFlowAllowed(clientID, authFlow) {
+		return nil, fmt.Errorf(
+			"%w: auth flow %q is not in client ExplicitAuthFlows",
+			ErrInvalidUserPoolConfig,
+			authFlow,
+		)
 	}
 
 	if user.Status == UserStatusUnconfirmed {
@@ -976,61 +1008,20 @@ func (b *InMemoryBackend) authenticate(
 		return nil, fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
 	}
 
-	// USER_SRP_AUTH: credentials are verified above; return PASSWORD_VERIFIER challenge so
-	// the caller can complete the two-step SRP handshake. The session encodes the verified user.
+	// USER_SRP_AUTH: credentials verified; return PASSWORD_VERIFIER so client completes handshake.
 	if authFlow == "USER_SRP_AUTH" {
-		sessionToken := randomAlphanumeric(mfaSessionLen)
-		b.mfaSessions[sessionToken] = &mfaSessionEntry{
-			PoolID:        pool.ID,
-			ClientID:      clientID,
-			Username:      user.Username,
-			ChallengeType: challengePasswordVerifier,
-			ExpiresAt:     time.Now().Add(mfaSessionTTL),
-		}
-
-		return &AuthResult{
-			MFASession:    sessionToken,
-			ChallengeName: challengePasswordVerifier,
-		}, nil
+		return b.newMFASession(pool, clientID, user.Username, challengePasswordVerifier), nil
 	}
 
 	// Issue NEW_PASSWORD_REQUIRED challenge when user must set a permanent password.
 	if user.Status == UserStatusForceChangePassword {
-		sessionToken := randomAlphanumeric(mfaSessionLen)
-		b.mfaSessions[sessionToken] = &mfaSessionEntry{
-			PoolID:        pool.ID,
-			ClientID:      clientID,
-			Username:      user.Username,
-			ChallengeType: challengeNewPasswordRequired,
-			ExpiresAt:     time.Now().Add(mfaSessionTTL),
-		}
-
-		return &AuthResult{
-			MFASession:    sessionToken,
-			ChallengeName: challengeNewPasswordRequired,
-		}, nil
+		return b.newMFASession(pool, clientID, user.Username, challengeNewPasswordRequired), nil
 	}
 
 	// MFA enforcement: if the pool requires or offers MFA, issue an MFA challenge.
 	mfaConfig := pool.MfaConfiguration
 	if mfaConfig == "ON" || mfaConfig == "OPTIONAL" {
-		challengeType := challengeSoftwareTokenMFA
-		if user.PreferredMfaSetting != "" {
-			challengeType = user.PreferredMfaSetting
-		}
-		sessionToken := randomAlphanumeric(mfaSessionLen)
-		b.mfaSessions[sessionToken] = &mfaSessionEntry{
-			PoolID:        pool.ID,
-			ClientID:      clientID,
-			Username:      user.Username,
-			ChallengeType: challengeType,
-			ExpiresAt:     time.Now().Add(mfaSessionTTL),
-		}
-
-		return &AuthResult{
-			MFASession:    sessionToken,
-			ChallengeName: challengeType,
-		}, nil
+		return b.newMFASession(pool, clientID, user.Username, mfaChallengeType(pool, user)), nil
 	}
 
 	return b.issueTokensLocked(pool, clientID, user)

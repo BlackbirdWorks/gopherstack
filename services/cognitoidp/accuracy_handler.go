@@ -6,35 +6,57 @@ package cognitoidp
 
 import (
 	"context"
-	"encoding/json"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// Operation name constants prevent goconst warnings and centralize dispatch keys.
+const (
+	opAssociateSoftwareToken      = "AssociateSoftwareToken"
+	opVerifySoftwareToken         = "VerifySoftwareToken"
+	opSetUserMFAPreference        = "SetUserMFAPreference"
+	opCreateUserPool              = "CreateUserPool"
+	opUpdateUserPool              = "UpdateUserPool"
+	opCreateUserPoolClient        = "CreateUserPoolClient"
+	opUpdateUserPoolClient        = "UpdateUserPoolClient"
+	opSignUp                      = "SignUp"
+	opGetUser                     = "GetUser"
+	opDescribeUserPool            = "DescribeUserPool"
+	opDescribeUserPoolClient      = "DescribeUserPoolClient"
+	opListUserPoolClients         = "ListUserPoolClients"
+	opCreateResourceServer        = "CreateResourceServer"
+	opDescribeResourceServer      = "DescribeResourceServer"
+	opListResourceServers         = "ListResourceServers"
+	opUpdateResourceServer        = "UpdateResourceServer"
+	opDeleteResourceServer        = "DeleteResourceServer"
+	opRespondToAuthChallenge      = "RespondToAuthChallenge"
+	opAdminRespondToAuthChallenge = "AdminRespondToAuthChallenge"
+)
+
 // accuracyDispatchTable returns extra dispatch entries for the operations implemented in this file.
 func (h *Handler) accuracyDispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"AssociateSoftwareToken":  wrapAccuracy(h.handleAssociateSoftwareTokenAccurate),
-		"VerifySoftwareToken":     wrapAccuracy(h.handleVerifySoftwareTokenAccurate),
-		"SetUserMFAPreference":    wrapAccuracy(h.handleSetUserMFAPreferenceAccurate),
-		"AdminSetUserMFASetting":  wrapAccuracy(h.handleAdminSetUserMFASetting),
-		"CreateUserPool":          wrapAccuracy(h.handleCreateUserPoolWithOpts),
-		"UpdateUserPool":          wrapAccuracy(h.handleUpdateUserPoolWithOpts),
-		"CreateUserPoolClient":    wrapAccuracy(h.handleCreateUserPoolClientWithOpts),
-		"UpdateUserPoolClient":    wrapAccuracy(h.handleUpdateUserPoolClientWithOpts),
-		"SignUp":                  wrapAccuracy(h.handleSignUpAccurate),
-		"GetUser":                 wrapAccuracy(h.handleGetUserAccurate),
-		"DescribeUserPool":        wrapAccuracy(h.handleDescribeUserPoolAccurate),
-		"DescribeUserPoolClient":  wrapAccuracy(h.handleDescribeUserPoolClientAccurate),
-		"ListUserPoolClients":     wrapAccuracy(h.handleListUserPoolClientsAccurate),
-		"CreateResourceServer":    wrapAccuracy(h.handleCreateResourceServerAccurate),
-		"DescribeResourceServer":  wrapAccuracy(h.handleDescribeResourceServerAccurate),
-		"ListResourceServers":     wrapAccuracy(h.handleListResourceServersAccurate),
-		"UpdateResourceServer":    wrapAccuracy(h.handleUpdateResourceServerAccurate),
-		"DeleteResourceServer":    wrapAccuracy(h.handleDeleteResourceServerAccurate),
-		"RespondToAuthChallenge":  wrapAccuracy(h.handleRespondToAuthChallengeAccurate),
-		"AdminRespondToAuthChallenge": wrapAccuracy(h.handleAdminRespondToAuthChallengeAccurate),
+		opAssociateSoftwareToken:      wrapAccuracy(h.handleAssociateSoftwareTokenAccurate),
+		opVerifySoftwareToken:         wrapAccuracy(h.handleVerifySoftwareTokenAccurate),
+		opSetUserMFAPreference:        wrapAccuracy(h.handleSetUserMFAPreferenceAccurate),
+		"AdminSetUserMFASetting":      wrapAccuracy(h.handleAdminSetUserMFASetting),
+		opCreateUserPool:              wrapAccuracy(h.handleCreateUserPoolWithOpts),
+		opUpdateUserPool:              wrapAccuracy(h.handleUpdateUserPoolWithOpts),
+		opCreateUserPoolClient:        wrapAccuracy(h.handleCreateUserPoolClientWithOpts),
+		opUpdateUserPoolClient:        wrapAccuracy(h.handleUpdateUserPoolClientWithOpts),
+		opSignUp:                      wrapAccuracy(h.handleSignUpAccurate),
+		opGetUser:                     wrapAccuracy(h.handleGetUserAccurate),
+		opDescribeUserPool:            wrapAccuracy(h.handleDescribeUserPoolAccurate),
+		opDescribeUserPoolClient:      wrapAccuracy(h.handleDescribeUserPoolClientAccurate),
+		opListUserPoolClients:         wrapAccuracy(h.handleListUserPoolClientsAccurate),
+		opCreateResourceServer:        wrapAccuracy(h.handleCreateResourceServerAccurate),
+		opDescribeResourceServer:      wrapAccuracy(h.handleDescribeResourceServerAccurate),
+		opListResourceServers:         wrapAccuracy(h.handleListResourceServersAccurate),
+		opUpdateResourceServer:        wrapAccuracy(h.handleUpdateResourceServerAccurate),
+		opDeleteResourceServer:        wrapAccuracy(h.handleDeleteResourceServerAccurate),
+		opRespondToAuthChallenge:      wrapAccuracy(h.handleRespondToAuthChallengeAccurate),
+		opAdminRespondToAuthChallenge: wrapAccuracy(h.handleAdminRespondToAuthChallengeAccurate),
 	}
 }
 
@@ -47,10 +69,10 @@ func wrapAccuracy[I any, O any](fn func(context.Context, *I) (*O, error)) servic
 
 // getUserWithMFAOutput extends getUserOutput with MFA preference fields.
 type getUserWithMFAOutput struct {
-	Username              string          `json:"Username"`
-	UserAttributes        []attributeType `json:"UserAttributes"`
-	UserMFASettingList    []string        `json:"UserMFASettingList,omitempty"`
-	PreferredMfaSetting   string          `json:"PreferredMfaSetting,omitempty"`
+	Username            string          `json:"Username"`
+	UserAttributes      []attributeType `json:"UserAttributes"`
+	UserMFASettingList  []string        `json:"UserMFASettingList,omitempty"`
+	PreferredMfaSetting string          `json:"PreferredMfaSetting,omitempty"`
 }
 
 // ---- AssociateSoftwareToken (accurate) ----
@@ -105,8 +127,8 @@ func (h *Handler) handleVerifySoftwareTokenAccurate(
 // ---- SetUserMFAPreference (accurate) ----
 
 type smsMFASetting struct {
-	Enabled      bool   `json:"Enabled"`
-	PreferredMfa bool   `json:"PreferredMfa"`
+	Enabled      bool `json:"Enabled"`
+	PreferredMfa bool `json:"PreferredMfa"`
 }
 
 type softwareTokenMFASetting struct {
@@ -147,15 +169,10 @@ func (h *Handler) handleSetUserMFAPreferenceAccurate(
 
 // ---- AdminSetUserMFASetting ----
 
-type adminMFASetting struct {
-	AttributeName string `json:"AttributeName"`
-	Enabled       bool   `json:"Enabled"`
-}
-
 type adminSetUserMFASettingInput struct {
-	UserPoolID          string `json:"UserPoolId"`
-	Username            string `json:"Username"`
-	SMSMfaSettings      *smsMFASetting           `json:"SMSMfaSettings,omitempty"`
+	UserPoolID               string                   `json:"UserPoolId"`
+	Username                 string                   `json:"Username"`
+	SMSMfaSettings           *smsMFASetting           `json:"SMSMfaSettings,omitempty"`
 	SoftwareTokenMfaSettings *softwareTokenMFASetting `json:"SoftwareTokenMfaSettings,omitempty"`
 }
 
@@ -187,10 +204,10 @@ func (h *Handler) handleAdminSetUserMFASetting(
 // ---- CreateUserPool with PasswordPolicy (accurate) ----
 
 type createUserPoolWithOptsInput struct {
-	PoolName               string                `json:"PoolName"`
+	PoolName               string                 `json:"PoolName"`
 	Policies               *userPoolPoliciesInput `json:"Policies,omitempty"`
-	AutoVerifiedAttributes []string              `json:"AutoVerifiedAttributes,omitempty"`
-	MfaConfiguration       string                `json:"MfaConfiguration,omitempty"`
+	AutoVerifiedAttributes []string               `json:"AutoVerifiedAttributes,omitempty"`
+	MfaConfiguration       string                 `json:"MfaConfiguration,omitempty"`
 }
 
 type userPoolPoliciesInput struct {
@@ -311,7 +328,7 @@ type resourceServerAccurateType struct {
 func toResourceServerType(rs *ResourceServer) resourceServerAccurateType {
 	scopes := make([]resourceServerScopeType, len(rs.Scopes))
 	for i, s := range rs.Scopes {
-		scopes[i] = resourceServerScopeType{ScopeName: s.ScopeName, ScopeDescription: s.ScopeDescription}
+		scopes[i] = resourceServerScopeType(s)
 	}
 
 	return resourceServerAccurateType{
@@ -325,7 +342,7 @@ func toResourceServerType(rs *ResourceServer) resourceServerAccurateType {
 func toBackendScopes(scopes []resourceServerScopeType) []ResourceServerScope {
 	out := make([]ResourceServerScope, len(scopes))
 	for i, s := range scopes {
-		out[i] = ResourceServerScope{ScopeName: s.ScopeName, ScopeDescription: s.ScopeDescription}
+		out[i] = ResourceServerScope(s)
 	}
 
 	return out
@@ -635,15 +652,6 @@ func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
 	}
 }
 
-// jsonDecode is a helper that unmarshals JSON body bytes.
-func jsonDecode[T any](body []byte) (*T, error) {
-	var v T
-	if err := json.Unmarshal(body, &v); err != nil {
-		return nil, err
-	}
-
-	return &v, nil
-}
 
 // ---- UpdateUserPool with opts ----
 

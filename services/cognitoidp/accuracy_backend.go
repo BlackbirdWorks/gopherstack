@@ -82,14 +82,18 @@ func (b *InMemoryBackend) userGroupsLocked(poolID, username string) []string {
 			if a.precedence < b.precedence {
 				return -1
 			}
+
 			return 1
 		}
+
 		if a.name < b.name {
 			return -1
 		}
+
 		if a.name > b.name {
 			return 1
 		}
+
 		return 0
 	})
 
@@ -565,13 +569,21 @@ func (b *InMemoryBackend) applyMFAPreferenceLocked(
 	return nil
 }
 
-// EvictExpiredMFASessions removes mfaSession entries whose pool or user no longer exists.
-// The janitor calls this periodically to prevent unbounded accumulation.
+// EvictExpiredMFASessions removes mfaSession entries that have expired or whose pool or
+// user no longer exists. The janitor calls this periodically to prevent unbounded accumulation.
 func (b *InMemoryBackend) EvictExpiredMFASessions() {
 	b.mu.Lock("EvictExpiredMFASessions")
 	defer b.mu.Unlock()
 
+	now := time.Now()
+
 	for token, entry := range b.mfaSessions {
+		if !entry.ExpiresAt.IsZero() && now.After(entry.ExpiresAt) {
+			delete(b.mfaSessions, token)
+
+			continue
+		}
+
 		poolUsers, poolExists := b.users[entry.PoolID]
 		if !poolExists {
 			delete(b.mfaSessions, token)

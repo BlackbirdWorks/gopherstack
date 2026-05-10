@@ -108,7 +108,7 @@ type TokenResult struct {
 // TokenParams holds the inputs for token issuance.
 type TokenParams struct {
 	// Scopes overrides the default access-token scope when non-empty.
-	Scopes   []string
+	Scopes []string
 	// Groups is included as cognito:groups in the ID token when non-empty.
 	Groups   []string
 	ClientID string
