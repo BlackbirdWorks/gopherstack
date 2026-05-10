@@ -60,6 +60,11 @@ type sseInfo struct {
 	SSECAlgorithm string
 	// SSECKeyMD5 is the base64-encoded MD5 of the customer-supplied key.
 	SSECKeyMD5 string
+	// SSECKeyB64 is the base64-encoded raw customer key. Kept on the
+	// request-scoped sseInfo only — not persisted — so the backend can
+	// encrypt the body on PUT and the GET handler can decrypt when the
+	// caller re-supplies it.
+	SSECKeyB64 string
 }
 
 // extractSSEInfo reads SSE-* request headers and validates SSE-C when present.
@@ -70,6 +75,7 @@ func extractSSEInfo(r *http.Request) (sseInfo, error) {
 		KMSKeyID:      r.Header.Get(headerSSEKMSKeyID),
 		SSECAlgorithm: r.Header.Get(headerSSECAlgorithm),
 		SSECKeyMD5:    r.Header.Get(headerSSECKeyMD5),
+		SSECKeyB64:    r.Header.Get(headerSSECKey),
 	}
 
 	rawKey := r.Header.Get(headerSSECKey)

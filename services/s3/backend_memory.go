@@ -407,11 +407,20 @@ func (b *InMemoryBackend) PutObject(
 	// Extract SSE info from context (set by putObject handler).
 	sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
 
+	// Real envelope encryption: when SSE is configured, encrypt the stored
+	// (post-compression) bytes with AES-256-GCM and stash the DEK + nonce on
+	// the version so GET can decrypt. ETag stays as MD5(plaintext) so
+	// existing checksum-based tests + SDK clients keep matching.
+	encryptedData, dek, nonce, encErr := encryptWithSSE(storedData, sseFromCtx, sseFromCtx.SSECKeyB64)
+	if encErr != nil {
+		return nil, encErr
+	}
+
 	finalQuotedETag := "\"" + etag + "\""
 	newVersion := &StoredObjectVersion{
 		VersionID:          NullVersion, // default, saveObjectVersion will assign if enabled
 		Key:                key,
-		Data:               storedData,
+		Data:               encryptedData,
 		IsCompressed:       isCompressed,
 		Size:               originalSize,
 		ETag:               finalQuotedETag,
@@ -430,6 +439,8 @@ func (b *InMemoryBackend) PutObject(
 		SSEKMSKeyID:        sseFromCtx.KMSKeyID,
 		SSECAlgorithm:      sseFromCtx.SSECAlgorithm,
 		SSECKeyMD5:         sseFromCtx.SSECKeyMD5,
+		EncryptionDEK:      dek,
+		EncryptionNonce:    nonce,
 		IsLatest:           true,
 	}
 
@@ -558,7 +569,7 @@ func (b *InMemoryBackend) storeObjectTags(tagging *string, bucket, key, versionI
 }
 
 func (b *InMemoryBackend) GetObject(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.GetObjectInput,
 ) (*s3.GetObjectOutput, error) {
 	bucketName := *input.Bucket
@@ -601,12 +612,36 @@ func (b *InMemoryBackend) GetObject(
 		return nil, ErrNoSuchKey
 	}
 
-	// Copy data + metadata under the lock; decompression happens outside.
+	// Copy data + metadata under the lock; decryption + decompression
+	// happen outside.
 	dataToDecompress := ver.Data
 	isCompressed := ver.IsCompressed
 	size := ver.Size
 	metadata := maps.Clone(ver.Metadata)
 	versionIDStr := ver.VersionID
+	sseAlg := ver.SSEAlgorithm
+	sseCAlg := ver.SSECAlgorithm
+	dek := ver.EncryptionDEK
+	nonce := ver.EncryptionNonce
+
+	// Reverse envelope encryption when the version was stored under SSE. For
+	// SSE-C the customer must re-supply the key on GET via the request — read
+	// it from context (set by getObject handler) before decrypting. If no key
+	// is supplied for an SSE-C version, skip decrypt and let the handler's
+	// validateSSECOnRead surface the proper 400 ErrSSECRequired.
+	if sseAlg != "" || sseCAlg != "" {
+		sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
+		if sseCAlg != "" && sseFromCtx.SSECKeyB64 == "" {
+			// Fall through with the (still-encrypted) blob; the handler will
+			// reject the request before reading the body.
+			return buildGetObjectOutput(dataToDecompress, size, ver, metadata, versionIDStr), nil
+		}
+		decrypted, decErr := decryptWithSSE(dataToDecompress, sseAlg, sseCAlg, dek, nonce, sseFromCtx.SSECKeyB64)
+		if decErr != nil {
+			return nil, decErr
+		}
+		dataToDecompress = decrypted
+	}
 
 	data, err := b.decompressObjectData(dataToDecompress, isCompressed)
 	if err != nil {

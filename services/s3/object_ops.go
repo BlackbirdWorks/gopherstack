@@ -167,6 +167,14 @@ func (h *S3Handler) headObject(
 		return
 	}
 
+	headSSE, sseErr := extractSSEInfo(r)
+	if sseErr != nil {
+		WriteError(ctx, w, r, sseErr)
+
+		return
+	}
+	ctx = context.WithValue(ctx, sseKey, headSSE)
+
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
 
@@ -527,6 +535,17 @@ func (h *S3Handler) getObject(
 
 		return
 	}
+
+	// Propagate SSE-C key on the request through to the backend so envelope-
+	// encrypted versions can be decrypted. Errors here are surfaced before we
+	// touch any state.
+	getSSE, sseErr := extractSSEInfo(r)
+	if sseErr != nil {
+		WriteError(ctx, w, r, sseErr)
+
+		return
+	}
+	ctx = context.WithValue(ctx, sseKey, getSSE)
 
 	versionID := r.URL.Query().Get("versionId")
 	logger.Load(ctx).DebugContext(

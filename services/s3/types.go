@@ -66,6 +66,16 @@ type StoredObjectVersion struct {
 	SSEKMSKeyID        string                  `json:"sseKMSKeyID,omitempty"`
 	SSECAlgorithm      string                  `json:"sseCAlgorithm,omitempty"`
 	SSECKeyMD5         string                  `json:"sseCKeyMD5,omitempty"`
+	// EncryptionDEK is the AES-256 data encryption key randomly generated on
+	// PUT for SSE-S3/SSE-KMS objects. Real S3 wraps this under a KMS CMK and
+	// stores only the wrapped form; for an in-memory mock the storage is
+	// the same address space so we keep the raw key. SSE-C objects don't
+	// store the key — the customer re-supplies it on GET.
+	EncryptionDEK []byte `json:"-"`
+	// EncryptionNonce is the GCM nonce/IV used for this object's ciphertext.
+	// Stored alongside the ciphertext (in StoredObjectVersion.Data) so GET
+	// can decrypt without re-deriving anything.
+	EncryptionNonce []byte `json:"-"`
 	Key                string                  `json:"key"`
 	ETag               string                  `json:"etag"`
 	ContentType        string                  `json:"contentType"`

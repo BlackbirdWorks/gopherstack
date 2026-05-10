@@ -62,3 +62,35 @@ func (j *Janitor) DrainSemCapacity() int {
 
 // MaxConcurrentDrains exposes the package constant for external tests.
 const MaxConcurrentDrains = maxConcurrentDrains
+
+// PeekStoredBytes returns the raw Data of the latest version of an object
+// without decryption or decompression. Used by tests to verify that SSE-S3 /
+// SSE-C objects are actually stored as ciphertext rather than plaintext.
+func PeekStoredBytes(b *InMemoryBackend, bucketName, key string) []byte {
+	b.mu.RLock("PeekStoredBytes")
+	defer b.mu.RUnlock()
+
+	region, ok := b.bucketIndex[bucketName]
+	if !ok {
+		return nil
+	}
+
+	bucket := b.buckets[region][bucketName]
+	if bucket == nil {
+		return nil
+	}
+
+	bucket.mu.RLock("PeekStoredBytes")
+	defer bucket.mu.RUnlock()
+
+	obj, ok := bucket.Objects[key]
+	if !ok {
+		return nil
+	}
+	ver := findLatestVersion(obj.Versions)
+	if ver == nil {
+		return nil
+	}
+
+	return ver.Data
+}
