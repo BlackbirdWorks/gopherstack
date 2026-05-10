@@ -119,6 +119,9 @@ let bucketSizes = $state<Map<string, number>>(new Map());
 let showRenameModal = $state(false);
 let renameOldKey = $state('');
 let renameNewKey = $state('');
+let showCopyModal = $state(false);
+let copySourceKey = $state('');
+let copyTargetKey = $state('');
 
 // Website hosting state
 let websiteConfig = $state<{ IndexDocument?: string; ErrorDocument?: string } | null>(null);
@@ -762,6 +765,26 @@ async function loadBucketSizes(bucketList: Bucket[]): Promise<void> {
   void results;
 }
 
+async function copyObject(): Promise<void> {
+  if (!selectedBucket || !copySourceKey || !copyTargetKey.trim()) return;
+  if (copyTargetKey.trim() === copySourceKey) {
+    toast.error('Target key must differ from source');
+    return;
+  }
+  try {
+    await s3.send(new CopyObjectCommand({
+      Bucket: selectedBucket,
+      CopySource: `${selectedBucket}/${copySourceKey}`,
+      Key: copyTargetKey.trim(),
+    }));
+    toast.success('Object copied');
+    showCopyModal = false;
+    await loadObjects();
+  } catch (err: unknown) {
+    toast.error(`Copy failed: ${(err as Error).message}`);
+  }
+}
+
 async function renameObject(): Promise<void> {
   if (!selectedBucket || !renameOldKey || !renameNewKey.trim()) return;
   try {
@@ -1149,6 +1172,12 @@ onclick={() => copyObjectUrl(obj.Key ?? '')}
 class="text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 text-xs font-medium px-2 py-1 rounded hover:bg-slate-50 dark:hover:bg-slate-700"
 >
 Copy URL
+</button>
+<button
+  onclick={() => { copySourceKey = obj.Key ?? ''; copyTargetKey = `${obj.Key ?? ''}-copy`; showCopyModal = true; }}
+  class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-medium px-2 py-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
+>
+  Copy
 </button>
 <button
   onclick={() => { renameOldKey = obj.Key ?? ''; renameNewKey = obj.Key ?? ''; showRenameModal = true; }}
@@ -1683,6 +1712,46 @@ class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300
             <button type="submit"
               class="text-white bg-green-600 hover:bg-green-700 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800">
               Create Folder
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{/if}
+
+<!-- Copy Object Modal -->
+{#if showCopyModal}
+<div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation"><button type="button" class="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-label="Close" onclick={() => { showCopyModal = false; }}></button>
+  <div class="relative p-4 w-full max-w-md z-10" role="dialog" aria-modal="true" tabindex="-1">
+    <div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+      <div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
+        <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Copy Object</h3>
+        <button onclick={() => { showCopyModal = false; }} aria-label="Close" class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
+          <svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg>
+        </button>
+      </div>
+      <div class="p-4 md:p-5">
+        <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); copyObject(); }}>
+          <div>
+            <p class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Source Key</p>
+            <p class="text-sm font-mono text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 rounded p-2">{copySourceKey}</p>
+          </div>
+          <div>
+            <label for="copyTargetKey" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Target Key</label>
+            <input type="text" id="copyTargetKey" bind:value={copyTargetKey} required
+              class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:placeholder-slate-400 dark:text-white" />
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">The source object stays in place.</p>
+          </div>
+          <div class="flex justify-end gap-2 pt-4 border-t dark:border-slate-600">
+            <button type="button" onclick={() => { showCopyModal = false; }}
+              class="py-2.5 px-5 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700">
+              Cancel
+            </button>
+            <button type="submit"
+              class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-5 py-2.5">
+              Copy
             </button>
           </div>
         </form>

@@ -51,6 +51,21 @@ type storedImport struct {
 	InputFormat  string
 }
 
+// pitrSnapshot captures the items of a PITR-enabled table at a point in time.
+// Snapshots are taken by the janitor on its sweep interval (typically 1 minute);
+// RestoreTableToPointInTime returns the latest snapshot at or before the
+// requested RestoreDateTime.
+type pitrSnapshot struct {
+	Taken time.Time
+	Items []map[string]any
+}
+
+// maxPITRSnapshots bounds the per-table snapshot ring so memory cost stays
+// predictable. With a 1-minute janitor sweep this gives ~1 hour of
+// point-in-time recovery coverage — enough for tests, well short of AWS's
+// real 35-day window.
+const maxPITRSnapshots = 60
+
 // Caps for retained metadata maps. Beyond these counts the oldest entries are
 // evicted on each insert so long-running instances do not leak memory. Real
 // AWS has account-wide quotas (1,000 backups, 100 exports, 50 active imports);
@@ -136,6 +151,15 @@ type Table struct {
 	GlobalTableName            string                                  `json:"GlobalTableName,omitempty"`
 	TTLAttribute               string                                  `json:"TTLAttribute,omitempty"`
 	StreamViewType             string                                  `json:"StreamViewType,omitempty"`
+	// SSEType is "AES256" (SSE-S3) or "KMS". Empty when encryption is not
+	// configured (the table is then treated as using owned-key AES256 by AWS).
+	SSEType string `json:"SSEType,omitempty"`
+	// SSEKMSMasterKeyArn is the customer-managed KMS key ARN when SSEType=KMS.
+	SSEKMSMasterKeyArn string `json:"SSEKMSMasterKeyArn,omitempty"`
+	// SSEEnabled reflects whether the user explicitly enabled SSE via
+	// SSESpecification. When false the table still reports AES256 via the
+	// AWS-managed key, matching real DynamoDB behaviour.
+	SSEEnabled bool `json:"SSEEnabled,omitempty"`
 	StreamARN                  string                                  `json:"StreamARN,omitempty"`
 	TableArn                   string                                  `json:"TableArn"`
 	Status                     string                                  `json:"Status"`
@@ -155,6 +179,10 @@ type Table struct {
 	streamSeq                  int64
 	StreamHead                 int  `json:"StreamHead,omitempty"`
 	PITREnabled                bool `json:"PITREnabled,omitempty"`
+	// pitrSnapshots is a ring of past Items + KeySchema captured by the
+	// janitor when PITREnabled. Used by RestoreTableToPointInTime to honour
+	// the requested RestoreDateTime. Bounded by maxPITRSnapshots.
+	pitrSnapshots []pitrSnapshot
 	StreamsEnabled             bool `json:"StreamsEnabled"`
 	DeletionProtectionEnabled  bool `json:"DeletionProtectionEnabled"`
 	ContributorInsightsEnabled bool `json:"ContributorInsightsEnabled,omitempty"`

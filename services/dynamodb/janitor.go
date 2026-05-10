@@ -128,7 +128,43 @@ func (j *Janitor) runOnce(ctx context.Context) {
 	j.sweepTxnPending(ctx)
 	j.sweepStreamRecords(ctx)
 	j.Backend.exprCache.Sweep()
+	j.snapshotPITRTables(ctx)
 	j.runTableCleaner(ctx)
+}
+
+// snapshotPITRTables captures a point-in-time snapshot of every PITR-enabled
+// table's items into its per-table ring buffer. Restore uses these to honour
+// RestoreDateTime. Iteration is under db.mu read lock; the per-table read
+// happens with table.mu so writers don't see a torn copy.
+func (j *Janitor) snapshotPITRTables(_ context.Context) {
+	db := j.Backend
+
+	db.mu.RLock("DDBJanitor.snapshotPITR")
+	tables := make([]*Table, 0)
+	for _, regionTables := range db.Tables {
+		for _, t := range regionTables {
+			tables = append(tables, t)
+		}
+	}
+	db.mu.RUnlock()
+
+	now := time.Now().UTC()
+
+	for _, t := range tables {
+		t.mu.Lock("snapshotPITR")
+		if !t.PITREnabled {
+			t.mu.Unlock()
+
+			continue
+		}
+
+		snap := pitrSnapshot{Taken: now, Items: deepCopyItems(t.Items)}
+		t.pitrSnapshots = append(t.pitrSnapshots, snap)
+		if len(t.pitrSnapshots) > maxPITRSnapshots {
+			t.pitrSnapshots = t.pitrSnapshots[len(t.pitrSnapshots)-maxPITRSnapshots:]
+		}
+		t.mu.Unlock()
+	}
 }
 
 // SweepOnce runs a single full sweep pass. Exposed for testing.

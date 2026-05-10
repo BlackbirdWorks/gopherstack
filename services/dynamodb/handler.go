@@ -1051,6 +1051,11 @@ func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []by
 
 		table.mu.Lock(opUpdateContinuousBackups)
 		table.PITREnabled = pitrEnabled
+		if !pitrEnabled {
+			// Releasing memory the moment the feature is turned off keeps the
+			// per-table footprint tight; re-enabling starts a fresh ring.
+			table.pitrSnapshots = nil
+		}
 		table.mu.Unlock()
 	}
 

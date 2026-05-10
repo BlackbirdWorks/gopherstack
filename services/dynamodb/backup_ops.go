@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -296,6 +297,43 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 	}, nil
 }
 
+// selectPITRItems returns the items to restore for a RestoreTableToPointInTime
+// call. Caller must hold sourceTable.mu.RLock.
+//
+// Behaviour:
+//   - UseLatestRestorableTime or RestoreDateTime empty → current items.
+//   - RestoreDateTime parseable → newest snapshot whose Taken <= RestoreDateTime.
+//   - No matching snapshot (e.g. requested time is before the table was created
+//     or the snapshot window has rotated past it) → nil, signalling the caller
+//     to return a validation error.
+func selectPITRItems(sourceTable *Table, req models.RestoreTableToPointInTimeInput) []map[string]any {
+	if req.UseLatestRestorableTime || req.RestoreDateTime == "" {
+		return deepCopyItems(sourceTable.Items)
+	}
+
+	t, err := time.Parse(time.RFC3339Nano, req.RestoreDateTime)
+	if err != nil {
+		// Fallback to seconds-since-epoch which the AWS SDK marshals when
+		// using the JSON 1.0 number form.
+		if secs, parseErr := strconv.ParseFloat(req.RestoreDateTime, 64); parseErr == nil {
+			t = time.Unix(int64(secs), int64((secs-float64(int64(secs)))*1e9)).UTC()
+		} else {
+			return deepCopyItems(sourceTable.Items)
+		}
+	}
+
+	// Newest snapshot at-or-before t. Snapshots are appended in time order so
+	// scanning backwards is O(k) where k is the index from the end.
+	for i := len(sourceTable.pitrSnapshots) - 1; i >= 0; i-- {
+		snap := sourceTable.pitrSnapshots[i]
+		if !snap.Taken.After(t) {
+			return deepCopyItems(snap.Items)
+		}
+	}
+
+	return nil
+}
+
 func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []byte) (any, error) {
 	var req models.RestoreTableToPointInTimeInput
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -323,8 +361,10 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 
 	sourceTable.mu.RLock("RestoreTableToPointInTime")
 	pitrEnabled := sourceTable.PITREnabled
-	// Deep copy items inside the read lock to avoid races with concurrent writes.
-	itemsCopy := deepCopyItems(sourceTable.Items)
+	// Pick the items snapshot to restore: when the caller asked for a specific
+	// point in time, find the latest janitor snapshot at-or-before it; else
+	// (UseLatestRestorableTime or no time supplied) use current items.
+	itemsCopy := selectPITRItems(sourceTable, req)
 	keySchema := make([]models.KeySchemaElement, len(sourceTable.KeySchema))
 	copy(keySchema, sourceTable.KeySchema)
 	attrDefs := make([]models.AttributeDefinition, len(sourceTable.AttributeDefinitions))
@@ -334,6 +374,13 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 	if !pitrEnabled {
 		return nil, NewValidationException(
 			"point in time recovery is not enabled for table: " + req.SourceTableName,
+		)
+	}
+
+	if itemsCopy == nil {
+		return nil, NewValidationException(
+			"requested RestoreDateTime is outside the available recovery window for table: " +
+				req.SourceTableName,
 		)
 	}
 
