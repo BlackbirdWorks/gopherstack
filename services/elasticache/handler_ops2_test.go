@@ -1874,6 +1874,7 @@ func TestModifyReplicationGroupShardConfiguration(t *testing.T) {
 				_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
 					ReplicationGroupId:          aws.String("rg-shard"),
 					ReplicationGroupDescription: aws.String("test"),
+					ClusterMode:                 elasticachetypes.ClusterModeEnabled,
 				})
 				require.NoError(t, err)
 			},

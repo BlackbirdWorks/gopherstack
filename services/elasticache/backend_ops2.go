@@ -26,14 +26,14 @@ var (
 
 // UserGroup represents an ElastiCache user group.
 type UserGroup struct {
-	CreatedAt                  time.Time  `json:"createdAt"`
-	Tags                       *tags.Tags `json:"tags,omitempty"`
-	UserGroupID                string     `json:"userGroupID"`
-	Description                string     `json:"description"`
-	Status                     string     `json:"status"`
-	ARN                        string     `json:"arn"`
-	Engine                     string     `json:"engine"`
-	UserIDs                    []string   `json:"userIDs,omitempty"`
+	CreatedAt                   time.Time  `json:"createdAt"`
+	Tags                        *tags.Tags `json:"tags,omitempty"`
+	UserGroupID                 string     `json:"userGroupID"`
+	Description                 string     `json:"description"`
+	Status                      string     `json:"status"`
+	ARN                         string     `json:"arn"`
+	Engine                      string     `json:"engine"`
+	UserIDs                     []string   `json:"userIDs,omitempty"`
 	AssignedReplicationGroupIDs []string   `json:"assignedReplicationGroupIDs,omitempty"`
 }
 
@@ -181,21 +181,21 @@ func builtinCacheEngineVersions() []CacheEngineVersion {
 			Engine:                        engineValkey,
 			EngineVersion:                 versionValkey82,
 			CacheParameterGroupFamily:     familyValkey8,
-			CacheEngineDescription:        "Valkey",
+			CacheEngineDescription:        engineValkeyCap,
 			CacheEngineVersionDescription: "Valkey 8.2.0",
 		},
 		{
 			Engine:                        engineValkey,
 			EngineVersion:                 "8.0.1",
 			CacheParameterGroupFamily:     familyValkey8,
-			CacheEngineDescription:        "Valkey",
+			CacheEngineDescription:        engineValkeyCap,
 			CacheEngineVersionDescription: "Valkey 8.0.1",
 		},
 		{
 			Engine:                        engineValkey,
 			EngineVersion:                 "7.2.7",
 			CacheParameterGroupFamily:     familyValkey7,
-			CacheEngineDescription:        "Valkey",
+			CacheEngineDescription:        engineValkeyCap,
 			CacheEngineVersionDescription: "Valkey 7.2.7",
 		},
 	}
@@ -794,7 +794,10 @@ func (b *InMemoryBackend) TestMigration(replicationGroupID string) (*Replication
 }
 
 // IncreaseReplicaCount increases the replica count for a replication group.
-func (b *InMemoryBackend) IncreaseReplicaCount(replicationGroupID string, newReplicaCount int32) (*ReplicationGroup, error) {
+func (b *InMemoryBackend) IncreaseReplicaCount(
+	replicationGroupID string,
+	newReplicaCount int32,
+) (*ReplicationGroup, error) {
 	b.mu.Lock("IncreaseReplicaCount")
 	defer b.mu.Unlock()
 

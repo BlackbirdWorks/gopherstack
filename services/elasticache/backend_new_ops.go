@@ -53,16 +53,16 @@ type EC2SecurityGroupMembership struct {
 
 // GlobalReplicationGroup represents an ElastiCache global replication group.
 type GlobalReplicationGroup struct {
-	CreatedAt                      time.Time         `json:"createdAt"`
-	Tags                           *tags.Tags        `json:"tags,omitempty"`
-	SecondaryReplicationGroups     map[string]string `json:"secondaryReplicationGroups,omitempty"`
-	GlobalReplicationGroupID       string            `json:"globalReplicationGroupId"`
-	Description                    string            `json:"description"`
-	Status                         string            `json:"status"`
-	ARN                            string            `json:"arn"`
-	Engine                         string            `json:"engine"`
-	EngineVersion                  string            `json:"engineVersion"`
-	PrimaryReplicationGroupRegion  string            `json:"primaryReplicationGroupRegion,omitempty"`
+	CreatedAt                     time.Time         `json:"createdAt"`
+	Tags                          *tags.Tags        `json:"tags,omitempty"`
+	SecondaryReplicationGroups    map[string]string `json:"secondaryReplicationGroups,omitempty"`
+	GlobalReplicationGroupID      string            `json:"globalReplicationGroupId"`
+	Description                   string            `json:"description"`
+	Status                        string            `json:"status"`
+	ARN                           string            `json:"arn"`
+	Engine                        string            `json:"engine"`
+	EngineVersion                 string            `json:"engineVersion"`
+	PrimaryReplicationGroupRegion string            `json:"primaryReplicationGroupRegion,omitempty"`
 }
 
 // ServerlessCacheEndpoint holds the address and port for a serverless cache endpoint.
