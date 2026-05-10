@@ -127,6 +127,7 @@ func (db *InMemoryDB) CreateTable(
 	}
 
 	db.Tables[region][tableName] = newTable
+	newTable.kinesisEmitter = db.kinesisEmitter
 
 	if newTable.StreamARN != "" {
 		db.streamARNIndex[newTable.StreamARN] = newTable

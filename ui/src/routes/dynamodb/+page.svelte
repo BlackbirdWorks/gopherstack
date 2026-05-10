@@ -8,6 +8,7 @@
 		CreateTableCommand,
 		DeleteTableCommand,
 		DeleteItemCommand,
+		BatchWriteItemCommand,
 		ScanCommand,
 		QueryCommand,
 		PutItemCommand,
@@ -413,6 +414,38 @@
 			else if (activeTab === 'query') await executeQuery();
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
+		}
+	}
+
+	// Batch delete every selected item using BatchWriteItem in groups of 25
+	// (the AWS-imposed maximum per request).
+	async function batchDeleteSelectedItems(): Promise<void> {
+		if (!selectedTable || itemsSelectedKeys.size === 0) return;
+		const targets = filteredItemsResults.filter((it) => itemsSelectedKeys.has(itemStableKey(it)));
+		if (targets.length === 0) return;
+		if (!await confirmDestructive({
+			title: 'Delete Selected',
+			message: `Delete ${targets.length} item${targets.length === 1 ? '' : 's'}? This cannot be undone.`,
+			confirmLabel: 'Delete'
+		})) return;
+
+		const tableName = selectedTable;
+		try {
+			let deleted = 0;
+			for (let i = 0; i < targets.length; i += 25) {
+				const chunk = targets.slice(i, i + 25);
+				const requests = chunk.map((it) => ({ DeleteRequest: { Key: buildItemKey(it) } }));
+				const out = await ddb.send(new BatchWriteItemCommand({ RequestItems: { [tableName]: requests } }));
+				const unprocessed = out.UnprocessedItems?.[tableName]?.length ?? 0;
+				deleted += chunk.length - unprocessed;
+			}
+			toast.success(`Deleted ${deleted} item${deleted === 1 ? '' : 's'}`);
+			itemsSelectedKeys = new Set();
+			if (activeTab === 'items') await loadItems(true);
+			else if (activeTab === 'scan') await executeScan();
+			else if (activeTab === 'query') await executeQuery();
+		} catch (err: unknown) {
+			toast.error(`Batch delete failed: ${(err as Error).message}`);
 		}
 	}
 
@@ -1194,9 +1227,16 @@
 							<span class="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">{itemsSelectedKeys.size} of {filteredItemsResults.length} selected</span>
 						{/if}
 					</h3>
-					<button onclick={() => loadItems(true)} disabled={itemsLoading} class="py-1.5 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
-						{itemsLoading ? 'Loading...' : 'Reload'}
-					</button>
+					<div class="flex items-center gap-2">
+						{#if itemsSelectedKeys.size > 0}
+							<button onclick={() => batchDeleteSelectedItems()} class="py-1.5 px-4 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg">
+								Delete Selected ({itemsSelectedKeys.size})
+							</button>
+						{/if}
+						<button onclick={() => loadItems(true)} disabled={itemsLoading} class="py-1.5 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
+							{itemsLoading ? 'Loading...' : 'Reload'}
+						</button>
+					</div>
 				</div>
 				<div>
 					<input type="text" bind:value={filterItems} placeholder="Filter items..." class="block w-full p-2.5 text-sm text-slate-900 border border-slate-300 rounded-lg bg-white focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white" />

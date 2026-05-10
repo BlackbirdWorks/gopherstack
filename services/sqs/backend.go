@@ -906,7 +906,14 @@ func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.T
 	return &SendMessageOutput{MessageID: origMsgID, MD5OfBody: md5Body}, true
 }
 
-// storeDedup records a deduplication entry for a FIFO message.
+// maxDedupEntriesPerQueue caps the per-queue deduplication maps to bound memory
+// in the absence of a janitor sweep. AWS keeps the dedup window at 5 minutes and
+// limits transactions per second well below this cap; once exceeded the oldest
+// entries (by expiry) are evicted to make room.
+const maxDedupEntriesPerQueue = 100_000
+
+// storeDedup records a deduplication entry for a FIFO message. When the dedup
+// map is at capacity, the entries closest to expiry are evicted first.
 func storeDedup(q *Queue, dedupID, md5Body, contentBasedDedup, msgID string, now time.Time) {
 	effectiveID := dedupID
 	if effectiveID == "" && contentBasedDedup == attrValTrue {
@@ -917,8 +924,32 @@ func storeDedup(q *Queue, dedupID, md5Body, contentBasedDedup, msgID string, now
 		return
 	}
 
+	if len(q.DeduplicationIDs) >= maxDedupEntriesPerQueue {
+		evictOldestDedup(q, len(q.DeduplicationIDs)-maxDedupEntriesPerQueue+1)
+	}
+
 	q.DeduplicationIDs[effectiveID] = now.Add(deduplicationWindowSecs * time.Second)
 	q.deduplicationMsgIDs[effectiveID] = msgID
+}
+
+// evictOldestDedup removes up to n entries with the earliest expiry times.
+// Linear scan is acceptable given maxDedupEntriesPerQueue is small enough that
+// hitting the cap is the cold path (janitor normally prunes first).
+func evictOldestDedup(q *Queue, n int) {
+	for ; n > 0 && len(q.DeduplicationIDs) > 0; n-- {
+		var oldestKey string
+		var oldestExpiry time.Time
+		first := true
+		for k, exp := range q.DeduplicationIDs {
+			if first || exp.Before(oldestExpiry) {
+				oldestKey = k
+				oldestExpiry = exp
+				first = false
+			}
+		}
+		delete(q.DeduplicationIDs, oldestKey)
+		delete(q.deduplicationMsgIDs, oldestKey)
+	}
 }
 
 // pruneDedup removes expired deduplication entries from a FIFO queue.

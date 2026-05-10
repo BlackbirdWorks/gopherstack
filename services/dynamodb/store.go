@@ -69,6 +69,8 @@ type InMemoryDB struct {
 	// createDelay is the time to wait before transitioning a new table to ACTIVE.
 	// Zero means immediate ACTIVE (no lifecycle simulation).
 	createDelay time.Duration
+	// kinesisEmitter forwards stream records to Kinesis destinations when configured.
+	kinesisEmitter KinesisEmitter
 }
 
 // Backup holds the metadata and a point-in-time item snapshot for a DynamoDB on-demand backup.
@@ -137,6 +139,7 @@ type Table struct {
 	AttributeDefinitions      []models.AttributeDefinition            `json:"AttributeDefinitions"`
 	KinesisDestinations       []string                                `json:"KinesisDestinations,omitempty"`
 	ProvisionedThroughput     models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
+	kinesisEmitter            KinesisEmitter
 	streamSeq                 int64
 	StreamHead                int  `json:"StreamHead,omitempty"`
 	PITREnabled                 bool `json:"PITREnabled,omitempty"`
@@ -255,6 +258,36 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 	} else {
 		t.StreamRecords[t.StreamHead] = record
 		t.StreamHead = (t.StreamHead + 1) % maxStreamRecords
+	}
+
+	// Forward to any configured Kinesis destinations. The emitter is invoked
+	// asynchronously via a goroutine inside KinesisEmitter implementations to
+	// avoid holding table.mu during the network/RPC.
+	if len(t.KinesisDestinations) > 0 && t.kinesisEmitter != nil {
+		for _, arn := range t.KinesisDestinations {
+			t.kinesisEmitter.EmitDynamoDBStreamRecord(arn, t.Name, record)
+		}
+	}
+}
+
+// KinesisEmitter forwards DynamoDB stream records to configured Kinesis destinations.
+// Implementations must be safe to call while the caller holds locks; they should
+// return promptly and dispatch work to a background goroutine if needed.
+type KinesisEmitter interface {
+	EmitDynamoDBStreamRecord(streamARN, tableName string, record models.StreamRecord)
+}
+
+// SetKinesisEmitter installs a Kinesis emitter for all tables in this DB.
+// Safe to call once during service wiring.
+func (db *InMemoryDB) SetKinesisEmitter(emitter KinesisEmitter) {
+	db.mu.Lock("SetKinesisEmitter")
+	defer db.mu.Unlock()
+
+	db.kinesisEmitter = emitter
+	for _, region := range db.Tables {
+		for _, t := range region {
+			t.kinesisEmitter = emitter
+		}
 	}
 }
 
