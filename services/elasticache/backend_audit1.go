@@ -28,18 +28,32 @@ const (
 	transitEncryptionModeRequired  = "required"
 )
 
+// statusEnabled is the AWS "enabled" state string.
+const statusEnabled = "enabled"
+
+// engineValkeyCap is the display-name capitalisation for Valkey.
+const engineValkeyCap = "Valkey"
+
 // authTokenHexLen is the byte length of a generated auth token before hex encoding.
 const authTokenHexLen = 32
+
+// redisClusterHashSlots is the total number of hash slots in a Redis cluster (gap #2).
+const redisClusterHashSlots = 16384
+
+// dataTieringMinMajorVersion is the minimum engine major version required for data tiering (gap #9).
+const dataTieringMinMajorVersion = 7
 
 // ----------------------------------------
 // Audit-1 errors
 // ----------------------------------------
 
 var (
-	ErrClusterModeRequired         = errors.New("cluster mode must be enabled for shard configuration changes")
-	ErrDataTieringInvalid          = errors.New("data tiering requires r7g node type and Redis/Valkey 7.0+")
+	ErrClusterModeRequired          = errors.New("cluster mode must be enabled for shard configuration changes")
+	ErrDataTieringInvalid           = errors.New("data tiering requires r7g node type and Redis/Valkey 7.0+")
 	ErrTransitEncryptionModeInvalid = errors.New("transit encryption mode 'required' requires an auth token")
-	ErrAuthTokenRequiredForMode    = errors.New("auth token must be provided when transit encryption mode is 'required'")
+	ErrAuthTokenRequiredForMode     = errors.New(
+		"auth token must be provided when transit encryption mode is 'required'",
+	)
 )
 
 // ----------------------------------------
@@ -48,15 +62,15 @@ var (
 
 // CacheNodeMember represents a Memcached cluster node member (gap #3).
 type CacheNodeMember struct {
+	CacheClusterID            string `json:"cacheClusterId"`
+	CacheNodeID               string `json:"cacheNodeId"`
+	CacheNodeStatus           string `json:"cacheNodeStatus"`
+	PreferredAvailabilityZone string `json:"preferredAvailabilityZone"`
 	CacheNodeCreateTime       time.Time `json:"cacheNodeCreateTime"`
 	Endpoint                  struct {
 		Address string `json:"address"`
 		Port    int    `json:"port"`
 	} `json:"endpoint"`
-	CacheClusterID            string `json:"cacheClusterId"`
-	CacheNodeID               string `json:"cacheNodeId"`
-	CacheNodeStatus           string `json:"cacheNodeStatus"`
-	PreferredAvailabilityZone string `json:"preferredAvailabilityZone"`
 }
 
 // NodeGroupNode represents a single node within a node group (gap #2).
@@ -74,25 +88,25 @@ type NodeGroup struct {
 	PrimaryNode *NodeGroupNode  `json:"primaryNode,omitempty"`
 	Replicas    []NodeGroupNode `json:"replicas,omitempty"`
 	NodeGroupID string          `json:"nodeGroupId"`
-	Slots       string          `json:"slots"`
 	Status      string          `json:"status"`
+	Slots       string          `json:"slots"`
 }
 
 // RGPendingModifiedValues holds modifications queued for the next maintenance window (gap #7).
 type RGPendingModifiedValues struct {
+	ReplicaCount            *int32 `json:"replicaCount,omitempty"`
 	CacheNodeType           string `json:"cacheNodeType,omitempty"`
 	EngineVersion           string `json:"engineVersion,omitempty"`
 	AuthTokenStatus         string `json:"authTokenStatus,omitempty"`
 	AutomaticFailoverStatus string `json:"automaticFailoverStatus,omitempty"`
-	ReplicaCount            *int32 `json:"replicaCount,omitempty"`
 }
 
 // LogDeliveryConfig holds log delivery configuration for slow-log or engine-log (gap #6).
 type LogDeliveryConfig struct {
 	DestinationDetails string `json:"destinationDetails"`
-	LogType            string `json:"logType"`            // "slow-log" or "engine-log"
-	DestinationType    string `json:"destinationType"`    // "cloudwatch-logs" or "kinesis-firehose"
-	LogFormat          string `json:"logFormat"`          // "text" or "json"
+	LogType            string `json:"logType"`         // "slow-log" or "engine-log"
+	DestinationType    string `json:"destinationType"` // "cloudwatch-logs" or "kinesis-firehose"
+	LogFormat          string `json:"logFormat"`       // "text" or "json"
 	Status             string `json:"status"`
 	Message            string `json:"message,omitempty"`
 }
@@ -132,6 +146,10 @@ type ReplicationGroupCreateOpts struct {
 // ReplicationGroupModifyOpts carries all fields for full replication-group modification.
 type ReplicationGroupModifyOpts struct {
 	LogDeliveryConfigurations []LogDeliveryConfig
+	SnapshotRetentionLimit    *int
+	ReplicaCount              *int32
+	AutomaticFailoverEnabled  *bool
+	MultiAZEnabled            *bool
 	Description               string
 	ParameterGroupName        string
 	EngineVersion             string
@@ -142,10 +160,6 @@ type ReplicationGroupModifyOpts struct {
 	AuthTokenUpdateStrategy   string
 	NotificationTopicArn      string
 	TransitEncryptionMode     string
-	SnapshotRetentionLimit    *int
-	ReplicaCount              *int32
-	AutomaticFailoverEnabled  *bool
-	MultiAZEnabled            *bool
 	ApplyImmediately          bool
 }
 
@@ -167,12 +181,12 @@ func resizeNodeGroups(existing []NodeGroup, targetCount, replicaCount int) []Nod
 	out := make([]NodeGroup, targetCount)
 	copy(out, existing)
 
-	slotSize := 16384 / targetCount
+	slotSize := redisClusterHashSlots / targetCount
 	for i := len(existing); i < targetCount; i++ {
 		slotStart := i * slotSize
 		slotEnd := slotStart + slotSize - 1
 		if i == targetCount-1 {
-			slotEnd = 16383
+			slotEnd = redisClusterHashSlots - 1
 		}
 
 		ng := NodeGroup{
@@ -228,7 +242,7 @@ func validateDataTiering(nodeType, engine, engineVersion string) error {
 
 	if engineVersion != "" {
 		major := majorVersion(engineVersion)
-		if major < 7 {
+		if major < dataTieringMinMajorVersion {
 			return ErrDataTieringInvalid
 		}
 	}
@@ -313,7 +327,11 @@ func (b *InMemoryBackend) buildReplicationGroupFromCreateOpts(opts ReplicationGr
 	applyAuthToken(rg, opts.AuthToken, opts.AuthTokenEnabled)
 
 	if opts.AutomaticFailoverEnabled {
-		rg.AutomaticFailover = "enabled"
+		rg.AutomaticFailover = statusEnabled
+	}
+
+	if opts.Engine != "" {
+		rg.Engine = opts.Engine
 	}
 
 	if opts.EngineVersion != "" {
@@ -443,7 +461,7 @@ func applyAutoFailoverModify(rg *ReplicationGroup, enabled *bool) {
 	}
 
 	if *enabled {
-		rg.AutomaticFailover = "enabled"
+		rg.AutomaticFailover = statusEnabled
 	} else {
 		rg.AutomaticFailover = statusDisabled
 	}
@@ -512,7 +530,7 @@ func applyPendingChanges(rg *ReplicationGroup, opts ReplicationGroupModifyOpts) 
 
 	if opts.AutomaticFailoverEnabled != nil {
 		if *opts.AutomaticFailoverEnabled {
-			pending.AutomaticFailoverStatus = "enabled"
+			pending.AutomaticFailoverStatus = statusEnabled
 		} else {
 			pending.AutomaticFailoverStatus = statusDisabled
 		}
@@ -582,6 +600,18 @@ func buildAutoSnapshot(b *InMemoryBackend, snapName string, rg *ReplicationGroup
 	}
 }
 
+// sortAutoSnapshots sorts snapshots by CreatedAt ascending (oldest first).
+func sortAutoSnapshots(snaps []CacheSnapshot) {
+	n := len(snaps)
+	for i := range n - 1 {
+		for j := i + 1; j < n; j++ {
+			if snaps[i].CreatedAt.After(snaps[j].CreatedAt) {
+				snaps[i], snaps[j] = snaps[j], snaps[i]
+			}
+		}
+	}
+}
+
 // pruneExpiredSnapshots removes automated snapshots beyond the retention limit (gap #14).
 func pruneExpiredSnapshots(b *InMemoryBackend, replicationGroupID string, retentionLimit int) {
 	if retentionLimit <= 0 {
@@ -600,13 +630,7 @@ func pruneExpiredSnapshots(b *InMemoryBackend, replicationGroupID string, retent
 	}
 
 	// Sort oldest first.
-	for i := 0; i < len(autoSnaps)-1; i++ {
-		for j := i + 1; j < len(autoSnaps); j++ {
-			if autoSnaps[i].CreatedAt.After(autoSnaps[j].CreatedAt) {
-				autoSnaps[i], autoSnaps[j] = autoSnaps[j], autoSnaps[i]
-			}
-		}
-	}
+	sortAutoSnapshots(autoSnaps)
 
 	excess := len(autoSnaps) - retentionLimit
 	for i := range excess {

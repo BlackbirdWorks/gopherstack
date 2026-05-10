@@ -63,3 +63,17 @@ func EventCount(b *InMemoryBackend) int {
 
 	return b.events.n
 }
+
+// AddSnapshotInternal seeds an automated snapshot for a given replication group.
+func AddSnapshotInternal(b *InMemoryBackend, snapshotName, replicationGroupID, snapshotSource string) {
+	b.mu.Lock("AddSnapshotInternal")
+	defer b.mu.Unlock()
+
+	b.snapshots[snapshotName] = &CacheSnapshot{
+		SnapshotName:       snapshotName,
+		ReplicationGroupID: replicationGroupID,
+		SnapshotSource:     snapshotSource,
+		Status:             statusAvailable,
+		ARN:                b.snapshotARN(snapshotName),
+	}
+}

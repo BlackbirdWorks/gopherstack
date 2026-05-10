@@ -1045,7 +1045,7 @@ func (b *InMemoryBackend) ModifyReplicationGroup(
 
 	if automaticFailoverEnabled != nil {
 		if *automaticFailoverEnabled {
-			rg.AutomaticFailover = "enabled"
+			rg.AutomaticFailover = statusEnabled
 		} else {
 			rg.AutomaticFailover = statusDisabled
 		}
