@@ -27,6 +27,7 @@ const (
 	keyDeliveryMedium            = "DeliveryMedium"
 	keyDestination               = "Destination"
 	keyAttributeName             = "AttributeName"
+	mockDestination              = "mock"
 	keyConfirmationCode          = "ConfirmationCode"
 	authTypeBearer               = "Bearer"
 )
@@ -757,7 +758,7 @@ func (h *Handler) handleSignUp(_ context.Context, in *signUpInput) (*signUpOutpu
 	if user.ConfirmCode != "" {
 		out.CodeDeliveryDetails = map[string]string{
 			keyDeliveryMedium:   medEmail,
-			keyDestination:      "mock",
+			keyDestination:      mockDestination,
 			keyAttributeName:    attrEmail,
 			keyConfirmationCode: user.ConfirmCode,
 		}
@@ -1625,7 +1626,7 @@ func (h *Handler) handleResendConfirmationCode(
 	return &resendConfirmationCodeOutput{
 		CodeDeliveryDetails: map[string]string{
 			keyDeliveryMedium:   medEmail,
-			keyDestination:      "mock",
+			keyDestination:      mockDestination,
 			keyAttributeName:    attrEmail,
 			keyConfirmationCode: code,
 		},

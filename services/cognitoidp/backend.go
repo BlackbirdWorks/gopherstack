@@ -105,15 +105,15 @@ type User struct {
 	ConfirmCodeExpiresAt time.Time
 	LastAuthTime         time.Time
 	Attributes           map[string]string
-	UserMFASettingList   []string
+	UserPoolID           string
 	Sub                  string
 	Username             string
-	UserPoolID           string
 	PasswordHash         string
 	Status               string
 	ConfirmCode          string
 	PreferredMfaSetting  string
 	TOTPSecret           string
+	UserMFASettingList   []string
 	Enabled              bool
 	TOTPVerified         bool
 }
@@ -965,7 +965,7 @@ func (b *InMemoryBackend) newMFASession(pool *UserPool, clientID, username, chal
 }
 
 // mfaChallengeType returns the challenge type to use given pool config and user preference.
-func mfaChallengeType(pool *UserPool, user *User) string {
+func mfaChallengeType(_ *UserPool, user *User) string {
 	if user.PreferredMfaSetting != "" {
 		return user.PreferredMfaSetting
 	}
@@ -1104,8 +1104,8 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 	groups := b.userGroupsLocked(entry.PoolID, user.Username)
 
 	var scopes []string
-	if client, ok := b.clients[clientID]; ok {
-		scopes = client.AllowedOAuthScopes
+	if c, cok := b.clients[clientID]; cok {
+		scopes = c.AllowedOAuthScopes
 	}
 
 	tokens, err := pool.issuer.Issue(TokenParams{

@@ -107,15 +107,11 @@ type TokenResult struct {
 
 // TokenParams holds the inputs for token issuance.
 type TokenParams struct {
-	// Scopes overrides the default access-token scope when non-empty.
-	Scopes []string
-	// Groups is included as cognito:groups in the ID token when non-empty.
-	Groups   []string
 	ClientID string
 	Username string
 	UserSub  string
-	// AuthTime is the Unix timestamp when the authentication event occurred.
-	// If zero, the current time is used.
+	Scopes   []string
+	Groups   []string
 	AuthTime int64
 }
 

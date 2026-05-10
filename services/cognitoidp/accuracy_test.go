@@ -77,7 +77,7 @@ func TestAccuracy_IDToken_CognitoGroups(t *testing.T) {
 
 	b, pool, client := setupTestPoolAndClient(t)
 
-	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "alice", "Pass1234!")
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "alice")
 
 	_, err := b.CreateGroup(pool.ID, "admins", "", 1)
 	require.NoError(t, err)
@@ -104,7 +104,7 @@ func TestAccuracy_IDToken_NoCognitoGroupsWhenNone(t *testing.T) {
 	t.Parallel()
 
 	b, _, client := setupTestPoolAndClient(t)
-	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "bob", "Pass1234!")
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "bob")
 
 	idClaims := decodeJWTPayload(t, tokens.IDToken)
 	_, hasClaims := idClaims["cognito:groups"]
@@ -173,7 +173,7 @@ func TestAccuracy_AccessToken_ScopeDerived(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "carol", "Pass1234!")
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "carol")
 
 	claims := decodeJWTPayload(t, tokens.AccessToken)
 	scope, _ := claims["scope"].(string)
@@ -184,7 +184,7 @@ func TestAccuracy_AccessToken_DefaultScopeWhenNoneConfigured(t *testing.T) {
 	t.Parallel()
 
 	b, _, client := setupTestPoolAndClient(t)
-	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "eve", "Pass1234!")
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "eve")
 
 	claims := decodeJWTPayload(t, tokens.AccessToken)
 	scope, _ := claims["scope"].(string)
@@ -281,7 +281,7 @@ func TestAccuracy_IDToken_HasAuthTime(t *testing.T) {
 	t.Parallel()
 
 	b, _, client := setupTestPoolAndClient(t)
-	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "judy", "Pass1234!")
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "judy")
 
 	claims := decodeJWTPayload(t, tokens.IDToken)
 	_, ok := claims["auth_time"].(float64)
@@ -292,7 +292,7 @@ func TestAccuracy_AccessToken_HasAuthTime(t *testing.T) {
 	t.Parallel()
 
 	b, _, client := setupTestPoolAndClient(t)
-	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "kate", "Pass1234!")
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "kate")
 
 	claims := decodeJWTPayload(t, tokens.AccessToken)
 	_, ok := claims["auth_time"].(float64)
@@ -303,7 +303,7 @@ func TestAccuracy_RefreshToken_Rotates(t *testing.T) {
 	t.Parallel()
 
 	b, _, client := setupTestPoolAndClient(t)
-	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "leo", "Pass1234!")
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "leo")
 
 	first := tokens.RefreshToken
 
@@ -321,7 +321,7 @@ func TestAccuracy_TokenClaims_Shape(t *testing.T) {
 	t.Parallel()
 
 	b, _, client := setupTestPoolAndClient(t)
-	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "mary", "Pass1234!")
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "mary")
 
 	idClaims := decodeJWTPayload(t, tokens.IDToken)
 	assert.Equal(t, "id", idClaims["token_use"])
@@ -344,7 +344,7 @@ func TestAccuracy_GetUser_MFAFields(t *testing.T) {
 	t.Parallel()
 
 	b, _, client := setupTestPoolAndClient(t)
-	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "nina", "Pass1234!")
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "nina")
 
 	err := b.SetUserMFAPreference(tokens.AccessToken, false, true, "SOFTWARE_TOKEN_MFA")
 	require.NoError(t, err)
@@ -361,7 +361,7 @@ func TestAccuracy_GlobalSignOut_RevokesAccessToken(t *testing.T) {
 	t.Parallel()
 
 	b, _, client := setupTestPoolAndClient(t)
-	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "omar", "Pass1234!")
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "omar")
 
 	err := b.GlobalSignOut(tokens.AccessToken)
 	require.NoError(t, err)
@@ -518,7 +518,7 @@ func TestAccuracy_SoftwareToken_PersistsSecret(t *testing.T) {
 	t.Parallel()
 
 	b, _, client := setupTestPoolAndClient(t)
-	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "rosa", "Pass1234!")
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "rosa")
 
 	secret, err := b.AssociateSoftwareToken(tokens.AccessToken)
 	require.NoError(t, err)
@@ -537,7 +537,7 @@ func TestAccuracy_VerifySoftwareToken_RequiresAssociate(t *testing.T) {
 	t.Parallel()
 
 	b, _, client := setupTestPoolAndClient(t)
-	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "sam", "Pass1234!")
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "sam")
 
 	err := b.VerifySoftwareToken(tokens.AccessToken, "123456")
 	require.ErrorIs(t, err, cognitoidp.ErrNotAuthorized)
@@ -751,7 +751,7 @@ func TestHandler_GetUser_WithMFAFields(t *testing.T) {
 	h := newTestHandler(t)
 	_, clientID := setupHandlerPoolAndClient(t, h, "mfa-getuser-pool")
 
-	signUpAndConfirmViaHandler(t, h, clientID, "zara", "Pass1234!")
+	signUpAndConfirmViaHandler(t, h, clientID, "zara")
 	accessToken := loginViaHandler(t, h, clientID, "zara", "Pass1234!")
 
 	prefRec := doCognitoRequest(t, h, "SetUserMFAPreference", map[string]any{
@@ -767,8 +767,8 @@ func TestHandler_GetUser_WithMFAFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		UserMFASettingList  []string `json:"UserMFASettingList"`
 		PreferredMfaSetting string   `json:"PreferredMfaSetting"`
+		UserMFASettingList  []string `json:"UserMFASettingList"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, []string{"SOFTWARE_TOKEN_MFA"}, resp.UserMFASettingList)
@@ -787,7 +787,7 @@ func TestHandler_RespondToAuthChallenge_SMSMFAFlow(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, mfaRec.Code)
 
-	signUpAndConfirmViaHandler(t, h, clientID, "smsuser", "Pass1234!")
+	signUpAndConfirmViaHandler(t, h, clientID, "smsuser")
 
 	// Get access token without MFA to set preference (need direct backend).
 	// We do this via admin set password which doesn't trigger MFA.
@@ -836,7 +836,7 @@ func TestHandler_UserSRPAuth_ViaHTTP(t *testing.T) {
 	h := newTestHandler(t)
 	_, clientID := setupHandlerPoolAndClient(t, h, "srp-http-pool")
 
-	signUpAndConfirmViaHandler(t, h, clientID, "srp-user", "Pass1234!")
+	signUpAndConfirmViaHandler(t, h, clientID, "srp-user")
 
 	initRec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
 		"AuthFlow": "USER_SRP_AUTH",
@@ -888,11 +888,13 @@ func TestHandler_DescribeUserPool_IncludesPolicy(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp struct {
-		UserPool struct{ Id string } `json:"UserPool"`
+		UserPool struct {
+			ID string `json:"Id"`
+		} `json:"UserPool"`
 	}
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 
-	rec := doCognitoRequest(t, h, "DescribeUserPool", map[string]any{"UserPoolId": createResp.UserPool.Id})
+	rec := doCognitoRequest(t, h, "DescribeUserPool", map[string]any{"UserPoolId": createResp.UserPool.ID})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
@@ -926,13 +928,15 @@ func TestHandler_DescribeUserPoolClient_IncludesOAuthFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp struct {
-		UserPoolClient struct{ ClientId string } `json:"UserPoolClient"`
+		UserPoolClient struct {
+			ClientID string `json:"ClientId"`
+		} `json:"UserPoolClient"`
 	}
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 
 	rec := doCognitoRequest(t, h, "DescribeUserPoolClient", map[string]any{
 		"UserPoolId": poolID,
-		"ClientId":   createResp.UserPoolClient.ClientId,
+		"ClientId":   createResp.UserPoolClient.ClientID,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -966,10 +970,12 @@ func TestHandler_AdminCreateUser_PolicyEnforced(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var poolResp struct {
-		UserPool struct{ Id string } `json:"UserPool"`
+		UserPool struct {
+			ID string `json:"Id"`
+		} `json:"UserPool"`
 	}
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &poolResp))
-	poolID := poolResp.UserPool.Id
+	poolID := poolResp.UserPool.ID
 
 	rec := doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
 		"UserPoolId":        poolID,
@@ -1003,21 +1009,25 @@ func TestHandler_SignUp_PolicyEnforced(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var poolResp struct {
-		UserPool struct{ Id string } `json:"UserPool"`
+		UserPool struct {
+			ID string `json:"Id"`
+		} `json:"UserPool"`
 	}
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &poolResp))
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
-		"UserPoolId": poolResp.UserPool.Id,
+		"UserPoolId": poolResp.UserPool.ID,
 		"ClientName": "signup-client",
 	})
 	require.Equal(t, http.StatusOK, clientRec.Code)
 
 	var clientResp struct {
-		UserPoolClient struct{ ClientId string } `json:"UserPoolClient"`
+		UserPoolClient struct {
+			ClientID string `json:"ClientId"`
+		} `json:"UserPoolClient"`
 	}
 	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
-	clientID := clientResp.UserPoolClient.ClientId
+	clientID := clientResp.UserPoolClient.ClientID
 
 	rec := doCognitoRequest(t, h, "SignUp", map[string]any{
 		"ClientId": clientID,
@@ -1076,7 +1086,7 @@ func TestHandler_AssociateSoftwareToken_Accurate(t *testing.T) {
 	h := newTestHandler(t)
 	_, clientID := setupHandlerPoolAndClient(t, h, "totp-pool")
 
-	signUpAndConfirmViaHandler(t, h, clientID, "totp-user", "Pass1234!")
+	signUpAndConfirmViaHandler(t, h, clientID, "totp-user")
 	accessToken := loginViaHandler(t, h, clientID, "totp-user", "Pass1234!")
 
 	rec := doCognitoRequest(t, h, "AssociateSoftwareToken", map[string]any{"AccessToken": accessToken})
@@ -1096,7 +1106,7 @@ func TestHandler_VerifySoftwareToken_Accurate(t *testing.T) {
 	h := newTestHandler(t)
 	_, clientID := setupHandlerPoolAndClient(t, h, "verify-totp-pool")
 
-	signUpAndConfirmViaHandler(t, h, clientID, "verify-user", "Pass1234!")
+	signUpAndConfirmViaHandler(t, h, clientID, "verify-user")
 	accessToken := loginViaHandler(t, h, clientID, "verify-user", "Pass1234!")
 
 	assocRec := doCognitoRequest(t, h, "AssociateSoftwareToken", map[string]any{"AccessToken": accessToken})
@@ -1108,7 +1118,9 @@ func TestHandler_VerifySoftwareToken_Accurate(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp struct{ Status string }
+	var resp struct {
+		Status string `json:"Status"`
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "SUCCESS", resp.Status)
 }
@@ -1122,10 +1134,12 @@ func setupHandlerPoolAndClient(t *testing.T, h *cognitoidp.Handler, poolName str
 	require.Equal(t, http.StatusOK, poolRec.Code)
 
 	var poolResp struct {
-		UserPool struct{ Id string } `json:"UserPool"`
+		UserPool struct {
+			ID string `json:"Id"`
+		} `json:"UserPool"`
 	}
 	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
-	poolID := poolResp.UserPool.Id
+	poolID := poolResp.UserPool.ID
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
 		"UserPoolId": poolID,
@@ -1134,15 +1148,19 @@ func setupHandlerPoolAndClient(t *testing.T, h *cognitoidp.Handler, poolName str
 	require.Equal(t, http.StatusOK, clientRec.Code)
 
 	var clientResp struct {
-		UserPoolClient struct{ ClientId string } `json:"UserPoolClient"`
+		UserPoolClient struct {
+			ClientID string `json:"ClientId"`
+		} `json:"UserPoolClient"`
 	}
 	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
 
-	return poolID, clientResp.UserPoolClient.ClientId
+	return poolID, clientResp.UserPoolClient.ClientID
 }
 
-func signUpAndConfirmViaHandler(t *testing.T, h *cognitoidp.Handler, clientID, username, password string) {
+func signUpAndConfirmViaHandler(t *testing.T, h *cognitoidp.Handler, clientID, username string) {
 	t.Helper()
+
+	const password = "Pass1234!"
 
 	rec := doCognitoRequest(t, h, "SignUp", map[string]any{
 		"ClientId": clientID,

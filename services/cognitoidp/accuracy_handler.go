@@ -70,9 +70,9 @@ func wrapAccuracy[I any, O any](fn func(context.Context, *I) (*O, error)) servic
 // getUserWithMFAOutput extends getUserOutput with MFA preference fields.
 type getUserWithMFAOutput struct {
 	Username            string          `json:"Username"`
+	PreferredMfaSetting string          `json:"PreferredMfaSetting,omitempty"`
 	UserAttributes      []attributeType `json:"UserAttributes"`
 	UserMFASettingList  []string        `json:"UserMFASettingList,omitempty"`
-	PreferredMfaSetting string          `json:"PreferredMfaSetting,omitempty"`
 }
 
 // ---- AssociateSoftwareToken (accurate) ----
@@ -137,9 +137,9 @@ type softwareTokenMFASetting struct {
 }
 
 type setUserMFAPreferenceAccurateInput struct {
-	AccessToken              string                   `json:"AccessToken"`
 	SMSMfaSettings           *smsMFASetting           `json:"SMSMfaSettings,omitempty"`
 	SoftwareTokenMfaSettings *softwareTokenMFASetting `json:"SoftwareTokenMfaSettings,omitempty"`
+	AccessToken              string                   `json:"AccessToken"`
 }
 
 type setUserMFAPreferenceAccurateOutput struct{}
@@ -170,10 +170,10 @@ func (h *Handler) handleSetUserMFAPreferenceAccurate(
 // ---- AdminSetUserMFASetting ----
 
 type adminSetUserMFASettingInput struct {
-	UserPoolID               string                   `json:"UserPoolId"`
-	Username                 string                   `json:"Username"`
 	SMSMfaSettings           *smsMFASetting           `json:"SMSMfaSettings,omitempty"`
 	SoftwareTokenMfaSettings *softwareTokenMFASetting `json:"SoftwareTokenMfaSettings,omitempty"`
+	UserPoolID               string                   `json:"UserPoolId"`
+	Username                 string                   `json:"Username"`
 }
 
 type adminSetUserMFASettingOutput struct{}
@@ -194,7 +194,9 @@ func (h *Handler) handleAdminSetUserMFASetting(
 		preferredMFA = challengeSoftwareTokenMFA
 	}
 
-	if err := h.Backend.AdminSetUserMFASetting(in.UserPoolID, in.Username, smsEnabled, softwareEnabled, preferredMFA); err != nil {
+	if err := h.Backend.AdminSetUserMFASetting(
+		in.UserPoolID, in.Username, smsEnabled, softwareEnabled, preferredMFA,
+	); err != nil {
 		return nil, err
 	}
 
@@ -204,10 +206,10 @@ func (h *Handler) handleAdminSetUserMFASetting(
 // ---- CreateUserPool with PasswordPolicy (accurate) ----
 
 type createUserPoolWithOptsInput struct {
-	PoolName               string                 `json:"PoolName"`
 	Policies               *userPoolPoliciesInput `json:"Policies,omitempty"`
-	AutoVerifiedAttributes []string               `json:"AutoVerifiedAttributes,omitempty"`
+	PoolName               string                 `json:"PoolName"`
 	MfaConfiguration       string                 `json:"MfaConfiguration,omitempty"`
+	AutoVerifiedAttributes []string               `json:"AutoVerifiedAttributes,omitempty"`
 }
 
 type userPoolPoliciesInput struct {
@@ -652,7 +654,6 @@ func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
 	}
 }
 
-
 // ---- UpdateUserPool with opts ----
 
 type updateUserPoolWithOptsInput struct {
@@ -796,7 +797,7 @@ func (h *Handler) handleSignUpAccurate(
 	if user.ConfirmCode != "" {
 		out.CodeDeliveryDetails = map[string]string{
 			keyDeliveryMedium:   medEmail,
-			keyDestination:      "mock",
+			keyDestination:      mockDestination,
 			keyAttributeName:    attrEmail,
 			keyConfirmationCode: user.ConfirmCode,
 		}

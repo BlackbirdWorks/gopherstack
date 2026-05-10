@@ -45,8 +45,8 @@ type ResourceServer struct {
 
 // UserPoolOptions holds optional parameters for CreateUserPoolWithOpts.
 type UserPoolOptions struct {
-	AutoVerifiedAttributes []string
 	PasswordPolicy         *PasswordPolicy
+	AutoVerifiedAttributes []string
 }
 
 // UserPoolClientOptions holds optional parameters for CreateUserPoolClientWithOpts and UpdateUserPoolClientWithOpts.
