@@ -1213,6 +1213,11 @@ func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
 			"Only one PurgeQueue operation on SomeQueue is allowed every 60 seconds.",
 			badReq,
 		}},
+		{ErrOverLimit, errorEntry{
+			"OverLimit",
+			"The specified action violates a service quota.",
+			http.StatusForbidden,
+		}},
 	}
 
 	for _, row := range rows {

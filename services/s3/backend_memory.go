@@ -167,6 +167,15 @@ func (b *InMemoryBackend) getBucket(name string) (*StoredBucket, error) {
 	return bucket, nil
 }
 
+// BucketRegion returns the region a bucket is stored in, or "" if the bucket
+// does not exist. Safe for concurrent use.
+func (b *InMemoryBackend) BucketRegion(name string) string {
+	b.mu.RLock("BucketRegion")
+	defer b.mu.RUnlock()
+
+	return b.bucketIndex[name]
+}
+
 // SetDefaultRegion sets the default region for this backend.
 func (b *InMemoryBackend) SetDefaultRegion(region string) {
 	if region == "" {

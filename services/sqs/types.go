@@ -49,6 +49,17 @@ const (
 	attrKmsMasterKeyID            = "KmsMasterKeyId"
 	attrKmsDataKeyReusePeriodSecs = "KmsDataKeyReusePeriodSeconds"
 	attrRedriveAllowPolicy        = "RedriveAllowPolicy"
+	attrDeduplicationScope        = "DeduplicationScope"
+	attrFifoThroughputLimit       = "FifoThroughputLimit"
+
+	// fifoDedupScopeQueue / fifoDedupScopePerMessageGroup are the only valid
+	// values for the DeduplicationScope FIFO attribute.
+	fifoDedupScopeQueue           = "queue"
+	fifoDedupScopePerMessageGroup = "messageGroup"
+	// fifoThroughputLimitPerQueue / fifoThroughputLimitPerMessageGroupID are
+	// the only valid values for the FifoThroughputLimit FIFO attribute.
+	fifoThroughputLimitPerQueue          = "perQueue"
+	fifoThroughputLimitPerMessageGroupID = "perMessageGroupId"
 
 	attrApproxReceiveCount          = "ApproximateReceiveCount"
 	attrSentTimestamp               = "SentTimestamp"

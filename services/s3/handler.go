@@ -365,6 +365,14 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 			return nil
 		}
 
+		// Enforce SigV4 region scoping: if the bucket exists in a region other
+		// than the one the request signed for, return 301 PermanentRedirect with
+		// the bucket's true region in the x-amz-bucket-region header (matching
+		// real S3 so SDK redirect-followers work transparently).
+		if !h.enforceBucketRegion(ctx, sw, requestWithCtx, bucketName, region) {
+			return nil
+		}
+
 		if key == "" {
 			h.handleBucketOperation(ctx, sw, requestWithCtx, bucketName)
 
@@ -375,6 +383,55 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 
 		return nil
 	}
+}
+
+// enforceBucketRegion checks whether the bucket lives in the request's signed
+// region. Returns true if the request should continue. When the bucket exists
+// elsewhere, it writes a 301 PermanentRedirect response and returns false.
+//
+// Exemptions:
+//   - PUT-without-sub-resource (CreateBucket creates in the requested region;
+//     a name collision returns BucketAlreadyOwnedByYou rather than 301).
+//   - Buckets that don't exist yet — let the downstream op return NoSuchBucket
+//     so error semantics match AWS.
+func (h *S3Handler) enforceBucketRegion(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, requestRegion string,
+) bool {
+	if requestRegion == "" {
+		return true
+	}
+
+	br, ok := h.Backend.(interface{ BucketRegion(string) string })
+	if !ok {
+		return true
+	}
+
+	bucketRegion := br.BucketRegion(bucketName)
+	if bucketRegion == "" || bucketRegion == requestRegion {
+		return true
+	}
+
+	// CreateBucket: PUT /bucket with no query sub-resource. Real S3 returns
+	// BucketAlreadyOwnedByYou rather than 301 in this case; let the backend
+	// handle it so the wire response matches.
+	if r.Method == http.MethodPut && len(r.URL.RawQuery) == 0 && len(r.URL.Path) > 0 {
+		// Path will be "/bucket" (no key) — let it through to CreateBucket.
+		parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
+		if len(parts) == 1 || parts[1] == "" {
+			return true
+		}
+	}
+
+	w.Header().Set("x-amz-bucket-region", bucketRegion)
+	httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		Code:    "PermanentRedirect",
+		Message: "The bucket is in this region: " + bucketRegion + ". Please use this region to retry the request.",
+	}, http.StatusMovedPermanently)
+
+	return false
 }
 
 // Name returns the service identifier.

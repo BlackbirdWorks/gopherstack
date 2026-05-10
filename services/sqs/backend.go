@@ -752,9 +752,71 @@ func validateQueueAttributes(attrs map[string]string) error {
 	}
 
 	// AWS allows KmsDataKeyReusePeriodSeconds in [minKMSDataKeyReuseSecs, maxKMSDataKeyReuseSecs].
-	return validateIntAttrRange(
+	if err := validateIntAttrRange(
 		attrs, attrKmsDataKeyReusePeriodSecs, minKMSDataKeyReuseSecs, maxKMSDataKeyReuseSecs,
-	)
+	); err != nil {
+		return err
+	}
+
+	if v, ok := attrs[attrDeduplicationScope]; ok {
+		if v != fifoDedupScopeQueue && v != fifoDedupScopePerMessageGroup {
+			return ErrInvalidAttribute
+		}
+	}
+
+	if v, ok := attrs[attrFifoThroughputLimit]; ok {
+		if v != fifoThroughputLimitPerQueue && v != fifoThroughputLimitPerMessageGroupID {
+			return ErrInvalidAttribute
+		}
+	}
+
+	// AWS requires DeduplicationScope=messageGroup when FifoThroughputLimit is
+	// perMessageGroupId. If both are set in the same SetQueueAttributes call,
+	// enforce that pairing inline. (Partial updates that leave one side stale
+	// will be caught the next time the attribute is touched.)
+	if t, hasT := attrs[attrFifoThroughputLimit]; hasT && t == fifoThroughputLimitPerMessageGroupID {
+		if s, hasS := attrs[attrDeduplicationScope]; hasS && s != fifoDedupScopePerMessageGroup {
+			return ErrInvalidAttribute
+		}
+	}
+
+	if v, ok := attrs[attrRedriveAllowPolicy]; ok {
+		if err := validateRedriveAllowPolicy(v); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateRedriveAllowPolicy verifies the JSON shape of a RedriveAllowPolicy
+// value. AWS accepts three forms of redrivePermission: allowAll, denyAll, or
+// byQueue with a sourceQueueArns array (max 10 entries). Empty / malformed
+// JSON is rejected with InvalidAttributeValue.
+func validateRedriveAllowPolicy(raw string) error {
+	var policy struct {
+		RedrivePermission string   `json:"redrivePermission"`
+		SourceQueueArns   []string `json:"sourceQueueArns"`
+	}
+
+	if err := json.Unmarshal([]byte(raw), &policy); err != nil {
+		return ErrInvalidAttribute
+	}
+
+	switch policy.RedrivePermission {
+	case "allowAll", "denyAll":
+		if len(policy.SourceQueueArns) > 0 {
+			return ErrInvalidAttribute
+		}
+	case "byQueue":
+		if len(policy.SourceQueueArns) == 0 || len(policy.SourceQueueArns) > 10 {
+			return ErrInvalidAttribute
+		}
+	default:
+		return ErrInvalidAttribute
+	}
+
+	return nil
 }
 
 const (
@@ -1191,10 +1253,27 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 		maxMessages = maxBatchSize
 	}
 
+	// AWS rejects ReceiveMessage when the queue is already at its in-flight cap
+	// (120k for standard, 20k for FIFO) — clients see OverLimit and must wait.
+	limit := maxInFlightStandard
+	if q.IsFIFO {
+		limit = maxInFlightFIFO
+	}
+	if len(q.inFlightMessages) >= limit {
+		return nil, q.notify, ErrOverLimit
+	}
+
 	vt := resolveVisibilityTimeout(input.VisibilityTimeout, q)
 
 	return pickMessages(q, b.accountID, maxMessages, vt, now), q.notify, nil
 }
+
+// maxInFlightStandard / maxInFlightFIFO are AWS's per-queue caps for messages
+// that have been received but not yet deleted or visibility-expired.
+const (
+	maxInFlightStandard = 120000
+	maxInFlightFIFO     = 20000
+)
 
 // resolveVisibilityTimeout returns the effective visibility timeout for a receive operation.
 func resolveVisibilityTimeout(requested int, q *Queue) int {

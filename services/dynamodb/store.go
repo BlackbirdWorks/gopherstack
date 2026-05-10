@@ -34,6 +34,7 @@ type StoredGlobalTable struct {
 
 // storedExport holds the fields needed to satisfy DescribeExport and ListExports.
 type storedExport struct {
+	CreatedAt    time.Time
 	ExportArn    string
 	ExportStatus string
 	TableArn     string
@@ -42,12 +43,23 @@ type storedExport struct {
 
 // storedImport holds the fields needed to satisfy DescribeImport and ListImports.
 type storedImport struct {
+	CreatedAt    time.Time
 	ImportArn    string
 	ImportStatus string
 	TableArn     string
 	S3Bucket     string
 	InputFormat  string
 }
+
+// Caps for retained metadata maps. Beyond these counts the oldest entries are
+// evicted on each insert so long-running instances do not leak memory. Real
+// AWS has account-wide quotas (1,000 backups, 100 exports, 50 active imports);
+// we use generous-but-bounded numbers so tests don't trip the cap accidentally.
+const (
+	maxBackupsRetained = 10_000
+	maxExportsRetained = 5_000
+	maxImportsRetained = 5_000
+)
 
 // InMemoryDB stores tables and items organized by region.
 type InMemoryDB struct {
@@ -674,7 +686,39 @@ func (db *InMemoryDB) storeExport(desc exportDescriptionFields) {
 	db.mu.Lock("storeExport")
 	defer db.mu.Unlock()
 
-	db.exports[desc.ExportArn] = storedExport(desc)
+	rec := storedExport{
+		CreatedAt:    time.Now(),
+		ExportArn:    desc.ExportArn,
+		ExportStatus: desc.ExportStatus,
+		TableArn:     desc.TableArn,
+		S3Bucket:     desc.S3Bucket,
+	}
+	db.exports[desc.ExportArn] = rec
+	evictOldest(db.exports, maxExportsRetained, func(v storedExport) time.Time { return v.CreatedAt })
+}
+
+// evictOldest drops oldest-by-CreatedAt entries from m until len(m) <= cap.
+// We evict on insert rather than on a timer so memory stays bounded even when
+// the janitor is disabled. timeOf returns the entry's creation timestamp.
+func evictOldest[V any](m map[string]V, cap int, timeOf func(V) time.Time) {
+	if len(m) <= cap {
+		return
+	}
+
+	type kv struct {
+		k string
+		t time.Time
+	}
+
+	entries := make([]kv, 0, len(m))
+	for k, v := range m {
+		entries = append(entries, kv{k, timeOf(v)})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].t.Before(entries[j].t) })
+
+	for i := 0; i < len(m)-cap; i++ {
+		delete(m, entries[i].k)
+	}
 }
 
 // lookupExport retrieves a stored export by ARN.
@@ -687,7 +731,12 @@ func (db *InMemoryDB) lookupExport(exportARN string) (exportDescriptionFields, b
 		return exportDescriptionFields{}, false
 	}
 
-	return exportDescriptionFields(e), true
+	return exportDescriptionFields{
+		ExportArn:    e.ExportArn,
+		ExportStatus: e.ExportStatus,
+		TableArn:     e.TableArn,
+		S3Bucket:     e.S3Bucket,
+	}, true
 }
 
 // listExportsWire returns all stored exports as wire-format structs, optionally
@@ -701,7 +750,12 @@ func (db *InMemoryDB) listExportsWire(tableArn, _ string) *listExportsOutput {
 			continue
 		}
 
-		summaries = append(summaries, exportDescriptionFields(e))
+		summaries = append(summaries, exportDescriptionFields{
+			ExportArn:    e.ExportArn,
+			ExportStatus: e.ExportStatus,
+			TableArn:     e.TableArn,
+			S3Bucket:     e.S3Bucket,
+		})
 	}
 
 	db.mu.RUnlock()
@@ -719,7 +773,11 @@ func (db *InMemoryDB) storeImport(imp storedImport) {
 	db.mu.Lock("storeImport")
 	defer db.mu.Unlock()
 
+	if imp.CreatedAt.IsZero() {
+		imp.CreatedAt = time.Now()
+	}
 	db.imports[imp.ImportArn] = imp
+	evictOldest(db.imports, maxImportsRetained, func(v storedImport) time.Time { return v.CreatedAt })
 }
 
 // lookupImport retrieves a stored import by ARN.

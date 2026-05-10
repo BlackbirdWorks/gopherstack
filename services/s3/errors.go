@@ -18,6 +18,7 @@ var (
 	ErrBucketNotEmpty          = errors.New(
 		"BucketNotEmpty: The bucket you tried to delete is not empty",
 	)
+	ErrPermanentRedirect          = errors.New("PermanentRedirect")
 	ErrNotImplemented             = errors.New("NotImplemented")
 	ErrMethodNotAllowed           = errors.New("MethodNotAllowed")
 	ErrInvalidArgument            = errors.New(errInvalidArgument)
