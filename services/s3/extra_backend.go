@@ -9,6 +9,20 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	accelerateStatusSuspended = "Suspended"
+	requestPaymentBucketOwner = "BucketOwner"
+	requestPaymentRequester   = "Requester"
+)
+
+// ErrRestoreDaysNegative is returned when RestoreObject is called with a
+// negative Days value.
+var ErrRestoreDaysNegative = errors.New("restore Days must be non-negative")
+
+// ErrRenameTargetSameAsSource is returned when RenameObject is called with a
+// target key equal to (or empty relative to) the source key.
+var ErrRenameTargetSameAsSource = errors.New("target key must differ from source")
+
 // newStoredObject creates a new StoredObject with its mu initialized.
 func newStoredObject(key string) *StoredObject {
 	return &StoredObject{
@@ -54,7 +68,7 @@ func (b *InMemoryBackend) GetBucketAccelerateConfiguration(_ context.Context, bu
 	defer bucket.mu.RUnlock()
 
 	if bucket.AccelerateStatus == "" {
-		return "Suspended", nil
+		return accelerateStatusSuspended, nil
 	}
 
 	return bucket.AccelerateStatus, nil
@@ -92,7 +106,7 @@ func (b *InMemoryBackend) GetBucketRequestPayment(_ context.Context, bucketName 
 	defer bucket.mu.RUnlock()
 
 	if bucket.RequestPaymentPayer == "" {
-		return "BucketOwner", nil
+		return requestPaymentBucketOwner, nil
 	}
 
 	return bucket.RequestPaymentPayer, nil
@@ -100,15 +114,18 @@ func (b *InMemoryBackend) GetBucketRequestPayment(_ context.Context, bucketName 
 
 // ObjectAttributes is the projection of object metadata returned by GetObjectAttributes.
 type ObjectAttributes struct {
+	Checksum     map[string]string
 	ETag         string
 	StorageClass string
-	Checksum     map[string]string
 	ObjectSize   int64
 }
 
 // GetObjectAttributes returns selected attributes for the latest version of an object.
 // versionID may be empty to select the latest version.
-func (b *InMemoryBackend) GetObjectAttributes(_ context.Context, bucketName, key, versionID string) (*ObjectAttributes, error) {
+func (b *InMemoryBackend) GetObjectAttributes(
+	_ context.Context,
+	bucketName, key, versionID string,
+) (*ObjectAttributes, error) {
 	b.mu.RLock("GetObjectAttributes")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -173,7 +190,7 @@ func (b *InMemoryBackend) GetObjectAttributes(_ context.Context, bucketName, key
 // completed immediately and set an expiry, since this is an in-memory mock.
 func (b *InMemoryBackend) RestoreObject(_ context.Context, bucketName, key string, days int) error {
 	if days < 0 {
-		return errors.New("restore Days must be non-negative")
+		return ErrRestoreDaysNegative
 	}
 	if days == 0 {
 		days = 1
@@ -319,10 +336,10 @@ func (b *InMemoryBackend) GetObjectACL(_ context.Context, bucketName, key, versi
 // The target key is taken from `targetKey` (relative to the same bucket).
 func (b *InMemoryBackend) RenameObject(_ context.Context, bucketName, sourceKey, targetKey string) error {
 	if targetKey == "" || targetKey == sourceKey {
-		return errors.New("target key must differ from source")
+		return ErrRenameTargetSameAsSource
 	}
-	if strings.HasPrefix(targetKey, "/") {
-		targetKey = strings.TrimPrefix(targetKey, "/")
+	if rest, ok := strings.CutPrefix(targetKey, "/"); ok {
+		targetKey = rest
 	}
 
 	b.mu.RLock("RenameObject")

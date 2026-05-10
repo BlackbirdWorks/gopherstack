@@ -42,12 +42,6 @@ type s3DirectoryBucketsResult struct {
 	Buckets []string `xml:"Buckets>Bucket>Name,omitempty"`
 }
 
-// s3ObjectAttributesResult is the XML response for GetObjectAttributes.
-type s3ObjectAttributesResult struct {
-	XMLName xml.Name `xml:"GetObjectAttributesResult"`
-	Xmlns   string   `xml:"xmlns,attr"`
-}
-
 // routeBucketGetStubsExtra handles additional bucket GET sub-resource stubs.
 // Returns true if handled.
 func (h *S3Handler) routeBucketGetStubsExtra(
@@ -258,7 +252,7 @@ func (h *S3Handler) handleGetObjectAttributes(
 	}
 
 	if versionID != "" {
-		w.Header().Set("x-amz-version-id", versionID)
+		w.Header().Set("X-Amz-Version-Id", versionID)
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, out)
@@ -341,7 +335,7 @@ func (h *S3Handler) handleRenameObject(
 		return
 	}
 
-	source := r.Header.Get("x-amz-rename-source")
+	source := r.Header.Get("X-Amz-Rename-Source")
 	if source == "" {
 		source = r.Header.Get("X-Amz-Copy-Source")
 	}
@@ -350,8 +344,8 @@ func (h *S3Handler) handleRenameObject(
 
 	// "bucket/key" or just "key" forms supported.
 	srcKey := source
-	if strings.HasPrefix(source, bucket+"/") {
-		srcKey = strings.TrimPrefix(source, bucket+"/")
+	if rest, hasPrefix := strings.CutPrefix(source, bucket+"/"); hasPrefix {
+		srcKey = rest
 	}
 
 	if srcKey == "" {
@@ -389,8 +383,8 @@ func (h *S3Handler) handleUpdateObjectEncryption(
 		return
 	}
 
-	algo := r.Header.Get("x-amz-server-side-encryption")
-	kmsKey := r.Header.Get("x-amz-server-side-encryption-aws-kms-key-id")
+	algo := r.Header.Get("X-Amz-Server-Side-Encryption")
+	kmsKey := r.Header.Get("X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id")
 
 	if err := h.Backend.UpdateObjectEncryption(ctx, bucket, key, algo, kmsKey); err != nil {
 		WriteError(ctx, w, r, err)
@@ -399,10 +393,10 @@ func (h *S3Handler) handleUpdateObjectEncryption(
 	}
 
 	if algo != "" {
-		w.Header().Set("x-amz-server-side-encryption", algo)
+		w.Header().Set("X-Amz-Server-Side-Encryption", algo)
 	}
 	if kmsKey != "" {
-		w.Header().Set("x-amz-server-side-encryption-aws-kms-key-id", kmsKey)
+		w.Header().Set("X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id", kmsKey)
 	}
 
 	w.WriteHeader(http.StatusOK)

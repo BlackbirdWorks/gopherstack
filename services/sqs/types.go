@@ -121,12 +121,12 @@ type Queue struct {
 	DeduplicationIDs    map[string]time.Time
 	Attributes          map[string]string
 	// Permissions maps a permission label to its entry (account IDs + actions).
-	Permissions      map[string]*QueuePermissionEntry
-	Tags             *tags.Tags
-	dlq              *Queue        // resolved DLQ queue pointer; nil = no DLQ
-	notify           chan struct{} // closed on SendMessage for broadcast wake-up; replaced each time
-	Name             string
-	URL              string
+	Permissions map[string]*QueuePermissionEntry
+	Tags        *tags.Tags
+	dlq         *Queue        // resolved DLQ queue pointer; nil = no DLQ
+	notify      chan struct{} // closed on SendMessage for broadcast wake-up; replaced each time
+	Name        string
+	URL         string
 	// Region records the AWS region the queue was created in. Lookups from a
 	// different region return ErrQueueNotFound, matching real SQS behaviour.
 	Region           string

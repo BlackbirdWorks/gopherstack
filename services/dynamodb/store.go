@@ -64,13 +64,13 @@ type InMemoryDB struct {
 	exprCache            *ExpressionCache
 	throttler            *Throttler
 	mu                   *lockmetrics.RWMutex
-	defaultRegion        string
-	accountID            string
+	// kinesisEmitter forwards stream records to Kinesis destinations when configured.
+	kinesisEmitter KinesisEmitter
+	defaultRegion  string
+	accountID      string
 	// createDelay is the time to wait before transitioning a new table to ACTIVE.
 	// Zero means immediate ACTIVE (no lifecycle simulation).
 	createDelay time.Duration
-	// kinesisEmitter forwards stream records to Kinesis destinations when configured.
-	kinesisEmitter KinesisEmitter
 }
 
 // Backup holds the metadata and a point-in-time item snapshot for a DynamoDB on-demand backup.
@@ -113,39 +113,39 @@ const (
 )
 
 type Table struct {
-	CreationDateTime          time.Time `json:"CreationDateTime"`
-	pkIndex                   map[string]int
-	pkskIndex                 map[string]map[string]int
-	mu                        *lockmetrics.RWMutex
-	activateTimer             *time.Timer
-	Tags                      *tags.Tags                              `json:"Tags,omitempty"`
-	TableClass                string                                  `json:"TableClass,omitempty"`
-	GlobalTableName           string                                  `json:"GlobalTableName,omitempty"`
-	TTLAttribute              string                                  `json:"TTLAttribute,omitempty"`
-	StreamViewType            string                                  `json:"StreamViewType,omitempty"`
-	StreamARN                 string                                  `json:"StreamARN,omitempty"`
-	TableArn                  string                                  `json:"TableArn"`
-	Status                    string                                  `json:"Status"`
-	TableID                   string                                  `json:"TableID"`
-	Name                      string                                  `json:"Name"`
-	BillingMode               string                                  `json:"BillingMode,omitempty"`
-	ResourcePolicy            string                                  `json:"ResourcePolicy,omitempty"`
-	Replicas                  []models.ReplicaDescription             `json:"Replicas,omitempty"`
-	Items                     []map[string]any                        `json:"Items"`
-	GlobalSecondaryIndexes    []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
-	StreamRecords             []models.StreamRecord                   `json:"StreamRecords,omitempty"`
-	KeySchema                 []models.KeySchemaElement               `json:"KeySchema"`
-	LocalSecondaryIndexes     []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
-	AttributeDefinitions      []models.AttributeDefinition            `json:"AttributeDefinitions"`
-	KinesisDestinations       []string                                `json:"KinesisDestinations,omitempty"`
-	ProvisionedThroughput     models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
-	kinesisEmitter            KinesisEmitter
-	streamSeq                 int64
-	StreamHead                int  `json:"StreamHead,omitempty"`
-	PITREnabled                 bool `json:"PITREnabled,omitempty"`
-	StreamsEnabled              bool `json:"StreamsEnabled"`
-	DeletionProtectionEnabled   bool `json:"DeletionProtectionEnabled"`
-	ContributorInsightsEnabled  bool `json:"ContributorInsightsEnabled,omitempty"`
+	CreationDateTime           time.Time `json:"CreationDateTime"`
+	pkIndex                    map[string]int
+	pkskIndex                  map[string]map[string]int
+	mu                         *lockmetrics.RWMutex
+	activateTimer              *time.Timer
+	Tags                       *tags.Tags `json:"Tags,omitempty"`
+	kinesisEmitter             KinesisEmitter
+	TableClass                 string                                  `json:"TableClass,omitempty"`
+	GlobalTableName            string                                  `json:"GlobalTableName,omitempty"`
+	TTLAttribute               string                                  `json:"TTLAttribute,omitempty"`
+	StreamViewType             string                                  `json:"StreamViewType,omitempty"`
+	StreamARN                  string                                  `json:"StreamARN,omitempty"`
+	TableArn                   string                                  `json:"TableArn"`
+	Status                     string                                  `json:"Status"`
+	TableID                    string                                  `json:"TableID"`
+	Name                       string                                  `json:"Name"`
+	BillingMode                string                                  `json:"BillingMode,omitempty"`
+	ResourcePolicy             string                                  `json:"ResourcePolicy,omitempty"`
+	Replicas                   []models.ReplicaDescription             `json:"Replicas,omitempty"`
+	Items                      []map[string]any                        `json:"Items"`
+	GlobalSecondaryIndexes     []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
+	StreamRecords              []models.StreamRecord                   `json:"StreamRecords,omitempty"`
+	KeySchema                  []models.KeySchemaElement               `json:"KeySchema"`
+	LocalSecondaryIndexes      []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
+	AttributeDefinitions       []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	KinesisDestinations        []string                                `json:"KinesisDestinations,omitempty"`
+	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
+	streamSeq                  int64
+	StreamHead                 int  `json:"StreamHead,omitempty"`
+	PITREnabled                bool `json:"PITREnabled,omitempty"`
+	StreamsEnabled             bool `json:"StreamsEnabled"`
+	DeletionProtectionEnabled  bool `json:"DeletionProtectionEnabled"`
+	ContributorInsightsEnabled bool `json:"ContributorInsightsEnabled,omitempty"`
 }
 
 func NewInMemoryDB() *InMemoryDB {

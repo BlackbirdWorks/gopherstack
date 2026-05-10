@@ -55,6 +55,7 @@ type StoredObject struct {
 type StoredObjectVersion struct {
 	LastModified       time.Time               `json:"lastModified"`
 	RetainUntil        time.Time               `json:"retainUntil"`
+	RestoreExpiry      time.Time               `json:"restoreExpiry,omitzero"`
 	ChecksumSHA1       *string                 `json:"checksumSHA1,omitempty"`
 	Metadata           map[string]string       `json:"metadata,omitempty"`
 	ChecksumSHA256     *string                 `json:"checksumSHA256,omitempty"`
@@ -71,13 +72,12 @@ type StoredObjectVersion struct {
 	ContentEncoding    string                  `json:"contentEncoding,omitempty"`
 	ContentDisposition string                  `json:"contentDisposition,omitempty"`
 	RetentionMode      string                  `json:"retentionMode,omitempty"`
+	StorageClass       string                  `json:"storageClass,omitempty"`
+	ACL                string                  `json:"acl,omitempty"`
 	ChecksumAlgorithm  types.ChecksumAlgorithm `json:"checksumAlgorithm,omitempty"`
 	VersionID          string                  `json:"versionID"`
 	Data               []byte                  `json:"data,omitempty"`
 	Size               int64                   `json:"size"`
-	StorageClass       string                  `json:"storageClass,omitempty"`
-	RestoreExpiry      time.Time               `json:"restoreExpiry,omitempty"`
-	ACL                string                  `json:"acl,omitempty"`
 	IsCompressed       bool                    `json:"isCompressed,omitempty"`
 	IsLatest           bool                    `json:"isLatest"`
 	Deleted            bool                    `json:"deleted,omitempty"`

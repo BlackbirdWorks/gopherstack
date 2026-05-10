@@ -260,6 +260,7 @@ func (b *InMemoryBackend) effectiveRegion(region string) string {
 	if region != "" {
 		return region
 	}
+
 	return b.region
 }
 
@@ -274,6 +275,7 @@ func queueKey(region, name string) string {
 // no queue exists in that region with that name.
 func (b *InMemoryBackend) lookupQueueByName(region, name string) (*Queue, bool) {
 	q, ok := b.queues[queueKey(b.effectiveRegion(region), name)]
+
 	return q, ok
 }
 
@@ -297,6 +299,7 @@ func (b *InMemoryBackend) lookupQueueByURL(region, queueURL string) (*Queue, boo
 		if q.URL != queueURL {
 			return nil, false
 		}
+
 		return q, true
 	}
 
@@ -741,13 +744,22 @@ func validateQueueAttributes(attrs map[string]string) error {
 		return err
 	}
 
-	if err := validateIntAttrRange(attrs, attrMaximumMessageSize, minMaximumMessageSize, defaultMaxMessageSize); err != nil {
+	if err := validateIntAttrRange(
+		attrs, attrMaximumMessageSize, minMaximumMessageSize, defaultMaxMessageSize,
+	); err != nil {
 		return err
 	}
 
-	// AWS allows KmsDataKeyReusePeriodSeconds in [60, 86400].
-	return validateIntAttrRange(attrs, attrKmsDataKeyReusePeriodSecs, 60, 86400)
+	// AWS allows KmsDataKeyReusePeriodSeconds in [minKMSDataKeyReuseSecs, maxKMSDataKeyReuseSecs].
+	return validateIntAttrRange(
+		attrs, attrKmsDataKeyReusePeriodSecs, minKMSDataKeyReuseSecs, maxKMSDataKeyReuseSecs,
+	)
 }
+
+const (
+	minKMSDataKeyReuseSecs = 60
+	maxKMSDataKeyReuseSecs = 86400
+)
 
 // maxReceiveMessageWaitTimeSeconds is the AWS maximum for ReceiveMessageWaitTimeSeconds.
 const maxReceiveMessageWaitTimeSeconds = 20
@@ -1850,6 +1862,7 @@ func (b *InMemoryBackend) totalMessages() int {
 	for _, q := range b.queues {
 		total += len(q.messages) + len(q.inFlightMessages)
 	}
+
 	return total
 }
 

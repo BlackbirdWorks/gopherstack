@@ -29,13 +29,6 @@ type s3BucketLoggingStatus struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-// s3RequestPaymentConfiguration is the XML response for GetBucketRequestPayment.
-type s3RequestPaymentConfiguration struct {
-	XMLName xml.Name `xml:"RequestPaymentConfiguration"`
-	Xmlns   string   `xml:"xmlns,attr"`
-	Payer   string   `xml:"Payer"`
-}
-
 // s3NotificationConfiguration is the XML response for GetBucketNotificationConfiguration (empty).
 type s3NotificationConfiguration struct {
 	XMLName xml.Name `xml:"NotificationConfiguration"`

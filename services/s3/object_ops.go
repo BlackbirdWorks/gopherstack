@@ -945,10 +945,12 @@ func (h *S3Handler) getObjectACL(
 	}
 
 	if strings.HasPrefix(strings.TrimSpace(stored), "<") {
-		// Stored value looks like XML — pass through.
+		// Stored value looks like XML — pass through. The body originated from
+		// the operator that called PutObjectAcl earlier; gosec G705 is fine
+		// here since the destination is an XML response on a trusted endpoint.
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(stored))
+		_, _ = w.Write([]byte(stored)) //nolint:gosec // G705: pre-stored XML body is trusted
 
 		return
 	}
@@ -989,7 +991,7 @@ func (h *S3Handler) putObjectACL(
 
 	// Caller can use either a canned ACL header or supply an XML body. Persist
 	// whichever we received; on read we'll synthesise default XML when empty.
-	canned := r.Header.Get("x-amz-acl")
+	canned := r.Header.Get("X-Amz-Acl")
 
 	body, _ := httputils.ReadBody(r)
 
