@@ -52,6 +52,100 @@ func TestSSE_S3_RoundTripEncryptsAtRest(t *testing.T) {
 	require.Equal(t, plaintext, got)
 }
 
+// TestSSE_S3_MultipartEncryptsAtRest verifies that a multipart upload created
+// with SSE-S3 produces a stored version whose Data is ciphertext, and that
+// CompleteMultipartUpload + GetObject still returns the original concatenation.
+func TestSSE_S3_MultipartEncryptsAtRest(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "mp-sse-bkt")
+
+	// 1. CreateMultipartUpload with SSE-S3
+	req := httptest.NewRequest(http.MethodPost, "/mp-sse-bkt/big.bin?uploads", nil)
+	req.Header.Set("X-Amz-Server-Side-Encryption", "AES256")
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	uploadID := extractUploadID(t, rec.Body.String())
+	require.NotEmpty(t, uploadID)
+
+	// 2. Upload two parts. Each part must be >= 5 MB to satisfy AWS's
+	// non-last-part minimum, but we configured the test backend with
+	// WithSkipMultipartSizeCheck so smaller parts are accepted.
+	part1 := bytes.Repeat([]byte("aaaaaaaaaa"), 100) // 1 KB
+	part2 := bytes.Repeat([]byte("bbbbbbbbbb"), 100) // 1 KB
+
+	uploadPart := func(num int, body []byte) string {
+		u := "/mp-sse-bkt/big.bin?partNumber=" + itoaT(t, num) + "&uploadId=" + uploadID
+		r := httptest.NewRequest(http.MethodPut, u, bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		serveS3Handler(handler, rr, r)
+		require.Equal(t, http.StatusOK, rr.Code)
+		return rr.Header().Get("ETag")
+	}
+
+	etag1 := uploadPart(1, part1)
+	etag2 := uploadPart(2, part2)
+
+	// 3. CompleteMultipartUpload with both parts
+	completeBody := "<CompleteMultipartUpload>" +
+		"<Part><PartNumber>1</PartNumber><ETag>" + etag1 + "</ETag></Part>" +
+		"<Part><PartNumber>2</PartNumber><ETag>" + etag2 + "</ETag></Part>" +
+		"</CompleteMultipartUpload>"
+	req = httptest.NewRequest(http.MethodPost, "/mp-sse-bkt/big.bin?uploadId="+uploadID, bytes.NewReader([]byte(completeBody)))
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// At-rest assertion: the stored body must NOT contain the plaintext
+	// fingerprints from either part.
+	stored := s3.PeekStoredBytes(backend, "mp-sse-bkt", "big.bin")
+	require.NotEmpty(t, stored)
+	require.NotContains(t, string(stored), "aaaaaaaaaa")
+	require.NotContains(t, string(stored), "bbbbbbbbbb")
+
+	// Round-trip: GET returns the concatenated plaintext.
+	out, err := backend.GetObject(context.Background(), &sdk_s3.GetObjectInput{
+		Bucket: aws.String("mp-sse-bkt"),
+		Key:    aws.String("big.bin"),
+	})
+	require.NoError(t, err)
+	got, _ := io.ReadAll(out.Body)
+	require.Equal(t, append(append([]byte{}, part1...), part2...), got)
+}
+
+// extractUploadID pulls the <UploadId> value out of an InitiateMultipartUpload
+// XML response body. We do a literal substring match — adequate for the
+// hand-written response above and avoids pulling in a full XML decoder.
+func extractUploadID(t *testing.T, body string) string {
+	t.Helper()
+	const open, close = "<UploadId>", "</UploadId>"
+	i := bytesIndex(body, open)
+	require.GreaterOrEqual(t, i, 0)
+	rest := body[i+len(open):]
+	j := bytesIndex(rest, close)
+	require.GreaterOrEqual(t, j, 0)
+	return rest[:j]
+}
+
+func bytesIndex(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}
+
+func itoaT(t *testing.T, n int) string {
+	t.Helper()
+	// strconv.Itoa would do, but we want to keep the test file's import
+	// list tight — and n is always small.
+	return string(rune('0' + n))
+}
+
 // TestSSE_C_RoundTripRequiresKey verifies that SSE-C encrypts with the
 // customer-supplied key and refuses to decrypt for a different key.
 func TestSSE_C_RoundTripRequiresKey(t *testing.T) {

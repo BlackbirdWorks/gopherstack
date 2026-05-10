@@ -111,6 +111,10 @@ type StoredMultipartUpload struct {
 	// before the upload is removed from the index, so that concurrent UploadPart
 	// calls that already hold a pointer to this struct can detect the invalidation.
 	closed bool `json:"-"`
+	// SSE captures the encryption headers from CreateMultipartUpload so the
+	// completed object's assembled body can be sealed with the same envelope
+	// (matching real S3 — SSE is fixed at session-init).
+	SSE sseInfo `json:"-"`
 }
 
 // StoredPart represents a single part of a multipart upload.

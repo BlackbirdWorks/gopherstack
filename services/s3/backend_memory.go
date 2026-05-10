@@ -1734,7 +1734,7 @@ func (b *InMemoryBackend) DeleteObjectTagging(
 // Multipart
 
 func (b *InMemoryBackend) CreateMultipartUpload(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.CreateMultipartUploadInput,
 ) (*s3.CreateMultipartUploadOutput, error) {
 	bucketName := *input.Bucket
@@ -1750,6 +1750,12 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 
 	uploadID := newObjectVersionID()
 	tagging := aws.ToString(input.Tagging)
+
+	// Capture SSE config so envelope encryption can be applied to the
+	// assembled body at Complete time. Prefer the ctx-supplied sseInfo
+	// (set by the handler) because it carries the SSE-C raw key bytes that
+	// the SDK input struct doesn't expose.
+	sse, _ := ctx.Value(sseKey).(sseInfo)
 
 	b.mu.Lock("CreateMultipartUpload")
 	if b.uploads == nil {
@@ -1767,6 +1773,7 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		Parts:     make(map[int32]*StoredPart),
 		Initiated: time.Now().UTC(),
 		Tagging:   tagging,
+		SSE:       sse,
 		mu:        lockmetrics.New("s3.upload"),
 	}
 	b.mu.Unlock()
@@ -1877,10 +1884,11 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, ErrNoSuchUpload
 	}
 
-	// Snapshot the upload's tagging before claiming (the upload is removed from
-	// the index during claim, so we must capture it first).
+	// Snapshot the upload's tagging + SSE before claiming (the upload is
+	// removed from the index during claim, so we must capture them first).
 	upload.mu.RLock("CompleteMultipartUpload.tagging")
 	tagging := upload.Tagging
+	sse := upload.SSE
 	upload.mu.RUnlock()
 
 	// 2. Assemble and compress data. If this fails, the upload is untouched and
@@ -1905,7 +1913,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, err
 	}
 
-	versionID := b.commitMultipartObject(bucket, bucketName, key, assembled, tagging)
+	versionID := b.commitMultipartObject(bucket, bucketName, key, assembled, tagging, sse)
 
 	return &s3.CompleteMultipartUploadOutput{
 		Bucket:    input.Bucket,
@@ -2061,11 +2069,15 @@ func (b *InMemoryBackend) assembleMultipartData(
 // commitMultipartObject stores the assembled multipart data as an object version,
 // returning the new versionID. Acquires and releases bucket.mu internally.
 // tagging is an optional URL-encoded tag string to associate with the new version.
+// sse, when non-zero, drives envelope encryption of the assembled body so the
+// completed object is sealed under the same algorithm/key the caller chose at
+// CreateMultipartUpload time.
 func (b *InMemoryBackend) commitMultipartObject(
 	bucket *StoredBucket,
 	bucketName, key string,
 	assembled multipartAssemblyResult,
 	tagging string,
+	sse sseInfo,
 ) string {
 	bucket.mu.Lock(opCompleteMultipartUpload)
 
@@ -2084,15 +2096,36 @@ func (b *InMemoryBackend) commitMultipartObject(
 		versionID = newObjectVersionID()
 	}
 
+	// Seal the assembled body under SSE if the session was created with it.
+	// On failure we leave the bucket lock unchanged for the caller — this
+	// is a programming error (e.g. bad SSE-C key length) rather than a
+	// runtime condition.
+	storedBody := assembled.compressedData
+	var dek, nonce []byte
+	if sse.Algorithm != "" || sse.SSECAlgorithm != "" {
+		var encErr error
+		storedBody, dek, nonce, encErr = encryptWithSSE(assembled.compressedData, sse, sse.SSECKeyB64)
+		if encErr != nil {
+			bucket.mu.Unlock()
+			panic(encErr)
+		}
+	}
+
 	newVersion := &StoredObjectVersion{
-		VersionID:    versionID,
-		Key:          key,
-		Data:         assembled.compressedData,
-		IsCompressed: assembled.isCompressed,
-		Size:         int64(len(assembled.data)),
-		ETag:         assembled.etag,
-		LastModified: time.Now(),
-		IsLatest:     true,
+		VersionID:       versionID,
+		Key:             key,
+		Data:            storedBody,
+		IsCompressed:    assembled.isCompressed,
+		Size:            int64(len(assembled.data)),
+		ETag:            assembled.etag,
+		LastModified:    time.Now(),
+		IsLatest:        true,
+		SSEAlgorithm:    sse.Algorithm,
+		SSEKMSKeyID:     sse.KMSKeyID,
+		SSECAlgorithm:   sse.SSECAlgorithm,
+		SSECKeyMD5:      sse.SSECKeyMD5,
+		EncryptionDEK:   dek,
+		EncryptionNonce: nonce,
 	}
 
 	// Acquire obj.mu while bucket.mu is still held to prevent TOCTOU and to
