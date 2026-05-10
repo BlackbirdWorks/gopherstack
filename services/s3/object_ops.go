@@ -247,6 +247,8 @@ func (h *S3Handler) headObject(
 		w.Header().Set("Content-Disposition", cd)
 	}
 
+	h.dispatchAccessLog(ctx, r, bucketName, "REST.HEAD.OBJECT", key, http.StatusOK, 0)
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -337,6 +339,8 @@ func (h *S3Handler) putObject(
 			go h.notifier.DispatchObjectCreated(h.notificationDispatchContext(), bucketName, key, etag, size, notifXML)
 		}
 	}
+
+	h.dispatchAccessLog(ctx, r, bucketName, "REST.PUT.OBJECT", key, http.StatusOK, aws.ToInt64(ver.Size))
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -605,9 +609,12 @@ func (h *S3Handler) getObject(
 
 	w.WriteHeader(http.StatusOK)
 
-	if _, copyErr := io.Copy(w, ver.Body); copyErr != nil {
+	written, copyErr := io.Copy(w, ver.Body)
+	if copyErr != nil {
 		logger.Load(ctx).ErrorContext(ctx, "failed to write object data", "error", copyErr)
 	}
+
+	h.dispatchAccessLog(ctx, r, bucketName, "REST.GET.OBJECT", key, http.StatusOK, written)
 }
 
 // setGetObjectResponseHeaders writes all response headers for GetObject.
@@ -746,6 +753,8 @@ func (h *S3Handler) deleteObject(
 			go h.notifier.DispatchObjectDeleted(h.notificationDispatchContext(), bucketName, key, notifXML)
 		}
 	}
+
+	h.dispatchAccessLog(ctx, r, bucketName, "REST.DELETE.OBJECT", key, http.StatusNoContent, 0)
 
 	w.WriteHeader(http.StatusNoContent)
 }
