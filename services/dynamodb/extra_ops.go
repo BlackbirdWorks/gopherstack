@@ -429,7 +429,7 @@ func (db *InMemoryDB) DescribeEndpoints(
 // --- DescribeContributorInsights ---
 
 // DescribeContributorInsights returns contributor insights status for a table or GSI.
-// The in-memory backend always reports contributor insights as DISABLED.
+// Status is tracked per-table on the in-memory backend; GSI-level status mirrors the table.
 func (db *InMemoryDB) DescribeContributorInsights(
 	ctx context.Context,
 	input *dynamodb.DescribeContributorInsightsInput,
@@ -438,17 +438,25 @@ func (db *InMemoryDB) DescribeContributorInsights(
 		return nil, NewValidationException("TableName is required")
 	}
 
-	// Validate the table exists.
-	_, err := db.getTable(ctx, *input.TableName)
+	table, err := db.getTable(ctx, *input.TableName)
 	if err != nil {
 		return nil, err
 	}
 
 	tableName := *input.TableName
 
+	table.mu.RLock("DescribeContributorInsights")
+	enabled := table.ContributorInsightsEnabled
+	table.mu.RUnlock()
+
+	status := types.ContributorInsightsStatusDisabled
+	if enabled {
+		status = types.ContributorInsightsStatusEnabled
+	}
+
 	out := &dynamodb.DescribeContributorInsightsOutput{
 		TableName:                   &tableName,
-		ContributorInsightsStatus:   types.ContributorInsightsStatusDisabled,
+		ContributorInsightsStatus:   status,
 		ContributorInsightsRuleList: []string{},
 	}
 
@@ -930,22 +938,43 @@ func (db *InMemoryDB) DescribeImport(
 
 // --- ListContributorInsights ---
 
-// ListContributorInsights returns an empty list; the in-memory backend does not support
-// contributor insights. This stub satisfies the SDK completeness requirement.
+// ListContributorInsights returns the set of tables whose contributor insights are enabled.
 func (db *InMemoryDB) ListContributorInsights(
 	_ context.Context,
 	_ *dynamodb.ListContributorInsightsInput,
 ) (*dynamodb.ListContributorInsightsOutput, error) {
+	db.mu.RLock("ListContributorInsights")
+	defer db.mu.RUnlock()
+
+	var summaries []types.ContributorInsightsSummary
+
+	for _, regionTables := range db.Tables {
+		for name, t := range regionTables {
+			t.mu.RLock("ListContributorInsights")
+			enabled := t.ContributorInsightsEnabled
+			t.mu.RUnlock()
+
+			if !enabled {
+				continue
+			}
+
+			tableName := name
+			summaries = append(summaries, types.ContributorInsightsSummary{
+				TableName:                 &tableName,
+				ContributorInsightsStatus: types.ContributorInsightsStatusEnabled,
+			})
+		}
+	}
+
 	return &dynamodb.ListContributorInsightsOutput{
-		ContributorInsightsSummaries: []types.ContributorInsightsSummary{},
+		ContributorInsightsSummaries: summaries,
 	}, nil
 }
 
 // --- UpdateContributorInsights ---
 
-// UpdateContributorInsights is a stub that accepts contributor insights configuration
-// changes but does not persist them. The in-memory backend always reports insights as
-// DISABLED.
+// UpdateContributorInsights toggles contributor insights for a table.
+// The action is interpreted as ENABLE / DISABLE per AWS spec.
 func (db *InMemoryDB) UpdateContributorInsights(
 	ctx context.Context,
 	input *dynamodb.UpdateContributorInsightsInput,
@@ -954,16 +983,27 @@ func (db *InMemoryDB) UpdateContributorInsights(
 		return nil, NewValidationException("TableName is required")
 	}
 
-	// Validate the table exists.
-	if _, err := db.getTable(ctx, *input.TableName); err != nil {
+	table, err := db.getTable(ctx, *input.TableName)
+	if err != nil {
 		return nil, err
 	}
 
+	enable := input.ContributorInsightsAction == types.ContributorInsightsActionEnable
+
+	table.mu.Lock("UpdateContributorInsights")
+	table.ContributorInsightsEnabled = enable
+	table.mu.Unlock()
+
 	tableName := *input.TableName
+
+	status := types.ContributorInsightsStatusDisabled
+	if enable {
+		status = types.ContributorInsightsStatusEnabled
+	}
 
 	out := &dynamodb.UpdateContributorInsightsOutput{
 		TableName:                 &tableName,
-		ContributorInsightsStatus: types.ContributorInsightsStatusDisabled,
+		ContributorInsightsStatus: status,
 	}
 
 	if input.IndexName != nil {

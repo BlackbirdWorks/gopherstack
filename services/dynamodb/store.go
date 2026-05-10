@@ -139,9 +139,10 @@ type Table struct {
 	ProvisionedThroughput     models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	streamSeq                 int64
 	StreamHead                int  `json:"StreamHead,omitempty"`
-	PITREnabled               bool `json:"PITREnabled,omitempty"`
-	StreamsEnabled            bool `json:"StreamsEnabled"`
-	DeletionProtectionEnabled bool `json:"DeletionProtectionEnabled"`
+	PITREnabled                 bool `json:"PITREnabled,omitempty"`
+	StreamsEnabled              bool `json:"StreamsEnabled"`
+	DeletionProtectionEnabled   bool `json:"DeletionProtectionEnabled"`
+	ContributorInsightsEnabled  bool `json:"ContributorInsightsEnabled,omitempty"`
 }
 
 func NewInMemoryDB() *InMemoryDB {

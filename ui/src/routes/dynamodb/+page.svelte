@@ -96,6 +96,7 @@
 	let streamEventsLoading = $state(false);
 	let streamBackendUnavailable = $state(false);
 	let streamPollTimer: ReturnType<typeof setInterval> | undefined;
+	let streamFetchController: AbortController | undefined;
 
 	// Stream Info State
 	type ShardInfo = { shardId: string; startSeq: string; endSeq: string };
@@ -497,22 +498,24 @@
 	async function loadStreamEvents() {
 		if (!selectedTable) return;
 		if (!streamEventsHtml) streamEventsLoading = true;
+		const signal = streamFetchController?.signal;
 		try {
-			const res = await fetch(`/dashboard/dynamodb/table/${selectedTable}/stream-events`);
+			const res = await fetch(`/dashboard/dynamodb/table/${selectedTable}/stream-events`, { signal });
 			if (res.ok) {
 				const text = await res.text();
+				if (signal?.aborted) return;
 				if (text.includes('unavailable') || text.includes('Streams backend unavailable')) {
 					streamBackendUnavailable = true;
 					streamEventsHtml = '';
-					if (streamPollTimer) { clearInterval(streamPollTimer); streamPollTimer = undefined; }
+					stopStreamPolling();
 				} else if (text === 'No recent stream events.' || text.trim() === '') {
 					streamEventsHtml = '';
 				} else {
 					streamEventsHtml = text;
 				}
 			}
-		} catch {
-			// ignore
+		} catch (err) {
+			if ((err as Error)?.name === 'AbortError') return;
 		}
 		streamEventsLoading = false;
 	}
@@ -520,17 +523,31 @@
 	async function loadStreamInfo() {
 		if (!selectedTable) return;
 		streamInfoLoading = true;
+		const signal = streamFetchController?.signal;
 		try {
-			const res = await fetch(`/dashboard/dynamodb/table/${selectedTable}/stream-info`);
-			if (res.ok) streamInfo = await res.json();
-		} catch {
-			// ignore
+			const res = await fetch(`/dashboard/dynamodb/table/${selectedTable}/stream-info`, { signal });
+			if (res.ok && !signal?.aborted) streamInfo = await res.json();
+		} catch (err) {
+			if ((err as Error)?.name === 'AbortError') return;
 		}
 		streamInfoLoading = false;
 	}
 
+	function stopStreamPolling() {
+		if (streamPollTimer) {
+			clearInterval(streamPollTimer);
+			streamPollTimer = undefined;
+		}
+		if (streamFetchController) {
+			streamFetchController.abort();
+			streamFetchController = undefined;
+		}
+	}
+
 	$effect(() => {
 		if (activeTab === 'streams' && selectedTable && streamsEnabled) {
+			stopStreamPolling();
+			streamFetchController = new AbortController();
 			streamBackendUnavailable = false;
 			streamEventsHtml = '';
 			streamInfo = null;
@@ -538,7 +555,7 @@
 			loadStreamInfo();
 			loadStreamEvents();
 			streamPollTimer = setInterval(() => { loadStreamEvents(); loadStreamInfo(); }, 3000);
-			return () => { if (streamPollTimer) clearInterval(streamPollTimer); };
+			return () => { stopStreamPolling(); };
 		}
 	});
 
@@ -719,7 +736,7 @@
 			window.removeEventListener('gopherstack:region-change', handleRegionChange);
 		};
 	});
-	onDestroy(() => { if (streamPollTimer) clearInterval(streamPollTimer); });
+	onDestroy(() => { stopStreamPolling(); });
 
 	$effect(() => {
 		if (searchQuery || tableSortOrder) {

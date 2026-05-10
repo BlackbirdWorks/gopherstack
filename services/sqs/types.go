@@ -46,6 +46,9 @@ const (
 	attrApproxMessagesDelayed     = "ApproximateNumberOfMessagesDelayed"
 	attrAll                       = "All"
 	attrSqsManagedSseEnabled      = "SqsManagedSseEnabled"
+	attrKmsMasterKeyID            = "KmsMasterKeyId"
+	attrKmsDataKeyReusePeriodSecs = "KmsDataKeyReusePeriodSeconds"
+	attrRedriveAllowPolicy        = "RedriveAllowPolicy"
 
 	attrApproxReceiveCount          = "ApproximateReceiveCount"
 	attrSentTimestamp               = "SentTimestamp"

@@ -164,11 +164,25 @@ func (b *InMemoryBackend) startJanitor() {
 // resources.  It is safe to call Close multiple times; subsequent calls are
 // no-ops.  The backend must not be used after Close returns.
 func (b *InMemoryBackend) Close() {
+	b.stopInternalJanitor()
+}
+
+// stopInternalJanitor stops the internal janitor goroutine started by
+// NewInMemoryBackendWithConfig. Safe to call multiple times.
+func (b *InMemoryBackend) stopInternalJanitor() {
+	b.mu.Lock("stopInternalJanitor")
+	ch := b.janitorStop
+	b.mu.Unlock()
+
+	if ch == nil {
+		return
+	}
+
 	select {
-	case <-b.janitorStop:
+	case <-ch:
 		// already closed
 	default:
-		close(b.janitorStop)
+		close(ch)
 	}
 }
 
@@ -669,7 +683,12 @@ func validateQueueAttributes(attrs map[string]string) error {
 		return err
 	}
 
-	return validateIntAttrRange(attrs, attrMaximumMessageSize, minMaximumMessageSize, defaultMaxMessageSize)
+	if err := validateIntAttrRange(attrs, attrMaximumMessageSize, minMaximumMessageSize, defaultMaxMessageSize); err != nil {
+		return err
+	}
+
+	// AWS allows KmsDataKeyReusePeriodSeconds in [60, 86400].
+	return validateIntAttrRange(attrs, attrKmsDataKeyReusePeriodSecs, 60, 86400)
 }
 
 // maxReceiveMessageWaitTimeSeconds is the AWS maximum for ReceiveMessageWaitTimeSeconds.
@@ -1126,6 +1145,19 @@ func expireRetainedMessages(q *Queue, now time.Time) {
 	}
 
 	q.messages = fresh
+
+	freshInFlight := q.inFlightMessages[:0]
+
+	for _, inf := range q.inFlightMessages {
+		sentAt := time.UnixMilli(inf.Msg.SentTimestamp)
+		if sentAt.Before(cutoff) {
+			continue // silently discard expired in-flight message
+		}
+
+		freshInFlight = append(freshInFlight, inf)
+	}
+
+	q.inFlightMessages = freshInFlight
 }
 
 // buildBlockedGroups returns the set of FIFO message group IDs that currently
@@ -1719,6 +1751,19 @@ func (b *InMemoryBackend) DeleteMessagesLocal(queueURL string, receiptHandles []
 	}
 
 	return nil
+}
+
+// totalMessages returns the total in-memory message count across all queues
+// (visible + in-flight + DLQ retained).
+func (b *InMemoryBackend) totalMessages() int {
+	b.mu.RLock("totalMessages")
+	defer b.mu.RUnlock()
+
+	total := 0
+	for _, q := range b.queues {
+		total += len(q.messages) + len(q.inFlightMessages)
+	}
+	return total
 }
 
 // Purge removes all queues created before the given cutoff time.

@@ -37,6 +37,8 @@ type StoredBucket struct {
 	Versioning                types.BucketVersioningStatus `json:"versioning,omitempty"`
 	Name                      string                       `json:"name"`
 	ACL                       string                       `json:"acl,omitempty"`
+	AccelerateStatus          string                       `json:"accelerateStatus,omitempty"`
+	RequestPaymentPayer       string                       `json:"requestPaymentPayer,omitempty"`
 	Tags                      []types.Tag                  `json:"tags,omitempty"`
 	DeletePending             bool                         `json:"deletePending,omitempty"`
 }
@@ -73,10 +75,13 @@ type StoredObjectVersion struct {
 	VersionID          string                  `json:"versionID"`
 	Data               []byte                  `json:"data,omitempty"`
 	Size               int64                   `json:"size"`
+	StorageClass       string                  `json:"storageClass,omitempty"`
+	RestoreExpiry      time.Time               `json:"restoreExpiry,omitempty"`
 	IsCompressed       bool                    `json:"isCompressed,omitempty"`
 	IsLatest           bool                    `json:"isLatest"`
 	Deleted            bool                    `json:"deleted,omitempty"`
 	LegalHold          bool                    `json:"legalHold,omitempty"`
+	OngoingRestore     bool                    `json:"ongoingRestore,omitempty"`
 }
 
 // StoredMultipartUpload represents an ongoing multipart upload session.

@@ -113,7 +113,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-// The dlq pointer is not restored — DLQ wiring must be re-established after restore.
+// DLQ pointers are re-wired after all queues are reconstructed by re-applying
+// each queue's RedrivePolicy attribute.
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
@@ -180,6 +181,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			totalCount:    ts.TotalCount,
 			maxPerSec:     ts.MaxPerSec,
 		}
+	}
+
+	// Re-wire DLQ pointers now that every queue has been reconstructed. We must
+	// do this after the second pass because a queue's RedrivePolicy can target
+	// any other queue regardless of restore iteration order.
+	for _, q := range b.queues {
+		applyRedrivePolicy(q, q.Attributes, b)
 	}
 
 	b.accountID = snap.AccountID

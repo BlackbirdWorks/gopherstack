@@ -33,9 +33,13 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
-// WithJanitor attaches a background janitor to the handler.
+// WithJanitor attaches a background janitor to the handler. It stops the
+// backend's auto-started internal janitor so the two do not run concurrently
+// and race on the shared lock.
 func (h *Handler) WithJanitor(interval ...time.Duration) *Handler {
 	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
+		memBackend.stopInternalJanitor()
+
 		var d time.Duration
 		if len(interval) > 0 {
 			d = interval[0]
@@ -452,7 +456,7 @@ type jsonListDeadLetterSourceQueuesReq struct {
 
 type jsonListDeadLetterSourceQueuesResp struct {
 	NextToken string   `json:"NextToken,omitempty"`
-	QueueURLs []string `json:"queueUrls"`
+	QueueURLs []string `json:"QueueUrls"`
 }
 
 type jsonSQSError struct {

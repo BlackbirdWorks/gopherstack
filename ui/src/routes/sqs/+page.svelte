@@ -15,6 +15,7 @@ PurgeQueueCommand,
 TagQueueCommand,
 UntagQueueCommand,
 ListQueueTagsCommand,
+ChangeMessageVisibilityCommand,
 ListDeadLetterSourceQueuesCommand,
 StartMessageMoveTaskCommand,
 CancelMessageMoveTaskCommand,
@@ -326,6 +327,28 @@ toast.success('Message deleted');
 toast.error(`Delete failed: ${(err as Error).message}`);
 } finally {
 deletingReceipt = null;
+}
+}
+
+async function changeVisibility(msg: Message) {
+if (!selectedQueue || !msg.ReceiptHandle) return;
+const input = window.prompt('New visibility timeout in seconds (0 returns the message immediately, max 43200):', '30');
+if (input === null) return;
+const seconds = Number(input);
+if (!Number.isFinite(seconds) || seconds < 0 || seconds > 43200) {
+	toast.error('Visibility must be between 0 and 43200 seconds');
+	return;
+}
+try {
+	await sqs.send(new ChangeMessageVisibilityCommand({
+		QueueUrl: selectedQueue.url,
+		ReceiptHandle: msg.ReceiptHandle,
+		VisibilityTimeout: seconds,
+	}));
+	toast.success(seconds === 0 ? 'Message released for redelivery' : `Visibility set to ${seconds}s`);
+	if (seconds === 0) messages = messages.filter((m) => m.MessageId !== msg.MessageId);
+} catch (err: unknown) {
+	toast.error(`ChangeVisibility failed: ${(err as Error).message}`);
 }
 }
 
@@ -765,6 +788,13 @@ class="flex items-center gap-2 text-left flex-1 min-w-0"
 {:else}
 <ChevronDown class="w-4 h-4 text-slate-400 flex-shrink-0" />
 {/if}
+</button>
+<button
+onclick={() => changeVisibility(msg)}
+class="p-1 text-slate-400 hover:text-blue-500 ml-2"
+title="Change visibility timeout"
+>
+<RefreshCw class="w-4 h-4" />
 </button>
 <button
 onclick={() => deleteMessage(msg)}

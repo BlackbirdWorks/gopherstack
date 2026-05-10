@@ -322,6 +322,14 @@ func (db *InMemoryDB) DeleteTable(
 		return nil, NewResourceNotFoundException("table not found: " + tableName)
 	}
 
+	// AWS rejects DeleteTable when DeletionProtectionEnabled is true.
+	// The protection must be disabled (via UpdateTable) before the table can be deleted.
+	if table.DeletionProtectionEnabled {
+		return nil, NewValidationException(
+			"Table cannot be deleted while DeletionProtectionEnabled is set to True. " +
+				"Update the table first to disable deletion protection.")
+	}
+
 	// Cancel any pending activation timer and any in-flight GSI lifecycle timers.
 	// Stop() is called while db.mu is held, which prevents a concurrent CreateTable from
 	// racing with us. If a timer has already fired and the callback is in progress, Stop()

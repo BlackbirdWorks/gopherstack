@@ -400,14 +400,8 @@ func (h *S3Handler) routeBucketGetStubs(
 ) bool {
 	q := r.URL.Query()
 
-	if q.Has("request-payment") {
-		h.setOperation(ctx, "GetBucketRequestPayment")
-		httputils.WriteXML(
-			ctx,
-			w,
-			http.StatusOK,
-			s3RequestPaymentConfiguration{Xmlns: xmlNamespaceS3, Payer: "BucketOwner"},
-		)
+	if q.Has("request-payment") || q.Has("requestPayment") {
+		h.handleGetBucketRequestPayment(ctx, w, r)
 
 		return true
 	}
