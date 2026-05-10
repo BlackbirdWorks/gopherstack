@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
+	rds "github.com/blackbirdworks/gopherstack/services/rds"
 )
 
 const wafScopeRegional = "REGIONAL"
@@ -552,7 +553,7 @@ func (rc *ResourceCreator) createRDSDBCluster(
 	paramGroupName := strProp(props, "DBClusterParameterGroupName", params, physicalIDs)
 
 	cluster, err := rc.backends.RDS.Backend.CreateDBCluster(
-		id, engine, masterUser, "", paramGroupName, 0, nil,
+		id, engine, masterUser, "", paramGroupName, 0, nil, rds.DBClusterOptions{},
 	)
 	if err != nil {
 		return "", fmt.Errorf("create RDS DB cluster %s: %w", id, err)

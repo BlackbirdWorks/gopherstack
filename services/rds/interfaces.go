@@ -31,7 +31,7 @@ type StorageBackend interface {
 	CreateDBSnapshot(snapshotID, instanceID string) (*DBSnapshot, error)
 	DescribeDBSnapshots(snapshotID string) ([]DBSnapshot, error)
 	DeleteDBSnapshot(snapshotID string) (*DBSnapshot, error)
-	CopyDBSnapshot(sourceSnapshotID, targetSnapshotID string) (*DBSnapshot, error)
+	CopyDBSnapshot(sourceSnapshotID, targetSnapshotID string, opts CopyDBSnapshotOptions) (*DBSnapshot, error)
 	RestoreDBInstanceFromDBSnapshot(id, snapshotID string, opts DBInstanceOptions) (*DBInstance, error)
 	RestoreDBInstanceToPointInTime(id, sourceID string, opts DBInstanceOptions) (*DBInstance, error)
 
@@ -61,10 +61,11 @@ type StorageBackend interface {
 		id, engine, masterUser, dbName, paramGroupName string,
 		port int,
 		serverlessV2Cfg *ServerlessV2ScalingConfiguration,
+		opts DBClusterOptions,
 	) (*DBCluster, error)
 	DescribeDBClusters(id string) ([]DBCluster, error)
 	DeleteDBCluster(id string) (*DBCluster, error)
-	ModifyDBCluster(id, paramGroupName string) (*DBCluster, error)
+	ModifyDBCluster(id, paramGroupName string, opts DBClusterOptions) (*DBCluster, error)
 	StartDBCluster(id string) (*DBCluster, error)
 	StopDBCluster(id string) (*DBCluster, error)
 	RestoreDBClusterFromSnapshot(clusterID, snapshotID, engine string) (*DBCluster, error)
@@ -107,6 +108,9 @@ type StorageBackend interface {
 
 	// Engine and instance metadata
 	DescribeDBEngineVersions(engine, engineVersion string) []DBEngineVersion
+	CreateCustomDBEngineVersion(engine, engineVersion, description string) (*CustomDBEngineVersion, error)
+	DeleteCustomDBEngineVersion(engine, engineVersion string) (*CustomDBEngineVersion, error)
+	ModifyCustomDBEngineVersion(engine, engineVersion, description, status string) (*CustomDBEngineVersion, error)
 	DescribeOrderableDBInstanceOptions(engine, engineVersion string) []OrderableDBInstanceOption
 	DescribeDBLogFiles(instanceID string) ([]DBLogFile, error)
 	DownloadDBLogFilePortion(instanceID, logFileName string) (string, error)
