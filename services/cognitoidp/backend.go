@@ -62,38 +62,60 @@ type SchemaAttribute struct {
 	DeveloperOnlyAttribute   bool    `json:"DeveloperOnlyAttribute"`
 }
 
+// PasswordPolicy holds the password-complexity requirements for a user pool.
+type PasswordPolicy struct {
+	MinimumLength                 int  `json:"MinimumLength"`
+	RequireUppercase              bool `json:"RequireUppercase"`
+	RequireLowercase              bool `json:"RequireLowercase"`
+	RequireNumbers                bool `json:"RequireNumbers"`
+	RequireSymbols                bool `json:"RequireSymbols"`
+	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays"`
+}
+
 // UserPool represents a Cognito User Pool.
 type UserPool struct {
-	CreatedAt        time.Time
-	issuer           *tokenIssuer
-	ID               string
-	Name             string
-	ARN              string
-	MfaConfiguration string
-	CustomAttributes []SchemaAttribute
+	CreatedAt              time.Time
+	issuer                 *tokenIssuer
+	PasswordPolicy         *PasswordPolicy
+	ID                     string
+	Name                   string
+	ARN                    string
+	MfaConfiguration       string
+	CustomAttributes       []SchemaAttribute
+	AutoVerifiedAttributes []string
 }
 
 // UserPoolClient represents an app client registered to a user pool.
 type UserPoolClient struct {
-	CreatedAt    time.Time `json:"createdAt"`
-	ClientID     string    `json:"clientId"`
-	ClientName   string    `json:"clientName"`
-	UserPoolID   string    `json:"userPoolId"`
-	ClientSecret string    `json:"clientSecret,omitempty"`
+	CreatedAt             time.Time `json:"createdAt"`
+	ClientID              string    `json:"clientId"`
+	ClientName            string    `json:"clientName"`
+	UserPoolID            string    `json:"userPoolId"`
+	ClientSecret          string    `json:"clientSecret,omitempty"`
+	AllowedOAuthFlows     []string  `json:"allowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes    []string  `json:"allowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows     []string  `json:"explicitAuthFlows,omitempty"`
+	EnableTokenRevocation bool      `json:"enableTokenRevocation,omitempty"`
 }
 
 // User represents a Cognito user within a pool.
 type User struct {
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	Attributes   map[string]string
-	Sub          string
-	Username     string
-	UserPoolID   string
-	PasswordHash string
-	Status       string
-	ConfirmCode  string
-	Enabled      bool
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	ConfirmCodeExpiresAt time.Time
+	LastAuthTime         time.Time
+	Attributes           map[string]string
+	UserMFASettingList   []string
+	Sub                  string
+	Username             string
+	UserPoolID           string
+	PasswordHash         string
+	Status               string
+	ConfirmCode          string
+	PreferredMfaSetting  string
+	TOTPSecret           string
+	Enabled              bool
+	TOTPVerified         bool
 }
 
 // Group represents a Cognito User Pool group.
@@ -122,15 +144,20 @@ type InMemoryBackend struct {
 	refreshTokensByClient map[string]map[string]struct{}
 	// refreshTokensByUser maps poolID+":"+username → refreshToken set for efficient per-user token cleanup.
 	refreshTokensByUser map[string]map[string]struct{}
-	// mfaSessions maps session token → pending MFA challenge context.
+	// mfaSessions maps session token → pending challenge context (MFA or NEW_PASSWORD_REQUIRED).
 	mfaSessions map[string]*mfaSessionEntry
 	// groups maps poolID → groupName → Group
 	groups map[string]map[string]*Group
 	// groupMembers maps poolID → groupName → set of usernames
 	groupMembers map[string]map[string]map[string]struct{}
-	accountID    string
-	region       string
-	endpoint     string
+	// resourceServers maps poolID → identifier → ResourceServer
+	resourceServers map[string]map[string]*ResourceServer
+	// tokenRevokedBefore maps poolID+":"+username → revocation time for GlobalSignOut.
+	// Access tokens with auth_time before this timestamp are rejected.
+	tokenRevokedBefore map[string]time.Time
+	accountID          string
+	region             string
+	endpoint           string
 }
 
 // refreshTokenEntry holds the pool/user context for a refresh token.
@@ -141,19 +168,22 @@ type refreshTokenEntry struct {
 	Username  string    `json:"username"`
 }
 
-// mfaSessionEntry holds the pending MFA challenge context.
+// mfaSessionEntry holds the pending challenge context (MFA or NEW_PASSWORD_REQUIRED).
 type mfaSessionEntry struct {
-	PoolID   string
-	ClientID string
-	Username string
+	PoolID        string
+	ClientID      string
+	Username      string
+	ChallengeType string // "SOFTWARE_TOKEN_MFA", "NEW_PASSWORD_REQUIRED", "SMS_MFA", "EMAIL_OTP"
 }
 
-// AuthResult is the result of a successful authentication or a pending MFA challenge.
+// AuthResult is the result of a successful authentication or a pending challenge.
 type AuthResult struct {
 	// Tokens is set when authentication is complete.
 	Tokens *TokenResult
-	// MFASession is set when MFA is required; the caller must respond to the challenge.
+	// MFASession is set when a challenge is required; the caller must respond to it.
 	MFASession string
+	// ChallengeName identifies the type of challenge (SOFTWARE_TOKEN_MFA, NEW_PASSWORD_REQUIRED, etc.).
+	ChallengeName string
 }
 
 // mfaSessionLen is the character length of randomly generated MFA session tokens.
@@ -178,6 +208,8 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		mfaSessions:           make(map[string]*mfaSessionEntry),
 		groups:                make(map[string]map[string]*Group),
 		groupMembers:          make(map[string]map[string]map[string]struct{}),
+		resourceServers:        make(map[string]map[string]*ResourceServer),
+		tokenRevokedBefore:    make(map[string]time.Time),
 		accountID:             accountID,
 		region:                region,
 		endpoint:              endpoint,
@@ -805,6 +837,14 @@ func (b *InMemoryBackend) findUserByAccessTokenLocked(accessToken string) (*User
 			continue
 		}
 
+		// Check per-user token revocation: reject tokens issued before GlobalSignOut.
+		if revokedBefore, ok2 := b.tokenRevokedBefore[pool.ID+":"+username]; ok2 {
+			authTime, _ := claims["auth_time"].(float64)
+			if time.Unix(int64(authTime), 0).Before(revokedBefore) {
+				continue
+			}
+		}
+
 		u, ok := b.users[pool.ID][username]
 		if !ok {
 			continue
@@ -857,7 +897,7 @@ func (b *InMemoryBackend) findUserByClientID(clientID, username string) (*User, 
 	return user, pool, nil
 }
 
-// authenticate validates a user's credentials and returns tokens or an MFA challenge.
+// authenticate validates a user's credentials and returns tokens or a challenge.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) authenticate(
 	pool *UserPool,
@@ -872,6 +912,25 @@ func (b *InMemoryBackend) authenticate(
 		return nil, fmt.Errorf("%w: unsupported auth flow %q", ErrInvalidUserPoolConfig, authFlow)
 	}
 
+	// Validate ExplicitAuthFlows restriction on the client.
+	if client, ok := b.clients[clientID]; ok && len(client.ExplicitAuthFlows) > 0 {
+		allowed := false
+		for _, f := range client.ExplicitAuthFlows {
+			if f == authFlow || f == "ALLOW_"+authFlow {
+				allowed = true
+
+				break
+			}
+		}
+		if !allowed {
+			return nil, fmt.Errorf(
+				"%w: auth flow %q is not in client ExplicitAuthFlows",
+				ErrInvalidUserPoolConfig,
+				authFlow,
+			)
+		}
+	}
+
 	if user.Status == UserStatusUnconfirmed {
 		return nil, fmt.Errorf("%w: user %q is not confirmed", ErrUserNotConfirmed, user.Username)
 	}
@@ -884,21 +943,41 @@ func (b *InMemoryBackend) authenticate(
 		return nil, fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
 	}
 
+	// Issue NEW_PASSWORD_REQUIRED challenge when user must set a permanent password.
 	if user.Status == UserStatusForceChangePassword {
-		return nil, fmt.Errorf("%w: user must reset temporary password", ErrPasswordResetRequired)
-	}
-
-	// MFA enforcement: if the pool requires or offers MFA, issue a challenge instead of tokens.
-	mfaConfig := pool.MfaConfiguration
-	if mfaConfig == "ON" || mfaConfig == "OPTIONAL" {
 		sessionToken := randomAlphanumeric(mfaSessionLen)
 		b.mfaSessions[sessionToken] = &mfaSessionEntry{
-			PoolID:   pool.ID,
-			ClientID: clientID,
-			Username: user.Username,
+			PoolID:        pool.ID,
+			ClientID:      clientID,
+			Username:      user.Username,
+			ChallengeType: challengeNewPasswordRequired,
 		}
 
-		return &AuthResult{MFASession: sessionToken}, nil
+		return &AuthResult{
+			MFASession:    sessionToken,
+			ChallengeName: challengeNewPasswordRequired,
+		}, nil
+	}
+
+	// MFA enforcement: if the pool requires or offers MFA, issue an MFA challenge.
+	mfaConfig := pool.MfaConfiguration
+	if mfaConfig == "ON" || mfaConfig == "OPTIONAL" {
+		challengeType := challengeSoftwareTokenMFA
+		if user.PreferredMfaSetting != "" {
+			challengeType = user.PreferredMfaSetting
+		}
+		sessionToken := randomAlphanumeric(mfaSessionLen)
+		b.mfaSessions[sessionToken] = &mfaSessionEntry{
+			PoolID:        pool.ID,
+			ClientID:      clientID,
+			Username:      user.Username,
+			ChallengeType: challengeType,
+		}
+
+		return &AuthResult{
+			MFASession:    sessionToken,
+			ChallengeName: challengeType,
+		}, nil
 	}
 
 	return b.issueTokensLocked(pool, clientID, user)
@@ -906,7 +985,24 @@ func (b *InMemoryBackend) authenticate(
 
 // issueTokensLocked issues tokens for a confirmed user. Caller must hold the write lock.
 func (b *InMemoryBackend) issueTokensLocked(pool *UserPool, clientID string, user *User) (*AuthResult, error) {
-	tokens, err := pool.issuer.Issue(clientID, user.Username, user.Sub)
+	now := time.Now()
+	user.LastAuthTime = now
+
+	groups := b.userGroupsLocked(pool.ID, user.Username)
+
+	var scopes []string
+	if client, ok := b.clients[clientID]; ok {
+		scopes = client.AllowedOAuthScopes
+	}
+
+	tokens, err := pool.issuer.Issue(TokenParams{
+		ClientID: clientID,
+		Username: user.Username,
+		UserSub:  user.Sub,
+		Groups:   groups,
+		AuthTime: now.Unix(),
+		Scopes:   scopes,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("issuing tokens: %w", err)
 	}
@@ -916,7 +1012,7 @@ func (b *InMemoryBackend) issueTokensLocked(pool *UserPool, clientID string, use
 		PoolID:    pool.ID,
 		ClientID:  clientID,
 		Username:  user.Username,
-		ExpiresAt: time.Now().UTC().Add(defaultRefreshTokenTTL),
+		ExpiresAt: now.UTC().Add(defaultRefreshTokenTTL),
 	})
 
 	return &AuthResult{Tokens: tokens}, nil
@@ -960,14 +1056,29 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 		return nil, fmt.Errorf("%w: user %q account is disabled", ErrNotAuthorized, entry.Username)
 	}
 
-	tokens, err := pool.issuer.Issue(clientID, user.Username, user.Sub)
+	now := time.Now()
+	groups := b.userGroupsLocked(entry.PoolID, user.Username)
+
+	var scopes []string
+	if client, ok := b.clients[clientID]; ok {
+		scopes = client.AllowedOAuthScopes
+	}
+
+	tokens, err := pool.issuer.Issue(TokenParams{
+		ClientID: clientID,
+		Username: user.Username,
+		UserSub:  user.Sub,
+		Groups:   groups,
+		AuthTime: now.Unix(),
+		Scopes:   scopes,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("issuing tokens: %w", err)
 	}
 
 	// Rotate the refresh token: invalidate old, store new.
 	b.deleteRefreshTokenLocked(refreshToken)
-	entry.ExpiresAt = time.Now().UTC().Add(defaultRefreshTokenTTL)
+	entry.ExpiresAt = now.UTC().Add(defaultRefreshTokenTTL)
 	b.storeRefreshTokenLocked(tokens.RefreshToken, entry)
 
 	return tokens, nil
@@ -1417,7 +1528,8 @@ func (b *InMemoryBackend) ListUsersInGroup(userPoolID, groupName string) ([]*Use
 	return out, nil
 }
 
-// AdminUserGlobalSignOut signs out a user from all sessions by revoking their refresh tokens.
+// AdminUserGlobalSignOut signs out a user from all sessions by revoking their refresh tokens
+// and setting a per-user revocation timestamp so previously-issued access tokens are invalidated.
 func (b *InMemoryBackend) AdminUserGlobalSignOut(userPoolID, username string) error {
 	b.mu.Lock("AdminUserGlobalSignOut")
 	defer b.mu.Unlock()
@@ -1431,11 +1543,13 @@ func (b *InMemoryBackend) AdminUserGlobalSignOut(userPoolID, username string) er
 	}
 
 	b.deleteRefreshTokensForUserLocked(userPoolID, username)
+	b.tokenRevokedBefore[userPoolID+":"+username] = time.Now().UTC()
 
 	return nil
 }
 
-// GlobalSignOut signs out the authenticated user by revoking their refresh tokens.
+// GlobalSignOut signs out the authenticated user by revoking their refresh tokens
+// and setting a per-user revocation timestamp so previously-issued access tokens are invalidated.
 func (b *InMemoryBackend) GlobalSignOut(accessToken string) error {
 	b.mu.Lock("GlobalSignOut")
 	defer b.mu.Unlock()
@@ -1446,6 +1560,7 @@ func (b *InMemoryBackend) GlobalSignOut(accessToken string) error {
 	}
 
 	b.deleteRefreshTokensForUserLocked(user.UserPoolID, user.Username)
+	b.tokenRevokedBefore[user.UserPoolID+":"+user.Username] = time.Now().UTC()
 
 	return nil
 }
@@ -1533,6 +1648,8 @@ func (b *InMemoryBackend) Reset() {
 	b.refreshTokensByUser = make(map[string]map[string]struct{})
 	b.groups = make(map[string]map[string]*Group)
 	b.groupMembers = make(map[string]map[string]map[string]struct{})
+	b.resourceServers = make(map[string]map[string]*ResourceServer)
+	b.tokenRevokedBefore = make(map[string]time.Time)
 }
 
 // UpdateUserPool updates mutable properties of an existing user pool.
