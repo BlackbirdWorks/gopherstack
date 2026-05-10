@@ -145,10 +145,20 @@ type Queue struct {
 	inFlightMessages []*InFlightMessage
 	// fifoSeqCounter is an atomically-incremented sequence counter used to
 	// generate FIFO SequenceNumber values. Monotonically increasing per queue.
-	fifoSeqCounter  uint64
+	fifoSeqCounter uint64
+	// fifoSendTimes tracks a sliding 1-second window of SendMessage timestamps
+	// per message group, used to enforce FifoThroughputLimit=perMessageGroupId
+	// (300 TPS per group, real AWS default). nil when throughput limit is
+	// per-queue. Pruned on the fly inside checkFIFORateLimit.
+	fifoSendTimes   map[string][]time.Time
 	MaxReceiveCount int // 0 = no DLQ
 	IsFIFO          bool
 }
+
+// fifoPerGroupTPS is the AWS-documented per-message-group send rate when
+// FifoThroughputLimit=perMessageGroupId. SDKs receiving more than this on a
+// single group get OverLimit and back off.
+const fifoPerGroupTPS = 300
 
 // QueueInfo holds the immutable-after-creation fields of a queue, returned by ListAll.
 type QueueInfo struct {
@@ -224,14 +234,22 @@ type SetQueueAttributesInput struct {
 
 // SendMessageInput is the input for SendMessage.
 type SendMessageInput struct {
-	MessageAttributes      map[string]MessageAttributeValue
-	QueueURL               string
-	Region                 string
-	MessageBody            string
-	MessageGroupID         string
-	MessageDeduplicationID string
-	DelaySeconds           int
+	MessageAttributes map[string]MessageAttributeValue
+	// MessageSystemAttributes carries reserved system attributes from the
+	// caller (currently only AWSTraceHeader). They are stored on the message
+	// and surfaced via ReceiveMessage when the consumer asks for them by name.
+	MessageSystemAttributes map[string]MessageAttributeValue
+	QueueURL                string
+	Region                  string
+	MessageBody             string
+	MessageGroupID          string
+	MessageDeduplicationID  string
+	DelaySeconds            int
 }
+
+// attrAWSTraceHeader is the single AWS-reserved system attribute SQS accepts
+// today. Carries X-Ray trace context end-to-end across producers and consumers.
+const attrAWSTraceHeader = "AWSTraceHeader"
 
 // SendMessageOutput is the output for SendMessage.
 type SendMessageOutput struct {
@@ -274,12 +292,13 @@ type ChangeMessageVisibilityInput struct {
 
 // SendMessageBatchEntry is a single entry in a SendMessageBatch request.
 type SendMessageBatchEntry struct {
-	MessageAttributes      map[string]MessageAttributeValue
-	ID                     string
-	MessageBody            string
-	MessageGroupID         string
-	MessageDeduplicationID string
-	DelaySeconds           int
+	MessageAttributes       map[string]MessageAttributeValue
+	MessageSystemAttributes map[string]MessageAttributeValue
+	ID                      string
+	MessageBody             string
+	MessageGroupID          string
+	MessageDeduplicationID  string
+	DelaySeconds            int
 }
 
 // SendMessageBatchInput is the input for SendMessageBatch.

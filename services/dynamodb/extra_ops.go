@@ -1089,6 +1089,55 @@ func (db *InMemoryDB) UpdateKinesisStreamingDestination(
 	}, nil
 }
 
+// autoScalingSettingsFromInput converts an UpdateTableReplicaAutoScalingInput
+// into the persisted shape so the next DescribeTableReplicaAutoScaling can
+// round-trip the values without simulating real scaling.
+func autoScalingSettingsFromInput(
+	input *dynamodb.UpdateTableReplicaAutoScalingInput,
+) *autoScalingSettings {
+	s := &autoScalingSettings{}
+
+	if input.ProvisionedWriteCapacityAutoScalingUpdate != nil {
+		s.Write = throughputFromUpdate(input.ProvisionedWriteCapacityAutoScalingUpdate)
+	}
+
+	if len(input.GlobalSecondaryIndexUpdates) > 0 {
+		s.GlobalSecondaryIndexes = make(map[string]*autoScalingThroughput, len(input.GlobalSecondaryIndexUpdates))
+		for _, g := range input.GlobalSecondaryIndexUpdates {
+			if g.IndexName == nil {
+				continue
+			}
+			s.GlobalSecondaryIndexes[*g.IndexName] = throughputFromUpdate(
+				g.ProvisionedWriteCapacityAutoScalingUpdate,
+			)
+		}
+	}
+
+	return s
+}
+
+// throughputFromUpdate translates the SDK AutoScalingSettingsUpdate struct
+// into the persisted shape. Returns nil when no fields were supplied so the
+// caller can distinguish "explicitly cleared" from "untouched".
+func throughputFromUpdate(u *types.AutoScalingSettingsUpdate) *autoScalingThroughput {
+	if u == nil {
+		return nil
+	}
+
+	out := &autoScalingThroughput{
+		MinCapacity: u.MinimumUnits,
+		MaxCapacity: u.MaximumUnits,
+	}
+	if u.AutoScalingDisabled != nil {
+		out.Disabled = *u.AutoScalingDisabled
+	}
+	if u.ScalingPolicyUpdate != nil && u.ScalingPolicyUpdate.TargetTrackingScalingPolicyConfiguration != nil {
+		out.TargetUtilizPct = u.ScalingPolicyUpdate.TargetTrackingScalingPolicyConfiguration.TargetValue
+	}
+
+	return out
+}
+
 // --- UpdateTableReplicaAutoScaling ---
 
 // UpdateTableReplicaAutoScaling is a stub that validates the table exists and returns
@@ -1106,12 +1155,13 @@ func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
 		return nil, err
 	}
 
-	table.mu.RLock("UpdateTableReplicaAutoScaling")
+	table.mu.Lock("UpdateTableReplicaAutoScaling")
+	table.AutoScaling = autoScalingSettingsFromInput(input)
 	tableName := table.Name
 	tableStatus := table.Status
 	replicas := make([]models.ReplicaDescription, len(table.Replicas))
 	copy(replicas, table.Replicas)
-	table.mu.RUnlock()
+	table.mu.Unlock()
 
 	replicaDescs := make([]types.ReplicaAutoScalingDescription, 0, len(replicas))
 

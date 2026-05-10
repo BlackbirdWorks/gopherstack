@@ -846,6 +846,62 @@ func validateIntAttrRange(attrs map[string]string, name string, attrMin, attrMax
 // maxVisibilityTimeoutSeconds is the AWS maximum for VisibilityTimeout (12 hours).
 const maxVisibilityTimeoutSeconds = 43200
 
+// checkFIFOPerGroupRateLimit enforces the 300 TPS per-message-group AWS limit
+// for FIFO queues running with FifoThroughputLimit=perMessageGroupId.
+//
+// Maintains a sliding 1-second window per group, pruning timestamps older
+// than the window on each call. Returns ErrOverLimit when the window is
+// already full; otherwise appends the new send and returns nil.
+//
+// Caller must hold b.mu (write). Allocates the per-queue map lazily.
+func checkFIFOPerGroupRateLimit(q *Queue, group string, now time.Time) error {
+	if group == "" {
+		return nil
+	}
+
+	if q.fifoSendTimes == nil {
+		q.fifoSendTimes = make(map[string][]time.Time)
+	}
+
+	cutoff := now.Add(-time.Second)
+	prev := q.fifoSendTimes[group]
+	kept := prev[:0]
+	for _, t := range prev {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+
+	if len(kept) >= fifoPerGroupTPS {
+		q.fifoSendTimes[group] = kept
+
+		return ErrOverLimit
+	}
+
+	q.fifoSendTimes[group] = append(kept, now)
+
+	return nil
+}
+
+// buildInitialMessageAttributes returns the system-attribute map stamped on a
+// new message at send-time. AWSTraceHeader is the one reserved name SQS
+// accepts; we copy its StringValue verbatim so consumers see the original
+// X-Ray trace context.
+func buildInitialMessageAttributes(
+	sentTS string, sysAttrs map[string]MessageAttributeValue,
+) map[string]string {
+	attrs := map[string]string{
+		attrSentTimestamp:      sentTS,
+		attrApproxReceiveCount: attrValZero,
+	}
+
+	if v, ok := sysAttrs[attrAWSTraceHeader]; ok && v.StringValue != "" {
+		attrs[attrAWSTraceHeader] = v.StringValue
+	}
+
+	return attrs
+}
+
 // SendMessage adds a message to the specified queue.
 func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutput, error) {
 	if input.MessageBody == "" {
@@ -884,6 +940,12 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	// timestamps all use the same consistent clock value.
 	now := time.Now()
 
+	if q.IsFIFO && q.Attributes[attrFifoThroughputLimit] == fifoThroughputLimitPerMessageGroupID {
+		if err := checkFIFOPerGroupRateLimit(q, input.MessageGroupID, now); err != nil {
+			return nil, err
+		}
+	}
+
 	if q.IsFIFO {
 		if out, dup := checkDedup(
 			q,
@@ -916,10 +978,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		SequenceNumber:         seqNum,
 		SentTimestamp:          now.UnixMilli(),
 		MessageAttributes:      input.MessageAttributes,
-		Attributes: map[string]string{
-			attrSentTimestamp:      sentTS,
-			attrApproxReceiveCount: attrValZero,
-		},
+		Attributes: buildInitialMessageAttributes(sentTS, input.MessageSystemAttributes),
 		VisibleAt: resolveMessageVisibleAt(now, input.DelaySeconds, q.Attributes[attrDelaySeconds]),
 	}
 
@@ -1596,12 +1655,14 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 	// Failed slices already match the original entry order without sorting.
 	for _, entry := range input.Entries {
 		sendOut, err := b.SendMessage(&SendMessageInput{
-			QueueURL:               input.QueueURL,
-			MessageBody:            entry.MessageBody,
-			MessageGroupID:         entry.MessageGroupID,
-			MessageDeduplicationID: entry.MessageDeduplicationID,
-			DelaySeconds:           entry.DelaySeconds,
-			MessageAttributes:      entry.MessageAttributes,
+			QueueURL:                input.QueueURL,
+			Region:                  input.Region,
+			MessageBody:             entry.MessageBody,
+			MessageGroupID:          entry.MessageGroupID,
+			MessageDeduplicationID:  entry.MessageDeduplicationID,
+			DelaySeconds:            entry.DelaySeconds,
+			MessageAttributes:       entry.MessageAttributes,
+			MessageSystemAttributes: entry.MessageSystemAttributes,
 		})
 		if err != nil {
 			out.Failed = append(out.Failed, BatchResultErrorEntry{

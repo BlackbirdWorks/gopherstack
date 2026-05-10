@@ -919,6 +919,12 @@ func (h *S3Handler) putBucketACL(
 		return
 	}
 
+	if err := h.enforceACLPolicy(ctx, bucketName, acl, ""); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	if err := h.Backend.PutBucketACL(ctx, bucketName, acl); err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -974,6 +980,12 @@ func (h *S3Handler) putBucketPolicy(ctx context.Context, w http.ResponseWriter, 
 
 		return
 	}
+	if err := h.enforceBucketPolicyAgainstPAB(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	err = h.Backend.PutBucketPolicy(ctx, bucket, string(body))
 	if err != nil {
 		WriteError(ctx, w, r, err)

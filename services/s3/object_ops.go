@@ -282,6 +282,15 @@ func (h *S3Handler) putObject(
 		return
 	}
 
+	// Conditional PUT: AWS S3 supports If-Match and If-None-Match on PutObject.
+	// `If-None-Match: *` is the canonical "create only if absent" pattern used by
+	// S3-based distributed locks; If-Match enforces ETag-based optimistic updates.
+	if err := h.enforcePutObjectPreconditions(ctx, r, bucketName, key); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	// Extract and validate SSE-* headers.
 	sse, sseErr := extractSSEInfo(r)
 	if sseErr != nil {
@@ -663,6 +672,18 @@ func (h *S3Handler) deleteObject(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "DeleteObject")
+
+	// AWS S3 supports If-Match on DeleteObject for ETag-conditional deletes.
+	// We only honour it when no version is targeted: per-version deletes are
+	// idempotent in real S3 and don't carry preconditions.
+	if r.URL.Query().Get("versionId") == "" {
+		if err := h.enforceDeleteObjectPreconditions(ctx, r, bucketName, key); err != nil {
+			WriteError(ctx, w, r, err)
+
+			return
+		}
+	}
+
 	versionID := r.URL.Query().Get("versionId")
 	logger.Load(ctx).DebugContext(
 		ctx,
@@ -998,6 +1019,12 @@ func (h *S3Handler) putObjectACL(
 	acl := canned
 	if len(body) > 0 {
 		acl = string(body)
+	}
+
+	if err := h.enforceACLPolicy(ctx, bucketName, canned, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
 	}
 
 	if err := h.Backend.PutObjectACL(ctx, bucketName, key, versionID, acl); err != nil {

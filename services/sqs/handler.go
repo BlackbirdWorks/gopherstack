@@ -314,12 +314,13 @@ type jsonMsgAttr struct {
 }
 
 type jsonSendMessageReq struct {
-	MessageAttributes      map[string]jsonMsgAttr `json:"MessageAttributes"`
-	QueueURL               string                 `json:"QueueUrl"`
-	MessageBody            string                 `json:"MessageBody"`
-	MessageGroupID         string                 `json:"MessageGroupId"`
-	MessageDeduplicationID string                 `json:"MessageDeduplicationId"`
-	DelaySeconds           int                    `json:"DelaySeconds"`
+	MessageAttributes       map[string]jsonMsgAttr `json:"MessageAttributes"`
+	MessageSystemAttributes map[string]jsonMsgAttr `json:"MessageSystemAttributes"`
+	QueueURL                string                 `json:"QueueUrl"`
+	MessageBody             string                 `json:"MessageBody"`
+	MessageGroupID          string                 `json:"MessageGroupId"`
+	MessageDeduplicationID  string                 `json:"MessageDeduplicationId"`
+	DelaySeconds            int                    `json:"DelaySeconds"`
 }
 
 type jsonReceiveMessageReq struct {
@@ -344,12 +345,13 @@ type jsonChangeVisibilityReq struct {
 }
 
 type jsonSendBatchEntry struct {
-	MessageAttributes      map[string]jsonMsgAttr `json:"MessageAttributes"`
-	ID                     string                 `json:"Id"`
-	MessageBody            string                 `json:"MessageBody"`
-	MessageGroupID         string                 `json:"MessageGroupId"`
-	MessageDeduplicationID string                 `json:"MessageDeduplicationId"`
-	DelaySeconds           int                    `json:"DelaySeconds"`
+	MessageAttributes       map[string]jsonMsgAttr `json:"MessageAttributes"`
+	MessageSystemAttributes map[string]jsonMsgAttr `json:"MessageSystemAttributes"`
+	ID                      string                 `json:"Id"`
+	MessageBody             string                 `json:"MessageBody"`
+	MessageGroupID          string                 `json:"MessageGroupId"`
+	MessageDeduplicationID  string                 `json:"MessageDeduplicationId"`
+	DelaySeconds            int                    `json:"DelaySeconds"`
 }
 
 type jsonSendMessageBatchReq struct {
@@ -633,13 +635,14 @@ func (h *Handler) handleSendMessage(
 	}
 
 	out, err := h.Backend.SendMessage(&SendMessageInput{
-		QueueURL:               req.QueueURL,
-		Region:                 httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
-		MessageBody:            req.MessageBody,
-		MessageGroupID:         req.MessageGroupID,
-		MessageDeduplicationID: req.MessageDeduplicationID,
-		DelaySeconds:           req.DelaySeconds,
-		MessageAttributes:      toMessageAttributeValues(req.MessageAttributes),
+		QueueURL:                req.QueueURL,
+		Region:                  httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		MessageBody:             req.MessageBody,
+		MessageGroupID:          req.MessageGroupID,
+		MessageDeduplicationID:  req.MessageDeduplicationID,
+		DelaySeconds:            req.DelaySeconds,
+		MessageAttributes:       toMessageAttributeValues(req.MessageAttributes),
+		MessageSystemAttributes: toMessageAttributeValues(req.MessageSystemAttributes),
 	})
 	if err != nil {
 		return nil, err
@@ -774,12 +777,13 @@ func (h *Handler) handleSendMessageBatch(
 	entries := make([]SendMessageBatchEntry, 0, len(req.Entries))
 	for _, e := range req.Entries {
 		entries = append(entries, SendMessageBatchEntry{
-			ID:                     e.ID,
-			MessageBody:            e.MessageBody,
-			MessageGroupID:         e.MessageGroupID,
-			MessageDeduplicationID: e.MessageDeduplicationID,
-			DelaySeconds:           e.DelaySeconds,
-			MessageAttributes:      toMessageAttributeValues(e.MessageAttributes),
+			ID:                      e.ID,
+			MessageBody:             e.MessageBody,
+			MessageGroupID:          e.MessageGroupID,
+			MessageDeduplicationID:  e.MessageDeduplicationID,
+			DelaySeconds:            e.DelaySeconds,
+			MessageAttributes:       toMessageAttributeValues(e.MessageAttributes),
+			MessageSystemAttributes: toMessageAttributeValues(e.MessageSystemAttributes),
 		})
 	}
 

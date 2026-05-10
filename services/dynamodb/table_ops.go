@@ -82,6 +82,10 @@ func (db *InMemoryDB) CreateTable(
 		return nil, err
 	}
 
+	if err := validateGSIThroughput(input.GlobalSecondaryIndexes, input.BillingMode); err != nil {
+		return nil, err
+	}
+
 	if err := validateLSICount(models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes)); err != nil {
 		return nil, err
 	}

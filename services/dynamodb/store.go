@@ -51,6 +51,26 @@ type storedImport struct {
 	InputFormat  string
 }
 
+// autoScalingSettings records the last UpdateTableReplicaAutoScaling input
+// for a table so DescribeTableReplicaAutoScaling can return the same shape
+// AWS does. Capacities are simple int pointers (nil = unspecified). Per-GSI
+// settings are keyed by index name.
+type autoScalingSettings struct {
+	GlobalSecondaryIndexes map[string]*autoScalingThroughput `json:"GlobalSecondaryIndexes,omitempty"`
+	Read                   *autoScalingThroughput            `json:"Read,omitempty"`
+	Write                  *autoScalingThroughput            `json:"Write,omitempty"`
+}
+
+// autoScalingThroughput captures the min/max/target settings for one direction
+// (read or write). Mirrors types.AutoScalingSettingsUpdate but stripped to the
+// fields LocalStack and most callers care about.
+type autoScalingThroughput struct {
+	MinCapacity     *int64   `json:"MinCapacity,omitempty"`
+	MaxCapacity     *int64   `json:"MaxCapacity,omitempty"`
+	TargetUtilizPct *float64 `json:"TargetUtilizationPct,omitempty"`
+	Disabled        bool     `json:"AutoScalingDisabled,omitempty"`
+}
+
 // pitrSnapshot captures the items of a PITR-enabled table at a point in time.
 // Snapshots are taken by the janitor on its sweep interval (typically 1 minute);
 // RestoreTableToPointInTime returns the latest snapshot at or before the
@@ -160,6 +180,11 @@ type Table struct {
 	// SSESpecification. When false the table still reports AES256 via the
 	// AWS-managed key, matching real DynamoDB behaviour.
 	SSEEnabled bool `json:"SSEEnabled,omitempty"`
+	// AutoScaling stores the most recent UpdateTableReplicaAutoScaling input
+	// so DescribeTableReplicaAutoScaling can echo it back. The in-memory
+	// backend doesn't actually scale; this is metadata round-tripping only,
+	// matching LocalStack's behaviour.
+	AutoScaling *autoScalingSettings `json:"AutoScaling,omitempty"`
 	StreamARN                  string                                  `json:"StreamARN,omitempty"`
 	TableArn                   string                                  `json:"TableArn"`
 	Status                     string                                  `json:"Status"`
