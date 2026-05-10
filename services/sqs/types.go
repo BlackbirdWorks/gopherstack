@@ -127,6 +127,9 @@ type Queue struct {
 	notify           chan struct{} // closed on SendMessage for broadcast wake-up; replaced each time
 	Name             string
 	URL              string
+	// Region records the AWS region the queue was created in. Lookups from a
+	// different region return ErrQueueNotFound, matching real SQS behaviour.
+	Region           string
 	messages         []*Message
 	inFlightMessages []*InFlightMessage
 	// fifoSeqCounter is an atomically-incremented sequence counter used to
@@ -161,12 +164,14 @@ type CreateQueueOutput struct {
 // DeleteQueueInput is the input for DeleteQueue.
 type DeleteQueueInput struct {
 	QueueURL string
+	Region   string
 }
 
 // ListQueuesInput is the input for ListQueues.
 type ListQueuesInput struct {
 	QueueNamePrefix string
 	NextToken       string
+	Region          string
 	MaxResults      int
 }
 
@@ -179,6 +184,7 @@ type ListQueuesOutput struct {
 // GetQueueURLInput is the input for GetQueueURL.
 type GetQueueURLInput struct {
 	QueueName string
+	Region    string
 }
 
 // GetQueueURLOutput is the output for GetQueueURL.

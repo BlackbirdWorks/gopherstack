@@ -73,8 +73,7 @@ func (h *S3Handler) routeObjectPut(
 	case r.URL.Query().Has("tagging"):
 		h.putObjectTagging(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("acl"):
-		h.setOperation(ctx, "PutObjectAcl")
-		w.WriteHeader(http.StatusOK) // ACLs ignored
+		h.putObjectACL(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("partNumber") && r.URL.Query().Has("uploadId"):
 		h.uploadPart(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("retention"):
@@ -934,24 +933,22 @@ func (h *S3Handler) getObjectACL(
 
 	// Verify the object exists before returning an ACL.
 	versionID := r.URL.Query().Get("versionId")
-	var vid *string
-	if versionID != "" {
-		vid = aws.String(versionID)
-	}
 
-	_, err := h.Backend.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket:    aws.String(bucketName),
-		Key:       aws.String(key),
-		VersionId: vid,
-	})
-	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
-		WriteError(ctx, w, r, err)
+	// If a stored ACL exists for the version, return it verbatim. AWS returns
+	// the persisted XML; if a canned ACL was set we still need to synthesise
+	// XML below.
+	stored, aclErr := h.Backend.GetObjectACL(ctx, bucketName, key, versionID)
+	if aclErr != nil {
+		WriteError(ctx, w, r, aclErr)
 
 		return
 	}
 
-	if err != nil {
-		WriteError(ctx, w, r, err)
+	if strings.HasPrefix(strings.TrimSpace(stored), "<") {
+		// Stored value looks like XML — pass through.
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(stored))
 
 		return
 	}
@@ -976,6 +973,38 @@ func (h *S3Handler) getObjectACL(
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, acp)
+}
+
+// putObjectACL persists the ACL (canned via x-amz-acl header or full XML body)
+// against the targeted object version.
+func (h *S3Handler) putObjectACL(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
+	h.setOperation(ctx, "PutObjectAcl")
+
+	versionID := r.URL.Query().Get("versionId")
+
+	// Caller can use either a canned ACL header or supply an XML body. Persist
+	// whichever we received; on read we'll synthesise default XML when empty.
+	canned := r.Header.Get("x-amz-acl")
+
+	body, _ := httputils.ReadBody(r)
+
+	acl := canned
+	if len(body) > 0 {
+		acl = string(body)
+	}
+
+	if err := h.Backend.PutObjectACL(ctx, bucketName, key, versionID, acl); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *S3Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDetails) {

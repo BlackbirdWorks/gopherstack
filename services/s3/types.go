@@ -77,6 +77,7 @@ type StoredObjectVersion struct {
 	Size               int64                   `json:"size"`
 	StorageClass       string                  `json:"storageClass,omitempty"`
 	RestoreExpiry      time.Time               `json:"restoreExpiry,omitempty"`
+	ACL                string                  `json:"acl,omitempty"`
 	IsCompressed       bool                    `json:"isCompressed,omitempty"`
 	IsLatest           bool                    `json:"isLatest"`
 	Deleted            bool                    `json:"deleted,omitempty"`

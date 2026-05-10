@@ -253,6 +253,52 @@ func queueNameFromInput(queueURL string) string {
 	return parts[len(parts)-1]
 }
 
+// effectiveRegion returns the region to scope a backend lookup against.
+// Empty input falls back to the backend's default region so single-region
+// callers (and existing tests) continue to work without explicit region threading.
+func (b *InMemoryBackend) effectiveRegion(region string) string {
+	if region != "" {
+		return region
+	}
+	return b.region
+}
+
+// queueKey is the composite map key used by b.queues, formed from
+// (region, name). Two queues with the same name in different regions occupy
+// distinct keys, matching AWS semantics where queue names are scoped per-region.
+func queueKey(region, name string) string {
+	return region + "/" + name
+}
+
+// lookupQueueByName returns the queue stored under (region, name), or false if
+// no queue exists in that region with that name.
+func (b *InMemoryBackend) lookupQueueByName(region, name string) (*Queue, bool) {
+	q, ok := b.queues[queueKey(b.effectiveRegion(region), name)]
+	return q, ok
+}
+
+// lookupQueueByURL finds a queue by its URL. The URL alone does not encode
+// region in our local mock, so we first try the (region, name) key when a
+// region hint is provided, then fall back to a scan over all regions and
+// match by stored URL. This preserves backward compatibility with callers
+// that don't yet thread region through the input.
+func (b *InMemoryBackend) lookupQueueByURL(region, queueURL string) (*Queue, bool) {
+	name := queueNameFromInput(queueURL)
+	if region != "" {
+		if q, ok := b.queues[queueKey(region, name)]; ok && q.URL == queueURL {
+			return q, true
+		}
+	}
+
+	for _, q := range b.queues {
+		if q.URL == queueURL {
+			return q, true
+		}
+	}
+
+	return nil, false
+}
+
 // redrivePolicy represents the JSON structure of an SQS RedrivePolicy attribute.
 type redrivePolicy struct {
 	DeadLetterTargetArn string      `json:"deadLetterTargetArn"`
@@ -279,7 +325,8 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 
 	dlqName := queueNameFromARN(pol.DeadLetterTargetArn)
 
-	dlq, exists := backend.queues[dlqName]
+	// DLQ must reside in the same region as the source queue (AWS rule).
+	dlq, exists := backend.lookupQueueByName(q.Region, dlqName)
 	if !exists {
 		return
 	}
@@ -444,11 +491,14 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	b.mu.Lock("CreateQueue")
 	defer b.mu.Unlock()
 
-	// AWS idempotency: if a queue with the same name exists and the caller-supplied
-	// configurable attributes are the same (or absent), return the existing URL.
-	// If the same name is used with different configurable attributes, return
-	// QueueNameExists (matches real SQS behaviour).
-	if q, exists := b.queues[input.QueueName]; exists {
+	isFIFO := strings.HasSuffix(input.QueueName, fifoSuffix)
+	region := b.effectiveRegion(input.Region)
+
+	// AWS idempotency: if a queue with the same name exists in the same region
+	// and the caller-supplied configurable attributes are the same (or absent),
+	// return the existing URL. Different configurable attributes yields
+	// QueueNameExists. A name collision in a different region is allowed.
+	if q, exists := b.queues[queueKey(region, input.QueueName)]; exists {
 		for k, v := range input.Attributes {
 			if !isConfigurableQueueAttribute(k) {
 				continue
@@ -461,12 +511,6 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 
 		return &CreateQueueOutput{QueueURL: q.URL}, nil
 	}
-
-	isFIFO := strings.HasSuffix(input.QueueName, fifoSuffix)
-	region := b.region
-	if input.Region != "" {
-		region = input.Region
-	}
 	attrs := buildDefaultAttributes(input.QueueName, b.accountID, region, isFIFO)
 
 	maps.Copy(attrs, input.Attributes)
@@ -478,6 +522,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	q := &Queue{
 		Name:                input.QueueName,
 		URL:                 queueURL,
+		Region:              region,
 		IsFIFO:              isFIFO,
 		Attributes:          attrs,
 		Tags:                tags.FromMap(tagName, input.Tags),
@@ -487,7 +532,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		notify:              make(chan struct{}),
 	}
 
-	b.queues[input.QueueName] = q
+	b.queues[queueKey(region, input.QueueName)] = q
 
 	applyRedrivePolicy(q, attrs, b)
 
@@ -499,9 +544,7 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 	b.mu.Lock("DeleteQueue")
 	defer b.mu.Unlock()
 
-	name := queueNameFromInput(input.QueueURL)
-
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByURL(input.Region, input.QueueURL)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -516,7 +559,7 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 		q.Tags.Close()
 	}
 
-	delete(b.queues, name)
+	delete(b.queues, queueKey(q.Region, q.Name))
 
 	// Cancel any active move tasks that involve this queue (either as source or
 	// destination) to prevent goroutine leaks.
@@ -534,15 +577,20 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 	return nil
 }
 
-// ListQueues returns all queue URLs, optionally filtered by prefix.
+// ListQueues returns queue URLs in the requested region, optionally filtered by prefix.
 func (b *InMemoryBackend) ListQueues(input *ListQueuesInput) (*ListQueuesOutput, error) {
 	b.mu.RLock("ListQueues")
 	defer b.mu.RUnlock()
 
+	scope := b.effectiveRegion(input.Region)
+
 	var urls []string
 
-	for name, q := range b.queues {
-		if input.QueueNamePrefix == "" || strings.HasPrefix(name, input.QueueNamePrefix) {
+	for _, q := range b.queues {
+		if q.Region != scope {
+			continue
+		}
+		if input.QueueNamePrefix == "" || strings.HasPrefix(q.Name, input.QueueNamePrefix) {
 			urls = append(urls, q.URL)
 		}
 	}
@@ -554,12 +602,12 @@ func (b *InMemoryBackend) ListQueues(input *ListQueuesInput) (*ListQueuesOutput,
 	return &ListQueuesOutput{QueueURLs: p.Data, NextToken: p.Next}, nil
 }
 
-// GetQueueURL returns the URL for a queue by name.
+// GetQueueURL returns the URL for a queue by name in the requested region.
 func (b *InMemoryBackend) GetQueueURL(input *GetQueueURLInput) (*GetQueueURLOutput, error) {
 	b.mu.RLock("GetQueueURL")
 	defer b.mu.RUnlock()
 
-	q, ok := b.queues[input.QueueName]
+	q, ok := b.lookupQueueByName(input.Region, input.QueueName)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -574,7 +622,7 @@ func (b *InMemoryBackend) GetQueueAttributes(input *GetQueueAttributesInput) (*G
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -638,7 +686,7 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -732,7 +780,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -1064,7 +1112,7 @@ func (b *InMemoryBackend) resolveWaitSeconds(queueURL string, requested int) int
 	b.mu.RLock("resolveWaitSeconds")
 	defer b.mu.RUnlock()
 
-	if q, ok := b.queues[queueNameFromInput(queueURL)]; ok {
+	if q, ok := b.lookupQueueByURL("", queueURL); ok {
 		if v, err := strconv.Atoi(q.Attributes[attrReceiveMessageWaitTimeSeconds]); err == nil && v > 0 {
 			return v
 		}
@@ -1098,7 +1146,7 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 	b.mu.Lock("receiveOnce")
 	defer b.mu.Unlock()
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return nil, nil, ErrQueueNotFound
 	}
@@ -1304,7 +1352,7 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1333,7 +1381,7 @@ func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibility
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1381,7 +1429,7 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -1532,7 +1580,7 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1565,9 +1613,7 @@ func (b *InMemoryBackend) ListDeadLetterSourceQueues(
 	b.mu.RLock("ListDeadLetterSourceQueues")
 	defer b.mu.RUnlock()
 
-	dlqName := queueNameFromInput(input.QueueURL)
-
-	dlq, exists := b.queues[dlqName]
+	dlq, exists := b.lookupQueueByURL("", input.QueueURL)
 	if !exists {
 		return nil, ErrQueueNotFound
 	}
@@ -1627,7 +1673,7 @@ func (b *InMemoryBackend) TagQueue(input *TagQueueInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1650,7 +1696,7 @@ func (b *InMemoryBackend) UntagQueue(input *UntagQueueInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1669,7 +1715,7 @@ func (b *InMemoryBackend) ListQueueTags(input *ListQueueTagsInput) (*ListQueueTa
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -1898,7 +1944,7 @@ func (b *InMemoryBackend) AddPermission(input *AddPermissionInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1918,7 +1964,7 @@ func (b *InMemoryBackend) RemovePermission(input *RemovePermissionInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName("", name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -2048,7 +2094,7 @@ func (b *InMemoryBackend) StartMessageMoveTask(
 	}
 
 	// Snapshot queue depth under the lock so the estimate is consistent.
-	srcQueue := b.queues[queueNameFromInput(srcURL)]
+	srcQueue, _ := b.lookupQueueByURL("", srcURL)
 	totalCount := approximateQueueDepthLocked(srcQueue)
 
 	taskHandle := uuid.New().String()

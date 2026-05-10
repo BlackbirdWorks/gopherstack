@@ -16,6 +16,7 @@ type queueSnapshot struct {
 	DeduplicationMsgIDs map[string]string                `json:"deduplicationMsgIDs"`
 	Name                string                           `json:"name"`
 	URL                 string                           `json:"url"`
+	Region              string                           `json:"region,omitempty"`
 	Messages            []*Message                       `json:"messages"`
 	InFlightMessages    []*InFlightMessage               `json:"inFlightMessages"`
 	MaxReceiveCount     int                              `json:"maxReceiveCount"`
@@ -61,6 +62,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			DeduplicationMsgIDs: q.deduplicationMsgIDs,
 			Name:                q.Name,
 			URL:                 q.URL,
+			Region:              q.Region,
 			MaxReceiveCount:     q.MaxReceiveCount,
 			IsFIFO:              q.IsFIFO,
 		}
@@ -131,7 +133,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	b.queues = make(map[string]*Queue, len(snap.Queues))
 
-	for k, qs := range snap.Queues {
+	// Restore region first so we can default per-queue regions when missing.
+	if snap.Region != "" {
+		b.region = snap.Region
+	}
+
+	for _, qs := range snap.Queues {
 		if qs.DeduplicationIDs == nil {
 			qs.DeduplicationIDs = make(map[string]time.Time)
 		}
@@ -148,7 +155,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			qs.Permissions = make(map[string]*QueuePermissionEntry)
 		}
 
-		b.queues[k] = &Queue{
+		region := qs.Region
+		if region == "" {
+			region = b.effectiveRegion("")
+		}
+
+		b.queues[queueKey(region, qs.Name)] = &Queue{
 			DeduplicationIDs:    qs.DeduplicationIDs,
 			Attributes:          qs.Attributes,
 			Tags:                qs.Tags,
@@ -158,6 +170,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			deduplicationMsgIDs: qs.DeduplicationMsgIDs,
 			Name:                qs.Name,
 			URL:                 qs.URL,
+			Region:              region,
 			MaxReceiveCount:     qs.MaxReceiveCount,
 			IsFIFO:              qs.IsFIFO,
 			notify:              make(chan struct{}),

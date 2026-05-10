@@ -508,7 +508,7 @@ func (h *Handler) handleCreateQueue(
 
 func (h *Handler) handleDeleteQueue(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonQueueURLReq
@@ -516,7 +516,9 @@ func (h *Handler) handleDeleteQueue(
 		return nil, ErrUnknownAction
 	}
 
-	if err := h.Backend.DeleteQueue(&DeleteQueueInput{QueueURL: req.QueueURL}); err != nil {
+	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+
+	if err := h.Backend.DeleteQueue(&DeleteQueueInput{QueueURL: req.QueueURL, Region: region}); err != nil {
 		return nil, err
 	}
 
@@ -525,17 +527,20 @@ func (h *Handler) handleDeleteQueue(
 
 func (h *Handler) handleListQueues(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonListQueuesReq
 	// ListQueues body may be empty; ignore unmarshal errors
 	_ = json.Unmarshal(body, &req)
 
+	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+
 	out, err := h.Backend.ListQueues(&ListQueuesInput{
 		QueueNamePrefix: req.QueueNamePrefix,
 		NextToken:       req.NextToken,
 		MaxResults:      req.MaxResults,
+		Region:          region,
 	})
 	if err != nil {
 		return nil, err
@@ -551,7 +556,7 @@ func (h *Handler) handleListQueues(
 
 func (h *Handler) handleGetQueueURL(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonGetQueueURLReq
@@ -559,7 +564,9 @@ func (h *Handler) handleGetQueueURL(
 		return nil, ErrUnknownAction
 	}
 
-	out, err := h.Backend.GetQueueURL(&GetQueueURLInput{QueueName: req.QueueName})
+	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+
+	out, err := h.Backend.GetQueueURL(&GetQueueURLInput{QueueName: req.QueueName, Region: region})
 	if err != nil {
 		return nil, err
 	}

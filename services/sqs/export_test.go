@@ -11,7 +11,7 @@ func (b *InMemoryBackend) DedupMapLen(queueName string) int {
 	b.mu.RLock("DedupMapLen")
 	defer b.mu.RUnlock()
 
-	q, ok := b.queues[queueName]
+	q, ok := b.lookupQueueByName("", queueName)
 	if !ok {
 		return -1
 	}
@@ -26,7 +26,7 @@ func (b *InMemoryBackend) InjectExpiredDedupID(queueName, dedupID string) {
 	b.mu.Lock("InjectExpiredDedupID")
 	defer b.mu.Unlock()
 
-	q, ok := b.queues[queueName]
+	q, ok := b.lookupQueueByName("", queueName)
 	if !ok {
 		return
 	}
@@ -71,9 +71,7 @@ func (b *InMemoryBackend) SetRetentionForTest(queueURL string, seconds int) {
 	b.mu.Lock("SetRetentionForTest")
 	defer b.mu.Unlock()
 
-	name := queueNameFromInput(queueURL)
-
-	if q, ok := b.queues[name]; ok {
+	if q, ok := b.lookupQueueByURL("", queueURL); ok {
 		q.Attributes[attrMessageRetentionPeriod] = strconv.Itoa(seconds)
 	}
 }

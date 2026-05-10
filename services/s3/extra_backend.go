@@ -209,6 +209,112 @@ func (b *InMemoryBackend) RestoreObject(_ context.Context, bucketName, key strin
 	return nil
 }
 
+// UpdateObjectEncryption updates the SSE algorithm (and optional KMS key id)
+// of the latest version of the named object.
+func (b *InMemoryBackend) UpdateObjectEncryption(_ context.Context, bucketName, key, algorithm, kmsKeyID string) error {
+	b.mu.RLock("UpdateObjectEncryption")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.RLock("UpdateObjectEncryption")
+	obj, ok := bucket.Objects[key]
+	bucket.mu.RUnlock()
+
+	if !ok {
+		return ErrNoSuchKey
+	}
+
+	obj.mu.Lock("UpdateObjectEncryption")
+	defer obj.mu.Unlock()
+
+	ver, ok := obj.Versions[obj.LatestVersionID]
+	if !ok || ver.Deleted {
+		return ErrNoSuchKey
+	}
+
+	ver.SSEAlgorithm = algorithm
+	ver.SSEKMSKeyID = kmsKeyID
+
+	return nil
+}
+
+// PutObjectACL stores the ACL XML/canned-ACL header on the latest object version.
+// versionID may be empty to target the latest version.
+func (b *InMemoryBackend) PutObjectACL(_ context.Context, bucketName, key, versionID, acl string) error {
+	b.mu.RLock("PutObjectACL")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.RLock("PutObjectACL")
+	obj, ok := bucket.Objects[key]
+	bucket.mu.RUnlock()
+
+	if !ok {
+		return ErrNoSuchKey
+	}
+
+	obj.mu.Lock("PutObjectACL")
+	defer obj.mu.Unlock()
+
+	vid := versionID
+	if vid == "" {
+		vid = obj.LatestVersionID
+	}
+
+	ver, ok := obj.Versions[vid]
+	if !ok || ver.Deleted {
+		return ErrNoSuchKey
+	}
+
+	ver.ACL = acl
+
+	return nil
+}
+
+// GetObjectACL returns the persisted ACL XML for the targeted version, or
+// "" when no explicit ACL has been set (caller should synthesise the default
+// owner-FULL_CONTROL grant in that case).
+func (b *InMemoryBackend) GetObjectACL(_ context.Context, bucketName, key, versionID string) (string, error) {
+	b.mu.RLock("GetObjectACL")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetObjectACL")
+	obj, ok := bucket.Objects[key]
+	bucket.mu.RUnlock()
+
+	if !ok {
+		return "", ErrNoSuchKey
+	}
+
+	obj.mu.RLock("GetObjectACL")
+	defer obj.mu.RUnlock()
+
+	vid := versionID
+	if vid == "" {
+		vid = obj.LatestVersionID
+	}
+
+	ver, ok := obj.Versions[vid]
+	if !ok || ver.Deleted {
+		return "", ErrNoSuchKey
+	}
+
+	return ver.ACL, nil
+}
+
 // RenameObject performs an atomic copy+delete of the source key into a new key.
 // The target key is taken from `targetKey` (relative to the same bucket).
 func (b *InMemoryBackend) RenameObject(_ context.Context, bucketName, sourceKey, targetKey string) error {

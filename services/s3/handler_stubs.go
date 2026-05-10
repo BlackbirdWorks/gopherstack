@@ -368,12 +368,41 @@ func (h *S3Handler) handleRenameObject(
 }
 
 // handleUpdateObjectEncryption handles PUT /{bucket}/{key}?encryption (object-level).
+// Updates the object's SSE algorithm and KMS key based on the
+// x-amz-server-side-encryption headers.
 func (h *S3Handler) handleUpdateObjectEncryption(
 	ctx context.Context,
 	w http.ResponseWriter,
-	_ *http.Request,
+	r *http.Request,
 ) {
 	h.setOperation(ctx, "UpdateObjectEncryption")
+
+	bucket, key, ok := h.resolveBucketAndKey(ctx, w, r)
+	if !ok {
+		return
+	}
+	if bucket == "" || key == "" {
+		WriteError(ctx, w, r, ErrNoSuchKey)
+
+		return
+	}
+
+	algo := r.Header.Get("x-amz-server-side-encryption")
+	kmsKey := r.Header.Get("x-amz-server-side-encryption-aws-kms-key-id")
+
+	if err := h.Backend.UpdateObjectEncryption(ctx, bucket, key, algo, kmsKey); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	if algo != "" {
+		w.Header().Set("x-amz-server-side-encryption", algo)
+	}
+	if kmsKey != "" {
+		w.Header().Set("x-amz-server-side-encryption-aws-kms-key-id", kmsKey)
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
