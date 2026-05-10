@@ -678,6 +678,20 @@
 		}
 	}
 
+	async function updateDeletionProtection(enabled: boolean): Promise<void> {
+		if (!selectedTable) return;
+		try {
+			await ddb.send(new UpdateTableCommand({
+				TableName: selectedTable,
+				DeletionProtectionEnabled: enabled,
+			}));
+			toast.success(`Deletion protection ${enabled ? 'enabled' : 'disabled'}`);
+			await refreshTable();
+		} catch (err: unknown) {
+			toast.error(`Deletion protection update failed: ${(err as Error).message}`);
+		}
+	}
+
 	$effect(() => {
 		if (activeTab === 'items' && selectedTable) {
 			void loadItems(true);
@@ -1047,6 +1061,17 @@
 							<div class="text-[10px] text-slate-500 dark:text-slate-400 font-mono break-all">ARN: {streamARN}</div>
 						</div>
 					{/if}
+				</div>
+				<div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
+					<h2 class="mb-3 text-sm font-bold tracking-tight text-slate-900 dark:text-white uppercase">Deletion Protection</h2>
+					<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">When enabled, DeleteTable will be rejected with ValidationException.</p>
+					<div class="flex items-center gap-3">
+						<input id="del-prot" type="checkbox"
+							checked={selectedTableDesc?.DeletionProtectionEnabled === true}
+							onchange={(e) => updateDeletionProtection((e.currentTarget as HTMLInputElement).checked)}
+							class="w-4 h-4 text-blue-600 bg-slate-100 border-slate-300 rounded focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600" />
+						<label for="del-prot" class="text-sm font-medium text-slate-900 dark:text-slate-300">Enable deletion protection</label>
+					</div>
 				</div>
 				<div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
 					<div class="flex items-center justify-between mb-4">

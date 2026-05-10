@@ -265,14 +265,16 @@ func (h *S3Handler) handleGetObjectAttributes(
 }
 
 // handleGetObjectTorrent handles GET /{bucket}/{key}?torrent.
+// As of 2022 AWS S3 itself returns NotImplemented for new buckets and the
+// operation is being phased out. We mirror that behaviour rather than emit
+// an empty/invalid torrent payload that would be parsed as malformed.
 func (h *S3Handler) handleGetObjectTorrent(
 	ctx context.Context,
 	w http.ResponseWriter,
-	_ *http.Request,
+	r *http.Request,
 ) {
 	h.setOperation(ctx, "GetObjectTorrent")
-	w.Header().Set("Content-Type", "application/x-bittorrent")
-	w.WriteHeader(http.StatusOK)
+	WriteError(ctx, w, r, ErrNotImplemented)
 }
 
 // restoreRequest is the XML body for POST ?restore.

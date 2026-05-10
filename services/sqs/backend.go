@@ -277,17 +277,27 @@ func (b *InMemoryBackend) lookupQueueByName(region, name string) (*Queue, bool) 
 	return q, ok
 }
 
-// lookupQueueByURL finds a queue by its URL. The URL alone does not encode
-// region in our local mock, so we first try the (region, name) key when a
-// region hint is provided, then fall back to a scan over all regions and
-// match by stored URL. This preserves backward compatibility with callers
-// that don't yet thread region through the input.
+// lookupQueueByURL finds a queue by its URL with strict region enforcement.
+// When a region is supplied (i.e., the caller threaded the SigV4 region from
+// the request) the queue MUST live in that region; a queue with the same URL
+// in a different region is treated as not found, matching real AWS where the
+// region in the SigV4 signature must match the regional endpoint.
+//
+// When region is empty the lookup falls back to a URL scan across all regions
+// to support callers that have not yet been wired to thread region through.
+// New code should always pass the request region.
 func (b *InMemoryBackend) lookupQueueByURL(region, queueURL string) (*Queue, bool) {
 	name := queueNameFromInput(queueURL)
+
 	if region != "" {
-		if q, ok := b.queues[queueKey(region, name)]; ok && q.URL == queueURL {
-			return q, true
+		q, ok := b.queues[queueKey(region, name)]
+		if !ok {
+			return nil, false
 		}
+		if q.URL != queueURL {
+			return nil, false
+		}
+		return q, true
 	}
 
 	for _, q := range b.queues {
@@ -622,7 +632,7 @@ func (b *InMemoryBackend) GetQueueAttributes(input *GetQueueAttributesInput) (*G
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -686,7 +696,7 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -780,7 +790,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -1146,7 +1156,7 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 	b.mu.Lock("receiveOnce")
 	defer b.mu.Unlock()
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return nil, nil, ErrQueueNotFound
 	}
@@ -1352,7 +1362,7 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1381,7 +1391,7 @@ func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibility
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1429,7 +1439,7 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -1580,7 +1590,7 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1613,7 +1623,7 @@ func (b *InMemoryBackend) ListDeadLetterSourceQueues(
 	b.mu.RLock("ListDeadLetterSourceQueues")
 	defer b.mu.RUnlock()
 
-	dlq, exists := b.lookupQueueByURL("", input.QueueURL)
+	dlq, exists := b.lookupQueueByURL(input.Region, input.QueueURL)
 	if !exists {
 		return nil, ErrQueueNotFound
 	}
@@ -1673,7 +1683,7 @@ func (b *InMemoryBackend) TagQueue(input *TagQueueInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1696,7 +1706,7 @@ func (b *InMemoryBackend) UntagQueue(input *UntagQueueInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1715,7 +1725,7 @@ func (b *InMemoryBackend) ListQueueTags(input *ListQueueTagsInput) (*ListQueueTa
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -1944,7 +1954,7 @@ func (b *InMemoryBackend) AddPermission(input *AddPermissionInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1964,7 +1974,7 @@ func (b *InMemoryBackend) RemovePermission(input *RemovePermissionInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.lookupQueueByName("", name)
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}

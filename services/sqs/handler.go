@@ -576,7 +576,7 @@ func (h *Handler) handleGetQueueURL(
 
 func (h *Handler) handleGetQueueAttributes(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonGetQueueAttributesReq
@@ -586,6 +586,7 @@ func (h *Handler) handleGetQueueAttributes(
 
 	out, err := h.Backend.GetQueueAttributes(&GetQueueAttributesInput{
 		QueueURL:       req.QueueURL,
+		Region:         httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		AttributeNames: req.AttributeNames,
 	})
 	if err != nil {
@@ -602,7 +603,7 @@ func (h *Handler) handleGetQueueAttributes(
 
 func (h *Handler) handleSetQueueAttributes(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonSetQueueAttributesReq
@@ -612,6 +613,7 @@ func (h *Handler) handleSetQueueAttributes(
 
 	if err := h.Backend.SetQueueAttributes(&SetQueueAttributesInput{
 		QueueURL:   req.QueueURL,
+		Region:     httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		Attributes: req.Attributes,
 	}); err != nil {
 		return nil, err
@@ -622,7 +624,7 @@ func (h *Handler) handleSetQueueAttributes(
 
 func (h *Handler) handleSendMessage(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonSendMessageReq
@@ -632,6 +634,7 @@ func (h *Handler) handleSendMessage(
 
 	out, err := h.Backend.SendMessage(&SendMessageInput{
 		QueueURL:               req.QueueURL,
+		Region:                 httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		MessageBody:            req.MessageBody,
 		MessageGroupID:         req.MessageGroupID,
 		MessageDeduplicationID: req.MessageDeduplicationID,
@@ -652,7 +655,7 @@ func (h *Handler) handleSendMessage(
 
 func (h *Handler) handleReceiveMessage(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonReceiveMessageReq
@@ -683,6 +686,7 @@ func (h *Handler) handleReceiveMessage(
 
 	out, err := h.Backend.ReceiveMessage(&ReceiveMessageInput{
 		QueueURL:              req.QueueURL,
+		Region:                httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		MaxNumberOfMessages:   req.MaxNumberOfMessages,
 		VisibilityTimeout:     vt,
 		WaitTimeSeconds:       req.WaitTimeSeconds,
@@ -716,7 +720,7 @@ func (h *Handler) handleReceiveMessage(
 
 func (h *Handler) handleDeleteMessage(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonDeleteMessageReq
@@ -726,6 +730,7 @@ func (h *Handler) handleDeleteMessage(
 
 	if err := h.Backend.DeleteMessage(&DeleteMessageInput{
 		QueueURL:      req.QueueURL,
+		Region:        httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		ReceiptHandle: req.ReceiptHandle,
 	}); err != nil {
 		return nil, err
@@ -736,7 +741,7 @@ func (h *Handler) handleDeleteMessage(
 
 func (h *Handler) handleChangeMessageVisibility(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonChangeVisibilityReq
@@ -746,6 +751,7 @@ func (h *Handler) handleChangeMessageVisibility(
 
 	if err := h.Backend.ChangeMessageVisibility(&ChangeMessageVisibilityInput{
 		QueueURL:          req.QueueURL,
+		Region:            httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		ReceiptHandle:     req.ReceiptHandle,
 		VisibilityTimeout: req.VisibilityTimeout,
 	}); err != nil {
@@ -757,7 +763,7 @@ func (h *Handler) handleChangeMessageVisibility(
 
 func (h *Handler) handleSendMessageBatch(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonSendMessageBatchReq
@@ -779,6 +785,7 @@ func (h *Handler) handleSendMessageBatch(
 
 	out, err := h.Backend.SendMessageBatch(&SendMessageBatchInput{
 		QueueURL: req.QueueURL,
+		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		Entries:  entries,
 	})
 	if err != nil {
@@ -810,7 +817,7 @@ func (h *Handler) handleSendMessageBatch(
 //nolint:dupl // JSON batch request/response flow intentionally mirrors sibling batch handlers.
 func (h *Handler) handleDeleteMessageBatch(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonDeleteMessageBatchReq
@@ -825,6 +832,7 @@ func (h *Handler) handleDeleteMessageBatch(
 
 	out, err := h.Backend.DeleteMessageBatch(&DeleteMessageBatchInput{
 		QueueURL: req.QueueURL,
+		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		Entries:  entries,
 	})
 	if err != nil {
@@ -850,7 +858,7 @@ func (h *Handler) handleDeleteMessageBatch(
 //nolint:dupl // JSON batch request/response flow intentionally mirrors sibling batch handlers.
 func (h *Handler) handleChangeMessageVisibilityBatch(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonChangeVisibilityBatchReq
@@ -865,6 +873,7 @@ func (h *Handler) handleChangeMessageVisibilityBatch(
 
 	out, err := h.Backend.ChangeMessageVisibilityBatch(&ChangeMessageVisibilityBatchInput{
 		QueueURL: req.QueueURL,
+		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		Entries:  entries,
 	})
 	if err != nil {
@@ -889,7 +898,7 @@ func (h *Handler) handleChangeMessageVisibilityBatch(
 
 func (h *Handler) handlePurgeQueue(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonQueueURLReq
@@ -897,7 +906,10 @@ func (h *Handler) handlePurgeQueue(
 		return nil, ErrUnknownAction
 	}
 
-	if err := h.Backend.PurgeQueue(&PurgeQueueInput{QueueURL: req.QueueURL}); err != nil {
+	if err := h.Backend.PurgeQueue(&PurgeQueueInput{
+		QueueURL: req.QueueURL,
+		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+	}); err != nil {
 		return nil, err
 	}
 
@@ -906,7 +918,7 @@ func (h *Handler) handlePurgeQueue(
 
 func (h *Handler) handleTagQueue(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonTagQueueReq
@@ -916,6 +928,7 @@ func (h *Handler) handleTagQueue(
 
 	if err := h.Backend.TagQueue(&TagQueueInput{
 		QueueURL: req.QueueURL,
+		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		Tags:     req.Tags,
 	}); err != nil {
 		return nil, err
@@ -926,7 +939,7 @@ func (h *Handler) handleTagQueue(
 
 func (h *Handler) handleUntagQueue(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonUntagQueueReq
@@ -936,6 +949,7 @@ func (h *Handler) handleUntagQueue(
 
 	if err := h.Backend.UntagQueue(&UntagQueueInput{
 		QueueURL: req.QueueURL,
+		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		TagKeys:  req.TagKeys,
 	}); err != nil {
 		return nil, err
@@ -946,7 +960,7 @@ func (h *Handler) handleUntagQueue(
 
 func (h *Handler) handleListQueueTags(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonQueueURLReq
@@ -954,7 +968,10 @@ func (h *Handler) handleListQueueTags(
 		return nil, ErrUnknownAction
 	}
 
-	out, err := h.Backend.ListQueueTags(&ListQueueTagsInput{QueueURL: req.QueueURL})
+	out, err := h.Backend.ListQueueTags(&ListQueueTagsInput{
+		QueueURL: req.QueueURL,
+		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -964,7 +981,7 @@ func (h *Handler) handleListQueueTags(
 
 func (h *Handler) handleListDeadLetterSourceQueues(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonListDeadLetterSourceQueuesReq
@@ -974,6 +991,7 @@ func (h *Handler) handleListDeadLetterSourceQueues(
 
 	out, err := h.Backend.ListDeadLetterSourceQueues(&ListDeadLetterSourceQueuesInput{
 		QueueURL:   req.QueueURL,
+		Region:     httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		NextToken:  req.NextToken,
 		MaxResults: req.MaxResults,
 	})
@@ -1375,7 +1393,7 @@ type jsonListMessageMoveTasksResp struct {
 
 func (h *Handler) handleAddPermission(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonAddPermissionReq
@@ -1385,6 +1403,7 @@ func (h *Handler) handleAddPermission(
 
 	if err := h.Backend.AddPermission(&AddPermissionInput{
 		QueueURL:      req.QueueURL,
+		Region:        httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		Label:         req.Label,
 		AWSAccountIDs: req.AWSAccountIDs,
 		Actions:       req.Actions,
@@ -1397,7 +1416,7 @@ func (h *Handler) handleAddPermission(
 
 func (h *Handler) handleRemovePermission(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonRemovePermissionReq
@@ -1407,6 +1426,7 @@ func (h *Handler) handleRemovePermission(
 
 	if err := h.Backend.RemovePermission(&RemovePermissionInput{
 		QueueURL: req.QueueURL,
+		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
 		Label:    req.Label,
 	}); err != nil {
 		return nil, err

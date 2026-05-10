@@ -195,6 +195,7 @@ type GetQueueURLOutput struct {
 // GetQueueAttributesInput is the input for GetQueueAttributes.
 type GetQueueAttributesInput struct {
 	QueueURL       string
+	Region         string
 	AttributeNames []string
 }
 
@@ -207,12 +208,14 @@ type GetQueueAttributesOutput struct {
 type SetQueueAttributesInput struct {
 	Attributes map[string]string
 	QueueURL   string
+	Region     string
 }
 
 // SendMessageInput is the input for SendMessage.
 type SendMessageInput struct {
 	MessageAttributes      map[string]MessageAttributeValue
 	QueueURL               string
+	Region                 string
 	MessageBody            string
 	MessageGroupID         string
 	MessageDeduplicationID string
@@ -230,6 +233,7 @@ type SendMessageOutput struct {
 // ReceiveMessageInput is the input for ReceiveMessage.
 type ReceiveMessageInput struct {
 	QueueURL              string
+	Region                string
 	AttributeNames        []string
 	MessageAttributeNames []string
 	MaxNumberOfMessages   int
@@ -245,12 +249,14 @@ type ReceiveMessageOutput struct {
 // DeleteMessageInput is the input for DeleteMessage.
 type DeleteMessageInput struct {
 	QueueURL      string
+	Region        string
 	ReceiptHandle string
 }
 
 // ChangeMessageVisibilityInput is the input for ChangeMessageVisibility.
 type ChangeMessageVisibilityInput struct {
 	QueueURL          string
+	Region            string
 	ReceiptHandle     string
 	VisibilityTimeout int
 }
@@ -268,6 +274,7 @@ type SendMessageBatchEntry struct {
 // SendMessageBatchInput is the input for SendMessageBatch.
 type SendMessageBatchInput struct {
 	QueueURL string
+	Region   string
 	Entries  []SendMessageBatchEntry
 }
 
@@ -303,6 +310,7 @@ type DeleteMessageBatchEntry struct {
 // DeleteMessageBatchInput is the input for DeleteMessageBatch.
 type DeleteMessageBatchInput struct {
 	QueueURL string
+	Region   string
 	Entries  []DeleteMessageBatchEntry
 }
 
@@ -320,6 +328,7 @@ type DeleteMessageBatchOutput struct {
 // PurgeQueueInput is the input for PurgeQueue.
 type PurgeQueueInput struct {
 	QueueURL string
+	Region   string
 }
 
 // XMLResponseMetadata holds the request ID for all SQS XML responses.
@@ -538,17 +547,20 @@ type PurgeQueueResponse struct {
 type TagQueueInput struct {
 	Tags     *tags.Tags
 	QueueURL string
+	Region   string
 }
 
 // UntagQueueInput holds the input for UntagQueue.
 type UntagQueueInput struct {
 	QueueURL string
+	Region   string
 	TagKeys  []string
 }
 
 // ListQueueTagsInput holds the input for ListQueueTags.
 type ListQueueTagsInput struct {
 	QueueURL string
+	Region   string
 }
 
 // ListQueueTagsOutput holds the result of ListQueueTags.
@@ -559,6 +571,7 @@ type ListQueueTagsOutput struct {
 // ListDeadLetterSourceQueuesInput is the input for ListDeadLetterSourceQueues.
 type ListDeadLetterSourceQueuesInput struct {
 	QueueURL   string
+	Region     string
 	NextToken  string
 	MaxResults int
 }
@@ -612,6 +625,7 @@ type ChangeMessageVisibilityBatchRequestEntry struct {
 // ChangeMessageVisibilityBatchInput holds input for ChangeMessageVisibilityBatch.
 type ChangeMessageVisibilityBatchInput struct {
 	QueueURL string
+	Region   string
 	Entries  []ChangeMessageVisibilityBatchRequestEntry
 }
 
@@ -687,6 +701,7 @@ type MessageMoveTask struct {
 // AddPermissionInput is the input for AddPermission.
 type AddPermissionInput struct {
 	QueueURL      string
+	Region        string
 	Label         string
 	Actions       []string
 	AWSAccountIDs []string
@@ -695,6 +710,7 @@ type AddPermissionInput struct {
 // RemovePermissionInput is the input for RemovePermission.
 type RemovePermissionInput struct {
 	QueueURL string
+	Region   string
 	Label    string
 }
 

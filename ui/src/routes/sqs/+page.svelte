@@ -16,6 +16,8 @@ TagQueueCommand,
 UntagQueueCommand,
 ListQueueTagsCommand,
 ChangeMessageVisibilityCommand,
+AddPermissionCommand,
+RemovePermissionCommand,
 ListDeadLetterSourceQueuesCommand,
 StartMessageMoveTaskCommand,
 CancelMessageMoveTaskCommand,
@@ -38,7 +40,7 @@ let queues = $state<Array<{ url: string; attrs: Record<string, string> }>>([]);
 let searchQuery = $state('');
 let filterType = $state<'all' | 'standard' | 'fifo'>('all');
 let selectedQueue = $state<{ url: string; attrs: Record<string, string> } | null>(null);
-let activeTab = $state<'messages' | 'attributes' | 'tags' | 'move' | 'docs'>('messages');
+let activeTab = $state<'messages' | 'attributes' | 'tags' | 'move' | 'permissions' | 'docs'>('messages');
 
 // Create queue
 let showCreateModal = $state(false);
@@ -330,26 +332,33 @@ deletingReceipt = null;
 }
 }
 
-async function changeVisibility(msg: Message) {
-if (!selectedQueue || !msg.ReceiptHandle) return;
-const input = window.prompt('New visibility timeout in seconds (0 returns the message immediately, max 43200):', '30');
-if (input === null) return;
-const seconds = Number(input);
-if (!Number.isFinite(seconds) || seconds < 0 || seconds > 43200) {
-	toast.error('Visibility must be between 0 and 43200 seconds');
-	return;
+let visibilityModal = $state<{ msg: Message | null; seconds: number }>({ msg: null, seconds: 30 });
+
+function openVisibilityModal(msg: Message) {
+	visibilityModal = { msg, seconds: 30 };
 }
-try {
-	await sqs.send(new ChangeMessageVisibilityCommand({
-		QueueUrl: selectedQueue.url,
-		ReceiptHandle: msg.ReceiptHandle,
-		VisibilityTimeout: seconds,
-	}));
-	toast.success(seconds === 0 ? 'Message released for redelivery' : `Visibility set to ${seconds}s`);
-	if (seconds === 0) messages = messages.filter((m) => m.MessageId !== msg.MessageId);
-} catch (err: unknown) {
-	toast.error(`ChangeVisibility failed: ${(err as Error).message}`);
-}
+
+async function applyVisibilityChange() {
+	const msg = visibilityModal.msg;
+	if (!selectedQueue || !msg || !msg.ReceiptHandle) return;
+	const seconds = Number(visibilityModal.seconds);
+	if (!Number.isFinite(seconds) || seconds < 0 || seconds > 43200) {
+		toast.error('Visibility must be between 0 and 43200 seconds');
+		return;
+	}
+	try {
+		await sqs.send(new ChangeMessageVisibilityCommand({
+			QueueUrl: selectedQueue.url,
+			ReceiptHandle: msg.ReceiptHandle,
+			VisibilityTimeout: seconds,
+		}));
+		toast.success(seconds === 0 ? 'Message released for redelivery' : `Visibility set to ${seconds}s`);
+		if (seconds === 0) messages = messages.filter((m) => m.MessageId !== msg.MessageId);
+	} catch (err: unknown) {
+		toast.error(`ChangeVisibility failed: ${(err as Error).message}`);
+	} finally {
+		visibilityModal = { msg: null, seconds: 30 };
+	}
 }
 
 // ──────────────── Purge ────────────────
@@ -468,9 +477,84 @@ function removeTagRow(i: number) {
 tagRows = tagRows.filter((_, idx) => idx !== i);
 }
 
-async function onTabChange(tab: 'messages' | 'attributes' | 'tags' | 'move' | 'docs') {
+// ──────────────── Permissions (AddPermission / RemovePermission) ────────────────
+type PermissionRow = { label: string; principal: string; actions: string };
+let permissions = $state<PermissionRow[]>([]);
+let permissionsLoading = $state(false);
+let newPermission = $state<PermissionRow>({ label: '', principal: '*', actions: 'SendMessage,ReceiveMessage' });
+
+// Permissions are stored on the QueueArn — there is no list operation in AWS,
+// so we re-derive from the Policy attribute exposed via GetQueueAttributes.
+async function loadPermissions() {
+	if (!selectedQueue) return;
+	permissionsLoading = true;
+	try {
+		const res = await sqs.send(new GetQueueAttributesCommand({
+			QueueUrl: selectedQueue.url,
+			AttributeNames: ['Policy'],
+		}));
+		const policyJson = res.Attributes?.Policy;
+		permissions = [];
+		if (policyJson) {
+			try {
+				const parsed = JSON.parse(policyJson) as { Statement?: Array<{ Sid?: string; Principal?: unknown; Action?: unknown }> };
+				for (const s of parsed.Statement ?? []) {
+					permissions.push({
+						label: s.Sid ?? '',
+						principal: typeof s.Principal === 'string' ? s.Principal : JSON.stringify(s.Principal ?? '*'),
+						actions: Array.isArray(s.Action) ? (s.Action as string[]).join(', ') : String(s.Action ?? ''),
+					});
+				}
+			} catch {
+				// policy not JSON-parseable
+			}
+		}
+	} catch (err: unknown) {
+		toast.error(`Load permissions failed: ${(err as Error).message}`);
+	} finally {
+		permissionsLoading = false;
+	}
+}
+
+async function addPermission() {
+	if (!selectedQueue || !newPermission.label.trim()) return;
+	try {
+		const accountIDs = newPermission.principal.split(',').map((s) => s.trim()).filter(Boolean);
+		const actions = newPermission.actions.split(',').map((s) => s.trim()).filter(Boolean);
+		if (accountIDs.length === 0 || actions.length === 0) {
+			toast.error('Principal and Actions are required');
+			return;
+		}
+		await sqs.send(new AddPermissionCommand({
+			QueueUrl: selectedQueue.url,
+			Label: newPermission.label.trim(),
+			AWSAccountIds: accountIDs,
+			Actions: actions,
+		}));
+		toast.success(`Permission "${newPermission.label}" added`);
+		newPermission = { label: '', principal: '*', actions: 'SendMessage,ReceiveMessage' };
+		await loadPermissions();
+	} catch (err: unknown) {
+		toast.error(`AddPermission failed: ${(err as Error).message}`);
+	}
+}
+
+async function removePermission(label: string) {
+	if (!selectedQueue || !label) return;
+	if (!await confirmDestructive({ title: 'Remove Permission', message: `Remove permission "${label}"?`, confirmLabel: 'Remove' })) return;
+	try {
+		await sqs.send(new RemovePermissionCommand({ QueueUrl: selectedQueue.url, Label: label }));
+		toast.success('Permission removed');
+		await loadPermissions();
+	} catch (err: unknown) {
+		toast.error(`RemovePermission failed: ${(err as Error).message}`);
+	}
+}
+
+async function onTabChange(tab: 'messages' | 'attributes' | 'tags' | 'move' | 'permissions' | 'docs') {
 activeTab = tab;
 if (tab === 'tags' && selectedQueue) await loadTags();
+if (tab === 'permissions' && selectedQueue) await loadPermissions();
 if (tab === 'move' && selectedQueue) await loadMoveTasks();
 }
 
@@ -738,6 +822,12 @@ class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:b
 		<ArrowRightLeft class="w-4 h-4" /> Move Tasks
 	</button>
 	<button
+		onclick={() => onTabChange('permissions')}
+		class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === 'permissions' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
+	>
+		<Settings class="w-4 h-4" /> Permissions
+	</button>
+	<button
 		onclick={() => onTabChange('docs')}
 		class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === 'docs' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
 	>
@@ -790,7 +880,7 @@ class="flex items-center gap-2 text-left flex-1 min-w-0"
 {/if}
 </button>
 <button
-onclick={() => changeVisibility(msg)}
+onclick={() => openVisibilityModal(msg)}
 class="p-1 text-slate-400 hover:text-blue-500 ml-2"
 title="Change visibility timeout"
 >
@@ -1042,6 +1132,44 @@ Cancel
 </div>
 {/if}
 
+<!-- Permissions Tab -->
+{#if activeTab === 'permissions'}
+<div class="p-4 space-y-4">
+<p class="text-xs text-slate-500 dark:text-slate-400">Cross-account access policy. AddPermission appends one Sid'd statement; RemovePermission deletes by Sid (label).</p>
+
+{#if permissionsLoading}
+<div class="text-sm text-slate-500 dark:text-slate-400">Loading…</div>
+{:else if permissions.length === 0}
+<p class="text-sm text-slate-500 dark:text-slate-400 italic">No permissions set on this queue.</p>
+{:else}
+<div class="space-y-2">
+{#each permissions as p}
+<div class="flex items-start gap-2 p-3 bg-slate-50 dark:bg-slate-700/30 rounded">
+<div class="min-w-0 flex-1">
+<div class="text-sm font-mono text-slate-900 dark:text-white truncate">{p.label || '(no label)'}</div>
+<div class="text-xs text-slate-500 dark:text-slate-400 mt-1">Principal: <span class="font-mono">{p.principal}</span></div>
+<div class="text-xs text-slate-500 dark:text-slate-400">Actions: <span class="font-mono">{p.actions}</span></div>
+</div>
+<button onclick={() => removePermission(p.label)} disabled={!p.label} class="p-1 text-slate-400 hover:text-red-500 disabled:opacity-30" title="Remove permission">
+<Trash2 class="w-4 h-4" />
+</button>
+</div>
+{/each}
+</div>
+{/if}
+
+<div class="border-t border-slate-200 dark:border-slate-700 pt-4 space-y-2">
+<h4 class="text-sm font-semibold text-slate-900 dark:text-white">Add Permission</h4>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+<input type="text" placeholder="Label (Sid)" bind:value={newPermission.label} class="px-2 py-1.5 text-sm bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+<input type="text" placeholder="AWS Account IDs (comma-separated)" bind:value={newPermission.principal} class="px-2 py-1.5 text-sm bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+<input type="text" placeholder="Actions (comma-separated)" bind:value={newPermission.actions} class="px-2 py-1.5 text-sm bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+</div>
+<button onclick={addPermission} class="px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded">Add Permission</button>
+</div>
+</div>
+{/if}
+
 <!-- Docs Tab -->
 {#if activeTab === 'docs'}
 <div class="p-4 space-y-4 max-h-96 overflow-y-auto">
@@ -1092,6 +1220,20 @@ Cancel
 </div>
 
 <!-- Create Queue Modal -->
+{#if visibilityModal.msg}
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+<div class="bg-white dark:bg-slate-800 rounded-lg p-6 max-w-md w-full mx-4">
+<h3 class="text-lg font-semibold text-slate-900 dark:text-white mb-3">Change Message Visibility</h3>
+<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Seconds (0 returns the message immediately, max 43200).</p>
+<input type="number" min="0" max="43200" bind:value={visibilityModal.seconds} class="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+<div class="flex justify-end gap-2 mt-4">
+<button onclick={() => { visibilityModal = { msg: null, seconds: 30 }; }} class="px-3 py-1.5 text-sm text-slate-600 dark:text-slate-400">Cancel</button>
+<button onclick={applyVisibilityChange} class="px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded">Apply</button>
+</div>
+</div>
+</div>
+{/if}
+
 {#if showCreateModal}
 <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
