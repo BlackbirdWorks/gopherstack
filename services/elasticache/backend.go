@@ -131,6 +131,7 @@ type Cluster struct {
 	CreatedAt                  time.Time
 	Tags                       *tags.Tags
 	mini                       *miniredis.Miniredis
+	Members                    []CacheNodeMember
 	ClusterID                  string
 	Engine                     string
 	EngineVersion              string
@@ -142,6 +143,8 @@ type Cluster struct {
 	PreferredMaintenanceWindow string
 	SnapshotWindow             string
 	ReplicationGroupID         string
+	KmsKeyId                   string
+	TransitEncryptionMode      string
 	Port                       int
 	NumCacheNodes              int
 	TransitEncryptionEnabled   bool
@@ -150,19 +153,32 @@ type Cluster struct {
 
 // ReplicationGroup represents an ElastiCache replication group.
 type ReplicationGroup struct {
-	CreatedAt                  time.Time  `json:"createdAt"`
-	Tags                       *tags.Tags `json:"tags,omitempty"`
-	ReplicationGroupID         string     `json:"replicationGroupID"`
-	Description                string     `json:"description"`
-	Status                     string     `json:"status"`
-	ARN                        string     `json:"arn"`
-	CacheParameterGroupName    string     `json:"cacheParameterGroupName,omitempty"`
-	AutomaticFailover          string     `json:"automaticFailover,omitempty"`
-	EngineVersion              string     `json:"engineVersion,omitempty"`
-	CacheNodeType              string     `json:"cacheNodeType,omitempty"`
-	PreferredMaintenanceWindow string     `json:"preferredMaintenanceWindow,omitempty"`
-	SnapshotWindow             string     `json:"snapshotWindow,omitempty"`
-	MultiAZEnabled             bool       `json:"multiAZEnabled,omitempty"`
+	CreatedAt                  time.Time                `json:"createdAt"`
+	AuthTokenLastModifiedDate  *time.Time               `json:"authTokenLastModifiedDate,omitempty"`
+	PendingModifiedValues      *RGPendingModifiedValues `json:"pendingModifiedValues,omitempty"`
+	Tags                       *tags.Tags               `json:"tags,omitempty"`
+	NodeGroups                 []NodeGroup              `json:"nodeGroups,omitempty"`
+	LogDeliveryConfigurations  []LogDeliveryConfig      `json:"logDeliveryConfigurations,omitempty"`
+	ReplicationGroupID         string                   `json:"replicationGroupID"`
+	Description                string                   `json:"description"`
+	Status                     string                   `json:"status"`
+	ARN                        string                   `json:"arn"`
+	CacheParameterGroupName    string                   `json:"cacheParameterGroupName,omitempty"`
+	AutomaticFailover          string                   `json:"automaticFailover,omitempty"`
+	EngineVersion              string                   `json:"engineVersion,omitempty"`
+	CacheNodeType              string                   `json:"cacheNodeType,omitempty"`
+	PreferredMaintenanceWindow string                   `json:"preferredMaintenanceWindow,omitempty"`
+	SnapshotWindow             string                   `json:"snapshotWindow,omitempty"`
+	AuthToken                  string                   `json:"authToken,omitempty"`
+	KmsKeyId                   string                   `json:"kmsKeyId,omitempty"`
+	NotificationTopicArn       string                   `json:"notificationTopicArn,omitempty"`
+	TransitEncryptionMode      string                   `json:"transitEncryptionMode,omitempty"`
+	ReplicaCount               int32                    `json:"replicaCount,omitempty"`
+	SnapshotRetentionLimit     int                      `json:"snapshotRetentionLimit,omitempty"`
+	ClusterModeEnabled         bool                     `json:"clusterModeEnabled,omitempty"`
+	AuthTokenEnabled           bool                     `json:"authTokenEnabled,omitempty"`
+	DataTieringEnabled         bool                     `json:"dataTieringEnabled,omitempty"`
+	MultiAZEnabled             bool                     `json:"multiAZEnabled,omitempty"`
 }
 
 // CacheParameterGroup represents an ElastiCache parameter group.
@@ -345,6 +361,11 @@ type StorageBackend interface {
 	) (page.Page[ServiceUpdate], error)
 	DescribeUpdateActions(serviceUpdateName, marker string, maxRecords int) (page.Page[UpdateAction], error)
 	ListAllowedNodeTypeModifications(clusterID, replicationGroupID string) ([]string, error)
+	// Audit1: extended create/modify with new fields
+	CreateReplicationGroupFull(opts ReplicationGroupCreateOpts) (*ReplicationGroup, error)
+	ModifyReplicationGroupFull(id string, opts ReplicationGroupModifyOpts) (*ReplicationGroup, error)
+	// Audit1: auto snapshot scheduling
+	TriggerAutoSnapshot(replicationGroupID string) (*CacheSnapshot, error)
 }
 
 // CacheParameter represents a single cache parameter (for DescribeParameters response).
@@ -374,6 +395,8 @@ func builtinParameterGroupFamilies() []struct{ family, name string } {
 		{"redis2.8", "default.redis2.8"},
 		{"memcached1.6", "default.memcached1.6"},
 		{"memcached1.5", "default.memcached1.5"},
+		{familyValkey8, "default.valkey8"},
+		{familyValkey7, "default.valkey7"},
 	}
 }
 
@@ -496,6 +519,14 @@ func validateParamGroupFamily(engine, family string) error {
 				ErrInvalidParameterGroupFamily,
 			)
 		}
+	case engineValkey:
+		if !strings.HasPrefix(family, engineValkey) {
+			return fmt.Errorf(
+				"parameter group family %q does not match engine valkey: %w",
+				family,
+				ErrInvalidParameterGroupFamily,
+			)
+		}
 	default:
 		if !strings.HasPrefix(family, "redis") {
 			return fmt.Errorf(
@@ -511,11 +542,14 @@ func validateParamGroupFamily(engine, family string) error {
 
 // defaultEngineVersion returns the realistic default version for the given engine.
 func defaultEngineVersion(engine string) string {
-	if engine == engineMemcached {
+	switch engine {
+	case engineMemcached:
 		return "1.6.17"
+	case engineValkey:
+		return versionValkey82
+	default:
+		return versionRedis710
 	}
-
-	return versionRedis710
 }
 
 // createClusterLocked creates a cluster assuming b.mu is already held.
