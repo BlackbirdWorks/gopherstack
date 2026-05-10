@@ -163,6 +163,7 @@ type ReplicationGroup struct {
 	Description                string                   `json:"description"`
 	Status                     string                   `json:"status"`
 	ARN                        string                   `json:"arn"`
+	Engine                     string                   `json:"engine,omitempty"`
 	CacheParameterGroupName    string                   `json:"cacheParameterGroupName,omitempty"`
 	AutomaticFailover          string                   `json:"automaticFailover,omitempty"`
 	EngineVersion              string                   `json:"engineVersion,omitempty"`
@@ -177,6 +178,8 @@ type ReplicationGroup struct {
 	SnapshotRetentionLimit     int                      `json:"snapshotRetentionLimit,omitempty"`
 	ClusterModeEnabled         bool                     `json:"clusterModeEnabled,omitempty"`
 	AuthTokenEnabled           bool                     `json:"authTokenEnabled,omitempty"`
+	AtRestEncryptionEnabled    bool                     `json:"atRestEncryptionEnabled,omitempty"`
+	TransitEncryptionEnabled   bool                     `json:"transitEncryptionEnabled,omitempty"`
 	DataTieringEnabled         bool                     `json:"dataTieringEnabled,omitempty"`
 	MultiAZEnabled             bool                     `json:"multiAZEnabled,omitempty"`
 }
