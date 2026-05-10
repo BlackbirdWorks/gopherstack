@@ -26,14 +26,15 @@ var (
 
 // UserGroup represents an ElastiCache user group.
 type UserGroup struct {
-	CreatedAt   time.Time  `json:"createdAt"`
-	Tags        *tags.Tags `json:"tags,omitempty"`
-	UserGroupID string     `json:"userGroupID"`
-	Description string     `json:"description"`
-	Status      string     `json:"status"`
-	ARN         string     `json:"arn"`
-	Engine      string     `json:"engine"`
-	UserIDs     []string   `json:"userIDs,omitempty"`
+	CreatedAt                   time.Time  `json:"createdAt"`
+	Tags                        *tags.Tags `json:"tags,omitempty"`
+	UserGroupID                 string     `json:"userGroupID"`
+	Description                 string     `json:"description"`
+	Status                      string     `json:"status"`
+	ARN                         string     `json:"arn"`
+	Engine                      string     `json:"engine"`
+	UserIDs                     []string   `json:"userIDs,omitempty"`
+	AssignedReplicationGroupIDs []string   `json:"assignedReplicationGroupIDs,omitempty"`
 }
 
 // ReservedCacheNode represents a purchased reserved cache node.
@@ -175,6 +176,27 @@ func builtinCacheEngineVersions() []CacheEngineVersion {
 			CacheParameterGroupFamily:     "memcached1.5",
 			CacheEngineDescription:        "Memcached",
 			CacheEngineVersionDescription: "Memcached 1.5.16",
+		},
+		{
+			Engine:                        engineValkey,
+			EngineVersion:                 versionValkey82,
+			CacheParameterGroupFamily:     familyValkey8,
+			CacheEngineDescription:        engineValkeyCap,
+			CacheEngineVersionDescription: "Valkey 8.2.0",
+		},
+		{
+			Engine:                        engineValkey,
+			EngineVersion:                 "8.0.1",
+			CacheParameterGroupFamily:     familyValkey8,
+			CacheEngineDescription:        engineValkeyCap,
+			CacheEngineVersionDescription: "Valkey 8.0.1",
+		},
+		{
+			Engine:                        engineValkey,
+			EngineVersion:                 "7.2.7",
+			CacheParameterGroupFamily:     familyValkey7,
+			CacheEngineDescription:        engineValkeyCap,
+			CacheEngineVersionDescription: "Valkey 7.2.7",
 		},
 	}
 }
@@ -772,7 +794,10 @@ func (b *InMemoryBackend) TestMigration(replicationGroupID string) (*Replication
 }
 
 // IncreaseReplicaCount increases the replica count for a replication group.
-func (b *InMemoryBackend) IncreaseReplicaCount(replicationGroupID string, _ int32) (*ReplicationGroup, error) {
+func (b *InMemoryBackend) IncreaseReplicaCount(
+	replicationGroupID string,
+	newReplicaCount int32,
+) (*ReplicationGroup, error) {
 	b.mu.Lock("IncreaseReplicaCount")
 	defer b.mu.Unlock()
 
@@ -781,13 +806,22 @@ func (b *InMemoryBackend) IncreaseReplicaCount(replicationGroupID string, _ int3
 		return nil, ErrReplicationGroupNotFound
 	}
 
+	if newReplicaCount > 0 {
+		rg.ReplicaCount = newReplicaCount
+	}
+
+	b.appendEventLocked(replicationGroupID, "replication-group", "replica count increased")
+
 	result := *rg
 
 	return &result, nil
 }
 
 // DecreaseReplicaCount decreases the replica count for a replication group.
-func (b *InMemoryBackend) DecreaseReplicaCount(replicationGroupID string, _ int32) (*ReplicationGroup, error) {
+func (b *InMemoryBackend) DecreaseReplicaCount(
+	replicationGroupID string,
+	newReplicaCount int32,
+) (*ReplicationGroup, error) {
 	b.mu.Lock("DecreaseReplicaCount")
 	defer b.mu.Unlock()
 
@@ -796,15 +830,22 @@ func (b *InMemoryBackend) DecreaseReplicaCount(replicationGroupID string, _ int3
 		return nil, ErrReplicationGroupNotFound
 	}
 
+	if newReplicaCount >= 0 {
+		rg.ReplicaCount = newReplicaCount
+	}
+
+	b.appendEventLocked(replicationGroupID, "replication-group", "replica count decreased")
+
 	result := *rg
 
 	return &result, nil
 }
 
 // ModifyReplicationGroupShardConfiguration modifies the shard configuration of a replication group.
+// Cluster mode must be enabled to use this operation.
 func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(
 	replicationGroupID string,
-	_ int32,
+	nodeGroupCount int32,
 ) (*ReplicationGroup, error) {
 	b.mu.Lock("ModifyReplicationGroupShardConfiguration")
 	defer b.mu.Unlock()
@@ -813,6 +854,16 @@ func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
+
+	if !rg.ClusterModeEnabled {
+		return nil, ErrClusterModeRequired
+	}
+
+	if nodeGroupCount > 0 {
+		rg.NodeGroups = resizeNodeGroups(rg.NodeGroups, int(nodeGroupCount), int(rg.ReplicaCount))
+	}
+
+	b.appendEventLocked(replicationGroupID, "replication-group", "shard configuration modified")
 
 	result := *rg
 
