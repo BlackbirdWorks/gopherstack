@@ -131,7 +131,6 @@ type Cluster struct {
 	CreatedAt                  time.Time
 	Tags                       *tags.Tags
 	mini                       *miniredis.Miniredis
-	Members                    []CacheNodeMember
 	ClusterID                  string
 	Engine                     string
 	EngineVersion              string
@@ -143,8 +142,9 @@ type Cluster struct {
 	PreferredMaintenanceWindow string
 	SnapshotWindow             string
 	ReplicationGroupID         string
-	KmsKeyId                   string
+	KmsKeyID                   string
 	TransitEncryptionMode      string
+	Members                    []CacheNodeMember
 	Port                       int
 	NumCacheNodes              int
 	TransitEncryptionEnabled   bool
@@ -157,8 +157,6 @@ type ReplicationGroup struct {
 	AuthTokenLastModifiedDate  *time.Time               `json:"authTokenLastModifiedDate,omitempty"`
 	PendingModifiedValues      *RGPendingModifiedValues `json:"pendingModifiedValues,omitempty"`
 	Tags                       *tags.Tags               `json:"tags,omitempty"`
-	NodeGroups                 []NodeGroup              `json:"nodeGroups,omitempty"`
-	LogDeliveryConfigurations  []LogDeliveryConfig      `json:"logDeliveryConfigurations,omitempty"`
 	ReplicationGroupID         string                   `json:"replicationGroupID"`
 	Description                string                   `json:"description"`
 	Status                     string                   `json:"status"`
@@ -171,11 +169,13 @@ type ReplicationGroup struct {
 	PreferredMaintenanceWindow string                   `json:"preferredMaintenanceWindow,omitempty"`
 	SnapshotWindow             string                   `json:"snapshotWindow,omitempty"`
 	AuthToken                  string                   `json:"authToken,omitempty"`
-	KmsKeyId                   string                   `json:"kmsKeyId,omitempty"`
+	KmsKeyID                   string                   `json:"kmsKeyId,omitempty"`
 	NotificationTopicArn       string                   `json:"notificationTopicArn,omitempty"`
 	TransitEncryptionMode      string                   `json:"transitEncryptionMode,omitempty"`
-	ReplicaCount               int32                    `json:"replicaCount,omitempty"`
+	NodeGroups                 []NodeGroup              `json:"nodeGroups,omitempty"`
+	LogDeliveryConfigurations  []LogDeliveryConfig      `json:"logDeliveryConfigurations,omitempty"`
 	SnapshotRetentionLimit     int                      `json:"snapshotRetentionLimit,omitempty"`
+	ReplicaCount               int32                    `json:"replicaCount,omitempty"`
 	ClusterModeEnabled         bool                     `json:"clusterModeEnabled,omitempty"`
 	AuthTokenEnabled           bool                     `json:"authTokenEnabled,omitempty"`
 	AtRestEncryptionEnabled    bool                     `json:"atRestEncryptionEnabled,omitempty"`

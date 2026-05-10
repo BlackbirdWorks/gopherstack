@@ -818,7 +818,10 @@ func (b *InMemoryBackend) IncreaseReplicaCount(
 }
 
 // DecreaseReplicaCount decreases the replica count for a replication group.
-func (b *InMemoryBackend) DecreaseReplicaCount(replicationGroupID string, newReplicaCount int32) (*ReplicationGroup, error) {
+func (b *InMemoryBackend) DecreaseReplicaCount(
+	replicationGroupID string,
+	newReplicaCount int32,
+) (*ReplicationGroup, error) {
 	b.mu.Lock("DecreaseReplicaCount")
 	defer b.mu.Unlock()
 

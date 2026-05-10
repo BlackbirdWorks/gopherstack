@@ -564,7 +564,7 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 		MaintenanceWindow:     form.Get("PreferredMaintenanceWindow"),
 		SnapshotWindow:        form.Get("SnapshotWindow"),
 		AuthToken:             form.Get("AuthToken"),
-		KmsKeyId:              form.Get("KmsKeyId"),
+		KmsKeyID:              form.Get("KmsKeyId"),
 		NotificationTopicArn:  form.Get("NotificationTopicArn"),
 		TransitEncryptionMode: form.Get("TransitEncryptionMode"),
 		Engine:                form.Get("Engine"),
@@ -572,7 +572,7 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 		CacheNodeType:         form.Get("CacheNodeType"),
 	}
 
-	opts.AuthTokenEnabled = strings.EqualFold(form.Get("AuthToken"), "") == false ||
+	opts.AuthTokenEnabled = !strings.EqualFold(form.Get("AuthToken"), "") ||
 		strings.EqualFold(form.Get("AuthTokenEnabled"), "true")
 	opts.AtRestEncryptionEnabled = strings.EqualFold(form.Get("AtRestEncryptionEnabled"), "true")
 	opts.TransitEncryptionEnabled = strings.EqualFold(form.Get("TransitEncryptionEnabled"), "true")
@@ -675,15 +675,15 @@ type replicationGroupXML struct {
 	PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow,omitempty"`
 	EngineVersion              string `xml:"EngineVersion,omitempty"`
 	CreatedAt                  string `xml:"CreatingDate,omitempty"`
-	KmsKeyId                   string `xml:"KmsKeyId,omitempty"`
+	KmsKeyID                   string `xml:"KmsKeyId,omitempty"`
 	NotificationTopicArn       string `xml:"NotificationTopicArn,omitempty"`
 	TransitEncryptionMode      string `xml:"TransitEncryptionMode,omitempty"`
+	DataTiering                string `xml:"DataTiering,omitempty"`
 	SnapshotRetentionLimit     int    `xml:"SnapshotRetentionLimit,omitempty"`
 	ClusterEnabled             bool   `xml:"ClusterEnabled,omitempty"`
 	AuthTokenEnabled           bool   `xml:"AuthTokenEnabled,omitempty"`
 	AtRestEncryptionEnabled    bool   `xml:"AtRestEncryptionEnabled,omitempty"`
 	TransitEncryptionEnabled   bool   `xml:"TransitEncryptionEnabled,omitempty"`
-	DataTiering                string `xml:"DataTiering,omitempty"`
 }
 
 // dataTieringStatus converts a bool to the AWS DataTieringStatus string.
@@ -720,7 +720,7 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 		PreferredMaintenanceWindow: rg.PreferredMaintenanceWindow,
 		EngineVersion:              rg.EngineVersion,
 		CreatedAt:                  rg.CreatedAt.UTC().Format(time.RFC3339),
-		KmsKeyId:                   rg.KmsKeyId,
+		KmsKeyID:                   rg.KmsKeyID,
 		NotificationTopicArn:       rg.NotificationTopicArn,
 		TransitEncryptionMode:      rg.TransitEncryptionMode,
 		SnapshotRetentionLimit:     rg.SnapshotRetentionLimit,

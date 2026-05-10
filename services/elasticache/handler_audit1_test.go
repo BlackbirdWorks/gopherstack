@@ -78,12 +78,12 @@ func TestBackend_CreateReplicationGroupFull_KmsKey(t *testing.T) {
 	rg, err := b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
 		ID:                      "kms-rg",
 		Description:             "with kms key",
-		KmsKeyId:                kmsKey,
+		KmsKeyID:                kmsKey,
 		AtRestEncryptionEnabled: true,
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, kmsKey, rg.KmsKeyId)
+	assert.Equal(t, kmsKey, rg.KmsKeyID)
 	assert.True(t, rg.AtRestEncryptionEnabled)
 }
 
@@ -908,7 +908,7 @@ func TestBackend_Persistence_NewFieldsRoundTrip(t *testing.T) {
 		ClusterModeEnabled:       true,
 		AuthTokenEnabled:         true,
 		AuthToken:                "persist-token",
-		KmsKeyId:                 "arn:aws:kms:us-east-1:123:key/abc",
+		KmsKeyID:                 "arn:aws:kms:us-east-1:123:key/abc",
 		AtRestEncryptionEnabled:  true,
 		TransitEncryptionEnabled: true,
 		TransitEncryptionMode:    "preferred",
