@@ -879,7 +879,7 @@
 
 		<div class="mb-4 border-b border-slate-200 dark:border-slate-700">
 			<ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
-				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups']] as [id, label]}
+				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['indexes', 'Indexes'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups']] as [id, label]}
 					<li class="me-2">
 						<button onclick={() => { activeTab = id; }}
 							class="inline-block p-4 border-b-2 rounded-t-lg {activeTab === id ? 'text-blue-600 border-blue-600 dark:text-blue-500 dark:border-blue-500' : 'border-transparent hover:text-slate-600 hover:border-slate-300 dark:hover:text-slate-300'}">
@@ -1307,6 +1307,96 @@
 				{:else}
 					<p class="text-sm text-slate-500 dark:text-slate-400 py-4">No items found in this table.</p>
 				{/if}
+			</div>
+		{:else if activeTab === 'indexes'}
+			<!-- Indexes Tab -->
+			<div class="space-y-6">
+				<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+					<div class="flex items-center justify-between mb-4">
+						<div>
+							<h3 class="text-base font-semibold text-slate-900 dark:text-white">Global Secondary Indexes</h3>
+							<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Up to 20 GSIs per table. New GSIs report <code>CREATING</code> until ready.</p>
+						</div>
+						<button onclick={() => { showCreateGsiModal = true; }} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Create GSI</button>
+					</div>
+					{#if (selectedTableDesc?.GlobalSecondaryIndexes ?? []).length === 0}
+						<p class="text-sm text-slate-500 dark:text-slate-400">No global secondary indexes on this table.</p>
+					{:else}
+						<div class="overflow-x-auto">
+							<table class="w-full text-sm">
+								<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
+									<tr>
+										<th class="px-4 py-2 text-left">Index Name</th>
+										<th class="px-4 py-2 text-left">Key Schema</th>
+										<th class="px-4 py-2 text-left">Projection</th>
+										<th class="px-4 py-2 text-left">Status</th>
+										<th class="px-4 py-2 text-right">Items</th>
+										<th class="px-4 py-2"></th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each (selectedTableDesc?.GlobalSecondaryIndexes ?? []) as gsi (gsi.IndexName)}
+										<tr class="border-b dark:border-slate-600">
+											<td class="px-4 py-2 font-mono text-slate-700 dark:text-slate-300">{gsi.IndexName}</td>
+											<td class="px-4 py-2 text-xs text-slate-700 dark:text-slate-300">{(gsi.KeySchema ?? []).map(k => `${k.AttributeName} (${k.KeyType})`).join(', ')}</td>
+											<td class="px-4 py-2 text-xs text-slate-700 dark:text-slate-300">
+												{gsi.Projection?.ProjectionType ?? '—'}
+												{#if gsi.Projection?.ProjectionType === 'INCLUDE'}
+													<span class="text-slate-500">[{(gsi.Projection.NonKeyAttributes ?? []).join(', ')}]</span>
+												{/if}
+											</td>
+											<td class="px-4 py-2">
+												<span class="text-xs px-2 py-0.5 rounded {gsi.IndexStatus === 'ACTIVE' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300'}">{gsi.IndexStatus ?? 'UNKNOWN'}</span>
+											</td>
+											<td class="px-4 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">{gsi.ItemCount ?? 0}</td>
+											<td class="px-4 py-2 text-right">
+												<button onclick={() => deleteGsi(gsi.IndexName!)} class="text-red-600 hover:text-red-800 dark:text-red-400 text-xs font-medium px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20">Delete</button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</div>
+
+				<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+					<div class="mb-4">
+						<h3 class="text-base font-semibold text-slate-900 dark:text-white">Local Secondary Indexes</h3>
+						<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">LSIs are fixed at table creation and cannot be added or removed afterwards.</p>
+					</div>
+					{#if (selectedTableDesc?.LocalSecondaryIndexes ?? []).length === 0}
+						<p class="text-sm text-slate-500 dark:text-slate-400">No local secondary indexes on this table.</p>
+					{:else}
+						<div class="overflow-x-auto">
+							<table class="w-full text-sm">
+								<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
+									<tr>
+										<th class="px-4 py-2 text-left">Index Name</th>
+										<th class="px-4 py-2 text-left">Key Schema</th>
+										<th class="px-4 py-2 text-left">Projection</th>
+										<th class="px-4 py-2 text-right">Items</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each (selectedTableDesc?.LocalSecondaryIndexes ?? []) as lsi (lsi.IndexName)}
+										<tr class="border-b dark:border-slate-600">
+											<td class="px-4 py-2 font-mono text-slate-700 dark:text-slate-300">{lsi.IndexName}</td>
+											<td class="px-4 py-2 text-xs text-slate-700 dark:text-slate-300">{(lsi.KeySchema ?? []).map(k => `${k.AttributeName} (${k.KeyType})`).join(', ')}</td>
+											<td class="px-4 py-2 text-xs text-slate-700 dark:text-slate-300">
+												{lsi.Projection?.ProjectionType ?? '—'}
+												{#if lsi.Projection?.ProjectionType === 'INCLUDE'}
+													<span class="text-slate-500">[{(lsi.Projection.NonKeyAttributes ?? []).join(', ')}]</span>
+												{/if}
+											</td>
+											<td class="px-4 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">{lsi.ItemCount ?? 0}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</div>
 			</div>
 		{:else if activeTab === 'streams'}
 			<div class="space-y-4">
