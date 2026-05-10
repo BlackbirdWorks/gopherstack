@@ -239,6 +239,14 @@ func (h *S3Handler) routeBucketPost(
 		return
 	}
 
+	// Browser-style POST upload: POST /bucket with multipart/form-data and a
+	// `file` field. Matches LocalStack / real S3 presigned-POST semantics.
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		h.handlePostObject(ctx, w, r, bucket)
+
+		return
+	}
+
 	WriteError(ctx, w, r, ErrMethodNotAllowed)
 }
 

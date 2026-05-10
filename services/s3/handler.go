@@ -262,6 +262,7 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"PutBucketRequestPayment",
 		"RenameObject",
 		"RestoreObject",
+		"PostObject",
 		"UpdateBucketMetadataInventoryTableConfiguration",
 		"UpdateBucketMetadataJournalTableConfiguration",
 		"UpdateObjectEncryption",

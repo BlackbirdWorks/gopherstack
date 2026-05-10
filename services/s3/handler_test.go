@@ -1503,6 +1503,12 @@ func (m *mockNotificationDispatcher) DispatchObjectDeleted(
 	m.deleted = append(m.deleted, notificationEvent{bucket: bucket, key: key, notifXML: notifXML})
 }
 
+func (m *mockNotificationDispatcher) DispatchObjectRestorePost(
+	_ context.Context, _, _, _ string,
+) {
+	// Unused by current tests; satisfy NotificationDispatcher.
+}
+
 func TestHandler_NotificationDispatch_PutObject(t *testing.T) {
 	t.Parallel()
 

@@ -310,6 +310,18 @@ func (h *S3Handler) handleRestoreObject(
 		return
 	}
 
+	// AWS fires s3:ObjectRestore:Post when a restore is initiated; downstream
+	// SQS/SNS/Lambda consumers depend on it for archival workflows.
+	if h.notifier != nil {
+		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(
+			ctx, bucket,
+		); ncErr == nil && notifXML != "" {
+			go h.notifier.DispatchObjectRestorePost(
+				h.notificationDispatchContext(), bucket, key, notifXML,
+			)
+		}
+	}
+
 	w.WriteHeader(http.StatusAccepted)
 }
 
