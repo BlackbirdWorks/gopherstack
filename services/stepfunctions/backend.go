@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -30,6 +31,7 @@ var (
 	ErrExecutionNotRedrivable          = errors.New("ExecutionNotRedrivable")
 	ErrInvalidDefinition               = errors.New("InvalidDefinition")
 	ErrInvalidExecutionType            = errors.New("InvalidExecutionType")
+	ErrInvalidRoleArn                  = errors.New("InvalidArn")
 	ErrActivityAlreadyExists           = errors.New("ActivityAlreadyExists")
 	ErrActivityDoesNotExist            = errors.New("ActivityDoesNotExist")
 	ErrTaskTokenNotFound               = errors.New("TaskTokenNotFound")
@@ -302,6 +304,10 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 		smType = "STANDARD"
 	}
 
+	if err := validateRoleARN(roleArn); err != nil {
+		return nil, err
+	}
+
 	// Validate the definition before storing.
 	if _, err := asl.Parse(definition); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
@@ -461,6 +467,12 @@ func (b *InMemoryBackend) UpdateStateMachine(smARN, definition, roleArn string) 
 		}
 	}
 
+	if roleArn != "" {
+		if err := validateRoleARN(roleArn); err != nil {
+			return 0, err
+		}
+	}
+
 	b.mu.Lock("UpdateStateMachine")
 	defer b.mu.Unlock()
 
@@ -583,6 +595,12 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, stateMachineArn)
 	}
 
+	if sm.Type == "EXPRESS" {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: async execution requires STANDARD state machine", ErrInvalidExecutionType)
+	}
+
 	execArn := b.execARN(sm.Name, name)
 	if _, alreadyExists := b.executions[execArn]; alreadyExists {
 		b.mu.Unlock()
@@ -644,6 +662,18 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	)
 
 	return exec, nil
+}
+
+func validateRoleARN(roleArn string) error {
+	if roleArn == "" {
+		return nil
+	}
+
+	if !strings.HasPrefix(roleArn, "arn:") {
+		return fmt.Errorf("%w: roleArn must be an ARN", ErrInvalidRoleArn)
+	}
+
+	return nil
 }
 
 // historyRecorder adapts InMemoryBackend to the asl.HistoryRecorder interface.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -965,6 +966,13 @@ func (e *Executor) executeMap(
 		return "", nil, err
 	}
 
+	if len(state.ItemSelector) > 0 {
+		items, err = applyMapItemSelector(state.ItemSelector, items)
+		if err != nil {
+			return "", nil, err
+		}
+	}
+
 	// Apply ItemBatcher: wrap items into batches; each batch is one Map iteration.
 	if state.ItemBatcher != nil {
 		batched := batchItems(items, state.ItemBatcher)
@@ -1027,6 +1035,32 @@ func batchItems(items []any, batcher *ItemBatcher) []any {
 	}
 
 	return batches
+}
+
+func applyMapItemSelector(itemSelector json.RawMessage, items []any) ([]any, error) {
+	selectedItems := make([]any, len(items))
+	for idx, item := range items {
+		contextInput := pathEvalInput{
+			data: item,
+			context: map[string]any{
+				"Map": map[string]any{
+					"Item": map[string]any{
+						"Index": float64(idx),
+						"Value": item,
+					},
+				},
+			},
+		}
+
+		selected, err := applyParametersTemplate(itemSelector, contextInput)
+		if err != nil {
+			return nil, fmt.Errorf("map ItemSelector error: %w", err)
+		}
+
+		selectedItems[idx] = selected
+	}
+
+	return selectedItems, nil
 }
 
 // runMapItem executes a single map iteration item in the sub-executor.
@@ -1228,23 +1262,40 @@ func (e *FailError) Error() string {
 // applyPath applies an InputPath or OutputPath to a value.
 // If path is "" or "$", returns value unchanged.
 // If path starts with "$.", it's a JSONPath reference.
+type pathEvalInput struct {
+	data    any
+	context any
+}
+
 func applyPath(path string, value any, pathCache ...*sync.Map) (any, error) {
 	var cache *sync.Map
 	if len(pathCache) > 0 {
 		cache = pathCache[0]
 	}
 
+	pathInput, ok := value.(pathEvalInput)
+	if !ok {
+		pathInput = pathEvalInput{
+			data:    value,
+			context: value,
+		}
+	}
+
 	if path == "" || path == "$" {
-		return value, nil
+		return pathInput.data, nil
 	}
 
 	if path == "$$" {
-		return value, nil
+		return pathInput.context, nil
 	}
 
 	// Simple dot-notation JSONPath: $.field.subfield
 	if strings.HasPrefix(path, "$.") {
-		return jsonPathGet(path[2:], value, cache)
+		return jsonPathGet(path[2:], pathInput.data, cache)
+	}
+
+	if strings.HasPrefix(path, "$$.") {
+		return jsonPathGet(path[3:], pathInput.context, cache)
 	}
 
 	return nil, fmt.Errorf("%w: %q", ErrUnsupportedPathExpr, path)
@@ -1762,6 +1813,13 @@ func toFloat(v any) (float64, bool) {
 		return float64(n), true
 	case uint64:
 		return float64(n), true
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		if err != nil {
+			return 0, false
+		}
+
+		return f, true
 	default:
 		return 0, false
 	}
@@ -1769,13 +1827,67 @@ func toFloat(v any) (float64, bool) {
 
 // catchesError checks if a set of error equals values matches the given error.
 func catchesError(errorEquals []string, err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errCode := stepFunctionsErrorCode(err)
 	for _, e := range errorEquals {
-		if e == "States.ALL" || e == err.Error() {
+		switch e {
+		case "States.ALL":
+			return true
+		case "States.Timeout":
+			if errCode == "States.Timeout" {
+				return true
+			}
+		case "States.TaskFailed":
+			if errCode != "States.Timeout" {
+				return true
+			}
+		case "States.Runtime":
+			if errCode == "States.Runtime" {
+				return true
+			}
+		case "States.Permissions":
+			if errCode == "States.Permissions" {
+				return true
+			}
+		case errCode, err.Error():
 			return true
 		}
 	}
 
 	return false
+}
+
+func stepFunctionsErrorCode(err error) string {
+	var failErr *FailError
+	if errors.As(err, &failErr) {
+		return failErr.ErrCode
+	}
+
+	if errors.Is(err, ErrStatesTimeout) || errors.Is(err, context.DeadlineExceeded) {
+		return "States.Timeout"
+	}
+
+	if errors.Is(err, ErrUnsupportedStateType) ||
+		errors.Is(err, ErrStateNotFound) ||
+		errors.Is(err, ErrMaxTransitions) ||
+		errors.Is(err, ErrChoiceNoMatch) ||
+		errors.Is(err, ErrChoiceNoNext) ||
+		errors.Is(err, ErrUnsupportedPathExpr) ||
+		errors.Is(err, ErrUnsupportedResultPath) {
+		return "States.Runtime"
+	}
+
+	lowerErr := strings.ToLower(err.Error())
+	if strings.Contains(lowerErr, "accessdenied") ||
+		strings.Contains(lowerErr, "permission") ||
+		strings.Contains(lowerErr, "not authorized") {
+		return "States.Permissions"
+	}
+
+	return err.Error()
 }
 
 // isActivityResource returns true if the resource ARN refers to an activity.

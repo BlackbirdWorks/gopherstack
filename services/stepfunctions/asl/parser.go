@@ -38,6 +38,7 @@ type State struct {
 	ItemProcessor    *StateMachine   `json:"ItemProcessor,omitempty"`
 	ItemBatcher      *ItemBatcher    `json:"ItemBatcher,omitempty"`
 	ItemReader       *ItemReader     `json:"ItemReader,omitempty"`
+	ItemSelector     json.RawMessage `json:"ItemSelector,omitempty"`
 	SecondsPath      string          `json:"SecondsPath,omitempty"`
 	TimestampPath    string          `json:"TimestampPath,omitempty"`
 	ItemsPath        string          `json:"ItemsPath,omitempty"`

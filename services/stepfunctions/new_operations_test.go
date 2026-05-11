@@ -171,6 +171,12 @@ func TestUpdateStateMachine(t *testing.T) {
 			errIs:         stepfunctions.ErrInvalidDefinition,
 		},
 		{
+			name:       "invalid_role_arn",
+			newRoleArn: "invalid-role",
+			wantErr:    true,
+			errIs:      stepfunctions.ErrInvalidRoleArn,
+		},
+		{
 			name:    "nonexistent_sm",
 			wantErr: true,
 			errIs:   stepfunctions.ErrStateMachineDoesNotExist,
