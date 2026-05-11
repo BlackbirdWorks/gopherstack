@@ -219,7 +219,7 @@ func (j *Janitor) sweepTTL(ctx context.Context) {
 	now := float64(time.Now().Unix())
 	totalEvicted := 0
 
-	var replicationQueue []ttlReplicationEntry
+	replicationQueue := make([]ttlReplicationEntry, 0, len(tables))
 
 	for _, table := range tables {
 		count, pending := j.sweepTableTTL(ctx, db, table, now)

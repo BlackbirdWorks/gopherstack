@@ -37,23 +37,15 @@ func (h *S3Handler) enforceACLPolicy(
 	ctx context.Context,
 	bucketName, cannedACL, xmlBodyACL string,
 ) error {
-	ownership, err := h.Backend.GetBucketOwnershipControls(ctx, bucketName)
-	if err == nil && ownershipIsBucketOwnerEnforced(ownership) {
+	ownership, ownershipErr := h.Backend.GetBucketOwnershipControls(ctx, bucketName)
+	if ownershipErr == nil && ownershipIsBucketOwnerEnforced(ownership) {
 		return ErrAccessDenied
 	}
 
-	pabXML, err := h.Backend.GetPublicAccessBlock(ctx, bucketName)
-	if err != nil || pabXML == "" {
-		// No PAB set → only the BucketOwnerEnforced check above applies.
-		return nil
-	}
-
-	var pab PublicAccessBlockConfiguration
-	if unmarshalErr := xml.Unmarshal([]byte(pabXML), &pab); unmarshalErr != nil {
-		return nil
-	}
-
-	if !pab.BlockPublicAcls {
+	pab, ok := loadPublicAccessBlock(ctx, h.Backend, bucketName)
+	if !ok || !pab.BlockPublicAcls {
+		// No PAB set / unparseable / not blocking ACLs → defer to the
+		// BucketOwnerEnforced check above only.
 		return nil
 	}
 
@@ -68,6 +60,28 @@ func (h *S3Handler) enforceACLPolicy(
 	}
 
 	return nil
+}
+
+// loadPublicAccessBlock fetches the bucket's PublicAccessBlock configuration
+// and decodes it. The bool return is true only when both the fetch and the
+// XML decode succeeded — a `false` indicates the caller should treat the
+// bucket as having no PAB applied. Centralising the "missing PAB falls open"
+// rule here means the call sites stay free of nilerr-pattern early returns
+// that the linter (rightly) flags as suspicious.
+func loadPublicAccessBlock(
+	ctx context.Context, backend StorageBackend, bucketName string,
+) (PublicAccessBlockConfiguration, bool) {
+	pabXML, err := backend.GetPublicAccessBlock(ctx, bucketName)
+	if err != nil || pabXML == "" {
+		return PublicAccessBlockConfiguration{}, false
+	}
+
+	var pab PublicAccessBlockConfiguration
+	if uErr := xml.Unmarshal([]byte(pabXML), &pab); uErr != nil {
+		return PublicAccessBlockConfiguration{}, false
+	}
+
+	return pab, true
 }
 
 // ownershipIsBucketOwnerEnforced reports whether the ObjectOwnership rule on
@@ -103,17 +117,8 @@ func aclXMLGrantsPublic(aclXML string) bool {
 func (h *S3Handler) enforceBucketPolicyAgainstPAB(
 	ctx context.Context, bucketName, policyJSON string,
 ) error {
-	pabXML, err := h.Backend.GetPublicAccessBlock(ctx, bucketName)
-	if err != nil || pabXML == "" {
-		return nil
-	}
-
-	var pab PublicAccessBlockConfiguration
-	if uErr := xml.Unmarshal([]byte(pabXML), &pab); uErr != nil {
-		return nil
-	}
-
-	if !pab.BlockPublicPolicy {
+	pab, ok := loadPublicAccessBlock(ctx, h.Backend, bucketName)
+	if !ok || !pab.BlockPublicPolicy {
 		return nil
 	}
 
@@ -166,7 +171,15 @@ func (h *S3Handler) enforcePutObjectPreconditions(
 		Key:    &key,
 	})
 	objectExists := err == nil
+	currentETag := currentETagOf(out)
 
+	return evaluatePutPreconditions(ifMatch, ifNoneMatch, currentETag, objectExists)
+}
+
+// evaluatePutPreconditions applies the If-Match / If-None-Match decision
+// table without doing any I/O. Extracted from enforcePutObjectPreconditions
+// purely to keep cyclomatic complexity below the linter cap.
+func evaluatePutPreconditions(ifMatch, ifNoneMatch, currentETag string, objectExists bool) error {
 	if ifNoneMatch == "*" {
 		if objectExists {
 			return ErrPreconditionFailed
@@ -176,30 +189,26 @@ func (h *S3Handler) enforcePutObjectPreconditions(
 	}
 
 	if ifMatch != "" {
-		if !objectExists {
-			return ErrPreconditionFailed
-		}
-
-		currentETag := ""
-		if out != nil && out.ETag != nil {
-			currentETag = strings.Trim(*out.ETag, `"`)
-		}
-		if currentETag != ifMatch {
+		if !objectExists || currentETag != ifMatch {
 			return ErrPreconditionFailed
 		}
 	}
 
-	if ifNoneMatch != "" && ifNoneMatch != "*" && objectExists {
-		currentETag := ""
-		if out != nil && out.ETag != nil {
-			currentETag = strings.Trim(*out.ETag, `"`)
-		}
-		if currentETag == ifNoneMatch {
-			return ErrPreconditionFailed
-		}
+	if ifNoneMatch != "" && ifNoneMatch != "*" && objectExists && currentETag == ifNoneMatch {
+		return ErrPreconditionFailed
 	}
 
 	return nil
+}
+
+// currentETagOf strips the surrounding quotes from a HeadObject result so it
+// can be compared verbatim against the trimmed If-* header values.
+func currentETagOf(out *s3.HeadObjectOutput) string {
+	if out == nil || out.ETag == nil {
+		return ""
+	}
+
+	return strings.Trim(*out.ETag, `"`)
 }
 
 // enforceDeleteObjectPreconditions checks If-Match on DeleteObject. Matches
@@ -222,14 +231,9 @@ func (h *S3Handler) enforceDeleteObjectPreconditions(
 		return ErrPreconditionFailed
 	}
 
-	currentETag := ""
-	if out != nil && out.ETag != nil {
-		currentETag = strings.Trim(*out.ETag, `"`)
-	}
-	if currentETag != ifMatch {
+	if currentETagOf(out) != ifMatch {
 		return ErrPreconditionFailed
 	}
 
 	return nil
 }
-

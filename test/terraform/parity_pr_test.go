@@ -36,6 +36,7 @@ func TestTerraform_S3_PublicAccessBlock_Ownership(t *testing.T) {
 		fixture: "s3/pab_ownership",
 		setup: func(t *testing.T, _ string) map[string]any {
 			t.Helper()
+
 			return map[string]any{"BucketName": "tf-pab-" + uuid.NewString()[:8]}
 		},
 		verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
@@ -91,6 +92,7 @@ func TestTerraform_S3_SSE_RoundTrip(t *testing.T) {
 		fixture: "s3/sse",
 		setup: func(t *testing.T, _ string) map[string]any {
 			t.Helper()
+
 			return map[string]any{"BucketName": "tf-sse-" + uuid.NewString()[:8]}
 		},
 		verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
@@ -147,6 +149,7 @@ func TestTerraform_S3_Logging(t *testing.T) {
 		setup: func(t *testing.T, _ string) map[string]any {
 			t.Helper()
 			suffix := uuid.NewString()[:8]
+
 			return map[string]any{
 				"SourceBucket": "tf-log-src-" + suffix,
 				"LogBucket":    "tf-log-tgt-" + suffix,
@@ -190,6 +193,7 @@ func TestTerraform_S3_Logging(t *testing.T) {
 				})
 				if listErr == nil && len(lo.Contents) > 0 {
 					found = lo.Contents
+
 					break
 				}
 				time.Sleep(50 * time.Millisecond)
@@ -227,6 +231,7 @@ func TestTerraform_SQS_FIFOThroughput(t *testing.T) {
 		fixture: "sqs/fifo_throughput",
 		setup: func(t *testing.T, _ string) map[string]any {
 			t.Helper()
+
 			return map[string]any{"QueueName": "tf-fifo-tput-" + uuid.NewString()[:8]}
 		},
 		verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
@@ -267,6 +272,7 @@ func TestTerraform_SQS_RedriveAllow(t *testing.T) {
 		setup: func(t *testing.T, _ string) map[string]any {
 			t.Helper()
 			suffix := uuid.NewString()[:8]
+
 			return map[string]any{
 				"SourceQueue": "tf-redrive-src-" + suffix,
 				"DLQName":     "tf-redrive-dlq-" + suffix,
@@ -308,6 +314,7 @@ func TestTerraform_DDB_PITR_SSE(t *testing.T) {
 		fixture: "dynamodb/pitr_sse",
 		setup: func(t *testing.T, _ string) map[string]any {
 			t.Helper()
+
 			return map[string]any{"TableName": "tf-pitr-sse-" + uuid.NewString()[:8]}
 		},
 		verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
@@ -355,6 +362,7 @@ func TestTerraform_DDB_GSIValidation(t *testing.T) {
 		fixture: "dynamodb/gsi_validation",
 		setup: func(t *testing.T, _ string) map[string]any {
 			t.Helper()
+
 			return map[string]any{"TableName": "tf-gsi-val-" + uuid.NewString()[:8]}
 		},
 		verify: func(t *testing.T, ctx context.Context, vars map[string]any) {

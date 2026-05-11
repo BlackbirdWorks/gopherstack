@@ -316,7 +316,8 @@ func selectPITRItems(sourceTable *Table, req models.RestoreTableToPointInTimeInp
 		// Fallback to seconds-since-epoch which the AWS SDK marshals when
 		// using the JSON 1.0 number form.
 		if secs, parseErr := strconv.ParseFloat(req.RestoreDateTime, 64); parseErr == nil {
-			t = time.Unix(int64(secs), int64((secs-float64(int64(secs)))*1e9)).UTC()
+			const nanosPerSec = float64(time.Second / time.Nanosecond)
+			t = time.Unix(int64(secs), int64((secs-float64(int64(secs)))*nanosPerSec)).UTC()
 		} else {
 			return deepCopyItems(sourceTable.Items)
 		}

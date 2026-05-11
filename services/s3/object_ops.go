@@ -167,13 +167,11 @@ func (h *S3Handler) headObject(
 		return
 	}
 
-	headSSE, sseErr := extractSSEInfo(r)
-	if sseErr != nil {
-		WriteError(ctx, w, r, sseErr)
-
+	newCtx, ok := h.attachSSEInfoToCtx(ctx, w, r)
+	if !ok {
 		return
 	}
-	ctx = context.WithValue(ctx, sseKey, headSSE)
+	ctx = newCtx
 
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
@@ -209,20 +207,33 @@ func (h *S3Handler) headObject(
 		return
 	}
 
-	if sseErr := validateSSECOnRead(
+	if validateErr := validateSSECOnRead(
 		r, aws.ToString(out.SSECustomerAlgorithm), aws.ToString(out.SSECustomerKeyMD5),
-	); sseErr != nil {
-		WriteError(ctx, w, r, sseErr)
+	); validateErr != nil {
+		WriteError(ctx, w, r, validateErr)
 
 		return
 	}
 
-	if status, ok := checkConditionalHeaders(r, aws.ToString(out.ETag), aws.ToTime(out.LastModified)); !ok {
+	if status, condOK := checkConditionalHeaders(r, aws.ToString(out.ETag), aws.ToTime(out.LastModified)); !condOK {
 		w.WriteHeader(status)
 
 		return
 	}
 
+	h.writeHeadObjectResponse(ctx, w, r, bucketName, key, out)
+}
+
+// writeHeadObjectResponse builds the HEAD response headers (common, SSE,
+// content-encoding/disposition, expiration) and dispatches an access-log
+// record. Extracted so headObject stays under the funlen cap.
+func (h *S3Handler) writeHeadObjectResponse(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+	out *s3.HeadObjectOutput,
+) {
 	details := objectCommonDetails{
 		Metadata:          out.Metadata,
 		ETag:              out.ETag,
@@ -243,14 +254,11 @@ func (h *S3Handler) headObject(
 
 	h.setCommonHeaders(w, details)
 	setSSEHeaders(w, details)
-
-	// Set x-amz-expiration header if a lifecycle rule matches this object.
 	h.setExpirationHeader(ctx, w, bucketName, key, out.LastModified)
 
 	if ce := aws.ToString(out.ContentEncoding); ce != "" {
 		w.Header().Set("Content-Encoding", ce)
 	}
-
 	if cd := aws.ToString(out.ContentDisposition); cd != "" {
 		w.Header().Set("Content-Disposition", cd)
 	}
@@ -539,13 +547,11 @@ func (h *S3Handler) getObject(
 	// Propagate SSE-C key on the request through to the backend so envelope-
 	// encrypted versions can be decrypted. Errors here are surfaced before we
 	// touch any state.
-	getSSE, sseErr := extractSSEInfo(r)
-	if sseErr != nil {
-		WriteError(ctx, w, r, sseErr)
-
+	newCtx, ok := h.attachSSEInfoToCtx(ctx, w, r)
+	if !ok {
 		return
 	}
-	ctx = context.WithValue(ctx, sseKey, getSSE)
+	ctx = newCtx
 
 	versionID := r.URL.Query().Get("versionId")
 	logger.Load(ctx).DebugContext(
@@ -582,39 +588,21 @@ func (h *S3Handler) getObject(
 	}
 	defer ver.Body.Close()
 
-	if sseErr := validateSSECOnRead(
+	if validateErr := validateSSECOnRead(
 		r, aws.ToString(ver.SSECustomerAlgorithm), aws.ToString(ver.SSECustomerKeyMD5),
-	); sseErr != nil {
-		WriteError(ctx, w, r, sseErr)
+	); validateErr != nil {
+		WriteError(ctx, w, r, validateErr)
 
 		return
 	}
 
-	if status, ok := checkConditionalHeaders(r, aws.ToString(ver.ETag), aws.ToTime(ver.LastModified)); !ok {
+	if status, condOK := checkConditionalHeaders(r, aws.ToString(ver.ETag), aws.ToTime(ver.LastModified)); !condOK {
 		w.WriteHeader(status)
 
 		return
 	}
 
-	details := objectCommonDetails{
-		Metadata:          ver.Metadata,
-		ETag:              ver.ETag,
-		ContentType:       ver.ContentType,
-		ContentLength:     ver.ContentLength,
-		LastModified:      ver.LastModified,
-		VersionID:         ver.VersionId,
-		ChecksumCRC32:     ver.ChecksumCRC32,
-		ChecksumCRC32C:    ver.ChecksumCRC32C,
-		ChecksumSHA1:      ver.ChecksumSHA1,
-		ChecksumSHA256:    ver.ChecksumSHA256,
-		ChecksumCRC64NVME: ver.ChecksumCRC64NVME,
-		SSEAlgorithm:      string(ver.ServerSideEncryption),
-		SSEKMSKeyID:       aws.ToString(ver.SSEKMSKeyId),
-		SSECAlgorithm:     aws.ToString(ver.SSECustomerAlgorithm),
-		SSECKeyMD5:        aws.ToString(ver.SSECustomerKeyMD5),
-	}
-
-	h.setGetObjectResponseHeaders(ctx, w, r, bucketName, key, ver, details)
+	h.setGetObjectResponseHeaders(ctx, w, r, bucketName, key, ver, buildGetObjectDetails(ver))
 
 	if served := h.serveObjectBody(ctx, w, r, ver); served {
 		return
@@ -691,6 +679,59 @@ func (h *S3Handler) serveObjectBody(
 	return false
 }
 
+// buildGetObjectDetails packs the response-header fields from a backend
+// GetObject result. Lives outside getObject so the parent function fits
+// under the funlen cap.
+func buildGetObjectDetails(ver *s3.GetObjectOutput) objectCommonDetails {
+	return objectCommonDetails{
+		Metadata:          ver.Metadata,
+		ETag:              ver.ETag,
+		ContentType:       ver.ContentType,
+		ContentLength:     ver.ContentLength,
+		LastModified:      ver.LastModified,
+		VersionID:         ver.VersionId,
+		ChecksumCRC32:     ver.ChecksumCRC32,
+		ChecksumCRC32C:    ver.ChecksumCRC32C,
+		ChecksumSHA1:      ver.ChecksumSHA1,
+		ChecksumSHA256:    ver.ChecksumSHA256,
+		ChecksumCRC64NVME: ver.ChecksumCRC64NVME,
+		SSEAlgorithm:      string(ver.ServerSideEncryption),
+		SSEKMSKeyID:       aws.ToString(ver.SSEKMSKeyId),
+		SSECAlgorithm:     aws.ToString(ver.SSECustomerAlgorithm),
+		SSECKeyMD5:        aws.ToString(ver.SSECustomerKeyMD5),
+	}
+}
+
+// attachSSEInfoToCtx extracts SSE-* headers from the request, validates the
+// SSE-C key/MD5 pair if present, and returns a context carrying the parsed
+// sseInfo so backends can apply envelope encryption/decryption. The bool
+// return is false when validation failed (the handler has already written
+// the error to w).
+func (h *S3Handler) attachSSEInfoToCtx(
+	ctx context.Context, w http.ResponseWriter, r *http.Request,
+) (context.Context, bool) {
+	sse, err := extractSSEInfo(r)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return ctx, false
+	}
+
+	return context.WithValue(ctx, sseKey, sse), true
+}
+
+// setDeleteObjectResponseHeaders copies the optional version-id and
+// delete-marker response headers from a backend DeleteObject result. Pulled
+// out of deleteObject so its cyclomatic complexity stays under the linter cap.
+func setDeleteObjectResponseHeaders(w http.ResponseWriter, out *s3.DeleteObjectOutput) {
+	if out.VersionId != nil && *out.VersionId != "" && *out.VersionId != NullVersion {
+		w.Header().Set("X-Amz-Version-Id", *out.VersionId)
+	}
+	if out.DeleteMarker != nil && *out.DeleteMarker {
+		w.Header().Set("X-Amz-Delete-Marker", "true")
+	}
+}
+
 func (h *S3Handler) deleteObject(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -732,30 +773,13 @@ func (h *S3Handler) deleteObject(
 		Key:       aws.String(key),
 		VersionId: vid,
 	})
-	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
-	if errors.Is(err, ErrObjectLocked) || errors.Is(err, ErrInvalidObjectState) {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
 	}
 
-	if out.VersionId != nil && *out.VersionId != "" && *out.VersionId != NullVersion {
-		w.Header().Set("X-Amz-Version-Id", *out.VersionId)
-	}
-	if out.DeleteMarker != nil && *out.DeleteMarker {
-		w.Header().Set("X-Amz-Delete-Marker", "true")
-	}
+	setDeleteObjectResponseHeaders(w, out)
 
 	logger.Load(ctx).DebugContext(ctx,
 		"S3 deleteObject output",
@@ -999,7 +1023,7 @@ func (h *S3Handler) getObjectACL(
 		// here since the destination is an XML response on a trusted endpoint.
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(stored)) //nolint:gosec // G705: pre-stored XML body is trusted
+		_, _ = w.Write([]byte(stored))
 
 		return
 	}

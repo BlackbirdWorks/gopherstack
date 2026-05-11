@@ -130,21 +130,28 @@ func formatAccessLogLine(
 	)
 }
 
+// accessLogIDBytes is the number of random bytes the request-id /
+// host-id placeholders consume — 8 bytes → 16 hex chars, matching the
+// width of real S3 IDs at this position in the log line.
+const accessLogIDBytes = 8
+
 // buildAccessLogKey produces an object key in AWS's
 // <prefix>YYYY-MM-DD-HH-MM-SS-<random-hex> pattern. The random suffix means
 // concurrent writes don't collide even within the same second.
 func buildAccessLogKey(prefix string) string {
 	ts := time.Now().UTC().Format("2006-01-02-15-04-05")
+
 	return prefix + ts + "-" + newAccessLogID()
 }
 
 // newAccessLogID returns a 16-character hex string used for request-id and
 // host-id placeholders. Falls back to a timestamp if crypto/rand fails.
 func newAccessLogID() string {
-	buf := make([]byte, 8)
+	buf := make([]byte, accessLogIDBytes)
 	if _, err := rand.Read(buf); err != nil {
 		return fmt.Sprintf("%016x", time.Now().UnixNano())
 	}
+
 	return hex.EncodeToString(buf)
 }
 
@@ -152,5 +159,6 @@ func defaultDash(s string) string {
 	if s == "" {
 		return "-"
 	}
+
 	return s
 }

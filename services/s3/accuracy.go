@@ -303,10 +303,14 @@ const (
 var crc64NVMETable = makeCRC64NVMETable() //nolint:gochecknoglobals // pre-computed lookup table
 
 func makeCRC64NVMETable() [256]uint64 {
-	const bitsPerByte = 8
-	var table [256]uint64
-	for i := range 256 {
-		crc := uint64(i)
+	const (
+		bitsPerByte = 8
+		tableLen    = 256
+	)
+
+	var table [tableLen]uint64
+	for i := range tableLen {
+		crc := uint64(i) //nolint:gosec // i is 0..255, no overflow possible
 		for range bitsPerByte {
 			if crc&1 != 0 {
 				crc = (crc >> 1) ^ crc64NVMEPoly
@@ -314,7 +318,7 @@ func makeCRC64NVMETable() [256]uint64 {
 				crc >>= 1
 			}
 		}
-		table[i] = crc
+		table[i] = crc //nolint:gosec // i is 0..tableLen-1, in-range by construction
 	}
 
 	return table
@@ -333,7 +337,7 @@ func NewCRC64NVME() hash.Hash {
 // Write implements io.Writer.
 func (h *CRC64NVMEHash) Write(p []byte) (int, error) {
 	for _, b := range p {
-		lsb := byte(h.crc) //nolint:gosec // G115: lower-byte truncation is intentional for CRC table index
+		lsb := byte(h.crc)
 		h.crc = crc64NVMETable[lsb^b] ^ (h.crc >> crc64ShiftBits)
 	}
 

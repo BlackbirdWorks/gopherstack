@@ -18,10 +18,10 @@ var (
 	ErrBucketNotEmpty          = errors.New(
 		"BucketNotEmpty: The bucket you tried to delete is not empty",
 	)
-	ErrPermanentRedirect          = errors.New("PermanentRedirect")
+	ErrPermanentRedirect = errors.New("PermanentRedirect")
 	// ErrPreconditionFailed is returned when an If-Match / If-None-Match
 	// condition on a write op (PutObject / DeleteObject) fails.
-	ErrPreconditionFailed = errors.New("PreconditionFailed")
+	ErrPreconditionFailed         = errors.New("PreconditionFailed")
 	ErrNotImplemented             = errors.New("NotImplemented")
 	ErrMethodNotAllowed           = errors.New("MethodNotAllowed")
 	ErrInvalidArgument            = errors.New(errInvalidArgument)

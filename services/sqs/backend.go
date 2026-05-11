@@ -758,6 +758,13 @@ func validateQueueAttributes(attrs map[string]string) error {
 		return err
 	}
 
+	return validateFIFOAttributes(attrs)
+}
+
+// validateFIFOAttributes covers the FIFO-specific enum and redrive-allow
+// validation pulled out of validateQueueAttributes to keep cognitive
+// complexity below the linter cap.
+func validateFIFOAttributes(attrs map[string]string) error {
 	if v, ok := attrs[attrDeduplicationScope]; ok {
 		if v != fifoDedupScopeQueue && v != fifoDedupScopePerMessageGroup {
 			return ErrInvalidAttribute
@@ -770,10 +777,9 @@ func validateQueueAttributes(attrs map[string]string) error {
 		}
 	}
 
-	// AWS requires DeduplicationScope=messageGroup when FifoThroughputLimit is
-	// perMessageGroupId. If both are set in the same SetQueueAttributes call,
-	// enforce that pairing inline. (Partial updates that leave one side stale
-	// will be caught the next time the attribute is touched.)
+	// AWS requires DeduplicationScope=messageGroup when FifoThroughputLimit
+	// is perMessageGroupId. Enforce the pairing only when both sides are
+	// present in the same SetQueueAttributes call.
 	if t, hasT := attrs[attrFifoThroughputLimit]; hasT && t == fifoThroughputLimitPerMessageGroupID {
 		if s, hasS := attrs[attrDeduplicationScope]; hasS && s != fifoDedupScopePerMessageGroup {
 			return ErrInvalidAttribute
@@ -902,6 +908,44 @@ func buildInitialMessageAttributes(
 	return attrs
 }
 
+// fifoPreflight is the outcome of preflightFIFOSend. handled=true means the
+// caller should return Output/Err immediately; handled=false means proceed
+// with normal send flow.
+type fifoPreflight struct {
+	Output  *SendMessageOutput
+	Err     error
+	Handled bool
+}
+
+// preflightFIFOSend runs the FIFO-only preconditions a SendMessage must
+// satisfy before the message is constructed: parameter validation, per-group
+// throughput limiting, and content-based deduplication.
+//
+// Caller must already hold b.mu (write).
+func preflightFIFOSend(q *Queue, input *SendMessageInput, md5Body string, now time.Time) fifoPreflight {
+	if err := validateFIFOParams(input, q); err != nil {
+		return fifoPreflight{Err: err, Handled: true}
+	}
+
+	if q.Attributes[attrFifoThroughputLimit] == fifoThroughputLimitPerMessageGroupID {
+		if err := checkFIFOPerGroupRateLimit(q, input.MessageGroupID, now); err != nil {
+			return fifoPreflight{Err: err, Handled: true}
+		}
+	}
+
+	if out, dup := checkDedup(
+		q,
+		input.MessageDeduplicationID,
+		md5Body,
+		q.Attributes[attrContentBasedDeduplication],
+		now,
+	); dup {
+		return fifoPreflight{Output: out, Handled: true}
+	}
+
+	return fifoPreflight{}
+}
+
 // SendMessage adds a message to the specified queue.
 func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutput, error) {
 	if input.MessageBody == "" {
@@ -930,31 +974,13 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		return nil, err
 	}
 
-	if q.IsFIFO {
-		if err := validateFIFOParams(input, q); err != nil {
-			return nil, err
-		}
-	}
-
 	// Capture now once so that pruneDedup, checkDedup, storeDedup, and message
 	// timestamps all use the same consistent clock value.
 	now := time.Now()
 
-	if q.IsFIFO && q.Attributes[attrFifoThroughputLimit] == fifoThroughputLimitPerMessageGroupID {
-		if err := checkFIFOPerGroupRateLimit(q, input.MessageGroupID, now); err != nil {
-			return nil, err
-		}
-	}
-
 	if q.IsFIFO {
-		if out, dup := checkDedup(
-			q,
-			input.MessageDeduplicationID,
-			md5Body,
-			q.Attributes[attrContentBasedDeduplication],
-			now,
-		); dup {
-			return out, nil
+		if pre := preflightFIFOSend(q, input, md5Body, now); pre.Handled {
+			return pre.Output, pre.Err
 		}
 	}
 
@@ -978,8 +1004,8 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		SequenceNumber:         seqNum,
 		SentTimestamp:          now.UnixMilli(),
 		MessageAttributes:      input.MessageAttributes,
-		Attributes: buildInitialMessageAttributes(sentTS, input.MessageSystemAttributes),
-		VisibleAt: resolveMessageVisibleAt(now, input.DelaySeconds, q.Attributes[attrDelaySeconds]),
+		Attributes:             buildInitialMessageAttributes(sentTS, input.MessageSystemAttributes),
+		VisibleAt:              resolveMessageVisibleAt(now, input.DelaySeconds, q.Attributes[attrDelaySeconds]),
 	}
 
 	if q.IsFIFO {

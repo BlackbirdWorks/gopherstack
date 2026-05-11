@@ -988,8 +988,8 @@ func (h *S3Handler) putBucketPolicy(ctx context.Context, w http.ResponseWriter, 
 
 		return
 	}
-	if err := h.enforceBucketPolicyAgainstPAB(ctx, bucket, string(body)); err != nil {
-		WriteError(ctx, w, r, err)
+	if pabErr := h.enforceBucketPolicyAgainstPAB(ctx, bucket, string(body)); pabErr != nil {
+		WriteError(ctx, w, r, pabErr)
 
 		return
 	}

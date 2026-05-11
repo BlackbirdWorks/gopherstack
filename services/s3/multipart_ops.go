@@ -41,9 +41,9 @@ func (h *S3Handler) createMultipartUpload(
 	ctx = context.WithValue(ctx, sseKey, sse)
 
 	out, err := h.Backend.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
-		Bucket:  aws.String(bucketName),
-		Key:     aws.String(key),
-		Tagging: aws.String(tagging),
+		Bucket:               aws.String(bucketName),
+		Key:                  aws.String(key),
+		Tagging:              aws.String(tagging),
 		ServerSideEncryption: types.ServerSideEncryption(sse.Algorithm),
 		SSEKMSKeyId:          nilStringIfEmpty(sse.KMSKeyID),
 		SSECustomerAlgorithm: nilStringIfEmpty(sse.SSECAlgorithm),

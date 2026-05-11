@@ -159,55 +159,59 @@ const (
 	streamViewTypeKeysOnly = "KEYS_ONLY"
 )
 
+// Table is a stored DynamoDB table.
+//
+// Field ordering trades a few bytes of padding for readability: related
+// fields (SSE, autoscaling, streams) are grouped together rather than
+// strictly sorted by alignment requirement.
+//
+//nolint:govet // fieldalignment: prefer logical grouping over byte packing
 type Table struct {
-	CreationDateTime           time.Time `json:"CreationDateTime"`
-	pkIndex                    map[string]int
-	pkskIndex                  map[string]map[string]int
-	mu                         *lockmetrics.RWMutex
-	activateTimer              *time.Timer
-	Tags                       *tags.Tags `json:"Tags,omitempty"`
-	kinesisEmitter             KinesisEmitter
-	TableClass                 string                                  `json:"TableClass,omitempty"`
-	GlobalTableName            string                                  `json:"GlobalTableName,omitempty"`
-	TTLAttribute               string                                  `json:"TTLAttribute,omitempty"`
-	StreamViewType             string                                  `json:"StreamViewType,omitempty"`
-	// SSEType is "AES256" (SSE-S3) or "KMS". Empty when encryption is not
-	// configured (the table is then treated as using owned-key AES256 by AWS).
-	SSEType string `json:"SSEType,omitempty"`
-	// SSEKMSMasterKeyArn is the customer-managed KMS key ARN when SSEType=KMS.
-	SSEKMSMasterKeyArn string `json:"SSEKMSMasterKeyArn,omitempty"`
-	// SSEEnabled reflects whether the user explicitly enabled SSE via
-	// SSESpecification. When false the table still reports AES256 via the
-	// AWS-managed key, matching real DynamoDB behaviour.
-	SSEEnabled bool `json:"SSEEnabled,omitempty"`
+	CreationDateTime time.Time `json:"CreationDateTime"`
+	pkIndex          map[string]int
+	pkskIndex        map[string]map[string]int
+	mu               *lockmetrics.RWMutex
+	activateTimer    *time.Timer
+	Tags             *tags.Tags `json:"Tags,omitempty"`
+	kinesisEmitter   KinesisEmitter
 	// AutoScaling stores the most recent UpdateTableReplicaAutoScaling input
 	// so DescribeTableReplicaAutoScaling can echo it back. The in-memory
 	// backend doesn't actually scale; this is metadata round-tripping only,
 	// matching LocalStack's behaviour.
 	AutoScaling *autoScalingSettings `json:"AutoScaling,omitempty"`
-	StreamARN                  string                                  `json:"StreamARN,omitempty"`
-	TableArn                   string                                  `json:"TableArn"`
-	Status                     string                                  `json:"Status"`
-	TableID                    string                                  `json:"TableID"`
-	Name                       string                                  `json:"Name"`
-	BillingMode                string                                  `json:"BillingMode,omitempty"`
-	ResourcePolicy             string                                  `json:"ResourcePolicy,omitempty"`
-	Replicas                   []models.ReplicaDescription             `json:"Replicas,omitempty"`
-	Items                      []map[string]any                        `json:"Items"`
-	GlobalSecondaryIndexes     []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
-	StreamRecords              []models.StreamRecord                   `json:"StreamRecords,omitempty"`
-	KeySchema                  []models.KeySchemaElement               `json:"KeySchema"`
-	LocalSecondaryIndexes      []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
-	AttributeDefinitions       []models.AttributeDefinition            `json:"AttributeDefinitions"`
-	KinesisDestinations        []string                                `json:"KinesisDestinations,omitempty"`
-	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
-	streamSeq                  int64
-	StreamHead                 int  `json:"StreamHead,omitempty"`
-	PITREnabled                bool `json:"PITREnabled,omitempty"`
+	// SSEType is "AES256" (SSE-S3) or "KMS". Empty when encryption is not
+	// configured (the table is then treated as using owned-key AES256 by AWS).
+	SSEType string `json:"SSEType,omitempty"`
+	// SSEKMSMasterKeyArn is the customer-managed KMS key ARN when SSEType=KMS.
+	SSEKMSMasterKeyArn     string                                  `json:"SSEKMSMasterKeyArn,omitempty"`
+	TableClass             string                                  `json:"TableClass,omitempty"`
+	GlobalTableName        string                                  `json:"GlobalTableName,omitempty"`
+	TTLAttribute           string                                  `json:"TTLAttribute,omitempty"`
+	StreamViewType         string                                  `json:"StreamViewType,omitempty"`
+	StreamARN              string                                  `json:"StreamARN,omitempty"`
+	TableArn               string                                  `json:"TableArn"`
+	Status                 string                                  `json:"Status"`
+	TableID                string                                  `json:"TableID"`
+	Name                   string                                  `json:"Name"`
+	BillingMode            string                                  `json:"BillingMode,omitempty"`
+	ResourcePolicy         string                                  `json:"ResourcePolicy,omitempty"`
+	Replicas               []models.ReplicaDescription             `json:"Replicas,omitempty"`
+	Items                  []map[string]any                        `json:"Items"`
+	GlobalSecondaryIndexes []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
+	StreamRecords          []models.StreamRecord                   `json:"StreamRecords,omitempty"`
+	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
+	LocalSecondaryIndexes  []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
+	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	KinesisDestinations    []string                                `json:"KinesisDestinations,omitempty"`
+	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	// pitrSnapshots is a ring of past Items + KeySchema captured by the
 	// janitor when PITREnabled. Used by RestoreTableToPointInTime to honour
 	// the requested RestoreDateTime. Bounded by maxPITRSnapshots.
-	pitrSnapshots []pitrSnapshot
+	pitrSnapshots              []pitrSnapshot
+	streamSeq                  int64
+	StreamHead                 int  `json:"StreamHead,omitempty"`
+	PITREnabled                bool `json:"PITREnabled,omitempty"`
+	SSEEnabled                 bool `json:"SSEEnabled,omitempty"`
 	StreamsEnabled             bool `json:"StreamsEnabled"`
 	DeletionProtectionEnabled  bool `json:"DeletionProtectionEnabled"`
 	ContributorInsightsEnabled bool `json:"ContributorInsightsEnabled,omitempty"`
@@ -750,26 +754,26 @@ func (db *InMemoryDB) storeExport(desc exportDescriptionFields) {
 	evictOldest(db.exports, maxExportsRetained, func(v storedExport) time.Time { return v.CreatedAt })
 }
 
-// evictOldest drops oldest-by-CreatedAt entries from m until len(m) <= cap.
+// evictOldest drops oldest-by-CreatedAt entries from m until len(m) <= keep.
 // We evict on insert rather than on a timer so memory stays bounded even when
 // the janitor is disabled. timeOf returns the entry's creation timestamp.
-func evictOldest[V any](m map[string]V, cap int, timeOf func(V) time.Time) {
-	if len(m) <= cap {
+func evictOldest[V any](m map[string]V, keep int, timeOf func(V) time.Time) {
+	if len(m) <= keep {
 		return
 	}
 
 	type kv struct {
-		k string
 		t time.Time
+		k string
 	}
 
 	entries := make([]kv, 0, len(m))
 	for k, v := range m {
-		entries = append(entries, kv{k, timeOf(v)})
+		entries = append(entries, kv{timeOf(v), k})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].t.Before(entries[j].t) })
 
-	for i := 0; i < len(m)-cap; i++ {
+	for i := range len(m) - keep {
 		delete(m, entries[i].k)
 	}
 }

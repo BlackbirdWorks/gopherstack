@@ -9,6 +9,16 @@ import (
 	"fmt"
 )
 
+// Static SSE errors. The Go-style "wrapped static" pattern keeps err113 happy
+// and lets callers `errors.Is` for branch-specific handling.
+var (
+	errSSECKeySize   = errors.New("SSE-C key must decode to 32 bytes")
+	errSSEMissingDEK = errors.New("stored DEK is missing or wrong size")
+)
+
+// dataKeySize is the byte length of an AES-256 data encryption key.
+const dataKeySize = 32
+
 // encryptWithSSE applies envelope-style AES-256-GCM encryption to the supplied
 // plaintext when the request specified server-side encryption. Returns the
 // ciphertext along with the data key (DEK) and nonce that must be persisted
@@ -32,9 +42,7 @@ import (
 // Real AWS computes ETag = MD5(plaintext) for SSE-S3, an opaque value for
 // SSE-KMS/SSE-C. For tests we keep ETag = MD5(plaintext) across the board so
 // existing checksum-based assertions still match.
-func encryptWithSSE(plaintext []byte, sse sseInfo, customerKeyB64 string) (
-	ciphertext, dek, nonce []byte, err error,
-) {
+func encryptWithSSE(plaintext []byte, sse sseInfo, customerKeyB64 string) ([]byte, []byte, []byte, error) {
 	if sse.Algorithm == "" && sse.SSECAlgorithm == "" {
 		return plaintext, nil, nil, nil
 	}
@@ -43,7 +51,7 @@ func encryptWithSSE(plaintext []byte, sse sseInfo, customerKeyB64 string) (
 	case sse.SSECAlgorithm != "":
 		key, decodeErr := base64.StdEncoding.DecodeString(customerKeyB64)
 		if decodeErr != nil || len(key) != 32 {
-			return nil, nil, nil, errors.New("SSE-C key must decode to 32 bytes")
+			return nil, nil, nil, errSSECKeySize
 		}
 		ct, n, encErr := aesGCMEncrypt(key, plaintext)
 		if encErr != nil {
@@ -53,7 +61,7 @@ func encryptWithSSE(plaintext []byte, sse sseInfo, customerKeyB64 string) (
 		return ct, nil, n, nil
 
 	case sse.Algorithm != "":
-		generatedDEK := make([]byte, 32)
+		generatedDEK := make([]byte, dataKeySize)
 		if _, randErr := rand.Read(generatedDEK); randErr != nil {
 			return nil, nil, nil, fmt.Errorf("generating DEK: %w", randErr)
 		}
@@ -73,22 +81,27 @@ func encryptWithSSE(plaintext []byte, sse sseInfo, customerKeyB64 string) (
 //
 // Returns the original plaintext when the stored algorithm was empty (no SSE
 // was applied at PUT-time), so it's safe to call unconditionally.
-func decryptWithSSE(ciphertext []byte, sseAlg, sseCAlg string, dek, nonce []byte, customerKeyB64 string) ([]byte, error) {
+func decryptWithSSE(
+	ciphertext []byte,
+	sseAlg, sseCAlg string,
+	dek, nonce []byte,
+	customerKeyB64 string,
+) ([]byte, error) {
 	if sseAlg == "" && sseCAlg == "" {
 		return ciphertext, nil
 	}
 
 	if sseCAlg != "" {
 		key, err := base64.StdEncoding.DecodeString(customerKeyB64)
-		if err != nil || len(key) != 32 {
-			return nil, errors.New("SSE-C key must decode to 32 bytes")
+		if err != nil || len(key) != dataKeySize {
+			return nil, errSSECKeySize
 		}
 
 		return aesGCMDecrypt(key, nonce, ciphertext)
 	}
 
-	if len(dek) != 32 {
-		return nil, errors.New("stored DEK is missing or wrong size")
+	if len(dek) != dataKeySize {
+		return nil, errSSEMissingDEK
 	}
 
 	return aesGCMDecrypt(dek, nonce, ciphertext)

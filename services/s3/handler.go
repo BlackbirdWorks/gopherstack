@@ -341,27 +341,7 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		log.DebugContext(ctx, "S3 request", "method", requestWithCtx.Method, "bucket", bucketName, "key", key)
 
 		if bucketName == "" {
-			if requestWithCtx.Method != http.MethodGet {
-				// WriteGetObjectResponse: POST /?writeGetObjectResponse
-				if requestWithCtx.Method == http.MethodPost && isWriteGetObjectResponseRequest(requestWithCtx) {
-					h.handleWriteGetObjectResponse(ctx, sw, requestWithCtx)
-
-					return nil
-				}
-
-				WriteError(ctx, sw, requestWithCtx, ErrMethodNotAllowed)
-
-				return nil
-			}
-
-			// ListDirectoryBuckets: GET /?list-type=directory
-			if isListDirectoryBucketsRequest(requestWithCtx) {
-				h.handleListDirectoryBuckets(ctx, sw, requestWithCtx)
-
-				return nil
-			}
-
-			h.listBuckets(ctx, sw, requestWithCtx)
+			h.handleRootRequest(ctx, sw, requestWithCtx)
 
 			return nil
 		}
@@ -418,12 +398,8 @@ func (h *S3Handler) enforceBucketRegion(
 	// CreateBucket: PUT /bucket with no query sub-resource. Real S3 returns
 	// BucketAlreadyOwnedByYou rather than 301 in this case; let the backend
 	// handle it so the wire response matches.
-	if r.Method == http.MethodPut && len(r.URL.RawQuery) == 0 && len(r.URL.Path) > 0 {
-		// Path will be "/bucket" (no key) — let it through to CreateBucket.
-		parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
-		if len(parts) == 1 || parts[1] == "" {
-			return true
-		}
+	if isCreateBucketRequest(r) {
+		return true
 	}
 
 	w.Header().Set("x-amz-bucket-region", bucketRegion)
@@ -438,6 +414,47 @@ func (h *S3Handler) enforceBucketRegion(
 // Name returns the service identifier.
 func (h *S3Handler) Name() string {
 	return "S3"
+}
+
+// handleRootRequest dispatches requests whose path resolved to an empty
+// bucket name: ListBuckets, ListDirectoryBuckets, or WriteGetObjectResponse.
+// Pulled out of Handler so its cognitive complexity stays below the linter
+// cap.
+func (h *S3Handler) handleRootRequest(ctx context.Context, sw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		if r.Method == http.MethodPost && isWriteGetObjectResponseRequest(r) {
+			h.handleWriteGetObjectResponse(ctx, sw, r)
+
+			return
+		}
+
+		WriteError(ctx, sw, r, ErrMethodNotAllowed)
+
+		return
+	}
+
+	if isListDirectoryBucketsRequest(r) {
+		h.handleListDirectoryBuckets(ctx, sw, r)
+
+		return
+	}
+
+	h.listBuckets(ctx, sw, r)
+}
+
+// isCreateBucketRequest reports whether a PUT /bucket (no key, no sub-resource)
+// targets CreateBucket. We use this to exempt CreateBucket from the
+// cross-region 301 enforcement because a name collision there should yield
+// BucketAlreadyOwnedByYou rather than a redirect.
+func isCreateBucketRequest(r *http.Request) bool {
+	if r.Method != http.MethodPut || r.URL.RawQuery != "" || r.URL.Path == "" {
+		return false
+	}
+
+	trimmed := strings.TrimPrefix(r.URL.Path, "/")
+	idx := strings.IndexByte(trimmed, '/')
+
+	return idx == -1 || idx == len(trimmed)-1
 }
 
 // RouteMatcher returns a matcher that accepts all S3 requests (catch-all).

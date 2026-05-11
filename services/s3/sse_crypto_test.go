@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -78,11 +80,12 @@ func TestSSE_S3_MultipartEncryptsAtRest(t *testing.T) {
 	part2 := bytes.Repeat([]byte("bbbbbbbbbb"), 100) // 1 KB
 
 	uploadPart := func(num int, body []byte) string {
-		u := "/mp-sse-bkt/big.bin?partNumber=" + itoaT(t, num) + "&uploadId=" + uploadID
+		u := "/mp-sse-bkt/big.bin?partNumber=" + strconv.Itoa(num) + "&uploadId=" + uploadID
 		r := httptest.NewRequest(http.MethodPut, u, bytes.NewReader(body))
 		rr := httptest.NewRecorder()
 		serveS3Handler(handler, rr, r)
 		require.Equal(t, http.StatusOK, rr.Code)
+
 		return rr.Header().Get("ETag")
 	}
 
@@ -94,7 +97,8 @@ func TestSSE_S3_MultipartEncryptsAtRest(t *testing.T) {
 		"<Part><PartNumber>1</PartNumber><ETag>" + etag1 + "</ETag></Part>" +
 		"<Part><PartNumber>2</PartNumber><ETag>" + etag2 + "</ETag></Part>" +
 		"</CompleteMultipartUpload>"
-	req = httptest.NewRequest(http.MethodPost, "/mp-sse-bkt/big.bin?uploadId="+uploadID, bytes.NewReader([]byte(completeBody)))
+	completeURL := "/mp-sse-bkt/big.bin?uploadId=" + uploadID
+	req = httptest.NewRequest(http.MethodPost, completeURL, bytes.NewReader([]byte(completeBody)))
 	rec = httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -121,29 +125,18 @@ func TestSSE_S3_MultipartEncryptsAtRest(t *testing.T) {
 // hand-written response above and avoids pulling in a full XML decoder.
 func extractUploadID(t *testing.T, body string) string {
 	t.Helper()
-	const open, close = "<UploadId>", "</UploadId>"
-	i := bytesIndex(body, open)
+
+	const openTag, closeTag = "<UploadId>", "</UploadId>"
+
+	i := strings.Index(body, openTag)
 	require.GreaterOrEqual(t, i, 0)
-	rest := body[i+len(open):]
-	j := bytesIndex(rest, close)
+
+	rest := body[i+len(openTag):]
+
+	j := strings.Index(rest, closeTag)
 	require.GreaterOrEqual(t, j, 0)
+
 	return rest[:j]
-}
-
-func bytesIndex(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
-}
-
-func itoaT(t *testing.T, n int) string {
-	t.Helper()
-	// strconv.Itoa would do, but we want to keep the test file's import
-	// list tight — and n is always small.
-	return string(rune('0' + n))
 }
 
 // TestSSE_C_RoundTripRequiresKey verifies that SSE-C encrypts with the
@@ -159,7 +152,7 @@ func TestSSE_C_RoundTripRequiresKey(t *testing.T) {
 		rawKey[i] = byte(i + 1)
 	}
 	keyB64 := base64.StdEncoding.EncodeToString(rawKey)
-	sum := md5.Sum(rawKey) //nolint:gosec // MD5 mandated by SSE-C
+	sum := md5.Sum(rawKey)
 	keyMD5 := base64.StdEncoding.EncodeToString(sum[:])
 
 	plaintext := []byte("customer-managed payload")
@@ -196,7 +189,7 @@ func TestSSE_C_RoundTripRequiresKey(t *testing.T) {
 		wrongKey[i] = byte(i + 99)
 	}
 	wrongB64 := base64.StdEncoding.EncodeToString(wrongKey)
-	wrongSum := md5.Sum(wrongKey) //nolint:gosec
+	wrongSum := md5.Sum(wrongKey)
 	wrongMD5 := base64.StdEncoding.EncodeToString(wrongSum[:])
 
 	req = httptest.NewRequest(http.MethodGet, "/ssec-bkt/c-obj", nil)

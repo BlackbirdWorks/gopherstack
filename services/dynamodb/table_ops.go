@@ -513,7 +513,8 @@ func (db *InMemoryDB) DescribeTable(
 	return &dynamodb.DescribeTableOutput{Table: tableDesc}, nil
 }
 
-// tableSnapshot is a lock-free snapshot of table metadata for building SDK responses.
+// tableSnapshot is a lock-free snapshot of table metadata for building SDK
+// responses. Field order is govet/fieldalignment-tuned.
 type tableSnapshot struct {
 	creationDT                time.Time
 	tableStatus               types.TableStatus
@@ -526,7 +527,6 @@ type tableSnapshot struct {
 	billingMode               string
 	sseType                   string
 	sseKMSMasterKeyArn        string
-	sseEnabled                bool
 	replicaList               []models.ReplicaDescription
 	lsiList                   []models.LocalSecondaryIndex
 	keySchema                 []models.KeySchemaElement
@@ -535,6 +535,7 @@ type tableSnapshot struct {
 	pt                        models.ProvisionedThroughputDescription
 	itemCount                 int64
 	itemSizeBytes             int64
+	sseEnabled                bool
 	streamsEnabled            bool
 	deletionProtectionEnabled bool
 }

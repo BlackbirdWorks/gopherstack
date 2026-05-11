@@ -46,6 +46,7 @@ func TestHandler_AccessLogDispatch(t *testing.T) {
 		})
 		if err == nil && len(out.Contents) > 0 {
 			logKey = aws.ToString(out.Contents[0].Key)
+
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
