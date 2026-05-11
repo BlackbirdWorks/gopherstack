@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"maps"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -979,7 +980,7 @@ func TestPersistence_NewFieldsSurviveSnapshot(t *testing.T) {
 
 	result, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "persist-user", "Pass1234!")
 	require.NoError(t, err)
-	require.NotNil(t, result.Tokens, "expected tokens but got challenge: %s", result.ChallengeName)
+	require.NotNilf(t, result.Tokens, "expected tokens but got challenge: %s", result.ChallengeName)
 
 	require.NoError(t, b.GlobalSignOut(result.Tokens.AccessToken))
 
@@ -1125,37 +1126,7 @@ func splitScope(s string) []string {
 		return nil
 	}
 
-	var result []string
-
-	for _, p := range splitOnSpace(s) {
-		if p != "" {
-			result = append(result, p)
-		}
-	}
-
-	return result
-}
-
-func splitOnSpace(s string) []string {
-	var parts []string
-	start := -1
-
-	for i, ch := range s {
-		if ch == ' ' {
-			if start >= 0 {
-				parts = append(parts, s[start:i])
-				start = -1
-			}
-		} else if start < 0 {
-			start = i
-		}
-	}
-
-	if start >= 0 {
-		parts = append(parts, s[start:])
-	}
-
-	return parts
+	return strings.Fields(s)
 }
 
 // ---- Persistence: refresh tokens survive Snapshot/Restore ----
