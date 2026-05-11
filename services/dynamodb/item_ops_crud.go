@@ -193,17 +193,16 @@ func (db *InMemoryDB) populatePutItemOutput(
 		out.Attributes, _ = models.ToSDKItem(oldItem)
 	}
 
-	// Handle ConsumedCapacity
+	// Handle ConsumedCapacity. WCU on a write is ceil(item-size / 1 KB),
+	// minimum 1 — same formula AWS uses, computed from the wire-item we just
+	// put.
 	if input.ReturnConsumedCapacity != "" &&
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
-		const capacityUnit = 1.0
-		const readCapacity = 0.5
-		cu := capacityUnit
+		writeUnits := WriteCapacityUnits(models.FromSDKItem(input.Item))
 		out.ConsumedCapacity = &types.ConsumedCapacity{
 			TableName:          aws.String(table.Name),
-			CapacityUnits:      aws.Float64(cu),
-			WriteCapacityUnits: aws.Float64(cu),
-			ReadCapacityUnits:  aws.Float64(readCapacity),
+			CapacityUnits:      aws.Float64(writeUnits),
+			WriteCapacityUnits: aws.Float64(writeUnits),
 		}
 	}
 
@@ -281,7 +280,20 @@ func (db *InMemoryDB) GetItem(
 		return nil, err
 	}
 
-	return &dynamodb.GetItemOutput{Item: sdkItem}, nil
+	out := &dynamodb.GetItemOutput{Item: sdkItem}
+	if input.ReturnConsumedCapacity != "" &&
+		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
+		// RCU on a read is ceil(item-size / 4 KB) * 0.5 (eventually consistent)
+		// or doubled when ConsistentRead=true. Matches the real AWS formula.
+		readUnits := applyConsistentReadMultiplier(ReadCapacityUnits(item), consistentRead)
+		out.ConsumedCapacity = &types.ConsumedCapacity{
+			TableName:         aws.String(table.Name),
+			CapacityUnits:     aws.Float64(readUnits),
+			ReadCapacityUnits: aws.Float64(readUnits),
+		}
+	}
+
+	return out, nil
 }
 
 func (db *InMemoryDB) DeleteItem(
@@ -418,11 +430,17 @@ func (db *InMemoryDB) buildDeleteItemOutput(
 
 	if input.ReturnConsumedCapacity != "" &&
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
-		cu := 1.0
+		// WCU on a delete is ceil(deleted-item-size / 1 KB), minimum 1. If the
+		// row didn't exist, AWS still bills the 1-WCU floor for the tombstone
+		// write — matching that here keeps cost projections accurate.
+		writeUnits := 1.0
+		if oldItem != nil {
+			writeUnits = WriteCapacityUnits(oldItem)
+		}
 		out.ConsumedCapacity = &types.ConsumedCapacity{
 			TableName:          aws.String(table.Name),
-			CapacityUnits:      aws.Float64(cu),
-			WriteCapacityUnits: aws.Float64(cu),
+			CapacityUnits:      aws.Float64(writeUnits),
+			WriteCapacityUnits: aws.Float64(writeUnits),
 		}
 	}
 
@@ -692,14 +710,22 @@ func (db *InMemoryDB) populateUpdateOutput(
 
 	out.Attributes = attrs
 
-	// Handle ConsumedCapacity
+	// Handle ConsumedCapacity. AWS bills UpdateItem at the larger of the
+	// pre- and post-update item sizes (ceil to 1 KB units). Computing that
+	// off the actual sizes makes ConsumedCapacity round-trip realistic for
+	// cost-projection tests.
 	if input.ReturnConsumedCapacity != "" &&
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
-		cu := 1.0
+		writeUnits := WriteCapacityUnits(newItem)
+		if oldItem != nil {
+			if w := WriteCapacityUnits(oldItem); w > writeUnits {
+				writeUnits = w
+			}
+		}
 		out.ConsumedCapacity = &types.ConsumedCapacity{
 			TableName:          aws.String(table.Name),
-			CapacityUnits:      aws.Float64(cu),
-			WriteCapacityUnits: aws.Float64(cu),
+			CapacityUnits:      aws.Float64(writeUnits),
+			WriteCapacityUnits: aws.Float64(writeUnits),
 		}
 	}
 

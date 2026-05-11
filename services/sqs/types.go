@@ -46,6 +46,20 @@ const (
 	attrApproxMessagesDelayed     = "ApproximateNumberOfMessagesDelayed"
 	attrAll                       = "All"
 	attrSqsManagedSseEnabled      = "SqsManagedSseEnabled"
+	attrKmsMasterKeyID            = "KmsMasterKeyId"
+	attrKmsDataKeyReusePeriodSecs = "KmsDataKeyReusePeriodSeconds"
+	attrRedriveAllowPolicy        = "RedriveAllowPolicy"
+	attrDeduplicationScope        = "DeduplicationScope"
+	attrFifoThroughputLimit       = "FifoThroughputLimit"
+
+	// fifoDedupScopeQueue / fifoDedupScopePerMessageGroup are the only valid
+	// values for the DeduplicationScope FIFO attribute.
+	fifoDedupScopeQueue           = "queue"
+	fifoDedupScopePerMessageGroup = "messageGroup"
+	// fifoThroughputLimitPerQueue / fifoThroughputLimitPerMessageGroupID are
+	// the only valid values for the FifoThroughputLimit FIFO attribute.
+	fifoThroughputLimitPerQueue          = "perQueue"
+	fifoThroughputLimitPerMessageGroupID = "perMessageGroupId"
 
 	attrApproxReceiveCount          = "ApproximateReceiveCount"
 	attrSentTimestamp               = "SentTimestamp"
@@ -110,6 +124,11 @@ type QueuePermissionEntry struct {
 }
 
 // Queue represents an SQS queue.
+//
+// Field ordering trades a few bytes of padding for grouping related state
+// together (purge cooldown vs dedup vs FIFO send-rate).
+//
+//nolint:govet // fieldalignment: prefer logical grouping over byte packing
 type Queue struct {
 	// lastPurgedAt records when PurgeQueue was last called on this queue.
 	// AWS enforces a 60-second cooldown between purge operations.
@@ -118,20 +137,35 @@ type Queue struct {
 	DeduplicationIDs    map[string]time.Time
 	Attributes          map[string]string
 	// Permissions maps a permission label to its entry (account IDs + actions).
-	Permissions      map[string]*QueuePermissionEntry
-	Tags             *tags.Tags
-	dlq              *Queue        // resolved DLQ queue pointer; nil = no DLQ
-	notify           chan struct{} // closed on SendMessage for broadcast wake-up; replaced each time
+	Permissions map[string]*QueuePermissionEntry
+	// fifoSendTimes tracks a sliding 1-second window of SendMessage timestamps
+	// per message group, used to enforce FifoThroughputLimit=perMessageGroupId
+	// (300 TPS per group, real AWS default). nil when throughput limit is
+	// per-queue. Pruned on the fly inside checkFIFORateLimit.
+	fifoSendTimes map[string][]time.Time
+	Tags          *tags.Tags
+	dlq           *Queue        // resolved DLQ queue pointer; nil = no DLQ
+	notify        chan struct{} // closed on SendMessage for broadcast wake-up; replaced each time
+	messages      []*Message
+	// inFlightMessages holds delivered-but-not-yet-deleted messages, keyed by
+	// receipt handle. Drained back into messages when visibility expires.
+	inFlightMessages []*InFlightMessage
 	Name             string
 	URL              string
-	messages         []*Message
-	inFlightMessages []*InFlightMessage
+	// Region records the AWS region the queue was created in. Lookups from a
+	// different region return ErrQueueNotFound, matching real SQS behaviour.
+	Region string
 	// fifoSeqCounter is an atomically-incremented sequence counter used to
 	// generate FIFO SequenceNumber values. Monotonically increasing per queue.
 	fifoSeqCounter  uint64
 	MaxReceiveCount int // 0 = no DLQ
 	IsFIFO          bool
 }
+
+// fifoPerGroupTPS is the AWS-documented per-message-group send rate when
+// FifoThroughputLimit=perMessageGroupId. SDKs receiving more than this on a
+// single group get OverLimit and back off.
+const fifoPerGroupTPS = 300
 
 // QueueInfo holds the immutable-after-creation fields of a queue, returned by ListAll.
 type QueueInfo struct {
@@ -158,12 +192,14 @@ type CreateQueueOutput struct {
 // DeleteQueueInput is the input for DeleteQueue.
 type DeleteQueueInput struct {
 	QueueURL string
+	Region   string
 }
 
 // ListQueuesInput is the input for ListQueues.
 type ListQueuesInput struct {
 	QueueNamePrefix string
 	NextToken       string
+	Region          string
 	MaxResults      int
 }
 
@@ -176,6 +212,7 @@ type ListQueuesOutput struct {
 // GetQueueURLInput is the input for GetQueueURL.
 type GetQueueURLInput struct {
 	QueueName string
+	Region    string
 }
 
 // GetQueueURLOutput is the output for GetQueueURL.
@@ -186,6 +223,7 @@ type GetQueueURLOutput struct {
 // GetQueueAttributesInput is the input for GetQueueAttributes.
 type GetQueueAttributesInput struct {
 	QueueURL       string
+	Region         string
 	AttributeNames []string
 }
 
@@ -198,17 +236,27 @@ type GetQueueAttributesOutput struct {
 type SetQueueAttributesInput struct {
 	Attributes map[string]string
 	QueueURL   string
+	Region     string
 }
 
 // SendMessageInput is the input for SendMessage.
 type SendMessageInput struct {
-	MessageAttributes      map[string]MessageAttributeValue
-	QueueURL               string
-	MessageBody            string
-	MessageGroupID         string
-	MessageDeduplicationID string
-	DelaySeconds           int
+	MessageAttributes map[string]MessageAttributeValue
+	// MessageSystemAttributes carries reserved system attributes from the
+	// caller (currently only AWSTraceHeader). They are stored on the message
+	// and surfaced via ReceiveMessage when the consumer asks for them by name.
+	MessageSystemAttributes map[string]MessageAttributeValue
+	QueueURL                string
+	Region                  string
+	MessageBody             string
+	MessageGroupID          string
+	MessageDeduplicationID  string
+	DelaySeconds            int
 }
+
+// attrAWSTraceHeader is the single AWS-reserved system attribute SQS accepts
+// today. Carries X-Ray trace context end-to-end across producers and consumers.
+const attrAWSTraceHeader = "AWSTraceHeader"
 
 // SendMessageOutput is the output for SendMessage.
 type SendMessageOutput struct {
@@ -221,6 +269,7 @@ type SendMessageOutput struct {
 // ReceiveMessageInput is the input for ReceiveMessage.
 type ReceiveMessageInput struct {
 	QueueURL              string
+	Region                string
 	AttributeNames        []string
 	MessageAttributeNames []string
 	MaxNumberOfMessages   int
@@ -236,29 +285,33 @@ type ReceiveMessageOutput struct {
 // DeleteMessageInput is the input for DeleteMessage.
 type DeleteMessageInput struct {
 	QueueURL      string
+	Region        string
 	ReceiptHandle string
 }
 
 // ChangeMessageVisibilityInput is the input for ChangeMessageVisibility.
 type ChangeMessageVisibilityInput struct {
 	QueueURL          string
+	Region            string
 	ReceiptHandle     string
 	VisibilityTimeout int
 }
 
 // SendMessageBatchEntry is a single entry in a SendMessageBatch request.
 type SendMessageBatchEntry struct {
-	MessageAttributes      map[string]MessageAttributeValue
-	ID                     string
-	MessageBody            string
-	MessageGroupID         string
-	MessageDeduplicationID string
-	DelaySeconds           int
+	MessageAttributes       map[string]MessageAttributeValue
+	MessageSystemAttributes map[string]MessageAttributeValue
+	ID                      string
+	MessageBody             string
+	MessageGroupID          string
+	MessageDeduplicationID  string
+	DelaySeconds            int
 }
 
 // SendMessageBatchInput is the input for SendMessageBatch.
 type SendMessageBatchInput struct {
 	QueueURL string
+	Region   string
 	Entries  []SendMessageBatchEntry
 }
 
@@ -294,6 +347,7 @@ type DeleteMessageBatchEntry struct {
 // DeleteMessageBatchInput is the input for DeleteMessageBatch.
 type DeleteMessageBatchInput struct {
 	QueueURL string
+	Region   string
 	Entries  []DeleteMessageBatchEntry
 }
 
@@ -311,6 +365,7 @@ type DeleteMessageBatchOutput struct {
 // PurgeQueueInput is the input for PurgeQueue.
 type PurgeQueueInput struct {
 	QueueURL string
+	Region   string
 }
 
 // XMLResponseMetadata holds the request ID for all SQS XML responses.
@@ -529,17 +584,20 @@ type PurgeQueueResponse struct {
 type TagQueueInput struct {
 	Tags     *tags.Tags
 	QueueURL string
+	Region   string
 }
 
 // UntagQueueInput holds the input for UntagQueue.
 type UntagQueueInput struct {
 	QueueURL string
+	Region   string
 	TagKeys  []string
 }
 
 // ListQueueTagsInput holds the input for ListQueueTags.
 type ListQueueTagsInput struct {
 	QueueURL string
+	Region   string
 }
 
 // ListQueueTagsOutput holds the result of ListQueueTags.
@@ -550,6 +608,7 @@ type ListQueueTagsOutput struct {
 // ListDeadLetterSourceQueuesInput is the input for ListDeadLetterSourceQueues.
 type ListDeadLetterSourceQueuesInput struct {
 	QueueURL   string
+	Region     string
 	NextToken  string
 	MaxResults int
 }
@@ -603,6 +662,7 @@ type ChangeMessageVisibilityBatchRequestEntry struct {
 // ChangeMessageVisibilityBatchInput holds input for ChangeMessageVisibilityBatch.
 type ChangeMessageVisibilityBatchInput struct {
 	QueueURL string
+	Region   string
 	Entries  []ChangeMessageVisibilityBatchRequestEntry
 }
 
@@ -678,6 +738,7 @@ type MessageMoveTask struct {
 // AddPermissionInput is the input for AddPermission.
 type AddPermissionInput struct {
 	QueueURL      string
+	Region        string
 	Label         string
 	Actions       []string
 	AWSAccountIDs []string
@@ -686,6 +747,7 @@ type AddPermissionInput struct {
 // RemovePermissionInput is the input for RemovePermission.
 type RemovePermissionInput struct {
 	QueueURL string
+	Region   string
 	Label    string
 }
 

@@ -164,11 +164,25 @@ func (b *InMemoryBackend) startJanitor() {
 // resources.  It is safe to call Close multiple times; subsequent calls are
 // no-ops.  The backend must not be used after Close returns.
 func (b *InMemoryBackend) Close() {
+	b.stopInternalJanitor()
+}
+
+// stopInternalJanitor stops the internal janitor goroutine started by
+// NewInMemoryBackendWithConfig. Safe to call multiple times.
+func (b *InMemoryBackend) stopInternalJanitor() {
+	b.mu.Lock("stopInternalJanitor")
+	ch := b.janitorStop
+	b.mu.Unlock()
+
+	if ch == nil {
+		return
+	}
+
 	select {
-	case <-b.janitorStop:
+	case <-ch:
 		// already closed
 	default:
-		close(b.janitorStop)
+		close(ch)
 	}
 }
 
@@ -239,6 +253,66 @@ func queueNameFromInput(queueURL string) string {
 	return parts[len(parts)-1]
 }
 
+// effectiveRegion returns the region to scope a backend lookup against.
+// Empty input falls back to the backend's default region so single-region
+// callers (and existing tests) continue to work without explicit region threading.
+func (b *InMemoryBackend) effectiveRegion(region string) string {
+	if region != "" {
+		return region
+	}
+
+	return b.region
+}
+
+// queueKey is the composite map key used by b.queues, formed from
+// (region, name). Two queues with the same name in different regions occupy
+// distinct keys, matching AWS semantics where queue names are scoped per-region.
+func queueKey(region, name string) string {
+	return region + "/" + name
+}
+
+// lookupQueueByName returns the queue stored under (region, name), or false if
+// no queue exists in that region with that name.
+func (b *InMemoryBackend) lookupQueueByName(region, name string) (*Queue, bool) {
+	q, ok := b.queues[queueKey(b.effectiveRegion(region), name)]
+
+	return q, ok
+}
+
+// lookupQueueByURL finds a queue by its URL.
+//
+// When a region is supplied (the caller threaded the SigV4 region from the
+// request) the queue MUST live in that region; a queue with the same name in
+// a different region is treated as not found, matching real AWS where the
+// SigV4 region must match the regional endpoint. Lookup uses the queue name
+// extracted from the URL plus the region — we do NOT require the stored
+// q.URL to be byte-identical to the caller's queueURL because SDKs and proxy
+// hops may rewrite the host/port (e.g. host.docker.internal vs localhost).
+//
+// When region is empty the lookup falls back to a URL-string scan across all
+// regions to support callers that have not yet been wired to thread region
+// through. New code should always pass the request region.
+func (b *InMemoryBackend) lookupQueueByURL(region, queueURL string) (*Queue, bool) {
+	name := queueNameFromInput(queueURL)
+
+	if region != "" {
+		q, ok := b.queues[queueKey(region, name)]
+		if !ok {
+			return nil, false
+		}
+
+		return q, true
+	}
+
+	for _, q := range b.queues {
+		if q.URL == queueURL {
+			return q, true
+		}
+	}
+
+	return nil, false
+}
+
 // redrivePolicy represents the JSON structure of an SQS RedrivePolicy attribute.
 type redrivePolicy struct {
 	DeadLetterTargetArn string      `json:"deadLetterTargetArn"`
@@ -265,7 +339,8 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 
 	dlqName := queueNameFromARN(pol.DeadLetterTargetArn)
 
-	dlq, exists := backend.queues[dlqName]
+	// DLQ must reside in the same region as the source queue (AWS rule).
+	dlq, exists := backend.lookupQueueByName(q.Region, dlqName)
 	if !exists {
 		return
 	}
@@ -430,11 +505,14 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	b.mu.Lock("CreateQueue")
 	defer b.mu.Unlock()
 
-	// AWS idempotency: if a queue with the same name exists and the caller-supplied
-	// configurable attributes are the same (or absent), return the existing URL.
-	// If the same name is used with different configurable attributes, return
-	// QueueNameExists (matches real SQS behaviour).
-	if q, exists := b.queues[input.QueueName]; exists {
+	isFIFO := strings.HasSuffix(input.QueueName, fifoSuffix)
+	region := b.effectiveRegion(input.Region)
+
+	// AWS idempotency: if a queue with the same name exists in the same region
+	// and the caller-supplied configurable attributes are the same (or absent),
+	// return the existing URL. Different configurable attributes yields
+	// QueueNameExists. A name collision in a different region is allowed.
+	if q, exists := b.queues[queueKey(region, input.QueueName)]; exists {
 		for k, v := range input.Attributes {
 			if !isConfigurableQueueAttribute(k) {
 				continue
@@ -447,12 +525,6 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 
 		return &CreateQueueOutput{QueueURL: q.URL}, nil
 	}
-
-	isFIFO := strings.HasSuffix(input.QueueName, fifoSuffix)
-	region := b.region
-	if input.Region != "" {
-		region = input.Region
-	}
 	attrs := buildDefaultAttributes(input.QueueName, b.accountID, region, isFIFO)
 
 	maps.Copy(attrs, input.Attributes)
@@ -464,6 +536,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	q := &Queue{
 		Name:                input.QueueName,
 		URL:                 queueURL,
+		Region:              region,
 		IsFIFO:              isFIFO,
 		Attributes:          attrs,
 		Tags:                tags.FromMap(tagName, input.Tags),
@@ -473,7 +546,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		notify:              make(chan struct{}),
 	}
 
-	b.queues[input.QueueName] = q
+	b.queues[queueKey(region, input.QueueName)] = q
 
 	applyRedrivePolicy(q, attrs, b)
 
@@ -485,9 +558,7 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 	b.mu.Lock("DeleteQueue")
 	defer b.mu.Unlock()
 
-	name := queueNameFromInput(input.QueueURL)
-
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByURL(input.Region, input.QueueURL)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -502,7 +573,7 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 		q.Tags.Close()
 	}
 
-	delete(b.queues, name)
+	delete(b.queues, queueKey(q.Region, q.Name))
 
 	// Cancel any active move tasks that involve this queue (either as source or
 	// destination) to prevent goroutine leaks.
@@ -520,15 +591,20 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 	return nil
 }
 
-// ListQueues returns all queue URLs, optionally filtered by prefix.
+// ListQueues returns queue URLs in the requested region, optionally filtered by prefix.
 func (b *InMemoryBackend) ListQueues(input *ListQueuesInput) (*ListQueuesOutput, error) {
 	b.mu.RLock("ListQueues")
 	defer b.mu.RUnlock()
 
+	scope := b.effectiveRegion(input.Region)
+
 	var urls []string
 
-	for name, q := range b.queues {
-		if input.QueueNamePrefix == "" || strings.HasPrefix(name, input.QueueNamePrefix) {
+	for _, q := range b.queues {
+		if q.Region != scope {
+			continue
+		}
+		if input.QueueNamePrefix == "" || strings.HasPrefix(q.Name, input.QueueNamePrefix) {
 			urls = append(urls, q.URL)
 		}
 	}
@@ -540,12 +616,12 @@ func (b *InMemoryBackend) ListQueues(input *ListQueuesInput) (*ListQueuesOutput,
 	return &ListQueuesOutput{QueueURLs: p.Data, NextToken: p.Next}, nil
 }
 
-// GetQueueURL returns the URL for a queue by name.
+// GetQueueURL returns the URL for a queue by name in the requested region.
 func (b *InMemoryBackend) GetQueueURL(input *GetQueueURLInput) (*GetQueueURLOutput, error) {
 	b.mu.RLock("GetQueueURL")
 	defer b.mu.RUnlock()
 
-	q, ok := b.queues[input.QueueName]
+	q, ok := b.lookupQueueByName(input.Region, input.QueueName)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -560,7 +636,7 @@ func (b *InMemoryBackend) GetQueueAttributes(input *GetQueueAttributesInput) (*G
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -624,7 +700,7 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -669,8 +745,90 @@ func validateQueueAttributes(attrs map[string]string) error {
 		return err
 	}
 
-	return validateIntAttrRange(attrs, attrMaximumMessageSize, minMaximumMessageSize, defaultMaxMessageSize)
+	if err := validateIntAttrRange(
+		attrs, attrMaximumMessageSize, minMaximumMessageSize, defaultMaxMessageSize,
+	); err != nil {
+		return err
+	}
+
+	// AWS allows KmsDataKeyReusePeriodSeconds in [minKMSDataKeyReuseSecs, maxKMSDataKeyReuseSecs].
+	if err := validateIntAttrRange(
+		attrs, attrKmsDataKeyReusePeriodSecs, minKMSDataKeyReuseSecs, maxKMSDataKeyReuseSecs,
+	); err != nil {
+		return err
+	}
+
+	return validateFIFOAttributes(attrs)
 }
+
+// validateFIFOAttributes covers the FIFO-specific enum and redrive-allow
+// validation pulled out of validateQueueAttributes to keep cognitive
+// complexity below the linter cap.
+func validateFIFOAttributes(attrs map[string]string) error {
+	if v, ok := attrs[attrDeduplicationScope]; ok {
+		if v != fifoDedupScopeQueue && v != fifoDedupScopePerMessageGroup {
+			return ErrInvalidAttribute
+		}
+	}
+
+	if v, ok := attrs[attrFifoThroughputLimit]; ok {
+		if v != fifoThroughputLimitPerQueue && v != fifoThroughputLimitPerMessageGroupID {
+			return ErrInvalidAttribute
+		}
+	}
+
+	// AWS requires DeduplicationScope=messageGroup when FifoThroughputLimit
+	// is perMessageGroupId. Enforce the pairing only when both sides are
+	// present in the same SetQueueAttributes call.
+	if t, hasT := attrs[attrFifoThroughputLimit]; hasT && t == fifoThroughputLimitPerMessageGroupID {
+		if s, hasS := attrs[attrDeduplicationScope]; hasS && s != fifoDedupScopePerMessageGroup {
+			return ErrInvalidAttribute
+		}
+	}
+
+	if v, ok := attrs[attrRedriveAllowPolicy]; ok {
+		if err := validateRedriveAllowPolicy(v); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateRedriveAllowPolicy verifies the JSON shape of a RedriveAllowPolicy
+// value. AWS accepts three forms of redrivePermission: allowAll, denyAll, or
+// byQueue with a sourceQueueArns array (max 10 entries). Empty / malformed
+// JSON is rejected with InvalidAttributeValue.
+func validateRedriveAllowPolicy(raw string) error {
+	var policy struct {
+		RedrivePermission string   `json:"redrivePermission"`
+		SourceQueueArns   []string `json:"sourceQueueArns"`
+	}
+
+	if err := json.Unmarshal([]byte(raw), &policy); err != nil {
+		return ErrInvalidAttribute
+	}
+
+	switch policy.RedrivePermission {
+	case "allowAll", "denyAll":
+		if len(policy.SourceQueueArns) > 0 {
+			return ErrInvalidAttribute
+		}
+	case "byQueue":
+		if len(policy.SourceQueueArns) == 0 || len(policy.SourceQueueArns) > 10 {
+			return ErrInvalidAttribute
+		}
+	default:
+		return ErrInvalidAttribute
+	}
+
+	return nil
+}
+
+const (
+	minKMSDataKeyReuseSecs = 60
+	maxKMSDataKeyReuseSecs = 86400
+)
 
 // maxReceiveMessageWaitTimeSeconds is the AWS maximum for ReceiveMessageWaitTimeSeconds.
 const maxReceiveMessageWaitTimeSeconds = 20
@@ -694,6 +852,100 @@ func validateIntAttrRange(attrs map[string]string, name string, attrMin, attrMax
 // maxVisibilityTimeoutSeconds is the AWS maximum for VisibilityTimeout (12 hours).
 const maxVisibilityTimeoutSeconds = 43200
 
+// checkFIFOPerGroupRateLimit enforces the 300 TPS per-message-group AWS limit
+// for FIFO queues running with FifoThroughputLimit=perMessageGroupId.
+//
+// Maintains a sliding 1-second window per group, pruning timestamps older
+// than the window on each call. Returns ErrOverLimit when the window is
+// already full; otherwise appends the new send and returns nil.
+//
+// Caller must hold b.mu (write). Allocates the per-queue map lazily.
+func checkFIFOPerGroupRateLimit(q *Queue, group string, now time.Time) error {
+	if group == "" {
+		return nil
+	}
+
+	if q.fifoSendTimes == nil {
+		q.fifoSendTimes = make(map[string][]time.Time)
+	}
+
+	cutoff := now.Add(-time.Second)
+	prev := q.fifoSendTimes[group]
+	kept := prev[:0]
+	for _, t := range prev {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+
+	if len(kept) >= fifoPerGroupTPS {
+		q.fifoSendTimes[group] = kept
+
+		return ErrOverLimit
+	}
+
+	q.fifoSendTimes[group] = append(kept, now)
+
+	return nil
+}
+
+// buildInitialMessageAttributes returns the system-attribute map stamped on a
+// new message at send-time. AWSTraceHeader is the one reserved name SQS
+// accepts; we copy its StringValue verbatim so consumers see the original
+// X-Ray trace context.
+func buildInitialMessageAttributes(
+	sentTS string, sysAttrs map[string]MessageAttributeValue,
+) map[string]string {
+	attrs := map[string]string{
+		attrSentTimestamp:      sentTS,
+		attrApproxReceiveCount: attrValZero,
+	}
+
+	if v, ok := sysAttrs[attrAWSTraceHeader]; ok && v.StringValue != "" {
+		attrs[attrAWSTraceHeader] = v.StringValue
+	}
+
+	return attrs
+}
+
+// fifoPreflight is the outcome of preflightFIFOSend. handled=true means the
+// caller should return Output/Err immediately; handled=false means proceed
+// with normal send flow.
+type fifoPreflight struct {
+	Output  *SendMessageOutput
+	Err     error
+	Handled bool
+}
+
+// preflightFIFOSend runs the FIFO-only preconditions a SendMessage must
+// satisfy before the message is constructed: parameter validation, per-group
+// throughput limiting, and content-based deduplication.
+//
+// Caller must already hold b.mu (write).
+func preflightFIFOSend(q *Queue, input *SendMessageInput, md5Body string, now time.Time) fifoPreflight {
+	if err := validateFIFOParams(input, q); err != nil {
+		return fifoPreflight{Err: err, Handled: true}
+	}
+
+	if q.Attributes[attrFifoThroughputLimit] == fifoThroughputLimitPerMessageGroupID {
+		if err := checkFIFOPerGroupRateLimit(q, input.MessageGroupID, now); err != nil {
+			return fifoPreflight{Err: err, Handled: true}
+		}
+	}
+
+	if out, dup := checkDedup(
+		q,
+		input.MessageDeduplicationID,
+		md5Body,
+		q.Attributes[attrContentBasedDeduplication],
+		now,
+	); dup {
+		return fifoPreflight{Output: out, Handled: true}
+	}
+
+	return fifoPreflight{}
+}
+
 // SendMessage adds a message to the specified queue.
 func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutput, error) {
 	if input.MessageBody == "" {
@@ -713,7 +965,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -722,25 +974,13 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		return nil, err
 	}
 
-	if q.IsFIFO {
-		if err := validateFIFOParams(input, q); err != nil {
-			return nil, err
-		}
-	}
-
 	// Capture now once so that pruneDedup, checkDedup, storeDedup, and message
 	// timestamps all use the same consistent clock value.
 	now := time.Now()
 
 	if q.IsFIFO {
-		if out, dup := checkDedup(
-			q,
-			input.MessageDeduplicationID,
-			md5Body,
-			q.Attributes[attrContentBasedDeduplication],
-			now,
-		); dup {
-			return out, nil
+		if pre := preflightFIFOSend(q, input, md5Body, now); pre.Handled {
+			return pre.Output, pre.Err
 		}
 	}
 
@@ -764,11 +1004,8 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		SequenceNumber:         seqNum,
 		SentTimestamp:          now.UnixMilli(),
 		MessageAttributes:      input.MessageAttributes,
-		Attributes: map[string]string{
-			attrSentTimestamp:      sentTS,
-			attrApproxReceiveCount: attrValZero,
-		},
-		VisibleAt: resolveMessageVisibleAt(now, input.DelaySeconds, q.Attributes[attrDelaySeconds]),
+		Attributes:             buildInitialMessageAttributes(sentTS, input.MessageSystemAttributes),
+		VisibleAt:              resolveMessageVisibleAt(now, input.DelaySeconds, q.Attributes[attrDelaySeconds]),
 	}
 
 	if q.IsFIFO {
@@ -887,7 +1124,14 @@ func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.T
 	return &SendMessageOutput{MessageID: origMsgID, MD5OfBody: md5Body}, true
 }
 
-// storeDedup records a deduplication entry for a FIFO message.
+// maxDedupEntriesPerQueue caps the per-queue deduplication maps to bound memory
+// in the absence of a janitor sweep. AWS keeps the dedup window at 5 minutes and
+// limits transactions per second well below this cap; once exceeded the oldest
+// entries (by expiry) are evicted to make room.
+const maxDedupEntriesPerQueue = 100_000
+
+// storeDedup records a deduplication entry for a FIFO message. When the dedup
+// map is at capacity, the entries closest to expiry are evicted first.
 func storeDedup(q *Queue, dedupID, md5Body, contentBasedDedup, msgID string, now time.Time) {
 	effectiveID := dedupID
 	if effectiveID == "" && contentBasedDedup == attrValTrue {
@@ -898,8 +1142,32 @@ func storeDedup(q *Queue, dedupID, md5Body, contentBasedDedup, msgID string, now
 		return
 	}
 
+	if len(q.DeduplicationIDs) >= maxDedupEntriesPerQueue {
+		evictOldestDedup(q, len(q.DeduplicationIDs)-maxDedupEntriesPerQueue+1)
+	}
+
 	q.DeduplicationIDs[effectiveID] = now.Add(deduplicationWindowSecs * time.Second)
 	q.deduplicationMsgIDs[effectiveID] = msgID
+}
+
+// evictOldestDedup removes up to n entries with the earliest expiry times.
+// Linear scan is acceptable given maxDedupEntriesPerQueue is small enough that
+// hitting the cap is the cold path (janitor normally prunes first).
+func evictOldestDedup(q *Queue, n int) {
+	for ; n > 0 && len(q.DeduplicationIDs) > 0; n-- {
+		var oldestKey string
+		var oldestExpiry time.Time
+		first := true
+		for k, exp := range q.DeduplicationIDs {
+			if first || exp.Before(oldestExpiry) {
+				oldestKey = k
+				oldestExpiry = exp
+				first = false
+			}
+		}
+		delete(q.DeduplicationIDs, oldestKey)
+		delete(q.deduplicationMsgIDs, oldestKey)
+	}
 }
 
 // pruneDedup removes expired deduplication entries from a FIFO queue.
@@ -1014,7 +1282,7 @@ func (b *InMemoryBackend) resolveWaitSeconds(queueURL string, requested int) int
 	b.mu.RLock("resolveWaitSeconds")
 	defer b.mu.RUnlock()
 
-	if q, ok := b.queues[queueNameFromInput(queueURL)]; ok {
+	if q, ok := b.lookupQueueByURL("", queueURL); ok {
 		if v, err := strconv.Atoi(q.Attributes[attrReceiveMessageWaitTimeSeconds]); err == nil && v > 0 {
 			return v
 		}
@@ -1048,7 +1316,7 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 	b.mu.Lock("receiveOnce")
 	defer b.mu.Unlock()
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return nil, nil, ErrQueueNotFound
 	}
@@ -1070,10 +1338,27 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 		maxMessages = maxBatchSize
 	}
 
+	// AWS rejects ReceiveMessage when the queue is already at its in-flight cap
+	// (120k for standard, 20k for FIFO) — clients see OverLimit and must wait.
+	limit := maxInFlightStandard
+	if q.IsFIFO {
+		limit = maxInFlightFIFO
+	}
+	if len(q.inFlightMessages) >= limit {
+		return nil, q.notify, ErrOverLimit
+	}
+
 	vt := resolveVisibilityTimeout(input.VisibilityTimeout, q)
 
 	return pickMessages(q, b.accountID, maxMessages, vt, now), q.notify, nil
 }
+
+// maxInFlightStandard / maxInFlightFIFO are AWS's per-queue caps for messages
+// that have been received but not yet deleted or visibility-expired.
+const (
+	maxInFlightStandard = 120000
+	maxInFlightFIFO     = 20000
+)
 
 // resolveVisibilityTimeout returns the effective visibility timeout for a receive operation.
 func resolveVisibilityTimeout(requested int, q *Queue) int {
@@ -1126,6 +1411,19 @@ func expireRetainedMessages(q *Queue, now time.Time) {
 	}
 
 	q.messages = fresh
+
+	freshInFlight := q.inFlightMessages[:0]
+
+	for _, inf := range q.inFlightMessages {
+		sentAt := time.UnixMilli(inf.Msg.SentTimestamp)
+		if sentAt.Before(cutoff) {
+			continue // silently discard expired in-flight message
+		}
+
+		freshInFlight = append(freshInFlight, inf)
+	}
+
+	q.inFlightMessages = freshInFlight
 }
 
 // buildBlockedGroups returns the set of FIFO message group IDs that currently
@@ -1241,7 +1539,7 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1270,7 +1568,7 @@ func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibility
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1318,7 +1616,7 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -1383,12 +1681,14 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 	// Failed slices already match the original entry order without sorting.
 	for _, entry := range input.Entries {
 		sendOut, err := b.SendMessage(&SendMessageInput{
-			QueueURL:               input.QueueURL,
-			MessageBody:            entry.MessageBody,
-			MessageGroupID:         entry.MessageGroupID,
-			MessageDeduplicationID: entry.MessageDeduplicationID,
-			DelaySeconds:           entry.DelaySeconds,
-			MessageAttributes:      entry.MessageAttributes,
+			QueueURL:                input.QueueURL,
+			Region:                  input.Region,
+			MessageBody:             entry.MessageBody,
+			MessageGroupID:          entry.MessageGroupID,
+			MessageDeduplicationID:  entry.MessageDeduplicationID,
+			DelaySeconds:            entry.DelaySeconds,
+			MessageAttributes:       entry.MessageAttributes,
+			MessageSystemAttributes: entry.MessageSystemAttributes,
 		})
 		if err != nil {
 			out.Failed = append(out.Failed, BatchResultErrorEntry{
@@ -1469,7 +1769,7 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1502,9 +1802,7 @@ func (b *InMemoryBackend) ListDeadLetterSourceQueues(
 	b.mu.RLock("ListDeadLetterSourceQueues")
 	defer b.mu.RUnlock()
 
-	dlqName := queueNameFromInput(input.QueueURL)
-
-	dlq, exists := b.queues[dlqName]
+	dlq, exists := b.lookupQueueByURL(input.Region, input.QueueURL)
 	if !exists {
 		return nil, ErrQueueNotFound
 	}
@@ -1564,7 +1862,7 @@ func (b *InMemoryBackend) TagQueue(input *TagQueueInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1587,7 +1885,7 @@ func (b *InMemoryBackend) UntagQueue(input *UntagQueueInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1606,7 +1904,7 @@ func (b *InMemoryBackend) ListQueueTags(input *ListQueueTagsInput) (*ListQueueTa
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return nil, ErrQueueNotFound
 	}
@@ -1721,6 +2019,20 @@ func (b *InMemoryBackend) DeleteMessagesLocal(queueURL string, receiptHandles []
 	return nil
 }
 
+// totalMessages returns the total in-memory message count across all queues
+// (visible + in-flight + DLQ retained).
+func (b *InMemoryBackend) totalMessages() int {
+	b.mu.RLock("totalMessages")
+	defer b.mu.RUnlock()
+
+	total := 0
+	for _, q := range b.queues {
+		total += len(q.messages) + len(q.inFlightMessages)
+	}
+
+	return total
+}
+
 // Purge removes all queues created before the given cutoff time.
 func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	if ctx.Err() != nil {
@@ -1822,7 +2134,7 @@ func (b *InMemoryBackend) AddPermission(input *AddPermissionInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1842,7 +2154,7 @@ func (b *InMemoryBackend) RemovePermission(input *RemovePermissionInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	q, ok := b.queues[name]
+	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
@@ -1972,7 +2284,7 @@ func (b *InMemoryBackend) StartMessageMoveTask(
 	}
 
 	// Snapshot queue depth under the lock so the estimate is consistent.
-	srcQueue := b.queues[queueNameFromInput(srcURL)]
+	srcQueue, _ := b.lookupQueueByURL("", srcURL)
 	totalCount := approximateQueueDepthLocked(srcQueue)
 
 	taskHandle := uuid.New().String()

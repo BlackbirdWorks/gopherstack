@@ -2,7 +2,6 @@ package sqs
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -13,7 +12,6 @@ const (
 	defaultSQSJanitorInterval = time.Minute
 	sqsJanitorService         = "sqs"
 	sqsJanitorComponent       = "MessageRetentionSweeper"
-	msPerSecond               = 1000
 )
 
 // Janitor is the SQS background worker that deletes messages that have exceeded
@@ -50,51 +48,17 @@ func (j *Janitor) Run(ctx context.Context) {
 	}
 }
 
-// sweepExpiredMessages removes messages that have exceeded the queue's MessageRetentionPeriod.
+// sweepExpiredMessages removes messages that have exceeded the queue's MessageRetentionPeriod
+// and runs all standard backend maintenance (dedup pruning, visibility-timeout requeue, DLQ drain).
+// It delegates to InMemoryBackend.pruneState so the handler and internal janitor share one code path.
 func (j *Janitor) sweepExpiredMessages(ctx context.Context) {
-	j.Backend.mu.Lock("sweepExpiredMessages")
-	defer j.Backend.mu.Unlock()
+	before := j.Backend.totalMessages()
+	j.Backend.pruneState(time.Now())
+	after := j.Backend.totalMessages()
 
-	now := time.Now().UnixMilli()
-	purgedTotal := 0
-
-	for _, q := range j.Backend.queues {
-		retentionStr, ok := q.Attributes[attrMessageRetentionPeriod]
-		if !ok {
-			retentionStr = strconv.Itoa(defaultMessageRetentionPeriod)
-		}
-		retentionSecs, err := strconv.Atoi(retentionStr)
-		if err != nil {
-			retentionSecs = defaultMessageRetentionPeriod
-		}
-		retentionMs := int64(retentionSecs) * msPerSecond
-
-		// Filter available messages
-		var activeMsgs []*Message
-		for _, msg := range q.messages {
-			if now-msg.SentTimestamp > retentionMs {
-				purgedTotal++
-			} else {
-				activeMsgs = append(activeMsgs, msg)
-			}
-		}
-		q.messages = activeMsgs
-
-		// Filter in-flight messages
-		var activeInFlight []*InFlightMessage
-		for _, inflight := range q.inFlightMessages {
-			if now-inflight.Msg.SentTimestamp > retentionMs {
-				purgedTotal++
-			} else {
-				activeInFlight = append(activeInFlight, inflight)
-			}
-		}
-		q.inFlightMessages = activeInFlight
-	}
-
-	if purgedTotal > 0 {
-		telemetry.RecordWorkerItems(sqsJanitorService, sqsJanitorComponent, purgedTotal)
-		logger.Load(ctx).InfoContext(ctx, "SQS janitor: expired messages purged", "count", purgedTotal)
+	if purged := before - after; purged > 0 {
+		telemetry.RecordWorkerItems(sqsJanitorService, sqsJanitorComponent, purged)
+		logger.Load(ctx).InfoContext(ctx, "SQS janitor: expired messages purged", "count", purged)
 	}
 	telemetry.RecordWorkerTask(sqsJanitorService, sqsJanitorComponent, "success")
 }

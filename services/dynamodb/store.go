@@ -34,6 +34,7 @@ type StoredGlobalTable struct {
 
 // storedExport holds the fields needed to satisfy DescribeExport and ListExports.
 type storedExport struct {
+	CreatedAt    time.Time
 	ExportArn    string
 	ExportStatus string
 	TableArn     string
@@ -42,12 +43,58 @@ type storedExport struct {
 
 // storedImport holds the fields needed to satisfy DescribeImport and ListImports.
 type storedImport struct {
+	CreatedAt    time.Time
 	ImportArn    string
 	ImportStatus string
 	TableArn     string
 	S3Bucket     string
 	InputFormat  string
 }
+
+// autoScalingSettings records the last UpdateTableReplicaAutoScaling input
+// for a table so DescribeTableReplicaAutoScaling can return the same shape
+// AWS does. Capacities are simple int pointers (nil = unspecified). Per-GSI
+// settings are keyed by index name.
+type autoScalingSettings struct {
+	GlobalSecondaryIndexes map[string]*autoScalingThroughput `json:"GlobalSecondaryIndexes,omitempty"`
+	Read                   *autoScalingThroughput            `json:"Read,omitempty"`
+	Write                  *autoScalingThroughput            `json:"Write,omitempty"`
+}
+
+// autoScalingThroughput captures the min/max/target settings for one direction
+// (read or write). Mirrors types.AutoScalingSettingsUpdate but stripped to the
+// fields LocalStack and most callers care about.
+type autoScalingThroughput struct {
+	MinCapacity     *int64   `json:"MinCapacity,omitempty"`
+	MaxCapacity     *int64   `json:"MaxCapacity,omitempty"`
+	TargetUtilizPct *float64 `json:"TargetUtilizationPct,omitempty"`
+	Disabled        bool     `json:"AutoScalingDisabled,omitempty"`
+}
+
+// pitrSnapshot captures the items of a PITR-enabled table at a point in time.
+// Snapshots are taken by the janitor on its sweep interval (typically 1 minute);
+// RestoreTableToPointInTime returns the latest snapshot at or before the
+// requested RestoreDateTime.
+type pitrSnapshot struct {
+	Taken time.Time
+	Items []map[string]any
+}
+
+// maxPITRSnapshots bounds the per-table snapshot ring so memory cost stays
+// predictable. With a 1-minute janitor sweep this gives ~1 hour of
+// point-in-time recovery coverage — enough for tests, well short of AWS's
+// real 35-day window.
+const maxPITRSnapshots = 60
+
+// Caps for retained metadata maps. Beyond these counts the oldest entries are
+// evicted on each insert so long-running instances do not leak memory. Real
+// AWS has account-wide quotas (1,000 backups, 100 exports, 50 active imports);
+// we use generous-but-bounded numbers so tests don't trip the cap accidentally.
+const (
+	maxBackupsRetained = 10_000
+	maxExportsRetained = 5_000
+	maxImportsRetained = 5_000
+)
 
 // InMemoryDB stores tables and items organized by region.
 type InMemoryDB struct {
@@ -64,8 +111,10 @@ type InMemoryDB struct {
 	exprCache            *ExpressionCache
 	throttler            *Throttler
 	mu                   *lockmetrics.RWMutex
-	defaultRegion        string
-	accountID            string
+	// kinesisEmitter forwards stream records to Kinesis destinations when configured.
+	kinesisEmitter KinesisEmitter
+	defaultRegion  string
+	accountID      string
 	// createDelay is the time to wait before transitioning a new table to ACTIVE.
 	// Zero means immediate ACTIVE (no lifecycle simulation).
 	createDelay time.Duration
@@ -110,38 +159,62 @@ const (
 	streamViewTypeKeysOnly = "KEYS_ONLY"
 )
 
+// Table is a stored DynamoDB table.
+//
+// Field ordering trades a few bytes of padding for readability: related
+// fields (SSE, autoscaling, streams) are grouped together rather than
+// strictly sorted by alignment requirement.
+//
+//nolint:govet // fieldalignment: prefer logical grouping over byte packing
 type Table struct {
-	CreationDateTime          time.Time `json:"CreationDateTime"`
-	pkIndex                   map[string]int
-	pkskIndex                 map[string]map[string]int
-	mu                        *lockmetrics.RWMutex
-	activateTimer             *time.Timer
-	Tags                      *tags.Tags                              `json:"Tags,omitempty"`
-	TableClass                string                                  `json:"TableClass,omitempty"`
-	GlobalTableName           string                                  `json:"GlobalTableName,omitempty"`
-	TTLAttribute              string                                  `json:"TTLAttribute,omitempty"`
-	StreamViewType            string                                  `json:"StreamViewType,omitempty"`
-	StreamARN                 string                                  `json:"StreamARN,omitempty"`
-	TableArn                  string                                  `json:"TableArn"`
-	Status                    string                                  `json:"Status"`
-	TableID                   string                                  `json:"TableID"`
-	Name                      string                                  `json:"Name"`
-	BillingMode               string                                  `json:"BillingMode,omitempty"`
-	ResourcePolicy            string                                  `json:"ResourcePolicy,omitempty"`
-	Replicas                  []models.ReplicaDescription             `json:"Replicas,omitempty"`
-	Items                     []map[string]any                        `json:"Items"`
-	GlobalSecondaryIndexes    []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
-	StreamRecords             []models.StreamRecord                   `json:"StreamRecords,omitempty"`
-	KeySchema                 []models.KeySchemaElement               `json:"KeySchema"`
-	LocalSecondaryIndexes     []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
-	AttributeDefinitions      []models.AttributeDefinition            `json:"AttributeDefinitions"`
-	KinesisDestinations       []string                                `json:"KinesisDestinations,omitempty"`
-	ProvisionedThroughput     models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
-	streamSeq                 int64
-	StreamHead                int  `json:"StreamHead,omitempty"`
-	PITREnabled               bool `json:"PITREnabled,omitempty"`
-	StreamsEnabled            bool `json:"StreamsEnabled"`
-	DeletionProtectionEnabled bool `json:"DeletionProtectionEnabled"`
+	CreationDateTime time.Time `json:"CreationDateTime"`
+	pkIndex          map[string]int
+	pkskIndex        map[string]map[string]int
+	mu               *lockmetrics.RWMutex
+	activateTimer    *time.Timer
+	Tags             *tags.Tags `json:"Tags,omitempty"`
+	kinesisEmitter   KinesisEmitter
+	// AutoScaling stores the most recent UpdateTableReplicaAutoScaling input
+	// so DescribeTableReplicaAutoScaling can echo it back. The in-memory
+	// backend doesn't actually scale; this is metadata round-tripping only,
+	// matching LocalStack's behaviour.
+	AutoScaling *autoScalingSettings `json:"AutoScaling,omitempty"`
+	// SSEType is "AES256" (SSE-S3) or "KMS". Empty when encryption is not
+	// configured (the table is then treated as using owned-key AES256 by AWS).
+	SSEType string `json:"SSEType,omitempty"`
+	// SSEKMSMasterKeyArn is the customer-managed KMS key ARN when SSEType=KMS.
+	SSEKMSMasterKeyArn     string                                  `json:"SSEKMSMasterKeyArn,omitempty"`
+	TableClass             string                                  `json:"TableClass,omitempty"`
+	GlobalTableName        string                                  `json:"GlobalTableName,omitempty"`
+	TTLAttribute           string                                  `json:"TTLAttribute,omitempty"`
+	StreamViewType         string                                  `json:"StreamViewType,omitempty"`
+	StreamARN              string                                  `json:"StreamARN,omitempty"`
+	TableArn               string                                  `json:"TableArn"`
+	Status                 string                                  `json:"Status"`
+	TableID                string                                  `json:"TableID"`
+	Name                   string                                  `json:"Name"`
+	BillingMode            string                                  `json:"BillingMode,omitempty"`
+	ResourcePolicy         string                                  `json:"ResourcePolicy,omitempty"`
+	Replicas               []models.ReplicaDescription             `json:"Replicas,omitempty"`
+	Items                  []map[string]any                        `json:"Items"`
+	GlobalSecondaryIndexes []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
+	StreamRecords          []models.StreamRecord                   `json:"StreamRecords,omitempty"`
+	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
+	LocalSecondaryIndexes  []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
+	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	KinesisDestinations    []string                                `json:"KinesisDestinations,omitempty"`
+	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
+	// pitrSnapshots is a ring of past Items + KeySchema captured by the
+	// janitor when PITREnabled. Used by RestoreTableToPointInTime to honour
+	// the requested RestoreDateTime. Bounded by maxPITRSnapshots.
+	pitrSnapshots              []pitrSnapshot
+	streamSeq                  int64
+	StreamHead                 int  `json:"StreamHead,omitempty"`
+	PITREnabled                bool `json:"PITREnabled,omitempty"`
+	SSEEnabled                 bool `json:"SSEEnabled,omitempty"`
+	StreamsEnabled             bool `json:"StreamsEnabled"`
+	DeletionProtectionEnabled  bool `json:"DeletionProtectionEnabled"`
+	ContributorInsightsEnabled bool `json:"ContributorInsightsEnabled,omitempty"`
 }
 
 func NewInMemoryDB() *InMemoryDB {
@@ -254,6 +327,36 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 	} else {
 		t.StreamRecords[t.StreamHead] = record
 		t.StreamHead = (t.StreamHead + 1) % maxStreamRecords
+	}
+
+	// Forward to any configured Kinesis destinations. The emitter is invoked
+	// asynchronously via a goroutine inside KinesisEmitter implementations to
+	// avoid holding table.mu during the network/RPC.
+	if len(t.KinesisDestinations) > 0 && t.kinesisEmitter != nil {
+		for _, arn := range t.KinesisDestinations {
+			t.kinesisEmitter.EmitDynamoDBStreamRecord(arn, t.Name, record)
+		}
+	}
+}
+
+// KinesisEmitter forwards DynamoDB stream records to configured Kinesis destinations.
+// Implementations must be safe to call while the caller holds locks; they should
+// return promptly and dispatch work to a background goroutine if needed.
+type KinesisEmitter interface {
+	EmitDynamoDBStreamRecord(streamARN, tableName string, record models.StreamRecord)
+}
+
+// SetKinesisEmitter installs a Kinesis emitter for all tables in this DB.
+// Safe to call once during service wiring.
+func (db *InMemoryDB) SetKinesisEmitter(emitter KinesisEmitter) {
+	db.mu.Lock("SetKinesisEmitter")
+	defer db.mu.Unlock()
+
+	db.kinesisEmitter = emitter
+	for _, region := range db.Tables {
+		for _, t := range region {
+			t.kinesisEmitter = emitter
+		}
 	}
 }
 
@@ -640,7 +743,39 @@ func (db *InMemoryDB) storeExport(desc exportDescriptionFields) {
 	db.mu.Lock("storeExport")
 	defer db.mu.Unlock()
 
-	db.exports[desc.ExportArn] = storedExport(desc)
+	rec := storedExport{
+		CreatedAt:    time.Now(),
+		ExportArn:    desc.ExportArn,
+		ExportStatus: desc.ExportStatus,
+		TableArn:     desc.TableArn,
+		S3Bucket:     desc.S3Bucket,
+	}
+	db.exports[desc.ExportArn] = rec
+	evictOldest(db.exports, maxExportsRetained, func(v storedExport) time.Time { return v.CreatedAt })
+}
+
+// evictOldest drops oldest-by-CreatedAt entries from m until len(m) <= keep.
+// We evict on insert rather than on a timer so memory stays bounded even when
+// the janitor is disabled. timeOf returns the entry's creation timestamp.
+func evictOldest[V any](m map[string]V, keep int, timeOf func(V) time.Time) {
+	if len(m) <= keep {
+		return
+	}
+
+	type kv struct {
+		t time.Time
+		k string
+	}
+
+	entries := make([]kv, 0, len(m))
+	for k, v := range m {
+		entries = append(entries, kv{timeOf(v), k})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].t.Before(entries[j].t) })
+
+	for i := range len(m) - keep {
+		delete(m, entries[i].k)
+	}
 }
 
 // lookupExport retrieves a stored export by ARN.
@@ -653,7 +788,12 @@ func (db *InMemoryDB) lookupExport(exportARN string) (exportDescriptionFields, b
 		return exportDescriptionFields{}, false
 	}
 
-	return exportDescriptionFields(e), true
+	return exportDescriptionFields{
+		ExportArn:    e.ExportArn,
+		ExportStatus: e.ExportStatus,
+		TableArn:     e.TableArn,
+		S3Bucket:     e.S3Bucket,
+	}, true
 }
 
 // listExportsWire returns all stored exports as wire-format structs, optionally
@@ -667,7 +807,12 @@ func (db *InMemoryDB) listExportsWire(tableArn, _ string) *listExportsOutput {
 			continue
 		}
 
-		summaries = append(summaries, exportDescriptionFields(e))
+		summaries = append(summaries, exportDescriptionFields{
+			ExportArn:    e.ExportArn,
+			ExportStatus: e.ExportStatus,
+			TableArn:     e.TableArn,
+			S3Bucket:     e.S3Bucket,
+		})
 	}
 
 	db.mu.RUnlock()
@@ -685,7 +830,11 @@ func (db *InMemoryDB) storeImport(imp storedImport) {
 	db.mu.Lock("storeImport")
 	defer db.mu.Unlock()
 
+	if imp.CreatedAt.IsZero() {
+		imp.CreatedAt = time.Now()
+	}
 	db.imports[imp.ImportArn] = imp
+	evictOldest(db.imports, maxImportsRetained, func(v storedImport) time.Time { return v.CreatedAt })
 }
 
 // lookupImport retrieves a stored import by ARN.

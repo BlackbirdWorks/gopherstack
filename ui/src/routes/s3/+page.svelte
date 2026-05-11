@@ -31,6 +31,9 @@ GetBucketLocationCommand,
 GetObjectLockConfigurationCommand,
 GetObjectCommand,
 CopyObjectCommand,
+ListMultipartUploadsCommand,
+ListPartsCommand,
+AbortMultipartUploadCommand,
 GetBucketWebsiteCommand,
 PutBucketWebsiteCommand,
 DeleteBucketWebsiteCommand,
@@ -57,7 +60,10 @@ let bucketPage = $state(1);
 
 // Bucket detail state
 let selectedBucket = $state<string | null>(null);
-let activeDetailTab = $state<'objects' | 'properties' | 'tagging' | 'permissions' | 'lifecycle' | 'cors'>('objects');
+let activeDetailTab = $state<'objects' | 'properties' | 'tagging' | 'permissions' | 'lifecycle' | 'cors' | 'uploads'>('objects');
+type MultipartUploadEntry = { key: string; uploadId: string; initiated?: Date; partsCompleted: number; bytesUploaded: number; };
+let multipartUploads = $state<MultipartUploadEntry[]>([]);
+let loadingUploads = $state(false);
 let objects = $state<_Object[]>([]);
 let commonPrefixes = $state<string[]>([]);
 let currentPrefix = $state('');
@@ -119,6 +125,9 @@ let bucketSizes = $state<Map<string, number>>(new Map());
 let showRenameModal = $state(false);
 let renameOldKey = $state('');
 let renameNewKey = $state('');
+let showCopyModal = $state(false);
+let copySourceKey = $state('');
+let copyTargetKey = $state('');
 
 // Website hosting state
 let websiteConfig = $state<{ IndexDocument?: string; ErrorDocument?: string } | null>(null);
@@ -762,6 +771,26 @@ async function loadBucketSizes(bucketList: Bucket[]): Promise<void> {
   void results;
 }
 
+async function copyObject(): Promise<void> {
+  if (!selectedBucket || !copySourceKey || !copyTargetKey.trim()) return;
+  if (copyTargetKey.trim() === copySourceKey) {
+    toast.error('Target key must differ from source');
+    return;
+  }
+  try {
+    await s3.send(new CopyObjectCommand({
+      Bucket: selectedBucket,
+      CopySource: `${selectedBucket}/${copySourceKey}`,
+      Key: copyTargetKey.trim(),
+    }));
+    toast.success('Object copied');
+    showCopyModal = false;
+    await loadObjects();
+  } catch (err: unknown) {
+    toast.error(`Copy failed: ${(err as Error).message}`);
+  }
+}
+
 async function renameObject(): Promise<void> {
   if (!selectedBucket || !renameOldKey || !renameNewKey.trim()) return;
   try {
@@ -848,6 +877,72 @@ else if (tab === 'tagging') await loadTagsTab();
 else if (tab === 'permissions') await loadPermissionsTab();
 else if (tab === 'lifecycle') await loadLifecycleTab();
 else if (tab === 'cors') await loadCorsTab();
+else if (tab === 'uploads') await loadMultipartUploads();
+}
+
+async function loadMultipartUploads(): Promise<void> {
+  if (!selectedBucket) return;
+  loadingUploads = true;
+  try {
+    const res = await s3.send(new ListMultipartUploadsCommand({ Bucket: selectedBucket }));
+    const uploads = res.Uploads ?? [];
+    // ListParts in parallel to compute per-upload completion stats.
+    const entries: MultipartUploadEntry[] = await Promise.all(
+      uploads.map(async (u) => {
+        let partsCompleted = 0;
+        let bytesUploaded = 0;
+        if (u.Key && u.UploadId) {
+          try {
+            const partsRes = await s3.send(new ListPartsCommand({
+              Bucket: selectedBucket!,
+              Key: u.Key,
+              UploadId: u.UploadId,
+            }));
+            const parts = partsRes.Parts ?? [];
+            partsCompleted = parts.length;
+            bytesUploaded = parts.reduce((sum, p) => sum + (p.Size ?? 0), 0);
+          } catch {
+            // Listing parts can race with abort; surface zero progress.
+          }
+        }
+        return {
+          key: u.Key ?? '',
+          uploadId: u.UploadId ?? '',
+          initiated: u.Initiated,
+          partsCompleted,
+          bytesUploaded,
+        };
+      }),
+    );
+    multipartUploads = entries;
+  } catch (err: unknown) {
+    toast.error(`Failed to list uploads: ${(err as Error).message}`);
+    multipartUploads = [];
+  } finally {
+    loadingUploads = false;
+  }
+}
+
+async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+  if (!selectedBucket) return;
+  try {
+    await s3.send(new AbortMultipartUploadCommand({
+      Bucket: selectedBucket,
+      Key: key,
+      UploadId: uploadId,
+    }));
+    toast.success('Upload aborted');
+    await loadMultipartUploads();
+  } catch (err: unknown) {
+    toast.error(`Abort failed: ${(err as Error).message}`);
+  }
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 function formatDate(date: Date | undefined): string {
@@ -985,7 +1080,7 @@ Upload File
 <!-- Tabs -->
 <div class="border-b border-slate-200 dark:border-slate-700">
 <ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
-{#each [['objects','Objects'],['properties','Properties'],['tagging','Tags'],['permissions','Permissions'],['lifecycle','Lifecycle'],['cors','CORS']] as [tab, label]}
+{#each [['objects','Objects'],['uploads','Uploads'],['properties','Properties'],['tagging','Tags'],['permissions','Permissions'],['lifecycle','Lifecycle'],['cors','CORS']] as [tab, label]}
 <li class="me-2">
 <button
 onclick={() => switchTab(tab as typeof activeDetailTab)}
@@ -1149,6 +1244,12 @@ onclick={() => copyObjectUrl(obj.Key ?? '')}
 class="text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 text-xs font-medium px-2 py-1 rounded hover:bg-slate-50 dark:hover:bg-slate-700"
 >
 Copy URL
+</button>
+<button
+  onclick={() => { copySourceKey = obj.Key ?? ''; copyTargetKey = `${obj.Key ?? ''}-copy`; showCopyModal = true; }}
+  class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-medium px-2 py-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
+>
+  Copy
 </button>
 <button
   onclick={() => { renameOldKey = obj.Key ?? ''; renameNewKey = obj.Key ?? ''; showRenameModal = true; }}
@@ -1399,6 +1500,54 @@ class="w-full font-mono text-xs p-3 border border-slate-300 dark:border-slate-60
 <button onclick={addLifecycleRule} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Add Rule</button>
 </div>
 </div>
+</div>
+{/if}
+</div>
+
+{:else if activeDetailTab === 'uploads'}
+<!-- Multipart Uploads Tab -->
+<div class="space-y-4">
+{#if loadingUploads}
+<div class="text-center py-8 text-slate-500">Loading multipart uploads...</div>
+{:else}
+<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-base font-semibold text-slate-900 dark:text-white">In-Flight Multipart Uploads</h3>
+<button onclick={loadMultipartUploads} class="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400">Refresh</button>
+</div>
+{#if multipartUploads.length === 0}
+<p class="text-sm text-slate-500 dark:text-slate-400">No multipart uploads in progress.</p>
+{:else}
+<div class="overflow-x-auto">
+<table class="w-full text-sm">
+<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
+<tr>
+<th class="px-4 py-2 text-left">Key</th>
+<th class="px-4 py-2 text-left">Upload ID</th>
+<th class="px-4 py-2 text-left">Initiated</th>
+<th class="px-4 py-2 text-right">Parts</th>
+<th class="px-4 py-2 text-right">Bytes uploaded</th>
+<th class="px-4 py-2"></th>
+</tr>
+</thead>
+<tbody>
+{#each multipartUploads as u (u.uploadId)}
+<tr class="border-b dark:border-slate-600">
+<td class="px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 break-all">{u.key}</td>
+<td class="px-4 py-2 font-mono text-xs text-slate-500 dark:text-slate-400">{u.uploadId.slice(0, 16)}…</td>
+<td class="px-4 py-2 text-xs text-slate-700 dark:text-slate-300">{u.initiated ? formatDate(u.initiated) : '—'}</td>
+<td class="px-4 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">{u.partsCompleted}</td>
+<td class="px-4 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">{formatBytes(u.bytesUploaded)}</td>
+<td class="px-4 py-2 text-right">
+<button onclick={() => abortMultipartUpload(u.key, u.uploadId)} class="text-red-600 hover:text-red-800 dark:text-red-400 text-xs font-medium px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20">Abort</button>
+</td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+<p class="mt-4 text-xs text-slate-500 dark:text-slate-400">Stale uploads are automatically aborted after 24 hours by the janitor. Add an AbortIncompleteMultipartUpload lifecycle rule for a shorter window.</p>
 </div>
 {/if}
 </div>
@@ -1683,6 +1832,46 @@ class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300
             <button type="submit"
               class="text-white bg-green-600 hover:bg-green-700 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800">
               Create Folder
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{/if}
+
+<!-- Copy Object Modal -->
+{#if showCopyModal}
+<div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation"><button type="button" class="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-label="Close" onclick={() => { showCopyModal = false; }}></button>
+  <div class="relative p-4 w-full max-w-md z-10" role="dialog" aria-modal="true" tabindex="-1">
+    <div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+      <div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
+        <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Copy Object</h3>
+        <button onclick={() => { showCopyModal = false; }} aria-label="Close" class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
+          <svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg>
+        </button>
+      </div>
+      <div class="p-4 md:p-5">
+        <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); copyObject(); }}>
+          <div>
+            <p class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Source Key</p>
+            <p class="text-sm font-mono text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 rounded p-2">{copySourceKey}</p>
+          </div>
+          <div>
+            <label for="copyTargetKey" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Target Key</label>
+            <input type="text" id="copyTargetKey" bind:value={copyTargetKey} required
+              class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:placeholder-slate-400 dark:text-white" />
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">The source object stays in place.</p>
+          </div>
+          <div class="flex justify-end gap-2 pt-4 border-t dark:border-slate-600">
+            <button type="button" onclick={() => { showCopyModal = false; }}
+              class="py-2.5 px-5 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700">
+              Cancel
+            </button>
+            <button type="submit"
+              class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-5 py-2.5">
+              Copy
             </button>
           </div>
         </form>

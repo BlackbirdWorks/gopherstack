@@ -82,6 +82,10 @@ func (db *InMemoryDB) CreateTable(
 		return nil, err
 	}
 
+	if err := validateGSIThroughput(input.GlobalSecondaryIndexes, input.BillingMode); err != nil {
+		return nil, err
+	}
+
 	if err := validateLSICount(models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes)); err != nil {
 		return nil, err
 	}
@@ -127,6 +131,7 @@ func (db *InMemoryDB) CreateTable(
 	}
 
 	db.Tables[region][tableName] = newTable
+	newTable.kinesisEmitter = db.kinesisEmitter
 
 	if newTable.StreamARN != "" {
 		db.streamARNIndex[newTable.StreamARN] = newTable
@@ -178,6 +183,17 @@ func newTableFromCreateInput(tableName string, input *dynamodb.CreateTableInput)
 		t.BillingMode = string(types.BillingModePayPerRequest)
 	} else {
 		t.BillingMode = string(types.BillingModeProvisioned)
+	}
+
+	if input.SSESpecification != nil {
+		t.SSEEnabled = input.SSESpecification.Enabled == nil || aws.ToBool(input.SSESpecification.Enabled)
+		if t.SSEEnabled {
+			t.SSEType = string(input.SSESpecification.SSEType)
+			if t.SSEType == "" {
+				t.SSEType = string(types.SSETypeKms)
+			}
+			t.SSEKMSMasterKeyArn = aws.ToString(input.SSESpecification.KMSMasterKeyId)
+		}
 	}
 
 	t.initializeIndexes()
@@ -281,21 +297,22 @@ func buildCreateTableOutput(input *dynamodb.CreateTableInput, t *Table) *dynamod
 		tableStatus = types.TableStatusActive
 	}
 
-	return &dynamodb.CreateTableOutput{
-		TableDescription: &types.TableDescription{
-			TableName:              input.TableName,
-			TableStatus:            tableStatus,
-			KeySchema:              models.ToSDKKeySchema(t.KeySchema),
-			AttributeDefinitions:   models.ToSDKAttributeDefinitions(t.AttributeDefinitions),
-			GlobalSecondaryIndexes: models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs),
-			LocalSecondaryIndexes:  models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs),
-			ItemCount:              aws.Int64(0),
-			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
-				ReadCapacityUnits:  &rcu,
-				WriteCapacityUnits: &wcu,
-			},
+	td := &types.TableDescription{
+		TableName:              input.TableName,
+		TableStatus:            tableStatus,
+		KeySchema:              models.ToSDKKeySchema(t.KeySchema),
+		AttributeDefinitions:   models.ToSDKAttributeDefinitions(t.AttributeDefinitions),
+		GlobalSecondaryIndexes: models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs),
+		LocalSecondaryIndexes:  models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs),
+		ItemCount:              aws.Int64(0),
+		ProvisionedThroughput: &types.ProvisionedThroughputDescription{
+			ReadCapacityUnits:  &rcu,
+			WriteCapacityUnits: &wcu,
 		},
 	}
+	applySSEDescription(td, t.SSEEnabled, t.SSEType, t.SSEKMSMasterKeyArn)
+
+	return &dynamodb.CreateTableOutput{TableDescription: td}
 }
 
 func (db *InMemoryDB) DeleteTable(
@@ -320,6 +337,14 @@ func (db *InMemoryDB) DeleteTable(
 	table, tableExists := regionTables[tableName]
 	if !tableExists {
 		return nil, NewResourceNotFoundException("table not found: " + tableName)
+	}
+
+	// AWS rejects DeleteTable when DeletionProtectionEnabled is true.
+	// The protection must be disabled (via UpdateTable) before the table can be deleted.
+	if table.DeletionProtectionEnabled {
+		return nil, NewValidationException(
+			"Table cannot be deleted while DeletionProtectionEnabled is set to True. " +
+				"Update the table first to disable deletion protection.")
 	}
 
 	// Cancel any pending activation timer and any in-flight GSI lifecycle timers.
@@ -490,7 +515,8 @@ func (db *InMemoryDB) DescribeTable(
 	return &dynamodb.DescribeTableOutput{Table: tableDesc}, nil
 }
 
-// tableSnapshot is a lock-free snapshot of table metadata for building SDK responses.
+// tableSnapshot is a lock-free snapshot of table metadata for building SDK
+// responses. Field order is govet/fieldalignment-tuned.
 type tableSnapshot struct {
 	creationDT                time.Time
 	tableStatus               types.TableStatus
@@ -501,6 +527,8 @@ type tableSnapshot struct {
 	tableClass                string
 	globalTableName           string
 	billingMode               string
+	sseType                   string
+	sseKMSMasterKeyArn        string
 	replicaList               []models.ReplicaDescription
 	lsiList                   []models.LocalSecondaryIndex
 	keySchema                 []models.KeySchemaElement
@@ -509,6 +537,7 @@ type tableSnapshot struct {
 	pt                        models.ProvisionedThroughputDescription
 	itemCount                 int64
 	itemSizeBytes             int64
+	sseEnabled                bool
 	streamsEnabled            bool
 	deletionProtectionEnabled bool
 }
@@ -537,6 +566,9 @@ func snapshotTable(table *Table) tableSnapshot {
 		tableClass:                table.TableClass,
 		globalTableName:           table.GlobalTableName,
 		billingMode:               table.BillingMode,
+		sseEnabled:                table.SSEEnabled,
+		sseType:                   table.SSEType,
+		sseKMSMasterKeyArn:        table.SSEKMSMasterKeyArn,
 	}
 	copy(s.keySchema, table.KeySchema)
 	copy(s.attrDefs, table.AttributeDefinitions)
@@ -618,8 +650,35 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 	}
 
 	applyStreamSpec(td, s.streamsEnabled, s.streamARN, s.streamViewType)
+	applySSEDescription(td, s.sseEnabled, s.sseType, s.sseKMSMasterKeyArn)
 
 	return td
+}
+
+// applySSEDescription populates td.SSEDescription from the table's stored SSE
+// configuration. Real DynamoDB always returns an SSEDescription, even for
+// tables that were created without SSESpecification — they report SSEType=AES256
+// with an AWS-owned key (no ARN). When the user enables SSE-KMS we report the
+// KMS key ARN. Status is always ENABLED in the mock (no rotation in flight).
+func applySSEDescription(td *types.TableDescription, enabled bool, sseType, kmsKeyArn string) {
+	desc := &types.SSEDescription{
+		Status: types.SSEStatusEnabled,
+	}
+
+	if sseType == "" {
+		if enabled {
+			sseType = string(types.SSETypeKms)
+		} else {
+			sseType = string(types.SSETypeAes256)
+		}
+	}
+
+	desc.SSEType = types.SSEType(sseType)
+
+	if kmsKeyArn != "" {
+		desc.KMSMasterKeyArn = &kmsKeyArn
+	}
+	td.SSEDescription = desc
 }
 
 // applyStreamSpec fills the stream-related fields of a TableDescription when streams are enabled.
@@ -742,6 +801,21 @@ func (db *InMemoryDB) applyUpdateTableLocked(
 
 	if input.BillingMode != "" {
 		table.BillingMode = string(input.BillingMode)
+	}
+
+	if input.SSESpecification != nil {
+		if input.SSESpecification.Enabled == nil || aws.ToBool(input.SSESpecification.Enabled) {
+			table.SSEEnabled = true
+			table.SSEType = string(input.SSESpecification.SSEType)
+			if table.SSEType == "" {
+				table.SSEType = string(types.SSETypeKms)
+			}
+			table.SSEKMSMasterKeyArn = aws.ToString(input.SSESpecification.KMSMasterKeyId)
+		} else {
+			table.SSEEnabled = false
+			table.SSEType = ""
+			table.SSEKMSMasterKeyArn = ""
+		}
 	}
 
 	*rcu = int64(table.ProvisionedThroughput.ReadCapacityUnits)

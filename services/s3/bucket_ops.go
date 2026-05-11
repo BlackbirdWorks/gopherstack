@@ -29,13 +29,6 @@ type s3BucketLoggingStatus struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-// s3RequestPaymentConfiguration is the XML response for GetBucketRequestPayment.
-type s3RequestPaymentConfiguration struct {
-	XMLName xml.Name `xml:"RequestPaymentConfiguration"`
-	Xmlns   string   `xml:"xmlns,attr"`
-	Payer   string   `xml:"Payer"`
-}
-
 // s3NotificationConfiguration is the XML response for GetBucketNotificationConfiguration (empty).
 type s3NotificationConfiguration struct {
 	XMLName xml.Name `xml:"NotificationConfiguration"`
@@ -246,6 +239,14 @@ func (h *S3Handler) routeBucketPost(
 		return
 	}
 
+	// Browser-style POST upload: POST /bucket with multipart/form-data and a
+	// `file` field. Matches LocalStack / real S3 presigned-POST semantics.
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		h.handlePostObject(ctx, w, r, bucket)
+
+		return
+	}
+
 	WriteError(ctx, w, r, ErrMethodNotAllowed)
 }
 
@@ -400,14 +401,8 @@ func (h *S3Handler) routeBucketGetStubs(
 ) bool {
 	q := r.URL.Query()
 
-	if q.Has("request-payment") {
-		h.setOperation(ctx, "GetBucketRequestPayment")
-		httputils.WriteXML(
-			ctx,
-			w,
-			http.StatusOK,
-			s3RequestPaymentConfiguration{Xmlns: xmlNamespaceS3, Payer: "BucketOwner"},
-		)
+	if q.Has("request-payment") || q.Has("requestPayment") {
+		h.handleGetBucketRequestPayment(ctx, w, r)
 
 		return true
 	}
@@ -932,6 +927,12 @@ func (h *S3Handler) putBucketACL(
 		return
 	}
 
+	if err := h.enforceACLPolicy(ctx, bucketName, acl, ""); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	if err := h.Backend.PutBucketACL(ctx, bucketName, acl); err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -987,6 +988,12 @@ func (h *S3Handler) putBucketPolicy(ctx context.Context, w http.ResponseWriter, 
 
 		return
 	}
+	if pabErr := h.enforceBucketPolicyAgainstPAB(ctx, bucket, string(body)); pabErr != nil {
+		WriteError(ctx, w, r, pabErr)
+
+		return
+	}
+
 	err = h.Backend.PutBucketPolicy(ctx, bucket, string(body))
 	if err != nil {
 		WriteError(ctx, w, r, err)

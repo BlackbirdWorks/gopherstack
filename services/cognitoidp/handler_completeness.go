@@ -269,12 +269,11 @@ type associateSoftwareTokenOutput struct {
 
 // handleAssociateSoftwareToken returns a stub TOTP secret code.
 // The secret is a test value only; it is not a real credential.
-//
-//nolint:gosec // JBSWY3DPEHPK3PXP is the canonical example TOTP seed from RFC 6238 — not a real credential.
 func (h *Handler) handleAssociateSoftwareToken(
 	_ context.Context,
 	_ *associateSoftwareTokenInput,
 ) (*associateSoftwareTokenOutput, error) {
+	//nolint:gosec // canonical TOTP example seed from RFC 6238 — not a real credential
 	return &associateSoftwareTokenOutput{SecretCode: "JBSWY3DPEHPK3PXP"}, nil
 }
 

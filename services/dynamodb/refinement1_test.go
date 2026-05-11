@@ -248,7 +248,7 @@ func TestUpdateContributorInsights_TableNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestUpdateContributorInsights_ReturnsDisabled(t *testing.T) {
+func TestUpdateContributorInsights_TogglesStatus(t *testing.T) {
 	t.Parallel()
 
 	db := newRefinementDB(t)
@@ -259,7 +259,20 @@ func TestUpdateContributorInsights_ReturnsDisabled(t *testing.T) {
 		ContributorInsightsAction: types.ContributorInsightsActionEnable,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, types.ContributorInsightsStatusDisabled, out.ContributorInsightsStatus)
+	assert.Equal(t, types.ContributorInsightsStatusEnabled, out.ContributorInsightsStatus)
+
+	desc, err := db.DescribeContributorInsights(t.Context(), &sdk.DescribeContributorInsightsInput{
+		TableName: aws.String("CITable"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.ContributorInsightsStatusEnabled, desc.ContributorInsightsStatus)
+
+	disabled, err := db.UpdateContributorInsights(t.Context(), &sdk.UpdateContributorInsightsInput{
+		TableName:                 aws.String("CITable"),
+		ContributorInsightsAction: types.ContributorInsightsActionDisable,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.ContributorInsightsStatusDisabled, disabled.ContributorInsightsStatus)
 }
 
 // ---------------------------------------------------------------------------

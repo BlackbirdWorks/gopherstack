@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"encoding/json"
 	"log/slog"
+	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -17,9 +18,9 @@ type dbSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-// Note: per-table stream sequence counters (streamSeq) are not serialised; they
-// restart from 0 after restore. Existing StreamRecords retain their stored
-// sequence numbers, so no in-flight duplicates occur for already-stored records.
+// Per-table stream sequence counters (streamSeq) are unexported and therefore
+// not serialised directly; they are reconstructed during Restore from the
+// highest SequenceNumber found in each table's StreamRecords ring buffer.
 func (db *InMemoryDB) Snapshot() []byte {
 	db.mu.RLock("Snapshot")
 	defer db.mu.RUnlock()
@@ -77,6 +78,7 @@ func (db *InMemoryDB) Restore(data []byte) error {
 			}
 
 			t.rebuildIndexes()
+			restoreStreamSeq(t)
 		}
 	}
 
@@ -98,6 +100,24 @@ func (db *InMemoryDB) Restore(data []byte) error {
 	}
 
 	return nil
+}
+
+// restoreStreamSeq sets t.streamSeq to the maximum sequence number found in the
+// table's persisted StreamRecords. This ensures that newly-appended stream
+// records receive monotonically increasing sequence numbers after a restore.
+// Sequence numbers are stored as zero-padded decimal strings (see appendStreamRecord).
+func restoreStreamSeq(t *Table) {
+	var maxSeq int64
+	for i := range t.StreamRecords {
+		if t.StreamRecords[i].SequenceNumber == "" {
+			continue
+		}
+		n, err := strconv.ParseInt(t.StreamRecords[i].SequenceNumber, 10, 64)
+		if err == nil && n > maxSeq {
+			maxSeq = n
+		}
+	}
+	t.streamSeq = maxSeq
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
