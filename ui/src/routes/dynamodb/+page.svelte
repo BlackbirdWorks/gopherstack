@@ -8,6 +8,7 @@
 		CreateTableCommand,
 		DeleteTableCommand,
 		DeleteItemCommand,
+		BatchWriteItemCommand,
 		ScanCommand,
 		QueryCommand,
 		PutItemCommand,
@@ -96,6 +97,7 @@
 	let streamEventsLoading = $state(false);
 	let streamBackendUnavailable = $state(false);
 	let streamPollTimer: ReturnType<typeof setInterval> | undefined;
+	let streamFetchController: AbortController | undefined;
 
 	// Stream Info State
 	type ShardInfo = { shardId: string; startSeq: string; endSeq: string };
@@ -415,6 +417,38 @@
 		}
 	}
 
+	// Batch delete every selected item using BatchWriteItem in groups of 25
+	// (the AWS-imposed maximum per request).
+	async function batchDeleteSelectedItems(): Promise<void> {
+		if (!selectedTable || itemsSelectedKeys.size === 0) return;
+		const targets = filteredItemsResults.filter((it) => itemsSelectedKeys.has(itemStableKey(it)));
+		if (targets.length === 0) return;
+		if (!await confirmDestructive({
+			title: 'Delete Selected',
+			message: `Delete ${targets.length} item${targets.length === 1 ? '' : 's'}? This cannot be undone.`,
+			confirmLabel: 'Delete'
+		})) return;
+
+		const tableName = selectedTable;
+		try {
+			let deleted = 0;
+			for (let i = 0; i < targets.length; i += 25) {
+				const chunk = targets.slice(i, i + 25);
+				const requests = chunk.map((it) => ({ DeleteRequest: { Key: buildItemKey(it) } }));
+				const out = await ddb.send(new BatchWriteItemCommand({ RequestItems: { [tableName]: requests } }));
+				const unprocessed = out.UnprocessedItems?.[tableName]?.length ?? 0;
+				deleted += chunk.length - unprocessed;
+			}
+			toast.success(`Deleted ${deleted} item${deleted === 1 ? '' : 's'}`);
+			itemsSelectedKeys = new Set();
+			if (activeTab === 'items') await loadItems(true);
+			else if (activeTab === 'scan') await executeScan();
+			else if (activeTab === 'query') await executeQuery();
+		} catch (err: unknown) {
+			toast.error(`Batch delete failed: ${(err as Error).message}`);
+		}
+	}
+
 	// Backups
 	async function loadBackups(): Promise<void> {
 		if (!selectedTable) return;
@@ -497,22 +531,24 @@
 	async function loadStreamEvents() {
 		if (!selectedTable) return;
 		if (!streamEventsHtml) streamEventsLoading = true;
+		const signal = streamFetchController?.signal;
 		try {
-			const res = await fetch(`/dashboard/dynamodb/table/${selectedTable}/stream-events`);
+			const res = await fetch(`/dashboard/dynamodb/table/${selectedTable}/stream-events`, { signal });
 			if (res.ok) {
 				const text = await res.text();
+				if (signal?.aborted) return;
 				if (text.includes('unavailable') || text.includes('Streams backend unavailable')) {
 					streamBackendUnavailable = true;
 					streamEventsHtml = '';
-					if (streamPollTimer) { clearInterval(streamPollTimer); streamPollTimer = undefined; }
+					stopStreamPolling();
 				} else if (text === 'No recent stream events.' || text.trim() === '') {
 					streamEventsHtml = '';
 				} else {
 					streamEventsHtml = text;
 				}
 			}
-		} catch {
-			// ignore
+		} catch (err) {
+			if ((err as Error)?.name === 'AbortError') return;
 		}
 		streamEventsLoading = false;
 	}
@@ -520,17 +556,31 @@
 	async function loadStreamInfo() {
 		if (!selectedTable) return;
 		streamInfoLoading = true;
+		const signal = streamFetchController?.signal;
 		try {
-			const res = await fetch(`/dashboard/dynamodb/table/${selectedTable}/stream-info`);
-			if (res.ok) streamInfo = await res.json();
-		} catch {
-			// ignore
+			const res = await fetch(`/dashboard/dynamodb/table/${selectedTable}/stream-info`, { signal });
+			if (res.ok && !signal?.aborted) streamInfo = await res.json();
+		} catch (err) {
+			if ((err as Error)?.name === 'AbortError') return;
 		}
 		streamInfoLoading = false;
 	}
 
+	function stopStreamPolling() {
+		if (streamPollTimer) {
+			clearInterval(streamPollTimer);
+			streamPollTimer = undefined;
+		}
+		if (streamFetchController) {
+			streamFetchController.abort();
+			streamFetchController = undefined;
+		}
+	}
+
 	$effect(() => {
 		if (activeTab === 'streams' && selectedTable && streamsEnabled) {
+			stopStreamPolling();
+			streamFetchController = new AbortController();
 			streamBackendUnavailable = false;
 			streamEventsHtml = '';
 			streamInfo = null;
@@ -538,7 +588,7 @@
 			loadStreamInfo();
 			loadStreamEvents();
 			streamPollTimer = setInterval(() => { loadStreamEvents(); loadStreamInfo(); }, 3000);
-			return () => { if (streamPollTimer) clearInterval(streamPollTimer); };
+			return () => { stopStreamPolling(); };
 		}
 	});
 
@@ -625,6 +675,20 @@
 			streamARN = desc.Table?.LatestStreamArn ?? '';
 		} catch (err: unknown) {
 			toast.error(`Streams update failed: ${(err as Error).message}`);
+		}
+	}
+
+	async function updateDeletionProtection(enabled: boolean): Promise<void> {
+		if (!selectedTable) return;
+		try {
+			await ddb.send(new UpdateTableCommand({
+				TableName: selectedTable,
+				DeletionProtectionEnabled: enabled,
+			}));
+			toast.success(`Deletion protection ${enabled ? 'enabled' : 'disabled'}`);
+			await refreshTable();
+		} catch (err: unknown) {
+			toast.error(`Deletion protection update failed: ${(err as Error).message}`);
 		}
 	}
 
@@ -719,7 +783,7 @@
 			window.removeEventListener('gopherstack:region-change', handleRegionChange);
 		};
 	});
-	onDestroy(() => { if (streamPollTimer) clearInterval(streamPollTimer); });
+	onDestroy(() => { stopStreamPolling(); });
 
 	$effect(() => {
 		if (searchQuery || tableSortOrder) {
@@ -815,7 +879,7 @@
 
 		<div class="mb-4 border-b border-slate-200 dark:border-slate-700">
 			<ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
-				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups']] as [id, label]}
+				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['indexes', 'Indexes'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups']] as [id, label]}
 					<li class="me-2">
 						<button onclick={() => { activeTab = id; }}
 							class="inline-block p-4 border-b-2 rounded-t-lg {activeTab === id ? 'text-blue-600 border-blue-600 dark:text-blue-500 dark:border-blue-500' : 'border-transparent hover:text-slate-600 hover:border-slate-300 dark:hover:text-slate-300'}">
@@ -999,6 +1063,17 @@
 					{/if}
 				</div>
 				<div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
+					<h2 class="mb-3 text-sm font-bold tracking-tight text-slate-900 dark:text-white uppercase">Deletion Protection</h2>
+					<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">When enabled, DeleteTable will be rejected with ValidationException.</p>
+					<div class="flex items-center gap-3">
+						<input id="del-prot" type="checkbox"
+							checked={selectedTableDesc?.DeletionProtectionEnabled === true}
+							onchange={(e) => updateDeletionProtection((e.currentTarget as HTMLInputElement).checked)}
+							class="w-4 h-4 text-blue-600 bg-slate-100 border-slate-300 rounded focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600" />
+						<label for="del-prot" class="text-sm font-medium text-slate-900 dark:text-slate-300">Enable deletion protection</label>
+					</div>
+				</div>
+				<div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
 					<div class="flex items-center justify-between mb-4">
 						<h2 class="text-xl font-bold text-slate-900 dark:text-white">Global Secondary Indexes</h2>
 						<button onclick={() => { showCreateGsiModal = true; }} class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-xs px-3 py-1.5 dark:bg-blue-600 dark:hover:bg-blue-700">+ Add GSI</button>
@@ -1177,9 +1252,16 @@
 							<span class="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">{itemsSelectedKeys.size} of {filteredItemsResults.length} selected</span>
 						{/if}
 					</h3>
-					<button onclick={() => loadItems(true)} disabled={itemsLoading} class="py-1.5 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
-						{itemsLoading ? 'Loading...' : 'Reload'}
-					</button>
+					<div class="flex items-center gap-2">
+						{#if itemsSelectedKeys.size > 0}
+							<button onclick={() => batchDeleteSelectedItems()} class="py-1.5 px-4 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg">
+								Delete Selected ({itemsSelectedKeys.size})
+							</button>
+						{/if}
+						<button onclick={() => loadItems(true)} disabled={itemsLoading} class="py-1.5 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
+							{itemsLoading ? 'Loading...' : 'Reload'}
+						</button>
+					</div>
 				</div>
 				<div>
 					<input type="text" bind:value={filterItems} placeholder="Filter items..." class="block w-full p-2.5 text-sm text-slate-900 border border-slate-300 rounded-lg bg-white focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white" />
@@ -1225,6 +1307,96 @@
 				{:else}
 					<p class="text-sm text-slate-500 dark:text-slate-400 py-4">No items found in this table.</p>
 				{/if}
+			</div>
+		{:else if activeTab === 'indexes'}
+			<!-- Indexes Tab -->
+			<div class="space-y-6">
+				<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+					<div class="flex items-center justify-between mb-4">
+						<div>
+							<h3 class="text-base font-semibold text-slate-900 dark:text-white">Global Secondary Indexes</h3>
+							<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Up to 20 GSIs per table. New GSIs report <code>CREATING</code> until ready.</p>
+						</div>
+						<button onclick={() => { showCreateGsiModal = true; }} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Create GSI</button>
+					</div>
+					{#if (selectedTableDesc?.GlobalSecondaryIndexes ?? []).length === 0}
+						<p class="text-sm text-slate-500 dark:text-slate-400">No global secondary indexes on this table.</p>
+					{:else}
+						<div class="overflow-x-auto">
+							<table class="w-full text-sm">
+								<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
+									<tr>
+										<th class="px-4 py-2 text-left">Index Name</th>
+										<th class="px-4 py-2 text-left">Key Schema</th>
+										<th class="px-4 py-2 text-left">Projection</th>
+										<th class="px-4 py-2 text-left">Status</th>
+										<th class="px-4 py-2 text-right">Items</th>
+										<th class="px-4 py-2"></th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each (selectedTableDesc?.GlobalSecondaryIndexes ?? []) as gsi (gsi.IndexName)}
+										<tr class="border-b dark:border-slate-600">
+											<td class="px-4 py-2 font-mono text-slate-700 dark:text-slate-300">{gsi.IndexName}</td>
+											<td class="px-4 py-2 text-xs text-slate-700 dark:text-slate-300">{(gsi.KeySchema ?? []).map(k => `${k.AttributeName} (${k.KeyType})`).join(', ')}</td>
+											<td class="px-4 py-2 text-xs text-slate-700 dark:text-slate-300">
+												{gsi.Projection?.ProjectionType ?? '—'}
+												{#if gsi.Projection?.ProjectionType === 'INCLUDE'}
+													<span class="text-slate-500">[{(gsi.Projection.NonKeyAttributes ?? []).join(', ')}]</span>
+												{/if}
+											</td>
+											<td class="px-4 py-2">
+												<span class="text-xs px-2 py-0.5 rounded {gsi.IndexStatus === 'ACTIVE' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300'}">{gsi.IndexStatus ?? 'UNKNOWN'}</span>
+											</td>
+											<td class="px-4 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">{gsi.ItemCount ?? 0}</td>
+											<td class="px-4 py-2 text-right">
+												<button onclick={() => deleteGsi(gsi.IndexName!)} class="text-red-600 hover:text-red-800 dark:text-red-400 text-xs font-medium px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20">Delete</button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</div>
+
+				<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+					<div class="mb-4">
+						<h3 class="text-base font-semibold text-slate-900 dark:text-white">Local Secondary Indexes</h3>
+						<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">LSIs are fixed at table creation and cannot be added or removed afterwards.</p>
+					</div>
+					{#if (selectedTableDesc?.LocalSecondaryIndexes ?? []).length === 0}
+						<p class="text-sm text-slate-500 dark:text-slate-400">No local secondary indexes on this table.</p>
+					{:else}
+						<div class="overflow-x-auto">
+							<table class="w-full text-sm">
+								<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
+									<tr>
+										<th class="px-4 py-2 text-left">Index Name</th>
+										<th class="px-4 py-2 text-left">Key Schema</th>
+										<th class="px-4 py-2 text-left">Projection</th>
+										<th class="px-4 py-2 text-right">Items</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each (selectedTableDesc?.LocalSecondaryIndexes ?? []) as lsi (lsi.IndexName)}
+										<tr class="border-b dark:border-slate-600">
+											<td class="px-4 py-2 font-mono text-slate-700 dark:text-slate-300">{lsi.IndexName}</td>
+											<td class="px-4 py-2 text-xs text-slate-700 dark:text-slate-300">{(lsi.KeySchema ?? []).map(k => `${k.AttributeName} (${k.KeyType})`).join(', ')}</td>
+											<td class="px-4 py-2 text-xs text-slate-700 dark:text-slate-300">
+												{lsi.Projection?.ProjectionType ?? '—'}
+												{#if lsi.Projection?.ProjectionType === 'INCLUDE'}
+													<span class="text-slate-500">[{(lsi.Projection.NonKeyAttributes ?? []).join(', ')}]</span>
+												{/if}
+											</td>
+											<td class="px-4 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">{lsi.ItemCount ?? 0}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</div>
 			</div>
 		{:else if activeTab === 'streams'}
 			<div class="space-y-4">

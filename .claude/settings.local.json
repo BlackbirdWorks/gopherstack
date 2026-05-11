@@ -39,7 +39,8 @@
       "WebFetch(domain:www.localstack.cloud)",
       "WebFetch(domain:blog.localstack.cloud)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:pkg.go.dev)"
+      "WebFetch(domain:pkg.go.dev)",
+      "mcp__playwright__browser_run_code_unsafe"
     ]
   }
 }

@@ -716,7 +716,7 @@ func (b *InMemoryBackend) autoCIDRLocked(poolCidr string, netmaskLength int) (st
 
 	//nolint:gosec // existingCount is small; integer overflow is acceptable in mock context
 	ipInt += uint32(existingCount) << uint(shift)
-	//nolint:gosec // byte truncation is intentional: we extract each octet from the 32-bit IP integer
+	//nolint:gosec // byte truncation is intentional: each octet is extracted from a 32-bit IP integer
 	shiftedIP := net.IP{
 		byte(ipInt >> octet3Shift),
 		byte(ipInt >> octet2Shift),

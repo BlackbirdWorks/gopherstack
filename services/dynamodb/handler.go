@@ -963,6 +963,11 @@ func (h *DynamoDBHandler) classifyError(reqErr error) (int, *Error) {
 
 type pointInTimeRecoveryDescription struct {
 	PointInTimeRecoveryStatus string `json:"PointInTimeRecoveryStatus"`
+	// EarliestRestorableDateTime / LatestRestorableDateTime are Unix epoch
+	// seconds (float64), matching AWS's wire format. Omitted when PITR is
+	// disabled or no snapshots exist yet.
+	EarliestRestorableDateTime float64 `json:"EarliestRestorableDateTime,omitempty"`
+	LatestRestorableDateTime   float64 `json:"LatestRestorableDateTime,omitempty"`
 }
 
 type continuousBackupsDescriptionFields struct {
@@ -994,6 +999,7 @@ func (h *DynamoDBHandler) describeContinuousBackups(ctx context.Context, body []
 	}
 
 	pitrEnabled := false
+	var earliest, latest time.Time
 
 	if db, ok := h.Backend.(*InMemoryDB); ok {
 		table, err := db.getTable(ctx, req.TableName)
@@ -1003,20 +1009,32 @@ func (h *DynamoDBHandler) describeContinuousBackups(ctx context.Context, body []
 
 		table.mu.RLock(opDescribeContinuousBackups)
 		pitrEnabled = table.PITREnabled
+		// EarliestRestorableDateTime tracks the oldest available snapshot.
+		// LatestRestorableDateTime is "now" while PITR is active — AWS
+		// guarantees you can always recover to the current instant.
+		if pitrEnabled && len(table.pitrSnapshots) > 0 {
+			earliest = table.pitrSnapshots[0].Taken
+			latest = time.Now().UTC()
+		}
 		table.mu.RUnlock()
 	}
 
 	continuousStatus := continuousBackupsStatusEnabled
 	pitrStatus := continuousBackupsStatusDisabled
 
+	desc := pointInTimeRecoveryDescription{PointInTimeRecoveryStatus: pitrStatus}
 	if pitrEnabled {
-		pitrStatus = continuousBackupsStatusEnabled
+		desc.PointInTimeRecoveryStatus = continuousBackupsStatusEnabled
+		if !earliest.IsZero() {
+			desc.EarliestRestorableDateTime = float64(earliest.Unix())
+			desc.LatestRestorableDateTime = float64(latest.Unix())
+		}
 	}
 
 	return &describeContinuousBackupsOutput{
 		ContinuousBackupsDescription: continuousBackupsDescriptionFields{
 			ContinuousBackupsStatus:        continuousStatus,
-			PointInTimeRecoveryDescription: pointInTimeRecoveryDescription{PointInTimeRecoveryStatus: pitrStatus},
+			PointInTimeRecoveryDescription: desc,
 		},
 	}, nil
 }
@@ -1051,6 +1069,11 @@ func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []by
 
 		table.mu.Lock(opUpdateContinuousBackups)
 		table.PITREnabled = pitrEnabled
+		if !pitrEnabled {
+			// Releasing memory the moment the feature is turned off keeps the
+			// per-table footprint tight; re-enabling starts a fresh ring.
+			table.pitrSnapshots = nil
+		}
 		table.mu.Unlock()
 	}
 

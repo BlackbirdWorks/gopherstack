@@ -18,6 +18,10 @@ var (
 	ErrBucketNotEmpty          = errors.New(
 		"BucketNotEmpty: The bucket you tried to delete is not empty",
 	)
+	ErrPermanentRedirect = errors.New("PermanentRedirect")
+	// ErrPreconditionFailed is returned when an If-Match / If-None-Match
+	// condition on a write op (PutObject / DeleteObject) fails.
+	ErrPreconditionFailed         = errors.New("PreconditionFailed")
 	ErrNotImplemented             = errors.New("NotImplemented")
 	ErrMethodNotAllowed           = errors.New("MethodNotAllowed")
 	ErrInvalidArgument            = errors.New(errInvalidArgument)
@@ -143,6 +147,11 @@ func coreErrorTable() []s3ErrorEntry {
 			errAccessDenied,
 			"Access Denied",
 			http.StatusForbidden,
+		}},
+		{ErrPreconditionFailed, s3ErrorInfo{
+			"PreconditionFailed",
+			"At least one of the pre-conditions you specified did not hold.",
+			http.StatusPreconditionFailed,
 		}},
 		{ErrKeyTooLongError, s3ErrorInfo{
 			"KeyTooLongError",

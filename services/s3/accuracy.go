@@ -60,6 +60,11 @@ type sseInfo struct {
 	SSECAlgorithm string
 	// SSECKeyMD5 is the base64-encoded MD5 of the customer-supplied key.
 	SSECKeyMD5 string
+	// SSECKeyB64 is the base64-encoded raw customer key. Kept on the
+	// request-scoped sseInfo only — not persisted — so the backend can
+	// encrypt the body on PUT and the GET handler can decrypt when the
+	// caller re-supplies it.
+	SSECKeyB64 string
 }
 
 // extractSSEInfo reads SSE-* request headers and validates SSE-C when present.
@@ -70,6 +75,7 @@ func extractSSEInfo(r *http.Request) (sseInfo, error) {
 		KMSKeyID:      r.Header.Get(headerSSEKMSKeyID),
 		SSECAlgorithm: r.Header.Get(headerSSECAlgorithm),
 		SSECKeyMD5:    r.Header.Get(headerSSECKeyMD5),
+		SSECKeyB64:    r.Header.Get(headerSSECKey),
 	}
 
 	rawKey := r.Header.Get(headerSSECKey)
@@ -297,9 +303,13 @@ const (
 var crc64NVMETable = makeCRC64NVMETable() //nolint:gochecknoglobals // pre-computed lookup table
 
 func makeCRC64NVMETable() [256]uint64 {
-	const bitsPerByte = 8
-	var table [256]uint64
-	for i := range 256 {
+	const (
+		bitsPerByte = 8
+		tableLen    = 256
+	)
+
+	var table [tableLen]uint64
+	for i := range tableLen {
 		crc := uint64(i)
 		for range bitsPerByte {
 			if crc&1 != 0 {
@@ -327,7 +337,7 @@ func NewCRC64NVME() hash.Hash {
 // Write implements io.Writer.
 func (h *CRC64NVMEHash) Write(p []byte) (int, error) {
 	for _, b := range p {
-		lsb := byte(h.crc) //nolint:gosec // G115: lower-byte truncation is intentional for CRC table index
+		lsb := byte(h.crc) //nolint:gosec // lower-byte truncation is intentional for CRC table index
 		h.crc = crc64NVMETable[lsb^b] ^ (h.crc >> crc64ShiftBits)
 	}
 

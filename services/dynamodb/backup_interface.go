@@ -100,6 +100,7 @@ func (db *InMemoryDB) CreateBackup(
 
 	db.mu.Lock("CreateBackup")
 	db.Backups[bkpARN] = backup
+	evictOldest(db.Backups, maxBackupsRetained, func(b *Backup) time.Time { return b.CreationDateTime })
 	db.mu.Unlock()
 
 	return &sdkdynamodb.CreateBackupOutput{
