@@ -1259,14 +1259,16 @@ func (e *FailError) Error() string {
 	return e.ErrCode
 }
 
-// applyPath applies an InputPath or OutputPath to a value.
-// If path is "" or "$", returns value unchanged.
-// If path starts with "$.", it's a JSONPath reference.
+// pathEvalInput wraps path evaluation scope.
+// data is target for "$" paths; context is target for "$$" paths.
 type pathEvalInput struct {
 	data    any
 	context any
 }
 
+// applyPath applies an InputPath or OutputPath to a value.
+// If path is "" or "$", returns value unchanged.
+// If path starts with "$.", it's a JSONPath reference.
 func applyPath(path string, value any, pathCache ...*sync.Map) (any, error) {
 	var cache *sync.Map
 	if len(pathCache) > 0 {
@@ -1815,7 +1817,7 @@ func toFloat(v any) (float64, bool) {
 		return float64(n), true
 	case string:
 		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
-		if err != nil {
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 			return 0, false
 		}
 
@@ -1841,7 +1843,7 @@ func catchesError(errorEquals []string, err error) bool {
 				return true
 			}
 		case "States.TaskFailed":
-			if errCode != "States.Timeout" {
+			if errCode != "States.Timeout" && errCode != "States.Runtime" && errCode != "States.Permissions" {
 				return true
 			}
 		case "States.Runtime":
@@ -1878,13 +1880,6 @@ func stepFunctionsErrorCode(err error) string {
 		errors.Is(err, ErrUnsupportedPathExpr) ||
 		errors.Is(err, ErrUnsupportedResultPath) {
 		return "States.Runtime"
-	}
-
-	lowerErr := strings.ToLower(err.Error())
-	if strings.Contains(lowerErr, "accessdenied") ||
-		strings.Contains(lowerErr, "permission") ||
-		strings.Contains(lowerErr, "not authorized") {
-		return "States.Permissions"
 	}
 
 	return err.Error()

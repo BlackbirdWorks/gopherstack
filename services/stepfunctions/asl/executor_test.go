@@ -2254,6 +2254,36 @@ func TestExecutor_Choice_NumericStringCoercion(t *testing.T) {
 			input: `{"count":"not-a-number"}`,
 			want:  "low",
 		},
+		{
+			name:  "empty_string_does_not_match",
+			input: `{"count":""}`,
+			want:  "low",
+		},
+		{
+			name:  "whitespace_only_string_does_not_match",
+			input: `{"count":"   "}`,
+			want:  "low",
+		},
+		{
+			name:  "scientific_notation_string_matches",
+			input: `{"count":"1e1"}`,
+			want:  "high",
+		},
+		{
+			name:  "overflow_string_does_not_match",
+			input: `{"count":"1e4000"}`,
+			want:  "low",
+		},
+		{
+			name:  "nan_string_does_not_match",
+			input: `{"count":"NaN"}`,
+			want:  "low",
+		},
+		{
+			name:  "inf_string_does_not_match",
+			input: `{"count":"Inf"}`,
+			want:  "low",
+		},
 	}
 
 	def := `{

@@ -673,6 +673,17 @@ func validateRoleARN(roleArn string) error {
 		return fmt.Errorf("%w: roleArn must be an ARN", ErrInvalidRoleArn)
 	}
 
+	if strings.ContainsAny(roleArn, " \t\r\n") {
+		return fmt.Errorf("%w: roleArn must not contain whitespace", ErrInvalidRoleArn)
+	}
+
+	parts := strings.Split(roleArn, ":")
+	if len(parts) == 6 {
+		if parts[2] == "" || parts[5] == "" {
+			return fmt.Errorf("%w: roleArn must include service and resource", ErrInvalidRoleArn)
+		}
+	}
+
 	return nil
 }
 
