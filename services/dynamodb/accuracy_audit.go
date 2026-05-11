@@ -1008,16 +1008,6 @@ func validateGSIThroughput(
 	gsis []types.GlobalSecondaryIndex, billingMode types.BillingMode,
 ) error {
 	if billingMode == types.BillingModePayPerRequest {
-		for _, g := range gsis {
-			if g.ProvisionedThroughput != nil {
-				return NewValidationException(
-					"One or more parameter values were invalid: " +
-						"Provisioned throughput should not be specified on GSI " +
-						"when BillingMode=PAY_PER_REQUEST",
-				)
-			}
-		}
-
 		return nil
 	}
 

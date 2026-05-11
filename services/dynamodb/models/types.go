@@ -71,6 +71,7 @@ type TableDescription struct {
 	ProvisionedThroughput  *ProvisionedThroughputDescription `json:"ProvisionedThroughput,omitempty"`
 	StreamSpecification    *StreamSpecificationInput         `json:"StreamSpecification,omitempty"`
 	BillingModeSummary     *BillingModeSummaryDescription    `json:"BillingModeSummary,omitempty"`
+	SSEDescription         *SSEDescription                   `json:"SSEDescription,omitempty"`
 	TableName              string                            `json:"TableName"`
 	TableStatus            string                            `json:"TableStatus"`
 	TableArn               string                            `json:"TableArn,omitempty"`
@@ -84,6 +85,12 @@ type TableDescription struct {
 	LocalSecondaryIndexes  []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
 	Replicas               []ReplicaDescription              `json:"Replicas,omitempty"`
 	ItemCount              int                               `json:"ItemCount"`
+}
+
+type SSEDescription struct {
+	Status          string `json:"Status,omitempty"`
+	SSEType         string `json:"SSEType,omitempty"`
+	KMSMasterKeyArn string `json:"KMSMasterKeyArn,omitempty"`
 }
 
 // BillingModeSummaryDescription describes the billing mode of a DynamoDB table.

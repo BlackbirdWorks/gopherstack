@@ -313,6 +313,14 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 		}
 	}
 
+	if td.SSEDescription != nil {
+		out.SSEDescription = &SSEDescription{
+			Status:          string(td.SSEDescription.Status),
+			SSEType:         string(td.SSEDescription.SSEType),
+			KMSMasterKeyArn: ptrconv.String(td.SSEDescription.KMSMasterKeyArn),
+		}
+	}
+
 	return out
 }
 

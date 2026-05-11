@@ -201,6 +201,8 @@ func TestFromSDKDescribeTableOutput(t *testing.T) {
 	tests := []struct {
 		name            string
 		input           *dynamodb_sdk.DescribeTableOutput
+		wantSSEStatus   string
+		wantSSEType     string
 		wantTableName   string
 		wantTableStatus string
 		wantItemCount   int
@@ -212,11 +214,17 @@ func TestFromSDKDescribeTableOutput(t *testing.T) {
 					TableName:   aws.String("TestTable"),
 					TableStatus: types.TableStatusActive,
 					ItemCount:   aws.Int64(100),
+					SSEDescription: &types.SSEDescription{
+						Status:  types.SSEStatusEnabled,
+						SSEType: types.SSETypeKms,
+					},
 				},
 			},
 			wantTableName:   "TestTable",
 			wantTableStatus: "ACTIVE",
 			wantItemCount:   100,
+			wantSSEStatus:   "ENABLED",
+			wantSSEType:     "KMS",
 		},
 	}
 
@@ -230,6 +238,9 @@ func TestFromSDKDescribeTableOutput(t *testing.T) {
 			assert.Equal(t, tt.wantTableName, result.Table.TableName)
 			assert.Equal(t, tt.wantTableStatus, result.Table.TableStatus)
 			assert.Equal(t, tt.wantItemCount, result.Table.ItemCount)
+			require.NotNil(t, result.Table.SSEDescription)
+			assert.Equal(t, tt.wantSSEStatus, result.Table.SSEDescription.Status)
+			assert.Equal(t, tt.wantSSEType, result.Table.SSEDescription.SSEType)
 		})
 	}
 }

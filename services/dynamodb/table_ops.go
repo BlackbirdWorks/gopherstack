@@ -185,13 +185,15 @@ func newTableFromCreateInput(tableName string, input *dynamodb.CreateTableInput)
 		t.BillingMode = string(types.BillingModeProvisioned)
 	}
 
-	if input.SSESpecification != nil && aws.ToBool(input.SSESpecification.Enabled) {
-		t.SSEEnabled = true
-		t.SSEType = string(input.SSESpecification.SSEType)
-		if t.SSEType == "" {
-			t.SSEType = string(types.SSETypeKms)
+	if input.SSESpecification != nil {
+		t.SSEEnabled = input.SSESpecification.Enabled == nil || aws.ToBool(input.SSESpecification.Enabled)
+		if t.SSEEnabled {
+			t.SSEType = string(input.SSESpecification.SSEType)
+			if t.SSEType == "" {
+				t.SSEType = string(types.SSETypeKms)
+			}
+			t.SSEKMSMasterKeyArn = aws.ToString(input.SSESpecification.KMSMasterKeyId)
 		}
-		t.SSEKMSMasterKeyArn = aws.ToString(input.SSESpecification.KMSMasterKeyId)
 	}
 
 	t.initializeIndexes()
@@ -659,16 +661,20 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 // with an AWS-owned key (no ARN). When the user enables SSE-KMS we report the
 // KMS key ARN. Status is always ENABLED in the mock (no rotation in flight).
 func applySSEDescription(td *types.TableDescription, enabled bool, sseType, kmsKeyArn string) {
-	if !enabled {
-		return
-	}
-
 	desc := &types.SSEDescription{
 		Status: types.SSEStatusEnabled,
 	}
-	if sseType != "" {
-		desc.SSEType = types.SSEType(sseType)
+
+	if sseType == "" {
+		if enabled {
+			sseType = string(types.SSETypeKms)
+		} else {
+			sseType = string(types.SSETypeAes256)
+		}
 	}
+
+	desc.SSEType = types.SSEType(sseType)
+
 	if kmsKeyArn != "" {
 		desc.KMSMasterKeyArn = &kmsKeyArn
 	}
@@ -798,7 +804,7 @@ func (db *InMemoryDB) applyUpdateTableLocked(
 	}
 
 	if input.SSESpecification != nil {
-		if aws.ToBool(input.SSESpecification.Enabled) {
+		if input.SSESpecification.Enabled == nil || aws.ToBool(input.SSESpecification.Enabled) {
 			table.SSEEnabled = true
 			table.SSEType = string(input.SSESpecification.SSEType)
 			if table.SSEType == "" {

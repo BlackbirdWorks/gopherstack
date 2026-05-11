@@ -458,7 +458,7 @@ type jsonListDeadLetterSourceQueuesReq struct {
 
 type jsonListDeadLetterSourceQueuesResp struct {
 	NextToken string   `json:"NextToken,omitempty"`
-	QueueURLs []string `json:"QueueUrls"`
+	QueueURLs []string `json:"queueUrls"`
 }
 
 type jsonSQSError struct {
