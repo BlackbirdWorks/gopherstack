@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"sort"
 	"strings"
 	"time"
 
@@ -150,7 +151,26 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 
 	scope := defaultAccessScope
 	if len(p.Scopes) > 0 {
-		scope = strings.Join(p.Scopes, " ")
+		deduped := make([]string, 0, len(p.Scopes))
+		seen := make(map[string]struct{}, len(p.Scopes))
+
+		for _, s := range p.Scopes {
+			if s == "" {
+				continue
+			}
+
+			if _, dup := seen[s]; dup {
+				continue
+			}
+
+			seen[s] = struct{}{}
+			deduped = append(deduped, s)
+		}
+
+		if len(deduped) > 0 {
+			sort.Strings(deduped)
+			scope = strings.Join(deduped, " ")
+		}
 	}
 
 	accessClaims := jwt.MapClaims{

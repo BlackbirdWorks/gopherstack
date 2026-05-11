@@ -752,7 +752,7 @@ func TestHandler_GetUser_WithMFAFields(t *testing.T) {
 	_, clientID := setupHandlerPoolAndClient(t, h, "mfa-getuser-pool")
 
 	signUpAndConfirmViaHandler(t, h, clientID, "zara")
-	accessToken := loginViaHandler(t, h, clientID, "zara", "Pass1234!")
+	accessToken := loginViaHandler(t, h, clientID, "zara")
 
 	prefRec := doCognitoRequest(t, h, "SetUserMFAPreference", map[string]any{
 		"AccessToken": accessToken,
@@ -1087,7 +1087,7 @@ func TestHandler_AssociateSoftwareToken_Accurate(t *testing.T) {
 	_, clientID := setupHandlerPoolAndClient(t, h, "totp-pool")
 
 	signUpAndConfirmViaHandler(t, h, clientID, "totp-user")
-	accessToken := loginViaHandler(t, h, clientID, "totp-user", "Pass1234!")
+	accessToken := loginViaHandler(t, h, clientID, "totp-user")
 
 	rec := doCognitoRequest(t, h, "AssociateSoftwareToken", map[string]any{"AccessToken": accessToken})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1107,7 +1107,7 @@ func TestHandler_VerifySoftwareToken_Accurate(t *testing.T) {
 	_, clientID := setupHandlerPoolAndClient(t, h, "verify-totp-pool")
 
 	signUpAndConfirmViaHandler(t, h, clientID, "verify-user")
-	accessToken := loginViaHandler(t, h, clientID, "verify-user", "Pass1234!")
+	accessToken := loginViaHandler(t, h, clientID, "verify-user")
 
 	assocRec := doCognitoRequest(t, h, "AssociateSoftwareToken", map[string]any{"AccessToken": accessToken})
 	require.Equal(t, http.StatusOK, assocRec.Code)
@@ -1188,7 +1188,7 @@ func signUpAndConfirmViaHandler(t *testing.T, h *cognitoidp.Handler, clientID, u
 	require.Equal(t, http.StatusOK, confirmRec.Code)
 }
 
-func loginViaHandler(t *testing.T, h *cognitoidp.Handler, clientID, username, password string) string {
+func loginViaHandler(t *testing.T, h *cognitoidp.Handler, clientID, username string) string {
 	t.Helper()
 
 	rec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
@@ -1196,7 +1196,7 @@ func loginViaHandler(t *testing.T, h *cognitoidp.Handler, clientID, username, pa
 		"ClientId": clientID,
 		"AuthParameters": map[string]string{
 			"USERNAME": username,
-			"PASSWORD": password,
+			"PASSWORD": "Pass1234!",
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

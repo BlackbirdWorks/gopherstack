@@ -165,49 +165,39 @@ const (
 // fields (SSE, autoscaling, streams) are grouped together rather than
 // strictly sorted by alignment requirement.
 //
-//nolint:govet // fieldalignment: prefer logical grouping over byte packing
+
 type Table struct {
-	CreationDateTime time.Time `json:"CreationDateTime"`
-	pkIndex          map[string]int
-	pkskIndex        map[string]map[string]int
-	mu               *lockmetrics.RWMutex
-	activateTimer    *time.Timer
-	Tags             *tags.Tags `json:"Tags,omitempty"`
-	kinesisEmitter   KinesisEmitter
-	// AutoScaling stores the most recent UpdateTableReplicaAutoScaling input
-	// so DescribeTableReplicaAutoScaling can echo it back. The in-memory
-	// backend doesn't actually scale; this is metadata round-tripping only,
-	// matching LocalStack's behaviour.
-	AutoScaling *autoScalingSettings `json:"AutoScaling,omitempty"`
-	// SSEType is "AES256" (SSE-S3) or "KMS". Empty when encryption is not
-	// configured (the table is then treated as using owned-key AES256 by AWS).
-	SSEType string `json:"SSEType,omitempty"`
-	// SSEKMSMasterKeyArn is the customer-managed KMS key ARN when SSEType=KMS.
-	SSEKMSMasterKeyArn     string                                  `json:"SSEKMSMasterKeyArn,omitempty"`
-	TableClass             string                                  `json:"TableClass,omitempty"`
-	GlobalTableName        string                                  `json:"GlobalTableName,omitempty"`
-	TTLAttribute           string                                  `json:"TTLAttribute,omitempty"`
-	StreamViewType         string                                  `json:"StreamViewType,omitempty"`
-	StreamARN              string                                  `json:"StreamARN,omitempty"`
-	TableArn               string                                  `json:"TableArn"`
-	Status                 string                                  `json:"Status"`
-	TableID                string                                  `json:"TableID"`
-	Name                   string                                  `json:"Name"`
-	BillingMode            string                                  `json:"BillingMode,omitempty"`
-	ResourcePolicy         string                                  `json:"ResourcePolicy,omitempty"`
-	Replicas               []models.ReplicaDescription             `json:"Replicas,omitempty"`
-	Items                  []map[string]any                        `json:"Items"`
-	GlobalSecondaryIndexes []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
-	StreamRecords          []models.StreamRecord                   `json:"StreamRecords,omitempty"`
-	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
-	LocalSecondaryIndexes  []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
-	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
-	KinesisDestinations    []string                                `json:"KinesisDestinations,omitempty"`
-	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
-	// pitrSnapshots is a ring of past Items + KeySchema captured by the
-	// janitor when PITREnabled. Used by RestoreTableToPointInTime to honour
-	// the requested RestoreDateTime. Bounded by maxPITRSnapshots.
+	CreationDateTime           time.Time `json:"CreationDateTime"`
+	kinesisEmitter             KinesisEmitter
+	pkIndex                    map[string]int
+	pkskIndex                  map[string]map[string]int
+	mu                         *lockmetrics.RWMutex
+	activateTimer              *time.Timer
+	Tags                       *tags.Tags                    `json:"Tags,omitempty"`
+	AutoScaling                *autoScalingSettings          `json:"AutoScaling,omitempty"`
+	Name                       string                        `json:"Name"`
+	SSEKMSMasterKeyArn         string                        `json:"SSEKMSMasterKeyArn,omitempty"`
+	TableClass                 string                        `json:"TableClass,omitempty"`
+	GlobalTableName            string                        `json:"GlobalTableName,omitempty"`
+	TTLAttribute               string                        `json:"TTLAttribute,omitempty"`
+	StreamViewType             string                        `json:"StreamViewType,omitempty"`
+	StreamARN                  string                        `json:"StreamARN,omitempty"`
+	TableArn                   string                        `json:"TableArn"`
+	Status                     string                        `json:"Status"`
+	TableID                    string                        `json:"TableID"`
+	SSEType                    string                        `json:"SSEType,omitempty"`
+	BillingMode                string                        `json:"BillingMode,omitempty"`
+	ResourcePolicy             string                        `json:"ResourcePolicy,omitempty"`
+	GlobalSecondaryIndexes     []models.GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
 	pitrSnapshots              []pitrSnapshot
+	Replicas                   []models.ReplicaDescription             `json:"Replicas,omitempty"`
+	StreamRecords              []models.StreamRecord                   `json:"StreamRecords,omitempty"`
+	KeySchema                  []models.KeySchemaElement               `json:"KeySchema"`
+	LocalSecondaryIndexes      []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
+	AttributeDefinitions       []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	KinesisDestinations        []string                                `json:"KinesisDestinations,omitempty"`
+	Items                      []map[string]any                        `json:"Items"`
+	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	streamSeq                  int64
 	StreamHead                 int  `json:"StreamHead,omitempty"`
 	PITREnabled                bool `json:"PITREnabled,omitempty"`

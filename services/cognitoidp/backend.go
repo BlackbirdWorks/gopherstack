@@ -458,7 +458,8 @@ func (b *InMemoryBackend) SignUp(clientID, username, password string, userAttrib
 		UpdatedAt:    time.Now(),
 		Enabled:      true,
 		// Generate a confirmation code (simulates the code sent via email/SMS).
-		ConfirmCode: randomAlphanumeric(confirmCodeLen),
+		ConfirmCode:          randomAlphanumeric(confirmCodeLen),
+		ConfirmCodeExpiresAt: time.Now().Add(confirmCodeTTL),
 	}
 
 	poolUsers[username] = user
@@ -747,6 +748,7 @@ func (b *InMemoryBackend) ForgotPassword(clientID, username string) (string, err
 
 	code := randomAlphanumeric(confirmCodeLen)
 	user.ConfirmCode = code
+	user.ConfirmCodeExpiresAt = time.Now().Add(confirmCodeTTL)
 
 	return code, nil
 }
@@ -1641,6 +1643,7 @@ func (b *InMemoryBackend) ResendConfirmationCode(clientID, username string) (str
 
 	code := randomAlphanumeric(confirmCodeLen)
 	user.ConfirmCode = code
+	user.ConfirmCodeExpiresAt = time.Now().Add(confirmCodeTTL)
 
 	return code, nil
 }

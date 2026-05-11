@@ -5305,9 +5305,9 @@ func TestModifyTargetGroupHealthCheckEnabledOptional(t *testing.T) {
 	var resp struct {
 		Result struct {
 			TargetGroups struct {
-				Members []struct { //nolint:govet // bool field before string optimizes alignment
-					HealthCheckEnabled bool   `xml:"HealthCheckEnabled"`
+				Members []struct {
 					HealthCheckPath    string `xml:"HealthCheckPath"`
+					HealthCheckEnabled bool   `xml:"HealthCheckEnabled"`
 				} `xml:"member"`
 			} `xml:"TargetGroups"`
 		} `xml:"DescribeTargetGroupsResult"`
@@ -5614,13 +5614,13 @@ func TestModifyListenerSyncDefaultRule(t *testing.T) {
 	var rulesResp struct {
 		Result struct {
 			Rules struct {
-				Members []struct { //nolint:govet // field order is for readability
-					IsDefault bool `xml:"IsDefault"`
-					Actions   struct {
+				Members []struct {
+					Actions struct {
 						Members []struct {
 							TargetGroupArn string `xml:"TargetGroupArn"`
 						} `xml:"member"`
 					} `xml:"Actions"`
+					IsDefault bool `xml:"IsDefault"`
 				} `xml:"member"`
 			} `xml:"Rules"`
 		} `xml:"DescribeRulesResult"`
