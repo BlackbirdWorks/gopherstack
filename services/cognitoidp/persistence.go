@@ -18,41 +18,46 @@ var (
 
 // userPoolSnapshot holds the serializable fields of a UserPool.
 type userPoolSnapshot struct {
-	CreatedAt        string            `json:"createdAt"`
-	ID               string            `json:"id"`
-	Name             string            `json:"name"`
-	ARN              string            `json:"arn"`
-	IssuerURL        string            `json:"issuerUrl"`
-	KeyID            string            `json:"keyId"`
-	PrivKeyPEM       string            `json:"privKeyPem"`
-	MfaConfiguration string            `json:"mfaConfiguration,omitempty"`
-	CustomAttributes []SchemaAttribute `json:"customAttributes,omitempty"`
+	PasswordPolicy         *PasswordPolicy   `json:"passwordPolicy,omitempty"`
+	CreatedAt              string            `json:"createdAt"`
+	ID                     string            `json:"id"`
+	Name                   string            `json:"name"`
+	ARN                    string            `json:"arn"`
+	IssuerURL              string            `json:"issuerUrl"`
+	KeyID                  string            `json:"keyId"`
+	PrivKeyPEM             string            `json:"privKeyPem"`
+	MfaConfiguration       string            `json:"mfaConfiguration,omitempty"`
+	CustomAttributes       []SchemaAttribute `json:"customAttributes,omitempty"`
+	AutoVerifiedAttributes []string          `json:"autoVerifiedAttributes,omitempty"`
 }
 
 // userSnapshot is a copy of User safe for JSON serialization.
 type userSnapshot struct {
-	CreatedAt    string            `json:"createdAt"`
-	UpdatedAt    string            `json:"updatedAt,omitempty"`
-	Attributes   map[string]string `json:"attributes,omitempty"`
-	Sub          string            `json:"sub"`
-	Username     string            `json:"username"`
-	UserPoolID   string            `json:"userPoolId"`
-	PasswordHash string            `json:"passwordHash"`
-	Status       string            `json:"status"`
-	ConfirmCode  string            `json:"confirmCode,omitempty"`
-	Enabled      bool              `json:"enabled"`
+	CreatedAt            string            `json:"createdAt"`
+	UpdatedAt            string            `json:"updatedAt,omitempty"`
+	ConfirmCodeExpiresAt string            `json:"confirmCodeExpiresAt,omitempty"`
+	Attributes           map[string]string `json:"attributes,omitempty"`
+	Sub                  string            `json:"sub"`
+	Username             string            `json:"username"`
+	UserPoolID           string            `json:"userPoolId"`
+	PasswordHash         string            `json:"passwordHash"`
+	Status               string            `json:"status"`
+	ConfirmCode          string            `json:"confirmCode,omitempty"`
+	Enabled              bool              `json:"enabled"`
 }
 
 type backendSnapshot struct {
-	Pools         map[string]*userPoolSnapshot              `json:"pools"`
-	Clients       map[string]*UserPoolClient                `json:"clients"`
-	Users         map[string]map[string]*userSnapshot       `json:"users"`
-	RefreshTokens map[string]*refreshTokenEntry             `json:"refreshTokens,omitempty"`
-	Groups        map[string]map[string]*Group              `json:"groups,omitempty"`
-	GroupMembers  map[string]map[string]map[string]struct{} `json:"groupMembers,omitempty"`
-	AccountID     string                                    `json:"accountId"`
-	Region        string                                    `json:"region"`
-	Endpoint      string                                    `json:"endpoint"`
+	Pools              map[string]*userPoolSnapshot              `json:"pools"`
+	Clients            map[string]*UserPoolClient                `json:"clients"`
+	Users              map[string]map[string]*userSnapshot       `json:"users"`
+	RefreshTokens      map[string]*refreshTokenEntry             `json:"refreshTokens,omitempty"`
+	Groups             map[string]map[string]*Group              `json:"groups,omitempty"`
+	GroupMembers       map[string]map[string]map[string]struct{} `json:"groupMembers,omitempty"`
+	ResourceServers    map[string]map[string]*ResourceServer     `json:"resourceServers,omitempty"`
+	TokenRevokedBefore map[string]time.Time                      `json:"tokenRevokedBefore,omitempty"`
+	AccountID          string                                    `json:"accountId"`
+	Region             string                                    `json:"region"`
+	Endpoint           string                                    `json:"endpoint"`
 }
 
 func marshalRSAKey(key *rsa.PrivateKey) (string, error) {
@@ -104,16 +109,30 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			pem = ""
 		}
 
+		var ppSnap *PasswordPolicy
+		if p.PasswordPolicy != nil {
+			pp := *p.PasswordPolicy
+			ppSnap = &pp
+		}
+
+		var avAttrs []string
+		if len(p.AutoVerifiedAttributes) > 0 {
+			avAttrs = make([]string, len(p.AutoVerifiedAttributes))
+			copy(avAttrs, p.AutoVerifiedAttributes)
+		}
+
 		poolSnaps[id] = &userPoolSnapshot{
-			CreatedAt:        p.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			ID:               p.ID,
-			Name:             p.Name,
-			ARN:              p.ARN,
-			IssuerURL:        p.issuer.issuerURL,
-			KeyID:            p.issuer.keyID,
-			PrivKeyPEM:       pem,
-			CustomAttributes: p.CustomAttributes,
-			MfaConfiguration: p.MfaConfiguration,
+			CreatedAt:              p.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			ID:                     p.ID,
+			Name:                   p.Name,
+			ARN:                    p.ARN,
+			IssuerURL:              p.issuer.issuerURL,
+			KeyID:                  p.issuer.keyID,
+			PrivKeyPEM:             pem,
+			CustomAttributes:       p.CustomAttributes,
+			MfaConfiguration:       p.MfaConfiguration,
+			PasswordPolicy:         ppSnap,
+			AutoVerifiedAttributes: avAttrs,
 		}
 	}
 
@@ -122,17 +141,23 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		snaps := make(map[string]*userSnapshot, len(poolUsers))
 
 		for username, u := range poolUsers {
+			var codeExpiry string
+			if !u.ConfirmCodeExpiresAt.IsZero() {
+				codeExpiry = u.ConfirmCodeExpiresAt.Format("2006-01-02T15:04:05Z")
+			}
+
 			snaps[username] = &userSnapshot{
-				CreatedAt:    u.CreatedAt.Format("2006-01-02T15:04:05Z"),
-				UpdatedAt:    u.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-				Attributes:   u.Attributes,
-				Sub:          u.Sub,
-				Username:     u.Username,
-				UserPoolID:   u.UserPoolID,
-				PasswordHash: u.PasswordHash,
-				Status:       u.Status,
-				ConfirmCode:  u.ConfirmCode,
-				Enabled:      u.Enabled,
+				CreatedAt:            u.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				UpdatedAt:            u.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+				ConfirmCodeExpiresAt: codeExpiry,
+				Attributes:           u.Attributes,
+				Sub:                  u.Sub,
+				Username:             u.Username,
+				UserPoolID:           u.UserPoolID,
+				PasswordHash:         u.PasswordHash,
+				Status:               u.Status,
+				ConfirmCode:          u.ConfirmCode,
+				Enabled:              u.Enabled,
 			}
 		}
 
@@ -140,15 +165,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	snap := backendSnapshot{
-		Pools:         poolSnaps,
-		Clients:       b.clients,
-		Users:         userSnaps,
-		RefreshTokens: b.refreshTokens,
-		Groups:        b.groups,
-		GroupMembers:  b.groupMembers,
-		AccountID:     b.accountID,
-		Region:        b.region,
-		Endpoint:      b.endpoint,
+		Pools:              poolSnaps,
+		Clients:            b.clients,
+		Users:              userSnaps,
+		RefreshTokens:      b.refreshTokens,
+		Groups:             b.groups,
+		GroupMembers:       b.groupMembers,
+		ResourceServers:    b.resourceServers,
+		TokenRevokedBefore: b.tokenRevokedBefore,
+		AccountID:          b.accountID,
+		Region:             b.region,
+		Endpoint:           b.endpoint,
 	}
 
 	data, err := json.Marshal(snap)
@@ -192,6 +219,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.refreshTokensByUser = buildRefreshTokensByUserIndex(b.refreshTokens)
 	b.groups = snap.Groups
 	b.groupMembers = snap.GroupMembers
+	b.resourceServers = snap.ResourceServers
+	b.tokenRevokedBefore = snap.TokenRevokedBefore
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.endpoint = snap.Endpoint
@@ -279,6 +308,14 @@ func normalizeBackendSnapshot(snap *backendSnapshot) {
 	if snap.GroupMembers == nil {
 		snap.GroupMembers = make(map[string]map[string]map[string]struct{})
 	}
+
+	if snap.ResourceServers == nil {
+		snap.ResourceServers = make(map[string]map[string]*ResourceServer)
+	}
+
+	if snap.TokenRevokedBefore == nil {
+		snap.TokenRevokedBefore = make(map[string]time.Time)
+	}
 }
 
 func restorePoolsFromSnapshot(
@@ -296,12 +333,14 @@ func restorePoolsFromSnapshot(
 		createdAt, _ := time.Parse("2006-01-02T15:04:05Z", ps.CreatedAt)
 
 		pool := &UserPool{
-			ID:               ps.ID,
-			Name:             ps.Name,
-			ARN:              ps.ARN,
-			CreatedAt:        createdAt,
-			CustomAttributes: ps.CustomAttributes,
-			MfaConfiguration: ps.MfaConfiguration,
+			ID:                     ps.ID,
+			Name:                   ps.Name,
+			ARN:                    ps.ARN,
+			CreatedAt:              createdAt,
+			CustomAttributes:       ps.CustomAttributes,
+			MfaConfiguration:       ps.MfaConfiguration,
+			PasswordPolicy:         ps.PasswordPolicy,
+			AutoVerifiedAttributes: ps.AutoVerifiedAttributes,
 		}
 
 		if rsaKey != nil {
@@ -322,22 +361,24 @@ func restoreUsersFromSnapshot(poolUsers map[string]map[string]*userSnapshot) map
 		for username, us := range usersByName {
 			createdAt, _ := time.Parse("2006-01-02T15:04:05Z", us.CreatedAt)
 			updatedAt, _ := time.Parse("2006-01-02T15:04:05Z", us.UpdatedAt)
+			codeExpiry, _ := time.Parse("2006-01-02T15:04:05Z", us.ConfirmCodeExpiresAt)
 
 			if updatedAt.IsZero() {
 				updatedAt = createdAt
 			}
 
 			restored[username] = &User{
-				CreatedAt:    createdAt,
-				UpdatedAt:    updatedAt,
-				Attributes:   us.Attributes,
-				Sub:          us.Sub,
-				Username:     us.Username,
-				UserPoolID:   us.UserPoolID,
-				PasswordHash: us.PasswordHash,
-				Status:       us.Status,
-				ConfirmCode:  us.ConfirmCode,
-				Enabled:      us.Enabled,
+				CreatedAt:            createdAt,
+				UpdatedAt:            updatedAt,
+				ConfirmCodeExpiresAt: codeExpiry,
+				Attributes:           us.Attributes,
+				Sub:                  us.Sub,
+				Username:             us.Username,
+				UserPoolID:           us.UserPoolID,
+				PasswordHash:         us.PasswordHash,
+				Status:               us.Status,
+				ConfirmCode:          us.ConfirmCode,
+				Enabled:              us.Enabled,
 			}
 		}
 

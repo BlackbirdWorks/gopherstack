@@ -343,13 +343,13 @@ type CreateTargetGroupInput struct {
 
 // ModifyTargetGroupInput holds the parameters for modifying a target group.
 // HealthCheckEnabled is a pointer so that an absent parameter does not overwrite the stored value.
-type ModifyTargetGroupInput struct { //nolint:govet // *bool after strings is more readable
+type ModifyTargetGroupInput struct {
+	HealthCheckEnabled         *bool
+	Matcher                    Matcher
 	TargetGroupArn             string
 	HealthCheckProtocol        string
 	HealthCheckPort            string
 	HealthCheckPath            string
-	Matcher                    Matcher
-	HealthCheckEnabled         *bool
 	HealthCheckIntervalSeconds int32
 	HealthCheckTimeoutSeconds  int32
 	HealthyThresholdCount      int32

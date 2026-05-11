@@ -128,38 +128,25 @@ type QueuePermissionEntry struct {
 // Field ordering trades a few bytes of padding for grouping related state
 // together (purge cooldown vs dedup vs FIFO send-rate).
 //
-//nolint:govet // fieldalignment: prefer logical grouping over byte packing
+
 type Queue struct {
-	// lastPurgedAt records when PurgeQueue was last called on this queue.
-	// AWS enforces a 60-second cooldown between purge operations.
 	lastPurgedAt        time.Time
+	notify              chan struct{}
 	deduplicationMsgIDs map[string]string
-	DeduplicationIDs    map[string]time.Time
 	Attributes          map[string]string
-	// Permissions maps a permission label to its entry (account IDs + actions).
-	Permissions map[string]*QueuePermissionEntry
-	// fifoSendTimes tracks a sliding 1-second window of SendMessage timestamps
-	// per message group, used to enforce FifoThroughputLimit=perMessageGroupId
-	// (300 TPS per group, real AWS default). nil when throughput limit is
-	// per-queue. Pruned on the fly inside checkFIFORateLimit.
-	fifoSendTimes map[string][]time.Time
-	Tags          *tags.Tags
-	dlq           *Queue        // resolved DLQ queue pointer; nil = no DLQ
-	notify        chan struct{} // closed on SendMessage for broadcast wake-up; replaced each time
-	messages      []*Message
-	// inFlightMessages holds delivered-but-not-yet-deleted messages, keyed by
-	// receipt handle. Drained back into messages when visibility expires.
-	inFlightMessages []*InFlightMessage
-	Name             string
-	URL              string
-	// Region records the AWS region the queue was created in. Lookups from a
-	// different region return ErrQueueNotFound, matching real SQS behaviour.
-	Region string
-	// fifoSeqCounter is an atomically-incremented sequence counter used to
-	// generate FIFO SequenceNumber values. Monotonically increasing per queue.
-	fifoSeqCounter  uint64
-	MaxReceiveCount int // 0 = no DLQ
-	IsFIFO          bool
+	Permissions         map[string]*QueuePermissionEntry
+	fifoSendTimes       map[string][]time.Time
+	Tags                *tags.Tags
+	DeduplicationIDs    map[string]time.Time
+	dlq                 *Queue
+	Name                string
+	URL                 string
+	Region              string
+	messages            []*Message
+	inFlightMessages    []*InFlightMessage
+	fifoSeqCounter      uint64
+	MaxReceiveCount     int
+	IsFIFO              bool
 }
 
 // fifoPerGroupTPS is the AWS-documented per-message-group send rate when
