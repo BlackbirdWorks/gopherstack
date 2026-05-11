@@ -183,8 +183,9 @@ func TestTerraform_S3_Logging(t *testing.T) {
 				Key:    aws.String("trigger.txt"),
 			})
 
-			// Dispatch is asynchronous; poll the target bucket up to ~2s.
-			deadline := time.Now().Add(2 * time.Second)
+			// Dispatch is asynchronous; poll the target bucket up to ~10s
+			// (CI can be slow; we just need any single record to land).
+			deadline := time.Now().Add(10 * time.Second)
 			var found []s3types.Object
 			for time.Now().Before(deadline) {
 				lo, listErr := s3c.ListObjectsV2(ctx, &s3svc.ListObjectsV2Input{
