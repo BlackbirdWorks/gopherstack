@@ -45,6 +45,7 @@ func main() {
 	os.Exit(run())
 }
 
+//nolint:gosec // awsgs intentionally shells out to aws CLI with caller-provided args.
 func run() int {
 	args := os.Args[1:]
 

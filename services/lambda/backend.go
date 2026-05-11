@@ -755,7 +755,7 @@ func writeFunctionURLResponse(w http.ResponseWriter, result []byte) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(result)
+	_, _ = w.Write(result) //nolint:gosec // function output is raw Lambda payload passthrough
 }
 
 // writeFunctionURLBody writes the body portion of a Lambda URL response.

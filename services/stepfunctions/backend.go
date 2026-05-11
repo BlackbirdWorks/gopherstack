@@ -628,6 +628,7 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	// The context is derived from b.svcCtx so that all active executions are
 	// also cancelled when the server shuts down.
 
+	//nolint:gosec // cancel is stored in b.cancelFns for StopExecution/DeleteStateMachine
 	ctx, cancel := context.WithCancel(b.svcCtx)
 	b.cancelFns[execArn] = cancel
 	b.smExecutions[stateMachineArn] = append(b.smExecutions[stateMachineArn], execArn)
@@ -1463,6 +1464,7 @@ func (b *InMemoryBackend) RedriveExecution(executionARN string) (*Execution, err
 	snsIntegration := b.snsIntegration
 	ddbIntegration := b.ddbIntegration
 
+	//nolint:gosec // cancel is stored in b.cancelFns for StopExecution/DeleteStateMachine
 	ctx, cancel := context.WithCancel(b.svcCtx)
 	b.cancelFns[executionARN] = cancel
 

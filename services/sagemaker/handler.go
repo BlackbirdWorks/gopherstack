@@ -66,7 +66,7 @@ func (h *Handler) Reset() {
 
 // GetSupportedOperations returns the list of supported SageMaker operations.
 func (h *Handler) GetSupportedOperations() []string {
-	core := []string{
+	core := []string{ //nolint:prealloc // literal initialization, not append loop
 		"AddAssociation",
 		"AddTags",
 		"AssociateTrialComponent",

@@ -636,7 +636,7 @@ func (h *Handler) handleAWSProxy(
 	var lambdaResp LambdaProxyResponse
 	if parseErr := json.Unmarshal(respBytes, &lambdaResp); parseErr != nil {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(respBytes)
+		_, _ = w.Write(respBytes) //nolint:gosec // local emulation: response passthrough is intentional
 
 		return
 	}
@@ -721,7 +721,7 @@ func (h *Handler) handleAWSIntegration(
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
-	_, _ = w.Write(responseBody)
+	_, _ = w.Write(responseBody) //nolint:gosec // local emulation: response passthrough is intentional
 }
 
 // applyResponseTemplate selects the best-matching integration response by status code pattern
@@ -808,6 +808,7 @@ func (h *Handler) handleHTTPProxy(
 	r *http.Request,
 	integration *Integration,
 ) {
+	//nolint:gosec // local emulation: integration URI is test-configured
 	targetReq, err := http.NewRequestWithContext(
 		ctx,
 		r.Method,
@@ -839,6 +840,7 @@ func (h *Handler) handleHTTPProxy(
 
 	client := h.getHTTPClient()
 
+	//nolint:gosec // local emulation: integration URI is test-configured
 	resp, doErr := client.Do(targetReq)
 	if doErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway HTTP proxy: upstream request failed",
@@ -869,7 +871,7 @@ func (h *Handler) handleMockIntegration(w http.ResponseWriter, integration *Inte
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
-	_, _ = w.Write([]byte(body))
+	_, _ = w.Write([]byte(body)) //nolint:gosec // local emulation: mock integration body is test-configured
 }
 
 // mockResponse resolves the status code and body for a MOCK integration.

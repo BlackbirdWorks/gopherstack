@@ -1023,7 +1023,7 @@ func (h *S3Handler) getObjectACL(
 		// here since the destination is an XML response on a trusted endpoint.
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(stored))
+		_, _ = w.Write([]byte(stored)) //nolint:gosec // pre-stored XML body is trusted
 
 		return
 	}

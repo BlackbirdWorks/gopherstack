@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -325,8 +326,7 @@ func selectPITRItems(sourceTable *Table, req models.RestoreTableToPointInTimeInp
 
 	// Newest snapshot at-or-before t. Snapshots are appended in time order so
 	// scanning backwards is O(k) where k is the index from the end.
-	for i := len(sourceTable.pitrSnapshots) - 1; i >= 0; i-- {
-		snap := sourceTable.pitrSnapshots[i]
+	for _, snap := range slices.Backward(sourceTable.pitrSnapshots) {
 		if !snap.Taken.After(t) {
 			return deepCopyItems(snap.Items)
 		}

@@ -402,7 +402,7 @@ func (h *S3Handler) enforceBucketRegion(
 		return true
 	}
 
-	w.Header().Set("x-amz-bucket-region", bucketRegion)
+	w.Header().Set("X-Amz-Bucket-Region", bucketRegion)
 	httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 		Code:    "PermanentRedirect",
 		Message: "The bucket is in this region: " + bucketRegion + ". Please use this region to retry the request.",

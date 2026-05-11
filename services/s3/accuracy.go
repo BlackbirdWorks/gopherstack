@@ -310,7 +310,7 @@ func makeCRC64NVMETable() [256]uint64 {
 
 	var table [tableLen]uint64
 	for i := range tableLen {
-		crc := uint64(i) //nolint:gosec // i is 0..255, no overflow possible
+		crc := uint64(i)
 		for range bitsPerByte {
 			if crc&1 != 0 {
 				crc = (crc >> 1) ^ crc64NVMEPoly
@@ -318,7 +318,7 @@ func makeCRC64NVMETable() [256]uint64 {
 				crc >>= 1
 			}
 		}
-		table[i] = crc //nolint:gosec // i is 0..tableLen-1, in-range by construction
+		table[i] = crc
 	}
 
 	return table
@@ -337,7 +337,7 @@ func NewCRC64NVME() hash.Hash {
 // Write implements io.Writer.
 func (h *CRC64NVMEHash) Write(p []byte) (int, error) {
 	for _, b := range p {
-		lsb := byte(h.crc)
+		lsb := byte(h.crc) //nolint:gosec // lower-byte truncation is intentional for CRC table index
 		h.crc = crc64NVMETable[lsb^b] ^ (h.crc >> crc64ShiftBits)
 	}
 

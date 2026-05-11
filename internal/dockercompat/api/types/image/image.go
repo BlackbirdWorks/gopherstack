@@ -1,4 +1,4 @@
-package image //nolint:revive // mirrors upstream docker package layout
+package image
 
 import (
 	compatfilters "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/filters"

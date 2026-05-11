@@ -2025,7 +2025,7 @@ func (b *InMemoryBackend) EnterStandby(
 	}
 
 	if decrementCapacity && count > 0 {
-		delta := int32(count) //nolint:gosec // count is bounded by the input slice length
+		delta := int32(count)
 		if g.DesiredCapacity >= delta {
 			g.DesiredCapacity -= delta
 		} else {
