@@ -107,7 +107,7 @@ func generateMockScanFindings(
 
 	for i, cve := range cves {
 		// Include the finding when the bit at position i is set in the seed.
-		if (seed>>uint(i))&1 == 0 {
+		if (seed>>uint(i))&1 == 0 { //nolint:gosec // i is a loop index bounded by len(cves)
 			continue
 		}
 

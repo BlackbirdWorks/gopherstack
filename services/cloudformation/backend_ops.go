@@ -429,7 +429,7 @@ func (b *InMemoryBackend) DescribeChangeSetHooks(_, _ string) ([]string, error) 
 func (b *InMemoryBackend) DescribeEvents(_ string) ([]StackEvent, error) {
 	b.mu.RLock("DescribeEvents")
 	defer b.mu.RUnlock()
-	var all []StackEvent
+	all := make([]StackEvent, 0, len(b.events))
 	for _, evts := range b.events {
 		all = append(all, evts...)
 	}

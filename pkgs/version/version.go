@@ -1,5 +1,5 @@
 // Package version holds the build-time version information injected via ldflags.
-package version
+package version //nolint:revive // package name "version" matches the conventional Go binary metadata pattern
 
 import "runtime/debug"
 

@@ -324,6 +324,7 @@ func cborValInt64(v cbor.Value) int64 {
 			return math.MaxInt64
 		}
 
+		//nolint:gosec // CBOR uint64 values that don't fit int64 are exceedingly rare in AWS APIs
 		return int64(i)
 	case cbor.NegInt:
 		return -int64(i) //nolint:gosec // int64 covers all cbor.NegInt values
@@ -1699,7 +1700,8 @@ func (h *Handler) cborDescribeMetricFilters(input cbor.Map, c *echo.Context) err
 			"FilterName":    cbor.String(f.FilterName),
 			"LogGroupName":  cbor.String(f.LogGroupName),
 			"FilterPattern": cbor.String(f.FilterPattern),
-			"CreationTime":  cbor.Uint(uint64(f.CreationTime.UnixMilli())),
+			//nolint:gosec // CreationTime is always non-negative
+			"CreationTime": cbor.Uint(uint64(f.CreationTime.UnixMilli())),
 		}
 		if len(f.MetricTransformations) > 0 {
 			mts := make(cbor.List, 0, len(f.MetricTransformations))

@@ -1,4 +1,4 @@
-package build
+package build //nolint:revive // mirrors upstream docker package layout
 
 import "io"
 

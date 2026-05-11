@@ -16,8 +16,6 @@ resource "aws_dynamodb_table" "this" {
     enabled = true
   }
 
-  deletion_protection_enabled = true
-
   tags = {
     Environment = "test"
     Feature     = "pitr-sse"

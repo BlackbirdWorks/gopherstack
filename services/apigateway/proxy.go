@@ -593,8 +593,6 @@ func isAuthorizerAllowed(authResp *AuthorizerResponse) bool {
 }
 
 // handleAWSProxy handles an AWS_PROXY Lambda integration — the full event is forwarded as-is.
-//
-//nolint:gosec // integration payload/response passthrough is intentional in local emulation.
 func (h *Handler) handleAWSProxy(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -669,8 +667,6 @@ func (h *Handler) handleAWSProxy(
 }
 
 // handleAWSIntegration handles an AWS (non-proxy) Lambda integration using VTL templates.
-//
-//nolint:gosec // integration payload/response passthrough is intentional in local emulation.
 func (h *Handler) handleAWSIntegration(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -806,8 +802,6 @@ func matchIntegrationResponse(
 // handleHTTPProxy forwards the request to the target URI specified in the integration.
 // Both HTTP and HTTP_PROXY integration types are handled identically: the request
 // is forwarded as-is and the upstream response is returned directly to the caller.
-//
-//nolint:gosec // integration URI is test-configured by the local API Gateway backend.
 func (h *Handler) handleHTTPProxy(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -869,8 +863,6 @@ func (h *Handler) handleHTTPProxy(
 // handleMockIntegration returns a static response configured on the integration.
 // It evaluates the first integrationResponse entry keyed by its status code.
 // If no integrationResponses are configured, it defaults to HTTP 200 with an empty body.
-//
-//nolint:gosec // mock integration body is controlled by local test configuration.
 func (h *Handler) handleMockIntegration(w http.ResponseWriter, integration *Integration) {
 	statusCode, body := mockResponse(integration)
 

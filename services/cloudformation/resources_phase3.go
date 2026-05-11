@@ -268,7 +268,7 @@ func (rc *ResourceCreator) createBatchJobQueue(
 			if m, ok2 := item.(map[string]any); ok2 {
 				order := int32(math.MaxInt32)
 				if i <= math.MaxInt32 {
-					order = int32(i)
+					order = int32(i) //nolint:gosec // guarded by math.MaxInt32 check above
 				}
 
 				ceOrder = append(ceOrder, batchbackend.ComputeEnvironmentOrder{
