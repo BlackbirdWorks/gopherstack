@@ -231,21 +231,28 @@ type createUserPoolWithOptsOutput struct {
 
 // userPoolDataAccurate extends userPoolData with PasswordPolicy details.
 type userPoolDataAccurate struct {
-	Policies               *userPoolPoliciesAccurate `json:"Policies,omitempty"`
-	ID                     string                    `json:"Id"`
-	Name                   string                    `json:"Name"`
-	ARN                    string                    `json:"Arn"`
-	DeletionProtection     string                    `json:"DeletionProtection"`
-	MfaConfiguration       string                    `json:"MfaConfiguration"`
-	SchemaAttributes       []SchemaAttribute         `json:"SchemaAttributes,omitempty"`
-	AutoVerifiedAttributes []string                  `json:"AutoVerifiedAttributes,omitempty"`
-	CreationDate           float64                   `json:"CreationDate"`
-	LastModifiedDate       float64                   `json:"LastModifiedDate"`
+	// Policies is always present (non-pointer, no omitempty) because the
+	// Terraform AWS provider unconditionally accesses Policies.PasswordPolicy
+	// and Policies.SignInPolicy, and will nil-panic if the key is absent.
+	Policies               userPoolPoliciesAccurate `json:"Policies"`
+	ID                     string                   `json:"Id"`
+	Name                   string                   `json:"Name"`
+	ARN                    string                   `json:"Arn"`
+	DeletionProtection     string                   `json:"DeletionProtection"`
+	MfaConfiguration       string                   `json:"MfaConfiguration"`
+	SchemaAttributes       []SchemaAttribute        `json:"SchemaAttributes,omitempty"`
+	AutoVerifiedAttributes []string                 `json:"AutoVerifiedAttributes,omitempty"`
+	CreationDate           float64                  `json:"CreationDate"`
+	LastModifiedDate       float64                  `json:"LastModifiedDate"`
 }
 
 type userPoolPoliciesAccurate struct {
-	PasswordPolicy *passwordPolicyData `json:"PasswordPolicy,omitempty"`
+	PasswordPolicy *passwordPolicyData `json:"PasswordPolicy"`
+	SignInPolicy   *signInPolicyData   `json:"SignInPolicy"`
 }
+
+// signInPolicyData mirrors SignInPolicyType; empty placeholder keeps provider happy.
+type signInPolicyData struct{}
 
 type passwordPolicyData struct {
 	MinimumLength                 int  `json:"MinimumLength"`
@@ -270,15 +277,13 @@ func poolToAccurateData(pool *UserPool) userPoolDataAccurate {
 	}
 
 	if pool.PasswordPolicy != nil {
-		data.Policies = &userPoolPoliciesAccurate{
-			PasswordPolicy: &passwordPolicyData{
-				MinimumLength:                 pool.PasswordPolicy.MinimumLength,
-				RequireUppercase:              pool.PasswordPolicy.RequireUppercase,
-				RequireLowercase:              pool.PasswordPolicy.RequireLowercase,
-				RequireNumbers:                pool.PasswordPolicy.RequireNumbers,
-				RequireSymbols:                pool.PasswordPolicy.RequireSymbols,
-				TemporaryPasswordValidityDays: pool.PasswordPolicy.TemporaryPasswordValidityDays,
-			},
+		data.Policies.PasswordPolicy = &passwordPolicyData{
+			MinimumLength:                 pool.PasswordPolicy.MinimumLength,
+			RequireUppercase:              pool.PasswordPolicy.RequireUppercase,
+			RequireLowercase:              pool.PasswordPolicy.RequireLowercase,
+			RequireNumbers:                pool.PasswordPolicy.RequireNumbers,
+			RequireSymbols:                pool.PasswordPolicy.RequireSymbols,
+			TemporaryPasswordValidityDays: pool.PasswordPolicy.TemporaryPasswordValidityDays,
 		}
 	}
 
