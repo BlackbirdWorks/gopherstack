@@ -16,12 +16,13 @@ func TestToSDKCreateTableInput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name               string
-		input              *models.CreateTableInput
-		wantTableName      string
-		wantKeySchemaLen   int
-		wantAttrDefsLen    int
-		wantProvThroughput bool
+		input                         *models.CreateTableInput
+		name                          string
+		wantTableName                 string
+		wantKeySchemaLen              int
+		wantAttrDefsLen               int
+		wantDeletionProtectionEnabled bool
+		wantProvThroughput            bool
 	}{
 		{
 			name: "valid_create_table_input",
@@ -39,11 +40,13 @@ func TestToSDKCreateTableInput(t *testing.T) {
 					"ReadCapacityUnits":  int64(5),
 					"WriteCapacityUnits": int64(5),
 				},
+				DeletionProtectionEnabled: aws.Bool(true),
 			},
-			wantTableName:      "TestTable",
-			wantKeySchemaLen:   2,
-			wantAttrDefsLen:    2,
-			wantProvThroughput: true,
+			wantDeletionProtectionEnabled: true,
+			wantTableName:                 "TestTable",
+			wantKeySchemaLen:              2,
+			wantAttrDefsLen:               2,
+			wantProvThroughput:            true,
 		},
 	}
 
@@ -56,6 +59,8 @@ func TestToSDKCreateTableInput(t *testing.T) {
 			assert.Equal(t, tt.wantTableName, aws.ToString(output.TableName))
 			assert.Len(t, output.KeySchema, tt.wantKeySchemaLen)
 			assert.Len(t, output.AttributeDefinitions, tt.wantAttrDefsLen)
+			require.NotNil(t, output.DeletionProtectionEnabled)
+			assert.Equal(t, tt.wantDeletionProtectionEnabled, aws.ToBool(output.DeletionProtectionEnabled))
 			if tt.wantProvThroughput {
 				assert.NotNil(t, output.ProvisionedThroughput)
 			}
@@ -199,32 +204,35 @@ func TestFromSDKDescribeTableOutput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		input           *dynamodb_sdk.DescribeTableOutput
-		wantSSEStatus   string
-		wantSSEType     string
-		wantTableName   string
-		wantTableStatus string
-		wantItemCount   int
+		input                         *dynamodb_sdk.DescribeTableOutput
+		name                          string
+		wantTableName                 string
+		wantTableStatus               string
+		wantSSEStatus                 string
+		wantSSEType                   string
+		wantItemCount                 int
+		wantDeletionProtectionEnabled bool
 	}{
 		{
 			name: "active_table",
 			input: &dynamodb_sdk.DescribeTableOutput{
 				Table: &types.TableDescription{
-					TableName:   aws.String("TestTable"),
-					TableStatus: types.TableStatusActive,
-					ItemCount:   aws.Int64(100),
+					TableName:                 aws.String("TestTable"),
+					TableStatus:               types.TableStatusActive,
+					ItemCount:                 aws.Int64(100),
+					DeletionProtectionEnabled: aws.Bool(true),
 					SSEDescription: &types.SSEDescription{
 						Status:  types.SSEStatusEnabled,
 						SSEType: types.SSETypeKms,
 					},
 				},
 			},
-			wantTableName:   "TestTable",
-			wantTableStatus: "ACTIVE",
-			wantItemCount:   100,
-			wantSSEStatus:   "ENABLED",
-			wantSSEType:     "KMS",
+			wantDeletionProtectionEnabled: true,
+			wantTableName:                 "TestTable",
+			wantTableStatus:               "ACTIVE",
+			wantItemCount:                 100,
+			wantSSEStatus:                 "ENABLED",
+			wantSSEType:                   "KMS",
 		},
 	}
 
@@ -238,6 +246,7 @@ func TestFromSDKDescribeTableOutput(t *testing.T) {
 			assert.Equal(t, tt.wantTableName, result.Table.TableName)
 			assert.Equal(t, tt.wantTableStatus, result.Table.TableStatus)
 			assert.Equal(t, tt.wantItemCount, result.Table.ItemCount)
+			assert.Equal(t, tt.wantDeletionProtectionEnabled, result.Table.DeletionProtectionEnabled)
 			require.NotNil(t, result.Table.SSEDescription)
 			assert.Equal(t, tt.wantSSEStatus, result.Table.SSEDescription.Status)
 			assert.Equal(t, tt.wantSSEType, result.Table.SSEDescription.SSEType)

@@ -41,15 +41,16 @@ func ToSDKCreateTableInput(input *CreateTableInput) *dynamodb.CreateTableInput {
 	}
 
 	return &dynamodb.CreateTableInput{
-		TableName:              &input.TableName,
-		KeySchema:              ToSDKKeySchema(input.KeySchema),
-		AttributeDefinitions:   ToSDKAttributeDefinitions(input.AttributeDefinitions),
-		GlobalSecondaryIndexes: ToSDKGlobalSecondaryIndexes(input.GlobalSecondaryIndexes),
-		LocalSecondaryIndexes:  ToSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
-		ProvisionedThroughput:  pt,
-		StreamSpecification:    ss,
-		BillingMode:            types.BillingMode(input.BillingMode),
-		TableClass:             types.TableClass(input.TableClass),
+		TableName:                 &input.TableName,
+		KeySchema:                 ToSDKKeySchema(input.KeySchema),
+		AttributeDefinitions:      ToSDKAttributeDefinitions(input.AttributeDefinitions),
+		GlobalSecondaryIndexes:    ToSDKGlobalSecondaryIndexes(input.GlobalSecondaryIndexes),
+		LocalSecondaryIndexes:     ToSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
+		ProvisionedThroughput:     pt,
+		StreamSpecification:       ss,
+		DeletionProtectionEnabled: input.DeletionProtectionEnabled,
+		BillingMode:               types.BillingMode(input.BillingMode),
+		TableClass:                types.TableClass(input.TableClass),
 	}
 }
 
@@ -284,20 +285,21 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 	}
 
 	out := TableDescription{
-		TableName:              ptrconv.String(td.TableName),
-		TableStatus:            string(td.TableStatus),
-		TableArn:               ptrconv.String(td.TableArn),
-		TableID:                ptrconv.String(td.TableId),
-		ItemCount:              cnt,
-		KeySchema:              FromSDKKeySchema(td.KeySchema),
-		AttributeDefinitions:   FromSDKAttributeDefinitions(td.AttributeDefinitions),
-		GlobalSecondaryIndexes: FromSDKGlobalSecondaryIndexDescriptions(td.GlobalSecondaryIndexes),
-		LocalSecondaryIndexes:  FromSDKLocalSecondaryIndexDescriptions(td.LocalSecondaryIndexes),
-		ProvisionedThroughput:  FromSDKProvisionedThroughputDescription(td.ProvisionedThroughput),
-		Replicas:               replicas,
-		LatestStreamArn:        ptrconv.String(td.LatestStreamArn),
-		LatestStreamLabel:      ptrconv.String(td.LatestStreamLabel),
-		GlobalTableVersion:     ptrconv.String(td.GlobalTableVersion),
+		TableName:                 ptrconv.String(td.TableName),
+		TableStatus:               string(td.TableStatus),
+		TableArn:                  ptrconv.String(td.TableArn),
+		TableID:                   ptrconv.String(td.TableId),
+		ItemCount:                 cnt,
+		KeySchema:                 FromSDKKeySchema(td.KeySchema),
+		AttributeDefinitions:      FromSDKAttributeDefinitions(td.AttributeDefinitions),
+		GlobalSecondaryIndexes:    FromSDKGlobalSecondaryIndexDescriptions(td.GlobalSecondaryIndexes),
+		LocalSecondaryIndexes:     FromSDKLocalSecondaryIndexDescriptions(td.LocalSecondaryIndexes),
+		ProvisionedThroughput:     FromSDKProvisionedThroughputDescription(td.ProvisionedThroughput),
+		Replicas:                  replicas,
+		LatestStreamArn:           ptrconv.String(td.LatestStreamArn),
+		LatestStreamLabel:         ptrconv.String(td.LatestStreamLabel),
+		GlobalTableVersion:        ptrconv.String(td.GlobalTableVersion),
+		DeletionProtectionEnabled: aws.ToBool(td.DeletionProtectionEnabled),
 	}
 
 	if td.BillingModeSummary != nil {

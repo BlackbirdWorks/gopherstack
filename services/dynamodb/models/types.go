@@ -36,15 +36,16 @@ type AttributeDefinition struct {
 // --- Table Operations ---
 
 type CreateTableInput struct {
-	ProvisionedThroughput  any                    `json:"ProvisionedThroughput"`
-	StreamSpecification    any                    `json:"StreamSpecification,omitempty"`
-	TableName              string                 `json:"TableName"`
-	BillingMode            string                 `json:"BillingMode,omitempty"`
-	TableClass             string                 `json:"TableClass,omitempty"`
-	KeySchema              []KeySchemaElement     `json:"KeySchema"`
-	AttributeDefinitions   []AttributeDefinition  `json:"AttributeDefinitions"`
-	GlobalSecondaryIndexes []GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
-	LocalSecondaryIndexes  []LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
+	ProvisionedThroughput     any                    `json:"ProvisionedThroughput"`
+	StreamSpecification       any                    `json:"StreamSpecification,omitempty"`
+	DeletionProtectionEnabled *bool                  `json:"DeletionProtectionEnabled,omitempty"`
+	TableName                 string                 `json:"TableName"`
+	BillingMode               string                 `json:"BillingMode,omitempty"`
+	TableClass                string                 `json:"TableClass,omitempty"`
+	KeySchema                 []KeySchemaElement     `json:"KeySchema"`
+	AttributeDefinitions      []AttributeDefinition  `json:"AttributeDefinitions"`
+	GlobalSecondaryIndexes    []GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
+	LocalSecondaryIndexes     []LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
 }
 
 type CreateTableOutput struct {
@@ -68,23 +69,24 @@ type DescribeTableOutput struct {
 }
 
 type TableDescription struct {
-	ProvisionedThroughput  *ProvisionedThroughputDescription `json:"ProvisionedThroughput,omitempty"`
-	StreamSpecification    *StreamSpecificationInput         `json:"StreamSpecification,omitempty"`
-	BillingModeSummary     *BillingModeSummaryDescription    `json:"BillingModeSummary,omitempty"`
-	SSEDescription         *SSEDescription                   `json:"SSEDescription,omitempty"`
-	TableName              string                            `json:"TableName"`
-	TableStatus            string                            `json:"TableStatus"`
-	TableArn               string                            `json:"TableArn,omitempty"`
-	TableID                string                            `json:"TableId,omitempty"`
-	LatestStreamArn        string                            `json:"LatestStreamArn,omitempty"`
-	LatestStreamLabel      string                            `json:"LatestStreamLabel,omitempty"`
-	GlobalTableVersion     string                            `json:"GlobalTableVersion,omitempty"`
-	KeySchema              []KeySchemaElement                `json:"KeySchema"`
-	AttributeDefinitions   []AttributeDefinition             `json:"AttributeDefinitions"`
-	GlobalSecondaryIndexes []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
-	LocalSecondaryIndexes  []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
-	Replicas               []ReplicaDescription              `json:"Replicas,omitempty"`
-	ItemCount              int                               `json:"ItemCount"`
+	ProvisionedThroughput     *ProvisionedThroughputDescription `json:"ProvisionedThroughput,omitempty"`
+	StreamSpecification       *StreamSpecificationInput         `json:"StreamSpecification,omitempty"`
+	BillingModeSummary        *BillingModeSummaryDescription    `json:"BillingModeSummary,omitempty"`
+	SSEDescription            *SSEDescription                   `json:"SSEDescription,omitempty"`
+	TableName                 string                            `json:"TableName"`
+	TableStatus               string                            `json:"TableStatus"`
+	TableArn                  string                            `json:"TableArn,omitempty"`
+	TableID                   string                            `json:"TableId,omitempty"`
+	LatestStreamArn           string                            `json:"LatestStreamArn,omitempty"`
+	LatestStreamLabel         string                            `json:"LatestStreamLabel,omitempty"`
+	GlobalTableVersion        string                            `json:"GlobalTableVersion,omitempty"`
+	KeySchema                 []KeySchemaElement                `json:"KeySchema"`
+	AttributeDefinitions      []AttributeDefinition             `json:"AttributeDefinitions"`
+	GlobalSecondaryIndexes    []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
+	LocalSecondaryIndexes     []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
+	Replicas                  []ReplicaDescription              `json:"Replicas,omitempty"`
+	DeletionProtectionEnabled bool                              `json:"DeletionProtectionEnabled,omitempty"`
+	ItemCount                 int                               `json:"ItemCount"`
 }
 
 type SSEDescription struct {
