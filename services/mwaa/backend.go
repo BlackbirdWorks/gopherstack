@@ -247,10 +247,14 @@ func validateCreateSizing(req *createEnvironmentRequest) error {
 }
 
 // validateS3PathVersionPair enforces that an S3 object version is provided whenever
-// the corresponding S3 path is set, matching the AWS contract.
+// the corresponding S3 path is set, matching the AWS contract. The version field
+// name is derived by replacing the trailing "Path" with "ObjectVersion" (e.g.
+// "PluginsS3Path" → "PluginsS3ObjectVersion").
 func validateS3PathVersionPair(field, path, version string) error {
 	if path != "" && version == "" {
-		return fmt.Errorf("%w: %sObjectVersion is required when %s is set", ErrInvalidParameter, field, field)
+		versionField := strings.TrimSuffix(field, "Path") + "ObjectVersion"
+
+		return fmt.Errorf("%w: %s is required when %s is set", ErrInvalidParameter, versionField, field)
 	}
 
 	return nil
