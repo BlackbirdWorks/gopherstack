@@ -517,6 +517,7 @@ type registerTaskDefinitionInput struct {
 	CPU                  string                     `json:"cpu,omitempty"`
 	Memory               string                     `json:"memory,omitempty"`
 	PlatformFamily       string                     `json:"platformFamily,omitempty"`
+	Tags                 []Tag                      `json:"tags,omitempty"`
 	ContainerDefinitions []ContainerDefinition      `json:"containerDefinitions"`
 	PlacementConstraints []placementConstraintInput `json:"placementConstraints,omitempty"`
 }
@@ -537,6 +538,7 @@ func (h *Handler) handleRegisterTaskDefinition(
 		PlatformFamily:       in.PlatformFamily,
 		ContainerDefinitions: in.ContainerDefinitions,
 		PlacementConstraints: toPlacementConstraints(in.PlacementConstraints),
+		Tags:                 in.Tags,
 	})
 	if err != nil {
 		return nil, err
@@ -546,12 +548,18 @@ func (h *Handler) handleRegisterTaskDefinition(
 }
 
 type describeTaskDefinitionInput struct {
-	TaskDefinition string `json:"taskDefinition"`
+	TaskDefinition string   `json:"taskDefinition"`
+	Include        []string `json:"include,omitempty"`
 }
 
 type describeTaskDefinitionOutput struct {
+	Tags           []Tag              `json:"tags,omitempty"`
 	TaskDefinition taskDefinitionView `json:"taskDefinition"`
 }
+
+// describeTaskIncludeTags is the AWS-defined value for the `include` parameter
+// that requests resource tags be returned alongside the TaskDefinition.
+const describeTaskIncludeTags = "TAGS"
 
 func (h *Handler) handleDescribeTaskDefinition(
 	_ context.Context,
@@ -562,7 +570,24 @@ func (h *Handler) handleDescribeTaskDefinition(
 		return nil, err
 	}
 
-	return &describeTaskDefinitionOutput{TaskDefinition: toTaskDefinitionView(*td)}, nil
+	out := &describeTaskDefinitionOutput{TaskDefinition: toTaskDefinitionView(*td)}
+
+	for _, opt := range in.Include {
+		if !strings.EqualFold(opt, describeTaskIncludeTags) {
+			continue
+		}
+
+		tags, terr := h.Backend.ListTagsForResource(td.TaskDefinitionArn)
+		if terr != nil {
+			return nil, terr
+		}
+
+		out.Tags = tags
+
+		break
+	}
+
+	return out, nil
 }
 
 type deregisterTaskDefinitionInput struct {

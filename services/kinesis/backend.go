@@ -395,12 +395,35 @@ func (b *InMemoryBackend) DescribeStream(input *DescribeStreamInput) (*DescribeS
 }
 
 // ListStreams returns stream names with optional pagination.
+//
+// AWS contract: results are returned in alphabetical order. When `Limit` is
+// set the response contains at most that many names. Pagination is keyed on
+// either `ExclusiveStartStreamName` or the opaque `NextToken` (which we treat
+// as the previously returned last stream name) so that callers can iterate
+// over arbitrarily large account inventories.
 func (b *InMemoryBackend) ListStreams(input *ListStreamsInput) (*ListStreamsOutput, error) {
 	b.mu.RLock("ListStreams")
 	defer b.mu.RUnlock()
 
 	// AWS returns stream names in alphabetical order.
 	names := sortedKeys(b.streams)
+
+	// Apply pagination start point: prefer ExclusiveStartStreamName, then NextToken.
+	start := input.ExclusiveStartStreamName
+	if start == "" {
+		start = input.NextToken
+	}
+
+	if start != "" {
+		idx := sort.SearchStrings(names, start)
+		// Skip the matched name itself; SearchStrings returns the insertion point
+		// so equal entries land at idx — advance past it.
+		if idx < len(names) && names[idx] == start {
+			idx++
+		}
+
+		names = names[idx:]
+	}
 
 	limit := input.Limit
 	if limit <= 0 {
@@ -411,9 +434,18 @@ func (b *InMemoryBackend) ListStreams(input *ListStreamsInput) (*ListStreamsOutp
 		limit = len(names)
 	}
 
+	page := names[:limit]
+	hasMore := len(names) > limit
+
+	var nextToken string
+	if hasMore && len(page) > 0 {
+		nextToken = page[len(page)-1]
+	}
+
 	return &ListStreamsOutput{
-		StreamNames:    names[:limit],
-		HasMoreStreams: len(names) > limit,
+		StreamNames:    page,
+		HasMoreStreams: hasMore,
+		NextToken:      nextToken,
 	}, nil
 }
 

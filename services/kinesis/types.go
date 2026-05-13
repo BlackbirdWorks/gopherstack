@@ -207,8 +207,9 @@ type ShardDescription struct {
 
 // ListStreamsInput is the input for ListStreams.
 type ListStreamsInput struct {
-	NextToken string
-	Limit     int
+	NextToken                string
+	ExclusiveStartStreamName string
+	Limit                    int
 }
 
 // ListStreamsOutput is the output for ListStreams.
