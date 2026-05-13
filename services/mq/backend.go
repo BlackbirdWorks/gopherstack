@@ -79,7 +79,7 @@ type BrokerInstance struct {
 // User represents an Amazon MQ broker user.
 type User struct {
 	Username string   `json:"username"`
-	Password string   `json:"password,omitempty"`
+	Password string   `json:"-"`
 	Groups   []string `json:"groups,omitempty"`
 	Console  bool     `json:"consoleAccess"`
 }
