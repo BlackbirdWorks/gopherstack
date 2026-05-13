@@ -484,9 +484,11 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 			}
 
 			if input.TracingConfiguration != nil || input.LoggingConfiguration != nil {
-				_ = h.Backend.SetStateMachineConfigurations(
+				if cfgErr := h.Backend.SetStateMachineConfigurations(
 					sm.StateMachineArn, input.TracingConfiguration, input.LoggingConfiguration,
-				)
+				); cfgErr != nil {
+					return nil, cfgErr
+				}
 			}
 
 			return &createStateMachineOutput{
@@ -544,9 +546,11 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 			}
 
 			if input.TracingConfiguration != nil || input.LoggingConfiguration != nil {
-				_ = h.Backend.SetStateMachineConfigurations(
+				if cfgErr := h.Backend.SetStateMachineConfigurations(
 					input.StateMachineArn, input.TracingConfiguration, input.LoggingConfiguration,
-				)
+				); cfgErr != nil {
+					return nil, cfgErr
+				}
 			}
 
 			return &updateStateMachineOutput{UpdateDate: updateDate}, nil
