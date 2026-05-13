@@ -129,8 +129,11 @@ type InMemoryBackend struct {
 	smAliases map[string][]string
 	// executionDefinitions maps execution ARN → the SM definition that was active at start time.
 	executionDefinitions map[string]string
-	logger               *slog.Logger
-	mu                   *lockmetrics.RWMutex
+	// historyTruncated tracks executions where the history cap has been reached
+	// so we only emit a single warning per execution.
+	historyTruncated map[string]bool
+	logger           *slog.Logger
+	mu               *lockmetrics.RWMutex
 	// svcCtx is the service lifecycle context. Execution goroutines derive their
 	// contexts from it so that all active executions are cancelled on server shutdown.
 	svcCtx    context.Context
@@ -205,6 +208,7 @@ func newInMemoryBackend(svcCtx context.Context, accountID, region string) *InMem
 		aliases:              make(map[string]*StateMachineAlias),
 		smAliases:            make(map[string][]string),
 		executionDefinitions: make(map[string]string),
+		historyTruncated:     make(map[string]bool),
 		logger:               slog.Default(),
 		mu:                   lockmetrics.New("stepfunctions"),
 		settings:             DefaultSettings(),
@@ -391,6 +395,7 @@ func (b *InMemoryBackend) PruneExecutions(_ context.Context) int {
 		delete(b.executions, arn)
 		delete(b.history, arn)
 		delete(b.executionDefinitions, arn)
+		delete(b.historyTruncated, arn)
 
 		// Remove from smExecutions index.
 		for smARN, execs := range b.smExecutions {
@@ -434,6 +439,7 @@ func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
 		delete(b.executions, execARN)
 		delete(b.history, execARN)
 		delete(b.executionDefinitions, execARN)
+		delete(b.historyTruncated, execARN)
 	}
 
 	delete(b.smExecutions, arn)
@@ -822,8 +828,8 @@ func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType strin
 		return
 	}
 
-	events := r.backend.history[execARN]
-	if len(events) >= maxHistoryEvents {
+	events, ok := r.backend.checkHistoryCapacity(execARN)
+	if !ok {
 		return
 	}
 
@@ -847,8 +853,8 @@ func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string
 		return
 	}
 
-	events := r.backend.history[execARN]
-	if len(events) >= maxHistoryEvents {
+	events, ok := r.backend.checkHistoryCapacity(execARN)
+	if !ok {
 		return
 	}
 
@@ -872,8 +878,8 @@ func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, _ /* r
 		return
 	}
 
-	events := r.backend.history[execARN]
-	if len(events) >= maxHistoryEvents {
+	events, ok := r.backend.checkHistoryCapacity(execARN)
+	if !ok {
 		return
 	}
 
@@ -894,8 +900,8 @@ func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string,
 		return
 	}
 
-	events := r.backend.history[execARN]
-	if len(events) >= maxHistoryEvents {
+	events, ok := r.backend.checkHistoryCapacity(execARN)
+	if !ok {
 		return
 	}
 
@@ -916,8 +922,8 @@ func (r *historyRecorder) RecordTaskFailed(execARN, _ /* stateName */, _ /* errC
 		return
 	}
 
-	events := r.backend.history[execARN]
-	if len(events) >= maxHistoryEvents {
+	events, ok := r.backend.checkHistoryCapacity(execARN)
+	if !ok {
 		return
 	}
 
@@ -928,6 +934,27 @@ func (r *historyRecorder) RecordTaskFailed(execARN, _ /* stateName */, _ /* errC
 		ID:              nextID,
 		PreviousEventID: nextID - 1,
 	})
+}
+
+// checkHistoryCapacity returns the current event slice and whether there is
+// room to append. On the first refusal per execution it logs a warning so that
+// silent truncation is observable. Caller must hold b.mu write lock.
+func (b *InMemoryBackend) checkHistoryCapacity(execARN string) ([]*HistoryEvent, bool) {
+	events := b.history[execARN]
+	if len(events) < maxHistoryEvents {
+		return events, true
+	}
+
+	if !b.historyTruncated[execARN] {
+		b.historyTruncated[execARN] = true
+		b.logger.Warn(
+			"stepfunctions: execution history truncated at maxHistoryEvents",
+			"executionArn", execARN,
+			"maxHistoryEvents", maxHistoryEvents,
+		)
+	}
+
+	return events, false
 }
 
 // runParsedExecution runs the ASL interpreter for a pre-parsed state machine and updates the execution record.
@@ -1190,6 +1217,7 @@ func (b *InMemoryBackend) Reset() {
 	b.aliases = make(map[string]*StateMachineAlias)
 	b.smAliases = make(map[string][]string)
 	b.executionDefinitions = make(map[string]string)
+	b.historyTruncated = make(map[string]bool)
 
 	b.mu.Unlock()
 }
