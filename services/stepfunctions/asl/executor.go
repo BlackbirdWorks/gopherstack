@@ -609,8 +609,8 @@ func injectTaskToken(input any, taskToken string) any {
 }
 
 func mapCopyCapacity(size int) int {
-	if size >= math.MaxInt {
-		return size
+	if size > math.MaxInt-1 {
+		return 0
 	}
 
 	return size + 1

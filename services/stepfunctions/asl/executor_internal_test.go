@@ -28,7 +28,7 @@ func TestMapCopyCapacity(t *testing.T) {
 		{
 			name: "max_int_size",
 			size: math.MaxInt,
-			want: math.MaxInt,
+			want: 0,
 		},
 	}
 
