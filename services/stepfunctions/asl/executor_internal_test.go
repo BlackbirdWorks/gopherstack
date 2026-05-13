@@ -68,10 +68,17 @@ func TestComputeRetryDelay(t *testing.T) {
 			want:            0,
 		},
 		{
-			name:            "overflow_backoff_clamped_to_max",
+			name:            "infinite_backoff_clamped_to_zero",
 			intervalSeconds: 2,
 			backoffRate:     math.MaxFloat64,
 			attempts:        2,
+			want:            0,
+		},
+		{
+			name:            "finite_overflow_clamped_to_max_retry_delay",
+			intervalSeconds: 10,
+			backoffRate:     10,
+			attempts:        5,
 			want:            maxRetryDelay,
 		},
 	}
@@ -97,6 +104,21 @@ func TestJSONPathCacheBounded(t *testing.T) {
 
 	assert.EqualValues(t, 2, cache.size.Load())
 
-	_, found := cache.load("e.f")
-	assert.False(t, found)
+	// Cache uses "accept until full, then reject new keys" policy.
+	// First two keys remain cached; later keys are not inserted.
+	_, foundA := cache.load("a.b")
+	assert.True(t, foundA)
+
+	_, foundC := cache.load("c.d")
+	assert.True(t, foundC)
+
+	_, foundE := cache.load("e.f")
+	assert.False(t, foundE)
+}
+
+func TestJSONPathCacheNilFallback(t *testing.T) {
+	t.Parallel()
+
+	parts := getCachedJSONPathParts("x.y.z", nil)
+	assert.Equal(t, []string{"x", "y", "z"}, parts)
 }

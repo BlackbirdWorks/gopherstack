@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -131,6 +132,7 @@ type ExecutionResult struct {
 const maxConcurrentSubExecutors = 64
 const maxJSONPathCacheEntries = int64(4096)
 const maxRetryDelay = 24 * time.Hour
+const maxCacheStoreCASAttempts = 128
 
 type jsonPathCache struct {
 	entries    sync.Map
@@ -143,7 +145,10 @@ func newJSONPathCache(maxEntries int64) *jsonPathCache {
 		maxEntries = 1
 	}
 
-	return &jsonPathCache{maxEntries: maxEntries}
+	cache := &jsonPathCache{maxEntries: maxEntries}
+	cache.size.Store(0)
+
+	return cache
 }
 
 func (c *jsonPathCache) load(path string) ([]string, bool) {
@@ -169,16 +174,35 @@ func (c *jsonPathCache) store(path string, parts []string) {
 		return
 	}
 
+	if _, found := c.entries.Load(path); found {
+		return
+	}
+
+	reserved := false
+	for attempts := 0; attempts < maxCacheStoreCASAttempts; attempts++ {
+		currentSize := c.size.Load()
+		if currentSize >= c.maxEntries {
+			return
+		}
+
+		if c.size.CompareAndSwap(currentSize, currentSize+1) {
+			reserved = true
+
+			break
+		}
+
+		runtime.Gosched()
+	}
+	if !reserved {
+		return
+	}
+
 	if _, loaded := c.entries.LoadOrStore(path, parts); loaded {
+		// Another goroutine inserted the same key after reserve; release reservation.
+		c.size.Add(-1)
+
 		return
 	}
-
-	if c.size.Add(1) <= c.maxEntries {
-		return
-	}
-
-	c.entries.Delete(path)
-	c.size.Add(-1)
 }
 
 // Executor runs an ASL state machine.
@@ -192,8 +216,7 @@ type Executor struct {
 	activity ActivityInvoker
 	callback TaskTokenCallbackInvoker
 	s3       S3Reader
-	// execSem limits the total number of concurrently running sub-executors
-	// (spawned by Parallel/Map states) to prevent goroutine explosion.
+	// execSem limits the total number of concurrently running Parallel branches.
 	execSem chan struct{}
 	// jsonPathCache stores parsed JSONPath segments for reuse across executions.
 	jsonPathCache *jsonPathCache
@@ -757,7 +780,11 @@ func tryRetry(ctx context.Context, state *State, retryAttempts []int, taskErr er
 
 func computeRetryDelay(intervalSeconds int, backoffRate float64, attempts int) time.Duration {
 	delaySeconds := float64(intervalSeconds) * math.Pow(backoffRate, float64(attempts))
-	if math.IsNaN(delaySeconds) || math.IsInf(delaySeconds, 0) || delaySeconds > maxRetryDelay.Seconds() {
+	if math.IsNaN(delaySeconds) || math.IsInf(delaySeconds, 0) {
+		return 0
+	}
+
+	if delaySeconds > maxRetryDelay.Seconds() {
 		return maxRetryDelay
 	}
 
@@ -1547,6 +1574,10 @@ func jsonPathGet(path string, value any, pathCache *jsonPathCache) (any, error) 
 // getCachedJSONPathParts returns cached JSONPath segments or computes and stores
 // them when unavailable.
 func getCachedJSONPathParts(path string, pathCache *jsonPathCache) []string {
+	if pathCache == nil {
+		return strings.Split(path, ".")
+	}
+
 	if parts, found := pathCache.load(path); found {
 		return parts
 	}
