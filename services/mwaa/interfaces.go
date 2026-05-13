@@ -8,6 +8,7 @@ type StorageBackend interface {
 	DeleteEnvironment(name string) (*Environment, error)
 	UpdateEnvironment(name string, req *updateEnvironmentRequest) (*Environment, error)
 	ListEnvironments() ([]string, error)
+	ListEnvironmentsPage(nextToken string, pageSize int) ([]string, string, error)
 
 	// Tag operations
 	TagResource(resourceARN string, tags map[string]string) error
