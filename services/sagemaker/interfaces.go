@@ -79,7 +79,7 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*NotebookInstance, error)
 	DescribeNotebookInstance(name string) (*NotebookInstance, error)
-	ListNotebookInstances(nextToken string) ([]*NotebookInstance, string)
+	ListNotebookInstances(nextToken string, filter ListNotebookInstancesFilter) ([]*NotebookInstance, string)
 	DeleteNotebookInstance(name string) error
 	StartNotebookInstance(name string) error
 	StopNotebookInstance(name string) error

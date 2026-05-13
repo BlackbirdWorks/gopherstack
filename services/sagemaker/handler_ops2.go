@@ -479,14 +479,19 @@ type notebookSummary struct {
 
 func (h *Handler) handleListNotebookInstances(body []byte) ([]byte, error) {
 	var req struct {
-		NextToken string `json:"NextToken"`
+		NextToken    string `json:"NextToken"`
+		StatusEquals string `json:"StatusEquals"`
+		NameContains string `json:"NameContains"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	nbs, nextToken := h.Backend.ListNotebookInstances(req.NextToken)
+	nbs, nextToken := h.Backend.ListNotebookInstances(req.NextToken, ListNotebookInstancesFilter{
+		StatusEquals: req.StatusEquals,
+		NameContains: req.NameContains,
+	})
 	summaries := make([]notebookSummary, 0, len(nbs))
 
 	for _, nb := range nbs {

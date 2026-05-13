@@ -814,8 +814,8 @@ func parseInstanceTypesPagination(vals url.Values) (int, int, error) {
 		n, perr := strconv.Atoi(v)
 		if perr != nil || n < ec2DescribeInstanceTypesMinPageSize || n > ec2DescribeInstanceTypesMaxPageSize {
 			return 0, 0, fmt.Errorf(
-				"%w: MaxResults must be between %d and %d",
-				ErrInvalidParameter,
+				"%w: MaxResults=%q must be between %d and %d",
+				ErrInvalidParameter, v,
 				ec2DescribeInstanceTypesMinPageSize, ec2DescribeInstanceTypesMaxPageSize,
 			)
 		}
