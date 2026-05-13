@@ -347,6 +347,18 @@ func (b *InMemoryBackend) CreateNotebookInstance(
 	name, instanceType, roleArn string,
 	tags map[string]string,
 ) (*NotebookInstance, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: NotebookInstanceName is required", ErrValidation)
+	}
+
+	if instanceType == "" {
+		return nil, fmt.Errorf("%w: InstanceType is required", ErrValidation)
+	}
+
+	if roleArn == "" {
+		return nil, fmt.Errorf("%w: RoleArn is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateNotebookInstance")
 	defer b.mu.Unlock()
 

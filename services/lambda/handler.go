@@ -2155,9 +2155,10 @@ func parseLayerVersion(s string) (int64, error) {
 }
 
 func (h *Handler) handleListLayers(c *echo.Context, bk *InMemoryBackend) error {
-	layers := bk.ListLayers()
+	marker, maxItems := parsePaginationParams(c.Request())
+	p := bk.ListLayers(marker, maxItems)
 
-	return c.JSON(http.StatusOK, &ListLayersOutput{Layers: layers})
+	return c.JSON(http.StatusOK, &ListLayersOutput{Layers: p.Data, NextMarker: p.Next})
 }
 
 func (h *Handler) handleListLayerVersions(c *echo.Context, bk *InMemoryBackend, layerName string) error {

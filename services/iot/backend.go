@@ -884,10 +884,11 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 
 	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thingtype/%s", b.region, b.accountID, input.ThingTypeName)
 	tt := &ThingType{
-		ThingTypeName: input.ThingTypeName,
-		ThingTypeARN:  arn,
-		Description:   input.Description,
-		CreatedAt:     time.Now(),
+		ThingTypeName:        input.ThingTypeName,
+		ThingTypeARN:         arn,
+		Description:          input.Description,
+		SearchableAttributes: append([]string(nil), input.SearchableAttributes...),
+		CreatedAt:            time.Now(),
 	}
 
 	b.thingTypes[input.ThingTypeName] = tt

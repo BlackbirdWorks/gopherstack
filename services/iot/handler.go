@@ -1586,7 +1586,8 @@ func (h *Handler) handleCreateThingType(c *echo.Context) error {
 
 	var body struct {
 		ThingTypeProperties *struct {
-			ThingTypeDescription string `json:"thingTypeDescription"`
+			ThingTypeDescription string   `json:"thingTypeDescription"`
+			SearchableAttributes []string `json:"searchableAttributes"`
 		} `json:"thingTypeProperties"`
 	}
 
@@ -1595,13 +1596,18 @@ func (h *Handler) handleCreateThingType(c *echo.Context) error {
 	}
 
 	desc := ""
+
+	var searchable []string
+
 	if body.ThingTypeProperties != nil {
 		desc = body.ThingTypeProperties.ThingTypeDescription
+		searchable = body.ThingTypeProperties.SearchableAttributes
 	}
 
 	tt, err := h.Backend.CreateThingType(&CreateThingTypeInput{
-		ThingTypeName: thingTypeName,
-		Description:   desc,
+		ThingTypeName:        thingTypeName,
+		Description:          desc,
+		SearchableAttributes: searchable,
 	})
 	if err != nil {
 		return h.handleError(c, err)
@@ -1630,6 +1636,7 @@ func (h *Handler) handleDescribeThingType(c *echo.Context) error {
 		},
 		"thingTypeProperties": map[string]any{
 			"thingTypeDescription": tt.Description,
+			"searchableAttributes": tt.SearchableAttributes,
 		},
 	})
 }
