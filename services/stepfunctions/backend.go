@@ -92,6 +92,7 @@ type StorageBackend interface {
 	SendTaskSuccess(taskToken, output string) error
 	SendTaskFailure(taskToken, errCode, cause string) error
 	SendTaskHeartbeat(taskToken string) error
+	SetStateMachineConfigurations(arn string, tracing *TracingConfiguration, logging *LoggingConfiguration) error
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -297,6 +298,32 @@ func (b *InMemoryBackend) versionARN(smName string, version int) string {
 
 func (b *InMemoryBackend) aliasARN(smName, aliasName string) string {
 	return arn.Build("states", b.region, b.accountID, "stateMachine:"+smName+":"+aliasName)
+}
+
+// SetStateMachineConfigurations sets optional tracing and logging configuration
+// for a state machine. Either argument may be nil to leave that field unchanged.
+func (b *InMemoryBackend) SetStateMachineConfigurations(
+	arn string,
+	tracing *TracingConfiguration,
+	logging *LoggingConfiguration,
+) error {
+	b.mu.Lock("SetStateMachineConfigurations")
+	defer b.mu.Unlock()
+
+	sm, ok := b.stateMachines[arn]
+	if !ok || sm == nil {
+		return fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, arn)
+	}
+
+	if tracing != nil {
+		sm.TracingConfiguration = tracing
+	}
+
+	if logging != nil {
+		sm.LoggingConfiguration = logging
+	}
+
+	return nil
 }
 
 // CreateStateMachine creates and stores a new state machine.

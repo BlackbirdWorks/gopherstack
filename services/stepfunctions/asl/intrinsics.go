@@ -77,6 +77,10 @@ func evaluateIntrinsicFunction(expr string, input any) (any, error) {
 		return r, dispErr
 	}
 
+	if r, dispErr := evalExtraIntrinsic(fnName, args); !errors.Is(dispErr, errIntrinsicNotHandled) {
+		return r, dispErr
+	}
+
 	return nil, fmt.Errorf("%w: %q", ErrUnknownIntrinsicFunction, fnName)
 }
 
@@ -191,7 +195,7 @@ func evalIntrinsicArg(arg string, input any) (any, error) {
 	}
 
 	// JSONPath expression.
-	if strings.HasPrefix(arg, "$.") || arg == "$" || arg == "$$" {
+	if strings.HasPrefix(arg, "$.") || strings.HasPrefix(arg, "$$.") || arg == "$" || arg == "$$" {
 		return applyPath(arg, input)
 	}
 

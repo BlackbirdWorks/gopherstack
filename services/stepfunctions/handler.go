@@ -23,10 +23,12 @@ import (
 var errUnknownOperation = errors.New("UnknownOperationException")
 
 type createStateMachineInput struct {
-	Name       string `json:"name"`
-	Definition string `json:"definition"`
-	RoleArn    string `json:"roleArn"`
-	Type       string `json:"type"`
+	TracingConfiguration *TracingConfiguration `json:"tracingConfiguration,omitempty"`
+	LoggingConfiguration *LoggingConfiguration `json:"loggingConfiguration,omitempty"`
+	Name                 string                `json:"name"`
+	Definition           string                `json:"definition"`
+	RoleArn              string                `json:"roleArn"`
+	Type                 string                `json:"type"`
 }
 
 type deleteStateMachineInput struct {
@@ -34,9 +36,11 @@ type deleteStateMachineInput struct {
 }
 
 type updateStateMachineInput struct {
-	StateMachineArn string `json:"stateMachineArn"`
-	Definition      string `json:"definition"`
-	RoleArn         string `json:"roleArn"`
+	TracingConfiguration *TracingConfiguration `json:"tracingConfiguration,omitempty"`
+	LoggingConfiguration *LoggingConfiguration `json:"loggingConfiguration,omitempty"`
+	StateMachineArn      string                `json:"stateMachineArn"`
+	Definition           string                `json:"definition"`
+	RoleArn              string                `json:"roleArn"`
 }
 
 type listStateMachinesInput struct {
@@ -479,6 +483,12 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 				return nil, err
 			}
 
+			if input.TracingConfiguration != nil || input.LoggingConfiguration != nil {
+				_ = h.Backend.SetStateMachineConfigurations(
+					sm.StateMachineArn, input.TracingConfiguration, input.LoggingConfiguration,
+				)
+			}
+
 			return &createStateMachineOutput{
 				StateMachineArn: sm.StateMachineArn,
 				CreationDate:    sm.CreationDate,
@@ -531,6 +541,12 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 			updateDate, err := h.Backend.UpdateStateMachine(input.StateMachineArn, input.Definition, input.RoleArn)
 			if err != nil {
 				return nil, err
+			}
+
+			if input.TracingConfiguration != nil || input.LoggingConfiguration != nil {
+				_ = h.Backend.SetStateMachineConfigurations(
+					input.StateMachineArn, input.TracingConfiguration, input.LoggingConfiguration,
+				)
 			}
 
 			return &updateStateMachineOutput{UpdateDate: updateDate}, nil

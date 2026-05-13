@@ -4,6 +4,7 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1323,7 +1324,7 @@ func (e *Executor) resolveMapItems(ctx context.Context, state *State, input any)
 }
 
 // resolveItemsFromReader reads items from S3 using the ItemReader configuration.
-// Supports JSON arrays and newline-delimited JSON (JSON Lines).
+// Supports JSON arrays, newline-delimited JSON (JSON Lines), and CSV.
 func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReader) ([]any, error) {
 	if e.s3 == nil {
 		return nil, ErrS3ReaderNotConfigured
@@ -1337,16 +1338,51 @@ func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReade
 		return nil, fmt.Errorf("ItemReader S3 get error: %w", err)
 	}
 
-	// Try JSON array first.
+	items, err := decodeReaderItems(data, reader.ReaderConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	if reader.ReaderConfig != nil && reader.ReaderConfig.MaxItems > 0 && len(items) > reader.ReaderConfig.MaxItems {
+		items = items[:reader.ReaderConfig.MaxItems]
+	}
+
+	return items, nil
+}
+
+// decodeReaderItems parses S3 object bytes into Map items based on the
+// ReaderConfig's InputType. Defaults to JSON-array-then-JSON-lines auto-detection.
+func decodeReaderItems(data []byte, cfg *ReaderConfig) ([]any, error) {
+	inputType := ""
+	if cfg != nil {
+		inputType = strings.ToUpper(cfg.InputType)
+	}
+
+	switch inputType {
+	case "CSV":
+		return decodeCSVItems(data, cfg)
+	case "JSONL", "JSON_LINES":
+		return decodeJSONLines(data)
+	case "", "JSON":
+		return decodeJSONAuto(data)
+	default:
+		return nil, fmt.Errorf("%w: unsupported InputType %q", ErrItemReaderInvalidData, inputType)
+	}
+}
+
+func decodeJSONAuto(data []byte) ([]any, error) {
 	var arr []any
 	if jsonErr := json.Unmarshal(data, &arr); jsonErr == nil {
 		return arr, nil
 	}
 
-	// Try newline-delimited JSON (JSON Lines).
+	return decodeJSONLines(data)
+}
+
+func decodeJSONLines(data []byte) ([]any, error) {
 	lines := strings.SplitSeq(strings.TrimSpace(string(data)), "\n")
 
-	var items []any
+	items := []any{}
 
 	for line := range lines {
 		line = strings.TrimSpace(line)
@@ -1362,11 +1398,63 @@ func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReade
 		items = append(items, item)
 	}
 
-	if items == nil {
-		return []any{}, nil
+	return items, nil
+}
+
+func decodeCSVItems(data []byte, cfg *ReaderConfig) ([]any, error) {
+	reader := csv.NewReader(strings.NewReader(string(data)))
+	reader.FieldsPerRecord = -1
+
+	rows, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrItemReaderInvalidData, err)
+	}
+
+	headers, dataRows, err := resolveCSVHeaders(rows, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]any, 0, len(dataRows))
+	for _, row := range dataRows {
+		obj := make(map[string]any, len(headers))
+
+		for i, header := range headers {
+			if i < len(row) {
+				obj[header] = row[i]
+			} else {
+				obj[header] = ""
+			}
+		}
+
+		items = append(items, obj)
 	}
 
 	return items, nil
+}
+
+func resolveCSVHeaders(rows [][]string, cfg *ReaderConfig) ([]string, [][]string, error) {
+	loc := ""
+	if cfg != nil {
+		loc = strings.ToUpper(cfg.CSVHeaderLocation)
+	}
+
+	switch loc {
+	case "GIVEN":
+		if cfg == nil || len(cfg.CSVHeaders) == 0 {
+			return nil, nil, fmt.Errorf("%w: CSVHeaders required when CSVHeaderLocation=GIVEN", ErrItemReaderInvalidData)
+		}
+
+		return cfg.CSVHeaders, rows, nil
+	case "", "FIRST_ROW":
+		if len(rows) == 0 {
+			return nil, nil, nil
+		}
+
+		return rows[0], rows[1:], nil
+	default:
+		return nil, nil, fmt.Errorf("%w: unsupported CSVHeaderLocation %q", ErrItemReaderInvalidData, loc)
+	}
 }
 
 func (e *Executor) runMapTasks(

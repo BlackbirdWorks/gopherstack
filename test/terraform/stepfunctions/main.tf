@@ -155,6 +155,38 @@ resource "aws_sfn_activity" "worker" {
 }
 
 # ---------------------------------------------------------------------------
+# State machine with tracing + logging configuration (X-Ray + CloudWatch Logs)
+# ---------------------------------------------------------------------------
+
+resource "aws_sfn_state_machine" "tracing" {
+  name     = "gopherstack-sfn-tracing"
+  role_arn = aws_iam_role.sfn.arn
+  type     = "STANDARD"
+
+  tracing_configuration {
+    enabled = true
+  }
+
+  logging_configuration {
+    level                  = "ALL"
+    include_execution_data = true
+
+    log_destination = "arn:aws:logs:us-east-1:000000000000:log-group:/aws/vendedlogs/states/gopherstack:*"
+  }
+
+  definition = jsonencode({
+    StartAt = "Hello"
+    States = {
+      Hello = {
+        Type   = "Pass"
+        Result = { traced = true }
+        End    = true
+      }
+    }
+  })
+}
+
+# ---------------------------------------------------------------------------
 # Outputs
 # ---------------------------------------------------------------------------
 
@@ -176,4 +208,8 @@ output "activity_arn" {
 
 output "alias_arn" {
   value = aws_sfn_alias.live.arn
+}
+
+output "tracing_state_machine_arn" {
+  value = aws_sfn_state_machine.tracing.arn
 }
