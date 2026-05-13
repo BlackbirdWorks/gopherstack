@@ -22,6 +22,7 @@ var (
 	errTransientError  = errors.New("TransientError")
 	errPersistentError = errors.New("PersistentError")
 	errSomeError       = errors.New("SomeError")
+	errBoom            = errors.New("boom")
 )
 
 func TestParse(t *testing.T) {
@@ -1686,15 +1687,15 @@ func TestExecutor_Task_Catch_StatesTaskFailed(t *testing.T) {
 
 	tests := []struct {
 		lambda     asl.LambdaInvoker
+		wantOutput any
 		name       string
 		def        string
 		input      string
-		wantOutput any
 	}{
 		{
 			name: "non_timeout_failure_matches_states_taskfailed",
 			lambda: &mockLambdaFn{fn: func() ([]byte, int, error) {
-				return nil, 500, errors.New("boom")
+				return nil, 500, errBoom
 			}},
 			def: `{
 "StartAt": "T",
@@ -2240,9 +2241,9 @@ func TestExecutor_Choice_NumericStringCoercion(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		want  any
 		name  string
 		input string
-		want  any
 	}{
 		{
 			name:  "numeric_string_matches_numeric_comparison",
@@ -2381,9 +2382,9 @@ func TestExecutor_MapState_ItemSelector(t *testing.T) {
 			require.Len(t, got, len(tt.wantValues))
 
 			for idx := range tt.wantValues {
-				item, ok := got[idx].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, tt.wantValues[idx], item)
+				itemMap, itemOK := got[idx].(map[string]any)
+				require.True(t, itemOK)
+				assert.Equal(t, tt.wantValues[idx], itemMap)
 			}
 		})
 	}

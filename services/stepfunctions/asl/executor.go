@@ -2,6 +2,8 @@ package asl
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,6 +48,13 @@ var (
 	ErrUnsupportedSNSAction             = errors.New("unsupported SNS action")
 	ErrUnsupportedDynamoDBAction        = errors.New("unsupported DynamoDB action")
 	ErrActivityNotConfigured            = errors.New("activity invoker not configured")
+	ErrTaskTokenCallbackNotConfigured   = errors.New("task token callback invoker not configured")
+)
+
+const (
+	errCodeStatesPermissions = "States.Permissions"
+	errCodeStatesRuntime     = "States.Runtime"
+	errCodeStatesTimeout     = "States.Timeout"
 )
 
 // LambdaInvoker can invoke a Lambda function.
@@ -97,6 +106,11 @@ type DynamoDBIntegration interface {
 	SFNDeleteTable(ctx context.Context, input any) (any, error)
 }
 
+// TaskTokenCallbackInvoker waits for SendTaskSuccess/SendTaskFailure callbacks for a task token.
+type TaskTokenCallbackInvoker interface {
+	WaitForTaskToken(ctx context.Context, taskToken string, heartbeatSeconds int) (string, error)
+}
+
 // HistoryRecorder is called during execution to record state transition events.
 type HistoryRecorder interface {
 	RecordStateEntered(executionARN, stateName, stateType string, input any)
@@ -124,6 +138,7 @@ type Executor struct {
 	dynamodb DynamoDBIntegration
 	history  HistoryRecorder
 	activity ActivityInvoker
+	callback TaskTokenCallbackInvoker
 	s3       S3Reader
 	// execSem limits the total number of concurrently running sub-executors
 	// (spawned by Parallel/Map states) to prevent goroutine explosion.
@@ -153,6 +168,7 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		dynamodb:      e.dynamodb,
 		history:       e.history,
 		activity:      e.activity,
+		callback:      e.callback,
 		s3:            e.s3,
 		execSem:       e.execSem,
 		jsonPathCache: e.jsonPathCache,
@@ -173,6 +189,11 @@ func (e *Executor) SetS3Reader(s3 S3Reader) { e.s3 = s3 }
 
 // SetActivityInvoker configures the activity invoker for activity Task states.
 func (e *Executor) SetActivityInvoker(ai ActivityInvoker) { e.activity = ai }
+
+// SetTaskTokenCallbackInvoker configures callback waiting for .waitForTaskToken integrations.
+func (e *Executor) SetTaskTokenCallbackInvoker(invoker TaskTokenCallbackInvoker) {
+	e.callback = invoker
+}
 
 // Execute runs the state machine with the given input JSON and returns the result.
 func (e *Executor) Execute(ctx context.Context, executionARN, inputJSON string) (*ExecutionResult, error) {
@@ -489,9 +510,10 @@ func (e *Executor) executeTask(
 
 	// retryAttempts tracks how many times each retrier entry has been used.
 	retryAttempts := make([]int, len(state.Retry))
+	waitForTaskToken := isWaitForTaskTokenResource(state.Resource)
 
 	for {
-		result, taskErr := e.invokeTask(ctx, state, input)
+		result, taskErr := e.invokeTaskAttempt(ctx, state, input, waitForTaskToken)
 		if taskErr == nil {
 			e.recordTaskSucceeded(executionARN, stateName, result)
 
@@ -524,6 +546,70 @@ func (e *Executor) executeTask(
 
 		return "", nil, &FailError{ErrCode: "TaskFailed", Cause: taskErr.Error()}
 	}
+}
+
+func (e *Executor) invokeTaskAttempt(ctx context.Context, state *State, input any, waitForTaskToken bool) (any, error) {
+	if !waitForTaskToken {
+		return e.invokeTask(ctx, state, input)
+	}
+
+	if e.callback == nil {
+		return nil, ErrTaskTokenCallbackNotConfigured
+	}
+
+	taskToken, err := generateTaskToken()
+	if err != nil {
+		return nil, err
+	}
+
+	taskInput := injectTaskToken(input, taskToken)
+	if _, invokeErr := e.invokeTask(ctx, state, taskInput); invokeErr != nil {
+		return nil, invokeErr
+	}
+
+	callbackOutput, err := e.callback.WaitForTaskToken(ctx, taskToken, state.HeartbeatSeconds)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseCallbackOutput(callbackOutput), nil
+}
+
+func parseCallbackOutput(output string) any {
+	var result any
+	if output != "" {
+		if err := json.Unmarshal([]byte(output), &result); err == nil {
+			return result
+		}
+	}
+
+	return output
+}
+
+func injectTaskToken(input any, taskToken string) any {
+	inputMap, ok := input.(map[string]any)
+	if !ok {
+		return map[string]any{
+			"Input":     input,
+			"TaskToken": taskToken,
+		}
+	}
+
+	copyMap := make(map[string]any, len(inputMap)+1)
+	maps.Copy(copyMap, inputMap)
+	copyMap["TaskToken"] = taskToken
+
+	return copyMap
+}
+
+func generateTaskToken() (string, error) {
+	const taskTokenBytes = 32
+	tokenBytes := make([]byte, taskTokenBytes)
+	if _, err := cryptorand.Read(tokenBytes); err != nil {
+		return "", fmt.Errorf("generate task token: %w", err)
+	}
+
+	return base64.URLEncoding.EncodeToString(tokenBytes), nil
 }
 
 // waitForRetry waits for the retry delay, or returns ctx.Err() if the context is done.
@@ -865,13 +951,27 @@ func (e *Executor) invokeDynamoDBTableOps(ctx context.Context, action string, in
 // stripping any .sync or .waitForTaskToken suffix.
 // Example: "arn:aws:states:::sqs:sendMessage.sync" → "sendMessage".
 func serviceAction(resource string) string {
+	action, _ := parseServiceIntegrationResource(resource)
+
+	return action
+}
+
+func isWaitForTaskTokenResource(resource string) bool {
+	_, pattern := parseServiceIntegrationResource(resource)
+
+	return pattern == "waitForTaskToken"
+}
+
+func parseServiceIntegrationResource(resource string) (string, string) {
 	parts := strings.Split(resource, ":")
 	action := parts[len(parts)-1]
+	pattern := ""
 	if i := strings.IndexByte(action, '.'); i >= 0 {
+		pattern = action[i+1:]
 		action = action[:i]
 	}
 
-	return action
+	return action, pattern
 }
 
 func (e *Executor) executeParallel(
@@ -1795,6 +1895,20 @@ func toFloat(v any) (float64, bool) {
 		return float64(n), true
 	case float64:
 		return n, true
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+			return 0, false
+		}
+
+		return f, true
+	default:
+		return toFloatInteger(v)
+	}
+}
+
+func toFloatInteger(v any) (float64, bool) {
+	switch n := v.(type) {
 	case int:
 		return float64(n), true
 	case int8:
@@ -1815,13 +1929,6 @@ func toFloat(v any) (float64, bool) {
 		return float64(n), true
 	case uint64:
 		return float64(n), true
-	case string:
-		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
-		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
-			return 0, false
-		}
-
-		return f, true
 	default:
 		return 0, false
 	}
@@ -1839,19 +1946,21 @@ func catchesError(errorEquals []string, err error) bool {
 		case "States.ALL":
 			return true
 		case "States.Timeout":
-			if errCode == "States.Timeout" {
+			if errCode == errCodeStatesTimeout {
 				return true
 			}
 		case "States.TaskFailed":
-			if errCode != "States.Timeout" && errCode != "States.Runtime" && errCode != "States.Permissions" {
+			if errCode != errCodeStatesTimeout &&
+				errCode != errCodeStatesRuntime &&
+				errCode != errCodeStatesPermissions {
 				return true
 			}
 		case "States.Runtime":
-			if errCode == "States.Runtime" {
+			if errCode == errCodeStatesRuntime {
 				return true
 			}
 		case "States.Permissions":
-			if errCode == "States.Permissions" {
+			if errCode == errCodeStatesPermissions {
 				return true
 			}
 		case errCode, err.Error():
@@ -1869,7 +1978,7 @@ func stepFunctionsErrorCode(err error) string {
 	}
 
 	if errors.Is(err, ErrStatesTimeout) || errors.Is(err, context.DeadlineExceeded) {
-		return "States.Timeout"
+		return errCodeStatesTimeout
 	}
 
 	if errors.Is(err, ErrUnsupportedStateType) ||
@@ -1879,7 +1988,7 @@ func stepFunctionsErrorCode(err error) string {
 		errors.Is(err, ErrChoiceNoNext) ||
 		errors.Is(err, ErrUnsupportedPathExpr) ||
 		errors.Is(err, ErrUnsupportedResultPath) {
-		return "States.Runtime"
+		return errCodeStatesRuntime
 	}
 
 	return err.Error()

@@ -35,6 +35,7 @@ var (
 	ErrActivityAlreadyExists           = errors.New("ActivityAlreadyExists")
 	ErrActivityDoesNotExist            = errors.New("ActivityDoesNotExist")
 	ErrTaskTokenNotFound               = errors.New("TaskTokenNotFound")
+	ErrTaskTokenAlreadyExists          = errors.New("TaskTokenAlreadyExists")
 	ErrActivityTaskFailed              = errors.New("ActivityTaskFailed")
 	ErrHeartbeatTimeout                = errors.New("States.HeartbeatTimeout")
 )
@@ -542,6 +543,7 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 	executor.SetSNSIntegration(snsIntegration)
 	executor.SetDynamoDBIntegration(ddbIntegration)
 	executor.SetActivityInvoker(b)
+	executor.SetTaskTokenCallbackInvoker(b)
 
 	result, execErr := executor.Execute(syncCtx, execARN, input)
 
@@ -665,6 +667,8 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 }
 
 func validateRoleARN(roleArn string) error {
+	const arnParts = 6
+
 	if roleArn == "" {
 		return nil
 	}
@@ -678,7 +682,7 @@ func validateRoleARN(roleArn string) error {
 	}
 
 	parts := strings.Split(roleArn, ":")
-	if len(parts) == 6 {
+	if len(parts) == arnParts {
 		if parts[2] == "" || parts[5] == "" {
 			return fmt.Errorf("%w: roleArn must include service and resource", ErrInvalidRoleArn)
 		}
@@ -874,6 +878,7 @@ func (b *InMemoryBackend) runParsedExecution(
 	executor.SetSNSIntegration(snsIntegration)
 	executor.SetDynamoDBIntegration(ddbIntegration)
 	executor.SetActivityInvoker(activityInvoker)
+	executor.SetTaskTokenCallbackInvoker(b)
 	result, execErr := executor.Execute(ctx, execARN, input)
 
 	b.mu.Lock("runParsedExecution")
@@ -1668,6 +1673,72 @@ func (b *InMemoryBackend) SendTaskHeartbeat(taskToken string) error {
 	}
 
 	return nil
+}
+
+// WaitForTaskToken registers a callback token and blocks until SendTaskSuccess or SendTaskFailure is called.
+func (b *InMemoryBackend) WaitForTaskToken(
+	ctx context.Context,
+	taskToken string,
+	heartbeatSeconds int,
+) (string, error) {
+	entry := &activityTaskEntry{
+		taskToken: taskToken,
+		resultCh:  make(chan activityTaskResult, 1),
+	}
+
+	if heartbeatSeconds > 0 {
+		entry.heartbeatDuration = time.Duration(heartbeatSeconds) * time.Second
+		entry.heartbeatStop = make(chan struct{}, 1)
+		entry.heartbeatTimer = time.NewTimer(entry.heartbeatDuration)
+	}
+
+	b.mu.Lock("WaitForTaskToken")
+	if _, exists := b.tasksByToken[taskToken]; exists {
+		b.mu.Unlock()
+
+		if entry.heartbeatTimer != nil {
+			entry.heartbeatTimer.Stop()
+		}
+
+		return "", fmt.Errorf("%w: %s", ErrTaskTokenAlreadyExists, taskToken)
+	}
+
+	b.tasksByToken[taskToken] = entry
+	b.mu.Unlock()
+
+	var heartbeatCh <-chan time.Time
+	if entry.heartbeatTimer != nil {
+		heartbeatCh = entry.heartbeatTimer.C
+	}
+
+	select {
+	case result := <-entry.resultCh:
+		if entry.heartbeatTimer != nil {
+			entry.heartbeatTimer.Stop()
+		}
+
+		if result.succeeded {
+			return result.output, nil
+		}
+
+		return "", fmt.Errorf("%w: %s", ErrActivityTaskFailed, result.errCode)
+	case <-heartbeatCh:
+		b.mu.Lock("WaitForTaskToken.heartbeat.timeout")
+		delete(b.tasksByToken, taskToken)
+		b.mu.Unlock()
+
+		return "", ErrHeartbeatTimeout
+	case <-ctx.Done():
+		b.mu.Lock("WaitForTaskToken.wait.cancel")
+		delete(b.tasksByToken, taskToken)
+		b.mu.Unlock()
+
+		if entry.heartbeatTimer != nil {
+			entry.heartbeatTimer.Stop()
+		}
+
+		return "", ctx.Err()
+	}
 }
 
 // InvokeActivity implements asl.ActivityInvoker.

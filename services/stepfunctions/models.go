@@ -4,22 +4,22 @@ package stepfunctions
 // Timestamp fields use float64 (Unix epoch seconds) as required by the
 // AWS JSON 1.0 protocol used by Step Functions.
 type StateMachine struct {
+	EncryptionConfiguration *EncryptionConfiguration `json:"encryptionConfiguration,omitempty"`
 	Name                    string                   `json:"name"`
 	StateMachineArn         string                   `json:"stateMachineArn"`
-	Type                    string                   `json:"type"`   // "STANDARD" or "EXPRESS"
-	Status                  string                   `json:"status"` // "ACTIVE", "DELETING"
+	Type                    string                   `json:"type"`
+	Status                  string                   `json:"status"`
 	Definition              string                   `json:"definition"`
 	RoleArn                 string                   `json:"roleArn"`
 	CreationDate            float64                  `json:"creationDate"`
 	UpdatedDate             float64                  `json:"updatedDate,omitempty"`
-	EncryptionConfiguration *EncryptionConfiguration `json:"encryptionConfiguration,omitempty"`
 }
 
 // EncryptionConfiguration configures KMS encryption for a state machine.
 type EncryptionConfiguration struct {
-	KMSDataKeyReusePeriodSeconds int    `json:"kmsDataKeyReusePeriodSeconds,omitempty"`
-	KMSKeyId                     string `json:"kmsKeyId,omitempty"`
+	KMSKeyID                     string `json:"kmsKeyId,omitempty"`
 	Type                         string `json:"type,omitempty"`
+	KMSDataKeyReusePeriodSeconds int    `json:"kmsDataKeyReusePeriodSeconds,omitempty"`
 }
 
 // Execution represents a state machine execution.
