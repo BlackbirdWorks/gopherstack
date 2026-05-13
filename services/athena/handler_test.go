@@ -67,6 +67,22 @@ func TestHandler_CreateWorkGroup(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 			wantErr:    true,
 		},
+		{
+			name:       "bytes_scanned_cutoff_below_minimum_rejected",
+			body:       `{"Name":"too-small-cutoff","Configuration":{"BytesScannedCutoffPerQuery":1024}}`,
+			wantStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:       "bytes_scanned_cutoff_above_minimum_accepted",
+			body:       `{"Name":"good-cutoff","Configuration":{"BytesScannedCutoffPerQuery":20971520}}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "bytes_scanned_cutoff_zero_means_unlimited",
+			body:       `{"Name":"unlimited-cutoff","Configuration":{"BytesScannedCutoffPerQuery":0}}`,
+			wantStatus: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {

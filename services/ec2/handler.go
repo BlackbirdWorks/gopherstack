@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -757,25 +758,105 @@ func (h *Handler) handleDescribeLaunchTemplates(vals url.Values, reqID string) (
 	}, nil
 }
 
-// handleDescribeInstanceTypes returns a minimal stub for the requested instance types.
-// Terraform calls this to validate the instance type before launching an instance.
+// ec2DescribeInstanceTypesMaxPageSize is the AWS-documented upper bound for
+// MaxResults on DescribeInstanceTypes. The minimum is 5.
+const (
+	ec2DescribeInstanceTypesMaxPageSize = 100
+	ec2DescribeInstanceTypesMinPageSize = 5
+	ec2DefaultInstanceTypeFallback      = "t2.micro"
+)
+
+// handleDescribeInstanceTypes returns a stub response for the requested instance
+// types. Multiple `InstanceType.N` values are echoed back. `MaxResults` and
+// `NextToken` are honored so that callers iterating over instance-type catalogs
+// see AWS-shaped pagination, with NextToken representing an opaque integer
+// offset into the requested set.
 func (h *Handler) handleDescribeInstanceTypes(vals url.Values, reqID string) (any, error) {
-	// Return a stub for whatever instance type was requested (e.g., t2.micro).
-	instanceType := vals.Get("Filter.1.Value.1")
-	if instanceType == "" {
-		instanceType = vals.Get("InstanceType.1")
+	requested := parseMemberList(vals, "InstanceType")
+
+	// Backwards-compat: when a Filter.1.Value.1 is supplied (older callers), use it.
+	if len(requested) == 0 {
+		if v := vals.Get("Filter.1.Value.1"); v != "" {
+			requested = []string{v}
+		}
 	}
-	if instanceType == "" {
-		instanceType = "t2.micro"
+
+	if len(requested) == 0 {
+		requested = []string{ec2DefaultInstanceTypeFallback}
+	}
+
+	maxResults, nextToken, err := parseInstanceTypesPagination(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	page, outToken := paginateInstanceTypes(requested, nextToken, maxResults)
+
+	items := make([]instanceTypeItem, 0, len(page))
+	for _, t := range page {
+		items = append(items, instanceTypeItem{InstanceType: t})
 	}
 
 	return &describeInstanceTypesResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		InstanceTypes: instanceTypeSet{Items: []instanceTypeItem{
-			{InstanceType: instanceType},
-		}},
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		NextToken:     outToken,
+		InstanceTypes: instanceTypeSet{Items: items},
 	}, nil
+}
+
+// parseInstanceTypesPagination validates MaxResults bounds and decodes
+// NextToken (which we serialize as a base-10 offset into the result set).
+func parseInstanceTypesPagination(vals url.Values) (int, int, error) {
+	maxResults := 0
+
+	if v := vals.Get("MaxResults"); v != "" {
+		n, perr := strconv.Atoi(v)
+		if perr != nil || n < ec2DescribeInstanceTypesMinPageSize || n > ec2DescribeInstanceTypesMaxPageSize {
+			return 0, 0, fmt.Errorf(
+				"%w: MaxResults must be between %d and %d",
+				ErrInvalidParameter,
+				ec2DescribeInstanceTypesMinPageSize, ec2DescribeInstanceTypesMaxPageSize,
+			)
+		}
+
+		maxResults = n
+	}
+
+	offset := 0
+
+	if tok := vals.Get("NextToken"); tok != "" {
+		n, perr := strconv.Atoi(tok)
+		if perr != nil || n < 0 {
+			return 0, 0, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidParameter, tok)
+		}
+
+		offset = n
+	}
+
+	return maxResults, offset, nil
+}
+
+// paginateInstanceTypes slices the instance-type catalog and returns the next
+// pagination token (empty when fully consumed).
+func paginateInstanceTypes(items []string, offset, maxResults int) ([]string, string) {
+	if offset >= len(items) {
+		return nil, ""
+	}
+
+	end := len(items)
+	if maxResults > 0 && offset+maxResults < end {
+		end = offset + maxResults
+	}
+
+	page := items[offset:end]
+
+	var token string
+	if end < len(items) {
+		token = strconv.Itoa(end)
+	}
+
+	return page, token
 }
 
 // handleDescribeTags returns tags for EC2 resources, supporting Filter.N.Name / Filter.N.Value.* semantics.
@@ -1286,6 +1367,7 @@ type describeInstanceTypesResponse struct {
 	XMLName       xml.Name        `xml:"DescribeInstanceTypesResponse"`
 	Xmlns         string          `xml:"xmlns,attr"`
 	RequestID     string          `xml:"requestId"`
+	NextToken     string          `xml:"nextToken,omitempty"`
 	InstanceTypes instanceTypeSet `xml:"instanceTypeSet"`
 }
 

@@ -410,6 +410,25 @@ func dataCatalogARN(name string) string {
 // --- WorkGroups ---
 
 // CreateWorkGroup creates a new workgroup.
+// athenaMinBytesScannedCutoff is the minimum value AWS Athena permits for the
+// per-query data-scan limit (10 MB).
+const athenaMinBytesScannedCutoff int64 = 10 * 1024 * 1024
+
+// validateWorkGroupConfiguration enforces AWS-documented bounds for workgroup
+// configuration knobs. Currently this only checks BytesScannedCutoffPerQuery
+// (a positive value < 10 MiB is rejected; zero means "unlimited" and is
+// permitted).
+func validateWorkGroupConfiguration(cfg WorkGroupConfiguration) error {
+	if cfg.BytesScannedCutoffPerQuery > 0 && cfg.BytesScannedCutoffPerQuery < athenaMinBytesScannedCutoff {
+		return fmt.Errorf(
+			"%w: BytesScannedCutoffPerQuery must be at least %d bytes (10 MB)",
+			ErrValidation, athenaMinBytesScannedCutoff,
+		)
+	}
+
+	return nil
+}
+
 func (b *InMemoryBackend) CreateWorkGroup(
 	name, description, state string,
 	cfg WorkGroupConfiguration,
@@ -417,6 +436,10 @@ func (b *InMemoryBackend) CreateWorkGroup(
 ) error {
 	if name == "" {
 		return fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	if err := validateWorkGroupConfiguration(cfg); err != nil {
+		return err
 	}
 
 	b.mu.Lock("CreateWorkGroup")
@@ -481,6 +504,12 @@ func (b *InMemoryBackend) ListWorkGroups() ([]WorkGroupSummary, error) {
 
 // UpdateWorkGroup updates an existing workgroup.
 func (b *InMemoryBackend) UpdateWorkGroup(name, description, state string, cfg *WorkGroupConfiguration) error {
+	if cfg != nil {
+		if err := validateWorkGroupConfiguration(*cfg); err != nil {
+			return err
+		}
+	}
+
 	b.mu.Lock("UpdateWorkGroup")
 	defer b.mu.Unlock()
 
