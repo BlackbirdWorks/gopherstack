@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -128,6 +129,57 @@ type ExecutionResult struct {
 }
 
 const maxConcurrentSubExecutors = 64
+const maxJSONPathCacheEntries = int64(4096)
+const maxRetryDelay = 24 * time.Hour
+
+type jsonPathCache struct {
+	entries    sync.Map
+	size       atomic.Int64
+	maxEntries int64
+}
+
+func newJSONPathCache(maxEntries int64) *jsonPathCache {
+	if maxEntries <= 0 {
+		maxEntries = 1
+	}
+
+	return &jsonPathCache{maxEntries: maxEntries}
+}
+
+func (c *jsonPathCache) load(path string) ([]string, bool) {
+	if c == nil {
+		return nil, false
+	}
+
+	cached, found := c.entries.Load(path)
+	if !found {
+		return nil, false
+	}
+
+	parts, ok := cached.([]string)
+	if !ok {
+		return nil, false
+	}
+
+	return parts, true
+}
+
+func (c *jsonPathCache) store(path string, parts []string) {
+	if c == nil {
+		return
+	}
+
+	if _, loaded := c.entries.LoadOrStore(path, parts); loaded {
+		return
+	}
+
+	if c.size.Add(1) <= c.maxEntries {
+		return
+	}
+
+	c.entries.Delete(path)
+	c.size.Add(-1)
+}
 
 // Executor runs an ASL state machine.
 type Executor struct {
@@ -144,7 +196,7 @@ type Executor struct {
 	// (spawned by Parallel/Map states) to prevent goroutine explosion.
 	execSem chan struct{}
 	// jsonPathCache stores parsed JSONPath segments for reuse across executions.
-	jsonPathCache *sync.Map
+	jsonPathCache *jsonPathCache
 }
 
 // NewExecutor creates an Executor for the given state machine.
@@ -154,7 +206,7 @@ func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder
 		lambda:        lambda,
 		history:       history,
 		execSem:       make(chan struct{}, maxConcurrentSubExecutors),
-		jsonPathCache: &sync.Map{},
+		jsonPathCache: newJSONPathCache(maxJSONPathCacheEntries),
 	}
 }
 
@@ -686,11 +738,7 @@ func tryRetry(ctx context.Context, state *State, retryAttempts []int, taskErr er
 			backoffRate = defaultBackoffRate
 		}
 
-		delay := time.Duration(
-			float64(intervalSeconds) *
-				math.Pow(backoffRate, float64(retryAttempts[i])) *
-				float64(time.Second),
-		)
+		delay := computeRetryDelay(intervalSeconds, backoffRate, retryAttempts[i])
 		retryAttempts[i]++
 
 		if err := waitForRetry(ctx, delay); err != nil {
@@ -705,6 +753,19 @@ func tryRetry(ctx context.Context, state *State, retryAttempts []int, taskErr er
 	}
 
 	return false, nil
+}
+
+func computeRetryDelay(intervalSeconds int, backoffRate float64, attempts int) time.Duration {
+	delaySeconds := float64(intervalSeconds) * math.Pow(backoffRate, float64(attempts))
+	if math.IsNaN(delaySeconds) || math.IsInf(delaySeconds, 0) || delaySeconds > maxRetryDelay.Seconds() {
+		return maxRetryDelay
+	}
+
+	if delaySeconds < 0 {
+		return 0
+	}
+
+	return time.Duration(delaySeconds * float64(time.Second))
 }
 
 // checkCatchers checks Catch clauses and returns (nextState, output, matched).
@@ -1317,13 +1378,6 @@ func (e *Executor) spawnMapTask(
 ) {
 	wg.Go(func() {
 		select {
-		case e.execSem <- struct{}{}:
-		case <-ctx.Done():
-			return
-		}
-		defer func() { <-e.execSem }()
-
-		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
 			return
@@ -1386,8 +1440,8 @@ type pathEvalInput struct {
 // applyPath applies an InputPath or OutputPath to a value.
 // If path is "" or "$", returns value unchanged.
 // If path starts with "$.", it's a JSONPath reference.
-func applyPath(path string, value any, pathCache ...*sync.Map) (any, error) {
-	var cache *sync.Map
+func applyPath(path string, value any, pathCache ...*jsonPathCache) (any, error) {
+	var cache *jsonPathCache
 	if len(pathCache) > 0 {
 		cache = pathCache[0]
 	}
@@ -1467,7 +1521,7 @@ func applyResultPath(resultPath string, input, result any) (any, error) {
 }
 
 // jsonPathGet performs a simple dot-notation JSONPath get on a value.
-func jsonPathGet(path string, value any, pathCache *sync.Map) (any, error) {
+func jsonPathGet(path string, value any, pathCache *jsonPathCache) (any, error) {
 	if path == "" {
 		return value, nil
 	}
@@ -1492,26 +1546,19 @@ func jsonPathGet(path string, value any, pathCache *sync.Map) (any, error) {
 
 // getCachedJSONPathParts returns cached JSONPath segments or computes and stores
 // them when unavailable.
-func getCachedJSONPathParts(path string, pathCache *sync.Map) []string {
-	if pathCache != nil {
-		if cached, found := pathCache.Load(path); found {
-			parts, ok := cached.([]string)
-			if ok {
-				return parts
-			}
-		}
+func getCachedJSONPathParts(path string, pathCache *jsonPathCache) []string {
+	if parts, found := pathCache.load(path); found {
+		return parts
 	}
 
 	parts := strings.Split(path, ".")
-	if pathCache != nil {
-		pathCache.Store(path, parts)
-	}
+	pathCache.store(path, parts)
 
 	return parts
 }
 
 // evaluateChoiceRule checks whether a ChoiceRule matches the given input.
-func evaluateChoiceRule(rule *ChoiceRule, input any, pathCache *sync.Map) bool {
+func evaluateChoiceRule(rule *ChoiceRule, input any, pathCache *jsonPathCache) bool {
 	if result, handled := evaluateLogicalOp(rule, input, pathCache); handled {
 		return result
 	}
@@ -1525,7 +1572,7 @@ func evaluateChoiceRule(rule *ChoiceRule, input any, pathCache *sync.Map) bool {
 
 // evaluateLogicalOp handles And/Or/Not logical operators.
 // Returns (result, true) if a logical operator was found, or (false, false) otherwise.
-func evaluateLogicalOp(rule *ChoiceRule, input any, pathCache *sync.Map) (bool, bool) {
+func evaluateLogicalOp(rule *ChoiceRule, input any, pathCache *jsonPathCache) (bool, bool) {
 	if len(rule.And) > 0 {
 		for i := range rule.And {
 			if !evaluateChoiceRule(&rule.And[i], input, pathCache) {
@@ -1554,7 +1601,7 @@ func evaluateLogicalOp(rule *ChoiceRule, input any, pathCache *sync.Map) (bool, 
 }
 
 // evaluateVariableComparison resolves the variable and checks condition comparisons.
-func evaluateVariableComparison(rule *ChoiceRule, input any, pathCache *sync.Map) bool {
+func evaluateVariableComparison(rule *ChoiceRule, input any, pathCache *jsonPathCache) bool {
 	varVal, err := applyPath(rule.Variable, input, pathCache)
 	if err != nil {
 		if rule.IsPresent != nil {
@@ -1606,7 +1653,7 @@ func evaluateVariableComparison(rule *ChoiceRule, input any, pathCache *sync.Map
 
 // matchVariableCondition checks all value-comparison conditions by delegating to
 // type-specific sub-functions.
-func matchVariableCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) bool {
+func matchVariableCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) bool {
 	if result, matched := matchStringCondition(rule, varVal, input, pathCache); matched {
 		return result
 	}
@@ -1627,7 +1674,7 @@ func matchVariableCondition(rule *ChoiceRule, varVal, input any, pathCache *sync
 }
 
 // matchStringCondition checks string comparison conditions.
-func matchStringCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchStringCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	if result, matched := matchStringLiteralCondition(rule, varVal); matched {
 		return result, matched
 	}
@@ -1656,7 +1703,7 @@ func matchStringLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
 }
 
 // matchStringPathCondition checks path-based string comparison conditions.
-func matchStringPathCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchStringPathCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	comparePath := func(path *string, cmp func(s1, s2 string) bool) (bool, bool) {
 		if path == nil {
 			return false, false
@@ -1697,7 +1744,7 @@ func matchStringPathCondition(rule *ChoiceRule, varVal, input any, pathCache *sy
 }
 
 // matchNumericCondition checks numeric comparison conditions.
-func matchNumericCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchNumericCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	if result, matched := matchNumericLiteralCondition(rule, varVal); matched {
 		return result, matched
 	}
@@ -1726,7 +1773,7 @@ func matchNumericLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
 }
 
 // matchNumericPathCondition checks path-based numeric comparison conditions.
-func matchNumericPathCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchNumericPathCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	compareNumPath := func(path *string, cmp func(n1, n2 float64) bool) (bool, bool) {
 		if path == nil {
 			return false, false
@@ -1767,7 +1814,7 @@ func matchNumericPathCondition(rule *ChoiceRule, varVal, input any, pathCache *s
 }
 
 // matchBooleanCondition checks boolean comparison conditions.
-func matchBooleanCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchBooleanCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	if rule.BooleanEquals != nil {
 		b, ok := varVal.(bool)
 
@@ -1790,7 +1837,7 @@ func matchBooleanCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.
 }
 
 // matchTimestampCondition checks timestamp comparison conditions.
-func matchTimestampCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchTimestampCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	if result, matched := matchTimestampLiteralCondition(rule, varVal); matched {
 		return result, matched
 	}
@@ -1836,7 +1883,7 @@ func matchTimestampLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
 }
 
 // matchTimestampPathCondition checks path-based timestamp comparison conditions.
-func matchTimestampPathCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchTimestampPathCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	comparePath := func(path *string, cmp func(t1, t2 time.Time) bool) (bool, bool) {
 		if path == nil {
 			return false, false
@@ -1882,7 +1929,7 @@ func parseTimestamp(v any) (time.Time, error) {
 }
 
 // resolveTimestampPath resolves a path reference and returns both timestamps.
-func resolveTimestampPath(varVal any, path string, input any, pathCache *sync.Map) (time.Time, time.Time, error) {
+func resolveTimestampPath(varVal any, path string, input any, pathCache *jsonPathCache) (time.Time, time.Time, error) {
 	t1, err := parseTimestamp(varVal)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
