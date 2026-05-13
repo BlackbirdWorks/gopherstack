@@ -601,11 +601,19 @@ func injectTaskToken(input any, taskToken string) any {
 		}
 	}
 
-	copyMap := make(map[string]any, len(inputMap)+1)
+	copyMap := make(map[string]any, mapCopyCapacity(len(inputMap)))
 	maps.Copy(copyMap, inputMap)
 	copyMap["TaskToken"] = taskToken
 
 	return copyMap
+}
+
+func mapCopyCapacity(size int) int {
+	if size >= math.MaxInt {
+		return size
+	}
+
+	return size + 1
 }
 
 // generateTaskToken returns a cryptographically random task token.
