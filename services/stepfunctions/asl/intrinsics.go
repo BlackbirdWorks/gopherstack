@@ -81,6 +81,10 @@ func evaluateIntrinsicFunction(expr string, input any) (any, error) {
 		return r, dispErr
 	}
 
+	if r, dispErr := evalParityIntrinsic(fnName, args); !errors.Is(dispErr, errIntrinsicNotHandled) {
+		return r, dispErr
+	}
+
 	return nil, fmt.Errorf("%w: %q", ErrUnknownIntrinsicFunction, fnName)
 }
 

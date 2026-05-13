@@ -571,6 +571,14 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 	executor.SetDynamoDBIntegration(ddbIntegration)
 	executor.SetActivityInvoker(b)
 	executor.SetTaskTokenCallbackInvoker(b)
+	executor.SetExecutionContext(
+		execARN,
+		name,
+		sm.RoleArn,
+		time.Unix(int64(startDate), 0).UTC().Format(time.RFC3339),
+		stateMachineArn,
+		sm.Name,
+	)
 
 	result, execErr := executor.Execute(syncCtx, execARN, input)
 
@@ -691,6 +699,41 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	)
 
 	return exec, nil
+}
+
+// applyExecutorContext populates the ASL executor's `$$` context object with
+// data derived from the persisted execution and state machine records.
+func (b *InMemoryBackend) applyExecutorContext(executor *asl.Executor, execARN string) {
+	b.mu.RLock("applyExecutorContext")
+	defer b.mu.RUnlock()
+
+	exec, ok := b.executions[execARN]
+	if !ok {
+		return
+	}
+
+	sm, smOK := b.stateMachines[exec.StateMachineArn]
+	if !smOK || sm == nil {
+		executor.SetExecutionContext(
+			exec.ExecutionArn,
+			exec.Name,
+			"",
+			time.Unix(int64(exec.StartDate), 0).UTC().Format(time.RFC3339),
+			exec.StateMachineArn,
+			"",
+		)
+
+		return
+	}
+
+	executor.SetExecutionContext(
+		exec.ExecutionArn,
+		exec.Name,
+		sm.RoleArn,
+		time.Unix(int64(exec.StartDate), 0).UTC().Format(time.RFC3339),
+		exec.StateMachineArn,
+		sm.Name,
+	)
 }
 
 func validateRoleARN(roleArn string) error {
@@ -906,6 +949,7 @@ func (b *InMemoryBackend) runParsedExecution(
 	executor.SetDynamoDBIntegration(ddbIntegration)
 	executor.SetActivityInvoker(activityInvoker)
 	executor.SetTaskTokenCallbackInvoker(b)
+	b.applyExecutorContext(executor, execARN)
 	result, execErr := executor.Execute(ctx, execARN, input)
 
 	b.mu.Lock("runParsedExecution")

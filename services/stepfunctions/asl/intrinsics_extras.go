@@ -11,10 +11,12 @@ import (
 
 // Sentinel errors for the extended intrinsic function set.
 var (
-	ErrStatesUUIDNoArgs               = errors.New("States.UUID takes no arguments")
-	ErrStatesMathAddRequiresTwoArgs   = errors.New("States.MathAdd requires exactly two arguments")
-	ErrStatesMathAddArgNotNumber      = errors.New("States.MathAdd: arguments must be numbers")
-	ErrStatesArrayRangeRequiresArgs   = errors.New("States.ArrayRange requires exactly three arguments (start, end, step)")
+	ErrStatesUUIDNoArgs             = errors.New("States.UUID takes no arguments")
+	ErrStatesMathAddRequiresTwoArgs = errors.New("States.MathAdd requires exactly two arguments")
+	ErrStatesMathAddArgNotNumber    = errors.New("States.MathAdd: arguments must be numbers")
+	ErrStatesArrayRangeRequiresArgs = errors.New(
+		"States.ArrayRange requires exactly three arguments (start, end, step)",
+	)
 	ErrStatesArrayRangeArgNotNumber   = errors.New("States.ArrayRange: arguments must be numbers")
 	ErrStatesArrayRangeStepZero       = errors.New("States.ArrayRange: step must be non-zero")
 	ErrStatesArrayGetItemRequiresArgs = errors.New("States.ArrayGetItem requires exactly two arguments (array, index)")
@@ -24,9 +26,11 @@ var (
 	ErrStatesArrayUniqueArgNotArray   = errors.New("States.ArrayUnique: argument must be an array")
 	ErrStatesJSONMergeRequiresArgs    = errors.New("States.JsonMerge requires exactly three arguments")
 	ErrStatesJSONMergeArgNotObject    = errors.New("States.JsonMerge: first two arguments must be JSON objects")
-	ErrStatesJSONMergeDeepUnsupported = errors.New("States.JsonMerge: deep merge is not supported (third arg must be false)")
-	ErrStatesStringSplitRequiresArgs  = errors.New("States.StringSplit requires exactly two arguments")
-	ErrStatesStringSplitArgNotString  = errors.New("States.StringSplit: arguments must be strings")
+	ErrStatesJSONMergeDeepUnsupported = errors.New(
+		"States.JsonMerge: deep merge is not supported (third arg must be false)",
+	)
+	ErrStatesStringSplitRequiresArgs = errors.New("States.StringSplit requires exactly two arguments")
+	ErrStatesStringSplitArgNotString = errors.New("States.StringSplit: arguments must be strings")
 )
 
 // intrinsicArgsThree is the expected length for three-argument intrinsics.
@@ -67,8 +71,15 @@ func intrinsicUUID(args []any) (any, error) {
 	}
 
 	// RFC 4122 version 4, variant 10xx.
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
+	const (
+		uuidVersionMask  = 0x0f
+		uuidVersion4Bits = 0x40
+		uuidVariantMask  = 0x3f
+		uuidVariant10Bit = 0x80
+	)
+
+	b[6] = (b[6] & uuidVersionMask) | uuidVersion4Bits
+	b[8] = (b[8] & uuidVariantMask) | uuidVariant10Bit
 
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }

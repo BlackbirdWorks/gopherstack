@@ -180,7 +180,7 @@ func (c *jsonPathCache) store(path string, parts []string) {
 	}
 
 	reserved := false
-	for attempts := 0; attempts < maxCacheStoreCASAttempts; attempts++ {
+	for range maxCacheStoreCASAttempts {
 		currentSize := c.size.Load()
 		if currentSize >= c.maxEntries {
 			return
@@ -221,6 +221,37 @@ type Executor struct {
 	execSem chan struct{}
 	// jsonPathCache stores parsed JSONPath segments for reuse across executions.
 	jsonPathCache *jsonPathCache
+	// execMeta carries `$$.Execution.*` and `$$.StateMachine.*` context for `$$` paths.
+	execMeta executionMeta
+	// branchName, if set, is exposed as `$$.Parallel.BranchName`/`$$.Execution.BranchName`.
+	branchName string
+}
+
+// executionMeta is the subset of context object data that ASL exposes via `$$`.
+type executionMeta struct {
+	ID               string
+	Name             string
+	RoleArn          string
+	StartTime        string
+	StateMachineID   string
+	StateMachineArn  string
+	StateMachineName string
+}
+
+// SetExecutionContext sets the metadata that will be exposed via `$$.Execution.*`
+// and `$$.StateMachine.*` JSONPath references during evaluation.
+func (e *Executor) SetExecutionContext(
+	executionARN, executionName, roleArn, startTime, stateMachineARN, stateMachineName string,
+) {
+	e.execMeta = executionMeta{
+		ID:               executionARN,
+		Name:             executionName,
+		RoleArn:          roleArn,
+		StartTime:        startTime,
+		StateMachineID:   stateMachineARN,
+		StateMachineArn:  stateMachineARN,
+		StateMachineName: stateMachineName,
+	}
 }
 
 // NewExecutor creates an Executor for the given state machine.
@@ -248,7 +279,59 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		s3:            e.s3,
 		execSem:       e.execSem,
 		jsonPathCache: e.jsonPathCache,
+		execMeta:      e.execMeta,
+		branchName:    e.branchName,
 	}
+}
+
+// newBranchExecutor creates a sub-executor whose `$$.Parallel.BranchName` and
+// `$$.Execution.BranchName` paths resolve to the supplied name.
+func (e *Executor) newBranchExecutor(sm *StateMachine, branchName string) *Executor {
+	sub := e.newSubExecutor(sm)
+	sub.branchName = branchName
+
+	return sub
+}
+
+// buildContextObject returns the JSON-shaped `$$` context object for path
+// evaluation. The shape mirrors the AWS Step Functions context object subset
+// that is observable via Parameters/ResultSelector templates.
+func (e *Executor) buildContextObject() map[string]any {
+	exec := map[string]any{}
+
+	if e.execMeta.ID != "" {
+		exec["Id"] = e.execMeta.ID
+	}
+
+	if e.execMeta.Name != "" {
+		exec["Name"] = e.execMeta.Name
+	}
+
+	if e.execMeta.RoleArn != "" {
+		exec["RoleArn"] = e.execMeta.RoleArn
+	}
+
+	if e.execMeta.StartTime != "" {
+		exec["StartTime"] = e.execMeta.StartTime
+	}
+
+	if e.branchName != "" {
+		exec["BranchName"] = e.branchName
+	}
+
+	ctx := map[string]any{
+		"Execution": exec,
+		"StateMachine": map[string]any{
+			"Id":   e.execMeta.StateMachineID,
+			"Name": e.execMeta.StateMachineName,
+		},
+	}
+
+	if e.branchName != "" {
+		ctx["Parallel"] = map[string]any{"BranchName": e.branchName}
+	}
+
+	return ctx
 }
 
 // SetSQSIntegration configures the SQS integration for Task states.
@@ -325,7 +408,8 @@ func (e *Executor) runStates(
 		// Apply Parameters to transform the effective input for this state.
 		taskInput := effectiveInput
 		if len(state.Parameters) > 0 {
-			taskInput, err = applyParametersTemplate(state.Parameters, effectiveInput)
+			paramInput := pathEvalInput{data: effectiveInput, context: e.buildContextObject()}
+			taskInput, err = applyParametersTemplate(state.Parameters, paramInput)
 			if err != nil {
 				return nil, fmt.Errorf("parameters error in state %q: %w", current, err)
 			}
@@ -339,7 +423,7 @@ func (e *Executor) runStates(
 			return nil, err
 		}
 
-		finalOutput, err := applyStateOutputTransforms(state, value, result, current)
+		finalOutput, err := e.applyStateOutputTransforms(state, value, result, current)
 		if err != nil {
 			return nil, err
 		}
@@ -360,12 +444,14 @@ func (e *Executor) runStates(
 }
 
 // applyStateOutputTransforms applies ResultSelector, ResultPath, and OutputPath to produce the final state output.
-func applyStateOutputTransforms(state *State, input, result any, stateName string) (any, error) {
+func (e *Executor) applyStateOutputTransforms(state *State, input, result any, stateName string) (any, error) {
 	// Apply ResultSelector to filter the state output before ResultPath merge.
 	if len(state.ResultSelector) > 0 {
 		var err error
 
-		result, err = applyParametersTemplate(state.ResultSelector, result)
+		rsInput := pathEvalInput{data: result, context: e.buildContextObject()}
+
+		result, err = applyParametersTemplate(state.ResultSelector, rsInput)
 		if err != nil {
 			return nil, fmt.Errorf("ResultSelector error in state %q: %w", stateName, err)
 		}
@@ -1135,7 +1221,7 @@ func (e *Executor) runParallelBranch(
 	defer func() { <-e.execSem }()
 
 	branchSM := &StateMachine{StartAt: branch.StartAt, States: branch.States}
-	exec := e.newSubExecutor(branchSM)
+	exec := e.newBranchExecutor(branchSM, fmt.Sprintf("Branch-%d", idx))
 	res, err := exec.Execute(ctx, executionARN, marshalInput(input))
 
 	if err != nil {
@@ -1442,7 +1528,10 @@ func resolveCSVHeaders(rows [][]string, cfg *ReaderConfig) ([]string, [][]string
 	switch loc {
 	case "GIVEN":
 		if cfg == nil || len(cfg.CSVHeaders) == 0 {
-			return nil, nil, fmt.Errorf("%w: CSVHeaders required when CSVHeaderLocation=GIVEN", ErrItemReaderInvalidData)
+			return nil, nil, fmt.Errorf(
+				"%w: CSVHeaders required when CSVHeaderLocation=GIVEN",
+				ErrItemReaderInvalidData,
+			)
 		}
 
 		return cfg.CSVHeaders, rows, nil

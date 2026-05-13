@@ -1,10 +1,12 @@
-package stepfunctions
+package stepfunctions_test
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
 const validRoleARN = "arn:aws:iam::000000000000:role/sfn-test"
@@ -15,9 +17,9 @@ func TestSetStateMachineConfigurations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup       func(*InMemoryBackend) string
-		tracing     *TracingConfiguration
-		logging     *LoggingConfiguration
+		setup       func(*stepfunctions.InMemoryBackend) string
+		tracing     *stepfunctions.TracingConfiguration
+		logging     *stepfunctions.LoggingConfiguration
 		name        string
 		wantTracing bool
 		wantLogging bool
@@ -25,34 +27,34 @@ func TestSetStateMachineConfigurations(t *testing.T) {
 	}{
 		{
 			name: "set_both_configs",
-			setup: func(b *InMemoryBackend) string {
+			setup: func(b *stepfunctions.InMemoryBackend) string {
 				sm, err := b.CreateStateMachine("sm-both", minimalDefinition, validRoleARN, "STANDARD")
 				require.NoError(t, err)
 
 				return sm.StateMachineArn
 			},
-			tracing:     &TracingConfiguration{Enabled: true},
-			logging:     &LoggingConfiguration{Level: "ALL", IncludeExecutionData: true},
+			tracing:     &stepfunctions.TracingConfiguration{Enabled: true},
+			logging:     &stepfunctions.LoggingConfiguration{Level: "ALL", IncludeExecutionData: true},
 			wantTracing: true,
 			wantLogging: true,
 		},
 		{
 			name: "set_only_tracing",
-			setup: func(b *InMemoryBackend) string {
+			setup: func(b *stepfunctions.InMemoryBackend) string {
 				sm, err := b.CreateStateMachine("sm-tracing", minimalDefinition, validRoleARN, "STANDARD")
 				require.NoError(t, err)
 
 				return sm.StateMachineArn
 			},
-			tracing:     &TracingConfiguration{Enabled: true},
+			tracing:     &stepfunctions.TracingConfiguration{Enabled: true},
 			wantTracing: true,
 		},
 		{
 			name: "missing_state_machine_returns_error",
-			setup: func(_ *InMemoryBackend) string {
+			setup: func(_ *stepfunctions.InMemoryBackend) string {
 				return "arn:aws:states:us-east-1:000000000000:stateMachine:none"
 			},
-			tracing: &TracingConfiguration{Enabled: true},
+			tracing: &stepfunctions.TracingConfiguration{Enabled: true},
 			wantErr: true,
 		},
 	}
@@ -61,7 +63,7 @@ func TestSetStateMachineConfigurations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := NewInMemoryBackend()
+			backend := stepfunctions.NewInMemoryBackend()
 			arn := tt.setup(backend)
 			err := backend.SetStateMachineConfigurations(arn, tt.tracing, tt.logging)
 			if tt.wantErr {

@@ -29,8 +29,8 @@ type ItemBatcher struct {
 // ItemReader configures reading items from S3 for a Map state's Distributed Map.
 type ItemReader struct {
 	Parameters   map[string]any `json:"Parameters,omitempty"`
-	Resource     string         `json:"Resource,omitempty"`
 	ReaderConfig *ReaderConfig  `json:"ReaderConfig,omitempty"`
+	Resource     string         `json:"Resource,omitempty"`
 }
 
 // ReaderConfig describes how the ItemReader should interpret S3 object data.

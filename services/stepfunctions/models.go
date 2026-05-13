@@ -32,8 +32,8 @@ type TracingConfiguration struct {
 // LoggingConfiguration controls CloudWatch Logs export for a state machine.
 type LoggingConfiguration struct {
 	Level                string               `json:"level,omitempty"`
-	IncludeExecutionData bool                 `json:"includeExecutionData,omitempty"`
 	Destinations         []LoggingDestination `json:"destinations,omitempty"`
+	IncludeExecutionData bool                 `json:"includeExecutionData,omitempty"`
 }
 
 // LoggingDestination references a CloudWatch Logs log group destination.

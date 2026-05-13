@@ -1,4 +1,4 @@
-package asl
+package asl_test
 
 import (
 	"context"
@@ -7,16 +7,18 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
 func TestExtraIntrinsics(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		expr    string
 		input   any
 		want    any
+		name    string
+		expr    string
 		wantErr bool
 	}{
 		{
@@ -90,7 +92,7 @@ func TestExtraIntrinsics(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := evaluateIntrinsicFunction(tt.expr, tt.input)
+			got, err := asl.EvaluateIntrinsicFunction(tt.expr, tt.input)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -106,7 +108,7 @@ func TestExtraIntrinsics(t *testing.T) {
 func TestUUIDIntrinsicShape(t *testing.T) {
 	t.Parallel()
 
-	got, err := evaluateIntrinsicFunction("States.UUID()", nil)
+	got, err := asl.EvaluateIntrinsicFunction("States.UUID()", nil)
 	require.NoError(t, err)
 
 	s, ok := got.(string)
@@ -116,9 +118,11 @@ func TestUUIDIntrinsicShape(t *testing.T) {
 	assert.Equal(t, byte('4'), s[14])
 }
 
+var errStubBoom = errors.New("boom")
+
 type stubS3 struct {
-	data []byte
 	err  error
+	data []byte
 }
 
 func (s stubS3) GetObjectBytes(_ context.Context, _, _ string) ([]byte, error) {
@@ -134,7 +138,7 @@ func TestDecodeReaderItems(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		cfg     *ReaderConfig
+		cfg     *asl.ReaderConfig
 		data    []byte
 		want    []any
 		wantErr bool
@@ -146,13 +150,13 @@ func TestDecodeReaderItems(t *testing.T) {
 		},
 		{
 			name: "jsonl_explicit",
-			cfg:  &ReaderConfig{InputType: "JSONL"},
+			cfg:  &asl.ReaderConfig{InputType: "JSONL"},
 			data: []byte("{\"a\":1}\n{\"a\":2}\n"),
 			want: []any{map[string]any{"a": 1.0}, map[string]any{"a": 2.0}},
 		},
 		{
 			name: "csv_first_row_header",
-			cfg:  &ReaderConfig{InputType: "CSV"},
+			cfg:  &asl.ReaderConfig{InputType: "CSV"},
 			data: []byte("col1,col2\nx,1\ny,2\n"),
 			want: []any{
 				map[string]any{"col1": "x", "col2": "1"},
@@ -161,7 +165,7 @@ func TestDecodeReaderItems(t *testing.T) {
 		},
 		{
 			name: "csv_given_headers",
-			cfg:  &ReaderConfig{InputType: "CSV", CSVHeaderLocation: "GIVEN", CSVHeaders: []string{"a", "b"}},
+			cfg:  &asl.ReaderConfig{InputType: "CSV", CSVHeaderLocation: "GIVEN", CSVHeaders: []string{"a", "b"}},
 			data: []byte("1,2\n3,4\n"),
 			want: []any{
 				map[string]any{"a": "1", "b": "2"},
@@ -170,19 +174,19 @@ func TestDecodeReaderItems(t *testing.T) {
 		},
 		{
 			name:    "csv_given_missing_headers",
-			cfg:     &ReaderConfig{InputType: "CSV", CSVHeaderLocation: "GIVEN"},
+			cfg:     &asl.ReaderConfig{InputType: "CSV", CSVHeaderLocation: "GIVEN"},
 			data:    []byte("1,2\n"),
 			wantErr: true,
 		},
 		{
 			name: "csv_max_items_truncates",
-			cfg:  &ReaderConfig{InputType: "CSV", MaxItems: 1},
+			cfg:  &asl.ReaderConfig{InputType: "CSV", MaxItems: 1},
 			data: []byte("col1\nx\ny\nz\n"),
 			want: []any{map[string]any{"col1": "x"}},
 		},
 		{
 			name:    "unknown_input_type",
-			cfg:     &ReaderConfig{InputType: "PARQUET"},
+			cfg:     &asl.ReaderConfig{InputType: "PARQUET"},
 			data:    []byte("ignored"),
 			wantErr: true,
 		},
@@ -192,7 +196,7 @@ func TestDecodeReaderItems(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			items, err := decodeReaderItems(tt.data, tt.cfg)
+			items, err := asl.DecodeReaderItems(tt.data, tt.cfg)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -213,12 +217,12 @@ func TestDecodeReaderItems(t *testing.T) {
 func TestResolveItemsFromReaderUsesConfig(t *testing.T) {
 	t.Parallel()
 
-	exec := NewExecutor(&StateMachine{}, nil, nil)
+	exec := asl.NewExecutor(&asl.StateMachine{}, nil, nil)
 	exec.SetS3Reader(stubS3{data: []byte("h1,h2\na,1\nb,2\n")})
 
-	items, err := exec.resolveItemsFromReader(t.Context(), &ItemReader{
+	items, err := exec.ResolveItemsFromReader(t.Context(), &asl.ItemReader{
 		Parameters:   map[string]any{"Bucket": "b", "Key": "k"},
-		ReaderConfig: &ReaderConfig{InputType: "CSV"},
+		ReaderConfig: &asl.ReaderConfig{InputType: "CSV"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []any{
@@ -230,10 +234,10 @@ func TestResolveItemsFromReaderUsesConfig(t *testing.T) {
 func TestResolveItemsFromReaderS3Error(t *testing.T) {
 	t.Parallel()
 
-	exec := NewExecutor(&StateMachine{}, nil, nil)
-	exec.SetS3Reader(stubS3{err: errors.New("boom")})
+	exec := asl.NewExecutor(&asl.StateMachine{}, nil, nil)
+	exec.SetS3Reader(stubS3{err: errStubBoom})
 
-	_, err := exec.resolveItemsFromReader(t.Context(), &ItemReader{
+	_, err := exec.ResolveItemsFromReader(t.Context(), &asl.ItemReader{
 		Parameters: map[string]any{"Bucket": "b", "Key": "k"},
 	})
 	require.Error(t, err)
