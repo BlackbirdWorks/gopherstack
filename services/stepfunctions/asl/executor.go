@@ -563,7 +563,8 @@ func (e *Executor) invokeTaskAttempt(ctx context.Context, state *State, input an
 	}
 
 	taskInput := injectTaskToken(input, taskToken)
-	if _, invokeErr := e.invokeTask(ctx, state, taskInput); invokeErr != nil {
+	invokeResult, invokeErr := e.invokeTask(ctx, state, taskInput)
+	if invokeErr != nil {
 		return nil, invokeErr
 	}
 
@@ -571,10 +572,15 @@ func (e *Executor) invokeTaskAttempt(ctx context.Context, state *State, input an
 	if err != nil {
 		return nil, err
 	}
+	if callbackOutput == "" {
+		return invokeResult, nil
+	}
 
 	return parseCallbackOutput(callbackOutput), nil
 }
 
+// parseCallbackOutput tries to decode callback output as JSON and falls back to raw string.
+// AWS callback outputs are often JSON, but plain strings are allowed.
 func parseCallbackOutput(output string) any {
 	var result any
 	if output != "" {
@@ -602,7 +608,10 @@ func injectTaskToken(input any, taskToken string) any {
 	return copyMap
 }
 
+// generateTaskToken returns a cryptographically random task token.
+// Token format is URL-safe base64-encoded 32 random bytes.
 func generateTaskToken() (string, error) {
+	// 32 random bytes provide 256-bit entropy, matching strong token requirements.
 	const taskTokenBytes = 32
 	tokenBytes := make([]byte, taskTokenBytes)
 	if _, err := cryptorand.Read(tokenBytes); err != nil {

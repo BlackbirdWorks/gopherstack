@@ -1675,7 +1675,9 @@ func (b *InMemoryBackend) SendTaskHeartbeat(taskToken string) error {
 	return nil
 }
 
-// WaitForTaskToken registers a callback token and blocks until SendTaskSuccess or SendTaskFailure is called.
+// WaitForTaskToken registers a callback token and blocks until terminal callback.
+// It returns ErrTaskTokenAlreadyExists when token already exists, ErrHeartbeatTimeout
+// when heartbeatSeconds elapses without heartbeat/success/failure, or ctx.Err() on cancellation.
 func (b *InMemoryBackend) WaitForTaskToken(
 	ctx context.Context,
 	taskToken string,
