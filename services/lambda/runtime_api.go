@@ -61,6 +61,11 @@ const runtimeReadHeaderTimeout = 10 * time.Second
 // that arrived concurrently with a timeout or context cancellation.
 const containerResponseGracePeriod = 100 * time.Millisecond
 
+// maxInvocationResponseBytes caps the body size for runtime POSTs from a container
+// (invocation/response, invocation/error, init/error). AWS Lambda's documented
+// synchronous response limit is 6 MiB; anything larger is rejected.
+const maxInvocationResponseBytes = 6 * 1024 * 1024
+
 // newRuntimeServer creates a runtimeServer for the given port. Call start() to begin listening.
 func newRuntimeServer(port int) *runtimeServer {
 	return &runtimeServer{
@@ -212,10 +217,17 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 	requestID := parts[0]
 	action := parts[1] // "response" or "error"
 
-	body, readErr := io.ReadAll(r.Body)
+	body, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxInvocationResponseBytes))
 	defer r.Body.Close()
 
 	if readErr != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(readErr, &maxErr) {
+			http.Error(w, "response payload too large", http.StatusRequestEntityTooLarge)
+
+			return
+		}
+
 		// Log but continue — partial body may still be useful.
 		slog.Default().
 			WarnContext(r.Context(), "lambda: error reading invocation result body", "requestID", requestID, "error", readErr)
@@ -255,10 +267,17 @@ func (s *runtimeServer) handleInitError(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	body, readErr := io.ReadAll(r.Body)
+	body, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxInvocationResponseBytes))
 	defer r.Body.Close()
 
 	if readErr != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(readErr, &maxErr) {
+			http.Error(w, "init error payload too large", http.StatusRequestEntityTooLarge)
+
+			return
+		}
+
 		// Log but continue — partial body may still be useful.
 		slog.Default().WarnContext(r.Context(), "lambda: error reading init error body", "error", readErr)
 	}

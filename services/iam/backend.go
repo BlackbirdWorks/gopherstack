@@ -66,6 +66,16 @@ var (
 	ErrInvalidOIDCProviderURL = errors.New("InvalidInput")
 	// ErrInvalidPassword is returned when a password fails validation (e.g., empty).
 	ErrInvalidPassword = errors.New("InvalidInput")
+	// ErrLimitExceeded is returned when an inline policy or other entity exceeds an AWS quota.
+	ErrLimitExceeded = errors.New("LimitExceeded")
+)
+
+// AWS IAM inline policy size limits (UTF-8 bytes, including whitespace) per
+// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_iam-quotas.html.
+const (
+	maxUserPolicySize  = 2048
+	maxRolePolicySize  = 10240
+	maxGroupPolicySize = 5120
 )
 
 // StorageBackend defines the interface for the IAM in-memory store.
@@ -683,6 +693,9 @@ func (b *InMemoryBackend) UpdateRoleMaxSessionDuration(roleName string, maxSessi
 
 // ---- Policies ----
 
+// AWS IAM managed policy document quota (UTF-8 bytes).
+const maxManagedPolicySize = 6144
+
 // CreatePolicy creates a new IAM managed policy.
 func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) (*Policy, error) {
 	b.mu.Lock("CreatePolicy")
@@ -694,6 +707,11 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 
 	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
 		return nil, fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
+	}
+
+	if len(policyDocument) > maxManagedPolicySize {
+		return nil, fmt.Errorf("%w: managed policy %q exceeds %d bytes",
+			ErrLimitExceeded, policyName, maxManagedPolicySize)
 	}
 
 	p := normPath(path)
@@ -1475,6 +1493,11 @@ func (b *InMemoryBackend) PutUserPolicy(userName, policyName, policyDocument str
 		return fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
 	}
 
+	if len(policyDocument) > maxUserPolicySize {
+		return fmt.Errorf("%w: inline policy for user %q exceeds %d bytes",
+			ErrLimitExceeded, userName, maxUserPolicySize)
+	}
+
 	if b.userInlinePolicies[userName] == nil {
 		b.userInlinePolicies[userName] = make(map[string]string)
 	}
@@ -1556,6 +1579,11 @@ func (b *InMemoryBackend) PutRolePolicy(roleName, policyName, policyDocument str
 		return fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
 	}
 
+	if len(policyDocument) > maxRolePolicySize {
+		return fmt.Errorf("%w: inline policy for role %q exceeds %d bytes",
+			ErrLimitExceeded, roleName, maxRolePolicySize)
+	}
+
 	if b.roleInlinePolicies[roleName] == nil {
 		b.roleInlinePolicies[roleName] = make(map[string]string)
 	}
@@ -1635,6 +1663,11 @@ func (b *InMemoryBackend) PutGroupPolicy(groupName, policyName, policyDocument s
 
 	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
 		return fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
+	}
+
+	if len(policyDocument) > maxGroupPolicySize {
+		return fmt.Errorf("%w: inline policy for group %q exceeds %d bytes",
+			ErrLimitExceeded, groupName, maxGroupPolicySize)
 	}
 
 	if b.groupInlinePolicies[groupName] == nil {

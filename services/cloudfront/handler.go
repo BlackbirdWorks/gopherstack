@@ -3261,13 +3261,18 @@ func (h *Handler) handleGetInvalidation(c *echo.Context, distID string) error {
 	return xmlResp(c, http.StatusOK, resp)
 }
 
-// readBody reads the entire request body.
+// maxRequestBodyBytes caps the size of CloudFront request bodies. CloudFront
+// configurations (distributions, functions, key value stores, etc.) are XML/JSON
+// blobs well under 1 MiB; the cap prevents unbounded io.ReadAll DoS.
+const maxRequestBodyBytes = 1 << 20 // 1 MiB
+
+// readBody reads the entire request body, capped at maxRequestBodyBytes.
 func readBody(c *echo.Context) ([]byte, error) {
 	if c.Request().Body == nil {
 		return []byte{}, nil
 	}
 
-	return io.ReadAll(c.Request().Body)
+	return io.ReadAll(http.MaxBytesReader(c.Response(), c.Request().Body, maxRequestBodyBytes))
 }
 
 // --- Cache Policy additional handlers ---

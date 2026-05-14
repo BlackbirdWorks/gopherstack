@@ -378,6 +378,7 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 		StartingPosition:     startingPosition,
 		LastProcessingResult: "No records processed",
 		LastModified:         time.Now(),
+		FilterCriteria:       input.FilterCriteria,
 	}
 
 	b.eventSourceMappings[id] = m
@@ -682,6 +683,11 @@ func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.Hand
 	}
 }
 
+// maxFunctionURLBodyBytes caps the request body for Lambda Function URL invokes.
+// AWS limits the synchronous Lambda invoke payload to 6 MiB; bodies larger than
+// that cannot be forwarded anyway, so cap reads to prevent unbounded memory use.
+const maxFunctionURLBodyBytes = 6 * 1024 * 1024
+
 // buildURLEventPayload converts an HTTP request to a Lambda Function URL event payload.
 func (b *InMemoryBackend) buildURLEventPayload(r *http.Request) ([]byte, error) {
 	var bodyBytes []byte
@@ -689,7 +695,7 @@ func (b *InMemoryBackend) buildURLEventPayload(r *http.Request) ([]byte, error) 
 	if r.Body != nil {
 		var readErr error
 
-		bodyBytes, readErr = io.ReadAll(r.Body)
+		bodyBytes, readErr = io.ReadAll(http.MaxBytesReader(nil, r.Body, maxFunctionURLBodyBytes))
 		if readErr != nil {
 			return nil, fmt.Errorf("failed to read request body: %w", readErr)
 		}
@@ -779,6 +785,14 @@ func buildURLARN(region, accountID, functionName string) string {
 
 // CreateFunction stores a new Lambda function configuration.
 func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
+	// AWS rejects function names longer than 64 chars (function name only,
+	// not including any qualifier or ARN).
+	const maxFunctionNameLength = 64
+	if l := len(fn.FunctionName); l == 0 || l > maxFunctionNameLength {
+		return fmt.Errorf("%w: FunctionName must be 1-%d characters",
+			ErrInvalidParameterValue, maxFunctionNameLength)
+	}
+
 	b.mu.Lock("CreateFunction")
 	defer b.mu.Unlock()
 
@@ -3681,6 +3695,10 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 
 	if input.BatchSize > 0 {
 		esm.BatchSize = input.BatchSize
+	}
+
+	if input.FilterCriteria != nil {
+		esm.FilterCriteria = input.FilterCriteria
 	}
 
 	esm.LastModified = time.Now()

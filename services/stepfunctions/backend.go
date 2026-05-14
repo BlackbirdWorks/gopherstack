@@ -38,9 +38,13 @@ var (
 	ErrTaskTokenAlreadyExists          = errors.New("TaskTokenAlreadyExists")
 	ErrActivityTaskFailed              = errors.New("ActivityTaskFailed")
 	ErrHeartbeatTimeout                = errors.New("States.HeartbeatTimeout")
+	ErrInvalidExecutionInput           = errors.New("InvalidExecutionInput")
 )
 
 const (
+	// maxExecutionInputBytes mirrors the AWS Step Functions hard limit on
+	// StartExecution / StartSyncExecution input payload size (256 KiB).
+	maxExecutionInputBytes    = 256 * 1024
 	executionStartedEventID   = int64(1)
 	executionSucceededEventID = int64(2)
 	maxHistoryEvents          = 25000
@@ -530,6 +534,10 @@ func (b *InMemoryBackend) UpdateStateMachine(smARN, definition, roleArn string) 
 
 // StartSyncExecution executes an EXPRESS state machine synchronously and returns the result.
 func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string) (*SyncExecutionResult, error) {
+	if len(input) > maxExecutionInputBytes {
+		return nil, fmt.Errorf("%w: input exceeds %d bytes", ErrInvalidExecutionInput, maxExecutionInputBytes)
+	}
+
 	b.mu.RLock("StartSyncExecution")
 	sm, exists := b.stateMachines[stateMachineArn]
 	if !exists {
@@ -588,6 +596,18 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 
 	result, execErr := executor.Execute(syncCtx, execARN, input)
 
+	return finalizeSyncExecutionResult(execARN, stateMachineArn, name, input, startDate, result, execErr), nil
+}
+
+// finalizeSyncExecutionResult assembles the SyncExecutionResult based on the
+// outcome of the synchronous executor invocation. Extracted to keep
+// StartSyncExecution under the funlen threshold.
+func finalizeSyncExecutionResult(
+	execARN, stateMachineArn, name, input string,
+	startDate float64,
+	result *asl.ExecutionResult,
+	execErr error,
+) *SyncExecutionResult {
 	stopDate := float64(time.Now().Unix())
 
 	syncResult := &SyncExecutionResult{
@@ -609,7 +629,7 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 			syncResult.Error = execErr.Error()
 		}
 
-		return syncResult, nil
+		return syncResult
 	}
 
 	if result.Error != "" {
@@ -617,18 +637,22 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 		syncResult.Error = result.Error
 		syncResult.Cause = result.Cause
 
-		return syncResult, nil
+		return syncResult
 	}
 
 	outputBytes, _ := json.Marshal(result.Output)
 	syncResult.Status = statusSucceeded
 	syncResult.Output = string(outputBytes)
 
-	return syncResult, nil
+	return syncResult
 }
 
 // StartExecution creates an execution and runs the ASL interpreter asynchronously.
 func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*Execution, error) {
+	if len(input) > maxExecutionInputBytes {
+		return nil, fmt.Errorf("%w: input exceeds %d bytes", ErrInvalidExecutionInput, maxExecutionInputBytes)
+	}
+
 	b.mu.Lock("StartExecution")
 
 	sm, exists := b.stateMachines[stateMachineArn]

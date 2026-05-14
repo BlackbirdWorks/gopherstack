@@ -78,7 +78,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		cas[k] = snap
 	}
 
-	data, _ := json.Marshal(backendSnapshot{
+	data, err := json.Marshal(backendSnapshot{
 		CAs:          cas,
 		Certs:        b.certs,
 		Permissions:  b.permissions,
@@ -87,6 +87,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		AccountID:    b.accountID,
 		Region:       b.region,
 	})
+	if err != nil {
+		return nil
+	}
 
 	return data
 }

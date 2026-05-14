@@ -970,7 +970,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		return nil, ErrQueueNotFound
 	}
 
-	if err := validateMessageSize(input.MessageBody, q); err != nil {
+	if err := validateMessageSize(input.MessageBody, input.MessageAttributes, q); err != nil {
 		return nil, err
 	}
 
@@ -1045,15 +1045,23 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	return out, nil
 }
 
-// validateMessageSize checks whether the message body exceeds the queue's MaximumMessageSize.
-func validateMessageSize(body string, q *Queue) error {
+// validateMessageSize checks whether the total message size (body plus
+// attribute names, values, and types) exceeds the queue's MaximumMessageSize.
+// AWS SQS measures size as the sum of UTF-8 bytes across the body and every
+// attribute name / type / value, matching the documented limit.
+func validateMessageSize(body string, attrs map[string]MessageAttributeValue, q *Queue) error {
 	maxSize := defaultMaxMessageSize
 
 	if v, err := strconv.Atoi(q.Attributes[attrMaximumMessageSize]); err == nil && v > 0 {
 		maxSize = v
 	}
 
-	if len(body) > maxSize {
+	total := len(body)
+	for name, attr := range attrs {
+		total += len(name) + len(attr.DataType) + len(attr.StringValue) + len(attr.BinaryValue)
+	}
+
+	if total > maxSize {
 		return ErrMessageTooLarge
 	}
 
@@ -1673,6 +1681,30 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 
 	if err := validateBatchEntryIDs(input.Entries); err != nil {
 		return nil, err
+	}
+
+	// AWS rejects the entire batch with BatchRequestTooLong when the combined
+	// payload size of every entry that is itself within the per-message limit
+	// (bodies plus attribute name + type + value bytes) would still exceed the
+	// per-queue MaximumMessageSize (default 256 KiB). Entries that are
+	// individually oversized are surfaced per-entry by validateMessageSize so
+	// existing per-entry-failure semantics are preserved.
+	totalBytes := 0
+	allEntriesUnderLimit := true
+	for _, entry := range input.Entries {
+		entryBytes := len(entry.MessageBody)
+		for name, attr := range entry.MessageAttributes {
+			entryBytes += len(name) + len(attr.DataType) + len(attr.StringValue) + len(attr.BinaryValue)
+		}
+
+		if entryBytes > defaultMaxMessageSize {
+			allEntriesUnderLimit = false
+		}
+		totalBytes += entryBytes
+	}
+
+	if allEntriesUnderLimit && totalBytes > defaultMaxMessageSize {
+		return nil, ErrBatchRequestTooLong
 	}
 
 	out := &SendMessageBatchOutput{}

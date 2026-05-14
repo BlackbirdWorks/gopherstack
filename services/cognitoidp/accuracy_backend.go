@@ -105,6 +105,33 @@ func (b *InMemoryBackend) userGroupsLocked(poolID, username string) []string {
 	return out
 }
 
+// validatePasswordPolicy checks AWS-imposed bounds on a PasswordPolicy at
+// pool create / update time. AWS rejects MinimumLength outside [6, 99] and
+// TemporaryPasswordValidityDays outside [0, 365] with InvalidParameterException.
+func validatePasswordPolicy(pp *PasswordPolicy) error {
+	if pp == nil {
+		return nil
+	}
+
+	const (
+		minPasswordLength   = 6
+		maxPasswordLength   = 99
+		maxTempPwdValidDays = 365
+	)
+
+	if pp.MinimumLength != 0 && (pp.MinimumLength < minPasswordLength || pp.MinimumLength > maxPasswordLength) {
+		return fmt.Errorf("%w: MinimumLength must be in [%d, %d]",
+			ErrInvalidParameter, minPasswordLength, maxPasswordLength)
+	}
+
+	if pp.TemporaryPasswordValidityDays < 0 || pp.TemporaryPasswordValidityDays > maxTempPwdValidDays {
+		return fmt.Errorf("%w: TemporaryPasswordValidityDays must be in [0, %d]",
+			ErrInvalidParameter, maxTempPwdValidDays)
+	}
+
+	return nil
+}
+
 // validatePassword checks the proposed password against the pool's PasswordPolicy.
 // Returns ErrInvalidPassword if the policy is violated.
 func validatePassword(policy *PasswordPolicy, password string) error {

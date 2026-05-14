@@ -1913,7 +1913,10 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, err
 	}
 
-	versionID := b.commitMultipartObject(bucket, bucketName, key, assembled, tagging, sse)
+	versionID, err := b.commitMultipartObject(bucket, bucketName, key, assembled, tagging, sse)
+	if err != nil {
+		return nil, err
+	}
 
 	return &s3.CompleteMultipartUploadOutput{
 		Bucket:    input.Bucket,
@@ -2078,7 +2081,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 	assembled multipartAssemblyResult,
 	tagging string,
 	sse sseInfo,
-) string {
+) (string, error) {
 	bucket.mu.Lock(opCompleteMultipartUpload)
 
 	obj, exists := bucket.Objects[key]
@@ -2097,9 +2100,9 @@ func (b *InMemoryBackend) commitMultipartObject(
 	}
 
 	// Seal the assembled body under SSE if the session was created with it.
-	// On failure we leave the bucket lock unchanged for the caller — this
-	// is a programming error (e.g. bad SSE-C key length) rather than a
-	// runtime condition.
+	// On encryption failure we release the bucket lock and surface the error
+	// to the caller so it can be returned as a structured S3 error response
+	// rather than panicking the request goroutine.
 	storedBody := assembled.compressedData
 	var dek, nonce []byte
 	if sse.Algorithm != "" || sse.SSECAlgorithm != "" {
@@ -2107,7 +2110,8 @@ func (b *InMemoryBackend) commitMultipartObject(
 		storedBody, dek, nonce, encErr = encryptWithSSE(assembled.compressedData, sse, sse.SSECKeyB64)
 		if encErr != nil {
 			bucket.mu.Unlock()
-			panic(encErr)
+
+			return "", fmt.Errorf("commitMultipartObject: SSE encryption failed: %w", encErr)
 		}
 	}
 
@@ -2146,7 +2150,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 		b.storeObjectTags(&tagging, bucketName, key, versionID)
 	}
 
-	return versionID
+	return versionID, nil
 }
 
 func (b *InMemoryBackend) AbortMultipartUpload(

@@ -308,6 +308,9 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 			RequireSymbols:                pp.RequireSymbols,
 			TemporaryPasswordValidityDays: pp.TemporaryPasswordValidityDays,
 		}
+		if err := validatePasswordPolicy(opts.PasswordPolicy); err != nil {
+			return nil, err
+		}
 	}
 
 	pool, err := h.Backend.CreateUserPoolWithOpts(in.PoolName, opts)
@@ -687,6 +690,9 @@ func (h *Handler) handleUpdateUserPoolWithOpts(
 			RequireNumbers:                pp.RequireNumbers,
 			RequireSymbols:                pp.RequireSymbols,
 			TemporaryPasswordValidityDays: pp.TemporaryPasswordValidityDays,
+		}
+		if err := validatePasswordPolicy(opts.PasswordPolicy); err != nil {
+			return nil, err
 		}
 	}
 

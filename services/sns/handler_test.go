@@ -2080,6 +2080,72 @@ func TestFilterPolicyPrefixAndAnythingBut(t *testing.T) {
 	}
 }
 
+// TestFilterPolicySuffixAndEqualsIgnoreCase verifies suffix and equals-ignore-case
+// SNS filter policy operators added for AWS parity.
+func TestFilterPolicySuffixAndEqualsIgnoreCase(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+
+	delivered := make(chan string, 10)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		delivered <- string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	// suffix subscriber
+	suffixTopic, err := b.CreateTopic("fp-suffix", nil)
+	require.NoError(t, err)
+	_, err = b.Subscribe(suffixTopic.TopicArn, "http", ts.URL, `{"file":[{"suffix":".jpg"}]}`)
+	require.NoError(t, err)
+
+	_, err = b.Publish(suffixTopic.TopicArn, "suffix-match", "", "",
+		map[string]sns.MessageAttribute{"file": {DataType: "String", StringValue: "photo.jpg"}})
+	require.NoError(t, err)
+	select {
+	case msg := <-delivered:
+		assert.Equal(t, "suffix-match", extractSNSHTTPMessage(msg))
+	case <-time.After(500 * time.Millisecond):
+		require.FailNow(t, "expected delivery for suffix match")
+	}
+
+	_, err = b.Publish(suffixTopic.TopicArn, "no-match", "", "",
+		map[string]sns.MessageAttribute{"file": {DataType: "String", StringValue: "doc.pdf"}})
+	require.NoError(t, err)
+	select {
+	case <-delivered:
+		require.FailNow(t, "expected no delivery for non-matching suffix")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// equals-ignore-case subscriber
+	eqTopic, err := b.CreateTopic("fp-eqic", nil)
+	require.NoError(t, err)
+	_, err = b.Subscribe(eqTopic.TopicArn, "http", ts.URL, `{"region":[{"equals-ignore-case":"us-east-1"}]}`)
+	require.NoError(t, err)
+
+	_, err = b.Publish(eqTopic.TopicArn, "case-match", "", "",
+		map[string]sns.MessageAttribute{"region": {DataType: "String", StringValue: "US-EAST-1"}})
+	require.NoError(t, err)
+	select {
+	case msg := <-delivered:
+		assert.Equal(t, "case-match", extractSNSHTTPMessage(msg))
+	case <-time.After(500 * time.Millisecond):
+		require.FailNow(t, "expected delivery for equals-ignore-case match")
+	}
+
+	_, err = b.Publish(eqTopic.TopicArn, "case-no-match", "", "",
+		map[string]sns.MessageAttribute{"region": {DataType: "String", StringValue: "eu-west-1"}})
+	require.NoError(t, err)
+	select {
+	case <-delivered:
+		require.FailNow(t, "expected no delivery for differing region")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 // TestMessageStructureJSON verifies per-protocol message extraction when MessageStructure=json.
 func TestMessageStructureJSON(t *testing.T) {
 	t.Parallel()
@@ -5162,6 +5228,19 @@ func TestSNS_FilterPolicyValidation(t *testing.T) {
 			name:         "accepts_valid_numeric_condition",
 			filterPolicy: `{"price":[{"numeric":[">", 10, "<=", 100]}]}`,
 		},
+		{
+			name:         "rejects_unknown_operator_name",
+			filterPolicy: `{"event":[{"contains":"foo"}]}`,
+			wantErr:      "unsupported operator",
+		},
+		{
+			name:         "accepts_suffix_operator",
+			filterPolicy: `{"file":[{"suffix":".jpg"}]}`,
+		},
+		{
+			name:         "accepts_equals_ignore_case_operator",
+			filterPolicy: `{"region":[{"equals-ignore-case":"us-east-1"}]}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -5186,4 +5265,33 @@ func TestSNS_FilterPolicyValidation(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
+}
+
+// TestSNS_PublishSizeIncludesAttributes verifies that AWS-style SNS sizing
+// (body + attribute name + type + value) is enforced against the 256 KiB cap.
+func TestSNS_PublishSizeIncludesAttributes(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+	tp, err := b.CreateTopic("size-topic", nil)
+	require.NoError(t, err)
+
+	const limit = 256 * 1024
+
+	// Body alone is under the limit; large attribute pushes the total over.
+	body := strings.Repeat("a", limit-100)
+	attrs := map[string]sns.MessageAttribute{
+		strings.Repeat("k", 50): {
+			DataType:    "String",
+			StringValue: strings.Repeat("v", 200),
+		},
+	}
+
+	_, err = b.Publish(tp.TopicArn, body, "", "", attrs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds SNS limit")
+
+	// Body alone with no attributes succeeds at the same body size.
+	_, err = b.Publish(tp.TopicArn, body, "", "", nil)
+	require.NoError(t, err)
 }

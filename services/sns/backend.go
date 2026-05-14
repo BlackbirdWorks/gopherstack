@@ -890,9 +890,14 @@ type parsedFilterPolicy map[string][]json.RawMessage
 // error for any malformed input. Validation enforces:
 //   - JSON is well-formed and is an object whose values are arrays.
 //   - Total encoded size ≤ maxFilterPolicySizeBytes (256 KiB).
+//   - Total attribute conditions ≤ maxFilterPolicyConditions (150).
+//   - Object-condition operator names are restricted to the AWS-supported set
+//     (`prefix`, `suffix`, `equals-ignore-case`, `anything-but`, `exists`,
+//     `numeric`).
+//   - Numeric operand shape (operator/number pairs) is well-formed.
 //
-// Stricter content checks (operator names, numeric operand shape, nesting depth,
-// total attribute-condition cap) are not yet enforced — issues #1679 items 7/13.
+// Nesting depth (for nested-object filter policies) is not yet enforced —
+// issue #1679 item 13.
 // maxFilterPolicyConditions is the AWS SNS cap on total attribute conditions
 // across all keys in a single FilterPolicy (≈150 in production).
 const maxFilterPolicyConditions = 150
@@ -948,16 +953,40 @@ func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 	return parsed, nil
 }
 
+// knownFilterPolicyOperators is the set of object-condition keys recognised
+// by AWS SNS subscription FilterPolicy. Conditions containing any other key
+// are rejected at Subscribe / SetSubscriptionAttributes time so misconfigurations
+// surface immediately rather than silently mis-routing messages.
+//
+//nolint:gochecknoglobals // read-only lookup
+var knownFilterPolicyOperators = map[string]struct{}{
+	"prefix":             {},
+	"suffix":             {},
+	"equals-ignore-case": {},
+	"anything-but":       {},
+	"exists":             {},
+	"numeric":            {},
+}
+
 // validateConditionShapes inspects each condition under a single FilterPolicy
-// attribute and rejects malformed numeric operand structures. Other condition
-// shapes (string match, prefix, exists, anything-but) are tolerated as-is and
-// validated lazily at evaluation.
+// attribute and rejects unknown operator names and malformed numeric operand
+// structures. Scalar conditions (plain strings, numbers, booleans, null) and
+// known object operators are tolerated as-is and matched lazily at evaluation.
 func validateConditionShapes(key string, conditions []json.RawMessage) error {
 	for _, raw := range conditions {
 		var obj map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &obj); err != nil {
 			// Scalar conditions (e.g. plain strings) are valid; skip object-only checks.
 			continue
+		}
+
+		for opName := range obj {
+			if _, ok := knownFilterPolicyOperators[opName]; !ok {
+				return fmt.Errorf(
+					"%w: FilterPolicy attribute %q uses unsupported operator %q",
+					ErrInvalidParameter, key, opName,
+				)
+			}
 		}
 
 		numericRaw, ok := obj["numeric"]
@@ -1213,8 +1242,15 @@ func (b *InMemoryBackend) collectPublishTargets(
 func (b *InMemoryBackend) Publish(
 	topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute,
 ) (string, error) {
-	// Validate message size before acquiring any lock (cheap pre-check).
-	if len(message) > maxMessageSizeBytes {
+	// Validate total message size before acquiring any lock (cheap pre-check).
+	// AWS SNS counts the message body plus every attribute name + type + value
+	// toward the 256 KiB cap.
+	totalSize := len(message)
+	for name, a := range attrs {
+		totalSize += len(name) + len(a.DataType) + len(a.StringValue)
+	}
+
+	if totalSize > maxMessageSizeBytes {
 		return "", fmt.Errorf(
 			"%w: Message size exceeds SNS limit of %d bytes",
 			ErrInvalidParameter,
@@ -1392,12 +1428,31 @@ func matchesParsedFilterPolicy(policy parsedFilterPolicy, attrs map[string]Messa
 }
 
 // matchObjectCondition evaluates a single JSON-object SNS filter condition such as
-// {"prefix": "order-"}, {"anything-but": [...]}, {"exists": true}, or {"numeric": [">", 0]}.
+// {"prefix": "order-"}, {"suffix": ".jpg"}, {"anything-but": [...]},
+// {"equals-ignore-case": "OrderId"}, {"exists": true}, or {"numeric": [">", 0]}.
 func matchObjectCondition(value string, attrExists bool, obj map[string]json.RawMessage) bool {
 	if prefixRaw, ok := obj["prefix"]; ok {
 		var prefix string
 		if err := json.Unmarshal(prefixRaw, &prefix); err == nil {
 			return attrExists && strings.HasPrefix(value, prefix)
+		}
+
+		return false
+	}
+
+	if suffixRaw, ok := obj["suffix"]; ok {
+		var suffix string
+		if err := json.Unmarshal(suffixRaw, &suffix); err == nil {
+			return attrExists && strings.HasSuffix(value, suffix)
+		}
+
+		return false
+	}
+
+	if eqICaseRaw, ok := obj["equals-ignore-case"]; ok {
+		var want string
+		if err := json.Unmarshal(eqICaseRaw, &want); err == nil {
+			return attrExists && strings.EqualFold(value, want)
 		}
 
 		return false

@@ -86,6 +86,14 @@ func (d *fifoDeduplication) record(topicArn, dedupID string) {
 	// with many short-lived dedup IDs cannot grow without bound.
 	if len(d.entries) >= fifoDedupMaxEntries {
 		d.sweepExpiredLocked(now)
+
+		// If a burst of unique-but-still-fresh dedup IDs filled the map, fall
+		// back to evicting the entry with the earliest expiration so insertions
+		// remain bounded. AWS only guarantees a 5-minute window, so dropping
+		// the soonest-to-expire entry is acceptable.
+		if len(d.entries) >= fifoDedupMaxEntries {
+			d.evictEarliestLocked()
+		}
 	}
 
 	d.entries[topicArn+"/"+dedupID] = now.Add(fifoDedupTTL)
@@ -97,6 +105,28 @@ func (d *fifoDeduplication) sweepExpiredLocked(now time.Time) {
 		if now.After(exp) {
 			delete(d.entries, k)
 		}
+	}
+}
+
+// evictEarliestLocked drops the single entry with the earliest expiration
+// from the map. Caller must hold d.mu.
+func (d *fifoDeduplication) evictEarliestLocked() {
+	var (
+		oldestKey string
+		oldestExp time.Time
+		first     = true
+	)
+
+	for k, exp := range d.entries {
+		if first || exp.Before(oldestExp) {
+			oldestKey = k
+			oldestExp = exp
+			first = false
+		}
+	}
+
+	if !first {
+		delete(d.entries, oldestKey)
 	}
 }
 
@@ -764,6 +794,19 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 		}
 
 		seen[entry.id] = true
+	}
+
+	// AWS rejects PublishBatch when the combined message bodies exceed the
+	// 256 KiB per-request limit (BatchRequestTooLong).
+	totalBytes := 0
+	for _, entry := range entries {
+		totalBytes += len(entry.message)
+	}
+
+	if totalBytes > maxMessageSizeBytes {
+		return h.writeError(c, http.StatusBadRequest, "BatchRequestTooLong",
+			fmt.Sprintf("Batch requests cannot be longer than %d bytes; got %d.",
+				maxMessageSizeBytes, totalBytes))
 	}
 
 	successful := make([]XMLPublishBatchSuccessEntry, 0, len(entries))

@@ -32,6 +32,19 @@ const (
 	stubServiceType      = "CUPS"
 )
 
+// maxStubBodyBytes caps stub request body reads to prevent unbounded memory
+// usage on attacker-controlled inputs. IoT Wireless API payloads are far below
+// 1 MiB; cap conservatively.
+const maxStubBodyBytes = 1 << 20
+
+// readStubBody returns the request body capped at maxStubBodyBytes. Errors are
+// swallowed because stubs treat unparsed input as empty (matching prior behavior).
+func readStubBody(c *echo.Context) []byte {
+	body, _ := io.ReadAll(http.MaxBytesReader(c.Response(), c.Request().Body, maxStubBodyBytes))
+
+	return body
+}
+
 // stubNoContent writes 204 No Content and returns nil.
 func stubNoContent(c *echo.Context) error {
 	c.Response().WriteHeader(http.StatusNoContent)
@@ -274,7 +287,7 @@ func (h *Handler) createMulticastGroup(c *echo.Context) error {
 		Description string            `json:"Description"`
 	}
 
-	body, _ := io.ReadAll(c.Request().Body)
+	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
 	mg, err := h.Backend.CreateMulticastGroup(h.AccountID, h.DefaultRegion, req.Name, req.Description, req.Tags)
@@ -335,7 +348,7 @@ func (h *Handler) updateMulticastGroup(c *echo.Context, id string) error {
 		Description string `json:"Description"`
 	}
 
-	body, _ := io.ReadAll(c.Request().Body)
+	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
 	if err := h.Backend.UpdateMulticastGroup(h.AccountID, h.DefaultRegion, id, req.Name, req.Description); err != nil {
@@ -397,7 +410,7 @@ func (h *Handler) updateFuotaTask(c *echo.Context, id string) error {
 		Description string `json:"Description"`
 	}
 
-	body, _ := io.ReadAll(c.Request().Body)
+	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
 	if err := h.Backend.UpdateFuotaTask(h.AccountID, h.DefaultRegion, id, req.Name, req.Description); err != nil {
@@ -418,7 +431,7 @@ func (h *Handler) createNetworkAnalyzerConfiguration(c *echo.Context) error {
 		WirelessGateways []string          `json:"WirelessGateways"`
 	}
 
-	body, _ := io.ReadAll(c.Request().Body)
+	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
 	nc, err := h.Backend.CreateNetworkAnalyzerConfig(
@@ -489,7 +502,7 @@ func (h *Handler) updateNetworkAnalyzerConfiguration(c *echo.Context, name strin
 		WirelessGateways []string `json:"WirelessGateways"`
 	}
 
-	body, _ := io.ReadAll(c.Request().Body)
+	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
 	if err := h.Backend.UpdateNetworkAnalyzerConfig(
@@ -676,7 +689,7 @@ func (h *Handler) updateWirelessGateway(c *echo.Context, id string) error {
 		Description string `json:"Description"`
 	}
 
-	body, _ := io.ReadAll(c.Request().Body)
+	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
 	if err := h.Backend.UpdateWirelessGateway(h.AccountID, h.DefaultRegion, id, req.Name, req.Description); err != nil {
@@ -794,7 +807,7 @@ func (h *Handler) updateDestination(c *echo.Context, name string) error {
 		Description    string `json:"Description"`
 	}
 
-	body, _ := io.ReadAll(c.Request().Body)
+	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
 	if err := h.Backend.UpdateDestination(

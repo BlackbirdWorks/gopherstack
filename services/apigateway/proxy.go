@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -22,6 +23,11 @@ import (
 const defaultAuthorizerTTL = 300 * time.Second
 
 const defaultAuthorizerCacheMaxEntries = 1024
+
+// maxProxyRequestBodyBytes caps API Gateway proxy request bodies. AWS limits the
+// Lambda synchronous invoke payload to 6 MiB; bodies larger than that cannot be
+// forwarded anyway, so cap reads to prevent unbounded io.ReadAll memory usage.
+const maxProxyRequestBodyBytes = 6 * 1024 * 1024 // 6 MiB
 
 // LambdaInvoker can invoke a Lambda function by name/ARN.
 type LambdaInvoker interface {
@@ -74,7 +80,7 @@ func BuildProxyEvent(
 	var isBase64 bool
 
 	if r.Body != nil {
-		bodyBytes, err := io.ReadAll(r.Body)
+		bodyBytes, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, maxProxyRequestBodyBytes))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read request body: %w", err)
 		}
@@ -469,7 +475,7 @@ func (h *Handler) runRequestValidator(
 	}
 
 	if rv.ValidateRequestBody && r.Body != nil {
-		bodyBytes, readErr := io.ReadAll(r.Body)
+		bodyBytes, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxProxyRequestBodyBytes))
 		if readErr != nil {
 			http.Error(w, "Bad Request: failed to read body", http.StatusBadRequest)
 
@@ -680,8 +686,15 @@ func (h *Handler) handleAWSIntegration(
 	}
 
 	// Read the raw request body.
-	rawBody, readErr := io.ReadAll(r.Body)
+	rawBody, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxProxyRequestBodyBytes))
 	if readErr != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(readErr, &maxErr) {
+			http.Error(w, "Request entity too large", http.StatusRequestEntityTooLarge)
+
+			return
+		}
+
 		logger.Load(ctx).ErrorContext(ctx, "APIGateway AWS integration: failed to read body", "error", readErr)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 

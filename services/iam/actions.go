@@ -216,12 +216,14 @@ func extractS3IAMAction(r *http.Request) string {
 }
 
 // readBodyPreserving reads the request body and restores it so downstream handlers can re-read it.
+// The body is capped at maxIAMActionBodyBytes to prevent unbounded memory usage on
+// attacker-supplied form bodies.
 func readBodyPreserving(r *http.Request) ([]byte, error) {
 	if r.Body == nil {
 		return nil, nil
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, maxIAMActionBodyBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -230,3 +232,7 @@ func readBodyPreserving(r *http.Request) ([]byte, error) {
 
 	return body, nil
 }
+
+// maxIAMActionBodyBytes caps the IAM Action lookup body. AWS SigV4 form-encoded
+// IAM bodies are well under a megabyte; cap conservatively to 1 MiB.
+const maxIAMActionBodyBytes = 1 << 20

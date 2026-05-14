@@ -538,6 +538,26 @@ func putRecordErrorCode(err error) string {
 
 // PutRecords writes multiple records to a stream.
 func (b *InMemoryBackend) PutRecords(input *PutRecordsInput) (*PutRecordsOutput, error) {
+	// AWS PutRecords caps a request at 500 records and 5 MiB total payload
+	// (sum of partition-key + data bytes across every entry).
+	const (
+		maxRecordsPerRequest = 500
+		maxBatchPayloadBytes = 5 * 1024 * 1024
+	)
+
+	if len(input.Records) > maxRecordsPerRequest {
+		return nil, ErrInvalidArgument
+	}
+
+	totalBytes := 0
+	for _, r := range input.Records {
+		totalBytes += len(r.PartitionKey) + len(r.Data)
+	}
+
+	if totalBytes > maxBatchPayloadBytes {
+		return nil, ErrInvalidArgument
+	}
+
 	results := make([]PutRecordsResultEntry, len(input.Records))
 	failedCount := 0
 

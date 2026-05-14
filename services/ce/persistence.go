@@ -1,6 +1,9 @@
 package ce
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 type backendSnapshot struct {
 	CostCategories       map[string]*CostCategory        `json:"costCategories"`
@@ -9,6 +12,7 @@ type backendSnapshot struct {
 	Anomalies            map[string]*Anomaly             `json:"anomalies"`
 	AccountID            string                          `json:"accountID"`
 	Region               string                          `json:"region"`
+	AnomalyTTL           time.Duration                   `json:"anomalyTTL"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -23,6 +27,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Anomalies:            b.anomalies,
 		AccountID:            b.accountID,
 		Region:               b.region,
+		AnomalyTTL:           b.anomalyTTL,
 	}
 
 	data, err := json.Marshal(snap)
@@ -66,6 +71,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.anomalies = snap.Anomalies
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	// Default to DefaultAnomalyTTL when restoring from a pre-AnomalyTTL snapshot
+	// to avoid evicting every anomaly on Restore (zero TTL is "evict everything").
+	if snap.AnomalyTTL > 0 {
+		b.anomalyTTL = snap.AnomalyTTL
+	} else {
+		b.anomalyTTL = DefaultAnomalyTTL
+	}
 
 	return nil
 }

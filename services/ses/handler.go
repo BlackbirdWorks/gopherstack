@@ -2067,6 +2067,13 @@ func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (a
 		destinations = append(destinations, d)
 	}
 
+	// AWS SES rejects SendBulkTemplatedEmail with more than 50 destinations.
+	const maxBulkDestinations = 50
+	if len(destinations) > maxBulkDestinations {
+		return nil, fmt.Errorf("%w: too many destinations: %d (max %d)",
+			ErrInvalidParameter, len(destinations), maxBulkDestinations)
+	}
+
 	msgIDs, err := h.Backend.SendBulkTemplatedEmail(source, template, destinations)
 	if err != nil {
 		return nil, err
