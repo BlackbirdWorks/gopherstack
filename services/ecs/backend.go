@@ -160,6 +160,7 @@ type RegisterTaskDefinitionInput struct {
 	PlatformFamily       string                `json:"platformFamily,omitempty"`
 	ContainerDefinitions []ContainerDefinition `json:"containerDefinitions"`
 	PlacementConstraints []PlacementConstraint `json:"placementConstraints,omitempty"`
+	Tags                 []Tag                 `json:"tags,omitempty"`
 }
 
 // CreateServiceInput holds input for CreateService.
@@ -541,6 +542,19 @@ func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInp
 
 	b.taskDefinitions[input.Family] = revisions
 	b.taskDefByArn[td.TaskDefinitionArn] = td
+
+	// Persist registration tags via the same resourceTags map used by
+	// TagResource so that DescribeTaskDefinition can surface them when
+	// the include=TAGS option is provided.
+	if len(input.Tags) > 0 {
+		if b.resourceTags == nil {
+			b.resourceTags = make(map[string][]Tag)
+		}
+
+		copied := make([]Tag, len(input.Tags))
+		copy(copied, input.Tags)
+		b.resourceTags[resourceTagKey(td.TaskDefinitionArn)] = copied
+	}
 
 	cp := *td
 

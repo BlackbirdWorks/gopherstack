@@ -1,5 +1,7 @@
 package stepfunctions
 
+import "slices"
+
 // MaxHistoryEventsForTest exposes the maxHistoryEvents cap for use in external test packages.
 const MaxHistoryEventsForTest = maxHistoryEvents
 
@@ -78,4 +80,18 @@ func (h *Handler) SetTagsForTest(resourceID string, kv map[string]string) {
 // GetTagsForTest exposes getTags for external test packages.
 func (h *Handler) GetTagsForTest(resourceID string) map[string]string {
 	return h.getTags(resourceID)
+}
+
+// TaskTokensForTest returns sorted currently registered task tokens.
+func (b *InMemoryBackend) TaskTokensForTest() []string {
+	b.mu.RLock("TaskTokensForTest")
+	defer b.mu.RUnlock()
+
+	tokens := make([]string, 0, len(b.tasksByToken))
+	for token := range b.tasksByToken {
+		tokens = append(tokens, token)
+	}
+	slices.Sort(tokens)
+
+	return tokens
 }

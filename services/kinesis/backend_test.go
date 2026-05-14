@@ -237,6 +237,67 @@ func TestListStreams_Sorted(t *testing.T) {
 	assert.Equal(t, []string{"alpha", "bravo", "charlie"}, out.StreamNames)
 }
 
+// TestListStreams_Pagination verifies cursor-based pagination using both
+// ExclusiveStartStreamName and the opaque NextToken. AWS returns names in
+// alphabetical order and sets NextToken to the last returned name when
+// HasMoreStreams is true; passing it back as ExclusiveStartStreamName must
+// resume past that name.
+func TestListStreams_Pagination(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+	for _, n := range []string{"a", "b", "c", "d", "e"} {
+		require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: n}))
+	}
+
+	tests := []struct {
+		input     *kinesis.ListStreamsInput
+		name      string
+		wantToken string
+		want      []string
+		wantMore  bool
+	}{
+		{
+			name:      "first_page",
+			input:     &kinesis.ListStreamsInput{Limit: 2},
+			want:      []string{"a", "b"},
+			wantMore:  true,
+			wantToken: "b",
+		},
+		{
+			name:      "second_page_via_next_token",
+			input:     &kinesis.ListStreamsInput{Limit: 2, NextToken: "b"},
+			want:      []string{"c", "d"},
+			wantMore:  true,
+			wantToken: "d",
+		},
+		{
+			name:     "third_page_exclusive_start",
+			input:    &kinesis.ListStreamsInput{Limit: 5, ExclusiveStartStreamName: "d"},
+			want:     []string{"e"},
+			wantMore: false,
+		},
+		{
+			name:     "exclusive_start_skips_match",
+			input:    &kinesis.ListStreamsInput{Limit: 10, ExclusiveStartStreamName: "a"},
+			want:     []string{"b", "c", "d", "e"},
+			wantMore: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := bk.ListStreams(tt.input)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, out.StreamNames)
+			assert.Equal(t, tt.wantMore, out.HasMoreStreams)
+			assert.Equal(t, tt.wantToken, out.NextToken)
+		})
+	}
+}
+
 // TestIncreaseDecreaseRetentionPeriod covers happy paths and validation for retention period changes.
 func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
 	t.Parallel()

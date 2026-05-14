@@ -22,6 +22,7 @@ var (
 	errTransientError  = errors.New("TransientError")
 	errPersistentError = errors.New("PersistentError")
 	errSomeError       = errors.New("SomeError")
+	errBoom            = errors.New("boom")
 )
 
 func TestParse(t *testing.T) {
@@ -1681,6 +1682,53 @@ func TestExecutor_Task_TimeoutSeconds(t *testing.T) {
 	}
 }
 
+func TestExecutor_Task_Catch_StatesTaskFailed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		lambda     asl.LambdaInvoker
+		wantOutput any
+		name       string
+		def        string
+		input      string
+	}{
+		{
+			name: "non_timeout_failure_matches_states_taskfailed",
+			lambda: &mockLambdaFn{fn: func() ([]byte, int, error) {
+				return nil, 500, errBoom
+			}},
+			def: `{
+"StartAt": "T",
+"States": {
+"T": {
+"Type": "Task",
+"Resource": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+"Catch": [{"ErrorEquals": ["States.TaskFailed"], "Next": "Caught"}],
+"End": true
+},
+"Caught": {"Type": "Pass", "End": true, "Result": "caught"}
+}
+}`,
+			input:      `{}`,
+			wantOutput: "caught",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sm, err := asl.Parse(tt.def)
+			require.NoError(t, err)
+			exec := asl.NewExecutor(sm, tt.lambda, nil)
+			result, err := exec.Execute(t.Context(), "test", tt.input)
+			require.NoError(t, err)
+			require.Empty(t, result.Error)
+			assert.Equal(t, tt.wantOutput, result.Output)
+		})
+	}
+}
+
 func TestExecutor_UnknownStateType(t *testing.T) {
 	t.Parallel()
 
@@ -2189,6 +2237,77 @@ func TestExecutor_Choice_StringGreaterThanEquals(t *testing.T) {
 	}
 }
 
+func TestExecutor_Choice_NumericStringCoercion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		want  any
+		name  string
+		input string
+	}{
+		{
+			name:  "numeric_string_matches_numeric_comparison",
+			input: `{"count":"6"}`,
+			want:  "high",
+		},
+		{
+			name:  "non_numeric_string_does_not_match",
+			input: `{"count":"not-a-number"}`,
+			want:  "low",
+		},
+		{
+			name:  "empty_string_does_not_match",
+			input: `{"count":""}`,
+			want:  "low",
+		},
+		{
+			name:  "whitespace_only_string_does_not_match",
+			input: `{"count":"   "}`,
+			want:  "low",
+		},
+		{
+			name:  "scientific_notation_string_matches",
+			input: `{"count":"1e1"}`,
+			want:  "high",
+		},
+		{
+			name:  "overflow_string_does_not_match",
+			input: `{"count":"1e4000"}`,
+			want:  "low",
+		},
+		{
+			name:  "nan_string_does_not_match",
+			input: `{"count":"NaN"}`,
+			want:  "low",
+		},
+		{
+			name:  "inf_string_does_not_match",
+			input: `{"count":"Inf"}`,
+			want:  "low",
+		},
+	}
+
+	def := `{
+"StartAt": "Check",
+"States": {
+"Check": {
+"Type": "Choice",
+"Choices": [{"Variable": "$.count", "NumericGreaterThan": 5, "Next": "High"}],
+"Default": "Low"
+},
+"High": {"Type": "Pass", "End": true, "Result": "high"},
+"Low": {"Type": "Pass", "End": true, "Result": "low"}
+}
+}`
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, execute(t, def, tt.input).Output)
+		})
+	}
+}
+
 // --- Map state ItemProcessor ---
 
 func TestExecutor_MapState_ItemProcessor(t *testing.T) {
@@ -2217,6 +2336,56 @@ func TestExecutor_MapState_ItemProcessor(t *testing.T) {
 			arr, ok := result.Output.([]any)
 			require.True(t, ok)
 			assert.Len(t, arr, tt.wantLen)
+		})
+	}
+}
+
+func TestExecutor_MapState_ItemSelector(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		def        string
+		input      string
+		wantValues []map[string]any
+	}{
+		{
+			name: "transforms_item_and_injects_index_context",
+			def: `{
+"StartAt":"Map",
+"States":{
+"Map":{
+"Type":"Map",
+"ItemSelector":{"idx.$":"$$.Map.Item.Index","value.$":"$$.Map.Item.Value.v"},
+"ItemProcessor":{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}},
+"End":true
+}
+}
+}`,
+			input: `[{"v":"a"},{"v":"b"}]`,
+			wantValues: []map[string]any{
+				{"idx": float64(0), "value": "a"},
+				{"idx": float64(1), "value": "b"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := execute(t, tt.def, tt.input)
+			require.Empty(t, result.Error)
+
+			got, ok := result.Output.([]any)
+			require.True(t, ok)
+			require.Len(t, got, len(tt.wantValues))
+
+			for idx := range tt.wantValues {
+				itemMap, itemOK := got[idx].(map[string]any)
+				require.True(t, itemOK)
+				assert.Equal(t, tt.wantValues[idx], itemMap)
+			}
 		})
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -395,7 +396,21 @@ func (h *Handler) handleUpdateEnvironment(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleListEnvironments(c *echo.Context) error {
-	names, err := h.Backend.ListEnvironments()
+	q := c.Request().URL.Query()
+	nextToken := q.Get("NextToken")
+
+	pageSize := 0
+	if v := q.Get("MaxResults"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > listEnvMaxPageSize {
+			return writeErrorResponse(c, http.StatusBadRequest, "ValidationException",
+				"MaxResults must be between 1 and 100")
+		}
+
+		pageSize = n
+	}
+
+	names, outToken, err := h.Backend.ListEnvironmentsPage(nextToken, pageSize)
 	if err != nil {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
@@ -404,9 +419,12 @@ func (h *Handler) handleListEnvironments(c *echo.Context) error {
 		names = []string{}
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]any{
-		"Environments": names,
-	})
+	resp := map[string]any{"Environments": names}
+	if outToken != "" {
+		resp["NextToken"] = outToken
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
 
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -394,6 +395,13 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 		}
 	}
 
+	// Validate KmsMasterKeyId format if present (alias name, alias ARN, key ID, or key ARN).
+	if v := attrs["KmsMasterKeyId"]; v != "" {
+		if err := validateKmsMasterKeyID(v); err != nil {
+			return nil, err
+		}
+	}
+
 	topic := &Topic{
 		TopicArn:          topicArn,
 		Attributes:        attrs,
@@ -584,6 +592,13 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 		)
 	}
 
+	// Validate KmsMasterKeyId format (alias name, alias ARN, key ID, or key ARN).
+	if attrName == "KmsMasterKeyId" && attrValue != "" {
+		if err := validateKmsMasterKeyID(attrValue); err != nil {
+			return err
+		}
+	}
+
 	// When clearing EffectiveDeliveryPolicy derived from DeliveryPolicy, reset it.
 	if attrName == "DeliveryPolicy" {
 		if attrValue == "" {
@@ -614,6 +629,13 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 			ErrInvalidParameter,
 			protocol,
 		)
+	}
+
+	// Parse and validate the filter policy outside the backend lock so that
+	// JSON parsing of large policies does not block other SNS operations.
+	parsedPolicy, parseErr := parseFilterPolicy(filterPolicy)
+	if parseErr != nil {
+		return nil, parseErr
 	}
 
 	b.mu.Lock("Subscribe")
@@ -652,7 +674,7 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 		Endpoint:            endpoint,
 		Owner:               b.accountID,
 		FilterPolicy:        filterPolicy,
-		parsedFilterPolicy:  parseFilterPolicy(filterPolicy),
+		parsedFilterPolicy:  parsedPolicy,
 		PendingConfirmation: pending,
 		CreationTimestamp:   time.Now().UTC(),
 	}
@@ -745,6 +767,26 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 
 // SetSubscriptionAttributes sets a single attribute on a subscription.
 func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, attrValue string) error {
+	// Parse the FilterPolicy outside the backend lock so JSON validation does
+	// not serialize against unrelated SNS operations on large policies.
+	var parsedPolicy parsedFilterPolicy
+
+	if attrName == attrFilterPolicy {
+		p, err := parseFilterPolicy(attrValue)
+		if err != nil {
+			return err
+		}
+
+		parsedPolicy = p
+	}
+
+	// Pre-validate redrive policy outside the backend lock for the same reason.
+	if attrName == attrRedrivePolicy && attrValue != "" {
+		if err := validateRedrivePolicy(attrValue); err != nil {
+			return err
+		}
+	}
+
 	b.mu.Lock("SetSubscriptionAttributes")
 	defer b.mu.Unlock()
 
@@ -758,7 +800,7 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 		sub.RawMessageDelivery = strings.EqualFold(attrValue, "true")
 	case attrFilterPolicy:
 		sub.FilterPolicy = attrValue
-		sub.parsedFilterPolicy = parseFilterPolicy(attrValue)
+		sub.parsedFilterPolicy = parsedPolicy
 	case attrRedrivePolicy:
 		sub.RedrivePolicy = attrValue
 	case attrSubscriptionRoleArn:
@@ -843,31 +885,263 @@ type publishTargets struct {
 
 type parsedFilterPolicy map[string][]json.RawMessage
 
-func parseFilterPolicy(filterPolicy string) parsedFilterPolicy {
+// parseFilterPolicy parses and validates a FilterPolicy JSON string. It returns
+// an empty (non-nil) policy for an empty input, or an InvalidParameter-wrapped
+// error for any malformed input. Validation enforces:
+//   - JSON is well-formed and is an object whose values are arrays.
+//   - Total encoded size ≤ maxFilterPolicySizeBytes (256 KiB).
+//
+// Stricter content checks (operator names, numeric operand shape, nesting depth,
+// total attribute-condition cap) are not yet enforced — issues #1679 items 7/13.
+// maxFilterPolicyConditions is the AWS SNS cap on total attribute conditions
+// across all keys in a single FilterPolicy (≈150 in production).
+const maxFilterPolicyConditions = 150
+
+func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 	if filterPolicy == "" {
-		return nil
+		return parsedFilterPolicy{}, nil
 	}
 
 	if len(filterPolicy) > maxFilterPolicySizeBytes {
-		return nil
+		return nil, fmt.Errorf(
+			"%w: FilterPolicy exceeds %d bytes",
+			ErrInvalidParameter, maxFilterPolicySizeBytes,
+		)
 	}
 
 	var rawPolicy map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(filterPolicy), &rawPolicy); err != nil {
-		return nil
+		return nil, fmt.Errorf("%w: FilterPolicy is not valid JSON: %s", ErrInvalidParameter, err.Error())
 	}
 
 	parsed := make(parsedFilterPolicy, len(rawPolicy))
+
+	totalConditions := 0
+
 	for key, rawConditions := range rawPolicy {
 		var conditions []json.RawMessage
 		if err := json.Unmarshal(rawConditions, &conditions); err != nil {
-			return nil
+			return nil, fmt.Errorf(
+				"%w: FilterPolicy attribute %q must be a JSON array",
+				ErrInvalidParameter, key,
+			)
+		}
+
+		totalConditions += len(conditions)
+		if totalConditions > maxFilterPolicyConditions {
+			return nil, fmt.Errorf(
+				"%w: FilterPolicy exceeds %d total attribute conditions",
+				ErrInvalidParameter, maxFilterPolicyConditions,
+			)
+		}
+
+		// Eagerly validate numeric operand shapes so that a malformed numeric
+		// condition is rejected at Subscribe/SetSubscriptionAttributes time
+		// rather than silently failing every match at evaluation.
+		if err := validateConditionShapes(key, conditions); err != nil {
+			return nil, err
 		}
 
 		parsed[key] = conditions
 	}
 
-	return parsed
+	return parsed, nil
+}
+
+// validateConditionShapes inspects each condition under a single FilterPolicy
+// attribute and rejects malformed numeric operand structures. Other condition
+// shapes (string match, prefix, exists, anything-but) are tolerated as-is and
+// validated lazily at evaluation.
+func validateConditionShapes(key string, conditions []json.RawMessage) error {
+	for _, raw := range conditions {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			// Scalar conditions (e.g. plain strings) are valid; skip object-only checks.
+			continue
+		}
+
+		numericRaw, ok := obj["numeric"]
+		if !ok {
+			continue
+		}
+
+		if err := validateNumericOperands(key, numericRaw); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateNumericOperands enforces that a "numeric" condition operand is a JSON
+// array of even length where each pair is (operator-string, number).
+func validateNumericOperands(key string, raw json.RawMessage) error {
+	var operands []json.RawMessage
+	if err := json.Unmarshal(raw, &operands); err != nil {
+		return fmt.Errorf(
+			"%w: FilterPolicy attribute %q numeric operand must be a JSON array",
+			ErrInvalidParameter, key,
+		)
+	}
+
+	if len(operands)%2 != 0 || len(operands) == 0 {
+		return fmt.Errorf(
+			"%w: FilterPolicy attribute %q numeric operand must contain operator/number pairs",
+			ErrInvalidParameter, key,
+		)
+	}
+
+	validNumericOps := map[string]struct{}{
+		"=": {}, "<>": {}, ">": {}, ">=": {}, "<": {}, "<=": {},
+	}
+
+	for i := 0; i+1 < len(operands); i += 2 {
+		var op string
+		if err := json.Unmarshal(operands[i], &op); err != nil {
+			return fmt.Errorf(
+				"%w: FilterPolicy attribute %q numeric operator must be a string",
+				ErrInvalidParameter, key,
+			)
+		}
+
+		if _, ok := validNumericOps[op]; !ok {
+			return fmt.Errorf(
+				"%w: FilterPolicy attribute %q numeric operator %q is not supported",
+				ErrInvalidParameter, key, op,
+			)
+		}
+
+		var num json.Number
+		if err := json.Unmarshal(operands[i+1], &num); err != nil {
+			return fmt.Errorf(
+				"%w: FilterPolicy attribute %q numeric threshold must be a number",
+				ErrInvalidParameter, key,
+			)
+		}
+
+		if _, err := strconv.ParseFloat(num.String(), 64); err != nil {
+			return fmt.Errorf(
+				"%w: FilterPolicy attribute %q numeric threshold %s is not a finite number",
+				ErrInvalidParameter, key, num.String(),
+			)
+		}
+	}
+
+	return nil
+}
+
+// kmsKeyIDPattern matches a bare KMS key ID (UUID-ish: 8-4-4-4-12 hex, lowercase).
+var kmsKeyIDPattern = regexp.MustCompile(
+	`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
+)
+
+// validateKmsMasterKeyID validates that v is a syntactically plausible KMS key
+// reference accepted by AWS SNS: a bare alias name, an alias ARN, a key ID, a
+// key ARN, or the special "alias/aws/sns" managed key alias. The check rejects
+// obviously malformed values; full ARN-resource validation is delegated to KMS.
+func validateKmsMasterKeyID(v string) error {
+	switch {
+	case strings.HasPrefix(v, "alias/"):
+		// Alias names must be at least one character after the prefix.
+		if len(v) <= len("alias/") {
+			return fmt.Errorf("%w: KmsMasterKeyId alias must not be empty", ErrInvalidParameter)
+		}
+
+		return nil
+	case strings.HasPrefix(v, "arn:"):
+		// Accept any well-formed KMS ARN (key or alias).
+		parts := strings.Split(v, ":")
+		if len(parts) < 6 || parts[2] != "kms" {
+			return fmt.Errorf("%w: KmsMasterKeyId is not a valid KMS ARN: %s", ErrInvalidParameter, v)
+		}
+
+		return nil
+	case kmsKeyIDPattern.MatchString(v):
+		return nil
+	default:
+		return fmt.Errorf("%w: KmsMasterKeyId is not a valid key ID, ARN, or alias: %s", ErrInvalidParameter, v)
+	}
+}
+
+// validateRedrivePolicy validates the JSON redrive policy attached to a
+// subscription. AWS requires deadLetterTargetArn to be a valid SQS queue ARN.
+func validateRedrivePolicy(policy string) error {
+	var parsed struct {
+		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
+	}
+
+	if err := json.Unmarshal([]byte(policy), &parsed); err != nil {
+		return fmt.Errorf("%w: RedrivePolicy is not valid JSON: %s", ErrInvalidParameter, err.Error())
+	}
+
+	if parsed.DeadLetterTargetArn == "" {
+		return fmt.Errorf("%w: RedrivePolicy must include deadLetterTargetArn", ErrInvalidParameter)
+	}
+
+	parts := strings.Split(parsed.DeadLetterTargetArn, ":")
+	if len(parts) < 6 || parts[0] != "arn" || parts[2] != "sqs" {
+		return fmt.Errorf(
+			"%w: RedrivePolicy.deadLetterTargetArn must be a valid SQS queue ARN, got %s",
+			ErrInvalidParameter, parsed.DeadLetterTargetArn,
+		)
+	}
+
+	return nil
+}
+
+// validMessageAttributeDataType reports whether the given DataType prefix is
+// one of the SNS-supported scalar message-attribute data types.
+func validMessageAttributeDataType(base string) bool {
+	switch base {
+	case "String", "String.Array", "Number", "Binary":
+		return true
+	}
+
+	return false
+}
+
+// maxMessageAttributeNameLen is the AWS-documented cap for a message-attribute name.
+const maxMessageAttributeNameLen = 256
+
+// validateMessageAttributes enforces SNS validation rules on the per-message
+// attribute map: each name 1..256 chars, each DataType is one of the supported
+// scalar types or a "<base>.<subtype>" specialization, and the cumulative
+// payload size (names + data types + values) does not exceed 256 KiB.
+func validateMessageAttributes(attrs map[string]MessageAttribute) error {
+	const maxAttrPayloadBytes = 256 * 1024
+
+	total := 0
+
+	for name, a := range attrs {
+		if name == "" || len(name) > maxMessageAttributeNameLen {
+			return fmt.Errorf(
+				"%w: message attribute name must be 1..%d characters",
+				ErrInvalidParameter, maxMessageAttributeNameLen,
+			)
+		}
+
+		base := a.DataType
+		if i := strings.Index(base, "."); i >= 0 {
+			base = base[:i]
+		}
+
+		if !validMessageAttributeDataType(a.DataType) && !validMessageAttributeDataType(base) {
+			return fmt.Errorf(
+				"%w: message attribute %q has unsupported DataType %q",
+				ErrInvalidParameter, name, a.DataType,
+			)
+		}
+
+		total += len(name) + len(a.DataType) + len(a.StringValue)
+		if total > maxAttrPayloadBytes {
+			return fmt.Errorf(
+				"%w: aggregate message attribute payload exceeds %d bytes",
+				ErrInvalidParameter, maxAttrPayloadBytes,
+			)
+		}
+	}
+
+	return nil
 }
 
 // buildMessageResolver returns a function that picks the correct message body for a given protocol,
@@ -965,6 +1239,11 @@ func (b *InMemoryBackend) Publish(
 				ErrInvalidParameter,
 			)
 		}
+	}
+
+	// Validate message attributes before any backend mutation.
+	if err := validateMessageAttributes(attrs); err != nil {
+		return "", err
 	}
 
 	b.mu.RLock("Publish")

@@ -1940,10 +1940,11 @@ func TestInMemoryBackend_SetSubscriptionAttributes_FilterPolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		attrs        map[string]sns.MessageAttribute
-		name         string
-		filterPolicy string
-		wantDelivery bool
+		attrs           map[string]sns.MessageAttribute
+		name            string
+		filterPolicy    string
+		wantDelivery    bool
+		wantSetAttrsErr bool
 	}{
 		{
 			name:         "matching filter policy delivers message",
@@ -1962,12 +1963,10 @@ func TestInMemoryBackend_SetSubscriptionAttributes_FilterPolicy(t *testing.T) {
 			wantDelivery: false,
 		},
 		{
-			name:         "invalid filter policy is treated as allow all",
-			filterPolicy: `{"color":[}`,
-			attrs: map[string]sns.MessageAttribute{
-				"color": {DataType: "String", StringValue: "blue"},
-			},
-			wantDelivery: true,
+			name:            "invalid filter policy is rejected",
+			filterPolicy:    `{"color":[}`,
+			attrs:           map[string]sns.MessageAttribute{},
+			wantSetAttrsErr: true,
 		},
 	}
 
@@ -1989,6 +1988,12 @@ func TestInMemoryBackend_SetSubscriptionAttributes_FilterPolicy(t *testing.T) {
 			require.NoError(t, err)
 
 			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "FilterPolicy", tt.filterPolicy)
+			if tt.wantSetAttrsErr {
+				require.Error(t, err)
+
+				return
+			}
+
 			require.NoError(t, err)
 
 			_, err = b.Publish(topicArn, "hello", "", "", tt.attrs)
@@ -3504,40 +3509,24 @@ func TestSNSHandler_Shutdown(t *testing.T) {
 }
 
 // TestMatchesFilterPolicy_OversizedPolicy verifies that a FilterPolicy exceeding
-// the size limit is treated as allow-all rather than consuming excessive CPU.
+// the size limit is rejected at SetSubscriptionAttributes time rather than silently
+// accepted (which would let an attacker poison the in-memory subscription).
 func TestMatchesFilterPolicy_OversizedPolicy(t *testing.T) {
 	t.Parallel()
 
 	// Build a FilterPolicy that exceeds maxFilterPolicySizeBytes (256 KiB).
 	bigPolicy := `{"key": ["` + strings.Repeat("a", 300*1024) + `"]}`
 
-	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		received <- string(body)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ts.Close()
-
 	b := sns.NewInMemoryBackend()
 	tp, err := b.CreateTopic("big-policy-topic", nil)
 	require.NoError(t, err)
 
-	sub, err := b.Subscribe(tp.TopicArn, "http", ts.URL, "")
+	sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.invalid", "")
 	require.NoError(t, err)
+
 	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "FilterPolicy", bigPolicy)
-	require.NoError(t, err)
-
-	_, err = b.Publish(tp.TopicArn, "delivered", "", "", nil)
-	require.NoError(t, err)
-
-	// Oversized policy must be treated as allow-all.
-	select {
-	case msg := <-received:
-		assert.Equal(t, "delivered", extractSNSHTTPMessage(msg))
-	case <-time.After(2 * time.Second):
-		require.FailNow(t, "oversized FilterPolicy should allow all messages through")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FilterPolicy")
 }
 
 // TestSNS_SMSSandboxFlow validates the SMS sandbox lifecycle: create, list, check opt-out,
@@ -5067,6 +5056,134 @@ func TestSNS_TopicNameValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.wantValid, sns.IsValidTopicNameForTest(tt.topicName))
+		})
+	}
+}
+
+func TestSNS_PublishRejectsInvalidMessageAttribute(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		attrs   map[string]sns.MessageAttribute
+		name    string
+		wantErr string
+	}{
+		{
+			name: "unsupported_data_type",
+			attrs: map[string]sns.MessageAttribute{
+				"k": {DataType: "Bogus", StringValue: "v"},
+			},
+			wantErr: "unsupported DataType",
+		},
+		{
+			name: "empty_attribute_name",
+			attrs: map[string]sns.MessageAttribute{
+				"": {DataType: "String", StringValue: "v"},
+			},
+			wantErr: "attribute name must be",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			tp, err := b.CreateTopic("attr-validation-topic", nil)
+			require.NoError(t, err)
+
+			_, err = b.Publish(tp.TopicArn, "hello", "", "", tt.attrs)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestSNS_CreateTopicRejectsInvalidKmsMasterKeyId(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+
+	_, err := b.CreateTopic("kms-topic", map[string]string{"KmsMasterKeyId": "??not-valid??"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "KmsMasterKeyId")
+
+	// Valid alias is accepted.
+	_, err = b.CreateTopic("kms-topic", map[string]string{"KmsMasterKeyId": "alias/aws/sns"})
+	require.NoError(t, err)
+}
+
+func TestSNS_SetSubscriptionAttributesValidatesRedrivePolicy(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+	tp, err := b.CreateTopic("redrive-topic", nil)
+	require.NoError(t, err)
+
+	sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.invalid", "")
+	require.NoError(t, err)
+
+	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy", `{"deadLetterTargetArn":"not-an-arn"}`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SQS queue ARN")
+
+	err = b.SetSubscriptionAttributes(
+		sub.SubscriptionArn,
+		"RedrivePolicy",
+		`{"deadLetterTargetArn":"arn:aws:sqs:us-east-1:000000000000:dlq"}`,
+	)
+	require.NoError(t, err)
+}
+
+func TestSNS_FilterPolicyValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		filterPolicy string
+		wantErr      string
+	}{
+		{
+			name:         "rejects_unknown_numeric_operator",
+			filterPolicy: `{"price":[{"numeric":["!=", 10]}]}`,
+			wantErr:      "is not supported",
+		},
+		{
+			name:         "rejects_odd_numeric_operands",
+			filterPolicy: `{"price":[{"numeric":[">"]}]}`,
+			wantErr:      "operator/number pairs",
+		},
+		{
+			name:         "rejects_non_numeric_threshold",
+			filterPolicy: `{"price":[{"numeric":[">", "ten"]}]}`,
+			wantErr:      "must be a number",
+		},
+		{
+			name:         "accepts_valid_numeric_condition",
+			filterPolicy: `{"price":[{"numeric":[">", 10, "<=", 100]}]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			tp, err := b.CreateTopic("filter-policy-topic", nil)
+			require.NoError(t, err)
+
+			sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.invalid", "")
+			require.NoError(t, err)
+
+			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "FilterPolicy", tt.filterPolicy)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
 }

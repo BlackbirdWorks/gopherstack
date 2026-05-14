@@ -2460,8 +2460,9 @@ func (b *InMemoryBackend) GetLayerVersion(layerName string, version int64) (*Get
 	return nil, ErrLayerVersionNotFound
 }
 
-// ListLayers returns a summary of all layers with their latest version.
-func (b *InMemoryBackend) ListLayers() []*Layer {
+// ListLayers returns a paginated summary of all layers with their latest version.
+// Marker is an opaque cursor; maxItems uses lambdaDefaultMaxItems when zero.
+func (b *InMemoryBackend) ListLayers(marker string, maxItems int) page.Page[*Layer] {
 	b.mu.RLock("ListLayers")
 	defer b.mu.RUnlock()
 
@@ -2497,7 +2498,7 @@ func (b *InMemoryBackend) ListLayers() []*Layer {
 		})
 	}
 
-	return result
+	return page.New(result, marker, maxItems, lambdaDefaultMaxItems)
 }
 
 // ListLayerVersions returns all versions of a specific layer in descending order.

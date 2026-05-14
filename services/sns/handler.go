@@ -2,6 +2,8 @@ package sns
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -39,6 +41,11 @@ type snsActionFn func(c *echo.Context) error
 // fifoDedupTTL is the deduplication window for FIFO topic messages per AWS specification.
 const fifoDedupTTL = 5 * time.Minute
 
+// fifoDedupMaxEntries caps the in-memory deduplication map to bound memory growth
+// for high-cardinality dedup IDs. When exceeded, all expired entries are evicted
+// before the new one is inserted, regardless of the opportunistic sweep cadence.
+const fifoDedupMaxEntries = 100_000
+
 // fifoDeduplication tracks message deduplication IDs with a TTL for FIFO topics.
 type fifoDeduplication struct {
 	entries map[string]time.Time // dedupKey → expiry
@@ -60,11 +67,7 @@ func (d *fifoDeduplication) isDuplicate(topicArn, dedupID string) bool {
 	now := time.Now()
 
 	// Evict expired entries opportunistically.
-	for k, exp := range d.entries {
-		if now.After(exp) {
-			delete(d.entries, k)
-		}
-	}
+	d.sweepExpiredLocked(now)
 
 	key := topicArn + "/" + dedupID
 	exp, found := d.entries[key]
@@ -77,7 +80,24 @@ func (d *fifoDeduplication) record(topicArn, dedupID string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.entries[topicArn+"/"+dedupID] = time.Now().Add(fifoDedupTTL)
+	now := time.Now()
+
+	// Bound memory: when at the cap, force a sweep before insertion so a workload
+	// with many short-lived dedup IDs cannot grow without bound.
+	if len(d.entries) >= fifoDedupMaxEntries {
+		d.sweepExpiredLocked(now)
+	}
+
+	d.entries[topicArn+"/"+dedupID] = now.Add(fifoDedupTTL)
+}
+
+// sweepExpiredLocked removes all expired entries. Caller must hold d.mu.
+func (d *fifoDeduplication) sweepExpiredLocked(now time.Time) {
+	for k, exp := range d.entries {
+		if now.After(exp) {
+			delete(d.entries, k)
+		}
+	}
 }
 
 type Handler struct {
@@ -585,24 +605,15 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 
 	switch {
 	case topicArn != "":
-		// FIFO topics require MessageGroupId.
+		// FIFO topics require MessageGroupId. Apply dedup (explicit or content-based).
 		if strings.HasSuffix(topicArn, ".fifo") {
-			if c.Request().FormValue("MessageGroupId") == "" {
-				return h.writeError(c, http.StatusBadRequest, "InvalidParameter",
-					"MessageGroupId is required for FIFO topics")
-			}
-
-			if resp := h.checkFIFODedup(c, topicArn); resp != nil {
-				return resp
-			}
+			return h.publishFIFOTopic(c, topicArn, message, subject, messageStructure, attrs)
 		}
 
 		messageID, err = h.Backend.Publish(topicArn, message, subject, messageStructure, attrs)
 		if err != nil {
 			return h.handleBackendError(c, err)
 		}
-
-		h.recordFIFODedup(c, topicArn)
 	case targetArn != "":
 		// TargetArn addresses a platform endpoint. In the mock, generate a message ID.
 		messageID, err = h.Backend.PublishToTargetArn(targetArn, message, subject, attrs)
@@ -623,24 +634,88 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 	})
 }
 
-// checkFIFODedup checks for a duplicate FIFO message. Returns a response if it's a duplicate.
-func (h *Handler) checkFIFODedup(c *echo.Context, topicArn string) error {
-	dedupID := c.Request().FormValue("MessageDeduplicationId")
-	if dedupID == "" || !h.dedup.isDuplicate(topicArn, dedupID) {
-		return nil
+// publishFIFOTopic handles a Publish call to a .fifo topic: it enforces
+// MessageGroupId, resolves the effective deduplication ID via the
+// ContentBasedDeduplication rules, drops the publish on a duplicate, and
+// records the dedup ID after a successful underlying Publish.
+func (h *Handler) publishFIFOTopic(
+	c *echo.Context,
+	topicArn, message, subject, messageStructure string,
+	attrs map[string]MessageAttribute,
+) error {
+	if c.Request().FormValue("MessageGroupId") == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter",
+			"MessageGroupId is required for FIFO topics")
+	}
+
+	explicitDedupID := c.Request().FormValue("MessageDeduplicationId")
+
+	effectiveDedupID, dedupErr := h.resolveFIFODedupID(topicArn, explicitDedupID, message)
+	if dedupErr != nil {
+		return h.handleBackendError(c, dedupErr)
+	}
+
+	if effectiveDedupID != "" && h.dedup.isDuplicate(topicArn, effectiveDedupID) {
+		// Duplicate within the 5-minute window: AWS still returns success with a
+		// synthesized message ID and does not actually re-publish the message.
+		return h.writeXML(c, PublishResponse{
+			PublishResult:    PublishResult{MessageID: uuid.New().String()},
+			ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		})
+	}
+
+	messageID, err := h.Backend.Publish(topicArn, message, subject, messageStructure, attrs)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	if effectiveDedupID != "" {
+		h.dedup.record(topicArn, effectiveDedupID)
 	}
 
 	return h.writeXML(c, PublishResponse{
-		PublishResult:    PublishResult{MessageID: uuid.New().String()},
+		PublishResult:    PublishResult{MessageID: messageID},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
 }
 
-// recordFIFODedup records the dedup ID after a successful publish.
-func (h *Handler) recordFIFODedup(c *echo.Context, topicArn string) {
-	if dedupID := c.Request().FormValue("MessageDeduplicationId"); dedupID != "" {
-		h.dedup.record(topicArn, dedupID)
+// resolveFIFODedupID enforces ContentBasedDeduplication semantics for a FIFO topic
+// publish and returns the effective deduplication ID to use:
+//
+//   - When CBD is enabled: explicit MessageDeduplicationId is forbidden, and the
+//     SHA-256 hex digest of the message body is used as the implicit dedup ID.
+//   - When CBD is disabled (the default): explicit MessageDeduplicationId is required.
+//
+// Caller must already have validated that topicArn names a FIFO topic.
+func (h *Handler) resolveFIFODedupID(topicArn, explicitDedupID, message string) (string, error) {
+	attrs, err := h.Backend.GetTopicAttributes(topicArn)
+	if err != nil {
+		return "", err
 	}
+
+	cbdEnabled := strings.EqualFold(attrs["ContentBasedDeduplication"], "true")
+
+	if cbdEnabled {
+		if explicitDedupID != "" {
+			return "", fmt.Errorf(
+				"%w: MessageDeduplicationId must not be set when ContentBasedDeduplication is enabled",
+				ErrInvalidParameter,
+			)
+		}
+
+		sum := sha256.Sum256([]byte(message))
+
+		return hex.EncodeToString(sum[:]), nil
+	}
+
+	if explicitDedupID == "" {
+		return "", fmt.Errorf(
+			"%w: MessageDeduplicationId is required for FIFO topics without ContentBasedDeduplication",
+			ErrInvalidParameter,
+		)
+	}
+
+	return explicitDedupID, nil
 }
 
 func (h *Handler) handlePublishBatch(c *echo.Context) error {
@@ -697,37 +772,97 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 	isFIFO := strings.HasSuffix(topicArn, ".fifo")
 
 	for _, entry := range entries {
-		// FIFO topics require MessageGroupId on every batch entry.
-		if isFIFO && entry.messageGroupID == "" {
-			failed = append(failed, XMLPublishBatchFailEntry{
-				ID:          entry.id,
-				Code:        "InvalidParameter",
-				Message:     "MessageGroupId is required for FIFO topics",
-				SenderFault: true,
-			})
+		ok, fail := h.processBatchEntry(topicArn, entry, isFIFO)
+		if fail != nil {
+			failed = append(failed, *fail)
 
 			continue
 		}
 
-		msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, "" /* messageStructure */, entry.attrs)
-		if err != nil {
-			failed = append(failed, XMLPublishBatchFailEntry{
-				ID:          entry.id,
-				Code:        errorCode(err),
-				Message:     err.Error(),
-				SenderFault: true,
-			})
-
-			continue
-		}
-
-		successful = append(successful, XMLPublishBatchSuccessEntry{MessageID: msgID, ID: entry.id})
+		successful = append(successful, *ok)
 	}
 
 	return h.writeXML(c, PublishBatchResponse{
 		PublishBatchResult: PublishBatchResult{Successful: successful, Failed: failed},
 		ResponseMetadata:   ResponseMetadata{RequestID: uuid.New().String()},
 	})
+}
+
+// processBatchEntry executes a single PublishBatch entry: it validates FIFO
+// requirements, applies deduplication, performs the underlying Publish, and
+// returns either a success or failure entry. Exactly one of the returned
+// pointers is non-nil.
+func (h *Handler) processBatchEntry(
+	topicArn string, entry batchEntry, isFIFO bool,
+) (*XMLPublishBatchSuccessEntry, *XMLPublishBatchFailEntry) {
+	if isFIFO && entry.messageGroupID == "" {
+		return nil, &XMLPublishBatchFailEntry{
+			ID:          entry.id,
+			Code:        "InvalidParameter",
+			Message:     "MessageGroupId is required for FIFO topics",
+			SenderFault: true,
+		}
+	}
+
+	var effectiveDedupID string
+
+	if isFIFO {
+		id, dup, fail := h.batchEntryFIFODedup(topicArn, entry)
+		if fail != nil {
+			return nil, fail
+		}
+
+		if dup != nil {
+			return dup, nil
+		}
+
+		effectiveDedupID = id
+	}
+
+	msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, entry.messageStructure, entry.attrs)
+	if err != nil {
+		return nil, &XMLPublishBatchFailEntry{
+			ID:          entry.id,
+			Code:        errorCode(err),
+			Message:     err.Error(),
+			SenderFault: true,
+		}
+	}
+
+	if effectiveDedupID != "" {
+		h.dedup.record(topicArn, effectiveDedupID)
+	}
+
+	return &XMLPublishBatchSuccessEntry{MessageID: msgID, ID: entry.id}, nil
+}
+
+// batchEntryFIFODedup resolves the effective FIFO deduplication ID for a single
+// batch entry. It returns:
+//   - (id, nil, nil): the entry should be published with `id` recorded after success.
+//   - ("", dup, nil): the entry is a duplicate within the dedup window; AWS
+//     returns a synthesized success entry without re-publishing.
+//   - ("", nil, fail): the dedup configuration is invalid (e.g. CBD conflict).
+func (h *Handler) batchEntryFIFODedup(
+	topicArn string, entry batchEntry,
+) (string, *XMLPublishBatchSuccessEntry, *XMLPublishBatchFailEntry) {
+	id, dedupErr := h.resolveFIFODedupID(topicArn, entry.dedupID, entry.message)
+	if dedupErr != nil {
+		return "", nil, &XMLPublishBatchFailEntry{
+			ID:          entry.id,
+			Code:        errorCode(dedupErr),
+			Message:     dedupErr.Error(),
+			SenderFault: true,
+		}
+	}
+
+	if id != "" && h.dedup.isDuplicate(topicArn, id) {
+		return "", &XMLPublishBatchSuccessEntry{
+			MessageID: uuid.New().String(),
+			ID:        entry.id,
+		}, nil
+	}
+
+	return id, nil, nil
 }
 
 func (h *Handler) handleGetSubscriptionAttributes(c *echo.Context) error {
@@ -1503,11 +1638,13 @@ func extractMessageAttributesWithPrefix(form url.Values, prefix string) map[stri
 
 // batchEntry holds a single parsed PublishBatch entry.
 type batchEntry struct {
-	attrs          map[string]MessageAttribute
-	id             string
-	message        string
-	subject        string
-	messageGroupID string
+	attrs            map[string]MessageAttribute
+	id               string
+	message          string
+	subject          string
+	messageGroupID   string
+	messageStructure string
+	dedupID          string
 }
 
 // snsListTagsResult is the inner result element for ListTagsForResource.
@@ -1544,11 +1681,13 @@ func extractBatchEntries(form url.Values) []batchEntry {
 		attrs := extractMessageAttributesWithPrefix(form, prefix)
 
 		entries = append(entries, batchEntry{
-			id:             id,
-			message:        form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Message", i)),
-			subject:        form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Subject", i)),
-			attrs:          attrs,
-			messageGroupID: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.MessageGroupId", i)),
+			id:               id,
+			message:          form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Message", i)),
+			subject:          form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Subject", i)),
+			attrs:            attrs,
+			messageGroupID:   form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.MessageGroupId", i)),
+			messageStructure: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.MessageStructure", i)),
+			dedupID:          form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.MessageDeduplicationId", i)),
 		})
 	}
 }

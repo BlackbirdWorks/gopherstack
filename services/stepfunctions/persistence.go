@@ -124,6 +124,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	// executions are in terminal states and no goroutines need to be tracked.
 	b.cancelFns = make(map[string]context.CancelFunc)
 	b.deletedExecs = make(map[string]bool)
+	b.historyTruncated = make(map[string]bool)
 
 	return nil
 }

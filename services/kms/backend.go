@@ -110,6 +110,12 @@ const (
 	maxRotationPeriodDays = 2560
 	// maxPlaintextBytes is the maximum plaintext size for Encrypt (4096 bytes per AWS).
 	maxPlaintextBytes = 4096
+	// maxEncryptionContextBytes caps the encoded EncryptionContext size (4096 bytes per AWS).
+	// Oversize contexts are rejected to mirror AWS ValidationException behavior.
+	maxEncryptionContextBytes = 4096
+	// maxKeyMaterialHistoryEntries caps how many rotated key materials are retained per key
+	// to bound memory growth in long-running mock instances.
+	maxKeyMaterialHistoryEntries = 100
 	// maxSignMessageBytes is the maximum message size for Sign/Verify with RAW message type.
 	maxSignMessageBytes = 4096
 	// maxOnDemandRotationsPerDay is the maximum number of on-demand rotations allowed per key per rolling 24-hour window.
@@ -581,6 +587,10 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 		)
 	}
 
+	if err := validateEncryptionContextSize(input.EncryptionContext); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("Encrypt")
 	defer b.mu.RUnlock()
 
@@ -646,6 +656,10 @@ func (*InMemoryBackend) encryptPayload(
 
 // Decrypt decrypts the given ciphertext blob.
 func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
+	if err := validateEncryptionContextSize(input.EncryptionContext); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("Decrypt")
 	defer b.mu.RUnlock()
 
@@ -700,6 +714,15 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 		return nil, err
 	}
 
+	// Defense-in-depth: a tampered ciphertext that decrypts could in theory exceed
+	// the maximum plaintext that AWS allows on encrypt. Reject to mirror behavior.
+	if len(plaintext) > maxPlaintextBytes {
+		return nil, fmt.Errorf(
+			"%w: decrypted plaintext exceeds %d bytes",
+			ErrInvalidCiphertext, maxPlaintextBytes,
+		)
+	}
+
 	return &DecryptOutput{
 		Plaintext:           plaintext,
 		KeyID:               key.Arn,
@@ -744,20 +767,8 @@ func (b *InMemoryBackend) decryptWithHistory(blob []byte, encCtx map[string]stri
 
 // GenerateDataKey generates a random data key, returning both plaintext and encrypted forms.
 func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*GenerateDataKeyOutput, error) {
-	// Validate that caller does not specify both KeySpec and NumberOfBytes.
-	if input.KeySpec != "" && input.NumberOfBytes != nil {
-		return nil, fmt.Errorf(
-			"%w: specify either KeySpec or NumberOfBytes, not both",
-			ErrValidation,
-		)
-	}
-
-	// Validate KeySpec if provided: only AES_128 and AES_256 are valid for data keys.
-	if input.KeySpec != "" && input.KeySpec != "AES_128" && input.KeySpec != "AES_256" {
-		return nil, fmt.Errorf(
-			"%w: KeySpec for GenerateDataKey must be AES_128 or AES_256, got %q",
-			ErrValidation, input.KeySpec,
-		)
+	if err := validateGenerateDataKeyInput(input); err != nil {
+		return nil, err
 	}
 
 	b.mu.RLock("GenerateDataKey")
@@ -809,8 +820,8 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 
 // ReEncrypt decrypts a ciphertext and re-encrypts it under a different key.
 func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, error) {
-	if strings.TrimSpace(input.DestinationKeyID) == "" {
-		return nil, fmt.Errorf("%w: DestinationKeyId must not be empty", ErrValidation)
+	if err := validateReEncryptInput(input); err != nil {
+		return nil, err
 	}
 
 	b.mu.RLock("ReEncrypt")
@@ -1610,6 +1621,11 @@ func (b *InMemoryBackend) rotateKeyMaterialLocked(key *Key, rotationType string)
 
 	if current := b.keyMaterials[key.KeyID]; current != nil {
 		b.keyMaterialHistory[key.KeyID] = append(b.keyMaterialHistory[key.KeyID], current)
+		// Cap retained history to bound long-running mock memory growth.
+		hist := b.keyMaterialHistory[key.KeyID]
+		if len(hist) > maxKeyMaterialHistoryEntries {
+			b.keyMaterialHistory[key.KeyID] = hist[len(hist)-maxKeyMaterialHistoryEntries:]
+		}
 	}
 
 	b.keyMaterials[key.KeyID] = newKM

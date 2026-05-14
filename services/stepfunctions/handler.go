@@ -23,10 +23,12 @@ import (
 var errUnknownOperation = errors.New("UnknownOperationException")
 
 type createStateMachineInput struct {
-	Name       string `json:"name"`
-	Definition string `json:"definition"`
-	RoleArn    string `json:"roleArn"`
-	Type       string `json:"type"`
+	TracingConfiguration *TracingConfiguration `json:"tracingConfiguration,omitempty"`
+	LoggingConfiguration *LoggingConfiguration `json:"loggingConfiguration,omitempty"`
+	Name                 string                `json:"name"`
+	Definition           string                `json:"definition"`
+	RoleArn              string                `json:"roleArn"`
+	Type                 string                `json:"type"`
 }
 
 type deleteStateMachineInput struct {
@@ -34,9 +36,11 @@ type deleteStateMachineInput struct {
 }
 
 type updateStateMachineInput struct {
-	StateMachineArn string `json:"stateMachineArn"`
-	Definition      string `json:"definition"`
-	RoleArn         string `json:"roleArn"`
+	TracingConfiguration *TracingConfiguration `json:"tracingConfiguration,omitempty"`
+	LoggingConfiguration *LoggingConfiguration `json:"loggingConfiguration,omitempty"`
+	StateMachineArn      string                `json:"stateMachineArn"`
+	Definition           string                `json:"definition"`
+	RoleArn              string                `json:"roleArn"`
 }
 
 type listStateMachinesInput struct {
@@ -467,23 +471,60 @@ type describeStateMachineForExecutionInput struct {
 	ExecutionArn string `json:"executionArn"`
 }
 
+// createStateMachineAction handles CreateStateMachine and applies tracing/logging
+// configuration when supplied in the request body.
+func (h *Handler) createStateMachineAction(b []byte) (any, error) {
+	var input createStateMachineInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	sm, err := h.Backend.CreateStateMachine(input.Name, input.Definition, input.RoleArn, input.Type)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.TracingConfiguration != nil || input.LoggingConfiguration != nil {
+		if cfgErr := h.Backend.SetStateMachineConfigurations(
+			sm.StateMachineArn, input.TracingConfiguration, input.LoggingConfiguration,
+		); cfgErr != nil {
+			return nil, cfgErr
+		}
+	}
+
+	return &createStateMachineOutput{
+		StateMachineArn: sm.StateMachineArn,
+		CreationDate:    sm.CreationDate,
+	}, nil
+}
+
+// updateStateMachineAction handles UpdateStateMachine and applies tracing/logging
+// configuration when supplied in the request body.
+func (h *Handler) updateStateMachineAction(b []byte) (any, error) {
+	var input updateStateMachineInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	updateDate, err := h.Backend.UpdateStateMachine(input.StateMachineArn, input.Definition, input.RoleArn)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.TracingConfiguration != nil || input.LoggingConfiguration != nil {
+		if cfgErr := h.Backend.SetStateMachineConfigurations(
+			input.StateMachineArn, input.TracingConfiguration, input.LoggingConfiguration,
+		); cfgErr != nil {
+			return nil, cfgErr
+		}
+	}
+
+	return &updateStateMachineOutput{UpdateDate: updateDate}, nil
+}
+
 func (h *Handler) stateMachineActions() map[string]actionFn {
 	m := map[string]actionFn{
-		"CreateStateMachine": func(b []byte) (any, error) {
-			var input createStateMachineInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			sm, err := h.Backend.CreateStateMachine(input.Name, input.Definition, input.RoleArn, input.Type)
-			if err != nil {
-				return nil, err
-			}
-
-			return &createStateMachineOutput{
-				StateMachineArn: sm.StateMachineArn,
-				CreationDate:    sm.CreationDate,
-			}, nil
-		},
+		"CreateStateMachine": h.createStateMachineAction,
 		"DeleteStateMachine": func(b []byte) (any, error) {
 			var input deleteStateMachineInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -523,18 +564,7 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 
 			return h.Backend.DescribeStateMachine(input.StateMachineArn)
 		},
-		"UpdateStateMachine": func(b []byte) (any, error) {
-			var input updateStateMachineInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			updateDate, err := h.Backend.UpdateStateMachine(input.StateMachineArn, input.Definition, input.RoleArn)
-			if err != nil {
-				return nil, err
-			}
-
-			return &updateStateMachineOutput{UpdateDate: updateDate}, nil
-		},
+		"UpdateStateMachine": h.updateStateMachineAction,
 	}
 	maps.Copy(m, h.stateMachineTagActions())
 	maps.Copy(m, h.versionActions())

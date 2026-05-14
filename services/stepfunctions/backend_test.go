@@ -75,6 +75,14 @@ func TestCreateStateMachine(t *testing.T) {
 			smType:     "STANDARD",
 			wantErr:    stepfunctions.ErrInvalidDefinition,
 		},
+		{
+			name:       "InvalidRoleArn",
+			smName:     "invalid-role",
+			definition: passDefinition,
+			roleArn:    "not-an-arn",
+			smType:     "STANDARD",
+			wantErr:    stepfunctions.ErrInvalidRoleArn,
+		},
 	}
 
 	for _, tt := range tests {
@@ -289,6 +297,7 @@ func TestStartExecution(t *testing.T) {
 		wantErr         error
 		name            string
 		smArn           string
+		smType          string
 		execName        string
 		input           string
 		wantArnContains string
@@ -298,6 +307,7 @@ func TestStartExecution(t *testing.T) {
 		{
 			name:            "basic",
 			createSM:        true,
+			smType:          "STANDARD",
 			execName:        "exec1",
 			input:           `{"key":"value"}`,
 			wantArnContains: "exec1",
@@ -311,9 +321,18 @@ func TestStartExecution(t *testing.T) {
 		{
 			name:          "AlreadyExists",
 			createSM:      true,
+			smType:        "STANDARD",
 			execName:      "exec1",
 			preCreateExec: true,
 			wantErr:       stepfunctions.ErrExecutionAlreadyExists,
+		},
+		{
+			name:     "ExpressRequiresStartSyncExecution",
+			createSM: true,
+			smType:   "EXPRESS",
+			execName: "exec1",
+			input:    `{"key":"value"}`,
+			wantErr:  stepfunctions.ErrInvalidExecutionType,
 		},
 	}
 
@@ -324,7 +343,11 @@ func TestStartExecution(t *testing.T) {
 
 			smArn := tt.smArn
 			if tt.createSM {
-				sm, err := b.CreateStateMachine("exec-sm", passDefinition, "arn:role", "STANDARD")
+				smType := tt.smType
+				if smType == "" {
+					smType = "STANDARD"
+				}
+				sm, err := b.CreateStateMachine("exec-sm", passDefinition, "arn:role", smType)
 				require.NoError(t, err)
 				smArn = sm.StateMachineArn
 			}

@@ -326,8 +326,9 @@ type jsonDescribeStreamReq struct {
 }
 
 type jsonListStreamsReq struct {
-	NextToken string `json:"NextToken"`
-	Limit     int    `json:"Limit"`
+	NextToken                string `json:"NextToken"`
+	ExclusiveStartStreamName string `json:"ExclusiveStartStreamName"`
+	Limit                    int    `json:"Limit"`
 }
 
 type jsonPutRecordReq struct {
@@ -694,8 +695,9 @@ func (h *Handler) handleListStreams(
 	_ = json.Unmarshal(body, &req)
 
 	out, err := h.Backend.ListStreams(&ListStreamsInput{
-		Limit:     req.Limit,
-		NextToken: req.NextToken,
+		Limit:                    req.Limit,
+		NextToken:                req.NextToken,
+		ExclusiveStartStreamName: req.ExclusiveStartStreamName,
 	})
 	if err != nil {
 		return nil, err
@@ -709,6 +711,7 @@ func (h *Handler) handleListStreams(
 	return jsonListStreamsResp{
 		StreamNames:    names,
 		HasMoreStreams: out.HasMoreStreams,
+		NextToken:      out.NextToken,
 	}, nil
 }
 

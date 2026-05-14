@@ -758,6 +758,7 @@ func TestHandler_NotebookInstanceLifecycle(t *testing.T) {
 	recCreate := doSageMakerRequest(t, h, "CreateNotebookInstance", map[string]any{
 		"NotebookInstanceName": "my-notebook",
 		"InstanceType":         "ml.t2.medium",
+		"RoleArn":              "arn:aws:iam::000000000000:role/notebook-role",
 	})
 	assert.Equal(t, http.StatusOK, recCreate.Code)
 
@@ -990,6 +991,7 @@ func TestHandler_NotebookInstance_EventuallyInService(t *testing.T) {
 	doSageMakerRequest(t, h, "CreateNotebookInstance", map[string]any{
 		"NotebookInstanceName": "async-notebook",
 		"InstanceType":         "ml.t2.medium",
+		"RoleArn":              "arn:aws:iam::000000000000:role/notebook-role",
 	})
 
 	// Wait for async status transition.

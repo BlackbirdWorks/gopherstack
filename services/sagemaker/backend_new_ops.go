@@ -5,6 +5,7 @@ import (
 	"maps"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -347,6 +348,18 @@ func (b *InMemoryBackend) CreateNotebookInstance(
 	name, instanceType, roleArn string,
 	tags map[string]string,
 ) (*NotebookInstance, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: NotebookInstanceName is required", ErrValidation)
+	}
+
+	if instanceType == "" {
+		return nil, fmt.Errorf("%w: InstanceType is required", ErrValidation)
+	}
+
+	if roleArn == "" {
+		return nil, fmt.Errorf("%w: RoleArn is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateNotebookInstance")
 	defer b.mu.Unlock()
 
@@ -385,15 +398,32 @@ func (b *InMemoryBackend) DescribeNotebookInstance(name string) (*NotebookInstan
 	return cloneNotebook(nb), nil
 }
 
-// ListNotebookInstances returns notebook instances sorted by name with optional pagination.
-func (b *InMemoryBackend) ListNotebookInstances(nextToken string) ([]*NotebookInstance, string) {
+// ListNotebookInstancesFilter narrows ListNotebookInstances results.
+// Empty fields are treated as wildcards.
+type ListNotebookInstancesFilter struct {
+	StatusEquals string
+	NameContains string
+}
+
+// ListNotebookInstances returns notebook instances sorted by name with optional pagination
+// and AWS-style filters: StatusEquals (exact, case-insensitive) and NameContains
+// (substring, case-insensitive).
+func (b *InMemoryBackend) ListNotebookInstances(
+	nextToken string,
+	filter ListNotebookInstancesFilter,
+) ([]*NotebookInstance, string) {
 	b.mu.RLock("ListNotebookInstances")
 	defer b.mu.RUnlock()
 
 	list := make([]*NotebookInstance, 0, len(b.notebooks))
 	for _, nb := range b.notebooks {
+		if !matchesNotebookFilter(nb, filter) {
+			continue
+		}
+
 		list = append(list, nb)
 	}
+
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].NotebookInstanceName < list[j].NotebookInstanceName
 	})
@@ -402,6 +432,7 @@ func (b *InMemoryBackend) ListNotebookInstances(nextToken string) ([]*NotebookIn
 	if startIdx >= len(list) {
 		return []*NotebookInstance{}, ""
 	}
+
 	end := startIdx + sagemakerDefaultPageSize
 	var outToken string
 	if end < len(list) {
@@ -411,6 +442,20 @@ func (b *InMemoryBackend) ListNotebookInstances(nextToken string) ([]*NotebookIn
 	}
 
 	return list[startIdx:end], outToken
+}
+
+// matchesNotebookFilter reports whether nb satisfies the provided filter.
+func matchesNotebookFilter(nb *NotebookInstance, f ListNotebookInstancesFilter) bool {
+	if f.StatusEquals != "" && !strings.EqualFold(nb.NotebookInstanceStatus, f.StatusEquals) {
+		return false
+	}
+
+	if f.NameContains != "" &&
+		!strings.Contains(strings.ToLower(nb.NotebookInstanceName), strings.ToLower(f.NameContains)) {
+		return false
+	}
+
+	return true
 }
 
 // DeleteNotebookInstance removes a notebook instance from the backend.

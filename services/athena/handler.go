@@ -604,19 +604,54 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 				"UnprocessedQueryExecutionIds": unprocessed,
 			}, nil
 		},
-		"GetQueryResults": func(_ []byte) (any, error) {
-			// Returns an empty result set; QueryExecutionID is accepted but not used in this mock.
-			return map[string]any{
-				"ResultSet": map[string]any{
-					"Rows": []any{},
-					"ResultSetMetadata": map[string]any{
-						"ColumnInfo": []any{},
-					},
-				},
-				"UpdateCount": 0,
-			}, nil
-		},
+		"GetQueryResults": h.handleGetQueryResults,
 	}
+}
+
+// athenaMaxQueryResultsPageSize matches the AWS-documented maximum page size
+// for Athena GetQueryResults. The minimum is 1.
+const athenaMaxQueryResultsPageSize = 1000
+
+type getQueryResultsInput struct {
+	QueryExecutionID string `json:"QueryExecutionId"`
+	NextToken        string `json:"NextToken,omitempty"`
+	MaxResults       int    `json:"MaxResults,omitempty"`
+}
+
+// handleGetQueryResults validates the query execution exists and the requested
+// MaxResults page size is in range [1, 1000]. The mock backend stores no rows
+// so the response is always an empty page; pagination tokens are accepted and
+// returned as nil to model end-of-stream.
+func (h *Handler) handleGetQueryResults(b []byte) (any, error) {
+	var input getQueryResultsInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+	}
+
+	if input.QueryExecutionID == "" {
+		return nil, fmt.Errorf("%w: QueryExecutionId is required", ErrValidation)
+	}
+
+	if input.MaxResults < 0 || input.MaxResults > athenaMaxQueryResultsPageSize {
+		return nil, fmt.Errorf(
+			"%w: MaxResults must be between 1 and %d",
+			ErrValidation, athenaMaxQueryResultsPageSize,
+		)
+	}
+
+	if _, err := h.Backend.GetQueryExecution(input.QueryExecutionID); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"ResultSet": map[string]any{
+			"Rows": []any{},
+			"ResultSetMetadata": map[string]any{
+				"ColumnInfo": []any{},
+			},
+		},
+		"UpdateCount": 0,
+	}, nil
 }
 
 func (h *Handler) tagOps() map[string]athenaActionFn {
