@@ -90,7 +90,7 @@ func TestLambda_ESM_FilterCriteria_RoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
 	require.NotEmpty(t, createResp.UUID)
 	require.Len(t, createResp.FilterCriteria.Filters, 1)
-	assert.Equal(t, `{"data":{"orderType":["premium"]}}`, createResp.FilterCriteria.Filters[0].Pattern)
+	assert.JSONEq(t, `{"data":{"orderType":["premium"]}}`, createResp.FilterCriteria.Filters[0].Pattern)
 
 	// Update with new filter pattern.
 	updBody := map[string]any{
@@ -115,7 +115,7 @@ func TestLambda_ESM_FilterCriteria_RoundTrip(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
 	require.Len(t, getResp.FilterCriteria.Filters, 1)
-	assert.Equal(t, `{"data":{"orderType":["standard"]}}`, getResp.FilterCriteria.Filters[0].Pattern)
+	assert.JSONEq(t, `{"data":{"orderType":["standard"]}}`, getResp.FilterCriteria.Filters[0].Pattern)
 }
 
 // TestLambda_ESM_CRUD tests the full Create / Get / List / Delete lifecycle.

@@ -21,17 +21,14 @@ const (
 // EventSourceMapping represents a Kinesis → Lambda event source mapping.
 type EventSourceMapping struct {
 	LastModified         time.Time               `json:"lastModified"`
+	FilterCriteria       *FilterCriteria         `json:"filterCriteria,omitempty"`
 	EventSourceARN       string                  `json:"eventSourceARN"`
 	FunctionARN          string                  `json:"functionARN"`
 	UUID                 string                  `json:"uuid"`
 	State                EventSourceMappingState `json:"state"`
 	StartingPosition     string                  `json:"startingPosition"`
 	LastProcessingResult string                  `json:"lastProcessingResult"`
-	// FilterCriteria carries the AWS Lambda event-filter pattern document. Stored
-	// for round-trip parity with AWS; evaluation against incoming records is
-	// performed by the poller when present.
-	FilterCriteria *FilterCriteria `json:"filterCriteria,omitempty"`
-	BatchSize      int             `json:"batchSize"`
+	BatchSize            int                     `json:"batchSize"`
 }
 
 // FilterCriteria mirrors the AWS Lambda EventSourceMapping FilterCriteria field.
@@ -66,13 +63,13 @@ type UpdateEventSourceMappingInput struct {
 
 // jsonESMResponse is the JSON representation of an event source mapping.
 type jsonESMResponse struct {
+	FilterCriteria       *FilterCriteria `json:"FilterCriteria,omitempty"`
 	UUID                 string          `json:"UUID"`
 	EventSourceARN       string          `json:"EventSourceArn"`
 	FunctionARN          string          `json:"FunctionArn"`
 	State                string          `json:"State"`
 	StartingPosition     string          `json:"StartingPosition,omitempty"`
 	LastProcessingResult string          `json:"LastProcessingResult,omitempty"`
-	FilterCriteria       *FilterCriteria `json:"FilterCriteria,omitempty"`
 	BatchSize            int             `json:"BatchSize"`
 }
 
