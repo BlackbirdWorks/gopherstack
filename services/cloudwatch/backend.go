@@ -82,6 +82,9 @@ const (
 	cwMaxAlarmHistory                       = 100  // maximum alarm history entries per alarm
 	cwMetricRetentionDays                   = 15   // data points older than this are evicted
 	cwMaxCompositeEvalDepth                 = 10   // maximum recursion depth for composite alarm evaluation
+	// cwMaxMetricDataPerRequest mirrors the AWS CloudWatch PutMetricData hard
+	// limit on the number of MetricDatum entries accepted per request (1000).
+	cwMaxMetricDataPerRequest = 1000
 
 	alarmStateAlarm            = "ALARM"
 	alarmStateOK               = "OK"
@@ -238,6 +241,11 @@ func (b *InMemoryBackend) SetLambdaInvoker(inv LambdaInvoker) {
 
 // PutMetricData stores metric data points for the given namespace.
 func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) error {
+	if len(data) > cwMaxMetricDataPerRequest {
+		return fmt.Errorf("%w: PutMetricData accepts at most %d MetricDatum entries per request",
+			ErrValidation, cwMaxMetricDataPerRequest)
+	}
+
 	b.mu.Lock("PutMetricData")
 	defer b.mu.Unlock()
 

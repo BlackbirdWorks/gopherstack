@@ -46,6 +46,10 @@ const maxRecordBytes = 1_000 * 1024
 // maxBatchRecords is the maximum number of records allowed in a single PutRecordBatch call.
 const maxBatchRecords = 500
 
+// maxBatchBytes is the AWS Firehose limit on the combined payload of a
+// PutRecordBatch request (4 MiB).
+const maxBatchBytes = 4 * 1024 * 1024
+
 // S3Storer is the subset of S3 operations that Firehose needs to deliver objects.
 type S3Storer interface {
 	PutObject(ctx context.Context, input *sdk_s3.PutObjectInput) (*sdk_s3.PutObjectOutput, error)
@@ -343,11 +347,18 @@ func (b *InMemoryBackend) PutRecordBatch(streamName string, records [][]byte) (i
 			ErrBatchTooLarge, len(records), maxBatchRecords)
 	}
 
+	totalBytes := 0
 	for i, rec := range records {
 		if len(rec) > maxRecordBytes {
 			return 0, fmt.Errorf("%w: record %d size %d exceeds maximum of %d bytes",
 				ErrRecordTooLarge, i, len(rec), maxRecordBytes)
 		}
+		totalBytes += len(rec)
+	}
+
+	if totalBytes > maxBatchBytes {
+		return 0, fmt.Errorf("%w: batch payload %d exceeds maximum of %d bytes",
+			ErrBatchTooLarge, totalBytes, maxBatchBytes)
 	}
 
 	b.mu.Lock("PutRecordBatch")
