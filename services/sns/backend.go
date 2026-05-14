@@ -890,9 +890,14 @@ type parsedFilterPolicy map[string][]json.RawMessage
 // error for any malformed input. Validation enforces:
 //   - JSON is well-formed and is an object whose values are arrays.
 //   - Total encoded size ≤ maxFilterPolicySizeBytes (256 KiB).
+//   - Total attribute conditions ≤ maxFilterPolicyConditions (150).
+//   - Object-condition operator names are restricted to the AWS-supported set
+//     (`prefix`, `suffix`, `equals-ignore-case`, `anything-but`, `exists`,
+//     `numeric`).
+//   - Numeric operand shape (operator/number pairs) is well-formed.
 //
-// Stricter content checks (operator names, numeric operand shape, nesting depth,
-// total attribute-condition cap) are not yet enforced — issues #1679 items 7/13.
+// Nesting depth (for nested-object filter policies) is not yet enforced —
+// issue #1679 item 13.
 // maxFilterPolicyConditions is the AWS SNS cap on total attribute conditions
 // across all keys in a single FilterPolicy (≈150 in production).
 const maxFilterPolicyConditions = 150
@@ -948,16 +953,40 @@ func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 	return parsed, nil
 }
 
+// knownFilterPolicyOperators is the set of object-condition keys recognised
+// by AWS SNS subscription FilterPolicy. Conditions containing any other key
+// are rejected at Subscribe / SetSubscriptionAttributes time so misconfigurations
+// surface immediately rather than silently mis-routing messages.
+//
+//nolint:gochecknoglobals // read-only lookup
+var knownFilterPolicyOperators = map[string]struct{}{
+	"prefix":             {},
+	"suffix":             {},
+	"equals-ignore-case": {},
+	"anything-but":       {},
+	"exists":             {},
+	"numeric":            {},
+}
+
 // validateConditionShapes inspects each condition under a single FilterPolicy
-// attribute and rejects malformed numeric operand structures. Other condition
-// shapes (string match, prefix, exists, anything-but) are tolerated as-is and
-// validated lazily at evaluation.
+// attribute and rejects unknown operator names and malformed numeric operand
+// structures. Scalar conditions (plain strings, numbers, booleans, null) and
+// known object operators are tolerated as-is and matched lazily at evaluation.
 func validateConditionShapes(key string, conditions []json.RawMessage) error {
 	for _, raw := range conditions {
 		var obj map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &obj); err != nil {
 			// Scalar conditions (e.g. plain strings) are valid; skip object-only checks.
 			continue
+		}
+
+		for opName := range obj {
+			if _, ok := knownFilterPolicyOperators[opName]; !ok {
+				return fmt.Errorf(
+					"%w: FilterPolicy attribute %q uses unsupported operator %q",
+					ErrInvalidParameter, key, opName,
+				)
+			}
 		}
 
 		numericRaw, ok := obj["numeric"]

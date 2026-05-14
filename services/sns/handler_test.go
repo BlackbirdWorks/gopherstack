@@ -5228,6 +5228,19 @@ func TestSNS_FilterPolicyValidation(t *testing.T) {
 			name:         "accepts_valid_numeric_condition",
 			filterPolicy: `{"price":[{"numeric":[">", 10, "<=", 100]}]}`,
 		},
+		{
+			name:         "rejects_unknown_operator_name",
+			filterPolicy: `{"event":[{"contains":"foo"}]}`,
+			wantErr:      "unsupported operator",
+		},
+		{
+			name:         "accepts_suffix_operator",
+			filterPolicy: `{"file":[{"suffix":".jpg"}]}`,
+		},
+		{
+			name:         "accepts_equals_ignore_case_operator",
+			filterPolicy: `{"region":[{"equals-ignore-case":"us-east-1"}]}`,
+		},
 	}
 
 	for _, tt := range tests {
