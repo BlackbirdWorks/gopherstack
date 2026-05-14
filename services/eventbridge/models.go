@@ -20,6 +20,7 @@ type Rule struct {
 	Description        string `json:"Description,omitempty"`
 	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
 	RoleArn            string `json:"RoleArn,omitempty"`
+	ManagedBy          string `json:"ManagedBy,omitempty"`
 	compiledPattern    *compiledPattern
 	indexKeys          []ruleIndexKey
 }
@@ -27,11 +28,39 @@ type Rule struct {
 // Target represents an EventBridge rule target.
 type Target struct {
 	InputTransformer *InputTransformer `json:"InputTransformer,omitempty"`
+	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
+	RetryPolicy      *RetryPolicy      `json:"RetryPolicy,omitempty"`
+	BatchParameters  *BatchParameters  `json:"BatchParameters,omitempty"`
+	HTTPParameters   *HTTPParameters   `json:"HttpParameters,omitempty"`
 	ID               string            `json:"Id"`
 	Arn              string            `json:"Arn"`
 	RoleArn          string            `json:"RoleArn,omitempty"`
 	Input            string            `json:"Input,omitempty"`
 	InputPath        string            `json:"InputPath,omitempty"`
+}
+
+// DeadLetterConfig configures a target-level SQS dead-letter queue.
+type DeadLetterConfig struct {
+	Arn string `json:"Arn,omitempty"`
+}
+
+// RetryPolicy configures target delivery retries.
+type RetryPolicy struct {
+	MaximumEventAgeInSeconds int `json:"MaximumEventAgeInSeconds,omitempty"`
+	MaximumRetryAttempts     int `json:"MaximumRetryAttempts,omitempty"`
+}
+
+// BatchParameters configures target batching for services that support it.
+type BatchParameters struct {
+	BatchSize   int `json:"BatchSize,omitempty"`
+	BatchWindow int `json:"BatchWindow,omitempty"`
+}
+
+// HTTPParameters configures API destination path, query, and header values.
+type HTTPParameters struct {
+	PathParameterValues   []string          `json:"PathParameterValues,omitempty"`
+	QueryStringParameters map[string]string `json:"QueryStringParameters,omitempty"`
+	HeaderParameters      map[string]string `json:"HeaderParameters,omitempty"`
 }
 
 // InputTransformer holds input transformer configuration for a target.
@@ -66,6 +95,7 @@ type PutRuleInput struct {
 	Description        string `json:"Description,omitempty"`
 	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
 	RoleArn            string `json:"RoleArn,omitempty"`
+	ManagedBy          string `json:"ManagedBy,omitempty"`
 }
 
 // FailedEntry describes a target or event that failed to process.
@@ -122,6 +152,42 @@ type APIDestination struct {
 	InvocationRateLimitPerSecond int       `json:"InvocationRateLimitPerSecond,omitempty"`
 }
 
+// EventBusPolicy stores resource policy statements for an event bus.
+type EventBusPolicy struct {
+	EventBusName string                     `json:"EventBusName"`
+	Policy       string                     `json:"Policy,omitempty"`
+	Statements   map[string]PolicyStatement `json:"Statements,omitempty"`
+}
+
+// PolicyStatement is the subset of EventBridge policy statement fields used by
+// the in-memory authorization simulation.
+type PolicyStatement struct {
+	StatementID string `json:"Sid,omitempty"`
+	Action      string `json:"Action,omitempty"`
+	Principal   string `json:"Principal,omitempty"`
+	Effect      string `json:"Effect,omitempty"`
+}
+
+// Pipe represents an EventBridge Pipe.
+type Pipe struct {
+	CreationTime         time.Time `json:"CreationTime"`
+	LastModifiedTime     time.Time `json:"LastModifiedTime"`
+	Name                 string    `json:"Name"`
+	Arn                  string    `json:"Arn"`
+	RoleArn              string    `json:"RoleArn"`
+	Source               string    `json:"Source"`
+	Target               string    `json:"Target"`
+	Description          string    `json:"Description,omitempty"`
+	DesiredState         string    `json:"DesiredState,omitempty"`
+	CurrentState         string    `json:"CurrentState"`
+	StateReason          string    `json:"StateReason,omitempty"`
+	Enrichment           string    `json:"Enrichment,omitempty"`
+	FilterCriteria       any       `json:"FilterCriteria,omitempty"`
+	SourceParameters     any       `json:"SourceParameters,omitempty"`
+	TargetParameters     any       `json:"TargetParameters,omitempty"`
+	EnrichmentParameters any       `json:"EnrichmentParameters,omitempty"`
+}
+
 // Archive represents an EventBridge archive.
 type Archive struct {
 	CreationTime   time.Time `json:"CreationTime"`
@@ -141,6 +207,7 @@ type Archive struct {
 type Connection struct {
 	ConnectionArn      string    `json:"ConnectionArn"`
 	AuthorizationType  string    `json:"AuthorizationType"`
+	AuthParameters     *ConnectionAuthParameters `json:"AuthParameters,omitempty"`
 	ConnectionState    string    `json:"ConnectionState"`
 	CreationTime       time.Time `json:"CreationTime"`
 	Description        string    `json:"Description,omitempty"`
@@ -230,6 +297,40 @@ type CreateConnectionInput struct {
 	AuthorizationType string `json:"AuthorizationType"`
 	Description       string `json:"Description,omitempty"`
 	Name              string `json:"Name"`
+	AuthParameters    *ConnectionAuthParameters `json:"AuthParameters,omitempty"`
+}
+
+// ConnectionAuthParameters stores API destination connection credentials.
+type ConnectionAuthParameters struct {
+	APIKeyAuthParameters *APIKeyAuthParameters `json:"ApiKeyAuthParameters,omitempty"`
+	BasicAuthParameters  *BasicAuthParameters  `json:"BasicAuthParameters,omitempty"`
+	OAuthParameters      *OAuthParameters      `json:"OAuthParameters,omitempty"`
+}
+
+// APIKeyAuthParameters configures API key auth.
+type APIKeyAuthParameters struct {
+	APIKeyName  string `json:"ApiKeyName"`
+	APIKeyValue string `json:"ApiKeyValue"`
+}
+
+// BasicAuthParameters configures HTTP Basic auth.
+type BasicAuthParameters struct {
+	Username string `json:"Username"`
+	Password string `json:"Password"`
+}
+
+// OAuthParameters configures OAuth client credentials auth.
+type OAuthParameters struct {
+	AuthorizationEndpoint string            `json:"AuthorizationEndpoint"`
+	HTTPMethod            string            `json:"HttpMethod"`
+	ClientParameters      OAuthClientParams `json:"ClientParameters"`
+	OAuthHTTPParameters   *HTTPParameters   `json:"OAuthHttpParameters,omitempty"`
+}
+
+// OAuthClientParams stores OAuth client credentials.
+type OAuthClientParams struct {
+	ClientID     string `json:"ClientID"`
+	ClientSecret string `json:"ClientSecret"`
 }
 
 // CreateEndpointInput is the input for CreateEndpoint.
@@ -310,4 +411,48 @@ type PutPermissionInput struct {
 type RemovePermissionInput struct {
 	EventBusName string `json:"EventBusName,omitempty"`
 	StatementID  string `json:"StatementId,omitempty"`
+}
+
+// PutEventBusPolicyInput is the input for PutEventBusPolicy.
+type PutEventBusPolicyInput struct {
+	EventBusName string `json:"EventBusName,omitempty"`
+	Policy       string `json:"Policy"`
+	StatementID  string `json:"StatementId,omitempty"`
+	Action       string `json:"Action,omitempty"`
+	Principal    string `json:"Principal,omitempty"`
+}
+
+// GetEventBusPolicyInput is the input for GetEventBusPolicy.
+type GetEventBusPolicyInput struct {
+	EventBusName string `json:"EventBusName,omitempty"`
+}
+
+// CreatePipeInput is the input for CreatePipe.
+type CreatePipeInput struct {
+	Name                 string `json:"Name"`
+	RoleArn              string `json:"RoleArn"`
+	Source               string `json:"Source"`
+	Target               string `json:"Target"`
+	Description          string `json:"Description,omitempty"`
+	DesiredState         string `json:"DesiredState,omitempty"`
+	Enrichment           string `json:"Enrichment,omitempty"`
+	FilterCriteria       any    `json:"FilterCriteria,omitempty"`
+	SourceParameters     any    `json:"SourceParameters,omitempty"`
+	TargetParameters     any    `json:"TargetParameters,omitempty"`
+	EnrichmentParameters any    `json:"EnrichmentParameters,omitempty"`
+}
+
+// UpdatePipeInput is the input for UpdatePipe.
+type UpdatePipeInput struct {
+	Name                 string `json:"Name"`
+	RoleArn              string `json:"RoleArn,omitempty"`
+	Source               string `json:"Source,omitempty"`
+	Target               string `json:"Target,omitempty"`
+	Description          string `json:"Description,omitempty"`
+	DesiredState         string `json:"DesiredState,omitempty"`
+	Enrichment           string `json:"Enrichment,omitempty"`
+	FilterCriteria       any    `json:"FilterCriteria,omitempty"`
+	SourceParameters     any    `json:"SourceParameters,omitempty"`
+	TargetParameters     any    `json:"TargetParameters,omitempty"`
+	EnrichmentParameters any    `json:"EnrichmentParameters,omitempty"`
 }

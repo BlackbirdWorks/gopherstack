@@ -33,6 +33,8 @@ var (
 	ErrNotFound               = errors.New("ResourceNotFoundException")
 	ErrAlreadyExists          = errors.New("ResourceAlreadyExistsException")
 	ErrInvalidState           = errors.New("InvalidStateException")
+	ErrResourceLimitExceeded  = errors.New("ResourceLimitExceededException")
+	ErrAccessDenied           = errors.New("AccessDeniedException")
 )
 
 const (
@@ -54,6 +56,8 @@ const (
 	maxArchiveNameLength = 48
 	// maxTargetsPerRule is the maximum number of targets allowed per rule (AWS default limit).
 	maxTargetsPerRule = 5
+	maxEventBuses     = 200
+	maxRulesPerBus    = 300
 )
 
 type ruleIndexKey struct {
@@ -117,6 +121,13 @@ type StorageBackend interface {
 	UpdateEventBus(input UpdateEventBusInput) (*EventBus, error)
 	PutPermission(input PutPermissionInput) error
 	RemovePermission(input RemovePermissionInput) error
+	PutEventBusPolicy(input PutEventBusPolicyInput) (*EventBusPolicy, error)
+	GetEventBusPolicy(input GetEventBusPolicyInput) (*EventBusPolicy, error)
+	CreatePipe(input CreatePipeInput) (*Pipe, error)
+	DescribePipe(name string) (*Pipe, error)
+	UpdatePipe(input UpdatePipeInput) (*Pipe, error)
+	DeletePipe(name string) error
+	ListPipes(namePrefix, nextToken string) ([]Pipe, string, error)
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -129,6 +140,8 @@ type InMemoryBackend struct {
 	eventSources    map[string]*EventSource
 	replays         map[string]*Replay
 	apiDestinations map[string]*APIDestination
+	eventBusPolicies map[string]*EventBusPolicy
+	pipes           map[string]*Pipe
 	cancel          context.CancelFunc
 	deliveryTargets *DeliveryTargets
 	endpoints       map[string]*Endpoint
@@ -179,6 +192,8 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		eventSources:    make(map[string]*EventSource),
 		replays:         make(map[string]*Replay),
 		apiDestinations: make(map[string]*APIDestination),
+		eventBusPolicies: make(map[string]*EventBusPolicy),
+		pipes:           make(map[string]*Pipe),
 		archives:        make(map[string]*Archive),
 		archivedEvents:  make(map[string][]EventEntry),
 		connections:     make(map[string]*Connection),
@@ -291,6 +306,10 @@ func (b *InMemoryBackend) partnerSourceARN(name string) string {
 
 func (b *InMemoryBackend) replayARN(name string) string {
 	return arn.Build("events", b.region, b.accountID, "replay/"+name)
+}
+
+func (b *InMemoryBackend) pipeARN(name string) string {
+	return arn.Build("pipes", b.region, b.accountID, "pipe/"+name)
 }
 
 func (b *InMemoryBackend) targetKey(busName, ruleName string) string {
@@ -408,6 +427,10 @@ func (b *InMemoryBackend) CreateEventBus(name, description string) (*EventBus, e
 		return nil, fmt.Errorf("%w: Event bus %s already exists", ErrEventBusAlreadyExists, name)
 	}
 
+	if len(b.buses) >= maxEventBuses {
+		return nil, fmt.Errorf("%w: maximum event buses per account is %d", ErrResourceLimitExceeded, maxEventBuses)
+	}
+
 	bus := &EventBus{
 		Name:        name,
 		Arn:         b.busARN(name),
@@ -507,6 +530,16 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 		return nil, fmt.Errorf("%w: either EventPattern or ScheduleExpression must be provided", ErrInvalidParameter)
 	}
 
+	if input.ScheduleExpression != "" {
+		if _, err := parseScheduleExpression(input.ScheduleExpression); err != nil {
+			return nil, fmt.Errorf("%w: ScheduleExpression is invalid: %v", ErrInvalidParameter, err)
+		}
+	}
+
+	if input.RoleArn != "" && !isValidIAMRoleARN(input.RoleArn) {
+		return nil, fmt.Errorf("%w: RoleArn must be a valid IAM role ARN", ErrInvalidParameter)
+	}
+
 	busName := input.EventBusName
 	if busName == "" {
 		busName = defaultEventBusName
@@ -537,6 +570,10 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 		b.rules[busName] = make(map[string]*Rule)
 	}
 
+	if _, exists := b.rules[busName][input.Name]; !exists && len(b.rules[busName]) >= maxRulesPerBus {
+		return nil, fmt.Errorf("%w: maximum rules per event bus is %d", ErrResourceLimitExceeded, maxRulesPerBus)
+	}
+
 	rule := &Rule{
 		Name:               input.Name,
 		Arn:                b.ruleARN(busName, input.Name),
@@ -546,6 +583,7 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 		Description:        input.Description,
 		ScheduleExpression: input.ScheduleExpression,
 		RoleArn:            input.RoleArn,
+		ManagedBy:          input.ManagedBy,
 		compiledPattern:    compiled,
 	}
 
@@ -710,6 +748,15 @@ func (b *InMemoryBackend) PutTargets(ruleName, eventBusName string, targets []Ta
 				TargetID:     t.ID,
 				ErrorCode:    "InvalidParameter",
 				ErrorMessage: "Target Id is required",
+			})
+
+			continue
+		}
+		if err := validateTarget(t); err != nil {
+			failed = append(failed, FailedEntry{
+				TargetID:     t.ID,
+				ErrorCode:    "InvalidParameter",
+				ErrorMessage: err.Error(),
 			})
 
 			continue
@@ -1725,6 +1772,10 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 		return nil, fmt.Errorf("%w: EventStartTime must be before EventEndTime", ErrInvalidParameter)
 	}
 
+	if input.Destination != nil && input.Destination.Arn != "" && !strings.Contains(input.Destination.Arn, ":event-bus/") {
+		return nil, fmt.Errorf("%w: Destination.Arn must be an event bus ARN", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("StartReplay")
 
 	if _, exists := b.replays[input.ReplayName]; exists {
@@ -1735,12 +1786,20 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 
 	// Find the archive by ARN (EventSourceArn points to an archive ARN).
 	var archiveName string
+	var archivePattern string
 	for name, archive := range b.archives {
 		if archive.ArchiveArn == input.EventSourceArn {
 			archiveName = name
+			archivePattern = archive.EventPattern
 
 			break
 		}
+	}
+
+	if archiveName == "" {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: archive for %s not found", ErrNotFound, input.EventSourceArn)
 	}
 
 	replay := &Replay{
@@ -1755,11 +1814,7 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 	}
 	b.replays[input.ReplayName] = replay
 
-	// Collect archived events to replay (filtered by time range).
-	var eventsToReplay []EventEntry
-	if archiveName != "" {
-		eventsToReplay = append(eventsToReplay, b.archivedEvents[archiveName]...)
-	}
+	eventsToReplay := filterReplayEvents(b.archivedEvents[archiveName], archivePattern, input)
 
 	dt := b.deliveryTargets
 	workerSem := b.workerSem
