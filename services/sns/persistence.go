@@ -112,7 +112,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		}
 
 		b.topicSubscriptions[sub.TopicArn][sub.SubscriptionArn] = sub
-		sub.parsedFilterPolicy = parseFilterPolicy(sub.FilterPolicy)
+		// Restore parsed filter policy; ignore errors so a future stricter validation
+		// upgrade does not break loading older snapshots.
+		sub.parsedFilterPolicy, _ = parseFilterPolicy(sub.FilterPolicy)
 	}
 
 	return nil

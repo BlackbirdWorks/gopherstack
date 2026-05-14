@@ -616,6 +616,13 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 		)
 	}
 
+	// Parse and validate the filter policy outside the backend lock so that
+	// JSON parsing of large policies does not block other SNS operations.
+	parsedPolicy, parseErr := parseFilterPolicy(filterPolicy)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
 	b.mu.Lock("Subscribe")
 	defer b.mu.Unlock()
 
@@ -652,7 +659,7 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 		Endpoint:            endpoint,
 		Owner:               b.accountID,
 		FilterPolicy:        filterPolicy,
-		parsedFilterPolicy:  parseFilterPolicy(filterPolicy),
+		parsedFilterPolicy:  parsedPolicy,
 		PendingConfirmation: pending,
 		CreationTimestamp:   time.Now().UTC(),
 	}
@@ -745,6 +752,19 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 
 // SetSubscriptionAttributes sets a single attribute on a subscription.
 func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, attrValue string) error {
+	// Parse the FilterPolicy outside the backend lock so JSON validation does
+	// not serialize against unrelated SNS operations on large policies.
+	var parsedPolicy parsedFilterPolicy
+
+	if attrName == attrFilterPolicy {
+		p, err := parseFilterPolicy(attrValue)
+		if err != nil {
+			return err
+		}
+
+		parsedPolicy = p
+	}
+
 	b.mu.Lock("SetSubscriptionAttributes")
 	defer b.mu.Unlock()
 
@@ -758,7 +778,7 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 		sub.RawMessageDelivery = strings.EqualFold(attrValue, "true")
 	case attrFilterPolicy:
 		sub.FilterPolicy = attrValue
-		sub.parsedFilterPolicy = parseFilterPolicy(attrValue)
+		sub.parsedFilterPolicy = parsedPolicy
 	case attrRedrivePolicy:
 		sub.RedrivePolicy = attrValue
 	case attrSubscriptionRoleArn:
@@ -843,31 +863,46 @@ type publishTargets struct {
 
 type parsedFilterPolicy map[string][]json.RawMessage
 
-func parseFilterPolicy(filterPolicy string) parsedFilterPolicy {
+// parseFilterPolicy parses and validates a FilterPolicy JSON string. It returns
+// an empty (non-nil) policy for an empty input, or an InvalidParameter-wrapped
+// error for any malformed input. Validation enforces:
+//   - JSON is well-formed and is an object whose values are arrays.
+//   - Total encoded size ≤ maxFilterPolicySizeBytes (256 KiB).
+//
+// Stricter content checks (operator names, numeric operand shape, nesting depth,
+// total attribute-condition cap) are not yet enforced — issues #1679 items 7/13.
+func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 	if filterPolicy == "" {
-		return nil
+		return parsedFilterPolicy{}, nil
 	}
 
 	if len(filterPolicy) > maxFilterPolicySizeBytes {
-		return nil
+		return nil, fmt.Errorf(
+			"%w: FilterPolicy exceeds %d bytes",
+			ErrInvalidParameter, maxFilterPolicySizeBytes,
+		)
 	}
 
 	var rawPolicy map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(filterPolicy), &rawPolicy); err != nil {
-		return nil
+		return nil, fmt.Errorf("%w: FilterPolicy is not valid JSON: %s", ErrInvalidParameter, err.Error())
 	}
 
 	parsed := make(parsedFilterPolicy, len(rawPolicy))
+
 	for key, rawConditions := range rawPolicy {
 		var conditions []json.RawMessage
 		if err := json.Unmarshal(rawConditions, &conditions); err != nil {
-			return nil
+			return nil, fmt.Errorf(
+				"%w: FilterPolicy attribute %q must be a JSON array",
+				ErrInvalidParameter, key,
+			)
 		}
 
 		parsed[key] = conditions
 	}
 
-	return parsed
+	return parsed, nil
 }
 
 // buildMessageResolver returns a function that picks the correct message body for a given protocol,

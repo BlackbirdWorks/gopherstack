@@ -1940,10 +1940,11 @@ func TestInMemoryBackend_SetSubscriptionAttributes_FilterPolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		attrs        map[string]sns.MessageAttribute
-		name         string
-		filterPolicy string
-		wantDelivery bool
+		attrs           map[string]sns.MessageAttribute
+		name            string
+		filterPolicy    string
+		wantDelivery    bool
+		wantSetAttrsErr bool
 	}{
 		{
 			name:         "matching filter policy delivers message",
@@ -1962,12 +1963,10 @@ func TestInMemoryBackend_SetSubscriptionAttributes_FilterPolicy(t *testing.T) {
 			wantDelivery: false,
 		},
 		{
-			name:         "invalid filter policy is treated as allow all",
-			filterPolicy: `{"color":[}`,
-			attrs: map[string]sns.MessageAttribute{
-				"color": {DataType: "String", StringValue: "blue"},
-			},
-			wantDelivery: true,
+			name:            "invalid filter policy is rejected",
+			filterPolicy:    `{"color":[}`,
+			attrs:           map[string]sns.MessageAttribute{},
+			wantSetAttrsErr: true,
 		},
 	}
 
@@ -1989,6 +1988,12 @@ func TestInMemoryBackend_SetSubscriptionAttributes_FilterPolicy(t *testing.T) {
 			require.NoError(t, err)
 
 			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "FilterPolicy", tt.filterPolicy)
+			if tt.wantSetAttrsErr {
+				require.Error(t, err)
+
+				return
+			}
+
 			require.NoError(t, err)
 
 			_, err = b.Publish(topicArn, "hello", "", "", tt.attrs)
@@ -3504,40 +3509,24 @@ func TestSNSHandler_Shutdown(t *testing.T) {
 }
 
 // TestMatchesFilterPolicy_OversizedPolicy verifies that a FilterPolicy exceeding
-// the size limit is treated as allow-all rather than consuming excessive CPU.
+// the size limit is rejected at SetSubscriptionAttributes time rather than silently
+// accepted (which would let an attacker poison the in-memory subscription).
 func TestMatchesFilterPolicy_OversizedPolicy(t *testing.T) {
 	t.Parallel()
 
 	// Build a FilterPolicy that exceeds maxFilterPolicySizeBytes (256 KiB).
 	bigPolicy := `{"key": ["` + strings.Repeat("a", 300*1024) + `"]}`
 
-	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		received <- string(body)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ts.Close()
-
 	b := sns.NewInMemoryBackend()
 	tp, err := b.CreateTopic("big-policy-topic", nil)
 	require.NoError(t, err)
 
-	sub, err := b.Subscribe(tp.TopicArn, "http", ts.URL, "")
+	sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.invalid", "")
 	require.NoError(t, err)
+
 	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "FilterPolicy", bigPolicy)
-	require.NoError(t, err)
-
-	_, err = b.Publish(tp.TopicArn, "delivered", "", "", nil)
-	require.NoError(t, err)
-
-	// Oversized policy must be treated as allow-all.
-	select {
-	case msg := <-received:
-		assert.Equal(t, "delivered", extractSNSHTTPMessage(msg))
-	case <-time.After(2 * time.Second):
-		require.FailNow(t, "oversized FilterPolicy should allow all messages through")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FilterPolicy")
 }
 
 // TestSNS_SMSSandboxFlow validates the SMS sandbox lifecycle: create, list, check opt-out,
