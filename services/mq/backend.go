@@ -68,6 +68,11 @@ const (
 	// maxConfigurationRevisions is the maximum number of revisions retained per configuration.
 	// AWS MQ supports up to 50 revisions; older ones are pruned when this limit is exceeded.
 	maxConfigurationRevisions = 50
+
+	// maxConfigurationDataBytes caps the size of a single revision's data payload.
+	// AWS MQ rejects configuration data larger than 250 KiB; we enforce the same limit
+	// to avoid unbounded memory growth from a malicious or buggy client.
+	maxConfigurationDataBytes = 256 * 1024
 )
 
 // BrokerInstance holds endpoint information for a broker instance.
@@ -105,23 +110,96 @@ type Configurations struct {
 
 // Broker represents an Amazon MQ broker.
 type Broker struct {
-	Tags                    map[string]string `json:"-"`
-	Users                   map[string]*User  `json:"-"`
-	Configurations          *Configurations   `json:"configurations,omitempty"`
-	EngineVersion           string            `json:"engineVersion"`
-	BrokerArn               string            `json:"brokerArn"`
-	BrokerState             string            `json:"brokerState"`
-	DeploymentMode          string            `json:"deploymentMode"`
-	EngineType              string            `json:"engineType"`
-	BrokerID                string            `json:"brokerId"`
-	HostInstanceType        string            `json:"hostInstanceType"`
-	BrokerName              string            `json:"brokerName"`
-	Created                 string            `json:"created"`
-	SubnetIDs               []string          `json:"subnetIds,omitempty"`
-	SecurityGroups          []string          `json:"securityGroups,omitempty"`
-	BrokerInstances         []BrokerInstance  `json:"brokerInstances,omitempty"`
-	PubliclyAccessible      bool              `json:"publiclyAccessible"`
-	AutoMinorVersionUpgrade bool              `json:"autoMinorVersionUpgrade"`
+	EncryptionOptions          *EncryptionOptions       `json:"encryptionOptions,omitempty"`
+	Users                      map[string]*User         `json:"-"`
+	Configurations             *Configurations          `json:"configurations,omitempty"`
+	PendingDataReplicationMeta *DataReplicationMetadata `json:"pendingDataReplicationMetadata,omitempty"`
+	PendingLdapServerMetadata  *LdapServerMetadata      `json:"pendingLdapServerMetadata,omitempty"`
+	DataReplicationMetadata    *DataReplicationMetadata `json:"dataReplicationMetadata,omitempty"`
+	Tags                       map[string]string        `json:"-"`
+	LogsSummary                *LogsSummary             `json:"logsSummary,omitempty"`
+	Logs                       *Logs                    `json:"logs,omitempty"`
+	LdapServerMetadata         *LdapServerMetadata      `json:"ldapServerMetadata,omitempty"`
+	MaintenanceWindowStartTime *WeeklyStartTime         `json:"maintenanceWindowStartTime,omitempty"`
+	DataReplicationMode        string                   `json:"dataReplicationMode,omitempty"`
+	PendingEngineVersion       string                   `json:"pendingEngineVersion,omitempty"`
+	AuthenticationStrategy     string                   `json:"authenticationStrategy,omitempty"`
+	CreatorRequestID           string                   `json:"creatorRequestId,omitempty"`
+	EngineVersion              string                   `json:"engineVersion"`
+	PendingDataReplicationMode string                   `json:"pendingDataReplicationMode,omitempty"`
+	BrokerArn                  string                   `json:"brokerArn"`
+	PendingHostInstanceType    string                   `json:"pendingHostInstanceType,omitempty"`
+	Created                    string                   `json:"created"`
+	BrokerName                 string                   `json:"brokerName"`
+	HostInstanceType           string                   `json:"hostInstanceType"`
+	BrokerID                   string                   `json:"brokerId"`
+	EngineType                 string                   `json:"engineType"`
+	DeploymentMode             string                   `json:"deploymentMode"`
+	BrokerState                string                   `json:"brokerState"`
+	PendingAuthStrategy        string                   `json:"pendingAuthenticationStrategy,omitempty"`
+	StorageType                string                   `json:"storageType,omitempty"`
+	ActionsRequired            []ActionRequired         `json:"actionsRequired,omitempty"`
+	PendingSecurityGroups      []string                 `json:"pendingSecurityGroups,omitempty"`
+	BrokerInstances            []BrokerInstance         `json:"brokerInstances,omitempty"`
+	SecurityGroups             []string                 `json:"securityGroups,omitempty"`
+	SubnetIDs                  []string                 `json:"subnetIds,omitempty"`
+	PubliclyAccessible         bool                     `json:"publiclyAccessible"`
+	AutoMinorVersionUpgrade    bool                     `json:"autoMinorVersionUpgrade"`
+}
+
+// EncryptionOptions configures KMS encryption for an Amazon MQ broker.
+type EncryptionOptions struct {
+	KMSKeyID       string `json:"kmsKeyId,omitempty"`
+	UseAWSOwnedKey bool   `json:"useAwsOwnedKey"`
+}
+
+// WeeklyStartTime defines the broker maintenance window start time.
+type WeeklyStartTime struct {
+	DayOfWeek string `json:"dayOfWeek,omitempty"`
+	TimeOfDay string `json:"timeOfDay,omitempty"`
+	TimeZone  string `json:"timeZone,omitempty"`
+}
+
+// LdapServerMetadata configures LDAP authentication for a broker.
+type LdapServerMetadata struct {
+	RoleBase               string   `json:"roleBase,omitempty"`
+	RoleName               string   `json:"roleName,omitempty"`
+	RoleSearchMatching     string   `json:"roleSearchMatching,omitempty"`
+	UserBase               string   `json:"userBase,omitempty"`
+	UserRoleName           string   `json:"userRoleName,omitempty"`
+	UserSearchMatching     string   `json:"userSearchMatching,omitempty"`
+	ServiceAccountUsername string   `json:"serviceAccountUsername,omitempty"`
+	ServiceAccountPassword string   `json:"-"`
+	Hosts                  []string `json:"hosts,omitempty"`
+	RoleSearchSubtree      bool     `json:"roleSearchSubtree"`
+	UserSearchSubtree      bool     `json:"userSearchSubtree"`
+}
+
+// Logs configures CloudWatch Logs export for an Amazon MQ broker.
+type Logs struct {
+	Audit   bool `json:"audit"`
+	General bool `json:"general"`
+}
+
+// LogsSummary holds the configured logs plus their resolved log group ARNs.
+type LogsSummary struct {
+	Pending         *Logs  `json:"pending,omitempty"`
+	GeneralLogGroup string `json:"generalLogGroup,omitempty"`
+	AuditLogGroup   string `json:"auditLogGroup,omitempty"`
+	General         bool   `json:"general"`
+	Audit           bool   `json:"audit"`
+}
+
+// ActionRequired describes a service-side action required on the broker.
+type ActionRequired struct {
+	ActionRequiredCode string `json:"actionRequiredCode,omitempty"`
+	ActionRequiredInfo string `json:"actionRequiredInfo,omitempty"`
+}
+
+// DataReplicationMetadata describes an active CRDR (cross-region disaster recovery) link.
+type DataReplicationMetadata struct {
+	DataReplicationCounterpart string `json:"dataReplicationCounterpart,omitempty"`
+	DataReplicationRole        string `json:"dataReplicationRole,omitempty"`
 }
 
 // ConfigurationRevision holds revision metadata for a configuration.
@@ -186,7 +264,20 @@ func (b *InMemoryBackend) Reset() {
 
 // --- Broker operations ---
 
-// CreateBroker creates a new Amazon MQ broker.
+// CreateBrokerOptions carries optional configuration for CreateBrokerWithOptions.
+// Zero values are ignored and treated as "not specified".
+type CreateBrokerOptions struct {
+	Configuration              *ConfigurationID
+	EncryptionOptions          *EncryptionOptions
+	MaintenanceWindowStartTime *WeeklyStartTime
+	LdapServerMetadata         *LdapServerMetadata
+	Logs                       *Logs
+	StorageType                string
+	AuthenticationStrategy     string
+	CreatorRequestID           string
+}
+
+// CreateBroker creates a new Amazon MQ broker (compatibility wrapper).
 func (b *InMemoryBackend) CreateBroker(
 	name, deploymentMode, engineType, engineVersion, hostInstanceType string,
 	publiclyAccessible, autoMinorVersionUpgrade bool,
@@ -194,11 +285,39 @@ func (b *InMemoryBackend) CreateBroker(
 	users []*User,
 	tags map[string]string,
 ) (*Broker, error) {
+	return b.CreateBrokerWithOptions(
+		name, deploymentMode, engineType, engineVersion, hostInstanceType,
+		publiclyAccessible, autoMinorVersionUpgrade,
+		securityGroups, subnetIDs, users, tags, nil,
+	)
+}
+
+// CreateBrokerWithOptions creates a new Amazon MQ broker, accepting the optional
+// AWS-MQ fields (encryption, LDAP, logs, maintenance window, storage type,
+// authentication strategy, initial configuration, and CreatorRequestId for
+// idempotency).
+//
+
+func (b *InMemoryBackend) CreateBrokerWithOptions(
+	name, deploymentMode, engineType, engineVersion, hostInstanceType string,
+	publiclyAccessible, autoMinorVersionUpgrade bool,
+	securityGroups, subnetIDs []string,
+	users []*User,
+	tags map[string]string,
+	opts *CreateBrokerOptions,
+) (*Broker, error) {
 	b.mu.Lock("CreateBroker")
 	defer b.mu.Unlock()
 
 	if engineType != EngineTypeActiveMQ && engineType != EngineTypeRabbitMQ {
 		return nil, fmt.Errorf("%w: engineType must be ACTIVEMQ or RABBITMQ, got %q", ErrValidation, engineType)
+	}
+
+	// Idempotency: a retry with the same CreatorRequestId returns the existing broker.
+	if opts != nil && opts.CreatorRequestID != "" {
+		if existing := b.findBrokerByCreatorRequestID(opts.CreatorRequestID); existing != nil {
+			return b.copyBroker(existing), nil
+		}
 	}
 
 	// Check for duplicate by name.
@@ -222,6 +341,11 @@ func (b *InMemoryBackend) CreateBroker(
 
 	if hostInstanceType == "" {
 		hostInstanceType = defaultHostInstanceType
+	}
+
+	storageType, err := resolveStorageType(engineType, optsStorageType(opts))
+	if err != nil {
+		return nil, err
 	}
 
 	id := uuid.NewString()
@@ -254,6 +378,7 @@ func (b *InMemoryBackend) CreateBroker(
 		EngineType:              engineType,
 		EngineVersion:           engineVersion,
 		HostInstanceType:        hostInstanceType,
+		StorageType:             storageType,
 		PubliclyAccessible:      publiclyAccessible,
 		AutoMinorVersionUpgrade: autoMinorVersionUpgrade,
 		SecurityGroups:          securityGroups,
@@ -264,10 +389,97 @@ func (b *InMemoryBackend) CreateBroker(
 		Created:                 created,
 	}
 
+	applyCreateBrokerOptions(br, opts)
+
 	b.brokers[id] = br
 	b.tags[brokerArn] = tagsCopy
 
 	return b.copyBroker(br), nil
+}
+
+// applyCreateBrokerOptions copies optional broker fields from opts into br.
+func applyCreateBrokerOptions(br *Broker, opts *CreateBrokerOptions) {
+	if opts == nil {
+		return
+	}
+
+	br.AuthenticationStrategy = opts.AuthenticationStrategy
+	br.CreatorRequestID = opts.CreatorRequestID
+	br.EncryptionOptions = opts.EncryptionOptions
+	br.MaintenanceWindowStartTime = opts.MaintenanceWindowStartTime
+	br.LdapServerMetadata = opts.LdapServerMetadata
+	br.Logs = opts.Logs
+
+	if opts.Logs != nil {
+		br.LogsSummary = &LogsSummary{
+			General:         opts.Logs.General,
+			Audit:           opts.Logs.Audit,
+			GeneralLogGroup: logGroupName(br.BrokerID, "general"),
+			AuditLogGroup:   logGroupName(br.BrokerID, "audit"),
+		}
+	}
+
+	if opts.Configuration != nil {
+		br.Configurations = &Configurations{Current: opts.Configuration}
+	}
+}
+
+// optsStorageType safely extracts the requested storage type from opts.
+func optsStorageType(opts *CreateBrokerOptions) string {
+	if opts == nil {
+		return ""
+	}
+
+	return opts.StorageType
+}
+
+// resolveStorageType picks the default storage type for the engine when none is
+// supplied and validates that any explicit choice is allowed for that engine.
+func resolveStorageType(engineType, requested string) (string, error) {
+	switch engineType {
+	case EngineTypeRabbitMQ:
+		if requested == "" {
+			return StorageTypeEBS, nil
+		}
+
+		if requested != StorageTypeEBS {
+			return "", fmt.Errorf("%w: RabbitMQ requires storageType=%q", ErrValidation, StorageTypeEBS)
+		}
+
+		return requested, nil
+	case EngineTypeActiveMQ:
+		if requested == "" {
+			return StorageTypeEFS, nil
+		}
+
+		if requested != StorageTypeEFS && requested != StorageTypeEBS {
+			return "", fmt.Errorf(
+				"%w: ActiveMQ storageType must be %q or %q, got %q",
+				ErrValidation, StorageTypeEFS, StorageTypeEBS, requested,
+			)
+		}
+
+		return requested, nil
+	default:
+		return "", fmt.Errorf("%w: unsupported engineType %q", ErrValidation, engineType)
+	}
+}
+
+// findBrokerByCreatorRequestID returns a broker matching the given idempotency token.
+// Caller must hold a lock.
+func (b *InMemoryBackend) findBrokerByCreatorRequestID(reqID string) *Broker {
+	for _, br := range b.brokers {
+		if br.CreatorRequestID == reqID {
+			return br
+		}
+	}
+
+	return nil
+}
+
+// logGroupName builds a deterministic CloudWatch log group name for a broker channel.
+func logGroupName(brokerID, channel string) string {
+	return fmt.Sprintf("/aws/amazonmq/broker/%s/%s", brokerID, channel)
 }
 
 // buildEndpoint returns a placeholder endpoint URL for the broker.
@@ -282,25 +494,29 @@ func buildEndpoint(engineType, name string) string {
 
 // DescribeBroker returns a broker by ID or name.
 func (b *InMemoryBackend) DescribeBroker(brokerID string) (*Broker, error) {
-	b.mu.RLock("DescribeBroker")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeBroker")
+	defer b.mu.Unlock()
 
 	br := b.lookupBroker(brokerID)
 	if br == nil {
 		return nil, fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
 	}
 
-	return b.copyBroker(br), nil
+	cp := b.copyBroker(br)
+	promoteRebootingToRunning(br)
+
+	return cp, nil
 }
 
 // ListBrokers returns all brokers sorted by name.
 func (b *InMemoryBackend) ListBrokers() []*Broker {
-	b.mu.RLock("ListBrokers")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListBrokers")
+	defer b.mu.Unlock()
 
 	list := make([]*Broker, 0, len(b.brokers))
 	for _, br := range b.brokers {
 		list = append(list, b.copyBroker(br))
+		promoteRebootingToRunning(br)
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].BrokerName < list[j].BrokerName })
@@ -325,16 +541,30 @@ func (b *InMemoryBackend) DeleteBroker(brokerID string) (*Broker, error) {
 	return cp, nil
 }
 
-// RebootBroker simulates a broker reboot (no-op in the mock).
+// RebootBroker simulates a broker reboot. The broker transitions to
+// REBOOT_IN_PROGRESS once, then is restored to RUNNING on the next
+// DescribeBroker / ListBrokers call so callers can observe the transition.
 func (b *InMemoryBackend) RebootBroker(brokerID string) error {
 	b.mu.Lock("RebootBroker")
 	defer b.mu.Unlock()
 
-	if b.lookupBroker(brokerID) == nil {
+	br := b.lookupBroker(brokerID)
+	if br == nil {
 		return fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
 	}
 
+	br.BrokerState = BrokerStateRebooting
+
 	return nil
+}
+
+// promoteRebootingToRunning advances any broker stuck in REBOOT_IN_PROGRESS
+// back to RUNNING. Caller must hold a write lock or call from a context where
+// promoting in-place is safe (the result is only observed via a returned copy).
+func promoteRebootingToRunning(br *Broker) {
+	if br != nil && br.BrokerState == BrokerStateRebooting {
+		br.BrokerState = BrokerStateRunning
+	}
 }
 
 // UpdateBroker updates mutable broker fields.
@@ -617,6 +847,13 @@ func (b *InMemoryBackend) ListConfigurations() []*Configuration {
 
 // UpdateConfiguration updates a configuration (creates a new revision).
 func (b *InMemoryBackend) UpdateConfiguration(configID, description, data string) (*Configuration, error) {
+	if len(data) > maxConfigurationDataBytes {
+		return nil, fmt.Errorf(
+			"%w: configuration data exceeds %d bytes (got %d)",
+			ErrValidation, maxConfigurationDataBytes, len(data),
+		)
+	}
+
 	b.mu.Lock("UpdateConfiguration")
 	defer b.mu.Unlock()
 

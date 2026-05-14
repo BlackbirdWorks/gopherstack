@@ -11,6 +11,14 @@ type StorageBackend interface {
 		users []*User,
 		tags map[string]string,
 	) (*Broker, error)
+	CreateBrokerWithOptions(
+		name, deploymentMode, engineType, engineVersion, hostInstanceType string,
+		publiclyAccessible, autoMinorVersionUpgrade bool,
+		securityGroups, subnetIDs []string,
+		users []*User,
+		tags map[string]string,
+		opts *CreateBrokerOptions,
+	) (*Broker, error)
 	DescribeBroker(brokerID string) (*Broker, error)
 	ListBrokers() []*Broker
 	UpdateBroker(
