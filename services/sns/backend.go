@@ -1392,12 +1392,31 @@ func matchesParsedFilterPolicy(policy parsedFilterPolicy, attrs map[string]Messa
 }
 
 // matchObjectCondition evaluates a single JSON-object SNS filter condition such as
-// {"prefix": "order-"}, {"anything-but": [...]}, {"exists": true}, or {"numeric": [">", 0]}.
+// {"prefix": "order-"}, {"suffix": ".jpg"}, {"anything-but": [...]},
+// {"equals-ignore-case": "OrderId"}, {"exists": true}, or {"numeric": [">", 0]}.
 func matchObjectCondition(value string, attrExists bool, obj map[string]json.RawMessage) bool {
 	if prefixRaw, ok := obj["prefix"]; ok {
 		var prefix string
 		if err := json.Unmarshal(prefixRaw, &prefix); err == nil {
 			return attrExists && strings.HasPrefix(value, prefix)
+		}
+
+		return false
+	}
+
+	if suffixRaw, ok := obj["suffix"]; ok {
+		var suffix string
+		if err := json.Unmarshal(suffixRaw, &suffix); err == nil {
+			return attrExists && strings.HasSuffix(value, suffix)
+		}
+
+		return false
+	}
+
+	if eqICaseRaw, ok := obj["equals-ignore-case"]; ok {
+		var want string
+		if err := json.Unmarshal(eqICaseRaw, &want); err == nil {
+			return attrExists && strings.EqualFold(value, want)
 		}
 
 		return false

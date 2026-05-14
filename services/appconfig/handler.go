@@ -82,6 +82,11 @@ const (
 	pathPartsSubItem   = 4 // /applications/{id}/subresource/{subId}
 	pathPartsDeepLevel = 5 // /applications/{id}/subresource/{subId}/nested
 	pathPartsDeepItem  = 6 // /applications/{id}/subresource/{subId}/nested/{nestedId}
+
+	// maxHostedConfigurationVersionBytes caps the request-body size accepted by
+	// CreateHostedConfigurationVersion. AWS AppConfig allows hosted configuration
+	// versions up to 1 MiB; clamp here to prevent unbounded io.ReadAll DoS.
+	maxHostedConfigurationVersionBytes = 1 << 20 // 1 MiB
 )
 
 // Handler is the Echo HTTP handler for AppConfig operations.
@@ -1178,8 +1183,16 @@ func (h *Handler) handleCreateHostedConfigurationVersion(
 	description := c.Request().Header.Get("Description")
 	versionLabel := c.Request().Header.Get("Versionlabel")
 
-	content, err := io.ReadAll(c.Request().Body)
+	content, err := io.ReadAll(http.MaxBytesReader(c.Response(), c.Request().Body, maxHostedConfigurationVersionBytes))
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return c.JSON(
+				http.StatusRequestEntityTooLarge,
+				map[string]string{keyMessageField: "configuration content exceeds maximum size of 1 MiB"},
+			)
+		}
+
 		return c.JSON(
 			http.StatusInternalServerError,
 			map[string]string{keyMessageField: "failed to read request body"},
