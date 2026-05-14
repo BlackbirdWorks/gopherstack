@@ -41,7 +41,10 @@ const MaxRequestBodyBytes int64 = 16 * 1024 * 1024
 // the original request body is closed.
 // It uses a custom ReadCloser to avoid redundant reads and allocations if
 // called multiple times. The body is capped at MaxRequestBodyBytes; reads that
-// exceed the cap return an error.
+// exceed the cap return an `*http.MaxBytesError` (use [errors.As] to detect
+// and translate to a 413 response). Because this helper has no access to the
+// originating ResponseWriter, it cannot auto-write the 413 itself — callers
+// must handle the size-cap error and respond appropriately.
 func ReadBody(r *http.Request) ([]byte, error) {
 	if r.Body == nil {
 		return nil, nil

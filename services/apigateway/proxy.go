@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -687,6 +688,13 @@ func (h *Handler) handleAWSIntegration(
 	// Read the raw request body.
 	rawBody, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxProxyRequestBodyBytes))
 	if readErr != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(readErr, &maxErr) {
+			http.Error(w, "Request entity too large", http.StatusRequestEntityTooLarge)
+
+			return
+		}
+
 		logger.Load(ctx).ErrorContext(ctx, "APIGateway AWS integration: failed to read body", "error", readErr)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 
