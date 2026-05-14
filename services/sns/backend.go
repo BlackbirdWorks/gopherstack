@@ -893,6 +893,10 @@ type parsedFilterPolicy map[string][]json.RawMessage
 //
 // Stricter content checks (operator names, numeric operand shape, nesting depth,
 // total attribute-condition cap) are not yet enforced — issues #1679 items 7/13.
+// maxFilterPolicyConditions is the AWS SNS cap on total attribute conditions
+// across all keys in a single FilterPolicy (≈150 in production).
+const maxFilterPolicyConditions = 150
+
 func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 	if filterPolicy == "" {
 		return parsedFilterPolicy{}, nil
@@ -912,6 +916,8 @@ func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 
 	parsed := make(parsedFilterPolicy, len(rawPolicy))
 
+	totalConditions := 0
+
 	for key, rawConditions := range rawPolicy {
 		var conditions []json.RawMessage
 		if err := json.Unmarshal(rawConditions, &conditions); err != nil {
@@ -921,10 +927,107 @@ func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 			)
 		}
 
+		totalConditions += len(conditions)
+		if totalConditions > maxFilterPolicyConditions {
+			return nil, fmt.Errorf(
+				"%w: FilterPolicy exceeds %d total attribute conditions",
+				ErrInvalidParameter, maxFilterPolicyConditions,
+			)
+		}
+
+		// Eagerly validate numeric operand shapes so that a malformed numeric
+		// condition is rejected at Subscribe/SetSubscriptionAttributes time
+		// rather than silently failing every match at evaluation.
+		if err := validateConditionShapes(key, conditions); err != nil {
+			return nil, err
+		}
+
 		parsed[key] = conditions
 	}
 
 	return parsed, nil
+}
+
+// validateConditionShapes inspects each condition under a single FilterPolicy
+// attribute and rejects malformed numeric operand structures. Other condition
+// shapes (string match, prefix, exists, anything-but) are tolerated as-is and
+// validated lazily at evaluation.
+func validateConditionShapes(key string, conditions []json.RawMessage) error {
+	for _, raw := range conditions {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			// Scalar conditions (e.g. plain strings) are valid; skip object-only checks.
+			continue
+		}
+
+		numericRaw, ok := obj["numeric"]
+		if !ok {
+			continue
+		}
+
+		if err := validateNumericOperands(key, numericRaw); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateNumericOperands enforces that a "numeric" condition operand is a JSON
+// array of even length where each pair is (operator-string, number).
+func validateNumericOperands(key string, raw json.RawMessage) error {
+	var operands []json.RawMessage
+	if err := json.Unmarshal(raw, &operands); err != nil {
+		return fmt.Errorf(
+			"%w: FilterPolicy attribute %q numeric operand must be a JSON array",
+			ErrInvalidParameter, key,
+		)
+	}
+
+	if len(operands)%2 != 0 || len(operands) == 0 {
+		return fmt.Errorf(
+			"%w: FilterPolicy attribute %q numeric operand must contain operator/number pairs",
+			ErrInvalidParameter, key,
+		)
+	}
+
+	validNumericOps := map[string]struct{}{
+		"=": {}, "<>": {}, ">": {}, ">=": {}, "<": {}, "<=": {},
+	}
+
+	for i := 0; i+1 < len(operands); i += 2 {
+		var op string
+		if err := json.Unmarshal(operands[i], &op); err != nil {
+			return fmt.Errorf(
+				"%w: FilterPolicy attribute %q numeric operator must be a string",
+				ErrInvalidParameter, key,
+			)
+		}
+
+		if _, ok := validNumericOps[op]; !ok {
+			return fmt.Errorf(
+				"%w: FilterPolicy attribute %q numeric operator %q is not supported",
+				ErrInvalidParameter, key, op,
+			)
+		}
+
+		var num json.Number
+		if err := json.Unmarshal(operands[i+1], &num); err != nil {
+			return fmt.Errorf(
+				"%w: FilterPolicy attribute %q numeric threshold must be a number",
+				ErrInvalidParameter, key,
+			)
+		}
+
+		if _, err := strconv.ParseFloat(num.String(), 64); err != nil {
+			return fmt.Errorf(
+				"%w: FilterPolicy attribute %q numeric threshold %s is not a finite number",
+				ErrInvalidParameter, key, num.String(),
+			)
+		}
+	}
+
+	return nil
 }
 
 // kmsKeyIDPattern matches a bare KMS key ID (UUID-ish: 8-4-4-4-12 hex, lowercase).

@@ -5134,3 +5134,56 @@ func TestSNS_SetSubscriptionAttributesValidatesRedrivePolicy(t *testing.T) {
 	)
 	require.NoError(t, err)
 }
+
+func TestSNS_FilterPolicyValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		filterPolicy string
+		wantErr      string
+	}{
+		{
+			name:         "rejects_unknown_numeric_operator",
+			filterPolicy: `{"price":[{"numeric":["!=", 10]}]}`,
+			wantErr:      "is not supported",
+		},
+		{
+			name:         "rejects_odd_numeric_operands",
+			filterPolicy: `{"price":[{"numeric":[">"]}]}`,
+			wantErr:      "operator/number pairs",
+		},
+		{
+			name:         "rejects_non_numeric_threshold",
+			filterPolicy: `{"price":[{"numeric":[">", "ten"]}]}`,
+			wantErr:      "must be a number",
+		},
+		{
+			name:         "accepts_valid_numeric_condition",
+			filterPolicy: `{"price":[{"numeric":[">", 10, "<=", 100]}]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			tp, err := b.CreateTopic("filter-policy-topic", nil)
+			require.NoError(t, err)
+
+			sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.invalid", "")
+			require.NoError(t, err)
+
+			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "FilterPolicy", tt.filterPolicy)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
