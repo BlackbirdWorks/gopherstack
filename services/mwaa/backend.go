@@ -34,11 +34,18 @@ const (
 	listEnvMaxPageSize         = 100
 
 	// Environment status constants.
-	envStatusAvailable = "AVAILABLE"
-	envStatusCreating  = "CREATING"
-	envStatusDeleting  = "DELETING"
-	envStatusUpdating  = "UPDATING"
-	envStatusError     = "ERROR"
+	envStatusAvailable        = "AVAILABLE"
+	envStatusCreating         = "CREATING"
+	envStatusCreatingSnapshot = "CREATING_SNAPSHOT"
+	envStatusDeleting         = "DELETING"
+	envStatusDeleted          = "DELETED"
+	envStatusUpdating         = "UPDATING"
+	envStatusUpdateRollback   = "UPDATE_ROLLING_BACK"
+	envStatusUpdateFailed     = "UPDATE_FAILED"
+	envStatusPending          = "PENDING"
+	envStatusCreateFailed     = "CREATE_FAILED"
+	envStatusUnavailable      = "UNAVAILABLE"
+	envStatusError            = "ERROR"
 
 	// EndpointManagement constants.
 	endpointManagementService  = "SERVICE"
@@ -516,15 +523,32 @@ func buildEnvironment(
 
 // GetEnvironment retrieves a deep copy of an MWAA environment by name.
 func (b *InMemoryBackend) GetEnvironment(name string) (*Environment, error) {
-	b.mu.RLock("GetEnvironment")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetEnvironment")
+	defer b.mu.Unlock()
 
 	env, ok := b.environments[name]
 	if !ok {
 		return nil, ErrEnvironmentNotFound
 	}
 
-	return cloneEnvironment(env), nil
+	cp := cloneEnvironment(env)
+	promoteTransientStatus(env)
+
+	return cp, nil
+}
+
+// promoteTransientStatus advances mock-only transient lifecycle states (UPDATING,
+// CREATING_SNAPSHOT, UPDATE_ROLLING_BACK, PENDING) back to AVAILABLE so callers
+// can observe the transition once and then see the steady state.
+func promoteTransientStatus(env *Environment) {
+	if env == nil {
+		return
+	}
+
+	switch env.Status {
+	case envStatusUpdating, envStatusCreatingSnapshot, envStatusUpdateRollback, envStatusPending:
+		env.Status = envStatusAvailable
+	}
 }
 
 // DeleteEnvironment deletes an MWAA environment by name and cascades to metrics.
@@ -575,6 +599,10 @@ func (b *InMemoryBackend) UpdateEnvironment(name string, req *updateEnvironmentR
 	}
 
 	if req.NetworkConfiguration != nil {
+		if err := validateNetworkConfigUpdate(req.NetworkConfiguration); err != nil {
+			return nil, err
+		}
+
 		env.NetworkConfiguration = req.NetworkConfiguration
 	}
 
@@ -593,6 +621,10 @@ func (b *InMemoryBackend) UpdateEnvironment(name string, req *updateEnvironmentR
 		Source:                    "USER",
 		WorkerReplacementStrategy: req.WorkerReplacementStrategy,
 	}
+
+	// Reflect the AWS lifecycle: UpdateEnvironment puts the env into UPDATING,
+	// then it returns to AVAILABLE on the next observation.
+	env.Status = envStatusUpdating
 
 	return env, nil
 }
@@ -929,4 +961,23 @@ func cloneEnvironment(env *Environment) *Environment {
 	}
 
 	return &clone
+}
+
+// validateNetworkConfigUpdate enforces basic shape rules on a network update.
+// AWS rejects updates that drop subnets/security groups; we mirror that to
+// surface obvious user errors early.
+func validateNetworkConfigUpdate(nc *NetworkConfig) error {
+	if nc == nil {
+		return nil
+	}
+
+	if len(nc.SubnetIDs) == 0 {
+		return fmt.Errorf("%w: NetworkConfiguration.SubnetIds must not be empty", ErrInvalidParameter)
+	}
+
+	if len(nc.SecurityGroupIDs) == 0 {
+		return fmt.Errorf("%w: NetworkConfiguration.SecurityGroupIds must not be empty", ErrInvalidParameter)
+	}
+
+	return nil
 }
