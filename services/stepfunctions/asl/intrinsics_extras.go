@@ -227,12 +227,7 @@ func intrinsicJSONMerge(args []any) (any, error) {
 	// overflow flagged by CodeQL go/allocation-size-overflow. The size hint is
 	// only an optimization for `make(map)`, so a slightly low estimate is safe;
 	// avoiding `len(left)+len(right)` removes the theoretical overflow path.
-	hint := len(left)
-	if len(right) > hint {
-		hint = len(right)
-	}
-
-	out := make(map[string]any, hint)
+	out := make(map[string]any, max(len(left), len(right)))
 	maps.Copy(out, left)
 	maps.Copy(out, right)
 
