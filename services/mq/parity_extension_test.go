@@ -136,8 +136,8 @@ func TestUpdateConfiguration_DataSizeLimit(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	huge := strings.Repeat("a", 256*1024+1)
-	_, err = b.UpdateConfiguration(cfg.ID, "too big", huge)
+	oversizedData := strings.Repeat("a", 256*1024+1)
+	_, err = b.UpdateConfiguration(cfg.ID, "too big", oversizedData)
 	require.Error(t, err)
 }
 

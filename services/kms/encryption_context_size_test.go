@@ -17,12 +17,12 @@ func TestEncrypt_RejectsOversizeEncryptionContext(t *testing.T) {
 	create, err := b.CreateKey(&kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	huge := strings.Repeat("v", 5000)
+	oversizedValue := strings.Repeat("v", 5000)
 
 	_, err = b.Encrypt(&kms.EncryptInput{
 		KeyID:             create.KeyMetadata.KeyID,
 		Plaintext:         []byte("hello"),
-		EncryptionContext: map[string]string{"k": huge},
+		EncryptionContext: map[string]string{"k": oversizedValue},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "EncryptionContext")
@@ -33,11 +33,11 @@ func TestDecrypt_RejectsOversizeEncryptionContext(t *testing.T) {
 
 	b := kms.NewInMemoryBackend()
 
-	huge := strings.Repeat("v", 5000)
+	oversizedValue := strings.Repeat("v", 5000)
 
 	_, err := b.Decrypt(&kms.DecryptInput{
 		CiphertextBlob:    make([]byte, 64),
-		EncryptionContext: map[string]string{"k": huge},
+		EncryptionContext: map[string]string{"k": oversizedValue},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "EncryptionContext")

@@ -523,6 +523,8 @@ func buildEnvironment(
 
 // GetEnvironment retrieves a deep copy of an MWAA environment by name.
 func (b *InMemoryBackend) GetEnvironment(name string) (*Environment, error) {
+	// Full write lock: GetEnvironment may promote a transient lifecycle status
+	// (UPDATING → AVAILABLE) on the stored environment via promoteTransientStatus.
 	b.mu.Lock("GetEnvironment")
 	defer b.mu.Unlock()
 
