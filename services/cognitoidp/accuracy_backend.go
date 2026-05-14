@@ -114,9 +114,9 @@ func validatePasswordPolicy(pp *PasswordPolicy) error {
 	}
 
 	const (
-		minPasswordLength    = 6
-		maxPasswordLength    = 99
-		maxTempPwdValidDays  = 365
+		minPasswordLength   = 6
+		maxPasswordLength   = 99
+		maxTempPwdValidDays = 365
 	)
 
 	if pp.MinimumLength != 0 && (pp.MinimumLength < minPasswordLength || pp.MinimumLength > maxPasswordLength) {
