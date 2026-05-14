@@ -683,6 +683,11 @@ func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.Hand
 	}
 }
 
+// maxFunctionURLBodyBytes caps the request body for Lambda Function URL invokes.
+// AWS limits the synchronous Lambda invoke payload to 6 MiB; bodies larger than
+// that cannot be forwarded anyway, so cap reads to prevent unbounded memory use.
+const maxFunctionURLBodyBytes = 6 * 1024 * 1024
+
 // buildURLEventPayload converts an HTTP request to a Lambda Function URL event payload.
 func (b *InMemoryBackend) buildURLEventPayload(r *http.Request) ([]byte, error) {
 	var bodyBytes []byte
@@ -690,7 +695,7 @@ func (b *InMemoryBackend) buildURLEventPayload(r *http.Request) ([]byte, error) 
 	if r.Body != nil {
 		var readErr error
 
-		bodyBytes, readErr = io.ReadAll(r.Body)
+		bodyBytes, readErr = io.ReadAll(http.MaxBytesReader(nil, r.Body, maxFunctionURLBodyBytes))
 		if readErr != nil {
 			return nil, fmt.Errorf("failed to read request body: %w", readErr)
 		}
