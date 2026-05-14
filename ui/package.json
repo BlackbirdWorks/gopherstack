@@ -182,7 +182,7 @@
     "jsdom": "29.0.2",
     "oxfmt": "0.45.0",
     "oxlint": "1.60.0",
-    "svelte": "5.55.4",
+    "svelte": "5.55.7",
     "svelte-check": "4.4.6",
     "tailwindcss": "4.2.2",
     "typescript": "6.0.3",
