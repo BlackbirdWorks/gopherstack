@@ -237,6 +237,41 @@ func TestSendMessageSizeValidation(t *testing.T) {
 	}
 }
 
+// TestSendMessageSizeIncludesAttributes verifies that SQS counts message
+// attribute bytes (name + type + value) toward the queue's MaximumMessageSize,
+// matching AWS behaviour.
+func TestSendMessageSizeIncludesAttributes(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	out, err := b.CreateQueue(&sqs.CreateQueueInput{
+		QueueName:  "attr-size-queue",
+		Endpoint:   testEndpoint,
+		Attributes: map[string]string{"MaximumMessageSize": "1024"},
+	})
+	require.NoError(t, err)
+
+	// Body (1000) + attribute name (50) + type ("String" = 6) + value (50) = 1106 bytes, over the 1024 limit.
+	_, err = b.SendMessage(&sqs.SendMessageInput{
+		QueueURL:    out.QueueURL,
+		MessageBody: strings.Repeat("x", 1000),
+		MessageAttributes: map[string]sqs.MessageAttributeValue{
+			strings.Repeat("k", 50): {
+				DataType:    "String",
+				StringValue: strings.Repeat("v", 50),
+			},
+		},
+	})
+	require.ErrorIs(t, err, sqs.ErrMessageTooLarge)
+
+	// Body alone is well below the limit; without attributes the send succeeds.
+	_, err = b.SendMessage(&sqs.SendMessageInput{
+		QueueURL:    out.QueueURL,
+		MessageBody: strings.Repeat("x", 1000),
+	})
+	require.NoError(t, err)
+}
+
 // TestSendMessageBatchSizeValidation verifies that SendMessageBatch also enforces
 // MaximumMessageSize on individual entries.
 func TestSendMessageBatchSizeValidation(t *testing.T) {

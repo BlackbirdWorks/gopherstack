@@ -970,7 +970,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		return nil, ErrQueueNotFound
 	}
 
-	if err := validateMessageSize(input.MessageBody, q); err != nil {
+	if err := validateMessageSize(input.MessageBody, input.MessageAttributes, q); err != nil {
 		return nil, err
 	}
 
@@ -1045,15 +1045,23 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	return out, nil
 }
 
-// validateMessageSize checks whether the message body exceeds the queue's MaximumMessageSize.
-func validateMessageSize(body string, q *Queue) error {
+// validateMessageSize checks whether the total message size (body plus
+// attribute names, values, and types) exceeds the queue's MaximumMessageSize.
+// AWS SQS measures size as the sum of UTF-8 bytes across the body and every
+// attribute name / type / value, matching the documented limit.
+func validateMessageSize(body string, attrs map[string]MessageAttributeValue, q *Queue) error {
 	maxSize := defaultMaxMessageSize
 
 	if v, err := strconv.Atoi(q.Attributes[attrMaximumMessageSize]); err == nil && v > 0 {
 		maxSize = v
 	}
 
-	if len(body) > maxSize {
+	total := len(body)
+	for name, v := range attrs {
+		total += len(name) + len(v.DataType) + len(v.StringValue) + len(v.BinaryValue)
+	}
+
+	if total > maxSize {
 		return ErrMessageTooLarge
 	}
 
