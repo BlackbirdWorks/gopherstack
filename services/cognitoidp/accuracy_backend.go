@@ -121,12 +121,12 @@ func validatePasswordPolicy(pp *PasswordPolicy) error {
 
 	if pp.MinimumLength != 0 && (pp.MinimumLength < minPasswordLength || pp.MinimumLength > maxPasswordLength) {
 		return fmt.Errorf("%w: MinimumLength must be in [%d, %d]",
-			ErrInvalidToken, minPasswordLength, maxPasswordLength)
+			ErrInvalidParameter, minPasswordLength, maxPasswordLength)
 	}
 
 	if pp.TemporaryPasswordValidityDays < 0 || pp.TemporaryPasswordValidityDays > maxTempPwdValidDays {
 		return fmt.Errorf("%w: TemporaryPasswordValidityDays must be in [0, %d]",
-			ErrInvalidToken, maxTempPwdValidDays)
+			ErrInvalidParameter, maxTempPwdValidDays)
 	}
 
 	return nil

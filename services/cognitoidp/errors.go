@@ -49,6 +49,10 @@ var (
 	// ErrInvalidToken is returned when a JWT token is structurally invalid or has unexpected claims.
 	ErrInvalidToken = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
 
+	// ErrInvalidParameter signals an InvalidParameterException for general
+	// request-validation failures (e.g., out-of-range password policy fields).
+	ErrInvalidParameter = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
+
 	// ErrGroupNotFound is returned when a user pool group does not exist.
 	ErrGroupNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 
