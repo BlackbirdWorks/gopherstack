@@ -785,6 +785,14 @@ func buildURLARN(region, accountID, functionName string) string {
 
 // CreateFunction stores a new Lambda function configuration.
 func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
+	// AWS rejects function names longer than 64 chars (function name only,
+	// not including any qualifier or ARN).
+	const maxFunctionNameLength = 64
+	if l := len(fn.FunctionName); l == 0 || l > maxFunctionNameLength {
+		return fmt.Errorf("%w: FunctionName must be 1-%d characters",
+			ErrInvalidParameterValue, maxFunctionNameLength)
+	}
+
 	b.mu.Lock("CreateFunction")
 	defer b.mu.Unlock()
 

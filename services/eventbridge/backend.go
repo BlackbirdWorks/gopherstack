@@ -492,6 +492,13 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	// AWS rejects rule names longer than 64 characters.
+	const maxRuleNameLength = 64
+	if len(input.Name) > maxRuleNameLength {
+		return nil, fmt.Errorf("%w: Name must not exceed %d characters",
+			ErrInvalidParameter, maxRuleNameLength)
+	}
+
 	if input.EventPattern != "" && input.ScheduleExpression != "" {
 		return nil, fmt.Errorf("%w: ScheduleExpression and EventPattern are mutually exclusive", ErrInvalidParameter)
 	}
