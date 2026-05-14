@@ -23,16 +23,13 @@ const (
 
 // SecretVersion represents a single version of a secret.
 type SecretVersion struct {
-	// VersionId is the unique UUID of this version.
-	VersionID string `json:"VersionId"`
-	// SecretString is the secret value as a string (mutually exclusive with SecretBinary).
-	SecretString string `json:"SecretString,omitempty"`
-	// SecretBinary is the secret value as bytes (base64-encoded in JSON).
-	SecretBinary []byte `json:"SecretBinary,omitempty"`
-	// StagingLabels are the labels attached to this version.
-	StagingLabels []string `json:"VersionStages,omitempty"`
-	// CreatedDate is the Unix timestamp when this version was created.
-	CreatedDate float64 `json:"CreatedDate"`
+	LastAccessedDate *float64 `json:"LastAccessedDate,omitempty"`
+	VersionID        string   `json:"VersionId"`
+	SecretString     string   `json:"SecretString,omitempty"`
+	SecretBinary     []byte   `json:"SecretBinary,omitempty"`
+	StagingLabels    []string `json:"VersionStages,omitempty"`
+	KmsKeyIDs        []string `json:"KmsKeyIds,omitempty"`
+	CreatedDate      float64  `json:"CreatedDate"`
 }
 
 // Secret represents a stored secret including all versions.
@@ -241,6 +238,8 @@ type DescribeSecretOutput struct {
 	Description        string                  `json:"Description,omitempty"`
 	KmsKeyID           string                  `json:"KmsKeyId,omitempty"`
 	RotationLambdaARN  string                  `json:"RotationLambdaARN,omitempty"`
+	OwnerAccountID     string                  `json:"OwnerAccountId,omitempty"`
+	PrimaryRegion      string                  `json:"PrimaryRegion,omitempty"`
 	RotationRules      *RotationRulesType      `json:"RotationRules,omitempty"`
 	ReplicationStatus  []ReplicationStatusType `json:"ReplicationStatus,omitempty"`
 	RotationEnabled    bool                    `json:"RotationEnabled"`
@@ -336,12 +335,11 @@ type ErrorResponse struct {
 
 // SecretVersionEntry is a brief descriptor for a single secret version, used in ListSecretVersionIDs.
 type SecretVersionEntry struct {
-	// VersionID is the unique version identifier.
-	VersionID string `json:"VersionId"`
-	// StagingLabels are the labels attached to this version.
-	StagingLabels []string `json:"VersionStages,omitempty"`
-	// CreatedDate is the Unix timestamp when this version was created.
-	CreatedDate float64 `json:"CreatedDate"`
+	LastAccessedDate *float64 `json:"LastAccessedDate,omitempty"`
+	VersionID        string   `json:"VersionId"`
+	StagingLabels    []string `json:"VersionStages,omitempty"`
+	KmsKeyIDs        []string `json:"KmsKeyIds,omitempty"`
+	CreatedDate      float64  `json:"CreatedDate"`
 }
 
 // ListSecretVersionIDsInput is the request payload for ListSecretVersionIDs.
