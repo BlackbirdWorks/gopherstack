@@ -1057,8 +1057,8 @@ func validateMessageSize(body string, attrs map[string]MessageAttributeValue, q 
 	}
 
 	total := len(body)
-	for name, v := range attrs {
-		total += len(name) + len(v.DataType) + len(v.StringValue) + len(v.BinaryValue)
+	for name, attr := range attrs {
+		total += len(name) + len(attr.DataType) + len(attr.StringValue) + len(attr.BinaryValue)
 	}
 
 	if total > maxSize {

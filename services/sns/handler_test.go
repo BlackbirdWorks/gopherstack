@@ -5266,3 +5266,32 @@ func TestSNS_FilterPolicyValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestSNS_PublishSizeIncludesAttributes verifies that AWS-style SNS sizing
+// (body + attribute name + type + value) is enforced against the 256 KiB cap.
+func TestSNS_PublishSizeIncludesAttributes(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+	tp, err := b.CreateTopic("size-topic", nil)
+	require.NoError(t, err)
+
+	const limit = 256 * 1024
+
+	// Body alone is under the limit; large attribute pushes the total over.
+	body := strings.Repeat("a", limit-100)
+	attrs := map[string]sns.MessageAttribute{
+		strings.Repeat("k", 50): {
+			DataType:    "String",
+			StringValue: strings.Repeat("v", 200),
+		},
+	}
+
+	_, err = b.Publish(tp.TopicArn, body, "", "", attrs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds SNS limit")
+
+	// Body alone with no attributes succeeds at the same body size.
+	_, err = b.Publish(tp.TopicArn, body, "", "", nil)
+	require.NoError(t, err)
+}

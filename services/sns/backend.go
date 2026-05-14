@@ -1242,8 +1242,15 @@ func (b *InMemoryBackend) collectPublishTargets(
 func (b *InMemoryBackend) Publish(
 	topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute,
 ) (string, error) {
-	// Validate message size before acquiring any lock (cheap pre-check).
-	if len(message) > maxMessageSizeBytes {
+	// Validate total message size before acquiring any lock (cheap pre-check).
+	// AWS SNS counts the message body plus every attribute name + type + value
+	// toward the 256 KiB cap.
+	totalSize := len(message)
+	for name, a := range attrs {
+		totalSize += len(name) + len(a.DataType) + len(a.StringValue)
+	}
+
+	if totalSize > maxMessageSizeBytes {
 		return "", fmt.Errorf(
 			"%w: Message size exceeds SNS limit of %d bytes",
 			ErrInvalidParameter,
