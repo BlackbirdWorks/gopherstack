@@ -747,3 +747,68 @@ func validateSigningAlgorithm(signingAlgorithm, keySpec string) error {
 		errUnsupportedAlgorithm, signingAlgorithm, keySpec, supported,
 	)
 }
+
+// validateEncryptionContextSize enforces the AWS KMS 4096-byte cap on the
+// canonical encoded EncryptionContext. The encoded form is the same one used
+// by buildEncryptionContextAAD: sorted "key=value" pairs separated by NUL
+// bytes (we omit the leading keyID and treat keyID separator weight as 1 byte
+// per pair, matching the AAD shape minus the prefix).
+func validateEncryptionContextSize(ctx map[string]string) error {
+	if len(ctx) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(ctx))
+	for k := range ctx {
+		keys = append(keys, k)
+	}
+
+	slices.Sort(keys)
+
+	total := 0
+
+	for _, k := range keys {
+		// 1 separator + key + '=' + value
+		total += 1 + len(k) + 1 + len(ctx[k])
+		if total > maxEncryptionContextBytes {
+			return fmt.Errorf(
+				"%w: encoded EncryptionContext exceeds %d bytes",
+				ErrValidation, maxEncryptionContextBytes,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateGenerateDataKeyInput enforces the same shape rules as the AWS KMS API.
+func validateGenerateDataKeyInput(input *GenerateDataKeyInput) error {
+	if input.KeySpec != "" && input.NumberOfBytes != nil {
+		return fmt.Errorf(
+			"%w: specify either KeySpec or NumberOfBytes, not both",
+			ErrValidation,
+		)
+	}
+
+	if input.KeySpec != "" && input.KeySpec != "AES_128" && input.KeySpec != "AES_256" {
+		return fmt.Errorf(
+			"%w: KeySpec for GenerateDataKey must be AES_128 or AES_256, got %q",
+			ErrValidation, input.KeySpec,
+		)
+	}
+
+	return validateEncryptionContextSize(input.EncryptionContext)
+}
+
+// validateReEncryptInput enforces non-empty destination key and encryption context size limits.
+func validateReEncryptInput(input *ReEncryptInput) error {
+	if strings.TrimSpace(input.DestinationKeyID) == "" {
+		return fmt.Errorf("%w: DestinationKeyId must not be empty", ErrValidation)
+	}
+
+	if err := validateEncryptionContextSize(input.SourceEncryptionContext); err != nil {
+		return err
+	}
+
+	return validateEncryptionContextSize(input.DestinationEncryptionContext)
+}
