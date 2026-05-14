@@ -378,6 +378,7 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 		StartingPosition:     startingPosition,
 		LastProcessingResult: "No records processed",
 		LastModified:         time.Now(),
+		FilterCriteria:       input.FilterCriteria,
 	}
 
 	b.eventSourceMappings[id] = m
@@ -3681,6 +3682,10 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 
 	if input.BatchSize > 0 {
 		esm.BatchSize = input.BatchSize
+	}
+
+	if input.FilterCriteria != nil {
+		esm.FilterCriteria = input.FilterCriteria
 	}
 
 	esm.LastModified = time.Now()

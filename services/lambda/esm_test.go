@@ -53,6 +53,71 @@ func doESMRequest(t *testing.T, h *lambda.Handler, method, path string, body any
 	return rec
 }
 
+// TestLambda_ESM_FilterCriteria_RoundTrip verifies that FilterCriteria submitted
+// at create / update time is preserved across Get and List operations for AWS parity.
+func TestLambda_ESM_FilterCriteria_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h, bk := newRealHandler(t)
+
+	streamARN := "arn:aws:kinesis:us-east-1:000000000000:stream/my-stream-fc"
+	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "fc-fn"}))
+
+	createBody := map[string]any{
+		"EventSourceArn":   streamARN,
+		"FunctionName":     "fc-fn",
+		"StartingPosition": "TRIM_HORIZON",
+		"BatchSize":        10,
+		"Enabled":          true,
+		"FilterCriteria": map[string]any{
+			"Filters": []map[string]string{
+				{"Pattern": `{"data":{"orderType":["premium"]}}`},
+			},
+		},
+	}
+
+	rec := doESMRequest(t, h, http.MethodPost, "/2015-03-31/event-source-mappings/", createBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var createResp struct {
+		UUID           string `json:"UUID"`
+		FilterCriteria struct {
+			Filters []struct {
+				Pattern string `json:"Pattern"`
+			} `json:"Filters"`
+		} `json:"FilterCriteria"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NotEmpty(t, createResp.UUID)
+	require.Len(t, createResp.FilterCriteria.Filters, 1)
+	assert.Equal(t, `{"data":{"orderType":["premium"]}}`, createResp.FilterCriteria.Filters[0].Pattern)
+
+	// Update with new filter pattern.
+	updBody := map[string]any{
+		"FilterCriteria": map[string]any{
+			"Filters": []map[string]string{
+				{"Pattern": `{"data":{"orderType":["standard"]}}`},
+			},
+		},
+	}
+	rec = doESMRequest(t, h, http.MethodPut, "/2015-03-31/event-source-mappings/"+createResp.UUID, updBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doESMRequest(t, h, http.MethodGet, "/2015-03-31/event-source-mappings/"+createResp.UUID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp struct {
+		FilterCriteria struct {
+			Filters []struct {
+				Pattern string `json:"Pattern"`
+			} `json:"Filters"`
+		} `json:"FilterCriteria"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.Len(t, getResp.FilterCriteria.Filters, 1)
+	assert.Equal(t, `{"data":{"orderType":["standard"]}}`, getResp.FilterCriteria.Filters[0].Pattern)
+}
+
 // TestLambda_ESM_CRUD tests the full Create / Get / List / Delete lifecycle.
 func TestLambda_ESM_CRUD(t *testing.T) {
 	t.Parallel()

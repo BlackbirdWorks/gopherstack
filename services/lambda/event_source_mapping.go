@@ -27,11 +27,28 @@ type EventSourceMapping struct {
 	State                EventSourceMappingState `json:"state"`
 	StartingPosition     string                  `json:"startingPosition"`
 	LastProcessingResult string                  `json:"lastProcessingResult"`
-	BatchSize            int                     `json:"batchSize"`
+	// FilterCriteria carries the AWS Lambda event-filter pattern document. Stored
+	// for round-trip parity with AWS; evaluation against incoming records is
+	// performed by the poller when present.
+	FilterCriteria *FilterCriteria `json:"filterCriteria,omitempty"`
+	BatchSize      int             `json:"batchSize"`
+}
+
+// FilterCriteria mirrors the AWS Lambda EventSourceMapping FilterCriteria field.
+// Each filter is a JSON pattern object; AWS allows up to 5 filters per mapping.
+type FilterCriteria struct {
+	Filters []Filter `json:"Filters,omitempty"`
+}
+
+// Filter is a single filter pattern. Pattern is a serialized JSON document
+// describing the expected event shape (AWS event-pattern matching syntax).
+type Filter struct {
+	Pattern string `json:"Pattern,omitempty"`
 }
 
 // CreateEventSourceMappingInput is the input for CreateEventSourceMapping.
 type CreateEventSourceMappingInput struct {
+	FilterCriteria   *FilterCriteria
 	EventSourceARN   string
 	FunctionName     string
 	StartingPosition string
@@ -41,20 +58,22 @@ type CreateEventSourceMappingInput struct {
 
 // UpdateEventSourceMappingInput is the input for UpdateEventSourceMapping.
 type UpdateEventSourceMappingInput struct {
-	Enabled   *bool
-	UUID      string
-	BatchSize int
+	Enabled        *bool
+	FilterCriteria *FilterCriteria
+	UUID           string
+	BatchSize      int
 }
 
 // jsonESMResponse is the JSON representation of an event source mapping.
 type jsonESMResponse struct {
-	UUID                 string `json:"UUID"`
-	EventSourceARN       string `json:"EventSourceArn"`
-	FunctionARN          string `json:"FunctionArn"`
-	State                string `json:"State"`
-	StartingPosition     string `json:"StartingPosition,omitempty"`
-	LastProcessingResult string `json:"LastProcessingResult,omitempty"`
-	BatchSize            int    `json:"BatchSize"`
+	UUID                 string          `json:"UUID"`
+	EventSourceARN       string          `json:"EventSourceArn"`
+	FunctionARN          string          `json:"FunctionArn"`
+	State                string          `json:"State"`
+	StartingPosition     string          `json:"StartingPosition,omitempty"`
+	LastProcessingResult string          `json:"LastProcessingResult,omitempty"`
+	FilterCriteria       *FilterCriteria `json:"FilterCriteria,omitempty"`
+	BatchSize            int             `json:"BatchSize"`
 }
 
 // jsonListESMResponse is the JSON response for ListEventSourceMappings.
@@ -73,5 +92,6 @@ func toJSONESMResponse(m *EventSourceMapping) jsonESMResponse {
 		BatchSize:            m.BatchSize,
 		StartingPosition:     m.StartingPosition,
 		LastProcessingResult: m.LastProcessingResult,
+		FilterCriteria:       m.FilterCriteria,
 	}
 }
