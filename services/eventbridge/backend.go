@@ -767,11 +767,32 @@ func (b *InMemoryBackend) ListTargetsByRule(ruleName, eventBusName, nextToken st
 }
 
 // PutEvents records events in the event log and returns result entries.
+//
+// AWS EventBridge constrains PutEvents requests to 256 KiB of total entry
+// payload (sum of Source, DetailType, Detail, Resources, Time across every
+// entry). Entries that, combined with what's been accepted so far, would
+// exceed the cap are rejected individually with the AWS error code
+// `EventSizeLimitExceeded`. The remaining entries continue to be accepted.
 func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
+	const maxBatchBytes = 256 * 1024
+
 	b.mu.Lock("PutEvents")
 
 	results := make([]EventResultEntry, 0, len(entries))
+	accepted := make([]EventEntry, 0, len(entries))
+	totalBytes := 0
 	for _, entry := range entries {
+		entryBytes := putEventsEntryBytes(entry)
+		if totalBytes+entryBytes > maxBatchBytes {
+			results = append(results, EventResultEntry{
+				ErrorCode:    "EventSizeLimitExceeded",
+				ErrorMessage: "Event size exceeds 256 KB total batch limit",
+			})
+
+			continue
+		}
+
+		totalBytes += entryBytes
 		eventID := uuid.New().String()
 		busName := entry.EventBusName
 		if busName == "" {
@@ -796,6 +817,7 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 		}
 		// Capture event into matching archives.
 		b.captureEventInArchives(entry, busName)
+		accepted = append(accepted, entry)
 		results = append(results, EventResultEntry{EventID: eventID})
 	}
 
@@ -808,9 +830,9 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 	// Trigger async fan-out delivery after releasing the lock.
 	// Skip if the backend is already closing to prevent wg.Add concurrent with
 	// wg.Wait (which would panic per sync.WaitGroup semantics).
-	if dt != nil && !b.closing.Load() {
-		entriesCopy := make([]EventEntry, len(entries))
-		copy(entriesCopy, entries)
+	if dt != nil && !b.closing.Load() && len(accepted) > 0 {
+		entriesCopy := make([]EventEntry, len(accepted))
+		copy(entriesCopy, accepted)
 		dtCopy := *dt
 		b.wg.Go(func() {
 			// Acquire a worker slot or abort if the backend is shutting down.
@@ -1980,4 +2002,23 @@ func isValidJSON(s string) bool {
 	var v any
 
 	return json.Unmarshal([]byte(s), &v) == nil
+}
+
+// putEventsEntryBytes returns the byte size of an event entry as it counts
+// against the 256 KiB PutEvents request cap. Per AWS documentation, the
+// counted fields are Source, DetailType, Detail, Time, and each Resource ARN
+// (14 bytes for Time when present). EventBusName is not counted.
+func putEventsEntryBytes(e EventEntry) int {
+	const timeBytes = 14
+
+	total := len(e.Source) + len(e.DetailType) + len(e.Detail)
+	if e.Time != nil {
+		total += timeBytes
+	}
+
+	for _, r := range e.Resources {
+		total += len(r)
+	}
+
+	return total
 }

@@ -318,6 +318,12 @@ func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML,
 		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}
 
+	// AWS SES caps a single message at 10 MiB total (subject + body + headers).
+	const maxMessageBytes = 10 * 1024 * 1024
+	if len(subject)+len(bodyHTML)+len(bodyText) > maxMessageBytes {
+		return "", fmt.Errorf("%w: message exceeds 10 MB", ErrMessageRejected)
+	}
+
 	b.mu.Lock("SendEmail")
 	defer b.mu.Unlock()
 

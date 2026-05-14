@@ -1683,6 +1683,30 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 		return nil, err
 	}
 
+	// AWS rejects the entire batch with BatchRequestTooLong when the combined
+	// payload size of every entry that is itself within the per-message limit
+	// (bodies plus attribute name + type + value bytes) would still exceed the
+	// per-queue MaximumMessageSize (default 256 KiB). Entries that are
+	// individually oversized are surfaced per-entry by validateMessageSize so
+	// existing per-entry-failure semantics are preserved.
+	totalBytes := 0
+	allEntriesUnderLimit := true
+	for _, entry := range input.Entries {
+		entryBytes := len(entry.MessageBody)
+		for name, attr := range entry.MessageAttributes {
+			entryBytes += len(name) + len(attr.DataType) + len(attr.StringValue) + len(attr.BinaryValue)
+		}
+
+		if entryBytes > defaultMaxMessageSize {
+			allEntriesUnderLimit = false
+		}
+		totalBytes += entryBytes
+	}
+
+	if allEntriesUnderLimit && totalBytes > defaultMaxMessageSize {
+		return nil, ErrBatchRequestTooLong
+	}
+
 	out := &SendMessageBatchOutput{}
 
 	// Process entries in input order; append results directly so Successful and

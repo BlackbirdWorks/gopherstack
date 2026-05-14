@@ -1082,6 +1082,13 @@ func (b *InMemoryBackend) CreateAuthorizer(restAPIID string, input CreateAuthori
 		return nil, fmt.Errorf("%w: type is required", ErrInvalidParameter)
 	}
 
+	// AWS rejects AuthorizerResultTtlInSeconds outside [0, 3600].
+	const maxAuthorizerTTL = 3600
+	if input.AuthorizerResultTTLInSeconds < 0 || input.AuthorizerResultTTLInSeconds > maxAuthorizerTTL {
+		return nil, fmt.Errorf("%w: authorizerResultTtlInSeconds must be in [0, %d]",
+			ErrInvalidParameter, maxAuthorizerTTL)
+	}
+
 	b.mu.Lock("CreateAuthorizer")
 	defer b.mu.Unlock()
 
@@ -1182,6 +1189,11 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 		auth.IdentityValidationExpression = input.IdentityValidationExpression
 	}
 	if input.AuthorizerResultTTLInSeconds != 0 {
+		const maxAuthorizerTTL = 3600
+		if input.AuthorizerResultTTLInSeconds < 0 || input.AuthorizerResultTTLInSeconds > maxAuthorizerTTL {
+			return nil, fmt.Errorf("%w: authorizerResultTtlInSeconds must be in [0, %d]",
+				ErrInvalidParameter, maxAuthorizerTTL)
+		}
 		auth.AuthorizerResultTTLInSeconds = input.AuthorizerResultTTLInSeconds
 	}
 	if len(input.ProviderARNs) > 0 {
