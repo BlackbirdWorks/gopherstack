@@ -772,70 +772,97 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 	isFIFO := strings.HasSuffix(topicArn, ".fifo")
 
 	for _, entry := range entries {
-		// FIFO topics require MessageGroupId on every batch entry.
-		if isFIFO && entry.messageGroupID == "" {
-			failed = append(failed, XMLPublishBatchFailEntry{
-				ID:          entry.id,
-				Code:        "InvalidParameter",
-				Message:     "MessageGroupId is required for FIFO topics",
-				SenderFault: true,
-			})
+		ok, fail := h.processBatchEntry(topicArn, entry, isFIFO)
+		if fail != nil {
+			failed = append(failed, *fail)
 
 			continue
 		}
 
-		// Apply FIFO deduplication (explicit or content-based) per entry.
-		var effectiveDedupID string
-
-		if isFIFO {
-			id, dedupErr := h.resolveFIFODedupID(topicArn, entry.dedupID, entry.message)
-			if dedupErr != nil {
-				failed = append(failed, XMLPublishBatchFailEntry{
-					ID:          entry.id,
-					Code:        errorCode(dedupErr),
-					Message:     dedupErr.Error(),
-					SenderFault: true,
-				})
-
-				continue
-			}
-
-			if id != "" && h.dedup.isDuplicate(topicArn, id) {
-				// Duplicate within window: AWS returns a synthesized success entry.
-				successful = append(successful, XMLPublishBatchSuccessEntry{
-					MessageID: uuid.New().String(),
-					ID:        entry.id,
-				})
-
-				continue
-			}
-
-			effectiveDedupID = id
-		}
-
-		msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, entry.messageStructure, entry.attrs)
-		if err != nil {
-			failed = append(failed, XMLPublishBatchFailEntry{
-				ID:          entry.id,
-				Code:        errorCode(err),
-				Message:     err.Error(),
-				SenderFault: true,
-			})
-
-			continue
-		}
-
-		if effectiveDedupID != "" {
-			h.dedup.record(topicArn, effectiveDedupID)
-		}
-
-		successful = append(successful, XMLPublishBatchSuccessEntry{MessageID: msgID, ID: entry.id})
+		successful = append(successful, *ok)
 	}
 
 	return h.writeXML(c, PublishBatchResponse{
 		PublishBatchResult: PublishBatchResult{Successful: successful, Failed: failed},
 		ResponseMetadata:   ResponseMetadata{RequestID: uuid.New().String()},
 	})
+}
+
+// processBatchEntry executes a single PublishBatch entry: it validates FIFO
+// requirements, applies deduplication, performs the underlying Publish, and
+// returns either a success or failure entry. Exactly one of the returned
+// pointers is non-nil.
+func (h *Handler) processBatchEntry(
+	topicArn string, entry batchEntry, isFIFO bool,
+) (*XMLPublishBatchSuccessEntry, *XMLPublishBatchFailEntry) {
+	if isFIFO && entry.messageGroupID == "" {
+		return nil, &XMLPublishBatchFailEntry{
+			ID:          entry.id,
+			Code:        "InvalidParameter",
+			Message:     "MessageGroupId is required for FIFO topics",
+			SenderFault: true,
+		}
+	}
+
+	var effectiveDedupID string
+
+	if isFIFO {
+		id, dup, fail := h.batchEntryFIFODedup(topicArn, entry)
+		if fail != nil {
+			return nil, fail
+		}
+
+		if dup != nil {
+			return dup, nil
+		}
+
+		effectiveDedupID = id
+	}
+
+	msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, entry.messageStructure, entry.attrs)
+	if err != nil {
+		return nil, &XMLPublishBatchFailEntry{
+			ID:          entry.id,
+			Code:        errorCode(err),
+			Message:     err.Error(),
+			SenderFault: true,
+		}
+	}
+
+	if effectiveDedupID != "" {
+		h.dedup.record(topicArn, effectiveDedupID)
+	}
+
+	return &XMLPublishBatchSuccessEntry{MessageID: msgID, ID: entry.id}, nil
+}
+
+// batchEntryFIFODedup resolves the effective FIFO deduplication ID for a single
+// batch entry. It returns:
+//   - (id, nil, nil): the entry should be published with `id` recorded after success.
+//   - ("", dup, nil): the entry is a duplicate within the dedup window; AWS
+//     returns a synthesized success entry without re-publishing.
+//   - ("", nil, fail): the dedup configuration is invalid (e.g. CBD conflict).
+func (h *Handler) batchEntryFIFODedup(
+	topicArn string, entry batchEntry,
+) (string, *XMLPublishBatchSuccessEntry, *XMLPublishBatchFailEntry) {
+	id, dedupErr := h.resolveFIFODedupID(topicArn, entry.dedupID, entry.message)
+	if dedupErr != nil {
+		return "", nil, &XMLPublishBatchFailEntry{
+			ID:          entry.id,
+			Code:        errorCode(dedupErr),
+			Message:     dedupErr.Error(),
+			SenderFault: true,
+		}
+	}
+
+	if id != "" && h.dedup.isDuplicate(topicArn, id) {
+		return "", &XMLPublishBatchSuccessEntry{
+			MessageID: uuid.New().String(),
+			ID:        entry.id,
+		}, nil
+	}
+
+	return id, nil, nil
 }
 
 func (h *Handler) handleGetSubscriptionAttributes(c *echo.Context) error {

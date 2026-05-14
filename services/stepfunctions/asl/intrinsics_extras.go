@@ -223,7 +223,16 @@ func intrinsicJSONMerge(args []any) (any, error) {
 		return nil, ErrStatesJSONMergeDeepUnsupported
 	}
 
-	out := make(map[string]any, len(left)+len(right))
+	// Preallocate using the larger of the two inputs to avoid an integer-addition
+	// overflow flagged by CodeQL go/allocation-size-overflow. The size hint is
+	// only an optimization for `make(map)`, so a slightly low estimate is safe;
+	// avoiding `len(left)+len(right)` removes the theoretical overflow path.
+	hint := len(left)
+	if len(right) > hint {
+		hint = len(right)
+	}
+
+	out := make(map[string]any, hint)
 	maps.Copy(out, left)
 	maps.Copy(out, right)
 
