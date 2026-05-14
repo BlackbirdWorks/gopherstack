@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -394,6 +395,13 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 		}
 	}
 
+	// Validate KmsMasterKeyId format if present (alias name, alias ARN, key ID, or key ARN).
+	if v := attrs["KmsMasterKeyId"]; v != "" {
+		if err := validateKmsMasterKeyID(v); err != nil {
+			return nil, err
+		}
+	}
+
 	topic := &Topic{
 		TopicArn:          topicArn,
 		Attributes:        attrs,
@@ -584,6 +592,13 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 		)
 	}
 
+	// Validate KmsMasterKeyId format (alias name, alias ARN, key ID, or key ARN).
+	if attrName == "KmsMasterKeyId" && attrValue != "" {
+		if err := validateKmsMasterKeyID(attrValue); err != nil {
+			return err
+		}
+	}
+
 	// When clearing EffectiveDeliveryPolicy derived from DeliveryPolicy, reset it.
 	if attrName == "DeliveryPolicy" {
 		if attrValue == "" {
@@ -765,6 +780,13 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 		parsedPolicy = p
 	}
 
+	// Pre-validate redrive policy outside the backend lock for the same reason.
+	if attrName == attrRedrivePolicy && attrValue != "" {
+		if err := validateRedrivePolicy(attrValue); err != nil {
+			return err
+		}
+	}
+
 	b.mu.Lock("SetSubscriptionAttributes")
 	defer b.mu.Unlock()
 
@@ -905,6 +927,120 @@ func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 	return parsed, nil
 }
 
+// kmsKeyIDPattern matches a bare KMS key ID (UUID-ish: 8-4-4-4-12 hex, lowercase).
+var kmsKeyIDPattern = regexp.MustCompile(
+	`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
+)
+
+// validateKmsMasterKeyID validates that v is a syntactically plausible KMS key
+// reference accepted by AWS SNS: a bare alias name, an alias ARN, a key ID, a
+// key ARN, or the special "alias/aws/sns" managed key alias. The check rejects
+// obviously malformed values; full ARN-resource validation is delegated to KMS.
+func validateKmsMasterKeyID(v string) error {
+	switch {
+	case strings.HasPrefix(v, "alias/"):
+		// Alias names must be at least one character after the prefix.
+		if len(v) <= len("alias/") {
+			return fmt.Errorf("%w: KmsMasterKeyId alias must not be empty", ErrInvalidParameter)
+		}
+
+		return nil
+	case strings.HasPrefix(v, "arn:"):
+		// Accept any well-formed KMS ARN (key or alias).
+		parts := strings.Split(v, ":")
+		if len(parts) < 6 || parts[2] != "kms" {
+			return fmt.Errorf("%w: KmsMasterKeyId is not a valid KMS ARN: %s", ErrInvalidParameter, v)
+		}
+
+		return nil
+	case kmsKeyIDPattern.MatchString(v):
+		return nil
+	default:
+		return fmt.Errorf("%w: KmsMasterKeyId is not a valid key ID, ARN, or alias: %s", ErrInvalidParameter, v)
+	}
+}
+
+// validateRedrivePolicy validates the JSON redrive policy attached to a
+// subscription. AWS requires deadLetterTargetArn to be a valid SQS queue ARN.
+func validateRedrivePolicy(policy string) error {
+	var parsed struct {
+		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
+	}
+
+	if err := json.Unmarshal([]byte(policy), &parsed); err != nil {
+		return fmt.Errorf("%w: RedrivePolicy is not valid JSON: %s", ErrInvalidParameter, err.Error())
+	}
+
+	if parsed.DeadLetterTargetArn == "" {
+		return fmt.Errorf("%w: RedrivePolicy must include deadLetterTargetArn", ErrInvalidParameter)
+	}
+
+	parts := strings.Split(parsed.DeadLetterTargetArn, ":")
+	if len(parts) < 6 || parts[0] != "arn" || parts[2] != "sqs" {
+		return fmt.Errorf(
+			"%w: RedrivePolicy.deadLetterTargetArn must be a valid SQS queue ARN, got %s",
+			ErrInvalidParameter, parsed.DeadLetterTargetArn,
+		)
+	}
+
+	return nil
+}
+
+// validMessageAttributeDataType reports whether the given DataType prefix is
+// one of the SNS-supported scalar message-attribute data types.
+func validMessageAttributeDataType(base string) bool {
+	switch base {
+	case "String", "String.Array", "Number", "Binary":
+		return true
+	}
+
+	return false
+}
+
+// maxMessageAttributeNameLen is the AWS-documented cap for a message-attribute name.
+const maxMessageAttributeNameLen = 256
+
+// validateMessageAttributes enforces SNS validation rules on the per-message
+// attribute map: each name 1..256 chars, each DataType is one of the supported
+// scalar types or a "<base>.<subtype>" specialization, and the cumulative
+// payload size (names + data types + values) does not exceed 256 KiB.
+func validateMessageAttributes(attrs map[string]MessageAttribute) error {
+	const maxAttrPayloadBytes = 256 * 1024
+
+	total := 0
+
+	for name, a := range attrs {
+		if name == "" || len(name) > maxMessageAttributeNameLen {
+			return fmt.Errorf(
+				"%w: message attribute name must be 1..%d characters",
+				ErrInvalidParameter, maxMessageAttributeNameLen,
+			)
+		}
+
+		base := a.DataType
+		if i := strings.Index(base, "."); i >= 0 {
+			base = base[:i]
+		}
+
+		if !validMessageAttributeDataType(a.DataType) && !validMessageAttributeDataType(base) {
+			return fmt.Errorf(
+				"%w: message attribute %q has unsupported DataType %q",
+				ErrInvalidParameter, name, a.DataType,
+			)
+		}
+
+		total += len(name) + len(a.DataType) + len(a.StringValue)
+		if total > maxAttrPayloadBytes {
+			return fmt.Errorf(
+				"%w: aggregate message attribute payload exceeds %d bytes",
+				ErrInvalidParameter, maxAttrPayloadBytes,
+			)
+		}
+	}
+
+	return nil
+}
+
 // buildMessageResolver returns a function that picks the correct message body for a given protocol,
 // respecting MessageStructure "json" per-protocol map when provided.
 func buildMessageResolver(defaultMsg string, perProtocol map[string]string) func(string) string {
@@ -1000,6 +1136,11 @@ func (b *InMemoryBackend) Publish(
 				ErrInvalidParameter,
 			)
 		}
+	}
+
+	// Validate message attributes before any backend mutation.
+	if err := validateMessageAttributes(attrs); err != nil {
+		return "", err
 	}
 
 	b.mu.RLock("Publish")

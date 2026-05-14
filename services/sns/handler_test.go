@@ -5059,3 +5059,78 @@ func TestSNS_TopicNameValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestSNS_PublishRejectsInvalidMessageAttribute(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		attrs   map[string]sns.MessageAttribute
+		name    string
+		wantErr string
+	}{
+		{
+			name: "unsupported_data_type",
+			attrs: map[string]sns.MessageAttribute{
+				"k": {DataType: "Bogus", StringValue: "v"},
+			},
+			wantErr: "unsupported DataType",
+		},
+		{
+			name: "empty_attribute_name",
+			attrs: map[string]sns.MessageAttribute{
+				"": {DataType: "String", StringValue: "v"},
+			},
+			wantErr: "attribute name must be",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			tp, err := b.CreateTopic("attr-validation-topic", nil)
+			require.NoError(t, err)
+
+			_, err = b.Publish(tp.TopicArn, "hello", "", "", tt.attrs)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestSNS_CreateTopicRejectsInvalidKmsMasterKeyId(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+
+	_, err := b.CreateTopic("kms-topic", map[string]string{"KmsMasterKeyId": "??not-valid??"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "KmsMasterKeyId")
+
+	// Valid alias is accepted.
+	_, err = b.CreateTopic("kms-topic", map[string]string{"KmsMasterKeyId": "alias/aws/sns"})
+	require.NoError(t, err)
+}
+
+func TestSNS_SetSubscriptionAttributesValidatesRedrivePolicy(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+	tp, err := b.CreateTopic("redrive-topic", nil)
+	require.NoError(t, err)
+
+	sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.invalid", "")
+	require.NoError(t, err)
+
+	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy", `{"deadLetterTargetArn":"not-an-arn"}`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SQS queue ARN")
+
+	err = b.SetSubscriptionAttributes(
+		sub.SubscriptionArn,
+		"RedrivePolicy",
+		`{"deadLetterTargetArn":"arn:aws:sqs:us-east-1:000000000000:dlq"}`,
+	)
+	require.NoError(t, err)
+}
