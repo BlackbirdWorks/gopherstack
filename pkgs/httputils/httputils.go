@@ -28,12 +28,20 @@ type bodyReadCloser struct {
 
 func (b *bodyReadCloser) Close() error { return nil }
 
+// MaxRequestBodyBytes caps every body read through ReadBody. AWS API request
+// payloads top out at 6 MiB (Lambda synchronous invoke) or 5 GiB streamed
+// (S3 PutObject, which uses its own streaming path and does not call ReadBody).
+// 16 MiB leaves headroom for unusually large API requests while preventing
+// unbounded memory growth from attacker-controlled bodies.
+const MaxRequestBodyBytes int64 = 16 * 1024 * 1024
+
 // ReadBody reads the request body and returns it as a byte slice.
 // It handles cases where r.Body might be nil (e.g. in some test environments).
 // It re-seeds the request body so it can be read multiple times and ensures
 // the original request body is closed.
 // It uses a custom ReadCloser to avoid redundant reads and allocations if
-// called multiple times.
+// called multiple times. The body is capped at MaxRequestBodyBytes; reads that
+// exceed the cap return an error.
 func ReadBody(r *http.Request) ([]byte, error) {
 	if r.Body == nil {
 		return nil, nil
@@ -47,7 +55,7 @@ func ReadBody(r *http.Request) ([]byte, error) {
 		return brc.body, nil
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, MaxRequestBodyBytes))
 	_ = r.Body.Close() // Ensure original body is closed
 	if err != nil {
 		return nil, err
