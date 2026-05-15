@@ -526,7 +526,34 @@ func (h *Handler) handleDescribeBroker(c *echo.Context, brokerID string) error {
 }
 
 func (h *Handler) handleListBrokers(c *echo.Context) error {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults := 100
+
+	if s := q.Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 100 {
+			maxResults = n
+		}
+	}
+
 	brokers := h.Backend.ListBrokers()
+
+	// Apply nextToken: skip brokers up to and including the named broker.
+	if nextToken != "" {
+		for i, br := range brokers {
+			if br.BrokerName == nextToken {
+				brokers = brokers[i+1:]
+				break
+			}
+		}
+	}
+
+	var responseNextToken string
+
+	if len(brokers) > maxResults {
+		responseNextToken = brokers[maxResults-1].BrokerName
+		brokers = brokers[:maxResults]
+	}
 
 	summaries := make([]brokerSummary, 0, len(brokers))
 	for _, br := range brokers {
@@ -542,7 +569,12 @@ func (h *Handler) handleListBrokers(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"brokerSummaries": summaries})
+	resp := map[string]any{"brokerSummaries": summaries}
+	if responseNextToken != "" {
+		resp["nextToken"] = responseNextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 type brokerSummary struct {
@@ -563,6 +595,25 @@ type updateBrokerInput struct {
 	SecurityGroups          []string `json:"securityGroups"`
 }
 
+// updateBrokerResponse matches the AWS MQ UpdateBroker response shape.
+type updateBrokerResponse struct {
+	LdapServerMetadata         *LdapServerMetadata `json:"ldapServerMetadata,omitempty"`
+	Logs                       *LogsSummary        `json:"logs,omitempty"`
+	MaintenanceWindowStartTime *WeeklyStartTime    `json:"maintenanceWindowStartTime,omitempty"`
+	PendingLdapServerMetadata  *LdapServerMetadata `json:"pendingLdapServerMetadata,omitempty"`
+	Configuration              *ConfigurationID    `json:"configuration,omitempty"`
+	PendingAuthStrategy        string              `json:"pendingAuthenticationStrategy,omitempty"`
+	PendingEngineVersion       string              `json:"pendingEngineVersion,omitempty"`
+	PendingHostInstanceType    string              `json:"pendingHostInstanceType,omitempty"`
+	AuthenticationStrategy     string              `json:"authenticationStrategy,omitempty"`
+	EngineVersion              string              `json:"engineVersion"`
+	HostInstanceType           string              `json:"hostInstanceType"`
+	BrokerID                   string              `json:"brokerId"`
+	PendingSecurityGroups      []string            `json:"pendingSecurityGroups,omitempty"`
+	SecurityGroups             []string            `json:"securityGroups,omitempty"`
+	AutoMinorVersionUpgrade    bool                `json:"autoMinorVersionUpgrade"`
+}
+
 func (h *Handler) handleUpdateBroker(c *echo.Context, brokerID string, body []byte) error {
 	var in updateBrokerInput
 	if err := json.Unmarshal(body, &in); err != nil {
@@ -580,7 +631,30 @@ func (h *Handler) handleUpdateBroker(c *echo.Context, brokerID string, body []by
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{keyBrokerID: br.BrokerID})
+	var cfgID *ConfigurationID
+	if br.Configurations != nil && br.Configurations.Current != nil {
+		cfgID = br.Configurations.Current
+	}
+
+	resp := updateBrokerResponse{
+		BrokerID:                   br.BrokerID,
+		EngineVersion:              br.EngineVersion,
+		HostInstanceType:           br.HostInstanceType,
+		AutoMinorVersionUpgrade:    br.AutoMinorVersionUpgrade,
+		SecurityGroups:             br.SecurityGroups,
+		PendingSecurityGroups:      br.PendingSecurityGroups,
+		PendingEngineVersion:       br.PendingEngineVersion,
+		PendingHostInstanceType:    br.PendingHostInstanceType,
+		AuthenticationStrategy:     br.AuthenticationStrategy,
+		PendingAuthStrategy:        br.PendingAuthStrategy,
+		Logs:                       br.LogsSummary,
+		LdapServerMetadata:         br.LdapServerMetadata,
+		MaintenanceWindowStartTime: br.MaintenanceWindowStartTime,
+		PendingLdapServerMetadata:  br.PendingLdapServerMetadata,
+		Configuration:              cfgID,
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteBroker(c *echo.Context, brokerID string) error {
@@ -783,6 +857,8 @@ func (h *Handler) handleCreateConfiguration(c *echo.Context, body []byte) error 
 		"id":             cfg.ID,
 		"arn":            cfg.Arn,
 		"name":           cfg.Name,
+		"engineType":     cfg.EngineType,
+		"engineVersion":  cfg.EngineVersion,
 		"latestRevision": cfg.LatestRevision,
 	})
 }
@@ -797,9 +873,36 @@ func (h *Handler) handleDescribeConfiguration(c *echo.Context, configID string) 
 }
 
 func (h *Handler) handleListConfigurations(c *echo.Context) error {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults := 100
+
+	if s := q.Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 100 {
+			maxResults = n
+		}
+	}
+
 	cfgs := h.Backend.ListConfigurations()
 	if cfgs == nil {
 		cfgs = []*Configuration{}
+	}
+
+	// Apply nextToken: skip configurations up to and including the named one.
+	if nextToken != "" {
+		for i, cfg := range cfgs {
+			if cfg.Name == nextToken {
+				cfgs = cfgs[i+1:]
+				break
+			}
+		}
+	}
+
+	var responseNextToken string
+
+	if len(cfgs) > maxResults {
+		responseNextToken = cfgs[maxResults-1].Name
+		cfgs = cfgs[:maxResults]
 	}
 
 	list := make([]any, 0, len(cfgs))
@@ -807,7 +910,12 @@ func (h *Handler) handleListConfigurations(c *echo.Context) error {
 		list = append(list, toConfigurationResponse(cfg))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"configurations": list})
+	resp := map[string]any{"configurations": list}
+	if responseNextToken != "" {
+		resp["nextToken"] = responseNextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 type updateConfigurationInput struct {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -74,6 +75,97 @@ const (
 	// to avoid unbounded memory growth from a malicious or buggy client.
 	maxConfigurationDataBytes = 256 * 1024
 )
+
+// validateBrokerName checks that a broker name is 1-50 characters and matches
+// the AWS MQ allowed pattern: starts with alphanumeric, contains only
+// alphanumeric characters, hyphens, and underscores.
+func validateBrokerName(name string) error {
+	if len(name) == 0 || len(name) > 50 {
+		return fmt.Errorf("%w: brokerName must be 1-50 characters (got %d)", ErrValidation, len(name))
+	}
+
+	first := name[0]
+	if !isAlphanumeric(first) {
+		return fmt.Errorf("%w: brokerName must start with an alphanumeric character", ErrValidation)
+	}
+
+	for _, c := range name[1:] {
+		if !isAlphanumeric(byte(c)) && c != '-' && c != '_' {
+			return fmt.Errorf(
+				"%w: brokerName must contain only alphanumeric characters, hyphens, and underscores, got %q",
+				ErrValidation, c,
+			)
+		}
+	}
+
+	return nil
+}
+
+func isAlphanumeric(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+// validateDeploymentModeForEngine checks that the deployment mode is compatible
+// with the engine type. AWS MQ enforces: ACTIVE_STANDBY_MULTI_AZ is ActiveMQ only;
+// CLUSTER_MULTI_AZ is RabbitMQ only.
+func validateDeploymentModeForEngine(mode, engineType string) error {
+	switch mode {
+	case "", DeploymentModeSingleInstance:
+		return nil
+	case DeploymentModeActiveStandby:
+		if engineType == EngineTypeRabbitMQ {
+			return fmt.Errorf(
+				"%w: ACTIVE_STANDBY_MULTI_AZ deployment mode is not supported for RabbitMQ brokers",
+				ErrValidation,
+			)
+		}
+
+		return nil
+	case DeploymentModeCluster:
+		if engineType == EngineTypeActiveMQ {
+			return fmt.Errorf(
+				"%w: CLUSTER_MULTI_AZ deployment mode is not supported for ActiveMQ brokers",
+				ErrValidation,
+			)
+		}
+
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: deploymentMode must be SINGLE_INSTANCE, ACTIVE_STANDBY_MULTI_AZ, or CLUSTER_MULTI_AZ, got %q",
+			ErrValidation, mode,
+		)
+	}
+}
+
+// validateActiveMQPassword enforces AWS MQ ActiveMQ password constraints:
+// 12-250 characters, no commas, at least 4 unique characters.
+func validateActiveMQPassword(password string) error {
+	if len(password) < 12 || len(password) > 250 {
+		return fmt.Errorf(
+			"%w: ActiveMQ password must be 12-250 characters (got %d)",
+			ErrValidation, len(password),
+		)
+	}
+
+	if strings.ContainsRune(password, ',') {
+		return fmt.Errorf("%w: ActiveMQ password must not contain commas", ErrValidation)
+	}
+
+	unique := make(map[rune]struct{})
+	for _, c := range password {
+		unique[c] = struct{}{}
+	}
+
+	if len(unique) < 4 {
+		return fmt.Errorf(
+			"%w: ActiveMQ password must contain at least 4 unique characters (got %d)",
+			ErrValidation, len(unique),
+		)
+	}
+
+	return nil
+}
 
 // BrokerInstance holds endpoint information for a broker instance.
 type BrokerInstance struct {
@@ -313,6 +405,14 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 		return nil, fmt.Errorf("%w: engineType must be ACTIVEMQ or RABBITMQ, got %q", ErrValidation, engineType)
 	}
 
+	if err := validateBrokerName(name); err != nil {
+		return nil, err
+	}
+
+	if err := validateDeploymentModeForEngine(deploymentMode, engineType); err != nil {
+		return nil, err
+	}
+
 	// Idempotency: a retry with the same CreatorRequestId returns the existing broker.
 	if opts != nil && opts.CreatorRequestID != "" {
 		if existing := b.findBrokerByCreatorRequestID(opts.CreatorRequestID); existing != nil {
@@ -352,7 +452,7 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 	brokerArn := arn.Build("mq", b.region, b.accountID, "broker:"+name)
 	created := time.Now().UTC().Format(time.RFC3339)
 
-	endpoint := buildEndpoint(engineType, name)
+	endpoint := buildEndpoint(engineType, b.region, id)
 	instances := []BrokerInstance{
 		{
 			ConsoleURL: fmt.Sprintf("http://%s.mq.%s.amazonaws.com:8162", id, b.region),
@@ -482,13 +582,16 @@ func logGroupName(brokerID, channel string) string {
 	return fmt.Sprintf("/aws/amazonmq/broker/%s/%s", brokerID, channel)
 }
 
-// buildEndpoint returns a placeholder endpoint URL for the broker.
-func buildEndpoint(engineType, name string) string {
+// buildEndpoint returns the endpoint URL for the broker using the AWS-format
+// hostname: b-{brokerID}-1.mq.{region}.amazonaws.com.
+func buildEndpoint(engineType, region, brokerID string) string {
+	host := fmt.Sprintf("b-%s-1.mq.%s.amazonaws.com", brokerID, region)
+
 	switch engineType {
 	case EngineTypeRabbitMQ:
-		return fmt.Sprintf("amqps://%s.mq.amazonaws.com:5671", name)
+		return fmt.Sprintf("amqps://%s:5671", host)
 	default:
-		return fmt.Sprintf("ssl://%s.mq.amazonaws.com:61617", name)
+		return fmt.Sprintf("ssl://%s:61617", host)
 	}
 }
 
@@ -657,6 +760,12 @@ func (b *InMemoryBackend) CreateUser(brokerID, username, password string, groups
 		return fmt.Errorf("%w: user %s already exists on broker %s", ErrAlreadyExists, username, brokerID)
 	}
 
+	if br.EngineType == EngineTypeActiveMQ && password != "" {
+		if err := validateActiveMQPassword(password); err != nil {
+			return err
+		}
+	}
+
 	br.Users[username] = &User{
 		Username: username,
 		Password: password,
@@ -703,6 +812,12 @@ func (b *InMemoryBackend) UpdateUser(brokerID, username, password string, groups
 	}
 
 	if password != "" {
+		if br.EngineType == EngineTypeActiveMQ {
+			if err := validateActiveMQPassword(password); err != nil {
+				return err
+			}
+		}
+
 		u.Password = password
 	}
 
