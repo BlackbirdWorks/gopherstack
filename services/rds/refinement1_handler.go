@@ -77,7 +77,15 @@ func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
 		}
 		sourceIDs = append(sourceIDs, id)
 	}
-	sub, err := h.Backend.CreateEventSubscription(name, snsTopicARN, sourceType, sourceIDs)
+	var eventCategories []string
+	for i := 1; ; i++ {
+		cat := vals.Get("EventCategories.member." + strconv.Itoa(i))
+		if cat == "" {
+			break
+		}
+		eventCategories = append(eventCategories, cat)
+	}
+	sub, err := h.Backend.CreateEventSubscription(name, snsTopicARN, sourceType, sourceIDs, eventCategories)
 	if err != nil {
 		return nil, err
 	}
@@ -130,12 +138,20 @@ func (h *Handler) handleModifyEventSubscription(vals url.Values) (any, error) {
 		}
 		sourceIDs = append(sourceIDs, id)
 	}
+	var eventCategories []string
+	for i := 1; ; i++ {
+		cat := vals.Get("EventCategories.member." + strconv.Itoa(i))
+		if cat == "" {
+			break
+		}
+		eventCategories = append(eventCategories, cat)
+	}
 	var enabled *bool
 	if v := vals.Get("Enabled"); v != "" {
 		b := strings.EqualFold(v, "true")
 		enabled = &b
 	}
-	sub, err := h.Backend.ModifyEventSubscription(name, snsTopicARN, sourceType, sourceIDs, enabled)
+	sub, err := h.Backend.ModifyEventSubscription(name, snsTopicARN, sourceType, sourceIDs, eventCategories, enabled)
 	if err != nil {
 		return nil, err
 	}

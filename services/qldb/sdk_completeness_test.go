@@ -5,6 +5,7 @@ import (
 
 	//nolint:staticcheck // AWS deprecated the upstream SDK, but this service remains intentionally supported here.
 	qldbsdk "github.com/aws/aws-sdk-go-v2/service/qldb"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/qldb"
 )

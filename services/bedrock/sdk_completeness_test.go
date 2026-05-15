@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	bedrocksdk "github.com/aws/aws-sdk-go-v2/service/bedrock"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )

@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 func TestHandler_ClassifyError_Mapping(t *testing.T) {

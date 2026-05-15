@@ -8,8 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // LambdaInvoker can invoke a Lambda function by name/ARN with a payload.

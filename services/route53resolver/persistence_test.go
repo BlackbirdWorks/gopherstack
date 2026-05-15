@@ -3,9 +3,10 @@ package route53resolver_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
 func TestInMemoryBackend_SnapshotRestore(t *testing.T) {

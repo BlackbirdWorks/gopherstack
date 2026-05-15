@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/ses"
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ses"
 )
 
 // TestSESDashboard verifies the rewritten SES dashboard identities and send-email flows.
