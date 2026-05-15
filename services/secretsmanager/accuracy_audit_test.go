@@ -3,6 +3,7 @@ package secretsmanager_test
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -375,7 +376,7 @@ func TestCronNextTime_InvalidExpressionReturnsFalse(t *testing.T) {
 		"not-a-cron",
 		"cron()",
 		"cron(too few fields)",
-		"cron(0 0 * * ?)", // only 5 fields — missing year
+		"cron(0 0 * * ?)",    // only 5 fields — missing year
 		"cron(99 0 * * ? *)", // minute out of range
 	}
 
@@ -581,15 +582,9 @@ func TestPutSecretValue_EmptyVersionStagesAppliesAWSCURRENT(t *testing.T) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// contains returns true if s contains target.
+// contains wraps slices.Contains for readable test assertions.
 func contains(s []string, target string) bool {
-	for _, v := range s {
-		if v == target {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(s, target)
 }
 
 // TestCronParsing_MonthAliases verifies that month name aliases resolve correctly.
@@ -922,6 +917,18 @@ func TestCronNextTime_ExpressionWithSpaces(t *testing.T) {
 	assert.Equal(t, time.Date(2024, 3, 16, 0, 0, 0, 0, time.UTC), next)
 }
 
-// Verify that the strings package is imported and used correctly for tab separation of
-// the target header in HTTP helpers.
-var _ = strings.Split
+// TestCronNextTime_BothDOWAndDOM verifies AWS OR semantics when both dom and dow are non-wildcard.
+func TestCronNextTime_BothDOWAndDOM(t *testing.T) {
+	t.Parallel()
+
+	// 2024-03-15 is Friday (DOW=6 in AWS). cron(0 0 20 * FRI *) fires on day-20 OR any Friday.
+	// From March 15 midnight, next Friday is March 22; next day-20 is March 20.
+	from := time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC)
+	next, ok := sm.NextCronTime("cron(0 0 20 * FRI *)", from)
+	require.True(t, ok)
+	// Should be March 20 (day-20 before next Friday March 22).
+	assert.Equal(t, time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC), next)
+}
+
+// Sentinel: verify strings import is used.
+var _ = strings.TrimSpace
