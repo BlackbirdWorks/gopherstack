@@ -509,7 +509,7 @@ func (b *InMemoryBackend) DescribeServices(serviceCodeList []string) []Service {
 		filter[c] = true
 	}
 
-	out := make([]Service, 0)
+	out := make([]Service, 0, len(all))
 	for _, svc := range all {
 		if filter[svc.Code] {
 			out = append(out, svc)

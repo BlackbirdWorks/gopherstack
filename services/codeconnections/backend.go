@@ -688,7 +688,7 @@ func (b *InMemoryBackend) ListSyncConfigurations(repositoryLinkID, syncType stri
 	b.mu.RLock("ListSyncConfigurations")
 	defer b.mu.RUnlock()
 
-	result := make([]*SyncConfiguration, 0)
+	result := make([]*SyncConfiguration, 0, len(b.syncConfigurations))
 
 	for _, cfg := range b.syncConfigurations {
 		if cfg.RepositoryLinkID != repositoryLinkID {

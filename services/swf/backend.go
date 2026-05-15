@@ -352,7 +352,7 @@ func (b *InMemoryBackend) ListWorkflowTypes(domain, registrationStatus string) [
 	b.mu.RLock("ListWorkflowTypes")
 	defer b.mu.RUnlock()
 
-	out := make([]WorkflowType, 0)
+	out := make([]WorkflowType, 0, len(b.workflows))
 	for _, wt := range b.workflows {
 		if wt.Domain != domain {
 			continue
@@ -487,7 +487,7 @@ func (b *InMemoryBackend) ListActivityTypes(domain, registrationStatus string) [
 	b.mu.RLock("ListActivityTypes")
 	defer b.mu.RUnlock()
 
-	out := make([]ActivityType, 0)
+	out := make([]ActivityType, 0, len(b.activities))
 	for _, at := range b.activities {
 		if at.Domain != domain {
 			continue
@@ -726,7 +726,7 @@ func (b *InMemoryBackend) ListOpenWorkflowExecutions(domain string) []WorkflowEx
 	b.mu.RLock("ListOpenWorkflowExecutions")
 	defer b.mu.RUnlock()
 
-	out := make([]WorkflowExecution, 0)
+	out := make([]WorkflowExecution, 0, len(b.executions))
 	for _, e := range b.executions {
 		if e.Domain == domain && e.Status == statusRunning {
 			out = append(out, *e)
@@ -741,7 +741,7 @@ func (b *InMemoryBackend) ListClosedWorkflowExecutions(domain string) []Workflow
 	b.mu.RLock("ListClosedWorkflowExecutions")
 	defer b.mu.RUnlock()
 
-	out := make([]WorkflowExecution, 0)
+	out := make([]WorkflowExecution, 0, len(b.executions))
 	for _, e := range b.executions {
 		if e.Domain == domain && e.Status != statusRunning {
 			out = append(out, *e)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -491,6 +492,10 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		}
 	}
 
+	if cb, c := h.computeBackend(); c != nil {
+		h.launchOnCompute(context.Background(), cb, c, instances, keyName, userData)
+	}
+
 	if tags := parseTagSpecification(vals, "instance"); len(tags) > 0 {
 		ids := make([]string, 0, len(instances))
 		for _, inst := range instances {
@@ -504,7 +509,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 
 	items := make([]instanceItem, 0, len(instances))
 	for _, inst := range instances {
-		items = append(items, toInstanceItem(inst))
+		items = append(items, toInstanceItem(inst, h.Backend.TagsForResource(inst.ID)))
 	}
 
 	return &runInstancesResponse{
@@ -550,7 +555,7 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 
 	items := make([]instanceItem, 0, len(instances))
 	for _, inst := range instances {
-		items = append(items, toInstanceItem(inst))
+		items = append(items, toInstanceItem(inst, h.Backend.TagsForResource(inst.ID)))
 	}
 
 	reservation := reservationItem{
@@ -573,9 +578,28 @@ func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, 
 		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
 	}
 
+	cb, c := h.computeBackend()
+
+	var (
+		providerIDs map[string]string
+		dnsNames    map[string]string
+	)
+
+	if c != nil {
+		providerIDs = snapshotProviderIDs(cb, ids)
+
+		if lookup, ok := h.Backend.(instanceLookup); ok {
+			dnsNames = snapshotPublicDNSNames(lookup, ids)
+		}
+	}
+
 	changes, err := h.Backend.TerminateInstances(ids)
 	if err != nil {
 		return nil, err
+	}
+
+	if c != nil {
+		h.terminateOnCompute(context.Background(), cb, c, providerIDs, dnsNames)
 	}
 
 	items := make([]instanceStateChangeItem, 0, len(changes))
@@ -1254,7 +1278,14 @@ func newRequestID() string {
 
 // ---- XML conversion helpers ----
 
-func toInstanceItem(inst *Instance) instanceItem {
+func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem {
+	tagItems := make([]instanceTagItem, 0, len(instanceTags))
+	for k, v := range instanceTags {
+		tagItems = append(tagItems, instanceTagItem{Key: k, Value: v})
+	}
+
+	sort.Slice(tagItems, func(i, j int) bool { return tagItems[i].Key < tagItems[j].Key })
+
 	return instanceItem{
 		InstanceID:       inst.ID,
 		ImageID:          inst.ImageID,
@@ -1267,6 +1298,7 @@ func toInstanceItem(inst *Instance) instanceItem {
 		PublicIPAddress:  inst.PublicIPAddress,
 		PublicDNSName:    inst.PublicDNSName,
 		KeyName:          inst.KeyName,
+		TagSet:           instanceTagItemSet{Items: tagItems},
 	}
 }
 
@@ -1326,17 +1358,29 @@ type stateItem struct {
 }
 
 type instanceItem struct {
-	LaunchTime       string    `xml:"launchTime"`
-	InstanceID       string    `xml:"instanceId"`
-	ImageID          string    `xml:"imageId"`
-	InstanceType     string    `xml:"instanceType"`
-	VPCID            string    `xml:"vpcId,omitempty"`
-	SubnetID         string    `xml:"subnetId,omitempty"`
-	PrivateIPAddress string    `xml:"privateIpAddress,omitempty"`
-	PublicIPAddress  string    `xml:"ipAddress,omitempty"`
-	PublicDNSName    string    `xml:"dnsName,omitempty"`
-	KeyName          string    `xml:"keyName,omitempty"`
-	StateItem        stateItem `xml:"instanceState"`
+	LaunchTime       string             `xml:"launchTime"`
+	InstanceID       string             `xml:"instanceId"`
+	ImageID          string             `xml:"imageId"`
+	InstanceType     string             `xml:"instanceType"`
+	VPCID            string             `xml:"vpcId,omitempty"`
+	SubnetID         string             `xml:"subnetId,omitempty"`
+	PrivateIPAddress string             `xml:"privateIpAddress,omitempty"`
+	PublicIPAddress  string             `xml:"ipAddress,omitempty"`
+	PublicDNSName    string             `xml:"dnsName,omitempty"`
+	KeyName          string             `xml:"keyName,omitempty"`
+	StateItem        stateItem          `xml:"instanceState"`
+	TagSet           instanceTagItemSet `xml:"tagSet"`
+}
+
+// instanceTagItem is the embedded per-instance tag entry in DescribeInstances
+// XML (no resourceId/resourceType fields, only key/value).
+type instanceTagItem struct {
+	Key   string `xml:"key"`
+	Value string `xml:"value"`
+}
+
+type instanceTagItemSet struct {
+	Items []instanceTagItem `xml:"item"`
 }
 
 type instanceItemSet struct {

@@ -1005,7 +1005,7 @@ func (b *InMemoryBackend) DescribeSubscriptionFilters(groupName, filterNamePrefi
 		return nil, "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	all := make([]SubscriptionFilter, 0)
+	all := make([]SubscriptionFilter, 0, len(b.subscriptionFilters[groupName]))
 	for _, f := range b.subscriptionFilters[groupName] {
 		if filterNamePrefix == "" || strings.HasPrefix(f.FilterName, filterNamePrefix) {
 			all = append(all, *f)
@@ -2691,7 +2691,7 @@ func (b *InMemoryBackend) TestMetricFilter(
 	}
 
 	compiled := compileFilterPattern(filterPattern)
-	matches := make([]MetricFilterMatchRecord, 0)
+	matches := make([]MetricFilterMatchRecord, 0, len(logEventMessages))
 	for i, msg := range logEventMessages {
 		if compiled.matches(msg) {
 			matches = append(matches, MetricFilterMatchRecord{

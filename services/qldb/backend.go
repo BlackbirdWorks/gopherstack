@@ -525,7 +525,7 @@ func (b *InMemoryBackend) ListJournalS3ExportsForLedger(ledgerName string) ([]*J
 		return nil, fmt.Errorf("%w: ledger %s not found", ErrNotFound, ledgerName)
 	}
 
-	list := make([]*JournalS3Export, 0)
+	list := make([]*JournalS3Export, 0, len(b.s3Exports))
 
 	for _, e := range b.s3Exports {
 		if e.LedgerName == ledgerName {

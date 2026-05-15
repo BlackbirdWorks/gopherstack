@@ -1125,7 +1125,7 @@ func (b *InMemoryBackend) ListAccessKeys(userName, marker string, maxItems int) 
 		return page.Page[AccessKey]{}, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	keys := make([]AccessKey, 0)
+	keys := make([]AccessKey, 0, len(b.accessKeys))
 	for _, ak := range b.accessKeys {
 		if ak.UserName == userName {
 			keys = append(keys, ak)

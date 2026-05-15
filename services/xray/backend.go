@@ -414,7 +414,7 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 	b.mu.Lock("PutTraceSegments")
 	defer b.mu.Unlock()
 
-	unprocessed := make([]string, 0)
+	unprocessed := make([]string, 0, len(segments))
 
 	for _, seg := range segments {
 		var hdr segmentHeader
@@ -939,7 +939,7 @@ func (b *InMemoryBackend) GetSamplingTargets(ruleNames []string) ([]SamplingTarg
 	defer b.mu.RUnlock()
 
 	targets := make([]SamplingTargetResult, 0, len(ruleNames))
-	unprocessed := make([]string, 0)
+	unprocessed := make([]string, 0, len(ruleNames))
 
 	for _, name := range ruleNames {
 		r, ok := b.samplingRules[name]

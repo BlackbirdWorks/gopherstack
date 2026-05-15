@@ -439,7 +439,7 @@ func (b *InMemoryBackend) ListUserProfiles(domainID, nextToken string) ([]*UserP
 	b.mu.RLock("ListUserProfiles")
 	defer b.mu.RUnlock()
 
-	list := make([]*UserProfile, 0)
+	list := make([]*UserProfile, 0, len(b.userProfiles))
 
 	for _, up := range b.userProfiles {
 		if domainID == "" || up.DomainID == domainID {
@@ -559,7 +559,7 @@ func (b *InMemoryBackend) ListApps(domainID, nextToken string) ([]*App, string) 
 	b.mu.RLock("ListApps")
 	defer b.mu.RUnlock()
 
-	list := make([]*App, 0)
+	list := make([]*App, 0, len(b.apps))
 
 	for _, a := range b.apps {
 		if domainID == "" || a.DomainID == domainID {
@@ -867,7 +867,7 @@ func (b *InMemoryBackend) ListPipelineExecutions(
 	defer b.mu.RUnlock()
 
 	p, ok := b.pipelines[pipelineName]
-	list := make([]*PipelineExecution, 0)
+	list := make([]*PipelineExecution, 0, len(b.pipelineExecutions))
 
 	if ok {
 		for _, pe := range b.pipelineExecutions {

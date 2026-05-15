@@ -1,6 +1,7 @@
 package lambda
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -1745,10 +1746,39 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	}
 
 	if len(result) > 0 {
+		// AWS Lambda signals an unhandled function error to the SDK via the
+		// X-Amz-Function-Error response header (with the body still HTTP 200
+		// containing the errorMessage/errorType JSON payload). Detect the
+		// payload shape and set the header so SDK clients can distinguish
+		// function errors from successful invocations.
+		if isLambdaFunctionErrorPayload(result) {
+			c.Response().Header().Set("X-Amz-Function-Error", "Unhandled")
+		}
+
 		return c.JSONBlob(http.StatusOK, result)
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+// isLambdaFunctionErrorPayload reports whether result looks like a Lambda
+// function-error payload, i.e. a JSON object with a top-level errorMessage
+// field (typically alongside errorType / stackTrace / trace).
+func isLambdaFunctionErrorPayload(result []byte) bool {
+	trimmed := bytes.TrimSpace(result)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return false
+	}
+
+	var probe struct {
+		ErrorMessage *json.RawMessage `json:"errorMessage"`
+		ErrorType    *json.RawMessage `json:"errorType"`
+	}
+	if err := json.Unmarshal(trimmed, &probe); err != nil {
+		return false
+	}
+
+	return probe.ErrorMessage != nil || probe.ErrorType != nil
 }
 
 // writeError writes a Lambda-formatted JSON error response.

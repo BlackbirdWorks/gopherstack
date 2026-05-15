@@ -113,3 +113,78 @@ func TestBuildS3(t *testing.T) {
 		})
 	}
 }
+
+func TestPartitionForRegion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		region string
+		want   string
+	}{
+		{name: "commercial us-east-1", region: "us-east-1", want: "aws"},
+		{name: "commercial eu-west-1", region: "eu-west-1", want: "aws"},
+		{name: "empty region", region: "", want: "aws"},
+		{name: "govcloud west", region: "us-gov-west-1", want: "aws-us-gov"},
+		{name: "govcloud east", region: "us-gov-east-1", want: "aws-us-gov"},
+		{name: "china north", region: "cn-north-1", want: "aws-cn"},
+		{name: "china northwest", region: "cn-northwest-1", want: "aws-cn"},
+		{name: "iso east", region: "us-iso-east-1", want: "aws-iso"},
+		{name: "isob east", region: "us-isob-east-1", want: "aws-iso-b"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, arn.PartitionForRegion(tc.region))
+		})
+	}
+}
+
+func TestBuildPartitionedRegions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		service   string
+		region    string
+		accountID string
+		resource  string
+		want      string
+	}{
+		{
+			name:      "govcloud kinesis",
+			service:   "kinesis",
+			region:    "us-gov-west-1",
+			accountID: "123456789012",
+			resource:  "stream/s1",
+			want:      "arn:aws-us-gov:kinesis:us-gov-west-1:123456789012:stream/s1",
+		},
+		{
+			name:      "china s3 control",
+			service:   "s3control",
+			region:    "cn-north-1",
+			accountID: "000000000000",
+			resource:  "accesspoint/ap1",
+			want:      "arn:aws-cn:s3control:cn-north-1:000000000000:accesspoint/ap1",
+		},
+		{
+			name:      "iso lambda",
+			service:   "lambda",
+			region:    "us-iso-east-1",
+			accountID: "111111111111",
+			resource:  "function:fn",
+			want:      "arn:aws-iso:lambda:us-iso-east-1:111111111111:function:fn",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := arn.Build(tc.service, tc.region, tc.accountID, tc.resource)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

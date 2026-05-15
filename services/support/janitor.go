@@ -30,7 +30,7 @@ func (b *InMemoryBackend) sweepExpiredResources(ctx context.Context) {
 	defer b.mu.Unlock()
 
 	now := time.Now()
-	expiredSets := make([]string, 0)
+	expiredSets := make([]string, 0, len(b.attachmentSets))
 
 	for id, expiry := range b.attachmentSets {
 		if now.After(expiry) {

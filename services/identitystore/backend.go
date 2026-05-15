@@ -1103,7 +1103,7 @@ func (b *InMemoryBackend) ListGroupMemberships(storeID, groupID string) []*Group
 	b.mu.RLock("ListGroupMemberships")
 	defer b.mu.RUnlock()
 
-	result := make([]*GroupMembership, 0)
+	result := make([]*GroupMembership, 0, len(b.memberships))
 
 	for _, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.GroupID == groupID {

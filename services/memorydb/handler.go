@@ -1139,7 +1139,7 @@ func (h *Handler) handleBatchUpdateCluster(c *echo.Context, body []byte) error {
 	found := h.Backend.BatchUpdateCluster(req.ClusterNames)
 
 	processedObjs := make([]clusterObject, 0, len(found))
-	unprocessedObjs := make([]unprocessedCluster, 0)
+	unprocessedObjs := make([]unprocessedCluster, 0, len(req.ClusterNames))
 
 	for _, name := range req.ClusterNames {
 		if cl, ok := found[name]; ok {
@@ -1538,7 +1538,7 @@ func buildShards(clusterName string, numShards int32) []shardObject {
 
 // clustersForACL returns the names of clusters that reference the given ACL name.
 func clustersForACL(clusters []*Cluster, aclName string) []string {
-	names := make([]string, 0)
+	names := make([]string, 0, len(clusters))
 
 	for _, c := range clusters {
 		if c.ACLName == aclName {

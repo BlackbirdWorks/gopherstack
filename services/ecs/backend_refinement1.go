@@ -324,7 +324,7 @@ func (b *InMemoryBackend) ListServiceDeployments(cluster, service string) ([]str
 	b.mu.RLock("ListServiceDeployments")
 	defer b.mu.RUnlock()
 
-	out := make([]string, 0)
+	out := make([]string, 0, len(b.serviceDeployments))
 
 	for _, sd := range b.serviceDeployments {
 		if sd.ClusterArn != "" && !strings.HasSuffix(sd.ClusterArn, "/"+clusterName) {

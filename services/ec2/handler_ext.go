@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"net/url"
@@ -503,19 +504,14 @@ func (h *Handler) handleStartInstances(vals url.Values, reqID string) (any, erro
 		return nil, err
 	}
 
-	items := make([]instanceStateChangeItem, 0, len(changes))
-	for _, ch := range changes {
-		items = append(items, instanceStateChangeItem{
-			InstanceID:    ch.InstanceID,
-			CurrentState:  stateItem{Code: ch.CurrentState.Code, Name: ch.CurrentState.Name},
-			PreviousState: stateItem{Code: ch.PreviousState.Code, Name: ch.PreviousState.Name},
-		})
+	if cb, c := h.computeBackend(); c != nil {
+		h.computeStartOrStop(context.Background(), cb, c, ids, true)
 	}
 
 	return &startInstancesResponse{
 		Xmlns:        ec2XMLNS,
 		RequestID:    reqID,
-		InstancesSet: instanceStateChangeSet{Items: items},
+		InstancesSet: instanceStateChangeSet{Items: instanceStateChangeItemsFromChanges(changes)},
 	}, nil
 }
 
@@ -530,8 +526,26 @@ func (h *Handler) handleStopInstances(vals url.Values, reqID string) (any, error
 		return nil, err
 	}
 
+	if cb, c := h.computeBackend(); c != nil {
+		h.computeStartOrStop(context.Background(), cb, c, ids, false)
+	}
+
+	return &stopInstancesResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		InstancesSet: instanceStateChangeSet{Items: instanceStateChangeItemsFromChanges(changes)},
+	}, nil
+}
+
+// instanceStateChangeItemsFromChanges converts backend InstanceStateChange
+// values into the XML payload representation used by Start/Stop/Terminate.
+func instanceStateChangeItemsFromChanges(changes []*InstanceStateChange) []instanceStateChangeItem {
 	items := make([]instanceStateChangeItem, 0, len(changes))
 	for _, ch := range changes {
+		if ch == nil {
+			continue
+		}
+
 		items = append(items, instanceStateChangeItem{
 			InstanceID:    ch.InstanceID,
 			CurrentState:  stateItem{Code: ch.CurrentState.Code, Name: ch.CurrentState.Name},
@@ -539,11 +553,7 @@ func (h *Handler) handleStopInstances(vals url.Values, reqID string) (any, error
 		})
 	}
 
-	return &stopInstancesResponse{
-		Xmlns:        ec2XMLNS,
-		RequestID:    reqID,
-		InstancesSet: instanceStateChangeSet{Items: items},
-	}, nil
+	return items
 }
 
 func (h *Handler) handleRebootInstances(vals url.Values, reqID string) (any, error) {
@@ -1424,7 +1434,7 @@ func (h *Handler) handleImportKeyPair(vals url.Values, reqID string) (any, error
 		return nil, fmt.Errorf("%w: PublicKeyMaterial is required", ErrInvalidParameter)
 	}
 
-	kp, err := h.Backend.ImportKeyPair(name)
+	kp, err := h.Backend.ImportKeyPair(name, vals.Get("PublicKeyMaterial"))
 	if err != nil {
 		return nil, err
 	}

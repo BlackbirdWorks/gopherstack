@@ -280,7 +280,7 @@ func (b *InMemoryBackend) GetTaskProtection(
 	}
 
 	out := make([]TaskProtection, 0, len(taskArns))
-	failures := make([]Failure, 0)
+	failures := make([]Failure, 0, len(taskArns))
 
 	for _, arn := range taskArns {
 		if _, found := tasks[arn]; !found {
@@ -333,7 +333,7 @@ func (b *InMemoryBackend) UpdateTaskProtection(
 	}
 
 	out := make([]TaskProtection, 0, len(taskArns))
-	failures := make([]Failure, 0)
+	failures := make([]Failure, 0, len(taskArns))
 
 	for _, arn := range taskArns {
 		if _, found := tasks[arn]; !found {

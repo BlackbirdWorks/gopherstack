@@ -105,7 +105,7 @@ type Backend interface {
 	CreateKeyPair(name string) (*KeyPair, error)
 
 	// ImportKeyPair stores a pre-existing key pair by name without key material.
-	ImportKeyPair(name string) (*KeyPair, error)
+	ImportKeyPair(name, publicKeyMaterial string) (*KeyPair, error)
 
 	// DescribeKeyPairs returns key pairs, optionally filtered by names.
 	DescribeKeyPairs(names []string) []*KeyPair
@@ -352,6 +352,10 @@ type Backend interface {
 
 	// DescribeTags returns tag entries, optionally filtered by resource IDs.
 	DescribeTags(resourceIDs []string) []TagEntry
+
+	// TagsForResource returns a copy of all tags currently set on a single
+	// resource. Returns an empty (non-nil) map when nothing is tagged.
+	TagsForResource(resourceID string) map[string]string
 
 	// ---- accept / advertise / allocate operations ----
 

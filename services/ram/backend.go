@@ -507,7 +507,7 @@ func (b *InMemoryBackend) GetResourceShareAssociations(
 		arnSet[a] = struct{}{}
 	}
 
-	result := make([]*ResourceShareAssociation, 0)
+	result := make([]*ResourceShareAssociation, 0, len(b.associations))
 
 	for _, a := range b.associations {
 		if associationType != "" && a.AssociationType != associationType {
@@ -979,7 +979,7 @@ func (b *InMemoryBackend) GetResourceShareInvitations(
 		shareSet[s] = struct{}{}
 	}
 
-	result := make([]*ResourceShareInvitation, 0)
+	result := make([]*ResourceShareInvitation, 0, len(b.invitations))
 
 	for _, inv := range b.invitations {
 		if len(arnSet) > 0 {
@@ -1076,7 +1076,7 @@ func (b *InMemoryBackend) ListPermissionAssociations(
 	b.mu.RLock("ListPermissionAssociations")
 	defer b.mu.RUnlock()
 
-	result := make([]SharePermissionAssociation, 0)
+	result := make([]SharePermissionAssociation, 0, len(b.sharePermissions))
 
 	for shareARN, perms := range b.sharePermissions {
 		for pARN, ver := range perms {
@@ -1118,7 +1118,7 @@ func (b *InMemoryBackend) ListResources(
 	b.mu.RLock("ListResources")
 	defer b.mu.RUnlock()
 
-	result := make([]*ResourceShareAssociation, 0)
+	result := make([]*ResourceShareAssociation, 0, len(b.associations))
 
 	for _, a := range b.associations {
 		if a.AssociationType != associationTypeResource {
@@ -1152,7 +1152,7 @@ func (b *InMemoryBackend) ListPrincipals(
 	b.mu.RLock("ListPrincipals")
 	defer b.mu.RUnlock()
 
-	result := make([]*ResourceShareAssociation, 0)
+	result := make([]*ResourceShareAssociation, 0, len(b.associations))
 
 	for _, a := range b.associations {
 		if a.AssociationType != associationTypePrincipal {
@@ -1191,7 +1191,7 @@ func (b *InMemoryBackend) ListPendingInvitationResources(
 		return nil, fmt.Errorf("%w: invitation %s not found", ErrInvitationNotFound, invitationARN)
 	}
 
-	result := make([]*ResourceShareAssociation, 0)
+	result := make([]*ResourceShareAssociation, 0, len(b.associations))
 
 	for _, a := range b.associations {
 		if a.ResourceShareARN != inv.ResourceShareARN {

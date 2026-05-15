@@ -138,7 +138,7 @@ func (b *InMemoryBackend) DescribeNetworkAcls(vpcIDs []string) []*NetworkACL {
 			continue
 		}
 
-		assocIDs := make([]string, 0)
+		assocIDs := make([]string, 0, len(b.subnets))
 		for _, subnet := range b.subnets {
 			if subnet.VPCID == vpc.ID {
 				assocIDs = append(assocIDs, "aclassoc-"+subnet.ID)

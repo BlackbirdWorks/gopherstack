@@ -348,7 +348,7 @@ func (b *InMemoryBackend) ListWirelessDevices(accountID, region string) []*Wirel
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*WirelessDevice, 0)
+	result := make([]*WirelessDevice, 0, len(b.devices))
 
 	for k, d := range b.devices {
 		if k.AccountID == accountID && k.Region == region {
@@ -429,7 +429,7 @@ func (b *InMemoryBackend) ListWirelessGateways(accountID, region string) []*Wire
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*WirelessGateway, 0)
+	result := make([]*WirelessGateway, 0, len(b.gateways))
 
 	for k, gw := range b.gateways {
 		if k.AccountID == accountID && k.Region == region {
@@ -509,7 +509,7 @@ func (b *InMemoryBackend) ListServiceProfiles(accountID, region string) []*Servi
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*ServiceProfile, 0)
+	result := make([]*ServiceProfile, 0, len(b.serviceProfiles))
 
 	for k, sp := range b.serviceProfiles {
 		if k.AccountID == accountID && k.Region == region {
@@ -592,7 +592,7 @@ func (b *InMemoryBackend) ListDestinations(accountID, region string) []*Destinat
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*Destination, 0)
+	result := make([]*Destination, 0, len(b.destinations))
 
 	for k, dest := range b.destinations {
 		if k.AccountID == accountID && k.Region == region {
@@ -723,7 +723,7 @@ func (b *InMemoryBackend) ListDeviceProfiles(accountID, region string) []*Device
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*DeviceProfile, 0)
+	result := make([]*DeviceProfile, 0, len(b.deviceProfiles))
 
 	for k, dp := range b.deviceProfiles {
 		if k.AccountID == accountID && k.Region == region {
@@ -806,7 +806,7 @@ func (b *InMemoryBackend) ListFuotaTasks(accountID, region string) []*FuotaTask 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*FuotaTask, 0)
+	result := make([]*FuotaTask, 0, len(b.fuotaTasks))
 
 	for k, ft := range b.fuotaTasks {
 		if k.AccountID == accountID && k.Region == region {
@@ -995,7 +995,7 @@ func (b *InMemoryBackend) ListMulticastGroups(accountID, region string) []*Multi
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*MulticastGroup, 0)
+	result := make([]*MulticastGroup, 0, len(b.multicastGroups))
 
 	for k, mg := range b.multicastGroups {
 		if k.AccountID == accountID && k.Region == region {
@@ -1097,7 +1097,7 @@ func (b *InMemoryBackend) ListNetworkAnalyzerConfigs(accountID, region string) [
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*NetworkAnalyzerConfig, 0)
+	result := make([]*NetworkAnalyzerConfig, 0, len(b.networkAnalyzerConfigs))
 
 	for k, nc := range b.networkAnalyzerConfigs {
 		if k.AccountID == accountID && k.Region == region {

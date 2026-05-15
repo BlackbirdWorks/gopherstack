@@ -362,7 +362,7 @@ func (b *InMemoryBackend) ListAgentActionGroups(
 	b.mu.RLock("ListAgentActionGroups")
 	defer b.mu.RUnlock()
 
-	list := make([]*AgentActionGroup, 0)
+	list := make([]*AgentActionGroup, 0, len(b.agentActionGroups))
 	prefix := agentID + "/"
 
 	for k, ag := range b.agentActionGroups {
@@ -485,7 +485,7 @@ func (b *InMemoryBackend) ListAgentAliases(
 	b.mu.RLock("ListAgentAliases")
 	defer b.mu.RUnlock()
 
-	list := make([]*AgentAlias, 0)
+	list := make([]*AgentAlias, 0, len(b.agentAliases))
 	prefix := agentID + "/"
 
 	for k, alias := range b.agentAliases {
@@ -628,7 +628,7 @@ func (b *InMemoryBackend) ListAgentKnowledgeBases(
 	b.mu.RLock("ListAgentKnowledgeBases")
 	defer b.mu.RUnlock()
 
-	list := make([]*AgentKnowledgeBaseAssociation, 0)
+	list := make([]*AgentKnowledgeBaseAssociation, 0, len(b.agentKBAssociations))
 	prefix := agentID + "/"
 
 	for k, assoc := range b.agentKBAssociations {
@@ -833,7 +833,7 @@ func (b *InMemoryBackend) ListDataSources(
 	b.mu.RLock("ListDataSources")
 	defer b.mu.RUnlock()
 
-	list := make([]*DataSource, 0)
+	list := make([]*DataSource, 0, len(b.dataSources))
 	prefix := kbID + "/"
 
 	for k, ds := range b.dataSources {
@@ -967,7 +967,7 @@ func (b *InMemoryBackend) ListIngestionJobs(
 	b.mu.RLock("ListIngestionJobs")
 	defer b.mu.RUnlock()
 
-	list := make([]*IngestionJob, 0)
+	list := make([]*IngestionJob, 0, len(b.ingestionJobs))
 	prefix := kbID + "/" + dsID + "/"
 
 	for k, job := range b.ingestionJobs {

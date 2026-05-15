@@ -29,7 +29,7 @@ func (b *InMemoryBackend) SearchTablesByLFTags(
 
 	const tablePrefix = "table:"
 
-	results := make([]TaggedTable, 0)
+	results := make([]TaggedTable, 0, len(b.resourceLFTags))
 
 	for key, pairs := range b.resourceLFTags {
 		if !strings.HasPrefix(key, tablePrefix) {
@@ -79,7 +79,7 @@ func (b *InMemoryBackend) SearchDatabasesByLFTags(
 
 	const dbPrefix = "database:"
 
-	results := make([]TaggedDatabase, 0)
+	results := make([]TaggedDatabase, 0, len(b.resourceLFTags))
 
 	for key, pairs := range b.resourceLFTags {
 		if !strings.HasPrefix(key, dbPrefix) {

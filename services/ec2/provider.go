@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"context"
 	"errors"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -14,6 +15,18 @@ var ErrNilAppContext = errors.New("AppContext is required")
 // from the abstract AppContext Config.
 type ConfigProvider interface {
 	GetEC2Settings() Settings
+}
+
+// ComputeProviderConfig is the optional interface a Config may implement to
+// switch the EC2 backend onto a real compute provider (e.g. Docker). It is
+// independent of ConfigProvider so adding/removing the docker provider does
+// not require existing Config types to change.
+type ComputeProviderConfig interface {
+	// GetEC2ComputeProvider returns "inmemory" (default) or "docker".
+	GetEC2ComputeProvider() string
+	// GetEC2DockerComputeConfig returns docker provider settings (only consulted
+	// when GetEC2ComputeProvider() == "docker").
+	GetEC2DockerComputeConfig() DockerComputeConfig
 }
 
 // Provider implements service.Provider for the EC2 service.
@@ -47,6 +60,21 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend := NewInMemoryBackend(accountID, region)
+
+	if cp, ok := ctx.Config.(ComputeProviderConfig); ok && cp.GetEC2ComputeProvider() == "docker" {
+		dc, err := NewDockerCompute(cp.GetEC2DockerComputeConfig())
+		if err != nil {
+			return nil, err
+		}
+
+		if pingErr := dc.Ping(context.Background()); pingErr != nil && ctx.Logger != nil {
+			ctx.Logger.Warn("ec2 docker compute ping failed; continuing with hook installed",
+				"error", pingErr)
+		}
+
+		backend.WithCompute(dc)
+	}
+
 	handler := NewHandler(backend)
 	handler.AccountID = accountID
 	handler.Region = region

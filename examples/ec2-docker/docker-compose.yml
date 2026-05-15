@@ -1,0 +1,43 @@
+services:
+  gopherstack:
+    build: ../..
+    environment:
+      # Run the EC2 service with the docker-backed compute provider so that
+      # RunInstances actually spawns a container (sshd, ec2-user) instead of
+      # only updating in-memory state.
+      - EC2_PROVIDER=docker
+      - EC2_DOCKER_IMAGE=amazonlinux:2
+
+      # Publish the launched container's sshd on the host. Setting the host IP
+      # to 0.0.0.0 means the mapped port is reachable from anything that can
+      # talk to the docker host (i.e. the demo running on the host machine,
+      # outside this compose stack).
+      - EC2_DOCKER_SSH_HOST_IP=0.0.0.0
+      - EC2_DOCKER_SSH_PORT_MIN=22000
+      - EC2_DOCKER_SSH_PORT_MAX=22019
+
+      # Embedded DNS server. The synthetic
+      # `ec2-<id>.compute-1.amazonaws.com` hostnames the docker provider
+      # generates for each instance are registered here, resolving to the
+      # configured DNS_RESOLVE_IP (the docker host) so a frontend running
+      # outside the stack can still ssh in by hostname.
+      - DNS_ADDR=:10053
+      - DNS_RESOLVE_IP=127.0.0.1
+    ports:
+      # Public AWS-style HTTP API.
+      - "8000:8000"
+      # Embedded DNS so the host can dig synthetic hostnames.
+      - "10053:10053/udp"
+      # SSH port range — must match EC2_DOCKER_SSH_PORT_{MIN,MAX} above so
+      # mapped sshd ports are reachable from the host.
+      - "22000-22019:22000-22019"
+    volumes:
+      # The docker provider needs the host docker daemon to spawn and tear
+      # down the containers that back EC2 instances.
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "./gopherstack", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s

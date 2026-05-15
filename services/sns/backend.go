@@ -47,9 +47,18 @@ const (
 )
 
 const (
-	protocolEmail             = "email"
-	protocolHTTP              = "http"
-	statusPendingConfirmation = "PendingConfirmation"
+	protocolEmail = "email"
+	protocolHTTP  = "http"
+	// attrPendingConfirmation is the SNS subscription attribute key whose
+	// value is "true" while a subscription awaits confirmation. The key uses
+	// the PascalCase attribute name returned by GetSubscriptionAttributes.
+	attrPendingConfirmation = "PendingConfirmation"
+	// pendingConfirmationARN is the literal string AWS SNS returns in the
+	// SubscriptionArn field of Subscribe for HTTP/HTTPS/email endpoints
+	// before the subscriber confirms the subscription. Real AWS returns
+	// the lowercase form "pending confirmation" (with a space), not the
+	// attribute name.
+	pendingConfirmationARN = "pending confirmation"
 )
 
 var (
@@ -864,7 +873,7 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 		"Protocol":                     sub.Protocol,
 		"Endpoint":                     sub.Endpoint,
 		"Owner":                        sub.Owner,
-		statusPendingConfirmation:      strconv.FormatBool(sub.PendingConfirmation),
+		attrPendingConfirmation:        strconv.FormatBool(sub.PendingConfirmation),
 		"ConfirmationWasAuthenticated": strconv.FormatBool(!sub.PendingConfirmation),
 		attrRawMessageDelivery:         strconv.FormatBool(sub.RawMessageDelivery),
 	}

@@ -179,7 +179,7 @@ func (b *InMemoryBackend) DescribeSourceRegions(regionName string) []SourceRegio
 	if regionName == "" {
 		return regions
 	}
-	result := make([]SourceRegion, 0)
+	result := make([]SourceRegion, 0, len(regions))
 	for _, r := range regions {
 		if r.RegionName == regionName {
 			result = append(result, r)
@@ -195,7 +195,7 @@ func (b *InMemoryBackend) DescribeDBMajorEngineVersions(engine string) []DBMajor
 	if engine == "" {
 		return versions
 	}
-	result := make([]DBMajorEngineVersion, 0)
+	result := make([]DBMajorEngineVersion, 0, len(versions))
 	for _, v := range versions {
 		if v.Engine == engine {
 			result = append(result, v)
@@ -581,7 +581,7 @@ func (b *InMemoryBackend) DescribeReservedDBInstancesOfferings(
 	if offeringID == "" && dbInstanceClass == "" {
 		return offerings
 	}
-	result := make([]ReservedDBInstancesOffering, 0)
+	result := make([]ReservedDBInstancesOffering, 0, len(offerings))
 	for _, o := range offerings {
 		if offeringID != "" && o.ReservedDBInstancesOfferingID != offeringID {
 			continue

@@ -749,7 +749,7 @@ func (b *InMemoryBackend) ListNamespaces(tableBucketARN string) ([]*Namespace, e
 		return nil, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, tableBucketARN)
 	}
 
-	list := make([]*Namespace, 0)
+	list := make([]*Namespace, 0, len(b.namespaces))
 
 	for _, ns := range b.namespaces {
 		if ns.TableBucketARN == tableBucketARN {
@@ -878,7 +878,7 @@ func (b *InMemoryBackend) ListTables(tableBucketARN, namespace string) ([]*Table
 		return nil, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, tableBucketARN)
 	}
 
-	list := make([]*Table, 0)
+	list := make([]*Table, 0, len(b.tables))
 
 	for _, t := range b.tables {
 		if t.TableBucketARN != tableBucketARN {

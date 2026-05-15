@@ -1342,7 +1342,7 @@ func (b *InMemoryBackend) DeleteActivity(activityArn string) error {
 		delete(b.pendingTaskQueues, activityArn)
 	}
 
-	taskTokens := make([]string, 0)
+	taskTokens := make([]string, 0, len(b.tasksByToken))
 	for taskToken, entry := range b.tasksByToken {
 		if entry.activityArn == activityArn {
 			taskTokens = append(taskTokens, taskToken)

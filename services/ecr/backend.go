@@ -549,7 +549,7 @@ func (b *InMemoryBackend) BatchCheckLayerAvailability(
 	}
 
 	layers := make([]LayerAvailability, 0, len(layerDigests))
-	failures := make([]LayerFailure, 0)
+	failures := make([]LayerFailure, 0, len(layerDigests))
 
 	repoLayers := b.uploadedLayers[repositoryName]
 	for _, digest := range layerDigests {
@@ -580,7 +580,7 @@ func (b *InMemoryBackend) BatchDeleteImage(
 	defer b.mu.Unlock()
 
 	deleted := make([]ImageIdentifier, 0, len(imageIDs))
-	failures := make([]ImageFailure, 0)
+	failures := make([]ImageFailure, 0, len(imageIDs))
 
 	repoImages := b.images[repositoryName]
 	for _, id := range imageIDs {
@@ -625,7 +625,7 @@ func (b *InMemoryBackend) BatchGetImage(
 	defer b.mu.RUnlock()
 
 	imgs := make([]Image, 0, len(imageIDs))
-	failures := make([]ImageFailure, 0)
+	failures := make([]ImageFailure, 0, len(imageIDs))
 
 	repoImages := b.images[repositoryName]
 	for _, id := range imageIDs {
@@ -698,7 +698,7 @@ func (b *InMemoryBackend) BatchGetRepositoryScanningConfiguration(
 	defer b.mu.RUnlock()
 
 	configs := make([]RepositoryScanningConfiguration, 0, len(repositoryNames))
-	failures := make([]RepositoryScanningConfigurationFailure, 0)
+	failures := make([]RepositoryScanningConfigurationFailure, 0, len(repositoryNames))
 
 	for _, name := range repositoryNames {
 		repo, ok := b.repos[name]
