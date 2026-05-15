@@ -600,14 +600,6 @@ func (h *Handler) handleDescribeStream(
 
 	shards := make([]jsonShardDescription, 0, len(out.Shards))
 	for _, s := range out.Shards {
-		// By convention (matching LocalStack), DescribeStream only returns open shards.
-		// Closed shards (post merge/split) are accessible via ListShards with FROM_TRIM_HORIZON.
-		if s.Closed {
-			continue
-		}
-
-		// AWS DescribeStream returns ALL shards including closed ones.
-		// Closed shards have a non-empty EndingSequenceNumber.
 		shards = append(shards, jsonShardDescription{
 			ShardID:               s.ShardID,
 			ParentShardID:         s.ParentShardID,
@@ -896,7 +888,7 @@ func (h *Handler) handleListShards(
 		})
 	}
 
-	return jsonListShardsResp{Shards: shards}, nil
+	return jsonListShardsResp{Shards: shards, NextToken: out.NextToken}, nil
 }
 
 // errTypeResourceNotFound is the Kinesis error type string for resource not found errors.
@@ -932,6 +924,10 @@ func errorDetails(err error) (string, string, int) {
 	case errors.Is(err, ErrTagLimitExceeded):
 		return "LimitExceededException",
 			"Tag limit exceeded. A stream can have at most 50 tags.",
+			http.StatusBadRequest
+	case errors.Is(err, ErrLimitExceeded):
+		return "LimitExceededException",
+			"Limit exceeded.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrInvalidArgument):
 		return "InvalidArgumentException",
