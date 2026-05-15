@@ -70,17 +70,24 @@ var (
 
 // Instance represents an EC2 instance (metadata only, no actual compute).
 type Instance struct {
-	LaunchTime     time.Time     `json:"launchTime"`
-	TerminatedAt   time.Time     `json:"terminatedAt"`
-	State          InstanceState `json:"state"`
-	ID             string        `json:"id"`
-	InstanceType   string        `json:"instanceType"`
-	ImageID        string        `json:"imageID"`
-	VPCID          string        `json:"vpcID"`
-	SubnetID       string        `json:"subnetID"`
-	PrivateIP      string        `json:"privateIP"`
-	KeyName        string        `json:"keyName"`
-	SecurityGroups []string      `json:"securityGroups"`
+	LaunchTime          time.Time     `json:"launchTime"`
+	TerminatedAt        time.Time     `json:"terminatedAt"`
+	State               InstanceState `json:"state"`
+	ID                  string        `json:"id"`
+	InstanceType        string        `json:"instanceType"`
+	ImageID             string        `json:"imageID"`
+	VPCID               string        `json:"vpcID"`
+	SubnetID            string        `json:"subnetID"`
+	PrivateIP           string        `json:"privateIP"`
+	PublicIPAddress     string        `json:"publicIPAddress,omitempty"`
+	PublicDNSName       string        `json:"publicDNSName,omitempty"`
+	KeyName             string        `json:"keyName"`
+	SecurityGroups      []string      `json:"securityGroups"`
+	UserData            string        `json:"userData,omitempty"`
+	EnaSupport          bool          `json:"enaSupport"`
+	SriovNetSupport     string        `json:"sriovNetSupport,omitempty"`
+	MetadataOptionsState  string      `json:"metadataOptionsState,omitempty"`
+	MetadataOptionsTokens string      `json:"metadataOptionsTokens,omitempty"`
 }
 
 // LaunchTemplate represents an EC2 launch template.
@@ -157,11 +164,12 @@ type VPC struct {
 
 // Subnet represents an EC2 Subnet.
 type Subnet struct {
-	ID               string `json:"id"`
-	VPCID            string `json:"vpcID"`
-	CIDRBlock        string `json:"cidrBlock"`
-	AvailabilityZone string `json:"availabilityZone"`
-	IsDefault        bool   `json:"isDefault"`
+	ID                 string `json:"id"`
+	VPCID              string `json:"vpcID"`
+	CIDRBlock          string `json:"cidrBlock"`
+	AvailabilityZone   string `json:"availabilityZone"`
+	IsDefault          bool   `json:"isDefault"`
+	MapPublicIpOnLaunch bool  `json:"mapPublicIpOnLaunch"`
 }
 
 // InMemoryBackend is the in-memory store for EC2 resources.
@@ -336,9 +344,11 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 	}
 
 	vpcID := ""
+	mapPublicIP := false
 
 	if sub, ok := b.subnets[subnetID]; ok {
 		vpcID = sub.VPCID
+		mapPublicIP = sub.MapPublicIpOnLaunch
 	}
 
 	// No capacity hint — user-derived values in the make capacity position
@@ -360,8 +370,14 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 			VPCID:      vpcID,
 			SubnetID:   subnetID,
 			LaunchTime: time.Now(),
+			EnaSupport: true,
 		}
 		inst.PrivateIP = b.allocPrivateIP()
+		if mapPublicIP {
+			inst.PublicIPAddress = b.allocElasticIP()
+			inst.PublicDNSName = fmt.Sprintf("ec2-%s.compute-1.amazonaws.com",
+				strings.ReplaceAll(inst.PublicIPAddress, ".", "-"))
+		}
 		eniID := "eni-" + uuid.New().String()[:17]
 		attachID := "eni-attach-" + uuid.New().String()[:8]
 		b.networkInterfaces[eniID] = &NetworkInterface{
