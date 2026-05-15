@@ -778,7 +778,7 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 		ModelArn:             modelARN,
 		DesiredModelArn:      modelARN,
 		FoundationModelArn:   modelARN,
-		Status:               statusInService,
+		Status:               statusCreating,
 		ModelUnits:           modelUnits,
 		DesiredModelUnits:    modelUnits,
 		CommitmentDuration:   commitmentDuration,
