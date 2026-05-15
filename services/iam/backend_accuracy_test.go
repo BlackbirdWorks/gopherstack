@@ -479,7 +479,6 @@ func TestDeactivateMFADevice_RejectsUnenabled(t *testing.T) {
 // ---- Permission Boundary enforcement in SimulatePrincipalPolicy ----
 
 const allowS3GetDoc = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`
-const denyAllDoc = `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"*","Resource":"*"}]}`
 
 func TestSimulatePrincipalPolicy_AllowWithoutBoundary(t *testing.T) {
 	t.Parallel()
@@ -819,7 +818,8 @@ func TestUpdateRole_RejectsPathChange(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	validPolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+	validPolicy := `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 	_, err := b.CreateRole("PathTestRole", "/", validPolicy, "")
 	require.NoError(t, err)
 

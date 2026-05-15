@@ -157,7 +157,7 @@ func tagsToXML(tags map[string]string) []TagXML {
 }
 
 // UserXML is the XML representation of an IAM User.
-type UserXML struct {
+type UserXML struct { //nolint:govet // field order optimizes readability over alignment
 	PermissionsBoundary *PermissionsBoundaryXML `xml:"PermissionsBoundary,omitempty"`
 	Tags                []TagXML                `xml:"Tags>member,omitempty"`
 	Path                string                  `xml:"Path"`
@@ -165,7 +165,7 @@ type UserXML struct {
 	UserID              string                  `xml:"UserId"`
 	Arn                 string                  `xml:"Arn"`
 	CreateDate          string                  `xml:"CreateDate"`
-} //nolint:govet // field order optimizes readability over alignment
+}
 
 // CreateUserResponse is the XML response for CreateUser.
 type CreateUserResponse struct {

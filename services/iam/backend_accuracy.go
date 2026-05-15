@@ -12,7 +12,7 @@ import (
 
 // parseJSON is a thin wrapper around json.Unmarshal for readability.
 func parseJSON(s string, v any) error {
-	return json.Unmarshal([]byte(s), v) //nolint:wrapcheck
+	return json.Unmarshal([]byte(s), v) //nolint:wrapcheck // thin delegation; callers handle the error
 }
 
 // ---- Tag operations on resources (embedded in model) ----
@@ -406,7 +406,7 @@ func (p *trustPrincipal) UnmarshalJSON(data []byte) error {
 	// Try typed map.
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(data, &m); err != nil {
-		return err //nolint:wrapcheck
+		return err //nolint:wrapcheck // UnmarshalJSON interface; wrapping changes the type
 	}
 
 	for k, v := range m {
@@ -559,8 +559,8 @@ func validateTrustPolicyPrincipal(policyJSON string) error {
 		} `json:"Statement"`
 	}
 
-	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil { //nolint:nilerr // JSON already validated upstream
-		return nil
+	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil {
+		return nil //nolint:nilerr // JSON validity confirmed upstream; this path handles schema mismatch
 	}
 
 	for i, stmt := range doc.Statement {
@@ -589,28 +589,6 @@ func validateTrustPolicyPrincipal(policyJSON string) error {
 				)
 			}
 		}
-	}
-
-	return nil
-}
-
-// ---- Role path/ARN immutability enforcement ----
-
-// validateRoleUpdateFields returns an error if the caller tries to mutate immutable role fields.
-// AWS only allows UpdateRole to change Description and MaxSessionDuration.
-func validateRoleUpdateFields(vals map[string]string) error {
-	if _, hasPath := vals["Path"]; hasPath {
-		return fmt.Errorf(
-			"%w: role Path is immutable and cannot be changed via UpdateRole",
-			ErrInvalidAction,
-		)
-	}
-
-	if _, hasName := vals["RoleName"]; hasName && vals["RoleName"] != vals["_currentRoleName"] {
-		return fmt.Errorf(
-			"%w: role RoleName is immutable and cannot be changed via UpdateRole",
-			ErrInvalidAction,
-		)
 	}
 
 	return nil
