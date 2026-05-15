@@ -50,6 +50,7 @@ const (
 	opPutPolicy               = "PutPolicy"
 	opTagResource             = "TagResource"
 	opUntagResource           = "UntagResource"
+	opUpdateJob               = "UpdateJob"
 	opUpdateJobTemplate       = "UpdateJobTemplate"
 	opUpdatePreset            = "UpdatePreset"
 	opUpdateQueue             = "UpdateQueue"
@@ -125,6 +126,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opPutPolicy,
 		opTagResource,
 		opUntagResource,
+		opUpdateJob,
 		opUpdateJobTemplate,
 		opUpdatePreset,
 		opUpdateQueue,
@@ -276,8 +278,18 @@ func (h *Handler) dispatchMutating(c *echo.Context, route mcRoute, readBody func
 		return h.handleUpdateJobTemplate(c, route.resource, body)
 	case opCreateJob:
 		return h.handleCreateJob(c, body)
+	case opUpdateJob:
+		return h.handleUpdateJob(c, route.resource, body)
 	case opTagResource:
 		return h.handleTagResource(c, route.resource, body)
+	}
+
+	return h.dispatchMutatingNewOps(c, route, body)
+}
+
+// dispatchMutatingNewOps handles write operations added after the initial implementation.
+func (h *Handler) dispatchMutatingNewOps(c *echo.Context, route mcRoute, body []byte) error {
+	switch route.operation {
 	case opCreatePreset:
 		return h.handleCreatePreset(c, body)
 	case opUpdatePreset:
@@ -419,6 +431,8 @@ func parseJobRoute(method, suffix string) mcRoute {
 	switch method {
 	case http.MethodGet:
 		return mcRoute{operation: opGetJob, resource: id}
+	case http.MethodPut:
+		return mcRoute{operation: opUpdateJob, resource: id}
 	case http.MethodDelete:
 		return mcRoute{operation: opCancelJob, resource: id}
 	}
@@ -513,11 +527,14 @@ func parseJobsQueriesRoute(method, suffix string) mcRoute {
 // --- Queue handlers ---
 
 type createQueueInput struct {
-	Tags        map[string]string `json:"tags,omitempty"`
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	PricingPlan string            `json:"pricingPlan,omitempty"`
-	Status      string            `json:"status,omitempty"`
+	ReservationPlan  *ReservationPlan  `json:"reservationPlan,omitempty"`
+	ServiceOverrides map[string]any    `json:"serviceOverrides,omitempty"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	Name             string            `json:"name"`
+	Description      string            `json:"description,omitempty"`
+	PricingPlan      string            `json:"pricingPlan,omitempty"`
+	Status           string            `json:"status,omitempty"`
+	ConcurrentJobs   int               `json:"concurrentJobs,omitempty"`
 }
 
 type queueWrapper struct {
@@ -538,7 +555,10 @@ func (h *Handler) handleCreateQueue(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "name is required"))
 	}
 
-	q, err := h.Backend.CreateQueue(in.Name, in.Description, in.PricingPlan, in.Status, in.Tags)
+	q, err := h.Backend.CreateQueueFull(
+		in.Name, in.Description, in.PricingPlan, in.Status,
+		in.Tags, in.ConcurrentJobs, in.ReservationPlan, in.ServiceOverrides,
+	)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -715,13 +735,18 @@ func (h *Handler) handleDeleteJobTemplate(c *echo.Context, name string) error {
 // --- Job handlers ---
 
 type createJobInput struct {
-	Settings          map[string]any    `json:"settings,omitempty"`
-	Tags              map[string]string `json:"tags,omitempty"`
-	UserMetadata      map[string]string `json:"userMetadata,omitempty"`
-	Role              string            `json:"role"`
-	Queue             string            `json:"queue,omitempty"`
-	JobTemplate       string            `json:"jobTemplate,omitempty"`
-	BillingTagsSource string            `json:"billingTagsSource,omitempty"`
+	AccelerationSettings      *AccelerationSettings `json:"accelerationSettings,omitempty"`
+	Settings                  map[string]any        `json:"settings,omitempty"`
+	Tags                      map[string]string     `json:"tags,omitempty"`
+	UserMetadata              map[string]string     `json:"userMetadata,omitempty"`
+	Role                      string                `json:"role"`
+	Queue                     string                `json:"queue,omitempty"`
+	JobTemplate               string                `json:"jobTemplate,omitempty"`
+	BillingTagsSource         string                `json:"billingTagsSource,omitempty"`
+	ClientRequestToken        string                `json:"clientRequestToken,omitempty"`
+	JobEngineVersionRequested string                `json:"jobEngineVersionRequested,omitempty"`
+	HopDestinations           []HopDestination      `json:"hopDestinations,omitempty"`
+	Priority                  int                   `json:"priority,omitempty"`
 }
 
 type jobWrapper struct {
@@ -744,7 +769,12 @@ func (h *Handler) handleCreateJob(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "role is required"))
 	}
 
-	j, err := h.Backend.CreateJob(
+	accelMode := ""
+	if in.AccelerationSettings != nil {
+		accelMode = in.AccelerationSettings.Mode
+	}
+
+	j, err := h.Backend.CreateJobFull(
 		in.Role,
 		in.Queue,
 		in.JobTemplate,
@@ -752,12 +782,37 @@ func (h *Handler) handleCreateJob(c *echo.Context, body []byte) error {
 		in.Tags,
 		in.UserMetadata,
 		in.BillingTagsSource,
+		in.ClientRequestToken,
+		accelMode,
+		in.JobEngineVersionRequested,
+		in.Priority,
+		in.HopDestinations,
 	)
 	if err != nil {
 		return h.writeError(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, jobWrapper{Job: j})
+}
+
+type updateJobInput struct {
+	Priority        *int             `json:"priority,omitempty"`
+	Queue           string           `json:"queue,omitempty"`
+	HopDestinations []HopDestination `json:"hopDestinations,omitempty"`
+}
+
+func (h *Handler) handleUpdateJob(c *echo.Context, id string, body []byte) error {
+	var in updateJobInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	j, err := h.Backend.UpdateJob(id, in.Queue, in.Priority, in.HopDestinations)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, jobWrapper{Job: j})
 }
 
 func (h *Handler) handleGetJob(c *echo.Context, id string) error {
