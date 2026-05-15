@@ -121,11 +121,11 @@ type InFlightMessage struct {
 	Generation uint64 `json:"generation"`
 }
 
-// receiveAttemptEntry caches the result of a ReceiveRequestAttemptId request
+// receiveAttemptEntry caches the result of a ReceiveRequestAttemptID request
 // for the FIFO exactly-once-retry window (5 minutes per AWS spec).
 type receiveAttemptEntry struct {
-	msgs      []*Message
 	expiresAt time.Time
+	msgs      []*Message
 }
 
 // QueuePermissionEntry represents a single AddPermission statement on a queue.
@@ -272,9 +272,9 @@ type ReceiveMessageInput struct {
 	Region                string
 	AttributeNames        []string
 	MessageAttributeNames []string
-	// ReceiveRequestAttemptId enables FIFO exactly-once retry: repeating a receive
+	// ReceiveRequestAttemptID enables FIFO exactly-once retry: repeating a receive
 	// with the same ID within 5 minutes returns the original message set.
-	ReceiveRequestAttemptId string
+	ReceiveRequestAttemptID string
 	MaxNumberOfMessages     int
 	VisibilityTimeout       int
 	WaitTimeSeconds         int

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -150,17 +151,37 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 
 // RouteMatcher returns a function that matches incoming SQS requests.
-// It matches POST requests whose X-Amz-Target header starts with "AmazonSQS." and whose
-// path is "/" or starts with "/000000000000/" (to avoid capturing Dashboard form POSTs).
+// It accepts two request styles:
+//  1. JSON protocol: POST with X-Amz-Target: AmazonSQS.<Action>
+//  2. Query protocol: POST with Content-Type: application/x-www-form-urlencoded
+//     and a recognised Action= body parameter
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		if !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), "AmazonSQS.") {
+		r := c.Request()
+
+		// JSON protocol: X-Amz-Target header approach
+		if strings.HasPrefix(r.Header.Get("X-Amz-Target"), "AmazonSQS.") {
+			path := r.URL.Path
+
+			return path == "/" || strings.HasPrefix(path, "/000000000000/")
+		}
+
+		// Query protocol: form-encoded POST with a known Action
+		if !isQueryProtocol(r) {
 			return false
 		}
 
-		path := c.Request().URL.Path
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			return false
+		}
 
-		return path == "/" || strings.HasPrefix(path, "/000000000000/")
+		vals, err := url.ParseQuery(string(body))
+		if err != nil {
+			return false
+		}
+
+		return isKnownSQSAction(vals.Get("Action"))
 	}
 }
 
@@ -209,8 +230,14 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // Handler returns the Echo handler function for SQS operations.
+// It supports both the JSON protocol (X-Amz-Target) and the legacy Query
+// (form-encoded) protocol.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if isQueryProtocol(c.Request()) {
+			return h.handleQueryProtocol(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"SQS", "application/x-amz-json-1.1",
@@ -329,6 +356,7 @@ type jsonReceiveMessageReq struct {
 	AttributeNames              []string `json:"AttributeNames"`
 	MessageAttributeNames       []string `json:"MessageAttributeNames"`
 	MessageSystemAttributeNames []string `json:"MessageSystemAttributeNames"`
+	ReceiveRequestAttemptID     string   `json:"ReceiveRequestAttemptId"`
 	MaxNumberOfMessages         int      `json:"MaxNumberOfMessages"`
 	WaitTimeSeconds             int      `json:"WaitTimeSeconds"`
 }
@@ -688,13 +716,14 @@ func (h *Handler) handleReceiveMessage(
 	}
 
 	out, err := h.Backend.ReceiveMessage(&ReceiveMessageInput{
-		QueueURL:              req.QueueURL,
-		Region:                httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
-		MaxNumberOfMessages:   req.MaxNumberOfMessages,
-		VisibilityTimeout:     vt,
-		WaitTimeSeconds:       req.WaitTimeSeconds,
-		AttributeNames:        effectiveAttrNames,
-		MessageAttributeNames: req.MessageAttributeNames,
+		QueueURL:                req.QueueURL,
+		Region:                  httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		MaxNumberOfMessages:     req.MaxNumberOfMessages,
+		VisibilityTimeout:       vt,
+		WaitTimeSeconds:         req.WaitTimeSeconds,
+		AttributeNames:          effectiveAttrNames,
+		MessageAttributeNames:   req.MessageAttributeNames,
+		ReceiveRequestAttemptID: req.ReceiveRequestAttemptID,
 	})
 	if err != nil {
 		return nil, err
@@ -1221,6 +1250,26 @@ func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
 			"OverLimit",
 			"The specified action violates a service quota.",
 			http.StatusForbidden,
+		}},
+		{ErrInvalidMessageAttributeValue, errorEntry{
+			errTypeInvalidParameterValue,
+			"Message attribute value is invalid. Check that the DataType and the associated value are correct.",
+			badReq,
+		}},
+		{ErrInvalidAttributeName, errorEntry{
+			"com.amazonaws.sqs#InvalidAttributeName",
+			"Unknown Attribute FifoQueue.",
+			badReq,
+		}},
+		{ErrFIFODelayNotSupported, errorEntry{
+			errTypeInvalidParameterValue,
+			"The request include parameter that is not valid for this queue type. DelaySeconds is not supported for FIFO queues.",
+			badReq,
+		}},
+		{ErrBatchRequestTooLong, errorEntry{
+			"com.amazonaws.sqs#BatchRequestTooLong",
+			"The length of all the messages put together is more than the limit.",
+			badReq,
 		}},
 	}
 
