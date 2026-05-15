@@ -7,7 +7,7 @@ import (
 )
 
 type backendSnapshot struct {
-	Metrics          map[string]map[string][]MetricDatum `json:"metrics"`
+	Metrics          map[string]map[string]*metricRecord `json:"metrics"`
 	Alarms           map[string]*MetricAlarm             `json:"alarms"`
 	CompositeAlarms  map[string]*CompositeAlarm          `json:"compositeAlarms"`
 	AlarmHistory     map[string][]AlarmHistoryItem       `json:"alarmHistory"`
@@ -63,7 +63,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	if snap.Metrics == nil {
-		snap.Metrics = make(map[string]map[string][]MetricDatum)
+		snap.Metrics = make(map[string]map[string]*metricRecord)
 	}
 
 	if snap.Alarms == nil {

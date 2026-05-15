@@ -141,7 +141,7 @@ func (b *InMemoryBackend) ListAddons(clusterName string) ([]string, error) {
 
 // UpdateAddon updates an existing add-on.
 func (b *InMemoryBackend) UpdateAddon(
-	clusterName, addonName, addonVersion, serviceAccountRoleARN string,
+	clusterName, addonName, addonVersion, serviceAccountRoleARN, configuration, resolveConflicts string,
 ) (*Addon, error) {
 	b.mu.Lock("UpdateAddon")
 	defer b.mu.Unlock()
@@ -160,12 +160,27 @@ func (b *InMemoryBackend) UpdateAddon(
 		return nil, fmt.Errorf("%w: addon %s not found in cluster %s", ErrNotFound, addonName, clusterName)
 	}
 
+	if resolveConflicts != "" && !isValidResolveConflicts(resolveConflicts) {
+		return nil, fmt.Errorf(
+			"%w: resolveConflicts %q must be one of OVERWRITE, NONE, PRESERVE",
+			ErrValidation, resolveConflicts,
+		)
+	}
+
 	if addonVersion != "" {
 		addon.AddonVersion = addonVersion
 	}
 
 	if serviceAccountRoleARN != "" {
 		addon.ServiceAccountRoleARN = serviceAccountRoleARN
+	}
+
+	if configuration != "" {
+		addon.Configuration = configuration
+	}
+
+	if resolveConflicts != "" {
+		addon.ResolveConflicts = resolveConflicts
 	}
 
 	cp := *addon
@@ -1002,9 +1017,8 @@ func (b *InMemoryBackend) DescribeInsightsRefresh(clusterName, refreshID string)
 // --- Cluster updates ---
 
 // UpdateClusterConfig updates the cluster configuration including logging settings.
-// enabledLogTypes may be nil (no change) or a slice of log type strings to enable
-// (api, audit, authenticator, controllerManager, scheduler).
-func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, enabledLogTypes []string) (*Update, error) {
+// logEntries may be nil (no change) or a structured list of log type groups.
+func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, logEntries []ClusterLogEntry) (*Update, error) {
 	b.mu.Lock("UpdateClusterConfig")
 	defer b.mu.Unlock()
 
@@ -1013,10 +1027,8 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, enabledLogType
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	if enabledLogTypes != nil {
-		stored := make([]string, len(enabledLogTypes))
-		copy(stored, enabledLogTypes)
-		c.EnabledLogTypes = stored
+	if logEntries != nil {
+		c.ClusterLogging = mergeClusterLogEntries(c.ClusterLogging, logEntries)
 	}
 
 	return &Update{
@@ -1026,6 +1038,43 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, enabledLogType
 		Type:        "ConfigUpdate",
 		CreatedAt:   time.Now().UTC(),
 	}, nil
+}
+
+// mergeClusterLogEntries applies logEntries on top of existing, enabling or disabling
+// individual log types, and returns the merged structured result.
+func mergeClusterLogEntries(existing []ClusterLogEntry, updates []ClusterLogEntry) []ClusterLogEntry {
+	merged := make(map[string]bool)
+
+	for _, e := range existing {
+		if e.Enabled {
+			for _, t := range e.Types {
+				merged[t] = true
+			}
+		}
+	}
+
+	for _, entry := range updates {
+		for _, t := range entry.Types {
+			if entry.Enabled {
+				merged[t] = true
+			} else {
+				delete(merged, t)
+			}
+		}
+	}
+
+	if len(merged) == 0 {
+		return nil
+	}
+
+	enabled := make([]string, 0, len(merged))
+	for t := range merged {
+		enabled = append(enabled, t)
+	}
+
+	sort.Strings(enabled)
+
+	return []ClusterLogEntry{{Types: enabled, Enabled: true}}
 }
 
 // UpdateClusterVersion updates the cluster Kubernetes version.

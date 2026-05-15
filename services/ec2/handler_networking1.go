@@ -213,7 +213,10 @@ func tgwVpcAttachmentToItem(att *TransitGatewayVpcAttachment) tgwVpcAttachmentIt
 	}
 }
 
-func (h *Handler) handleCreateTransitGatewayVpcAttachment(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleCreateTransitGatewayVpcAttachment(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	subnetIDs := parseMemberList(vals, "SubnetIds")
 	att, err := h.Backend.CreateTransitGatewayVpcAttachment(
 		vals.Get("TransitGatewayId"),
@@ -230,7 +233,10 @@ func (h *Handler) handleCreateTransitGatewayVpcAttachment(vals url.Values, reqID
 	}, nil
 }
 
-func (h *Handler) handleDescribeTransitGatewayVpcAttachments(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeTransitGatewayVpcAttachments(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	ids := parseMemberList(vals, "TransitGatewayAttachmentIds")
 	atts := h.Backend.DescribeTransitGatewayVpcAttachments(ids)
 
@@ -243,7 +249,10 @@ func (h *Handler) handleDescribeTransitGatewayVpcAttachments(vals url.Values, re
 	return resp, nil
 }
 
-func (h *Handler) handleDeleteTransitGatewayVpcAttachment(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDeleteTransitGatewayVpcAttachment(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	id := vals.Get("TransitGatewayAttachmentId")
 	if err := h.Backend.DeleteTransitGatewayVpcAttachment(id); err != nil {
 		return nil, err

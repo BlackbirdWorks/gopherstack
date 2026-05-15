@@ -472,7 +472,11 @@ func TestHandler_AdvertiseByoipCidr(t *testing.T) {
 			name: "advertise_cidr_idempotent",
 			setup: func(h *ec2.Handler) {
 				// Seed an existing advertised CIDR so the handler processes it again.
-				rec := postForm(t, h, "Action=AdvertiseByoipCidr&Version=2016-11-15&Cidr=203.0.113.0/24")
+				rec := postForm(
+					t,
+					h,
+					"Action=AdvertiseByoipCidr&Version=2016-11-15&Cidr=203.0.113.0/24",
+				)
 				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			body:     "Action=AdvertiseByoipCidr&Version=2016-11-15&Cidr=203.0.113.0/24",
@@ -572,7 +576,12 @@ func TestHandler_NewAcceptOps_GetSupportedOperations(t *testing.T) {
 	}
 
 	for _, expected := range expectedOps {
-		assert.True(t, opsSet[expected], "expected operation %q in GetSupportedOperations()", expected)
+		assert.True(
+			t,
+			opsSet[expected],
+			"expected operation %q in GetSupportedOperations()",
+			expected,
+		)
 	}
 }
 
@@ -592,8 +601,11 @@ func TestHandler_AcceptVpcPeeringConnection_StateTransition(t *testing.T) {
 	h.AccountID = "000000000000"
 	h.Region = "us-east-1"
 
-	rec := postForm(t, h,
-		"Action=AcceptVpcPeeringConnection&Version=2016-11-15&VpcPeeringConnectionId=pcx-transition")
+	rec := postForm(
+		t,
+		h,
+		"Action=AcceptVpcPeeringConnection&Version=2016-11-15&VpcPeeringConnectionId=pcx-transition",
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "active")
 }
@@ -608,8 +620,11 @@ func TestHandler_AllocateHosts_PersistenceRoundTrip(t *testing.T) {
 	h.Region = "us-east-1"
 
 	// Allocate some hosts.
-	rec := postForm(t, h,
-		"Action=AllocateHosts&Version=2016-11-15&AvailabilityZone=us-east-1a&InstanceType=t3.micro&Quantity=2")
+	rec := postForm(
+		t,
+		h,
+		"Action=AllocateHosts&Version=2016-11-15&AvailabilityZone=us-east-1a&InstanceType=t3.micro&Quantity=2",
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Snapshot and restore.
@@ -624,8 +639,11 @@ func TestHandler_AllocateHosts_PersistenceRoundTrip(t *testing.T) {
 	h2.AccountID = "000000000000"
 	h2.Region = "us-east-1"
 
-	rec2 := postForm(t, h2,
-		"Action=AllocateHosts&Version=2016-11-15&AvailabilityZone=us-east-1a&InstanceType=m5.large&Quantity=1")
+	rec2 := postForm(
+		t,
+		h2,
+		"Action=AllocateHosts&Version=2016-11-15&AvailabilityZone=us-east-1a&InstanceType=m5.large&Quantity=1",
+	)
 	require.Equal(t, http.StatusOK, rec2.Code)
 	assert.Contains(t, rec2.Body.String(), "h-")
 }

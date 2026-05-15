@@ -12,6 +12,11 @@ type Backend interface {
 	// RunInstances creates one or more EC2 instance stubs.
 	RunInstances(imageID, instanceType, subnetID string, count int) ([]*Instance, error)
 
+	// SetInstanceAttribute persists a modifiable attribute on an instance.
+	// Attribute names match EC2 ModifyInstanceAttribute keys (e.g. "userData", "instanceType").
+	// Returns ErrInvalidInstanceState if the instance must be stopped for the given attribute.
+	SetInstanceAttribute(instanceID, attribute, value string) error
+
 	// DescribeInstances returns instances, optionally filtered by IDs or state name.
 	DescribeInstances(ids []string, state string) []*Instance
 
@@ -112,6 +117,9 @@ type Backend interface {
 
 	// CreateVolume creates a new EBS volume stub.
 	CreateVolume(az, volType string, size int) (*Volume, error)
+
+	// SetVolumeEncryption marks a volume as encrypted and optionally sets its KMS key ID.
+	SetVolumeEncryption(volumeID string, encrypted bool, kmsKeyID string) error
 
 	// DescribeVolumes returns volumes, optionally filtered by IDs.
 	DescribeVolumes(ids []string) []*Volume
@@ -267,7 +275,10 @@ type Backend interface {
 	// ---- VPC endpoints ----
 
 	// CreateVpcEndpoint creates a VPC endpoint.
-	CreateVpcEndpoint(vpcID, serviceName, endpointType string, subnetIDs []string) (*VpcEndpoint, error)
+	CreateVpcEndpoint(
+		vpcID, serviceName, endpointType string,
+		subnetIDs []string,
+	) (*VpcEndpoint, error)
 
 	// DescribeVpcEndpoints returns VPC endpoints, optionally filtered by IDs.
 	DescribeVpcEndpoints(ids []string) []*VpcEndpoint
@@ -310,7 +321,9 @@ type Backend interface {
 	// ---- spot instances ----
 
 	// RequestSpotInstances creates a spot instance request (mock: immediately fulfilled).
-	RequestSpotInstances(imageID, instanceType, subnetID, spotPrice string) (*SpotInstanceRequest, error)
+	RequestSpotInstances(
+		imageID, instanceType, subnetID, spotPrice string,
+	) (*SpotInstanceRequest, error)
 
 	// DescribeSpotInstanceRequests returns spot requests, optionally filtered by IDs.
 	DescribeSpotInstanceRequests(ids []string) []*SpotInstanceRequest
@@ -346,10 +359,14 @@ type Backend interface {
 	AcceptAddressTransfer(address string) (*AddressTransfer, error)
 
 	// AcceptCapacityReservationBillingOwnership accepts billing ownership of a capacity reservation.
-	AcceptCapacityReservationBillingOwnership(capacityReservationID string) (*CapacityReservation, error)
+	AcceptCapacityReservationBillingOwnership(
+		capacityReservationID string,
+	) (*CapacityReservation, error)
 
 	// AcceptReservedInstancesExchangeQuote accepts a reserved instances exchange quote.
-	AcceptReservedInstancesExchangeQuote(reservedInstanceIDs []string) (*ReservedInstancesExchange, error)
+	AcceptReservedInstancesExchangeQuote(
+		reservedInstanceIDs []string,
+	) (*ReservedInstancesExchange, error)
 
 	// AcceptTransitGatewayMulticastDomainAssociations accepts multicast domain subnet associations.
 	AcceptTransitGatewayMulticastDomainAssociations(
@@ -358,13 +375,20 @@ type Backend interface {
 	) ([]*TransitGatewayMulticastDomainAssociation, error)
 
 	// AcceptTransitGatewayPeeringAttachment accepts a transit gateway peering attachment.
-	AcceptTransitGatewayPeeringAttachment(transitGatewayAttachmentID string) (*TransitGatewayPeeringAttachment, error)
+	AcceptTransitGatewayPeeringAttachment(
+		transitGatewayAttachmentID string,
+	) (*TransitGatewayPeeringAttachment, error)
 
 	// AcceptTransitGatewayVpcAttachment accepts a transit gateway VPC attachment.
-	AcceptTransitGatewayVpcAttachment(transitGatewayAttachmentID string) (*TransitGatewayVpcAttachment, error)
+	AcceptTransitGatewayVpcAttachment(
+		transitGatewayAttachmentID string,
+	) (*TransitGatewayVpcAttachment, error)
 
 	// AcceptVpcEndpointConnections accepts VPC endpoint connections to a service.
-	AcceptVpcEndpointConnections(serviceID string, vpcEndpointIDs []string) ([]*VpcEndpointConnection, error)
+	AcceptVpcEndpointConnections(
+		serviceID string,
+		vpcEndpointIDs []string,
+	) ([]*VpcEndpointConnection, error)
 
 	// AcceptVpcPeeringConnection accepts a VPC peering connection.
 	AcceptVpcPeeringConnection(vpcPeeringConnectionID string) (*VpcPeeringConnection, error)
@@ -433,7 +457,10 @@ type Backend interface {
 	DeleteTransitGateway(id string) error
 
 	// CreateTransitGatewayVpcAttachment creates a TGW VPC attachment.
-	CreateTransitGatewayVpcAttachment(tgwID, vpcID string, subnetIDs []string) (*TransitGatewayVpcAttachment, error)
+	CreateTransitGatewayVpcAttachment(
+		tgwID, vpcID string,
+		subnetIDs []string,
+	) (*TransitGatewayVpcAttachment, error)
 
 	// DescribeTransitGatewayVpcAttachments returns TGW VPC attachments, optionally filtered by IDs.
 	DescribeTransitGatewayVpcAttachments(ids []string) []*TransitGatewayVpcAttachment
@@ -447,7 +474,10 @@ type Backend interface {
 	// ---- Flow Logs ----
 
 	// CreateFlowLogs creates flow log records for the given resources.
-	CreateFlowLogs(resourceIDs []string, trafficType, logDestinationType, logDestination string) ([]*FlowLog, error)
+	CreateFlowLogs(
+		resourceIDs []string,
+		trafficType, logDestinationType, logDestination string,
+	) ([]*FlowLog, error)
 
 	// DescribeFlowLogs returns flow logs, optionally filtered by IDs.
 	DescribeFlowLogs(ids []string) []*FlowLog
@@ -497,16 +527,23 @@ type Backend interface {
 	// ---- IAM Instance Profile Associations ----
 
 	// AssociateIamInstanceProfile associates an IAM instance profile with an instance.
-	AssociateIamInstanceProfile(instanceID, profileARN string) (*IamInstanceProfileAssociation, error)
+	AssociateIamInstanceProfile(
+		instanceID, profileARN string,
+	) (*IamInstanceProfileAssociation, error)
 
 	// DisassociateIamInstanceProfile removes an IAM instance profile association.
 	DisassociateIamInstanceProfile(associationID string) (*IamInstanceProfileAssociation, error)
 
 	// DescribeIamInstanceProfileAssociations returns IAM instance profile associations.
-	DescribeIamInstanceProfileAssociations(associationIDs []string, instanceID string) []*IamInstanceProfileAssociation
+	DescribeIamInstanceProfileAssociations(
+		associationIDs []string,
+		instanceID string,
+	) []*IamInstanceProfileAssociation
 
 	// ReplaceIamInstanceProfileAssociation replaces the IAM instance profile on an existing association.
-	ReplaceIamInstanceProfileAssociation(associationID, profileARN string) (*IamInstanceProfileAssociation, error)
+	ReplaceIamInstanceProfileAssociation(
+		associationID, profileARN string,
+	) (*IamInstanceProfileAssociation, error)
 
 	// ---- Route Table extras ----
 
@@ -532,18 +569,24 @@ type Backend interface {
 	// ---- Transit Gateway Routes ----
 
 	// CreateTransitGatewayRoute adds a static route to a TGW route table.
-	CreateTransitGatewayRoute(routeTableID, destinationCIDR, attachmentID string) (*TransitGatewayRoute, error)
+	CreateTransitGatewayRoute(
+		routeTableID, destinationCIDR, attachmentID string,
+	) (*TransitGatewayRoute, error)
 
 	// DeleteTransitGatewayRoute removes a static route from a TGW route table.
 	DeleteTransitGatewayRoute(routeTableID, destinationCIDR string) error
 
 	// ReplaceTransitGatewayRoute replaces or upserts a route in a TGW route table.
-	ReplaceTransitGatewayRoute(routeTableID, destinationCIDR, attachmentID string) (*TransitGatewayRoute, error)
+	ReplaceTransitGatewayRoute(
+		routeTableID, destinationCIDR, attachmentID string,
+	) (*TransitGatewayRoute, error)
 
 	// ---- Transit Gateway Route Table Associations ----
 
 	// AssociateTransitGatewayRouteTable associates a TGW attachment with a route table.
-	AssociateTransitGatewayRouteTable(routeTableID, attachmentID string) (*TransitGatewayRouteTableAssociation, error)
+	AssociateTransitGatewayRouteTable(
+		routeTableID, attachmentID string,
+	) (*TransitGatewayRouteTableAssociation, error)
 
 	// DisassociateTransitGatewayRouteTable removes an association between a TGW attachment and route table.
 	DisassociateTransitGatewayRouteTable(routeTableID, attachmentID string) error
@@ -595,7 +638,10 @@ type Backend interface {
 	// ---- VPC Endpoint Service Configurations ----
 
 	// CreateVpcEndpointServiceConfiguration creates a new endpoint service config.
-	CreateVpcEndpointServiceConfiguration(acceptanceRequired bool, nlbARNs []string) (*VpcEndpointServiceConfig, error)
+	CreateVpcEndpointServiceConfiguration(
+		acceptanceRequired bool,
+		nlbARNs []string,
+	) (*VpcEndpointServiceConfig, error)
 
 	// DescribeVpcEndpointServiceConfigurations returns endpoint service configs, optionally filtered by IDs.
 	DescribeVpcEndpointServiceConfigurations(ids []string) []*VpcEndpointServiceConfig
@@ -644,16 +690,26 @@ type Backend interface {
 	DescribeSpotFleetRequests(fleetIDs []string) ([]*SpotFleetRequest, error)
 
 	// CancelSpotFleetRequests cancels spot fleet requests.
-	CancelSpotFleetRequests(fleetIDs []string, terminateInstances bool) ([]SpotFleetCancelResult, error)
+	CancelSpotFleetRequests(
+		fleetIDs []string,
+		terminateInstances bool,
+	) ([]SpotFleetCancelResult, error)
 
 	// ModifySpotFleetRequest updates the target capacity of a spot fleet request.
-	ModifySpotFleetRequest(fleetID string, targetCapacity int, excessTermination string) (*SpotFleetRequest, error)
+	ModifySpotFleetRequest(
+		fleetID string,
+		targetCapacity int,
+		excessTermination string,
+	) (*SpotFleetRequest, error)
 
 	// DescribeSpotFleetInstances returns the instances in a spot fleet.
 	DescribeSpotFleetInstances(fleetID string) ([]SpotFleetInstance, error)
 
 	// DescribeSpotFleetRequestHistory returns history records for a spot fleet.
-	DescribeSpotFleetRequestHistory(fleetID string, startTime time.Time) ([]SpotFleetHistoryRecord, error)
+	DescribeSpotFleetRequestHistory(
+		fleetID string,
+		startTime time.Time,
+	) ([]SpotFleetHistoryRecord, error)
 
 	// ---- reset ----
 

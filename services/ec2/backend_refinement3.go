@@ -83,7 +83,9 @@ func (b *InMemoryBackend) ReplaceNetworkACLAssociation(aclID, subnetID string) (
 	for _, existing := range b.networkACLs {
 		for i, assoc := range existing.AssociationIDs {
 			if assoc == subnetID {
-				existing.AssociationIDs = append(existing.AssociationIDs[:i], existing.AssociationIDs[i+1:]...)
+				existing.AssociationIDs = append(
+					existing.AssociationIDs[:i],
+					existing.AssociationIDs[i+1:]...)
 
 				break
 			}
@@ -156,7 +158,7 @@ type InstanceTypeOffering struct {
 func (b *InMemoryBackend) DescribeInstanceTypeOfferings() []InstanceTypeOffering {
 	azs := b.DescribeAvailabilityZones(b.Region)
 	types := []string{
-		"t3.nano", "t3.micro", "t3.small", "t3.medium", "t3.large",
+		"t3.nano", instanceTypeT3Micro, "t3.small", "t3.medium", "t3.large",
 		"t3.xlarge", "t3.2xlarge",
 		"m5.large", "m5.xlarge", "m5.2xlarge", "m5.4xlarge",
 		"c5.large", "c5.xlarge", "c5.2xlarge",

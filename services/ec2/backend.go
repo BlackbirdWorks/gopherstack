@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"strings"
 	"time"
 
@@ -22,6 +23,8 @@ var (
 	ErrDuplicateSGName       = errors.New("InvalidGroup.Duplicate")
 	ErrInvalidInstanceState  = errors.New("IncorrectInstanceState")
 	ErrSpotFleetNotFound     = errors.New("InvalidSpotFleetRequestId.NotFound")
+	ErrCIDRConflict          = errors.New("InvalidVpc.Conflict")
+	ErrDryRunOperation       = errors.New("request would have succeeded, but DryRun flag is set")
 )
 
 // EC2 instance state codes as defined by the AWS EC2 API.
@@ -70,17 +73,24 @@ var (
 
 // Instance represents an EC2 instance (metadata only, no actual compute).
 type Instance struct {
-	LaunchTime     time.Time     `json:"launchTime"`
-	TerminatedAt   time.Time     `json:"terminatedAt"`
-	State          InstanceState `json:"state"`
-	ID             string        `json:"id"`
-	InstanceType   string        `json:"instanceType"`
-	ImageID        string        `json:"imageID"`
-	VPCID          string        `json:"vpcID"`
-	SubnetID       string        `json:"subnetID"`
-	PrivateIP      string        `json:"privateIP"`
-	KeyName        string        `json:"keyName"`
-	SecurityGroups []string      `json:"securityGroups"`
+	LaunchTime            time.Time     `json:"launchTime"`
+	TerminatedAt          time.Time     `json:"terminatedAt"`
+	PrivateIP             string        `json:"privateIP"`
+	PublicIPAddress       string        `json:"publicIPAddress,omitempty"`
+	InstanceType          string        `json:"instanceType"`
+	ImageID               string        `json:"imageID"`
+	VPCID                 string        `json:"vpcID"`
+	SubnetID              string        `json:"subnetID"`
+	MetadataOptionsTokens string        `json:"metadataOptionsTokens,omitempty"`
+	ID                    string        `json:"id"`
+	PublicDNSName         string        `json:"publicDNSName,omitempty"`
+	KeyName               string        `json:"keyName"`
+	MetadataOptionsState  string        `json:"metadataOptionsState,omitempty"`
+	UserData              string        `json:"userData,omitempty"`
+	SriovNetSupport       string        `json:"sriovNetSupport,omitempty"`
+	SecurityGroups        []string      `json:"securityGroups"`
+	State                 InstanceState `json:"state"`
+	EnaSupport            bool          `json:"enaSupport"`
 }
 
 // LaunchTemplate represents an EC2 launch template.
@@ -131,11 +141,14 @@ type InstanceStateChange struct {
 }
 
 // SecurityGroupRule represents an inbound or outbound rule.
+// Either IPRange or SourceGroupID is set; both can be empty for protocol-only rules.
 type SecurityGroupRule struct {
-	Protocol string `json:"protocol"`
-	IPRange  string `json:"ipRange"`
-	FromPort int    `json:"fromPort"`
-	ToPort   int    `json:"toPort"`
+	Protocol           string `json:"protocol"`
+	IPRange            string `json:"ipRange"`
+	SourceGroupID      string `json:"sourceGroupId,omitempty"`
+	SourceGroupOwnerID string `json:"sourceGroupOwnerId,omitempty"`
+	FromPort           int    `json:"fromPort"`
+	ToPort             int    `json:"toPort"`
 }
 
 // SecurityGroup represents an EC2 security group.
@@ -157,11 +170,12 @@ type VPC struct {
 
 // Subnet represents an EC2 Subnet.
 type Subnet struct {
-	ID               string `json:"id"`
-	VPCID            string `json:"vpcID"`
-	CIDRBlock        string `json:"cidrBlock"`
-	AvailabilityZone string `json:"availabilityZone"`
-	IsDefault        bool   `json:"isDefault"`
+	ID                  string `json:"id"`
+	VPCID               string `json:"vpcID"`
+	CIDRBlock           string `json:"cidrBlock"`
+	AvailabilityZone    string `json:"availabilityZone"`
+	IsDefault           bool   `json:"isDefault"`
+	MapPublicIPOnLaunch bool   `json:"mapPublicIpOnLaunch"`
 }
 
 // InMemoryBackend is the in-memory store for EC2 resources.
@@ -317,7 +331,10 @@ func (b *InMemoryBackend) initDefaults() {
 }
 
 // RunInstances creates one or more EC2 instance stubs.
-func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, count int) ([]*Instance, error) {
+func (b *InMemoryBackend) RunInstances(
+	imageID, instanceType, subnetID string,
+	count int,
+) ([]*Instance, error) {
 	if imageID == "" {
 		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
 	}
@@ -336,9 +353,11 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 	}
 
 	vpcID := ""
+	mapPublicIP := false
 
 	if sub, ok := b.subnets[subnetID]; ok {
 		vpcID = sub.VPCID
+		mapPublicIP = sub.MapPublicIPOnLaunch
 	}
 
 	// No capacity hint — user-derived values in the make capacity position
@@ -360,8 +379,14 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 			VPCID:      vpcID,
 			SubnetID:   subnetID,
 			LaunchTime: time.Now(),
+			EnaSupport: true,
 		}
 		inst.PrivateIP = b.allocPrivateIP()
+		if mapPublicIP {
+			inst.PublicIPAddress = b.allocElasticIP()
+			inst.PublicDNSName = fmt.Sprintf("ec2-%s.compute-1.amazonaws.com",
+				strings.ReplaceAll(inst.PublicIPAddress, ".", "-"))
+		}
 		eniID := "eni-" + uuid.New().String()[:17]
 		attachID := "eni-attach-" + uuid.New().String()[:8]
 		b.networkInterfaces[eniID] = &NetworkInterface{
@@ -515,7 +540,9 @@ func (b *InMemoryBackend) DescribeSecurityGroups(ids []string) []*SecurityGroup 
 }
 
 // CreateSecurityGroup creates a new security group and returns its ID.
-func (b *InMemoryBackend) CreateSecurityGroup(name, description, vpcID string) (*SecurityGroup, error) {
+func (b *InMemoryBackend) CreateSecurityGroup(
+	name, description, vpcID string,
+) (*SecurityGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: GroupName is required", ErrInvalidParameter)
 	}
@@ -531,7 +558,12 @@ func (b *InMemoryBackend) CreateSecurityGroup(name, description, vpcID string) (
 
 	for _, sg := range b.securityGroups {
 		if sg.Name == name && sg.VPCID == vpcID {
-			return nil, fmt.Errorf("%w: group named %s already exists in VPC %s", ErrDuplicateSGName, name, vpcID)
+			return nil, fmt.Errorf(
+				"%w: group named %s already exists in VPC %s",
+				ErrDuplicateSGName,
+				name,
+				vpcID,
+			)
 		}
 	}
 
@@ -594,6 +626,13 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 
 	b.mu.Lock("CreateVpc")
 	defer b.mu.Unlock()
+
+	for _, existing := range b.vpcs {
+		if cidrsOverlap(cidr, existing.CIDRBlock) {
+			return nil, fmt.Errorf("%w: CIDR %s overlaps with existing VPC %s (%s)",
+				ErrCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
+		}
+	}
 
 	id := "vpc-" + uuid.New().String()[:17]
 	v := &VPC{
@@ -735,6 +774,19 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 
 	if az == "" {
 		az = b.Region + "a"
+	}
+
+	vpc := b.vpcs[vpcID]
+	if !cidrContains(vpc.CIDRBlock, cidr) {
+		return nil, fmt.Errorf("%w: subnet CIDR %s is not within VPC CIDR %s",
+			ErrInvalidParameter, cidr, vpc.CIDRBlock)
+	}
+
+	for _, existing := range b.subnets {
+		if existing.VPCID == vpcID && cidrsOverlap(cidr, existing.CIDRBlock) {
+			return nil, fmt.Errorf("%w: CIDR %s overlaps with existing subnet %s (%s)",
+				ErrCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
+		}
 	}
 
 	id := "subnet-" + uuid.New().String()[:17]
@@ -1009,4 +1061,33 @@ func (b *InMemoryBackend) DescribeTags(resourceIDs []string) []TagEntry {
 	}
 
 	return entries
+}
+
+// cidrsOverlap reports whether two CIDR blocks overlap.
+// Malformed CIDRs are treated as non-overlapping to avoid panics on bad input.
+func cidrsOverlap(a, b string) bool {
+	_, netA, err1 := net.ParseCIDR(a)
+	_, netB, err2 := net.ParseCIDR(b)
+
+	if err1 != nil || err2 != nil {
+		return false
+	}
+
+	return netA.Contains(netB.IP) || netB.Contains(netA.IP)
+}
+
+// cidrContains reports whether outer fully contains inner.
+func cidrContains(outer, inner string) bool {
+	_, outerNet, err1 := net.ParseCIDR(outer)
+	_, innerNet, err2 := net.ParseCIDR(inner)
+
+	if err1 != nil || err2 != nil {
+		return false
+	}
+
+	// outer must contain inner's base address and inner's broadcast address
+	ones1, _ := outerNet.Mask.Size()
+	ones2, _ := innerNet.Mask.Size()
+
+	return outerNet.Contains(innerNet.IP) && ones1 <= ones2
 }

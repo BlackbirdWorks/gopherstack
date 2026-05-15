@@ -1314,12 +1314,12 @@ func (h *Handler) iamTagDispatchTable() map[string]iamActionFn {
 func (h *Handler) iamListTagActions() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListRoleTags": func(vals url.Values, reqID string) (any, error) {
-			roleName := vals.Get("RoleName")
-			tags := h.getTags(roleName)
-			members := make([]svcTags.KV, 0, len(tags))
-			for k, v := range tags {
-				members = append(members, svcTags.KV{Key: k, Value: v})
+			r, err := h.Backend.GetRole(vals.Get("RoleName"))
+			if err != nil {
+				return nil, err
 			}
+
+			members := tagsMapToKV(r.Tags)
 
 			return &iamListTagsResponse{
 				XMLName:          xml.Name{Local: "ListRoleTagsResponse"},
@@ -1329,12 +1329,12 @@ func (h *Handler) iamListTagActions() map[string]iamActionFn {
 			}, nil
 		},
 		"ListPolicyTags": func(vals url.Values, reqID string) (any, error) {
-			policyArn := vals.Get("PolicyArn")
-			tags := h.getTags(policyArn)
-			members := make([]svcTags.KV, 0, len(tags))
-			for k, v := range tags {
-				members = append(members, svcTags.KV{Key: k, Value: v})
+			p, err := h.Backend.GetPolicy(vals.Get("PolicyArn"))
+			if err != nil {
+				return nil, err
 			}
+
+			members := tagsMapToKV(p.Tags)
 
 			return &iamListTagsResponse{
 				XMLName:          xml.Name{Local: "ListPolicyTagsResponse"},
@@ -1344,17 +1344,32 @@ func (h *Handler) iamListTagActions() map[string]iamActionFn {
 			}, nil
 		},
 		"ListUserTags": func(vals url.Values, reqID string) (any, error) {
-			userName := vals.Get("UserName")
-			tags := h.getTags(userName)
-			members := make([]svcTags.KV, 0, len(tags))
-			for k, v := range tags {
-				members = append(members, svcTags.KV{Key: k, Value: v})
+			u, err := h.Backend.GetUser(vals.Get("UserName"))
+			if err != nil {
+				return nil, err
 			}
+
+			members := tagsMapToKV(u.Tags)
 
 			return &iamListTagsResponse{
 				XMLName:          xml.Name{Local: "ListUserTagsResponse"},
 				Xmlns:            iamXMLNS,
 				Result:           iamListTagsResult{XMLName: xml.Name{Local: "ListUserTagsResult"}, Tags: members},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"ListGroupTags": func(vals url.Values, reqID string) (any, error) {
+			g, err := h.Backend.GetGroup(vals.Get("GroupName"))
+			if err != nil {
+				return nil, err
+			}
+
+			members := tagsMapToKV(g.Tags)
+
+			return &iamListTagsResponse{
+				XMLName:          xml.Name{Local: "ListGroupTagsResponse"},
+				Xmlns:            iamXMLNS,
+				Result:           iamListTagsResult{XMLName: xml.Name{Local: "ListGroupTagsResult"}, Tags: members},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
@@ -1365,7 +1380,9 @@ func (h *Handler) iamListTagActions() map[string]iamActionFn {
 func (h *Handler) iamMutateTagActions() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"TagRole": func(vals url.Values, reqID string) (any, error) {
-			h.setTags(vals.Get("RoleName"), parseIAMTags(vals))
+			if err := h.Backend.TagRole(vals.Get("RoleName"), parseIAMTags(vals)); err != nil {
+				return nil, err
+			}
 
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "TagRoleResponse"},
@@ -1374,7 +1391,9 @@ func (h *Handler) iamMutateTagActions() map[string]iamActionFn {
 			}, nil
 		},
 		"UntagRole": func(vals url.Values, reqID string) (any, error) {
-			h.removeTags(vals.Get("RoleName"), parseIAMTagKeys(vals))
+			if err := h.Backend.UntagRole(vals.Get("RoleName"), parseIAMTagKeys(vals)); err != nil {
+				return nil, err
+			}
 
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "UntagRoleResponse"},
@@ -1383,7 +1402,9 @@ func (h *Handler) iamMutateTagActions() map[string]iamActionFn {
 			}, nil
 		},
 		"TagPolicy": func(vals url.Values, reqID string) (any, error) {
-			h.setTags(vals.Get("PolicyArn"), parseIAMTags(vals))
+			if err := h.Backend.TagPolicy(vals.Get("PolicyArn"), parseIAMTags(vals)); err != nil {
+				return nil, err
+			}
 
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "TagPolicyResponse"},
@@ -1392,7 +1413,9 @@ func (h *Handler) iamMutateTagActions() map[string]iamActionFn {
 			}, nil
 		},
 		"UntagPolicy": func(vals url.Values, reqID string) (any, error) {
-			h.removeTags(vals.Get("PolicyArn"), parseIAMTagKeys(vals))
+			if err := h.Backend.UntagPolicy(vals.Get("PolicyArn"), parseIAMTagKeys(vals)); err != nil {
+				return nil, err
+			}
 
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "UntagPolicyResponse"},
@@ -1401,7 +1424,9 @@ func (h *Handler) iamMutateTagActions() map[string]iamActionFn {
 			}, nil
 		},
 		"TagUser": func(vals url.Values, reqID string) (any, error) {
-			h.setTags(vals.Get("UserName"), parseIAMTags(vals))
+			if err := h.Backend.TagUser(vals.Get("UserName"), parseIAMTags(vals)); err != nil {
+				return nil, err
+			}
 
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "TagUserResponse"},
@@ -1410,7 +1435,9 @@ func (h *Handler) iamMutateTagActions() map[string]iamActionFn {
 			}, nil
 		},
 		"UntagUser": func(vals url.Values, reqID string) (any, error) {
-			h.removeTags(vals.Get("UserName"), parseIAMTagKeys(vals))
+			if err := h.Backend.UntagUser(vals.Get("UserName"), parseIAMTagKeys(vals)); err != nil {
+				return nil, err
+			}
 
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "UntagUserResponse"},
@@ -1418,7 +1445,43 @@ func (h *Handler) iamMutateTagActions() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
+		"TagGroup": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.TagGroup(vals.Get("GroupName"), parseIAMTags(vals)); err != nil {
+				return nil, err
+			}
+
+			return &iamSimpleTagResponse{
+				XMLName:          xml.Name{Local: "TagGroupResponse"},
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"UntagGroup": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.UntagGroup(vals.Get("GroupName"), parseIAMTagKeys(vals)); err != nil {
+				return nil, err
+			}
+
+			return &iamSimpleTagResponse{
+				XMLName:          xml.Name{Local: "UntagGroupResponse"},
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
 	}
+}
+
+// tagsMapToKV converts map[string]string to sorted svcTags.KV slice.
+func tagsMapToKV(tags map[string]string) []svcTags.KV {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	result := make([]svcTags.KV, 0, len(tags))
+	for k, v := range tags {
+		result = append(result, svcTags.KV{Key: k, Value: v})
+	}
+
+	return result
 }
 
 // parseIAMTags parses Tags.member.N.Key / Tags.member.N.Value form values.
@@ -1554,6 +1617,7 @@ func toUserXML(u *User) UserXML {
 		UserID:     u.UserID,
 		Arn:        u.Arn,
 		CreateDate: isoTime(u.CreateDate),
+		Tags:       tagsToXML(u.Tags),
 	}
 
 	if u.PermissionsBoundary != "" {
@@ -1576,6 +1640,7 @@ func toRoleXML(r *Role) RoleXML {
 		AssumeRolePolicyDocument: r.AssumeRolePolicyDocument,
 		MaxSessionDuration:       r.MaxSessionDuration,
 		Description:              r.Description,
+		Tags:                     tagsToXML(r.Tags),
 	}
 
 	if r.PermissionsBoundary != "" {
@@ -1605,6 +1670,7 @@ func toGroupXML(g *Group) GroupXML {
 		GroupID:    g.GroupID,
 		Arn:        g.Arn,
 		CreateDate: isoTime(g.CreateDate),
+		Tags:       tagsToXML(g.Tags),
 	}
 }
 

@@ -88,13 +88,25 @@ func TestMergeShards(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Verify shard count decreased to 1.
+	// AWS DescribeStream returns ALL shards including closed parent shards.
+	// After merging 2 → 1, expect 3 total: 2 closed parents + 1 open merged.
 	rec = doRequest(t, h, "DescribeStream", map[string]any{
 		"StreamName": "merge-stream",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Len(t, descResp.StreamDescription.Shards, 1)
+
+	var descResp2 struct {
+		StreamDescription struct {
+			Shards []struct {
+				ShardID             string `json:"ShardId"`
+				SequenceNumberRange struct {
+					EndingSequenceNumber string `json:"EndingSequenceNumber"`
+				} `json:"SequenceNumberRange"`
+			} `json:"Shards"`
+		} `json:"StreamDescription"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp2))
+	assert.Len(t, descResp2.StreamDescription.Shards, 3)
 }
 
 // TestMergeAndSplitShardIDs verifies that shard IDs remain unique after merge+split operations.
@@ -110,67 +122,87 @@ func TestMergeAndSplitShardIDs(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	getShards := func() []string {
+	type shardEntry struct {
+		ShardID string `json:"ShardId"`
+	}
+
+	// getAllShards returns all shards (open + closed) from DescribeStream.
+	getAllShards := func() []shardEntry {
 		r := doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "id-check-stream"})
 		require.Equal(t, http.StatusOK, r.Code)
 
 		var d struct {
 			StreamDescription struct {
-				Shards []struct {
-					ShardID string `json:"ShardId"`
-				} `json:"Shards"`
+				Shards []shardEntry `json:"Shards"`
 			} `json:"StreamDescription"`
 		}
 
 		require.NoError(t, json.Unmarshal(r.Body.Bytes(), &d))
 
-		ids := make([]string, len(d.StreamDescription.Shards))
-		for i, s := range d.StreamDescription.Shards {
-			ids[i] = s.ShardID
-		}
-
-		return ids
+		return d.StreamDescription.Shards
 	}
 
-	ids := getShards()
-	require.Len(t, ids, 4)
+	// getOpenShards returns only open (non-closed) shards via ListShards.
+	getOpenShards := func() []shardEntry {
+		r := doRequest(t, h, "ListShards", map[string]any{"StreamName": "id-check-stream"})
+		require.Equal(t, http.StatusOK, r.Code)
+
+		var d struct {
+			Shards []shardEntry `json:"Shards"`
+		}
+
+		require.NoError(t, json.Unmarshal(r.Body.Bytes(), &d))
+
+		return d.Shards
+	}
+
+	all := getAllShards()
+	require.Len(t, all, 4)
 
 	// Merge shards 0 and 1 → should produce shard with a new unique ID (4).
 	rec = doRequest(t, h, "MergeShards", map[string]any{
 		"StreamName":           "id-check-stream",
-		"ShardToMerge":         ids[0],
-		"AdjacentShardToMerge": ids[1],
+		"ShardToMerge":         all[0].ShardID,
+		"AdjacentShardToMerge": all[1].ShardID,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	ids = getShards()
-	require.Len(t, ids, 3)
+	// DescribeStream returns all shards (2 closed parents + 3 open = 5 total).
+	all = getAllShards()
+	require.Len(t, all, 5)
 
 	// Verify all IDs are unique.
 	seen := map[string]struct{}{}
-	for _, id := range ids {
-		assert.NotContains(t, seen, id, "duplicate shard ID %q detected", id)
-		seen[id] = struct{}{}
+	for _, s := range all {
+		assert.NotContains(t, seen, s.ShardID, "duplicate shard ID %q detected", s.ShardID)
+		seen[s.ShardID] = struct{}{}
 	}
 
-	// Split one of the remaining shards. Use a key strictly inside shard 2's range
+	// Split one of the open shards. Use a key strictly inside shard 2's range
 	// (170141183460469231731687303715884105728 to 255211775190703847598956918694523764991).
 	const splitKey = "200000000000000000000000000000000000000"
+	openShards := getOpenShards()
+	require.NotEmpty(t, openShards)
+
+	// splitKey 200000000000000000000000000000000000000 falls in shard 2's range
+	// (170141183460469231731687303715884105728..255211775190703847597592248818726428671).
+	// openShards[0] is shard 2 (first open shard after merge).
 	rec = doRequest(t, h, "SplitShard", map[string]any{
 		"StreamName":         "id-check-stream",
-		"ShardToSplit":       ids[0],
+		"ShardToSplit":       openShards[0].ShardID,
 		"NewStartingHashKey": splitKey,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	ids = getShards()
-	require.Len(t, ids, 4)
+	// After split: 5 previous + 1 newly closed (parent of split) + 2 children = 7 total.
+	all = getAllShards()
+	require.Len(t, all, 7)
 
 	// Verify all IDs are still unique after the split.
 	seen = map[string]struct{}{}
-	for _, id := range ids {
-		assert.NotContains(t, seen, id, "duplicate shard ID %q detected after split", id)
-		seen[id] = struct{}{}
+	for _, s := range all {
+		assert.NotContains(t, seen, s.ShardID, "duplicate shard ID %q detected after split", s.ShardID)
+		seen[s.ShardID] = struct{}{}
 	}
 }
 
@@ -273,11 +305,12 @@ func TestSplitShard(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Verify there are now 2 shards.
+	// AWS DescribeStream returns ALL shards including closed parent.
+	// After splitting 1 → 2, expect 3 total: 1 closed parent + 2 open children.
 	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "split-stream"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Len(t, descResp.StreamDescription.Shards, 2)
+	assert.Len(t, descResp.StreamDescription.Shards, 3)
 }
 
 // TestSplitShard_Errors verifies error cases for SplitShard.

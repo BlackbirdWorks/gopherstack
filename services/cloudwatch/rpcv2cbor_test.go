@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/labstack/echo/v5"
@@ -892,4 +893,240 @@ func TestCBOR_Dashboards(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Accuracy audit CBOR tests — gaps from issue #1686
+// ---------------------------------------------------------------------------
+
+func TestCBOR_PutMetricData_WithDimensions(t *testing.T) {
+	t.Parallel()
+
+	h := newCBORHandler()
+
+	dims := cbor.List{
+		cbor.Map{"Name": cbor.String("InstanceId"), "Value": cbor.String("i-abc")},
+	}
+	body := cbor.Map{
+		"Namespace": cbor.String("AWS/EC2"),
+		"MetricData": cbor.List{
+			cbor.Map{
+				"MetricName": cbor.String("CPUUtilization"),
+				"Value":      cbor.Float64(42.5),
+				"Dimensions": dims,
+			},
+		},
+	}
+	rec := postCBOR(t, h, "PutMetricData", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify metric was stored with dimension via ListMetrics.
+	listBody := cbor.Map{
+		"Namespace":  cbor.String("AWS/EC2"),
+		"MetricName": cbor.String("CPUUtilization"),
+	}
+	listRec := postCBOR(t, h, "ListMetrics", listBody)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	resp := decodeCBORResponse(t, listRec)
+	metrics, ok := resp["Metrics"].(cbor.List)
+	require.True(t, ok)
+	require.Len(t, metrics, 1)
+
+	m := metrics[0].(cbor.Map)
+	dimList, ok := m["Dimensions"].(cbor.List)
+	require.True(t, ok)
+	require.Len(t, dimList, 1)
+	dimMap := dimList[0].(cbor.Map)
+	assert.Equal(t, "i-abc", string(dimMap["Value"].(cbor.String)))
+}
+
+func TestCBOR_PutMetricData_WithStatisticValues(t *testing.T) {
+	t.Parallel()
+
+	h := newCBORHandler()
+
+	ss := cbor.Map{
+		"SampleCount": cbor.Float64(10),
+		"Sum":         cbor.Float64(250),
+		"Minimum":     cbor.Float64(20),
+		"Maximum":     cbor.Float64(35),
+	}
+	body := cbor.Map{
+		"Namespace": cbor.String("App"),
+		"MetricData": cbor.List{
+			cbor.Map{
+				"MetricName":      cbor.String("Latency"),
+				"StatisticValues": ss,
+			},
+		},
+	}
+	rec := postCBOR(t, h, "PutMetricData", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	statsBody := cbor.Map{
+		"Namespace":  cbor.String("App"),
+		"MetricName": cbor.String("Latency"),
+		"StartTime":  cbor.Tag{ID: 1, Value: cbor.Float64(0)},
+		"EndTime":    cbor.Tag{ID: 1, Value: cbor.Float64(float64(time.Now().UTC().Add(24 * time.Hour).Unix()))},
+		"Period":     cbor.Uint(3600),
+		"Statistics": cbor.List{
+			cbor.String("Sum"), cbor.String("SampleCount"),
+		},
+	}
+	statsRec := postCBOR(t, h, "GetMetricStatistics", statsBody)
+	require.Equal(t, http.StatusOK, statsRec.Code)
+
+	resp := decodeCBORResponse(t, statsRec)
+	dps, ok := resp["Datapoints"].(cbor.List)
+	require.True(t, ok)
+	require.Len(t, dps, 1)
+	dp := dps[0].(cbor.Map)
+	assert.InDelta(t, 250.0, float64(dp["Sum"].(cbor.Float64)), 1e-9)
+	assert.InDelta(t, 10.0, float64(dp["SampleCount"].(cbor.Float64)), 1e-9)
+}
+
+func TestCBOR_GetMetricStatistics_WithDimensions(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	h := cloudwatch.NewHandler(b)
+
+	dims := []cloudwatch.Dimension{{Name: "Host", Value: "h1"}}
+	_, _ = b.PutMetricData("App", []cloudwatch.MetricDatum{
+		{MetricName: "Load", Value: 80, Count: 1, Sum: 80, Min: 80, Max: 80,
+			Timestamp: time.Now().UTC(), Dimensions: dims},
+	})
+
+	statsBody := cbor.Map{
+		"Namespace":  cbor.String("App"),
+		"MetricName": cbor.String("Load"),
+		"Dimensions": cbor.List{
+			cbor.Map{"Name": cbor.String("Host"), "Value": cbor.String("h1")},
+		},
+		"StartTime":  cbor.Tag{ID: 1, Value: cbor.Float64(float64(time.Now().UTC().Add(-time.Hour).Unix()))},
+		"EndTime":    cbor.Tag{ID: 1, Value: cbor.Float64(float64(time.Now().UTC().Add(time.Hour).Unix()))},
+		"Period":     cbor.Uint(3600),
+		"Statistics": cbor.List{cbor.String("Sum")},
+	}
+	rec := postCBOR(t, h, "GetMetricStatistics", statsBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := decodeCBORResponse(t, rec)
+	dps, ok := resp["Datapoints"].(cbor.List)
+	require.True(t, ok)
+	require.Len(t, dps, 1)
+	dp := dps[0].(cbor.Map)
+	assert.InDelta(t, 80.0, float64(dp["Sum"].(cbor.Float64)), 1e-9)
+}
+
+func TestCBOR_GetMetricData_WithDimensions(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	h := cloudwatch.NewHandler(b)
+
+	dimsA := []cloudwatch.Dimension{{Name: "Shard", Value: "a"}}
+	ts := time.Now().UTC().Add(-30 * time.Second)
+	_, _ = b.PutMetricData("NS", []cloudwatch.MetricDatum{
+		{MetricName: "Ops", Value: 5, Count: 1, Sum: 5, Min: 5, Max: 5, Timestamp: ts, Dimensions: dimsA},
+		{MetricName: "Ops", Value: 50, Count: 1, Sum: 50, Min: 50, Max: 50, Timestamp: ts},
+	})
+
+	queryBody := cbor.Map{
+		"StartTime": cbor.Tag{ID: 1, Value: cbor.Float64(float64(ts.Add(-time.Minute).Unix()))},
+		"EndTime":   cbor.Tag{ID: 1, Value: cbor.Float64(float64(ts.Add(time.Minute).Unix()))},
+		"MetricDataQueries": cbor.List{
+			cbor.Map{
+				"Id": cbor.String("m1"),
+				"MetricStat": cbor.Map{
+					"Metric": cbor.Map{
+						"Namespace":  cbor.String("NS"),
+						"MetricName": cbor.String("Ops"),
+						"Dimensions": cbor.List{
+							cbor.Map{"Name": cbor.String("Shard"), "Value": cbor.String("a")},
+						},
+					},
+					"Stat":   cbor.String("Sum"),
+					"Period": cbor.Uint(60),
+				},
+			},
+		},
+	}
+	rec := postCBOR(t, h, "GetMetricData", queryBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := decodeCBORResponse(t, rec)
+	results, ok := resp["MetricDataResults"].(cbor.List)
+	require.True(t, ok)
+	require.Len(t, results, 1)
+	result := results[0].(cbor.Map)
+	vals, ok := result["Values"].(cbor.List)
+	require.True(t, ok)
+	require.Len(t, vals, 1)
+	assert.InDelta(t, 5.0, float64(vals[0].(cbor.Float64)), 1e-9)
+}
+
+func TestCBOR_PutMetricStream_WithFilters(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	h := cloudwatch.NewHandler(b)
+
+	body := cbor.Map{
+		"Name":         cbor.String("test-stream"),
+		"FirehoseArn":  cbor.String("arn:aws:firehose:us-east-1:123:deliverystream/s"),
+		"RoleArn":      cbor.String("arn:aws:iam::123:role/r"),
+		"OutputFormat": cbor.String("json"),
+		"IncludeFilters": cbor.List{
+			cbor.Map{
+				"Namespace":   cbor.String("AWS/EC2"),
+				"MetricNames": cbor.List{cbor.String("CPUUtilization")},
+			},
+		},
+		"ExcludeFilters": cbor.List{
+			cbor.Map{"Namespace": cbor.String("AWS/Lambda")},
+		},
+	}
+	rec := postCBOR(t, h, "PutMetricStream", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	stream, err := b.GetMetricStream("test-stream")
+	require.NoError(t, err)
+	require.Len(t, stream.IncludeFilters, 1)
+	assert.Equal(t, "AWS/EC2", stream.IncludeFilters[0].Namespace)
+	require.Len(t, stream.ExcludeFilters, 1)
+	assert.Equal(t, "AWS/Lambda", stream.ExcludeFilters[0].Namespace)
+}
+
+func TestCBOR_ListMetrics_WithDimensions(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	h := cloudwatch.NewHandler(b)
+
+	ts := time.Now().UTC()
+	for _, env := range []string{"prod", "staging"} {
+		_, _ = b.PutMetricData("App", []cloudwatch.MetricDatum{
+			{MetricName: "RPM", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1,
+				Timestamp:  ts,
+				Dimensions: []cloudwatch.Dimension{{Name: "Env", Value: env}}},
+		})
+	}
+
+	// Filter by Env=prod.
+	body := cbor.Map{
+		"Namespace":  cbor.String("App"),
+		"MetricName": cbor.String("RPM"),
+		"Dimensions": cbor.List{
+			cbor.Map{"Name": cbor.String("Env"), "Value": cbor.String("prod")},
+		},
+	}
+	rec := postCBOR(t, h, "ListMetrics", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := decodeCBORResponse(t, rec)
+	metrics, ok := resp["Metrics"].(cbor.List)
+	require.True(t, ok)
+	require.Len(t, metrics, 1)
 }

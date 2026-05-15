@@ -422,7 +422,12 @@ func isConfigurableQueueAttribute(name string) bool {
 		attrContentBasedDeduplication,
 		attrRedrivePolicy,
 		attrPolicy,
-		attrSqsManagedSseEnabled:
+		attrSqsManagedSseEnabled,
+		attrKmsMasterKeyID,
+		attrKmsDataKeyReusePeriodSecs,
+		attrRedriveAllowPolicy,
+		attrDeduplicationScope,
+		attrFifoThroughputLimit:
 		return true
 	}
 
@@ -692,6 +697,11 @@ func containsStr(slice []string, s string) bool {
 
 // SetQueueAttributes updates attributes on an existing queue.
 func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) error {
+	// FifoQueue is immutable after creation (AWS spec).
+	if _, hasFIFO := input.Attributes[attrFifoQueue]; hasFIFO {
+		return ErrInvalidAttributeName
+	}
+
 	if err := validateQueueAttributes(input.Attributes); err != nil {
 		return err
 	}
@@ -936,6 +946,7 @@ func preflightFIFOSend(q *Queue, input *SendMessageInput, md5Body string, now ti
 
 	if out, dup := checkDedup(
 		q,
+		input.MessageGroupID,
 		input.MessageDeduplicationID,
 		md5Body,
 		q.Attributes[attrContentBasedDeduplication],
@@ -955,6 +966,10 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	if input.DelaySeconds < 0 || input.DelaySeconds > maxDelaySeconds {
 		return nil, ErrInvalidDelaySeconds
+	}
+
+	if err := validateMessageAttributes(input.MessageAttributes); err != nil {
+		return nil, err
 	}
 
 	md5Body := computeMD5(input.MessageBody)
@@ -1019,7 +1034,10 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 			msg.Attributes[attrMessageDeduplicationIDSys] = input.MessageDeduplicationID
 		}
 
-		storeDedup(q, input.MessageDeduplicationID, md5Body, q.Attributes[attrContentBasedDeduplication], msgID, now)
+		storeDedup(
+			q, input.MessageGroupID, input.MessageDeduplicationID,
+			md5Body, q.Attributes[attrContentBasedDeduplication], msgID, now,
+		)
 	}
 
 	q.messages = append(q.messages, msg)
@@ -1069,12 +1087,50 @@ func validateMessageSize(body string, attrs map[string]MessageAttributeValue, q 
 	return nil
 }
 
+// isValidDataTypeBase reports whether base is one of the three AWS-defined
+// message attribute base types: String, Number, or Binary.
+func isValidDataTypeBase(base string) bool {
+	return base == "String" || base == "Number" || base == "Binary"
+}
+
+// validateMessageAttributes checks that each message attribute has a recognised
+// DataType and that the correct value field is populated.
+// AWS rules:
+//   - DataType must be "String", "Number", "Binary", or "<base>.<custom-suffix>"
+//   - String/Number attributes must supply StringValue
+//   - Binary attributes must supply BinaryValue
+func validateMessageAttributes(attrs map[string]MessageAttributeValue) error {
+	for _, attr := range attrs {
+		base, _, _ := strings.Cut(attr.DataType, ".")
+		if !isValidDataTypeBase(base) {
+			return ErrInvalidMessageAttributeValue
+		}
+
+		if base == "Binary" {
+			if len(attr.BinaryValue) == 0 {
+				return ErrInvalidMessageAttributeValue
+			}
+		} else {
+			if attr.StringValue == "" {
+				return ErrInvalidMessageAttributeValue
+			}
+		}
+	}
+
+	return nil
+}
+
 // validateFIFOParams validates FIFO-specific parameters for a SendMessage request.
 // AWS requires MessageGroupID for all FIFO sends, and MessageDeduplicationID when
-// ContentBasedDeduplication is disabled on the queue.
+// ContentBasedDeduplication is disabled on the queue. FIFO queues do not support
+// per-message delays; a non-zero DelaySeconds is rejected.
 func validateFIFOParams(input *SendMessageInput, q *Queue) error {
 	if input.MessageGroupID == "" {
 		return ErrMissingMessageGroupID
+	}
+
+	if input.DelaySeconds > 0 {
+		return ErrFIFODelayNotSupported
 	}
 
 	contentBasedDedup := q.Attributes[attrContentBasedDeduplication]
@@ -1101,9 +1157,27 @@ func resolveMessageVisibleAt(now time.Time, msgDelaySeconds int, queueDelayAttr 
 	return time.Time{}
 }
 
+// dedupKey returns the deduplication map key, respecting the queue's
+// DeduplicationScope attribute. When scope is "queue" (queue-wide), only the
+// effective dedup ID is used as the key. The default scope is "messageGroup",
+// where the key is scoped per group to allow identical messages in different
+// groups within the same 5-minute window.
+func dedupKey(q *Queue, groupID, effectiveID string) string {
+	if q.Attributes[attrDeduplicationScope] == fifoDedupScopeQueue {
+		return effectiveID
+	}
+
+	// Default: messageGroup scope — key by group + dedupID.
+	return groupID + "|" + effectiveID
+}
+
 // checkDedup checks for a duplicate FIFO message and returns the original output if found.
 // now is the reference time used for window expiry comparison.
-func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.Time) (*SendMessageOutput, bool) {
+func checkDedup(
+	q *Queue,
+	groupID, dedupID, md5Body, contentBasedDedup string,
+	now time.Time,
+) (*SendMessageOutput, bool) {
 	effectiveID := dedupID
 	if effectiveID == "" && contentBasedDedup == attrValTrue {
 		effectiveID = md5Body
@@ -1113,7 +1187,9 @@ func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.T
 		return nil, false
 	}
 
-	expiry, found := q.DeduplicationIDs[effectiveID]
+	key := dedupKey(q, groupID, effectiveID)
+
+	expiry, found := q.DeduplicationIDs[key]
 	if !found {
 		return nil, false
 	}
@@ -1122,13 +1198,13 @@ func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.T
 		// Eagerly remove the expired entry inline. This keeps the deduplication map
 		// lean without waiting for the next janitor sweep, reducing memory pressure
 		// and speeding up subsequent lookups.
-		delete(q.DeduplicationIDs, effectiveID)
-		delete(q.deduplicationMsgIDs, effectiveID)
+		delete(q.DeduplicationIDs, key)
+		delete(q.deduplicationMsgIDs, key)
 
 		return nil, false
 	}
 
-	origMsgID := q.deduplicationMsgIDs[effectiveID]
+	origMsgID := q.deduplicationMsgIDs[key]
 
 	return &SendMessageOutput{MessageID: origMsgID, MD5OfBody: md5Body}, true
 }
@@ -1141,7 +1217,7 @@ const maxDedupEntriesPerQueue = 100_000
 
 // storeDedup records a deduplication entry for a FIFO message. When the dedup
 // map is at capacity, the entries closest to expiry are evicted first.
-func storeDedup(q *Queue, dedupID, md5Body, contentBasedDedup, msgID string, now time.Time) {
+func storeDedup(q *Queue, groupID, dedupID, md5Body, contentBasedDedup, msgID string, now time.Time) {
 	effectiveID := dedupID
 	if effectiveID == "" && contentBasedDedup == attrValTrue {
 		effectiveID = md5Body
@@ -1155,8 +1231,9 @@ func storeDedup(q *Queue, dedupID, md5Body, contentBasedDedup, msgID string, now
 		evictOldestDedup(q, len(q.DeduplicationIDs)-maxDedupEntriesPerQueue+1)
 	}
 
-	q.DeduplicationIDs[effectiveID] = now.Add(deduplicationWindowSecs * time.Second)
-	q.deduplicationMsgIDs[effectiveID] = msgID
+	key := dedupKey(q, groupID, effectiveID)
+	q.DeduplicationIDs[key] = now.Add(deduplicationWindowSecs * time.Second)
+	q.deduplicationMsgIDs[key] = msgID
 }
 
 // evictOldestDedup removes up to n entries with the earliest expiry times.
@@ -1320,6 +1397,10 @@ func drainToDLQ(q *Queue) {
 	q.messages = remaining
 }
 
+// receiveAttemptTTL is the AWS-specified window for ReceiveRequestAttemptID
+// deduplication on FIFO queues (5 minutes).
+const receiveAttemptTTL = 5 * time.Minute
+
 // receiveOnce performs a single receive attempt under the backend lock.
 func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) ([]*Message, chan struct{}, error) {
 	b.mu.Lock("receiveOnce")
@@ -1337,6 +1418,15 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 
 	if q.IsFIFO {
 		pruneDedup(q, now)
+		pruneReceiveAttempts(q, now)
+
+		// FIFO exactly-once retry: if the caller repeats with the same
+		// ReceiveRequestAttemptID within 5 minutes, return the cached result.
+		if id := input.ReceiveRequestAttemptID; id != "" {
+			if entry, found := q.receiveAttempts[id]; found && now.Before(entry.expiresAt) {
+				return entry.msgs, q.notify, nil
+			}
+		}
 	}
 
 	maxMessages := input.MaxNumberOfMessages
@@ -1358,8 +1448,30 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 	}
 
 	vt := resolveVisibilityTimeout(input.VisibilityTimeout, q)
+	msgs := pickMessages(q, b.accountID, maxMessages, vt, now)
 
-	return pickMessages(q, b.accountID, maxMessages, vt, now), q.notify, nil
+	// Cache the result for FIFO ReceiveRequestAttemptID deduplication.
+	if q.IsFIFO && input.ReceiveRequestAttemptID != "" && len(msgs) > 0 {
+		if q.receiveAttempts == nil {
+			q.receiveAttempts = make(map[string]*receiveAttemptEntry)
+		}
+		q.receiveAttempts[input.ReceiveRequestAttemptID] = &receiveAttemptEntry{
+			msgs:      msgs,
+			expiresAt: now.Add(receiveAttemptTTL),
+		}
+	}
+
+	return msgs, q.notify, nil
+}
+
+// pruneReceiveAttempts removes expired ReceiveRequestAttemptID cache entries.
+// Caller must hold b.mu (write).
+func pruneReceiveAttempts(q *Queue, now time.Time) {
+	for id, entry := range q.receiveAttempts {
+		if !now.Before(entry.expiresAt) {
+			delete(q.receiveAttempts, id)
+		}
+	}
 }
 
 // maxInFlightStandard / maxInFlightFIFO are AWS's per-queue caps for messages
@@ -1509,7 +1621,11 @@ func pickMessage(
 		return false
 	}
 
-	receipt := uuid.New().String()
+	// Mint a new per-receive generation so that a stale receipt handle from a
+	// previous receive (e.g. after visibility-timeout expiry) can be detected
+	// even if the random UUID collides (astronomically unlikely but possible).
+	q.receiveGeneration++
+	receipt := fmt.Sprintf("%s:%d:%s", msg.MessageID, q.receiveGeneration, uuid.New().String())
 	msg.ReceiptHandle = receipt
 	msg.ApproximateReceiveCount++
 	msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
@@ -1527,6 +1643,7 @@ func pickMessage(
 	inf := &InFlightMessage{
 		VisibleAt:     now.Add(time.Duration(vt) * time.Second),
 		ReceiptHandle: receipt,
+		Generation:    q.receiveGeneration,
 		Msg:           msg,
 	}
 	q.inFlightMessages = append(q.inFlightMessages, inf)
@@ -1620,6 +1737,15 @@ func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) err
 func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 	input *ChangeMessageVisibilityBatchInput,
 ) (*ChangeMessageVisibilityBatchOutput, error) {
+	ids := make([]string, len(input.Entries))
+	for i, e := range input.Entries {
+		ids[i] = e.ID
+	}
+
+	if err := validateBatchEnvelope(ids); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("ChangeMessageVisibilityBatch")
 	defer b.mu.Unlock()
 
@@ -1648,21 +1774,51 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 	return out, nil
 }
 
-// validateBatchEntryIDs checks that all entries in a batch have non-empty IDs and
-// that no two entries share the same ID (AWS requires IDs to be distinct within a batch).
-func validateBatchEntryIDs(entries []SendMessageBatchEntry) error {
-	seen := make(map[string]struct{}, len(entries))
+// isValidBatchEntryID reports whether id conforms to the AWS batch entry ID
+// format: 1-80 characters from [A-Za-z0-9_-].
+func isValidBatchEntryID(id string) bool {
+	if id == "" || len(id) > maxQueueNameLength {
+		return false
+	}
 
-	for _, entry := range entries {
-		if entry.ID == "" {
+	for _, c := range id {
+		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
+			(c < '0' || c > '9') && c != '_' && c != '-' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// validateBatchEnvelope checks request-level batch constraints that apply
+// identically to SendMessageBatch, DeleteMessageBatch, and
+// ChangeMessageVisibilityBatch:
+//  1. At least one entry (empty → EmptyBatchRequest)
+//  2. At most 10 entries (> 10 → TooManyEntriesInBatchRequest)
+//  3. All IDs distinct (duplicates → BatchEntryIdsNotDistinct)
+//  4. Each ID matches ^[A-Za-z0-9_-]{1,80}$ (invalid → EmptyBatchRequest)
+func validateBatchEnvelope(ids []string) error {
+	if len(ids) == 0 {
+		return ErrInvalidBatchEntry
+	}
+
+	if len(ids) > maxBatchSize {
+		return ErrTooManyEntriesInBatch
+	}
+
+	seen := make(map[string]struct{}, len(ids))
+
+	for _, id := range ids {
+		if !isValidBatchEntryID(id) {
 			return ErrInvalidBatchEntry
 		}
 
-		if _, dup := seen[entry.ID]; dup {
+		if _, dup := seen[id]; dup {
 			return ErrBatchEntryIDsNotDistinct
 		}
 
-		seen[entry.ID] = struct{}{}
+		seen[id] = struct{}{}
 	}
 
 	return nil
@@ -1672,15 +1828,12 @@ func validateBatchEntryIDs(entries []SendMessageBatchEntry) error {
 // Results in the Successful and Failed slices are returned in the same
 // order as the corresponding entries in the input slice.
 func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendMessageBatchOutput, error) {
-	if len(input.Entries) == 0 {
-		return nil, ErrInvalidBatchEntry
+	ids := make([]string, len(input.Entries))
+	for i, e := range input.Entries {
+		ids[i] = e.ID
 	}
 
-	if len(input.Entries) > maxBatchSize {
-		return nil, ErrTooManyEntriesInBatch
-	}
-
-	if err := validateBatchEntryIDs(input.Entries); err != nil {
+	if err := validateBatchEnvelope(ids); err != nil {
 		return nil, err
 	}
 
@@ -1748,26 +1901,13 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 
 // DeleteMessageBatch deletes a batch of messages from the specified queue.
 func (b *InMemoryBackend) DeleteMessageBatch(input *DeleteMessageBatchInput) (*DeleteMessageBatchOutput, error) {
-	if len(input.Entries) == 0 {
-		return nil, ErrInvalidBatchEntry
+	ids := make([]string, len(input.Entries))
+	for i, e := range input.Entries {
+		ids[i] = e.ID
 	}
 
-	if len(input.Entries) > maxBatchSize {
-		return nil, ErrTooManyEntriesInBatch
-	}
-
-	// AWS requires batch entry IDs to be distinct within a single request.
-	seen := make(map[string]struct{}, len(input.Entries))
-	for _, entry := range input.Entries {
-		if entry.ID == "" {
-			return nil, ErrInvalidBatchEntry
-		}
-
-		if _, dup := seen[entry.ID]; dup {
-			return nil, ErrBatchEntryIDsNotDistinct
-		}
-
-		seen[entry.ID] = struct{}{}
+	if err := validateBatchEnvelope(ids); err != nil {
+		return nil, err
 	}
 
 	out := &DeleteMessageBatchOutput{}
@@ -2366,6 +2506,20 @@ func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState,
 		state.mu.Unlock()
 	}()
 
+	// Use a Ticker for MaxNumberOfMessagesPerSecond so the interval accounts for
+	// the receive+send work time, maintaining the configured rate accurately.
+	// A per-iteration Timer would add receive+send latency to each period, reducing
+	// effective throughput below the requested rate.
+	var rateTicker *time.Ticker
+	var rateC <-chan time.Time
+
+	if state.maxPerSec > 0 {
+		interval := time.Second / time.Duration(state.maxPerSec)
+		rateTicker = time.NewTicker(interval)
+		rateC = rateTicker.C
+		defer rateTicker.Stop()
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -2373,16 +2527,11 @@ func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState,
 		default:
 		}
 
-		if state.maxPerSec > 0 {
-			interval := time.Second / time.Duration(state.maxPerSec)
-			timer := time.NewTimer(interval)
-
+		if rateC != nil {
 			select {
 			case <-ctx.Done():
-				timer.Stop()
-
 				return
-			case <-timer.C:
+			case <-rateC:
 			}
 		}
 

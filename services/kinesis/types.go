@@ -47,6 +47,8 @@ const (
 	maxGetRecordsLimit = 10000
 	// defaultGetRecordsLimit is the default limit for GetRecords.
 	defaultGetRecordsLimit = 1000
+	// maxGetRecordsResponseBytes is the AWS 10 MiB cap on GetRecords response payload.
+	maxGetRecordsResponseBytes = 10 * 1024 * 1024
 
 	// millisPerSecond is the number of milliseconds in one second.
 	// Used to convert between Unix second timestamps (float64) and millisecond timestamps.

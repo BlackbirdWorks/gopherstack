@@ -32,7 +32,10 @@ type Janitor struct {
 
 // NewJanitor creates a new EC2 Janitor for the given backend.
 // If interval, terminatedTTL, or cancelledSpotTTL are zero, defaults are used.
-func NewJanitor(backend *InMemoryBackend, interval, terminatedTTL, cancelledSpotTTL time.Duration) *Janitor {
+func NewJanitor(
+	backend *InMemoryBackend,
+	interval, terminatedTTL, cancelledSpotTTL time.Duration,
+) *Janitor {
 	if interval == 0 {
 		interval = defaultJanitorInterval
 	}
@@ -99,7 +102,8 @@ func (j *Janitor) sweepTerminatedInstances(ctx context.Context) {
 	var swept []string
 
 	for id, inst := range j.Backend.instances {
-		if inst.State == StateTerminated && !inst.TerminatedAt.IsZero() && inst.TerminatedAt.Before(cutoff) {
+		if inst.State == StateTerminated && !inst.TerminatedAt.IsZero() &&
+			inst.TerminatedAt.Before(cutoff) {
 			swept = append(swept, id)
 			delete(j.Backend.instances, id)
 			delete(j.Backend.tags, id)
@@ -129,7 +133,8 @@ func (j *Janitor) sweepTerminatedInstances(ctx context.Context) {
 	telemetry.RecordWorkerItems(janitorWorkerServiceName, instanceSweeperComponent, count)
 
 	for _, id := range swept {
-		logger.Load(ctx).InfoContext(ctx, "EC2 janitor: terminated instance swept", "instanceID", id)
+		logger.Load(ctx).
+			InfoContext(ctx, "EC2 janitor: terminated instance swept", "instanceID", id)
 	}
 }
 
@@ -166,6 +171,7 @@ func (j *Janitor) sweepCancelledSpotRequests(ctx context.Context) {
 	telemetry.RecordWorkerItems(janitorWorkerServiceName, spotSweeperComponent, count)
 
 	for _, id := range swept {
-		logger.Load(ctx).InfoContext(ctx, "EC2 janitor: cancelled spot request swept", "spotRequestID", id)
+		logger.Load(ctx).
+			InfoContext(ctx, "EC2 janitor: cancelled spot request swept", "spotRequestID", id)
 	}
 }

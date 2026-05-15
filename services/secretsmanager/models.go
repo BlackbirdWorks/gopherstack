@@ -78,14 +78,15 @@ type RotationRulesType struct {
 
 // CreateSecretInput is the request payload for CreateSecret.
 type CreateSecretInput struct {
-	Name               string `json:"Name"`
-	Description        string `json:"Description,omitempty"`
-	SecretString       string `json:"SecretString,omitempty"`
-	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
-	KmsKeyID           string `json:"KmsKeyId,omitempty"`
-	Region             string `json:"-"`
-	SecretBinary       []byte `json:"SecretBinary,omitempty"`
-	Tags               []Tag  `json:"Tags,omitempty"`
+	Name               string          `json:"Name"`
+	Description        string          `json:"Description,omitempty"`
+	SecretString       string          `json:"SecretString,omitempty"`
+	ClientRequestToken string          `json:"ClientRequestToken,omitempty"`
+	KmsKeyID           string          `json:"KmsKeyId,omitempty"`
+	Region             string          `json:"-"`
+	SecretBinary       []byte          `json:"SecretBinary,omitempty"`
+	Tags               []Tag           `json:"Tags,omitempty"`
+	AddReplicaRegions  []ReplicaRegion `json:"AddReplicaRegions,omitempty"`
 }
 
 // Tag represents a key/value tag pair in the Secrets Manager wire format.
@@ -104,6 +105,8 @@ type CreateSecretOutput struct {
 	Name string `json:"Name"`
 	// VersionId is the initial version UUID.
 	VersionID string `json:"VersionId,omitempty"`
+	// ReplicationStatus is the initial replication status for AddReplicaRegions.
+	ReplicationStatus []ReplicationStatusType `json:"ReplicationStatus,omitempty"`
 }
 
 // GetSecretValueInput is the request payload for GetSecretValue.

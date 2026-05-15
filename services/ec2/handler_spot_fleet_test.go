@@ -138,7 +138,11 @@ func TestHandlerDescribeSpotFleetRequests_AfterCreate(t *testing.T) {
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &descResp))
 	assert.Len(t, descResp.SpotFleetRequestConfigSet.Items, 1)
-	assert.Equal(t, createResp.SpotFleetRequestID, descResp.SpotFleetRequestConfigSet.Items[0].SpotFleetRequestID)
+	assert.Equal(
+		t,
+		createResp.SpotFleetRequestID,
+		descResp.SpotFleetRequestConfigSet.Items[0].SpotFleetRequestID,
+	)
 }
 
 // ---- CancelSpotFleetRequests ----

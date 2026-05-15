@@ -60,7 +60,9 @@ func (b *InMemoryBackend) DescribeImageUsageReports() []*ImageUsageReport {
 }
 
 // CreateLaunchTemplate creates a launch template.
-func (b *InMemoryBackend) CreateLaunchTemplate(name, imageID, instanceType string) (*LaunchTemplate, error) {
+func (b *InMemoryBackend) CreateLaunchTemplate(
+	name, imageID, instanceType string,
+) (*LaunchTemplate, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: LaunchTemplateName is required", ErrInvalidParameter)
 	}
@@ -70,7 +72,7 @@ func (b *InMemoryBackend) CreateLaunchTemplate(name, imageID, instanceType strin
 	}
 
 	if instanceType == "" {
-		instanceType = "t3.micro"
+		instanceType = instanceTypeT3Micro
 	}
 
 	b.mu.Lock("CreateLaunchTemplate")
@@ -78,7 +80,11 @@ func (b *InMemoryBackend) CreateLaunchTemplate(name, imageID, instanceType strin
 
 	for _, lt := range b.launchTemplates {
 		if lt.Name == name {
-			return nil, fmt.Errorf("%w: duplicate launch template name %s", ErrInvalidParameter, name)
+			return nil, fmt.Errorf(
+				"%w: duplicate launch template name %s",
+				ErrInvalidParameter,
+				name,
+			)
 		}
 	}
 
@@ -181,7 +187,12 @@ func (b *InMemoryBackend) CreateVpcEndpoint(
 		}
 
 		if subnet.VPCID != vpcID {
-			return nil, fmt.Errorf("%w: subnet %s does not belong to VPC %s", ErrInvalidParameter, subnetID, vpcID)
+			return nil, fmt.Errorf(
+				"%w: subnet %s does not belong to VPC %s",
+				ErrInvalidParameter,
+				subnetID,
+				vpcID,
+			)
 		}
 	}
 
