@@ -79,7 +79,7 @@ func setupProxyAPIViaHandler(
 
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	rootID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
+	rootID := listResp["items"].([]any)[0].(map[string]any)["id"].(string)
 
 	// Create child resource.
 	childRec := postWithHandler(t, h, e, "CreateResource",
@@ -244,7 +244,7 @@ func setupVTLAPI(t *testing.T) (*apigateway.Handler, *echo.Echo, string) {
 	listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	rootID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
+	rootID := listResp["items"].([]any)[0].(map[string]any)["id"].(string)
 
 	childRec := postWithHandler(t, h, e, "CreateResource",
 		`{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"transform"}`)
@@ -445,7 +445,7 @@ func setupProxyAPIWithResource(
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
 
-	items, _ := listResp["item"].([]any)
+	items, _ := listResp["items"].([]any)
 	var parentID string
 
 	for _, item := range items {
@@ -835,7 +835,7 @@ func setupAuthorizerAPI(
 	listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	rootID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
+	rootID := listResp["items"].([]any)[0].(map[string]any)["id"].(string)
 
 	// Create /secure resource.
 	childRec := postWithHandler(t, h, e, "CreateResource",

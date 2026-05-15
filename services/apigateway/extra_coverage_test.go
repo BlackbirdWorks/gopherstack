@@ -1214,7 +1214,7 @@ func TestGetRestAPIs_RESTPath_WithLimit(t *testing.T) {
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.NotEmpty(t, resp["item"])
+			assert.NotEmpty(t, resp["items"])
 		})
 	}
 }
