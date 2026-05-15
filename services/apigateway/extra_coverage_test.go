@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -25,7 +24,7 @@ var errNoopNotImplemented = errors.New("not implemented")
 // the persistence fallback branches in Handler.Snapshot and Handler.Restore.
 type noopBackend struct{}
 
-func (n *noopBackend) CreateRestAPI(_ string, _ string, _ *tags.Tags) (*apigateway.RestAPI, error) {
+func (n *noopBackend) CreateRestAPI(_ apigateway.CreateRestAPIInput) (*apigateway.RestAPI, error) {
 	return &apigateway.RestAPI{ID: "x", Name: "x"}, nil
 }
 
@@ -53,9 +52,7 @@ func (n *noopBackend) CreateResource(_ string, _ string, _ string) (*apigateway.
 
 func (n *noopBackend) DeleteResource(_ string, _ string) error { return nil }
 
-func (n *noopBackend) PutMethod(
-	_ string, _ string, _ string, _ string, _ string, _ string, _ bool,
-) (*apigateway.Method, error) {
+func (n *noopBackend) PutMethod(_ apigateway.PutMethodInput) (*apigateway.Method, error) {
 	return nil, errNoopNotImplemented
 }
 
@@ -624,7 +621,7 @@ func TestHandleRESTAPI_Branches(t *testing.T) {
 			method:   http.MethodDelete,
 			wantCode: http.StatusNoContent,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
 				child, _ := b.CreateResource(api.ID, rootID, "items")
@@ -637,7 +634,7 @@ func TestHandleRESTAPI_Branches(t *testing.T) {
 			method:   http.MethodDelete,
 			wantCode: http.StatusNoContent,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				_, _ = b.CreateDeployment(api.ID, "prod", "")
 
 				return fmt.Sprintf("/restapis/%s/stages/prod", api.ID)
@@ -648,10 +645,10 @@ func TestHandleRESTAPI_Branches(t *testing.T) {
 			method:   http.MethodDelete,
 			wantCode: http.StatusNoContent,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
-				_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", "", "", false)
+				_, _ = b.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "GET", AuthorizationType: "NONE"})
 
 				return fmt.Sprintf("/restapis/%s/resources/%s/methods/GET", api.ID, rootID)
 			},
@@ -692,7 +689,7 @@ func TestBackend_DeleteResource_NotFound(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			api, err := b.CreateRestAPI("api", "", nil)
+			api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 			require.NoError(t, err)
 
 			err = b.DeleteResource(api.ID, "nonexistent-resource")
@@ -731,7 +728,7 @@ func TestBackend_DeleteMethod_NotFound(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			api, err := b.CreateRestAPI("api", "", nil)
+			api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 			require.NoError(t, err)
 
 			resources, _, err := b.GetResources(api.ID, "", 0)
@@ -780,7 +777,7 @@ func TestBackend_PutIntegration_NotFound(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			api, err := b.CreateRestAPI("api", "", nil)
+			api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 			require.NoError(t, err)
 
 			resources, _, err := b.GetResources(api.ID, "", 0)
@@ -813,7 +810,7 @@ func TestBackend_DeleteStage_NotFound(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			api, err := b.CreateRestAPI("api", "", nil)
+			api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 			require.NoError(t, err)
 
 			err = b.DeleteStage(api.ID, "nonexistent-stage")
@@ -849,7 +846,7 @@ func TestComputePath_NonRootParent(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			api, err := b.CreateRestAPI("api", "", nil)
+			api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 			require.NoError(t, err)
 
 			resources, _, err := b.GetResources(api.ID, "", 0)
@@ -898,8 +895,8 @@ func TestParsePosition_EdgeCases(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			_, _ = b.CreateRestAPI("api-a", "", nil)
-			_, _ = b.CreateRestAPI("api-b", "", nil)
+			_, _ = b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api-a"})
+			_, _ = b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api-b"})
 
 			apis, _, err := b.GetRestAPIs(0, tt.position)
 			require.NoError(t, err)
@@ -978,7 +975,7 @@ func TestRestAPIActions_RESTPathCoverage(t *testing.T) {
 			name:   "GET_restapis_by_id_returns_200",
 			method: http.MethodGet,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("test-api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "test-api"})
 
 				return "/restapis/" + api.ID
 			},
@@ -988,7 +985,7 @@ func TestRestAPIActions_RESTPathCoverage(t *testing.T) {
 			name:   "DELETE_restapi_returns_202",
 			method: http.MethodDelete,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("del-api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "del-api"})
 
 				return "/restapis/" + api.ID
 			},
@@ -1040,7 +1037,7 @@ func TestResourceActions_RESTPathCoverage(t *testing.T) {
 			name:   "GET_resources_returns_200",
 			method: http.MethodGet,
 			setup: func(b *apigateway.InMemoryBackend) (string, string) {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 
 				return api.ID, "/restapis/" + api.ID + "/resources"
 			},
@@ -1050,7 +1047,7 @@ func TestResourceActions_RESTPathCoverage(t *testing.T) {
 			name:   "GET_resource_by_id_returns_200",
 			method: http.MethodGet,
 			setup: func(b *apigateway.InMemoryBackend) (string, string) {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 
 				return api.ID, fmt.Sprintf("/restapis/%s/resources/%s", api.ID, resources[0].ID)
@@ -1061,7 +1058,7 @@ func TestResourceActions_RESTPathCoverage(t *testing.T) {
 			name:   "POST_resource_creates_child",
 			method: http.MethodPost,
 			setup: func(b *apigateway.InMemoryBackend) (string, string) {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 
 				return api.ID, fmt.Sprintf("/restapis/%s/resources/%s", api.ID, resources[0].ID)
@@ -1101,7 +1098,7 @@ func TestMethodActions_RESTPathCoverage(t *testing.T) {
 			name:   "PUT_method_via_REST",
 			method: http.MethodPut,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 
 				return fmt.Sprintf("/restapis/%s/resources/%s/methods/GET", api.ID, resources[0].ID)
@@ -1113,9 +1110,9 @@ func TestMethodActions_RESTPathCoverage(t *testing.T) {
 			name:   "GET_method_via_REST",
 			method: http.MethodGet,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				resources, _, _ := b.GetResources(api.ID, "", 0)
-				_, _ = b.PutMethod(api.ID, resources[0].ID, "POST", "NONE", "", "", false)
+				_, _ = b.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: resources[0].ID, HTTPMethod: "POST", AuthorizationType: "NONE"})
 
 				return fmt.Sprintf("/restapis/%s/resources/%s/methods/POST", api.ID, resources[0].ID)
 			},
@@ -1167,7 +1164,7 @@ func TestGetRestAPIs_Pagination(t *testing.T) {
 
 			b := apigateway.NewInMemoryBackend()
 			for i := range 3 {
-				_, err := b.CreateRestAPI(fmt.Sprintf("api-%d", i), "", nil)
+				_, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: fmt.Sprintf("api-%d", i)})
 				require.NoError(t, err)
 			}
 
@@ -1205,7 +1202,7 @@ func TestGetRestAPIs_RESTPath_WithLimit(t *testing.T) {
 			t.Parallel()
 
 			backend := apigateway.NewInMemoryBackend()
-			_, _ = backend.CreateRestAPI("api-x", "", nil)
+			_, _ = backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api-x"})
 
 			h := apigateway.NewHandler(backend)
 			rec := restRequest(t, h, http.MethodGet, "/restapis", "")
@@ -1319,7 +1316,7 @@ func TestHandler_RESTPath_Deployments(t *testing.T) {
 			name:   "POST_deployments_creates_deployment",
 			method: http.MethodPost,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 
 				return fmt.Sprintf("/restapis/%s/deployments", api.ID)
 			},
@@ -1330,7 +1327,7 @@ func TestHandler_RESTPath_Deployments(t *testing.T) {
 			name:   "GET_deployments_lists",
 			method: http.MethodGet,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				_, _ = b.CreateDeployment(api.ID, "prod", "")
 
 				return fmt.Sprintf("/restapis/%s/deployments", api.ID)
@@ -1341,7 +1338,7 @@ func TestHandler_RESTPath_Deployments(t *testing.T) {
 			name:   "GET_deployment_by_id",
 			method: http.MethodGet,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				dep, _ := b.CreateDeployment(api.ID, "prod", "")
 
 				return fmt.Sprintf("/restapis/%s/deployments/%s", api.ID, dep.ID)
@@ -1352,7 +1349,7 @@ func TestHandler_RESTPath_Deployments(t *testing.T) {
 			name:   "DELETE_deployment_returns_204",
 			method: http.MethodDelete,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				dep, _ := b.CreateDeployment(api.ID, "prod", "")
 
 				return fmt.Sprintf("/restapis/%s/deployments/%s", api.ID, dep.ID)
@@ -1390,7 +1387,7 @@ func TestHandler_RESTPath_Stages(t *testing.T) {
 			name:   "GET_stages_lists",
 			method: http.MethodGet,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				_, _ = b.CreateDeployment(api.ID, "staging", "")
 
 				return fmt.Sprintf("/restapis/%s/stages", api.ID)
@@ -1401,7 +1398,7 @@ func TestHandler_RESTPath_Stages(t *testing.T) {
 			name:   "GET_stage_by_name",
 			method: http.MethodGet,
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				_, _ = b.CreateDeployment(api.ID, "prod", "")
 
 				return fmt.Sprintf("/restapis/%s/stages/prod", api.ID)
@@ -1458,14 +1455,14 @@ func TestHandler_RESTPath_Integration(t *testing.T) {
 			t.Parallel()
 
 			backend := apigateway.NewInMemoryBackend()
-			api, err := backend.CreateRestAPI("api", "", nil)
+			api, err := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 			require.NoError(t, err)
 
 			resources, _, err := backend.GetResources(api.ID, "", 0)
 			require.NoError(t, err)
 			rootID := resources[0].ID
 
-			_, err = backend.PutMethod(api.ID, rootID, "GET", "NONE", "", "", false)
+			_, err = backend.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "GET", AuthorizationType: "NONE"})
 			require.NoError(t, err)
 
 			// Ensure integration exists for GET and DELETE operations.
@@ -1610,7 +1607,7 @@ func TestGetResources_SortWithMultipleItems(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			api, err := b.CreateRestAPI("api", "", nil)
+			api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 			require.NoError(t, err)
 
 			resources, _, err := b.GetResources(api.ID, "", 0)
@@ -1649,7 +1646,7 @@ func TestGetStages_SortWithMultipleItems(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			api, err := b.CreateRestAPI("api", "", nil)
+			api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 			require.NoError(t, err)
 
 			for _, s := range tt.stageNames {

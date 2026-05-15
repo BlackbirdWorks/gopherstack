@@ -16,7 +16,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -195,11 +194,7 @@ const (
 	apiGWMinTagPathSegs = 2
 )
 
-type createRestAPIInput struct {
-	Tags        *tags.Tags `json:"tags"`
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-}
+type createRestAPIInput = CreateRestAPIInput
 
 type deleteRestAPIInput struct {
 	RestAPIID string `json:"restApiId"`
@@ -237,13 +232,15 @@ type deleteResourceInput struct {
 }
 
 type putMethodInput struct {
-	RestAPIID          string `json:"restApiId"`
-	ResourceID         string `json:"resourceId"`
-	HTTPMethod         string `json:"httpMethod"`
-	AuthorizationType  string `json:"authorizationType"`
-	AuthorizerID       string `json:"authorizerId"`
-	RequestValidatorID string `json:"requestValidatorId"`
-	APIKeyRequired     bool   `json:"apiKeyRequired"`
+	RequestModels      map[string]string `json:"requestModels,omitempty"`
+	RestAPIID          string            `json:"restApiId"`
+	ResourceID         string            `json:"resourceId"`
+	HTTPMethod         string            `json:"httpMethod"`
+	AuthorizationType  string            `json:"authorizationType"`
+	AuthorizerID       string            `json:"authorizerId"`
+	RequestValidatorID string            `json:"requestValidatorId"`
+	OperationName      string            `json:"operationName,omitempty"`
+	APIKeyRequired     bool              `json:"apiKeyRequired"`
 }
 
 type getMethodInput struct {
@@ -1818,7 +1815,7 @@ func (h *Handler) restAPIActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			api, err := h.Backend.CreateRestAPI(input.Name, input.Description, input.Tags)
+			api, err := h.Backend.CreateRestAPI(input)
 			if err != nil {
 				return 0, nil, err
 			}
@@ -1922,15 +1919,17 @@ func (h *Handler) methodActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			m, err := h.Backend.PutMethod(
-				input.RestAPIID,
-				input.ResourceID,
-				input.HTTPMethod,
-				input.AuthorizationType,
-				input.AuthorizerID,
-				input.RequestValidatorID,
-				input.APIKeyRequired,
-			)
+			m, err := h.Backend.PutMethod(PutMethodInput{
+				RestAPIID:          input.RestAPIID,
+				ResourceID:         input.ResourceID,
+				HTTPMethod:         input.HTTPMethod,
+				AuthorizationType:  input.AuthorizationType,
+				AuthorizerID:       input.AuthorizerID,
+				RequestValidatorID: input.RequestValidatorID,
+				APIKeyRequired:     input.APIKeyRequired,
+				RequestModels:      input.RequestModels,
+				OperationName:      input.OperationName,
+			})
 			if err != nil {
 				return 0, nil, err
 			}

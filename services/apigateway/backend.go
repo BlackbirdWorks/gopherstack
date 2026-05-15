@@ -572,32 +572,36 @@ func (b *InMemoryBackend) DeleteResource(restAPIID, resourceID string) error {
 }
 
 // PutMethod creates or replaces a method on a resource.
-func (b *InMemoryBackend) PutMethod(
-	restAPIID, resourceID, httpMethod, authType, authorizerID, requestValidatorID string,
-	apiKeyRequired bool,
-) (*Method, error) {
+func (b *InMemoryBackend) PutMethod(input PutMethodInput) (*Method, error) {
 	b.mu.Lock("PutMethod")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
+	d, ok := b.apis[input.RestAPIID]
 	if !ok {
-		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := d.resources[input.ResourceID]
 	if !ok {
-		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
+	}
+
+	reqParams := input.RequestParameters
+	if reqParams == nil {
+		reqParams = make(map[string]bool)
 	}
 
 	m := &Method{
-		HTTPMethod:         httpMethod,
-		AuthorizationType:  authType,
-		AuthorizerID:       authorizerID,
-		RequestValidatorID: requestValidatorID,
-		APIKeyRequired:     apiKeyRequired,
-		RequestParameters:  make(map[string]bool),
+		HTTPMethod:         input.HTTPMethod,
+		AuthorizationType:  input.AuthorizationType,
+		AuthorizerID:       input.AuthorizerID,
+		RequestValidatorID: input.RequestValidatorID,
+		APIKeyRequired:     input.APIKeyRequired,
+		RequestParameters:  reqParams,
+		RequestModels:      input.RequestModels,
 		MethodResponses:    make(map[string]*MethodResponse),
+		OperationName:      input.OperationName,
 	}
-	r.ResourceMethods[httpMethod] = m
+	r.ResourceMethods[input.HTTPMethod] = m
 
 	cp := *m
 

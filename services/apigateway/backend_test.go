@@ -23,11 +23,11 @@ func TestBackend_RestAPI(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, err := b.CreateRestAPI(
-					"my-api",
-					"desc",
-					tags.FromMap("test.apigw", map[string]string{"env": "test"}),
-				)
+				api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{
+					Name:        "my-api",
+					Description: "desc",
+					Tags:        tags.FromMap("test.apigw", map[string]string{"env": "test"}),
+				})
 				require.NoError(t, err)
 				assert.NotEmpty(t, api.ID)
 				assert.Equal(t, "my-api", api.Name)
@@ -53,8 +53,8 @@ func TestBackend_RestAPI(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				_, _ = b.CreateRestAPI("a", "", nil)
-				_, _ = b.CreateRestAPI("b", "", nil)
+				_, _ = b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "a"})
+				_, _ = b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "b"})
 
 				apis, pos, err := b.GetRestAPIs(0, "")
 				require.NoError(t, err)
@@ -68,7 +68,7 @@ func TestBackend_RestAPI(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, _ := b.CreateRestAPI("to-del", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "to-del"})
 
 				err := b.DeleteRestAPI(api.ID)
 				require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestBackend_RestAPI(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				_, err := b.CreateRestAPI("", "", nil)
+				_, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{})
 				require.Error(t, err)
 			},
 		},
@@ -120,7 +120,7 @@ func TestBackend_Resource(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 
 				resources, _, err := b.GetResources(api.ID, "", 0)
 				require.NoError(t, err)
@@ -135,7 +135,7 @@ func TestBackend_Resource(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
@@ -156,7 +156,7 @@ func TestBackend_Resource(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
 
@@ -175,7 +175,7 @@ func TestBackend_Resource(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
 
@@ -206,11 +206,11 @@ func TestBackend_Method(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
 
-				m, err := b.PutMethod(api.ID, rootID, "GET", "NONE", "", "", false)
+				m, err := b.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "GET", AuthorizationType: "NONE"})
 				require.NoError(t, err)
 				assert.Equal(t, "GET", m.HTTPMethod)
 
@@ -248,11 +248,11 @@ func TestBackend_Integration(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
 
-				_, _ = b.PutMethod(api.ID, rootID, "POST", "NONE", "", "", false)
+				_, _ = b.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "POST", AuthorizationType: "NONE"})
 
 				input := apigateway.PutIntegrationInput{Type: "MOCK"}
 				integ, err := b.PutIntegration(api.ID, rootID, "POST", input)
@@ -293,7 +293,7 @@ func TestBackend_DeploymentAndStage(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 
 				depl, err := b.CreateDeployment(api.ID, "prod", "initial")
 				require.NoError(t, err)
@@ -315,7 +315,7 @@ func TestBackend_DeploymentAndStage(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, _ := b.CreateRestAPI("api", "", nil)
+				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				_, _ = b.CreateDeployment(api.ID, "v1", "")
 
 				stage, err := b.GetStage(api.ID, "v1")
@@ -352,7 +352,7 @@ func TestBackend_Authorizer(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, err := b.CreateRestAPI("api", "", nil)
+				api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				require.NoError(t, err)
 
 				auth, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
@@ -373,7 +373,7 @@ func TestBackend_Authorizer(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, err := b.CreateRestAPI("api", "", nil)
+				api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				require.NoError(t, err)
 
 				created, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
@@ -395,7 +395,7 @@ func TestBackend_Authorizer(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, err := b.CreateRestAPI("api", "", nil)
+				api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				require.NoError(t, err)
 
 				_, err = b.GetAuthorizer(api.ID, "nonexistent")
@@ -408,7 +408,7 @@ func TestBackend_Authorizer(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, err := b.CreateRestAPI("api", "", nil)
+				api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				require.NoError(t, err)
 
 				_, err = b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
@@ -429,7 +429,7 @@ func TestBackend_Authorizer(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, err := b.CreateRestAPI("api", "", nil)
+				api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				require.NoError(t, err)
 
 				created, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
@@ -453,7 +453,7 @@ func TestBackend_Authorizer(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, err := b.CreateRestAPI("api", "", nil)
+				api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				require.NoError(t, err)
 
 				_, err = b.UpdateAuthorizer(api.ID, "nonexistent", apigateway.UpdateAuthorizerInput{Name: "x"})
@@ -466,7 +466,7 @@ func TestBackend_Authorizer(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, err := b.CreateRestAPI("api", "", nil)
+				api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				require.NoError(t, err)
 
 				created, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
@@ -488,7 +488,7 @@ func TestBackend_Authorizer(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, err := b.CreateRestAPI("api", "", nil)
+				api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				require.NoError(t, err)
 
 				err = b.DeleteAuthorizer(api.ID, "nonexistent")
@@ -531,7 +531,7 @@ func TestBackend_Authorizer_Errors(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			api, _ := b.CreateRestAPI("api", "", nil)
+			api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 
 			_, err := b.CreateAuthorizer(api.ID, tt.input)
 			if tt.wantErr {
@@ -565,7 +565,7 @@ func TestBackend_RequestValidator(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			api, err := b.CreateRestAPI("api", "", nil)
+			api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 			require.NoError(t, err)
 
 			rv, err := b.CreateRequestValidator(api.ID, apigateway.CreateRequestValidatorInput{
@@ -620,11 +620,11 @@ func TestBackend_MethodResponse(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			api, _ := b.CreateRestAPI("api", "", nil)
+			api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 			resources, _, _ := b.GetResources(api.ID, "", 0)
 			rootID := resources[0].ID
 
-			_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", "", "", false)
+			_, _ = b.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "GET", AuthorizationType: "NONE"})
 
 			mr, err := b.PutMethodResponse(api.ID, rootID, "GET", "200", apigateway.PutMethodResponseInput{
 				ResponseModels: map[string]string{"application/json": "Empty"},
@@ -659,11 +659,11 @@ func TestBackend_IntegrationResponse(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			api, _ := b.CreateRestAPI("api", "", nil)
+			api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 			resources, _, _ := b.GetResources(api.ID, "", 0)
 			rootID := resources[0].ID
 
-			_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", "", "", false)
+			_, _ = b.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "GET", AuthorizationType: "NONE"})
 			_, _ = b.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{Type: "MOCK"})
 
 			ir, err := b.PutIntegrationResponse(api.ID, rootID, "GET", "200", apigateway.PutIntegrationResponseInput{
