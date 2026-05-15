@@ -6,15 +6,17 @@ import (
 )
 
 type backendSnapshot struct {
-	Queues       map[string]*Queue            `json:"queues"`
-	JobTemplates map[string]*JobTemplate      `json:"jobTemplates"`
-	Jobs         map[string]*Job              `json:"jobs"`
-	Presets      map[string]*Preset           `json:"presets"`
-	Tags         map[string]map[string]string `json:"tags"`
-	Certificates map[string]struct{}          `json:"certificates"`
-	Policy       *Policy                      `json:"policy,omitempty"`
-	AccountID    string                       `json:"accountID"`
-	Region       string                       `json:"region"`
+	Queues        map[string]*Queue            `json:"queues"`
+	JobTemplates  map[string]*JobTemplate      `json:"jobTemplates"`
+	Jobs          map[string]*Job              `json:"jobs"`
+	Presets       map[string]*Preset           `json:"presets"`
+	Tags          map[string]map[string]string `json:"tags"`
+	Certificates  map[string]struct{}          `json:"certificates"`
+	QueueCounters map[string]*queueJobCounter  `json:"queueCounters,omitempty"`
+	TokenIndex    map[string]*tokenEntry       `json:"tokenIndex,omitempty"`
+	Policy        *Policy                      `json:"policy,omitempty"`
+	AccountID     string                       `json:"accountID"`
+	Region        string                       `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -54,6 +56,18 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		certs[k] = struct{}{}
 	}
 
+	queueCounters := make(map[string]*queueJobCounter, len(b.queueCounters))
+	for k, v := range b.queueCounters {
+		cp := *v
+		queueCounters[k] = &cp
+	}
+
+	tokenIndex := make(map[string]*tokenEntry, len(b.tokenIndex))
+	for k, v := range b.tokenIndex {
+		cp := *v
+		tokenIndex[k] = &cp
+	}
+
 	var pol *Policy
 	if b.policy != nil {
 		cp := *b.policy
@@ -61,15 +75,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	snap := backendSnapshot{
-		Queues:       queues,
-		JobTemplates: jobTemplates,
-		Jobs:         jobs,
-		Presets:      presets,
-		Tags:         tags,
-		Certificates: certs,
-		Policy:       pol,
-		AccountID:    b.accountID,
-		Region:       b.region,
+		Queues:        queues,
+		JobTemplates:  jobTemplates,
+		Jobs:          jobs,
+		Presets:       presets,
+		Tags:          tags,
+		Certificates:  certs,
+		QueueCounters: queueCounters,
+		TokenIndex:    tokenIndex,
+		Policy:        pol,
+		AccountID:     b.accountID,
+		Region:        b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -102,6 +118,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.presets = snap.Presets
 	b.tags = snap.Tags
 	b.certificates = snap.Certificates
+	b.queueCounters = snap.QueueCounters
+	b.tokenIndex = snap.TokenIndex
 	b.policy = snap.Policy
 	b.accountID = snap.AccountID
 	b.region = snap.Region
@@ -133,5 +151,13 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 	if snap.Certificates == nil {
 		snap.Certificates = make(map[string]struct{})
+	}
+
+	if snap.QueueCounters == nil {
+		snap.QueueCounters = make(map[string]*queueJobCounter)
+	}
+
+	if snap.TokenIndex == nil {
+		snap.TokenIndex = make(map[string]*tokenEntry)
 	}
 }
