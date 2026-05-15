@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -16,7 +17,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -195,11 +195,7 @@ const (
 	apiGWMinTagPathSegs = 2
 )
 
-type createRestAPIInput struct {
-	Tags        *tags.Tags `json:"tags"`
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-}
+type createRestAPIInput = CreateRestAPIInput
 
 type deleteRestAPIInput struct {
 	RestAPIID string `json:"restApiId"`
@@ -237,13 +233,15 @@ type deleteResourceInput struct {
 }
 
 type putMethodInput struct {
-	RestAPIID          string `json:"restApiId"`
-	ResourceID         string `json:"resourceId"`
-	HTTPMethod         string `json:"httpMethod"`
-	AuthorizationType  string `json:"authorizationType"`
-	AuthorizerID       string `json:"authorizerId"`
-	RequestValidatorID string `json:"requestValidatorId"`
-	APIKeyRequired     bool   `json:"apiKeyRequired"`
+	RequestModels      map[string]string `json:"requestModels,omitempty"`
+	RestAPIID          string            `json:"restApiId"`
+	ResourceID         string            `json:"resourceId"`
+	HTTPMethod         string            `json:"httpMethod"`
+	AuthorizationType  string            `json:"authorizationType"`
+	AuthorizerID       string            `json:"authorizerId"`
+	RequestValidatorID string            `json:"requestValidatorId"`
+	OperationName      string            `json:"operationName,omitempty"`
+	APIKeyRequired     bool              `json:"apiKeyRequired"`
 }
 
 type getMethodInput struct {
@@ -557,8 +555,8 @@ type deleteDocumentationVersionInput struct {
 }
 
 type updateRestAPIHandlerInput struct {
-	UpdateRestAPIInput
 	RestAPIID string `json:"restApiId"`
+	UpdateRestAPIInput
 }
 
 type updateDeploymentHandlerInput struct {
@@ -607,10 +605,11 @@ type getExportInput struct {
 
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
-	Backend    StorageBackend
-	authCache  *authorizerCache
-	lambda     LambdaInvoker
-	httpClient *http.Client
+	Backend        StorageBackend
+	authCache      *authorizerCache
+	lambda         LambdaInvoker
+	httpClient     *http.Client
+	selRegexpCache sync.Map // map[string]*regexp.Regexp — compiled selection-pattern regexps
 }
 
 // NewHandler creates a new API Gateway handler with a default HTTP client timeout.
@@ -846,7 +845,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	for _, key := range []string{keyRestAPIID, "name"} {
+	for _, key := range []string{keyRestAPIID, keyAPIName} {
 		if v, ok := data[key].(string); ok && v != "" {
 			return v
 		}
@@ -979,7 +978,7 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		return h.handleError(ctx, c, action, reqErr)
 	}
 
-	c.Response().Header().Set("Content-Type", "application/json")
+	c.Response().Header().Set("Content-Type", contentTypeJSON)
 	if statusCode == http.StatusNoContent {
 		return c.NoContent(http.StatusNoContent)
 	}
@@ -1818,7 +1817,7 @@ func (h *Handler) restAPIActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			api, err := h.Backend.CreateRestAPI(input.Name, input.Description, input.Tags)
+			api, err := h.Backend.CreateRestAPI(input)
 			if err != nil {
 				return 0, nil, err
 			}
@@ -1922,15 +1921,17 @@ func (h *Handler) methodActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			m, err := h.Backend.PutMethod(
-				input.RestAPIID,
-				input.ResourceID,
-				input.HTTPMethod,
-				input.AuthorizationType,
-				input.AuthorizerID,
-				input.RequestValidatorID,
-				input.APIKeyRequired,
-			)
+			m, err := h.Backend.PutMethod(PutMethodInput{
+				RestAPIID:          input.RestAPIID,
+				ResourceID:         input.ResourceID,
+				HTTPMethod:         input.HTTPMethod,
+				AuthorizationType:  input.AuthorizationType,
+				AuthorizerID:       input.AuthorizerID,
+				RequestValidatorID: input.RequestValidatorID,
+				APIKeyRequired:     input.APIKeyRequired,
+				RequestModels:      input.RequestModels,
+				OperationName:      input.OperationName,
+			})
 			if err != nil {
 				return 0, nil, err
 			}

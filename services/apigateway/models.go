@@ -28,29 +28,51 @@ func (t *unixEpochTime) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// EndpointConfiguration describes the endpoint types for a REST API.
+type EndpointConfiguration struct {
+	VpcEndpointIDs []string `json:"vpcEndpointIds,omitempty"`
+	Types          []string `json:"types,omitempty"`
+}
+
 // RestAPI represents an API Gateway REST API.
 type RestAPI struct {
-	CreatedDate    unixEpochTime `json:"createdDate"`
-	Tags           *tags.Tags    `json:"tags,omitempty"`
-	ID             string        `json:"id"`
-	Name           string        `json:"name"`
-	Description    string        `json:"description,omitempty"`
-	RootResourceID string        `json:"rootResourceId,omitempty"`
+	CreatedDate            unixEpochTime          `json:"createdDate"`
+	EndpointConfiguration  *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
+	Tags                   *tags.Tags             `json:"tags,omitempty"`
+	ID                     string                 `json:"id"`
+	Name                   string                 `json:"name"`
+	Description            string                 `json:"description,omitempty"`
+	Policy                 string                 `json:"policy,omitempty"`
+	APIKeySource           string                 `json:"apiKeySource,omitempty"`
+	RootResourceID         string                 `json:"rootResourceId,omitempty"`
+	BinaryMediaTypes       []string               `json:"binaryMediaTypes,omitempty"`
+	MinimumCompressionSize int                    `json:"minimumCompressionSize,omitempty"`
+}
+
+// CorsConfiguration holds CORS settings for a resource.
+type CorsConfiguration struct {
+	AllowHeaders  []string `json:"allowHeaders,omitempty"`
+	AllowMethods  []string `json:"allowMethods,omitempty"`
+	AllowOrigins  []string `json:"allowOrigins,omitempty"`
+	ExposeHeaders []string `json:"exposeHeaders,omitempty"`
+	MaxAge        int      `json:"maxAge,omitempty"`
 }
 
 // Resource represents an API Gateway resource.
 type Resource struct {
-	ResourceMethods map[string]*Method `json:"resourceMethods,omitempty"`
-	ID              string             `json:"id"`
-	ParentID        string             `json:"parentId,omitempty"`
-	PathPart        string             `json:"pathPart,omitempty"`
-	Path            string             `json:"path"`
-	RestAPIID       string             `json:"-"`
+	ResourceMethods   map[string]*Method `json:"resourceMethods,omitempty"`
+	CorsConfiguration *CorsConfiguration `json:"corsConfiguration,omitempty"`
+	ID                string             `json:"id"`
+	ParentID          string             `json:"parentId,omitempty"`
+	PathPart          string             `json:"pathPart,omitempty"`
+	Path              string             `json:"path"`
+	RestAPIID         string             `json:"-"`
 }
 
 // Method represents an API Gateway method on a resource.
 type Method struct {
 	RequestParameters  map[string]bool            `json:"requestParameters,omitempty"`
+	RequestModels      map[string]string          `json:"requestModels,omitempty"`
 	MethodIntegration  *Integration               `json:"methodIntegration,omitempty"`
 	MethodResponses    map[string]*MethodResponse `json:"methodResponses,omitempty"`
 	HTTPMethod         string                     `json:"httpMethod"`
@@ -78,6 +100,7 @@ type IntegrationResponse struct {
 	ResponseParameters map[string]string `json:"responseParameters,omitempty"`
 	StatusCode         string            `json:"statusCode"`
 	SelectionPattern   string            `json:"selectionPattern,omitempty"`
+	ContentHandling    string            `json:"contentHandling,omitempty"`
 }
 
 // MethodResponse represents a method response configuration.
@@ -87,17 +110,47 @@ type MethodResponse struct {
 	StatusCode         string            `json:"statusCode"`
 }
 
+// CanarySettings holds canary deployment configuration for a stage.
+type CanarySettings struct {
+	StageVariableOverrides map[string]string `json:"stageVariableOverrides,omitempty"`
+	DeploymentID           string            `json:"deploymentId,omitempty"`
+	PercentTraffic         float64           `json:"percentTraffic,omitempty"`
+	UseStageCache          bool              `json:"useStageCache,omitempty"`
+}
+
+// AccessLogSettings configures CloudWatch access logging for a stage.
+type AccessLogSettings struct {
+	DestinationARN string `json:"destinationArn,omitempty"`
+	Format         string `json:"format,omitempty"`
+}
+
+// MethodSetting holds per-method CloudWatch logging and throttling settings.
+type MethodSetting struct {
+	LoggingLevel                        string  `json:"loggingLevel,omitempty"`
+	ThrottlingRateLimit                 float64 `json:"throttlingRateLimit,omitempty"`
+	ThrottlingBurstLimit                int     `json:"throttlingBurstLimit,omitempty"`
+	CacheTTLInSeconds                   int     `json:"cacheTtlInSeconds,omitempty"`
+	DataTraceEnabled                    bool    `json:"dataTraceEnabled,omitempty"`
+	MetricsEnabled                      bool    `json:"metricsEnabled,omitempty"`
+	CachingEnabled                      bool    `json:"cachingEnabled,omitempty"`
+	RequireAuthorizationForCacheControl bool    `json:"requireAuthorizationForCacheControl,omitempty"`
+}
+
 // Stage represents a deployment stage.
 type Stage struct {
-	CreatedDate     unixEpochTime     `json:"createdDate"`
-	LastUpdatedDate unixEpochTime     `json:"lastUpdatedDate"`
-	Variables       map[string]string `json:"variables,omitempty"`
-	StageName       string            `json:"stageName"`
-	RestAPIID       string            `json:"-"`
-	DeploymentID    string            `json:"deploymentId"`
-	Description     string            `json:"description,omitempty"`
+	CanarySettings    *CanarySettings          `json:"canarySettings,omitempty"`
+	AccessLogSettings *AccessLogSettings       `json:"accessLogSettings,omitempty"`
+	MethodSettings    map[string]MethodSetting `json:"methodSettings,omitempty"`
+	Variables         map[string]string        `json:"variables,omitempty"`
+	CreatedDate       unixEpochTime            `json:"createdDate"`
+	LastUpdatedDate   unixEpochTime            `json:"lastUpdatedDate"`
+	StageName         string                   `json:"stageName"`
+	RestAPIID         string                   `json:"-"`
+	DeploymentID      string                   `json:"deploymentId"`
+	Description       string                   `json:"description,omitempty"`
 	// InvokeURL is the invoke URL for this stage (non-AWS field used by gopherstack UI).
-	InvokeURL string `json:"invokeUrl,omitempty"`
+	InvokeURL      string `json:"invokeUrl,omitempty"`
+	TracingEnabled bool   `json:"tracingEnabled,omitempty"`
 }
 
 // Deployment represents a REST API deployment.
@@ -106,6 +159,20 @@ type Deployment struct {
 	ID          string        `json:"id"`
 	RestAPIID   string        `json:"-"`
 	Description string        `json:"description,omitempty"`
+}
+
+// PutMethodInput is the input for PutMethod.
+type PutMethodInput struct {
+	RequestParameters  map[string]bool   `json:"requestParameters,omitempty"`
+	RequestModels      map[string]string `json:"requestModels,omitempty"`
+	RestAPIID          string            `json:"restApiId"`
+	ResourceID         string            `json:"resourceId"`
+	HTTPMethod         string            `json:"httpMethod"`
+	AuthorizationType  string            `json:"authorizationType"`
+	AuthorizerID       string            `json:"authorizerId,omitempty"`
+	RequestValidatorID string            `json:"requestValidatorId,omitempty"`
+	OperationName      string            `json:"operationName,omitempty"`
+	APIKeyRequired     bool              `json:"apiKeyRequired"`
 }
 
 // PutIntegrationInput is the input for PutIntegration.
@@ -128,6 +195,7 @@ type PutIntegrationResponseInput struct {
 	ResponseTemplates  map[string]string `json:"responseTemplates,omitempty"`
 	ResponseParameters map[string]string `json:"responseParameters,omitempty"`
 	SelectionPattern   string            `json:"selectionPattern,omitempty"`
+	ContentHandling    string            `json:"contentHandling,omitempty"`
 }
 
 // Authorizer represents an API Gateway authorizer.
@@ -344,11 +412,15 @@ type CreateModelInput struct {
 
 // CreateStageInput is the input for the standalone CreateStage operation.
 type CreateStageInput struct {
-	Variables    map[string]string `json:"variables,omitempty"`
-	RestAPIID    string            `json:"restApiId"`
-	StageName    string            `json:"stageName"`
-	DeploymentID string            `json:"deploymentId"`
-	Description  string            `json:"description,omitempty"`
+	CanarySettings    *CanarySettings          `json:"canarySettings,omitempty"`
+	AccessLogSettings *AccessLogSettings       `json:"accessLogSettings,omitempty"`
+	MethodSettings    map[string]MethodSetting `json:"methodSettings,omitempty"`
+	Variables         map[string]string        `json:"variables,omitempty"`
+	RestAPIID         string                   `json:"restApiId"`
+	StageName         string                   `json:"stageName"`
+	DeploymentID      string                   `json:"deploymentId"`
+	Description       string                   `json:"description,omitempty"`
+	TracingEnabled    bool                     `json:"tracingEnabled,omitempty"`
 }
 
 // ThrottleSettings controls request rate limiting for a usage plan.
@@ -413,9 +485,13 @@ type UpdateModelInput struct {
 
 // UpdateStageInput is the input for UpdateStage.
 type UpdateStageInput struct {
-	Variables    map[string]string `json:"variables,omitempty"`
-	DeploymentID string            `json:"deploymentId,omitempty"`
-	Description  string            `json:"description,omitempty"`
+	CanarySettings    *CanarySettings          `json:"canarySettings,omitempty"`
+	AccessLogSettings *AccessLogSettings       `json:"accessLogSettings,omitempty"`
+	TracingEnabled    *bool                    `json:"tracingEnabled,omitempty"`
+	MethodSettings    map[string]MethodSetting `json:"methodSettings,omitempty"`
+	Variables         map[string]string        `json:"variables,omitempty"`
+	DeploymentID      string                   `json:"deploymentId,omitempty"`
+	Description       string                   `json:"description,omitempty"`
 }
 
 // Account represents the API Gateway account settings.
@@ -426,10 +502,27 @@ type Account struct {
 	Features          []string          `json:"features,omitempty"`
 }
 
+// CreateRestAPIInput is the input for CreateRestApi.
+type CreateRestAPIInput struct {
+	EndpointConfiguration  *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
+	Tags                   *tags.Tags             `json:"tags,omitempty"`
+	Name                   string                 `json:"name"`
+	Description            string                 `json:"description,omitempty"`
+	Policy                 string                 `json:"policy,omitempty"`
+	APIKeySource           string                 `json:"apiKeySource,omitempty"`
+	BinaryMediaTypes       []string               `json:"binaryMediaTypes,omitempty"`
+	MinimumCompressionSize int                    `json:"minimumCompressionSize,omitempty"`
+}
+
 // UpdateRestAPIInput is the input for UpdateRestApi.
 type UpdateRestAPIInput struct {
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
+	EndpointConfiguration  *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
+	MinimumCompressionSize *int                   `json:"minimumCompressionSize,omitempty"`
+	Name                   string                 `json:"name,omitempty"`
+	Description            string                 `json:"description,omitempty"`
+	Policy                 string                 `json:"policy,omitempty"`
+	APIKeySource           string                 `json:"apiKeySource,omitempty"`
+	BinaryMediaTypes       []string               `json:"binaryMediaTypes,omitempty"`
 }
 
 // UpdateDeploymentInput is the input for UpdateDeployment.
@@ -437,9 +530,10 @@ type UpdateDeploymentInput struct {
 	Description string `json:"description,omitempty"`
 }
 
-// UpdateResourceInput is the input for UpdateResource (rename pathPart).
+// UpdateResourceInput is the input for UpdateResource (rename pathPart or set CORS).
 type UpdateResourceInput struct {
-	PathPart string `json:"pathPart,omitempty"`
+	CorsConfiguration *CorsConfiguration `json:"corsConfiguration,omitempty"`
+	PathPart          string             `json:"pathPart,omitempty"`
 }
 
 // TestInvokeMethodInput is the input for TestInvokeMethod.
@@ -501,13 +595,14 @@ type UpdateDocumentationVersionInput struct {
 
 // UpdateMethodInput is the input for UpdateMethod.
 type UpdateMethodInput struct {
-	RestAPIID         string `json:"restApiId"`
-	ResourceID        string `json:"resourceId"`
-	HTTPMethod        string `json:"httpMethod"`
-	AuthorizationType string `json:"authorizationType,omitempty"`
-	AuthorizerID      string `json:"authorizerId,omitempty"`
-	APIKeyRequired    *bool  `json:"apiKeyRequired,omitempty"`
-	OperationName     string `json:"operationName,omitempty"`
+	RequestModels     map[string]string `json:"requestModels,omitempty"`
+	APIKeyRequired    *bool             `json:"apiKeyRequired,omitempty"`
+	RestAPIID         string            `json:"restApiId"`
+	ResourceID        string            `json:"resourceId"`
+	HTTPMethod        string            `json:"httpMethod"`
+	AuthorizationType string            `json:"authorizationType,omitempty"`
+	AuthorizerID      string            `json:"authorizerId,omitempty"`
+	OperationName     string            `json:"operationName,omitempty"`
 }
 
 // UpdateIntegrationInput is the input for UpdateIntegration.
@@ -532,6 +627,7 @@ type UpdateIntegrationResponseInput struct {
 	HTTPMethod         string            `json:"httpMethod"`
 	StatusCode         string            `json:"statusCode"`
 	SelectionPattern   string            `json:"selectionPattern,omitempty"`
+	ContentHandling    string            `json:"contentHandling,omitempty"`
 }
 
 // UpdateMethodResponseInput is the input for UpdateMethodResponse.
