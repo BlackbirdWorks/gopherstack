@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -85,6 +86,8 @@ const (
 	// cwMaxMetricDataPerRequest mirrors the AWS CloudWatch PutMetricData hard
 	// limit on the number of MetricDatum entries accepted per request (1000).
 	cwMaxMetricDataPerRequest = 1000
+	// cwMaxTotalMetricRecords is a cluster-wide safety cap on distinct metric time series.
+	cwMaxTotalMetricRecords = 10000
 
 	alarmStateAlarm            = "ALARM"
 	alarmStateOK               = "OK"
@@ -107,16 +110,22 @@ type LambdaInvoker interface {
 
 // StorageBackend is the interface for the CloudWatch in-memory store.
 type StorageBackend interface {
-	PutMetricData(namespace string, data []MetricDatum) error
+	PutMetricData(namespace string, data []MetricDatum) ([]UnprocessedMetricDatum, error)
 	GetMetricStatistics(
 		namespace, metricName string,
+		dimensions []Dimension,
 		startTime, endTime time.Time,
 		period int32,
 		statistics []string,
 		extendedStatistics []string,
 	) ([]Datapoint, error)
 	GetMetricData(queries []MetricDataQuery, startTime, endTime time.Time) ([]MetricDataResult, error)
-	ListMetrics(namespace, metricName, nextToken string, maxResults int) (page.Page[Metric], error)
+	ListMetrics(
+		namespace, metricName string,
+		dimensions []Dimension,
+		nextToken string,
+		maxResults int,
+	) (page.Page[Metric], error)
 	PutMetricAlarm(alarm *MetricAlarm) error
 	PutCompositeAlarm(alarm *CompositeAlarm) error
 	DescribeAlarms(
@@ -174,10 +183,19 @@ type StorageBackend interface {
 	StopMetricStreams(names []string) error
 }
 
+// metricRecord holds time-series data for a single (MetricName, Dimensions) combination.
+type metricRecord struct {
+	MetricName string        `json:"MetricName"`
+	Dimensions []Dimension   `json:"Dimensions,omitempty"`
+	Points     []MetricDatum `json:"Points"`
+}
+
 // InMemoryBackend implements StorageBackend using in-memory maps.
-// metrics is a two-level map: namespace -> metricName -> []MetricDatum.
+// metrics is a two-level map: namespace -> composite-key -> *metricRecord.
+// The composite key is produced by metricStorageKey(metricName, dims) so that
+// different dimension sets for the same metric name are stored separately.
 type InMemoryBackend struct {
-	metrics          map[string]map[string][]MetricDatum
+	metrics          map[string]map[string]*metricRecord
 	alarms           map[string]*MetricAlarm
 	compositeAlarms  map[string]*CompositeAlarm
 	alarmHistory     map[string][]AlarmHistoryItem
@@ -211,7 +229,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		accountID:        accountID,
 		region:           region,
-		metrics:          make(map[string]map[string][]MetricDatum),
+		metrics:          make(map[string]map[string]*metricRecord),
 		alarms:           make(map[string]*MetricAlarm),
 		compositeAlarms:  make(map[string]*CompositeAlarm),
 		alarmHistory:     make(map[string][]AlarmHistoryItem),
@@ -223,6 +241,66 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		metricFilters:    make(map[string]*MetricFilter),
 		mu:               lockmetrics.New("cloudwatch"),
 	}
+}
+
+// dimensionSetKey returns a stable string key for a slice of Dimensions,
+// sorting by Name so that dim order in caller input does not affect the key.
+func dimensionSetKey(dims []Dimension) string {
+	if len(dims) == 0 {
+		return ""
+	}
+	sorted := make([]Dimension, len(dims))
+	copy(sorted, dims)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	parts := make([]string, len(sorted))
+	for i, d := range sorted {
+		parts[i] = d.Name + "=" + d.Value
+	}
+
+	return strings.Join(parts, ",")
+}
+
+// metricStorageKey returns the composite inner-map key for a metric series.
+func metricStorageKey(metricName string, dims []Dimension) string {
+	dk := dimensionSetKey(dims)
+	if dk == "" {
+		return metricName
+	}
+
+	return metricName + "#" + dk
+}
+
+// dimsContainAll returns true when all dimensions in filter are present with
+// matching values in stored. An empty filter always matches.
+func dimsContainAll(stored, filter []Dimension) bool {
+	if len(filter) == 0 {
+		return true
+	}
+	if len(stored) != len(filter) {
+		return false
+	}
+	storedMap := make(map[string]string, len(stored))
+	for _, d := range stored {
+		storedMap[d.Name] = d.Value
+	}
+	for _, d := range filter {
+		if v, ok := storedMap[d.Name]; !ok || v != d.Value {
+			return false
+		}
+	}
+
+	return true
+}
+
+// countTotalMetrics returns the total number of distinct metric time series across all namespaces.
+// Caller must hold b.mu (at least read lock).
+func (b *InMemoryBackend) countTotalMetrics() int {
+	total := 0
+	for _, nsMap := range b.metrics {
+		total += len(nsMap)
+	}
+
+	return total
 }
 
 // SetSNSPublisher registers an SNS publisher used to fire alarm action notifications.
@@ -240,9 +318,10 @@ func (b *InMemoryBackend) SetLambdaInvoker(inv LambdaInvoker) {
 }
 
 // PutMetricData stores metric data points for the given namespace.
-func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) error {
+// Returns a slice of UnprocessedMetricDatum for any entries that could not be stored.
+func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) ([]UnprocessedMetricDatum, error) {
 	if len(data) > cwMaxMetricDataPerRequest {
-		return fmt.Errorf("%w: PutMetricData accepts at most %d MetricDatum entries per request",
+		return nil, fmt.Errorf("%w: PutMetricData accepts at most %d MetricDatum entries per request",
 			ErrValidation, cwMaxMetricDataPerRequest)
 	}
 
@@ -250,31 +329,109 @@ func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) er
 	defer b.mu.Unlock()
 
 	if b.metrics[namespace] == nil {
-		b.metrics[namespace] = make(map[string][]MetricDatum)
+		b.metrics[namespace] = make(map[string]*metricRecord)
 	}
+
+	var unprocessed []UnprocessedMetricDatum
 
 	for _, d := range data {
 		d.Namespace = namespace
 
-		// Enforce namespace-level unique metric name limit.
-		if _, exists := b.metrics[namespace][d.MetricName]; !exists {
+		key := metricStorageKey(d.MetricName, d.Dimensions)
+		rec, exists := b.metrics[namespace][key]
+
+		if !exists {
+			// Enforce namespace-level unique metric series limit.
 			if len(b.metrics[namespace]) >= cwMaxMetricNamesPerNamespace {
+				unprocessed = append(unprocessed, UnprocessedMetricDatum{
+					MetricName:   d.MetricName,
+					ErrorCode:    "LimitExceeded",
+					ErrorMessage: "namespace metric series limit reached",
+				})
+
 				continue
 			}
+			// Enforce global metric series cap.
+			if b.countTotalMetrics() >= cwMaxTotalMetricRecords {
+				unprocessed = append(unprocessed, UnprocessedMetricDatum{
+					MetricName:   d.MetricName,
+					ErrorCode:    "LimitExceeded",
+					ErrorMessage: "global metric series limit reached",
+				})
+
+				continue
+			}
+			dims := make([]Dimension, len(d.Dimensions))
+			copy(dims, d.Dimensions)
+			rec = &metricRecord{MetricName: d.MetricName, Dimensions: dims}
+			b.metrics[namespace][key] = rec
 		}
 
-		b.metrics[namespace][d.MetricName] = append(b.metrics[namespace][d.MetricName], d)
+		rec.Points = append(rec.Points, d)
 
 		// Cap data points to prevent unbounded memory growth.
-		if pts := b.metrics[namespace][d.MetricName]; len(pts) > cwMaxMetricDataPoints {
-			b.metrics[namespace][d.MetricName] = pts[len(pts)-cwMaxMetricDataPoints:]
+		if len(rec.Points) > cwMaxMetricDataPoints {
+			rec.Points = rec.Points[len(rec.Points)-cwMaxMetricDataPoints:]
 		}
 	}
 
 	// Record delivery to any running metric streams.
 	b.recordStreamDelivery(namespace, data)
 
-	return nil
+	return unprocessed, nil
+}
+
+// filterExcludesMetric returns true when an ExcludeFilters entry denies the metric.
+func filterExcludesMetric(filters []MetricStreamFilter, namespace, metricName string) bool {
+	for _, f := range filters {
+		if f.Namespace != namespace {
+			continue
+		}
+		if len(f.MetricNames) == 0 {
+			return true
+		}
+		if filterNamesContain(f.MetricNames, metricName) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// filterIncludesMetric returns true when at least one IncludeFilters entry allows the metric.
+func filterIncludesMetric(filters []MetricStreamFilter, namespace, metricName string) bool {
+	for _, f := range filters {
+		if f.Namespace != namespace {
+			continue
+		}
+		if len(f.MetricNames) == 0 {
+			return true
+		}
+		if filterNamesContain(f.MetricNames, metricName) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// filterNamesContain returns true when name is in the names list.
+func filterNamesContain(names []string, name string) bool {
+	return slices.Contains(names, name)
+}
+
+// streamAllowsMetric returns true when the given namespace/metricName passes the
+// stream's IncludeFilters and ExcludeFilters. An empty IncludeFilters means "all
+// namespaces allowed"; ExcludeFilters override IncludeFilters when both are set.
+func streamAllowsMetric(s *MetricStream, namespace, metricName string) bool {
+	if filterExcludesMetric(s.ExcludeFilters, namespace, metricName) {
+		return false
+	}
+	if len(s.IncludeFilters) > 0 {
+		return filterIncludesMetric(s.IncludeFilters, namespace, metricName)
+	}
+
+	return true
 }
 
 // recordStreamDelivery notes that data was delivered to running metric streams.
@@ -285,12 +442,12 @@ func (b *InMemoryBackend) recordStreamDelivery(namespace string, data []MetricDa
 		if s.State != metricStreamStateRunning {
 			continue
 		}
+		for _, d := range data {
+			if streamAllowsMetric(s, namespace, d.MetricName) {
+				s.LastUpdateDate = time.Now().UTC()
 
-		// Record that this stream received data by updating its last-update timestamp.
-		// A real implementation would serialize data to the Firehose ARN.
-		if len(data) > 0 {
-			_ = namespace // namespace tracked for future filtering by IncludeFilters
-			s.LastUpdateDate = time.Now().UTC()
+				break
+			}
 		}
 	}
 }
@@ -311,15 +468,15 @@ func (b *InMemoryBackend) SweepExpiredMetrics() {
 	}
 }
 
-// sweepMetricNamespace removes expired data points from every metric in nsMap.
-// It deletes metrics whose entire point set has expired.
-func sweepMetricNamespace(nsMap map[string][]MetricDatum, cutoff time.Time) {
-	for metricName, pts := range nsMap {
-		alive := filterAlivePoints(pts, cutoff)
+// sweepMetricNamespace removes expired data points from every metric record in nsMap.
+// It deletes records whose entire point set has expired.
+func sweepMetricNamespace(nsMap map[string]*metricRecord, cutoff time.Time) {
+	for key, rec := range nsMap {
+		alive := filterAlivePoints(rec.Points, cutoff)
 		if len(alive) == 0 {
-			delete(nsMap, metricName)
+			delete(nsMap, key)
 		} else {
-			nsMap[metricName] = alive
+			rec.Points = alive
 		}
 	}
 }
@@ -434,8 +591,10 @@ func buildDatapoint(bk *metricBucket, statSet map[string]bool) Datapoint {
 
 // GetMetricStatistics aggregates data for a metric over a time range into period-sized buckets.
 // extendedStatistics supports percentile expressions such as "p99", "p95", "p50".
+// dimensions filters to the specific metric series; an empty slice matches the dimensionless series.
 func (b *InMemoryBackend) GetMetricStatistics(
 	namespace, metricName string,
+	dimensions []Dimension,
 	startTime, endTime time.Time,
 	period int32,
 	statistics []string,
@@ -446,7 +605,10 @@ func (b *InMemoryBackend) GetMetricStatistics(
 
 	var all []MetricDatum
 	if nsMap, ok := b.metrics[namespace]; ok {
-		all = nsMap[metricName]
+		key := metricStorageKey(metricName, dimensions)
+		if rec, found := nsMap[key]; found {
+			all = rec.Points
+		}
 	}
 
 	buckets := populateBuckets(all, startTime, endTime, period)
@@ -489,9 +651,20 @@ func (b *InMemoryBackend) GetMetricStatistics(
 // GetMetricData executes multiple metric queries and returns results.
 // Queries with a MetricStat are resolved first; expression queries are evaluated
 // after all metric-stat results are available so expressions can reference them.
+// scanBy controls sort order: "TimestampDescending" reverses each result; default ascending.
 func (b *InMemoryBackend) GetMetricData(
 	queries []MetricDataQuery,
 	startTime, endTime time.Time,
+) ([]MetricDataResult, error) {
+	return b.GetMetricDataWithOptions(queries, startTime, endTime, "")
+}
+
+// GetMetricDataWithOptions is GetMetricData extended with scan order control.
+// scanBy may be "TimestampDescending" or "" / "TimestampAscending" (default).
+func (b *InMemoryBackend) GetMetricDataWithOptions(
+	queries []MetricDataQuery,
+	startTime, endTime time.Time,
+	scanBy string,
 ) ([]MetricDataResult, error) {
 	b.mu.RLock("GetMetricData")
 	defer b.mu.RUnlock()
@@ -518,12 +691,38 @@ func (b *InMemoryBackend) GetMetricData(
 		resolved[q.ID] = evalExpression(q, resolved)
 	}
 
+	descending := strings.EqualFold(scanBy, "TimestampDescending")
+
 	results := make([]MetricDataResult, 0, len(queries))
-	for _, id := range ordered {
-		results = append(results, resolved[id])
+	for i, id := range ordered {
+		q := queries[i]
+		r := resolved[id]
+		// ReturnData defaults to true when the field is its zero value (false) AND it's not
+		// an expression-only query. AWS semantics: omitting ReturnData means return it.
+		// We model ReturnData=false as the caller explicitly setting it; since Go zero is false,
+		// we cannot distinguish "not set" from "set false" without a pointer. We treat false as
+		// "return data" for MetricStat queries, consistent with AWS SDK defaults.
+		// For expression queries, ReturnData=false suppresses output.
+		if q.Expression != "" && !q.ReturnData {
+			continue
+		}
+		if descending && len(r.Timestamps) > 1 {
+			reverseMetricDataResult(&r)
+		}
+		results = append(results, r)
 	}
 
 	return results, nil
+}
+
+// reverseMetricDataResult reverses the timestamp and value slices in-place.
+func reverseMetricDataResult(r *MetricDataResult) {
+	n := len(r.Timestamps)
+	for i := range n / 2 {
+		j := n - 1 - i
+		r.Timestamps[i], r.Timestamps[j] = r.Timestamps[j], r.Timestamps[i]
+		r.Values[i], r.Values[j] = r.Values[j], r.Values[i]
+	}
 }
 
 // resolveMetricStat fetches and aggregates data for a single MetricStat query.
@@ -553,7 +752,10 @@ func (b *InMemoryBackend) resolveMetricStat(q MetricDataQuery, startTime, endTim
 
 	var all []MetricDatum
 	if nsMap, ok := b.metrics[ns]; ok {
-		all = nsMap[metricName]
+		key := metricStorageKey(metricName, q.MetricStat.Dimensions)
+		if rec, found := nsMap[key]; found {
+			all = rec.Points
+		}
 	}
 
 	buckets := populateBuckets(all, startTime, endTime, period)
@@ -632,9 +834,13 @@ func statValue(dp Datapoint, stat string) float64 {
 	return 0
 }
 
-// ListMetrics returns a page of unique metrics matching optional namespace and metricName filters.
+// ListMetrics returns a page of unique metrics matching optional namespace, metricName, and
+// dimension filters. dimensions specifies an exact set that must match (all filter dims present
+// with matching values and no extra dims in the stored record).
 func (b *InMemoryBackend) ListMetrics(
-	namespace, metricName, nextToken string,
+	namespace, metricName string,
+	dimensions []Dimension,
+	nextToken string,
 	maxResults int,
 ) (page.Page[Metric], error) {
 	b.mu.RLock("ListMetrics")
@@ -645,11 +851,16 @@ func (b *InMemoryBackend) ListMetrics(
 		if namespace != "" && ns != namespace {
 			continue
 		}
-		for mn := range nsMap {
-			if metricName != "" && mn != metricName {
+		for _, rec := range nsMap {
+			if metricName != "" && rec.MetricName != metricName {
 				continue
 			}
-			result = append(result, Metric{Namespace: ns, MetricName: mn})
+			if !dimsContainAll(rec.Dimensions, dimensions) {
+				continue
+			}
+			dims := make([]Dimension, len(rec.Dimensions))
+			copy(dims, rec.Dimensions)
+			result = append(result, Metric{Namespace: ns, MetricName: rec.MetricName, Dimensions: dims})
 		}
 	}
 
@@ -657,8 +868,11 @@ func (b *InMemoryBackend) ListMetrics(
 		if result[i].Namespace != result[j].Namespace {
 			return result[i].Namespace < result[j].Namespace
 		}
+		if result[i].MetricName != result[j].MetricName {
+			return result[i].MetricName < result[j].MetricName
+		}
 
-		return result[i].MetricName < result[j].MetricName
+		return dimensionSetKey(result[i].Dimensions) < dimensionSetKey(result[j].Dimensions)
 	})
 
 	return page.New(result, nextToken, maxResults, cwDefaultListMetricsLimit), nil
@@ -1390,7 +1604,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.metrics = make(map[string]map[string][]MetricDatum)
+	b.metrics = make(map[string]map[string]*metricRecord)
 	b.alarms = make(map[string]*MetricAlarm)
 	b.compositeAlarms = make(map[string]*CompositeAlarm)
 	b.alarmHistory = make(map[string][]AlarmHistoryItem)
@@ -1400,6 +1614,97 @@ func (b *InMemoryBackend) Reset() {
 	b.metricStreams = make(map[string]*MetricStream)
 	b.alarmMuteRules = make(map[string]*AlarmMuteRule)
 	b.metricFilters = make(map[string]*MetricFilter)
+}
+
+// aggregateContributorPoint updates the running aggregation for a single metric record point.
+func aggregateContributorPoint(
+	pt MetricDatum,
+	key string,
+	rec *metricRecord,
+	orderBy string,
+	dimSums map[string]float64,
+	dimKeys map[string][]string,
+) {
+	if _, seen := dimKeys[key]; !seen {
+		keys := make([]string, len(rec.Dimensions))
+		for i, d := range rec.Dimensions {
+			keys[i] = d.Value
+		}
+		dimKeys[key] = keys
+	}
+	if strings.EqualFold(orderBy, "Sum") {
+		dimSums[key] += pt.Sum
+	} else {
+		dimSums[key] += pt.Count
+	}
+}
+
+// aggregateContributorRecord accumulates a metric record's in-range points into the maps.
+func aggregateContributorRecord(
+	rec *metricRecord,
+	startTime, endTime time.Time,
+	orderBy string,
+	dimSums map[string]float64,
+	dimKeys map[string][]string,
+) {
+	if len(rec.Dimensions) == 0 {
+		return
+	}
+	key := dimensionSetKey(rec.Dimensions)
+	for _, pt := range rec.Points {
+		if pt.Timestamp.Before(startTime) || !pt.Timestamp.Before(endTime) {
+			continue
+		}
+		aggregateContributorPoint(pt, key, rec, orderBy, dimSums, dimKeys)
+	}
+}
+
+// topNContributors converts aggregation maps to a sorted, capped contributor list.
+func topNContributors(dimSums map[string]float64, dimKeys map[string][]string, maxN int) []AlarmContributor {
+	type entry struct {
+		key string
+		sum float64
+	}
+	entries := make([]entry, 0, len(dimSums))
+	for k, s := range dimSums {
+		entries = append(entries, entry{k, s})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].sum > entries[j].sum })
+	if len(entries) > maxN {
+		entries = entries[:maxN]
+	}
+	result := make([]AlarmContributor, 0, len(entries))
+	for _, e := range entries {
+		result = append(result, AlarmContributor{Keys: dimKeys[e.key], Sum: e.sum})
+	}
+
+	return result
+}
+
+// GetInsightRuleContributors returns top-N contributors for an insight rule by aggregating
+// stored metric data along dimension values. This is a best-effort local approximation.
+// Caller must hold b.mu (at least read lock).
+func (b *InMemoryBackend) GetInsightRuleContributors(
+	ruleName string,
+	startTime, endTime time.Time,
+	maxContributorCount int,
+	orderBy string,
+) ([]AlarmContributor, error) {
+	if _, ok := b.insightRules[ruleName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrInsightRuleNotFound, ruleName)
+	}
+	if maxContributorCount <= 0 {
+		maxContributorCount = 10
+	}
+	dimSums := make(map[string]float64)
+	dimKeys := make(map[string][]string)
+	for _, nsMap := range b.metrics {
+		for _, rec := range nsMap {
+			aggregateContributorRecord(rec, startTime, endTime, orderBy, dimSums, dimKeys)
+		}
+	}
+
+	return topNContributors(dimSums, dimKeys, maxContributorCount), nil
 }
 
 // anomalyDetectorKey returns a stable map key for an anomaly detector.
