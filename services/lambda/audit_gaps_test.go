@@ -469,7 +469,7 @@ func TestAudit_ScalingConfig_MaximumConcurrency_Enforced(t *testing.T) {
 
 	// Next acquire must fail with TooManyRequests
 	_, err = lambda.AcquireConcurrencySlot(bk, "scaling-fn")
-	assert.ErrorIs(t, err, lambda.ErrTooManyRequests)
+	require.ErrorIs(t, err, lambda.ErrTooManyRequests)
 
 	// Release and verify slot becomes available
 	lambda.ReleaseConcurrencySlot(bk, "scaling-fn")
@@ -803,7 +803,7 @@ func TestAudit_PublishVersion_CarriesNewFields(t *testing.T) {
 		PackageType:      "Image",
 		Role:             "arn:aws:iam:::role/r",
 		State:            lambda.FunctionStateActive,
-		VpcConfig:        &lambda.VpcConfig{SubnetIds: []string{"subnet-pub"}},
+		VpcConfig:        &lambda.VpcConfig{SubnetIDs: []string{"subnet-pub"}},
 		TracingConfig:    &lambda.TracingConfig{Mode: "Active"},
 		DeadLetterConfig: &lambda.DeadLetterConfig{TargetArn: "arn:aws:sqs:us-east-1:123:dlq"},
 		ImageConfig:      &lambda.ImageConfig{Command: []string{"run"}},

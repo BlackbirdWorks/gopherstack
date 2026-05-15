@@ -614,8 +614,8 @@ func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(functionName string)
 	return urlStr, nil
 }
 
-// doAllocateAndStart is the core port-alloc + listener startup logic shared by both
-// allocateAndStartURLServer (lock held) and allocateAndStartURLServerUnlocked (no lock).
+// doAllocateAndStart is the core port-alloc + listener startup logic used by
+// allocateAndStartURLServerUnlocked.
 func (b *InMemoryBackend) doAllocateAndStart(functionName string) (string, *functionURLServer, error) {
 	if b.portAlloc == nil {
 		return fmt.Sprintf("http://localhost/%s/", functionName), nil, nil
