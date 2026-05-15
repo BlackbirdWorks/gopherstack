@@ -44,7 +44,7 @@ var (
 // StorageBackend is the interface for the API Gateway in-memory store.
 type StorageBackend interface {
 	// REST APIs
-	CreateRestAPI(name, description string, inputTags *tags.Tags) (*RestAPI, error)
+	CreateRestAPI(input CreateRestAPIInput) (*RestAPI, error)
 	DeleteRestAPI(restAPIID string) error
 	GetRestAPI(restAPIID string) (*RestAPI, error)
 	GetRestAPIs(limit int, position string) ([]RestAPI, string, error)
@@ -58,10 +58,7 @@ type StorageBackend interface {
 	UpdateResource(restAPIID, resourceID string, input UpdateResourceInput) (*Resource, error)
 
 	// Methods
-	PutMethod(
-		restAPIID, resourceID, httpMethod, authType, authorizerID, requestValidatorID string,
-		apiKeyRequired bool,
-	) (*Method, error)
+	PutMethod(input PutMethodInput) (*Method, error)
 	GetMethod(restAPIID, resourceID, httpMethod string) (*Method, error)
 	DeleteMethod(restAPIID, resourceID, httpMethod string) error
 
@@ -358,8 +355,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 // CreateRestAPI creates a new REST API and its root resource.
-func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags *tags.Tags) (*RestAPI, error) {
-	if name == "" {
+func (b *InMemoryBackend) CreateRestAPI(input CreateRestAPIInput) (*RestAPI, error) {
+	if input.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
 	}
 
@@ -367,16 +364,21 @@ func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags *tag
 	defer b.mu.Unlock()
 
 	id := randomID(apiIDLength)
-	backendTags := initTagsFromInput("apigw.api."+id+".tags", inputTags)
+	backendTags := initTagsFromInput("apigw.api."+id+".tags", input.Tags)
 	rootID := randomID(resourceIDLength)
 
 	api := RestAPI{
-		ID:             id,
-		Name:           name,
-		Description:    description,
-		CreatedDate:    unixEpochTime{time.Now()},
-		Tags:           backendTags,
-		RootResourceID: rootID,
+		ID:                     id,
+		Name:                   input.Name,
+		Description:            input.Description,
+		CreatedDate:            unixEpochTime{time.Now()},
+		Tags:                   backendTags,
+		RootResourceID:         rootID,
+		BinaryMediaTypes:       input.BinaryMediaTypes,
+		EndpointConfiguration:  input.EndpointConfiguration,
+		Policy:                 input.Policy,
+		ApiKeySource:           input.ApiKeySource,
+		MinimumCompressionSize: input.MinimumCompressionSize,
 	}
 
 	root := &Resource{
@@ -849,6 +851,7 @@ func (b *InMemoryBackend) PutIntegrationResponse(
 		ResponseTemplates:  input.ResponseTemplates,
 		ResponseParameters: input.ResponseParameters,
 		SelectionPattern:   input.SelectionPattern,
+		ContentHandling:    input.ContentHandling,
 	}
 	if m.MethodIntegration.IntegrationResponses == nil {
 		m.MethodIntegration.IntegrationResponses = make(map[string]*IntegrationResponse)
@@ -1695,13 +1698,17 @@ func (b *InMemoryBackend) CreateStage(input CreateStageInput) (*Stage, error) {
 
 	now := unixEpochTime{time.Now()}
 	stage := &Stage{
-		StageName:       input.StageName,
-		RestAPIID:       input.RestAPIID,
-		DeploymentID:    input.DeploymentID,
-		Description:     input.Description,
-		Variables:       variables,
-		CreatedDate:     now,
-		LastUpdatedDate: now,
+		StageName:         input.StageName,
+		RestAPIID:         input.RestAPIID,
+		DeploymentID:      input.DeploymentID,
+		Description:       input.Description,
+		Variables:         variables,
+		CreatedDate:       now,
+		LastUpdatedDate:   now,
+		CanarySettings:    input.CanarySettings,
+		AccessLogSettings: input.AccessLogSettings,
+		MethodSettings:    input.MethodSettings,
+		TracingEnabled:    input.TracingEnabled,
 	}
 	d.stages[input.StageName] = stage
 
@@ -2039,6 +2046,18 @@ func (b *InMemoryBackend) UpdateStage(restAPIID, stageName string, input UpdateS
 	if input.Variables != nil {
 		stage.Variables = input.Variables
 	}
+	if input.CanarySettings != nil {
+		stage.CanarySettings = input.CanarySettings
+	}
+	if input.AccessLogSettings != nil {
+		stage.AccessLogSettings = input.AccessLogSettings
+	}
+	if input.MethodSettings != nil {
+		stage.MethodSettings = input.MethodSettings
+	}
+	if input.TracingEnabled != nil {
+		stage.TracingEnabled = *input.TracingEnabled
+	}
 	stage.LastUpdatedDate = unixEpochTime{time.Now()}
 	cp := *stage
 
@@ -2250,6 +2269,26 @@ func (b *InMemoryBackend) UpdateRestAPI(restAPIID string, input UpdateRestAPIInp
 
 	if input.Description != "" {
 		d.api.Description = input.Description
+	}
+
+	if input.Policy != "" {
+		d.api.Policy = input.Policy
+	}
+
+	if input.ApiKeySource != "" {
+		d.api.ApiKeySource = input.ApiKeySource
+	}
+
+	if input.BinaryMediaTypes != nil {
+		d.api.BinaryMediaTypes = input.BinaryMediaTypes
+	}
+
+	if input.EndpointConfiguration != nil {
+		d.api.EndpointConfiguration = input.EndpointConfiguration
+	}
+
+	if input.MinimumCompressionSize != nil {
+		d.api.MinimumCompressionSize = *input.MinimumCompressionSize
 	}
 
 	cp := d.api
@@ -2629,6 +2668,10 @@ func (b *InMemoryBackend) UpdateMethod(input UpdateMethodInput) (*Method, error)
 		m.OperationName = input.OperationName
 	}
 
+	if len(input.RequestModels) > 0 {
+		m.RequestModels = input.RequestModels
+	}
+
 	return m, nil
 }
 
@@ -2720,6 +2763,10 @@ func (b *InMemoryBackend) UpdateIntegrationResponse(
 
 	if len(input.ResponseParameters) > 0 {
 		ir.ResponseParameters = input.ResponseParameters
+	}
+
+	if input.ContentHandling != "" {
+		ir.ContentHandling = input.ContentHandling
 	}
 
 	m.MethodIntegration.IntegrationResponses[input.StatusCode] = ir
