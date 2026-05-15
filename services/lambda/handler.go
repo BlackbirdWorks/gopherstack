@@ -1212,6 +1212,18 @@ func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
 	return c.JSON(http.StatusOK, toJSONESMResponse(m))
 }
 
+// isValidAliasName reports whether s is a valid Lambda alias name
+// (letters, digits, hyphens, and underscores only).
+func isValidAliasName(s string) bool {
+	for _, ch := range s {
+		if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') && ch != '-' && ch != '_' {
+			return false
+		}
+	}
+
+	return true
+}
+
 // validateQualifier validates a function qualifier. A valid qualifier is either
 // "$LATEST", an alias name (letters, digits, hyphens, underscores), or a version
 // number (digits only). Returns true if valid; writes an error response and returns
@@ -1236,13 +1248,18 @@ func (h *Handler) validateQualifier(c *echo.Context, qualifier string) bool {
 	}
 
 	// Alias name: letters, digits, hyphens, underscores.
-	for _, ch := range qualifier {
-		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_') {
-			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
-				fmt.Sprintf("invalid qualifier %q: must be $LATEST, a version number, or a valid alias name", qualifier))
+	if !isValidAliasName(qualifier) {
+		_ = h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			fmt.Sprintf(
+				"invalid qualifier %q: must be $LATEST, a version number, or a valid alias name",
+				qualifier,
+			),
+		)
 
-			return false
-		}
+		return false
 	}
 
 	return true
@@ -1273,7 +1290,29 @@ func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunc
 		return false
 	}
 
-	return h.validateCreateFunctionCode(c, input)
+	if !h.validateCreateFunctionCode(c, input) {
+		return false
+	}
+
+	return h.validateEphemeralStorageInput(c, input.EphemeralStorage)
+}
+
+// validateEphemeralStorageInput checks the optional EphemeralStorage field and writes an error
+// response when the supplied size is outside the allowed range. Returns true when valid.
+func (h *Handler) validateEphemeralStorageInput(c *echo.Context, es *EphemeralStorageConfig) bool {
+	if es == nil {
+		return true
+	}
+
+	if es.Size < minEphemeralStorageSize || es.Size > maxEphemeralStorageSize {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("EphemeralStorage.Size must be between %d and %d MB",
+				minEphemeralStorageSize, maxEphemeralStorageSize))
+
+		return false
+	}
+
+	return true
 }
 
 // validateMemoryAndTimeout validates MemorySize and Timeout values (both 0 means use defaults).
@@ -1329,6 +1368,22 @@ func (h *Handler) validateCreateFunctionCode(c *echo.Context, input *CreateFunct
 	return true
 }
 
+// applyImageConfig sets fn.ImageConfig from input when the package type is Image.
+func applyImageConfig(fn *FunctionConfiguration, input *CreateFunctionInput) {
+	if input.PackageType == PackageTypeImage && input.ImageConfig != nil {
+		fn.ImageConfig = input.ImageConfig
+	}
+}
+
+// applyZipDigest computes CodeSize and CodeSha256 from fn.ZipData when present.
+func applyZipDigest(fn *FunctionConfiguration) {
+	if len(fn.ZipData) > 0 {
+		fn.CodeSize = int64(len(fn.ZipData))
+		sum := sha256.Sum256(fn.ZipData)
+		fn.CodeSha256 = base64.StdEncoding.EncodeToString(sum[:])
+	}
+}
+
 func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -1352,14 +1407,6 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	timeout := input.Timeout
 	if timeout <= 0 {
 		timeout = defaultTimeout
-	}
-
-	if input.EphemeralStorage != nil {
-		if input.EphemeralStorage.Size < minEphemeralStorageSize || input.EphemeralStorage.Size > maxEphemeralStorageSize {
-			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
-				fmt.Sprintf("EphemeralStorage.Size must be between %d and %d MB",
-					minEphemeralStorageSize, maxEphemeralStorageSize))
-		}
 	}
 
 	now := time.Now().UTC()
@@ -1391,16 +1438,8 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		S3KeyCode:         input.Code.S3Key,
 	}
 
-	// Persist ImageConfig for image-package functions so it appears in GetFunction responses.
-	if input.PackageType == PackageTypeImage && input.ImageConfig != nil {
-		fn.ImageConfig = input.ImageConfig
-	}
-
-	if len(fn.ZipData) > 0 {
-		fn.CodeSize = int64(len(fn.ZipData))
-		sum := sha256.Sum256(fn.ZipData)
-		fn.CodeSha256 = base64.StdEncoding.EncodeToString(sum[:])
-	}
+	applyImageConfig(fn, &input)
+	applyZipDigest(fn)
 
 	if createErr := h.Backend.CreateFunction(fn); createErr != nil {
 		if errors.Is(createErr, ErrFunctionAlreadyExists) {
@@ -1565,7 +1604,8 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 	}
 
 	if input.EphemeralStorage != nil {
-		if input.EphemeralStorage.Size < minEphemeralStorageSize || input.EphemeralStorage.Size > maxEphemeralStorageSize {
+		if input.EphemeralStorage.Size < minEphemeralStorageSize ||
+			input.EphemeralStorage.Size > maxEphemeralStorageSize {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 				fmt.Sprintf("EphemeralStorage.Size must be between %d and %d MB",
 					minEphemeralStorageSize, maxEphemeralStorageSize))

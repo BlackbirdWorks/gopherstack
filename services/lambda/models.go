@@ -73,9 +73,9 @@ type EphemeralStorageConfig struct {
 
 // VpcConfig holds the VPC configuration for a Lambda function.
 type VpcConfig struct {
-	SubnetIds        []string `json:"SubnetIds,omitempty"`
-	SecurityGroupIds []string `json:"SecurityGroupIds,omitempty"`
-	VpcId            string   `json:"VpcId,omitempty"`
+	VpcID            string   `json:"VpcId,omitempty"`
+	SubnetIDs        []string `json:"SubnetIds,omitempty"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds,omitempty"`
 }
 
 // TracingConfig holds the X-Ray tracing configuration for a Lambda function.
@@ -143,20 +143,20 @@ type EnvironmentConfig struct {
 
 // CreateFunctionInput holds the request body for CreateFunction.
 type CreateFunctionInput struct {
-	Environment       *EnvironmentConfig  `json:"Environment,omitempty"`
-	ImageConfig       *ImageConfig        `json:"ImageConfig,omitempty"`
-	VpcConfig         *VpcConfig          `json:"VpcConfig,omitempty"`
-	TracingConfig     *TracingConfig      `json:"TracingConfig,omitempty"`
-	FileSystemConfigs []*FileSystemConfig `json:"FileSystemConfigs,omitempty"`
-	DeadLetterConfig  *DeadLetterConfig   `json:"DeadLetterConfig,omitempty"`
+	Environment       *EnvironmentConfig      `json:"Environment,omitempty"`
+	ImageConfig       *ImageConfig            `json:"ImageConfig,omitempty"`
+	VpcConfig         *VpcConfig              `json:"VpcConfig,omitempty"`
+	TracingConfig     *TracingConfig          `json:"TracingConfig,omitempty"`
+	FileSystemConfigs []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
+	DeadLetterConfig  *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
 	EphemeralStorage  *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
-	Code              *FunctionCode       `json:"Code"`
-	FunctionName      string              `json:"FunctionName"`
-	Description       string              `json:"Description"`
-	PackageType       string              `json:"PackageType"`
-	Runtime           string              `json:"Runtime,omitempty"`
-	Handler           string              `json:"Handler,omitempty"`
-	Role              string              `json:"Role"`
+	Code              *FunctionCode           `json:"Code"`
+	FunctionName      string                  `json:"FunctionName"`
+	Description       string                  `json:"Description"`
+	PackageType       string                  `json:"PackageType"`
+	Runtime           string                  `json:"Runtime,omitempty"`
+	Handler           string                  `json:"Handler,omitempty"`
+	Role              string                  `json:"Role"`
 	// Layers is a list of layer ARN strings supplied by the client.
 	Layers     []string `json:"Layers,omitempty"`
 	MemorySize int      `json:"MemorySize"`
@@ -258,29 +258,29 @@ type ListFunctionURLConfigsOutput struct {
 
 // FunctionVersion holds an immutable snapshot of a Lambda function configuration at publish time.
 type FunctionVersion struct {
-	Environment      *EnvironmentConfig  `json:"Environment,omitempty"`
-	VpcConfig        *VpcConfig          `json:"VpcConfig,omitempty"`
-	TracingConfig    *TracingConfig      `json:"TracingConfig,omitempty"`
+	Environment       *EnvironmentConfig  `json:"Environment,omitempty"`
+	VpcConfig         *VpcConfig          `json:"VpcConfig,omitempty"`
+	TracingConfig     *TracingConfig      `json:"TracingConfig,omitempty"`
 	FileSystemConfigs []*FileSystemConfig `json:"FileSystemConfigs,omitempty"`
-	DeadLetterConfig *DeadLetterConfig   `json:"DeadLetterConfig,omitempty"`
-	ImageConfig      *ImageConfig        `json:"ImageConfig,omitempty"`
-	FunctionArn      string              `json:"FunctionArn"`
-	FunctionName     string              `json:"FunctionName"`
-	RevisionID       string              `json:"RevisionId"`
-	ImageURI         string              `json:"ImageUri,omitempty"`
-	PackageType      string              `json:"PackageType"`
-	Role             string              `json:"Role"`
-	Runtime          string              `json:"Runtime,omitempty"`
-	CreatedAt        string              `json:"LastModified"`
-	Handler          string              `json:"Handler,omitempty"`
-	State            FunctionState       `json:"State"`
-	Description      string              `json:"Description"`
-	Version          string              `json:"Version"`
-	CodeSha256       string              `json:"CodeSha256,omitempty"`
-	Layers           []*FunctionLayer    `json:"Layers,omitempty"`
-	MemorySize       int                 `json:"MemorySize"`
-	Timeout          int                 `json:"Timeout"`
-	CodeSize         int64               `json:"CodeSize"`
+	DeadLetterConfig  *DeadLetterConfig   `json:"DeadLetterConfig,omitempty"`
+	ImageConfig       *ImageConfig        `json:"ImageConfig,omitempty"`
+	FunctionArn       string              `json:"FunctionArn"`
+	FunctionName      string              `json:"FunctionName"`
+	RevisionID        string              `json:"RevisionId"`
+	ImageURI          string              `json:"ImageUri,omitempty"`
+	PackageType       string              `json:"PackageType"`
+	Role              string              `json:"Role"`
+	Runtime           string              `json:"Runtime,omitempty"`
+	CreatedAt         string              `json:"LastModified"`
+	Handler           string              `json:"Handler,omitempty"`
+	State             FunctionState       `json:"State"`
+	Description       string              `json:"Description"`
+	Version           string              `json:"Version"`
+	CodeSha256        string              `json:"CodeSha256,omitempty"`
+	Layers            []*FunctionLayer    `json:"Layers,omitempty"`
+	MemorySize        int                 `json:"MemorySize"`
+	Timeout           int                 `json:"Timeout"`
+	CodeSize          int64               `json:"CodeSize"`
 }
 
 // ListVersionsByFunctionOutput is the response for ListVersionsByFunction.

@@ -82,10 +82,10 @@ func baseImageFn(name string) string {
 }
 
 func baseZipFn(name string) string {
-	return fmt.Sprintf(
-		`{"FunctionName":%q,"PackageType":"Zip","Runtime":"python3.12","Handler":"index.handler","Code":{"ZipFile":"UEsDBA=="},"Role":"arn:aws:iam:::role/r"}`,
-		name,
-	)
+	const tpl = `{"FunctionName":%q,"PackageType":"Zip","Runtime":"python3.12",` +
+		`"Handler":"index.handler","Code":{"ZipFile":"UEsDBA=="},"Role":"arn:aws:iam:::role/r"}`
+
+	return fmt.Sprintf(tpl, name)
 }
 
 // ---- Gap 1: VpcConfig ----
@@ -95,21 +95,21 @@ func TestAudit_VpcConfig_CreateAndGet(t *testing.T) {
 
 	h, _ := newInMemoryHandler(t)
 
-	body := fmt.Sprintf(`{
+	body := `{
 		"FunctionName":"vpc-fn",
 		"PackageType":"Image",
 		"Code":{"ImageUri":"ecr/x:latest"},
 		"Role":"arn:aws:iam:::role/r",
 		"VpcConfig":{"SubnetIds":["subnet-abc"],"SecurityGroupIds":["sg-xyz"]}
-	}`)
+	}`
 	rec := auditCreateFunction(t, h, body)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	var created lambda.FunctionConfiguration
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&created))
 	require.NotNil(t, created.VpcConfig)
-	assert.Equal(t, []string{"subnet-abc"}, created.VpcConfig.SubnetIds)
-	assert.Equal(t, []string{"sg-xyz"}, created.VpcConfig.SecurityGroupIds)
+	assert.Equal(t, []string{"subnet-abc"}, created.VpcConfig.SubnetIDs)
+	assert.Equal(t, []string{"sg-xyz"}, created.VpcConfig.SecurityGroupIDs)
 
 	// GetFunction returns VpcConfig
 	rec2 := auditGetFunction(t, h, "vpc-fn")
@@ -120,7 +120,7 @@ func TestAudit_VpcConfig_CreateAndGet(t *testing.T) {
 	var cfg lambda.FunctionConfiguration
 	require.NoError(t, json.Unmarshal(out["Configuration"], &cfg))
 	require.NotNil(t, cfg.VpcConfig)
-	assert.Equal(t, []string{"subnet-abc"}, cfg.VpcConfig.SubnetIds)
+	assert.Equal(t, []string{"subnet-abc"}, cfg.VpcConfig.SubnetIDs)
 }
 
 func TestAudit_VpcConfig_UpdateAndGet(t *testing.T) {
@@ -137,7 +137,7 @@ func TestAudit_VpcConfig_UpdateAndGet(t *testing.T) {
 	var fn lambda.FunctionConfiguration
 	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
 	require.NotNil(t, fn.VpcConfig)
-	assert.Equal(t, []string{"subnet-new"}, fn.VpcConfig.SubnetIds)
+	assert.Equal(t, []string{"subnet-new"}, fn.VpcConfig.SubnetIDs)
 }
 
 // ---- Gap 2: TracingConfig ----
@@ -161,13 +161,13 @@ func TestAudit_TracingConfig_CreateActive(t *testing.T) {
 
 	h, _ := newInMemoryHandler(t)
 
-	body := fmt.Sprintf(`{
+	body := `{
 		"FunctionName":"tracing-active-fn",
 		"PackageType":"Image",
 		"Code":{"ImageUri":"ecr/x:latest"},
 		"Role":"arn:aws:iam:::role/r",
 		"TracingConfig":{"Mode":"Active"}
-	}`)
+	}`
 	rec := auditCreateFunction(t, h, body)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -200,13 +200,14 @@ func TestAudit_FileSystemConfigs_CreateAndGet(t *testing.T) {
 
 	h, _ := newInMemoryHandler(t)
 
-	body := fmt.Sprintf(`{
+	body := `{
 		"FunctionName":"efs-fn",
 		"PackageType":"Image",
 		"Code":{"ImageUri":"ecr/x:latest"},
 		"Role":"arn:aws:iam:::role/r",
-		"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:123:access-point/fsap-abc","LocalMountPath":"/mnt/data"}]
-	}`)
+		"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:123:access-point/fsap-abc",` +
+		`"LocalMountPath":"/mnt/data"}]
+	}`
 	rec := auditCreateFunction(t, h, body)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
@@ -224,7 +225,8 @@ func TestAudit_FileSystemConfigs_Update(t *testing.T) {
 	rec := auditCreateFunction(t, h, baseImageFn("efs-update-fn"))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
-	body := `{"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:123:access-point/fsap-new","LocalMountPath":"/mnt/new"}]}`
+	body := `{"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:123:access-point/fsap-new",` +
+		`"LocalMountPath":"/mnt/new"}]}`
 	rec2 := auditUpdateConfig(t, h, "efs-update-fn", body)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -241,13 +243,13 @@ func TestAudit_DeadLetterConfig_CreateAndGet(t *testing.T) {
 
 	h, _ := newInMemoryHandler(t)
 
-	body := fmt.Sprintf(`{
+	body := `{
 		"FunctionName":"dlq-fn",
 		"PackageType":"Image",
 		"Code":{"ImageUri":"ecr/x:latest"},
 		"Role":"arn:aws:iam:::role/r",
 		"DeadLetterConfig":{"TargetArn":"arn:aws:sqs:us-east-1:123:my-dlq"}
-	}`)
+	}`
 	rec := auditCreateFunction(t, h, body)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
@@ -294,13 +296,13 @@ func TestAudit_EphemeralStorage_ValidSize_Create(t *testing.T) {
 
 	h, _ := newInMemoryHandler(t)
 
-	body := fmt.Sprintf(`{
+	body := `{
 		"FunctionName":"eph-valid-fn",
 		"PackageType":"Image",
 		"Code":{"ImageUri":"ecr/x:latest"},
 		"Role":"arn:aws:iam:::role/r",
 		"EphemeralStorage":{"Size":1024}
-	}`)
+	}`
 	rec := auditCreateFunction(t, h, body)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
@@ -315,13 +317,13 @@ func TestAudit_EphemeralStorage_TooSmall_Create(t *testing.T) {
 
 	h, _ := newInMemoryHandler(t)
 
-	body := fmt.Sprintf(`{
+	body := `{
 		"FunctionName":"eph-small-fn",
 		"PackageType":"Image",
 		"Code":{"ImageUri":"ecr/x:latest"},
 		"Role":"arn:aws:iam:::role/r",
 		"EphemeralStorage":{"Size":100}
-	}`)
+	}`
 	rec := auditCreateFunction(t, h, body)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -331,13 +333,13 @@ func TestAudit_EphemeralStorage_TooLarge_Create(t *testing.T) {
 
 	h, _ := newInMemoryHandler(t)
 
-	body := fmt.Sprintf(`{
+	body := `{
 		"FunctionName":"eph-large-fn",
 		"PackageType":"Image",
 		"Code":{"ImageUri":"ecr/x:latest"},
 		"Role":"arn:aws:iam:::role/r",
 		"EphemeralStorage":{"Size":99999}
-	}`)
+	}`
 	rec := auditCreateFunction(t, h, body)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -387,13 +389,13 @@ func TestAudit_ImageConfig_Persisted_Create(t *testing.T) {
 
 	h, _ := newInMemoryHandler(t)
 
-	body := fmt.Sprintf(`{
+	body := `{
 		"FunctionName":"imgcfg-fn",
 		"PackageType":"Image",
 		"Code":{"ImageUri":"ecr/myapp:latest"},
 		"Role":"arn:aws:iam:::role/r",
 		"ImageConfig":{"Command":["serve"],"EntryPoint":["/app"],"WorkingDirectory":"/app"}
-	}`)
+	}`
 	rec := auditCreateFunction(t, h, body)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
@@ -410,13 +412,13 @@ func TestAudit_ImageConfig_InGetFunction(t *testing.T) {
 
 	h, _ := newInMemoryHandler(t)
 
-	body := fmt.Sprintf(`{
+	body := `{
 		"FunctionName":"imgcfg-get-fn",
 		"PackageType":"Image",
 		"Code":{"ImageUri":"ecr/myapp:latest"},
 		"Role":"arn:aws:iam:::role/r",
 		"ImageConfig":{"Command":["run"],"EntryPoint":["/entry"]}
-	}`)
+	}`
 	rec := auditCreateFunction(t, h, body)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -454,7 +456,10 @@ func TestAudit_ScalingConfig_MaximumConcurrency_Enforced(t *testing.T) {
 
 	// Set MaximumConcurrency = 1
 	maxConc := 1
-	_, err := bk.PutFunctionScalingConfig("scaling-fn", &lambda.PutFunctionScalingConfigInput{MaximumConcurrency: &maxConc})
+	_, err := bk.PutFunctionScalingConfig(
+		"scaling-fn",
+		&lambda.PutFunctionScalingConfigInput{MaximumConcurrency: &maxConc},
+	)
 	require.NoError(t, err)
 
 	// Manually hold 1 slot (simulate active invocation)
@@ -483,14 +488,17 @@ func TestAudit_ScalingConfig_ZeroConcurrency_Blocked(t *testing.T) {
 
 	// MaximumConcurrency = 0 → no invocations permitted
 	zero := 0
-	_, err := bk.PutFunctionScalingConfig("scaling-zero-fn", &lambda.PutFunctionScalingConfigInput{MaximumConcurrency: &zero})
+	_, err := bk.PutFunctionScalingConfig(
+		"scaling-zero-fn",
+		&lambda.PutFunctionScalingConfigInput{MaximumConcurrency: &zero},
+	)
 	require.NoError(t, err)
 
 	// No slots should be acquirable (returns false, nil because hasLimit=false and no reserved)
 	// But MaximumConcurrency=0 with scaling config enforcement should block:
 	_, err = lambda.AcquireConcurrencySlot(bk, "scaling-zero-fn")
 	// With MaximumConcurrency=0, active(0) >= 0 is true so it blocks
-	assert.ErrorIs(t, err, lambda.ErrTooManyRequests)
+	require.ErrorIs(t, err, lambda.ErrTooManyRequests)
 }
 
 // ---- Gap 10: Qualifier validation ----
@@ -686,12 +694,12 @@ func TestAudit_EventstreamFrame_Format(t *testing.T) {
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(payload)))
 
-	buf.Write(lenBuf[:]) //nolint:errcheck
-	buf.Write(payload)   //nolint:errcheck
+	buf.Write(lenBuf[:])
+	buf.Write(payload)
 
 	// End of stream
 	binary.BigEndian.PutUint32(lenBuf[:], 0)
-	buf.Write(lenBuf[:]) //nolint:errcheck
+	buf.Write(lenBuf[:])
 
 	raw := []byte(buf.String())
 
@@ -741,18 +749,19 @@ func TestAudit_AllNewFields_PersistInGetConfiguration(t *testing.T) {
 
 	h, _ := newInMemoryHandler(t)
 
-	body := fmt.Sprintf(`{
+	body := `{
 		"FunctionName":"all-fields-fn",
 		"PackageType":"Image",
 		"Code":{"ImageUri":"ecr/x:latest"},
 		"Role":"arn:aws:iam:::role/r",
 		"VpcConfig":{"SubnetIds":["subnet-1"],"SecurityGroupIds":["sg-1"]},
 		"TracingConfig":{"Mode":"Active"},
-		"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:123:access-point/fsap-1","LocalMountPath":"/mnt/efs"}],
+		"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:123:access-point/fsap-1",` +
+		`"LocalMountPath":"/mnt/efs"}],
 		"DeadLetterConfig":{"TargetArn":"arn:aws:sqs:us-east-1:123:dlq"},
 		"EphemeralStorage":{"Size":1024},
 		"ImageConfig":{"Command":["app"],"EntryPoint":["/docker-entry"],"WorkingDirectory":"/var/app"}
-	}`)
+	}`
 	rec := auditCreateFunction(t, h, body)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
@@ -763,7 +772,7 @@ func TestAudit_AllNewFields_PersistInGetConfiguration(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
 
 	require.NotNil(t, fn.VpcConfig)
-	assert.Equal(t, []string{"subnet-1"}, fn.VpcConfig.SubnetIds)
+	assert.Equal(t, []string{"subnet-1"}, fn.VpcConfig.SubnetIDs)
 
 	require.NotNil(t, fn.TracingConfig)
 	assert.Equal(t, "Active", fn.TracingConfig.Mode)
@@ -789,15 +798,15 @@ func TestAudit_PublishVersion_CarriesNewFields(t *testing.T) {
 	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
 
 	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{
-		FunctionName:  "pubver-fn",
-		FunctionArn:   "arn:aws:lambda:us-east-1:123456789012:function:pubver-fn",
-		PackageType:   "Image",
-		Role:          "arn:aws:iam:::role/r",
-		State:         lambda.FunctionStateActive,
-		VpcConfig:     &lambda.VpcConfig{SubnetIds: []string{"subnet-pub"}},
-		TracingConfig: &lambda.TracingConfig{Mode: "Active"},
+		FunctionName:     "pubver-fn",
+		FunctionArn:      "arn:aws:lambda:us-east-1:123456789012:function:pubver-fn",
+		PackageType:      "Image",
+		Role:             "arn:aws:iam:::role/r",
+		State:            lambda.FunctionStateActive,
+		VpcConfig:        &lambda.VpcConfig{SubnetIds: []string{"subnet-pub"}},
+		TracingConfig:    &lambda.TracingConfig{Mode: "Active"},
 		DeadLetterConfig: &lambda.DeadLetterConfig{TargetArn: "arn:aws:sqs:us-east-1:123:dlq"},
-		ImageConfig:   &lambda.ImageConfig{Command: []string{"run"}},
+		ImageConfig:      &lambda.ImageConfig{Command: []string{"run"}},
 		EphemeralStorage: &lambda.EphemeralStorageConfig{Size: 2048},
 	}))
 
@@ -805,7 +814,7 @@ func TestAudit_PublishVersion_CarriesNewFields(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotNil(t, ver.VpcConfig)
-	assert.Equal(t, []string{"subnet-pub"}, ver.VpcConfig.SubnetIds)
+	assert.Equal(t, []string{"subnet-pub"}, ver.VpcConfig.SubnetIDs)
 
 	require.NotNil(t, ver.TracingConfig)
 	assert.Equal(t, "Active", ver.TracingConfig.Mode)
@@ -823,9 +832,9 @@ func TestAudit_EphemeralStorage_BoundaryValues(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		size    int
-		wantOK  bool
+		name   string
+		size   int
+		wantOK bool
 	}{
 		{"min_512", 512, true},
 		{"max_10240", 10240, true},
@@ -836,7 +845,6 @@ func TestAudit_EphemeralStorage_BoundaryValues(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -936,7 +944,7 @@ func TestAudit_MultipleFields_RoundTrip(t *testing.T) {
 
 	// VpcConfig updated
 	require.NotNil(t, fn.VpcConfig)
-	assert.Equal(t, []string{"subnet-updated"}, fn.VpcConfig.SubnetIds)
+	assert.Equal(t, []string{"subnet-updated"}, fn.VpcConfig.SubnetIDs)
 
 	// TracingConfig updated
 	require.NotNil(t, fn.TracingConfig)
@@ -984,7 +992,7 @@ func TestAudit_GetFunctionConfiguration_IncludesNewFields(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
 
 	require.NotNil(t, fn.VpcConfig)
-	assert.Equal(t, []string{"subnet-gc"}, fn.VpcConfig.SubnetIds)
+	assert.Equal(t, []string{"subnet-gc"}, fn.VpcConfig.SubnetIDs)
 
 	require.NotNil(t, fn.DeadLetterConfig)
 	assert.Equal(t, "arn:aws:sqs:us-east-1:123:gc-dlq", fn.DeadLetterConfig.TargetArn)
@@ -1026,12 +1034,12 @@ func TestAudit_ListFunctions_IncludesNewFields(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out["Functions"], &fns))
 	require.Len(t, fns, 1)
 	require.NotNil(t, fns[0].VpcConfig)
-	assert.Equal(t, []string{"subnet-list"}, fns[0].VpcConfig.SubnetIds)
+	assert.Equal(t, []string{"subnet-list"}, fns[0].VpcConfig.SubnetIDs)
 }
 
 // ---- Streaming invoke reads body correctly ----
 
-func TestAudit_InvokeWithResponseStream_NoBody_UsesEmpty(t *testing.T) {
+func TestAudit_InvokeWithResponseStream_NoBody_NotBadRequest(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -1044,8 +1052,9 @@ func TestAudit_InvokeWithResponseStream_NoBody_UsesEmpty(t *testing.T) {
 	e := echo.New()
 	c := e.NewContext(req, rec2)
 	require.NoError(t, h.Handler()(c))
-	// Should not be 500 due to nil body
-	assert.NotEqual(t, http.StatusInternalServerError, rec2.Code)
+	// Nil body must not trigger a 400 body-parse error — any other status is acceptable
+	// (without Docker, InvokeFunction returns 500, which is expected in unit tests).
+	assert.NotEqual(t, http.StatusBadRequest, rec2.Code)
 }
 
 // ---- Streaming response frame structure ----
@@ -1056,8 +1065,8 @@ func TestAudit_InvokeWithResponseStream_FrameStructure(t *testing.T) {
 	// Create a minimal fake response to verify frame encoding.
 	// We can't fully invoke without a container, so we test the frame writer directly.
 	type frame struct {
-		length  uint32
 		payload []byte
+		length  uint32
 	}
 
 	readFrame := func(r io.Reader) (frame, error) {
@@ -1086,11 +1095,11 @@ func TestAudit_InvokeWithResponseStream_FrameStructure(t *testing.T) {
 
 	var lb [4]byte
 	binary.BigEndian.PutUint32(lb[:], uint32(len(payload)))
-	buf.Write(lb[:]) //nolint:errcheck
+	buf.Write(lb[:])
 	buf.Write(payload)
 
 	binary.BigEndian.PutUint32(lb[:], 0)
-	buf.Write(lb[:]) //nolint:errcheck
+	buf.Write(lb[:])
 
 	r := strings.NewReader(buf.String())
 	f1, err := readFrame(r)

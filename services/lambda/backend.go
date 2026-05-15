@@ -22,9 +22,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
-	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
@@ -96,15 +97,13 @@ const maxCleanupConcurrency = 64
 
 const extractParentDirPerm = 0o750
 
-// invocationChainKey is the context key used to track the current Lambda invocation chain.
+// invocationChainKeyType is the context key type used to track the current Lambda invocation chain.
 // Its value is a set (map[string]struct{}) of function names currently in the call stack.
 type invocationChainKeyType struct{}
 
-var invocationChainKey = invocationChainKeyType{}
-
 // withInvocationChain returns a context carrying the updated invocation chain.
 func withInvocationChain(ctx context.Context, functionName string) context.Context {
-	existing, _ := ctx.Value(invocationChainKey).(map[string]struct{})
+	existing, _ := ctx.Value(invocationChainKeyType{}).(map[string]struct{})
 	next := make(map[string]struct{}, len(existing)+1)
 	for k := range existing {
 		next[k] = struct{}{}
@@ -112,12 +111,12 @@ func withInvocationChain(ctx context.Context, functionName string) context.Conte
 
 	next[functionName] = struct{}{}
 
-	return context.WithValue(ctx, invocationChainKey, next)
+	return context.WithValue(ctx, invocationChainKeyType{}, next)
 }
 
 // invocationChainContains reports whether functionName is already in the call chain.
 func invocationChainContains(ctx context.Context, functionName string) bool {
-	chain, _ := ctx.Value(invocationChainKey).(map[string]struct{})
+	chain, _ := ctx.Value(invocationChainKeyType{}).(map[string]struct{})
 	_, ok := chain[functionName]
 
 	return ok
@@ -303,7 +302,6 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	for _, srv := range urlServers {
-		srv := srv
 		wg.Go(func() {
 			_ = srv.server.Shutdown(ctx)
 
@@ -314,7 +312,6 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 	}
 
 	for _, rt := range rts {
-		rt := rt
 		wg.Go(func() {
 			b.cleanupRuntime(ctx, rt)
 		})
@@ -598,21 +595,6 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 	b.functionURLConfigs[functionName] = cfg
 
 	return cfg, nil
-}
-
-// allocateAndStartURLServer allocates a port, starts the HTTP listener, optionally registers DNS,
-// and returns the function URL string. Must be called with b.mu already held (write).
-func (b *InMemoryBackend) allocateAndStartURLServer(functionName string) (string, error) {
-	urlStr, srv, err := b.doAllocateAndStart(functionName)
-	if err != nil {
-		return "", err
-	}
-
-	if srv != nil {
-		b.functionURLServers[functionName] = srv
-	}
-
-	return urlStr, nil
 }
 
 // allocateAndStartURLServerUnlocked allocates a port and starts the HTTP listener
@@ -901,6 +883,25 @@ func buildURLARN(region, accountID, functionName string) string {
 }
 
 // CreateFunction stores a new Lambda function configuration.
+// validateEphemeralStorage normalises fn.EphemeralStorage, setting the default when nil and
+// returning an error when the supplied size is outside the allowed range.
+func validateEphemeralStorage(fn *FunctionConfiguration) error {
+	if fn.EphemeralStorage == nil {
+		fn.EphemeralStorage = &EphemeralStorageConfig{Size: defaultEphemeralStorageSize}
+
+		return nil
+	}
+
+	if fn.EphemeralStorage.Size < minEphemeralStorageSize || fn.EphemeralStorage.Size > maxEphemeralStorageSize {
+		return fmt.Errorf(
+			"%w: EphemeralStorage.Size must be between %d and %d MB",
+			ErrInvalidParameterValue, minEphemeralStorageSize, maxEphemeralStorageSize,
+		)
+	}
+
+	return nil
+}
+
 func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 	// AWS rejects function names longer than 64 chars (function name only,
 	// not including any qualifier or ARN).
@@ -929,13 +930,8 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 		fn.Architectures = []string{"x86_64"}
 	}
 
-	if fn.EphemeralStorage == nil {
-		fn.EphemeralStorage = &EphemeralStorageConfig{Size: defaultEphemeralStorageSize}
-	} else if fn.EphemeralStorage.Size < minEphemeralStorageSize || fn.EphemeralStorage.Size > maxEphemeralStorageSize {
-		return fmt.Errorf(
-			"%w: EphemeralStorage.Size must be between %d and %d MB",
-			ErrInvalidParameterValue, minEphemeralStorageSize, maxEphemeralStorageSize,
-		)
+	if err := validateEphemeralStorage(fn); err != nil {
+		return err
 	}
 
 	if fn.TracingConfig == nil {
@@ -1504,6 +1500,32 @@ const asyncInvocationEnqueueTimeout = 5 * time.Minute
 // waiting for space in a runtime async invocation queue.
 const maxAsyncEnqueueWaiters = 128
 
+// checkRecursiveLoop returns an error when fn is already in the invocation chain and
+// its RecursiveLoop config is set to "Deny".
+func (b *InMemoryBackend) checkRecursiveLoop(ctx context.Context, functionName string) error {
+	if !invocationChainContains(ctx, functionName) {
+		return nil
+	}
+
+	b.mu.RLock("checkRecursiveLoop")
+	rc := b.functionRecursionConfigs[functionName]
+	b.mu.RUnlock()
+
+	mode := "Terminate"
+	if rc != nil {
+		mode = rc.RecursiveLoop
+	}
+
+	if mode == "Deny" {
+		return fmt.Errorf(
+			"%w: recursive invocation detected for function %s with RecursiveLoop=Deny",
+			ErrInvalidParameterValue, functionName,
+		)
+	}
+
+	return nil
+}
+
 // InvokeFunctionWithQualifier invokes a Lambda function using an optional qualifier.
 func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	ctx context.Context,
@@ -1522,22 +1544,8 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 
 	// Enforce RecursiveLoop=Deny: reject self-invocations when the function name
 	// is already in the current invocation chain.
-	if invocationChainContains(ctx, fn.FunctionName) {
-		b.mu.RLock("InvokeFunctionWithQualifier.recursion")
-		rc := b.functionRecursionConfigs[fn.FunctionName]
-		b.mu.RUnlock()
-
-		mode := "Terminate"
-		if rc != nil {
-			mode = rc.RecursiveLoop
-		}
-
-		if mode == "Deny" {
-			return nil, http.StatusBadRequest, fmt.Errorf(
-				"%w: recursive invocation detected for function %s with RecursiveLoop=Deny",
-				ErrInvalidParameterValue, fn.FunctionName,
-			)
-		}
+	if loopErr := b.checkRecursiveLoop(ctx, fn.FunctionName); loopErr != nil {
+		return nil, http.StatusBadRequest, loopErr
 	}
 
 	// Propagate the invocation chain to nested Lambda calls.
