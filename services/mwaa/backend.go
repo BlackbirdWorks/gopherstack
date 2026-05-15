@@ -2,6 +2,7 @@ package mwaa
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"maps"
@@ -54,6 +55,20 @@ const (
 	// WebserverAccessMode constants.
 	accessModePublic  = "PUBLIC_ONLY"
 	accessModePrivate = "PRIVATE_ONLY"
+
+	// Worker limits.
+	maxWorkersAllowed = int32(25)
+
+	// Tag limit per resource.
+	maxTagsPerResource = 50
+
+	// Environment name length bounds.
+	minEnvNameLen = 1
+	maxEnvNameLen = 80
+
+	// WorkerReplacementStrategy constants.
+	workerStrategyForced = "FORCED"
+	workerStrategyDrain  = "TERMINATION_WITH_DRAIN"
 )
 
 // validEnvironmentClasses returns the set of valid environment class values.
@@ -65,6 +80,82 @@ func validEnvironmentClasses() map[string]struct{} {
 		"mw1.xlarge":  {},
 		"mw1.2xlarge": {},
 	}
+}
+
+// validAirflowVersions returns the set of supported Airflow versions.
+func validAirflowVersions() map[string]struct{} {
+	return map[string]struct{}{
+		"2.10.3":  {},
+		"2.9.2":   {},
+		"2.8.1":   {},
+		"2.7.2":   {},
+		"2.6.3":   {},
+		"2.5.1":   {},
+		"2.4.3":   {},
+		"2.2.2":   {},
+		"1.10.12": {},
+	}
+}
+
+// validateEnvironmentName enforces AWS MWAA naming rules for environment names:
+// 1-80 chars, must start with a letter, followed by alphanumeric/hyphen/underscore.
+func validateEnvironmentName(name string) error {
+	n := len(name)
+	if n < minEnvNameLen || n > maxEnvNameLen {
+		return fmt.Errorf("%w: environment name must be 1-80 characters", ErrInvalidParameter)
+	}
+
+	r0 := rune(name[0])
+	if !((r0 >= 'a' && r0 <= 'z') || (r0 >= 'A' && r0 <= 'Z')) {
+		return fmt.Errorf("%w: environment name must start with a letter", ErrInvalidParameter)
+	}
+
+	for _, r := range name[1:] {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '-' || r == '_':
+		default:
+			return fmt.Errorf(
+				"%w: environment name must contain only alphanumeric characters, hyphens, or underscores",
+				ErrInvalidParameter,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateWorkerReplacementStrategy validates the WorkerReplacementStrategy field.
+func validateWorkerReplacementStrategy(strategy string) error {
+	if strategy == "" {
+		return nil
+	}
+
+	if strategy != workerStrategyForced && strategy != workerStrategyDrain {
+		return fmt.Errorf(
+			"%w: WorkerReplacementStrategy must be %s or %s, got %q",
+			ErrInvalidParameter, workerStrategyForced, workerStrategyDrain, strategy,
+		)
+	}
+
+	return nil
+}
+
+// generateMWAAToken produces a JWT-shaped token for CLI and web login operations.
+// The token is deterministic for a given (envName, kind) pair so tests can reason
+// about its structure; it is NOT a cryptographically valid JWT.
+func generateMWAAToken(envName, kind string) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	payload := base64.RawURLEncoding.EncodeToString(
+		[]byte(`{"env":"` + envName + `","type":"` + kind + `"}`),
+	)
+
+	sum := sha256.Sum256([]byte(envName + ":" + kind))
+	sig := base64.RawURLEncoding.EncodeToString(sum[:])
+
+	return header + "." + payload + "." + sig
 }
 
 // Errors used by the backend.
@@ -155,6 +246,10 @@ func validateCreateRequest(req *createEnvironmentRequest) error {
 		return err
 	}
 
+	if len(req.Tags) > maxTagsPerResource {
+		return fmt.Errorf("%w: cannot specify more than %d tags", ErrInvalidParameter, maxTagsPerResource)
+	}
+
 	return validateCreateSizing(req)
 }
 
@@ -189,6 +284,12 @@ func validateCreateEnums(req *createEnvironmentRequest) error {
 	if req.EnvironmentClass != "" {
 		if _, ok := validEnvironmentClasses()[req.EnvironmentClass]; !ok {
 			return fmt.Errorf("%w: invalid EnvironmentClass %q", ErrInvalidParameter, req.EnvironmentClass)
+		}
+	}
+
+	if req.AirflowVersion != "" {
+		if _, ok := validAirflowVersions()[req.AirflowVersion]; !ok {
+			return fmt.Errorf("%w: unsupported AirflowVersion %q", ErrInvalidParameter, req.AirflowVersion)
 		}
 	}
 
@@ -236,8 +337,15 @@ func validateCreateS3Paths(req *createEnvironmentRequest) error {
 	return nil
 }
 
-// validateCreateSizing validates webserver and scheduler bounds.
+// validateCreateSizing validates webserver, worker, and scheduler bounds.
 func validateCreateSizing(req *createEnvironmentRequest) error {
+	if req.MaxWorkers != 0 && req.MaxWorkers > maxWorkersAllowed {
+		return fmt.Errorf(
+			"%w: MaxWorkers cannot exceed %d",
+			ErrInvalidParameter, maxWorkersAllowed,
+		)
+	}
+
 	if req.MaxWebservers != 0 || req.MinWebservers != 0 {
 		if err := validateWebservers(req.MinWebservers, req.MaxWebservers); err != nil {
 			return err
@@ -366,6 +474,10 @@ func (b *InMemoryBackend) CreateEnvironment(
 	region, accountID, name string,
 	req *createEnvironmentRequest,
 ) (*Environment, error) {
+	if err := validateEnvironmentName(name); err != nil {
+		return nil, err
+	}
+
 	if err := validateCreateRequest(req); err != nil {
 		return nil, err
 	}
@@ -655,6 +767,35 @@ func validateUpdateRequest(req *updateEnvironmentRequest) error {
 		}
 	}
 
+	if req.AirflowVersion != "" {
+		if _, ok := validAirflowVersions()[req.AirflowVersion]; !ok {
+			return fmt.Errorf("%w: unsupported AirflowVersion %q", ErrInvalidParameter, req.AirflowVersion)
+		}
+	}
+
+	if req.EnvironmentClass != "" {
+		if _, ok := validEnvironmentClasses()[req.EnvironmentClass]; !ok {
+			return fmt.Errorf("%w: invalid EnvironmentClass %q", ErrInvalidParameter, req.EnvironmentClass)
+		}
+	}
+
+	if req.WebserverAccessMode != "" &&
+		req.WebserverAccessMode != accessModePublic &&
+		req.WebserverAccessMode != accessModePrivate {
+		return fmt.Errorf(
+			"%w: WebserverAccessMode must be %s or %s",
+			ErrInvalidParameter, accessModePublic, accessModePrivate,
+		)
+	}
+
+	if req.MaxWorkers != 0 && req.MaxWorkers > maxWorkersAllowed {
+		return fmt.Errorf("%w: MaxWorkers cannot exceed %d", ErrInvalidParameter, maxWorkersAllowed)
+	}
+
+	if err := validateWorkerReplacementStrategy(req.WorkerReplacementStrategy); err != nil {
+		return err
+	}
+
 	if req.MaxWebservers != 0 || req.MinWebservers != 0 {
 		if err := validateWebservers(req.MinWebservers, req.MaxWebservers); err != nil {
 			return err
@@ -803,6 +944,17 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		env.Tags = make(map[string]string)
 	}
 
+	// Project the merged tag count to enforce the per-resource limit.
+	projected := maps.Clone(env.Tags)
+	maps.Copy(projected, tags)
+
+	if len(projected) > maxTagsPerResource {
+		return fmt.Errorf(
+			"%w: resource would have %d tags, which exceeds the limit of %d",
+			ErrInvalidParameter, len(projected), maxTagsPerResource,
+		)
+	}
+
 	maps.Copy(env.Tags, tags)
 
 	return nil
@@ -909,7 +1061,7 @@ func (b *InMemoryBackend) GetMetrics(envName string) ([]MetricDatum, error) {
 	return result, nil
 }
 
-// CreateCliToken validates that the environment exists and returns a stub CLI token.
+// CreateCliToken validates that the environment exists and returns a JWT-shaped CLI token.
 func (b *InMemoryBackend) CreateCliToken(envName string) (string, error) {
 	b.mu.RLock("CreateCliToken")
 	defer b.mu.RUnlock()
@@ -918,10 +1070,10 @@ func (b *InMemoryBackend) CreateCliToken(envName string) (string, error) {
 		return "", ErrEnvironmentNotFound
 	}
 
-	return "stub-cli-token-" + envName, nil
+	return generateMWAAToken(envName, "cli"), nil
 }
 
-// CreateWebLoginToken validates that the environment exists and returns a stub web login token.
+// CreateWebLoginToken validates that the environment exists and returns a JWT-shaped web login token.
 func (b *InMemoryBackend) CreateWebLoginToken(envName string) (string, error) {
 	b.mu.RLock("CreateWebLoginToken")
 	defer b.mu.RUnlock()
@@ -930,7 +1082,7 @@ func (b *InMemoryBackend) CreateWebLoginToken(envName string) (string, error) {
 		return "", ErrEnvironmentNotFound
 	}
 
-	return "stub-web-token-" + envName, nil
+	return generateMWAAToken(envName, "web"), nil
 }
 
 // cloneEnvironment returns a deep copy of the given environment.
