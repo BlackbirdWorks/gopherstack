@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -1646,4 +1647,307 @@ func TestCloudWatchHandler_PutMetricAlarm_NewFields(t *testing.T) {
 	require.Len(t, out.MetricAlarms, 1)
 	assert.Equal(t, 2, out.MetricAlarms[0].DatapointsToAlarm)
 	assert.Equal(t, "notBreaching", out.MetricAlarms[0].TreatMissingData)
+}
+
+// ---------------------------------------------------------------------------
+// Accuracy audit handler tests — gaps from issue #1686
+// ---------------------------------------------------------------------------
+
+func TestCloudWatchHandler_PutMetricData_WithStatisticSet(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+
+	// Put a StatisticSet datum.
+	body := strings.Join([]string{
+		"Action=PutMetricData",
+		"Namespace=App%2FMetrics",
+		"MetricData.member.1.MetricName=Latency",
+		"MetricData.member.1.Unit=Milliseconds",
+		"MetricData.member.1.StatisticValues.SampleCount=10",
+		"MetricData.member.1.StatisticValues.Sum=250",
+		"MetricData.member.1.StatisticValues.Minimum=20",
+		"MetricData.member.1.StatisticValues.Maximum=35",
+	}, "&")
+	rec := postForm(t, h, body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// GetMetricStatistics should reflect the pre-aggregated values.
+	statsBody := strings.Join([]string{
+		"Action=GetMetricStatistics",
+		"Namespace=App%2FMetrics",
+		"MetricName=Latency",
+		"StartTime=2000-01-01T00%3A00%3A00Z",
+		"EndTime=2100-01-01T00%3A00%3A00Z",
+		"Period=600",
+		"Statistics.member.1=Sum",
+		"Statistics.member.2=SampleCount",
+		"Statistics.member.3=Minimum",
+		"Statistics.member.4=Maximum",
+	}, "&")
+	statsRec := postForm(t, h, statsBody)
+	require.Equal(t, http.StatusOK, statsRec.Code)
+
+	type dp struct {
+		Sum         *float64 `xml:"Sum"`
+		SampleCount *float64 `xml:"SampleCount"`
+		Minimum     *float64 `xml:"Minimum"`
+		Maximum     *float64 `xml:"Maximum"`
+	}
+	type resp struct {
+		Datapoints []dp `xml:"GetMetricStatisticsResult>Datapoints>member"`
+	}
+	var out resp
+	require.NoError(t, xml.Unmarshal(statsRec.Body.Bytes(), &out))
+	require.Len(t, out.Datapoints, 1)
+	require.NotNil(t, out.Datapoints[0].Sum)
+	assert.InDelta(t, 250.0, *out.Datapoints[0].Sum, 1e-9)
+	require.NotNil(t, out.Datapoints[0].SampleCount)
+	assert.InDelta(t, 10.0, *out.Datapoints[0].SampleCount, 1e-9)
+}
+
+func TestCloudWatchHandler_PutMetricData_WithDimensions(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+
+	body := strings.Join([]string{
+		"Action=PutMetricData",
+		"Namespace=AWS%2FEC2",
+		"MetricData.member.1.MetricName=CPUUtilization",
+		"MetricData.member.1.Value=75",
+		"MetricData.member.1.Dimensions.member.1.Name=InstanceId",
+		"MetricData.member.1.Dimensions.member.1.Value=i-123",
+	}, "&")
+	rec := postForm(t, h, body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	listBody := "Action=ListMetrics&Namespace=AWS%2FEC2&MetricName=CPUUtilization"
+	listRec := postForm(t, h, listBody)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	type dim struct {
+		Name  string `xml:"Name"`
+		Value string `xml:"Value"`
+	}
+	type metric struct {
+		MetricName string `xml:"MetricName"`
+		Dimensions []dim  `xml:"Dimensions>member"`
+	}
+	type resp struct {
+		Metrics []metric `xml:"ListMetricsResult>Metrics>member"`
+	}
+	var out resp
+	require.NoError(t, xml.Unmarshal(listRec.Body.Bytes(), &out))
+	require.Len(t, out.Metrics, 1)
+	require.Len(t, out.Metrics[0].Dimensions, 1)
+	assert.Equal(t, "InstanceId", out.Metrics[0].Dimensions[0].Name)
+	assert.Equal(t, "i-123", out.Metrics[0].Dimensions[0].Value)
+}
+
+func TestCloudWatchHandler_GetMetricStatistics_WithDimensions(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+
+	// Put metrics for two different instance IDs.
+	for _, id := range []string{"i-001", "i-002"} {
+		body := strings.Join([]string{
+			"Action=PutMetricData",
+			"Namespace=AWS%2FEC2",
+			"MetricData.member.1.MetricName=NetworkIn",
+			"MetricData.member.1.Value=100",
+			"MetricData.member.1.Dimensions.member.1.Name=InstanceId",
+			"MetricData.member.1.Dimensions.member.1.Value=" + id,
+		}, "&")
+		postForm(t, h, body)
+	}
+
+	// Query with the dimension filter for i-001 only.
+	statsBody := strings.Join([]string{
+		"Action=GetMetricStatistics",
+		"Namespace=AWS%2FEC2",
+		"MetricName=NetworkIn",
+		"Dimensions.member.1.Name=InstanceId",
+		"Dimensions.member.1.Value=i-001",
+		"StartTime=2000-01-01T00%3A00%3A00Z",
+		"EndTime=2100-01-01T00%3A00%3A00Z",
+		"Period=600",
+		"Statistics.member.1=Sum",
+	}, "&")
+	rec := postForm(t, h, statsBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	type dp struct {
+		Sum *float64 `xml:"Sum"`
+	}
+	type resp struct {
+		Datapoints []dp `xml:"GetMetricStatisticsResult>Datapoints>member"`
+	}
+	var out resp
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.Datapoints, 1)
+	assert.InDelta(t, 100.0, *out.Datapoints[0].Sum, 1e-9)
+}
+
+func TestCloudWatchHandler_ListMetrics_DimensionFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+
+	for _, env := range []string{"prod", "staging"} {
+		body := strings.Join([]string{
+			"Action=PutMetricData",
+			"Namespace=App",
+			"MetricData.member.1.MetricName=RPM",
+			"MetricData.member.1.Value=50",
+			"MetricData.member.1.Dimensions.member.1.Name=Env",
+			"MetricData.member.1.Dimensions.member.1.Value=" + env,
+		}, "&")
+		postForm(t, h, body)
+	}
+
+	// Filter to prod only.
+	listBody := strings.Join([]string{
+		"Action=ListMetrics",
+		"Namespace=App",
+		"Dimensions.member.1.Name=Env",
+		"Dimensions.member.1.Value=prod",
+	}, "&")
+	rec := postForm(t, h, listBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	type metric struct {
+		MetricName string `xml:"MetricName"`
+	}
+	type resp struct {
+		Metrics []metric `xml:"ListMetricsResult>Metrics>member"`
+	}
+	var out resp
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Len(t, out.Metrics, 1)
+}
+
+func TestCloudWatchHandler_GetMetricData_ScanByDescending(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	h := cloudwatch.NewHandler(b)
+
+	// Put data via backend to avoid timestamp URL-encoding issues.
+	base := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 1; i <= 3; i++ {
+		ts := base.Add(time.Duration(i) * time.Minute)
+		_, _ = b.PutMetricData("NS", []cloudwatch.MetricDatum{
+			{MetricName: "Counter", Value: float64(i), Count: 1,
+				Sum: float64(i), Min: float64(i), Max: float64(i), Timestamp: ts},
+		})
+	}
+
+	queryBody := strings.Join([]string{
+		"Action=GetMetricData",
+		"StartTime=2020-01-01T00%3A00%3A00Z",
+		"EndTime=2020-01-01T00%3A10%3A00Z",
+		"ScanBy=TimestampDescending",
+		"MetricDataQueries.member.1.Id=m1",
+		"MetricDataQueries.member.1.MetricStat.Metric.Namespace=NS",
+		"MetricDataQueries.member.1.MetricStat.Metric.MetricName=Counter",
+		"MetricDataQueries.member.1.MetricStat.Stat=Sum",
+		"MetricDataQueries.member.1.MetricStat.Period=60",
+	}, "&")
+	rec := postForm(t, h, queryBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	type result struct {
+		ID         string   `xml:"Id"`
+		Timestamps []string `xml:"Timestamps>member"`
+	}
+	type resp struct {
+		Results []result `xml:"GetMetricDataResult>member"`
+	}
+	var out resp
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.Results, 1)
+	if len(out.Results[0].Timestamps) >= 2 {
+		// Descending: later timestamps first.
+		assert.Greater(t, out.Results[0].Timestamps[0], out.Results[0].Timestamps[1])
+	}
+}
+
+func TestCloudWatchHandler_PutMetricData_UnprocessedOnCap(t *testing.T) {
+	t.Parallel()
+
+	h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1"))
+
+	// Fill up the namespace to the cap first.
+	b := h.Backend.(*cloudwatch.InMemoryBackend)
+	for i := range cloudwatch.CwMaxMetricNamesPerNamespace {
+		_, _ = b.PutMetricData("FullNS", []cloudwatch.MetricDatum{
+			{MetricName: strings.Repeat("x", 1) + strings.Repeat("y", i%10) + strings.Repeat("z", i/10),
+				Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1},
+		})
+	}
+
+	body := "Action=PutMetricData&Namespace=FullNS&MetricData.member.1.MetricName=Overflow&MetricData.member.1.Value=1"
+	rec := postForm(t, h, body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Response should contain an UnprocessedMetricData entry.
+	assert.Contains(t, rec.Body.String(), "Overflow")
+}
+
+func TestCloudWatchHandler_PutMetricStream_WithFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+
+	body := strings.Join([]string{
+		"Action=PutMetricStream",
+		"Name=filtered-stream",
+		"FirehoseArn=arn%3Aaws%3Afirehose%3Aus-east-1%3A123%3Adeliverystream%2Fs",
+		"RoleArn=arn%3Aaws%3Aiam%3A%3A123%3Arole%2Frole",
+		"OutputFormat=json",
+		"IncludeFilters.member.1.Namespace=AWS%2FEC2",
+		"IncludeFilters.member.1.MetricNames.member.1=CPUUtilization",
+		"ExcludeFilters.member.1.Namespace=AWS%2FLambda",
+	}, "&")
+	rec := postForm(t, h, body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Retrieve and verify the filters were persisted.
+	b := h.Backend.(*cloudwatch.InMemoryBackend)
+	stream, err := b.GetMetricStream("filtered-stream")
+	require.NoError(t, err)
+	require.Len(t, stream.IncludeFilters, 1)
+	assert.Equal(t, "AWS/EC2", stream.IncludeFilters[0].Namespace)
+	assert.Equal(t, []string{"CPUUtilization"}, stream.IncludeFilters[0].MetricNames)
+	require.Len(t, stream.ExcludeFilters, 1)
+	assert.Equal(t, "AWS/Lambda", stream.ExcludeFilters[0].Namespace)
+}
+
+func TestCloudWatchHandler_GetInsightRuleReport_WithData(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+	b := h.Backend.(*cloudwatch.InMemoryBackend)
+
+	require.NoError(t, b.PutInsightRule(&cloudwatch.InsightRule{
+		Name: "rule-test", Definition: `{}`, Schema: "CloudWatchLogRule",
+	}))
+
+	_, _ = b.PutMetricData("App", []cloudwatch.MetricDatum{
+		{MetricName: "Hits", Value: 100, Count: 100, Sum: 1000, Min: 5, Max: 15,
+			Dimensions: []cloudwatch.Dimension{{Name: "Host", Value: "h1"}}},
+	})
+
+	body := strings.Join([]string{
+		"Action=GetInsightRuleReport",
+		"RuleName=rule-test",
+		"StartTime=2000-01-01T00%3A00%3A00Z",
+		"EndTime=2100-01-01T00%3A00%3A00Z",
+		"MaxContributorCount=5",
+		"OrderBy=Sum",
+	}, "&")
+	rec := postForm(t, h, body)
+	require.Equal(t, http.StatusOK, rec.Code)
 }

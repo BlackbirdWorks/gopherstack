@@ -6,15 +6,24 @@ import (
 
 // MetricDatum holds a single metric data point.
 type MetricDatum struct {
-	Timestamp  time.Time `json:"Timestamp"`
-	MetricName string    `json:"MetricName"`
-	Namespace  string    `json:"Namespace"`
-	Unit       string    `json:"Unit,omitempty"`
-	Value      float64   `json:"Value"`
-	Count      float64   `json:"SampleCount"`
-	Sum        float64   `json:"Sum"`
-	Min        float64   `json:"Min"`
-	Max        float64   `json:"Max"`
+	MetricName        string      `json:"MetricName"`
+	Namespace         string      `json:"Namespace"`
+	Unit              string      `json:"Unit,omitempty"`
+	Timestamp         time.Time   `json:"Timestamp"`
+	Dimensions        []Dimension `json:"Dimensions,omitempty"`
+	Value             float64     `json:"Value"`
+	Count             float64     `json:"SampleCount"`
+	Sum               float64     `json:"Sum"`
+	Min               float64     `json:"Min"`
+	Max               float64     `json:"Max"`
+	StorageResolution int32       `json:"StorageResolution,omitempty"`
+}
+
+// UnprocessedMetricDatum describes a MetricDatum entry that could not be stored.
+type UnprocessedMetricDatum struct {
+	MetricName   string `json:"MetricName"`
+	ErrorCode    string `json:"ErrorCode"`
+	ErrorMessage string `json:"ErrorMessage"`
 }
 
 // Metric represents a named metric (name+namespace+dimensions).
@@ -108,6 +117,7 @@ type MetricStat struct {
 // Expression supports metric math (e.g. "m1+m2"). When non-empty, MetricStat is ignored.
 // AccountId, when set to an account other than the local account, causes the query to return
 // empty data (cross-account metrics are not supported locally but must not error).
+// ReturnData controls whether the query result is included in the response.
 type MetricDataQuery struct {
 	ID         string     `json:"Id"`
 	Label      string     `json:"Label,omitempty"`
@@ -115,6 +125,7 @@ type MetricDataQuery struct {
 	AccountID  string     `json:"AccountId,omitempty"`
 	MetricStat MetricStat `json:"MetricStat"`
 	Period     int32      `json:"Period,omitempty"`
+	ReturnData bool       `json:"ReturnData"`
 }
 
 // MetricFilter represents a CloudWatch Logs metric filter.
@@ -171,16 +182,24 @@ type InsightRule struct {
 	ManagedRule bool      `json:"ManagedRule"`
 }
 
+// MetricStreamFilter specifies a namespace-level include/exclude filter for a metric stream.
+type MetricStreamFilter struct {
+	Namespace   string   `json:"Namespace"`
+	MetricNames []string `json:"MetricNames,omitempty"`
+}
+
 // MetricStream represents a CloudWatch metric stream.
 type MetricStream struct {
-	CreationDate   time.Time `json:"CreationDate"`
-	LastUpdateDate time.Time `json:"LastUpdateDate"`
-	Name           string    `json:"Name"`
-	FirehoseArn    string    `json:"FirehoseArn"`
-	RoleArn        string    `json:"RoleArn"`
-	OutputFormat   string    `json:"OutputFormat"`
-	State          string    `json:"State"`
-	Arn            string    `json:"Arn"`
+	CreationDate   time.Time            `json:"CreationDate"`
+	LastUpdateDate time.Time            `json:"LastUpdateDate"`
+	Name           string               `json:"Name"`
+	FirehoseArn    string               `json:"FirehoseArn"`
+	RoleArn        string               `json:"RoleArn"`
+	OutputFormat   string               `json:"OutputFormat"`
+	State          string               `json:"State"`
+	Arn            string               `json:"Arn"`
+	IncludeFilters []MetricStreamFilter `json:"IncludeFilters,omitempty"`
+	ExcludeFilters []MetricStreamFilter `json:"ExcludeFilters,omitempty"`
 }
 
 // AlarmMuteRule represents a CloudWatch alarm mute rule.
