@@ -17,6 +17,15 @@ const (
 
 const bedrockDefaultPageSize = 100
 
+// Resource lifecycle status constants.
+const (
+	statusCreating   = "Creating"
+	statusInService  = "InService"
+	statusInProgress = "InProgress"
+	statusCompleted  = "Completed"
+	statusStopped    = "Stopped"
+)
+
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -45,6 +54,8 @@ type Guardrail struct {
 	BlockedInputMessaging   string    `json:"blockedInputMessaging,omitempty"`
 	BlockedOutputsMessaging string    `json:"blockedOutputsMessaging,omitempty"`
 	Tags                    []Tag     `json:"tags,omitempty"`
+	// versionCounter tracks the next version number for this specific guardrail.
+	versionCounter int
 }
 
 // GuardrailSummary is used in list operations.
@@ -159,6 +170,30 @@ type GuardrailVersion struct {
 	Description string `json:"description,omitempty"`
 }
 
+// ModelCopyJob represents a model copy job.
+type ModelCopyJob struct {
+	CreationTime     time.Time `json:"creationTime"`
+	LastModifiedTime time.Time `json:"lastModifiedTime"`
+	JobArn           string    `json:"jobArn"`
+	SourceModelArn   string    `json:"sourceModelArn"`
+	TargetModelArn   string    `json:"targetModelArn"`
+	Status           string    `json:"status"`
+	FailureMessage   string    `json:"failureMessage,omitempty"`
+	Tags             []Tag     `json:"tags,omitempty"`
+}
+
+// ModelImportJob represents a model import job.
+type ModelImportJob struct {
+	CreationTime     time.Time  `json:"creationTime"`
+	LastModifiedTime time.Time  `json:"lastModifiedTime"`
+	EndTime          *time.Time `json:"endTime,omitempty"`
+	JobArn           string     `json:"jobArn"`
+	JobName          string     `json:"jobName"`
+	ImportedModelArn string     `json:"importedModelArn"`
+	Status           string     `json:"status"`
+	Tags             []Tag      `json:"tags,omitempty"`
+}
+
 // ModelCustomizationJob represents a model customization job.
 type ModelCustomizationJob struct {
 	CreationTime      time.Time `json:"creationTime"`
@@ -218,6 +253,8 @@ type InMemoryBackend struct {
 	customModelDeployments      map[string]*CustomModelDeployment                 // deploymentArn → deployment
 	foundationModelAgreements   map[string]*FoundationModelAgreement              // modelID → agreement
 	modelCustomizationJobs      map[string]*ModelCustomizationJob                 // jobArn → job
+	modelCopyJobs               map[string]*ModelCopyJob                          // jobArn → job
+	modelImportJobs             map[string]*ModelImportJob                        // jobArn → job
 	inferenceProfiles           map[string]*InferenceProfile                      // profileArn → profile
 	marketplaceEndpoints        map[string]*MarketplaceModelEndpoint              // endpointArn → endpoint
 	loggingConfig               *ModelInvocationLoggingConfiguration
@@ -255,6 +292,8 @@ type InMemoryBackend struct {
 	customModelCounter         int
 	customModelDeployCounter   int
 	customizationJobCounter    int
+	copyJobCounter             int
+	importJobCounter           int
 	inferenceProfileCounter    int
 	marketplaceEndpointCounter int
 	agentCounter               int
@@ -281,6 +320,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		customModelDeployments:      make(map[string]*CustomModelDeployment),
 		foundationModelAgreements:   make(map[string]*FoundationModelAgreement),
 		modelCustomizationJobs:      make(map[string]*ModelCustomizationJob),
+		modelCopyJobs:               make(map[string]*ModelCopyJob),
+		modelImportJobs:             make(map[string]*ModelImportJob),
 		inferenceProfiles:           make(map[string]*InferenceProfile),
 		marketplaceEndpoints:        make(map[string]*MarketplaceModelEndpoint),
 		guardrailsByName:            make(map[string]string),
@@ -335,6 +376,8 @@ func (b *InMemoryBackend) Reset() {
 	b.customModelDeployments = make(map[string]*CustomModelDeployment)
 	b.foundationModelAgreements = make(map[string]*FoundationModelAgreement)
 	b.modelCustomizationJobs = make(map[string]*ModelCustomizationJob)
+	b.modelCopyJobs = make(map[string]*ModelCopyJob)
+	b.modelImportJobs = make(map[string]*ModelImportJob)
 	b.inferenceProfiles = make(map[string]*InferenceProfile)
 	b.marketplaceEndpoints = make(map[string]*MarketplaceModelEndpoint)
 	b.loggingConfig = nil
@@ -373,6 +416,8 @@ func (b *InMemoryBackend) Reset() {
 	b.customModelCounter = 0
 	b.customModelDeployCounter = 0
 	b.customizationJobCounter = 0
+	b.copyJobCounter = 0
+	b.importJobCounter = 0
 	b.inferenceProfileCounter = 0
 	b.marketplaceEndpointCounter = 0
 }
@@ -574,7 +619,22 @@ func (b *InMemoryBackend) ListGuardrails(nextToken, guardrailIdentifier string) 
 	return paginateBedrockSlice(list, nextToken)
 }
 
+// hasPublishedVersions reports whether a guardrail has any published (non-DRAFT) versions.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) hasPublishedVersions(guardrailID string) bool {
+	for key := range b.guardrailVersions {
+		prefix := guardrailID + ":"
+		if len(key) > len(prefix) && key[:len(prefix)] == prefix {
+			return true
+		}
+	}
+
+	return false
+}
+
 // UpdateGuardrail updates a guardrail's name, description and messaging.
+// Mutations are rejected when the guardrail has published (numbered) versions,
+// as AWS rejects updates to guardrails that have been versioned.
 func (b *InMemoryBackend) UpdateGuardrail(
 	idOrARN, name, description, blockedInput, blockedOutput string,
 ) (*Guardrail, error) {
@@ -584,6 +644,14 @@ func (b *InMemoryBackend) UpdateGuardrail(
 	g, ok := b.findGuardrailByIDOrARN(idOrARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: guardrail %s not found", ErrNotFound, idOrARN)
+	}
+
+	if b.hasPublishedVersions(g.GuardrailID) {
+		return nil, fmt.Errorf(
+			"%w: guardrail %s has published versions and cannot be mutated",
+			ErrAlreadyExists,
+			idOrARN,
+		)
 	}
 
 	// Update name with index maintenance.
@@ -710,7 +778,7 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 		ModelArn:             modelARN,
 		DesiredModelArn:      modelARN,
 		FoundationModelArn:   modelARN,
-		Status:               "InService",
+		Status:               statusCreating,
 		ModelUnits:           modelUnits,
 		DesiredModelUnits:    modelUnits,
 		CommitmentDuration:   commitmentDuration,
@@ -797,6 +865,29 @@ func (b *InMemoryBackend) DeleteProvisionedModelThroughput(idOrARN string) error
 	delete(b.pmtsByName, pmt.ProvisionedModelName)
 
 	return nil
+}
+
+// AdvanceProvisionedModelThroughputStatuses transitions PMTs from Creating → InService.
+// Called by the janitor after the creation delay has elapsed.
+func (b *InMemoryBackend) AdvanceProvisionedModelThroughputStatuses() int {
+	b.mu.Lock("AdvanceProvisionedModelThroughputStatuses")
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	advanced := 0
+
+	for _, pmt := range b.provisionedModelThroughputs {
+		if pmt.Status != statusCreating {
+			continue
+		}
+		pmt.Status = statusInService
+		pmt.ModelArn = pmt.DesiredModelArn
+		pmt.ModelUnits = pmt.DesiredModelUnits
+		pmt.LastModifiedTime = now
+		advanced++
+	}
+
+	return advanced
 }
 
 // findPMTByIDOrARN finds a provisioned model throughput by ID or ARN.
@@ -1019,7 +1110,7 @@ func (b *InMemoryBackend) CreateEvaluationJob(name string, tags []Tag) (*Evaluat
 	job := &EvaluationJob{
 		JobArn:           jobARN,
 		JobName:          name,
-		Status:           "InProgress",
+		Status:           statusInProgress,
 		CreationTime:     now,
 		LastModifiedTime: now,
 		Tags:             copyTags(tags),
@@ -1094,8 +1185,6 @@ func (b *InMemoryBackend) BatchDeleteEvaluationJob(jobARNs []string) (
 // --- AutomatedReasoningPolicy methods ---
 
 // CreateAutomatedReasoningPolicy creates a new Automated Reasoning policy.
-//
-//nolint:dupl // Identical structure to CreateMarketplaceModelEndpoint; different types.
 func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(
 	name, description string,
 	tags []Tag,
@@ -1269,7 +1358,7 @@ func (b *InMemoryBackend) CreateCustomModelDeployment(
 		CustomModelDeploymentArn: deploymentARN,
 		ModelDeploymentName:      deploymentName,
 		ModelArn:                 modelARN,
-		Status:                   "Creating",
+		Status:                   statusCreating,
 		CreationTime:             now,
 		LastModifiedTime:         now,
 		Tags:                     copyTags(tags),
@@ -1415,7 +1504,7 @@ func (b *InMemoryBackend) CreateModelCustomizationJob(
 		JobName:           jobName,
 		BaseModelArn:      baseModelARN,
 		OutputModelArn:    outputModelARN,
-		Status:            "InProgress",
+		Status:            statusInProgress,
 		CustomizationType: customizationType,
 		CreationTime:      now,
 		LastModifiedTime:  now,
@@ -1488,9 +1577,203 @@ func (b *InMemoryBackend) StopModelCustomizationJob(idOrARN string) error {
 		return fmt.Errorf("%w: model customization job %s not found", ErrNotFound, idOrARN)
 	}
 
-	b.modelCustomizationJobs[jobARN].Status = "Stopped"
+	b.modelCustomizationJobs[jobARN].Status = statusStopped
 
 	return nil
+}
+
+// AdvanceCustomizationJobStatuses moves InProgress customization jobs to Completed.
+// Called by the janitor after the simulated training delay has elapsed.
+func (b *InMemoryBackend) AdvanceCustomizationJobStatuses(minAge time.Duration) int {
+	b.mu.Lock("AdvanceCustomizationJobStatuses")
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	advanced := 0
+
+	for _, job := range b.modelCustomizationJobs {
+		if job.Status != statusInProgress {
+			continue
+		}
+
+		if now.Sub(job.CreationTime) >= minAge {
+			job.Status = statusCompleted
+			job.LastModifiedTime = now
+			job.EndTime = now
+			advanced++
+		}
+	}
+
+	return advanced
+}
+
+// --- ModelCopyJob methods ---
+
+// CreateModelCopyJob creates a new model copy job.
+//
+//nolint:dupl // Identical structure to CreateModelImportJob; different types.
+func (b *InMemoryBackend) CreateModelCopyJob(sourceModelARN string, tags []Tag) (*ModelCopyJob, error) {
+	if sourceModelARN == "" {
+		return nil, fmt.Errorf("%w: sourceModelArn is required", ErrValidation)
+	}
+
+	b.mu.Lock("CreateModelCopyJob")
+	defer b.mu.Unlock()
+
+	b.copyJobCounter++
+	id := fmt.Sprintf("mcj-%07d", b.copyJobCounter)
+	jobARN := arn.Build("bedrock", b.region, b.accountID, "model-copy-job/"+id)
+	targetModelARN := arn.Build("bedrock", b.region, b.accountID, "custom-model/copy-"+id)
+	now := time.Now().UTC()
+
+	job := &ModelCopyJob{
+		JobArn:           jobARN,
+		SourceModelArn:   sourceModelARN,
+		TargetModelArn:   targetModelARN,
+		Status:           statusInProgress,
+		CreationTime:     now,
+		LastModifiedTime: now,
+		Tags:             copyTags(tags),
+	}
+	b.modelCopyJobs[jobARN] = job
+
+	cp := *job
+	cp.Tags = copyTags(job.Tags)
+
+	return &cp, nil
+}
+
+// GetModelCopyJob returns a model copy job by ARN.
+func (b *InMemoryBackend) GetModelCopyJob(jobARN string) (*ModelCopyJob, error) {
+	b.mu.RLock("GetModelCopyJob")
+	defer b.mu.RUnlock()
+
+	job, ok := b.modelCopyJobs[jobARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: model copy job %s not found", ErrNotFound, jobARN)
+	}
+
+	cp := *job
+	cp.Tags = copyTags(job.Tags)
+
+	return &cp, nil
+}
+
+// ListModelCopyJobs returns all model copy jobs sorted by creation time.
+func (b *InMemoryBackend) ListModelCopyJobs() []*ModelCopyJob {
+	b.mu.RLock("ListModelCopyJobs")
+	defer b.mu.RUnlock()
+
+	list := make([]*ModelCopyJob, 0, len(b.modelCopyJobs))
+
+	for _, j := range b.modelCopyJobs {
+		cp := *j
+		cp.Tags = copyTags(j.Tags)
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, k int) bool { return list[i].CreationTime.Before(list[k].CreationTime) })
+
+	return list
+}
+
+// --- ModelImportJob methods ---
+
+// CreateModelImportJob creates a new model import job.
+//
+//nolint:dupl // Identical structure to CreateModelCopyJob; different types.
+func (b *InMemoryBackend) CreateModelImportJob(jobName string, tags []Tag) (*ModelImportJob, error) {
+	if jobName == "" {
+		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
+	}
+
+	b.mu.Lock("CreateModelImportJob")
+	defer b.mu.Unlock()
+
+	b.importJobCounter++
+	id := fmt.Sprintf("mij-%07d", b.importJobCounter)
+	jobARN := arn.Build("bedrock", b.region, b.accountID, "model-import-job/"+id)
+	importedModelARN := arn.Build("bedrock", b.region, b.accountID, "imported-model/"+id)
+	now := time.Now().UTC()
+
+	job := &ModelImportJob{
+		JobArn:           jobARN,
+		JobName:          jobName,
+		ImportedModelArn: importedModelARN,
+		Status:           statusInProgress,
+		CreationTime:     now,
+		LastModifiedTime: now,
+		Tags:             copyTags(tags),
+	}
+	b.modelImportJobs[jobARN] = job
+
+	cp := *job
+	cp.Tags = copyTags(job.Tags)
+
+	return &cp, nil
+}
+
+// GetModelImportJob returns a model import job by ARN.
+func (b *InMemoryBackend) GetModelImportJob(jobARN string) (*ModelImportJob, error) {
+	b.mu.RLock("GetModelImportJob")
+	defer b.mu.RUnlock()
+
+	job, ok := b.modelImportJobs[jobARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: model import job %s not found", ErrNotFound, jobARN)
+	}
+
+	cp := *job
+	cp.Tags = copyTags(job.Tags)
+
+	return &cp, nil
+}
+
+// ListModelImportJobs returns all model import jobs sorted by creation time.
+func (b *InMemoryBackend) ListModelImportJobs() []*ModelImportJob {
+	b.mu.RLock("ListModelImportJobs")
+	defer b.mu.RUnlock()
+
+	list := make([]*ModelImportJob, 0, len(b.modelImportJobs))
+
+	for _, j := range b.modelImportJobs {
+		cp := *j
+		cp.Tags = copyTags(j.Tags)
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, k int) bool { return list[i].CreationTime.Before(list[k].CreationTime) })
+
+	return list
+}
+
+// AdvanceCopyImportJobStatuses moves InProgress copy/import jobs to Completed after the min age elapses.
+func (b *InMemoryBackend) AdvanceCopyImportJobStatuses(minAge time.Duration) int {
+	b.mu.Lock("AdvanceCopyImportJobStatuses")
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	advanced := 0
+
+	for _, job := range b.modelCopyJobs {
+		if job.Status == statusInProgress && now.Sub(job.CreationTime) >= minAge {
+			job.Status = statusCompleted
+			job.LastModifiedTime = now
+			advanced++
+		}
+	}
+
+	for _, job := range b.modelImportJobs {
+		if job.Status == statusInProgress && now.Sub(job.CreationTime) >= minAge {
+			endTime := now
+			job.Status = "Complete"
+			job.LastModifiedTime = now
+			job.EndTime = &endTime
+			advanced++
+		}
+	}
+
+	return advanced
 }
 
 // --- InferenceProfile methods ---
@@ -1619,8 +1902,6 @@ func (b *InMemoryBackend) newMarketplaceEndpointID() string {
 }
 
 // CreateMarketplaceModelEndpoint creates a new marketplace model endpoint.
-//
-//nolint:dupl // Identical structure to CreateAutomatedReasoningPolicy; different types.
 func (b *InMemoryBackend) CreateMarketplaceModelEndpoint(
 	endpointName, modelSourceID string,
 	tags []Tag,
@@ -1644,7 +1925,7 @@ func (b *InMemoryBackend) CreateMarketplaceModelEndpoint(
 		EndpointArn:   endpointARN,
 		EndpointName:  endpointName,
 		ModelSourceID: modelSourceID,
-		Status:        "Creating",
+		Status:        statusCreating,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 		Tags:          copyTags(tags),
@@ -1807,6 +2088,7 @@ func (b *InMemoryBackend) DeleteModelInvocationLoggingConfiguration() {
 // --- GuardrailVersion methods ---
 
 // CreateGuardrailVersion creates a new numbered version snapshot of a guardrail.
+// Each guardrail maintains its own monotonically increasing version counter.
 func (b *InMemoryBackend) CreateGuardrailVersion(idOrARN, description string) (*GuardrailVersion, error) {
 	b.mu.Lock("CreateGuardrailVersion")
 	defer b.mu.Unlock()
@@ -1816,9 +2098,9 @@ func (b *InMemoryBackend) CreateGuardrailVersion(idOrARN, description string) (*
 		return nil, fmt.Errorf("%w: guardrail %s not found", ErrNotFound, idOrARN)
 	}
 
-	// Guardrail versions use a dedicated counter to avoid collisions with guardrail IDs.
-	b.guardrailVersionCounter++
-	versionNum := strconv.Itoa(b.guardrailVersionCounter)
+	// Use per-guardrail version counter for isolated, predictable numbering.
+	g.versionCounter++
+	versionNum := strconv.Itoa(g.versionCounter)
 
 	gv := &GuardrailVersion{
 		GuardrailID: g.GuardrailID,
@@ -1826,7 +2108,6 @@ func (b *InMemoryBackend) CreateGuardrailVersion(idOrARN, description string) (*
 		Description: description,
 	}
 
-	// Persist the version so it can be retrieved later.
 	key := g.GuardrailID + ":" + versionNum
 	b.guardrailVersions[key] = gv
 

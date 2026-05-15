@@ -7,10 +7,12 @@ import (
 	"maps"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // maxInvocationHistory is the maximum number of invocations retained in memory.
@@ -63,15 +65,16 @@ type ListAsyncInvokesFilter struct {
 	StatusEquals string
 }
 
-// invocationRing is a fixed-szacity circular buffer for Invocation records.
+// invocationRing is a fixed-capacity circular buffer for Invocation records.
 // Once full, new writes overwrite the oldest entry (FIFO eviction).
 type invocationRing struct {
-	buf   []*Invocation
-	head  int // index of the oldest entry
-	count int // number of valid entries (0 ≤ count ≤ sz)
+	buf       []*Invocation
+	head      int // index of the oldest entry
+	count     int // number of valid entries (0 ≤ count ≤ sz)
+	evictions int // total evictions since last reset
 }
 
-// newInvocationRing allocates a ring with the given szacity.
+// newInvocationRing allocates a ring with the given capacity.
 func newInvocationRing(sz int) invocationRing {
 	return invocationRing{buf: make([]*Invocation, sz)}
 }
@@ -83,7 +86,8 @@ func (r *invocationRing) push(inv *Invocation) {
 		r.buf[(r.head+r.count)%sz] = inv
 		r.count++
 	} else {
-		// Overwrite oldest slot and advance head.
+		// Overwrite oldest slot and advance head — oldest entry is evicted.
+		r.evictions++
 		r.buf[r.head] = inv
 		r.head = (r.head + 1) % sz
 	}
@@ -145,10 +149,12 @@ func (b *InMemoryBackend) Reset() {
 func (b *InMemoryBackend) Region() string { return b.region }
 
 // RecordInvocation stores a completed invocation in memory.
+// When the ring is full, the oldest entry is evicted and a warning is logged via the background context.
 func (b *InMemoryBackend) RecordInvocation(operation, modelID, input, output string) *Invocation {
 	b.mu.Lock("RecordInvocation")
 	defer b.mu.Unlock()
 
+	prevEvictions := b.invocations.evictions
 	inv := &Invocation{
 		Operation: operation,
 		ModelID:   modelID,
@@ -157,6 +163,13 @@ func (b *InMemoryBackend) RecordInvocation(operation, modelID, input, output str
 		CreatedAt: time.Now().UTC(),
 	}
 	b.invocations.push(inv)
+
+	if b.invocations.evictions > prevEvictions {
+		logger.Load(context.Background()).Warn(
+			"bedrockruntime: invocationRing full, oldest entry evicted",
+			"capacity", len(b.invocations.buf),
+		)
+	}
 
 	cp := *inv
 
@@ -217,6 +230,16 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 		return nil, fmt.Errorf("%w: s3Uri is required", ErrValidation)
 	}
 
+	if !strings.HasPrefix(s3URI, "s3://") {
+		return nil, fmt.Errorf("%w: s3Uri must start with s3://", ErrValidation)
+	}
+
+	// Ensure there is a non-empty bucket name after "s3://".
+	rest := strings.TrimPrefix(s3URI, "s3://")
+	if rest == "" || strings.HasPrefix(rest, "/") {
+		return nil, fmt.Errorf("%w: s3Uri must include a bucket name", ErrValidation)
+	}
+
 	b.mu.Lock("StartAsyncInvoke")
 	defer b.mu.Unlock()
 
@@ -265,6 +288,28 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 	cp.Tags = copyTags(inv.Tags)
 
 	return &cp, nil
+}
+
+// AdvanceAsyncInvokesForTest is a test helper that immediately advances all InProgress
+// invocations whose age exceeds minAge. Pass 0 to advance all immediately.
+func (b *InMemoryBackend) AdvanceAsyncInvokesForTest(minAge time.Duration) {
+	b.mu.Lock("AdvanceAsyncInvokesForTest")
+	defer b.mu.Unlock()
+
+	now := time.Now()
+
+	for _, inv := range b.asyncInvokes {
+		if inv.Status != AsyncInvokeStatusInProgress {
+			continue
+		}
+
+		if now.Sub(inv.SubmitTime) >= minAge {
+			endTime := now.UTC()
+			inv.Status = AsyncInvokeStatusCompleted
+			inv.EndTime = &endTime
+			inv.LastModifiedTime = now.UTC()
+		}
+	}
 }
 
 // GetAsyncInvoke returns the async invocation with the given ARN.
