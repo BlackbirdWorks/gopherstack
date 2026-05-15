@@ -3,7 +3,6 @@ package ecs_test
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -266,8 +265,8 @@ func TestHandler_RegisterTaskDefinition_HealthCheck(t *testing.T) {
 	td := out["taskDefinition"].(map[string]any)
 	cd := td["containerDefinitions"].([]any)[0].(map[string]any)
 	hc := cd["healthCheck"].(map[string]any)
-	assert.Equal(t, float64(30), hc["interval"])
-	assert.Equal(t, float64(5), hc["timeout"])
+	assert.InDelta(t, float64(30), hc["interval"], 0.001)
+	assert.InDelta(t, float64(5), hc["timeout"], 0.001)
 }
 
 // ListTaskDefinitions parity tests ------------------------------------------
@@ -309,7 +308,7 @@ func TestHandler_ListTaskDefinitions_StatusFilter_Active(t *testing.T) {
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
 	arns := listOut["taskDefinitionArns"].([]any)
 	require.Len(t, arns, 1)
-	assert.True(t, strings.Contains(arns[0].(string), "myapp:2"))
+	assert.Contains(t, arns[0].(string), "myapp:2")
 }
 
 func TestHandler_ListTaskDefinitions_StatusFilter_Inactive(t *testing.T) {
@@ -347,7 +346,7 @@ func TestHandler_ListTaskDefinitions_StatusFilter_Inactive(t *testing.T) {
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
 	arns := listOut["taskDefinitionArns"].([]any)
 	require.Len(t, arns, 1)
-	assert.True(t, strings.Contains(arns[0].(string), "myapp:1"))
+	assert.Contains(t, arns[0].(string), "myapp:1")
 }
 
 // CreateService parity tests ------------------------------------------------
@@ -373,8 +372,8 @@ func TestHandler_CreateService_DeploymentConfigDefaults(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	svc := out["service"].(map[string]any)
 	dc := svc["deploymentConfiguration"].(map[string]any)
-	assert.Equal(t, float64(100), dc["minimumHealthyPercent"])
-	assert.Equal(t, float64(200), dc["maximumPercent"])
+	assert.InDelta(t, float64(100), dc["minimumHealthyPercent"], 0.001)
+	assert.InDelta(t, float64(200), dc["maximumPercent"], 0.001)
 }
 
 func TestHandler_CreateService_DeploymentConfigCustom(t *testing.T) {
@@ -402,8 +401,8 @@ func TestHandler_CreateService_DeploymentConfigCustom(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	svc := out["service"].(map[string]any)
 	dc := svc["deploymentConfiguration"].(map[string]any)
-	assert.Equal(t, float64(50), dc["minimumHealthyPercent"])
-	assert.Equal(t, float64(150), dc["maximumPercent"])
+	assert.InDelta(t, float64(50), dc["minimumHealthyPercent"], 0.001)
+	assert.InDelta(t, float64(150), dc["maximumPercent"], 0.001)
 }
 
 func TestHandler_CreateService_DeploymentController_CodeDeploy_Rejected(t *testing.T) {
@@ -481,7 +480,7 @@ func TestHandler_CreateService_LoadBalancers(t *testing.T) {
 	lbs := svc["loadBalancers"].([]any)
 	require.Len(t, lbs, 1)
 	lb := lbs[0].(map[string]any)
-	assert.Equal(t, float64(8080), lb["containerPort"])
+	assert.InDelta(t, float64(8080), lb["containerPort"], 0.001)
 	assert.Equal(t, "app", lb["containerName"])
 }
 
@@ -766,7 +765,7 @@ func TestHandler_UpdateService_LoadBalancers(t *testing.T) {
 	lbs := svc["loadBalancers"].([]any)
 	require.Len(t, lbs, 1)
 	lb := lbs[0].(map[string]any)
-	assert.Equal(t, float64(9090), lb["containerPort"])
+	assert.InDelta(t, float64(9090), lb["containerPort"], 0.001)
 }
 
 func TestHandler_UpdateService_DeploymentConfig_MinMaxPercent(t *testing.T) {
@@ -797,8 +796,8 @@ func TestHandler_UpdateService_DeploymentConfig_MinMaxPercent(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	svc := out["service"].(map[string]any)
 	dc := svc["deploymentConfiguration"].(map[string]any)
-	assert.Equal(t, float64(25), dc["minimumHealthyPercent"])
-	assert.Equal(t, float64(300), dc["maximumPercent"])
+	assert.InDelta(t, float64(25), dc["minimumHealthyPercent"], 0.001)
+	assert.InDelta(t, float64(300), dc["maximumPercent"], 0.001)
 }
 
 // DescribeTaskDefinition parity tests ----------------------------------------

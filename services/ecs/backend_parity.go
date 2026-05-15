@@ -109,7 +109,7 @@ const (
 
 // AwsvpcConfiguration holds awsvpc mode network settings.
 type AwsvpcConfiguration struct {
-	AssignPublicIp string   `json:"assignPublicIp,omitempty"` //nolint:revive,stylecheck // AWS API field name
+	AssignPublicIP string   `json:"assignPublicIp,omitempty"`
 	Subnets        []string `json:"subnets"`
 	SecurityGroups []string `json:"securityGroups,omitempty"`
 }

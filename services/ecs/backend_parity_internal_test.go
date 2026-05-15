@@ -36,6 +36,7 @@ func TestValidateFargateCPUMemory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := validateFargateCPUMemory(tt.cpu, tt.memory)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateFargateCPUMemory(%q, %q) error = %v, wantErr %v", tt.cpu, tt.memory, err, tt.wantErr)
@@ -47,6 +48,7 @@ func TestValidateFargateCPUMemory(t *testing.T) {
 // ---- validatePlatformVersion tests ----
 
 func TestValidatePlatformVersion(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		pv      string
@@ -64,6 +66,7 @@ func TestValidatePlatformVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := validatePlatformVersion(tt.pv)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validatePlatformVersion(%q) error = %v, wantErr %v", tt.pv, err, tt.wantErr)
@@ -75,22 +78,24 @@ func TestValidatePlatformVersion(t *testing.T) {
 // ---- validateDeploymentController tests ----
 
 func TestValidateDeploymentController(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
-		name    string
 		dc      *DeploymentController
+		name    string
 		wantErr bool
 	}{
-		{"nil", nil, false},
-		{"ROLLING", &DeploymentController{Type: "ROLLING"}, false},
-		{"rolling lowercase", &DeploymentController{Type: "rolling"}, false},
-		{"EXTERNAL", &DeploymentController{Type: "EXTERNAL"}, false},
-		{"CODE_DEPLOY", &DeploymentController{Type: "CODE_DEPLOY"}, true},
-		{"code_deploy lowercase", &DeploymentController{Type: "code_deploy"}, true},
-		{"unknown", &DeploymentController{Type: "UNKNOWN"}, true},
+		{nil, "nil", false},
+		{&DeploymentController{Type: "ROLLING"}, "ROLLING", false},
+		{&DeploymentController{Type: "rolling"}, "rolling lowercase", false},
+		{&DeploymentController{Type: "EXTERNAL"}, "EXTERNAL", false},
+		{&DeploymentController{Type: "CODE_DEPLOY"}, "CODE_DEPLOY", true},
+		{&DeploymentController{Type: "code_deploy"}, "code_deploy lowercase", true},
+		{&DeploymentController{Type: "UNKNOWN"}, "unknown", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := validateDeploymentController(tt.dc)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateDeploymentController(%v) error = %v, wantErr %v", tt.dc, err, tt.wantErr)
@@ -102,7 +107,9 @@ func TestValidateDeploymentController(t *testing.T) {
 // ---- DeploymentConfiguration.withAWSDefaults tests ----
 
 func TestDeploymentConfigurationWithAWSDefaults(t *testing.T) {
+	t.Parallel()
 	t.Run("nil returns defaults", func(t *testing.T) {
+		t.Parallel()
 		var dc *DeploymentConfiguration
 		out := dc.withAWSDefaults()
 		if out == nil {
@@ -117,26 +124,28 @@ func TestDeploymentConfigurationWithAWSDefaults(t *testing.T) {
 	})
 
 	t.Run("existing values preserved", func(t *testing.T) {
-		min := 50
-		max := 150
+		t.Parallel()
+		minPct := 50
+		maxPct := 150
 		dc := &DeploymentConfiguration{
-			MinimumHealthyPercent: &min,
-			MaximumPercent:        &max,
+			MinimumHealthyPercent: &minPct,
+			MaximumPercent:        &maxPct,
 		}
 		out := dc.withAWSDefaults()
-		if *out.MinimumHealthyPercent != 50 {
+		if *out.MinimumHealthyPercent != minPct {
 			t.Errorf("MinimumHealthyPercent = %d, want 50", *out.MinimumHealthyPercent)
 		}
-		if *out.MaximumPercent != 150 {
+		if *out.MaximumPercent != maxPct {
 			t.Errorf("MaximumPercent = %d, want 150", *out.MaximumPercent)
 		}
 	})
 
 	t.Run("partial fill", func(t *testing.T) {
-		min := 75
-		dc := &DeploymentConfiguration{MinimumHealthyPercent: &min}
+		t.Parallel()
+		minPct := 75
+		dc := &DeploymentConfiguration{MinimumHealthyPercent: &minPct}
 		out := dc.withAWSDefaults()
-		if *out.MinimumHealthyPercent != 75 {
+		if *out.MinimumHealthyPercent != minPct {
 			t.Errorf("MinimumHealthyPercent = %d, want 75", *out.MinimumHealthyPercent)
 		}
 		if out.MaximumPercent == nil || *out.MaximumPercent != defaultMaximumPercent {
@@ -152,6 +161,7 @@ func newTestBackend() *InMemoryBackend {
 }
 
 func TestRegisterTaskDefinition_RequiresCompatibilities(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	td, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -172,6 +182,7 @@ func TestRegisterTaskDefinition_RequiresCompatibilities(t *testing.T) {
 }
 
 func TestRegisterTaskDefinition_FargateValidation_InvalidCPU(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -190,6 +201,7 @@ func TestRegisterTaskDefinition_FargateValidation_InvalidCPU(t *testing.T) {
 }
 
 func TestRegisterTaskDefinition_FargateValidation_InvalidMemory(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -208,6 +220,7 @@ func TestRegisterTaskDefinition_FargateValidation_InvalidMemory(t *testing.T) {
 }
 
 func TestRegisterTaskDefinition_EC2_NoFargateValidation(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	// EC2 does not require valid Fargate CPU/memory pairs
@@ -224,6 +237,7 @@ func TestRegisterTaskDefinition_EC2_NoFargateValidation(t *testing.T) {
 }
 
 func TestRegisterTaskDefinition_TaskRoleArn(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	td, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -246,6 +260,7 @@ func TestRegisterTaskDefinition_TaskRoleArn(t *testing.T) {
 }
 
 func TestRegisterTaskDefinition_Volumes(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	vols := []Volume{
@@ -281,6 +296,7 @@ func TestRegisterTaskDefinition_Volumes(t *testing.T) {
 }
 
 func TestCreateService_DeploymentConfigurationDefaults(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -316,6 +332,7 @@ func TestCreateService_DeploymentConfigurationDefaults(t *testing.T) {
 }
 
 func TestCreateService_DeploymentController_Valid(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -341,6 +358,7 @@ func TestCreateService_DeploymentController_Valid(t *testing.T) {
 }
 
 func TestCreateService_DeploymentController_CodeDeploy_Rejected(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -366,6 +384,7 @@ func TestCreateService_DeploymentController_CodeDeploy_Rejected(t *testing.T) {
 }
 
 func TestCreateService_LoadBalancers(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -402,6 +421,7 @@ func TestCreateService_LoadBalancers(t *testing.T) {
 }
 
 func TestCreateService_ServiceRegistries(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -435,6 +455,7 @@ func TestCreateService_ServiceRegistries(t *testing.T) {
 }
 
 func TestCreateService_NetworkConfiguration(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -449,7 +470,7 @@ func TestCreateService_NetworkConfiguration(t *testing.T) {
 		AwsvpcConfiguration: &AwsvpcConfiguration{
 			Subnets:        []string{"subnet-abc123", "subnet-def456"},
 			SecurityGroups: []string{"sg-12345678"},
-			AssignPublicIp: assignPublicIPEnabled,
+			AssignPublicIP: assignPublicIPEnabled,
 		},
 	}
 
@@ -471,6 +492,7 @@ func TestCreateService_NetworkConfiguration(t *testing.T) {
 }
 
 func TestCreateService_PropagateTags(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -496,6 +518,7 @@ func TestCreateService_PropagateTags(t *testing.T) {
 }
 
 func TestCreateService_PropagateTags_DefaultNone(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -520,6 +543,7 @@ func TestCreateService_PropagateTags_DefaultNone(t *testing.T) {
 }
 
 func TestRunTask_NetworkConfiguration(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -533,7 +557,7 @@ func TestRunTask_NetworkConfiguration(t *testing.T) {
 	nc := &NetworkConfiguration{
 		AwsvpcConfiguration: &AwsvpcConfiguration{
 			Subnets:        []string{"subnet-abc123"},
-			AssignPublicIp: assignPublicIPDisabled,
+			AssignPublicIP: assignPublicIPDisabled,
 		},
 	}
 
@@ -559,6 +583,7 @@ func TestRunTask_NetworkConfiguration(t *testing.T) {
 }
 
 func TestRunTask_PlatformVersionValidation(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -582,6 +607,7 @@ func TestRunTask_PlatformVersionValidation(t *testing.T) {
 }
 
 func TestRunTask_PlatformVersionLatest(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -605,6 +631,7 @@ func TestRunTask_PlatformVersionLatest(t *testing.T) {
 }
 
 func TestRunTask_PropagateTags(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -628,6 +655,7 @@ func TestRunTask_PropagateTags(t *testing.T) {
 }
 
 func TestListTaskDefinitionsFiltered_Status(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	// Register two definitions in the same family.
@@ -688,6 +716,7 @@ func TestListTaskDefinitionsFiltered_Status(t *testing.T) {
 }
 
 func TestDeleteCluster_CascadesServiceDeployments(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.CreateCluster(CreateClusterInput{ClusterName: "test-cluster"})
@@ -736,6 +765,7 @@ func TestDeleteCluster_CascadesServiceDeployments(t *testing.T) {
 }
 
 func TestContainerDefinition_NewFields(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	logCfg := &LogConfiguration{
@@ -796,6 +826,7 @@ func TestContainerDefinition_NewFields(t *testing.T) {
 }
 
 func TestPortMapping_ExtendedFields(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	pm := PortMapping{
@@ -831,6 +862,7 @@ func TestPortMapping_ExtendedFields(t *testing.T) {
 }
 
 func TestUpdateService_NetworkConfiguration(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -853,7 +885,7 @@ func TestUpdateService_NetworkConfiguration(t *testing.T) {
 	newNC := &NetworkConfiguration{
 		AwsvpcConfiguration: &AwsvpcConfiguration{
 			Subnets:        []string{"subnet-new123"},
-			AssignPublicIp: assignPublicIPEnabled,
+			AssignPublicIP: assignPublicIPEnabled,
 		},
 	}
 
@@ -872,6 +904,7 @@ func TestUpdateService_NetworkConfiguration(t *testing.T) {
 }
 
 func TestUpdateService_LoadBalancers(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -906,6 +939,7 @@ func TestUpdateService_LoadBalancers(t *testing.T) {
 }
 
 func TestDeploymentConfiguration_MinMaxPercent_Stored(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -943,6 +977,7 @@ func TestDeploymentConfiguration_MinMaxPercent_Stored(t *testing.T) {
 }
 
 func TestMountPoints_VolumeFrom(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	td, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -983,6 +1018,7 @@ func TestMountPoints_VolumeFrom(t *testing.T) {
 }
 
 func TestFirelensConfiguration(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	fls := &FirelensConfiguration{
@@ -1020,6 +1056,7 @@ func TestFirelensConfiguration(t *testing.T) {
 }
 
 func TestContainerDependency(t *testing.T) {
+	t.Parallel()
 	b := newTestBackend()
 
 	td, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{

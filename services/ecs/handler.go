@@ -518,7 +518,7 @@ type deploymentControllerInput struct {
 }
 
 type awsvpcConfigurationInput struct {
-	AssignPublicIp string   `json:"assignPublicIp,omitempty"` //nolint:revive,stylecheck // AWS API field name
+	AssignPublicIP string   `json:"assignPublicIp,omitempty"`
 	Subnets        []string `json:"subnets"`
 	SecurityGroups []string `json:"securityGroups,omitempty"`
 }
@@ -1077,7 +1077,7 @@ type deploymentControllerView struct {
 }
 
 type awsvpcConfigurationView struct {
-	AssignPublicIp string   `json:"assignPublicIp,omitempty"` //nolint:revive,stylecheck // AWS API field name
+	AssignPublicIP string   `json:"assignPublicIp,omitempty"`
 	Subnets        []string `json:"subnets"`
 	SecurityGroups []string `json:"securityGroups,omitempty"`
 }
@@ -1397,7 +1397,7 @@ func toNetworkConfiguration(in *networkConfigurationInput) *NetworkConfiguration
 		nc.AwsvpcConfiguration = &AwsvpcConfiguration{
 			Subnets:        in.AwsvpcConfiguration.Subnets,
 			SecurityGroups: in.AwsvpcConfiguration.SecurityGroups,
-			AssignPublicIp: in.AwsvpcConfiguration.AssignPublicIp,
+			AssignPublicIP: in.AwsvpcConfiguration.AssignPublicIP,
 		}
 	}
 
@@ -1416,7 +1416,7 @@ func toNetworkConfigurationView(nc *NetworkConfiguration) *networkConfigurationV
 		v.AwsvpcConfiguration = &awsvpcConfigurationView{
 			Subnets:        nc.AwsvpcConfiguration.Subnets,
 			SecurityGroups: nc.AwsvpcConfiguration.SecurityGroups,
-			AssignPublicIp: nc.AwsvpcConfiguration.AssignPublicIp,
+			AssignPublicIP: nc.AwsvpcConfiguration.AssignPublicIP,
 		}
 	}
 
