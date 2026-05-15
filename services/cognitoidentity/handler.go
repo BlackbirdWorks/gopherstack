@@ -448,7 +448,7 @@ func (h *Handler) handleGetCredentialsForIdentity(
 			AccessKeyID:  creds.AccessKeyID,
 			SecretKey:    creds.SecretAccessKey,
 			SessionToken: creds.SessionToken,
-			Expiration:   creds.Expiration.Unix(),
+			Expiration:   creds.Expiration.UnixMilli(),
 		},
 	}, nil
 }
@@ -478,9 +478,27 @@ func (h *Handler) handleGetOpenIDToken(
 	}, nil
 }
 
+type roleMappingRuleInput struct {
+	Claim     string `json:"Claim"`
+	MatchType string `json:"MatchType"`
+	Value     string `json:"Value"`
+	RoleARN   string `json:"RoleARN"`
+}
+
+type rulesConfigurationInput struct {
+	Rules []roleMappingRuleInput `json:"Rules"`
+}
+
+type roleMappingInput struct {
+	RulesConfiguration      *rulesConfigurationInput `json:"RulesConfiguration,omitempty"`
+	Type                    string                   `json:"Type"`
+	AmbiguousRoleResolution string                   `json:"AmbiguousRoleResolution,omitempty"`
+}
+
 type setIdentityPoolRolesInput struct {
-	Roles          map[string]string `json:"Roles"`
-	IdentityPoolID string            `json:"IdentityPoolId"`
+	Roles          map[string]string           `json:"Roles"`
+	RoleMappings   map[string]roleMappingInput `json:"RoleMappings"`
+	IdentityPoolID string                      `json:"IdentityPoolId"`
 }
 
 type setIdentityPoolRolesOutput struct{}
@@ -500,10 +518,35 @@ func (h *Handler) handleSetIdentityPoolRoles(
 		)
 	}
 
+	var roleMappings map[string]RoleMapping
+	if len(in.RoleMappings) > 0 {
+		roleMappings = make(map[string]RoleMapping, len(in.RoleMappings))
+
+		for provider, rm := range in.RoleMappings {
+			backendRM := RoleMapping{
+				Type:                    rm.Type,
+				AmbiguousRoleResolution: rm.AmbiguousRoleResolution,
+			}
+
+			if rm.RulesConfiguration != nil {
+				rules := make([]MappingRule, len(rm.RulesConfiguration.Rules))
+
+				for i, r := range rm.RulesConfiguration.Rules {
+					rules[i] = MappingRule(r)
+				}
+
+				backendRM.RulesConfiguration = &RulesConfiguration{Rules: rules}
+			}
+
+			roleMappings[provider] = backendRM
+		}
+	}
+
 	if err := h.Backend.SetIdentityPoolRoles(
 		in.IdentityPoolID,
 		in.Roles["authenticated"],
 		in.Roles["unauthenticated"],
+		roleMappings,
 	); err != nil {
 		return nil, err
 	}
@@ -515,9 +558,27 @@ type getIdentityPoolRolesInput struct {
 	IdentityPoolID string `json:"IdentityPoolId"`
 }
 
+type roleMappingRuleOutput struct {
+	Claim     string `json:"Claim"`
+	MatchType string `json:"MatchType"`
+	Value     string `json:"Value"`
+	RoleARN   string `json:"RoleARN"`
+}
+
+type rulesConfigurationOutput struct {
+	Rules []roleMappingRuleOutput `json:"Rules"`
+}
+
+type roleMappingOutput struct {
+	RulesConfiguration      *rulesConfigurationOutput `json:"RulesConfiguration,omitempty"`
+	Type                    string                    `json:"Type"`
+	AmbiguousRoleResolution string                    `json:"AmbiguousRoleResolution,omitempty"`
+}
+
 type getIdentityPoolRolesOutput struct {
-	Roles          map[string]string `json:"Roles"`
-	IdentityPoolID string            `json:"IdentityPoolId"`
+	Roles          map[string]string            `json:"Roles"`
+	RoleMappings   map[string]roleMappingOutput `json:"RoleMappings,omitempty"`
+	IdentityPoolID string                       `json:"IdentityPoolId"`
 }
 
 func (h *Handler) handleGetIdentityPoolRoles(
@@ -543,9 +604,34 @@ func (h *Handler) handleGetIdentityPoolRoles(
 		rolesMap["unauthenticated"] = roles.UnauthenticatedRoleARN
 	}
 
+	var outMappings map[string]roleMappingOutput
+	if len(roles.RoleMappings) > 0 {
+		outMappings = make(map[string]roleMappingOutput, len(roles.RoleMappings))
+
+		for provider, rm := range roles.RoleMappings {
+			outRM := roleMappingOutput{
+				Type:                    rm.Type,
+				AmbiguousRoleResolution: rm.AmbiguousRoleResolution,
+			}
+
+			if rm.RulesConfiguration != nil {
+				rules := make([]roleMappingRuleOutput, len(rm.RulesConfiguration.Rules))
+
+				for i, r := range rm.RulesConfiguration.Rules {
+					rules[i] = roleMappingRuleOutput(r)
+				}
+
+				outRM.RulesConfiguration = &rulesConfigurationOutput{Rules: rules}
+			}
+
+			outMappings[provider] = outRM
+		}
+	}
+
 	return &getIdentityPoolRolesOutput{
 		IdentityPoolID: in.IdentityPoolID,
 		Roles:          rolesMap,
+		RoleMappings:   outMappings,
 	}, nil
 }
 

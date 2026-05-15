@@ -439,7 +439,7 @@ func TestInMemoryBackend_SetGetIdentityPoolRoles(t *testing.T) {
 			authRoleARN := "arn:aws:iam::000000000000:role/CognitoAuthRole"
 			unauthRoleARN := "arn:aws:iam::000000000000:role/CognitoUnauthRole"
 
-			setErr := b.SetIdentityPoolRoles(poolID, authRoleARN, unauthRoleARN)
+			setErr := b.SetIdentityPoolRoles(poolID, authRoleARN, unauthRoleARN, nil)
 
 			if tt.wantErr {
 				require.Error(t, setErr)
@@ -536,7 +536,7 @@ func TestInMemoryBackend_SetIdentityPoolRoles_NotFound(t *testing.T) {
 
 	b := newTestBackend()
 
-	err := b.SetIdentityPoolRoles("us-east-1:nonexistent", "arn:aws:iam::000000000000:role/Auth", "")
+	err := b.SetIdentityPoolRoles("us-east-1:nonexistent", "arn:aws:iam::000000000000:role/Auth", "", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
 }
@@ -1249,11 +1249,12 @@ func TestInMemoryBackend_Refinement2_SetIdentityPoolRoles_MergePreservesExisting
 			pool.IdentityPoolID,
 			"arn:aws:iam::000000000000:role/Auth",
 			"arn:aws:iam::000000000000:role/Unauth",
+			nil,
 		),
 	)
 
 	// Update only the authenticated role – the unauthenticated role must be preserved.
-	require.NoError(t, b.SetIdentityPoolRoles(pool.IdentityPoolID, "arn:aws:iam::000000000000:role/AuthV2", ""))
+	require.NoError(t, b.SetIdentityPoolRoles(pool.IdentityPoolID, "arn:aws:iam::000000000000:role/AuthV2", "", nil))
 
 	roles, err := b.GetIdentityPoolRoles(pool.IdentityPoolID)
 	require.NoError(t, err)

@@ -1877,7 +1877,7 @@ func TestRefinement1_ListIdentities_MaxResultsValidation(t *testing.T) {
 		wantCode   int
 	}{
 		{name: "valid_60", maxResults: 60, wantCode: http.StatusOK},
-		{name: "valid_0_means_all", maxResults: 0, wantCode: http.StatusOK},
+		{name: "zero_rejected", maxResults: 0, wantCode: http.StatusBadRequest},
 		{name: "too_large_61", maxResults: 61, wantCode: http.StatusBadRequest},
 		{name: "negative", maxResults: -1, wantCode: http.StatusBadRequest},
 	}
