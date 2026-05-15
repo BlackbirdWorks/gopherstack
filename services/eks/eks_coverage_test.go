@@ -91,7 +91,7 @@ func TestEKS_FargateProfile_Lifecycle(t *testing.T) {
 
 	// Create fargate profile via backend, then test describe/delete via handler
 	b := eks.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateCluster("fg-cluster2", "1.32", "", nil)
+	_, err := b.CreateCluster("fg-cluster2", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	fp, err := b.CreateFargateProfile(
@@ -134,7 +134,7 @@ func TestEKS_FargateProfile_Handler(t *testing.T) {
 
 	// Create fargate profile directly in backend for handler to use
 	h.Backend.Reset()
-	_, err := h.Backend.CreateCluster("fg-h-cluster", "1.32", "", nil)
+	_, err := h.Backend.CreateCluster("fg-h-cluster", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = h.Backend.CreateFargateProfile(
@@ -408,7 +408,7 @@ func TestEKS_Insights_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	b := eks.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateCluster("insight-cluster", "1.32", "", nil)
+	_, err := b.CreateCluster("insight-cluster", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	// List insights
@@ -574,7 +574,7 @@ func TestEKS_Persistence_SubscriptionAndFargate(t *testing.T) {
 	t.Parallel()
 
 	b := eks.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateCluster("c1", "1.32", "", nil)
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateEksAnywhereSubscription("my-sub", 3, "Cluster", nil)

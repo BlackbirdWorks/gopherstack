@@ -16,7 +16,7 @@ import (
 func TestEKSDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.EKSHandler.Backend.CreateCluster("e2e-test-cluster", "1.32", "", nil)
+	_, err := stack.EKSHandler.Backend.CreateCluster("e2e-test-cluster", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)

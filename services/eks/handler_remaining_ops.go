@@ -103,6 +103,8 @@ func (h *Handler) handleListAddons(c *echo.Context, clusterName string) error {
 type updateAddonBody struct {
 	AddonVersion          string `json:"addonVersion"`
 	ServiceAccountRoleArn string `json:"serviceAccountRoleArn"`
+	ConfigurationValues   string `json:"configurationValues"`
+	ResolveConflicts      string `json:"resolveConflicts"`
 }
 
 func (h *Handler) handleUpdateAddon(c *echo.Context, clusterName, addonName string, body []byte) error {
@@ -113,7 +115,10 @@ func (h *Handler) handleUpdateAddon(c *echo.Context, clusterName, addonName stri
 		}
 	}
 
-	addon, err := h.Backend.UpdateAddon(clusterName, addonName, in.AddonVersion, in.ServiceAccountRoleArn)
+	addon, err := h.Backend.UpdateAddon(
+		clusterName, addonName, in.AddonVersion, in.ServiceAccountRoleArn,
+		in.ConfigurationValues, in.ResolveConflicts,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -173,6 +178,14 @@ func addonToJSON(a *Addon) map[string]any {
 		m["health"] = map[string]any{
 			"issues": a.Health.Issues,
 		}
+	}
+
+	if a.Configuration != "" {
+		m["configurationValues"] = a.Configuration
+	}
+
+	if a.ResolveConflicts != "" {
+		m["resolveConflicts"] = a.ResolveConflicts
 	}
 
 	return m
@@ -833,7 +846,7 @@ type updateClusterConfigBody struct {
 
 func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string, body []byte) error {
 	var in updateClusterConfigBody
-	var enabledLogTypes []string
+	var logEntries []ClusterLogEntry
 
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
@@ -841,15 +854,14 @@ func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string,
 		}
 
 		if in.Logging != nil {
-			for _, entry := range in.Logging.ClusterLogging {
-				if entry.Enabled {
-					enabledLogTypes = append(enabledLogTypes, entry.Types...)
-				}
+			logEntries = make([]ClusterLogEntry, len(in.Logging.ClusterLogging))
+			for i, entry := range in.Logging.ClusterLogging {
+				logEntries[i] = ClusterLogEntry{Types: entry.Types, Enabled: entry.Enabled}
 			}
 		}
 	}
 
-	update, err := h.Backend.UpdateClusterConfig(clusterName, enabledLogTypes)
+	update, err := h.Backend.UpdateClusterConfig(clusterName, logEntries)
 	if err != nil {
 		return h.handleError(c, err)
 	}
