@@ -16,12 +16,13 @@ import (
 	lambdaclientsdk "github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	dockerapibuild "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/build"
-	dockerclient "github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	dockerapibuild "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/build"
+	dockerclient "github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"

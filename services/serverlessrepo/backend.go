@@ -7,10 +7,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	"github.com/google/uuid"
 )
 
 // validNameRe matches AWS SAR-valid application names: alphanumeric and hyphens only.

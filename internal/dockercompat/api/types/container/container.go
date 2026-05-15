@@ -1,8 +1,9 @@
 package container
 
 import (
-	compatfilters "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/filters"
 	mobycontainer "github.com/moby/moby/api/types/container"
+
+	compatfilters "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/filters"
 )
 
 // Config aliases the Moby container config type.

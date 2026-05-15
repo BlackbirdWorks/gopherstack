@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 )
 
 func TestFaultStore_GetSetRules(t *testing.T) {

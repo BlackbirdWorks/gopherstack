@@ -3,9 +3,10 @@ package rds_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/rds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
 func newTestBackend(t *testing.T) *rds.InMemoryBackend {
@@ -53,10 +54,10 @@ func TestCreateEventSubscription(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if tt.name == "already exists" {
-				_, err := b.CreateEventSubscription(tt.subName, tt.snsARN, tt.sourceType, tt.sourceIDs)
+				_, err := b.CreateEventSubscription(tt.subName, tt.snsARN, tt.sourceType, tt.sourceIDs, nil)
 				require.NoError(t, err)
 			}
-			got, err := b.CreateEventSubscription(tt.subName, tt.snsARN, tt.sourceType, tt.sourceIDs)
+			got, err := b.CreateEventSubscription(tt.subName, tt.snsARN, tt.sourceType, tt.sourceIDs, nil)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrIs != nil {
@@ -90,7 +91,9 @@ func TestDeleteEventSubscription(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateEventSubscription(tt.subName, "arn:aws:sns:us-east-1:123456789012:topic", "", nil)
+				_, err := b.CreateEventSubscription(
+					tt.subName, "arn:aws:sns:us-east-1:123456789012:topic", "", nil, nil,
+				)
 				require.NoError(t, err)
 			}
 			got, err := b.DeleteEventSubscription(tt.subName)
@@ -123,9 +126,9 @@ func TestDescribeEventSubscriptions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
-			_, err := b.CreateEventSubscription("sub-1", "arn:aws:sns:us-east-1:123456789012:t", "", nil)
+			_, err := b.CreateEventSubscription("sub-1", "arn:aws:sns:us-east-1:123456789012:t", "", nil, nil)
 			require.NoError(t, err)
-			_, err = b.CreateEventSubscription("sub-2", "arn:aws:sns:us-east-1:123456789012:t", "", nil)
+			_, err = b.CreateEventSubscription("sub-2", "arn:aws:sns:us-east-1:123456789012:t", "", nil, nil)
 			require.NoError(t, err)
 			got, err := b.DescribeEventSubscriptions(tt.filter)
 			if tt.wantErr {
@@ -179,10 +182,10 @@ func TestModifyEventSubscription(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateEventSubscription(tt.subName, "arn:aws:sns:us-east-1:123456789012:old", "", nil)
+				_, err := b.CreateEventSubscription(tt.subName, "arn:aws:sns:us-east-1:123456789012:old", "", nil, nil)
 				require.NoError(t, err)
 			}
-			got, err := b.ModifyEventSubscription(tt.subName, tt.newSNS, tt.newSource, nil, tt.enabled)
+			got, err := b.ModifyEventSubscription(tt.subName, tt.newSNS, tt.newSource, nil, nil, tt.enabled)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, tt.wantErrIs)

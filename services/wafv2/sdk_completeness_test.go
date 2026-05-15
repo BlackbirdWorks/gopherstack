@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )

@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/sts"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
 func TestInMemoryBackend_SnapshotRestore(t *testing.T) {

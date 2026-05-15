@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
