@@ -34,6 +34,7 @@ var (
 	ErrNotFound               = errors.New("ResourceNotFoundException")
 	ErrAlreadyExists          = errors.New("ResourceAlreadyExistsException")
 	ErrInvalidState           = errors.New("InvalidStateException")
+	ErrResourceLimitExceeded  = errors.New("ResourceLimitExceededException")
 )
 
 const (
@@ -55,6 +56,10 @@ const (
 	maxArchiveNameLength = 48
 	// maxTargetsPerRule is the maximum number of targets allowed per rule (AWS default limit).
 	maxTargetsPerRule = 5
+	// maxEventBusesPerAccount is the AWS limit for custom event buses per account.
+	maxEventBusesPerAccount = 200
+	// maxRulesPerBus is the AWS limit for rules per event bus.
+	maxRulesPerBus = 300
 )
 
 type ruleIndexKey struct {
@@ -118,6 +123,13 @@ type StorageBackend interface {
 	UpdateEventBus(input UpdateEventBusInput) (*EventBus, error)
 	PutPermission(input PutPermissionInput) error
 	RemovePermission(input RemovePermissionInput) error
+	GetEventBusPolicy(eventBusName string) (string, error)
+	PutEventBusPolicy(input PutEventBusPolicyInput) error
+	CreatePipe(input CreatePipeInput) (*Pipe, error)
+	DeletePipe(name string) error
+	DescribePipe(name string) (*Pipe, error)
+	ListPipes(namePrefix, nextToken string) ([]Pipe, string, error)
+	UpdatePipe(input UpdatePipeInput) (*Pipe, error)
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -137,6 +149,8 @@ type InMemoryBackend struct {
 	partnerSources  map[string]*PartnerEventSource
 	archives        map[string]*Archive
 	archivedEvents  map[string][]EventEntry
+	busePolicies    map[string]*EventBusPolicy
+	pipes           map[string]*Pipe
 	workerSem       chan struct{}
 	ruleIndex       map[string]map[ruleIndexKey]map[string]*Rule
 	patternCache    sync.Map
@@ -185,6 +199,8 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		connections:     make(map[string]*Connection),
 		endpoints:       make(map[string]*Endpoint),
 		partnerSources:  make(map[string]*PartnerEventSource),
+		busePolicies:    make(map[string]*EventBusPolicy),
+		pipes:           make(map[string]*Pipe),
 		deliveryTargets: &DeliveryTargets{},
 		mu:              lockmetrics.New("eventbridge"),
 		ctx:             ctx,
@@ -409,6 +425,21 @@ func (b *InMemoryBackend) CreateEventBus(name, description string) (*EventBus, e
 		return nil, fmt.Errorf("%w: Event bus %s already exists", ErrEventBusAlreadyExists, name)
 	}
 
+	// Count custom buses (exclude the default bus against the limit).
+	customBusCount := 0
+	for busName := range b.buses {
+		if busName != defaultEventBusName {
+			customBusCount++
+		}
+	}
+	if customBusCount >= maxEventBusesPerAccount {
+		return nil, fmt.Errorf(
+			"%w: account has reached the maximum of %d custom event buses",
+			ErrResourceLimitExceeded,
+			maxEventBusesPerAccount,
+		)
+	}
+
 	bus := &EventBus{
 		Name:        name,
 		Arn:         b.busARN(name),
@@ -487,25 +518,43 @@ func (b *InMemoryBackend) DescribeEventBus(name string) (*EventBus, error) {
 	return &cp, nil
 }
 
-// PutRule creates or updates a rule on an event bus.
-func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
+// validatePutRuleInput validates the rule input fields before any locking.
+func validatePutRuleInput(input PutRuleInput) error {
 	if input.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
-	// AWS rejects rule names longer than 64 characters.
 	const maxRuleNameLength = 64
 	if len(input.Name) > maxRuleNameLength {
-		return nil, fmt.Errorf("%w: Name must not exceed %d characters",
-			ErrInvalidParameter, maxRuleNameLength)
+		return fmt.Errorf("%w: Name must not exceed %d characters", ErrInvalidParameter, maxRuleNameLength)
 	}
 
 	if input.EventPattern != "" && input.ScheduleExpression != "" {
-		return nil, fmt.Errorf("%w: ScheduleExpression and EventPattern are mutually exclusive", ErrInvalidParameter)
+		return fmt.Errorf("%w: ScheduleExpression and EventPattern are mutually exclusive", ErrInvalidParameter)
 	}
 
 	if input.EventPattern == "" && input.ScheduleExpression == "" {
-		return nil, fmt.Errorf("%w: either EventPattern or ScheduleExpression must be provided", ErrInvalidParameter)
+		return fmt.Errorf("%w: either EventPattern or ScheduleExpression must be provided", ErrInvalidParameter)
+	}
+
+	if input.ScheduleExpression != "" {
+		if _, err := parseScheduleExpression(input.ScheduleExpression); err != nil {
+			return fmt.Errorf(
+				"%w: invalid ScheduleExpression %q: %w",
+				ErrInvalidParameter,
+				input.ScheduleExpression,
+				err,
+			)
+		}
+	}
+
+	return nil
+}
+
+// PutRule creates or updates a rule on an event bus.
+func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
+	if err := validatePutRuleInput(input); err != nil {
+		return nil, err
 	}
 
 	busName := input.EventBusName
@@ -538,6 +587,18 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 		b.rules[busName] = make(map[string]*Rule)
 	}
 
+	// Enforce per-bus rule limit only for new rules (not updates).
+	if _, exists := b.rules[busName][input.Name]; !exists {
+		if len(b.rules[busName]) >= maxRulesPerBus {
+			return nil, fmt.Errorf(
+				"%w: event bus %s has reached the maximum of %d rules",
+				ErrResourceLimitExceeded,
+				busName,
+				maxRulesPerBus,
+			)
+		}
+	}
+
 	rule := &Rule{
 		Name:               input.Name,
 		Arn:                b.ruleARN(busName, input.Name),
@@ -547,6 +608,7 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 		Description:        input.Description,
 		ScheduleExpression: input.ScheduleExpression,
 		RoleArn:            input.RoleArn,
+		ManagedBy:          input.ManagedBy,
 		compiledPattern:    compiled,
 	}
 
@@ -714,6 +776,17 @@ func (b *InMemoryBackend) PutTargets(ruleName, eventBusName string, targets []Ta
 			})
 
 			continue
+		}
+		if t.InputTransformer != nil {
+			if err := validateInputTransformer(t.InputTransformer); err != nil {
+				failed = append(failed, FailedEntry{
+					TargetID:     t.ID,
+					ErrorCode:    "InvalidParameter",
+					ErrorMessage: err.Error(),
+				})
+
+				continue
+			}
 		}
 		cp := t
 		b.targets[key][t.ID] = &cp
@@ -915,9 +988,12 @@ func (b *InMemoryBackend) Reset() {
 	b.replays = make(map[string]*Replay)
 	b.apiDestinations = make(map[string]*APIDestination)
 	b.archives = make(map[string]*Archive)
+	b.archivedEvents = make(map[string][]EventEntry)
 	b.connections = make(map[string]*Connection)
 	b.endpoints = make(map[string]*Endpoint)
 	b.partnerSources = make(map[string]*PartnerEventSource)
+	b.busePolicies = make(map[string]*EventBusPolicy)
+	b.pipes = make(map[string]*Pipe)
 	b.ruleIndex = make(map[string]map[ruleIndexKey]map[string]*Rule)
 	b.patternCache = sync.Map{}
 
@@ -1734,11 +1810,34 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 		return nil, fmt.Errorf("%w: replay %s already exists", ErrAlreadyExists, input.ReplayName)
 	}
 
+	// Validate destination ARN points to a known event bus.
+	if input.Destination != nil && input.Destination.Arn != "" {
+		found := false
+		for _, bus := range b.buses {
+			if bus.Arn == input.Destination.Arn {
+				found = true
+
+				break
+			}
+		}
+		if !found {
+			b.mu.Unlock()
+
+			return nil, fmt.Errorf(
+				"%w: destination ARN %s does not match any event bus",
+				ErrInvalidParameter,
+				input.Destination.Arn,
+			)
+		}
+	}
+
 	// Find the archive by ARN (EventSourceArn points to an archive ARN).
 	var archiveName string
+	var archivePattern string
 	for name, archive := range b.archives {
 		if archive.ArchiveArn == input.EventSourceArn {
 			archiveName = name
+			archivePattern = archive.EventPattern
 
 			break
 		}
@@ -1756,11 +1855,8 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 	}
 	b.replays[input.ReplayName] = replay
 
-	// Collect archived events to replay (filtered by time range).
-	var eventsToReplay []EventEntry
-	if archiveName != "" {
-		eventsToReplay = append(eventsToReplay, b.archivedEvents[archiveName]...)
-	}
+	// Collect archived events to replay filtered by time window and event pattern.
+	eventsToReplay := b.filterArchivedEvents(archiveName, archivePattern, input.EventStartTime, input.EventEndTime)
 
 	dt := b.deliveryTargets
 	workerSem := b.workerSem
@@ -1775,6 +1871,46 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 	}
 
 	return &cp, nil
+}
+
+// filterArchivedEvents returns archived events for the named archive filtered by
+// time window [startTime, endTime) and optional event pattern.
+// Must be called with b.mu held for reading.
+func (b *InMemoryBackend) filterArchivedEvents(
+	archiveName, pattern string,
+	startTime, endTime time.Time,
+) []EventEntry {
+	if archiveName == "" {
+		return nil
+	}
+
+	raw := b.archivedEvents[archiveName]
+	if len(raw) == 0 {
+		return nil
+	}
+
+	result := make([]EventEntry, 0, len(raw))
+	for _, e := range raw {
+		t := time.Now()
+		if e.Time != nil {
+			t = *e.Time
+		}
+		if !startTime.IsZero() && t.Before(startTime) {
+			continue
+		}
+		if !endTime.IsZero() && !t.Before(endTime) {
+			continue
+		}
+		if pattern != "" {
+			envelope := buildEventEnvelope(e)
+			if !matchPattern(pattern, envelope) {
+				continue
+			}
+		}
+		result = append(result, e)
+	}
+
+	return result
 }
 
 // scheduleReplayWorker launches a background goroutine that delivers archived events
@@ -1883,14 +2019,298 @@ func (b *InMemoryBackend) UpdateEventBus(input UpdateEventBusInput) (*EventBus, 
 	return &cp, nil
 }
 
-// PutPermission is a no-op that simulates adding a resource-based policy statement.
-func (b *InMemoryBackend) PutPermission(_ PutPermissionInput) error {
+// PutPermission adds or replaces a resource-based policy statement on an event bus.
+func (b *InMemoryBackend) PutPermission(input PutPermissionInput) error {
+	busName := input.EventBusName
+	if busName == "" {
+		busName = defaultEventBusName
+	}
+
+	b.mu.Lock("PutPermission")
+	defer b.mu.Unlock()
+
+	if _, exists := b.buses[busName]; !exists {
+		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
+	}
+
+	policy := b.busePolicies[busName]
+	if policy == nil {
+		policy = &EventBusPolicy{Statements: make(map[string]*EventBusPolicyStatement)}
+		b.busePolicies[busName] = policy
+	}
+
+	// If a raw Policy JSON is provided it replaces the whole policy.
+	if input.Policy != "" {
+		var stmts []EventBusPolicyStatement
+		if err := json.Unmarshal([]byte(input.Policy), &stmts); err == nil {
+			policy.Statements = make(map[string]*EventBusPolicyStatement, len(stmts))
+			for i := range stmts {
+				s := stmts[i]
+				policy.Statements[s.Sid] = &s
+			}
+		}
+
+		return nil
+	}
+
+	if input.StatementID == "" {
+		return fmt.Errorf("%w: StatementId is required", ErrInvalidParameter)
+	}
+
+	stmt := &EventBusPolicyStatement{
+		Sid:       input.StatementID,
+		Effect:    "Allow",
+		Action:    input.Action,
+		Principal: input.Principal,
+	}
+	policy.Statements[input.StatementID] = stmt
+
 	return nil
 }
 
-// RemovePermission is a no-op that simulates removing a resource-based policy statement.
-func (b *InMemoryBackend) RemovePermission(_ RemovePermissionInput) error {
+// RemovePermission removes a resource-based policy statement from an event bus.
+func (b *InMemoryBackend) RemovePermission(input RemovePermissionInput) error {
+	busName := input.EventBusName
+	if busName == "" {
+		busName = defaultEventBusName
+	}
+
+	b.mu.Lock("RemovePermission")
+	defer b.mu.Unlock()
+
+	if _, exists := b.buses[busName]; !exists {
+		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
+	}
+
+	if input.RemoveAllPermissions {
+		delete(b.busePolicies, busName)
+
+		return nil
+	}
+
+	policy := b.busePolicies[busName]
+	if policy == nil {
+		return nil
+	}
+	delete(policy.Statements, input.StatementID)
+
 	return nil
+}
+
+// GetEventBusPolicy returns the resource-based policy for an event bus as JSON.
+func (b *InMemoryBackend) GetEventBusPolicy(eventBusName string) (string, error) {
+	busName := eventBusName
+	if busName == "" {
+		busName = defaultEventBusName
+	}
+
+	b.mu.RLock("GetEventBusPolicy")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.buses[busName]; !exists {
+		return "", fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
+	}
+
+	policy := b.busePolicies[busName]
+	if policy == nil || len(policy.Statements) == 0 {
+		return "", nil
+	}
+
+	stmts := make([]*EventBusPolicyStatement, 0, len(policy.Statements))
+	for _, s := range policy.Statements {
+		stmts = append(stmts, s)
+	}
+	data, err := json.Marshal(stmts)
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
+}
+
+// PutEventBusPolicy replaces the resource-based policy on an event bus with raw JSON.
+func (b *InMemoryBackend) PutEventBusPolicy(input PutEventBusPolicyInput) error {
+	busName := input.EventBusName
+	if busName == "" {
+		busName = defaultEventBusName
+	}
+
+	b.mu.Lock("PutEventBusPolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.buses[busName]; !exists {
+		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
+	}
+
+	if input.Policy == "" {
+		delete(b.busePolicies, busName)
+
+		return nil
+	}
+
+	var stmts []EventBusPolicyStatement
+	if err := json.Unmarshal([]byte(input.Policy), &stmts); err != nil {
+		return fmt.Errorf("%w: Policy must be valid JSON: %w", ErrInvalidParameter, err)
+	}
+
+	policy := &EventBusPolicy{Statements: make(map[string]*EventBusPolicyStatement, len(stmts))}
+	for i := range stmts {
+		s := stmts[i]
+		policy.Statements[s.Sid] = &s
+	}
+	b.busePolicies[busName] = policy
+
+	return nil
+}
+
+// pipeARN builds an ARN for an EventBridge Pipe.
+func (b *InMemoryBackend) pipeARN(name string) string {
+	return arn.Build("events", b.region, b.accountID, "pipe/"+name)
+}
+
+// CreatePipe creates a new EventBridge Pipe.
+func (b *InMemoryBackend) CreatePipe(input CreatePipeInput) (*Pipe, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+	if input.SourceArn == "" {
+		return nil, fmt.Errorf("%w: SourceArn is required", ErrInvalidParameter)
+	}
+	if input.TargetArn == "" {
+		return nil, fmt.Errorf("%w: TargetArn is required", ErrInvalidParameter)
+	}
+	if input.RoleArn == "" {
+		return nil, fmt.Errorf("%w: RoleArn is required", ErrInvalidParameter)
+	}
+
+	desiredState := input.DesiredState
+	if desiredState == "" {
+		desiredState = "RUNNING"
+	}
+
+	b.mu.Lock("CreatePipe")
+	defer b.mu.Unlock()
+
+	if _, exists := b.pipes[input.Name]; exists {
+		return nil, fmt.Errorf("%w: pipe %s already exists", ErrAlreadyExists, input.Name)
+	}
+
+	now := time.Now()
+	pipe := &Pipe{
+		Arn:              b.pipeARN(input.Name),
+		Name:             input.Name,
+		Description:      input.Description,
+		DesiredState:     desiredState,
+		CurrentState:     "CREATING",
+		SourceArn:        input.SourceArn,
+		TargetArn:        input.TargetArn,
+		RoleArn:          input.RoleArn,
+		EnrichmentArn:    input.EnrichmentArn,
+		CreationTime:     now,
+		LastModifiedTime: now,
+	}
+	b.pipes[input.Name] = pipe
+
+	cp := *pipe
+	// Transition CREATING → RUNNING immediately (in-process simulation).
+	pipe.CurrentState = desiredState
+
+	return &cp, nil
+}
+
+// DeletePipe removes an EventBridge Pipe.
+func (b *InMemoryBackend) DeletePipe(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeletePipe")
+	defer b.mu.Unlock()
+
+	pipe, exists := b.pipes[name]
+	if !exists {
+		return fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
+	}
+
+	pipe.CurrentState = "DELETING"
+	delete(b.pipes, name)
+
+	return nil
+}
+
+// DescribePipe returns a single EventBridge Pipe by name.
+func (b *InMemoryBackend) DescribePipe(name string) (*Pipe, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribePipe")
+	defer b.mu.RUnlock()
+
+	pipe, exists := b.pipes[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
+	}
+
+	cp := *pipe
+
+	return &cp, nil
+}
+
+// ListPipes returns EventBridge Pipes optionally filtered by name prefix, with pagination.
+func (b *InMemoryBackend) ListPipes(namePrefix, nextToken string) ([]Pipe, string, error) {
+	b.mu.RLock("ListPipes")
+	defer b.mu.RUnlock()
+
+	all := make([]Pipe, 0, len(b.pipes))
+	for _, p := range b.pipes {
+		if namePrefix == "" || strings.HasPrefix(p.Name, namePrefix) {
+			all = append(all, *p)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	page, outToken := paginate(all, nextToken)
+
+	return page, outToken, nil
+}
+
+// UpdatePipe updates an existing EventBridge Pipe.
+func (b *InMemoryBackend) UpdatePipe(input UpdatePipeInput) (*Pipe, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("UpdatePipe")
+	defer b.mu.Unlock()
+
+	pipe, exists := b.pipes[input.Name]
+	if !exists {
+		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, input.Name)
+	}
+
+	if input.Description != "" {
+		pipe.Description = input.Description
+	}
+	if input.RoleArn != "" {
+		pipe.RoleArn = input.RoleArn
+	}
+	if input.TargetArn != "" {
+		pipe.TargetArn = input.TargetArn
+	}
+	if input.EnrichmentArn != "" {
+		pipe.EnrichmentArn = input.EnrichmentArn
+	}
+	if input.DesiredState != "" {
+		pipe.DesiredState = input.DesiredState
+		pipe.CurrentState = input.DesiredState
+	}
+	pipe.LastModifiedTime = time.Now()
+
+	cp := *pipe
+
+	return &cp, nil
 }
 
 // captureEventInArchives stores the entry in any archive whose EventSourceArn

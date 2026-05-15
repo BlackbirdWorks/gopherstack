@@ -110,6 +110,19 @@ func (b *InMemoryBackend) PatternCacheSize() int {
 	return size
 }
 
+// SetJanitorNow overrides the clock function used by ArchiveJanitor for testing.
+func (j *ArchiveJanitor) SetNow(now time.Time) {
+	j.now = func() time.Time { return now }
+}
+
+// ArchivedEventCount returns the number of archived events for a given archive name.
+func (b *InMemoryBackend) ArchivedEventCount(archiveName string) int {
+	b.mu.RLock("ArchivedEventCount")
+	defer b.mu.RUnlock()
+
+	return len(b.archivedEvents[archiveName])
+}
+
 // SetArchiveCreationTimeForTest overrides an archive creation time.
 func (b *InMemoryBackend) SetArchiveCreationTimeForTest(name string, creationTime time.Time) error {
 	b.mu.Lock("SetArchiveCreationTimeForTest")

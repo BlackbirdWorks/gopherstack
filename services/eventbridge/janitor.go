@@ -62,6 +62,7 @@ func (j *ArchiveJanitor) SweepOnce(ctx context.Context) {
 		}
 
 		delete(j.Backend.archives, name)
+		delete(j.Backend.archivedEvents, name)
 		count++
 	}
 	j.Backend.mu.Unlock()
