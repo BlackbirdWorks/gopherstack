@@ -980,6 +980,7 @@ func clusterToJSON(c *Cluster) map[string]any {
 }
 
 // nodegroupToJSON converts a Nodegroup to a JSON-serializable map.
+// nodegroupToJSON converts a Nodegroup to a JSON-serializable map.
 func nodegroupToJSON(ng *Nodegroup) map[string]any {
 	m := map[string]any{
 		"nodegroupName": ng.NodegroupName,
@@ -993,6 +994,13 @@ func nodegroupToJSON(ng *Nodegroup) map[string]any {
 			"maxSize":     ng.MaxSize,
 		},
 	}
+	appendNodegroupCoreFields(ng, m)
+	appendNodegroupOptionalFields(ng, m)
+
+	return m
+}
+
+func appendNodegroupCoreFields(ng *Nodegroup, m map[string]any) {
 	if ng.AMIType != "" {
 		m["amiType"] = ng.AMIType
 	}
@@ -1011,6 +1019,9 @@ func nodegroupToJSON(ng *Nodegroup) map[string]any {
 	if ng.ReleaseVersion != "" {
 		m["releaseVersion"] = ng.ReleaseVersion
 	}
+}
+
+func appendNodegroupOptionalFields(ng *Nodegroup, m map[string]any) {
 	if len(ng.Subnets) > 0 {
 		m["subnets"] = ng.Subnets
 	}
@@ -1024,37 +1035,50 @@ func nodegroupToJSON(ng *Nodegroup) map[string]any {
 		m["diskSize"] = ng.DiskSize
 	}
 	if ng.RemoteAccess != nil {
-		ra := map[string]any{}
-		if ng.RemoteAccess.EC2SSHKey != "" {
-			ra["ec2SshKey"] = ng.RemoteAccess.EC2SSHKey
-		}
-		if len(ng.RemoteAccess.SourceSecurityGroups) > 0 {
-			ra["sourceSecurityGroups"] = ng.RemoteAccess.SourceSecurityGroups
-		}
-		m["remoteAccess"] = ra
+		m["remoteAccess"] = remoteAccessToJSON(ng.RemoteAccess)
 	}
 	if ng.LaunchTemplate != nil {
-		lt := map[string]any{}
-		if ng.LaunchTemplate.ID != "" {
-			lt["id"] = ng.LaunchTemplate.ID
-		}
-		if ng.LaunchTemplate.Name != "" {
-			lt["name"] = ng.LaunchTemplate.Name
-		}
-		if ng.LaunchTemplate.Version != "" {
-			lt["version"] = ng.LaunchTemplate.Version
-		}
-		m["launchTemplate"] = lt
+		m["launchTemplate"] = launchTemplateToJSON(ng.LaunchTemplate)
 	}
 	if ng.Resources != nil && len(ng.Resources.AutoScalingGroups) > 0 {
-		asgs := make([]map[string]any, len(ng.Resources.AutoScalingGroups))
-		for i, asg := range ng.Resources.AutoScalingGroups {
-			asgs[i] = map[string]any{"name": asg.Name}
-		}
-		m["resources"] = map[string]any{"autoScalingGroups": asgs}
+		m["resources"] = nodegroupResourcesToJSON(ng.Resources)
+	}
+}
+
+func remoteAccessToJSON(ra *RemoteAccess) map[string]any {
+	m := map[string]any{}
+	if ra.EC2SSHKey != "" {
+		m["ec2SshKey"] = ra.EC2SSHKey
+	}
+	if len(ra.SourceSecurityGroups) > 0 {
+		m["sourceSecurityGroups"] = ra.SourceSecurityGroups
 	}
 
 	return m
+}
+
+func launchTemplateToJSON(lt *LaunchTemplate) map[string]any {
+	m := map[string]any{}
+	if lt.ID != "" {
+		m["id"] = lt.ID
+	}
+	if lt.Name != "" {
+		m["name"] = lt.Name
+	}
+	if lt.Version != "" {
+		m["version"] = lt.Version
+	}
+
+	return m
+}
+
+func nodegroupResourcesToJSON(res *NodegroupResources) map[string]any {
+	asgs := make([]map[string]any, len(res.AutoScalingGroups))
+	for i, asg := range res.AutoScalingGroups {
+		asgs[i] = map[string]any{"name": asg.Name}
+	}
+
+	return map[string]any{"autoScalingGroups": asgs}
 }
 
 // --- Cluster handlers ---
@@ -1178,21 +1202,21 @@ type launchTemplateJSON struct {
 }
 
 type createNodegroupBody struct {
-	Tags           map[string]string  `json:"tags"`
-	Labels         map[string]string  `json:"labels"`
-	RemoteAccess   *remoteAccessJSON  `json:"remoteAccess"`
-	LaunchTemplate *launchTemplateJSON `json:"launchTemplate"`
-	NodegroupName  string             `json:"nodegroupName"`
-	NodeRole       string             `json:"nodeRole"`
-	AMIType        string             `json:"amiType"`
-	CapacityType   string             `json:"capacityType"`
-	Version        string             `json:"version"`
-	ReleaseVersion string             `json:"releaseVersion"`
-	InstanceTypes  []string           `json:"instanceTypes"`
-	Subnets        []string           `json:"subnets"`
+	Tags           map[string]string    `json:"tags"`
+	Labels         map[string]string    `json:"labels"`
+	RemoteAccess   *remoteAccessJSON    `json:"remoteAccess"`
+	LaunchTemplate *launchTemplateJSON  `json:"launchTemplate"`
+	NodegroupName  string               `json:"nodegroupName"`
+	NodeRole       string               `json:"nodeRole"`
+	AMIType        string               `json:"amiType"`
+	CapacityType   string               `json:"capacityType"`
+	Version        string               `json:"version"`
+	ReleaseVersion string               `json:"releaseVersion"`
+	InstanceTypes  []string             `json:"instanceTypes"`
+	Subnets        []string             `json:"subnets"`
 	Taints         []nodegroupTaintJSON `json:"taints"`
-	ScalingConfig  scalingConfigJSON  `json:"scalingConfig"`
-	DiskSize       int32              `json:"diskSize"`
+	ScalingConfig  scalingConfigJSON    `json:"scalingConfig"`
+	DiskSize       int32                `json:"diskSize"`
 }
 
 func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, body []byte) error {
@@ -1207,7 +1231,7 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 
 	taints := make([]NodegroupTaint, len(in.Taints))
 	for i, t := range in.Taints {
-		taints[i] = NodegroupTaint{Key: t.Key, Value: t.Value, Effect: t.Effect}
+		taints[i] = NodegroupTaint(t)
 	}
 
 	var remoteAccess *RemoteAccess

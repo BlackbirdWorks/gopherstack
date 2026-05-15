@@ -160,7 +160,7 @@ func (b *InMemoryBackend) UpdateAddon(
 		return nil, fmt.Errorf("%w: addon %s not found in cluster %s", ErrNotFound, addonName, clusterName)
 	}
 
-	if resolveConflicts != "" && !validResolveConflicts[resolveConflicts] {
+	if resolveConflicts != "" && !isValidResolveConflicts(resolveConflicts) {
 		return nil, fmt.Errorf(
 			"%w: resolveConflicts %q must be one of OVERWRITE, NONE, PRESERVE",
 			ErrValidation, resolveConflicts,
@@ -1028,36 +1028,7 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, logEntries []C
 	}
 
 	if logEntries != nil {
-		merged := make(map[string]bool)
-		for _, existing := range c.ClusterLogging {
-			if existing.Enabled {
-				for _, t := range existing.Types {
-					merged[t] = true
-				}
-			}
-		}
-
-		for _, entry := range logEntries {
-			for _, t := range entry.Types {
-				if entry.Enabled {
-					merged[t] = true
-				} else {
-					delete(merged, t)
-				}
-			}
-		}
-
-		if len(merged) == 0 {
-			c.ClusterLogging = nil
-		} else {
-			enabled := make([]string, 0, len(merged))
-			for t := range merged {
-				enabled = append(enabled, t)
-			}
-
-			sort.Strings(enabled)
-			c.ClusterLogging = []ClusterLogEntry{{Types: enabled, Enabled: true}}
-		}
+		c.ClusterLogging = mergeClusterLogEntries(c.ClusterLogging, logEntries)
 	}
 
 	return &Update{
@@ -1067,6 +1038,43 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, logEntries []C
 		Type:        "ConfigUpdate",
 		CreatedAt:   time.Now().UTC(),
 	}, nil
+}
+
+// mergeClusterLogEntries applies logEntries on top of existing, enabling or disabling
+// individual log types, and returns the merged structured result.
+func mergeClusterLogEntries(existing []ClusterLogEntry, updates []ClusterLogEntry) []ClusterLogEntry {
+	merged := make(map[string]bool)
+
+	for _, e := range existing {
+		if e.Enabled {
+			for _, t := range e.Types {
+				merged[t] = true
+			}
+		}
+	}
+
+	for _, entry := range updates {
+		for _, t := range entry.Types {
+			if entry.Enabled {
+				merged[t] = true
+			} else {
+				delete(merged, t)
+			}
+		}
+	}
+
+	if len(merged) == 0 {
+		return nil
+	}
+
+	enabled := make([]string, 0, len(merged))
+	for t := range merged {
+		enabled = append(enabled, t)
+	}
+
+	sort.Strings(enabled)
+
+	return []ClusterLogEntry{{Types: enabled, Enabled: true}}
 }
 
 // UpdateClusterVersion updates the cluster Kubernetes version.

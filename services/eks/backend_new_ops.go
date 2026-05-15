@@ -362,11 +362,9 @@ const (
 	resolveConflictsPreserve  = "PRESERVE"
 )
 
-// validResolveConflicts is the set of accepted resolveConflicts values.
-var validResolveConflicts = map[string]bool{
-	resolveConflictsOverwrite: true,
-	resolveConflictsNone:      true,
-	resolveConflictsPreserve:  true,
+// isValidResolveConflicts reports whether s is an accepted resolveConflicts value.
+func isValidResolveConflicts(s string) bool {
+	return s == resolveConflictsOverwrite || s == resolveConflictsNone || s == resolveConflictsPreserve
 }
 
 // CreateAddon creates a new managed add-on in a cluster.
@@ -389,7 +387,7 @@ func (b *InMemoryBackend) CreateAddon(
 		return nil, fmt.Errorf("%w: addon %s already exists in cluster %s", ErrAlreadyExists, addonName, clusterName)
 	}
 
-	if resolveConflicts != "" && !validResolveConflicts[resolveConflicts] {
+	if resolveConflicts != "" && !isValidResolveConflicts(resolveConflicts) {
 		return nil, fmt.Errorf(
 			"%w: resolveConflicts %q must be one of OVERWRITE, NONE, PRESERVE",
 			ErrValidation, resolveConflicts,

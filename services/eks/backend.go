@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -935,9 +936,7 @@ func cloneStringMap(m map[string]string) map[string]string {
 	}
 
 	cp := make(map[string]string, len(m))
-	for k, v := range m {
-		cp[k] = v
-	}
+	maps.Copy(cp, m)
 
 	return cp
 }

@@ -500,7 +500,9 @@ func TestRefinement1_ResetWithTaggedResources(t *testing.T) {
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, map[string]string{"a": "1"})
 	require.NoError(t, err)
 
-	_, err = b.CreateNodegroup("c1", "ng1", "", "", "", "", "", nil, 1, 1, 2, eks.NodegroupInput{}, map[string]string{"b": "2"})
+	_, err = b.CreateNodegroup(
+		"c1", "ng1", "", "", "", "", "", nil, 1, 1, 2, eks.NodegroupInput{}, map[string]string{"b": "2"},
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123:role/r", "STANDARD", "", nil)
