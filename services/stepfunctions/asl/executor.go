@@ -208,23 +208,22 @@ func (c *jsonPathCache) store(path string, parts []string) {
 
 // Executor runs an ASL state machine.
 type Executor struct {
-	sm       *StateMachine
-	lambda   LambdaInvoker
-	sqs      SQSIntegration
-	sns      SNSIntegration
-	dynamodb DynamoDBIntegration
-	history  HistoryRecorder
-	activity ActivityInvoker
-	callback TaskTokenCallbackInvoker
-	s3       S3Reader
-	// execSem limits the total number of concurrently running Parallel branches.
-	execSem chan struct{}
-	// jsonPathCache stores parsed JSONPath segments for reuse across executions.
+	s3            S3Reader
+	callback      TaskTokenCallbackInvoker
+	sqs           SQSIntegration
+	sns           SNSIntegration
+	dynamodb      DynamoDBIntegration
+	history       HistoryRecorder
+	lambda        LambdaInvoker
+	activity      ActivityInvoker
+	mapItemValue  any
+	execSem       chan struct{}
 	jsonPathCache *jsonPathCache
-	// execMeta carries `$$.Execution.*` and `$$.StateMachine.*` context for `$$` paths.
-	execMeta executionMeta
-	// branchName, if set, is exposed as `$$.Parallel.BranchName`/`$$.Execution.BranchName`.
-	branchName string
+	sm            *StateMachine
+	execMeta      executionMeta
+	branchName    string
+	mapItemIdx    int
+	inMapItem     bool
 }
 
 // executionMeta is the subset of context object data that ASL exposes via `$$`.
@@ -281,7 +280,21 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		jsonPathCache: e.jsonPathCache,
 		execMeta:      e.execMeta,
 		branchName:    e.branchName,
+		inMapItem:     e.inMapItem,
+		mapItemIdx:    e.mapItemIdx,
+		mapItemValue:  e.mapItemValue,
 	}
+}
+
+// newMapItemExecutor creates a sub-executor for a single Map state iteration.
+// It exposes `$$.Map.Item.Index` and `$$.Map.Item.Value` in the context object.
+func (e *Executor) newMapItemExecutor(sm *StateMachine, idx int, itemValue any) *Executor {
+	sub := e.newSubExecutor(sm)
+	sub.inMapItem = true
+	sub.mapItemIdx = idx
+	sub.mapItemValue = itemValue
+
+	return sub
 }
 
 // newBranchExecutor creates a sub-executor whose `$$.Parallel.BranchName` and
@@ -329,6 +342,15 @@ func (e *Executor) buildContextObject() map[string]any {
 
 	if e.branchName != "" {
 		ctx["Parallel"] = map[string]any{"BranchName": e.branchName}
+	}
+
+	if e.inMapItem {
+		ctx["Map"] = map[string]any{
+			"Item": map[string]any{
+				"Index": float64(e.mapItemIdx),
+				"Value": e.mapItemValue,
+			},
+		}
 	}
 
 	return ctx
@@ -1356,6 +1378,7 @@ func applyMapItemSelector(itemSelector json.RawMessage, items []any) ([]any, err
 }
 
 // runMapItem executes a single map iteration item in the sub-executor.
+// The sub-executor exposes `$$.Map.Item.Index` and `$$.Map.Item.Value` via the context.
 func (e *Executor) runMapItem(
 	ctx context.Context,
 	executionARN string,
@@ -1365,7 +1388,7 @@ func (e *Executor) runMapItem(
 	results []any,
 	errs []error,
 ) {
-	exec := e.newSubExecutor(iterator)
+	exec := e.newMapItemExecutor(iterator, idx, it)
 
 	res, execErr := exec.Execute(ctx, executionARN, marshalInput(it))
 	if execErr != nil {

@@ -65,7 +65,7 @@ func TestSetStateMachineConfigurations(t *testing.T) {
 
 			backend := stepfunctions.NewInMemoryBackend()
 			arn := tt.setup(backend)
-			err := backend.SetStateMachineConfigurations(arn, tt.tracing, tt.logging)
+			err := backend.SetStateMachineConfigurations(arn, tt.tracing, tt.logging, nil)
 			if tt.wantErr {
 				require.Error(t, err)
 
