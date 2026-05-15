@@ -2,12 +2,20 @@ package sns
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha1" //nolint:gosec // AWS SNS SignatureVersion=1 requires SHA-1
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
+	"math/big"
 	"net/http"
 	"regexp"
 	"sort"
@@ -253,6 +261,96 @@ type SMSDelivery struct {
 	MessageID   string
 }
 
+// notificationSigner holds the RSA key pair and self-signed certificate used to
+// sign SNS HTTP/HTTPS notification envelopes per AWS SignatureVersion=1 spec.
+// The certificate is served at the URL stored in certURL so subscribers can
+// verify signatures without contacting the real AWS endpoint.
+type notificationSigner struct {
+	privateKey *rsa.PrivateKey
+	certPEM    []byte // PEM-encoded DER certificate, served at certURL
+	certURL    string // URL where certPEM is accessible (configurable for tests)
+}
+
+// newNotificationSigner generates a fresh RSA-2048 key pair and a self-signed
+// x.509 certificate. The returned signer is valid for the lifetime of the
+// backend instance.
+func newNotificationSigner() *notificationSigner {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		// Key generation failure is unrecoverable; panic with a clear message
+		// rather than silently falling back to mock signatures.
+		panic("sns: failed to generate RSA key for notification signing: " + err.Error())
+	}
+
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Gopherstack SNS Mock"},
+			CommonName:   "SimpleNotificationService",
+		},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		panic("sns: failed to create self-signed cert: " + err.Error())
+	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+	return &notificationSigner{
+		privateKey: key,
+		certPEM:    certPEM,
+		// certURL is set later via SetSigningCertBaseURL when the server address is known.
+		certURL: "https://sns.us-east-1.amazonaws.com/SimpleNotificationService.pem",
+	}
+}
+
+// sign computes the RSA-SHA1 signature of the canonical notification string
+// per AWS SNS SignatureVersion=1 and returns it base64-encoded.
+func (s *notificationSigner) sign(canonical string) string {
+	//nolint:gosec // SHA-1 is mandated by the AWS SignatureVersion=1 spec
+	h := sha1.Sum([]byte(canonical))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA1, h[:])
+	if err != nil {
+		return "SIGN-ERROR"
+	}
+
+	return base64.StdEncoding.EncodeToString(sig)
+}
+
+// canonicalNotificationString builds the string-to-sign for a Notification
+// message per the AWS SNS message-signing specification. Fields are included
+// in alphabetical order; Subject is omitted when empty.
+func canonicalNotificationString(msgID, topicARN, subject, message, timestamp string) string {
+	type field struct{ k, v string }
+	fields := []field{
+		{"Message", message},
+		{"MessageId", msgID},
+		{"Timestamp", timestamp},
+		{"TopicArn", topicARN},
+		{"Type", "Notification"},
+	}
+	if subject != "" {
+		fields = append(fields, field{"Subject", subject})
+	}
+
+	sort.Slice(fields, func(i, j int) bool { return fields[i].k < fields[j].k })
+
+	var sb strings.Builder
+	for _, f := range fields {
+		sb.WriteString(f.k)
+		sb.WriteByte('\n')
+		sb.WriteString(f.v)
+		sb.WriteByte('\n')
+	}
+
+	return sb.String()
+}
+
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
@@ -268,6 +366,7 @@ type InMemoryBackend struct {
 	mu                   *lockmetrics.RWMutex
 	subscriptions        map[string]*Subscription
 	platformEndpoints    map[string]*PlatformEndpoint
+	signer               *notificationSigner
 	workerSem            chan struct{}
 	accountID            string
 	region               string
@@ -312,6 +411,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		mu:                   lockmetrics.New("sns"),
 		httpClient:           &http.Client{Timeout: snsHTTPTimeout},
 		workerSem:            make(chan struct{}, snsMaxConcurrentDeliveries),
+		signer:               newNotificationSigner(),
 	}
 }
 
@@ -322,6 +422,22 @@ func (b *InMemoryBackend) SetHTTPDeliveryClient(c *http.Client) {
 	defer b.mu.Unlock()
 
 	b.httpClient = c
+}
+
+// SigningCertPEM returns the PEM-encoded self-signed certificate used to verify
+// HTTP/HTTPS notification signatures. Tests can call this to verify that a
+// notification's Signature field is a valid RSA-SHA1 signature over the
+// canonical notification string.
+func (b *InMemoryBackend) SigningCertPEM() []byte {
+	return b.signer.certPEM
+}
+
+// SetSigningCertBaseURL configures the URL embedded in the SigningCertURL field
+// of HTTP/HTTPS notification envelopes. Call this once the server address is
+// known so that subscribers can retrieve the verification certificate.
+// The URL should point to the mock server's /SimpleNotificationService.pem path.
+func (b *InMemoryBackend) SetSigningCertBaseURL(baseURL string) {
+	b.signer.certURL = strings.TrimRight(baseURL, "/") + "/SimpleNotificationService.pem"
 }
 
 // SetPublishEmitter registers an event emitter that fires when a message is published.
@@ -875,6 +991,7 @@ type httpDelivery struct {
 	messageID       string
 	topicARN        string
 	subscriptionARN string
+	signer          *notificationSigner // nil disables signing
 	rawDelivery     bool
 }
 
@@ -1307,10 +1424,12 @@ func (b *InMemoryBackend) Publish(
 	// Build subscription snapshot and collect HTTP deliveries — all under RLock.
 	targets := b.collectPublishTargets(topicArn, subject, resolveMsg, attrs)
 
-	// Annotate HTTP deliveries with messageID and topicARN for SNS envelope/headers.
+	// Annotate HTTP deliveries with messageID, topicARN, and signer for SNS envelope/headers.
+	signer := b.signer
 	for i := range targets.httpDeliveries {
 		targets.httpDeliveries[i].messageID = messageID
 		targets.httpDeliveries[i].topicARN = topicArn
+		targets.httpDeliveries[i].signer = signer
 	}
 
 	// Capture emitter and httpClient under the read lock to avoid data races
@@ -1333,11 +1452,17 @@ func (b *InMemoryBackend) Publish(
 	// HTTP subscriptions for this Publish call are scheduled or none are,
 	// avoiding partial delivery when shutdown is in progress.
 	if !b.closing.Load() {
+		ctx := b.svcCtx
 		for _, d := range targets.httpDeliveries {
 			b.deliveryWg.Go(func() {
-				b.workerSem <- struct{}{} // wait for a delivery slot
-				defer func() { <-b.workerSem }()
-				deliverHTTPWithMeta(b.svcCtx, d, client)
+				select {
+				case b.workerSem <- struct{}{}:
+					defer func() { <-b.workerSem }()
+					deliverHTTPWithMeta(ctx, d, client)
+				case <-ctx.Done():
+					// Service is shutting down; drop this delivery rather than
+					// blocking indefinitely on a full semaphore.
+				}
 			})
 		}
 	}
@@ -1742,17 +1867,28 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 	// delivers to http/https subscribers so that notification handling libraries
 	// (e.g. aws-sns-body-parser) can parse the payload correctly.
 	if !d.rawDelivery && d.messageID != "" {
+		timestamp := time.Now().UTC().Format(time.RFC3339)
+
+		certURL := "https://sns.us-east-1.amazonaws.com/SimpleNotificationService.pem"
+		signature := "MOCK-SIGNATURE"
+		if d.signer != nil {
+			certURL = d.signer.certURL
+			canonical := canonicalNotificationString(
+				d.messageID, d.topicARN, d.subject, d.body, timestamp,
+			)
+			signature = d.signer.sign(canonical)
+		}
+
 		env := snsHTTPNotification{
 			Type:             "Notification",
 			MessageID:        d.messageID,
 			TopicArn:         d.topicARN,
 			Message:          d.body,
-			Timestamp:        time.Now().UTC().Format(time.RFC3339),
+			Timestamp:        timestamp,
 			SignatureVersion: "1",
-			// Signature fields are placeholders — the mock does not sign messages.
-			Signature:      "MOCK-SIGNATURE",
-			SigningCertURL: "https://sns.us-east-1.amazonaws.com/SimpleNotificationService.pem",
-			UnsubscribeURL: "https://sns.us-east-1.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + d.subscriptionARN,
+			Signature:        signature,
+			SigningCertURL:   certURL,
+			UnsubscribeURL:   "https://sns.us-east-1.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + d.subscriptionARN,
 		}
 		if d.subject != "" {
 			env.Subject = d.subject
