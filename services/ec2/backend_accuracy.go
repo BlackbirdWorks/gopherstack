@@ -117,7 +117,7 @@ func (b *InMemoryBackend) SetVolumeEncryption(
 // spotPriceBaseTable holds per-instance-type baseline prices in USD/hr.
 // Values are approximate AWS on-demand prices used as a seed for spot history.
 //
-//nolint:gochecknoglobals // lookup table
+//nolint:gochecknoglobals,mnd // lookup table of AWS published prices
 var spotPriceBaseTable = map[string]float64{
 	"t2.micro":                   0.0116,
 	"t2.small":                   0.023,
