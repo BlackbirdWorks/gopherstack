@@ -1493,7 +1493,7 @@ func (h *Handler) handleDeletePackageVersions(
 		failedList = append(failedList, map[string]string{keyVersion: v, "errorCode": code})
 	}
 
-	successList := make([]map[string]string, 0)
+	successList := make([]map[string]string, 0, len(in.Versions))
 	for _, v := range in.Versions {
 		if _, ok := failed[v]; !ok {
 			successList = append(successList, map[string]string{keyVersion: v, keyStatusField: "Deleted"})
@@ -1548,7 +1548,7 @@ func (h *Handler) handleCopyPackageVersions(
 		failedList = append(failedList, map[string]string{keyVersion: v, "errorCode": code})
 	}
 
-	successList := make([]map[string]string, 0)
+	successList := make([]map[string]string, 0, len(in.Versions))
 	for _, v := range in.Versions {
 		if _, ok := failed[v]; !ok {
 			successList = append(successList, map[string]string{keyVersion: v, keyStatusField: "Copied"})

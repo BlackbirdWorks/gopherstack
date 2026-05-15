@@ -1223,7 +1223,7 @@ func (b *InMemoryBackend) ListCommandInvocations(
 	b.mu.RLock("ListCommandInvocations")
 	defer b.mu.RUnlock()
 
-	all := make([]CommandInvocation, 0)
+	all := make([]CommandInvocation, 0, len(b.commandInvocations))
 	for cmdID, invs := range b.commandInvocations {
 		if input.CommandID != "" && cmdID != input.CommandID {
 			continue
@@ -1510,8 +1510,8 @@ func (b *InMemoryBackend) CreateAssociationBatch(
 	defer b.mu.Unlock()
 
 	output := &CreateAssociationBatchOutput{
-		Successful: make([]Association, 0),
-		Failed:     make([]FailedCreateAssociation, 0),
+		Successful: make([]Association, 0, len(input.Entries)),
+		Failed:     make([]FailedCreateAssociation, 0, len(input.Entries)),
 	}
 
 	now := UnixTimeFloat(time.Now())
