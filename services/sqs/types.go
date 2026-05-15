@@ -180,6 +180,11 @@ type CreateQueueInput struct {
 	Tags       map[string]string
 	QueueName  string
 	Endpoint   string
+	// Scheme is the URL scheme ("http" or "https") to use when constructing
+	// the queue URL. Defaults to "http" when empty for backwards
+	// compatibility, but callers should pass "https" when the request was
+	// served over TLS so the returned QueueURL matches AWS conventions.
+	Scheme string
 	// Region is the AWS region for ARN construction (optional; defaults to backend region).
 	Region string
 }

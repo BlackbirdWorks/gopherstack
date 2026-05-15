@@ -535,7 +535,12 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 
 	maps.Copy(attrs, input.Attributes)
 
-	queueURL := "http://" + input.Endpoint + "/" + b.accountID + "/" + input.QueueName
+	scheme := input.Scheme
+	if scheme == "" {
+		scheme = "http"
+	}
+
+	queueURL := scheme + "://" + input.Endpoint + "/" + b.accountID + "/" + input.QueueName
 
 	tagName := "sqs.queue." + input.QueueName + ".tags"
 
