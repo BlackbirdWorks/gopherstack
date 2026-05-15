@@ -178,9 +178,13 @@ func TestIntegration_Bedrock_ProvisionedModelThroughput(t *testing.T) {
 
 				// PMT starts as "Creating"; janitor advances to "InService" within ~5s.
 				require.Eventually(t, func() bool {
-					out, getErr := client.GetProvisionedModelThroughput(ctx, &bedrocksvc.GetProvisionedModelThroughputInput{
-						ProvisionedModelId: aws.String(pmtARN),
-					})
+					out, getErr := client.GetProvisionedModelThroughput(
+						ctx,
+						&bedrocksvc.GetProvisionedModelThroughputInput{
+							ProvisionedModelId: aws.String(pmtARN),
+						},
+					)
+
 					return getErr == nil && string(out.Status) == "InService"
 				}, 10*time.Second, 500*time.Millisecond, "PMT should reach InService status")
 
