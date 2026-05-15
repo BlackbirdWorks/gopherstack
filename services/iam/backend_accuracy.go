@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 )
@@ -30,10 +31,7 @@ func (b *InMemoryBackend) TagUser(userName string, tags map[string]string) error
 		u.Tags = make(map[string]string, len(tags))
 	}
 
-	for k, v := range tags {
-		u.Tags[k] = v
-	}
-
+	maps.Copy(u.Tags, tags)
 	b.users[userName] = u
 
 	return nil
@@ -72,9 +70,7 @@ func (b *InMemoryBackend) TagRole(roleName string, tags map[string]string) error
 		r.Tags = make(map[string]string, len(tags))
 	}
 
-	for k, v := range tags {
-		r.Tags[k] = v
-	}
+	maps.Copy(r.Tags, tags)
 
 	b.roles[roleName] = r
 
@@ -119,10 +115,7 @@ func (b *InMemoryBackend) TagPolicy(policyArn string, tags map[string]string) er
 		p.Tags = make(map[string]string, len(tags))
 	}
 
-	for k, v := range tags {
-		p.Tags[k] = v
-	}
-
+	maps.Copy(p.Tags, tags)
 	b.policies[polName] = p
 
 	return nil
@@ -166,10 +159,7 @@ func (b *InMemoryBackend) TagGroup(groupName string, tags map[string]string) err
 		g.Tags = make(map[string]string, len(tags))
 	}
 
-	for k, v := range tags {
-		g.Tags[k] = v
-	}
-
+	maps.Copy(g.Tags, tags)
 	b.groups[groupName] = g
 
 	return nil
@@ -380,10 +370,10 @@ func (b *InMemoryBackend) policyDocByARNLocked(policyArn string) string {
 // ---- Trust Policy Evaluation ----
 
 // trustStatement is a parsed trust policy statement for AssumeRole evaluation.
-type trustStatement struct {
+type trustStatement struct { //nolint:govet // field order prioritizes readability
 	Condition map[string]map[string]any `json:"Condition,omitempty"`
-	Principal trustPrincipal            `json:"Principal"`
 	Action    any                       `json:"Action"`
+	Principal trustPrincipal            `json:"Principal"`
 	Effect    string                    `json:"Effect"`
 }
 
@@ -466,12 +456,18 @@ func EvaluateAssumeRoleTrustPolicy(
 		ctx.Extra = make(map[string]string)
 	}
 
+	const (
+		mfaKey   = "aws:multifactorauthpresent"
+		mfaTrue  = "true"
+		mfaFalse = "false"
+	)
+
 	ctx.Extra["sts:externalid"] = externalID
 
 	if mfaPresent {
-		ctx.Extra["aws:multifactorauthpresent"] = "true"
+		ctx.Extra[mfaKey] = mfaTrue
 	} else {
-		ctx.Extra["aws:multifactorauthpresent"] = "false"
+		ctx.Extra[mfaKey] = mfaFalse
 	}
 
 	var doc struct {
@@ -563,8 +559,8 @@ func validateTrustPolicyPrincipal(policyJSON string) error {
 		} `json:"Statement"`
 	}
 
-	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil {
-		return nil // JSON validity already checked upstream
+	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil { //nolint:nilerr // JSON already validated upstream
+		return nil
 	}
 
 	for i, stmt := range doc.Statement {

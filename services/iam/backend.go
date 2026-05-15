@@ -2067,9 +2067,11 @@ func (b *InMemoryBackend) collectBoundaryDoc(principalArn string) string {
 	switch {
 	case strings.Contains(principalArn, userPrefix):
 		idx := strings.LastIndex(principalArn, userPrefix)
+
 		return b.boundaryDocForUser(principalArn[idx+len(userPrefix):])
 	case strings.Contains(principalArn, rolePrefix):
 		idx := strings.LastIndex(principalArn, rolePrefix)
+
 		return b.boundaryDocForRole(principalArn[idx+len(rolePrefix):])
 	}
 
@@ -2142,8 +2144,12 @@ func (b *InMemoryBackend) collectEntityPolicies(
 // collectGroupPoliciesForUser returns all policy documents inherited via group membership.
 // Real AWS evaluates group-attached and group-inline policies as part of the principal's
 // effective permissions.  Must be called with b.mu read-lock held.
+//
+// A seen-set prevents the same document being added twice when multiple groups share
+// the same managed policy.
 func (b *InMemoryBackend) collectGroupPoliciesForUser(userName string) []string {
 	var docs []string
+	seen := make(map[string]struct{})
 
 	for groupName, members := range b.groupMembers {
 		if !slices.Contains(members, userName) {
@@ -2151,7 +2157,14 @@ func (b *InMemoryBackend) collectGroupPoliciesForUser(userName string) []string 
 		}
 
 		groupDocs := b.collectEntityPolicies(b.groupPolicies[groupName], b.groupInlinePolicies[groupName])
-		docs = append(docs, groupDocs...)
+		for _, doc := range groupDocs {
+			if _, dup := seen[doc]; dup {
+				continue
+			}
+
+			seen[doc] = struct{}{}
+			docs = append(docs, doc)
+		}
 	}
 
 	return docs

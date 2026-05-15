@@ -15,17 +15,18 @@ const IAMAccountID = config.DefaultAccountID
 
 // User represents an IAM user resource.
 type User struct {
+	Tags                map[string]string `json:"Tags,omitempty"`
 	CreateDate          time.Time         `json:"CreateDate"`
 	UserName            string            `json:"UserName"`
 	UserID              string            `json:"UserId"`
 	Arn                 string            `json:"Arn"`
 	Path                string            `json:"Path"`
 	PermissionsBoundary string            `json:"PermissionsBoundary,omitempty"`
-	Tags                map[string]string `json:"Tags,omitempty"`
 }
 
 // Role represents an IAM role resource.
 type Role struct {
+	Tags                     map[string]string `json:"Tags,omitempty"`
 	CreateDate               time.Time         `json:"CreateDate"`
 	RoleName                 string            `json:"RoleName"`
 	RoleID                   string            `json:"RoleId"`
@@ -34,7 +35,6 @@ type Role struct {
 	AssumeRolePolicyDocument string            `json:"AssumeRolePolicyDocument"`
 	PermissionsBoundary      string            `json:"PermissionsBoundary,omitempty"`
 	Description              string            `json:"Description,omitempty"`
-	Tags                     map[string]string `json:"Tags,omitempty"`
 	// MaxSessionDuration is the maximum session duration (in seconds) for role credentials.
 	// A value of 0 means the default system maximum applies (43200 seconds / 12 hours).
 	MaxSessionDuration int32 `json:"MaxSessionDuration,omitempty"`
@@ -42,29 +42,29 @@ type Role struct {
 
 // Policy represents an IAM managed policy resource.
 type Policy struct {
+	Tags           map[string]string `json:"Tags,omitempty"`
 	CreateDate     time.Time         `json:"CreateDate"`
 	PolicyName     string            `json:"PolicyName"`
 	PolicyID       string            `json:"PolicyId"`
 	Arn            string            `json:"Arn"`
 	Path           string            `json:"Path"`
 	PolicyDocument string            `json:"PolicyDocument"`
-	Tags           map[string]string `json:"Tags,omitempty"`
 }
 
 // Group represents an IAM group resource.
 type Group struct {
+	Tags       map[string]string `json:"Tags,omitempty"`
 	CreateDate time.Time         `json:"CreateDate"`
 	GroupName  string            `json:"GroupName"`
 	GroupID    string            `json:"GroupId"`
 	Arn        string            `json:"Arn"`
 	Path       string            `json:"Path"`
-	Tags       map[string]string `json:"Tags,omitempty"`
 }
 
 // AccessKey represents an IAM access key for a user.
 type AccessKey struct {
-	CreateDate          time.Time  `json:"CreateDate"`
 	LastUsedDate        *time.Time `json:"LastUsedDate,omitempty"`
+	CreateDate          time.Time  `json:"CreateDate"`
 	AccessKeyID         string     `json:"AccessKeyId"`
 	SecretAccessKey     string     `json:"SecretAccessKey"`
 	UserName            string     `json:"UserName"`
@@ -165,7 +165,7 @@ type UserXML struct {
 	UserID              string                  `xml:"UserId"`
 	Arn                 string                  `xml:"Arn"`
 	CreateDate          string                  `xml:"CreateDate"`
-}
+} //nolint:govet // field order optimizes readability over alignment
 
 // CreateUserResponse is the XML response for CreateUser.
 type CreateUserResponse struct {
@@ -218,7 +218,7 @@ type ListUsersResult struct {
 // ---- Role XML responses ----
 
 // RoleXML is the XML representation of an IAM Role.
-type RoleXML struct {
+type RoleXML struct { //nolint:govet // field order optimizes readability over alignment
 	PermissionsBoundary      *PermissionsBoundaryXML `xml:"PermissionsBoundary,omitempty"`
 	Tags                     []TagXML                `xml:"Tags>member,omitempty"`
 	Path                     string                  `xml:"Path"`
@@ -349,7 +349,7 @@ type DetachRolePolicyResponse struct {
 // ---- Group XML responses ----
 
 // GroupXML is the XML representation of an IAM Group.
-type GroupXML struct {
+type GroupXML struct { //nolint:govet // field order optimizes readability over alignment
 	Tags       []TagXML `xml:"Tags>member,omitempty"`
 	Path       string   `xml:"Path"`
 	GroupName  string   `xml:"GroupName"`
