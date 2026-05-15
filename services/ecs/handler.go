@@ -509,17 +509,37 @@ type deploymentCircuitBreakerInput struct {
 
 type deploymentConfigurationInput struct {
 	DeploymentCircuitBreaker *deploymentCircuitBreakerInput `json:"deploymentCircuitBreaker,omitempty"`
+	MinimumHealthyPercent    *int                           `json:"minimumHealthyPercent,omitempty"`
+	MaximumPercent           *int                           `json:"maximumPercent,omitempty"`
+}
+
+type deploymentControllerInput struct {
+	Type string `json:"type"`
+}
+
+type awsvpcConfigurationInput struct {
+	Subnets        []string `json:"subnets"`
+	SecurityGroups []string `json:"securityGroups,omitempty"`
+	AssignPublicIp string   `json:"assignPublicIp,omitempty"`
+}
+
+type networkConfigurationInput struct {
+	AwsvpcConfiguration *awsvpcConfigurationInput `json:"awsvpcConfiguration,omitempty"`
 }
 
 type registerTaskDefinitionInput struct {
-	Family               string                     `json:"family"`
-	NetworkMode          string                     `json:"networkMode,omitempty"`
-	CPU                  string                     `json:"cpu,omitempty"`
-	Memory               string                     `json:"memory,omitempty"`
-	PlatformFamily       string                     `json:"platformFamily,omitempty"`
-	Tags                 []Tag                      `json:"tags,omitempty"`
-	ContainerDefinitions []ContainerDefinition      `json:"containerDefinitions"`
-	PlacementConstraints []placementConstraintInput `json:"placementConstraints,omitempty"`
+	Family                  string                     `json:"family"`
+	TaskRoleArn             string                     `json:"taskRoleArn,omitempty"`
+	ExecutionRoleArn        string                     `json:"executionRoleArn,omitempty"`
+	NetworkMode             string                     `json:"networkMode,omitempty"`
+	CPU                     string                     `json:"cpu,omitempty"`
+	Memory                  string                     `json:"memory,omitempty"`
+	PlatformFamily          string                     `json:"platformFamily,omitempty"`
+	Tags                    []Tag                      `json:"tags,omitempty"`
+	ContainerDefinitions    []ContainerDefinition      `json:"containerDefinitions"`
+	Volumes                 []Volume                   `json:"volumes,omitempty"`
+	PlacementConstraints    []placementConstraintInput `json:"placementConstraints,omitempty"`
+	RequiresCompatibilities []string                   `json:"requiresCompatibilities,omitempty"`
 }
 
 type registerTaskDefinitionOutput struct {
@@ -531,14 +551,18 @@ func (h *Handler) handleRegisterTaskDefinition(
 	in *registerTaskDefinitionInput,
 ) (*registerTaskDefinitionOutput, error) {
 	td, err := h.Backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
-		Family:               in.Family,
-		NetworkMode:          in.NetworkMode,
-		CPU:                  in.CPU,
-		Memory:               in.Memory,
-		PlatformFamily:       in.PlatformFamily,
-		ContainerDefinitions: in.ContainerDefinitions,
-		PlacementConstraints: toPlacementConstraints(in.PlacementConstraints),
-		Tags:                 in.Tags,
+		Family:                  in.Family,
+		TaskRoleArn:             in.TaskRoleArn,
+		ExecutionRoleArn:        in.ExecutionRoleArn,
+		NetworkMode:             in.NetworkMode,
+		CPU:                     in.CPU,
+		Memory:                  in.Memory,
+		PlatformFamily:          in.PlatformFamily,
+		ContainerDefinitions:    in.ContainerDefinitions,
+		Volumes:                 in.Volumes,
+		PlacementConstraints:    toPlacementConstraints(in.PlacementConstraints),
+		RequiresCompatibilities: in.RequiresCompatibilities,
+		Tags:                    in.Tags,
 	})
 	if err != nil {
 		return nil, err
@@ -612,6 +636,7 @@ func (h *Handler) handleDeregisterTaskDefinition(
 
 type listTaskDefinitionsInput struct {
 	FamilyPrefix string `json:"familyPrefix,omitempty"`
+	Status       string `json:"status,omitempty"`
 	NextToken    string `json:"nextToken,omitempty"`
 	MaxResults   int    `json:"maxResults,omitempty"`
 }
@@ -625,7 +650,10 @@ func (h *Handler) handleListTaskDefinitions(
 	_ context.Context,
 	in *listTaskDefinitionsInput,
 ) (*listTaskDefinitionsOutput, error) {
-	arns, err := h.Backend.ListTaskDefinitions(in.FamilyPrefix)
+	arns, err := h.Backend.ListTaskDefinitionsFiltered(ListTaskDefinitionsInput{
+		FamilyPrefix: in.FamilyPrefix,
+		Status:       in.Status,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -660,15 +688,34 @@ type serviceConnectConfigurationInput struct {
 	Enabled   bool                         `json:"enabled"`
 }
 
+type loadBalancerInput struct {
+	TargetGroupArn   string `json:"targetGroupArn,omitempty"`
+	LoadBalancerName string `json:"loadBalancerName,omitempty"`
+	ContainerName    string `json:"containerName,omitempty"`
+	ContainerPort    int    `json:"containerPort,omitempty"`
+}
+
+type serviceRegistryInput struct {
+	RegistryArn   string `json:"registryArn,omitempty"`
+	Port          int    `json:"port,omitempty"`
+	ContainerPort int    `json:"containerPort,omitempty"`
+	ContainerName string `json:"containerName,omitempty"`
+}
+
 type createServiceInput struct {
 	DeploymentConfiguration     *deploymentConfigurationInput     `json:"deploymentConfiguration,omitempty"`
+	DeploymentController        *deploymentControllerInput        `json:"deploymentController,omitempty"`
+	NetworkConfiguration        *networkConfigurationInput        `json:"networkConfiguration,omitempty"`
 	ServiceConnectConfiguration *serviceConnectConfigurationInput `json:"serviceConnectConfiguration,omitempty"`
 	ServiceName                 string                            `json:"serviceName"`
 	Cluster                     string                            `json:"cluster,omitempty"`
 	TaskDefinition              string                            `json:"taskDefinition"`
 	LaunchType                  string                            `json:"launchType,omitempty"`
 	SchedulingStrategy          string                            `json:"schedulingStrategy,omitempty"`
+	PropagateTags               string                            `json:"propagateTags,omitempty"`
 	Tags                        []Tag                             `json:"tags,omitempty"`
+	LoadBalancers               []loadBalancerInput               `json:"loadBalancers,omitempty"`
+	ServiceRegistries           []serviceRegistryInput            `json:"serviceRegistries,omitempty"`
 	CapacityProviderStrategy    []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints        []placementConstraintInput        `json:"placementConstraints,omitempty"`
 	PlacementStrategy           []placementStrategyInput          `json:"placementStrategy,omitempty"`
@@ -686,8 +733,13 @@ func (h *Handler) handleCreateService(_ context.Context, in *createServiceInput)
 		TaskDefinition:              in.TaskDefinition,
 		LaunchType:                  in.LaunchType,
 		SchedulingStrategy:          in.SchedulingStrategy,
+		PropagateTags:               in.PropagateTags,
 		Tags:                        in.Tags,
+		LoadBalancers:               toLoadBalancers(in.LoadBalancers),
+		ServiceRegistries:           toServiceRegistries(in.ServiceRegistries),
 		DeploymentConfiguration:     toDeploymentConfiguration(in.DeploymentConfiguration),
+		DeploymentController:        toDeploymentController(in.DeploymentController),
+		NetworkConfiguration:        toNetworkConfiguration(in.NetworkConfiguration),
 		CapacityProviderStrategy:    toCPStrategyItems(in.CapacityProviderStrategy),
 		PlacementConstraints:        toPlacementConstraints(in.PlacementConstraints),
 		PlacementStrategy:           toPlacementStrategies(in.PlacementStrategy),
@@ -730,10 +782,13 @@ func (h *Handler) handleDescribeServices(
 type updateServiceInput struct {
 	DesiredCount                *int                              `json:"desiredCount,omitempty"`
 	DeploymentConfiguration     *deploymentConfigurationInput     `json:"deploymentConfiguration,omitempty"`
+	NetworkConfiguration        *networkConfigurationInput        `json:"networkConfiguration,omitempty"`
 	ServiceConnectConfiguration *serviceConnectConfigurationInput `json:"serviceConnectConfiguration,omitempty"`
 	Cluster                     string                            `json:"cluster,omitempty"`
 	Service                     string                            `json:"service"`
 	TaskDefinition              string                            `json:"taskDefinition,omitempty"`
+	PropagateTags               string                            `json:"propagateTags,omitempty"`
+	LoadBalancers               []loadBalancerInput               `json:"loadBalancers,omitempty"`
 	CapacityProviderStrategy    []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints        []placementConstraintInput        `json:"placementConstraints,omitempty"`
 	PlacementStrategy           []placementStrategyInput          `json:"placementStrategy,omitempty"`
@@ -747,6 +802,9 @@ func (h *Handler) handleUpdateService(_ context.Context, in *updateServiceInput)
 	svc, err := h.Backend.UpdateService(UpdateServiceInput{
 		Cluster:                     in.Cluster,
 		Service:                     in.Service,
+		PropagateTags:               in.PropagateTags,
+		LoadBalancers:               toLoadBalancers(in.LoadBalancers),
+		NetworkConfiguration:        toNetworkConfiguration(in.NetworkConfiguration),
 		TaskDefinition:              in.TaskDefinition,
 		DesiredCount:                in.DesiredCount,
 		DeploymentConfiguration:     toDeploymentConfiguration(in.DeploymentConfiguration),
@@ -822,16 +880,18 @@ type taskOverrideInput struct {
 }
 
 type runTaskInput struct {
-	Overrides            *taskOverrideInput `json:"overrides,omitempty"`
-	Cluster              string             `json:"cluster,omitempty"`
-	TaskDefinition       string             `json:"taskDefinition"`
-	LaunchType           string             `json:"launchType,omitempty"`
-	Group                string             `json:"group,omitempty"`
-	StartedBy            string             `json:"startedBy,omitempty"`
-	PlatformVersion      string             `json:"platformVersion,omitempty"`
-	Tags                 []Tag              `json:"tags,omitempty"`
-	Count                int                `json:"count,omitempty"`
-	EnableECSManagedTags bool               `json:"enableECSManagedTags,omitempty"`
+	Overrides            *taskOverrideInput         `json:"overrides,omitempty"`
+	NetworkConfiguration *networkConfigurationInput `json:"networkConfiguration,omitempty"`
+	Cluster              string                     `json:"cluster,omitempty"`
+	TaskDefinition       string                     `json:"taskDefinition"`
+	LaunchType           string                     `json:"launchType,omitempty"`
+	Group                string                     `json:"group,omitempty"`
+	StartedBy            string                     `json:"startedBy,omitempty"`
+	PlatformVersion      string                     `json:"platformVersion,omitempty"`
+	PropagateTags        string                     `json:"propagateTags,omitempty"`
+	Tags                 []Tag                      `json:"tags,omitempty"`
+	Count                int                        `json:"count,omitempty"`
+	EnableECSManagedTags bool                       `json:"enableECSManagedTags,omitempty"`
 }
 
 type runTaskOutput struct {
@@ -847,9 +907,11 @@ func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOu
 		Group:                in.Group,
 		StartedBy:            in.StartedBy,
 		PlatformVersion:      in.PlatformVersion,
+		PropagateTags:        in.PropagateTags,
 		EnableECSManagedTags: in.EnableECSManagedTags,
 		Tags:                 in.Tags,
 		Overrides:            toTaskOverride(in.Overrides),
+		NetworkConfiguration: toNetworkConfiguration(in.NetworkConfiguration),
 	})
 	if err != nil {
 		return nil, err
@@ -1005,34 +1067,72 @@ type deploymentCircuitBreakerView struct {
 
 type deploymentConfigurationView struct {
 	DeploymentCircuitBreaker *deploymentCircuitBreakerView `json:"deploymentCircuitBreaker,omitempty"`
+	MinimumHealthyPercent    *int                          `json:"minimumHealthyPercent,omitempty"`
+	MaximumPercent           *int                          `json:"maximumPercent,omitempty"`
+}
+
+type deploymentControllerView struct {
+	Type string `json:"type"`
+}
+
+type awsvpcConfigurationView struct {
+	Subnets        []string `json:"subnets"`
+	SecurityGroups []string `json:"securityGroups,omitempty"`
+	AssignPublicIp string   `json:"assignPublicIp,omitempty"`
+}
+
+type networkConfigurationView struct {
+	AwsvpcConfiguration *awsvpcConfigurationView `json:"awsvpcConfiguration,omitempty"`
+}
+
+type loadBalancerView struct {
+	TargetGroupArn   string `json:"targetGroupArn,omitempty"`
+	LoadBalancerName string `json:"loadBalancerName,omitempty"`
+	ContainerName    string `json:"containerName,omitempty"`
+	ContainerPort    int    `json:"containerPort,omitempty"`
+}
+
+type serviceRegistryView struct {
+	RegistryArn   string `json:"registryArn,omitempty"`
+	Port          int    `json:"port,omitempty"`
+	ContainerPort int    `json:"containerPort,omitempty"`
+	ContainerName string `json:"containerName,omitempty"`
 }
 
 type taskDefinitionView struct {
-	TaskDefinitionArn    string                    `json:"taskDefinitionArn"`
-	Family               string                    `json:"family"`
-	NetworkMode          string                    `json:"networkMode,omitempty"`
-	Status               string                    `json:"status"`
-	CPU                  string                    `json:"cpu,omitempty"`
-	Memory               string                    `json:"memory,omitempty"`
-	PlatformFamily       string                    `json:"platformFamily,omitempty"`
-	ContainerDefinitions []ContainerDefinition     `json:"containerDefinitions"`
-	PlacementConstraints []placementConstraintView `json:"placementConstraints,omitempty"`
-	RegisteredAt         float64                   `json:"registeredAt"`
-	Revision             int                       `json:"revision"`
+	TaskDefinitionArn       string                    `json:"taskDefinitionArn"`
+	Family                  string                    `json:"family"`
+	TaskRoleArn             string                    `json:"taskRoleArn,omitempty"`
+	ExecutionRoleArn        string                    `json:"executionRoleArn,omitempty"`
+	NetworkMode             string                    `json:"networkMode,omitempty"`
+	Status                  string                    `json:"status"`
+	CPU                     string                    `json:"cpu,omitempty"`
+	Memory                  string                    `json:"memory,omitempty"`
+	PlatformFamily          string                    `json:"platformFamily,omitempty"`
+	ContainerDefinitions    []ContainerDefinition     `json:"containerDefinitions"`
+	Volumes                 []Volume                  `json:"volumes,omitempty"`
+	PlacementConstraints    []placementConstraintView `json:"placementConstraints,omitempty"`
+	RequiresCompatibilities []string                  `json:"requiresCompatibilities,omitempty"`
+	RegisteredAt            float64                   `json:"registeredAt"`
+	Revision                int                       `json:"revision"`
 }
 
 func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
 	v := taskDefinitionView{
-		TaskDefinitionArn:    td.TaskDefinitionArn,
-		Family:               td.Family,
-		NetworkMode:          td.NetworkMode,
-		Status:               td.Status,
-		CPU:                  td.CPU,
-		Memory:               td.Memory,
-		PlatformFamily:       td.PlatformFamily,
-		ContainerDefinitions: td.ContainerDefinitions,
-		RegisteredAt:         float64(td.RegisteredAt.Unix()),
-		Revision:             td.Revision,
+		TaskDefinitionArn:       td.TaskDefinitionArn,
+		Family:                  td.Family,
+		TaskRoleArn:             td.TaskRoleArn,
+		ExecutionRoleArn:        td.ExecutionRoleArn,
+		NetworkMode:             td.NetworkMode,
+		Status:                  td.Status,
+		CPU:                     td.CPU,
+		Memory:                  td.Memory,
+		PlatformFamily:          td.PlatformFamily,
+		ContainerDefinitions:    td.ContainerDefinitions,
+		Volumes:                 td.Volumes,
+		RequiresCompatibilities: td.RequiresCompatibilities,
+		RegisteredAt:            float64(td.RegisteredAt.Unix()),
+		Revision:                td.Revision,
 	}
 
 	for _, c := range td.PlacementConstraints {
@@ -1047,7 +1147,10 @@ func toDeploymentConfigurationView(dc *DeploymentConfiguration) *deploymentConfi
 		return nil
 	}
 
-	v := &deploymentConfigurationView{}
+	v := &deploymentConfigurationView{
+		MinimumHealthyPercent: dc.MinimumHealthyPercent,
+		MaximumPercent:        dc.MaximumPercent,
+	}
 
 	if dc.DeploymentCircuitBreaker != nil {
 		v.DeploymentCircuitBreaker = &deploymentCircuitBreakerView{
@@ -1079,13 +1182,18 @@ type serviceConnectConfigurationView struct {
 type serviceView struct {
 	ServiceConnectConfiguration *serviceConnectConfigurationView `json:"serviceConnectConfiguration,omitempty"`
 	DeploymentConfiguration     *deploymentConfigurationView     `json:"deploymentConfiguration,omitempty"`
+	DeploymentController        *deploymentControllerView        `json:"deploymentController,omitempty"`
+	NetworkConfiguration        *networkConfigurationView        `json:"networkConfiguration,omitempty"`
 	ClusterArn                  string                           `json:"clusterArn"`
 	TaskDefinition              string                           `json:"taskDefinition"`
 	Status                      string                           `json:"status"`
 	LaunchType                  string                           `json:"launchType,omitempty"`
 	SchedulingStrategy          string                           `json:"schedulingStrategy,omitempty"`
+	PropagateTags               string                           `json:"propagateTags,omitempty"`
 	ServiceArn                  string                           `json:"serviceArn"`
 	ServiceName                 string                           `json:"serviceName"`
+	LoadBalancers               []loadBalancerView               `json:"loadBalancers,omitempty"`
+	ServiceRegistries           []serviceRegistryView            `json:"serviceRegistries,omitempty"`
 	CapacityProviderStrategy    []cpStrategyItemInput            `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints        []placementConstraintView        `json:"placementConstraints,omitempty"`
 	PlacementStrategy           []placementStrategyView          `json:"placementStrategy,omitempty"`
@@ -1105,13 +1213,27 @@ func toServiceView(s Service) serviceView {
 		Status:                      s.Status,
 		LaunchType:                  s.LaunchType,
 		SchedulingStrategy:          s.SchedulingStrategy,
+		PropagateTags:               s.PropagateTags,
 		CreatedAt:                   float64(s.CreatedAt.Unix()),
 		Tags:                        s.Tags,
 		DeploymentConfiguration:     toDeploymentConfigurationView(s.DeploymentConfiguration),
 		ServiceConnectConfiguration: toServiceConnectConfigurationView(s.ServiceConnectConfiguration),
+		NetworkConfiguration:        toNetworkConfigurationView(s.NetworkConfiguration),
 		DesiredCount:                s.DesiredCount,
 		PendingCount:                s.PendingCount,
 		RunningCount:                s.RunningCount,
+	}
+
+	if s.DeploymentController != nil {
+		v.DeploymentController = &deploymentControllerView{Type: s.DeploymentController.Type}
+	}
+
+	for _, lb := range s.LoadBalancers {
+		v.LoadBalancers = append(v.LoadBalancers, loadBalancerView(lb))
+	}
+
+	for _, sr := range s.ServiceRegistries {
+		v.ServiceRegistries = append(v.ServiceRegistries, serviceRegistryView(sr))
 	}
 
 	for _, item := range s.CapacityProviderStrategy {
@@ -1158,25 +1280,27 @@ type taskOverrideView struct {
 }
 
 type taskView struct {
-	Overrides            *taskOverrideView    `json:"overrides,omitempty"`
-	TaskArn              string               `json:"taskArn"`
-	ClusterArn           string               `json:"clusterArn"`
-	TaskDefinitionArn    string               `json:"taskDefinitionArn"`
-	LastStatus           string               `json:"lastStatus"`
-	DesiredStatus        string               `json:"desiredStatus"`
-	Connectivity         string               `json:"connectivity,omitempty"`
-	StoppedReason        string               `json:"stoppedReason,omitempty"`
-	Group                string               `json:"group,omitempty"`
-	LaunchType           string               `json:"launchType,omitempty"`
-	ContainerInstanceArn string               `json:"containerInstanceArn,omitempty"`
-	StartedBy            string               `json:"startedBy,omitempty"`
-	PlatformVersion      string               `json:"platformVersion,omitempty"`
-	PlatformFamily       string               `json:"platformFamily,omitempty"`
-	RuntimeID            string               `json:"runtimeId,omitempty"`
-	Attachments          []taskAttachmentView `json:"attachments,omitempty"`
-	StartedAt            float64              `json:"startedAt,omitempty"`
-	StoppedAt            float64              `json:"stoppedAt,omitempty"`
-	ConnectivityAt       float64              `json:"connectivityAt,omitempty"`
+	Overrides            *taskOverrideView         `json:"overrides,omitempty"`
+	NetworkConfiguration *networkConfigurationView `json:"networkConfiguration,omitempty"`
+	TaskArn              string                    `json:"taskArn"`
+	ClusterArn           string                    `json:"clusterArn"`
+	TaskDefinitionArn    string                    `json:"taskDefinitionArn"`
+	LastStatus           string                    `json:"lastStatus"`
+	DesiredStatus        string                    `json:"desiredStatus"`
+	Connectivity         string                    `json:"connectivity,omitempty"`
+	StoppedReason        string                    `json:"stoppedReason,omitempty"`
+	Group                string                    `json:"group,omitempty"`
+	LaunchType           string                    `json:"launchType,omitempty"`
+	ContainerInstanceArn string                    `json:"containerInstanceArn,omitempty"`
+	StartedBy            string                    `json:"startedBy,omitempty"`
+	PlatformVersion      string                    `json:"platformVersion,omitempty"`
+	PlatformFamily       string                    `json:"platformFamily,omitempty"`
+	RuntimeID            string                    `json:"runtimeId,omitempty"`
+	PropagateTags        string                    `json:"propagateTags,omitempty"`
+	Attachments          []taskAttachmentView       `json:"attachments,omitempty"`
+	StartedAt            float64                   `json:"startedAt,omitempty"`
+	StoppedAt            float64                   `json:"stoppedAt,omitempty"`
+	ConnectivityAt       float64                   `json:"connectivityAt,omitempty"`
 }
 
 func toTaskView(t Task) taskView {
@@ -1195,7 +1319,9 @@ func toTaskView(t Task) taskView {
 		PlatformVersion:      t.PlatformVersion,
 		PlatformFamily:       t.PlatformFamily,
 		RuntimeID:            t.RuntimeID,
+		PropagateTags:        t.PropagateTags,
 		Overrides:            toTaskOverrideView(t.Overrides),
+		NetworkConfiguration: toNetworkConfigurationView(t.NetworkConfiguration),
 	}
 
 	for _, a := range t.Attachments {
@@ -1233,7 +1359,10 @@ func toDeploymentConfiguration(in *deploymentConfigurationInput) *DeploymentConf
 		return nil
 	}
 
-	dc := &DeploymentConfiguration{}
+	dc := &DeploymentConfiguration{
+		MinimumHealthyPercent: in.MinimumHealthyPercent,
+		MaximumPercent:        in.MaximumPercent,
+	}
 
 	if in.DeploymentCircuitBreaker != nil {
 		dc.DeploymentCircuitBreaker = &DeploymentCircuitBreaker{
@@ -1243,6 +1372,81 @@ func toDeploymentConfiguration(in *deploymentConfigurationInput) *DeploymentConf
 	}
 
 	return dc
+}
+
+// toDeploymentController converts handler input to backend type.
+func toDeploymentController(in *deploymentControllerInput) *DeploymentController {
+	if in == nil {
+		return nil
+	}
+
+	return &DeploymentController{Type: in.Type}
+}
+
+// toNetworkConfiguration converts handler input to backend type.
+func toNetworkConfiguration(in *networkConfigurationInput) *NetworkConfiguration {
+	if in == nil {
+		return nil
+	}
+
+	nc := &NetworkConfiguration{}
+
+	if in.AwsvpcConfiguration != nil {
+		nc.AwsvpcConfiguration = &AwsvpcConfiguration{
+			Subnets:        in.AwsvpcConfiguration.Subnets,
+			SecurityGroups: in.AwsvpcConfiguration.SecurityGroups,
+			AssignPublicIp: in.AwsvpcConfiguration.AssignPublicIp,
+		}
+	}
+
+	return nc
+}
+
+// toNetworkConfigurationView converts backend type to handler view.
+func toNetworkConfigurationView(nc *NetworkConfiguration) *networkConfigurationView {
+	if nc == nil {
+		return nil
+	}
+
+	v := &networkConfigurationView{}
+
+	if nc.AwsvpcConfiguration != nil {
+		v.AwsvpcConfiguration = &awsvpcConfigurationView{
+			Subnets:        nc.AwsvpcConfiguration.Subnets,
+			SecurityGroups: nc.AwsvpcConfiguration.SecurityGroups,
+			AssignPublicIp: nc.AwsvpcConfiguration.AssignPublicIp,
+		}
+	}
+
+	return v
+}
+
+// toLoadBalancers converts handler input to backend type.
+func toLoadBalancers(in []loadBalancerInput) []LoadBalancer {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]LoadBalancer, len(in))
+	for i, lb := range in {
+		out[i] = LoadBalancer(lb)
+	}
+
+	return out
+}
+
+// toServiceRegistries converts handler input to backend type.
+func toServiceRegistries(in []serviceRegistryInput) []ServiceRegistry {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]ServiceRegistry, len(in))
+	for i, sr := range in {
+		out[i] = ServiceRegistry(sr)
+	}
+
+	return out
 }
 
 // toCPStrategyItems converts handler cpStrategyItemInput to backend CapacityProviderStrategyItem.

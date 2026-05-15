@@ -7,8 +7,42 @@ type DeploymentCircuitBreaker struct {
 }
 
 // DeploymentConfiguration holds deployment settings for a service.
+// MinimumHealthyPercent and MaximumPercent default to the AWS values of 100 and 200.
 type DeploymentConfiguration struct {
 	DeploymentCircuitBreaker *DeploymentCircuitBreaker `json:"deploymentCircuitBreaker,omitempty"`
+	MinimumHealthyPercent    *int                      `json:"minimumHealthyPercent,omitempty"`
+	MaximumPercent           *int                      `json:"maximumPercent,omitempty"`
+}
+
+const (
+	defaultMinimumHealthyPercent = 100
+	defaultMaximumPercent        = 200
+)
+
+// withAWSDefaults fills in AWS-mandated defaults for unset deployment configuration fields.
+func (dc *DeploymentConfiguration) withAWSDefaults() *DeploymentConfiguration {
+	if dc == nil {
+		minPct := defaultMinimumHealthyPercent
+		maxPct := defaultMaximumPercent
+		return &DeploymentConfiguration{
+			MinimumHealthyPercent: &minPct,
+			MaximumPercent:        &maxPct,
+		}
+	}
+
+	out := *dc
+
+	if out.MinimumHealthyPercent == nil {
+		minPct := defaultMinimumHealthyPercent
+		out.MinimumHealthyPercent = &minPct
+	}
+
+	if out.MaximumPercent == nil {
+		maxPct := defaultMaximumPercent
+		out.MaximumPercent = &maxPct
+	}
+
+	return &out
 }
 
 // PlacementConstraint specifies a placement constraint for a task or service.

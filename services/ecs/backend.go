@@ -64,13 +64,33 @@ type Cluster struct {
 
 // ContainerDefinition represents a container definition in a task definition.
 type ContainerDefinition struct {
-	Image        string         `json:"image"`
-	Name         string         `json:"name"`
-	Environment  []KeyValuePair `json:"environment,omitempty"`
-	PortMappings []PortMapping  `json:"portMappings,omitempty"`
-	Essential    bool           `json:"essential"`
-	Memory       int            `json:"memory,omitempty"`
-	CPU          int            `json:"cpu,omitempty"`
+	LogConfiguration      *LogConfiguration      `json:"logConfiguration,omitempty"`
+	FirelensConfiguration *FirelensConfiguration `json:"firelensConfiguration,omitempty"`
+	HealthCheck           *HealthCheck           `json:"healthCheck,omitempty"`
+	RepositoryCredentials *RepositoryCredentials `json:"repositoryCredentials,omitempty"`
+	Image                 string                 `json:"image"`
+	Name                  string                 `json:"name"`
+	EntryPoint            []string               `json:"entryPoint,omitempty"`
+	Command               []string               `json:"command,omitempty"`
+	Environment           []KeyValuePair         `json:"environment,omitempty"`
+	Secrets               []SecretReference      `json:"secrets,omitempty"`
+	PortMappings          []PortMapping          `json:"portMappings,omitempty"`
+	MountPoints           []MountPoint           `json:"mountPoints,omitempty"`
+	VolumesFrom           []VolumeFrom           `json:"volumesFrom,omitempty"`
+	DependsOn             []ContainerDependency  `json:"dependsOn,omitempty"`
+	Memory                int                    `json:"memory,omitempty"`
+	MemoryReservation     int                    `json:"memoryReservation,omitempty"`
+	CPU                   int                    `json:"cpu,omitempty"`
+	Essential             bool                   `json:"essential"`
+	DisableNetworking     bool                   `json:"disableNetworking,omitempty"`
+	Privileged            bool                   `json:"privileged,omitempty"`
+	ReadonlyRootFilesystem bool                  `json:"readonlyRootFilesystem,omitempty"`
+}
+
+// ContainerDependency specifies a start/stop dependency between containers.
+type ContainerDependency struct {
+	ContainerName string `json:"containerName"`
+	Condition     string `json:"condition"`
 }
 
 // KeyValuePair is a name/value pair.
@@ -81,24 +101,31 @@ type KeyValuePair struct {
 
 // PortMapping maps a container port to a host port.
 type PortMapping struct {
-	Protocol      string `json:"protocol,omitempty"`
-	ContainerPort int    `json:"containerPort"`
-	HostPort      int    `json:"hostPort,omitempty"`
+	Name                string `json:"name,omitempty"`
+	Protocol            string `json:"protocol,omitempty"`
+	AppProtocol         string `json:"appProtocol,omitempty"`
+	ContainerPortRange  string `json:"containerPortRange,omitempty"`
+	ContainerPort       int    `json:"containerPort,omitempty"`
+	HostPort            int    `json:"hostPort,omitempty"`
 }
 
 // TaskDefinition represents an ECS task definition.
 type TaskDefinition struct {
-	RegisteredAt         time.Time             `json:"registeredAt"`
-	TaskDefinitionArn    string                `json:"taskDefinitionArn"`
-	Family               string                `json:"family"`
-	NetworkMode          string                `json:"networkMode,omitempty"`
-	Status               string                `json:"status"`
-	PlatformFamily       string                `json:"platformFamily,omitempty"`
-	CPU                  string                `json:"cpu,omitempty"`
-	Memory               string                `json:"memory,omitempty"`
-	ContainerDefinitions []ContainerDefinition `json:"containerDefinitions"`
-	PlacementConstraints []PlacementConstraint `json:"placementConstraints,omitempty"`
-	Revision             int                   `json:"revision"`
+	RegisteredAt            time.Time             `json:"registeredAt"`
+	TaskDefinitionArn       string                `json:"taskDefinitionArn"`
+	Family                  string                `json:"family"`
+	TaskRoleArn             string                `json:"taskRoleArn,omitempty"`
+	ExecutionRoleArn        string                `json:"executionRoleArn,omitempty"`
+	NetworkMode             string                `json:"networkMode,omitempty"`
+	Status                  string                `json:"status"`
+	PlatformFamily          string                `json:"platformFamily,omitempty"`
+	CPU                     string                `json:"cpu,omitempty"`
+	Memory                  string                `json:"memory,omitempty"`
+	ContainerDefinitions    []ContainerDefinition `json:"containerDefinitions"`
+	Volumes                 []Volume              `json:"volumes,omitempty"`
+	PlacementConstraints    []PlacementConstraint `json:"placementConstraints,omitempty"`
+	RequiresCompatibilities []string              `json:"requiresCompatibilities,omitempty"`
+	Revision                int                   `json:"revision"`
 }
 
 // Service represents an ECS service.
@@ -106,6 +133,8 @@ type Service struct {
 	CreatedAt                   time.Time                      `json:"createdAt"`
 	ServiceConnectConfiguration *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
 	DeploymentConfiguration     *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`
+	DeploymentController        *DeploymentController          `json:"deploymentController,omitempty"`
+	NetworkConfiguration        *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
 	ServiceArn                  string                         `json:"serviceArn"`
 	ServiceName                 string                         `json:"serviceName"`
 	ClusterArn                  string                         `json:"clusterArn"`
@@ -113,7 +142,10 @@ type Service struct {
 	Status                      string                         `json:"status"`
 	LaunchType                  string                         `json:"launchType,omitempty"`
 	SchedulingStrategy          string                         `json:"schedulingStrategy,omitempty"`
+	PropagateTags               string                         `json:"propagateTags,omitempty"`
 	Tags                        []Tag                          `json:"tags,omitempty"`
+	LoadBalancers               []LoadBalancer                 `json:"loadBalancers,omitempty"`
+	ServiceRegistries           []ServiceRegistry              `json:"serviceRegistries,omitempty"`
 	PlacementConstraints        []PlacementConstraint          `json:"placementConstraints,omitempty"`
 	PlacementStrategy           []PlacementStrategy            `json:"placementStrategy,omitempty"`
 	CapacityProviderStrategy    []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
@@ -124,26 +156,28 @@ type Service struct {
 
 // Task represents an ECS task.
 type Task struct {
-	StartedAt            *time.Time       `json:"startedAt,omitempty"`
-	StoppedAt            *time.Time       `json:"stoppedAt,omitempty"`
-	ConnectivityAt       *time.Time       `json:"connectivityAt,omitempty"`
-	Overrides            *TaskOverride    `json:"overrides,omitempty"`
-	TaskArn              string           `json:"taskArn"`
-	ClusterArn           string           `json:"clusterArn"`
-	TaskDefinitionArn    string           `json:"taskDefinitionArn"`
-	LastStatus           string           `json:"lastStatus"`
-	DesiredStatus        string           `json:"desiredStatus"`
-	Connectivity         string           `json:"connectivity,omitempty"`
-	StoppedReason        string           `json:"stoppedReason,omitempty"`
-	Group                string           `json:"group,omitempty"`
-	LaunchType           string           `json:"launchType,omitempty"`
-	ContainerInstanceArn string           `json:"containerInstanceArn,omitempty"`
-	StartedBy            string           `json:"startedBy,omitempty"`
-	PlatformVersion      string           `json:"platformVersion,omitempty"`
-	PlatformFamily       string           `json:"platformFamily,omitempty"`
-	RuntimeID            string           `json:"runtimeId,omitempty"`
-	Tags                 []Tag            `json:"tags,omitempty"`
-	Attachments          []TaskAttachment `json:"attachments,omitempty"`
+	StartedAt            *time.Time            `json:"startedAt,omitempty"`
+	StoppedAt            *time.Time            `json:"stoppedAt,omitempty"`
+	ConnectivityAt       *time.Time            `json:"connectivityAt,omitempty"`
+	Overrides            *TaskOverride         `json:"overrides,omitempty"`
+	NetworkConfiguration *NetworkConfiguration `json:"networkConfiguration,omitempty"`
+	TaskArn              string                `json:"taskArn"`
+	ClusterArn           string                `json:"clusterArn"`
+	TaskDefinitionArn    string                `json:"taskDefinitionArn"`
+	LastStatus           string                `json:"lastStatus"`
+	DesiredStatus        string                `json:"desiredStatus"`
+	Connectivity         string                `json:"connectivity,omitempty"`
+	StoppedReason        string                `json:"stoppedReason,omitempty"`
+	Group                string                `json:"group,omitempty"`
+	LaunchType           string                `json:"launchType,omitempty"`
+	ContainerInstanceArn string                `json:"containerInstanceArn,omitempty"`
+	StartedBy            string                `json:"startedBy,omitempty"`
+	PlatformVersion      string                `json:"platformVersion,omitempty"`
+	PlatformFamily       string                `json:"platformFamily,omitempty"`
+	RuntimeID            string                `json:"runtimeId,omitempty"`
+	PropagateTags        string                `json:"propagateTags,omitempty"`
+	Tags                 []Tag                 `json:"tags,omitempty"`
+	Attachments          []TaskAttachment      `json:"attachments,omitempty"`
 }
 
 // CreateClusterInput holds input for CreateCluster.
@@ -153,26 +187,35 @@ type CreateClusterInput struct {
 
 // RegisterTaskDefinitionInput holds input for RegisterTaskDefinition.
 type RegisterTaskDefinitionInput struct {
-	Family               string                `json:"family"`
-	NetworkMode          string                `json:"networkMode,omitempty"`
-	CPU                  string                `json:"cpu,omitempty"`
-	Memory               string                `json:"memory,omitempty"`
-	PlatformFamily       string                `json:"platformFamily,omitempty"`
-	ContainerDefinitions []ContainerDefinition `json:"containerDefinitions"`
-	PlacementConstraints []PlacementConstraint `json:"placementConstraints,omitempty"`
-	Tags                 []Tag                 `json:"tags,omitempty"`
+	Family                  string                `json:"family"`
+	TaskRoleArn             string                `json:"taskRoleArn,omitempty"`
+	ExecutionRoleArn        string                `json:"executionRoleArn,omitempty"`
+	NetworkMode             string                `json:"networkMode,omitempty"`
+	CPU                     string                `json:"cpu,omitempty"`
+	Memory                  string                `json:"memory,omitempty"`
+	PlatformFamily          string                `json:"platformFamily,omitempty"`
+	ContainerDefinitions    []ContainerDefinition `json:"containerDefinitions"`
+	Volumes                 []Volume              `json:"volumes,omitempty"`
+	PlacementConstraints    []PlacementConstraint `json:"placementConstraints,omitempty"`
+	RequiresCompatibilities []string              `json:"requiresCompatibilities,omitempty"`
+	Tags                    []Tag                 `json:"tags,omitempty"`
 }
 
 // CreateServiceInput holds input for CreateService.
 type CreateServiceInput struct {
 	DeploymentConfiguration     *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`
+	DeploymentController        *DeploymentController          `json:"deploymentController,omitempty"`
+	NetworkConfiguration        *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
 	ServiceConnectConfiguration *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
 	ServiceName                 string                         `json:"serviceName"`
 	Cluster                     string                         `json:"cluster,omitempty"`
 	TaskDefinition              string                         `json:"taskDefinition"`
 	LaunchType                  string                         `json:"launchType,omitempty"`
 	SchedulingStrategy          string                         `json:"schedulingStrategy,omitempty"`
+	PropagateTags               string                         `json:"propagateTags,omitempty"`
 	Tags                        []Tag                          `json:"tags,omitempty"`
+	LoadBalancers               []LoadBalancer                 `json:"loadBalancers,omitempty"`
+	ServiceRegistries           []ServiceRegistry              `json:"serviceRegistries,omitempty"`
 	CapacityProviderStrategy    []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints        []PlacementConstraint          `json:"placementConstraints,omitempty"`
 	PlacementStrategy           []PlacementStrategy            `json:"placementStrategy,omitempty"`
@@ -183,10 +226,13 @@ type CreateServiceInput struct {
 type UpdateServiceInput struct {
 	DesiredCount                *int                           `json:"desiredCount,omitempty"`
 	DeploymentConfiguration     *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`
+	NetworkConfiguration        *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
 	ServiceConnectConfiguration *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
 	Cluster                     string                         `json:"cluster,omitempty"`
 	Service                     string                         `json:"service"`
 	TaskDefinition              string                         `json:"taskDefinition,omitempty"`
+	PropagateTags               string                         `json:"propagateTags,omitempty"`
+	LoadBalancers               []LoadBalancer                 `json:"loadBalancers,omitempty"`
 	CapacityProviderStrategy    []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints        []PlacementConstraint          `json:"placementConstraints,omitempty"`
 	PlacementStrategy           []PlacementStrategy            `json:"placementStrategy,omitempty"`
@@ -194,16 +240,18 @@ type UpdateServiceInput struct {
 
 // RunTaskInput holds input for RunTask.
 type RunTaskInput struct {
-	Overrides            *TaskOverride `json:"overrides,omitempty"`
-	Cluster              string        `json:"cluster,omitempty"`
-	TaskDefinition       string        `json:"taskDefinition"`
-	LaunchType           string        `json:"launchType,omitempty"`
-	Group                string        `json:"group,omitempty"`
-	StartedBy            string        `json:"startedBy,omitempty"`
-	PlatformVersion      string        `json:"platformVersion,omitempty"`
-	Tags                 []Tag         `json:"tags,omitempty"`
-	Count                int           `json:"count,omitempty"`
-	EnableECSManagedTags bool          `json:"enableECSManagedTags,omitempty"`
+	Overrides            *TaskOverride         `json:"overrides,omitempty"`
+	NetworkConfiguration *NetworkConfiguration `json:"networkConfiguration,omitempty"`
+	Cluster              string                `json:"cluster,omitempty"`
+	TaskDefinition       string                `json:"taskDefinition"`
+	LaunchType           string                `json:"launchType,omitempty"`
+	Group                string                `json:"group,omitempty"`
+	StartedBy            string                `json:"startedBy,omitempty"`
+	PlatformVersion      string                `json:"platformVersion,omitempty"`
+	PropagateTags        string                `json:"propagateTags,omitempty"`
+	Tags                 []Tag                 `json:"tags,omitempty"`
+	Count                int                   `json:"count,omitempty"`
+	EnableECSManagedTags bool                  `json:"enableECSManagedTags,omitempty"`
 }
 
 // compile-time assertion.
@@ -457,11 +505,12 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 		}
 	}
 
-	// Delete task sets for all services in this cluster before removing the services map,
-	// preventing stale task set entries on cluster recreation.
+	// Delete task sets and service deployments for all services in this cluster
+	// before removing the services map, preventing stale entries on cluster recreation.
 	if svcs, exists := b.services[key]; exists {
 		for _, svc := range svcs {
 			delete(b.taskSets, svc.ServiceArn)
+			delete(b.serviceDeployments, svc.ServiceArn)
 		}
 	}
 
@@ -494,6 +543,20 @@ func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInp
 		return nil, fmt.Errorf("%w: family is required", ErrInvalidParameter)
 	}
 
+	isFargate := false
+	for _, rc := range input.RequiresCompatibilities {
+		if strings.EqualFold(rc, launchTypeFargate) {
+			isFargate = true
+			break
+		}
+	}
+
+	if isFargate {
+		if err := validateFargateCPUMemory(input.CPU, input.Memory); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.Lock("RegisterTaskDefinition")
 	defer b.mu.Unlock()
 
@@ -515,15 +578,19 @@ func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInp
 			input.Family,
 			revision,
 		),
-		Family:               input.Family,
-		NetworkMode:          input.NetworkMode,
-		CPU:                  input.CPU,
-		Memory:               input.Memory,
-		PlatformFamily:       input.PlatformFamily,
-		Status:               statusActive,
-		ContainerDefinitions: input.ContainerDefinitions,
-		PlacementConstraints: input.PlacementConstraints,
-		Revision:             revision,
+		Family:                  input.Family,
+		TaskRoleArn:             input.TaskRoleArn,
+		ExecutionRoleArn:        input.ExecutionRoleArn,
+		NetworkMode:             input.NetworkMode,
+		CPU:                     input.CPU,
+		Memory:                  input.Memory,
+		PlatformFamily:          input.PlatformFamily,
+		Status:                  statusActive,
+		ContainerDefinitions:    input.ContainerDefinitions,
+		Volumes:                 input.Volumes,
+		PlacementConstraints:    input.PlacementConstraints,
+		RequiresCompatibilities: input.RequiresCompatibilities,
+		Revision:                revision,
 	}
 
 	revisions = append(revisions, td)
@@ -654,21 +721,39 @@ func (b *InMemoryBackend) DeregisterTaskDefinition(taskDefinitionArn string) (*T
 	return nil, fmt.Errorf("%w: %s", ErrTaskDefinitionNotFound, taskDefinitionArn)
 }
 
+// ListTaskDefinitionsInput holds optional filters for ListTaskDefinitions.
+type ListTaskDefinitionsInput struct {
+	FamilyPrefix string
+	// Status filters by task definition status: "ACTIVE", "INACTIVE", or
+	// "DELETE_IN_PROGRESS". Empty string matches only ACTIVE (AWS default).
+	Status string
+}
+
 // ListTaskDefinitions returns ARNs of task definitions, optionally filtered by family prefix.
 // ARNs are returned sorted for deterministic output.
 func (b *InMemoryBackend) ListTaskDefinitions(familyPrefix string) ([]string, error) {
-	b.mu.RLock("ListTaskDefinitions")
+	return b.ListTaskDefinitionsFiltered(ListTaskDefinitionsInput{FamilyPrefix: familyPrefix})
+}
+
+// ListTaskDefinitionsFiltered returns task definition ARNs with status filtering.
+func (b *InMemoryBackend) ListTaskDefinitionsFiltered(input ListTaskDefinitionsInput) ([]string, error) {
+	b.mu.RLock("ListTaskDefinitionsFiltered")
 	defer b.mu.RUnlock()
+
+	wantStatus := strings.ToUpper(input.Status)
+	if wantStatus == "" {
+		wantStatus = statusActive
+	}
 
 	var arns []string
 
 	for family, revs := range b.taskDefinitions {
-		if familyPrefix != "" && !strings.HasPrefix(family, familyPrefix) {
+		if input.FamilyPrefix != "" && !strings.HasPrefix(family, input.FamilyPrefix) {
 			continue
 		}
 
 		for _, td := range revs {
-			if td.Status == statusActive {
+			if strings.EqualFold(td.Status, wantStatus) {
 				arns = append(arns, td.TaskDefinitionArn)
 			}
 		}
@@ -707,6 +792,10 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
+	if err := validateDeploymentController(input.DeploymentController); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateService")
 	defer b.mu.Unlock()
 
@@ -731,6 +820,11 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		schedulingStrategy = "REPLICA"
 	}
 
+	propagateTags := input.PropagateTags
+	if propagateTags == "" {
+		propagateTags = propagateTagsNone
+	}
+
 	svc := &Service{
 		CreatedAt: time.Now(),
 		ServiceArn: fmt.Sprintf(
@@ -746,8 +840,13 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		Status:                      statusActive,
 		LaunchType:                  launchType,
 		SchedulingStrategy:          schedulingStrategy,
+		PropagateTags:               propagateTags,
 		Tags:                        input.Tags,
-		DeploymentConfiguration:     input.DeploymentConfiguration,
+		LoadBalancers:               input.LoadBalancers,
+		ServiceRegistries:           input.ServiceRegistries,
+		DeploymentConfiguration:     input.DeploymentConfiguration.withAWSDefaults(),
+		DeploymentController:        input.DeploymentController,
+		NetworkConfiguration:        input.NetworkConfiguration,
 		CapacityProviderStrategy:    input.CapacityProviderStrategy,
 		PlacementConstraints:        input.PlacementConstraints,
 		PlacementStrategy:           input.PlacementStrategy,
@@ -891,6 +990,18 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		svc.ServiceConnectConfiguration = input.ServiceConnectConfiguration
 	}
 
+	if input.NetworkConfiguration != nil {
+		svc.NetworkConfiguration = input.NetworkConfiguration
+	}
+
+	if input.PropagateTags != "" {
+		svc.PropagateTags = input.PropagateTags
+	}
+
+	if len(input.LoadBalancers) > 0 {
+		svc.LoadBalancers = input.LoadBalancers
+	}
+
 	cp := *svc
 
 	return &cp, nil
@@ -935,6 +1046,10 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 		return nil, fmt.Errorf("%w: taskDefinition is required", ErrInvalidParameter)
 	}
 
+	if err := validatePlatformVersion(input.PlatformVersion); err != nil {
+		return nil, err
+	}
+
 	count := input.Count
 	if count <= 0 {
 		count = 1
@@ -970,20 +1085,22 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 
 		now := time.Now()
 		task := &Task{
-			TaskArn:           taskArn,
-			ClusterArn:        clusterArn,
-			TaskDefinitionArn: td.TaskDefinitionArn,
-			LastStatus:        statusProvisioning,
-			DesiredStatus:     statusRunning,
-			Group:             input.Group,
-			LaunchType:        launchType,
-			StartedBy:         input.StartedBy,
-			PlatformVersion:   input.PlatformVersion,
-			Tags:              input.Tags,
-			StartedAt:         &now,
-			Connectivity:      connectivityConnected,
-			ConnectivityAt:    &now,
-			Overrides:         input.Overrides,
+			TaskArn:              taskArn,
+			ClusterArn:           clusterArn,
+			TaskDefinitionArn:    td.TaskDefinitionArn,
+			LastStatus:           statusProvisioning,
+			DesiredStatus:        statusRunning,
+			Group:                input.Group,
+			LaunchType:           launchType,
+			StartedBy:            input.StartedBy,
+			PlatformVersion:      input.PlatformVersion,
+			PropagateTags:        input.PropagateTags,
+			Tags:                 input.Tags,
+			StartedAt:            &now,
+			Connectivity:         connectivityConnected,
+			ConnectivityAt:       &now,
+			Overrides:            input.Overrides,
+			NetworkConfiguration: input.NetworkConfiguration,
 		}
 
 		if launchType == launchTypeFargate {

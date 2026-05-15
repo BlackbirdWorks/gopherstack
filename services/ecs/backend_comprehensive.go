@@ -27,6 +27,7 @@ type ContainerOverride struct {
 	Name        string         `json:"name"`
 	Command     []string       `json:"command,omitempty"`
 	Environment []KeyValuePair `json:"environment,omitempty"`
+	Secrets     []SecretReference `json:"secrets,omitempty"`
 }
 
 // TaskOverride represents overrides for a task run.

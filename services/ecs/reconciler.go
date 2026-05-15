@@ -3,18 +3,26 @@ package ecs
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
-const reconcileInterval = 5 * time.Second
+const (
+	reconcileInterval = 5 * time.Second
+	// maxConcurrentLaunches caps the number of concurrent task launches per cluster
+	// to prevent unbounded goroutine fanout when Docker is slow.
+	maxConcurrentLaunches = 5
+)
 
 // Reconciler manages ECS service desired-count reconciliation.
 // It runs in the background, comparing DesiredCount vs running task count
 // and starting or stopping tasks as needed.
 type Reconciler struct {
 	backend  *InMemoryBackend
+	sems     map[string]chan struct{} // per-cluster launch semaphore
+	semMu    sync.Mutex
 	interval time.Duration
 }
 
@@ -22,8 +30,24 @@ type Reconciler struct {
 func NewReconciler(backend *InMemoryBackend) *Reconciler {
 	return &Reconciler{
 		backend:  backend,
+		sems:     make(map[string]chan struct{}),
 		interval: reconcileInterval,
 	}
+}
+
+// clusterSem returns the per-cluster launch semaphore, creating it if needed.
+func (r *Reconciler) clusterSem(clusterName string) chan struct{} {
+	r.semMu.Lock()
+	defer r.semMu.Unlock()
+
+	if ch, ok := r.sems[clusterName]; ok {
+		return ch
+	}
+
+	ch := make(chan struct{}, maxConcurrentLaunches)
+	r.sems[clusterName] = ch
+
+	return ch
 }
 
 // Start launches the reconciliation loop. It runs until ctx is cancelled.
@@ -93,8 +117,24 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 			"toStart", toStart,
 		)
 
+		sem := r.clusterSem(snap.clusterName)
+
 		for range toStart {
-			if err := r.backend.StartTaskForService(snap.clusterName, svc.ServiceName, svc.TaskDefinition); err != nil {
+			select {
+			case sem <- struct{}{}:
+			default:
+				// Semaphore full — defer remaining launches to next tick.
+				log.DebugContext(ctx, "ECS reconciler: launch semaphore full, deferring",
+					"cluster", snap.clusterName,
+					"service", svc.ServiceName,
+				)
+				return nil
+			}
+
+			err := r.backend.StartTaskForService(snap.clusterName, svc.ServiceName, svc.TaskDefinition)
+			<-sem
+
+			if err != nil {
 				return err
 			}
 		}
