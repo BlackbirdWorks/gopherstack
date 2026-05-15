@@ -8,7 +8,7 @@ package sns_test
 import (
 	"crypto"
 	"crypto/rsa"
-	"crypto/sha1" //nolint:gosec // required by AWS SignatureVersion=1
+	"crypto/sha1" // AWS SNS SignatureVersion=1 mandates SHA-1
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -182,8 +182,7 @@ func TestIssue4_SignatureIsValidRSASHA1(t *testing.T) {
 	sigBytes, err := base64.StdEncoding.DecodeString(env.Signature)
 	require.NoError(t, err, "Signature must be valid base64")
 
-	//nolint:gosec // SHA-1 is mandated by AWS SignatureVersion=1
-	h := sha1.Sum([]byte(canonical))
+	h := sha1.Sum([]byte(canonical)) // AWS SNS SignatureVersion=1 mandates SHA-1
 	err = rsa.VerifyPKCS1v15(rsaPub, crypto.SHA1, h[:], sigBytes)
 	assert.NoError(t, err, "notification signature must verify with the signing cert")
 }
@@ -231,8 +230,7 @@ func TestIssue4_SubjectIncludedInSignature(t *testing.T) {
 	)
 
 	sigBytes, _ := base64.StdEncoding.DecodeString(env.Signature)
-	//nolint:gosec // AWS SignatureVersion=1
-	h := sha1.Sum([]byte(canonical))
+	h := sha1.Sum([]byte(canonical)) // AWS SNS SignatureVersion=1 mandates SHA-1
 	assert.NoError(t, rsa.VerifyPKCS1v15(rsaPub, crypto.SHA1, h[:], sigBytes))
 }
 
@@ -349,9 +347,9 @@ func TestIssue1_PublishBatchFIFODedup(t *testing.T) {
 
 	// First batch with dedup ID "d1".
 	rec := doSNSRequest(t, h, url.Values{
-		"Action":   {"PublishBatch"},
-		"TopicArn": {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":                     {"e1"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"e1"},
 		"PublishBatchRequestEntries.member.1.Message":                {"msg1"},
 		"PublishBatchRequestEntries.member.1.MessageGroupId":         {"g1"},
 		"PublishBatchRequestEntries.member.1.MessageDeduplicationId": {"d1"},
@@ -363,9 +361,9 @@ func TestIssue1_PublishBatchFIFODedup(t *testing.T) {
 
 	// Same dedup ID → second batch must treat it as duplicate (success, no re-publish).
 	rec2 := doSNSRequest(t, h, url.Values{
-		"Action":   {"PublishBatch"},
-		"TopicArn": {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":                     {"e2"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"e2"},
 		"PublishBatchRequestEntries.member.1.Message":                {"msg1"},
 		"PublishBatchRequestEntries.member.1.MessageGroupId":         {"g1"},
 		"PublishBatchRequestEntries.member.1.MessageDeduplicationId": {"d1"},
@@ -389,9 +387,9 @@ func TestIssue2_ContentBasedDeduplicationBatch(t *testing.T) {
 
 	// Explicit dedup ID with CBD enabled → invalid parameter.
 	rec := doSNSRequest(t, h, url.Values{
-		"Action":   {"PublishBatch"},
-		"TopicArn": {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":                     {"e1"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"e1"},
 		"PublishBatchRequestEntries.member.1.Message":                {"some-msg"},
 		"PublishBatchRequestEntries.member.1.MessageGroupId":         {"g1"},
 		"PublishBatchRequestEntries.member.1.MessageDeduplicationId": {"forbidden"},
@@ -415,9 +413,9 @@ func TestIssue2_ContentBasedDeduplicationBatchDedup(t *testing.T) {
 
 	// First publish.
 	rec1 := doSNSRequest(t, h, url.Values{
-		"Action":   {"PublishBatch"},
-		"TopicArn": {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":             {"e1"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"e1"},
 		"PublishBatchRequestEntries.member.1.Message":        {"dup-body"},
 		"PublishBatchRequestEntries.member.1.MessageGroupId": {"g1"},
 	})
@@ -426,9 +424,9 @@ func TestIssue2_ContentBasedDeduplicationBatchDedup(t *testing.T) {
 
 	// Same body → duplicate within window.
 	rec2 := doSNSRequest(t, h, url.Values{
-		"Action":   {"PublishBatch"},
-		"TopicArn": {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":             {"e2"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"e2"},
 		"PublishBatchRequestEntries.member.1.Message":        {"dup-body"},
 		"PublishBatchRequestEntries.member.1.MessageGroupId": {"g1"},
 	})
@@ -446,9 +444,9 @@ func TestIssue2_FIFORequiresDedupID(t *testing.T) {
 	require.NoError(t, err)
 
 	rec := doSNSRequest(t, h, url.Values{
-		"Action":   {"PublishBatch"},
-		"TopicArn": {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":             {"e1"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"e1"},
 		"PublishBatchRequestEntries.member.1.Message":        {"msg"},
 		"PublishBatchRequestEntries.member.1.MessageGroupId": {"g1"},
 		// No MessageDeduplicationId.
@@ -545,9 +543,9 @@ func TestIssue6_BatchMessageStructureJSON(t *testing.T) {
 	msgJSON := `{"http":"http-specific","default":"fallback"}`
 
 	rec := doSNSRequest(t, h, url.Values{
-		"Action":   {"PublishBatch"},
-		"TopicArn": {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":               {"e1"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"e1"},
 		"PublishBatchRequestEntries.member.1.Message":          {msgJSON},
 		"PublishBatchRequestEntries.member.1.MessageStructure": {"json"},
 	})
@@ -558,7 +556,7 @@ func TestIssue6_BatchMessageStructureJSON(t *testing.T) {
 	case raw := <-received:
 		// The delivered body should be the http-protocol-specific value.
 		var env snsNotificationEnvelope
-		if err := json.Unmarshal([]byte(raw), &env); err == nil {
+		if json.Unmarshal([]byte(raw), &env) == nil {
 			assert.Equal(t, "http-specific", env.Message)
 		} else {
 			assert.Equal(t, "http-specific", raw)
@@ -589,9 +587,9 @@ func TestIssue6_BatchMessageStructureDefault(t *testing.T) {
 	require.NoError(t, err)
 
 	rec := doSNSRequest(t, h, url.Values{
-		"Action":   {"PublishBatch"},
-		"TopicArn": {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":      {"e1"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"e1"},
 		"PublishBatchRequestEntries.member.1.Message": {"plain-text"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -600,7 +598,7 @@ func TestIssue6_BatchMessageStructureDefault(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if err := json.Unmarshal([]byte(raw), &env); err == nil {
+		if json.Unmarshal([]byte(raw), &env) == nil {
 			assert.Equal(t, "plain-text", env.Message)
 		} else {
 			assert.Equal(t, "plain-text", raw)
@@ -680,8 +678,8 @@ func TestIssue7_FilterPolicyConditionLimit(t *testing.T) {
 	require.NoError(t, err)
 
 	// Build a filter policy with 151 conditions spread across attributes.
-	var parts []string
-	for i := 0; i < 151; i++ {
+	parts := make([]string, 0, 151)
+	for i := range 151 {
 		parts = append(parts, fmt.Sprintf(`"v%d"`, i))
 	}
 	policy := fmt.Sprintf(`{"attr":[%s]}`, strings.Join(parts, ","))
@@ -844,9 +842,9 @@ func TestIssue10_BatchEntryIDTooLong(t *testing.T) {
 	longID := strings.Repeat("x", 81)
 
 	rec := doSNSRequest(t, h, url.Values{
-		"Action":   {"PublishBatch"},
-		"TopicArn": {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":      {longID},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {longID},
 		"PublishBatchRequestEntries.member.1.Message": {"msg"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -862,9 +860,9 @@ func TestIssue10_BatchDuplicateIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	rec := doSNSRequest(t, h, url.Values{
-		"Action":   {"PublishBatch"},
-		"TopicArn": {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":      {"same-id"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"same-id"},
 		"PublishBatchRequestEntries.member.1.Message": {"msg1"},
 		"PublishBatchRequestEntries.member.2.Id":      {"same-id"},
 		"PublishBatchRequestEntries.member.2.Message": {"msg2"},
@@ -909,9 +907,9 @@ func TestIssue10_BatchBodyTooLarge(t *testing.T) {
 	bigMsg := strings.Repeat("a", 256*1024+1)
 
 	rec := doSNSRequest(t, h, url.Values{
-		"Action":   {"PublishBatch"},
-		"TopicArn": {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":      {"e1"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"e1"},
 		"PublishBatchRequestEntries.member.1.Message": {bigMsg},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -932,11 +930,11 @@ func TestIssue11_MessageAttributeInvalidDataType(t *testing.T) {
 	require.NoError(t, err)
 
 	rec := doSNSRequest(t, h, url.Values{
-		"Action":   {"Publish"},
-		"TopicArn": {tp.TopicArn},
-		"Message":  {"hello"},
-		"MessageAttributes.entry.1.Name":            {"myAttr"},
-		"MessageAttributes.entry.1.Value.DataType":  {"InvalidType"},
+		"Action":                         {"Publish"},
+		"TopicArn":                       {tp.TopicArn},
+		"Message":                        {"hello"},
+		"MessageAttributes.entry.1.Name": {"myAttr"},
+		"MessageAttributes.entry.1.Value.DataType":    {"InvalidType"},
 		"MessageAttributes.entry.1.Value.StringValue": {"val"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -1006,7 +1004,7 @@ func TestGoroutineContextCancellationDrains(t *testing.T) {
 	require.NoError(t, err)
 
 	// Subscribe more endpoints than the concurrency cap (8) so goroutines block.
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
 		require.NoError(t, err)
 	}
@@ -1048,6 +1046,8 @@ func TestGoroutineContextCancellationDrains(t *testing.T) {
 // TestFifoDedupSweepIntervalExported verifies that the sweep interval constant
 // is exported and has the expected value.
 func TestFifoDedupSweepIntervalExported(t *testing.T) {
+	t.Parallel()
+
 	assert.Equal(t, time.Minute, sns.ExportedFifoDedupSweepInterval)
 }
 
@@ -1134,7 +1134,7 @@ func TestFilterPolicyAnythingButMatchDelivery(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if err := json.Unmarshal([]byte(raw), &env); err == nil {
+		if json.Unmarshal([]byte(raw), &env) == nil {
 			assert.Equal(t, "blue-msg", env.Message)
 		}
 	case <-time.After(2 * time.Second):
@@ -1215,7 +1215,7 @@ func TestFilterPolicyPrefixMatch(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if err := json.Unmarshal([]byte(raw), &env); err == nil {
+		if json.Unmarshal([]byte(raw), &env) == nil {
 			assert.Equal(t, "order-msg", env.Message)
 		}
 	case <-time.After(2 * time.Second):
@@ -1226,7 +1226,7 @@ func TestFilterPolicyPrefixMatch(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if err := json.Unmarshal([]byte(raw), &env); err == nil {
+		if json.Unmarshal([]byte(raw), &env) == nil {
 			t.Fatalf("non-matching message was delivered: %s", env.Message)
 		}
 	case <-time.After(300 * time.Millisecond):
@@ -1263,7 +1263,7 @@ func TestFilterPolicySuffixMatch(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if err := json.Unmarshal([]byte(raw), &env); err == nil {
+		if json.Unmarshal([]byte(raw), &env) == nil {
 			assert.Equal(t, "log-msg", env.Message)
 		}
 	case <-time.After(2 * time.Second):
@@ -1300,7 +1300,7 @@ func TestFilterPolicyEqualsIgnoreCase(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if err := json.Unmarshal([]byte(raw), &env); err == nil {
+		if json.Unmarshal([]byte(raw), &env) == nil {
 			assert.Equal(t, "prod-msg", env.Message)
 		}
 	case <-time.After(2 * time.Second):
@@ -1325,7 +1325,7 @@ func TestConcurrentPublishSafety(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(i int) {
 			defer wg.Done()
 			_, _ = b.Publish(tp.TopicArn, fmt.Sprintf("msg-%d", i), "", "", nil)
@@ -1485,7 +1485,7 @@ func TestMessageStructureJSONSinglePublish(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if err := json.Unmarshal([]byte(raw), &env); err == nil {
+		if json.Unmarshal([]byte(raw), &env) == nil {
 			assert.Equal(t, "http-only", env.Message)
 		}
 	case <-time.After(2 * time.Second):

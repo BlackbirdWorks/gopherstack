@@ -38,6 +38,12 @@ import (
 const (
 	protocolEmailJSON = "email-json"
 	protocolHTTPS     = "https"
+
+	// topicArnKey is the SNS canonical attribute key for a topic ARN.
+	topicArnKey = "TopicArn"
+
+	// rsaKeyBits is the RSA key size used for notification signing.
+	rsaKeyBits = 2048
 )
 
 const (
@@ -267,15 +273,15 @@ type SMSDelivery struct {
 // verify signatures without contacting the real AWS endpoint.
 type notificationSigner struct {
 	privateKey *rsa.PrivateKey
-	certPEM    []byte // PEM-encoded DER certificate, served at certURL
 	certURL    string // URL where certPEM is accessible (configurable for tests)
+	certPEM    []byte // PEM-encoded DER certificate, served at certURL
 }
 
 // newNotificationSigner generates a fresh RSA-2048 key pair and a self-signed
 // x.509 certificate. The returned signer is valid for the lifetime of the
 // backend instance.
 func newNotificationSigner() *notificationSigner {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	key, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
 	if err != nil {
 		// Key generation failure is unrecoverable; panic with a clear message
 		// rather than silently falling back to mock signatures.
@@ -331,7 +337,7 @@ func canonicalNotificationString(msgID, topicARN, subject, message, timestamp st
 		{"Message", message},
 		{"MessageId", msgID},
 		{"Timestamp", timestamp},
-		{"TopicArn", topicARN},
+		{topicArnKey, topicARN},
 		{"Type", "Notification"},
 	}
 	if subject != "" {
@@ -478,7 +484,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 
 	attrs := make(map[string]string, len(attributes)+1)
 	maps.Copy(attrs, attributes)
-	attrs["TopicArn"] = topicArn
+	attrs[topicArnKey] = topicArn
 	// Ensure Policy is a valid JSON string with an empty Statement array so
 	// Terraform's PolicyHasValidAWSPrincipals JMESPath check returns []any{}.
 	if attrs["Policy"] == "" {
@@ -600,8 +606,8 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	}
 
 	// AWS always returns TopicArn as an attribute in GetTopicAttributes.
-	if attrs["TopicArn"] == "" {
-		attrs["TopicArn"] = topicArn
+	if attrs[topicArnKey] == "" {
+		attrs[topicArnKey] = topicArn
 	}
 
 	// EffectiveDeliveryPolicy is the resolved delivery policy (defaults to
@@ -854,7 +860,7 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 
 	attrs := map[string]string{
 		"SubscriptionArn":              sub.SubscriptionArn,
-		"TopicArn":                     sub.TopicArn,
+		topicArnKey:                    sub.TopicArn,
 		"Protocol":                     sub.Protocol,
 		"Endpoint":                     sub.Endpoint,
 		"Owner":                        sub.Owner,
@@ -985,13 +991,13 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 
 // httpDelivery holds the endpoint and message body for an HTTP/HTTPS delivery.
 type httpDelivery struct {
+	signer          *notificationSigner // nil disables signing
 	endpoint        string
 	body            string
 	subject         string
 	messageID       string
 	topicARN        string
 	subscriptionARN string
-	signer          *notificationSigner // nil disables signing
 	rawDelivery     bool
 }
 
@@ -1353,7 +1359,51 @@ func (b *InMemoryBackend) collectPublishTargets(
 
 // Publish publishes a message to a topic and returns the message ID.
 // HTTP/HTTPS subscriptions each receive an asynchronous best-effort delivery
-// goroutine after the read lock is released to avoid lock starvation. Goroutines
+// validateStructuredMessage validates a MessageStructure=json payload.
+// Returns nil for non-json messageStructure values.
+func validateStructuredMessage(message, messageStructure string) error {
+	if messageStructure != "json" {
+		return nil
+	}
+
+	var pm map[string]string
+	if err := json.Unmarshal([]byte(message), &pm); err != nil {
+		return fmt.Errorf(
+			"%w: Invalid JSON in Message when MessageStructure is json: %s",
+			ErrInvalidParameter,
+			err.Error(),
+		)
+	}
+
+	if _, ok := pm["default"]; !ok {
+		return fmt.Errorf(
+			"%w: Message must contain a 'default' key when MessageStructure is json",
+			ErrInvalidParameter,
+		)
+	}
+
+	return nil
+}
+
+// parsePerProtocolMessages parses a MessageStructure=json payload into a
+// per-protocol map. Returns nil for non-json messageStructure values.
+// Callers must have already validated the message with validateStructuredMessage.
+func parsePerProtocolMessages(message, messageStructure string) map[string]string {
+	if messageStructure != "json" {
+		return nil
+	}
+
+	var pm map[string]string
+	if err := json.Unmarshal([]byte(message), &pm); err != nil {
+		return nil
+	}
+
+	return pm
+}
+
+// Publish delivers a message to all subscriptions of topicArn. HTTP/HTTPS
+// subscriptions each receive an asynchronous best-effort delivery goroutine
+// after the read lock is released to avoid lock starvation. Goroutines
 // wait for a concurrency slot (up to snsMaxConcurrentDeliveries concurrent HTTP
 // calls) or exit early if the backend is shutting down.
 // All subscriptions are also broadcast via the publish emitter (e.g. to SQS).
@@ -1376,23 +1426,8 @@ func (b *InMemoryBackend) Publish(
 		)
 	}
 
-	// When MessageStructure is "json", the body must be valid JSON and must include
-	// a "default" key. AWS SNS returns InvalidParameter when the key is missing.
-	if messageStructure == "json" {
-		var pm map[string]string
-		if err := json.Unmarshal([]byte(message), &pm); err != nil {
-			return "", fmt.Errorf(
-				"%w: Invalid JSON in Message when MessageStructure is json: %s",
-				ErrInvalidParameter,
-				err.Error(),
-			)
-		}
-		if _, ok := pm["default"]; !ok {
-			return "", fmt.Errorf(
-				"%w: Message must contain a 'default' key when MessageStructure is json",
-				ErrInvalidParameter,
-			)
-		}
+	if err := validateStructuredMessage(message, messageStructure); err != nil {
+		return "", err
 	}
 
 	// Validate message attributes before any backend mutation.
@@ -1410,16 +1445,8 @@ func (b *InMemoryBackend) Publish(
 
 	messageID := uuid.New().String()
 
-	// Pre-parse the per-protocol message map if MessageStructure is "json".
-	var perProtocolMessages map[string]string
-	if messageStructure == "json" {
-		if err := json.Unmarshal([]byte(message), &perProtocolMessages); err != nil {
-			perProtocolMessages = nil
-		}
-	}
-
 	// resolveMsg returns the appropriate message body for a given protocol.
-	resolveMsg := buildMessageResolver(message, perProtocolMessages)
+	resolveMsg := buildMessageResolver(message, parsePerProtocolMessages(message, messageStructure))
 
 	// Build subscription snapshot and collect HTTP deliveries — all under RLock.
 	targets := b.collectPublishTargets(topicArn, subject, resolveMsg, attrs)
@@ -2419,7 +2446,7 @@ func isValidBatchEntryID(id string) bool {
 // topic attribute that must not be set via SetTopicAttributes.
 func isReadOnlyTopicAttribute(name string) bool {
 	switch name {
-	case "Owner", "TopicArn", "SubscriptionsConfirmed", "SubscriptionsPending",
+	case "Owner", topicArnKey, "SubscriptionsConfirmed", "SubscriptionsPending",
 		"SubscriptionsDeleted", "EffectiveDeliveryPolicy":
 		return true
 	}
