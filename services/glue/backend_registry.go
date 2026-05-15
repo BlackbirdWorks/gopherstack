@@ -252,7 +252,7 @@ func (b *InMemoryBackend) ListSchemas(registryName string) []*Schema {
 	b.mu.RLock("ListSchemas")
 	defer b.mu.RUnlock()
 
-	out := make([]*Schema, 0)
+	out := make([]*Schema, 0, len(b.schemas))
 	for key, s := range b.schemas {
 		if registryName == "" || s.RegistryName == registryName {
 			_ = key
@@ -402,7 +402,7 @@ func (b *InMemoryBackend) GetTableVersions(dbName, tableName string) []*TableVer
 	defer b.mu.RUnlock()
 
 	prefix := tableVersionKey(dbName, tableName, "")
-	out := make([]*TableVersion, 0)
+	out := make([]*TableVersion, 0, len(b.tableVersions))
 
 	for k, tv := range b.tableVersions {
 		if len(k) > len(prefix) && k[:len(prefix)] == prefix {

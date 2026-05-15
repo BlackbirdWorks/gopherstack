@@ -344,7 +344,7 @@ func (b *InMemoryBackend) ListRepositoriesInDomain(domainName string) ([]*Reposi
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	list := make([]*Repository, 0)
+	list := make([]*Repository, 0, len(b.repositories))
 	for _, r := range b.repositories {
 		if r.DomainName == domainName {
 			cp := *r
@@ -1029,7 +1029,7 @@ func (b *InMemoryBackend) ListPackageGroups(domainName, prefix string) ([]*Packa
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	result := make([]*PackageGroup, 0)
+	result := make([]*PackageGroup, 0, len(b.packageGroups))
 
 	for _, pg := range b.packageGroups {
 		if pg.DomainName != domainName {
@@ -1060,7 +1060,7 @@ func (b *InMemoryBackend) ListSubPackageGroups(domainName, pattern string) ([]*P
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	result := make([]*PackageGroup, 0)
+	result := make([]*PackageGroup, 0, len(b.packageGroups))
 
 	for _, pg := range b.packageGroups {
 		if pg.DomainName != domainName {
@@ -1168,7 +1168,7 @@ func (b *InMemoryBackend) ListPackages(domainName, repoName, format, namespace s
 		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
 	}
 
-	result := make([]*Package, 0)
+	result := make([]*Package, 0, len(b.packages))
 
 	for _, pv := range b.packageVersions {
 		if pv.DomainName != domainName || pv.Repository != repoName {
@@ -1225,7 +1225,7 @@ func (b *InMemoryBackend) ListPackageVersions(
 		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
 	}
 
-	result := make([]*PackageVersion, 0)
+	result := make([]*PackageVersion, 0, len(b.packageVersions))
 
 	for _, pv := range b.packageVersions {
 		if pv.DomainName != domainName || pv.Repository != repoName {

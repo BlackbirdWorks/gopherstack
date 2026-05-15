@@ -349,7 +349,7 @@ func (b *InMemoryBackend) ListSessions(workGroup, stateFilter string) ([]Session
 	b.mu.RLock("ListSessions")
 	defer b.mu.RUnlock()
 
-	out := make([]SessionSummary, 0)
+	out := make([]SessionSummary, 0, len(b.sessions))
 
 	for _, s := range b.sessions {
 		if workGroup != "" && s.WorkGroup != workGroup {
@@ -386,7 +386,7 @@ func (b *InMemoryBackend) ListNotebookSessions(notebookID string) ([]SessionSumm
 		return nil, fmt.Errorf("%w: notebook %q not found", ErrNotFound, notebookID)
 	}
 
-	out := make([]SessionSummary, 0)
+	out := make([]SessionSummary, 0, len(b.sessions))
 
 	for _, s := range b.sessions {
 		if s.NotebookID != notebookID {
@@ -533,7 +533,7 @@ func (b *InMemoryBackend) ListCalculationExecutions(sessionID, stateFilter strin
 		return nil, fmt.Errorf("%w: session %q not found", ErrNotFound, sessionID)
 	}
 
-	out := make([]CalculationSummary, 0)
+	out := make([]CalculationSummary, 0, len(b.calculations))
 
 	for _, c := range b.calculations {
 		if c.SessionID != sessionID {
@@ -795,7 +795,7 @@ func (b *InMemoryBackend) ListNotebookMetadata(workGroup, namePrefix string) ([]
 	b.mu.RLock("ListNotebookMetadata")
 	defer b.mu.RUnlock()
 
-	out := make([]NotebookMetadata, 0)
+	out := make([]NotebookMetadata, 0, len(b.notebooks))
 
 	for _, nb := range b.notebooks {
 		if workGroup != "" && nb.WorkGroup != workGroup {

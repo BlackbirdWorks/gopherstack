@@ -856,7 +856,7 @@ func (b *InMemoryBackend) LookupDeveloperIdentity(
 // A developer login key is non-standard (not a well-known provider prefix).
 // The result is always sorted for deterministic output.
 func developerLoginsFrom(logins map[string]string, developerProviderName string) []string {
-	ids := make([]string, 0)
+	ids := make([]string, 0, len(logins))
 
 	if developerProviderName != "" {
 		if v, ok := logins[developerProviderName]; ok {

@@ -821,7 +821,7 @@ func (b *InMemoryBackend) ListTopics(clusterArn string) ([]*Topic, error) {
 	}
 
 	prefix := clusterArn + topicKeySeparator
-	out := make([]*Topic, 0)
+	out := make([]*Topic, 0, len(b.topics))
 
 	for k, t := range b.topics {
 		if strings.HasPrefix(k, prefix) {
@@ -917,7 +917,7 @@ func (b *InMemoryBackend) ListClientVpcConnections(clusterArn string) ([]*VpcCon
 		return nil, ErrNotFound
 	}
 
-	out := make([]*VpcConnection, 0)
+	out := make([]*VpcConnection, 0, len(b.vpcConnections))
 
 	for _, v := range b.vpcConnections {
 		if v.TargetClusterArn == clusterArn {
@@ -985,7 +985,7 @@ func (b *InMemoryBackend) ListClusterOperations(clusterArn string) ([]*ClusterOp
 		return nil, ErrNotFound
 	}
 
-	out := make([]*ClusterOperation, 0)
+	out := make([]*ClusterOperation, 0, len(b.clusterOperations))
 
 	for _, op := range b.clusterOperations {
 		if op.ClusterArn == clusterArn {

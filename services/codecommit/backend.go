@@ -865,7 +865,7 @@ func (b *InMemoryBackend) ListPullRequests(repositoryName string) ([]string, err
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
-	ids := make([]string, 0)
+	ids := make([]string, 0, len(b.pullRequests))
 
 	for id, pr := range b.pullRequests {
 		for _, t := range pr.PullRequestTargets {

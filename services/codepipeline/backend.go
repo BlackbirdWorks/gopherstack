@@ -978,7 +978,7 @@ func (b *InMemoryBackend) PollForJobs(category, owner, provider, version string)
 	b.mu.RLock("PollForJobs")
 	defer b.mu.RUnlock()
 
-	result := make([]*Job, 0)
+	result := make([]*Job, 0, len(b.jobs))
 
 	for _, job := range b.jobs {
 		if job.Status == "Queued" {

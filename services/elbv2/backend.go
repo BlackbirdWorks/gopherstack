@@ -711,7 +711,7 @@ func (b *InMemoryBackend) DescribeLoadBalancers(arns []string, names []string) (
 		nameSet[n] = true
 	}
 
-	result := make([]LoadBalancer, 0)
+	result := make([]LoadBalancer, 0, len(b.loadBalancers))
 
 	for _, lb := range b.loadBalancers {
 		if len(arns) > 0 && !arnSet[lb.LoadBalancerArn] {
@@ -1154,7 +1154,7 @@ func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lb
 	// Build TG -> LB ARNs mapping to populate LoadBalancerArns field.
 	tgLBMap := b.tgToLBArnsLocked()
 
-	result := make([]TargetGroup, 0)
+	result := make([]TargetGroup, 0, len(b.targetGroups))
 
 	for _, tg := range b.targetGroups {
 		if len(arns) > 0 && !arnSet[tg.TargetGroupArn] {
@@ -1479,7 +1479,7 @@ func (b *InMemoryBackend) DescribeListeners(lbArn string, listenerArns []string)
 		arnSet[a] = true
 	}
 
-	result := make([]Listener, 0)
+	result := make([]Listener, 0, len(b.listeners))
 
 	for _, l := range b.listeners {
 		if lbArn != "" && l.LoadBalancerArn != lbArn {
@@ -1696,7 +1696,7 @@ func (b *InMemoryBackend) DescribeRules(listenerArn string, ruleArns []string) (
 		arnSet[a] = true
 	}
 
-	result := make([]Rule, 0)
+	result := make([]Rule, 0, len(b.rules))
 
 	for _, r := range b.rules {
 		if listenerArn != "" && r.ListenerArn != listenerArn {

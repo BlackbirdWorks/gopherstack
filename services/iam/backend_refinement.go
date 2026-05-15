@@ -103,7 +103,7 @@ func (b *InMemoryBackend) ListGroupsForUser(userName string) ([]Group, error) {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	result := make([]Group, 0)
+	result := make([]Group, 0, len(b.groupMembers))
 	for groupName, members := range b.groupMembers {
 		if slices.Contains(members, userName) {
 			if g, exists := b.groups[groupName]; exists {
@@ -366,7 +366,7 @@ func (b *InMemoryBackend) ListServiceSpecificCredentials(
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	result := make([]ServiceSpecificCredential, 0)
+	result := make([]ServiceSpecificCredential, 0, len(b.serviceSpecificCreds))
 	for _, cred := range b.serviceSpecificCreds {
 		if cred.UserName != userName {
 			continue
@@ -585,7 +585,7 @@ func (b *InMemoryBackend) ListInstanceProfilesForRole(roleName string) ([]Instan
 		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
-	result := make([]InstanceProfile, 0)
+	result := make([]InstanceProfile, 0, len(b.instanceProfiles))
 	for _, ip := range b.instanceProfiles {
 		if slices.Contains(ip.Roles, roleName) {
 			result = append(result, ip)

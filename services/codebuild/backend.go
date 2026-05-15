@@ -291,7 +291,7 @@ func (b *InMemoryBackend) BatchGetProjects(names []string) ([]*Project, []string
 	defer b.mu.RUnlock()
 
 	found := make([]*Project, 0, len(names))
-	notFound := make([]string, 0)
+	notFound := make([]string, 0, len(names))
 
 	for _, name := range names {
 		if p, ok := b.lookupByNameOrARN(name); ok {
@@ -425,7 +425,7 @@ func (b *InMemoryBackend) BatchGetBuilds(ids []string) ([]*Build, []string) {
 	defer b.mu.RUnlock()
 
 	found := make([]*Build, 0, len(ids))
-	notFound := make([]string, 0)
+	notFound := make([]string, 0, len(ids))
 
 	for _, id := range ids {
 		if build, ok := b.builds[id]; ok {
@@ -753,7 +753,7 @@ func (b *InMemoryBackend) BatchGetFleets(names []string) ([]*Fleet, []string) {
 	defer b.mu.RUnlock()
 
 	found := make([]*Fleet, 0, len(names))
-	notFound := make([]string, 0)
+	notFound := make([]string, 0, len(names))
 
 	for _, nameOrARN := range names {
 		name := nameOrARN
@@ -813,7 +813,7 @@ func (b *InMemoryBackend) BatchGetReportGroups(arns []string) ([]*ReportGroup, [
 	defer b.mu.RUnlock()
 
 	found := make([]*ReportGroup, 0, len(arns))
-	notFound := make([]string, 0)
+	notFound := make([]string, 0, len(arns))
 
 	for _, a := range arns {
 		name, ok := b.reportGroupARNIndex[a]
@@ -853,7 +853,7 @@ func (b *InMemoryBackend) BatchGetReports(arns []string) ([]*Report, []string) {
 	defer b.mu.RUnlock()
 
 	found := make([]*Report, 0, len(arns))
-	notFound := make([]string, 0)
+	notFound := make([]string, 0, len(arns))
 
 	for _, a := range arns {
 		if r, ok := b.reports[a]; ok {
@@ -883,7 +883,7 @@ func (b *InMemoryBackend) BatchGetBuildBatches(ids []string) ([]*BuildBatch, []s
 	defer b.mu.RUnlock()
 
 	found := make([]*BuildBatch, 0, len(ids))
-	notFound := make([]string, 0)
+	notFound := make([]string, 0, len(ids))
 
 	for _, id := range ids {
 		if bb, ok := b.buildBatches[id]; ok {
@@ -914,7 +914,7 @@ func (b *InMemoryBackend) BatchGetCommandExecutions(sandboxID string, ids []stri
 	defer b.mu.RUnlock()
 
 	found := make([]*CommandExecution, 0, len(ids))
-	notFound := make([]string, 0)
+	notFound := make([]string, 0, len(ids))
 
 	for _, id := range ids {
 		ce, ok := b.commandExecutions[id]
@@ -945,7 +945,7 @@ func (b *InMemoryBackend) BatchGetSandboxes(ids []string) ([]*Sandbox, []string)
 	defer b.mu.RUnlock()
 
 	found := make([]*Sandbox, 0, len(ids))
-	notFound := make([]string, 0)
+	notFound := make([]string, 0, len(ids))
 
 	for _, id := range ids {
 		if s, ok := b.sandboxes[id]; ok {

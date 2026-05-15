@@ -164,7 +164,7 @@ func (b *InMemoryBackend) ListPipelineExecutionSteps(execArn, nextToken string) 
 	defer b.mu.RUnlock()
 
 	prefix := execArn + "|"
-	list := make([]*PipelineExecutionStep, 0)
+	list := make([]*PipelineExecutionStep, 0, len(b.pipelineExecSteps))
 
 	for key, step := range b.pipelineExecSteps {
 		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
