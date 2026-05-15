@@ -2864,6 +2864,7 @@ func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
 				Timestamp:  time.Now(),
 			},
 		})
+
 		return err
 	}))
 }
@@ -3632,6 +3633,7 @@ func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
 					Timestamp:  time.Now(),
 				},
 			})
+
 			return err
 		}),
 	)
