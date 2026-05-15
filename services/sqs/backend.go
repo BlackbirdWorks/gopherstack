@@ -422,7 +422,12 @@ func isConfigurableQueueAttribute(name string) bool {
 		attrContentBasedDeduplication,
 		attrRedrivePolicy,
 		attrPolicy,
-		attrSqsManagedSseEnabled:
+		attrSqsManagedSseEnabled,
+		attrKmsMasterKeyID,
+		attrKmsDataKeyReusePeriodSecs,
+		attrRedriveAllowPolicy,
+		attrDeduplicationScope,
+		attrFifoThroughputLimit:
 		return true
 	}
 
@@ -692,6 +697,11 @@ func containsStr(slice []string, s string) bool {
 
 // SetQueueAttributes updates attributes on an existing queue.
 func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) error {
+	// FifoQueue is immutable after creation (AWS spec).
+	if _, hasFIFO := input.Attributes[attrFifoQueue]; hasFIFO {
+		return ErrInvalidAttributeName
+	}
+
 	if err := validateQueueAttributes(input.Attributes); err != nil {
 		return err
 	}
@@ -936,6 +946,7 @@ func preflightFIFOSend(q *Queue, input *SendMessageInput, md5Body string, now ti
 
 	if out, dup := checkDedup(
 		q,
+		input.MessageGroupID,
 		input.MessageDeduplicationID,
 		md5Body,
 		q.Attributes[attrContentBasedDeduplication],
@@ -1019,7 +1030,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 			msg.Attributes[attrMessageDeduplicationIDSys] = input.MessageDeduplicationID
 		}
 
-		storeDedup(q, input.MessageDeduplicationID, md5Body, q.Attributes[attrContentBasedDeduplication], msgID, now)
+		storeDedup(q, input.MessageGroupID, input.MessageDeduplicationID, md5Body, q.Attributes[attrContentBasedDeduplication], msgID, now)
 	}
 
 	q.messages = append(q.messages, msg)
@@ -1101,9 +1112,23 @@ func resolveMessageVisibleAt(now time.Time, msgDelaySeconds int, queueDelayAttr 
 	return time.Time{}
 }
 
+// dedupKey returns the deduplication map key, respecting the queue's
+// DeduplicationScope attribute. When scope is "queue" (queue-wide), only the
+// effective dedup ID is used as the key. The default scope is "messageGroup",
+// where the key is scoped per group to allow identical messages in different
+// groups within the same 5-minute window.
+func dedupKey(q *Queue, groupID, effectiveID string) string {
+	if q.Attributes[attrDeduplicationScope] == fifoDedupScopeQueue {
+		return effectiveID
+	}
+
+	// Default: messageGroup scope — key by group + dedupID.
+	return groupID + "|" + effectiveID
+}
+
 // checkDedup checks for a duplicate FIFO message and returns the original output if found.
 // now is the reference time used for window expiry comparison.
-func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.Time) (*SendMessageOutput, bool) {
+func checkDedup(q *Queue, groupID, dedupID, md5Body, contentBasedDedup string, now time.Time) (*SendMessageOutput, bool) {
 	effectiveID := dedupID
 	if effectiveID == "" && contentBasedDedup == attrValTrue {
 		effectiveID = md5Body
@@ -1113,7 +1138,9 @@ func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.T
 		return nil, false
 	}
 
-	expiry, found := q.DeduplicationIDs[effectiveID]
+	key := dedupKey(q, groupID, effectiveID)
+
+	expiry, found := q.DeduplicationIDs[key]
 	if !found {
 		return nil, false
 	}
@@ -1122,13 +1149,13 @@ func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.T
 		// Eagerly remove the expired entry inline. This keeps the deduplication map
 		// lean without waiting for the next janitor sweep, reducing memory pressure
 		// and speeding up subsequent lookups.
-		delete(q.DeduplicationIDs, effectiveID)
-		delete(q.deduplicationMsgIDs, effectiveID)
+		delete(q.DeduplicationIDs, key)
+		delete(q.deduplicationMsgIDs, key)
 
 		return nil, false
 	}
 
-	origMsgID := q.deduplicationMsgIDs[effectiveID]
+	origMsgID := q.deduplicationMsgIDs[key]
 
 	return &SendMessageOutput{MessageID: origMsgID, MD5OfBody: md5Body}, true
 }
@@ -1141,7 +1168,7 @@ const maxDedupEntriesPerQueue = 100_000
 
 // storeDedup records a deduplication entry for a FIFO message. When the dedup
 // map is at capacity, the entries closest to expiry are evicted first.
-func storeDedup(q *Queue, dedupID, md5Body, contentBasedDedup, msgID string, now time.Time) {
+func storeDedup(q *Queue, groupID, dedupID, md5Body, contentBasedDedup, msgID string, now time.Time) {
 	effectiveID := dedupID
 	if effectiveID == "" && contentBasedDedup == attrValTrue {
 		effectiveID = md5Body
@@ -1155,8 +1182,9 @@ func storeDedup(q *Queue, dedupID, md5Body, contentBasedDedup, msgID string, now
 		evictOldestDedup(q, len(q.DeduplicationIDs)-maxDedupEntriesPerQueue+1)
 	}
 
-	q.DeduplicationIDs[effectiveID] = now.Add(deduplicationWindowSecs * time.Second)
-	q.deduplicationMsgIDs[effectiveID] = msgID
+	key := dedupKey(q, groupID, effectiveID)
+	q.DeduplicationIDs[key] = now.Add(deduplicationWindowSecs * time.Second)
+	q.deduplicationMsgIDs[key] = msgID
 }
 
 // evictOldestDedup removes up to n entries with the earliest expiry times.
