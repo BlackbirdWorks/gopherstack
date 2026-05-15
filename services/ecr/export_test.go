@@ -61,3 +61,12 @@ func (b *InMemoryBackend) UploadedLayerCount() int {
 
 	return total
 }
+
+// LayerUploadCount returns the number of in-progress layer upload sessions.
+// Used only in tests to verify that DeleteRepository cleans up layer uploads.
+func (b *InMemoryBackend) LayerUploadCount() int {
+	b.mu.RLock("LayerUploadCount")
+	defer b.mu.RUnlock()
+
+	return len(b.layerUploads)
+}

@@ -26,6 +26,10 @@ var (
 	ErrRepositoryNotFound = awserr.New("RepositoryNotFoundException", awserr.ErrNotFound)
 	// ErrRepositoryAlreadyExists is returned when a repository already exists.
 	ErrRepositoryAlreadyExists = awserr.New("RepositoryAlreadyExistsException", awserr.ErrAlreadyExists)
+	// ErrRepositoryNotEmpty is returned when deleting a non-empty repository without the force flag.
+	ErrRepositoryNotEmpty = awserr.New("RepositoryNotEmptyException", awserr.ErrConflict)
+	// ErrImageTagAlreadyExists is returned when re-tagging an image in an IMMUTABLE repository.
+	ErrImageTagAlreadyExists = awserr.New("ImageTagAlreadyExistsException", awserr.ErrConflict)
 	// ErrInvalidRepositoryName is returned when the repository name is invalid.
 	ErrInvalidRepositoryName = errors.New("InvalidParameterException")
 	// ErrPullThroughCacheRuleNotFound is returned when a pull-through cache rule does not exist.
@@ -49,6 +53,7 @@ var (
 type Repository struct {
 	CreatedAt                          time.Time                           `json:"createdAt"`
 	EncryptionType                     string                              `json:"encryptionType"`
+	KMSKey                             string                              `json:"kmsKey,omitempty"`
 	RegistryID                         string                              `json:"registryId"`
 	RepositoryARN                      string                              `json:"repositoryArn"`
 	RepositoryName                     string                              `json:"repositoryName"`
@@ -424,7 +429,7 @@ func (b *InMemoryBackend) ProxyEndpoint() string {
 func (b *InMemoryBackend) CreateRepository(
 	name, imageTagMutability string,
 	scanOnPush bool,
-	encryptionType string,
+	encryptionType, kmsKey string,
 ) (*Repository, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: repositoryName is required", ErrInvalidRepositoryName)
@@ -453,6 +458,7 @@ func (b *InMemoryBackend) CreateRepository(
 	repo := &Repository{
 		CreatedAt:          time.Now(),
 		EncryptionType:     encryptionType,
+		KMSKey:             kmsKey,
 		RegistryID:         b.accountID,
 		RepositoryARN:      fmt.Sprintf("arn:aws:ecr:%s:%s:repository/%s", b.region, b.accountID, name),
 		RepositoryName:     name,
@@ -518,6 +524,13 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 	delete(b.repositoryPolicies, name)
 	delete(b.imageScanFindings, name)
 
+	// Clean up any in-progress layer uploads associated with this repository.
+	for uploadID, upload := range b.layerUploads {
+		if upload.RepositoryName == name {
+			delete(b.layerUploads, uploadID)
+		}
+	}
+
 	cp := *r
 
 	return &cp, nil
@@ -530,6 +543,10 @@ func (b *InMemoryBackend) BatchCheckLayerAvailability(
 ) ([]LayerAvailability, []LayerFailure, error) {
 	b.mu.RLock("BatchCheckLayerAvailability")
 	defer b.mu.RUnlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
 
 	layers := make([]LayerAvailability, 0, len(layerDigests))
 	failures := make([]LayerFailure, 0)
@@ -1475,17 +1492,32 @@ func (b *InMemoryBackend) ListImageReferrers(repositoryName string, subject Imag
 }
 
 // PutImage creates or replaces an image manifest.
+// When the repository imageTagMutability is IMMUTABLE, attempts to retag an
+// existing image (same tag, different digest) are rejected with ErrImageTagAlreadyExists.
 func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, error) {
 	b.mu.Lock("PutImage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	repo, ok := b.repos[repositoryName]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
+	// Compute digest before mutability check.
 	if image.ImageDigest == "" {
 		sum := sha256.Sum256([]byte(image.ImageManifest + image.ImageID.ImageTag))
 		image.ImageDigest = "sha256:" + hex.EncodeToString(sum[:])
+	}
+
+	// IMMUTABLE enforcement: reject retagging to a different digest.
+	if repo.ImageTagMutability == "IMMUTABLE" && image.ImageID.ImageTag != "" {
+		for _, existing := range b.images[repositoryName] {
+			if existing.ImageID.ImageTag == image.ImageID.ImageTag &&
+				existing.ImageDigest != image.ImageDigest {
+				return nil, fmt.Errorf("%w: tag %s already exists in immutable repository %s",
+					ErrImageTagAlreadyExists, image.ImageID.ImageTag, repositoryName)
+			}
+		}
 	}
 
 	if image.ImageID.ImageDigest == "" {

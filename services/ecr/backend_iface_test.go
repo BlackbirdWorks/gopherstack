@@ -37,7 +37,7 @@ func newStubBackend() *stubBackend {
 	return &stubBackend{repos: make(map[string]*ecr.Repository)}
 }
 
-func (s *stubBackend) CreateRepository(name, _ string, _ bool, _ string) (*ecr.Repository, error) {
+func (s *stubBackend) CreateRepository(name, _ string, _ bool, _, _ string) (*ecr.Repository, error) {
 	if name == "" {
 		return nil, ecr.ErrInvalidRepositoryName
 	}

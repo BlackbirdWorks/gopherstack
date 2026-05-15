@@ -9,7 +9,12 @@ type Backend interface {
 	// Returns ErrRepositoryAlreadyExists if a repository with that name already
 	// exists, or ErrInvalidRepositoryName when name is empty.
 	// imageTagMutability defaults to "MUTABLE" when empty.
-	CreateRepository(name, imageTagMutability string, scanOnPush bool, encryptionType string) (*Repository, error)
+	// encryptionType defaults to "AES256" when empty; kmsKey is only used with "KMS".
+	CreateRepository(
+		name, imageTagMutability string,
+		scanOnPush bool,
+		encryptionType, kmsKey string,
+	) (*Repository, error)
 
 	// DescribeRepositories returns repository metadata, optionally filtered by
 	// the provided names. Passing an empty slice returns all repositories.
