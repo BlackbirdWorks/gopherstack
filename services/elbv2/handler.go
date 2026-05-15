@@ -26,6 +26,23 @@ const (
 	elbv2XMLNS     = "http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"
 	attrValueFalse = "false"
 	attrValueTrue  = "true"
+
+	// TLS cipher suite constants used in SSL policy definitions.
+	cipherECDHEECDSAAES128GCM   = "ECDHE-ECDSA-AES128-GCM-SHA256"
+	cipherECDHERSAAES128GCM     = "ECDHE-RSA-AES128-GCM-SHA256"
+	cipherECDHEECDSAAES128SHA   = "ECDHE-ECDSA-AES128-SHA256"
+	cipherECDHERSAAES128SHA     = "ECDHE-RSA-AES128-SHA256"
+	cipherECDHEECDSAAES256GCM   = "ECDHE-ECDSA-AES256-GCM-SHA384"
+	cipherECDHERSAAES256GCM     = "ECDHE-RSA-AES256-GCM-SHA384"
+	cipherECDHEECDSAAES256SHA   = "ECDHE-ECDSA-AES256-SHA384"
+	cipherECDHERSAAES256SHA     = "ECDHE-RSA-AES256-SHA384"
+	cipherECDHERSAAES128SHA1    = "ECDHE-RSA-AES128-SHA"
+	cipherTLSAES128GCM          = "TLS_AES_128_GCM_SHA256"
+	cipherTLSAES256GCM          = "TLS_AES_256_GCM_SHA384"
+	cipherTLSCHACHA20            = "TLS_CHACHA20_POLY1305_SHA256"
+
+	tlsV12 = "TLSv1.2"
+	tlsV13 = "TLSv1.3"
 )
 
 // Handler is the Echo HTTP handler for ELBv2 operations.
@@ -335,6 +352,35 @@ func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	// Apply marker-based pagination.
+	marker := vals.Get("Marker")
+	pageSizeStr := vals.Get("PageSize")
+	pageSize := 400
+	if pageSizeStr != "" {
+		if n, pErr := parseInt32(pageSizeStr); pErr == nil && n > 0 {
+			pageSize = int(n)
+		}
+	}
+
+	startIdx := 0
+	if marker != "" {
+		for i, lb := range lbs {
+			if lb.LoadBalancerArn == marker {
+				startIdx = i + 1
+
+				break
+			}
+		}
+	}
+
+	lbs = lbs[startIdx:]
+
+	var nextMarker string
+	if len(lbs) > pageSize {
+		nextMarker = lbs[pageSize-1].LoadBalancerArn
+		lbs = lbs[:pageSize]
+	}
+
 	members := make([]xmlLoadBalancer, 0, len(lbs))
 	for i := range lbs {
 		members = append(members, toXMLLoadBalancer(&lbs[i]))
@@ -343,6 +389,7 @@ func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 	return &describeLoadBalancersResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeLoadBalancersResult{
+			NextMarker:    nextMarker,
 			LoadBalancers: xmlLoadBalancerList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-lbs"},
@@ -591,6 +638,35 @@ func (h *Handler) handleDescribeTargetGroups(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	// Apply marker-based pagination.
+	marker := vals.Get("Marker")
+	pageSizeStr := vals.Get("PageSize")
+	pageSize := 400
+	if pageSizeStr != "" {
+		if n, pErr := parseInt32(pageSizeStr); pErr == nil && n > 0 {
+			pageSize = int(n)
+		}
+	}
+
+	startIdx := 0
+	if marker != "" {
+		for i, tg := range tgs {
+			if tg.TargetGroupArn == marker {
+				startIdx = i + 1
+
+				break
+			}
+		}
+	}
+
+	tgs = tgs[startIdx:]
+
+	var nextMarker string
+	if len(tgs) > pageSize {
+		nextMarker = tgs[pageSize-1].TargetGroupArn
+		tgs = tgs[:pageSize]
+	}
+
 	members := make([]xmlTargetGroup, 0, len(tgs))
 	for i := range tgs {
 		members = append(members, toXMLTargetGroup(&tgs[i]))
@@ -599,6 +675,7 @@ func (h *Handler) handleDescribeTargetGroups(vals url.Values) (any, error) {
 	return &describeTargetGroupsResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeTargetGroupsResult{
+			NextMarker:   nextMarker,
 			TargetGroups: xmlTargetGroupList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-tgs"},
@@ -914,6 +991,35 @@ func (h *Handler) handleDescribeListeners(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	// Apply marker-based pagination.
+	marker := vals.Get("Marker")
+	pageSizeStr := vals.Get("PageSize")
+	pageSize := 400
+	if pageSizeStr != "" {
+		if n, pErr := parseInt32(pageSizeStr); pErr == nil && n > 0 {
+			pageSize = int(n)
+		}
+	}
+
+	startIdx := 0
+	if marker != "" {
+		for i, l := range listeners {
+			if l.ListenerArn == marker {
+				startIdx = i + 1
+
+				break
+			}
+		}
+	}
+
+	listeners = listeners[startIdx:]
+
+	var nextMarker string
+	if len(listeners) > pageSize {
+		nextMarker = listeners[pageSize-1].ListenerArn
+		listeners = listeners[:pageSize]
+	}
+
 	members := make([]xmlListener, 0, len(listeners))
 	for i := range listeners {
 		members = append(members, toXMLListener(&listeners[i]))
@@ -922,7 +1028,8 @@ func (h *Handler) handleDescribeListeners(vals url.Values) (any, error) {
 	return &describeListenersResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeListenersResult{
-			Listeners: xmlListenerList{Members: members},
+			NextMarker: nextMarker,
+			Listeners:  xmlListenerList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-listeners"},
 	}, nil
@@ -1109,6 +1216,35 @@ func (h *Handler) handleDescribeRules(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	// Apply marker-based pagination.
+	marker := vals.Get("Marker")
+	pageSizeStr := vals.Get("PageSize")
+	pageSize := 400
+	if pageSizeStr != "" {
+		if n, pErr := parseInt32(pageSizeStr); pErr == nil && n > 0 {
+			pageSize = int(n)
+		}
+	}
+
+	startIdx := 0
+	if marker != "" {
+		for i, r := range rules {
+			if r.RuleArn == marker {
+				startIdx = i + 1
+
+				break
+			}
+		}
+	}
+
+	rules = rules[startIdx:]
+
+	var nextMarker string
+	if len(rules) > pageSize {
+		nextMarker = rules[pageSize-1].RuleArn
+		rules = rules[:pageSize]
+	}
+
 	members := make([]xmlRule, 0, len(rules))
 	for i := range rules {
 		members = append(members, toXMLRule(&rules[i]))
@@ -1117,7 +1253,8 @@ func (h *Handler) handleDescribeRules(vals url.Values) (any, error) {
 	return &describeRulesResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeRulesResult{
-			Rules: xmlRuleList{Members: members},
+			NextMarker: nextMarker,
+			Rules:      xmlRuleList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-rules"},
 	}, nil
@@ -1489,6 +1626,12 @@ func (h *Handler) handleDescribeAccountLimits(_ url.Values) (any, error) {
 		{Name: "listeners-per-load-balancer", Max: "50"},
 		{Name: "rules-per-load-balancer", Max: "200"},
 		{Name: "certificates-per-listener", Max: "25"},
+		{Name: "target-group-rules-per-listener", Max: "100"},
+		{Name: "condition-values-per-alb-rule", Max: "5"},
+		{Name: "condition-wildcards-per-alb-rule", Max: "5"},
+		{Name: "target-groups-per-alb-listener-rule", Max: "5"},
+		{Name: "target-groups-per-nlb-listener", Max: "1"},
+		{Name: "subnets-per-load-balancer", Max: "8"},
 	}
 
 	return &describeAccountLimitsResponse{
@@ -1527,7 +1670,7 @@ func (h *Handler) handleDescribeCapacityReservation(vals url.Values) (any, error
 	}, nil
 }
 
-func (h *Handler) handleDescribeSSLPolicies(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeSSLPolicies(vals url.Values) (any, error) {
 	const (
 		priority1 = 1
 		priority2 = 2
@@ -1537,9 +1680,10 @@ func (h *Handler) handleDescribeSSLPolicies(_ url.Values) (any, error) {
 		priority6 = 6
 		priority7 = 7
 		priority8 = 8
+		priority9 = 9
 	)
 
-	policies := []xmlSSLPolicy{
+	allPolicies := []xmlSSLPolicy{
 		{
 			Name: "ELBSecurityPolicy-2016-08",
 			Ciphers: xmlCipherList{Members: []xmlCipher{
@@ -1562,11 +1706,97 @@ func (h *Handler) handleDescribeSSLPolicies(_ url.Values) (any, error) {
 				{Name: "TLS_AES_128_GCM_SHA256", Priority: priority1},
 				{Name: "TLS_AES_256_GCM_SHA384", Priority: priority2},
 				{Name: "TLS_CHACHA20_POLY1305_SHA256", Priority: priority3},
+				{Name: "ECDHE-ECDSA-AES128-GCM-SHA256", Priority: priority4},
+				{Name: "ECDHE-RSA-AES128-GCM-SHA256", Priority: priority5},
+				{Name: "ECDHE-ECDSA-AES256-GCM-SHA384", Priority: priority6},
+				{Name: "ECDHE-RSA-AES256-GCM-SHA384", Priority: priority7},
+			}},
+			SslProtocols: xmlSSLProtocolList{Members: []xmlSSLProtocol{
+				{Value: "TLSv1.3"},
+				{Value: "TLSv1.2"},
+			}},
+		},
+		{
+			Name: "ELBSecurityPolicy-TLS13-1-3-2022-11",
+			Ciphers: xmlCipherList{Members: []xmlCipher{
+				{Name: "TLS_AES_128_GCM_SHA256", Priority: priority1},
+				{Name: "TLS_AES_256_GCM_SHA384", Priority: priority2},
+				{Name: "TLS_CHACHA20_POLY1305_SHA256", Priority: priority3},
 			}},
 			SslProtocols: xmlSSLProtocolList{Members: []xmlSSLProtocol{
 				{Value: "TLSv1.3"},
 			}},
 		},
+		{
+			Name: "ELBSecurityPolicy-FS-1-2-Res-2020-10",
+			Ciphers: xmlCipherList{Members: []xmlCipher{
+				{Name: "ECDHE-ECDSA-AES128-GCM-SHA256", Priority: priority1},
+				{Name: "ECDHE-RSA-AES128-GCM-SHA256", Priority: priority2},
+				{Name: "ECDHE-ECDSA-AES256-GCM-SHA384", Priority: priority3},
+				{Name: "ECDHE-RSA-AES256-GCM-SHA384", Priority: priority4},
+				{Name: "ECDHE-ECDSA-AES128-SHA256", Priority: priority5},
+				{Name: "ECDHE-RSA-AES128-SHA256", Priority: priority6},
+				{Name: "ECDHE-ECDSA-AES256-SHA384", Priority: priority7},
+				{Name: "ECDHE-RSA-AES256-SHA384", Priority: priority8},
+			}},
+			SslProtocols: xmlSSLProtocolList{Members: []xmlSSLProtocol{
+				{Value: "TLSv1.2"},
+			}},
+		},
+		{
+			Name: "ELBSecurityPolicy-FS-2018-06",
+			Ciphers: xmlCipherList{Members: []xmlCipher{
+				{Name: "ECDHE-ECDSA-AES128-GCM-SHA256", Priority: priority1},
+				{Name: "ECDHE-RSA-AES128-GCM-SHA256", Priority: priority2},
+				{Name: "ECDHE-ECDSA-AES256-GCM-SHA384", Priority: priority3},
+				{Name: "ECDHE-RSA-AES256-GCM-SHA384", Priority: priority4},
+				{Name: "ECDHE-ECDSA-AES128-SHA256", Priority: priority5},
+				{Name: "ECDHE-RSA-AES128-SHA256", Priority: priority6},
+				{Name: "ECDHE-ECDSA-AES256-SHA384", Priority: priority7},
+				{Name: "ECDHE-RSA-AES256-SHA384", Priority: priority8},
+				{Name: "ECDHE-RSA-AES128-SHA", Priority: priority9},
+			}},
+			SslProtocols: xmlSSLProtocolList{Members: []xmlSSLProtocol{
+				{Value: "TLSv1.2"},
+				{Value: "TLSv1.1"},
+			}},
+		},
+		{
+			Name: "ELBSecurityPolicy-TLS13-1-2-Ext2-2021-06",
+			Ciphers: xmlCipherList{Members: []xmlCipher{
+				{Name: "TLS_AES_128_GCM_SHA256", Priority: priority1},
+				{Name: "TLS_AES_256_GCM_SHA384", Priority: priority2},
+				{Name: "TLS_CHACHA20_POLY1305_SHA256", Priority: priority3},
+				{Name: "ECDHE-ECDSA-AES128-GCM-SHA256", Priority: priority4},
+				{Name: "ECDHE-RSA-AES128-GCM-SHA256", Priority: priority5},
+				{Name: "ECDHE-ECDSA-AES256-GCM-SHA384", Priority: priority6},
+				{Name: "ECDHE-RSA-AES256-GCM-SHA384", Priority: priority7},
+				{Name: "ECDHE-ECDSA-AES128-SHA256", Priority: priority8},
+				{Name: "ECDHE-RSA-AES128-SHA256", Priority: priority9},
+			}},
+			SslProtocols: xmlSSLProtocolList{Members: []xmlSSLProtocol{
+				{Value: "TLSv1.3"},
+				{Value: "TLSv1.2"},
+			}},
+		},
+	}
+
+	// Filter by Names if provided.
+	names := parseMembers(vals, "Names.member")
+	var policies []xmlSSLPolicy
+	if len(names) > 0 {
+		nameSet := make(map[string]bool, len(names))
+		for _, n := range names {
+			nameSet[n] = true
+		}
+
+		for _, p := range allPolicies {
+			if nameSet[p.Name] {
+				policies = append(policies, p)
+			}
+		}
+	} else {
+		policies = allPolicies
 	}
 
 	return &describeSSLPoliciesResponse{
@@ -2321,6 +2551,15 @@ func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
 		xtg.Matcher = &xmlMatcher{HTTPCode: "200"}
 	}
 
+	if len(tg.LoadBalancerArns) > 0 {
+		lbArns := make([]xmlStringValue, 0, len(tg.LoadBalancerArns))
+		for _, a := range tg.LoadBalancerArns {
+			lbArns = append(lbArns, xmlStringValue{Value: a})
+		}
+
+		xtg.LoadBalancerArns = &xmlStringList{Members: lbArns}
+	}
+
 	return xtg
 }
 
@@ -2659,23 +2898,24 @@ type setIPAddressTypeResponse struct {
 // --- target group XML types ---
 
 type xmlTargetGroup struct {
-	Matcher                    *xmlMatcher `xml:"Matcher,omitempty"`
-	TargetGroupArn             string      `xml:"TargetGroupArn"`
-	TargetGroupName            string      `xml:"TargetGroupName"`
-	Protocol                   string      `xml:"Protocol"`
-	ProtocolVersion            string      `xml:"ProtocolVersion,omitempty"`
-	VpcID                      string      `xml:"VpcId,omitempty"`
-	TargetType                 string      `xml:"TargetType"`
-	HealthCheckProtocol        string      `xml:"HealthCheckProtocol"`
-	HealthCheckPort            string      `xml:"HealthCheckPort"`
-	HealthCheckPath            string      `xml:"HealthCheckPath,omitempty"`
-	Port                       int32       `xml:"Port,omitempty"`
-	HealthCheckIntervalSeconds int32       `xml:"HealthCheckIntervalSeconds,omitempty"`
-	HealthCheckTimeoutSeconds  int32       `xml:"HealthCheckTimeoutSeconds,omitempty"`
-	HealthyThresholdCount      int32       `xml:"HealthyThresholdCount,omitempty"`
-	UnhealthyThresholdCount    int32       `xml:"UnhealthyThresholdCount,omitempty"`
-	HealthCheckEnabled         bool        `xml:"HealthCheckEnabled"`
-	CrossZoneLoadBalancing     bool        `xml:"CrossZoneLoadBalancing"`
+	Matcher                    *xmlMatcher    `xml:"Matcher,omitempty"`
+	LoadBalancerArns           *xmlStringList `xml:"LoadBalancerArns,omitempty"`
+	TargetGroupArn             string         `xml:"TargetGroupArn"`
+	TargetGroupName            string         `xml:"TargetGroupName"`
+	Protocol                   string         `xml:"Protocol"`
+	ProtocolVersion            string         `xml:"ProtocolVersion,omitempty"`
+	VpcID                      string         `xml:"VpcId,omitempty"`
+	TargetType                 string         `xml:"TargetType"`
+	HealthCheckProtocol        string         `xml:"HealthCheckProtocol"`
+	HealthCheckPort            string         `xml:"HealthCheckPort"`
+	HealthCheckPath            string         `xml:"HealthCheckPath,omitempty"`
+	Port                       int32          `xml:"Port,omitempty"`
+	HealthCheckIntervalSeconds int32          `xml:"HealthCheckIntervalSeconds,omitempty"`
+	HealthCheckTimeoutSeconds  int32          `xml:"HealthCheckTimeoutSeconds,omitempty"`
+	HealthyThresholdCount      int32          `xml:"HealthyThresholdCount,omitempty"`
+	UnhealthyThresholdCount    int32          `xml:"UnhealthyThresholdCount,omitempty"`
+	HealthCheckEnabled         bool           `xml:"HealthCheckEnabled"`
+	CrossZoneLoadBalancing     bool           `xml:"CrossZoneLoadBalancing"`
 }
 
 type xmlTargetGroupList struct {

@@ -2,6 +2,7 @@ package elbv2_test
 
 import (
 	"encoding/xml"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -256,24 +257,13 @@ func TestDeleteLoadBalancerByARN(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
+	// Querying a specific ARN that no longer exists should return 404 (AWS behavior).
 	rec2 := doELBv2(t, h, url.Values{
 		"Action":                    {"DescribeLoadBalancers"},
 		"Version":                   {"2015-12-01"},
 		"LoadBalancerArns.member.1": {lbArn},
 	})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp struct {
-		Result struct {
-			LoadBalancers struct {
-				Members []struct {
-					LoadBalancerArn string `xml:"LoadBalancerArn"`
-				} `xml:"member"`
-			} `xml:"LoadBalancers"`
-		} `xml:"DescribeLoadBalancersResult"`
-	}
-	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &resp))
-	assert.Empty(t, resp.Result.LoadBalancers.Members)
+	assert.Equal(t, http.StatusNotFound, rec2.Code)
 }
 
 // TestDescribeLoadBalancers tests describe operations.
@@ -4532,7 +4522,7 @@ func TestLBTypeValidation(t *testing.T) {
 		{"type_classic", "classic", http.StatusBadRequest},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -4540,7 +4530,7 @@ func TestLBTypeValidation(t *testing.T) {
 			vals := url.Values{
 				"Action":  {"CreateLoadBalancer"},
 				"Version": {"2015-12-01"},
-				"Name":    {"lb-type-" + tt.name},
+				"Name":    {fmt.Sprintf("lb-type-%d", i)},
 			}
 
 			if tt.lbType != "" {
@@ -5914,4 +5904,690 @@ func TestModifyListenerProtocolValidated(t *testing.T) {
 		"Protocol":    {"HTTP"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// mustCreateNLB creates a network load balancer and returns its ARN.
+func mustCreateNLB(t *testing.T, h *elbv2.Handler, name string) string {
+	t.Helper()
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":  {"CreateLoadBalancer"},
+		"Version": {"2015-12-01"},
+		"Name":    {name},
+		"Type":    {"network"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			LoadBalancers struct {
+				Members []struct {
+					LoadBalancerArn string `xml:"LoadBalancerArn"`
+				} `xml:"member"`
+			} `xml:"LoadBalancers"`
+		} `xml:"CreateLoadBalancerResult"`
+	}
+
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Result.LoadBalancers.Members, 1)
+
+	return resp.Result.LoadBalancers.Members[0].LoadBalancerArn
+}
+
+// TestNameTooLong verifies that LB and TG names longer than 32 chars are rejected.
+func TestNameTooLong(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	longName := strings.Repeat("a", 33)
+
+	t.Run("lb_name_too_long", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doELBv2(t, h, url.Values{
+			"Action":  {"CreateLoadBalancer"},
+			"Version": {"2015-12-01"},
+			"Name":    {longName},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("tg_name_too_long", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doELBv2(t, h, url.Values{
+			"Action":   {"CreateTargetGroup"},
+			"Version":  {"2015-12-01"},
+			"Name":     {longName},
+			"Protocol": {"HTTP"},
+			"Port":     {"80"},
+			"VpcId":    {"vpc-00000000"},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("exactly_32_chars_ok", func(t *testing.T) {
+		t.Parallel()
+
+		h2 := newTestHandler()
+		rec := doELBv2(t, h2, url.Values{
+			"Action":  {"CreateLoadBalancer"},
+			"Version": {"2015-12-01"},
+			"Name":    {strings.Repeat("a", 32)},
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+}
+
+// TestNLBDefaultAttributes verifies that NLBs have cross_zone=false by default.
+func TestNLBDefaultAttributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateNLB(t, h, "nlb-attrs-test")
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":          {"DescribeLoadBalancerAttributes"},
+		"Version":         {"2015-12-01"},
+		"LoadBalancerArn": {lbArn},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			Attributes struct {
+				Members []struct {
+					Key   string `xml:"Key"`
+					Value string `xml:"Value"`
+				} `xml:"member"`
+			} `xml:"Attributes"`
+		} `xml:"DescribeLoadBalancerAttributesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+
+	attrMap := make(map[string]string)
+	for _, m := range resp.Result.Attributes.Members {
+		attrMap[m.Key] = m.Value
+	}
+
+	assert.Equal(t, "false", attrMap["load_balancing.cross_zone.enabled"])
+	// NLB should not have HTTP-specific attributes.
+	assert.NotContains(t, attrMap, "routing.http2.enabled")
+	assert.NotContains(t, attrMap, "waf.fail_open.enabled")
+}
+
+// TestALBResponseHeaderAttributes verifies that ALBs have response header attributes.
+func TestALBResponseHeaderAttributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "alb-resp-hdr-test")
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":          {"DescribeLoadBalancerAttributes"},
+		"Version":         {"2015-12-01"},
+		"LoadBalancerArn": {lbArn},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			Attributes struct {
+				Members []struct {
+					Key   string `xml:"Key"`
+					Value string `xml:"Value"`
+				} `xml:"member"`
+			} `xml:"Attributes"`
+		} `xml:"DescribeLoadBalancerAttributesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+
+	attrMap := make(map[string]string)
+	for _, m := range resp.Result.Attributes.Members {
+		attrMap[m.Key] = m.Value
+	}
+
+	assert.Equal(t, "true", attrMap["routing.http.response.server.enabled"])
+	assert.Equal(t, "false", attrMap["routing.http.response.strict_transport_security.enabled"])
+	assert.Contains(t, attrMap, "routing.http.response.x_frame_options.header_value")
+	assert.Contains(t, attrMap, "routing.http.response.content_security_policy.header_value")
+}
+
+// TestSetSecurityGroupsNLBRejected verifies that SetSecurityGroups is rejected for NLBs.
+func TestSetSecurityGroupsNLBRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateNLB(t, h, "nlb-sg-reject")
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":                    {"SetSecurityGroups"},
+		"Version":                   {"2015-12-01"},
+		"LoadBalancerArn":           {lbArn},
+		"SecurityGroups.member.1":   {"sg-12345"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestHTTPSListenerDefaultSSLPolicy verifies that HTTPS listeners get a default SSL policy.
+func TestHTTPSListenerDefaultSSLPolicy(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "https-ssl-policy-lb")
+	tgArn := mustCreateTG(t, h, "https-ssl-policy-tg")
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":                                    {"CreateListener"},
+		"Version":                                   {"2015-12-01"},
+		"LoadBalancerArn":                           {lbArn},
+		"Protocol":                                  {"HTTPS"},
+		"Port":                                      {"443"},
+		"Certificates.member.1.CertificateArn":      {"arn:aws:acm:us-east-1:123456789012:certificate/test"},
+		"DefaultActions.member.1.Type":              {"forward"},
+		"DefaultActions.member.1.TargetGroupArn":    {tgArn},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			Listeners struct {
+				Members []struct {
+					SslPolicy string `xml:"SslPolicy"`
+				} `xml:"member"`
+			} `xml:"Listeners"`
+		} `xml:"CreateListenerResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Result.Listeners.Members, 1)
+	assert.Equal(t, "ELBSecurityPolicy-2016-08", resp.Result.Listeners.Members[0].SslPolicy)
+}
+
+// TestHealthCheckPathValidation verifies that HealthCheckPath without a leading slash is rejected.
+func TestHealthCheckPathValidation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	t.Run("missing_leading_slash_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doELBv2(t, h, url.Values{
+			"Action":          {"CreateTargetGroup"},
+			"Version":         {"2015-12-01"},
+			"Name":            {"hc-path-bad"},
+			"Protocol":        {"HTTP"},
+			"Port":            {"80"},
+			"VpcId":           {"vpc-00000000"},
+			"HealthCheckPath": {"health"},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("leading_slash_ok", func(t *testing.T) {
+		t.Parallel()
+
+		h2 := newTestHandler()
+		rec := doELBv2(t, h2, url.Values{
+			"Action":          {"CreateTargetGroup"},
+			"Version":         {"2015-12-01"},
+			"Name":            {"hc-path-good"},
+			"Protocol":        {"HTTP"},
+			"Port":            {"80"},
+			"VpcId":           {"vpc-00000000"},
+			"HealthCheckPath": {"/health"},
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	t.Run("modify_missing_slash_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h3 := newTestHandler()
+		tgArn := mustCreateTG(t, h3, "hc-path-modify")
+		rec := doELBv2(t, h3, url.Values{
+			"Action":          {"ModifyTargetGroup"},
+			"Version":         {"2015-12-01"},
+			"TargetGroupArn":  {tgArn},
+			"HealthCheckPath": {"noslash"},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
+
+// TestDescribeLoadBalancersNotFound verifies that querying non-existent ARNs returns an error.
+func TestDescribeLoadBalancersNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	fakeArn := "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/fake/0000000000000000"
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":                    {"DescribeLoadBalancers"},
+		"Version":                   {"2015-12-01"},
+		"LoadBalancerArns.member.1": {fakeArn},
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestDescribeListenersNotFound verifies that querying non-existent listener ARNs returns an error.
+func TestDescribeListenersNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	fakeArn := "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/fake/0000000000000000/00000001"
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":                  {"DescribeListeners"},
+		"Version":                 {"2015-12-01"},
+		"ListenerArns.member.1":   {fakeArn},
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestTargetGroupLoadBalancerArnsAfterListener verifies that TG shows LB ARNs after listener creation.
+func TestTargetGroupLoadBalancerArnsAfterListener(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "tg-lb-arns-lb")
+	tgArn := mustCreateTG(t, h, "tg-lb-arns-tg")
+	_ = mustCreateListener(t, h, lbArn, tgArn)
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":                   {"DescribeTargetGroups"},
+		"Version":                  {"2015-12-01"},
+		"TargetGroupArns.member.1": {tgArn},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			TargetGroups struct {
+				Members []struct {
+					LoadBalancerArns struct {
+						Members []struct {
+							Value string `xml:",chardata"`
+						} `xml:"member"`
+					} `xml:"LoadBalancerArns"`
+				} `xml:"member"`
+			} `xml:"TargetGroups"`
+		} `xml:"DescribeTargetGroupsResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Result.TargetGroups.Members, 1)
+	require.Len(t, resp.Result.TargetGroups.Members[0].LoadBalancerArns.Members, 1)
+	assert.Equal(t, lbArn, resp.Result.TargetGroups.Members[0].LoadBalancerArns.Members[0].Value)
+}
+
+// TestDescribeLoadBalancersPagination verifies Marker/PageSize pagination for DescribeLoadBalancers.
+func TestDescribeLoadBalancersPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	// Create 5 LBs sorted alphabetically: alb-a, alb-b, alb-c, alb-d, alb-e
+	for _, name := range []string{"alb-a", "alb-b", "alb-c", "alb-d", "alb-e"} {
+		mustCreateLB(t, h, name)
+	}
+
+	// Page 1: PageSize=2
+	rec1 := doELBv2(t, h, url.Values{
+		"Action":   {"DescribeLoadBalancers"},
+		"Version":  {"2015-12-01"},
+		"PageSize": {"2"},
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var page1 struct {
+		Result struct {
+			NextMarker    string `xml:"NextMarker"`
+			LoadBalancers struct {
+				Members []struct {
+					LoadBalancerArn  string `xml:"LoadBalancerArn"`
+					LoadBalancerName string `xml:"LoadBalancerName"`
+				} `xml:"member"`
+			} `xml:"LoadBalancers"`
+		} `xml:"DescribeLoadBalancersResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.Len(t, page1.Result.LoadBalancers.Members, 2)
+	assert.Equal(t, "alb-a", page1.Result.LoadBalancers.Members[0].LoadBalancerName)
+	assert.Equal(t, "alb-b", page1.Result.LoadBalancers.Members[1].LoadBalancerName)
+	assert.NotEmpty(t, page1.Result.NextMarker)
+
+	// Page 2: use Marker from page1, PageSize=2
+	rec2 := doELBv2(t, h, url.Values{
+		"Action":   {"DescribeLoadBalancers"},
+		"Version":  {"2015-12-01"},
+		"PageSize": {"2"},
+		"Marker":   {page1.Result.NextMarker},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var page2 struct {
+		Result struct {
+			NextMarker    string `xml:"NextMarker"`
+			LoadBalancers struct {
+				Members []struct {
+					LoadBalancerName string `xml:"LoadBalancerName"`
+				} `xml:"member"`
+			} `xml:"LoadBalancers"`
+		} `xml:"DescribeLoadBalancersResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.Len(t, page2.Result.LoadBalancers.Members, 2)
+	assert.Equal(t, "alb-c", page2.Result.LoadBalancers.Members[0].LoadBalancerName)
+	assert.Equal(t, "alb-d", page2.Result.LoadBalancers.Members[1].LoadBalancerName)
+
+	// Page 3: last page
+	rec3 := doELBv2(t, h, url.Values{
+		"Action":   {"DescribeLoadBalancers"},
+		"Version":  {"2015-12-01"},
+		"PageSize": {"2"},
+		"Marker":   {page2.Result.NextMarker},
+	})
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var page3 struct {
+		Result struct {
+			NextMarker    string `xml:"NextMarker"`
+			LoadBalancers struct {
+				Members []struct {
+					LoadBalancerName string `xml:"LoadBalancerName"`
+				} `xml:"member"`
+			} `xml:"LoadBalancers"`
+		} `xml:"DescribeLoadBalancersResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec3.Body.Bytes(), &page3))
+	require.Len(t, page3.Result.LoadBalancers.Members, 1)
+	assert.Equal(t, "alb-e", page3.Result.LoadBalancers.Members[0].LoadBalancerName)
+	assert.Empty(t, page3.Result.NextMarker)
+}
+
+// TestDescribeTargetGroupsPagination verifies Marker/PageSize pagination for DescribeTargetGroups.
+func TestDescribeTargetGroupsPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	for _, name := range []string{"tg-a", "tg-b", "tg-c"} {
+		mustCreateTG(t, h, name)
+	}
+
+	// Page 1: PageSize=2
+	rec1 := doELBv2(t, h, url.Values{
+		"Action":   {"DescribeTargetGroups"},
+		"Version":  {"2015-12-01"},
+		"PageSize": {"2"},
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var page1 struct {
+		Result struct {
+			NextMarker   string `xml:"NextMarker"`
+			TargetGroups struct {
+				Members []struct {
+					TargetGroupName string `xml:"TargetGroupName"`
+					TargetGroupArn  string `xml:"TargetGroupArn"`
+				} `xml:"member"`
+			} `xml:"TargetGroups"`
+		} `xml:"DescribeTargetGroupsResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.Len(t, page1.Result.TargetGroups.Members, 2)
+	assert.Equal(t, "tg-a", page1.Result.TargetGroups.Members[0].TargetGroupName)
+	assert.NotEmpty(t, page1.Result.NextMarker)
+
+	// Page 2
+	rec2 := doELBv2(t, h, url.Values{
+		"Action":   {"DescribeTargetGroups"},
+		"Version":  {"2015-12-01"},
+		"PageSize": {"2"},
+		"Marker":   {page1.Result.NextMarker},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var page2 struct {
+		Result struct {
+			NextMarker   string `xml:"NextMarker"`
+			TargetGroups struct {
+				Members []struct {
+					TargetGroupName string `xml:"TargetGroupName"`
+				} `xml:"member"`
+			} `xml:"TargetGroups"`
+		} `xml:"DescribeTargetGroupsResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.Len(t, page2.Result.TargetGroups.Members, 1)
+	assert.Equal(t, "tg-c", page2.Result.TargetGroups.Members[0].TargetGroupName)
+	assert.Empty(t, page2.Result.NextMarker)
+}
+
+// TestDescribeListenersPagination verifies Marker/PageSize pagination for DescribeListeners.
+func TestDescribeListenersPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "pag-listeners-lb")
+	tgArn := mustCreateTG(t, h, "pag-listeners-tg")
+
+	// Create 3 listeners on ports 80, 81, 82.
+	for _, port := range []string{"80", "81", "82"} {
+		rec := doELBv2(t, h, url.Values{
+			"Action":                                 {"CreateListener"},
+			"Version":                                {"2015-12-01"},
+			"LoadBalancerArn":                        {lbArn},
+			"Protocol":                               {"HTTP"},
+			"Port":                                   {port},
+			"DefaultActions.member.1.Type":           {"forward"},
+			"DefaultActions.member.1.TargetGroupArn": {tgArn},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	// Page 1: PageSize=2
+	rec1 := doELBv2(t, h, url.Values{
+		"Action":          {"DescribeListeners"},
+		"Version":         {"2015-12-01"},
+		"LoadBalancerArn": {lbArn},
+		"PageSize":        {"2"},
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var page1 struct {
+		Result struct {
+			NextMarker string `xml:"NextMarker"`
+			Listeners  struct {
+				Members []struct {
+					Port        int32  `xml:"Port"`
+					ListenerArn string `xml:"ListenerArn"`
+				} `xml:"member"`
+			} `xml:"Listeners"`
+		} `xml:"DescribeListenersResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.Len(t, page1.Result.Listeners.Members, 2)
+	assert.NotEmpty(t, page1.Result.NextMarker)
+
+	// Page 2
+	rec2 := doELBv2(t, h, url.Values{
+		"Action":          {"DescribeListeners"},
+		"Version":         {"2015-12-01"},
+		"LoadBalancerArn": {lbArn},
+		"PageSize":        {"2"},
+		"Marker":          {page1.Result.NextMarker},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var page2 struct {
+		Result struct {
+			NextMarker string `xml:"NextMarker"`
+			Listeners  struct {
+				Members []struct {
+					Port int32 `xml:"Port"`
+				} `xml:"member"`
+			} `xml:"Listeners"`
+		} `xml:"DescribeListenersResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.Len(t, page2.Result.Listeners.Members, 1)
+	assert.Empty(t, page2.Result.NextMarker)
+}
+
+// TestDescribeSSLPoliciesFiltering verifies that SSL policies can be filtered by name.
+func TestDescribeSSLPoliciesFiltering(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":         {"DescribeSSLPolicies"},
+		"Version":        {"2015-12-01"},
+		"Names.member.1": {"ELBSecurityPolicy-2016-08"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			SslPolicies struct {
+				Members []struct {
+					Name string `xml:"Name"`
+				} `xml:"member"`
+			} `xml:"SslPolicies"`
+		} `xml:"DescribeSSLPoliciesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Result.SslPolicies.Members, 1)
+	assert.Equal(t, "ELBSecurityPolicy-2016-08", resp.Result.SslPolicies.Members[0].Name)
+}
+
+// TestDescribeSSLPoliciesAll verifies that unfiltered DescribeSSLPolicies returns multiple policies.
+func TestDescribeSSLPoliciesAll(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":  {"DescribeSSLPolicies"},
+		"Version": {"2015-12-01"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			SslPolicies struct {
+				Members []struct {
+					Name string `xml:"Name"`
+				} `xml:"member"`
+			} `xml:"SslPolicies"`
+		} `xml:"DescribeSSLPoliciesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Greater(t, len(resp.Result.SslPolicies.Members), 2)
+
+	// Verify specific policies are present.
+	names := make(map[string]bool)
+	for _, p := range resp.Result.SslPolicies.Members {
+		names[p.Name] = true
+	}
+	assert.True(t, names["ELBSecurityPolicy-2016-08"])
+	assert.True(t, names["ELBSecurityPolicy-TLS13-1-2-2021-06"])
+	assert.True(t, names["ELBSecurityPolicy-FS-1-2-Res-2020-10"])
+	assert.True(t, names["ELBSecurityPolicy-FS-2018-06"])
+}
+
+// TestGWLBDefaultAttributes verifies that GWLB has cross_zone=false.
+func TestGWLBDefaultAttributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":  {"CreateLoadBalancer"},
+		"Version": {"2015-12-01"},
+		"Name":    {"gwlb-attrs"},
+		"Type":    {"gateway"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp struct {
+		Result struct {
+			LoadBalancers struct {
+				Members []struct {
+					LoadBalancerArn string `xml:"LoadBalancerArn"`
+				} `xml:"member"`
+			} `xml:"LoadBalancers"`
+		} `xml:"CreateLoadBalancerResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &createResp))
+	lbArn := createResp.Result.LoadBalancers.Members[0].LoadBalancerArn
+
+	recAttrs := doELBv2(t, h, url.Values{
+		"Action":          {"DescribeLoadBalancerAttributes"},
+		"Version":         {"2015-12-01"},
+		"LoadBalancerArn": {lbArn},
+	})
+	require.Equal(t, http.StatusOK, recAttrs.Code)
+
+	var attrsResp struct {
+		Result struct {
+			Attributes struct {
+				Members []struct {
+					Key   string `xml:"Key"`
+					Value string `xml:"Value"`
+				} `xml:"member"`
+			} `xml:"Attributes"`
+		} `xml:"DescribeLoadBalancerAttributesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(recAttrs.Body.Bytes(), &attrsResp))
+
+	attrMap := make(map[string]string)
+	for _, m := range attrsResp.Result.Attributes.Members {
+		attrMap[m.Key] = m.Value
+	}
+
+	assert.Equal(t, "false", attrMap["load_balancing.cross_zone.enabled"])
+	assert.NotContains(t, attrMap, "routing.http2.enabled")
+}
+
+// TestNLBAttributeDefaults verifies that NLB attributes don't include HTTP routing attrs.
+func TestNLBAttributeDefaults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateNLB(t, h, "nlb-attr-defaults")
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":          {"DescribeLoadBalancerAttributes"},
+		"Version":         {"2015-12-01"},
+		"LoadBalancerArn": {lbArn},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			Attributes struct {
+				Members []struct {
+					Key   string `xml:"Key"`
+					Value string `xml:"Value"`
+				} `xml:"member"`
+			} `xml:"Attributes"`
+		} `xml:"DescribeLoadBalancerAttributesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+
+	attrMap := make(map[string]string)
+	for _, m := range resp.Result.Attributes.Members {
+		attrMap[m.Key] = m.Value
+	}
+
+	// NLB must have these.
+	assert.Equal(t, "false", attrMap["access_logs.s3.enabled"])
+	assert.Equal(t, "false", attrMap["deletion_protection.enabled"])
+	assert.Equal(t, "false", attrMap["load_balancing.cross_zone.enabled"])
+
+	// NLB must not have these HTTP-specific ones.
+	assert.NotContains(t, attrMap, "routing.http2.enabled")
+	assert.NotContains(t, attrMap, "routing.http.desync_mitigation_mode")
+	assert.NotContains(t, attrMap, "waf.fail_open.enabled")
+	assert.NotContains(t, attrMap, "routing.http.response.server.enabled")
 }
