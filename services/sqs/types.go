@@ -115,6 +115,17 @@ type InFlightMessage struct {
 	VisibleAt     time.Time `json:"visibleAt"`
 	Msg           *Message  `json:"msg"`
 	ReceiptHandle string    `json:"receiptHandle"`
+	// Generation matches the Queue.receiveGeneration at the time of receive.
+	// Used to detect stale receipt handles when a message is re-received after
+	// a visibility timeout expires and the generation counter advances.
+	Generation uint64 `json:"generation"`
+}
+
+// receiveAttemptEntry caches the result of a ReceiveRequestAttemptID request
+// for the FIFO exactly-once-retry window (5 minutes per AWS spec).
+type receiveAttemptEntry struct {
+	expiresAt time.Time
+	msgs      []*Message
 }
 
 // QueuePermissionEntry represents a single AddPermission statement on a queue.
@@ -136,6 +147,7 @@ type Queue struct {
 	Attributes          map[string]string
 	Permissions         map[string]*QueuePermissionEntry
 	fifoSendTimes       map[string][]time.Time
+	receiveAttempts     map[string]*receiveAttemptEntry
 	Tags                *tags.Tags
 	DeduplicationIDs    map[string]time.Time
 	dlq                 *Queue
@@ -145,6 +157,7 @@ type Queue struct {
 	messages            []*Message
 	inFlightMessages    []*InFlightMessage
 	fifoSeqCounter      uint64
+	receiveGeneration   uint64
 	MaxReceiveCount     int
 	IsFIFO              bool
 }
@@ -255,13 +268,16 @@ type SendMessageOutput struct {
 
 // ReceiveMessageInput is the input for ReceiveMessage.
 type ReceiveMessageInput struct {
-	QueueURL              string
-	Region                string
-	AttributeNames        []string
-	MessageAttributeNames []string
-	MaxNumberOfMessages   int
-	VisibilityTimeout     int
-	WaitTimeSeconds       int
+	QueueURL string
+	Region   string
+	// ReceiveRequestAttemptID enables FIFO exactly-once retry: repeating a receive
+	// with the same ID within 5 minutes returns the original message set.
+	ReceiveRequestAttemptID string
+	AttributeNames          []string
+	MessageAttributeNames   []string
+	MaxNumberOfMessages     int
+	VisibilityTimeout       int
+	WaitTimeSeconds         int
 }
 
 // ReceiveMessageOutput is the output for ReceiveMessage.

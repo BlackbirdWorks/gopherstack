@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -114,29 +115,29 @@ func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
 // GetSupportedOperations returns the list of supported SQS operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"AddPermission",
-		"CancelMessageMoveTask",
-		"ChangeMessageVisibility",
-		"ChangeMessageVisibilityBatch",
-		"CreateQueue",
-		"DeleteMessage",
-		"DeleteMessageBatch",
-		"DeleteQueue",
-		"GetQueueAttributes",
-		"GetQueueUrl",
-		"ListDeadLetterSourceQueues",
-		"ListMessageMoveTasks",
-		"ListQueueTags",
-		"ListQueues",
-		"PurgeQueue",
-		"ReceiveMessage",
-		"RemovePermission",
-		"SendMessage",
-		"SendMessageBatch",
-		"SetQueueAttributes",
-		"StartMessageMoveTask",
-		"TagQueue",
-		"UntagQueue",
+		opAddPermission,
+		opCancelMessageMoveTask,
+		opChangeMessageVisibility,
+		opChangeMessageVisibilityBatch,
+		opCreateQueue,
+		opDeleteMessage,
+		opDeleteMessageBatch,
+		opDeleteQueue,
+		opGetQueueAttributes,
+		opGetQueueURL,
+		opListDeadLetterSourceQueues,
+		opListMessageMoveTasks,
+		opListQueueTags,
+		opListQueues,
+		opPurgeQueue,
+		opReceiveMessage,
+		opRemovePermission,
+		opSendMessage,
+		opSendMessageBatch,
+		opSetQueueAttributes,
+		opStartMessageMoveTask,
+		opTagQueue,
+		opUntagQueue,
 	}
 }
 
@@ -150,17 +151,37 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 
 // RouteMatcher returns a function that matches incoming SQS requests.
-// It matches POST requests whose X-Amz-Target header starts with "AmazonSQS." and whose
-// path is "/" or starts with "/000000000000/" (to avoid capturing Dashboard form POSTs).
+// It accepts two request styles:
+//  1. JSON protocol: POST with X-Amz-Target: AmazonSQS.<Action>
+//  2. Query protocol: POST with Content-Type: application/x-www-form-urlencoded
+//     and a recognised Action= body parameter
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		if !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), "AmazonSQS.") {
+		r := c.Request()
+
+		// JSON protocol: X-Amz-Target header approach
+		if strings.HasPrefix(r.Header.Get("X-Amz-Target"), "AmazonSQS.") {
+			path := r.URL.Path
+
+			return path == "/" || strings.HasPrefix(path, "/000000000000/")
+		}
+
+		// Query protocol: form-encoded POST with a known Action
+		if !isQueryProtocol(r) {
 			return false
 		}
 
-		path := c.Request().URL.Path
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			return false
+		}
 
-		return path == "/" || strings.HasPrefix(path, "/000000000000/")
+		vals, err := url.ParseQuery(string(body))
+		if err != nil {
+			return false
+		}
+
+		return isKnownSQSAction(vals.Get("Action"))
 	}
 }
 
@@ -170,6 +191,33 @@ const sqsMatchPriority = 75
 
 // unknownOperation is the default operation name returned when the action cannot be determined.
 const unknownOperation = "Unknown"
+
+// SQS operation name constants shared between JSON and Query protocol dispatch.
+const (
+	opAddPermission                = "AddPermission"
+	opCancelMessageMoveTask        = "CancelMessageMoveTask"
+	opChangeMessageVisibility      = "ChangeMessageVisibility"
+	opChangeMessageVisibilityBatch = "ChangeMessageVisibilityBatch"
+	opCreateQueue                  = "CreateQueue"
+	opDeleteMessage                = "DeleteMessage"
+	opDeleteMessageBatch           = "DeleteMessageBatch"
+	opDeleteQueue                  = "DeleteQueue"
+	opGetQueueAttributes           = "GetQueueAttributes"
+	opGetQueueURL                  = "GetQueueUrl"
+	opListDeadLetterSourceQueues   = "ListDeadLetterSourceQueues"
+	opListMessageMoveTasks         = "ListMessageMoveTasks"
+	opListQueueTags                = "ListQueueTags"
+	opListQueues                   = "ListQueues"
+	opPurgeQueue                   = "PurgeQueue"
+	opReceiveMessage               = "ReceiveMessage"
+	opRemovePermission             = "RemovePermission"
+	opSendMessage                  = "SendMessage"
+	opSendMessageBatch             = "SendMessageBatch"
+	opSetQueueAttributes           = "SetQueueAttributes"
+	opStartMessageMoveTask         = "StartMessageMoveTask"
+	opTagQueue                     = "TagQueue"
+	opUntagQueue                   = "UntagQueue"
+)
 
 // MatchPriority returns the routing priority for the SQS handler.
 func (h *Handler) MatchPriority() int {
@@ -209,8 +257,14 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // Handler returns the Echo handler function for SQS operations.
+// It supports both the JSON protocol (X-Amz-Target) and the legacy Query
+// (form-encoded) protocol.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if isQueryProtocol(c.Request()) {
+			return h.handleQueryProtocol(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"SQS", "application/x-amz-json-1.1",
@@ -227,29 +281,29 @@ type sqsDispatchFn func(ctx context.Context, r *http.Request, body []byte) (any,
 
 func (h *Handler) sqsDispatchTable() map[string]sqsDispatchFn {
 	return map[string]sqsDispatchFn{
-		"CreateQueue":                  h.handleCreateQueue,
-		"DeleteQueue":                  h.handleDeleteQueue,
-		"ListQueues":                   h.handleListQueues,
-		"GetQueueUrl":                  h.handleGetQueueURL,
-		"GetQueueAttributes":           h.handleGetQueueAttributes,
-		"SetQueueAttributes":           h.handleSetQueueAttributes,
-		"SendMessage":                  h.handleSendMessage,
-		"ReceiveMessage":               h.handleReceiveMessage,
-		"DeleteMessage":                h.handleDeleteMessage,
-		"ChangeMessageVisibility":      h.handleChangeMessageVisibility,
-		"SendMessageBatch":             h.handleSendMessageBatch,
-		"DeleteMessageBatch":           h.handleDeleteMessageBatch,
-		"ChangeMessageVisibilityBatch": h.handleChangeMessageVisibilityBatch,
-		"PurgeQueue":                   h.handlePurgeQueue,
-		"TagQueue":                     h.handleTagQueue,
-		"UntagQueue":                   h.handleUntagQueue,
-		"ListQueueTags":                h.handleListQueueTags,
-		"ListDeadLetterSourceQueues":   h.handleListDeadLetterSourceQueues,
-		"AddPermission":                h.handleAddPermission,
-		"RemovePermission":             h.handleRemovePermission,
-		"StartMessageMoveTask":         h.handleStartMessageMoveTask,
-		"CancelMessageMoveTask":        h.handleCancelMessageMoveTask,
-		"ListMessageMoveTasks":         h.handleListMessageMoveTasks,
+		opCreateQueue:                  h.handleCreateQueue,
+		opDeleteQueue:                  h.handleDeleteQueue,
+		opListQueues:                   h.handleListQueues,
+		opGetQueueURL:                  h.handleGetQueueURL,
+		opGetQueueAttributes:           h.handleGetQueueAttributes,
+		opSetQueueAttributes:           h.handleSetQueueAttributes,
+		opSendMessage:                  h.handleSendMessage,
+		opReceiveMessage:               h.handleReceiveMessage,
+		opDeleteMessage:                h.handleDeleteMessage,
+		opChangeMessageVisibility:      h.handleChangeMessageVisibility,
+		opSendMessageBatch:             h.handleSendMessageBatch,
+		opDeleteMessageBatch:           h.handleDeleteMessageBatch,
+		opChangeMessageVisibilityBatch: h.handleChangeMessageVisibilityBatch,
+		opPurgeQueue:                   h.handlePurgeQueue,
+		opTagQueue:                     h.handleTagQueue,
+		opUntagQueue:                   h.handleUntagQueue,
+		opListQueueTags:                h.handleListQueueTags,
+		opListDeadLetterSourceQueues:   h.handleListDeadLetterSourceQueues,
+		opAddPermission:                h.handleAddPermission,
+		opRemovePermission:             h.handleRemovePermission,
+		opStartMessageMoveTask:         h.handleStartMessageMoveTask,
+		opCancelMessageMoveTask:        h.handleCancelMessageMoveTask,
+		opListMessageMoveTasks:         h.handleListMessageMoveTasks,
 	}
 }
 
@@ -326,6 +380,7 @@ type jsonSendMessageReq struct {
 type jsonReceiveMessageReq struct {
 	VisibilityTimeout           *int     `json:"VisibilityTimeout"`
 	QueueURL                    string   `json:"QueueUrl"`
+	ReceiveRequestAttemptID     string   `json:"ReceiveRequestAttemptId"`
 	AttributeNames              []string `json:"AttributeNames"`
 	MessageAttributeNames       []string `json:"MessageAttributeNames"`
 	MessageSystemAttributeNames []string `json:"MessageSystemAttributeNames"`
@@ -688,13 +743,14 @@ func (h *Handler) handleReceiveMessage(
 	}
 
 	out, err := h.Backend.ReceiveMessage(&ReceiveMessageInput{
-		QueueURL:              req.QueueURL,
-		Region:                httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
-		MaxNumberOfMessages:   req.MaxNumberOfMessages,
-		VisibilityTimeout:     vt,
-		WaitTimeSeconds:       req.WaitTimeSeconds,
-		AttributeNames:        effectiveAttrNames,
-		MessageAttributeNames: req.MessageAttributeNames,
+		QueueURL:                req.QueueURL,
+		Region:                  httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		MaxNumberOfMessages:     req.MaxNumberOfMessages,
+		VisibilityTimeout:       vt,
+		WaitTimeSeconds:         req.WaitTimeSeconds,
+		AttributeNames:          effectiveAttrNames,
+		MessageAttributeNames:   req.MessageAttributeNames,
+		ReceiveRequestAttemptID: req.ReceiveRequestAttemptID,
 	})
 	if err != nil {
 		return nil, err
@@ -1150,6 +1206,15 @@ func sqsCoreErrorDetails(err error) (errorEntry, bool) {
 
 // sqsPermMoveErrorDetails handles permission, move-task, and validation sentinel errors.
 func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
+	if e, ok := sqsPermErrorDetails(err); ok {
+		return e, true
+	}
+
+	return sqsValidationErrorDetails(err)
+}
+
+// sqsPermErrorDetails covers permission and move-task sentinel errors.
+func sqsPermErrorDetails(err error) (errorEntry, bool) {
 	type errRow struct {
 		sentinel error
 		entry    errorEntry
@@ -1196,6 +1261,28 @@ func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
 			"A message move task with the specified task handle is not running.",
 			badReq,
 		}},
+	}
+
+	for _, row := range rows {
+		if errors.Is(err, row.sentinel) {
+			return row.entry, true
+		}
+	}
+
+	return errorEntry{}, false
+}
+
+// sqsValidationErrorDetails covers queue name, message, and limit sentinel errors.
+func sqsValidationErrorDetails(err error) (errorEntry, bool) {
+	type errRow struct {
+		sentinel error
+		entry    errorEntry
+	}
+
+	const badReq = http.StatusBadRequest
+	const ipv = errTypeInvalidParameterValue
+
+	rows := [...]errRow{
 		{ErrInvalidQueueName, errorEntry{
 			ipv,
 			"The name of a queue can only include alphanumeric characters, hyphens, or underscores. " +
@@ -1221,6 +1308,27 @@ func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
 			"OverLimit",
 			"The specified action violates a service quota.",
 			http.StatusForbidden,
+		}},
+		{ErrInvalidMessageAttributeValue, errorEntry{
+			ipv,
+			"Message attribute value is invalid. Check that the DataType and the associated value are correct.",
+			badReq,
+		}},
+		{ErrInvalidAttributeName, errorEntry{
+			"com.amazonaws.sqs#InvalidAttributeName",
+			"Unknown Attribute FifoQueue.",
+			badReq,
+		}},
+		{ErrFIFODelayNotSupported, errorEntry{
+			ipv,
+			"The request include parameter that is not valid for this queue type." +
+				" DelaySeconds is not supported for FIFO queues.",
+			badReq,
+		}},
+		{ErrBatchRequestTooLong, errorEntry{
+			"com.amazonaws.sqs#BatchRequestTooLong",
+			"The length of all the messages put together is more than the limit.",
+			badReq,
 		}},
 	}
 

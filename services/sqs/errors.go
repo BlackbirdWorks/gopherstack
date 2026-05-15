@@ -54,4 +54,14 @@ var (
 	// (bodies + attribute names/types/values) exceeds the per-batch byte limit
 	// (matches the per-queue MaximumMessageSize, default 256 KiB).
 	ErrBatchRequestTooLong = errors.New("AWS.SimpleQueueService.BatchRequestTooLong")
+	// ErrInvalidMessageAttributeValue is returned when a message attribute has an
+	// invalid DataType or its value does not match the declared type.
+	ErrInvalidMessageAttributeValue = errors.New("InvalidParameterValue.MessageAttribute")
+	// ErrInvalidAttributeName is returned when SetQueueAttributes attempts to
+	// change an immutable attribute such as FifoQueue.
+	ErrInvalidAttributeName = errors.New("InvalidAttributeName")
+	// ErrFIFODelayNotSupported is returned when a SendMessage or batch entry for
+	// a FIFO queue specifies a non-zero DelaySeconds (FIFO queues do not support
+	// per-message delays).
+	ErrFIFODelayNotSupported = errors.New("InvalidParameterValue.FIFODelaySeconds")
 )
