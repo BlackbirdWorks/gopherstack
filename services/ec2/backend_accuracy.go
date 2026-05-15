@@ -26,6 +26,8 @@ const (
 	attrEnaSupport                        = "enaSupport"
 	attrSriovNetSupport                   = "sriovNetSupport"
 	attrDisableAPIStop                    = "disableApiStop"
+	attrDisableAPITermination             = "disableApiTermination"
+	attrEBSOptimized                      = "ebsOptimized"
 	attrInstanceInitiatedShutdownBehavior = "instanceInitiatedShutdownBehavior"
 
 	instanceTypeT3Micro = "t3.micro"
@@ -67,10 +69,10 @@ func (b *InMemoryBackend) SetInstanceAttribute(instanceID, attribute, value stri
 	case attrInstanceType:
 		inst.InstanceType = value
 	case attrEnaSupport:
-		inst.EnaSupport = value == ec2BooleanTrue || value == "true"
+		inst.EnaSupport = value == ec2BooleanTrue
 	case attrSriovNetSupport:
 		inst.SriovNetSupport = value
-	case "disableApiTermination", attrDisableAPIStop, "ebsOptimized",
+	case attrDisableAPITermination, attrDisableAPIStop, attrEBSOptimized,
 		"sourceDestCheck", attrInstanceInitiatedShutdownBehavior,
 		"groupSet", "blockDeviceMapping":
 		// accepted but not modelled beyond acknowledgment
@@ -174,7 +176,12 @@ func GenerateSpotPriceHistory(
 	endTime := time.Now().UTC()
 
 	if len(instanceTypes) == 0 {
-		instanceTypes = []string{instanceTypeT3Micro, instanceTypeT3Small, spotFleetDefaultInstanceType, instanceTypeC5XL}
+		instanceTypes = []string{
+			instanceTypeT3Micro,
+			instanceTypeT3Small,
+			spotFleetDefaultInstanceType,
+			instanceTypeC5XL,
+		}
 	}
 
 	if len(azs) == 0 {

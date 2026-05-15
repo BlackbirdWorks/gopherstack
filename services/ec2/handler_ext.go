@@ -1786,10 +1786,10 @@ func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (
 //
 //nolint:gochecknoglobals // lookup set
 var modifyInstanceAttributeStoppedRequired = map[string]bool{
-	"instanceType": true,
-	"userData":     true,
-	"kernel":       true,
-	"ramdisk":      true,
+	attrInstanceType: true,
+	attrUserData:     true,
+	attrKernel:       true,
+	attrRamdisk:      true,
 }
 
 // parseModifyInstanceAttributeValue extracts the (name, value) pair from a
@@ -1801,15 +1801,15 @@ func parseModifyInstanceAttributeValue(vals url.Values) (name, value string) {
 		attr  string
 		param string
 	}{
-		{"instanceType", "InstanceType.Value"},
-		{"userData", "UserData.Value"},
-		{"enaSupport", "EnaSupport.Value"},
-		{"sriovNetSupport", "SriovNetSupport.Value"},
-		{"disableApiTermination", "DisableApiTermination.Value"},
-		{"disableApiStop", "DisableApiStop.Value"},
-		{"ebsOptimized", "EbsOptimized.Value"},
-		{"sourceDestCheck", "SourceDestCheck.Value"},
-		{"instanceInitiatedShutdownBehavior", "InstanceInitiatedShutdownBehavior.Value"},
+		{attrInstanceType, "InstanceType.Value"},
+		{attrUserData, "UserData.Value"},
+		{attrEnaSupport, "EnaSupport.Value"},
+		{attrSriovNetSupport, "SriovNetSupport.Value"},
+		{attrDisableAPITermination, "DisableApiTermination.Value"},
+		{attrDisableAPIStop, "DisableApiStop.Value"},
+		{attrEBSOptimized, "EbsOptimized.Value"},
+		{attrSourceDest, "SourceDestCheck.Value"},
+		{attrInstanceInitiatedShutdownBehavior, "InstanceInitiatedShutdownBehavior.Value"},
 	}
 
 	for _, c := range checks {

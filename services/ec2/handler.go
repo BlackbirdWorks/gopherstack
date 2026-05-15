@@ -481,7 +481,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	for _, inst := range instances {
 		if userData != "" {
 			// Store as-is; DescribeInstanceAttribute returns the raw (base64) form.
-			if attrErr := h.Backend.SetInstanceAttribute(inst.ID, "userData", userData); attrErr != nil {
+			if attrErr := h.Backend.SetInstanceAttribute(inst.ID, attrUserData, userData); attrErr != nil {
 				return nil, attrErr
 			}
 		}
@@ -1030,27 +1030,27 @@ func (h *Handler) handleDescribeInstanceAttribute(vals url.Values, reqID string)
 	var attrValue string
 
 	switch attr {
-	case "userData":
+	case attrUserData:
 		attrValue = inst.UserData
-	case "instanceType":
+	case attrInstanceType:
 		attrValue = inst.InstanceType
-	case "enaSupport":
+	case attrEnaSupport:
 		if inst.EnaSupport {
 			attrValue = ec2BooleanTrue
 		} else {
 			attrValue = ec2BooleanFalse
 		}
-	case "sriovNetSupport":
+	case attrSriovNetSupport:
 		if inst.SriovNetSupport != "" {
 			attrValue = inst.SriovNetSupport
 		} else {
 			attrValue = "simple"
 		}
-	case "disableApiStop", "disableApiTermination", "ebsOptimized":
+	case attrDisableAPIStop, attrDisableAPITermination, attrEBSOptimized:
 		attrValue = ec2BooleanFalse
 	case attrSourceDest:
 		attrValue = ec2BooleanFalse
-	case "instanceInitiatedShutdownBehavior", "kernel", "ramdisk":
+	case attrInstanceInitiatedShutdownBehavior, attrKernel, attrRamdisk:
 		attrValue = "stop"
 	default:
 		attrValue = ""

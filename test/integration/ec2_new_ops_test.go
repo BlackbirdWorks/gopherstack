@@ -127,10 +127,10 @@ func TestIntegration_EC2_SpotInstances(t *testing.T) {
 	require.Len(t, descOut.SpotInstanceRequests, 1)
 	assert.Equal(t, spotRequestID, aws.ToString(descOut.SpotInstanceRequests[0].SpotInstanceRequestId))
 
-	// DescribeSpotPriceHistory - should return an empty (stub) response.
+	// DescribeSpotPriceHistory - returns deterministic spot price history.
 	histOut, err := client.DescribeSpotPriceHistory(ctx, &ec2sdk.DescribeSpotPriceHistoryInput{})
 	require.NoError(t, err)
-	assert.Empty(t, histOut.SpotPriceHistory)
+	assert.NotEmpty(t, histOut.SpotPriceHistory)
 
 	// CancelSpotInstanceRequests
 	cancelOut, err := client.CancelSpotInstanceRequests(ctx, &ec2sdk.CancelSpotInstanceRequestsInput{
@@ -207,7 +207,13 @@ func TestIntegration_EC2_InstanceAttributes(t *testing.T) {
 		})
 	})
 
-	// ModifyInstanceAttribute - set instance type.
+	// StopInstances - instanceType modification requires stopped state.
+	_, err = client.StopInstances(ctx, &ec2sdk.StopInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	require.NoError(t, err)
+
+	// ModifyInstanceAttribute - set instance type (requires stopped state).
 	_, err = client.ModifyInstanceAttribute(ctx, &ec2sdk.ModifyInstanceAttributeInput{
 		InstanceId: aws.String(instanceID),
 		InstanceType: &ec2types.AttributeValue{
