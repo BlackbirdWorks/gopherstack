@@ -16,6 +16,7 @@ const (
 	opAssociateSoftwareToken      = "AssociateSoftwareToken"
 	opVerifySoftwareToken         = "VerifySoftwareToken"
 	opSetUserMFAPreference        = "SetUserMFAPreference"
+	opAdminSetUserMFAPreference   = "AdminSetUserMFAPreference"
 	opCreateUserPool              = "CreateUserPool"
 	opUpdateUserPool              = "UpdateUserPool"
 	opCreateUserPoolClient        = "CreateUserPoolClient"
@@ -32,6 +33,12 @@ const (
 	opDeleteResourceServer        = "DeleteResourceServer"
 	opRespondToAuthChallenge      = "RespondToAuthChallenge"
 	opAdminRespondToAuthChallenge = "AdminRespondToAuthChallenge"
+	opInitiateAuth                = "InitiateAuth"
+	opAdminInitiateAuth           = "AdminInitiateAuth"
+	opConfirmSignUp               = "ConfirmSignUp"
+	opForgotPassword              = "ForgotPassword"
+	opConfirmForgotPassword       = "ConfirmForgotPassword"
+	opResendConfirmationCode      = "ResendConfirmationCode"
 )
 
 // accuracyDispatchTable returns extra dispatch entries for the operations implemented in this file.
@@ -40,6 +47,7 @@ func (h *Handler) accuracyDispatchTable() map[string]service.JSONOpFunc {
 		opAssociateSoftwareToken:      wrapAccuracy(h.handleAssociateSoftwareTokenAccurate),
 		opVerifySoftwareToken:         wrapAccuracy(h.handleVerifySoftwareTokenAccurate),
 		opSetUserMFAPreference:        wrapAccuracy(h.handleSetUserMFAPreferenceAccurate),
+		opAdminSetUserMFAPreference:   wrapAccuracy(h.handleAdminSetUserMFAPreferenceAccurate),
 		"AdminSetUserMFASetting":      wrapAccuracy(h.handleAdminSetUserMFASetting),
 		opCreateUserPool:              wrapAccuracy(h.handleCreateUserPoolWithOpts),
 		opUpdateUserPool:              wrapAccuracy(h.handleUpdateUserPoolWithOpts),
@@ -57,6 +65,12 @@ func (h *Handler) accuracyDispatchTable() map[string]service.JSONOpFunc {
 		opDeleteResourceServer:        wrapAccuracy(h.handleDeleteResourceServerAccurate),
 		opRespondToAuthChallenge:      wrapAccuracy(h.handleRespondToAuthChallengeAccurate),
 		opAdminRespondToAuthChallenge: wrapAccuracy(h.handleAdminRespondToAuthChallengeAccurate),
+		opInitiateAuth:                wrapAccuracy(h.handleInitiateAuthAccurate),
+		opAdminInitiateAuth:           wrapAccuracy(h.handleAdminInitiateAuthAccurate),
+		opConfirmSignUp:               wrapAccuracy(h.handleConfirmSignUpAccurate),
+		opForgotPassword:              wrapAccuracy(h.handleForgotPasswordAccurate),
+		opConfirmForgotPassword:       wrapAccuracy(h.handleConfirmForgotPasswordAccurate),
+		opResendConfirmationCode:      wrapAccuracy(h.handleResendConfirmationCodeAccurate),
 	}
 }
 
@@ -780,6 +794,7 @@ type signUpAccurateInput struct {
 	Username       string          `json:"Username"`
 	Password       string          `json:"Password"`
 	ClientID       string          `json:"ClientId"`
+	SecretHash     string          `json:"SecretHash,omitempty"`
 	UserAttributes []attributeType `json:"UserAttributes"`
 }
 
@@ -793,6 +808,10 @@ func (h *Handler) handleSignUpAccurate(
 	_ context.Context,
 	in *signUpAccurateInput,
 ) (*signUpAccurateOutput, error) {
+	if err := h.Backend.ValidateSecretHash(in.ClientID, in.Username, in.SecretHash); err != nil {
+		return nil, err
+	}
+
 	attrs := attributeListToMap(in.UserAttributes)
 
 	user, err := h.Backend.SignUpWithValidation(in.ClientID, in.Username, in.Password, attrs)
@@ -911,4 +930,252 @@ func (h *Handler) handleListUserPoolClientsAccurate(
 	}
 
 	return &listUserPoolClientsAccurateOutput{UserPoolClients: items}, nil
+}
+
+// ---- AdminSetUserMFAPreference (accurate) ----
+
+type adminSetUserMFAPreferenceAccurateInput struct {
+	SMSMfaSettings           *smsMFASetting           `json:"SMSMfaSettings,omitempty"`
+	SoftwareTokenMfaSettings *softwareTokenMFASetting `json:"SoftwareTokenMfaSettings,omitempty"`
+	UserPoolID               string                   `json:"UserPoolId"`
+	Username                 string                   `json:"Username"`
+}
+
+type adminSetUserMFAPreferenceAccurateOutput struct{}
+
+func (h *Handler) handleAdminSetUserMFAPreferenceAccurate(
+	_ context.Context,
+	in *adminSetUserMFAPreferenceAccurateInput,
+) (*adminSetUserMFAPreferenceAccurateOutput, error) {
+	smsEnabled := in.SMSMfaSettings != nil && in.SMSMfaSettings.Enabled
+	softwareEnabled := in.SoftwareTokenMfaSettings != nil && in.SoftwareTokenMfaSettings.Enabled
+
+	preferredMFA := ""
+
+	switch {
+	case in.SMSMfaSettings != nil && in.SMSMfaSettings.PreferredMfa:
+		preferredMFA = challengeSMSMFA
+	case in.SoftwareTokenMfaSettings != nil && in.SoftwareTokenMfaSettings.PreferredMfa:
+		preferredMFA = challengeSoftwareTokenMFA
+	}
+
+	if err := h.Backend.AdminSetUserMFAPreference(
+		in.UserPoolID, in.Username, smsEnabled, softwareEnabled, preferredMFA,
+	); err != nil {
+		return nil, err
+	}
+
+	return &adminSetUserMFAPreferenceAccurateOutput{}, nil
+}
+
+// ---- InitiateAuth with SECRET_HASH validation ----
+
+type initiateAuthAccurateInput struct {
+	AuthParameters map[string]string `json:"AuthParameters"`
+	AuthFlow       string            `json:"AuthFlow"`
+	ClientID       string            `json:"ClientId"`
+}
+
+func (h *Handler) handleInitiateAuthAccurate(
+	_ context.Context,
+	in *initiateAuthAccurateInput,
+) (*authOutput, error) {
+	username := in.AuthParameters["USERNAME"]
+
+	if err := h.Backend.ValidateSecretHash(
+		in.ClientID, username, in.AuthParameters["SECRET_HASH"],
+	); err != nil {
+		return nil, err
+	}
+
+	if in.AuthFlow == "REFRESH_TOKEN_AUTH" || in.AuthFlow == "REFRESH_TOKEN" {
+		refreshToken := in.AuthParameters["REFRESH_TOKEN"]
+
+		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
+		if err != nil {
+			return nil, err
+		}
+
+		return &authOutput{
+			AuthenticationResult: authResultFromTokenResult(tokens),
+		}, nil
+	}
+
+	password := in.AuthParameters["PASSWORD"]
+
+	result, err := h.Backend.InitiateAuth(in.ClientID, in.AuthFlow, username, password)
+	if err != nil {
+		return nil, err
+	}
+
+	return authOutputFromResult(result), nil
+}
+
+// ---- AdminInitiateAuth with SECRET_HASH validation ----
+
+type adminInitiateAuthAccurateInput struct {
+	AuthParameters map[string]string `json:"AuthParameters"`
+	AuthFlow       string            `json:"AuthFlow"`
+	ClientID       string            `json:"ClientId"`
+	UserPoolID     string            `json:"UserPoolId"`
+}
+
+func (h *Handler) handleAdminInitiateAuthAccurate(
+	_ context.Context,
+	in *adminInitiateAuthAccurateInput,
+) (*authOutput, error) {
+	username := in.AuthParameters["USERNAME"]
+
+	if err := h.Backend.ValidateSecretHash(
+		in.ClientID, username, in.AuthParameters["SECRET_HASH"],
+	); err != nil {
+		return nil, err
+	}
+
+	if in.AuthFlow == "REFRESH_TOKEN_AUTH" || in.AuthFlow == "REFRESH_TOKEN" {
+		refreshToken := in.AuthParameters["REFRESH_TOKEN"]
+
+		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
+		if err != nil {
+			return nil, err
+		}
+
+		return &authOutput{
+			AuthenticationResult: authResultFromTokenResult(tokens),
+		}, nil
+	}
+
+	password := in.AuthParameters["PASSWORD"]
+
+	result, err := h.Backend.AdminInitiateAuth(in.UserPoolID, in.ClientID, in.AuthFlow, username, password)
+	if err != nil {
+		return nil, err
+	}
+
+	return authOutputFromResult(result), nil
+}
+
+// ---- ConfirmSignUp with SECRET_HASH validation ----
+
+type confirmSignUpAccurateInput struct {
+	Username         string `json:"Username"`
+	ConfirmationCode string `json:"ConfirmationCode"`
+	ClientID         string `json:"ClientId"`
+	SecretHash       string `json:"SecretHash,omitempty"`
+}
+
+type confirmSignUpAccurateOutput struct{}
+
+func (h *Handler) handleConfirmSignUpAccurate(
+	_ context.Context,
+	in *confirmSignUpAccurateInput,
+) (*confirmSignUpAccurateOutput, error) {
+	if err := h.Backend.ValidateSecretHash(in.ClientID, in.Username, in.SecretHash); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.ConfirmSignUp(in.ClientID, in.Username, in.ConfirmationCode); err != nil {
+		return nil, err
+	}
+
+	return &confirmSignUpAccurateOutput{}, nil
+}
+
+// ---- ForgotPassword with SECRET_HASH validation ----
+
+type forgotPasswordAccurateInput struct {
+	ClientID   string `json:"ClientId"`
+	Username   string `json:"Username"`
+	SecretHash string `json:"SecretHash,omitempty"`
+}
+
+type forgotPasswordAccurateOutput struct {
+	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
+}
+
+func (h *Handler) handleForgotPasswordAccurate(
+	_ context.Context,
+	in *forgotPasswordAccurateInput,
+) (*forgotPasswordAccurateOutput, error) {
+	if err := h.Backend.ValidateSecretHash(in.ClientID, in.Username, in.SecretHash); err != nil {
+		return nil, err
+	}
+
+	code, err := h.Backend.ForgotPassword(in.ClientID, in.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	return &forgotPasswordAccurateOutput{
+		CodeDeliveryDetails: map[string]string{
+			keyDestination:      "mock@example.com",
+			keyDeliveryMedium:   medEmail,
+			keyAttributeName:    attrEmail,
+			keyConfirmationCode: code,
+		},
+	}, nil
+}
+
+// ---- ConfirmForgotPassword with SECRET_HASH validation ----
+
+type confirmForgotPasswordAccurateInput struct {
+	ClientID         string `json:"ClientId"`
+	Username         string `json:"Username"`
+	ConfirmationCode string `json:"ConfirmationCode"`
+	Password         string `json:"Password"`
+	SecretHash       string `json:"SecretHash,omitempty"`
+}
+
+type confirmForgotPasswordAccurateOutput struct{}
+
+func (h *Handler) handleConfirmForgotPasswordAccurate(
+	_ context.Context,
+	in *confirmForgotPasswordAccurateInput,
+) (*confirmForgotPasswordAccurateOutput, error) {
+	if err := h.Backend.ValidateSecretHash(in.ClientID, in.Username, in.SecretHash); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.ConfirmForgotPassword(
+		in.ClientID, in.Username, in.ConfirmationCode, in.Password,
+	); err != nil {
+		return nil, err
+	}
+
+	return &confirmForgotPasswordAccurateOutput{}, nil
+}
+
+// ---- ResendConfirmationCode with SECRET_HASH validation ----
+
+type resendConfirmationCodeAccurateInput struct {
+	ClientID   string `json:"ClientId"`
+	Username   string `json:"Username"`
+	SecretHash string `json:"SecretHash,omitempty"`
+}
+
+type resendConfirmationCodeAccurateOutput struct {
+	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
+}
+
+func (h *Handler) handleResendConfirmationCodeAccurate(
+	_ context.Context,
+	in *resendConfirmationCodeAccurateInput,
+) (*resendConfirmationCodeAccurateOutput, error) {
+	if err := h.Backend.ValidateSecretHash(in.ClientID, in.Username, in.SecretHash); err != nil {
+		return nil, err
+	}
+
+	code, err := h.Backend.ResendConfirmationCode(in.ClientID, in.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resendConfirmationCodeAccurateOutput{
+		CodeDeliveryDetails: map[string]string{
+			keyDeliveryMedium:   medEmail,
+			keyDestination:      mockDestination,
+			keyAttributeName:    attrEmail,
+			keyConfirmationCode: code,
+		},
+	}, nil
 }
