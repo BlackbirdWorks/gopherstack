@@ -11,6 +11,7 @@ import (
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
@@ -44,7 +45,7 @@ func (rc *ResourceCreator) createEKSCluster(
 	version := strProp(props, "Version", params, physicalIDs)
 	roleARN := strProp(props, "RoleArn", params, physicalIDs)
 
-	_, err := rc.backends.EKS.Backend.CreateCluster(name, version, roleARN, nil)
+	_, err := rc.backends.EKS.Backend.CreateCluster(name, version, roleARN, nil, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("create EKS cluster %s: %w", name, err)
 	}
@@ -91,7 +92,7 @@ func (rc *ResourceCreator) createEKSNodegroup(
 	ng, err := rc.backends.EKS.Backend.CreateNodegroup(
 		clusterName, nodegroupName, nodeRole,
 		"AL2_x86_64", "ON_DEMAND", "", "",
-		instanceTypes, eksNodegroupDefaultDesiredSize, 1, eksNodegroupDefaultMaxSize, nil,
+		instanceTypes, eksNodegroupDefaultDesiredSize, 1, eksNodegroupDefaultMaxSize, eksbackend.NodegroupInput{}, nil,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create EKS nodegroup %s: %w", nodegroupName, err)
