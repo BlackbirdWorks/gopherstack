@@ -210,7 +210,14 @@ func TestBackend_Method(t *testing.T) {
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
 
-				m, err := b.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "GET", AuthorizationType: "NONE"})
+				m, err := b.PutMethod(
+					apigateway.PutMethodInput{
+						RestAPIID:         api.ID,
+						ResourceID:        rootID,
+						HTTPMethod:        "GET",
+						AuthorizationType: "NONE",
+					},
+				)
 				require.NoError(t, err)
 				assert.Equal(t, "GET", m.HTTPMethod)
 
@@ -252,7 +259,14 @@ func TestBackend_Integration(t *testing.T) {
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
 
-				_, _ = b.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "POST", AuthorizationType: "NONE"})
+				_, _ = b.PutMethod(
+					apigateway.PutMethodInput{
+						RestAPIID:         api.ID,
+						ResourceID:        rootID,
+						HTTPMethod:        "POST",
+						AuthorizationType: "NONE",
+					},
+				)
 
 				input := apigateway.PutIntegrationInput{Type: "MOCK"}
 				integ, err := b.PutIntegration(api.ID, rootID, "POST", input)
@@ -624,7 +638,14 @@ func TestBackend_MethodResponse(t *testing.T) {
 			resources, _, _ := b.GetResources(api.ID, "", 0)
 			rootID := resources[0].ID
 
-			_, _ = b.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "GET", AuthorizationType: "NONE"})
+			_, _ = b.PutMethod(
+				apigateway.PutMethodInput{
+					RestAPIID:         api.ID,
+					ResourceID:        rootID,
+					HTTPMethod:        "GET",
+					AuthorizationType: "NONE",
+				},
+			)
 
 			mr, err := b.PutMethodResponse(api.ID, rootID, "GET", "200", apigateway.PutMethodResponseInput{
 				ResponseModels: map[string]string{"application/json": "Empty"},
@@ -663,7 +684,14 @@ func TestBackend_IntegrationResponse(t *testing.T) {
 			resources, _, _ := b.GetResources(api.ID, "", 0)
 			rootID := resources[0].ID
 
-			_, _ = b.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "GET", AuthorizationType: "NONE"})
+			_, _ = b.PutMethod(
+				apigateway.PutMethodInput{
+					RestAPIID:         api.ID,
+					ResourceID:        rootID,
+					HTTPMethod:        "GET",
+					AuthorizationType: "NONE",
+				},
+			)
 			_, _ = b.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{Type: "MOCK"})
 
 			ir, err := b.PutIntegrationResponse(api.ID, rootID, "GET", "200", apigateway.PutIntegrationResponseInput{

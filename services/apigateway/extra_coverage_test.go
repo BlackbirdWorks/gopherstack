@@ -648,7 +648,14 @@ func TestHandleRESTAPI_Branches(t *testing.T) {
 				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
-				_, _ = b.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "GET", AuthorizationType: "NONE"})
+				_, _ = b.PutMethod(
+					apigateway.PutMethodInput{
+						RestAPIID:         api.ID,
+						ResourceID:        rootID,
+						HTTPMethod:        "GET",
+						AuthorizationType: "NONE",
+					},
+				)
 
 				return fmt.Sprintf("/restapis/%s/resources/%s/methods/GET", api.ID, rootID)
 			},
@@ -1112,7 +1119,14 @@ func TestMethodActions_RESTPathCoverage(t *testing.T) {
 			setup: func(b *apigateway.InMemoryBackend) string {
 				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
 				resources, _, _ := b.GetResources(api.ID, "", 0)
-				_, _ = b.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: resources[0].ID, HTTPMethod: "POST", AuthorizationType: "NONE"})
+				_, _ = b.PutMethod(
+					apigateway.PutMethodInput{
+						RestAPIID:         api.ID,
+						ResourceID:        resources[0].ID,
+						HTTPMethod:        "POST",
+						AuthorizationType: "NONE",
+					},
+				)
 
 				return fmt.Sprintf("/restapis/%s/resources/%s/methods/POST", api.ID, resources[0].ID)
 			},
@@ -1462,7 +1476,14 @@ func TestHandler_RESTPath_Integration(t *testing.T) {
 			require.NoError(t, err)
 			rootID := resources[0].ID
 
-			_, err = backend.PutMethod(apigateway.PutMethodInput{RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "GET", AuthorizationType: "NONE"})
+			_, err = backend.PutMethod(
+				apigateway.PutMethodInput{
+					RestAPIID:         api.ID,
+					ResourceID:        rootID,
+					HTTPMethod:        "GET",
+					AuthorizationType: "NONE",
+				},
+			)
 			require.NoError(t, err)
 
 			// Ensure integration exists for GET and DELETE operations.

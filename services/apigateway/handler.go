@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -554,8 +555,8 @@ type deleteDocumentationVersionInput struct {
 }
 
 type updateRestAPIHandlerInput struct {
-	UpdateRestAPIInput
 	RestAPIID string `json:"restApiId"`
+	UpdateRestAPIInput
 }
 
 type updateDeploymentHandlerInput struct {
@@ -604,10 +605,11 @@ type getExportInput struct {
 
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
-	Backend    StorageBackend
-	authCache  *authorizerCache
-	lambda     LambdaInvoker
-	httpClient *http.Client
+	Backend        StorageBackend
+	authCache      *authorizerCache
+	lambda         LambdaInvoker
+	httpClient     *http.Client
+	selRegexpCache sync.Map // map[string]*regexp.Regexp — compiled selection-pattern regexps
 }
 
 // NewHandler creates a new API Gateway handler with a default HTTP client timeout.
@@ -843,7 +845,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	for _, key := range []string{keyRestAPIID, "name"} {
+	for _, key := range []string{keyRestAPIID, keyAPIName} {
 		if v, ok := data[key].(string); ok && v != "" {
 			return v
 		}
@@ -976,7 +978,7 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		return h.handleError(ctx, c, action, reqErr)
 	}
 
-	c.Response().Header().Set("Content-Type", "application/json")
+	c.Response().Header().Set("Content-Type", contentTypeJSON)
 	if statusCode == http.StatusNoContent {
 		return c.NoContent(http.StatusNoContent)
 	}

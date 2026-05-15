@@ -247,6 +247,19 @@ const (
 	clientCertValidityDays = 730
 )
 
+// contentTypeJSON is the standard JSON content type used in integration templates and responses.
+const contentTypeJSON = "application/json"
+
+// Constants for OpenAPI export document construction.
+const (
+	exportKeyAPIKey      = "api_key"
+	exportKeyType        = "type"
+	exportKeyDescription = "description"
+	exportKeySchema      = "schema"
+	exportKeyObject      = "object"
+	exportKeyBody        = "body"
+)
+
 // stageInvokeURL returns the gopherstack proxy path for a deployed stage.
 // The full URL is relative — clients prepend their gopherstack base URL.
 func stageInvokeURL(restAPIID, stageName string) string {
@@ -377,7 +390,7 @@ func (b *InMemoryBackend) CreateRestAPI(input CreateRestAPIInput) (*RestAPI, err
 		BinaryMediaTypes:       input.BinaryMediaTypes,
 		EndpointConfiguration:  input.EndpointConfiguration,
 		Policy:                 input.Policy,
-		ApiKeySource:           input.ApiKeySource,
+		APIKeySource:           input.APIKeySource,
 		MinimumCompressionSize: input.MinimumCompressionSize,
 	}
 
@@ -2279,8 +2292,8 @@ func (b *InMemoryBackend) UpdateRestAPI(restAPIID string, input UpdateRestAPIInp
 		d.api.Policy = input.Policy
 	}
 
-	if input.ApiKeySource != "" {
-		d.api.ApiKeySource = input.ApiKeySource
+	if input.APIKeySource != "" {
+		d.api.APIKeySource = input.APIKeySource
 	}
 
 	if input.BinaryMediaTypes != nil {
@@ -2325,6 +2338,10 @@ func (b *InMemoryBackend) UpdateResource(restAPIID, resourceID string, input Upd
 
 		res.PathPart = input.PathPart
 		res.Path = computePath(parentPath, input.PathPart)
+	}
+
+	if input.CorsConfiguration != nil {
+		res.CorsConfiguration = input.CorsConfiguration
 	}
 
 	cp := *res
@@ -2473,7 +2490,7 @@ func (b *InMemoryBackend) TestInvokeMethod(input TestInvokeMethodInput) (*TestIn
 		Body:    body,
 		Latency: 1,
 		Log:     "Test invocation (mock)",
-		Headers: map[string]string{"Content-Type": "application/json"},
+		Headers: map[string]string{"Content-Type": contentTypeJSON},
 	}, nil
 }
 
@@ -3189,7 +3206,8 @@ func (b *InMemoryBackend) UpdateVpcLink(input UpdateVpcLinkInput) (*VpcLink, err
 	return link, nil
 }
 
-// GetExport generates an OpenAPI 2.0 (Swagger) export of the REST API.
+// GetExport generates an OpenAPI 2.0 (Swagger) or OAS 3.0 export of the REST API.
+// exportType "oas30" produces OpenAPI 3.0.1; any other value produces Swagger 2.0.
 func (b *InMemoryBackend) GetExport(restAPIID, stageName, exportType string) (map[string]any, error) {
 	b.mu.RLock("GetExport")
 	defer b.mu.RUnlock()
@@ -3199,25 +3217,87 @@ func (b *InMemoryBackend) GetExport(restAPIID, stageName, exportType string) (ma
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
+	if exportType == "oas30" {
+		return buildOAS30Export(data, stageName), nil
+	}
+
+	return buildSwagger20Export(data, stageName), nil
+}
+
+// buildSwagger20Export constructs a Swagger 2.0 export document.
+func buildSwagger20Export(data *apiData, stageName string) map[string]any {
+	paths := buildExportPaths(data, false)
+
+	secDefs := map[string]any{
+		exportKeyAPIKey: map[string]any{
+			exportKeyType: "apiKey",
+			keyAPIName:    "x-api-key",
+			"in":          "header",
+		},
+	}
+
+	return map[string]any{
+		"swagger":             "2.0",
+		"info":                map[string]any{"title": data.api.Name, "version": "1.0"},
+		"basePath":            "/" + stageName,
+		"paths":               paths,
+		"securityDefinitions": secDefs,
+	}
+}
+
+// buildOAS30Export constructs an OpenAPI 3.0.1 export document.
+func buildOAS30Export(data *apiData, stageName string) map[string]any {
+	paths := buildExportPaths(data, true)
+
+	components := map[string]any{
+		"securitySchemes": map[string]any{
+			exportKeyAPIKey: map[string]any{
+				exportKeyType: "apiKey",
+				keyAPIName:    "x-api-key",
+				"in":          "header",
+			},
+		},
+	}
+
+	// Include model schemas in components.
+	if len(data.models) > 0 {
+		schemas := make(map[string]any, len(data.models))
+		for name, m := range data.models {
+			schemas[name] = map[string]any{
+				exportKeyDescription: m.Description,
+				exportKeyType:        exportKeyObject,
+			}
+		}
+		components["schemas"] = schemas
+	}
+
+	return map[string]any{
+		"openapi":    "3.0.1",
+		"info":       map[string]any{"title": data.api.Name, "version": "1.0"},
+		"servers":    []map[string]any{{"url": "/" + stageName}},
+		"paths":      paths,
+		"components": components,
+	}
+}
+
+// buildExportPaths constructs the paths object for an OpenAPI export.
+// oas30=true emits OAS 3.0 operation objects; false emits Swagger 2.0.
+func buildExportPaths(data *apiData, oas30 bool) map[string]any {
 	paths := make(map[string]any)
 
 	for _, res := range data.resources {
-		if res.Path == "/" {
+		if res.Path == "/" || len(res.ResourceMethods) == 0 {
 			continue
 		}
 
 		pathItem := make(map[string]any)
 
 		for httpMethod, method := range res.ResourceMethods {
-			op := map[string]any{
-				"produces":  []string{"application/json"},
-				"responses": map[string]any{"200": map[string]any{"description": "200 response"}},
+			if method == nil {
+				continue
 			}
 
-			if method.APIKeyRequired {
-				op["security"] = []map[string]any{{"api_key": []string{}}}
-			}
-
+			op := buildExportOperation(data, method, oas30)
 			pathItem[strings.ToLower(httpMethod)] = op
 		}
 
@@ -3226,20 +3306,161 @@ func (b *InMemoryBackend) GetExport(restAPIID, stageName, exportType string) (ma
 		}
 	}
 
-	swaggerVersion := "2.0"
-	if exportType == "oas30" {
-		swaggerVersion = "3.0.1"
+	return paths
+}
+
+// buildExportOperation constructs a single OAS operation object for a method.
+func buildExportOperation(data *apiData, method *Method, oas30 bool) map[string]any {
+	op := make(map[string]any)
+	op["responses"] = buildExportResponses(data, method, oas30)
+	buildExportRequestBody(op, data, method, oas30)
+	buildExportSecurity(op, method)
+
+	if method.OperationName != "" {
+		op["operationId"] = method.OperationName
 	}
 
-	export := map[string]any{
-		"swagger": swaggerVersion,
-		"info": map[string]any{
-			"title":   data.api.Name,
-			"version": "1.0",
-		},
-		"basePath": "/" + stageName,
-		"paths":    paths,
+	if method.MethodIntegration != nil {
+		op["x-amazon-apigateway-integration"] = buildExportIntegration(method.MethodIntegration)
 	}
 
-	return export, nil
+	if !oas30 {
+		op["produces"] = []string{contentTypeJSON}
+	}
+
+	return op
+}
+
+// buildExportResponses constructs the responses map for an OAS operation.
+func buildExportResponses(data *apiData, method *Method, oas30 bool) map[string]any {
+	responses := make(map[string]any)
+
+	for statusCode, mr := range method.MethodResponses {
+		rsp := map[string]any{exportKeyDescription: statusCode + " response"}
+
+		if len(mr.ResponseModels) > 0 {
+			if oas30 {
+				content := make(map[string]any)
+				for ct, modelName := range mr.ResponseModels {
+					content[ct] = map[string]any{exportKeySchema: buildModelRef(data, modelName, oas30)}
+				}
+				rsp["content"] = content
+			} else {
+				for _, modelName := range mr.ResponseModels {
+					rsp[exportKeySchema] = buildModelRef(data, modelName, oas30)
+
+					break
+				}
+			}
+		}
+
+		responses[statusCode] = rsp
+	}
+
+	if len(responses) == 0 {
+		responses["200"] = map[string]any{exportKeyDescription: "200 response"}
+	}
+
+	return responses
+}
+
+// buildExportRequestBody adds request body / request model entries to an operation map.
+func buildExportRequestBody(op map[string]any, data *apiData, method *Method, oas30 bool) {
+	if len(method.RequestModels) == 0 {
+		return
+	}
+
+	if oas30 {
+		content := make(map[string]any)
+		for ct, modelName := range method.RequestModels {
+			content[ct] = map[string]any{exportKeySchema: buildModelRef(data, modelName, oas30)}
+		}
+		op["requestBody"] = map[string]any{"content": content}
+	} else {
+		for _, modelName := range method.RequestModels {
+			op["consumes"] = []string{contentTypeJSON}
+			op["parameters"] = []map[string]any{
+				{
+					"in":            exportKeyBody,
+					"name":          exportKeyBody,
+					exportKeySchema: buildModelRef(data, modelName, oas30),
+				},
+			}
+
+			break
+		}
+	}
+}
+
+// buildExportSecurity adds the security requirement to an operation when API key or authorizer is configured.
+func buildExportSecurity(op map[string]any, method *Method) {
+	if method.AuthorizerID != "" {
+		scheme := "lambda_authorizer"
+		if method.AuthorizationType == "COGNITO_USER_POOLS" {
+			scheme = "cognito"
+		}
+		op["security"] = []map[string]any{{scheme: []string{}}}
+
+		return
+	}
+
+	if method.APIKeyRequired {
+		op["security"] = []map[string]any{{exportKeyAPIKey: []string{}}}
+	}
+}
+
+// buildExportIntegration constructs the x-amazon-apigateway-integration extension.
+func buildExportIntegration(integ *Integration) map[string]any {
+	xInteg := map[string]any{
+		exportKeyType:         integ.Type,
+		"httpMethod":          integ.HTTPMethod,
+		"uri":                 integ.URI,
+		"passthroughBehavior": integ.PassthroughBehavior,
+	}
+
+	if len(integ.RequestTemplates) > 0 {
+		xInteg["requestTemplates"] = integ.RequestTemplates
+	}
+
+	if len(integ.IntegrationResponses) > 0 {
+		xResponses := make(map[string]any, len(integ.IntegrationResponses))
+		for sc, ir := range integ.IntegrationResponses {
+			xIR := map[string]any{"statusCode": ir.StatusCode}
+			if ir.SelectionPattern != "" {
+				xIR["selectionPattern"] = ir.SelectionPattern
+			}
+
+			if len(ir.ResponseTemplates) > 0 {
+				xIR["responseTemplates"] = ir.ResponseTemplates
+			}
+
+			if ir.ContentHandling != "" {
+				xIR["contentHandling"] = ir.ContentHandling
+			}
+
+			xResponses[sc] = xIR
+		}
+
+		xInteg["responses"] = xResponses
+	}
+
+	return xInteg
+}
+
+// buildModelRef returns a schema reference or inline schema for a model name.
+func buildModelRef(data *apiData, modelName string, oas30 bool) map[string]any {
+	m, ok := data.models[modelName]
+	if !ok {
+		return map[string]any{exportKeyType: exportKeyObject}
+	}
+
+	if m.Schema != "" {
+		if oas30 {
+			return map[string]any{"$ref": "#/components/schemas/" + modelName}
+		}
+
+		return map[string]any{"$ref": "#/definitions/" + modelName}
+	}
+
+	return map[string]any{exportKeyType: exportKeyObject, exportKeyDescription: m.Description}
 }
