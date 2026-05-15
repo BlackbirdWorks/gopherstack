@@ -2,6 +2,7 @@ package iam
 
 import (
 	"encoding/xml"
+	"fmt"
 	"maps"
 	"net/url"
 	"strconv"
@@ -370,6 +371,13 @@ func (h *Handler) iamEntityUpdateDispatch() map[string]iamActionFn {
 		},
 		"UpdateRole": func(vals url.Values, reqID string) (any, error) {
 			roleName := vals.Get("RoleName")
+			if path := vals.Get("Path"); path != "" {
+				return nil, fmt.Errorf(
+					"%w: role Path is immutable; use a new role to change the path",
+					ErrInvalidAction,
+				)
+			}
+
 			if err := h.Backend.UpdateRole(roleName, vals.Get("Description")); err != nil {
 				return nil, err
 			}

@@ -547,6 +547,57 @@ func stmtActionMatchesTrust(action any, want string) bool {
 	return false
 }
 
+// ---- Trust policy Principal validation ----
+
+// validateTrustPolicyPrincipal parses the trust policy and validates the Principal field.
+// Allowed shapes: "*", a string ARN, or a map with keys AWS/Service/Federated.
+// Returns nil if the policy is empty or valid; returns ErrMalformedPolicyDocument otherwise.
+func validateTrustPolicyPrincipal(policyJSON string) error {
+	if policyJSON == "" {
+		return nil
+	}
+
+	var doc struct {
+		Statement []struct {
+			Principal json.RawMessage `json:"Principal"`
+		} `json:"Statement"`
+	}
+
+	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil {
+		return nil // JSON validity already checked upstream
+	}
+
+	for i, stmt := range doc.Statement {
+		if stmt.Principal == nil {
+			continue
+		}
+
+		var p trustPrincipal
+		if err := json.Unmarshal(stmt.Principal, &p); err != nil {
+			return fmt.Errorf(
+				"%w: statement[%d] Principal has unsupported shape",
+				ErrMalformedPolicyDocument, i,
+			)
+		}
+
+		// Validate ARN format for AWS principals.
+		for _, a := range p.AWS {
+			if a == "*" {
+				continue
+			}
+
+			if !strings.HasPrefix(strings.ToLower(a), "arn:aws") {
+				return fmt.Errorf(
+					"%w: statement[%d] Principal.AWS %q is not a valid ARN",
+					ErrMalformedPolicyDocument, i, a,
+				)
+			}
+		}
+	}
+
+	return nil
+}
+
 // ---- Role path/ARN immutability enforcement ----
 
 // validateRoleUpdateFields returns an error if the caller tries to mutate immutable role fields.

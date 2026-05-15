@@ -615,6 +615,10 @@ func (b *InMemoryBackend) CreateRole(
 		return nil, fmt.Errorf("%w: invalid JSON in AssumeRolePolicyDocument", ErrMalformedPolicyDocument)
 	}
 
+	if err := validateTrustPolicyPrincipal(assumeRolePolicyDocument); err != nil {
+		return nil, err
+	}
+
 	p := normPath(path)
 	r := Role{
 		RoleName:                 roleName,
@@ -1837,6 +1841,10 @@ func (b *InMemoryBackend) UpdateAssumeRolePolicy(roleName, policyDocument string
 
 	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
 		return fmt.Errorf("%w: invalid JSON in AssumeRolePolicyDocument", ErrMalformedPolicyDocument)
+	}
+
+	if err := validateTrustPolicyPrincipal(policyDocument); err != nil {
+		return err
 	}
 
 	r.AssumeRolePolicyDocument = policyDocument
