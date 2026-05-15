@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -32,6 +33,7 @@ var (
 	ErrInvalidDefinition               = errors.New("InvalidDefinition")
 	ErrInvalidExecutionType            = errors.New("InvalidExecutionType")
 	ErrInvalidRoleArn                  = errors.New("InvalidArn")
+	ErrInvalidName                     = errors.New("InvalidName")
 	ErrActivityAlreadyExists           = errors.New("ActivityAlreadyExists")
 	ErrActivityDoesNotExist            = errors.New("ActivityDoesNotExist")
 	ErrTaskTokenNotFound               = errors.New("TaskTokenNotFound")
@@ -51,6 +53,13 @@ const (
 	maxPendingActivityTasks   = 1000
 	activityPollTimeout       = 60 * time.Second
 	activityTokenBytes        = 32
+
+	// maxExecutionNameLen is the AWS limit on execution name length.
+	maxExecutionNameLen = 80
+	// maxStateMachineNameLen is the AWS limit on state machine name length.
+	maxStateMachineNameLen = 80
+	// maxActivityNameLen is the AWS limit on activity name length.
+	maxActivityNameLen = 80
 
 	statusRunning   = "RUNNING"
 	statusSucceeded = "SUCCEEDED"
@@ -96,7 +105,12 @@ type StorageBackend interface {
 	SendTaskSuccess(taskToken, output string) error
 	SendTaskFailure(taskToken, errCode, cause string) error
 	SendTaskHeartbeat(taskToken string) error
-	SetStateMachineConfigurations(arn string, tracing *TracingConfiguration, logging *LoggingConfiguration) error
+	SetStateMachineConfigurations(
+		arn string,
+		tracing *TracingConfiguration,
+		logging *LoggingConfiguration,
+		encryption *EncryptionConfiguration,
+	) error
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -308,12 +322,13 @@ func (b *InMemoryBackend) aliasARN(smName, aliasName string) string {
 	return arn.Build("states", b.region, b.accountID, "stateMachine:"+smName+":"+aliasName)
 }
 
-// SetStateMachineConfigurations sets optional tracing and logging configuration
-// for a state machine. Either argument may be nil to leave that field unchanged.
+// SetStateMachineConfigurations sets optional tracing, logging, and encryption configuration
+// for a state machine. Any nil argument leaves the corresponding field unchanged.
 func (b *InMemoryBackend) SetStateMachineConfigurations(
 	arn string,
 	tracing *TracingConfiguration,
 	logging *LoggingConfiguration,
+	encryption *EncryptionConfiguration,
 ) error {
 	b.mu.Lock("SetStateMachineConfigurations")
 	defer b.mu.Unlock()
@@ -331,6 +346,10 @@ func (b *InMemoryBackend) SetStateMachineConfigurations(
 		sm.LoggingConfiguration = logging
 	}
 
+	if encryption != nil {
+		sm.EncryptionConfiguration = encryption
+	}
+
 	return nil
 }
 
@@ -338,6 +357,10 @@ func (b *InMemoryBackend) SetStateMachineConfigurations(
 func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType string) (*StateMachine, error) {
 	if smType == "" {
 		smType = "STANDARD"
+	}
+
+	if err := validateName(name, maxStateMachineNameLen); err != nil {
+		return nil, err
 	}
 
 	if err := validateRoleARN(roleArn); err != nil {
@@ -653,6 +676,12 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		return nil, fmt.Errorf("%w: input exceeds %d bytes", ErrInvalidExecutionInput, maxExecutionInputBytes)
 	}
 
+	if name != "" {
+		if err := validateName(name, maxExecutionNameLen); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.Lock("StartExecution")
 
 	sm, exists := b.stateMachines[stateMachineArn]
@@ -786,6 +815,26 @@ func validateRoleARN(roleArn string) error {
 		if parts[2] == "" || parts[5] == "" {
 			return fmt.Errorf("%w: roleArn must include service and resource", ErrInvalidRoleArn)
 		}
+	}
+
+	return nil
+}
+
+// namePattern is the AWS-allowed character set for state machine, execution, and activity names.
+// AWS allows: letters, digits, and [-+/=_.@ ].
+var namePattern = regexp.MustCompile(`^[-a-zA-Z0-9+/=_.@ ]+$`)
+
+// validateName checks that a resource name meets AWS length and character constraints.
+func validateName(name string, maxLen int) error {
+	if name == "" || len(name) > maxLen {
+		return fmt.Errorf("%w: name must be 1-%d characters", ErrInvalidName, maxLen)
+	}
+
+	if !namePattern.MatchString(name) {
+		return fmt.Errorf(
+			"%w: name must contain only letters, digits, and [-+/=_.@ ]",
+			ErrInvalidName,
+		)
 	}
 
 	return nil
@@ -1248,6 +1297,10 @@ func (b *InMemoryBackend) Reset() {
 
 // CreateActivity creates a new activity resource.
 func (b *InMemoryBackend) CreateActivity(name string) (*Activity, error) {
+	if err := validateName(name, maxActivityNameLen); err != nil {
+		return nil, err
+	}
+
 	actARN := b.activityARN(name)
 
 	b.mu.Lock("CreateActivity")
@@ -1619,6 +1672,8 @@ func (b *InMemoryBackend) RedriveExecution(executionARN string) (*Execution, err
 	exec.Cause = ""
 	exec.StopDate = nil
 	exec.StartDate = now
+	exec.RedriveCount++
+	exec.RedriveDate = &now
 
 	// Reset history.
 	b.history[executionARN] = []*HistoryEvent{

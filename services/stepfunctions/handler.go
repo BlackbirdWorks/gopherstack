@@ -23,12 +23,15 @@ import (
 var errUnknownOperation = errors.New("UnknownOperationException")
 
 type createStateMachineInput struct {
-	TracingConfiguration *TracingConfiguration `json:"tracingConfiguration,omitempty"`
-	LoggingConfiguration *LoggingConfiguration `json:"loggingConfiguration,omitempty"`
-	Name                 string                `json:"name"`
-	Definition           string                `json:"definition"`
-	RoleArn              string                `json:"roleArn"`
-	Type                 string                `json:"type"`
+	TracingConfiguration    *TracingConfiguration    `json:"tracingConfiguration,omitempty"`
+	LoggingConfiguration    *LoggingConfiguration    `json:"loggingConfiguration,omitempty"`
+	EncryptionConfiguration *EncryptionConfiguration `json:"encryptionConfiguration,omitempty"`
+	Name                    string                   `json:"name"`
+	Definition              string                   `json:"definition"`
+	RoleArn                 string                   `json:"roleArn"`
+	Type                    string                   `json:"type"`
+	Tags                    []sfnTagEntry            `json:"tags,omitempty"`
+	Publish                 bool                     `json:"publish,omitempty"`
 }
 
 type deleteStateMachineInput struct {
@@ -36,11 +39,13 @@ type deleteStateMachineInput struct {
 }
 
 type updateStateMachineInput struct {
-	TracingConfiguration *TracingConfiguration `json:"tracingConfiguration,omitempty"`
-	LoggingConfiguration *LoggingConfiguration `json:"loggingConfiguration,omitempty"`
-	StateMachineArn      string                `json:"stateMachineArn"`
-	Definition           string                `json:"definition"`
-	RoleArn              string                `json:"roleArn"`
+	TracingConfiguration    *TracingConfiguration    `json:"tracingConfiguration,omitempty"`
+	LoggingConfiguration    *LoggingConfiguration    `json:"loggingConfiguration,omitempty"`
+	EncryptionConfiguration *EncryptionConfiguration `json:"encryptionConfiguration,omitempty"`
+	StateMachineArn         string                   `json:"stateMachineArn"`
+	Definition              string                   `json:"definition"`
+	RoleArn                 string                   `json:"roleArn"`
+	Publish                 bool                     `json:"publish,omitempty"`
 }
 
 type listStateMachinesInput struct {
@@ -471,8 +476,8 @@ type describeStateMachineForExecutionInput struct {
 	ExecutionArn string `json:"executionArn"`
 }
 
-// createStateMachineAction handles CreateStateMachine and applies tracing/logging
-// configuration when supplied in the request body.
+// createStateMachineAction handles CreateStateMachine and applies tracing/logging/encryption
+// configuration and inline tags when supplied in the request body.
 func (h *Handler) createStateMachineAction(b []byte) (any, error) {
 	var input createStateMachineInput
 	if err := json.Unmarshal(b, &input); err != nil {
@@ -484,12 +489,26 @@ func (h *Handler) createStateMachineAction(b []byte) (any, error) {
 		return nil, err
 	}
 
-	if input.TracingConfiguration != nil || input.LoggingConfiguration != nil {
+	if input.TracingConfiguration != nil || input.LoggingConfiguration != nil || input.EncryptionConfiguration != nil {
 		if cfgErr := h.Backend.SetStateMachineConfigurations(
-			sm.StateMachineArn, input.TracingConfiguration, input.LoggingConfiguration,
+			sm.StateMachineArn, input.TracingConfiguration, input.LoggingConfiguration, input.EncryptionConfiguration,
 		); cfgErr != nil {
 			return nil, cfgErr
 		}
+	}
+
+	// Apply inline tags when provided.
+	if len(input.Tags) > 0 {
+		kv := make(map[string]string, len(input.Tags))
+		for _, t := range input.Tags {
+			kv[t.Key] = t.Value
+		}
+		h.setTags(sm.StateMachineArn, kv)
+	}
+
+	// When publish=true, immediately publish a version of the new state machine.
+	if input.Publish {
+		_, _ = h.Backend.PublishStateMachineVersion(sm.StateMachineArn, "", "")
 	}
 
 	return &createStateMachineOutput{
@@ -498,7 +517,7 @@ func (h *Handler) createStateMachineAction(b []byte) (any, error) {
 	}, nil
 }
 
-// updateStateMachineAction handles UpdateStateMachine and applies tracing/logging
+// updateStateMachineAction handles UpdateStateMachine and applies tracing/logging/encryption
 // configuration when supplied in the request body.
 func (h *Handler) updateStateMachineAction(b []byte) (any, error) {
 	var input updateStateMachineInput
@@ -511,12 +530,20 @@ func (h *Handler) updateStateMachineAction(b []byte) (any, error) {
 		return nil, err
 	}
 
-	if input.TracingConfiguration != nil || input.LoggingConfiguration != nil {
+	if input.TracingConfiguration != nil || input.LoggingConfiguration != nil || input.EncryptionConfiguration != nil {
 		if cfgErr := h.Backend.SetStateMachineConfigurations(
-			input.StateMachineArn, input.TracingConfiguration, input.LoggingConfiguration,
+			input.StateMachineArn,
+			input.TracingConfiguration,
+			input.LoggingConfiguration,
+			input.EncryptionConfiguration,
 		); cfgErr != nil {
 			return nil, cfgErr
 		}
+	}
+
+	// When publish=true, immediately publish a version of the updated state machine.
+	if input.Publish {
+		_, _ = h.Backend.PublishStateMachineVersion(input.StateMachineArn, "", "")
 	}
 
 	return &updateStateMachineOutput{UpdateDate: updateDate}, nil
@@ -1165,6 +1192,10 @@ func classifyError(reqErr error) (string, int) {
 		{ErrExecutionNotRedrivable, "ExecutionNotRedrivable", http.StatusBadRequest},
 		{ErrInvalidDefinition, "InvalidDefinition", http.StatusBadRequest},
 		{ErrInvalidExecutionType, "InvalidExecutionType", http.StatusBadRequest},
+		{ErrInvalidExecutionInput, "InvalidExecutionInput", http.StatusBadRequest},
+		{ErrInvalidName, "InvalidName", http.StatusBadRequest},
+		{ErrInvalidRoleArn, "InvalidArn", http.StatusBadRequest},
+		{ErrTaskTokenAlreadyExists, "TaskTokenAlreadyExists", http.StatusBadRequest},
 		{errUnknownOperation, "UnknownOperationException", http.StatusBadRequest},
 	}
 
