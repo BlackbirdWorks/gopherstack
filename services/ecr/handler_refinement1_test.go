@@ -697,7 +697,7 @@ func TestRefinement1_Repository_ImageTagMutability(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			repo, err := b.CreateRepository(tt.repoName, tt.imageTagMutability, false, "")
+			repo, err := b.CreateRepository(tt.repoName, tt.imageTagMutability, false, "", "")
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantMutability, repo.ImageTagMutability)
 		})
