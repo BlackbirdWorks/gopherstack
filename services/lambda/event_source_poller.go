@@ -103,6 +103,9 @@ type EventSourcePoller struct {
 	// when processing DynamoDB stream records. When nil the real InMemoryBackend is used.
 	// Intended for use in unit tests only.
 	ddbInvoker func(ctx context.Context, fnName string, payload []byte) error
+	// cancelSignal is an optional channel that is closed when the poller's context is cancelled.
+	// Used only in tests to detect lifecycle shutdown.
+	cancelSignal chan struct{}
 }
 
 // NewEventSourcePoller creates a new EventSourcePoller.
@@ -170,6 +173,11 @@ func (p *EventSourcePoller) run(ctx context.Context) {
 	interval := defaultPollInterval
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	defer func() {
+		if p.cancelSignal != nil {
+			close(p.cancelSignal)
+		}
+	}()
 
 	for {
 		select {

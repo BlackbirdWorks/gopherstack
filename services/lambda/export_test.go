@@ -395,3 +395,21 @@ func PollerNotifyC(p *EventSourcePoller) chan struct{} { return p.notifyC }
 func PushInvocationLog(ctx context.Context, b *InMemoryBackend, functionName string, payload, result []byte) {
 	b.pushInvocationLog(ctx, functionName, payload, result)
 }
+
+// WithInvocationChainForTest injects a function name into the context's invocation chain.
+// This allows tests to simulate recursive self-invocations without a real container.
+func WithInvocationChainForTest(ctx context.Context, functionName string) context.Context {
+	return withInvocationChain(ctx, functionName)
+}
+
+// NewPollerWithCancelSignal creates an EventSourcePoller that closes doneCh when its
+// context is cancelled. Used by Close() lifecycle tests.
+func NewPollerWithCancelSignal(doneCh chan struct{}) *EventSourcePoller {
+	p := &EventSourcePoller{
+		mu:           lockmetrics.New("lambda.poller.test"),
+		notifyC:      make(chan struct{}, 1),
+		cancelSignal: doneCh,
+	}
+
+	return p
+}
