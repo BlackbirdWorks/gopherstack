@@ -491,6 +491,10 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		}
 	}
 
+	if cb, c := h.computeBackend(); c != nil {
+		h.launchOnCompute(context.Background(), cb, c, instances, keyName, userData)
+	}
+
 	if tags := parseTagSpecification(vals, "instance"); len(tags) > 0 {
 		ids := make([]string, 0, len(instances))
 		for _, inst := range instances {
@@ -573,9 +577,20 @@ func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, 
 		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
 	}
 
+	cb, c := h.computeBackend()
+
+	var providerIDs map[string]string
+	if c != nil {
+		providerIDs = snapshotProviderIDs(cb, ids)
+	}
+
 	changes, err := h.Backend.TerminateInstances(ids)
 	if err != nil {
 		return nil, err
+	}
+
+	if c != nil {
+		h.terminateOnCompute(context.Background(), c, providerIDs)
 	}
 
 	items := make([]instanceStateChangeItem, 0, len(changes))

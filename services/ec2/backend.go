@@ -75,21 +75,23 @@ var (
 type Instance struct {
 	LaunchTime            time.Time     `json:"launchTime"`
 	TerminatedAt          time.Time     `json:"terminatedAt"`
-	PrivateIP             string        `json:"privateIP"`
-	PublicIPAddress       string        `json:"publicIPAddress,omitempty"`
+	PublicDNSName         string        `json:"publicDNSName,omitempty"`
+	KeyName               string        `json:"keyName"`
 	InstanceType          string        `json:"instanceType"`
 	ImageID               string        `json:"imageID"`
 	VPCID                 string        `json:"vpcID"`
 	SubnetID              string        `json:"subnetID"`
 	MetadataOptionsTokens string        `json:"metadataOptionsTokens,omitempty"`
 	ID                    string        `json:"id"`
-	PublicDNSName         string        `json:"publicDNSName,omitempty"`
-	KeyName               string        `json:"keyName"`
+	PrivateIP             string        `json:"privateIP"`
+	PublicIPAddress       string        `json:"publicIPAddress,omitempty"`
 	MetadataOptionsState  string        `json:"metadataOptionsState,omitempty"`
 	UserData              string        `json:"userData,omitempty"`
 	SriovNetSupport       string        `json:"sriovNetSupport,omitempty"`
+	ProviderID            string        `json:"providerID,omitempty"`
 	SecurityGroups        []string      `json:"securityGroups"`
 	State                 InstanceState `json:"state"`
+	SSHPort               int           `json:"sshPort,omitempty"`
 	EnaSupport            bool          `json:"enaSupport"`
 }
 
@@ -232,6 +234,7 @@ type InMemoryBackend struct {
 	eniIDByAttachment              map[string]string
 	eniIDsByInstance               map[string]map[string]struct{}
 	instanceIDsByVPC               map[string]map[string]struct{}
+	compute                        Compute
 	Region                         string
 	AccountID                      string
 	freePrivateIPs                 []string
@@ -407,6 +410,99 @@ func (b *InMemoryBackend) RunInstances(
 	}
 
 	return instances, nil
+}
+
+// WithCompute installs an optional Compute provider. When non-nil, RunInstances,
+// TerminateInstances, StartInstances and StopInstances will call into the
+// provider after updating in-memory state. Passing nil disables the hook.
+func (b *InMemoryBackend) WithCompute(c Compute) {
+	b.mu.Lock("WithCompute")
+	defer b.mu.Unlock()
+	b.compute = c
+}
+
+// Compute returns the currently installed Compute provider (may be nil).
+//
+//nolint:ireturn // returning the configured interface is the intent
+func (b *InMemoryBackend) Compute() Compute {
+	b.mu.RLock("Compute")
+	defer b.mu.RUnlock()
+
+	return b.compute
+}
+
+// LookupKeyPairAuthorizedKey returns the OpenSSH authorized_keys-format public
+// key for the named key pair, or empty string when the key pair is unknown or
+// has no derivable public key. Used by Compute providers to seed the launched
+// container's authorized_keys.
+func (b *InMemoryBackend) LookupKeyPairAuthorizedKey(name string) string {
+	b.mu.RLock("LookupKeyPairAuthorizedKey")
+	defer b.mu.RUnlock()
+
+	kp, ok := b.keyPairs[name]
+	if !ok {
+		return ""
+	}
+
+	return kp.PublicKey
+}
+
+// SetComputeResult merges a LaunchResult onto an existing instance and its
+// primary ENI. Empty string fields in the result are ignored. Returns
+// ErrInstanceNotFound when the instance has been removed before the compute
+// provider returned.
+func (b *InMemoryBackend) SetComputeResult(instanceID string, r LaunchResult) error {
+	b.mu.Lock("SetComputeResult")
+	defer b.mu.Unlock()
+
+	inst, ok := b.instances[instanceID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	}
+
+	if r.ProviderID != "" {
+		inst.ProviderID = r.ProviderID
+	}
+
+	if r.PrivateIP != "" {
+		oldPrivate := inst.PrivateIP
+		inst.PrivateIP = r.PrivateIP
+		// keep primary ENI in sync so DescribeNetworkInterfaces shows the
+		// container's actual address
+		for eniID := range b.eniIDsByInstance[instanceID] {
+			if eni, exists := b.networkInterfaces[eniID]; exists && eni.PrivateIP == oldPrivate {
+				eni.PrivateIP = r.PrivateIP
+			}
+		}
+	}
+
+	if r.PublicIPAddress != "" {
+		inst.PublicIPAddress = r.PublicIPAddress
+	}
+
+	if r.PublicDNSName != "" {
+		inst.PublicDNSName = r.PublicDNSName
+	}
+
+	if r.SSHPort != 0 {
+		inst.SSHPort = r.SSHPort
+	}
+
+	return nil
+}
+
+// LookupInstanceProviderID returns the ProviderID stored on an instance, or
+// empty string when the instance is unknown.
+func (b *InMemoryBackend) LookupInstanceProviderID(instanceID string) string {
+	b.mu.RLock("LookupInstanceProviderID")
+	defer b.mu.RUnlock()
+
+	inst, ok := b.instances[instanceID]
+	if !ok {
+		return ""
+	}
+
+	return inst.ProviderID
 }
 
 // findDefaultSubnetID returns the ID of the default subnet, or empty string if none.

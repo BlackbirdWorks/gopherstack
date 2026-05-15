@@ -105,7 +105,7 @@ type Backend interface {
 	CreateKeyPair(name string) (*KeyPair, error)
 
 	// ImportKeyPair stores a pre-existing key pair by name without key material.
-	ImportKeyPair(name string) (*KeyPair, error)
+	ImportKeyPair(name, publicKeyMaterial string) (*KeyPair, error)
 
 	// DescribeKeyPairs returns key pairs, optionally filtered by names.
 	DescribeKeyPairs(names []string) []*KeyPair
