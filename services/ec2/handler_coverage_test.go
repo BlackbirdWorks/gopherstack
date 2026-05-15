@@ -30,7 +30,11 @@ func TestHandlerDeleteEgressOnlyInternetGateway(t *testing.T) {
 	require.NotEmpty(t, igwID)
 
 	// Delete it.
-	rec = postForm(t, h, "Action=DeleteEgressOnlyInternetGateway&Version=2016-11-15&EgressOnlyInternetGatewayId="+igwID)
+	rec = postForm(
+		t,
+		h,
+		"Action=DeleteEgressOnlyInternetGateway&Version=2016-11-15&EgressOnlyInternetGatewayId="+igwID,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "DeleteEgressOnlyInternetGatewayResponse")
 
@@ -262,7 +266,11 @@ func TestHandlerLaunchTemplateVersions(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "CreateLaunchTemplateVersionResponse")
 
 	// Describe versions.
-	rec = postForm(t, h, "Action=DescribeLaunchTemplateVersions&Version=2016-11-15&LaunchTemplateId="+ltID)
+	rec = postForm(
+		t,
+		h,
+		"Action=DescribeLaunchTemplateVersions&Version=2016-11-15&LaunchTemplateId="+ltID,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "DescribeLaunchTemplateVersionsResponse")
 
@@ -497,7 +505,11 @@ func TestHandlerVpcPeeringConnectionHandlers(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "RejectVpcPeeringConnectionResponse")
 
 	// Delete the first one.
-	rec = postForm(t, h, "Action=DeleteVpcPeeringConnection&Version=2016-11-15&VpcPeeringConnectionId="+pcID)
+	rec = postForm(
+		t,
+		h,
+		"Action=DeleteVpcPeeringConnection&Version=2016-11-15&VpcPeeringConnectionId="+pcID,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "DeleteVpcPeeringConnectionResponse")
 }
@@ -535,7 +547,11 @@ func TestHandlerDescribeTransitGatewaysAndDelete(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "DeleteTransitGatewayResponse")
 
 	// Delete not found.
-	rec = postForm(t, h, "Action=DeleteTransitGateway&Version=2016-11-15&TransitGatewayId=tgw-notfound")
+	rec = postForm(
+		t,
+		h,
+		"Action=DeleteTransitGateway&Version=2016-11-15&TransitGatewayId=tgw-notfound",
+	)
 	assert.NotEqual(t, http.StatusOK, rec.Code)
 }
 

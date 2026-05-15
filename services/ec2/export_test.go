@@ -2,6 +2,9 @@ package ec2
 
 import (
 	"context"
+	"encoding/xml"
+	"fmt"
+	"net/url"
 	"time"
 )
 
@@ -165,4 +168,22 @@ func (b *InMemoryBackend) DedicatedHostCount() int {
 // HandlerOpsLen returns the number of operations registered in the handler's dispatch table.
 func (h *Handler) HandlerOpsLen() int {
 	return len(h.ops)
+}
+
+// ExportDispatch calls the handler's dispatch method and returns the XML response as a string.
+// Used by accuracy tests to call handlers without a full HTTP round-trip.
+func ExportDispatch(h *Handler, vals url.Values) (string, error) {
+	action := vals.Get("Action")
+
+	resp, err := h.dispatch(action, vals, fmt.Sprintf("test-req-%s", action))
+	if err != nil {
+		return "", err
+	}
+
+	xmlBytes, marshalErr := xml.Marshal(resp)
+	if marshalErr != nil {
+		return "", marshalErr
+	}
+
+	return string(xmlBytes), nil
 }

@@ -155,7 +155,9 @@ func (h *Handler) handleReplaceNetworkACLEntry(vals url.Values, reqID string) (a
 
 func (h *Handler) handleReplaceNetworkACLAssociation(vals url.Values, reqID string) (any, error) {
 	aclID := vals.Get("NetworkAclId")
-	subnetID := vals.Get("AssociationId") // AWS sends the old assocID; we use SubnetId as a simplification
+	subnetID := vals.Get(
+		"AssociationId",
+	) // AWS sends the old assocID; we use SubnetId as a simplification
 	if subnetID == "" {
 		subnetID = vals.Get("SubnetId")
 	}
@@ -202,11 +204,14 @@ func (h *Handler) handleDescribeInstanceTypeOfferings(_ url.Values, reqID string
 	resp := &describeInstanceTypeOfferingsResponse{RequestID: reqID}
 
 	for _, o := range offerings {
-		resp.InstanceTypeOfferingSet.Items = append(resp.InstanceTypeOfferingSet.Items, instanceTypeOfferingItem{
-			InstanceType: o.InstanceType,
-			Location:     o.Location,
-			LocationType: o.LocationType,
-		})
+		resp.InstanceTypeOfferingSet.Items = append(
+			resp.InstanceTypeOfferingSet.Items,
+			instanceTypeOfferingItem{
+				InstanceType: o.InstanceType,
+				Location:     o.Location,
+				LocationType: o.LocationType,
+			},
+		)
 	}
 
 	return resp, nil

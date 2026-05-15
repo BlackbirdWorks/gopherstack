@@ -51,6 +51,11 @@ const (
 	spotFleetMaxInstances = 1000
 	// spotFleetHistoryEventType is the event type for fleet history records.
 	spotFleetHistoryEventType = "fleetRequestChange"
+	// maxSpotFleetHistoryEntries caps the append-only history slice per fleet
+	// to prevent unbounded memory growth in long-running tests/servers.
+	maxSpotFleetHistoryEntries = 500
+	// spotFleetHistoryHalfPoint is the trim target when the history slice exceeds its cap.
+	spotFleetHistoryHalfPoint = maxSpotFleetHistoryEntries / 2
 )
 
 // SpotFleetLaunchSpecification is a single launch spec within a spot fleet config.
@@ -342,7 +347,7 @@ func (b *InMemoryBackend) CancelSpotFleetRequests(
 		}
 
 		// Record history event.
-		b.spotFleetHistory[id] = append(b.spotFleetHistory[id], SpotFleetHistoryRecord{
+		b.appendFleetHistoryLocked(id, SpotFleetHistoryRecord{
 			Timestamp:        time.Now().UTC(),
 			EventType:        spotFleetHistoryEventType,
 			EventInformation: fmt.Sprintf("fleet %s cancelled", id),
@@ -511,7 +516,7 @@ func (b *InMemoryBackend) ModifySpotFleetRequest(
 	fleet.ActivityStatus = SpotFleetActivityFulfilled
 
 	// Record history event.
-	b.spotFleetHistory[fleetID] = append(b.spotFleetHistory[fleetID], SpotFleetHistoryRecord{
+	b.appendFleetHistoryLocked(fleetID, SpotFleetHistoryRecord{
 		Timestamp: time.Now().UTC(),
 		EventType: spotFleetHistoryEventType,
 		EventInformation: fmt.Sprintf(
@@ -611,4 +616,21 @@ type SpotFleetInstance struct {
 	SpotInstanceRequestID string  `json:"spotInstanceRequestId"`
 	InstanceHealth        string  `json:"instanceHealth"`
 	WeightedCapacity      float64 `json:"weightedCapacity"`
+}
+
+// appendFleetHistoryLocked appends a history record for fleetID while capping
+// the slice at maxSpotFleetHistoryEntries to prevent unbounded memory growth.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) appendFleetHistoryLocked(fleetID string, rec SpotFleetHistoryRecord) {
+	records := b.spotFleetHistory[fleetID]
+	records = append(records, rec)
+
+	if len(records) > maxSpotFleetHistoryEntries {
+		// Drop the oldest half to amortise the copy cost.
+		half := spotFleetHistoryHalfPoint
+		copy(records, records[len(records)-half:])
+		records = records[:half]
+	}
+
+	b.spotFleetHistory[fleetID] = records
 }

@@ -18,7 +18,9 @@ type Snapshot struct {
 	Description string    `json:"description"`
 	State       string    `json:"state"`
 	Progress    string    `json:"progress"`
+	KmsKeyID    string    `json:"kmsKeyId,omitempty"`
 	VolumeSize  int       `json:"volumeSize"`
+	Encrypted   bool      `json:"encrypted"`
 }
 
 // NACLEntry represents a single NACL rule entry.
@@ -94,6 +96,8 @@ func (b *InMemoryBackend) CreateSnapshot(volumeID, description string) (*Snapsho
 		Progress:    "100%",
 		StartTime:   time.Now().UTC(),
 		VolumeSize:  vol.Size,
+		Encrypted:   vol.Encrypted,
+		KmsKeyID:    vol.KmsKeyID,
 	}
 	b.snapshots[snap.SnapshotID] = snap
 
@@ -249,7 +253,7 @@ func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, _ bool) er
 }
 
 // ModifySubnetAttribute enables or disables auto-assign public IP for a subnet.
-func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, _ bool) error {
+func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, value bool) error {
 	if subnetID == "" {
 		return fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
 	}
@@ -257,12 +261,17 @@ func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, _ bo
 	b.mu.Lock("ModifySubnetAttribute")
 	defer b.mu.Unlock()
 
-	if _, ok := b.subnets[subnetID]; !ok {
+	subnet, ok := b.subnets[subnetID]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
 	switch attribute {
-	case attrMapPublicIPOnLaunch, attrEnableResourceNameDNSARec:
+	case attrMapPublicIPOnLaunch:
+		subnet.MapPublicIPOnLaunch = value
+
+		return nil
+	case attrEnableResourceNameDNSARec:
 		return nil
 	default:
 		return fmt.Errorf("%w: unknown subnet attribute %q", ErrInvalidParameter, attribute)
@@ -400,7 +409,12 @@ func (b *InMemoryBackend) DeleteNetworkACLEntry(aclID string, ruleNumber int, eg
 	}
 
 	if !found {
-		return fmt.Errorf("%w: rule %d (egress=%v) not found", ErrInvalidParameter, ruleNumber, egress)
+		return fmt.Errorf(
+			"%w: rule %d (egress=%v) not found",
+			ErrInvalidParameter,
+			ruleNumber,
+			egress,
+		)
 	}
 
 	acl.Entries = filtered
@@ -440,7 +454,9 @@ func (b *InMemoryBackend) DescribeStoredNetworkAcls(ids []string) []*StoredNetwo
 // ---- Security group rules ----
 
 // DescribeSecurityGroupRules returns all ingress and egress rules for the given group.
-func (b *InMemoryBackend) DescribeSecurityGroupRules(groupID string) ([]*SecurityGroupRuleDetail, error) {
+func (b *InMemoryBackend) DescribeSecurityGroupRules(
+	groupID string,
+) ([]*SecurityGroupRuleDetail, error) {
 	if groupID == "" {
 		return nil, fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
 	}
@@ -484,7 +500,11 @@ func (b *InMemoryBackend) DescribeSecurityGroupRules(groupID string) ([]*Securit
 
 // ModifySecurityGroupRules updates one or more rules (by position index) within a security group.
 // Only protocol, IPRange, and port range can be mutated; egress/ingress direction is immutable.
-func (b *InMemoryBackend) ModifySecurityGroupRules(groupID string, updates []SecurityGroupRule, egress bool) error {
+func (b *InMemoryBackend) ModifySecurityGroupRules(
+	groupID string,
+	updates []SecurityGroupRule,
+	egress bool,
+) error {
 	if groupID == "" {
 		return fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
 	}
@@ -570,7 +590,11 @@ func (b *InMemoryBackend) DeleteVpcEndpoints(ids []string) ([]string, error) {
 	}
 
 	if len(unsuccessful) > 0 {
-		return unsuccessful, fmt.Errorf("%w: endpoints not found: %v", ErrVpcEndpointNotFound, unsuccessful)
+		return unsuccessful, fmt.Errorf(
+			"%w: endpoints not found: %v",
+			ErrVpcEndpointNotFound,
+			unsuccessful,
+		)
 	}
 
 	return nil, nil

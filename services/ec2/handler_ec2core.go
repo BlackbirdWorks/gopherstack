@@ -230,7 +230,10 @@ type disassociateTransitGatewayRouteTableResponse struct {
 
 // ---- Handlers ----
 
-func (h *Handler) handleCreateEgressOnlyInternetGateway(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleCreateEgressOnlyInternetGateway(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	vpcID := vals.Get("VpcId")
 	igw, err := h.Backend.CreateEgressOnlyInternetGateway(vpcID)
 
@@ -249,25 +252,34 @@ func (h *Handler) handleCreateEgressOnlyInternetGateway(vals url.Values, reqID s
 	}, nil
 }
 
-func (h *Handler) handleDescribeEgressOnlyInternetGateways(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeEgressOnlyInternetGateways(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	ids := parseMemberList(vals, "EgressOnlyInternetGatewayId")
 	igws := h.Backend.DescribeEgressOnlyInternetGateways(ids)
 
 	resp := &describeEgressOnlyInternetGatewaysResponse{RequestID: reqID}
 
 	for _, igw := range igws {
-		resp.EgressOnlyInternetGateways.Items = append(resp.EgressOnlyInternetGateways.Items, egressOnlyIGWItem{
-			EgressOnlyInternetGatewayID: igw.ID,
-			Attachments: []egressOnlyIGWAttachment{
-				{State: igw.State, VpcID: igw.VPCID},
+		resp.EgressOnlyInternetGateways.Items = append(
+			resp.EgressOnlyInternetGateways.Items,
+			egressOnlyIGWItem{
+				EgressOnlyInternetGatewayID: igw.ID,
+				Attachments: []egressOnlyIGWAttachment{
+					{State: igw.State, VpcID: igw.VPCID},
+				},
 			},
-		})
+		)
 	}
 
 	return resp, nil
 }
 
-func (h *Handler) handleDeleteEgressOnlyInternetGateway(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDeleteEgressOnlyInternetGateway(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	id := vals.Get("EgressOnlyInternetGatewayId")
 
 	if err := h.Backend.DeleteEgressOnlyInternetGateway(id); err != nil {
@@ -330,7 +342,10 @@ func (h *Handler) handleDisassociateIamInstanceProfile(vals url.Values, reqID st
 	}, nil
 }
 
-func (h *Handler) handleDescribeIamInstanceProfileAssociations(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeIamInstanceProfileAssociations(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	assocIDs := parseMemberList(vals, "AssociationId")
 	instanceID := vals.Get("Filter.1.Value.1") // basic filter support
 
@@ -359,7 +374,10 @@ func (h *Handler) handleDescribeIamInstanceProfileAssociations(vals url.Values, 
 	return resp, nil
 }
 
-func (h *Handler) handleReplaceIamInstanceProfileAssociation(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleReplaceIamInstanceProfileAssociation(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	assocID := vals.Get("AssociationId")
 	profileARN := vals.Get("IamInstanceProfile.Arn")
 
@@ -436,14 +454,20 @@ func (h *Handler) handleCreateTransitGatewayRouteTable(vals url.Values, reqID st
 	}, nil
 }
 
-func (h *Handler) handleDescribeTransitGatewayRouteTables(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeTransitGatewayRouteTables(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	ids := parseMemberList(vals, "TransitGatewayRouteTableId")
 	rts := h.Backend.DescribeTransitGatewayRouteTables(ids)
 
 	resp := &describeTransitGatewayRouteTablesResponse{RequestID: reqID}
 
 	for _, rt := range rts {
-		resp.TransitGatewayRouteTables.Items = append(resp.TransitGatewayRouteTables.Items, tgwRTToItem(rt))
+		resp.TransitGatewayRouteTables.Items = append(
+			resp.TransitGatewayRouteTables.Items,
+			tgwRTToItem(rt),
+		)
 	}
 
 	return resp, nil
@@ -542,7 +566,10 @@ func (h *Handler) handleReplaceTransitGatewayRoute(vals url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleAssociateTransitGatewayRouteTable(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleAssociateTransitGatewayRouteTable(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	rtID := vals.Get("TransitGatewayRouteTableId")
 	attachID := vals.Get("TransitGatewayAttachmentId")
 
@@ -562,7 +589,10 @@ func (h *Handler) handleAssociateTransitGatewayRouteTable(vals url.Values, reqID
 	}, nil
 }
 
-func (h *Handler) handleDisassociateTransitGatewayRouteTable(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDisassociateTransitGatewayRouteTable(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	rtID := vals.Get("TransitGatewayRouteTableId")
 	attachID := vals.Get("TransitGatewayAttachmentId")
 

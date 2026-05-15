@@ -47,7 +47,11 @@ func TestRequestSpotFleet_DefaultAllocationStrategy(t *testing.T) {
 	b := newSpotFleetBackend()
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
-	assert.Equal(t, ec2.SpotFleetAllocationStrategyLowestPrice, fleet.SpotFleetRequestConfig.AllocationStrategy)
+	assert.Equal(
+		t,
+		ec2.SpotFleetAllocationStrategyLowestPrice,
+		fleet.SpotFleetRequestConfig.AllocationStrategy,
+	)
 }
 
 func TestRequestSpotFleet_WeightedCapacity(t *testing.T) {
@@ -218,7 +222,11 @@ func TestModifySpotFleetRequest_ScaleDown(t *testing.T) {
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
 
-	updated, err := b.ModifySpotFleetRequest(fleet.SpotFleetRequestID, 1, ec2.SpotFleetTerminationDefault)
+	updated, err := b.ModifySpotFleetRequest(
+		fleet.SpotFleetRequestID,
+		1,
+		ec2.SpotFleetTerminationDefault,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, 1, updated.SpotFleetRequestConfig.TargetCapacity)
 	assert.Len(t, updated.InstanceIDs, 1)
@@ -279,7 +287,10 @@ func TestDescribeSpotFleetRequestHistory(t *testing.T) {
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
 
-	records, err := b.DescribeSpotFleetRequestHistory(fleet.SpotFleetRequestID, fleet.CreateTime.Add(-1))
+	records, err := b.DescribeSpotFleetRequestHistory(
+		fleet.SpotFleetRequestID,
+		fleet.CreateTime.Add(-1),
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, records)
 	assert.Equal(t, "fleetRequestChange", records[0].EventType)
@@ -292,7 +303,10 @@ func TestDescribeSpotFleetRequestHistory_Empty_After_Time(t *testing.T) {
 	require.NoError(t, err)
 
 	// Request history from far in the future.
-	records, err := b.DescribeSpotFleetRequestHistory(fleet.SpotFleetRequestID, fleet.CreateTime.Add(999999))
+	records, err := b.DescribeSpotFleetRequestHistory(
+		fleet.SpotFleetRequestID,
+		fleet.CreateTime.Add(999999),
+	)
 	require.NoError(t, err)
 	assert.Empty(t, records)
 }

@@ -56,7 +56,7 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
 				t.Helper()
 
-				subnet, err := b.CreateSubnet("vpc-default", "10.1.0.0/24", "us-east-1a")
+				subnet, err := b.CreateSubnet("vpc-default", "172.31.16.0/24", "us-east-1a")
 				require.NoError(t, err)
 
 				return subnet.ID
@@ -339,7 +339,12 @@ func TestTerminateInstances_ClosesAssociatedSpotRequest(t *testing.T) {
 
 	reqs := b.DescribeSpotInstanceRequests([]string{req.ID})
 	require.Len(t, reqs, 1)
-	assert.Equal(t, "closed", reqs[0].State, "spot request must be closed when backing instance is terminated")
+	assert.Equal(
+		t,
+		"closed",
+		reqs[0].State,
+		"spot request must be closed when backing instance is terminated",
+	)
 }
 
 // TestTerminateInstances_DeletesAttachedENIs verifies that terminating an
@@ -455,7 +460,7 @@ func TestDeleteSubnet_CascadeDeletesENIs(t *testing.T) {
 
 			b := newTestBackend()
 
-			subnet, err := b.CreateSubnet("vpc-default", "10.1.0.0/24", "us-east-1a")
+			subnet, err := b.CreateSubnet("vpc-default", "172.31.16.0/24", "us-east-1a")
 			require.NoError(t, err)
 
 			eniIDs := make([]string, tt.eniCount)
@@ -476,7 +481,11 @@ func TestDeleteSubnet_CascadeDeletesENIs(t *testing.T) {
 			// All ENIs in the subnet must be removed.
 			for _, eniID := range eniIDs {
 				assert.Empty(t, b.DescribeNetworkInterfaces([]string{eniID}))
-				assert.Empty(t, b.DescribeTags([]string{eniID}), "ENI tags must be removed with subnet")
+				assert.Empty(
+					t,
+					b.DescribeTags([]string{eniID}),
+					"ENI tags must be removed with subnet",
+				)
 			}
 
 			// Subnet itself must be gone.
@@ -493,7 +502,7 @@ func TestDeleteSubnet_CascadeTerminatesInstances(t *testing.T) {
 
 	b := newTestBackend()
 
-	subnet, err := b.CreateSubnet("vpc-default", "10.1.0.0/24", "us-east-1a")
+	subnet, err := b.CreateSubnet("vpc-default", "172.31.16.0/24", "us-east-1a")
 	require.NoError(t, err)
 
 	insts, err := b.RunInstances("ami-test", "t2.micro", subnet.ID, 2)
@@ -750,13 +759,22 @@ func TestTerminateInstances_DetachesVolumesAndEIPs(t *testing.T) {
 	// Volume must be detached (available).
 	vols := b.DescribeVolumes([]string{vol.ID})
 	require.Len(t, vols, 1)
-	assert.Equal(t, "available", vols[0].State, "volume must be detached after instance termination")
+	assert.Equal(
+		t,
+		"available",
+		vols[0].State,
+		"volume must be detached after instance termination",
+	)
 	assert.Nil(t, vols[0].Attachment, "volume attachment must be nil after instance termination")
 
 	// EIP must be disassociated.
 	addrs := b.DescribeAddresses([]string{addr.AllocationID})
 	require.Len(t, addrs, 1)
-	assert.Empty(t, addrs[0].InstanceID, "EIP instance association must be cleared after termination")
+	assert.Empty(
+		t,
+		addrs[0].InstanceID,
+		"EIP instance association must be cleared after termination",
+	)
 	assert.Empty(t, addrs[0].AssociationID, "EIP association ID must be cleared after termination")
 }
 
@@ -815,7 +833,7 @@ func TestDeleteSubnet_CascadeDeletesNatGateways(t *testing.T) {
 
 	b := newTestBackend()
 
-	subnet, err := b.CreateSubnet("vpc-default", "10.1.0.0/24", "us-east-1a")
+	subnet, err := b.CreateSubnet("vpc-default", "172.31.16.0/24", "us-east-1a")
 	require.NoError(t, err)
 
 	addr, err := b.AllocateAddress()

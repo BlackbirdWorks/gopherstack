@@ -509,7 +509,7 @@ func (h *Handler) handleCreateVpcEndpointServiceConfiguration(
 	reqID string,
 ) (any, error) {
 	acceptanceRequiredStr := vals.Get("AcceptanceRequired")
-	acceptanceRequired := acceptanceRequiredStr == "true"
+	acceptanceRequired := acceptanceRequiredStr == ec2BooleanTrue
 
 	nlbARNs := parseMemberList(vals, "NetworkLoadBalancerArn")
 
@@ -572,7 +572,7 @@ func (h *Handler) handleModifyVpcEndpointServiceConfiguration(
 	reqID string,
 ) (any, error) {
 	svcID := vals.Get("ServiceId")
-	acceptanceRequired := vals.Get("AcceptanceRequired") == "true"
+	acceptanceRequired := vals.Get("AcceptanceRequired") == ec2BooleanTrue
 
 	if err := h.Backend.ModifyVpcEndpointServiceConfiguration(svcID, acceptanceRequired); err != nil {
 		return nil, err

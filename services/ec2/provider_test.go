@@ -54,7 +54,9 @@ func TestEC2Provider_Init_WithConfigProvider(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			svc, err := (&ec2.Provider{}).Init(&service.AppContext{Config: tt.config, Logger: slog.Default()})
+			svc, err := (&ec2.Provider{}).Init(
+				&service.AppContext{Config: tt.config, Logger: slog.Default()},
+			)
 			require.NoError(t, err)
 
 			h, ok := svc.(*ec2.Handler)

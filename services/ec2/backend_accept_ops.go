@@ -322,7 +322,10 @@ func (b *InMemoryBackend) AcceptReservedInstancesExchangeQuote(
 	reservedInstanceIDs []string,
 ) (*ReservedInstancesExchange, error) {
 	if len(reservedInstanceIDs) == 0 {
-		return nil, fmt.Errorf("%w: at least one ReservedInstanceId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: at least one ReservedInstanceId is required",
+			ErrInvalidParameter,
+		)
 	}
 
 	b.mu.Lock("AcceptReservedInstancesExchangeQuote")
@@ -362,7 +365,10 @@ func (b *InMemoryBackend) AcceptTransitGatewayMulticastDomainAssociations(
 	subnetIDs []string,
 ) ([]*TransitGatewayMulticastDomainAssociation, error) {
 	if transitGatewayMulticastDomainID == "" {
-		return nil, fmt.Errorf("%w: TransitGatewayMulticastDomainId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: TransitGatewayMulticastDomainId is required",
+			ErrInvalidParameter,
+		)
 	}
 
 	if transitGatewayAttachmentID == "" {
@@ -422,7 +428,11 @@ func (b *InMemoryBackend) AcceptTransitGatewayPeeringAttachment(
 
 	att, ok := b.tgwPeeringAttachments[transitGatewayAttachmentID]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayAttachmentNotFound, transitGatewayAttachmentID)
+		return nil, fmt.Errorf(
+			"%w: %s",
+			ErrTransitGatewayAttachmentNotFound,
+			transitGatewayAttachmentID,
+		)
 	}
 
 	att.State = stateAvailable
@@ -461,7 +471,11 @@ func (b *InMemoryBackend) AcceptTransitGatewayVpcAttachment(
 
 	att, ok := b.tgwVpcAttachments[transitGatewayAttachmentID]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayAttachmentNotFound, transitGatewayAttachmentID)
+		return nil, fmt.Errorf(
+			"%w: %s",
+			ErrTransitGatewayAttachmentNotFound,
+			transitGatewayAttachmentID,
+		)
 	}
 
 	att.State = stateAvailable

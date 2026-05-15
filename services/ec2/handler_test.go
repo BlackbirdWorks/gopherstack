@@ -118,11 +118,11 @@ func TestEC2Handler_PostForm(t *testing.T) {
 		{
 			name: "CreateSubnet",
 			body: "Action=CreateSubnet&Version=2016-11-15&VpcId=vpc-default&" +
-				"CidrBlock=10.0.1.0/24&AvailabilityZone=us-east-1b",
+				"CidrBlock=172.31.16.0/24&AvailabilityZone=us-east-1b",
 			wantCode: http.StatusOK,
 			wantContains: []string{
 				"CreateSubnetResponse",
-				"10.0.1.0/24",
+				"172.31.16.0/24",
 				"us-east-1b",
 			},
 		},
@@ -219,10 +219,14 @@ func TestEC2Handler_PostForm(t *testing.T) {
 			wantContains: []string{"DescribeInstanceTypesResponse", "t2.micro"},
 		},
 		{
-			name:         "DescribeVpcAttribute",
-			body:         "Action=DescribeVpcAttribute&Version=2016-11-15&VpcId=vpc-default&Attribute=enableDnsHostnames",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"DescribeVpcAttributeResponse", "vpc-default", "enableDnsHostnames"},
+			name:     "DescribeVpcAttribute",
+			body:     "Action=DescribeVpcAttribute&Version=2016-11-15&VpcId=vpc-default&Attribute=enableDnsHostnames",
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"DescribeVpcAttributeResponse",
+				"vpc-default",
+				"enableDnsHostnames",
+			},
 		},
 		{
 			name:         "RevokeSecurityGroupEgress",
@@ -316,8 +320,11 @@ func TestEC2Handler_SecurityGroupCRUD(t *testing.T) {
 	h := newHandler()
 
 	// Create security group.
-	createRec := postForm(t, h,
-		"Action=CreateSecurityGroup&Version=2016-11-15&GroupName=my-sg&GroupDescription=test+sg&VpcId=vpc-default")
+	createRec := postForm(
+		t,
+		h,
+		"Action=CreateSecurityGroup&Version=2016-11-15&GroupName=my-sg&GroupDescription=test+sg&VpcId=vpc-default",
+	)
 	assert.Equal(t, http.StatusOK, createRec.Code)
 	assert.Contains(t, createRec.Body.String(), "CreateSecurityGroupResponse")
 	assert.Contains(t, createRec.Body.String(), "<groupId>sg-")
@@ -327,7 +334,10 @@ func TestEC2Handler_SecurityGroupCRUD(t *testing.T) {
 		GroupID string `xml:"groupId"`
 	}
 
-	err := xml.Unmarshal([]byte(strings.TrimPrefix(createRec.Body.String(), xml.Header)), &createResp)
+	err := xml.Unmarshal(
+		[]byte(strings.TrimPrefix(createRec.Body.String(), xml.Header)),
+		&createResp,
+	)
 	require.NoError(t, err)
 	groupID := createResp.GroupID
 	require.NotEmpty(t, groupID)
@@ -563,7 +573,11 @@ func TestEC2Handler_ExtractOperation(t *testing.T) {
 	h := newHandler()
 	e := echo.New()
 
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=DescribeInstances&Version=2016-11-15"))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/",
+		strings.NewReader("Action=DescribeInstances&Version=2016-11-15"),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	c := e.NewContext(req, httptest.NewRecorder())
 
@@ -861,7 +875,10 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 			setup: func(t *testing.T, bk *ec2.InMemoryBackend) {
 				t.Helper()
 
-				err := bk.CreateTags([]string{"vpc-default", "subnet-default"}, map[string]string{"Env": "prod"})
+				err := bk.CreateTags(
+					[]string{"vpc-default", "subnet-default"},
+					map[string]string{"Env": "prod"},
+				)
 				require.NoError(t, err)
 			},
 			resourceIDs: nil,
@@ -872,7 +889,10 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 			setup: func(t *testing.T, bk *ec2.InMemoryBackend) {
 				t.Helper()
 
-				err := bk.CreateTags([]string{"vpc-default"}, map[string]string{"Name": "old", "Env": "dev"})
+				err := bk.CreateTags(
+					[]string{"vpc-default"},
+					map[string]string{"Name": "old", "Env": "dev"},
+				)
 				require.NoError(t, err)
 
 				err = bk.DeleteTags([]string{"vpc-default"}, []string{"Name"})
@@ -893,7 +913,10 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 				vpc2, err := bk.CreateVpc("10.0.0.0/16")
 				require.NoError(t, err)
 
-				err = bk.CreateTags([]string{"vpc-default", vpc2.ID}, map[string]string{"Key": "val"})
+				err = bk.CreateTags(
+					[]string{"vpc-default", vpc2.ID},
+					map[string]string{"Key": "val"},
+				)
 				require.NoError(t, err)
 			},
 			resourceIDs: []string{"vpc-default"},
@@ -939,7 +962,10 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 			setup: func(t *testing.T, bk *ec2.InMemoryBackend) {
 				t.Helper()
 
-				err := bk.CreateTags([]string{"vpc-does-not-exist"}, map[string]string{"Key": "val"})
+				err := bk.CreateTags(
+					[]string{"vpc-does-not-exist"},
+					map[string]string{"Key": "val"},
+				)
 				require.Error(t, err)
 			},
 			resourceIDs: nil,
@@ -975,7 +1001,8 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 			for _, want := range tt.wantContains {
 				found := false
 				for _, e := range entries {
-					if e.ResourceID == want.ResourceID && e.Key == want.Key && e.Value == want.Value {
+					if e.ResourceID == want.ResourceID && e.Key == want.Key &&
+						e.Value == want.Value {
 						assert.Equal(t, want.ResourceType, e.ResourceType)
 						found = true
 
@@ -1092,7 +1119,7 @@ func TestEC2Handler_TagSpecification(t *testing.T) {
 			name: "create_subnet_with_tag_specification",
 			body: "Action=CreateSubnet&Version=2016-11-15" +
 				"&VpcId=vpc-default" +
-				"&CidrBlock=10.88.1.0/24" +
+				"&CidrBlock=172.31.32.0/24" +
 				"&TagSpecification.1.ResourceType=subnet" +
 				"&TagSpecification.1.Tag.1.Key=Name" +
 				"&TagSpecification.1.Tag.1.Value=my-tagged-subnet",
@@ -1138,7 +1165,12 @@ func TestEC2Handler_TagSpecification(t *testing.T) {
 
 			// Extract the resource ID from the creation response XML.
 			resourceID := extractXMLValue(t, rec.Body.String(), tt.idTag)
-			require.NotEmpty(t, resourceID, "resource ID element %q should be present in response", tt.idTag)
+			require.NotEmpty(
+				t,
+				resourceID,
+				"resource ID element %q should be present in response",
+				tt.idTag,
+			)
 
 			// DescribeTags with a resource-id filter to check only this specific resource.
 			descRec := postForm(t, h,
@@ -1147,8 +1179,16 @@ func TestEC2Handler_TagSpecification(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			tagMap := extractTagsFromDescribeTagsXML(t, descRec.Body.String())
-			assert.Equal(t, tt.wantTagValue, tagMap[tt.wantTagKey],
-				"resource %s should have tag %s=%s (got tags: %v)", resourceID, tt.wantTagKey, tt.wantTagValue, tagMap)
+			assert.Equal(
+				t,
+				tt.wantTagValue,
+				tagMap[tt.wantTagKey],
+				"resource %s should have tag %s=%s (got tags: %v)",
+				resourceID,
+				tt.wantTagKey,
+				tt.wantTagValue,
+				tagMap,
+			)
 		})
 	}
 }
@@ -1240,8 +1280,11 @@ func TestEC2Handler_DescribeInstanceAttribute(t *testing.T) {
 
 			h := newHandler()
 			// Create an instance first to get a real instance ID.
-			createRec := postForm(t, h,
-				"Action=RunInstances&Version=2016-11-15&ImageId=ami-test&InstanceType=t2.micro&MinCount=1&MaxCount=1")
+			createRec := postForm(
+				t,
+				h,
+				"Action=RunInstances&Version=2016-11-15&ImageId=ami-test&InstanceType=t2.micro&MinCount=1&MaxCount=1",
+			)
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			instanceID := extractXMLValue(t, createRec.Body.String(), "instanceId")

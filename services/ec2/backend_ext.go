@@ -55,7 +55,9 @@ type Volume struct {
 	AZ         string            `json:"az"`
 	VolumeType string            `json:"volumeType"`
 	State      string            `json:"state"`
+	KmsKeyID   string            `json:"kmsKeyId,omitempty"`
 	Size       int               `json:"size"`
+	Encrypted  bool              `json:"encrypted"`
 }
 
 // VolumeAttachment represents the attachment state of a volume.
@@ -574,7 +576,12 @@ func (b *InMemoryBackend) DeleteVolume(id string) error {
 	}
 
 	if vol.Attachment != nil {
-		return fmt.Errorf("%w: volume %s is attached to instance %s", ErrVolumeInUse, id, vol.Attachment.InstanceID)
+		return fmt.Errorf(
+			"%w: volume %s is attached to instance %s",
+			ErrVolumeInUse,
+			id,
+			vol.Attachment.InstanceID,
+		)
 	}
 
 	delete(b.volumes, id)
@@ -584,7 +591,9 @@ func (b *InMemoryBackend) DeleteVolume(id string) error {
 }
 
 // AttachVolume attaches a volume to an instance.
-func (b *InMemoryBackend) AttachVolume(volumeID, instanceID, device string) (*VolumeAttachment, error) {
+func (b *InMemoryBackend) AttachVolume(
+	volumeID, instanceID, device string,
+) (*VolumeAttachment, error) {
 	b.mu.Lock("AttachVolume")
 	defer b.mu.Unlock()
 
@@ -1060,7 +1069,10 @@ func (b *InMemoryBackend) DescribeNetworkInterfaces(ids []string) []*NetworkInte
 }
 
 // AuthorizeSecurityGroupIngress adds ingress rules to a security group.
-func (b *InMemoryBackend) AuthorizeSecurityGroupIngress(groupID string, rules []SecurityGroupRule) error {
+func (b *InMemoryBackend) AuthorizeSecurityGroupIngress(
+	groupID string,
+	rules []SecurityGroupRule,
+) error {
 	b.mu.Lock("AuthorizeSecurityGroupIngress")
 	defer b.mu.Unlock()
 
@@ -1075,7 +1087,10 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupIngress(groupID string, rules []
 }
 
 // AuthorizeSecurityGroupEgress adds egress rules to a security group.
-func (b *InMemoryBackend) AuthorizeSecurityGroupEgress(groupID string, rules []SecurityGroupRule) error {
+func (b *InMemoryBackend) AuthorizeSecurityGroupEgress(
+	groupID string,
+	rules []SecurityGroupRule,
+) error {
 	b.mu.Lock("AuthorizeSecurityGroupEgress")
 	defer b.mu.Unlock()
 
@@ -1090,7 +1105,10 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupEgress(groupID string, rules []S
 }
 
 // RevokeSecurityGroupIngress removes matching ingress rules from a security group.
-func (b *InMemoryBackend) RevokeSecurityGroupIngress(groupID string, rules []SecurityGroupRule) error {
+func (b *InMemoryBackend) RevokeSecurityGroupIngress(
+	groupID string,
+	rules []SecurityGroupRule,
+) error {
 	b.mu.Lock("RevokeSecurityGroupIngress")
 	defer b.mu.Unlock()
 
@@ -1122,7 +1140,9 @@ func removeRule(rules []SecurityGroupRule, target SecurityGroupRule) []SecurityG
 // ---- network interface full CRUD ----
 
 // CreateNetworkInterface creates a new ENI in the given subnet.
-func (b *InMemoryBackend) CreateNetworkInterface(subnetID, description string) (*NetworkInterface, error) {
+func (b *InMemoryBackend) CreateNetworkInterface(
+	subnetID, description string,
+) (*NetworkInterface, error) {
 	if subnetID == "" {
 		return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
 	}
@@ -1163,7 +1183,12 @@ func (b *InMemoryBackend) DeleteNetworkInterface(id string) error {
 	}
 
 	if eni.InstanceID != "" {
-		return fmt.Errorf("%w: %s is currently attached to instance %s", ErrNetworkInterfaceInUse, id, eni.InstanceID)
+		return fmt.Errorf(
+			"%w: %s is currently attached to instance %s",
+			ErrNetworkInterfaceInUse,
+			id,
+			eni.InstanceID,
+		)
 	}
 
 	b.recycleENIIPsLocked(eni)
@@ -1175,7 +1200,10 @@ func (b *InMemoryBackend) DeleteNetworkInterface(id string) error {
 }
 
 // AttachNetworkInterface attaches an ENI to an instance and returns the attachment ID.
-func (b *InMemoryBackend) AttachNetworkInterface(eniID, instanceID string, deviceIndex int) (string, error) {
+func (b *InMemoryBackend) AttachNetworkInterface(
+	eniID, instanceID string,
+	deviceIndex int,
+) (string, error) {
 	b.mu.Lock("AttachNetworkInterface")
 	defer b.mu.Unlock()
 

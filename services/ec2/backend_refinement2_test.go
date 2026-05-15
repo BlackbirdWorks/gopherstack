@@ -299,7 +299,10 @@ func TestRefinement2_CreateNetworkAclEntry(t *testing.T) {
 	acl, err := b.CreateNetworkACL("vpc-default")
 	require.NoError(t, err)
 
-	require.NoError(t, b.CreateNetworkACLEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80))
+	require.NoError(
+		t,
+		b.CreateNetworkACLEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80),
+	)
 
 	// duplicate should fail
 	assert.Error(t, b.CreateNetworkACLEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80))
@@ -314,7 +317,10 @@ func TestRefinement2_DeleteNetworkAclEntry(t *testing.T) {
 	acl, err := b.CreateNetworkACL("vpc-default")
 	require.NoError(t, err)
 
-	require.NoError(t, b.CreateNetworkACLEntry(acl.ID, 200, "6", "allow", "0.0.0.0/0", false, 443, 443))
+	require.NoError(
+		t,
+		b.CreateNetworkACLEntry(acl.ID, 200, "6", "allow", "0.0.0.0/0", false, 443, 443),
+	)
 	require.NoError(t, b.DeleteNetworkACLEntry(acl.ID, 200, false))
 
 	// non-existent should fail
@@ -329,7 +335,10 @@ func TestRefinement2_NetworkAclPersistence(t *testing.T) {
 
 	acl, err := b.CreateNetworkACL("vpc-default")
 	require.NoError(t, err)
-	require.NoError(t, b.CreateNetworkACLEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80))
+	require.NoError(
+		t,
+		b.CreateNetworkACLEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80),
+	)
 
 	data := b.Snapshot()
 	require.NotNil(t, data)
@@ -484,7 +493,11 @@ func TestRefinement2_HTTP_CreateSnapshot(t *testing.T) {
 	h := newHandler()
 
 	// Create volume first
-	rec := postForm(t, h, "Action=CreateVolume&Version=2016-11-15&AvailabilityZone=us-east-1a&Size=20&VolumeType=gp2")
+	rec := postForm(
+		t,
+		h,
+		"Action=CreateVolume&Version=2016-11-15&AvailabilityZone=us-east-1a&Size=20&VolumeType=gp2",
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Extract volume ID from response
@@ -496,7 +509,11 @@ func TestRefinement2_HTTP_CreateSnapshot(t *testing.T) {
 	vols := b.DescribeVolumes(nil)
 	require.NotEmpty(t, vols)
 
-	rec = postForm(t, h, "Action=CreateSnapshot&Version=2016-11-15&VolumeId="+vols[0].ID+"&Description=test")
+	rec = postForm(
+		t,
+		h,
+		"Action=CreateSnapshot&Version=2016-11-15&VolumeId="+vols[0].ID+"&Description=test",
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "snap-")
 	assert.Contains(t, rec.Body.String(), "completed")
@@ -519,7 +536,11 @@ func TestRefinement2_HTTP_CopyImage(t *testing.T) {
 
 	h := newHandler()
 
-	rec := postForm(t, h, "Action=CopyImage&Version=2016-11-15&SourceImageId=ami-0c55b159cbfafe1f0&Name=my-copy")
+	rec := postForm(
+		t,
+		h,
+		"Action=CopyImage&Version=2016-11-15&SourceImageId=ami-0c55b159cbfafe1f0&Name=my-copy",
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ami-")
 }
@@ -530,7 +551,11 @@ func TestRefinement2_HTTP_ModifyVpcAttribute(t *testing.T) {
 
 	h := newHandler()
 
-	rec := postForm(t, h, "Action=ModifyVpcAttribute&Version=2016-11-15&VpcId=vpc-default&EnableDnsSupport.Value=true")
+	rec := postForm(
+		t,
+		h,
+		"Action=ModifyVpcAttribute&Version=2016-11-15&VpcId=vpc-default&EnableDnsSupport.Value=true",
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "true")
 }
@@ -562,7 +587,11 @@ func TestRefinement2_HTTP_DeleteLaunchTemplate(t *testing.T) {
 	lts := b.DescribeLaunchTemplates(nil)
 	require.Len(t, lts, 1)
 
-	rec = postForm(t, h, "Action=DeleteLaunchTemplate&Version=2016-11-15&LaunchTemplateId="+lts[0].ID)
+	rec = postForm(
+		t,
+		h,
+		"Action=DeleteLaunchTemplate&Version=2016-11-15&LaunchTemplateId="+lts[0].ID,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -573,7 +602,11 @@ func TestRefinement2_HTTP_DescribeSecurityGroupRules(t *testing.T) {
 	h := newHandler()
 
 	// use the default sg
-	rec := postForm(t, h, "Action=DescribeSecurityGroupRules&Version=2016-11-15&Filter.1.Value=sg-default")
+	rec := postForm(
+		t,
+		h,
+		"Action=DescribeSecurityGroupRules&Version=2016-11-15&Filter.1.Value=sg-default",
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "DescribeSecurityGroupRulesResponse")
 }
