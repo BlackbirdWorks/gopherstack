@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -437,15 +438,12 @@ func (rc *ResourceCreator) createAPIGatewayMethod(
 		authorizationType = "NONE"
 	}
 
-	if _, err := rc.backends.APIGateway.Backend.PutMethod(
-		restAPIID,
-		resourceID,
-		httpMethod,
-		authorizationType,
-		"",
-		"",
-		false,
-	); err != nil {
+	if _, err := rc.backends.APIGateway.Backend.PutMethod(apigwbackend.PutMethodInput{
+		RestAPIID:         restAPIID,
+		ResourceID:        resourceID,
+		HTTPMethod:        httpMethod,
+		AuthorizationType: authorizationType,
+	}); err != nil {
 		return "", fmt.Errorf("create API Gateway method: %w", err)
 	}
 
