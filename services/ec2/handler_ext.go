@@ -141,7 +141,7 @@ type volumeItem struct {
 	VolumeType string          `xml:"volumeType"`
 	State      string          `xml:"status"`
 	CreateTime string          `xml:"createTime"`
-	KmsKeyId   string          `xml:"kmsKeyId,omitempty"`
+	KmsKeyID   string          `xml:"kmsKeyId,omitempty"`
 	Size       int             `xml:"size"`
 	Encrypted  bool            `xml:"encrypted"`
 }
@@ -174,7 +174,7 @@ type createVolumeResponse struct {
 	VolumeType string   `xml:"volumeType"`
 	State      string   `xml:"status"`
 	CreateTime string   `xml:"createTime"`
-	KmsKeyId   string   `xml:"kmsKeyId,omitempty"`
+	KmsKeyID   string   `xml:"kmsKeyId,omitempty"`
 	Size       int      `xml:"size"`
 	Encrypted  bool     `xml:"encrypted"`
 }
@@ -729,7 +729,7 @@ func toVolumeItem(vol *Volume) volumeItem {
 		State:      vol.State,
 		CreateTime: vol.CreateTime.Format("2006-01-02T15:04:05.000Z"),
 		Encrypted:  vol.Encrypted,
-		KmsKeyId:   vol.KmsKeyId,
+		KmsKeyID:   vol.KmsKeyID,
 	}
 
 	if vol.Attachment != nil {
@@ -750,7 +750,7 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 	volType := vals.Get("VolumeType")
 	sizeStr := vals.Get("Size")
 	encryptedStr := vals.Get("Encrypted")
-	kmsKeyID := vals.Get("KmsKeyId")
+	kmsKeyID := vals.Get("KmsKeyID")
 
 	size := 0
 	if sizeStr != "" {
@@ -770,9 +770,9 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		}
 
 		vol.Encrypted = true
-		vol.KmsKeyId = kmsKeyID
-		if vol.KmsKeyId == "" {
-			vol.KmsKeyId = "alias/aws/ebs"
+		vol.KmsKeyID = kmsKeyID
+		if vol.KmsKeyID == "" {
+			vol.KmsKeyID = "alias/aws/ebs"
 		}
 	}
 
@@ -786,7 +786,7 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		State:      vol.State,
 		CreateTime: vol.CreateTime.Format("2006-01-02T15:04:05.000Z"),
 		Encrypted:  vol.Encrypted,
-		KmsKeyId:   vol.KmsKeyId,
+		KmsKeyID:   vol.KmsKeyID,
 	}, nil
 }
 
@@ -1755,23 +1755,29 @@ func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (
 	// AWS uses different value wrappers per attribute type.
 	attrName, attrValue := parseModifyInstanceAttributeValue(vals)
 
-	if attrName != "" {
-		// Enforce stopped-state requirement for certain attributes at the handler level.
-		if modifyInstanceAttributeStoppedRequired[attrName] {
-			instances := h.Backend.DescribeInstances([]string{instanceID}, "")
-			if len(instances) == 0 {
-				return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
-			}
+	if attrName == "" {
+		return &modifyInstanceAttributeResponse{
+			Xmlns:     ec2XMLNS,
+			RequestID: reqID,
+			Return:    true,
+		}, nil
+	}
 
-			if instances[0].State != StateStopped {
-				return nil, fmt.Errorf("%w: instance %s must be in the stopped state to modify %s",
-					ErrInvalidInstanceState, instanceID, attrName)
-			}
+	// Enforce stopped-state requirement for certain attributes at the handler level.
+	if modifyInstanceAttributeStoppedRequired[attrName] {
+		instances := h.Backend.DescribeInstances([]string{instanceID}, "")
+		if len(instances) == 0 {
+			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 		}
 
-		if err := h.Backend.SetInstanceAttribute(instanceID, attrName, attrValue); err != nil {
-			return nil, err
+		if instances[0].State != StateStopped {
+			return nil, fmt.Errorf("%w: instance %s must be in the stopped state to modify %s",
+				ErrInvalidInstanceState, instanceID, attrName)
 		}
+	}
+
+	if err := h.Backend.SetInstanceAttribute(instanceID, attrName, attrValue); err != nil {
+		return nil, err
 	}
 
 	return &modifyInstanceAttributeResponse{
@@ -1795,7 +1801,7 @@ var modifyInstanceAttributeStoppedRequired = map[string]bool{
 // parseModifyInstanceAttributeValue extracts the (name, value) pair from a
 // ModifyInstanceAttribute request. AWS encodes different attributes differently:
 // boolean attrs use .Value, string attrs use .Value, userData uses base64.
-func parseModifyInstanceAttributeValue(vals url.Values) (name, value string) {
+func parseModifyInstanceAttributeValue(vals url.Values) (string, string) {
 	// Well-known attribute params ordered by specificity.
 	checks := []struct {
 		attr  string

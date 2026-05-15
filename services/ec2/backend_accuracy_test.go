@@ -100,14 +100,14 @@ func TestAccuracy_ModifySubnetAttribute_PersistsValue(t *testing.T) {
 
 	subnet, err := b.CreateSubnet(vpc.ID, "10.2.1.0/24", "us-east-1a")
 	require.NoError(t, err)
-	assert.False(t, subnet.MapPublicIpOnLaunch)
+	assert.False(t, subnet.MapPublicIPOnLaunch)
 
 	err = b.ModifySubnetAttribute(subnet.ID, "mapPublicIpOnLaunch", true)
 	require.NoError(t, err)
 
 	subnets := b.DescribeSubnets([]string{subnet.ID})
 	require.Len(t, subnets, 1)
-	assert.True(t, subnets[0].MapPublicIpOnLaunch)
+	assert.True(t, subnets[0].MapPublicIPOnLaunch)
 }
 
 // ---- Gap 3: Pagination ----
@@ -254,7 +254,7 @@ func TestAccuracy_CreateVolume_Encrypted(t *testing.T) {
 	vols := b.DescribeVolumes([]string{vol.ID})
 	require.Len(t, vols, 1)
 	assert.True(t, vols[0].Encrypted)
-	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/my-key", vols[0].KmsKeyId)
+	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/my-key", vols[0].KmsKeyID)
 }
 
 func TestAccuracy_CreateSnapshot_InheritsEncryption(t *testing.T) {
@@ -271,7 +271,7 @@ func TestAccuracy_CreateSnapshot_InheritsEncryption(t *testing.T) {
 	snap, err := b.CreateSnapshot(vol.ID, "test snapshot")
 	require.NoError(t, err)
 	assert.True(t, snap.Encrypted, "snapshot should inherit volume encryption")
-	assert.Equal(t, "alias/aws/ebs", snap.KmsKeyId)
+	assert.Equal(t, "alias/aws/ebs", snap.KmsKeyID)
 }
 
 func TestAccuracy_SetVolumeEncryption_DefaultKMSKey(t *testing.T) {
@@ -289,7 +289,7 @@ func TestAccuracy_SetVolumeEncryption_DefaultKMSKey(t *testing.T) {
 	vols := b.DescribeVolumes([]string{vol.ID})
 	require.Len(t, vols, 1)
 	assert.True(t, vols[0].Encrypted)
-	assert.Equal(t, "alias/aws/ebs", vols[0].KmsKeyId)
+	assert.Equal(t, "alias/aws/ebs", vols[0].KmsKeyID)
 }
 
 // ---- Gap 14: ModifyInstanceAttribute persistence ----
@@ -325,7 +325,7 @@ func TestAccuracy_SetInstanceAttribute_InstanceType_RequiresStopped(t *testing.T
 	// Should fail on running instance.
 	err = b.SetInstanceAttribute(id, "instanceType", "t3.large")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ec2.ErrInvalidInstanceState)
+	require.ErrorIs(t, err, ec2.ErrInvalidInstanceState)
 
 	// Stop then modify — should succeed.
 	_, stopErr := b.StopInstances([]string{id})
@@ -373,7 +373,7 @@ func TestAccuracy_SpotPriceHistory_Deterministic(t *testing.T) {
 	)
 
 	require.NotEmpty(t, records1)
-	require.Equal(t, len(records1), len(records2))
+	require.Len(t, records1, len(records2))
 	assert.Equal(t, records1[0].SpotPrice, records2[0].SpotPrice, "price must be deterministic")
 }
 
@@ -397,7 +397,7 @@ func TestAccuracy_CreateVpc_CIDRConflict(t *testing.T) {
 	// Exact same CIDR should conflict.
 	_, err = b.CreateVpc("192.168.0.0/16")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ec2.ErrCIDRConflict)
+	require.ErrorIs(t, err, ec2.ErrCIDRConflict)
 
 	// Overlapping CIDR should also conflict.
 	_, err = b.CreateVpc("192.168.1.0/24")
@@ -492,7 +492,7 @@ func dispatchHandler(h *ec2.Handler, vals url.Values) (string, error) {
 // accuracyExtractXMLValue pulls the first text node matching the given XML element name.
 func accuracyExtractXMLValue(xmlStr, tagName string) string {
 	open := "<" + tagName + ">"
-	close := "</" + tagName + ">"
+	closeTag := "</" + tagName + ">"
 	start := accuracyIndexOf(xmlStr, open)
 
 	if start < 0 {
@@ -500,7 +500,7 @@ func accuracyExtractXMLValue(xmlStr, tagName string) string {
 	}
 
 	start += len(open)
-	end := accuracyIndexOf(xmlStr[start:], close)
+	end := accuracyIndexOf(xmlStr[start:], closeTag)
 
 	if end < 0 {
 		return ""

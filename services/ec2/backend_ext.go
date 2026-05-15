@@ -55,7 +55,7 @@ type Volume struct {
 	AZ         string            `json:"az"`
 	VolumeType string            `json:"volumeType"`
 	State      string            `json:"state"`
-	KmsKeyId   string            `json:"kmsKeyId,omitempty"`
+	KmsKeyID   string            `json:"kmsKeyId,omitempty"`
 	Size       int               `json:"size"`
 	Encrypted  bool              `json:"encrypted"`
 }

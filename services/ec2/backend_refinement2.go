@@ -18,7 +18,7 @@ type Snapshot struct {
 	Description string    `json:"description"`
 	State       string    `json:"state"`
 	Progress    string    `json:"progress"`
-	KmsKeyId    string    `json:"kmsKeyId,omitempty"`
+	KmsKeyID    string    `json:"kmsKeyId,omitempty"`
 	VolumeSize  int       `json:"volumeSize"`
 	Encrypted   bool      `json:"encrypted"`
 }
@@ -97,7 +97,7 @@ func (b *InMemoryBackend) CreateSnapshot(volumeID, description string) (*Snapsho
 		StartTime:   time.Now().UTC(),
 		VolumeSize:  vol.Size,
 		Encrypted:   vol.Encrypted,
-		KmsKeyId:    vol.KmsKeyId,
+		KmsKeyID:    vol.KmsKeyID,
 	}
 	b.snapshots[snap.SnapshotID] = snap
 
@@ -268,7 +268,8 @@ func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, valu
 
 	switch attribute {
 	case attrMapPublicIPOnLaunch:
-		subnet.MapPublicIpOnLaunch = value
+		subnet.MapPublicIPOnLaunch = value
+
 		return nil
 	case attrEnableResourceNameDNSARec:
 		return nil

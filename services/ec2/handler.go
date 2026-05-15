@@ -1366,8 +1366,8 @@ type describeInstancesResponse struct {
 	XMLName        xml.Name       `xml:"DescribeInstancesResponse"`
 	Xmlns          string         `xml:"xmlns,attr"`
 	RequestID      string         `xml:"requestId"`
-	ReservationSet reservationSet `xml:"reservationSet"`
 	NextToken      string         `xml:"nextToken,omitempty"`
+	ReservationSet reservationSet `xml:"reservationSet"`
 }
 
 type instanceStateChangeItem struct {

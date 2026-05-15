@@ -24,7 +24,7 @@ var (
 	ErrInvalidInstanceState  = errors.New("IncorrectInstanceState")
 	ErrSpotFleetNotFound     = errors.New("InvalidSpotFleetRequestId.NotFound")
 	ErrCIDRConflict          = errors.New("InvalidVpc.Conflict")
-	ErrDryRunOperation       = errors.New("Request would have succeeded, but DryRun flag is set.")
+	ErrDryRunOperation       = errors.New("request would have succeeded, but DryRun flag is set")
 )
 
 // EC2 instance state codes as defined by the AWS EC2 API.
@@ -75,22 +75,22 @@ var (
 type Instance struct {
 	LaunchTime            time.Time     `json:"launchTime"`
 	TerminatedAt          time.Time     `json:"terminatedAt"`
-	State                 InstanceState `json:"state"`
-	ID                    string        `json:"id"`
+	PrivateIP             string        `json:"privateIP"`
+	PublicIPAddress       string        `json:"publicIPAddress,omitempty"`
 	InstanceType          string        `json:"instanceType"`
 	ImageID               string        `json:"imageID"`
 	VPCID                 string        `json:"vpcID"`
 	SubnetID              string        `json:"subnetID"`
-	PrivateIP             string        `json:"privateIP"`
-	PublicIPAddress       string        `json:"publicIPAddress,omitempty"`
+	MetadataOptionsTokens string        `json:"metadataOptionsTokens,omitempty"`
+	ID                    string        `json:"id"`
 	PublicDNSName         string        `json:"publicDNSName,omitempty"`
 	KeyName               string        `json:"keyName"`
-	SecurityGroups        []string      `json:"securityGroups"`
-	UserData              string        `json:"userData,omitempty"`
-	EnaSupport            bool          `json:"enaSupport"`
-	SriovNetSupport       string        `json:"sriovNetSupport,omitempty"`
 	MetadataOptionsState  string        `json:"metadataOptionsState,omitempty"`
-	MetadataOptionsTokens string        `json:"metadataOptionsTokens,omitempty"`
+	UserData              string        `json:"userData,omitempty"`
+	SriovNetSupport       string        `json:"sriovNetSupport,omitempty"`
+	SecurityGroups        []string      `json:"securityGroups"`
+	State                 InstanceState `json:"state"`
+	EnaSupport            bool          `json:"enaSupport"`
 }
 
 // LaunchTemplate represents an EC2 launch template.
@@ -175,7 +175,7 @@ type Subnet struct {
 	CIDRBlock           string `json:"cidrBlock"`
 	AvailabilityZone    string `json:"availabilityZone"`
 	IsDefault           bool   `json:"isDefault"`
-	MapPublicIpOnLaunch bool   `json:"mapPublicIpOnLaunch"`
+	MapPublicIPOnLaunch bool   `json:"mapPublicIpOnLaunch"`
 }
 
 // InMemoryBackend is the in-memory store for EC2 resources.
@@ -357,7 +357,7 @@ func (b *InMemoryBackend) RunInstances(
 
 	if sub, ok := b.subnets[subnetID]; ok {
 		vpcID = sub.VPCID
-		mapPublicIP = sub.MapPublicIpOnLaunch
+		mapPublicIP = sub.MapPublicIPOnLaunch
 	}
 
 	// No capacity hint — user-derived values in the make capacity position

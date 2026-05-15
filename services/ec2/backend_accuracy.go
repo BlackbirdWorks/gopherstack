@@ -33,6 +33,18 @@ const (
 	instanceTypeT3Micro = "t3.micro"
 	instanceTypeT3Small = "t3.small"
 	instanceTypeC5XL    = "c5.xlarge"
+
+	// spotPriceHashModulus is the hash modulus used to produce a 0–0.40 spread in
+	// deterministicSpotPrice; combined with spotPriceDivisor it yields a 0.30–0.70 ratio.
+	spotPriceHashModulus = 1000
+	// spotPriceDivisor maps the 0–999 hash remainder to a 0–0.40 spread.
+	spotPriceDivisor = 2500.0
+	// spotPriceMinRatio is the base ratio (0.30) before the hash spread is added.
+	spotPriceMinRatio = 0.30
+	// spotPriceDecimalScale rounds prices to 4 decimal places (× then /).
+	spotPriceDecimalScale = 10000
+	// spotPriceHistoryBucketHours is the number of hours between synthetic price records.
+	spotPriceHistoryBucketHours = 6
 )
 
 // stoppedRequiredAttrs lists attributes that require a stopped instance when
@@ -106,9 +118,9 @@ func (b *InMemoryBackend) SetVolumeEncryption(
 			kmsKeyID = "alias/aws/ebs"
 		}
 
-		vol.KmsKeyId = kmsKeyID
+		vol.KmsKeyID = kmsKeyID
 	} else {
-		vol.KmsKeyId = ""
+		vol.KmsKeyID = ""
 	}
 
 	return nil
@@ -150,7 +162,7 @@ var spotPriceBaseTable = map[string]float64{
 func deterministicSpotPrice(instanceType, az, product string) float64 {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(instanceType + "|" + az + "|" + product))
-	ratio := 0.30 + float64(h.Sum32()%1000)/2500.0 // 0.30 – 0.70
+	ratio := spotPriceMinRatio + float64(h.Sum32()%spotPriceHashModulus)/spotPriceDivisor // 0.30 – 0.70
 	base, ok := spotPriceBaseTable[instanceType]
 
 	if !ok {
@@ -158,7 +170,7 @@ func deterministicSpotPrice(instanceType, az, product string) float64 {
 	}
 
 	// Round to 4 decimal places for realism.
-	return math.Round(base*ratio*10000) / 10000
+	return math.Round(base*ratio*spotPriceDecimalScale) / spotPriceDecimalScale
 }
 
 // GenerateSpotPriceHistory produces a deterministic slice of spot price records
@@ -199,7 +211,7 @@ func GenerateSpotPriceHistory(
 			for _, prod := range products {
 				price := deterministicSpotPrice(it, az, prod)
 				// One price point per 6-hour bucket in the window.
-				for ts := startTime; ts.Before(endTime); ts = ts.Add(6 * time.Hour) {
+				for ts := startTime; ts.Before(endTime); ts = ts.Add(spotPriceHistoryBucketHours * time.Hour) {
 					records = append(records, SpotPriceRecord{
 						InstanceType:       it,
 						AvailabilityZone:   az,

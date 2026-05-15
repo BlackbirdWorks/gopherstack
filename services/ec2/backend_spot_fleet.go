@@ -54,6 +54,8 @@ const (
 	// maxSpotFleetHistoryEntries caps the append-only history slice per fleet
 	// to prevent unbounded memory growth in long-running tests/servers.
 	maxSpotFleetHistoryEntries = 500
+	// spotFleetHistoryHalfPoint is the trim target when the history slice exceeds its cap.
+	spotFleetHistoryHalfPoint = maxSpotFleetHistoryEntries / 2
 )
 
 // SpotFleetLaunchSpecification is a single launch spec within a spot fleet config.
@@ -625,7 +627,7 @@ func (b *InMemoryBackend) appendFleetHistoryLocked(fleetID string, rec SpotFleet
 
 	if len(records) > maxSpotFleetHistoryEntries {
 		// Drop the oldest half to amortise the copy cost.
-		half := maxSpotFleetHistoryEntries / 2
+		half := spotFleetHistoryHalfPoint
 		copy(records, records[len(records)-half:])
 		records = records[:half]
 	}
