@@ -371,6 +371,16 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			http.StatusBadRequest,
 			map[string]string{keyTypeField: "RepositoryAlreadyExistsException", keyMessageField: err.Error()},
 		)
+	case errors.Is(err, ErrRepositoryNotEmpty):
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyTypeField: "RepositoryNotEmptyException", keyMessageField: err.Error()},
+		)
+	case errors.Is(err, ErrImageTagAlreadyExists):
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyTypeField: "ImageTagAlreadyExistsException", keyMessageField: err.Error()},
+		)
 	case errors.Is(err, ErrPullThroughCacheRuleAlreadyExists):
 		return c.JSON(
 			http.StatusBadRequest,
@@ -440,6 +450,7 @@ func toRepositoryView(r Repository) repositoryView {
 		CreatedAt: float64(r.CreatedAt.Unix()),
 		EncryptionConfiguration: &encryptionConfigurationView{
 			EncryptionType: r.EncryptionType,
+			KMSKey:         r.KMSKey,
 		},
 		ImageScanningConfiguration:         imageScanningConfigurationView{ScanOnPush: r.ScanOnPush},
 		ImageTagMutability:                 r.ImageTagMutability,
@@ -474,11 +485,15 @@ func (h *Handler) handleCreateRepository(
 	}
 
 	encryptionType := ""
+	kmsKey := ""
 	if in.EncryptionConfiguration != nil {
 		encryptionType = in.EncryptionConfiguration.EncryptionType
+		kmsKey = in.EncryptionConfiguration.KMSKey
 	}
 
-	repo, err := h.Backend.CreateRepository(in.RepositoryName, in.ImageTagMutability, scanOnPush, encryptionType)
+	repo, err := h.Backend.CreateRepository(
+		in.RepositoryName, in.ImageTagMutability, scanOnPush, encryptionType, kmsKey,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -499,10 +514,13 @@ func (h *Handler) handleCreateRepository(
 
 // describeRepositoriesInput is the request body for DescribeRepositories.
 type describeRepositoriesInput struct {
+	NextToken       string   `json:"nextToken,omitempty"`
 	RepositoryNames []string `json:"repositoryNames"`
+	MaxResults      int      `json:"maxResults,omitempty"`
 }
 
 type describeRepositoriesOutput struct {
+	NextToken    string           `json:"nextToken,omitempty"`
 	Repositories []repositoryView `json:"repositories"`
 }
 
@@ -515,17 +533,41 @@ func (h *Handler) handleDescribeRepositories(
 		return nil, err
 	}
 
+	// Apply nextToken cursor: skip repos until we find the one named by the token.
+	// The token is the name of the first repo to include in this page.
+	if in.NextToken != "" && len(in.RepositoryNames) == 0 {
+		start := 0
+		for i, r := range repos {
+			if r.RepositoryName == in.NextToken {
+				start = i
+
+				break
+			}
+		}
+
+		repos = repos[start:]
+	}
+
+	// Apply maxResults page limit.
+	var nextToken string
+	if in.MaxResults > 0 && len(repos) > in.MaxResults {
+		nextToken = repos[in.MaxResults].RepositoryName
+		repos = repos[:in.MaxResults]
+	}
+
 	views := make([]repositoryView, 0, len(repos))
 	for _, r := range repos {
 		views = append(views, toRepositoryView(r))
 	}
 
-	return &describeRepositoriesOutput{Repositories: views}, nil
+	return &describeRepositoriesOutput{Repositories: views, NextToken: nextToken}, nil
 }
 
 // deleteRepositoryInput is the request body for DeleteRepository.
 type deleteRepositoryInput struct {
 	RepositoryName string `json:"repositoryName"`
+	RegistryID     string `json:"registryId,omitempty"`
+	Force          bool   `json:"force,omitempty"`
 }
 
 type deleteRepositoryOutput struct {
@@ -536,6 +578,15 @@ func (h *Handler) handleDeleteRepository(
 	_ context.Context,
 	in *deleteRepositoryInput,
 ) (*deleteRepositoryOutput, error) {
+	// Real AWS requires force=true to delete repositories containing images.
+	if !in.Force {
+		imgs, descErr := h.Backend.DescribeImages(in.RepositoryName, nil)
+		if descErr == nil && len(imgs) > 0 {
+			return nil, fmt.Errorf("%w: %s contains images; set force=true to override",
+				ErrRepositoryNotEmpty, in.RepositoryName)
+		}
+	}
+
 	repo, err := h.Backend.DeleteRepository(in.RepositoryName)
 	if err != nil {
 		return nil, err
@@ -544,8 +595,12 @@ func (h *Handler) handleDeleteRepository(
 	return &deleteRepositoryOutput{Repository: toRepositoryView(*repo)}, nil
 }
 
-// getAuthorizationTokenInput is the (empty) request body for GetAuthorizationToken.
-type getAuthorizationTokenInput struct{}
+// getAuthorizationTokenInput is the request body for GetAuthorizationToken.
+// RegistryIDs specifies which registries to fetch tokens for; when empty a
+// single token for the default registry is returned.
+type getAuthorizationTokenInput struct {
+	RegistryIDs []string `json:"registryIds,omitempty"`
+}
 
 type authorizationDataView struct {
 	AuthorizationToken string `json:"authorizationToken"`
@@ -559,7 +614,7 @@ type getAuthorizationTokenOutput struct {
 
 func (h *Handler) handleGetAuthorizationToken(
 	_ context.Context,
-	_ *getAuthorizationTokenInput,
+	in *getAuthorizationTokenInput,
 ) (*getAuthorizationTokenOutput, error) {
 	token := base64.StdEncoding.EncodeToString([]byte(dummyUser + ":" + dummyPassword))
 	expiresAt := time.Now().Add(tokenTTL).Unix()
@@ -571,14 +626,25 @@ func (h *Handler) handleGetAuthorizationToken(
 		proxyEndpoint = "https://" + proxyEndpoint
 	}
 
+	entry := authorizationDataView{
+		AuthorizationToken: token,
+		ExpiresAt:          expiresAt,
+		ProxyEndpoint:      proxyEndpoint,
+	}
+
+	// When specific registry IDs are requested, return one token per registry.
+	// Since this is a single-account simulator, the token is identical for each.
+	if len(in.RegistryIDs) > 0 {
+		data := make([]authorizationDataView, 0, len(in.RegistryIDs))
+		for range in.RegistryIDs {
+			data = append(data, entry)
+		}
+
+		return &getAuthorizationTokenOutput{AuthorizationData: data}, nil
+	}
+
 	return &getAuthorizationTokenOutput{
-		AuthorizationData: []authorizationDataView{
-			{
-				AuthorizationToken: token,
-				ExpiresAt:          expiresAt,
-				ProxyEndpoint:      proxyEndpoint,
-			},
-		},
+		AuthorizationData: []authorizationDataView{entry},
 	}, nil
 }
 
@@ -763,7 +829,7 @@ type imageDetailView struct {
 	RegistryID             string   `json:"registryId,omitempty"`
 	RepositoryName         string   `json:"repositoryName,omitempty"`
 	ImageTags              []string `json:"imageTags,omitempty"`
-	ImagePushedAt          int64    `json:"imagePushedAt,omitempty"`
+	ImagePushedAt          float64  `json:"imagePushedAt,omitempty"`
 	ImageSizeInBytes       int64    `json:"imageSizeInBytes,omitempty"`
 }
 
@@ -777,9 +843,9 @@ func toImageDetailView(img Image) imageDetailView {
 		tags = append(tags, img.ImageID.ImageTag)
 	}
 
-	pushedAt := int64(0)
+	var pushedAt float64
 	if !img.ImagePushedAt.IsZero() {
-		pushedAt = img.ImagePushedAt.Unix()
+		pushedAt = float64(img.ImagePushedAt.Unix())
 	}
 
 	return imageDetailView{
@@ -813,10 +879,14 @@ func (h *Handler) handleDescribeImages(
 
 type listImagesInput struct {
 	RepositoryName string `json:"repositoryName"`
+	RegistryID     string `json:"registryId,omitempty"`
+	NextToken      string `json:"nextToken,omitempty"`
+	MaxResults     int    `json:"maxResults,omitempty"`
 }
 
 type listImagesOutput struct {
-	ImageIDs []ImageIdentifier `json:"imageIds"`
+	NextToken string            `json:"nextToken,omitempty"`
+	ImageIDs  []ImageIdentifier `json:"imageIds"`
 }
 
 func (h *Handler) handleListImages(_ context.Context, in *listImagesInput) (*listImagesOutput, error) {
@@ -825,7 +895,28 @@ func (h *Handler) handleListImages(_ context.Context, in *listImagesInput) (*lis
 		return nil, err
 	}
 
-	return &listImagesOutput{ImageIDs: imageIDs}, nil
+	// Apply nextToken cursor: skip to the element whose digest matches.
+	if in.NextToken != "" {
+		start := 0
+		for i, id := range imageIDs {
+			if id.ImageDigest == in.NextToken {
+				start = i
+
+				break
+			}
+		}
+
+		imageIDs = imageIDs[start:]
+	}
+
+	// Apply maxResults page limit.
+	var nextToken string
+	if in.MaxResults > 0 && len(imageIDs) > in.MaxResults {
+		nextToken = imageIDs[in.MaxResults].ImageDigest
+		imageIDs = imageIDs[:in.MaxResults]
+	}
+
+	return &listImagesOutput{ImageIDs: imageIDs, NextToken: nextToken}, nil
 }
 
 // batchGetRepositoryScanningConfigurationInput is the request body for BatchGetRepositoryScanningConfiguration.

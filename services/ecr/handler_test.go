@@ -748,7 +748,7 @@ func TestECR_Backend_SetEndpoint(t *testing.T) {
 
 	backend.SetEndpoint("localhost:9000")
 
-	repo, err := backend.CreateRepository("my-repo", "", false, "")
+	repo, err := backend.CreateRepository("my-repo", "", false, "", "")
 	require.NoError(t, err)
 	assert.Contains(t, repo.RepositoryURI, "localhost:9000")
 }
@@ -968,6 +968,10 @@ func TestECR_BatchCheckLayerAvailability(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+
+			// Repository must exist for BatchCheckLayerAvailability.
+			rec0 := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": tt.repositoryName})
+			require.Equal(t, http.StatusOK, rec0.Code)
 
 			if tt.preUpload {
 				rec := doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
@@ -1657,7 +1661,7 @@ func TestECR_BackendPutImageReturnsDefensiveCopy(t *testing.T) {
 	t.Parallel()
 
 	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
-	_, err := backend.CreateRepository("copy-repo", "", false, "")
+	_, err := backend.CreateRepository("copy-repo", "", false, "", "")
 	require.NoError(t, err)
 
 	img, err := backend.PutImage("copy-repo", ecr.Image{
