@@ -23,12 +23,21 @@ import (
 // none is configured; mirrors the Amazon Linux 2 AMI userland.
 const defaultDockerImage = "amazonlinux:2"
 
+// defaultSSHHostIP is the default host bind address for mapped sshd ports.
+// Set to localhost so the container is only reachable from the local machine
+// unless the operator explicitly opts in to 0.0.0.0.
+const defaultSSHHostIP = "127.0.0.1"
+
+// regionUSEast1 is the canonical AWS region whose public DNS zone collapses
+// to "compute-1.amazonaws.com" instead of "{region}.compute.amazonaws.com".
+const regionUSEast1 = "us-east-1"
+
 // DockerComputeConfig configures a DockerCompute provider.
 type DockerComputeConfig struct {
-	Labels     map[string]string
-	Image      string
-	Network    string
-	SSHHostIP  string
+	Labels    map[string]string
+	Image     string
+	Network   string
+	SSHHostIP string
 	// Region is used to render the public DNS name suffix
 	// (e.g. us-east-1 → "compute-1.amazonaws.com").
 	Region     string
@@ -90,7 +99,7 @@ func newDockerComputeWithAPI(api dockerAPI, cfg DockerComputeConfig) *DockerComp
 	}
 
 	if cfg.SSHHostIP == "" {
-		cfg.SSHHostIP = "127.0.0.1"
+		cfg.SSHHostIP = defaultSSHHostIP
 	}
 
 	return &DockerCompute{api: api, cfg: cfg, usedSSHPorts: make(map[int]struct{})}
@@ -218,7 +227,7 @@ func syntheticPublicDNS(instanceID, region string) string {
 	}
 
 	zone := "compute-1.amazonaws.com"
-	if region != "" && region != "us-east-1" {
+	if region != "" && region != regionUSEast1 {
 		zone = region + ".compute.amazonaws.com"
 	}
 

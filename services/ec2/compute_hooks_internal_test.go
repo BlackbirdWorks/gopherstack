@@ -143,3 +143,59 @@ func TestComputeHookLifecycle(t *testing.T) {
 		})
 	}
 }
+
+// stubDNSRegistrar records register/deregister calls for assertion.
+type stubDNSRegistrar struct {
+	registered   []string
+	deregistered []string
+}
+
+func (s *stubDNSRegistrar) Register(name string)   { s.registered = append(s.registered, name) }
+func (s *stubDNSRegistrar) Deregister(name string) { s.deregistered = append(s.deregistered, name) }
+
+func TestComputeHookPublishesDNSAndTags(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend("000000000000", "us-east-1")
+	c := &stubCompute{
+		result: LaunchResult{
+			ProviderID:      "ctr-dns",
+			PrivateIP:       "172.20.0.7",
+			PublicIPAddress: "127.0.0.1",
+			PublicDNSName:   "ec2-test1.compute-1.amazonaws.com",
+			SSHPort:         22001,
+		},
+	}
+
+	dns := &stubDNSRegistrar{}
+	b.WithCompute(c)
+	b.SetDNSRegistrar(dns)
+
+	h := NewHandler(b)
+
+	resp, err := h.handleRunInstances(map[string][]string{
+		"ImageId":      {"ami-1"},
+		"InstanceType": {"t3.micro"},
+		"MinCount":     {"1"},
+	}, "req-dns")
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	instances := b.DescribeInstances(nil, "")
+	require.Len(t, instances, 1)
+	id := instances[0].ID
+
+	tags := b.TagsForResource(id)
+	assert.Equal(t, "22001", tags[tagKeySSHPort])
+	assert.Equal(t, "127.0.0.1", tags[tagKeySSHHost])
+
+	assert.Equal(t, []string{"ec2-test1.compute-1.amazonaws.com"}, dns.registered)
+
+	_, terr := h.handleTerminateInstances(map[string][]string{
+		testInstanceIDKey: {id},
+	}, "req-term")
+	require.NoError(t, terr)
+
+	assert.Equal(t, []string{"ec2-test1.compute-1.amazonaws.com"}, dns.deregistered)
+	assert.Equal(t, []string{"ctr-dns"}, c.terminateCalls)
+}
