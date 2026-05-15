@@ -14,7 +14,16 @@ const (
 
 	// ExportedMaxTopicNameLen exposes the maximum topic name length for test assertions.
 	ExportedMaxTopicNameLen = maxTopicNameLen
+
+	// ExportedFifoDedupSweepInterval exposes the sweep cadence for test assertions.
+	ExportedFifoDedupSweepInterval = fifoDedupSweepInterval
 )
 
 // IsValidTopicNameForTest exposes the topic name validation function for testing.
 func IsValidTopicNameForTest(name string) bool { return isValidTopicName(name) }
+
+// CanonicalNotificationStringForTest exposes the canonical string builder for tests
+// that verify RSA signature correctness.
+func CanonicalNotificationStringForTest(msgID, topicARN, subject, message, timestamp string) string {
+	return canonicalNotificationString(msgID, topicARN, subject, message, timestamp)
+}

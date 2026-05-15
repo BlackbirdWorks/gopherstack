@@ -52,8 +52,34 @@ type fifoDeduplication struct {
 	mu      sync.Mutex
 }
 
+// fifoDedupSweepInterval is the cadence at which the background goroutine
+// evicts expired entries from the deduplication map. This supplements the
+// opportunistic eviction inside isDuplicate/record and ensures that a
+// long-idle FIFO topic does not retain stale entries indefinitely.
+const fifoDedupSweepInterval = time.Minute
+
 func newFifoDeduplication() *fifoDeduplication {
 	return &fifoDeduplication{entries: make(map[string]time.Time)}
+}
+
+// startPeriodicSweep launches a background goroutine that evicts expired
+// entries at fifoDedupSweepInterval. The goroutine stops when ctx is cancelled.
+func (d *fifoDeduplication) startPeriodicSweep(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(fifoDedupSweepInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case now := <-ticker.C:
+				d.mu.Lock()
+				d.sweepExpiredLocked(now)
+				d.mu.Unlock()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 // check returns true if the dedup ID has already been seen within the TTL window,
@@ -140,7 +166,17 @@ type Handler struct {
 
 // NewHandler creates a new SNS Handler with the given backend and logger.
 func NewHandler(backend StorageBackend) *Handler {
-	h := &Handler{Backend: backend, dedup: newFifoDeduplication()}
+	dedup := newFifoDeduplication()
+
+	// Start the periodic FIFO dedup sweep using the backend's lifecycle context
+	// when available so the goroutine is properly cleaned up on shutdown.
+	sweepCtx := context.Background()
+	if b, ok := backend.(*InMemoryBackend); ok {
+		sweepCtx = b.svcCtx
+	}
+	dedup.startPeriodicSweep(sweepCtx)
+
+	h := &Handler{Backend: backend, dedup: dedup}
 	h.actions = h.buildActions()
 
 	return h
@@ -246,8 +282,16 @@ func (h *Handler) Shutdown(ctx context.Context) {
 var _ service.Shutdowner = (*Handler)(nil)
 
 // RouteMatcher returns a function that matches SNS requests by Content-Type and body version.
+// It also matches GET requests for the SNS signing certificate PEM file so that
+// HTTP/HTTPS subscribers can verify notification signatures without contacting AWS.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
+		// Serve the signing cert PEM for signature verification.
+		if c.Request().Method == http.MethodGet &&
+			strings.HasSuffix(c.Request().URL.Path, "SimpleNotificationService.pem") {
+			return true
+		}
+
 		ct := c.Request().Header.Get("Content-Type")
 		if !strings.Contains(ct, snsContentType) {
 			return false
@@ -309,6 +353,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo HandlerFunc for SNS requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// Serve the signing certificate PEM for HTTP/HTTPS notification verification.
+		if c.Request().Method == http.MethodGet &&
+			strings.HasSuffix(c.Request().URL.Path, "SimpleNotificationService.pem") {
+			return h.handleSigningCert(c)
+		}
+
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 
@@ -321,6 +371,21 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		return h.dispatch(c, action)
 	}
+}
+
+// handleSigningCert serves the PEM-encoded self-signed certificate used to
+// sign SNS HTTP/HTTPS notification envelopes. Subscribers can download this
+// certificate to verify notification signatures without contacting AWS.
+func (h *Handler) handleSigningCert(c *echo.Context) error {
+	b, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return c.String(http.StatusNotFound, "signing cert not available")
+	}
+
+	certPEM := b.SigningCertPEM()
+	c.Response().Header().Set("Content-Type", "application/x-pem-file")
+
+	return c.String(http.StatusOK, string(certPEM))
 }
 
 // dispatch routes the action to the appropriate handler method.
