@@ -440,6 +440,10 @@ func validateResourceName(name, kind string) error {
 		return fmt.Errorf("%w: %s name must not be empty", ErrInvalidParameter, kind)
 	}
 
+	if len(name) > maxNameLength {
+		return fmt.Errorf("%w: %s name cannot exceed 32 characters", ErrInvalidParameter, kind)
+	}
+
 	if name[0] == '-' || name[len(name)-1] == '-' {
 		return fmt.Errorf("%w: %s name cannot start or end with a hyphen", ErrInvalidParameter, kind)
 	}
@@ -632,18 +636,16 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		t.Set(kv.Key, kv.Value)
 	}
 
-	defaultAttrs := map[string]string{
-		"access_logs.s3.enabled":                          attrValueFalse,
-		"deletion_protection.enabled":                     attrValueFalse,
-		"idle_timeout.timeout_seconds":                    "60",
-		"routing.http2.enabled":                           attrValueTrue,
-		"routing.http.desync_mitigation_mode":             "defensive",
-		"routing.http.drop_invalid_header_fields.enabled": attrValueFalse,
-		"routing.http.preserve_host_header.enabled":       attrValueFalse,
-		"routing.http.xff_client_port.enabled":            attrValueFalse,
-		"routing.http.xff_header_processing.mode":         "append",
-		"load_balancing.cross_zone.enabled":               attrValueTrue,
-		"waf.fail_open.enabled":                           attrValueFalse,
+	var defaultAttrs map[string]string
+	switch lbType {
+	case lbTypeNetwork, lbTypeGateway:
+		defaultAttrs = map[string]string{
+			attrAccessLogsS3Enabled:           attrValueFalse,
+			attrDeletionProtectionEnabled:     attrValueFalse,
+			attrCrossZoneLoadBalancingEnabled: attrValueFalse,
+		}
+	default: // lbTypeApplication
+		defaultAttrs = albDefaultAttributes()
 	}
 
 	lb := &LoadBalancer{
@@ -671,6 +673,26 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	cp := *lb
 
 	return &cp, nil
+}
+
+// checkAllArnsFound returns ErrLoadBalancerNotFound if any of the queried ARNs are absent from result.
+func checkAllArnsFound(arns []string, result []LoadBalancer) error {
+	for _, a := range arns {
+		found := false
+		for _, lb := range result {
+			if lb.LoadBalancerArn == a {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return ErrLoadBalancerNotFound
+		}
+	}
+
+	return nil
 }
 
 // DescribeLoadBalancers returns load balancers filtered by ARNs and/or names.
@@ -706,6 +728,12 @@ func (b *InMemoryBackend) DescribeLoadBalancers(arns []string, names []string) (
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].LoadBalancerName < result[j].LoadBalancerName
 	})
+
+	if len(arns) > 0 {
+		if err := checkAllArnsFound(arns, result); err != nil {
+			return nil, err
+		}
+	}
 
 	return result, nil
 }
@@ -771,6 +799,13 @@ func (b *InMemoryBackend) SetSecurityGroups(lbArn string, sgs []string) (*LoadBa
 	lb, ok := b.loadBalancers[lbArn]
 	if !ok {
 		return nil, ErrLoadBalancerNotFound
+	}
+
+	if lb.Type != lbTypeApplication {
+		return nil, fmt.Errorf(
+			"%w: security groups cannot be associated with Network or Gateway Load Balancers",
+			ErrInvalidConfigurationRequest,
+		)
 	}
 
 	lb.SecurityGroups = sgs
@@ -878,6 +913,11 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 
 	// Apply health-check defaults.
 	input = applyTGHealthCheckDefaults(proto, input)
+
+	if err := validateHealthCheckPath(input.HealthCheckPath); err != nil {
+		return nil, err
+	}
+
 	matcher := defaultTGMatcher(input.HealthCheckProtocol, input.Matcher)
 
 	tg := &TargetGroup{
@@ -914,6 +954,42 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 	cp := *tg
 
 	return &cp, nil
+}
+
+// albDefaultAttributes returns the default attributes map for an Application Load Balancer.
+func albDefaultAttributes() map[string]string {
+	return map[string]string{
+		attrAccessLogsS3Enabled:                                            attrValueFalse,
+		attrDeletionProtectionEnabled:                                      attrValueFalse,
+		attrCrossZoneLoadBalancingEnabled:                                  attrValueTrue,
+		"idle_timeout.timeout_seconds":                                     "60",
+		"routing.http2.enabled":                                            attrValueTrue,
+		"routing.http.desync_mitigation_mode":                              "defensive",
+		"routing.http.drop_invalid_header_fields.enabled":                  attrValueFalse,
+		"routing.http.preserve_host_header.enabled":                        attrValueFalse,
+		"routing.http.xff_client_port.enabled":                             attrValueFalse,
+		"routing.http.xff_header_processing.mode":                          "append",
+		"waf.fail_open.enabled":                                            attrValueFalse,
+		"routing.http.response.server.enabled":                             attrValueTrue,
+		"routing.http.response.strict_transport_security.enabled":          attrValueFalse,
+		"routing.http.response.access_control_allow_origin.header_value":   "",
+		"routing.http.response.access_control_allow_methods.header_value":  "",
+		"routing.http.response.access_control_allow_headers.header_value":  "",
+		"routing.http.response.access_control_expose_headers.header_value": "",
+		"routing.http.response.access_control_max_age.header_value":        "",
+		"routing.http.response.content_security_policy.header_value":       "",
+		"routing.http.response.x_content_type_options.header_value":        "",
+		"routing.http.response.x_frame_options.header_value":               "",
+	}
+}
+
+// validateHealthCheckPath returns ErrInvalidParameter if the path is non-empty and does not start with '/'.
+func validateHealthCheckPath(path string) error {
+	if path != "" && !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("%w: HealthCheckPath must begin with '/'", ErrInvalidParameter)
+	}
+
+	return nil
 }
 
 func applyTGHealthCheckDefaults(proto string, input CreateTargetGroupInput) CreateTargetGroupInput {
@@ -1231,8 +1307,14 @@ const (
 	protoTLS          = "TLS"
 	lbTypeApplication = "application"
 	lbTypeNetwork     = "network"
+	lbTypeGateway     = "gateway"
 	targetTypeLambda  = "lambda"
 	priorityDefault   = "default"
+	maxNameLength     = 32
+
+	attrAccessLogsS3Enabled           = "access_logs.s3.enabled"
+	attrDeletionProtectionEnabled     = "deletion_protection.enabled"
+	attrCrossZoneLoadBalancingEnabled = "load_balancing.cross_zone.enabled"
 )
 
 func isALBProtocol(proto string) bool {
@@ -1327,6 +1409,11 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		return nil, err
 	}
 
+	// Default SSL policy for HTTPS/TLS listeners.
+	if (proto == protoHTTPS || proto == protoTLS) && input.SSLPolicy == "" {
+		input.SSLPolicy = "ELBSecurityPolicy-2016-08"
+	}
+
 	if err := checkDuplicateListenerPort(b.listeners, input.LoadBalancerArn, input.Port); err != nil {
 		return nil, err
 	}
@@ -1410,7 +1497,33 @@ func (b *InMemoryBackend) DescribeListeners(lbArn string, listenerArns []string)
 		return result[i].Port < result[j].Port
 	})
 
+	if len(listenerArns) > 0 {
+		if err := checkAllListenerArnsFound(listenerArns, result); err != nil {
+			return nil, err
+		}
+	}
+
 	return result, nil
+}
+
+// checkAllListenerArnsFound returns ErrListenerNotFound if any queried ARN is absent from result.
+func checkAllListenerArnsFound(arns []string, result []Listener) error {
+	for _, a := range arns {
+		found := false
+		for _, l := range result {
+			if l.ListenerArn == a {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return ErrListenerNotFound
+		}
+	}
+
+	return nil
 }
 
 // DeleteListener deletes a listener by ARN.
@@ -2095,6 +2208,10 @@ func (b *InMemoryBackend) ModifyTargetGroup(input ModifyTargetGroupInput) (*Targ
 	}
 
 	if input.HealthCheckPath != "" {
+		if err := validateHealthCheckPath(input.HealthCheckPath); err != nil {
+			return nil, err
+		}
+
 		tg.HealthCheckPath = input.HealthCheckPath
 	}
 
