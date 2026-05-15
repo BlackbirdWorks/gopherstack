@@ -367,13 +367,9 @@ func (b *InMemoryBackend) DescribeDBClusterBacktracks(clusterID string) ([]DBClu
 func (b *InMemoryBackend) EnableHTTPEndpoint(resourceARN string) error {
 	b.mu.Lock("EnableHTTPEndpoint")
 	defer b.mu.Unlock()
-	if cluster, ok := b.clusters[resourceARN]; ok {
-		cluster.HTTPEndpointEnabled = true
-
-		return nil
-	}
 	for _, cluster := range b.clusters {
-		if "arn:aws:rds:us-east-1:123456789012:cluster:"+cluster.DBClusterIdentifier == resourceARN {
+		if cluster.DBClusterIdentifier == resourceARN ||
+			b.rdsARN("cluster", cluster.DBClusterIdentifier) == resourceARN {
 			cluster.HTTPEndpointEnabled = true
 
 			return nil
@@ -387,13 +383,9 @@ func (b *InMemoryBackend) EnableHTTPEndpoint(resourceARN string) error {
 func (b *InMemoryBackend) DisableHTTPEndpoint(resourceARN string) error {
 	b.mu.Lock("DisableHTTPEndpoint")
 	defer b.mu.Unlock()
-	if cluster, ok := b.clusters[resourceARN]; ok {
-		cluster.HTTPEndpointEnabled = false
-
-		return nil
-	}
 	for _, cluster := range b.clusters {
-		if "arn:aws:rds:us-east-1:123456789012:cluster:"+cluster.DBClusterIdentifier == resourceARN {
+		if cluster.DBClusterIdentifier == resourceARN ||
+			b.rdsARN("cluster", cluster.DBClusterIdentifier) == resourceARN {
 			cluster.HTTPEndpointEnabled = false
 
 			return nil

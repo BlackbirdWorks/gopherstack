@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	iotdataplanesdk "github.com/aws/aws-sdk-go-v2/service/iotdataplane"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	lakeformationsdk "github.com/aws/aws-sdk-go-v2/service/lakeformation"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )

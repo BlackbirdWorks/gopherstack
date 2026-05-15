@@ -7,10 +7,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/autoscaling"
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/autoscaling"
 )
 
 // TestAutoscalingDashboard verifies the Autoscaling dashboard UI renders groups and launch configurations.

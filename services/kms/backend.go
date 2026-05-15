@@ -13,8 +13,9 @@ import (
 	"time"
 
 	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	gopherarn "github.com/blackbirdworks/gopherstack/pkgs/arn"
 )

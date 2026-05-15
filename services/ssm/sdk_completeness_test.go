@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )

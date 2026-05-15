@@ -3,8 +3,9 @@ package eventbridge_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
 // matchPatternForTest exposes the internal matchPattern via a test helper.

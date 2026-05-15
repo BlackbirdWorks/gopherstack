@@ -9,7 +9,7 @@ import (
 // CreateEventSubscription creates a new event notification subscription.
 func (b *InMemoryBackend) CreateEventSubscription(
 	name, snsTopicARN, sourceType string,
-	sourceIDs []string,
+	sourceIDs, eventCategories []string,
 ) (*EventSubscription, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
@@ -21,12 +21,15 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	}
 	ids := make([]string, len(sourceIDs))
 	copy(ids, sourceIDs)
+	cats := make([]string, len(eventCategories))
+	copy(cats, eventCategories)
 	sub := &EventSubscription{
 		SubscriptionName: name,
 		SnsTopicArn:      snsTopicARN,
 		Status:           subscriptionStatusActive,
 		SourceType:       sourceType,
 		SourceIDs:        ids,
+		EventCategories:  cats,
 		Enabled:          true,
 	}
 	b.eventSubscriptions[name] = sub
@@ -73,7 +76,7 @@ func (b *InMemoryBackend) DescribeEventSubscriptions(name string) ([]EventSubscr
 // ModifyEventSubscription modifies an existing event subscription.
 func (b *InMemoryBackend) ModifyEventSubscription(
 	name, snsTopicARN, sourceType string,
-	sourceIDs []string,
+	sourceIDs, eventCategories []string,
 	enabled *bool,
 ) (*EventSubscription, error) {
 	b.mu.Lock("ModifyEventSubscription")
@@ -93,6 +96,11 @@ func (b *InMemoryBackend) ModifyEventSubscription(
 		copy(ids, sourceIDs)
 		sub.SourceIDs = ids
 	}
+	if len(eventCategories) > 0 {
+		cats := make([]string, len(eventCategories))
+		copy(cats, eventCategories)
+		sub.EventCategories = cats
+	}
 	if enabled != nil {
 		sub.Enabled = *enabled
 	}
@@ -102,6 +110,7 @@ func (b *InMemoryBackend) ModifyEventSubscription(
 }
 
 // DescribeEvents returns published events filtered by sourceID, sourceType, and/or duration minutes.
+// Results are sorted by creation time ascending, matching AWS behaviour.
 func (b *InMemoryBackend) DescribeEvents(sourceID, sourceType string, durationMinutes int) ([]Event, error) {
 	b.mu.RLock("DescribeEvents")
 	defer b.mu.RUnlock()
@@ -122,6 +131,16 @@ func (b *InMemoryBackend) DescribeEvents(sourceID, sourceType string, durationMi
 		}
 		result = append(result, ev)
 	}
+	slices.SortFunc(result, func(a, b Event) int {
+		if a.CreatedAt.Before(b.CreatedAt) {
+			return -1
+		}
+		if a.CreatedAt.After(b.CreatedAt) {
+			return 1
+		}
+
+		return 0
+	})
 
 	return result, nil
 }
@@ -276,14 +295,32 @@ func (b *InMemoryBackend) FailoverDBCluster(clusterID, _ string) (*DBCluster, er
 }
 
 // RebootDBCluster reboots the named Aurora DB cluster.
+// The cluster transitions to "rebooting" status and reverts to "available" after a brief delay.
 func (b *InMemoryBackend) RebootDBCluster(clusterID string) (*DBCluster, error) {
-	b.mu.RLock("RebootDBCluster")
-	defer b.mu.RUnlock()
+	b.mu.Lock("RebootDBCluster")
 	cluster, exists := b.clusters[clusterID]
 	if !exists {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
+	if cluster.Status != instanceStatusAvailable {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: cluster %s is not in available state", ErrInvalidDBClusterStateFault, clusterID)
+	}
+	cluster.Status = "rebooting"
 	cp := *cluster
+	b.mu.Unlock()
+
+	go func() {
+		time.Sleep(instanceTransitionDelay)
+		b.mu.Lock("RebootDBCluster-complete")
+		if c, ok := b.clusters[clusterID]; ok && c.Status == "rebooting" {
+			c.Status = instanceStatusAvailable
+		}
+		b.mu.Unlock()
+	}()
 
 	return &cp, nil
 }

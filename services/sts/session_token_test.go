@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/sts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
 func TestGetSessionToken(t *testing.T) {

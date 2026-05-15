@@ -9,12 +9,13 @@ import (
 	"sync"
 	"testing"
 
-	dockertypes "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
-	dockerimage "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
-	dockernetwork "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	dockertypes "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
+	dockerimage "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
+	dockernetwork "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
 )
 
 var errContainerStartFailed = errors.New("start failed")

@@ -3,9 +3,10 @@ package firehose_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/firehose"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
 
 func TestInMemoryBackend_SnapshotRestore(t *testing.T) {

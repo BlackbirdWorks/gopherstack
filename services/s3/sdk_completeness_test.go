@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )

@@ -5,8 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 // UpdateClusterInput holds input for UpdateCluster.

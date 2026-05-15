@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
 // errDynamoDBIntegrationNotConfigured is the sentinel used in DynamoDB integration error tests.

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	ramsdk "github.com/aws/aws-sdk-go-v2/service/ram"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
