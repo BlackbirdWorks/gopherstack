@@ -4,6 +4,7 @@ package mq
 import (
 	"fmt"
 	"maps"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -76,6 +77,20 @@ const (
 	maxConfigurationDataBytes = 256 * 1024
 )
 
+// validateCreateBrokerInput validates the three most commonly invalid fields in
+// a CreateBroker request before acquiring the backend lock.
+func validateCreateBrokerInput(name, deploymentMode, engineType string) error {
+	if engineType != EngineTypeActiveMQ && engineType != EngineTypeRabbitMQ {
+		return fmt.Errorf("%w: engineType must be ACTIVEMQ or RABBITMQ, got %q", ErrValidation, engineType)
+	}
+
+	if err := validateBrokerName(name); err != nil {
+		return err
+	}
+
+	return validateDeploymentModeForEngine(deploymentMode, engineType)
+}
+
 // validateBrokerName checks that a broker name is 1-50 characters and matches
 // the AWS MQ allowed pattern: starts with alphanumeric, contains only
 // alphanumeric characters, hyphens, and underscores.
@@ -84,13 +99,12 @@ func validateBrokerName(name string) error {
 		return fmt.Errorf("%w: brokerName must be 1-50 characters (got %d)", ErrValidation, len(name))
 	}
 
-	first := name[0]
-	if !isAlphanumeric(first) {
+	if !isAlphanumeric(rune(name[0])) {
 		return fmt.Errorf("%w: brokerName must start with an alphanumeric character", ErrValidation)
 	}
 
 	for _, c := range name[1:] {
-		if !isAlphanumeric(byte(c)) && c != '-' && c != '_' {
+		if !isAlphanumeric(c) && c != '-' && c != '_' {
 			return fmt.Errorf(
 				"%w: brokerName must contain only alphanumeric characters, hyphens, and underscores, got %q",
 				ErrValidation, c,
@@ -101,7 +115,11 @@ func validateBrokerName(name string) error {
 	return nil
 }
 
-func isAlphanumeric(c byte) bool {
+// minPasswordUniqueChars is the minimum number of distinct characters required
+// in an ActiveMQ broker user password.
+const minPasswordUniqueChars = 4
+
+func isAlphanumeric(c rune) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
@@ -157,10 +175,10 @@ func validateActiveMQPassword(password string) error {
 		unique[c] = struct{}{}
 	}
 
-	if len(unique) < 4 {
+	if len(unique) < minPasswordUniqueChars {
 		return fmt.Errorf(
-			"%w: ActiveMQ password must contain at least 4 unique characters (got %d)",
-			ErrValidation, len(unique),
+			"%w: ActiveMQ password must contain at least %d unique characters (got %d)",
+			ErrValidation, minPasswordUniqueChars, len(unique),
 		)
 	}
 
@@ -401,15 +419,7 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 	b.mu.Lock("CreateBroker")
 	defer b.mu.Unlock()
 
-	if engineType != EngineTypeActiveMQ && engineType != EngineTypeRabbitMQ {
-		return nil, fmt.Errorf("%w: engineType must be ACTIVEMQ or RABBITMQ, got %q", ErrValidation, engineType)
-	}
-
-	if err := validateBrokerName(name); err != nil {
-		return nil, err
-	}
-
-	if err := validateDeploymentModeForEngine(deploymentMode, engineType); err != nil {
+	if err := validateCreateBrokerInput(name, deploymentMode, engineType); err != nil {
 		return nil, err
 	}
 
@@ -589,9 +599,9 @@ func buildEndpoint(engineType, region, brokerID string) string {
 
 	switch engineType {
 	case EngineTypeRabbitMQ:
-		return fmt.Sprintf("amqps://%s:5671", host)
+		return "amqps://" + net.JoinHostPort(host, "5671")
 	default:
-		return fmt.Sprintf("ssl://%s:61617", host)
+		return "ssl://" + net.JoinHostPort(host, "61617")
 	}
 }
 

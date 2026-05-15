@@ -543,6 +543,7 @@ func (h *Handler) handleListBrokers(c *echo.Context) error {
 		for i, br := range brokers {
 			if br.BrokerName == nextToken {
 				brokers = brokers[i+1:]
+
 				break
 			}
 		}
@@ -893,6 +894,7 @@ func (h *Handler) handleListConfigurations(c *echo.Context) error {
 		for i, cfg := range cfgs {
 			if cfg.Name == nextToken {
 				cfgs = cfgs[i+1:]
+
 				break
 			}
 		}
