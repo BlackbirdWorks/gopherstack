@@ -1,6 +1,8 @@
 package apigateway
 
 import (
+	"bytes"
+	"compress/gzip"
 	"container/list"
 	"context"
 	"encoding/base64"
@@ -11,6 +13,7 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -272,6 +275,20 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 			return
 		}
 
+		// Handle CORS preflight OPTIONS request.
+		if r.Method == http.MethodOptions {
+			if resource.CorsConfiguration != nil {
+				h.writeCORSPreflight(w, r, resource.CorsConfiguration)
+
+				return
+			}
+		}
+
+		// Attach CORS headers to the response when configured.
+		if resource.CorsConfiguration != nil {
+			h.addCORSHeaders(w, r, resource.CorsConfiguration)
+		}
+
 		// Apply method-level access controls (authorizer + request validator).
 		if denied := h.applyMethodControls(ctx, w, r, apiID, stageName, resource.ID); denied {
 			return
@@ -335,11 +352,25 @@ func (h *Handler) dispatchIntegration(
 	integration *Integration,
 	pathParams map[string]string,
 ) {
+	// Interpolate stage variables (${stageVariables.X}) in integration URI/templates.
+	stageVars := h.stageVars(apiID, stageName)
+	if len(stageVars) > 0 {
+		resolved := *integration
+		resolved.URI = interpolateStageVars(integration.URI, stageVars)
+		if len(integration.RequestTemplates) > 0 {
+			resolved.RequestTemplates = make(map[string]string, len(integration.RequestTemplates))
+			for k, v := range integration.RequestTemplates {
+				resolved.RequestTemplates[k] = interpolateStageVars(v, stageVars)
+			}
+		}
+		integration = &resolved
+	}
+
 	switch integration.Type {
 	case "AWS_PROXY":
 		h.handleAWSProxy(ctx, w, r, apiID, stageName, resource, integration, pathParams)
 	case "AWS":
-		h.handleAWSIntegration(ctx, w, r, integration)
+		h.handleAWSIntegration(ctx, w, r, apiID, integration)
 	case "HTTP", "HTTP_PROXY":
 		h.handleHTTPProxy(ctx, w, r, integration)
 	case "MOCK":
@@ -347,6 +378,29 @@ func (h *Handler) dispatchIntegration(
 	default:
 		http.Error(w, "Unsupported or unknown integration type for stage URL", http.StatusNotImplemented)
 	}
+}
+
+// stageVars fetches stage variables for the given API/stage (returns nil on error).
+func (h *Handler) stageVars(apiID, stageName string) map[string]string {
+	stage, err := h.Backend.GetStage(apiID, stageName)
+	if err != nil || stage == nil {
+		return nil
+	}
+
+	return stage.Variables
+}
+
+// interpolateStageVars substitutes ${stageVariables.X} placeholders in s with values from vars.
+func interpolateStageVars(s string, vars map[string]string) string {
+	if len(vars) == 0 || !strings.Contains(s, "${stageVariables.") {
+		return s
+	}
+
+	for k, v := range vars {
+		s = strings.ReplaceAll(s, "${stageVariables."+k+"}", v)
+	}
+
+	return s
 }
 
 // AuthorizerEvent is the event payload sent to a Lambda authorizer function.
@@ -445,16 +499,41 @@ func (h *Handler) runAuthorizer(
 }
 
 // authorizerCacheKey builds the cache key for an authorizer invocation.
-// TOKEN: authorizerID + ":" + token value (per-token granularity)
+// TOKEN: authorizerID + ":" + extracted token (using identityValidationExpression if set)
 // REQUEST: authorizerID + ":" + method + " " + path (per-request granularity).
 func (h *Handler) authorizerCacheKey(r *http.Request, auth *Authorizer, authorizerID string) string {
-	if auth.Type == "TOKEN" {
-		token := extractTokenFromIdentitySource(r, auth.IdentitySource)
-
-		return authorizerID + ":" + token
+	if auth.Type != "TOKEN" {
+		return authorizerID + ":" + r.Method + " " + r.URL.Path
 	}
 
-	return authorizerID + ":" + r.Method + " " + r.URL.Path
+	token := extractTokenFromIdentitySource(r, auth.IdentitySource)
+	token = h.applyIdentityValidation(auth.IdentityValidationExpression, token)
+
+	return authorizerID + ":" + token
+}
+
+// applyIdentityValidation normalizes a token using the authorizer's identityValidationExpression.
+// Returns the first capture group if present, the full match otherwise, or the original token unchanged.
+func (h *Handler) applyIdentityValidation(expr, token string) string {
+	if expr == "" {
+		return token
+	}
+
+	re := h.cachedRegexp(expr)
+	if re == nil {
+		return token
+	}
+
+	m := re.FindStringSubmatch(token)
+	if len(m) > 1 {
+		return m[1]
+	}
+
+	if len(m) == 1 {
+		return m[0]
+	}
+
+	return token
 }
 
 // runRequestValidator enforces request validation rules when a requestValidatorId
@@ -657,19 +736,31 @@ func (h *Handler) handleAWSProxy(
 		statusCode = http.StatusOK
 	}
 
-	w.WriteHeader(statusCode)
-
-	body := lambdaResp.Body
+	var bodyBytes []byte
 	if lambdaResp.IsBase64Encoded {
-		decoded, decErr := base64.StdEncoding.DecodeString(body)
+		decoded, decErr := base64.StdEncoding.DecodeString(lambdaResp.Body)
 		if decErr == nil {
-			_, _ = w.Write(decoded)
+			bodyBytes = decoded
 		} else {
-			_, _ = w.Write([]byte(body))
+			bodyBytes = []byte(lambdaResp.Body)
 		}
 	} else {
-		_, _ = w.Write([]byte(body))
+		bodyBytes = []byte(lambdaResp.Body)
 	}
+
+	bodyBytes = maybeCompressResponse(w, r, bodyBytes, h.minCompressSize(apiID))
+	w.WriteHeader(statusCode)
+	_, _ = w.Write(bodyBytes)
+}
+
+// minCompressSize returns the MinimumCompressionSize for the given API (0 = disabled).
+func (h *Handler) minCompressSize(apiID string) int {
+	api, err := h.Backend.GetRestAPI(apiID)
+	if err != nil || api == nil {
+		return 0
+	}
+
+	return api.MinimumCompressionSize
 }
 
 // handleAWSIntegration handles an AWS (non-proxy) Lambda integration using VTL templates.
@@ -677,6 +768,7 @@ func (h *Handler) handleAWSIntegration(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
+	apiID string,
 	integration *Integration,
 ) {
 	if h.lambda == nil {
@@ -708,7 +800,7 @@ func (h *Handler) handleAWSIntegration(
 
 	// Apply request mapping template (content-type "application/json" is standard).
 	payload := rawBody
-	if tpl, ok := integration.RequestTemplates["application/json"]; ok && tpl != "" {
+	if tpl, ok := integration.RequestTemplates[contentTypeJSON]; ok && tpl != "" {
 		rendered := RenderTemplate(tpl, vtlCtx)
 		payload = []byte(rendered)
 	}
@@ -729,25 +821,26 @@ func (h *Handler) handleAWSIntegration(
 	}
 
 	// Apply response mapping template using status-code pattern matching.
-	responseBody, statusCode := applyResponseTemplate(respBytes, integration, vtlCtx.RequestID)
+	responseBody, statusCode := h.applyResponseTemplate(respBytes, integration, vtlCtx.RequestID)
 
-	w.Header().Set("Content-Type", "application/json")
+	responseBody = maybeCompressResponse(w, r, responseBody, h.minCompressSize(apiID))
+	w.Header().Set("Content-Type", contentTypeJSON)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
 	_, _ = w.Write(responseBody) //nolint:gosec // local emulation: response passthrough is intentional
 }
 
 // applyResponseTemplate selects the best-matching integration response by status code pattern
-// (using regex selectionPattern), applies VTL response template, and returns the rendered
-// body and HTTP status code. Falls back to the raw response bytes and 200 if no match.
-func applyResponseTemplate(respBytes []byte, integration *Integration, requestID string) ([]byte, int) {
+// (using regex selectionPattern), applies VTL response template and contentHandling conversion,
+// and returns the rendered body and HTTP status code. Falls back to the raw response bytes and 200 if no match.
+func (h *Handler) applyResponseTemplate(respBytes []byte, integration *Integration, requestID string) ([]byte, int) {
 	if integration.IntegrationResponses == nil {
 		return respBytes, http.StatusOK
 	}
 
 	// Try to find a matching integration response by selectionPattern (regex) against respBytes.
 	// If no pattern matches, fall back to the "default" or "200" entry.
-	ir := matchIntegrationResponse(integration.IntegrationResponses, string(respBytes))
+	ir := h.matchIntegrationResponse(integration.IntegrationResponses, string(respBytes))
 	if ir == nil {
 		return respBytes, http.StatusOK
 	}
@@ -757,17 +850,42 @@ func applyResponseTemplate(respBytes []byte, integration *Integration, requestID
 		statusCode = sc
 	}
 
-	tpl, ok := ir.ResponseTemplates["application/json"]
-	if !ok || tpl == "" {
-		return respBytes, statusCode
+	body := respBytes
+	tpl, ok := ir.ResponseTemplates[contentTypeJSON]
+
+	if ok && tpl != "" {
+		respVTLCtx := VTLContext{
+			Body:      string(respBytes),
+			RequestID: requestID,
+		}
+		body = []byte(RenderTemplate(tpl, respVTLCtx))
 	}
 
-	respVTLCtx := VTLContext{
-		Body:      string(respBytes),
-		RequestID: requestID,
-	}
+	body = applyContentHandling(body, ir.ContentHandling)
 
-	return []byte(RenderTemplate(tpl, respVTLCtx)), statusCode
+	return body, statusCode
+}
+
+// applyContentHandling converts body bytes according to the AWS contentHandling setting.
+// CONVERT_TO_BINARY: base64-decode the body (UTF-8 string → binary bytes).
+// CONVERT_TO_TEXT:   base64-encode the body (binary bytes → base64 string).
+// Empty string: pass through unchanged.
+func applyContentHandling(body []byte, handling string) []byte {
+	switch handling {
+	case "CONVERT_TO_BINARY":
+		decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(body)))
+		if err != nil {
+			return body
+		}
+
+		return decoded
+	case "CONVERT_TO_TEXT":
+		encoded := base64.StdEncoding.EncodeToString(body)
+
+		return []byte(encoded)
+	default:
+		return body
+	}
 }
 
 // matchIntegrationResponse finds the best-matching IntegrationResponse entry for the given body.
@@ -775,7 +893,7 @@ func applyResponseTemplate(respBytes []byte, integration *Integration, requestID
 //  1. An entry whose selectionPattern regex matches the body (first match wins).
 //  2. The "default" entry (empty selectionPattern treated as catch-all).
 //  3. The "200" entry if it has no selectionPattern.
-func matchIntegrationResponse(
+func (h *Handler) matchIntegrationResponse(
 	responses map[string]*IntegrationResponse,
 	body string,
 ) *IntegrationResponse {
@@ -794,8 +912,8 @@ func matchIntegrationResponse(
 			continue
 		}
 
-		re, err := regexp.Compile(pat)
-		if err != nil {
+		re := h.cachedRegexp(pat)
+		if re == nil {
 			continue
 		}
 
@@ -810,6 +928,107 @@ func matchIntegrationResponse(
 
 	// No pattern and no default: return nil.
 	return nil
+}
+
+// cachedRegexp returns a compiled regexp for the pattern, using the handler's cache.
+// Returns nil if the pattern does not compile.
+func (h *Handler) cachedRegexp(pattern string) *regexp.Regexp {
+	if v, ok := h.selRegexpCache.Load(pattern); ok {
+		re, _ := v.(*regexp.Regexp)
+
+		return re
+	}
+
+	re, compileErr := regexp.Compile(pattern)
+	if compileErr != nil {
+		h.selRegexpCache.Store(pattern, (*regexp.Regexp)(nil))
+
+		return nil
+	}
+
+	h.selRegexpCache.Store(pattern, re)
+
+	return re
+}
+
+// writeCORSPreflight writes an HTTP 200 response with CORS preflight headers.
+func (h *Handler) writeCORSPreflight(w http.ResponseWriter, r *http.Request, cors *CorsConfiguration) {
+	h.addCORSHeaders(w, r, cors)
+	w.Header().Set("Content-Length", "0")
+	w.WriteHeader(http.StatusOK)
+}
+
+// addCORSHeaders adds Access-Control-* headers to the response based on the CorsConfiguration.
+func (h *Handler) addCORSHeaders(w http.ResponseWriter, r *http.Request, cors *CorsConfiguration) {
+	origin := r.Header.Get("Origin")
+	allowed := corsOriginAllowed(origin, cors.AllowOrigins)
+	if allowed != "" {
+		w.Header().Set("Access-Control-Allow-Origin", allowed)
+	}
+
+	if len(cors.AllowMethods) > 0 {
+		w.Header().Set("Access-Control-Allow-Methods", strings.Join(cors.AllowMethods, ", "))
+	}
+
+	if len(cors.AllowHeaders) > 0 {
+		w.Header().Set("Access-Control-Allow-Headers", strings.Join(cors.AllowHeaders, ", "))
+	}
+
+	if len(cors.ExposeHeaders) > 0 {
+		w.Header().Set("Access-Control-Expose-Headers", strings.Join(cors.ExposeHeaders, ", "))
+	}
+
+	if cors.MaxAge > 0 {
+		w.Header().Set("Access-Control-Max-Age", strconv.Itoa(cors.MaxAge))
+	}
+}
+
+// maybeCompressResponse gzip-compresses body if the request accepts gzip encoding and body
+// length meets the minimumCompressionSize threshold (0 means no compression).
+// Sets Content-Encoding: gzip on the response header when compression is applied.
+func maybeCompressResponse(
+	w http.ResponseWriter,
+	r *http.Request,
+	body []byte,
+	minCompressSize int,
+) []byte {
+	if minCompressSize <= 0 || len(body) < minCompressSize {
+		return body
+	}
+
+	if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		return body
+	}
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(body); err != nil {
+		return body
+	}
+
+	if err := gz.Close(); err != nil {
+		return body
+	}
+
+	w.Header().Set("Content-Encoding", "gzip")
+
+	return buf.Bytes()
+}
+
+// corsOriginAllowed returns the effective Access-Control-Allow-Origin value for the given origin.
+// Returns "*" if origins includes "*", the exact origin if it matches, or empty if not allowed.
+func corsOriginAllowed(origin string, allowOrigins []string) string {
+	for _, allowed := range allowOrigins {
+		if allowed == "*" {
+			return "*"
+		}
+
+		if allowed == origin {
+			return origin
+		}
+	}
+
+	return ""
 }
 
 // handleHTTPProxy forwards the request to the target URI specified in the integration.
@@ -881,7 +1100,7 @@ func (h *Handler) handleHTTPProxy(
 func (h *Handler) handleMockIntegration(w http.ResponseWriter, integration *Integration) {
 	statusCode, body := mockResponse(integration)
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", contentTypeJSON)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
 	_, _ = w.Write([]byte(body)) //nolint:gosec // local emulation: mock integration body is test-configured

@@ -1641,7 +1641,10 @@ func (rc *ResourceCreator) createAPIGatewayRestAPI(
 
 	description := strProp(props, "Description", params, physicalIDs)
 
-	api, err := rc.backends.APIGateway.Backend.CreateRestAPI(name, description, nil)
+	api, err := rc.backends.APIGateway.Backend.CreateRestAPI(apigwbackend.CreateRestAPIInput{
+		Name:        name,
+		Description: description,
+	})
 	if err != nil {
 		return "", fmt.Errorf("create API Gateway REST API: %w", err)
 	}

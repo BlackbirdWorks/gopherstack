@@ -24,7 +24,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *apigateway.InMemoryBackend) string {
-				api, err := b.CreateRestAPI("test-api", "test", nil)
+				api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "test-api", Description: "test"})
 				if err != nil {
 					return ""
 				}
@@ -85,7 +85,7 @@ func TestAPIGatewayHandler_Persistence(t *testing.T) {
 	backend := apigateway.NewInMemoryBackend()
 	h := apigateway.NewHandler(backend)
 
-	_, err := backend.CreateRestAPI("snap-api", "test", nil)
+	_, err := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "snap-api", Description: "test"})
 	require.NoError(t, err)
 
 	snap := h.Snapshot()
@@ -145,7 +145,7 @@ func TestAPIGatewayBackend_DeploymentOperations(t *testing.T) {
 	b := apigateway.NewInMemoryBackend()
 
 	// Create a REST API first
-	api, err := b.CreateRestAPI("deploy-api", "test", nil)
+	api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "deploy-api", Description: "test"})
 	require.NoError(t, err)
 
 	// Create deployment
@@ -171,7 +171,7 @@ func TestAPIGatewayBackend_GetDeployment_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := apigateway.NewInMemoryBackend()
-	api, err := b.CreateRestAPI("test-api", "", nil)
+	api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "test-api"})
 	require.NoError(t, err)
 
 	_, err = b.GetDeployment(api.ID, "nonexistent")
