@@ -24,6 +24,7 @@ func (dc *DeploymentConfiguration) withAWSDefaults() *DeploymentConfiguration {
 	if dc == nil {
 		minPct := defaultMinimumHealthyPercent
 		maxPct := defaultMaximumPercent
+
 		return &DeploymentConfiguration{
 			MinimumHealthyPercent: &minPct,
 			MaximumPercent:        &maxPct,

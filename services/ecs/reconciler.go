@@ -128,6 +128,7 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 					"cluster", snap.clusterName,
 					"service", svc.ServiceName,
 				)
+
 				return nil
 			}
 

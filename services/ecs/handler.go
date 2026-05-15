@@ -518,9 +518,9 @@ type deploymentControllerInput struct {
 }
 
 type awsvpcConfigurationInput struct {
+	AssignPublicIp string   `json:"assignPublicIp,omitempty"` //nolint:revive,stylecheck // AWS API field name
 	Subnets        []string `json:"subnets"`
 	SecurityGroups []string `json:"securityGroups,omitempty"`
-	AssignPublicIp string   `json:"assignPublicIp,omitempty"`
 }
 
 type networkConfigurationInput struct {
@@ -697,9 +697,9 @@ type loadBalancerInput struct {
 
 type serviceRegistryInput struct {
 	RegistryArn   string `json:"registryArn,omitempty"`
+	ContainerName string `json:"containerName,omitempty"`
 	Port          int    `json:"port,omitempty"`
 	ContainerPort int    `json:"containerPort,omitempty"`
-	ContainerName string `json:"containerName,omitempty"`
 }
 
 type createServiceInput struct {
@@ -864,11 +864,12 @@ func (h *Handler) handleListServices(_ context.Context, in *listServicesInput) (
 // ----- Task handlers -----
 
 type containerOverrideInput struct {
-	CPU         *int           `json:"cpu,omitempty"`
-	Memory      *int           `json:"memory,omitempty"`
-	Name        string         `json:"name"`
-	Command     []string       `json:"command,omitempty"`
-	Environment []KeyValuePair `json:"environment,omitempty"`
+	CPU         *int              `json:"cpu,omitempty"`
+	Memory      *int              `json:"memory,omitempty"`
+	Name        string            `json:"name"`
+	Command     []string          `json:"command,omitempty"`
+	Environment []KeyValuePair    `json:"environment,omitempty"`
+	Secrets     []SecretReference `json:"secrets,omitempty"`
 }
 
 type taskOverrideInput struct {
@@ -1076,9 +1077,9 @@ type deploymentControllerView struct {
 }
 
 type awsvpcConfigurationView struct {
+	AssignPublicIp string   `json:"assignPublicIp,omitempty"` //nolint:revive,stylecheck // AWS API field name
 	Subnets        []string `json:"subnets"`
 	SecurityGroups []string `json:"securityGroups,omitempty"`
-	AssignPublicIp string   `json:"assignPublicIp,omitempty"`
 }
 
 type networkConfigurationView struct {
@@ -1094,9 +1095,9 @@ type loadBalancerView struct {
 
 type serviceRegistryView struct {
 	RegistryArn   string `json:"registryArn,omitempty"`
+	ContainerName string `json:"containerName,omitempty"`
 	Port          int    `json:"port,omitempty"`
 	ContainerPort int    `json:"containerPort,omitempty"`
-	ContainerName string `json:"containerName,omitempty"`
 }
 
 type taskDefinitionView struct {
@@ -1264,11 +1265,12 @@ type taskAttachmentView struct {
 }
 
 type containerOverrideView struct {
-	CPU         *int           `json:"cpu,omitempty"`
-	Memory      *int           `json:"memory,omitempty"`
-	Name        string         `json:"name"`
-	Command     []string       `json:"command,omitempty"`
-	Environment []KeyValuePair `json:"environment,omitempty"`
+	CPU         *int              `json:"cpu,omitempty"`
+	Memory      *int              `json:"memory,omitempty"`
+	Name        string            `json:"name"`
+	Command     []string          `json:"command,omitempty"`
+	Environment []KeyValuePair    `json:"environment,omitempty"`
+	Secrets     []SecretReference `json:"secrets,omitempty"`
 }
 
 type taskOverrideView struct {
@@ -1297,7 +1299,7 @@ type taskView struct {
 	PlatformFamily       string                    `json:"platformFamily,omitempty"`
 	RuntimeID            string                    `json:"runtimeId,omitempty"`
 	PropagateTags        string                    `json:"propagateTags,omitempty"`
-	Attachments          []taskAttachmentView       `json:"attachments,omitempty"`
+	Attachments          []taskAttachmentView      `json:"attachments,omitempty"`
 	StartedAt            float64                   `json:"startedAt,omitempty"`
 	StoppedAt            float64                   `json:"stoppedAt,omitempty"`
 	ConnectivityAt       float64                   `json:"connectivityAt,omitempty"`

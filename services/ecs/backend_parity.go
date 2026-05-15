@@ -2,6 +2,7 @@ package ecs
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -45,8 +46,8 @@ type SecretOption struct {
 
 // FirelensConfiguration specifies FireLens routing for container logs.
 type FirelensConfiguration struct {
-	Type    string            `json:"type"`
 	Options map[string]string `json:"options,omitempty"`
+	Type    string            `json:"type"`
 }
 
 // ---- Issue #6: Secrets ----
@@ -61,10 +62,10 @@ type SecretReference struct {
 
 // EFSVolumeConfiguration holds EFS-specific volume options.
 type EFSVolumeConfiguration struct {
-	FileSystemID          string `json:"fileSystemId"`
-	RootDirectory         string `json:"rootDirectory,omitempty"`
-	TransitEncryption     string `json:"transitEncryption,omitempty"`
-	AuthorizationConfig   *EFSAuthorizationConfig `json:"authorizationConfig,omitempty"`
+	AuthorizationConfig *EFSAuthorizationConfig `json:"authorizationConfig,omitempty"`
+	FileSystemID        string                  `json:"fileSystemId"`
+	RootDirectory       string                  `json:"rootDirectory,omitempty"`
+	TransitEncryption   string                  `json:"transitEncryption,omitempty"`
 }
 
 // EFSAuthorizationConfig holds EFS authorization settings.
@@ -80,9 +81,9 @@ type HostVolumeProperties struct {
 
 // Volume defines a storage volume for a task definition.
 type Volume struct {
-	Name                   string                  `json:"name"`
 	Host                   *HostVolumeProperties   `json:"host,omitempty"`
 	EFSVolumeConfiguration *EFSVolumeConfiguration `json:"efsVolumeConfiguration,omitempty"`
+	Name                   string                  `json:"name"`
 	ConfiguredAtLaunch     bool                    `json:"configuredAtLaunch,omitempty"`
 }
 
@@ -108,9 +109,9 @@ const (
 
 // AwsvpcConfiguration holds awsvpc mode network settings.
 type AwsvpcConfiguration struct {
+	AssignPublicIp string   `json:"assignPublicIp,omitempty"` //nolint:revive,stylecheck // AWS API field name
 	Subnets        []string `json:"subnets"`
 	SecurityGroups []string `json:"securityGroups,omitempty"`
-	AssignPublicIp string   `json:"assignPublicIp,omitempty"`
 }
 
 // NetworkConfiguration holds the network settings for a task or service.
@@ -141,33 +142,38 @@ type RepositoryCredentials struct {
 // ServiceRegistry wires tasks into a CloudMap namespace for service discovery.
 type ServiceRegistry struct {
 	RegistryArn   string `json:"registryArn,omitempty"`
+	ContainerName string `json:"containerName,omitempty"`
 	Port          int    `json:"port,omitempty"`
 	ContainerPort int    `json:"containerPort,omitempty"`
-	ContainerName string `json:"containerName,omitempty"`
 }
 
 // ---- Issue #9: Fargate CPU/memory validation ----
 
-// fargateCPUMemoryPairs maps valid Fargate CPU values (vCPU units as strings) to
-// the set of valid memory values (MiB as strings) per the AWS documentation.
-var fargateCPUMemoryPairs = map[string][]string{
-	"256":  {"512", "1024", "2048"},
-	"512":  {"1024", "2048", "3072", "4096"},
-	"1024": {"2048", "3072", "4096", "5120", "6144", "7168", "8192"},
-	"2048": {"4096", "5120", "6144", "7168", "8192", "9216", "10240", "11264", "12288", "13312", "14336", "15360", "16384"},
-	"4096": {
-		"8192", "9216", "10240", "11264", "12288", "13312", "14336", "15360",
-		"16384", "17408", "18432", "19456", "20480", "21504", "22528", "23552",
-		"24576", "25600", "26624", "27648", "28672", "29696", "30720",
-	},
-	"8192": {
-		"16384", "20480", "24576", "28672", "32768", "36864", "40960", "45056",
-		"49152", "53248", "57344", "61440",
-	},
-	"16384": {
-		"32768", "40960", "49152", "57344", "65536", "73728", "81920", "90112",
-		"98304", "106496", "114688", "122880",
-	},
+// fargateCPUMemoryPairs returns valid Fargate CPU/memory combinations per the AWS docs.
+// Keys are CPU values (vCPU units as strings); values are allowed memory values (MiB as strings).
+func fargateCPUMemoryPairs() map[string][]string {
+	return map[string][]string{
+		"256":  {"512", "1024", "2048"},
+		"512":  {"1024", "2048", "3072", "4096"},
+		"1024": {"2048", "3072", "4096", "5120", "6144", "7168", "8192"},
+		"2048": {
+			"4096", "5120", "6144", "7168", "8192", "9216", "10240", "11264",
+			"12288", "13312", "14336", "15360", "16384",
+		},
+		"4096": {
+			"8192", "9216", "10240", "11264", "12288", "13312", "14336", "15360",
+			"16384", "17408", "18432", "19456", "20480", "21504", "22528", "23552",
+			"24576", "25600", "26624", "27648", "28672", "29696", "30720",
+		},
+		"8192": {
+			"16384", "20480", "24576", "28672", "32768", "36864", "40960", "45056",
+			"49152", "53248", "57344", "61440",
+		},
+		"16384": {
+			"32768", "40960", "49152", "57344", "65536", "73728", "81920", "90112",
+			"98304", "106496", "114688", "122880",
+		},
+	}
 }
 
 // validateFargateCPUMemory returns an error if the cpu/memory combination is
@@ -177,7 +183,9 @@ func validateFargateCPUMemory(cpu, memory string) error {
 		return nil
 	}
 
-	validMemories, ok := fargateCPUMemoryPairs[cpu]
+	pairs := fargateCPUMemoryPairs()
+	validMemories, ok := pairs[cpu]
+
 	if !ok {
 		return fmt.Errorf(
 			"%w: invalid Fargate CPU value %q; valid values: 256, 512, 1024, 2048, 4096, 8192, 16384",
@@ -185,10 +193,8 @@ func validateFargateCPUMemory(cpu, memory string) error {
 		)
 	}
 
-	for _, m := range validMemories {
-		if m == memory {
-			return nil
-		}
+	if slices.Contains(validMemories, memory) {
+		return nil
 	}
 
 	return fmt.Errorf(
@@ -199,14 +205,28 @@ func validateFargateCPUMemory(cpu, memory string) error {
 
 // ---- Issue #16: PlatformVersion validation ----
 
-// validFargatePlatformVersions is the set of recognized Fargate platform versions.
-var validFargatePlatformVersions = map[string]bool{
-	"LATEST": true,
-	"1.4.0":  true,
-	"1.3.0":  true,
-	"1.2.0":  true,
-	"1.1.0":  true,
-	"1.0.0":  true,
+const (
+	platformVersionLatest = "LATEST"
+	platformVersion140    = "1.4.0"
+	platformVersion130    = "1.3.0"
+	platformVersion120    = "1.2.0"
+	platformVersion110    = "1.1.0"
+	platformVersion100    = "1.0.0"
+)
+
+// isValidFargatePlatformVersion reports whether pv is a known Fargate platform version.
+func isValidFargatePlatformVersion(pv string) bool {
+	switch pv {
+	case platformVersionLatest,
+		platformVersion140,
+		platformVersion130,
+		platformVersion120,
+		platformVersion110,
+		platformVersion100:
+		return true
+	}
+
+	return false
 }
 
 // validatePlatformVersion returns an error if the platform version is non-empty
@@ -216,7 +236,8 @@ func validatePlatformVersion(pv string) error {
 		return nil
 	}
 
-	if validFargatePlatformVersions[strings.ToUpper(pv)] || validFargatePlatformVersions[pv] {
+	upper := strings.ToUpper(pv)
+	if isValidFargatePlatformVersion(upper) || isValidFargatePlatformVersion(pv) {
 		return nil
 	}
 

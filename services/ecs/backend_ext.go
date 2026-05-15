@@ -327,7 +327,7 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 
 	platformVersion := input.PlatformVersion
 	if platformVersion == "" {
-		platformVersion = "LATEST"
+		platformVersion = platformVersionLatest
 	}
 
 	scale := TaskSetScale{Unit: "PERCENT", Value: defaultTaskSetScaleValue}

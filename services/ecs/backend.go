@@ -64,27 +64,27 @@ type Cluster struct {
 
 // ContainerDefinition represents a container definition in a task definition.
 type ContainerDefinition struct {
-	LogConfiguration      *LogConfiguration      `json:"logConfiguration,omitempty"`
-	FirelensConfiguration *FirelensConfiguration `json:"firelensConfiguration,omitempty"`
-	HealthCheck           *HealthCheck           `json:"healthCheck,omitempty"`
-	RepositoryCredentials *RepositoryCredentials `json:"repositoryCredentials,omitempty"`
-	Image                 string                 `json:"image"`
-	Name                  string                 `json:"name"`
-	EntryPoint            []string               `json:"entryPoint,omitempty"`
-	Command               []string               `json:"command,omitempty"`
-	Environment           []KeyValuePair         `json:"environment,omitempty"`
-	Secrets               []SecretReference      `json:"secrets,omitempty"`
-	PortMappings          []PortMapping          `json:"portMappings,omitempty"`
-	MountPoints           []MountPoint           `json:"mountPoints,omitempty"`
-	VolumesFrom           []VolumeFrom           `json:"volumesFrom,omitempty"`
-	DependsOn             []ContainerDependency  `json:"dependsOn,omitempty"`
-	Memory                int                    `json:"memory,omitempty"`
-	MemoryReservation     int                    `json:"memoryReservation,omitempty"`
-	CPU                   int                    `json:"cpu,omitempty"`
-	Essential             bool                   `json:"essential"`
-	DisableNetworking     bool                   `json:"disableNetworking,omitempty"`
-	Privileged            bool                   `json:"privileged,omitempty"`
-	ReadonlyRootFilesystem bool                  `json:"readonlyRootFilesystem,omitempty"`
+	LogConfiguration       *LogConfiguration      `json:"logConfiguration,omitempty"`
+	FirelensConfiguration  *FirelensConfiguration `json:"firelensConfiguration,omitempty"`
+	HealthCheck            *HealthCheck           `json:"healthCheck,omitempty"`
+	RepositoryCredentials  *RepositoryCredentials `json:"repositoryCredentials,omitempty"`
+	Image                  string                 `json:"image"`
+	Name                   string                 `json:"name"`
+	EntryPoint             []string               `json:"entryPoint,omitempty"`
+	Command                []string               `json:"command,omitempty"`
+	Environment            []KeyValuePair         `json:"environment,omitempty"`
+	Secrets                []SecretReference      `json:"secrets,omitempty"`
+	PortMappings           []PortMapping          `json:"portMappings,omitempty"`
+	MountPoints            []MountPoint           `json:"mountPoints,omitempty"`
+	VolumesFrom            []VolumeFrom           `json:"volumesFrom,omitempty"`
+	DependsOn              []ContainerDependency  `json:"dependsOn,omitempty"`
+	Memory                 int                    `json:"memory,omitempty"`
+	MemoryReservation      int                    `json:"memoryReservation,omitempty"`
+	CPU                    int                    `json:"cpu,omitempty"`
+	Essential              bool                   `json:"essential"`
+	DisableNetworking      bool                   `json:"disableNetworking,omitempty"`
+	Privileged             bool                   `json:"privileged,omitempty"`
+	ReadonlyRootFilesystem bool                   `json:"readonlyRootFilesystem,omitempty"`
 }
 
 // ContainerDependency specifies a start/stop dependency between containers.
@@ -101,12 +101,12 @@ type KeyValuePair struct {
 
 // PortMapping maps a container port to a host port.
 type PortMapping struct {
-	Name                string `json:"name,omitempty"`
-	Protocol            string `json:"protocol,omitempty"`
-	AppProtocol         string `json:"appProtocol,omitempty"`
-	ContainerPortRange  string `json:"containerPortRange,omitempty"`
-	ContainerPort       int    `json:"containerPort,omitempty"`
-	HostPort            int    `json:"hostPort,omitempty"`
+	Name               string `json:"name,omitempty"`
+	Protocol           string `json:"protocol,omitempty"`
+	AppProtocol        string `json:"appProtocol,omitempty"`
+	ContainerPortRange string `json:"containerPortRange,omitempty"`
+	ContainerPort      int    `json:"containerPort,omitempty"`
+	HostPort           int    `json:"hostPort,omitempty"`
 }
 
 // TaskDefinition represents an ECS task definition.
@@ -544,9 +544,11 @@ func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInp
 	}
 
 	isFargate := false
+
 	for _, rc := range input.RequiresCompatibilities {
 		if strings.EqualFold(rc, launchTypeFargate) {
 			isFargate = true
+
 			break
 		}
 	}

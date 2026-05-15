@@ -22,11 +22,11 @@ type ServiceConnectConfiguration struct {
 
 // ContainerOverride represents a container override for a task.
 type ContainerOverride struct {
-	CPU         *int           `json:"cpu,omitempty"`
-	Memory      *int           `json:"memory,omitempty"`
-	Name        string         `json:"name"`
-	Command     []string       `json:"command,omitempty"`
-	Environment []KeyValuePair `json:"environment,omitempty"`
+	CPU         *int              `json:"cpu,omitempty"`
+	Memory      *int              `json:"memory,omitempty"`
+	Name        string            `json:"name"`
+	Command     []string          `json:"command,omitempty"`
+	Environment []KeyValuePair    `json:"environment,omitempty"`
 	Secrets     []SecretReference `json:"secrets,omitempty"`
 }
 
