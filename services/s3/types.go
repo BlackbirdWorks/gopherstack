@@ -37,6 +37,8 @@ type StoredBucket struct {
 	Versioning                types.BucketVersioningStatus `json:"versioning,omitempty"`
 	Name                      string                       `json:"name"`
 	ACL                       string                       `json:"acl,omitempty"`
+	AccelerateStatus          string                       `json:"accelerateStatus,omitempty"`
+	RequestPaymentPayer       string                       `json:"requestPaymentPayer,omitempty"`
 	Tags                      []types.Tag                  `json:"tags,omitempty"`
 	DeletePending             bool                         `json:"deletePending,omitempty"`
 }
@@ -51,24 +53,37 @@ type StoredObject struct {
 
 // StoredObjectVersion represents a specific version of an S3 object.
 type StoredObjectVersion struct {
-	LastModified       time.Time               `json:"lastModified"`
-	RetainUntil        time.Time               `json:"retainUntil"`
-	ChecksumSHA1       *string                 `json:"checksumSHA1,omitempty"`
-	Metadata           map[string]string       `json:"metadata,omitempty"`
-	ChecksumSHA256     *string                 `json:"checksumSHA256,omitempty"`
-	ChecksumCRC32      *string                 `json:"checksumCRC32,omitempty"`
-	ChecksumCRC32C     *string                 `json:"checksumCRC32C,omitempty"`
-	ChecksumCRC64NVME  *string                 `json:"checksumCRC64NVME,omitempty"`
-	SSEAlgorithm       string                  `json:"sseAlgorithm,omitempty"`
-	SSEKMSKeyID        string                  `json:"sseKMSKeyID,omitempty"`
-	SSECAlgorithm      string                  `json:"sseCAlgorithm,omitempty"`
-	SSECKeyMD5         string                  `json:"sseCKeyMD5,omitempty"`
+	LastModified      time.Time         `json:"lastModified"`
+	RetainUntil       time.Time         `json:"retainUntil"`
+	RestoreExpiry     time.Time         `json:"restoreExpiry,omitzero"`
+	ChecksumSHA1      *string           `json:"checksumSHA1,omitempty"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
+	ChecksumSHA256    *string           `json:"checksumSHA256,omitempty"`
+	ChecksumCRC32     *string           `json:"checksumCRC32,omitempty"`
+	ChecksumCRC32C    *string           `json:"checksumCRC32C,omitempty"`
+	ChecksumCRC64NVME *string           `json:"checksumCRC64NVME,omitempty"`
+	SSEAlgorithm      string            `json:"sseAlgorithm,omitempty"`
+	SSEKMSKeyID       string            `json:"sseKMSKeyID,omitempty"`
+	SSECAlgorithm     string            `json:"sseCAlgorithm,omitempty"`
+	SSECKeyMD5        string            `json:"sseCKeyMD5,omitempty"`
+	// EncryptionDEK is the AES-256 data encryption key randomly generated on
+	// PUT for SSE-S3/SSE-KMS objects. Real S3 wraps this under a KMS CMK and
+	// stores only the wrapped form; for an in-memory mock the storage is
+	// the same address space so we keep the raw key. SSE-C objects don't
+	// store the key — the customer re-supplies it on GET.
+	EncryptionDEK []byte `json:"-"`
+	// EncryptionNonce is the GCM nonce/IV used for this object's ciphertext.
+	// Stored alongside the ciphertext (in StoredObjectVersion.Data) so GET
+	// can decrypt without re-deriving anything.
+	EncryptionNonce    []byte                  `json:"-"`
 	Key                string                  `json:"key"`
 	ETag               string                  `json:"etag"`
 	ContentType        string                  `json:"contentType"`
 	ContentEncoding    string                  `json:"contentEncoding,omitempty"`
 	ContentDisposition string                  `json:"contentDisposition,omitempty"`
 	RetentionMode      string                  `json:"retentionMode,omitempty"`
+	StorageClass       string                  `json:"storageClass,omitempty"`
+	ACL                string                  `json:"acl,omitempty"`
 	ChecksumAlgorithm  types.ChecksumAlgorithm `json:"checksumAlgorithm,omitempty"`
 	VersionID          string                  `json:"versionID"`
 	Data               []byte                  `json:"data,omitempty"`
@@ -77,6 +92,7 @@ type StoredObjectVersion struct {
 	IsLatest           bool                    `json:"isLatest"`
 	Deleted            bool                    `json:"deleted,omitempty"`
 	LegalHold          bool                    `json:"legalHold,omitempty"`
+	OngoingRestore     bool                    `json:"ongoingRestore,omitempty"`
 }
 
 // StoredMultipartUpload represents an ongoing multipart upload session.
@@ -91,6 +107,10 @@ type StoredMultipartUpload struct {
 	// supplied at CreateMultipartUpload time. It is applied to the resulting
 	// object version when CompleteMultipartUpload succeeds.
 	Tagging string `json:"tagging,omitempty"`
+	// SSE captures the encryption headers from CreateMultipartUpload so the
+	// completed object's assembled body can be sealed with the same envelope
+	// (matching real S3 — SSE is fixed at session-init).
+	SSE sseInfo `json:"-"`
 	// closed is set to true by AbortMultipartUpload or CompleteMultipartUpload
 	// before the upload is removed from the index, so that concurrent UploadPart
 	// calls that already hold a pointer to this struct can detect the invalidation.

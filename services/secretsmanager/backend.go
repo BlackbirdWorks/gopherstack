@@ -293,6 +293,7 @@ func (b *InMemoryBackend) GetSecretValue(input *GetSecretValueInput) (*GetSecret
 	// Track access date (truncated to day granularity as AWS does).
 	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(hoursPerDay * time.Hour))
 	secret.LastAccessedDate = &accessDay
+	version.LastAccessedDate = &accessDay
 
 	return &GetSecretValueOutput{
 		ARN:           secret.ARN,
@@ -695,9 +696,11 @@ func (b *InMemoryBackend) ListSecretVersionIDs(input *ListSecretVersionIDsInput)
 		}
 
 		entries = append(entries, SecretVersionEntry{
-			VersionID:     v.VersionID,
-			StagingLabels: v.StagingLabels,
-			CreatedDate:   v.CreatedDate,
+			VersionID:        v.VersionID,
+			StagingLabels:    v.StagingLabels,
+			CreatedDate:      v.CreatedDate,
+			LastAccessedDate: v.LastAccessedDate,
+			KmsKeyIDs:        append([]string{}, v.KmsKeyIDs...),
 		})
 	}
 
@@ -776,6 +779,8 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 		VersionIDsToStages: versionIDsToStages,
 		RotationEnabled:    secret.RotationEnabled,
 		ReplicationStatus:  b.replicationConfigs[name],
+		OwnerAccountID:     b.accountID,
+		PrimaryRegion:      b.region,
 	}
 
 	// Compute NextRotationDate from the last rotation base + interval.

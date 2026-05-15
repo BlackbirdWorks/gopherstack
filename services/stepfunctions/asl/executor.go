@@ -2,13 +2,19 @@ package asl
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"math"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -45,6 +51,13 @@ var (
 	ErrUnsupportedSNSAction             = errors.New("unsupported SNS action")
 	ErrUnsupportedDynamoDBAction        = errors.New("unsupported DynamoDB action")
 	ErrActivityNotConfigured            = errors.New("activity invoker not configured")
+	ErrTaskTokenCallbackNotConfigured   = errors.New("task token callback invoker not configured")
+)
+
+const (
+	errCodeStatesPermissions = "States.Permissions"
+	errCodeStatesRuntime     = "States.Runtime"
+	errCodeStatesTimeout     = "States.Timeout"
 )
 
 // LambdaInvoker can invoke a Lambda function.
@@ -96,6 +109,11 @@ type DynamoDBIntegration interface {
 	SFNDeleteTable(ctx context.Context, input any) (any, error)
 }
 
+// TaskTokenCallbackInvoker waits for SendTaskSuccess/SendTaskFailure callbacks for a task token.
+type TaskTokenCallbackInvoker interface {
+	WaitForTaskToken(ctx context.Context, taskToken string, heartbeatSeconds int) (string, error)
+}
+
 // HistoryRecorder is called during execution to record state transition events.
 type HistoryRecorder interface {
 	RecordStateEntered(executionARN, stateName, stateType string, input any)
@@ -113,6 +131,80 @@ type ExecutionResult struct {
 }
 
 const maxConcurrentSubExecutors = 64
+const maxJSONPathCacheEntries = int64(4096)
+const maxRetryDelay = 24 * time.Hour
+const maxCacheStoreCASAttempts = 128
+
+type jsonPathCache struct {
+	entries    sync.Map
+	size       atomic.Int64
+	maxEntries int64
+}
+
+func newJSONPathCache(maxEntries int64) *jsonPathCache {
+	if maxEntries <= 0 {
+		maxEntries = 1
+	}
+
+	cache := &jsonPathCache{maxEntries: maxEntries}
+	cache.size.Store(0)
+
+	return cache
+}
+
+func (c *jsonPathCache) load(path string) ([]string, bool) {
+	if c == nil {
+		return nil, false
+	}
+
+	cached, found := c.entries.Load(path)
+	if !found {
+		return nil, false
+	}
+
+	parts, ok := cached.([]string)
+	if !ok {
+		return nil, false
+	}
+
+	return parts, true
+}
+
+func (c *jsonPathCache) store(path string, parts []string) {
+	if c == nil {
+		return
+	}
+
+	if _, found := c.entries.Load(path); found {
+		return
+	}
+
+	reserved := false
+	for range maxCacheStoreCASAttempts {
+		currentSize := c.size.Load()
+		if currentSize >= c.maxEntries {
+			return
+		}
+
+		if c.size.CompareAndSwap(currentSize, currentSize+1) {
+			reserved = true
+
+			break
+		}
+
+		runtime.Gosched()
+	}
+	if !reserved {
+		return
+	}
+
+	if _, loaded := c.entries.LoadOrStore(path, parts); loaded {
+		// Another goroutine inserted the same key after reserve; release reservation.
+		c.size.Add(-1)
+
+		return
+	}
+}
 
 // Executor runs an ASL state machine.
 type Executor struct {
@@ -123,12 +215,43 @@ type Executor struct {
 	dynamodb DynamoDBIntegration
 	history  HistoryRecorder
 	activity ActivityInvoker
+	callback TaskTokenCallbackInvoker
 	s3       S3Reader
-	// execSem limits the total number of concurrently running sub-executors
-	// (spawned by Parallel/Map states) to prevent goroutine explosion.
+	// execSem limits the total number of concurrently running Parallel branches.
 	execSem chan struct{}
 	// jsonPathCache stores parsed JSONPath segments for reuse across executions.
-	jsonPathCache *sync.Map
+	jsonPathCache *jsonPathCache
+	// execMeta carries `$$.Execution.*` and `$$.StateMachine.*` context for `$$` paths.
+	execMeta executionMeta
+	// branchName, if set, is exposed as `$$.Parallel.BranchName`/`$$.Execution.BranchName`.
+	branchName string
+}
+
+// executionMeta is the subset of context object data that ASL exposes via `$$`.
+type executionMeta struct {
+	ID               string
+	Name             string
+	RoleArn          string
+	StartTime        string
+	StateMachineID   string
+	StateMachineArn  string
+	StateMachineName string
+}
+
+// SetExecutionContext sets the metadata that will be exposed via `$$.Execution.*`
+// and `$$.StateMachine.*` JSONPath references during evaluation.
+func (e *Executor) SetExecutionContext(
+	executionARN, executionName, roleArn, startTime, stateMachineARN, stateMachineName string,
+) {
+	e.execMeta = executionMeta{
+		ID:               executionARN,
+		Name:             executionName,
+		RoleArn:          roleArn,
+		StartTime:        startTime,
+		StateMachineID:   stateMachineARN,
+		StateMachineArn:  stateMachineARN,
+		StateMachineName: stateMachineName,
+	}
 }
 
 // NewExecutor creates an Executor for the given state machine.
@@ -138,7 +261,7 @@ func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder
 		lambda:        lambda,
 		history:       history,
 		execSem:       make(chan struct{}, maxConcurrentSubExecutors),
-		jsonPathCache: &sync.Map{},
+		jsonPathCache: newJSONPathCache(maxJSONPathCacheEntries),
 	}
 }
 
@@ -152,10 +275,63 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		dynamodb:      e.dynamodb,
 		history:       e.history,
 		activity:      e.activity,
+		callback:      e.callback,
 		s3:            e.s3,
 		execSem:       e.execSem,
 		jsonPathCache: e.jsonPathCache,
+		execMeta:      e.execMeta,
+		branchName:    e.branchName,
 	}
+}
+
+// newBranchExecutor creates a sub-executor whose `$$.Parallel.BranchName` and
+// `$$.Execution.BranchName` paths resolve to the supplied name.
+func (e *Executor) newBranchExecutor(sm *StateMachine, branchName string) *Executor {
+	sub := e.newSubExecutor(sm)
+	sub.branchName = branchName
+
+	return sub
+}
+
+// buildContextObject returns the JSON-shaped `$$` context object for path
+// evaluation. The shape mirrors the AWS Step Functions context object subset
+// that is observable via Parameters/ResultSelector templates.
+func (e *Executor) buildContextObject() map[string]any {
+	exec := map[string]any{}
+
+	if e.execMeta.ID != "" {
+		exec["Id"] = e.execMeta.ID
+	}
+
+	if e.execMeta.Name != "" {
+		exec["Name"] = e.execMeta.Name
+	}
+
+	if e.execMeta.RoleArn != "" {
+		exec["RoleArn"] = e.execMeta.RoleArn
+	}
+
+	if e.execMeta.StartTime != "" {
+		exec["StartTime"] = e.execMeta.StartTime
+	}
+
+	if e.branchName != "" {
+		exec["BranchName"] = e.branchName
+	}
+
+	ctx := map[string]any{
+		"Execution": exec,
+		"StateMachine": map[string]any{
+			"Id":   e.execMeta.StateMachineID,
+			"Name": e.execMeta.StateMachineName,
+		},
+	}
+
+	if e.branchName != "" {
+		ctx["Parallel"] = map[string]any{"BranchName": e.branchName}
+	}
+
+	return ctx
 }
 
 // SetSQSIntegration configures the SQS integration for Task states.
@@ -172,6 +348,11 @@ func (e *Executor) SetS3Reader(s3 S3Reader) { e.s3 = s3 }
 
 // SetActivityInvoker configures the activity invoker for activity Task states.
 func (e *Executor) SetActivityInvoker(ai ActivityInvoker) { e.activity = ai }
+
+// SetTaskTokenCallbackInvoker configures callback waiting for .waitForTaskToken integrations.
+func (e *Executor) SetTaskTokenCallbackInvoker(invoker TaskTokenCallbackInvoker) {
+	e.callback = invoker
+}
 
 // Execute runs the state machine with the given input JSON and returns the result.
 func (e *Executor) Execute(ctx context.Context, executionARN, inputJSON string) (*ExecutionResult, error) {
@@ -227,7 +408,8 @@ func (e *Executor) runStates(
 		// Apply Parameters to transform the effective input for this state.
 		taskInput := effectiveInput
 		if len(state.Parameters) > 0 {
-			taskInput, err = applyParametersTemplate(state.Parameters, effectiveInput)
+			paramInput := pathEvalInput{data: effectiveInput, context: e.buildContextObject()}
+			taskInput, err = applyParametersTemplate(state.Parameters, paramInput)
 			if err != nil {
 				return nil, fmt.Errorf("parameters error in state %q: %w", current, err)
 			}
@@ -241,7 +423,7 @@ func (e *Executor) runStates(
 			return nil, err
 		}
 
-		finalOutput, err := applyStateOutputTransforms(state, value, result, current)
+		finalOutput, err := e.applyStateOutputTransforms(state, value, result, current)
 		if err != nil {
 			return nil, err
 		}
@@ -262,12 +444,14 @@ func (e *Executor) runStates(
 }
 
 // applyStateOutputTransforms applies ResultSelector, ResultPath, and OutputPath to produce the final state output.
-func applyStateOutputTransforms(state *State, input, result any, stateName string) (any, error) {
+func (e *Executor) applyStateOutputTransforms(state *State, input, result any, stateName string) (any, error) {
 	// Apply ResultSelector to filter the state output before ResultPath merge.
 	if len(state.ResultSelector) > 0 {
 		var err error
 
-		result, err = applyParametersTemplate(state.ResultSelector, result)
+		rsInput := pathEvalInput{data: result, context: e.buildContextObject()}
+
+		result, err = applyParametersTemplate(state.ResultSelector, rsInput)
 		if err != nil {
 			return nil, fmt.Errorf("ResultSelector error in state %q: %w", stateName, err)
 		}
@@ -488,9 +672,10 @@ func (e *Executor) executeTask(
 
 	// retryAttempts tracks how many times each retrier entry has been used.
 	retryAttempts := make([]int, len(state.Retry))
+	waitForTaskToken := isWaitForTaskTokenResource(state.Resource)
 
 	for {
-		result, taskErr := e.invokeTask(ctx, state, input)
+		result, taskErr := e.invokeTaskAttempt(ctx, state, input, waitForTaskToken)
 		if taskErr == nil {
 			e.recordTaskSucceeded(executionARN, stateName, result)
 
@@ -523,6 +708,87 @@ func (e *Executor) executeTask(
 
 		return "", nil, &FailError{ErrCode: "TaskFailed", Cause: taskErr.Error()}
 	}
+}
+
+func (e *Executor) invokeTaskAttempt(ctx context.Context, state *State, input any, waitForTaskToken bool) (any, error) {
+	if !waitForTaskToken {
+		return e.invokeTask(ctx, state, input)
+	}
+
+	if e.callback == nil {
+		return nil, ErrTaskTokenCallbackNotConfigured
+	}
+
+	taskToken, err := generateTaskToken()
+	if err != nil {
+		return nil, err
+	}
+
+	taskInput := injectTaskToken(input, taskToken)
+	invokeResult, invokeErr := e.invokeTask(ctx, state, taskInput)
+	if invokeErr != nil {
+		return nil, invokeErr
+	}
+
+	callbackOutput, err := e.callback.WaitForTaskToken(ctx, taskToken, state.HeartbeatSeconds)
+	if err != nil {
+		return nil, err
+	}
+	if callbackOutput == "" {
+		return invokeResult, nil
+	}
+
+	return parseCallbackOutput(callbackOutput), nil
+}
+
+// parseCallbackOutput tries to decode callback output as JSON and falls back to raw string.
+// AWS callback outputs are often JSON, but plain strings are allowed.
+func parseCallbackOutput(output string) any {
+	var result any
+	if output != "" {
+		if err := json.Unmarshal([]byte(output), &result); err == nil {
+			return result
+		}
+	}
+
+	return output
+}
+
+func injectTaskToken(input any, taskToken string) any {
+	inputMap, ok := input.(map[string]any)
+	if !ok {
+		return map[string]any{
+			"Input":     input,
+			"TaskToken": taskToken,
+		}
+	}
+
+	copyMap := make(map[string]any, mapCopyCapacity(len(inputMap)))
+	maps.Copy(copyMap, inputMap)
+	copyMap["TaskToken"] = taskToken
+
+	return copyMap
+}
+
+func mapCopyCapacity(size int) int {
+	if size > math.MaxInt-1 {
+		return 0
+	}
+
+	return size + 1
+}
+
+// generateTaskToken returns a cryptographically random task token.
+// Token format is URL-safe base64-encoded 32 random bytes.
+func generateTaskToken() (string, error) {
+	// 32 random bytes provide 256-bit entropy, matching strong token requirements.
+	const taskTokenBytes = 32
+	tokenBytes := make([]byte, taskTokenBytes)
+	if _, err := cryptorand.Read(tokenBytes); err != nil {
+		return "", fmt.Errorf("generate task token: %w", err)
+	}
+
+	return base64.URLEncoding.EncodeToString(tokenBytes), nil
 }
 
 // waitForRetry waits for the retry delay, or returns ctx.Err() if the context is done.
@@ -582,11 +848,7 @@ func tryRetry(ctx context.Context, state *State, retryAttempts []int, taskErr er
 			backoffRate = defaultBackoffRate
 		}
 
-		delay := time.Duration(
-			float64(intervalSeconds) *
-				math.Pow(backoffRate, float64(retryAttempts[i])) *
-				float64(time.Second),
-		)
+		delay := computeRetryDelay(intervalSeconds, backoffRate, retryAttempts[i])
 		retryAttempts[i]++
 
 		if err := waitForRetry(ctx, delay); err != nil {
@@ -601,6 +863,23 @@ func tryRetry(ctx context.Context, state *State, retryAttempts []int, taskErr er
 	}
 
 	return false, nil
+}
+
+func computeRetryDelay(intervalSeconds int, backoffRate float64, attempts int) time.Duration {
+	delaySeconds := float64(intervalSeconds) * math.Pow(backoffRate, float64(attempts))
+	if math.IsNaN(delaySeconds) || math.IsInf(delaySeconds, 0) {
+		return 0
+	}
+
+	if delaySeconds > maxRetryDelay.Seconds() {
+		return maxRetryDelay
+	}
+
+	if delaySeconds < 0 {
+		return 0
+	}
+
+	return time.Duration(delaySeconds * float64(time.Second))
 }
 
 // checkCatchers checks Catch clauses and returns (nextState, output, matched).
@@ -864,13 +1143,27 @@ func (e *Executor) invokeDynamoDBTableOps(ctx context.Context, action string, in
 // stripping any .sync or .waitForTaskToken suffix.
 // Example: "arn:aws:states:::sqs:sendMessage.sync" → "sendMessage".
 func serviceAction(resource string) string {
+	action, _ := parseServiceIntegrationResource(resource)
+
+	return action
+}
+
+func isWaitForTaskTokenResource(resource string) bool {
+	_, pattern := parseServiceIntegrationResource(resource)
+
+	return pattern == "waitForTaskToken"
+}
+
+func parseServiceIntegrationResource(resource string) (string, string) {
 	parts := strings.Split(resource, ":")
 	action := parts[len(parts)-1]
+	pattern := ""
 	if i := strings.IndexByte(action, '.'); i >= 0 {
+		pattern = action[i+1:]
 		action = action[:i]
 	}
 
-	return action
+	return action, pattern
 }
 
 func (e *Executor) executeParallel(
@@ -928,7 +1221,7 @@ func (e *Executor) runParallelBranch(
 	defer func() { <-e.execSem }()
 
 	branchSM := &StateMachine{StartAt: branch.StartAt, States: branch.States}
-	exec := e.newSubExecutor(branchSM)
+	exec := e.newBranchExecutor(branchSM, fmt.Sprintf("Branch-%d", idx))
 	res, err := exec.Execute(ctx, executionARN, marshalInput(input))
 
 	if err != nil {
@@ -963,6 +1256,13 @@ func (e *Executor) executeMap(
 	items, err := e.resolveMapItems(ctx, state, input)
 	if err != nil {
 		return "", nil, err
+	}
+
+	if len(state.ItemSelector) > 0 {
+		items, err = applyMapItemSelector(state.ItemSelector, items)
+		if err != nil {
+			return "", nil, err
+		}
 	}
 
 	// Apply ItemBatcher: wrap items into batches; each batch is one Map iteration.
@@ -1029,6 +1329,32 @@ func batchItems(items []any, batcher *ItemBatcher) []any {
 	return batches
 }
 
+func applyMapItemSelector(itemSelector json.RawMessage, items []any) ([]any, error) {
+	selectedItems := make([]any, len(items))
+	for idx, item := range items {
+		contextInput := pathEvalInput{
+			data: item,
+			context: map[string]any{
+				"Map": map[string]any{
+					"Item": map[string]any{
+						"Index": float64(idx),
+						"Value": item,
+					},
+				},
+			},
+		}
+
+		selected, err := applyParametersTemplate(itemSelector, contextInput)
+		if err != nil {
+			return nil, fmt.Errorf("map ItemSelector error: %w", err)
+		}
+
+		selectedItems[idx] = selected
+	}
+
+	return selectedItems, nil
+}
+
 // runMapItem executes a single map iteration item in the sub-executor.
 func (e *Executor) runMapItem(
 	ctx context.Context,
@@ -1084,7 +1410,7 @@ func (e *Executor) resolveMapItems(ctx context.Context, state *State, input any)
 }
 
 // resolveItemsFromReader reads items from S3 using the ItemReader configuration.
-// Supports JSON arrays and newline-delimited JSON (JSON Lines).
+// Supports JSON arrays, newline-delimited JSON (JSON Lines), and CSV.
 func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReader) ([]any, error) {
 	if e.s3 == nil {
 		return nil, ErrS3ReaderNotConfigured
@@ -1098,16 +1424,51 @@ func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReade
 		return nil, fmt.Errorf("ItemReader S3 get error: %w", err)
 	}
 
-	// Try JSON array first.
+	items, err := decodeReaderItems(data, reader.ReaderConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	if reader.ReaderConfig != nil && reader.ReaderConfig.MaxItems > 0 && len(items) > reader.ReaderConfig.MaxItems {
+		items = items[:reader.ReaderConfig.MaxItems]
+	}
+
+	return items, nil
+}
+
+// decodeReaderItems parses S3 object bytes into Map items based on the
+// ReaderConfig's InputType. Defaults to JSON-array-then-JSON-lines auto-detection.
+func decodeReaderItems(data []byte, cfg *ReaderConfig) ([]any, error) {
+	inputType := ""
+	if cfg != nil {
+		inputType = strings.ToUpper(cfg.InputType)
+	}
+
+	switch inputType {
+	case "CSV":
+		return decodeCSVItems(data, cfg)
+	case "JSONL", "JSON_LINES":
+		return decodeJSONLines(data)
+	case "", "JSON":
+		return decodeJSONAuto(data)
+	default:
+		return nil, fmt.Errorf("%w: unsupported InputType %q", ErrItemReaderInvalidData, inputType)
+	}
+}
+
+func decodeJSONAuto(data []byte) ([]any, error) {
 	var arr []any
 	if jsonErr := json.Unmarshal(data, &arr); jsonErr == nil {
 		return arr, nil
 	}
 
-	// Try newline-delimited JSON (JSON Lines).
+	return decodeJSONLines(data)
+}
+
+func decodeJSONLines(data []byte) ([]any, error) {
 	lines := strings.SplitSeq(strings.TrimSpace(string(data)), "\n")
 
-	var items []any
+	items := []any{}
 
 	for line := range lines {
 		line = strings.TrimSpace(line)
@@ -1123,11 +1484,66 @@ func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReade
 		items = append(items, item)
 	}
 
-	if items == nil {
-		return []any{}, nil
+	return items, nil
+}
+
+func decodeCSVItems(data []byte, cfg *ReaderConfig) ([]any, error) {
+	reader := csv.NewReader(strings.NewReader(string(data)))
+	reader.FieldsPerRecord = -1
+
+	rows, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrItemReaderInvalidData, err)
+	}
+
+	headers, dataRows, err := resolveCSVHeaders(rows, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]any, 0, len(dataRows))
+	for _, row := range dataRows {
+		obj := make(map[string]any, len(headers))
+
+		for i, header := range headers {
+			if i < len(row) {
+				obj[header] = row[i]
+			} else {
+				obj[header] = ""
+			}
+		}
+
+		items = append(items, obj)
 	}
 
 	return items, nil
+}
+
+func resolveCSVHeaders(rows [][]string, cfg *ReaderConfig) ([]string, [][]string, error) {
+	loc := ""
+	if cfg != nil {
+		loc = strings.ToUpper(cfg.CSVHeaderLocation)
+	}
+
+	switch loc {
+	case "GIVEN":
+		if cfg == nil || len(cfg.CSVHeaders) == 0 {
+			return nil, nil, fmt.Errorf(
+				"%w: CSVHeaders required when CSVHeaderLocation=GIVEN",
+				ErrItemReaderInvalidData,
+			)
+		}
+
+		return cfg.CSVHeaders, rows, nil
+	case "", "FIRST_ROW":
+		if len(rows) == 0 {
+			return nil, nil, nil
+		}
+
+		return rows[0], rows[1:], nil
+	default:
+		return nil, nil, fmt.Errorf("%w: unsupported CSVHeaderLocation %q", ErrItemReaderInvalidData, loc)
+	}
 }
 
 func (e *Executor) runMapTasks(
@@ -1165,13 +1581,6 @@ func (e *Executor) spawnMapTask(
 	wg *sync.WaitGroup,
 ) {
 	wg.Go(func() {
-		select {
-		case e.execSem <- struct{}{}:
-		case <-ctx.Done():
-			return
-		}
-		defer func() { <-e.execSem }()
-
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
@@ -1225,26 +1634,45 @@ func (e *FailError) Error() string {
 	return e.ErrCode
 }
 
+// pathEvalInput wraps path evaluation scope.
+// data is target for "$" paths; context is target for "$$" paths.
+type pathEvalInput struct {
+	data    any
+	context any
+}
+
 // applyPath applies an InputPath or OutputPath to a value.
 // If path is "" or "$", returns value unchanged.
 // If path starts with "$.", it's a JSONPath reference.
-func applyPath(path string, value any, pathCache ...*sync.Map) (any, error) {
-	var cache *sync.Map
+func applyPath(path string, value any, pathCache ...*jsonPathCache) (any, error) {
+	var cache *jsonPathCache
 	if len(pathCache) > 0 {
 		cache = pathCache[0]
 	}
 
+	pathInput, ok := value.(pathEvalInput)
+	if !ok {
+		pathInput = pathEvalInput{
+			data:    value,
+			context: value,
+		}
+	}
+
 	if path == "" || path == "$" {
-		return value, nil
+		return pathInput.data, nil
 	}
 
 	if path == "$$" {
-		return value, nil
+		return pathInput.context, nil
 	}
 
 	// Simple dot-notation JSONPath: $.field.subfield
 	if strings.HasPrefix(path, "$.") {
-		return jsonPathGet(path[2:], value, cache)
+		return jsonPathGet(path[2:], pathInput.data, cache)
+	}
+
+	if strings.HasPrefix(path, "$$.") {
+		return jsonPathGet(path[3:], pathInput.context, cache)
 	}
 
 	return nil, fmt.Errorf("%w: %q", ErrUnsupportedPathExpr, path)
@@ -1297,7 +1725,7 @@ func applyResultPath(resultPath string, input, result any) (any, error) {
 }
 
 // jsonPathGet performs a simple dot-notation JSONPath get on a value.
-func jsonPathGet(path string, value any, pathCache *sync.Map) (any, error) {
+func jsonPathGet(path string, value any, pathCache *jsonPathCache) (any, error) {
 	if path == "" {
 		return value, nil
 	}
@@ -1322,26 +1750,23 @@ func jsonPathGet(path string, value any, pathCache *sync.Map) (any, error) {
 
 // getCachedJSONPathParts returns cached JSONPath segments or computes and stores
 // them when unavailable.
-func getCachedJSONPathParts(path string, pathCache *sync.Map) []string {
-	if pathCache != nil {
-		if cached, found := pathCache.Load(path); found {
-			parts, ok := cached.([]string)
-			if ok {
-				return parts
-			}
-		}
+func getCachedJSONPathParts(path string, pathCache *jsonPathCache) []string {
+	if pathCache == nil {
+		return strings.Split(path, ".")
+	}
+
+	if parts, found := pathCache.load(path); found {
+		return parts
 	}
 
 	parts := strings.Split(path, ".")
-	if pathCache != nil {
-		pathCache.Store(path, parts)
-	}
+	pathCache.store(path, parts)
 
 	return parts
 }
 
 // evaluateChoiceRule checks whether a ChoiceRule matches the given input.
-func evaluateChoiceRule(rule *ChoiceRule, input any, pathCache *sync.Map) bool {
+func evaluateChoiceRule(rule *ChoiceRule, input any, pathCache *jsonPathCache) bool {
 	if result, handled := evaluateLogicalOp(rule, input, pathCache); handled {
 		return result
 	}
@@ -1355,7 +1780,7 @@ func evaluateChoiceRule(rule *ChoiceRule, input any, pathCache *sync.Map) bool {
 
 // evaluateLogicalOp handles And/Or/Not logical operators.
 // Returns (result, true) if a logical operator was found, or (false, false) otherwise.
-func evaluateLogicalOp(rule *ChoiceRule, input any, pathCache *sync.Map) (bool, bool) {
+func evaluateLogicalOp(rule *ChoiceRule, input any, pathCache *jsonPathCache) (bool, bool) {
 	if len(rule.And) > 0 {
 		for i := range rule.And {
 			if !evaluateChoiceRule(&rule.And[i], input, pathCache) {
@@ -1384,7 +1809,7 @@ func evaluateLogicalOp(rule *ChoiceRule, input any, pathCache *sync.Map) (bool, 
 }
 
 // evaluateVariableComparison resolves the variable and checks condition comparisons.
-func evaluateVariableComparison(rule *ChoiceRule, input any, pathCache *sync.Map) bool {
+func evaluateVariableComparison(rule *ChoiceRule, input any, pathCache *jsonPathCache) bool {
 	varVal, err := applyPath(rule.Variable, input, pathCache)
 	if err != nil {
 		if rule.IsPresent != nil {
@@ -1436,7 +1861,7 @@ func evaluateVariableComparison(rule *ChoiceRule, input any, pathCache *sync.Map
 
 // matchVariableCondition checks all value-comparison conditions by delegating to
 // type-specific sub-functions.
-func matchVariableCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) bool {
+func matchVariableCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) bool {
 	if result, matched := matchStringCondition(rule, varVal, input, pathCache); matched {
 		return result
 	}
@@ -1457,7 +1882,7 @@ func matchVariableCondition(rule *ChoiceRule, varVal, input any, pathCache *sync
 }
 
 // matchStringCondition checks string comparison conditions.
-func matchStringCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchStringCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	if result, matched := matchStringLiteralCondition(rule, varVal); matched {
 		return result, matched
 	}
@@ -1486,7 +1911,7 @@ func matchStringLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
 }
 
 // matchStringPathCondition checks path-based string comparison conditions.
-func matchStringPathCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchStringPathCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	comparePath := func(path *string, cmp func(s1, s2 string) bool) (bool, bool) {
 		if path == nil {
 			return false, false
@@ -1527,7 +1952,7 @@ func matchStringPathCondition(rule *ChoiceRule, varVal, input any, pathCache *sy
 }
 
 // matchNumericCondition checks numeric comparison conditions.
-func matchNumericCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchNumericCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	if result, matched := matchNumericLiteralCondition(rule, varVal); matched {
 		return result, matched
 	}
@@ -1556,7 +1981,7 @@ func matchNumericLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
 }
 
 // matchNumericPathCondition checks path-based numeric comparison conditions.
-func matchNumericPathCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchNumericPathCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	compareNumPath := func(path *string, cmp func(n1, n2 float64) bool) (bool, bool) {
 		if path == nil {
 			return false, false
@@ -1597,7 +2022,7 @@ func matchNumericPathCondition(rule *ChoiceRule, varVal, input any, pathCache *s
 }
 
 // matchBooleanCondition checks boolean comparison conditions.
-func matchBooleanCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchBooleanCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	if rule.BooleanEquals != nil {
 		b, ok := varVal.(bool)
 
@@ -1620,7 +2045,7 @@ func matchBooleanCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.
 }
 
 // matchTimestampCondition checks timestamp comparison conditions.
-func matchTimestampCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchTimestampCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	if result, matched := matchTimestampLiteralCondition(rule, varVal); matched {
 		return result, matched
 	}
@@ -1666,7 +2091,7 @@ func matchTimestampLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
 }
 
 // matchTimestampPathCondition checks path-based timestamp comparison conditions.
-func matchTimestampPathCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+func matchTimestampPathCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
 	comparePath := func(path *string, cmp func(t1, t2 time.Time) bool) (bool, bool) {
 		if path == nil {
 			return false, false
@@ -1712,7 +2137,7 @@ func parseTimestamp(v any) (time.Time, error) {
 }
 
 // resolveTimestampPath resolves a path reference and returns both timestamps.
-func resolveTimestampPath(varVal any, path string, input any, pathCache *sync.Map) (time.Time, time.Time, error) {
+func resolveTimestampPath(varVal any, path string, input any, pathCache *jsonPathCache) (time.Time, time.Time, error) {
 	t1, err := parseTimestamp(varVal)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
@@ -1742,6 +2167,20 @@ func toFloat(v any) (float64, bool) {
 		return float64(n), true
 	case float64:
 		return n, true
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+			return 0, false
+		}
+
+		return f, true
+	default:
+		return toFloatInteger(v)
+	}
+}
+
+func toFloatInteger(v any) (float64, bool) {
+	switch n := v.(type) {
 	case int:
 		return float64(n), true
 	case int8:
@@ -1769,13 +2208,62 @@ func toFloat(v any) (float64, bool) {
 
 // catchesError checks if a set of error equals values matches the given error.
 func catchesError(errorEquals []string, err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errCode := stepFunctionsErrorCode(err)
 	for _, e := range errorEquals {
-		if e == "States.ALL" || e == err.Error() {
+		switch e {
+		case "States.ALL":
+			return true
+		case "States.Timeout":
+			if errCode == errCodeStatesTimeout {
+				return true
+			}
+		case "States.TaskFailed":
+			if errCode != errCodeStatesTimeout &&
+				errCode != errCodeStatesRuntime &&
+				errCode != errCodeStatesPermissions {
+				return true
+			}
+		case "States.Runtime":
+			if errCode == errCodeStatesRuntime {
+				return true
+			}
+		case "States.Permissions":
+			if errCode == errCodeStatesPermissions {
+				return true
+			}
+		case errCode, err.Error():
 			return true
 		}
 	}
 
 	return false
+}
+
+func stepFunctionsErrorCode(err error) string {
+	var failErr *FailError
+	if errors.As(err, &failErr) {
+		return failErr.ErrCode
+	}
+
+	if errors.Is(err, ErrStatesTimeout) || errors.Is(err, context.DeadlineExceeded) {
+		return errCodeStatesTimeout
+	}
+
+	if errors.Is(err, ErrUnsupportedStateType) ||
+		errors.Is(err, ErrStateNotFound) ||
+		errors.Is(err, ErrMaxTransitions) ||
+		errors.Is(err, ErrChoiceNoMatch) ||
+		errors.Is(err, ErrChoiceNoNext) ||
+		errors.Is(err, ErrUnsupportedPathExpr) ||
+		errors.Is(err, ErrUnsupportedResultPath) {
+		return errCodeStatesRuntime
+	}
+
+	return err.Error()
 }
 
 // isActivityResource returns true if the resource ARN refers to an activity.

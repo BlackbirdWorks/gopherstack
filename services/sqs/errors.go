@@ -47,4 +47,11 @@ var (
 	ErrInvalidMaxMessages = errors.New("InvalidParameterValue.MaxNumberOfMessages")
 	// ErrPurgeQueueInProgress is returned when PurgeQueue is called within 60s of a previous purge.
 	ErrPurgeQueueInProgress = errors.New("AWS.SimpleQueueService.PurgeQueueInProgress")
+	// ErrOverLimit is returned when an operation would exceed an AWS-imposed quota
+	// (e.g. too many in-flight messages, too many permissions, too many queues).
+	ErrOverLimit = errors.New("OverLimit")
+	// ErrBatchRequestTooLong is returned when SendMessageBatch's combined payload
+	// (bodies + attribute names/types/values) exceeds the per-batch byte limit
+	// (matches the per-queue MaximumMessageSize, default 256 KiB).
+	ErrBatchRequestTooLong = errors.New("AWS.SimpleQueueService.BatchRequestTooLong")
 )

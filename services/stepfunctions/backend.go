@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -30,14 +31,20 @@ var (
 	ErrExecutionNotRedrivable          = errors.New("ExecutionNotRedrivable")
 	ErrInvalidDefinition               = errors.New("InvalidDefinition")
 	ErrInvalidExecutionType            = errors.New("InvalidExecutionType")
+	ErrInvalidRoleArn                  = errors.New("InvalidArn")
 	ErrActivityAlreadyExists           = errors.New("ActivityAlreadyExists")
 	ErrActivityDoesNotExist            = errors.New("ActivityDoesNotExist")
 	ErrTaskTokenNotFound               = errors.New("TaskTokenNotFound")
+	ErrTaskTokenAlreadyExists          = errors.New("TaskTokenAlreadyExists")
 	ErrActivityTaskFailed              = errors.New("ActivityTaskFailed")
 	ErrHeartbeatTimeout                = errors.New("States.HeartbeatTimeout")
+	ErrInvalidExecutionInput           = errors.New("InvalidExecutionInput")
 )
 
 const (
+	// maxExecutionInputBytes mirrors the AWS Step Functions hard limit on
+	// StartExecution / StartSyncExecution input payload size (256 KiB).
+	maxExecutionInputBytes    = 256 * 1024
 	executionStartedEventID   = int64(1)
 	executionSucceededEventID = int64(2)
 	maxHistoryEvents          = 25000
@@ -89,6 +96,7 @@ type StorageBackend interface {
 	SendTaskSuccess(taskToken, output string) error
 	SendTaskFailure(taskToken, errCode, cause string) error
 	SendTaskHeartbeat(taskToken string) error
+	SetStateMachineConfigurations(arn string, tracing *TracingConfiguration, logging *LoggingConfiguration) error
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -125,8 +133,11 @@ type InMemoryBackend struct {
 	smAliases map[string][]string
 	// executionDefinitions maps execution ARN → the SM definition that was active at start time.
 	executionDefinitions map[string]string
-	logger               *slog.Logger
-	mu                   *lockmetrics.RWMutex
+	// historyTruncated tracks executions where the history cap has been reached
+	// so we only emit a single warning per execution.
+	historyTruncated map[string]bool
+	logger           *slog.Logger
+	mu               *lockmetrics.RWMutex
 	// svcCtx is the service lifecycle context. Execution goroutines derive their
 	// contexts from it so that all active executions are cancelled on server shutdown.
 	svcCtx    context.Context
@@ -201,6 +212,7 @@ func newInMemoryBackend(svcCtx context.Context, accountID, region string) *InMem
 		aliases:              make(map[string]*StateMachineAlias),
 		smAliases:            make(map[string][]string),
 		executionDefinitions: make(map[string]string),
+		historyTruncated:     make(map[string]bool),
 		logger:               slog.Default(),
 		mu:                   lockmetrics.New("stepfunctions"),
 		settings:             DefaultSettings(),
@@ -296,10 +308,40 @@ func (b *InMemoryBackend) aliasARN(smName, aliasName string) string {
 	return arn.Build("states", b.region, b.accountID, "stateMachine:"+smName+":"+aliasName)
 }
 
+// SetStateMachineConfigurations sets optional tracing and logging configuration
+// for a state machine. Either argument may be nil to leave that field unchanged.
+func (b *InMemoryBackend) SetStateMachineConfigurations(
+	arn string,
+	tracing *TracingConfiguration,
+	logging *LoggingConfiguration,
+) error {
+	b.mu.Lock("SetStateMachineConfigurations")
+	defer b.mu.Unlock()
+
+	sm, ok := b.stateMachines[arn]
+	if !ok || sm == nil {
+		return fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, arn)
+	}
+
+	if tracing != nil {
+		sm.TracingConfiguration = tracing
+	}
+
+	if logging != nil {
+		sm.LoggingConfiguration = logging
+	}
+
+	return nil
+}
+
 // CreateStateMachine creates and stores a new state machine.
 func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType string) (*StateMachine, error) {
 	if smType == "" {
 		smType = "STANDARD"
+	}
+
+	if err := validateRoleARN(roleArn); err != nil {
+		return nil, err
 	}
 
 	// Validate the definition before storing.
@@ -357,6 +399,7 @@ func (b *InMemoryBackend) PruneExecutions(_ context.Context) int {
 		delete(b.executions, arn)
 		delete(b.history, arn)
 		delete(b.executionDefinitions, arn)
+		delete(b.historyTruncated, arn)
 
 		// Remove from smExecutions index.
 		for smARN, execs := range b.smExecutions {
@@ -400,6 +443,7 @@ func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
 		delete(b.executions, execARN)
 		delete(b.history, execARN)
 		delete(b.executionDefinitions, execARN)
+		delete(b.historyTruncated, execARN)
 	}
 
 	delete(b.smExecutions, arn)
@@ -461,6 +505,12 @@ func (b *InMemoryBackend) UpdateStateMachine(smARN, definition, roleArn string) 
 		}
 	}
 
+	if roleArn != "" {
+		if err := validateRoleARN(roleArn); err != nil {
+			return 0, err
+		}
+	}
+
 	b.mu.Lock("UpdateStateMachine")
 	defer b.mu.Unlock()
 
@@ -484,6 +534,10 @@ func (b *InMemoryBackend) UpdateStateMachine(smARN, definition, roleArn string) 
 
 // StartSyncExecution executes an EXPRESS state machine synchronously and returns the result.
 func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string) (*SyncExecutionResult, error) {
+	if len(input) > maxExecutionInputBytes {
+		return nil, fmt.Errorf("%w: input exceeds %d bytes", ErrInvalidExecutionInput, maxExecutionInputBytes)
+	}
+
 	b.mu.RLock("StartSyncExecution")
 	sm, exists := b.stateMachines[stateMachineArn]
 	if !exists {
@@ -530,9 +584,30 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 	executor.SetSNSIntegration(snsIntegration)
 	executor.SetDynamoDBIntegration(ddbIntegration)
 	executor.SetActivityInvoker(b)
+	executor.SetTaskTokenCallbackInvoker(b)
+	executor.SetExecutionContext(
+		execARN,
+		name,
+		sm.RoleArn,
+		time.Unix(int64(startDate), 0).UTC().Format(time.RFC3339),
+		stateMachineArn,
+		sm.Name,
+	)
 
 	result, execErr := executor.Execute(syncCtx, execARN, input)
 
+	return finalizeSyncExecutionResult(execARN, stateMachineArn, name, input, startDate, result, execErr), nil
+}
+
+// finalizeSyncExecutionResult assembles the SyncExecutionResult based on the
+// outcome of the synchronous executor invocation. Extracted to keep
+// StartSyncExecution under the funlen threshold.
+func finalizeSyncExecutionResult(
+	execARN, stateMachineArn, name, input string,
+	startDate float64,
+	result *asl.ExecutionResult,
+	execErr error,
+) *SyncExecutionResult {
 	stopDate := float64(time.Now().Unix())
 
 	syncResult := &SyncExecutionResult{
@@ -554,7 +629,7 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 			syncResult.Error = execErr.Error()
 		}
 
-		return syncResult, nil
+		return syncResult
 	}
 
 	if result.Error != "" {
@@ -562,18 +637,22 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 		syncResult.Error = result.Error
 		syncResult.Cause = result.Cause
 
-		return syncResult, nil
+		return syncResult
 	}
 
 	outputBytes, _ := json.Marshal(result.Output)
 	syncResult.Status = statusSucceeded
 	syncResult.Output = string(outputBytes)
 
-	return syncResult, nil
+	return syncResult
 }
 
 // StartExecution creates an execution and runs the ASL interpreter asynchronously.
 func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*Execution, error) {
+	if len(input) > maxExecutionInputBytes {
+		return nil, fmt.Errorf("%w: input exceeds %d bytes", ErrInvalidExecutionInput, maxExecutionInputBytes)
+	}
+
 	b.mu.Lock("StartExecution")
 
 	sm, exists := b.stateMachines[stateMachineArn]
@@ -581,6 +660,12 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, stateMachineArn)
+	}
+
+	if sm.Type == "EXPRESS" {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: async execution requires STANDARD state machine", ErrInvalidExecutionType)
 	}
 
 	execArn := b.execARN(sm.Name, name)
@@ -628,7 +713,8 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	// The context is derived from b.svcCtx so that all active executions are
 	// also cancelled when the server shuts down.
 
-	ctx, cancel := context.WithCancel(b.svcCtx) //nolint:gosec // cancel is stored for StopExecution/DeleteStateMachine
+	//nolint:gosec // cancel is stored in b.cancelFns for StopExecution/DeleteStateMachine
+	ctx, cancel := context.WithCancel(b.svcCtx)
 	b.cancelFns[execArn] = cancel
 	b.smExecutions[stateMachineArn] = append(b.smExecutions[stateMachineArn], execArn)
 
@@ -643,6 +729,66 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	)
 
 	return exec, nil
+}
+
+// applyExecutorContext populates the ASL executor's `$$` context object with
+// data derived from the persisted execution and state machine records.
+func (b *InMemoryBackend) applyExecutorContext(executor *asl.Executor, execARN string) {
+	b.mu.RLock("applyExecutorContext")
+	defer b.mu.RUnlock()
+
+	exec, ok := b.executions[execARN]
+	if !ok {
+		return
+	}
+
+	sm, smOK := b.stateMachines[exec.StateMachineArn]
+	if !smOK || sm == nil {
+		executor.SetExecutionContext(
+			exec.ExecutionArn,
+			exec.Name,
+			"",
+			time.Unix(int64(exec.StartDate), 0).UTC().Format(time.RFC3339),
+			exec.StateMachineArn,
+			"",
+		)
+
+		return
+	}
+
+	executor.SetExecutionContext(
+		exec.ExecutionArn,
+		exec.Name,
+		sm.RoleArn,
+		time.Unix(int64(exec.StartDate), 0).UTC().Format(time.RFC3339),
+		exec.StateMachineArn,
+		sm.Name,
+	)
+}
+
+func validateRoleARN(roleArn string) error {
+	const arnParts = 6
+
+	if roleArn == "" {
+		return nil
+	}
+
+	if !strings.HasPrefix(roleArn, "arn:") {
+		return fmt.Errorf("%w: roleArn must be an ARN", ErrInvalidRoleArn)
+	}
+
+	if strings.ContainsAny(roleArn, " \t\r\n") {
+		return fmt.Errorf("%w: roleArn must not contain whitespace", ErrInvalidRoleArn)
+	}
+
+	parts := strings.Split(roleArn, ":")
+	if len(parts) == arnParts {
+		if parts[2] == "" || parts[5] == "" {
+			return fmt.Errorf("%w: roleArn must include service and resource", ErrInvalidRoleArn)
+		}
+	}
+
+	return nil
 }
 
 // historyRecorder adapts InMemoryBackend to the asl.HistoryRecorder interface.
@@ -706,8 +852,8 @@ func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType strin
 		return
 	}
 
-	events := r.backend.history[execARN]
-	if len(events) >= maxHistoryEvents {
+	events, ok := r.backend.checkHistoryCapacity(execARN)
+	if !ok {
 		return
 	}
 
@@ -731,8 +877,8 @@ func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string
 		return
 	}
 
-	events := r.backend.history[execARN]
-	if len(events) >= maxHistoryEvents {
+	events, ok := r.backend.checkHistoryCapacity(execARN)
+	if !ok {
 		return
 	}
 
@@ -756,8 +902,8 @@ func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, _ /* r
 		return
 	}
 
-	events := r.backend.history[execARN]
-	if len(events) >= maxHistoryEvents {
+	events, ok := r.backend.checkHistoryCapacity(execARN)
+	if !ok {
 		return
 	}
 
@@ -778,8 +924,8 @@ func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string,
 		return
 	}
 
-	events := r.backend.history[execARN]
-	if len(events) >= maxHistoryEvents {
+	events, ok := r.backend.checkHistoryCapacity(execARN)
+	if !ok {
 		return
 	}
 
@@ -800,8 +946,8 @@ func (r *historyRecorder) RecordTaskFailed(execARN, _ /* stateName */, _ /* errC
 		return
 	}
 
-	events := r.backend.history[execARN]
-	if len(events) >= maxHistoryEvents {
+	events, ok := r.backend.checkHistoryCapacity(execARN)
+	if !ok {
 		return
 	}
 
@@ -812,6 +958,27 @@ func (r *historyRecorder) RecordTaskFailed(execARN, _ /* stateName */, _ /* errC
 		ID:              nextID,
 		PreviousEventID: nextID - 1,
 	})
+}
+
+// checkHistoryCapacity returns the current event slice and whether there is
+// room to append. On the first refusal per execution it logs a warning so that
+// silent truncation is observable. Caller must hold b.mu write lock.
+func (b *InMemoryBackend) checkHistoryCapacity(execARN string) ([]*HistoryEvent, bool) {
+	events := b.history[execARN]
+	if len(events) < maxHistoryEvents {
+		return events, true
+	}
+
+	if !b.historyTruncated[execARN] {
+		b.historyTruncated[execARN] = true
+		b.logger.Warn(
+			"stepfunctions: execution history truncated at maxHistoryEvents",
+			"executionArn", execARN,
+			"maxHistoryEvents", maxHistoryEvents,
+		)
+	}
+
+	return events, false
 }
 
 // runParsedExecution runs the ASL interpreter for a pre-parsed state machine and updates the execution record.
@@ -832,6 +999,8 @@ func (b *InMemoryBackend) runParsedExecution(
 	executor.SetSNSIntegration(snsIntegration)
 	executor.SetDynamoDBIntegration(ddbIntegration)
 	executor.SetActivityInvoker(activityInvoker)
+	executor.SetTaskTokenCallbackInvoker(b)
+	b.applyExecutorContext(executor, execARN)
 	result, execErr := executor.Execute(ctx, execARN, input)
 
 	b.mu.Lock("runParsedExecution")
@@ -1072,6 +1241,7 @@ func (b *InMemoryBackend) Reset() {
 	b.aliases = make(map[string]*StateMachineAlias)
 	b.smAliases = make(map[string][]string)
 	b.executionDefinitions = make(map[string]string)
+	b.historyTruncated = make(map[string]bool)
 
 	b.mu.Unlock()
 }
@@ -1463,7 +1633,7 @@ func (b *InMemoryBackend) RedriveExecution(executionARN string) (*Execution, err
 	snsIntegration := b.snsIntegration
 	ddbIntegration := b.ddbIntegration
 
-	//nolint:gosec // cancel is stored in cancelFns for StopExecution/DeleteStateMachine
+	//nolint:gosec // cancel is stored in b.cancelFns for StopExecution/DeleteStateMachine
 	ctx, cancel := context.WithCancel(b.svcCtx)
 	b.cancelFns[executionARN] = cancel
 
@@ -1626,6 +1796,74 @@ func (b *InMemoryBackend) SendTaskHeartbeat(taskToken string) error {
 	}
 
 	return nil
+}
+
+// WaitForTaskToken registers a callback token and blocks until terminal callback.
+// It returns ErrTaskTokenAlreadyExists when token already exists, ErrHeartbeatTimeout
+// when heartbeatSeconds elapses without heartbeat/success/failure, or ctx.Err() on cancellation.
+func (b *InMemoryBackend) WaitForTaskToken(
+	ctx context.Context,
+	taskToken string,
+	heartbeatSeconds int,
+) (string, error) {
+	entry := &activityTaskEntry{
+		taskToken: taskToken,
+		resultCh:  make(chan activityTaskResult, 1),
+	}
+
+	if heartbeatSeconds > 0 {
+		entry.heartbeatDuration = time.Duration(heartbeatSeconds) * time.Second
+		entry.heartbeatStop = make(chan struct{}, 1)
+		entry.heartbeatTimer = time.NewTimer(entry.heartbeatDuration)
+	}
+
+	b.mu.Lock("WaitForTaskToken")
+	if _, exists := b.tasksByToken[taskToken]; exists {
+		b.mu.Unlock()
+
+		if entry.heartbeatTimer != nil {
+			entry.heartbeatTimer.Stop()
+		}
+
+		return "", fmt.Errorf("%w: %s", ErrTaskTokenAlreadyExists, taskToken)
+	}
+
+	b.tasksByToken[taskToken] = entry
+	b.mu.Unlock()
+
+	var heartbeatCh <-chan time.Time
+	if entry.heartbeatTimer != nil {
+		heartbeatCh = entry.heartbeatTimer.C
+	}
+
+	select {
+	case result := <-entry.resultCh:
+		if entry.heartbeatTimer != nil {
+			entry.heartbeatTimer.Stop()
+		}
+
+		if result.succeeded {
+			return result.output, nil
+		}
+
+		return "", fmt.Errorf("%w: %s", ErrActivityTaskFailed, result.errCode)
+	case <-heartbeatCh:
+		b.mu.Lock("WaitForTaskToken.heartbeat.timeout")
+		delete(b.tasksByToken, taskToken)
+		b.mu.Unlock()
+
+		return "", ErrHeartbeatTimeout
+	case <-ctx.Done():
+		b.mu.Lock("WaitForTaskToken.wait.cancel")
+		delete(b.tasksByToken, taskToken)
+		b.mu.Unlock()
+
+		if entry.heartbeatTimer != nil {
+			entry.heartbeatTimer.Stop()
+		}
+
+		return "", ctx.Err()
+	}
 }
 
 // InvokeActivity implements asl.ActivityInvoker.

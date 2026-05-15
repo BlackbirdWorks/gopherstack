@@ -692,6 +692,31 @@ func (b *InMemoryBackend) DescribeLogStreams(groupName, prefix, nextToken, order
 
 // PutLogEvents appends log events to a stream and returns the next sequence token.
 func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []InputLogEvent) (string, error) {
+	// AWS PutLogEvents limits per request:
+	//   * up to 10,000 events
+	//   * up to 1 MiB total batch size; each event is counted as
+	//     len(message) + 26 bytes of overhead.
+	const (
+		maxEventsPerBatch  = 10000
+		maxBatchBytes      = 1024 * 1024
+		eventOverheadBytes = 26
+	)
+
+	if len(events) > maxEventsPerBatch {
+		return "", fmt.Errorf("%w: PutLogEvents accepts at most %d events per request",
+			ErrValidation, maxEventsPerBatch)
+	}
+
+	totalBytes := 0
+	for _, e := range events {
+		totalBytes += len(e.Message) + eventOverheadBytes
+	}
+
+	if totalBytes > maxBatchBytes {
+		return "", fmt.Errorf("%w: PutLogEvents batch size %d exceeds %d-byte limit",
+			ErrValidation, totalBytes, maxBatchBytes)
+	}
+
 	b.mu.Lock("PutLogEvents")
 
 	if _, exists := b.groups[groupName]; !exists {

@@ -27,6 +27,7 @@ const (
 	keyDeliveryMedium            = "DeliveryMedium"
 	keyDestination               = "Destination"
 	keyAttributeName             = "AttributeName"
+	mockDestination              = "mock"
 	keyConfirmationCode          = "ConfirmationCode"
 	authTypeBearer               = "Bearer"
 )
@@ -362,6 +363,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"GetSigningCertificate":       service.WrapOp(h.handleGetSigningCertificate),
 	}
 	maps.Copy(table, h.completenessDispatchTable())
+	maps.Copy(table, h.accuracyDispatchTable())
 
 	return table
 }
@@ -756,7 +758,7 @@ func (h *Handler) handleSignUp(_ context.Context, in *signUpInput) (*signUpOutpu
 	if user.ConfirmCode != "" {
 		out.CodeDeliveryDetails = map[string]string{
 			keyDeliveryMedium:   medEmail,
-			keyDestination:      "mock",
+			keyDestination:      mockDestination,
 			keyAttributeName:    attrEmail,
 			keyConfirmationCode: user.ConfirmCode,
 		}
@@ -803,9 +805,6 @@ type authOutput struct {
 	ChallengeParameters  map[string]string `json:"ChallengeParameters,omitempty"`
 }
 
-// challengeName is the Cognito challenge name for software token MFA.
-const challengeName = "SOFTWARE_TOKEN_MFA"
-
 // authResultFromTokenResult converts a TokenResult to an authResult.
 func authResultFromTokenResult(tokens *TokenResult) *authResult {
 	return &authResult{
@@ -820,7 +819,7 @@ func authResultFromTokenResult(tokens *TokenResult) *authResult {
 // authOutputFromResult converts an AuthResult to an authOutput.
 func authOutputFromResult(result *AuthResult) *authOutput {
 	if result.MFASession != "" {
-		name := challengeName
+		name := result.ChallengeName
 
 		return &authOutput{
 			ChallengeName:       &name,
@@ -918,7 +917,7 @@ type adminCreateUserOutput struct {
 func (h *Handler) handleAdminCreateUser(_ context.Context, in *adminCreateUserInput) (*adminCreateUserOutput, error) {
 	attrs := attributeListToMap(in.UserAttributes)
 
-	user, err := h.Backend.AdminCreateUser(in.UserPoolID, in.Username, in.TemporaryPassword, attrs)
+	user, err := h.Backend.AdminCreateUserWithPolicy(in.UserPoolID, in.Username, in.TemporaryPassword, attrs)
 	if err != nil {
 		return nil, err
 	}
@@ -1627,7 +1626,7 @@ func (h *Handler) handleResendConfirmationCode(
 	return &resendConfirmationCodeOutput{
 		CodeDeliveryDetails: map[string]string{
 			keyDeliveryMedium:   medEmail,
-			keyDestination:      "mock",
+			keyDestination:      mockDestination,
 			keyAttributeName:    attrEmail,
 			keyConfirmationCode: code,
 		},

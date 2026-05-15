@@ -2,6 +2,7 @@ package glue
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -57,10 +58,22 @@ type batchGetPartitionOutput struct {
 	UnprocessedKeys []any        `json:"UnprocessedKeys"`
 }
 
+// handleBatchGetPartition validates that the referenced database/table exist
+// before returning. AWS Glue returns an EntityNotFoundException when the
+// table is missing rather than silently returning an empty list. The mock
+// backend has no partition storage, so on success the response remains empty.
 func (h *Handler) handleBatchGetPartition(
 	_ context.Context,
-	_ *batchGetPartitionInput,
+	in *batchGetPartitionInput,
 ) (*batchGetPartitionOutput, error) {
+	if in.DatabaseName == "" || in.TableName == "" {
+		return nil, fmt.Errorf("%w: DatabaseName and TableName are required", ErrValidation)
+	}
+
+	if _, err := h.Backend.GetTable(in.DatabaseName, in.TableName); err != nil {
+		return nil, err
+	}
+
 	return &batchGetPartitionOutput{Partitions: []*Partition{}, UnprocessedKeys: []any{}}, nil
 }
 

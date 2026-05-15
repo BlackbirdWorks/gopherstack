@@ -431,17 +431,25 @@ func (h *Handler) dispatchMutating(c *echo.Context, route mqRoute, readBody func
 // --- Broker handlers ---
 
 type createBrokerInput struct {
-	BrokerName              string            `json:"brokerName"`
-	DeploymentMode          string            `json:"deploymentMode"`
-	EngineType              string            `json:"engineType"`
-	EngineVersion           string            `json:"engineVersion"`
-	HostInstanceType        string            `json:"hostInstanceType"`
-	SecurityGroups          []string          `json:"securityGroups"`
-	SubnetIDs               []string          `json:"subnetIds"`
-	Tags                    map[string]string `json:"tags"`
-	Users                   []createUserBody  `json:"users"`
-	PubliclyAccessible      bool              `json:"publiclyAccessible"`
-	AutoMinorVersionUpgrade bool              `json:"autoMinorVersionUpgrade"`
+	Tags                       map[string]string   `json:"tags"`
+	Logs                       *Logs               `json:"logs,omitempty"`
+	LdapServerMetadata         *LdapServerMetadata `json:"ldapServerMetadata,omitempty"`
+	MaintenanceWindowStartTime *WeeklyStartTime    `json:"maintenanceWindowStartTime,omitempty"`
+	EncryptionOptions          *EncryptionOptions  `json:"encryptionOptions,omitempty"`
+	Configuration              *ConfigurationID    `json:"configuration,omitempty"`
+	HostInstanceType           string              `json:"hostInstanceType"`
+	CreatorRequestID           string              `json:"creatorRequestId"`
+	AuthenticationStrategy     string              `json:"authenticationStrategy"`
+	StorageType                string              `json:"storageType"`
+	BrokerName                 string              `json:"brokerName"`
+	EngineVersion              string              `json:"engineVersion"`
+	EngineType                 string              `json:"engineType"`
+	DeploymentMode             string              `json:"deploymentMode"`
+	SecurityGroups             []string            `json:"securityGroups"`
+	SubnetIDs                  []string            `json:"subnetIds"`
+	Users                      []createUserBody    `json:"users"`
+	PubliclyAccessible         bool                `json:"publiclyAccessible"`
+	AutoMinorVersionUpgrade    bool                `json:"autoMinorVersionUpgrade"`
 }
 
 type createUserBody struct {
@@ -475,7 +483,7 @@ func (h *Handler) handleCreateBroker(c *echo.Context, body []byte) error {
 		})
 	}
 
-	br, err := h.Backend.CreateBroker(
+	br, err := h.Backend.CreateBrokerWithOptions(
 		in.BrokerName,
 		in.DeploymentMode,
 		in.EngineType,
@@ -487,6 +495,16 @@ func (h *Handler) handleCreateBroker(c *echo.Context, body []byte) error {
 		in.SubnetIDs,
 		users,
 		in.Tags,
+		&CreateBrokerOptions{
+			StorageType:                in.StorageType,
+			AuthenticationStrategy:     in.AuthenticationStrategy,
+			CreatorRequestID:           in.CreatorRequestID,
+			Configuration:              in.Configuration,
+			EncryptionOptions:          in.EncryptionOptions,
+			MaintenanceWindowStartTime: in.MaintenanceWindowStartTime,
+			LdapServerMetadata:         in.LdapServerMetadata,
+			Logs:                       in.Logs,
+		},
 	)
 	if err != nil {
 		return h.writeError(c, err)
@@ -584,23 +602,39 @@ func (h *Handler) handleRebootBroker(c *echo.Context, brokerID string) error {
 
 // brokerResponse is the full broker detail response.
 type brokerResponse struct {
-	Tags                    map[string]string `json:"tags,omitempty"`
-	Configurations          *Configurations   `json:"configurations,omitempty"`
-	BrokerArn               string            `json:"brokerArn"`
-	BrokerName              string            `json:"brokerName"`
-	BrokerState             string            `json:"brokerState"`
-	DeploymentMode          string            `json:"deploymentMode"`
-	EngineType              string            `json:"engineType"`
-	EngineVersion           string            `json:"engineVersion"`
-	HostInstanceType        string            `json:"hostInstanceType"`
-	BrokerID                string            `json:"brokerId"`
-	Created                 string            `json:"created"`
-	BrokerInstances         []BrokerInstance  `json:"brokerInstances,omitempty"`
-	SecurityGroups          []string          `json:"securityGroups,omitempty"`
-	Users                   []UserSummary     `json:"users,omitempty"`
-	SubnetIDs               []string          `json:"subnetIds,omitempty"`
-	PubliclyAccessible      bool              `json:"publiclyAccessible"`
-	AutoMinorVersionUpgrade bool              `json:"autoMinorVersionUpgrade"`
+	EncryptionOptions          *EncryptionOptions       `json:"encryptionOptions,omitempty"`
+	Configurations             *Configurations          `json:"configurations,omitempty"`
+	PendingDataReplicationMeta *DataReplicationMetadata `json:"pendingDataReplicationMetadata,omitempty"`
+	PendingLdapServerMetadata  *LdapServerMetadata      `json:"pendingLdapServerMetadata,omitempty"`
+	Tags                       map[string]string        `json:"tags,omitempty"`
+	DataReplicationMetadata    *DataReplicationMetadata `json:"dataReplicationMetadata,omitempty"`
+	Logs                       *LogsSummary             `json:"logs,omitempty"`
+	LdapServerMetadata         *LdapServerMetadata      `json:"ldapServerMetadata,omitempty"`
+	MaintenanceWindowStartTime *WeeklyStartTime         `json:"maintenanceWindowStartTime,omitempty"`
+	PendingAuthStrategy        string                   `json:"pendingAuthenticationStrategy,omitempty"`
+	PendingEngineVersion       string                   `json:"pendingEngineVersion,omitempty"`
+	StorageType                string                   `json:"storageType,omitempty"`
+	AuthenticationStrategy     string                   `json:"authenticationStrategy,omitempty"`
+	BrokerArn                  string                   `json:"brokerArn"`
+	PendingDataReplicationMode string                   `json:"pendingDataReplicationMode,omitempty"`
+	BrokerName                 string                   `json:"brokerName"`
+	PendingHostInstanceType    string                   `json:"pendingHostInstanceType,omitempty"`
+	Created                    string                   `json:"created"`
+	BrokerID                   string                   `json:"brokerId"`
+	HostInstanceType           string                   `json:"hostInstanceType"`
+	EngineVersion              string                   `json:"engineVersion"`
+	EngineType                 string                   `json:"engineType"`
+	DataReplicationMode        string                   `json:"dataReplicationMode,omitempty"`
+	DeploymentMode             string                   `json:"deploymentMode"`
+	BrokerState                string                   `json:"brokerState"`
+	ActionsRequired            []ActionRequired         `json:"actionsRequired,omitempty"`
+	SubnetIDs                  []string                 `json:"subnetIds,omitempty"`
+	PendingSecurityGroups      []string                 `json:"pendingSecurityGroups,omitempty"`
+	Users                      []UserSummary            `json:"users,omitempty"`
+	SecurityGroups             []string                 `json:"securityGroups,omitempty"`
+	BrokerInstances            []BrokerInstance         `json:"brokerInstances,omitempty"`
+	PubliclyAccessible         bool                     `json:"publiclyAccessible"`
+	AutoMinorVersionUpgrade    bool                     `json:"autoMinorVersionUpgrade"`
 }
 
 func toBrokerResponse(br *Broker) brokerResponse {
@@ -612,23 +646,39 @@ func toBrokerResponse(br *Broker) brokerResponse {
 	sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
 
 	return brokerResponse{
-		BrokerArn:               br.BrokerArn,
-		BrokerID:                br.BrokerID,
-		BrokerName:              br.BrokerName,
-		BrokerState:             br.BrokerState,
-		DeploymentMode:          br.DeploymentMode,
-		EngineType:              br.EngineType,
-		EngineVersion:           br.EngineVersion,
-		HostInstanceType:        br.HostInstanceType,
-		Configurations:          br.Configurations,
-		BrokerInstances:         br.BrokerInstances,
-		SubnetIDs:               br.SubnetIDs,
-		SecurityGroups:          br.SecurityGroups,
-		Tags:                    br.Tags,
-		Users:                   users,
-		Created:                 br.Created,
-		PubliclyAccessible:      br.PubliclyAccessible,
-		AutoMinorVersionUpgrade: br.AutoMinorVersionUpgrade,
+		BrokerArn:                  br.BrokerArn,
+		BrokerID:                   br.BrokerID,
+		BrokerName:                 br.BrokerName,
+		BrokerState:                br.BrokerState,
+		DeploymentMode:             br.DeploymentMode,
+		EngineType:                 br.EngineType,
+		EngineVersion:              br.EngineVersion,
+		HostInstanceType:           br.HostInstanceType,
+		StorageType:                br.StorageType,
+		AuthenticationStrategy:     br.AuthenticationStrategy,
+		Configurations:             br.Configurations,
+		BrokerInstances:            br.BrokerInstances,
+		SubnetIDs:                  br.SubnetIDs,
+		SecurityGroups:             br.SecurityGroups,
+		Tags:                       br.Tags,
+		Users:                      users,
+		Created:                    br.Created,
+		PubliclyAccessible:         br.PubliclyAccessible,
+		AutoMinorVersionUpgrade:    br.AutoMinorVersionUpgrade,
+		ActionsRequired:            br.ActionsRequired,
+		EncryptionOptions:          br.EncryptionOptions,
+		MaintenanceWindowStartTime: br.MaintenanceWindowStartTime,
+		LdapServerMetadata:         br.LdapServerMetadata,
+		Logs:                       br.LogsSummary,
+		DataReplicationMode:        br.DataReplicationMode,
+		DataReplicationMetadata:    br.DataReplicationMetadata,
+		PendingAuthStrategy:        br.PendingAuthStrategy,
+		PendingEngineVersion:       br.PendingEngineVersion,
+		PendingHostInstanceType:    br.PendingHostInstanceType,
+		PendingSecurityGroups:      br.PendingSecurityGroups,
+		PendingLdapServerMetadata:  br.PendingLdapServerMetadata,
+		PendingDataReplicationMode: br.PendingDataReplicationMode,
+		PendingDataReplicationMeta: br.PendingDataReplicationMeta,
 	}
 }
 

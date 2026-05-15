@@ -47,6 +47,8 @@ var (
 	ErrDuplicateListener = awserr.New("DuplicateListener", awserr.ErrAlreadyExists)
 	// ErrTargetGroupInUse is returned when attempting to delete a target group that is still referenced.
 	ErrTargetGroupInUse = awserr.New("TargetGroupAssociationLimit", awserr.ErrInvalidParameter)
+	// ErrInvalidConfigurationRequest is returned when a configuration is invalid for the LB type.
+	ErrInvalidConfigurationRequest = awserr.New("InvalidConfigurationRequest", awserr.ErrInvalidParameter)
 )
 
 // LoadBalancerState represents the state of a load balancer.
@@ -80,19 +82,22 @@ type TargetGroup struct {
 	TargetGroupArn             string            `json:"targetGroupArn"`
 	TargetGroupName            string            `json:"targetGroupName"`
 	Protocol                   string            `json:"protocol"`
+	ProtocolVersion            string            `json:"protocolVersion,omitempty"`
 	VpcID                      string            `json:"vpcId"`
 	TargetType                 string            `json:"targetType"`
 	HealthCheckProtocol        string            `json:"healthCheckProtocol"`
 	HealthCheckPort            string            `json:"healthCheckPort"`
 	HealthCheckPath            string            `json:"healthCheckPath"`
-	Matcher                    string            `json:"matcher"`
+	Matcher                    Matcher           `json:"matcher"`
 	Targets                    []Target          `json:"targets"`
+	LoadBalancerArns           []string          `json:"loadBalancerArns,omitempty"`
 	Port                       int32             `json:"port"`
 	HealthCheckIntervalSeconds int32             `json:"healthCheckIntervalSeconds"`
 	HealthCheckTimeoutSeconds  int32             `json:"healthCheckTimeoutSeconds"`
 	HealthyThresholdCount      int32             `json:"healthyThresholdCount"`
 	UnhealthyThresholdCount    int32             `json:"unhealthyThresholdCount"`
 	HealthCheckEnabled         bool              `json:"healthCheckEnabled"`
+	CrossZoneLoadBalancing     bool              `json:"crossZoneLoadBalancing"`
 }
 
 // Target represents a registered target in a target group.
@@ -110,12 +115,14 @@ type TargetHealthDescription struct {
 
 // Action represents a listener or rule action.
 type Action struct {
-	RedirectConfig      *RedirectConfig      `json:"redirectConfig,omitempty"`
-	FixedResponseConfig *FixedResponseConfig `json:"fixedResponseConfig,omitempty"`
-	ForwardConfig       *ForwardConfig       `json:"forwardConfig,omitempty"`
-	Type                string               `json:"type"`
-	TargetGroupArn      string               `json:"targetGroupArn"`
-	Order               int32                `json:"order,omitempty"`
+	RedirectConfig            *RedirectConfig            `json:"redirectConfig,omitempty"`
+	FixedResponseConfig       *FixedResponseConfig       `json:"fixedResponseConfig,omitempty"`
+	ForwardConfig             *ForwardConfig             `json:"forwardConfig,omitempty"`
+	AuthenticateCognitoConfig *AuthenticateCognitoConfig `json:"authenticateCognitoConfig,omitempty"`
+	AuthenticateOidcConfig    *AuthenticateOidcConfig    `json:"authenticateOidcConfig,omitempty"`
+	Type                      string                     `json:"type"`
+	TargetGroupArn            string                     `json:"targetGroupArn"`
+	Order                     int32                      `json:"order,omitempty"`
 }
 
 // RedirectConfig holds configuration for redirect actions.
@@ -166,6 +173,46 @@ type QueryStringPair struct {
 	Value string `json:"value"`
 }
 
+// AuthenticateCognitoConfig holds configuration for authenticate-cognito actions.
+type AuthenticateCognitoConfig struct {
+	AuthenticationRequestExtraParams map[string]string `json:"authenticationRequestExtraParams,omitempty"`
+	UserPoolArn                      string            `json:"userPoolArn"`
+	UserPoolClientID                 string            `json:"userPoolClientId"`
+	UserPoolDomain                   string            `json:"userPoolDomain"`
+	SessionCookieName                string            `json:"sessionCookieName,omitempty"`
+	Scope                            string            `json:"scope,omitempty"`
+	OnUnauthenticatedRequest         string            `json:"onUnauthenticatedRequest,omitempty"`
+	SessionTimeout                   int64             `json:"sessionTimeout,omitempty"`
+}
+
+// AuthenticateOidcConfig holds configuration for authenticate-oidc actions.
+type AuthenticateOidcConfig struct {
+	AuthenticationRequestExtraParams map[string]string `json:"authenticationRequestExtraParams,omitempty"`
+	Issuer                           string            `json:"issuer"`
+	AuthorizationEndpoint            string            `json:"authorizationEndpoint"`
+	TokenEndpoint                    string            `json:"tokenEndpoint"`
+	UserInfoEndpoint                 string            `json:"userInfoEndpoint"`
+	ClientID                         string            `json:"clientId"`
+	ClientSecret                     string            `json:"clientSecret,omitempty"`
+	SessionCookieName                string            `json:"sessionCookieName,omitempty"`
+	Scope                            string            `json:"scope,omitempty"`
+	OnUnauthenticatedRequest         string            `json:"onUnauthenticatedRequest,omitempty"`
+	SessionTimeout                   int64             `json:"sessionTimeout,omitempty"`
+}
+
+// MutualAuthentication holds mTLS configuration for a listener.
+type MutualAuthentication struct {
+	TrustStoreArn                     string `json:"trustStoreArn,omitempty"`
+	Mode                              string `json:"mode"`
+	IgnoreClientCertificateExpiration bool   `json:"ignoreClientCertificateExpiration,omitempty"`
+}
+
+// Matcher holds health-check matcher codes for a target group.
+type Matcher struct {
+	HTTPCode string `json:"httpCode,omitempty"`
+	GrpcCode string `json:"grpcCode,omitempty"`
+}
+
 // Certificate represents a listener certificate.
 type Certificate struct {
 	CertificateArn string `json:"certificateArn"`
@@ -174,17 +221,17 @@ type Certificate struct {
 
 // Listener represents an ELBv2 listener.
 type Listener struct {
-	Tags            *tags.Tags        `json:"tags,omitempty"`
-	Attributes      map[string]string `json:"attributes,omitempty"`
-	ListenerArn     string            `json:"listenerArn"`
-	LoadBalancerArn string            `json:"loadBalancerArn"`
-	Protocol        string            `json:"protocol"`
-	SSLPolicy       string            `json:"sslPolicy,omitempty"`
-	AlpnPolicy      string            `json:"alpnPolicy,omitempty"`
-	TrustStoreArn   string            `json:"trustStoreArn,omitempty"`
-	DefaultActions  []Action          `json:"defaultActions"`
-	Certificates    []Certificate     `json:"certificates,omitempty"`
-	Port            int32             `json:"port"`
+	Tags                 *tags.Tags            `json:"tags,omitempty"`
+	Attributes           map[string]string     `json:"attributes,omitempty"`
+	MutualAuthentication *MutualAuthentication `json:"mutualAuthentication,omitempty"`
+	ListenerArn          string                `json:"listenerArn"`
+	LoadBalancerArn      string                `json:"loadBalancerArn"`
+	Protocol             string                `json:"protocol"`
+	SSLPolicy            string                `json:"sslPolicy,omitempty"`
+	AlpnPolicy           string                `json:"alpnPolicy,omitempty"`
+	DefaultActions       []Action              `json:"defaultActions"`
+	Certificates         []Certificate         `json:"certificates,omitempty"`
+	Port                 int32                 `json:"port"`
 }
 
 // Rule represents an ELBv2 listener rule.
@@ -221,6 +268,9 @@ type StorageBackend interface {
 	DescribeLoadBalancers(arns []string, names []string) ([]LoadBalancer, error)
 	DeleteLoadBalancer(lbArn string) error
 	ModifyLoadBalancerAttributes(lbArn string, attrs map[string]string) (*LoadBalancer, error)
+	SetSecurityGroups(lbArn string, sgs []string) (*LoadBalancer, error)
+	SetSubnets(lbArn string, azs []string) (*LoadBalancer, error)
+	SetIPAddressType(lbArn string, ipType string) (*LoadBalancer, error)
 	CreateTargetGroup(input CreateTargetGroupInput) (*TargetGroup, error)
 	DescribeTargetGroups(arns []string, names []string, lbArn string) ([]TargetGroup, error)
 	DeleteTargetGroup(tgArn string) error
@@ -275,12 +325,13 @@ type CreateLoadBalancerInput struct {
 type CreateTargetGroupInput struct {
 	Name                       string
 	Protocol                   string
+	ProtocolVersion            string
 	VpcID                      string
 	TargetType                 string
 	HealthCheckProtocol        string
 	HealthCheckPort            string
 	HealthCheckPath            string
-	Matcher                    string
+	Matcher                    Matcher
 	Tags                       []tags.KV
 	Port                       int32
 	HealthCheckIntervalSeconds int32
@@ -291,42 +342,43 @@ type CreateTargetGroupInput struct {
 }
 
 // ModifyTargetGroupInput holds the parameters for modifying a target group.
+// HealthCheckEnabled is a pointer so that an absent parameter does not overwrite the stored value.
 type ModifyTargetGroupInput struct {
+	HealthCheckEnabled         *bool
+	Matcher                    Matcher
 	TargetGroupArn             string
 	HealthCheckProtocol        string
 	HealthCheckPort            string
 	HealthCheckPath            string
-	Matcher                    string
 	HealthCheckIntervalSeconds int32
 	HealthCheckTimeoutSeconds  int32
 	HealthyThresholdCount      int32
 	UnhealthyThresholdCount    int32
-	HealthCheckEnabled         bool
 }
 
 // CreateListenerInput holds the parameters for creating a listener.
 type CreateListenerInput struct {
-	LoadBalancerArn string
-	Protocol        string
-	SSLPolicy       string
-	AlpnPolicy      string
-	TrustStoreArn   string
-	DefaultActions  []Action
-	Tags            []tags.KV
-	Certificates    []Certificate
-	Port            int32
+	MutualAuthentication *MutualAuthentication
+	LoadBalancerArn      string
+	Protocol             string
+	SSLPolicy            string
+	AlpnPolicy           string
+	DefaultActions       []Action
+	Tags                 []tags.KV
+	Certificates         []Certificate
+	Port                 int32
 }
 
 // ModifyListenerInput holds the parameters for modifying a listener.
 type ModifyListenerInput struct {
-	ListenerArn    string
-	Protocol       string
-	SSLPolicy      string
-	AlpnPolicy     string
-	TrustStoreArn  string
-	DefaultActions []Action
-	Certificates   []Certificate
-	Port           int32
+	MutualAuthentication *MutualAuthentication
+	ListenerArn          string
+	Protocol             string
+	SSLPolicy            string
+	AlpnPolicy           string
+	DefaultActions       []Action
+	Certificates         []Certificate
+	Port                 int32
 }
 
 // CreateRuleInput holds the parameters for creating a listener rule.
@@ -354,6 +406,7 @@ type InMemoryBackend struct {
 	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
+	ruleCounter   int // monotonically increasing counter for rule ARN generation
 }
 
 // NewInMemoryBackend creates a new in-memory ELBv2 backend.
@@ -367,6 +420,130 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:     accountID,
 		region:        region,
 		mu:            lockmetrics.New("elbv2"),
+	}
+}
+
+// validatePort returns ErrInvalidParameter if port is not in the valid range 1-65535.
+func validatePort(port int32) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("%w: port must be between 1 and 65535", ErrInvalidParameter)
+	}
+
+	return nil
+}
+
+// validateResourceName returns ErrInvalidParameter if name violates the ELBv2 naming rules:
+// non-empty, alphanumeric characters, hyphens, and underscores;
+// cannot start or end with a hyphen.
+func validateResourceName(name, kind string) error {
+	if len(name) == 0 {
+		return fmt.Errorf("%w: %s name must not be empty", ErrInvalidParameter, kind)
+	}
+
+	if name[0] == '-' || name[len(name)-1] == '-' {
+		return fmt.Errorf("%w: %s name cannot start or end with a hyphen", ErrInvalidParameter, kind)
+	}
+
+	for _, c := range name {
+		lowerAlpha := c >= 'a' && c <= 'z'
+		upperAlpha := c >= 'A' && c <= 'Z'
+		digit := c >= '0' && c <= '9'
+		hyphen := c == '-'
+		underscore := c == '_'
+
+		if !lowerAlpha && !upperAlpha && !digit && !hyphen && !underscore {
+			return fmt.Errorf(
+				"%w: %s name may only contain alphanumeric characters, hyphens, and underscores",
+				ErrInvalidParameter, kind,
+			)
+		}
+	}
+
+	return nil
+}
+
+// isValidTargetType returns true if the target type is a recognized ELBv2 value.
+func isValidTargetType(tt string) bool {
+	switch tt {
+	case "instance", "ip", targetTypeLambda, "alb":
+		return true
+	}
+
+	return false
+}
+
+// isValidTGProtocol returns true if the protocol is accepted for non-lambda target groups.
+func isValidTGProtocol(proto string) bool {
+	switch proto {
+	case protoHTTP, protoHTTPS, "TCP", protoTLS, "UDP", "TCP_UDP", "GENEVE":
+		return true
+	}
+
+	return false
+}
+
+// canonicalHostedZoneIDForLB returns the canonical hosted-zone ID for the given LB type and region.
+// Returns a sensible default when the combination is not in the known map.
+func canonicalHostedZoneIDForLB(lbType, region string) string {
+	// ALB hosted zone IDs per region (partial list — falls back to us-east-1).
+	albZones := map[string]string{
+		"us-east-1":      "Z35SXDOTRQ7X7K",
+		"us-east-2":      "Z3AADJGX6KTTL2",
+		"us-west-1":      "Z368ELLRRE2KJ0",
+		"us-west-2":      "Z1H1FL5HABSF5",
+		"eu-west-1":      "Z32O12XQLNTSW2",
+		"eu-west-2":      "ZHURV8PSTC4K8",
+		"eu-central-1":   "Z215JYRZR1TBD5",
+		"ap-southeast-1": "Z1LMS91P8CMLE5",
+		"ap-southeast-2": "Z1GM3OXH4ZPM65",
+		"ap-northeast-1": "Z14GRHDCWA56QT",
+		"ap-south-1":     "ZP97RAFLXTNZK",
+		"sa-east-1":      "ZTK26PT1VY4CU",
+		"ca-central-1":   "ZQSVJUPU6J1EY",
+	}
+	// NLB hosted zone IDs per region.
+	nlbZones := map[string]string{
+		"us-east-1":      "Z26RNL4JYFTOTI",
+		"us-east-2":      "ZLMOA37VPKANP",
+		"us-west-1":      "Z24FKFUX50B4VW",
+		"us-west-2":      "Z18D5FSROUN65G",
+		"eu-west-1":      "Z2IFOLAFXWLO4F",
+		"eu-west-2":      "ZD4D7Y8KGAS4G",
+		"eu-central-1":   "Z3F0SRJ5LGBH90",
+		"ap-southeast-1": "ZKVM6ETL9YU8P",
+		"ap-southeast-2": "ZCT6FZBF4DROD",
+		"ap-northeast-1": "Z31USIVHYNEOWT",
+		"ap-south-1":     "ZVDDRBQ08TROA",
+		"sa-east-1":      "ZTK26PT1VY4CU",
+		"ca-central-1":   "Z2EPGBWURTVAEP",
+	}
+
+	switch lbType {
+	case lbTypeNetwork:
+		if id, ok := nlbZones[region]; ok {
+			return id
+		}
+
+		return "Z26RNL4JYFTOTI"
+	default:
+		if id, ok := albZones[region]; ok {
+			return id
+		}
+
+		return "Z35SXDOTRQ7X7K"
+	}
+}
+
+// lbDNSName returns the DNS name for a load balancer following the real AWS format.
+// ALB/GWLB: {name}-{id}.{region}.elb.amazonaws.com
+// NLB:      {name}-{id}.elb.{region}.amazonaws.com.
+func lbDNSName(name, lbType, region string) string {
+	const fixedID = "00000001"
+	switch lbType {
+	case lbTypeNetwork:
+		return fmt.Sprintf("%s-%s.elb.%s.amazonaws.com", name, fixedID, region)
+	default:
+		return fmt.Sprintf("%s-%s.%s.elb.amazonaws.com", name, fixedID, region)
 	}
 }
 
@@ -415,6 +592,10 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	if err := validateResourceName(input.Name, "load balancer"); err != nil {
+		return nil, err
+	}
+
 	for _, lb := range b.loadBalancers {
 		if lb.LoadBalancerName == input.Name {
 			return nil, ErrLoadBalancerAlreadyExists
@@ -424,8 +605,16 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	lbArn := b.lbARN(input.Name)
 
 	lbType := input.Type
-	if lbType == "" {
-		lbType = "application"
+	switch lbType {
+	case "", lbTypeApplication:
+		lbType = lbTypeApplication
+	case "network", "gateway":
+		// valid as-is
+	default:
+		return nil, fmt.Errorf(
+			"%w: invalid Type %q; must be application, network, or gateway",
+			ErrInvalidParameter, lbType,
+		)
 	}
 
 	scheme := input.Scheme
@@ -443,11 +632,25 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		t.Set(kv.Key, kv.Value)
 	}
 
+	defaultAttrs := map[string]string{
+		"access_logs.s3.enabled":                          attrValueFalse,
+		"deletion_protection.enabled":                     attrValueFalse,
+		"idle_timeout.timeout_seconds":                    "60",
+		"routing.http2.enabled":                           attrValueTrue,
+		"routing.http.desync_mitigation_mode":             "defensive",
+		"routing.http.drop_invalid_header_fields.enabled": attrValueFalse,
+		"routing.http.preserve_host_header.enabled":       attrValueFalse,
+		"routing.http.xff_client_port.enabled":            attrValueFalse,
+		"routing.http.xff_header_processing.mode":         "append",
+		"load_balancing.cross_zone.enabled":               attrValueTrue,
+		"waf.fail_open.enabled":                           attrValueFalse,
+	}
+
 	lb := &LoadBalancer{
 		LoadBalancerArn:       lbArn,
 		LoadBalancerName:      input.Name,
-		DNSName:               fmt.Sprintf("%s-%s.%s.elb.amazonaws.com", input.Name, b.region, b.region),
-		CanonicalHostedZoneID: "Z35SXDOTRQ7X7K",
+		DNSName:               lbDNSName(input.Name, lbType, b.region),
+		CanonicalHostedZoneID: canonicalHostedZoneIDForLB(lbType, b.region),
 		CreatedTime:           time.Now().UTC(),
 		Scheme:                scheme,
 		Type:                  lbType,
@@ -459,7 +662,8 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 			Code:        "active",
 			Description: "",
 		},
-		Tags: t,
+		Attributes: defaultAttrs,
+		Tags:       t,
 	}
 
 	b.loadBalancers[lbArn] = lb
@@ -559,6 +763,64 @@ func (b *InMemoryBackend) ModifyLoadBalancerAttributes(lbArn string, attrs map[s
 	return &cp, nil
 }
 
+// SetSecurityGroups updates the security groups associated with a load balancer.
+func (b *InMemoryBackend) SetSecurityGroups(lbArn string, sgs []string) (*LoadBalancer, error) {
+	b.mu.Lock("SetSecurityGroups")
+	defer b.mu.Unlock()
+
+	lb, ok := b.loadBalancers[lbArn]
+	if !ok {
+		return nil, ErrLoadBalancerNotFound
+	}
+
+	lb.SecurityGroups = sgs
+	cp := *lb
+
+	return &cp, nil
+}
+
+// SetSubnets updates the availability zones / subnets associated with a load balancer.
+func (b *InMemoryBackend) SetSubnets(lbArn string, azs []string) (*LoadBalancer, error) {
+	b.mu.Lock("SetSubnets")
+	defer b.mu.Unlock()
+
+	lb, ok := b.loadBalancers[lbArn]
+	if !ok {
+		return nil, ErrLoadBalancerNotFound
+	}
+
+	lb.AvailabilityZones = azs
+	cp := *lb
+
+	return &cp, nil
+}
+
+// SetIPAddressType updates the IP address type of a load balancer.
+func (b *InMemoryBackend) SetIPAddressType(lbArn string, ipType string) (*LoadBalancer, error) {
+	b.mu.Lock("SetIPAddressType")
+	defer b.mu.Unlock()
+
+	lb, ok := b.loadBalancers[lbArn]
+	if !ok {
+		return nil, ErrLoadBalancerNotFound
+	}
+
+	switch ipType {
+	case "ipv4", "dualstack", "dualstack-without-public-ipv4":
+		// valid
+	default:
+		return nil, fmt.Errorf(
+			"%w: invalid IpAddressType %q; must be ipv4, dualstack, or dualstack-without-public-ipv4",
+			ErrInvalidParameter, ipType,
+		)
+	}
+
+	lb.IPAddressType = ipType
+	cp := *lb
+
+	return &cp, nil
+}
+
 // CreateTargetGroup creates a new target group.
 func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*TargetGroup, error) {
 	b.mu.Lock("CreateTargetGroup")
@@ -566,6 +828,10 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	if err := validateResourceName(input.Name, "target group"); err != nil {
+		return nil, err
 	}
 
 	for _, tg := range b.targetGroups {
@@ -576,14 +842,33 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 
 	tgArn := b.tgARN(input.Name)
 
-	proto := input.Protocol
-	if proto == "" {
-		proto = "HTTP"
-	}
-
 	targetType := input.TargetType
 	if targetType == "" {
 		targetType = "instance"
+	}
+
+	if !isValidTargetType(targetType) {
+		return nil, fmt.Errorf(
+			"%w: invalid TargetType %q; must be instance, ip, lambda, or alb",
+			ErrInvalidParameter, targetType,
+		)
+	}
+
+	proto := input.Protocol
+	if targetType == targetTypeLambda {
+		// Lambda target groups have no protocol or port.
+		proto = ""
+	} else {
+		if proto == "" {
+			proto = protoHTTP
+		}
+
+		if !isValidTGProtocol(proto) {
+			return nil, fmt.Errorf(
+				"%w: invalid Protocol %q for target group",
+				ErrInvalidParameter, proto,
+			)
+		}
 	}
 
 	t := tags.New("elbv2.tg." + input.Name + ".tags")
@@ -591,19 +876,37 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 		t.Set(kv.Key, kv.Value)
 	}
 
+	// Apply health-check defaults.
+	input = applyTGHealthCheckDefaults(proto, input)
+	matcher := defaultTGMatcher(input.HealthCheckProtocol, input.Matcher)
+
 	tg := &TargetGroup{
-		TargetGroupArn:      tgArn,
-		TargetGroupName:     input.Name,
-		Protocol:            proto,
-		Port:                input.Port,
-		VpcID:               input.VpcID,
-		TargetType:          targetType,
-		HealthCheckProtocol: proto,
-		HealthCheckPort:     "traffic-port",
-		HealthCheckPath:     "/",
-		HealthCheckEnabled:  true,
-		Targets:             []Target{},
-		Tags:                t,
+		TargetGroupArn:             tgArn,
+		TargetGroupName:            input.Name,
+		Protocol:                   proto,
+		ProtocolVersion:            input.ProtocolVersion,
+		Port:                       input.Port,
+		VpcID:                      input.VpcID,
+		TargetType:                 targetType,
+		HealthCheckProtocol:        input.HealthCheckProtocol,
+		HealthCheckPort:            input.HealthCheckPort,
+		HealthCheckPath:            input.HealthCheckPath,
+		Matcher:                    matcher,
+		HealthCheckEnabled:         input.HealthCheckEnabled,
+		HealthCheckIntervalSeconds: input.HealthCheckIntervalSeconds,
+		HealthCheckTimeoutSeconds:  input.HealthCheckTimeoutSeconds,
+		HealthyThresholdCount:      input.HealthyThresholdCount,
+		UnhealthyThresholdCount:    input.UnhealthyThresholdCount,
+		CrossZoneLoadBalancing:     true,
+		Targets:                    []Target{},
+		TargetGroupAttributes: map[string]string{
+			"deregistration_delay.timeout_seconds": "300",
+			"stickiness.enabled":                   attrValueFalse,
+			"stickiness.type":                      "lb_cookie",
+			"load_balancing.algorithm.type":        "round_robin",
+			"slow_start.duration_seconds":          "0",
+		},
+		Tags: t,
 	}
 
 	b.targetGroups[tgArn] = tg
@@ -613,9 +916,147 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 	return &cp, nil
 }
 
+func applyTGHealthCheckDefaults(proto string, input CreateTargetGroupInput) CreateTargetGroupInput {
+	if input.HealthCheckProtocol == "" {
+		input.HealthCheckProtocol = proto
+	}
+
+	if input.HealthCheckPort == "" {
+		input.HealthCheckPort = "traffic-port"
+	}
+
+	if input.HealthCheckPath == "" && (proto == protoHTTP || proto == protoHTTPS) {
+		input.HealthCheckPath = "/"
+	}
+
+	if input.HealthCheckIntervalSeconds == 0 {
+		input.HealthCheckIntervalSeconds = 30
+	}
+
+	if input.HealthCheckTimeoutSeconds == 0 {
+		input.HealthCheckTimeoutSeconds = 5
+	}
+
+	if input.HealthyThresholdCount == 0 {
+		input.HealthyThresholdCount = 3
+	}
+
+	if input.UnhealthyThresholdCount == 0 {
+		input.UnhealthyThresholdCount = 3
+	}
+
+	return input
+}
+
+func defaultTGMatcher(hcProtocol string, matcher Matcher) Matcher {
+	if matcher.HTTPCode == "" && matcher.GrpcCode == "" && (hcProtocol == protoHTTP || hcProtocol == protoHTTPS) {
+		matcher.HTTPCode = "200"
+	}
+
+	return matcher
+}
+
+func collectTGArns(actions []Action, arns map[string]bool) {
+	for _, a := range actions {
+		if a.TargetGroupArn != "" {
+			arns[a.TargetGroupArn] = true
+		}
+
+		if a.ForwardConfig != nil {
+			for _, tgt := range a.ForwardConfig.TargetGroups {
+				if tgt.TargetGroupArn != "" {
+					arns[tgt.TargetGroupArn] = true
+				}
+			}
+		}
+	}
+}
+
+func collectLBArnsForTG(lbArn string, actions []Action, result map[string]map[string]bool) {
+	for _, a := range actions {
+		if a.TargetGroupArn != "" {
+			if result[a.TargetGroupArn] == nil {
+				result[a.TargetGroupArn] = make(map[string]bool)
+			}
+
+			result[a.TargetGroupArn][lbArn] = true
+		}
+
+		if a.ForwardConfig != nil {
+			for _, tgt := range a.ForwardConfig.TargetGroups {
+				if tgt.TargetGroupArn != "" {
+					if result[tgt.TargetGroupArn] == nil {
+						result[tgt.TargetGroupArn] = make(map[string]bool)
+					}
+
+					result[tgt.TargetGroupArn][lbArn] = true
+				}
+			}
+		}
+	}
+}
+
+func actionsReferenceTG(actions []Action, tgArn string) bool {
+	for _, a := range actions {
+		if a.TargetGroupArn == tgArn {
+			return true
+		}
+
+		if a.ForwardConfig != nil {
+			for _, tgt := range a.ForwardConfig.TargetGroups {
+				if tgt.TargetGroupArn == tgArn {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// tgArnsForLB returns the set of target group ARNs referenced by listeners and rules on the given LB.
+// Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) tgArnsForLB(lbArn string) map[string]bool {
+	arns := make(map[string]bool)
+
+	for _, l := range b.listeners {
+		if l.LoadBalancerArn != lbArn {
+			continue
+		}
+
+		collectTGArns(l.DefaultActions, arns)
+
+		for _, r := range b.rules {
+			if r.ListenerArn == l.ListenerArn {
+				collectTGArns(r.Actions, arns)
+			}
+		}
+	}
+
+	return arns
+}
+
+// tgToLBArnsLocked returns a map from target group ARN to the set of LB ARNs that reference it.
+// Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) tgToLBArnsLocked() map[string]map[string]bool {
+	result := make(map[string]map[string]bool)
+
+	for _, l := range b.listeners {
+		collectLBArnsForTG(l.LoadBalancerArn, l.DefaultActions, result)
+
+		for _, r := range b.rules {
+			if r.ListenerArn == l.ListenerArn {
+				collectLBArnsForTG(l.LoadBalancerArn, r.Actions, result)
+			}
+		}
+	}
+
+	return result
+}
+
 // DescribeTargetGroups returns target groups filtered by ARNs, names, or load balancer ARN.
 // The returned TargetGroup values contain a Tags pointer that is backend-owned; callers must treat it as read-only.
-func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, _ string) ([]TargetGroup, error) {
+func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lbArn string) ([]TargetGroup, error) {
 	b.mu.RLock("DescribeTargetGroups")
 	defer b.mu.RUnlock()
 
@@ -629,6 +1070,14 @@ func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, _ 
 		nameSet[n] = true
 	}
 
+	var lbTGArns map[string]bool
+	if lbArn != "" {
+		lbTGArns = b.tgArnsForLB(lbArn)
+	}
+
+	// Build TG -> LB ARNs mapping to populate LoadBalancerArns field.
+	tgLBMap := b.tgToLBArnsLocked()
+
 	result := make([]TargetGroup, 0)
 
 	for _, tg := range b.targetGroups {
@@ -640,7 +1089,21 @@ func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, _ 
 			continue
 		}
 
-		result = append(result, *tg)
+		if lbTGArns != nil && !lbTGArns[tg.TargetGroupArn] {
+			continue
+		}
+
+		cp := *tg
+
+		// Populate LoadBalancerArns from the computed map.
+		lbArns := make([]string, 0, len(tgLBMap[tg.TargetGroupArn]))
+		for lb := range tgLBMap[tg.TargetGroupArn] {
+			lbArns = append(lbArns, lb)
+		}
+
+		sort.Strings(lbArns)
+		cp.LoadBalancerArns = lbArns
+		result = append(result, cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -650,6 +1113,24 @@ func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, _ 
 	return result, nil
 }
 
+// isTGInUseLocked returns true if the target group ARN is referenced by any listener or rule.
+// Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) isTGInUseLocked(tgArn string) bool {
+	for _, l := range b.listeners {
+		if actionsReferenceTG(l.DefaultActions, tgArn) {
+			return true
+		}
+	}
+
+	for _, r := range b.rules {
+		if actionsReferenceTG(r.Actions, tgArn) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // DeleteTargetGroup deletes a target group by ARN.
 func (b *InMemoryBackend) DeleteTargetGroup(tgArn string) error {
 	b.mu.Lock("DeleteTargetGroup")
@@ -657,6 +1138,10 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgArn string) error {
 
 	if _, ok := b.targetGroups[tgArn]; !ok {
 		return ErrTargetGroupNotFound
+	}
+
+	if b.isTGInUseLocked(tgArn) {
+		return fmt.Errorf("%w: target group %s is still in use by a listener or rule", ErrTargetGroupInUse, tgArn)
 	}
 
 	b.targetGroups[tgArn].Tags.Close()
@@ -677,12 +1162,14 @@ func (b *InMemoryBackend) RegisterTargets(tgArn string, targets []Target) error 
 
 	existing := make(map[string]bool)
 	for _, t := range tg.Targets {
-		existing[t.ID] = true
+		existing[t.ID+":"+strconv.Itoa(int(t.Port))] = true
 	}
 
 	for _, t := range targets {
-		if !existing[t.ID] {
+		key := t.ID + ":" + strconv.Itoa(int(t.Port))
+		if !existing[key] {
 			tg.Targets = append(tg.Targets, t)
+			existing[key] = true
 		}
 	}
 
@@ -701,13 +1188,13 @@ func (b *InMemoryBackend) DeregisterTargets(tgArn string, targets []Target) erro
 
 	remove := make(map[string]bool)
 	for _, t := range targets {
-		remove[t.ID] = true
+		remove[t.ID+":"+strconv.Itoa(int(t.Port))] = true
 	}
 
 	remaining := make([]Target, 0, len(tg.Targets))
 
 	for _, t := range tg.Targets {
-		if !remove[t.ID] {
+		if !remove[t.ID+":"+strconv.Itoa(int(t.Port))] {
 			remaining = append(remaining, t)
 		}
 	}
@@ -738,6 +1225,88 @@ func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]TargetHealthDesc
 	return result, nil
 }
 
+const (
+	protoHTTP         = "HTTP"
+	protoHTTPS        = "HTTPS"
+	protoTLS          = "TLS"
+	lbTypeApplication = "application"
+	lbTypeNetwork     = "network"
+	targetTypeLambda  = "lambda"
+	priorityDefault   = "default"
+)
+
+func isALBProtocol(proto string) bool {
+	switch proto {
+	case protoHTTP, protoHTTPS:
+		return true
+	}
+
+	return false
+}
+
+func isNLBProtocol(proto string) bool {
+	switch proto {
+	case "TCP", "UDP", protoTLS, "TCP_UDP":
+		return true
+	}
+
+	return false
+}
+
+func isGWLBProtocol(proto string) bool { return proto == "GENEVE" }
+
+func validateListenerProtocol(lbType, proto string) error {
+	switch lbType {
+	case lbTypeApplication:
+		if !isALBProtocol(proto) {
+			return fmt.Errorf(
+				"%w: protocol %s is not supported for Application Load Balancers; use HTTP or HTTPS",
+				ErrInvalidConfigurationRequest, proto,
+			)
+		}
+	case "network":
+		if !isNLBProtocol(proto) {
+			return fmt.Errorf(
+				"%w: protocol %s is not supported for Network Load Balancers; use TCP, UDP, TLS, or TCP_UDP",
+				ErrInvalidConfigurationRequest, proto,
+			)
+		}
+	case "gateway":
+		if !isGWLBProtocol(proto) {
+			return fmt.Errorf(
+				"%w: protocol %s is not supported for Gateway Load Balancers; use GENEVE",
+				ErrInvalidConfigurationRequest, proto,
+			)
+		}
+	}
+
+	return nil
+}
+
+func requireCertsForProtocol(proto string, certs []Certificate) error {
+	if (proto == protoHTTPS || proto == protoTLS) && len(certs) == 0 {
+		return fmt.Errorf(
+			"%w: %s listener requires at least one certificate",
+			ErrInvalidParameter, proto,
+		)
+	}
+
+	return nil
+}
+
+func checkDuplicateListenerPort(listeners map[string]*Listener, lbArn string, port int32) error {
+	for _, existing := range listeners {
+		if existing.LoadBalancerArn == lbArn && existing.Port == port {
+			return fmt.Errorf(
+				"%w: a listener on port %d already exists on this load balancer",
+				ErrDuplicateListener, port,
+			)
+		}
+	}
+
+	return nil
+}
+
 // CreateListener creates a new listener on a load balancer.
 func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, error) {
 	b.mu.Lock("CreateListener")
@@ -748,6 +1317,20 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		return nil, ErrLoadBalancerNotFound
 	}
 
+	// Validate protocol against LB type.
+	proto := input.Protocol
+	if err := validateListenerProtocol(lb.Type, proto); err != nil {
+		return nil, err
+	}
+
+	if err := requireCertsForProtocol(proto, input.Certificates); err != nil {
+		return nil, err
+	}
+
+	if err := checkDuplicateListenerPort(b.listeners, input.LoadBalancerArn, input.Port); err != nil {
+		return nil, err
+	}
+
 	listenerArn := b.listenerARN(lb.LoadBalancerName, input.Port)
 
 	t := tags.New(fmt.Sprintf("elbv2.listener.%s.%d.tags", lb.LoadBalancerName, input.Port))
@@ -755,30 +1338,39 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		t.Set(kv.Key, kv.Value)
 	}
 
+	// Initialize default listener attributes based on protocol.
+	listenerAttrs := map[string]string{}
+	if proto == protoHTTP || proto == protoHTTPS {
+		listenerAttrs["routing.http2.enabled"] = attrValueTrue
+		listenerAttrs["idle_timeout.timeout_seconds"] = "60"
+		listenerAttrs["routing.http.desync_mitigation_mode"] = "defensive"
+	}
+
 	listener := &Listener{
-		ListenerArn:     listenerArn,
-		LoadBalancerArn: input.LoadBalancerArn,
-		Protocol:        input.Protocol,
-		Port:            input.Port,
-		DefaultActions:  input.DefaultActions,
-		Certificates:    input.Certificates,
-		SSLPolicy:       input.SSLPolicy,
-		AlpnPolicy:      input.AlpnPolicy,
-		TrustStoreArn:   input.TrustStoreArn,
-		Tags:            t,
+		ListenerArn:          listenerArn,
+		LoadBalancerArn:      input.LoadBalancerArn,
+		Protocol:             proto,
+		Port:                 input.Port,
+		DefaultActions:       input.DefaultActions,
+		Certificates:         input.Certificates,
+		SSLPolicy:            input.SSLPolicy,
+		AlpnPolicy:           input.AlpnPolicy,
+		MutualAuthentication: input.MutualAuthentication,
+		Attributes:           listenerAttrs,
+		Tags:                 t,
 	}
 
 	b.listeners[listenerArn] = listener
 
 	// Auto-create default rule (AWS behaviour: every listener has a default rule).
-	defaultRuleArn := b.ruleARN(listenerArn, "default")
+	defaultRuleArn := b.ruleARN(listenerArn, priorityDefault)
 	defaultTags := tags.New("elbv2.rule." + defaultRuleArn + ".tags")
 	defaultActions := make([]Action, len(input.DefaultActions))
 	copy(defaultActions, input.DefaultActions)
 	b.rules[defaultRuleArn] = &Rule{
 		RuleArn:     defaultRuleArn,
 		ListenerArn: listenerArn,
-		Priority:    "default",
+		Priority:    priorityDefault,
 		IsDefault:   true,
 		Actions:     defaultActions,
 		Tags:        defaultTags,
@@ -815,7 +1407,7 @@ func (b *InMemoryBackend) DescribeListeners(lbArn string, listenerArns []string)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].ListenerArn < result[j].ListenerArn
+		return result[i].Port < result[j].Port
 	})
 
 	return result, nil
@@ -844,6 +1436,20 @@ func (b *InMemoryBackend) DeleteListener(listenerArn string) error {
 	return nil
 }
 
+// syncDefaultRuleActions updates the default rule's actions to match the listener's new default actions.
+// Caller must hold b.mu (write).
+func (b *InMemoryBackend) syncDefaultRuleActions(listenerArn string, actions []Action) {
+	for _, r := range b.rules {
+		if r.ListenerArn == listenerArn && r.IsDefault {
+			actsCopy := make([]Action, len(actions))
+			copy(actsCopy, actions)
+			r.Actions = actsCopy
+
+			break
+		}
+	}
+}
+
 // ModifyListener updates the properties of an existing listener.
 func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, error) {
 	b.mu.Lock("ModifyListener")
@@ -854,16 +1460,21 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 		return nil, ErrListenerNotFound
 	}
 
-	if input.Protocol != "" {
-		l.Protocol = input.Protocol
+	if err := b.applyListenerProtocol(l, input); err != nil {
+		return nil, err
 	}
 
-	if input.Port != 0 {
+	if input.Port != 0 && input.Port != l.Port {
+		if err := checkDuplicateListenerPort(b.listeners, l.LoadBalancerArn, input.Port); err != nil {
+			return nil, err
+		}
+
 		l.Port = input.Port
 	}
 
 	if len(input.DefaultActions) > 0 {
 		l.DefaultActions = input.DefaultActions
+		b.syncDefaultRuleActions(input.ListenerArn, input.DefaultActions)
 	}
 
 	if len(input.Certificates) > 0 {
@@ -878,13 +1489,40 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 		l.AlpnPolicy = input.AlpnPolicy
 	}
 
-	if input.TrustStoreArn != "" {
-		l.TrustStoreArn = input.TrustStoreArn
+	if input.MutualAuthentication != nil {
+		l.MutualAuthentication = input.MutualAuthentication
 	}
 
 	cp := *l
 
 	return &cp, nil
+}
+
+// applyListenerProtocol validates and applies a protocol change to a listener.
+// Caller must hold b.mu (write).
+func (b *InMemoryBackend) applyListenerProtocol(l *Listener, input ModifyListenerInput) error {
+	if input.Protocol == "" {
+		return nil
+	}
+
+	if lb, ok := b.loadBalancers[l.LoadBalancerArn]; ok {
+		if err := validateListenerProtocol(lb.Type, input.Protocol); err != nil {
+			return err
+		}
+	}
+
+	candidateCerts := l.Certificates
+	if len(input.Certificates) > 0 {
+		candidateCerts = input.Certificates
+	}
+
+	if err := requireCertsForProtocol(input.Protocol, candidateCerts); err != nil {
+		return err
+	}
+
+	l.Protocol = input.Protocol
+
+	return nil
 }
 
 // CreateRule creates a new rule on a listener.
@@ -896,8 +1534,13 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 		return nil, ErrListenerNotFound
 	}
 
-	// Check for duplicate priority.
-	if input.Priority != "" && input.Priority != "default" {
+	// Validate and check for duplicate priority.
+	if input.Priority != "" && input.Priority != priorityDefault {
+		p, parseErr := strconv.ParseInt(input.Priority, 10, 32)
+		if parseErr != nil || p < 1 || p > 50000 {
+			return nil, fmt.Errorf("%w: priority must be an integer between 1 and 50000", ErrInvalidParameter)
+		}
+
 		for _, r := range b.rules {
 			if r.ListenerArn == input.ListenerArn && r.Priority == input.Priority {
 				return nil, fmt.Errorf("%w: priority %s already in use", ErrDuplicateRulePriority, input.Priority)
@@ -905,8 +1548,8 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 		}
 	}
 
-	idx := strconv.Itoa(len(b.rules))
-	ruleArn := b.ruleARN(input.ListenerArn, idx)
+	b.ruleCounter++
+	ruleArn := b.ruleARN(input.ListenerArn, strconv.Itoa(b.ruleCounter))
 
 	t := tags.New("elbv2.rule." + ruleArn + ".tags")
 	for _, kv := range input.Tags {
@@ -954,8 +1597,28 @@ func (b *InMemoryBackend) DescribeRules(listenerArn string, ruleArns []string) (
 		result = append(result, *r)
 	}
 
+	// Sort numerically by priority; "default" sorts last (highest priority number).
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].RuleArn < result[j].RuleArn
+		pi, pj := result[i].Priority, result[j].Priority
+		if pi == pj {
+			return false
+		}
+
+		if pi == priorityDefault {
+			return false
+		}
+
+		if pj == priorityDefault {
+			return true
+		}
+
+		ni, errI := strconv.Atoi(pi)
+		nj, errJ := strconv.Atoi(pj)
+		if errI != nil || errJ != nil {
+			return pi < pj
+		}
+
+		return ni < nj
 	})
 
 	return result, nil
@@ -966,11 +1629,15 @@ func (b *InMemoryBackend) DeleteRule(ruleArn string) error {
 	b.mu.Lock("DeleteRule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.rules[ruleArn]; !ok {
+	rule, ok := b.rules[ruleArn]
+	if !ok {
 		return ErrRuleNotFound
 	}
 
-	rule := b.rules[ruleArn]
+	if rule.IsDefault {
+		return fmt.Errorf("%w: cannot delete the default rule of a listener", ErrOperationNotPermitted)
+	}
+
 	rule.Tags.Close()
 	delete(b.rules, ruleArn)
 
@@ -1222,7 +1889,7 @@ func (b *InMemoryBackend) DescribeTrustStoreAssociations(trustStoreArn string) (
 	var result []string
 
 	for _, l := range b.listeners {
-		if l.TrustStoreArn == trustStoreArn {
+		if l.MutualAuthentication != nil && l.MutualAuthentication.TrustStoreArn == trustStoreArn {
 			result = append(result, l.ListenerArn)
 		}
 	}
@@ -1295,6 +1962,13 @@ func (b *InMemoryBackend) RemoveListenerCertificates(listenerArn string, certArn
 		if !remove[c.CertificateArn] {
 			remaining = append(remaining, c)
 		}
+	}
+
+	if len(remaining) == 0 && (listener.Protocol == protoHTTPS || listener.Protocol == protoTLS) {
+		return fmt.Errorf(
+			"%w: Cannot remove the last certificate from an HTTPS/TLS listener",
+			ErrInvalidParameter,
+		)
 	}
 
 	listener.Certificates = remaining
@@ -1379,14 +2053,22 @@ func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, 
 		seen[p.Priority] = true
 	}
 
-	result := make([]Rule, 0, len(priorities))
-
+	// Validate all rules exist and none is a default rule (AWS does not allow reordering defaults).
 	for _, p := range priorities {
 		r, ok := b.rules[p.RuleArn]
 		if !ok {
 			return nil, ErrRuleNotFound
 		}
 
+		if r.IsDefault {
+			return nil, fmt.Errorf("%w: cannot set priority on the default rule", ErrOperationNotPermitted)
+		}
+	}
+
+	result := make([]Rule, 0, len(priorities))
+
+	for _, p := range priorities {
+		r := b.rules[p.RuleArn]
 		r.Priority = p.Priority
 		result = append(result, *r)
 	}
@@ -1416,8 +2098,12 @@ func (b *InMemoryBackend) ModifyTargetGroup(input ModifyTargetGroupInput) (*Targ
 		tg.HealthCheckPath = input.HealthCheckPath
 	}
 
-	if input.Matcher != "" {
+	if input.Matcher.HTTPCode != "" || input.Matcher.GrpcCode != "" {
 		tg.Matcher = input.Matcher
+	}
+
+	if input.HealthCheckEnabled != nil {
+		tg.HealthCheckEnabled = *input.HealthCheckEnabled
 	}
 
 	if input.HealthCheckIntervalSeconds != 0 {
@@ -1436,7 +2122,6 @@ func (b *InMemoryBackend) ModifyTargetGroup(input ModifyTargetGroupInput) (*Targ
 		tg.UnhealthyThresholdCount = input.UnhealthyThresholdCount
 	}
 
-	tg.HealthCheckEnabled = input.HealthCheckEnabled
 	cp := *tg
 
 	return &cp, nil

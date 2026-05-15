@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -104,39 +106,88 @@ type TokenResult struct {
 	ExpiresIn    int32
 }
 
+// TokenParams holds the inputs for token issuance.
+type TokenParams struct {
+	ClientID string
+	Username string
+	UserSub  string
+	Scopes   []string
+	Groups   []string
+	AuthTime int64
+}
+
+// defaultAccessScope is the default scope on access tokens when the client has no configured scopes.
+const defaultAccessScope = "aws.cognito.signin.user.admin"
+
 // Issue generates ID, Access, and Refresh tokens for the given user.
-func (t *tokenIssuer) Issue(clientID, username, userSub string) (*TokenResult, error) {
+func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 	now := time.Now()
+	if p.AuthTime == 0 {
+		p.AuthTime = now.Unix()
+	}
 	exp := now.Add(time.Duration(tokenExpirySeconds) * time.Second)
 
 	idClaims := jwt.MapClaims{
-		"sub":              userSub,
+		"sub":              p.UserSub,
 		"iss":              t.issuerURL,
-		"aud":              clientID,
+		"aud":              p.ClientID,
 		"token_use":        "id",
-		"cognito:username": username,
+		"cognito:username": p.Username,
 		"iat":              now.Unix(),
 		"exp":              exp.Unix(),
+		"auth_time":        p.AuthTime,
 	}
+	if len(p.Groups) > 0 {
+		idClaims["cognito:groups"] = p.Groups
+	}
+
 	idToken := jwt.NewWithClaims(jwt.SigningMethodRS256, idClaims)
 	idToken.Header["kid"] = t.keyID
+
 	idTokenString, err := idToken.SignedString(t.privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("signing ID token: %w", err)
 	}
 
+	scope := defaultAccessScope
+	if len(p.Scopes) > 0 {
+		deduped := make([]string, 0, len(p.Scopes))
+		seen := make(map[string]struct{}, len(p.Scopes))
+
+		for _, s := range p.Scopes {
+			if s == "" {
+				continue
+			}
+
+			if _, dup := seen[s]; dup {
+				continue
+			}
+
+			seen[s] = struct{}{}
+			deduped = append(deduped, s)
+		}
+
+		if len(deduped) > 0 {
+			sort.Strings(deduped)
+			scope = strings.Join(deduped, " ")
+		}
+	}
+
 	accessClaims := jwt.MapClaims{
-		"sub":       userSub,
+		"sub":       p.UserSub,
 		"iss":       t.issuerURL,
-		"client_id": clientID,
+		"client_id": p.ClientID,
 		"token_use": "access",
-		"username":  username,
-		"scope":     "aws.cognito.signin.user.admin",
+		"username":  p.Username,
+		"scope":     scope,
 		"iat":       now.Unix(),
 		"exp":       exp.Unix(),
+		"auth_time": p.AuthTime,
 	}
+
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodRS256, accessClaims)
 	accessToken.Header["kid"] = t.keyID
+
 	accessTokenString, err := accessToken.SignedString(t.privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("signing access token: %w", err)

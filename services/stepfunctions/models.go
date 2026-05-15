@@ -4,14 +4,46 @@ package stepfunctions
 // Timestamp fields use float64 (Unix epoch seconds) as required by the
 // AWS JSON 1.0 protocol used by Step Functions.
 type StateMachine struct {
-	Name            string  `json:"name"`
-	StateMachineArn string  `json:"stateMachineArn"`
-	Type            string  `json:"type"`   // "STANDARD" or "EXPRESS"
-	Status          string  `json:"status"` // "ACTIVE", "DELETING"
-	Definition      string  `json:"definition"`
-	RoleArn         string  `json:"roleArn"`
-	CreationDate    float64 `json:"creationDate"`
-	UpdatedDate     float64 `json:"updatedDate,omitempty"`
+	EncryptionConfiguration *EncryptionConfiguration `json:"encryptionConfiguration,omitempty"`
+	TracingConfiguration    *TracingConfiguration    `json:"tracingConfiguration,omitempty"`
+	LoggingConfiguration    *LoggingConfiguration    `json:"loggingConfiguration,omitempty"`
+	Name                    string                   `json:"name"`
+	StateMachineArn         string                   `json:"stateMachineArn"`
+	Type                    string                   `json:"type"`
+	Status                  string                   `json:"status"`
+	Definition              string                   `json:"definition"`
+	RoleArn                 string                   `json:"roleArn"`
+	CreationDate            float64                  `json:"creationDate"`
+	UpdatedDate             float64                  `json:"updatedDate,omitempty"`
+}
+
+// EncryptionConfiguration configures KMS encryption for a state machine.
+type EncryptionConfiguration struct {
+	KMSKeyID                     string `json:"kmsKeyId,omitempty"`
+	Type                         string `json:"type,omitempty"`
+	KMSDataKeyReusePeriodSeconds int    `json:"kmsDataKeyReusePeriodSeconds,omitempty"`
+}
+
+// TracingConfiguration controls AWS X-Ray tracing for a state machine.
+type TracingConfiguration struct {
+	Enabled bool `json:"enabled"`
+}
+
+// LoggingConfiguration controls CloudWatch Logs export for a state machine.
+type LoggingConfiguration struct {
+	Level                string               `json:"level,omitempty"`
+	Destinations         []LoggingDestination `json:"destinations,omitempty"`
+	IncludeExecutionData bool                 `json:"includeExecutionData,omitempty"`
+}
+
+// LoggingDestination references a CloudWatch Logs log group destination.
+type LoggingDestination struct {
+	CloudWatchLogsLogGroup *CloudWatchLogsLogGroup `json:"cloudWatchLogsLogGroup,omitempty"`
+}
+
+// CloudWatchLogsLogGroup names a destination CloudWatch Logs log group.
+type CloudWatchLogsLogGroup struct {
+	LogGroupArn string `json:"logGroupArn,omitempty"`
 }
 
 // Execution represents a state machine execution.

@@ -396,12 +396,35 @@ func (b *InMemoryBackend) DescribeStream(input *DescribeStreamInput) (*DescribeS
 }
 
 // ListStreams returns stream names with optional pagination.
+//
+// AWS contract: results are returned in alphabetical order. When `Limit` is
+// set the response contains at most that many names. Pagination is keyed on
+// either `ExclusiveStartStreamName` or the opaque `NextToken` (which we treat
+// as the previously returned last stream name) so that callers can iterate
+// over arbitrarily large account inventories.
 func (b *InMemoryBackend) ListStreams(input *ListStreamsInput) (*ListStreamsOutput, error) {
 	b.mu.RLock("ListStreams")
 	defer b.mu.RUnlock()
 
 	// AWS returns stream names in alphabetical order.
 	names := sortedKeys(b.streams)
+
+	// Apply pagination start point: prefer ExclusiveStartStreamName, then NextToken.
+	start := input.ExclusiveStartStreamName
+	if start == "" {
+		start = input.NextToken
+	}
+
+	if start != "" {
+		idx := sort.SearchStrings(names, start)
+		// Skip the matched name itself; SearchStrings returns the insertion point
+		// so equal entries land at idx — advance past it.
+		if idx < len(names) && names[idx] == start {
+			idx++
+		}
+
+		names = names[idx:]
+	}
 
 	limit := input.Limit
 	if limit <= 0 {
@@ -412,9 +435,18 @@ func (b *InMemoryBackend) ListStreams(input *ListStreamsInput) (*ListStreamsOutp
 		limit = len(names)
 	}
 
+	page := names[:limit]
+	hasMore := len(names) > limit
+
+	var nextToken string
+	if hasMore && len(page) > 0 {
+		nextToken = page[len(page)-1]
+	}
+
 	return &ListStreamsOutput{
-		StreamNames:    names[:limit],
-		HasMoreStreams: len(names) > limit,
+		StreamNames:    page,
+		HasMoreStreams: hasMore,
+		NextToken:      nextToken,
 	}, nil
 }
 
@@ -507,6 +539,26 @@ func putRecordErrorCode(err error) string {
 
 // PutRecords writes multiple records to a stream.
 func (b *InMemoryBackend) PutRecords(input *PutRecordsInput) (*PutRecordsOutput, error) {
+	// AWS PutRecords caps a request at 500 records and 5 MiB total payload
+	// (sum of partition-key + data bytes across every entry).
+	const (
+		maxRecordsPerRequest = 500
+		maxBatchPayloadBytes = 5 * 1024 * 1024
+	)
+
+	if len(input.Records) > maxRecordsPerRequest {
+		return nil, ErrInvalidArgument
+	}
+
+	totalBytes := 0
+	for _, r := range input.Records {
+		totalBytes += len(r.PartitionKey) + len(r.Data)
+	}
+
+	if totalBytes > maxBatchPayloadBytes {
+		return nil, ErrInvalidArgument
+	}
+
 	results := make([]PutRecordsResultEntry, len(input.Records))
 	failedCount := 0
 

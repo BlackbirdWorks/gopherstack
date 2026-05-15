@@ -536,27 +536,11 @@ func (h *Handler) listTagsForResource(c *echo.Context, form url.Values) error {
 }
 
 func (h *Handler) createReplicationGroup(c *echo.Context, form url.Values) error {
-	id := form.Get("ReplicationGroupId")
-	desc := form.Get("ReplicationGroupDescription")
-	paramGroupName := form.Get("CacheParameterGroupName")
-	maintenanceWindow := form.Get("PreferredMaintenanceWindow")
-	snapshotWindow := form.Get("SnapshotWindow")
+	opts := parseCreateReplicationGroupOpts(form)
 
-	rg, err := h.Backend.CreateReplicationGroupWithOptions(id, desc, paramGroupName, maintenanceWindow, snapshotWindow)
+	rg, err := h.Backend.CreateReplicationGroupFull(opts)
 	if err != nil {
-		if errors.Is(err, ErrReplicationGroupAlreadyExists) {
-			return xmlError(
-				c,
-				http.StatusBadRequest,
-				"ReplicationGroupAlreadyExists",
-				"Replication group already exists",
-			)
-		}
-		if errors.Is(err, ErrParameterGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapReplicationGroupCreateErr(c, err)
 	}
 
 	type result struct {
@@ -569,6 +553,70 @@ func (h *Handler) createReplicationGroup(c *echo.Context, form url.Values) error
 		Xmlns:            elasticacheNS,
 		ReplicationGroup: rgToXML(*rg),
 	})
+}
+
+// parseCreateReplicationGroupOpts extracts all create options from a form submission.
+func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts {
+	opts := ReplicationGroupCreateOpts{
+		ID:                    form.Get("ReplicationGroupId"),
+		Description:           form.Get("ReplicationGroupDescription"),
+		ParameterGroupName:    form.Get("CacheParameterGroupName"),
+		MaintenanceWindow:     form.Get("PreferredMaintenanceWindow"),
+		SnapshotWindow:        form.Get("SnapshotWindow"),
+		AuthToken:             form.Get("AuthToken"),
+		KmsKeyID:              form.Get("KmsKeyId"),
+		NotificationTopicArn:  form.Get("NotificationTopicArn"),
+		TransitEncryptionMode: form.Get("TransitEncryptionMode"),
+		Engine:                form.Get("Engine"),
+		EngineVersion:         form.Get("EngineVersion"),
+		CacheNodeType:         form.Get("CacheNodeType"),
+	}
+
+	opts.AuthTokenEnabled = !strings.EqualFold(form.Get("AuthToken"), "") ||
+		strings.EqualFold(form.Get("AuthTokenEnabled"), "true")
+	opts.AtRestEncryptionEnabled = strings.EqualFold(form.Get("AtRestEncryptionEnabled"), "true")
+	opts.TransitEncryptionEnabled = strings.EqualFold(form.Get("TransitEncryptionEnabled"), "true")
+	opts.ClusterModeEnabled = strings.EqualFold(form.Get("ClusterModeEnabled"), "true") ||
+		strings.EqualFold(form.Get("ClusterMode"), "enabled")
+	opts.DataTieringEnabled = strings.EqualFold(form.Get("DataTieringEnabled"), "true")
+	opts.MultiAZEnabled = strings.EqualFold(form.Get("MultiAZEnabled"), "true")
+	opts.AutomaticFailoverEnabled = strings.EqualFold(form.Get("AutomaticFailoverEnabled"), "true")
+
+	if s := form.Get("SnapshotRetentionLimit"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			opts.SnapshotRetentionLimit = n
+		}
+	}
+
+	if s := form.Get("NumNodeGroups"); s != "" {
+		if n, err := strconv.ParseInt(s, 10, 32); err == nil {
+			opts.NumNodeGroups = int32(n)
+		}
+	}
+
+	if s := form.Get("ReplicasPerNodeGroup"); s != "" {
+		if n, err := strconv.ParseInt(s, 10, 32); err == nil {
+			opts.ReplicasPerNodeGroup = int32(n)
+		}
+	}
+
+	return opts
+}
+
+// mapReplicationGroupCreateErr maps backend errors to XML error responses.
+func mapReplicationGroupCreateErr(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrReplicationGroupAlreadyExists):
+		return xmlError(c, http.StatusBadRequest, "ReplicationGroupAlreadyExists", "Replication group already exists")
+	case errors.Is(err, ErrParameterGroupNotFound):
+		return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
+	case errors.Is(err, ErrDataTieringInvalid):
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+	case errors.Is(err, ErrAuthTokenRequiredForMode):
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
+	default:
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
 }
 
 func (h *Handler) deleteReplicationGroup(c *echo.Context, form url.Values) error {
@@ -627,13 +675,31 @@ type replicationGroupXML struct {
 	PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow,omitempty"`
 	EngineVersion              string `xml:"EngineVersion,omitempty"`
 	CreatedAt                  string `xml:"CreatingDate,omitempty"`
+	KmsKeyID                   string `xml:"KmsKeyId,omitempty"`
+	NotificationTopicArn       string `xml:"NotificationTopicArn,omitempty"`
+	TransitEncryptionMode      string `xml:"TransitEncryptionMode,omitempty"`
+	DataTiering                string `xml:"DataTiering,omitempty"`
+	SnapshotRetentionLimit     int    `xml:"SnapshotRetentionLimit,omitempty"`
+	ClusterEnabled             bool   `xml:"ClusterEnabled,omitempty"`
+	AuthTokenEnabled           bool   `xml:"AuthTokenEnabled,omitempty"`
+	AtRestEncryptionEnabled    bool   `xml:"AtRestEncryptionEnabled,omitempty"`
+	TransitEncryptionEnabled   bool   `xml:"TransitEncryptionEnabled,omitempty"`
+}
+
+// dataTieringStatus converts a bool to the AWS DataTieringStatus string.
+func dataTieringStatus(enabled bool) string {
+	if enabled {
+		return statusEnabled
+	}
+
+	return ""
 }
 
 // rgToXML converts a ReplicationGroup to its XML representation.
 func rgToXML(rg ReplicationGroup) replicationGroupXML {
 	multiAZ := statusDisabled
 	if rg.MultiAZEnabled {
-		multiAZ = "enabled"
+		multiAZ = statusEnabled
 	}
 
 	autoFailover := rg.AutomaticFailover
@@ -654,6 +720,15 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 		PreferredMaintenanceWindow: rg.PreferredMaintenanceWindow,
 		EngineVersion:              rg.EngineVersion,
 		CreatedAt:                  rg.CreatedAt.UTC().Format(time.RFC3339),
+		KmsKeyID:                   rg.KmsKeyID,
+		NotificationTopicArn:       rg.NotificationTopicArn,
+		TransitEncryptionMode:      rg.TransitEncryptionMode,
+		SnapshotRetentionLimit:     rg.SnapshotRetentionLimit,
+		ClusterEnabled:             rg.ClusterModeEnabled,
+		AuthTokenEnabled:           rg.AuthTokenEnabled,
+		AtRestEncryptionEnabled:    rg.AtRestEncryptionEnabled,
+		TransitEncryptionEnabled:   rg.TransitEncryptionEnabled,
+		DataTiering:                dataTieringStatus(rg.DataTieringEnabled),
 	}
 }
 
@@ -787,45 +862,11 @@ func (h *Handler) modifyCacheCluster(c *echo.Context, form url.Values) error {
 
 func (h *Handler) modifyReplicationGroup(c *echo.Context, form url.Values) error {
 	id := form.Get("ReplicationGroupId")
-	desc := form.Get("ReplicationGroupDescription")
-	paramGroupName := form.Get("CacheParameterGroupName")
-	engineVersion := form.Get("EngineVersion")
-	cacheNodeType := form.Get("CacheNodeType")
-	maintenanceWindow := form.Get("PreferredMaintenanceWindow")
-	snapshotWindow := form.Get("SnapshotWindow")
+	opts := parseModifyReplicationGroupOpts(form)
 
-	var automaticFailoverEnabled *bool
-	if s := form.Get("AutomaticFailoverEnabled"); s != "" {
-		v := strings.EqualFold(s, "true")
-		automaticFailoverEnabled = &v
-	}
-
-	var multiAZEnabled *bool
-	if s := form.Get("MultiAZEnabled"); s != "" {
-		v := strings.EqualFold(s, "true")
-		multiAZEnabled = &v
-	}
-
-	rg, err := h.Backend.ModifyReplicationGroup(
-		id,
-		desc,
-		paramGroupName,
-		engineVersion,
-		cacheNodeType,
-		maintenanceWindow,
-		snapshotWindow,
-		automaticFailoverEnabled,
-		multiAZEnabled,
-	)
+	rg, err := h.Backend.ModifyReplicationGroupFull(id, opts)
 	if err != nil {
-		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
-		}
-		if errors.Is(err, ErrParameterGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapReplicationGroupModifyErr(c, err)
 	}
 
 	type result struct {
@@ -838,6 +879,60 @@ func (h *Handler) modifyReplicationGroup(c *echo.Context, form url.Values) error
 		Xmlns:            elasticacheNS,
 		ReplicationGroup: rgToXML(*rg),
 	})
+}
+
+// parseModifyReplicationGroupOpts extracts all modify options from a form.
+func parseModifyReplicationGroupOpts(form url.Values) ReplicationGroupModifyOpts {
+	opts := ReplicationGroupModifyOpts{
+		Description:             form.Get("ReplicationGroupDescription"),
+		ParameterGroupName:      form.Get("CacheParameterGroupName"),
+		EngineVersion:           form.Get("EngineVersion"),
+		CacheNodeType:           form.Get("CacheNodeType"),
+		MaintenanceWindow:       form.Get("PreferredMaintenanceWindow"),
+		SnapshotWindow:          form.Get("SnapshotWindow"),
+		AuthToken:               form.Get("AuthToken"),
+		AuthTokenUpdateStrategy: form.Get("AuthTokenUpdateStrategy"),
+		NotificationTopicArn:    form.Get("NotificationTopicArn"),
+		TransitEncryptionMode:   form.Get("TransitEncryptionMode"),
+		ApplyImmediately:        strings.EqualFold(form.Get("ApplyImmediately"), "true"),
+	}
+
+	if s := form.Get("AutomaticFailoverEnabled"); s != "" {
+		v := strings.EqualFold(s, "true")
+		opts.AutomaticFailoverEnabled = &v
+	}
+
+	if s := form.Get("MultiAZEnabled"); s != "" {
+		v := strings.EqualFold(s, "true")
+		opts.MultiAZEnabled = &v
+	}
+
+	if s := form.Get("SnapshotRetentionLimit"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			opts.SnapshotRetentionLimit = &n
+		}
+	}
+
+	if s := form.Get("ReplicaCount"); s != "" {
+		if n, err := strconv.ParseInt(s, 10, 32); err == nil {
+			rc := int32(n)
+			opts.ReplicaCount = &rc
+		}
+	}
+
+	return opts
+}
+
+// mapReplicationGroupModifyErr maps backend errors to XML error responses.
+func mapReplicationGroupModifyErr(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrReplicationGroupNotFound):
+		return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+	case errors.Is(err, ErrParameterGroupNotFound):
+		return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
+	default:
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
 }
 
 // cacheParameterGroupXML is the XML representation of a cache parameter group.

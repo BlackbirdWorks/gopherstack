@@ -53,3 +53,37 @@ func (b *InMemoryBackend) SetRefreshTokenExpiry(token string, expiresAt time.Tim
 
 	return true
 }
+
+// ExpireMFASessionForTest forces a session's ExpiresAt to a past time. For testing only.
+func (b *InMemoryBackend) ExpireMFASessionForTest(session string) {
+	b.mu.Lock("ExpireMFASessionForTest")
+	defer b.mu.Unlock()
+
+	if entry, ok := b.mfaSessions[session]; ok {
+		entry.ExpiresAt = time.Now().Add(-time.Hour)
+	}
+}
+
+// ExpireConfirmCodeForTest sets a user's confirmation code expiry to the past. For testing only.
+func (b *InMemoryBackend) ExpireConfirmCodeForTest(poolID, username string) {
+	b.mu.Lock("ExpireConfirmCodeForTest")
+	defer b.mu.Unlock()
+
+	if users, ok := b.users[poolID]; ok {
+		if u, ok2 := users[username]; ok2 {
+			u.ConfirmCodeExpiresAt = time.Now().Add(-time.Hour)
+		}
+	}
+}
+
+// UserPoolID returns the pool ID for a client. For testing only.
+func (b *InMemoryBackend) UserPoolID(clientID string) string {
+	b.mu.RLock("UserPoolID")
+	defer b.mu.RUnlock()
+
+	if c, ok := b.clients[clientID]; ok {
+		return c.UserPoolID
+	}
+
+	return ""
+}

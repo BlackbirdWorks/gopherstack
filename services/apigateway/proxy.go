@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -22,6 +23,11 @@ import (
 const defaultAuthorizerTTL = 300 * time.Second
 
 const defaultAuthorizerCacheMaxEntries = 1024
+
+// maxProxyRequestBodyBytes caps API Gateway proxy request bodies. AWS limits the
+// Lambda synchronous invoke payload to 6 MiB; bodies larger than that cannot be
+// forwarded anyway, so cap reads to prevent unbounded io.ReadAll memory usage.
+const maxProxyRequestBodyBytes = 6 * 1024 * 1024 // 6 MiB
 
 // LambdaInvoker can invoke a Lambda function by name/ARN.
 type LambdaInvoker interface {
@@ -74,7 +80,7 @@ func BuildProxyEvent(
 	var isBase64 bool
 
 	if r.Body != nil {
-		bodyBytes, err := io.ReadAll(r.Body)
+		bodyBytes, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, maxProxyRequestBodyBytes))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read request body: %w", err)
 		}
@@ -469,7 +475,7 @@ func (h *Handler) runRequestValidator(
 	}
 
 	if rv.ValidateRequestBody && r.Body != nil {
-		bodyBytes, readErr := io.ReadAll(r.Body)
+		bodyBytes, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxProxyRequestBodyBytes))
 		if readErr != nil {
 			http.Error(w, "Bad Request: failed to read body", http.StatusBadRequest)
 
@@ -593,8 +599,6 @@ func isAuthorizerAllowed(authResp *AuthorizerResponse) bool {
 }
 
 // handleAWSProxy handles an AWS_PROXY Lambda integration — the full event is forwarded as-is.
-//
-//nolint:gosec // integration payload/response passthrough is intentional in local emulation.
 func (h *Handler) handleAWSProxy(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -638,7 +642,7 @@ func (h *Handler) handleAWSProxy(
 	var lambdaResp LambdaProxyResponse
 	if parseErr := json.Unmarshal(respBytes, &lambdaResp); parseErr != nil {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(respBytes)
+		_, _ = w.Write(respBytes) //nolint:gosec // local emulation: response passthrough is intentional
 
 		return
 	}
@@ -669,8 +673,6 @@ func (h *Handler) handleAWSProxy(
 }
 
 // handleAWSIntegration handles an AWS (non-proxy) Lambda integration using VTL templates.
-//
-//nolint:gosec // integration payload/response passthrough is intentional in local emulation.
 func (h *Handler) handleAWSIntegration(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -684,8 +686,15 @@ func (h *Handler) handleAWSIntegration(
 	}
 
 	// Read the raw request body.
-	rawBody, readErr := io.ReadAll(r.Body)
+	rawBody, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxProxyRequestBodyBytes))
 	if readErr != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(readErr, &maxErr) {
+			http.Error(w, "Request entity too large", http.StatusRequestEntityTooLarge)
+
+			return
+		}
+
 		logger.Load(ctx).ErrorContext(ctx, "APIGateway AWS integration: failed to read body", "error", readErr)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 
@@ -725,7 +734,7 @@ func (h *Handler) handleAWSIntegration(
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
-	_, _ = w.Write(responseBody)
+	_, _ = w.Write(responseBody) //nolint:gosec // local emulation: response passthrough is intentional
 }
 
 // applyResponseTemplate selects the best-matching integration response by status code pattern
@@ -806,14 +815,13 @@ func matchIntegrationResponse(
 // handleHTTPProxy forwards the request to the target URI specified in the integration.
 // Both HTTP and HTTP_PROXY integration types are handled identically: the request
 // is forwarded as-is and the upstream response is returned directly to the caller.
-//
-//nolint:gosec // integration URI is test-configured by the local API Gateway backend.
 func (h *Handler) handleHTTPProxy(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
 	integration *Integration,
 ) {
+	//nolint:gosec // local emulation: integration URI is test-configured
 	targetReq, err := http.NewRequestWithContext(
 		ctx,
 		r.Method,
@@ -845,6 +853,7 @@ func (h *Handler) handleHTTPProxy(
 
 	client := h.getHTTPClient()
 
+	//nolint:gosec // local emulation: integration URI is test-configured
 	resp, doErr := client.Do(targetReq)
 	if doErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway HTTP proxy: upstream request failed",
@@ -869,15 +878,13 @@ func (h *Handler) handleHTTPProxy(
 // handleMockIntegration returns a static response configured on the integration.
 // It evaluates the first integrationResponse entry keyed by its status code.
 // If no integrationResponses are configured, it defaults to HTTP 200 with an empty body.
-//
-//nolint:gosec // mock integration body is controlled by local test configuration.
 func (h *Handler) handleMockIntegration(w http.ResponseWriter, integration *Integration) {
 	statusCode, body := mockResponse(integration)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
-	_, _ = w.Write([]byte(body))
+	_, _ = w.Write([]byte(body)) //nolint:gosec // local emulation: mock integration body is test-configured
 }
 
 // mockResponse resolves the status code and body for a MOCK integration.

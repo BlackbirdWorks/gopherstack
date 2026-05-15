@@ -56,6 +56,26 @@ func (m *mockSNS) SFNPublish(_ context.Context, topicARN, message, subject strin
 	return m.returnMsgID, m.returnErr
 }
 
+type mockTaskTokenCallback struct {
+	returnErr     error
+	returnOutput  string
+	lastToken     string
+	called        int
+	lastHeartbeat int
+}
+
+func (m *mockTaskTokenCallback) WaitForTaskToken(
+	_ context.Context,
+	taskToken string,
+	heartbeatSeconds int,
+) (string, error) {
+	m.called++
+	m.lastToken = taskToken
+	m.lastHeartbeat = heartbeatSeconds
+
+	return m.returnOutput, m.returnErr
+}
+
 type mockDynamoDB struct {
 	returnOutput               any
 	returnErr                  error
@@ -330,6 +350,155 @@ func TestExecutor_SQS(t *testing.T) {
 					wantCapturedDeduplicationID: tt.wantCapturedDeduplicationID,
 					wantCapturedDelaySeconds:    tt.wantCapturedDelaySeconds,
 				})
+			}
+		})
+	}
+}
+
+func TestExecutor_SQS_IntegrationPatterns(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		callbackOutput    string
+		callbackErr       error
+		wantCauseContains string
+		wantOutputType    string
+		name              string
+		def               string
+		wantError         string
+		setCallback       bool
+		wantCallbackCalls int
+		wantHeartbeat     int
+	}{
+		{
+			name: "wait_for_task_token_uses_callback_output",
+			def: `{
+				"StartAt": "Send",
+				"States": {
+					"Send": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+						"HeartbeatSeconds": 7,
+						"Parameters": {
+							"QueueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/myqueue",
+							"MessageBody": "hello world"
+						},
+						"End": true
+					}
+				}
+			}`,
+			setCallback:       true,
+			callbackOutput:    `{"callback":"ok"}`,
+			wantOutputType:    "map",
+			wantCallbackCalls: 1,
+			wantHeartbeat:     7,
+		},
+		{
+			name: "async_pattern_returns_send_message_output",
+			def: `{
+				"StartAt": "Send",
+				"States": {
+					"Send": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::sqs:sendMessage.async",
+						"Parameters": {
+							"QueueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/myqueue",
+							"MessageBody": "hello world"
+						},
+						"End": true
+					}
+				}
+			}`,
+			setCallback:       true,
+			callbackOutput:    `{"ignored":true}`,
+			wantOutputType:    "sendMessage",
+			wantCallbackCalls: 0,
+		},
+		{
+			name: "wait_for_task_token_requires_callback_invoker",
+			def: `{
+				"StartAt": "Send",
+				"States": {
+					"Send": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+						"Parameters": {
+							"QueueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/myqueue",
+							"MessageBody": "hello world"
+						},
+						"End": true
+					}
+				}
+			}`,
+			wantError:         "TaskFailed",
+			wantCauseContains: "task token callback invoker not configured",
+			wantCallbackCalls: 0,
+		},
+		{
+			name: "wait_for_task_token_callback_error",
+			def: `{
+				"StartAt": "Send",
+				"States": {
+					"Send": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+						"Parameters": {
+							"QueueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/myqueue",
+							"MessageBody": "hello world"
+						},
+						"End": true
+					}
+				}
+			}`,
+			setCallback:       true,
+			callbackErr:       assert.AnError,
+			wantError:         "TaskFailed",
+			wantCauseContains: assert.AnError.Error(),
+			wantCallbackCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sm, err := asl.Parse(tt.def)
+			require.NoError(t, err)
+
+			exec := asl.NewExecutor(sm, nil, nil)
+			sqsMock := &mockSQS{returnMsgID: "msg-id", returnMD5: "md5"}
+			exec.SetSQSIntegration(sqsMock)
+
+			callbackMock := &mockTaskTokenCallback{
+				returnOutput: tt.callbackOutput,
+				returnErr:    tt.callbackErr,
+			}
+			if tt.setCallback {
+				exec.SetTaskTokenCallbackInvoker(callbackMock)
+			}
+
+			result, err := exec.Execute(t.Context(), "test-exec", `{}`)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantError, result.Error)
+			if tt.wantCauseContains != "" {
+				assert.Contains(t, result.Cause, tt.wantCauseContains)
+			}
+
+			switch tt.wantOutputType {
+			case "map":
+				outputMap, ok := result.Output.(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "ok", outputMap["callback"])
+			case "sendMessage":
+				outputMap, ok := result.Output.(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "msg-id", outputMap["MessageId"])
+			}
+
+			assert.Equal(t, tt.wantCallbackCalls, callbackMock.called)
+			if tt.wantCallbackCalls > 0 {
+				assert.NotEmpty(t, callbackMock.lastToken)
+				assert.Equal(t, tt.wantHeartbeat, callbackMock.lastHeartbeat)
 			}
 		})
 	}

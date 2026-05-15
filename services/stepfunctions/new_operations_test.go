@@ -31,6 +31,20 @@ func newSFBackend() *stepfunctions.InMemoryBackend {
 	return stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 }
 
+type mockStepFunctionsSQS struct {
+	callCount int
+}
+
+func (m *mockStepFunctionsSQS) SFNSendMessage(
+	_ context.Context,
+	_, _, _, _ string,
+	_ int,
+) (string, string, error) {
+	m.callCount++
+
+	return "msg-id", "md5", nil
+}
+
 // TestHistoryEventCap verifies that history recording is capped at maxHistoryEvents.
 func TestHistoryEventCap(t *testing.T) {
 	t.Parallel()
@@ -169,6 +183,12 @@ func TestUpdateStateMachine(t *testing.T) {
 			newDefinition: `{}`,
 			wantErr:       true,
 			errIs:         stepfunctions.ErrInvalidDefinition,
+		},
+		{
+			name:       "invalid_role_arn",
+			newRoleArn: "invalid-role",
+			wantErr:    true,
+			errIs:      stepfunctions.ErrInvalidRoleArn,
 		},
 		{
 			name:    "nonexistent_sm",
@@ -659,6 +679,106 @@ func TestActivity_DeleteActivityRemovesOutstandingTaskTokens(t *testing.T) {
 					return false
 				}
 			}, 2*time.Second, 25*time.Millisecond)
+		})
+	}
+}
+
+func TestStartExecution_WaitForTaskToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		sendResult      func(*stepfunctions.InMemoryBackend, string) error
+		name            string
+		wantStatus      string
+		wantOutput      string
+		wantError       string
+		wantCauseSubstr string
+	}{
+		{
+			name: "send_task_success_completes_execution",
+			sendResult: func(b *stepfunctions.InMemoryBackend, token string) error {
+				return b.SendTaskSuccess(token, `{"result":"ok"}`)
+			},
+			wantStatus: "SUCCEEDED",
+			wantOutput: `{"result":"ok"}`,
+		},
+		{
+			name: "send_task_failure_fails_execution",
+			sendResult: func(b *stepfunctions.InMemoryBackend, token string) error {
+				return b.SendTaskFailure(token, "WorkerFailed", "worker failure")
+			},
+			wantStatus:      "FAILED",
+			wantError:       "TaskFailed",
+			wantCauseSubstr: "ActivityTaskFailed: WorkerFailed",
+		},
+	}
+
+	const def = `{
+"StartAt": "Send",
+"States": {
+  "Send": {
+    "Type": "Task",
+    "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+    "Parameters": {
+      "QueueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/myqueue",
+      "MessageBody": "callback"
+    },
+    "End": true
+  }
+}
+}`
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newSFBackend()
+			sqsMock := &mockStepFunctionsSQS{}
+			b.SetSQSIntegration(sqsMock)
+
+			sm, err := b.CreateStateMachine("wait-token-sm-"+tt.name, def, "arn:role", "STANDARD")
+			require.NoError(t, err)
+
+			exec, err := b.StartExecution(sm.StateMachineArn, "wait-token-exec-"+tt.name, `{}`)
+			require.NoError(t, err)
+
+			var taskToken string
+			require.Eventually(t, func() bool {
+				tokens := b.TaskTokensForTest()
+				if len(tokens) == 0 {
+					return false
+				}
+				taskToken = tokens[0]
+
+				return taskToken != ""
+			}, 5*time.Second, 25*time.Millisecond)
+
+			err = tt.sendResult(b, taskToken)
+			require.NoError(t, err)
+
+			var described *stepfunctions.Execution
+			require.Eventually(t, func() bool {
+				execution, describeErr := b.DescribeExecution(exec.ExecutionArn)
+				if describeErr != nil {
+					return false
+				}
+				described = execution
+
+				return described.Status != "RUNNING"
+			}, 5*time.Second, 25*time.Millisecond)
+
+			assert.Equal(t, tt.wantStatus, described.Status)
+			if tt.wantOutput != "" {
+				assert.JSONEq(t, tt.wantOutput, described.Output)
+			}
+			if tt.wantError != "" {
+				assert.Equal(t, tt.wantError, described.Error)
+			}
+			if tt.wantCauseSubstr != "" {
+				assert.Contains(t, described.Cause, tt.wantCauseSubstr)
+			}
+
+			assert.Equal(t, 1, sqsMock.callCount)
 		})
 	}
 }

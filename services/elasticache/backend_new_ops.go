@@ -53,14 +53,16 @@ type EC2SecurityGroupMembership struct {
 
 // GlobalReplicationGroup represents an ElastiCache global replication group.
 type GlobalReplicationGroup struct {
-	CreatedAt                time.Time  `json:"createdAt"`
-	Tags                     *tags.Tags `json:"tags,omitempty"`
-	GlobalReplicationGroupID string     `json:"globalReplicationGroupId"`
-	Description              string     `json:"description"`
-	Status                   string     `json:"status"`
-	ARN                      string     `json:"arn"`
-	Engine                   string     `json:"engine"`
-	EngineVersion            string     `json:"engineVersion"`
+	CreatedAt                     time.Time         `json:"createdAt"`
+	Tags                          *tags.Tags        `json:"tags,omitempty"`
+	SecondaryReplicationGroups    map[string]string `json:"secondaryReplicationGroups,omitempty"`
+	GlobalReplicationGroupID      string            `json:"globalReplicationGroupId"`
+	Description                   string            `json:"description"`
+	Status                        string            `json:"status"`
+	ARN                           string            `json:"arn"`
+	Engine                        string            `json:"engine"`
+	EngineVersion                 string            `json:"engineVersion"`
+	PrimaryReplicationGroupRegion string            `json:"primaryReplicationGroupRegion,omitempty"`
 }
 
 // ServerlessCacheEndpoint holds the address and port for a serverless cache endpoint.
@@ -215,17 +217,22 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 		if rg.EngineVersion != "" {
 			engineVersion = rg.EngineVersion
 		}
+		if rg.Engine != "" {
+			engine = rg.Engine
+		}
 	}
 
 	grg := &GlobalReplicationGroup{
-		GlobalReplicationGroupID: id,
-		Description:              description,
-		Status:                   statusAvailable,
-		ARN:                      b.globalReplicationGroupARN(id),
-		Engine:                   engine,
-		EngineVersion:            engineVersion,
-		CreatedAt:                time.Now(),
-		Tags:                     tags.New("elasticache.grg." + id + ".tags"),
+		GlobalReplicationGroupID:      id,
+		Description:                   description,
+		Status:                        statusAvailable,
+		ARN:                           b.globalReplicationGroupARN(id),
+		Engine:                        engine,
+		EngineVersion:                 engineVersion,
+		PrimaryReplicationGroupRegion: b.region,
+		SecondaryReplicationGroups:    make(map[string]string),
+		CreatedAt:                     time.Now(),
+		Tags:                          tags.New("elasticache.grg." + id + ".tags"),
 	}
 	b.globalReplicationGroups[id] = grg
 	b.appendEventLocked(id, "global-replication-group", "global replication group created")

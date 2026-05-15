@@ -25,16 +25,21 @@ const (
 	elbv2Version   = "2015-12-01"
 	elbv2XMLNS     = "http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"
 	attrValueFalse = "false"
+	attrValueTrue  = "true"
 )
 
 // Handler is the Echo HTTP handler for ELBv2 operations.
 type Handler struct {
-	Backend StorageBackend
+	Backend       StorageBackend
+	dispatchTable map[string]dispatchFunc
 }
 
 // NewHandler creates a new ELBv2 handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.dispatchTable = h.buildDispatchTable()
+
+	return h
 }
 
 // Name returns the service name.
@@ -261,9 +266,7 @@ func (h *Handler) buildDispatchTable() map[string]dispatchFunc {
 }
 
 func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
-	table := h.buildDispatchTable()
-
-	fn, ok := table[action]
+	fn, ok := h.dispatchTable[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownAction, action)
 	}
@@ -359,18 +362,11 @@ func (h *Handler) handleModifyLoadBalancerAttributes(vals url.Values) (any, erro
 		return nil, err
 	}
 
-	members := make([]xmlLBAttribute, 0, len(lb.Attributes))
-	for k, v := range lb.Attributes {
-		members = append(members, xmlLBAttribute{Key: k, Value: v})
-	}
-
-	sort.Slice(members, func(i, j int) bool { return members[i].Key < members[j].Key })
+	members := sortedLBAttributes(lb.Attributes)
 
 	return &modifyLoadBalancerAttributesResponse{
-		Xmlns: elbv2XMLNS,
-		Result: modifyLoadBalancerAttributesResult{
-			Attributes: xmlLBAttributeList{Members: members},
-		},
+		Xmlns:            elbv2XMLNS,
+		Result:           modifyLoadBalancerAttributesResult{Attributes: xmlLBAttributeList{Members: members}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-lb-attrs"},
 	}, nil
 }
@@ -390,18 +386,17 @@ func (h *Handler) handleDescribeLoadBalancerAttributes(vals url.Values) (any, er
 		return nil, ErrLoadBalancerNotFound
 	}
 
+	members := make([]xmlLBAttribute, 0, len(lbs[0].Attributes))
+	for k, v := range lbs[0].Attributes {
+		members = append(members, xmlLBAttribute{Key: k, Value: v})
+	}
+
+	sort.Slice(members, func(i, j int) bool { return members[i].Key < members[j].Key })
+
 	return &describeLoadBalancerAttributesResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeLoadBalancerAttributesResult{
-			Attributes: xmlLBAttributeList{
-				Members: []xmlLBAttribute{
-					{Key: "access_logs.s3.enabled", Value: attrValueFalse},
-					{Key: "deletion_protection.enabled", Value: attrValueFalse},
-					{Key: "idle_timeout.timeout_seconds", Value: "60"},
-					{Key: "routing.http2.enabled", Value: "true"},
-					{Key: "routing.http.desync_mitigation_mode", Value: "defensive"},
-				},
-			},
+			Attributes: xmlLBAttributeList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-lb-attrs"},
 	}, nil
@@ -413,9 +408,21 @@ func (h *Handler) handleSetSecurityGroups(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
+	sgs := parseMembers(vals, "SecurityGroups.member")
+
+	lb, err := h.Backend.SetSecurityGroups(lbArn, sgs)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlStringValue, 0, len(lb.SecurityGroups))
+	for _, sg := range lb.SecurityGroups {
+		members = append(members, xmlStringValue{Value: sg})
+	}
+
 	return &setSecurityGroupsResponse{
 		Xmlns:            elbv2XMLNS,
-		Result:           setSecurityGroupsResult{SecurityGroupIDs: xmlStringList{Members: []xmlStringValue{}}},
+		Result:           setSecurityGroupsResult{SecurityGroupIDs: xmlStringList{Members: members}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-sgs"},
 	}, nil
 }
@@ -426,9 +433,32 @@ func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
+	// Accept both Subnets.member.N (subnet IDs) and SubnetMappings.member.N.SubnetId.
+	azs := parseMembers(vals, "Subnets.member")
+	if len(azs) == 0 {
+		for i := 1; ; i++ {
+			subnetID := vals.Get(fmt.Sprintf("SubnetMappings.member.%d.SubnetId", i))
+			if subnetID == "" {
+				break
+			}
+
+			azs = append(azs, subnetID)
+		}
+	}
+
+	lb, err := h.Backend.SetSubnets(lbArn, azs)
+	if err != nil {
+		return nil, err
+	}
+
+	azMembers := make([]xmlStringValue, 0, len(lb.AvailabilityZones))
+	for _, az := range lb.AvailabilityZones {
+		azMembers = append(azMembers, xmlStringValue{Value: az})
+	}
+
 	return &setSubnetsResponse{
 		Xmlns:            elbv2XMLNS,
-		Result:           setSubnetsResult{AvailabilityZones: xmlStringList{Members: []xmlStringValue{}}},
+		Result:           setSubnetsResult{AvailabilityZones: xmlStringList{Members: azMembers}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-subnets"},
 	}, nil
 }
@@ -439,9 +469,19 @@ func (h *Handler) handleSetIPAddressType(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
+	ipType := vals.Get("IpAddressType")
+	if ipType == "" {
+		return nil, fmt.Errorf("%w: IpAddressType is required", ErrInvalidParameter)
+	}
+
+	lb, err := h.Backend.SetIPAddressType(lbArn, ipType)
+	if err != nil {
+		return nil, err
+	}
+
 	return &setIPAddressTypeResponse{
 		Xmlns:            elbv2XMLNS,
-		Result:           setIPAddressTypeResult{IPAddressType: vals.Get("IpAddressType")},
+		Result:           setIPAddressTypeResult{IPAddressType: lb.IPAddressType},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-ip-type"},
 	}, nil
 }
@@ -454,25 +494,61 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
-	portStr := vals.Get("Port")
-	if portStr == "" {
-		return nil, fmt.Errorf("%w: Port is required", ErrInvalidParameter)
-	}
+	// Lambda target groups do not require a port.
+	targetType := vals.Get("TargetType")
 
-	port, err := parseInt32(portStr)
-	if err != nil || port <= 0 {
-		return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+	port, err := parseTGPort(targetType, vals.Get("Port"))
+	if err != nil {
+		return nil, err
 	}
 
 	tagKVs := parseTagKVs(vals)
 
+	hcInterval, err := parseOptionalInt32(vals, "HealthCheckIntervalSeconds")
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid HealthCheckIntervalSeconds", ErrInvalidParameter)
+	}
+
+	hcTimeout, err := parseOptionalInt32(vals, "HealthCheckTimeoutSeconds")
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid HealthCheckTimeoutSeconds", ErrInvalidParameter)
+	}
+
+	healthyThreshold, err := parseOptionalInt32(vals, "HealthyThresholdCount")
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid HealthyThresholdCount", ErrInvalidParameter)
+	}
+
+	unhealthyThreshold, err := parseOptionalInt32(vals, "UnhealthyThresholdCount")
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid UnhealthyThresholdCount", ErrInvalidParameter)
+	}
+
+	hcEnabled := true
+	if hce := vals.Get("HealthCheckEnabled"); hce == attrValueFalse {
+		hcEnabled = false
+	}
+
 	tg, createErr := h.Backend.CreateTargetGroup(CreateTargetGroupInput{
-		Name:       name,
-		Protocol:   vals.Get("Protocol"),
-		Port:       port,
-		VpcID:      vals.Get("VpcId"),
-		TargetType: vals.Get("TargetType"),
-		Tags:       tagKVs,
+		Name:                name,
+		Protocol:            vals.Get("Protocol"),
+		ProtocolVersion:     vals.Get("ProtocolVersion"),
+		Port:                port,
+		VpcID:               vals.Get("VpcId"),
+		TargetType:          vals.Get("TargetType"),
+		Tags:                tagKVs,
+		HealthCheckProtocol: vals.Get("HealthCheckProtocol"),
+		HealthCheckPort:     vals.Get("HealthCheckPort"),
+		HealthCheckPath:     vals.Get("HealthCheckPath"),
+		Matcher: Matcher{
+			HTTPCode: vals.Get("Matcher.HTTPCode"),
+			GrpcCode: vals.Get("Matcher.GrpcCode"),
+		},
+		HealthCheckIntervalSeconds: hcInterval,
+		HealthCheckTimeoutSeconds:  hcTimeout,
+		HealthyThresholdCount:      healthyThreshold,
+		UnhealthyThresholdCount:    unhealthyThreshold,
+		HealthCheckEnabled:         hcEnabled,
 	})
 	if createErr != nil {
 		return nil, createErr
@@ -535,20 +611,57 @@ func (h *Handler) handleModifyTargetGroup(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: TargetGroupArn is required", ErrInvalidParameter)
 	}
 
-	tgs, err := h.Backend.DescribeTargetGroups([]string{tgArn}, nil, "")
-	if err != nil {
-		return nil, err
+	hcInterval, mErr := parseOptionalInt32(vals, "HealthCheckIntervalSeconds")
+	if mErr != nil {
+		return nil, fmt.Errorf("%w: invalid HealthCheckIntervalSeconds", ErrInvalidParameter)
 	}
 
-	if len(tgs) == 0 {
-		return nil, ErrTargetGroupNotFound
+	hcTimeout, mErr := parseOptionalInt32(vals, "HealthCheckTimeoutSeconds")
+	if mErr != nil {
+		return nil, fmt.Errorf("%w: invalid HealthCheckTimeoutSeconds", ErrInvalidParameter)
+	}
+
+	healthyThreshold, mErr := parseOptionalInt32(vals, "HealthyThresholdCount")
+	if mErr != nil {
+		return nil, fmt.Errorf("%w: invalid HealthyThresholdCount", ErrInvalidParameter)
+	}
+
+	unhealthyThreshold, mErr := parseOptionalInt32(vals, "UnhealthyThresholdCount")
+	if mErr != nil {
+		return nil, fmt.Errorf("%w: invalid UnhealthyThresholdCount", ErrInvalidParameter)
+	}
+
+	// HealthCheckEnabled is optional: only update the field when the parameter is present.
+	var hcEnabled *bool
+	if hce := vals.Get("HealthCheckEnabled"); hce != "" {
+		v := hce == attrValueTrue
+		hcEnabled = &v
+	}
+
+	tg, err := h.Backend.ModifyTargetGroup(ModifyTargetGroupInput{
+		TargetGroupArn:      tgArn,
+		HealthCheckProtocol: vals.Get("HealthCheckProtocol"),
+		HealthCheckPort:     vals.Get("HealthCheckPort"),
+		HealthCheckPath:     vals.Get("HealthCheckPath"),
+		Matcher: Matcher{
+			HTTPCode: vals.Get("Matcher.HTTPCode"),
+			GrpcCode: vals.Get("Matcher.GrpcCode"),
+		},
+		HealthCheckEnabled:         hcEnabled,
+		HealthCheckIntervalSeconds: hcInterval,
+		HealthCheckTimeoutSeconds:  hcTimeout,
+		HealthyThresholdCount:      healthyThreshold,
+		UnhealthyThresholdCount:    unhealthyThreshold,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &modifyTargetGroupResponse{
 		Xmlns: elbv2XMLNS,
 		Result: modifyTargetGroupResult{
 			TargetGroups: xmlTargetGroupList{
-				Members: []xmlTargetGroup{toXMLTargetGroup(&tgs[0])},
+				Members: []xmlTargetGroup{toXMLTargetGroup(tg)},
 			},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-tg"},
@@ -561,20 +674,18 @@ func (h *Handler) handleModifyTargetGroupAttributes(vals url.Values) (any, error
 		return nil, fmt.Errorf("%w: TargetGroupArn is required", ErrInvalidParameter)
 	}
 
-	tgs, err := h.Backend.DescribeTargetGroups([]string{tgArn}, nil, "")
+	attrs := parseKVAttrs(vals, "Attributes.member")
+
+	tg, err := h.Backend.ModifyTargetGroupAttributes(tgArn, attrs)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(tgs) == 0 {
-		return nil, ErrTargetGroupNotFound
-	}
+	members := sortedTGAttributes(tg.TargetGroupAttributes)
 
 	return &modifyTargetGroupAttributesResponse{
-		Xmlns: elbv2XMLNS,
-		Result: modifyTargetGroupAttributesResult{
-			Attributes: xmlTGAttributeList{Members: []xmlTGAttribute{}},
-		},
+		Xmlns:            elbv2XMLNS,
+		Result:           modifyTargetGroupAttributesResult{Attributes: xmlTGAttributeList{Members: members}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-tg-attrs"},
 	}, nil
 }
@@ -585,25 +696,22 @@ func (h *Handler) handleDescribeTargetGroupAttributes(vals url.Values) (any, err
 		return nil, fmt.Errorf("%w: TargetGroupArn is required", ErrInvalidParameter)
 	}
 
-	tgs, err := h.Backend.DescribeTargetGroups([]string{tgArn}, nil, "")
+	attrs, err := h.Backend.DescribeTargetGroupAttributes(tgArn)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(tgs) == 0 {
-		return nil, ErrTargetGroupNotFound
+	members := make([]xmlTGAttribute, 0, len(attrs))
+	for k, v := range attrs {
+		members = append(members, xmlTGAttribute{Key: k, Value: v})
 	}
+
+	sort.Slice(members, func(i, j int) bool { return members[i].Key < members[j].Key })
 
 	return &describeTargetGroupAttributesResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeTargetGroupAttributesResult{
-			Attributes: xmlTGAttributeList{
-				Members: []xmlTGAttribute{
-					{Key: "deregistration_delay.timeout_seconds", Value: "300"},
-					{Key: "stickiness.enabled", Value: attrValueFalse},
-					{Key: "load_balancing.algorithm.type", Value: "round_robin"},
-				},
-			},
+			Attributes: xmlTGAttributeList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-tg-attrs"},
 	}, nil
@@ -658,6 +766,24 @@ func (h *Handler) handleDescribeTargetHealth(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	// When specific targets are requested, filter to only those targets.
+	requestedTargets := parseTargets(vals, "Targets.member")
+	if len(requestedTargets) > 0 {
+		filter := make(map[string]bool, len(requestedTargets))
+		for _, t := range requestedTargets {
+			filter[t.ID+":"+strconv.Itoa(int(t.Port))] = true
+		}
+
+		filtered := targets[:0]
+		for _, t := range targets {
+			if filter[t.Target.ID+":"+strconv.Itoa(int(t.Target.Port))] {
+				filtered = append(filtered, t)
+			}
+		}
+
+		targets = filtered
+	}
+
 	members := make([]xmlTargetHealthDescription, 0, len(targets))
 	for _, t := range targets {
 		members = append(members, xmlTargetHealthDescription{
@@ -691,8 +817,12 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 	}
 
 	port, err := parseInt32(portStr)
-	if err != nil || port <= 0 {
+	if err != nil {
 		return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+	}
+
+	if vErr := validatePort(port); vErr != nil {
+		return nil, vErr
 	}
 
 	protocol := vals.Get("Protocol")
@@ -701,19 +831,48 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 	}
 
 	actions := parseActions(vals, "DefaultActions.member")
+	if len(actions) == 0 {
+		return nil, fmt.Errorf("%w: DefaultActions must contain at least one action", ErrInvalidParameter)
+	}
+
+	if actErr := validateActionTypes(actions); actErr != nil {
+		return nil, actErr
+	}
+
 	tagKVs := parseTagKVs(vals)
 	certs := parseCerts(vals)
 
+	// Mark first cert as default for HTTPS/TLS listeners.
+	if (protocol == protoHTTPS || protocol == protoTLS) && len(certs) > 0 {
+		certs[0].IsDefault = true
+	}
+
+	var mutualAuth *MutualAuthentication
+	if mode := vals.Get("MutualAuthentication.Mode"); mode != "" {
+		mutualAuth = &MutualAuthentication{
+			Mode:          mode,
+			TrustStoreArn: vals.Get("MutualAuthentication.TrustStoreArn"),
+			IgnoreClientCertificateExpiration: vals.Get(
+				"MutualAuthentication.IgnoreClientCertificateExpiration",
+			) == attrValueTrue,
+		}
+	} else if tsArn := vals.Get("MutualAuthentication.TrustStoreArn"); tsArn != "" {
+		mutualAuth = &MutualAuthentication{
+			Mode:          "verify",
+			TrustStoreArn: tsArn,
+		}
+	}
+
 	listener, createErr := h.Backend.CreateListener(CreateListenerInput{
-		LoadBalancerArn: lbArn,
-		Protocol:        protocol,
-		Port:            port,
-		DefaultActions:  actions,
-		Tags:            tagKVs,
-		Certificates:    certs,
-		SSLPolicy:       vals.Get("SslPolicy"),
-		AlpnPolicy:      vals.Get("AlpnPolicy.member.1"),
-		TrustStoreArn:   vals.Get("MutualAuthentication.TrustStoreArn"),
+		LoadBalancerArn:      lbArn,
+		Protocol:             protocol,
+		Port:                 port,
+		DefaultActions:       actions,
+		Tags:                 tagKVs,
+		Certificates:         certs,
+		SSLPolicy:            vals.Get("SslPolicy"),
+		AlpnPolicy:           vals.Get("AlpnPolicy.member.1"),
+		MutualAuthentication: mutualAuth,
 	})
 	if createErr != nil {
 		return nil, createErr
@@ -787,15 +946,31 @@ func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 		port = p
 	}
 
+	var mutualAuth *MutualAuthentication
+	if mode := vals.Get("MutualAuthentication.Mode"); mode != "" {
+		mutualAuth = &MutualAuthentication{
+			Mode:          mode,
+			TrustStoreArn: vals.Get("MutualAuthentication.TrustStoreArn"),
+			IgnoreClientCertificateExpiration: vals.Get(
+				"MutualAuthentication.IgnoreClientCertificateExpiration",
+			) == attrValueTrue,
+		}
+	} else if tsArn := vals.Get("MutualAuthentication.TrustStoreArn"); tsArn != "" {
+		mutualAuth = &MutualAuthentication{
+			Mode:          "verify",
+			TrustStoreArn: tsArn,
+		}
+	}
+
 	listener, err := h.Backend.ModifyListener(ModifyListenerInput{
-		ListenerArn:    listenerArn,
-		Protocol:       vals.Get("Protocol"),
-		Port:           port,
-		DefaultActions: parseActions(vals, "DefaultActions.member"),
-		Certificates:   parseCerts(vals),
-		SSLPolicy:      vals.Get("SslPolicy"),
-		AlpnPolicy:     vals.Get("AlpnPolicy.member.1"),
-		TrustStoreArn:  vals.Get("MutualAuthentication.TrustStoreArn"),
+		ListenerArn:          listenerArn,
+		Protocol:             vals.Get("Protocol"),
+		Port:                 port,
+		DefaultActions:       parseActions(vals, "DefaultActions.member"),
+		Certificates:         parseCerts(vals),
+		SSLPolicy:            vals.Get("SslPolicy"),
+		AlpnPolicy:           vals.Get("AlpnPolicy.member.1"),
+		MutualAuthentication: mutualAuth,
 	})
 	if err != nil {
 		return nil, err
@@ -818,20 +993,18 @@ func (h *Handler) handleModifyListenerAttributes(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: ListenerArn is required", ErrInvalidParameter)
 	}
 
-	listeners, err := h.Backend.DescribeListeners("", []string{listenerArn})
+	attrs := parseKVAttrs(vals, "Attributes.member")
+
+	listener, err := h.Backend.ModifyListenerAttributes(listenerArn, attrs)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(listeners) == 0 {
-		return nil, ErrListenerNotFound
-	}
+	members := sortedListenerAttributes(listener.Attributes)
 
 	return &modifyListenerAttributesResponse{
-		Xmlns: elbv2XMLNS,
-		Result: modifyListenerAttributesResult{
-			Attributes: xmlListenerAttributeList{Members: []xmlListenerAttribute{}},
-		},
+		Xmlns:            elbv2XMLNS,
+		Result:           modifyListenerAttributesResult{Attributes: xmlListenerAttributeList{Members: members}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-listener-attrs"},
 	}, nil
 }
@@ -842,25 +1015,22 @@ func (h *Handler) handleDescribeListenerAttributes(vals url.Values) (any, error)
 		return nil, fmt.Errorf("%w: ListenerArn is required", ErrInvalidParameter)
 	}
 
-	listeners, err := h.Backend.DescribeListeners("", []string{listenerArn})
+	attrs, err := h.Backend.DescribeListenerAttributes(listenerArn)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(listeners) == 0 {
-		return nil, ErrListenerNotFound
+	members := make([]xmlListenerAttribute, 0, len(attrs))
+	for k, v := range attrs {
+		members = append(members, xmlListenerAttribute{Key: k, Value: v})
 	}
+
+	sort.Slice(members, func(i, j int) bool { return members[i].Key < members[j].Key })
 
 	return &describeListenerAttributesResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeListenerAttributesResult{
-			Attributes: xmlListenerAttributeList{
-				Members: []xmlListenerAttribute{
-					{Key: "routing.http.desync_mitigation_mode", Value: "defensive"},
-					{Key: "routing.http2.enabled", Value: "true"},
-					{Key: "idle_timeout.timeout_seconds", Value: "60"},
-				},
-			},
+			Attributes: xmlListenerAttributeList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-listener-attrs"},
 	}, nil
@@ -874,8 +1044,23 @@ func (h *Handler) handleCreateRule(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: ListenerArn is required", ErrInvalidParameter)
 	}
 
+	if vals.Get("Priority") == "" {
+		return nil, fmt.Errorf("%w: Priority is required", ErrInvalidParameter)
+	}
+
 	actions := parseActions(vals, "Actions.member")
-	conditions := parseConditions(vals, "Conditions.member")
+	if len(actions) == 0 {
+		return nil, fmt.Errorf("%w: Actions must contain at least one action", ErrInvalidParameter)
+	}
+
+	if actErr := validateActionTypes(actions); actErr != nil {
+		return nil, actErr
+	}
+
+	conditions, err := parseConditions(vals, "Conditions.member")
+	if err != nil {
+		return nil, err
+	}
 
 	rule, err := h.Backend.CreateRule(CreateRuleInput{
 		ListenerArn: listenerArn,
@@ -945,7 +1130,11 @@ func (h *Handler) handleModifyRule(vals url.Values) (any, error) {
 	}
 
 	actions := parseActions(vals, "Actions.member")
-	conditions := parseConditions(vals, "Conditions.member")
+
+	conditions, err := parseConditions(vals, "Conditions.member")
+	if err != nil {
+		return nil, err
+	}
 
 	rule, err := h.Backend.ModifyRule(ruleArn, actions, conditions)
 	if err != nil {
@@ -1232,7 +1421,7 @@ func (h *Handler) handleAddListenerCertificates(vals url.Values) (any, error) {
 
 	members := make([]xmlListenerCertificate, 0, len(certs))
 	for _, c := range certs {
-		members = append(members, xmlListenerCertificate{CertificateArn: c.CertificateArn})
+		members = append(members, xmlListenerCertificate(c))
 	}
 
 	return &addListenerCertificatesResponse{
@@ -1257,7 +1446,7 @@ func (h *Handler) handleDescribeListenerCertificates(vals url.Values) (any, erro
 
 	members := make([]xmlListenerCertificate, 0, len(certs))
 	for _, c := range certs {
-		members = append(members, xmlListenerCertificate{CertificateArn: c.CertificateArn})
+		members = append(members, xmlListenerCertificate(c))
 	}
 
 	return &describeListenerCertificatesResponse{
@@ -1650,6 +1839,11 @@ func elbv2ErrorCode(opErr error) (string, int) {
 		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
 		{ErrTargetGroupAlreadyExists, "DuplicateTargetGroupName", http.StatusConflict},
 		{ErrTrustStoreAlreadyExists, "DuplicateTrustStoreName", http.StatusConflict},
+		{ErrDuplicateListener, "DuplicateListener", http.StatusConflict},
+		{ErrDuplicateRulePriority, "DuplicatePriority", http.StatusBadRequest},
+		{ErrTargetGroupInUse, "TargetGroupAssociationLimit", http.StatusBadRequest},
+		{ErrOperationNotPermitted, "OperationNotPermitted", http.StatusBadRequest},
+		{ErrInvalidConfigurationRequest, "InvalidConfigurationRequest", http.StatusBadRequest},
 		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
 		{awserr.ErrInvalidParameter, "ValidationError", http.StatusBadRequest},
 	}
@@ -1690,6 +1884,47 @@ func marshalXML(v any) ([]byte, error) {
 // --- helper functions ---
 
 func parseInt32(s string) (int32, error) {
+	if s == "" {
+		return 0, nil
+	}
+
+	n, err := strconv.ParseInt(s, 10, 32)
+	if err != nil {
+		return 0, err
+	}
+
+	return int32(n), nil
+}
+
+// parseTGPort parses the Port form value for a CreateTargetGroup request.
+// Lambda target groups do not require a port; all other types do.
+func parseTGPort(targetType, portStr string) (int32, error) {
+	if targetType == targetTypeLambda {
+		if portStr == "" {
+			return 0, nil
+		}
+	} else if portStr == "" {
+		return 0, fmt.Errorf("%w: Port is required", ErrInvalidParameter)
+	}
+
+	p, err := parseInt32(portStr)
+	if err != nil {
+		return 0, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+	}
+
+	if targetType != targetTypeLambda {
+		if vErr := validatePort(p); vErr != nil {
+			return 0, vErr
+		}
+	}
+
+	return p, nil
+}
+
+// parseOptionalInt32 parses an integer form field, returning an error only when
+// the field is present but cannot be parsed. An absent field returns (0, nil).
+func parseOptionalInt32(vals url.Values, key string) (int32, error) {
+	s := vals.Get(key)
 	if s == "" {
 		return 0, nil
 	}
@@ -1793,40 +2028,177 @@ func parseActions(vals url.Values, prefix string) []Action {
 	result := make([]Action, 0)
 
 	for i := 1; ; i++ {
-		actionType := vals.Get(fmt.Sprintf("%s.%d.Type", prefix, i))
+		p := fmt.Sprintf("%s.%d", prefix, i)
+		actionType := vals.Get(p + ".Type")
+
 		if actionType == "" {
 			break
 		}
 
-		result = append(result, Action{
+		order, _ := parseInt32(vals.Get(p + ".Order"))
+		action := Action{
 			Type:           actionType,
-			TargetGroupArn: vals.Get(fmt.Sprintf("%s.%d.TargetGroupArn", prefix, i)),
-		})
+			TargetGroupArn: vals.Get(p + ".TargetGroupArn"),
+			Order:          order,
+		}
+
+		applyActionConfig(vals, p, actionType, &action)
+		result = append(result, action)
 	}
 
 	return result
+}
+
+// isValidActionType returns true if the action type is a recognized ELBv2 value.
+func isValidActionType(t string) bool {
+	switch t {
+	case "forward", "redirect", "fixed-response", "authenticate-cognito", "authenticate-oidc":
+		return true
+	}
+
+	return false
+}
+
+// applyActionConfig populates action-type-specific config fields from form values.
+func applyActionConfig(vals url.Values, p, actionType string, action *Action) {
+	switch actionType {
+	case "redirect":
+		action.RedirectConfig = &RedirectConfig{
+			Protocol:   vals.Get(p + ".RedirectConfig.Protocol"),
+			Port:       vals.Get(p + ".RedirectConfig.Port"),
+			Host:       vals.Get(p + ".RedirectConfig.Host"),
+			Path:       vals.Get(p + ".RedirectConfig.Path"),
+			Query:      vals.Get(p + ".RedirectConfig.Query"),
+			StatusCode: vals.Get(p + ".RedirectConfig.StatusCode"),
+		}
+	case "fixed-response":
+		action.FixedResponseConfig = &FixedResponseConfig{
+			StatusCode:  vals.Get(p + ".FixedResponseConfig.StatusCode"),
+			MessageBody: vals.Get(p + ".FixedResponseConfig.MessageBody"),
+			ContentType: vals.Get(p + ".FixedResponseConfig.ContentType"),
+		}
+	case "forward":
+		tgs := parseForwardConfigTargetGroups(vals, p+".ForwardConfig.TargetGroups.member")
+		if len(tgs) > 0 {
+			action.ForwardConfig = &ForwardConfig{TargetGroups: tgs}
+		}
+	case "authenticate-cognito":
+		applyAuthCognitoConfig(vals, p, action)
+	case "authenticate-oidc":
+		applyAuthOidcConfig(vals, p, action)
+	}
+}
+
+// validateActionTypes returns an error if any action has an unknown type.
+func validateActionTypes(actions []Action) error {
+	for _, a := range actions {
+		if !isValidActionType(a.Type) {
+			return fmt.Errorf(
+				"%w: invalid action type %q; must be forward, redirect, fixed-response, authenticate-cognito, or authenticate-oidc",
+				ErrInvalidParameter,
+				a.Type,
+			)
+		}
+	}
+
+	return nil
+}
+
+func applyAuthCognitoConfig(vals url.Values, p string, action *Action) {
+	action.AuthenticateCognitoConfig = &AuthenticateCognitoConfig{
+		UserPoolArn:              vals.Get(p + ".AuthenticateCognitoConfig.UserPoolArn"),
+		UserPoolClientID:         vals.Get(p + ".AuthenticateCognitoConfig.UserPoolClientId"),
+		UserPoolDomain:           vals.Get(p + ".AuthenticateCognitoConfig.UserPoolDomain"),
+		SessionCookieName:        vals.Get(p + ".AuthenticateCognitoConfig.SessionCookieName"),
+		Scope:                    vals.Get(p + ".AuthenticateCognitoConfig.Scope"),
+		OnUnauthenticatedRequest: vals.Get(p + ".AuthenticateCognitoConfig.OnUnauthenticatedRequest"),
+	}
+
+	if st := vals.Get(p + ".AuthenticateCognitoConfig.SessionTimeout"); st != "" {
+		n, err := strconv.ParseInt(st, 10, 64)
+		if err == nil {
+			action.AuthenticateCognitoConfig.SessionTimeout = n
+		}
+	}
+}
+
+func applyAuthOidcConfig(vals url.Values, p string, action *Action) {
+	action.AuthenticateOidcConfig = &AuthenticateOidcConfig{
+		Issuer:                   vals.Get(p + ".AuthenticateOidcConfig.Issuer"),
+		AuthorizationEndpoint:    vals.Get(p + ".AuthenticateOidcConfig.AuthorizationEndpoint"),
+		TokenEndpoint:            vals.Get(p + ".AuthenticateOidcConfig.TokenEndpoint"),
+		UserInfoEndpoint:         vals.Get(p + ".AuthenticateOidcConfig.UserInfoEndpoint"),
+		ClientID:                 vals.Get(p + ".AuthenticateOidcConfig.ClientId"),
+		ClientSecret:             vals.Get(p + ".AuthenticateOidcConfig.ClientSecret"),
+		SessionCookieName:        vals.Get(p + ".AuthenticateOidcConfig.SessionCookieName"),
+		Scope:                    vals.Get(p + ".AuthenticateOidcConfig.Scope"),
+		OnUnauthenticatedRequest: vals.Get(p + ".AuthenticateOidcConfig.OnUnauthenticatedRequest"),
+	}
+
+	if st := vals.Get(p + ".AuthenticateOidcConfig.SessionTimeout"); st != "" {
+		n, err := strconv.ParseInt(st, 10, 64)
+		if err == nil {
+			action.AuthenticateOidcConfig.SessionTimeout = n
+		}
+	}
+}
+
+// parseForwardConfigTargetGroups extracts weighted target groups from ForwardConfig form values.
+func parseForwardConfigTargetGroups(vals url.Values, prefix string) []TargetGroupTuple {
+	result := make([]TargetGroupTuple, 0)
+
+	for i := 1; ; i++ {
+		tgArn := vals.Get(fmt.Sprintf("%s.%d.TargetGroupArn", prefix, i))
+		if tgArn == "" {
+			break
+		}
+
+		weight, _ := parseInt32(vals.Get(fmt.Sprintf("%s.%d.Weight", prefix, i)))
+		result = append(result, TargetGroupTuple{TargetGroupArn: tgArn, Weight: weight})
+	}
+
+	return result
+}
+
+// allowedHTTPMethods returns the whitelist of allowed HTTP methods for http-request-method conditions.
+func allowedHTTPMethods() map[string]bool {
+	return map[string]bool{
+		"GET":     true,
+		"HEAD":    true,
+		"POST":    true,
+		"PUT":     true,
+		"DELETE":  true,
+		"OPTIONS": true,
+		"PATCH":   true,
+	}
 }
 
 // parseConditions extracts rule conditions from form values.
 // Supported fields: host-header, path-pattern, http-header, http-request-method,
 // query-string, source-ip.
-func parseConditions(vals url.Values, prefix string) []Condition {
+func parseConditions(vals url.Values, prefix string) ([]Condition, error) {
 	result := make([]Condition, 0)
-	i := 1
 
-	for parseConditionAt(vals, prefix, i, &result) {
-		i++
+	for i := 1; ; i++ {
+		ok, err := parseConditionAt(vals, prefix, i, &result)
+		if err != nil {
+			return nil, err
+		}
+
+		if !ok {
+			break
+		}
 	}
 
-	return result
+	return result, nil
 }
 
 // parseConditionAt parses a single indexed condition and appends it to result.
-// Returns false when there are no more conditions to parse.
-func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition) bool {
+// Returns (false, nil) when there are no more conditions to parse.
+func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition) (bool, error) {
 	field := vals.Get(fmt.Sprintf("%s.%d.Field", prefix, i))
 	if field == "" {
-		return false
+		return false, nil
 	}
 
 	cond := Condition{Field: field}
@@ -1837,7 +2209,17 @@ func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition
 	case "path-pattern":
 		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.PathPatternConfig.Values.member", prefix, i))
 	case "http-request-method":
-		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HttpRequestMethodConfig.Values.member", prefix, i))
+		methods := parseMembers(vals, fmt.Sprintf("%s.%d.HttpRequestMethodConfig.Values.member", prefix, i))
+		for _, m := range methods {
+			if !allowedHTTPMethods()[strings.ToUpper(m)] {
+				return false, fmt.Errorf(
+					"%w: invalid HTTP method %q; valid methods are GET, HEAD, POST, PUT, DELETE, OPTIONS, PATCH",
+					ErrInvalidParameter, m,
+				)
+			}
+		}
+
+		cond.Values = methods
 	case "source-ip":
 		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.SourceIpConfig.Values.member", prefix, i))
 	case "http-header":
@@ -1849,7 +2231,7 @@ func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition
 
 	*result = append(*result, cond)
 
-	return true
+	return true, nil
 }
 
 // parseQueryStringPairs extracts query-string key/value pairs for the Nth condition.
@@ -1910,27 +2292,111 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancer {
 }
 
 func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
-	return xmlTargetGroup{
-		TargetGroupArn:      tg.TargetGroupArn,
-		TargetGroupName:     tg.TargetGroupName,
-		Protocol:            tg.Protocol,
-		Port:                tg.Port,
-		VpcID:               tg.VpcID,
-		TargetType:          tg.TargetType,
-		HealthCheckProtocol: tg.HealthCheckProtocol,
-		HealthCheckPort:     tg.HealthCheckPort,
-		HealthCheckPath:     tg.HealthCheckPath,
-		HealthCheckEnabled:  tg.HealthCheckEnabled,
+	xtg := xmlTargetGroup{
+		TargetGroupArn:             tg.TargetGroupArn,
+		TargetGroupName:            tg.TargetGroupName,
+		Protocol:                   tg.Protocol,
+		ProtocolVersion:            tg.ProtocolVersion,
+		Port:                       tg.Port,
+		VpcID:                      tg.VpcID,
+		TargetType:                 tg.TargetType,
+		HealthCheckProtocol:        tg.HealthCheckProtocol,
+		HealthCheckPort:            tg.HealthCheckPort,
+		HealthCheckPath:            tg.HealthCheckPath,
+		HealthCheckEnabled:         tg.HealthCheckEnabled,
+		HealthCheckIntervalSeconds: tg.HealthCheckIntervalSeconds,
+		HealthCheckTimeoutSeconds:  tg.HealthCheckTimeoutSeconds,
+		HealthyThresholdCount:      tg.HealthyThresholdCount,
+		UnhealthyThresholdCount:    tg.UnhealthyThresholdCount,
+		CrossZoneLoadBalancing:     tg.CrossZoneLoadBalancing,
 	}
+
+	if tg.Matcher.HTTPCode != "" || tg.Matcher.GrpcCode != "" {
+		xtg.Matcher = &xmlMatcher{
+			HTTPCode: tg.Matcher.HTTPCode,
+			GrpcCode: tg.Matcher.GrpcCode,
+		}
+	} else if tg.HealthCheckProtocol == "HTTP" || tg.HealthCheckProtocol == "HTTPS" {
+		// Default matcher for HTTP/HTTPS health checks.
+		xtg.Matcher = &xmlMatcher{HTTPCode: "200"}
+	}
+
+	return xtg
+}
+
+func toXMLAction(a Action) xmlAction {
+	xa := xmlAction{
+		Type:           a.Type,
+		TargetGroupArn: a.TargetGroupArn,
+		Order:          a.Order,
+	}
+
+	if a.RedirectConfig != nil {
+		xa.RedirectConfig = &xmlRedirectConfig{
+			Protocol:   a.RedirectConfig.Protocol,
+			Port:       a.RedirectConfig.Port,
+			Host:       a.RedirectConfig.Host,
+			Path:       a.RedirectConfig.Path,
+			Query:      a.RedirectConfig.Query,
+			StatusCode: a.RedirectConfig.StatusCode,
+		}
+	}
+
+	if a.FixedResponseConfig != nil {
+		xa.FixedResponseConfig = &xmlFixedResponseConfig{
+			StatusCode:  a.FixedResponseConfig.StatusCode,
+			MessageBody: a.FixedResponseConfig.MessageBody,
+			ContentType: a.FixedResponseConfig.ContentType,
+		}
+	}
+
+	if a.ForwardConfig != nil {
+		tuples := make([]xmlTargetGroupTuple, 0, len(a.ForwardConfig.TargetGroups))
+		for _, tgt := range a.ForwardConfig.TargetGroups {
+			tuples = append(tuples, xmlTargetGroupTuple(tgt))
+		}
+
+		xa.ForwardConfig = &xmlForwardConfig{
+			TargetGroups: xmlTargetGroupTupleList{Members: tuples},
+		}
+	}
+
+	if a.AuthenticateCognitoConfig != nil {
+		xa.AuthenticateCognitoConfig = &xmlAuthenticateCognitoConfig{
+			UserPoolArn:              a.AuthenticateCognitoConfig.UserPoolArn,
+			UserPoolClientID:         a.AuthenticateCognitoConfig.UserPoolClientID,
+			UserPoolDomain:           a.AuthenticateCognitoConfig.UserPoolDomain,
+			SessionCookieName:        a.AuthenticateCognitoConfig.SessionCookieName,
+			Scope:                    a.AuthenticateCognitoConfig.Scope,
+			OnUnauthenticatedRequest: a.AuthenticateCognitoConfig.OnUnauthenticatedRequest,
+			SessionTimeout:           a.AuthenticateCognitoConfig.SessionTimeout,
+		}
+	}
+
+	if a.AuthenticateOidcConfig != nil {
+		xa.AuthenticateOidcConfig = &xmlAuthenticateOidcConfig{
+			Issuer:                   a.AuthenticateOidcConfig.Issuer,
+			AuthorizationEndpoint:    a.AuthenticateOidcConfig.AuthorizationEndpoint,
+			TokenEndpoint:            a.AuthenticateOidcConfig.TokenEndpoint,
+			UserInfoEndpoint:         a.AuthenticateOidcConfig.UserInfoEndpoint,
+			ClientID:                 a.AuthenticateOidcConfig.ClientID,
+			SessionCookieName:        a.AuthenticateOidcConfig.SessionCookieName,
+			Scope:                    a.AuthenticateOidcConfig.Scope,
+			OnUnauthenticatedRequest: a.AuthenticateOidcConfig.OnUnauthenticatedRequest,
+			SessionTimeout:           a.AuthenticateOidcConfig.SessionTimeout,
+		}
+	}
+
+	return xa
 }
 
 func toXMLListener(l *Listener) xmlListener {
 	actions := make([]xmlAction, 0, len(l.DefaultActions))
 	for _, a := range l.DefaultActions {
-		actions = append(actions, xmlAction{Type: a.Type, TargetGroupArn: a.TargetGroupArn})
+		actions = append(actions, toXMLAction(a))
 	}
 
-	return xmlListener{
+	xl := xmlListener{
 		ListenerArn:     l.ListenerArn,
 		LoadBalancerArn: l.LoadBalancerArn,
 		Protocol:        l.Protocol,
@@ -1939,6 +2405,25 @@ func toXMLListener(l *Listener) xmlListener {
 		SslPolicy:       l.SSLPolicy,
 		AlpnPolicy:      l.AlpnPolicy,
 	}
+
+	if l.MutualAuthentication != nil {
+		xl.MutualAuthentication = &xmlMutualAuthentication{
+			Mode:                              l.MutualAuthentication.Mode,
+			TrustStoreArn:                     l.MutualAuthentication.TrustStoreArn,
+			IgnoreClientCertificateExpiration: l.MutualAuthentication.IgnoreClientCertificateExpiration,
+		}
+	}
+
+	if len(l.Certificates) > 0 {
+		certs := make([]xmlListenerCertificate, 0, len(l.Certificates))
+		for _, c := range l.Certificates {
+			certs = append(certs, xmlListenerCertificate(c))
+		}
+
+		xl.Certificates = &xmlListenerCertificateList{Members: certs}
+	}
+
+	return xl
 }
 
 // toStringValuesConfig converts a slice of strings into an xmlConditionValuesConfig pointer.
@@ -1983,7 +2468,7 @@ func buildXMLCondition(c Condition) xmlCondition {
 func toXMLRule(r *Rule) xmlRule {
 	actions := make([]xmlAction, 0, len(r.Actions))
 	for _, a := range r.Actions {
-		actions = append(actions, xmlAction{Type: a.Type, TargetGroupArn: a.TargetGroupArn})
+		actions = append(actions, toXMLAction(a))
 	}
 
 	conds := make([]xmlCondition, 0, len(r.Conditions))
@@ -2174,16 +2659,23 @@ type setIPAddressTypeResponse struct {
 // --- target group XML types ---
 
 type xmlTargetGroup struct {
-	TargetGroupArn      string `xml:"TargetGroupArn"`
-	TargetGroupName     string `xml:"TargetGroupName"`
-	Protocol            string `xml:"Protocol"`
-	VpcID               string `xml:"VpcId,omitempty"`
-	TargetType          string `xml:"TargetType"`
-	HealthCheckProtocol string `xml:"HealthCheckProtocol"`
-	HealthCheckPort     string `xml:"HealthCheckPort"`
-	HealthCheckPath     string `xml:"HealthCheckPath,omitempty"`
-	Port                int32  `xml:"Port,omitempty"`
-	HealthCheckEnabled  bool   `xml:"HealthCheckEnabled"`
+	Matcher                    *xmlMatcher `xml:"Matcher,omitempty"`
+	TargetGroupArn             string      `xml:"TargetGroupArn"`
+	TargetGroupName            string      `xml:"TargetGroupName"`
+	Protocol                   string      `xml:"Protocol"`
+	ProtocolVersion            string      `xml:"ProtocolVersion,omitempty"`
+	VpcID                      string      `xml:"VpcId,omitempty"`
+	TargetType                 string      `xml:"TargetType"`
+	HealthCheckProtocol        string      `xml:"HealthCheckProtocol"`
+	HealthCheckPort            string      `xml:"HealthCheckPort"`
+	HealthCheckPath            string      `xml:"HealthCheckPath,omitempty"`
+	Port                       int32       `xml:"Port,omitempty"`
+	HealthCheckIntervalSeconds int32       `xml:"HealthCheckIntervalSeconds,omitempty"`
+	HealthCheckTimeoutSeconds  int32       `xml:"HealthCheckTimeoutSeconds,omitempty"`
+	HealthyThresholdCount      int32       `xml:"HealthyThresholdCount,omitempty"`
+	UnhealthyThresholdCount    int32       `xml:"UnhealthyThresholdCount,omitempty"`
+	HealthCheckEnabled         bool        `xml:"HealthCheckEnabled"`
+	CrossZoneLoadBalancing     bool        `xml:"CrossZoneLoadBalancing"`
 }
 
 type xmlTargetGroupList struct {
@@ -2277,9 +2769,85 @@ type describeTargetHealthResponse struct {
 
 // --- listener XML types ---
 
+// xmlRedirectConfig serialises RedirectConfig for XML responses.
+type xmlRedirectConfig struct {
+	Protocol   string `xml:"Protocol,omitempty"`
+	Port       string `xml:"Port,omitempty"`
+	Host       string `xml:"Host,omitempty"`
+	Path       string `xml:"Path,omitempty"`
+	Query      string `xml:"Query,omitempty"`
+	StatusCode string `xml:"StatusCode"`
+}
+
+// xmlFixedResponseConfig serialises FixedResponseConfig for XML responses.
+type xmlFixedResponseConfig struct {
+	StatusCode  string `xml:"StatusCode"`
+	MessageBody string `xml:"MessageBody,omitempty"`
+	ContentType string `xml:"ContentType,omitempty"`
+}
+
+// xmlTargetGroupTuple serialises a weighted target group tuple.
+type xmlTargetGroupTuple struct {
+	TargetGroupArn string `xml:"TargetGroupArn"`
+	Weight         int32  `xml:"Weight,omitempty"`
+}
+
+// xmlTargetGroupTupleList is a list of xmlTargetGroupTuple.
+type xmlTargetGroupTupleList struct {
+	Members []xmlTargetGroupTuple `xml:"member"`
+}
+
+// xmlForwardConfig serialises ForwardConfig for XML responses.
+type xmlForwardConfig struct {
+	TargetGroups xmlTargetGroupTupleList `xml:"TargetGroups"`
+}
+
+// xmlAuthenticateCognitoConfig serialises AuthenticateCognitoConfig.
+type xmlAuthenticateCognitoConfig struct {
+	UserPoolArn              string `xml:"UserPoolArn"`
+	UserPoolClientID         string `xml:"UserPoolClientId"`
+	UserPoolDomain           string `xml:"UserPoolDomain"`
+	SessionCookieName        string `xml:"SessionCookieName,omitempty"`
+	Scope                    string `xml:"Scope,omitempty"`
+	OnUnauthenticatedRequest string `xml:"OnUnauthenticatedRequest,omitempty"`
+	SessionTimeout           int64  `xml:"SessionTimeout,omitempty"`
+}
+
+// xmlAuthenticateOidcConfig serialises AuthenticateOidcConfig.
+type xmlAuthenticateOidcConfig struct {
+	Issuer                   string `xml:"Issuer"`
+	AuthorizationEndpoint    string `xml:"AuthorizationEndpoint"`
+	TokenEndpoint            string `xml:"TokenEndpoint"`
+	UserInfoEndpoint         string `xml:"UserInfoEndpoint"`
+	ClientID                 string `xml:"ClientId"`
+	SessionCookieName        string `xml:"SessionCookieName,omitempty"`
+	Scope                    string `xml:"Scope,omitempty"`
+	OnUnauthenticatedRequest string `xml:"OnUnauthenticatedRequest,omitempty"`
+	SessionTimeout           int64  `xml:"SessionTimeout,omitempty"`
+}
+
+// xmlMutualAuthentication serialises MutualAuthentication for XML responses.
+type xmlMutualAuthentication struct {
+	TrustStoreArn                     string `xml:"TrustStoreArn,omitempty"`
+	Mode                              string `xml:"Mode"`
+	IgnoreClientCertificateExpiration bool   `xml:"IgnoreClientCertificateExpiration,omitempty"`
+}
+
+// xmlMatcher serialises Matcher for XML responses.
+type xmlMatcher struct {
+	HTTPCode string `xml:"HTTPCode,omitempty"`
+	GrpcCode string `xml:"GrpcCode,omitempty"`
+}
+
 type xmlAction struct {
-	Type           string `xml:"Type"`
-	TargetGroupArn string `xml:"TargetGroupArn,omitempty"`
+	RedirectConfig            *xmlRedirectConfig            `xml:"RedirectConfig,omitempty"`
+	FixedResponseConfig       *xmlFixedResponseConfig       `xml:"FixedResponseConfig,omitempty"`
+	ForwardConfig             *xmlForwardConfig             `xml:"ForwardConfig,omitempty"`
+	AuthenticateCognitoConfig *xmlAuthenticateCognitoConfig `xml:"AuthenticateCognitoConfig,omitempty"`
+	AuthenticateOidcConfig    *xmlAuthenticateOidcConfig    `xml:"AuthenticateOidcConfig,omitempty"`
+	Type                      string                        `xml:"Type"`
+	TargetGroupArn            string                        `xml:"TargetGroupArn,omitempty"`
+	Order                     int32                         `xml:"Order,omitempty"`
 }
 
 type xmlActionList struct {
@@ -2287,13 +2855,15 @@ type xmlActionList struct {
 }
 
 type xmlListener struct {
-	ListenerArn     string        `xml:"ListenerArn"`
-	LoadBalancerArn string        `xml:"LoadBalancerArn"`
-	Protocol        string        `xml:"Protocol"`
-	SslPolicy       string        `xml:"SslPolicy,omitempty"`
-	AlpnPolicy      string        `xml:"AlpnPolicy,omitempty"`
-	DefaultActions  xmlActionList `xml:"DefaultActions"`
-	Port            int32         `xml:"Port"`
+	MutualAuthentication *xmlMutualAuthentication    `xml:"MutualAuthentication,omitempty"`
+	Certificates         *xmlListenerCertificateList `xml:"Certificates,omitempty"`
+	ListenerArn          string                      `xml:"ListenerArn"`
+	LoadBalancerArn      string                      `xml:"LoadBalancerArn"`
+	Protocol             string                      `xml:"Protocol"`
+	SslPolicy            string                      `xml:"SslPolicy,omitempty"`
+	AlpnPolicy           string                      `xml:"AlpnPolicy,omitempty"`
+	DefaultActions       xmlActionList               `xml:"DefaultActions"`
+	Port                 int32                       `xml:"Port"`
 }
 
 type xmlListenerList struct {
@@ -2816,4 +3386,37 @@ type modifyIPPoolsResponse struct {
 	XMLName          xml.Name            `xml:"ModifyIpPoolsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// sortedLBAttributes converts a map to a sorted xmlLBAttribute slice.
+func sortedLBAttributes(m map[string]string) []xmlLBAttribute {
+	out := make([]xmlLBAttribute, 0, len(m))
+	for k, v := range m {
+		out = append(out, xmlLBAttribute{Key: k, Value: v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+
+	return out
+}
+
+// sortedTGAttributes converts a map to a sorted xmlTGAttribute slice.
+func sortedTGAttributes(m map[string]string) []xmlTGAttribute {
+	out := make([]xmlTGAttribute, 0, len(m))
+	for k, v := range m {
+		out = append(out, xmlTGAttribute{Key: k, Value: v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+
+	return out
+}
+
+// sortedListenerAttributes converts a map to a sorted xmlListenerAttribute slice.
+func sortedListenerAttributes(m map[string]string) []xmlListenerAttribute {
+	out := make([]xmlListenerAttribute, 0, len(m))
+	for k, v := range m {
+		out = append(out, xmlListenerAttribute{Key: k, Value: v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+
+	return out
 }

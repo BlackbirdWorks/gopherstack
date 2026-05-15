@@ -28,10 +28,27 @@ func (h *S3Handler) createMultipartUpload(
 
 	tagging := r.Header.Get("X-Amz-Tagging")
 
+	// Capture SSE config at session-init time and pin it on the upload via
+	// ctx. CompleteMultipartUpload reads it back to apply envelope encryption
+	// to the assembled body — same flow real S3 uses (SSE chosen on Create,
+	// applied on Complete, parts not individually encrypted).
+	sse, sseErr := extractSSEInfo(r)
+	if sseErr != nil {
+		WriteError(ctx, w, r, sseErr)
+
+		return
+	}
+	ctx = context.WithValue(ctx, sseKey, sse)
+
 	out, err := h.Backend.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
-		Bucket:  aws.String(bucketName),
-		Key:     aws.String(key),
-		Tagging: aws.String(tagging),
+		Bucket:               aws.String(bucketName),
+		Key:                  aws.String(key),
+		Tagging:              aws.String(tagging),
+		ServerSideEncryption: types.ServerSideEncryption(sse.Algorithm),
+		SSEKMSKeyId:          nilStringIfEmpty(sse.KMSKeyID),
+		SSECustomerAlgorithm: nilStringIfEmpty(sse.SSECAlgorithm),
+		SSECustomerKeyMD5:    nilStringIfEmpty(sse.SSECKeyMD5),
+		SSECustomerKey:       nilStringIfEmpty(sse.SSECKeyB64),
 	})
 	if err != nil {
 		WriteError(ctx, w, r, err)

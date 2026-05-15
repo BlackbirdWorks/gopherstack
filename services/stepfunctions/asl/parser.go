@@ -28,8 +28,21 @@ type ItemBatcher struct {
 
 // ItemReader configures reading items from S3 for a Map state's Distributed Map.
 type ItemReader struct {
-	Parameters map[string]any `json:"Parameters,omitempty"`
-	Resource   string         `json:"Resource,omitempty"`
+	Parameters   map[string]any `json:"Parameters,omitempty"`
+	ReaderConfig *ReaderConfig  `json:"ReaderConfig,omitempty"`
+	Resource     string         `json:"Resource,omitempty"`
+}
+
+// ReaderConfig describes how the ItemReader should interpret S3 object data.
+// InputType: "JSON" (default), "JSONL", or "CSV".
+// CSVHeaderLocation: "FIRST_ROW" or "GIVEN".
+// CSVHeaders: explicit headers when CSVHeaderLocation == "GIVEN".
+// MaxItems: optional cap on number of items returned (0 = unlimited).
+type ReaderConfig struct {
+	InputType         string   `json:"InputType,omitempty"`
+	CSVHeaderLocation string   `json:"CSVHeaderLocation,omitempty"`
+	CSVHeaders        []string `json:"CSVHeaders,omitempty"`
+	MaxItems          int      `json:"MaxItems,omitempty"`
 }
 
 // State represents a single state in the state machine.
@@ -38,6 +51,7 @@ type State struct {
 	ItemProcessor    *StateMachine   `json:"ItemProcessor,omitempty"`
 	ItemBatcher      *ItemBatcher    `json:"ItemBatcher,omitempty"`
 	ItemReader       *ItemReader     `json:"ItemReader,omitempty"`
+	ItemSelector     json.RawMessage `json:"ItemSelector,omitempty"`
 	SecondsPath      string          `json:"SecondsPath,omitempty"`
 	TimestampPath    string          `json:"TimestampPath,omitempty"`
 	ItemsPath        string          `json:"ItemsPath,omitempty"`

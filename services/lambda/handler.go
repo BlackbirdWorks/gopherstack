@@ -1089,11 +1089,12 @@ func (h *Handler) handleESMRoute(c *echo.Context, path, method string) error {
 }
 
 type handleCreateESMInput struct {
-	Enabled          *bool  `json:"Enabled"`
-	EventSourceARN   string `json:"EventSourceArn"`
-	FunctionName     string `json:"FunctionName"`
-	StartingPosition string `json:"StartingPosition"`
-	BatchSize        int    `json:"BatchSize"`
+	Enabled          *bool           `json:"Enabled"`
+	FilterCriteria   *FilterCriteria `json:"FilterCriteria"`
+	EventSourceARN   string          `json:"EventSourceArn"`
+	FunctionName     string          `json:"FunctionName"`
+	StartingPosition string          `json:"StartingPosition"`
+	BatchSize        int             `json:"BatchSize"`
 }
 
 // handleCreateESM handles POST /2015-03-31/event-source-mappings/.
@@ -1118,6 +1119,7 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 			StartingPosition: req.StartingPosition,
 			BatchSize:        req.BatchSize,
 			Enabled:          enabled,
+			FilterCriteria:   req.FilterCriteria,
 		})
 		if err != nil {
 			return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -1176,8 +1178,9 @@ func (h *Handler) handleDeleteESM(c *echo.Context, id string) error {
 
 // handleUpdateESMInput is the request body for UpdateEventSourceMapping.
 type handleUpdateESMInput struct {
-	Enabled   *bool `json:"Enabled"`
-	BatchSize int   `json:"BatchSize"`
+	Enabled        *bool           `json:"Enabled"`
+	FilterCriteria *FilterCriteria `json:"FilterCriteria"`
+	BatchSize      int             `json:"BatchSize"`
 }
 
 // handleUpdateESM handles PUT /2015-03-31/event-source-mappings/{UUID}.
@@ -1198,8 +1201,9 @@ func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
 	}
 
 	m, err := lambdaBk.UpdateEventSourceMapping(id, &UpdateEventSourceMappingInput{
-		Enabled:   req.Enabled,
-		BatchSize: req.BatchSize,
+		Enabled:        req.Enabled,
+		BatchSize:      req.BatchSize,
+		FilterCriteria: req.FilterCriteria,
 	})
 	if err != nil {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "event source mapping not found")
@@ -2155,9 +2159,10 @@ func parseLayerVersion(s string) (int64, error) {
 }
 
 func (h *Handler) handleListLayers(c *echo.Context, bk *InMemoryBackend) error {
-	layers := bk.ListLayers()
+	marker, maxItems := parsePaginationParams(c.Request())
+	p := bk.ListLayers(marker, maxItems)
 
-	return c.JSON(http.StatusOK, &ListLayersOutput{Layers: layers})
+	return c.JSON(http.StatusOK, &ListLayersOutput{Layers: p.Data, NextMarker: p.Next})
 }
 
 func (h *Handler) handleListLayerVersions(c *echo.Context, bk *InMemoryBackend, layerName string) error {

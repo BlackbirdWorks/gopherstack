@@ -573,13 +573,10 @@ func (b *InMemoryBackend) findResourceTagsLocked(resourceARN string) (*tags.Tags
 
 	case "deploymentgroup":
 		// deploymentgroup resource ID is "{appName}/{groupName}"
-		idx := strings.IndexByte(resourceID, '/')
-		if idx < 0 {
+		appName, dgName, ok := strings.Cut(resourceID, "/")
+		if !ok {
 			return nil, fmt.Errorf("%w: invalid deployment group ARN %s", ErrNotFound, resourceARN)
 		}
-
-		appName := resourceID[:idx]
-		dgName := resourceID[idx+1:]
 
 		dgs, ok := b.deploymentGroups[appName]
 		if !ok {

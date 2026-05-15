@@ -16,6 +16,7 @@ type queueSnapshot struct {
 	DeduplicationMsgIDs map[string]string                `json:"deduplicationMsgIDs"`
 	Name                string                           `json:"name"`
 	URL                 string                           `json:"url"`
+	Region              string                           `json:"region,omitempty"`
 	Messages            []*Message                       `json:"messages"`
 	InFlightMessages    []*InFlightMessage               `json:"inFlightMessages"`
 	MaxReceiveCount     int                              `json:"maxReceiveCount"`
@@ -61,6 +62,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			DeduplicationMsgIDs: q.deduplicationMsgIDs,
 			Name:                q.Name,
 			URL:                 q.URL,
+			Region:              q.Region,
 			MaxReceiveCount:     q.MaxReceiveCount,
 			IsFIFO:              q.IsFIFO,
 		}
@@ -113,7 +115,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-// The dlq pointer is not restored — DLQ wiring must be re-established after restore.
+// DLQ pointers are re-wired after all queues are reconstructed by re-applying
+// each queue's RedrivePolicy attribute.
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
@@ -130,7 +133,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	b.queues = make(map[string]*Queue, len(snap.Queues))
 
-	for k, qs := range snap.Queues {
+	// Restore region first so we can default per-queue regions when missing.
+	if snap.Region != "" {
+		b.region = snap.Region
+	}
+
+	for _, qs := range snap.Queues {
 		if qs.DeduplicationIDs == nil {
 			qs.DeduplicationIDs = make(map[string]time.Time)
 		}
@@ -147,7 +155,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			qs.Permissions = make(map[string]*QueuePermissionEntry)
 		}
 
-		b.queues[k] = &Queue{
+		region := qs.Region
+		if region == "" {
+			region = b.effectiveRegion("")
+		}
+
+		b.queues[queueKey(region, qs.Name)] = &Queue{
 			DeduplicationIDs:    qs.DeduplicationIDs,
 			Attributes:          qs.Attributes,
 			Tags:                qs.Tags,
@@ -157,6 +170,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			deduplicationMsgIDs: qs.DeduplicationMsgIDs,
 			Name:                qs.Name,
 			URL:                 qs.URL,
+			Region:              region,
 			MaxReceiveCount:     qs.MaxReceiveCount,
 			IsFIFO:              qs.IsFIFO,
 			notify:              make(chan struct{}),
@@ -180,6 +194,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			totalCount:    ts.TotalCount,
 			maxPerSec:     ts.MaxPerSec,
 		}
+	}
+
+	// Re-wire DLQ pointers now that every queue has been reconstructed. We must
+	// do this after the second pass because a queue's RedrivePolicy can target
+	// any other queue regardless of restore iteration order.
+	for _, q := range b.queues {
+		applyRedrivePolicy(q, q.Attributes, b)
 	}
 
 	b.accountID = snap.AccountID

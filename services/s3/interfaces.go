@@ -204,4 +204,22 @@ type StorageBackend interface {
 
 	// Session
 	CreateSession(ctx context.Context, bucket string) (string, error)
+
+	// Accelerate / RequestPayment configurations
+	PutBucketAccelerateConfiguration(ctx context.Context, bucket, status string) error
+	GetBucketAccelerateConfiguration(ctx context.Context, bucket string) (string, error)
+	PutBucketRequestPayment(ctx context.Context, bucket, payer string) error
+	GetBucketRequestPayment(ctx context.Context, bucket string) (string, error)
+
+	// GetObjectAttributes / RestoreObject / RenameObject
+	GetObjectAttributes(ctx context.Context, bucket, key, versionID string) (*ObjectAttributes, error)
+	RestoreObject(ctx context.Context, bucket, key string, days int) error
+	RenameObject(ctx context.Context, bucket, sourceKey, targetKey string) error
+
+	// Object ACLs
+	PutObjectACL(ctx context.Context, bucket, key, versionID, acl string) error
+	GetObjectACL(ctx context.Context, bucket, key, versionID string) (string, error)
+
+	// Per-object SSE updates
+	UpdateObjectEncryption(ctx context.Context, bucket, key, algorithm, kmsKeyID string) error
 }

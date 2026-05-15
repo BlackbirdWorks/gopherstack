@@ -228,6 +228,15 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 		return nil, err
 	}
 
+	// AWS SSM rejects parameter values larger than 4 KiB on the Standard tier
+	// (8 KiB on Advanced). gopherstack does not yet model parameter tiers, so
+	// enforce the more restrictive Standard limit which is the AWS default.
+	const maxParameterValueBytes = 4096
+	if len(input.Value) > maxParameterValueBytes {
+		return nil, fmt.Errorf("%w: parameter value exceeds %d bytes",
+			ErrValidationException, maxParameterValueBytes)
+	}
+
 	b.mu.Lock("PutParameter")
 	defer b.mu.Unlock()
 

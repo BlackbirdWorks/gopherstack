@@ -292,8 +292,14 @@ func (j *Janitor) newDrainContext(parent context.Context) (context.Context, cont
 
 const defaultMultipartMaxAge = 24 * time.Hour
 
-// cleanupDefaultMultipart aborts multipart uploads older than 24 hours
-// for buckets without an explicit lifecycle policy.
+// cleanupDefaultMultipart aborts multipart uploads older than 24 hours.
+//
+// The 24h default applies UNCONDITIONALLY (including to buckets with lifecycle
+// rules) because not every lifecycle configuration includes an
+// AbortIncompleteMultipartUpload rule — without this floor, uploads can leak
+// indefinitely. When a bucket's lifecycle DOES specify abort-incomplete with a
+// shorter window, sweepLifecycle still runs first on the same tick and will
+// remove uploads earlier; this pass is the safety net.
 func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
 	b := j.Backend
 	now := time.Now().UTC()
@@ -302,20 +308,7 @@ func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
 	b.mu.Lock("S3Janitor.cleanupDefaultMultipart")
 	defer b.mu.Unlock()
 
-	for bucketName, uploads := range b.uploads {
-		// Check if bucket has lifecycle; if it does, j.sweepLifecycle handles it.
-		// We only apply the 24h default to buckets WITHOUT lifecycle.
-		hasLifecycle := false
-		if bucket, _ := findBucketAcrossRegions(b.buckets, bucketName); bucket != nil {
-			bucket.mu.RLock("S3Janitor.checkLC")
-			hasLifecycle = bucket.LifecycleConfig != ""
-			bucket.mu.RUnlock()
-		}
-
-		if hasLifecycle {
-			continue
-		}
-
+	for _, uploads := range b.uploads {
 		for uploadID, upload := range uploads {
 			if upload.Initiated.Before(abortBefore) {
 				delete(uploads, uploadID)

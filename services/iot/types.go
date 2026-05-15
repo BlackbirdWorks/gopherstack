@@ -222,12 +222,13 @@ type UpdateThingInput struct {
 
 // ThingType represents an AWS IoT Thing Type.
 type ThingType struct {
-	CreatedAt       time.Time `json:"createdAt"`
-	DeprecationDate time.Time `json:"deprecationDate"`
-	ThingTypeName   string    `json:"thingTypeName"`
-	ThingTypeARN    string    `json:"thingTypeArn"`
-	Description     string    `json:"description,omitempty"`
-	Deprecated      bool      `json:"deprecated"`
+	CreatedAt            time.Time `json:"createdAt"`
+	DeprecationDate      time.Time `json:"deprecationDate"`
+	ThingTypeName        string    `json:"thingTypeName"`
+	ThingTypeARN         string    `json:"thingTypeArn"`
+	Description          string    `json:"description,omitempty"`
+	SearchableAttributes []string  `json:"searchableAttributes,omitempty"`
+	Deprecated           bool      `json:"deprecated"`
 }
 
 // ThingGroup represents an AWS IoT Thing Group.
@@ -284,8 +285,9 @@ type CertificateProvider struct {
 
 // CreateThingTypeInput is the input for CreateThingType.
 type CreateThingTypeInput struct {
-	ThingTypeName string
-	Description   string
+	ThingTypeName        string
+	Description          string
+	SearchableAttributes []string
 }
 
 // CreateThingGroupInput is the input for CreateThingGroup.

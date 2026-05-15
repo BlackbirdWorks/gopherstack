@@ -44,12 +44,17 @@ func extractCBOROperation(path string) string {
 	return strings.TrimPrefix(path, cborServicePath)
 }
 
+// maxCBORBodyBytes caps CloudWatch rpc-v2-cbor request bodies. CloudWatch
+// PutMetricData payloads are well below 1 MiB; cap conservatively to prevent
+// unbounded io.ReadAll memory use.
+const maxCBORBodyBytes = 1 << 20
+
 // handleCBOR dispatches rpc-v2-cbor requests.
 func (h *Handler) handleCBOR(c *echo.Context) error {
 	r := c.Request()
 	op := extractCBOROperation(r.URL.Path)
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(c.Response(), r.Body, maxCBORBodyBytes))
 	if err != nil {
 		return h.cborError(c, http.StatusBadRequest, "SerializationException", "cannot read body")
 	}

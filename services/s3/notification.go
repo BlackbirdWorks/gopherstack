@@ -94,6 +94,9 @@ type NotificationDispatcher interface {
 	DispatchObjectCompleted(ctx context.Context, bucket, key, etag string, size int64, notifXML string)
 	// DispatchObjectDeleted sends an s3:ObjectRemoved notification for the given object.
 	DispatchObjectDeleted(ctx context.Context, bucket, key, notifXML string)
+	// DispatchObjectRestorePost sends an s3:ObjectRestore:Post notification for a
+	// RestoreObject request (object restore initiation).
+	DispatchObjectRestorePost(ctx context.Context, bucket, key, notifXML string)
 }
 
 // NotificationTargets holds concrete delivery clients for each supported target type.
@@ -327,6 +330,13 @@ func (d *inMemoryNotificationDispatcher) DispatchObjectDeleted(
 	bucket, key, notifXML string,
 ) {
 	d.dispatch(ctx, "s3:ObjectRemoved:Delete", bucket, key, "", 0, notifXML)
+}
+
+func (d *inMemoryNotificationDispatcher) DispatchObjectRestorePost(
+	ctx context.Context,
+	bucket, key, notifXML string,
+) {
+	d.dispatch(ctx, "s3:ObjectRestore:Post", bucket, key, "", 0, notifXML)
 }
 
 func (d *inMemoryNotificationDispatcher) dispatch(

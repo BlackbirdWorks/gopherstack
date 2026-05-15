@@ -67,6 +67,22 @@ func TestHandler_CreateWorkGroup(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 			wantErr:    true,
 		},
+		{
+			name:       "bytes_scanned_cutoff_below_minimum_rejected",
+			body:       `{"Name":"too-small-cutoff","Configuration":{"BytesScannedCutoffPerQuery":1024}}`,
+			wantStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:       "bytes_scanned_cutoff_above_minimum_accepted",
+			body:       `{"Name":"good-cutoff","Configuration":{"BytesScannedCutoffPerQuery":20971520}}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "bytes_scanned_cutoff_zero_means_unlimited",
+			body:       `{"Name":"unlimited-cutoff","Configuration":{"BytesScannedCutoffPerQuery":0}}`,
+			wantStatus: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -990,16 +1006,39 @@ func TestHandler_BatchGetQueryExecution(t *testing.T) {
 	}
 }
 
+// TestHandler_GetQueryResults validates the per-AWS contract for GetQueryResults:
+// missing/unknown QueryExecutionId yields InvalidRequestException, MaxResults out
+// of [1, 1000] yields InvalidRequestException, and a successful call against an
+// existing query returns an empty result set.
 func TestHandler_GetQueryResults(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       string
 		name       string
+		setupID    bool
 		wantStatus int
 	}{
 		{
-			name:       "returns_empty_result_set",
+			name:       "valid_known_id_returns_empty_result_set",
+			setupID:    true,
 			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_query_execution_id",
+			body:       `{}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "unknown_query_execution_id",
+			body:       `{"QueryExecutionId":"does-not-exist"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "max_results_too_large",
+			setupID:    true,
+			body:       `{"MaxResults":2000}`,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -1008,8 +1047,30 @@ func TestHandler_GetQueryResults(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, "GetQueryResults", `{"QueryExecutionId":"any-id"}`)
+
+			body := tt.body
+			if tt.setupID {
+				id, err := h.Backend.StartQueryExecution(
+					"SELECT 1", "primary",
+					athena.QueryExecutionContext{},
+					athena.ResultConfiguration{},
+				)
+				require.NoError(t, err)
+
+				if body == "" {
+					body = `{"QueryExecutionId":"` + id + `"}`
+				} else {
+					// inject the real id into the supplied body
+					body = `{"QueryExecutionId":"` + id + `","MaxResults":2000}`
+				}
+			}
+
+			rec := doRequest(t, h, "GetQueryResults", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
