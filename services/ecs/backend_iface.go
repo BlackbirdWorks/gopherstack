@@ -17,6 +17,7 @@ type Backend interface {
 	DescribeTaskDefinition(family string) (*TaskDefinition, error)
 	DeregisterTaskDefinition(taskDefinitionArn string) (*TaskDefinition, error)
 	ListTaskDefinitions(familyPrefix string) ([]string, error)
+	ListTaskDefinitionsFiltered(input ListTaskDefinitionsInput) ([]string, error)
 	DeleteTaskDefinitions(taskDefinitionArns []string) ([]TaskDefinition, []Failure, error)
 
 	// Services
