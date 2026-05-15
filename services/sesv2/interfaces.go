@@ -5,7 +5,7 @@ import "github.com/blackbirdworks/gopherstack/pkgs/page"
 // StorageBackend is the interface for sesv2 storage operations.
 type StorageBackend interface {
 	// Core identity ops
-	CreateEmailIdentity(identity string) (*EmailIdentity, error)
+	CreateEmailIdentity(identity, configurationSetName string, tags map[string]string) (*EmailIdentity, error)
 	GetEmailIdentity(identity string) (*EmailIdentity, error)
 	ListEmailIdentities(nextToken string, pageSize int) page.Page[*EmailIdentity]
 	DeleteEmailIdentity(identity string) error
@@ -16,12 +16,12 @@ type StorageBackend interface {
 	DeleteEmailIdentityPolicy(identity, policyName string) error
 	UpdateEmailIdentityPolicy(identity, policyName, policy string) error
 
-	// Email identity attribute ops (stubs)
-	PutEmailIdentityConfigurationSetAttributes(identity string) error
-	PutEmailIdentityDkimAttributes(identity string) error
+	// Email identity attribute ops
+	PutEmailIdentityConfigurationSetAttributes(identity, configSetName string) error
+	PutEmailIdentityDkimAttributes(identity string, signingEnabled bool) error
 	PutEmailIdentityDkimSigningAttributes(identity string) error
-	PutEmailIdentityFeedbackAttributes(identity string) error
-	PutEmailIdentityMailFromAttributes(identity string) error
+	PutEmailIdentityFeedbackAttributes(identity string, emailForwardingEnabled bool) error
+	PutEmailIdentityMailFromAttributes(identity, mailFromDomain, behaviorOnMxFailure string) error
 
 	// Configuration set ops
 	CreateConfigurationSet(name string) (*ConfigurationSet, error)
@@ -29,14 +29,14 @@ type StorageBackend interface {
 	ListConfigurationSets(nextToken string, pageSize int) page.Page[*ConfigurationSet]
 	DeleteConfigurationSet(name string) error
 
-	// Configuration set attribute ops (stubs)
-	PutConfigurationSetArchivingOptions(configSetName string) error
-	PutConfigurationSetDeliveryOptions(configSetName string) error
-	PutConfigurationSetReputationOptions(configSetName string) error
-	PutConfigurationSetSendingOptions(configSetName string) error
-	PutConfigurationSetSuppressionOptions(configSetName string) error
-	PutConfigurationSetTrackingOptions(configSetName string) error
-	PutConfigurationSetVdmOptions(configSetName string) error
+	// Configuration set attribute ops
+	PutConfigurationSetArchivingOptions(name string) error
+	PutConfigurationSetDeliveryOptions(name, tlsPolicy, sendingPoolName string) error
+	PutConfigurationSetReputationOptions(name string, metricsEnabled bool) error
+	PutConfigurationSetSendingOptions(name string, sendingEnabled bool) error
+	PutConfigurationSetSuppressionOptions(name string, suppressedReasons []string) error
+	PutConfigurationSetTrackingOptions(name, customRedirectDomain, httpsPolicy string) error
+	PutConfigurationSetVdmOptions(name string) error
 
 	// Event destination ops
 	CreateConfigurationSetEventDestination(

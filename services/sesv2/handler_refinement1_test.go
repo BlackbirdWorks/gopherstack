@@ -82,7 +82,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	t.Parallel()
 
 	backend := sesv2.NewInMemoryBackend()
-	_, err := backend.CreateEmailIdentity("reset@example.com")
+	_, err := backend.CreateEmailIdentity("reset@example.com", "", nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, sesv2.IdentityCount(backend))
 
@@ -545,7 +545,7 @@ func TestRefinement1_CreateEmailIdentityPolicy(t *testing.T) {
 		{
 			name: "happy_path",
 			setup: func(b *sesv2.InMemoryBackend) {
-				_, _ = b.CreateEmailIdentity("owner@example.com")
+				_, _ = b.CreateEmailIdentity("owner@example.com", "", nil)
 			},
 			identity:   "owner@example.com",
 			policyName: "my-policy",
@@ -560,7 +560,7 @@ func TestRefinement1_CreateEmailIdentityPolicy(t *testing.T) {
 		{
 			name: "duplicate_policy",
 			setup: func(b *sesv2.InMemoryBackend) {
-				_, _ = b.CreateEmailIdentity("owner@example.com")
+				_, _ = b.CreateEmailIdentity("owner@example.com", "", nil)
 				_ = b.CreateEmailIdentityPolicy("owner@example.com", "my-policy", "{}")
 			},
 			identity:   "owner@example.com",
@@ -651,7 +651,7 @@ func TestRefinement1_DeepCopyGetEmailIdentity(t *testing.T) {
 	t.Parallel()
 
 	backend := sesv2.NewInMemoryBackend()
-	_, err := backend.CreateEmailIdentity("copy@example.com")
+	_, err := backend.CreateEmailIdentity("copy@example.com", "", nil)
 	require.NoError(t, err)
 
 	ei, err := backend.GetEmailIdentity("copy@example.com")
@@ -728,7 +728,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	backend := sesv2.NewInMemoryBackend()
 	h := sesv2.NewHandler(backend)
 
-	_, err := backend.CreateEmailIdentity("reset@example.com")
+	_, err := backend.CreateEmailIdentity("reset@example.com", "", nil)
 	require.NoError(t, err)
 
 	h.Reset()
@@ -771,7 +771,7 @@ func TestRefinement1_ListEmailIdentitiesSorted(t *testing.T) {
 	backend := sesv2.NewInMemoryBackend()
 
 	for _, id := range []string{"z@example.com", "a@example.com", "m@example.com"} {
-		_, err := backend.CreateEmailIdentity(id)
+		_, err := backend.CreateEmailIdentity(id, "", nil)
 		require.NoError(t, err)
 	}
 
@@ -787,7 +787,7 @@ func TestRefinement1_SnapshotRestoreRoundTrip(t *testing.T) {
 	backend := sesv2.NewInMemoryBackend()
 
 	// Populate all new resource types.
-	_, err := backend.CreateEmailIdentity("snap@example.com")
+	_, err := backend.CreateEmailIdentity("snap@example.com", "", nil)
 	require.NoError(t, err)
 
 	_, err = backend.CreateContactList("snap-list", "desc")
@@ -865,8 +865,8 @@ func TestRefinement1_ErrorSentinels(t *testing.T) {
 			name: "identity_already_exists",
 			doErr: func() error {
 				b := sesv2.NewInMemoryBackend()
-				_, _ = b.CreateEmailIdentity("dup@example.com")
-				_, err := b.CreateEmailIdentity("dup@example.com")
+				_, _ = b.CreateEmailIdentity("dup@example.com", "", nil)
+				_, err := b.CreateEmailIdentity("dup@example.com", "", nil)
 
 				return err
 			},
@@ -875,7 +875,7 @@ func TestRefinement1_ErrorSentinels(t *testing.T) {
 		{
 			name: "invalid_input",
 			doErr: func() error {
-				_, err := sesv2.NewInMemoryBackend().CreateEmailIdentity("")
+				_, err := sesv2.NewInMemoryBackend().CreateEmailIdentity("", "", nil)
 
 				return err
 			},
@@ -1050,7 +1050,7 @@ func TestRefinement1_HTTPCreateEmailIdentityPolicy(t *testing.T) {
 	t.Parallel()
 
 	h, backend := newRefinement1Handler(t)
-	_, err := backend.CreateEmailIdentity("owner@example.com")
+	_, err := backend.CreateEmailIdentity("owner@example.com", "", nil)
 	require.NoError(t, err)
 
 	body := map[string]any{"Policy": `{"Version":"2012-10-17"}`}

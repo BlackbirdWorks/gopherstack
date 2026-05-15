@@ -35,6 +35,12 @@ const (
 	scalingModeManaged                 = "MANAGED"
 	deliverabilityTestStatusInProgress = "IN_PROGRESS"
 	exportJobStatusCancelled           = "CANCELLED"
+
+	// identity / DKIM defaults.
+	dkimStatusSuccess             = "SUCCESS"
+	verificationStatusSuccess     = "SUCCESS"
+	mailFromStatusPending         = "PENDING"
+	behaviorOnMxFailureUseDefault = "USE_DEFAULT_VALUE"
 )
 
 // maxRetainedEmails is the maximum number of sent emails retained in memory.
@@ -49,15 +55,33 @@ const emailCompactionHighWater = maxRetainedEmails + maxRetainedEmails
 
 // EmailIdentity represents a verified email address or domain identity.
 type EmailIdentity struct {
-	Identity           string `json:"identity"`
-	IdentityType       string `json:"identityType"`
-	VerifiedForSending bool   `json:"verifiedForSending"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	Identity             string            `json:"identity"`
+	IdentityType         string            `json:"identityType"`
+	ConfigurationSetName string            `json:"configurationSetName,omitempty"`
+	MailFromDomain       string            `json:"mailFromDomain,omitempty"`
+	MailFromDomainStatus string            `json:"mailFromDomainStatus,omitempty"`
+	BehaviorOnMxFailure  string            `json:"behaviorOnMxFailure,omitempty"`
+	VerificationStatus   string            `json:"verificationStatus"`
+	DkimStatus           string            `json:"dkimStatus"`
+	DkimTokens           []string          `json:"dkimTokens,omitempty"`
+	VerifiedForSending   bool              `json:"verifiedForSending"`
+	FeedbackForwarding   bool              `json:"feedbackForwarding"`
+	DkimSigningEnabled   bool              `json:"dkimSigningEnabled"`
 }
 
 // ConfigurationSet represents a SES v2 configuration set.
 type ConfigurationSet struct {
-	CreatedAt time.Time `json:"createdAt"`
-	Name      string    `json:"name"`
+	CreatedAt                    time.Time         `json:"createdAt"`
+	Name                         string            `json:"name"`
+	Tags                         map[string]string `json:"tags,omitempty"`
+	TrackingCustomRedirectDomain string            `json:"trackingCustomRedirectDomain,omitempty"`
+	TrackingHTTPSPolicy          string            `json:"trackingHttpsPolicy,omitempty"`
+	DeliveryTLSPolicy            string            `json:"deliveryTlsPolicy,omitempty"`
+	DeliverySendingPoolName      string            `json:"deliverySendingPoolName,omitempty"`
+	SuppressionReasons           []string          `json:"suppressionReasons,omitempty"`
+	SendingEnabled               bool              `json:"sendingEnabled"`
+	ReputationMetricsEnabled     bool              `json:"reputationMetricsEnabled"`
 }
 
 // Email captures a sent email for local inspection.
@@ -260,7 +284,10 @@ func identityType(identity string) string {
 }
 
 // CreateEmailIdentity creates a new email identity and marks it as verified.
-func (b *InMemoryBackend) CreateEmailIdentity(identity string) (*EmailIdentity, error) {
+func (b *InMemoryBackend) CreateEmailIdentity(
+	identity, configurationSetName string,
+	tags map[string]string,
+) (*EmailIdentity, error) {
 	if strings.TrimSpace(identity) == "" {
 		return nil, fmt.Errorf("%w: EmailIdentity is required", ErrInvalidInput)
 	}
@@ -272,14 +299,43 @@ func (b *InMemoryBackend) CreateEmailIdentity(identity string) (*EmailIdentity, 
 		return nil, fmt.Errorf("%w: identity %s already exists", ErrAlreadyExists, identity)
 	}
 
+	idType := identityType(identity)
+
 	ei := &EmailIdentity{
-		Identity:           identity,
-		IdentityType:       identityType(identity),
-		VerifiedForSending: true,
+		Identity:             identity,
+		IdentityType:         idType,
+		VerifiedForSending:   true,
+		FeedbackForwarding:   true,
+		DkimSigningEnabled:   true,
+		DkimStatus:           dkimStatusSuccess,
+		VerificationStatus:   verificationStatusSuccess,
+		ConfigurationSetName: configurationSetName,
+		Tags:                 tags,
 	}
+
+	if idType == "DOMAIN" {
+		ei.DkimTokens = generateDkimTokens()
+	}
+
 	b.identities[identity] = ei
 
-	return ei, nil
+	cp := *ei
+
+	return &cp, nil
+}
+
+const dkimTokenCount = 3
+const dkimTokenLength = 24
+
+// generateDkimTokens generates three DKIM CNAME selector tokens.
+func generateDkimTokens() []string {
+	tokens := make([]string, dkimTokenCount)
+	for i := range tokens {
+		id := uuid.New().String()
+		tokens[i] = strings.ReplaceAll(id, "-", "")[:dkimTokenLength]
+	}
+
+	return tokens
 }
 
 // GetEmailIdentity returns the email identity with the given name.
@@ -346,12 +402,15 @@ func (b *InMemoryBackend) CreateConfigurationSet(name string) (*ConfigurationSet
 	}
 
 	cs := &ConfigurationSet{
-		Name:      name,
-		CreatedAt: time.Now(),
+		Name:           name,
+		CreatedAt:      time.Now(),
+		SendingEnabled: true,
 	}
 	b.configurationSets[name] = cs
 
-	return cs, nil
+	cp := *cs
+
+	return &cp, nil
 }
 
 // GetConfigurationSet returns the configuration set with the given name.

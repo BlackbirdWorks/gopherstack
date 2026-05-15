@@ -114,7 +114,7 @@ func TestSESv2Handler_CreateEmailIdentity(t *testing.T) {
 				var out map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 				assert.Equal(t, tt.wantType, out["IdentityType"])
-				assert.Equal(t, true, out["VerifiedForSending"])
+				assert.Equal(t, true, out["VerifiedForSendingStatus"])
 			}
 		})
 	}
