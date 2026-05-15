@@ -2856,7 +2856,7 @@ func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
 	}
 
 	sqsBk.SetMetricEmitter(sqsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
-		return cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+		_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
 			{
 				MetricName: name,
 				Value:      value,
@@ -2864,6 +2864,7 @@ func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
 				Timestamp:  time.Now(),
 			},
 		})
+		return err
 	}))
 }
 
@@ -3622,7 +3623,7 @@ func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
 
 	cwlogsBk.SetMetricEmitter(
 		cwlogsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
-			return cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+			_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
 				{
 					MetricName: name,
 					Namespace:  namespace,
@@ -3631,6 +3632,7 @@ func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
 					Timestamp:  time.Now(),
 				},
 			})
+			return err
 		}),
 	)
 }
