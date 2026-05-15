@@ -36,18 +36,32 @@ const (
 	jobStatusSubmitted = "SUBMITTED"
 	// jobStatusProgressing is the in-progress job state.
 	jobStatusProgressing = "PROGRESSING"
+	// jobStatusComplete is the successfully finished job state.
+	jobStatusComplete = "COMPLETE"
+	// jobStatusError is the failed job state.
+	jobStatusError = "ERROR"
 	// jobStatusCanceled is the canceled job state.
 	jobStatusCanceled = "CANCELED"
 	// pricingPlanOnDemand is the default pricing plan.
 	pricingPlanOnDemand = "ON_DEMAND"
 	// jobPhaseProbing is the initial processing phase of a submitted job.
 	jobPhaseProbing = "PROBING"
+	// jobPhaseTranscoding is the second processing phase after probing.
+	jobPhaseTranscoding = "TRANSCODING"
+	// jobPhaseUploading is the third processing phase after transcoding.
+	jobPhaseUploading = "UPLOADING"
 	// priorityMin is the minimum allowed job/template priority.
 	priorityMin = -50
 	// priorityMax is the maximum allowed job/template priority.
 	priorityMax = 50
 	// orderAscending is the ascending list order value used by AWS MediaConvert.
 	orderAscending = "ASCENDING"
+	// deepCloneMaxDepth caps recursion in deepCloneValue to prevent stack overflows.
+	deepCloneMaxDepth = 20
+	// tokenTTL is how long a ClientRequestToken deduplication window lasts.
+	tokenTTL = time.Minute
+	// jobEngineVersionUsed is the fixed engine version reported on all jobs.
+	jobEngineVersionUsed = "2017-08-29"
 )
 
 // epochSeconds converts a [time.Time] to a float64 Unix epoch seconds value,
@@ -64,21 +78,36 @@ func deepCloneMap(m map[string]any) map[string]any {
 
 	cp := make(map[string]any, len(m))
 	for k, v := range m {
-		cp[k] = deepCloneValue(v)
+		cp[k] = deepCloneValueAt(v, 0)
 	}
 
 	return cp
 }
 
-// deepCloneValue recursively clones a value, handling nested maps and slices.
-func deepCloneValue(v any) any {
+// deepCloneValueAt clones v with a depth counter. When depth >= deepCloneMaxDepth,
+// map and slice values are returned as nil to prevent unbounded recursion.
+func deepCloneValueAt(v any, depth int) any {
+	if depth >= deepCloneMaxDepth {
+		switch v.(type) {
+		case map[string]any, []any:
+			return nil
+		}
+
+		return v
+	}
+
 	switch vt := v.(type) {
 	case map[string]any:
-		return deepCloneMap(vt)
+		cp := make(map[string]any, len(vt))
+		for k, val := range vt {
+			cp[k] = deepCloneValueAt(val, depth+1)
+		}
+
+		return cp
 	case []any:
 		cp := make([]any, len(vt))
 		for i, item := range vt {
-			cp[i] = deepCloneValue(item)
+			cp[i] = deepCloneValueAt(item, depth+1)
 		}
 
 		return cp
@@ -95,20 +124,32 @@ func nonNilTagsCopy(tags map[string]string) map[string]string {
 	return cp
 }
 
+// ReservationPlan holds reservation plan details for a queue.
+type ReservationPlan struct {
+	Status        string  `json:"status,omitempty"`
+	Commitment    string  `json:"commitment,omitempty"`
+	RenewalType   string  `json:"renewalType,omitempty"`
+	ExpiresAt     float64 `json:"expiresAt,omitempty"`
+	PurchasedAt   float64 `json:"purchasedAt,omitempty"`
+	ReservedSlots int     `json:"reservedSlots,omitempty"`
+}
+
 // Queue represents a MediaConvert queue.
 type Queue struct {
+	ReservationPlan      *ReservationPlan  `json:"reservationPlan,omitempty"`
+	ServiceOverrides     map[string]any    `json:"serviceOverrides,omitempty"`
 	Tags                 map[string]string `json:"tags,omitempty"`
 	Arn                  string            `json:"arn"`
 	Name                 string            `json:"name"`
 	Description          string            `json:"description,omitempty"`
 	PricingPlan          string            `json:"pricingPlan"`
-	ReservationPlanName  string            `json:"reservationPlanName,omitempty"`
 	Status               string            `json:"status"`
 	Type                 string            `json:"type"`
 	CreatedAt            float64           `json:"createdAt"`
 	LastUpdated          float64           `json:"lastUpdated"`
 	ProgressingJobsCount int               `json:"progressingJobsCount"`
 	SubmittedJobsCount   int               `json:"submittedJobsCount"`
+	ConcurrentJobs       int               `json:"concurrentJobs,omitempty"`
 }
 
 // JobTemplate represents a MediaConvert job template.
@@ -133,30 +174,95 @@ type JobTiming struct {
 	FinishTime float64 `json:"finishTime,omitempty"`
 }
 
+// HopDestination represents a queue hop destination for a job.
+type HopDestination struct {
+	Queue       string `json:"queue,omitempty"`
+	WaitMinutes int    `json:"waitMinutes,omitempty"`
+	Priority    int    `json:"priority,omitempty"`
+}
+
+// QueueTransition records a queue change event for a job.
+type QueueTransition struct {
+	SourceQueue      string  `json:"sourceQueue,omitempty"`
+	DestinationQueue string  `json:"destinationQueue,omitempty"`
+	Timestamp        float64 `json:"timestamp,omitempty"`
+}
+
+// OutputDetail contains output-level detail for a completed job.
+type OutputDetail struct {
+	VideoDetails *VideoDetail `json:"videoDetails,omitempty"`
+	DurationInMs int          `json:"durationInMs,omitempty"`
+}
+
+// VideoDetail holds video dimension details.
+type VideoDetail struct {
+	WidthInPx  int `json:"widthInPx,omitempty"`
+	HeightInPx int `json:"heightInPx,omitempty"`
+}
+
+// OutputGroupDetail contains details for one output group.
+type OutputGroupDetail struct {
+	OutputDetails []OutputDetail `json:"outputDetails,omitempty"`
+}
+
+// JobMessages holds informational and warning messages for a job.
+type JobMessages struct {
+	Info    []string `json:"info,omitempty"`
+	Warning []string `json:"warning,omitempty"`
+}
+
+// WarningGroup represents an aggregated warning count.
+type WarningGroup struct {
+	Code  string `json:"code,omitempty"`
+	Count int    `json:"count,omitempty"`
+}
+
+// AccelerationSettings holds the requested acceleration mode.
+type AccelerationSettings struct {
+	Mode string `json:"mode,omitempty"`
+}
+
+// ShareDetails holds resource share token details.
+type ShareDetails struct {
+	ShareToken string  `json:"shareToken,omitempty"`
+	SharedAt   float64 `json:"sharedAt,omitempty"`
+}
+
 // Job represents a MediaConvert transcoding job.
 type Job struct {
-	Settings              map[string]any    `json:"settings,omitempty"`
-	Tags                  map[string]string `json:"tags,omitempty"`
-	UserMetadata          map[string]string `json:"userMetadata,omitempty"`
-	Timing                *JobTiming        `json:"timing,omitempty"`
-	Arn                   string            `json:"arn"`
-	ID                    string            `json:"id"`
-	Queue                 string            `json:"queue,omitempty"`
-	QueueArn              string            `json:"queueArn,omitempty"`
-	Role                  string            `json:"role"`
-	Status                string            `json:"status"`
-	CurrentPhase          string            `json:"currentPhase,omitempty"`
-	JobTemplate           string            `json:"jobTemplate,omitempty"`
-	ErrorMessage          string            `json:"errorMessage,omitempty"`
-	BillingTagsSource     string            `json:"billingTagsSource,omitempty"`
-	AccelerationStatus    string            `json:"accelerationStatus,omitempty"`
-	StatusUpdateInterval  string            `json:"statusUpdateInterval,omitempty"`
-	SimulateReservedQueue string            `json:"simulateReservedQueue,omitempty"`
-	CreatedAt             float64           `json:"createdAt"`
-	ErrorCode             int               `json:"errorCode,omitempty"`
-	JobPercentComplete    int               `json:"jobPercentComplete"`
-	Priority              int               `json:"priority"`
-	RetryCount            int               `json:"retryCount"`
+	AccelerationSettings      *AccelerationSettings `json:"accelerationSettings,omitempty"`
+	Messages                  *JobMessages          `json:"messages,omitempty"`
+	LastShareDetails          *ShareDetails         `json:"lastShareDetails,omitempty"`
+	Timing                    *JobTiming            `json:"timing,omitempty"`
+	Settings                  map[string]any        `json:"settings,omitempty"`
+	Tags                      map[string]string     `json:"tags,omitempty"`
+	UserMetadata              map[string]string     `json:"userMetadata,omitempty"`
+	Arn                       string                `json:"arn"`
+	ID                        string                `json:"id"`
+	Queue                     string                `json:"queue,omitempty"`
+	QueueArn                  string                `json:"queueArn,omitempty"`
+	Role                      string                `json:"role"`
+	Status                    string                `json:"status"`
+	CurrentPhase              string                `json:"currentPhase,omitempty"`
+	JobTemplate               string                `json:"jobTemplate,omitempty"`
+	ErrorMessage              string                `json:"errorMessage,omitempty"`
+	BillingTagsSource         string                `json:"billingTagsSource,omitempty"`
+	AccelerationStatus        string                `json:"accelerationStatus,omitempty"`
+	StatusUpdateInterval      string                `json:"statusUpdateInterval,omitempty"`
+	SimulateReservedQueue     string                `json:"simulateReservedQueue,omitempty"`
+	ClientRequestToken        string                `json:"clientRequestToken,omitempty"`
+	JobEngineVersionRequested string                `json:"jobEngineVersionRequested,omitempty"`
+	JobEngineVersionUsed      string                `json:"jobEngineVersionUsed,omitempty"`
+	ShareStatus               string                `json:"shareStatus,omitempty"`
+	OutputGroupDetails        []OutputGroupDetail   `json:"outputGroupDetails,omitempty"`
+	QueueTransitions          []QueueTransition     `json:"queueTransitions,omitempty"`
+	HopDestinations           []HopDestination      `json:"hopDestinations,omitempty"`
+	Warnings                  []WarningGroup        `json:"warnings,omitempty"`
+	CreatedAt                 float64               `json:"createdAt"`
+	ErrorCode                 int                   `json:"errorCode,omitempty"`
+	JobPercentComplete        int                   `json:"jobPercentComplete"`
+	Priority                  int                   `json:"priority"`
+	RetryCount                int                   `json:"retryCount"`
 }
 
 // Preset represents a MediaConvert output preset.
@@ -186,34 +292,50 @@ type jobsQuery struct {
 	maxResults int
 }
 
+// tokenEntry records a ClientRequestToken for deduplication.
+type tokenEntry struct {
+	createdAt time.Time
+	jobID     string
+}
+
+// queueJobCounter tracks active job counts for a single queue.
+type queueJobCounter struct {
+	submitted   int
+	progressing int
+}
+
 // InMemoryBackend is the in-memory store for MediaConvert resources.
 type InMemoryBackend struct {
-	queries      map[string]*jobsQuery
-	queues       map[string]*Queue
-	jobTemplates map[string]*JobTemplate
-	jobs         map[string]*Job
-	presets      map[string]*Preset
-	tags         map[string]map[string]string
-	certificates map[string]struct{}
-	policy       *Policy
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	queries       map[string]*jobsQuery
+	queues        map[string]*Queue
+	jobTemplates  map[string]*JobTemplate
+	jobs          map[string]*Job
+	presets       map[string]*Preset
+	tags          map[string]map[string]string
+	certificates  map[string]struct{}
+	queueCounters map[string]*queueJobCounter
+	tokenIndex    map[string]*tokenEntry
+	policy        *Policy
+	mu            *lockmetrics.RWMutex
+	accountID     string
+	region        string
 }
 
 // NewInMemoryBackend creates a new in-memory MediaConvert backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		queries:      make(map[string]*jobsQuery),
-		queues:       make(map[string]*Queue),
-		jobTemplates: make(map[string]*JobTemplate),
-		jobs:         make(map[string]*Job),
-		presets:      make(map[string]*Preset),
-		tags:         make(map[string]map[string]string),
-		certificates: make(map[string]struct{}),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("mediaconvert"),
+		queries:       make(map[string]*jobsQuery),
+		queues:        make(map[string]*Queue),
+		jobTemplates:  make(map[string]*JobTemplate),
+		jobs:          make(map[string]*Job),
+		presets:       make(map[string]*Preset),
+		tags:          make(map[string]map[string]string),
+		certificates:  make(map[string]struct{}),
+		queueCounters: make(map[string]*queueJobCounter),
+		tokenIndex:    make(map[string]*tokenEntry),
+		accountID:     accountID,
+		region:        region,
+		mu:            lockmetrics.New("mediaconvert"),
 	}
 }
 
@@ -235,6 +357,8 @@ func (b *InMemoryBackend) Reset() {
 	b.presets = make(map[string]*Preset)
 	b.tags = make(map[string]map[string]string)
 	b.certificates = make(map[string]struct{})
+	b.queueCounters = make(map[string]*queueJobCounter)
+	b.tokenIndex = make(map[string]*tokenEntry)
 	b.policy = nil
 }
 
@@ -277,6 +401,17 @@ func (b *InMemoryBackend) CreateQueue(
 	name, description, pricingPlan, status string,
 	tags map[string]string,
 ) (*Queue, error) {
+	return b.CreateQueueFull(name, description, pricingPlan, status, tags, 0, nil, nil)
+}
+
+// CreateQueueFull creates a queue with all optional fields.
+func (b *InMemoryBackend) CreateQueueFull(
+	name, description, pricingPlan, status string,
+	tags map[string]string,
+	concurrentJobs int,
+	reservationPlan *ReservationPlan,
+	serviceOverrides map[string]any,
+) (*Queue, error) {
 	b.mu.Lock("CreateQueue")
 	defer b.mu.Unlock()
 
@@ -302,17 +437,21 @@ func (b *InMemoryBackend) CreateQueue(
 
 	now := epochSeconds(time.Now())
 	q := &Queue{
-		Arn:         arn.Build("mediaconvert", b.region, b.accountID, "queues/"+name),
-		Name:        name,
-		Description: description,
-		PricingPlan: pricingPlan,
-		Status:      status,
-		Type:        presetCustom,
-		Tags:        nonNilTagsCopy(tags),
-		CreatedAt:   now,
-		LastUpdated: now,
+		Arn:              arn.Build("mediaconvert", b.region, b.accountID, "queues/"+name),
+		Name:             name,
+		Description:      description,
+		PricingPlan:      pricingPlan,
+		Status:           status,
+		Type:             presetCustom,
+		Tags:             nonNilTagsCopy(tags),
+		CreatedAt:        now,
+		LastUpdated:      now,
+		ConcurrentJobs:   concurrentJobs,
+		ReservationPlan:  cloneReservationPlan(reservationPlan),
+		ServiceOverrides: deepCloneMap(serviceOverrides),
 	}
 	b.queues[name] = q
+	b.initQueueCounterLocked(q.Arn)
 
 	if len(tags) > 0 {
 		b.storeTagsLocked(q.Arn, tags)
@@ -334,7 +473,7 @@ func (b *InMemoryBackend) GetQueue(name string) (*Queue, error) {
 	}
 
 	cp := cloneQueue(q)
-	cp.ProgressingJobsCount, cp.SubmittedJobsCount = b.countJobsForQueueLocked(q.Arn)
+	cp.ProgressingJobsCount, cp.SubmittedJobsCount = b.getQueueCounterLocked(q.Arn)
 
 	return cp, nil
 }
@@ -347,7 +486,7 @@ func (b *InMemoryBackend) ListQueues() []*Queue {
 	list := make([]*Queue, 0, len(b.queues))
 	for _, q := range b.queues {
 		cp := cloneQueue(q)
-		cp.ProgressingJobsCount, cp.SubmittedJobsCount = b.countJobsForQueueLocked(q.Arn)
+		cp.ProgressingJobsCount, cp.SubmittedJobsCount = b.getQueueCounterLocked(q.Arn)
 		list = append(list, cp)
 	}
 
@@ -357,7 +496,7 @@ func (b *InMemoryBackend) ListQueues() []*Queue {
 }
 
 // countJobsForQueueLocked counts PROGRESSING and SUBMITTED jobs for a queue ARN.
-// Caller must hold at least a read lock.
+// Caller must hold at least a read lock. Kept as internal consistency-check method.
 func (b *InMemoryBackend) countJobsForQueueLocked(queueArn string) (int, int) {
 	var progressing, submitted int
 
@@ -375,6 +514,43 @@ func (b *InMemoryBackend) countJobsForQueueLocked(queueArn string) (int, int) {
 	}
 
 	return progressing, submitted
+}
+
+// initQueueCounterLocked creates a counter entry for queueArn if it does not exist.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) initQueueCounterLocked(queueArn string) {
+	if _, ok := b.queueCounters[queueArn]; !ok {
+		b.queueCounters[queueArn] = &queueJobCounter{}
+	}
+}
+
+// getQueueCounterLocked returns (progressing, submitted) counts for queueArn.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) getQueueCounterLocked(queueArn string) (int, int) {
+	c, ok := b.queueCounters[queueArn]
+	if !ok {
+		return 0, 0
+	}
+
+	return c.progressing, c.submitted
+}
+
+// adjustQueueCounterLocked adds delta to the counter field corresponding to status.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) adjustQueueCounterLocked(queueArn, status string, delta int) {
+	if queueArn == "" {
+		return
+	}
+
+	b.initQueueCounterLocked(queueArn)
+	c := b.queueCounters[queueArn]
+
+	switch status {
+	case jobStatusSubmitted:
+		c.submitted += delta
+	case jobStatusProgressing:
+		c.progressing += delta
+	}
 }
 
 // UpdateQueue updates a queue's description and status.
@@ -414,6 +590,7 @@ func (b *InMemoryBackend) DeleteQueue(name string) error {
 		return fmt.Errorf("%w: queue %s not found", ErrNotFound, name)
 	}
 	delete(b.tags, q.Arn)
+	delete(b.queueCounters, q.Arn)
 	delete(b.queues, name)
 
 	return nil
@@ -574,15 +751,58 @@ func (b *InMemoryBackend) CreateJob(
 	userMetadata map[string]string,
 	billingTagsSource string,
 ) (*Job, error) {
-	b.mu.Lock("CreateJob")
+	return b.CreateJobFull(
+		role, queue, jobTemplate,
+		settings, tags, userMetadata,
+		billingTagsSource, "", "", "", 0, nil,
+	)
+}
+
+// lookupTokenLocked checks the dedup cache and returns a cloned existing job if found.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) lookupTokenLocked(token string) (*Job, bool) {
+	if token == "" {
+		return nil, false
+	}
+
+	entry, ok := b.tokenIndex[token]
+	if !ok || time.Since(entry.createdAt) >= tokenTTL {
+		return nil, false
+	}
+
+	j, exists := b.jobs[entry.jobID]
+	if !exists {
+		return nil, false
+	}
+
+	return cloneJob(j), true
+}
+
+// CreateJobFull creates a new MediaConvert job with all optional fields.
+func (b *InMemoryBackend) CreateJobFull(
+	role, queue, jobTemplate string,
+	settings map[string]any,
+	tags map[string]string,
+	userMetadata map[string]string,
+	billingTagsSource, clientRequestToken, accelerationMode, jobEngineVersionReq string,
+	priority int,
+	hopDestinations []HopDestination,
+) (*Job, error) {
+	b.mu.Lock("CreateJobFull")
 	defer b.mu.Unlock()
 
 	if role == "" {
 		return nil, fmt.Errorf("%w: role is required", ErrValidation)
 	}
 
+	// Dedup by ClientRequestToken.
+	if j, ok := b.lookupTokenLocked(clientRequestToken); ok {
+		return j, nil
+	}
+
 	// Resolve queue ARN from queue name or ARN.
 	queueArn := ""
+
 	if queue != "" {
 		resolved, err := b.resolveQueueLocked(queue)
 		if err != nil {
@@ -592,28 +812,65 @@ func (b *InMemoryBackend) CreateJob(
 		queueArn = resolved.Arn
 	}
 
+	accelStatus := "NOT_APPLICABLE"
+	if accelerationMode == "ENABLED" {
+		accelStatus = "PREFERRED"
+	}
+
+	var accelSettings *AccelerationSettings
+	if accelerationMode != "" {
+		accelSettings = &AccelerationSettings{Mode: accelerationMode}
+	}
+
 	now := epochSeconds(time.Now())
 	id := generateJobID()
+
+	var hopDests []HopDestination
+	if len(hopDestinations) > 0 {
+		hopDests = make([]HopDestination, len(hopDestinations))
+		copy(hopDests, hopDestinations)
+	}
+
 	j := &Job{
-		Arn:                   arn.Build("mediaconvert", b.region, b.accountID, "jobs/"+id),
-		ID:                    id,
-		Role:                  role,
-		Queue:                 queue,
-		QueueArn:              queueArn,
-		JobTemplate:           jobTemplate,
-		Status:                jobStatusSubmitted,
-		CurrentPhase:          jobPhaseProbing,
-		Settings:              deepCloneMap(settings),
-		Tags:                  nonNilTagsCopy(tags),
-		UserMetadata:          nonNilTagsCopy(userMetadata),
-		BillingTagsSource:     billingTagsSource,
-		AccelerationStatus:    "NOT_APPLICABLE",
-		SimulateReservedQueue: "DISABLED",
-		StatusUpdateInterval:  "SECONDS_60",
-		Timing:                &JobTiming{SubmitTime: now},
-		CreatedAt:             now,
+		Arn:                       arn.Build("mediaconvert", b.region, b.accountID, "jobs/"+id),
+		ID:                        id,
+		Role:                      role,
+		Queue:                     queue,
+		QueueArn:                  queueArn,
+		JobTemplate:               jobTemplate,
+		Status:                    jobStatusSubmitted,
+		CurrentPhase:              jobPhaseProbing,
+		Settings:                  deepCloneMap(settings),
+		Tags:                      nonNilTagsCopy(tags),
+		UserMetadata:              nonNilTagsCopy(userMetadata),
+		BillingTagsSource:         billingTagsSource,
+		AccelerationStatus:        accelStatus,
+		AccelerationSettings:      accelSettings,
+		SimulateReservedQueue:     "DISABLED",
+		StatusUpdateInterval:      "SECONDS_60",
+		Timing:                    &JobTiming{SubmitTime: now},
+		CreatedAt:                 now,
+		Priority:                  priority,
+		HopDestinations:           hopDests,
+		ClientRequestToken:        clientRequestToken,
+		JobEngineVersionRequested: jobEngineVersionReq,
+		JobEngineVersionUsed:      jobEngineVersionUsed,
+		Messages:                  &JobMessages{},
+		Warnings:                  []WarningGroup{},
+		ShareStatus:               "NOT_SHARED",
 	}
 	b.jobs[id] = j
+
+	// Update queue counter for the new SUBMITTED job.
+	b.adjustQueueCounterLocked(queueArn, jobStatusSubmitted, +1)
+
+	// Record token for dedup.
+	if clientRequestToken != "" {
+		b.tokenIndex[clientRequestToken] = &tokenEntry{
+			jobID:     id,
+			createdAt: time.Now(),
+		}
+	}
 
 	if len(tags) > 0 {
 		b.storeTagsLocked(j.Arn, tags)
@@ -667,9 +924,202 @@ func (b *InMemoryBackend) CancelJob(id string) error {
 		return fmt.Errorf("%w: job %s cannot be canceled in status %s", ErrValidation, id, j.Status)
 	}
 
+	prevStatus := j.Status
 	j.Status = jobStatusCanceled
 
+	if j.Timing == nil {
+		j.Timing = &JobTiming{}
+	}
+
+	j.Timing.FinishTime = epochSeconds(time.Now())
+
+	// Update queue counter: remove from the previous status bucket.
+	b.adjustQueueCounterLocked(j.QueueArn, prevStatus, -1)
+
 	return nil
+}
+
+// UpdateJob updates a job's priority, queue, and hop destinations.
+func (b *InMemoryBackend) UpdateJob(id, queue string, priority *int, hopDestinations []HopDestination) (*Job, error) {
+	b.mu.Lock("UpdateJob")
+	defer b.mu.Unlock()
+
+	j, ok := b.jobs[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: job %s not found", ErrNotFound, id)
+	}
+
+	if priority != nil {
+		if *priority < priorityMin || *priority > priorityMax {
+			return nil, fmt.Errorf("%w: priority must be between %d and %d", ErrValidation, priorityMin, priorityMax)
+		}
+
+		j.Priority = *priority
+	}
+
+	if queue != "" && queue != j.Queue {
+		resolved, err := b.resolveQueueLocked(queue)
+		if err != nil {
+			return nil, err
+		}
+
+		// Record the queue transition.
+		transition := QueueTransition{
+			Timestamp:        epochSeconds(time.Now()),
+			SourceQueue:      j.Queue,
+			DestinationQueue: queue,
+		}
+		j.QueueTransitions = append(j.QueueTransitions, transition)
+
+		// Update per-queue counters: move job from old queue to new queue.
+		b.adjustQueueCounterLocked(j.QueueArn, j.Status, -1)
+
+		j.Queue = queue
+		j.QueueArn = resolved.Arn
+
+		b.adjustQueueCounterLocked(j.QueueArn, j.Status, +1)
+	}
+
+	if hopDestinations != nil {
+		dests := make([]HopDestination, len(hopDestinations))
+		copy(dests, hopDestinations)
+		j.HopDestinations = dests
+	}
+
+	return cloneJob(j), nil
+}
+
+// SweepExpiredTokens removes token entries that have exceeded the TTL.
+// Called by the janitor; safe to call externally for testing.
+func (b *InMemoryBackend) SweepExpiredTokens() {
+	b.mu.Lock("SweepExpiredTokens")
+	defer b.mu.Unlock()
+
+	for token, entry := range b.tokenIndex {
+		if time.Since(entry.createdAt) >= tokenTTL {
+			delete(b.tokenIndex, token)
+		}
+	}
+}
+
+// AdvanceJobPhase advances job phase/status for the janitor.
+// Returns true if any job was advanced.
+func (b *InMemoryBackend) AdvanceJobPhase() bool {
+	b.mu.Lock("AdvanceJobPhase")
+	defer b.mu.Unlock()
+
+	advanced := false
+	now := epochSeconds(time.Now())
+
+	for _, j := range b.jobs {
+		if b.advanceOneJobLocked(j, now) {
+			advanced = true
+		}
+	}
+
+	return advanced
+}
+
+// advanceOneJobLocked advances the state machine for a single job.
+// Caller must hold the write lock. Returns true if the job changed.
+func (b *InMemoryBackend) advanceOneJobLocked(j *Job, now float64) bool {
+	switch j.Status {
+	case jobStatusSubmitted:
+		return b.advanceSubmittedLocked(j, now)
+	case jobStatusProgressing:
+		return b.advanceProgressingLocked(j, now)
+	case jobStatusError, jobStatusComplete, jobStatusCanceled:
+		return false
+	}
+
+	return false
+}
+
+// advanceSubmittedLocked transitions a SUBMITTED job to PROGRESSING/PROBING.
+func (b *InMemoryBackend) advanceSubmittedLocked(j *Job, now float64) bool {
+	// Decrement SUBMITTED counter, increment PROGRESSING counter.
+	b.adjustQueueCounterLocked(j.QueueArn, jobStatusSubmitted, -1)
+	b.adjustQueueCounterLocked(j.QueueArn, jobStatusProgressing, +1)
+
+	j.Status = jobStatusProgressing
+	j.CurrentPhase = jobPhaseProbing
+
+	if j.Timing == nil {
+		j.Timing = &JobTiming{}
+	}
+
+	j.Timing.StartTime = now
+
+	return true
+}
+
+// advanceProgressingLocked advances phase within PROGRESSING, eventually to COMPLETE.
+func (b *InMemoryBackend) advanceProgressingLocked(j *Job, now float64) bool {
+	switch j.CurrentPhase {
+	case jobPhaseProbing:
+		j.CurrentPhase = jobPhaseTranscoding
+
+		return true
+	case jobPhaseTranscoding:
+		j.CurrentPhase = jobPhaseUploading
+
+		return true
+	case jobPhaseUploading:
+		return b.completeJobLocked(j, now)
+	}
+
+	return false
+}
+
+const (
+	simOutputDurationMs = 60000
+	simVideoWidthPx     = 1920
+	simVideoHeightPx    = 1080
+)
+
+// completeJobLocked transitions a job to COMPLETE and fills output details.
+func (b *InMemoryBackend) completeJobLocked(j *Job, now float64) bool {
+	b.adjustQueueCounterLocked(j.QueueArn, jobStatusProgressing, -1)
+
+	j.Status = jobStatusComplete
+	j.CurrentPhase = ""
+	j.JobPercentComplete = 100
+
+	if j.Timing == nil {
+		j.Timing = &JobTiming{}
+	}
+
+	j.Timing.FinishTime = now
+
+	j.OutputGroupDetails = []OutputGroupDetail{
+		{
+			OutputDetails: []OutputDetail{
+				{
+					DurationInMs: simOutputDurationMs,
+					VideoDetails: &VideoDetail{WidthInPx: simVideoWidthPx, HeightInPx: simVideoHeightPx},
+				},
+			},
+		},
+	}
+
+	return true
+}
+
+// rebuildCountersLocked rebuilds queueCounters from the current jobs map.
+// Used when restoring a snapshot that predates per-queue counters.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) rebuildCountersLocked() {
+	seenArns := make(map[string]struct{})
+	for _, j := range b.jobs {
+		if j.QueueArn != "" {
+			seenArns[j.QueueArn] = struct{}{}
+		}
+	}
+
+	for queueArn := range seenArns {
+		prog, sub := b.countJobsForQueueLocked(queueArn)
+		b.queueCounters[queueArn] = &queueJobCounter{progressing: prog, submitted: sub}
+	}
 }
 
 // generateJobID generates a MediaConvert-style job ID.
@@ -1009,17 +1459,25 @@ func jobMatchesFilters(j *Job, filters []map[string]any) bool {
 }
 
 // CreateResourceShare records a resource-share request for the given job ID.
-// The return value is the job ID echoed back (no persistent share store is maintained).
+// Sets ShareStatus = "SHARED" on the job and populates LastShareDetails.
 func (b *InMemoryBackend) CreateResourceShare(jobID string) (string, error) {
-	b.mu.RLock("CreateResourceShare")
-	defer b.mu.RUnlock()
+	b.mu.Lock("CreateResourceShare")
+	defer b.mu.Unlock()
 
 	if jobID == "" {
 		return "", fmt.Errorf("%w: jobId is required", ErrValidation)
 	}
 
-	if _, ok := b.jobs[jobID]; !ok {
+	j, ok := b.jobs[jobID]
+	if !ok {
 		return "", fmt.Errorf("%w: job %s not found", ErrNotFound, jobID)
+	}
+
+	token := uuid.NewString()
+	j.ShareStatus = "SHARED"
+	j.LastShareDetails = &ShareDetails{
+		ShareToken: token,
+		SharedAt:   epochSeconds(time.Now()),
 	}
 
 	return jobID, nil
@@ -1027,9 +1485,28 @@ func (b *InMemoryBackend) CreateResourceShare(jobID string) (string, error) {
 
 // --- Deep clone helpers ---
 
+func cloneReservationPlan(rp *ReservationPlan) *ReservationPlan {
+	if rp == nil {
+		return nil
+	}
+
+	cp := *rp
+
+	return &cp
+}
+
 func cloneQueue(q *Queue) *Queue {
 	cp := *q
 	cp.Tags = nonNilTagsCopy(q.Tags)
+
+	if q.ReservationPlan != nil {
+		rp := *q.ReservationPlan
+		cp.ReservationPlan = &rp
+	}
+
+	if q.ServiceOverrides != nil {
+		cp.ServiceOverrides = deepCloneMap(q.ServiceOverrides)
+	}
 
 	return &cp
 }
@@ -1053,7 +1530,71 @@ func cloneJob(j *Job) *Job {
 		cp.Timing = &t
 	}
 
+	if j.AccelerationSettings != nil {
+		as := *j.AccelerationSettings
+		cp.AccelerationSettings = &as
+	}
+
+	if j.Messages != nil {
+		m := &JobMessages{}
+		if len(j.Messages.Info) > 0 {
+			m.Info = append([]string(nil), j.Messages.Info...)
+		}
+
+		if len(j.Messages.Warning) > 0 {
+			m.Warning = append([]string(nil), j.Messages.Warning...)
+		}
+
+		cp.Messages = m
+	}
+
+	if len(j.Warnings) > 0 {
+		cp.Warnings = append([]WarningGroup(nil), j.Warnings...)
+	}
+
+	if len(j.HopDestinations) > 0 {
+		cp.HopDestinations = append([]HopDestination(nil), j.HopDestinations...)
+	}
+
+	if len(j.QueueTransitions) > 0 {
+		cp.QueueTransitions = append([]QueueTransition(nil), j.QueueTransitions...)
+	}
+
+	if len(j.OutputGroupDetails) > 0 {
+		cp.OutputGroupDetails = cloneOutputGroupDetails(j.OutputGroupDetails)
+	}
+
+	if j.LastShareDetails != nil {
+		sd := *j.LastShareDetails
+		cp.LastShareDetails = &sd
+	}
+
 	return &cp
+}
+
+func cloneOutputGroupDetails(details []OutputGroupDetail) []OutputGroupDetail {
+	cp := make([]OutputGroupDetail, len(details))
+	for i, d := range details {
+		out := OutputGroupDetail{}
+
+		if len(d.OutputDetails) > 0 {
+			out.OutputDetails = make([]OutputDetail, len(d.OutputDetails))
+			for j, od := range d.OutputDetails {
+				cloned := OutputDetail{DurationInMs: od.DurationInMs}
+
+				if od.VideoDetails != nil {
+					vd := *od.VideoDetails
+					cloned.VideoDetails = &vd
+				}
+
+				out.OutputDetails[j] = cloned
+			}
+		}
+
+		cp[i] = out
+	}
+
+	return cp
 }
 
 func clonePreset(p *Preset) *Preset {

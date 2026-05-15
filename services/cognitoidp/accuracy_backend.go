@@ -1,8 +1,11 @@
 package cognitoidp
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base32"
+	"encoding/base64"
 	"fmt"
 	"maps"
 	"slices"
@@ -877,4 +880,58 @@ func (b *InMemoryBackend) AdminCreateUserWithPolicy(
 	cp := *user
 
 	return &cp, nil
+}
+
+// ValidateSecretHash validates the SECRET_HASH field for a client that has a secret.
+// AWS computes SecretHash = BASE64(HMAC-SHA256(username + clientId, clientSecret)).
+// When a client has no secret, an empty hash is accepted (and a non-empty hash is rejected).
+// When a client has a secret, the hash must be present and match.
+func (b *InMemoryBackend) ValidateSecretHash(clientID, username, providedHash string) error {
+	b.mu.RLock("ValidateSecretHash")
+	defer b.mu.RUnlock()
+
+	client, ok := b.clients[clientID]
+	if !ok {
+		return fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
+	}
+
+	if client.ClientSecret == "" {
+		if providedHash != "" {
+			return fmt.Errorf(
+				"%w: SecretHash provided but client %q has no secret",
+				ErrInvalidParameter,
+				clientID,
+			)
+		}
+
+		return nil
+	}
+
+	if providedHash == "" {
+		return fmt.Errorf(
+			"%w: SecretHash required for client %q which has a secret",
+			ErrInvalidParameter,
+			clientID,
+		)
+	}
+
+	mac := hmac.New(sha256.New, []byte(client.ClientSecret))
+	mac.Write([]byte(username + clientID))
+	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(providedHash), []byte(expected)) {
+		return fmt.Errorf("%w: SecretHash validation failed for client %q", ErrNotAuthorized, clientID)
+	}
+
+	return nil
+}
+
+// AdminSetUserMFAPreference sets the MFA preferences for a specific user (admin operation).
+// This is the modern preferred API (vs AdminSetUserSettings). It delegates to AdminSetUserMFASetting.
+func (b *InMemoryBackend) AdminSetUserMFAPreference(
+	userPoolID, username string,
+	smsMFAEnabled, softwareTokenEnabled bool,
+	preferredMFA string,
+) error {
+	return b.AdminSetUserMFASetting(userPoolID, username, smsMFAEnabled, softwareTokenEnabled, preferredMFA)
 }

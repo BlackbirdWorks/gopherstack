@@ -5,6 +5,13 @@ package mediaconvert
 type StorageBackend interface {
 	// Queue operations
 	CreateQueue(name, description, pricingPlan, status string, tags map[string]string) (*Queue, error)
+	CreateQueueFull(
+		name, description, pricingPlan, status string,
+		tags map[string]string,
+		concurrentJobs int,
+		reservationPlan *ReservationPlan,
+		serviceOverrides map[string]any,
+	) (*Queue, error)
 	GetQueue(name string) (*Queue, error)
 	ListQueues() []*Queue
 	UpdateQueue(name, description, status string) (*Queue, error)
@@ -34,9 +41,19 @@ type StorageBackend interface {
 		userMetadata map[string]string,
 		billingTagsSource string,
 	) (*Job, error)
+	CreateJobFull(
+		role, queue, jobTemplate string,
+		settings map[string]any,
+		tags map[string]string,
+		userMetadata map[string]string,
+		billingTagsSource, clientRequestToken, accelerationMode, jobEngineVersionReq string,
+		priority int,
+		hopDestinations []HopDestination,
+	) (*Job, error)
 	GetJob(id string) (*Job, error)
 	ListJobs() []*Job
 	CancelJob(id string) error
+	UpdateJob(id, queue string, priority *int, hopDestinations []HopDestination) (*Job, error)
 
 	// Preset operations
 	CreatePreset(name, description, category string, settings map[string]any, tags map[string]string) (*Preset, error)

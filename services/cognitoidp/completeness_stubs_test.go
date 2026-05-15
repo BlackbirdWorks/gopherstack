@@ -24,7 +24,6 @@ func TestCompleteness_StubOperations(t *testing.T) {
 		"AdminLinkProviderForUser",
 		"AdminListDevices",
 		"AdminListUserAuthEvents",
-		"AdminSetUserMFAPreference",
 		"AdminSetUserSettings",
 		"AdminUpdateAuthEventFeedback",
 		"AdminUpdateDeviceStatus",
