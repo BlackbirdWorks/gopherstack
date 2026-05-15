@@ -71,12 +71,40 @@ type EphemeralStorageConfig struct {
 	Size int32 `json:"Size"`
 }
 
+// VpcConfig holds the VPC configuration for a Lambda function.
+type VpcConfig struct {
+	SubnetIds        []string `json:"SubnetIds,omitempty"`
+	SecurityGroupIds []string `json:"SecurityGroupIds,omitempty"`
+	VpcId            string   `json:"VpcId,omitempty"`
+}
+
+// TracingConfig holds the X-Ray tracing configuration for a Lambda function.
+type TracingConfig struct {
+	Mode string `json:"Mode"`
+}
+
+// FileSystemConfig holds an EFS mount configuration for a Lambda function.
+type FileSystemConfig struct {
+	Arn            string `json:"Arn"`
+	LocalMountPath string `json:"LocalMountPath"`
+}
+
+// DeadLetterConfig holds the dead-letter queue/topic configuration for a Lambda function.
+type DeadLetterConfig struct {
+	TargetArn string `json:"TargetArn,omitempty"`
+}
+
 // FunctionConfiguration represents a Lambda function's configuration.
 type FunctionConfiguration struct {
 	CreatedAt                    time.Time               `json:"-"`
 	Environment                  *EnvironmentConfig      `json:"Environment,omitempty"`
 	EphemeralStorage             *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
 	ReservedConcurrentExecutions *int                    `json:"ReservedConcurrentExecutions,omitempty"`
+	VpcConfig                    *VpcConfig              `json:"VpcConfig,omitempty"`
+	TracingConfig                *TracingConfig          `json:"TracingConfig,omitempty"`
+	FileSystemConfigs            []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
+	DeadLetterConfig             *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
+	ImageConfig                  *ImageConfig            `json:"ImageConfig,omitempty"`
 	ImageURI                     string                  `json:"ImageUri,omitempty"`
 	LastUpdateStatus             LastUpdateStatus        `json:"LastUpdateStatus"`
 	LastUpdateStatusReason       string                  `json:"LastUpdateStatusReason,omitempty"`
