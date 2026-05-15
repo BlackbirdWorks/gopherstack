@@ -221,10 +221,11 @@ func computeSSHFingerprint(body string) string {
 // ---- MFA device user linking ----
 
 // EnableMFADevice links a virtual MFA device to a user.
+// Returns an error if the device is already enabled (double-enable rejected).
 func (b *InMemoryBackend) EnableMFADevice(userName, serialNumber, authCode1, authCode2 string) error {
 	b.mu.RLock("EnableMFADevice-check")
 	_, userExists := b.users[userName]
-	_, deviceExists := b.virtualMFADevices[serialNumber]
+	dev, deviceExists := b.virtualMFADevices[serialNumber]
 	b.mu.RUnlock()
 
 	if !userExists {
@@ -235,7 +236,14 @@ func (b *InMemoryBackend) EnableMFADevice(userName, serialNumber, authCode1, aut
 		return fmt.Errorf("%w: virtual MFA device %q not found", ErrInvalidAction, serialNumber)
 	}
 
-	// auth codes are accepted as-is in the mock (no TOTP validation).
+	if dev.Status == MFAStatusEnabled {
+		return fmt.Errorf(
+			"%w: virtual MFA device %q is already enabled",
+			ErrInvalidAction, serialNumber,
+		)
+	}
+
+	// Auth codes accepted as-is in the mock (no TOTP validation).
 	_ = authCode1
 	_ = authCode2
 
@@ -244,23 +252,41 @@ func (b *InMemoryBackend) EnableMFADevice(userName, serialNumber, authCode1, aut
 	c.mfaUserLinks[serialNumber] = userName
 	c.mu.Unlock()
 
+	// Update device status to Active.
+	_ = b.setMFADeviceStatus(serialNumber, MFAStatusEnabled)
+
 	return nil
 }
 
 // DeactivateMFADevice unlinks a virtual MFA device from a user.
+// Returns an error if the device is not currently enabled.
 func (b *InMemoryBackend) DeactivateMFADevice(userName, serialNumber string) error {
 	b.mu.RLock("DeactivateMFADevice-check")
 	_, userExists := b.users[userName]
+	dev, deviceExists := b.virtualMFADevices[serialNumber]
 	b.mu.RUnlock()
 
 	if !userExists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	if !deviceExists {
+		return fmt.Errorf("%w: virtual MFA device %q not found", ErrInvalidAction, serialNumber)
+	}
+
+	if dev.Status != MFAStatusEnabled {
+		return fmt.Errorf(
+			"%w: virtual MFA device %q is not currently enabled",
+			ErrInvalidAction, serialNumber,
+		)
+	}
+
 	c := b.comp()
 	c.mu.Lock()
 	delete(c.mfaUserLinks, serialNumber)
 	c.mu.Unlock()
+
+	_ = b.setMFADeviceStatus(serialNumber, MFAStatusDeactivated)
 
 	return nil
 }
@@ -411,6 +437,7 @@ func (b *InMemoryBackend) CreateVirtualMFADeviceFull(
 		VirtualMFADeviceName: virtualMFADeviceName,
 		Path:                 p,
 		CreateDate:           time.Now().UTC(),
+		Status:               MFAStatusNotAssigned,
 		Base32StringSeed:     base32Seed,
 		QRCodePNG:            qrPNG,
 	}

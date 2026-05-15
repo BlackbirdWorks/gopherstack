@@ -1379,8 +1379,12 @@ func TestIAMHandler_TagAndList(t *testing.T) {
 		wantListContains []string
 	}{
 		{
-			name:      "role",
-			setup:     func(_ *iam.InMemoryBackend) string { return "MyRole" },
+			name: "role",
+			setup: func(b *iam.InMemoryBackend) string {
+				_, _ = b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+
+				return "MyRole"
+			},
 			tagAction: "TagRole",
 			tagParams: func(id string) map[string]string {
 				return map[string]string{
@@ -1397,8 +1401,12 @@ func TestIAMHandler_TagAndList(t *testing.T) {
 			wantListContains: []string{"env", "prod"},
 		},
 		{
-			name:      "user",
-			setup:     func(_ *iam.InMemoryBackend) string { return "alice" },
+			name: "user",
+			setup: func(b *iam.InMemoryBackend) string {
+				_, _ = b.CreateUser("alice", "/", "")
+
+				return "alice"
+			},
 			tagAction: "TagUser",
 			tagParams: func(id string) map[string]string {
 				return map[string]string{
@@ -1478,8 +1486,12 @@ func TestIAMHandler_UntagAndVerify(t *testing.T) {
 		wantListAbsent []string
 	}{
 		{
-			name:      "role",
-			setup:     func(_ *iam.InMemoryBackend) string { return "MyRole" },
+			name: "role",
+			setup: func(b *iam.InMemoryBackend) string {
+				_, _ = b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+
+				return "MyRole"
+			},
 			tagAction: "TagRole",
 			tagParams: func(id string) map[string]string {
 				return map[string]string{
@@ -1498,8 +1510,12 @@ func TestIAMHandler_UntagAndVerify(t *testing.T) {
 			wantListAbsent: []string{"env"},
 		},
 		{
-			name:      "user",
-			setup:     func(_ *iam.InMemoryBackend) string { return "alice" },
+			name: "user",
+			setup: func(b *iam.InMemoryBackend) string {
+				_, _ = b.CreateUser("alice", "/", "")
+
+				return "alice"
+			},
 			tagAction: "TagUser",
 			tagParams: func(id string) map[string]string {
 				return map[string]string{

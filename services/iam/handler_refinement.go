@@ -1,12 +1,10 @@
 package iam
 
 import (
-	"encoding/xml"
+	"fmt"
 	"maps"
 	"net/url"
 	"strconv"
-
-	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // iamRefinementDispatchTable returns the dispatch entries for all refinement-pass operations.
@@ -370,6 +368,13 @@ func (h *Handler) iamEntityUpdateDispatch() map[string]iamActionFn {
 		},
 		"UpdateRole": func(vals url.Values, reqID string) (any, error) {
 			roleName := vals.Get("RoleName")
+			if path := vals.Get("Path"); path != "" {
+				return nil, fmt.Errorf(
+					"%w: role Path is immutable; use a new role to change the path",
+					ErrInvalidAction,
+				)
+			}
+
 			if err := h.Backend.UpdateRole(roleName, vals.Get("Description")); err != nil {
 				return nil, err
 			}
@@ -519,41 +524,8 @@ func (h *Handler) iamServiceLinkedRoleStatusDispatch() map[string]iamActionFn {
 	}
 }
 
-// iamGroupTagsDispatch adds ListGroupTags, TagGroup, and UntagGroup.
+// iamGroupTagsDispatch returns an empty map; group tag operations are now handled
+// in iamTagDispatchTable via the backend (TagGroup/UntagGroup/ListGroupTags).
 func (h *Handler) iamGroupTagsDispatch() map[string]iamActionFn {
-	return map[string]iamActionFn{
-		"ListGroupTags": func(vals url.Values, reqID string) (any, error) {
-			groupName := vals.Get("GroupName")
-			tags := h.getTags(groupName)
-			members := make([]svcTags.KV, 0, len(tags))
-			for k, v := range tags {
-				members = append(members, svcTags.KV{Key: k, Value: v})
-			}
-
-			return &iamListTagsResponse{
-				XMLName:          xml.Name{Local: "ListGroupTagsResponse"},
-				Xmlns:            iamXMLNS,
-				Result:           iamListTagsResult{XMLName: xml.Name{Local: "ListGroupTagsResult"}, Tags: members},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-		"TagGroup": func(vals url.Values, reqID string) (any, error) {
-			h.setTags(vals.Get("GroupName"), parseIAMTags(vals))
-
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "TagGroupResponse"},
-				Xmlns:            iamXMLNS,
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-		"UntagGroup": func(vals url.Values, reqID string) (any, error) {
-			h.removeTags(vals.Get("GroupName"), parseIAMTagKeys(vals))
-
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "UntagGroupResponse"},
-				Xmlns:            iamXMLNS,
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-	}
+	return map[string]iamActionFn{}
 }

@@ -15,24 +15,26 @@ const IAMAccountID = config.DefaultAccountID
 
 // User represents an IAM user resource.
 type User struct {
-	CreateDate          time.Time `json:"CreateDate"`
-	UserName            string    `json:"UserName"`
-	UserID              string    `json:"UserId"`
-	Arn                 string    `json:"Arn"`
-	Path                string    `json:"Path"`
-	PermissionsBoundary string    `json:"PermissionsBoundary,omitempty"`
+	Tags                map[string]string `json:"Tags,omitempty"`
+	CreateDate          time.Time         `json:"CreateDate"`
+	UserName            string            `json:"UserName"`
+	UserID              string            `json:"UserId"`
+	Arn                 string            `json:"Arn"`
+	Path                string            `json:"Path"`
+	PermissionsBoundary string            `json:"PermissionsBoundary,omitempty"`
 }
 
 // Role represents an IAM role resource.
 type Role struct {
-	CreateDate               time.Time `json:"CreateDate"`
-	RoleName                 string    `json:"RoleName"`
-	RoleID                   string    `json:"RoleId"`
-	Arn                      string    `json:"Arn"`
-	Path                     string    `json:"Path"`
-	AssumeRolePolicyDocument string    `json:"AssumeRolePolicyDocument"`
-	PermissionsBoundary      string    `json:"PermissionsBoundary,omitempty"`
-	Description              string    `json:"Description,omitempty"`
+	Tags                     map[string]string `json:"Tags,omitempty"`
+	CreateDate               time.Time         `json:"CreateDate"`
+	RoleName                 string            `json:"RoleName"`
+	RoleID                   string            `json:"RoleId"`
+	Arn                      string            `json:"Arn"`
+	Path                     string            `json:"Path"`
+	AssumeRolePolicyDocument string            `json:"AssumeRolePolicyDocument"`
+	PermissionsBoundary      string            `json:"PermissionsBoundary,omitempty"`
+	Description              string            `json:"Description,omitempty"`
 	// MaxSessionDuration is the maximum session duration (in seconds) for role credentials.
 	// A value of 0 means the default system maximum applies (43200 seconds / 12 hours).
 	MaxSessionDuration int32 `json:"MaxSessionDuration,omitempty"`
@@ -40,29 +42,43 @@ type Role struct {
 
 // Policy represents an IAM managed policy resource.
 type Policy struct {
-	CreateDate     time.Time `json:"CreateDate"`
-	PolicyName     string    `json:"PolicyName"`
-	PolicyID       string    `json:"PolicyId"`
-	Arn            string    `json:"Arn"`
-	Path           string    `json:"Path"`
-	PolicyDocument string    `json:"PolicyDocument"`
+	Tags           map[string]string `json:"Tags,omitempty"`
+	CreateDate     time.Time         `json:"CreateDate"`
+	PolicyName     string            `json:"PolicyName"`
+	PolicyID       string            `json:"PolicyId"`
+	Arn            string            `json:"Arn"`
+	Path           string            `json:"Path"`
+	PolicyDocument string            `json:"PolicyDocument"`
 }
 
 // Group represents an IAM group resource.
 type Group struct {
-	CreateDate time.Time `json:"CreateDate"`
-	GroupName  string    `json:"GroupName"`
-	GroupID    string    `json:"GroupId"`
-	Arn        string    `json:"Arn"`
-	Path       string    `json:"Path"`
+	Tags       map[string]string `json:"Tags,omitempty"`
+	CreateDate time.Time         `json:"CreateDate"`
+	GroupName  string            `json:"GroupName"`
+	GroupID    string            `json:"GroupId"`
+	Arn        string            `json:"Arn"`
+	Path       string            `json:"Path"`
 }
 
 // AccessKey represents an IAM access key for a user.
 type AccessKey struct {
-	CreateDate      time.Time `json:"CreateDate"`
-	AccessKeyID     string    `json:"AccessKeyId"`
-	SecretAccessKey string    `json:"SecretAccessKey"`
+	LastUsedDate        *time.Time `json:"LastUsedDate,omitempty"`
+	CreateDate          time.Time  `json:"CreateDate"`
+	AccessKeyID         string     `json:"AccessKeyId"`
+	SecretAccessKey     string     `json:"SecretAccessKey"`
+	UserName            string     `json:"UserName"`
+	LastUsedRegion      string     `json:"LastUsedRegion,omitempty"`
+	LastUsedServiceName string     `json:"LastUsedServiceName,omitempty"`
+	Status              string     `json:"Status"`
+}
+
+// SigningCertificate represents an IAM X.509 signing certificate.
+type SigningCertificate struct {
+	UploadDate      time.Time `json:"UploadDate"`
+	CertificateID   string    `json:"CertificateId"`
 	UserName        string    `json:"UserName"`
+	CertificateBody string    `json:"CertificateBody"`
 	Status          string    `json:"Status"`
 }
 
@@ -108,9 +124,42 @@ type PermissionsBoundaryXML struct {
 	PermissionsBoundaryType string `xml:"PermissionsBoundaryType"`
 }
 
+// TagXML is the XML representation of a single IAM tag.
+type TagXML struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
+// tagsToXML converts a map[string]string to a sorted []TagXML slice for XML marshaling.
+func tagsToXML(tags map[string]string) []TagXML {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(tags))
+	for k := range tags {
+		keys = append(keys, k)
+	}
+
+	// Sort for deterministic XML output.
+	for i := 1; i < len(keys); i++ {
+		for j := i; j > 0 && keys[j] < keys[j-1]; j-- {
+			keys[j], keys[j-1] = keys[j-1], keys[j]
+		}
+	}
+
+	out := make([]TagXML, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, TagXML{Key: k, Value: tags[k]})
+	}
+
+	return out
+}
+
 // UserXML is the XML representation of an IAM User.
-type UserXML struct {
+type UserXML struct { //nolint:govet // field order optimizes readability over alignment
 	PermissionsBoundary *PermissionsBoundaryXML `xml:"PermissionsBoundary,omitempty"`
+	Tags                []TagXML                `xml:"Tags>member,omitempty"`
 	Path                string                  `xml:"Path"`
 	UserName            string                  `xml:"UserName"`
 	UserID              string                  `xml:"UserId"`
@@ -169,8 +218,9 @@ type ListUsersResult struct {
 // ---- Role XML responses ----
 
 // RoleXML is the XML representation of an IAM Role.
-type RoleXML struct {
+type RoleXML struct { //nolint:govet // field order optimizes readability over alignment
 	PermissionsBoundary      *PermissionsBoundaryXML `xml:"PermissionsBoundary,omitempty"`
+	Tags                     []TagXML                `xml:"Tags>member,omitempty"`
 	Path                     string                  `xml:"Path"`
 	RoleName                 string                  `xml:"RoleName"`
 	RoleID                   string                  `xml:"RoleId"`
@@ -299,12 +349,13 @@ type DetachRolePolicyResponse struct {
 // ---- Group XML responses ----
 
 // GroupXML is the XML representation of an IAM Group.
-type GroupXML struct {
-	Path       string `xml:"Path"`
-	GroupName  string `xml:"GroupName"`
-	GroupID    string `xml:"GroupId"`
-	Arn        string `xml:"Arn"`
-	CreateDate string `xml:"CreateDate"`
+type GroupXML struct { //nolint:govet // field order optimizes readability over alignment
+	Tags       []TagXML `xml:"Tags>member,omitempty"`
+	Path       string   `xml:"Path"`
+	GroupName  string   `xml:"GroupName"`
+	GroupID    string   `xml:"GroupId"`
+	Arn        string   `xml:"Arn"`
+	CreateDate string   `xml:"CreateDate"`
 }
 
 // CreateGroupResponse is the XML response for CreateGroup.

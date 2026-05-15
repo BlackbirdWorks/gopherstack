@@ -248,6 +248,23 @@ type StorageBackend interface {
 	// Access Key management
 	UpdateAccessKey(userName, accessKeyID, status string) error
 	GetAccessKeyLastUsed(accessKeyID string) (*AccessKeyLastUsed, error)
+	RecordAccessKeyUsage(accessKeyID, region, serviceName string)
+
+	// Tags on resources (embedded in model, returned with resource)
+	TagUser(userName string, tags map[string]string) error
+	UntagUser(userName string, keys []string) error
+	TagRole(roleName string, tags map[string]string) error
+	UntagRole(roleName string, keys []string) error
+	TagPolicy(policyArn string, tags map[string]string) error
+	UntagPolicy(policyArn string, keys []string) error
+	TagGroup(groupName string, tags map[string]string) error
+	UntagGroup(groupName string, keys []string) error
+
+	// Signing Certificates
+	UploadSigningCertificate(userName, body string) (*SigningCertificate, error)
+	ListSigningCertificates(userName string) ([]SigningCertificate, error)
+	UpdateSigningCertificate(certificateID, status string) error
+	DeleteSigningCertificate(certificateID string) error
 
 	// Group membership queries
 	ListGroupsForUser(userName string) ([]Group, error)
@@ -319,6 +336,7 @@ type InMemoryBackend struct {
 	deletedV1Policies    map[string]bool // tracks policies where v1 has been explicitly deleted
 	serviceSpecificCreds map[string]ServiceSpecificCredential
 	virtualMFADevices    map[string]VirtualMFADevice
+	signingCertificates  map[string]SigningCertificate // certID → SigningCertificate
 	passwordPolicy       *PasswordPolicy
 	users                map[string]User
 	comprehensive        *comprehensiveBackend
@@ -364,6 +382,7 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		deletedV1Policies:    make(map[string]bool),
 		serviceSpecificCreds: make(map[string]ServiceSpecificCredential),
 		virtualMFADevices:    make(map[string]VirtualMFADevice),
+		signingCertificates:  make(map[string]SigningCertificate),
 		delegationRequests:   make(map[string]DelegationRequest),
 		accountID:            accountID,
 		mu:                   lockmetrics.New("iam"),
@@ -594,6 +613,10 @@ func (b *InMemoryBackend) CreateRole(
 
 	if assumeRolePolicyDocument != "" && !json.Valid([]byte(assumeRolePolicyDocument)) {
 		return nil, fmt.Errorf("%w: invalid JSON in AssumeRolePolicyDocument", ErrMalformedPolicyDocument)
+	}
+
+	if err := validateTrustPolicyPrincipal(assumeRolePolicyDocument); err != nil {
+		return nil, err
 	}
 
 	p := normPath(path)
@@ -1820,6 +1843,10 @@ func (b *InMemoryBackend) UpdateAssumeRolePolicy(roleName, policyDocument string
 		return fmt.Errorf("%w: invalid JSON in AssumeRolePolicyDocument", ErrMalformedPolicyDocument)
 	}
 
+	if err := validateTrustPolicyPrincipal(policyDocument); err != nil {
+		return err
+	}
+
 	r.AssumeRolePolicyDocument = policyDocument
 	b.roles[roleName] = r
 
@@ -1973,6 +2000,9 @@ func inlineEntries(m map[string]string) []InlinePolicyEntry {
 // Supported principal ARN formats:
 //   - arn:aws:iam::<account>:user/<name>
 //   - arn:aws:iam::<account>:role/<name>
+//
+// Permission boundaries are enforced: effective permissions = identity policies ∩ boundary.
+// An allow is only returned if both the identity policies allow AND the boundary allows.
 func (b *InMemoryBackend) SimulatePrincipalPolicy(
 	principalArn string, actionNames, resourceArns []string,
 ) ([]SimulationResult, error) {
@@ -1984,6 +2014,9 @@ func (b *InMemoryBackend) SimulatePrincipalPolicy(
 		return nil, err
 	}
 
+	// Collect permission boundary document (if any).
+	boundaryDoc := b.collectBoundaryDoc(principalArn)
+
 	if len(resourceArns) == 0 {
 		resourceArns = []string{"*"}
 	}
@@ -1992,6 +2025,14 @@ func (b *InMemoryBackend) SimulatePrincipalPolicy(
 	for _, action := range actionNames {
 		for _, resource := range resourceArns {
 			evalResult := EvaluatePolicies(policyDocs, action, resource, ConditionContext{})
+
+			// If boundary is set, it must also allow the action.
+			if evalResult == EvalAllow && boundaryDoc != "" {
+				boundaryResult := EvaluatePolicies([]string{boundaryDoc}, action, resource, ConditionContext{})
+				if boundaryResult != EvalAllow {
+					evalResult = EvalImplicitDeny
+				}
+			}
 
 			var decision string
 
@@ -2013,6 +2054,28 @@ func (b *InMemoryBackend) SimulatePrincipalPolicy(
 	}
 
 	return results, nil
+}
+
+// collectBoundaryDoc returns the policy document for the principal's permission boundary, or "".
+// Caller must hold b.mu read-locked.
+func (b *InMemoryBackend) collectBoundaryDoc(principalArn string) string {
+	const (
+		userPrefix = ":user/"
+		rolePrefix = ":role/"
+	)
+
+	switch {
+	case strings.Contains(principalArn, userPrefix):
+		idx := strings.LastIndex(principalArn, userPrefix)
+
+		return b.boundaryDocForUser(principalArn[idx+len(userPrefix):])
+	case strings.Contains(principalArn, rolePrefix):
+		idx := strings.LastIndex(principalArn, rolePrefix)
+
+		return b.boundaryDocForRole(principalArn[idx+len(rolePrefix):])
+	}
+
+	return ""
 }
 
 // collectPrincipalPolicies returns all policy documents for the given principal ARN.
@@ -2081,8 +2144,12 @@ func (b *InMemoryBackend) collectEntityPolicies(
 // collectGroupPoliciesForUser returns all policy documents inherited via group membership.
 // Real AWS evaluates group-attached and group-inline policies as part of the principal's
 // effective permissions.  Must be called with b.mu read-lock held.
+//
+// A seen-set prevents the same document being added twice when multiple groups share
+// the same managed policy.
 func (b *InMemoryBackend) collectGroupPoliciesForUser(userName string) []string {
 	var docs []string
+	seen := make(map[string]struct{})
 
 	for groupName, members := range b.groupMembers {
 		if !slices.Contains(members, userName) {
@@ -2090,7 +2157,14 @@ func (b *InMemoryBackend) collectGroupPoliciesForUser(userName string) []string 
 		}
 
 		groupDocs := b.collectEntityPolicies(b.groupPolicies[groupName], b.groupInlinePolicies[groupName])
-		docs = append(docs, groupDocs...)
+		for _, doc := range groupDocs {
+			if _, dup := seen[doc]; dup {
+				continue
+			}
+
+			seen[doc] = struct{}{}
+			docs = append(docs, doc)
+		}
 	}
 
 	return docs
@@ -2125,6 +2199,7 @@ func (b *InMemoryBackend) Reset() {
 	b.policyVersions = make(map[string][]StoredPolicyVersion)
 	b.serviceSpecificCreds = make(map[string]ServiceSpecificCredential)
 	b.virtualMFADevices = make(map[string]VirtualMFADevice)
+	b.signingCertificates = make(map[string]SigningCertificate)
 	b.delegationRequests = make(map[string]DelegationRequest)
 	b.ResetComprehensiveBackend()
 }
