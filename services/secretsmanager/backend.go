@@ -248,12 +248,27 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 	}
 
 	b.secrets[input.Name] = secret
+
+	if len(input.AddReplicaRegions) > 0 {
+		replicas := make([]ReplicationStatusType, 0, len(input.AddReplicaRegions))
+		for _, r := range input.AddReplicaRegions {
+			replicas = append(replicas, ReplicationStatusType{
+				Region:        r.Region,
+				KmsKeyID:      r.KmsKeyID,
+				Status:        replicationStatusInProgress,
+				StatusMessage: "replication queued",
+			})
+		}
+		b.replicationConfigs[input.Name] = replicas
+	}
+
 	b.syncReplicationStatusLocked(secret)
 
 	return &CreateSecretOutput{
-		ARN:       arn,
-		Name:      input.Name,
-		VersionID: versionID,
+		ARN:               arn,
+		Name:              input.Name,
+		VersionID:         versionID,
+		ReplicationStatus: b.replicationConfigs[input.Name],
 	}, nil
 }
 
@@ -279,11 +294,12 @@ func (b *InMemoryBackend) GetSecretValue(input *GetSecretValueInput) (*GetSecret
 	}
 
 	// When both VersionId and VersionStage are supplied, they must agree.
+	// AWS returns ResourceNotFoundException when the ID does not carry the requested stage.
 	if input.VersionID != "" && input.VersionStage != "" {
 		if !slices.Contains(version.StagingLabels, input.VersionStage) {
 			return nil, fmt.Errorf(
 				"%w: staging label %s not found on version %s",
-				ErrInvalidParameter,
+				ErrVersionNotFound,
 				input.VersionStage,
 				input.VersionID,
 			)
@@ -628,6 +644,10 @@ func secretMatchesFilter(s *Secret, f SecretFilter) bool {
 		// In a single-region mock every secret belongs to the single region;
 		// the filter always passes (no cross-region replication routing needed).
 		return true
+	case "owned-by-me":
+		// In a single-account mock all secrets are owned by the configured account;
+		// the filter always passes.
+		return true
 	default:
 		return true
 	}
@@ -796,11 +816,6 @@ func computeNextRotationDate(secret *Secret) *float64 {
 		return nil
 	}
 
-	interval, ok := rotationInterval(secret.RotationRules)
-	if !ok {
-		return nil
-	}
-
 	base := secret.LastRotatedDate
 	if base == nil {
 		base = secret.LastChangedDate
@@ -811,6 +826,23 @@ func computeNextRotationDate(secret *Secret) *float64 {
 	}
 
 	baseTime := time.Unix(0, int64(*base*float64(time.Second)))
+
+	if isCronExpression(secret.RotationRules.ScheduleExpression) {
+		next, ok := nextCronTime(secret.RotationRules.ScheduleExpression, baseTime)
+		if !ok {
+			return nil
+		}
+
+		nextFloat := UnixTimeFloat(next)
+
+		return &nextFloat
+	}
+
+	interval, ok := rotationInterval(secret.RotationRules)
+	if !ok {
+		return nil
+	}
+
 	nextFloat := UnixTimeFloat(baseTime.Add(interval))
 
 	return &nextFloat
@@ -1990,25 +2022,47 @@ func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
 			continue
 		}
 
-		interval, ok := rotationInterval(secret.RotationRules)
-		if !ok {
-			continue
-		}
-
 		base := secret.LastRotatedDate
 		if base == nil {
 			base = secret.LastChangedDate
 		}
-		if base == nil || now.Before(time.Unix(0, int64(*base*float64(time.Second)))) {
-			continue
-		}
 
-		if now.Sub(time.Unix(0, int64(*base*float64(time.Second)))) < interval {
+		if !rotationDue(secret.RotationRules, now, base) {
 			continue
 		}
 
 		_, _ = b.rotateSecretLocked(secret)
 	}
+}
+
+// rotationDue reports whether a rotation should fire at `now` given the rotation rules and
+// the base time (last rotation or last change). Returns false when rules are nil or unparseable.
+func rotationDue(rules *RotationRulesType, now time.Time, base *float64) bool {
+	if rules == nil || base == nil {
+		return false
+	}
+
+	baseTime := time.Unix(0, int64(*base*float64(time.Second)))
+
+	if now.Before(baseTime) {
+		return false
+	}
+
+	if isCronExpression(rules.ScheduleExpression) {
+		next, ok := nextCronTime(rules.ScheduleExpression, baseTime)
+		if !ok {
+			return false
+		}
+
+		return !now.Before(next)
+	}
+
+	interval, ok := rotationInterval(rules)
+	if !ok {
+		return false
+	}
+
+	return now.Sub(baseTime) >= interval
 }
 
 func rotationInterval(rules *RotationRulesType) (time.Duration, bool) {
