@@ -1,7 +1,6 @@
 package ec2
 
 import (
-	"encoding/base64"
 	"fmt"
 	"hash/fnv"
 	"math"
@@ -17,12 +16,12 @@ type SpotPriceRecord struct {
 	SpotPrice          string
 }
 
-// Attributes that require the instance to be stopped before modification.
+// stoppedRequiredAttrs lists attributes that require a stopped instance when
+// set via ModifyInstanceAttribute (not RunInstances initial setup).
 //
 //nolint:gochecknoglobals // lookup set
 var stoppedRequiredAttrs = map[string]bool{
 	"instanceType": true,
-	"userData":     true,
 	"kernel":       true,
 	"ramdisk":      true,
 }
@@ -68,7 +67,11 @@ func (b *InMemoryBackend) SetInstanceAttribute(instanceID, attribute, value stri
 // SetVolumeEncryption marks a volume as encrypted and records its KMS key ID.
 // If encrypted is false the KMS key ID is cleared. If encrypted is true and
 // kmsKeyID is empty an AWS-managed key ("aws/ebs") is implied.
-func (b *InMemoryBackend) SetVolumeEncryption(volumeID string, encrypted bool, kmsKeyID string) error {
+func (b *InMemoryBackend) SetVolumeEncryption(
+	volumeID string,
+	encrypted bool,
+	kmsKeyID string,
+) error {
 	b.mu.Lock("SetVolumeEncryption")
 	defer b.mu.Unlock()
 
@@ -120,14 +123,6 @@ var spotPriceBaseTable = map[string]float64{
 	"p3.2xlarge":  3.06,
 	"p3.8xlarge":  12.24,
 	"g4dn.xlarge": 0.526,
-}
-
-// spotPriceProducts is the set of product descriptions returned by spot history.
-var spotPriceProducts = []string{
-	"Linux/UNIX",
-	"Windows",
-	"Red Hat Enterprise Linux",
-	"SUSE Linux",
 }
 
 // deterministicSpotPrice returns a stable spot price for (instanceType, az, product)
@@ -194,19 +189,4 @@ func GenerateSpotPriceHistory(
 	}
 
 	return records
-}
-
-// decodeUserData returns the base64-decoded content of userData if it appears
-// to be encoded, otherwise returns userData unchanged.
-func decodeUserData(userData string) string {
-	if userData == "" {
-		return ""
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(userData)
-	if err != nil {
-		return userData
-	}
-
-	return string(decoded)
 }

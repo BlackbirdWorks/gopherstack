@@ -218,7 +218,10 @@ func (h *Handler) handleAcceptReservedInstancesExchangeQuote(
 	}
 
 	if len(ids) == 0 {
-		return nil, fmt.Errorf("%w: at least one ReservedInstanceId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: at least one ReservedInstanceId is required",
+			ErrInvalidParameter,
+		)
 	}
 
 	exchange, err := h.Backend.AcceptReservedInstancesExchangeQuote(ids)
@@ -250,7 +253,11 @@ func (h *Handler) handleAcceptTransitGatewayMulticastDomainAssociations(
 		subnetIDs = append(subnetIDs, id)
 	}
 
-	assocs, err := h.Backend.AcceptTransitGatewayMulticastDomainAssociations(domainID, attachmentID, subnetIDs)
+	assocs, err := h.Backend.AcceptTransitGatewayMulticastDomainAssociations(
+		domainID,
+		attachmentID,
+		subnetIDs,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -298,7 +298,13 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		action := r.Form.Get("Action")
 		if action == "" {
-			return h.writeError(c, reqID, http.StatusBadRequest, "MissingAction", "missing Action parameter")
+			return h.writeError(
+				c,
+				reqID,
+				http.StatusBadRequest,
+				"MissingAction",
+				"missing Action parameter",
+			)
 		}
 
 		log.DebugContext(ctx, "EC2 request", "action", action)
@@ -310,9 +316,22 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		xmlBytes, marshalErr := marshalXML(resp)
 		if marshalErr != nil {
-			log.ErrorContext(ctx, "failed to marshal EC2 response", "action", action, "error", marshalErr)
+			log.ErrorContext(
+				ctx,
+				"failed to marshal EC2 response",
+				"action",
+				action,
+				"error",
+				marshalErr,
+			)
 
-			return h.writeError(c, reqID, http.StatusInternalServerError, "InternalFailure", "internal server error")
+			return h.writeError(
+				c,
+				reqID,
+				http.StatusInternalServerError,
+				"InternalFailure",
+				"internal server error",
+			)
 		}
 
 		return c.Blob(http.StatusOK, "text/xml", xmlBytes)
@@ -860,7 +879,8 @@ func parseInstanceTypesPagination(vals url.Values) (int, int, error) {
 
 	if v := vals.Get("MaxResults"); v != "" {
 		n, perr := strconv.Atoi(v)
-		if perr != nil || n < ec2DescribeInstanceTypesMinPageSize || n > ec2DescribeInstanceTypesMaxPageSize {
+		if perr != nil || n < ec2DescribeInstanceTypesMinPageSize ||
+			n > ec2DescribeInstanceTypesMaxPageSize {
 			return 0, 0, fmt.Errorf(
 				"%w: MaxResults=%q must be between %d and %d",
 				ErrInvalidParameter, v,
@@ -930,7 +950,11 @@ func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error)
 		}
 
 		if !validDescribeTagsFilters[name] {
-			return nil, fmt.Errorf("%w: unknown filter name %q for DescribeTags", ErrInvalidParameter, name)
+			return nil, fmt.Errorf(
+				"%w: unknown filter name %q for DescribeTags",
+				ErrInvalidParameter,
+				name,
+			)
 		}
 
 		if name == "resource-id" {
@@ -1102,13 +1126,19 @@ func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr err
 	code, statusCode := opErrCode(opErr)
 
 	if statusCode == http.StatusInternalServerError {
-		logger.Load(c.Request().Context()).Error("EC2 internal error", "error", opErr, "action", action)
+		logger.Load(c.Request().Context()).
+			Error("EC2 internal error", "error", opErr, "action", action)
 	}
 
 	return h.writeError(c, reqID, statusCode, code, opErr.Error())
 }
 
-func (h *Handler) writeError(c *echo.Context, reqID string, statusCode int, code, message string) error {
+func (h *Handler) writeError(
+	c *echo.Context,
+	reqID string,
+	statusCode int,
+	code, message string,
+) error {
 	errResp := &ec2ErrorResponse{
 		XMLName:   xml.Name{Local: "Response"},
 		Errors:    ec2ErrorsWrapper{Error: ec2Error{Code: code, Message: message}},

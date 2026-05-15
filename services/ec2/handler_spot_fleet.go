@@ -36,7 +36,9 @@ func (h *Handler) handleRequestSpotFleet(vals url.Values, reqID string) (any, er
 	config := SpotFleetRequestConfig{}
 	config.SpotPrice = vals.Get("SpotFleetRequestConfig.SpotPrice")
 	config.AllocationStrategy = vals.Get("SpotFleetRequestConfig.AllocationStrategy")
-	config.ExcessCapacityTerminationPolicy = vals.Get("SpotFleetRequestConfig.ExcessCapacityTerminationPolicy")
+	config.ExcessCapacityTerminationPolicy = vals.Get(
+		"SpotFleetRequestConfig.ExcessCapacityTerminationPolicy",
+	)
 	config.IamFleetRole = vals.Get("SpotFleetRequestConfig.IamFleetRole")
 	config.Type = vals.Get("SpotFleetRequestConfig.Type")
 
@@ -107,7 +109,11 @@ func (h *Handler) handleDescribeSpotFleetRequests(vals url.Values, reqID string)
 
 	items := make([]spotFleetRequestConfigSetItem, 0, len(fleets))
 	for _, fleet := range fleets {
-		specs := make([]spotFleetLaunchSpecItem, 0, len(fleet.SpotFleetRequestConfig.LaunchSpecifications))
+		specs := make(
+			[]spotFleetLaunchSpecItem,
+			0,
+			len(fleet.SpotFleetRequestConfig.LaunchSpecifications),
+		)
 		for _, spec := range fleet.SpotFleetRequestConfig.LaunchSpecifications {
 			specs = append(specs, spotFleetLaunchSpecItem{
 				ImageID:          spec.ImageID,
@@ -236,7 +242,10 @@ func (h *Handler) handleDescribeSpotFleetInstances(vals url.Values, reqID string
 }
 
 // handleDescribeSpotFleetRequestHistory handles DescribeSpotFleetRequestHistory.
-func (h *Handler) handleDescribeSpotFleetRequestHistory(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeSpotFleetRequestHistory(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	fleetID := vals.Get("SpotFleetRequestId")
 	startTimeStr := vals.Get("StartTime")
 

@@ -96,8 +96,12 @@ func TestRefinement1_SeedHelpers(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	b.AddAddressTransferInternal(&ec2.AddressTransfer{PublicIP: "1.2.3.4", AllocationID: "eipalloc-1"})
-	b.AddCapacityReservationInternal(&ec2.CapacityReservation{CapacityReservationID: "cr-1", InstanceType: "t3.micro"})
+	b.AddAddressTransferInternal(
+		&ec2.AddressTransfer{PublicIP: "1.2.3.4", AllocationID: "eipalloc-1"},
+	)
+	b.AddCapacityReservationInternal(
+		&ec2.CapacityReservation{CapacityReservationID: "cr-1", InstanceType: "t3.micro"},
+	)
 	b.AddTGWPeeringAttachmentInternal(&ec2.TransitGatewayPeeringAttachment{
 		TransitGatewayAttachmentID: "tgw-attach-1",
 		State:                      "pending-acceptance",
@@ -223,7 +227,11 @@ func TestRefinement1_NonNilSlices_TGWMulticast(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	assocs, err := b.AcceptTransitGatewayMulticastDomainAssociations("tgw-mcast-1", "tgw-attach-1", nil)
+	assocs, err := b.AcceptTransitGatewayMulticastDomainAssociations(
+		"tgw-mcast-1",
+		"tgw-attach-1",
+		nil,
+	)
 	require.NoError(t, err)
 	assert.NotNil(t, assocs, "result should be non-nil even when no subnets provided")
 	assert.Empty(t, assocs)
@@ -340,7 +348,9 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	b.AddAddressTransferInternal(&ec2.AddressTransfer{PublicIP: "1.2.3.4", AllocationID: "eipalloc-1"})
+	b.AddAddressTransferInternal(
+		&ec2.AddressTransfer{PublicIP: "1.2.3.4", AllocationID: "eipalloc-1"},
+	)
 	b.AddCapacityReservationInternal(&ec2.CapacityReservation{CapacityReservationID: "cr-1"})
 	b.AddByoipCidrInternal(&ec2.ByoipCidr{Cidr: "10.0.0.0/8", State: "advertised"})
 	b.AddVpcPeeringConnectionInternal(&ec2.VpcPeeringConnection{VpcPeeringConnectionID: "pcx-1"})

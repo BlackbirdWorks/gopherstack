@@ -1254,10 +1254,17 @@ func stubSupportedOperations() []string {
 }
 
 func (h *Handler) handleStubAllocateIpamPoolCidr(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "AllocateIpamPoolCidrResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AllocateIpamPoolCidrResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubApplySecurityGroupsToClientVpnTargetNetwork(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubApplySecurityGroupsToClientVpnTargetNetwork(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ApplySecurityGroupsToClientVpnTargetNetworkResponse"},
 		RequestID: reqID,
@@ -1265,7 +1272,10 @@ func (h *Handler) handleStubApplySecurityGroupsToClientVpnTargetNetwork(_ url.Va
 	}, nil
 }
 
-func (h *Handler) handleStubAssignPrivateNatGatewayAddress(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubAssignPrivateNatGatewayAddress(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssignPrivateNatGatewayAddressResponse"},
 		RequestID: reqID,
@@ -1273,7 +1283,10 @@ func (h *Handler) handleStubAssignPrivateNatGatewayAddress(_ url.Values, reqID s
 	}, nil
 }
 
-func (h *Handler) handleStubAssociateCapacityReservationBillingOwner(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubAssociateCapacityReservationBillingOwner(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssociateCapacityReservationBillingOwnerResponse"},
 		RequestID: reqID,
@@ -1281,7 +1294,10 @@ func (h *Handler) handleStubAssociateCapacityReservationBillingOwner(_ url.Value
 	}, nil
 }
 
-func (h *Handler) handleStubAssociateClientVpnTargetNetwork(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubAssociateClientVpnTargetNetwork(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssociateClientVpnTargetNetworkResponse"},
 		RequestID: reqID,
@@ -1289,7 +1305,10 @@ func (h *Handler) handleStubAssociateClientVpnTargetNetwork(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubAssociateEnclaveCertificateIamRole(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubAssociateEnclaveCertificateIamRole(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssociateEnclaveCertificateIamRoleResponse"},
 		RequestID: reqID,
@@ -1306,10 +1325,17 @@ func (h *Handler) handleStubAssociateInstanceEventWindow(_ url.Values, reqID str
 }
 
 func (h *Handler) handleStubAssociateIpamByoasn(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "AssociateIpamByoasnResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateIpamByoasnResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubAssociateIpamResourceDiscovery(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubAssociateIpamResourceDiscovery(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssociateIpamResourceDiscoveryResponse"},
 		RequestID: reqID,
@@ -1326,7 +1352,11 @@ func (h *Handler) handleStubAssociateNatGatewayAddress(_ url.Values, reqID strin
 }
 
 func (h *Handler) handleStubAssociateRouteServer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "AssociateRouteServerResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateRouteServerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubAssociateSecurityGroupVpc(_ url.Values, reqID string) (any, error) {
@@ -1345,7 +1375,10 @@ func (h *Handler) handleStubAssociateSubnetCidrBlock(_ url.Values, reqID string)
 	}, nil
 }
 
-func (h *Handler) handleStubAssociateTransitGatewayMulticastDomain(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubAssociateTransitGatewayMulticastDomain(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssociateTransitGatewayMulticastDomainResponse"},
 		RequestID: reqID,
@@ -1353,7 +1386,10 @@ func (h *Handler) handleStubAssociateTransitGatewayMulticastDomain(_ url.Values,
 	}, nil
 }
 
-func (h *Handler) handleStubAssociateTransitGatewayPolicyTable(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubAssociateTransitGatewayPolicyTable(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssociateTransitGatewayPolicyTableResponse"},
 		RequestID: reqID,
@@ -1370,10 +1406,17 @@ func (h *Handler) handleStubAssociateTrunkInterface(_ url.Values, reqID string) 
 }
 
 func (h *Handler) handleStubAttachClassicLinkVpc(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "AttachClassicLinkVpcResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AttachClassicLinkVpcResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubAttachVerifiedAccessTrustProvider(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubAttachVerifiedAccessTrustProvider(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AttachVerifiedAccessTrustProviderResponse"},
 		RequestID: reqID,
@@ -1382,7 +1425,11 @@ func (h *Handler) handleStubAttachVerifiedAccessTrustProvider(_ url.Values, reqI
 }
 
 func (h *Handler) handleStubAttachVpnGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "AttachVpnGatewayResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AttachVpnGatewayResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubAuthorizeClientVpnIngress(_ url.Values, reqID string) (any, error) {
@@ -1394,11 +1441,19 @@ func (h *Handler) handleStubAuthorizeClientVpnIngress(_ url.Values, reqID string
 }
 
 func (h *Handler) handleStubBundleInstance(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "BundleInstanceResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "BundleInstanceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCancelBundleTask(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CancelBundleTaskResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CancelBundleTaskResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCancelCapacityReservation(_ url.Values, reqID string) (any, error) {
@@ -1409,7 +1464,10 @@ func (h *Handler) handleStubCancelCapacityReservation(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubCancelCapacityReservationFleets(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCancelCapacityReservationFleets(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CancelCapacityReservationFleetsResponse"},
 		RequestID: reqID,
@@ -1418,10 +1476,17 @@ func (h *Handler) handleStubCancelCapacityReservationFleets(_ url.Values, reqID 
 }
 
 func (h *Handler) handleStubCancelConversionTask(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CancelConversionTaskResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CancelConversionTaskResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubCancelDeclarativePoliciesReport(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCancelDeclarativePoliciesReport(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CancelDeclarativePoliciesReportResponse"},
 		RequestID: reqID,
@@ -1430,7 +1495,11 @@ func (h *Handler) handleStubCancelDeclarativePoliciesReport(_ url.Values, reqID 
 }
 
 func (h *Handler) handleStubCancelExportTask(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CancelExportTaskResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CancelExportTaskResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCancelImageLaunchPermission(_ url.Values, reqID string) (any, error) {
@@ -1442,10 +1511,17 @@ func (h *Handler) handleStubCancelImageLaunchPermission(_ url.Values, reqID stri
 }
 
 func (h *Handler) handleStubCancelImportTask(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CancelImportTaskResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CancelImportTaskResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubCancelReservedInstancesListing(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCancelReservedInstancesListing(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CancelReservedInstancesListingResponse"},
 		RequestID: reqID,
@@ -1470,18 +1546,33 @@ func (h *Handler) handleStubConfirmProductInstance(_ url.Values, reqID string) (
 }
 
 func (h *Handler) handleStubCopyFpgaImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CopyFpgaImageResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CopyFpgaImageResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCopySnapshot(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CopySnapshotResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CopySnapshotResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCopyVolumes(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CopyVolumesResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CopyVolumesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubCreateCapacityManagerDataExport(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateCapacityManagerDataExport(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateCapacityManagerDataExportResponse"},
 		RequestID: reqID,
@@ -1497,7 +1588,10 @@ func (h *Handler) handleStubCreateCapacityReservation(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubCreateCapacityReservationBySplitting(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateCapacityReservationBySplitting(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateCapacityReservationBySplittingResponse"},
 		RequestID: reqID,
@@ -1505,7 +1599,10 @@ func (h *Handler) handleStubCreateCapacityReservationBySplitting(_ url.Values, r
 	}, nil
 }
 
-func (h *Handler) handleStubCreateCapacityReservationFleet(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateCapacityReservationFleet(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateCapacityReservationFleetResponse"},
 		RequestID: reqID,
@@ -1514,7 +1611,11 @@ func (h *Handler) handleStubCreateCapacityReservationFleet(_ url.Values, reqID s
 }
 
 func (h *Handler) handleStubCreateCarrierGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateCarrierGatewayResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateCarrierGatewayResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateClientVpnEndpoint(_ url.Values, reqID string) (any, error) {
@@ -1526,30 +1627,57 @@ func (h *Handler) handleStubCreateClientVpnEndpoint(_ url.Values, reqID string) 
 }
 
 func (h *Handler) handleStubCreateClientVpnRoute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateClientVpnRouteResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateClientVpnRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateCoipCidr(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateCoipCidrResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateCoipCidrResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateCoipPool(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateCoipPoolResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateCoipPoolResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateCustomerGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateCustomerGatewayResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateCustomerGatewayResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateDefaultSubnet(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateDefaultSubnetResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateDefaultSubnetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateDefaultVpc(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateDefaultVpcResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateDefaultVpcResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubCreateDelegateMacVolumeOwnershipTask(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateDelegateMacVolumeOwnershipTask(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateDelegateMacVolumeOwnershipTaskResponse"},
 		RequestID: reqID,
@@ -1558,11 +1686,19 @@ func (h *Handler) handleStubCreateDelegateMacVolumeOwnershipTask(_ url.Values, r
 }
 
 func (h *Handler) handleStubCreateFleet(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateFleetResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateFleetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateFpgaImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateFpgaImageResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateFpgaImageResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateImageUsageReport(_ url.Values, reqID string) (any, error) {
@@ -1597,7 +1733,10 @@ func (h *Handler) handleStubCreateInstanceExportTask(_ url.Values, reqID string)
 	}, nil
 }
 
-func (h *Handler) handleStubCreateInterruptibleCapacityReservationAllocation(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateInterruptibleCapacityReservationAllocation(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateInterruptibleCapacityReservationAllocationResponse"},
 		RequestID: reqID,
@@ -1606,10 +1745,17 @@ func (h *Handler) handleStubCreateInterruptibleCapacityReservationAllocation(_ u
 }
 
 func (h *Handler) handleStubCreateIpam(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateIpamResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateIpamResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubCreateIpamExternalResourceVerificationToken(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateIpamExternalResourceVerificationToken(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateIpamExternalResourceVerificationTokenResponse"},
 		RequestID: reqID,
@@ -1618,11 +1764,19 @@ func (h *Handler) handleStubCreateIpamExternalResourceVerificationToken(_ url.Va
 }
 
 func (h *Handler) handleStubCreateIpamPolicy(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateIpamPolicyResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateIpamPolicyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateIpamPool(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateIpamPoolResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateIpamPoolResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateIpamPrefixListResolver(_ url.Values, reqID string) (any, error) {
@@ -1633,7 +1787,10 @@ func (h *Handler) handleStubCreateIpamPrefixListResolver(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubCreateIpamPrefixListResolverTarget(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateIpamPrefixListResolverTarget(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateIpamPrefixListResolverTargetResponse"},
 		RequestID: reqID,
@@ -1650,7 +1807,11 @@ func (h *Handler) handleStubCreateIpamResourceDiscovery(_ url.Values, reqID stri
 }
 
 func (h *Handler) handleStubCreateIpamScope(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateIpamScopeResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateIpamScopeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
@@ -1674,13 +1835,18 @@ func (h *Handler) handleStubCreateLocalGatewayRouteTableVirtualInterfaceGroupAss
 	reqID string,
 ) (any, error) {
 	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociationResponse"},
+		XMLName: xml.Name{
+			Local: "CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociationResponse",
+		},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
 }
 
-func (h *Handler) handleStubCreateLocalGatewayRouteTableVpcAssociation(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateLocalGatewayRouteTableVpcAssociation(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateLocalGatewayRouteTableVpcAssociationResponse"},
 		RequestID: reqID,
@@ -1688,7 +1854,10 @@ func (h *Handler) handleStubCreateLocalGatewayRouteTableVpcAssociation(_ url.Val
 	}, nil
 }
 
-func (h *Handler) handleStubCreateLocalGatewayVirtualInterface(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateLocalGatewayVirtualInterface(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateLocalGatewayVirtualInterfaceResponse"},
 		RequestID: reqID,
@@ -1696,7 +1865,10 @@ func (h *Handler) handleStubCreateLocalGatewayVirtualInterface(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubCreateLocalGatewayVirtualInterfaceGroup(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateLocalGatewayVirtualInterfaceGroup(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateLocalGatewayVirtualInterfaceGroupResponse"},
 		RequestID: reqID,
@@ -1723,7 +1895,10 @@ func (h *Handler) handleStubCreateManagedPrefixList(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubCreateNetworkInsightsAccessScope(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateNetworkInsightsAccessScope(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateNetworkInsightsAccessScopeResponse"},
 		RequestID: reqID,
@@ -1739,7 +1914,10 @@ func (h *Handler) handleStubCreateNetworkInsightsPath(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubCreateNetworkInterfacePermission(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateNetworkInterfacePermission(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateNetworkInterfacePermissionResponse"},
 		RequestID: reqID,
@@ -1755,7 +1933,10 @@ func (h *Handler) handleStubCreateReplaceRootVolumeTask(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubCreateReservedInstancesListing(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateReservedInstancesListing(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateReservedInstancesListingResponse"},
 		RequestID: reqID,
@@ -1772,7 +1953,11 @@ func (h *Handler) handleStubCreateRestoreImageTask(_ url.Values, reqID string) (
 }
 
 func (h *Handler) handleStubCreateRouteServer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateRouteServerResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateRouteServerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateRouteServerEndpoint(_ url.Values, reqID string) (any, error) {
@@ -1784,7 +1969,11 @@ func (h *Handler) handleStubCreateRouteServerEndpoint(_ url.Values, reqID string
 }
 
 func (h *Handler) handleStubCreateRouteServerPeer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateRouteServerPeerResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateRouteServerPeerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateSecondaryNetwork(_ url.Values, reqID string) (any, error) {
@@ -1796,14 +1985,25 @@ func (h *Handler) handleStubCreateSecondaryNetwork(_ url.Values, reqID string) (
 }
 
 func (h *Handler) handleStubCreateSecondarySubnet(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateSecondarySubnetResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateSecondarySubnetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateSnapshots(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateSnapshotsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateSnapshotsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubCreateSpotDatafeedSubscription(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateSpotDatafeedSubscription(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateSpotDatafeedSubscriptionResponse"},
 		RequestID: reqID,
@@ -1812,7 +2012,11 @@ func (h *Handler) handleStubCreateSpotDatafeedSubscription(_ url.Values, reqID s
 }
 
 func (h *Handler) handleStubCreateStoreImageTask(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateStoreImageTaskResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateStoreImageTaskResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateSubnetCidrReservation(_ url.Values, reqID string) (any, error) {
@@ -1863,7 +2067,10 @@ func (h *Handler) handleStubCreateTransitGatewayConnect(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayConnectPeer(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateTransitGatewayConnectPeer(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateTransitGatewayConnectPeerResponse"},
 		RequestID: reqID,
@@ -1871,7 +2078,10 @@ func (h *Handler) handleStubCreateTransitGatewayConnectPeer(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayMeteringPolicy(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateTransitGatewayMeteringPolicy(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateTransitGatewayMeteringPolicyResponse"},
 		RequestID: reqID,
@@ -1879,7 +2089,10 @@ func (h *Handler) handleStubCreateTransitGatewayMeteringPolicy(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayMeteringPolicyEntry(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateTransitGatewayMeteringPolicyEntry(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateTransitGatewayMeteringPolicyEntryResponse"},
 		RequestID: reqID,
@@ -1887,7 +2100,10 @@ func (h *Handler) handleStubCreateTransitGatewayMeteringPolicyEntry(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayMulticastDomain(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateTransitGatewayMulticastDomain(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateTransitGatewayMulticastDomainResponse"},
 		RequestID: reqID,
@@ -1895,7 +2111,10 @@ func (h *Handler) handleStubCreateTransitGatewayMulticastDomain(_ url.Values, re
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayPeeringAttachment(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateTransitGatewayPeeringAttachment(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateTransitGatewayPeeringAttachmentResponse"},
 		RequestID: reqID,
@@ -1903,7 +2122,10 @@ func (h *Handler) handleStubCreateTransitGatewayPeeringAttachment(_ url.Values, 
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayPolicyTable(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateTransitGatewayPolicyTable(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateTransitGatewayPolicyTableResponse"},
 		RequestID: reqID,
@@ -1911,7 +2133,10 @@ func (h *Handler) handleStubCreateTransitGatewayPolicyTable(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayPrefixListReference(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateTransitGatewayPrefixListReference(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateTransitGatewayPrefixListReferenceResponse"},
 		RequestID: reqID,
@@ -1919,7 +2144,10 @@ func (h *Handler) handleStubCreateTransitGatewayPrefixListReference(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayRouteTableAnnouncement(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateTransitGatewayRouteTableAnnouncement(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateTransitGatewayRouteTableAnnouncementResponse"},
 		RequestID: reqID,
@@ -1951,7 +2179,10 @@ func (h *Handler) handleStubCreateVerifiedAccessInstance(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubCreateVerifiedAccessTrustProvider(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateVerifiedAccessTrustProvider(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateVerifiedAccessTrustProviderResponse"},
 		RequestID: reqID,
@@ -1959,7 +2190,10 @@ func (h *Handler) handleStubCreateVerifiedAccessTrustProvider(_ url.Values, reqI
 	}, nil
 }
 
-func (h *Handler) handleStubCreateVpcBlockPublicAccessExclusion(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateVpcBlockPublicAccessExclusion(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateVpcBlockPublicAccessExclusionResponse"},
 		RequestID: reqID,
@@ -1975,7 +2209,10 @@ func (h *Handler) handleStubCreateVpcEncryptionControl(_ url.Values, reqID strin
 	}, nil
 }
 
-func (h *Handler) handleStubCreateVpcEndpointConnectionNotification(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateVpcEndpointConnectionNotification(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateVpcEndpointConnectionNotificationResponse"},
 		RequestID: reqID,
@@ -1983,7 +2220,10 @@ func (h *Handler) handleStubCreateVpcEndpointConnectionNotification(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubCreateVpcEndpointServiceConfiguration(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateVpcEndpointServiceConfiguration(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateVpcEndpointServiceConfigurationResponse"},
 		RequestID: reqID,
@@ -1992,11 +2232,19 @@ func (h *Handler) handleStubCreateVpcEndpointServiceConfiguration(_ url.Values, 
 }
 
 func (h *Handler) handleStubCreateVpnConcentrator(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateVpnConcentratorResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVpnConcentratorResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateVpnConnection(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateVpnConnectionResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVpnConnectionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreateVpnConnectionRoute(_ url.Values, reqID string) (any, error) {
@@ -2008,10 +2256,17 @@ func (h *Handler) handleStubCreateVpnConnectionRoute(_ url.Values, reqID string)
 }
 
 func (h *Handler) handleStubCreateVpnGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateVpnGatewayResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVpnGatewayResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubDeleteCapacityManagerDataExport(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteCapacityManagerDataExport(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteCapacityManagerDataExportResponse"},
 		RequestID: reqID,
@@ -2020,7 +2275,11 @@ func (h *Handler) handleStubDeleteCapacityManagerDataExport(_ url.Values, reqID 
 }
 
 func (h *Handler) handleStubDeleteCarrierGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteCarrierGatewayResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteCarrierGatewayResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteClientVpnEndpoint(_ url.Values, reqID string) (any, error) {
@@ -2032,27 +2291,51 @@ func (h *Handler) handleStubDeleteClientVpnEndpoint(_ url.Values, reqID string) 
 }
 
 func (h *Handler) handleStubDeleteClientVpnRoute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteClientVpnRouteResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteClientVpnRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteCoipCidr(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteCoipCidrResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteCoipCidrResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteCoipPool(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteCoipPoolResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteCoipPoolResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteCustomerGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteCustomerGatewayResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteCustomerGatewayResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteFleets(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteFleetsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteFleetsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteFpgaImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteFpgaImageResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteFpgaImageResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteImageUsageReport(_ url.Values, reqID string) (any, error) {
@@ -2080,10 +2363,17 @@ func (h *Handler) handleStubDeleteInstanceEventWindow(_ url.Values, reqID string
 }
 
 func (h *Handler) handleStubDeleteIpam(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteIpamResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteIpamResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubDeleteIpamExternalResourceVerificationToken(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteIpamExternalResourceVerificationToken(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteIpamExternalResourceVerificationTokenResponse"},
 		RequestID: reqID,
@@ -2092,11 +2382,19 @@ func (h *Handler) handleStubDeleteIpamExternalResourceVerificationToken(_ url.Va
 }
 
 func (h *Handler) handleStubDeleteIpamPolicy(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteIpamPolicyResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteIpamPolicyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteIpamPool(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteIpamPoolResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteIpamPoolResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteIpamPrefixListResolver(_ url.Values, reqID string) (any, error) {
@@ -2107,7 +2405,10 @@ func (h *Handler) handleStubDeleteIpamPrefixListResolver(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteIpamPrefixListResolverTarget(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteIpamPrefixListResolverTarget(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteIpamPrefixListResolverTargetResponse"},
 		RequestID: reqID,
@@ -2124,7 +2425,11 @@ func (h *Handler) handleStubDeleteIpamResourceDiscovery(_ url.Values, reqID stri
 }
 
 func (h *Handler) handleStubDeleteIpamScope(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteIpamScopeResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteIpamScopeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
@@ -2148,13 +2453,18 @@ func (h *Handler) handleStubDeleteLocalGatewayRouteTableVirtualInterfaceGroupAss
 	reqID string,
 ) (any, error) {
 	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociationResponse"},
+		XMLName: xml.Name{
+			Local: "DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociationResponse",
+		},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteLocalGatewayRouteTableVpcAssociation(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteLocalGatewayRouteTableVpcAssociation(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteLocalGatewayRouteTableVpcAssociationResponse"},
 		RequestID: reqID,
@@ -2162,7 +2472,10 @@ func (h *Handler) handleStubDeleteLocalGatewayRouteTableVpcAssociation(_ url.Val
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteLocalGatewayVirtualInterface(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteLocalGatewayVirtualInterface(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteLocalGatewayVirtualInterfaceResponse"},
 		RequestID: reqID,
@@ -2170,7 +2483,10 @@ func (h *Handler) handleStubDeleteLocalGatewayVirtualInterface(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteLocalGatewayVirtualInterfaceGroup(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteLocalGatewayVirtualInterfaceGroup(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteLocalGatewayVirtualInterfaceGroupResponse"},
 		RequestID: reqID,
@@ -2186,7 +2502,10 @@ func (h *Handler) handleStubDeleteManagedPrefixList(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteNetworkInsightsAccessScope(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteNetworkInsightsAccessScope(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteNetworkInsightsAccessScopeResponse"},
 		RequestID: reqID,
@@ -2194,7 +2513,10 @@ func (h *Handler) handleStubDeleteNetworkInsightsAccessScope(_ url.Values, reqID
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteNetworkInsightsAccessScopeAnalysis(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteNetworkInsightsAccessScopeAnalysis(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteNetworkInsightsAccessScopeAnalysisResponse"},
 		RequestID: reqID,
@@ -2218,7 +2540,10 @@ func (h *Handler) handleStubDeleteNetworkInsightsPath(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteNetworkInterfacePermission(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteNetworkInterfacePermission(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteNetworkInterfacePermissionResponse"},
 		RequestID: reqID,
@@ -2235,7 +2560,11 @@ func (h *Handler) handleStubDeleteQueuedReservedInstances(_ url.Values, reqID st
 }
 
 func (h *Handler) handleStubDeleteRouteServer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteRouteServerResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteRouteServerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteRouteServerEndpoint(_ url.Values, reqID string) (any, error) {
@@ -2247,7 +2576,11 @@ func (h *Handler) handleStubDeleteRouteServerEndpoint(_ url.Values, reqID string
 }
 
 func (h *Handler) handleStubDeleteRouteServerPeer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteRouteServerPeerResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteRouteServerPeerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteSecondaryNetwork(_ url.Values, reqID string) (any, error) {
@@ -2259,10 +2592,17 @@ func (h *Handler) handleStubDeleteSecondaryNetwork(_ url.Values, reqID string) (
 }
 
 func (h *Handler) handleStubDeleteSecondarySubnet(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteSecondarySubnetResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteSecondarySubnetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubDeleteSpotDatafeedSubscription(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteSpotDatafeedSubscription(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteSpotDatafeedSubscriptionResponse"},
 		RequestID: reqID,
@@ -2318,7 +2658,10 @@ func (h *Handler) handleStubDeleteTransitGatewayConnect(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteTransitGatewayConnectPeer(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteTransitGatewayConnectPeer(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteTransitGatewayConnectPeerResponse"},
 		RequestID: reqID,
@@ -2326,7 +2669,10 @@ func (h *Handler) handleStubDeleteTransitGatewayConnectPeer(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteTransitGatewayMeteringPolicy(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteTransitGatewayMeteringPolicy(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteTransitGatewayMeteringPolicyResponse"},
 		RequestID: reqID,
@@ -2334,7 +2680,10 @@ func (h *Handler) handleStubDeleteTransitGatewayMeteringPolicy(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteTransitGatewayMeteringPolicyEntry(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteTransitGatewayMeteringPolicyEntry(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteTransitGatewayMeteringPolicyEntryResponse"},
 		RequestID: reqID,
@@ -2342,7 +2691,10 @@ func (h *Handler) handleStubDeleteTransitGatewayMeteringPolicyEntry(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteTransitGatewayMulticastDomain(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteTransitGatewayMulticastDomain(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteTransitGatewayMulticastDomainResponse"},
 		RequestID: reqID,
@@ -2350,7 +2702,10 @@ func (h *Handler) handleStubDeleteTransitGatewayMulticastDomain(_ url.Values, re
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteTransitGatewayPeeringAttachment(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteTransitGatewayPeeringAttachment(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteTransitGatewayPeeringAttachmentResponse"},
 		RequestID: reqID,
@@ -2358,7 +2713,10 @@ func (h *Handler) handleStubDeleteTransitGatewayPeeringAttachment(_ url.Values, 
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteTransitGatewayPolicyTable(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteTransitGatewayPolicyTable(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteTransitGatewayPolicyTableResponse"},
 		RequestID: reqID,
@@ -2366,7 +2724,10 @@ func (h *Handler) handleStubDeleteTransitGatewayPolicyTable(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteTransitGatewayPrefixListReference(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteTransitGatewayPrefixListReference(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteTransitGatewayPrefixListReferenceResponse"},
 		RequestID: reqID,
@@ -2374,7 +2735,10 @@ func (h *Handler) handleStubDeleteTransitGatewayPrefixListReference(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteTransitGatewayRouteTableAnnouncement(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteTransitGatewayRouteTableAnnouncement(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteTransitGatewayRouteTableAnnouncementResponse"},
 		RequestID: reqID,
@@ -2406,7 +2770,10 @@ func (h *Handler) handleStubDeleteVerifiedAccessInstance(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteVerifiedAccessTrustProvider(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteVerifiedAccessTrustProvider(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteVerifiedAccessTrustProviderResponse"},
 		RequestID: reqID,
@@ -2414,7 +2781,10 @@ func (h *Handler) handleStubDeleteVerifiedAccessTrustProvider(_ url.Values, reqI
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteVpcBlockPublicAccessExclusion(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteVpcBlockPublicAccessExclusion(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteVpcBlockPublicAccessExclusionResponse"},
 		RequestID: reqID,
@@ -2430,7 +2800,10 @@ func (h *Handler) handleStubDeleteVpcEncryptionControl(_ url.Values, reqID strin
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteVpcEndpointConnectionNotifications(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteVpcEndpointConnectionNotifications(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteVpcEndpointConnectionNotificationsResponse"},
 		RequestID: reqID,
@@ -2438,7 +2811,10 @@ func (h *Handler) handleStubDeleteVpcEndpointConnectionNotifications(_ url.Value
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteVpcEndpointServiceConfigurations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteVpcEndpointServiceConfigurations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteVpcEndpointServiceConfigurationsResponse"},
 		RequestID: reqID,
@@ -2447,11 +2823,19 @@ func (h *Handler) handleStubDeleteVpcEndpointServiceConfigurations(_ url.Values,
 }
 
 func (h *Handler) handleStubDeleteVpnConcentrator(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteVpnConcentratorResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteVpnConcentratorResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteVpnConnection(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteVpnConnectionResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteVpnConnectionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeleteVpnConnectionRoute(_ url.Values, reqID string) (any, error) {
@@ -2463,15 +2847,27 @@ func (h *Handler) handleStubDeleteVpnConnectionRoute(_ url.Values, reqID string)
 }
 
 func (h *Handler) handleStubDeleteVpnGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteVpnGatewayResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteVpnGatewayResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeprovisionByoipCidr(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeprovisionByoipCidrResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeprovisionByoipCidrResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeprovisionIpamByoasn(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeprovisionIpamByoasnResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeprovisionIpamByoasnResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeprovisionIpamPoolCidr(_ url.Values, reqID string) (any, error) {
@@ -2482,7 +2878,10 @@ func (h *Handler) handleStubDeprovisionIpamPoolCidr(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubDeregisterInstanceEventNotificationAttributes(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeregisterInstanceEventNotificationAttributes(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeregisterInstanceEventNotificationAttributesResponse"},
 		RequestID: reqID,
@@ -2490,7 +2889,10 @@ func (h *Handler) handleStubDeregisterInstanceEventNotificationAttributes(_ url.
 	}, nil
 }
 
-func (h *Handler) handleStubDeregisterTransitGatewayMulticastGroupMembers(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeregisterTransitGatewayMulticastGroupMembers(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeregisterTransitGatewayMulticastGroupMembersResponse"},
 		RequestID: reqID,
@@ -2498,7 +2900,10 @@ func (h *Handler) handleStubDeregisterTransitGatewayMulticastGroupMembers(_ url.
 	}, nil
 }
 
-func (h *Handler) handleStubDeregisterTransitGatewayMulticastGroupSources(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeregisterTransitGatewayMulticastGroupSources(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeregisterTransitGatewayMulticastGroupSourcesResponse"},
 		RequestID: reqID,
@@ -2538,7 +2943,10 @@ func (h *Handler) handleStubDescribeAggregateIDFormat(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeAwsNetworkPerformanceMetricSubscriptions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeAwsNetworkPerformanceMetricSubscriptions(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeAwsNetworkPerformanceMetricSubscriptionsResponse"},
 		RequestID: reqID,
@@ -2547,10 +2955,17 @@ func (h *Handler) handleStubDescribeAwsNetworkPerformanceMetricSubscriptions(_ u
 }
 
 func (h *Handler) handleStubDescribeBundleTasks(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeBundleTasksResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeBundleTasksResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubDescribeCapacityBlockExtensionHistory(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeCapacityBlockExtensionHistory(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeCapacityBlockExtensionHistoryResponse"},
 		RequestID: reqID,
@@ -2558,7 +2973,10 @@ func (h *Handler) handleStubDescribeCapacityBlockExtensionHistory(_ url.Values, 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeCapacityBlockExtensionOfferings(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeCapacityBlockExtensionOfferings(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeCapacityBlockExtensionOfferingsResponse"},
 		RequestID: reqID,
@@ -2566,7 +2984,10 @@ func (h *Handler) handleStubDescribeCapacityBlockExtensionOfferings(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeCapacityBlockOfferings(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeCapacityBlockOfferings(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeCapacityBlockOfferingsResponse"},
 		RequestID: reqID,
@@ -2590,7 +3011,10 @@ func (h *Handler) handleStubDescribeCapacityBlocks(_ url.Values, reqID string) (
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeCapacityManagerDataExports(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeCapacityManagerDataExports(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeCapacityManagerDataExportsResponse"},
 		RequestID: reqID,
@@ -2598,7 +3022,10 @@ func (h *Handler) handleStubDescribeCapacityManagerDataExports(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeCapacityReservationBillingRequests(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeCapacityReservationBillingRequests(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeCapacityReservationBillingRequestsResponse"},
 		RequestID: reqID,
@@ -2606,7 +3033,10 @@ func (h *Handler) handleStubDescribeCapacityReservationBillingRequests(_ url.Val
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeCapacityReservationFleets(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeCapacityReservationFleets(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeCapacityReservationFleetsResponse"},
 		RequestID: reqID,
@@ -2614,7 +3044,10 @@ func (h *Handler) handleStubDescribeCapacityReservationFleets(_ url.Values, reqI
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeCapacityReservationTopology(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeCapacityReservationTopology(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeCapacityReservationTopologyResponse"},
 		RequestID: reqID,
@@ -2638,7 +3071,10 @@ func (h *Handler) handleStubDescribeClassicLinkInstances(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeClientVpnAuthorizationRules(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeClientVpnAuthorizationRules(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeClientVpnAuthorizationRulesResponse"},
 		RequestID: reqID,
@@ -2670,7 +3106,10 @@ func (h *Handler) handleStubDescribeClientVpnRoutes(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeClientVpnTargetNetworks(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeClientVpnTargetNetworks(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeClientVpnTargetNetworksResponse"},
 		RequestID: reqID,
@@ -2679,7 +3118,11 @@ func (h *Handler) handleStubDescribeClientVpnTargetNetworks(_ url.Values, reqID 
 }
 
 func (h *Handler) handleStubDescribeCoipPools(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeCoipPoolsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeCoipPoolsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribeConversionTasks(_ url.Values, reqID string) (any, error) {
@@ -2698,7 +3141,10 @@ func (h *Handler) handleStubDescribeCustomerGateways(_ url.Values, reqID string)
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeDeclarativePoliciesReports(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeDeclarativePoliciesReports(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeDeclarativePoliciesReportsResponse"},
 		RequestID: reqID,
@@ -2707,7 +3153,11 @@ func (h *Handler) handleStubDescribeDeclarativePoliciesReports(_ url.Values, req
 }
 
 func (h *Handler) handleStubDescribeElasticGpus(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeElasticGpusResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeElasticGpusResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribeExportImageTasks(_ url.Values, reqID string) (any, error) {
@@ -2719,7 +3169,11 @@ func (h *Handler) handleStubDescribeExportImageTasks(_ url.Values, reqID string)
 }
 
 func (h *Handler) handleStubDescribeExportTasks(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeExportTasksResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeExportTasksResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribeFastLaunchImages(_ url.Values, reqID string) (any, error) {
@@ -2739,7 +3193,11 @@ func (h *Handler) handleStubDescribeFastSnapshotRestores(_ url.Values, reqID str
 }
 
 func (h *Handler) handleStubDescribeFleetHistory(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeFleetHistoryResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeFleetHistoryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribeFleetInstances(_ url.Values, reqID string) (any, error) {
@@ -2751,7 +3209,11 @@ func (h *Handler) handleStubDescribeFleetInstances(_ url.Values, reqID string) (
 }
 
 func (h *Handler) handleStubDescribeFleets(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeFleetsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeFleetsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribeFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
@@ -2763,10 +3225,17 @@ func (h *Handler) handleStubDescribeFpgaImageAttribute(_ url.Values, reqID strin
 }
 
 func (h *Handler) handleStubDescribeFpgaImages(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeFpgaImagesResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeFpgaImagesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubDescribeHostReservationOfferings(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeHostReservationOfferings(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeHostReservationOfferingsResponse"},
 		RequestID: reqID,
@@ -2783,7 +3252,11 @@ func (h *Handler) handleStubDescribeHostReservations(_ url.Values, reqID string)
 }
 
 func (h *Handler) handleStubDescribeIDFormat(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeIdFormatResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIdFormatResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribeIdentityIDFormat(_ url.Values, reqID string) (any, error) {
@@ -2802,7 +3275,10 @@ func (h *Handler) handleStubDescribeImageReferences(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeImageUsageReportEntries(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeImageUsageReportEntries(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeImageUsageReportEntriesResponse"},
 		RequestID: reqID,
@@ -2826,7 +3302,10 @@ func (h *Handler) handleStubDescribeImportSnapshotTasks(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeInstanceConnectEndpoints(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeInstanceConnectEndpoints(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeInstanceConnectEndpointsResponse"},
 		RequestID: reqID,
@@ -2834,7 +3313,10 @@ func (h *Handler) handleStubDescribeInstanceConnectEndpoints(_ url.Values, reqID
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeInstanceCreditSpecifications(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeInstanceCreditSpecifications(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeInstanceCreditSpecificationsResponse"},
 		RequestID: reqID,
@@ -2842,7 +3324,10 @@ func (h *Handler) handleStubDescribeInstanceCreditSpecifications(_ url.Values, r
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeInstanceEventNotificationAttributes(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeInstanceEventNotificationAttributes(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeInstanceEventNotificationAttributesResponse"},
 		RequestID: reqID,
@@ -2866,7 +3351,10 @@ func (h *Handler) handleStubDescribeInstanceImageMetadata(_ url.Values, reqID st
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeInstanceSQLHaHistoryStates(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeInstanceSQLHaHistoryStates(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeInstanceSqlHaHistoryStatesResponse"},
 		RequestID: reqID,
@@ -2891,10 +3379,17 @@ func (h *Handler) handleStubDescribeInstanceTopology(_ url.Values, reqID string)
 }
 
 func (h *Handler) handleStubDescribeIpamByoasn(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeIpamByoasnResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIpamByoasnResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubDescribeIpamExternalResourceVerificationTokens(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeIpamExternalResourceVerificationTokens(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeIpamExternalResourceVerificationTokensResponse"},
 		RequestID: reqID,
@@ -2903,14 +3398,25 @@ func (h *Handler) handleStubDescribeIpamExternalResourceVerificationTokens(_ url
 }
 
 func (h *Handler) handleStubDescribeIpamPolicies(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeIpamPoliciesResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIpamPoliciesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribeIpamPools(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeIpamPoolsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIpamPoolsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubDescribeIpamPrefixListResolverTargets(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeIpamPrefixListResolverTargets(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeIpamPrefixListResolverTargetsResponse"},
 		RequestID: reqID,
@@ -2918,7 +3424,10 @@ func (h *Handler) handleStubDescribeIpamPrefixListResolverTargets(_ url.Values, 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeIpamPrefixListResolvers(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeIpamPrefixListResolvers(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeIpamPrefixListResolversResponse"},
 		RequestID: reqID,
@@ -2926,7 +3435,10 @@ func (h *Handler) handleStubDescribeIpamPrefixListResolvers(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeIpamResourceDiscoveries(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeIpamResourceDiscoveries(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeIpamResourceDiscoveriesResponse"},
 		RequestID: reqID,
@@ -2934,7 +3446,10 @@ func (h *Handler) handleStubDescribeIpamResourceDiscoveries(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeIpamResourceDiscoveryAssociations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeIpamResourceDiscoveryAssociations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeIpamResourceDiscoveryAssociationsResponse"},
 		RequestID: reqID,
@@ -2943,11 +3458,19 @@ func (h *Handler) handleStubDescribeIpamResourceDiscoveryAssociations(_ url.Valu
 }
 
 func (h *Handler) handleStubDescribeIpamScopes(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeIpamScopesResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIpamScopesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribeIpams(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeIpamsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIpamsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations(
@@ -2955,13 +3478,18 @@ func (h *Handler) handleStubDescribeLocalGatewayRouteTableVirtualInterfaceGroupA
 	reqID string,
 ) (any, error) {
 	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociationsResponse"},
+		XMLName: xml.Name{
+			Local: "DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociationsResponse",
+		},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeLocalGatewayRouteTableVpcAssociations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeLocalGatewayRouteTableVpcAssociations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeLocalGatewayRouteTableVpcAssociationsResponse"},
 		RequestID: reqID,
@@ -2969,7 +3497,10 @@ func (h *Handler) handleStubDescribeLocalGatewayRouteTableVpcAssociations(_ url.
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeLocalGatewayRouteTables(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeLocalGatewayRouteTables(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeLocalGatewayRouteTablesResponse"},
 		RequestID: reqID,
@@ -2977,7 +3508,10 @@ func (h *Handler) handleStubDescribeLocalGatewayRouteTables(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeLocalGatewayVirtualInterfaceGroups(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeLocalGatewayVirtualInterfaceGroups(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeLocalGatewayVirtualInterfaceGroupsResponse"},
 		RequestID: reqID,
@@ -2985,7 +3519,10 @@ func (h *Handler) handleStubDescribeLocalGatewayVirtualInterfaceGroups(_ url.Val
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeLocalGatewayVirtualInterfaces(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeLocalGatewayVirtualInterfaces(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeLocalGatewayVirtualInterfacesResponse"},
 		RequestID: reqID,
@@ -2994,7 +3531,11 @@ func (h *Handler) handleStubDescribeLocalGatewayVirtualInterfaces(_ url.Values, 
 }
 
 func (h *Handler) handleStubDescribeLocalGateways(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeLocalGatewaysResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeLocalGatewaysResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribeLockedSnapshots(_ url.Values, reqID string) (any, error) {
@@ -3006,7 +3547,11 @@ func (h *Handler) handleStubDescribeLockedSnapshots(_ url.Values, reqID string) 
 }
 
 func (h *Handler) handleStubDescribeMacHosts(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeMacHostsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeMacHostsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribeMacModificationTasks(_ url.Values, reqID string) (any, error) {
@@ -3033,7 +3578,10 @@ func (h *Handler) handleStubDescribeMovingAddresses(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeNetworkInsightsAccessScopeAnalyses(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeNetworkInsightsAccessScopeAnalyses(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeNetworkInsightsAccessScopeAnalysesResponse"},
 		RequestID: reqID,
@@ -3041,7 +3589,10 @@ func (h *Handler) handleStubDescribeNetworkInsightsAccessScopeAnalyses(_ url.Val
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeNetworkInsightsAccessScopes(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeNetworkInsightsAccessScopes(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeNetworkInsightsAccessScopesResponse"},
 		RequestID: reqID,
@@ -3049,7 +3600,10 @@ func (h *Handler) handleStubDescribeNetworkInsightsAccessScopes(_ url.Values, re
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeNetworkInsightsAnalyses(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeNetworkInsightsAnalyses(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeNetworkInsightsAnalysesResponse"},
 		RequestID: reqID,
@@ -3065,7 +3619,10 @@ func (h *Handler) handleStubDescribeNetworkInsightsPaths(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeNetworkInterfaceAttribute(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeNetworkInterfaceAttribute(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeNetworkInterfaceAttributeResponse"},
 		RequestID: reqID,
@@ -3073,7 +3630,10 @@ func (h *Handler) handleStubDescribeNetworkInterfaceAttribute(_ url.Values, reqI
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeNetworkInterfacePermissions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeNetworkInterfacePermissions(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeNetworkInterfacePermissionsResponse"},
 		RequestID: reqID,
@@ -3082,11 +3642,19 @@ func (h *Handler) handleStubDescribeNetworkInterfacePermissions(_ url.Values, re
 }
 
 func (h *Handler) handleStubDescribeOutpostLags(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeOutpostLagsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeOutpostLagsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribePrefixLists(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribePrefixListsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribePrefixListsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribePrincipalIDFormat(_ url.Values, reqID string) (any, error) {
@@ -3097,7 +3665,10 @@ func (h *Handler) handleStubDescribePrincipalIDFormat(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeReplaceRootVolumeTasks(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeReplaceRootVolumeTasks(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeReplaceRootVolumeTasksResponse"},
 		RequestID: reqID,
@@ -3113,7 +3684,10 @@ func (h *Handler) handleStubDescribeReservedInstances(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeReservedInstancesListings(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeReservedInstancesListings(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeReservedInstancesListingsResponse"},
 		RequestID: reqID,
@@ -3121,7 +3695,10 @@ func (h *Handler) handleStubDescribeReservedInstancesListings(_ url.Values, reqI
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeReservedInstancesModifications(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeReservedInstancesModifications(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeReservedInstancesModificationsResponse"},
 		RequestID: reqID,
@@ -3129,7 +3706,10 @@ func (h *Handler) handleStubDescribeReservedInstancesModifications(_ url.Values,
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeReservedInstancesOfferings(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeReservedInstancesOfferings(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeReservedInstancesOfferingsResponse"},
 		RequestID: reqID,
@@ -3154,10 +3734,17 @@ func (h *Handler) handleStubDescribeRouteServerPeers(_ url.Values, reqID string)
 }
 
 func (h *Handler) handleStubDescribeRouteServers(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeRouteServersResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeRouteServersResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubDescribeScheduledInstanceAvailability(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeScheduledInstanceAvailability(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeScheduledInstanceAvailabilityResponse"},
 		RequestID: reqID,
@@ -3197,7 +3784,10 @@ func (h *Handler) handleStubDescribeSecondarySubnets(_ url.Values, reqID string)
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeSecurityGroupReferences(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeSecurityGroupReferences(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeSecurityGroupReferencesResponse"},
 		RequestID: reqID,
@@ -3205,7 +3795,10 @@ func (h *Handler) handleStubDescribeSecurityGroupReferences(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeSecurityGroupVpcAssociations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeSecurityGroupVpcAssociations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeSecurityGroupVpcAssociationsResponse"},
 		RequestID: reqID,
@@ -3213,7 +3806,10 @@ func (h *Handler) handleStubDescribeSecurityGroupVpcAssociations(_ url.Values, r
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeServiceLinkVirtualInterfaces(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeServiceLinkVirtualInterfaces(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeServiceLinkVirtualInterfacesResponse"},
 		RequestID: reqID,
@@ -3229,7 +3825,10 @@ func (h *Handler) handleStubDescribeSnapshotTierStatus(_ url.Values, reqID strin
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeSpotDatafeedSubscription(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeSpotDatafeedSubscription(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeSpotDatafeedSubscriptionResponse"},
 		RequestID: reqID,
@@ -3245,7 +3844,10 @@ func (h *Handler) handleStubDescribeSpotFleetInstances(_ url.Values, reqID strin
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeSpotFleetRequestHistory(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeSpotFleetRequestHistory(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeSpotFleetRequestHistoryResponse"},
 		RequestID: reqID,
@@ -3277,7 +3879,10 @@ func (h *Handler) handleStubDescribeStoreImageTasks(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTrafficMirrorFilterRules(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeTrafficMirrorFilterRules(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeTrafficMirrorFilterRulesResponse"},
 		RequestID: reqID,
@@ -3309,7 +3914,10 @@ func (h *Handler) handleStubDescribeTrafficMirrorTargets(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTransitGatewayAttachments(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeTransitGatewayAttachments(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeTransitGatewayAttachmentsResponse"},
 		RequestID: reqID,
@@ -3317,7 +3925,10 @@ func (h *Handler) handleStubDescribeTransitGatewayAttachments(_ url.Values, reqI
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTransitGatewayConnectPeers(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeTransitGatewayConnectPeers(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeTransitGatewayConnectPeersResponse"},
 		RequestID: reqID,
@@ -3325,7 +3936,10 @@ func (h *Handler) handleStubDescribeTransitGatewayConnectPeers(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTransitGatewayConnects(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeTransitGatewayConnects(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeTransitGatewayConnectsResponse"},
 		RequestID: reqID,
@@ -3333,7 +3947,10 @@ func (h *Handler) handleStubDescribeTransitGatewayConnects(_ url.Values, reqID s
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTransitGatewayMeteringPolicies(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeTransitGatewayMeteringPolicies(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeTransitGatewayMeteringPoliciesResponse"},
 		RequestID: reqID,
@@ -3341,7 +3958,10 @@ func (h *Handler) handleStubDescribeTransitGatewayMeteringPolicies(_ url.Values,
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTransitGatewayMulticastDomains(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeTransitGatewayMulticastDomains(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeTransitGatewayMulticastDomainsResponse"},
 		RequestID: reqID,
@@ -3349,7 +3969,10 @@ func (h *Handler) handleStubDescribeTransitGatewayMulticastDomains(_ url.Values,
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTransitGatewayPeeringAttachments(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeTransitGatewayPeeringAttachments(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeTransitGatewayPeeringAttachmentsResponse"},
 		RequestID: reqID,
@@ -3357,7 +3980,10 @@ func (h *Handler) handleStubDescribeTransitGatewayPeeringAttachments(_ url.Value
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTransitGatewayPolicyTables(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeTransitGatewayPolicyTables(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeTransitGatewayPolicyTablesResponse"},
 		RequestID: reqID,
@@ -3365,7 +3991,10 @@ func (h *Handler) handleStubDescribeTransitGatewayPolicyTables(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTransitGatewayRouteTableAnnouncements(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeTransitGatewayRouteTableAnnouncements(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeTransitGatewayRouteTableAnnouncementsResponse"},
 		RequestID: reqID,
@@ -3373,7 +4002,10 @@ func (h *Handler) handleStubDescribeTransitGatewayRouteTableAnnouncements(_ url.
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTrunkInterfaceAssociations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeTrunkInterfaceAssociations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeTrunkInterfaceAssociationsResponse"},
 		RequestID: reqID,
@@ -3381,7 +4013,10 @@ func (h *Handler) handleStubDescribeTrunkInterfaceAssociations(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVerifiedAccessEndpoints(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeVerifiedAccessEndpoints(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVerifiedAccessEndpointsResponse"},
 		RequestID: reqID,
@@ -3408,7 +4043,10 @@ func (h *Handler) handleStubDescribeVerifiedAccessInstanceLoggingConfigurations(
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVerifiedAccessInstances(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeVerifiedAccessInstances(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVerifiedAccessInstancesResponse"},
 		RequestID: reqID,
@@ -3416,7 +4054,10 @@ func (h *Handler) handleStubDescribeVerifiedAccessInstances(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVerifiedAccessTrustProviders(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeVerifiedAccessTrustProviders(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVerifiedAccessTrustProvidersResponse"},
 		RequestID: reqID,
@@ -3425,7 +4066,11 @@ func (h *Handler) handleStubDescribeVerifiedAccessTrustProviders(_ url.Values, r
 }
 
 func (h *Handler) handleStubDescribeVolumeStatus(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeVolumeStatusResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVolumeStatusResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribeVolumesModifications(_ url.Values, reqID string) (any, error) {
@@ -3436,7 +4081,10 @@ func (h *Handler) handleStubDescribeVolumesModifications(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVpcBlockPublicAccessExclusions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeVpcBlockPublicAccessExclusions(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpcBlockPublicAccessExclusionsResponse"},
 		RequestID: reqID,
@@ -3444,7 +4092,10 @@ func (h *Handler) handleStubDescribeVpcBlockPublicAccessExclusions(_ url.Values,
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVpcBlockPublicAccessOptions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeVpcBlockPublicAccessOptions(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpcBlockPublicAccessOptionsResponse"},
 		RequestID: reqID,
@@ -3460,7 +4111,10 @@ func (h *Handler) handleStubDescribeVpcClassicLink(_ url.Values, reqID string) (
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVpcClassicLinkDNSSupport(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeVpcClassicLinkDNSSupport(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpcClassicLinkDnsSupportResponse"},
 		RequestID: reqID,
@@ -3476,7 +4130,10 @@ func (h *Handler) handleStubDescribeVpcEncryptionControls(_ url.Values, reqID st
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVpcEndpointAssociations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeVpcEndpointAssociations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpcEndpointAssociationsResponse"},
 		RequestID: reqID,
@@ -3484,7 +4141,10 @@ func (h *Handler) handleStubDescribeVpcEndpointAssociations(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVpcEndpointConnectionNotifications(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeVpcEndpointConnectionNotifications(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpcEndpointConnectionNotificationsResponse"},
 		RequestID: reqID,
@@ -3492,7 +4152,10 @@ func (h *Handler) handleStubDescribeVpcEndpointConnectionNotifications(_ url.Val
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVpcEndpointConnections(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeVpcEndpointConnections(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpcEndpointConnectionsResponse"},
 		RequestID: reqID,
@@ -3500,7 +4163,10 @@ func (h *Handler) handleStubDescribeVpcEndpointConnections(_ url.Values, reqID s
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVpcEndpointServiceConfigurations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeVpcEndpointServiceConfigurations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpcEndpointServiceConfigurationsResponse"},
 		RequestID: reqID,
@@ -3508,7 +4174,10 @@ func (h *Handler) handleStubDescribeVpcEndpointServiceConfigurations(_ url.Value
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVpcEndpointServicePermissions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDescribeVpcEndpointServicePermissions(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpcEndpointServicePermissionsResponse"},
 		RequestID: reqID,
@@ -3533,14 +4202,25 @@ func (h *Handler) handleStubDescribeVpnConnections(_ url.Values, reqID string) (
 }
 
 func (h *Handler) handleStubDescribeVpnGateways(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeVpnGatewaysResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpnGatewaysResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDetachClassicLinkVpc(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DetachClassicLinkVpcResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DetachClassicLinkVpcResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubDetachVerifiedAccessTrustProvider(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDetachVerifiedAccessTrustProvider(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DetachVerifiedAccessTrustProviderResponse"},
 		RequestID: reqID,
@@ -3549,7 +4229,11 @@ func (h *Handler) handleStubDetachVerifiedAccessTrustProvider(_ url.Values, reqI
 }
 
 func (h *Handler) handleStubDetachVpnGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DetachVpnGatewayResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DetachVpnGatewayResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDisableAddressTransfer(_ url.Values, reqID string) (any, error) {
@@ -3568,7 +4252,10 @@ func (h *Handler) handleStubDisableAllowedImagesSettings(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubDisableAwsNetworkPerformanceMetricSubscription(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisableAwsNetworkPerformanceMetricSubscription(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisableAwsNetworkPerformanceMetricSubscriptionResponse"},
 		RequestID: reqID,
@@ -3593,7 +4280,11 @@ func (h *Handler) handleStubDisableEbsEncryptionByDefault(_ url.Values, reqID st
 }
 
 func (h *Handler) handleStubDisableFastLaunch(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DisableFastLaunchResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableFastLaunchResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDisableFastSnapshotRestores(_ url.Values, reqID string) (any, error) {
@@ -3605,7 +4296,11 @@ func (h *Handler) handleStubDisableFastSnapshotRestores(_ url.Values, reqID stri
 }
 
 func (h *Handler) handleStubDisableImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DisableImageResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableImageResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDisableImageBlockPublicAccess(_ url.Values, reqID string) (any, error) {
@@ -3624,7 +4319,10 @@ func (h *Handler) handleStubDisableImageDeprecation(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubDisableImageDeregistrationProtection(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisableImageDeregistrationProtection(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisableImageDeregistrationProtectionResponse"},
 		RequestID: reqID,
@@ -3632,7 +4330,10 @@ func (h *Handler) handleStubDisableImageDeregistrationProtection(_ url.Values, r
 	}, nil
 }
 
-func (h *Handler) handleStubDisableInstanceSQLHaStandbyDetections(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisableInstanceSQLHaStandbyDetections(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisableInstanceSqlHaStandbyDetectionsResponse"},
 		RequestID: reqID,
@@ -3640,7 +4341,10 @@ func (h *Handler) handleStubDisableInstanceSQLHaStandbyDetections(_ url.Values, 
 	}, nil
 }
 
-func (h *Handler) handleStubDisableIpamOrganizationAdminAccount(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisableIpamOrganizationAdminAccount(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisableIpamOrganizationAdminAccountResponse"},
 		RequestID: reqID,
@@ -3649,7 +4353,11 @@ func (h *Handler) handleStubDisableIpamOrganizationAdminAccount(_ url.Values, re
 }
 
 func (h *Handler) handleStubDisableIpamPolicy(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DisableIpamPolicyResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableIpamPolicyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDisableRouteServerPropagation(_ url.Values, reqID string) (any, error) {
@@ -3668,7 +4376,10 @@ func (h *Handler) handleStubDisableSerialConsoleAccess(_ url.Values, reqID strin
 	}, nil
 }
 
-func (h *Handler) handleStubDisableSnapshotBlockPublicAccess(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisableSnapshotBlockPublicAccess(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisableSnapshotBlockPublicAccessResponse"},
 		RequestID: reqID,
@@ -3676,7 +4387,10 @@ func (h *Handler) handleStubDisableSnapshotBlockPublicAccess(_ url.Values, reqID
 	}, nil
 }
 
-func (h *Handler) handleStubDisableTransitGatewayRouteTablePropagation(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisableTransitGatewayRouteTablePropagation(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisableTransitGatewayRouteTablePropagationResponse"},
 		RequestID: reqID,
@@ -3693,10 +4407,17 @@ func (h *Handler) handleStubDisableVgwRoutePropagation(_ url.Values, reqID strin
 }
 
 func (h *Handler) handleStubDisableVpcClassicLink(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DisableVpcClassicLinkResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableVpcClassicLinkResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubDisableVpcClassicLinkDNSSupport(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisableVpcClassicLinkDNSSupport(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisableVpcClassicLinkDnsSupportResponse"},
 		RequestID: reqID,
@@ -3704,7 +4425,10 @@ func (h *Handler) handleStubDisableVpcClassicLinkDNSSupport(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubDisassociateCapacityReservationBillingOwner(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisassociateCapacityReservationBillingOwner(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateCapacityReservationBillingOwnerResponse"},
 		RequestID: reqID,
@@ -3712,7 +4436,10 @@ func (h *Handler) handleStubDisassociateCapacityReservationBillingOwner(_ url.Va
 	}, nil
 }
 
-func (h *Handler) handleStubDisassociateClientVpnTargetNetwork(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisassociateClientVpnTargetNetwork(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateClientVpnTargetNetworkResponse"},
 		RequestID: reqID,
@@ -3720,7 +4447,10 @@ func (h *Handler) handleStubDisassociateClientVpnTargetNetwork(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubDisassociateEnclaveCertificateIamRole(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisassociateEnclaveCertificateIamRole(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateEnclaveCertificateIamRoleResponse"},
 		RequestID: reqID,
@@ -3728,7 +4458,10 @@ func (h *Handler) handleStubDisassociateEnclaveCertificateIamRole(_ url.Values, 
 	}, nil
 }
 
-func (h *Handler) handleStubDisassociateInstanceEventWindow(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisassociateInstanceEventWindow(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateInstanceEventWindowResponse"},
 		RequestID: reqID,
@@ -3744,7 +4477,10 @@ func (h *Handler) handleStubDisassociateIpamByoasn(_ url.Values, reqID string) (
 	}, nil
 }
 
-func (h *Handler) handleStubDisassociateIpamResourceDiscovery(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisassociateIpamResourceDiscovery(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateIpamResourceDiscoveryResponse"},
 		RequestID: reqID,
@@ -3784,7 +4520,10 @@ func (h *Handler) handleStubDisassociateSubnetCidrBlock(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubDisassociateTransitGatewayMulticastDomain(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisassociateTransitGatewayMulticastDomain(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateTransitGatewayMulticastDomainResponse"},
 		RequestID: reqID,
@@ -3792,7 +4531,10 @@ func (h *Handler) handleStubDisassociateTransitGatewayMulticastDomain(_ url.Valu
 	}, nil
 }
 
-func (h *Handler) handleStubDisassociateTransitGatewayPolicyTable(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDisassociateTransitGatewayPolicyTable(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateTransitGatewayPolicyTableResponse"},
 		RequestID: reqID,
@@ -3817,7 +4559,11 @@ func (h *Handler) handleStubDisassociateVpcCidrBlock(_ url.Values, reqID string)
 }
 
 func (h *Handler) handleStubEnableAddressTransfer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "EnableAddressTransferResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableAddressTransferResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubEnableAllowedImagesSettings(_ url.Values, reqID string) (any, error) {
@@ -3828,7 +4574,10 @@ func (h *Handler) handleStubEnableAllowedImagesSettings(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubEnableAwsNetworkPerformanceMetricSubscription(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubEnableAwsNetworkPerformanceMetricSubscription(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableAwsNetworkPerformanceMetricSubscriptionResponse"},
 		RequestID: reqID,
@@ -3837,7 +4586,11 @@ func (h *Handler) handleStubEnableAwsNetworkPerformanceMetricSubscription(_ url.
 }
 
 func (h *Handler) handleStubEnableCapacityManager(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "EnableCapacityManagerResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableCapacityManagerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubEnableEbsEncryptionByDefault(_ url.Values, reqID string) (any, error) {
@@ -3849,7 +4602,11 @@ func (h *Handler) handleStubEnableEbsEncryptionByDefault(_ url.Values, reqID str
 }
 
 func (h *Handler) handleStubEnableFastLaunch(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "EnableFastLaunchResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableFastLaunchResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubEnableFastSnapshotRestores(_ url.Values, reqID string) (any, error) {
@@ -3861,7 +4618,11 @@ func (h *Handler) handleStubEnableFastSnapshotRestores(_ url.Values, reqID strin
 }
 
 func (h *Handler) handleStubEnableImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "EnableImageResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableImageResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubEnableImageBlockPublicAccess(_ url.Values, reqID string) (any, error) {
@@ -3880,7 +4641,10 @@ func (h *Handler) handleStubEnableImageDeprecation(_ url.Values, reqID string) (
 	}, nil
 }
 
-func (h *Handler) handleStubEnableImageDeregistrationProtection(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubEnableImageDeregistrationProtection(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableImageDeregistrationProtectionResponse"},
 		RequestID: reqID,
@@ -3888,7 +4652,10 @@ func (h *Handler) handleStubEnableImageDeregistrationProtection(_ url.Values, re
 	}, nil
 }
 
-func (h *Handler) handleStubEnableInstanceSQLHaStandbyDetections(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubEnableInstanceSQLHaStandbyDetections(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableInstanceSqlHaStandbyDetectionsResponse"},
 		RequestID: reqID,
@@ -3896,7 +4663,10 @@ func (h *Handler) handleStubEnableInstanceSQLHaStandbyDetections(_ url.Values, r
 	}, nil
 }
 
-func (h *Handler) handleStubEnableIpamOrganizationAdminAccount(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubEnableIpamOrganizationAdminAccount(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableIpamOrganizationAdminAccountResponse"},
 		RequestID: reqID,
@@ -3905,10 +4675,17 @@ func (h *Handler) handleStubEnableIpamOrganizationAdminAccount(_ url.Values, req
 }
 
 func (h *Handler) handleStubEnableIpamPolicy(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "EnableIpamPolicyResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableIpamPolicyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubEnableReachabilityAnalyzerOrganizationSharing(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubEnableReachabilityAnalyzerOrganizationSharing(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableReachabilityAnalyzerOrganizationSharingResponse"},
 		RequestID: reqID,
@@ -3932,7 +4709,10 @@ func (h *Handler) handleStubEnableSerialConsoleAccess(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubEnableSnapshotBlockPublicAccess(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubEnableSnapshotBlockPublicAccess(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableSnapshotBlockPublicAccessResponse"},
 		RequestID: reqID,
@@ -3940,7 +4720,10 @@ func (h *Handler) handleStubEnableSnapshotBlockPublicAccess(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubEnableTransitGatewayRouteTablePropagation(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubEnableTransitGatewayRouteTablePropagation(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableTransitGatewayRouteTablePropagationResponse"},
 		RequestID: reqID,
@@ -3957,14 +4740,25 @@ func (h *Handler) handleStubEnableVgwRoutePropagation(_ url.Values, reqID string
 }
 
 func (h *Handler) handleStubEnableVolumeIO(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "EnableVolumeIOResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableVolumeIOResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubEnableVpcClassicLink(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "EnableVpcClassicLinkResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableVpcClassicLinkResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubEnableVpcClassicLinkDNSSupport(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubEnableVpcClassicLinkDNSSupport(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableVpcClassicLinkDnsSupportResponse"},
 		RequestID: reqID,
@@ -3972,7 +4766,10 @@ func (h *Handler) handleStubEnableVpcClassicLinkDNSSupport(_ url.Values, reqID s
 	}, nil
 }
 
-func (h *Handler) handleStubExportClientVpnClientCertificateRevocationList(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubExportClientVpnClientCertificateRevocationList(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ExportClientVpnClientCertificateRevocationListResponse"},
 		RequestID: reqID,
@@ -3980,7 +4777,10 @@ func (h *Handler) handleStubExportClientVpnClientCertificateRevocationList(_ url
 	}, nil
 }
 
-func (h *Handler) handleStubExportClientVpnClientConfiguration(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubExportClientVpnClientConfiguration(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ExportClientVpnClientConfigurationResponse"},
 		RequestID: reqID,
@@ -3989,7 +4789,11 @@ func (h *Handler) handleStubExportClientVpnClientConfiguration(_ url.Values, req
 }
 
 func (h *Handler) handleStubExportImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ExportImageResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ExportImageResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubExportTransitGatewayRoutes(_ url.Values, reqID string) (any, error) {
@@ -4000,7 +4804,10 @@ func (h *Handler) handleStubExportTransitGatewayRoutes(_ url.Values, reqID strin
 	}, nil
 }
 
-func (h *Handler) handleStubExportVerifiedAccessInstanceClientConfiguration(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubExportVerifiedAccessInstanceClientConfiguration(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ExportVerifiedAccessInstanceClientConfigurationResponse"},
 		RequestID: reqID,
@@ -4024,7 +4831,10 @@ func (h *Handler) handleStubGetAllowedImagesSettings(_ url.Values, reqID string)
 	}, nil
 }
 
-func (h *Handler) handleStubGetAssociatedEnclaveCertificateIamRoles(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetAssociatedEnclaveCertificateIamRoles(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetAssociatedEnclaveCertificateIamRolesResponse"},
 		RequestID: reqID,
@@ -4056,7 +4866,10 @@ func (h *Handler) handleStubGetCapacityManagerMetricData(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubGetCapacityManagerMetricDimensions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetCapacityManagerMetricDimensions(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetCapacityManagerMetricDimensionsResponse"},
 		RequestID: reqID,
@@ -4073,18 +4886,33 @@ func (h *Handler) handleStubGetCapacityReservationUsage(_ url.Values, reqID stri
 }
 
 func (h *Handler) handleStubGetCoipPoolUsage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetCoipPoolUsageResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetCoipPoolUsageResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubGetConsoleOutput(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetConsoleOutputResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetConsoleOutputResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubGetConsoleScreenshot(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetConsoleScreenshotResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetConsoleScreenshotResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubGetDeclarativePoliciesReportSummary(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetDeclarativePoliciesReportSummary(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetDeclarativePoliciesReportSummaryResponse"},
 		RequestID: reqID,
@@ -4101,7 +4929,11 @@ func (h *Handler) handleStubGetDefaultCreditSpecification(_ url.Values, reqID st
 }
 
 func (h *Handler) handleStubGetEbsDefaultKmsKeyID(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetEbsDefaultKmsKeyIdResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetEbsDefaultKmsKeyIdResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubGetEbsEncryptionByDefault(_ url.Values, reqID string) (any, error) {
@@ -4113,10 +4945,17 @@ func (h *Handler) handleStubGetEbsEncryptionByDefault(_ url.Values, reqID string
 }
 
 func (h *Handler) handleStubGetEnabledIpamPolicy(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetEnabledIpamPolicyResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetEnabledIpamPolicyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubGetFlowLogsIntegrationTemplate(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetFlowLogsIntegrationTemplate(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetFlowLogsIntegrationTemplateResponse"},
 		RequestID: reqID,
@@ -4124,7 +4963,10 @@ func (h *Handler) handleStubGetFlowLogsIntegrationTemplate(_ url.Values, reqID s
 	}, nil
 }
 
-func (h *Handler) handleStubGetGroupsForCapacityReservation(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetGroupsForCapacityReservation(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetGroupsForCapacityReservationResponse"},
 		RequestID: reqID,
@@ -4132,7 +4974,10 @@ func (h *Handler) handleStubGetGroupsForCapacityReservation(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubGetHostReservationPurchasePreview(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetHostReservationPurchasePreview(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetHostReservationPurchasePreviewResponse"},
 		RequestID: reqID,
@@ -4141,10 +4986,17 @@ func (h *Handler) handleStubGetHostReservationPurchasePreview(_ url.Values, reqI
 }
 
 func (h *Handler) handleStubGetImageAncestry(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetImageAncestryResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetImageAncestryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubGetImageBlockPublicAccessState(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetImageBlockPublicAccessState(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetImageBlockPublicAccessStateResponse"},
 		RequestID: reqID,
@@ -4161,10 +5013,17 @@ func (h *Handler) handleStubGetInstanceMetadataDefaults(_ url.Values, reqID stri
 }
 
 func (h *Handler) handleStubGetInstanceTpmEkPub(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetInstanceTpmEkPubResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetInstanceTpmEkPubResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubGetInstanceTypesFromInstanceRequirements(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetInstanceTypesFromInstanceRequirements(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetInstanceTypesFromInstanceRequirementsResponse"},
 		RequestID: reqID,
@@ -4173,11 +5032,19 @@ func (h *Handler) handleStubGetInstanceTypesFromInstanceRequirements(_ url.Value
 }
 
 func (h *Handler) handleStubGetInstanceUefiData(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetInstanceUefiDataResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetInstanceUefiDataResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubGetIpamAddressHistory(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetIpamAddressHistoryResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetIpamAddressHistoryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubGetIpamDiscoveredAccounts(_ url.Values, reqID string) (any, error) {
@@ -4188,7 +5055,10 @@ func (h *Handler) handleStubGetIpamDiscoveredAccounts(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubGetIpamDiscoveredPublicAddresses(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetIpamDiscoveredPublicAddresses(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetIpamDiscoveredPublicAddressesResponse"},
 		RequestID: reqID,
@@ -4196,7 +5066,10 @@ func (h *Handler) handleStubGetIpamDiscoveredPublicAddresses(_ url.Values, reqID
 	}, nil
 }
 
-func (h *Handler) handleStubGetIpamDiscoveredResourceCidrs(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetIpamDiscoveredResourceCidrs(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetIpamDiscoveredResourceCidrsResponse"},
 		RequestID: reqID,
@@ -4212,7 +5085,10 @@ func (h *Handler) handleStubGetIpamPolicyAllocationRules(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubGetIpamPolicyOrganizationTargets(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetIpamPolicyOrganizationTargets(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetIpamPolicyOrganizationTargetsResponse"},
 		RequestID: reqID,
@@ -4229,10 +5105,17 @@ func (h *Handler) handleStubGetIpamPoolAllocations(_ url.Values, reqID string) (
 }
 
 func (h *Handler) handleStubGetIpamPoolCidrs(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetIpamPoolCidrsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetIpamPoolCidrsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubGetIpamPrefixListResolverRules(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetIpamPrefixListResolverRules(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetIpamPrefixListResolverRulesResponse"},
 		RequestID: reqID,
@@ -4240,7 +5123,10 @@ func (h *Handler) handleStubGetIpamPrefixListResolverRules(_ url.Values, reqID s
 	}, nil
 }
 
-func (h *Handler) handleStubGetIpamPrefixListResolverVersionEntries(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetIpamPrefixListResolverVersionEntries(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetIpamPrefixListResolverVersionEntriesResponse"},
 		RequestID: reqID,
@@ -4248,7 +5134,10 @@ func (h *Handler) handleStubGetIpamPrefixListResolverVersionEntries(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubGetIpamPrefixListResolverVersions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetIpamPrefixListResolverVersions(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetIpamPrefixListResolverVersionsResponse"},
 		RequestID: reqID,
@@ -4257,10 +5146,17 @@ func (h *Handler) handleStubGetIpamPrefixListResolverVersions(_ url.Values, reqI
 }
 
 func (h *Handler) handleStubGetIpamResourceCidrs(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetIpamResourceCidrsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetIpamResourceCidrsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubGetManagedPrefixListAssociations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetManagedPrefixListAssociations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetManagedPrefixListAssociationsResponse"},
 		RequestID: reqID,
@@ -4276,7 +5172,10 @@ func (h *Handler) handleStubGetManagedPrefixListEntries(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubGetNetworkInsightsAccessScopeAnalysisFindings(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetNetworkInsightsAccessScopeAnalysisFindings(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetNetworkInsightsAccessScopeAnalysisFindingsResponse"},
 		RequestID: reqID,
@@ -4284,7 +5183,10 @@ func (h *Handler) handleStubGetNetworkInsightsAccessScopeAnalysisFindings(_ url.
 	}, nil
 }
 
-func (h *Handler) handleStubGetNetworkInsightsAccessScopeContent(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetNetworkInsightsAccessScopeContent(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetNetworkInsightsAccessScopeContentResponse"},
 		RequestID: reqID,
@@ -4293,10 +5195,17 @@ func (h *Handler) handleStubGetNetworkInsightsAccessScopeContent(_ url.Values, r
 }
 
 func (h *Handler) handleStubGetPasswordData(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetPasswordDataResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetPasswordDataResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubGetReservedInstancesExchangeQuote(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetReservedInstancesExchangeQuote(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetReservedInstancesExchangeQuoteResponse"},
 		RequestID: reqID,
@@ -4344,7 +5253,10 @@ func (h *Handler) handleStubGetSerialConsoleAccessStatus(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubGetSnapshotBlockPublicAccessState(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetSnapshotBlockPublicAccessState(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetSnapshotBlockPublicAccessStateResponse"},
 		RequestID: reqID,
@@ -4368,7 +5280,10 @@ func (h *Handler) handleStubGetSubnetCidrReservations(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubGetTransitGatewayAttachmentPropagations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetTransitGatewayAttachmentPropagations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetTransitGatewayAttachmentPropagationsResponse"},
 		RequestID: reqID,
@@ -4376,7 +5291,10 @@ func (h *Handler) handleStubGetTransitGatewayAttachmentPropagations(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubGetTransitGatewayMeteringPolicyEntries(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetTransitGatewayMeteringPolicyEntries(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetTransitGatewayMeteringPolicyEntriesResponse"},
 		RequestID: reqID,
@@ -4384,7 +5302,10 @@ func (h *Handler) handleStubGetTransitGatewayMeteringPolicyEntries(_ url.Values,
 	}, nil
 }
 
-func (h *Handler) handleStubGetTransitGatewayMulticastDomainAssociations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetTransitGatewayMulticastDomainAssociations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetTransitGatewayMulticastDomainAssociationsResponse"},
 		RequestID: reqID,
@@ -4392,7 +5313,10 @@ func (h *Handler) handleStubGetTransitGatewayMulticastDomainAssociations(_ url.V
 	}, nil
 }
 
-func (h *Handler) handleStubGetTransitGatewayPolicyTableAssociations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetTransitGatewayPolicyTableAssociations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetTransitGatewayPolicyTableAssociationsResponse"},
 		RequestID: reqID,
@@ -4400,7 +5324,10 @@ func (h *Handler) handleStubGetTransitGatewayPolicyTableAssociations(_ url.Value
 	}, nil
 }
 
-func (h *Handler) handleStubGetTransitGatewayPolicyTableEntries(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetTransitGatewayPolicyTableEntries(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetTransitGatewayPolicyTableEntriesResponse"},
 		RequestID: reqID,
@@ -4408,7 +5335,10 @@ func (h *Handler) handleStubGetTransitGatewayPolicyTableEntries(_ url.Values, re
 	}, nil
 }
 
-func (h *Handler) handleStubGetTransitGatewayPrefixListReferences(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetTransitGatewayPrefixListReferences(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetTransitGatewayPrefixListReferencesResponse"},
 		RequestID: reqID,
@@ -4416,7 +5346,10 @@ func (h *Handler) handleStubGetTransitGatewayPrefixListReferences(_ url.Values, 
 	}, nil
 }
 
-func (h *Handler) handleStubGetTransitGatewayRouteTableAssociations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetTransitGatewayRouteTableAssociations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetTransitGatewayRouteTableAssociationsResponse"},
 		RequestID: reqID,
@@ -4424,7 +5357,10 @@ func (h *Handler) handleStubGetTransitGatewayRouteTableAssociations(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubGetTransitGatewayRouteTablePropagations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetTransitGatewayRouteTablePropagations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetTransitGatewayRouteTablePropagationsResponse"},
 		RequestID: reqID,
@@ -4432,7 +5368,10 @@ func (h *Handler) handleStubGetTransitGatewayRouteTablePropagations(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubGetVerifiedAccessEndpointPolicy(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetVerifiedAccessEndpointPolicy(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetVerifiedAccessEndpointPolicyResponse"},
 		RequestID: reqID,
@@ -4440,7 +5379,10 @@ func (h *Handler) handleStubGetVerifiedAccessEndpointPolicy(_ url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleStubGetVerifiedAccessEndpointTargets(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetVerifiedAccessEndpointTargets(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetVerifiedAccessEndpointTargetsResponse"},
 		RequestID: reqID,
@@ -4456,7 +5398,10 @@ func (h *Handler) handleStubGetVerifiedAccessGroupPolicy(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubGetVpcResourcesBlockingEncryptionEnforcement(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetVpcResourcesBlockingEncryptionEnforcement(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetVpcResourcesBlockingEncryptionEnforcementResponse"},
 		RequestID: reqID,
@@ -4464,7 +5409,10 @@ func (h *Handler) handleStubGetVpcResourcesBlockingEncryptionEnforcement(_ url.V
 	}, nil
 }
 
-func (h *Handler) handleStubGetVpnConnectionDeviceSampleConfiguration(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubGetVpnConnectionDeviceSampleConfiguration(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetVpnConnectionDeviceSampleConfigurationResponse"},
 		RequestID: reqID,
@@ -4488,7 +5436,10 @@ func (h *Handler) handleStubGetVpnTunnelReplacementStatus(_ url.Values, reqID st
 	}, nil
 }
 
-func (h *Handler) handleStubImportClientVpnClientCertificateRevocationList(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubImportClientVpnClientCertificateRevocationList(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ImportClientVpnClientCertificateRevocationListResponse"},
 		RequestID: reqID,
@@ -4497,19 +5448,35 @@ func (h *Handler) handleStubImportClientVpnClientCertificateRevocationList(_ url
 }
 
 func (h *Handler) handleStubImportImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ImportImageResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ImportImageResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubImportInstance(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ImportInstanceResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ImportInstanceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubImportSnapshot(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ImportSnapshotResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ImportSnapshotResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubImportVolume(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ImportVolumeResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ImportVolumeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubListImagesInRecycleBin(_ url.Values, reqID string) (any, error) {
@@ -4537,7 +5504,11 @@ func (h *Handler) handleStubListVolumesInRecycleBin(_ url.Values, reqID string) 
 }
 
 func (h *Handler) handleStubLockSnapshot(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "LockSnapshotResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "LockSnapshotResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubModifyAddressAttribute(_ url.Values, reqID string) (any, error) {
@@ -4564,7 +5535,10 @@ func (h *Handler) handleStubModifyCapacityReservation(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubModifyCapacityReservationFleet(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyCapacityReservationFleet(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyCapacityReservationFleetResponse"},
 		RequestID: reqID,
@@ -4580,7 +5554,10 @@ func (h *Handler) handleStubModifyClientVpnEndpoint(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubModifyDefaultCreditSpecification(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyDefaultCreditSpecification(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyDefaultCreditSpecificationResponse"},
 		RequestID: reqID,
@@ -4597,7 +5574,11 @@ func (h *Handler) handleStubModifyEbsDefaultKmsKeyID(_ url.Values, reqID string)
 }
 
 func (h *Handler) handleStubModifyFleet(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyFleetResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyFleetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubModifyFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
@@ -4609,11 +5590,19 @@ func (h *Handler) handleStubModifyFpgaImageAttribute(_ url.Values, reqID string)
 }
 
 func (h *Handler) handleStubModifyHosts(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyHostsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyHostsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubModifyIDFormat(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyIdFormatResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyIdFormatResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubModifyIdentityIDFormat(_ url.Values, reqID string) (any, error) {
@@ -4625,10 +5614,17 @@ func (h *Handler) handleStubModifyIdentityIDFormat(_ url.Values, reqID string) (
 }
 
 func (h *Handler) handleStubModifyImageAttribute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyImageAttributeResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyImageAttributeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubModifyInstanceCapacityReservationAttributes(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyInstanceCapacityReservationAttributes(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyInstanceCapacityReservationAttributesResponse"},
 		RequestID: reqID,
@@ -4652,7 +5648,10 @@ func (h *Handler) handleStubModifyInstanceCPUOptions(_ url.Values, reqID string)
 	}, nil
 }
 
-func (h *Handler) handleStubModifyInstanceCreditSpecification(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyInstanceCreditSpecification(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyInstanceCreditSpecificationResponse"},
 		RequestID: reqID,
@@ -4676,7 +5675,10 @@ func (h *Handler) handleStubModifyInstanceEventWindow(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubModifyInstanceMaintenanceOptions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyInstanceMaintenanceOptions(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyInstanceMaintenanceOptionsResponse"},
 		RequestID: reqID,
@@ -4684,7 +5686,10 @@ func (h *Handler) handleStubModifyInstanceMaintenanceOptions(_ url.Values, reqID
 	}, nil
 }
 
-func (h *Handler) handleStubModifyInstanceMetadataDefaults(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyInstanceMetadataDefaults(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyInstanceMetadataDefaultsResponse"},
 		RequestID: reqID,
@@ -4700,7 +5705,10 @@ func (h *Handler) handleStubModifyInstanceMetadataOptions(_ url.Values, reqID st
 	}, nil
 }
 
-func (h *Handler) handleStubModifyInstanceNetworkPerformanceOptions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyInstanceNetworkPerformanceOptions(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyInstanceNetworkPerformanceOptionsResponse"},
 		RequestID: reqID,
@@ -4717,10 +5725,17 @@ func (h *Handler) handleStubModifyInstancePlacement(_ url.Values, reqID string) 
 }
 
 func (h *Handler) handleStubModifyIpam(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyIpamResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyIpamResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubModifyIpamPolicyAllocationRules(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyIpamPolicyAllocationRules(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyIpamPolicyAllocationRulesResponse"},
 		RequestID: reqID,
@@ -4729,7 +5744,11 @@ func (h *Handler) handleStubModifyIpamPolicyAllocationRules(_ url.Values, reqID 
 }
 
 func (h *Handler) handleStubModifyIpamPool(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyIpamPoolResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyIpamPoolResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubModifyIpamPrefixListResolver(_ url.Values, reqID string) (any, error) {
@@ -4740,7 +5759,10 @@ func (h *Handler) handleStubModifyIpamPrefixListResolver(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubModifyIpamPrefixListResolverTarget(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyIpamPrefixListResolverTarget(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyIpamPrefixListResolverTargetResponse"},
 		RequestID: reqID,
@@ -4765,7 +5787,11 @@ func (h *Handler) handleStubModifyIpamResourceDiscovery(_ url.Values, reqID stri
 }
 
 func (h *Handler) handleStubModifyIpamScope(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyIpamScopeResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyIpamScopeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubModifyLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
@@ -4809,11 +5835,19 @@ func (h *Handler) handleStubModifyReservedInstances(_ url.Values, reqID string) 
 }
 
 func (h *Handler) handleStubModifyRouteServer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyRouteServerResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyRouteServerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubModifySnapshotTier(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifySnapshotTierResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifySnapshotTierResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubModifySpotFleetRequest(_ url.Values, reqID string) (any, error) {
@@ -4824,7 +5858,10 @@ func (h *Handler) handleStubModifySpotFleetRequest(_ url.Values, reqID string) (
 	}, nil
 }
 
-func (h *Handler) handleStubModifyTrafficMirrorFilterNetworkServices(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyTrafficMirrorFilterNetworkServices(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyTrafficMirrorFilterNetworkServicesResponse"},
 		RequestID: reqID,
@@ -4849,10 +5886,17 @@ func (h *Handler) handleStubModifyTrafficMirrorSession(_ url.Values, reqID strin
 }
 
 func (h *Handler) handleStubModifyTransitGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyTransitGatewayResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyTransitGatewayResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubModifyTransitGatewayMeteringPolicy(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyTransitGatewayMeteringPolicy(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyTransitGatewayMeteringPolicyResponse"},
 		RequestID: reqID,
@@ -4860,7 +5904,10 @@ func (h *Handler) handleStubModifyTransitGatewayMeteringPolicy(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubModifyTransitGatewayPrefixListReference(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyTransitGatewayPrefixListReference(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyTransitGatewayPrefixListReferenceResponse"},
 		RequestID: reqID,
@@ -4868,7 +5915,10 @@ func (h *Handler) handleStubModifyTransitGatewayPrefixListReference(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubModifyTransitGatewayVpcAttachment(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyTransitGatewayVpcAttachment(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyTransitGatewayVpcAttachmentResponse"},
 		RequestID: reqID,
@@ -4884,7 +5934,10 @@ func (h *Handler) handleStubModifyVerifiedAccessEndpoint(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVerifiedAccessEndpointPolicy(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyVerifiedAccessEndpointPolicy(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVerifiedAccessEndpointPolicyResponse"},
 		RequestID: reqID,
@@ -4900,7 +5953,10 @@ func (h *Handler) handleStubModifyVerifiedAccessGroup(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVerifiedAccessGroupPolicy(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyVerifiedAccessGroupPolicy(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVerifiedAccessGroupPolicyResponse"},
 		RequestID: reqID,
@@ -4916,7 +5972,10 @@ func (h *Handler) handleStubModifyVerifiedAccessInstance(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVerifiedAccessInstanceLoggingConfiguration(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyVerifiedAccessInstanceLoggingConfiguration(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVerifiedAccessInstanceLoggingConfigurationResponse"},
 		RequestID: reqID,
@@ -4924,7 +5983,10 @@ func (h *Handler) handleStubModifyVerifiedAccessInstanceLoggingConfiguration(_ u
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVerifiedAccessTrustProvider(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyVerifiedAccessTrustProvider(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVerifiedAccessTrustProviderResponse"},
 		RequestID: reqID,
@@ -4933,10 +5995,17 @@ func (h *Handler) handleStubModifyVerifiedAccessTrustProvider(_ url.Values, reqI
 }
 
 func (h *Handler) handleStubModifyVolume(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyVolumeResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVolumeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubModifyVpcBlockPublicAccessExclusion(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyVpcBlockPublicAccessExclusion(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVpcBlockPublicAccessExclusionResponse"},
 		RequestID: reqID,
@@ -4944,7 +6013,10 @@ func (h *Handler) handleStubModifyVpcBlockPublicAccessExclusion(_ url.Values, re
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVpcBlockPublicAccessOptions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyVpcBlockPublicAccessOptions(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVpcBlockPublicAccessOptionsResponse"},
 		RequestID: reqID,
@@ -4961,10 +6033,17 @@ func (h *Handler) handleStubModifyVpcEncryptionControl(_ url.Values, reqID strin
 }
 
 func (h *Handler) handleStubModifyVpcEndpoint(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyVpcEndpointResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpcEndpointResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubModifyVpcEndpointConnectionNotification(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyVpcEndpointConnectionNotification(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVpcEndpointConnectionNotificationResponse"},
 		RequestID: reqID,
@@ -4972,7 +6051,10 @@ func (h *Handler) handleStubModifyVpcEndpointConnectionNotification(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVpcEndpointServiceConfiguration(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyVpcEndpointServiceConfiguration(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVpcEndpointServiceConfigurationResponse"},
 		RequestID: reqID,
@@ -4980,7 +6062,10 @@ func (h *Handler) handleStubModifyVpcEndpointServiceConfiguration(_ url.Values, 
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVpcEndpointServicePayerResponsibility(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyVpcEndpointServicePayerResponsibility(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVpcEndpointServicePayerResponsibilityResponse"},
 		RequestID: reqID,
@@ -4988,7 +6073,10 @@ func (h *Handler) handleStubModifyVpcEndpointServicePayerResponsibility(_ url.Va
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVpcEndpointServicePermissions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyVpcEndpointServicePermissions(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVpcEndpointServicePermissionsResponse"},
 		RequestID: reqID,
@@ -4996,7 +6084,10 @@ func (h *Handler) handleStubModifyVpcEndpointServicePermissions(_ url.Values, re
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVpcPeeringConnectionOptions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubModifyVpcPeeringConnectionOptions(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVpcPeeringConnectionOptionsResponse"},
 		RequestID: reqID,
@@ -5005,11 +6096,19 @@ func (h *Handler) handleStubModifyVpcPeeringConnectionOptions(_ url.Values, reqI
 }
 
 func (h *Handler) handleStubModifyVpcTenancy(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyVpcTenancyResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpcTenancyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubModifyVpnConnection(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyVpnConnectionResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpnConnectionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubModifyVpnConnectionOptions(_ url.Values, reqID string) (any, error) {
@@ -5037,18 +6136,33 @@ func (h *Handler) handleStubModifyVpnTunnelOptions(_ url.Values, reqID string) (
 }
 
 func (h *Handler) handleStubMonitorInstances(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "MonitorInstancesResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "MonitorInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubMoveAddressToVpc(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "MoveAddressToVpcResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "MoveAddressToVpcResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubMoveByoipCidrToIpam(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "MoveByoipCidrToIpamResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "MoveByoipCidrToIpamResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubMoveCapacityReservationInstances(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubMoveCapacityReservationInstances(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "MoveCapacityReservationInstancesResponse"},
 		RequestID: reqID,
@@ -5057,22 +6171,41 @@ func (h *Handler) handleStubMoveCapacityReservationInstances(_ url.Values, reqID
 }
 
 func (h *Handler) handleStubProvisionByoipCidr(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ProvisionByoipCidrResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ProvisionByoipCidrResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubProvisionIpamByoasn(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ProvisionIpamByoasnResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ProvisionIpamByoasnResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubProvisionIpamPoolCidr(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ProvisionIpamPoolCidrResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ProvisionIpamPoolCidrResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubPurchaseCapacityBlock(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "PurchaseCapacityBlockResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "PurchaseCapacityBlockResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubPurchaseCapacityBlockExtension(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubPurchaseCapacityBlockExtension(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "PurchaseCapacityBlockExtensionResponse"},
 		RequestID: reqID,
@@ -5088,7 +6221,10 @@ func (h *Handler) handleStubPurchaseHostReservation(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubPurchaseReservedInstancesOffering(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubPurchaseReservedInstancesOffering(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "PurchaseReservedInstancesOfferingResponse"},
 		RequestID: reqID,
@@ -5105,10 +6241,17 @@ func (h *Handler) handleStubPurchaseScheduledInstances(_ url.Values, reqID strin
 }
 
 func (h *Handler) handleStubRegisterImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "RegisterImageResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RegisterImageResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubRegisterInstanceEventNotificationAttributes(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubRegisterInstanceEventNotificationAttributes(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RegisterInstanceEventNotificationAttributesResponse"},
 		RequestID: reqID,
@@ -5116,7 +6259,10 @@ func (h *Handler) handleStubRegisterInstanceEventNotificationAttributes(_ url.Va
 	}, nil
 }
 
-func (h *Handler) handleStubRegisterTransitGatewayMulticastGroupMembers(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubRegisterTransitGatewayMulticastGroupMembers(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RegisterTransitGatewayMulticastGroupMembersResponse"},
 		RequestID: reqID,
@@ -5124,7 +6270,10 @@ func (h *Handler) handleStubRegisterTransitGatewayMulticastGroupMembers(_ url.Va
 	}, nil
 }
 
-func (h *Handler) handleStubRegisterTransitGatewayMulticastGroupSources(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubRegisterTransitGatewayMulticastGroupSources(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RegisterTransitGatewayMulticastGroupSourcesResponse"},
 		RequestID: reqID,
@@ -5132,7 +6281,10 @@ func (h *Handler) handleStubRegisterTransitGatewayMulticastGroupSources(_ url.Va
 	}, nil
 }
 
-func (h *Handler) handleStubRejectCapacityReservationBillingOwnership(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubRejectCapacityReservationBillingOwnership(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RejectCapacityReservationBillingOwnershipResponse"},
 		RequestID: reqID,
@@ -5140,7 +6292,10 @@ func (h *Handler) handleStubRejectCapacityReservationBillingOwnership(_ url.Valu
 	}, nil
 }
 
-func (h *Handler) handleStubRejectTransitGatewayMulticastDomainAssociations(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubRejectTransitGatewayMulticastDomainAssociations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RejectTransitGatewayMulticastDomainAssociationsResponse"},
 		RequestID: reqID,
@@ -5148,7 +6303,10 @@ func (h *Handler) handleStubRejectTransitGatewayMulticastDomainAssociations(_ ur
 	}, nil
 }
 
-func (h *Handler) handleStubRejectTransitGatewayPeeringAttachment(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubRejectTransitGatewayPeeringAttachment(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RejectTransitGatewayPeeringAttachmentResponse"},
 		RequestID: reqID,
@@ -5156,7 +6314,10 @@ func (h *Handler) handleStubRejectTransitGatewayPeeringAttachment(_ url.Values, 
 	}, nil
 }
 
-func (h *Handler) handleStubRejectTransitGatewayVpcAttachment(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubRejectTransitGatewayVpcAttachment(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RejectTransitGatewayVpcAttachmentResponse"},
 		RequestID: reqID,
@@ -5181,7 +6342,11 @@ func (h *Handler) handleStubRejectVpcPeeringConnection(_ url.Values, reqID strin
 }
 
 func (h *Handler) handleStubReleaseHosts(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ReleaseHostsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ReleaseHostsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubReleaseIpamPoolAllocation(_ url.Values, reqID string) (any, error) {
@@ -5192,7 +6357,10 @@ func (h *Handler) handleStubReleaseIpamPoolAllocation(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubReplaceImageCriteriaInAllowedImagesSettings(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubReplaceImageCriteriaInAllowedImagesSettings(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ReplaceImageCriteriaInAllowedImagesSettingsResponse"},
 		RequestID: reqID,
@@ -5201,23 +6369,43 @@ func (h *Handler) handleStubReplaceImageCriteriaInAllowedImagesSettings(_ url.Va
 }
 
 func (h *Handler) handleStubReplaceRoute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ReplaceRouteResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ReplaceRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubReplaceVpnTunnel(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ReplaceVpnTunnelResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ReplaceVpnTunnelResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubReportInstanceStatus(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ReportInstanceStatusResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ReportInstanceStatusResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubRequestSpotFleet(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "RequestSpotFleetResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RequestSpotFleetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubResetAddressAttribute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ResetAddressAttributeResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ResetAddressAttributeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubResetEbsDefaultKmsKeyID(_ url.Values, reqID string) (any, error) {
@@ -5237,10 +6425,17 @@ func (h *Handler) handleStubResetFpgaImageAttribute(_ url.Values, reqID string) 
 }
 
 func (h *Handler) handleStubResetImageAttribute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ResetImageAttributeResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ResetImageAttributeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubResetNetworkInterfaceAttribute(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubResetNetworkInterfaceAttribute(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ResetNetworkInterfaceAttributeResponse"},
 		RequestID: reqID,
@@ -5272,7 +6467,10 @@ func (h *Handler) handleStubRestoreImageFromRecycleBin(_ url.Values, reqID strin
 	}, nil
 }
 
-func (h *Handler) handleStubRestoreManagedPrefixListVersion(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubRestoreManagedPrefixListVersion(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RestoreManagedPrefixListVersionResponse"},
 		RequestID: reqID,
@@ -5289,7 +6487,11 @@ func (h *Handler) handleStubRestoreSnapshotFromRecycleBin(_ url.Values, reqID st
 }
 
 func (h *Handler) handleStubRestoreSnapshotTier(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "RestoreSnapshotTierResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RestoreSnapshotTierResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubRestoreVolumeFromRecycleBin(_ url.Values, reqID string) (any, error) {
@@ -5309,7 +6511,11 @@ func (h *Handler) handleStubRevokeClientVpnIngress(_ url.Values, reqID string) (
 }
 
 func (h *Handler) handleStubRunScheduledInstances(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "RunScheduledInstancesResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RunScheduledInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubSearchLocalGatewayRoutes(_ url.Values, reqID string) (any, error) {
@@ -5320,7 +6526,10 @@ func (h *Handler) handleStubSearchLocalGatewayRoutes(_ url.Values, reqID string)
 	}, nil
 }
 
-func (h *Handler) handleStubSearchTransitGatewayMulticastGroups(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubSearchTransitGatewayMulticastGroups(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "SearchTransitGatewayMulticastGroupsResponse"},
 		RequestID: reqID,
@@ -5344,7 +6553,10 @@ func (h *Handler) handleStubSendDiagnosticInterrupt(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubStartDeclarativePoliciesReport(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubStartDeclarativePoliciesReport(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "StartDeclarativePoliciesReportResponse"},
 		RequestID: reqID,
@@ -5352,7 +6564,10 @@ func (h *Handler) handleStubStartDeclarativePoliciesReport(_ url.Values, reqID s
 	}, nil
 }
 
-func (h *Handler) handleStubStartNetworkInsightsAccessScopeAnalysis(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubStartNetworkInsightsAccessScopeAnalysis(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "StartNetworkInsightsAccessScopeAnalysisResponse"},
 		RequestID: reqID,
@@ -5368,7 +6583,10 @@ func (h *Handler) handleStubStartNetworkInsightsAnalysis(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubStartVpcEndpointServicePrivateDNSVerification(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubStartVpcEndpointServicePrivateDNSVerification(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "StartVpcEndpointServicePrivateDnsVerificationResponse"},
 		RequestID: reqID,
@@ -5384,7 +6602,10 @@ func (h *Handler) handleStubTerminateClientVpnConnections(_ url.Values, reqID st
 	}, nil
 }
 
-func (h *Handler) handleStubUnassignPrivateNatGatewayAddress(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubUnassignPrivateNatGatewayAddress(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "UnassignPrivateNatGatewayAddressResponse"},
 		RequestID: reqID,
@@ -5393,14 +6614,25 @@ func (h *Handler) handleStubUnassignPrivateNatGatewayAddress(_ url.Values, reqID
 }
 
 func (h *Handler) handleStubUnlockSnapshot(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "UnlockSnapshotResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "UnlockSnapshotResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubUnmonitorInstances(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "UnmonitorInstancesResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "UnmonitorInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
-func (h *Handler) handleStubUpdateCapacityManagerOrganizationsAccess(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubUpdateCapacityManagerOrganizationsAccess(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "UpdateCapacityManagerOrganizationsAccessResponse"},
 		RequestID: reqID,
@@ -5408,7 +6640,10 @@ func (h *Handler) handleStubUpdateCapacityManagerOrganizationsAccess(_ url.Value
 	}, nil
 }
 
-func (h *Handler) handleStubUpdateInterruptibleCapacityReservationAllocation(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubUpdateInterruptibleCapacityReservationAllocation(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "UpdateInterruptibleCapacityReservationAllocationResponse"},
 		RequestID: reqID,
@@ -5416,7 +6651,10 @@ func (h *Handler) handleStubUpdateInterruptibleCapacityReservationAllocation(_ u
 	}, nil
 }
 
-func (h *Handler) handleStubUpdateSecurityGroupRuleDescriptionsEgress(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubUpdateSecurityGroupRuleDescriptionsEgress(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "UpdateSecurityGroupRuleDescriptionsEgressResponse"},
 		RequestID: reqID,
@@ -5424,7 +6662,10 @@ func (h *Handler) handleStubUpdateSecurityGroupRuleDescriptionsEgress(_ url.Valu
 	}, nil
 }
 
-func (h *Handler) handleStubUpdateSecurityGroupRuleDescriptionsIngress(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubUpdateSecurityGroupRuleDescriptionsIngress(
+	_ url.Values,
+	reqID string,
+) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "UpdateSecurityGroupRuleDescriptionsIngressResponse"},
 		RequestID: reqID,
@@ -5433,21 +6674,37 @@ func (h *Handler) handleStubUpdateSecurityGroupRuleDescriptionsIngress(_ url.Val
 }
 
 func (h *Handler) handleStubWithdrawByoipCidr(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "WithdrawByoipCidrResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "WithdrawByoipCidrResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 // ---- Additional IPv4/IPv6 stub handlers (SDK naming uses Ipv4/Ipv6) ----
 
 func (h *Handler) handleStubAssignIpv6Addresses(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "AssignIpv6AddressesResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssignIpv6AddressesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubCreatePublicIpv4Pool(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreatePublicIpv4PoolResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreatePublicIpv4PoolResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeletePublicIpv4Pool(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeletePublicIpv4PoolResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeletePublicIpv4PoolResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDeprovisionPublicIpv4PoolCidr(_ url.Values, reqID string) (any, error) {
@@ -5459,7 +6716,11 @@ func (h *Handler) handleStubDeprovisionPublicIpv4PoolCidr(_ url.Values, reqID st
 }
 
 func (h *Handler) handleStubDescribeIpv6Pools(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeIpv6PoolsResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIpv6PoolsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 func (h *Handler) handleStubDescribePublicIpv4Pools(_ url.Values, reqID string) (any, error) {
@@ -5487,5 +6748,9 @@ func (h *Handler) handleStubProvisionPublicIpv4PoolCidr(_ url.Values, reqID stri
 }
 
 func (h *Handler) handleStubUnassignIpv6Addresses(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "UnassignIpv6AddressesResponse"}, RequestID: reqID, Return: true}, nil
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "UnassignIpv6AddressesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }

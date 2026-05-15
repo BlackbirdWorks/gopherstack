@@ -937,7 +937,12 @@ func TestSecurityGroupRuleOperations(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			rule := ec2.SecurityGroupRule{Protocol: "tcp", FromPort: 80, ToPort: 80, IPRange: "0.0.0.0/0"}
+			rule := ec2.SecurityGroupRule{
+				Protocol: "tcp",
+				FromPort: 80,
+				ToPort:   80,
+				IPRange:  "0.0.0.0/0",
+			}
 
 			switch tt.op {
 			case "auth_ingress":
@@ -970,11 +975,17 @@ func TestSecurityGroupRuleOperations(t *testing.T) {
 				assert.Empty(t, sgs[0].IngressRules)
 
 			case "auth_ingress_bad_sg":
-				err := b.AuthorizeSecurityGroupIngress("sg-nonexistent", []ec2.SecurityGroupRule{rule})
+				err := b.AuthorizeSecurityGroupIngress(
+					"sg-nonexistent",
+					[]ec2.SecurityGroupRule{rule},
+				)
 				require.Error(t, err)
 
 			case "auth_egress_bad_sg":
-				err := b.AuthorizeSecurityGroupEgress("sg-nonexistent", []ec2.SecurityGroupRule{rule})
+				err := b.AuthorizeSecurityGroupEgress(
+					"sg-nonexistent",
+					[]ec2.SecurityGroupRule{rule},
+				)
 				require.Error(t, err)
 
 			case "revoke_ingress_bad_sg":
@@ -1092,7 +1103,9 @@ func TestHandlerExtOperations(t *testing.T) {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
 				_, _ = h.Backend.StopInstances([]string{instances[0].ID})
 
-				return "Action=StartInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(instances[0].ID)
+				return "Action=StartInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(
+					instances[0].ID,
+				)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"StartInstancesResponse"},
@@ -1102,7 +1115,9 @@ func TestHandlerExtOperations(t *testing.T) {
 			setupFn: func(h *ec2.Handler) string {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
 
-				return "Action=StopInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(instances[0].ID)
+				return "Action=StopInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(
+					instances[0].ID,
+				)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"StopInstancesResponse"},
@@ -1112,7 +1127,9 @@ func TestHandlerExtOperations(t *testing.T) {
 			setupFn: func(h *ec2.Handler) string {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
 
-				return "Action=RebootInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(instances[0].ID)
+				return "Action=RebootInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(
+					instances[0].ID,
+				)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"RebootInstancesResponse"},
@@ -1408,7 +1425,9 @@ func TestHandlerExtOperations(t *testing.T) {
 			setupFn: func(h *ec2.Handler) string {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
 
-				return "Action=StartInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(instances[0].ID)
+				return "Action=StartInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(
+					instances[0].ID,
+				)
 			},
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"IncorrectInstanceState"},
@@ -1420,7 +1439,9 @@ func TestHandlerExtOperations(t *testing.T) {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
 				_, _ = h.Backend.StopInstances([]string{instances[0].ID})
 
-				return "Action=StopInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(instances[0].ID)
+				return "Action=StopInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(
+					instances[0].ID,
+				)
 			},
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"IncorrectInstanceState"},
@@ -1511,7 +1532,10 @@ func TestHandlerRunInstancesIncludesPrivateIP(t *testing.T) {
 		} `xml:"instancesSet"`
 	}
 
-	require.NoError(t, xml.Unmarshal([]byte(strings.TrimPrefix(rec.Body.String(), xml.Header)), &resp))
+	require.NoError(
+		t,
+		xml.Unmarshal([]byte(strings.TrimPrefix(rec.Body.String(), xml.Header)), &resp),
+	)
 	require.Len(t, resp.InstancesSet.Items, 1)
 	assert.NotEmpty(t, resp.InstancesSet.Items[0].PrivateIPAddress)
 }
@@ -1964,7 +1988,9 @@ func TestHandlerNewOperations(t *testing.T) {
 			setupFn: func(h *ec2.Handler) string {
 				eni, _ := h.Backend.CreateNetworkInterface("subnet-default", "")
 
-				return "Action=DeleteNetworkInterface&Version=2016-11-15&NetworkInterfaceId=" + url.QueryEscape(eni.ID)
+				return "Action=DeleteNetworkInterface&Version=2016-11-15&NetworkInterfaceId=" + url.QueryEscape(
+					eni.ID,
+				)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DeleteNetworkInterfaceResponse"},
@@ -1997,7 +2023,9 @@ func TestHandlerNewOperations(t *testing.T) {
 				eni, _ := h.Backend.CreateNetworkInterface("subnet-default", "")
 				attachID, _ := h.Backend.AttachNetworkInterface(eni.ID, instances[0].ID, 1)
 
-				return "Action=DetachNetworkInterface&Version=2016-11-15&AttachmentId=" + url.QueryEscape(attachID)
+				return "Action=DetachNetworkInterface&Version=2016-11-15&AttachmentId=" + url.QueryEscape(
+					attachID,
+				)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DetachNetworkInterfaceResponse"},
@@ -2303,7 +2331,8 @@ func TestHandlerPreviouslyUncoveredOps(t *testing.T) {
 
 				return fmt.Sprintf(
 					"Action=AttachVolume&Version=2016-11-15&VolumeId=%s&InstanceId=%s&Device=/dev/sdf",
-					url.QueryEscape(vol.ID), url.QueryEscape(instances[0].ID),
+					url.QueryEscape(vol.ID),
+					url.QueryEscape(instances[0].ID),
 				)
 			},
 			wantCode:     http.StatusOK,
@@ -2342,7 +2371,9 @@ func TestHandlerPreviouslyUncoveredOps(t *testing.T) {
 				addr, _ := h.Backend.AllocateAddress()
 				assocID, _ := h.Backend.AssociateAddress(addr.AllocationID, instances[0].ID)
 
-				return "Action=DisassociateAddress&Version=2016-11-15&AssociationId=" + url.QueryEscape(assocID)
+				return "Action=DisassociateAddress&Version=2016-11-15&AssociationId=" + url.QueryEscape(
+					assocID,
+				)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DisassociateAddressResponse"},
@@ -2380,7 +2411,9 @@ func TestHandlerPreviouslyUncoveredOps(t *testing.T) {
 				rt, _ := h.Backend.CreateRouteTable("vpc-default")
 				assocID, _ := h.Backend.AssociateRouteTable(rt.ID, "subnet-default")
 
-				return "Action=DisassociateRouteTable&Version=2016-11-15&AssociationId=" + url.QueryEscape(assocID)
+				return "Action=DisassociateRouteTable&Version=2016-11-15&AssociationId=" + url.QueryEscape(
+					assocID,
+				)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DisassociateRouteTableResponse"},

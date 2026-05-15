@@ -73,24 +73,24 @@ var (
 
 // Instance represents an EC2 instance (metadata only, no actual compute).
 type Instance struct {
-	LaunchTime          time.Time     `json:"launchTime"`
-	TerminatedAt        time.Time     `json:"terminatedAt"`
-	State               InstanceState `json:"state"`
-	ID                  string        `json:"id"`
-	InstanceType        string        `json:"instanceType"`
-	ImageID             string        `json:"imageID"`
-	VPCID               string        `json:"vpcID"`
-	SubnetID            string        `json:"subnetID"`
-	PrivateIP           string        `json:"privateIP"`
-	PublicIPAddress     string        `json:"publicIPAddress,omitempty"`
-	PublicDNSName       string        `json:"publicDNSName,omitempty"`
-	KeyName             string        `json:"keyName"`
-	SecurityGroups      []string      `json:"securityGroups"`
-	UserData            string        `json:"userData,omitempty"`
-	EnaSupport          bool          `json:"enaSupport"`
-	SriovNetSupport     string        `json:"sriovNetSupport,omitempty"`
-	MetadataOptionsState  string      `json:"metadataOptionsState,omitempty"`
-	MetadataOptionsTokens string      `json:"metadataOptionsTokens,omitempty"`
+	LaunchTime            time.Time     `json:"launchTime"`
+	TerminatedAt          time.Time     `json:"terminatedAt"`
+	State                 InstanceState `json:"state"`
+	ID                    string        `json:"id"`
+	InstanceType          string        `json:"instanceType"`
+	ImageID               string        `json:"imageID"`
+	VPCID                 string        `json:"vpcID"`
+	SubnetID              string        `json:"subnetID"`
+	PrivateIP             string        `json:"privateIP"`
+	PublicIPAddress       string        `json:"publicIPAddress,omitempty"`
+	PublicDNSName         string        `json:"publicDNSName,omitempty"`
+	KeyName               string        `json:"keyName"`
+	SecurityGroups        []string      `json:"securityGroups"`
+	UserData              string        `json:"userData,omitempty"`
+	EnaSupport            bool          `json:"enaSupport"`
+	SriovNetSupport       string        `json:"sriovNetSupport,omitempty"`
+	MetadataOptionsState  string        `json:"metadataOptionsState,omitempty"`
+	MetadataOptionsTokens string        `json:"metadataOptionsTokens,omitempty"`
 }
 
 // LaunchTemplate represents an EC2 launch template.
@@ -170,12 +170,12 @@ type VPC struct {
 
 // Subnet represents an EC2 Subnet.
 type Subnet struct {
-	ID                 string `json:"id"`
-	VPCID              string `json:"vpcID"`
-	CIDRBlock          string `json:"cidrBlock"`
-	AvailabilityZone   string `json:"availabilityZone"`
-	IsDefault          bool   `json:"isDefault"`
-	MapPublicIpOnLaunch bool  `json:"mapPublicIpOnLaunch"`
+	ID                  string `json:"id"`
+	VPCID               string `json:"vpcID"`
+	CIDRBlock           string `json:"cidrBlock"`
+	AvailabilityZone    string `json:"availabilityZone"`
+	IsDefault           bool   `json:"isDefault"`
+	MapPublicIpOnLaunch bool   `json:"mapPublicIpOnLaunch"`
 }
 
 // InMemoryBackend is the in-memory store for EC2 resources.
@@ -331,7 +331,10 @@ func (b *InMemoryBackend) initDefaults() {
 }
 
 // RunInstances creates one or more EC2 instance stubs.
-func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, count int) ([]*Instance, error) {
+func (b *InMemoryBackend) RunInstances(
+	imageID, instanceType, subnetID string,
+	count int,
+) ([]*Instance, error) {
 	if imageID == "" {
 		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
 	}
@@ -537,7 +540,9 @@ func (b *InMemoryBackend) DescribeSecurityGroups(ids []string) []*SecurityGroup 
 }
 
 // CreateSecurityGroup creates a new security group and returns its ID.
-func (b *InMemoryBackend) CreateSecurityGroup(name, description, vpcID string) (*SecurityGroup, error) {
+func (b *InMemoryBackend) CreateSecurityGroup(
+	name, description, vpcID string,
+) (*SecurityGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: GroupName is required", ErrInvalidParameter)
 	}
@@ -553,7 +558,12 @@ func (b *InMemoryBackend) CreateSecurityGroup(name, description, vpcID string) (
 
 	for _, sg := range b.securityGroups {
 		if sg.Name == name && sg.VPCID == vpcID {
-			return nil, fmt.Errorf("%w: group named %s already exists in VPC %s", ErrDuplicateSGName, name, vpcID)
+			return nil, fmt.Errorf(
+				"%w: group named %s already exists in VPC %s",
+				ErrDuplicateSGName,
+				name,
+				vpcID,
+			)
 		}
 	}
 

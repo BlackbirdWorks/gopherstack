@@ -711,7 +711,15 @@ func (b *InMemoryBackend) autoCIDRLocked(poolCidr string, netmaskLength int) (st
 		ip = make(net.IP, ipv4Len)
 	}
 
-	ipInt := uint32(ip[0])<<octet3Shift | uint32(ip[1])<<octet2Shift | uint32(ip[2])<<octetMask | uint32(ip[3])
+	ipInt := uint32(
+		ip[0],
+	)<<octet3Shift | uint32(
+		ip[1],
+	)<<octet2Shift | uint32(
+		ip[2],
+	)<<octetMask | uint32(
+		ip[3],
+	)
 	shift := max(ipv4Shift-netmaskLength, 0)
 
 	//nolint:gosec // existingCount is small; integer overflow is acceptable in mock context

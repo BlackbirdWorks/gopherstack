@@ -77,7 +77,16 @@ func TestRefinement3_ReplaceNetworkACLEntry(t *testing.T) {
 				aclID = acl.ID
 			}
 
-			err := b.ReplaceNetworkACLEntry(aclID, tt.ruleNumber, tt.protocol, tt.action, tt.cidr, tt.egress, 0, 0)
+			err := b.ReplaceNetworkACLEntry(
+				aclID,
+				tt.ruleNumber,
+				tt.protocol,
+				tt.action,
+				tt.cidr,
+				tt.egress,
+				0,
+				0,
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)

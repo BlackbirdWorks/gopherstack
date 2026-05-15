@@ -408,7 +408,12 @@ func (b *InMemoryBackend) DeleteNetworkACLEntry(aclID string, ruleNumber int, eg
 	}
 
 	if !found {
-		return fmt.Errorf("%w: rule %d (egress=%v) not found", ErrInvalidParameter, ruleNumber, egress)
+		return fmt.Errorf(
+			"%w: rule %d (egress=%v) not found",
+			ErrInvalidParameter,
+			ruleNumber,
+			egress,
+		)
 	}
 
 	acl.Entries = filtered
@@ -448,7 +453,9 @@ func (b *InMemoryBackend) DescribeStoredNetworkAcls(ids []string) []*StoredNetwo
 // ---- Security group rules ----
 
 // DescribeSecurityGroupRules returns all ingress and egress rules for the given group.
-func (b *InMemoryBackend) DescribeSecurityGroupRules(groupID string) ([]*SecurityGroupRuleDetail, error) {
+func (b *InMemoryBackend) DescribeSecurityGroupRules(
+	groupID string,
+) ([]*SecurityGroupRuleDetail, error) {
 	if groupID == "" {
 		return nil, fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
 	}
@@ -492,7 +499,11 @@ func (b *InMemoryBackend) DescribeSecurityGroupRules(groupID string) ([]*Securit
 
 // ModifySecurityGroupRules updates one or more rules (by position index) within a security group.
 // Only protocol, IPRange, and port range can be mutated; egress/ingress direction is immutable.
-func (b *InMemoryBackend) ModifySecurityGroupRules(groupID string, updates []SecurityGroupRule, egress bool) error {
+func (b *InMemoryBackend) ModifySecurityGroupRules(
+	groupID string,
+	updates []SecurityGroupRule,
+	egress bool,
+) error {
 	if groupID == "" {
 		return fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
 	}
@@ -578,7 +589,11 @@ func (b *InMemoryBackend) DeleteVpcEndpoints(ids []string) ([]string, error) {
 	}
 
 	if len(unsuccessful) > 0 {
-		return unsuccessful, fmt.Errorf("%w: endpoints not found: %v", ErrVpcEndpointNotFound, unsuccessful)
+		return unsuccessful, fmt.Errorf(
+			"%w: endpoints not found: %v",
+			ErrVpcEndpointNotFound,
+			unsuccessful,
+		)
 	}
 
 	return nil, nil

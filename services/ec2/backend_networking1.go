@@ -99,7 +99,9 @@ func (b *InMemoryBackend) CreateTransitGatewayVpcAttachment(
 }
 
 // DescribeTransitGatewayVpcAttachments returns TGW VPC attachments, optionally filtered by attachment IDs.
-func (b *InMemoryBackend) DescribeTransitGatewayVpcAttachments(ids []string) []*TransitGatewayVpcAttachment {
+func (b *InMemoryBackend) DescribeTransitGatewayVpcAttachments(
+	ids []string,
+) []*TransitGatewayVpcAttachment {
 	b.mu.RLock("DescribeTransitGatewayVpcAttachments")
 	defer b.mu.RUnlock()
 
@@ -356,7 +358,10 @@ func (b *InMemoryBackend) DeleteDhcpOptions(id string) error {
 // ---- Launch Template extras ----
 
 // ModifyLaunchTemplate updates the default version of a launch template.
-func (b *InMemoryBackend) ModifyLaunchTemplate(id string, defaultVersion int64) (*LaunchTemplate, error) {
+func (b *InMemoryBackend) ModifyLaunchTemplate(
+	id string,
+	defaultVersion int64,
+) (*LaunchTemplate, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: LaunchTemplateId is required", ErrInvalidParameter)
 	}
@@ -419,7 +424,10 @@ func (b *InMemoryBackend) CreateLaunchTemplateVersion(
 
 // DeleteLaunchTemplateVersions removes specific versions from a launch template.
 // It returns the list of successfully deleted version numbers.
-func (b *InMemoryBackend) DeleteLaunchTemplateVersions(id string, versions []int64) ([]int64, error) {
+func (b *InMemoryBackend) DeleteLaunchTemplateVersions(
+	id string,
+	versions []int64,
+) ([]int64, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: LaunchTemplateId is required", ErrInvalidParameter)
 	}

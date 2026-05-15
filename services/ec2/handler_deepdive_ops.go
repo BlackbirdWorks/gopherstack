@@ -27,7 +27,11 @@ func registerDeepDiveOps(h *Handler, ops map[string]ec2ActionFn) {
 }
 
 func (h *Handler) handleCreateImage(vals url.Values, reqID string) (any, error) {
-	image, err := h.Backend.CreateImage(vals.Get("InstanceId"), vals.Get("Name"), vals.Get("Description"))
+	image, err := h.Backend.CreateImage(
+		vals.Get("InstanceId"),
+		vals.Get("Name"),
+		vals.Get("Description"),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +65,11 @@ func (h *Handler) handleDescribeImageUsageReports(_ url.Values, reqID string) (a
 func (h *Handler) handleCreateLaunchTemplate(vals url.Values, reqID string) (any, error) {
 	dataImageID := vals.Get("LaunchTemplateData.ImageId")
 	dataInstanceType := vals.Get("LaunchTemplateData.InstanceType")
-	template, err := h.Backend.CreateLaunchTemplate(vals.Get("LaunchTemplateName"), dataImageID, dataInstanceType)
+	template, err := h.Backend.CreateLaunchTemplate(
+		vals.Get("LaunchTemplateName"),
+		dataImageID,
+		dataInstanceType,
+	)
 	if err != nil {
 		return nil, err
 	}

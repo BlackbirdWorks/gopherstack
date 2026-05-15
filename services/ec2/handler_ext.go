@@ -1141,7 +1141,10 @@ func (h *Handler) handleCreateRoute(vals url.Values, reqID string) (any, error) 
 	natGatewayID := vals.Get("NatGatewayId")
 
 	if rtID == "" || destCIDR == "" {
-		return nil, fmt.Errorf("%w: RouteTableId and DestinationCidrBlock are required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: RouteTableId and DestinationCidrBlock are required",
+			ErrInvalidParameter,
+		)
 	}
 
 	if err := h.Backend.CreateRoute(rtID, destCIDR, gatewayID, natGatewayID); err != nil {
@@ -1160,7 +1163,10 @@ func (h *Handler) handleDeleteRoute(vals url.Values, reqID string) (any, error) 
 	destCIDR := vals.Get("DestinationCidrBlock")
 
 	if rtID == "" || destCIDR == "" {
-		return nil, fmt.Errorf("%w: RouteTableId and DestinationCidrBlock are required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: RouteTableId and DestinationCidrBlock are required",
+			ErrInvalidParameter,
+		)
 	}
 
 	if err := h.Backend.DeleteRoute(rtID, destCIDR); err != nil {
@@ -1341,11 +1347,11 @@ func parseIPPermissions(vals url.Values) []SecurityGroupRule {
 
 			ownerID := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.UserId", i, j))
 			rules = append(rules, SecurityGroupRule{
-				Protocol:            proto,
-				FromPort:            fromPort,
-				ToPort:              toPort,
-				SourceGroupID:       srcGroupID,
-				SourceGroupOwnerID:  ownerID,
+				Protocol:           proto,
+				FromPort:           fromPort,
+				ToPort:             toPort,
+				SourceGroupID:      srcGroupID,
+				SourceGroupOwnerID: ownerID,
 			})
 		}
 	}
@@ -1578,7 +1584,10 @@ func (h *Handler) handleAttachNetworkInterface(vals url.Values, reqID string) (a
 	instanceID := vals.Get("InstanceId")
 
 	if eniID == "" || instanceID == "" {
-		return nil, fmt.Errorf("%w: NetworkInterfaceId and InstanceId are required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: NetworkInterfaceId and InstanceId are required",
+			ErrInvalidParameter,
+		)
 	}
 
 	deviceIndex := 1
@@ -1690,7 +1699,10 @@ type unassignPrivateIPAddressesResponse struct {
 	Return    bool     `xml:"return"`
 }
 
-func (h *Handler) handleModifyNetworkInterfaceAttribute(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleModifyNetworkInterfaceAttribute(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	eniID := vals.Get("NetworkInterfaceId")
 	if eniID == "" {
 		return nil, fmt.Errorf("%w: NetworkInterfaceId is required", ErrInvalidParameter)
@@ -1744,6 +1756,19 @@ func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (
 	attrName, attrValue := parseModifyInstanceAttributeValue(vals)
 
 	if attrName != "" {
+		// Enforce stopped-state requirement for certain attributes at the handler level.
+		if modifyInstanceAttributeStoppedRequired[attrName] {
+			instances := h.Backend.DescribeInstances([]string{instanceID}, "")
+			if len(instances) == 0 {
+				return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+			}
+
+			if instances[0].State != StateStopped {
+				return nil, fmt.Errorf("%w: instance %s must be in the stopped state to modify %s",
+					ErrInvalidInstanceState, instanceID, attrName)
+			}
+		}
+
 		if err := h.Backend.SetInstanceAttribute(instanceID, attrName, attrValue); err != nil {
 			return nil, err
 		}
@@ -1754,6 +1779,17 @@ func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (
 		RequestID: reqID,
 		Return:    true,
 	}, nil
+}
+
+// modifyInstanceAttributeStoppedRequired lists attributes that require the
+// instance to be stopped when modified via ModifyInstanceAttribute.
+//
+//nolint:gochecknoglobals // lookup set
+var modifyInstanceAttributeStoppedRequired = map[string]bool{
+	"instanceType": true,
+	"userData":     true,
+	"kernel":       true,
+	"ramdisk":      true,
 }
 
 // parseModifyInstanceAttributeValue extracts the (name, value) pair from a
@@ -1921,7 +1957,10 @@ func (h *Handler) handleRequestSpotInstances(vals url.Values, reqID string) (any
 	}
 
 	if instanceType == "" {
-		return nil, fmt.Errorf("%w: LaunchSpecification.InstanceType is required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: LaunchSpecification.InstanceType is required",
+			ErrInvalidParameter,
+		)
 	}
 
 	req, err := h.Backend.RequestSpotInstances(imageID, instanceType, subnetID, spotPrice)
@@ -1957,7 +1996,10 @@ func (h *Handler) handleDescribeSpotInstanceRequests(vals url.Values, reqID stri
 func (h *Handler) handleCancelSpotInstanceRequests(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SpotInstanceRequestId")
 	if len(ids) == 0 {
-		return nil, fmt.Errorf("%w: at least one SpotInstanceRequestId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: at least one SpotInstanceRequestId is required",
+			ErrInvalidParameter,
+		)
 	}
 
 	if err := h.Backend.CancelSpotInstanceRequests(ids); err != nil {

@@ -293,7 +293,9 @@ func (s *backendSnapshot) initNewOpsMaps() {
 	}
 
 	if s.TGWMulticastDomainAssociations == nil {
-		s.TGWMulticastDomainAssociations = make(map[string]*TransitGatewayMulticastDomainAssociation)
+		s.TGWMulticastDomainAssociations = make(
+			map[string]*TransitGatewayMulticastDomainAssociation,
+		)
 	}
 
 	if s.TGWPeeringAttachments == nil {
