@@ -22,6 +22,11 @@ func (e *Executor) NewBranchExecutor(sm *StateMachine, branchName string) *Execu
 	return e.newBranchExecutor(sm, branchName)
 }
 
+// NewMapItemExecutor exposes Executor.newMapItemExecutor for black-box tests.
+func (e *Executor) NewMapItemExecutor(sm *StateMachine, idx int, itemValue any) *Executor {
+	return e.newMapItemExecutor(sm, idx, itemValue)
+}
+
 // ResolveItemsFromReader exposes the package-internal resolveItemsFromReader
 // for tests in the asl_test package.
 func (e *Executor) ResolveItemsFromReader(ctx context.Context, ir *ItemReader) ([]any, error) {

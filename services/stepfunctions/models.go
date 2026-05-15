@@ -49,15 +49,17 @@ type CloudWatchLogsLogGroup struct {
 // Execution represents a state machine execution.
 type Execution struct {
 	StopDate        *float64 `json:"stopDate,omitempty"`
+	RedriveDate     *float64 `json:"redriveDate,omitempty"`
 	ExecutionArn    string   `json:"executionArn"`
 	StateMachineArn string   `json:"stateMachineArn"`
 	Name            string   `json:"name"`
-	Status          string   `json:"status"` // "RUNNING", "SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"
+	Status          string   `json:"status"`
 	Input           string   `json:"input,omitempty"`
 	Output          string   `json:"output,omitempty"`
 	Error           string   `json:"error,omitempty"`
 	Cause           string   `json:"cause,omitempty"`
 	StartDate       float64  `json:"startDate"`
+	RedriveCount    int      `json:"redriveCount,omitempty"`
 }
 
 // HistoryEvent represents a single event in execution history.
