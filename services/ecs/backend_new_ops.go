@@ -328,7 +328,7 @@ func (b *InMemoryBackend) DeleteTaskDefinitions(taskDefinitionArns []string) ([]
 	defer b.mu.Unlock()
 
 	deleted := make([]TaskDefinition, 0, len(taskDefinitionArns))
-	failures := make([]Failure, 0)
+	failures := make([]Failure, 0, len(taskDefinitionArns))
 
 	for _, arnRef := range taskDefinitionArns {
 		td, err := b.findTaskDefinitionLocked(arnRef)
@@ -380,7 +380,7 @@ func (b *InMemoryBackend) DescribeServiceDeployments(
 	defer b.mu.RUnlock()
 
 	deployments := make([]ServiceDeployment, 0, len(serviceDeploymentArns))
-	failures := make([]Failure, 0)
+	failures := make([]Failure, 0, len(serviceDeploymentArns))
 
 	for _, arn := range serviceDeploymentArns {
 		sd, ok := b.serviceDeployments[arn]

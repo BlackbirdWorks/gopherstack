@@ -589,7 +589,7 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 	returnArn := strings.EqualFold(c.Request().FormValue("ReturnSubscriptionArn"), "true")
 	subArn := sub.SubscriptionArn
 	if sub.PendingConfirmation && !returnArn {
-		subArn = statusPendingConfirmation
+		subArn = pendingConfirmationARN
 	}
 
 	return h.writeXML(c, SubscribeResponse{
@@ -875,7 +875,7 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 	}
 
 	successful := make([]XMLPublishBatchSuccessEntry, 0, len(entries))
-	failed := make([]XMLPublishBatchFailEntry, 0)
+	failed := make([]XMLPublishBatchFailEntry, 0, len(entries))
 
 	isFIFO := strings.HasSuffix(topicArn, ".fifo")
 
@@ -1670,14 +1670,15 @@ func attrsToEntries(attrs map[string]string) []XMLAttributeEntry {
 }
 
 // toXMLSubscriptions converts Subscription slice to XMLSubscription slice.
-// Pending (unconfirmed) subscriptions use statusPendingConfirmation as their ARN,
-// matching the AWS SNS ListSubscriptions / ListSubscriptionsByTopic behaviour.
+// Pending (unconfirmed) subscriptions use pendingConfirmationARN ("pending
+// confirmation") as their ARN, matching the AWS SNS ListSubscriptions /
+// ListSubscriptionsByTopic behaviour.
 func toXMLSubscriptions(subs []Subscription) []XMLSubscription {
 	result := make([]XMLSubscription, len(subs))
 	for i, s := range subs {
 		subArn := s.SubscriptionArn
 		if s.PendingConfirmation {
-			subArn = statusPendingConfirmation
+			subArn = pendingConfirmationARN
 		}
 
 		result[i] = XMLSubscription{

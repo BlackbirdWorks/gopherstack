@@ -853,7 +853,7 @@ func (b *InMemoryBackend) ListResolvers(apiID, typeName string) ([]*Resolver, er
 	}
 
 	res := b.resolvers[apiID]
-	out := make([]*Resolver, 0)
+	out := make([]*Resolver, 0, len(res))
 
 	prefix := typeName + "."
 	for key, r := range res {
@@ -2136,7 +2136,7 @@ func (b *InMemoryBackend) ListSourceAPIAssociations(mergedAPIID string) ([]*Sour
 	b.mu.RLock("ListSourceApiAssociations")
 	defer b.mu.RUnlock()
 
-	out := make([]*SourceAPIAssociation, 0)
+	out := make([]*SourceAPIAssociation, 0, len(b.sourceAssocs))
 
 	for _, assoc := range b.sourceAssocs {
 		if assoc.MergedAPIID == mergedAPIID {

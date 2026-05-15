@@ -216,7 +216,7 @@ func (b *InMemoryBackend) BatchGetTriggers(names []string) ([]*Trigger, []string
 	defer b.mu.RUnlock()
 
 	found := make([]*Trigger, 0, len(names))
-	missing := make([]string, 0)
+	missing := make([]string, 0, len(names))
 
 	for _, name := range names {
 		t, ok := b.triggers[name]
@@ -347,7 +347,7 @@ func (b *InMemoryBackend) BatchGetWorkflows(names []string) ([]*Workflow, []stri
 	defer b.mu.RUnlock()
 
 	found := make([]*Workflow, 0, len(names))
-	missing := make([]string, 0)
+	missing := make([]string, 0, len(names))
 
 	for _, name := range names {
 		w, ok := b.workflows[name]

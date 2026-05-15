@@ -41,7 +41,10 @@ const (
 	keyResponseType         = "responseType"
 	keyHTTPMethod           = "httpMethod"
 	keyStatusCode           = "statusCode"
-	keyItem                 = "item"
+	// keyItem is the response collection key used by AWS API Gateway list
+	// operations. The AWS Go SDK v2 deserializer expects the singular "item"
+	// for every list response (it is the wire name in the smithy model).
+	keyItem = "item"
 )
 
 const (

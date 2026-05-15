@@ -895,7 +895,7 @@ func (h *Handler) handleBatchGetTraces(_ context.Context, body []byte) ([]byte, 
 	}
 
 	traces := make([]traceOutput, 0, len(in.TraceIDs))
-	unprocessed := make([]string, 0)
+	unprocessed := make([]string, 0, len(in.TraceIDs))
 
 	for _, id := range in.TraceIDs {
 		t := h.Backend.GetTrace(id)

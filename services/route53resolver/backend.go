@@ -421,7 +421,7 @@ func (b *InMemoryBackend) DeleteResolverEndpoint(id string) error {
 	// Clean up tags.
 	delete(b.tags, ep.ARN)
 
-	toDelete := make([]string, 0)
+	toDelete := make([]string, 0, len(b.rules))
 	for ruleID, r := range b.rules {
 		if r.ResolverEndpointID == id {
 			toDelete = append(toDelete, ruleID)
@@ -1140,7 +1140,7 @@ func (b *InMemoryBackend) ListFirewallRules(firewallRuleGroupID string) []*Firew
 	b.mu.RLock("ListFirewallRules")
 	defer b.mu.RUnlock()
 
-	list := make([]*FirewallRule, 0)
+	list := make([]*FirewallRule, 0, len(b.firewallRules))
 	for _, r := range b.firewallRules {
 		if firewallRuleGroupID != "" && r.FirewallRuleGroupID != firewallRuleGroupID {
 			continue
@@ -1256,7 +1256,7 @@ func (b *InMemoryBackend) ListFirewallRuleGroupAssociations(
 	b.mu.RLock("ListFirewallRuleGroupAssociations")
 	defer b.mu.RUnlock()
 
-	list := make([]*FirewallRuleGroupAssociation, 0)
+	list := make([]*FirewallRuleGroupAssociation, 0, len(b.firewallRuleGroupAssociations))
 	for _, a := range b.firewallRuleGroupAssociations {
 		if vpcID != "" && a.VpcID != vpcID {
 			continue

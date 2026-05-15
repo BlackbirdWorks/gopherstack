@@ -411,7 +411,7 @@ func (b *InMemoryBackend) ListJobsByPipeline(pipelineID string) []*Job {
 	b.mu.RLock("ListJobsByPipeline")
 	defer b.mu.RUnlock()
 
-	list := make([]*Job, 0)
+	list := make([]*Job, 0, len(b.jobs))
 	for _, j := range b.jobs {
 		if j.PipelineID == pipelineID {
 			list = append(list, jobCopy(j))
@@ -509,7 +509,7 @@ func (b *InMemoryBackend) ListJobsByStatus(status string) []*Job {
 	b.mu.RLock("ListJobsByStatus")
 	defer b.mu.RUnlock()
 
-	list := make([]*Job, 0)
+	list := make([]*Job, 0, len(b.jobs))
 	for _, j := range b.jobs {
 		if j.Status == status {
 			list = append(list, jobCopy(j))

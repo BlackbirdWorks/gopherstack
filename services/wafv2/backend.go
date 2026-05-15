@@ -1044,7 +1044,7 @@ func (b *InMemoryBackend) ListResourcesForWebACL(webACLARN string) ([]string, er
 	}
 
 	webACLID := b.webACLByARN[webACLARN]
-	result := make([]string, 0)
+	result := make([]string, 0, len(b.associations))
 
 	for resourceARN, wID := range b.associations {
 		if wID == webACLID {

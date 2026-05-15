@@ -1654,7 +1654,7 @@ func (b *InMemoryBackend) GetJobQueueSnapshot(jobQueue string) (*JobQueueSnapsho
 	}
 
 	ids := b.jobsByQueue[jq.JobQueueName]
-	runnableJobs := make([]*Job, 0)
+	runnableJobs := make([]*Job, 0, len(ids))
 
 	for _, id := range ids {
 		j, ok2 := b.jobs[id]

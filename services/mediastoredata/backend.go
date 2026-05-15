@@ -240,7 +240,7 @@ func (b *InMemoryBackend) ListItems(in ListItemsInput) *ListItemsOutput {
 	}
 
 	seen := make(map[string]bool)
-	all := make([]*Item, 0)
+	all := make([]*Item, 0, len(b.objects))
 
 	for key, obj := range b.objects {
 		if !strings.HasPrefix(key, prefix) {

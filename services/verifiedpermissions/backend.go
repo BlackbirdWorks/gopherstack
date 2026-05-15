@@ -574,8 +574,8 @@ func (b *InMemoryBackend) BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPol
 	defer b.mu.RUnlock()
 
 	result := BatchGetPolicyResult{
-		Results: make([]batchGetPolicyOutputItem, 0),
-		Errors:  make([]batchGetPolicyErrorItem, 0),
+		Results: make([]batchGetPolicyOutputItem, 0, len(items)),
+		Errors:  make([]batchGetPolicyErrorItem, 0, len(items)),
 	}
 
 	for _, item := range items {

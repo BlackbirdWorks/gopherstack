@@ -407,7 +407,7 @@ func (b *InMemoryBackend) ListDomainNamesByEngine(engineType string) []string {
 	b.mu.RLock("ListDomainNamesByEngine")
 	defer b.mu.RUnlock()
 
-	out := make([]string, 0)
+	out := make([]string, 0, len(b.domains))
 
 	for name, d := range b.domains {
 		if engineType == "" {

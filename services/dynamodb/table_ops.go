@@ -1297,8 +1297,9 @@ func (db *InMemoryDB) ListTables(
 
 	// Snapshot table names under lock, then release immediately
 	db.mu.RLock("ListTables")
-	names := make([]string, 0)
-	if regionTables, exists := db.Tables[region]; exists {
+	regionTables, exists := db.Tables[region]
+	names := make([]string, 0, len(regionTables))
+	if exists {
 		for name := range regionTables {
 			names = append(names, name)
 		}

@@ -728,7 +728,7 @@ func (b *InMemoryBackend) ListAdapterVersions(adapterID string) ([]AdapterVersio
 		return nil, fmt.Errorf("%w: adapter %s not found", ErrAdapterNotFound, adapterID)
 	}
 
-	out := make([]AdapterVersion, 0)
+	out := make([]AdapterVersion, 0, len(b.adapterVersions))
 	for _, av := range b.adapterVersions {
 		if av.AdapterID == adapterID {
 			out = append(out, *cloneAdapterVersion(av))

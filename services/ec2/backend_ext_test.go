@@ -351,7 +351,7 @@ func TestKeyPairOperations(t *testing.T) {
 				require.Error(t, err)
 
 			case "import":
-				kp, err := b.ImportKeyPair(tt.keyName)
+				kp, err := b.ImportKeyPair(tt.keyName, "")
 				if tt.wantErr {
 					require.Error(t, err)
 				} else {
@@ -362,13 +362,13 @@ func TestKeyPairOperations(t *testing.T) {
 				}
 
 			case "import_duplicate":
-				_, err := b.ImportKeyPair(tt.keyName)
+				_, err := b.ImportKeyPair(tt.keyName, "")
 				require.NoError(t, err)
-				_, err = b.ImportKeyPair(tt.keyName)
+				_, err = b.ImportKeyPair(tt.keyName, "")
 				require.ErrorIs(t, err, ec2.ErrDuplicateKeyPairName)
 
 			case "import_retrievable":
-				_, err := b.ImportKeyPair(tt.keyName)
+				_, err := b.ImportKeyPair(tt.keyName, "")
 				require.NoError(t, err)
 				kps := b.DescribeKeyPairs([]string{tt.keyName})
 				require.Len(t, kps, 1)

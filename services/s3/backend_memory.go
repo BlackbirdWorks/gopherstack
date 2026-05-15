@@ -286,7 +286,7 @@ func (b *InMemoryBackend) ListBuckets(
 ) (*s3.ListBucketsOutput, error) {
 	// Snapshot bucket data under lock across all regions, release immediately
 	b.mu.RLock("ListBuckets")
-	buckets := make([]types.Bucket, 0)
+	buckets := make([]types.Bucket, 0, len(b.buckets))
 	for _, regionBuckets := range b.buckets {
 		for _, bucket := range regionBuckets {
 			if bucket.DeletePending {
@@ -1004,7 +1004,7 @@ func (b *InMemoryBackend) DeleteObjects(
 ) (*s3.DeleteObjectsOutput, error) {
 	out := &s3.DeleteObjectsOutput{
 		Deleted: make([]types.DeletedObject, 0, len(input.Delete.Objects)),
-		Errors:  make([]types.Error, 0),
+		Errors:  make([]types.Error, 0, len(input.Delete.Objects)),
 	}
 
 	bucketName := *input.Bucket

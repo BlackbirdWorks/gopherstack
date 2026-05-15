@@ -836,7 +836,7 @@ func shardDescription(s *Shard) ShardDescription {
 
 // listShardsAtShardID returns shards matching the AT_SHARD_ID filter.
 func listShardsAtShardID(shards []*Shard, targetID string) []ShardDescription {
-	result := make([]ShardDescription, 0)
+	result := make([]ShardDescription, 0, len(shards))
 	for _, s := range shards {
 		if s.ID != targetID && s.ParentShardID != targetID && s.AdjacentParentShardID != targetID {
 			continue

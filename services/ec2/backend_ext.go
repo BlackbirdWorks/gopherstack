@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/ssh"
 )
 
 // Additional errors for extended EC2 operations.
@@ -44,7 +45,12 @@ const (
 type KeyPair struct {
 	Name        string `json:"name"`
 	Fingerprint string `json:"fingerprint"`
-	Material    string `json:"material,omitempty"` // only on create
+	Material    string `json:"material,omitempty"` // private key PEM, only on create
+	// PublicKey is the OpenSSH "ssh-rsa AAAA..." authorized_keys-format public
+	// key, populated by CreateKeyPair (derived from the generated private key)
+	// and by ImportKeyPair (decoded from PublicKeyMaterial). Used by the
+	// optional Compute provider to seed authorized_keys on launch.
+	PublicKey string `json:"publicKey,omitempty"`
 }
 
 // Volume represents an EBS volume.
@@ -202,7 +208,7 @@ var stubAMIs = []AMIStub{
 
 //nolint:gochecknoglobals // package-level stub data for describe operations
 var stubRegions = []string{
-	"us-east-1", "us-east-2", "us-west-1", "us-west-2",
+	regionUSEast1, "us-east-2", "us-west-1", "us-west-2",
 	"eu-west-1", "eu-west-2", "eu-central-1",
 	"ap-southeast-1", "ap-southeast-2", "ap-northeast-1",
 }
@@ -436,20 +442,30 @@ func (b *InMemoryBackend) CreateKeyPair(name string) (*KeyPair, error) {
 	privDER := x509.MarshalPKCS1PrivateKey(privKey)
 	privPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: privDER})
 
+	pub, sshErr := ssh.NewPublicKey(&privKey.PublicKey)
+	if sshErr != nil {
+		return nil, fmt.Errorf("failed to derive ssh public key: %w", sshErr)
+	}
+
+	authorized := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))) +
+		" gopherstack-" + name
+
 	kp := &KeyPair{
 		Name:        name,
 		Fingerprint: fp,
 		Material:    string(privPEM),
+		PublicKey:   authorized,
 	}
 	b.keyPairs[name] = kp
 
 	return kp, nil
 }
 
-// ImportKeyPair stores a pre-existing key pair by name without key material.
-// This matches the AWS ImportKeyPair API which accepts only the public key material
-// from the caller. In the mock we simply register the name with a stub fingerprint.
-func (b *InMemoryBackend) ImportKeyPair(name string) (*KeyPair, error) {
+// ImportKeyPair stores a pre-existing key pair by name. publicKeyMaterial is
+// the OpenSSH-format ("ssh-rsa AAAA...") public key the caller passed in
+// PublicKeyMaterial; when non-empty it is persisted on the KeyPair so the
+// optional Compute provider can write it to authorized_keys on launch.
+func (b *InMemoryBackend) ImportKeyPair(name, publicKeyMaterial string) (*KeyPair, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: KeyName is required", ErrInvalidParameter)
 	}
@@ -464,6 +480,7 @@ func (b *InMemoryBackend) ImportKeyPair(name string) (*KeyPair, error) {
 	kp := &KeyPair{
 		Name:        name,
 		Fingerprint: "aa:bb:cc:dd:" + uuid.New().String()[:stubFingerprintUUIDLen],
+		PublicKey:   strings.TrimSpace(publicKeyMaterial),
 	}
 	b.keyPairs[name] = kp
 

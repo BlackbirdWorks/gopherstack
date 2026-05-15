@@ -538,6 +538,11 @@ func (h *Handler) handleCreateQueue(
 		endpoint = r.Host
 	}
 
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
 
 	var initialTags map[string]string
@@ -550,6 +555,7 @@ func (h *Handler) handleCreateQueue(
 		Attributes: req.Attributes,
 		Tags:       initialTags,
 		Endpoint:   endpoint,
+		Scheme:     scheme,
 		Region:     region,
 	})
 	if err != nil {

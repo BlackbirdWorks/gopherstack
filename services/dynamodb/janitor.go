@@ -140,7 +140,7 @@ func (j *Janitor) snapshotPITRTables(_ context.Context) {
 	db := j.Backend
 
 	db.mu.RLock("DDBJanitor.snapshotPITR")
-	tables := make([]*Table, 0)
+	tables := make([]*Table, 0, len(db.Tables))
 	for _, regionTables := range db.Tables {
 		for _, t := range regionTables {
 			tables = append(tables, t)
@@ -182,7 +182,7 @@ func (j *Janitor) runTableCleaner(ctx context.Context) {
 	// while thousands of per-table resources are being released.
 	db.mu.Lock("DDBJanitor")
 	depth := 0
-	tablesToClose := make([]*Table, 0)
+	tablesToClose := make([]*Table, 0, len(db.deletingTables))
 
 	for region, regionTables := range db.deletingTables {
 		for name, table := range regionTables {

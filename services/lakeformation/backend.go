@@ -439,7 +439,7 @@ func (b *InMemoryBackend) ListPermissions(
 	b.mu.RLock("ListPermissions")
 	defer b.mu.RUnlock()
 
-	filtered := make([]*PermissionEntry, 0)
+	filtered := make([]*PermissionEntry, 0, len(b.permissions))
 
 	for _, p := range b.permissions {
 		if resourceArn == "" || permissionMatchesARN(p, resourceArn) {
@@ -584,7 +584,7 @@ func (b *InMemoryBackend) ListLFTags(catalogID string, maxResults int, nextToken
 	b.mu.RLock("ListLFTags")
 	defer b.mu.RUnlock()
 
-	all := make([]*LFTag, 0)
+	all := make([]*LFTag, 0, len(b.lfTags))
 
 	for k, t := range b.lfTags {
 		if catalogID == "" || k.CatalogID == catalogID {
@@ -844,7 +844,7 @@ func (b *InMemoryBackend) AddLFTagsToResource(catalogID string, resource *Resour
 	b.mu.Lock("AddLFTagsToResource")
 	defer b.mu.Unlock()
 
-	failures := make([]LFTagError, 0)
+	failures := make([]LFTagError, 0, len(lfTags))
 	resourceKey := resourceToKey(resource)
 	existing := b.resourceLFTags[resourceKey]
 
@@ -1323,7 +1323,7 @@ func (b *InMemoryBackend) RemoveLFTagsFromResource(
 	b.mu.Lock("RemoveLFTagsFromResource")
 	defer b.mu.Unlock()
 
-	failures := make([]LFTagError, 0)
+	failures := make([]LFTagError, 0, len(lfTags))
 	resourceKey := resourceToKey(resource)
 	existing := b.resourceLFTags[resourceKey]
 

@@ -1286,7 +1286,7 @@ func (b *InMemoryBackend) DescribeLoadBalancerPolicies(
 		filterNames[n] = true
 	}
 
-	result := make([]LoadBalancerPolicy, 0)
+	result := make([]LoadBalancerPolicy, 0, len(b.policies))
 	for _, p := range b.policies {
 		if name != "" && p.LoadBalancerName != name {
 			continue

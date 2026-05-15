@@ -1160,7 +1160,7 @@ func (b *InMemoryBackend) BatchCreatePartition(
 	defer b.mu.Unlock()
 
 	created := make([]*Partition, 0, len(inputs))
-	errs := make([]PartitionError, 0)
+	errs := make([]PartitionError, 0, len(inputs))
 
 	for _, input := range inputs {
 		key := partitionKey(dbName, tableName, input.Values)
@@ -1194,7 +1194,7 @@ func (b *InMemoryBackend) BatchDeletePartition(dbName, tableName string, values 
 	b.mu.Lock("BatchDeletePartition")
 	defer b.mu.Unlock()
 
-	errs := make([]PartitionError, 0)
+	errs := make([]PartitionError, 0, len(values))
 
 	for _, pvl := range values {
 		key := partitionKey(dbName, tableName, pvl.Values)
@@ -1218,7 +1218,7 @@ func (b *InMemoryBackend) BatchDeleteTable(dbName string, tableNames []string) [
 	b.mu.Lock("BatchDeleteTable")
 	defer b.mu.Unlock()
 
-	errs := make([]TableError, 0)
+	errs := make([]TableError, 0, len(tableNames))
 
 	for _, name := range tableNames {
 		key := tableKey(dbName, name)
@@ -1243,7 +1243,7 @@ func (b *InMemoryBackend) BatchDeleteTableVersion(dbName, tableName string, vers
 	b.mu.Lock("BatchDeleteTableVersion")
 	defer b.mu.Unlock()
 
-	errs := make([]TableVersionError, 0)
+	errs := make([]TableVersionError, 0, len(versionIDs))
 
 	for _, vid := range versionIDs {
 		key := tableVersionKey(dbName, tableName, vid)
@@ -1269,7 +1269,7 @@ func (b *InMemoryBackend) BatchDeleteConnection(names []string) ([]string, []Err
 	defer b.mu.Unlock()
 
 	succeeded := make([]string, 0, len(names))
-	errs := make([]ErrorDetail, 0)
+	errs := make([]ErrorDetail, 0, len(names))
 
 	for _, name := range names {
 		if _, ok := b.connections[name]; !ok {
@@ -1294,7 +1294,7 @@ func (b *InMemoryBackend) BatchGetBlueprints(names []string) ([]*Blueprint, []st
 	defer b.mu.RUnlock()
 
 	found := make([]*Blueprint, 0, len(names))
-	missing := make([]string, 0)
+	missing := make([]string, 0, len(names))
 
 	for _, name := range names {
 		bp, ok := b.blueprints[name]
@@ -1317,7 +1317,7 @@ func (b *InMemoryBackend) BatchGetCrawlers(names []string) ([]*Crawler, []string
 	defer b.mu.RUnlock()
 
 	found := make([]*Crawler, 0, len(names))
-	missing := make([]string, 0)
+	missing := make([]string, 0, len(names))
 
 	for _, name := range names {
 		c, ok := b.crawlers[name]
@@ -1339,7 +1339,7 @@ func (b *InMemoryBackend) BatchGetCustomEntityTypes(names []string) ([]*CustomEn
 	defer b.mu.RUnlock()
 
 	found := make([]*CustomEntityType, 0, len(names))
-	missing := make([]string, 0)
+	missing := make([]string, 0, len(names))
 
 	for _, name := range names {
 		cet, ok := b.customEntityTypes[name]
@@ -1363,7 +1363,7 @@ func (b *InMemoryBackend) BatchGetDataQualityResult(resultIDs []string) ([]*Data
 	defer b.mu.RUnlock()
 
 	found := make([]*DataQualityResult, 0, len(resultIDs))
-	errs := make([]ErrorDetail, 0)
+	errs := make([]ErrorDetail, 0, len(resultIDs))
 
 	for _, id := range resultIDs {
 		dqr, ok := b.dataQualityResult[id]
@@ -1389,7 +1389,7 @@ func (b *InMemoryBackend) BatchGetDevEndpoints(names []string) ([]*DevEndpoint, 
 	defer b.mu.RUnlock()
 
 	found := make([]*DevEndpoint, 0, len(names))
-	missing := make([]string, 0)
+	missing := make([]string, 0, len(names))
 
 	for _, name := range names {
 		dep, ok := b.devEndpoints[name]
@@ -1638,7 +1638,7 @@ func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []Bat
 	b.mu.Lock("BatchStopJobRun")
 	defer b.mu.Unlock()
 
-	errs := make([]BatchStopJobRunError, 0)
+	errs := make([]BatchStopJobRunError, 0, len(runIDs))
 
 	for _, id := range runIDs {
 		found := false

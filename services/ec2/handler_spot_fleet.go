@@ -161,7 +161,7 @@ func (h *Handler) handleCancelSpotFleetRequests(vals url.Values, reqID string) (
 	}
 
 	successItems := make([]cancelSpotFleetSuccessItem, 0, len(results))
-	errorItems := make([]cancelSpotFleetErrorItem, 0)
+	errorItems := make([]cancelSpotFleetErrorItem, 0, len(results))
 
 	for _, r := range results {
 		if r.Error != "" {

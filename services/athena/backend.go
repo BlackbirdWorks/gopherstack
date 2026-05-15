@@ -603,7 +603,7 @@ func (b *InMemoryBackend) ListNamedQueries(workGroup string) ([]string, error) {
 	b.mu.RLock("ListNamedQueries")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0)
+	ids := make([]string, 0, len(b.namedQueries))
 	for id, q := range b.namedQueries {
 		if workGroup == "" || q.WorkGroup == workGroup {
 			ids = append(ids, id)
@@ -620,8 +620,8 @@ func (b *InMemoryBackend) BatchGetNamedQuery(ids []string) ([]NamedQuery, []stri
 	b.mu.RLock("BatchGetNamedQuery")
 	defer b.mu.RUnlock()
 
-	found := make([]NamedQuery, 0)
-	unprocessed := make([]string, 0)
+	found := make([]NamedQuery, 0, len(ids))
+	unprocessed := make([]string, 0, len(ids))
 
 	for _, id := range ids {
 		q, ok := b.namedQueries[id]
@@ -822,7 +822,7 @@ func (b *InMemoryBackend) ListQueryExecutions(workGroup string) ([]string, error
 	b.mu.RLock("ListQueryExecutions")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0)
+	ids := make([]string, 0, len(b.queryExecutions))
 	for id, qe := range b.queryExecutions {
 		if workGroup == "" || qe.WorkGroup == workGroup {
 			ids = append(ids, id)
@@ -868,8 +868,8 @@ func (b *InMemoryBackend) BatchGetQueryExecution(ids []string) ([]QueryExecution
 	b.mu.RLock("BatchGetQueryExecution")
 	defer b.mu.RUnlock()
 
-	found := make([]QueryExecution, 0)
-	unprocessed := make([]string, 0)
+	found := make([]QueryExecution, 0, len(ids))
+	unprocessed := make([]string, 0, len(ids))
 
 	for _, id := range ids {
 		qe, ok := b.queryExecutions[id]
@@ -1008,8 +1008,7 @@ func (b *InMemoryBackend) ListPreparedStatements(workGroup string) ([]PreparedSt
 	b.mu.RLock("ListPreparedStatements")
 	defer b.mu.RUnlock()
 
-	result := make([]PreparedStatement, 0)
-
+	result := make([]PreparedStatement, 0, len(b.preparedStatements))
 	for key, ps := range b.preparedStatements {
 		prefix := workGroup + "/"
 		if strings.HasPrefix(key, prefix) {
@@ -1032,8 +1031,8 @@ func (b *InMemoryBackend) BatchGetPreparedStatement(
 	b.mu.RLock("BatchGetPreparedStatement")
 	defer b.mu.RUnlock()
 
-	found := make([]PreparedStatement, 0)
-	unprocessed := make([]UnprocessedPreparedStatementName, 0)
+	found := make([]PreparedStatement, 0, len(names))
+	unprocessed := make([]UnprocessedPreparedStatementName, 0, len(names))
 
 	for _, name := range names {
 		key := preparedStatementKey(workGroup, name)

@@ -1346,7 +1346,7 @@ func (b *InMemoryBackend) AdminListGroupsForUser(userPoolID, username string) ([
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
-	out := make([]*Group, 0)
+	out := make([]*Group, 0, len(b.groupMembers[userPoolID]))
 
 	for groupName, members := range b.groupMembers[userPoolID] {
 		if _, isMember := members[username]; !isMember {

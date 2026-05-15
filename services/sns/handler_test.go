@@ -1085,7 +1085,7 @@ func TestSNSHandler_Subscribe(t *testing.T) {
 				"Endpoint": {"http://example.com/notify"},
 			},
 			wantStatus:       http.StatusOK,
-			wantBodyContains: []string{"PendingConfirmation"},
+			wantBodyContains: []string{"pending confirmation"},
 		},
 		{
 			name: "pending confirmation https",
@@ -1100,7 +1100,7 @@ func TestSNSHandler_Subscribe(t *testing.T) {
 				"Endpoint": {"https://example.com/notify"},
 			},
 			wantStatus:       http.StatusOK,
-			wantBodyContains: []string{"PendingConfirmation"},
+			wantBodyContains: []string{"pending confirmation"},
 		},
 	}
 
@@ -4979,9 +4979,9 @@ func TestSNS_ReturnSubscriptionArn(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			if tt.wantPendingStr {
-				assert.Contains(t, rec.Body.String(), "PendingConfirmation")
+				assert.Contains(t, rec.Body.String(), "pending confirmation")
 			} else {
-				assert.NotContains(t, rec.Body.String(), "PendingConfirmation")
+				assert.NotContains(t, rec.Body.String(), "pending confirmation")
 				assert.Contains(t, rec.Body.String(), "arn:aws:sns:")
 			}
 		})
