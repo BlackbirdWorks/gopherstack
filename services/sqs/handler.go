@@ -115,29 +115,29 @@ func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
 // GetSupportedOperations returns the list of supported SQS operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"AddPermission",
-		"CancelMessageMoveTask",
-		"ChangeMessageVisibility",
-		"ChangeMessageVisibilityBatch",
-		"CreateQueue",
-		"DeleteMessage",
-		"DeleteMessageBatch",
-		"DeleteQueue",
-		"GetQueueAttributes",
-		"GetQueueUrl",
-		"ListDeadLetterSourceQueues",
-		"ListMessageMoveTasks",
-		"ListQueueTags",
-		"ListQueues",
-		"PurgeQueue",
-		"ReceiveMessage",
-		"RemovePermission",
-		"SendMessage",
-		"SendMessageBatch",
-		"SetQueueAttributes",
-		"StartMessageMoveTask",
-		"TagQueue",
-		"UntagQueue",
+		opAddPermission,
+		opCancelMessageMoveTask,
+		opChangeMessageVisibility,
+		opChangeMessageVisibilityBatch,
+		opCreateQueue,
+		opDeleteMessage,
+		opDeleteMessageBatch,
+		opDeleteQueue,
+		opGetQueueAttributes,
+		opGetQueueURL,
+		opListDeadLetterSourceQueues,
+		opListMessageMoveTasks,
+		opListQueueTags,
+		opListQueues,
+		opPurgeQueue,
+		opReceiveMessage,
+		opRemovePermission,
+		opSendMessage,
+		opSendMessageBatch,
+		opSetQueueAttributes,
+		opStartMessageMoveTask,
+		opTagQueue,
+		opUntagQueue,
 	}
 }
 
@@ -191,6 +191,33 @@ const sqsMatchPriority = 75
 
 // unknownOperation is the default operation name returned when the action cannot be determined.
 const unknownOperation = "Unknown"
+
+// SQS operation name constants shared between JSON and Query protocol dispatch.
+const (
+	opAddPermission                = "AddPermission"
+	opCancelMessageMoveTask        = "CancelMessageMoveTask"
+	opChangeMessageVisibility      = "ChangeMessageVisibility"
+	opChangeMessageVisibilityBatch = "ChangeMessageVisibilityBatch"
+	opCreateQueue                  = "CreateQueue"
+	opDeleteMessage                = "DeleteMessage"
+	opDeleteMessageBatch           = "DeleteMessageBatch"
+	opDeleteQueue                  = "DeleteQueue"
+	opGetQueueAttributes           = "GetQueueAttributes"
+	opGetQueueURL                  = "GetQueueUrl"
+	opListDeadLetterSourceQueues   = "ListDeadLetterSourceQueues"
+	opListMessageMoveTasks         = "ListMessageMoveTasks"
+	opListQueueTags                = "ListQueueTags"
+	opListQueues                   = "ListQueues"
+	opPurgeQueue                   = "PurgeQueue"
+	opReceiveMessage               = "ReceiveMessage"
+	opRemovePermission             = "RemovePermission"
+	opSendMessage                  = "SendMessage"
+	opSendMessageBatch             = "SendMessageBatch"
+	opSetQueueAttributes           = "SetQueueAttributes"
+	opStartMessageMoveTask         = "StartMessageMoveTask"
+	opTagQueue                     = "TagQueue"
+	opUntagQueue                   = "UntagQueue"
+)
 
 // MatchPriority returns the routing priority for the SQS handler.
 func (h *Handler) MatchPriority() int {
@@ -254,29 +281,29 @@ type sqsDispatchFn func(ctx context.Context, r *http.Request, body []byte) (any,
 
 func (h *Handler) sqsDispatchTable() map[string]sqsDispatchFn {
 	return map[string]sqsDispatchFn{
-		"CreateQueue":                  h.handleCreateQueue,
-		"DeleteQueue":                  h.handleDeleteQueue,
-		"ListQueues":                   h.handleListQueues,
-		"GetQueueUrl":                  h.handleGetQueueURL,
-		"GetQueueAttributes":           h.handleGetQueueAttributes,
-		"SetQueueAttributes":           h.handleSetQueueAttributes,
-		"SendMessage":                  h.handleSendMessage,
-		"ReceiveMessage":               h.handleReceiveMessage,
-		"DeleteMessage":                h.handleDeleteMessage,
-		"ChangeMessageVisibility":      h.handleChangeMessageVisibility,
-		"SendMessageBatch":             h.handleSendMessageBatch,
-		"DeleteMessageBatch":           h.handleDeleteMessageBatch,
-		"ChangeMessageVisibilityBatch": h.handleChangeMessageVisibilityBatch,
-		"PurgeQueue":                   h.handlePurgeQueue,
-		"TagQueue":                     h.handleTagQueue,
-		"UntagQueue":                   h.handleUntagQueue,
-		"ListQueueTags":                h.handleListQueueTags,
-		"ListDeadLetterSourceQueues":   h.handleListDeadLetterSourceQueues,
-		"AddPermission":                h.handleAddPermission,
-		"RemovePermission":             h.handleRemovePermission,
-		"StartMessageMoveTask":         h.handleStartMessageMoveTask,
-		"CancelMessageMoveTask":        h.handleCancelMessageMoveTask,
-		"ListMessageMoveTasks":         h.handleListMessageMoveTasks,
+		opCreateQueue:                  h.handleCreateQueue,
+		opDeleteQueue:                  h.handleDeleteQueue,
+		opListQueues:                   h.handleListQueues,
+		opGetQueueURL:                  h.handleGetQueueURL,
+		opGetQueueAttributes:           h.handleGetQueueAttributes,
+		opSetQueueAttributes:           h.handleSetQueueAttributes,
+		opSendMessage:                  h.handleSendMessage,
+		opReceiveMessage:               h.handleReceiveMessage,
+		opDeleteMessage:                h.handleDeleteMessage,
+		opChangeMessageVisibility:      h.handleChangeMessageVisibility,
+		opSendMessageBatch:             h.handleSendMessageBatch,
+		opDeleteMessageBatch:           h.handleDeleteMessageBatch,
+		opChangeMessageVisibilityBatch: h.handleChangeMessageVisibilityBatch,
+		opPurgeQueue:                   h.handlePurgeQueue,
+		opTagQueue:                     h.handleTagQueue,
+		opUntagQueue:                   h.handleUntagQueue,
+		opListQueueTags:                h.handleListQueueTags,
+		opListDeadLetterSourceQueues:   h.handleListDeadLetterSourceQueues,
+		opAddPermission:                h.handleAddPermission,
+		opRemovePermission:             h.handleRemovePermission,
+		opStartMessageMoveTask:         h.handleStartMessageMoveTask,
+		opCancelMessageMoveTask:        h.handleCancelMessageMoveTask,
+		opListMessageMoveTasks:         h.handleListMessageMoveTasks,
 	}
 }
 
@@ -353,10 +380,10 @@ type jsonSendMessageReq struct {
 type jsonReceiveMessageReq struct {
 	VisibilityTimeout           *int     `json:"VisibilityTimeout"`
 	QueueURL                    string   `json:"QueueUrl"`
+	ReceiveRequestAttemptID     string   `json:"ReceiveRequestAttemptId"`
 	AttributeNames              []string `json:"AttributeNames"`
 	MessageAttributeNames       []string `json:"MessageAttributeNames"`
 	MessageSystemAttributeNames []string `json:"MessageSystemAttributeNames"`
-	ReceiveRequestAttemptID     string   `json:"ReceiveRequestAttemptId"`
 	MaxNumberOfMessages         int      `json:"MaxNumberOfMessages"`
 	WaitTimeSeconds             int      `json:"WaitTimeSeconds"`
 }
@@ -1179,6 +1206,15 @@ func sqsCoreErrorDetails(err error) (errorEntry, bool) {
 
 // sqsPermMoveErrorDetails handles permission, move-task, and validation sentinel errors.
 func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
+	if e, ok := sqsPermErrorDetails(err); ok {
+		return e, true
+	}
+
+	return sqsValidationErrorDetails(err)
+}
+
+// sqsPermErrorDetails covers permission and move-task sentinel errors.
+func sqsPermErrorDetails(err error) (errorEntry, bool) {
 	type errRow struct {
 		sentinel error
 		entry    errorEntry
@@ -1225,6 +1261,28 @@ func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
 			"A message move task with the specified task handle is not running.",
 			badReq,
 		}},
+	}
+
+	for _, row := range rows {
+		if errors.Is(err, row.sentinel) {
+			return row.entry, true
+		}
+	}
+
+	return errorEntry{}, false
+}
+
+// sqsValidationErrorDetails covers queue name, message, and limit sentinel errors.
+func sqsValidationErrorDetails(err error) (errorEntry, bool) {
+	type errRow struct {
+		sentinel error
+		entry    errorEntry
+	}
+
+	const badReq = http.StatusBadRequest
+	const ipv = errTypeInvalidParameterValue
+
+	rows := [...]errRow{
 		{ErrInvalidQueueName, errorEntry{
 			ipv,
 			"The name of a queue can only include alphanumeric characters, hyphens, or underscores. " +
@@ -1252,7 +1310,7 @@ func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
 			http.StatusForbidden,
 		}},
 		{ErrInvalidMessageAttributeValue, errorEntry{
-			errTypeInvalidParameterValue,
+			ipv,
 			"Message attribute value is invalid. Check that the DataType and the associated value are correct.",
 			badReq,
 		}},
@@ -1262,8 +1320,9 @@ func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
 			badReq,
 		}},
 		{ErrFIFODelayNotSupported, errorEntry{
-			errTypeInvalidParameterValue,
-			"The request include parameter that is not valid for this queue type. DelaySeconds is not supported for FIFO queues.",
+			ipv,
+			"The request include parameter that is not valid for this queue type." +
+				" DelaySeconds is not supported for FIFO queues.",
 			badReq,
 		}},
 		{ErrBatchRequestTooLong, errorEntry{

@@ -1034,7 +1034,10 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 			msg.Attributes[attrMessageDeduplicationIDSys] = input.MessageDeduplicationID
 		}
 
-		storeDedup(q, input.MessageGroupID, input.MessageDeduplicationID, md5Body, q.Attributes[attrContentBasedDeduplication], msgID, now)
+		storeDedup(
+			q, input.MessageGroupID, input.MessageDeduplicationID,
+			md5Body, q.Attributes[attrContentBasedDeduplication], msgID, now,
+		)
 	}
 
 	q.messages = append(q.messages, msg)
@@ -1170,7 +1173,11 @@ func dedupKey(q *Queue, groupID, effectiveID string) string {
 
 // checkDedup checks for a duplicate FIFO message and returns the original output if found.
 // now is the reference time used for window expiry comparison.
-func checkDedup(q *Queue, groupID, dedupID, md5Body, contentBasedDedup string, now time.Time) (*SendMessageOutput, bool) {
+func checkDedup(
+	q *Queue,
+	groupID, dedupID, md5Body, contentBasedDedup string,
+	now time.Time,
+) (*SendMessageOutput, bool) {
 	effectiveID := dedupID
 	if effectiveID == "" && contentBasedDedup == attrValTrue {
 		effectiveID = md5Body
@@ -1775,8 +1782,8 @@ func isValidBatchEntryID(id string) bool {
 	}
 
 	for _, c := range id {
-		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-			(c >= '0' && c <= '9') || c == '_' || c == '-') {
+		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
+			(c < '0' || c > '9') && c != '_' && c != '-' {
 			return false
 		}
 	}
@@ -1816,7 +1823,6 @@ func validateBatchEnvelope(ids []string) error {
 
 	return nil
 }
-
 
 // SendMessageBatch sends a batch of messages to the specified queue.
 // Results in the Successful and Failed slices are returned in the same

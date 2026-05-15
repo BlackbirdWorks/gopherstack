@@ -11,8 +11,10 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+// queryRequestID is the fixed request ID returned in Query protocol responses.
+const queryRequestID = "gopherstack"
 
 // isQueryProtocol reports whether the request uses the SQS Query (form-encoded) protocol.
 func isQueryProtocol(r *http.Request) bool {
@@ -23,14 +25,14 @@ func isQueryProtocol(r *http.Request) bool {
 // isKnownSQSAction reports whether action is a recognised SQS operation name.
 func isKnownSQSAction(action string) bool {
 	switch action {
-	case "CreateQueue", "DeleteQueue", "ListQueues", "GetQueueUrl",
-		"GetQueueAttributes", "SetQueueAttributes",
-		"SendMessage", "ReceiveMessage", "DeleteMessage",
-		"ChangeMessageVisibility", "SendMessageBatch", "DeleteMessageBatch",
-		"ChangeMessageVisibilityBatch", "PurgeQueue",
-		"TagQueue", "UntagQueue", "ListQueueTags",
-		"ListDeadLetterSourceQueues", "AddPermission", "RemovePermission",
-		"StartMessageMoveTask", "CancelMessageMoveTask", "ListMessageMoveTasks":
+	case opCreateQueue, opDeleteQueue, opListQueues, opGetQueueURL,
+		opGetQueueAttributes, opSetQueueAttributes,
+		opSendMessage, opReceiveMessage, opDeleteMessage,
+		opChangeMessageVisibility, opSendMessageBatch, opDeleteMessageBatch,
+		opChangeMessageVisibilityBatch, opPurgeQueue,
+		opTagQueue, opUntagQueue, opListQueueTags,
+		opListDeadLetterSourceQueues, opAddPermission, opRemovePermission,
+		opStartMessageMoveTask, opCancelMessageMoveTask, opListMessageMoveTasks:
 		return true
 	}
 
@@ -54,7 +56,11 @@ func (h *Handler) handleQueryProtocol(c *echo.Context) error {
 
 	action := vals.Get("Action")
 	if !isKnownSQSAction(action) {
-		return writeQueryError(c, "InvalidAction", "The action "+action+" is not valid for this endpoint.", http.StatusBadRequest)
+		return writeQueryError(
+			c, "InvalidAction",
+			"The action "+action+" is not valid for this endpoint.",
+			http.StatusBadRequest,
+		)
 	}
 
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
@@ -75,7 +81,7 @@ type queryError struct {
 func writeQueryError(c *echo.Context, code, message string, status int) error {
 	resp := XMLErrorResponse{
 		Xmlns:     sqsNamespace,
-		RequestID: "gopherstack",
+		RequestID: queryRequestID,
 		Error: XMLError{
 			Type:    "Sender",
 			Code:    code,
@@ -94,7 +100,7 @@ func buildQueryError(err error) *queryError {
 
 	resp := XMLErrorResponse{
 		Xmlns:     sqsNamespace,
-		RequestID: "gopherstack",
+		RequestID: queryRequestID,
 		Error: XMLError{
 			Type:    "Sender",
 			Code:    errType,
@@ -263,7 +269,9 @@ func parseQueryChangeBatchEntries(vals url.Values) []ChangeMessageVisibilityBatc
 }
 
 // dispatchQueryAction dispatches the Query protocol action and returns the XML
-// response bytes, HTTP status, and an optional query error.
+// response bytes, HTTP status, and an optional query error. Queue and message
+// management actions are handled here; batch and permission actions are
+// delegated to dispatchQueryBatchAction.
 func (h *Handler) dispatchQueryAction(
 	action string,
 	vals url.Values,
@@ -271,42 +279,52 @@ func (h *Handler) dispatchQueryAction(
 	region string,
 ) ([]byte, int, *queryError) {
 	switch action {
-	case "CreateQueue":
+	case opCreateQueue:
 		return h.queryCreateQueue(vals, r, region)
-	case "DeleteQueue":
+	case opDeleteQueue:
 		return h.queryDeleteQueue(vals, region)
-	case "ListQueues":
+	case opListQueues:
 		return h.queryListQueues(vals, region)
-	case "GetQueueUrl":
+	case opGetQueueURL:
 		return h.queryGetQueueURL(vals, region)
-	case "GetQueueAttributes":
+	case opGetQueueAttributes:
 		return h.queryGetQueueAttributes(vals, region)
-	case "SetQueueAttributes":
+	case opSetQueueAttributes:
 		return h.querySetQueueAttributes(vals, region)
-	case "SendMessage":
+	case opSendMessage:
 		return h.querySendMessage(vals, r, region)
-	case "ReceiveMessage":
+	case opReceiveMessage:
 		return h.queryReceiveMessage(vals, region)
-	case "DeleteMessage":
+	case opDeleteMessage:
 		return h.queryDeleteMessage(vals, region)
-	case "ChangeMessageVisibility":
+	case opChangeMessageVisibility:
 		return h.queryChangeMessageVisibility(vals, region)
-	case "SendMessageBatch":
-		return h.querySendMessageBatch(vals, region)
-	case "DeleteMessageBatch":
-		return h.queryDeleteMessageBatch(vals, region)
-	case "ChangeMessageVisibilityBatch":
-		return h.queryChangeMessageVisibilityBatch(vals, region)
-	case "PurgeQueue":
+	case opPurgeQueue:
 		return h.queryPurgeQueue(vals, region)
-	case "AddPermission":
+	default:
+		return h.dispatchQueryBatchAction(action, vals, region)
+	}
+}
+
+// dispatchQueryBatchAction handles batch and permission Query protocol actions.
+func (h *Handler) dispatchQueryBatchAction(
+	action string,
+	vals url.Values,
+	region string,
+) ([]byte, int, *queryError) {
+	switch action {
+	case opSendMessageBatch:
+		return h.querySendMessageBatch(vals, region)
+	case opDeleteMessageBatch:
+		return h.queryDeleteMessageBatch(vals, region)
+	case opChangeMessageVisibilityBatch:
+		return h.queryChangeMessageVisibilityBatch(vals, region)
+	case opAddPermission:
 		return h.queryAddPermission(vals, region)
-	case "RemovePermission":
+	case opRemovePermission:
 		return h.queryRemovePermission(vals, region)
 	default:
-		qErr := buildQueryError(ErrUnknownAction)
-
-		return nil, 0, qErr
+		return nil, 0, buildQueryError(ErrUnknownAction)
 	}
 }
 
@@ -333,7 +351,7 @@ func (h *Handler) queryCreateQueue(vals url.Values, r *http.Request, region stri
 	resp := CreateQueueResponse{
 		Xmlns:             sqsNamespace,
 		CreateQueueResult: CreateQueueResult{QueueURL: out.QueueURL},
-		ResponseMetadata:  XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata:  XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -354,7 +372,7 @@ func (h *Handler) queryDeleteQueue(vals url.Values, region string) ([]byte, int,
 
 	resp := DeleteQueueResponse{
 		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -384,7 +402,7 @@ func (h *Handler) queryListQueues(vals url.Values, region string) ([]byte, int, 
 			QueueURLs: out.QueueURLs,
 			NextToken: out.NextToken,
 		},
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -407,7 +425,7 @@ func (h *Handler) queryGetQueueURL(vals url.Values, region string) ([]byte, int,
 	resp := GetQueueURLResponse{
 		Xmlns:             sqsNamespace,
 		GetQueueURLResult: GetQueueURLResult{QueueURL: out.QueueURL},
-		ResponseMetadata:  XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata:  XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -440,7 +458,7 @@ func (h *Handler) queryGetQueueAttributes(vals url.Values, region string) ([]byt
 		GetQueueAttributesResult: GetQueueAttributesResult{
 			Attributes: xmlAttrs,
 		},
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -464,7 +482,7 @@ func (h *Handler) querySetQueueAttributes(vals url.Values, region string) ([]byt
 
 	resp := SetQueueAttributesResponse{
 		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -501,7 +519,7 @@ func (h *Handler) querySendMessage(vals url.Values, r *http.Request, region stri
 			MD5OfMessageAttributes: out.MD5OfMessageAttributes,
 			MessageID:              out.MessageID,
 		},
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -561,7 +579,7 @@ func (h *Handler) queryReceiveMessage(vals url.Values, region string) ([]byte, i
 		ReceiveMessageResult: ReceiveMessageResult{
 			Messages: xmlMsgs,
 		},
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -583,7 +601,7 @@ func (h *Handler) queryDeleteMessage(vals url.Values, region string) ([]byte, in
 
 	resp := DeleteMessageResponse{
 		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -608,7 +626,7 @@ func (h *Handler) queryChangeMessageVisibility(vals url.Values, region string) (
 
 	resp := ChangeMessageVisibilityResponse{
 		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -643,12 +661,7 @@ func (h *Handler) querySendMessageBatch(vals url.Values, region string) ([]byte,
 
 	failed := make([]XMLSendMessageBatchFailedEntry, 0, len(out.Failed))
 	for _, f := range out.Failed {
-		failed = append(failed, XMLSendMessageBatchFailedEntry{
-			ID:          f.ID,
-			Code:        f.Code,
-			Message:     f.Message,
-			SenderFault: f.SenderFault,
-		})
+		failed = append(failed, XMLSendMessageBatchFailedEntry(f))
 	}
 
 	resp := SendMessageBatchResponse{
@@ -657,7 +670,7 @@ func (h *Handler) querySendMessageBatch(vals url.Values, region string) ([]byte,
 			Successful: successful,
 			Failed:     failed,
 		},
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -682,17 +695,12 @@ func (h *Handler) queryDeleteMessageBatch(vals url.Values, region string) ([]byt
 
 	successful := make([]XMLDeleteMessageBatchResultEntry, 0, len(out.Successful))
 	for _, s := range out.Successful {
-		successful = append(successful, XMLDeleteMessageBatchResultEntry{ID: s.ID})
+		successful = append(successful, XMLDeleteMessageBatchResultEntry(s))
 	}
 
 	failed := make([]XMLDeleteMessageBatchFailedEntry, 0, len(out.Failed))
 	for _, f := range out.Failed {
-		failed = append(failed, XMLDeleteMessageBatchFailedEntry{
-			ID:          f.ID,
-			Code:        f.Code,
-			Message:     f.Message,
-			SenderFault: f.SenderFault,
-		})
+		failed = append(failed, XMLDeleteMessageBatchFailedEntry(f))
 	}
 
 	resp := DeleteMessageBatchResponse{
@@ -701,7 +709,7 @@ func (h *Handler) queryDeleteMessageBatch(vals url.Values, region string) ([]byt
 			Successful: successful,
 			Failed:     failed,
 		},
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -730,7 +738,7 @@ func (h *Handler) queryChangeMessageVisibilityBatch(vals url.Values, region stri
 			Successful: out.Successful,
 			Failed:     out.Failed,
 		},
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -751,7 +759,7 @@ func (h *Handler) queryPurgeQueue(vals url.Values, region string) ([]byte, int, 
 
 	resp := PurgeQueueResponse{
 		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -784,7 +792,7 @@ func (h *Handler) queryAddPermission(vals url.Values, region string) ([]byte, in
 
 	resp := addPermResp{
 		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)
@@ -812,47 +820,7 @@ func (h *Handler) queryRemovePermission(vals url.Values, region string) ([]byte,
 
 	resp := removePermResp{
 		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
-	}
-
-	b, err := marshalXML(resp)
-	if err != nil {
-		return nil, 0, buildQueryError(err)
-	}
-
-	return b, http.StatusOK, nil
-}
-
-// tagQueueQueryInput wraps a parsed Tag map for TagQueue via Query protocol.
-type tagQueueQueryInput struct {
-	queueURL string
-	tags     map[string]string
-}
-
-// parseQueryTagQueueInput extracts the QueueUrl and Tag.N.Key/Value pairs from
-// a TagQueue Query request.
-func parseQueryTagQueueInput(vals url.Values) tagQueueQueryInput {
-	return tagQueueQueryInput{
-		queueURL: vals.Get("QueueUrl"),
-		tags:     parseQueryTagMap(vals),
-	}
-}
-
-// queryTagQueue handles the TagQueue action in Query protocol.
-func (h *Handler) queryTagQueue(vals url.Values, region string) ([]byte, int, *queryError) {
-	in := parseQueryTagQueueInput(vals)
-
-	if err := h.Backend.TagQueue(&TagQueueInput{
-		QueueURL: in.queueURL,
-		Region:   region,
-		Tags:     tags.FromMap("", in.tags),
-	}); err != nil {
-		return nil, 0, buildQueryError(err)
-	}
-
-	resp := TagQueueResponse{
-		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: "gopherstack"},
+		ResponseMetadata: XMLResponseMetadata{RequestID: queryRequestID},
 	}
 
 	b, err := marshalXML(resp)

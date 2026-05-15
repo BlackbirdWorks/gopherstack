@@ -268,13 +268,13 @@ type SendMessageOutput struct {
 
 // ReceiveMessageInput is the input for ReceiveMessage.
 type ReceiveMessageInput struct {
-	QueueURL              string
-	Region                string
-	AttributeNames        []string
-	MessageAttributeNames []string
+	QueueURL string
+	Region   string
 	// ReceiveRequestAttemptID enables FIFO exactly-once retry: repeating a receive
 	// with the same ID within 5 minutes returns the original message set.
 	ReceiveRequestAttemptID string
+	AttributeNames          []string
+	MessageAttributeNames   []string
 	MaxNumberOfMessages     int
 	VisibilityTimeout       int
 	WaitTimeSeconds         int

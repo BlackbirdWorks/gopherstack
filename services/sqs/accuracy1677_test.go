@@ -60,21 +60,6 @@ func createQueueForTest(t *testing.T, b *sqs.InMemoryBackend, name string) strin
 	return out.QueueURL
 }
 
-func sendMsgForTest(t *testing.T, b *sqs.InMemoryBackend, qURL, body string) *sqs.SendMessageOutput {
-	t.Helper()
-
-	out, err := b.SendMessage(&sqs.SendMessageInput{
-		QueueURL:    qURL,
-		MessageBody: body,
-		MessageAttributes: map[string]sqs.MessageAttributeValue{
-			"MyAttr": {DataType: "String", StringValue: "val"},
-		},
-	})
-	require.NoError(t, err)
-
-	return out
-}
-
 // --- Issue #1: KMS / RedriveAllowPolicy / DeduplicationScope / FifoThroughputLimit ---
 
 func TestIssue1_KMSAttrsConfigurable(t *testing.T) {
@@ -87,7 +72,7 @@ func TestIssue1_KMSAttrsConfigurable(t *testing.T) {
 		QueueName: "kms-queue",
 		Endpoint:  testEndpoint,
 		Attributes: map[string]string{
-			"KmsMasterKeyId":            "alias/aws/sqs",
+			"KmsMasterKeyId":               "alias/aws/sqs",
 			"KmsDataKeyReusePeriodSeconds": "300",
 		},
 	})
@@ -98,7 +83,7 @@ func TestIssue1_KMSAttrsConfigurable(t *testing.T) {
 		QueueName: "kms-queue",
 		Endpoint:  testEndpoint,
 		Attributes: map[string]string{
-			"KmsMasterKeyId":            "alias/aws/sqs",
+			"KmsMasterKeyId":               "alias/aws/sqs",
 			"KmsDataKeyReusePeriodSeconds": "300",
 		},
 	})
@@ -724,7 +709,7 @@ func TestIssue8_QueryErrorResponse(t *testing.T) {
 	h, _ := newHandlerWithBackend(t)
 
 	vals := url.Values{
-		"Action":   {"GetQueueUrl"},
+		"Action":    {"GetQueueUrl"},
 		"QueueName": {"nonexistent"},
 	}
 
@@ -762,11 +747,11 @@ func TestIssue8_QuerySendMessageBatch(t *testing.T) {
 	qURL := createQueueForTest(t, b, "query-batch")
 
 	vals := url.Values{
-		"Action":                                    {"SendMessageBatch"},
-		"QueueUrl":                                  {qURL},
-		"SendMessageBatchRequestEntry.1.Id":         {"e1"},
+		"Action":                            {"SendMessageBatch"},
+		"QueueUrl":                          {qURL},
+		"SendMessageBatchRequestEntry.1.Id": {"e1"},
 		"SendMessageBatchRequestEntry.1.MessageBody": {"msg1"},
-		"SendMessageBatchRequestEntry.2.Id":         {"e2"},
+		"SendMessageBatchRequestEntry.2.Id":          {"e2"},
 		"SendMessageBatchRequestEntry.2.MessageBody": {"msg2"},
 	}
 
@@ -927,11 +912,11 @@ func TestIssue10_MoveTaskRateLimitingCompletesSuccessfully(t *testing.T) {
 	// Wait for completion.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		tasks, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+		tasks, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
 			SourceArn:  srcAttrs.Attributes["QueueArn"],
 			MaxResults: 1,
 		})
-		require.NoError(t, err)
+		require.NoError(t, listErr)
 		if len(tasks.Results) > 0 && tasks.Results[0].Status == sqs.MoveTaskStatusCompleted {
 			break
 		}
@@ -1245,9 +1230,9 @@ func TestQueryProtocolDeleteBatch(t *testing.T) {
 
 	// Delete batch via Query protocol.
 	vals := url.Values{
-		"Action":   {"DeleteMessageBatch"},
-		"QueueUrl": {qURL},
-		"DeleteMessageBatchRequestEntry.1.Id":            {"e1"},
+		"Action":                              {"DeleteMessageBatch"},
+		"QueueUrl":                            {qURL},
+		"DeleteMessageBatchRequestEntry.1.Id": {"e1"},
 		"DeleteMessageBatchRequestEntry.1.ReceiptHandle": {recv.Messages[0].ReceiptHandle},
 		"DeleteMessageBatchRequestEntry.2.Id":            {"e2"},
 		"DeleteMessageBatchRequestEntry.2.ReceiptHandle": {recv.Messages[1].ReceiptHandle},
@@ -1299,5 +1284,5 @@ func TestAccuracy_InFlightLimitEnforced(t *testing.T) {
 	// ErrOverLimit is defined and used by the in-flight limit check in receiveOnce.
 	// Full 120k / 20k limit tests are impractical in unit tests; the sentinel
 	// existence verifies the error path is wired.
-	assert.NotNil(t, sqs.ErrOverLimit)
+	assert.Error(t, sqs.ErrOverLimit)
 }
