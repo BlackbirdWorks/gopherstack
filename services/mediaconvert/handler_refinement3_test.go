@@ -878,9 +878,9 @@ func TestRefinement3_DeepCloneMap_ShallowData(t *testing.T) {
 
 	b := r3Backend()
 	settings := map[string]any{
-		"codec":    "H.264",
-		"bitrate":  4000,
-		"nested":   map[string]any{"level": 1},
+		"codec":   "H.264",
+		"bitrate": 4000,
+		"nested":  map[string]any{"level": 1},
 	}
 
 	p, err := b.CreatePreset("shallow-test", "", "", settings, nil)

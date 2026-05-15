@@ -727,7 +727,9 @@ func (h *Handler) handleDeleteJobTemplate(c *echo.Context, name string) error {
 // --- Job handlers ---
 
 type createJobInput struct {
-	AccelerationSettings      *struct{ Mode string `json:"mode,omitempty"` } `json:"accelerationSettings,omitempty"`
+	AccelerationSettings *struct {
+		Mode string `json:"mode,omitempty"`
+	} `json:"accelerationSettings,omitempty"`
 	Settings                  map[string]any    `json:"settings,omitempty"`
 	Tags                      map[string]string `json:"tags,omitempty"`
 	UserMetadata              map[string]string `json:"userMetadata,omitempty"`
