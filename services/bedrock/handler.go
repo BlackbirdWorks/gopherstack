@@ -1,6 +1,7 @@
 package bedrock
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -65,7 +66,9 @@ func (t isoTime) MarshalJSON() ([]byte, error) {
 
 // Handler is the Echo HTTP handler for Amazon Bedrock operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend       *InMemoryBackend
+	janitorCancel context.CancelFunc
+	janitorDone   chan struct{}
 }
 
 // NewHandler creates a new Bedrock handler backed by backend.
@@ -73,6 +76,38 @@ type Handler struct {
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
+
+// StartWorker starts the background janitor for status advancement.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	h.janitorCancel = cancel
+	h.janitorDone = done
+
+	go func() {
+		defer close(done)
+		h.Backend.RunJanitor(runCtx, defaultJanitorInterval)
+	}()
+
+	return nil
+}
+
+// Shutdown stops the background janitor.
+func (h *Handler) Shutdown(ctx context.Context) {
+	if h.janitorCancel != nil {
+		h.janitorCancel()
+	}
+
+	if h.janitorDone != nil {
+		select {
+		case <-h.janitorDone:
+		case <-ctx.Done():
+		}
+	}
+}
+
+var _ service.BackgroundWorker = (*Handler)(nil)
+var _ service.Shutdowner = (*Handler)(nil)
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Bedrock" }
@@ -558,26 +593,160 @@ func (h *Handler) routeStubJobOps(c *echo.Context, path, method string) (bool, e
 	return h.routeStubInvocationOps(c, path, method)
 }
 
-// routeStubCopyImportOps handles model copy and import job stubs.
+// routeStubCopyImportOps handles model copy and import job operations backed by real state.
 func (h *Handler) routeStubCopyImportOps(c *echo.Context, path, method string) (bool, error) {
 	switch {
 	case path == modelCopyJobsPrefix && method == http.MethodPost:
-		return true, c.JSON(http.StatusCreated,
-			map[string]any{keyJobArn: "arn:aws:bedrock:us-east-1:000000000000:model-copy-job/stub"})
+		return true, h.handleCreateModelCopyJob(c)
 	case path == modelCopyJobsPrefix && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"modelCopyJobSummaries": []any{}})
+		return true, h.handleListModelCopyJobs(c)
 	case strings.HasPrefix(path, modelCopyJobsPrefix+"/") && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{keyJobArn: path, keyStatus: jobStatusCompleted})
+		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, modelCopyJobsPrefix+"/"))
+
+		return true, h.handleGetModelCopyJob(c, jobARN)
 	case path == modelImportJobsPrefix && method == http.MethodPost:
-		return true, c.JSON(http.StatusCreated,
-			map[string]any{keyJobArn: "arn:aws:bedrock:us-east-1:000000000000:model-import-job/stub"})
+		return true, h.handleCreateModelImportJob(c)
 	case path == modelImportJobsPrefix && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"modelImportJobSummaries": []any{}})
+		return true, h.handleListModelImportJobs(c)
 	case strings.HasPrefix(path, modelImportJobsPrefix+"/") && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{keyJobArn: path, keyStatus: jobStatusCompleted})
+		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, modelImportJobsPrefix+"/"))
+
+		return true, h.handleGetModelImportJob(c, jobARN)
 	}
 
 	return false, nil
+}
+
+// createModelCopyJobInput is the parsed request body for CreateModelCopyJob.
+type createModelCopyJobInput struct {
+	SourceModelArn string `json:"sourceModelArn"`
+	Tags           []Tag  `json:"tags,omitempty"`
+}
+
+func (h *Handler) handleCreateModelCopyJob(c *echo.Context) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+	}
+
+	in, parseErr := parseBody[createModelCopyJobInput](body)
+	if parseErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	job, opErr := h.Backend.CreateModelCopyJob(in.SourceModelArn, in.Tags)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusCreated, modelCopyJobToOutput(job))
+}
+
+func (h *Handler) handleListModelCopyJobs(c *echo.Context) error {
+	jobs := h.Backend.ListModelCopyJobs()
+	summaries := make([]map[string]any, 0, len(jobs))
+
+	for _, j := range jobs {
+		summaries = append(summaries, modelCopyJobToOutput(j))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"modelCopyJobSummaries": summaries})
+}
+
+func (h *Handler) handleGetModelCopyJob(c *echo.Context, jobARN string) error {
+	job, err := h.Backend.GetModelCopyJob(jobARN)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, modelCopyJobToOutput(job))
+}
+
+func modelCopyJobToOutput(j *ModelCopyJob) map[string]any {
+	out := map[string]any{
+		keyJobArn:          j.JobArn,
+		"sourceModelArn":   j.SourceModelArn,
+		"targetModelArn":   j.TargetModelArn,
+		keyStatus:          j.Status,
+		"creationTime":     j.CreationTime.Format(time.RFC3339),
+		"lastModifiedTime": j.LastModifiedTime.Format(time.RFC3339),
+	}
+
+	if j.FailureMessage != "" {
+		out["failureMessage"] = j.FailureMessage
+	}
+
+	if len(j.Tags) > 0 {
+		out["tags"] = j.Tags
+	}
+
+	return out
+}
+
+// createModelImportJobInput is the parsed request body for CreateModelImportJob.
+type createModelImportJobInput struct {
+	JobName string `json:"jobName"`
+	Tags    []Tag  `json:"tags,omitempty"`
+}
+
+func (h *Handler) handleCreateModelImportJob(c *echo.Context) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+	}
+
+	in, parseErr := parseBody[createModelImportJobInput](body)
+	if parseErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	job, opErr := h.Backend.CreateModelImportJob(in.JobName, in.Tags)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusCreated, modelImportJobToOutput(job))
+}
+
+func (h *Handler) handleListModelImportJobs(c *echo.Context) error {
+	jobs := h.Backend.ListModelImportJobs()
+	summaries := make([]map[string]any, 0, len(jobs))
+
+	for _, j := range jobs {
+		summaries = append(summaries, modelImportJobToOutput(j))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"modelImportJobSummaries": summaries})
+}
+
+func (h *Handler) handleGetModelImportJob(c *echo.Context, jobARN string) error {
+	job, err := h.Backend.GetModelImportJob(jobARN)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, modelImportJobToOutput(job))
+}
+
+func modelImportJobToOutput(j *ModelImportJob) map[string]any {
+	out := map[string]any{
+		keyJobArn:          j.JobArn,
+		"jobName":          j.JobName,
+		"importedModelArn": j.ImportedModelArn,
+		keyStatus:          j.Status,
+		"creationTime":     j.CreationTime.Format(time.RFC3339),
+		"lastModifiedTime": j.LastModifiedTime.Format(time.RFC3339),
+	}
+
+	if j.EndTime != nil {
+		out["endTime"] = j.EndTime.Format(time.RFC3339)
+	}
+
+	if len(j.Tags) > 0 {
+		out["tags"] = j.Tags
+	}
+
+	return out
 }
 
 // routeStubInvocationOps handles model invocation job stubs.

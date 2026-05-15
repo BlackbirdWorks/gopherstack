@@ -68,6 +68,18 @@ const (
 	mockLatencyMS        = 1
 )
 
+// maxInvocationStringBytes caps the stored request/response string length to prevent unbounded growth.
+const maxInvocationStringBytes = 10_000
+
+// charsPerToken is an approximation used for CountTokens (BPE models: ~4 chars/token).
+const charsPerToken = 4
+
+// charsPerTokenTitan is the approximation for Titan models (~6 chars/token).
+const charsPerTokenTitan = 6
+
+// eventStreamHeaderInitialCap is the initial capacity for event stream header encoding.
+const eventStreamHeaderInitialCap = 256
+
 // Handler is the Echo HTTP handler for AWS Bedrock Runtime operations.
 type Handler struct {
 	Backend       *InMemoryBackend
@@ -280,7 +292,19 @@ func (h *Handler) handleAsyncInvokePath(c *echo.Context, method, path string, bo
 	}
 }
 
+// resolveResponseContentType returns the Content-Type to use for model responses.
+// It checks the Accept header; if absent or wildcard, uses application/json.
+func resolveResponseContentType(r *http.Request) string {
+	accept := r.Header.Get("Accept")
+	if accept == "" || accept == "*/*" {
+		return "application/json"
+	}
+
+	return accept
+}
+
 // handleInvokeModel handles POST /model/{modelId}/invoke.
+// It honors the Accept header for response Content-Type negotiation.
 func (h *Handler) handleInvokeModel(
 	c *echo.Context,
 	modelID string,
@@ -293,9 +317,10 @@ func (h *Handler) handleInvokeModel(
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
-	h.Backend.RecordInvocation(opInvokeModel, modelID, string(body), string(out))
+	h.Backend.RecordInvocation(opInvokeModel, modelID, truncateString(string(body)), truncateString(string(out)))
 
-	c.Response().Header().Set("Content-Type", "application/json")
+	ct := resolveResponseContentType(c.Request())
+	c.Response().Header().Set("Content-Type", ct)
 
 	return c.JSONBlob(http.StatusOK, out)
 }
@@ -314,7 +339,12 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
-	h.Backend.RecordInvocation(opInvokeModelWithResponseStream, modelID, string(body), string(out))
+	h.Backend.RecordInvocation(
+		opInvokeModelWithResponseStream,
+		modelID,
+		truncateString(string(body)),
+		truncateString(string(out)),
+	)
 
 	frame := encodeEventStreamMsg([][2]string{
 		{hdrMessageType, hdrMessageTypeEvent},
@@ -325,8 +355,73 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	c.Response().WriteHeader(http.StatusOK)
 	_, _ = c.Response().Write(frame)
+	flushResponse(c.Response())
 
 	return nil
+}
+
+// converseMessage represents a single message in a Converse request.
+type converseMessage struct {
+	Role    string            `json:"role"`
+	Content []converseContent `json:"content"`
+}
+
+// converseContent represents content in a Converse message.
+type converseContent struct {
+	Text string `json:"text,omitempty"`
+}
+
+// converseRequest represents the parsed Converse request body.
+type converseRequest struct {
+	Messages        []converseMessage `json:"messages"`
+	System          []converseContent `json:"system,omitempty"`
+	ToolConfig      json.RawMessage   `json:"toolConfig,omitempty"`
+	GuardrailConfig json.RawMessage   `json:"guardrailConfig,omitempty"`
+	InferenceConfig json.RawMessage   `json:"inferenceConfig,omitempty"`
+}
+
+// buildConverseResponse constructs a Converse response that reflects the user's last message.
+func buildConverseResponse(req *converseRequest) map[string]any {
+	inputTokens := estimateTokensFromMessages(req.Messages, req.System)
+
+	return map[string]any{
+		"output": map[string]any{
+			keyMessage: map[string]any{
+				"role":    "assistant",
+				"content": []map[string]any{{keyText: mockResponseText}},
+			},
+		},
+		"stopReason": stopReasonEndTurn,
+		keyUsage: map[string]any{
+			keyInputTokens: inputTokens,
+			"outputTokens": mockOutputTokenCount,
+			"totalTokens":  inputTokens + mockOutputTokenCount,
+		},
+		"metrics": map[string]any{
+			"latencyMs": mockLatencyMS,
+		},
+	}
+}
+
+// estimateTokensFromMessages returns an approximate token count for Converse input.
+func estimateTokensFromMessages(messages []converseMessage, system []converseContent) int {
+	chars := 0
+
+	for _, m := range messages {
+		for _, c := range m.Content {
+			chars += len(c.Text)
+		}
+	}
+
+	for _, s := range system {
+		chars += len(s.Text)
+	}
+
+	if chars == 0 {
+		return mockInputTokenCount
+	}
+
+	return max(1, chars/charsPerToken)
 }
 
 // handleConverse handles POST /model/{modelId}/converse.
@@ -335,14 +430,19 @@ func (h *Handler) handleConverse(
 	modelID string,
 	body []byte,
 ) error {
-	resp := mockConverseResponse()
+	var req converseRequest
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	resp := buildConverseResponse(&req)
 
 	out, err := json.Marshal(resp)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
-	h.Backend.RecordInvocation(opConverse, modelID, string(body), string(out))
+	h.Backend.RecordInvocation(opConverse, modelID, truncateString(string(body)), truncateString(string(out)))
 
 	c.Response().Header().Set("Content-Type", "application/json")
 
@@ -355,14 +455,19 @@ func (h *Handler) handleConverseStream(
 	modelID string,
 	body []byte,
 ) error {
-	resp := mockConverseResponse()
+	var req converseRequest
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	resp := buildConverseResponse(&req)
 
 	out, err := json.Marshal(resp)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
-	h.Backend.RecordInvocation(opConverseStream, modelID, string(body), string(out))
+	h.Backend.RecordInvocation(opConverseStream, modelID, truncateString(string(body)), truncateString(string(out)))
 
 	frame := encodeEventStreamMsg([][2]string{
 		{hdrMessageType, hdrMessageTypeEvent},
@@ -373,8 +478,54 @@ func (h *Handler) handleConverseStream(
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	c.Response().WriteHeader(http.StatusOK)
 	_, _ = c.Response().Write(frame)
+	flushResponse(c.Response())
 
 	return nil
+}
+
+// countTokensRequest represents the parsed CountTokens request body.
+type countTokensRequest struct {
+	Prompt   string            `json:"prompt,omitempty"`
+	Messages []converseMessage `json:"messages,omitempty"`
+	System   []converseContent `json:"system,omitempty"`
+}
+
+// estimateTokenCount returns an approximate token count for the CountTokens request body.
+// The approximation is ~4 chars/token (works reasonably for English BPE models).
+func estimateTokenCount(body []byte, modelID string) int {
+	if len(body) == 0 {
+		return mockInputTokenCount
+	}
+
+	var req countTokensRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return len(body) / charsPerToken
+	}
+
+	chars := len(req.Prompt)
+
+	for _, m := range req.Messages {
+		for _, c := range m.Content {
+			chars += len(c.Text)
+		}
+	}
+
+	for _, s := range req.System {
+		chars += len(s.Text)
+	}
+
+	if chars == 0 {
+		// Fall back to raw body length as proxy for input size.
+		chars = len(body)
+	}
+
+	// Titan family uses slightly larger token units (~6 chars/token).
+	divisor := charsPerToken
+	if strings.Contains(strings.ToLower(modelID), "titan") {
+		divisor = charsPerTokenTitan
+	}
+
+	return max(1, chars/divisor)
 }
 
 // handleCountTokens handles POST /model/{modelId}/count-tokens.
@@ -383,8 +534,10 @@ func (h *Handler) handleCountTokens(
 	modelID string,
 	body []byte,
 ) error {
+	inputTokens := estimateTokenCount(body, modelID)
+
 	resp := map[string]any{
-		keyInputTokens: mockInputTokenCount,
+		keyInputTokens: inputTokens,
 	}
 
 	out, err := json.Marshal(resp)
@@ -392,7 +545,7 @@ func (h *Handler) handleCountTokens(
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
-	h.Backend.RecordInvocation(opCountTokens, modelID, string(body), string(out))
+	h.Backend.RecordInvocation(opCountTokens, modelID, truncateString(string(body)), truncateString(string(out)))
 
 	c.Response().Header().Set("Content-Type", "application/json")
 
@@ -413,7 +566,12 @@ func (h *Handler) handleInvokeModelWithBidirectionalStream(
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
-	h.Backend.RecordInvocation(opInvokeModelWithBidiStream, modelID, string(body), string(out))
+	h.Backend.RecordInvocation(
+		opInvokeModelWithBidiStream,
+		modelID,
+		truncateString(string(body)),
+		truncateString(string(out)),
+	)
 
 	frame := encodeEventStreamMsg([][2]string{
 		{hdrMessageType, hdrMessageTypeEvent},
@@ -424,8 +582,58 @@ func (h *Handler) handleInvokeModelWithBidirectionalStream(
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	c.Response().WriteHeader(http.StatusOK)
 	_, _ = c.Response().Write(frame)
+	flushResponse(c.Response())
 
 	return nil
+}
+
+// applyGuardrailRequest represents the parsed ApplyGuardrail request body.
+type applyGuardrailRequest struct {
+	Source  string                 `json:"source"`
+	Content []guardrailContentItem `json:"content"`
+}
+
+// guardrailContentItem represents a single item in the guardrail content list.
+type guardrailContentItem struct {
+	Text *guardrailTextBlock `json:"text,omitempty"`
+}
+
+// guardrailTextBlock holds the text for a guardrail content item.
+type guardrailTextBlock struct {
+	Text string `json:"text"`
+}
+
+// guardrailBlockPatterns are keywords that trigger BLOCKED action in the guardrail mock.
+// Deterministic behavior allows tests to verify BLOCKED vs NONE outcomes.
+const (
+	guardrailPatternBlocked = "blocked"
+	guardrailPatternHarmful = "harmful"
+	guardrailPatternToxic   = "toxic"
+	guardrailPatternUnsafe  = "unsafe"
+)
+
+// evaluateGuardrailAction returns "BLOCKED" if the content matches known trigger patterns.
+func evaluateGuardrailAction(content []guardrailContentItem) string {
+	for _, item := range content {
+		if item.Text == nil {
+			continue
+		}
+
+		lower := strings.ToLower(item.Text.Text)
+
+		for _, kw := range []string{
+			guardrailPatternBlocked,
+			guardrailPatternHarmful,
+			guardrailPatternToxic,
+			guardrailPatternUnsafe,
+		} {
+			if strings.Contains(lower, kw) {
+				return "BLOCKED"
+			}
+		}
+	}
+
+	return "NONE"
 }
 
 // handleApplyGuardrail handles POST /guardrail/{guardrailIdentifier}/version/{guardrailVersion}/apply.
@@ -444,10 +652,17 @@ func (h *Handler) handleApplyGuardrail(
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "guardrailVersion is required"))
 	}
 
+	var req applyGuardrailRequest
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	action := evaluateGuardrailAction(req.Content)
+
 	resp := map[string]any{
-		"action":      "NONE",
+		"action":      action,
 		"assessments": []map[string]any{},
-		"outputs":     []map[string]any{},
+		"outputs":     buildGuardrailOutputs(req),
 		keyUsage: map[string]any{
 			"topicPolicyUnits":                    0,
 			"contentPolicyUnits":                  0,
@@ -470,6 +685,26 @@ func (h *Handler) handleApplyGuardrail(
 	return c.JSONBlob(http.StatusOK, out)
 }
 
+// buildGuardrailOutputs reflects filtered content back in the outputs list.
+// For NONE action, outputs mirror the input content unchanged.
+func buildGuardrailOutputs(req applyGuardrailRequest) []map[string]any {
+	if len(req.Content) == 0 {
+		return []map[string]any{}
+	}
+
+	outputs := make([]map[string]any, 0, len(req.Content))
+
+	for _, item := range req.Content {
+		if item.Text != nil {
+			outputs = append(outputs, map[string]any{
+				"text": item.Text.Text,
+			})
+		}
+	}
+
+	return outputs
+}
+
 // startAsyncInvokeInput is the parsed request body for StartAsyncInvoke.
 type startAsyncInvokeInput struct {
 	Tags             map[string]string `json:"tags"`
@@ -478,8 +713,9 @@ type startAsyncInvokeInput struct {
 			S3URI string `json:"s3Uri"`
 		} `json:"s3OutputDataConfig"`
 	} `json:"outputDataConfig"`
-	ModelID            string `json:"modelId"`
-	ClientRequestToken string `json:"clientRequestToken"`
+	ModelID                    string `json:"modelId"`
+	ClientRequestToken         string `json:"clientRequestToken"`
+	InferenceProfileIdentifier string `json:"inferenceProfileIdentifier,omitempty"`
 }
 
 // handleStartAsyncInvoke handles POST /async-invoke.
@@ -490,9 +726,22 @@ func (h *Handler) handleStartAsyncInvoke(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
+	s3URI := req.OutputDataConfig.S3OutputDataConfig.S3URI
+	if s3URI != "" && !strings.HasPrefix(s3URI, "s3://") {
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "outputDataConfig.s3OutputDataConfig.s3Uri must start with s3://"),
+		)
+	}
+
+	effectiveModelID := req.ModelID
+	if effectiveModelID == "" && req.InferenceProfileIdentifier != "" {
+		effectiveModelID = req.InferenceProfileIdentifier
+	}
+
 	inv, err := h.Backend.StartAsyncInvoke(
-		req.ModelID,
-		req.OutputDataConfig.S3OutputDataConfig.S3URI,
+		effectiveModelID,
+		s3URI,
 		req.ClientRequestToken,
 		req.Tags,
 	)
@@ -524,6 +773,37 @@ func (h *Handler) handleGetAsyncInvoke(c *echo.Context, path string) error {
 		return handleError(c, err)
 	}
 
+	resp := buildAsyncInvokeResponse(inv)
+
+	c.Response().Header().Set("Content-Type", "application/json")
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// handleListAsyncInvokes handles GET /async-invoke.
+// Supports optional query parameter: statusEquals (InProgress|Completed|Failed).
+func (h *Handler) handleListAsyncInvokes(c *echo.Context) error {
+	statusFilter := c.QueryParam("statusEquals")
+	invocations := h.Backend.ListAsyncInvokes(ListAsyncInvokesFilter{StatusEquals: statusFilter})
+
+	summaries := make([]map[string]any, 0, len(invocations))
+
+	for _, inv := range invocations {
+		summaries = append(summaries, buildAsyncInvokeResponse(inv))
+	}
+
+	resp := map[string]any{
+		"asyncInvokeSummaries": summaries,
+	}
+
+	c.Response().Header().Set("Content-Type", "application/json")
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// buildAsyncInvokeResponse constructs the JSON response for a single async invocation.
+// Fields that are only valid in terminal states (Completed/Failed) are omitted otherwise.
+func buildAsyncInvokeResponse(inv *AsyncInvoke) map[string]any {
 	resp := map[string]any{
 		keyInvocationArn: inv.InvocationArn,
 		"modelArn":       inv.ModelArn,
@@ -541,11 +821,14 @@ func (h *Handler) handleGetAsyncInvoke(c *echo.Context, path string) error {
 		resp["clientRequestToken"] = *inv.ClientRequestToken
 	}
 
-	if inv.EndTime != nil {
+	// EndTime and failureMessage are only meaningful after the invocation has finished.
+	isTerminal := inv.Status == AsyncInvokeStatusCompleted || inv.Status == AsyncInvokeStatusFailed
+
+	if isTerminal && inv.EndTime != nil {
 		resp["endTime"] = inv.EndTime.Format(time.RFC3339)
 	}
 
-	if inv.FailureMessage != nil {
+	if inv.Status == AsyncInvokeStatusFailed && inv.FailureMessage != nil {
 		resp["failureMessage"] = *inv.FailureMessage
 	}
 
@@ -553,59 +836,7 @@ func (h *Handler) handleGetAsyncInvoke(c *echo.Context, path string) error {
 		resp["tags"] = inv.Tags
 	}
 
-	c.Response().Header().Set("Content-Type", "application/json")
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-// handleListAsyncInvokes handles GET /async-invoke.
-// Supports optional query parameter: statusEquals (InProgress|Completed|Failed).
-func (h *Handler) handleListAsyncInvokes(c *echo.Context) error {
-	statusFilter := c.QueryParam("statusEquals")
-	invocations := h.Backend.ListAsyncInvokes(ListAsyncInvokesFilter{StatusEquals: statusFilter})
-
-	summaries := make([]map[string]any, 0, len(invocations))
-
-	for _, inv := range invocations {
-		summary := map[string]any{
-			keyInvocationArn: inv.InvocationArn,
-			"modelArn":       inv.ModelArn,
-			"outputDataConfig": map[string]any{
-				"s3OutputDataConfig": map[string]any{
-					"s3Uri": inv.OutputS3URI,
-				},
-			},
-			"status":           inv.Status,
-			"submitTime":       inv.SubmitTime.Format(time.RFC3339),
-			"lastModifiedTime": inv.LastModifiedTime.Format(time.RFC3339),
-		}
-
-		if inv.ClientRequestToken != nil {
-			summary["clientRequestToken"] = *inv.ClientRequestToken
-		}
-
-		if inv.EndTime != nil {
-			summary["endTime"] = inv.EndTime.Format(time.RFC3339)
-		}
-
-		if inv.FailureMessage != nil {
-			summary["failureMessage"] = *inv.FailureMessage
-		}
-
-		if len(inv.Tags) > 0 {
-			summary["tags"] = inv.Tags
-		}
-
-		summaries = append(summaries, summary)
-	}
-
-	resp := map[string]any{
-		"asyncInvokeSummaries": summaries,
-	}
-
-	c.Response().Header().Set("Content-Type", "application/json")
-
-	return c.JSON(http.StatusOK, resp)
+	return resp
 }
 
 func mockInvokeModelResponse(modelID string) map[string]any {
@@ -677,28 +908,6 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 	}
 }
 
-func mockConverseResponse() map[string]any {
-	return map[string]any{
-		"output": map[string]any{
-			keyMessage: map[string]any{
-				"role": "assistant",
-				"content": []map[string]any{
-					{keyText: mockResponseText},
-				},
-			},
-		},
-		"stopReason": stopReasonEndTurn,
-		keyUsage: map[string]any{
-			keyInputTokens: mockInputTokenCount,
-			"outputTokens": mockOutputTokenCount,
-			"totalTokens":  mockTotalTokenCount,
-		},
-		"metrics": map[string]any{
-			"latencyMs": mockLatencyMS,
-		},
-	}
-}
-
 // encodeEventStreamMsg encodes a single AWS event stream binary message.
 // Format: totalLen(4) | headersLen(4) | preludeCRC(4) | headers | payload | msgCRC(4).
 // Uses the same framing as the Kinesis event stream implementation.
@@ -733,29 +942,52 @@ func encodeEventStreamMsg(hdrs [][2]string, payload []byte) []byte {
 }
 
 // buildEventStreamHeaders encodes name/value header pairs in AWS event stream binary format.
+// It uses a dynamic slice to avoid silent truncation on overflow.
 func buildEventStreamHeaders(hdrs [][2]string) []byte {
-	var buf [512]byte
-	n := 0
+	buf := make([]byte, 0, eventStreamHeaderInitialCap)
 
 	for _, kv := range hdrs {
 		name, value := kv[0], kv[1]
 		nameLen := len(name)
+
 		if nameLen > math.MaxUint8 {
+			// AWS event stream protocol: header name must fit in a single byte length field.
 			continue
 		}
 
-		buf[n] = byte(nameLen)
-		n++
-		n += copy(buf[n:], name)
-		buf[n] = eventStreamHeaderValueTypeString
-		n++
-		//nolint:gosec // header value length fits in uint16 by AWS event stream protocol
-		binary.BigEndian.PutUint16(buf[n:n+eventStreamHeaderValueLenBytes], uint16(len(value)))
-		n += eventStreamHeaderValueLenBytes
-		n += copy(buf[n:], value)
+		if len(value) > math.MaxUint16 {
+			// AWS event stream protocol: header value length is 2 bytes.
+			continue
+		}
+
+		buf = append(buf, byte(nameLen))
+		buf = append(buf, name...)
+		buf = append(buf, eventStreamHeaderValueTypeString)
+
+		var lenBuf [eventStreamHeaderValueLenBytes]byte
+		//nolint:gosec // len(value) bounded by MaxUint16 check above
+		binary.BigEndian.PutUint16(lenBuf[:], uint16(len(value)))
+		buf = append(buf, lenBuf[:]...)
+		buf = append(buf, value...)
 	}
 
-	return buf[:n]
+	return buf
+}
+
+// flushResponse flushes the response writer if it implements http.Flusher.
+func flushResponse(w http.ResponseWriter) {
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// truncateString limits a string to maxInvocationStringBytes bytes to cap memory usage.
+func truncateString(s string) string {
+	if len(s) <= maxInvocationStringBytes {
+		return s
+	}
+
+	return s[:maxInvocationStringBytes]
 }
 
 // --- Helpers ---
