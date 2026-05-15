@@ -124,6 +124,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	if len(b.queueCounters) == 0 {
+		b.rebuildCountersLocked()
+	}
+
 	return nil
 }
 

@@ -282,6 +282,14 @@ func (h *Handler) dispatchMutating(c *echo.Context, route mcRoute, readBody func
 		return h.handleUpdateJob(c, route.resource, body)
 	case opTagResource:
 		return h.handleTagResource(c, route.resource, body)
+	}
+
+	return h.dispatchMutatingNewOps(c, route, body)
+}
+
+// dispatchMutatingNewOps handles write operations added after the initial implementation.
+func (h *Handler) dispatchMutatingNewOps(c *echo.Context, route mcRoute, body []byte) error {
+	switch route.operation {
 	case opCreatePreset:
 		return h.handleCreatePreset(c, body)
 	case opUpdatePreset:
@@ -727,20 +735,18 @@ func (h *Handler) handleDeleteJobTemplate(c *echo.Context, name string) error {
 // --- Job handlers ---
 
 type createJobInput struct {
-	AccelerationSettings *struct {
-		Mode string `json:"mode,omitempty"`
-	} `json:"accelerationSettings,omitempty"`
-	Settings                  map[string]any    `json:"settings,omitempty"`
-	Tags                      map[string]string `json:"tags,omitempty"`
-	UserMetadata              map[string]string `json:"userMetadata,omitempty"`
-	HopDestinations           []HopDestination  `json:"hopDestinations,omitempty"`
-	Role                      string            `json:"role"`
-	Queue                     string            `json:"queue,omitempty"`
-	JobTemplate               string            `json:"jobTemplate,omitempty"`
-	BillingTagsSource         string            `json:"billingTagsSource,omitempty"`
-	ClientRequestToken        string            `json:"clientRequestToken,omitempty"`
-	JobEngineVersionRequested string            `json:"jobEngineVersionRequested,omitempty"`
-	Priority                  int               `json:"priority,omitempty"`
+	AccelerationSettings      *AccelerationSettings `json:"accelerationSettings,omitempty"`
+	Settings                  map[string]any        `json:"settings,omitempty"`
+	Tags                      map[string]string     `json:"tags,omitempty"`
+	UserMetadata              map[string]string     `json:"userMetadata,omitempty"`
+	Role                      string                `json:"role"`
+	Queue                     string                `json:"queue,omitempty"`
+	JobTemplate               string                `json:"jobTemplate,omitempty"`
+	BillingTagsSource         string                `json:"billingTagsSource,omitempty"`
+	ClientRequestToken        string                `json:"clientRequestToken,omitempty"`
+	JobEngineVersionRequested string                `json:"jobEngineVersionRequested,omitempty"`
+	HopDestinations           []HopDestination      `json:"hopDestinations,omitempty"`
+	Priority                  int                   `json:"priority,omitempty"`
 }
 
 type jobWrapper struct {
@@ -790,9 +796,9 @@ func (h *Handler) handleCreateJob(c *echo.Context, body []byte) error {
 }
 
 type updateJobInput struct {
-	HopDestinations []HopDestination `json:"hopDestinations,omitempty"`
-	Queue           string           `json:"queue,omitempty"`
 	Priority        *int             `json:"priority,omitempty"`
+	Queue           string           `json:"queue,omitempty"`
+	HopDestinations []HopDestination `json:"hopDestinations,omitempty"`
 }
 
 func (h *Handler) handleUpdateJob(c *echo.Context, id string, body []byte) error {

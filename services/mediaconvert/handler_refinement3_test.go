@@ -60,10 +60,10 @@ func r3ExtractOp(h *mediaconvert.Handler, method, path string) string {
 }
 
 // r3CreateJob creates a job via the backend and returns it.
-func r3CreateJob(t *testing.T, b *mediaconvert.InMemoryBackend, queue string) *mediaconvert.Job {
+func r3CreateJob(t *testing.T, b *mediaconvert.InMemoryBackend) *mediaconvert.Job {
 	t.Helper()
 
-	j, err := b.CreateJob("arn:aws:iam::123:role/role", queue, "", nil, nil, nil, "")
+	j, err := b.CreateJob("arn:aws:iam::123:role/role", "", "", nil, nil, nil, "")
 	require.NoError(t, err)
 
 	return j
@@ -76,7 +76,7 @@ func TestRefinement3_JobStatusComplete_Constant(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 
 	// Advance through the full phase pipeline to COMPLETE.
 	// SUBMITTED → PROGRESSING (phase=PROBING)
@@ -121,7 +121,7 @@ func TestRefinement3_JobPhases_FullProgression(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 
 	require.Equal(t, "SUBMITTED", mediaconvert.JobStatusOf(b, j.ID))
 
@@ -143,7 +143,7 @@ func TestRefinement3_JobPhases_FullProgression(t *testing.T) {
 	// Tick 4: UPLOADING → COMPLETE
 	b.AdvanceJobPhase()
 	assert.Equal(t, "COMPLETE", mediaconvert.JobStatusOf(b, j.ID))
-	assert.Equal(t, "", mediaconvert.JobPhaseOf(b, j.ID))
+	assert.Empty(t, mediaconvert.JobPhaseOf(b, j.ID))
 }
 
 // TestRefinement3_JobPhases_MultipleJobs ensures all jobs in the backend advance.
@@ -151,8 +151,8 @@ func TestRefinement3_JobPhases_MultipleJobs(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j1 := r3CreateJob(t, b, "")
-	j2 := r3CreateJob(t, b, "")
+	j1 := r3CreateJob(t, b)
+	j2 := r3CreateJob(t, b)
 
 	b.AdvanceJobPhase()
 	assert.Equal(t, "PROGRESSING", mediaconvert.JobStatusOf(b, j1.ID))
@@ -166,7 +166,7 @@ func TestRefinement3_UpdateJob_Priority(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 	require.Equal(t, 0, j.Priority)
 
 	newPri := 10
@@ -207,7 +207,7 @@ func TestRefinement3_UpdateJob_HopDestinations(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 
 	hops := []mediaconvert.HopDestination{
 		{WaitMinutes: 5, Priority: 2, Queue: "fallback-q"},
@@ -234,7 +234,7 @@ func TestRefinement3_UpdateJob_InvalidPriority(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 
 	badPri := 999
 	_, err := b.UpdateJob(j.ID, "", &badPri, nil)
@@ -247,7 +247,7 @@ func TestRefinement3_UpdateJob_Via_HTTP(t *testing.T) {
 
 	b := r3Backend()
 	h := mediaconvert.NewHandler(b)
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 
 	rec := r3Do(t, h, http.MethodPut, "/2017-08-29/jobs/"+j.ID,
 		map[string]any{"priority": 5})
@@ -483,7 +483,7 @@ func TestRefinement3_OutputGroupDetails_OnComplete(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 
 	// Advance all the way to COMPLETE.
 	for range 4 {
@@ -509,7 +509,7 @@ func TestRefinement3_Messages_InitializedOnCreate(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 	require.NotNil(t, j.Messages)
 	assert.NotNil(t, j.Warnings)
 }
@@ -519,7 +519,7 @@ func TestRefinement3_Warnings_InitializedOnCreate(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 	assert.NotNil(t, j.Warnings)
 }
 
@@ -546,8 +546,8 @@ func TestRefinement3_Timing_StartTime_SetOnProgressing(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
-	require.Equal(t, float64(0), j.Timing.StartTime)
+	j := r3CreateJob(t, b)
+	require.Zero(t, j.Timing.StartTime)
 
 	b.AdvanceJobPhase() // SUBMITTED → PROGRESSING
 
@@ -561,7 +561,7 @@ func TestRefinement3_Timing_FinishTime_SetOnComplete(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 
 	for range 4 {
 		b.AdvanceJobPhase()
@@ -770,7 +770,7 @@ func TestRefinement3_ShareStatus_DefaultNotShared(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 	assert.Equal(t, "NOT_SHARED", j.ShareStatus)
 }
 
@@ -779,7 +779,7 @@ func TestRefinement3_CreateResourceShare_SetsShareStatus(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 	require.Equal(t, "NOT_SHARED", j.ShareStatus)
 
 	_, err := b.CreateResourceShare(j.ID)
@@ -799,7 +799,7 @@ func TestRefinement3_CreateResourceShare_Via_HTTP(t *testing.T) {
 
 	b := r3Backend()
 	h := mediaconvert.NewHandler(b)
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 
 	rec := r3Do(t, h, http.MethodPost, "/2017-08-29/resourceShares",
 		map[string]any{"jobId": j.ID})
@@ -817,8 +817,8 @@ func TestRefinement3_CancelJob_FinishTime(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
-	require.Equal(t, float64(0), j.Timing.FinishTime)
+	j := r3CreateJob(t, b)
+	require.Zero(t, j.Timing.FinishTime)
 
 	require.NoError(t, b.CancelJob(j.ID))
 
@@ -1065,7 +1065,7 @@ func TestRefinement3_JobPercentComplete_100_OnComplete(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 	require.Equal(t, 0, j.JobPercentComplete)
 
 	for range 4 {
@@ -1084,7 +1084,7 @@ func TestRefinement3_Timing_SubmitTime_Preserved(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 	submitTime := j.Timing.SubmitTime
 	require.Greater(t, submitTime, float64(0))
 
@@ -1095,7 +1095,7 @@ func TestRefinement3_Timing_SubmitTime_Preserved(t *testing.T) {
 
 	got, err := b.GetJob(j.ID)
 	require.NoError(t, err)
-	assert.Equal(t, submitTime, got.Timing.SubmitTime)
+	assert.InDelta(t, submitTime, got.Timing.SubmitTime, 0.001)
 }
 
 // --- Idempotent advance (COMPLETE jobs not re-processed) ---
@@ -1105,7 +1105,7 @@ func TestRefinement3_AdvanceJobPhase_CompletedJobNotReadvanced(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 
 	for range 4 {
 		b.AdvanceJobPhase()
@@ -1122,7 +1122,7 @@ func TestRefinement3_AdvanceJobPhase_CompletedJobNotReadvanced(t *testing.T) {
 	got2, err := b.GetJob(j.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "COMPLETE", got2.Status)
-	assert.Equal(t, finishTime, got2.Timing.FinishTime)
+	assert.InDelta(t, finishTime, got2.Timing.FinishTime, 0.001)
 }
 
 // --- Canceled job not re-advanced ---
@@ -1132,7 +1132,7 @@ func TestRefinement3_AdvanceJobPhase_CanceledJobNotAdvanced(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 	require.NoError(t, b.CancelJob(j.ID))
 
 	b.AdvanceJobPhase()
@@ -1266,7 +1266,7 @@ func TestRefinement3_AdvanceJobPhase_ReturnsTrue_WhenJobsAdvanced(t *testing.T) 
 	t.Parallel()
 
 	b := r3Backend()
-	r3CreateJob(t, b, "")
+	r3CreateJob(t, b)
 
 	advanced := b.AdvanceJobPhase()
 	assert.True(t, advanced)
@@ -1365,7 +1365,7 @@ func TestRefinement3_UpdateJob_QueueNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 
 	_, err := b.UpdateJob(j.ID, "nonexistent-queue", nil, nil)
 	require.ErrorIs(t, err, mediaconvert.ErrNotFound)
@@ -1378,7 +1378,7 @@ func TestRefinement3_Timing_FinishAfterStart(t *testing.T) {
 	t.Parallel()
 
 	b := r3Backend()
-	j := r3CreateJob(t, b, "")
+	j := r3CreateJob(t, b)
 
 	for range 4 {
 		b.AdvanceJobPhase()
