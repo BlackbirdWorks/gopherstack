@@ -353,6 +353,10 @@ type Backend interface {
 	// DescribeTags returns tag entries, optionally filtered by resource IDs.
 	DescribeTags(resourceIDs []string) []TagEntry
 
+	// TagsForResource returns a copy of all tags currently set on a single
+	// resource. Returns an empty (non-nil) map when nothing is tagged.
+	TagsForResource(resourceID string) map[string]string
+
 	// ---- accept / advertise / allocate operations ----
 
 	// AcceptAddressTransfer accepts a pending Elastic IP address transfer.

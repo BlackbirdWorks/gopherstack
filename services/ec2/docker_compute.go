@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +29,9 @@ type DockerComputeConfig struct {
 	Image      string
 	Network    string
 	SSHHostIP  string
+	// Region is used to render the public DNS name suffix
+	// (e.g. us-east-1 → "compute-1.amazonaws.com").
+	Region     string
 	SSHPortMin int
 	SSHPortMax int
 }
@@ -198,9 +202,27 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 		// PublicIPAddress is set to the host SSHHostIP so the demo can ssh
 		// into the container via the published port.
 		PublicIPAddress: d.cfg.SSHHostIP,
-		PublicDNSName:   "",
+		PublicDNSName:   syntheticPublicDNS(req.InstanceID, d.cfg.Region),
 		SSHPort:         resolvedPort,
 	}, nil
+}
+
+// syntheticPublicDNS renders an AWS-style public hostname for an instance,
+// uniquely keyed by the instance ID so the embedded DNS server can register
+// one entry per launched container. The form mirrors what real EC2 returns:
+// us-east-1 collapses to "compute-1", all other regions get "{region}.compute".
+func syntheticPublicDNS(instanceID, region string) string {
+	suffix := strings.TrimPrefix(instanceID, "i-")
+	if suffix == "" {
+		suffix = instanceID
+	}
+
+	zone := "compute-1.amazonaws.com"
+	if region != "" && region != "us-east-1" {
+		zone = region + ".compute.amazonaws.com"
+	}
+
+	return fmt.Sprintf("ec2-%s.%s", suffix, zone)
 }
 
 // Terminate implements Compute.

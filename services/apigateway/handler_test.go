@@ -155,7 +155,7 @@ func TestHandler_RestAPI(t *testing.T) {
 
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
-				assert.Len(t, resp["items"].([]any), tt.wantListCount)
+				assert.Len(t, resp["item"].([]any), tt.wantListCount)
 			}
 
 			if tt.doDelete {
@@ -215,7 +215,7 @@ func TestHandler_Resources(t *testing.T) {
 
 			var res map[string]any
 			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &res))
-			items := res["items"].([]any)
+			items := res["item"].([]any)
 
 			if tt.wantResourceCount > 0 {
 				assert.Len(t, items, tt.wantResourceCount)
@@ -290,7 +290,7 @@ func TestHandler_Method(t *testing.T) {
 			rec2 := postWithHandler(t, handler, e, "GetResources", fmt.Sprintf(`{"restApiId":%q}`, apiID))
 			var res map[string]any
 			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &res))
-			rootID := res["items"].([]any)[0].(map[string]any)["id"].(string)
+			rootID := res["item"].([]any)[0].(map[string]any)["id"].(string)
 
 			rec3 := postWithHandler(t, handler, e, "PutMethod",
 				fmt.Sprintf(`{"restApiId":%q,"resourceId":%q,"httpMethod":%q,"authorizationType":%q}`,
@@ -353,7 +353,7 @@ func TestHandler_Integration(t *testing.T) {
 			rec2 := postWithHandler(t, handler, e, "GetResources", fmt.Sprintf(`{"restApiId":%q}`, apiID))
 			var res map[string]any
 			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &res))
-			rootID := res["items"].([]any)[0].(map[string]any)["id"].(string)
+			rootID := res["item"].([]any)[0].(map[string]any)["id"].(string)
 
 			postWithHandler(t, handler, e, "PutMethod",
 				fmt.Sprintf(`{"restApiId":%q,"resourceId":%q,"httpMethod":%q,"authorizationType":"NONE"}`,
@@ -427,7 +427,7 @@ func TestHandler_Deployment(t *testing.T) {
 
 			var depls map[string]any
 			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &depls))
-			assert.Len(t, depls["items"].([]any), tt.wantListCount)
+			assert.Len(t, depls["item"].([]any), tt.wantListCount)
 		})
 	}
 }

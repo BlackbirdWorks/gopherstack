@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -14,6 +15,8 @@ type computeCapableBackend interface {
 	LookupKeyPairAuthorizedKey(name string) string
 	LookupInstanceProviderID(instanceID string) string
 	SetComputeResult(instanceID string, r LaunchResult) error
+	DNSRegistrar() DNSRegistrar
+	CreateTags(resourceIDs []string, tags map[string]string) error
 }
 
 // computeBackend returns the configured Compute provider, or nil when the
@@ -77,8 +80,45 @@ func (h *Handler) launchOnCompute(
 		// Mirror result back onto the in-flight pointer the caller already
 		// holds so the response XML reflects the docker-assigned IPs/ports.
 		mergeLaunchResultIntoInstance(inst, res)
+
+		publishComputeMetadata(ctx, cb, inst)
 	}
 }
+
+// publishComputeMetadata registers the synthetic public DNS hostname with the
+// embedded DNS server (when wired) and stamps gopherstack-specific tags on
+// the instance so callers (UI, CLI, demo scripts) outside the gopherstack
+// process can discover the SSH endpoint without parsing custom XML fields.
+func publishComputeMetadata(ctx context.Context, cb computeCapableBackend, inst *Instance) {
+	log := logger.Load(ctx)
+
+	if reg := cb.DNSRegistrar(); reg != nil && inst.PublicDNSName != "" {
+		reg.Register(inst.PublicDNSName)
+	}
+
+	if inst.SSHPort == 0 && inst.PublicIPAddress == "" {
+		return
+	}
+
+	tags := map[string]string{}
+	if inst.SSHPort != 0 {
+		tags[tagKeySSHPort] = strconv.Itoa(inst.SSHPort)
+	}
+
+	if inst.PublicIPAddress != "" {
+		tags[tagKeySSHHost] = inst.PublicIPAddress
+	}
+
+	if err := cb.CreateTags([]string{inst.ID}, tags); err != nil {
+		log.WarnContext(ctx, "ec2 compute tag write failed", "instance", inst.ID, "error", err)
+	}
+}
+
+// Tag keys used by the compute hook to surface SSH connection metadata.
+const (
+	tagKeySSHPort = "gopherstack:ssh-port"
+	tagKeySSHHost = "gopherstack:ssh-host"
+)
 
 // mergeLaunchResultIntoInstance applies the LaunchResult fields to the
 // in-flight instance pointer the handler returns to the response builder.
@@ -107,10 +147,24 @@ func mergeLaunchResultIntoInstance(inst *Instance, r LaunchResult) {
 // terminateOnCompute issues Terminate against each instance's Compute provider.
 // providerIDs are looked up before the in-memory state is mutated. Errors are
 // logged so a partial Docker failure does not break the EC2 API contract.
-func (h *Handler) terminateOnCompute(ctx context.Context, c Compute, providerIDs map[string]string) {
+func (h *Handler) terminateOnCompute(
+	ctx context.Context,
+	cb computeCapableBackend,
+	c Compute,
+	providerIDs map[string]string,
+	dnsNames map[string]string,
+) {
 	log := logger.Load(ctx)
 
+	reg := cb.DNSRegistrar()
+
 	for instanceID, providerID := range providerIDs {
+		if reg != nil {
+			if name := dnsNames[instanceID]; name != "" {
+				reg.Deregister(name)
+			}
+		}
+
 		if providerID == "" {
 			continue
 		}
@@ -162,4 +216,23 @@ func snapshotProviderIDs(cb computeCapableBackend, ids []string) map[string]stri
 	}
 
 	return out
+}
+
+// snapshotPublicDNSNames returns a map[instanceID]publicDNSName for the
+// given IDs so terminateOnCompute can deregister them from the embedded DNS
+// after the in-memory state is removed.
+func snapshotPublicDNSNames(b instanceLookup, ids []string) map[string]string {
+	out := make(map[string]string, len(ids))
+	for _, id := range ids {
+		if name := b.LookupInstancePublicDNSName(id); name != "" {
+			out[id] = name
+		}
+	}
+
+	return out
+}
+
+// instanceLookup is the read side of the backend used by snapshotPublicDNSNames.
+type instanceLookup interface {
+	LookupInstancePublicDNSName(instanceID string) string
 }

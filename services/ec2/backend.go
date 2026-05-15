@@ -235,6 +235,7 @@ type InMemoryBackend struct {
 	eniIDsByInstance               map[string]map[string]struct{}
 	instanceIDsByVPC               map[string]map[string]struct{}
 	compute                        Compute
+	dnsRegistrar                   DNSRegistrar
 	Region                         string
 	AccountID                      string
 	freePrivateIPs                 []string
@@ -412,6 +413,16 @@ func (b *InMemoryBackend) RunInstances(
 	return instances, nil
 }
 
+// DNSRegistrar can register and deregister hostnames with an embedded DNS
+// server. It mirrors the optional registrar interfaces used by RDS, OpenSearch
+// and friends so the EC2 docker-compute provider can publish synthetic
+// AWS-style instance hostnames (e.g. ec2-1-2-3-4.compute-1.amazonaws.com) that
+// resolve to the host the container is reachable on.
+type DNSRegistrar interface {
+	Register(hostname string)
+	Deregister(hostname string)
+}
+
 // WithCompute installs an optional Compute provider. When non-nil, RunInstances,
 // TerminateInstances, StartInstances and StopInstances will call into the
 // provider after updating in-memory state. Passing nil disables the hook.
@@ -429,6 +440,25 @@ func (b *InMemoryBackend) Compute() Compute {
 	defer b.mu.RUnlock()
 
 	return b.compute
+}
+
+// SetDNSRegistrar wires an embedded DNS server so synthetic instance
+// hostnames produced by the Compute provider can be resolved by callers
+// outside the gopherstack process.
+func (b *InMemoryBackend) SetDNSRegistrar(r DNSRegistrar) {
+	b.mu.Lock("SetDNSRegistrar")
+	defer b.mu.Unlock()
+	b.dnsRegistrar = r
+}
+
+// DNSRegistrar returns the configured DNS registrar (may be nil).
+//
+//nolint:ireturn // returning the configured interface is the intent
+func (b *InMemoryBackend) DNSRegistrar() DNSRegistrar {
+	b.mu.RLock("DNSRegistrar")
+	defer b.mu.RUnlock()
+
+	return b.dnsRegistrar
 }
 
 // LookupKeyPairAuthorizedKey returns the OpenSSH authorized_keys-format public
@@ -503,6 +533,20 @@ func (b *InMemoryBackend) LookupInstanceProviderID(instanceID string) string {
 	}
 
 	return inst.ProviderID
+}
+
+// LookupInstancePublicDNSName returns the synthetic public DNS name assigned
+// to an instance, or empty string when the instance is unknown or has none.
+func (b *InMemoryBackend) LookupInstancePublicDNSName(instanceID string) string {
+	b.mu.RLock("LookupInstancePublicDNSName")
+	defer b.mu.RUnlock()
+
+	inst, ok := b.instances[instanceID]
+	if !ok {
+		return ""
+	}
+
+	return inst.PublicDNSName
 }
 
 // findDefaultSubnetID returns the ID of the default subnet, or empty string if none.
@@ -1125,6 +1169,23 @@ func (b *InMemoryBackend) DeleteTags(resourceIDs []string, keys []string) error 
 	}
 
 	return nil
+}
+
+// TagsForResource returns a copy of the tags currently set on the given
+// resource, or an empty map when nothing is tagged. Safe for concurrent use.
+func (b *InMemoryBackend) TagsForResource(resourceID string) map[string]string {
+	b.mu.RLock("TagsForResource")
+	defer b.mu.RUnlock()
+
+	src, ok := b.tags[resourceID]
+	if !ok || len(src) == 0 {
+		return map[string]string{}
+	}
+
+	out := make(map[string]string, len(src))
+	maps.Copy(out, src)
+
+	return out
 }
 
 // DescribeTags returns all tag entries, optionally filtered by resource IDs.

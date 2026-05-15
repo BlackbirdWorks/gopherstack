@@ -448,7 +448,7 @@ func TestHandler_APIGateway_FullWorkflow(t *testing.T) {
 			require.Equal(t, http.StatusOK, resListRec.Code)
 			require.NoError(t, parseJSON(resListRec, &resourcesResp))
 
-			items := resourcesResp["items"].([]any)
+			items := resourcesResp["item"].([]any)
 			require.Len(t, items, 1)
 			rootID := items[0].(map[string]any)["id"].(string)
 

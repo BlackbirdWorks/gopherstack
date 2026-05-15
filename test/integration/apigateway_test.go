@@ -75,13 +75,13 @@ func TestIntegration_APIGateway_FullLifecycle(t *testing.T) {
 	resp3 := apigwPost(t, "GetRestApis", map[string]any{})
 	assert.Equal(t, http.StatusOK, resp3.StatusCode)
 	list := apigwReadJSON(t, resp3)
-	assert.Contains(t, list, "items")
+	assert.Contains(t, list, "item")
 
 	// 4. GetResources — should return at least the root resource
 	resp4 := apigwPost(t, "GetResources", map[string]any{"restApiId": apiID})
 	assert.Equal(t, http.StatusOK, resp4.StatusCode)
 	resources := apigwReadJSON(t, resp4)
-	items, ok := resources["items"].([]any)
+	items, ok := resources["item"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, items)
 
@@ -158,7 +158,7 @@ func TestIntegration_APIGateway_FullLifecycle(t *testing.T) {
 	resp11 := apigwPost(t, "GetDeployments", map[string]any{"restApiId": apiID})
 	assert.Equal(t, http.StatusOK, resp11.StatusCode)
 	deploys := apigwReadJSON(t, resp11)
-	assert.Contains(t, deploys, "items")
+	assert.Contains(t, deploys, "item")
 
 	// 12. GetStages — should include the "prod" stage created with deployment
 	resp12 := apigwPost(t, "GetStages", map[string]any{"restApiId": apiID})
@@ -272,7 +272,7 @@ func apigwSetupAPI(t *testing.T, name string) (string, string) {
 	resp = apigwPost(t, "GetResources", map[string]any{"restApiId": apiID})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resources := apigwReadJSON(t, resp)
-	items := resources["items"].([]any)
+	items := resources["item"].([]any)
 	rootID := findRootResourceID(t, items)
 
 	return apiID, rootID
@@ -464,7 +464,7 @@ func TestIntegration_APIGateway_Authorizer_Lifecycle(t *testing.T) {
 	resp3 := apigwPost(t, "GetAuthorizers", map[string]any{"restApiId": apiID})
 	assert.Equal(t, http.StatusOK, resp3.StatusCode)
 	list := apigwReadJSON(t, resp3)
-	items, ok := list["items"].([]any)
+	items, ok := list["item"].([]any)
 	require.True(t, ok)
 	assert.Len(t, items, 1)
 
@@ -530,7 +530,7 @@ func TestIntegration_APIGateway_RequestValidator_Lifecycle(t *testing.T) {
 	resp3 := apigwPost(t, "GetRequestValidators", map[string]any{"restApiId": apiID})
 	assert.Equal(t, http.StatusOK, resp3.StatusCode)
 	list := apigwReadJSON(t, resp3)
-	items, ok := list["items"].([]any)
+	items, ok := list["item"].([]any)
 	require.True(t, ok)
 	assert.Len(t, items, 1)
 

@@ -42,10 +42,9 @@ const (
 	keyHTTPMethod           = "httpMethod"
 	keyStatusCode           = "statusCode"
 	// keyItem is the response collection key used by AWS API Gateway list
-	// operations. AWS uses the plural "items" for every list response except
-	// GetStages, which uses the singular "item" (see keyStagesItem).
-	keyItem       = "items"
-	keyStagesItem = "item"
+	// operations. The AWS Go SDK v2 deserializer expects the singular "item"
+	// for every list response (it is the wire name in the smithy model).
+	keyItem = "item"
 )
 
 const (
@@ -2355,7 +2354,7 @@ func (h *Handler) stageActions() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			return http.StatusOK, map[string]any{keyStagesItem: stages}, nil
+			return http.StatusOK, map[string]any{keyItem: stages}, nil
 		},
 		opGetStage: func(b []byte) (int, any, error) {
 			var input getStageInput

@@ -53,7 +53,7 @@ type domainNameAccessAssociationStub struct {
 
 // domainNameAccessAssociationsStub is a list of access associations.
 type domainNameAccessAssociationsStub struct {
-	Items []domainNameAccessAssociationStub `json:"items"`
+	Items []domainNameAccessAssociationStub `json:"item"`
 }
 
 // sdkTypeStub is a minimal SDK type.
@@ -64,7 +64,7 @@ type sdkTypeStub struct {
 
 // sdkTypesStub is a minimal list of SDK types.
 type sdkTypesStub struct {
-	Items []sdkTypeStub `json:"items"`
+	Items []sdkTypeStub `json:"item"`
 }
 
 // apiKeysImportStub is the response for ImportApiKeys.
