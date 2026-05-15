@@ -430,7 +430,7 @@ func TestMQ_UpdateBroker(t *testing.T) {
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			var updateResp map[string]string
+			var updateResp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
 			assert.Equal(t, brokerID, updateResp["brokerId"])
 		})
