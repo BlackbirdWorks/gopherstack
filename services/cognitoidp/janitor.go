@@ -45,6 +45,7 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ticker.C:
 			taskCtx, cancel := j.taskContext(ctx)
 			j.sweepExpiredRefreshTokens(taskCtx)
+			j.Backend.EvictExpiredMFASessions()
 			cancel()
 		}
 	}
@@ -63,6 +64,7 @@ func (j *Janitor) taskContext(parent context.Context) (context.Context, context.
 // SweepOnce runs a single sweep pass. Exposed for testing.
 func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.sweepExpiredRefreshTokens(ctx)
+	j.Backend.EvictExpiredMFASessions()
 }
 
 // sweepExpiredRefreshTokens removes refresh tokens whose ExpiresAt is in the past.

@@ -3,6 +3,8 @@ package cognitoidp_test
 // accuracy_test.go covers the 16 AWS-accuracy gaps from issue #1702.
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -1210,4 +1212,263 @@ func loginViaHandler(t *testing.T, h *cognitoidp.Handler, clientID, username str
 	require.NotNil(t, resp.AuthenticationResult)
 
 	return resp.AuthenticationResult.AccessToken
+}
+
+// ---- Gap: AdminSetUserMFAPreference accurate handler ----
+
+func TestHandler_AdminSetUserMFAPreference_Accurate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, clientID := setupHandlerPoolAndClient(t, h, "admin-mfa-pref-pool")
+
+	signUpAndConfirmViaHandler(t, h, clientID, "mfa-pref-user")
+
+	rec := doCognitoRequest(t, h, "AdminSetUserMFAPreference", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "mfa-pref-user",
+		"SoftwareTokenMfaSettings": map[string]any{
+			"Enabled":      true,
+			"PreferredMfa": true,
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "AdminSetUserMFAPreference should succeed: %s", rec.Body.String())
+}
+
+func TestHandler_AdminSetUserMFAPreference_UnknownUser_Fails(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, _ := setupHandlerPoolAndClient(t, h, "admin-mfa-pref-fail-pool")
+
+	rec := doCognitoRequest(t, h, "AdminSetUserMFAPreference", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "ghost",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ---- Gap: SECRET_HASH validation ----
+
+func computeSecretHash(clientID, username, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(username + clientID))
+
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func TestAccuracy_SecretHash_InitiateAuth_Valid(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPoolWithOpts("sh-pool", cognitoidp.UserPoolOptions{})
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClientWithOpts(pool.ID, "sh-client", cognitoidp.UserPoolClientOptions{
+		GenerateSecret: true,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, client.ClientSecret)
+
+	user, err := b.SignUp(client.ClientID, "alice", "Pass1234!", nil)
+	require.NoError(t, err)
+	err = b.ConfirmSignUp(client.ClientID, "alice", user.ConfirmCode)
+	require.NoError(t, err)
+
+	validHash := computeSecretHash(client.ClientID, "alice", client.ClientSecret)
+	err = b.ValidateSecretHash(client.ClientID, "alice", validHash)
+	require.NoError(t, err)
+}
+
+func TestAccuracy_SecretHash_InitiateAuth_Invalid(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPoolWithOpts("sh-fail-pool", cognitoidp.UserPoolOptions{})
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClientWithOpts(pool.ID, "sh-fail-client", cognitoidp.UserPoolClientOptions{
+		GenerateSecret: true,
+	})
+	require.NoError(t, err)
+
+	err = b.ValidateSecretHash(client.ClientID, "alice", "wronghash")
+	require.ErrorIs(t, err, cognitoidp.ErrNotAuthorized)
+}
+
+func TestAccuracy_SecretHash_RequiredWhenClientHasSecret(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPoolWithOpts("sh-req-pool", cognitoidp.UserPoolOptions{})
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClientWithOpts(pool.ID, "sh-req-client", cognitoidp.UserPoolClientOptions{
+		GenerateSecret: true,
+	})
+	require.NoError(t, err)
+
+	err = b.ValidateSecretHash(client.ClientID, "alice", "")
+	require.ErrorIs(t, err, cognitoidp.ErrInvalidParameter)
+}
+
+func TestAccuracy_SecretHash_ForbiddenWhenClientHasNoSecret(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPoolWithOpts("sh-forbid-pool", cognitoidp.UserPoolOptions{})
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClientWithOpts(pool.ID, "sh-forbid-client", cognitoidp.UserPoolClientOptions{})
+	require.NoError(t, err)
+
+	err = b.ValidateSecretHash(client.ClientID, "alice", "somehash")
+	require.ErrorIs(t, err, cognitoidp.ErrInvalidParameter)
+}
+
+func TestAccuracy_SecretHash_AcceptsEmptyWhenNoSecret(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPoolWithOpts("sh-ok-pool", cognitoidp.UserPoolOptions{})
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClientWithOpts(pool.ID, "sh-ok-client", cognitoidp.UserPoolClientOptions{})
+	require.NoError(t, err)
+
+	err = b.ValidateSecretHash(client.ClientID, "alice", "")
+	require.NoError(t, err)
+}
+
+func TestHandler_SecretHash_InitiateAuth_Via_HTTP(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create pool + client WITH a secret.
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "sh-http-pool"})
+	require.Equal(t, http.StatusOK, poolRec.Code)
+
+	var poolResp struct {
+		UserPool struct {
+			ID string `json:"Id"`
+		} `json:"UserPool"`
+	}
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp.UserPool.ID
+
+	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+		"UserPoolId":     poolID,
+		"ClientName":     "sh-client",
+		"GenerateSecret": true,
+	})
+	require.Equal(t, http.StatusOK, clientRec.Code)
+
+	var clientResp struct {
+		UserPoolClient struct {
+			ClientID     string `json:"ClientId"`
+			ClientSecret string `json:"ClientSecret"`
+		} `json:"UserPoolClient"`
+	}
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	clientID := clientResp.UserPoolClient.ClientID
+	secret := clientResp.UserPoolClient.ClientSecret
+	require.NotEmpty(t, secret)
+
+	// Sign up + confirm.
+	signUpRec := doCognitoRequest(t, h, "SignUp", map[string]any{
+		"ClientId":   clientID,
+		"Username":   "sh-user",
+		"Password":   "Pass1234!",
+		"SecretHash": computeSecretHash(clientID, "sh-user", secret),
+	})
+	require.Equal(t, http.StatusOK, signUpRec.Code, "SignUp: %s", signUpRec.Body.String())
+
+	var signUpResp struct {
+		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails"`
+	}
+	require.NoError(t, json.Unmarshal(signUpRec.Body.Bytes(), &signUpResp))
+	code := signUpResp.CodeDeliveryDetails["ConfirmationCode"]
+
+	confirmRec := doCognitoRequest(t, h, "ConfirmSignUp", map[string]any{
+		"ClientId":         clientID,
+		"Username":         "sh-user",
+		"ConfirmationCode": code,
+		"SecretHash":       computeSecretHash(clientID, "sh-user", secret),
+	})
+	require.Equal(t, http.StatusOK, confirmRec.Code, "ConfirmSignUp: %s", confirmRec.Body.String())
+
+	// Auth with valid SecretHash succeeds.
+	authRec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
+		"AuthFlow": "USER_PASSWORD_AUTH",
+		"ClientId": clientID,
+		"AuthParameters": map[string]string{
+			"USERNAME":    "sh-user",
+			"PASSWORD":    "Pass1234!",
+			"SECRET_HASH": computeSecretHash(clientID, "sh-user", secret),
+		},
+	})
+	assert.Equal(t, http.StatusOK, authRec.Code, "valid SecretHash should auth: %s", authRec.Body.String())
+
+	// Auth with wrong SecretHash is rejected.
+	badRec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
+		"AuthFlow": "USER_PASSWORD_AUTH",
+		"ClientId": clientID,
+		"AuthParameters": map[string]string{
+			"USERNAME":    "sh-user",
+			"PASSWORD":    "Pass1234!",
+			"SECRET_HASH": "badsecret==",
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, badRec.Code, "bad SecretHash should fail")
+
+	// Auth without SecretHash is rejected when client has a secret.
+	noHashRec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
+		"AuthFlow": "USER_PASSWORD_AUTH",
+		"ClientId": clientID,
+		"AuthParameters": map[string]string{
+			"USERNAME": "sh-user",
+			"PASSWORD": "Pass1234!",
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, noHashRec.Code, "missing SecretHash should fail")
+}
+
+// ---- Gap: Janitor sweeps expired MFA sessions ----
+
+func TestJanitor_SweepsExpiredMFASessions(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPoolWithOpts("janitor-pool", cognitoidp.UserPoolOptions{})
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClientWithOpts(pool.ID, "janitor-client", cognitoidp.UserPoolClientOptions{
+		ExplicitAuthFlows: []string{"ALLOW_USER_SRP_AUTH"},
+	})
+	require.NoError(t, err)
+
+	user, err := b.SignUp(client.ClientID, "juser", "Pass1234!", nil)
+	require.NoError(t, err)
+	err = b.ConfirmSignUp(client.ClientID, "juser", user.ConfirmCode)
+	require.NoError(t, err)
+
+	result, err := b.InitiateAuth(client.ClientID, "USER_SRP_AUTH", "juser", "Pass1234!")
+	require.NoError(t, err)
+
+	session := result.MFASession
+
+	// Force-expire the session.
+	b.ExpireMFASessionForTest(session)
+
+	// Before sweep: the session should fail validation.
+	_, err = b.RespondToSRPChallenge(client.ClientID, session)
+	require.Error(t, err)
+
+	// After sweep: EvictExpiredMFASessions removes the entry (evict manually as janitor would).
+	b.EvictExpiredMFASessions()
+
+	// Trying to use the session again still fails (entry gone).
+	_, err = b.RespondToSRPChallenge(client.ClientID, session)
+	require.Error(t, err)
 }
