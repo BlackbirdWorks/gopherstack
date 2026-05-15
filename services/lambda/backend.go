@@ -85,10 +85,43 @@ var globalRand = mrand.New(mrand.NewPCG(0, 1)) //nolint:gosec // non-security us
 // defaultEphemeralStorageSize is the default /tmp storage size in MB for Lambda functions.
 const defaultEphemeralStorageSize int32 = 512
 
+// minEphemeralStorageSize is the minimum /tmp size in MB accepted by AWS Lambda.
+const minEphemeralStorageSize int32 = 512
+
+// maxEphemeralStorageSize is the maximum /tmp size in MB accepted by AWS Lambda.
+const maxEphemeralStorageSize int32 = 10240
+
 // maxCleanupConcurrency is the maximum number of concurrent runtime cleanup goroutines.
 const maxCleanupConcurrency = 64
 
 const extractParentDirPerm = 0o750
+
+// invocationChainKey is the context key used to track the current Lambda invocation chain.
+// Its value is a set (map[string]struct{}) of function names currently in the call stack.
+type invocationChainKeyType struct{}
+
+var invocationChainKey = invocationChainKeyType{}
+
+// withInvocationChain returns a context carrying the updated invocation chain.
+func withInvocationChain(ctx context.Context, functionName string) context.Context {
+	existing, _ := ctx.Value(invocationChainKey).(map[string]struct{})
+	next := make(map[string]struct{}, len(existing)+1)
+	for k := range existing {
+		next[k] = struct{}{}
+	}
+
+	next[functionName] = struct{}{}
+
+	return context.WithValue(ctx, invocationChainKey, next)
+}
+
+// invocationChainContains reports whether functionName is already in the call chain.
+func invocationChainContains(ctx context.Context, functionName string) bool {
+	chain, _ := ctx.Value(invocationChainKey).(map[string]struct{})
+	_, ok := chain[functionName]
+
+	return ok
+}
 
 // StorageBackend defines the interface for Lambda backend operations.
 type StorageBackend interface {
@@ -169,6 +202,7 @@ type InMemoryBackend struct {
 	eventInvokeConfigs       map[string]*FunctionEventInvokeConfig
 	functionConcurrencies    map[string]int
 	kinesisPoller            *EventSourcePoller
+	pollerCancel             context.CancelFunc
 	provisionedConcurrencies map[string]map[string]*ProvisionedConcurrencyConfig
 	layers                   map[string][]*LayerVersion
 	eventSourceMappings      map[string]*EventSourceMapping
@@ -256,11 +290,20 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 		rts = append(rts, rt)
 	}
 
+	cancel := b.pollerCancel
+	b.pollerCancel = nil
+
 	b.mu.Unlock()
+
+	// Stop the event-source poller goroutine if it was started.
+	if cancel != nil {
+		cancel()
+	}
 
 	var wg sync.WaitGroup
 
 	for _, srv := range urlServers {
+		srv := srv
 		wg.Go(func() {
 			_ = srv.server.Shutdown(ctx)
 
@@ -271,6 +314,7 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 	}
 
 	for _, rt := range rts {
+		rt := rt
 		wg.Go(func() {
 			b.cleanupRuntime(ctx, rt)
 		})
@@ -308,14 +352,23 @@ func (b *InMemoryBackend) SetKinesisPoller(p *EventSourcePoller) {
 }
 
 // StartKinesisPoller starts the Kinesis event source poller if one has been set.
+// It stores a cancel function so Close() can stop the poller gracefully.
 func (b *InMemoryBackend) StartKinesisPoller(ctx context.Context) {
-	b.mu.RLock("StartKinesisPoller")
+	b.mu.Lock("StartKinesisPoller")
 	p := b.kinesisPoller
-	b.mu.RUnlock()
+	b.mu.Unlock()
 
-	if p != nil {
-		p.Start(ctx)
+	if p == nil {
+		return
 	}
+
+	pollerCtx, cancel := context.WithCancel(ctx)
+
+	b.mu.Lock("StartKinesisPoller.storeCancel")
+	b.pollerCancel = cancel
+	b.mu.Unlock()
+
+	p.Start(pollerCtx)
 }
 
 // SetSQSReader sets the SQS reader on the event source poller so that SQS
@@ -472,24 +525,31 @@ func (b *InMemoryBackend) functionURLHostname(functionName string) string {
 
 // CreateFunctionURLConfig creates a function URL endpoint for the given function.
 // It allocates a port, starts an HTTP listener, registers DNS, and returns the config.
+// The mutex is released before port allocation and listener startup (IO) to avoid
+// holding the lock during potentially slow system calls.
 func (b *InMemoryBackend) CreateFunctionURLConfig(
 	functionName, authType string,
 	cors *FunctionURLCors,
 	invokeMode string,
 ) (*FunctionURLConfig, error) {
-	b.mu.Lock("CreateFunctionURLConfig")
-	defer b.mu.Unlock()
+	b.mu.Lock("CreateFunctionURLConfig.check")
 
 	if _, ok := b.functions[functionName]; !ok {
+		b.mu.Unlock()
+
 		return nil, ErrFunctionNotFound
 	}
 
-	// If a URL config already exists, return ResourceConflictException
 	if _, exists := b.functionURLConfigs[functionName]; exists {
+		b.mu.Unlock()
+
 		return nil, ErrFunctionAlreadyExists
 	}
 
-	urlStr, startErr := b.allocateAndStartURLServer(functionName)
+	b.mu.Unlock()
+
+	// Allocate port and start listener outside the lock (IO).
+	urlStr, startErr := b.allocateAndStartURLServerUnlocked(functionName)
 	if startErr != nil {
 		return nil, startErr
 	}
@@ -509,6 +569,32 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 		Cors:             cors,
 	}
 
+	// Re-acquire the lock to commit the config. Check for a concurrent winner.
+	b.mu.Lock("CreateFunctionURLConfig.commit")
+	defer b.mu.Unlock()
+
+	if _, exists := b.functionURLConfigs[functionName]; exists {
+		// Another goroutine won the race. Our server was already committed to
+		// b.functionURLServers by allocateAndStartURLServerUnlocked; remove it
+		// under the lock and schedule shutdown outside.
+		ourSrv := b.functionURLServers[functionName]
+		if ourSrv != nil && ourSrv.port != 0 {
+			delete(b.functionURLServers, functionName)
+
+			go func(s *functionURLServer) {
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+				defer cancel()
+				_ = s.server.Shutdown(shutdownCtx)
+
+				if b.portAlloc != nil {
+					_ = b.portAlloc.Release(s.port)
+				}
+			}(ourSrv)
+		}
+
+		return nil, ErrFunctionAlreadyExists
+	}
+
 	b.functionURLConfigs[functionName] = cfg
 
 	return cfg, nil
@@ -517,33 +603,64 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 // allocateAndStartURLServer allocates a port, starts the HTTP listener, optionally registers DNS,
 // and returns the function URL string. Must be called with b.mu already held (write).
 func (b *InMemoryBackend) allocateAndStartURLServer(functionName string) (string, error) {
+	urlStr, srv, err := b.doAllocateAndStart(functionName)
+	if err != nil {
+		return "", err
+	}
+
+	if srv != nil {
+		b.functionURLServers[functionName] = srv
+	}
+
+	return urlStr, nil
+}
+
+// allocateAndStartURLServerUnlocked allocates a port and starts the HTTP listener
+// without holding b.mu. The caller must commit srv to b.functionURLServers under the lock.
+func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(functionName string) (string, error) {
+	urlStr, srv, err := b.doAllocateAndStart(functionName)
+	if err != nil {
+		return "", err
+	}
+
+	if srv != nil {
+		b.mu.Lock("allocateAndStartURLServerUnlocked.commit")
+		b.functionURLServers[functionName] = srv
+		b.mu.Unlock()
+	}
+
+	return urlStr, nil
+}
+
+// doAllocateAndStart is the core port-alloc + listener startup logic shared by both
+// allocateAndStartURLServer (lock held) and allocateAndStartURLServerUnlocked (no lock).
+func (b *InMemoryBackend) doAllocateAndStart(functionName string) (string, *functionURLServer, error) {
 	if b.portAlloc == nil {
-		return fmt.Sprintf("http://localhost/%s/", functionName), nil
+		return fmt.Sprintf("http://localhost/%s/", functionName), nil, nil
 	}
 
 	port, allocErr := b.portAlloc.Acquire("lambda-url:" + functionName)
 	if allocErr != nil {
-		return "", fmt.Errorf("%w: port allocation failed: %w", ErrLambdaUnavailable, allocErr)
+		return "", nil, fmt.Errorf("%w: port allocation failed: %w", ErrLambdaUnavailable, allocErr)
 	}
 
 	srv, listenErr := b.startFunctionURLServer(functionName, port)
 	if listenErr != nil {
 		_ = b.portAlloc.Release(port)
 
-		return "", fmt.Errorf("%w: failed to start URL listener: %w", ErrLambdaUnavailable, listenErr)
+		return "", nil, fmt.Errorf("%w: failed to start URL listener: %w", ErrLambdaUnavailable, listenErr)
 	}
 
-	b.functionURLServers[functionName] = srv
 	hostname := b.functionURLHostname(functionName)
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(hostname)
 
-		return "http://" + net.JoinHostPort(hostname, strconv.Itoa(port)) + "/", nil
+		return "http://" + net.JoinHostPort(hostname, strconv.Itoa(port)) + "/", srv, nil
 	}
 
 	// No DNS registered; use loopback so the URL is immediately reachable.
-	return "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) + "/", nil
+	return "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) + "/", srv, nil
 }
 
 // GetFunctionURLConfig returns the function URL config for a function.
@@ -814,6 +931,15 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 
 	if fn.EphemeralStorage == nil {
 		fn.EphemeralStorage = &EphemeralStorageConfig{Size: defaultEphemeralStorageSize}
+	} else if fn.EphemeralStorage.Size < minEphemeralStorageSize || fn.EphemeralStorage.Size > maxEphemeralStorageSize {
+		return fmt.Errorf(
+			"%w: EphemeralStorage.Size must be between %d and %d MB",
+			ErrInvalidParameterValue, minEphemeralStorageSize, maxEphemeralStorageSize,
+		)
+	}
+
+	if fn.TracingConfig == nil {
+		fn.TracingConfig = &TracingConfig{Mode: "PassThrough"}
 	}
 
 	if fn.PackageType == "" {
@@ -963,23 +1089,28 @@ func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVer
 	versionNum := strconv.Itoa(b.versionCounters[name])
 
 	ver := &FunctionVersion{
-		FunctionName: fn.FunctionName,
-		FunctionArn:  buildVersionARN(b.region, b.accountID, fn.FunctionName, versionNum),
-		Description:  description,
-		Version:      versionNum,
-		Runtime:      fn.Runtime,
-		Handler:      fn.Handler,
-		Role:         fn.Role,
-		MemorySize:   fn.MemorySize,
-		Timeout:      fn.Timeout,
-		PackageType:  fn.PackageType,
-		ImageURI:     fn.ImageURI,
-		Environment:  deepCopyEnvironment(fn.Environment),
-		Layers:       deepCopyFunctionLayers(fn.Layers),
-		CodeSize:     fn.CodeSize,
-		RevisionID:   uuid.New().String(),
-		CreatedAt:    fn.LastModified,
-		State:        fn.State,
+		FunctionName:      fn.FunctionName,
+		FunctionArn:       buildVersionARN(b.region, b.accountID, fn.FunctionName, versionNum),
+		Description:       description,
+		Version:           versionNum,
+		Runtime:           fn.Runtime,
+		Handler:           fn.Handler,
+		Role:              fn.Role,
+		MemorySize:        fn.MemorySize,
+		Timeout:           fn.Timeout,
+		PackageType:       fn.PackageType,
+		ImageURI:          fn.ImageURI,
+		ImageConfig:       fn.ImageConfig,
+		VpcConfig:         fn.VpcConfig,
+		TracingConfig:     fn.TracingConfig,
+		FileSystemConfigs: fn.FileSystemConfigs,
+		DeadLetterConfig:  fn.DeadLetterConfig,
+		Environment:       deepCopyEnvironment(fn.Environment),
+		Layers:            deepCopyFunctionLayers(fn.Layers),
+		CodeSize:          fn.CodeSize,
+		RevisionID:        uuid.New().String(),
+		CreatedAt:         fn.LastModified,
+		State:             fn.State,
 	}
 
 	b.versions[name] = append(b.versions[name], ver)
@@ -1295,24 +1426,29 @@ func deepCopyFunctionLayers(src []*FunctionLayer) []*FunctionLayer {
 // fnToVersion converts a live FunctionConfiguration to a $LATEST FunctionVersion.
 func fnToVersion(fn *FunctionConfiguration) *FunctionVersion {
 	return &FunctionVersion{
-		FunctionName: fn.FunctionName,
-		FunctionArn:  fn.FunctionArn,
-		Description:  fn.Description,
-		Version:      versionLatest,
-		Runtime:      fn.Runtime,
-		Handler:      fn.Handler,
-		Role:         fn.Role,
-		MemorySize:   fn.MemorySize,
-		Timeout:      fn.Timeout,
-		PackageType:  fn.PackageType,
-		ImageURI:     fn.ImageURI,
-		Environment:  fn.Environment,
-		Layers:       fn.Layers,
-		CodeSize:     fn.CodeSize,
-		RevisionID:   fn.RevisionID,
-		CreatedAt:    fn.LastModified,
-		State:        fn.State,
-		CodeSha256:   fn.CodeSha256,
+		FunctionName:      fn.FunctionName,
+		FunctionArn:       fn.FunctionArn,
+		Description:       fn.Description,
+		Version:           versionLatest,
+		Runtime:           fn.Runtime,
+		Handler:           fn.Handler,
+		Role:              fn.Role,
+		MemorySize:        fn.MemorySize,
+		Timeout:           fn.Timeout,
+		PackageType:       fn.PackageType,
+		ImageURI:          fn.ImageURI,
+		ImageConfig:       fn.ImageConfig,
+		Environment:       fn.Environment,
+		VpcConfig:         fn.VpcConfig,
+		TracingConfig:     fn.TracingConfig,
+		FileSystemConfigs: fn.FileSystemConfigs,
+		DeadLetterConfig:  fn.DeadLetterConfig,
+		Layers:            fn.Layers,
+		CodeSize:          fn.CodeSize,
+		RevisionID:        fn.RevisionID,
+		CreatedAt:         fn.LastModified,
+		State:             fn.State,
+		CodeSha256:        fn.CodeSha256,
 	}
 }
 
@@ -1383,6 +1519,29 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	if invocationType == InvocationTypeDryRun {
 		return nil, http.StatusNoContent, nil
 	}
+
+	// Enforce RecursiveLoop=Deny: reject self-invocations when the function name
+	// is already in the current invocation chain.
+	if invocationChainContains(ctx, fn.FunctionName) {
+		b.mu.RLock("InvokeFunctionWithQualifier.recursion")
+		rc := b.functionRecursionConfigs[fn.FunctionName]
+		b.mu.RUnlock()
+
+		mode := "Terminate"
+		if rc != nil {
+			mode = rc.RecursiveLoop
+		}
+
+		if mode == "Deny" {
+			return nil, http.StatusBadRequest, fmt.Errorf(
+				"%w: recursive invocation detected for function %s with RecursiveLoop=Deny",
+				ErrInvalidParameterValue, fn.FunctionName,
+			)
+		}
+	}
+
+	// Propagate the invocation chain to nested Lambda calls.
+	ctx = withInvocationChain(ctx, fn.FunctionName)
 
 	// Check FIS fault injection state for this function.
 	fisPayload, fisStatus, fisErr := b.applyFISFaultToInvocation(ctx, fn.FunctionName)
@@ -1702,6 +1861,22 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName string) (bool, err
 
 	reserved, hasLimit := b.functionConcurrencies[functionName]
 	if !hasLimit {
+		// No reserved concurrency limit — check scaling config MaximumConcurrency instead.
+		if sc, ok := b.functionScalingConfigs[functionName]; ok && sc.MaximumConcurrency != nil {
+			active := b.activeConcurrencies[functionName]
+			if active >= *sc.MaximumConcurrency {
+				return false, fmt.Errorf(
+					"%w: scaling concurrency limit reached for function %s",
+					ErrTooManyRequests,
+					functionName,
+				)
+			}
+
+			b.activeConcurrencies[functionName]++
+
+			return true, nil
+		}
+
 		return false, nil
 	}
 
@@ -1717,6 +1892,17 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName string) (bool, err
 			ErrTooManyRequests,
 			functionName,
 		)
+	}
+
+	// Also enforce MaximumConcurrency from scaling config when set.
+	if sc, ok := b.functionScalingConfigs[functionName]; ok && sc.MaximumConcurrency != nil {
+		if active >= *sc.MaximumConcurrency {
+			return false, fmt.Errorf(
+				"%w: scaling concurrency limit reached for function %s",
+				ErrTooManyRequests,
+				functionName,
+			)
+		}
 	}
 
 	b.activeConcurrencies[functionName]++
