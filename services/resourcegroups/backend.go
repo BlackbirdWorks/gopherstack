@@ -589,7 +589,7 @@ func (b *InMemoryBackend) SearchResources(_ *ResourceQuery) ([]ResourceIdentifie
 	defer b.mu.RUnlock()
 
 	seen := make(map[string]struct{})
-	out := make([]ResourceIdentifier, 0)
+	out := make([]ResourceIdentifier, 0, len(b.groupResources))
 
 	for _, arns := range b.groupResources {
 		for _, a := range arns {

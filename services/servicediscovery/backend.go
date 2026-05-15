@@ -470,7 +470,7 @@ func (b *InMemoryBackend) ListInstances(serviceID string) ([]Instance, error) {
 		return nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
-	result := make([]Instance, 0)
+	result := make([]Instance, 0, len(b.instances))
 	prefix := serviceID + "/"
 
 	for key, inst := range b.instances {
@@ -530,7 +530,7 @@ func (b *InMemoryBackend) findServiceID(nsID, serviceName string) string {
 // collectInstances collects and filters instances for a given service.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) collectInstances(svcID, healthStatus string, queryParams map[string]string) []Instance {
-	result := make([]Instance, 0)
+	result := make([]Instance, 0, len(b.instances))
 	prefix := svcID + "/"
 
 	for key, inst := range b.instances {

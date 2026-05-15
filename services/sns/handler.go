@@ -875,7 +875,7 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 	}
 
 	successful := make([]XMLPublishBatchSuccessEntry, 0, len(entries))
-	failed := make([]XMLPublishBatchFailEntry, 0)
+	failed := make([]XMLPublishBatchFailEntry, 0, len(entries))
 
 	isFIFO := strings.HasSuffix(topicArn, ".fifo")
 

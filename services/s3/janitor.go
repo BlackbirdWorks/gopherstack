@@ -227,7 +227,7 @@ func (j *Janitor) sweepAndDrain(ctx context.Context) {
 	b := j.Backend
 
 	b.mu.RLock("S3Janitor")
-	pending := make([]string, 0)
+	pending := make([]string, 0, len(b.buckets))
 
 	for _, regionBuckets := range b.buckets {
 		for name, bucket := range regionBuckets {

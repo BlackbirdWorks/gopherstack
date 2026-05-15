@@ -2411,7 +2411,7 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string)
 	if engine == "" && engineVersion == "" {
 		return all
 	}
-	result := make([]DBEngineVersion, 0)
+	result := make([]DBEngineVersion, 0, len(all))
 	for _, v := range all {
 		if engine != "" && v.Engine != engine {
 			continue
@@ -2678,7 +2678,7 @@ func (b *InMemoryBackend) DescribeDBClusterEndpoints(clusterID, endpointID strin
 
 		return []DBClusterEndpoint{cp}, nil
 	}
-	result := make([]DBClusterEndpoint, 0)
+	result := make([]DBClusterEndpoint, 0, len(b.clusterEndpoints))
 	for _, ep := range b.clusterEndpoints {
 		if clusterID != "" && ep.DBClusterIdentifier != clusterID {
 			continue

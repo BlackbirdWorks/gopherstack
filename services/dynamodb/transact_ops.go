@@ -315,7 +315,7 @@ func (db *InMemoryDB) TransactGetItems(
 		return nil, err
 	}
 
-	tableNames := make([]string, 0)
+	tableNames := make([]string, 0, len(input.TransactItems))
 	seen := make(map[string]bool)
 
 	for _, ti := range input.TransactItems {

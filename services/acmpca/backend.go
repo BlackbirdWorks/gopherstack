@@ -742,7 +742,7 @@ func (b *InMemoryBackend) ListPermissions(caARN, nextToken string, maxItems int)
 		return page.Page[Permission]{}, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
-	perms := make([]Permission, 0)
+	perms := make([]Permission, 0, len(b.permissions))
 	for _, perm := range b.permissions {
 		if perm.CertificateAuthorityArn == caARN {
 			perms = append(perms, copyPermission(perm))

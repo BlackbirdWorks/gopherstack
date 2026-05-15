@@ -377,7 +377,7 @@ func executeStats(q *insightsQuery, events []*OutputLogEvent) [][]ResultField {
 	}
 
 	counts := make(map[string]int)
-	order := make([]string, 0)
+	order := make([]string, 0, len(events))
 	for _, ev := range events {
 		key := eventFieldAsString(ev, q.statsBy)
 		if _, seen := counts[key]; !seen {

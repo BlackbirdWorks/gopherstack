@@ -2691,7 +2691,7 @@ func (b *InMemoryBackend) TestMetricFilter(
 	}
 
 	compiled := compileFilterPattern(filterPattern)
-	matches := make([]MetricFilterMatchRecord, 0)
+	matches := make([]MetricFilterMatchRecord, 0, len(logEventMessages))
 	for i, msg := range logEventMessages {
 		if compiled.matches(msg) {
 			matches = append(matches, MetricFilterMatchRecord{

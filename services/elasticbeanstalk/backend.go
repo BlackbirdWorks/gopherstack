@@ -855,7 +855,7 @@ func (b *InMemoryBackend) ComposeEnvironments(appName string) []*Environment {
 	b.mu.RLock("ComposeEnvironments")
 	defer b.mu.RUnlock()
 
-	list := make([]*Environment, 0)
+	list := make([]*Environment, 0, len(b.environments))
 
 	for _, env := range b.environments {
 		if env.ApplicationName == appName {
@@ -900,7 +900,7 @@ func (b *InMemoryBackend) DescribeConfigurationTemplates(appName string) []*Conf
 	b.mu.RLock("DescribeConfigurationTemplates")
 	defer b.mu.RUnlock()
 
-	list := make([]*ConfigurationTemplate, 0)
+	list := make([]*ConfigurationTemplate, 0, len(b.configTemplates))
 
 	for _, tmpl := range b.configTemplates {
 		if appName == "" || tmpl.ApplicationName == appName {

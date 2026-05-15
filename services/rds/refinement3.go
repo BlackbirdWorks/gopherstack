@@ -265,7 +265,7 @@ func (b *InMemoryBackend) RegisterDBProxyTargets(
 		b.proxyTargets[proxyName] = make([]DBProxyTarget, 0)
 	}
 
-	targets := make([]DBProxyTarget, 0)
+	targets := make([]DBProxyTarget, 0, len(dbInstanceIDs)+len(dbClusterIDs))
 
 	for _, id := range dbInstanceIDs {
 		target := DBProxyTarget{
@@ -357,7 +357,7 @@ func (b *InMemoryBackend) DescribeDBProxyTargetGroups(proxyName, targetGroupName
 		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, proxyName)
 	}
 
-	result := make([]DBProxyTargetGroup, 0)
+	result := make([]DBProxyTargetGroup, 0, len(b.proxyTargetGroups))
 	for key, tg := range b.proxyTargetGroups {
 		if !strings.HasPrefix(key, proxyName+"/") {
 			continue
@@ -460,7 +460,7 @@ func (b *InMemoryBackend) DescribeDBProxyEndpoints(proxyName, endpointName strin
 	b.mu.RLock("DescribeDBProxyEndpoints")
 	defer b.mu.RUnlock()
 
-	result := make([]DBProxyEndpoint, 0)
+	result := make([]DBProxyEndpoint, 0, len(b.proxyEndpoints))
 	for _, ep := range b.proxyEndpoints {
 		if proxyName != "" && ep.DBProxyName != proxyName {
 			continue

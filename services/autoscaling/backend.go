@@ -646,7 +646,7 @@ func (b *InMemoryBackend) DescribeScalingActivities(groupName string) ([]Scaling
 		return result, nil
 	}
 
-	result := make([]ScalingActivity, 0)
+	result := make([]ScalingActivity, 0, len(b.activities))
 	for _, acts := range b.activities {
 		result = append(result, acts...)
 	}

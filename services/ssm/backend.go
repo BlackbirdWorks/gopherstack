@@ -319,8 +319,8 @@ func (b *InMemoryBackend) GetParameters(input *GetParametersInput) (*GetParamete
 	defer b.mu.RUnlock()
 
 	output := &GetParametersOutput{
-		Parameters:        make([]Parameter, 0),
-		InvalidParameters: make([]string, 0),
+		Parameters:        make([]Parameter, 0, len(input.Names)),
+		InvalidParameters: make([]string, 0, len(input.Names)),
 	}
 
 	for _, name := range input.Names {
@@ -368,8 +368,8 @@ func (b *InMemoryBackend) DeleteParameters(input *DeleteParametersInput) (*Delet
 	defer b.mu.Unlock()
 
 	output := &DeleteParametersOutput{
-		DeletedParameters: make([]string, 0),
-		InvalidParameters: make([]string, 0),
+		DeletedParameters: make([]string, 0, len(input.Names)),
+		InvalidParameters: make([]string, 0, len(input.Names)),
 	}
 
 	for _, name := range input.Names {
