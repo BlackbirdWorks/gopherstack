@@ -283,6 +283,18 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		streamMode = streamModeProvisioned
 	}
 
+	if streamMode == streamModeOnDemand {
+		onDemandCount := 0
+		for _, s := range b.streams {
+			if s.StreamMode == streamModeOnDemand {
+				onDemandCount++
+			}
+		}
+		if onDemandCount >= b.onDemandStreamCountLimit {
+			return ErrLimitExceeded
+		}
+	}
+
 	streamARN := arn.Build("kinesis", region, accountID, "stream/"+input.StreamName)
 
 	b.streams[input.StreamName] = &Stream{
@@ -497,6 +509,14 @@ func (b *InMemoryBackend) PutRecord(input *PutRecordInput) (*PutRecordOutput, er
 		if _, ok := routingHash.SetString(input.ExplicitHashKey, hashKeyDecimalBase); !ok {
 			return nil, ErrInvalidArgument
 		}
+		// Validate range [0, 2^128-1].
+		maxHashKey := new(big.Int).Sub(
+			new(big.Int).Lsh(big.NewInt(1), maxHashKeyBits),
+			big.NewInt(1),
+		)
+		if routingHash.Sign() < 0 || routingHash.Cmp(maxHashKey) > 0 {
+			return nil, ErrInvalidArgument
+		}
 		shard = shardForHashKey(stream.Shards, routingHash)
 	} else {
 		shard = shardForPartitionKey(stream.Shards, input.PartitionKey)
@@ -532,6 +552,9 @@ func (b *InMemoryBackend) PutRecord(input *PutRecordInput) (*PutRecordOutput, er
 func putRecordErrorCode(err error) string {
 	if errors.Is(err, ErrProvisionedThroughputExceeded) {
 		return "ProvisionedThroughputExceededException"
+	}
+	if errors.Is(err, ErrInvalidArgument) {
+		return "ValidationException"
 	}
 
 	return "InternalFailure"
@@ -731,28 +754,37 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 
 	end := min(start+limit, shard.Records.len())
 
+	// Apply 10 MiB response cap: stop before end if accumulated payload exceeds the limit.
+	totalBytes := 0
+	actualEnd := start
 	results := make([]GetRecordResult, 0, end-start)
 	for i := start; i < end; i++ {
 		r := shard.Records.at(i)
+		recordBytes := len(r.Data)
+		if totalBytes+recordBytes > maxGetRecordsResponseBytes && len(results) > 0 {
+			break
+		}
+		totalBytes += recordBytes
 		results = append(results, GetRecordResult{
 			Data:                        r.Data,
 			PartitionKey:                r.PartitionKey,
 			SequenceNumber:              r.SequenceNumber,
 			ApproximateArrivalTimestamp: r.ApproximateArrivalTimestamp,
 		})
+		actualEnd = i + 1
 	}
 
 	// Advance iterator position
 	newIt := &ShardIterator{
 		StreamName: it.StreamName,
 		ShardID:    it.ShardID,
-		Position:   end,
+		Position:   actualEnd,
 	}
 
 	// AWS returns an empty NextShardIterator when a shard has been closed
 	// (due to MergeShards or SplitShard) and all records have been consumed.
 	nextToken := ""
-	if !shard.Closed || end < shard.Records.len() {
+	if !shard.Closed || actualEnd < shard.Records.len() {
 		var tokenErr error
 		nextToken, tokenErr = encodeIterator(newIt)
 		if tokenErr != nil {
@@ -760,9 +792,10 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 		}
 	}
 
+	// MillisBehindLatest is the age of the last record in the shard (tip of stream).
 	millisBehind := int64(0)
-	if end < shard.Records.len() {
-		millisBehind = time.Since(shard.Records.at(end).ApproximateArrivalTimestamp).Milliseconds()
+	if actualEnd < shard.Records.len() {
+		millisBehind = time.Since(shard.Records.last().ApproximateArrivalTimestamp).Milliseconds()
 	}
 
 	return &GetRecordsOutput{
@@ -838,12 +871,19 @@ func (b *InMemoryBackend) ListShards(input *ListShardsInput) (*ListShardsOutput,
 	}
 
 	includeAll := shardFilterIncludesAll(input.ShardFilter)
-	skip := input.ExclusiveStartShardID != ""
+
+	// NextToken acts as an exclusive start shard ID for pagination.
+	startShardID := input.ExclusiveStartShardID
+	if startShardID == "" {
+		startShardID = input.NextToken
+	}
+
+	skip := startShardID != ""
 	result := make([]ShardDescription, 0, len(stream.Shards))
 
 	for _, s := range stream.Shards {
 		if skip {
-			if s.ID == input.ExclusiveStartShardID {
+			if s.ID == startShardID {
 				skip = false
 			}
 
@@ -857,6 +897,13 @@ func (b *InMemoryBackend) ListShards(input *ListShardsInput) (*ListShardsOutput,
 		}
 
 		result = append(result, shardDescription(s))
+	}
+
+	// Apply MaxResults pagination.
+	if input.MaxResults > 0 && input.MaxResults < len(result) {
+		nextToken := result[input.MaxResults-1].ShardID
+
+		return &ListShardsOutput{Shards: result[:input.MaxResults], NextToken: nextToken}, nil
 	}
 
 	return &ListShardsOutput{Shards: result}, nil
@@ -1225,7 +1272,13 @@ func (b *InMemoryBackend) UpdateShardCount(input *UpdateShardCountInput) (*Updat
 		return nil, ErrInvalidArgument
 	}
 
-	currentCount := len(stream.Shards)
+	// Count only open shards as the current count (AWS semantics).
+	currentCount := 0
+	for _, s := range stream.Shards {
+		if !s.Closed {
+			currentCount++
+		}
+	}
 	targetCount := input.TargetShardCount
 
 	maxHashKey := new(big.Int).Sub(
@@ -1236,6 +1289,9 @@ func (b *InMemoryBackend) UpdateShardCount(input *UpdateShardCountInput) (*Updat
 		new(big.Int).Add(maxHashKey, big.NewInt(1)),
 		big.NewInt(int64(targetCount)),
 	)
+
+	// Assign new shard IDs from beyond the existing maximum to avoid collisions.
+	startIdx := nextShardIDIndex(stream.Shards)
 
 	newShards := make([]*Shard, targetCount)
 	for i := range targetCount {
@@ -1252,13 +1308,24 @@ func (b *InMemoryBackend) UpdateShardCount(input *UpdateShardCountInput) (*Updat
 		}
 
 		newShards[i] = &Shard{
-			ID:                fmt.Sprintf("shardId-%012d", i),
+			ID:                fmt.Sprintf("shardId-%012d", startIdx+i),
 			HashKeyRangeStart: start.String(),
 			HashKeyRangeEnd:   end.String(),
 		}
 	}
 
-	stream.Shards = newShards
+	// Mark all currently open shards as CLOSED (AWS semantics: old shards
+	// remain visible in DescribeStream/ListShards with CLOSED status).
+	for _, s := range stream.Shards {
+		if !s.Closed {
+			s.Closed = true
+		}
+	}
+
+	allShards := make([]*Shard, 0, len(stream.Shards)+targetCount)
+	allShards = append(allShards, stream.Shards...)
+	allShards = append(allShards, newShards...)
+	stream.Shards = allShards
 
 	return &UpdateShardCountOutput{
 		StreamName:        input.StreamName,
@@ -1347,7 +1414,8 @@ func (b *InMemoryBackend) IncreaseStreamRetentionPeriod(
 		return nil
 	}
 
-	if input.RetentionPeriodHours < stream.RetentionPeriod ||
+	if input.RetentionPeriodHours < minRetentionHours ||
+		input.RetentionPeriodHours < stream.RetentionPeriod ||
 		input.RetentionPeriodHours > maxRetentionHours {
 		return ErrInvalidArgument
 	}
@@ -1388,10 +1456,8 @@ func (b *InMemoryBackend) DecreaseStreamRetentionPeriod(
 	return nil
 }
 
-// nextShardID computes the next unique shard ID for a stream by finding the
-// maximum existing shard index and incrementing it. This ensures IDs remain
-// unique across merge/split operations even after shards are removed.
-func nextShardID(shards []*Shard) string {
+// nextShardIDIndex returns the numeric index for the next unique shard ID.
+func nextShardIDIndex(shards []*Shard) int {
 	maxIdx := len(shards) // safe lower bound
 	for _, s := range shards {
 		var n int
@@ -1400,7 +1466,14 @@ func nextShardID(shards []*Shard) string {
 		}
 	}
 
-	return fmt.Sprintf("shardId-%012d", maxIdx)
+	return maxIdx
+}
+
+// nextShardID computes the next unique shard ID for a stream by finding the
+// maximum existing shard index and incrementing it. This ensures IDs remain
+// unique across merge/split operations even after shards are removed.
+func nextShardID(shards []*Shard) string {
+	return fmt.Sprintf("shardId-%012d", nextShardIDIndex(shards))
 }
 
 // MergeShards merges two adjacent shards into one.

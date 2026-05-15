@@ -27,4 +27,5 @@ var (
 		errRateExceeded,
 	)
 	ErrTagLimitExceeded = awserr.New("LimitExceededException", awserr.ErrInvalidParameter)
+	ErrLimitExceeded    = awserr.New("LimitExceededException", awserr.ErrInvalidParameter)
 )
