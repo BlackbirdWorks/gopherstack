@@ -19,7 +19,7 @@ func TestRefinement1_Reset(t *testing.T) {
 
 	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	_, err := b.CreateCluster("c1", "1.32", "", nil)
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, b.ClusterCount())
@@ -42,7 +42,7 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
 	for range 3 {
-		_, err := b.CreateCluster("cluster", "1.32", "", nil)
+		_, err := b.CreateCluster("cluster", "1.32", "", nil, nil, nil)
 		require.NoError(t, err)
 
 		b.Reset()
@@ -163,14 +163,14 @@ func TestRefinement1_CreateClusterInitsAllMaps(t *testing.T) {
 
 	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	_, err := b.CreateCluster("c1", "1.32", "", nil)
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	// These should not panic even before any resources have been added.
 	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123:role/r", "STANDARD", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateAddon("c1", "coredns", "v1.0", "", nil)
+	_, err = b.CreateAddon("c1", "coredns", "v1.0", "", "", "", nil)
 	require.NoError(t, err)
 }
 
@@ -209,7 +209,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 
 	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	_, err := b.CreateCluster("c1", "1.32", "", map[string]string{"env": "test"})
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, map[string]string{"env": "test"})
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -231,10 +231,10 @@ func TestRefinement1_DeleteClusterCascade(t *testing.T) {
 
 	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	_, err := b.CreateCluster("c1", "1.32", "", nil)
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateNodegroup("c1", "ng1", "", "", "", "", "", nil, 1, 1, 2, nil)
+	_, err = b.CreateNodegroup("c1", "ng1", "", "", "", "", "", nil, 1, 1, 2, eks.NodegroupInput{}, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123:role/r", "STANDARD", "", nil)
@@ -391,10 +391,10 @@ func TestRefinement1_TagResourceOnAddon(t *testing.T) {
 
 	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	_, err := b.CreateCluster("c1", "1.32", "", nil)
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	addon, err := b.CreateAddon("c1", "coredns", "v1.0", "", nil)
+	addon, err := b.CreateAddon("c1", "coredns", "v1.0", "", "", "", nil)
 	require.NoError(t, err)
 
 	err = b.TagResource(addon.ARN, map[string]string{"k": "v"})
@@ -411,7 +411,7 @@ func TestRefinement1_TagResourceOnFargateProfile(t *testing.T) {
 
 	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	_, err := b.CreateCluster("c1", "1.32", "", nil)
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	fp, err := b.CreateFargateProfile("c1", "fp1", "arn:aws:iam::123:role/r", nil, nil)
@@ -431,7 +431,7 @@ func TestRefinement1_TagResourceOnPodIdentity(t *testing.T) {
 
 	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	_, err := b.CreateCluster("c1", "1.32", "", nil)
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	assoc, err := b.CreatePodIdentityAssociation("c1", "default", "my-sa", "arn:aws:iam::123:role/r", nil)
@@ -497,16 +497,16 @@ func TestRefinement1_ResetWithTaggedResources(t *testing.T) {
 
 	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	_, err := b.CreateCluster("c1", "1.32", "", map[string]string{"a": "1"})
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, map[string]string{"a": "1"})
 	require.NoError(t, err)
 
-	_, err = b.CreateNodegroup("c1", "ng1", "", "", "", "", "", nil, 1, 1, 2, map[string]string{"b": "2"})
+	_, err = b.CreateNodegroup("c1", "ng1", "", "", "", "", "", nil, 1, 1, 2, eks.NodegroupInput{}, map[string]string{"b": "2"})
 	require.NoError(t, err)
 
 	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123:role/r", "STANDARD", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateAddon("c1", "coredns", "", "", map[string]string{"c": "3"})
+	_, err = b.CreateAddon("c1", "coredns", "", "", "", "", map[string]string{"c": "3"})
 	require.NoError(t, err)
 
 	_, err = b.CreateFargateProfile("c1", "fp1", "", nil, map[string]string{"d": "4"})

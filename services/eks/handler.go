@@ -939,15 +939,41 @@ func clusterToJSON(c *Cluster) map[string]any {
 		}
 	}
 
-	if len(c.EnabledLogTypes) > 0 {
-		m["logging"] = map[string]any{
-			"clusterLogging": []map[string]any{
-				{
-					"types":   c.EnabledLogTypes,
-					"enabled": true,
-				},
-			},
+	if c.VpcConfig != nil {
+		m["resourcesVpcConfig"] = map[string]any{
+			"subnetIds":             c.VpcConfig.SubnetIDs,
+			"securityGroupIds":      c.VpcConfig.SecurityGroupIDs,
+			"endpointPrivateAccess": c.VpcConfig.EndpointPrivateAccess,
+			"endpointPublicAccess":  c.VpcConfig.EndpointPublicAccess,
+			"publicAccessCidrs":     c.VpcConfig.PublicAccessCIDRs,
 		}
+	}
+
+	if c.KubernetesNetworkConfig != nil {
+		net := map[string]any{}
+		if c.KubernetesNetworkConfig.IPFamily != "" {
+			net["ipFamily"] = c.KubernetesNetworkConfig.IPFamily
+		}
+		if c.KubernetesNetworkConfig.ServiceIPv4CIDR != "" {
+			net["serviceIpv4Cidr"] = c.KubernetesNetworkConfig.ServiceIPv4CIDR
+		}
+		if c.KubernetesNetworkConfig.ServiceIPv6CIDR != "" {
+			net["serviceIpv6Cidr"] = c.KubernetesNetworkConfig.ServiceIPv6CIDR
+		}
+		if len(net) > 0 {
+			m["kubernetesNetworkConfig"] = net
+		}
+	}
+
+	if len(c.ClusterLogging) > 0 {
+		entries := make([]map[string]any, len(c.ClusterLogging))
+		for i, e := range c.ClusterLogging {
+			entries[i] = map[string]any{
+				"types":   e.Types,
+				"enabled": e.Enabled,
+			}
+		}
+		m["logging"] = map[string]any{"clusterLogging": entries}
 	}
 
 	return m
@@ -985,17 +1011,75 @@ func nodegroupToJSON(ng *Nodegroup) map[string]any {
 	if ng.ReleaseVersion != "" {
 		m["releaseVersion"] = ng.ReleaseVersion
 	}
+	if len(ng.Subnets) > 0 {
+		m["subnets"] = ng.Subnets
+	}
+	if len(ng.Labels) > 0 {
+		m["labels"] = ng.Labels
+	}
+	if len(ng.Taints) > 0 {
+		m["taints"] = ng.Taints
+	}
+	if ng.DiskSize > 0 {
+		m["diskSize"] = ng.DiskSize
+	}
+	if ng.RemoteAccess != nil {
+		ra := map[string]any{}
+		if ng.RemoteAccess.EC2SSHKey != "" {
+			ra["ec2SshKey"] = ng.RemoteAccess.EC2SSHKey
+		}
+		if len(ng.RemoteAccess.SourceSecurityGroups) > 0 {
+			ra["sourceSecurityGroups"] = ng.RemoteAccess.SourceSecurityGroups
+		}
+		m["remoteAccess"] = ra
+	}
+	if ng.LaunchTemplate != nil {
+		lt := map[string]any{}
+		if ng.LaunchTemplate.ID != "" {
+			lt["id"] = ng.LaunchTemplate.ID
+		}
+		if ng.LaunchTemplate.Name != "" {
+			lt["name"] = ng.LaunchTemplate.Name
+		}
+		if ng.LaunchTemplate.Version != "" {
+			lt["version"] = ng.LaunchTemplate.Version
+		}
+		m["launchTemplate"] = lt
+	}
+	if ng.Resources != nil && len(ng.Resources.AutoScalingGroups) > 0 {
+		asgs := make([]map[string]any, len(ng.Resources.AutoScalingGroups))
+		for i, asg := range ng.Resources.AutoScalingGroups {
+			asgs[i] = map[string]any{"name": asg.Name}
+		}
+		m["resources"] = map[string]any{"autoScalingGroups": asgs}
+	}
 
 	return m
 }
 
 // --- Cluster handlers ---
 
+type vpcConfigJSON struct {
+	SubnetIDs             []string `json:"subnetIds"`
+	SecurityGroupIDs      []string `json:"securityGroupIds"`
+	PublicAccessCIDRs     []string `json:"publicAccessCidrs"`
+	EndpointPrivateAccess bool     `json:"endpointPrivateAccess"`
+	EndpointPublicAccess  bool     `json:"endpointPublicAccess"`
+}
+
+type kubernetesNetworkConfigJSON struct {
+	IPFamily        string `json:"ipFamily"`
+	ServiceIPv4CIDR string `json:"serviceIpv4Cidr"`
+	ServiceIPv6CIDR string `json:"serviceIpv6Cidr"`
+}
+
 type createClusterBody struct {
-	Tags    map[string]string `json:"tags"`
-	Name    string            `json:"name"`
-	Version string            `json:"version"`
-	RoleArn string            `json:"roleArn"`
+	Tags                    map[string]string            `json:"tags"`
+	ResourcesVpcConfig      *vpcConfigJSON               `json:"resourcesVpcConfig"`
+	KubernetesNetworkConfig *kubernetesNetworkConfigJSON `json:"kubernetesNetworkConfig"`
+	Name                    string                       `json:"name"`
+	Version                 string                       `json:"version"`
+	RoleArn                 string                       `json:"roleArn"`
 }
 
 func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
@@ -1008,7 +1092,27 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "name is required"))
 	}
 
-	cluster, err := h.Backend.CreateCluster(in.Name, in.Version, in.RoleArn, in.Tags)
+	var vpcCfg *VpcConfig
+	if in.ResourcesVpcConfig != nil {
+		vpcCfg = &VpcConfig{
+			SubnetIDs:             in.ResourcesVpcConfig.SubnetIDs,
+			SecurityGroupIDs:      in.ResourcesVpcConfig.SecurityGroupIDs,
+			PublicAccessCIDRs:     in.ResourcesVpcConfig.PublicAccessCIDRs,
+			EndpointPrivateAccess: in.ResourcesVpcConfig.EndpointPrivateAccess,
+			EndpointPublicAccess:  in.ResourcesVpcConfig.EndpointPublicAccess,
+		}
+	}
+
+	var netCfg *KubernetesNetworkConfig
+	if in.KubernetesNetworkConfig != nil {
+		netCfg = &KubernetesNetworkConfig{
+			IPFamily:        in.KubernetesNetworkConfig.IPFamily,
+			ServiceIPv4CIDR: in.KubernetesNetworkConfig.ServiceIPv4CIDR,
+			ServiceIPv6CIDR: in.KubernetesNetworkConfig.ServiceIPv6CIDR,
+		}
+	}
+
+	cluster, err := h.Backend.CreateCluster(in.Name, in.Version, in.RoleArn, vpcCfg, netCfg, in.Tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1056,16 +1160,39 @@ type scalingConfigJSON struct {
 	MaxSize     int32 `json:"maxSize"`
 }
 
+type nodegroupTaintJSON struct {
+	Key    string `json:"key"`
+	Value  string `json:"value,omitempty"`
+	Effect string `json:"effect"`
+}
+
+type remoteAccessJSON struct {
+	EC2SSHKey            string   `json:"ec2SshKey,omitempty"`
+	SourceSecurityGroups []string `json:"sourceSecurityGroups,omitempty"`
+}
+
+type launchTemplateJSON struct {
+	ID      string `json:"id,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
 type createNodegroupBody struct {
-	Tags           map[string]string `json:"tags"`
-	NodegroupName  string            `json:"nodegroupName"`
-	NodeRole       string            `json:"nodeRole"`
-	AMIType        string            `json:"amiType"`
-	CapacityType   string            `json:"capacityType"`
-	Version        string            `json:"version"`
-	ReleaseVersion string            `json:"releaseVersion"`
-	InstanceTypes  []string          `json:"instanceTypes"`
-	ScalingConfig  scalingConfigJSON `json:"scalingConfig"`
+	Tags           map[string]string  `json:"tags"`
+	Labels         map[string]string  `json:"labels"`
+	RemoteAccess   *remoteAccessJSON  `json:"remoteAccess"`
+	LaunchTemplate *launchTemplateJSON `json:"launchTemplate"`
+	NodegroupName  string             `json:"nodegroupName"`
+	NodeRole       string             `json:"nodeRole"`
+	AMIType        string             `json:"amiType"`
+	CapacityType   string             `json:"capacityType"`
+	Version        string             `json:"version"`
+	ReleaseVersion string             `json:"releaseVersion"`
+	InstanceTypes  []string           `json:"instanceTypes"`
+	Subnets        []string           `json:"subnets"`
+	Taints         []nodegroupTaintJSON `json:"taints"`
+	ScalingConfig  scalingConfigJSON  `json:"scalingConfig"`
+	DiskSize       int32              `json:"diskSize"`
 }
 
 func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, body []byte) error {
@@ -1078,11 +1205,41 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "nodegroupName is required"))
 	}
 
+	taints := make([]NodegroupTaint, len(in.Taints))
+	for i, t := range in.Taints {
+		taints[i] = NodegroupTaint{Key: t.Key, Value: t.Value, Effect: t.Effect}
+	}
+
+	var remoteAccess *RemoteAccess
+	if in.RemoteAccess != nil {
+		remoteAccess = &RemoteAccess{
+			EC2SSHKey:            in.RemoteAccess.EC2SSHKey,
+			SourceSecurityGroups: in.RemoteAccess.SourceSecurityGroups,
+		}
+	}
+
+	var lt *LaunchTemplate
+	if in.LaunchTemplate != nil {
+		lt = &LaunchTemplate{
+			ID:      in.LaunchTemplate.ID,
+			Name:    in.LaunchTemplate.Name,
+			Version: in.LaunchTemplate.Version,
+		}
+	}
+
 	ng, err := h.Backend.CreateNodegroup(
 		clusterName, in.NodegroupName, in.NodeRole,
 		in.AMIType, in.CapacityType, in.Version, in.ReleaseVersion,
 		in.InstanceTypes,
 		in.ScalingConfig.DesiredSize, in.ScalingConfig.MinSize, in.ScalingConfig.MaxSize,
+		NodegroupInput{
+			Labels:         in.Labels,
+			RemoteAccess:   remoteAccess,
+			LaunchTemplate: lt,
+			Subnets:        in.Subnets,
+			Taints:         taints,
+			DiskSize:       in.DiskSize,
+		},
 		in.Tags,
 	)
 	if err != nil {
@@ -1391,6 +1548,8 @@ type createAddonBody struct {
 	AddonName             string            `json:"addonName"`
 	AddonVersion          string            `json:"addonVersion"`
 	ServiceAccountRoleArn string            `json:"serviceAccountRoleArn"`
+	ConfigurationValues   string            `json:"configurationValues"`
+	ResolveConflicts      string            `json:"resolveConflicts"`
 }
 
 func (h *Handler) handleCreateAddon(c *echo.Context, clusterName string, body []byte) error {
@@ -1403,21 +1562,17 @@ func (h *Handler) handleCreateAddon(c *echo.Context, clusterName string, body []
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "addonName is required"))
 	}
 
-	addon, err := h.Backend.CreateAddon(clusterName, in.AddonName, in.AddonVersion, in.ServiceAccountRoleArn, in.Tags)
+	addon, err := h.Backend.CreateAddon(
+		clusterName, in.AddonName, in.AddonVersion, in.ServiceAccountRoleArn,
+		in.ConfigurationValues, in.ResolveConflicts,
+		in.Tags,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyAddon: map[string]any{
-			keyClusterName:          addon.ClusterName,
-			keyAddonName:            addon.AddonName,
-			"addonArn":              addon.ARN,
-			keyAddonVersion:         addon.AddonVersion,
-			keyStatusField:          addon.Status,
-			"serviceAccountRoleArn": addon.ServiceAccountRoleARN,
-			keyCreatedAt:            addon.CreatedAt.Unix(),
-		},
+		keyAddon: addonToJSON(addon),
 	})
 }
 

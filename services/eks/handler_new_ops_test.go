@@ -687,14 +687,14 @@ func TestEKS_NewOps_PersistenceRoundTrip(t *testing.T) {
 	b := eks.NewInMemoryBackend("123456789012", "us-east-1")
 
 	// Create cluster and access entry.
-	_, err := b.CreateCluster("c1", "1.32", "", nil)
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123456789012:role/r1", "STANDARD", "", nil)
 	require.NoError(t, err)
 
 	// Create addon.
-	_, err = b.CreateAddon("c1", "vpc-cni", "v1.12.0", "", nil)
+	_, err = b.CreateAddon("c1", "vpc-cni", "v1.12.0", "", "", "", nil)
 	require.NoError(t, err)
 
 	// Create fargate profile.

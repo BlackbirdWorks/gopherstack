@@ -63,6 +63,8 @@ type Addon struct {
 	MarketplaceVersion    string       `json:"marketplaceVersion,omitempty"`
 	Status                string       `json:"status"`
 	ServiceAccountRoleARN string       `json:"serviceAccountRoleArn,omitempty"`
+	Configuration         string       `json:"configurationValues,omitempty"`
+	ResolveConflicts      string       `json:"resolveConflicts,omitempty"`
 }
 
 // Capability represents an EKS capability.
@@ -199,6 +201,7 @@ func (b *InMemoryBackend) DeleteAccessEntry(clusterName, principalARN string) er
 }
 
 // AssociateAccessPolicy associates an access policy with an access entry.
+// If the principal already has an association for the same policyARN, it is replaced.
 func (b *InMemoryBackend) AssociateAccessPolicy(
 	clusterName, principalARN, policyARN string,
 	accessScope map[string]any,
@@ -230,13 +233,30 @@ func (b *InMemoryBackend) AssociateAccessPolicy(
 		AccessScope:  accessScope,
 		AssociatedAt: time.Now().UTC(),
 	}
-	b.accessPolicies[clusterName][principalARN] = append(b.accessPolicies[clusterName][principalARN], assoc)
+
+	existing := b.accessPolicies[clusterName][principalARN]
+	replaced := false
+
+	for i, a := range existing {
+		if a.PolicyARN == policyARN {
+			existing[i] = assoc
+			replaced = true
+
+			break
+		}
+	}
+
+	if !replaced {
+		b.accessPolicies[clusterName][principalARN] = append(existing, assoc)
+	}
+
 	cp := *assoc
 
 	return &cp, nil
 }
 
 // AssociateEncryptionConfig associates encryption configuration with a cluster.
+// Each call replaces the stored configuration rather than appending.
 func (b *InMemoryBackend) AssociateEncryptionConfig(
 	clusterName string,
 	configs []EncryptionConfig,
@@ -248,14 +268,27 @@ func (b *InMemoryBackend) AssociateEncryptionConfig(
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
+	for _, cfg := range configs {
+		if keyARN, ok := cfg.Provider["keyArn"]; ok && keyARN != "" {
+			if !isKMSARN(keyARN) {
+				return nil, fmt.Errorf("%w: provider.keyArn %q is not a valid KMS key ARN", ErrValidation, keyARN)
+			}
+		}
+	}
+
 	stored := make([]EncryptionConfig, len(configs))
 	copy(stored, configs)
-	b.encryptionConfigs[clusterName] = append(b.encryptionConfigs[clusterName], stored...)
+	b.encryptionConfigs[clusterName] = stored
 
-	result := make([]EncryptionConfig, len(b.encryptionConfigs[clusterName]))
-	copy(result, b.encryptionConfigs[clusterName])
+	result := make([]EncryptionConfig, len(stored))
+	copy(result, stored)
 
 	return result, nil
+}
+
+// isKMSARN returns true when s begins with the KMS ARN prefix.
+func isKMSARN(s string) bool {
+	return len(s) > 12 && s[:12] == "arn:aws:kms:"
 }
 
 // AssociateIdentityProviderConfig associates an identity provider configuration with a cluster.
@@ -323,9 +356,22 @@ func defaultAddonVersion(addonName string) string {
 	}
 }
 
+const (
+	resolveConflictsOverwrite = "OVERWRITE"
+	resolveConflictsNone      = "NONE"
+	resolveConflictsPreserve  = "PRESERVE"
+)
+
+// validResolveConflicts is the set of accepted resolveConflicts values.
+var validResolveConflicts = map[string]bool{
+	resolveConflictsOverwrite: true,
+	resolveConflictsNone:      true,
+	resolveConflictsPreserve:  true,
+}
+
 // CreateAddon creates a new managed add-on in a cluster.
 func (b *InMemoryBackend) CreateAddon(
-	clusterName, addonName, addonVersion, serviceAccountRoleARN string,
+	clusterName, addonName, addonVersion, serviceAccountRoleARN, configuration, resolveConflicts string,
 	kv map[string]string,
 ) (*Addon, error) {
 	b.mu.Lock("CreateAddon")
@@ -341,6 +387,13 @@ func (b *InMemoryBackend) CreateAddon(
 
 	if _, ok := b.addons[clusterName][addonName]; ok {
 		return nil, fmt.Errorf("%w: addon %s already exists in cluster %s", ErrAlreadyExists, addonName, clusterName)
+	}
+
+	if resolveConflicts != "" && !validResolveConflicts[resolveConflicts] {
+		return nil, fmt.Errorf(
+			"%w: resolveConflicts %q must be one of OVERWRITE, NONE, PRESERVE",
+			ErrValidation, resolveConflicts,
+		)
 	}
 
 	addonARN := arn.Build(
@@ -372,6 +425,8 @@ func (b *InMemoryBackend) CreateAddon(
 		Status:                statusActive,
 		CreatedAt:             time.Now().UTC(),
 		Tags:                  t,
+		Configuration:         configuration,
+		ResolveConflicts:      resolveConflicts,
 	}
 	b.addons[clusterName][addonName] = addon
 	cp := *addon

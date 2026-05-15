@@ -30,24 +30,78 @@ var (
 	ErrValidation = awserr.New("InvalidParameterValueException", awserr.ErrInvalidParameter)
 )
 
+// VpcConfig captures the cluster VPC configuration returned by AWS.
+type VpcConfig struct {
+	SubnetIDs             []string `json:"subnetIds,omitempty"`
+	SecurityGroupIDs      []string `json:"securityGroupIds,omitempty"`
+	PublicAccessCIDRs     []string `json:"publicAccessCidrs,omitempty"`
+	EndpointPrivateAccess bool     `json:"endpointPrivateAccess"`
+	EndpointPublicAccess  bool     `json:"endpointPublicAccess"`
+}
+
+// KubernetesNetworkConfig captures cluster networking parameters.
+type KubernetesNetworkConfig struct {
+	IPFamily        string `json:"ipFamily,omitempty"`
+	ServiceIPv4CIDR string `json:"serviceIpv4Cidr,omitempty"`
+	ServiceIPv6CIDR string `json:"serviceIpv6Cidr,omitempty"`
+}
+
+// ClusterLogEntry represents one log-type group in the structured logging config.
+type ClusterLogEntry struct {
+	Types   []string `json:"types"`
+	Enabled bool     `json:"enabled"`
+}
+
 // Cluster represents an EKS cluster.
 //
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via TagResource / CreateCluster.
 type Cluster struct {
-	CreatedAt       time.Time  `json:"createdAt"`
-	Tags            *tags.Tags `json:"tags,omitempty"`
-	Name            string     `json:"name"`
-	ARN             string     `json:"arn"`
-	Endpoint        string     `json:"endpoint,omitempty"`
-	OIDCIssuer      string     `json:"oidcIssuer,omitempty"`
-	Version         string     `json:"version"`
-	Status          string     `json:"status"`
-	RoleARN         string     `json:"roleArn,omitempty"`
-	AccountID       string     `json:"accountId"`
-	Region          string     `json:"region"`
-	PlatformVersion string     `json:"platformVersion,omitempty"`
-	EnabledLogTypes []string   `json:"enabledLogTypes,omitempty"`
+	CreatedAt               time.Time                `json:"createdAt"`
+	Tags                    *tags.Tags               `json:"tags,omitempty"`
+	VpcConfig               *VpcConfig               `json:"resourcesVpcConfig,omitempty"`
+	KubernetesNetworkConfig *KubernetesNetworkConfig `json:"kubernetesNetworkConfig,omitempty"`
+	Name                    string                   `json:"name"`
+	ARN                     string                   `json:"arn"`
+	Endpoint                string                   `json:"endpoint,omitempty"`
+	OIDCIssuer              string                   `json:"oidcIssuer,omitempty"`
+	Version                 string                   `json:"version"`
+	Status                  string                   `json:"status"`
+	RoleARN                 string                   `json:"roleArn,omitempty"`
+	AccountID               string                   `json:"accountId"`
+	Region                  string                   `json:"region"`
+	PlatformVersion         string                   `json:"platformVersion,omitempty"`
+	ClusterLogging          []ClusterLogEntry        `json:"clusterLogging,omitempty"`
+}
+
+// NodegroupTaint represents a Kubernetes taint applied to managed nodes.
+type NodegroupTaint struct {
+	Key    string `json:"key"`
+	Value  string `json:"value,omitempty"`
+	Effect string `json:"effect"`
+}
+
+// RemoteAccess captures SSH remote-access configuration for a node group.
+type RemoteAccess struct {
+	EC2SSHKey            string   `json:"ec2SshKey,omitempty"`
+	SourceSecurityGroups []string `json:"sourceSecurityGroups,omitempty"`
+}
+
+// LaunchTemplate captures the launch-template reference for a node group.
+type LaunchTemplate struct {
+	ID      string `json:"id,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
+// AutoScalingGroup holds the name of an ASG backing the node group.
+type AutoScalingGroup struct {
+	Name string `json:"name"`
+}
+
+// NodegroupResources captures AWS resources backing the node group.
+type NodegroupResources struct {
+	AutoScalingGroups []AutoScalingGroup `json:"autoScalingGroups,omitempty"`
 }
 
 // Nodegroup represents an EKS managed node group.
@@ -55,23 +109,30 @@ type Cluster struct {
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via TagResource / CreateNodegroup.
 type Nodegroup struct {
-	CreatedAt      time.Time  `json:"createdAt"`
-	Tags           *tags.Tags `json:"tags,omitempty"`
-	CapacityType   string     `json:"capacityType,omitempty"`
-	Region         string     `json:"region"`
-	ARN            string     `json:"nodegroupArn"`
-	NodeRole       string     `json:"nodeRole,omitempty"`
-	Status         string     `json:"status"`
-	AMIType        string     `json:"amiType,omitempty"`
-	NodegroupName  string     `json:"nodegroupName"`
-	ClusterName    string     `json:"clusterName"`
-	Version        string     `json:"version,omitempty"`
-	ReleaseVersion string     `json:"releaseVersion,omitempty"`
-	AccountID      string     `json:"accountId"`
-	InstanceTypes  []string   `json:"instanceTypes,omitempty"`
-	DesiredSize    int32      `json:"desiredSize"`
-	MinSize        int32      `json:"minSize"`
-	MaxSize        int32      `json:"maxSize"`
+	CreatedAt      time.Time           `json:"createdAt"`
+	Tags           *tags.Tags          `json:"tags,omitempty"`
+	Labels         map[string]string   `json:"labels,omitempty"`
+	RemoteAccess   *RemoteAccess       `json:"remoteAccess,omitempty"`
+	LaunchTemplate *LaunchTemplate     `json:"launchTemplate,omitempty"`
+	Resources      *NodegroupResources `json:"resources,omitempty"`
+	CapacityType   string              `json:"capacityType,omitempty"`
+	Region         string              `json:"region"`
+	ARN            string              `json:"nodegroupArn"`
+	NodeRole       string              `json:"nodeRole,omitempty"`
+	Status         string              `json:"status"`
+	AMIType        string              `json:"amiType,omitempty"`
+	NodegroupName  string              `json:"nodegroupName"`
+	ClusterName    string              `json:"clusterName"`
+	Version        string              `json:"version,omitempty"`
+	ReleaseVersion string              `json:"releaseVersion,omitempty"`
+	AccountID      string              `json:"accountId"`
+	Taints         []NodegroupTaint    `json:"taints,omitempty"`
+	InstanceTypes  []string            `json:"instanceTypes,omitempty"`
+	Subnets        []string            `json:"subnets,omitempty"`
+	DesiredSize    int32               `json:"desiredSize"`
+	MinSize        int32               `json:"minSize"`
+	MaxSize        int32               `json:"maxSize"`
+	DiskSize       int32               `json:"diskSize,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for EKS resources.
@@ -216,7 +277,12 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // CreateCluster creates a new EKS cluster.
-func (b *InMemoryBackend) CreateCluster(name, version, roleARN string, kv map[string]string) (*Cluster, error) {
+func (b *InMemoryBackend) CreateCluster(
+	name, version, roleARN string,
+	vpcConfig *VpcConfig,
+	networkConfig *KubernetesNetworkConfig,
+	kv map[string]string,
+) (*Cluster, error) {
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
@@ -234,19 +300,36 @@ func (b *InMemoryBackend) CreateCluster(name, version, roleARN string, kv map[st
 		version = defaultK8sVersion
 	}
 
+	var vpcCopy *VpcConfig
+	if vpcConfig != nil {
+		cp := *vpcConfig
+		cp.SubnetIDs = cloneStrings(vpcConfig.SubnetIDs)
+		cp.SecurityGroupIDs = cloneStrings(vpcConfig.SecurityGroupIDs)
+		cp.PublicAccessCIDRs = cloneStrings(vpcConfig.PublicAccessCIDRs)
+		vpcCopy = &cp
+	}
+
+	var netCopy *KubernetesNetworkConfig
+	if networkConfig != nil {
+		cp := *networkConfig
+		netCopy = &cp
+	}
+
 	c := &Cluster{
-		Name:            name,
-		ARN:             clusterARN,
-		Version:         version,
-		RoleARN:         roleARN,
-		Status:          statusActive,
-		Endpoint:        fmt.Sprintf("https://%s.%s.eks.amazonaws.com", stableID(name), b.region),
-		OIDCIssuer:      fmt.Sprintf("https://oidc.eks.%s.amazonaws.com/id/%s", b.region, randomHex16()),
-		PlatformVersion: "eks.1",
-		AccountID:       b.accountID,
-		Region:          b.region,
-		CreatedAt:       time.Now().UTC(),
-		Tags:            t,
+		Name:                    name,
+		ARN:                     clusterARN,
+		Version:                 version,
+		RoleARN:                 roleARN,
+		Status:                  statusActive,
+		Endpoint:                fmt.Sprintf("https://%s.%s.eks.amazonaws.com", stableID(name), b.region),
+		OIDCIssuer:              fmt.Sprintf("https://oidc.eks.%s.amazonaws.com/id/%s", b.region, randomHex16()),
+		PlatformVersion:         "eks.1",
+		AccountID:               b.accountID,
+		Region:                  b.region,
+		CreatedAt:               time.Now().UTC(),
+		Tags:                    t,
+		VpcConfig:               vpcCopy,
+		KubernetesNetworkConfig: netCopy,
 	}
 	b.clusters[name] = c
 	b.nodegroups[name] = make(map[string]*Nodegroup)
@@ -361,11 +444,25 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 	return &cp, nil
 }
 
+// NodegroupInput holds optional fields for CreateNodegroup beyond positional params.
+type NodegroupInput struct {
+	Labels         map[string]string
+	RemoteAccess   *RemoteAccess
+	LaunchTemplate *LaunchTemplate
+	Subnets        []string
+	Taints         []NodegroupTaint
+	DiskSize       int32
+}
+
+const nodegroupDiskSizeMin = 20
+const nodegroupDiskSizeMax = 16384
+
 // CreateNodegroup creates a new node group in a cluster.
 func (b *InMemoryBackend) CreateNodegroup(
 	clusterName, nodegroupName, nodeRole, amiType, capacityType, version, releaseVersion string,
 	instanceTypes []string,
 	desiredSize, minSize, maxSize int32,
+	input NodegroupInput,
 	kv map[string]string,
 ) (*Nodegroup, error) {
 	b.mu.Lock("CreateNodegroup")
@@ -392,6 +489,13 @@ func (b *InMemoryBackend) CreateNodegroup(
 		)
 	}
 
+	if input.DiskSize != 0 && (input.DiskSize < nodegroupDiskSizeMin || input.DiskSize > nodegroupDiskSizeMax) {
+		return nil, fmt.Errorf(
+			"%w: diskSize %d is out of range [%d, %d]",
+			ErrValidation, input.DiskSize, nodegroupDiskSizeMin, nodegroupDiskSizeMax,
+		)
+	}
+
 	ngARN := arn.Build(
 		"eks",
 		b.region,
@@ -410,6 +514,8 @@ func (b *InMemoryBackend) CreateNodegroup(
 		capacityType = "ON_DEMAND"
 	}
 
+	asgName := "eks-" + nodegroupName + "-" + stableID(clusterName+"/"+nodegroupName)
+
 	ng := &Nodegroup{
 		NodegroupName:  nodegroupName,
 		ClusterName:    clusterName,
@@ -418,23 +524,30 @@ func (b *InMemoryBackend) CreateNodegroup(
 		Status:         statusActive,
 		AMIType:        amiType,
 		CapacityType:   capacityType,
-		InstanceTypes:  instanceTypes,
+		InstanceTypes:  cloneStrings(instanceTypes),
 		Version:        version,
 		ReleaseVersion: releaseVersion,
 		DesiredSize:    desiredSize,
 		MinSize:        minSize,
 		MaxSize:        maxSize,
-		AccountID:      b.accountID,
-		Region:         b.region,
-		CreatedAt:      time.Now().UTC(),
-		Tags:           t,
+		DiskSize:       input.DiskSize,
+		Subnets:        cloneStrings(input.Subnets),
+		Labels:         cloneStringMap(input.Labels),
+		Taints:         cloneTaints(input.Taints),
+		RemoteAccess:   cloneRemoteAccess(input.RemoteAccess),
+		LaunchTemplate: cloneLaunchTemplate(input.LaunchTemplate),
+		Resources: &NodegroupResources{
+			AutoScalingGroups: []AutoScalingGroup{{Name: asgName}},
+		},
+		AccountID: b.accountID,
+		Region:    b.region,
+		CreatedAt: time.Now().UTC(),
+		Tags:      t,
 	}
 	b.nodegroups[clusterName][nodegroupName] = ng
-	cp := *ng
-	cp.InstanceTypes = make([]string, len(ng.InstanceTypes))
-	copy(cp.InstanceTypes, ng.InstanceTypes)
+	cp := deepCopyNodegroup(ng)
 
-	return &cp, nil
+	return cp, nil
 }
 
 // DescribeNodegroup returns a node group by cluster and nodegroup name.
@@ -450,11 +563,8 @@ func (b *InMemoryBackend) DescribeNodegroup(clusterName, nodegroupName string) (
 	if !ok {
 		return nil, fmt.Errorf("%w: nodegroup %s not found in cluster %s", ErrNotFound, nodegroupName, clusterName)
 	}
-	cp := *ng
-	cp.InstanceTypes = make([]string, len(ng.InstanceTypes))
-	copy(cp.InstanceTypes, ng.InstanceTypes)
 
-	return &cp, nil
+	return deepCopyNodegroup(ng), nil
 }
 
 // ListNodegroups returns all node group names in a cluster sorted alphabetically.
@@ -489,16 +599,14 @@ func (b *InMemoryBackend) DeleteNodegroup(clusterName, nodegroupName string) (*N
 	if !ok {
 		return nil, fmt.Errorf("%w: nodegroup %s not found in cluster %s", ErrNotFound, nodegroupName, clusterName)
 	}
-	cp := *ng
-	cp.InstanceTypes = make([]string, len(ng.InstanceTypes))
-	copy(cp.InstanceTypes, ng.InstanceTypes)
+	cp := deepCopyNodegroup(ng)
 	delete(b.nodegroups[clusterName], nodegroupName)
 
 	if ng.Tags != nil {
 		ng.Tags.Close()
 	}
 
-	return &cp, nil
+	return cp, nil
 }
 
 // UpdateNodegroupConfig updates the scaling configuration of a node group.
@@ -535,11 +643,7 @@ func (b *InMemoryBackend) UpdateNodegroupConfig(
 		ng.MaxSize = *maxSize
 	}
 
-	cp := *ng
-	cp.InstanceTypes = make([]string, len(ng.InstanceTypes))
-	copy(cp.InstanceTypes, ng.InstanceTypes)
-
-	return &cp, nil
+	return deepCopyNodegroup(ng), nil
 }
 
 // findTagInNodegroupsLocked searches nodegroupsfor a resource with the given ARN.
@@ -810,6 +914,87 @@ func (b *InMemoryBackend) ListAllClusters() []*Cluster {
 	}
 
 	return list
+}
+
+// cloneStrings returns a deep copy of a string slice (nil-safe).
+func cloneStrings(ss []string) []string {
+	if ss == nil {
+		return nil
+	}
+
+	cp := make([]string, len(ss))
+	copy(cp, ss)
+
+	return cp
+}
+
+// cloneStringMap returns a deep copy of a string map (nil-safe).
+func cloneStringMap(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+
+	cp := make(map[string]string, len(m))
+	for k, v := range m {
+		cp[k] = v
+	}
+
+	return cp
+}
+
+// cloneTaints returns a deep copy of a NodegroupTaint slice (nil-safe).
+func cloneTaints(ts []NodegroupTaint) []NodegroupTaint {
+	if ts == nil {
+		return nil
+	}
+
+	cp := make([]NodegroupTaint, len(ts))
+	copy(cp, ts)
+
+	return cp
+}
+
+// cloneRemoteAccess returns a deep copy of a RemoteAccess struct (nil-safe).
+func cloneRemoteAccess(ra *RemoteAccess) *RemoteAccess {
+	if ra == nil {
+		return nil
+	}
+
+	cp := *ra
+	cp.SourceSecurityGroups = cloneStrings(ra.SourceSecurityGroups)
+
+	return &cp
+}
+
+// cloneLaunchTemplate returns a deep copy of a LaunchTemplate struct (nil-safe).
+func cloneLaunchTemplate(lt *LaunchTemplate) *LaunchTemplate {
+	if lt == nil {
+		return nil
+	}
+
+	cp := *lt
+
+	return &cp
+}
+
+// deepCopyNodegroup returns a deep copy of a Nodegroup with all slice/map fields duplicated.
+func deepCopyNodegroup(ng *Nodegroup) *Nodegroup {
+	cp := *ng
+	cp.InstanceTypes = cloneStrings(ng.InstanceTypes)
+	cp.Subnets = cloneStrings(ng.Subnets)
+	cp.Labels = cloneStringMap(ng.Labels)
+	cp.Taints = cloneTaints(ng.Taints)
+	cp.RemoteAccess = cloneRemoteAccess(ng.RemoteAccess)
+	cp.LaunchTemplate = cloneLaunchTemplate(ng.LaunchTemplate)
+
+	if ng.Resources != nil {
+		resCp := *ng.Resources
+		resCp.AutoScalingGroups = make([]AutoScalingGroup, len(ng.Resources.AutoScalingGroups))
+		copy(resCp.AutoScalingGroups, ng.Resources.AutoScalingGroups)
+		cp.Resources = &resCp
+	}
+
+	return &cp
 }
 
 // stableID returns a deterministic 8-character hex identifier derived from the
