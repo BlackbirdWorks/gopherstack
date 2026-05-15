@@ -272,6 +272,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TestEventPattern",
 		"PutPermission",
 		"RemovePermission",
+		"GetEventBusPolicy",
+		"PutEventBusPolicy",
+		"CreatePipe",
+		"DeletePipe",
+		"DescribePipe",
+		"ListPipes",
+		"UpdatePipe",
 	}
 }
 
@@ -1482,6 +1489,120 @@ func (h *Handler) extendedMiscActions() map[string]actionFn {
 	}
 }
 
+func (h *Handler) policyActions() map[string]actionFn {
+	return map[string]actionFn{
+		"GetEventBusPolicy": func(b []byte) (any, error) {
+			var input GetEventBusPolicyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			policy, err := h.Backend.GetEventBusPolicy(input.EventBusName)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				Policy string `json:"Policy,omitempty"`
+			}{Policy: policy}, nil
+		},
+		"PutEventBusPolicy": func(b []byte) (any, error) {
+			var input PutEventBusPolicyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return &struct{}{}, h.Backend.PutEventBusPolicy(input)
+		},
+	}
+}
+
+func (h *Handler) pipesActions() map[string]actionFn {
+	return map[string]actionFn{
+		"CreatePipe": func(b []byte) (any, error) {
+			var input CreatePipeInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			pipe, err := h.Backend.CreatePipe(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				Arn          string    `json:"Arn"`
+				CreationTime time.Time `json:"CreationTime"`
+				CurrentState string    `json:"CurrentState"`
+				Name         string    `json:"Name"`
+			}{
+				Arn:          pipe.Arn,
+				CreationTime: pipe.CreationTime,
+				CurrentState: pipe.CurrentState,
+				Name:         pipe.Name,
+			}, nil
+		},
+		"DeletePipe": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return &struct{}{}, h.Backend.DeletePipe(input.Name)
+		},
+		"DescribePipe": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribePipe(input.Name)
+		},
+		"ListPipes": func(b []byte) (any, error) {
+			var input struct {
+				NamePrefix string `json:"NamePrefix"`
+				NextToken  string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			pipes, next, err := h.Backend.ListPipes(input.NamePrefix, input.NextToken)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken string `json:"NextToken,omitempty"`
+				Pipes     []Pipe `json:"Pipes"`
+			}{Pipes: pipes, NextToken: next}, nil
+		},
+		"UpdatePipe": func(b []byte) (any, error) {
+			var input UpdatePipeInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			pipe, err := h.Backend.UpdatePipe(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				Arn              string    `json:"Arn"`
+				CurrentState     string    `json:"CurrentState"`
+				LastModifiedTime time.Time `json:"LastModifiedTime"`
+				Name             string    `json:"Name"`
+			}{
+				Arn:              pipe.Arn,
+				CurrentState:     pipe.CurrentState,
+				LastModifiedTime: pipe.LastModifiedTime,
+				Name:             pipe.Name,
+			}, nil
+		},
+	}
+}
+
 func (h *Handler) newOpsActions() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.eventSourceActions())
@@ -1495,6 +1616,8 @@ func (h *Handler) newOpsActions() map[string]actionFn {
 	maps.Copy(table, h.extendedPartnerSourceActions())
 	maps.Copy(table, h.extendedReplayActions())
 	maps.Copy(table, h.extendedMiscActions())
+	maps.Copy(table, h.policyActions())
+	maps.Copy(table, h.pipesActions())
 
 	return table
 }
@@ -1550,6 +1673,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidState):
 		errType = "InvalidStateException"
+		statusCode = http.StatusBadRequest
+	case errors.Is(reqErr, ErrResourceLimitExceeded):
+		errType = "ResourceLimitExceededException"
 		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, errUnknownOperation):
 		errType = "UnknownOperationException"

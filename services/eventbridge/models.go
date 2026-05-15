@@ -20,13 +20,40 @@ type Rule struct {
 	Description        string `json:"Description,omitempty"`
 	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
 	RoleArn            string `json:"RoleArn,omitempty"`
+	ManagedBy          string `json:"ManagedBy,omitempty"`
 	compiledPattern    *compiledPattern
 	indexKeys          []ruleIndexKey
+}
+
+// DeadLetterConfig holds the dead-letter queue configuration for a target.
+type DeadLetterConfig struct {
+	Arn string `json:"Arn,omitempty"`
+}
+
+// RetryPolicy holds the retry configuration for a target.
+type RetryPolicy struct {
+	MaximumEventAgeInSeconds int `json:"MaximumEventAgeInSeconds,omitempty"`
+	MaximumRetryAttempts     int `json:"MaximumRetryAttempts,omitempty"`
+}
+
+// BatchParameters holds batching configuration for a target (e.g. SQS).
+type BatchParameters struct {
+	ArrayProperties *BatchArrayProperties `json:"ArrayProperties,omitempty"`
+	JobDefinition   string                `json:"JobDefinition,omitempty"`
+	JobName         string                `json:"JobName,omitempty"`
+}
+
+// BatchArrayProperties defines the size of the array for a batch job.
+type BatchArrayProperties struct {
+	Size int `json:"Size,omitempty"`
 }
 
 // Target represents an EventBridge rule target.
 type Target struct {
 	InputTransformer *InputTransformer `json:"InputTransformer,omitempty"`
+	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
+	RetryPolicy      *RetryPolicy      `json:"RetryPolicy,omitempty"`
+	BatchParameters  *BatchParameters  `json:"BatchParameters,omitempty"`
 	ID               string            `json:"Id"`
 	Arn              string            `json:"Arn"`
 	RoleArn          string            `json:"RoleArn,omitempty"`
@@ -66,6 +93,7 @@ type PutRuleInput struct {
 	Description        string `json:"Description,omitempty"`
 	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
 	RoleArn            string `json:"RoleArn,omitempty"`
+	ManagedBy          string `json:"ManagedBy,omitempty"`
 }
 
 // FailedEntry describes a target or event that failed to process.
@@ -300,6 +328,7 @@ type UpdateEventBusInput struct {
 
 // PutPermissionInput is the input for PutPermission.
 type PutPermissionInput struct {
+	Policy       string `json:"Policy,omitempty"`
 	Action       string `json:"Action,omitempty"`
 	EventBusName string `json:"EventBusName,omitempty"`
 	Principal    string `json:"Principal,omitempty"`
@@ -308,6 +337,68 @@ type PutPermissionInput struct {
 
 // RemovePermissionInput is the input for RemovePermission.
 type RemovePermissionInput struct {
+	EventBusName         string `json:"EventBusName,omitempty"`
+	StatementID          string `json:"StatementId,omitempty"`
+	RemoveAllPermissions bool   `json:"RemoveAllPermissions,omitempty"`
+}
+
+// EventBusPolicyStatement is a single statement in an event bus resource policy.
+type EventBusPolicyStatement struct {
+	Action    string `json:"Action"`
+	Effect    string `json:"Effect"`
+	Principal any    `json:"Principal"`
+	Sid       string `json:"Sid"`
+}
+
+// EventBusPolicy is the resource-based policy attached to an event bus.
+type EventBusPolicy struct {
+	Statements map[string]*EventBusPolicyStatement
+}
+
+// GetEventBusPolicyInput is the input for GetEventBusPolicy.
+type GetEventBusPolicyInput struct {
 	EventBusName string `json:"EventBusName,omitempty"`
-	StatementID  string `json:"StatementId,omitempty"`
+}
+
+// PutEventBusPolicyInput is the input for PutEventBusPolicy (sets raw policy JSON).
+type PutEventBusPolicyInput struct {
+	EventBusName string `json:"EventBusName,omitempty"`
+	Policy       string `json:"Policy"`
+}
+
+// Pipe represents an EventBridge Pipe.
+type Pipe struct {
+	CreationTime     time.Time `json:"CreationTime"`
+	LastModifiedTime time.Time `json:"LastModifiedTime"`
+	Arn              string    `json:"Arn"`
+	CurrentState     string    `json:"CurrentState"`
+	Description      string    `json:"Description,omitempty"`
+	DesiredState     string    `json:"DesiredState"`
+	EnrichmentArn    string    `json:"EnrichmentArn,omitempty"`
+	Name             string    `json:"Name"`
+	RoleArn          string    `json:"RoleArn"`
+	SourceArn        string    `json:"SourceArn"`
+	StateReason      string    `json:"StateReason,omitempty"`
+	TargetArn        string    `json:"TargetArn"`
+}
+
+// CreatePipeInput is the input for CreatePipe.
+type CreatePipeInput struct {
+	Description   string `json:"Description,omitempty"`
+	DesiredState  string `json:"DesiredState,omitempty"`
+	EnrichmentArn string `json:"EnrichmentArn,omitempty"`
+	Name          string `json:"Name"`
+	RoleArn       string `json:"RoleArn"`
+	SourceArn     string `json:"SourceArn"`
+	TargetArn     string `json:"TargetArn"`
+}
+
+// UpdatePipeInput is the input for UpdatePipe.
+type UpdatePipeInput struct {
+	Description   string `json:"Description,omitempty"`
+	DesiredState  string `json:"DesiredState,omitempty"`
+	EnrichmentArn string `json:"EnrichmentArn,omitempty"`
+	Name          string `json:"Name"`
+	RoleArn       string `json:"RoleArn,omitempty"`
+	TargetArn     string `json:"TargetArn,omitempty"`
 }

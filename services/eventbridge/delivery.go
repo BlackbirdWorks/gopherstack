@@ -3,7 +3,9 @@ package eventbridge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +14,9 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
+
+// inputPathsMapKeyRe validates InputPathsMap variable names per AWS spec.
+var inputPathsMapKeyRe = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
 // LambdaInvoker can invoke a Lambda function by name/ARN with a payload.
 type LambdaInvoker interface {
@@ -95,9 +100,15 @@ func (b *InMemoryBackend) deliverEvents(
 	}
 }
 
+const (
+	// defaultMaxRetryAttempts matches AWS EventBridge default retry attempts.
+	defaultMaxRetryAttempts = 2
+	// defaultMaxEventAgeSeconds matches AWS EventBridge default maximum event age (3600s = 1h).
+	defaultMaxEventAgeSeconds = 3600
+)
+
 // deliverToTargetBounded delivers a single event to a single target, applying a per-call
-// timeout when timeout > 0. Extracting this logic reduces the cognitive complexity of
-// the outer deliverEvents loop.
+// timeout when timeout > 0, with retry logic from target.RetryPolicy.
 func deliverToTargetBounded(
 	ctx context.Context,
 	target *Target,
@@ -105,15 +116,91 @@ func deliverToTargetBounded(
 	dt DeliveryTargets,
 	timeout time.Duration,
 ) {
-	if timeout <= 0 {
-		deliverToTarget(ctx, target, envelope, dt)
+	maxAttempts := defaultMaxRetryAttempts
+	maxAgeSeconds := defaultMaxEventAgeSeconds
 
+	if target.RetryPolicy != nil {
+		if target.RetryPolicy.MaximumRetryAttempts >= 0 {
+			maxAttempts = target.RetryPolicy.MaximumRetryAttempts
+		}
+		if target.RetryPolicy.MaximumEventAgeInSeconds > 0 {
+			maxAgeSeconds = target.RetryPolicy.MaximumEventAgeInSeconds
+		}
+	}
+
+	eventAge := extractEventAge(envelope)
+
+	for attempt := 0; attempt <= maxAttempts; attempt++ {
+		if int(eventAge.Seconds()) > maxAgeSeconds {
+			sendToDLQ(ctx, target, envelope, dt, "MaximumEventAgeExceeded")
+
+			return
+		}
+
+		var delivErr bool
+		if timeout <= 0 {
+			delivErr = deliverToTarget(ctx, target, envelope, dt)
+		} else {
+			tCtx, cancel := context.WithTimeout(ctx, timeout)
+			delivErr = deliverToTarget(tCtx, target, envelope, dt)
+			cancel()
+		}
+
+		if !delivErr {
+			return
+		}
+
+		if attempt == maxAttempts {
+			sendToDLQ(ctx, target, envelope, dt, "DeliveryFailure")
+
+			return
+		}
+	}
+}
+
+// extractEventAge returns the age of the event from the envelope's "time" field.
+func extractEventAge(envelope map[string]any) time.Duration {
+	timeVal, ok := envelope["time"].(string)
+	if !ok {
+		return 0
+	}
+
+	t, err := time.Parse(time.RFC3339, timeVal)
+	if err != nil {
+		return 0
+	}
+
+	age := time.Since(t)
+	if age < 0 {
+		return 0
+	}
+
+	return age
+}
+
+// sendToDLQ sends an event to the dead-letter queue if configured.
+func sendToDLQ(
+	ctx context.Context,
+	target *Target,
+	envelope map[string]any,
+	dt DeliveryTargets,
+	reason string,
+) {
+	if target.DeadLetterConfig == nil || target.DeadLetterConfig.Arn == "" {
+		return
+	}
+	if dt.SQS == nil {
 		return
 	}
 
-	tCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	deliverToTarget(tCtx, target, envelope, dt)
+	log := logger.Load(ctx)
+	payload, _ := json.Marshal(envelope)
+	dlqARN := target.DeadLetterConfig.Arn
+
+	if err := dt.SQS.SendMessageToQueue(ctx, dlqARN, string(payload)); err != nil {
+		log.WarnContext(ctx, "EventBridge: failed to send event to DLQ",
+			"dlq", dlqARN, "reason", reason, "error", err)
+	}
 }
 
 // deepCopyBusRules returns a deep copy of the bus-to-rules map so that the
@@ -240,41 +327,50 @@ func buildEventEnvelope(entry EventEntry) string {
 }
 
 // deliverToTarget delivers a single event to a single target.
-func deliverToTarget(ctx context.Context, target *Target, envelope map[string]any, dt DeliveryTargets) {
-	arn := target.Arn
+// Returns true if delivery failed (triggering retry/DLQ).
+func deliverToTarget(ctx context.Context, target *Target, envelope map[string]any, dt DeliveryTargets) bool {
+	targetARN := target.Arn
 	log := logger.Load(ctx)
 
 	payload := buildPayload(target, envelope)
 
 	switch {
-	case isLambdaARN(arn):
+	case isLambdaARN(targetARN):
 		if dt.Lambda == nil {
-			return
+			return false
 		}
-		_, _, err := dt.Lambda.InvokeFunction(ctx, arn, "Event", []byte(payload))
+		_, _, err := dt.Lambda.InvokeFunction(ctx, targetARN, "Event", []byte(payload))
 		if err != nil {
-			log.WarnContext(ctx, "EventBridge failed to invoke Lambda target", "arn", arn, "error", err)
+			log.WarnContext(ctx, "EventBridge failed to invoke Lambda target", "arn", targetARN, "error", err)
+
+			return true
 		}
 
-	case isSQSARN(arn):
+	case isSQSARN(targetARN):
 		if dt.SQS == nil {
-			return
+			return false
 		}
-		if err := dt.SQS.SendMessageToQueue(ctx, arn, payload); err != nil {
-			log.WarnContext(ctx, "EventBridge failed to deliver to SQS target", "arn", arn, "error", err)
+		if err := dt.SQS.SendMessageToQueue(ctx, targetARN, payload); err != nil {
+			log.WarnContext(ctx, "EventBridge failed to deliver to SQS target", "arn", targetARN, "error", err)
+
+			return true
 		}
 
-	case isSNSARN(arn):
+	case isSNSARN(targetARN):
 		if dt.SNS == nil {
-			return
+			return false
 		}
-		if err := dt.SNS.PublishToTopic(ctx, arn, payload); err != nil {
-			log.WarnContext(ctx, "EventBridge failed to publish to SNS target", "arn", arn, "error", err)
+		if err := dt.SNS.PublishToTopic(ctx, targetARN, payload); err != nil {
+			log.WarnContext(ctx, "EventBridge failed to publish to SNS target", "arn", targetARN, "error", err)
+
+			return true
 		}
 
 	default:
-		log.WarnContext(ctx, "EventBridge: unsupported target ARN type", "arn", arn)
+		log.WarnContext(ctx, "EventBridge: unsupported target ARN type", "arn", targetARN)
 	}
+
+	return false
 }
 
 // buildPayload constructs the message payload for a target from a pre-built event envelope.
@@ -344,6 +440,18 @@ func applyInputPath(path string, envelope map[string]any) string {
 	b, _ := json.Marshal(val)
 
 	return string(b)
+}
+
+// validateInputTransformer checks that all InputPathsMap keys satisfy the
+// AWS constraint ([A-Za-z0-9_]+). Returns an error if any key is invalid.
+func validateInputTransformer(t *InputTransformer) error {
+	for key := range t.InputPathsMap {
+		if !inputPathsMapKeyRe.MatchString(key) {
+			return fmt.Errorf("%w: InputPathsMap key %q must match [A-Za-z0-9_]+", ErrInvalidParameter, key)
+		}
+	}
+
+	return nil
 }
 
 // applyInputTransformer applies InputPathsMap variable extraction and InputTemplate substitution.

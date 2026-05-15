@@ -62,11 +62,11 @@ func TestScheduler(t *testing.T) {
 			},
 		},
 		{
-			name: "invalid_expression_no_panic",
+			name: "cron_rule_disabled_no_panic",
 			rule: eventbridge.PutRuleInput{
-				Name:               "bad-sched-rule",
-				ScheduleExpression: "invalid(expression)",
-				State:              "ENABLED",
+				Name:               "cron-disabled-rule",
+				ScheduleExpression: "cron(0 0 * * ? *)",
+				State:              "DISABLED",
 			},
 			ctxTimeout: 200 * time.Millisecond,
 			runAsync:   false,
@@ -129,6 +129,40 @@ func TestNewScheduler_DefaultTickInterval(t *testing.T) {
 			backend := eventbridge.NewInMemoryBackend()
 			scheduler := eventbridge.NewScheduler(backend, tt.tickInterval)
 			assert.NotNil(t, scheduler)
+		})
+	}
+}
+
+func TestPutRule_ValidatesScheduleExpression(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		expr    string
+		wantErr bool
+	}{
+		{"valid rate", "rate(5 minutes)", false},
+		{"valid cron", "cron(0 12 * * ? *)", false},
+		{"invalid expression", "invalid(expression)", true},
+		{"rate zero value", "rate(0 minutes)", true},
+		{"rate negative", "rate(-1 minutes)", true},
+		{"cron wrong fields", "cron(0 12 *)", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := eventbridge.NewInMemoryBackend()
+			_, err := b.PutRule(eventbridge.PutRuleInput{
+				Name:               "rule",
+				ScheduleExpression: tt.expr,
+				State:              "ENABLED",
+			})
+			if tt.wantErr {
+				require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }
