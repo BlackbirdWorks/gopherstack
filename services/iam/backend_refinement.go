@@ -30,8 +30,8 @@ func (b *InMemoryBackend) UpdateAccessKey(userName, accessKeyID, status string) 
 	return nil
 }
 
-// GetAccessKeyLastUsed returns stub information about the last use of an access key.
-// Real AWS tracks this in a separate service; here we return N/A values for an existing key.
+// GetAccessKeyLastUsed returns last-use information for an access key.
+// Returns real data if the key has been used (via RecordAccessKeyUsage); otherwise returns N/A.
 func (b *InMemoryBackend) GetAccessKeyLastUsed(accessKeyID string) (*AccessKeyLastUsed, error) {
 	b.mu.RLock("GetAccessKeyLastUsed")
 	defer b.mu.RUnlock()
@@ -41,13 +41,22 @@ func (b *InMemoryBackend) GetAccessKeyLastUsed(accessKeyID string) (*AccessKeyLa
 		return nil, fmt.Errorf("%w: access key %q not found", ErrAccessKeyNotFound, accessKeyID)
 	}
 
-	return &AccessKeyLastUsed{
-		UserName:     ak.UserName,
-		AccessKeyID:  accessKeyID,
-		LastUsedDate: notApplicable,
-		ServiceName:  notApplicable,
-		Region:       notApplicable,
-	}, nil
+	result := &AccessKeyLastUsed{
+		UserName:    ak.UserName,
+		AccessKeyID: accessKeyID,
+	}
+
+	if ak.LastUsedDate != nil {
+		result.LastUsedDate = ak.LastUsedDate.UTC().Format("2006-01-02T15:04:05Z")
+		result.ServiceName = ak.LastUsedServiceName
+		result.Region = ak.LastUsedRegion
+	} else {
+		result.LastUsedDate = notApplicable
+		result.ServiceName = notApplicable
+		result.Region = notApplicable
+	}
+
+	return result, nil
 }
 
 // ---- Account Aliases ----
