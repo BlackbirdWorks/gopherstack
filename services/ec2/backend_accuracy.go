@@ -16,14 +16,31 @@ type SpotPriceRecord struct {
 	SpotPrice          string
 }
 
+// Instance attribute names accepted by ModifyInstanceAttribute / SetInstanceAttribute.
+// Mirror AWS EC2 attribute naming (lowerCamelCase).
+const (
+	attrInstanceType                      = "instanceType"
+	attrKernel                            = "kernel"
+	attrRamdisk                           = "ramdisk"
+	attrUserData                          = "userData"
+	attrEnaSupport                        = "enaSupport"
+	attrSriovNetSupport                   = "sriovNetSupport"
+	attrDisableAPIStop                    = "disableApiStop"
+	attrInstanceInitiatedShutdownBehavior = "instanceInitiatedShutdownBehavior"
+
+	instanceTypeT3Micro = "t3.micro"
+	instanceTypeT3Small = "t3.small"
+	instanceTypeC5XL    = "c5.xlarge"
+)
+
 // stoppedRequiredAttrs lists attributes that require a stopped instance when
 // set via ModifyInstanceAttribute (not RunInstances initial setup).
 //
 //nolint:gochecknoglobals // lookup set
 var stoppedRequiredAttrs = map[string]bool{
-	"instanceType": true,
-	"kernel":       true,
-	"ramdisk":      true,
+	attrInstanceType: true,
+	attrKernel:       true,
+	attrRamdisk:      true,
 }
 
 // SetInstanceAttribute persists a modifiable attribute on an instance.
@@ -44,17 +61,17 @@ func (b *InMemoryBackend) SetInstanceAttribute(instanceID, attribute, value stri
 	}
 
 	switch attribute {
-	case "userData":
+	case attrUserData:
 		// AWS stores userData base64-encoded; accept both encoded and raw.
 		inst.UserData = value
-	case "instanceType":
+	case attrInstanceType:
 		inst.InstanceType = value
-	case "enaSupport":
+	case attrEnaSupport:
 		inst.EnaSupport = value == ec2BooleanTrue || value == "true"
-	case "sriovNetSupport":
+	case attrSriovNetSupport:
 		inst.SriovNetSupport = value
-	case "disableApiTermination", "disableApiStop", "ebsOptimized",
-		"sourceDestCheck", "instanceInitiatedShutdownBehavior",
+	case "disableApiTermination", attrDisableAPIStop, "ebsOptimized",
+		"sourceDestCheck", attrInstanceInitiatedShutdownBehavior,
 		"groupSet", "blockDeviceMapping":
 		// accepted but not modelled beyond acknowledgment
 	default:
@@ -100,29 +117,29 @@ func (b *InMemoryBackend) SetVolumeEncryption(
 //
 //nolint:gochecknoglobals // lookup table
 var spotPriceBaseTable = map[string]float64{
-	"t2.micro":    0.0116,
-	"t2.small":    0.023,
-	"t2.medium":   0.0464,
-	"t2.large":    0.0928,
-	"t3.micro":    0.0104,
-	"t3.small":    0.0208,
-	"t3.medium":   0.0416,
-	"t3.large":    0.0832,
-	"t3.xlarge":   0.1664,
-	"t3.2xlarge":  0.3328,
-	"m5.large":    0.096,
-	"m5.xlarge":   0.192,
-	"m5.2xlarge":  0.384,
-	"m5.4xlarge":  0.768,
-	"c5.large":    0.085,
-	"c5.xlarge":   0.17,
-	"c5.2xlarge":  0.34,
-	"r5.large":    0.126,
-	"r5.xlarge":   0.252,
-	"r5.2xlarge":  0.504,
-	"p3.2xlarge":  3.06,
-	"p3.8xlarge":  12.24,
-	"g4dn.xlarge": 0.526,
+	"t2.micro":                   0.0116,
+	"t2.small":                   0.023,
+	"t2.medium":                  0.0464,
+	"t2.large":                   0.0928,
+	instanceTypeT3Micro:          0.0104,
+	instanceTypeT3Small:          0.0208,
+	"t3.medium":                  0.0416,
+	"t3.large":                   0.0832,
+	"t3.xlarge":                  0.1664,
+	"t3.2xlarge":                 0.3328,
+	spotFleetDefaultInstanceType: 0.096,
+	"m5.xlarge":                  0.192,
+	"m5.2xlarge":                 0.384,
+	"m5.4xlarge":                 0.768,
+	"c5.large":                   0.085,
+	instanceTypeC5XL:             0.17,
+	"c5.2xlarge":                 0.34,
+	"r5.large":                   0.126,
+	"r5.xlarge":                  0.252,
+	"r5.2xlarge":                 0.504,
+	"p3.2xlarge":                 3.06,
+	"p3.8xlarge":                 12.24,
+	"g4dn.xlarge":                0.526,
 }
 
 // deterministicSpotPrice returns a stable spot price for (instanceType, az, product)
@@ -157,7 +174,7 @@ func GenerateSpotPriceHistory(
 	endTime := time.Now().UTC()
 
 	if len(instanceTypes) == 0 {
-		instanceTypes = []string{"t3.micro", "t3.small", "m5.large", "c5.xlarge"}
+		instanceTypes = []string{instanceTypeT3Micro, instanceTypeT3Small, spotFleetDefaultInstanceType, instanceTypeC5XL}
 	}
 
 	if len(azs) == 0 {

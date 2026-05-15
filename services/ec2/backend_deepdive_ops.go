@@ -72,7 +72,7 @@ func (b *InMemoryBackend) CreateLaunchTemplate(
 	}
 
 	if instanceType == "" {
-		instanceType = "t3.micro"
+		instanceType = instanceTypeT3Micro
 	}
 
 	b.mu.Lock("CreateLaunchTemplate")
