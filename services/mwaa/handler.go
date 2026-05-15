@@ -469,6 +469,10 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", tagErr.Error())
 		}
 
+		if errors.Is(tagErr, awserr.ErrInvalidParameter) {
+			return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", tagErr.Error())
+		}
+
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", tagErr.Error())
 	}
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -386,7 +387,9 @@ func TestRefinement1_CreateCliToken_HappyPath(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
-	assert.Contains(t, token, "cli-env")
+	// Token is JWT-shaped: three dot-separated base64url segments.
+	parts := strings.Split(token, ".")
+	assert.Len(t, parts, 3, "expected JWT-shaped token with 3 dot-separated parts")
 }
 
 func TestRefinement1_CreateWebLoginToken_HappyPath(t *testing.T) {
@@ -399,7 +402,9 @@ func TestRefinement1_CreateWebLoginToken_HappyPath(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
-	assert.Contains(t, token, "web-env")
+	// Token is JWT-shaped: three dot-separated base64url segments.
+	parts := strings.Split(token, ".")
+	assert.Len(t, parts, 3, "expected JWT-shaped token with 3 dot-separated parts")
 }
 
 func TestRefinement1_Handler_CliToken_NotFound(t *testing.T) {
