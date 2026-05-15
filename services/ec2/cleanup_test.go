@@ -56,7 +56,7 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
 				t.Helper()
 
-				subnet, err := b.CreateSubnet("vpc-default", "10.1.0.0/24", "us-east-1a")
+				subnet, err := b.CreateSubnet("vpc-default", "172.31.16.0/24", "us-east-1a")
 				require.NoError(t, err)
 
 				return subnet.ID
@@ -455,7 +455,7 @@ func TestDeleteSubnet_CascadeDeletesENIs(t *testing.T) {
 
 			b := newTestBackend()
 
-			subnet, err := b.CreateSubnet("vpc-default", "10.1.0.0/24", "us-east-1a")
+			subnet, err := b.CreateSubnet("vpc-default", "172.31.16.0/24", "us-east-1a")
 			require.NoError(t, err)
 
 			eniIDs := make([]string, tt.eniCount)
@@ -493,7 +493,7 @@ func TestDeleteSubnet_CascadeTerminatesInstances(t *testing.T) {
 
 	b := newTestBackend()
 
-	subnet, err := b.CreateSubnet("vpc-default", "10.1.0.0/24", "us-east-1a")
+	subnet, err := b.CreateSubnet("vpc-default", "172.31.16.0/24", "us-east-1a")
 	require.NoError(t, err)
 
 	insts, err := b.RunInstances("ami-test", "t2.micro", subnet.ID, 2)
@@ -815,7 +815,7 @@ func TestDeleteSubnet_CascadeDeletesNatGateways(t *testing.T) {
 
 	b := newTestBackend()
 
-	subnet, err := b.CreateSubnet("vpc-default", "10.1.0.0/24", "us-east-1a")
+	subnet, err := b.CreateSubnet("vpc-default", "172.31.16.0/24", "us-east-1a")
 	require.NoError(t, err)
 
 	addr, err := b.AllocateAddress()

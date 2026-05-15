@@ -12,6 +12,11 @@ type Backend interface {
 	// RunInstances creates one or more EC2 instance stubs.
 	RunInstances(imageID, instanceType, subnetID string, count int) ([]*Instance, error)
 
+	// SetInstanceAttribute persists a modifiable attribute on an instance.
+	// Attribute names match EC2 ModifyInstanceAttribute keys (e.g. "userData", "instanceType").
+	// Returns ErrInvalidInstanceState if the instance must be stopped for the given attribute.
+	SetInstanceAttribute(instanceID, attribute, value string) error
+
 	// DescribeInstances returns instances, optionally filtered by IDs or state name.
 	DescribeInstances(ids []string, state string) []*Instance
 
@@ -112,6 +117,9 @@ type Backend interface {
 
 	// CreateVolume creates a new EBS volume stub.
 	CreateVolume(az, volType string, size int) (*Volume, error)
+
+	// SetVolumeEncryption marks a volume as encrypted and optionally sets its KMS key ID.
+	SetVolumeEncryption(volumeID string, encrypted bool, kmsKeyID string) error
 
 	// DescribeVolumes returns volumes, optionally filtered by IDs.
 	DescribeVolumes(ids []string) []*Volume

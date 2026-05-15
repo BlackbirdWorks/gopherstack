@@ -423,10 +423,16 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 }
 
 // dispatch routes the EC2 action to the appropriate handler function.
+// If DryRun=true is present in vals, the request is validated and then
+// rejected with ErrDryRunOperation (HTTP 412) as real AWS does.
 func (h *Handler) dispatch(action string, vals url.Values, reqID string) (any, error) {
 	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s is not a supported EC2 action", ErrInvalidParameter, action)
+	}
+
+	if vals.Get("DryRun") == ec2BooleanTrue {
+		return nil, ErrDryRunOperation
 	}
 
 	return fn(vals, reqID)
@@ -438,6 +444,8 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	imageID := vals.Get("ImageId")
 	instanceType := vals.Get("InstanceType")
 	subnetID := vals.Get("SubnetId")
+	userData := vals.Get("UserData")
+	keyName := vals.Get("KeyName")
 
 	count := 1
 	if v := vals.Get("MinCount"); v != "" {
@@ -449,6 +457,19 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	instances, err := h.Backend.RunInstances(imageID, instanceType, subnetID, count)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, inst := range instances {
+		if userData != "" {
+			// Store as-is; DescribeInstanceAttribute returns the raw (base64) form.
+			if attrErr := h.Backend.SetInstanceAttribute(inst.ID, "userData", userData); attrErr != nil {
+				return nil, attrErr
+			}
+		}
+
+		if keyName != "" {
+			inst.KeyName = keyName
+		}
 	}
 
 	if tags := parseTagSpecification(vals, "instance"); len(tags) > 0 {
@@ -482,6 +503,32 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 
 	instances := h.Backend.DescribeInstances(ids, state)
 
+	// Pagination: MaxResults / NextToken (gap 3).
+	maxResults := 0
+	if v := vals.Get("MaxResults"); v != "" {
+		_, _ = fmt.Sscan(v, &maxResults)
+	}
+
+	offset := 0
+	if tok := vals.Get("NextToken"); tok != "" {
+		_, _ = fmt.Sscan(tok, &offset)
+	}
+
+	var nextToken string
+
+	if maxResults > 0 {
+		if offset > len(instances) {
+			offset = len(instances)
+		}
+
+		instances = instances[offset:]
+
+		if len(instances) > maxResults {
+			nextToken = strconv.Itoa(offset + maxResults)
+			instances = instances[:maxResults]
+		}
+	}
+
 	items := make([]instanceItem, 0, len(instances))
 	for _, inst := range instances {
 		items = append(items, toInstanceItem(inst))
@@ -497,6 +544,7 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 		Xmlns:          ec2XMLNS,
 		RequestID:      reqID,
 		ReservationSet: reservationSet{Items: []reservationItem{reservation}},
+		NextToken:      nextToken,
 	}, nil
 }
 
@@ -859,9 +907,19 @@ func paginateInstanceTypes(items []string, offset, maxResults int) ([]string, st
 	return page, token
 }
 
+// validDescribeTagsFilters is the set of filter names accepted by DescribeTags.
+//
+//nolint:gochecknoglobals // lookup set
+var validDescribeTagsFilters = map[string]bool{
+	"key":           true,
+	"resource-id":   true,
+	"resource-type": true,
+	"value":         true,
+}
+
 // handleDescribeTags returns tags for EC2 resources, supporting Filter.N.Name / Filter.N.Value.* semantics.
 // If a filter with Name=resource-id is present, only tags for those resource IDs are returned.
-// Other filter names are accepted but ignored (returns all tags when no resource-id filter is present).
+// Unknown filter names are rejected with InvalidParameterValue per AWS behaviour.
 func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error) {
 	var resourceIDs []string
 
@@ -869,6 +927,10 @@ func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error)
 		name := vals.Get(fmt.Sprintf("Filter.%d.Name", i))
 		if name == "" {
 			break
+		}
+
+		if !validDescribeTagsFilters[name] {
+			return nil, fmt.Errorf("%w: unknown filter name %q for DescribeTags", ErrInvalidParameter, name)
 		}
 
 		if name == "resource-id" {
@@ -922,19 +984,52 @@ func (h *Handler) handleDeleteTags(vals url.Values, reqID string) (any, error) {
 	}, nil
 }
 
-// handleDescribeInstanceAttribute returns a default value for the requested instance attribute.
+// handleDescribeInstanceAttribute returns the current value for the requested instance attribute.
 // Terraform calls this after RunInstances to read instanceInitiatedShutdownBehavior.
 func (h *Handler) handleDescribeInstanceAttribute(vals url.Values, reqID string) (any, error) {
 	instanceID := vals.Get("InstanceId")
 	attr := vals.Get("Attribute")
 
-	// Default values match common AWS defaults; the attribute name is the XML element name.
-	// Boolean attributes (AttributeBooleanValue) must return "true" or ec2BooleanFalse so that
-	// strconv.ParseBool succeeds in the SDK deserializer.
-	attrValue := "stop"
+	if instanceID == "" {
+		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
+	}
+
+	instances := h.Backend.DescribeInstances([]string{instanceID}, "")
+	if len(instances) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	}
+
+	inst := instances[0]
+
+	// Build the attribute value from stored instance state when possible;
+	// fall back to AWS defaults for unmodelled attributes.
+	var attrValue string
+
 	switch attr {
-	case "disableApiStop", "disableApiTermination", attrSourceDest, "ebsOptimized", "enaSupport":
+	case "userData":
+		attrValue = inst.UserData
+	case "instanceType":
+		attrValue = inst.InstanceType
+	case "enaSupport":
+		if inst.EnaSupport {
+			attrValue = ec2BooleanTrue
+		} else {
+			attrValue = ec2BooleanFalse
+		}
+	case "sriovNetSupport":
+		if inst.SriovNetSupport != "" {
+			attrValue = inst.SriovNetSupport
+		} else {
+			attrValue = "simple"
+		}
+	case "disableApiStop", "disableApiTermination", "ebsOptimized":
 		attrValue = ec2BooleanFalse
+	case attrSourceDest:
+		attrValue = ec2BooleanFalse
+	case "instanceInitiatedShutdownBehavior", "kernel", "ramdisk":
+		attrValue = "stop"
+	default:
+		attrValue = ""
 	}
 
 	return &describeInstanceAttributeResponse{
@@ -984,11 +1079,16 @@ var errCodeLookup = []struct {
 	{ErrVpcEndpointNotFound, "InvalidVpcEndpointService.NotFound"},
 	{ErrByoipCidrNotFound, "InvalidByoipCidr.NotFound"},
 	{ErrHostNotFound, "InvalidHostID.NotFound"},
+	{ErrCIDRConflict, "InvalidVpc.Conflict"},
 	{ErrInvalidParameter, "InvalidParameterValue"},
 }
 
 // opErrCode resolves an error to its EC2 API error code and HTTP status code.
 func opErrCode(opErr error) (string, int) {
+	if errors.Is(opErr, ErrDryRunOperation) {
+		return "DryRunOperation", http.StatusPreconditionFailed
+	}
+
 	for _, entry := range errCodeLookup {
 		if errors.Is(opErr, entry.err) {
 			return entry.code, http.StatusBadRequest
@@ -1134,6 +1234,9 @@ func toInstanceItem(inst *Instance) instanceItem {
 		SubnetID:         inst.SubnetID,
 		LaunchTime:       inst.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
 		PrivateIPAddress: inst.PrivateIP,
+		PublicIPAddress:  inst.PublicIPAddress,
+		PublicDNSName:    inst.PublicDNSName,
+		KeyName:          inst.KeyName,
 	}
 }
 
@@ -1200,6 +1303,9 @@ type instanceItem struct {
 	VPCID            string    `xml:"vpcId,omitempty"`
 	SubnetID         string    `xml:"subnetId,omitempty"`
 	PrivateIPAddress string    `xml:"privateIpAddress,omitempty"`
+	PublicIPAddress  string    `xml:"ipAddress,omitempty"`
+	PublicDNSName    string    `xml:"dnsName,omitempty"`
+	KeyName          string    `xml:"keyName,omitempty"`
 	StateItem        stateItem `xml:"instanceState"`
 }
 
@@ -1231,6 +1337,7 @@ type describeInstancesResponse struct {
 	Xmlns          string         `xml:"xmlns,attr"`
 	RequestID      string         `xml:"requestId"`
 	ReservationSet reservationSet `xml:"reservationSet"`
+	NextToken      string         `xml:"nextToken,omitempty"`
 }
 
 type instanceStateChangeItem struct {

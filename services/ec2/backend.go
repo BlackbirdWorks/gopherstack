@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"strings"
 	"time"
 
@@ -22,6 +23,8 @@ var (
 	ErrDuplicateSGName       = errors.New("InvalidGroup.Duplicate")
 	ErrInvalidInstanceState  = errors.New("IncorrectInstanceState")
 	ErrSpotFleetNotFound     = errors.New("InvalidSpotFleetRequestId.NotFound")
+	ErrCIDRConflict          = errors.New("InvalidVpc.Conflict")
+	ErrDryRunOperation       = errors.New("Request would have succeeded, but DryRun flag is set.")
 )
 
 // EC2 instance state codes as defined by the AWS EC2 API.
@@ -138,11 +141,14 @@ type InstanceStateChange struct {
 }
 
 // SecurityGroupRule represents an inbound or outbound rule.
+// Either IPRange or SourceGroupID is set; both can be empty for protocol-only rules.
 type SecurityGroupRule struct {
-	Protocol string `json:"protocol"`
-	IPRange  string `json:"ipRange"`
-	FromPort int    `json:"fromPort"`
-	ToPort   int    `json:"toPort"`
+	Protocol           string `json:"protocol"`
+	IPRange            string `json:"ipRange"`
+	SourceGroupID      string `json:"sourceGroupId,omitempty"`
+	SourceGroupOwnerID string `json:"sourceGroupOwnerId,omitempty"`
+	FromPort           int    `json:"fromPort"`
+	ToPort             int    `json:"toPort"`
 }
 
 // SecurityGroup represents an EC2 security group.
@@ -611,6 +617,13 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 	b.mu.Lock("CreateVpc")
 	defer b.mu.Unlock()
 
+	for _, existing := range b.vpcs {
+		if cidrsOverlap(cidr, existing.CIDRBlock) {
+			return nil, fmt.Errorf("%w: CIDR %s overlaps with existing VPC %s (%s)",
+				ErrCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
+		}
+	}
+
 	id := "vpc-" + uuid.New().String()[:17]
 	v := &VPC{
 		ID:        id,
@@ -751,6 +764,19 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 
 	if az == "" {
 		az = b.Region + "a"
+	}
+
+	vpc := b.vpcs[vpcID]
+	if !cidrContains(vpc.CIDRBlock, cidr) {
+		return nil, fmt.Errorf("%w: subnet CIDR %s is not within VPC CIDR %s",
+			ErrInvalidParameter, cidr, vpc.CIDRBlock)
+	}
+
+	for _, existing := range b.subnets {
+		if existing.VPCID == vpcID && cidrsOverlap(cidr, existing.CIDRBlock) {
+			return nil, fmt.Errorf("%w: CIDR %s overlaps with existing subnet %s (%s)",
+				ErrCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
+		}
 	}
 
 	id := "subnet-" + uuid.New().String()[:17]
@@ -1025,4 +1051,33 @@ func (b *InMemoryBackend) DescribeTags(resourceIDs []string) []TagEntry {
 	}
 
 	return entries
+}
+
+// cidrsOverlap reports whether two CIDR blocks overlap.
+// Malformed CIDRs are treated as non-overlapping to avoid panics on bad input.
+func cidrsOverlap(a, b string) bool {
+	_, netA, err1 := net.ParseCIDR(a)
+	_, netB, err2 := net.ParseCIDR(b)
+
+	if err1 != nil || err2 != nil {
+		return false
+	}
+
+	return netA.Contains(netB.IP) || netB.Contains(netA.IP)
+}
+
+// cidrContains reports whether outer fully contains inner.
+func cidrContains(outer, inner string) bool {
+	_, outerNet, err1 := net.ParseCIDR(outer)
+	_, innerNet, err2 := net.ParseCIDR(inner)
+
+	if err1 != nil || err2 != nil {
+		return false
+	}
+
+	// outer must contain inner's base address and inner's broadcast address
+	ones1, _ := outerNet.Mask.Size()
+	ones2, _ := innerNet.Mask.Size()
+
+	return outerNet.Contains(innerNet.IP) && ones1 <= ones2
 }

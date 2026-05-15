@@ -118,11 +118,11 @@ func TestEC2Handler_PostForm(t *testing.T) {
 		{
 			name: "CreateSubnet",
 			body: "Action=CreateSubnet&Version=2016-11-15&VpcId=vpc-default&" +
-				"CidrBlock=10.0.1.0/24&AvailabilityZone=us-east-1b",
+				"CidrBlock=172.31.16.0/24&AvailabilityZone=us-east-1b",
 			wantCode: http.StatusOK,
 			wantContains: []string{
 				"CreateSubnetResponse",
-				"10.0.1.0/24",
+				"172.31.16.0/24",
 				"us-east-1b",
 			},
 		},
@@ -1092,7 +1092,7 @@ func TestEC2Handler_TagSpecification(t *testing.T) {
 			name: "create_subnet_with_tag_specification",
 			body: "Action=CreateSubnet&Version=2016-11-15" +
 				"&VpcId=vpc-default" +
-				"&CidrBlock=10.88.1.0/24" +
+				"&CidrBlock=172.31.32.0/24" +
 				"&TagSpecification.1.ResourceType=subnet" +
 				"&TagSpecification.1.Tag.1.Key=Name" +
 				"&TagSpecification.1.Tag.1.Value=my-tagged-subnet",

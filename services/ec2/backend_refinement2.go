@@ -18,7 +18,9 @@ type Snapshot struct {
 	Description string    `json:"description"`
 	State       string    `json:"state"`
 	Progress    string    `json:"progress"`
+	KmsKeyId    string    `json:"kmsKeyId,omitempty"`
 	VolumeSize  int       `json:"volumeSize"`
+	Encrypted   bool      `json:"encrypted"`
 }
 
 // NACLEntry represents a single NACL rule entry.
@@ -94,6 +96,8 @@ func (b *InMemoryBackend) CreateSnapshot(volumeID, description string) (*Snapsho
 		Progress:    "100%",
 		StartTime:   time.Now().UTC(),
 		VolumeSize:  vol.Size,
+		Encrypted:   vol.Encrypted,
+		KmsKeyId:    vol.KmsKeyId,
 	}
 	b.snapshots[snap.SnapshotID] = snap
 
@@ -249,7 +253,7 @@ func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, _ bool) er
 }
 
 // ModifySubnetAttribute enables or disables auto-assign public IP for a subnet.
-func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, _ bool) error {
+func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, value bool) error {
 	if subnetID == "" {
 		return fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
 	}
@@ -257,12 +261,16 @@ func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, _ bo
 	b.mu.Lock("ModifySubnetAttribute")
 	defer b.mu.Unlock()
 
-	if _, ok := b.subnets[subnetID]; !ok {
+	subnet, ok := b.subnets[subnetID]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
 	switch attribute {
-	case attrMapPublicIPOnLaunch, attrEnableResourceNameDNSARec:
+	case attrMapPublicIPOnLaunch:
+		subnet.MapPublicIpOnLaunch = value
+		return nil
+	case attrEnableResourceNameDNSARec:
 		return nil
 	default:
 		return fmt.Errorf("%w: unknown subnet attribute %q", ErrInvalidParameter, attribute)

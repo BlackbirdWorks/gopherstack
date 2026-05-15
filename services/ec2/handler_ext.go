@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // ---- XML response types for extended operations ----
@@ -140,7 +141,9 @@ type volumeItem struct {
 	VolumeType string          `xml:"volumeType"`
 	State      string          `xml:"status"`
 	CreateTime string          `xml:"createTime"`
+	KmsKeyId   string          `xml:"kmsKeyId,omitempty"`
 	Size       int             `xml:"size"`
+	Encrypted  bool            `xml:"encrypted"`
 }
 
 type attachmentItem struct {
@@ -171,7 +174,9 @@ type createVolumeResponse struct {
 	VolumeType string   `xml:"volumeType"`
 	State      string   `xml:"status"`
 	CreateTime string   `xml:"createTime"`
+	KmsKeyId   string   `xml:"kmsKeyId,omitempty"`
 	Size       int      `xml:"size"`
+	Encrypted  bool     `xml:"encrypted"`
 }
 
 type deleteVolumeResponse struct {
@@ -723,6 +728,8 @@ func toVolumeItem(vol *Volume) volumeItem {
 		VolumeType: vol.VolumeType,
 		State:      vol.State,
 		CreateTime: vol.CreateTime.Format("2006-01-02T15:04:05.000Z"),
+		Encrypted:  vol.Encrypted,
+		KmsKeyId:   vol.KmsKeyId,
 	}
 
 	if vol.Attachment != nil {
@@ -742,6 +749,8 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 	az := vals.Get("AvailabilityZone")
 	volType := vals.Get("VolumeType")
 	sizeStr := vals.Get("Size")
+	encryptedStr := vals.Get("Encrypted")
+	kmsKeyID := vals.Get("KmsKeyId")
 
 	size := 0
 	if sizeStr != "" {
@@ -754,6 +763,19 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
+	// Apply encryption if requested (gap 13).
+	if encryptedStr == ec2BooleanTrue {
+		if encErr := h.Backend.SetVolumeEncryption(vol.ID, true, kmsKeyID); encErr != nil {
+			return nil, encErr
+		}
+
+		vol.Encrypted = true
+		vol.KmsKeyId = kmsKeyID
+		if vol.KmsKeyId == "" {
+			vol.KmsKeyId = "alias/aws/ebs"
+		}
+	}
+
 	return &createVolumeResponse{
 		Xmlns:      ec2XMLNS,
 		RequestID:  reqID,
@@ -763,6 +785,8 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		VolumeType: vol.VolumeType,
 		State:      vol.State,
 		CreateTime: vol.CreateTime.Format("2006-01-02T15:04:05.000Z"),
+		Encrypted:  vol.Encrypted,
+		KmsKeyId:   vol.KmsKeyId,
 	}, nil
 }
 
@@ -1273,7 +1297,8 @@ func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string)
 }
 
 // parseIPPermissions parses EC2 IpPermissions from [url.Values].
-// Handles: IpPermissions.N.IpProtocol, .FromPort, .ToPort, .IpRanges.M.CidrIp.
+// Handles: IpPermissions.N.IpProtocol, .FromPort, .ToPort, .IpRanges.M.CidrIp,
+// and .Groups.M.GroupId (security-group source references, gap 6).
 func parseIPPermissions(vals url.Values) []SecurityGroupRule {
 	var rules []SecurityGroupRule
 
@@ -1304,6 +1329,23 @@ func parseIPPermissions(vals url.Values) []SecurityGroupRule {
 				FromPort: fromPort,
 				ToPort:   toPort,
 				IPRange:  cidr,
+			})
+		}
+
+		// Security-group source references (gap 6).
+		for j := 1; ; j++ {
+			srcGroupID := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.GroupId", i, j))
+			if srcGroupID == "" {
+				break
+			}
+
+			ownerID := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.UserId", i, j))
+			rules = append(rules, SecurityGroupRule{
+				Protocol:            proto,
+				FromPort:            fromPort,
+				ToPort:              toPort,
+				SourceGroupID:       srcGroupID,
+				SourceGroupOwnerID:  ownerID,
 			})
 		}
 	}
@@ -1697,8 +1739,14 @@ func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (
 		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
 	}
 
-	if instances := h.Backend.DescribeInstances([]string{instanceID}, ""); len(instances) == 0 {
-		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	// Determine which attribute is being set and its new value.
+	// AWS uses different value wrappers per attribute type.
+	attrName, attrValue := parseModifyInstanceAttributeValue(vals)
+
+	if attrName != "" {
+		if err := h.Backend.SetInstanceAttribute(instanceID, attrName, attrValue); err != nil {
+			return nil, err
+		}
 	}
 
 	return &modifyInstanceAttributeResponse{
@@ -1706,6 +1754,42 @@ func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (
 		RequestID: reqID,
 		Return:    true,
 	}, nil
+}
+
+// parseModifyInstanceAttributeValue extracts the (name, value) pair from a
+// ModifyInstanceAttribute request. AWS encodes different attributes differently:
+// boolean attrs use .Value, string attrs use .Value, userData uses base64.
+func parseModifyInstanceAttributeValue(vals url.Values) (name, value string) {
+	// Well-known attribute params ordered by specificity.
+	checks := []struct {
+		attr  string
+		param string
+	}{
+		{"instanceType", "InstanceType.Value"},
+		{"userData", "UserData.Value"},
+		{"enaSupport", "EnaSupport.Value"},
+		{"sriovNetSupport", "SriovNetSupport.Value"},
+		{"disableApiTermination", "DisableApiTermination.Value"},
+		{"disableApiStop", "DisableApiStop.Value"},
+		{"ebsOptimized", "EbsOptimized.Value"},
+		{"sourceDestCheck", "SourceDestCheck.Value"},
+		{"instanceInitiatedShutdownBehavior", "InstanceInitiatedShutdownBehavior.Value"},
+	}
+
+	for _, c := range checks {
+		if v := vals.Get(c.param); v != "" {
+			return c.attr, v
+		}
+	}
+
+	// Explicit Attribute= selector form.
+	if attr := vals.Get("Attribute"); attr != "" {
+		if v := vals.Get("Value"); v != "" {
+			return attr, v
+		}
+	}
+
+	return "", ""
 }
 
 type modifyInstanceAttributeResponse struct {
@@ -1791,11 +1875,23 @@ type cancelSpotInstanceRequestsResponse struct {
 	SpotInstanceRequestSet cancelledSpotSet `xml:"spotInstanceRequestSet"`
 }
 
+type spotPriceItem struct {
+	InstanceType       string `xml:"instanceType"`
+	AvailabilityZone   string `xml:"availabilityZone"`
+	ProductDescription string `xml:"productDescription"`
+	SpotPrice          string `xml:"spotPrice"`
+	Timestamp          string `xml:"timestamp"`
+}
+
+type spotPriceHistorySet struct {
+	Items []spotPriceItem `xml:"item"`
+}
+
 type describeSpotPriceHistoryResponse struct {
-	SpotPriceHistorySet struct{} `xml:"spotPriceHistorySet"`
-	XMLName             xml.Name `xml:"DescribeSpotPriceHistoryResponse"`
-	Xmlns               string   `xml:"xmlns,attr"`
-	RequestID           string   `xml:"requestId"`
+	XMLName             xml.Name            `xml:"DescribeSpotPriceHistoryResponse"`
+	Xmlns               string              `xml:"xmlns,attr"`
+	RequestID           string              `xml:"requestId"`
+	SpotPriceHistorySet spotPriceHistorySet `xml:"spotPriceHistorySet"`
 }
 
 func toSpotRequestItem(req *SpotInstanceRequest) spotInstanceRequestItem {
@@ -1880,12 +1976,34 @@ func (h *Handler) handleCancelSpotInstanceRequests(vals url.Values, reqID string
 	}, nil
 }
 
-// handleDescribeSpotPriceHistory returns an empty stub response.
-// Real spot price history is region/AZ/instance-type dependent and not modelled.
-func (h *Handler) handleDescribeSpotPriceHistory(_ url.Values, reqID string) (any, error) {
+// handleDescribeSpotPriceHistory returns deterministic spot price history.
+func (h *Handler) handleDescribeSpotPriceHistory(vals url.Values, reqID string) (any, error) {
+	instanceTypes := parseMemberList(vals, "InstanceType")
+	azs := parseMemberList(vals, "AvailabilityZone")
+	products := parseMemberList(vals, "ProductDescription")
+
+	var startTime time.Time
+	if v := vals.Get("StartTime"); v != "" {
+		_ = startTime.UnmarshalText([]byte(v))
+	}
+
+	records := GenerateSpotPriceHistory(instanceTypes, azs, products, startTime, h.Region)
+
+	items := make([]spotPriceItem, 0, len(records))
+	for _, r := range records {
+		items = append(items, spotPriceItem{
+			InstanceType:       r.InstanceType,
+			AvailabilityZone:   r.AvailabilityZone,
+			ProductDescription: r.ProductDescription,
+			SpotPrice:          r.SpotPrice,
+			Timestamp:          r.Timestamp.Format("2006-01-02T15:04:05.000Z"),
+		})
+	}
+
 	return &describeSpotPriceHistoryResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
+		Xmlns:               ec2XMLNS,
+		RequestID:           reqID,
+		SpotPriceHistorySet: spotPriceHistorySet{Items: items},
 	}, nil
 }
 

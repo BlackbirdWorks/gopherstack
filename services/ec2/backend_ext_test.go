@@ -2047,6 +2047,8 @@ func TestHandlerNewOperations(t *testing.T) {
 			name: "ModifyInstanceAttribute_success",
 			setupFn: func(h *ec2.Handler) string {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+				// instanceType requires stopped state.
+				_, _ = h.Backend.StopInstances([]string{instances[0].ID})
 
 				return fmt.Sprintf(
 					"Action=ModifyInstanceAttribute&Version=2016-11-15&InstanceId=%s&InstanceType.Value=t3.micro",
