@@ -21,6 +21,7 @@ const (
 	keyNamespace  = "Namespace"
 	keyMetricName = "MetricName"
 	keyName       = "Name"
+	keyValue      = "Value"
 )
 
 const cborServicePath = "/service/GraniteServiceVersion20100801/operation/"
@@ -396,6 +397,82 @@ func cborFromTime(t time.Time) cbor.Value {
 	return cbor.Tag{ID: 1, Value: cbor.Float64(float64(t.Unix()))}
 }
 
+// cborDimensions extracts a list of Dimension from the "Dimensions" key of a CBOR map.
+func cborDimensions(m cbor.Map) []Dimension {
+	listVal, ok := m["Dimensions"]
+	if !ok {
+		return nil
+	}
+	list, isList := listVal.(cbor.List)
+	if !isList {
+		return nil
+	}
+	dims := make([]Dimension, 0, len(list))
+	for _, item := range list {
+		dm, isMap := item.(cbor.Map)
+		if !isMap {
+			continue
+		}
+		name := cborStr(dm, keyName)
+		if name == "" {
+			continue
+		}
+		dims = append(dims, Dimension{Name: name, Value: cborStr(dm, keyValue)})
+	}
+
+	return dims
+}
+
+// cborDecodeDatum parses a single MetricDatum from a CBOR map.
+// StatisticValues takes precedence over Value when present.
+func cborDecodeDatum(m cbor.Map) MetricDatum {
+	ts := cborTime(m, "Timestamp")
+	dims := cborDimensions(m)
+	storageRes := cborInt32(m, "StorageResolution")
+	name := cborStr(m, keyMetricName)
+	unit := cborStr(m, "Unit")
+
+	if ssMap, ok := cborStatisticValues(m); ok {
+		return MetricDatum{
+			MetricName:        name,
+			Unit:              unit,
+			Timestamp:         ts,
+			Count:             cborFloat(ssMap, "SampleCount"),
+			Sum:               cborFloat(ssMap, "Sum"),
+			Min:               cborFloat(ssMap, "Minimum"),
+			Max:               cborFloat(ssMap, "Maximum"),
+			Dimensions:        dims,
+			StorageResolution: storageRes,
+		}
+	}
+
+	val := cborFloat(m, keyValue)
+
+	return MetricDatum{
+		MetricName:        name,
+		Value:             val,
+		Unit:              unit,
+		Timestamp:         ts,
+		Count:             1,
+		Sum:               val,
+		Min:               val,
+		Max:               val,
+		Dimensions:        dims,
+		StorageResolution: storageRes,
+	}
+}
+
+// cborStatisticValues returns the StatisticValues sub-map when present.
+func cborStatisticValues(m cbor.Map) (cbor.Map, bool) {
+	ssVal, hasSS := m["StatisticValues"]
+	if !hasSS {
+		return nil, false
+	}
+	ssMap, isSS := ssVal.(cbor.Map)
+
+	return ssMap, isSS
+}
+
 func (h *Handler) cborPutMetricData(input cbor.Map, c *echo.Context) error {
 	namespace := cborStr(input, keyNamespace)
 	if namespace == "" {
@@ -408,7 +485,6 @@ func (h *Handler) cborPutMetricData(input cbor.Map, c *echo.Context) error {
 	}
 
 	var data []MetricDatum
-
 	if listVal, hasData := input["MetricData"]; hasData {
 		if list, isList := listVal.(cbor.List); isList {
 			for _, item := range list {
@@ -416,28 +492,36 @@ func (h *Handler) cborPutMetricData(input cbor.Map, c *echo.Context) error {
 				if !isMap {
 					continue
 				}
-
-				val := cborFloat(m, "Value")
-				ts := cborTime(m, "Timestamp")
-				data = append(data, MetricDatum{
-					MetricName: cborStr(m, keyMetricName),
-					Value:      val,
-					Unit:       cborStr(m, "Unit"),
-					Timestamp:  ts,
-					Count:      1,
-					Sum:        val,
-					Min:        val,
-					Max:        val,
-				})
+				data = append(data, cborDecodeDatum(m))
 			}
 		}
 	}
 
-	if err := h.Backend.PutMetricData(namespace, data); err != nil {
+	unprocessed, err := h.Backend.PutMetricData(namespace, data)
+	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	return writeCBOR(c, cbor.Map{})
+	return writeCBOR(c, buildUnprocessedCBORResponse(unprocessed))
+}
+
+// buildUnprocessedCBORResponse constructs the CBOR response map for PutMetricData.
+func buildUnprocessedCBORResponse(unprocessed []UnprocessedMetricDatum) cbor.Map {
+	resp := cbor.Map{}
+	if len(unprocessed) == 0 {
+		return resp
+	}
+	uList := make(cbor.List, 0, len(unprocessed))
+	for _, u := range unprocessed {
+		uList = append(uList, cbor.Map{
+			"MetricName":   cbor.String(u.MetricName),
+			"ErrorCode":    cbor.String(u.ErrorCode),
+			"ErrorMessage": cbor.String(u.ErrorMessage),
+		})
+	}
+	resp["UnprocessedMetricData"] = uList
+
+	return resp
 }
 
 func (h *Handler) cborGetMetricStatistics(input cbor.Map, c *echo.Context) error {
@@ -451,12 +535,14 @@ func (h *Handler) cborGetMetricStatistics(input cbor.Map, c *echo.Context) error
 		period = 60
 	}
 
+	dimensions := cborDimensions(input)
 	statistics := cborStrList(input, "Statistics")
 	extendedStatistics := cborStrList(input, "ExtendedStatistics")
 
 	dps, err := h.Backend.GetMetricStatistics(
 		namespace,
 		metricName,
+		dimensions,
 		startTime,
 		endTime,
 		period,
@@ -516,6 +602,7 @@ func applyMetricStatToQuery(q *MetricDataQuery, msMap cbor.Map) {
 		if mMap, isMMap := mVal.(cbor.Map); isMMap {
 			q.MetricStat.Namespace = cborStr(mMap, keyNamespace)
 			q.MetricStat.MetricName = cborStr(mMap, keyMetricName)
+			q.MetricStat.Dimensions = cborDimensions(mMap)
 		}
 	}
 }
@@ -540,9 +627,20 @@ func parseMetricDataQueries(input cbor.Map) []MetricDataQuery {
 			continue
 		}
 
+		// ReturnData defaults to true; only suppress when caller explicitly passes false.
+		returnData := true
+		if rdVal, hasRD := m["ReturnData"]; hasRD {
+			if rdBool, isBool := rdVal.(cbor.Bool); isBool {
+				returnData = bool(rdBool)
+			}
+		}
+
 		q := MetricDataQuery{
-			ID:    cborStr(m, "Id"),
-			Label: cborStr(m, "Label"),
+			ID:         cborStr(m, "Id"),
+			Label:      cborStr(m, "Label"),
+			Expression: cborStr(m, "Expression"),
+			AccountID:  cborStr(m, "AccountId"),
+			ReturnData: returnData,
 		}
 
 		if msVal, hasMS := m["MetricStat"]; hasMS {
@@ -562,9 +660,16 @@ func parseMetricDataQueries(input cbor.Map) []MetricDataQuery {
 func (h *Handler) cborGetMetricData(input cbor.Map, c *echo.Context) error {
 	startTime := cborTime(input, "StartTime")
 	endTime := cborTime(input, "EndTime")
+	scanBy := cborStr(input, "ScanBy")
 	queries := parseMetricDataQueries(input)
 
-	results, err := h.Backend.GetMetricData(queries, startTime, endTime)
+	var results []MetricDataResult
+	var err error
+	if bk, ok := h.Backend.(*InMemoryBackend); ok {
+		results, err = bk.GetMetricDataWithOptions(queries, startTime, endTime, scanBy)
+	} else {
+		results, err = h.Backend.GetMetricData(queries, startTime, endTime)
+	}
 	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -601,8 +706,9 @@ func (h *Handler) cborListMetrics(input cbor.Map, c *echo.Context) error {
 	metricName := cborStr(input, keyMetricName)
 	nextToken := cborStr(input, "NextToken")
 	maxResults := int(cborInt32(input, "MaxResults"))
+	dimensions := cborDimensions(input)
 
-	p, err := h.Backend.ListMetrics(namespace, metricName, nextToken, maxResults)
+	p, err := h.Backend.ListMetrics(namespace, metricName, dimensions, nextToken, maxResults)
 	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -610,10 +716,21 @@ func (h *Handler) cborListMetrics(input cbor.Map, c *echo.Context) error {
 	mList := make(cbor.List, 0, len(p.Data))
 
 	for _, m := range p.Data {
-		mList = append(mList, cbor.Map{
+		mm := cbor.Map{
 			keyNamespace:  cbor.String(m.Namespace),
 			keyMetricName: cbor.String(m.MetricName),
-		})
+		}
+		if len(m.Dimensions) > 0 {
+			dimList := make(cbor.List, 0, len(m.Dimensions))
+			for _, d := range m.Dimensions {
+				dimList = append(dimList, cbor.Map{
+					keyName:  cbor.String(d.Name),
+					keyValue: cbor.String(d.Value),
+				})
+			}
+			mm["Dimensions"] = dimList
+		}
+		mList = append(mList, mm)
 	}
 
 	resp := cbor.Map{
@@ -755,8 +872,8 @@ func (h *Handler) cborListTagsForResource(input cbor.Map, c *echo.Context) error
 
 	for k, v := range tags {
 		tagList = append(tagList, cbor.Map{
-			"Key":   cbor.String(k),
-			"Value": cbor.String(v),
+			"Key":    cbor.String(k),
+			keyValue: cbor.String(v),
 		})
 	}
 
@@ -770,7 +887,7 @@ func (h *Handler) cborTagResource(input cbor.Map, c *echo.Context) error {
 		kv := make(map[string]string, len(tagList))
 		for _, item := range tagList {
 			if m, isMap := item.(cbor.Map); isMap {
-				kv[cborStr(m, "Key")] = cborStr(m, "Value")
+				kv[cborStr(m, "Key")] = cborStr(m, keyValue)
 			}
 		}
 		h.setTags(arn, kv)
@@ -852,8 +969,8 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 		dims := make(cbor.List, 0, len(a.Dimensions))
 		for _, d := range a.Dimensions {
 			dims = append(dims, cbor.Map{
-				keyName: cbor.String(d.Name),
-				"Value": cbor.String(d.Value),
+				keyName:  cbor.String(d.Name),
+				keyValue: cbor.String(d.Value),
 			})
 		}
 		m["Dimensions"] = dims
@@ -1306,6 +1423,33 @@ func (h *Handler) cborUpdateInsightRule(input cbor.Map, c *echo.Context) error {
 	return h.cborPutInsightRuleWithName(ruleName, input, c)
 }
 
+// cborMetricStreamFilters extracts a list of MetricStreamFilter from a CBOR map key.
+func cborMetricStreamFilters(input cbor.Map, key string) []MetricStreamFilter {
+	listVal, ok := input[key]
+	if !ok {
+		return nil
+	}
+	list, isList := listVal.(cbor.List)
+	if !isList {
+		return nil
+	}
+	filters := make([]MetricStreamFilter, 0, len(list))
+	for _, item := range list {
+		fm, isMap := item.(cbor.Map)
+		if !isMap {
+			continue
+		}
+		ns := cborStr(fm, keyNamespace)
+		if ns == "" {
+			continue
+		}
+		metricNames := cborStrList(fm, "MetricNames")
+		filters = append(filters, MetricStreamFilter{Namespace: ns, MetricNames: metricNames})
+	}
+
+	return filters
+}
+
 func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
 	name := cborStr(input, keyName)
 	if name == "" {
@@ -1313,11 +1457,13 @@ func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
 	}
 
 	if err := h.Backend.PutMetricStream(&MetricStream{
-		Name:         name,
-		FirehoseArn:  cborStr(input, "FirehoseArn"),
-		RoleArn:      cborStr(input, "RoleArn"),
-		OutputFormat: cborStr(input, "OutputFormat"),
-		State:        cborStr(input, keyState),
+		Name:           name,
+		FirehoseArn:    cborStr(input, "FirehoseArn"),
+		RoleArn:        cborStr(input, "RoleArn"),
+		OutputFormat:   cborStr(input, "OutputFormat"),
+		State:          cborStr(input, keyState),
+		IncludeFilters: cborMetricStreamFilters(input, "IncludeFilters"),
+		ExcludeFilters: cborMetricStreamFilters(input, "ExcludeFilters"),
 	}); err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}

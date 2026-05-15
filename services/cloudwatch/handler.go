@@ -87,6 +87,9 @@ const (
 
 const cloudwatchNS = "http://monitoring.amazonaws.com/doc/2010-08-01/"
 
+// formFalse is the string value "false" as submitted in form-encoded CloudWatch requests.
+const formFalse = "false"
+
 // Handler is the Echo HTTP service handler for CloudWatch operations.
 type Handler struct {
 	Backend StorageBackend
@@ -627,6 +630,8 @@ func writeXML(c *echo.Context, v any) error {
 }
 
 // parseMetricDataFromForm parses MetricData.member.N.* form values.
+// Supports both the Value field and the StatisticSet (pre-aggregated) path.
+// Also parses Dimensions and StorageResolution.
 func parseMetricDataFromForm(form url.Values) []MetricDatum {
 	var data []MetricDatum
 	for i := 1; ; i++ {
@@ -635,17 +640,53 @@ func parseMetricDataFromForm(form url.Values) []MetricDatum {
 		if name == "" {
 			return data
 		}
-		val, _ := strconv.ParseFloat(form.Get(prefix+"Value"), 64)
 		unit := form.Get(prefix + "Unit")
+
+		// Parse optional Timestamp (fall back to now).
+		ts := time.Now().UTC()
+		if tsStr := form.Get(prefix + "Timestamp"); tsStr != "" {
+			if t, err := time.Parse(time.RFC3339, tsStr); err == nil {
+				ts = t.UTC()
+			}
+		}
+
+		storageRes, _ := strconv.ParseInt(form.Get(prefix+"StorageResolution"), 10, 32)
+		dims := parseDimensionsFromForm(form, prefix+"Dimensions.")
+
+		// StatisticSet takes precedence over Value when present.
+		ssCount := form.Get(prefix + "StatisticValues.SampleCount")
+		if ssCount != "" {
+			count, _ := strconv.ParseFloat(ssCount, 64)
+			sum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Sum"), 64)
+			minimum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Minimum"), 64)
+			maximum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Maximum"), 64)
+			data = append(data, MetricDatum{
+				MetricName:        name,
+				Unit:              unit,
+				Timestamp:         ts,
+				Count:             count,
+				Sum:               sum,
+				Min:               minimum,
+				Max:               maximum,
+				Dimensions:        dims,
+				StorageResolution: int32(storageRes),
+			})
+
+			continue
+		}
+
+		val, _ := strconv.ParseFloat(form.Get(prefix+"Value"), 64)
 		data = append(data, MetricDatum{
-			MetricName: name,
-			Value:      val,
-			Unit:       unit,
-			Timestamp:  time.Now(),
-			Count:      1,
-			Sum:        val,
-			Min:        val,
-			Max:        val,
+			MetricName:        name,
+			Value:             val,
+			Unit:              unit,
+			Timestamp:         ts,
+			Count:             1,
+			Sum:               val,
+			Min:               val,
+			Max:               val,
+			Dimensions:        dims,
+			StorageResolution: int32(storageRes),
 		})
 	}
 }
@@ -737,16 +778,23 @@ func parseMetricDataQueriesFromForm(form url.Values) []MetricDataQuery {
 			period = 60
 		}
 
+		// ReturnData defaults to true; only set false when caller passes "false".
+		returnData := form.Get(prefix+"ReturnData") != formFalse
+
+		dims := parseDimensionsFromForm(form, prefix+"MetricStat.Metric.Dimensions.")
+
 		queries = append(queries, MetricDataQuery{
 			ID:         id,
 			Label:      form.Get(prefix + "Label"),
 			Expression: form.Get(prefix + "Expression"),
 			AccountID:  form.Get(prefix + "AccountId"),
+			ReturnData: returnData,
 			MetricStat: MetricStat{
 				Namespace:  form.Get(prefix + "MetricStat.Metric.Namespace"),
 				MetricName: form.Get(prefix + "MetricStat.Metric.MetricName"),
 				Stat:       form.Get(prefix + "MetricStat.Stat"),
 				Period:     int32(period),
+				Dimensions: dims,
 			},
 		})
 	}
@@ -763,17 +811,29 @@ func (h *Handler) handlePutMetricData(form url.Values, c *echo.Context) error {
 		)
 	}
 	data := parseMetricDataFromForm(form)
-	if err := h.Backend.PutMetricData(namespace, data); err != nil {
+	unprocessed, err := h.Backend.PutMetricData(namespace, data)
+	if err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	type unprocessedXML struct {
+		MetricName   string `xml:"MetricName"`
+		ErrorCode    string `xml:"ErrorCode"`
+		ErrorMessage string `xml:"ErrorMessage,omitempty"`
+	}
 	type response struct {
-		XMLName   xml.Name `xml:"PutMetricDataResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName            xml.Name         `xml:"PutMetricDataResponse"`
+		Xmlns              string           `xml:"xmlns,attr"`
+		RequestID          string           `xml:"ResponseMetadata>RequestId"`
+		UnprocessedMetrics []unprocessedXML `xml:"PutMetricDataResult>UnprocessedMetricData>member,omitempty"`
 	}
 
-	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+	resp := response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()}
+	for _, u := range unprocessed {
+		resp.UnprocessedMetrics = append(resp.UnprocessedMetrics, unprocessedXML(u))
+	}
+
+	return writeXML(c, resp)
 }
 
 func (h *Handler) handleGetMetricStatistics(form url.Values, c *echo.Context) error {
@@ -796,11 +856,13 @@ func (h *Handler) handleGetMetricStatistics(form url.Values, c *echo.Context) er
 		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "invalid Period")
 	}
 
+	dimensions := parseDimensionsFromForm(form, "Dimensions.")
 	statistics := parseMemberList(form, "Statistics.")
 	extendedStatistics := parseMemberList(form, "ExtendedStatistics.")
 	dps, berr := h.Backend.GetMetricStatistics(
 		namespace,
 		metricName,
+		dimensions,
 		startTime,
 		endTime,
 		int32(period),
@@ -859,8 +921,9 @@ func (h *Handler) handleListMetrics(form url.Values, c *echo.Context) error {
 	metricName := form.Get("MetricName")
 	nextToken := form.Get("NextToken")
 	maxResults, _ := strconv.Atoi(form.Get("MaxResults"))
+	dimensions := parseDimensionsFromForm(form, "Dimensions.")
 
-	p, err := h.Backend.ListMetrics(namespace, metricName, nextToken, maxResults)
+	p, err := h.Backend.ListMetrics(namespace, metricName, dimensions, nextToken, maxResults)
 	if err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -919,7 +982,7 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 	evalPeriods, _ := strconv.ParseInt(form.Get("EvaluationPeriods"), 10, 32)
 	datapointsToAlarm, _ := strconv.ParseInt(form.Get("DatapointsToAlarm"), 10, 32)
 	period, _ := strconv.ParseInt(form.Get("Period"), 10, 32)
-	actionsEnabled := form.Get("ActionsEnabled") != "false"
+	actionsEnabled := form.Get("ActionsEnabled") != formFalse
 
 	alarm := &MetricAlarm{
 		AlarmName:               alarmName,
@@ -1151,9 +1214,16 @@ func (h *Handler) handleGetMetricData(form url.Values, c *echo.Context) error {
 		endTime = time.Now().UTC()
 	}
 
+	scanBy := form.Get("ScanBy")
 	queries := parseMetricDataQueriesFromForm(form)
 
-	results, berr := h.Backend.GetMetricData(queries, startTime, endTime)
+	var results []MetricDataResult
+	var berr error
+	if bk, ok := h.Backend.(*InMemoryBackend); ok {
+		results, berr = bk.GetMetricDataWithOptions(queries, startTime, endTime, scanBy)
+	} else {
+		results, berr = h.Backend.GetMetricData(queries, startTime, endTime)
+	}
 	if berr != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", berr.Error())
 	}
@@ -1213,7 +1283,7 @@ func (h *Handler) handlePutCompositeAlarm(form url.Values, c *echo.Context) erro
 		)
 	}
 
-	actionsEnabled := form.Get("ActionsEnabled") != "false"
+	actionsEnabled := form.Get("ActionsEnabled") != formFalse
 
 	alarm := &CompositeAlarm{
 		AlarmName:               alarmName,
@@ -1986,6 +2056,27 @@ func (h *Handler) handleEnableInsightRules(form url.Values, c *echo.Context) err
 	})
 }
 
+// parseMetricStreamFiltersFromForm parses IncludeFilters.member.N.* or ExcludeFilters.member.N.* form values.
+func parseMetricStreamFiltersFromForm(form url.Values, listPrefix string) []MetricStreamFilter {
+	var filters []MetricStreamFilter
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("%smember.%d.", listPrefix, i)
+		ns := form.Get(prefix + "Namespace")
+		if ns == "" {
+			return filters
+		}
+		var metricNames []string
+		for j := 1; ; j++ {
+			mn := form.Get(fmt.Sprintf("%sMetricNames.member.%d", prefix, j))
+			if mn == "" {
+				break
+			}
+			metricNames = append(metricNames, mn)
+		}
+		filters = append(filters, MetricStreamFilter{Namespace: ns, MetricNames: metricNames})
+	}
+}
+
 func (h *Handler) putMetricStreamFromForm(form url.Values, c *echo.Context) error {
 	name := form.Get("Name")
 	if name == "" {
@@ -1993,11 +2084,13 @@ func (h *Handler) putMetricStreamFromForm(form url.Values, c *echo.Context) erro
 	}
 
 	if err := h.Backend.PutMetricStream(&MetricStream{
-		Name:         name,
-		FirehoseArn:  form.Get("FirehoseArn"),
-		RoleArn:      form.Get("RoleArn"),
-		OutputFormat: form.Get("OutputFormat"),
-		State:        form.Get("State"),
+		Name:           name,
+		FirehoseArn:    form.Get("FirehoseArn"),
+		RoleArn:        form.Get("RoleArn"),
+		OutputFormat:   form.Get("OutputFormat"),
+		State:          form.Get("State"),
+		IncludeFilters: parseMetricStreamFiltersFromForm(form, "IncludeFilters."),
+		ExcludeFilters: parseMetricStreamFiltersFromForm(form, "ExcludeFilters."),
 	}); err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -2407,7 +2500,8 @@ func (h *Handler) handleTestMetricFilter(_ url.Values, c *echo.Context) error {
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
-// handleGetInsightRuleReport is a stub that returns an empty report.
+// handleGetInsightRuleReport returns a contributor insights report by aggregating
+// metric data grouped by dimension values for the named rule's log group.
 func (h *Handler) handleGetInsightRuleReport(form url.Values, c *echo.Context) error {
 	ruleName := form.Get("RuleName")
 	if ruleName == "" {
@@ -2417,17 +2511,54 @@ func (h *Handler) handleGetInsightRuleReport(form url.Values, c *echo.Context) e
 		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 
+	maxContributors, _ := strconv.Atoi(form.Get("MaxContributorCount"))
+	if maxContributors <= 0 {
+		maxContributors = 10
+	}
+	orderBy := form.Get("OrderBy")
+	startStr := form.Get("StartTime")
+	endStr := form.Get("EndTime")
+
+	startTime := time.Now().UTC().Add(-time.Hour)
+	if t, err := time.Parse(time.RFC3339, startStr); err == nil {
+		startTime = t
+	}
+	endTime := time.Now().UTC()
+	if t, err := time.Parse(time.RFC3339, endStr); err == nil {
+		endTime = t
+	}
+
+	var contributors []AlarmContributor
+	if bk, ok := h.Backend.(*InMemoryBackend); ok {
+		bk.mu.RLock("GetInsightRuleReport")
+		var innerErr error
+		contributors, innerErr = bk.GetInsightRuleContributors(ruleName, startTime, endTime, maxContributors, orderBy)
+		bk.mu.RUnlock()
+		if innerErr != nil {
+			return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", innerErr.Error())
+		}
+	}
+
+	type keyXML struct {
+		Keys []string `xml:"Keys>member"`
+		Sum  float64  `xml:"ApproximateSum"`
+	}
 	type result struct {
-		Contributors struct{} `xml:"Contributors"`
+		Contributors []keyXML `xml:"Contributors>member"`
 	}
 	type response struct {
-		Result    result   `xml:"GetInsightRuleReportResult"`
 		XMLName   xml.Name `xml:"GetInsightRuleReportResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"GetInsightRuleReportResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+	resp := response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()}
+	for _, c := range contributors {
+		resp.Result.Contributors = append(resp.Result.Contributors, keyXML(c))
+	}
+
+	return writeXML(c, resp)
 }
 
 func (h *Handler) handleGetMetricWidgetImage(_ url.Values, c *echo.Context) error {
