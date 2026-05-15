@@ -91,14 +91,23 @@ type CreateServiceSpecificCredentialResponse struct {
 
 // ---- Virtual MFA Device types ----
 
+// MFA device status constants mirror AWS IAM virtual MFA device states.
+const (
+	MFAStatusNotAssigned = "not_assigned" // PENDING_ENABLE / unlinked
+	MFAStatusEnabled     = "Active"       // linked via EnableMFADevice
+	MFAStatusDeactivated = "Deactivated"  // unlinked via DeactivateMFADevice
+)
+
 // VirtualMFADevice represents an IAM virtual MFA device.
 type VirtualMFADevice struct {
 	CreateDate           time.Time `json:"CreateDate"`
 	SerialNumber         string    `json:"SerialNumber"`
 	VirtualMFADeviceName string    `json:"VirtualMFADeviceName"`
 	Path                 string    `json:"Path"`
-	Base32StringSeed     string    `json:"Base32StringSeed,omitempty"`
-	QRCodePNG            string    `json:"QRCodePNG,omitempty"`
+	// Status tracks the MFA device lifecycle: not_assigned → Active → Deactivated.
+	Status           string `json:"Status"`
+	Base32StringSeed string `json:"Base32StringSeed,omitempty"`
+	QRCodePNG        string `json:"QRCodePNG,omitempty"`
 }
 
 // VirtualMFADeviceXML is the XML representation of a virtual MFA device.

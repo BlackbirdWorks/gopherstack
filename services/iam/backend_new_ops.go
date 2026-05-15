@@ -240,6 +240,7 @@ func (b *InMemoryBackend) CreateVirtualMFADevice(virtualMFADeviceName, path stri
 		VirtualMFADeviceName: virtualMFADeviceName,
 		Path:                 p,
 		CreateDate:           time.Now().UTC(),
+		Status:               MFAStatusNotAssigned,
 	}
 
 	b.virtualMFADevices[serialNumber] = device
