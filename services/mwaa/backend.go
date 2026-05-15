@@ -97,6 +97,16 @@ func validAirflowVersions() map[string]struct{} {
 	}
 }
 
+// isLetter reports whether r is an ASCII letter.
+func isLetter(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+}
+
+// isValidEnvNameChar reports whether r is a valid non-first character for an MWAA environment name.
+func isValidEnvNameChar(r rune) bool {
+	return isLetter(r) || (r >= '0' && r <= '9') || r == '-' || r == '_'
+}
+
 // validateEnvironmentName enforces AWS MWAA naming rules for environment names:
 // 1-80 chars, must start with a letter, followed by alphanumeric/hyphen/underscore.
 func validateEnvironmentName(name string) error {
@@ -105,18 +115,12 @@ func validateEnvironmentName(name string) error {
 		return fmt.Errorf("%w: environment name must be 1-80 characters", ErrInvalidParameter)
 	}
 
-	r0 := rune(name[0])
-	if !((r0 >= 'a' && r0 <= 'z') || (r0 >= 'A' && r0 <= 'Z')) {
+	if !isLetter(rune(name[0])) {
 		return fmt.Errorf("%w: environment name must start with a letter", ErrInvalidParameter)
 	}
 
 	for _, r := range name[1:] {
-		switch {
-		case r >= 'a' && r <= 'z':
-		case r >= 'A' && r <= 'Z':
-		case r >= '0' && r <= '9':
-		case r == '-' || r == '_':
-		default:
+		if !isValidEnvNameChar(r) {
 			return fmt.Errorf(
 				"%w: environment name must contain only alphanumeric characters, hyphens, or underscores",
 				ErrInvalidParameter,
@@ -743,8 +747,8 @@ func (b *InMemoryBackend) UpdateEnvironment(name string, req *updateEnvironmentR
 	return env, nil
 }
 
-// validateUpdateRequest applies the same field-level rules as create where applicable.
-func validateUpdateRequest(req *updateEnvironmentRequest) error {
+// validateUpdateS3Paths validates the three optional S3 path/version pairs and maintenance window.
+func validateUpdateS3Paths(req *updateEnvironmentRequest) error {
 	if err := validateS3PathVersionPair("PluginsS3Path", req.PluginsS3Path, req.PluginsS3ObjectVersion); err != nil {
 		return err
 	}
@@ -767,6 +771,11 @@ func validateUpdateRequest(req *updateEnvironmentRequest) error {
 		}
 	}
 
+	return nil
+}
+
+// validateUpdateEnums validates enumerated fields that can be changed via UpdateEnvironment.
+func validateUpdateEnums(req *updateEnvironmentRequest) error {
 	if req.AirflowVersion != "" {
 		if _, ok := validAirflowVersions()[req.AirflowVersion]; !ok {
 			return fmt.Errorf("%w: unsupported AirflowVersion %q", ErrInvalidParameter, req.AirflowVersion)
@@ -788,12 +797,13 @@ func validateUpdateRequest(req *updateEnvironmentRequest) error {
 		)
 	}
 
+	return validateWorkerReplacementStrategy(req.WorkerReplacementStrategy)
+}
+
+// validateUpdateSizing validates sizing fields for UpdateEnvironment.
+func validateUpdateSizing(req *updateEnvironmentRequest) error {
 	if req.MaxWorkers != 0 && req.MaxWorkers > maxWorkersAllowed {
 		return fmt.Errorf("%w: MaxWorkers cannot exceed %d", ErrInvalidParameter, maxWorkersAllowed)
-	}
-
-	if err := validateWorkerReplacementStrategy(req.WorkerReplacementStrategy); err != nil {
-		return err
 	}
 
 	if req.MaxWebservers != 0 || req.MinWebservers != 0 {
@@ -809,6 +819,19 @@ func validateUpdateRequest(req *updateEnvironmentRequest) error {
 	}
 
 	return nil
+}
+
+// validateUpdateRequest applies the same field-level rules as create where applicable.
+func validateUpdateRequest(req *updateEnvironmentRequest) error {
+	if err := validateUpdateS3Paths(req); err != nil {
+		return err
+	}
+
+	if err := validateUpdateEnums(req); err != nil {
+		return err
+	}
+
+	return validateUpdateSizing(req)
 }
 
 // applyUpdateScalars applies basic scalar field updates from req to env in place.

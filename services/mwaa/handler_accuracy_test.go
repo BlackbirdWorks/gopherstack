@@ -166,7 +166,6 @@ func TestAccuracy_AirflowVersion_SupportedVersions(t *testing.T) {
 	}
 
 	for _, v := range supported {
-		v := v
 		t.Run("version_"+strings.ReplaceAll(v, ".", "_"), func(t *testing.T) {
 			t.Parallel()
 
@@ -192,7 +191,6 @@ func TestAccuracy_AirflowVersion_UnsupportedVersions(t *testing.T) {
 	}
 
 	for _, v := range unsupported {
-		v := v
 		t.Run("version_"+strings.ReplaceAll(v, ".", "_"), func(t *testing.T) {
 			t.Parallel()
 
@@ -461,7 +459,6 @@ func TestAccuracy_WorkerReplacementStrategy_InvalidValues(t *testing.T) {
 	}
 
 	for _, strategy := range tests {
-		strategy := strategy
 		t.Run(strategy, func(t *testing.T) {
 			t.Parallel()
 
@@ -764,7 +761,6 @@ func TestAccuracy_UpdateEnvironmentClass_ValidClasses(t *testing.T) {
 	}
 
 	for _, cls := range classes {
-		cls := cls
 		t.Run(cls, func(t *testing.T) {
 			t.Parallel()
 
@@ -788,7 +784,6 @@ func TestAccuracy_UpdateEnvironmentClass_InvalidClass(t *testing.T) {
 	}
 
 	for _, cls := range tests {
-		cls := cls
 		t.Run(cls, func(t *testing.T) {
 			t.Parallel()
 
@@ -1116,7 +1111,6 @@ func TestAccuracy_EnvironmentName_AllSupportedSpecialChars(t *testing.T) {
 	}
 
 	for _, name := range validNames {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
