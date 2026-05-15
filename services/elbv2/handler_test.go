@@ -6061,10 +6061,10 @@ func TestSetSecurityGroupsNLBRejected(t *testing.T) {
 	lbArn := mustCreateNLB(t, h, "nlb-sg-reject")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                    {"SetSecurityGroups"},
-		"Version":                   {"2015-12-01"},
-		"LoadBalancerArn":           {lbArn},
-		"SecurityGroups.member.1":   {"sg-12345"},
+		"Action":                  {"SetSecurityGroups"},
+		"Version":                 {"2015-12-01"},
+		"LoadBalancerArn":         {lbArn},
+		"SecurityGroups.member.1": {"sg-12345"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -6078,14 +6078,14 @@ func TestHTTPSListenerDefaultSSLPolicy(t *testing.T) {
 	tgArn := mustCreateTG(t, h, "https-ssl-policy-tg")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                                    {"CreateListener"},
-		"Version":                                   {"2015-12-01"},
-		"LoadBalancerArn":                           {lbArn},
-		"Protocol":                                  {"HTTPS"},
-		"Port":                                      {"443"},
-		"Certificates.member.1.CertificateArn":      {"arn:aws:acm:us-east-1:123456789012:certificate/test"},
-		"DefaultActions.member.1.Type":              {"forward"},
-		"DefaultActions.member.1.TargetGroupArn":    {tgArn},
+		"Action":                                 {"CreateListener"},
+		"Version":                                {"2015-12-01"},
+		"LoadBalancerArn":                        {lbArn},
+		"Protocol":                               {"HTTPS"},
+		"Port":                                   {"443"},
+		"Certificates.member.1.CertificateArn":   {"arn:aws:acm:us-east-1:123456789012:certificate/test"},
+		"DefaultActions.member.1.Type":           {"forward"},
+		"DefaultActions.member.1.TargetGroupArn": {tgArn},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -6178,9 +6178,9 @@ func TestDescribeListenersNotFound(t *testing.T) {
 	fakeArn := "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/fake/0000000000000000/00000001"
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                  {"DescribeListeners"},
-		"Version":                 {"2015-12-01"},
-		"ListenerArns.member.1":   {fakeArn},
+		"Action":                {"DescribeListeners"},
+		"Version":               {"2015-12-01"},
+		"ListenerArns.member.1": {fakeArn},
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -6398,8 +6398,8 @@ func TestDescribeListenersPagination(t *testing.T) {
 			NextMarker string `xml:"NextMarker"`
 			Listeners  struct {
 				Members []struct {
-					Port        int32  `xml:"Port"`
 					ListenerArn string `xml:"ListenerArn"`
+					Port        int32  `xml:"Port"`
 				} `xml:"member"`
 			} `xml:"Listeners"`
 		} `xml:"DescribeListenersResult"`

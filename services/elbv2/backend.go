@@ -675,6 +675,26 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	return &cp, nil
 }
 
+// checkAllArnsFound returns ErrLoadBalancerNotFound if any of the queried ARNs are absent from result.
+func checkAllArnsFound(arns []string, result []LoadBalancer) error {
+	for _, a := range arns {
+		found := false
+		for _, lb := range result {
+			if lb.LoadBalancerArn == a {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return ErrLoadBalancerNotFound
+		}
+	}
+
+	return nil
+}
+
 // DescribeLoadBalancers returns load balancers filtered by ARNs and/or names.
 // The returned LoadBalancer values contain a Tags pointer that is backend-owned; callers must treat it as read-only.
 func (b *InMemoryBackend) DescribeLoadBalancers(arns []string, names []string) ([]LoadBalancer, error) {
@@ -709,21 +729,9 @@ func (b *InMemoryBackend) DescribeLoadBalancers(arns []string, names []string) (
 		return result[i].LoadBalancerName < result[j].LoadBalancerName
 	})
 
-	// Return error if specific ARNs were requested but not all found.
 	if len(arns) > 0 {
-		for _, a := range arns {
-			found := false
-			for _, lb := range result {
-				if lb.LoadBalancerArn == a {
-					found = true
-
-					break
-				}
-			}
-
-			if !found {
-				return nil, ErrLoadBalancerNotFound
-			}
+		if err := checkAllArnsFound(arns, result); err != nil {
+			return nil, err
 		}
 	}
 
@@ -794,7 +802,10 @@ func (b *InMemoryBackend) SetSecurityGroups(lbArn string, sgs []string) (*LoadBa
 	}
 
 	if lb.Type != lbTypeApplication {
-		return nil, fmt.Errorf("%w: security groups cannot be associated with Network or Gateway Load Balancers", ErrInvalidConfigurationRequest)
+		return nil, fmt.Errorf(
+			"%w: security groups cannot be associated with Network or Gateway Load Balancers",
+			ErrInvalidConfigurationRequest,
+		)
 	}
 
 	lb.SecurityGroups = sgs
@@ -948,27 +959,27 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 // albDefaultAttributes returns the default attributes map for an Application Load Balancer.
 func albDefaultAttributes() map[string]string {
 	return map[string]string{
-		attrAccessLogsS3Enabled:           attrValueFalse,
-		attrDeletionProtectionEnabled:     attrValueFalse,
-		attrCrossZoneLoadBalancingEnabled: attrValueTrue,
-		"idle_timeout.timeout_seconds":                                       "60",
-		"routing.http2.enabled":                                              attrValueTrue,
-		"routing.http.desync_mitigation_mode":                                "defensive",
-		"routing.http.drop_invalid_header_fields.enabled":                    attrValueFalse,
-		"routing.http.preserve_host_header.enabled":                          attrValueFalse,
-		"routing.http.xff_client_port.enabled":                               attrValueFalse,
-		"routing.http.xff_header_processing.mode":                            "append",
-		"waf.fail_open.enabled":                                              attrValueFalse,
-		"routing.http.response.server.enabled":                               attrValueTrue,
-		"routing.http.response.strict_transport_security.enabled":            attrValueFalse,
-		"routing.http.response.access_control_allow_origin.header_value":     "",
-		"routing.http.response.access_control_allow_methods.header_value":    "",
-		"routing.http.response.access_control_allow_headers.header_value":    "",
-		"routing.http.response.access_control_expose_headers.header_value":   "",
-		"routing.http.response.access_control_max_age.header_value":          "",
-		"routing.http.response.content_security_policy.header_value":         "",
-		"routing.http.response.x_content_type_options.header_value":          "",
-		"routing.http.response.x_frame_options.header_value":                 "",
+		attrAccessLogsS3Enabled:                                            attrValueFalse,
+		attrDeletionProtectionEnabled:                                      attrValueFalse,
+		attrCrossZoneLoadBalancingEnabled:                                  attrValueTrue,
+		"idle_timeout.timeout_seconds":                                     "60",
+		"routing.http2.enabled":                                            attrValueTrue,
+		"routing.http.desync_mitigation_mode":                              "defensive",
+		"routing.http.drop_invalid_header_fields.enabled":                  attrValueFalse,
+		"routing.http.preserve_host_header.enabled":                        attrValueFalse,
+		"routing.http.xff_client_port.enabled":                             attrValueFalse,
+		"routing.http.xff_header_processing.mode":                          "append",
+		"waf.fail_open.enabled":                                            attrValueFalse,
+		"routing.http.response.server.enabled":                             attrValueTrue,
+		"routing.http.response.strict_transport_security.enabled":          attrValueFalse,
+		"routing.http.response.access_control_allow_origin.header_value":   "",
+		"routing.http.response.access_control_allow_methods.header_value":  "",
+		"routing.http.response.access_control_allow_headers.header_value":  "",
+		"routing.http.response.access_control_expose_headers.header_value": "",
+		"routing.http.response.access_control_max_age.header_value":        "",
+		"routing.http.response.content_security_policy.header_value":       "",
+		"routing.http.response.x_content_type_options.header_value":        "",
+		"routing.http.response.x_frame_options.header_value":               "",
 	}
 }
 
@@ -1301,8 +1312,8 @@ const (
 	priorityDefault   = "default"
 	maxNameLength     = 32
 
-	attrAccessLogsS3Enabled          = "access_logs.s3.enabled"
-	attrDeletionProtectionEnabled    = "deletion_protection.enabled"
+	attrAccessLogsS3Enabled           = "access_logs.s3.enabled"
+	attrDeletionProtectionEnabled     = "deletion_protection.enabled"
 	attrCrossZoneLoadBalancingEnabled = "load_balancing.cross_zone.enabled"
 )
 
@@ -1486,25 +1497,33 @@ func (b *InMemoryBackend) DescribeListeners(lbArn string, listenerArns []string)
 		return result[i].Port < result[j].Port
 	})
 
-	// Return error if specific ARNs were requested but not all found.
 	if len(listenerArns) > 0 {
-		for _, a := range listenerArns {
-			found := false
-			for _, l := range result {
-				if l.ListenerArn == a {
-					found = true
-
-					break
-				}
-			}
-
-			if !found {
-				return nil, ErrListenerNotFound
-			}
+		if err := checkAllListenerArnsFound(listenerArns, result); err != nil {
+			return nil, err
 		}
 	}
 
 	return result, nil
+}
+
+// checkAllListenerArnsFound returns ErrListenerNotFound if any queried ARN is absent from result.
+func checkAllListenerArnsFound(arns []string, result []Listener) error {
+	for _, a := range arns {
+		found := false
+		for _, l := range result {
+			if l.ListenerArn == a {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return ErrListenerNotFound
+		}
+	}
+
+	return nil
 }
 
 // DeleteListener deletes a listener by ARN.
