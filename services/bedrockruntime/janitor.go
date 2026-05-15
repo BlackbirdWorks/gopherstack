@@ -11,9 +11,13 @@ import (
 const (
 	// defaultAsyncInvokeRetention is how long completed/failed async invocations are kept.
 	defaultAsyncInvokeRetention = 24 * time.Hour
+
+	// defaultAsyncInvokeCompletionDelay is how long an async invocation stays InProgress
+	// before the janitor advances it to Completed.
+	defaultAsyncInvokeCompletionDelay = 5 * time.Second
 )
 
-// RunJanitor periodically cleans up old async invocations and their idempotency tokens.
+// RunJanitor periodically cleans up old async invocations and advances InProgress ones.
 func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -23,9 +27,41 @@ func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			b.advanceAsyncInvokes(ctx)
 			b.sweepOldInvocations(ctx)
 		}
 	}
+}
+
+// advanceAsyncInvokes moves InProgress invocations to Completed once the completion delay elapses.
+func (b *InMemoryBackend) advanceAsyncInvokes(ctx context.Context) {
+	b.mu.Lock("advanceAsyncInvokes")
+	defer b.mu.Unlock()
+
+	now := time.Now()
+	advancedCount := 0
+
+	for _, inv := range b.asyncInvokes {
+		if inv.Status != AsyncInvokeStatusInProgress {
+			continue
+		}
+
+		if now.Sub(inv.SubmitTime) >= defaultAsyncInvokeCompletionDelay {
+			endTime := now.UTC()
+			inv.Status = AsyncInvokeStatusCompleted
+			inv.EndTime = &endTime
+			inv.LastModifiedTime = now.UTC()
+			advancedCount++
+		}
+	}
+
+	if advancedCount > 0 {
+		telemetry.RecordWorkerItems("bedrockruntime", "AsyncInvokeAdvancer", advancedCount)
+		logger.Load(ctx).DebugContext(ctx, "BedrockRuntime janitor: advanced async invocations",
+			"count", advancedCount)
+	}
+
+	telemetry.RecordWorkerTask("bedrockruntime", "AsyncInvokeAdvancer", "success")
 }
 
 func (b *InMemoryBackend) sweepOldInvocations(ctx context.Context) {

@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	bedrocksvc "github.com/aws/aws-sdk-go-v2/service/bedrock"
@@ -174,6 +175,18 @@ func TestIntegration_Bedrock_ProvisionedModelThroughput(t *testing.T) {
 				require.NotNil(t, createOut.ProvisionedModelArn)
 				pmtARN := aws.ToString(createOut.ProvisionedModelArn)
 				assert.NotEmpty(t, pmtARN)
+
+				// PMT starts as "Creating"; janitor advances to "InService" within ~5s.
+				require.Eventually(t, func() bool {
+					out, getErr := client.GetProvisionedModelThroughput(
+						ctx,
+						&bedrocksvc.GetProvisionedModelThroughputInput{
+							ProvisionedModelId: aws.String(pmtARN),
+						},
+					)
+
+					return getErr == nil && string(out.Status) == "InService"
+				}, 10*time.Second, 500*time.Millisecond, "PMT should reach InService status")
 
 				getOut, err := client.GetProvisionedModelThroughput(ctx, &bedrocksvc.GetProvisionedModelThroughputInput{
 					ProvisionedModelId: aws.String(pmtARN),
