@@ -30,6 +30,8 @@ const (
 	mockDestination              = "mock"
 	keyConfirmationCode          = "ConfirmationCode"
 	authTypeBearer               = "Bearer"
+	authFlowRefreshToken         = "REFRESH_TOKEN"
+	authFlowRefreshTokenAuth     = "REFRESH_TOKEN_AUTH"
 )
 
 const (
@@ -836,8 +838,8 @@ func authOutputFromResult(result *AuthResult) *authOutput {
 }
 
 func (h *Handler) handleInitiateAuth(_ context.Context, in *authInput) (*authOutput, error) {
-	if in.AuthFlow == "REFRESH_TOKEN_AUTH" || in.AuthFlow == "REFRESH_TOKEN" {
-		refreshToken := in.AuthParameters["REFRESH_TOKEN"]
+	if in.AuthFlow == authFlowRefreshTokenAuth || in.AuthFlow == authFlowRefreshToken {
+		refreshToken := in.AuthParameters[authFlowRefreshToken]
 		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
 		if err != nil {
 			return nil, err
@@ -868,8 +870,8 @@ func (h *Handler) handleInitiateAuth(_ context.Context, in *authInput) (*authOut
 }
 
 func (h *Handler) handleAdminInitiateAuth(_ context.Context, in *authInput) (*authOutput, error) {
-	if in.AuthFlow == "REFRESH_TOKEN_AUTH" || in.AuthFlow == "REFRESH_TOKEN" {
-		refreshToken := in.AuthParameters["REFRESH_TOKEN"]
+	if in.AuthFlow == authFlowRefreshTokenAuth || in.AuthFlow == authFlowRefreshToken {
+		refreshToken := in.AuthParameters[authFlowRefreshToken]
 		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
 		if err != nil {
 			return nil, err

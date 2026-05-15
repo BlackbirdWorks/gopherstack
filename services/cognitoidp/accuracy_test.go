@@ -1350,7 +1350,9 @@ func TestHandler_SecretHash_InitiateAuth_Via_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, poolRec.Code)
 
 	var poolResp struct {
-		UserPool struct{ ID string `json:"Id"` } `json:"UserPool"`
+		UserPool struct {
+			ID string `json:"Id"`
+		} `json:"UserPool"`
 	}
 	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
 	poolID := poolResp.UserPool.ID

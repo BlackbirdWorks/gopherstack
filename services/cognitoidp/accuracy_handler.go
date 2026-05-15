@@ -988,8 +988,8 @@ func (h *Handler) handleInitiateAuthAccurate(
 		return nil, err
 	}
 
-	if in.AuthFlow == "REFRESH_TOKEN_AUTH" || in.AuthFlow == "REFRESH_TOKEN" {
-		refreshToken := in.AuthParameters["REFRESH_TOKEN"]
+	if in.AuthFlow == authFlowRefreshTokenAuth || in.AuthFlow == authFlowRefreshToken {
+		refreshToken := in.AuthParameters[authFlowRefreshToken]
 
 		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
 		if err != nil {
@@ -1032,8 +1032,8 @@ func (h *Handler) handleAdminInitiateAuthAccurate(
 		return nil, err
 	}
 
-	if in.AuthFlow == "REFRESH_TOKEN_AUTH" || in.AuthFlow == "REFRESH_TOKEN" {
-		refreshToken := in.AuthParameters["REFRESH_TOKEN"]
+	if in.AuthFlow == authFlowRefreshTokenAuth || in.AuthFlow == authFlowRefreshToken {
+		refreshToken := in.AuthParameters[authFlowRefreshToken]
 
 		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
 		if err != nil {
