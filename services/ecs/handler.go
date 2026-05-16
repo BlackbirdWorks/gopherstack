@@ -1198,6 +1198,7 @@ type serviceView struct {
 	CapacityProviderStrategy    []cpStrategyItemInput            `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints        []placementConstraintView        `json:"placementConstraints,omitempty"`
 	PlacementStrategy           []placementStrategyView          `json:"placementStrategy,omitempty"`
+	Deployments                 []deploymentView                 `json:"deployments,omitempty"`
 	Tags                        []Tag                            `json:"tags,omitempty"`
 	CreatedAt                   float64                          `json:"createdAt"`
 	DesiredCount                int                              `json:"desiredCount"`
@@ -1249,6 +1250,10 @@ func toServiceView(s Service) serviceView {
 		v.PlacementStrategy = append(v.PlacementStrategy, placementStrategyView(ps))
 	}
 
+	for _, d := range s.Deployments {
+		v.Deployments = append(v.Deployments, deploymentView(d))
+	}
+
 	return v
 }
 
@@ -1281,6 +1286,57 @@ type taskOverrideView struct {
 	ContainerOverrides []containerOverrideView `json:"containerOverrides,omitempty"`
 }
 
+// containerNetworkInterfaceView is the handler view of a container's network interface.
+type containerNetworkInterfaceView struct {
+	AttachmentID       string `json:"attachmentId,omitempty"`
+	PrivateIpv4Address string `json:"privateIpv4Address,omitempty"`
+	Ipv6Address        string `json:"ipv6Address,omitempty"`
+}
+
+// containerNetworkBindingView is the handler view of a container's port binding.
+type containerNetworkBindingView struct {
+	BindIP        string `json:"bindIP,omitempty"`
+	Protocol      string `json:"protocol,omitempty"`
+	ContainerPort int    `json:"containerPort,omitempty"`
+	HostPort      int    `json:"hostPort,omitempty"`
+}
+
+// containerView is the handler view of a runtime container within a task.
+type containerView struct {
+	ContainerArn      string                          `json:"containerArn,omitempty"`
+	TaskArn           string                          `json:"taskArn,omitempty"`
+	Name              string                          `json:"name"`
+	Image             string                          `json:"image,omitempty"`
+	ImageDigest       string                          `json:"imageDigest,omitempty"`
+	RuntimeID         string                          `json:"runtimeId,omitempty"`
+	LastStatus        string                          `json:"lastStatus"`
+	HealthStatus      string                          `json:"healthStatus,omitempty"`
+	CPU               string                          `json:"cpu,omitempty"`
+	Memory            string                          `json:"memory,omitempty"`
+	MemoryReservation string                          `json:"memoryReservation,omitempty"`
+	Reason            string                          `json:"reason,omitempty"`
+	ExitCode          *int                            `json:"exitCode,omitempty"`
+	NetworkInterfaces []containerNetworkInterfaceView `json:"networkInterfaces,omitempty"`
+	NetworkBindings   []containerNetworkBindingView   `json:"networkBindings,omitempty"`
+}
+
+// deploymentView is the handler view of a service deployment record.
+type deploymentView struct {
+	CreatedAt          *float64 `json:"createdAt,omitempty"`
+	UpdatedAt          *float64 `json:"updatedAt,omitempty"`
+	ID                 string   `json:"id"`
+	Status             string   `json:"status"`
+	TaskDefinition     string   `json:"taskDefinition"`
+	LaunchType         string   `json:"launchType,omitempty"`
+	PlatformVersion    string   `json:"platformVersion,omitempty"`
+	RolloutState       string   `json:"rolloutState,omitempty"`
+	RolloutStateReason string   `json:"rolloutStateReason,omitempty"`
+	DesiredCount       int      `json:"desiredCount"`
+	PendingCount       int      `json:"pendingCount"`
+	RunningCount       int      `json:"runningCount"`
+	FailedTasks        int      `json:"failedTasks"`
+}
+
 type taskView struct {
 	Overrides            *taskOverrideView         `json:"overrides,omitempty"`
 	NetworkConfiguration *networkConfigurationView `json:"networkConfiguration,omitempty"`
@@ -1300,6 +1356,8 @@ type taskView struct {
 	RuntimeID            string                    `json:"runtimeId,omitempty"`
 	PropagateTags        string                    `json:"propagateTags,omitempty"`
 	Attachments          []taskAttachmentView      `json:"attachments,omitempty"`
+	Containers           []containerView           `json:"containers,omitempty"`
+	Tags                 []Tag                     `json:"tags,omitempty"`
 	StartedAt            float64                   `json:"startedAt,omitempty"`
 	StoppedAt            float64                   `json:"stoppedAt,omitempty"`
 	ConnectivityAt       float64                   `json:"connectivityAt,omitempty"`
@@ -1322,6 +1380,7 @@ func toTaskView(t Task) taskView {
 		PlatformFamily:       t.PlatformFamily,
 		RuntimeID:            t.RuntimeID,
 		PropagateTags:        t.PropagateTags,
+		Tags:                 t.Tags,
 		Overrides:            toTaskOverrideView(t.Overrides),
 		NetworkConfiguration: toNetworkConfigurationView(t.NetworkConfiguration),
 	}
@@ -1338,6 +1397,34 @@ func toTaskView(t Task) taskView {
 			Status:  a.Status,
 			Details: details,
 		})
+	}
+
+	for _, c := range t.Containers {
+		cv := containerView{
+			ContainerArn:      c.ContainerArn,
+			TaskArn:           c.TaskArn,
+			Name:              c.Name,
+			Image:             c.Image,
+			ImageDigest:       c.ImageDigest,
+			RuntimeID:         c.RuntimeID,
+			LastStatus:        c.LastStatus,
+			HealthStatus:      c.HealthStatus,
+			CPU:               c.CPU,
+			Memory:            c.Memory,
+			MemoryReservation: c.MemoryReservation,
+			Reason:            c.Reason,
+			ExitCode:          c.ExitCode,
+		}
+
+		for _, ni := range c.NetworkInterfaces {
+			cv.NetworkInterfaces = append(cv.NetworkInterfaces, containerNetworkInterfaceView(ni))
+		}
+
+		for _, nb := range c.NetworkBindings {
+			cv.NetworkBindings = append(cv.NetworkBindings, containerNetworkBindingView(nb))
+		}
+
+		v.Containers = append(v.Containers, cv)
 	}
 
 	if t.StartedAt != nil {
