@@ -42,14 +42,14 @@ type StorageBackend interface {
 	CreateThingType(input *CreateThingTypeInput) (*ThingType, error)
 	DescribeThingType(thingTypeName string) (*ThingType, error)
 	ListThingTypes() []*ThingType
-	DeprecateThingType(thingTypeName string) error
+	DeprecateThingType(input *DeprecateThingTypeInput) error
 	DeleteThingType(thingTypeName string) error
 
 	// ThingGroup operations.
 	CreateThingGroup(input *CreateThingGroupInput) (*ThingGroup, error)
 	DescribeThingGroup(thingGroupName string) (*ThingGroup, error)
 	ListThingGroups() []*ThingGroup
-	UpdateThingGroup(input *UpdateThingGroupInput) error
+	UpdateThingGroup(input *UpdateThingGroupInput) (int64, error)
 	DeleteThingGroup(thingGroupName string) error
 	RemoveThingFromThingGroup(input *RemoveThingFromThingGroupInput) error
 	ListThingsInThingGroup(input *ListThingsInThingGroupInput) ([]string, error)
