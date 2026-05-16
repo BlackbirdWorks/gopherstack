@@ -309,61 +309,57 @@ func validatePutParameterInput(input *PutParameterInput) error {
 }
 
 // validateAndPreparePutParameter runs all pre-lock validations and returns resolved tier and dataType.
-func validateAndPreparePutParameter(input *PutParameterInput) (tier, dataType string, err error) {
-	if err = validateParameterName(input.Name); err != nil {
-		return
+func validateAndPreparePutParameter(input *PutParameterInput) (string, string, error) {
+	if err := validateParameterName(input.Name); err != nil {
+		return "", "", err
 	}
 
-	if err = validatePutParameterInput(input); err != nil {
-		return
+	if err := validatePutParameterInput(input); err != nil {
+		return "", "", err
 	}
 
 	maxBytes := maxValueBytesForTier(input.Tier)
 	if len(input.Value) > maxBytes {
-		err = fmt.Errorf("%w: parameter value exceeds %d bytes for tier %q",
+		return "", "", fmt.Errorf("%w: parameter value exceeds %d bytes for tier %q",
 			ErrValidationException, maxBytes, input.Tier)
-		return
 	}
 
 	if input.KeyID != "" && input.Type == SecureStringType {
-		if err = validateKMSKeyID(input.KeyID); err != nil {
-			return
+		if err := validateKMSKeyID(input.KeyID); err != nil {
+			return "", "", err
 		}
 	}
 
-	if err = validateDataType(input.DataType); err != nil {
-		return
+	if err := validateDataType(input.DataType); err != nil {
+		return "", "", err
 	}
 
 	if input.AllowedPattern != "" {
-		var re *regexp.Regexp
-		re, err = regexp.Compile(input.AllowedPattern)
-		if err != nil {
-			err = fmt.Errorf("%w: AllowedPattern is not a valid regex: %s",
-				ErrValidationException, err.Error())
-			return
+		re, reErr := regexp.Compile(input.AllowedPattern)
+		if reErr != nil {
+			return "", "", fmt.Errorf("%w: AllowedPattern is not a valid regex: %s",
+				ErrValidationException, reErr.Error())
 		}
 
 		if !re.MatchString(input.Value) {
-			err = fmt.Errorf(
+			return "", "", fmt.Errorf(
 				"%w: parameter value does not match AllowedPattern %q",
 				ErrValidationException, input.AllowedPattern,
 			)
-			return
 		}
 	}
 
-	tier = input.Tier
+	tier := input.Tier
 	if tier == "" {
 		tier = TierStandard
 	}
 
-	dataType = input.DataType
+	dataType := input.DataType
 	if dataType == "" {
 		dataType = DataTypeText
 	}
 
-	return
+	return tier, dataType, nil
 }
 
 func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterOutput, error) {
@@ -388,9 +384,9 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 	// Encrypt if SecureString type
 	value := input.Value
 	if input.Type == SecureStringType {
-		encrypted, err := encryptValue(input.Value)
-		if err != nil {
-			return nil, err
+		encrypted, encErr := encryptValue(input.Value)
+		if encErr != nil {
+			return nil, encErr
 		}
 		value = encrypted
 	}

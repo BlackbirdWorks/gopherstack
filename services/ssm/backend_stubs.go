@@ -475,8 +475,8 @@ type GetServiceSettingOutput struct{}
 // LabelParameterVersionInput is the request payload.
 type LabelParameterVersionInput struct {
 	Name    string   `json:"Name"`
-	Version int64    `json:"ParameterVersion,omitempty"`
 	Labels  []string `json:"Labels"`
+	Version int64    `json:"ParameterVersion,omitempty"`
 }
 
 // LabelParameterVersionOutput is the response payload.

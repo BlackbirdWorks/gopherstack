@@ -105,9 +105,9 @@ type ParameterHistory struct {
 	Tier             string   `json:"Tier,omitempty"`
 	DataType         string   `json:"DataType,omitempty"`
 	AllowedPattern   string   `json:"AllowedPattern,omitempty"`
+	Labels           []string `json:"Labels,omitempty"`
 	Version          int64    `json:"Version"`
 	LastModifiedDate float64  `json:"LastModifiedDate"`
-	Labels           []string `json:"Labels,omitempty"`
 }
 
 // GetParameterHistoryInput represents the request payload for GetParameterHistory.
