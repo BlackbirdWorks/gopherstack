@@ -21,14 +21,14 @@ func TestAudit_PutParameter_KeyId_ValidKMSARN(t *testing.T) {
 		Name:  "/myapp/secret",
 		Type:  ssm.SecureStringType,
 		Value: "value",
-		KeyId: "arn:aws:kms:us-east-1:123456789012:key/abc-123",
+		KeyID: "arn:aws:kms:us-east-1:123456789012:key/abc-123",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), out.Version)
 
 	got, err := backend.GetParameter(&ssm.GetParameterInput{Name: "/myapp/secret", WithDecryption: true})
 	require.NoError(t, err)
-	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/abc-123", got.Parameter.KeyId)
+	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/abc-123", got.Parameter.KeyID)
 }
 
 func TestAudit_PutParameter_KeyId_AliasPrefix(t *testing.T) {
@@ -39,7 +39,7 @@ func TestAudit_PutParameter_KeyId_AliasPrefix(t *testing.T) {
 		Name:  "/myapp/secret",
 		Type:  ssm.SecureStringType,
 		Value: "value",
-		KeyId: "alias/my-key",
+		KeyID: "alias/my-key",
 	})
 	require.NoError(t, err)
 }
@@ -52,7 +52,7 @@ func TestAudit_PutParameter_KeyId_InvalidReturnsError(t *testing.T) {
 		Name:  "/myapp/secret",
 		Type:  ssm.SecureStringType,
 		Value: "value",
-		KeyId: "not-a-valid-key-id",
+		KeyID: "not-a-valid-key-id",
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ssm.ErrInvalidKeyID)
@@ -67,7 +67,7 @@ func TestAudit_PutParameter_KeyId_IgnoredForNonSecureString(t *testing.T) {
 		Name:  "/myapp/plaintext",
 		Type:  "String",
 		Value: "value",
-		KeyId: "not-a-valid-key-id",
+		KeyID: "not-a-valid-key-id",
 	})
 	require.NoError(t, err)
 }
@@ -387,9 +387,13 @@ func TestAudit_DescribeParameters_FilterByTier(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
-	_, err := backend.PutParameter(&ssm.PutParameterInput{Name: "/a", Type: "String", Value: "v", Tier: ssm.TierStandard})
+	_, err := backend.PutParameter(
+		&ssm.PutParameterInput{Name: "/a", Type: "String", Value: "v", Tier: ssm.TierStandard},
+	)
 	require.NoError(t, err)
-	_, err = backend.PutParameter(&ssm.PutParameterInput{Name: "/b", Type: "String", Value: "v", Tier: ssm.TierAdvanced})
+	_, err = backend.PutParameter(
+		&ssm.PutParameterInput{Name: "/b", Type: "String", Value: "v", Tier: ssm.TierAdvanced},
+	)
 	require.NoError(t, err)
 
 	out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
@@ -406,9 +410,13 @@ func TestAudit_DescribeParameters_FilterByDataType(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
-	_, err := backend.PutParameter(&ssm.PutParameterInput{Name: "/a", Type: "String", Value: "v", DataType: ssm.DataTypeText})
+	_, err := backend.PutParameter(
+		&ssm.PutParameterInput{Name: "/a", Type: "String", Value: "v", DataType: ssm.DataTypeText},
+	)
 	require.NoError(t, err)
-	_, err = backend.PutParameter(&ssm.PutParameterInput{Name: "/b", Type: "String", Value: "ami-abc", DataType: ssm.DataTypeEC2Image})
+	_, err = backend.PutParameter(
+		&ssm.PutParameterInput{Name: "/b", Type: "String", Value: "ami-abc", DataType: ssm.DataTypeEC2Image},
+	)
 	require.NoError(t, err)
 
 	out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
@@ -425,7 +433,9 @@ func TestAudit_DescribeParameters_FilterByKeyId(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
-	_, err := backend.PutParameter(&ssm.PutParameterInput{Name: "/a", Type: ssm.SecureStringType, Value: "v", KeyId: "alias/my-key"})
+	_, err := backend.PutParameter(
+		&ssm.PutParameterInput{Name: "/a", Type: ssm.SecureStringType, Value: "v", KeyID: "alias/my-key"},
+	)
 	require.NoError(t, err)
 	_, err = backend.PutParameter(&ssm.PutParameterInput{Name: "/b", Type: "String", Value: "v"})
 	require.NoError(t, err)
@@ -623,14 +633,14 @@ func TestAudit_SendCommand_OutputS3Bucket_StoredOnInvocation(t *testing.T) {
 
 	var sendOut struct {
 		Command struct {
-			CommandId string `json:"CommandId"`
+			CommandID string `json:"CommandId"`
 		} `json:"Command"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sendOut))
 	_ = backend // backend is unused but needed for test
 
 	// GetCommandInvocation should return output location fields
-	getBody := `{"CommandId":"` + sendOut.Command.CommandId + `","InstanceId":"i-abc123"}`
+	getBody := `{"CommandId":"` + sendOut.Command.CommandID + `","InstanceId":"i-abc123"}`
 	rec = doRequest(t, h, "GetCommandInvocation", getBody)
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -693,7 +703,7 @@ func TestAudit_DescribeParameters_ReturnsNewFields(t *testing.T) {
 		Name:           "/myapp/param",
 		Type:           ssm.SecureStringType,
 		Value:          "val",
-		KeyId:          "alias/my-key",
+		KeyID:          "alias/my-key",
 		Tier:           ssm.TierAdvanced,
 		DataType:       ssm.DataTypeText,
 		AllowedPattern: `\S+`,
@@ -705,7 +715,7 @@ func TestAudit_DescribeParameters_ReturnsNewFields(t *testing.T) {
 	require.Len(t, out.Parameters, 1)
 
 	meta := out.Parameters[0]
-	assert.Equal(t, "alias/my-key", meta.KeyId)
+	assert.Equal(t, "alias/my-key", meta.KeyID)
 	assert.Equal(t, ssm.TierAdvanced, meta.Tier)
 	assert.Equal(t, ssm.DataTypeText, meta.DataType)
 	assert.Equal(t, `\S+`, meta.AllowedPattern)
@@ -861,7 +871,7 @@ func TestAudit_PutParameter_KeyId_KeyPrefix(t *testing.T) {
 		Name:  "/secure/param",
 		Type:  ssm.SecureStringType,
 		Value: "val",
-		KeyId: "key/some-key-id",
+		KeyID: "key/some-key-id",
 	})
 	require.NoError(t, err)
 }
@@ -874,14 +884,14 @@ func TestAudit_PutParameter_KeyId_StoredInHistory(t *testing.T) {
 		Name:  "/secure/param",
 		Type:  ssm.SecureStringType,
 		Value: "val",
-		KeyId: "alias/my-key",
+		KeyID: "alias/my-key",
 	})
 	require.NoError(t, err)
 
 	hist, err := backend.GetParameterHistory(&ssm.GetParameterHistoryInput{Name: "/secure/param"})
 	require.NoError(t, err)
 	require.Len(t, hist.Parameters, 1)
-	assert.Equal(t, "alias/my-key", hist.Parameters[0].KeyId)
+	assert.Equal(t, "alias/my-key", hist.Parameters[0].KeyID)
 }
 
 // --- AllowedPattern on overwrite must re-validate ---
@@ -985,7 +995,12 @@ func TestAudit_Handler_PutParameter_InvalidAllowedPattern_Returns400(t *testing.
 	t.Parallel()
 
 	h, _ := newTestHandler(t)
-	rec := doRequest(t, h, "PutParameter", `{"Name":"/test","Type":"String","Value":"notnum","AllowedPattern":"^\\d+$"}`)
+	rec := doRequest(
+		t,
+		h,
+		"PutParameter",
+		`{"Name":"/test","Type":"String","Value":"notnum","AllowedPattern":"^\\d+$"}`,
+	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ValidationException")
 }
@@ -1354,4 +1369,3 @@ func TestAudit_DescribeParameters_NilMaxResults_UsesDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, out.Parameters, 5)
 }
-

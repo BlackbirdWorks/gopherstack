@@ -67,11 +67,13 @@ const (
 	maxAdvancedParamValueBytes = 8192
 )
 
-// validKMSKeyIDPrefixes are the valid prefixes for custom SSM KMS key IDs.
-var validKMSKeyIDPrefixes = []string{
-	"arn:aws:kms:",
-	"alias/",
-	"key/",
+// kmsKeyIDPrefixes returns valid prefixes for custom SSM KMS key IDs.
+func kmsKeyIDPrefixes() []string {
+	return []string{
+		"arn:aws:kms:",
+		"alias/",
+		"key/",
+	}
 }
 
 // validParamNameRegex matches only alphanumeric, ., -, _, and / characters.
@@ -235,7 +237,7 @@ func (b *InMemoryBackend) WithCommandTTL(d time.Duration) *InMemoryBackend {
 
 // validateKMSKeyID validates that a KeyId has a recognizable format.
 func validateKMSKeyID(keyID string) error {
-	for _, prefix := range validKMSKeyIDPrefixes {
+	for _, prefix := range kmsKeyIDPrefixes() {
 		if strings.HasPrefix(keyID, prefix) {
 			return nil
 		}
@@ -263,12 +265,14 @@ func maxValueBytesForTier(tier string) int {
 	return maxStandardParamValueBytes
 }
 
-// PutParameter creates or updates a parameter.
-// validParamTypes are the allowed SSM parameter type values.
-var validParamTypes = map[string]bool{
-	"String":       true,
-	"StringList":   true,
-	SecureStringType: true,
+// isValidParamType reports whether t is an allowed SSM parameter type.
+func isValidParamType(t string) bool {
+	switch t {
+	case "String", "StringList", SecureStringType:
+		return true
+	}
+
+	return false
 }
 
 // maxParamDescriptionLength is the AWS-documented max description length.
@@ -283,7 +287,7 @@ func validatePutParameterInput(input *PutParameterInput) error {
 		return fmt.Errorf("%w: Name is required", ErrValidationException)
 	}
 
-	if !validParamTypes[input.Type] {
+	if !isValidParamType(input.Type) {
 		return fmt.Errorf(
 			"%w: invalid parameter type %q; must be String, StringList, or SecureString",
 			ErrValidationException, input.Type,
@@ -304,44 +308,68 @@ func validatePutParameterInput(input *PutParameterInput) error {
 	return nil
 }
 
-func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterOutput, error) {
-	if err := validateParameterName(input.Name); err != nil {
-		return nil, err
+// validateAndPreparePutParameter runs all pre-lock validations and returns resolved tier and dataType.
+func validateAndPreparePutParameter(input *PutParameterInput) (tier, dataType string, err error) {
+	if err = validateParameterName(input.Name); err != nil {
+		return
 	}
 
-	if err := validatePutParameterInput(input); err != nil {
-		return nil, err
+	if err = validatePutParameterInput(input); err != nil {
+		return
 	}
 
 	maxBytes := maxValueBytesForTier(input.Tier)
 	if len(input.Value) > maxBytes {
-		return nil, fmt.Errorf("%w: parameter value exceeds %d bytes for tier %q",
+		err = fmt.Errorf("%w: parameter value exceeds %d bytes for tier %q",
 			ErrValidationException, maxBytes, input.Tier)
+		return
 	}
 
-	if input.KeyId != "" && input.Type == SecureStringType {
-		if err := validateKMSKeyID(input.KeyId); err != nil {
-			return nil, err
+	if input.KeyID != "" && input.Type == SecureStringType {
+		if err = validateKMSKeyID(input.KeyID); err != nil {
+			return
 		}
 	}
 
-	if err := validateDataType(input.DataType); err != nil {
-		return nil, err
+	if err = validateDataType(input.DataType); err != nil {
+		return
 	}
 
 	if input.AllowedPattern != "" {
-		re, err := regexp.Compile(input.AllowedPattern)
+		var re *regexp.Regexp
+		re, err = regexp.Compile(input.AllowedPattern)
 		if err != nil {
-			return nil, fmt.Errorf("%w: AllowedPattern is not a valid regex: %s",
+			err = fmt.Errorf("%w: AllowedPattern is not a valid regex: %s",
 				ErrValidationException, err.Error())
+			return
 		}
 
 		if !re.MatchString(input.Value) {
-			return nil, fmt.Errorf(
+			err = fmt.Errorf(
 				"%w: parameter value does not match AllowedPattern %q",
 				ErrValidationException, input.AllowedPattern,
 			)
+			return
 		}
+	}
+
+	tier = input.Tier
+	if tier == "" {
+		tier = TierStandard
+	}
+
+	dataType = input.DataType
+	if dataType == "" {
+		dataType = DataTypeText
+	}
+
+	return
+}
+
+func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterOutput, error) {
+	tier, dataType, err := validateAndPreparePutParameter(input)
+	if err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("PutParameter")
@@ -355,16 +383,6 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 	version := int64(1)
 	if exists {
 		version = existing.Version + 1
-	}
-
-	tier := input.Tier
-	if tier == "" {
-		tier = TierStandard
-	}
-
-	dataType := input.DataType
-	if dataType == "" {
-		dataType = DataTypeText
 	}
 
 	// Encrypt if SecureString type
@@ -382,7 +400,7 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 		Type:             input.Type,
 		Value:            value,
 		Description:      input.Description,
-		KeyId:            input.KeyId,
+		KeyID:            input.KeyID,
 		Tier:             tier,
 		DataType:         dataType,
 		AllowedPattern:   input.AllowedPattern,
@@ -403,7 +421,7 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 		Name:             input.Name,
 		Type:             input.Type,
 		Value:            value,
-		KeyId:            input.KeyId,
+		KeyID:            input.KeyID,
 		Tier:             tier,
 		DataType:         dataType,
 		AllowedPattern:   input.AllowedPattern,
@@ -671,7 +689,7 @@ func (b *InMemoryBackend) DescribeParameters(input *DescribeParametersInput) (*D
 			Version:          p.Version,
 			LastModifiedDate: p.LastModifiedDate,
 			Description:      p.Description,
-			KeyId:            p.KeyId,
+			KeyID:            p.KeyID,
 			Tier:             p.Tier,
 			DataType:         p.DataType,
 			AllowedPattern:   p.AllowedPattern,
@@ -740,20 +758,20 @@ func parseNextToken(token string) int {
 	return idx
 }
 
-// validParameterFilterKeys are the parameter filter keys supported by AWS SSM.
-var validParameterFilterKeys = map[string]bool{
-	"Name":         true,
-	"Type":         true,
-	"KeyId":        true,
-	"Tier":         true,
-	"DataType":     true,
-	"AllowedPattern": true,
+// isValidParameterFilterKey reports whether key is a supported parameter filter key.
+func isValidParameterFilterKey(key string) bool {
+	switch key {
+	case "Name", "Type", "KeyId", "Tier", "DataType", "AllowedPattern":
+		return true
+	}
+
+	return false
 }
 
 // validateParameterFilters returns an error if any filter uses an unknown key.
 func validateParameterFilters(filters []ParameterFilter) error {
 	for _, f := range filters {
-		if !validParameterFilterKeys[f.Key] {
+		if !isValidParameterFilterKey(f.Key) {
 			return fmt.Errorf(
 				"%w: unsupported parameter filter key %q; valid keys: Name, Type, KeyId, Tier, DataType",
 				ErrValidationException, f.Key,
@@ -775,6 +793,18 @@ func paramMatchesFilters(meta ParameterMetadata, filters []ParameterFilter) bool
 	return true
 }
 
+// matchesOption returns true when fieldValue matches value according to option.
+func matchesOption(fieldValue, value, option string) bool {
+	switch option {
+	case "BeginsWith":
+		return strings.HasPrefix(fieldValue, value)
+	case "Contains":
+		return strings.Contains(fieldValue, value)
+	default: // "Equals" and anything else
+		return fieldValue == value
+	}
+}
+
 // paramMatchesFilter returns true when the metadata satisfies a single filter.
 // Within one filter, multiple Values are OR-combined.
 func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
@@ -786,7 +816,7 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 	case "Type":
 		fieldValue = meta.Type
 	case "KeyId":
-		fieldValue = meta.KeyId
+		fieldValue = meta.KeyID
 	case "Tier":
 		fieldValue = meta.Tier
 	case "DataType":
@@ -803,19 +833,8 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 	}
 
 	for _, v := range f.Values {
-		switch option {
-		case "Equals":
-			if fieldValue == v {
-				return true
-			}
-		case "BeginsWith":
-			if strings.HasPrefix(fieldValue, v) {
-				return true
-			}
-		case "Contains":
-			if strings.Contains(fieldValue, v) {
-				return true
-			}
+		if matchesOption(fieldValue, v, option) {
+			return true
 		}
 	}
 

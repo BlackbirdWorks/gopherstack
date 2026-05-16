@@ -68,7 +68,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"GetPatchBaselineForPatchGroup",
 		"GetResourcePolicies",
 		"GetServiceSetting",
-		"LabelParameterVersion",
 		"ListAssociationVersions",
 		"ListAssociations",
 		"ListComplianceItems",

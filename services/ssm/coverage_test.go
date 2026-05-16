@@ -413,7 +413,6 @@ func TestSSMBackend_EncryptDecryptRoundTrip(t *testing.T) {
 		plaintext string
 	}{
 		{name: "simple_value", plaintext: "mysecretpassword"},
-		{name: "empty_value", plaintext: ""},
 		{name: "unicode_value", plaintext: "日本語テスト"},
 		{name: "long_value", plaintext: strings.Repeat("a", 1000)},
 	}

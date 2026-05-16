@@ -680,8 +680,8 @@ type StartSessionInput struct {
 	Reason                  string `json:"Reason,omitempty"`
 	OutputS3BucketName      string `json:"OutputS3BucketName,omitempty"`
 	OutputS3KeyPrefix       string `json:"OutputS3KeyPrefix,omitempty"`
-	CloudWatchOutputEnabled bool   `json:"CloudWatchOutputEnabled,omitempty"`
 	CloudWatchLogGroupName  string `json:"CloudWatchLogGroupName,omitempty"`
+	CloudWatchOutputEnabled bool   `json:"CloudWatchOutputEnabled,omitempty"`
 }
 
 // StartSessionOutput is the response payload.
@@ -1496,7 +1496,9 @@ func (b *InMemoryBackend) GetServiceSetting(_ *GetServiceSettingInput) (*GetServ
 }
 
 // LabelParameterVersion applies labels to a specific parameter version.
-func (b *InMemoryBackend) LabelParameterVersion(input *LabelParameterVersionInput) (*LabelParameterVersionOutput, error) {
+func (b *InMemoryBackend) LabelParameterVersion(
+	input *LabelParameterVersionInput,
+) (*LabelParameterVersionOutput, error) {
 	b.mu.Lock("LabelParameterVersion")
 	defer b.mu.Unlock()
 

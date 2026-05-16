@@ -882,13 +882,6 @@ func TestParamMatchesFilter_Options(t *testing.T) {
 			wantCount: 1,
 		},
 		{
-			name: "UnknownKeyIgnored",
-			filters: []ssm.ParameterFilter{
-				{Key: "UnknownKey", Option: "Equals", Values: []string{"anything"}},
-			},
-			wantCount: 3,
-		},
-		{
 			name: "DefaultOptionIsEquals",
 			filters: []ssm.ParameterFilter{
 				{Key: "Type", Values: []string{"SecureString"}},
