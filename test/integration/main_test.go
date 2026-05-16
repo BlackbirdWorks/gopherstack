@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	acmsdk "github.com/aws/aws-sdk-go-v2/service/acm"
+	amplifysdk "github.com/aws/aws-sdk-go-v2/service/amplify"
 	apigwv2sdk "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	athenasdk "github.com/aws/aws-sdk-go-v2/service/athena"
@@ -57,6 +58,7 @@ import (
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssdk "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdaclientsdk "github.com/aws/aws-sdk-go-v2/service/lambda"
+	neptunesdk "github.com/aws/aws-sdk-go-v2/service/neptune"
 	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
 	route53sdk "github.com/aws/aws-sdk-go-v2/service/route53"
 	route53resolversdk "github.com/aws/aws-sdk-go-v2/service/route53resolver"
@@ -794,6 +796,46 @@ func createXRayClient(t *testing.T) *xraysdk.Client {
 	}
 
 	return xraysdk.NewFromConfig(cfg, func(o *xraysdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createAmplifyClient returns an Amplify client pointed at the shared test container.
+func createAmplifyClient(t *testing.T) *amplifysdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return amplifysdk.NewFromConfig(cfg, func(o *amplifysdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createNeptuneClient returns a Neptune client pointed at the shared test container.
+func createNeptuneClient(t *testing.T) *neptunesdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return neptunesdk.NewFromConfig(cfg, func(o *neptunesdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
