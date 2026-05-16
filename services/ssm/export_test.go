@@ -216,3 +216,12 @@ func (b *InMemoryBackend) ParameterCount() int {
 
 	return len(b.parameters)
 }
+
+// SetInstancePatchState records a patch state for the given instance, bypassing the lock.
+// Used in tests to seed instance patch states directly.
+func (b *InMemoryBackend) SetInstancePatchState(state InstancePatchState) {
+	b.mu.Lock("SetInstancePatchState")
+	defer b.mu.Unlock()
+
+	b.instancePatchStates[state.InstanceID] = state
+}

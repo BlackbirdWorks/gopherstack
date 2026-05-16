@@ -1516,3 +1516,97 @@ func TestAudit_GetParametersByPath_WithoutDecryption_EncryptedValueReturned(t *t
 	// Value must NOT be the plaintext when decryption is not requested.
 	assert.NotEqual(t, "topsecret", out.Parameters[0].Value)
 }
+
+// --- Issue 14: Patch Manager synthetic state ---
+
+func TestAudit_DescribeInstancePatchStates_SyntheticForUnknownInstance(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	out, err := backend.DescribeInstancePatchStates(&ssm.DescribeInstancePatchStatesInput{
+		InstanceIDs: []string{"i-unknown123"},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.InstancePatchStates, 1)
+	assert.Equal(t, "i-unknown123", out.InstancePatchStates[0].InstanceID)
+	assert.Equal(t, "Scan", out.InstancePatchStates[0].Operation)
+	assert.GreaterOrEqual(t, out.InstancePatchStates[0].InstalledCount, int32(0))
+}
+
+func TestAudit_DescribeInstancePatchStates_RecordedStateReturned(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	backend.SetInstancePatchState(ssm.InstancePatchState{
+		InstanceID:   "i-recorded001",
+		PatchGroup:   "prod",
+		BaselineID:   "pb-abc123",
+		MissingCount: 3,
+		FailedCount:  1,
+		Operation:    "Install",
+	})
+
+	out, err := backend.DescribeInstancePatchStates(&ssm.DescribeInstancePatchStatesInput{
+		InstanceIDs: []string{"i-recorded001"},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.InstancePatchStates, 1)
+	s := out.InstancePatchStates[0]
+	assert.Equal(t, "prod", s.PatchGroup)
+	assert.Equal(t, int32(3), s.MissingCount)
+	assert.Equal(t, int32(1), s.FailedCount)
+	assert.Equal(t, "Install", s.Operation)
+}
+
+func TestAudit_DescribeInstancePatchStatesForPatchGroup_FiltersByGroup(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	backend.SetInstancePatchState(ssm.InstancePatchState{
+		InstanceID: "i-prod001",
+		PatchGroup: "prod",
+		Operation:  "Scan",
+	})
+	backend.SetInstancePatchState(ssm.InstancePatchState{
+		InstanceID: "i-staging001",
+		PatchGroup: "staging",
+		Operation:  "Scan",
+	})
+
+	out, err := backend.DescribeInstancePatchStatesForPatchGroup(
+		&ssm.DescribeInstancePatchStatesForPatchGroupInput{PatchGroup: "prod"},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.InstancePatchStates, 1)
+	assert.Equal(t, "i-prod001", out.InstancePatchStates[0].InstanceID)
+}
+
+func TestAudit_DescribeInstancePatches_ReturnsPatches(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	out, err := backend.DescribeInstancePatches(&ssm.DescribeInstancePatchesInput{
+		InstanceID: "i-patchtest",
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, out.Patches)
+	assert.Equal(t, "Installed", out.Patches[0].State)
+	assert.NotEmpty(t, out.Patches[0].Title)
+}
+
+func TestAudit_DescribeInstancePatches_RecordedStateUsed(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	backend.SetInstancePatchState(ssm.InstancePatchState{
+		InstanceID:     "i-custom001",
+		InstalledCount: 3,
+		Operation:      "Install",
+	})
+
+	out, err := backend.DescribeInstancePatches(&ssm.DescribeInstancePatchesInput{
+		InstanceID: "i-custom001",
+	})
+	require.NoError(t, err)
+	assert.Len(t, out.Patches, 3)
+}

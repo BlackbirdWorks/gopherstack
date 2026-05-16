@@ -782,6 +782,49 @@ type CreatePatchBaselineOutput struct {
 	BaselineID string `json:"BaselineId"`
 }
 
+// Patch compliance level constants.
+const (
+	PatchComplianceLevelCritical      = "CRITICAL"
+	PatchComplianceLevelHigh          = "HIGH"
+	PatchComplianceLevelMedium        = "MEDIUM"
+	PatchComplianceLevelLow           = "LOW"
+	PatchComplianceLevelInformational = "INFORMATIONAL"
+	PatchComplianceLevelUnspecified   = "UNSPECIFIED"
+)
+
+// InstancePatchState holds the patch compliance summary for a single instance.
+type InstancePatchState struct {
+	InstanceID              string  `json:"InstanceId"`
+	PatchGroup              string  `json:"PatchGroup"`
+	BaselineID              string  `json:"BaselineId"`
+	OwnerInformation        string  `json:"OwnerInformation,omitempty"`
+	Operation               string  `json:"Operation"`
+	RebootOption            string  `json:"RebootOption,omitempty"`
+	SnapshotID              string  `json:"SnapshotId,omitempty"`
+	OperationStartTime      float64 `json:"OperationStartTime"`
+	OperationEndTime        float64 `json:"OperationEndTime"`
+	LastNoRebootInstallTime float64 `json:"LastNoRebootInstallOperationTime,omitempty"`
+	InstalledCount          int32   `json:"InstalledCount"`
+	InstalledOtherCount     int32   `json:"InstalledOtherCount"`
+	InstalledPendingCount   int32   `json:"InstalledPendingRebootCount"`
+	InstalledRejectedCount  int32   `json:"InstalledRejectedCount"`
+	MissingCount            int32   `json:"MissingCount"`
+	FailedCount             int32   `json:"FailedCount"`
+	NotApplicableCount      int32   `json:"NotApplicableCount"`
+	UnreportedNotApplicable int32   `json:"UnreportedNotApplicableCount"`
+}
+
+// PatchComplianceData holds compliance data for a single patch on an instance.
+type PatchComplianceData struct {
+	Classification  string  `json:"Classification"`
+	KBId            string  `json:"KBId,omitempty"`
+	PatchBaselineID string  `json:"PatchBaselineId,omitempty"`
+	Severity        string  `json:"Severity"`
+	State           string  `json:"State"`
+	Title           string  `json:"Title"`
+	InstalledTime   float64 `json:"InstalledTime"`
+}
+
 // MaintenanceWindowTarget represents a registered target for a maintenance window.
 type MaintenanceWindowTarget struct {
 	WindowID       string         `json:"WindowId"`

@@ -160,22 +160,43 @@ type DescribeInstanceInformationInput struct{}
 type DescribeInstanceInformationOutput struct{}
 
 // DescribeInstancePatchStatesInput is the request for DescribeInstancePatchStates.
-type DescribeInstancePatchStatesInput struct{}
+type DescribeInstancePatchStatesInput struct {
+	MaxResults  *int32   `json:"MaxResults,omitempty"`
+	NextToken   string   `json:"NextToken,omitempty"`
+	InstanceIDs []string `json:"InstanceIds"`
+}
 
 // DescribeInstancePatchStatesOutput is the response for DescribeInstancePatchStates.
-type DescribeInstancePatchStatesOutput struct{}
+type DescribeInstancePatchStatesOutput struct {
+	NextToken           string               `json:"NextToken,omitempty"`
+	InstancePatchStates []InstancePatchState `json:"InstancePatchStates"`
+}
 
 // DescribeInstancePatchStatesForPatchGroupInput is the request for DescribeInstancePatchStatesForPatchGroup.
-type DescribeInstancePatchStatesForPatchGroupInput struct{}
+type DescribeInstancePatchStatesForPatchGroupInput struct {
+	PatchGroup string `json:"PatchGroup"`
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+}
 
 // DescribeInstancePatchStatesForPatchGroupOutput is the response for DescribeInstancePatchStatesForPatchGroup.
-type DescribeInstancePatchStatesForPatchGroupOutput struct{}
+type DescribeInstancePatchStatesForPatchGroupOutput struct {
+	NextToken           string               `json:"NextToken,omitempty"`
+	InstancePatchStates []InstancePatchState `json:"InstancePatchStates"`
+}
 
 // DescribeInstancePatchesInput is the request for DescribeInstancePatches.
-type DescribeInstancePatchesInput struct{}
+type DescribeInstancePatchesInput struct {
+	InstanceID string `json:"InstanceId"`
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+}
 
 // DescribeInstancePatchesOutput is the response for DescribeInstancePatches.
-type DescribeInstancePatchesOutput struct{}
+type DescribeInstancePatchesOutput struct {
+	NextToken string                `json:"NextToken,omitempty"`
+	Patches   []PatchComplianceData `json:"Patches"`
+}
 
 // DescribeInstancePropertiesInput is the request for DescribeInstanceProperties.
 type DescribeInstancePropertiesInput struct{}
@@ -1059,25 +1080,110 @@ func (b *InMemoryBackend) DescribeInstanceInformation(
 	return &DescribeInstanceInformationOutput{}, nil
 }
 
-// DescribeInstancePatchStates is a stub implementation.
+// DescribeInstancePatchStates returns patch compliance states for the requested instances.
+// If an instance has no recorded state, a synthetic "compliant" state is returned.
 func (b *InMemoryBackend) DescribeInstancePatchStates(
-	_ *DescribeInstancePatchStatesInput,
+	input *DescribeInstancePatchStatesInput,
 ) (*DescribeInstancePatchStatesOutput, error) {
-	return &DescribeInstancePatchStatesOutput{}, nil
+	b.mu.RLock("DescribeInstancePatchStates")
+	defer b.mu.RUnlock()
+
+	states := make([]InstancePatchState, 0, len(input.InstanceIDs))
+	for _, id := range input.InstanceIDs {
+		if s, ok := b.instancePatchStates[id]; ok {
+			states = append(states, s)
+		} else {
+			states = append(states, syntheticPatchState(id, ""))
+		}
+	}
+
+	return &DescribeInstancePatchStatesOutput{InstancePatchStates: states}, nil
 }
 
-// DescribeInstancePatchStatesForPatchGroup is a stub implementation.
+// DescribeInstancePatchStatesForPatchGroup returns patch states for all instances
+// registered in the given patch group.
 func (b *InMemoryBackend) DescribeInstancePatchStatesForPatchGroup(
-	_ *DescribeInstancePatchStatesForPatchGroupInput,
+	input *DescribeInstancePatchStatesForPatchGroupInput,
 ) (*DescribeInstancePatchStatesForPatchGroupOutput, error) {
-	return &DescribeInstancePatchStatesForPatchGroupOutput{}, nil
+	b.mu.RLock("DescribeInstancePatchStatesForPatchGroup")
+	defer b.mu.RUnlock()
+
+	var states []InstancePatchState
+	for _, s := range b.instancePatchStates {
+		if s.PatchGroup == input.PatchGroup {
+			states = append(states, s)
+		}
+	}
+
+	return &DescribeInstancePatchStatesForPatchGroupOutput{InstancePatchStates: states}, nil
 }
 
-// DescribeInstancePatches is a stub implementation.
+// DescribeInstancePatches returns synthetic per-patch compliance data for an instance.
 func (b *InMemoryBackend) DescribeInstancePatches(
-	_ *DescribeInstancePatchesInput,
+	input *DescribeInstancePatchesInput,
 ) (*DescribeInstancePatchesOutput, error) {
-	return &DescribeInstancePatchesOutput{}, nil
+	b.mu.RLock("DescribeInstancePatches")
+	defer b.mu.RUnlock()
+
+	state, ok := b.instancePatchStates[input.InstanceID]
+	if !ok {
+		state = syntheticPatchState(input.InstanceID, "")
+	}
+
+	patches := syntheticPatchList(state)
+
+	return &DescribeInstancePatchesOutput{Patches: patches}, nil
+}
+
+const (
+	syntheticPatchInstalledCount      = int32(10)
+	syntheticPatchInstalledOtherCount = int32(2)
+	syntheticPatchNotApplicableCount  = int32(5)
+	syntheticPatchScanStartOffset     = float64(3600)
+	syntheticPatchScanEndOffset       = float64(3540)
+	syntheticPatchDefaultBaselineID   = "pb-0000000000000000"
+	syntheticPatchKBBase              = int32(1000000)
+	syntheticPatchDaySeconds          = float64(86400)
+)
+
+// syntheticPatchState returns a deterministic synthetic patch compliance state
+// for instances that have no recorded state.
+func syntheticPatchState(instanceID, patchGroup string) InstancePatchState {
+	now := UnixTimeFloat(time.Now())
+
+	return InstancePatchState{
+		InstanceID:          instanceID,
+		PatchGroup:          patchGroup,
+		BaselineID:          syntheticPatchDefaultBaselineID,
+		InstalledCount:      syntheticPatchInstalledCount,
+		InstalledOtherCount: syntheticPatchInstalledOtherCount,
+		NotApplicableCount:  syntheticPatchNotApplicableCount,
+		OperationStartTime:  now - syntheticPatchScanStartOffset,
+		OperationEndTime:    now - syntheticPatchScanEndOffset,
+		Operation:           "Scan",
+		RebootOption:        "NoReboot",
+	}
+}
+
+// syntheticPatchList returns a minimal set of synthetic PatchComplianceData entries
+// based on the recorded patch state.
+func syntheticPatchList(state InstancePatchState) []PatchComplianceData {
+	now := UnixTimeFloat(time.Now())
+	patches := make([]PatchComplianceData, 0, int(state.InstalledCount))
+
+	for i := range state.InstalledCount {
+		kb := fmt.Sprintf("KB%07d", syntheticPatchKBBase+i)
+		patches = append(patches, PatchComplianceData{
+			Title:          kb,
+			KBId:           kb,
+			Classification: "SecurityUpdates",
+			Severity:       PatchComplianceLevelMedium,
+			State:          "Installed",
+			InstalledTime:  now - float64(i+1)*syntheticPatchDaySeconds,
+		})
+	}
+
+	return patches
 }
 
 // DescribeInstanceProperties is a stub implementation.

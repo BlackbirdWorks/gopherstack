@@ -186,6 +186,7 @@ type InMemoryBackend struct {
 	opsItemRelatedItems        map[string][]OpsItemRelatedItem
 	opsMetadata                map[string]OpsMetadata
 	patchBaselines             map[string]PatchBaseline
+	instancePatchStates        map[string]InstancePatchState
 	mu                         *lockmetrics.RWMutex
 	miscResourceTags           map[string]map[string]string
 	resourceIDToOpsMetadataArn map[string]string
@@ -214,6 +215,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		opsItemRelatedItems:        make(map[string][]OpsItemRelatedItem),
 		opsMetadata:                make(map[string]OpsMetadata),
 		patchBaselines:             make(map[string]PatchBaseline),
+		instancePatchStates:        make(map[string]InstancePatchState),
 		commandExpirySecs:          defaultCommandExpirySecs,
 		mu:                         lockmetrics.New("ssm"),
 		resourceIDToOpsMetadataArn: make(map[string]string),
@@ -1502,6 +1504,7 @@ func (b *InMemoryBackend) Reset() {
 	b.opsItemRelatedItems = make(map[string][]OpsItemRelatedItem)
 	b.opsMetadata = make(map[string]OpsMetadata)
 	b.patchBaselines = make(map[string]PatchBaseline)
+	b.instancePatchStates = make(map[string]InstancePatchState)
 	b.resourceIDToOpsMetadataArn = make(map[string]string)
 	b.miscResourceTags = make(map[string]map[string]string)
 	b.registerDefaultDocuments()
