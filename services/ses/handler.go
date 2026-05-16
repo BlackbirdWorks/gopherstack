@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"slices"
 	"strconv"
@@ -632,59 +633,101 @@ func (h *Handler) handleGetIdentityVerificationAttributes(vals url.Values, reqID
 }
 
 func (h *Handler) handleSendEmail(vals url.Values, reqID string) (any, error) {
-	source := vals.Get("Source")
-	subject := vals.Get("Message.Subject.Data")
-	bodyHTML := vals.Get("Message.Body.Html.Data")
-	bodyText := vals.Get("Message.Body.Text.Data")
-	toAddrs := parseSESMemberList(vals, "Destination.ToAddresses")
-
-	msgID, err := h.Backend.SendEmail(source, toAddrs, subject, bodyHTML, bodyText)
+	msgID, err := h.Backend.SendEmail(SendEmailInput{
+		From:                 vals.Get("Source"),
+		To:                   parseSESMemberList(vals, "Destination.ToAddresses"),
+		Cc:                   parseSESMemberList(vals, "Destination.CcAddresses"),
+		Bcc:                  parseSESMemberList(vals, "Destination.BccAddresses"),
+		ReplyTo:              parseSESMemberList(vals, "ReplyToAddresses"),
+		Subject:              vals.Get("Message.Subject.Data"),
+		BodyHTML:             vals.Get("Message.Body.Html.Data"),
+		BodyText:             vals.Get("Message.Body.Text.Data"),
+		ConfigurationSetName: vals.Get("ConfigurationSetName"),
+		Tags:                 parseSESTags(vals, "Tags"),
+		ReturnPath:           vals.Get("ReturnPath"),
+		SourceArn:            vals.Get("SourceArn"),
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &sendEmailResponse{
-		Xmlns: sesXMLNS,
-		Result: sendEmailResult{
-			MessageID: msgID,
-		},
+		Xmlns:     sesXMLNS,
+		Result:    sendEmailResult{MessageID: msgID},
 		RequestID: reqID,
 	}, nil
 }
 
 func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error) {
-	source := vals.Get("Source")
 	rawData := vals.Get("RawMessage.Data")
+	source := vals.Get("Source")
+	returnPath := vals.Get("ReturnPath")
+	sourceArn := vals.Get("SourceArn")
+	configSetName := vals.Get("ConfigurationSetName")
+	tags := parseSESTags(vals, "Tags")
 
-	msgID, err := h.Backend.SendEmail(source, nil, "raw", "", rawData)
-	if err != nil {
-		return nil, err
+	// Parse RFC 2822 headers to extract From, To, and Subject when not supplied explicitly.
+	var toAddrs []string
+	subject := "raw"
+
+	msg, err := mail.ReadMessage(strings.NewReader(rawData))
+	if err == nil {
+		if from := msg.Header.Get("From"); source == "" && from != "" {
+			source = from
+		}
+
+		subject = msg.Header.Get("Subject")
+
+		if toHeader := msg.Header.Get("To"); toHeader != "" {
+			if addrs, parseErr := mail.ParseAddressList(toHeader); parseErr == nil {
+				for _, a := range addrs {
+					toAddrs = append(toAddrs, a.Address)
+				}
+			}
+		}
+	}
+
+	msgID, sendErr := h.Backend.SendEmail(SendEmailInput{
+		From:                 source,
+		To:                   toAddrs,
+		Subject:              subject,
+		BodyText:             rawData,
+		ConfigurationSetName: configSetName,
+		Tags:                 tags,
+		ReturnPath:           returnPath,
+		SourceArn:            sourceArn,
+	})
+	if sendErr != nil {
+		return nil, sendErr
 	}
 
 	return &sendRawEmailResponse{
-		Xmlns: sesXMLNS,
-		Result: sendEmailResult{
-			MessageID: msgID,
-		},
+		Xmlns:     sesXMLNS,
+		Result:    sendEmailResult{MessageID: msgID},
 		RequestID: reqID,
 	}, nil
 }
 
 func (h *Handler) handleSendTemplatedEmail(vals url.Values, reqID string) (any, error) {
-	source := vals.Get("Source")
-	templateName := vals.Get("Template")
-	toAddrs := parseSESMemberList(vals, "Destination.ToAddresses")
-
-	msgID, err := h.Backend.SendTemplatedEmail(source, toAddrs, templateName)
+	msgID, err := h.Backend.SendTemplatedEmail(SendTemplatedEmailInput{
+		From:                 vals.Get("Source"),
+		To:                   parseSESMemberList(vals, "Destination.ToAddresses"),
+		Cc:                   parseSESMemberList(vals, "Destination.CcAddresses"),
+		Bcc:                  parseSESMemberList(vals, "Destination.BccAddresses"),
+		ReplyTo:              parseSESMemberList(vals, "ReplyToAddresses"),
+		TemplateName:         vals.Get("Template"),
+		ConfigurationSetName: vals.Get("ConfigurationSetName"),
+		Tags:                 parseSESTags(vals, "Tags"),
+		ReturnPath:           vals.Get("ReturnPath"),
+		SourceArn:            vals.Get("SourceArn"),
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &sendTemplatedEmailResponse{
-		Xmlns: sesXMLNS,
-		Result: sendEmailResult{
-			MessageID: msgID,
-		},
+		Xmlns:     sesXMLNS,
+		Result:    sendEmailResult{MessageID: msgID},
 		RequestID: reqID,
 	}, nil
 }
@@ -1099,13 +1142,36 @@ type getAccountSendingEnabledResponse struct {
 // parseSESMemberList parses form values like "Prefix.member.1", "Prefix.member.2".
 func parseSESMemberList(vals url.Values, prefix string) []string {
 	var result []string
+	base := prefix + ".member."
+
 	for i := 1; ; i++ {
-		v := vals.Get(fmt.Sprintf("%s.member.%d", prefix, i))
+		v := vals.Get(base + strconv.Itoa(i))
 		if v == "" {
 			return result
 		}
+
 		result = append(result, v)
 	}
+}
+
+// parseSESTags parses Tags.member.N.{Name,Value} form values into a []Tag slice.
+func parseSESTags(vals url.Values, prefix string) []Tag {
+	var tags []Tag
+	base := prefix + ".member."
+
+	for i := 1; ; i++ {
+		idx := base + strconv.Itoa(i)
+		name := vals.Get(idx + ".Name")
+		value := vals.Get(idx + ".Value")
+
+		if name == "" && value == "" {
+			break
+		}
+
+		tags = append(tags, Tag{Name: name, Value: value})
+	}
+
+	return tags
 }
 
 // ---- template XML types ----
@@ -1264,6 +1330,7 @@ func (h *Handler) handleCreateReceiptRule(vals url.Values, reqID string) (any, e
 		TLSPolicy:   vals.Get("Rule.TlsPolicy"),
 		ScanEnabled: scanEnabled,
 		Recipients:  parseSESMemberList(vals, "Rule.Recipients"),
+		Actions:     parseReceiptActions(vals, "Rule.Actions"),
 	}
 
 	if err := h.Backend.CreateReceiptRule(ruleSetName, rule, after); err != nil {
@@ -2056,15 +2123,25 @@ func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (a
 	source := vals.Get("Source")
 	template := vals.Get("Template")
 
-	// Collect destination emails from Destinations.member.N.Destination.ToAddresses.member.1
-	var destinations []string
+	// Collect per-destination data.
+	var destinations []BulkEmailDestination
+
 	for i := 1; ; i++ {
-		d := vals.Get(fmt.Sprintf("Destinations.member.%d.Destination.ToAddresses.member.1", i))
-		if d == "" {
+		prefix := "Destinations.member." + strconv.Itoa(i)
+		to := parseSESMemberList(vals, prefix+".Destination.ToAddresses")
+		cc := parseSESMemberList(vals, prefix+".Destination.CcAddresses")
+		bcc := parseSESMemberList(vals, prefix+".Destination.BccAddresses")
+
+		if len(to) == 0 && len(cc) == 0 && len(bcc) == 0 {
 			break
 		}
 
-		destinations = append(destinations, d)
+		destinations = append(destinations, BulkEmailDestination{
+			To:                      to,
+			Cc:                      cc,
+			Bcc:                     bcc,
+			ReplacementTemplateData: vals.Get(prefix + ".ReplacementTemplateData"),
+		})
 	}
 
 	// AWS SES rejects SendBulkTemplatedEmail with more than 50 destinations.
@@ -2162,6 +2239,7 @@ func (h *Handler) handleUpdateReceiptRule(vals url.Values, reqID string) (any, e
 		TLSPolicy:   vals.Get("Rule.TlsPolicy"),
 		ScanEnabled: scanEnabled,
 		Recipients:  parseSESMemberList(vals, "Rule.Recipients"),
+		Actions:     parseReceiptActions(vals, "Rule.Actions"),
 	}
 
 	if err := h.Backend.UpdateReceiptRule(ruleSetName, rule); err != nil {

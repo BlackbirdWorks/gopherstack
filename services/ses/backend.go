@@ -15,6 +15,74 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// Tag is an email metadata key-value pair.
+type Tag struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// IdentityRecord stores per-identity verification and attribute state.
+type IdentityRecord struct {
+	DkimTokens         []string          `json:"dkimTokens,omitempty"`
+	MailFromDomain     string            `json:"mailFromDomain,omitempty"`
+	MailFromStatus     string            `json:"mailFromStatus,omitempty"`
+	BehaviorOnMXFail   string            `json:"behaviorOnMXFailure,omitempty"`
+	BounceTopic        string            `json:"bounceTopic,omitempty"`
+	ComplaintTopic     string            `json:"complaintTopic,omitempty"`
+	DeliveryTopic      string            `json:"deliveryTopic,omitempty"`
+	DkimEnabled        bool              `json:"dkimEnabled"`
+	ForwardingEnabled  bool              `json:"forwardingEnabled"`
+	HeadersInBounce    bool              `json:"headersInBounce"`
+	HeadersInComplaint bool              `json:"headersInComplaint"`
+	HeadersInDelivery  bool              `json:"headersInDelivery"`
+	Verified           bool              `json:"verified"`
+}
+
+// ConfigurationSet stores per-configuration-set state.
+type ConfigurationSet struct {
+	TLSPolicy              string `json:"tlsPolicy,omitempty"`
+	SendingEnabled         bool   `json:"sendingEnabled"`
+	ReputationMetrics      bool   `json:"reputationMetrics"`
+}
+
+// BulkEmailDestination is a single destination entry for SendBulkTemplatedEmail.
+type BulkEmailDestination struct {
+	To                      []string
+	Cc                      []string
+	Bcc                     []string
+	ReplacementTemplateData string
+}
+
+// SendEmailInput contains all parameters for sending an email.
+type SendEmailInput struct {
+	Tags                 []Tag
+	From                 string
+	Subject              string
+	BodyHTML             string
+	BodyText             string
+	ConfigurationSetName string
+	ReturnPath           string
+	SourceArn            string
+	To                   []string
+	Cc                   []string
+	Bcc                  []string
+	ReplyTo              []string
+}
+
+// SendTemplatedEmailInput contains all parameters for sending a templated email.
+type SendTemplatedEmailInput struct {
+	Tags                 []Tag
+	From                 string
+	TemplateName         string
+	ConfigurationSetName string
+	ReturnPath           string
+	SourceArn            string
+	To                   []string
+	Cc                   []string
+	Bcc                  []string
+	ReplyTo              []string
+}
+
 // Errors returned by the SES backend.
 var (
 	ErrIdentityNotFound            = errors.New("IdentityNotFound")
@@ -73,13 +141,20 @@ const maxSendRate = 1
 
 // Email captures a sent email for local inspection.
 type Email struct {
-	Timestamp time.Time `json:"timestamp"`
-	From      string    `json:"from"`
-	Subject   string    `json:"subject"`
-	BodyHTML  string    `json:"bodyHTML"`
-	BodyText  string    `json:"bodyText"`
-	MessageID string    `json:"messageID"`
-	To        []string  `json:"to"`
+	Tags                 []Tag     `json:"tags,omitempty"`
+	Timestamp            time.Time `json:"timestamp"`
+	From                 string    `json:"from"`
+	Subject              string    `json:"subject"`
+	BodyHTML             string    `json:"bodyHTML"`
+	BodyText             string    `json:"bodyText"`
+	MessageID            string    `json:"messageID"`
+	ConfigurationSetName string    `json:"configurationSetName,omitempty"`
+	ReturnPath           string    `json:"returnPath,omitempty"`
+	SourceArn            string    `json:"sourceArn,omitempty"`
+	To                   []string  `json:"to"`
+	Cc                   []string  `json:"cc,omitempty"`
+	Bcc                  []string  `json:"bcc,omitempty"`
+	ReplyTo              []string  `json:"replyTo,omitempty"`
 }
 
 // EmailTemplate represents a stored SES email template.
@@ -97,13 +172,35 @@ type ReceiptRuleSet struct {
 	Rules     []ReceiptRule `json:"rules"`
 }
 
+// ReceiptAction is a single action within a receipt rule.
+// Type identifies which action fields apply: S3, SNS, Lambda, SQS, AddHeader, Bounce, Stop.
+type ReceiptAction struct {
+	Type              string `json:"type"`
+	S3BucketName      string `json:"s3BucketName,omitempty"`
+	S3KeyPrefix       string `json:"s3KeyPrefix,omitempty"`
+	S3TopicARN        string `json:"s3TopicARN,omitempty"`
+	SNSTopicARN       string `json:"snsTopicARN,omitempty"`
+	LambdaFunctionARN string `json:"lambdaFunctionARN,omitempty"`
+	LambdaTopicARN    string `json:"lambdaTopicARN,omitempty"`
+	SQSQueueARN       string `json:"sqsQueueARN,omitempty"`
+	SQSTopicARN       string `json:"sqsTopicARN,omitempty"`
+	HeaderName        string `json:"headerName,omitempty"`
+	HeaderValue       string `json:"headerValue,omitempty"`
+	SmtpReplyCode     string `json:"smtpReplyCode,omitempty"`
+	StatusCode        string `json:"statusCode,omitempty"`
+	Message           string `json:"message,omitempty"`
+	Sender            string `json:"sender,omitempty"`
+	BounceTopicARN    string `json:"bounceTopicARN,omitempty"`
+}
+
 // ReceiptRule represents a single receipt rule within a rule set.
 type ReceiptRule struct {
-	Name        string   `json:"name"`
-	TLSPolicy   string   `json:"tlsPolicy"`
-	Recipients  []string `json:"recipients"`
-	Enabled     bool     `json:"enabled"`
-	ScanEnabled bool     `json:"scanEnabled"`
+	Name        string          `json:"name"`
+	TLSPolicy   string          `json:"tlsPolicy"`
+	Recipients  []string        `json:"recipients"`
+	Actions     []ReceiptAction `json:"actions,omitempty"`
+	Enabled     bool            `json:"enabled"`
+	ScanEnabled bool            `json:"scanEnabled"`
 }
 
 // ReceiptFilter represents an IP-based receipt filter.
@@ -139,10 +236,10 @@ type CustomVerificationEmailTemplate struct {
 // InMemoryBackend is an in-memory store for SES emails, verified identities,
 // email templates, and configuration sets.
 type InMemoryBackend struct {
-	identities           map[string]bool
+	identities           map[string]*IdentityRecord
 	emailsByID           map[string]Email
 	templates            map[string]EmailTemplate
-	configSets           map[string]struct{}
+	configSets           map[string]*ConfigurationSet
 	receiptRuleSets      map[string]*ReceiptRuleSet
 	receiptFilters       map[string]*ReceiptFilter
 	eventDestinations    map[string]map[string]*EventDestination
@@ -158,10 +255,10 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new InMemoryBackend with the default email TTL.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		identities:           make(map[string]bool),
+		identities:           make(map[string]*IdentityRecord),
 		emailsByID:           make(map[string]Email),
 		templates:            make(map[string]EmailTemplate),
-		configSets:           make(map[string]struct{}),
+		configSets:           make(map[string]*ConfigurationSet),
 		receiptRuleSets:      make(map[string]*ReceiptRuleSet),
 		receiptFilters:       make(map[string]*ReceiptFilter),
 		eventDestinations:    make(map[string]map[string]*EventDestination),
@@ -191,11 +288,11 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.identities = make(map[string]bool)
+	b.identities = make(map[string]*IdentityRecord)
 	b.emails = nil
 	b.emailsByID = make(map[string]Email)
 	b.templates = make(map[string]EmailTemplate)
-	b.configSets = make(map[string]struct{})
+	b.configSets = make(map[string]*ConfigurationSet)
 	b.receiptRuleSets = make(map[string]*ReceiptRuleSet)
 	b.receiptFilters = make(map[string]*ReceiptFilter)
 	b.eventDestinations = make(map[string]map[string]*EventDestination)
@@ -214,6 +311,7 @@ func (b *InMemoryBackend) ttl() time.Duration {
 }
 
 // VerifyEmailIdentity adds an identity (address or domain) and marks it as verified.
+// If the identity already exists its verified flag is updated without clearing other attributes.
 func (b *InMemoryBackend) VerifyEmailIdentity(identity string) error {
 	if strings.TrimSpace(identity) == "" {
 		return fmt.Errorf("%w: identity is required", ErrInvalidParameter)
@@ -222,7 +320,11 @@ func (b *InMemoryBackend) VerifyEmailIdentity(identity string) error {
 	b.mu.Lock("VerifyEmailIdentity")
 	defer b.mu.Unlock()
 
-	b.identities[identity] = true
+	if rec, ok := b.identities[identity]; ok {
+		rec.Verified = true
+	} else {
+		b.identities[identity] = &IdentityRecord{Verified: true, ForwardingEnabled: true}
+	}
 
 	return nil
 }
@@ -235,6 +337,19 @@ func (b *InMemoryBackend) DeleteIdentity(identity string) {
 	defer b.mu.Unlock()
 
 	delete(b.identities, identity)
+}
+
+// getOrCreateIdentityLocked returns the IdentityRecord for identity, creating one if absent.
+// The caller MUST hold b.mu for writing.
+func (b *InMemoryBackend) getOrCreateIdentityLocked(identity string) *IdentityRecord {
+	if rec, ok := b.identities[identity]; ok {
+		return rec
+	}
+
+	rec := &IdentityRecord{ForwardingEnabled: true}
+	b.identities[identity] = rec
+
+	return rec
 }
 
 const sesDefaultMaxItems = 100
@@ -255,7 +370,7 @@ func (b *InMemoryBackend) ListIdentities(nextToken string, maxItems int) page.Pa
 }
 
 // GetIdentityVerificationAttributes returns verification status for each requested identity.
-// All registered identities are auto-verified.
+// Verified identities return Success; unknown identities return NotStarted.
 func (b *InMemoryBackend) GetIdentityVerificationAttributes(identities []string) map[string]string {
 	b.mu.RLock("GetIdentityVerificationAttributes")
 	defer b.mu.RUnlock()
@@ -263,7 +378,7 @@ func (b *InMemoryBackend) GetIdentityVerificationAttributes(identities []string)
 	result := make(map[string]string, len(identities))
 
 	for _, id := range identities {
-		if _, ok := b.identities[id]; ok {
+		if rec, ok := b.identities[id]; ok && rec.Verified {
 			result[id] = identityStatusSuccess
 		} else {
 			result[id] = identityStatusNotStarted
@@ -280,13 +395,16 @@ func (b *InMemoryBackend) GetIdentityVerificationAttributes(identities []string)
 //
 // The caller MUST hold b.mu for reading or writing.
 func (b *InMemoryBackend) isVerifiedLocked(from string) bool {
-	if b.identities[from] {
+	if rec, ok := b.identities[from]; ok && rec.Verified {
 		return true
 	}
 
 	// Domain-level check: strip the local-part and check the domain.
 	if at := strings.LastIndex(from, "@"); at >= 0 {
-		return b.identities[from[at+1:]]
+		domain := from[at+1:]
+		rec, ok := b.identities[domain]
+
+		return ok && rec.Verified
 	}
 
 	return false
@@ -313,37 +431,44 @@ func (b *InMemoryBackend) appendEmailLocked(e Email) {
 // SendEmail captures an outbound email and returns a message ID.
 // The source address must be a verified identity or from a verified domain
 // (matching real AWS SES behavior).
-func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML, bodyText string) (string, error) {
-	if from == "" {
+func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
+	if in.From == "" {
 		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}
 
 	// AWS SES caps a single message at 10 MiB total (subject + body + headers).
 	const maxMessageBytes = 10 * 1024 * 1024
-	if len(subject)+len(bodyHTML)+len(bodyText) > maxMessageBytes {
+	if len(in.Subject)+len(in.BodyHTML)+len(in.BodyText) > maxMessageBytes {
 		return "", fmt.Errorf("%w: message exceeds 10 MB", ErrMessageRejected)
 	}
 
 	b.mu.Lock("SendEmail")
 	defer b.mu.Unlock()
 
-	if !b.isVerifiedLocked(from) {
+	if !b.isVerifiedLocked(in.From) {
 		return "", fmt.Errorf(
 			"%w: Email address is not verified. The following identities failed the check in region US-EAST-1: %s",
-			ErrMessageRejected, from,
+			ErrMessageRejected, in.From,
 		)
 	}
 
 	msgID := "ses-" + uuid.New().String()
 
 	b.appendEmailLocked(Email{
-		MessageID: msgID,
-		From:      from,
-		To:        to,
-		Subject:   subject,
-		BodyHTML:  bodyHTML,
-		BodyText:  bodyText,
-		Timestamp: time.Now(),
+		MessageID:            msgID,
+		From:                 in.From,
+		To:                   in.To,
+		Cc:                   in.Cc,
+		Bcc:                  in.Bcc,
+		ReplyTo:              in.ReplyTo,
+		Subject:              in.Subject,
+		BodyHTML:             in.BodyHTML,
+		BodyText:             in.BodyText,
+		ConfigurationSetName: in.ConfigurationSetName,
+		Tags:                 in.Tags,
+		ReturnPath:           in.ReturnPath,
+		SourceArn:            in.SourceArn,
+		Timestamp:            time.Now(),
 	})
 
 	return msgID, nil
@@ -352,36 +477,43 @@ func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML,
 // SendTemplatedEmail sends an email using a stored template and returns the message ID.
 // The source address must be a verified identity or from a verified domain.
 // The template must already exist; ErrTemplateNotFound is returned otherwise.
-func (b *InMemoryBackend) SendTemplatedEmail(from string, to []string, templateName string) (string, error) {
-	if from == "" {
+func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string, error) {
+	if in.From == "" {
 		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("SendTemplatedEmail")
 	defer b.mu.Unlock()
 
-	if !b.isVerifiedLocked(from) {
+	if !b.isVerifiedLocked(in.From) {
 		return "", fmt.Errorf(
 			"%w: Email address is not verified. The following identities failed the check in region US-EAST-1: %s",
-			ErrMessageRejected, from,
+			ErrMessageRejected, in.From,
 		)
 	}
 
-	tmpl, ok := b.templates[templateName]
+	tmpl, ok := b.templates[in.TemplateName]
 	if !ok {
-		return "", fmt.Errorf("%w: %s", ErrTemplateNotFound, templateName)
+		return "", fmt.Errorf("%w: %s", ErrTemplateNotFound, in.TemplateName)
 	}
 
 	msgID := "ses-" + uuid.New().String()
 
 	b.appendEmailLocked(Email{
-		MessageID: msgID,
-		From:      from,
-		To:        to,
-		Subject:   tmpl.SubjectPart,
-		BodyHTML:  tmpl.HTMLPart,
-		BodyText:  tmpl.TextPart,
-		Timestamp: time.Now(),
+		MessageID:            msgID,
+		From:                 in.From,
+		To:                   in.To,
+		Cc:                   in.Cc,
+		Bcc:                  in.Bcc,
+		ReplyTo:              in.ReplyTo,
+		Subject:              tmpl.SubjectPart,
+		BodyHTML:             tmpl.HTMLPart,
+		BodyText:             tmpl.TextPart,
+		ConfigurationSetName: in.ConfigurationSetName,
+		Tags:                 in.Tags,
+		ReturnPath:           in.ReturnPath,
+		SourceArn:            in.SourceArn,
+		Timestamp:            time.Now(),
 	})
 
 	return msgID, nil
@@ -521,7 +653,7 @@ func (b *InMemoryBackend) CreateConfigurationSet(name string) error {
 		return fmt.Errorf("%w: configuration set %s already exists", ErrConfigSetExists, name)
 	}
 
-	b.configSets[name] = struct{}{}
+	b.configSets[name] = &ConfigurationSet{SendingEnabled: true}
 
 	return nil
 }
@@ -659,12 +791,15 @@ func cloneReceiptRuleSet(rs *ReceiptRuleSet) ReceiptRuleSet {
 	for i, r := range rs.Rules {
 		recipients := make([]string, len(r.Recipients))
 		copy(recipients, r.Recipients)
+		actions := make([]ReceiptAction, len(r.Actions))
+		copy(actions, r.Actions)
 		rules[i] = ReceiptRule{
 			Name:        r.Name,
 			Enabled:     r.Enabled,
 			TLSPolicy:   r.TLSPolicy,
 			ScanEnabled: r.ScanEnabled,
 			Recipients:  recipients,
+			Actions:     actions,
 		}
 	}
 
@@ -720,6 +855,8 @@ func (b *InMemoryBackend) CloneReceiptRuleSet(originalName, newName string) erro
 	for i, r := range src.Rules {
 		recipients := make([]string, len(r.Recipients))
 		copy(recipients, r.Recipients)
+		actions := make([]ReceiptAction, len(r.Actions))
+		copy(actions, r.Actions)
 
 		rules[i] = ReceiptRule{
 			Name:        r.Name,
@@ -727,6 +864,7 @@ func (b *InMemoryBackend) CloneReceiptRuleSet(originalName, newName string) erro
 			TLSPolicy:   r.TLSPolicy,
 			ScanEnabled: r.ScanEnabled,
 			Recipients:  recipients,
+			Actions:     actions,
 		}
 	}
 

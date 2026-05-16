@@ -8,8 +8,8 @@ type StorageBackend interface {
 	DeleteIdentity(identity string)
 	ListIdentities(nextToken string, maxItems int) page.Page[string]
 	GetIdentityVerificationAttributes(identities []string) map[string]string
-	SendEmail(from string, to []string, subject, bodyHTML, bodyText string) (string, error)
-	SendTemplatedEmail(from string, to []string, templateName string) (string, error)
+	SendEmail(in SendEmailInput) (string, error)
+	SendTemplatedEmail(in SendTemplatedEmailInput) (string, error)
 	ListEmails() []Email
 	GetEmailByID(messageID string) (Email, error)
 	SearchEmails(query string) []Email
@@ -78,7 +78,7 @@ type StorageBackend interface {
 	UpdateAccountSendingEnabled(enabled bool)
 	// Send ops
 	SendBounce(originalMsgID string) (string, error)
-	SendBulkTemplatedEmail(source, templateName string, destinations []string) ([]string, error)
+	SendBulkTemplatedEmail(source, templateName string, destinations []BulkEmailDestination) ([]string, error)
 	SendCustomVerificationEmail(email, templateName string) (string, error)
 	TestRenderTemplate(templateName, templateData string) (string, error)
 	Region() string

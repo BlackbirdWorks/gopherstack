@@ -1,6 +1,8 @@
 package ses
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -52,53 +54,99 @@ func (b *InMemoryBackend) ListIdentityPolicies(identity string) ([]string, error
 	return []string{}, nil
 }
 
-// ---- identity attribute operations (no-op stubs) ----
+// ---- identity attribute operations ----
 
-// GetIdentityDkimAttributes returns stub DKIM attributes (disabled) for each identity.
-func (b *InMemoryBackend) GetIdentityDkimAttributes(identities []string) map[string]DkimAttributes {
-	out := make(map[string]DkimAttributes, len(identities))
-	for _, id := range identities {
-		out[id] = DkimAttributes{DkimEnabled: false, DkimVerificationStatus: "NotStarted"}
+// dkimTokensForIdentity generates three deterministic DKIM tokens for an identity.
+// Tokens are stable across calls for the same identity, matching AWS SES Pending→Success flow.
+func dkimTokensForIdentity(identity string) []string {
+	tokens := make([]string, 3)
+	for i := range 3 {
+		h := sha256.Sum256([]byte(fmt.Sprintf("%s:dkim:%d", identity, i)))
+		tokens[i] = hex.EncodeToString(h[:])[:32]
 	}
 
-	return out
+	return tokens
 }
 
-// DkimAttributes holds stub DKIM verification attributes.
+// DkimAttributes holds DKIM verification attributes for an identity.
 type DkimAttributes struct {
 	DkimVerificationStatus string
 	DkimTokens             []string
 	DkimEnabled            bool
 }
 
-// GetIdentityMailFromDomainAttributes returns stub MailFrom attributes for each identity.
-func (b *InMemoryBackend) GetIdentityMailFromDomainAttributes(identities []string) map[string]MailFromDomainAttributes {
-	out := make(map[string]MailFromDomainAttributes, len(identities))
+// GetIdentityDkimAttributes returns DKIM attributes for each identity.
+// Known identities return their persisted DKIM state; unknown identities return NotStarted.
+func (b *InMemoryBackend) GetIdentityDkimAttributes(identities []string) map[string]DkimAttributes {
+	b.mu.RLock("GetIdentityDkimAttributes")
+	defer b.mu.RUnlock()
+
+	out := make(map[string]DkimAttributes, len(identities))
+
 	for _, id := range identities {
-		out[id] = MailFromDomainAttributes{MailFromDomainStatus: identityStatusSuccess}
+		rec, ok := b.identities[id]
+		if !ok {
+			out[id] = DkimAttributes{DkimVerificationStatus: identityStatusNotStarted}
+
+			continue
+		}
+
+		tokens := rec.DkimTokens
+		status := identityStatusNotStarted
+
+		if len(tokens) > 0 {
+			status = identityStatusSuccess
+		}
+
+		out[id] = DkimAttributes{
+			DkimEnabled:            rec.DkimEnabled,
+			DkimVerificationStatus: status,
+			DkimTokens:             tokens,
+		}
 	}
 
 	return out
 }
 
-// MailFromDomainAttributes holds stub MailFrom domain attributes.
+// MailFromDomainAttributes holds MailFrom domain attributes for an identity.
 type MailFromDomainAttributes struct {
 	MailFromDomain       string
 	MailFromDomainStatus string
 	BehaviorOnMXFailure  string
 }
 
-// GetIdentityNotificationAttributes returns stub notification attributes for each identity.
-func (b *InMemoryBackend) GetIdentityNotificationAttributes(identities []string) map[string]NotificationAttributes {
-	out := make(map[string]NotificationAttributes, len(identities))
+// GetIdentityMailFromDomainAttributes returns MailFrom attributes for each identity.
+// Identities with a configured MailFromDomain return Success; others return an empty status.
+func (b *InMemoryBackend) GetIdentityMailFromDomainAttributes(identities []string) map[string]MailFromDomainAttributes {
+	b.mu.RLock("GetIdentityMailFromDomainAttributes")
+	defer b.mu.RUnlock()
+
+	out := make(map[string]MailFromDomainAttributes, len(identities))
+
 	for _, id := range identities {
-		out[id] = NotificationAttributes{ForwardingEnabled: true}
+		rec, ok := b.identities[id]
+		if !ok {
+			out[id] = MailFromDomainAttributes{}
+
+			continue
+		}
+
+		status := rec.MailFromStatus
+		if status == "" && rec.MailFromDomain != "" {
+			status = identityStatusSuccess
+		}
+
+		out[id] = MailFromDomainAttributes{
+			MailFromDomain:       rec.MailFromDomain,
+			MailFromDomainStatus: status,
+			BehaviorOnMXFailure:  rec.BehaviorOnMXFail,
+		}
 	}
 
 	return out
 }
 
-// NotificationAttributes holds stub notification attributes.
+// NotificationAttributes holds notification topic attributes for an identity.
 type NotificationAttributes struct {
 	BounceTopic        string
 	ComplaintTopic     string
@@ -109,26 +157,66 @@ type NotificationAttributes struct {
 	HeadersInDelivery  bool
 }
 
-// SetIdentityDkimEnabled is a no-op stub.
-func (b *InMemoryBackend) SetIdentityDkimEnabled(identity string, _ bool) error {
+// GetIdentityNotificationAttributes returns notification attributes for each identity.
+func (b *InMemoryBackend) GetIdentityNotificationAttributes(identities []string) map[string]NotificationAttributes {
+	b.mu.RLock("GetIdentityNotificationAttributes")
+	defer b.mu.RUnlock()
+
+	out := make(map[string]NotificationAttributes, len(identities))
+
+	for _, id := range identities {
+		rec, ok := b.identities[id]
+		if !ok {
+			out[id] = NotificationAttributes{ForwardingEnabled: true}
+
+			continue
+		}
+
+		out[id] = NotificationAttributes{
+			BounceTopic:        rec.BounceTopic,
+			ComplaintTopic:     rec.ComplaintTopic,
+			DeliveryTopic:      rec.DeliveryTopic,
+			ForwardingEnabled:  rec.ForwardingEnabled,
+			HeadersInBounce:    rec.HeadersInBounce,
+			HeadersInComplaint: rec.HeadersInComplaint,
+			HeadersInDelivery:  rec.HeadersInDelivery,
+		}
+	}
+
+	return out
+}
+
+// SetIdentityDkimEnabled persists the DKIM-enabled flag for an identity.
+func (b *InMemoryBackend) SetIdentityDkimEnabled(identity string, enabled bool) error {
 	if strings.TrimSpace(identity) == "" {
 		return fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
 	}
 
+	b.mu.Lock("SetIdentityDkimEnabled")
+	defer b.mu.Unlock()
+
+	b.getOrCreateIdentityLocked(identity).DkimEnabled = enabled
+
 	return nil
 }
 
-// SetIdentityFeedbackForwardingEnabled is a no-op stub.
-func (b *InMemoryBackend) SetIdentityFeedbackForwardingEnabled(identity string, _ bool) error {
+// SetIdentityFeedbackForwardingEnabled persists the forwarding-enabled flag for an identity.
+func (b *InMemoryBackend) SetIdentityFeedbackForwardingEnabled(identity string, enabled bool) error {
 	if strings.TrimSpace(identity) == "" {
 		return fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
 	}
 
+	b.mu.Lock("SetIdentityFeedbackForwardingEnabled")
+	defer b.mu.Unlock()
+
+	b.getOrCreateIdentityLocked(identity).ForwardingEnabled = enabled
+
 	return nil
 }
 
-// SetIdentityHeadersInNotificationsEnabled is a no-op stub.
-func (b *InMemoryBackend) SetIdentityHeadersInNotificationsEnabled(identity, notificationType string, _ bool) error {
+// SetIdentityHeadersInNotificationsEnabled persists the header-inclusion flag for an identity
+// and notification type (Bounce, Complaint, or Delivery).
+func (b *InMemoryBackend) SetIdentityHeadersInNotificationsEnabled(identity, notificationType string, enabled bool) error {
 	if strings.TrimSpace(identity) == "" {
 		return fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
 	}
@@ -137,20 +225,48 @@ func (b *InMemoryBackend) SetIdentityHeadersInNotificationsEnabled(identity, not
 		return fmt.Errorf("%w: NotificationType is required", ErrInvalidParameter)
 	}
 
-	return nil
-}
+	b.mu.Lock("SetIdentityHeadersInNotificationsEnabled")
+	defer b.mu.Unlock()
 
-// SetIdentityMailFromDomain is a no-op stub.
-func (b *InMemoryBackend) SetIdentityMailFromDomain(identity, _ string) error {
-	if strings.TrimSpace(identity) == "" {
-		return fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
+	rec := b.getOrCreateIdentityLocked(identity)
+
+	switch notificationType {
+	case "Bounce":
+		rec.HeadersInBounce = enabled
+	case "Complaint":
+		rec.HeadersInComplaint = enabled
+	case "Delivery":
+		rec.HeadersInDelivery = enabled
 	}
 
 	return nil
 }
 
-// SetIdentityNotificationTopic is a no-op stub.
-func (b *InMemoryBackend) SetIdentityNotificationTopic(identity, notificationType, _ string) error {
+// SetIdentityMailFromDomain persists the custom MAIL FROM domain for an identity.
+// An empty mailFromDomain clears the setting.
+func (b *InMemoryBackend) SetIdentityMailFromDomain(identity, mailFromDomain string) error {
+	if strings.TrimSpace(identity) == "" {
+		return fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("SetIdentityMailFromDomain")
+	defer b.mu.Unlock()
+
+	rec := b.getOrCreateIdentityLocked(identity)
+	rec.MailFromDomain = mailFromDomain
+
+	if mailFromDomain == "" {
+		rec.MailFromStatus = ""
+	} else {
+		rec.MailFromStatus = identityStatusSuccess
+	}
+
+	return nil
+}
+
+// SetIdentityNotificationTopic persists the SNS notification topic for an identity
+// and notification type (Bounce, Complaint, or Delivery).
+func (b *InMemoryBackend) SetIdentityNotificationTopic(identity, notificationType, snsTopic string) error {
 	if strings.TrimSpace(identity) == "" {
 		return fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
 	}
@@ -159,12 +275,26 @@ func (b *InMemoryBackend) SetIdentityNotificationTopic(identity, notificationTyp
 		return fmt.Errorf("%w: NotificationType is required", ErrInvalidParameter)
 	}
 
+	b.mu.Lock("SetIdentityNotificationTopic")
+	defer b.mu.Unlock()
+
+	rec := b.getOrCreateIdentityLocked(identity)
+
+	switch notificationType {
+	case "Bounce":
+		rec.BounceTopic = snsTopic
+	case "Complaint":
+		rec.ComplaintTopic = snsTopic
+	case "Delivery":
+		rec.DeliveryTopic = snsTopic
+	}
+
 	return nil
 }
 
-// ---- domain verification (stubs that auto-verify) ----
+// ---- domain verification ----
 
-// VerifyDomainIdentity adds a domain as a verified identity, returning a stub token.
+// VerifyDomainIdentity adds a domain as a verified identity, returning a deterministic verification token.
 func (b *InMemoryBackend) VerifyDomainIdentity(domain string) (string, error) {
 	if strings.TrimSpace(domain) == "" {
 		return "", fmt.Errorf("%w: Domain is required", ErrInvalidParameter)
@@ -173,12 +303,18 @@ func (b *InMemoryBackend) VerifyDomainIdentity(domain string) (string, error) {
 	b.mu.Lock("VerifyDomainIdentity")
 	defer b.mu.Unlock()
 
-	b.identities[domain] = true
+	if rec, ok := b.identities[domain]; ok {
+		rec.Verified = true
+	} else {
+		b.identities[domain] = &IdentityRecord{Verified: true, ForwardingEnabled: true}
+	}
 
-	return "gopherstack-domain-token-" + domain, nil
+	h := sha256.Sum256([]byte("domain-token:" + domain))
+
+	return hex.EncodeToString(h[:])[:32], nil
 }
 
-// VerifyDomainDkim adds a domain as a verified identity and returns stub DKIM tokens.
+// VerifyDomainDkim adds a domain as a verified identity and returns deterministic DKIM tokens.
 func (b *InMemoryBackend) VerifyDomainDkim(domain string) ([]string, error) {
 	if strings.TrimSpace(domain) == "" {
 		return nil, fmt.Errorf("%w: Domain is required", ErrInvalidParameter)
@@ -187,9 +323,16 @@ func (b *InMemoryBackend) VerifyDomainDkim(domain string) ([]string, error) {
 	b.mu.Lock("VerifyDomainDkim")
 	defer b.mu.Unlock()
 
-	b.identities[domain] = true
+	tokens := dkimTokensForIdentity(domain)
 
-	return []string{"token1", "token2", "token3"}, nil
+	if rec, ok := b.identities[domain]; ok {
+		rec.Verified = true
+		rec.DkimTokens = tokens
+	} else {
+		b.identities[domain] = &IdentityRecord{Verified: true, ForwardingEnabled: true, DkimTokens: tokens}
+	}
+
+	return tokens, nil
 }
 
 // VerifyEmailAddress is an alias for VerifyEmailIdentity (legacy API).
@@ -209,8 +352,8 @@ func (b *InMemoryBackend) ListVerifiedEmailAddresses() []string {
 
 	var out []string
 
-	for id := range b.identities {
-		if strings.Contains(id, "@") {
+	for id, rec := range b.identities {
+		if rec.Verified && strings.Contains(id, "@") {
 			out = append(out, id)
 		}
 	}
@@ -236,8 +379,8 @@ func (b *InMemoryBackend) SendBounce(originalMsgID string) (string, error) {
 	return "bounce-" + originalMsgID, nil
 }
 
-// SendBulkTemplatedEmail is a stub that returns a synthetic destination status list.
-func (b *InMemoryBackend) SendBulkTemplatedEmail(source, templateName string, destinations []string) ([]string, error) {
+// SendBulkTemplatedEmail sends one email per destination and returns a message ID for each.
+func (b *InMemoryBackend) SendBulkTemplatedEmail(source, templateName string, destinations []BulkEmailDestination) ([]string, error) {
 	if strings.TrimSpace(source) == "" {
 		return nil, fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}
@@ -246,9 +389,21 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(source, templateName string, de
 		return nil, fmt.Errorf("%w: Template is required", ErrInvalidParameter)
 	}
 
-	msgIDs := make([]string, len(destinations))
-	for i, d := range destinations {
-		msgIDs[i] = "bulk-" + d
+	msgIDs := make([]string, 0, len(destinations))
+
+	for _, d := range destinations {
+		msgID, err := b.SendTemplatedEmail(SendTemplatedEmailInput{
+			From:         source,
+			To:           d.To,
+			Cc:           d.Cc,
+			Bcc:          d.Bcc,
+			TemplateName: templateName,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		msgIDs = append(msgIDs, msgID)
 	}
 
 	return msgIDs, nil
@@ -449,6 +604,21 @@ func (b *InMemoryBackend) SetReceiptRulePosition(ruleSetName, ruleName string, p
 
 // ---- configuration set operations ----
 
+// ConfigurationSetDescription holds full details of a configuration set.
+type ConfigurationSetDescription struct {
+	TrackingOptions        *TrackingOptions
+	DeliveryOptions        *DeliveryOptions
+	Name                   string
+	EventDestinations      []EventDestination
+	SendingEnabled         bool
+	ReputationMetricsEnabled bool
+}
+
+// DeliveryOptions holds the delivery options for a configuration set.
+type DeliveryOptions struct {
+	TLSPolicy string `json:"tlsPolicy,omitempty"`
+}
+
 // DescribeConfigurationSet returns the named configuration set metadata plus event destinations and tracking options.
 func (b *InMemoryBackend) DescribeConfigurationSet(name string) (ConfigurationSetDescription, error) {
 	if strings.TrimSpace(name) == "" {
@@ -458,11 +628,20 @@ func (b *InMemoryBackend) DescribeConfigurationSet(name string) (ConfigurationSe
 	b.mu.RLock("DescribeConfigurationSet")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.configSets[name]; !exists {
+	cs, exists := b.configSets[name]
+	if !exists {
 		return ConfigurationSetDescription{}, fmt.Errorf("%w: %s", ErrConfigSetNotFound, name)
 	}
 
-	desc := ConfigurationSetDescription{Name: name}
+	desc := ConfigurationSetDescription{
+		Name:                   name,
+		SendingEnabled:         cs.SendingEnabled,
+		ReputationMetricsEnabled: cs.ReputationMetrics,
+	}
+
+	if cs.TLSPolicy != "" {
+		desc.DeliveryOptions = &DeliveryOptions{TLSPolicy: cs.TLSPolicy}
+	}
 
 	if dests := b.eventDestinations[name]; dests != nil {
 		for _, d := range dests {
@@ -483,25 +662,21 @@ func (b *InMemoryBackend) DescribeConfigurationSet(name string) (ConfigurationSe
 	return desc, nil
 }
 
-// ConfigurationSetDescription holds full details of a configuration set.
-type ConfigurationSetDescription struct {
-	TrackingOptions   *TrackingOptions
-	Name              string
-	EventDestinations []EventDestination
-}
-
-// PutConfigurationSetDeliveryOptions is a no-op stub.
-func (b *InMemoryBackend) PutConfigurationSetDeliveryOptions(configSetName, _ string) error {
+// PutConfigurationSetDeliveryOptions persists the TLS policy for a configuration set.
+func (b *InMemoryBackend) PutConfigurationSetDeliveryOptions(configSetName, tlsPolicy string) error {
 	if strings.TrimSpace(configSetName) == "" {
 		return fmt.Errorf("%w: ConfigurationSetName is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("PutConfigurationSetDeliveryOptions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("PutConfigurationSetDeliveryOptions")
+	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[configSetName]; !exists {
+	cs, exists := b.configSets[configSetName]
+	if !exists {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
+
+	cs.TLSPolicy = tlsPolicy
 
 	return nil
 }
@@ -538,34 +713,40 @@ func (b *InMemoryBackend) UpdateConfigurationSetEventDestination(configSetName s
 	return nil
 }
 
-// UpdateConfigurationSetReputationMetricsEnabled is a no-op stub.
-func (b *InMemoryBackend) UpdateConfigurationSetReputationMetricsEnabled(configSetName string, _ bool) error {
+// UpdateConfigurationSetReputationMetricsEnabled persists the reputation metrics flag.
+func (b *InMemoryBackend) UpdateConfigurationSetReputationMetricsEnabled(configSetName string, enabled bool) error {
 	if strings.TrimSpace(configSetName) == "" {
 		return fmt.Errorf("%w: ConfigurationSetName is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("UpdateConfigurationSetReputationMetricsEnabled")
-	defer b.mu.RUnlock()
+	b.mu.Lock("UpdateConfigurationSetReputationMetricsEnabled")
+	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[configSetName]; !exists {
+	cs, exists := b.configSets[configSetName]
+	if !exists {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
+
+	cs.ReputationMetrics = enabled
 
 	return nil
 }
 
-// UpdateConfigurationSetSendingEnabled is a no-op stub.
-func (b *InMemoryBackend) UpdateConfigurationSetSendingEnabled(configSetName string, _ bool) error {
+// UpdateConfigurationSetSendingEnabled persists the sending-enabled flag.
+func (b *InMemoryBackend) UpdateConfigurationSetSendingEnabled(configSetName string, enabled bool) error {
 	if strings.TrimSpace(configSetName) == "" {
 		return fmt.Errorf("%w: ConfigurationSetName is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("UpdateConfigurationSetSendingEnabled")
-	defer b.mu.RUnlock()
+	b.mu.Lock("UpdateConfigurationSetSendingEnabled")
+	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[configSetName]; !exists {
+	cs, exists := b.configSets[configSetName]
+	if !exists {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
+
+	cs.SendingEnabled = enabled
 
 	return nil
 }
