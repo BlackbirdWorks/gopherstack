@@ -1785,6 +1785,7 @@ type configureHealthCheckResponse struct {
 // AddTags response.
 
 type addTagsResponse struct {
+	Result           struct{}            `xml:"AddTagsResult"`
 	XMLName          xml.Name            `xml:"AddTagsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
@@ -1806,6 +1807,7 @@ type describeTagsResponse struct {
 // RemoveTags response.
 
 type removeTagsResponse struct {
+	Result           struct{}            `xml:"RemoveTagsResult"`
 	XMLName          xml.Name            `xml:"RemoveTagsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`

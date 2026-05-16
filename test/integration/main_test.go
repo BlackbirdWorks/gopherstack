@@ -44,7 +44,6 @@ import (
 	codestarconnectionssdk "github.com/aws/aws-sdk-go-v2/service/codestarconnections"
 	cognitoidentitysdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
-	daxsdk "github.com/aws/aws-sdk-go-v2/service/dax"
 	docdbsdk "github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -967,26 +966,6 @@ func createCodeConnectionsClient(t *testing.T) *codeconnectionssdk.Client {
 	}
 
 	return codeconnectionssdk.NewFromConfig(cfg, func(o *codeconnectionssdk.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-	})
-}
-
-// createDAXClient returns an Amazon DAX client.
-func createDAXClient(t *testing.T) *daxsdk.Client {
-	t.Helper()
-
-	cfg, err := config.LoadDefaultConfig(
-		t.Context(),
-		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("test", "test", ""),
-		),
-	)
-	if err != nil {
-		require.NoError(t, err, "unable to load SDK config")
-	}
-
-	return daxsdk.NewFromConfig(cfg, func(o *daxsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

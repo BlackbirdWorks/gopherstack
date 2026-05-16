@@ -130,7 +130,6 @@ require (
 require (
 	connectrpc.com/connect v1.19.1
 	github.com/aws/aws-sdk-go-v2/service/apigatewaymanagementapi v1.29.13
-	github.com/aws/aws-sdk-go-v2/service/dax v1.29.18
 	github.com/aws/aws-sdk-go-v2/service/elasticsearchservice v1.39.1
 	github.com/aws/aws-sdk-go-v2/service/iotdataplane v1.32.20
 	github.com/aws/aws-sdk-go-v2/service/memorydb v1.33.12

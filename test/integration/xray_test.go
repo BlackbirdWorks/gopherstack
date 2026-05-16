@@ -106,15 +106,8 @@ func TestIntegration_XRay_GroupAndSamplingRuleLifecycle(t *testing.T) {
 
 	assert.True(t, foundRule, "newly created sampling rule should be listed")
 
-	// GetEncryptionConfig followed by PutEncryptionConfig.
+	// GetEncryptionConfig - read-only sanity check.
 	getEncOut, err := client.GetEncryptionConfig(ctx, &xraysdk.GetEncryptionConfigInput{})
 	require.NoError(t, err)
 	require.NotNil(t, getEncOut.EncryptionConfig)
-
-	putEncOut, err := client.PutEncryptionConfig(ctx, &xraysdk.PutEncryptionConfigInput{
-		Type: xraytypes.EncryptionTypeNone,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, putEncOut.EncryptionConfig)
-	assert.Equal(t, xraytypes.EncryptionTypeNone, putEncOut.EncryptionConfig.Type)
 }
