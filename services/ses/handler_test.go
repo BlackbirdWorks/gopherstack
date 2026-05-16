@@ -432,9 +432,9 @@ func TestSESBackend_EmailRetentionLimit(t *testing.T) {
 	// Send more emails than the cap.
 	for i := range ses.MaxRetainedEmails + 100 {
 		_, err := b.SendEmail(ses.SendEmailInput{
-				From: "sender@test.com", To: []string{"to@test.com"},
-				Subject: fmt.Sprintf("Subject %d", i), BodyText: "body",
-			})
+			From: "sender@test.com", To: []string{"to@test.com"},
+			Subject: fmt.Sprintf("Subject %d", i), BodyText: "body",
+		})
 		require.NoError(t, err)
 	}
 
@@ -527,11 +527,11 @@ func TestSESBackend_ConcurrentAccess(t *testing.T) {
 	for i := range 50 {
 		wg.Go(func() {
 			_, _ = b.SendEmail(ses.SendEmailInput{
-					From:    fmt.Sprintf("user%d@test.com", i),
-					To:      []string{"to@test.com"},
-					Subject: fmt.Sprintf("Subject %d", i),
-					BodyText: "body",
-				})
+				From:     fmt.Sprintf("user%d@test.com", i),
+				To:       []string{"to@test.com"},
+				Subject:  fmt.Sprintf("Subject %d", i),
+				BodyText: "body",
+			})
 		})
 
 		wg.Go(func() {

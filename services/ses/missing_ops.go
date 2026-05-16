@@ -226,7 +226,9 @@ func (b *InMemoryBackend) SetIdentityFeedbackForwardingEnabled(identity string, 
 
 // SetIdentityHeadersInNotificationsEnabled persists the header-inclusion flag for an identity
 // and notification type (Bounce, Complaint, or Delivery).
-func (b *InMemoryBackend) SetIdentityHeadersInNotificationsEnabled(identity, notificationType string, enabled bool) error {
+func (b *InMemoryBackend) SetIdentityHeadersInNotificationsEnabled(
+	identity, notificationType string, enabled bool,
+) error {
 	if strings.TrimSpace(identity) == "" {
 		return fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
 	}
@@ -390,7 +392,10 @@ func (b *InMemoryBackend) SendBounce(originalMsgID string) (string, error) {
 }
 
 // SendBulkTemplatedEmail sends one email per destination and returns a message ID for each.
-func (b *InMemoryBackend) SendBulkTemplatedEmail(source, templateName string, destinations []BulkEmailDestination) ([]string, error) {
+func (b *InMemoryBackend) SendBulkTemplatedEmail(
+	source, templateName string,
+	destinations []BulkEmailDestination,
+) ([]string, error) {
 	if strings.TrimSpace(source) == "" {
 		return nil, fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}

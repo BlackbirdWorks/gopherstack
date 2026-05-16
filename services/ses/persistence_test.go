@@ -96,7 +96,9 @@ func TestInMemoryBackend_RestorePreservesEmails(t *testing.T) {
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("persist@test.com"))
 
-	_, err := b.SendEmail(ses.SendEmailInput{From: "persist@test.com", To: []string{"to@test.com"}, Subject: "Test", BodyText: "body"})
+	_, err := b.SendEmail(ses.SendEmailInput{
+		From: "persist@test.com", To: []string{"to@test.com"}, Subject: "Test", BodyText: "body",
+	})
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
