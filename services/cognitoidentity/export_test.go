@@ -31,3 +31,13 @@ func (b *InMemoryBackend) PrincipalTagCount() int {
 func ExportedRandomAlphanumeric(n int) (string, error) {
 	return randomAlphanumeric(n)
 }
+
+// SetIdentityEnabled directly sets the Enabled flag on an identity for testing.
+func (b *InMemoryBackend) SetIdentityEnabled(identityID string, enabled bool) {
+	b.mu.Lock("SetIdentityEnabled")
+	defer b.mu.Unlock()
+
+	if id, ok := b.identities[identityID]; ok {
+		id.Enabled = enabled
+	}
+}
