@@ -7,6 +7,7 @@ import (
 	"io"
 	"maps"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,10 +32,16 @@ var (
 	ErrLockAlreadyLocked = errors.New("InvalidParameterValueException: Vault is already locked")
 	// ErrTooManyTags is returned when adding tags would exceed the per-vault limit.
 	ErrTooManyTags = errors.New("InvalidParameterValueException: too many tags on vault")
+	// ErrProvisionedCapacityLimit is returned when trying to purchase more than 2 capacity units.
+	ErrProvisionedCapacityLimit = errors.New("LimitExceededException: maximum 2 provisioned capacity units per account")
+	// ErrInvalidTag is returned when a tag key or value fails validation.
+	ErrInvalidTag = errors.New("InvalidParameterValueException: invalid tag key or value")
 )
 
 const (
 	lockStateInProgress = "InProgress"
+	lockStateLocked     = "Locked"
+	lockStateUnlocked   = "Unlocked"
 
 	// archiveIDLength is the length of the random archive ID suffix.
 	archiveIDLength = 60
@@ -66,6 +73,10 @@ const (
 	maxMultipartPartSize = 4 << 30
 	// vaultLockExpirationHours is the number of hours before an InProgress vault lock expires.
 	vaultLockExpirationHours = 24
+	// maxProvisionedCapacityUnits is the per-account cap on provisioned capacity units.
+	maxProvisionedCapacityUnits = 2
+	// provisionedCapacityMonths is the number of months a purchased capacity unit is active.
+	provisionedCapacityMonths = 1
 )
 
 // StorageBackend is the interface for the Glacier backend.
@@ -427,6 +438,11 @@ func (b *InMemoryBackend) ListArchives(accountID, region, vaultName string) ([]*
 	return result, nil
 }
 
+// isValidTier reports whether tier is one of the allowed retrieval tier values.
+func isValidTier(tier string) bool {
+	return tier == "Bulk" || tier == "Standard" || tier == "Expedited"
+}
+
 // InitiateJob creates a new retrieval or inventory job.
 func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *initiateJobRequest) (*Job, error) {
 	b.mu.Lock()
@@ -457,10 +473,13 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 		}
 	}
 
-	jobID := generateID(jobIDLength)
 	tier := req.Tier
 	if tier == "" {
 		tier = "Standard"
+	}
+
+	if !isValidTier(tier) {
+		return nil, fmt.Errorf("%w: tier must be Bulk, Standard, or Expedited", ErrValidation)
 	}
 
 	inventoryFormat := req.InventoryFormat
@@ -468,20 +487,23 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 		inventoryFormat = "JSON"
 	}
 
+	now := time.Now()
 	j := &Job{
-		JobID:           jobID,
-		VaultARN:        v.VaultARN,
-		VaultName:       vaultName,
-		Action:          action,
-		ArchiveID:       req.ArchiveID,
-		InventoryFormat: inventoryFormat,
-		JobDescription:  req.Description,
-		StatusCode:      "Succeeded",
-		StatusMessage:   "Succeeded",
-		CreationDate:    formatDate(time.Now()),
-		CompletionDate:  formatDate(time.Now()),
-		Completed:       true,
-		Tier:            tier,
+		JobID:              generateID(jobIDLength),
+		VaultARN:           v.VaultARN,
+		VaultName:          vaultName,
+		Action:             action,
+		ArchiveID:          req.ArchiveID,
+		InventoryFormat:    inventoryFormat,
+		JobDescription:     req.Description,
+		StatusCode:         "Succeeded",
+		StatusMessage:      "Succeeded",
+		CreationDate:       formatDate(now),
+		CompletionDate:     formatDate(now),
+		Completed:          true,
+		Tier:               tier,
+		SNSTopic:           req.SNSTopic,
+		RetrievalByteRange: req.RetrievalByteRange,
 	}
 
 	if action == jobTypeArchiveRetrieval {
@@ -491,7 +513,11 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 		}
 	}
 
-	b.jobs[key][jobID] = j
+	if action == jobTypeInventoryRetrieval {
+		b.vaults[key].LastInventoryDate = formatDate(now)
+	}
+
+	b.jobs[key][j.JobID] = j
 
 	return j, nil
 }
@@ -543,6 +569,11 @@ func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) ([]*Job,
 	return result, nil
 }
 
+// isValidNotificationEvent reports whether ev is an allowed vault notification event.
+func isValidNotificationEvent(ev string) bool {
+	return ev == "ArchiveRetrievalCompleted" || ev == "InventoryRetrievalCompleted"
+}
+
 // SetVaultNotifications sets the notification configuration for a vault.
 func (b *InMemoryBackend) SetVaultNotifications(accountID, region, vaultName, snsTopic string, events []string) error {
 	b.mu.Lock()
@@ -555,8 +586,17 @@ func (b *InMemoryBackend) SetVaultNotifications(accountID, region, vaultName, sn
 		return ErrVaultNotFound
 	}
 
+	for _, ev := range events {
+		if !isValidNotificationEvent(ev) {
+			return fmt.Errorf(
+				"%w: event %q must be ArchiveRetrievalCompleted or InventoryRetrievalCompleted",
+				ErrValidation, ev,
+			)
+		}
+	}
+
 	v.NotificationSNSTopic = snsTopic
-	v.NotificationEvents = events
+	v.NotificationEvents = append([]string(nil), events...)
 
 	return nil
 }
@@ -643,6 +683,64 @@ func (b *InMemoryBackend) DeleteVaultAccessPolicy(accountID, region, vaultName s
 	return nil
 }
 
+// isValidTagChar reports whether b is an allowed tag character.
+// AWS allows Unicode letters (L), spaces (Z), numbers (N), and _.:/=+\-@.
+// For the ASCII subset used in practice this check is sufficient.
+func isValidTagChar(b byte) bool {
+	if b >= 'a' && b <= 'z' {
+		return true
+	}
+
+	if b >= 'A' && b <= 'Z' {
+		return true
+	}
+
+	if b >= '0' && b <= '9' {
+		return true
+	}
+
+	switch b {
+	case ' ', '_', '.', ':', '/', '=', '+', '-', '@':
+		return true
+	}
+
+	return false
+}
+
+// validateTagKey returns an error if the tag key is invalid.
+func validateTagKey(k string) error {
+	if len(k) == 0 || len(k) > maxTagKeyLen {
+		return fmt.Errorf("%w: tag key length must be 1-%d", ErrInvalidTag, maxTagKeyLen)
+	}
+
+	if strings.HasPrefix(k, "aws:") {
+		return fmt.Errorf("%w: tag key prefix \"aws:\" is reserved", ErrInvalidTag)
+	}
+
+	for i := range len(k) {
+		if !isValidTagChar(k[i]) {
+			return fmt.Errorf("%w: tag key contains invalid character 0x%02x", ErrInvalidTag, k[i])
+		}
+	}
+
+	return nil
+}
+
+// validateTagValue returns an error if the tag value is invalid.
+func validateTagValue(v string) error {
+	if len(v) > maxTagValueLen {
+		return fmt.Errorf("%w: tag value exceeds %d characters", ErrInvalidTag, maxTagValueLen)
+	}
+
+	for i := range len(v) {
+		if !isValidTagChar(v[i]) {
+			return fmt.Errorf("%w: tag value contains invalid character 0x%02x", ErrInvalidTag, v[i])
+		}
+	}
+
+	return nil
+}
+
 // AddTagsToVault adds or updates tags on a vault.
 func (b *InMemoryBackend) AddTagsToVault(accountID, region, vaultName string, tags map[string]string) error {
 	b.mu.Lock()
@@ -655,14 +753,14 @@ func (b *InMemoryBackend) AddTagsToVault(accountID, region, vaultName string, ta
 		return ErrVaultNotFound
 	}
 
-	// Validate individual key/value lengths before applying.
+	// Validate individual key/value chars, length, and reserved prefix before applying.
 	for k, val := range tags {
-		if len(k) > maxTagKeyLen {
-			return ErrValidation
+		if err := validateTagKey(k); err != nil {
+			return err
 		}
 
-		if len(val) > maxTagValueLen {
-			return ErrValidation
+		if err := validateTagValue(val); err != nil {
+			return err
 		}
 	}
 
@@ -962,11 +1060,25 @@ func rangeStart(rangeHeader string) int64 {
 // Vault lock operations
 // ----------------------------------------
 
+// expireLockIfStale removes an InProgress vault lock that has passed its 24-hour window.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) expireLockIfStale(key vaultKey) {
+	lock, ok := b.vaultLocks[key]
+	if !ok || lock.State != lockStateInProgress {
+		return
+	}
+
+	exp, err := time.Parse("2006-01-02T15:04:05.000Z", lock.ExpirationDate)
+	if err == nil && time.Now().UTC().After(exp) {
+		delete(b.vaultLocks, key)
+	}
+}
+
 // GetVaultLock returns the vault lock state.  If no lock has been initiated,
 // the returned VaultLock has State "Unlocked".
 func (b *InMemoryBackend) GetVaultLock(accountID, region, vaultName string) (*VaultLock, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
 
@@ -974,9 +1086,11 @@ func (b *InMemoryBackend) GetVaultLock(accountID, region, vaultName string) (*Va
 		return nil, ErrVaultNotFound
 	}
 
+	b.expireLockIfStale(key)
+
 	lock, ok := b.vaultLocks[key]
 	if !ok {
-		return &VaultLock{State: "Unlocked"}, nil
+		return &VaultLock{State: lockStateUnlocked}, nil
 	}
 
 	cp := *lock
@@ -995,12 +1109,15 @@ func (b *InMemoryBackend) SetVaultLock(accountID, region, vaultName, policy, loc
 		return ErrVaultNotFound
 	}
 
+	// Expire stale InProgress lock before checking state.
+	b.expireLockIfStale(key)
+
 	if existing, ok := b.vaultLocks[key]; ok {
 		if existing.State == lockStateInProgress {
 			return ErrLockConflict
 		}
 
-		if existing.State == "Locked" {
+		if existing.State == lockStateLocked {
 			return ErrLockAlreadyLocked
 		}
 	}
@@ -1021,10 +1138,29 @@ func (b *InMemoryBackend) SetVaultLock(accountID, region, vaultName, policy, loc
 // Provisioned capacity operations
 // ----------------------------------------
 
-// ListProvisionedCapacity returns all provisioned capacity units for an account.
+// reapExpiredCapacity removes expired provisioned capacity units for an account.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) reapExpiredCapacity(accountID string) {
+	now := time.Now().UTC()
+	caps := b.provisionedCapacity[accountID]
+	active := caps[:0]
+
+	for _, c := range caps {
+		exp, err := time.Parse("2006-01-02T15:04:05.000Z", c.ExpirationDate)
+		if err != nil || now.Before(exp) {
+			active = append(active, c)
+		}
+	}
+
+	b.provisionedCapacity[accountID] = active
+}
+
+// ListProvisionedCapacity returns all non-expired provisioned capacity units for an account.
 func (b *InMemoryBackend) ListProvisionedCapacity(accountID string) []*ProvisionedCapacity {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.reapExpiredCapacity(accountID)
 
 	caps := b.provisionedCapacity[accountID]
 	result := make([]*ProvisionedCapacity, 0, len(caps))
@@ -1040,15 +1176,22 @@ func (b *InMemoryBackend) ListProvisionedCapacity(accountID string) []*Provision
 }
 
 // PurchaseProvisionedCapacity adds a provisioned capacity unit for an account.
+// Returns ErrProvisionedCapacityLimit if the account already has 2 active units.
 func (b *InMemoryBackend) PurchaseProvisionedCapacity(accountID string) (*ProvisionedCapacity, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	b.reapExpiredCapacity(accountID)
+
+	if len(b.provisionedCapacity[accountID]) >= maxProvisionedCapacityUnits {
+		return nil, ErrProvisionedCapacityLimit
+	}
 
 	now := time.Now().UTC()
 	unit := &ProvisionedCapacity{
 		CapacityID:     generateID(capacityIDLength),
 		StartDate:      formatDate(now),
-		ExpirationDate: formatDate(now.AddDate(0, 6, 0)), //nolint:mnd // 6 months
+		ExpirationDate: formatDate(now.AddDate(0, provisionedCapacityMonths, 0)),
 	}
 
 	b.provisionedCapacity[accountID] = append(b.provisionedCapacity[accountID], unit)
@@ -1141,6 +1284,8 @@ func (b *InMemoryBackend) CompleteVaultLock(accountID, region, vaultName, lockID
 		return ErrVaultNotFound
 	}
 
+	b.expireLockIfStale(key)
+
 	lock, ok := b.vaultLocks[key]
 	if !ok || lock.State != lockStateInProgress {
 		return ErrValidation
@@ -1150,7 +1295,7 @@ func (b *InMemoryBackend) CompleteVaultLock(accountID, region, vaultName, lockID
 		return ErrValidation
 	}
 
-	lock.State = "Locked"
+	lock.State = lockStateLocked
 	lock.ExpirationDate = ""
 
 	return nil
