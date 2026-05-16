@@ -22,6 +22,7 @@ import (
 	acmsdk "github.com/aws/aws-sdk-go-v2/service/acm"
 	apigwv2sdk "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
+	athenasdk "github.com/aws/aws-sdk-go-v2/service/athena"
 	autoscalingsdk "github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	backupsdk "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsdk "github.com/aws/aws-sdk-go-v2/service/batch"
@@ -32,6 +33,7 @@ import (
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	codebuildsdk "github.com/aws/aws-sdk-go-v2/service/codebuild"
+	codedeploysdk "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	cognitoidentitysdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
@@ -69,6 +71,7 @@ import (
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	swfsdk "github.com/aws/aws-sdk-go-v2/service/swf"
 	timestreamwritesdk "github.com/aws/aws-sdk-go-v2/service/timestreamwrite"
+	transfersdk "github.com/aws/aws-sdk-go-v2/service/transfer"
 	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
 	"github.com/google/go-cmp/cmp"
 	"github.com/moby/moby/client"
@@ -689,6 +692,66 @@ func createCodeBuildClient(t *testing.T) *codebuildsdk.Client {
 	}
 
 	return codebuildsdk.NewFromConfig(cfg, func(o *codebuildsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeDeployClient returns a CodeDeploy client pointed at the shared test container.
+func createCodeDeployClient(t *testing.T) *codedeploysdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return codedeploysdk.NewFromConfig(cfg, func(o *codedeploysdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createTransferClient returns a Transfer Family client pointed at the shared test container.
+func createTransferClient(t *testing.T) *transfersdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return transfersdk.NewFromConfig(cfg, func(o *transfersdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createAthenaClient returns an Athena client pointed at the shared test container.
+func createAthenaClient(t *testing.T) *athenasdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return athenasdk.NewFromConfig(cfg, func(o *athenasdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
