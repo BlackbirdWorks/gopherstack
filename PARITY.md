@@ -46,7 +46,7 @@ Services with substantial handlers but no AWS-SDK-driven integration test under 
 29. **appconfigdata** — no SDK-driven test.
 30. **apigatewaymanagementapi** — no SDK-driven test (no WebSocket integration coverage).
 31. **acmpca** — no SDK-driven test.
-32. **elastictranscoder** — no SDK-driven test.
+32. _Removed: ElasticTranscoder service was deleted; AWS discontinued Elastic Transcoder on Nov 13, 2025._
 
 ## Persistence wiring gaps (silently dropped state on Snapshot/Restore)
 

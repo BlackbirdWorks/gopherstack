@@ -76,7 +76,6 @@ import (
 	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2svc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elasticsearchsvc "github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
-	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	emrsvc "github.com/aws/aws-sdk-go-v2/service/emr"
 	emrserverlesssvc "github.com/aws/aws-sdk-go-v2/service/emrserverless"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
@@ -106,9 +105,6 @@ import (
 	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	pinpointsvc "github.com/aws/aws-sdk-go-v2/service/pinpoint"
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
-	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb"               //nolint:staticcheck // AWS deprecated the SDK but service still works
-	qldbsessionsvc "github.com/aws/aws-sdk-go-v2/service/qldbsession" //nolint:staticcheck // AWS deprecated the SDK but service still works
-	qldbsessiontypes "github.com/aws/aws-sdk-go-v2/service/qldbsession/types"
 	ramsvc "github.com/aws/aws-sdk-go-v2/service/ram"
 	ramsvc_types "github.com/aws/aws-sdk-go-v2/service/ram/types"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
@@ -264,7 +260,6 @@ provider "aws" {
     elasticache     = %[1]q
     elasticbeanstalk = %[1]q
     elasticsearch   = %[1]q
-    elastictranscoder = %[1]q
     emrserverless   = %[1]q
     emr             = %[1]q
     events          = %[1]q
@@ -291,7 +286,6 @@ provider "aws" {
     organizations   = %[1]q
     pinpoint        = %[1]q
     pipes           = %[1]q
-    qldb            = %[1]q
     ram             = %[1]q
     redshift        = %[1]q
     redshiftdata    = %[1]q
@@ -4760,61 +4754,6 @@ func TestTerraform_EFS(t *testing.T) {
 	}
 }
 
-// TestTerraform_ElasticTranscoder provisions an Elastic Transcoder pipeline via Terraform
-// and verifies it exists using the Elastic Transcoder SDK.
-func TestTerraform_ElasticTranscoder(t *testing.T) {
-	t.Parallel()
-
-	tests := []tfTestCase{
-		{
-			name:    "success",
-			fixture: "elastictranscoder/pipeline",
-			setup: func(t *testing.T, _ string) map[string]any {
-				t.Helper()
-				id := uuid.NewString()[:8]
-
-				return map[string]any{
-					"PipelineName": id,
-				}
-			},
-			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-				t.Helper()
-				client := createElasticTranscoderClient(t)
-				pipelineName := "tf-et-pipeline-" + vars["PipelineName"].(string)
-
-				out, err := client.ListPipelines( //nolint:staticcheck // AWS deprecated the SDK but service still works
-					ctx,
-					&elastictranscodersvc.ListPipelinesInput{},
-				)
-				require.NoError(t, err, "ListPipelines should succeed after terraform apply")
-
-				pipelines := out.Pipelines //nolint:staticcheck // AWS deprecated the SDK but service still works
-				found := false
-
-				for i := range pipelines {
-					name := aws.ToString(
-						pipelines[i].Name, //nolint:staticcheck,nolintlint // AWS deprecated the SDK but service still works
-					)
-					if name == pipelineName {
-						found = true
-
-						break
-					}
-				}
-
-				assert.True(t, found, "pipeline %q should be listed", pipelineName)
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			runTFTest(t, tc)
-		})
-	}
-}
-
 // TestTerraform_ELB provisions a Classic ELB load balancer via Terraform, then verifies
 // it is listed via the ELB SDK.
 func TestTerraform_ELB(t *testing.T) {
@@ -5749,98 +5688,6 @@ func TestTerraform_Pipes(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribePipe should succeed after terraform apply")
 				assert.Equal(t, vars["PipeName"].(string), aws.ToString(out.Name))
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			runTFTest(t, tc)
-		})
-	}
-}
-
-// TestTerraform_QLDB provisions a QLDB ledger and verifies it is described.
-func TestTerraform_QLDBSession(t *testing.T) {
-	t.Parallel()
-
-	tests := []tfTestCase{
-		{
-			name:    "success",
-			fixture: "qldbsession/success",
-			setup: func(t *testing.T, _ string) map[string]any {
-				t.Helper()
-
-				return map[string]any{}
-			},
-			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
-				t.Helper()
-
-				client := createQLDBSessionClient(t)
-
-				out, err := client.SendCommand( //nolint:staticcheck // AWS deprecated the SDK but service still works
-					ctx,
-					&qldbsessionsvc.SendCommandInput{
-						StartSession: &qldbsessiontypes.StartSessionRequest{
-							LedgerName: aws.String("test-ledger"),
-						},
-					},
-				)
-				require.NoError(t, err, "SendCommand StartSession should succeed")
-				require.NotNil(
-					t,
-					out.StartSession, //nolint:staticcheck // AWS deprecated the SDK but service still works
-					"StartSession result should be present",
-				)
-				assert.NotEmpty(
-					t,
-					aws.ToString(out.StartSession.SessionToken), //nolint:staticcheck // deprecated SDK
-					"session token should not be empty",
-				)
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			runTFTest(t, tc)
-		})
-	}
-}
-
-// TestTerraform_QLDB provisions a QLDB ledger and verifies it is described.
-func TestTerraform_QLDB(t *testing.T) {
-	t.Parallel()
-
-	tests := []tfTestCase{
-		{
-			name:    "success",
-			fixture: "qldb/success",
-			setup: func(t *testing.T, _ string) map[string]any {
-				t.Helper()
-				id := uuid.NewString()[:8]
-
-				return map[string]any{
-					"LedgerName": "tf-qldb-" + id,
-				}
-			},
-			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-				t.Helper()
-				client := createQLDBClient(t)
-
-				out, err := client.DescribeLedger( //nolint:staticcheck // AWS deprecated the SDK but service still works
-					ctx,
-					&qldbsvc.DescribeLedgerInput{
-						Name: aws.String(vars["LedgerName"].(string)),
-					},
-				)
-				require.NoError(t, err, "DescribeLedger should succeed after terraform apply")
-				ledgerName := aws.ToString(
-					out.Name, //nolint:staticcheck // AWS deprecated the SDK but service still works
-				)
-				assert.Equal(t, vars["LedgerName"].(string), ledgerName)
 			},
 		},
 	}

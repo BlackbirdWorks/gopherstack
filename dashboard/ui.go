@@ -75,7 +75,6 @@ import (
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	elasticsearchbackend "github.com/blackbirdworks/gopherstack/services/elasticsearch"
-	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
@@ -110,8 +109,6 @@ import (
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
-	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
-	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
@@ -532,8 +529,6 @@ type Config struct {
 	ElasticsearchOps *elasticsearchbackend.Handler
 	// EKSOps provides access to the EKS backend.
 	EKSOps *eksbackend.Handler
-	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
-	ElasticTranscoderOps *elastictranscoderbackend.Handler
 	// ELBOps provides access to the Classic ELB backend.
 	ELBOps *elbbackend.Handler
 	// ELBv2Ops provides access to the ELBv2 (ALB/NLB) backend.
@@ -578,10 +573,6 @@ type Config struct {
 	NeptuneOps *neptunebackend.Handler
 	// PipesOps provides access to the EventBridge Pipes backend.
 	PipesOps *pipesbackend.Handler
-	// QLDBOps provides access to the QLDB backend.
-	QLDBOps *qldbbackend.Handler
-	// QLDBSessionOps provides access to the QLDB Session backend.
-	QLDBSessionOps *qldbsessionbackend.Handler
 	// RDSDataOps provides access to the RDS Data backend.
 	RDSDataOps *rdsdatabackend.Handler
 	// RAMOps provides access to the RAM backend.

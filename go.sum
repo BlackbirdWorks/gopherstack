@@ -136,8 +136,6 @@ github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.54.8 h1:xUwbqWhKA
 github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.54.8/go.mod h1:sQoz/dTooY3kCkNNGxVLTS7EacLA0qXUaK4BkpMjGOc=
 github.com/aws/aws-sdk-go-v2/service/elasticsearchservice v1.39.1 h1:tU0rtRt2Ap1FkMP7KffVNN1ZnI2x8CAfDJac/lGYG6k=
 github.com/aws/aws-sdk-go-v2/service/elasticsearchservice v1.39.1/go.mod h1:JNnrlxQHM/xBd6uy+h9NcrekiIYvvMvga0l6d9K3mOM=
-github.com/aws/aws-sdk-go-v2/service/elastictranscoder v1.33.0 h1:ZD8Iw3WQlZYoCJtK3VBAUVO0DZFLSfHCKbze1xfYRdc=
-github.com/aws/aws-sdk-go-v2/service/elastictranscoder v1.33.0/go.mod h1:1TkRQZaHJfi2GSj/kQNuxQVUyKLAErm+QXF6Dvz7iOs=
 github.com/aws/aws-sdk-go-v2/service/emr v1.57.7 h1:AzUI+6ICHeXPUCZtLNXkIJCoHZ/VUqhMbpJJSKjQMUU=
 github.com/aws/aws-sdk-go-v2/service/emr v1.57.7/go.mod h1:qT4ApoYT69AnCiyIlduF1gj07o7+boJKgrp5E7RX3HU=
 github.com/aws/aws-sdk-go-v2/service/emrserverless v1.40.2 h1:KpBYpGv+xGgu3pDSPNz0Kxlkz/5zk4zdbQtUSmhpA2k=
@@ -212,10 +210,6 @@ github.com/aws/aws-sdk-go-v2/service/pinpoint v1.39.19 h1:T0AW0HjxASJAO7aTXCmSsD
 github.com/aws/aws-sdk-go-v2/service/pinpoint v1.39.19/go.mod h1:XIXArjgQd/J/07x8O8mgR+hvUKluwvTAsUiladC+ZlE=
 github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18 h1:Ywl4E7YLP9IZbElcwN1toHt2RxOkTfJmKJLekrVjf98=
 github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18/go.mod h1:X9pSd75A+F35DzA8lbkuRdBzEt/T5hSo5kCfNMSndiM=
-github.com/aws/aws-sdk-go-v2/service/qldb v1.32.2 h1:tSctQisNHgXnDmyoOdLXkSQmHYo5yPQuvYK+4c4QiNI=
-github.com/aws/aws-sdk-go-v2/service/qldb v1.32.2/go.mod h1:m6bmXbLs5XiGnTLcgKn9eNk5+GCO5e/wHQsIuN7d1Tw=
-github.com/aws/aws-sdk-go-v2/service/qldbsession v1.32.2 h1:xOPSXNmNYoPbLzZISo1YWP3fqsknf2Jg56NNS8b9IG8=
-github.com/aws/aws-sdk-go-v2/service/qldbsession v1.32.2/go.mod h1:5u5GtVH1vV/U0MTkT+G2yJuWz11hk/GUQMdtT4owIWA=
 github.com/aws/aws-sdk-go-v2/service/ram v1.36.1 h1:PuT05zgDY1DLZKqi0Oyk4iY1odmXufLFYqueTlaBE30=
 github.com/aws/aws-sdk-go-v2/service/ram v1.36.1/go.mod h1:ZY/1Be2qNhoS99aH57qXYUm9QZyNrN93ERDM+r9UTmY=
 github.com/aws/aws-sdk-go-v2/service/rds v1.116.2 h1:KQLPCn9BWXW0Y8DyzEokbTF9HOiOQoR77Eu9GKcjBWU=

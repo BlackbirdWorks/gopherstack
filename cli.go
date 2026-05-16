@@ -107,7 +107,6 @@ import (
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	elasticsearchbackend "github.com/blackbirdworks/gopherstack/services/elasticsearch"
-	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
@@ -142,8 +141,6 @@ import (
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
-	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
-	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
@@ -304,7 +301,6 @@ type CLI struct {
 	cognitoIdentityHandler        service.Registerable
 	fisHandler                    service.Registerable
 	identitystoreHandler          service.Registerable
-	elastictranscoderHandler      service.Registerable
 	emrHandler                    service.Registerable
 	glacierHandler                service.Registerable
 	iotwirelessHandler            service.Registerable
@@ -325,8 +321,6 @@ type CLI struct {
 	neptuneHandler                service.Registerable
 	pinpointHandler               service.Registerable
 	pipesHandler                  service.Registerable
-	qldbHandler                   service.Registerable
-	qldbsessionHandler            service.Registerable
 	rdsdataHandler                service.Registerable
 	ramHandler                    service.Registerable
 	redshiftdataHandler           service.Registerable
@@ -1171,11 +1165,6 @@ func (c *CLI) GetEFSHandler() service.Registerable { return c.efsHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetEKSHandler() service.Registerable { return c.eksHandler }
 
-// GetElasticTranscoderHandler returns the Elastic Transcoder handler (dashboard.AWSSDKProvider).
-//
-//nolint:ireturn // architecturally required to return interface
-func (c *CLI) GetElasticTranscoderHandler() service.Registerable { return c.elastictranscoderHandler }
-
 // GetEMRHandler returns the EMR handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1277,16 +1266,6 @@ func (c *CLI) GetPinpointHandler() service.Registerable { return c.pinpointHandl
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetPipesHandler() service.Registerable { return c.pipesHandler }
-
-// GetQLDBHandler returns the QLDB handler (dashboard.AWSSDKProvider).
-//
-//nolint:ireturn // architecturally required to return interface
-func (c *CLI) GetQLDBHandler() service.Registerable { return c.qldbHandler }
-
-// GetQLDBSessionHandler returns the QLDB Session handler (dashboard.AWSSDKProvider).
-//
-//nolint:ireturn // architecturally required to return interface
-func (c *CLI) GetQLDBSessionHandler() service.Registerable { return c.qldbsessionHandler }
 
 // GetRDSDataHandler returns the RDS Data handler (dashboard.AWSSDKProvider).
 //
@@ -2335,11 +2314,8 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.mwaaHandler = byName["MWAA"]
 	cli.neptuneHandler = byName["Neptune"]
 	cli.docdbHandler = byName["DocDB"]
-	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 	cli.pinpointHandler = byName["Pinpoint"]
 	cli.pipesHandler = byName["Pipes"]
-	cli.qldbHandler = byName["QLDB"]
-	cli.qldbsessionHandler = byName["QLDBSession"]
 	cli.rdsdataHandler = byName["RDSData"]
 	cli.ramHandler = byName["RAM"]
 	cli.redshiftdataHandler = byName["RedshiftData"]
@@ -2651,7 +2627,6 @@ func getServiceProviders() []service.Provider {
 		&emrbackend.Provider{},
 		&gluebackend.Provider{},
 		&docdbbackend.Provider{},
-		&elastictranscoderbackend.Provider{},
 		&glacierbackend.Provider{},
 		&iotanalyticsbackend.Provider{},
 		&iotwirelessbackend.Provider{},
@@ -2688,8 +2663,6 @@ func getMostRecentServiceProviders() []service.Provider {
 	return []service.Provider{
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
-		&qldbbackend.Provider{},
-		&qldbsessionbackend.Provider{},
 		&rambackend.Provider{},
 		&rdsdatabackend.Provider{},
 		&redshiftdatabackend.Provider{},

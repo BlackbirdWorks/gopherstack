@@ -102,7 +102,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/eks v1.82.0
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing v1.33.21
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.54.8
-	github.com/aws/aws-sdk-go-v2/service/elastictranscoder v1.33.0
 	github.com/aws/aws-sdk-go-v2/service/emrserverless v1.40.2
 	github.com/aws/aws-sdk-go-v2/service/glue v1.137.2
 	github.com/aws/aws-sdk-go-v2/service/kafka v1.49.0
@@ -139,8 +138,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/organizations v1.50.4
 	github.com/aws/aws-sdk-go-v2/service/pinpoint v1.39.19
 	github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18
-	github.com/aws/aws-sdk-go-v2/service/qldb v1.32.2
-	github.com/aws/aws-sdk-go-v2/service/qldbsession v1.32.2
 	github.com/aws/aws-sdk-go-v2/service/ram v1.36.1
 	github.com/aws/aws-sdk-go-v2/service/rdsdata v1.32.19
 	github.com/aws/aws-sdk-go-v2/service/redshiftdata v1.38.6
