@@ -148,19 +148,49 @@ func (h *Handler) handleBatchPutDataQualityStatisticAnnotation(
 	return &batchPutDataQualityStatisticAnnotationOutput{FailedEntries: []any{}}, nil
 }
 
+// batchUpdatePartitionEntry is a single entry in a BatchUpdatePartition request.
+type batchUpdatePartitionEntry struct {
+	PartitionValueList []string       `json:"PartitionValueList"`
+	PartitionInput     PartitionInput `json:"PartitionInput"`
+}
+
 // batchUpdatePartitionInput holds input for BatchUpdatePartition.
-type batchUpdatePartitionInput struct{}
+type batchUpdatePartitionInput struct {
+	DatabaseName string                      `json:"DatabaseName"`
+	TableName    string                      `json:"TableName"`
+	Entries      []batchUpdatePartitionEntry `json:"Entries"`
+}
+
+// batchUpdatePartitionError holds per-entry error detail for BatchUpdatePartition.
+type batchUpdatePartitionError struct {
+	ErrorDetail        ErrorDetail `json:"ErrorDetail"`
+	PartitionValueList []string    `json:"PartitionValueList"`
+}
 
 // batchUpdatePartitionOutput holds the result for BatchUpdatePartition.
 type batchUpdatePartitionOutput struct {
-	Errors []any `json:"Errors"`
+	Errors []batchUpdatePartitionError `json:"Errors"`
 }
 
 func (h *Handler) handleBatchUpdatePartition(
 	_ context.Context,
-	_ *batchUpdatePartitionInput,
+	in *batchUpdatePartitionInput,
 ) (*batchUpdatePartitionOutput, error) {
-	return &batchUpdatePartitionOutput{Errors: []any{}}, nil
+	errs := make([]batchUpdatePartitionError, 0, len(in.Entries))
+
+	for _, entry := range in.Entries {
+		if err := h.Backend.UpdatePartition(
+			in.DatabaseName, in.TableName,
+			entry.PartitionValueList, entry.PartitionInput,
+		); err != nil {
+			errs = append(errs, batchUpdatePartitionError{
+				PartitionValueList: entry.PartitionValueList,
+				ErrorDetail:        ErrorDetail{ErrorCode: errEntityNotFoundCode, ErrorMessage: err.Error()},
+			})
+		}
+	}
+
+	return &batchUpdatePartitionOutput{Errors: errs}, nil
 }
 
 // cancelDataQualityRuleRecommendationRunInput holds input for CancelDataQualityRuleRecommendationRun.
@@ -1377,16 +1407,16 @@ func (h *Handler) handleGetCustomEntityType(
 	_ context.Context,
 	in *getCustomEntityTypeInput,
 ) (*getCustomEntityTypeOutput, error) {
-	found, _ := h.Backend.BatchGetCustomEntityTypes([]string{in.Name})
-	if len(found) > 0 {
-		return &getCustomEntityTypeOutput{
-			Name:         found[0].Name,
-			RegexString:  found[0].RegexString,
-			ContextWords: found[0].ContextWords,
-		}, nil
+	found, missing := h.Backend.BatchGetCustomEntityTypes([]string{in.Name})
+	if len(missing) > 0 {
+		return nil, awserr.New("EntityNotFoundException", awserr.ErrNotFound)
 	}
 
-	return &getCustomEntityTypeOutput{}, nil
+	return &getCustomEntityTypeOutput{
+		Name:         found[0].Name,
+		RegexString:  found[0].RegexString,
+		ContextWords: found[0].ContextWords,
+	}, nil
 }
 
 // getDataCatalogEncryptionSettingsInput holds input for GetDataCatalogEncryptionSettings.
@@ -1451,12 +1481,12 @@ func (h *Handler) handleGetDataQualityResult(
 	_ context.Context,
 	in *getDataQualityResultInput,
 ) (*getDataQualityResultOutput, error) {
-	found, _ := h.Backend.BatchGetDataQualityResult([]string{in.ResultID})
-	if len(found) > 0 {
-		return &getDataQualityResultOutput{ResultID: found[0].ResultID, Score: found[0].Score}, nil
+	found, errs := h.Backend.BatchGetDataQualityResult([]string{in.ResultID})
+	if len(errs) > 0 {
+		return nil, awserr.New("EntityNotFoundException", awserr.ErrNotFound)
 	}
 
-	return &getDataQualityResultOutput{ResultID: in.ResultID}, nil
+	return &getDataQualityResultOutput{ResultID: found[0].ResultID, Score: found[0].Score}, nil
 }
 
 // getDataQualityRuleRecommendationRunInput holds input for GetDataQualityRuleRecommendationRun.
@@ -1697,9 +1727,14 @@ type getPartitionOutput struct {
 
 func (h *Handler) handleGetPartition(
 	_ context.Context,
-	_ *getPartitionInput,
+	in *getPartitionInput,
 ) (*getPartitionOutput, error) {
-	return &getPartitionOutput{}, nil
+	p, err := h.Backend.GetPartition(in.DatabaseName, in.TableName, in.PartitionValues)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getPartitionOutput{Partition: p}, nil
 }
 
 // getPartitionIndexesInput holds input for GetPartitionIndexes.
@@ -1730,9 +1765,14 @@ type getPartitionsOutput struct {
 
 func (h *Handler) handleGetPartitions(
 	_ context.Context,
-	_ *getPartitionsInput,
+	in *getPartitionsInput,
 ) (*getPartitionsOutput, error) {
-	return &getPartitionsOutput{Partitions: []*Partition{}}, nil
+	partitions, err := h.Backend.GetPartitions(in.DatabaseName, in.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getPartitionsOutput{Partitions: partitions}, nil
 }
 
 // getPlanInput holds input for GetPlan.
@@ -2911,7 +2951,9 @@ func (h *Handler) handleRunStatement(
 }
 
 // searchTablesInput holds input for SearchTables.
-type searchTablesInput struct{}
+type searchTablesInput struct {
+	SearchText string `json:"SearchText,omitempty"`
+}
 
 // searchTablesOutput holds the result for SearchTables.
 type searchTablesOutput struct {
@@ -2920,9 +2962,11 @@ type searchTablesOutput struct {
 
 func (h *Handler) handleSearchTables(
 	_ context.Context,
-	_ *searchTablesInput,
+	in *searchTablesInput,
 ) (*searchTablesOutput, error) {
-	return &searchTablesOutput{TableList: []*Table{}}, nil
+	tables := h.Backend.SearchTables(in.SearchText)
+
+	return &searchTablesOutput{TableList: tables}, nil
 }
 
 // startBlueprintRunInput holds input for StartBlueprintRun.
@@ -3291,8 +3335,16 @@ type updateConnectionInput struct {
 
 func (h *Handler) handleUpdateConnection(
 	_ context.Context,
-	_ *updateConnectionInput,
+	in *updateConnectionInput,
 ) (*emptyOutput, error) {
+	if err := h.Backend.UpdateConnection(
+		in.Name,
+		in.ConnectionInput.ConnectionType,
+		in.ConnectionInput.ConnectionProperties,
+	); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, nil
 }
 
@@ -3376,12 +3428,24 @@ func (h *Handler) handleUpdateMLTransform(
 }
 
 // updatePartitionInput holds input for UpdatePartition.
-type updatePartitionInput struct{}
+type updatePartitionInput struct {
+	DatabaseName       string         `json:"DatabaseName"`
+	TableName          string         `json:"TableName"`
+	PartitionValueList []string       `json:"PartitionValueList"`
+	PartitionInput     PartitionInput `json:"PartitionInput"`
+}
 
 func (h *Handler) handleUpdatePartition(
 	_ context.Context,
-	_ *updatePartitionInput,
+	in *updatePartitionInput,
 ) (*emptyOutput, error) {
+	if err := h.Backend.UpdatePartition(
+		in.DatabaseName, in.TableName,
+		in.PartitionValueList, in.PartitionInput,
+	); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, nil
 }
 

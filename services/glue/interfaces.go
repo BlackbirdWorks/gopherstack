@@ -57,6 +57,11 @@ type StorageBackend interface {
 	BatchDeletePartition(dbName, tableName string, values []PartitionValueList) []PartitionError
 	BatchDeleteTableVersion(dbName, tableName string, versionIDs []string) []TableVersionError
 
+	// Single partition operations.
+	GetPartition(dbName, tableName string, values []string) (*Partition, error)
+	GetPartitions(dbName, tableName string) ([]*Partition, error)
+	UpdatePartition(dbName, tableName string, partitionValues []string, input PartitionInput) error
+
 	// Connection operations.
 	CreateConnection(
 		name, connType string,
@@ -66,6 +71,7 @@ type StorageBackend interface {
 	GetConnection(name string) (*Connection, error)
 	GetConnections() []*Connection
 	DeleteConnection(name string) error
+	UpdateConnection(name string, connType string, props map[string]string) error
 
 	// Batch connection operations.
 	BatchDeleteConnection(names []string) ([]string, []ErrorDetail)
@@ -193,6 +199,9 @@ type StorageBackend interface {
 	// Table version retrieval (read-only; versions are created via CreateTable/UpdateTable).
 	GetTableVersions(dbName, tableName string) []*TableVersion
 	GetTableVersion(dbName, tableName, versionID string) (*TableVersion, error)
+
+	// SearchTables returns tables matching a case-insensitive substring filter.
+	SearchTables(searchText string) []*Table
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement
