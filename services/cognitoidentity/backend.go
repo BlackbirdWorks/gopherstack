@@ -46,6 +46,26 @@ type IdentityProvider struct {
 	ServerSideTokenCheck bool   `json:"serverSideTokenCheck"`
 }
 
+// MappingRule defines a single claim-based role assignment rule.
+type MappingRule struct {
+	Claim     string `json:"claim"`
+	MatchType string `json:"matchType"`
+	Value     string `json:"value"`
+	RoleARN   string `json:"roleARN"`
+}
+
+// RulesConfiguration holds an ordered list of claim-based mapping rules.
+type RulesConfiguration struct {
+	Rules []MappingRule `json:"rules"`
+}
+
+// RoleMapping configures how an identity pool assigns IAM roles for a provider.
+type RoleMapping struct {
+	RulesConfiguration      *RulesConfiguration `json:"rulesConfiguration,omitempty"`
+	Type                    string              `json:"type"`
+	AmbiguousRoleResolution string              `json:"ambiguousRoleResolution,omitempty"`
+}
+
 // IdentityPool represents an Amazon Cognito Identity Pool.
 type IdentityPool struct {
 	CreatedAt                      time.Time          `json:"createdAt"`
@@ -62,8 +82,9 @@ type IdentityPool struct {
 
 // IdentityRoles holds IAM role mappings for an identity pool.
 type IdentityRoles struct {
-	AuthenticatedRoleARN   string `json:"authenticatedRoleARN"`
-	UnauthenticatedRoleARN string `json:"unauthenticatedRoleARN"`
+	RoleMappings           map[string]RoleMapping `json:"roleMappings,omitempty"`
+	AuthenticatedRoleARN   string                 `json:"authenticatedRoleARN"`
+	UnauthenticatedRoleARN string                 `json:"unauthenticatedRoleARN"`
 }
 
 // Identity represents a federated identity.
@@ -73,6 +94,7 @@ type Identity struct {
 	Logins           map[string]string `json:"logins,omitempty"`
 	IdentityID       string            `json:"identityID"`
 	IdentityPoolID   string            `json:"identityPoolID"`
+	Enabled          bool              `json:"enabled"`
 }
 
 // PrincipalTagMapping stores the principal tag attribute map for a pool and provider.
@@ -326,32 +348,20 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
 
-	if _, ok := b.pools[poolID]; !ok {
+	pool, ok := b.pools[poolID]
+	if !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
+	}
+
+	if len(logins) == 0 && !pool.AllowUnauthenticatedIdentities {
+		return nil, fmt.Errorf("%w: unauthenticated access is not supported for this identity pool", ErrNotAuthorized)
 	}
 
 	// AWS GetId matches an existing identity if any of the provided (provider, token) pairs
 	// already appear in the identity's logins. On a match the identity is updated with any
 	// new login providers from the current request (provider-account linking).
-	for _, identity := range b.identitiesByPool[poolID] {
-		if anyLoginMatches(identity.Logins, logins) {
-			// Merge any new providers into the existing identity.
-			updated := false
-			for provider, token := range logins {
-				if identity.Logins[provider] != token {
-					if identity.Logins == nil {
-						identity.Logins = make(map[string]string)
-					}
-					identity.Logins[provider] = token
-					updated = true
-				}
-			}
-			if updated {
-				identity.LastModifiedDate = time.Now()
-			}
-
-			return cloneIdentity(identity), nil
-		}
+	if existing := b.mergeExistingIdentity(poolID, logins); existing != nil {
+		return existing, nil
 	}
 
 	// Create a new identity.
@@ -363,6 +373,7 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 		Logins:           cloneStringMap(logins),
 		CreatedAt:        now,
 		LastModifiedDate: now,
+		Enabled:          true,
 	}
 
 	b.identities[identityID] = identity
@@ -371,8 +382,40 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 	return cloneIdentity(identity), nil
 }
 
+// mergeExistingIdentity searches identitiesByPool[poolID] for an identity that shares any
+// (provider, token) pair with logins, merges new providers into it, and returns a clone.
+// Returns nil if no match is found. Must be called with b.mu held.
+func (b *InMemoryBackend) mergeExistingIdentity(poolID string, logins map[string]string) *Identity {
+	for _, identity := range b.identitiesByPool[poolID] {
+		if !anyLoginMatches(identity.Logins, logins) {
+			continue
+		}
+
+		updated := false
+
+		for provider, token := range logins {
+			if identity.Logins[provider] != token {
+				if identity.Logins == nil {
+					identity.Logins = make(map[string]string)
+				}
+
+				identity.Logins[provider] = token
+				updated = true
+			}
+		}
+
+		if updated {
+			identity.LastModifiedDate = time.Now()
+		}
+
+		return cloneIdentity(identity)
+	}
+
+	return nil
+}
+
 // GetCredentialsForIdentity returns synthetic temporary AWS credentials for an identity.
-func (b *InMemoryBackend) GetCredentialsForIdentity(identityID string, _ map[string]string) (*Credentials, error) {
+func (b *InMemoryBackend) GetCredentialsForIdentity(identityID string, logins map[string]string) (*Credentials, error) {
 	if identityID == "" {
 		return nil, fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
 	}
@@ -380,8 +423,16 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(identityID string, _ map[str
 	b.mu.RLock("GetCredentialsForIdentity")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.identities[identityID]; !ok {
+	identity, ok := b.identities[identityID]
+	if !ok {
 		return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
+	}
+
+	for provider, token := range logins {
+		stored, exists := identity.Logins[provider]
+		if !exists || stored != token {
+			return nil, fmt.Errorf("%w: login token for provider %q does not match", ErrNotAuthorized, provider)
+		}
 	}
 
 	expiry := time.Now().Add(credentialsExpirySeconds * time.Second)
@@ -440,7 +491,10 @@ func (b *InMemoryBackend) GetOpenIDToken(identityID string, _ map[string]string)
 // SetIdentityPoolRoles configures IAM roles for an identity pool.
 // Only the roles that are present (non-empty) in the provided map are updated;
 // existing roles for omitted keys are preserved.
-func (b *InMemoryBackend) SetIdentityPoolRoles(poolID, authenticatedARN, unauthenticatedARN string) error {
+func (b *InMemoryBackend) SetIdentityPoolRoles(
+	poolID, authenticatedARN, unauthenticatedARN string,
+	roleMappings map[string]RoleMapping,
+) error {
 	b.mu.Lock("SetIdentityPoolRoles")
 	defer b.mu.Unlock()
 
@@ -461,6 +515,10 @@ func (b *InMemoryBackend) SetIdentityPoolRoles(poolID, authenticatedARN, unauthe
 
 	if unauthenticatedARN != "" {
 		existing.UnauthenticatedRoleARN = unauthenticatedARN
+	}
+
+	if roleMappings != nil {
+		existing.RoleMappings = cloneRoleMappings(roleMappings)
 	}
 
 	return nil
@@ -607,6 +665,7 @@ func (b *InMemoryBackend) lookupOrCreateDeveloperIdentity(poolID string, logins 
 		Logins:           cloneStringMap(logins),
 		CreatedAt:        now,
 		LastModifiedDate: now,
+		Enabled:          true,
 	}
 
 	b.identities[newID] = identity
@@ -695,14 +754,14 @@ func (b *InMemoryBackend) GetPrincipalTagAttributeMap(poolID, providerName strin
 func (b *InMemoryBackend) ListIdentities(
 	poolID string,
 	maxResults int,
-	_ bool,
+	hideDisabled bool,
 	nextToken string,
 ) (*ListIdentitiesResult, error) {
 	if poolID == "" {
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
 
-	if maxResults < 0 || maxResults > listIdentitiesMaxResults {
+	if maxResults < 1 || maxResults > listIdentitiesMaxResults {
 		return nil, fmt.Errorf(
 			"%w: MaxResults must be between 1 and %d",
 			ErrInvalidParameter, listIdentitiesMaxResults,
@@ -718,13 +777,8 @@ func (b *InMemoryBackend) ListIdentities(
 
 	poolIdentities := b.identitiesByPool[poolID]
 
-	// Sort by IdentityId for deterministic output.
-	sorted := make([]*Identity, len(poolIdentities))
-	copy(sorted, poolIdentities)
-
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].IdentityID < sorted[j].IdentityID
-	})
+	// Filter disabled identities (when requested) and sort by IdentityId.
+	sorted := filterAndSortIdentities(poolIdentities, hideDisabled)
 
 	// Apply cursor: skip items up to and including the one with the cursor ID.
 	startIdx := 0
@@ -1135,6 +1189,32 @@ func clonePrincipalTagMapping(m *PrincipalTagMapping) *PrincipalTagMapping {
 	}
 }
 
+// cloneRoleMappings returns a deep copy of a RoleMapping map.
+func cloneRoleMappings(m map[string]RoleMapping) map[string]RoleMapping {
+	if m == nil {
+		return nil
+	}
+
+	out := make(map[string]RoleMapping, len(m))
+
+	for k, v := range m {
+		rm := RoleMapping{
+			Type:                    v.Type,
+			AmbiguousRoleResolution: v.AmbiguousRoleResolution,
+		}
+
+		if v.RulesConfiguration != nil {
+			rules := make([]MappingRule, len(v.RulesConfiguration.Rules))
+			copy(rules, v.RulesConfiguration.Rules)
+			rm.RulesConfiguration = &RulesConfiguration{Rules: rules}
+		}
+
+		out[k] = rm
+	}
+
+	return out
+}
+
 // Credentials holds temporary AWS credentials returned by GetCredentialsForIdentity.
 type Credentials struct {
 	Expiration      time.Time
@@ -1192,6 +1272,26 @@ func cloneIdentity(identity *Identity) *Identity {
 	cp.Logins = cloneStringMap(identity.Logins)
 
 	return &cp
+}
+
+// filterAndSortIdentities returns a new slice containing identities from src, optionally
+// excluding disabled ones, sorted by IdentityID for deterministic output.
+func filterAndSortIdentities(src []*Identity, hideDisabled bool) []*Identity {
+	out := make([]*Identity, 0, len(src))
+
+	for _, id := range src {
+		if hideDisabled && !id.Enabled {
+			continue
+		}
+
+		out = append(out, id)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].IdentityID < out[j].IdentityID
+	})
+
+	return out
 }
 
 // anyLoginMatches returns true if any (provider, token) pair in req also exists in stored.
