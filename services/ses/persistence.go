@@ -8,9 +8,9 @@ import (
 )
 
 type backendSnapshot struct {
-	Identities           map[string]bool                             `json:"identities"`
+	Identities           map[string]*IdentityRecord                  `json:"identities"`
 	Templates            map[string]EmailTemplate                    `json:"templates"`
-	ConfigSets           map[string]struct{}                         `json:"configSets"`
+	ConfigSets           map[string]*ConfigurationSet                `json:"configSets"`
 	ReceiptRuleSets      map[string]*ReceiptRuleSet                  `json:"receiptRuleSets"`
 	ReceiptFilters       map[string]*ReceiptFilter                   `json:"receiptFilters"`
 	EventDestinations    map[string]map[string]*EventDestination     `json:"eventDestinations"`
@@ -26,8 +26,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	ids := make(map[string]bool, len(b.identities))
-	maps.Copy(ids, b.identities)
+	ids := make(map[string]*IdentityRecord, len(b.identities))
+	for k, v := range b.identities {
+		c := *v
+		ids[k] = &c
+	}
 
 	emails := make([]Email, len(b.emails))
 	copy(emails, b.emails)
@@ -35,8 +38,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	tmpls := make(map[string]EmailTemplate, len(b.templates))
 	maps.Copy(tmpls, b.templates)
 
-	cfgs := make(map[string]struct{}, len(b.configSets))
-	maps.Copy(cfgs, b.configSets)
+	cfgs := make(map[string]*ConfigurationSet, len(b.configSets))
+	for k, v := range b.configSets {
+		c := *v
+		cfgs[k] = &c
+	}
 
 	ruleSets := make(map[string]*ReceiptRuleSet, len(b.receiptRuleSets))
 	for k, rs := range b.receiptRuleSets {
@@ -159,7 +165,7 @@ func (h *Handler) Restore(data []byte) error {
 
 func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Identities == nil {
-		snap.Identities = make(map[string]bool)
+		snap.Identities = make(map[string]*IdentityRecord)
 	}
 	if snap.Emails == nil {
 		snap.Emails = []Email{}
@@ -168,7 +174,7 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 		snap.Templates = make(map[string]EmailTemplate)
 	}
 	if snap.ConfigSets == nil {
-		snap.ConfigSets = make(map[string]struct{})
+		snap.ConfigSets = make(map[string]*ConfigurationSet)
 	}
 	if snap.ReceiptRuleSets == nil {
 		snap.ReceiptRuleSets = make(map[string]*ReceiptRuleSet)

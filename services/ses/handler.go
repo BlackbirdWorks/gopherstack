@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"slices"
 	"strconv"
@@ -632,59 +633,101 @@ func (h *Handler) handleGetIdentityVerificationAttributes(vals url.Values, reqID
 }
 
 func (h *Handler) handleSendEmail(vals url.Values, reqID string) (any, error) {
-	source := vals.Get("Source")
-	subject := vals.Get("Message.Subject.Data")
-	bodyHTML := vals.Get("Message.Body.Html.Data")
-	bodyText := vals.Get("Message.Body.Text.Data")
-	toAddrs := parseSESMemberList(vals, "Destination.ToAddresses")
-
-	msgID, err := h.Backend.SendEmail(source, toAddrs, subject, bodyHTML, bodyText)
+	msgID, err := h.Backend.SendEmail(SendEmailInput{
+		From:                 vals.Get("Source"),
+		To:                   parseSESMemberList(vals, "Destination.ToAddresses"),
+		Cc:                   parseSESMemberList(vals, "Destination.CcAddresses"),
+		Bcc:                  parseSESMemberList(vals, "Destination.BccAddresses"),
+		ReplyTo:              parseSESMemberList(vals, "ReplyToAddresses"),
+		Subject:              vals.Get("Message.Subject.Data"),
+		BodyHTML:             vals.Get("Message.Body.Html.Data"),
+		BodyText:             vals.Get("Message.Body.Text.Data"),
+		ConfigurationSetName: vals.Get("ConfigurationSetName"),
+		Tags:                 parseSESTags(vals, "Tags"),
+		ReturnPath:           vals.Get("ReturnPath"),
+		SourceArn:            vals.Get("SourceArn"),
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &sendEmailResponse{
-		Xmlns: sesXMLNS,
-		Result: sendEmailResult{
-			MessageID: msgID,
-		},
+		Xmlns:     sesXMLNS,
+		Result:    sendEmailResult{MessageID: msgID},
 		RequestID: reqID,
 	}, nil
 }
 
 func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error) {
-	source := vals.Get("Source")
 	rawData := vals.Get("RawMessage.Data")
+	source := vals.Get("Source")
+	returnPath := vals.Get("ReturnPath")
+	sourceArn := vals.Get("SourceArn")
+	configSetName := vals.Get("ConfigurationSetName")
+	tags := parseSESTags(vals, "Tags")
 
-	msgID, err := h.Backend.SendEmail(source, nil, "raw", "", rawData)
-	if err != nil {
-		return nil, err
+	// Parse RFC 2822 headers to extract From, To, and Subject when not supplied explicitly.
+	var toAddrs []string
+	subject := "raw"
+
+	msg, err := mail.ReadMessage(strings.NewReader(rawData))
+	if err == nil {
+		if from := msg.Header.Get("From"); source == "" && from != "" {
+			source = from
+		}
+
+		subject = msg.Header.Get("Subject")
+
+		if toHeader := msg.Header.Get("To"); toHeader != "" {
+			if addrs, parseErr := mail.ParseAddressList(toHeader); parseErr == nil {
+				for _, a := range addrs {
+					toAddrs = append(toAddrs, a.Address)
+				}
+			}
+		}
+	}
+
+	msgID, sendErr := h.Backend.SendEmail(SendEmailInput{
+		From:                 source,
+		To:                   toAddrs,
+		Subject:              subject,
+		BodyText:             rawData,
+		ConfigurationSetName: configSetName,
+		Tags:                 tags,
+		ReturnPath:           returnPath,
+		SourceArn:            sourceArn,
+	})
+	if sendErr != nil {
+		return nil, sendErr
 	}
 
 	return &sendRawEmailResponse{
-		Xmlns: sesXMLNS,
-		Result: sendEmailResult{
-			MessageID: msgID,
-		},
+		Xmlns:     sesXMLNS,
+		Result:    sendEmailResult{MessageID: msgID},
 		RequestID: reqID,
 	}, nil
 }
 
 func (h *Handler) handleSendTemplatedEmail(vals url.Values, reqID string) (any, error) {
-	source := vals.Get("Source")
-	templateName := vals.Get("Template")
-	toAddrs := parseSESMemberList(vals, "Destination.ToAddresses")
-
-	msgID, err := h.Backend.SendTemplatedEmail(source, toAddrs, templateName)
+	msgID, err := h.Backend.SendTemplatedEmail(SendTemplatedEmailInput{
+		From:                 vals.Get("Source"),
+		To:                   parseSESMemberList(vals, "Destination.ToAddresses"),
+		Cc:                   parseSESMemberList(vals, "Destination.CcAddresses"),
+		Bcc:                  parseSESMemberList(vals, "Destination.BccAddresses"),
+		ReplyTo:              parseSESMemberList(vals, "ReplyToAddresses"),
+		TemplateName:         vals.Get("Template"),
+		ConfigurationSetName: vals.Get("ConfigurationSetName"),
+		Tags:                 parseSESTags(vals, "Tags"),
+		ReturnPath:           vals.Get("ReturnPath"),
+		SourceArn:            vals.Get("SourceArn"),
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &sendTemplatedEmailResponse{
-		Xmlns: sesXMLNS,
-		Result: sendEmailResult{
-			MessageID: msgID,
-		},
+		Xmlns:     sesXMLNS,
+		Result:    sendEmailResult{MessageID: msgID},
 		RequestID: reqID,
 	}, nil
 }
@@ -1099,13 +1142,36 @@ type getAccountSendingEnabledResponse struct {
 // parseSESMemberList parses form values like "Prefix.member.1", "Prefix.member.2".
 func parseSESMemberList(vals url.Values, prefix string) []string {
 	var result []string
+	base := prefix + ".member."
+
 	for i := 1; ; i++ {
-		v := vals.Get(fmt.Sprintf("%s.member.%d", prefix, i))
+		v := vals.Get(base + strconv.Itoa(i))
 		if v == "" {
 			return result
 		}
+
 		result = append(result, v)
 	}
+}
+
+// parseSESTags parses Tags.member.N.{Name,Value} form values into a []Tag slice.
+func parseSESTags(vals url.Values, prefix string) []Tag {
+	var tags []Tag
+	base := prefix + ".member."
+
+	for i := 1; ; i++ {
+		idx := base + strconv.Itoa(i)
+		name := vals.Get(idx + ".Name")
+		value := vals.Get(idx + ".Value")
+
+		if name == "" && value == "" {
+			break
+		}
+
+		tags = append(tags, Tag{Name: name, Value: value})
+	}
+
+	return tags
 }
 
 // ---- template XML types ----
@@ -1264,6 +1330,7 @@ func (h *Handler) handleCreateReceiptRule(vals url.Values, reqID string) (any, e
 		TLSPolicy:   vals.Get("Rule.TlsPolicy"),
 		ScanEnabled: scanEnabled,
 		Recipients:  parseSESMemberList(vals, "Rule.Recipients"),
+		Actions:     parseReceiptActions(vals, "Rule.Actions"),
 	}
 
 	if err := h.Backend.CreateReceiptRule(ruleSetName, rule, after); err != nil {
@@ -1610,10 +1677,82 @@ func (h *Handler) handleListCustomVerificationEmailTemplates(reqID string) any {
 	}
 }
 
+// parseReceiptActions parses Rule.Actions.member.N.{ActionType}Action form values.
+func parseReceiptActions(vals url.Values, prefix string) []ReceiptAction {
+	var actions []ReceiptAction
+	base := prefix + ".member."
+
+	for i := 1; ; i++ {
+		idx := base + strconv.Itoa(i)
+
+		var action ReceiptAction
+
+		switch {
+		case vals.Get(idx+".S3Action.BucketName") != "":
+			action = ReceiptAction{
+				Type:         ReceiptActionTypeS3,
+				S3BucketName: vals.Get(idx + ".S3Action.BucketName"),
+				S3KeyPrefix:  vals.Get(idx + ".S3Action.ObjectKeyPrefix"),
+				S3TopicARN:   vals.Get(idx + ".S3Action.TopicArn"),
+			}
+		case vals.Get(idx+".SNSAction.TopicArn") != "":
+			action = ReceiptAction{
+				Type:        ReceiptActionTypeSNS,
+				SNSTopicARN: vals.Get(idx + ".SNSAction.TopicArn"),
+			}
+		case vals.Get(idx+".LambdaAction.FunctionArn") != "":
+			action = ReceiptAction{
+				Type:              ReceiptActionTypeLambda,
+				LambdaFunctionARN: vals.Get(idx + ".LambdaAction.FunctionArn"),
+				LambdaTopicARN:    vals.Get(idx + ".LambdaAction.TopicArn"),
+			}
+		case vals.Get(idx+".SqsAction.QueueArn") != "":
+			action = ReceiptAction{
+				Type:        ReceiptActionTypeSQS,
+				SQSQueueARN: vals.Get(idx + ".SqsAction.QueueArn"),
+				SQSTopicARN: vals.Get(idx + ".SqsAction.TopicArn"),
+			}
+		case vals.Get(idx+".AddHeaderAction.HeaderName") != "":
+			action = ReceiptAction{
+				Type:        ReceiptActionTypeAddHeader,
+				HeaderName:  vals.Get(idx + ".AddHeaderAction.HeaderName"),
+				HeaderValue: vals.Get(idx + ".AddHeaderAction.HeaderValue"),
+			}
+		case vals.Get(idx+".BounceAction.SmtpReplyCode") != "":
+			action = ReceiptAction{
+				Type:           ReceiptActionTypeBounce,
+				SMTPReplyCode:  vals.Get(idx + ".BounceAction.SmtpReplyCode"),
+				StatusCode:     vals.Get(idx + ".BounceAction.StatusCode"),
+				Message:        vals.Get(idx + ".BounceAction.Message"),
+				Sender:         vals.Get(idx + ".BounceAction.Sender"),
+				BounceTopicARN: vals.Get(idx + ".BounceAction.TopicArn"),
+			}
+		case vals.Get(idx+".StopAction.Scope") != "":
+			action = ReceiptAction{
+				Type:           ReceiptActionTypeStop,
+				BounceTopicARN: vals.Get(idx + ".StopAction.TopicArn"),
+			}
+		}
+
+		if action.Type == "" {
+			break
+		}
+
+		actions = append(actions, action)
+	}
+
+	return actions
+}
+
 func toXMLReceiptRule(r ReceiptRule) xmlReceiptRule {
 	recipients := make([]xmlMember, 0, len(r.Recipients))
 	for _, rec := range r.Recipients {
 		recipients = append(recipients, xmlMember{Value: rec})
+	}
+
+	actions := make([]xmlReceiptAction, 0, len(r.Actions))
+	for _, a := range r.Actions {
+		actions = append(actions, receiptActionToXML(a))
 	}
 
 	return xmlReceiptRule{
@@ -1622,7 +1761,41 @@ func toXMLReceiptRule(r ReceiptRule) xmlReceiptRule {
 		TLSPolicy:   r.TLSPolicy,
 		ScanEnabled: r.ScanEnabled,
 		Recipients:  xmlMemberList{Members: recipients},
+		Actions:     xmlReceiptActionList{Members: actions},
 	}
+}
+
+func receiptActionToXML(a ReceiptAction) xmlReceiptAction {
+	x := xmlReceiptAction{}
+
+	switch a.Type {
+	case ReceiptActionTypeS3:
+		x.S3Action = &xmlS3Action{
+			BucketName:      a.S3BucketName,
+			ObjectKeyPrefix: a.S3KeyPrefix,
+			TopicARN:        a.S3TopicARN,
+		}
+	case ReceiptActionTypeSNS:
+		x.SNSAction = &xmlSNSAction{TopicARN: a.SNSTopicARN}
+	case ReceiptActionTypeLambda:
+		x.LambdaAction = &xmlLambdaAction{FunctionARN: a.LambdaFunctionARN, TopicARN: a.LambdaTopicARN}
+	case ReceiptActionTypeSQS:
+		x.SqsAction = &xmlSQSAction{QueueARN: a.SQSQueueARN, TopicARN: a.SQSTopicARN}
+	case ReceiptActionTypeAddHeader:
+		x.AddHeaderAction = &xmlAddHeaderAction{HeaderName: a.HeaderName, HeaderValue: a.HeaderValue}
+	case ReceiptActionTypeBounce:
+		x.BounceAction = &xmlBounceAction{
+			SMTPReplyCode: a.SMTPReplyCode,
+			StatusCode:    a.StatusCode,
+			Message:       a.Message,
+			Sender:        a.Sender,
+			TopicARN:      a.BounceTopicARN,
+		}
+	case ReceiptActionTypeStop:
+		x.StopAction = &xmlStopAction{Scope: "RuleSet", TopicARN: a.BounceTopicARN}
+	}
+
+	return x
 }
 
 type xmlReceiptFilter struct {
@@ -1672,12 +1845,65 @@ type listReceiptRuleSetsResponse struct {
 	Result    listReceiptRuleSetsResult `xml:"ListReceiptRuleSetsResult"`
 }
 
+type xmlS3Action struct {
+	BucketName      string `xml:"BucketName"`
+	ObjectKeyPrefix string `xml:"ObjectKeyPrefix,omitempty"`
+	TopicARN        string `xml:"TopicArn,omitempty"`
+}
+
+type xmlSNSAction struct {
+	TopicARN string `xml:"TopicArn"`
+}
+
+type xmlLambdaAction struct {
+	FunctionARN string `xml:"FunctionArn"`
+	TopicARN    string `xml:"TopicArn,omitempty"`
+}
+
+type xmlSQSAction struct {
+	QueueARN string `xml:"QueueArn"`
+	TopicARN string `xml:"TopicArn,omitempty"`
+}
+
+type xmlAddHeaderAction struct {
+	HeaderName  string `xml:"HeaderName"`
+	HeaderValue string `xml:"HeaderValue"`
+}
+
+type xmlBounceAction struct {
+	SMTPReplyCode string `xml:"SmtpReplyCode"`
+	StatusCode    string `xml:"StatusCode,omitempty"`
+	Message       string `xml:"Message"`
+	Sender        string `xml:"Sender"`
+	TopicARN      string `xml:"TopicArn,omitempty"`
+}
+
+type xmlStopAction struct {
+	Scope    string `xml:"Scope"`
+	TopicARN string `xml:"TopicArn,omitempty"`
+}
+
+type xmlReceiptAction struct {
+	S3Action        *xmlS3Action        `xml:"S3Action,omitempty"`
+	SNSAction       *xmlSNSAction       `xml:"SNSAction,omitempty"`
+	LambdaAction    *xmlLambdaAction    `xml:"LambdaAction,omitempty"`
+	SqsAction       *xmlSQSAction       `xml:"SqsAction,omitempty"`
+	AddHeaderAction *xmlAddHeaderAction `xml:"AddHeaderAction,omitempty"`
+	BounceAction    *xmlBounceAction    `xml:"BounceAction,omitempty"`
+	StopAction      *xmlStopAction      `xml:"StopAction,omitempty"`
+}
+
+type xmlReceiptActionList struct {
+	Members []xmlReceiptAction `xml:"member"`
+}
+
 type xmlReceiptRule struct {
-	Name        string        `xml:"Name"`
-	TLSPolicy   string        `xml:"TlsPolicy,omitempty"`
-	Recipients  xmlMemberList `xml:"Recipients"`
-	Enabled     bool          `xml:"Enabled"`
-	ScanEnabled bool          `xml:"ScanEnabled"`
+	Name        string               `xml:"Name"`
+	TLSPolicy   string               `xml:"TlsPolicy,omitempty"`
+	Recipients  xmlMemberList        `xml:"Recipients"`
+	Actions     xmlReceiptActionList `xml:"Actions"`
+	Enabled     bool                 `xml:"Enabled"`
+	ScanEnabled bool                 `xml:"ScanEnabled"`
 }
 
 type xmlReceiptRuleList struct {
@@ -2056,15 +2282,25 @@ func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (a
 	source := vals.Get("Source")
 	template := vals.Get("Template")
 
-	// Collect destination emails from Destinations.member.N.Destination.ToAddresses.member.1
-	var destinations []string
+	// Collect per-destination data.
+	var destinations []BulkEmailDestination
+
 	for i := 1; ; i++ {
-		d := vals.Get(fmt.Sprintf("Destinations.member.%d.Destination.ToAddresses.member.1", i))
-		if d == "" {
+		prefix := "Destinations.member." + strconv.Itoa(i)
+		to := parseSESMemberList(vals, prefix+".Destination.ToAddresses")
+		cc := parseSESMemberList(vals, prefix+".Destination.CcAddresses")
+		bcc := parseSESMemberList(vals, prefix+".Destination.BccAddresses")
+
+		if len(to) == 0 && len(cc) == 0 && len(bcc) == 0 {
 			break
 		}
 
-		destinations = append(destinations, d)
+		destinations = append(destinations, BulkEmailDestination{
+			To:                      to,
+			Cc:                      cc,
+			Bcc:                     bcc,
+			ReplacementTemplateData: vals.Get(prefix + ".ReplacementTemplateData"),
+		})
 	}
 
 	// AWS SES rejects SendBulkTemplatedEmail with more than 50 destinations.
@@ -2162,6 +2398,7 @@ func (h *Handler) handleUpdateReceiptRule(vals url.Values, reqID string) (any, e
 		TLSPolicy:   vals.Get("Rule.TlsPolicy"),
 		ScanEnabled: scanEnabled,
 		Recipients:  parseSESMemberList(vals, "Rule.Recipients"),
+		Actions:     parseReceiptActions(vals, "Rule.Actions"),
 	}
 
 	if err := h.Backend.UpdateReceiptRule(ruleSetName, rule); err != nil {
@@ -2236,10 +2473,18 @@ func (h *Handler) handleDescribeConfigurationSet(vals url.Values, reqID string) 
 	result := describeConfigurationSetResult{
 		ConfigurationSet:  xmlConfigurationSet{Name: desc.Name},
 		EventDestinations: xmlEventDestinationList{Members: dests},
+		ReputationOptions: &xmlReputationOptions{
+			SendingEnabled:           desc.SendingEnabled,
+			ReputationMetricsEnabled: desc.ReputationMetricsEnabled,
+		},
 	}
 
 	if desc.TrackingOptions != nil {
 		result.TrackingOptions = &xmlTrackingOptions{CustomRedirectDomain: desc.TrackingOptions.CustomRedirectDomain}
+	}
+
+	if desc.DeliveryOptions != nil {
+		result.DeliveryOptions = &xmlDeliveryOptions{TLSPolicy: desc.DeliveryOptions.TLSPolicy}
 	}
 
 	return &describeConfigurationSetResponse{
@@ -2557,8 +2802,19 @@ type xmlTrackingOptions struct {
 	CustomRedirectDomain string `xml:"CustomRedirectDomain,omitempty"`
 }
 
+type xmlDeliveryOptions struct {
+	TLSPolicy string `xml:"TlsPolicy,omitempty"`
+}
+
+type xmlReputationOptions struct {
+	SendingEnabled           bool `xml:"SendingEnabled"`
+	ReputationMetricsEnabled bool `xml:"ReputationMetricsEnabled"`
+}
+
 type describeConfigurationSetResult struct {
 	TrackingOptions   *xmlTrackingOptions     `xml:"TrackingOptions,omitempty"`
+	DeliveryOptions   *xmlDeliveryOptions     `xml:"DeliveryOptions,omitempty"`
+	ReputationOptions *xmlReputationOptions   `xml:"ReputationOptions,omitempty"`
 	ConfigurationSet  xmlConfigurationSet     `xml:"ConfigurationSet"`
 	EventDestinations xmlEventDestinationList `xml:"EventDestinations"`
 }

@@ -21,7 +21,9 @@ func TestSESBackend_EmailsByIDMapSync(t *testing.T) {
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("a@test.com"))
 
-	msgID, err := b.SendEmail("a@test.com", []string{"b@test.com"}, "s", "", "body")
+	msgID, err := b.SendEmail(ses.SendEmailInput{
+		From: "a@test.com", To: []string{"b@test.com"}, Subject: "s", BodyText: "body",
+	})
 	require.NoError(t, err)
 
 	assert.Equal(t, b.EmailCount(), b.EmailsByIDCount())
@@ -41,8 +43,9 @@ func TestSESBackend_EmailsByIDSyncAfterEviction(t *testing.T) {
 	var firstIDs []string
 
 	for i := range ses.MaxRetainedEmails + 5 {
-		msgID, err := b.SendEmail("x@test.com", []string{"y@test.com"},
-			"s", "", "body")
+		msgID, err := b.SendEmail(ses.SendEmailInput{
+			From: "x@test.com", To: []string{"y@test.com"}, Subject: "s", BodyText: "body",
+		})
 		require.NoError(t, err)
 
 		if i < 5 {
@@ -69,7 +72,9 @@ func TestSESBackend_Reset(t *testing.T) {
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("r@test.com"))
 
-	_, err := b.SendEmail("r@test.com", []string{"t@test.com"}, "s", "", "b")
+	_, err := b.SendEmail(ses.SendEmailInput{
+		From: "r@test.com", To: []string{"t@test.com"}, Subject: "s", BodyText: "b",
+	})
 	require.NoError(t, err)
 
 	require.NoError(t, b.CreateTemplate(ses.EmailTemplate{TemplateName: "t1"}))
@@ -109,7 +114,9 @@ func TestSESJanitor_SweepExpiredEmails(t *testing.T) {
 	b.SetEmailTTL(time.Millisecond) // very short TTL
 	require.NoError(t, b.VerifyEmailIdentity("j@test.com"))
 
-	_, err := b.SendEmail("j@test.com", []string{"to@test.com"}, "s", "", "b")
+	_, err := b.SendEmail(ses.SendEmailInput{
+		From: "j@test.com", To: []string{"to@test.com"}, Subject: "s", BodyText: "b",
+	})
 	require.NoError(t, err)
 
 	require.Equal(t, 1, b.EmailCount())
@@ -130,7 +137,9 @@ func TestSESJanitor_SweepNoExpired(t *testing.T) {
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("j2@test.com"))
 
-	_, err := b.SendEmail("j2@test.com", []string{"to@test.com"}, "s", "", "b")
+	_, err := b.SendEmail(ses.SendEmailInput{
+		From: "j2@test.com", To: []string{"to@test.com"}, Subject: "s", BodyText: "b",
+	})
 	require.NoError(t, err)
 
 	j := ses.NewJanitor(b, 0)
@@ -420,7 +429,9 @@ func TestSESBackend_GetSendQuota(t *testing.T) {
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("q@test.com"))
 
-	_, err := b.SendEmail("q@test.com", []string{"to@test.com"}, "s", "", "b")
+	_, err := b.SendEmail(ses.SendEmailInput{
+		From: "q@test.com", To: []string{"to@test.com"}, Subject: "s", BodyText: "b",
+	})
 	require.NoError(t, err)
 
 	q := b.GetSendQuota()
@@ -435,7 +446,9 @@ func TestSESBackend_GetSendStatistics(t *testing.T) {
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("s@test.com"))
 
-	_, err := b.SendEmail("s@test.com", []string{"to@test.com"}, "s", "", "b")
+	_, err := b.SendEmail(ses.SendEmailInput{
+		From: "s@test.com", To: []string{"to@test.com"}, Subject: "s", BodyText: "b",
+	})
 	require.NoError(t, err)
 
 	points := b.GetSendStatistics()
@@ -697,7 +710,9 @@ func TestSESHandler_GetSendStatistics(t *testing.T) {
 	h := newHandler()
 	require.NoError(t, h.Backend.VerifyEmailIdentity("stat@test.com"))
 
-	_, err := h.Backend.SendEmail("stat@test.com", []string{"to@test.com"}, "s", "", "b")
+	_, err := h.Backend.SendEmail(ses.SendEmailInput{
+		From: "stat@test.com", To: []string{"to@test.com"}, Subject: "s", BodyText: "b",
+	})
 	require.NoError(t, err)
 
 	rec := postForm(t, h, url.Values{
@@ -752,7 +767,9 @@ func TestSESPersistence_TemplatesAndConfigSetsRoundTrip(t *testing.T) {
 			name: "emails_by_id_rebuilt_on_restore",
 			setup: func(b *ses.InMemoryBackend) {
 				require.NoError(t, b.VerifyEmailIdentity("p@test.com"))
-				_, err := b.SendEmail("p@test.com", []string{"q@test.com"}, "s", "", "b")
+				_, err := b.SendEmail(ses.SendEmailInput{
+					From: "p@test.com", To: []string{"q@test.com"}, Subject: "s", BodyText: "b",
+				})
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *ses.InMemoryBackend) {
@@ -790,7 +807,9 @@ func TestSESBackend_GetSendQuota_CountsOnlyLast24h(t *testing.T) {
 	// Verify that a freshly sent email counts toward the 24h quota.
 	require.NoError(t, b.VerifyEmailIdentity("q24@test.com"))
 
-	_, err := b.SendEmail("q24@test.com", []string{"to@test.com"}, "s", "", "b")
+	_, err := b.SendEmail(ses.SendEmailInput{
+		From: "q24@test.com", To: []string{"to@test.com"}, Subject: "s", BodyText: "b",
+	})
 	require.NoError(t, err)
 
 	q := b.GetSendQuota()
@@ -808,7 +827,9 @@ func TestSESBackend_GetSendStatistics_14DayWindow(t *testing.T) {
 	require.NoError(t, b.VerifyEmailIdentity("stat14@test.com"))
 
 	// A recently sent email should appear in the stats.
-	_, err := b.SendEmail("stat14@test.com", []string{"to@test.com"}, "recent", "", "b")
+	_, err := b.SendEmail(ses.SendEmailInput{
+		From: "stat14@test.com", To: []string{"to@test.com"}, Subject: "recent", BodyText: "b",
+	})
 	require.NoError(t, err)
 
 	points := b.GetSendStatistics()
@@ -824,7 +845,9 @@ func TestSESPersistence_RestorePrunesExpiredEmails(t *testing.T) {
 	original := ses.NewInMemoryBackend()
 	require.NoError(t, original.VerifyEmailIdentity("prune@test.com"))
 
-	_, err := original.SendEmail("prune@test.com", []string{"to@test.com"}, "keep", "", "b")
+	_, err := original.SendEmail(ses.SendEmailInput{
+		From: "prune@test.com", To: []string{"to@test.com"}, Subject: "keep", BodyText: "b",
+	})
 	require.NoError(t, err)
 
 	snap := original.Snapshot()
@@ -852,7 +875,9 @@ func TestSESPersistence_RestoreCapsToBound(t *testing.T) {
 
 	// Send MaxRetainedEmails+10 emails and snapshot.
 	for range ses.MaxRetainedEmails + 10 {
-		_, err := original.SendEmail("cap@test.com", []string{"to@test.com"}, "s", "", "b")
+		_, err := original.SendEmail(ses.SendEmailInput{
+			From: "cap@test.com", To: []string{"to@test.com"}, Subject: "s", BodyText: "b",
+		})
 		require.NoError(t, err)
 	}
 
@@ -919,7 +944,9 @@ func TestSESBackend_DomainLevelVerification(t *testing.T) {
 			b := ses.NewInMemoryBackend()
 			require.NoError(t, b.VerifyEmailIdentity(tt.identity))
 
-			_, err := b.SendEmail(tt.from, []string{"to@example.com"}, "s", "", "b")
+			_, err := b.SendEmail(ses.SendEmailInput{
+				From: tt.from, To: []string{"to@example.com"}, Subject: "s", BodyText: "b",
+			})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1004,7 +1031,9 @@ func TestSESBackend_SendTemplatedEmail(t *testing.T) {
 			b := ses.NewInMemoryBackend()
 			tt.setup(b)
 
-			msgID, err := b.SendTemplatedEmail(tt.from, []string{"to@test.com"}, tt.template)
+			msgID, err := b.SendTemplatedEmail(ses.SendTemplatedEmailInput{
+				From: tt.from, To: []string{"to@test.com"}, TemplateName: tt.template,
+			})
 
 			if tt.wantErr {
 				require.Error(t, err)
