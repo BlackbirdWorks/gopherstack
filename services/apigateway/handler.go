@@ -606,11 +606,24 @@ type getExportInput struct {
 	ExportType string `json:"exportType"`
 }
 
+// LogEvent is a single log event for CloudWatch Logs emission.
+type LogEvent struct {
+	Message   string
+	Timestamp int64 // Unix milliseconds
+}
+
+// LogEmitter emits log events to a CloudWatch Logs log group and stream.
+// The log group must exist before PutLogEvents is called.
+type LogEmitter interface {
+	PutLogEvents(groupName, streamName string, events []LogEvent) error
+}
+
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
 	Backend        StorageBackend
 	authCache      *authorizerCache
 	lambda         LambdaInvoker
+	logsEmitter    LogEmitter
 	httpClient     *http.Client
 	selRegexpCache sync.Map // map[string]*regexp.Regexp — compiled selection-pattern regexps
 }
@@ -627,6 +640,12 @@ func NewHandler(backend StorageBackend) *Handler {
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
 func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
 	h.lambda = lambda
+}
+
+// SetLogsEmitter configures the CloudWatch Logs emitter for access logging.
+// When set, access logs are emitted to the log group in Stage.AccessLogSettings.DestinationARN.
+func (h *Handler) SetLogsEmitter(le LogEmitter) {
+	h.logsEmitter = le
 }
 
 // SetHTTPClient configures the HTTP client used for HTTP/HTTP_PROXY integrations.

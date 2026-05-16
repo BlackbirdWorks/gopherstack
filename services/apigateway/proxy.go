@@ -5,12 +5,15 @@ import (
 	"compress/gzip"
 	"container/list"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -257,60 +260,115 @@ func (c *authorizerCache) removeElement(elem *list.Element) {
 func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		start := time.Now()
+		requestID := generateRequestID()
 
-		// Find the resource and integration.
-		resources, _, err := h.Backend.GetResources(apiID, "", 0)
-		if err != nil {
-			logger.Load(ctx).ErrorContext(ctx, "APIGateway proxy: failed to get resources", "error", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		// Wrap the writer to capture status/size for access logging.
+		alw := newAccessLogWriter(w)
 
+		defer func() {
+			h.emitAccessLog(apiID, stageName, r, alw, requestID, time.Since(start))
+		}()
+
+		// Evaluate REST API resource policy before dispatching.
+		if denied := h.checkResourcePolicy(apiID, r, alw); denied {
 			return
 		}
 
-		// Match request path to resource path, extracting any path parameters.
-		resource, pathParams := findMatchingResource(resources, r.URL.Path, stageName)
-		if resource == nil {
-			http.NotFound(w, r)
-
+		resource, pathParams, ok := h.resolveResource(ctx, apiID, stageName, r, alw)
+		if !ok {
 			return
 		}
 
-		// Handle CORS preflight OPTIONS request.
-		if r.Method == http.MethodOptions {
-			if resource.CorsConfiguration != nil {
-				h.writeCORSPreflight(w, r, resource.CorsConfiguration)
-
-				return
-			}
-		}
-
-		// Attach CORS headers to the response when configured.
-		if resource.CorsConfiguration != nil {
-			h.addCORSHeaders(w, r, resource.CorsConfiguration)
-		}
-
-		// Apply method-level access controls (authorizer + request validator).
-		if denied := h.applyMethodControls(ctx, w, r, apiID, stageName, resource.ID); denied {
+		// Apply method-level access controls (authorizer + API key + request validator).
+		if denied := h.applyMethodControls(ctx, alw, r, apiID, stageName, resource.ID); denied {
 			return
 		}
 
-		// Get the integration.
-		integration, err := h.Backend.GetIntegration(apiID, resource.ID, r.Method)
-		if err != nil {
-			// Fall back to any method.
-			integration, err = h.Backend.GetIntegration(apiID, resource.ID, "ANY")
-			if err != nil {
-				http.NotFound(w, r)
-
-				return
-			}
+		integration, ok := h.resolveIntegration(apiID, resource, r, alw)
+		if !ok {
+			return
 		}
 
-		h.dispatchIntegration(ctx, w, r, apiID, stageName, resource, integration, pathParams)
+		h.dispatchIntegration(ctx, alw, r, apiID, stageName, resource, integration, pathParams)
 	}
 }
 
-// applyMethodControls runs the authorizer and request validator for the matched method.
+// checkResourcePolicy evaluates the REST API resource policy. Returns true (denied) when
+// the policy rejects the request and the response has already been written.
+func (h *Handler) checkResourcePolicy(apiID string, r *http.Request, w http.ResponseWriter) bool {
+	api, err := h.Backend.GetRestAPI(apiID)
+	if err != nil || api == nil || api.Policy == "" {
+		return false
+	}
+
+	if !evaluateResourcePolicy(api.Policy, r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+
+		return true
+	}
+
+	return false
+}
+
+// resolveResource finds the matching resource for the request path and handles CORS.
+// Returns (resource, pathParams, true) on success; (nil, nil, false) when the response was written.
+func (h *Handler) resolveResource(
+	ctx context.Context,
+	apiID, stageName string,
+	r *http.Request,
+	w http.ResponseWriter,
+) (*Resource, map[string]string, bool) {
+	resources, _, err := h.Backend.GetResources(apiID, "", 0)
+	if err != nil {
+		logger.Load(ctx).ErrorContext(ctx, "APIGateway proxy: failed to get resources", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+
+		return nil, nil, false
+	}
+
+	resource, pathParams := findMatchingResource(resources, r.URL.Path, stageName)
+	if resource == nil {
+		http.NotFound(w, r)
+
+		return nil, nil, false
+	}
+
+	if r.Method == http.MethodOptions && resource.CorsConfiguration != nil {
+		h.writeCORSPreflight(w, r, resource.CorsConfiguration)
+
+		return nil, nil, false
+	}
+
+	if resource.CorsConfiguration != nil {
+		h.addCORSHeaders(w, r, resource.CorsConfiguration)
+	}
+
+	return resource, pathParams, true
+}
+
+// resolveIntegration looks up the integration for a resource+method, falling back to ANY.
+// Returns (integration, true) on success; (nil, false) when the response was written.
+func (h *Handler) resolveIntegration(
+	apiID string,
+	resource *Resource,
+	r *http.Request,
+	w http.ResponseWriter,
+) (*Integration, bool) {
+	integration, err := h.Backend.GetIntegration(apiID, resource.ID, r.Method)
+	if err != nil {
+		integration, err = h.Backend.GetIntegration(apiID, resource.ID, "ANY")
+		if err != nil {
+			http.NotFound(w, r)
+
+			return nil, false
+		}
+	}
+
+	return integration, true
+}
+
+// applyMethodControls runs the authorizer, request validator, and API key check for the matched method.
 // Returns true if the request was denied and the response has already been written.
 func (h *Handler) applyMethodControls(
 	ctx context.Context,
@@ -327,14 +385,23 @@ func (h *Handler) applyMethodControls(
 		return false
 	}
 
+	var authContext map[string]any
 	if method.AuthorizerID != "" {
-		if h.runAuthorizer(ctx, w, r, apiID, stageName, method.AuthorizerID) {
+		denied, ac := h.runAuthorizer(ctx, w, r, apiID, stageName, method.AuthorizerID)
+		if denied {
+			return true
+		}
+		authContext = ac
+	}
+
+	if method.APIKeyRequired {
+		if h.runAPIKeyCheck(ctx, w, r, apiID, authContext) {
 			return true
 		}
 	}
 
 	if method.RequestValidatorID != "" {
-		if h.runRequestValidator(ctx, w, r, apiID, method.RequestValidatorID) {
+		if h.runRequestValidator(ctx, w, r, apiID, method.RequestValidatorID, method) {
 			return true
 		}
 	}
@@ -381,14 +448,53 @@ func (h *Handler) dispatchIntegration(
 }
 
 // stageVars fetches stage variables for the given API/stage (returns nil on error).
+// Canary StageVariableOverrides are applied when this request is routed to the canary.
 func (h *Handler) stageVars(apiID, stageName string) map[string]string {
 	stage, err := h.Backend.GetStage(apiID, stageName)
 	if err != nil || stage == nil {
 		return nil
 	}
 
-	return stage.Variables
+	if stage.CanarySettings == nil || stage.CanarySettings.PercentTraffic <= 0 {
+		return stage.Variables
+	}
+
+	if !shouldRouteToCanary(stage.CanarySettings.PercentTraffic) {
+		return stage.Variables
+	}
+
+	overrides := stage.CanarySettings.StageVariableOverrides
+	if len(overrides) == 0 {
+		return stage.Variables
+	}
+
+	merged := make(map[string]string, len(stage.Variables)+len(overrides))
+	maps.Copy(merged, stage.Variables)
+	maps.Copy(merged, overrides)
+
+	return merged
 }
+
+// shouldRouteToCanary returns true with probability percentTraffic/100.
+// Used to implement weighted canary traffic splitting.
+func shouldRouteToCanary(percentTraffic float64) bool {
+	if percentTraffic >= canaryMaxPercent {
+		return true
+	}
+
+	if percentTraffic <= 0 {
+		return false
+	}
+
+	const uint64Max = 1 << 64 // maximum value of uint64 + 1 (as float64)
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	sample := float64(binary.BigEndian.Uint64(b[:])) / uint64Max
+
+	return sample*canaryMaxPercent < percentTraffic
+}
+
+const canaryMaxPercent = 100.0
 
 // interpolateStageVars substitutes ${stageVariables.X} placeholders in s with values from vars.
 func interpolateStageVars(s string, vars map[string]string) string {
@@ -417,18 +523,19 @@ type AuthorizerEvent struct {
 	HTTPMethod            string             `json:"httpMethod,omitempty"`
 }
 
-// runAuthorizer invokes the Lambda authorizer and returns true if the request
-// should be denied (i.e., the response was written with a 4xx status).
+// runAuthorizer invokes the Lambda authorizer and returns (denied bool, authContext map[string]any).
+// When denied=true the response has already been written with a 4xx status.
+// authContext carries the Lambda authorizer context (e.g. usageIdentifierKey for AUTHORIZER apiKeySource).
 func (h *Handler) runAuthorizer(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
 	apiID, stageName, authorizerID string,
-) bool {
+) (bool, map[string]any) {
 	if h.lambda == nil {
 		http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
 
-		return true
+		return true, nil
 	}
 
 	auth, err := h.Backend.GetAuthorizer(apiID, authorizerID)
@@ -436,7 +543,7 @@ func (h *Handler) runAuthorizer(
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: authorizer not found", "authorizerId", authorizerID)
 		http.Error(w, "Authorizer configuration error", http.StatusInternalServerError)
 
-		return true
+		return true, nil
 	}
 
 	// Determine TTL for cache (authorizer-level setting, default 300 s).
@@ -454,10 +561,10 @@ func (h *Handler) runAuthorizer(
 			if !allowed {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 
-				return true
+				return true, nil
 			}
 
-			return false
+			return false, nil // context not cached — callers must re-invoke if they need it
 		}
 	}
 
@@ -473,7 +580,7 @@ func (h *Handler) runAuthorizer(
 			"authorizerId", authorizerID, "error", invokeErr)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 
-		return true
+		return true, nil
 	}
 
 	// Parse the authorizer response (IAM policy document).
@@ -482,7 +589,7 @@ func (h *Handler) runAuthorizer(
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: failed to parse authorizer response", "error", parseErr)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 
-		return true
+		return true, nil
 	}
 
 	// Evaluate the policy document to determine allow/deny.
@@ -492,10 +599,10 @@ func (h *Handler) runAuthorizer(
 	if !allowed {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 
-		return true
+		return true, nil
 	}
 
-	return false
+	return false, authResp.Context
 }
 
 // authorizerCacheKey builds the cache key for an authorizer invocation.
@@ -544,6 +651,7 @@ func (h *Handler) runRequestValidator(
 	w http.ResponseWriter,
 	r *http.Request,
 	apiID, validatorID string,
+	method *Method,
 ) bool {
 	rv, err := h.Backend.GetRequestValidator(apiID, validatorID)
 	if err != nil {
@@ -554,24 +662,357 @@ func (h *Handler) runRequestValidator(
 	}
 
 	if rv.ValidateRequestBody && r.Body != nil {
-		bodyBytes, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxProxyRequestBodyBytes))
-		if readErr != nil {
-			http.Error(w, "Bad Request: failed to read body", http.StatusBadRequest)
+		return h.validateRequestBody(ctx, w, r, apiID, method)
+	}
 
-			return true
-		}
+	return false
+}
 
-		// Replace body so downstream handlers can still read it.
-		r.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
+// validateRequestBody reads the request body, enforces JSON validity, and delegates model validation.
+func (h *Handler) validateRequestBody(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	apiID string,
+	method *Method,
+) bool {
+	bodyBytes, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxProxyRequestBodyBytes))
+	if readErr != nil {
+		http.Error(w, "Bad Request: failed to read body", http.StatusBadRequest)
 
-		if len(bodyBytes) > 0 && !json.Valid(bodyBytes) {
-			http.Error(w, "Bad Request: request body must be valid JSON", http.StatusBadRequest)
+		return true
+	}
+
+	r.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
+
+	if len(bodyBytes) > 0 && !json.Valid(bodyBytes) {
+		http.Error(w, "Bad Request: request body must be valid JSON", http.StatusBadRequest)
+
+		return true
+	}
+
+	if len(bodyBytes) > 0 {
+		return h.runModelValidation(ctx, w, r, apiID, method, bodyBytes)
+	}
+
+	return false
+}
+
+// runModelValidation resolves the request model by Content-Type and validates the body.
+// Returns true if validation failed and the response has already been written.
+func (h *Handler) runModelValidation(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	apiID string,
+	method *Method,
+	bodyBytes []byte,
+) bool {
+	if method == nil || len(method.RequestModels) == 0 {
+		return false
+	}
+
+	ct := normaliseContentType(r.Header.Get("Content-Type"))
+	modelName, ok := method.RequestModels[ct]
+	if !ok {
+		modelName, ok = method.RequestModels[contentTypeJSON]
+	}
+
+	if !ok || modelName == "" {
+		return false
+	}
+
+	return h.validateBodyAgainstModel(ctx, w, apiID, modelName, bodyBytes)
+}
+
+// normaliseContentType strips parameters (e.g. "; charset=utf-8") from a Content-Type value.
+func normaliseContentType(ct string) string {
+	if ct == "" {
+		return contentTypeJSON
+	}
+
+	if before, _, found := strings.Cut(ct, ";"); found {
+		return strings.TrimSpace(before)
+	}
+
+	return ct
+}
+
+// validateBodyAgainstModel validates the request body JSON against the "required" fields
+// declared in the named model's JSON Schema. Returns true if validation failed.
+// Implements a subset of JSON Schema draft 4 "required" array enforcement.
+func (h *Handler) validateBodyAgainstModel(
+	ctx context.Context,
+	w http.ResponseWriter,
+	apiID, modelName string,
+	bodyBytes []byte,
+) bool {
+	model, err := h.Backend.GetModel(apiID, modelName)
+	if err != nil || model == nil || model.Schema == "" {
+		return false // no schema → skip validation
+	}
+
+	required, parseErr := extractRequiredFields(model.Schema)
+	if parseErr != nil || len(required) == 0 {
+		return false
+	}
+
+	// Parse body as object.
+	var bodyObj map[string]json.RawMessage
+	if unmarshalErr := json.Unmarshal(bodyBytes, &bodyObj); unmarshalErr != nil {
+		return false // not an object — already checked JSON validity above
+	}
+
+	for _, field := range required {
+		if _, present := bodyObj[field]; !present {
+			msg := fmt.Sprintf("Bad Request: body missing required field %q (model %q)", field, modelName)
+			http.Error(w, msg, http.StatusBadRequest)
+			logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: model validation failed",
+				"field", field, "model", modelName)
 
 			return true
 		}
 	}
 
 	return false
+}
+
+// extractRequiredFields parses the "required" array from a JSON Schema string.
+// Returns the list of required field names, or nil if absent.
+func extractRequiredFields(schema string) ([]string, error) {
+	var s struct {
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal([]byte(schema), &s); err != nil {
+		return nil, err
+	}
+
+	return s.Required, nil
+}
+
+// runAPIKeyCheck verifies the API key when method.APIKeyRequired is true.
+// Returns true if the request should be denied (response already written).
+// authContext is the Lambda authorizer response context; used when apiKeySource == "AUTHORIZER".
+func (h *Handler) runAPIKeyCheck(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	apiID string,
+	authContext map[string]any,
+) bool {
+	api, err := h.Backend.GetRestAPI(apiID)
+	if err != nil {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+
+		return true
+	}
+
+	keyValue := resolveAPIKeyValue(r, api, authContext)
+
+	if keyValue == "" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+
+		return true
+	}
+
+	apiKeys, listErr := h.Backend.GetAPIKeys()
+	if listErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: failed to list API keys", "error", listErr)
+		http.Error(w, "Forbidden", http.StatusForbidden)
+
+		return true
+	}
+
+	for _, k := range apiKeys {
+		if k.Enabled && k.Value == keyValue {
+			return false
+		}
+	}
+
+	http.Error(w, "Forbidden", http.StatusForbidden)
+
+	return true
+}
+
+const (
+	apiKeySourceHeader     = "HEADER"
+	apiKeySourceAuthorizer = "AUTHORIZER"
+)
+
+// resolveAPIKeyValue extracts the API key value from the request based on the configured source.
+// HEADER source: uses the x-api-key request header.
+// AUTHORIZER source: uses usageIdentifierKey from the Lambda authorizer context.
+func resolveAPIKeyValue(r *http.Request, api *RestAPI, authContext map[string]any) string {
+	source := apiKeySourceHeader
+	if api != nil && api.APIKeySource == apiKeySourceAuthorizer {
+		source = apiKeySourceAuthorizer
+	}
+
+	if source == apiKeySourceAuthorizer {
+		if authContext != nil {
+			if v, ok := authContext["usageIdentifierKey"].(string); ok {
+				return v
+			}
+		}
+
+		return ""
+	}
+
+	return r.Header.Get("X-Api-Key")
+}
+
+// resourcePolicyDoc is a simplified IAM policy document attached to a REST API.
+type resourcePolicyDoc struct {
+	Statement []resourcePolicyStatement `json:"Statement"`
+}
+
+// resourcePolicyStatement is a single statement in a resource policy.
+type resourcePolicyStatement struct {
+	Condition map[string]map[string]any `json:"Condition,omitempty"`
+	Effect    string                    `json:"Effect"`
+	Action    json.RawMessage           `json:"Action"`
+	Resource  json.RawMessage           `json:"Resource"`
+	Principal json.RawMessage           `json:"Principal"`
+}
+
+// evaluateResourcePolicy parses the IAM policy attached to a REST API and evaluates
+// whether the request is permitted. Returns true (allow) or false (deny).
+// An empty, missing, or unparseable policy allows all requests (fail-open).
+func evaluateResourcePolicy(policy string, r *http.Request) bool {
+	if policy == "" {
+		return true
+	}
+
+	var doc resourcePolicyDoc
+	if err := json.Unmarshal([]byte(policy), &doc); err != nil {
+		return true // fail open on parse error
+	}
+
+	sourceIP := extractClientIP(r)
+	allow := false
+
+	for _, stmt := range doc.Statement {
+		if !policyStatementMatchesRequest(stmt, sourceIP) {
+			continue
+		}
+
+		switch strings.ToUpper(stmt.Effect) {
+		case "DENY":
+			return false
+		case "ALLOW":
+			allow = true
+		}
+	}
+
+	return allow
+}
+
+// policyStatementMatchesRequest checks whether a policy statement applies to the request.
+// Evaluates action "execute-api:Invoke" and optional IpAddress condition.
+func policyStatementMatchesRequest(stmt resourcePolicyStatement, sourceIP string) bool {
+	if !policyActionMatchesInvoke(stmt.Action) {
+		return false
+	}
+
+	if len(stmt.Condition) == 0 {
+		return true
+	}
+
+	if ipCond, ok := stmt.Condition["IpAddress"]; ok {
+		raw, hasKey := ipCond["aws:SourceIp"]
+		if hasKey && !clientIPMatchesCondition(sourceIP, raw) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// policyActionMatchesInvoke checks whether the statement's Action covers "execute-api:Invoke".
+func policyActionMatchesInvoke(action json.RawMessage) bool {
+	if len(action) == 0 {
+		return false
+	}
+
+	var single string
+	if err := json.Unmarshal(action, &single); err == nil {
+		return single == "*" || strings.EqualFold(single, "execute-api:Invoke")
+	}
+
+	var multi []string
+	if err := json.Unmarshal(action, &multi); err != nil {
+		return false
+	}
+
+	for _, a := range multi {
+		if a == "*" || strings.EqualFold(a, "execute-api:Invoke") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// clientIPMatchesCondition checks whether sourceIP matches the IpAddress condition value.
+// The condition value may be a single CIDR string or a list of CIDR strings.
+func clientIPMatchesCondition(sourceIP string, raw any) bool {
+	switch v := raw.(type) {
+	case string:
+		return ipMatchesCIDROrExact(sourceIP, v)
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok && ipMatchesCIDROrExact(sourceIP, s) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// ipMatchesCIDROrExact checks whether sourceIP equals or is contained within the CIDR.
+// Supports both exact IP addresses and CIDR notation (e.g., "10.0.0.0/8").
+func ipMatchesCIDROrExact(sourceIP, cidr string) bool {
+	if sourceIP == cidr {
+		return true
+	}
+
+	ip := net.ParseIP(sourceIP)
+	if ip == nil {
+		return false
+	}
+
+	if strings.ContainsRune(cidr, '/') {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return false
+		}
+
+		return network.Contains(ip)
+	}
+
+	return ip.Equal(net.ParseIP(cidr))
+}
+
+// extractClientIP returns the best-effort client IP from the request.
+func extractClientIP(r *http.Request) string {
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		if first, _, found := strings.Cut(fwd, ","); found {
+			return strings.TrimSpace(first)
+		}
+
+		return strings.TrimSpace(fwd)
+	}
+
+	if r.RemoteAddr != "" {
+		if idx := strings.LastIndexByte(r.RemoteAddr, ':'); idx >= 0 {
+			return r.RemoteAddr[:idx]
+		}
+
+		return r.RemoteAddr
+	}
+
+	return ""
 }
 
 // buildAuthorizerEvent constructs the event payload for the Lambda authorizer.
@@ -721,7 +1162,7 @@ func (h *Handler) handleAWSProxy(
 	var lambdaResp LambdaProxyResponse
 	if parseErr := json.Unmarshal(respBytes, &lambdaResp); parseErr != nil {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(respBytes) //nolint:gosec // local emulation: response passthrough is intentional
+		_, _ = w.Write(respBytes)
 
 		return
 	}
@@ -1040,7 +1481,6 @@ func (h *Handler) handleHTTPProxy(
 	r *http.Request,
 	integration *Integration,
 ) {
-	//nolint:gosec // local emulation: integration URI is test-configured
 	targetReq, err := http.NewRequestWithContext(
 		ctx,
 		r.Method,
@@ -1103,7 +1543,7 @@ func (h *Handler) handleMockIntegration(w http.ResponseWriter, integration *Inte
 	w.Header().Set("Content-Type", contentTypeJSON)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
-	_, _ = w.Write([]byte(body)) //nolint:gosec // local emulation: mock integration body is test-configured
+	_, _ = w.Write([]byte(body))
 }
 
 // mockResponse resolves the status code and body for a MOCK integration.
