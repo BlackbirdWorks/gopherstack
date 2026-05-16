@@ -23,6 +23,7 @@ import (
 	apigwv2sdk "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	autoscalingsdk "github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	backupsdk "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsdk "github.com/aws/aws-sdk-go-v2/service/batch"
 	bedrocksdk "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
@@ -647,6 +648,26 @@ func createGlueClient(t *testing.T) *gluesdk.Client {
 	}
 
 	return gluesdk.NewFromConfig(cfg, func(o *gluesdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createBackupClient returns an AWS Backup client pointed at the shared test container.
+func createBackupClient(t *testing.T) *backupsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return backupsdk.NewFromConfig(cfg, func(o *backupsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
