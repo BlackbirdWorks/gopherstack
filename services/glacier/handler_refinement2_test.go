@@ -97,7 +97,12 @@ func TestRefinement2_VaultNotEmpty_Returns409(t *testing.T) {
 			h.DefaultRegion = testRegion
 
 			bk.AddVaultInternal(testAccountID, testRegion, &glacier.Vault{VaultName: "v1"})
-			bk.AddArchiveInternal(testAccountID, testRegion, "v1", &glacier.Archive{ArchiveID: "a1", Size: 10})
+			bk.AddArchiveInternal(
+				testAccountID,
+				testRegion,
+				"v1",
+				&glacier.Archive{ArchiveID: "a1", Size: 10},
+			)
 
 			rec := doRequest(t, h, http.MethodDelete, "/"+testAccountID+"/vaults/v1", "")
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -125,7 +130,13 @@ func TestRefinement2_InitiateJob_InvalidType(t *testing.T) {
 			setupVault(t, h, "job-vault")
 
 			body := `{"Type":"` + tt.jobType + `"}`
-			rec := doRequest(t, h, http.MethodPost, "/"+testAccountID+"/vaults/job-vault/jobs", body)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/"+testAccountID+"/vaults/job-vault/jobs",
+				body,
+			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -225,13 +236,24 @@ func TestRefinement2_AbortVaultLock_ClearsLock(t *testing.T) {
 			setupVault(t, h, "lock-vault")
 
 			// initiate
-			rec := doRequest(t, h, http.MethodPost, "/"+testAccountID+"/vaults/lock-vault/lock-policy",
-				`{"Policy":"{}"}`)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/"+testAccountID+"/vaults/lock-vault/lock-policy",
+				`{"Policy":"{}"}`,
+			)
 			require.Equal(t, http.StatusCreated, rec.Code)
 			assert.Equal(t, 1, glacier.VaultLockCount(bk))
 
 			// abort
-			rec = doRequest(t, h, http.MethodDelete, "/"+testAccountID+"/vaults/lock-vault/lock-policy", "")
+			rec = doRequest(
+				t,
+				h,
+				http.MethodDelete,
+				"/"+testAccountID+"/vaults/lock-vault/lock-policy",
+				"",
+			)
 			require.Equal(t, http.StatusNoContent, rec.Code)
 			assert.Equal(t, tt.wantLockCount, glacier.VaultLockCount(bk))
 		})
@@ -253,7 +275,13 @@ func TestRefinement2_AbortVaultLock_VaultNotFound(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			rec := doRequest(t, h, http.MethodDelete, "/"+testAccountID+"/vaults/no-such-vault/lock-policy", "")
+			rec := doRequest(
+				t,
+				h,
+				http.MethodDelete,
+				"/"+testAccountID+"/vaults/no-such-vault/lock-policy",
+				"",
+			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -276,12 +304,22 @@ func TestRefinement2_SetVaultLock_RejectsConflict(t *testing.T) {
 			h := newTestHandler()
 			setupVault(t, h, "conflict-vault")
 
-			rec := doRequest(t, h, http.MethodPost, "/"+testAccountID+"/vaults/conflict-vault/lock-policy",
-				`{"Policy":"{}"}`)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/"+testAccountID+"/vaults/conflict-vault/lock-policy",
+				`{"Policy":"{}"}`,
+			)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
-			rec = doRequest(t, h, http.MethodPost, "/"+testAccountID+"/vaults/conflict-vault/lock-policy",
-				`{"Policy":"{}"}`)
+			rec = doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/"+testAccountID+"/vaults/conflict-vault/lock-policy",
+				`{"Policy":"{}"}`,
+			)
 			assert.Equal(t, tt.wantSecondStatus, rec.Code)
 		})
 	}
@@ -306,8 +344,13 @@ func TestRefinement2_CompleteVaultLock_Validates(t *testing.T) {
 			setupVault(t, h, "complete-vault")
 
 			// initiate
-			rec := doRequest(t, h, http.MethodPost, "/"+testAccountID+"/vaults/complete-vault/lock-policy",
-				`{"Policy":"{}"}`)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/"+testAccountID+"/vaults/complete-vault/lock-policy",
+				`{"Policy":"{}"}`,
+			)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			// complete with wrong lockID
@@ -336,8 +379,13 @@ func TestRefinement2_CompleteVaultLock_Success(t *testing.T) {
 			setupVault(t, h, "complete2-vault")
 
 			// initiate
-			rec := doRequest(t, h, http.MethodPost, "/"+testAccountID+"/vaults/complete2-vault/lock-policy",
-				`{"Policy":"{}"}`)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/"+testAccountID+"/vaults/complete2-vault/lock-policy",
+				`{"Policy":"{}"}`,
+			)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var resp map[string]string
@@ -371,7 +419,13 @@ func TestRefinement2_InitiateVaultLock_ReadsPolicy(t *testing.T) {
 			setupVault(t, h, "policy-vault")
 
 			body := `{"Policy":"` + tt.policy + `"}`
-			rec := doRequest(t, h, http.MethodPost, "/"+testAccountID+"/vaults/policy-vault/lock-policy", body)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/"+testAccountID+"/vaults/policy-vault/lock-policy",
+				body,
+			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]string
@@ -388,7 +442,10 @@ func TestRefinement2_DataRetrievalPolicy_RoundTrip(t *testing.T) {
 		name   string
 		policy string
 	}{
-		{name: "set_then_get", policy: `{"Policy":{"Rules":[{"Strategy":"BytesPerHour","BytesPerHour":1073741824}]}}`},
+		{
+			name:   "set_then_get",
+			policy: `{"Policy":{"Rules":[{"Strategy":"BytesPerHour","BytesPerHour":1073741824}]}}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -397,7 +454,13 @@ func TestRefinement2_DataRetrievalPolicy_RoundTrip(t *testing.T) {
 
 			h := newTestHandler()
 
-			rec := doRequest(t, h, http.MethodPut, "/"+testAccountID+"/policies/data-retrieval", tt.policy)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPut,
+				"/"+testAccountID+"/policies/data-retrieval",
+				tt.policy,
+			)
 			require.Equal(t, http.StatusNoContent, rec.Code)
 
 			rec = doRequest(t, h, http.MethodGet, "/"+testAccountID+"/policies/data-retrieval", "")
@@ -503,7 +566,11 @@ func TestRefinement2_SeedHelpers_AddJobInternal(t *testing.T) {
 			t.Parallel()
 
 			bk := glacier.NewInMemoryBackend()
-			bk.AddVaultInternal(testAccountID, testRegion, &glacier.Vault{VaultName: "job-seed-vault"})
+			bk.AddVaultInternal(
+				testAccountID,
+				testRegion,
+				&glacier.Vault{VaultName: "job-seed-vault"},
+			)
 			bk.AddJobInternal(testAccountID, testRegion, "job-seed-vault", &glacier.Job{
 				JobID:  "test-job-id",
 				Action: "InventoryRetrieval",
@@ -532,8 +599,18 @@ func TestRefinement2_ExportCountHelpers_JobCount_VaultLockCount(t *testing.T) {
 			bk := glacier.NewInMemoryBackend()
 			bk.AddVaultInternal(testAccountID, testRegion, &glacier.Vault{VaultName: "v1"})
 			bk.AddVaultInternal(testAccountID, testRegion, &glacier.Vault{VaultName: "v2"})
-			bk.AddJobInternal(testAccountID, testRegion, "v1", &glacier.Job{JobID: "j1", Action: "InventoryRetrieval"})
-			bk.AddJobInternal(testAccountID, testRegion, "v2", &glacier.Job{JobID: "j2", Action: "InventoryRetrieval"})
+			bk.AddJobInternal(
+				testAccountID,
+				testRegion,
+				"v1",
+				&glacier.Job{JobID: "j1", Action: "InventoryRetrieval"},
+			)
+			bk.AddJobInternal(
+				testAccountID,
+				testRegion,
+				"v2",
+				&glacier.Job{JobID: "j2", Action: "InventoryRetrieval"},
+			)
 
 			require.NoError(t, bk.SetVaultLock(testAccountID, testRegion, "v1", "{}", "lockid1"))
 
@@ -578,7 +655,13 @@ func TestRefinement2_DescribeJob_ArchiveSizeInBytes(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
 			jobID := initResp["jobId"].(string)
 
-			rec = doRequest(t, h, http.MethodGet, "/"+testAccountID+"/vaults/ar-vault/jobs/"+jobID, "")
+			rec = doRequest(
+				t,
+				h,
+				http.MethodGet,
+				"/"+testAccountID+"/vaults/ar-vault/jobs/"+jobID,
+				"",
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var jobResp map[string]any
@@ -639,7 +722,10 @@ func TestRefinement2_PersistenceRoundTrip_DataRetrievalPolicy(t *testing.T) {
 		name   string
 		policy string
 	}{
-		{name: "drp_survives_snapshot_restore", policy: `{"Policy":{"Rules":[{"Strategy":"BytesPerHour"}]}}`},
+		{
+			name:   "drp_survives_snapshot_restore",
+			policy: `{"Policy":{"Rules":[{"Strategy":"BytesPerHour","BytesPerHour":1048576}]}}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -647,7 +733,13 @@ func TestRefinement2_PersistenceRoundTrip_DataRetrievalPolicy(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			rec := doRequest(t, h, http.MethodPut, "/"+testAccountID+"/policies/data-retrieval", tt.policy)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPut,
+				"/"+testAccountID+"/policies/data-retrieval",
+				tt.policy,
+			)
 			require.Equal(t, http.StatusNoContent, rec.Code)
 
 			snap := h.Snapshot()

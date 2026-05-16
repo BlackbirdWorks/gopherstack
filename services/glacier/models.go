@@ -130,7 +130,7 @@ type describeJobResponse struct {
 // listJobsResponse is the response body for ListJobs.
 type listJobsResponse struct {
 	Marker  *string               `json:"Marker,omitempty"`
-	JobList []describeJobResponse `json:"JobList"`
+	JobList []describeJobResponse `json:"JobList,omitempty"`
 }
 
 // addTagsRequest is the request body for AddTagsToVault.
@@ -151,9 +151,9 @@ type listTagsResponse struct {
 // errorResponse is the standard Glacier error response.
 // __type is included because many AWS SDK versions key on it rather than "code".
 type errorResponse struct {
-	Code     string `json:"code"`
-	Message  string `json:"message"`
-	Type     string `json:"type"`
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	Type      string `json:"type"`
 	TypeAlias string `json:"__type"`
 }
 
