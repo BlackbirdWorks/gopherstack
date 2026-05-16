@@ -3,6 +3,7 @@ package fis
 import (
 	"encoding/json"
 	"log/slog"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -43,12 +44,25 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore loads backend state from a JSON snapshot.
+// It cancels any in-flight experiment goroutines before replacing state
+// to prevent goroutine leaks when restored experiments have no cancel func.
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return err
 	}
+
+	// Cancel any running goroutines before replacing state.
+	b.mu.Lock("Restore-cancel")
+
+	for _, exp := range b.experiments {
+		if exp.cancel != nil {
+			exp.cancel()
+		}
+	}
+
+	b.mu.Unlock()
 
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
@@ -95,7 +109,32 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.experimentARNIndex[exp.Arn] = id
 	}
 
+	markRestoredExperimentsTerminal(b.experiments)
+
 	return nil
+}
+
+// markRestoredExperimentsTerminal marks any non-terminal experiment as failed.
+// Restored experiments have no cancel func, so they cannot be resumed.
+func markRestoredExperimentsTerminal(experiments map[string]*Experiment) {
+	now := time.Now()
+
+	for _, exp := range experiments {
+		if isActiveStatus(exp.Status.Status) {
+			exp.Status = ExperimentStatus{Status: statusFailed, Reason: "restored from snapshot"}
+			exp.EndTime = &now
+		}
+	}
+}
+
+// isActiveStatus returns true for non-terminal experiment statuses.
+func isActiveStatus(s string) bool {
+	switch s {
+	case statusPending, statusInitiating, statusRunning, statusCompleting, statusStopping:
+		return true
+	}
+
+	return false
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

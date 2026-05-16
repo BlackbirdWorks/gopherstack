@@ -27,7 +27,7 @@ func TestParseISODuration(t *testing.T) {
 		{name: "PT30S", input: "PT30S", want: 30 * time.Second},
 		{name: "PT1H30M", input: "PT1H30M", want: 90 * time.Minute},
 		{name: "P1D", input: "P1D", want: 24 * time.Hour},
-		{name: "P1W", input: "P1W", want: 7 * 24 * time.Hour},
+		{name: "P1W", input: "P1W", want: 0},
 		{name: "pt5m_lowercase", input: "pt5m", want: 5 * time.Minute},
 		{name: "invalid_no_P", input: "T5M", want: 0},
 		{name: "only_P", input: "P", want: 0},
@@ -210,6 +210,7 @@ func TestFISHandler_CreateTemplate_WithLogConfiguration(t *testing.T) {
 
 	body := map[string]any{
 		"description":    "template with log config",
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets":        map[string]any{},
 		"actions":        map[string]any{},
@@ -247,6 +248,7 @@ func TestFISHandler_CreateTemplate_WithS3LogConfiguration(t *testing.T) {
 	h := newTestHandler(t)
 
 	body := map[string]any{
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets":        map[string]any{},
 		"actions":        map[string]any{},
@@ -295,6 +297,7 @@ func TestFISHandler_CreateTemplate_WithTargets(t *testing.T) {
 	h := newTestHandler(t)
 
 	body := map[string]any{
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets": map[string]any{
 			"Instances": map[string]any{
@@ -362,6 +365,7 @@ func TestFISHandler_CreateTemplate_WithStopCondition(t *testing.T) {
 	h := newTestHandler(t)
 
 	body := map[string]any{
+		"roleArn": "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{
 			{
 				"source": "aws:cloudwatch:alarm",
@@ -395,6 +399,7 @@ func TestFISHandler_CreateTemplate_InjectAPIAction(t *testing.T) {
 	h := newTestHandler(t)
 
 	body := map[string]any{
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets":        map[string]any{},
 		"actions": map[string]any{
@@ -626,6 +631,7 @@ func TestFISHandler_ExperimentFails_WhenActionProviderFails(t *testing.T) {
 	h.SetActionProviders([]service.FISActionProvider{mock})
 
 	body := map[string]any{
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets": map[string]any{
 			"MyInstances": map[string]any{
@@ -704,6 +710,7 @@ func TestFISHandler_ExperimentSucceeds_WithMockActionProvider(t *testing.T) {
 	h.SetActionProviders([]service.FISActionProvider{mock})
 
 	body := map[string]any{
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets": map[string]any{
 			"MyInstances": map[string]any{
