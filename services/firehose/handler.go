@@ -211,18 +211,31 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	}
 }
 
+const (
+	maxTagCount     = 50
+	maxTagKeyLen    = 128
+	maxTagValueLen  = 256
+	maxTagListLimit = 50
+	maxListLimit    = 10000
+)
+
 // s3DestinationInput holds the S3 destination configuration from the API request.
 // It maps both S3DestinationConfiguration and ExtendedS3DestinationConfiguration fields.
 type s3DestinationInput struct {
-	BufferingHints          *BufferingHints          `json:"BufferingHints"`
-	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration"`
-	S3BackupConfiguration   *s3BackupInput           `json:"S3BackupConfiguration"`
-	BucketARN               string                   `json:"BucketARN"`
-	RoleARN                 string                   `json:"RoleARN"`
-	Prefix                  string                   `json:"Prefix"`
-	ErrorOutputPrefix       string                   `json:"ErrorOutputPrefix"`
-	CompressionFormat       string                   `json:"CompressionFormat"`
-	S3BackupMode            string                   `json:"S3BackupMode"`
+	BufferingHints                   *BufferingHints                   `json:"BufferingHints"`
+	ProcessingConfiguration          *ProcessingConfiguration          `json:"ProcessingConfiguration"`
+	S3BackupConfiguration            *s3BackupInput                    `json:"S3BackupConfiguration"`
+	EncryptionConfiguration          *S3EncryptionConfiguration        `json:"EncryptionConfiguration"`
+	CloudWatchLoggingOptions         *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions"`
+	DynamicPartitioningConfiguration *DynamicPartitioningConfiguration `json:"DynamicPartitioningConfiguration"`
+	BucketARN                        string                            `json:"BucketARN"`
+	RoleARN                          string                            `json:"RoleARN"`
+	Prefix                           string                            `json:"Prefix"`
+	ErrorOutputPrefix                string                            `json:"ErrorOutputPrefix"`
+	CompressionFormat                string                            `json:"CompressionFormat"`
+	FileExtension                    string                            `json:"FileExtension"`
+	CustomTimeZone                   string                            `json:"CustomTimeZone"`
+	S3BackupMode                     string                            `json:"S3BackupMode"`
 }
 
 // s3BackupInput holds the S3 backup destination configuration.
@@ -236,10 +249,14 @@ type s3BackupInput struct {
 
 // httpEndpointDestinationInput holds HTTP endpoint destination configuration.
 type httpEndpointDestinationInput struct {
-	EndpointConfiguration   *httpEndpointConfigurationInput `json:"EndpointConfiguration"`
-	ProcessingConfiguration *ProcessingConfiguration        `json:"ProcessingConfiguration"`
-	S3BackupConfiguration   *s3BackupInput                  `json:"S3BackupConfiguration"`
-	S3BackupMode            string                          `json:"S3BackupMode"`
+	EndpointConfiguration    *httpEndpointConfigurationInput   `json:"EndpointConfiguration"`
+	ProcessingConfiguration  *ProcessingConfiguration          `json:"ProcessingConfiguration"`
+	S3BackupConfiguration    *s3BackupInput                    `json:"S3BackupConfiguration"`
+	RequestConfiguration     *HTTPEndpointRequestConfiguration `json:"RequestConfiguration"`
+	BufferingHints           *BufferingHints                   `json:"BufferingHints"`
+	RetryOptions             *RetryOptions                     `json:"RetryOptions"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions"`
+	S3BackupMode             string                            `json:"S3BackupMode"`
 }
 
 // httpEndpointConfigurationInput holds the HTTP endpoint URL and name.
@@ -249,81 +266,188 @@ type httpEndpointConfigurationInput struct {
 	AccessKey string `json:"AccessKey"`
 }
 
+// kinesisStreamSourceConfigurationInput holds Kinesis stream source config.
+type kinesisStreamSourceConfigurationInput struct {
+	KinesisStreamARN string `json:"KinesisStreamARN"`
+	RoleARN          string `json:"RoleARN"`
+}
+
+// mskSourceConfigurationInput holds MSK cluster source config.
+type mskSourceConfigurationInput struct {
+	AuthenticationConfiguration *MSKAuthenticationConfiguration `json:"AuthenticationConfiguration"`
+	MSKClusterARN               string                          `json:"MSKClusterARN"`
+	TopicName                   string                          `json:"TopicName"`
+	ReadFromTimestamp           string                          `json:"ReadFromTimestamp"`
+}
+
+// redshiftDestinationInput holds the Redshift destination configuration.
+type redshiftDestinationInput struct {
+	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration"`
+	RetryOptions            *RetryOptions            `json:"RetryOptions"`
+	S3BackupConfiguration   *s3BackupInput           `json:"S3BackupConfiguration"`
+	ClusterJDBCURL          string                   `json:"ClusterJDBCURL"`
+	RoleARN                 string                   `json:"RoleARN"`
+	S3BackupMode            string                   `json:"S3BackupMode"`
+}
+
 type createDeliveryStreamInput struct {
-	S3DestinationConfiguration           *s3DestinationInput           `json:"S3DestinationConfiguration"`
-	ExtendedS3DestinationConfiguration   *s3DestinationInput           `json:"ExtendedS3DestinationConfiguration"`
-	HTTPEndpointDestinationConfiguration *httpEndpointDestinationInput `json:"HTTPEndpointDestinationConfiguration"`
-	DeliveryStreamName                   string                        `json:"DeliveryStreamName"`
-	Tags                                 []svcTags.KV                  `json:"Tags"`
+	S3DestinationConfiguration           *s3DestinationInput                    `json:"S3DestinationConfiguration"`
+	ExtendedS3DestinationConfiguration   *s3DestinationInput                    `json:"ExtendedS3DestinationConfiguration"`
+	HTTPEndpointDestinationConfiguration *httpEndpointDestinationInput          `json:"HTTPEndpointDestinationConfiguration"` //nolint:lll // AWS field name
+	KinesisStreamSourceConfiguration     *kinesisStreamSourceConfigurationInput `json:"KinesisStreamSourceConfiguration"`
+	MSKSourceConfiguration               *mskSourceConfigurationInput           `json:"MSKSourceConfiguration"`
+	RedshiftDestinationConfiguration     *redshiftDestinationInput              `json:"RedshiftDestinationConfiguration"`
+	DeliveryStreamName                   string                                 `json:"DeliveryStreamName"`
+	DeliveryStreamType                   string                                 `json:"DeliveryStreamType"`
+	Tags                                 []svcTags.KV                           `json:"Tags"`
 }
 
 type createDeliveryStreamOutput struct {
 	DeliveryStreamARN string `json:"DeliveryStreamARN"`
 }
 
+// buildS3DestinationDescription converts an s3DestinationInput to the backend type.
+func buildS3DestinationDescription(raw *s3DestinationInput) *S3DestinationDescription {
+	if raw == nil {
+		return nil
+	}
+
+	dest := &S3DestinationDescription{
+		BucketARN:                        raw.BucketARN,
+		RoleARN:                          raw.RoleARN,
+		Prefix:                           raw.Prefix,
+		ErrorOutputPrefix:                raw.ErrorOutputPrefix,
+		CompressionFormat:                raw.CompressionFormat,
+		FileExtension:                    raw.FileExtension,
+		CustomTimeZone:                   raw.CustomTimeZone,
+		BufferingHints:                   raw.BufferingHints,
+		ProcessingConfiguration:          raw.ProcessingConfiguration,
+		S3BackupMode:                     raw.S3BackupMode,
+		EncryptionConfiguration:          raw.EncryptionConfiguration,
+		CloudWatchLoggingOptions:         raw.CloudWatchLoggingOptions,
+		DynamicPartitioningConfiguration: raw.DynamicPartitioningConfiguration,
+	}
+
+	dest.S3BackupDescription = buildS3BackupDescription(raw.S3BackupConfiguration)
+
+	return dest
+}
+
+// buildHTTPEndpointDestination converts httpEndpointDestinationInput to the backend type.
+func buildHTTPEndpointDestination(ep *httpEndpointDestinationInput) *HTTPEndpointDestinationDescription {
+	if ep == nil {
+		return nil
+	}
+
+	dest := &HTTPEndpointDestinationDescription{
+		ProcessingConfiguration:  ep.ProcessingConfiguration,
+		S3BackupMode:             ep.S3BackupMode,
+		RequestConfiguration:     ep.RequestConfiguration,
+		BufferingHints:           ep.BufferingHints,
+		RetryOptions:             ep.RetryOptions,
+		CloudWatchLoggingOptions: ep.CloudWatchLoggingOptions,
+	}
+
+	if ep.EndpointConfiguration != nil {
+		dest.EndpointConfiguration = &HTTPEndpointConfiguration{
+			URL:       ep.EndpointConfiguration.URL,
+			Name:      ep.EndpointConfiguration.Name,
+			AccessKey: ep.EndpointConfiguration.AccessKey,
+		}
+	}
+
+	if ep.S3BackupConfiguration != nil {
+		dest.S3BackupDescription = buildS3BackupDescription(ep.S3BackupConfiguration)
+	}
+
+	return dest
+}
+
+// buildRedshiftDestination converts redshiftDestinationInput to the backend type.
+func buildRedshiftDestination(rs *redshiftDestinationInput) *RedshiftDestinationDescription {
+	if rs == nil {
+		return nil
+	}
+
+	dest := &RedshiftDestinationDescription{
+		ClusterJDBCURL:          rs.ClusterJDBCURL,
+		RoleARN:                 rs.RoleARN,
+		S3BackupMode:            rs.S3BackupMode,
+		ProcessingConfiguration: rs.ProcessingConfiguration,
+		RetryOptions:            rs.RetryOptions,
+	}
+
+	if rs.S3BackupConfiguration != nil {
+		dest.S3BackupDescription = buildS3BackupDescription(rs.S3BackupConfiguration)
+	}
+
+	return dest
+}
+
+// buildS3BackupDescription converts an s3BackupInput to the backend type.
+func buildS3BackupDescription(b *s3BackupInput) *S3BackupDescription {
+	if b == nil {
+		return nil
+	}
+
+	return &S3BackupDescription{
+		BucketARN:         b.BucketARN,
+		RoleARN:           b.RoleARN,
+		Prefix:            b.Prefix,
+		CompressionFormat: b.CompressionFormat,
+		BufferingHints:    b.BufferingHints,
+	}
+}
+
+// buildSourceDescription converts source config inputs to the backend type.
+func buildSourceDescription(
+	ks *kinesisStreamSourceConfigurationInput,
+	msk *mskSourceConfigurationInput,
+) *SourceDescription {
+	if ks != nil {
+		return &SourceDescription{
+			KinesisStreamSourceDescription: &KinesisStreamSourceDescription{
+				KinesisStreamARN: ks.KinesisStreamARN,
+				RoleARN:          ks.RoleARN,
+			},
+		}
+	}
+
+	if msk != nil {
+		return &SourceDescription{
+			MSKSourceDescription: &MSKSourceDescription{
+				MSKClusterARN:               msk.MSKClusterARN,
+				TopicName:                   msk.TopicName,
+				ReadFromTimestamp:           msk.ReadFromTimestamp,
+				AuthenticationConfiguration: msk.AuthenticationConfiguration,
+			},
+		}
+	}
+
+	return nil
+}
+
 func (h *Handler) handleCreateDeliveryStream(
 	_ context.Context,
 	in *createDeliveryStreamInput,
 ) (*createDeliveryStreamOutput, error) {
-	var dest *S3DestinationDescription
-	var httpDest *HTTPEndpointDestinationDescription
+	if err := validateTags(in.Tags); err != nil {
+		return nil, err
+	}
 
 	// ExtendedS3 takes precedence over plain S3.
-	raw := in.ExtendedS3DestinationConfiguration
-	if raw == nil {
-		raw = in.S3DestinationConfiguration
-	}
-
-	if raw != nil {
-		dest = &S3DestinationDescription{
-			BucketARN:               raw.BucketARN,
-			RoleARN:                 raw.RoleARN,
-			Prefix:                  raw.Prefix,
-			ErrorOutputPrefix:       raw.ErrorOutputPrefix,
-			CompressionFormat:       raw.CompressionFormat,
-			BufferingHints:          raw.BufferingHints,
-			ProcessingConfiguration: raw.ProcessingConfiguration,
-			S3BackupMode:            raw.S3BackupMode,
-		}
-		if raw.S3BackupConfiguration != nil {
-			dest.S3BackupDescription = &S3BackupDescription{
-				BucketARN:         raw.S3BackupConfiguration.BucketARN,
-				RoleARN:           raw.S3BackupConfiguration.RoleARN,
-				Prefix:            raw.S3BackupConfiguration.Prefix,
-				CompressionFormat: raw.S3BackupConfiguration.CompressionFormat,
-				BufferingHints:    raw.S3BackupConfiguration.BufferingHints,
-			}
-		}
-	}
-
-	if in.HTTPEndpointDestinationConfiguration != nil {
-		ep := in.HTTPEndpointDestinationConfiguration
-		httpDest = &HTTPEndpointDestinationDescription{
-			ProcessingConfiguration: ep.ProcessingConfiguration,
-			S3BackupMode:            ep.S3BackupMode,
-		}
-		if ep.EndpointConfiguration != nil {
-			httpDest.EndpointConfiguration = &HTTPEndpointConfiguration{
-				URL:       ep.EndpointConfiguration.URL,
-				Name:      ep.EndpointConfiguration.Name,
-				AccessKey: ep.EndpointConfiguration.AccessKey,
-			}
-		}
-		if ep.S3BackupConfiguration != nil {
-			httpDest.S3BackupDescription = &S3BackupDescription{
-				BucketARN:         ep.S3BackupConfiguration.BucketARN,
-				RoleARN:           ep.S3BackupConfiguration.RoleARN,
-				Prefix:            ep.S3BackupConfiguration.Prefix,
-				CompressionFormat: ep.S3BackupConfiguration.CompressionFormat,
-				BufferingHints:    ep.S3BackupConfiguration.BufferingHints,
-			}
-		}
+	rawS3 := in.ExtendedS3DestinationConfiguration
+	if rawS3 == nil {
+		rawS3 = in.S3DestinationConfiguration
 	}
 
 	s, err := h.Backend.CreateDeliveryStream(CreateDeliveryStreamInput{
 		Name:                    in.DeliveryStreamName,
-		S3Destination:           dest,
-		HTTPEndpointDestination: httpDest,
+		DeliveryStreamType:      in.DeliveryStreamType,
+		S3Destination:           buildS3DestinationDescription(rawS3),
+		HTTPEndpointDestination: buildHTTPEndpointDestination(in.HTTPEndpointDestinationConfiguration),
+		RedshiftDestination:     buildRedshiftDestination(in.RedshiftDestinationConfiguration),
+		Source:                  buildSourceDescription(in.KinesisStreamSourceConfiguration, in.MSKSourceConfiguration),
 	})
 	if err != nil {
 		return nil, err
@@ -356,6 +480,9 @@ func (h *Handler) handleDeleteDeliveryStream(
 
 type deliveryStreamDescriptionFields struct {
 	EncryptionConfiguration             *EncryptionConfig                    `json:"EncryptionConfiguration,omitempty"`
+	Source                              *SourceDescription                   `json:"Source,omitempty"`
+	CreateTimestamp                     *int64                               `json:"CreateTimestamp,omitempty"`
+	LastUpdateTimestamp                 *int64                               `json:"LastUpdateTimestamp,omitempty"`
 	DeliveryStreamName                  string                               `json:"DeliveryStreamName"`
 	DeliveryStreamARN                   string                               `json:"DeliveryStreamARN"`
 	DeliveryStreamStatus                string                               `json:"DeliveryStreamStatus"`
@@ -363,6 +490,14 @@ type deliveryStreamDescriptionFields struct {
 	VersionID                           string                               `json:"VersionId,omitempty"`
 	S3DestinationDescriptions           []S3DestinationDescription           `json:"S3DestinationDescriptions,omitempty"`
 	HTTPEndpointDestinationDescriptions []HTTPEndpointDestinationDescription `json:"HTTPEndpointDestinationDescriptions,omitempty"` //nolint:lll // AWS field name must match the API spec
+	RedshiftDestinationDescriptions     []RedshiftDestinationDescription     `json:"RedshiftDestinationDescriptions,omitempty"`     //nolint:lll // AWS field name
+	HasMoreDestinations                 bool                                 `json:"HasMoreDestinations"`
+}
+
+type describeDeliveryStreamInput struct {
+	DeliveryStreamName          string `json:"DeliveryStreamName"`
+	ExclusiveStartDestinationID string `json:"ExclusiveStartDestinationId"`
+	Limit                       int    `json:"Limit"`
 }
 
 type describeDeliveryStreamOutput struct {
@@ -371,11 +506,22 @@ type describeDeliveryStreamOutput struct {
 
 func (h *Handler) handleDescribeDeliveryStream(
 	_ context.Context,
-	in *deliveryStreamNameInput,
+	in *describeDeliveryStreamInput,
 ) (*describeDeliveryStreamOutput, error) {
 	s, err := h.Backend.DescribeDeliveryStream(in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
+	}
+
+	var createTS, updateTS *int64
+	if !s.CreateTimestamp.IsZero() {
+		ts := s.CreateTimestamp.Unix()
+		createTS = &ts
+	}
+
+	if !s.LastUpdateTimestamp.IsZero() {
+		ts := s.LastUpdateTimestamp.Unix()
+		updateTS = &ts
 	}
 
 	desc := deliveryStreamDescriptionFields{
@@ -385,6 +531,10 @@ func (h *Handler) handleDescribeDeliveryStream(
 		DeliveryStreamType:      s.DeliveryStreamType,
 		VersionID:               s.VersionID,
 		EncryptionConfiguration: s.Encryption,
+		Source:                  s.Source,
+		CreateTimestamp:         createTS,
+		LastUpdateTimestamp:     updateTS,
+		HasMoreDestinations:     false,
 	}
 
 	if s.S3Destination != nil {
@@ -395,10 +545,18 @@ func (h *Handler) handleDescribeDeliveryStream(
 		desc.HTTPEndpointDestinationDescriptions = []HTTPEndpointDestinationDescription{*s.HTTPEndpointDestination}
 	}
 
+	if s.RedshiftDestination != nil {
+		desc.RedshiftDestinationDescriptions = []RedshiftDestinationDescription{*s.RedshiftDestination}
+	}
+
 	return &describeDeliveryStreamOutput{DeliveryStreamDescription: desc}, nil
 }
 
-type listDeliveryStreamsInput struct{}
+type listDeliveryStreamsInput struct {
+	ExclusiveStartDeliveryStreamName string `json:"ExclusiveStartDeliveryStreamName"`
+	DeliveryStreamType               string `json:"DeliveryStreamType"`
+	Limit                            int    `json:"Limit"`
+}
 
 type listDeliveryStreamsOutput struct {
 	DeliveryStreamNames    []string `json:"DeliveryStreamNames"`
@@ -407,13 +565,39 @@ type listDeliveryStreamsOutput struct {
 
 func (h *Handler) handleListDeliveryStreams(
 	_ context.Context,
-	_ *listDeliveryStreamsInput,
+	in *listDeliveryStreamsInput,
 ) (*listDeliveryStreamsOutput, error) {
 	names := h.Backend.ListDeliveryStreams()
 
+	// Apply ExclusiveStartDeliveryStreamName cursor.
+	if in.ExclusiveStartDeliveryStreamName != "" {
+		startIdx := -1
+		for i, n := range names {
+			if n == in.ExclusiveStartDeliveryStreamName {
+				startIdx = i
+
+				break
+			}
+		}
+		if startIdx >= 0 {
+			names = names[startIdx+1:]
+		}
+	}
+
+	hasMore := false
+	limit := in.Limit
+	if limit <= 0 || limit > maxListLimit {
+		limit = maxListLimit
+	}
+
+	if len(names) > limit {
+		names = names[:limit]
+		hasMore = true
+	}
+
 	return &listDeliveryStreamsOutput{
 		DeliveryStreamNames:    names,
-		HasMoreDeliveryStreams: false,
+		HasMoreDeliveryStreams: hasMore,
 	}, nil
 }
 
@@ -479,6 +663,12 @@ func (h *Handler) handlePutRecordBatch(
 	}, nil
 }
 
+type listTagsForDeliveryStreamInput struct {
+	DeliveryStreamName   string `json:"DeliveryStreamName"`
+	ExclusiveStartTagKey string `json:"ExclusiveStartTagKey"`
+	Limit                int    `json:"Limit"`
+}
+
 type listTagsForDeliveryStreamOutput struct {
 	Tags        []svcTags.KV `json:"Tags"`
 	HasMoreTags bool         `json:"HasMoreTags"`
@@ -486,23 +676,49 @@ type listTagsForDeliveryStreamOutput struct {
 
 func (h *Handler) handleListTagsForDeliveryStream(
 	_ context.Context,
-	in *deliveryStreamNameInput,
+	in *listTagsForDeliveryStreamInput,
 ) (*listTagsForDeliveryStreamOutput, error) {
-	tags, err := h.Backend.ListTagsForDeliveryStream(in.DeliveryStreamName)
+	tagMap, err := h.Backend.ListTagsForDeliveryStream(in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
 	}
 
-	tagList := make([]svcTags.KV, 0, len(tags))
-	for k, v := range tags {
+	tagList := make([]svcTags.KV, 0, len(tagMap))
+	for k, v := range tagMap {
 		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
 	}
 
 	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
 
+	// Apply ExclusiveStartTagKey cursor.
+	if in.ExclusiveStartTagKey != "" {
+		startIdx := -1
+		for i, t := range tagList {
+			if t.Key == in.ExclusiveStartTagKey {
+				startIdx = i
+
+				break
+			}
+		}
+		if startIdx >= 0 {
+			tagList = tagList[startIdx+1:]
+		}
+	}
+
+	hasMore := false
+	limit := in.Limit
+	if limit <= 0 || limit > maxTagListLimit {
+		limit = maxTagListLimit
+	}
+
+	if len(tagList) > limit {
+		tagList = tagList[:limit]
+		hasMore = true
+	}
+
 	return &listTagsForDeliveryStreamOutput{
 		Tags:        tagList,
-		HasMoreTags: false,
+		HasMoreTags: hasMore,
 	}, nil
 }
 
@@ -517,6 +733,10 @@ func (h *Handler) handleTagDeliveryStream(
 	_ context.Context,
 	in *tagDeliveryStreamInput,
 ) (*tagDeliveryStreamOutput, error) {
+	if err := validateTags(in.Tags); err != nil {
+		return nil, err
+	}
+
 	tagMap := make(map[string]string, len(in.Tags))
 	for _, t := range in.Tags {
 		tagMap[t.Key] = t.Value
@@ -566,28 +786,7 @@ func (h *Handler) handleUpdateDestination(
 		raw = in.S3DestinationUpdate
 	}
 
-	var dest *S3DestinationDescription
-	if raw != nil {
-		dest = &S3DestinationDescription{
-			BucketARN:               raw.BucketARN,
-			RoleARN:                 raw.RoleARN,
-			Prefix:                  raw.Prefix,
-			ErrorOutputPrefix:       raw.ErrorOutputPrefix,
-			CompressionFormat:       raw.CompressionFormat,
-			BufferingHints:          raw.BufferingHints,
-			ProcessingConfiguration: raw.ProcessingConfiguration,
-			S3BackupMode:            raw.S3BackupMode,
-		}
-		if raw.S3BackupConfiguration != nil {
-			dest.S3BackupDescription = &S3BackupDescription{
-				BucketARN:         raw.S3BackupConfiguration.BucketARN,
-				RoleARN:           raw.S3BackupConfiguration.RoleARN,
-				Prefix:            raw.S3BackupConfiguration.Prefix,
-				CompressionFormat: raw.S3BackupConfiguration.CompressionFormat,
-				BufferingHints:    raw.S3BackupConfiguration.BufferingHints,
-			}
-		}
-	}
+	dest := buildS3DestinationDescription(raw)
 
 	if err := h.Backend.UpdateDestination(in.DeliveryStreamName, in.CurrentDeliveryStreamVersionID, dest); err != nil {
 		return nil, err
@@ -626,4 +825,22 @@ func (h *Handler) handleStopDeliveryStreamEncryption(
 	}
 
 	return &stopDeliveryStreamEncryptionOutput{}, nil
+}
+
+// validateTags enforces AWS tag limits: max 50 tags, key ≤128 chars, value ≤256 chars.
+func validateTags(tags []svcTags.KV) error {
+	if len(tags) > maxTagCount {
+		return fmt.Errorf("%w: tag count %d exceeds maximum of %d", ErrValidation, len(tags), maxTagCount)
+	}
+
+	for _, t := range tags {
+		if len(t.Key) == 0 || len(t.Key) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key length must be between 1 and %d characters", ErrValidation, maxTagKeyLen)
+		}
+		if len(t.Value) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value length must not exceed %d characters", ErrValidation, maxTagValueLen)
+		}
+	}
+
+	return nil
 }
