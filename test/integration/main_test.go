@@ -44,6 +44,7 @@ import (
 	codestarconnectionssdk "github.com/aws/aws-sdk-go-v2/service/codestarconnections"
 	cognitoidentitysdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
+	cesdk "github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	docdbsdk "github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -80,9 +81,12 @@ import (
 	snssdk "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssoadminsdk "github.com/aws/aws-sdk-go-v2/service/ssoadmin"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	supportsdk "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsdk "github.com/aws/aws-sdk-go-v2/service/swf"
+	textractsdk "github.com/aws/aws-sdk-go-v2/service/textract"
+	timestreamquerysdk "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	timestreamwritesdk "github.com/aws/aws-sdk-go-v2/service/timestreamwrite"
 	transfersdk "github.com/aws/aws-sdk-go-v2/service/transfer"
 	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
@@ -1046,6 +1050,86 @@ func createSupportClient(t *testing.T) *supportsdk.Client {
 	}
 
 	return supportsdk.NewFromConfig(cfg, func(o *supportsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCostExplorerClient returns an AWS Cost Explorer client.
+func createCostExplorerClient(t *testing.T) *cesdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return cesdk.NewFromConfig(cfg, func(o *cesdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createTimestreamQueryClient returns an AWS Timestream Query client.
+func createTimestreamQueryClient(t *testing.T) *timestreamquerysdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return timestreamquerysdk.NewFromConfig(cfg, func(o *timestreamquerysdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createTextractClient returns an AWS Textract client.
+func createTextractClient(t *testing.T) *textractsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return textractsdk.NewFromConfig(cfg, func(o *textractsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSSOAdminClient returns an AWS SSO Admin client.
+func createSSOAdminClient(t *testing.T) *ssoadminsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return ssoadminsdk.NewFromConfig(cfg, func(o *ssoadminsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
