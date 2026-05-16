@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -66,20 +67,26 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 // ----------------------------------------
 
 const (
-	statusPending   = "pending"
-	statusRunning   = "running"
-	statusStopping  = "stopping"
-	statusStopped   = "stopped"
-	statusCompleted = "completed"
-	statusFailed    = "failed"
+	statusPending    = "pending"
+	statusInitiating = "initiating"
+	statusRunning    = "running"
+	statusCompleting = "completing"
+	statusStopping   = "stopping"
+	statusStopped    = "stopped"
+	statusCompleted  = "completed"
+	statusFailed     = "failed"
 )
 
 const (
-	actionStatusPending   = "pending"
-	actionStatusRunning   = "running"
-	actionStatusCompleted = "completed"
-	actionStatusStopped   = "stopped"
-	actionStatusFailed    = "failed"
+	actionStatusPending    = "pending"
+	actionStatusInitiating = "initiating"
+	actionStatusRunning    = "running"
+	actionStatusCompleting = "completing"
+	actionStatusCompleted  = "completed"
+	actionStatusStopped    = "stopped"
+	actionStatusFailed     = "failed"
+	actionStatusCancelled  = "cancelled"
+	actionStatusSkipped    = "skipped"
 )
 
 // ----------------------------------------
@@ -88,12 +95,27 @@ const (
 
 const idChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
+// idTotalLength is the total length of generated IDs including the prefix.
+// AWS FIS uses 16-character IDs (e.g., "EXT2zP9aBcDeFgHi").
+const idTotalLength = 16
+
 // maxExperiments is the maximum number of experiments that can exist concurrently.
 const maxExperiments = 1000
 
-// generateID creates a random ID with the given prefix followed by 22 alphanumeric characters.
+// maxTagsPerResource is the maximum number of tags allowed per resource.
+const maxTagsPerResource = 50
+
+// maxTagKeyLen / maxTagValueLen are the AWS tag size limits.
+const (
+	maxTagKeyLen   = 128
+	maxTagValueLen = 256
+)
+
+// generateID creates a random ID with the given prefix so that total length == idTotalLength.
 func generateID(prefix string) string {
-	const length = 22
+	length := idTotalLength - len(prefix)
+	length = max(length, 1)
+
 	b := make([]byte, length)
 
 	for i := range b {
@@ -203,6 +225,8 @@ type InMemoryBackend struct {
 	templateARNIndex     map[string]string                                 // ARN → template ID
 	experimentARNIndex   map[string]string                                 // ARN → experiment ID
 	targetAccountConfigs map[string]map[string]*TargetAccountConfiguration // templateID → accountID → config
+	tplClientTokens      map[string]string                                 // clientToken → templateID
+	expClientTokens      map[string]string                                 // clientToken → experimentID
 	faultStore           *chaos.FaultStore
 	safetyLever          *SafetyLever
 	mu                   *lockmetrics.RWMutex
@@ -221,6 +245,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		templateARNIndex:     make(map[string]string),
 		experimentARNIndex:   make(map[string]string),
 		targetAccountConfigs: make(map[string]map[string]*TargetAccountConfiguration),
+		tplClientTokens:      make(map[string]string),
+		expClientTokens:      make(map[string]string),
 		accountID:            accountID,
 		region:               region,
 		mu:                   lockmetrics.New("fis"),
@@ -252,6 +278,8 @@ func (b *InMemoryBackend) Reset() {
 	b.templateARNIndex = make(map[string]string)
 	b.experimentARNIndex = make(map[string]string)
 	b.targetAccountConfigs = make(map[string]map[string]*TargetAccountConfiguration)
+	b.tplClientTokens = make(map[string]string)
+	b.expClientTokens = make(map[string]string)
 	b.safetyLever = &SafetyLever{
 		ID:    b.accountID,
 		Arn:   safetyLeverARN,
@@ -277,6 +305,68 @@ func (b *InMemoryBackend) SetActionProviders(providers []service.FISActionProvid
 }
 
 // ----------------------------------------
+// Template validation
+// ----------------------------------------
+
+// selectionModeRe matches valid FIS selectionMode values: ALL, COUNT(N), PERCENT(N).
+var selectionModeRe = regexp.MustCompile(`^(ALL|COUNT\(\d+\)|PERCENT\(\d{1,3}(\.\d+)?\))$`)
+
+// validateTemplate checks that a create request meets AWS FIS requirements.
+func validateTemplate(input *createExperimentTemplateRequest) error {
+	if strings.TrimSpace(input.RoleArn) == "" {
+		return fmt.Errorf("%w: roleArn is required", ErrValidation)
+	}
+
+	if !isValidRoleArn(input.RoleArn) {
+		return fmt.Errorf("%w: roleArn must be a valid IAM role ARN (arn:aws:iam::{account}:role/...)", ErrValidation)
+	}
+
+	if len(input.StopConditions) == 0 {
+		return fmt.Errorf("%w: stopConditions is required", ErrValidation)
+	}
+
+	for name, tgt := range input.Targets {
+		if strings.TrimSpace(tgt.SelectionMode) == "" {
+			return fmt.Errorf("%w: target %q: selectionMode is required", ErrValidation, name)
+		}
+
+		if !selectionModeRe.MatchString(tgt.SelectionMode) {
+			return fmt.Errorf(
+				"%w: target %q: selectionMode must be ALL, COUNT(N), or PERCENT(N); got %q",
+				ErrValidation, name, tgt.SelectionMode,
+			)
+		}
+	}
+
+	for name, action := range input.Actions {
+		for _, tgtName := range action.Targets {
+			if _, ok := input.Targets[tgtName]; !ok {
+				return fmt.Errorf(
+					"%w: action %q references undefined target %q",
+					ErrValidation, name, tgtName,
+				)
+			}
+		}
+
+		if action.ActionID == actionIDWait {
+			if strings.TrimSpace(action.Parameters["duration"]) == "" {
+				return fmt.Errorf(
+					"%w: action %q: %s requires the duration parameter",
+					ErrValidation, name, actionIDWait,
+				)
+			}
+		}
+	}
+
+	return nil
+}
+
+// isValidRoleArn checks that the string looks like an IAM role ARN.
+func isValidRoleArn(s string) bool {
+	return strings.HasPrefix(s, "arn:aws:iam::") && strings.Contains(s, ":role/")
+}
+
+// ----------------------------------------
 // ExperimentTemplate CRUD
 // ----------------------------------------
 
@@ -285,6 +375,21 @@ func (b *InMemoryBackend) CreateExperimentTemplate(
 	input *createExperimentTemplateRequest,
 	accountID, region string,
 ) (*ExperimentTemplate, error) {
+	if err := validateTemplate(input); err != nil {
+		return nil, err
+	}
+
+	// Check clientToken idempotency before generating a new ID.
+	if input.ClientToken != "" {
+		b.mu.RLock("CreateExperimentTemplate-idempotency")
+		existingID, ok := b.tplClientTokens[input.ClientToken]
+		b.mu.RUnlock()
+
+		if ok {
+			return b.GetExperimentTemplate(existingID)
+		}
+	}
+
 	id := generateID("EXT")
 	arnStr := arn.Build("fis", region, accountID, "experiment-template/"+id)
 
@@ -318,6 +423,10 @@ func (b *InMemoryBackend) CreateExperimentTemplate(
 
 	b.templates[id] = tpl
 	b.templateARNIndex[arnStr] = id
+
+	if input.ClientToken != "" {
+		b.tplClientTokens[input.ClientToken] = id
+	}
 
 	return tpl, nil
 }
@@ -427,10 +536,22 @@ func (b *InMemoryBackend) StartExperiment(
 	input *startExperimentRequest,
 	accountID, region string,
 ) (*Experiment, error) {
+	// Check clientToken idempotency first (read-only fast path).
+	if input.ClientToken != "" {
+		b.mu.RLock("StartExperiment-idempotency")
+		existingID, ok := b.expClientTokens[input.ClientToken]
+		b.mu.RUnlock()
+
+		if ok {
+			return b.GetExperiment(existingID)
+		}
+	}
+
 	b.mu.RLock("StartExperiment")
 	tpl, ok := b.templates[input.ExperimentTemplateID]
 	leverEngaged := b.safetyLever != nil && b.safetyLever.State.Status == "engaged"
 	experimentCount := len(b.experiments)
+	tplAccountCount := len(b.targetAccountConfigs[input.ExperimentTemplateID])
 	b.mu.RUnlock()
 
 	if leverEngaged {
@@ -457,6 +578,7 @@ func (b *InMemoryBackend) StartExperiment(
 
 	expCtx, cancel := context.WithCancel(context.Background())
 	exp := buildExperimentFromTemplate(id, arnStr, tpl, input.Tags, cancel)
+	exp.TargetAccountConfigurationsCount = tplAccountCount
 
 	// Clone the template BEFORE passing to the goroutine so template updates don't race.
 	tplForRun := cloneTemplate(tpl)
@@ -464,6 +586,11 @@ func (b *InMemoryBackend) StartExperiment(
 	b.mu.Lock("StartExperiment")
 	b.experiments[id] = exp
 	b.experimentARNIndex[arnStr] = id
+
+	if input.ClientToken != "" {
+		b.expClientTokens[input.ClientToken] = id
+	}
+
 	// Take the snapshot while holding the lock, before launching the goroutine,
 	// so the background goroutine cannot mutate exp while we're reading it.
 	snapshot := cloneExperiment(exp)
@@ -520,6 +647,8 @@ func buildExperimentFromTemplate(
 	// experiment goroutine is NOT cancelled when the HTTP response is sent.
 	// cancel is passed in from StartExperiment and stored on the returned experiment.
 
+	now := time.Now()
+
 	return &Experiment{
 		ID:                   id,
 		Arn:                  arnStr,
@@ -532,7 +661,8 @@ func buildExperimentFromTemplate(
 		LogConfiguration:     logConfig,
 		ExperimentOptions:    expOptions,
 		Tags:                 copyStringMap(inputTags),
-		StartTime:            time.Now(),
+		CreationTime:         now,
+		StartTime:            now,
 		cancel:               cancel,
 	}
 }
@@ -585,7 +715,8 @@ func (b *InMemoryBackend) StopExperiment(id string) (*Experiment, error) {
 		return nil, fmt.Errorf("%w: %s", ErrExperimentNotFound, id)
 	}
 
-	if exp.Status.Status != statusPending && exp.Status.Status != statusRunning {
+	s := exp.Status.Status
+	if s != statusPending && s != statusInitiating && s != statusRunning && s != statusCompleting {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: %s", ErrExperimentNotRunning, id)
@@ -667,13 +798,24 @@ func (b *InMemoryBackend) ListExperimentResolvedTargets(id string) ([]Experiment
 // Phase 3 — Safety Lever
 // ----------------------------------------
 
+// resolveSafetyLeverID maps the "default" alias to the backend's account ID.
+func (b *InMemoryBackend) resolveSafetyLeverID(id string) string {
+	if id == "default" {
+		return b.accountID
+	}
+
+	return id
+}
+
 // GetSafetyLever returns the current state of the account's safety lever.
-// The id must match the backend's accountID.
+// Accepts either the account ID or the conventional "default" alias.
 func (b *InMemoryBackend) GetSafetyLever(id string) (*SafetyLever, error) {
 	b.mu.RLock("GetSafetyLever")
 	defer b.mu.RUnlock()
 
-	if b.safetyLever == nil || b.safetyLever.ID != id {
+	resolved := b.resolveSafetyLeverID(id)
+
+	if b.safetyLever == nil || b.safetyLever.ID != resolved {
 		return nil, fmt.Errorf("%w: %s", ErrSafetyLeverNotFound, id)
 	}
 
@@ -683,6 +825,7 @@ func (b *InMemoryBackend) GetSafetyLever(id string) (*SafetyLever, error) {
 }
 
 // UpdateSafetyLeverState updates the state of the account's safety lever.
+// Accepts either the account ID or the conventional "default" alias.
 // Setting status to "engaged" blocks new experiments from starting.
 func (b *InMemoryBackend) UpdateSafetyLeverState(
 	id string,
@@ -691,7 +834,9 @@ func (b *InMemoryBackend) UpdateSafetyLeverState(
 	b.mu.Lock("UpdateSafetyLeverState")
 	defer b.mu.Unlock()
 
-	if b.safetyLever == nil || b.safetyLever.ID != id {
+	resolved := b.resolveSafetyLeverID(id)
+
+	if b.safetyLever == nil || b.safetyLever.ID != resolved {
 		return nil, fmt.Errorf("%w: %s", ErrSafetyLeverNotFound, id)
 	}
 
@@ -710,17 +855,29 @@ func (b *InMemoryBackend) UpdateSafetyLeverState(
 // ----------------------------------------
 
 // ListActions returns all available FIS actions: built-in + service-provided, sorted by ID.
+// Built-in actions take precedence over provider-supplied actions with the same ID (dedup by ID).
 func (b *InMemoryBackend) ListActions() []ActionSummary {
 	b.mu.RLock("ListActions")
 	providers := b.actionProviders
 	b.mu.RUnlock()
 
-	all := builtinActionSummaries(b.accountID, b.region)
+	seen := make(map[string]ActionSummary)
+
+	for _, a := range builtinActionSummaries(b.accountID, b.region) {
+		seen[a.ID] = a
+	}
 
 	for _, p := range providers {
 		for _, def := range p.FISActions() {
-			all = append(all, actionDefToSummary(def, b.accountID, b.region))
+			if _, exists := seen[def.ActionID]; !exists {
+				seen[def.ActionID] = actionDefToSummary(def, b.accountID, b.region)
+			}
 		}
+	}
+
+	all := make([]ActionSummary, 0, len(seen))
+	for _, a := range seen {
+		all = append(all, a)
 	}
 
 	slices.SortFunc(all, func(a, b ActionSummary) int { return strings.Compare(a.ID, b.ID) })
@@ -827,42 +984,81 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	return nil, fmt.Errorf("%w: %s", ErrResourceNotFound, resourceARN)
 }
 
+// ErrTooManyTags is returned when adding tags would exceed the 50-tag limit.
+var ErrTooManyTags = errors.New("TooManyTagsException")
+
+// validateTags checks tag key/value constraints per AWS limits.
+func validateTags(tags map[string]string) error {
+	for k, v := range tags {
+		if len(k) == 0 || len(k) > maxTagKeyLen {
+			return fmt.Errorf(
+				"%w: tag key %q: length must be 1-%d characters",
+				ErrValidation, k, maxTagKeyLen,
+			)
+		}
+
+		if strings.HasPrefix(k, "aws:") {
+			return fmt.Errorf("%w: tag key %q: keys with prefix \"aws:\" are reserved", ErrValidation, k)
+		}
+
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf(
+				"%w: tag key %q: value length must be 0-%d characters",
+				ErrValidation, k, maxTagValueLen,
+			)
+		}
+	}
+
+	return nil
+}
+
+// applyTags merges newTags into dest, enforcing the per-resource quota.
+// dest must be non-nil. Returns ErrTooManyTags if the quota would be exceeded.
+func applyTags(dest *map[string]string, newTags map[string]string, resourceARN string) error {
+	if *dest == nil {
+		*dest = make(map[string]string)
+	}
+
+	if len(*dest)+len(newTags) > maxTagsPerResource {
+		return fmt.Errorf(
+			"%w: resource %s already has the maximum of %d tags",
+			ErrTooManyTags, resourceARN, maxTagsPerResource,
+		)
+	}
+
+	maps.Copy(*dest, newTags)
+
+	return nil
+}
+
 // TagResource adds or updates tags on a resource.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	if err := validateTags(tags); err != nil {
+		return err
+	}
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
+	return b.applyTagsLocked(resourceARN, tags)
+}
+
+// applyTagsLocked merges tags into the resource identified by resourceARN.
+// Must be called with b.mu held for write.
+func (b *InMemoryBackend) applyTagsLocked(resourceARN string, tags map[string]string) error {
 	if b.safetyLever != nil && b.safetyLever.Arn == resourceARN {
-		if b.safetyLever.Tags == nil {
-			b.safetyLever.Tags = make(map[string]string)
-		}
-
-		maps.Copy(b.safetyLever.Tags, tags)
-
-		return nil
+		return applyTags(&b.safetyLever.Tags, tags, resourceARN)
 	}
 
 	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
 		if tpl := b.templates[tplID]; tpl != nil {
-			if tpl.Tags == nil {
-				tpl.Tags = make(map[string]string)
-			}
-
-			maps.Copy(tpl.Tags, tags)
-
-			return nil
+			return applyTags(&tpl.Tags, tags, resourceARN)
 		}
 	}
 
 	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
 		if exp := b.experiments[expID]; exp != nil {
-			if exp.Tags == nil {
-				exp.Tags = make(map[string]string)
-			}
-
-			maps.Copy(exp.Tags, tags)
-
-			return nil
+			return applyTags(&exp.Tags, tags, resourceARN)
 		}
 	}
 
@@ -1119,10 +1315,26 @@ func (b *InMemoryBackend) ListExperimentTargetAccountConfigurations(
 // Experiment goroutine
 // ----------------------------------------
 
+// lifecycleDelay is the short pause between lifecycle state transitions so that
+// SDK polling can observe intermediate states (initiating, completing, stopping).
+const lifecycleDelay = 10 * time.Millisecond
+
 // runExperiment manages the full lifecycle of a single experiment.
 func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *ExperimentTemplate) {
-	// Transition PENDING → RUNNING.
-	b.setExperimentStatus(expID, statusRunning, "")
+	// PENDING → INITIATING.
+	b.setExperimentStatus(expID, statusInitiating)
+	b.setAllActionStatuses(expID, actionStatusInitiating)
+
+	select {
+	case <-ctx.Done():
+		b.cleanupActions(nil, expID, statusStopped, actionStatusCancelled)
+
+		return
+	case <-time.After(lifecycleDelay):
+	}
+
+	// INITIATING → RUNNING.
+	b.setExperimentStatus(expID, statusRunning)
 	b.setAllActionStatuses(expID, actionStatusRunning)
 
 	// Collect chaos fault rules and other actions to execute.
@@ -1154,6 +1366,17 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 	// Wait for duration, stop signal, or context cancellation.
 	// If maxDuration is 0 (e.g. all actions are immediate/non-timed), complete right away.
 	if maxDuration == 0 {
+		b.setExperimentStatus(expID, statusCompleting)
+		b.setAllActionStatuses(expID, actionStatusCompleting)
+
+		select {
+		case <-ctx.Done():
+			b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
+
+			return
+		case <-time.After(lifecycleDelay):
+		}
+
 		b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
 
 		return
@@ -1164,11 +1387,20 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 
 	select {
 	case <-ctx.Done():
-		// Manually stopped or context cancelled.
+		// Manually stopped or context cancelled — transition through stopping.
+		b.setExperimentStatus(expID, statusStopping)
 		b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
 	case <-timer.C:
-		// All actions completed naturally.
-		b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
+		// All actions completed naturally — transition through completing.
+		b.setExperimentStatus(expID, statusCompleting)
+		b.setAllActionStatuses(expID, actionStatusCompleting)
+
+		select {
+		case <-ctx.Done():
+			b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
+		case <-time.After(lifecycleDelay):
+			b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
+		}
 	}
 }
 
@@ -1189,7 +1421,7 @@ func (b *InMemoryBackend) prepareActions(tpl *ExperimentTemplate) ([]chaos.Fault
 		switch {
 		case strings.HasPrefix(action.ActionID, "aws:fis:inject-api-"):
 			faultRules = append(faultRules, buildFaultRules(action)...)
-		case action.ActionID == "aws:fis:wait":
+		case action.ActionID == actionIDWait:
 			// Wait action — only the duration matters; it's already captured above.
 		default:
 			externalActions = append(externalActions, externalAction{
@@ -1251,6 +1483,7 @@ func (b *InMemoryBackend) executeExternalAction(ctx context.Context, ea external
 }
 
 // cleanupActions removes fault rules and sets the final experiment status.
+// It also calls exp.cancel() to release the context and prevent goroutine leaks.
 func (b *InMemoryBackend) cleanupActions(faultRules []chaos.FaultRule, expID, expStatus, actionStatus string) {
 	if len(faultRules) > 0 && b.getFaultStore() != nil {
 		b.getFaultStore().DeleteRules(faultRules)
@@ -1269,18 +1502,23 @@ func (b *InMemoryBackend) cleanupActions(faultRules []chaos.FaultRule, expID, ex
 			action.EndTime = &endTime
 			exp.Actions[name] = action
 		}
+
+		// Release context resources; safe to call multiple times.
+		if exp.cancel != nil {
+			exp.cancel()
+		}
 	}
 
 	b.mu.Unlock()
 }
 
 // setExperimentStatus atomically updates an experiment's status.
-func (b *InMemoryBackend) setExperimentStatus(id, status, reason string) {
+func (b *InMemoryBackend) setExperimentStatus(id, status string) {
 	b.mu.Lock("setExperimentStatus")
 	defer b.mu.Unlock()
 
 	if exp, ok := b.experiments[id]; ok {
-		exp.Status = ExperimentStatus{Status: status, Reason: reason}
+		exp.Status = ExperimentStatus{Status: status}
 	}
 }
 
@@ -1408,7 +1646,7 @@ func cloneTemplate(tpl *ExperimentTemplate) *ExperimentTemplate {
 func cloneExperiment(exp *Experiment) *Experiment {
 	cp := *exp
 	cp.cancel = nil
-
+	cp.CreationTime = exp.CreationTime
 	cp.Tags = copyStringMap(exp.Tags)
 
 	if exp.Targets != nil {

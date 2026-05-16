@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,6 +73,8 @@ const (
 	pathTargetAccountConfigurations = "targetAccountConfigurations"
 	// subPathResolvedTargets is the sub-path segment for resolved targets.
 	subPathResolvedTargets = "resolvedTargets"
+	// subPathStop is the sub-path segment for stopping an experiment (AWS canonical).
+	subPathStop = "stop"
 )
 
 // Handler is the Echo HTTP handler for the FIS REST API.
@@ -387,11 +390,7 @@ func (h *Handler) handleCreateExperimentTemplate(
 func (h *Handler) handleGetExperimentTemplate(c *echo.Context, id string) error {
 	tpl, err := h.Backend.GetExperimentTemplate(id)
 	if err != nil {
-		if errors.Is(err, ErrTemplateNotFound) {
-			return h.writeError(c, http.StatusNotFound, err.Error(), id)
-		}
-
-		return h.writeError(c, http.StatusInternalServerError, err.Error(), id)
+		return h.writeBackendError(c, err, id)
 	}
 
 	return c.JSON(http.StatusOK, experimentTemplateResponseDTO{
@@ -429,13 +428,27 @@ func (h *Handler) handleListExperimentTemplates(c *echo.Context) error {
 		return h.writeError(c, http.StatusInternalServerError, err.Error(), "")
 	}
 
-	dtos := make([]experimentTemplateDTO, len(templates))
-	for i, t := range templates {
+	maxResults, start := paginateSlice(len(templates), c.Request().URL.Query())
+
+	end := start + maxResults
+	end = min(end, len(templates))
+
+	var nextTok string
+
+	if end < len(templates) {
+		nextTok = templates[end-1].ID
+	}
+
+	page := templates[start:end]
+	dtos := make([]experimentTemplateDTO, len(page))
+
+	for i, t := range page {
 		dtos[i] = toTemplateDTO(t)
 	}
 
 	return c.JSON(http.StatusOK, listExperimentTemplatesResponseDTO{
 		ExperimentTemplates: dtos,
+		NextToken:           nextTok,
 	})
 }
 
@@ -462,11 +475,7 @@ func (h *Handler) handleStartExperiment(ctx context.Context, c *echo.Context, bo
 func (h *Handler) handleGetExperiment(c *echo.Context, id string) error {
 	exp, err := h.Backend.GetExperiment(id)
 	if err != nil {
-		if errors.Is(err, ErrExperimentNotFound) {
-			return h.writeError(c, http.StatusNotFound, err.Error(), id)
-		}
-
-		return h.writeError(c, http.StatusInternalServerError, err.Error(), id)
+		return h.writeBackendError(c, err, id)
 	}
 
 	return c.JSON(http.StatusOK, experimentResponseDTO{
@@ -477,15 +486,7 @@ func (h *Handler) handleGetExperiment(c *echo.Context, id string) error {
 func (h *Handler) handleStopExperiment(c *echo.Context, id string) error {
 	exp, err := h.Backend.StopExperiment(id)
 	if err != nil {
-		if errors.Is(err, ErrExperimentNotFound) {
-			return h.writeError(c, http.StatusNotFound, err.Error(), id)
-		}
-
-		if errors.Is(err, ErrExperimentNotRunning) {
-			return h.writeError(c, http.StatusConflict, err.Error(), id)
-		}
-
-		return h.writeError(c, http.StatusInternalServerError, err.Error(), id)
+		return h.writeBackendError(c, err, id)
 	}
 
 	return c.JSON(http.StatusOK, experimentResponseDTO{
@@ -499,13 +500,56 @@ func (h *Handler) handleListExperiments(c *echo.Context) error {
 		return h.writeError(c, http.StatusInternalServerError, err.Error(), "")
 	}
 
-	dtos := make([]experimentDTO, len(experiments))
-	for i, e := range experiments {
+	q := c.Request().URL.Query()
+
+	// Filter by experimentTemplateId.
+	if tplFilter := q.Get("experimentTemplateId"); tplFilter != "" {
+		filtered := experiments[:0]
+
+		for _, e := range experiments {
+			if e.ExperimentTemplateID == tplFilter {
+				filtered = append(filtered, e)
+			}
+		}
+
+		experiments = filtered
+	}
+
+	// Filter by status.
+	if statusFilter := q.Get("status"); statusFilter != "" {
+		filtered := experiments[:0]
+
+		for _, e := range experiments {
+			if e.Status.Status == statusFilter {
+				filtered = append(filtered, e)
+			}
+		}
+
+		experiments = filtered
+	}
+
+	// Apply cursor-based pagination.
+	maxResults, start := paginateSlice(len(experiments), q)
+
+	end := start + maxResults
+	end = min(end, len(experiments))
+
+	var nextTok string
+
+	if end < len(experiments) {
+		nextTok = experiments[end-1].ID
+	}
+
+	page := experiments[start:end]
+	dtos := make([]experimentDTO, len(page))
+
+	for i, e := range page {
 		dtos[i] = toExperimentDTO(e)
 	}
 
 	return c.JSON(http.StatusOK, listExperimentsResponseDTO{
 		Experiments: dtos,
+		NextToken:   nextTok,
 	})
 }
 
@@ -516,11 +560,7 @@ func (h *Handler) handleListExperiments(c *echo.Context) error {
 func (h *Handler) handleGetAction(c *echo.Context, id string) error {
 	action, err := h.Backend.GetAction(id)
 	if err != nil {
-		if errors.Is(err, ErrActionNotFound) {
-			return h.writeError(c, http.StatusNotFound, err.Error(), id)
-		}
-
-		return h.writeError(c, http.StatusInternalServerError, err.Error(), id)
+		return h.writeBackendError(c, err, id)
 	}
 
 	return c.JSON(http.StatusOK, actionResponseDTO{
@@ -542,11 +582,7 @@ func (h *Handler) handleListActions(c *echo.Context) error {
 func (h *Handler) handleGetTargetResourceType(c *echo.Context, resourceType string) error {
 	rt, err := h.Backend.GetTargetResourceType(resourceType)
 	if err != nil {
-		if errors.Is(err, ErrTargetResourceTypeNotFound) {
-			return h.writeError(c, http.StatusNotFound, err.Error(), resourceType)
-		}
-
-		return h.writeError(c, http.StatusInternalServerError, err.Error(), resourceType)
+		return h.writeBackendError(c, err, resourceType)
 	}
 
 	return c.JSON(http.StatusOK, targetResourceTypeResponseDTO{
@@ -810,33 +846,77 @@ func (h *Handler) handleListExperimentTargetAccountConfigurations(
 // ----------------------------------------
 
 func (h *Handler) writeError(c *echo.Context, status int, message, resourceID string) error {
-	resp := errorResponseDTO{Message: message, ResourceID: resourceID}
+	return h.writeTypedError(c, status, "", message, resourceID)
+}
+
+func (h *Handler) writeTypedError(c *echo.Context, status int, errType, message, resourceID string) error {
+	resp := errorResponseDTO{Type: errType, Message: message, ResourceID: resourceID}
 
 	return c.JSON(status, resp)
 }
 
-func (h *Handler) writeBackendError(c *echo.Context, err error, id string) error {
+// exceptionTypeFor maps a sentinel error to the AWS exception type string.
+func exceptionTypeFor(err error) string {
 	switch {
 	case errors.Is(err, ErrValidation):
-		return h.writeError(c, http.StatusBadRequest, err.Error(), id)
+		return "ValidationException"
 	case errors.Is(err, ErrTooManyExperiments):
-		return h.writeError(c, http.StatusTooManyRequests, err.Error(), id)
+		return "ServiceQuotaExceededException"
+	case errors.Is(err, ErrTooManyTags):
+		return "TooManyTagsException"
 	case errors.Is(err, ErrTemplateNotFound):
-		return h.writeError(c, http.StatusNotFound, err.Error(), id)
+		return "ExperimentTemplateNotFoundException"
 	case errors.Is(err, ErrExperimentNotFound):
-		return h.writeError(c, http.StatusNotFound, err.Error(), id)
+		return "ExperimentNotFoundException"
 	case errors.Is(err, ErrExperimentNotRunning):
-		return h.writeError(c, http.StatusConflict, err.Error(), id)
+		return "ConflictException"
+	case errors.Is(err, ErrActionNotFound):
+		return "ActionNotFoundException"
+	case errors.Is(err, ErrTargetResourceTypeNotFound):
+		return "TargetResourceTypeNotFoundException"
 	case errors.Is(err, ErrResourceNotFound):
-		return h.writeError(c, http.StatusNotFound, err.Error(), id)
+		return "ResourceNotFoundException"
 	case errors.Is(err, ErrSafetyLeverNotFound):
-		return h.writeError(c, http.StatusNotFound, err.Error(), id)
+		return "SafetyLeverNotFoundException"
 	case errors.Is(err, ErrSafetyLeverEngaged):
-		return h.writeError(c, http.StatusConflict, err.Error(), id)
+		return "ConflictException"
 	case errors.Is(err, ErrTargetAccountConfigNotFound):
-		return h.writeError(c, http.StatusNotFound, err.Error(), id)
+		return "TargetAccountConfigurationNotFoundException"
 	default:
-		return h.writeError(c, http.StatusInternalServerError, err.Error(), id)
+		return "InternalServerError"
+	}
+}
+
+func (h *Handler) writeBackendError(c *echo.Context, err error, id string) error {
+	errType := exceptionTypeFor(err)
+
+	switch {
+	case errors.Is(err, ErrValidation):
+		return h.writeTypedError(c, http.StatusBadRequest, errType, err.Error(), id)
+	case errors.Is(err, ErrTooManyExperiments):
+		return h.writeTypedError(c, http.StatusTooManyRequests, errType, err.Error(), id)
+	case errors.Is(err, ErrTooManyTags):
+		return h.writeTypedError(c, http.StatusBadRequest, errType, err.Error(), id)
+	case errors.Is(err, ErrActionNotFound):
+		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
+	case errors.Is(err, ErrTargetResourceTypeNotFound):
+		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
+	case errors.Is(err, ErrTemplateNotFound):
+		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
+	case errors.Is(err, ErrExperimentNotFound):
+		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
+	case errors.Is(err, ErrExperimentNotRunning):
+		return h.writeTypedError(c, http.StatusConflict, errType, err.Error(), id)
+	case errors.Is(err, ErrResourceNotFound):
+		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
+	case errors.Is(err, ErrSafetyLeverNotFound):
+		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
+	case errors.Is(err, ErrSafetyLeverEngaged):
+		return h.writeTypedError(c, http.StatusConflict, errType, err.Error(), id)
+	case errors.Is(err, ErrTargetAccountConfigNotFound):
+		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
+	default:
+		return h.writeTypedError(c, http.StatusInternalServerError, errType, err.Error(), id)
 	}
 }
 
@@ -956,6 +1036,11 @@ func parseFISExperimentPath(method string, segs []string, hasID bool) (string, s
 func parseFISExperimentSubPath(method string, segs []string) (string, string) {
 	if method == http.MethodGet && len(segs) >= 3 && segs[2] == subPathResolvedTargets {
 		return opListExperimentResolvedTargets, segs[1]
+	}
+
+	// POST /experiments/{id}/stop — AWS canonical StopExperiment route.
+	if method == http.MethodPost && len(segs) >= 3 && segs[2] == subPathStop {
+		return opStopExperiment, segs[1]
 	}
 
 	if len(segs) >= 4 && segs[2] == pathTargetAccountConfigurations && method == http.MethodGet {
@@ -1146,25 +1231,33 @@ func toExperimentDTO(exp *Experiment) experimentDTO {
 		stopConditions[i] = experimentStopConditionDTO(sc)
 	}
 
+	statusDTO := experimentStatusDTO{
+		Status: exp.Status.Status,
+		Reason: exp.Status.Reason,
+	}
+
+	if exp.Status.Error != nil {
+		statusDTO.Error = &experimentStatusErrorDTO{
+			ExceptionName: exp.Status.Error.ExceptionName,
+			AccountID:     exp.Status.Error.AccountID,
+		}
+	}
+
 	dto := experimentDTO{
-		ID:                   exp.ID,
-		Arn:                  exp.Arn,
-		ExperimentTemplateID: exp.ExperimentTemplateID,
-		RoleArn:              exp.RoleArn,
-		Status: experimentStatusDTO{
-			Status: exp.Status.Status,
-			Reason: exp.Status.Reason,
-		},
-		State: experimentStatusDTO{
-			Status: exp.Status.Status,
-			Reason: exp.Status.Reason,
-		},
-		Targets:        targets,
-		Actions:        actions,
-		StopConditions: stopConditions,
-		Tags:           exp.Tags,
-		StartTime:      toUnix(exp.StartTime),
-		EndTime:        toUnixPtr(exp.EndTime),
+		ID:                               exp.ID,
+		Arn:                              exp.Arn,
+		ExperimentTemplateID:             exp.ExperimentTemplateID,
+		RoleArn:                          exp.RoleArn,
+		Status:                           statusDTO,
+		State:                            statusDTO,
+		Targets:                          targets,
+		Actions:                          actions,
+		StopConditions:                   stopConditions,
+		Tags:                             exp.Tags,
+		CreationTime:                     toUnix(exp.CreationTime),
+		StartTime:                        toUnix(exp.StartTime),
+		EndTime:                          toUnixPtr(exp.EndTime),
+		TargetAccountConfigurationsCount: exp.TargetAccountConfigurationsCount,
 	}
 
 	if exp.LogConfiguration != nil {
@@ -1260,4 +1353,34 @@ func toExperimentTargetAccountConfigDTO(
 		Description: cfg.Description,
 		RoleArn:     cfg.RoleArn,
 	}
+}
+
+// ----------------------------------------
+// Pagination helpers
+// ----------------------------------------
+
+// defaultMaxResults is the default page size for list operations.
+const defaultMaxResults = 20
+
+// absoluteMaxResults is the maximum allowed page size.
+const absoluteMaxResults = 100
+
+// paginateSlice parses maxResults and nextToken from query params for cursor-based pagination.
+// Returns (maxResults, startOffset, pageSlice-placeholder). The caller uses startOffset
+// to slice the pre-sorted slice from the backend.
+func paginateSlice(_ int, q url.Values) (int, int) {
+	mr := defaultMaxResults
+
+	if v := q.Get("maxResults"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			mr = n
+		}
+	}
+
+	mr = min(mr, absoluteMaxResults)
+
+	// nextToken: future — decode opaque cursor to a start offset by ID.
+	_ = q.Get("nextToken")
+
+	return mr, 0
 }

@@ -89,26 +89,35 @@ type ExperimentTemplateExperimentOptions struct {
 
 // Experiment is the in-memory representation of a running FIS experiment.
 type Experiment struct {
-	StartTime            time.Time                    `json:"startTime"`
-	ExperimentOptions    *ExperimentExperimentOptions `json:"experimentOptions"`
-	Targets              map[string]ExperimentTarget  `json:"targets"`
-	Actions              map[string]ExperimentAction  `json:"actions"`
-	LogConfiguration     *ExperimentLogConfiguration  `json:"logConfiguration"`
-	Tags                 map[string]string            `json:"tags"`
-	EndTime              *time.Time                   `json:"endTime"`
-	cancel               context.CancelFunc           `json:"-"`
-	Status               ExperimentStatus             `json:"status"`
-	ExperimentTemplateID string                       `json:"experimentTemplateID"`
-	RoleArn              string                       `json:"roleArn"`
-	ID                   string                       `json:"id"`
-	Arn                  string                       `json:"arn"`
-	StopConditions       []ExperimentStopCondition    `json:"stopConditions"`
+	CreationTime                     time.Time                    `json:"creationTime"`
+	StartTime                        time.Time                    `json:"startTime"`
+	ExperimentOptions                *ExperimentExperimentOptions `json:"experimentOptions"`
+	Targets                          map[string]ExperimentTarget  `json:"targets"`
+	Actions                          map[string]ExperimentAction  `json:"actions"`
+	LogConfiguration                 *ExperimentLogConfiguration  `json:"logConfiguration"`
+	Tags                             map[string]string            `json:"tags"`
+	EndTime                          *time.Time                   `json:"endTime"`
+	cancel                           context.CancelFunc           `json:"-"`
+	Status                           ExperimentStatus             `json:"status"`
+	ExperimentTemplateID             string                       `json:"experimentTemplateID"`
+	RoleArn                          string                       `json:"roleArn"`
+	ID                               string                       `json:"id"`
+	Arn                              string                       `json:"arn"`
+	StopConditions                   []ExperimentStopCondition    `json:"stopConditions"`
+	TargetAccountConfigurationsCount int                          `json:"targetAccountConfigurationsCount,omitempty"`
 }
 
-// ExperimentStatus holds the status string and an optional human-readable reason.
+// ExperimentStatus holds the status string, an optional human-readable reason, and structured error info.
 type ExperimentStatus struct {
-	Status string `json:"status"`
-	Reason string `json:"reason"`
+	Error  *ExperimentStatusError `json:"error,omitempty"`
+	Status string                 `json:"status"`
+	Reason string                 `json:"reason,omitempty"`
+}
+
+// ExperimentStatusError holds structured error info for failed experiments.
+type ExperimentStatusError struct {
+	ExceptionName string `json:"exceptionName,omitempty"`
+	AccountID     string `json:"accountId,omitempty"`
 }
 
 // ExperimentTarget holds resolved resource ARNs for a target group.
@@ -333,26 +342,35 @@ type listExperimentsResponseDTO struct {
 
 // experimentDTO is the JSON representation of a running experiment.
 type experimentDTO struct {
-	ExperimentOptions    *experimentExperimentOptionsDTO `json:"experimentOptions,omitempty"`
-	Targets              map[string]experimentTargetDTO  `json:"targets"`
-	Actions              map[string]experimentActionDTO  `json:"actions"`
-	LogConfiguration     *experimentLogConfigurationDTO  `json:"logConfiguration,omitempty"`
-	Tags                 map[string]string               `json:"tags"`
-	EndTime              *float64                        `json:"endTime,omitempty"`
-	State                experimentStatusDTO             `json:"state"`
-	Status               experimentStatusDTO             `json:"status"`
-	Arn                  string                          `json:"arn"`
-	ExperimentTemplateID string                          `json:"experimentTemplateId"`
-	RoleArn              string                          `json:"roleArn,omitempty"`
-	ID                   string                          `json:"id"`
-	StopConditions       []experimentStopConditionDTO    `json:"stopConditions"`
-	StartTime            float64                         `json:"startTime"`
+	ExperimentOptions                *experimentExperimentOptionsDTO `json:"experimentOptions,omitempty"`
+	Targets                          map[string]experimentTargetDTO  `json:"targets"`
+	Actions                          map[string]experimentActionDTO  `json:"actions"`
+	LogConfiguration                 *experimentLogConfigurationDTO  `json:"logConfiguration,omitempty"`
+	Tags                             map[string]string               `json:"tags"`
+	EndTime                          *float64                        `json:"endTime,omitempty"`
+	State                            experimentStatusDTO             `json:"state"`
+	Status                           experimentStatusDTO             `json:"status"`
+	Arn                              string                          `json:"arn"`
+	ExperimentTemplateID             string                          `json:"experimentTemplateId"`
+	RoleArn                          string                          `json:"roleArn,omitempty"`
+	ID                               string                          `json:"id"`
+	StopConditions                   []experimentStopConditionDTO    `json:"stopConditions"`
+	CreationTime                     float64                         `json:"creationTime"`
+	StartTime                        float64                         `json:"startTime"`
+	TargetAccountConfigurationsCount int                             `json:"targetAccountConfigurationsCount,omitempty"`
 }
 
 // experimentStatusDTO is the JSON representation of an experiment status.
 type experimentStatusDTO struct {
-	Status string `json:"status"`
-	Reason string `json:"reason,omitempty"`
+	Error  *experimentStatusErrorDTO `json:"error,omitempty"`
+	Status string                    `json:"status"`
+	Reason string                    `json:"reason,omitempty"`
+}
+
+// experimentStatusErrorDTO is the JSON representation of structured error info on failed experiments.
+type experimentStatusErrorDTO struct {
+	ExceptionName string `json:"exceptionName,omitempty"`
+	AccountID     string `json:"accountId,omitempty"`
 }
 
 // experimentTargetDTO is the JSON representation of a resolved target.
@@ -471,7 +489,9 @@ type tagsResponseDTO struct {
 }
 
 // errorResponseDTO is the standard FIS JSON error response.
+// __type enables AWS SDKs to deserialize specific exception types.
 type errorResponseDTO struct {
+	Type       string `json:"__type,omitempty"`
 	Message    string `json:"message"`
 	ResourceID string `json:"resourceId,omitempty"`
 }

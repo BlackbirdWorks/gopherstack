@@ -66,6 +66,7 @@ func TestIntegration_FIS_ExperimentTemplateLifecycle(t *testing.T) {
 	// --- Create ---
 	createBody := map[string]any{
 		"description": "integration test template",
+		"roleArn":     "arn:aws:iam::000000000000:role/FISTestRole",
 		"stopConditions": []map[string]any{
 			{"source": "none"},
 		},
@@ -191,6 +192,7 @@ func TestIntegration_FIS_ExperimentLifecycle(t *testing.T) {
 	// Create a template with a short wait action.
 	createBody := map[string]any{
 		"description": "lifecycle test",
+		"roleArn":     "arn:aws:iam::000000000000:role/FISTestRole",
 		"stopConditions": []map[string]any{
 			{"source": "none"},
 		},
@@ -399,6 +401,7 @@ func TestIntegration_FIS_InjectAPIErrorViaExperiment(t *testing.T) {
 	// Create a template that injects 503 errors into DynamoDB ListTables.
 	createBody := map[string]any{
 		"description": "inject 503 into DynamoDB",
+		"roleArn":     "arn:aws:iam::000000000000:role/FISTestRole",
 		"stopConditions": []map[string]any{
 			{"source": "none"},
 		},
@@ -509,6 +512,7 @@ func TestIntegration_FIS_KinesisThroughputException(t *testing.T) {
 	// Build a FIS experiment template that uses the throughput-exception action.
 	createTemplateBody := map[string]any{
 		"description": "Kinesis FIS integration test",
+		"roleArn":     "arn:aws:iam::000000000000:role/FISTestRole",
 		"stopConditions": []map[string]any{
 			{"source": "none"},
 		},

@@ -16,12 +16,19 @@ const (
 )
 
 const (
-	targetTypeIAMRole = "aws:iam:role"
-	keyService        = "service"
-	keyOperations     = "operations"
-	keyPercentage     = "percentage"
-	descPercentage    = "Percentage of requests to fault (0-100)"
-	descISO8601       = "ISO 8601 duration (e.g. PT5M)"
+	targetTypeIAMRole  = "aws:iam:role"
+	targetTypeEC2Inst  = "aws:ec2:instance"
+	targetTypeRDSDB    = "aws:rds:db"
+	targetTypeRDSClust = "aws:rds:cluster"
+	targetTypeECSTask  = "aws:ecs:task"
+	targetTypeEKSNG    = "aws:eks:nodegroup"
+	targetTypeDDBTable = "aws:dynamodb:global-table"
+	actionIDWait       = "aws:fis:wait"
+	keyService         = "service"
+	keyOperations      = "operations"
+	keyPercentage      = "percentage"
+	descPercentage     = "Percentage of requests to fault (0-100)"
+	descISO8601        = "ISO 8601 duration (e.g. PT5M)"
 )
 
 const (
@@ -42,89 +49,137 @@ const (
 
 	// hoursPerDay is the number of hours in a day.
 	hoursPerDay = 24
-	// daysPerWeek is the number of days in a week.
-	daysPerWeek = 7
-	// daysPerMonth is the approximate number of days per month for duration calculations.
-	daysPerMonth = 30
 )
 
 // ----------------------------------------
 // Built-in action definitions
 // ----------------------------------------
 
-// builtinActions returns the built-in FIS action definitions.
-//
+// injectAPIParams returns the common parameter set for inject-api-* actions.
+func injectAPIParams() []service.FISParamDef {
+	return []service.FISParamDef{
+		{Name: keyService, Description: descTargetAWSService, Required: true},
+		{Name: keyOperations, Description: descCommaSepOps, Required: false},
+		{Name: keyPercentage, Description: descPercentage, Required: false, Default: "100"},
+		{Name: keyDuration, Description: descISO8601, Required: false},
+	}
+}
 
-func builtinActions() []service.FISActionDefinition {
+// builtinFaultActions returns the inject-api and wait built-in action definitions.
+func builtinFaultActions() []service.FISActionDefinition {
 	return []service.FISActionDefinition{
 		{
 			ActionID:    "aws:fis:inject-api-internal-error",
 			Description: "Return HTTP 500 InternalServerError for matching API calls",
 			TargetType:  targetTypeIAMRole,
-			Parameters: []service.FISParamDef{
-				{Name: keyService, Description: descTargetAWSService, Required: true},
-				{
-					Name:        keyOperations,
-					Description: descCommaSepOps,
-					Required:    false,
-				},
-				{
-					Name:        keyPercentage,
-					Description: descPercentage,
-					Required:    false,
-					Default:     "100",
-				},
-				{Name: keyDuration, Description: descISO8601, Required: false},
-			},
+			Parameters:  injectAPIParams(),
 		},
 		{
 			ActionID:    "aws:fis:inject-api-throttle-error",
 			Description: "Return HTTP 400 ThrottlingException for matching API calls",
 			TargetType:  targetTypeIAMRole,
-			Parameters: []service.FISParamDef{
-				{Name: keyService, Description: descTargetAWSService, Required: true},
-				{
-					Name:        keyOperations,
-					Description: descCommaSepOps,
-					Required:    false,
-				},
-				{
-					Name:        keyPercentage,
-					Description: descPercentage,
-					Required:    false,
-					Default:     "100",
-				},
-				{Name: keyDuration, Description: descISO8601, Required: false},
-			},
+			Parameters:  injectAPIParams(),
 		},
 		{
 			ActionID:    "aws:fis:inject-api-unavailable-error",
 			Description: "Return HTTP 503 ServiceUnavailable for matching API calls",
 			TargetType:  targetTypeIAMRole,
+			Parameters:  injectAPIParams(),
+		},
+		{
+			ActionID:    actionIDWait,
+			Description: "Pause for a specified duration",
+			Parameters:  []service.FISParamDef{{Name: keyDuration, Description: descISO8601, Required: true}},
+		},
+	}
+}
+
+// builtinServiceActions returns the AWS service built-in action definitions.
+func builtinServiceActions() []service.FISActionDefinition {
+	const descRestartAfter = "ISO 8601 duration after which instances are restarted"
+	const descForceFailover = "Force failover during reboot (true|false)"
+	const descTermPct = "Percentage of instances to terminate (1-100)"
+	const descDocArn = "ARN of the SSM document"
+	const descDocParams = "JSON-encoded document parameters"
+
+	return []service.FISActionDefinition{
+		{
+			ActionID:    "aws:ec2:reboot-instances",
+			Description: "Reboot EC2 instances",
+			TargetType:  targetTypeEC2Inst,
+			Parameters:  []service.FISParamDef{{Name: keyDuration, Description: descISO8601, Required: false}},
+		},
+		{
+			ActionID:    "aws:ec2:stop-instances",
+			Description: "Stop EC2 instances",
+			TargetType:  targetTypeEC2Inst,
 			Parameters: []service.FISParamDef{
-				{Name: keyService, Description: descTargetAWSService, Required: true},
-				{
-					Name:        keyOperations,
-					Description: descCommaSepOps,
-					Required:    false,
-				},
-				{
-					Name:        keyPercentage,
-					Description: descPercentage,
-					Required:    false,
-					Default:     "100",
-				},
 				{Name: keyDuration, Description: descISO8601, Required: false},
+				{Name: "startInstancesAfterDuration", Description: descRestartAfter, Required: false},
 			},
 		},
 		{
-			ActionID:    "aws:fis:wait",
-			Description: "Pause for a specified duration",
+			ActionID:    "aws:ec2:terminate-instances",
+			Description: "Terminate EC2 instances",
+			TargetType:  targetTypeEC2Inst,
+			Parameters:  []service.FISParamDef{},
+		},
+		{
+			ActionID:    "aws:rds:reboot-db-instances",
+			Description: "Reboot RDS DB instances",
+			TargetType:  targetTypeRDSDB,
 			Parameters: []service.FISParamDef{
-				{Name: keyDuration, Description: descISO8601, Required: true},
+				{Name: "forceFailover", Description: descForceFailover, Required: false},
+			},
+		},
+		{
+			ActionID:    "aws:rds:failover-db-cluster",
+			Description: "Failover an Aurora DB cluster",
+			TargetType:  targetTypeRDSClust,
+			Parameters:  []service.FISParamDef{},
+		},
+		{
+			ActionID:    "aws:ecs:stop-task",
+			Description: "Stop an ECS task",
+			TargetType:  targetTypeECSTask,
+			Parameters:  []service.FISParamDef{{Name: keyDuration, Description: descISO8601, Required: false}},
+		},
+		{
+			ActionID:    "aws:eks:terminate-nodegroup-instances",
+			Description: "Terminate instances in an EKS managed node group",
+			TargetType:  targetTypeEKSNG,
+			Parameters: []service.FISParamDef{
+				{Name: "instanceTerminationPercentage", Description: descTermPct, Required: true},
+			},
+		},
+		{
+			ActionID:    "aws:dynamodb:global-table-pause-replication",
+			Description: "Pause replication for a DynamoDB global table",
+			TargetType:  targetTypeDDBTable,
+			Parameters:  []service.FISParamDef{{Name: keyDuration, Description: descISO8601, Required: true}},
+		},
+		{
+			ActionID:    "aws:ssm:send-command",
+			Description: "Run an SSM document on managed instances",
+			TargetType:  targetTypeEC2Inst,
+			Parameters: []service.FISParamDef{
+				{Name: "documentArn", Description: descDocArn, Required: true},
+				{Name: "documentParameters", Description: descDocParams, Required: false},
+				{Name: keyDuration, Description: descISO8601, Required: false},
 			},
 		},
 	}
+}
+
+// builtinActions returns all built-in FIS action definitions.
+func builtinActions() []service.FISActionDefinition {
+	fault := builtinFaultActions()
+	svc := builtinServiceActions()
+	all := make([]service.FISActionDefinition, 0, len(fault)+len(svc))
+	all = append(all, fault...)
+	all = append(all, svc...)
+
+	return all
 }
 
 // builtinActionSummaries converts built-in action definitions to ActionSummary values.
@@ -176,13 +231,14 @@ func actionDefToSummary(def service.FISActionDefinition, accountID, region strin
 func builtinTargetResourceTypes() []TargetResourceTypeSummary {
 	return []TargetResourceTypeSummary{
 		{ResourceType: targetTypeIAMRole, Description: "IAM role (used for API fault injection targeting)"},
-		{ResourceType: "aws:ec2:instance", Description: "EC2 instance"},
+		{ResourceType: targetTypeEC2Inst, Description: "EC2 instance"},
+		{ResourceType: targetTypeEKSNG, Description: "EKS managed node group"},
 		{ResourceType: "aws:lambda:function", Description: "Lambda function"},
-		{ResourceType: "aws:rds:db", Description: "RDS DB instance"},
-		{ResourceType: "aws:rds:cluster", Description: "RDS Aurora DB cluster"},
-		{ResourceType: "aws:ecs:task", Description: "ECS task"},
+		{ResourceType: targetTypeRDSDB, Description: "RDS DB instance"},
+		{ResourceType: targetTypeRDSClust, Description: "RDS Aurora DB cluster"},
+		{ResourceType: targetTypeECSTask, Description: "ECS task"},
 		{ResourceType: "aws:kinesis:stream", Description: "Kinesis data stream"},
-		{ResourceType: "aws:dynamodb:global-table", Description: "DynamoDB global table"},
+		{ResourceType: targetTypeDDBTable, Description: "DynamoDB global table"},
 	}
 }
 
@@ -340,6 +396,8 @@ func parseISODuration(s string) time.Duration {
 }
 
 // applyISOUnit converts an ISO 8601 duration unit character and value to a time.Duration.
+// AWS FIS only supports PT…H…M…S (hours, minutes, seconds) and P…D (days).
+// Years (Y), months (M before T), and weeks (W) are not supported and return 0.
 func applyISOUnit(ch rune, val float64, inTime bool) time.Duration {
 	switch ch {
 	case 'H':
@@ -348,16 +406,14 @@ func applyISOUnit(ch rune, val float64, inTime bool) time.Duration {
 		if inTime {
 			return time.Duration(val * float64(time.Minute))
 		}
-		// 'M' before 'T' means months — not representable as time.Duration;
-		// treat as 30 days for approximation.
-		return time.Duration(val * daysPerMonth * float64(hoursPerDay*time.Hour))
+		// 'M' before 'T' would mean months — not supported by AWS FIS.
+		return 0
 	case 'S':
 		return time.Duration(val * float64(time.Second))
 	case 'D':
 		return time.Duration(val * float64(hoursPerDay*time.Hour))
-	case 'W':
-		return time.Duration(val * daysPerWeek * float64(hoursPerDay*time.Hour))
 	}
 
+	// Y (years) and W (weeks) are not supported by AWS FIS durations.
 	return 0
 }

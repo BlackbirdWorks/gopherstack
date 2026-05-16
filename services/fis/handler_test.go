@@ -215,6 +215,7 @@ func TestFISHandler_UpdateExperimentTemplate(t *testing.T) {
 	// Create first.
 	createBody := map[string]any{
 		"description":    "original",
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets":        map[string]any{},
 		"actions":        map[string]any{},
@@ -254,6 +255,7 @@ func TestFISHandler_DeleteExperimentTemplate(t *testing.T) {
 
 	// Create first.
 	createBody := map[string]any{
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets":        map[string]any{},
 		"actions":        map[string]any{},
@@ -288,6 +290,7 @@ func TestFISHandler_ListExperimentTemplates(t *testing.T) {
 	createBody := func(desc string) map[string]any {
 		return map[string]any{
 			"description":    desc,
+			"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 			"stopConditions": []map[string]any{{"source": "none"}},
 			"targets":        map[string]any{},
 			"actions":        map[string]any{},
@@ -319,6 +322,7 @@ func createTestTemplate(t *testing.T, h *fis.Handler) string {
 
 	body := map[string]any{
 		"description":    "integration test template",
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets":        map[string]any{},
 		"actions": map[string]any{
@@ -410,6 +414,7 @@ func TestFISHandler_StopExperiment(t *testing.T) {
 
 	// Use a long-duration experiment so it's still running when we stop it.
 	body := map[string]any{
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets":        map[string]any{},
 		"actions": map[string]any{
@@ -609,6 +614,7 @@ func TestFISHandler_TagResource_ListTags_UntagResource(t *testing.T) {
 
 	// Create a template to get its ARN.
 	body := map[string]any{
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets":        map[string]any{},
 		"actions":        map[string]any{},
@@ -706,6 +712,7 @@ func TestFISHandler_ExperimentCompletesAfterDuration(t *testing.T) {
 
 	// Template with a very short wait action.
 	body := map[string]any{
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets":        map[string]any{},
 		"actions": map[string]any{
@@ -806,6 +813,7 @@ func TestFISHandler_UpdateTemplate_InvalidJSON(t *testing.T) {
 	h := newTestHandler(t)
 
 	createBody := map[string]any{
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets":        map[string]any{},
 		"actions":        map[string]any{},
@@ -1058,6 +1066,7 @@ func TestFISHandler_ExperimentCompletes_NoTimedActions(t *testing.T) {
 
 	// Template with no actions → maxDuration is 0, should complete immediately.
 	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", map[string]any{
+		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
 		"stopConditions": []map[string]any{{"source": "none"}},
 		"targets":        map[string]any{},
 		"actions":        map[string]any{},
