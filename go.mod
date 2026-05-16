@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/alecthomas/kong v1.15.0
 	github.com/alicebob/miniredis/v2 v2.37.0
-	github.com/aws/aws-sdk-go-v2 v1.41.5
+	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/aws/aws-sdk-go-v2/config v1.32.14
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.14
 	github.com/aws/aws-sdk-go-v2/service/acm v1.37.21
@@ -59,7 +59,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10
 	github.com/aws/aws-sdk-go-v2/service/support v1.31.19
 	github.com/aws/aws-sdk-go-v2/service/swf v1.33.14
-	github.com/aws/smithy-go v1.24.3
+	github.com/aws/smithy-go v1.25.1
 	github.com/distribution/distribution/v3 v3.1.1
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.5.1
@@ -92,7 +92,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/codeartifact v1.38.19
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.68.11
 	github.com/aws/aws-sdk-go-v2/service/codecommit v1.33.10
-	github.com/aws/aws-sdk-go-v2/service/codeconnections v1.10.18
+	github.com/aws/aws-sdk-go-v2/service/codeconnections v1.10.22
 	github.com/aws/aws-sdk-go-v2/service/codedeploy v1.35.13
 	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.46.21
 	github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.35.11
@@ -103,7 +103,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing v1.33.21
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.54.8
 	github.com/aws/aws-sdk-go-v2/service/elastictranscoder v1.33.0
-	github.com/aws/aws-sdk-go-v2/service/emrserverless v1.39.4
+	github.com/aws/aws-sdk-go-v2/service/emrserverless v1.40.2
 	github.com/aws/aws-sdk-go-v2/service/glue v1.137.2
 	github.com/aws/aws-sdk-go-v2/service/kafka v1.49.0
 	github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2 v1.36.22
@@ -130,6 +130,7 @@ require (
 require (
 	connectrpc.com/connect v1.19.1
 	github.com/aws/aws-sdk-go-v2/service/apigatewaymanagementapi v1.29.13
+	github.com/aws/aws-sdk-go-v2/service/dax v1.29.18
 	github.com/aws/aws-sdk-go-v2/service/elasticsearchservice v1.39.1
 	github.com/aws/aws-sdk-go-v2/service/iotdataplane v1.32.20
 	github.com/aws/aws-sdk-go-v2/service/memorydb v1.33.12
@@ -174,8 +175,8 @@ require (
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.8 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.21 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.21 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.21 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.23 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.23 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.22 // indirect
 	github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk v1.34.0

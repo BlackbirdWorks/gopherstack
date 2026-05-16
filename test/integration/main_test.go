@@ -37,10 +37,12 @@ import (
 	codeartifactsdk "github.com/aws/aws-sdk-go-v2/service/codeartifact"
 	codebuildsdk "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	codecommitsdk "github.com/aws/aws-sdk-go-v2/service/codecommit"
+	codeconnectionssdk "github.com/aws/aws-sdk-go-v2/service/codeconnections"
 	codedeploysdk "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	cognitoidentitysdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
+	daxsdk "github.com/aws/aws-sdk-go-v2/service/dax"
 	docdbsdk "github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -55,6 +57,7 @@ import (
 	elbsdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2sdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	emrsdk "github.com/aws/aws-sdk-go-v2/service/emr"
+	emrserverlesssdk "github.com/aws/aws-sdk-go-v2/service/emrserverless"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -941,6 +944,66 @@ func createShieldClient(t *testing.T) *shieldsdk.Client {
 	}
 
 	return shieldsdk.NewFromConfig(cfg, func(o *shieldsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeConnectionsClient returns a CodeConnections client.
+func createCodeConnectionsClient(t *testing.T) *codeconnectionssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return codeconnectionssdk.NewFromConfig(cfg, func(o *codeconnectionssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createDAXClient returns an Amazon DAX client.
+func createDAXClient(t *testing.T) *daxsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return daxsdk.NewFromConfig(cfg, func(o *daxsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createEMRServerlessClient returns an EMR Serverless client.
+func createEMRServerlessClient(t *testing.T) *emrserverlesssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return emrserverlesssdk.NewFromConfig(cfg, func(o *emrserverlesssdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
