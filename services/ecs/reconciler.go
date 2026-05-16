@@ -96,6 +96,15 @@ func (r *Reconciler) reconcile(ctx context.Context, log *slog.Logger) {
 }
 
 // reconcileService ensures the running task count matches the desired count.
+//
+// Scale-up uses goroutine-based concurrent launches bounded by a per-cluster
+// semaphore (maxConcurrentLaunches). Each launch runs in its own goroutine;
+// the semaphore token is held for the lifetime of the Docker API call and
+// released when the call completes. If the semaphore is already full, remaining
+// launches are deferred to the next reconcile tick.
+//
+// MinimumHealthyPercent is honoured during scale-down: tasks are only stopped
+// when doing so would not drop the running count below the floor.
 func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, snap serviceSnapshot) error {
 	svc := snap.service
 
@@ -119,6 +128,9 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 
 		sem := r.clusterSem(snap.clusterName)
 
+		var wg sync.WaitGroup
+
+	launchLoop:
 		for range toStart {
 			select {
 			case sem <- struct{}{}:
@@ -129,16 +141,26 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 					"service", svc.ServiceName,
 				)
 
-				return nil
+				break launchLoop
 			}
 
-			err := r.backend.StartTaskForService(snap.clusterName, svc.ServiceName, svc.TaskDefinition)
-			<-sem
+			wg.Go(func() {
+				defer func() { <-sem }()
 
-			if err != nil {
-				return err
-			}
+				err := r.backend.StartTaskForService(
+					snap.clusterName, svc.ServiceName, svc.TaskDefinition,
+				)
+				if err != nil {
+					log.WarnContext(ctx, "ECS reconciler: StartTaskForService failed",
+						"cluster", snap.clusterName,
+						"service", svc.ServiceName,
+						"error", err,
+					)
+				}
+			})
 		}
+
+		wg.Wait()
 
 	case running > desired:
 		toStop := running - desired
@@ -150,12 +172,47 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 			"toStop", toStop,
 		)
 
+		// Honour MinimumHealthyPercent: do not stop tasks that would drop the
+		// running count below the floor derived from desired * minPct / 100.
+		minFloor := minimumHealthyFloor(svc)
+
 		for range toStop {
+			if running-1 < minFloor {
+				log.DebugContext(ctx, "ECS reconciler: scale-down capped by MinimumHealthyPercent",
+					"cluster", snap.clusterName,
+					"service", svc.ServiceName,
+					"running", running,
+					"minFloor", minFloor,
+				)
+
+				break
+			}
+
 			if err := r.backend.StopOldestServiceTask(snap.clusterName, svc.ServiceName); err != nil {
 				return err
 			}
+
+			running--
 		}
 	}
 
 	return nil
+}
+
+// minimumHealthyFloor computes the minimum number of healthy tasks that must
+// remain running during scale-down, based on DeploymentConfiguration.MinimumHealthyPercent.
+// Returns 0 when no configuration is set.
+func minimumHealthyFloor(svc Service) int {
+	if svc.DeploymentConfiguration == nil || svc.DeploymentConfiguration.MinimumHealthyPercent == nil {
+		return 0
+	}
+
+	pct := *svc.DeploymentConfiguration.MinimumHealthyPercent
+	if pct <= 0 {
+		return 0
+	}
+
+	const fullPercent = 100
+	// Floor of desired * pct / 100.
+	return (svc.DesiredCount * pct) / fullPercent
 }
