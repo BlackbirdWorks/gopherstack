@@ -2,6 +2,7 @@ package iot
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"maps"
@@ -29,6 +30,12 @@ var (
 
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = errors.New("resource already exists")
+
+	// ErrVersionConflict is returned when an optimistic-lock version check fails.
+	ErrVersionConflict = errors.New("version conflict")
+
+	// ErrDeleteConflict is returned when a resource cannot be deleted due to dependencies.
+	ErrDeleteConflict = errors.New("delete conflict")
 )
 
 // RuleDispatcher is implemented by the CLI wiring layer and dispatches rule actions.
@@ -436,17 +443,31 @@ func (b *InMemoryBackend) CreatePolicy(input *CreatePolicyInput) (*CreatePolicyO
 	}
 
 	arn := fmt.Sprintf("arn:aws:iot:%s:%s:policy/%s", b.region, b.accountID, input.PolicyName)
+	now := time.Now()
 
 	b.policies[input.PolicyName] = &Policy{
 		PolicyName:     input.PolicyName,
 		PolicyDocument: input.PolicyDocument,
 		ARN:            arn,
+		CreatedAt:      now,
+		LastModifiedAt: now,
+	}
+
+	// AWS automatically creates version "1" as the default on CreatePolicy.
+	b.policyVersions[input.PolicyName] = []*PolicyVersion{
+		{
+			VersionID:        "1",
+			PolicyDocument:   input.PolicyDocument,
+			IsDefaultVersion: true,
+			CreatedAt:        now,
+		},
 	}
 
 	return &CreatePolicyOutput{
-		PolicyName:     input.PolicyName,
-		PolicyARN:      arn,
-		PolicyDocument: input.PolicyDocument,
+		PolicyName:      input.PolicyName,
+		PolicyARN:       arn,
+		PolicyDocument:  input.PolicyDocument,
+		PolicyVersionID: "1",
 	}, nil
 }
 
@@ -614,10 +635,21 @@ func (b *InMemoryBackend) GetPolicy(policyName string) (*GetPolicyOutput, error)
 		return nil, fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
 	}
 
+	defaultVersionID := "1"
+	for _, v := range b.policyVersions[policyName] {
+		if v.IsDefaultVersion {
+			defaultVersionID = v.VersionID
+			break
+		}
+	}
+
 	return &GetPolicyOutput{
-		PolicyName:     p.PolicyName,
-		PolicyARN:      p.ARN,
-		PolicyDocument: p.PolicyDocument,
+		PolicyName:       p.PolicyName,
+		PolicyARN:        p.ARN,
+		PolicyDocument:   p.PolicyDocument,
+		CreatedAt:        p.CreatedAt,
+		LastModifiedAt:   p.LastModifiedAt,
+		DefaultVersionID: defaultVersionID,
 	}, nil
 }
 
@@ -731,6 +763,11 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 	t, ok := b.things[input.ThingName]
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrThingNotFound, input.ThingName)
+	}
+
+	if input.ExpectedVersion != 0 && input.ExpectedVersion != t.Version {
+		return fmt.Errorf("%w: expected version %d but current is %d",
+			ErrVersionConflict, input.ExpectedVersion, t.Version)
 	}
 
 	if input.RemoveThingType {
@@ -859,14 +896,14 @@ o4qne60TB3wolFl6qADvFVMZUDCwJJlFBMDkajIxpQFNbBgxDuAQFV8AAAAAAA==
 // certIDHexLen is the number of bytes (half the hex char count) for a certificate ID.
 const certIDHexLen = 32 // produces a 64-char hex string
 
-// randomHex generates a hex string of n bytes (2n characters).
+// randomHex generates a cryptographically random hex string of n bytes (2n characters).
 func randomHex(n int) string {
 	b := make([]byte, n)
-	for i := range b {
-		b[i] = "0123456789abcdef"[i%16]
+	if _, err := rand.Read(b); err != nil {
+		panic("iot: randomHex: crypto/rand failed: " + err.Error())
 	}
 
-	return string(b)
+	return fmt.Sprintf("%x", b)
 }
 
 // CreateThingType creates a new IoT Thing Type.
@@ -885,6 +922,7 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thingtype/%s", b.region, b.accountID, input.ThingTypeName)
 	tt := &ThingType{
 		ThingTypeName:        input.ThingTypeName,
+		ThingTypeID:          uuid.NewString(),
 		ThingTypeARN:         arn,
 		Description:          input.Description,
 		SearchableAttributes: append([]string(nil), input.SearchableAttributes...),
@@ -927,8 +965,29 @@ func (b *InMemoryBackend) ListThingTypes() []*ThingType {
 	return out
 }
 
-// DeprecateThingType marks a thing type as deprecated.
-func (b *InMemoryBackend) DeprecateThingType(thingTypeName string) error {
+// DeprecateThingType marks a thing type as deprecated (or un-deprecates it).
+func (b *InMemoryBackend) DeprecateThingType(input *DeprecateThingTypeInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	tt, ok := b.thingTypes[input.ThingTypeName]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrThingTypeNotFound, input.ThingTypeName)
+	}
+
+	if input.UndoDeprecate {
+		tt.Deprecated = false
+		tt.DeprecationDate = time.Time{}
+	} else {
+		tt.Deprecated = true
+		tt.DeprecationDate = time.Now()
+	}
+
+	return nil
+}
+
+// DeleteThingType deletes a thing type by name. The type must be deprecated first.
+func (b *InMemoryBackend) DeleteThingType(thingTypeName string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -937,19 +996,8 @@ func (b *InMemoryBackend) DeprecateThingType(thingTypeName string) error {
 		return fmt.Errorf("%w: %s", ErrThingTypeNotFound, thingTypeName)
 	}
 
-	tt.Deprecated = true
-	tt.DeprecationDate = time.Now()
-
-	return nil
-}
-
-// DeleteThingType deletes a thing type by name.
-func (b *InMemoryBackend) DeleteThingType(thingTypeName string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if _, ok := b.thingTypes[thingTypeName]; !ok {
-		return fmt.Errorf("%w: %s", ErrThingTypeNotFound, thingTypeName)
+	if !tt.Deprecated {
+		return fmt.Errorf("%w: thing type %q must be deprecated before deletion", ErrValidation, thingTypeName)
 	}
 
 	delete(b.thingTypes, thingTypeName)
@@ -1040,10 +1088,10 @@ func (b *InMemoryBackend) ListThingGroups() []*ThingGroup {
 	return out
 }
 
-// UpdateThingGroup updates an existing thing group.
-func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) error {
+// UpdateThingGroup updates an existing thing group and returns the new version.
+func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) (int64, error) {
 	if input.ThingGroupName == "" {
-		return fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
+		return 0, fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
 	}
 
 	b.mu.Lock()
@@ -1051,7 +1099,12 @@ func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) error {
 
 	tg, ok := b.thingGroups[input.ThingGroupName]
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
+		return 0, fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
+	}
+
+	if input.ExpectedVersion != 0 && input.ExpectedVersion != tg.Version {
+		return 0, fmt.Errorf("%w: expected version %d but current is %d",
+			ErrVersionConflict, input.ExpectedVersion, tg.Version)
 	}
 
 	if input.Description != "" {
@@ -1067,7 +1120,7 @@ func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) error {
 
 	tg.Version++
 
-	return nil
+	return tg.Version, nil
 }
 
 // DeleteThingGroup deletes a thing group by name.
@@ -1138,13 +1191,15 @@ func (b *InMemoryBackend) ListThingsInThingGroup(input *ListThingsInThingGroupIn
 func (b *InMemoryBackend) newCertificate(pem, status string) *Certificate {
 	certID := randomHex(certIDHexLen)
 	arn := fmt.Sprintf("arn:aws:iot:%s:%s:cert/%s", b.region, b.accountID, certID)
+	now := time.Now()
 
 	return &Certificate{
-		CertificateID: certID,
-		ARN:           arn,
-		Status:        status,
-		PEM:           pem,
-		CreatedAt:     time.Now(),
+		CertificateID:  certID,
+		ARN:            arn,
+		Status:         status,
+		PEM:            pem,
+		CreatedAt:      now,
+		LastModifiedAt: now,
 	}
 }
 
@@ -1221,8 +1276,21 @@ func (b *InMemoryBackend) ListCertificates() []*Certificate {
 	return out
 }
 
+// validCertStatuses lists the allowed certificate status values.
+var validCertStatuses = map[string]bool{
+	"ACTIVE":               true,
+	"INACTIVE":             true,
+	"REVOKED":              true,
+	"PENDING_TRANSFER":     true,
+	"PENDING_ACTIVATION":   true,
+}
+
 // UpdateCertificate updates the status of a certificate.
 func (b *InMemoryBackend) UpdateCertificate(input *UpdateCertificateInput) error {
+	if input.NewStatus != "" && !validCertStatuses[input.NewStatus] {
+		return fmt.Errorf("%w: invalid certificate status %q", ErrValidation, input.NewStatus)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1232,6 +1300,7 @@ func (b *InMemoryBackend) UpdateCertificate(input *UpdateCertificateInput) error
 	}
 
 	cert.Status = input.NewStatus
+	cert.LastModifiedAt = time.Now()
 
 	return nil
 }
@@ -1305,7 +1374,8 @@ func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.policies[input.PolicyName]; !ok {
+	p, ok := b.policies[input.PolicyName]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrPolicyNotFound, input.PolicyName)
 	}
 
@@ -1318,14 +1388,16 @@ func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (
 		}
 	}
 
+	now := time.Now()
 	pv := &PolicyVersion{
 		VersionID:        versionID,
 		PolicyDocument:   input.PolicyDocument,
 		IsDefaultVersion: input.SetAsDefault,
-		CreatedAt:        time.Now(),
+		CreatedAt:        now,
 	}
 
 	b.policyVersions[input.PolicyName] = append(versions, pv)
+	p.LastModifiedAt = now
 
 	return pv, nil
 }
@@ -1369,6 +1441,7 @@ func (b *InMemoryBackend) ListPolicyVersions(policyName string) ([]*PolicyVersio
 }
 
 // DeletePolicyVersion deletes a specific version of a policy.
+// The default version cannot be deleted.
 func (b *InMemoryBackend) DeletePolicyVersion(policyName, versionID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -1380,6 +1453,9 @@ func (b *InMemoryBackend) DeletePolicyVersion(policyName, versionID string) erro
 	for _, v := range versions {
 		if v.VersionID == versionID {
 			found = true
+			if v.IsDefaultVersion {
+				return fmt.Errorf("%w: cannot delete default policy version %s", ErrDeleteConflict, versionID)
+			}
 		} else {
 			filtered = append(filtered, v)
 		}

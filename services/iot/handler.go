@@ -1051,6 +1051,10 @@ func (h *Handler) dispatchCertificateProviderOps(c *echo.Context, op string) (bo
 
 // handleError maps backend errors to appropriate HTTP responses.
 func (h *Handler) handleError(c *echo.Context, err error) error {
+	type awsErr struct {
+		Type    string `json:"__type"`
+		Message string `json:"message"`
+	}
 	switch {
 	case errors.Is(err, ErrThingNotFound),
 		errors.Is(err, ErrRuleNotFound),
@@ -1062,16 +1066,22 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.Is(err, ErrTopicRuleDestinationNotFound),
 		errors.Is(err, ErrPolicyVersionNotFound):
 
-		return c.JSON(http.StatusNotFound, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusNotFound, awsErr{"ResourceNotFoundException", err.Error()})
 	case errors.Is(err, ErrValidation):
 
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErr{"InvalidRequestException", err.Error()})
 	case errors.Is(err, ErrAlreadyExists):
 
-		return c.JSON(http.StatusConflict, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusConflict, awsErr{"ResourceAlreadyExistsException", err.Error()})
+	case errors.Is(err, ErrVersionConflict):
+
+		return c.JSON(http.StatusConflict, awsErr{"VersionConflictException", err.Error()})
+	case errors.Is(err, ErrDeleteConflict):
+
+		return c.JSON(http.StatusConflict, awsErr{"DeleteConflictException", err.Error()})
 	default:
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusInternalServerError, awsErr{"InternalFailureException", err.Error()})
 	}
 }
 
@@ -1216,9 +1226,10 @@ func (h *Handler) handleCreatePolicy(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
-		keyPolicyName:     out.PolicyName,
-		keyPolicyArn:      out.PolicyARN,
-		keyPolicyDocument: out.PolicyDocument,
+		keyPolicyName:      out.PolicyName,
+		keyPolicyArn:       out.PolicyARN,
+		keyPolicyDocument:  out.PolicyDocument,
+		"policyVersionId":  out.PolicyVersionID,
 	})
 }
 
@@ -1438,10 +1449,13 @@ func (h *Handler) handleGetPolicy(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
-		keyPolicyName:     out.PolicyName,
-		keyPolicyArn:      out.PolicyARN,
-		keyPolicyDocument: out.PolicyDocument,
+	return c.JSON(http.StatusOK, map[string]any{
+		keyPolicyName:      out.PolicyName,
+		keyPolicyArn:       out.PolicyARN,
+		keyPolicyDocument:  out.PolicyDocument,
+		"defaultVersionId": out.DefaultVersionID,
+		"creationDate":     out.CreatedAt,
+		"lastModifiedDate": out.LastModifiedAt,
 	})
 }
 
@@ -1616,6 +1630,7 @@ func (h *Handler) handleCreateThingType(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		keyThingTypeName: tt.ThingTypeName,
 		keyThingTypeArn:  tt.ThingTypeARN,
+		"thingTypeId":    tt.ThingTypeID,
 	})
 }
 
@@ -1627,12 +1642,19 @@ func (h *Handler) handleDescribeThingType(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
+	var deprecationDate any
+	if tt.Deprecated && !tt.DeprecationDate.IsZero() {
+		deprecationDate = tt.DeprecationDate
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		keyThingTypeName: tt.ThingTypeName,
 		keyThingTypeArn:  tt.ThingTypeARN,
+		"thingTypeId":    tt.ThingTypeID,
 		"thingTypeMetadata": map[string]any{
-			"deprecated":    tt.Deprecated,
-			keyCreationDate: tt.CreatedAt,
+			"deprecated":      tt.Deprecated,
+			keyCreationDate:   tt.CreatedAt,
+			"deprecationDate": deprecationDate,
 		},
 		"thingTypeProperties": map[string]any{
 			"thingTypeDescription": tt.Description,
@@ -1644,10 +1666,21 @@ func (h *Handler) handleDescribeThingType(c *echo.Context) error {
 func (h *Handler) handleListThingTypes(c *echo.Context) error {
 	types := h.Backend.ListThingTypes()
 	out := make([]map[string]any, 0, len(types))
+
 	for _, tt := range types {
+		var deprecationDate any
+		if tt.Deprecated && !tt.DeprecationDate.IsZero() {
+			deprecationDate = tt.DeprecationDate
+		}
+
 		out = append(out, map[string]any{
 			keyThingTypeName: tt.ThingTypeName,
 			keyThingTypeArn:  tt.ThingTypeARN,
+			"thingTypeMetadata": map[string]any{
+				"deprecated":      tt.Deprecated,
+				keyCreationDate:   tt.CreatedAt,
+				"deprecationDate": deprecationDate,
+			},
 		})
 	}
 
@@ -1657,7 +1690,19 @@ func (h *Handler) handleListThingTypes(c *echo.Context) error {
 func (h *Handler) handleDeprecateThingType(c *echo.Context) error {
 	after := strings.TrimPrefix(c.Request().URL.Path, "/thing-types/")
 	thingTypeName := strings.TrimSuffix(after, "/deprecate")
-	if err := h.Backend.DeprecateThingType(thingTypeName); err != nil {
+
+	var body struct {
+		UndoDeprecate bool `json:"undoDeprecate"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+	}
+
+	if err := h.Backend.DeprecateThingType(&DeprecateThingTypeInput{
+		ThingTypeName: thingTypeName,
+		UndoDeprecate: body.UndoDeprecate,
+	}); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1734,7 +1779,10 @@ func (h *Handler) handleDescribeThingGroup(c *echo.Context) error {
 			"thingGroupDescription": tg.Description,
 			"attributePayload":      map[string]any{keyAttributes: tg.Attributes},
 		},
-		"thingGroupMetadata": map[string]any{keyCreationDate: tg.CreatedAt},
+		"thingGroupMetadata": map[string]any{
+			keyCreationDate:   tg.CreatedAt,
+			"parentGroupName": tg.ParentGroupName,
+		},
 	})
 }
 
@@ -1775,16 +1823,17 @@ func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
 		}
 	}
 
-	if err := h.Backend.UpdateThingGroup(&UpdateThingGroupInput{
+	newVersion, err := h.Backend.UpdateThingGroup(&UpdateThingGroupInput{
 		ThingGroupName:  thingGroupName,
 		Description:     desc,
 		Attributes:      attrs,
 		ExpectedVersion: body.ExpectedVersion,
-	}); err != nil {
+	})
+	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.NoContent(http.StatusOK)
+	return c.JSON(http.StatusOK, map[string]any{"version": newVersion})
 }
 
 func (h *Handler) handleDeleteThingGroup(c *echo.Context) error {
@@ -1843,6 +1892,7 @@ func (h *Handler) handleCreateCertificateFromCsr(c *echo.Context) error {
 		keyCertificateID:  cert.CertificateID,
 		keyCertificateArn: cert.ARN,
 		"certificatePem":  cert.PEM,
+		keyStatus:         cert.Status,
 	})
 }
 
@@ -1899,10 +1949,11 @@ func (h *Handler) handleDescribeCertificate(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"certificateDescription": map[string]any{
-			keyCertificateID:  cert.CertificateID,
-			keyCertificateArn: cert.ARN,
-			keyStatus:         cert.Status,
-			keyCreationDate:   cert.CreatedAt,
+			keyCertificateID:   cert.CertificateID,
+			keyCertificateArn:  cert.ARN,
+			keyStatus:          cert.Status,
+			keyCreationDate:    cert.CreatedAt,
+			"lastModifiedDate": cert.LastModifiedAt,
 		},
 	})
 }
@@ -1910,12 +1961,14 @@ func (h *Handler) handleDescribeCertificate(c *echo.Context) error {
 func (h *Handler) handleListCertificates(c *echo.Context) error {
 	certs := h.Backend.ListCertificates()
 	out := make([]map[string]any, 0, len(certs))
+
 	for _, cert := range certs {
 		out = append(out, map[string]any{
-			keyCertificateID:  cert.CertificateID,
-			keyCertificateArn: cert.ARN,
-			keyStatus:         cert.Status,
-			keyCreationDate:   cert.CreatedAt,
+			keyCertificateID:   cert.CertificateID,
+			keyCertificateArn:  cert.ARN,
+			keyStatus:          cert.Status,
+			keyCreationDate:    cert.CreatedAt,
+			"lastModifiedDate": cert.LastModifiedAt,
 		})
 	}
 

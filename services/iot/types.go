@@ -18,9 +18,11 @@ type Thing struct {
 
 // Policy represents an AWS IoT Policy.
 type Policy struct {
-	PolicyName     string `json:"policyName"`
-	PolicyDocument string `json:"policyDocument"`
-	ARN            string `json:"policyArn"`
+	CreatedAt      time.Time `json:"creationDate"`
+	LastModifiedAt time.Time `json:"lastModifiedDate"`
+	PolicyName     string    `json:"policyName"`
+	PolicyDocument string    `json:"policyDocument"`
+	ARN            string    `json:"policyArn"`
 }
 
 // TopicRule represents an AWS IoT Topic Rule.
@@ -94,9 +96,10 @@ type CreatePolicyInput struct {
 
 // CreatePolicyOutput is the output for CreatePolicy.
 type CreatePolicyOutput struct {
-	PolicyName     string
-	PolicyARN      string
-	PolicyDocument string
+	PolicyName      string
+	PolicyARN       string
+	PolicyDocument  string
+	PolicyVersionID string
 }
 
 // AttachPrincipalPolicyInput is the input for AttachPrincipalPolicy.
@@ -206,9 +209,12 @@ type CancelAuditTaskInput struct {
 
 // GetPolicyOutput is the output for GetPolicy.
 type GetPolicyOutput struct {
-	PolicyName     string `json:"policyName"`
-	PolicyARN      string `json:"policyArn"`
-	PolicyDocument string `json:"policyDocument"`
+	CreatedAt        time.Time `json:"creationDate"`
+	LastModifiedAt   time.Time `json:"lastModifiedDate"`
+	PolicyName       string    `json:"policyName"`
+	PolicyARN        string    `json:"policyArn"`
+	PolicyDocument   string    `json:"policyDocument"`
+	DefaultVersionID string    `json:"defaultVersionId"`
 }
 
 // UpdateThingInput is the input for UpdateThing.
@@ -225,6 +231,7 @@ type ThingType struct {
 	CreatedAt            time.Time `json:"createdAt"`
 	DeprecationDate      time.Time `json:"deprecationDate"`
 	ThingTypeName        string    `json:"thingTypeName"`
+	ThingTypeID          string    `json:"thingTypeId"`
 	ThingTypeARN         string    `json:"thingTypeArn"`
 	Description          string    `json:"description,omitempty"`
 	SearchableAttributes []string  `json:"searchableAttributes,omitempty"`
@@ -246,11 +253,12 @@ type ThingGroup struct {
 
 // Certificate represents an AWS IoT Certificate.
 type Certificate struct {
-	CreatedAt     time.Time `json:"createdAt"`
-	CertificateID string    `json:"certificateId"`
-	ARN           string    `json:"certificateArn"`
-	Status        string    `json:"status"`
-	PEM           string    `json:"certificatePem"`
+	CreatedAt      time.Time `json:"createdAt"`
+	LastModifiedAt time.Time `json:"lastModifiedDate"`
+	CertificateID  string    `json:"certificateId"`
+	ARN            string    `json:"certificateArn"`
+	Status         string    `json:"status"`
+	PEM            string    `json:"certificatePem"`
 }
 
 // PolicyVersion represents a version of an AWS IoT policy.
@@ -288,6 +296,12 @@ type CreateThingTypeInput struct {
 	ThingTypeName        string
 	Description          string
 	SearchableAttributes []string
+}
+
+// DeprecateThingTypeInput is the input for DeprecateThingType.
+type DeprecateThingTypeInput struct {
+	ThingTypeName  string
+	UndoDeprecate  bool
 }
 
 // CreateThingGroupInput is the input for CreateThingGroup.
