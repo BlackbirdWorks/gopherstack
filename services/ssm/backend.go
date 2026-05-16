@@ -650,9 +650,11 @@ func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (
 
 	for _, p := range matched[startIdx:end] {
 		if input.WithDecryption && p.Type == SecureStringType {
-			if decrypted, err := decryptValue(p.Value); err == nil {
-				p.Value = decrypted
+			decrypted, err := decryptValue(p.Value)
+			if err != nil {
+				return nil, fmt.Errorf("%w: decryption failed for %q: %w", ErrInvalidKeyID, p.Name, err)
 			}
+			p.Value = decrypted
 		}
 
 		result = append(result, p)

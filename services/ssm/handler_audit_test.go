@@ -1,9 +1,11 @@
 package ssm_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1368,4 +1370,149 @@ func TestAudit_DescribeParameters_NilMaxResults_UsesDefault(t *testing.T) {
 	out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{})
 	require.NoError(t, err)
 	assert.Len(t, out.Parameters, 5)
+}
+
+// --- Issue 5: ParameterPolicy expiration enforcement via janitor ---
+
+func TestAudit_Janitor_SweepExpiredParameters_RemovesExpired(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	// Past timestamp — this parameter should be evicted.
+	expiredPolicy := `[{"Type":"Expiration","Version":"1.0","Attributes":{"Timestamp":"2000-01-01T00:00:00Z"}}]`
+	_, err := backend.PutParameter(&ssm.PutParameterInput{
+		Name:     "/expiring/param",
+		Type:     "String",
+		Value:    "will-be-gone",
+		Policies: expiredPolicy,
+	})
+	require.NoError(t, err)
+
+	// Future timestamp — this parameter should survive.
+	futurePolicy := `[{"Type":"Expiration","Version":"1.0","Attributes":{"Timestamp":"2099-01-01T00:00:00Z"}}]`
+	_, err = backend.PutParameter(&ssm.PutParameterInput{
+		Name:     "/keeping/param",
+		Type:     "String",
+		Value:    "stays",
+		Policies: futurePolicy,
+	})
+	require.NoError(t, err)
+
+	// No policy — should survive.
+	_, err = backend.PutParameter(&ssm.PutParameterInput{
+		Name:  "/nopolicy/param",
+		Type:  "String",
+		Value: "stays",
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, 3, backend.ParameterCount())
+
+	j := ssm.NewJanitor(backend, time.Second)
+	j.SweepOnce(context.Background())
+
+	assert.Equal(t, 2, backend.ParameterCount())
+
+	_, err = backend.GetParameter(&ssm.GetParameterInput{Name: "/expiring/param"})
+	require.ErrorIs(t, err, ssm.ErrParameterNotFound)
+
+	_, err = backend.GetParameter(&ssm.GetParameterInput{Name: "/keeping/param"})
+	assert.NoError(t, err)
+}
+
+func TestAudit_Janitor_SweepExpiredParameters_MalformedPolicyIgnored(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	_, err := backend.PutParameter(&ssm.PutParameterInput{
+		Name:     "/bad/policy",
+		Type:     "String",
+		Value:    "v",
+		Policies: "not-valid-json",
+	})
+	require.NoError(t, err)
+
+	j := ssm.NewJanitor(backend, time.Second)
+	j.SweepOnce(context.Background())
+
+	// Malformed policy is ignored — parameter must survive.
+	_, err = backend.GetParameter(&ssm.GetParameterInput{Name: "/bad/policy"})
+	assert.NoError(t, err)
+}
+
+func TestAudit_Janitor_SweepExpiredParameters_AlsoCleansHistory(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	expiredPolicy := `[{"Type":"Expiration","Version":"1.0","Attributes":{"Timestamp":"2000-01-01T00:00:00Z"}}]`
+	_, err := backend.PutParameter(&ssm.PutParameterInput{
+		Name:     "/expiring/hist",
+		Type:     "String",
+		Value:    "v",
+		Policies: expiredPolicy,
+	})
+	require.NoError(t, err)
+
+	// Overwrite once to build history.
+	_, err = backend.PutParameter(&ssm.PutParameterInput{
+		Name:      "/expiring/hist",
+		Type:      "String",
+		Value:     "v2",
+		Overwrite: true,
+		Policies:  expiredPolicy,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, 2, backend.HistoryLen("/expiring/hist"))
+
+	j := ssm.NewJanitor(backend, time.Second)
+	j.SweepOnce(context.Background())
+
+	assert.Equal(t, 0, backend.HistoryLen("/expiring/hist"))
+}
+
+// --- Issue 9: GetParametersByPath decrypt error propagation ---
+
+func TestAudit_GetParametersByPath_DecryptError_SecureStringReturnsError(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	_, err := backend.PutParameter(&ssm.PutParameterInput{
+		Name:  "/secure/path/val",
+		Type:  ssm.SecureStringType,
+		Value: "topsecret",
+	})
+	require.NoError(t, err)
+
+	// With decryption — successful roundtrip (no decrypt error expected in normal case).
+	out, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+		Path:           "/secure/path",
+		WithDecryption: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Parameters, 1)
+	assert.Equal(t, "topsecret", out.Parameters[0].Value)
+}
+
+func TestAudit_GetParametersByPath_WithoutDecryption_EncryptedValueReturned(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	_, err := backend.PutParameter(&ssm.PutParameterInput{
+		Name:  "/secure/path/val2",
+		Type:  ssm.SecureStringType,
+		Value: "topsecret",
+	})
+	require.NoError(t, err)
+
+	out, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+		Path:           "/secure/path",
+		WithDecryption: false,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Parameters, 1)
+	// Value must NOT be the plaintext when decryption is not requested.
+	assert.NotEqual(t, "topsecret", out.Parameters[0].Value)
 }

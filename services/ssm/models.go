@@ -19,6 +19,23 @@ const (
 	DataTypeEC2Image = "aws:ec2:image"
 )
 
+// PolicyType constants for SSM parameter lifecycle policies.
+const (
+	PolicyTypeExpiration = "Expiration"
+)
+
+// ParameterPolicyAttributes holds the attributes for a parameter lifecycle policy.
+type ParameterPolicyAttributes struct {
+	Timestamp string `json:"Timestamp,omitempty"`
+}
+
+// ParameterPolicy represents a single SSM parameter lifecycle policy entry.
+type ParameterPolicy struct {
+	Type       string                    `json:"Type"`
+	Version    string                    `json:"Version,omitempty"`
+	Attributes ParameterPolicyAttributes `json:"Attributes"`
+}
+
 // Parameter represents a single SSM Parameter.
 type Parameter struct {
 	Name             string     `json:"Name"`

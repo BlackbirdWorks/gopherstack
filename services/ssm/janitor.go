@@ -2,6 +2,7 @@ package ssm
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -45,7 +46,7 @@ func (j *Janitor) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepExpiredCommands(taskCtx)
+			j.SweepOnce(taskCtx)
 			cancel()
 		}
 	}
@@ -64,6 +65,7 @@ func (j *Janitor) taskContext(parent context.Context) (context.Context, context.
 // SweepOnce runs a single sweep pass. Exposed for testing.
 func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.sweepExpiredCommands(ctx)
+	j.sweepExpiredParameters(ctx)
 }
 
 // sweepExpiredCommands removes commands whose ExpiresAfter timestamp has passed,
@@ -72,7 +74,7 @@ func (j *Janitor) sweepExpiredCommands(ctx context.Context) {
 	b := j.Backend
 	now := UnixTimeFloat(time.Now())
 
-	b.mu.Lock("SSMJanitor")
+	b.mu.Lock("SSMJanitorCommands")
 
 	var expired []string
 
@@ -97,4 +99,71 @@ func (j *Janitor) sweepExpiredCommands(ctx context.Context) {
 	if count > 0 {
 		logger.Load(ctx).InfoContext(ctx, "SSM janitor: expired commands evicted", "count", count)
 	}
+}
+
+// sweepExpiredParameters removes parameters whose Expiration lifecycle policy
+// timestamp has passed.
+func (j *Janitor) sweepExpiredParameters(ctx context.Context) {
+	b := j.Backend
+	now := time.Now().UTC()
+
+	b.mu.Lock("SSMJanitorParameters")
+
+	var expired []string
+
+	for name, param := range b.parameters {
+		if param.Policies == "" {
+			continue
+		}
+
+		if parameterHasExpired(param.Policies, now) {
+			expired = append(expired, name)
+		}
+	}
+
+	for _, name := range expired {
+		delete(b.parameters, name)
+		delete(b.history, name)
+	}
+
+	b.mu.Unlock()
+
+	count := len(expired)
+
+	telemetry.RecordWorkerItems("ssm", "ParameterExpirer", count)
+	telemetry.RecordWorkerTask("ssm", "ParameterExpirer", "success")
+
+	if count > 0 {
+		logger.Load(ctx).InfoContext(ctx, "SSM janitor: expired parameters evicted", "count", count)
+	}
+}
+
+// parameterHasExpired returns true if any Expiration policy in the JSON policies
+// string has a timestamp that is in the past.
+func parameterHasExpired(policies string, now time.Time) bool {
+	var pols []ParameterPolicy
+	if err := json.Unmarshal([]byte(policies), &pols); err != nil {
+		return false
+	}
+
+	for _, pol := range pols {
+		if pol.Type != PolicyTypeExpiration {
+			continue
+		}
+
+		if pol.Attributes.Timestamp == "" {
+			continue
+		}
+
+		ts, err := time.Parse(time.RFC3339, pol.Attributes.Timestamp)
+		if err != nil {
+			continue
+		}
+
+		if now.After(ts) {
+			return true
+		}
+	}
+
+	return false
 }

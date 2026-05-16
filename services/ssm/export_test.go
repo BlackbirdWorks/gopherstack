@@ -208,3 +208,11 @@ func (b *InMemoryBackend) GetPatchBaselineInternal(id string) PatchBaseline {
 
 	return b.patchBaselines[id]
 }
+
+// ParameterCount returns the number of parameters currently stored.
+func (b *InMemoryBackend) ParameterCount() int {
+	b.mu.RLock("ParameterCount")
+	defer b.mu.RUnlock()
+
+	return len(b.parameters)
+}
