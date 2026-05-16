@@ -22,6 +22,7 @@ import (
 	acmsdk "github.com/aws/aws-sdk-go-v2/service/acm"
 	amplifysdk "github.com/aws/aws-sdk-go-v2/service/amplify"
 	apigwv2sdk "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
+	applicationautoscalingsdk "github.com/aws/aws-sdk-go-v2/service/applicationautoscaling"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	athenasdk "github.com/aws/aws-sdk-go-v2/service/athena"
 	autoscalingsdk "github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -35,6 +36,7 @@ import (
 	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	codeartifactsdk "github.com/aws/aws-sdk-go-v2/service/codeartifact"
 	codebuildsdk "github.com/aws/aws-sdk-go-v2/service/codebuild"
+	codecommitsdk "github.com/aws/aws-sdk-go-v2/service/codecommit"
 	codedeploysdk "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	cognitoidentitysdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
@@ -49,6 +51,7 @@ import (
 	efssdk "github.com/aws/aws-sdk-go-v2/service/efs"
 	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesdk "github.com/aws/aws-sdk-go-v2/service/elasticache"
+	elasticbeanstalksdk "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	elbsdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2sdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	emrsdk "github.com/aws/aws-sdk-go-v2/service/emr"
@@ -836,6 +839,66 @@ func createNeptuneClient(t *testing.T) *neptunesdk.Client {
 	}
 
 	return neptunesdk.NewFromConfig(cfg, func(o *neptunesdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createApplicationAutoScalingClient returns an Application Auto Scaling client.
+func createApplicationAutoScalingClient(t *testing.T) *applicationautoscalingsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return applicationautoscalingsdk.NewFromConfig(cfg, func(o *applicationautoscalingsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeCommitClient returns a CodeCommit client pointed at the shared test container.
+func createCodeCommitClient(t *testing.T) *codecommitsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return codecommitsdk.NewFromConfig(cfg, func(o *codecommitsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createElasticBeanstalkClient returns an Elastic Beanstalk client.
+func createElasticBeanstalkClient(t *testing.T) *elasticbeanstalksdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return elasticbeanstalksdk.NewFromConfig(cfg, func(o *elasticbeanstalksdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
