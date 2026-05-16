@@ -225,3 +225,13 @@ func (b *InMemoryBackend) SetInstancePatchState(state InstancePatchState) {
 
 	b.instancePatchStates[state.InstanceID] = state
 }
+
+// GetSessionInternal retrieves a session directly from the backend for testing.
+func (b *InMemoryBackend) GetSessionInternal(sessionID string) (Session, bool) {
+	b.mu.RLock("GetSessionInternal")
+	defer b.mu.RUnlock()
+
+	s, ok := b.sessions[sessionID]
+
+	return s, ok
+}

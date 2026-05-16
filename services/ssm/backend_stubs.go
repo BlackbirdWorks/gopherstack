@@ -1879,6 +1879,7 @@ func (b *InMemoryBackend) StartSession(input *StartSessionInput) (*StartSessionO
 		SessionID:               sessionID,
 		Target:                  input.Target,
 		Status:                  sessionStatusConnected,
+		Owner:                   defaultSessionOwner,
 		StartDate:               UnixTimeFloat(timeNow()),
 		StreamURL:               "wss://gopherstack-ssm-session/" + sessionID,
 		TokenValue:              uuid.NewString(),

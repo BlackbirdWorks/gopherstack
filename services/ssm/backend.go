@@ -1535,6 +1535,7 @@ const (
 	assocStatusSuccess     = "Success"
 	faultClient            = "Client"
 	opsItemStatusOpen      = "Open"
+	defaultSessionOwner    = "arn:aws:iam::123456789012:user/gopherstack"
 )
 
 func generateCode(n int) string {

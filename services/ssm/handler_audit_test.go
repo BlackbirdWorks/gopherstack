@@ -676,7 +676,7 @@ func TestAudit_StartSession_LoggingFields(t *testing.T) {
 func TestAudit_TerminateSession_SetsEndDate(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newTestHandler(t)
+	h, backend := newTestHandler(t)
 
 	// Start a session first
 	rec := doRequest(t, h, "StartSession", `{"Target":"i-abc123"}`)
@@ -684,6 +684,11 @@ func TestAudit_TerminateSession_SetsEndDate(t *testing.T) {
 
 	var startOut ssm.StartSessionOutput
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut))
+
+	// Verify Owner is set
+	sess, ok := backend.GetSessionInternal(startOut.SessionID)
+	require.True(t, ok)
+	assert.NotEmpty(t, sess.Owner)
 
 	// Terminate it
 	terminateBody := `{"SessionId":"` + startOut.SessionID + `"}`
@@ -693,6 +698,12 @@ func TestAudit_TerminateSession_SetsEndDate(t *testing.T) {
 	var termOut ssm.TerminateSessionOutput
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &termOut))
 	assert.Equal(t, startOut.SessionID, termOut.SessionID)
+
+	// Verify EndDate was set
+	sess, ok = backend.GetSessionInternal(startOut.SessionID)
+	require.True(t, ok)
+	assert.Positive(t, sess.EndDate)
+	assert.Equal(t, "Terminated", sess.Status)
 }
 
 // --- DescribeParameters: new fields returned in metadata ---
