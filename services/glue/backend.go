@@ -746,8 +746,10 @@ func (b *InMemoryBackend) CreateCrawler(
 		return nil, ErrValidation
 	}
 
-	if _, ok := b.databases[dbName]; !ok {
-		return nil, ErrNotFound
+	if dbName != "" {
+		if _, ok := b.databases[dbName]; !ok {
+			return nil, ErrNotFound
+		}
 	}
 
 	if _, ok := b.crawlers[name]; ok {
