@@ -431,7 +431,6 @@ import { SupportClient } from "@aws-sdk/client-support";
 import { AppStreamClient } from "@aws-sdk/client-appstream";
 import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { CloudControlClient } from "@aws-sdk/client-cloudcontrol";
-import { ElasticTranscoderClient } from "@aws-sdk/client-elastic-transcoder";
 import { GrafanaClient } from "@aws-sdk/client-grafana";
 import { ResiliencehubClient } from "@aws-sdk/client-resiliencehub";
 import { Route53ResolverClient } from "@aws-sdk/client-route53resolver";
@@ -444,8 +443,6 @@ import { NetworkManagerClient } from "@aws-sdk/client-networkmanager";
 import { OutpostsClient } from "@aws-sdk/client-outposts";
 import { MgnClient } from "@aws-sdk/client-mgn";
 import { DirectConnectClient } from "@aws-sdk/client-direct-connect";
-import { QLDBClient } from "@aws-sdk/client-qldb";
-import { QLDBSessionClient } from "@aws-sdk/client-qldb-session";
 import { MediaStoreClient } from "@aws-sdk/client-mediastore";
 import { MediaStoreDataClient } from "@aws-sdk/client-mediastore-data";
 import { ApiGatewayManagementApiClient } from "@aws-sdk/client-apigatewaymanagementapi";
@@ -549,10 +546,6 @@ export function getCloudControlClient(region?: string): CloudControlClient {
   return new CloudControlClient(clientConfig(region));
 }
 
-export function getElasticTranscoderClient(region?: string): ElasticTranscoderClient {
-  return new ElasticTranscoderClient(clientConfig(region));
-}
-
 export function getGrafanaClient(region?: string): GrafanaClient {
   return new GrafanaClient(clientConfig(region));
 }
@@ -599,14 +592,6 @@ export function getMGNClient(region?: string): MgnClient {
 
 export function getDirectConnectClient(region?: string): DirectConnectClient {
   return new DirectConnectClient(clientConfig(region));
-}
-
-export function getQLDBClient(region?: string): QLDBClient {
-  return new QLDBClient(clientConfig(region));
-}
-
-export function getQLDBSessionClient(region?: string): QLDBSessionClient {
-  return new QLDBSessionClient(clientConfig(region));
 }
 
 export function getMediaStoreClient(region?: string): MediaStoreClient {

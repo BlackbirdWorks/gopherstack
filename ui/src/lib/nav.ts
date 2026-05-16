@@ -122,7 +122,6 @@ export const implementedDashboardRouteIds = new Set<string>([
   "appstream",
   "bedrockruntime",
   "cloudcontrol",
-  "elastictranscoder",
   "grafana",
   "mgn",
   "polly",
@@ -308,7 +307,6 @@ export const sidebarCategories: DashboardCategory[] = [
       { id: "timestream", href: "/dashboard/timestream", label: "Timestream", icon: "timestream" },
       { id: "s3tables", href: "/dashboard/s3tables", label: "S3 Tables", icon: "s3tables" },
       { id: "emr", href: "/dashboard/emr", label: "EMR", icon: "emr" },
-      { id: "qldb", href: "/dashboard/qldb", label: "QLDB", icon: "qldb" },
       { id: "redshift", href: "/dashboard/redshift", label: "Redshift", icon: "redshift" },
       { id: "opensearch", href: "/dashboard/opensearch", label: "OpenSearch", icon: "opensearch" },
       {
@@ -509,12 +507,6 @@ export const sidebarCategories: DashboardCategory[] = [
         label: "MediaConvert",
         icon: "media",
         common: true,
-      },
-      {
-        id: "elastictranscoder",
-        href: "/dashboard/elastictranscoder",
-        label: "Elastic Transcoder",
-        icon: "media",
       },
       { id: "mediastore", href: "/dashboard/mediastore", label: "MediaStore", icon: "media" },
       {

@@ -198,9 +198,12 @@ func TestIntegration_Organizations_OULifecycle(t *testing.T) {
 			assert.Equal(t, tt.ouName, aws.ToString(descOut.OrganizationalUnit.Name))
 
 			// ListOrganizationalUnitsForParent.
-			listOut, err := client.ListOrganizationalUnitsForParent(ctx, &organizationsSDK.ListOrganizationalUnitsForParentInput{
-				ParentId: aws.String(rootID),
-			})
+			listOut, err := client.ListOrganizationalUnitsForParent(
+				ctx,
+				&organizationsSDK.ListOrganizationalUnitsForParentInput{
+					ParentId: aws.String(rootID),
+				},
+			)
 			require.NoError(t, err, "ListOrganizationalUnitsForParent should succeed")
 
 			found := false

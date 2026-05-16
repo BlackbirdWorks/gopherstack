@@ -72,7 +72,11 @@ func TestIntegration_LakeFormation_DataLakeSettings(t *testing.T) {
 			require.NoError(t, err, "GetDataLakeSettings should succeed")
 			require.NotNil(t, out.DataLakeSettings)
 			require.Len(t, out.DataLakeSettings.DataLakeAdmins, len(tt.admins))
-			assert.Equal(t, tt.admins[0], aws.ToString(out.DataLakeSettings.DataLakeAdmins[0].DataLakePrincipalIdentifier))
+			assert.Equal(
+				t,
+				tt.admins[0],
+				aws.ToString(out.DataLakeSettings.DataLakeAdmins[0].DataLakePrincipalIdentifier),
+			)
 		})
 	}
 }

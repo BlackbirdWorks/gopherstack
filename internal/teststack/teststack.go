@@ -63,7 +63,6 @@ import (
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	elasticsearchbackend "github.com/blackbirdworks/gopherstack/services/elasticsearch"
-	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
@@ -96,8 +95,6 @@ import (
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
-	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
-	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
@@ -236,8 +233,6 @@ type Stack struct {
 	EFSHandler *efsbackend.Handler
 	// EKSHandler provides access to the EKS backend.
 	EKSHandler *eksbackend.Handler
-	// ElasticTranscoderHandler provides access to the Elastic Transcoder backend.
-	ElasticTranscoderHandler *elastictranscoderbackend.Handler
 	// ELBHandler provides access to the Classic ELB backend.
 	ELBHandler *elbbackend.Handler
 	// ELBv2Handler provides access to the ELBv2 (ALB/NLB) backend.
@@ -278,10 +273,6 @@ type Stack struct {
 	PinpointHandler *pinpointbackend.Handler
 	// PipesHandler provides access to the EventBridge Pipes backend.
 	PipesHandler *pipesbackend.Handler
-	// QLDBHandler provides access to the QLDB backend.
-	QLDBHandler *qldbbackend.Handler
-	// QLDBSessionHandler provides access to the QLDB Session backend.
-	QLDBSessionHandler *qldbsessionbackend.Handler
 	// RDSDataHandler provides access to the RDS Data backend.
 	RDSDataHandler *rdsdatabackend.Handler
 	// RAMHandler provides access to the RAM backend.
@@ -514,7 +505,6 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.mediastoredata)
 	_ = registry.Register(h.memorydb)
 	_ = registry.Register(h.organizations)
-	_ = registry.Register(h.qldbsession)
 }
 
 // registerLatestServices registers the most recently added service handlers.
@@ -522,7 +512,6 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.neptune)
 	_ = registry.Register(h.pinpoint)
 	_ = registry.Register(h.pipes)
-	_ = registry.Register(h.qldb)
 	_ = registry.Register(h.ram)
 	_ = registry.Register(h.rdsdata)
 	_ = registry.Register(h.redshiftdata)
@@ -617,7 +606,6 @@ type handlers struct {
 	codeStarConn        *codestarconnectionsbackend.Handler
 	dynamodbStreams     *dynamodbstreamsbackend.Handler
 	elasticbeanstalk    *elasticbeanstalkbackend.Handler
-	elastictranscoder   *elastictranscoderbackend.Handler
 	efs                 *efsbackend.Handler
 	eks                 *eksbackend.Handler
 	elb                 *elbbackend.Handler
@@ -641,8 +629,6 @@ type handlers struct {
 	pinpoint            *pinpointbackend.Handler
 	neptune             *neptunebackend.Handler
 	pipes               *pipesbackend.Handler
-	qldb                *qldbbackend.Handler
-	qldbsession         *qldbsessionbackend.Handler
 	ram                 *rambackend.Handler
 	rdsdata             *rdsdatabackend.Handler
 	redshiftdata        *redshiftdatabackend.Handler
@@ -869,9 +855,6 @@ func populateNewestHandlers(h *handlers) {
 	h.eks = eksbackend.NewHandler(
 		eksbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
-	h.elastictranscoder = elastictranscoderbackend.NewHandler(
-		elastictranscoderbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-	)
 
 	h.elb = elbbackend.NewHandler(
 		elbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -954,12 +937,8 @@ func populateLatestHandlers(h *handlers) {
 		neptunebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
-	h.qldb = qldbbackend.NewHandler(qldbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 	h.rdsdata = rdsdatabackend.NewHandler(
 		rdsdatabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-	)
-	h.qldbsession = qldbsessionbackend.NewHandler(
-		qldbsessionbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.ram = rambackend.NewHandler(rambackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 	h.redshiftdata = redshiftdatabackend.NewHandler(
@@ -1089,8 +1068,6 @@ func newDashboardConfig(h handlers, _ sdkClients) (dashboard.Config, *chaos.Faul
 // New creates a fully wired integration stack for testing.
 // It sets up all in-memory backends, handlers, the service registry with router,
 // AWS SDK clients (routed back through Echo via InMemClient), and the dashboard.
-//
-//nolint:funlen // integration stack wiring is intentionally explicit and exhaustive for tests.
 func New(t *testing.T) *Stack {
 	t.Helper()
 
@@ -1135,7 +1112,6 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.elasticsearch)
 	_ = registry.Register(h.efs)
 	_ = registry.Register(h.eks)
-	_ = registry.Register(h.elastictranscoder)
 	_ = registry.Register(h.elb)
 	_ = registry.Register(h.elbv2)
 	_ = registry.Register(h.emrserverless)
@@ -1254,7 +1230,6 @@ func buildStack(
 		ElasticbeanstalkHandler:        h.elasticbeanstalk,
 		EFSHandler:                     h.efs,
 		EKSHandler:                     h.eks,
-		ElasticTranscoderHandler:       h.elastictranscoder,
 		ELBHandler:                     h.elb,
 		ELBv2Handler:                   h.elbv2,
 		GlacierHandler:                 h.glacier,
@@ -1292,8 +1267,6 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.PinpointHandler = h.pinpoint
 	s.NeptuneHandler = h.neptune
 	s.PipesHandler = h.pipes
-	s.QLDBHandler = h.qldb
-	s.QLDBSessionHandler = h.qldbsession
 	s.RAMHandler = h.ram
 	s.RDSDataHandler = h.rdsdata
 	s.RedshiftDataHandler = h.redshiftdata

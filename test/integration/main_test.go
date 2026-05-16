@@ -20,19 +20,31 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	acmsdk "github.com/aws/aws-sdk-go-v2/service/acm"
+	amplifysdk "github.com/aws/aws-sdk-go-v2/service/amplify"
 	apigwv2sdk "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
+	applicationautoscalingsdk "github.com/aws/aws-sdk-go-v2/service/applicationautoscaling"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
+	athenasdk "github.com/aws/aws-sdk-go-v2/service/athena"
 	autoscalingsdk "github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	backupsdk "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsdk "github.com/aws/aws-sdk-go-v2/service/batch"
 	bedrocksdk "github.com/aws/aws-sdk-go-v2/service/bedrock"
+	cloudcontrolsdk "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cloudfrontsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	cloudtrailsdk "github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	codeartifactsdk "github.com/aws/aws-sdk-go-v2/service/codeartifact"
+	codebuildsdk "github.com/aws/aws-sdk-go-v2/service/codebuild"
+	codecommitsdk "github.com/aws/aws-sdk-go-v2/service/codecommit"
+	codeconnectionssdk "github.com/aws/aws-sdk-go-v2/service/codeconnections"
+	codedeploysdk "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
+	codestarconnectionssdk "github.com/aws/aws-sdk-go-v2/service/codestarconnections"
 	cognitoidentitysdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
+	cesdk "github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	docdbsdk "github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -43,12 +55,19 @@ import (
 	efssdk "github.com/aws/aws-sdk-go-v2/service/efs"
 	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesdk "github.com/aws/aws-sdk-go-v2/service/elasticache"
+	elasticbeanstalksdk "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
+	elbsdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elbv2sdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	emrsdk "github.com/aws/aws-sdk-go-v2/service/emr"
+	emrserverlesssdk "github.com/aws/aws-sdk-go-v2/service/emrserverless"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
+	identitystoresdk "github.com/aws/aws-sdk-go-v2/service/identitystore"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssdk "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdaclientsdk "github.com/aws/aws-sdk-go-v2/service/lambda"
+	neptunesdk "github.com/aws/aws-sdk-go-v2/service/neptune"
 	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
 	route53sdk "github.com/aws/aws-sdk-go-v2/service/route53"
 	route53resolversdk "github.com/aws/aws-sdk-go-v2/service/route53resolver"
@@ -58,13 +77,20 @@ import (
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sarsdk "github.com/aws/aws-sdk-go-v2/service/serverlessapplicationrepository"
 	sfnsdk "github.com/aws/aws-sdk-go-v2/service/sfn"
+	shieldsdk "github.com/aws/aws-sdk-go-v2/service/shield"
 	snssdk "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssoadminsdk "github.com/aws/aws-sdk-go-v2/service/ssoadmin"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
+	supportsdk "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsdk "github.com/aws/aws-sdk-go-v2/service/swf"
+	textractsdk "github.com/aws/aws-sdk-go-v2/service/textract"
+	timestreamquerysdk "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	timestreamwritesdk "github.com/aws/aws-sdk-go-v2/service/timestreamwrite"
+	transfersdk "github.com/aws/aws-sdk-go-v2/service/transfer"
 	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
+	xraysdk "github.com/aws/aws-sdk-go-v2/service/xray"
 	"github.com/google/go-cmp/cmp"
 	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
@@ -584,6 +610,526 @@ func createElastiCacheClient(t *testing.T) *elasticachesdk.Client {
 	}
 
 	return elasticachesdk.NewFromConfig(cfg, func(o *elasticachesdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createELBv2Client returns an ELBv2 (Elastic Load Balancing v2) client pointed at the shared test container.
+func createELBv2Client(t *testing.T) *elbv2sdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return elbv2sdk.NewFromConfig(cfg, func(o *elbv2sdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createELBClient returns a Classic ELB (Elastic Load Balancing v1) client pointed at the shared test container.
+func createELBClient(t *testing.T) *elbsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return elbsdk.NewFromConfig(cfg, func(o *elbsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createGlueClient returns an AWS Glue client pointed at the shared test container.
+func createGlueClient(t *testing.T) *gluesdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return gluesdk.NewFromConfig(cfg, func(o *gluesdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createBackupClient returns an AWS Backup client pointed at the shared test container.
+func createBackupClient(t *testing.T) *backupsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return backupsdk.NewFromConfig(cfg, func(o *backupsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeBuildClient returns an AWS CodeBuild client pointed at the shared test container.
+func createCodeBuildClient(t *testing.T) *codebuildsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return codebuildsdk.NewFromConfig(cfg, func(o *codebuildsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeDeployClient returns a CodeDeploy client pointed at the shared test container.
+func createCodeDeployClient(t *testing.T) *codedeploysdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return codedeploysdk.NewFromConfig(cfg, func(o *codedeploysdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createTransferClient returns a Transfer Family client pointed at the shared test container.
+func createTransferClient(t *testing.T) *transfersdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return transfersdk.NewFromConfig(cfg, func(o *transfersdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createAthenaClient returns an Athena client pointed at the shared test container.
+func createAthenaClient(t *testing.T) *athenasdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return athenasdk.NewFromConfig(cfg, func(o *athenasdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeArtifactClient returns a CodeArtifact client pointed at the shared test container.
+func createCodeArtifactClient(t *testing.T) *codeartifactsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return codeartifactsdk.NewFromConfig(cfg, func(o *codeartifactsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createXRayClient returns an X-Ray client pointed at the shared test container.
+func createXRayClient(t *testing.T) *xraysdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return xraysdk.NewFromConfig(cfg, func(o *xraysdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createAmplifyClient returns an Amplify client pointed at the shared test container.
+func createAmplifyClient(t *testing.T) *amplifysdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return amplifysdk.NewFromConfig(cfg, func(o *amplifysdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createNeptuneClient returns a Neptune client pointed at the shared test container.
+func createNeptuneClient(t *testing.T) *neptunesdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return neptunesdk.NewFromConfig(cfg, func(o *neptunesdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createApplicationAutoScalingClient returns an Application Auto Scaling client.
+func createApplicationAutoScalingClient(t *testing.T) *applicationautoscalingsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return applicationautoscalingsdk.NewFromConfig(cfg, func(o *applicationautoscalingsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeCommitClient returns a CodeCommit client pointed at the shared test container.
+func createCodeCommitClient(t *testing.T) *codecommitsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return codecommitsdk.NewFromConfig(cfg, func(o *codecommitsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createElasticBeanstalkClient returns an Elastic Beanstalk client.
+func createElasticBeanstalkClient(t *testing.T) *elasticbeanstalksdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return elasticbeanstalksdk.NewFromConfig(cfg, func(o *elasticbeanstalksdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createIdentityStoreClient returns an IdentityStore client.
+func createIdentityStoreClient(t *testing.T) *identitystoresdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return identitystoresdk.NewFromConfig(cfg, func(o *identitystoresdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createShieldClient returns an AWS Shield client.
+func createShieldClient(t *testing.T) *shieldsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return shieldsdk.NewFromConfig(cfg, func(o *shieldsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeConnectionsClient returns a CodeConnections client.
+func createCodeConnectionsClient(t *testing.T) *codeconnectionssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return codeconnectionssdk.NewFromConfig(cfg, func(o *codeconnectionssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createEMRServerlessClient returns an EMR Serverless client.
+func createEMRServerlessClient(t *testing.T) *emrserverlesssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return emrserverlesssdk.NewFromConfig(cfg, func(o *emrserverlesssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeStarConnectionsClient returns a CodeStar Connections client.
+func createCodeStarConnectionsClient(t *testing.T) *codestarconnectionssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return codestarconnectionssdk.NewFromConfig(cfg, func(o *codestarconnectionssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCloudControlClient returns an AWS CloudControl API client.
+func createCloudControlClient(t *testing.T) *cloudcontrolsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return cloudcontrolsdk.NewFromConfig(cfg, func(o *cloudcontrolsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSupportClient returns an AWS Support client.
+func createSupportClient(t *testing.T) *supportsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return supportsdk.NewFromConfig(cfg, func(o *supportsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCostExplorerClient returns an AWS Cost Explorer client.
+func createCostExplorerClient(t *testing.T) *cesdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return cesdk.NewFromConfig(cfg, func(o *cesdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createTimestreamQueryClient returns an AWS Timestream Query client.
+func createTimestreamQueryClient(t *testing.T) *timestreamquerysdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return timestreamquerysdk.NewFromConfig(cfg, func(o *timestreamquerysdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createTextractClient returns an AWS Textract client.
+func createTextractClient(t *testing.T) *textractsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return textractsdk.NewFromConfig(cfg, func(o *textractsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSSOAdminClient returns an AWS SSO Admin client.
+func createSSOAdminClient(t *testing.T) *ssoadminsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return ssoadminsdk.NewFromConfig(cfg, func(o *ssoadminsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

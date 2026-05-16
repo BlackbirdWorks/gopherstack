@@ -3005,12 +3005,14 @@ type xmlTargetHealthDescriptionList struct {
 }
 
 type registerTargetsResponse struct {
+	Result           struct{}            `xml:"RegisterTargetsResult"`
 	XMLName          xml.Name            `xml:"RegisterTargetsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
 type deregisterTargetsResponse struct {
+	Result           struct{}            `xml:"DeregisterTargetsResult"`
 	XMLName          xml.Name            `xml:"DeregisterTargetsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
@@ -3263,12 +3265,14 @@ type modifyRuleResponse struct {
 // --- tag XML types ---
 
 type addTagsResponse struct {
+	Result           struct{}            `xml:"AddTagsResult"`
 	XMLName          xml.Name            `xml:"AddTagsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
 type removeTagsResponse struct {
+	Result           struct{}            `xml:"RemoveTagsResult"`
 	XMLName          xml.Name            `xml:"RemoveTagsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`

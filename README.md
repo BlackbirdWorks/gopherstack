@@ -167,7 +167,7 @@ Gopherstack provides mocks for a vast array of AWS services. Below is the list o
 | **Compute** | Batch, ECR, ECS, EKS, AppSync, Step Functions |
 | **Messaging** | SQS, SNS, EventBridge, EventBridge Pipes, EventBridge Scheduler, MQ, SES, SESv2 |
 | **Storage** | EFS, Backup, Glacier, S3 Control, S3 Tables |
-| **Database** | RDS, Redshift, ElastiCache, MemoryDB, DocDB, Neptune, QLDB |
+| **Database** | RDS, Redshift, ElastiCache, MemoryDB, DocDB, Neptune |
 | **Security** | KMS, Secrets Manager, ACM, ACM PCA, Shield, WAFv2, RAM, Verified Permissions |
 | **AI/ML** | Bedrock, Bedrock Runtime, SageMaker, SageMaker Runtime, Textract, Transcribe |
 | **Analytics** | Athena, Kinesis, Kinesis Analytics, Kinesis Analytics v2, Glue, OpenSearch, Elasticsearch, LakeFormation |

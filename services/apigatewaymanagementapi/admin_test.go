@@ -268,7 +268,8 @@ func TestAdmin_Prune(t *testing.T) {
 	_, err := h.Backend.CreateConnection("old", "1.1.1.1", "ua")
 	require.NoError(t, err)
 
-	time.Sleep(20 * time.Millisecond)
+	// Gap must be large enough to remain reliable on slow/contended CI runners.
+	time.Sleep(100 * time.Millisecond)
 
 	_, err = h.Backend.CreateConnection("new", "2.2.2.2", "ua")
 	require.NoError(t, err)
@@ -277,7 +278,7 @@ func TestAdmin_Prune(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Len(t, h.Backend.ListConnections(), 2)
 
-	pruned := h.Backend.PruneIdle(15 * time.Millisecond)
+	pruned := h.Backend.PruneIdle(50 * time.Millisecond)
 	assert.Equal(t, []string{"old"}, pruned)
 	assert.Len(t, h.Backend.ListConnections(), 1)
 }
