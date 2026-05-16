@@ -118,8 +118,6 @@ func accessLogStreamName(apiID, stageName string) string {
 	return apiID + "/" + stageName
 }
 
-const requestIDNodeMask = 0xffffffffffff // 48-bit node component of request ID
-
 // generateRequestID creates a random hex request ID similar to the AWS API Gateway format.
 func generateRequestID() string {
 	var b [16]byte
@@ -128,7 +126,9 @@ func generateRequestID() string {
 	c := binary.BigEndian.Uint16(b[4:6])
 	d := binary.BigEndian.Uint16(b[6:8])
 	e := binary.BigEndian.Uint16(b[8:10])
-	f := binary.BigEndian.Uint64(b[8:16]) & requestIDNodeMask
+	// b[10:16] gives 48 independent bits for f, non-overlapping with e (b[8:10]).
+	f := uint64(b[10])<<40 | uint64(b[11])<<32 | uint64(b[12])<<24 |
+		uint64(b[13])<<16 | uint64(b[14])<<8 | uint64(b[15])
 
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", a, c, d, e, f)
 }

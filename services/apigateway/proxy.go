@@ -141,6 +141,7 @@ func BuildProxyEvent(
 // authorizerCacheEntry holds a cached authorizer result.
 type authorizerCacheEntry struct {
 	expiresAt time.Time
+	context   map[string]any
 	key       string
 	allowed   bool
 }
@@ -169,36 +170,36 @@ func newAuthorizerCacheWithMaxEntries(maxEntries int) *authorizerCache {
 	}
 }
 
-// get returns (allowed, found) for the given cache key.
-func (c *authorizerCache) get(key string) (bool, bool) {
+// get returns (allowed, context, found) for the given cache key.
+func (c *authorizerCache) get(key string) (bool, map[string]any, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	elem, ok := c.entries[key]
 	if !ok {
-		return false, false
+		return false, nil, false
 	}
 
 	e, ok := elem.Value.(authorizerCacheEntry)
 	if !ok {
 		c.removeElement(elem)
 
-		return false, false
+		return false, nil, false
 	}
 
 	if time.Now().After(e.expiresAt) {
 		c.removeElement(elem)
 
-		return false, false
+		return false, nil, false
 	}
 
 	c.order.MoveToFront(elem)
 
-	return e.allowed, true
+	return e.allowed, e.context, true
 }
 
 // set stores the result for the given cache key with a TTL.
-func (c *authorizerCache) set(key string, allowed bool, ttl time.Duration) {
+func (c *authorizerCache) set(key string, allowed bool, context map[string]any, ttl time.Duration) {
 	if ttl <= 0 {
 		return
 	}
@@ -212,6 +213,7 @@ func (c *authorizerCache) set(key string, allowed bool, ttl time.Duration) {
 			c.removeElement(elem)
 		} else {
 			entry.allowed = allowed
+			entry.context = context
 			entry.expiresAt = time.Now().Add(ttl)
 			elem.Value = entry
 			c.order.MoveToFront(elem)
@@ -223,6 +225,7 @@ func (c *authorizerCache) set(key string, allowed bool, ttl time.Duration) {
 	elem := c.order.PushFront(authorizerCacheEntry{
 		key:       key,
 		allowed:   allowed,
+		context:   context,
 		expiresAt: time.Now().Add(ttl),
 	})
 	c.entries[key] = elem
@@ -463,6 +466,8 @@ func (h *Handler) stageVars(apiID, stageName string) map[string]string {
 		return stage.Variables
 	}
 
+	// Limitation: only stage variable overrides are applied; CanarySettings.DeploymentID is not
+	// used to select a different deployment. Full multi-deployment canary routing is not implemented.
 	overrides := stage.CanarySettings.StageVariableOverrides
 	if len(overrides) == 0 {
 		return stage.Variables
@@ -557,14 +562,14 @@ func (h *Handler) runAuthorizer(
 	// Build cache key: for TOKEN type use the token, for REQUEST type use the full path.
 	cacheKey := h.authorizerCacheKey(r, auth, authorizerID)
 	if ttl > 0 {
-		if allowed, found := h.authCache.get(cacheKey); found {
+		if allowed, cachedContext, found := h.authCache.get(cacheKey); found {
 			if !allowed {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 
 				return true, nil
 			}
 
-			return false, nil // context not cached — callers must re-invoke if they need it
+			return false, cachedContext
 		}
 	}
 
@@ -594,7 +599,7 @@ func (h *Handler) runAuthorizer(
 
 	// Evaluate the policy document to determine allow/deny.
 	allowed := isAuthorizerAllowed(&authResp)
-	h.authCache.set(cacheKey, allowed, ttl)
+	h.authCache.set(cacheKey, allowed, authResp.Context, ttl)
 
 	if !allowed {
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -683,7 +688,7 @@ func (h *Handler) validateRequestBody(
 		return true
 	}
 
-	r.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 	if len(bodyBytes) > 0 && !json.Valid(bodyBytes) {
 		http.Error(w, "Bad Request: request body must be valid JSON", http.StatusBadRequest)
@@ -877,7 +882,7 @@ type resourcePolicyStatement struct {
 
 // evaluateResourcePolicy parses the IAM policy attached to a REST API and evaluates
 // whether the request is permitted. Returns true (allow) or false (deny).
-// An empty, missing, or unparseable policy allows all requests (fail-open).
+// An empty or missing policy allows all requests; an unparseable policy denies (AWS semantics).
 func evaluateResourcePolicy(policy string, r *http.Request) bool {
 	if policy == "" {
 		return true
@@ -885,7 +890,7 @@ func evaluateResourcePolicy(policy string, r *http.Request) bool {
 
 	var doc resourcePolicyDoc
 	if err := json.Unmarshal([]byte(policy), &doc); err != nil {
-		return true // fail open on parse error
+		return false // malformed policy: deny per AWS semantics
 	}
 
 	sourceIP := extractClientIP(r)
@@ -1005,8 +1010,8 @@ func extractClientIP(r *http.Request) string {
 	}
 
 	if r.RemoteAddr != "" {
-		if idx := strings.LastIndexByte(r.RemoteAddr, ':'); idx >= 0 {
-			return r.RemoteAddr[:idx]
+		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+			return host
 		}
 
 		return r.RemoteAddr

@@ -32,9 +32,9 @@ func TestAuthorizerCacheSet(t *testing.T) {
 		{
 			name: "evicts_lru_when_max_entries_reached",
 			setup: func(cache *authorizerCache) {
-				cache.set("a", true, time.Minute)
-				cache.set("b", false, time.Minute)
-				_, _ = cache.get("a")
+				cache.set("a", true, nil, time.Minute)
+				cache.set("b", false, nil, time.Minute)
+				_, _, _ = cache.get("a")
 			},
 			key:           "c",
 			ttl:           time.Minute,
@@ -60,14 +60,14 @@ func TestAuthorizerCacheSet(t *testing.T) {
 				tt.setup(cache)
 			}
 
-			cache.set(tt.key, tt.wantVal, tt.ttl)
-			gotVal, gotHit := cache.get(tt.key)
+			cache.set(tt.key, tt.wantVal, nil, tt.ttl)
+			gotVal, _, gotHit := cache.get(tt.key)
 			assert.Equal(t, tt.wantHit, gotHit)
 			assert.Equal(t, tt.wantVal, gotVal)
 
 			if tt.checkEviction {
-				_, retainedHit := cache.get(tt.retainedKey)
-				_, evictedHit := cache.get(tt.evictedKey)
+				_, _, retainedHit := cache.get(tt.retainedKey)
+				_, _, evictedHit := cache.get(tt.evictedKey)
 				require.True(t, retainedHit)
 				assert.False(t, evictedHit)
 			}
