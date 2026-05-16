@@ -57,16 +57,16 @@ func TestIntegration_CognitoIdentity_PoolLifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "created pool should appear in list")
 
-	// UpdateIdentityPool
+	// UpdateIdentityPool (keep unauth enabled so subsequent GetId succeeds)
 	updateOut, err := client.UpdateIdentityPool(ctx, &cognitoidentitysdk.UpdateIdentityPoolInput{
 		IdentityPoolId:                 aws.String(poolID),
 		IdentityPoolName:               aws.String("test-pool"),
-		AllowUnauthenticatedIdentities: false,
+		AllowUnauthenticatedIdentities: true,
 	})
 	require.NoError(t, err)
-	assert.False(t, updateOut.AllowUnauthenticatedIdentities)
+	assert.True(t, updateOut.AllowUnauthenticatedIdentities)
 
-	// GetId
+	// GetId (unauthenticated; pool allows unauth)
 	getIDOut, err := client.GetId(ctx, &cognitoidentitysdk.GetIdInput{
 		AccountId:      aws.String("000000000000"),
 		IdentityPoolId: aws.String(poolID),
