@@ -17,6 +17,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -49,6 +50,12 @@ const maxBatchRecords = 500
 // maxBatchBytes is the AWS Firehose limit on the combined payload of a
 // PutRecordBatch request (4 MiB).
 const maxBatchBytes = 4 * 1024 * 1024
+
+const (
+	// deliveryStreamTypeDirectPut is the default stream type for direct-put streams.
+	deliveryStreamTypeDirectPut     = "DirectPut"
+	deliveryStreamTypeKinesisSource = "KinesisStreamAsSource"
+)
 
 // S3Storer is the subset of S3 operations that Firehose needs to deliver objects.
 type S3Storer interface {
@@ -84,6 +91,35 @@ type ProcessingConfiguration struct {
 	Enabled    bool        `json:"Enabled"`
 }
 
+// CloudWatchLoggingOptions configures CloudWatch logging for a destination.
+type CloudWatchLoggingOptions struct {
+	LogGroupName  string `json:"LogGroupName,omitempty"`
+	LogStreamName string `json:"LogStreamName,omitempty"`
+	Enabled       bool   `json:"Enabled"`
+}
+
+// KMSEncryptionConfig holds a KMS key ARN for S3 encryption.
+type KMSEncryptionConfig struct {
+	AWSKMSKeyARN string `json:"AWSKMSKeyARN"`
+}
+
+// S3EncryptionConfiguration holds the S3 object encryption config.
+type S3EncryptionConfiguration struct {
+	KMSEncryptionConfig *KMSEncryptionConfig `json:"KMSEncryptionConfig,omitempty"`
+	NoEncryptionConfig  string               `json:"NoEncryptionConfig,omitempty"`
+}
+
+// DynamicPartitioningConfiguration controls dynamic partitioning.
+type DynamicPartitioningConfiguration struct {
+	RetryOptions *RetryOptions `json:"RetryOptions,omitempty"`
+	Enabled      bool          `json:"Enabled"`
+}
+
+// RetryOptions holds a retry duration.
+type RetryOptions struct {
+	DurationInSeconds int `json:"DurationInSeconds"`
+}
+
 // EncryptionConfigInput holds the optional SSE configuration for a delivery stream.
 type EncryptionConfigInput struct {
 	KeyARN  string `json:"KeyARN,omitempty"`
@@ -92,23 +128,35 @@ type EncryptionConfigInput struct {
 
 // EncryptionConfig holds the effective SSE configuration for a delivery stream.
 type EncryptionConfig struct {
-	KeyARN  string `json:"KeyARN,omitempty"`
-	KeyType string `json:"KeyType"`
-	Status  string `json:"Status"`
+	FailureDescription *FailureDescription `json:"FailureDescription,omitempty"`
+	KeyARN             string              `json:"KeyARN,omitempty"`
+	KeyType            string              `json:"KeyType"`
+	Status             string              `json:"Status"`
+}
+
+// FailureDescription holds error context for SSE failures.
+type FailureDescription struct {
+	Details string `json:"Details,omitempty"`
+	Type    string `json:"Type,omitempty"`
 }
 
 // S3DestinationDescription holds the effective S3 destination config stored on the stream.
 type S3DestinationDescription struct {
-	BufferingHints          *BufferingHints          `json:"BufferingHints,omitempty"`
-	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration,omitempty"`
-	S3BackupDescription     *S3BackupDescription     `json:"S3BackupDescription,omitempty"`
-	BucketARN               string                   `json:"BucketARN,omitempty"`
-	RoleARN                 string                   `json:"RoleARN,omitempty"`
-	Prefix                  string                   `json:"Prefix,omitempty"`
-	ErrorOutputPrefix       string                   `json:"ErrorOutputPrefix,omitempty"`
-	CompressionFormat       string                   `json:"CompressionFormat,omitempty"`
-	DestinationID           string                   `json:"DestinationId,omitempty"`
-	S3BackupMode            string                   `json:"S3BackupMode,omitempty"`
+	BufferingHints                   *BufferingHints                   `json:"BufferingHints,omitempty"`
+	ProcessingConfiguration          *ProcessingConfiguration          `json:"ProcessingConfiguration,omitempty"`
+	S3BackupDescription              *S3BackupDescription              `json:"S3BackupDescription,omitempty"`
+	EncryptionConfiguration          *S3EncryptionConfiguration        `json:"EncryptionConfiguration,omitempty"`
+	CloudWatchLoggingOptions         *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions,omitempty"`
+	DynamicPartitioningConfiguration *DynamicPartitioningConfiguration `json:"DynamicPartitioningConfiguration,omitempty"`
+	BucketARN                        string                            `json:"BucketARN,omitempty"`
+	RoleARN                          string                            `json:"RoleARN,omitempty"`
+	Prefix                           string                            `json:"Prefix,omitempty"`
+	ErrorOutputPrefix                string                            `json:"ErrorOutputPrefix,omitempty"`
+	CompressionFormat                string                            `json:"CompressionFormat,omitempty"`
+	FileExtension                    string                            `json:"FileExtension,omitempty"`
+	CustomTimeZone                   string                            `json:"CustomTimeZone,omitempty"`
+	DestinationID                    string                            `json:"DestinationId,omitempty"`
+	S3BackupMode                     string                            `json:"S3BackupMode,omitempty"`
 }
 
 // S3BackupDescription holds the S3 backup destination configuration.
@@ -120,13 +168,29 @@ type S3BackupDescription struct {
 	CompressionFormat string          `json:"CompressionFormat,omitempty"`
 }
 
+// HTTPEndpointRequestConfiguration holds the content-encoding and attributes for HTTP requests.
+type HTTPEndpointRequestConfiguration struct {
+	ContentEncoding  string                        `json:"ContentEncoding,omitempty"`
+	CommonAttributes []HTTPEndpointCommonAttribute `json:"CommonAttributes,omitempty"`
+}
+
+// HTTPEndpointCommonAttribute is a key-value attribute sent with HTTP requests.
+type HTTPEndpointCommonAttribute struct {
+	AttributeName  string `json:"AttributeName"`
+	AttributeValue string `json:"AttributeValue"`
+}
+
 // HTTPEndpointDestinationDescription holds the HTTP endpoint destination config.
 type HTTPEndpointDestinationDescription struct {
-	ProcessingConfiguration *ProcessingConfiguration   `json:"ProcessingConfiguration,omitempty"`
-	EndpointConfiguration   *HTTPEndpointConfiguration `json:"EndpointConfiguration,omitempty"`
-	S3BackupMode            string                     `json:"S3BackupMode,omitempty"`
-	S3BackupDescription     *S3BackupDescription       `json:"S3BackupDescription,omitempty"`
-	DestinationID           string                     `json:"DestinationId,omitempty"`
+	ProcessingConfiguration  *ProcessingConfiguration          `json:"ProcessingConfiguration,omitempty"`
+	EndpointConfiguration    *HTTPEndpointConfiguration        `json:"EndpointConfiguration,omitempty"`
+	RequestConfiguration     *HTTPEndpointRequestConfiguration `json:"RequestConfiguration,omitempty"`
+	BufferingHints           *BufferingHints                   `json:"BufferingHints,omitempty"`
+	RetryOptions             *RetryOptions                     `json:"RetryOptions,omitempty"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions,omitempty"`
+	S3BackupMode             string                            `json:"S3BackupMode,omitempty"`
+	S3BackupDescription      *S3BackupDescription              `json:"S3BackupDescription,omitempty"`
+	DestinationID            string                            `json:"DestinationId,omitempty"`
 }
 
 // HTTPEndpointConfiguration holds the HTTP endpoint URL and name.
@@ -134,6 +198,43 @@ type HTTPEndpointConfiguration struct {
 	URL       string `json:"Url,omitempty"`
 	Name      string `json:"Name,omitempty"`
 	AccessKey string `json:"AccessKey,omitempty"`
+}
+
+// KinesisStreamSourceDescription describes a Kinesis stream source.
+type KinesisStreamSourceDescription struct {
+	DeliveryStartTimestamp string `json:"DeliveryStartTimestamp,omitempty"`
+	KinesisStreamARN       string `json:"KinesisStreamARN,omitempty"`
+	RoleARN                string `json:"RoleARN,omitempty"`
+}
+
+// MSKSourceDescription describes an MSK cluster source.
+type MSKSourceDescription struct {
+	AuthenticationConfiguration *MSKAuthenticationConfiguration `json:"AuthenticationConfiguration,omitempty"`
+	MSKClusterARN               string                          `json:"MSKClusterARN,omitempty"`
+	TopicName                   string                          `json:"TopicName,omitempty"`
+	ReadFromTimestamp           string                          `json:"ReadFromTimestamp,omitempty"`
+}
+
+// MSKAuthenticationConfiguration holds MSK connectivity and role config.
+type MSKAuthenticationConfiguration struct {
+	Connectivity string `json:"Connectivity,omitempty"`
+	RoleARN      string `json:"RoleARN,omitempty"`
+}
+
+// SourceDescription holds source details for non-DirectPut streams.
+type SourceDescription struct {
+	KinesisStreamSourceDescription *KinesisStreamSourceDescription `json:"KinesisStreamSourceDescription,omitempty"`
+	MSKSourceDescription           *MSKSourceDescription           `json:"MSKSourceDescription,omitempty"`
+}
+
+// RedshiftDestinationDescription holds a Redshift destination config (stub).
+type RedshiftDestinationDescription struct {
+	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration,omitempty"`
+	RetryOptions            *RetryOptions            `json:"RetryOptions,omitempty"`
+	S3BackupDescription     *S3BackupDescription     `json:"S3BackupDescription,omitempty"`
+	ClusterJDBCURL          string                   `json:"ClusterJDBCURL,omitempty"`
+	RoleARN                 string                   `json:"RoleARN,omitempty"`
+	S3BackupMode            string                   `json:"S3BackupMode,omitempty"`
 }
 
 // DeliveryMetrics tracks delivery statistics for a stream.
@@ -146,10 +247,14 @@ type DeliveryMetrics struct {
 // DeliveryStream represents a Kinesis Firehose delivery stream.
 type DeliveryStream struct {
 	lastFlush               time.Time
+	CreateTimestamp         time.Time                           `json:"createTimestamp"`
+	LastUpdateTimestamp     time.Time                           `json:"lastUpdateTimestamp"`
 	Tags                    *tags.Tags                          `json:"tags,omitempty"`
 	S3Destination           *S3DestinationDescription           `json:"s3Destination,omitempty"`
 	HTTPEndpointDestination *HTTPEndpointDestinationDescription `json:"httpEndpointDestination,omitempty"`
+	RedshiftDestination     *RedshiftDestinationDescription     `json:"redshiftDestination,omitempty"`
 	Encryption              *EncryptionConfig                   `json:"encryption,omitempty"`
+	Source                  *SourceDescription                  `json:"source,omitempty"`
 	DeliveryStreamType      string                              `json:"deliveryStreamType,omitempty"`
 	Name                    string                              `json:"name"`
 	ARN                     string                              `json:"arn"`
@@ -218,7 +323,10 @@ func (b *InMemoryBackend) SetLambdaBackend(lambda LambdaInvoker) {
 type CreateDeliveryStreamInput struct {
 	S3Destination           *S3DestinationDescription
 	HTTPEndpointDestination *HTTPEndpointDestinationDescription
+	RedshiftDestination     *RedshiftDestinationDescription
+	Source                  *SourceDescription
 	Name                    string
+	DeliveryStreamType      string
 }
 
 // CreateDeliveryStream creates a new delivery stream.
@@ -238,11 +346,17 @@ func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) 
 		input.S3Destination.DestinationID = "destinationId-000000000001"
 	}
 
+	streamType := input.DeliveryStreamType
+	if streamType == "" {
+		streamType = deliveryStreamTypeDirectPut
+	}
+
+	now := time.Now()
 	streamARN := arn.Build("firehose", b.region, b.accountID, "deliverystream/"+input.Name)
 	s := &DeliveryStream{
 		Name:                    input.Name,
 		ARN:                     streamARN,
-		DeliveryStreamType:      "DirectPut",
+		DeliveryStreamType:      streamType,
 		VersionID:               "1",
 		Status:                  "ACTIVE",
 		Records:                 [][]byte{},
@@ -252,7 +366,11 @@ func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) 
 		Region:                  b.region,
 		S3Destination:           input.S3Destination,
 		HTTPEndpointDestination: input.HTTPEndpointDestination,
-		lastFlush:               time.Now(),
+		RedshiftDestination:     input.RedshiftDestination,
+		Source:                  input.Source,
+		CreateTimestamp:         now,
+		LastUpdateTimestamp:     now,
+		lastFlush:               now,
 	}
 	b.streams[input.Name] = s
 
@@ -308,6 +426,10 @@ func (b *InMemoryBackend) ListDeliveryStreams() []string {
 
 // PutRecord appends a record to the delivery stream and flushes if buffer threshold is met.
 func (b *InMemoryBackend) PutRecord(streamName string, data []byte) error {
+	if len(data) == 0 {
+		return fmt.Errorf("%w: record Data must not be empty", ErrValidation)
+	}
+
 	if len(data) > maxRecordBytes {
 		return fmt.Errorf("%w: record size %d exceeds maximum of %d bytes",
 			ErrRecordTooLarge, len(data), maxRecordBytes)
@@ -320,6 +442,13 @@ func (b *InMemoryBackend) PutRecord(streamName string, data []byte) error {
 		b.mu.Unlock()
 
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
+	}
+
+	if s.DeliveryStreamType != deliveryStreamTypeDirectPut && s.DeliveryStreamType != "" {
+		b.mu.Unlock()
+
+		return fmt.Errorf("%w: PutRecord not allowed on %s stream; only DirectPut streams accept direct puts",
+			ErrValidation, s.DeliveryStreamType)
 	}
 
 	s.Records = append(s.Records, data)
@@ -349,6 +478,10 @@ func (b *InMemoryBackend) PutRecordBatch(streamName string, records [][]byte) (i
 
 	totalBytes := 0
 	for i, rec := range records {
+		if len(rec) == 0 {
+			return 0, fmt.Errorf("%w: record %d Data must not be empty", ErrValidation, i)
+		}
+
 		if len(rec) > maxRecordBytes {
 			return 0, fmt.Errorf("%w: record %d size %d exceeds maximum of %d bytes",
 				ErrRecordTooLarge, i, len(rec), maxRecordBytes)
@@ -368,6 +501,13 @@ func (b *InMemoryBackend) PutRecordBatch(streamName string, records [][]byte) (i
 		b.mu.Unlock()
 
 		return 0, fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
+	}
+
+	if s.DeliveryStreamType != deliveryStreamTypeDirectPut && s.DeliveryStreamType != "" {
+		b.mu.Unlock()
+
+		return 0, fmt.Errorf("%w: PutRecordBatch not allowed on %s stream; only DirectPut streams accept direct puts",
+			ErrValidation, s.DeliveryStreamType)
 	}
 
 	backupEnabled := b.isBackupEnabledLocked(s)
@@ -406,6 +546,7 @@ func (b *InMemoryBackend) UpdateDestination(streamName, currentVersionID string,
 	}
 
 	s.S3Destination = dest
+	s.LastUpdateTimestamp = time.Now()
 
 	v, err := strconv.Atoi(s.VersionID)
 	if err != nil {
@@ -698,10 +839,11 @@ func (b *InMemoryBackend) deliverToS3(
 	return err
 }
 
-// buildS3Key constructs an S3 object key with timestamp-partitioned prefix.
+// buildS3Key constructs an S3 object key matching the AWS format:
+// The key format is: {prefix}{yyyy/MM/dd/HH/}{stream-name}-1-{yyyy-MM-dd-HH-mm-ss}-{uuid}.
 func buildS3Key(prefix, streamName string, t time.Time) string {
 	ts := t.UTC().Format("2006/01/02/15/")
-	filename := fmt.Sprintf("%s-%s", streamName, t.UTC().Format("2006-01-02-15-04-05"))
+	filename := fmt.Sprintf("%s-1-%s-%s", streamName, t.UTC().Format("2006-01-02-15-04-05"), uuid.NewString())
 
 	if prefix == "" {
 		return ts + filename
@@ -798,12 +940,20 @@ func (b *InMemoryBackend) UntagDeliveryStream(name string, keys []string) error 
 func (b *InMemoryBackend) StartDeliveryStreamEncryption(
 	_ context.Context, name string, input *EncryptionConfigInput,
 ) error {
+	if input != nil && input.KeyType == "CUSTOMER_MANAGED_CMK" && strings.TrimSpace(input.KeyARN) == "" {
+		return fmt.Errorf("%w: KeyARN is required when KeyType is CUSTOMER_MANAGED_CMK", ErrValidation)
+	}
+
 	b.mu.Lock("StartDeliveryStreamEncryption")
 	defer b.mu.Unlock()
 
 	s, ok := b.streams[name]
 	if !ok {
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
+	}
+
+	if s.DeliveryStreamType == deliveryStreamTypeKinesisSource {
+		return fmt.Errorf("%w: cannot enable SSE on a KinesisStreamAsSource stream", ErrValidation)
 	}
 
 	cfg := &EncryptionConfig{Status: "ENABLED", KeyType: "AWS_OWNED_CMK"}
@@ -815,6 +965,7 @@ func (b *InMemoryBackend) StartDeliveryStreamEncryption(
 	}
 
 	s.Encryption = cfg
+	s.LastUpdateTimestamp = time.Now()
 
 	return nil
 }
@@ -831,6 +982,7 @@ func (b *InMemoryBackend) StopDeliveryStreamEncryption(_ context.Context, name s
 	}
 
 	s.Encryption = &EncryptionConfig{Status: "DISABLED"}
+	s.LastUpdateTimestamp = time.Now()
 
 	return nil
 }
@@ -871,9 +1023,19 @@ func streamCopy(s *DeliveryStream) *DeliveryStream {
 		cp.HTTPEndpointDestination = &ep
 	}
 
+	if s.RedshiftDestination != nil {
+		rs := *s.RedshiftDestination
+		cp.RedshiftDestination = &rs
+	}
+
 	if s.Encryption != nil {
 		enc := *s.Encryption
 		cp.Encryption = &enc
+	}
+
+	if s.Source != nil {
+		src := *s.Source
+		cp.Source = &src
 	}
 
 	cp.Records = nil

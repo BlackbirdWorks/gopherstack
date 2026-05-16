@@ -15,32 +15,32 @@ func TestBuildS3Key(t *testing.T) {
 	ts := time.Date(2024, 3, 15, 10, 30, 0, 0, time.UTC)
 
 	tests := []struct {
-		name       string
-		prefix     string
-		streamName string
-		wantPrefix string
-		wantSuffix string
+		name         string
+		prefix       string
+		streamName   string
+		wantPrefix   string
+		wantContains string
 	}{
 		{
-			name:       "no_prefix",
-			prefix:     "",
-			streamName: "my-stream",
-			wantPrefix: "2024/03/15/10/",
-			wantSuffix: "my-stream-2024-03-15-10-30-00",
+			name:         "no_prefix",
+			prefix:       "",
+			streamName:   "my-stream",
+			wantPrefix:   "2024/03/15/10/",
+			wantContains: "my-stream-1-2024-03-15-10-30-00-",
 		},
 		{
-			name:       "with_prefix",
-			prefix:     "logs",
-			streamName: "my-stream",
-			wantPrefix: "logs/2024/03/15/10/",
-			wantSuffix: "my-stream-2024-03-15-10-30-00",
+			name:         "with_prefix",
+			prefix:       "logs",
+			streamName:   "my-stream",
+			wantPrefix:   "logs/2024/03/15/10/",
+			wantContains: "my-stream-1-2024-03-15-10-30-00-",
 		},
 		{
-			name:       "prefix_with_trailing_slash",
-			prefix:     "data/",
-			streamName: "events",
-			wantPrefix: "data/2024/03/15/10/",
-			wantSuffix: "events-2024-03-15-10-30-00",
+			name:         "prefix_with_trailing_slash",
+			prefix:       "data/",
+			streamName:   "events",
+			wantPrefix:   "data/2024/03/15/10/",
+			wantContains: "events-1-2024-03-15-10-30-00-",
 		},
 	}
 
@@ -49,7 +49,7 @@ func TestBuildS3Key(t *testing.T) {
 			t.Parallel()
 			key := buildS3Key(tt.prefix, tt.streamName, ts)
 			assert.True(t, strings.HasPrefix(key, tt.wantPrefix), "key=%q wantPrefix=%q", key, tt.wantPrefix)
-			assert.True(t, strings.HasSuffix(key, tt.wantSuffix), "key=%q wantSuffix=%q", key, tt.wantSuffix)
+			assert.Contains(t, key, tt.wantContains, "key=%q wantContains=%q", key, tt.wantContains)
 		})
 	}
 }
