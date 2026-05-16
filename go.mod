@@ -57,7 +57,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.25
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.4
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10
-	github.com/aws/aws-sdk-go-v2/service/support v1.31.19
+	github.com/aws/aws-sdk-go-v2/service/support v1.31.23
 	github.com/aws/aws-sdk-go-v2/service/swf v1.33.14
 	github.com/aws/smithy-go v1.25.1
 	github.com/distribution/distribution/v3 v3.1.1
@@ -86,7 +86,7 @@ require github.com/aws/aws-sdk-go-v2/service/bedrock v1.56.0
 require github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.1
 
 require (
-	github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.29.11
+	github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.29.15
 	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.60.2
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.55.7
 	github.com/aws/aws-sdk-go-v2/service/codeartifact v1.38.19
@@ -95,7 +95,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/codeconnections v1.10.22
 	github.com/aws/aws-sdk-go-v2/service/codedeploy v1.35.13
 	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.46.21
-	github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.35.11
+	github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.35.15
 	github.com/aws/aws-sdk-go-v2/service/costexplorer v1.63.4
 	github.com/aws/aws-sdk-go-v2/service/databasemigrationservice v1.61.8
 	github.com/aws/aws-sdk-go-v2/service/docdb v1.48.11

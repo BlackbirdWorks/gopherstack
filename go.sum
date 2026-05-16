@@ -74,8 +74,8 @@ github.com/aws/aws-sdk-go-v2/service/bedrock v1.56.0 h1:iP/efl5/XKqMjZEitjPpcY+P
 github.com/aws/aws-sdk-go-v2/service/bedrock v1.56.0/go.mod h1:ddmoTFfTBhiRIW1chqG7SsaufakItWqm0haE3cIXZFE=
 github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.1 h1:tnLUbtNW5c056BEbQ4xvlZaakvgdaEdiKF87R1fxuoo=
 github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.1/go.mod h1:DYDD64rVUpCvpLyuWCiTaaSfrW2O9GiDo8S6fNo8ZI0=
-github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.29.11 h1:Rd050Q3LSLFPDsTcC3sLYI2EV+XLDrVuUllh9Sn8EdU=
-github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.29.11/go.mod h1:Kd7H+EuZGPaZV6Bt5A5wiYXyd3O13IJuMnLYFX9/7Es=
+github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.29.15 h1:E3HjmGRKmA5R7YUzdidZWuxOSKqW95tZZlZ06wND9a0=
+github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.29.15/go.mod h1:qdsQO5+urrlkcsolFWgiNQ0lpFB0UCQbTKK9j79b1Wg=
 github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.7 h1:QkM9aGnVnXrXpxXJMu7GO+E/eho+RfItwDp71aPa79o=
 github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.7/go.mod h1:XluvzGQyrIEHZQOYM7QuO+ViUk3wPXF0VsI5+fum67s=
 github.com/aws/aws-sdk-go-v2/service/cloudfront v1.60.2 h1:+5lijyTp+IoU5oh6rL3374yEkaPeFnaes+b4WWUQC2I=
@@ -98,8 +98,8 @@ github.com/aws/aws-sdk-go-v2/service/codedeploy v1.35.13 h1:YpFVX7FEGD15QICwKNLq
 github.com/aws/aws-sdk-go-v2/service/codedeploy v1.35.13/go.mod h1:654AJ0/dq0smO+gJBvDSh42YmWUZl28+yLPRDvfRCq4=
 github.com/aws/aws-sdk-go-v2/service/codepipeline v1.46.21 h1:8V70rBx4h7snTZ0pZVJKz71BO/7NzHoNvKdsXnTNyQE=
 github.com/aws/aws-sdk-go-v2/service/codepipeline v1.46.21/go.mod h1:7t1poDw9gJP+InIk0Jc8b06AENep7T1F/L+Eqj5t7n0=
-github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.35.11 h1:rN8QX+vv4xJ8JS/iCXxN7ae+94xfgtvFcrB4P0/DaWA=
-github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.35.11/go.mod h1:ERqxDw9uDPuICBvfy7n48JuHG2sZS4kVvcHl71Ue+Ro=
+github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.35.15 h1:W6e6rV6k2oUthzPZTPgon2IcOg5DiGTimnwK76UyUuk=
+github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.35.15/go.mod h1:40aemoBtijD+fwyMWhUYsQ0pB/2PH2VYarYEWJDu5c4=
 github.com/aws/aws-sdk-go-v2/service/cognitoidentity v1.33.20 h1:ZEijcC7Fpm0X+CeecuHD7t62ZbV6XSRDyR1ceUylJdc=
 github.com/aws/aws-sdk-go-v2/service/cognitoidentity v1.33.20/go.mod h1:43TnVpni4CD4UNkAXlKGre9l33QrZUL876YXYBHJ5bE=
 github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider v1.59.1 h1:JF83VL8nhIzxb2QpGZAPXpiEyiufpcz2ItU8+PIUvaU=
@@ -278,8 +278,8 @@ github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.19 h1:dzztQ1YmfPrxdrOiuZRMF6f
 github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.19/go.mod h1:YO8TrYtFdl5w/4vmjL8zaBSsiNp3w0L1FfKVKenZT7w=
 github.com/aws/aws-sdk-go-v2/service/sts v1.41.10 h1:p8ogvvLugcR/zLBXTXrTkj0RYBUdErbMnAFFp12Lm/U=
 github.com/aws/aws-sdk-go-v2/service/sts v1.41.10/go.mod h1:60dv0eZJfeVXfbT1tFJinbHrDfSJ2GZl4Q//OSSNAVw=
-github.com/aws/aws-sdk-go-v2/service/support v1.31.19 h1:mujWnRqvunGMGmwBetJ+auPY5c6yABk8ZjpxZt0QYtk=
-github.com/aws/aws-sdk-go-v2/service/support v1.31.19/go.mod h1:wyR56JDMocaFLE51COxG8efdJpmaw16iDEB8INrgbgA=
+github.com/aws/aws-sdk-go-v2/service/support v1.31.23 h1:ysC9+TojW1tnZxm3dEoQAqwVvqupUraWGc3l3LnWL7w=
+github.com/aws/aws-sdk-go-v2/service/support v1.31.23/go.mod h1:nGjCW7KSwHDN1N6wq+IfrgcHtKSW9OkoLn4mxQzd1Mc=
 github.com/aws/aws-sdk-go-v2/service/swf v1.33.14 h1:sVUF4SC5BzVw4tiOXX/yaa7GbruV9C/kirhINRDZUJc=
 github.com/aws/aws-sdk-go-v2/service/swf v1.33.14/go.mod h1:STMeULZQteHh1BkdnUiTCdtvA5zKRyDk/b5nObwHKVA=
 github.com/aws/aws-sdk-go-v2/service/textract v1.40.19 h1:huS4RDg5Ownfwf4jBlk1r8Yrh0Om2BTbsGfec0MoJVg=

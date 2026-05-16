@@ -29,6 +29,7 @@ import (
 	backupsdk "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsdk "github.com/aws/aws-sdk-go-v2/service/batch"
 	bedrocksdk "github.com/aws/aws-sdk-go-v2/service/bedrock"
+	cloudcontrolsdk "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cloudfrontsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	cloudtrailsdk "github.com/aws/aws-sdk-go-v2/service/cloudtrail"
@@ -40,6 +41,7 @@ import (
 	codeconnectionssdk "github.com/aws/aws-sdk-go-v2/service/codeconnections"
 	codedeploysdk "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
+	codestarconnectionssdk "github.com/aws/aws-sdk-go-v2/service/codestarconnections"
 	cognitoidentitysdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	daxsdk "github.com/aws/aws-sdk-go-v2/service/dax"
@@ -80,6 +82,7 @@ import (
 	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
+	supportsdk "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsdk "github.com/aws/aws-sdk-go-v2/service/swf"
 	timestreamwritesdk "github.com/aws/aws-sdk-go-v2/service/timestreamwrite"
 	transfersdk "github.com/aws/aws-sdk-go-v2/service/transfer"
@@ -1004,6 +1007,66 @@ func createEMRServerlessClient(t *testing.T) *emrserverlesssdk.Client {
 	}
 
 	return emrserverlesssdk.NewFromConfig(cfg, func(o *emrserverlesssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeStarConnectionsClient returns a CodeStar Connections client.
+func createCodeStarConnectionsClient(t *testing.T) *codestarconnectionssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return codestarconnectionssdk.NewFromConfig(cfg, func(o *codestarconnectionssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCloudControlClient returns an AWS CloudControl API client.
+func createCloudControlClient(t *testing.T) *cloudcontrolsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return cloudcontrolsdk.NewFromConfig(cfg, func(o *cloudcontrolsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSupportClient returns an AWS Support client.
+func createSupportClient(t *testing.T) *supportsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return supportsdk.NewFromConfig(cfg, func(o *supportsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
