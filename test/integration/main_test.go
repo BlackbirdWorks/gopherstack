@@ -58,6 +58,7 @@ import (
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
+	identitystoresdk "github.com/aws/aws-sdk-go-v2/service/identitystore"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssdk "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdaclientsdk "github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -71,6 +72,7 @@ import (
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sarsdk "github.com/aws/aws-sdk-go-v2/service/serverlessapplicationrepository"
 	sfnsdk "github.com/aws/aws-sdk-go-v2/service/sfn"
+	shieldsdk "github.com/aws/aws-sdk-go-v2/service/shield"
 	snssdk "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -899,6 +901,46 @@ func createElasticBeanstalkClient(t *testing.T) *elasticbeanstalksdk.Client {
 	}
 
 	return elasticbeanstalksdk.NewFromConfig(cfg, func(o *elasticbeanstalksdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createIdentityStoreClient returns an IdentityStore client.
+func createIdentityStoreClient(t *testing.T) *identitystoresdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return identitystoresdk.NewFromConfig(cfg, func(o *identitystoresdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createShieldClient returns an AWS Shield client.
+func createShieldClient(t *testing.T) *shieldsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return shieldsdk.NewFromConfig(cfg, func(o *shieldsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
