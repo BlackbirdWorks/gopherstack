@@ -10,11 +10,11 @@ import (
 	"time"
 )
 
-// accessLogWriter wraps http.ResponseWriter to capture status code and response size for access logging.
+// accessLogWriter wraps http.ResponseWriter to capture the status code for access logging.
+// It delegates all writes to the underlying ResponseWriter without modification.
 type accessLogWriter struct {
 	http.ResponseWriter
 	statusCode int
-	size       int
 }
 
 func newAccessLogWriter(w http.ResponseWriter) *accessLogWriter {
@@ -24,13 +24,6 @@ func newAccessLogWriter(w http.ResponseWriter) *accessLogWriter {
 func (a *accessLogWriter) WriteHeader(code int) {
 	a.statusCode = code
 	a.ResponseWriter.WriteHeader(code)
-}
-
-func (a *accessLogWriter) Write(b []byte) (int, error) {
-	n, err := a.ResponseWriter.Write(b)
-	a.size += n
-
-	return n, err
 }
 
 // emitAccessLog emits a single access log entry to CloudWatch Logs when the stage has
@@ -94,7 +87,7 @@ func formatAccessLogEntry(
 		"$context.path", r.URL.Path,
 		"$context.resourcePath", r.URL.Path,
 		"$context.status", strconv.Itoa(alw.statusCode),
-		"$context.responseLength", strconv.Itoa(alw.size),
+		"$context.responseLength", "-",
 		"$context.responseLatencyMs", strconv.FormatInt(latency.Milliseconds(), 10),
 		"$context.protocol", "HTTP/1.1",
 		"$context.stage", stageName,
