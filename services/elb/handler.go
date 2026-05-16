@@ -256,6 +256,13 @@ func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
 		return nil, createErr
 	}
 
+	// AWS allows passing initial Tags at CreateLoadBalancer time.
+	if initialTags := parseTagKVs(vals, "Tags.member"); len(initialTags) > 0 {
+		if tagErr := h.Backend.AddTags([]string{name}, initialTags); tagErr != nil {
+			return nil, tagErr
+		}
+	}
+
 	return &createLoadBalancerResponse{
 		Xmlns: elbXMLNS,
 		Result: createLoadBalancerResult{

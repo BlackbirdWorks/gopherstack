@@ -25,12 +25,12 @@ func TestIntegration_ELBv2_ALBLifecycle(t *testing.T) {
 	ctx := t.Context()
 
 	const (
-		lbName    = "it-alb-lifecycle"
-		tgName    = "it-tg-lifecycle"
-		listPort  = int32(80)
-		ruleHost  = "/api/*"
-		targetIP  = "10.0.1.10"
-		targetID2 = "10.0.1.11"
+		lbName          = "it-alb-lifecycle"
+		tgName          = "it-tg-lifecycle"
+		listPort        = int32(80)
+		rulePathPattern = "/api/*"
+		targetIP        = "10.0.1.10"
+		targetIP2       = "10.0.1.11"
 	)
 
 	// CreateLoadBalancer (ALB).
@@ -107,7 +107,7 @@ func TestIntegration_ELBv2_ALBLifecycle(t *testing.T) {
 		TargetGroupArn: aws.String(tgArn),
 		Targets: []elbv2types.TargetDescription{
 			{Id: aws.String(targetIP), Port: aws.Int32(8080)},
-			{Id: aws.String(targetID2), Port: aws.Int32(8080)},
+			{Id: aws.String(targetIP2), Port: aws.Int32(8080)},
 		},
 	})
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestIntegration_ELBv2_ALBLifecycle(t *testing.T) {
 	_, err = client.DeregisterTargets(ctx, &elbv2sdk.DeregisterTargetsInput{
 		TargetGroupArn: aws.String(tgArn),
 		Targets: []elbv2types.TargetDescription{
-			{Id: aws.String(targetID2), Port: aws.Int32(8080)},
+			{Id: aws.String(targetIP2), Port: aws.Int32(8080)},
 		},
 	})
 	require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestIntegration_ELBv2_ALBLifecycle(t *testing.T) {
 			{
 				Field: aws.String("path-pattern"),
 				PathPatternConfig: &elbv2types.PathPatternConditionConfig{
-					Values: []string{ruleHost},
+					Values: []string{rulePathPattern},
 				},
 			},
 		},
@@ -267,7 +267,7 @@ func TestIntegration_ELBv2_ALBLifecycle(t *testing.T) {
 	require.Len(t, listOut.Listeners, 1)
 	assert.Equal(t, listenerArn, aws.ToString(listOut.Listeners[0].ListenerArn))
 
-	// DescribeTargetGroups by LoadBalancerArn must return the registered TG.
+	// DescribeTargetGroups by TargetGroupArn must return the registered TG.
 	tgOut, err := client.DescribeTargetGroups(ctx, &elbv2sdk.DescribeTargetGroupsInput{
 		TargetGroupArns: []string{tgArn},
 	})

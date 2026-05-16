@@ -13,7 +13,7 @@ import (
 // TestIntegration_Glue_CatalogLifecycle exercises the core Glue Data Catalog
 // workflow end-to-end via the AWS SDK v2: database, table, crawler, connection,
 // job, and job run lifecycle. This is the primary integration coverage for
-// AWS Glue and protects against JSON-RPC regressions in the AWSGlue. target
+// AWS Glue and protects against JSON-RPC regressions in the AWSGlue target
 // dispatch and the per-op input/output shapes.
 func TestIntegration_Glue_CatalogLifecycle(t *testing.T) {
 	t.Parallel()

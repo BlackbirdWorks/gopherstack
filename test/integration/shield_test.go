@@ -48,6 +48,9 @@ func TestIntegration_Shield_SubscriptionAndProtectionLifecycle(t *testing.T) {
 		_, _ = client.DeleteProtection(ctx, &shieldsdk.DeleteProtectionInput{
 			ProtectionId: aws.String(protectionID),
 		})
+		// DeleteSubscription is deprecated in the AWS SDK but is the only way to reset
+		// the global subscription state for this account in our in-memory backend.
+		_, _ = client.DeleteSubscription(ctx, &shieldsdk.DeleteSubscriptionInput{}) //nolint:staticcheck // SA1019
 	})
 
 	// DescribeProtection by ID.
