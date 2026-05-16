@@ -1068,8 +1068,6 @@ func newDashboardConfig(h handlers, _ sdkClients) (dashboard.Config, *chaos.Faul
 // New creates a fully wired integration stack for testing.
 // It sets up all in-memory backends, handlers, the service registry with router,
 // AWS SDK clients (routed back through Echo via InMemClient), and the dashboard.
-//
-//nolint:funlen // integration stack wiring is intentionally explicit and exhaustive for tests.
 func New(t *testing.T) *Stack {
 	t.Helper()
 
