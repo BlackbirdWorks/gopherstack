@@ -61,7 +61,18 @@ const (
 	maxDocumentVersionCap = 1000
 	// resourceTypeParameter is the SSM resource type for parameters.
 	resourceTypeParameter = "Parameter"
+	// maxStandardParamValueBytes is the AWS Standard tier value size limit.
+	maxStandardParamValueBytes = 4096
+	// maxAdvancedParamValueBytes is the AWS Advanced tier value size limit.
+	maxAdvancedParamValueBytes = 8192
 )
+
+// validKMSKeyIDPrefixes are the valid prefixes for custom SSM KMS key IDs.
+var validKMSKeyIDPrefixes = []string{
+	"arn:aws:kms:",
+	"alias/",
+	"key/",
+}
 
 // validParamNameRegex matches only alphanumeric, ., -, _, and / characters.
 var validParamNameRegex = regexp.MustCompile(`^[a-zA-Z0-9._\-/]+$`)
@@ -222,19 +233,71 @@ func (b *InMemoryBackend) WithCommandTTL(d time.Duration) *InMemoryBackend {
 	return b
 }
 
+// validateKMSKeyID validates that a KeyId has a recognizable format.
+func validateKMSKeyID(keyID string) error {
+	for _, prefix := range validKMSKeyIDPrefixes {
+		if strings.HasPrefix(keyID, prefix) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: %q is not a valid KMS key ID or ARN", ErrInvalidKeyID, keyID)
+}
+
+// validateDataType checks that the DataType value is recognized.
+func validateDataType(dt string) error {
+	switch dt {
+	case "", DataTypeText, DataTypeEC2Image:
+		return nil
+	default:
+		return fmt.Errorf("%w: unsupported DataType %q", ErrValidationException, dt)
+	}
+}
+
+// maxValueBytesForTier returns the max allowed value size for the given parameter tier.
+func maxValueBytesForTier(tier string) int {
+	if tier == TierAdvanced || tier == TierIntelligentTiering {
+		return maxAdvancedParamValueBytes
+	}
+
+	return maxStandardParamValueBytes
+}
+
 // PutParameter creates or updates a parameter.
 func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterOutput, error) {
 	if err := validateParameterName(input.Name); err != nil {
 		return nil, err
 	}
 
-	// AWS SSM rejects parameter values larger than 4 KiB on the Standard tier
-	// (8 KiB on Advanced). gopherstack does not yet model parameter tiers, so
-	// enforce the more restrictive Standard limit which is the AWS default.
-	const maxParameterValueBytes = 4096
-	if len(input.Value) > maxParameterValueBytes {
-		return nil, fmt.Errorf("%w: parameter value exceeds %d bytes",
-			ErrValidationException, maxParameterValueBytes)
+	maxBytes := maxValueBytesForTier(input.Tier)
+	if len(input.Value) > maxBytes {
+		return nil, fmt.Errorf("%w: parameter value exceeds %d bytes for tier %q",
+			ErrValidationException, maxBytes, input.Tier)
+	}
+
+	if input.KeyId != "" && input.Type == SecureStringType {
+		if err := validateKMSKeyID(input.KeyId); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := validateDataType(input.DataType); err != nil {
+		return nil, err
+	}
+
+	if input.AllowedPattern != "" {
+		re, err := regexp.Compile(input.AllowedPattern)
+		if err != nil {
+			return nil, fmt.Errorf("%w: AllowedPattern is not a valid regex: %s",
+				ErrValidationException, err.Error())
+		}
+
+		if !re.MatchString(input.Value) {
+			return nil, fmt.Errorf(
+				"%w: parameter value does not match AllowedPattern %q",
+				ErrValidationException, input.AllowedPattern,
+			)
+		}
 	}
 
 	b.mu.Lock("PutParameter")
@@ -248,6 +311,16 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 	version := int64(1)
 	if exists {
 		version = existing.Version + 1
+	}
+
+	tier := input.Tier
+	if tier == "" {
+		tier = TierStandard
+	}
+
+	dataType := input.DataType
+	if dataType == "" {
+		dataType = DataTypeText
 	}
 
 	// Encrypt if SecureString type
@@ -265,27 +338,36 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 		Type:             input.Type,
 		Value:            value,
 		Description:      input.Description,
+		KeyId:            input.KeyId,
+		Tier:             tier,
+		DataType:         dataType,
+		AllowedPattern:   input.AllowedPattern,
+		Policies:         input.Policies,
 		Version:          version,
 		LastModifiedDate: UnixTimeFloat(time.Now()),
 	}
 
 	b.parameters[input.Name] = param
 
-	// Store in history (store encrypted value for SecureString)
+	// Trim before append to avoid growing beyond cap+1.
+	history := b.history[input.Name]
+	if len(history) >= maxHistoryCap {
+		history = history[len(history)-maxHistoryCap+1:]
+	}
+
 	paramHistory := ParameterHistory{
 		Name:             input.Name,
 		Type:             input.Type,
 		Value:            value,
+		KeyId:            input.KeyId,
+		Tier:             tier,
+		DataType:         dataType,
+		AllowedPattern:   input.AllowedPattern,
 		Version:          version,
 		LastModifiedDate: param.LastModifiedDate,
-		Labels:           []string{}, // Placeholder for labels support in future
+		Labels:           []string{},
 	}
-	b.history[input.Name] = append(b.history[input.Name], paramHistory)
-
-	// Cap history to the most recent maxHistoryCap entries to prevent unbounded growth.
-	if len(b.history[input.Name]) > maxHistoryCap {
-		b.history[input.Name] = b.history[input.Name][len(b.history[input.Name])-maxHistoryCap:]
-	}
+	b.history[input.Name] = append(history, paramHistory)
 
 	return &PutParameterOutput{Version: version}, nil
 }
@@ -304,8 +386,7 @@ func (b *InMemoryBackend) GetParameter(input *GetParameterInput) (*GetParameterO
 	if input.WithDecryption && param.Type == SecureStringType {
 		decrypted, err := decryptValue(param.Value)
 		if err != nil {
-			// If decryption fails, return the parameter with encrypted value
-			return &GetParameterOutput{Parameter: param}, nil
+			return nil, fmt.Errorf("%w: decryption failed for %q: %w", ErrInvalidKeyID, input.Name, err)
 		}
 		param.Value = decrypted
 	}
@@ -455,6 +536,12 @@ func paramMatchesPath(name, path string, recursive bool) bool {
 
 // GetParametersByPath returns parameters whose names begin with the given path.
 func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (*GetParametersByPathOutput, error) {
+	if len(input.ParameterFilters) > 0 {
+		if err := validateParameterFilters(input.ParameterFilters); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.RLock("GetParametersByPath")
 	defer b.mu.RUnlock()
 
@@ -533,11 +620,19 @@ func (b *InMemoryBackend) DescribeParameters(input *DescribeParametersInput) (*D
 			Version:          p.Version,
 			LastModifiedDate: p.LastModifiedDate,
 			Description:      p.Description,
+			KeyId:            p.KeyId,
+			Tier:             p.Tier,
+			DataType:         p.DataType,
+			AllowedPattern:   p.AllowedPattern,
 		})
 	}
 
 	// Apply filters
 	if len(input.ParameterFilters) > 0 {
+		if err := validateParameterFilters(input.ParameterFilters); err != nil {
+			return nil, err
+		}
+
 		var filtered []ParameterMetadata
 
 		for _, meta := range all {
@@ -594,6 +689,30 @@ func parseNextToken(token string) int {
 	return idx
 }
 
+// validParameterFilterKeys are the parameter filter keys supported by AWS SSM.
+var validParameterFilterKeys = map[string]bool{
+	"Name":         true,
+	"Type":         true,
+	"KeyId":        true,
+	"Tier":         true,
+	"DataType":     true,
+	"AllowedPattern": true,
+}
+
+// validateParameterFilters returns an error if any filter uses an unknown key.
+func validateParameterFilters(filters []ParameterFilter) error {
+	for _, f := range filters {
+		if !validParameterFilterKeys[f.Key] {
+			return fmt.Errorf(
+				"%w: unsupported parameter filter key %q; valid keys: Name, Type, KeyId, Tier, DataType",
+				ErrValidationException, f.Key,
+			)
+		}
+	}
+
+	return nil
+}
+
 // paramMatchesFilters returns true when the metadata satisfies ALL filters.
 func paramMatchesFilters(meta ParameterMetadata, filters []ParameterFilter) bool {
 	for _, f := range filters {
@@ -615,8 +734,16 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 		fieldValue = meta.Name
 	case "Type":
 		fieldValue = meta.Type
+	case "KeyId":
+		fieldValue = meta.KeyId
+	case "Tier":
+		fieldValue = meta.Tier
+	case "DataType":
+		fieldValue = meta.DataType
+	case "AllowedPattern":
+		fieldValue = meta.AllowedPattern
 	default:
-		return true // unknown keys are ignored
+		return false
 	}
 
 	option := f.Option
@@ -828,6 +955,7 @@ func (b *InMemoryBackend) CreateDocument(input *CreateDocumentInput) (*CreateDoc
 		TargetType:      input.TargetType,
 		Description:     input.Description,
 		PlatformTypes:   input.PlatformTypes,
+		Requires:        input.Requires,
 		SchemaVersion:   "2.2",
 		CreatedDate:     now,
 		DocumentVersion: "1",
@@ -1136,12 +1264,14 @@ func (b *InMemoryBackend) SendCommand(input *SendCommandInput) (*SendCommandOutp
 	invocations := make([]CommandInvocation, 0, len(input.InstanceIDs))
 	for _, instanceID := range input.InstanceIDs {
 		inv := CommandInvocation{
-			CommandID:         cmdID,
-			InstanceID:        instanceID,
-			DocumentName:      input.DocumentName,
-			Status:            commandStatusSuccess,
-			StatusDetails:     commandStatusSuccess,
-			RequestedDateTime: now,
+			CommandID:          cmdID,
+			InstanceID:         instanceID,
+			DocumentName:       input.DocumentName,
+			Status:             commandStatusSuccess,
+			StatusDetails:      commandStatusSuccess,
+			RequestedDateTime:  now,
+			OutputS3BucketName: input.OutputS3BucketName,
+			OutputS3KeyPrefix:  input.OutputS3KeyPrefix,
 		}
 		invocations = append(invocations, inv)
 	}
@@ -1204,11 +1334,15 @@ func (b *InMemoryBackend) GetCommandInvocation(input *GetCommandInvocationInput)
 	for _, inv := range b.commandInvocations[input.CommandID] {
 		if inv.InstanceID == input.InstanceID {
 			return &GetCommandInvocationOutput{
-				CommandID:     input.CommandID,
-				InstanceID:    input.InstanceID,
-				DocumentName:  inv.DocumentName,
-				Status:        inv.Status,
-				StatusDetails: inv.StatusDetails,
+				CommandID:          input.CommandID,
+				InstanceID:         input.InstanceID,
+				DocumentName:       inv.DocumentName,
+				Status:             inv.Status,
+				StatusDetails:      inv.StatusDetails,
+				StandardOutputURL:  inv.StandardOutputURL,
+				StandardErrorURL:   inv.StandardErrorURL,
+				OutputS3BucketName: inv.OutputS3BucketName,
+				OutputS3KeyPrefix:  inv.OutputS3KeyPrefix,
 			}, nil
 		}
 	}

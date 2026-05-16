@@ -6,6 +6,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// Parameter tier constants match AWS SSM parameter tiers.
+const (
+	TierStandard           = "Standard"
+	TierAdvanced           = "Advanced"
+	TierIntelligentTiering = "Intelligent-Tiering"
+)
+
+// DataType constants for SSM parameters.
+const (
+	DataTypeText     = "text"
+	DataTypeEC2Image = "aws:ec2:image"
+)
+
 // Parameter represents a single SSM Parameter.
 type Parameter struct {
 	Name             string     `json:"Name"`
@@ -13,17 +26,27 @@ type Parameter struct {
 	Value            string     `json:"Value"`
 	Tags             *tags.Tags `json:"Tags,omitempty"`
 	Description      string     `json:"Description,omitempty"`
+	KeyId            string     `json:"KeyId,omitempty"`
+	Tier             string     `json:"Tier,omitempty"`
+	DataType         string     `json:"DataType,omitempty"`
+	AllowedPattern   string     `json:"AllowedPattern,omitempty"`
+	Policies         string     `json:"Policies,omitempty"`
 	Version          int64      `json:"Version"`
 	LastModifiedDate float64    `json:"LastModifiedDate"`
 }
 
 // PutParameterInput represents the request payload for PutParameter.
 type PutParameterInput struct {
-	Name        string `json:"Name"`
-	Type        string `json:"Type"`
-	Value       string `json:"Value"`
-	Description string `json:"Description,omitempty"`
-	Overwrite   bool   `json:"Overwrite,omitempty"`
+	Name           string `json:"Name"`
+	Type           string `json:"Type"`
+	Value          string `json:"Value"`
+	Description    string `json:"Description,omitempty"`
+	KeyId          string `json:"KeyId,omitempty"`
+	Tier           string `json:"Tier,omitempty"`
+	AllowedPattern string `json:"AllowedPattern,omitempty"`
+	DataType       string `json:"DataType,omitempty"`
+	Policies       string `json:"Policies,omitempty"`
+	Overwrite      bool   `json:"Overwrite,omitempty"`
 }
 
 // PutParameterOutput represents the response payload for PutParameter.
@@ -79,6 +102,10 @@ type ParameterHistory struct {
 	Type             string   `json:"Type"`
 	Value            string   `json:"Value"`
 	Labels           []string `json:"Labels,omitempty"`
+	KeyId            string   `json:"KeyId,omitempty"`
+	Tier             string   `json:"Tier,omitempty"`
+	DataType         string   `json:"DataType,omitempty"`
+	AllowedPattern   string   `json:"AllowedPattern,omitempty"`
 	Version          int64    `json:"Version"`
 	LastModifiedDate float64  `json:"LastModifiedDate"`
 }
@@ -127,6 +154,10 @@ type ParameterMetadata struct {
 	Name             string  `json:"Name"`
 	Type             string  `json:"Type"`
 	Description      string  `json:"Description,omitempty"`
+	KeyId            string  `json:"KeyId,omitempty"`
+	Tier             string  `json:"Tier,omitempty"`
+	DataType         string  `json:"DataType,omitempty"`
+	AllowedPattern   string  `json:"AllowedPattern,omitempty"`
 	Version          int64   `json:"Version"`
 	LastModifiedDate float64 `json:"LastModifiedDate"`
 }
@@ -190,22 +221,44 @@ const (
 	DocumentTypeSession    = "Session"
 )
 
+// AttachmentSource specifies a source for a document attachment.
+type AttachmentSource struct {
+	Key    string   `json:"Key,omitempty"`
+	Name   string   `json:"Name,omitempty"`
+	Values []string `json:"Values,omitempty"`
+}
+
+// AttachmentInformation holds metadata about a document attachment.
+type AttachmentInformation struct {
+	Name string `json:"Name,omitempty"`
+	URL  string `json:"Url,omitempty"`
+	Hash string `json:"Hash,omitempty"`
+}
+
+// DocumentRequires specifies a required document dependency.
+type DocumentRequires struct {
+	Name    string `json:"Name"`
+	Version string `json:"Version,omitempty"`
+}
+
 // Document represents an SSM document.
 type Document struct {
-	TargetType        string   `json:"TargetType,omitempty"`
-	LatestVersion     string   `json:"LatestVersion"`
-	DocumentType      string   `json:"DocumentType"`
-	DocumentFormat    string   `json:"DocumentFormat"`
-	Status            string   `json:"Status"`
-	StatusInformation string   `json:"StatusInformation,omitempty"`
-	DefaultVersion    string   `json:"DefaultVersion"`
-	Name              string   `json:"Name"`
-	Content           string   `json:"Content"`
-	SchemaVersion     string   `json:"SchemaVersion"`
-	Description       string   `json:"Description,omitempty"`
-	DocumentVersion   string   `json:"DocumentVersion"`
-	PlatformTypes     []string `json:"PlatformTypes,omitempty"`
-	CreatedDate       float64  `json:"CreatedDate"`
+	TargetType        string                  `json:"TargetType,omitempty"`
+	LatestVersion     string                  `json:"LatestVersion"`
+	DocumentType      string                  `json:"DocumentType"`
+	DocumentFormat    string                  `json:"DocumentFormat"`
+	Status            string                  `json:"Status"`
+	StatusInformation string                  `json:"StatusInformation,omitempty"`
+	DefaultVersion    string                  `json:"DefaultVersion"`
+	Name              string                  `json:"Name"`
+	Content           string                  `json:"Content"`
+	SchemaVersion     string                  `json:"SchemaVersion"`
+	Description       string                  `json:"Description,omitempty"`
+	DocumentVersion   string                  `json:"DocumentVersion"`
+	PlatformTypes     []string                `json:"PlatformTypes,omitempty"`
+	AttachmentsInformation []AttachmentInformation `json:"AttachmentsInformation,omitempty"`
+	Requires          []DocumentRequires      `json:"Requires,omitempty"`
+	CreatedDate       float64                 `json:"CreatedDate"`
 }
 
 // DocumentVersion represents a specific version of an SSM document.
@@ -243,13 +296,15 @@ type DocumentFilter struct {
 
 // CreateDocumentInput is the request payload for CreateDocument.
 type CreateDocumentInput struct {
-	Name           string   `json:"Name"`
-	Content        string   `json:"Content"`
-	DocumentType   string   `json:"DocumentType,omitempty"`
-	DocumentFormat string   `json:"DocumentFormat,omitempty"`
-	TargetType     string   `json:"TargetType,omitempty"`
-	Description    string   `json:"Description,omitempty"`
-	PlatformTypes  []string `json:"PlatformTypes,omitempty"`
+	Name              string             `json:"Name"`
+	Content           string             `json:"Content"`
+	DocumentType      string             `json:"DocumentType,omitempty"`
+	DocumentFormat    string             `json:"DocumentFormat,omitempty"`
+	TargetType        string             `json:"TargetType,omitempty"`
+	Description       string             `json:"Description,omitempty"`
+	PlatformTypes     []string           `json:"PlatformTypes,omitempty"`
+	Attachments       []AttachmentSource `json:"Attachments,omitempty"`
+	Requires          []DocumentRequires `json:"Requires,omitempty"`
 }
 
 // CreateDocumentOutput is the response payload for CreateDocument.
@@ -371,21 +426,27 @@ type Command struct {
 
 // CommandInvocation represents the invocation of a command on an instance.
 type CommandInvocation struct {
-	CommandID         string  `json:"CommandId"`
-	InstanceID        string  `json:"InstanceId"`
-	DocumentName      string  `json:"DocumentName"`
-	Status            string  `json:"Status"`
-	StatusDetails     string  `json:"StatusDetails"`
-	RequestedDateTime float64 `json:"RequestedDateTime"`
+	CommandID               string  `json:"CommandId"`
+	InstanceID              string  `json:"InstanceId"`
+	DocumentName            string  `json:"DocumentName"`
+	Status                  string  `json:"Status"`
+	StatusDetails           string  `json:"StatusDetails"`
+	StandardOutputURL       string  `json:"StandardOutputUrl,omitempty"`
+	StandardErrorURL        string  `json:"StandardErrorUrl,omitempty"`
+	OutputS3BucketName      string  `json:"OutputS3BucketName,omitempty"`
+	OutputS3KeyPrefix       string  `json:"OutputS3KeyPrefix,omitempty"`
+	RequestedDateTime       float64 `json:"RequestedDateTime"`
 }
 
 // SendCommandInput is the request payload for SendCommand.
 type SendCommandInput struct {
-	DocumentName string              `json:"DocumentName"`
-	InstanceIDs  []string            `json:"InstanceIds,omitempty"`
-	Parameters   map[string][]string `json:"Parameters,omitempty"`
-	Comment      string              `json:"Comment,omitempty"`
-	Targets      []any               `json:"Targets,omitempty"`
+	DocumentName       string              `json:"DocumentName"`
+	InstanceIDs        []string            `json:"InstanceIds,omitempty"`
+	Parameters         map[string][]string `json:"Parameters,omitempty"`
+	Comment            string              `json:"Comment,omitempty"`
+	Targets            []any               `json:"Targets,omitempty"`
+	OutputS3BucketName string              `json:"OutputS3BucketName,omitempty"`
+	OutputS3KeyPrefix  string              `json:"OutputS3KeyPrefix,omitempty"`
 }
 
 // SendCommandOutput is the response payload for SendCommand.
@@ -415,11 +476,17 @@ type GetCommandInvocationInput struct {
 
 // GetCommandInvocationOutput is the response payload for GetCommandInvocation.
 type GetCommandInvocationOutput struct {
-	CommandID     string `json:"CommandId"`
-	InstanceID    string `json:"InstanceId"`
-	DocumentName  string `json:"DocumentName"`
-	Status        string `json:"Status"`
-	StatusDetails string `json:"StatusDetails"`
+	CommandID          string `json:"CommandId"`
+	InstanceID         string `json:"InstanceId"`
+	DocumentName       string `json:"DocumentName"`
+	Status             string `json:"Status"`
+	StatusDetails      string `json:"StatusDetails"`
+	StandardOutputContent string `json:"StandardOutputContent,omitempty"`
+	StandardErrorContent  string `json:"StandardErrorContent,omitempty"`
+	StandardOutputURL  string `json:"StandardOutputUrl,omitempty"`
+	StandardErrorURL   string `json:"StandardErrorUrl,omitempty"`
+	OutputS3BucketName string `json:"OutputS3BucketName,omitempty"`
+	OutputS3KeyPrefix  string `json:"OutputS3KeyPrefix,omitempty"`
 }
 
 // ListCommandInvocationsInput is the request payload for ListCommandInvocations.
@@ -722,10 +789,16 @@ type MaintenanceWindowTask struct {
 
 // Session represents an SSM Session Manager session.
 type Session struct {
-	SessionID  string  `json:"SessionId"`
-	Target     string  `json:"Target"`
-	Status     string  `json:"Status"`
-	StreamURL  string  `json:"StreamUrl"`
-	TokenValue string  `json:"TokenValue"`
-	StartDate  float64 `json:"StartDate"`
+	SessionID                string  `json:"SessionId"`
+	Target                   string  `json:"Target"`
+	Status                   string  `json:"Status"`
+	StreamURL                string  `json:"StreamUrl"`
+	TokenValue               string  `json:"TokenValue"`
+	Owner                    string  `json:"Owner,omitempty"`
+	StartDate                float64 `json:"StartDate"`
+	EndDate                  float64 `json:"EndDate,omitempty"`
+	OutputS3BucketName       string  `json:"OutputS3BucketName,omitempty"`
+	OutputS3KeyPrefix        string  `json:"OutputS3KeyPrefix,omitempty"`
+	CloudWatchOutputEnabled  bool    `json:"CloudWatchOutputEnabled,omitempty"`
+	CloudWatchLogGroupName   string  `json:"CloudWatchLogGroupName,omitempty"`
 }

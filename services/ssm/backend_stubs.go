@@ -1,7 +1,9 @@
 package ssm
 
 import (
+	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"time"
 
@@ -471,10 +473,17 @@ type GetServiceSettingInput struct{}
 type GetServiceSettingOutput struct{}
 
 // LabelParameterVersionInput is the request payload.
-type LabelParameterVersionInput struct{}
+type LabelParameterVersionInput struct {
+	Name    string   `json:"Name"`
+	Version int64    `json:"ParameterVersion,omitempty"`
+	Labels  []string `json:"Labels"`
+}
 
 // LabelParameterVersionOutput is the response payload.
-type LabelParameterVersionOutput struct{}
+type LabelParameterVersionOutput struct {
+	InvalidLabels    []string `json:"InvalidLabels,omitempty"`
+	ParameterVersion int64    `json:"ParameterVersion"`
+}
 
 // ListAssociationVersionsInput is the request payload.
 type ListAssociationVersionsInput struct{}
@@ -666,9 +675,13 @@ type StartExecutionPreviewOutput struct{}
 
 // StartSessionInput is the request payload.
 type StartSessionInput struct {
-	Target       string `json:"Target"`
-	DocumentName string `json:"DocumentName,omitempty"`
-	Reason       string `json:"Reason,omitempty"`
+	Target                  string `json:"Target"`
+	DocumentName            string `json:"DocumentName,omitempty"`
+	Reason                  string `json:"Reason,omitempty"`
+	OutputS3BucketName      string `json:"OutputS3BucketName,omitempty"`
+	OutputS3KeyPrefix       string `json:"OutputS3KeyPrefix,omitempty"`
+	CloudWatchOutputEnabled bool   `json:"CloudWatchOutputEnabled,omitempty"`
+	CloudWatchLogGroupName  string `json:"CloudWatchLogGroupName,omitempty"`
 }
 
 // StartSessionOutput is the response payload.
@@ -1482,9 +1495,47 @@ func (b *InMemoryBackend) GetServiceSetting(_ *GetServiceSettingInput) (*GetServ
 	return &GetServiceSettingOutput{}, nil
 }
 
-// LabelParameterVersion is a stub implementation.
-func (b *InMemoryBackend) LabelParameterVersion(_ *LabelParameterVersionInput) (*LabelParameterVersionOutput, error) {
-	return &LabelParameterVersionOutput{}, nil
+// LabelParameterVersion applies labels to a specific parameter version.
+func (b *InMemoryBackend) LabelParameterVersion(input *LabelParameterVersionInput) (*LabelParameterVersionOutput, error) {
+	b.mu.Lock("LabelParameterVersion")
+	defer b.mu.Unlock()
+
+	history, exists := b.history[input.Name]
+	if !exists {
+		return nil, ErrParameterNotFound
+	}
+
+	// Find the target version — default to the latest version.
+	targetVersion := input.Version
+	if targetVersion == 0 {
+		if param, ok := b.parameters[input.Name]; ok {
+			targetVersion = param.Version
+		}
+	}
+
+	idx := -1
+	for i, h := range history {
+		if h.Version == targetVersion {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx == -1 {
+		return nil, fmt.Errorf("%w: version %d not found for parameter %q",
+			ErrValidationException, targetVersion, input.Name)
+	}
+
+	for _, label := range input.Labels {
+		if !slices.Contains(history[idx].Labels, label) {
+			history[idx].Labels = append(history[idx].Labels, label)
+		}
+	}
+
+	b.history[input.Name] = history
+
+	return &LabelParameterVersionOutput{ParameterVersion: targetVersion}, nil
 }
 
 // ListAssociationVersions is a stub implementation.
@@ -1717,12 +1768,16 @@ func (b *InMemoryBackend) StartSession(input *StartSessionInput) (*StartSessionO
 	sessionID := sessionIDPrefix + uuid.NewString()
 
 	sess := Session{
-		SessionID:  sessionID,
-		Target:     input.Target,
-		Status:     sessionStatusConnected,
-		StartDate:  UnixTimeFloat(timeNow()),
-		StreamURL:  "wss://gopherstack-ssm-session/" + sessionID,
-		TokenValue: uuid.NewString(),
+		SessionID:               sessionID,
+		Target:                  input.Target,
+		Status:                  sessionStatusConnected,
+		StartDate:               UnixTimeFloat(timeNow()),
+		StreamURL:               "wss://gopherstack-ssm-session/" + sessionID,
+		TokenValue:              uuid.NewString(),
+		OutputS3BucketName:      input.OutputS3BucketName,
+		OutputS3KeyPrefix:       input.OutputS3KeyPrefix,
+		CloudWatchOutputEnabled: input.CloudWatchOutputEnabled,
+		CloudWatchLogGroupName:  input.CloudWatchLogGroupName,
 	}
 
 	b.sessions[sessionID] = sess
@@ -1750,6 +1805,7 @@ func (b *InMemoryBackend) TerminateSession(input *TerminateSessionInput) (*Termi
 	}
 
 	sess.Status = sessionStatusTerminated
+	sess.EndDate = UnixTimeFloat(timeNow())
 	b.sessions[input.SessionID] = sess
 
 	return &TerminateSessionOutput{SessionID: input.SessionID}, nil
