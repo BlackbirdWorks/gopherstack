@@ -1677,10 +1677,82 @@ func (h *Handler) handleListCustomVerificationEmailTemplates(reqID string) any {
 	}
 }
 
+// parseReceiptActions parses Rule.Actions.member.N.{ActionType}Action form values.
+func parseReceiptActions(vals url.Values, prefix string) []ReceiptAction {
+	var actions []ReceiptAction
+	base := prefix + ".member."
+
+	for i := 1; ; i++ {
+		idx := base + strconv.Itoa(i)
+
+		var action ReceiptAction
+
+		switch {
+		case vals.Get(idx+".S3Action.BucketName") != "":
+			action = ReceiptAction{
+				Type:         ReceiptActionTypeS3,
+				S3BucketName: vals.Get(idx + ".S3Action.BucketName"),
+				S3KeyPrefix:  vals.Get(idx + ".S3Action.ObjectKeyPrefix"),
+				S3TopicARN:   vals.Get(idx + ".S3Action.TopicArn"),
+			}
+		case vals.Get(idx+".SNSAction.TopicArn") != "":
+			action = ReceiptAction{
+				Type:        ReceiptActionTypeSNS,
+				SNSTopicARN: vals.Get(idx + ".SNSAction.TopicArn"),
+			}
+		case vals.Get(idx+".LambdaAction.FunctionArn") != "":
+			action = ReceiptAction{
+				Type:              ReceiptActionTypeLambda,
+				LambdaFunctionARN: vals.Get(idx + ".LambdaAction.FunctionArn"),
+				LambdaTopicARN:    vals.Get(idx + ".LambdaAction.TopicArn"),
+			}
+		case vals.Get(idx+".SqsAction.QueueArn") != "":
+			action = ReceiptAction{
+				Type:        ReceiptActionTypeSQS,
+				SQSQueueARN: vals.Get(idx + ".SqsAction.QueueArn"),
+				SQSTopicARN: vals.Get(idx + ".SqsAction.TopicArn"),
+			}
+		case vals.Get(idx+".AddHeaderAction.HeaderName") != "":
+			action = ReceiptAction{
+				Type:        ReceiptActionTypeAddHeader,
+				HeaderName:  vals.Get(idx + ".AddHeaderAction.HeaderName"),
+				HeaderValue: vals.Get(idx + ".AddHeaderAction.HeaderValue"),
+			}
+		case vals.Get(idx+".BounceAction.SmtpReplyCode") != "":
+			action = ReceiptAction{
+				Type:           ReceiptActionTypeBounce,
+				SMTPReplyCode:  vals.Get(idx + ".BounceAction.SmtpReplyCode"),
+				StatusCode:     vals.Get(idx + ".BounceAction.StatusCode"),
+				Message:        vals.Get(idx + ".BounceAction.Message"),
+				Sender:         vals.Get(idx + ".BounceAction.Sender"),
+				BounceTopicARN: vals.Get(idx + ".BounceAction.TopicArn"),
+			}
+		case vals.Get(idx+".StopAction.Scope") != "":
+			action = ReceiptAction{
+				Type:           ReceiptActionTypeStop,
+				BounceTopicARN: vals.Get(idx + ".StopAction.TopicArn"),
+			}
+		}
+
+		if action.Type == "" {
+			break
+		}
+
+		actions = append(actions, action)
+	}
+
+	return actions
+}
+
 func toXMLReceiptRule(r ReceiptRule) xmlReceiptRule {
 	recipients := make([]xmlMember, 0, len(r.Recipients))
 	for _, rec := range r.Recipients {
 		recipients = append(recipients, xmlMember{Value: rec})
+	}
+
+	actions := make([]xmlReceiptAction, 0, len(r.Actions))
+	for _, a := range r.Actions {
+		actions = append(actions, receiptActionToXML(a))
 	}
 
 	return xmlReceiptRule{
@@ -1689,7 +1761,41 @@ func toXMLReceiptRule(r ReceiptRule) xmlReceiptRule {
 		TLSPolicy:   r.TLSPolicy,
 		ScanEnabled: r.ScanEnabled,
 		Recipients:  xmlMemberList{Members: recipients},
+		Actions:     xmlReceiptActionList{Members: actions},
 	}
+}
+
+func receiptActionToXML(a ReceiptAction) xmlReceiptAction {
+	x := xmlReceiptAction{}
+
+	switch a.Type {
+	case ReceiptActionTypeS3:
+		x.S3Action = &xmlS3Action{
+			BucketName:      a.S3BucketName,
+			ObjectKeyPrefix: a.S3KeyPrefix,
+			TopicARN:        a.S3TopicARN,
+		}
+	case ReceiptActionTypeSNS:
+		x.SNSAction = &xmlSNSAction{TopicARN: a.SNSTopicARN}
+	case ReceiptActionTypeLambda:
+		x.LambdaAction = &xmlLambdaAction{FunctionARN: a.LambdaFunctionARN, TopicARN: a.LambdaTopicARN}
+	case ReceiptActionTypeSQS:
+		x.SqsAction = &xmlSQSAction{QueueARN: a.SQSQueueARN, TopicARN: a.SQSTopicARN}
+	case ReceiptActionTypeAddHeader:
+		x.AddHeaderAction = &xmlAddHeaderAction{HeaderName: a.HeaderName, HeaderValue: a.HeaderValue}
+	case ReceiptActionTypeBounce:
+		x.BounceAction = &xmlBounceAction{
+			SMTPReplyCode: a.SMTPReplyCode,
+			StatusCode:    a.StatusCode,
+			Message:       a.Message,
+			Sender:        a.Sender,
+			TopicARN:      a.BounceTopicARN,
+		}
+	case ReceiptActionTypeStop:
+		x.StopAction = &xmlStopAction{Scope: "RuleSet", TopicARN: a.BounceTopicARN}
+	}
+
+	return x
 }
 
 type xmlReceiptFilter struct {
@@ -1739,12 +1845,65 @@ type listReceiptRuleSetsResponse struct {
 	Result    listReceiptRuleSetsResult `xml:"ListReceiptRuleSetsResult"`
 }
 
+type xmlS3Action struct {
+	BucketName      string `xml:"BucketName"`
+	ObjectKeyPrefix string `xml:"ObjectKeyPrefix,omitempty"`
+	TopicARN        string `xml:"TopicArn,omitempty"`
+}
+
+type xmlSNSAction struct {
+	TopicARN string `xml:"TopicArn"`
+}
+
+type xmlLambdaAction struct {
+	FunctionARN string `xml:"FunctionArn"`
+	TopicARN    string `xml:"TopicArn,omitempty"`
+}
+
+type xmlSQSAction struct {
+	QueueARN string `xml:"QueueArn"`
+	TopicARN string `xml:"TopicArn,omitempty"`
+}
+
+type xmlAddHeaderAction struct {
+	HeaderName  string `xml:"HeaderName"`
+	HeaderValue string `xml:"HeaderValue"`
+}
+
+type xmlBounceAction struct {
+	SMTPReplyCode string `xml:"SmtpReplyCode"`
+	StatusCode    string `xml:"StatusCode,omitempty"`
+	Message       string `xml:"Message"`
+	Sender        string `xml:"Sender"`
+	TopicARN      string `xml:"TopicArn,omitempty"`
+}
+
+type xmlStopAction struct {
+	Scope    string `xml:"Scope"`
+	TopicARN string `xml:"TopicArn,omitempty"`
+}
+
+type xmlReceiptAction struct {
+	S3Action        *xmlS3Action        `xml:"S3Action,omitempty"`
+	SNSAction       *xmlSNSAction       `xml:"SNSAction,omitempty"`
+	LambdaAction    *xmlLambdaAction    `xml:"LambdaAction,omitempty"`
+	SqsAction       *xmlSQSAction       `xml:"SqsAction,omitempty"`
+	AddHeaderAction *xmlAddHeaderAction `xml:"AddHeaderAction,omitempty"`
+	BounceAction    *xmlBounceAction    `xml:"BounceAction,omitempty"`
+	StopAction      *xmlStopAction      `xml:"StopAction,omitempty"`
+}
+
+type xmlReceiptActionList struct {
+	Members []xmlReceiptAction `xml:"member"`
+}
+
 type xmlReceiptRule struct {
-	Name        string        `xml:"Name"`
-	TLSPolicy   string        `xml:"TlsPolicy,omitempty"`
-	Recipients  xmlMemberList `xml:"Recipients"`
-	Enabled     bool          `xml:"Enabled"`
-	ScanEnabled bool          `xml:"ScanEnabled"`
+	Name        string               `xml:"Name"`
+	TLSPolicy   string               `xml:"TlsPolicy,omitempty"`
+	Recipients  xmlMemberList        `xml:"Recipients"`
+	Actions     xmlReceiptActionList `xml:"Actions"`
+	Enabled     bool                 `xml:"Enabled"`
+	ScanEnabled bool                 `xml:"ScanEnabled"`
 }
 
 type xmlReceiptRuleList struct {
@@ -2314,10 +2473,18 @@ func (h *Handler) handleDescribeConfigurationSet(vals url.Values, reqID string) 
 	result := describeConfigurationSetResult{
 		ConfigurationSet:  xmlConfigurationSet{Name: desc.Name},
 		EventDestinations: xmlEventDestinationList{Members: dests},
+		ReputationOptions: &xmlReputationOptions{
+			SendingEnabled:           desc.SendingEnabled,
+			ReputationMetricsEnabled: desc.ReputationMetricsEnabled,
+		},
 	}
 
 	if desc.TrackingOptions != nil {
 		result.TrackingOptions = &xmlTrackingOptions{CustomRedirectDomain: desc.TrackingOptions.CustomRedirectDomain}
+	}
+
+	if desc.DeliveryOptions != nil {
+		result.DeliveryOptions = &xmlDeliveryOptions{TLSPolicy: desc.DeliveryOptions.TLSPolicy}
 	}
 
 	return &describeConfigurationSetResponse{
@@ -2635,8 +2802,19 @@ type xmlTrackingOptions struct {
 	CustomRedirectDomain string `xml:"CustomRedirectDomain,omitempty"`
 }
 
+type xmlDeliveryOptions struct {
+	TLSPolicy string `xml:"TlsPolicy,omitempty"`
+}
+
+type xmlReputationOptions struct {
+	SendingEnabled           bool `xml:"SendingEnabled"`
+	ReputationMetricsEnabled bool `xml:"ReputationMetricsEnabled"`
+}
+
 type describeConfigurationSetResult struct {
 	TrackingOptions   *xmlTrackingOptions     `xml:"TrackingOptions,omitempty"`
+	DeliveryOptions   *xmlDeliveryOptions     `xml:"DeliveryOptions,omitempty"`
+	ReputationOptions *xmlReputationOptions   `xml:"ReputationOptions,omitempty"`
 	ConfigurationSet  xmlConfigurationSet     `xml:"ConfigurationSet"`
 	EventDestinations xmlEventDestinationList `xml:"EventDestinations"`
 }

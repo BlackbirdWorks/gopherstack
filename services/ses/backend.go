@@ -23,34 +23,34 @@ type Tag struct {
 
 // IdentityRecord stores per-identity verification and attribute state.
 type IdentityRecord struct {
-	DkimTokens         []string          `json:"dkimTokens,omitempty"`
-	MailFromDomain     string            `json:"mailFromDomain,omitempty"`
-	MailFromStatus     string            `json:"mailFromStatus,omitempty"`
-	BehaviorOnMXFail   string            `json:"behaviorOnMXFailure,omitempty"`
-	BounceTopic        string            `json:"bounceTopic,omitempty"`
-	ComplaintTopic     string            `json:"complaintTopic,omitempty"`
-	DeliveryTopic      string            `json:"deliveryTopic,omitempty"`
-	DkimEnabled        bool              `json:"dkimEnabled"`
-	ForwardingEnabled  bool              `json:"forwardingEnabled"`
-	HeadersInBounce    bool              `json:"headersInBounce"`
-	HeadersInComplaint bool              `json:"headersInComplaint"`
-	HeadersInDelivery  bool              `json:"headersInDelivery"`
-	Verified           bool              `json:"verified"`
+	DeliveryTopic      string   `json:"deliveryTopic,omitempty"`
+	MailFromDomain     string   `json:"mailFromDomain,omitempty"`
+	MailFromStatus     string   `json:"mailFromStatus,omitempty"`
+	BehaviorOnMXFail   string   `json:"behaviorOnMXFailure,omitempty"`
+	BounceTopic        string   `json:"bounceTopic,omitempty"`
+	ComplaintTopic     string   `json:"complaintTopic,omitempty"`
+	DkimTokens         []string `json:"dkimTokens,omitempty"`
+	DkimEnabled        bool     `json:"dkimEnabled"`
+	ForwardingEnabled  bool     `json:"forwardingEnabled"`
+	HeadersInBounce    bool     `json:"headersInBounce"`
+	HeadersInComplaint bool     `json:"headersInComplaint"`
+	HeadersInDelivery  bool     `json:"headersInDelivery"`
+	Verified           bool     `json:"verified"`
 }
 
 // ConfigurationSet stores per-configuration-set state.
 type ConfigurationSet struct {
-	TLSPolicy              string `json:"tlsPolicy,omitempty"`
-	SendingEnabled         bool   `json:"sendingEnabled"`
-	ReputationMetrics      bool   `json:"reputationMetrics"`
+	TLSPolicy         string `json:"tlsPolicy,omitempty"`
+	SendingEnabled    bool   `json:"sendingEnabled"`
+	ReputationMetrics bool   `json:"reputationMetrics"`
 }
 
 // BulkEmailDestination is a single destination entry for SendBulkTemplatedEmail.
 type BulkEmailDestination struct {
+	ReplacementTemplateData string
 	To                      []string
 	Cc                      []string
 	Bcc                     []string
-	ReplacementTemplateData string
 }
 
 // SendEmailInput contains all parameters for sending an email.
@@ -172,6 +172,16 @@ type ReceiptRuleSet struct {
 	Rules     []ReceiptRule `json:"rules"`
 }
 
+const (
+	ReceiptActionTypeS3        = "S3"
+	ReceiptActionTypeSNS       = "SNS"
+	ReceiptActionTypeLambda    = "Lambda"
+	ReceiptActionTypeSQS       = "SQS"
+	ReceiptActionTypeAddHeader = "AddHeader"
+	ReceiptActionTypeBounce    = "Bounce"
+	ReceiptActionTypeStop      = "Stop"
+)
+
 // ReceiptAction is a single action within a receipt rule.
 // Type identifies which action fields apply: S3, SNS, Lambda, SQS, AddHeader, Bounce, Stop.
 type ReceiptAction struct {
@@ -186,7 +196,7 @@ type ReceiptAction struct {
 	SQSTopicARN       string `json:"sqsTopicARN,omitempty"`
 	HeaderName        string `json:"headerName,omitempty"`
 	HeaderValue       string `json:"headerValue,omitempty"`
-	SmtpReplyCode     string `json:"smtpReplyCode,omitempty"`
+	SMTPReplyCode     string `json:"smtpReplyCode,omitempty"`
 	StatusCode        string `json:"statusCode,omitempty"`
 	Message           string `json:"message,omitempty"`
 	Sender            string `json:"sender,omitempty"`

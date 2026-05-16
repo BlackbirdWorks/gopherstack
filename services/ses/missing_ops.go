@@ -8,6 +8,12 @@ import (
 	"strings"
 )
 
+const (
+	notifTypeBounce    = "Bounce"
+	notifTypeComplaint = "Complaint"
+	notifTypeDelivery  = "Delivery"
+)
+
 // ---- identity policy operations (no-op stubs) ----
 
 // PutIdentityPolicy is a no-op stub: gopherstack does not enforce IAM sending policies.
@@ -56,12 +62,16 @@ func (b *InMemoryBackend) ListIdentityPolicies(identity string) ([]string, error
 
 // ---- identity attribute operations ----
 
-// dkimTokensForIdentity generates three deterministic DKIM tokens for an identity.
+// dkimTokenCount is the number of DKIM tokens issued per domain, matching AWS SES behavior.
+const dkimTokenCount = 3
+
+// dkimTokensForIdentity generates deterministic DKIM tokens for an identity.
 // Tokens are stable across calls for the same identity, matching AWS SES Pending→Success flow.
 func dkimTokensForIdentity(identity string) []string {
-	tokens := make([]string, 3)
-	for i := range 3 {
-		h := sha256.Sum256([]byte(fmt.Sprintf("%s:dkim:%d", identity, i)))
+	tokens := make([]string, dkimTokenCount)
+	for i := range dkimTokenCount {
+		key := fmt.Appendf(nil, "%s:dkim:%d", identity, i)
+		h := sha256.Sum256(key)
 		tokens[i] = hex.EncodeToString(h[:])[:32]
 	}
 
@@ -231,11 +241,11 @@ func (b *InMemoryBackend) SetIdentityHeadersInNotificationsEnabled(identity, not
 	rec := b.getOrCreateIdentityLocked(identity)
 
 	switch notificationType {
-	case "Bounce":
+	case notifTypeBounce:
 		rec.HeadersInBounce = enabled
-	case "Complaint":
+	case notifTypeComplaint:
 		rec.HeadersInComplaint = enabled
-	case "Delivery":
+	case notifTypeDelivery:
 		rec.HeadersInDelivery = enabled
 	}
 
@@ -281,11 +291,11 @@ func (b *InMemoryBackend) SetIdentityNotificationTopic(identity, notificationTyp
 	rec := b.getOrCreateIdentityLocked(identity)
 
 	switch notificationType {
-	case "Bounce":
+	case notifTypeBounce:
 		rec.BounceTopic = snsTopic
-	case "Complaint":
+	case notifTypeComplaint:
 		rec.ComplaintTopic = snsTopic
-	case "Delivery":
+	case notifTypeDelivery:
 		rec.DeliveryTopic = snsTopic
 	}
 
@@ -606,11 +616,11 @@ func (b *InMemoryBackend) SetReceiptRulePosition(ruleSetName, ruleName string, p
 
 // ConfigurationSetDescription holds full details of a configuration set.
 type ConfigurationSetDescription struct {
-	TrackingOptions        *TrackingOptions
-	DeliveryOptions        *DeliveryOptions
-	Name                   string
-	EventDestinations      []EventDestination
-	SendingEnabled         bool
+	TrackingOptions          *TrackingOptions
+	DeliveryOptions          *DeliveryOptions
+	Name                     string
+	EventDestinations        []EventDestination
+	SendingEnabled           bool
 	ReputationMetricsEnabled bool
 }
 
@@ -634,8 +644,8 @@ func (b *InMemoryBackend) DescribeConfigurationSet(name string) (ConfigurationSe
 	}
 
 	desc := ConfigurationSetDescription{
-		Name:                   name,
-		SendingEnabled:         cs.SendingEnabled,
+		Name:                     name,
+		SendingEnabled:           cs.SendingEnabled,
 		ReputationMetricsEnabled: cs.ReputationMetrics,
 	}
 

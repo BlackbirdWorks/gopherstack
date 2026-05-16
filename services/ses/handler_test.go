@@ -385,7 +385,9 @@ func TestSESBackend_GetEmailByID(t *testing.T) {
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("find@test.com"))
 
-	msgID, err := b.SendEmail("find@test.com", []string{"to@test.com"}, "FindMe", "", "body")
+	msgID, err := b.SendEmail(ses.SendEmailInput{
+		From: "find@test.com", To: []string{"to@test.com"}, Subject: "FindMe", BodyText: "body",
+	})
 	require.NoError(t, err)
 
 	email, err := b.GetEmailByID(msgID)
@@ -429,8 +431,10 @@ func TestSESBackend_EmailRetentionLimit(t *testing.T) {
 
 	// Send more emails than the cap.
 	for i := range ses.MaxRetainedEmails + 100 {
-		_, err := b.SendEmail("sender@test.com", []string{"to@test.com"},
-			fmt.Sprintf("Subject %d", i), "", "body")
+		_, err := b.SendEmail(ses.SendEmailInput{
+				From: "sender@test.com", To: []string{"to@test.com"},
+				Subject: fmt.Sprintf("Subject %d", i), BodyText: "body",
+			})
 		require.NoError(t, err)
 	}
 
@@ -442,7 +446,9 @@ func TestSESBackend_SendEmailUnverifiedSource(t *testing.T) {
 
 	b := ses.NewInMemoryBackend()
 
-	_, err := b.SendEmail("unverified@test.com", []string{"to@test.com"}, "subj", "", "body")
+	_, err := b.SendEmail(ses.SendEmailInput{
+		From: "unverified@test.com", To: []string{"to@test.com"}, Subject: "subj", BodyText: "body",
+	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ses.ErrMessageRejected)
 }
@@ -474,7 +480,9 @@ func TestSESBackend_SnapshotIsolation(t *testing.T) {
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("snap@test.com"))
 
-	_, err := b.SendEmail("snap@test.com", []string{"to@test.com"}, "Test", "", "body")
+	_, err := b.SendEmail(ses.SendEmailInput{
+		From: "snap@test.com", To: []string{"to@test.com"}, Subject: "Test", BodyText: "body",
+	})
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -483,7 +491,9 @@ func TestSESBackend_SnapshotIsolation(t *testing.T) {
 	// Mutate original after snapshot.
 	require.NoError(t, b.VerifyEmailIdentity("after@test.com"))
 
-	_, err = b.SendEmail("snap@test.com", []string{"to@test.com"}, "Test2", "", "body2")
+	_, err = b.SendEmail(ses.SendEmailInput{
+		From: "snap@test.com", To: []string{"to@test.com"}, Subject: "Test2", BodyText: "body2",
+	})
 	require.NoError(t, err)
 
 	// Restore into a fresh backend.
@@ -516,8 +526,12 @@ func TestSESBackend_ConcurrentAccess(t *testing.T) {
 	// Concurrent send + list.
 	for i := range 50 {
 		wg.Go(func() {
-			_, _ = b.SendEmail(fmt.Sprintf("user%d@test.com", i), []string{"to@test.com"},
-				fmt.Sprintf("Subject %d", i), "", "body")
+			_, _ = b.SendEmail(ses.SendEmailInput{
+					From:    fmt.Sprintf("user%d@test.com", i),
+					To:      []string{"to@test.com"},
+					Subject: fmt.Sprintf("Subject %d", i),
+					BodyText: "body",
+				})
 		})
 
 		wg.Go(func() {
