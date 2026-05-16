@@ -12,6 +12,7 @@ import (
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
+	"github.com/blackbirdworks/gopherstack/services/emr"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
@@ -1247,7 +1248,10 @@ func (rc *ResourceCreator) createEMRCluster(
 		releaseLabel = "emr-6.0.0"
 	}
 
-	cluster, err := rc.backends.EMR.Backend.RunJobFlow(name, releaseLabel, nil, nil)
+	cluster, err := rc.backends.EMR.Backend.RunJobFlow(emr.RunJobFlowParams{
+		Name:         name,
+		ReleaseLabel: releaseLabel,
+	})
 	if err != nil {
 		return "", fmt.Errorf("create EMR cluster %s: %w", name, err)
 	}

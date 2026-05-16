@@ -532,9 +532,23 @@ func TestEMR_AddJobFlowSteps(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+
+	createRec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "step-cluster"})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	var createOut struct {
+		JobFlowID string `json:"JobFlowId"`
+	}
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+
 	rec := doEMRRequest(t, h, "AddJobFlowSteps", map[string]any{
-		"JobFlowId": "j-123",
-		"Steps":     []any{},
+		"JobFlowId": createOut.JobFlowID,
+		"Steps": []any{
+			map[string]any{
+				"Name":            "my-step",
+				"ActionOnFailure": "CONTINUE",
+				"HadoopJarStep":   map[string]any{"Jar": "command-runner.jar", "Args": []string{"spark-submit"}},
+			},
+		},
 	})
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -544,7 +558,8 @@ func TestEMR_AddJobFlowSteps(t *testing.T) {
 	}
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Empty(t, out.StepIDs)
+	require.Len(t, out.StepIDs, 1)
+	assert.Contains(t, out.StepIDs[0], "s-")
 }
 
 func TestEMR_ListInstanceGroups(t *testing.T) {
@@ -812,7 +827,10 @@ func TestEMR_Backend_ListTagsForResource(t *testing.T) {
 			t.Parallel()
 
 			b := emr.NewInMemoryBackend(testAccountID, testRegion)
-			cluster, err := b.RunJobFlow("test-cluster", "emr-6.0.0", []emr.Tag{{Key: "env", Value: "test"}}, nil)
+			cluster, err := b.RunJobFlow(emr.RunJobFlowParams{
+				Name: "test-cluster", ReleaseLabel: "emr-6.0.0",
+				Tags: []emr.Tag{{Key: "env", Value: "test"}},
+			})
 			require.NoError(t, err)
 
 			resourceID := tt.resourceID
@@ -837,7 +855,10 @@ func TestEMR_Backend_ListTagsForResourceByARN(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow("test-cluster", "emr-6.0.0", []emr.Tag{{Key: "key", Value: "val"}}, nil)
+	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{
+		Name: "test-cluster", ReleaseLabel: "emr-6.0.0",
+		Tags: []emr.Tag{{Key: "key", Value: "val"}},
+	})
 	require.NoError(t, err)
 
 	tags, err := b.ListTagsForResource(cluster.ARN)
@@ -851,7 +872,7 @@ func TestEMR_TerminateJobFlows_Idempotent(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow("idem-cluster", "emr-6.0.0", nil, nil)
+	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "idem-cluster", ReleaseLabel: "emr-6.0.0"})
 	require.NoError(t, err)
 
 	// First termination succeeds.
@@ -865,7 +886,7 @@ func TestEMR_TerminateJobFlows_SetsEndDateTime(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow("timeline-cluster", "emr-6.0.0", nil, nil)
+	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "timeline-cluster", ReleaseLabel: "emr-6.0.0"})
 	require.NoError(t, err)
 
 	before := time.Now().UnixMilli()
