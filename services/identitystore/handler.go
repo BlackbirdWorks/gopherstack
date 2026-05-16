@@ -171,10 +171,14 @@ type createUserRequest struct {
 	PreferredLang   string        `json:"PreferredLanguage"`
 	Timezone        string        `json:"Timezone"`
 	UserType        string        `json:"UserType"`
+	Birthdate       string        `json:"Birthdate"`
+	Website         string        `json:"Website"`
 	Name            *Name         `json:"Name"`
 	Emails          []Email       `json:"Emails"`
 	Addresses       []Address     `json:"Addresses"`
 	PhoneNumbers    []PhoneNumber `json:"PhoneNumbers"`
+	Photos          []Photo       `json:"Photos"`
+	Roles           []Role        `json:"Roles"`
 	ExternalIDs     []ExternalID  `json:"ExternalIds"`
 }
 
@@ -387,10 +391,14 @@ func (h *Handler) handleCreateUser(c *echo.Context, body []byte) error {
 		PreferredLang: req.PreferredLang,
 		Timezone:      req.Timezone,
 		UserType:      req.UserType,
+		Birthdate:     req.Birthdate,
+		Website:       req.Website,
 		Name:          req.Name,
 		Emails:        req.Emails,
 		Addresses:     req.Addresses,
 		PhoneNumbers:  req.PhoneNumbers,
+		Photos:        req.Photos,
+		Roles:         req.Roles,
 		ExternalIDs:   req.ExternalIDs,
 	})
 	if err != nil {
