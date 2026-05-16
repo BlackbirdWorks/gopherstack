@@ -31,6 +31,7 @@ import (
 	cloudtrailsdk "github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	codebuildsdk "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	cognitoidentitysdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
@@ -668,6 +669,26 @@ func createBackupClient(t *testing.T) *backupsdk.Client {
 	}
 
 	return backupsdk.NewFromConfig(cfg, func(o *backupsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeBuildClient returns an AWS CodeBuild client pointed at the shared test container.
+func createCodeBuildClient(t *testing.T) *codebuildsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return codebuildsdk.NewFromConfig(cfg, func(o *codebuildsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
