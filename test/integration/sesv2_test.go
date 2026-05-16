@@ -62,7 +62,7 @@ func TestIntegration_SESv2_CreateEmailIdentity(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal([]byte(body), &out))
 	assert.Equal(t, "EMAIL_ADDRESS", out["IdentityType"])
-	assert.Equal(t, true, out["VerifiedForSending"])
+	assert.Equal(t, true, out["VerifiedForSendingStatus"])
 }
 
 func TestIntegration_SESv2_GetEmailIdentity(t *testing.T) {
