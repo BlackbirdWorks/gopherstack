@@ -264,8 +264,52 @@ func maxValueBytesForTier(tier string) int {
 }
 
 // PutParameter creates or updates a parameter.
+// validParamTypes are the allowed SSM parameter type values.
+var validParamTypes = map[string]bool{
+	"String":       true,
+	"StringList":   true,
+	SecureStringType: true,
+}
+
+// maxParamDescriptionLength is the AWS-documented max description length.
+const maxParamDescriptionLength = 1024
+
+// maxDescribeParametersResults is the AWS maximum for MaxResults on DescribeParameters.
+const maxDescribeParametersResults = 50
+
+// validatePutParameterInput validates the fields of a PutParameterInput.
+func validatePutParameterInput(input *PutParameterInput) error {
+	if input.Name == "" {
+		return fmt.Errorf("%w: Name is required", ErrValidationException)
+	}
+
+	if !validParamTypes[input.Type] {
+		return fmt.Errorf(
+			"%w: invalid parameter type %q; must be String, StringList, or SecureString",
+			ErrValidationException, input.Type,
+		)
+	}
+
+	if input.Value == "" {
+		return fmt.Errorf("%w: Value must not be empty", ErrValidationException)
+	}
+
+	if len(input.Description) > maxParamDescriptionLength {
+		return fmt.Errorf(
+			"%w: Description exceeds maximum length of %d",
+			ErrValidationException, maxParamDescriptionLength,
+		)
+	}
+
+	return nil
+}
+
 func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterOutput, error) {
 	if err := validateParameterName(input.Name); err != nil {
+		return nil, err
+	}
+
+	if err := validatePutParameterInput(input); err != nil {
 		return nil, err
 	}
 
@@ -608,6 +652,13 @@ func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (
 
 // DescribeParameters returns metadata for all parameters (no values).
 func (b *InMemoryBackend) DescribeParameters(input *DescribeParametersInput) (*DescribeParametersOutput, error) {
+	if input.MaxResults != nil && (*input.MaxResults < 1 || *input.MaxResults > maxDescribeParametersResults) {
+		return nil, fmt.Errorf(
+			"%w: MaxResults must be between 1 and %d",
+			ErrValidationException, maxDescribeParametersResults,
+		)
+	}
+
 	b.mu.RLock("DescribeParameters")
 	defer b.mu.RUnlock()
 
