@@ -47,6 +47,7 @@ import (
 	elbv2sdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	emrsdk "github.com/aws/aws-sdk-go-v2/service/emr"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssdk "github.com/aws/aws-sdk-go-v2/service/kms"
@@ -626,6 +627,26 @@ func createELBClient(t *testing.T) *elbsdk.Client {
 	}
 
 	return elbsdk.NewFromConfig(cfg, func(o *elbsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createGlueClient returns an AWS Glue client pointed at the shared test container.
+func createGlueClient(t *testing.T) *gluesdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return gluesdk.NewFromConfig(cfg, func(o *gluesdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
