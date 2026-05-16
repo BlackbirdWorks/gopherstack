@@ -43,6 +43,7 @@ import (
 	efssdk "github.com/aws/aws-sdk-go-v2/service/efs"
 	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesdk "github.com/aws/aws-sdk-go-v2/service/elasticache"
+	elbsdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2sdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	emrsdk "github.com/aws/aws-sdk-go-v2/service/emr"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
@@ -605,6 +606,26 @@ func createELBv2Client(t *testing.T) *elbv2sdk.Client {
 	}
 
 	return elbv2sdk.NewFromConfig(cfg, func(o *elbv2sdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createELBClient returns a Classic ELB (Elastic Load Balancing v1) client pointed at the shared test container.
+func createELBClient(t *testing.T) *elbsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return elbsdk.NewFromConfig(cfg, func(o *elbsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
