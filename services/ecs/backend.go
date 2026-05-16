@@ -17,12 +17,13 @@ import (
 const (
 	statusRunning      = "RUNNING"
 	statusStopped      = "STOPPED"
-	statusActive       = "ACTIVE"
-	statusInactive     = "INACTIVE"
-	statusProvisioning = "PROVISIONING"
-	statusPending      = "PENDING"
-	launchTypeFargate  = "FARGATE"
-	defaultCluster     = "default"
+	statusActive          = "ACTIVE"
+	statusInactive        = "INACTIVE"
+	statusProvisioning    = "PROVISIONING"
+	statusPending         = "PENDING"
+	launchTypeFargate     = "FARGATE"
+	defaultCluster        = "default"
+	deploymentStatusPrimary = "PRIMARY"
 
 	// maxTaskDefinitionRevisions is the maximum number of revisions retained per
 	// task definition family. Older INACTIVE revisions beyond this cap are
@@ -149,6 +150,7 @@ type Service struct {
 	PlacementConstraints        []PlacementConstraint          `json:"placementConstraints,omitempty"`
 	PlacementStrategy           []PlacementStrategy            `json:"placementStrategy,omitempty"`
 	CapacityProviderStrategy    []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
+	Deployments                 []Deployment                   `json:"deployments,omitempty"`
 	DesiredCount                int                            `json:"desiredCount"`
 	PendingCount                int                            `json:"pendingCount"`
 	RunningCount                int                            `json:"runningCount"`
@@ -178,6 +180,7 @@ type Task struct {
 	PropagateTags        string                `json:"propagateTags,omitempty"`
 	Tags                 []Tag                 `json:"tags,omitempty"`
 	Attachments          []TaskAttachment      `json:"attachments,omitempty"`
+	Containers           []Container           `json:"containers,omitempty"`
 }
 
 // CreateClusterInput holds input for CreateCluster.
@@ -252,6 +255,11 @@ type RunTaskInput struct {
 	Tags                 []Tag                 `json:"tags,omitempty"`
 	Count                int                   `json:"count,omitempty"`
 	EnableECSManagedTags bool                  `json:"enableECSManagedTags,omitempty"`
+
+	// Internal fields used by the service reconciler to supply service-level tags
+	// for PropagateTags=SERVICE. Not JSON-serialized.
+	serviceNameForTags      string
+	serviceTagsForPropagate []Tag
 }
 
 // compile-time assertion.
@@ -274,6 +282,9 @@ type InMemoryBackend struct {
 	serviceDeployments     map[string]*ServiceDeployment
 	expressGatewayServices map[string]*ExpressGatewayService
 	resourceTags           map[string][]Tag // resourceArn → tags
+	// tasksByInstance is a reverse index: clusterName → containerInstanceArn → set of taskArns.
+	// It allows enrichContainerInstance to look up tasks in O(k) instead of O(n).
+	tasksByInstance        map[string]map[string]map[string]bool
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -303,6 +314,7 @@ func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBa
 		serviceDeployments:     make(map[string]*ServiceDeployment),
 		expressGatewayServices: make(map[string]*ExpressGatewayService),
 		resourceTags:           make(map[string][]Tag),
+		tasksByInstance:        make(map[string]map[string]map[string]bool),
 		mu:                     lockmetrics.New("ecs"),
 		accountID:              accountID,
 		region:                 region,
@@ -329,6 +341,7 @@ func (b *InMemoryBackend) Reset() {
 	b.serviceDeployments = make(map[string]*ServiceDeployment)
 	b.expressGatewayServices = make(map[string]*ExpressGatewayService)
 	b.resourceTags = make(map[string][]Tag)
+	b.tasksByInstance = make(map[string]map[string]map[string]bool)
 }
 
 // Purge removes all ECS resources created before the given cutoff time.
@@ -856,6 +869,8 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		DesiredCount:                input.DesiredCount,
 	}
 
+	svc.Deployments = []Deployment{newPrimaryDeployment(svc)}
+
 	b.services[clusterName][input.ServiceName] = svc
 
 	cp := *svc
@@ -1004,9 +1019,33 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		svc.LoadBalancers = input.LoadBalancers
 	}
 
+	// When the task definition changes, create a new PRIMARY deployment and
+	// demote the previous PRIMARY to ACTIVE (mirroring real ECS rolling update).
+	if input.TaskDefinition != "" {
+		svc.Deployments = rotatePrimaryDeployment(svc)
+	}
+
 	cp := *svc
 
 	return &cp, nil
+}
+
+// rotatePrimaryDeployment demotes the existing PRIMARY deployment to ACTIVE and
+// prepends a fresh PRIMARY for the new task definition.
+func rotatePrimaryDeployment(svc *Service) []Deployment {
+	deployments := make([]Deployment, 0, len(svc.Deployments)+1)
+	newPrimary := newActiveDeployment(svc)
+	deployments = append(deployments, newPrimary)
+
+	for _, d := range svc.Deployments {
+		if d.Status == deploymentStatusPrimary {
+			d.Status = statusActive
+		}
+
+		deployments = append(deployments, d)
+	}
+
+	return deployments
 }
 
 // DeleteService removes a service from the cluster.
@@ -1077,6 +1116,20 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 		launchType = launchTypeFargate
 	}
 
+	// Resolve task tags respecting propagateTags + ECS-managed-tags semantics.
+	// We read tdTags while holding the write lock — safe, no deadlock risk.
+	tdTags := b.resourceTags[resourceTagKey(td.TaskDefinitionArn)]
+	resolvedTags := resolveTaskTags(
+		input.Tags,
+		input.PropagateTags,
+		input.EnableECSManagedTags,
+		clusterName,
+		input.serviceNameForTags,
+		td,
+		tdTags,
+		input.serviceTagsForPropagate,
+	)
+
 	// Create all task entries in PROVISIONING state under the lock so
 	// they are immediately visible, then release the lock before issuing
 	// Docker API calls that may block.
@@ -1097,7 +1150,7 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 			StartedBy:            input.StartedBy,
 			PlatformVersion:      input.PlatformVersion,
 			PropagateTags:        input.PropagateTags,
-			Tags:                 input.Tags,
+			Tags:                 resolvedTags,
 			StartedAt:            &now,
 			Connectivity:         connectivityConnected,
 			ConnectivityAt:       &now,
@@ -1108,6 +1161,8 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 		if launchType == launchTypeFargate {
 			task.Attachments = []TaskAttachment{newFargateTaskAttachment(taskArn)}
 		}
+
+		task.Containers = buildContainersForTask(task, td)
 
 		b.tasks[clusterName][taskArn] = task
 		work = append(work, taskWork{task: task, td: td})
@@ -1141,6 +1196,7 @@ func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 
 			if w.task.LastStatus == statusProvisioning {
 				w.task.LastStatus = statusRunning
+				syncContainerStatuses(w.task, nil)
 			}
 
 			b.mu.Unlock()
@@ -1157,6 +1213,7 @@ func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 		if w.task.LastStatus == statusProvisioning {
 			if runErr == nil {
 				w.task.LastStatus = statusRunning
+				syncContainerStatuses(w.task, nil)
 			} else {
 				// Container start failed — mark STOPPED so the task does not
 				// remain in PROVISIONING permanently (resource leak + wrong semantics).
@@ -1165,6 +1222,8 @@ func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 				w.task.DesiredStatus = statusStopped
 				w.task.StoppedAt = &now
 				w.task.StoppedReason = fmt.Sprintf("container start failed: %v", runErr)
+				exitCode := 1
+				syncContainerStatuses(w.task, &exitCode)
 			}
 		}
 
@@ -1346,12 +1405,33 @@ func (b *InMemoryBackend) CountRunningTasksForService(clusterName, serviceName s
 }
 
 // StartTaskForService launches a task on behalf of a service.
+// It reads the service's PropagateTags, Tags, and EnableECSManagedTags settings so
+// that tasks spawned by the reconciler honour the same tag propagation as tasks
+// started directly via RunTask.
 func (b *InMemoryBackend) StartTaskForService(clusterName, serviceName, taskDefinitionArn string) error {
+	// Snapshot service tag config without holding the lock during RunTask.
+	b.mu.RLock("StartTaskForService-svcSnap")
+
+	var svcPropagateTags string
+	var svcTags []Tag
+
+	if svcs, ok := b.services[clusterName]; ok {
+		if svc, ok := svcs[serviceName]; ok {
+			svcPropagateTags = svc.PropagateTags
+			svcTags = copyTags(svc.Tags)
+		}
+	}
+
+	b.mu.RUnlock()
+
 	_, err := b.RunTask(RunTaskInput{
-		Cluster:        clusterName,
-		TaskDefinition: taskDefinitionArn,
-		Count:          1,
-		Group:          "service:" + serviceName,
+		Cluster:                 clusterName,
+		TaskDefinition:          taskDefinitionArn,
+		Count:                   1,
+		Group:                   "service:" + serviceName,
+		PropagateTags:           svcPropagateTags,
+		serviceNameForTags:      serviceName,
+		serviceTagsForPropagate: svcTags,
 	})
 
 	return err

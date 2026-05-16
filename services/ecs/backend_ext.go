@@ -198,6 +198,7 @@ func (b *InMemoryBackend) DescribeContainerInstances(
 }
 
 // enrichContainerInstance fills in running/pending task counts.
+// Uses the tasksByInstance reverse index for O(k) lookup instead of O(n).
 // Must be called with at least an RLock held.
 func (b *InMemoryBackend) enrichContainerInstance(ci *ContainerInstance, clusterName string) ContainerInstance {
 	cp := *ci
@@ -205,13 +206,27 @@ func (b *InMemoryBackend) enrichContainerInstance(ci *ContainerInstance, cluster
 	running := 0
 	pending := 0
 
-	for _, t := range b.tasks[clusterName] {
-		if t.ContainerInstanceArn == ci.ContainerInstanceArn {
-			switch t.LastStatus {
-			case statusRunning:
-				running++
-			case statusPending, statusProvisioning:
-				pending++
+	if instanceIndex, ok := b.tasksByInstance[clusterName]; ok {
+		for taskArn := range instanceIndex[ci.ContainerInstanceArn] {
+			if t, ok := b.tasks[clusterName][taskArn]; ok {
+				switch t.LastStatus {
+				case statusRunning:
+					running++
+				case statusPending, statusProvisioning:
+					pending++
+				}
+			}
+		}
+	} else {
+		// Fallback to linear scan when index is not populated (e.g. after restore).
+		for _, t := range b.tasks[clusterName] {
+			if t.ContainerInstanceArn == ci.ContainerInstanceArn {
+				switch t.LastStatus {
+				case statusRunning:
+					running++
+				case statusPending, statusProvisioning:
+					pending++
+				}
 			}
 		}
 	}
@@ -220,6 +235,36 @@ func (b *InMemoryBackend) enrichContainerInstance(ci *ContainerInstance, cluster
 	cp.PendingTasksCount = pending
 
 	return cp
+}
+
+// indexTaskOnInstance adds a task to the reverse containerInstance→task index.
+// Must be called with write lock held.
+func (b *InMemoryBackend) indexTaskOnInstance(clusterName, instanceArn, taskArn string) {
+	if instanceArn == "" {
+		return
+	}
+
+	if b.tasksByInstance[clusterName] == nil {
+		b.tasksByInstance[clusterName] = make(map[string]map[string]bool)
+	}
+
+	if b.tasksByInstance[clusterName][instanceArn] == nil {
+		b.tasksByInstance[clusterName][instanceArn] = make(map[string]bool)
+	}
+
+	b.tasksByInstance[clusterName][instanceArn][taskArn] = true
+}
+
+// unindexTaskFromInstance removes a task from the reverse index.
+// Must be called with write lock held.
+func (b *InMemoryBackend) unindexTaskFromInstance(clusterName, instanceArn, taskArn string) {
+	if instanceArn == "" {
+		return
+	}
+
+	if index, ok := b.tasksByInstance[clusterName]; ok {
+		delete(index[instanceArn], taskArn)
+	}
 }
 
 // ListContainerInstances returns container instance ARNs for a cluster.
