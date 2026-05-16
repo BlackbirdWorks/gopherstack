@@ -40,8 +40,6 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 }
 
 // WithJanitor attaches a background janitor to the handler.
-// If interval or terminatedTTL are zero, defaults are used.
-// The optional taskTimeout bounds each sweep; 0 means no per-task timeout.
 func (h *Handler) WithJanitor(interval, terminatedTTL time.Duration, taskTimeout ...time.Duration) *Handler {
 	j := NewJanitor(h.Backend, interval, terminatedTTL)
 	if len(taskTimeout) > 0 {
@@ -62,8 +60,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
-// Reset clears all in-memory state from the backend. It is used by the
-// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+// Reset clears all in-memory state from the backend.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
 }
@@ -316,17 +313,28 @@ func errorResponse(code, msg string) map[string]string {
 	return map[string]string{"__type": code, "message": msg}
 }
 
-// --- Input / Output types ---
-
-type runJobFlowInstances struct {
-	InstanceGroups []InstanceGroupSpec `json:"InstanceGroups"`
-}
+// --- RunJobFlow ---
 
 type runJobFlowInput struct {
-	Name         string              `json:"Name"`
-	ReleaseLabel string              `json:"ReleaseLabel"`
-	Tags         []Tag               `json:"Tags"`
-	Instances    runJobFlowInstances `json:"Instances"`
+	SecurityConfiguration   string              `json:"SecurityConfiguration"`
+	ReleaseLabel            string              `json:"ReleaseLabel"`
+	OSReleaseLabel          string              `json:"OSReleaseLabel"`
+	LogURI                  string              `json:"LogUri"`
+	ServiceRole             string              `json:"ServiceRole"`
+	AutoScalingRole         string              `json:"AutoScalingRole"`
+	Name                    string              `json:"Name"`
+	ScaleDownBehavior       string              `json:"ScaleDownBehavior"`
+	CustomAmiID             string              `json:"CustomAmiId"`
+	Tags                    []Tag               `json:"Tags"`
+	Applications            []Application       `json:"Applications"`
+	Configurations          []Configuration     `json:"Configurations"`
+	Steps                   []StepSpec          `json:"Steps"`
+	Instances               RunJobFlowInstances `json:"Instances"`
+	StepConcurrencyLevel    int                 `json:"StepConcurrencyLevel"`
+	EbsRootVolumeSize       int                 `json:"EbsRootVolumeSize"`
+	EbsRootVolumeIops       int                 `json:"EbsRootVolumeIops"`
+	EbsRootVolumeThroughput int                 `json:"EbsRootVolumeThroughput"`
+	VisibleToAllUsers       bool                `json:"VisibleToAllUsers"`
 }
 
 type runJobFlowOutput struct {
@@ -335,11 +343,27 @@ type runJobFlowOutput struct {
 }
 
 func (h *Handler) handleRunJobFlow(_ context.Context, in *runJobFlowInput) (*runJobFlowOutput, error) {
-	if in.ReleaseLabel == "" {
-		in.ReleaseLabel = "emr-6.0.0"
-	}
-
-	cluster, err := h.Backend.RunJobFlow(in.Name, in.ReleaseLabel, in.Tags, in.Instances.InstanceGroups)
+	cluster, err := h.Backend.RunJobFlow(RunJobFlowParams{
+		Name:                    in.Name,
+		ReleaseLabel:            in.ReleaseLabel,
+		OSReleaseLabel:          in.OSReleaseLabel,
+		Tags:                    in.Tags,
+		Applications:            in.Applications,
+		Configurations:          in.Configurations,
+		Steps:                   in.Steps,
+		Instances:               in.Instances,
+		LogURI:                  in.LogURI,
+		ServiceRole:             in.ServiceRole,
+		AutoScalingRole:         in.AutoScalingRole,
+		ScaleDownBehavior:       in.ScaleDownBehavior,
+		SecurityConfiguration:   in.SecurityConfiguration,
+		CustomAmiID:             in.CustomAmiID,
+		StepConcurrencyLevel:    in.StepConcurrencyLevel,
+		EbsRootVolumeSize:       in.EbsRootVolumeSize,
+		EbsRootVolumeIops:       in.EbsRootVolumeIops,
+		EbsRootVolumeThroughput: in.EbsRootVolumeThroughput,
+		VisibleToAllUsers:       in.VisibleToAllUsers,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -349,6 +373,8 @@ func (h *Handler) handleRunJobFlow(_ context.Context, in *runJobFlowInput) (*run
 		ClusterArn: cluster.ARN,
 	}, nil
 }
+
+// --- DescribeCluster ---
 
 type describeClusterInput struct {
 	ClusterID string `json:"ClusterId"`
@@ -367,17 +393,42 @@ func (h *Handler) handleDescribeCluster(_ context.Context, in *describeClusterIn
 	return &describeClusterOutput{Cluster: cluster}, nil
 }
 
-type listClustersInput struct{}
+// --- ListClusters ---
+
+type listClustersInput struct {
+	CreatedAfter  *float64 `json:"CreatedAfter"`
+	CreatedBefore *float64 `json:"CreatedBefore"`
+	Marker        string   `json:"Marker"`
+	ClusterStates []string `json:"ClusterStates"`
+}
 
 type listClustersOutput struct {
+	Marker   string           `json:"Marker,omitempty"`
 	Clusters []ClusterSummary `json:"Clusters"`
 }
 
-func (h *Handler) handleListClusters(_ context.Context, _ *listClustersInput) (*listClustersOutput, error) {
-	clusters := h.Backend.ListClusters()
+func (h *Handler) handleListClusters(_ context.Context, in *listClustersInput) (*listClustersOutput, error) {
+	params := ListClustersParams{
+		ClusterStates: in.ClusterStates,
+		Marker:        in.Marker,
+	}
 
-	return &listClustersOutput{Clusters: clusters}, nil
+	if in.CreatedAfter != nil {
+		t := time.UnixMilli(int64(*in.CreatedAfter))
+		params.CreatedAfter = &t
+	}
+
+	if in.CreatedBefore != nil {
+		t := time.UnixMilli(int64(*in.CreatedBefore))
+		params.CreatedBefore = &t
+	}
+
+	clusters, nextMarker := h.Backend.ListClusters(params)
+
+	return &listClustersOutput{Clusters: clusters, Marker: nextMarker}, nil
 }
+
+// --- TerminateJobFlows ---
 
 type terminateJobFlowsInput struct {
 	JobFlowIDs []string `json:"JobFlowIds"`
@@ -396,6 +447,8 @@ func (h *Handler) handleTerminateJobFlows(
 	return &emptyOutput{}, nil
 }
 
+// --- AddTags ---
+
 type addTagsInput struct {
 	ResourceID string `json:"ResourceId"`
 	Tags       []Tag  `json:"Tags"`
@@ -409,6 +462,8 @@ func (h *Handler) handleAddTags(_ context.Context, in *addTagsInput) (*emptyOutp
 	return &emptyOutput{}, nil
 }
 
+// --- RemoveTags ---
+
 type removeTagsInput struct {
 	ResourceID string   `json:"ResourceId"`
 	TagKeys    []string `json:"TagKeys"`
@@ -421,6 +476,8 @@ func (h *Handler) handleRemoveTags(_ context.Context, in *removeTagsInput) (*emp
 
 	return &emptyOutput{}, nil
 }
+
+// --- ListTagsForResource ---
 
 type listTagsForResourceInput struct {
 	ResourceID string `json:"ResourceId"`
@@ -442,21 +499,31 @@ func (h *Handler) handleListTagsForResource(
 	return &listTagsForResourceOutput{Tags: tags}, nil
 }
 
+// --- ListSteps ---
+
 type listStepsInput struct {
-	ClusterID string `json:"ClusterId"`
+	ClusterID  string   `json:"ClusterId"`
+	Marker     string   `json:"Marker"`
+	StepStates []string `json:"StepStates"`
+	StepIDs    []string `json:"StepIds"`
 }
 
 type listStepsOutput struct {
-	Steps []any `json:"Steps"`
+	Marker string `json:"Marker,omitempty"`
+	Steps  []Step `json:"Steps"`
 }
 
-func (h *Handler) handleListSteps(_ context.Context, _ *listStepsInput) (*listStepsOutput, error) {
-	return &listStepsOutput{Steps: []any{}}, nil
+func (h *Handler) handleListSteps(_ context.Context, in *listStepsInput) (*listStepsOutput, error) {
+	steps, nextMarker := h.Backend.ListSteps(in.ClusterID, in.StepStates, in.StepIDs, in.Marker)
+
+	return &listStepsOutput{Steps: steps, Marker: nextMarker}, nil
 }
+
+// --- AddJobFlowSteps ---
 
 type addJobFlowStepsInput struct {
-	JobFlowID string `json:"JobFlowId"`
-	Steps     []any  `json:"Steps"`
+	JobFlowID string     `json:"JobFlowId"`
+	Steps     []StepSpec `json:"Steps"`
 }
 
 type addJobFlowStepsOutput struct {
@@ -465,10 +532,17 @@ type addJobFlowStepsOutput struct {
 
 func (h *Handler) handleAddJobFlowSteps(
 	_ context.Context,
-	_ *addJobFlowStepsInput,
+	in *addJobFlowStepsInput,
 ) (*addJobFlowStepsOutput, error) {
-	return &addJobFlowStepsOutput{StepIDs: []string{}}, nil
+	ids, err := h.Backend.AddJobFlowSteps(in.JobFlowID, in.Steps)
+	if err != nil {
+		return nil, err
+	}
+
+	return &addJobFlowStepsOutput{StepIDs: ids}, nil
 }
+
+// --- ListInstanceGroups ---
 
 type listInstanceGroupsInput struct {
 	ClusterID string `json:"ClusterId"`
@@ -490,6 +564,8 @@ func (h *Handler) handleListInstanceGroups(
 	return &listInstanceGroupsOutput{InstanceGroups: groups}, nil
 }
 
+// --- ListInstanceFleets ---
+
 type listInstanceFleetsInput struct {
 	ClusterID string `json:"ClusterId"`
 }
@@ -510,6 +586,8 @@ func (h *Handler) handleListInstanceFleets(
 	return &listInstanceFleetsOutput{InstanceFleets: fleets}, nil
 }
 
+// --- ListBootstrapActions ---
+
 type listBootstrapActionsInput struct {
 	ClusterID string `json:"ClusterId"`
 }
@@ -525,40 +603,56 @@ func (h *Handler) handleListBootstrapActions(
 	return &listBootstrapActionsOutput{BootstrapActions: []any{}}, nil
 }
 
+// --- GetAutoTerminationPolicy ---
+
 type getAutoTerminationPolicyInput struct {
 	ClusterID string `json:"ClusterId"`
 }
 
-type autoTerminationPolicy struct {
-	IdleTimeout int64 `json:"IdleTimeout"`
-}
-
 type getAutoTerminationPolicyOutput struct {
-	AutoTerminationPolicy autoTerminationPolicy `json:"AutoTerminationPolicy"`
+	AutoTerminationPolicy AutoTerminationPolicy `json:"AutoTerminationPolicy"`
 }
 
 func (h *Handler) handleGetAutoTerminationPolicy(
 	_ context.Context,
-	_ *getAutoTerminationPolicyInput,
+	in *getAutoTerminationPolicyInput,
 ) (*getAutoTerminationPolicyOutput, error) {
-	return &getAutoTerminationPolicyOutput{AutoTerminationPolicy: autoTerminationPolicy{}}, nil
+	policy, err := h.Backend.GetAutoTerminationPolicy(in.ClusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	if policy == nil {
+		return &getAutoTerminationPolicyOutput{AutoTerminationPolicy: AutoTerminationPolicy{}}, nil
+	}
+
+	return &getAutoTerminationPolicyOutput{AutoTerminationPolicy: *policy}, nil
 }
+
+// --- GetManagedScalingPolicy ---
 
 type getManagedScalingPolicyInput struct {
 	ClusterID string `json:"ClusterId"`
 }
 
-type managedScalingPolicy struct{}
-
 type getManagedScalingPolicyOutput struct {
-	ManagedScalingPolicy managedScalingPolicy `json:"ManagedScalingPolicy"`
+	ManagedScalingPolicy ManagedScalingPolicy `json:"ManagedScalingPolicy"`
 }
 
 func (h *Handler) handleGetManagedScalingPolicy(
 	_ context.Context,
-	_ *getManagedScalingPolicyInput,
+	in *getManagedScalingPolicyInput,
 ) (*getManagedScalingPolicyOutput, error) {
-	return &getManagedScalingPolicyOutput{ManagedScalingPolicy: managedScalingPolicy{}}, nil
+	policy, err := h.Backend.GetManagedScalingPolicy(in.ClusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	if policy == nil {
+		return &getManagedScalingPolicyOutput{ManagedScalingPolicy: ManagedScalingPolicy{}}, nil
+	}
+
+	return &getManagedScalingPolicyOutput{ManagedScalingPolicy: *policy}, nil
 }
 
 // --- AddInstanceFleet ---
@@ -722,6 +816,7 @@ type createStudioInput struct {
 	VpcID                    string   `json:"VpcId"`
 	WorkspaceSecurityGroupID string   `json:"WorkspaceSecurityGroupId"`
 	SubnetIDs                []string `json:"SubnetIds"`
+	Tags                     []Tag    `json:"Tags"`
 }
 
 type createStudioOutput struct {
@@ -741,6 +836,8 @@ func (h *Handler) handleCreateStudio(
 		in.ServiceRole,
 		in.VpcID,
 		in.WorkspaceSecurityGroupID,
+		in.SubnetIDs,
+		in.Tags,
 	)
 	if err != nil {
 		return nil, err

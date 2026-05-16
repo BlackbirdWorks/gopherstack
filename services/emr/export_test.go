@@ -9,19 +9,16 @@ const DefaultJanitorInterval = defaultJanitorInterval
 const DefaultTerminatedTTL = defaultTerminatedTTL
 
 // GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.
-// Used in tests to verify WithJanitor correctly propagates the timeout.
 func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	return h.janitor.TaskTimeout
 }
 
 // GetJanitorInterval returns the Interval configured on the handler's janitor.
-// Used in tests to verify WithJanitor correctly propagates the interval.
 func (h *Handler) GetJanitorInterval() time.Duration {
 	return h.janitor.Interval
 }
 
 // GetJanitorTerminatedTTL returns the TerminatedTTL configured on the handler's janitor.
-// Used in tests to verify WithJanitor correctly propagates the TTL.
 func (h *Handler) GetJanitorTerminatedTTL() time.Duration {
 	return h.janitor.TerminatedTTL
 }
@@ -34,7 +31,7 @@ func (b *InMemoryBackend) ClusterCount() int {
 	return len(b.clusters)
 }
 
-// SecurityConfigCount returns the number of security configurations in the backend. Used only in tests.
+// SecurityConfigCount returns the number of security configurations in the backend.
 func (b *InMemoryBackend) SecurityConfigCount() int {
 	b.mu.RLock("SecurityConfigCount")
 	defer b.mu.RUnlock()
@@ -42,7 +39,7 @@ func (b *InMemoryBackend) SecurityConfigCount() int {
 	return len(b.securityConfigs)
 }
 
-// StudioCount returns the number of studios in the backend. Used only in tests.
+// StudioCount returns the number of studios in the backend.
 func (b *InMemoryBackend) StudioCount() int {
 	b.mu.RLock("StudioCount")
 	defer b.mu.RUnlock()
@@ -50,7 +47,7 @@ func (b *InMemoryBackend) StudioCount() int {
 	return len(b.studios)
 }
 
-// PersistentAppUICount returns the number of persistent app UIs in the backend. Used only in tests.
+// PersistentAppUICount returns the number of persistent app UIs in the backend.
 func (b *InMemoryBackend) PersistentAppUICount() int {
 	b.mu.RLock("PersistentAppUICount")
 	defer b.mu.RUnlock()
@@ -58,7 +55,7 @@ func (b *InMemoryBackend) PersistentAppUICount() int {
 	return len(b.persistentAppUIs)
 }
 
-// StudioSessionMappingCount returns the number of studio session mappings in the backend. Used only in tests.
+// StudioSessionMappingCount returns the number of studio session mappings in the backend.
 func (b *InMemoryBackend) StudioSessionMappingCount() int {
 	b.mu.RLock("StudioSessionMappingCount")
 	defer b.mu.RUnlock()
@@ -66,7 +63,10 @@ func (b *InMemoryBackend) StudioSessionMappingCount() int {
 	return len(b.studioSessionMappings)
 }
 
-// HandlerOpsLen returns the number of operations in the cached dispatch table. Used only in tests.
+// HandlerOpsLen returns the number of operations in the cached dispatch table.
 func (h *Handler) HandlerOpsLen() int {
 	return len(h.ops)
 }
+
+// DefaultReleaseLabel exposes the default release label for testing.
+const DefaultReleaseLabel = defaultReleaseLabel

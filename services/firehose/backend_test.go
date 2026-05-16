@@ -566,14 +566,12 @@ func TestLambdaTransformation_AllDropped(t *testing.T) {
 	assert.Empty(t, s3mock.calls)
 }
 
-// TestDeliverToS3_EmptyRecord verifies that empty records do not cause a panic
-// and are silently skipped during S3 delivery (bug fix: rec[len(rec)-1] panic).
+// TestDeliverToS3_EmptyRecord verifies that AWS rejects empty record Data
+// with InvalidArgumentException (AWS accuracy: issue #34).
 func TestDeliverToS3_EmptyRecord(t *testing.T) {
 	t.Parallel()
 
-	s3mock := &mockS3Storer{}
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	b.SetS3Backend(s3mock)
 
 	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
 		Name: "empty-rec-stream",
@@ -583,24 +581,18 @@ func TestDeliverToS3_EmptyRecord(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Put an empty record followed by a non-empty one — must not panic.
-	require.NoError(t, b.PutRecord("empty-rec-stream", []byte{}))
-	require.NoError(t, b.PutRecord("empty-rec-stream", []byte("data")))
-	b.FlushAll(t.Context())
-
-	// The non-empty record is delivered; empty records are skipped.
-	require.Len(t, s3mock.calls, 1)
-	assert.Contains(t, string(s3mock.calls[0].body), "data")
+	// AWS rejects empty records at ingestion.
+	err = b.PutRecord("empty-rec-stream", []byte{})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, firehose.ErrValidation)
 }
 
-// TestDeliverToS3_AllEmptyRecords verifies that if every record in a flush is empty,
-// no S3 PutObject call is made (avoids writing empty objects).
+// TestDeliverToS3_AllEmptyRecords verifies PutRecordBatch rejects a batch where
+// any record has empty Data (AWS accuracy: issue #34).
 func TestDeliverToS3_AllEmptyRecords(t *testing.T) {
 	t.Parallel()
 
-	s3mock := &mockS3Storer{}
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	b.SetS3Backend(s3mock)
 
 	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
 		Name: "all-empty-stream",
@@ -610,12 +602,10 @@ func TestDeliverToS3_AllEmptyRecords(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.PutRecord("all-empty-stream", []byte{}))
-	require.NoError(t, b.PutRecord("all-empty-stream", []byte{}))
-	b.FlushAll(t.Context())
-
-	// All records empty → no S3 delivery.
-	assert.Empty(t, s3mock.calls)
+	// Batch with empty records is rejected.
+	_, batchErr := b.PutRecordBatch("all-empty-stream", [][]byte{{}, {}})
+	require.Error(t, batchErr)
+	assert.ErrorIs(t, batchErr, firehose.ErrValidation)
 }
 
 // TestDeleteDeliveryStream_ClosesTags verifies that Tags resources are released when a
