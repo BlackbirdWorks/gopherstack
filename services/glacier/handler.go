@@ -2,6 +2,7 @@ package glacier
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -63,6 +64,26 @@ const (
 	sha256HexLen = 64
 	// defaultInventoryFormat is the inventory output format used when none is specified.
 	defaultInventoryFormat = "JSON"
+	// treeHashLeafSize is the block size for SHA-256 tree-hash computation (1 MiB).
+	treeHashLeafSize = 1 << 20
+	// maxSingleUploadBytes is the maximum body size for a single UploadArchive request (4 GiB).
+	maxSingleUploadBytes = 4 << 30
+	// maxDescriptionLen is the maximum byte length of an archive description.
+	maxDescriptionLen = 1024
+	// minDescriptionChar is the minimum printable ASCII char allowed in descriptions.
+	minDescriptionChar = 32
+	// maxDescriptionChar is the maximum printable ASCII char allowed in descriptions.
+	maxDescriptionChar = 126
+	// requestIDLength is the number of random chars in an X-Amzn-Requestid value.
+	requestIDLength = 32
+	// minListLimit is the minimum allowed ?limit value for ListVaults.
+	minListLimit = 1
+	// maxListVaultsLimit is the maximum allowed ?limit value for ListVaults.
+	maxListVaultsLimit = 50
+	// maxListJobsLimit is the maximum allowed ?limit value for ListJobs.
+	maxListJobsLimit = 1000
+	// maxListUploadsLimit is the maximum allowed ?limit for ListMultipartUploads / ListParts.
+	maxListUploadsLimit = 1000
 )
 
 const (
@@ -196,6 +217,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 
+		c.Response().Header().Set("X-Amzn-Requestid", generateID(requestIDLength))
+
 		method := c.Request().Method
 		path := c.Request().URL.Path
 		query := c.Request().URL.RawQuery
@@ -221,6 +244,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		return h.dispatch(c, op, resource, body)
 	}
+}
+
+// resolveAccountID returns h.AccountID when pathAccountID is "-" or empty,
+// otherwise returns pathAccountID verbatim (multi-account / STS scenarios).
+func (h *Handler) resolveAccountID(pathAccountID string) string {
+	if pathAccountID == "-" || pathAccountID == "" {
+		return h.AccountID
+	}
+
+	return pathAccountID
 }
 
 // parseGlacierPath parses a Glacier HTTP method + path into an operation name and resource key.
@@ -512,7 +545,7 @@ func (h *Handler) dispatchVaultOps(c *echo.Context, op, resource string) (bool, 
 	case opDeleteVault:
 		return true, h.handleDeleteVault(c, resource)
 	case opListVaults:
-		return true, h.handleListVaults(c)
+		return true, h.handleListVaults(c, resource)
 	}
 
 	return false, nil
@@ -682,8 +715,9 @@ func (h *Handler) handleDeleteVault(c *echo.Context, vaultName string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) handleListVaults(c *echo.Context) error {
-	vaults := h.Backend.ListVaults(h.AccountID, h.DefaultRegion)
+func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
+	resolved := h.resolveAccountID(accountID)
+	vaults := h.Backend.ListVaults(resolved, h.DefaultRegion)
 	items := make([]describeVaultResponse, 0, len(vaults))
 
 	for _, v := range vaults {
@@ -707,14 +741,23 @@ func (h *Handler) handleListVaults(c *echo.Context) error {
 		}
 	}
 
-	// Support `limit` to cap the number of results returned.
+	// Support `limit` to cap the number of results returned. AWS: 1-50.
 	limitStr := c.QueryParam("limit")
 
 	var nextMarker *string
 
 	if limitStr != "" {
 		n, err := strconv.Atoi(limitStr)
-		if err == nil && n > 0 && n < len(items) {
+		if err != nil || n < minListLimit || n > maxListVaultsLimit {
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidParameterValueException",
+				fmt.Sprintf("limit must be between %d and %d", minListLimit, maxListVaultsLimit),
+			)
+		}
+
+		if n < len(items) {
 			last := items[n-1].VaultName
 			nextMarker = &last
 			items = items[:n]

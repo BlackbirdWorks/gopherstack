@@ -40,6 +40,8 @@ type Job struct {
 	CompletionDate       string `json:"completionDate,omitempty"`
 	Tier                 string `json:"tier,omitempty"`
 	SHA256TreeHash       string `json:"sha256TreeHash,omitempty"`
+	SNSTopic             string `json:"snsTopic,omitempty"`
+	RetrievalByteRange   string `json:"retrievalByteRange,omitempty"`
 	ArchiveSizeInBytes   int64  `json:"archiveSizeInBytes,omitempty"`
 	InventorySizeInBytes int64  `json:"inventorySizeInBytes,omitempty"`
 	Completed            bool   `json:"completed"`
@@ -91,12 +93,13 @@ type uploadArchiveResponse struct {
 
 // initiateJobRequest is the request body for InitiateJob.
 type initiateJobRequest struct {
-	Type            string `json:"Type"`
-	ArchiveID       string `json:"ArchiveId,omitempty"`
-	Description     string `json:"Description,omitempty"`
-	Tier            string `json:"Tier,omitempty"`
-	SNSTopic        string `json:"SNSTopic,omitempty"`
-	InventoryFormat string `json:"Format,omitempty"`
+	Type               string `json:"Type"`
+	ArchiveID          string `json:"ArchiveId,omitempty"`
+	Description        string `json:"Description,omitempty"`
+	Tier               string `json:"Tier,omitempty"`
+	SNSTopic           string `json:"SNSTopic,omitempty"`
+	InventoryFormat    string `json:"Format,omitempty"`
+	RetrievalByteRange string `json:"RetrievalByteRange,omitempty"`
 }
 
 // initiateJobResponse is the response for InitiateJob.
@@ -146,10 +149,12 @@ type listTagsResponse struct {
 }
 
 // errorResponse is the standard Glacier error response.
+// __type is included because many AWS SDK versions key on it rather than "code".
 type errorResponse struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Type    string `json:"type"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	Type     string `json:"type"`
+	TypeAlias string `json:"__type"`
 }
 
 // MultipartUpload holds metadata for an in-progress multipart upload.
