@@ -208,7 +208,7 @@ func (b *InMemoryBackend) enrichContainerInstance(ci *ContainerInstance, cluster
 
 	if instanceIndex, ok := b.tasksByInstance[clusterName]; ok {
 		for taskArn := range instanceIndex[ci.ContainerInstanceArn] {
-			if t, ok := b.tasks[clusterName][taskArn]; ok {
+			if t, found := b.tasks[clusterName][taskArn]; found {
 				switch t.LastStatus {
 				case statusRunning:
 					running++

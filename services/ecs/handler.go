@@ -1296,9 +1296,9 @@ type containerNetworkInterfaceView struct {
 // containerNetworkBindingView is the handler view of a container's port binding.
 type containerNetworkBindingView struct {
 	BindIP        string `json:"bindIP,omitempty"`
+	Protocol      string `json:"protocol,omitempty"`
 	ContainerPort int    `json:"containerPort,omitempty"`
 	HostPort      int    `json:"hostPort,omitempty"`
-	Protocol      string `json:"protocol,omitempty"`
 }
 
 // containerView is the handler view of a runtime container within a task.
@@ -1417,20 +1417,11 @@ func toTaskView(t Task) taskView {
 		}
 
 		for _, ni := range c.NetworkInterfaces {
-			cv.NetworkInterfaces = append(cv.NetworkInterfaces, containerNetworkInterfaceView{
-				AttachmentID:       ni.AttachmentID,
-				PrivateIpv4Address: ni.PrivateIpv4Address,
-				Ipv6Address:        ni.Ipv6Address,
-			})
+			cv.NetworkInterfaces = append(cv.NetworkInterfaces, containerNetworkInterfaceView(ni))
 		}
 
 		for _, nb := range c.NetworkBindings {
-			cv.NetworkBindings = append(cv.NetworkBindings, containerNetworkBindingView{
-				BindIP:        nb.BindIP,
-				ContainerPort: nb.ContainerPort,
-				HostPort:      nb.HostPort,
-				Protocol:      nb.Protocol,
-			})
+			cv.NetworkBindings = append(cv.NetworkBindings, containerNetworkBindingView(nb))
 		}
 
 		v.Containers = append(v.Containers, cv)

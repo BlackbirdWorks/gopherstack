@@ -130,6 +130,7 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 
 		var wg sync.WaitGroup
 
+	launchLoop:
 		for range toStart {
 			select {
 			case sem <- struct{}{}:
@@ -140,23 +141,23 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 					"service", svc.ServiceName,
 				)
 
-				break
+				break launchLoop
 			}
 
-			wg.Add(1)
-
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				defer func() { <-sem }()
 
-				if err := r.backend.StartTaskForService(snap.clusterName, svc.ServiceName, svc.TaskDefinition); err != nil {
+				err := r.backend.StartTaskForService(
+					snap.clusterName, svc.ServiceName, svc.TaskDefinition,
+				)
+				if err != nil {
 					log.WarnContext(ctx, "ECS reconciler: StartTaskForService failed",
 						"cluster", snap.clusterName,
 						"service", svc.ServiceName,
 						"error", err,
 					)
 				}
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -211,6 +212,7 @@ func minimumHealthyFloor(svc Service) int {
 		return 0
 	}
 
+	const fullPercent = 100
 	// Floor of desired * pct / 100.
-	return (svc.DesiredCount * pct) / 100
+	return (svc.DesiredCount * pct) / fullPercent
 }

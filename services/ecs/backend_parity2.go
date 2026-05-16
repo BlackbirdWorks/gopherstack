@@ -1,12 +1,19 @@
 package ecs
 
 import (
-	"fmt"
-	"math/rand/v2"
+	"crypto/rand"
+	"math/big"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+)
+
+const (
+	containerHealthStatusUnknown     = "UNKNOWN"
+	containerHealthStatusHealthy     = "HEALTHY"
+	deploymentRolloutStateInProgress = "IN_PROGRESS"
 )
 
 // ---- Container runtime status ----
@@ -21,9 +28,9 @@ type NetworkInterface struct {
 // NetworkBinding maps a container port to a host port.
 type NetworkBinding struct {
 	BindIP        string `json:"bindIP,omitempty"`
+	Protocol      string `json:"protocol,omitempty"`
 	ContainerPort int    `json:"containerPort,omitempty"`
 	HostPort      int    `json:"hostPort,omitempty"`
-	Protocol      string `json:"protocol,omitempty"`
 }
 
 // Container holds the runtime status of a single container within a task.
@@ -45,62 +52,84 @@ type Container struct {
 	NetworkBindings   []NetworkBinding   `json:"networkBindings,omitempty"`
 }
 
+// buildContainerArn constructs a container ARN from a task ARN.
+func buildContainerArn(taskArn string) string {
+	return "arn:aws:ecs:" + strings.TrimPrefix(taskArn, "arn:aws:ecs:") + "/container/" + uuid.NewString()
+}
+
+// buildNetworkBindingsForContainer converts a container definition's port mappings
+// to NetworkBinding records, defaulting the protocol to "tcp" when unset.
+func buildNetworkBindingsForContainer(cd ContainerDefinition) []NetworkBinding {
+	if len(cd.PortMappings) == 0 {
+		return nil
+	}
+
+	bindings := make([]NetworkBinding, 0, len(cd.PortMappings))
+
+	for _, pm := range cd.PortMappings {
+		if pm.ContainerPort == 0 {
+			continue
+		}
+
+		proto := pm.Protocol
+		if proto == "" {
+			proto = transportTCP
+		}
+
+		hostPort := pm.HostPort
+		if hostPort == 0 {
+			hostPort = pm.ContainerPort
+		}
+
+		bindings = append(bindings, NetworkBinding{
+			BindIP:        "0.0.0.0",
+			ContainerPort: pm.ContainerPort,
+			HostPort:      hostPort,
+			Protocol:      proto,
+		})
+	}
+
+	return bindings
+}
+
+// buildContainerFromDef builds a Container from a ContainerDefinition.
+func buildContainerFromDef(taskArn string, initialStatus string, cd ContainerDefinition) Container {
+	c := Container{
+		ContainerArn: buildContainerArn(taskArn),
+		TaskArn:      taskArn,
+		Name:         cd.Name,
+		Image:        cd.Image,
+		LastStatus:   initialStatus,
+	}
+
+	if cd.CPU != 0 {
+		c.CPU = strconv.Itoa(cd.CPU)
+	}
+
+	if cd.Memory != 0 {
+		c.Memory = strconv.Itoa(cd.Memory)
+	}
+
+	if cd.MemoryReservation != 0 {
+		c.MemoryReservation = strconv.Itoa(cd.MemoryReservation)
+	}
+
+	if cd.HealthCheck != nil {
+		c.HealthStatus = containerHealthStatusUnknown
+	}
+
+	c.NetworkBindings = buildNetworkBindingsForContainer(cd)
+
+	return c
+}
+
 // buildContainersForTask creates the initial Container slice from a task's
 // ContainerDefinitions. Status matches the task's initial status.
 func buildContainersForTask(task *Task, td *TaskDefinition) []Container {
 	containers := make([]Container, 0, len(td.ContainerDefinitions))
 
 	for _, cd := range td.ContainerDefinitions {
-		c := Container{
-			ContainerArn: fmt.Sprintf(
-				"arn:aws:ecs:%s",
-				strings.TrimPrefix(task.TaskArn, "arn:aws:ecs:"),
-			) + "/container/" + uuid.NewString(),
-			TaskArn:    task.TaskArn,
-			Name:       cd.Name,
-			Image:      cd.Image,
-			LastStatus: task.LastStatus,
-		}
-
-		if cd.CPU != 0 {
-			c.CPU = fmt.Sprintf("%d", cd.CPU)
-		}
-
-		if cd.Memory != 0 {
-			c.Memory = fmt.Sprintf("%d", cd.Memory)
-		}
-
-		if cd.MemoryReservation != 0 {
-			c.MemoryReservation = fmt.Sprintf("%d", cd.MemoryReservation)
-		}
-
-		if cd.HealthCheck != nil {
-			c.HealthStatus = "UNKNOWN"
-		}
-
-		// Populate network bindings from port mappings.
-		for _, pm := range cd.PortMappings {
-			if pm.ContainerPort != 0 {
-				nb := NetworkBinding{
-					BindIP:        "0.0.0.0",
-					ContainerPort: pm.ContainerPort,
-					HostPort:      pm.HostPort,
-					Protocol:      pm.Protocol,
-				}
-
-				if nb.Protocol == "" {
-					nb.Protocol = "tcp"
-				}
-
-				if nb.HostPort == 0 {
-					nb.HostPort = pm.ContainerPort
-				}
-
-				c.NetworkBindings = append(c.NetworkBindings, nb)
-			}
-		}
-
-		containers = append(containers, c)
+		containers = append(containers, buildContainerFromDef(task.TaskArn, task.LastStatus, cd))
 	}
 
 	return containers
@@ -119,8 +148,8 @@ func syncContainerStatuses(task *Task, exitCode *int) {
 		if task.LastStatus == statusRunning {
 			task.Containers[i].RuntimeID = uuid.NewString()[:12]
 
-			if task.Containers[i].HealthStatus == "UNKNOWN" {
-				task.Containers[i].HealthStatus = "HEALTHY"
+			if task.Containers[i].HealthStatus == containerHealthStatusUnknown {
+				task.Containers[i].HealthStatus = containerHealthStatusHealthy
 			}
 		}
 	}
@@ -151,11 +180,11 @@ func newPrimaryDeployment(svc *Service) Deployment {
 
 	return Deployment{
 		ID:                 "ecs-svc/" + uuid.NewString(),
-		Status:             "PRIMARY",
+		Status:             deploymentStatusPrimary,
 		TaskDefinition:     svc.TaskDefinition,
 		LaunchType:         svc.LaunchType,
-		PlatformVersion:    "LATEST",
-		RolloutState:       "IN_PROGRESS",
+		PlatformVersion:    platformVersionLatest,
+		RolloutState:       deploymentRolloutStateInProgress,
 		RolloutStateReason: "ECS deployment ecs-svc created.",
 		DesiredCount:       svc.DesiredCount,
 		CreatedAt:          &now,
@@ -163,18 +192,18 @@ func newPrimaryDeployment(svc *Service) Deployment {
 	}
 }
 
-// newActiveDeployment builds a new active deployment on service update.
+// newActiveDeployment builds a new primary deployment on service update.
 // The previous PRIMARY deployment is expected to be demoted to ACTIVE separately.
 func newActiveDeployment(svc *Service) Deployment {
 	now := float64UnixNow()
 
 	return Deployment{
 		ID:                 "ecs-svc/" + uuid.NewString(),
-		Status:             "PRIMARY",
+		Status:             deploymentStatusPrimary,
 		TaskDefinition:     svc.TaskDefinition,
 		LaunchType:         svc.LaunchType,
-		PlatformVersion:    "LATEST",
-		RolloutState:       "IN_PROGRESS",
+		PlatformVersion:    platformVersionLatest,
+		RolloutState:       deploymentRolloutStateInProgress,
 		RolloutStateReason: "ECS deployment ecs-svc created.",
 		DesiredCount:       svc.DesiredCount,
 		CreatedAt:          &now,
@@ -233,7 +262,7 @@ func eCSManagedTags(clusterName, serviceName string, td *TaskDefinition) []Tag {
 	if td != nil {
 		tags = append(tags,
 			Tag{Key: "aws:ecs:taskDefinitionFamily", Value: td.Family},
-			Tag{Key: "aws:ecs:taskDefinitionRevision", Value: fmt.Sprintf("%d", td.Revision)},
+			Tag{Key: "aws:ecs:taskDefinitionRevision", Value: strconv.Itoa(td.Revision)},
 		)
 	}
 
@@ -252,15 +281,15 @@ func mergeTags(base, overrides []Tag) []Tag {
 		idx[t.Key] = i
 	}
 
-	out := make([]Tag, len(base))
-	copy(out, base)
+	// Use append-only slice to avoid makezero lint warning (non-zero init + append).
+	out := append([]Tag(nil), base...)
 
 	for _, t := range overrides {
 		if i, ok := idx[t.Key]; ok {
 			out[i] = t
 		} else {
+			idx[t.Key] = len(out)
 			out = append(out, t)
-			idx[t.Key] = len(out) - 1
 		}
 	}
 
@@ -336,24 +365,31 @@ func selectContainerInstance(
 	}
 
 	if len(strategies) == 0 {
-		return eligible[rand.IntN(len(eligible))]
+		return cryptoRandChoice(eligible)
 	}
 
 	switch strings.ToLower(strategies[0].Type) {
 	case "random":
-		return eligible[rand.IntN(len(eligible))]
-
+		return cryptoRandChoice(eligible)
 	case "spread":
-		// Choose the instance with the fewest running tasks.
 		return leastLoadedInstance(eligible, clusterTasks)
-
 	case "binpack":
-		// Choose the instance with the most running tasks (pack before spilling).
 		return mostLoadedInstance(eligible, clusterTasks)
-
 	default:
-		return eligible[rand.IntN(len(eligible))]
+		return cryptoRandChoice(eligible)
 	}
+}
+
+// cryptoRandChoice picks a random element from a non-empty slice using crypto/rand.
+// Placement selection does not require cryptographic security, but we use
+// crypto/rand to satisfy the G404 linter rule.
+func cryptoRandChoice(items []string) string {
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(len(items))))
+	if err != nil {
+		return items[0]
+	}
+
+	return items[n.Int64()]
 }
 
 // taskCountOnInstance counts running tasks assigned to a container instance.
