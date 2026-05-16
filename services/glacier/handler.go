@@ -2,6 +2,7 @@ package glacier
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -63,6 +64,42 @@ const (
 	sha256HexLen = 64
 	// defaultInventoryFormat is the inventory output format used when none is specified.
 	defaultInventoryFormat = "JSON"
+	// treeHashLeafSize is the block size for SHA-256 tree-hash computation (1 MiB).
+	treeHashLeafSize = 1 << 20
+	// maxSingleUploadBytes is the maximum body size for a single UploadArchive request (4 GiB).
+	maxSingleUploadBytes = 4 << 30
+	// maxDescriptionLen is the maximum byte length of an archive description.
+	maxDescriptionLen = 1024
+	// minDescriptionChar is the minimum printable ASCII char allowed in descriptions.
+	minDescriptionChar = 32
+	// maxDescriptionChar is the maximum printable ASCII char allowed in descriptions.
+	maxDescriptionChar = 126
+	// requestIDLength is the number of random chars in an X-Amzn-Requestid value.
+	requestIDLength = 32
+	// minListLimit is the minimum allowed ?limit value for ListVaults.
+	minListLimit = 1
+	// maxListVaultsLimit is the maximum allowed ?limit value for ListVaults.
+	maxListVaultsLimit = 50
+	// maxListJobsLimit is the maximum allowed ?limit value for ListJobs.
+	maxListJobsLimit = 1000
+	// maxListUploadsLimit is the maximum allowed ?limit for ListMultipartUploads / ListParts.
+	maxListUploadsLimit = 1000
+)
+
+// Handler-level sentinel errors used as wrapping targets to satisfy err113.
+var (
+	// ErrDescriptionTooLong is returned when an archive description exceeds maxDescriptionLen.
+	ErrDescriptionTooLong = errors.New("description too long")
+	// ErrDescriptionChar is returned when an archive description contains a non-printable character.
+	ErrDescriptionChar = errors.New("description contains invalid character")
+	// ErrLimitOutOfRange is returned when a ?limit query param is out of the allowed range.
+	ErrLimitOutOfRange = errors.New("limit out of range")
+	// ErrInvalidStrategy is returned when a DataRetrievalPolicy strategy is not recognised.
+	ErrInvalidStrategy = errors.New("invalid data retrieval strategy")
+	// ErrBytesPerHourRequired is returned when BytesPerHour strategy omits the BytesPerHour value.
+	ErrBytesPerHourRequired = errors.New(
+		"BytesPerHour strategy requires a positive BytesPerHour value",
+	)
 )
 
 const (
@@ -196,6 +233,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 
+		c.Response().Header().Set("X-Amzn-Requestid", generateID(requestIDLength))
+
 		method := c.Request().Method
 		path := c.Request().URL.Path
 		query := c.Request().URL.RawQuery
@@ -221,6 +260,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		return h.dispatch(c, op, resource, body)
 	}
+}
+
+// resolveAccountID returns h.AccountID when pathAccountID is "-" or empty,
+// otherwise returns pathAccountID verbatim (multi-account / STS scenarios).
+func (h *Handler) resolveAccountID(pathAccountID string) string {
+	if pathAccountID == "-" || pathAccountID == "" {
+		return h.AccountID
+	}
+
+	return pathAccountID
 }
 
 // parseGlacierPath parses a Glacier HTTP method + path into an operation name and resource key.
@@ -512,7 +561,7 @@ func (h *Handler) dispatchVaultOps(c *echo.Context, op, resource string) (bool, 
 	case opDeleteVault:
 		return true, h.handleDeleteVault(c, resource)
 	case opListVaults:
-		return true, h.handleListVaults(c)
+		return true, h.handleListVaults(c, resource)
 	}
 
 	return false, nil
@@ -682,8 +731,9 @@ func (h *Handler) handleDeleteVault(c *echo.Context, vaultName string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) handleListVaults(c *echo.Context) error {
-	vaults := h.Backend.ListVaults(h.AccountID, h.DefaultRegion)
+func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
+	resolved := h.resolveAccountID(accountID)
+	vaults := h.Backend.ListVaults(resolved, h.DefaultRegion)
 	items := make([]describeVaultResponse, 0, len(vaults))
 
 	for _, v := range vaults {
@@ -707,14 +757,28 @@ func (h *Handler) handleListVaults(c *echo.Context) error {
 		}
 	}
 
-	// Support `limit` to cap the number of results returned.
+	// Support `limit` to cap the number of results returned. AWS: 1-50.
 	limitStr := c.QueryParam("limit")
 
 	var nextMarker *string
 
 	if limitStr != "" {
 		n, err := strconv.Atoi(limitStr)
-		if err == nil && n > 0 && n < len(items) {
+		if err != nil || n < minListLimit || n > maxListVaultsLimit {
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidParameterValueException",
+				fmt.Sprintf(
+					"%v: must be between %d and %d",
+					ErrLimitOutOfRange,
+					minListLimit,
+					maxListVaultsLimit,
+				),
+			)
+		}
+
+		if n < len(items) {
 			last := items[n-1].VaultName
 			nextMarker = &last
 			items = items[:n]
@@ -744,22 +808,38 @@ func toDescribeVaultResponse(v *Vault) describeVaultResponse {
 // ----------------------------------------
 
 func (h *Handler) handleUploadArchive(c *echo.Context, vaultName string, body []byte) error {
-	description := c.Request().Header.Get("X-Amz-Archive-Description")
-	checksum := c.Request().Header.Get("X-Amz-Sha256-Tree-Hash")
+	// Enforce 4 GiB single-upload limit before allocating.
+	if int64(len(body)) > maxSingleUploadBytes {
+		return h.writeError(c, http.StatusRequestEntityTooLarge, "InvalidParameterValueException",
+			"archive exceeds maximum single-upload size of 4 GiB")
+	}
 
-	// Validate checksum format: must be a 64-character lowercase hex string if provided.
-	if checksum != "" {
-		if len(checksum) != sha256HexLen {
+	description := c.Request().Header.Get("X-Amz-Archive-Description")
+	if err := validateDescription(description); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	}
+
+	clientChecksum := c.Request().Header.Get("X-Amz-Sha256-Tree-Hash")
+
+	// Compute the real tree-hash from the body.
+	computed := computeTreeHash(body)
+
+	// If the client supplied a checksum, verify it matches.
+	if clientChecksum != "" {
+		if len(clientChecksum) != sha256HexLen {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 				"X-Amz-Sha256-Tree-Hash must be a 64-character hex string")
 		}
 
-		if _, hexErr := hex.DecodeString(checksum); hexErr != nil {
+		if _, hexErr := hex.DecodeString(clientChecksum); hexErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 				"X-Amz-Sha256-Tree-Hash contains invalid hex characters")
 		}
-	} else {
-		checksum = "0000000000000000000000000000000000000000000000000000000000000000"
+
+		if clientChecksum != computed {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				"X-Amz-Sha256-Tree-Hash mismatch: computed "+computed)
+		}
 	}
 
 	size := int64(len(body))
@@ -769,7 +849,7 @@ func (h *Handler) handleUploadArchive(c *echo.Context, vaultName string, body []
 		h.DefaultRegion,
 		vaultName,
 		description,
-		checksum,
+		computed,
 		size,
 	)
 	if err != nil {
@@ -794,6 +874,74 @@ func (h *Handler) handleUploadArchive(c *echo.Context, vaultName string, body []
 		Checksum:  a.SHA256TreeHash,
 		Location:  location,
 	})
+}
+
+// computeLeafHashes returns SHA-256 hashes of successive 1 MiB blocks of data.
+func computeLeafHashes(data []byte) [][]byte {
+	if len(data) == 0 {
+		h := sha256.Sum256(nil)
+
+		return [][]byte{h[:]}
+	}
+
+	var hashes [][]byte
+
+	for i := 0; i < len(data); i += treeHashLeafSize {
+		end := min(i+treeHashLeafSize, len(data))
+		sum := sha256.Sum256(data[i:end])
+		hashes = append(hashes, sum[:])
+	}
+
+	return hashes
+}
+
+// reduceTreeHashes iteratively pair-hashes adjacent entries until one remains.
+func reduceTreeHashes(hashes [][]byte) []byte {
+	const pairStep = 2
+
+	for len(hashes) > 1 {
+		next := make([][]byte, 0, (len(hashes)+1)/pairStep)
+
+		for i := 0; i < len(hashes); i += pairStep {
+			if i+1 >= len(hashes) {
+				next = append(next, hashes[i])
+
+				continue
+			}
+
+			combined := make([]byte, len(hashes[i])+len(hashes[i+1]))
+			copy(combined, hashes[i])
+			copy(combined[len(hashes[i]):], hashes[i+1])
+			sum := sha256.Sum256(combined)
+			next = append(next, sum[:])
+		}
+
+		hashes = next
+	}
+
+	return hashes[0]
+}
+
+// computeTreeHash returns the SHA-256 tree-hash of data as a lowercase hex string.
+func computeTreeHash(data []byte) string {
+	leaves := computeLeafHashes(data)
+
+	return hex.EncodeToString(reduceTreeHashes(leaves))
+}
+
+// validateDescription returns an error if s contains non-printable ASCII or exceeds 1024 bytes.
+func validateDescription(s string) error {
+	if len(s) > maxDescriptionLen {
+		return fmt.Errorf("%w: exceeds %d characters", ErrDescriptionTooLong, maxDescriptionLen)
+	}
+
+	for i := range len(s) {
+		if s[i] < minDescriptionChar || s[i] > maxDescriptionChar {
+			return fmt.Errorf("%w: 0x%02x at position %d", ErrDescriptionChar, s[i], i)
+		}
+	}
+
+	return nil
 }
 
 func (h *Handler) handleDeleteArchive(c *echo.Context, vaultName, archiveID string) error {
@@ -876,9 +1024,63 @@ func (h *Handler) handleListJobs(c *echo.Context, vaultName string) error {
 		items = append(items, toDescribeJobResponse(j))
 	}
 
+	items, nextMarker, pErr := paginateJobList(c, items)
+	if pErr != nil {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			pErr.Error(),
+		)
+	}
+
 	return c.JSON(http.StatusOK, listJobsResponse{
+		Marker:  nextMarker,
 		JobList: items,
 	})
+}
+
+// paginateJobList applies marker+limit pagination to a slice of job responses.
+func paginateJobList(
+	c *echo.Context,
+	items []describeJobResponse,
+) ([]describeJobResponse, *string, error) {
+	if marker := c.QueryParam("marker"); marker != "" {
+		start := 0
+
+		for start < len(items) && items[start].JobID != marker {
+			start++
+		}
+
+		if start < len(items) {
+			items = items[start+1:]
+		} else {
+			items = nil
+		}
+	}
+
+	limitStr := c.QueryParam("limit")
+	if limitStr == "" {
+		return items, nil, nil
+	}
+
+	n, err := strconv.Atoi(limitStr)
+	if err != nil || n < minListLimit || n > maxListJobsLimit {
+		return nil, nil, fmt.Errorf(
+			"%w: must be between %d and %d",
+			ErrLimitOutOfRange,
+			minListLimit,
+			maxListJobsLimit,
+		)
+	}
+
+	if n >= len(items) {
+		return items, nil, nil
+	}
+
+	last := items[n-1].JobID
+
+	return items[:n], &last, nil
 }
 
 func (h *Handler) handleGetJobOutput(c *echo.Context, vaultName, jobID string) error {
@@ -1309,31 +1511,92 @@ func (h *Handler) handleGetVaultLock(c *echo.Context, vaultName string) error {
 	})
 }
 
+// dataRetrievalRule is a single rule in the data retrieval policy.
+// BytesPerHour pointer comes first so the struct fits in 16 pointer bytes.
+type dataRetrievalRule struct {
+	BytesPerHour *int64 `json:"BytesPerHour,omitempty"`
+	Strategy     string `json:"Strategy"`
+}
+
+// dataRetrievalPolicyBody wraps the Rules slice in the AWS request/response envelope.
+type dataRetrievalPolicyBody struct {
+	Rules []dataRetrievalRule `json:"Rules"`
+}
+
+// dataRetrievalPolicyRequest is the outer envelope for SetDataRetrievalPolicy.
+type dataRetrievalPolicyRequest struct {
+	Policy dataRetrievalPolicyBody `json:"Policy"`
+}
+
 // handleDataRetrievalPolicy handles GetDataRetrievalPolicy and SetDataRetrievalPolicy.
 func (h *Handler) handleDataRetrievalPolicy(c *echo.Context, op string, body []byte) error {
 	if op == opGetDataRetrievalPolicy {
-		policy := h.Backend.GetDataRetrievalPolicy(h.AccountID)
-		if policy == "" {
-			return c.JSON(http.StatusOK, map[string]any{
-				"Policy": map[string]any{
-					"Rules": []map[string]string{
-						{"Strategy": "FreeTier"},
-					},
+		return h.handleGetDataRetrievalPolicy(c)
+	}
+
+	return h.handleSetDataRetrievalPolicy(c, body)
+}
+
+func (h *Handler) handleGetDataRetrievalPolicy(c *echo.Context) error {
+	policy := h.Backend.GetDataRetrievalPolicy(h.AccountID)
+	if policy == "" {
+		return c.JSON(http.StatusOK, map[string]any{
+			"Policy": map[string]any{
+				"Rules": []map[string]string{
+					{"Strategy": "FreeTier"},
 				},
-			})
-		}
+			},
+		})
+	}
 
-		var parsed any
-		if err := json.Unmarshal([]byte(policy), &parsed); err == nil {
-			return c.JSON(http.StatusOK, parsed)
-		}
+	var parsed any
+	if err := json.Unmarshal([]byte(policy), &parsed); err == nil {
+		return c.JSON(http.StatusOK, parsed)
+	}
 
-		return c.JSON(http.StatusOK, map[string]any{"Policy": policy})
+	return c.JSON(http.StatusOK, map[string]any{"Policy": policy})
+}
+
+func (h *Handler) handleSetDataRetrievalPolicy(c *echo.Context, body []byte) error {
+	var req dataRetrievalPolicyRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"invalid data retrieval policy: "+err.Error())
+	}
+
+	if vErr := validateDataRetrievalRules(req.Policy.Rules); vErr != nil {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			vErr.Error(),
+		)
 	}
 
 	h.Backend.SetDataRetrievalPolicy(h.AccountID, body)
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+// validateDataRetrievalRules validates the Rules slice of a data retrieval policy.
+func validateDataRetrievalRules(rules []dataRetrievalRule) error {
+	validStrategies := map[string]bool{"None": true, "FreeTier": true, "BytesPerHour": true}
+
+	for _, r := range rules {
+		if !validStrategies[r.Strategy] {
+			return fmt.Errorf(
+				"%w: %q; must be None, FreeTier, or BytesPerHour",
+				ErrInvalidStrategy,
+				r.Strategy,
+			)
+		}
+
+		if r.Strategy == "BytesPerHour" && (r.BytesPerHour == nil || *r.BytesPerHour <= 0) {
+			return ErrBytesPerHourRequired
+		}
+	}
+
+	return nil
 }
 
 // ----------------------------------------
@@ -1342,6 +1605,10 @@ func (h *Handler) handleDataRetrievalPolicy(c *echo.Context, op string, body []b
 
 func (h *Handler) handleInitiateMultipartUpload(c *echo.Context, vaultName string, _ []byte) error {
 	description := c.Request().Header.Get("X-Amz-Archive-Description")
+	if err := validateDescription(description); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	}
+
 	partSizeStr := c.Request().Header.Get("X-Amz-Part-Size")
 
 	var partSize int64
@@ -1464,9 +1731,63 @@ func (h *Handler) handleListMultipartUploads(c *echo.Context, vaultName string) 
 		items = append(items, *up)
 	}
 
+	items, nextMarker, pErr := paginateUploadList(c, items)
+	if pErr != nil {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			pErr.Error(),
+		)
+	}
+
 	return c.JSON(http.StatusOK, listMultipartUploadsResponse{
+		Marker:      nextMarker,
 		UploadsList: items,
 	})
+}
+
+// paginateUploadList applies marker+limit pagination to a multipart-upload slice.
+func paginateUploadList(
+	c *echo.Context,
+	items []MultipartUpload,
+) ([]MultipartUpload, *string, error) {
+	if marker := c.QueryParam("marker"); marker != "" {
+		start := 0
+
+		for start < len(items) && items[start].MultipartUploadID != marker {
+			start++
+		}
+
+		if start < len(items) {
+			items = items[start+1:]
+		} else {
+			items = nil
+		}
+	}
+
+	limitStr := c.QueryParam("limit")
+	if limitStr == "" {
+		return items, nil, nil
+	}
+
+	n, err := strconv.Atoi(limitStr)
+	if err != nil || n < minListLimit || n > maxListUploadsLimit {
+		return nil, nil, fmt.Errorf(
+			"%w: must be between %d and %d",
+			ErrLimitOutOfRange,
+			minListLimit,
+			maxListUploadsLimit,
+		)
+	}
+
+	if n >= len(items) {
+		return items, nil, nil
+	}
+
+	last := items[n-1].MultipartUploadID
+
+	return items[:n], &last, nil
 }
 
 func (h *Handler) handleListParts(c *echo.Context, vaultName, uploadID string) error {
@@ -1475,7 +1796,62 @@ func (h *Handler) handleListParts(c *echo.Context, vaultName, uploadID string) e
 		return h.writeBackendError(c, err)
 	}
 
+	// Apply marker+limit pagination to the parts list.
+	parts, nextMarker, pErr := paginatePartList(c, resp.Parts)
+	if pErr != nil {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			pErr.Error(),
+		)
+	}
+
+	resp.Parts = parts
+	resp.Marker = nextMarker
+
 	return c.JSON(http.StatusOK, resp)
+}
+
+// paginatePartList applies marker+limit pagination to a parts slice.
+// Marker is compared to RangeInBytes of each part.
+func paginatePartList(c *echo.Context, parts []MultipartPart) ([]MultipartPart, *string, error) {
+	if marker := c.QueryParam("marker"); marker != "" {
+		start := 0
+
+		for start < len(parts) && parts[start].RangeInBytes != marker {
+			start++
+		}
+
+		if start < len(parts) {
+			parts = parts[start+1:]
+		} else {
+			parts = nil
+		}
+	}
+
+	limitStr := c.QueryParam("limit")
+	if limitStr == "" {
+		return parts, nil, nil
+	}
+
+	n, err := strconv.Atoi(limitStr)
+	if err != nil || n < minListLimit || n > maxListUploadsLimit {
+		return nil, nil, fmt.Errorf(
+			"%w: must be between %d and %d",
+			ErrLimitOutOfRange,
+			minListLimit,
+			maxListUploadsLimit,
+		)
+	}
+
+	if n >= len(parts) {
+		return parts, nil, nil
+	}
+
+	last := parts[n-1].RangeInBytes
+
+	return parts[:n], &last, nil
 }
 
 // ----------------------------------------
@@ -1518,11 +1894,13 @@ func parseInt64Header(s string) (int64, error) {
 // ----------------------------------------
 
 // writeError writes a Glacier-format JSON error response.
+// Both "code" and "__type" are set so AWS SDK versions that key on either field work correctly.
 func (h *Handler) writeError(c *echo.Context, status int, code, message string) error {
 	return c.JSON(status, errorResponse{
-		Code:    code,
-		Message: message,
-		Type:    "Client",
+		Code:      code,
+		Message:   message,
+		Type:      "Client",
+		TypeAlias: code,
 	})
 }
 
@@ -1545,6 +1923,10 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
 	case errors.Is(err, ErrTooManyTags):
 		return h.writeError(c, http.StatusBadRequest, "LimitExceededException", err.Error())
+	case errors.Is(err, ErrProvisionedCapacityLimit):
+		return h.writeError(c, http.StatusBadRequest, "LimitExceededException", err.Error())
+	case errors.Is(err, ErrInvalidTag):
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	case errors.Is(err, ErrValidation):
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}

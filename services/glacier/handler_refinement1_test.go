@@ -686,7 +686,7 @@ func TestRefinement1_SortedListProvisionedCapacity(t *testing.T) {
 		name  string
 		count int
 	}{
-		{name: "capacity_sorted_by_id", count: 3},
+		{name: "capacity_sorted_by_id", count: 2},
 	}
 
 	for _, tt := range tests {
