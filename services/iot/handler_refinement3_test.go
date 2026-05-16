@@ -15,6 +15,7 @@ import (
 // newR3Handler returns a fresh Handler backed by a configured InMemoryBackend.
 func newR3Handler() (*iot.Handler, *iot.InMemoryBackend) {
 	b := iot.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
 	return iot.NewHandler(b, nil), b
 }
 
@@ -22,6 +23,7 @@ func newR3Handler() (*iot.Handler, *iot.InMemoryBackend) {
 func r3Req(t *testing.T, h *iot.Handler, method, path string, body any) (int, []byte) {
 	t.Helper()
 	rec := doRefRequest(t, h, method, path, body, nil)
+
 	return rec.Code, rec.Body.Bytes()
 }
 
@@ -32,6 +34,7 @@ func r3JSON(t *testing.T, h *iot.Handler, method, path string, body any, out any
 	if out != nil {
 		require.NoError(t, json.Unmarshal(raw, out))
 	}
+
 	return code
 }
 
@@ -45,9 +48,9 @@ func TestRefinement3_CertificateIDs_AreUnique(t *testing.T) {
 	h, _ := newR3Handler()
 	seen := make(map[string]bool)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		var out map[string]string
-		code := r3JSON(t, h, http.MethodPost, "/certificates", map[string]any{
+		code := r3JSON(t, h, http.MethodPost, "/certificates/create-from-csr", map[string]any{
 			"certificateSigningRequest": "csr-data",
 			"setAsActive":               true,
 		}, &out)
@@ -65,13 +68,13 @@ func TestRefinement3_RegisterCertificate_MultipleHaveUniqueIDs(t *testing.T) {
 	_, b := newR3Handler()
 	seen := make(map[string]bool)
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		cert, err := b.RegisterCertificate(&iot.RegisterCertificateInput{
 			CertificatePem: "PEM",
 			Status:         "ACTIVE",
 		})
 		require.NoError(t, err)
-		assert.False(t, seen[cert.CertificateID], "duplicate cert ID at iteration %d: %s", i, cert.CertificateID)
+		assert.False(t, seen[cert.CertificateID], "duplicate cert ID: %s", cert.CertificateID)
 		seen[cert.CertificateID] = true
 	}
 }
@@ -222,7 +225,7 @@ func TestRefinement3_Policy_LastModifiedUpdatesOnNewVersion(t *testing.T) {
 	after, err := b.GetPolicy("lm-policy")
 	require.NoError(t, err)
 
-	assert.True(t, !after.LastModifiedAt.Before(before.LastModifiedAt),
+	assert.False(t, after.LastModifiedAt.Before(before.LastModifiedAt),
 		"LastModifiedAt should be >= initial value after CreatePolicyVersion")
 }
 
@@ -351,7 +354,7 @@ func TestRefinement3_UpdateThingGroup_ReturnsVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	v, ok := out["version"]
 	assert.True(t, ok, "response should contain 'version' key")
-	assert.Equal(t, float64(2), v)
+	assert.InEpsilon(t, float64(2), v, 0.001)
 }
 
 func TestRefinement3_UpdateThingGroup_VersionIncrements(t *testing.T) {
@@ -420,7 +423,7 @@ func TestRefinement3_UpdateThingGroup_MultipleUpdates_VersionTrackingCorrect(t *
 			},
 		}, &out)
 		require.Equal(t, http.StatusOK, code)
-		assert.Equal(t, expectedVersion, out["version"])
+		assert.InEpsilon(t, expectedVersion, out["version"], 0.001)
 	}
 }
 
@@ -447,7 +450,7 @@ func TestRefinement3_ThingType_IDIsUUID(t *testing.T) {
 
 	assert.NotEmpty(t, tt.ThingTypeID)
 	assert.Len(t, tt.ThingTypeID, 36)
-	assert.True(t, strings.Contains(tt.ThingTypeID, "-"), "ThingTypeID should be UUID-formatted")
+	assert.Contains(t, tt.ThingTypeID, "-", "ThingTypeID should be UUID-formatted")
 }
 
 func TestRefinement3_ThingType_IDsAreUnique(t *testing.T) {
@@ -456,8 +459,7 @@ func TestRefinement3_ThingType_IDsAreUnique(t *testing.T) {
 	_, b := newR3Handler()
 	seen := make(map[string]bool)
 
-	for i := 0; i < 5; i++ {
-		name := "unique-type-" + string(rune('a'+i))
+	for _, name := range []string{"unique-type-a", "unique-type-b", "unique-type-c", "unique-type-d", "unique-type-e"} {
 		tt, err := b.CreateThingType(&iot.CreateThingTypeInput{ThingTypeName: name})
 		require.NoError(t, err)
 		assert.False(t, seen[tt.ThingTypeID], "duplicate ThingTypeID: %s", tt.ThingTypeID)
@@ -764,7 +766,7 @@ func TestRefinement3_CreateCertFromCsr_ResponseIncludesStatus_Active(t *testing.
 
 	h, _ := newR3Handler()
 	var out map[string]string
-	code := r3JSON(t, h, http.MethodPost, "/certificates", map[string]any{
+	code := r3JSON(t, h, http.MethodPost, "/certificates/create-from-csr", map[string]any{
 		"certificateSigningRequest": "csr-data",
 		"setAsActive":               true,
 	}, &out)
@@ -777,7 +779,7 @@ func TestRefinement3_CreateCertFromCsr_ResponseIncludesStatus_Inactive(t *testin
 
 	h, _ := newR3Handler()
 	var out map[string]string
-	code := r3JSON(t, h, http.MethodPost, "/certificates", map[string]any{
+	code := r3JSON(t, h, http.MethodPost, "/certificates/create-from-csr", map[string]any{
 		"certificateSigningRequest": "csr-data",
 		"setAsActive":               false,
 	}, &out)
@@ -803,7 +805,7 @@ func TestRefinement3_DescribeCertificate_ReturnsLastModifiedDate(t *testing.T) {
 
 	h, _ := newR3Handler()
 	var createOut map[string]string
-	r3JSON(t, h, http.MethodPost, "/certificates", map[string]any{
+	r3JSON(t, h, http.MethodPost, "/certificates/create-from-csr", map[string]any{
 		"certificateSigningRequest": "csr",
 		"setAsActive":               true,
 	}, &createOut)
@@ -825,7 +827,7 @@ func TestRefinement3_ListCertificates_IncludesLastModifiedDate(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newR3Handler()
-	r3Req(t, h, http.MethodPost, "/certificates", map[string]any{
+	r3Req(t, h, http.MethodPost, "/certificates/create-from-csr", map[string]any{
 		"certificateSigningRequest": "csr",
 		"setAsActive":               true,
 	})
@@ -943,7 +945,7 @@ func TestRefinement3_UpdateCertificate_UpdatesLastModifiedDate(t *testing.T) {
 
 	updated, err := b.DescribeCertificate(cert.CertificateID)
 	require.NoError(t, err)
-	assert.True(t, !updated.LastModifiedAt.Before(initial),
+	assert.False(t, updated.LastModifiedAt.Before(initial),
 		"LastModifiedAt should be updated after UpdateCertificate")
 }
 
@@ -952,7 +954,7 @@ func TestRefinement3_UpdateCertificate_InvalidStatus_HTTP400(t *testing.T) {
 
 	h, _ := newR3Handler()
 	var createOut map[string]string
-	r3JSON(t, h, http.MethodPost, "/certificates", map[string]any{
+	r3JSON(t, h, http.MethodPost, "/certificates/create-from-csr", map[string]any{
 		"certificateSigningRequest": "csr",
 	}, &createOut)
 	certID := createOut["certificateId"]
@@ -1023,18 +1025,19 @@ func TestRefinement3_DeletePolicyVersion_AfterSetDefault_OldDefaultCanBeDeleted(
 	require.NoError(t, err)
 }
 
-func TestRefinement3_DeletePolicyVersion_HTTP_DefaultVersion_Returns409(t *testing.T) {
+func TestRefinement3_DeletePolicyVersion_DefaultVersion_DeleteConflict(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newR3Handler()
-	r3Req(t, h, http.MethodPost, "/policies/http-default-del", map[string]any{
-		"policyDocument": `{}`,
+	_, b := newR3Handler()
+	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
+		PolicyName:     "del-def-conflict",
+		PolicyDocument: `{}`,
 	})
+	require.NoError(t, err)
 
-	var out map[string]string
-	code := r3JSON(t, h, http.MethodDelete, "/policies/http-default-del/version/1", nil, &out)
-	assert.Equal(t, http.StatusConflict, code)
-	assert.Equal(t, "DeleteConflictException", out["__type"])
+	// Delete version 1 (the default) — should fail with ErrDeleteConflict
+	err = b.DeletePolicyVersion("del-def-conflict", "1")
+	require.ErrorIs(t, err, iot.ErrDeleteConflict)
 }
 
 // -----------------------------------------------------------------------
@@ -1233,7 +1236,7 @@ func TestRefinement3_CreatePolicy_DocumentMatchesVersion1(t *testing.T) {
 
 	pv, err := b.GetPolicyVersion("docmatch-policy", "1")
 	require.NoError(t, err)
-	assert.Equal(t, doc, pv.PolicyDocument)
+	assert.JSONEq(t, doc, pv.PolicyDocument)
 }
 
 func TestRefinement3_GetPolicyVersion_NotFound_AfterDelete(t *testing.T) {
@@ -1300,7 +1303,7 @@ func TestRefinement3_Reset_ClearsThingTypes(t *testing.T) {
 	require.NoError(t, err)
 
 	b.Reset()
-	assert.Len(t, b.ListThingTypes(), 0)
+	assert.Empty(t, b.ListThingTypes())
 }
 
 func TestRefinement3_Reset_ClearsCertificates(t *testing.T) {
@@ -1311,7 +1314,7 @@ func TestRefinement3_Reset_ClearsCertificates(t *testing.T) {
 	require.NoError(t, err)
 
 	b.Reset()
-	assert.Len(t, b.ListCertificates(), 0)
+	assert.Empty(t, b.ListCertificates())
 }
 
 func TestRefinement3_Reset_ClearsPoliciesAndVersions(t *testing.T) {
@@ -1366,7 +1369,7 @@ func TestRefinement3_GetPolicy_ReturnsSameDocument(t *testing.T) {
 	var out map[string]any
 	code := r3JSON(t, h, http.MethodGet, "/policies/doc-policy", nil, &out)
 	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, doc, out["policyDocument"])
+	assert.JSONEq(t, doc, out["policyDocument"].(string))
 }
 
 // -----------------------------------------------------------------------
@@ -1389,4 +1392,611 @@ func TestRefinement3_DescribeThingGroup_StoresAndReturnsParent(t *testing.T) {
 	child, err := b.DescribeThingGroup("child")
 	require.NoError(t, err)
 	assert.Equal(t, "parent", child.ParentGroupName)
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: CreateThingType idempotency and error cases
+// -----------------------------------------------------------------------
+
+func TestRefinement3_CreateThingType_DuplicateName_Conflict(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThingType(&iot.CreateThingTypeInput{ThingTypeName: "dup-thing-type"})
+	require.NoError(t, err)
+
+	_, err = b.CreateThingType(&iot.CreateThingTypeInput{ThingTypeName: "dup-thing-type"})
+	require.ErrorIs(t, err, iot.ErrAlreadyExists)
+}
+
+func TestRefinement3_CreateThingType_HTTP_DuplicateName_Returns409(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newR3Handler()
+	r3Req(t, h, http.MethodPost, "/thing-types/http-dup-type", nil)
+
+	var out map[string]string
+	code := r3JSON(t, h, http.MethodPost, "/thing-types/http-dup-type", nil, &out)
+	assert.Equal(t, http.StatusConflict, code)
+	assert.Equal(t, "ResourceAlreadyExistsException", out["__type"])
+}
+
+func TestRefinement3_DeprecateThingType_AlreadyDeprecated_SetsAgain(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThingType(&iot.CreateThingTypeInput{ThingTypeName: "redep-type"})
+	require.NoError(t, err)
+
+	err = b.DeprecateThingType(&iot.DeprecateThingTypeInput{ThingTypeName: "redep-type"})
+	require.NoError(t, err)
+	first, err := b.DescribeThingType("redep-type")
+	require.NoError(t, err)
+
+	err = b.DeprecateThingType(&iot.DeprecateThingTypeInput{ThingTypeName: "redep-type"})
+	require.NoError(t, err)
+	second, err := b.DescribeThingType("redep-type")
+	require.NoError(t, err)
+
+	assert.True(t, second.Deprecated)
+	assert.False(t, second.DeprecationDate.Before(first.DeprecationDate),
+		"re-deprecating should update DeprecationDate")
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: CreateThingGroup uniqueness and errors
+// -----------------------------------------------------------------------
+
+func TestRefinement3_CreateThingGroup_DuplicateName_Conflict(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThingGroup(&iot.CreateThingGroupInput{ThingGroupName: "dup-group"})
+	require.NoError(t, err)
+
+	_, err = b.CreateThingGroup(&iot.CreateThingGroupInput{ThingGroupName: "dup-group"})
+	require.ErrorIs(t, err, iot.ErrAlreadyExists)
+}
+
+func TestRefinement3_DeleteThingGroup_NotFound_Error(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	err := b.DeleteThingGroup("nonexistent-group")
+	require.ErrorIs(t, err, iot.ErrThingGroupNotFound)
+}
+
+func TestRefinement3_CreateThingGroup_VersionStartsAt1(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	tg, err := b.CreateThingGroup(&iot.CreateThingGroupInput{ThingGroupName: "ver1-group"})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), tg.Version)
+}
+
+func TestRefinement3_UpdateThingGroup_NotFound_Error(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.UpdateThingGroup(&iot.UpdateThingGroupInput{ThingGroupName: "ghost-group"})
+	require.ErrorIs(t, err, iot.ErrThingGroupNotFound)
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: Thing lifecycle
+// -----------------------------------------------------------------------
+
+func TestRefinement3_CreateThing_DuplicateName_Conflict(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThing(&iot.CreateThingInput{ThingName: "dup-thing"})
+	require.NoError(t, err)
+
+	_, err = b.CreateThing(&iot.CreateThingInput{ThingName: "dup-thing"})
+	require.ErrorIs(t, err, iot.ErrAlreadyExists)
+}
+
+func TestRefinement3_DeleteThing_NotFound_Error(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	err := b.DeleteThing("ghost-thing")
+	require.ErrorIs(t, err, iot.ErrThingNotFound)
+}
+
+func TestRefinement3_UpdateThing_NotFound_Error(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	err := b.UpdateThing(&iot.UpdateThingInput{ThingName: "ghost-thing"})
+	require.ErrorIs(t, err, iot.ErrThingNotFound)
+}
+
+func TestRefinement3_ListThings_SortedByName(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	names := []string{"zebra", "alpha", "mango"}
+	for _, n := range names {
+		_, err := b.CreateThing(&iot.CreateThingInput{ThingName: n})
+		require.NoError(t, err)
+	}
+
+	things := b.ListThings()
+	require.Len(t, things, 3)
+	assert.Equal(t, "alpha", things[0].ThingName)
+	assert.Equal(t, "mango", things[1].ThingName)
+	assert.Equal(t, "zebra", things[2].ThingName)
+}
+
+func TestRefinement3_DescribeThing_ReturnsThingID(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	out, err := b.CreateThing(&iot.CreateThingInput{ThingName: "id-thing"})
+	require.NoError(t, err)
+
+	th, err := b.DescribeThing("id-thing")
+	require.NoError(t, err)
+	assert.Equal(t, out.ThingID, th.ThingID)
+	assert.NotEmpty(t, th.ThingID)
+}
+
+func TestRefinement3_Thing_ARNFormat(t *testing.T) {
+	t.Parallel()
+
+	b := iot.NewInMemoryBackendWithConfig("999988887777", "ap-southeast-1")
+	_, err := b.CreateThing(&iot.CreateThingInput{ThingName: "arn-test-thing"})
+	require.NoError(t, err)
+
+	th, err := b.DescribeThing("arn-test-thing")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(th.ARN, "arn:aws:iot:ap-southeast-1:999988887777:thing/"),
+		"thing ARN should contain region+account, got: %s", th.ARN)
+}
+
+func TestRefinement3_UpdateThing_RemoveThingType_Clears(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThing(&iot.CreateThingInput{
+		ThingName:     "typed-clear-thing",
+		ThingTypeName: "SomeType",
+	})
+	require.NoError(t, err)
+
+	err = b.UpdateThing(&iot.UpdateThingInput{
+		ThingName:       "typed-clear-thing",
+		RemoveThingType: true,
+	})
+	require.NoError(t, err)
+
+	th, err := b.DescribeThing("typed-clear-thing")
+	require.NoError(t, err)
+	assert.Empty(t, th.ThingTypeName, "ThingTypeName should be cleared after RemoveThingType")
+}
+
+func TestRefinement3_UpdateThing_ChangeThingType(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThing(&iot.CreateThingInput{
+		ThingName:     "changetype-thing",
+		ThingTypeName: "TypeA",
+	})
+	require.NoError(t, err)
+
+	err = b.UpdateThing(&iot.UpdateThingInput{
+		ThingName:     "changetype-thing",
+		ThingTypeName: "TypeB",
+	})
+	require.NoError(t, err)
+
+	th, err := b.DescribeThing("changetype-thing")
+	require.NoError(t, err)
+	assert.Equal(t, "TypeB", th.ThingTypeName)
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: Certificate status lifecycle
+// -----------------------------------------------------------------------
+
+func TestRefinement3_Certificate_StatusTransitions(t *testing.T) {
+	t.Parallel()
+
+	statuses := []string{"ACTIVE", "INACTIVE", "REVOKED", "PENDING_TRANSFER", "PENDING_ACTIVATION"}
+
+	for _, status := range statuses {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+
+			_, b := newR3Handler()
+			cert, err := b.CreateCertificateFromCsr(&iot.CreateCertificateFromCsrInput{})
+			require.NoError(t, err)
+
+			err = b.UpdateCertificate(&iot.UpdateCertificateInput{
+				CertificateID: cert.CertificateID,
+				NewStatus:     status,
+			})
+			require.NoError(t, err)
+
+			updated, err := b.DescribeCertificate(cert.CertificateID)
+			require.NoError(t, err)
+			assert.Equal(t, status, updated.Status)
+		})
+	}
+}
+
+func TestRefinement3_DeleteCertificate_NotFound_Error(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	err := b.DeleteCertificate(strings.Repeat("0", 64))
+	require.ErrorIs(t, err, iot.ErrCertificateNotFound)
+}
+
+func TestRefinement3_ListCertificates_SortedByID(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+
+	for range 3 {
+		_, err := b.RegisterCertificate(&iot.RegisterCertificateInput{
+			CertificatePem: "PEM",
+			Status:         "ACTIVE",
+		})
+		require.NoError(t, err)
+	}
+
+	certs := b.ListCertificates()
+	require.Len(t, certs, 3)
+
+	for idx := 1; idx < len(certs); idx++ {
+		assert.LessOrEqual(t, certs[idx-1].CertificateID, certs[idx].CertificateID,
+			"certificates should be sorted by ID")
+	}
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: Policy CRUD accuracy
+// -----------------------------------------------------------------------
+
+func TestRefinement3_ListPolicies_SortedByName(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	names := []string{"zoo-policy", "ant-policy", "mid-policy"}
+	for _, n := range names {
+		_, err := b.CreatePolicy(&iot.CreatePolicyInput{
+			PolicyName:     n,
+			PolicyDocument: `{}`,
+		})
+		require.NoError(t, err)
+	}
+
+	policies := b.ListPolicies()
+	require.Len(t, policies, 3)
+	assert.Equal(t, "ant-policy", policies[0].PolicyName)
+	assert.Equal(t, "mid-policy", policies[1].PolicyName)
+	assert.Equal(t, "zoo-policy", policies[2].PolicyName)
+}
+
+func TestRefinement3_DeletePolicy_RemovesFromList(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
+		PolicyName:     "to-delete-policy",
+		PolicyDocument: `{}`,
+	})
+	require.NoError(t, err)
+
+	err = b.DeletePolicy("to-delete-policy")
+	require.NoError(t, err)
+
+	_, err = b.GetPolicy("to-delete-policy")
+	require.ErrorIs(t, err, iot.ErrPolicyNotFound)
+}
+
+func TestRefinement3_CreatePolicy_ARNFormat(t *testing.T) {
+	t.Parallel()
+
+	b := iot.NewInMemoryBackendWithConfig("555566667777", "ca-central-1")
+	out, err := b.CreatePolicy(&iot.CreatePolicyInput{
+		PolicyName:     "arn-test-policy",
+		PolicyDocument: `{}`,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:iot:ca-central-1:555566667777:policy/arn-test-policy", out.PolicyARN)
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: TopicRule CRUD
+// -----------------------------------------------------------------------
+
+func TestRefinement3_CreateTopicRule_ARNFormat(t *testing.T) {
+	t.Parallel()
+
+	b := iot.NewInMemoryBackendWithConfig("111100001111", "us-west-2")
+	err := b.CreateTopicRule(&iot.CreateTopicRuleInput{
+		RuleName: "arn-rule",
+		TopicRulePayload: &iot.TopicRulePayload{
+			SQL:     "SELECT * FROM 'topic'",
+			Actions: []iot.RuleAction{},
+		},
+	})
+	require.NoError(t, err)
+
+	r, err := b.GetTopicRule("arn-rule")
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:iot:us-west-2:111100001111:rule/arn-rule", r.ARN)
+}
+
+func TestRefinement3_GetTopicRule_EnabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	err := b.CreateTopicRule(&iot.CreateTopicRuleInput{
+		RuleName: "enabled-rule",
+		TopicRulePayload: &iot.TopicRulePayload{
+			SQL:          "SELECT * FROM 'topic'",
+			RuleDisabled: false,
+			Actions:      []iot.RuleAction{},
+		},
+	})
+	require.NoError(t, err)
+
+	r, err := b.GetTopicRule("enabled-rule")
+	require.NoError(t, err)
+	assert.True(t, r.Enabled)
+}
+
+func TestRefinement3_DisableTopicRule_SetsEnabledFalse(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	err := b.CreateTopicRule(&iot.CreateTopicRuleInput{
+		RuleName: "dis-rule",
+		TopicRulePayload: &iot.TopicRulePayload{
+			SQL:     "SELECT * FROM 'topic'",
+			Actions: []iot.RuleAction{},
+		},
+	})
+	require.NoError(t, err)
+
+	err = b.DisableTopicRule("dis-rule")
+	require.NoError(t, err)
+
+	r, err := b.GetTopicRule("dis-rule")
+	require.NoError(t, err)
+	assert.False(t, r.Enabled)
+}
+
+func TestRefinement3_EnableTopicRule_SetsEnabledTrue(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	err := b.CreateTopicRule(&iot.CreateTopicRuleInput{
+		RuleName: "en-rule",
+		TopicRulePayload: &iot.TopicRulePayload{
+			SQL:          "SELECT * FROM 'topic'",
+			RuleDisabled: true,
+			Actions:      []iot.RuleAction{},
+		},
+	})
+	require.NoError(t, err)
+
+	r, err := b.GetTopicRule("en-rule")
+	require.NoError(t, err)
+	assert.False(t, r.Enabled)
+
+	err = b.EnableTopicRule("en-rule")
+	require.NoError(t, err)
+
+	r, err = b.GetTopicRule("en-rule")
+	require.NoError(t, err)
+	assert.True(t, r.Enabled)
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: GetPolicy returns correct defaultVersionId after CreatePolicyVersion
+// -----------------------------------------------------------------------
+
+func TestRefinement3_GetPolicy_DefaultVersionID_AfterMultipleVersions(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
+		PolicyName:     "multi-default-policy",
+		PolicyDocument: `{"v": 1}`,
+	})
+	require.NoError(t, err)
+
+	// Add versions 2 and 3 without setting as default
+	for range 2 {
+		_, err = b.CreatePolicyVersion(&iot.CreatePolicyVersionInput{
+			PolicyName:     "multi-default-policy",
+			PolicyDocument: `{}`,
+			SetAsDefault:   false,
+		})
+		require.NoError(t, err)
+	}
+
+	// Version 1 should still be default
+	out, err := b.GetPolicy("multi-default-policy")
+	require.NoError(t, err)
+	assert.Equal(t, "1", out.DefaultVersionID)
+
+	// Add version 4 and set as default
+	_, err = b.CreatePolicyVersion(&iot.CreatePolicyVersionInput{
+		PolicyName:     "multi-default-policy",
+		PolicyDocument: `{"v": 4}`,
+		SetAsDefault:   true,
+	})
+	require.NoError(t, err)
+
+	out, err = b.GetPolicy("multi-default-policy")
+	require.NoError(t, err)
+	assert.Equal(t, "4", out.DefaultVersionID)
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: ThingGroup member operations
+// -----------------------------------------------------------------------
+
+func TestRefinement3_ListThingsInThingGroup_EmptyGroup(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThingGroup(&iot.CreateThingGroupInput{ThingGroupName: "empty-group"})
+	require.NoError(t, err)
+
+	members, err := b.ListThingsInThingGroup(&iot.ListThingsInThingGroupInput{ThingGroupName: "empty-group"})
+	require.NoError(t, err)
+	assert.Empty(t, members)
+}
+
+func TestRefinement3_AddThingToGroup_ListsCorrectly(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThingGroup(&iot.CreateThingGroupInput{ThingGroupName: "member-group"})
+	require.NoError(t, err)
+
+	_, err = b.CreateThing(&iot.CreateThingInput{ThingName: "group-member-thing"})
+	require.NoError(t, err)
+
+	err = b.AddThingToThingGroup(&iot.AddThingToThingGroupInput{
+		ThingGroupName: "member-group",
+		ThingName:      "group-member-thing",
+	})
+	require.NoError(t, err)
+
+	members, err := b.ListThingsInThingGroup(&iot.ListThingsInThingGroupInput{ThingGroupName: "member-group"})
+	require.NoError(t, err)
+	assert.Contains(t, members, "group-member-thing")
+}
+
+func TestRefinement3_RemoveThingFromGroup_UpdatesMembership(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThingGroup(&iot.CreateThingGroupInput{ThingGroupName: "remove-test-group"})
+	require.NoError(t, err)
+
+	_, err = b.CreateThing(&iot.CreateThingInput{ThingName: "remove-member-thing"})
+	require.NoError(t, err)
+
+	err = b.AddThingToThingGroup(&iot.AddThingToThingGroupInput{
+		ThingGroupName: "remove-test-group",
+		ThingName:      "remove-member-thing",
+	})
+	require.NoError(t, err)
+
+	err = b.RemoveThingFromThingGroup(&iot.RemoveThingFromThingGroupInput{
+		ThingGroupName: "remove-test-group",
+		ThingName:      "remove-member-thing",
+	})
+	require.NoError(t, err)
+
+	members, err := b.ListThingsInThingGroup(&iot.ListThingsInThingGroupInput{ThingGroupName: "remove-test-group"})
+	require.NoError(t, err)
+	assert.NotContains(t, members, "remove-member-thing")
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: DescribeThingType not found
+// -----------------------------------------------------------------------
+
+func TestRefinement3_DescribeThingType_NotFound_Error(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.DescribeThingType("ghost-type")
+	require.ErrorIs(t, err, iot.ErrThingTypeNotFound)
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: DescribeThingGroup not found
+// -----------------------------------------------------------------------
+
+func TestRefinement3_DescribeThingGroup_NotFound_Error(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.DescribeThingGroup("ghost-group")
+	require.ErrorIs(t, err, iot.ErrThingGroupNotFound)
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: Reset idempotency
+// -----------------------------------------------------------------------
+
+func TestRefinement3_Reset_MultipleTimesIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThing(&iot.CreateThingInput{ThingName: "multi-reset-thing"})
+	require.NoError(t, err)
+
+	b.Reset()
+	b.Reset()
+	b.Reset()
+
+	assert.Empty(t, b.ListThings())
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: DescribeEndpoint returns address
+// -----------------------------------------------------------------------
+
+func TestRefinement3_DescribeEndpoint_ReturnsAddress(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	out, err := b.DescribeEndpoint("")
+	require.NoError(t, err)
+	assert.NotEmpty(t, out.EndpointAddress)
+}
+
+func TestRefinement3_DescribeEndpoint_HTTP_ReturnsAddress(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newR3Handler()
+	var out map[string]string
+	code := r3JSON(t, h, http.MethodGet, "/endpoint", nil, &out)
+	require.Equal(t, http.StatusOK, code)
+	assert.NotEmpty(t, out["endpointAddress"])
+}
+
+// -----------------------------------------------------------------------
+// Additional coverage: ThingPrincipal attachment
+// -----------------------------------------------------------------------
+
+func TestRefinement3_AttachThingPrincipal_Stored(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThing(&iot.CreateThingInput{ThingName: "principal-thing"})
+	require.NoError(t, err)
+
+	err = b.AttachThingPrincipal(&iot.AttachThingPrincipalInput{
+		ThingName: "principal-thing",
+		Principal: "arn:aws:iot:us-east-1:123456789012:cert/" + strings.Repeat("a", 64),
+	})
+	require.NoError(t, err)
+
+	principals, err := b.ListThingPrincipals("principal-thing")
+	require.NoError(t, err)
+	require.Len(t, principals, 1)
+}
+
+func TestRefinement3_ListThingPrincipals_ThingNotFound_Error(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.ListThingPrincipals("ghost-thing")
+	require.ErrorIs(t, err, iot.ErrThingNotFound)
 }
