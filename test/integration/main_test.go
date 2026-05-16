@@ -32,6 +32,7 @@ import (
 	cloudtrailsdk "github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	codeartifactsdk "github.com/aws/aws-sdk-go-v2/service/codeartifact"
 	codebuildsdk "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	codedeploysdk "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
@@ -73,6 +74,7 @@ import (
 	timestreamwritesdk "github.com/aws/aws-sdk-go-v2/service/timestreamwrite"
 	transfersdk "github.com/aws/aws-sdk-go-v2/service/transfer"
 	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
+	xraysdk "github.com/aws/aws-sdk-go-v2/service/xray"
 	"github.com/google/go-cmp/cmp"
 	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
@@ -752,6 +754,46 @@ func createAthenaClient(t *testing.T) *athenasdk.Client {
 	}
 
 	return athenasdk.NewFromConfig(cfg, func(o *athenasdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeArtifactClient returns a CodeArtifact client pointed at the shared test container.
+func createCodeArtifactClient(t *testing.T) *codeartifactsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return codeartifactsdk.NewFromConfig(cfg, func(o *codeartifactsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createXRayClient returns an X-Ray client pointed at the shared test container.
+func createXRayClient(t *testing.T) *xraysdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return xraysdk.NewFromConfig(cfg, func(o *xraysdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
