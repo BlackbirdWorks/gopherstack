@@ -948,65 +948,215 @@ func (b *InMemoryBackend) UpdateConfigurationSetEventDestination(
 	return nil
 }
 
-// PutConfigurationSetArchivingOptions is a no-op stub.
-func (b *InMemoryBackend) PutConfigurationSetArchivingOptions(_ string) error {
+// PutConfigurationSetArchivingOptions validates the config set exists (archiving not modelled).
+func (b *InMemoryBackend) PutConfigurationSetArchivingOptions(name string) error {
+	b.mu.RLock("PutConfigurationSetArchivingOptions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.configurationSets[name]; !ok {
+		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+	}
+
 	return nil
 }
 
-// PutConfigurationSetDeliveryOptions is a no-op stub.
-func (b *InMemoryBackend) PutConfigurationSetDeliveryOptions(_ string) error {
+// PutConfigurationSetDeliveryOptions stores the TLS policy and sending pool name.
+func (b *InMemoryBackend) PutConfigurationSetDeliveryOptions(
+	name, tlsPolicy, sendingPoolName string,
+) error {
+	b.mu.Lock("PutConfigurationSetDeliveryOptions")
+	defer b.mu.Unlock()
+
+	cs, ok := b.configurationSets[name]
+	if !ok {
+		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+	}
+
+	cs.DeliveryTLSPolicy = tlsPolicy
+	cs.DeliverySendingPoolName = sendingPoolName
+
 	return nil
 }
 
-// PutConfigurationSetReputationOptions is a no-op stub.
-func (b *InMemoryBackend) PutConfigurationSetReputationOptions(_ string) error {
+// PutConfigurationSetReputationOptions stores the reputation metrics flag.
+func (b *InMemoryBackend) PutConfigurationSetReputationOptions(
+	name string,
+	metricsEnabled bool,
+) error {
+	b.mu.Lock("PutConfigurationSetReputationOptions")
+	defer b.mu.Unlock()
+
+	cs, ok := b.configurationSets[name]
+	if !ok {
+		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+	}
+
+	cs.ReputationMetricsEnabled = metricsEnabled
+
 	return nil
 }
 
-// PutConfigurationSetSendingOptions is a no-op stub.
-func (b *InMemoryBackend) PutConfigurationSetSendingOptions(_ string) error {
+// PutConfigurationSetSendingOptions enables or disables sending for the config set.
+func (b *InMemoryBackend) PutConfigurationSetSendingOptions(
+	name string,
+	sendingEnabled bool,
+) error {
+	b.mu.Lock("PutConfigurationSetSendingOptions")
+	defer b.mu.Unlock()
+
+	cs, ok := b.configurationSets[name]
+	if !ok {
+		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+	}
+
+	cs.SendingEnabled = sendingEnabled
+
 	return nil
 }
 
-// PutConfigurationSetSuppressionOptions is a no-op stub.
-func (b *InMemoryBackend) PutConfigurationSetSuppressionOptions(_ string) error {
+// PutConfigurationSetSuppressionOptions stores the suppression reason list.
+func (b *InMemoryBackend) PutConfigurationSetSuppressionOptions(
+	name string,
+	suppressedReasons []string,
+) error {
+	b.mu.Lock("PutConfigurationSetSuppressionOptions")
+	defer b.mu.Unlock()
+
+	cs, ok := b.configurationSets[name]
+	if !ok {
+		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+	}
+
+	reasons := make([]string, len(suppressedReasons))
+	copy(reasons, suppressedReasons)
+	cs.SuppressionReasons = reasons
+
 	return nil
 }
 
-// PutConfigurationSetTrackingOptions is a no-op stub.
-func (b *InMemoryBackend) PutConfigurationSetTrackingOptions(_ string) error {
+// PutConfigurationSetTrackingOptions stores the custom redirect domain and HTTPS policy.
+func (b *InMemoryBackend) PutConfigurationSetTrackingOptions(
+	name, customRedirectDomain, httpsPolicy string,
+) error {
+	b.mu.Lock("PutConfigurationSetTrackingOptions")
+	defer b.mu.Unlock()
+
+	cs, ok := b.configurationSets[name]
+	if !ok {
+		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+	}
+
+	cs.TrackingCustomRedirectDomain = customRedirectDomain
+	cs.TrackingHTTPSPolicy = httpsPolicy
+
 	return nil
 }
 
-// PutConfigurationSetVdmOptions is a no-op stub.
-func (b *InMemoryBackend) PutConfigurationSetVdmOptions(_ string) error {
+// PutConfigurationSetVdmOptions validates the config set exists (VDM not modelled).
+func (b *InMemoryBackend) PutConfigurationSetVdmOptions(name string) error {
+	b.mu.RLock("PutConfigurationSetVdmOptions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.configurationSets[name]; !ok {
+		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+	}
+
 	return nil
 }
 
 // ---- email identity attributes ----
 
-// PutEmailIdentityConfigurationSetAttributes is a no-op stub.
-func (b *InMemoryBackend) PutEmailIdentityConfigurationSetAttributes(_ string) error {
+// PutEmailIdentityConfigurationSetAttributes associates a configuration set with the identity.
+func (b *InMemoryBackend) PutEmailIdentityConfigurationSetAttributes(
+	identity, configSetName string,
+) error {
+	b.mu.Lock("PutEmailIdentityConfigurationSetAttributes")
+	defer b.mu.Unlock()
+
+	ei, ok := b.identities[identity]
+	if !ok {
+		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+	}
+
+	ei.ConfigurationSetName = configSetName
+
 	return nil
 }
 
-// PutEmailIdentityDkimAttributes is a no-op stub.
-func (b *InMemoryBackend) PutEmailIdentityDkimAttributes(_ string) error {
+// PutEmailIdentityDkimAttributes enables or disables DKIM signing for the identity.
+func (b *InMemoryBackend) PutEmailIdentityDkimAttributes(
+	identity string,
+	signingEnabled bool,
+) error {
+	b.mu.Lock("PutEmailIdentityDkimAttributes")
+	defer b.mu.Unlock()
+
+	ei, ok := b.identities[identity]
+	if !ok {
+		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+	}
+
+	ei.DkimSigningEnabled = signingEnabled
+
 	return nil
 }
 
-// PutEmailIdentityDkimSigningAttributes is a no-op stub.
-func (b *InMemoryBackend) PutEmailIdentityDkimSigningAttributes(_ string) error {
+// PutEmailIdentityDkimSigningAttributes validates the identity exists (BYODKIM not modelled).
+func (b *InMemoryBackend) PutEmailIdentityDkimSigningAttributes(identity string) error {
+	b.mu.RLock("PutEmailIdentityDkimSigningAttributes")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.identities[identity]; !ok {
+		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+	}
+
 	return nil
 }
 
-// PutEmailIdentityFeedbackAttributes is a no-op stub.
-func (b *InMemoryBackend) PutEmailIdentityFeedbackAttributes(_ string) error {
+// PutEmailIdentityFeedbackAttributes sets the feedback forwarding flag for the identity.
+func (b *InMemoryBackend) PutEmailIdentityFeedbackAttributes(
+	identity string,
+	emailForwardingEnabled bool,
+) error {
+	b.mu.Lock("PutEmailIdentityFeedbackAttributes")
+	defer b.mu.Unlock()
+
+	ei, ok := b.identities[identity]
+	if !ok {
+		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+	}
+
+	ei.FeedbackForwarding = emailForwardingEnabled
+
 	return nil
 }
 
-// PutEmailIdentityMailFromAttributes is a no-op stub.
-func (b *InMemoryBackend) PutEmailIdentityMailFromAttributes(_ string) error {
+// PutEmailIdentityMailFromAttributes stores the custom MAIL FROM domain and failure behaviour.
+func (b *InMemoryBackend) PutEmailIdentityMailFromAttributes(
+	identity, mailFromDomain, behaviorOnMxFailure string,
+) error {
+	b.mu.Lock("PutEmailIdentityMailFromAttributes")
+	defer b.mu.Unlock()
+
+	ei, ok := b.identities[identity]
+	if !ok {
+		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+	}
+
+	ei.MailFromDomain = mailFromDomain
+
+	if mailFromDomain == "" {
+		ei.MailFromDomainStatus = ""
+		ei.BehaviorOnMxFailure = ""
+	} else {
+		ei.MailFromDomainStatus = mailFromStatusPending
+		if behaviorOnMxFailure != "" {
+			ei.BehaviorOnMxFailure = behaviorOnMxFailure
+		} else {
+			ei.BehaviorOnMxFailure = behaviorOnMxFailureUseDefault
+		}
+	}
+
 	return nil
 }
 

@@ -561,7 +561,7 @@ func TestOps_GetDeliverabilityTestReport(t *testing.T) {
 	h, b := newRefinement1Handler(t)
 
 	// First create an identity that is verified.
-	_, err := b.CreateEmailIdentity("verified@example.com")
+	_, err := b.CreateEmailIdentity("verified@example.com", "", nil)
 	require.NoError(t, err)
 
 	// Create a deliverability test report.
@@ -1102,7 +1102,7 @@ func TestOps_SendBulkEmail(t *testing.T) {
 	t.Parallel()
 
 	h, b := newRefinement1Handler(t)
-	_, err := b.CreateEmailIdentity("bulk@example.com")
+	_, err := b.CreateEmailIdentity("bulk@example.com", "", nil)
 	require.NoError(t, err)
 
 	doReq(t, h, http.MethodPost, "/v2/email/templates", map[string]any{

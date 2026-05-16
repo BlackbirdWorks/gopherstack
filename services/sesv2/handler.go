@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -627,7 +628,9 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op, resource string) (any, err
 // ---- request types ----
 
 type createEmailIdentityInput struct {
-	EmailIdentity string `json:"EmailIdentity"`
+	EmailIdentity        string     `json:"EmailIdentity"`
+	ConfigurationSetName string     `json:"ConfigurationSetName"`
+	Tags                 []tagEntry `json:"Tags"`
 }
 
 type sendEmailInput struct {
@@ -672,15 +675,36 @@ type createConfigurationSetInput struct {
 
 // ---- response types ----
 
+type dkimAttributesOutput struct {
+	Status                  string   `json:"Status,omitempty"`
+	SigningAttributesOrigin string   `json:"SigningAttributesOrigin,omitempty"`
+	Tokens                  []string `json:"Tokens,omitempty"`
+	SigningEnabled          bool     `json:"SigningEnabled"`
+}
+
+type mailFromAttributesOutput struct {
+	MailFromDomain       string `json:"MailFromDomain,omitempty"`
+	MailFromDomainStatus string `json:"MailFromDomainStatus,omitempty"`
+	BehaviorOnMxFailure  string `json:"BehaviorOnMxFailure,omitempty"`
+}
+
 type createEmailIdentityOutput struct {
-	IdentityType       string `json:"IdentityType"`
-	VerifiedForSending bool   `json:"VerifiedForSending"`
+	DkimAttributes     *dkimAttributesOutput `json:"DkimAttributes,omitempty"`
+	IdentityType       string                `json:"IdentityType"`
+	VerifiedForSending bool                  `json:"VerifiedForSendingStatus"`
 }
 
 type getEmailIdentityOutput struct {
-	EmailIdentity      string `json:"EmailIdentity"`
-	IdentityType       string `json:"IdentityType"`
-	VerifiedForSending bool   `json:"VerifiedForSending"`
+	DkimAttributes       *dkimAttributesOutput     `json:"DkimAttributes,omitempty"`
+	MailFromAttributes   *mailFromAttributesOutput `json:"MailFromAttributes,omitempty"`
+	Policies             map[string]string         `json:"Policies,omitempty"`
+	EmailIdentity        string                    `json:"EmailIdentity"`
+	IdentityType         string                    `json:"IdentityType"`
+	ConfigurationSetName string                    `json:"ConfigurationSetName,omitempty"`
+	VerificationStatus   string                    `json:"VerificationStatus,omitempty"`
+	Tags                 []tagEntry                `json:"Tags,omitempty"`
+	VerifiedForSending   bool                      `json:"VerifiedForSendingStatus"`
+	FeedbackForwarding   bool                      `json:"FeedbackForwardingStatus"`
 }
 
 type emailIdentitySummary struct {
@@ -698,10 +722,38 @@ type sendEmailOutput struct {
 	MessageID string `json:"MessageId"`
 }
 
+type trackingOptionsOutput struct {
+	CustomRedirectDomain string `json:"CustomRedirectDomain,omitempty"`
+	HTTPSPolicy          string `json:"HttpsPolicy,omitempty"`
+}
+
+type deliveryOptionsOutput struct {
+	TLSPolicy       string `json:"TlsPolicy,omitempty"`
+	SendingPoolName string `json:"SendingPoolName,omitempty"`
+}
+
+type reputationOptionsOutput struct {
+	ReputationMetricsEnabled bool `json:"ReputationMetricsEnabled"`
+}
+
+type sendingOptionsOutput struct {
+	SendingEnabled bool `json:"SendingEnabled"`
+}
+
+type suppressionOptionsOutput struct {
+	SuppressedReasons []string `json:"SuppressedReasons,omitempty"`
+}
+
 type createConfigurationSetOutput struct{}
 
 type getConfigurationSetOutput struct {
-	ConfigurationSetName string `json:"ConfigurationSetName"`
+	TrackingOptions      *trackingOptionsOutput    `json:"TrackingOptions,omitempty"`
+	DeliveryOptions      *deliveryOptionsOutput    `json:"DeliveryOptions,omitempty"`
+	ReputationOptions    *reputationOptionsOutput  `json:"ReputationOptions,omitempty"`
+	SendingOptions       *sendingOptionsOutput     `json:"SendingOptions,omitempty"`
+	SuppressionOptions   *suppressionOptionsOutput `json:"SuppressionOptions,omitempty"`
+	ConfigurationSetName string                    `json:"ConfigurationSetName"`
+	Tags                 []tagEntry                `json:"Tags,omitempty"`
 }
 
 type configurationSetSummary struct {
@@ -731,15 +783,28 @@ func (h *Handler) handleCreateEmailIdentity(c *echo.Context) (any, error) {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidParameter, err.Error())
 	}
 
-	ei, err := h.Backend.CreateEmailIdentity(in.EmailIdentity)
+	tags := tagsFromEntries(in.Tags)
+
+	ei, err := h.Backend.CreateEmailIdentity(in.EmailIdentity, in.ConfigurationSetName, tags)
 	if err != nil {
 		return nil, err
 	}
 
-	return &createEmailIdentityOutput{
+	out := &createEmailIdentityOutput{
 		IdentityType:       ei.IdentityType,
 		VerifiedForSending: ei.VerifiedForSending,
-	}, nil
+	}
+
+	if len(ei.DkimTokens) > 0 {
+		out.DkimAttributes = &dkimAttributesOutput{
+			SigningEnabled:          ei.DkimSigningEnabled,
+			Status:                  ei.DkimStatus,
+			SigningAttributesOrigin: "AWS_SES",
+			Tokens:                  ei.DkimTokens,
+		}
+	}
+
+	return out, nil
 }
 
 func (h *Handler) handleGetEmailIdentity(identity string) (any, error) {
@@ -748,11 +813,65 @@ func (h *Handler) handleGetEmailIdentity(identity string) (any, error) {
 		return nil, err
 	}
 
-	return &getEmailIdentityOutput{
-		EmailIdentity:      ei.Identity,
-		IdentityType:       ei.IdentityType,
-		VerifiedForSending: ei.VerifiedForSending,
-	}, nil
+	policies, _ := h.Backend.GetEmailIdentityPolicies(identity)
+
+	out := &getEmailIdentityOutput{
+		EmailIdentity:        ei.Identity,
+		IdentityType:         ei.IdentityType,
+		VerifiedForSending:   ei.VerifiedForSending,
+		FeedbackForwarding:   ei.FeedbackForwarding,
+		ConfigurationSetName: ei.ConfigurationSetName,
+		VerificationStatus:   ei.VerificationStatus,
+		Policies:             policies,
+		Tags:                 tagsToEntries(ei.Tags),
+	}
+
+	out.DkimAttributes = &dkimAttributesOutput{
+		SigningEnabled:          ei.DkimSigningEnabled,
+		Status:                  ei.DkimStatus,
+		SigningAttributesOrigin: "AWS_SES",
+		Tokens:                  ei.DkimTokens,
+	}
+
+	if ei.MailFromDomain != "" {
+		out.MailFromAttributes = &mailFromAttributesOutput{
+			MailFromDomain:       ei.MailFromDomain,
+			MailFromDomainStatus: ei.MailFromDomainStatus,
+			BehaviorOnMxFailure:  ei.BehaviorOnMxFailure,
+		}
+	}
+
+	return out, nil
+}
+
+// tagsFromEntries converts tag key/value list to a map.
+func tagsFromEntries(entries []tagEntry) map[string]string {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	tags := make(map[string]string, len(entries))
+	for _, e := range entries {
+		tags[e.Key] = e.Value
+	}
+
+	return tags
+}
+
+// tagsToEntries converts a tag map to a sorted key/value list.
+func tagsToEntries(tags map[string]string) []tagEntry {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	entries := make([]tagEntry, 0, len(tags))
+	for k, v := range tags {
+		entries = append(entries, tagEntry{Key: k, Value: v})
+	}
+
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
+
+	return entries
 }
 
 func (h *Handler) handleListEmailIdentities(c *echo.Context) any {
@@ -836,9 +955,34 @@ func (h *Handler) handleGetConfigurationSet(name string) (any, error) {
 		return nil, err
 	}
 
-	return &getConfigurationSetOutput{
+	out := &getConfigurationSetOutput{
 		ConfigurationSetName: cs.Name,
-	}, nil
+		SendingOptions:       &sendingOptionsOutput{SendingEnabled: cs.SendingEnabled},
+		ReputationOptions:    &reputationOptionsOutput{ReputationMetricsEnabled: cs.ReputationMetricsEnabled},
+		Tags:                 tagsToEntries(cs.Tags),
+	}
+
+	if cs.TrackingCustomRedirectDomain != "" || cs.TrackingHTTPSPolicy != "" {
+		out.TrackingOptions = &trackingOptionsOutput{
+			CustomRedirectDomain: cs.TrackingCustomRedirectDomain,
+			HTTPSPolicy:          cs.TrackingHTTPSPolicy,
+		}
+	}
+
+	if cs.DeliveryTLSPolicy != "" || cs.DeliverySendingPoolName != "" {
+		out.DeliveryOptions = &deliveryOptionsOutput{
+			TLSPolicy:       cs.DeliveryTLSPolicy,
+			SendingPoolName: cs.DeliverySendingPoolName,
+		}
+	}
+
+	if len(cs.SuppressionReasons) > 0 {
+		out.SuppressionOptions = &suppressionOptionsOutput{
+			SuppressedReasons: cs.SuppressionReasons,
+		}
+	}
+
+	return out, nil
 }
 
 func (h *Handler) handleListConfigurationSets(c *echo.Context) any {

@@ -230,15 +230,15 @@ func (h *Handler) dispatchEmailIdentityOps(c *echo.Context, op, resource string)
 	case opUpdateEmailIdentityPolicy:
 		return h.handleUpdateEmailIdentityPolicy(c, resource)
 	case opPutEmailIdentityConfigurationSetAttributes:
-		return h.handlePutEmailIdentityConfigurationSetAttributes()
+		return h.handlePutEmailIdentityConfigurationSetAttributes(c, resource)
 	case opPutEmailIdentityDkimAttributes:
-		return h.handlePutEmailIdentityDkimAttributes()
+		return h.handlePutEmailIdentityDkimAttributes(c, resource)
 	case opPutEmailIdentityDkimSigningAttributes:
-		return h.handlePutEmailIdentityDkimSigningAttributes()
+		return h.handlePutEmailIdentityDkimSigningAttributes(resource)
 	case opPutEmailIdentityFeedbackAttributes:
-		return h.handlePutEmailIdentityFeedbackAttributes()
+		return h.handlePutEmailIdentityFeedbackAttributes(c, resource)
 	case opPutEmailIdentityMailFromAttributes:
-		return h.handlePutEmailIdentityMailFromAttributes()
+		return h.handlePutEmailIdentityMailFromAttributes(c, resource)
 	case opGetConfigurationSetEventDestinations:
 		return h.handleGetConfigurationSetEventDestinations(resource)
 	case opDeleteConfigurationSetEventDestination:
@@ -251,22 +251,22 @@ func (h *Handler) dispatchEmailIdentityOps(c *echo.Context, op, resource string)
 }
 
 // dispatchConfigSetAttrOps handles configuration set attribute put operations.
-func (h *Handler) dispatchConfigSetAttrOps(_ *echo.Context, op, _ string) (any, error) {
+func (h *Handler) dispatchConfigSetAttrOps(c *echo.Context, op, resource string) (any, error) {
 	switch op {
 	case opPutConfigurationSetArchivingOptions:
-		return h.handlePutConfigurationSetArchivingOptions()
+		return h.handlePutConfigurationSetArchivingOptions(resource)
 	case opPutConfigurationSetDeliveryOptions:
-		return h.handlePutConfigurationSetDeliveryOptions()
+		return h.handlePutConfigurationSetDeliveryOptions(c, resource)
 	case opPutConfigurationSetReputationOptions:
-		return h.handlePutConfigurationSetReputationOptions()
+		return h.handlePutConfigurationSetReputationOptions(c, resource)
 	case opPutConfigurationSetSendingOptions:
-		return h.handlePutConfigurationSetSendingOptions()
+		return h.handlePutConfigurationSetSendingOptions(c, resource)
 	case opPutConfigurationSetSuppressionOptions:
-		return h.handlePutConfigurationSetSuppressionOptions()
+		return h.handlePutConfigurationSetSuppressionOptions(c, resource)
 	case opPutConfigurationSetTrackingOptions:
-		return h.handlePutConfigurationSetTrackingOptions()
+		return h.handlePutConfigurationSetTrackingOptions(c, resource)
 	case opPutConfigurationSetVdmOptions:
-		return h.handlePutConfigurationSetVdmOptions()
+		return h.handlePutConfigurationSetVdmOptions(resource)
 	}
 
 	return nil, errOpNotHandled
@@ -1675,26 +1675,84 @@ func (h *Handler) handleUpdateEmailIdentityPolicy(c *echo.Context, identity stri
 	return &emptyDeleteOutput{}, nil
 }
 
-// email identity attribute stub handlers
+// email identity attribute handlers
 
-func (h *Handler) handlePutEmailIdentityConfigurationSetAttributes() (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutEmailIdentityConfigurationSetAttributes("")
+func (h *Handler) handlePutEmailIdentityConfigurationSetAttributes(
+	c *echo.Context,
+	identity string,
+) (any, error) {
+	var in struct {
+		ConfigurationSetName string `json:"ConfigurationSetName"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	return &emptyDeleteOutput{}, h.Backend.PutEmailIdentityConfigurationSetAttributes(
+		identity,
+		in.ConfigurationSetName,
+	)
 }
 
-func (h *Handler) handlePutEmailIdentityDkimAttributes() (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutEmailIdentityDkimAttributes("")
+func (h *Handler) handlePutEmailIdentityDkimAttributes(
+	c *echo.Context,
+	identity string,
+) (any, error) {
+	var in struct {
+		SigningEnabled bool `json:"SigningEnabled"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	return &emptyDeleteOutput{}, h.Backend.PutEmailIdentityDkimAttributes(
+		identity,
+		in.SigningEnabled,
+	)
 }
 
-func (h *Handler) handlePutEmailIdentityDkimSigningAttributes() (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutEmailIdentityDkimSigningAttributes("")
+func (h *Handler) handlePutEmailIdentityDkimSigningAttributes(identity string) (any, error) {
+	return &emptyDeleteOutput{}, h.Backend.PutEmailIdentityDkimSigningAttributes(identity)
 }
 
-func (h *Handler) handlePutEmailIdentityFeedbackAttributes() (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutEmailIdentityFeedbackAttributes("")
+func (h *Handler) handlePutEmailIdentityFeedbackAttributes(
+	c *echo.Context,
+	identity string,
+) (any, error) {
+	var in struct {
+		EmailForwardingEnabled bool `json:"EmailForwardingEnabled"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	return &emptyDeleteOutput{}, h.Backend.PutEmailIdentityFeedbackAttributes(
+		identity,
+		in.EmailForwardingEnabled,
+	)
 }
 
-func (h *Handler) handlePutEmailIdentityMailFromAttributes() (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutEmailIdentityMailFromAttributes("")
+func (h *Handler) handlePutEmailIdentityMailFromAttributes(
+	c *echo.Context,
+	identity string,
+) (any, error) {
+	var in struct {
+		MailFromDomain      string `json:"MailFromDomain"`
+		BehaviorOnMxFailure string `json:"BehaviorOnMxFailure"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	return &emptyDeleteOutput{}, h.Backend.PutEmailIdentityMailFromAttributes(
+		identity,
+		in.MailFromDomain,
+		in.BehaviorOnMxFailure,
+	)
 }
 
 // configuration set event destination handlers
@@ -1767,34 +1825,105 @@ func (h *Handler) handleUpdateConfigurationSetEventDestination(
 	return &emptyDeleteOutput{}, nil
 }
 
-// configuration set attribute stub handlers
+// configuration set attribute handlers
 
-func (h *Handler) handlePutConfigurationSetArchivingOptions() (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetArchivingOptions("")
+func (h *Handler) handlePutConfigurationSetArchivingOptions(name string) (any, error) {
+	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetArchivingOptions(name)
 }
 
-func (h *Handler) handlePutConfigurationSetDeliveryOptions() (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetDeliveryOptions("")
+func (h *Handler) handlePutConfigurationSetDeliveryOptions(
+	c *echo.Context,
+	name string,
+) (any, error) {
+	var in struct {
+		SendingPoolName string `json:"SendingPoolName"`
+		TLSPolicy       string `json:"TlsPolicy"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetDeliveryOptions(
+		name,
+		in.TLSPolicy,
+		in.SendingPoolName,
+	)
 }
 
-func (h *Handler) handlePutConfigurationSetReputationOptions() (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetReputationOptions("")
+func (h *Handler) handlePutConfigurationSetReputationOptions(
+	c *echo.Context,
+	name string,
+) (any, error) {
+	var in struct {
+		ReputationMetricsEnabled bool `json:"ReputationMetricsEnabled"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetReputationOptions(
+		name,
+		in.ReputationMetricsEnabled,
+	)
 }
 
-func (h *Handler) handlePutConfigurationSetSendingOptions() (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetSendingOptions("")
+func (h *Handler) handlePutConfigurationSetSendingOptions(
+	c *echo.Context,
+	name string,
+) (any, error) {
+	var in struct {
+		SendingEnabled bool `json:"SendingEnabled"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetSendingOptions(name, in.SendingEnabled)
 }
 
-func (h *Handler) handlePutConfigurationSetSuppressionOptions() (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetSuppressionOptions("")
+func (h *Handler) handlePutConfigurationSetSuppressionOptions(
+	c *echo.Context,
+	name string,
+) (any, error) {
+	var in struct {
+		SuppressedReasons []string `json:"SuppressedReasons"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetSuppressionOptions(
+		name,
+		in.SuppressedReasons,
+	)
 }
 
-func (h *Handler) handlePutConfigurationSetTrackingOptions() (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetTrackingOptions("")
+func (h *Handler) handlePutConfigurationSetTrackingOptions(
+	c *echo.Context,
+	name string,
+) (any, error) {
+	var in struct {
+		CustomRedirectDomain string `json:"CustomRedirectDomain"`
+		HTTPSPolicy          string `json:"HttpsPolicy"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetTrackingOptions(
+		name,
+		in.CustomRedirectDomain,
+		in.HTTPSPolicy,
+	)
 }
 
-func (h *Handler) handlePutConfigurationSetVdmOptions() (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetVdmOptions("")
+func (h *Handler) handlePutConfigurationSetVdmOptions(name string) (any, error) {
+	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetVdmOptions(name)
 }
 
 // bulk email handler
