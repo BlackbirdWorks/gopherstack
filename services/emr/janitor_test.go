@@ -16,7 +16,7 @@ func TestEMR_Janitor_SweepsTerminatedClusters(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow("sweep-test", "emr-6.0.0", nil, nil)
+	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "sweep-test", ReleaseLabel: "emr-6.0.0"})
 	require.NoError(t, err)
 
 	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
@@ -39,7 +39,7 @@ func TestEMR_Janitor_ActiveClusterNotSwept(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow("active-test", "emr-6.0.0", nil, nil)
+	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "active-test", ReleaseLabel: "emr-6.0.0"})
 	require.NoError(t, err)
 
 	// Do NOT terminate the cluster — it should never be swept.
@@ -60,7 +60,7 @@ func TestEMR_Janitor_RecentlyTerminatedNotSwept(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow("recent-terminated", "emr-6.0.0", nil, nil)
+	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "recent-terminated", ReleaseLabel: "emr-6.0.0"})
 	require.NoError(t, err)
 
 	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
@@ -136,7 +136,7 @@ func TestEMR_Janitor_SweepOnce(t *testing.T) {
 			t.Parallel()
 
 			b := emr.NewInMemoryBackend(testAccountID, testRegion)
-			cluster, err := b.RunJobFlow("sweep-once-test", "emr-6.0.0", nil, nil)
+			cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "sweep-once-test", ReleaseLabel: "emr-6.0.0"})
 			require.NoError(t, err)
 
 			require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
@@ -201,13 +201,13 @@ func TestEMR_Backend_Reset(t *testing.T) {
 			b := emr.NewInMemoryBackend(testAccountID, testRegion)
 
 			for range tt.createClusters {
-				_, err := b.RunJobFlow("cluster", "emr-6.0.0", nil, nil)
+				_, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "cluster", ReleaseLabel: "emr-6.0.0"})
 				require.NoError(t, err)
 			}
 
 			b.Reset()
 
-			clusters := b.ListClusters()
+			clusters, _ := b.ListClusters(emr.ListClustersParams{})
 			assert.Len(t, clusters, tt.wantAfterReset)
 		})
 	}
