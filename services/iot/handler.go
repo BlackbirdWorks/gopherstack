@@ -38,6 +38,8 @@ const (
 	keyStatus                  = "status"
 	keyArn                     = "arn"
 	keyCreationDate            = "creationDate"
+	keyLastModifiedDate        = "lastModifiedDate"
+	keyPolicyVersionID         = "policyVersionId"
 	keyInvalidPath             = "invalid path"
 
 	// URL path prefix constants.
@@ -1229,7 +1231,7 @@ func (h *Handler) handleCreatePolicy(c *echo.Context) error {
 		keyPolicyName:      out.PolicyName,
 		keyPolicyArn:       out.PolicyARN,
 		keyPolicyDocument:  out.PolicyDocument,
-		"policyVersionId":  out.PolicyVersionID,
+		keyPolicyVersionID: out.PolicyVersionID,
 	})
 }
 
@@ -1450,12 +1452,12 @@ func (h *Handler) handleGetPolicy(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyPolicyName:      out.PolicyName,
-		keyPolicyArn:       out.PolicyARN,
-		keyPolicyDocument:  out.PolicyDocument,
-		"defaultVersionId": out.DefaultVersionID,
-		"creationDate":     out.CreatedAt,
-		"lastModifiedDate": out.LastModifiedAt,
+		keyPolicyName:       out.PolicyName,
+		keyPolicyArn:        out.PolicyARN,
+		keyPolicyDocument:   out.PolicyDocument,
+		"defaultVersionId":  out.DefaultVersionID,
+		"creationDate":      out.CreatedAt,
+		keyLastModifiedDate: out.LastModifiedAt,
 	})
 }
 
@@ -1949,11 +1951,11 @@ func (h *Handler) handleDescribeCertificate(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"certificateDescription": map[string]any{
-			keyCertificateID:   cert.CertificateID,
-			keyCertificateArn:  cert.ARN,
-			keyStatus:          cert.Status,
-			keyCreationDate:    cert.CreatedAt,
-			"lastModifiedDate": cert.LastModifiedAt,
+			keyCertificateID:    cert.CertificateID,
+			keyCertificateArn:   cert.ARN,
+			keyStatus:           cert.Status,
+			keyCreationDate:     cert.CreatedAt,
+			keyLastModifiedDate: cert.LastModifiedAt,
 		},
 	})
 }
@@ -1964,11 +1966,11 @@ func (h *Handler) handleListCertificates(c *echo.Context) error {
 
 	for _, cert := range certs {
 		out = append(out, map[string]any{
-			keyCertificateID:   cert.CertificateID,
-			keyCertificateArn:  cert.ARN,
-			keyStatus:          cert.Status,
-			keyCreationDate:    cert.CreatedAt,
-			"lastModifiedDate": cert.LastModifiedAt,
+			keyCertificateID:    cert.CertificateID,
+			keyCertificateArn:   cert.ARN,
+			keyStatus:           cert.Status,
+			keyCreationDate:     cert.CreatedAt,
+			keyLastModifiedDate: cert.LastModifiedAt,
 		})
 	}
 
@@ -2065,7 +2067,7 @@ func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"policyVersionId":   pv.VersionID,
+		keyPolicyVersionID:  pv.VersionID,
 		keyPolicyDocument:   pv.PolicyDocument,
 		keyIsDefaultVersion: pv.IsDefaultVersion,
 	})
@@ -2083,7 +2085,7 @@ func (h *Handler) handleGetPolicyVersion(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"policyVersionId":   pv.VersionID,
+		keyPolicyVersionID:  pv.VersionID,
 		keyPolicyDocument:   pv.PolicyDocument,
 		keyIsDefaultVersion: pv.IsDefaultVersion,
 		"createDate":        pv.CreatedAt,
@@ -2252,7 +2254,7 @@ func (h *Handler) handleDescribeCertificateProvider(c *echo.Context) error {
 		"lambdaFunctionArn":           cp.LambdaFunctionARN,
 		"accountDefaultForOperations": cp.AccountDefaultForOperations,
 		keyCreationDate:               cp.CreatedAt,
-		"lastModifiedDate":            cp.LastModifiedAt,
+		keyLastModifiedDate:           cp.LastModifiedAt,
 	})
 }
 

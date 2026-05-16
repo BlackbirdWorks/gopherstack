@@ -3,6 +3,7 @@ package iot
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -488,7 +489,7 @@ func (b *InMemoryBackend) AcceptCertificateTransfer(input *AcceptCertificateTran
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.certificateTransfers[input.CertificateID] = "ACTIVE"
+	b.certificateTransfers[input.CertificateID] = certStatusActive
 
 	return nil
 }
@@ -639,6 +640,7 @@ func (b *InMemoryBackend) GetPolicy(policyName string) (*GetPolicyOutput, error)
 	for _, v := range b.policyVersions[policyName] {
 		if v.IsDefaultVersion {
 			defaultVersionID = v.VersionID
+
 			break
 		}
 	}
@@ -896,6 +898,12 @@ o4qne60TB3wolFl6qADvFVMZUDCwJJlFBMDkajIxpQFNbBgxDuAQFV8AAAAAAA==
 // certIDHexLen is the number of bytes (half the hex char count) for a certificate ID.
 const certIDHexLen = 32 // produces a 64-char hex string
 
+// certStatusActive is the AWS IoT certificate ACTIVE status value.
+const certStatusActive = "ACTIVE"
+
+// certStatusInactive is the AWS IoT certificate INACTIVE status value.
+const certStatusInactive = "INACTIVE"
+
 // randomHex generates a cryptographically random hex string of n bytes (2n characters).
 func randomHex(n int) string {
 	b := make([]byte, n)
@@ -903,7 +911,7 @@ func randomHex(n int) string {
 		panic("iot: randomHex: crypto/rand failed: " + err.Error())
 	}
 
-	return fmt.Sprintf("%x", b)
+	return hex.EncodeToString(b)
 }
 
 // CreateThingType creates a new IoT Thing Type.
@@ -1208,9 +1216,9 @@ func (b *InMemoryBackend) CreateCertificateFromCsr(input *CreateCertificateFromC
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	status := "INACTIVE"
+	status := certStatusInactive
 	if input.SetAsActive {
-		status = "ACTIVE"
+		status = certStatusActive
 	}
 
 	cert := b.newCertificate(fakePEM, status)
@@ -1226,7 +1234,7 @@ func (b *InMemoryBackend) RegisterCertificate(input *RegisterCertificateInput) (
 
 	status := input.Status
 	if status == "" {
-		status = "INACTIVE"
+		status = certStatusInactive
 	}
 
 	pem := input.CertificatePem
@@ -1276,18 +1284,19 @@ func (b *InMemoryBackend) ListCertificates() []*Certificate {
 	return out
 }
 
-// validCertStatuses lists the allowed certificate status values.
-var validCertStatuses = map[string]bool{
-	"ACTIVE":               true,
-	"INACTIVE":             true,
-	"REVOKED":              true,
-	"PENDING_TRANSFER":     true,
-	"PENDING_ACTIVATION":   true,
+// isValidCertStatus reports whether s is a legal AWS IoT certificate status.
+func isValidCertStatus(s string) bool {
+	switch s {
+	case certStatusActive, certStatusInactive, "REVOKED", "PENDING_TRANSFER", "PENDING_ACTIVATION":
+		return true
+	}
+
+	return false
 }
 
 // UpdateCertificate updates the status of a certificate.
 func (b *InMemoryBackend) UpdateCertificate(input *UpdateCertificateInput) error {
-	if input.NewStatus != "" && !validCertStatuses[input.NewStatus] {
+	if input.NewStatus != "" && !isValidCertStatus(input.NewStatus) {
 		return fmt.Errorf("%w: invalid certificate status %q", ErrValidation, input.NewStatus)
 	}
 

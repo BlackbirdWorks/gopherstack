@@ -300,8 +300,8 @@ type CreateThingTypeInput struct {
 
 // DeprecateThingTypeInput is the input for DeprecateThingType.
 type DeprecateThingTypeInput struct {
-	ThingTypeName  string
-	UndoDeprecate  bool
+	ThingTypeName string
+	UndoDeprecate bool
 }
 
 // CreateThingGroupInput is the input for CreateThingGroup.
