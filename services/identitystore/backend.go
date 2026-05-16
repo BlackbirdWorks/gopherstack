@@ -4,8 +4,11 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -40,6 +43,12 @@ var (
 const (
 	maxUserNameLength    = 128
 	maxDisplayNameLength = 1024
+	maxPhotosPerUser     = 3
+)
+
+const (
+	userStatusEnabled  = "ENABLED"
+	userStatusDisabled = "DISABLED"
 )
 
 // ----------------------------------------
@@ -82,6 +91,21 @@ type PhoneNumber struct {
 	Primary bool   `json:"Primary,omitempty"`
 }
 
+// Photo holds photo information for a user. Users can have up to 3 photos.
+type Photo struct {
+	Value   string `json:"Value"`
+	Display string `json:"Display,omitempty"`
+	Type    string `json:"Type,omitempty"`
+	Primary bool   `json:"Primary,omitempty"`
+}
+
+// Role holds role information for a user.
+type Role struct {
+	Value   string `json:"Value"`
+	Type    string `json:"Type,omitempty"`
+	Primary bool   `json:"Primary,omitempty"`
+}
+
 // ExternalID holds an external identity for a user (e.g. from SAML/SCIM providers).
 type ExternalID struct {
 	Issuer string `json:"Issuer"`
@@ -101,10 +125,15 @@ type User struct {
 	PreferredLang   string        `json:"PreferredLanguage,omitempty"`
 	Timezone        string        `json:"Timezone,omitempty"`
 	UserType        string        `json:"UserType,omitempty"`
+	Birthdate       string        `json:"Birthdate,omitempty"`
+	Website         string        `json:"Website,omitempty"`
+	UserStatus      string        `json:"UserStatus,omitempty"`
 	Name            *Name         `json:"Name,omitempty"`
 	Emails          []Email       `json:"Emails,omitempty"`
 	Addresses       []Address     `json:"Addresses,omitempty"`
 	PhoneNumbers    []PhoneNumber `json:"PhoneNumbers,omitempty"`
+	Photos          []Photo       `json:"Photos,omitempty"`
+	Roles           []Role        `json:"Roles,omitempty"`
 	ExternalIDs     []ExternalID  `json:"ExternalIds,omitempty"`
 }
 
@@ -132,8 +161,9 @@ type GroupMembership struct {
 
 // GroupMembershipExistence is the result item for IsMemberInGroups.
 type GroupMembershipExistence struct {
-	GroupID          string `json:"GroupId"`
-	MembershipExists bool   `json:"MembershipExists"`
+	GroupID          string   `json:"GroupId"`
+	MemberID         MemberID `json:"MemberId"`
+	MembershipExists bool     `json:"MembershipExists"`
 }
 
 // ----------------------------------------
@@ -184,11 +214,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the backend region.
 func (b *InMemoryBackend) Region() string { return b.region }
 
-// generateID creates a simple sequential unique ID.
-func (b *InMemoryBackend) generateID(prefix string) string {
-	b.counter++
-
-	return fmt.Sprintf("%s-%08d", prefix, b.counter)
+// generateID creates a UUID-format unique ID matching the AWS Identity Store format.
+func (b *InMemoryBackend) generateID() string {
+	return uuid.New().String()
 }
 
 // ----------------------------------------
@@ -206,10 +234,14 @@ type CreateUserRequest struct {
 	PreferredLang string        `json:"PreferredLanguage"`
 	Timezone      string        `json:"Timezone"`
 	UserType      string        `json:"UserType"`
+	Birthdate     string        `json:"Birthdate"`
+	Website       string        `json:"Website"`
 	Name          *Name         `json:"Name"`
 	Emails        []Email       `json:"Emails"`
 	Addresses     []Address     `json:"Addresses"`
 	PhoneNumbers  []PhoneNumber `json:"PhoneNumbers"`
+	Photos        []Photo       `json:"Photos"`
+	Roles         []Role        `json:"Roles"`
 	ExternalIDs   []ExternalID  `json:"ExternalIds"`
 }
 
@@ -225,18 +257,25 @@ func (b *InMemoryBackend) CreateUser(storeID string, req *CreateUserRequest) (*U
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
-	// Check uniqueness by UserName using index.
+	if len(req.UserName) > maxUserNameLength {
+		return nil, fmt.Errorf("%w: UserName must not exceed 128 characters", ErrValidation)
+	}
+
 	if req.UserName != "" {
 		if _, exists := b.usersByName[storeID+"#"+req.UserName]; exists {
 			return nil, fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, req.UserName)
 		}
 	}
 
-	if len(req.UserName) > maxUserNameLength {
-		return nil, fmt.Errorf("%w: UserName must not exceed 128 characters", ErrValidation)
+	if len(req.Photos) > maxPhotosPerUser {
+		return nil, fmt.Errorf("%w: Photos must not exceed %d items", ErrValidation, maxPhotosPerUser)
 	}
 
-	userID := b.generateID("user")
+	if req.Birthdate != "" && !isValidBirthdate(req.Birthdate) {
+		return nil, fmt.Errorf("%w: Birthdate must be in YYYY-MM-DD format", ErrValidation)
+	}
+
+	userID := b.generateID()
 	user := &User{
 		UserID:          userID,
 		IdentityStoreID: storeID,
@@ -249,10 +288,15 @@ func (b *InMemoryBackend) CreateUser(storeID string, req *CreateUserRequest) (*U
 		PreferredLang:   req.PreferredLang,
 		Timezone:        req.Timezone,
 		UserType:        req.UserType,
+		Birthdate:       req.Birthdate,
+		Website:         req.Website,
+		UserStatus:      userStatusEnabled,
 		Name:            req.Name,
 		Emails:          req.Emails,
 		Addresses:       req.Addresses,
 		PhoneNumbers:    req.PhoneNumbers,
+		Photos:          req.Photos,
+		Roles:           req.Roles,
 		ExternalIDs:     req.ExternalIDs,
 	}
 
@@ -283,7 +327,7 @@ func (b *InMemoryBackend) DescribeUser(storeID, userID string) (*User, error) {
 	return copyUser(user), nil
 }
 
-// ListUsers lists all users for the given identity store.
+// ListUsers lists all users for the given identity store, sorted by UserID.
 func (b *InMemoryBackend) ListUsers(storeID string) []*User {
 	b.mu.RLock("ListUsers")
 	defer b.mu.RUnlock()
@@ -295,6 +339,8 @@ func (b *InMemoryBackend) ListUsers(storeID string) []*User {
 			result = append(result, copyUser(u))
 		}
 	}
+
+	slices.SortFunc(result, func(a, b *User) int { return strings.Compare(a.UserID, b.UserID) })
 
 	return result
 }
@@ -383,6 +429,20 @@ const attrDisplayName = "displayname"
 func applyUserAttribute(user *User, path string, value any) {
 	strVal, _ := value.(string)
 
+	if applyUserScalarAttribute(user, path, strVal) {
+		return
+	}
+
+	if applyUserSliceAttribute(user, path, value) {
+		return
+	}
+
+	applyUserNameAttribute(user, path, strVal)
+}
+
+// applyUserScalarAttribute sets simple string attributes on a user.
+// Returns true when the path was handled.
+func applyUserScalarAttribute(user *User, path, strVal string) bool {
 	switch strings.ToLower(path) {
 	case attrDisplayName:
 		user.DisplayName = strVal
@@ -402,15 +462,72 @@ func applyUserAttribute(user *User, path string, value any) {
 		user.Timezone = strVal
 	case "usertype":
 		user.UserType = strVal
+	case "birthdate":
+		user.Birthdate = strVal
+	case "website":
+		user.Website = strVal
+	case "userstatus":
+		if isValidUserStatus(strVal) {
+			user.UserStatus = strVal
+		}
+	default:
+		return false
+	}
+
+	return true
+}
+
+// applyUserSliceAttribute sets multi-value attributes on a user.
+// Returns true when the path was handled.
+func applyUserSliceAttribute(user *User, path string, value any) bool {
+	switch strings.ToLower(path) {
 	case "emails":
 		user.Emails = parseEmails(value)
 	case "addresses":
 		user.Addresses = parseAddresses(value)
 	case "phonenumbers":
 		user.PhoneNumbers = parsePhoneNumbers(value)
+	case "photos":
+		user.Photos = parsePhotos(value)
+	case "roles":
+		user.Roles = parseRoles(value)
+	case "externalids":
+		user.ExternalIDs = parseExternalIDs(value)
 	default:
-		applyUserNameAttribute(user, path, strVal)
+		return false
 	}
+
+	return true
+}
+
+// isValidUserStatus reports whether s is a recognized UserStatus value.
+func isValidUserStatus(s string) bool {
+	return s == userStatusEnabled || s == userStatusDisabled
+}
+
+// birthdateLen is the required length of a YYYY-MM-DD birthdate string.
+const birthdateLen = 10
+
+// isValidBirthdate reports whether s matches the YYYY-MM-DD format.
+func isValidBirthdate(s string) bool {
+	if len(s) != birthdateLen {
+		return false
+	}
+
+	for i, c := range s {
+		switch i {
+		case 4, 7: //nolint:mnd // fixed hyphen positions in YYYY-MM-DD
+			if c != '-' {
+				return false
+			}
+		default:
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // applyUserNameAttribute applies name sub-fields to a user.
@@ -525,6 +642,87 @@ func parsePhoneNumbers(value any) []PhoneNumber {
 		}
 
 		return numbers
+	default:
+		return nil
+	}
+}
+
+func parsePhotos(value any) []Photo {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []Photo:
+		return append([]Photo(nil), v...)
+	case []any:
+		photos := make([]Photo, 0, len(v))
+		for _, entry := range v {
+			m, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			photos = append(photos, Photo{
+				Value:   valueAsString(m["Value"]),
+				Display: valueAsString(m["Display"]),
+				Type:    valueAsString(m["Type"]),
+				Primary: valueAsBool(m["Primary"]),
+			})
+		}
+
+		return photos
+	default:
+		return nil
+	}
+}
+
+func parseRoles(value any) []Role {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []Role:
+		return append([]Role(nil), v...)
+	case []any:
+		roles := make([]Role, 0, len(v))
+		for _, entry := range v {
+			m, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			roles = append(roles, Role{
+				Value:   valueAsString(m["Value"]),
+				Type:    valueAsString(m["Type"]),
+				Primary: valueAsBool(m["Primary"]),
+			})
+		}
+
+		return roles
+	default:
+		return nil
+	}
+}
+
+func parseExternalIDs(value any) []ExternalID {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []ExternalID:
+		return append([]ExternalID(nil), v...)
+	case []any:
+		ids := make([]ExternalID, 0, len(v))
+		for _, entry := range v {
+			m, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			ids = append(ids, ExternalID{
+				Issuer: valueAsString(m["Issuer"]),
+				ID:     valueAsString(m["Id"]),
+			})
+		}
+
+		return ids
 	default:
 		return nil
 	}
@@ -854,7 +1052,7 @@ func (b *InMemoryBackend) CreateGroup(storeID string, req *CreateGroupRequest) (
 		return nil, fmt.Errorf("%w: DisplayName must not exceed 1024 characters", ErrValidation)
 	}
 
-	groupID := b.generateID("group")
+	groupID := b.generateID()
 	group := &Group{
 		GroupID:         groupID,
 		IdentityStoreID: storeID,
@@ -885,7 +1083,7 @@ func (b *InMemoryBackend) DescribeGroup(storeID, groupID string) (*Group, error)
 	return copyGroup(group), nil
 }
 
-// ListGroups lists all groups for the given identity store.
+// ListGroups lists all groups for the given identity store, sorted by GroupID.
 func (b *InMemoryBackend) ListGroups(storeID string) []*Group {
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
@@ -897,6 +1095,8 @@ func (b *InMemoryBackend) ListGroups(storeID string) []*Group {
 			result = append(result, copyGroup(g))
 		}
 	}
+
+	slices.SortFunc(result, func(a, b *Group) int { return strings.Compare(a.GroupID, b.GroupID) })
 
 	return result
 }
@@ -1067,7 +1267,7 @@ func (b *InMemoryBackend) CreateGroupMembership(storeID, groupID string, memberI
 		return nil, fmt.Errorf("%w: membership already exists", ErrConflict)
 	}
 
-	membershipID := b.generateID("membership")
+	membershipID := b.generateID()
 	membership := &GroupMembership{
 		MembershipID:    membershipID,
 		IdentityStoreID: storeID,
@@ -1098,7 +1298,7 @@ func (b *InMemoryBackend) DescribeGroupMembership(storeID, membershipID string) 
 	return copyMembership(m), nil
 }
 
-// ListGroupMemberships lists all memberships for a group.
+// ListGroupMemberships lists all memberships for a group, sorted by MembershipID.
 func (b *InMemoryBackend) ListGroupMemberships(storeID, groupID string) []*GroupMembership {
 	b.mu.RLock("ListGroupMemberships")
 	defer b.mu.RUnlock()
@@ -1110,6 +1310,10 @@ func (b *InMemoryBackend) ListGroupMemberships(storeID, groupID string) []*Group
 			result = append(result, copyMembership(m))
 		}
 	}
+
+	slices.SortFunc(result, func(a, b *GroupMembership) int {
+		return strings.Compare(a.MembershipID, b.MembershipID)
+	})
 
 	return result
 }
@@ -1164,7 +1368,7 @@ func (b *InMemoryBackend) GetGroupMembershipID(storeID, groupID string, memberID
 	)
 }
 
-// ListGroupMembershipsForMember lists all group memberships for a given member.
+// ListGroupMembershipsForMember lists all group memberships for a given member, sorted by MembershipID.
 func (b *InMemoryBackend) ListGroupMembershipsForMember(storeID string, memberID MemberID) []*GroupMembership {
 	b.mu.RLock("ListGroupMembershipsForMember")
 	defer b.mu.RUnlock()
@@ -1182,6 +1386,10 @@ func (b *InMemoryBackend) ListGroupMembershipsForMember(storeID string, memberID
 			result = append(result, copyMembership(m))
 		}
 	}
+
+	slices.SortFunc(result, func(a, b *GroupMembership) int {
+		return strings.Compare(a.MembershipID, b.MembershipID)
+	})
 
 	return result
 }
@@ -1203,6 +1411,7 @@ func (b *InMemoryBackend) IsMemberInGroups(
 		_, exists := b.membershipKeys[key]
 		result = append(result, GroupMembershipExistence{
 			GroupID:          id,
+			MemberID:         memberID,
 			MembershipExists: exists,
 		})
 	}
@@ -1222,6 +1431,8 @@ func copyUser(u *User) *User {
 	cp.Emails = append([]Email(nil), u.Emails...)
 	cp.Addresses = append([]Address(nil), u.Addresses...)
 	cp.PhoneNumbers = append([]PhoneNumber(nil), u.PhoneNumbers...)
+	cp.Photos = append([]Photo(nil), u.Photos...)
+	cp.Roles = append([]Role(nil), u.Roles...)
 	cp.ExternalIDs = append([]ExternalID(nil), u.ExternalIDs...)
 
 	return &cp
