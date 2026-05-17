@@ -24,6 +24,7 @@ jobs:
       - name: Run all tests with combined coverage
         run: make total-coverage || true
         continue-on-error: true
+        timeout-minutes: 45
 
       - name: Generate coverage badge
         if: hashFiles('coverage.out') != ''
