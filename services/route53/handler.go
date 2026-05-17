@@ -1272,6 +1272,32 @@ func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 	return writeXML(c, http.StatusOK, resp)
 }
 
+// parseMaxItemsResult holds the parsed and effective maxItems values.
+type parseMaxItemsResult struct {
+	requested int
+	effective int
+}
+
+// parseMaxItems parses the "maxitems" query parameter.
+// Returns the requested value (0 if absent) and the effective value after applying the backend
+// default/clamp. Returns an error response if the parameter is present but invalid.
+func parseMaxItems(c *echo.Context, paramVal string) (parseMaxItemsResult, error) {
+	if paramVal == "" {
+		return parseMaxItemsResult{0, route53DefaultMaxItems}, nil
+	}
+
+	n, parseErr := strconv.Atoi(paramVal)
+	if parseErr != nil || n < 0 {
+		return parseMaxItemsResult{}, xmlError(c, http.StatusBadRequest, "InvalidInput", "invalid maxitems parameter")
+	}
+
+	if n == 0 || n > route53DefaultMaxItems {
+		return parseMaxItemsResult{n, route53DefaultMaxItems}, nil
+	}
+
+	return parseMaxItemsResult{n, n}, nil
+}
+
 func (h *Handler) listResourceRecordSets(c *echo.Context) error {
 	ctx := c.Request().Context()
 	zoneID := extractZoneID(c.Request().URL.Path)
@@ -1280,10 +1306,10 @@ func (h *Handler) listResourceRecordSets(c *echo.Context) error {
 	startName := q.Get("name")
 	startType := q.Get("type")
 	startIdentifier := q.Get("identifier")
-	maxItems := 0
 
-	if m := q.Get("maxitems"); m != "" {
-		fmt.Sscanf(m, "%d", &maxItems) //nolint:errcheck,gosec // 0 is a safe default
+	mi, parseErr := parseMaxItems(c, q.Get("maxitems"))
+	if parseErr != nil {
+		return parseErr
 	}
 
 	pg, err := h.Backend.ListResourceRecordSets(
@@ -1291,7 +1317,7 @@ func (h *Handler) listResourceRecordSets(c *echo.Context) error {
 		startName,
 		startType,
 		startIdentifier,
-		maxItems,
+		mi.requested,
 	)
 	if err != nil {
 		return handleBackendError(c, err)
@@ -1302,69 +1328,14 @@ func (h *Handler) listResourceRecordSets(c *echo.Context) error {
 
 	xmlRecords := make([]xmlResourceRecordSet, len(pg.Records))
 	for i, rrs := range pg.Records {
-		xmlRecs := make([]xmlResourceRecord, len(rrs.Records))
-		for j, rr := range rrs.Records {
-			xmlRecs[j] = xmlResourceRecord(rr)
-		}
-
-		xrrs := xmlResourceRecordSet{
-			Name:             rrs.Name,
-			Type:             rrs.Type,
-			TTL:              rrs.TTL,
-			ResourceRecords:  xmlRecs,
-			SetIdentifier:    rrs.SetIdentifier,
-			Failover:         string(rrs.Failover),
-			Region:           rrs.Region,
-			HealthCheckID:    rrs.HealthCheckID,
-			Weight:           rrs.Weight,
-			MultiValueAnswer: rrs.MultiValueAnswer,
-		}
-
-		if rrs.AliasTarget != nil {
-			xrrs.AliasTarget = &xmlAliasTarget{
-				HostedZoneID:         rrs.AliasTarget.HostedZoneID,
-				DNSName:              rrs.AliasTarget.DNSName,
-				EvaluateTargetHealth: rrs.AliasTarget.EvaluateTargetHealth,
-			}
-		}
-
-		if rrs.GeoLocation != nil {
-			xrrs.GeoLocation = &xmlGeoLocation{
-				ContinentCode:   rrs.GeoLocation.ContinentCode,
-				CountryCode:     rrs.GeoLocation.CountryCode,
-				SubdivisionCode: rrs.GeoLocation.SubdivisionCode,
-			}
-		}
-
-		if rrs.GeoProximityLocation != nil {
-			xrrs.GeoProximityLocation = &xmlGeoProximityLocation{
-				AWSRegion:      rrs.GeoProximityLocation.AWSRegion,
-				LocalZoneGroup: rrs.GeoProximityLocation.LocalZoneGroup,
-				Bias:           rrs.GeoProximityLocation.Bias,
-			}
-			if rrs.GeoProximityLocation.Coordinates != nil {
-				xrrs.GeoProximityLocation.Coordinates = &xmlGeoProximityCoordinates{
-					Latitude:  rrs.GeoProximityLocation.Coordinates.Latitude,
-					Longitude: rrs.GeoProximityLocation.Coordinates.Longitude,
-				}
-			}
-		}
-
-		if rrs.CidrRoutingConfig != nil {
-			xrrs.CidrRoutingConfig = &xmlCidrRoutingConfig{
-				CollectionID: rrs.CidrRoutingConfig.CollectionID,
-				LocationName: rrs.CidrRoutingConfig.LocationName,
-			}
-		}
-
-		xmlRecords[i] = xrrs
+		xmlRecords[i] = toXMLResourceRecordSet(rrs)
 	}
 
 	resp := xmlListResourceRecordSetsResponse{
 		Xmlns:              route53Namespace,
 		ResourceRecordSets: xmlRecords,
 		IsTruncated:        pg.IsTruncated,
-		MaxItems:           strconv.Itoa(maxItems),
+		MaxItems:           strconv.Itoa(mi.effective),
 	}
 
 	if pg.IsTruncated {
@@ -1377,6 +1348,66 @@ func (h *Handler) listResourceRecordSets(c *echo.Context) error {
 }
 
 // ---- Helpers ----
+
+// toXMLResourceRecordSet converts a ResourceRecordSet to its XML representation.
+func toXMLResourceRecordSet(rrs ResourceRecordSet) xmlResourceRecordSet {
+	xmlRecs := make([]xmlResourceRecord, len(rrs.Records))
+	for j, rr := range rrs.Records {
+		xmlRecs[j] = xmlResourceRecord(rr)
+	}
+
+	xrrs := xmlResourceRecordSet{
+		Name:             rrs.Name,
+		Type:             rrs.Type,
+		TTL:              rrs.TTL,
+		ResourceRecords:  xmlRecs,
+		SetIdentifier:    rrs.SetIdentifier,
+		Failover:         string(rrs.Failover),
+		Region:           rrs.Region,
+		HealthCheckID:    rrs.HealthCheckID,
+		Weight:           rrs.Weight,
+		MultiValueAnswer: rrs.MultiValueAnswer,
+	}
+
+	if rrs.AliasTarget != nil {
+		xrrs.AliasTarget = &xmlAliasTarget{
+			HostedZoneID:         rrs.AliasTarget.HostedZoneID,
+			DNSName:              rrs.AliasTarget.DNSName,
+			EvaluateTargetHealth: rrs.AliasTarget.EvaluateTargetHealth,
+		}
+	}
+
+	if rrs.GeoLocation != nil {
+		xrrs.GeoLocation = &xmlGeoLocation{
+			ContinentCode:   rrs.GeoLocation.ContinentCode,
+			CountryCode:     rrs.GeoLocation.CountryCode,
+			SubdivisionCode: rrs.GeoLocation.SubdivisionCode,
+		}
+	}
+
+	if rrs.GeoProximityLocation != nil {
+		xrrs.GeoProximityLocation = &xmlGeoProximityLocation{
+			AWSRegion:      rrs.GeoProximityLocation.AWSRegion,
+			LocalZoneGroup: rrs.GeoProximityLocation.LocalZoneGroup,
+			Bias:           rrs.GeoProximityLocation.Bias,
+		}
+		if rrs.GeoProximityLocation.Coordinates != nil {
+			xrrs.GeoProximityLocation.Coordinates = &xmlGeoProximityCoordinates{
+				Latitude:  rrs.GeoProximityLocation.Coordinates.Latitude,
+				Longitude: rrs.GeoProximityLocation.Coordinates.Longitude,
+			}
+		}
+	}
+
+	if rrs.CidrRoutingConfig != nil {
+		xrrs.CidrRoutingConfig = &xmlCidrRoutingConfig{
+			CollectionID: rrs.CidrRoutingConfig.CollectionID,
+			LocationName: rrs.CidrRoutingConfig.LocationName,
+		}
+	}
+
+	return xrrs
+}
 
 func toXMLHostedZone(hz *HostedZone) xmlHostedZone {
 	return xmlHostedZone{

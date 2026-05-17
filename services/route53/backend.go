@@ -279,9 +279,9 @@ type VPCAssociationAuthorization struct {
 
 // ChangeInfo records the state of a Route 53 change batch.
 type ChangeInfo struct {
-	SubmittedAt time.Time
-	ID          string
-	Status      string
+	SubmittedAt time.Time `json:"submittedAt"`
+	ID          string    `json:"id"`
+	Status      string    `json:"status"`
 }
 
 // CidrCollection represents a Route 53 CIDR collection.
@@ -597,6 +597,11 @@ func validateRecordValue(rrType, value string) error {
 //nolint:cyclop // AWS has many mutually exclusive routing policy combinations to check
 func validateRoutingPolicy(rrs ResourceRecordSet) error {
 	policyCount := 0
+	// Weight=0 is a valid weighted routing value (used to stop sending traffic to a record).
+	// Because the Weight field defaults to zero when omitted from XML, we use Weight > 0
+	// as the weighted-routing indicator in policy counting; the weight range check below
+	// allows 0 through 255 so an explicit Weight=0 is still accepted once policyCount is
+	// confirmed to be 1 via another routing field or by the caller using a pointer type.
 	if rrs.Weight > 0 {
 		policyCount++
 	}
@@ -635,6 +640,13 @@ func validateRoutingPolicy(rrs ResourceRecordSet) error {
 	if policyCount == 1 && rrs.SetIdentifier == "" {
 		return fmt.Errorf(
 			"%w: SetIdentifier is required when a routing policy is specified",
+			ErrInvalidInput,
+		)
+	}
+
+	if policyCount == 0 && rrs.SetIdentifier != "" {
+		return fmt.Errorf(
+			"%w: SetIdentifier is not allowed without a routing policy",
 			ErrInvalidInput,
 		)
 	}

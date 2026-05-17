@@ -12,15 +12,17 @@ type zoneDataSnapshot struct {
 }
 
 type backendSnapshot struct {
-	Zones                  map[string]*zoneDataSnapshot      `json:"zones"`
-	HealthChecks           map[string]*HealthCheck           `json:"healthChecks,omitempty"`
-	KeySigningKeys         map[string]*KeySigningKey         `json:"keySigningKeys,omitempty"`
-	CidrCollections        map[string]*CidrCollection        `json:"cidrCollections,omitempty"`
-	QueryLoggingConfigs    map[string]*QueryLoggingConfig    `json:"queryLoggingConfigs,omitempty"`
-	ReusableDelegationSets map[string]*ReusableDelegationSet `json:"reusableDelegationSets,omitempty"`
-	TrafficPolicies        map[string][]*TrafficPolicy       `json:"trafficPolicies,omitempty"`
-	TrafficPolicyInstances map[string]*TrafficPolicyInstance `json:"trafficPolicyInstances,omitempty"`
-	VPCAssociations        map[string][]vpcAssociation       `json:"vpcAssociations,omitempty"`
+	Zones                  map[string]*zoneDataSnapshot             `json:"zones"`
+	HealthChecks           map[string]*HealthCheck                  `json:"healthChecks,omitempty"`
+	KeySigningKeys         map[string]*KeySigningKey                `json:"keySigningKeys,omitempty"`
+	CidrCollections        map[string]*CidrCollection               `json:"cidrCollections,omitempty"`
+	QueryLoggingConfigs    map[string]*QueryLoggingConfig           `json:"queryLoggingConfigs,omitempty"`
+	ReusableDelegationSets map[string]*ReusableDelegationSet        `json:"reusableDelegationSets,omitempty"`
+	TrafficPolicies        map[string][]*TrafficPolicy              `json:"trafficPolicies,omitempty"`
+	TrafficPolicyInstances map[string]*TrafficPolicyInstance        `json:"trafficPolicyInstances,omitempty"`
+	VPCAssociations        map[string][]vpcAssociation              `json:"vpcAssociations,omitempty"`
+	VPCAssocAuthorizations map[string][]VPCAssociationAuthorization `json:"vpcAssocAuthorizations,omitempty"`
+	Changes                map[string]*ChangeInfo                   `json:"changes,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -39,6 +41,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		TrafficPolicies:        make(map[string][]*TrafficPolicy, len(b.trafficPolicies)),
 		TrafficPolicyInstances: make(map[string]*TrafficPolicyInstance, len(b.trafficPolicyInstances)),
 		VPCAssociations:        make(map[string][]vpcAssociation, len(b.vpcAssociations)),
+		VPCAssocAuthorizations: make(map[string][]VPCAssociationAuthorization, len(b.vpcAssocAuthorizations)),
+		Changes:                make(map[string]*ChangeInfo, len(b.changes)),
 	}
 
 	for id, zd := range b.zones {
@@ -93,6 +97,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		snap.VPCAssociations[id] = append([]vpcAssociation(nil), assocs...)
 	}
 
+	for id, auths := range b.vpcAssocAuthorizations {
+		snap.VPCAssocAuthorizations[id] = append([]VPCAssociationAuthorization(nil), auths...)
+	}
+
+	for id, ch := range b.changes {
+		cp := *ch
+		snap.Changes[id] = &cp
+	}
+
 	data, err := json.Marshal(snap)
 	if err != nil {
 		slog.Default().Warn("route53 Snapshot failed", "error", err)
@@ -140,37 +153,18 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.VPCAssociations == nil {
 		snap.VPCAssociations = make(map[string][]vpcAssociation)
 	}
+
+	if snap.VPCAssocAuthorizations == nil {
+		snap.VPCAssocAuthorizations = make(map[string][]VPCAssociationAuthorization)
+	}
+
+	if snap.Changes == nil {
+		snap.Changes = make(map[string]*ChangeInfo)
+	}
 }
 
-// Restore loads backend state from a JSON snapshot.
-// It implements persistence.Persistable.
-// The DNS registrar is not restored — it must be re-wired by the caller after restore.
-func (b *InMemoryBackend) Restore(data []byte) error {
-	var snap backendSnapshot
-
-	if err := json.Unmarshal(data, &snap); err != nil {
-		return err
-	}
-
-	ensureNonNilMaps(&snap)
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	b.zones = make(map[string]*zoneData, len(snap.Zones))
-
-	for id, zds := range snap.Zones {
-		if zds.Records == nil {
-			zds.Records = make(map[string]*ResourceRecordSet)
-		}
-
-		b.zones[id] = &zoneData{
-			zone:          zds.Zone,
-			records:       zds.Records,
-			dnssecEnabled: zds.DNSSECEnabled,
-		}
-	}
-
+// restoreSimpleMaps restores the simple (non-zone, non-traffic-policy) maps from a snapshot.
+func (b *InMemoryBackend) restoreSimpleMaps(snap *backendSnapshot) {
 	b.healthChecks = make(map[string]*HealthCheck, len(snap.HealthChecks))
 
 	for id, hc := range snap.HealthChecks {
@@ -205,6 +199,60 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		cp := *ds
 		b.reusableDelegationSets[id] = &cp
 	}
+}
+
+// restoreAssocMaps restores VPC association, authorization, and change maps from a snapshot.
+func (b *InMemoryBackend) restoreAssocMaps(snap *backendSnapshot) {
+	b.vpcAssociations = make(map[string][]vpcAssociation, len(snap.VPCAssociations))
+
+	for id, assocs := range snap.VPCAssociations {
+		b.vpcAssociations[id] = append([]vpcAssociation(nil), assocs...)
+	}
+
+	b.vpcAssocAuthorizations = make(map[string][]VPCAssociationAuthorization, len(snap.VPCAssocAuthorizations))
+
+	for id, auths := range snap.VPCAssocAuthorizations {
+		b.vpcAssocAuthorizations[id] = append([]VPCAssociationAuthorization(nil), auths...)
+	}
+
+	b.changes = make(map[string]*ChangeInfo, len(snap.Changes))
+
+	for id, ch := range snap.Changes {
+		cp := *ch
+		b.changes[id] = &cp
+	}
+}
+
+// Restore loads backend state from a JSON snapshot.
+// It implements persistence.Persistable.
+// The DNS registrar is not restored — it must be re-wired by the caller after restore.
+func (b *InMemoryBackend) Restore(data []byte) error {
+	var snap backendSnapshot
+
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+
+	ensureNonNilMaps(&snap)
+
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
+
+	b.zones = make(map[string]*zoneData, len(snap.Zones))
+
+	for id, zds := range snap.Zones {
+		if zds.Records == nil {
+			zds.Records = make(map[string]*ResourceRecordSet)
+		}
+
+		b.zones[id] = &zoneData{
+			zone:          zds.Zone,
+			records:       zds.Records,
+			dnssecEnabled: zds.DNSSECEnabled,
+		}
+	}
+
+	b.restoreSimpleMaps(&snap)
 
 	b.trafficPolicies = make(map[string][]*TrafficPolicy, len(snap.TrafficPolicies))
 
@@ -225,11 +273,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.trafficPolicyInstances[id] = &cp
 	}
 
-	b.vpcAssociations = make(map[string][]vpcAssociation, len(snap.VPCAssociations))
-
-	for id, assocs := range snap.VPCAssociations {
-		b.vpcAssociations[id] = append([]vpcAssociation(nil), assocs...)
-	}
+	b.restoreAssocMaps(&snap)
 
 	return nil
 }

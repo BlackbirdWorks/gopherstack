@@ -2,6 +2,7 @@ package route53
 
 import (
 	"encoding/xml"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -733,7 +734,11 @@ func (h *Handler) listTrafficPolicyInstancesByPolicy(c *echo.Context) error {
 			return xmlError(c, http.StatusBadRequest, "InvalidInput", "invalid trafficpolicyversion")
 		}
 
-		tpVersion = int32(v) //nolint:gosec // version fits in int32
+		if v < math.MinInt32 || v > math.MaxInt32 {
+			return xmlError(c, http.StatusBadRequest, "InvalidInput", "trafficpolicyversion out of range")
+		}
+
+		tpVersion = int32(v) //nolint:gosec // bounds checked above
 	}
 
 	instances, err := h.Backend.ListTrafficPolicyInstancesByPolicy(tpID, tpVersion)

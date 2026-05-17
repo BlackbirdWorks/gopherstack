@@ -126,10 +126,6 @@ func TestChangeResourceRecordSets_Atomic(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "InvalidChangeBatch")
 
 	// Verify host.example.com still exists (atomic rollback).
-	pg, err := route53.NewInMemoryBackend().ListResourceRecordSets(zoneID, "", "", "", 0)
-	_ = pg
-	_ = err
-
 	rec = send(t, h, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID+"/rrset", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "host.example.com")
