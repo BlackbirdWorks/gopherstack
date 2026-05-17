@@ -108,6 +108,7 @@ func TestRoute53_EnableDisableGetDNSSEC(t *testing.T) {
 
 				zoneID := createZoneForOpsTest(t, h)
 				createKSKForOpsTest(t, h, zoneID, "main-key")
+
 				return zoneID
 			},
 			method:       http.MethodPost,

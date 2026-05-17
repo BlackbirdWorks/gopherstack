@@ -67,7 +67,7 @@ func TestChangeResourceRecordSets_Atomic(t *testing.T) {
 	zoneID := extractZoneID(t, rec.Body.String())
 
 	// Create a valid A record first.
-	validCreate := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	validCreate := `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeBatch>
     <Changes>
@@ -84,14 +84,14 @@ func TestChangeResourceRecordSets_Atomic(t *testing.T) {
       </Change>
     </Changes>
   </ChangeBatch>
-</ChangeResourceRecordSetsRequest>`)
+</ChangeResourceRecordSetsRequest>`
 
 	rec = send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", validCreate)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Batch: first change is valid DELETE, second is invalid (CNAME at apex).
 	// Atomic: neither change should apply.
-	mixedBatch := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	mixedBatch := `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeBatch>
     <Changes>
@@ -119,7 +119,7 @@ func TestChangeResourceRecordSets_Atomic(t *testing.T) {
       </Change>
     </Changes>
   </ChangeBatch>
-</ChangeResourceRecordSetsRequest>`)
+</ChangeResourceRecordSetsRequest>`
 
 	rec = send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", mixedBatch)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -143,7 +143,7 @@ func TestChangeResourceRecordSets_CNAMEAtApex(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 	zoneID := extractZoneID(t, rec.Body.String())
 
-	body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	body := `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeBatch>
     <Changes>
@@ -160,7 +160,7 @@ func TestChangeResourceRecordSets_CNAMEAtApex(t *testing.T) {
       </Change>
     </Changes>
   </ChangeBatch>
-</ChangeResourceRecordSetsRequest>`)
+</ChangeResourceRecordSetsRequest>`
 
 	rec = send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", body)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -422,7 +422,7 @@ func TestListResourceRecordSets_MaxItemsQueryParam(t *testing.T) {
 	zoneID := extractZoneID(t, rec.Body.String())
 
 	// Create 3 records.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeBatch><Changes>
@@ -560,14 +560,13 @@ func TestCreateHealthCheck_RecoveryControl(t *testing.T) {
 
 	h := newHandler(t)
 
-	body := `<?xml version="1.0" encoding="UTF-8"?>
-<CreateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
-  <CallerReference>hc-rc-1</CallerReference>
-  <HealthCheckConfig>
-    <Type>RECOVERY_CONTROL</Type>
-    <RoutingControlArn>arn:aws:route53-recovery-control::123456789012:controlpanel/abc/routingcontrol/xyz</RoutingControlArn>
-  </HealthCheckConfig>
-</CreateHealthCheckRequest>`
+	const rcArn = "arn:aws:route53-recovery-control::123456789012:controlpanel/abc/routingcontrol/xyz"
+	body := `<?xml version="1.0" encoding="UTF-8"?>` +
+		`<CreateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">` +
+		`<CallerReference>hc-rc-1</CallerReference>` +
+		`<HealthCheckConfig><Type>RECOVERY_CONTROL</Type>` +
+		`<RoutingControlArn>` + rcArn + `</RoutingControlArn>` +
+		`</HealthCheckConfig></CreateHealthCheckRequest>`
 
 	rec := send(t, h, http.MethodPost, "/2013-04-01/healthcheck", body)
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -628,10 +627,10 @@ func TestVPCAssociationAuthorizations_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 	zoneID := extractZoneID(t, rec.Body.String())
 
-	createBody := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	createBody := `<?xml version="1.0" encoding="UTF-8"?>
 <CreateVPCAssociationAuthorizationRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <VPC><VPCId>vpc-cross</VPCId><VPCRegion>us-west-2</VPCRegion></VPC>
-</CreateVPCAssociationAuthorizationRequest>`)
+</CreateVPCAssociationAuthorizationRequest>`
 
 	// Create authorization.
 	rec = send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/authorizevpcassociation", createBody)
@@ -876,7 +875,7 @@ func TestListCidrBlocks_Handler(t *testing.T) {
 	colID := createCidrCollectionForOpsTest(t, h, "list-cidr-test")
 
 	// Change to add a location.
-	changeBody := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	changeBody := `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeCidrCollectionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <Changes>
     <Change>
@@ -887,7 +886,7 @@ func TestListCidrBlocks_Handler(t *testing.T) {
       </CidrList>
     </Change>
   </Changes>
-</ChangeCidrCollectionRequest>`)
+</ChangeCidrCollectionRequest>`
 
 	rec := send(t, h, http.MethodPost, "/2013-04-01/cidrcollection/"+colID, changeBody)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -925,8 +924,8 @@ func TestGetGeoLocation(t *testing.T) {
 	tests := []struct {
 		name        string
 		query       string
-		wantCode    int
 		wantContain string
+		wantCode    int
 	}{
 		{
 			name:        "valid_continent",
@@ -970,7 +969,7 @@ func TestGetAccountLimit(t *testing.T) {
 	h := newHandler(t)
 
 	// Create some zones.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <CreateHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <Name>zone%d.example.com</Name>

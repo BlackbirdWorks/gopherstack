@@ -309,6 +309,8 @@ func (h *Handler) listGeoLocations(c *echo.Context) error {
 }
 
 // geoLocationTable is a static table of AWS Route 53 supported geo locations.
+//
+//nolint:gochecknoglobals // read-only lookup table initialized once at package load
 var geoLocationTable = []xmlGeoLocation{
 	{ContinentCode: "AF", ContinentName: "Africa"},
 	{ContinentCode: "AN", ContinentName: "Antarctica"},

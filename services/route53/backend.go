@@ -38,6 +38,11 @@ var (
 	ErrPublicZoneVPCAssociation        = errors.New("PublicZoneVPCAssociation")
 	ErrVPCAssociationAuthorizationNF   = errors.New("VPCAssociationAuthorizationNotFound")
 	ErrKeySigningKeyWithActiveStatusNF = errors.New("KeySigningKeyWithActiveStatusNotFound")
+	ErrInvalidARecord                  = errors.New("invalid A record value")
+	ErrInvalidAAAARecord               = errors.New("invalid AAAA record value")
+	ErrInvalidMXRecord                 = errors.New("invalid MX record value")
+	ErrInvalidSRVRecord                = errors.New("invalid SRV record value")
+	ErrInvalidCAARecord                = errors.New("invalid CAA record value")
 )
 
 const (
@@ -62,6 +67,8 @@ const (
 
 // validRecordTypes is the set of record types that AWS Route 53 accepts for
 // user-managed ResourceRecordSets (DNSKEY/NSEC are DNSSEC-internal only).
+//
+//nolint:gochecknoglobals // package-level table initialized once at startup
 var validRecordTypes = map[string]bool{
 	recordTypeA: true, recordTypeAAAA: true, recordTypeCNAME: true,
 	recordTypeMX: true, recordTypeTXT: true, recordTypeNS: true,
@@ -78,11 +85,9 @@ const (
 
 // record value format validators (minimal per-type).
 var (
-	reIPv4 = regexp.MustCompile(`^\d{1,3}(\.\d{1,3}){3}$`)
-	reIPv6 = regexp.MustCompile(`^[0-9a-fA-F:]+$`)
-	reMX   = regexp.MustCompile(`^\d+ \S+$`)
-	reSRV  = regexp.MustCompile(`^\d+ \d+ \d+ \S+$`)
-	reCAA  = regexp.MustCompile(`^\d+ \S+ "`)
+	reMX  = regexp.MustCompile(`^\d+ \S+$`)
+	reSRV = regexp.MustCompile(`^\d+ \d+ \d+ \S+$`)
+	reCAA = regexp.MustCompile(`^\d+ \S+ "`)
 )
 
 const (
@@ -450,6 +455,15 @@ func (b *InMemoryBackend) CreateHostedZone(
 		records: make(map[string]*ResourceRecordSet),
 	}
 
+	// Register a synthetic INSYNC change so that GetChange on the zone-creation
+	// change ID (used by Terraform's waiter) returns INSYNC immediately.
+	syntheticChangeID := "C" + id
+	b.changes[syntheticChangeID] = &ChangeInfo{
+		ID:          "/change/" + syntheticChangeID,
+		Status:      "INSYNC",
+		SubmittedAt: time.Now(),
+	}
+
 	cp := hz
 
 	return &cp, nil
@@ -552,23 +566,26 @@ func validateRecordValue(rrType, value string) error {
 	switch rrType {
 	case recordTypeA:
 		if net.ParseIP(value) == nil || strings.Contains(value, ":") {
-			return fmt.Errorf("invalid IPv4 address for A record: %q", value)
+			return fmt.Errorf("invalid IPv4 address for A record %q: %w", value, ErrInvalidARecord)
 		}
 	case recordTypeAAAA:
 		if net.ParseIP(value) == nil || !strings.Contains(value, ":") {
-			return fmt.Errorf("invalid IPv6 address for AAAA record: %q", value)
+			return fmt.Errorf("invalid IPv6 address for AAAA record %q: %w", value, ErrInvalidAAAARecord)
 		}
 	case recordTypeMX:
 		if !reMX.MatchString(value) {
-			return fmt.Errorf("MX record must be \"priority host\", got %q", value)
+			return fmt.Errorf("MX record must be \"priority host\", got %q: %w", value, ErrInvalidMXRecord)
 		}
 	case recordTypeSRV:
 		if !reSRV.MatchString(value) {
-			return fmt.Errorf("SRV record must be \"priority weight port target\", got %q", value)
+			return fmt.Errorf(
+				"SRV record must be \"priority weight port target\", got %q: %w",
+				value, ErrInvalidSRVRecord,
+			)
 		}
 	case recordTypeCAA:
 		if !reCAA.MatchString(value) {
-			return fmt.Errorf("CAA record must be \"flag tag \\\"value\\\"\", got %q", value)
+			return fmt.Errorf("CAA record must be \"flag tag \\\"value\\\"\", got %q: %w", value, ErrInvalidCAARecord)
 		}
 	}
 
@@ -576,6 +593,8 @@ func validateRecordValue(rrType, value string) error {
 }
 
 // validateRoutingPolicy enforces AWS mutual-exclusion rules for routing policies.
+//
+//nolint:cyclop // AWS has many mutually exclusive routing policy combinations to check
 func validateRoutingPolicy(rrs ResourceRecordSet) error {
 	policyCount := 0
 	if rrs.Weight > 0 {
@@ -632,6 +651,8 @@ func validateRoutingPolicy(rrs ResourceRecordSet) error {
 }
 
 // validateChange validates a single change against current zone state.
+//
+//nolint:gocognit,cyclop // complex by necessity: enforces all AWS record mutation constraints
 func validateChange(zd *zoneData, ch Change) error {
 	rrs := ch.ResourceRecordSet
 
@@ -713,6 +734,8 @@ func validateChange(zd *zoneData, ch Change) error {
 
 // ChangeResourceRecordSets applies a batch of record set changes atomically.
 // All changes are validated before any mutation is applied.
+//
+//nolint:cyclop // handles multiple action types and failure modes in a single batch loop
 func (b *InMemoryBackend) ChangeResourceRecordSets(
 	zoneID string,
 	changes []Change,
@@ -781,7 +804,7 @@ func (b *InMemoryBackend) ChangeResourceRecordSets(
 	}
 
 	// Record the change for GetChange.
-	changeID := "C" + randomID("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 14)
+	changeID := "C" + randomID("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 14) //nolint:mnd // 14-char AWS-style change ID
 	ci := &ChangeInfo{
 		ID:          "/change/" + changeID,
 		Status:      "INSYNC",
@@ -809,16 +832,18 @@ func (b *InMemoryBackend) GetChange(changeID string) (*ChangeInfo, error) {
 
 // RRSetPage is a page of ResourceRecordSets with pagination cursors.
 type RRSetPage struct {
-	Records        []ResourceRecordSet
 	NextName       string
 	NextType       string
 	NextIdentifier string
+	Records        []ResourceRecordSet
 	IsTruncated    bool
 }
 
 // ListResourceRecordSets returns resource record sets sorted by (Name, Type, SetIdentifier),
 // starting after the given (startName, startType, startIdentifier) tuple, up to maxItems.
 // Pass empty strings and 0 to get the first page.
+//
+//nolint:gocognit,cyclop // pagination + multi-field sort + filtering inherently complex
 func (b *InMemoryBackend) ListResourceRecordSets(
 	zoneID, startName, startType, startIdentifier string,
 	maxItems int,
@@ -1084,14 +1109,25 @@ func (b *InMemoryBackend) CreateKeySigningKey(
 	}
 
 	// Generate deterministic stub signing-algorithm fields per AWS spec (ECDSAP256SHA256).
-	keyTagRaw := randomID("0123456789", 5)
+	const (
+		kskKeyTagLen         = 5
+		kskKeyTagBase        = 10
+		kskPublicKeyLen      = 88
+		kskDigestLen         = 64
+		kskAlgorithmType     = 13
+		kskDigestAlgType     = 2
+		kskDNSKEYFlag        = 257
+		kskDSRecordAlgType   = 13
+		kskDSRecordDigestAlg = 2
+	)
+	keyTagRaw := randomID("0123456789", kskKeyTagLen)
 	keyTag := 0
 	for _, ch := range keyTagRaw {
-		keyTag = keyTag*10 + int(ch-'0')
+		keyTag = keyTag*kskKeyTagBase + int(ch-'0')
 	}
-	pubKey := randomID("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", 88)
-	digest := randomID("0123456789abcdef", 64)
-	dsRecord := fmt.Sprintf("%d 13 2 %s", keyTag, digest)
+	pubKey := randomID("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", kskPublicKeyLen)
+	digest := randomID("0123456789abcdef", kskDigestLen)
+	dsRecord := fmt.Sprintf("%d %d %d %s", keyTag, kskDSRecordAlgType, kskDSRecordDigestAlg, digest)
 
 	ksk := &KeySigningKey{
 		HostedZoneID:             hostedZoneID,
@@ -1099,11 +1135,11 @@ func (b *InMemoryBackend) CreateKeySigningKey(
 		KeyManagementServiceArn:  kmsArn,
 		Status:                   status,
 		CreatedAt:                time.Now(),
-		Flag:                     257,
+		Flag:                     kskDNSKEYFlag,
 		SigningAlgorithmMnemonic: "ECDSAP256SHA256",
-		SigningAlgorithmType:     13,
+		SigningAlgorithmType:     kskAlgorithmType,
 		DigestAlgorithmMnemonic:  "SHA-256",
-		DigestAlgorithmType:      2,
+		DigestAlgorithmType:      kskDigestAlgType,
 		KeyTag:                   keyTag,
 		PublicKey:                pubKey,
 		DigestValue:              digest,
@@ -1505,6 +1541,8 @@ func copyLocations(m map[string][]string) map[string][]string {
 }
 
 // ChangeCidrCollection applies PUT/DELETE_IF_EXISTS changes to a CIDR collection's locations.
+//
+//nolint:gocognit // validates and applies multiple change actions with per-action branching
 func (b *InMemoryBackend) ChangeCidrCollection(
 	collectionID string,
 	changes []CidrCollectionChange,

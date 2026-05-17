@@ -154,6 +154,9 @@ func TestIntegration_Route53_EnableDisableDNSSEC(t *testing.T) {
 
 	zoneID := integCreateZoneForNewOps(t, "dnssec-enable-disable")
 
+	// Create and activate a KSK (required before enabling DNSSEC).
+	integCreateKSKForNewOps(t, zoneID, "main-ksk", "dnssec-ksk-ref-1")
+
 	// Enable DNSSEC.
 	enableResp := route53Send(t, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/enable-dnssec", "")
 	enableBody := readBody(t, enableResp)

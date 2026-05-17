@@ -1165,6 +1165,7 @@ func (h *Handler) listHostedZones(c *echo.Context) error {
 	return writeXML(c, http.StatusOK, resp)
 }
 
+//nolint:funlen // handles full ChangeResourceRecordSets request including validation and response
 func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 	ctx := c.Request().Context()
 	zoneID := extractZoneID(c.Request().URL.Path)
@@ -1282,7 +1283,7 @@ func (h *Handler) listResourceRecordSets(c *echo.Context) error {
 	maxItems := 0
 
 	if m := q.Get("maxitems"); m != "" {
-		fmt.Sscanf(m, "%d", &maxItems) //nolint:errcheck // 0 is a safe default
+		fmt.Sscanf(m, "%d", &maxItems) //nolint:errcheck,gosec // 0 is a safe default
 	}
 
 	pg, err := h.Backend.ListResourceRecordSets(
@@ -1569,6 +1570,8 @@ func xmlError(c *echo.Context, statusCode int, code, message string) error {
 }
 
 // handleBackendError maps backend errors to HTTP responses.
+//
+//nolint:cyclop // one branch per error type; this is an exhaustive mapping function
 func handleBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrHostedZoneNotFound):
@@ -1874,6 +1877,7 @@ func (h *Handler) deleteHealthCheck(c *echo.Context, path string) error {
 	return writeXML(c, http.StatusOK, xmlDeleteHealthCheckResponse{Xmlns: route53Namespace})
 }
 
+//nolint:gocognit,cyclop,funlen // health check update applies many optional fields conditionally
 func (h *Handler) updateHealthCheck(c *echo.Context, path string) error {
 	ctx := c.Request().Context()
 	id := extractHealthCheckID(path)
@@ -3332,4 +3336,3 @@ func (h *Handler) deleteCidrCollection(c *echo.Context, path string) error {
 		Xmlns   string   `xml:"xmlns,attr"`
 	}{Xmlns: route53Namespace})
 }
-
