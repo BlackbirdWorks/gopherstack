@@ -31,7 +31,7 @@ func TestGetCallerIdentity(t *testing.T) {
 
 	backend := sts.NewInMemoryBackend()
 
-	resp, err := backend.GetCallerIdentity("")
+	resp, err := backend.GetCallerIdentity("", "")
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
@@ -598,8 +598,12 @@ func (b *errorBackend) AssumeRoot(_ *sts.AssumeRootInput) (*sts.AssumeRootRespon
 	return nil, fmt.Errorf("AssumeRoot: %w", errBackendFailure)
 }
 
-func (b *errorBackend) GetCallerIdentity(_ string) (*sts.GetCallerIdentityResponse, error) {
+func (b *errorBackend) GetCallerIdentity(_, _ string) (*sts.GetCallerIdentityResponse, error) {
 	return nil, fmt.Errorf("GetCallerIdentity: %w", errBackendFailure)
+}
+
+func (b *errorBackend) ValidateSessionCredential(_, _ string) (*sts.SessionInfo, error) {
+	return nil, fmt.Errorf("ValidateSessionCredential: %w", errBackendFailure)
 }
 
 func (b *errorBackend) GetDelegatedAccessToken(
@@ -772,8 +776,9 @@ func TestGetAccessKeyInfo(t *testing.T) {
 	assert.Equal(t, sts.MockAccountID, resp.Result.Account)
 }
 
-// TestGetAccessKeyInfo_UnknownKey verifies that a key not in any session returns InvalidClientTokenId.
-func TestGetAccessKeyInfo_UnknownKey(t *testing.T) {
+// TestGetAccessKeyInfo_WellFormedUnknownKey verifies that a well-formed key not in any session
+// returns 200 with the backend account ID (Gap #14: AWS derives account from key prefix encoding).
+func TestGetAccessKeyInfo_WellFormedUnknownKey(t *testing.T) {
 	t.Parallel()
 
 	backend := sts.NewInMemoryBackend()
@@ -795,11 +800,46 @@ func TestGetAccessKeyInfo_UnknownKey(t *testing.T) {
 
 	err := h.Handler()(e.NewContext(req, rec))
 	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		XMLName xml.Name `xml:"GetAccessKeyInfoResponse"`
+		Result  struct {
+			Account string `xml:"Account"`
+		} `xml:"GetAccessKeyInfoResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, sts.MockAccountID, resp.Result.Account)
+}
+
+// TestGetAccessKeyInfo_MalformedKey verifies that a completely malformed key returns ValidationError.
+func TestGetAccessKeyInfo_MalformedKey(t *testing.T) {
+	t.Parallel()
+
+	backend := sts.NewInMemoryBackend()
+	h := sts.NewHandler(backend)
+	e := echo.New()
+
+	form := url.Values{
+		"Action":      {"GetAccessKeyInfo"},
+		"Version":     {"2011-06-15"},
+		"AccessKeyId": {"not-a-real-key"},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	ctxWithLogger := logger.Save(req.Context(), nil)
+	req = req.WithContext(ctxWithLogger)
+
+	err := h.Handler()(e.NewContext(req, rec))
+	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp sts.ErrorResponse
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "InvalidClientTokenId", errResp.Error.Code)
+	assert.Equal(t, "ValidationError", errResp.Error.Code)
 }
 
 // TestGetAccessKeyInfo_EmptyKey verifies that an empty AccessKeyId returns ValidationError.

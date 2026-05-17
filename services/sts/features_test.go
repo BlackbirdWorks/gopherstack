@@ -280,8 +280,8 @@ func TestAssumeRole_Duration_RespectRoleMaxSessionDuration(t *testing.T) {
 		{name: "within_limit", duration: 900, wantErr: false},
 		{name: "at_limit", duration: 1800, wantErr: false},
 		{name: "exceeds_limit", duration: 3600, wantErr: true},
-		// When DurationSeconds is 0, the default (3600) is used, which exceeds the 1800 max.
-		{name: "default_exceeds_max", duration: 0, wantErr: true},
+		// When DurationSeconds is 0, the default is clamped to min(3600, roleMax=1800)=1800 — no error.
+		{name: "default_clamped_to_max", duration: 0, wantErr: false},
 	}
 
 	for _, tt := range tests {
@@ -394,7 +394,7 @@ func TestGetCallerIdentity_AssumedRole_ReturnsAssumedRoleArn(t *testing.T) {
 
 	accessKeyID := assumeResp.AssumeRoleResult.Credentials.AccessKeyID
 
-	ciResp, err := backend.GetCallerIdentity(accessKeyID)
+	ciResp, err := backend.GetCallerIdentity(accessKeyID, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, "123456789012", ciResp.GetCallerIdentityResult.Account)
@@ -411,7 +411,7 @@ func TestGetCallerIdentity_UnknownAccessKey_ReturnsDefaultIdentity(t *testing.T)
 
 	backend := sts.NewInMemoryBackend()
 
-	resp, err := backend.GetCallerIdentity("ASIANOTISSUED1234567")
+	resp, err := backend.GetCallerIdentity("ASIANOTISSUED1234567", "")
 	require.NoError(t, err)
 
 	// Falls back to default (root) identity.
@@ -424,7 +424,7 @@ func TestGetCallerIdentity_EmptyAccessKey_ReturnsDefaultIdentity(t *testing.T) {
 
 	backend := sts.NewInMemoryBackend()
 
-	resp, err := backend.GetCallerIdentity("")
+	resp, err := backend.GetCallerIdentity("", "")
 	require.NoError(t, err)
 
 	assert.Equal(t, sts.MockAccountID, resp.GetCallerIdentityResult.Account)

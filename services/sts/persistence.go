@@ -7,7 +7,13 @@ import (
 )
 
 type backendSnapshot struct {
-	Sessions map[string]*SessionInfo `json:"sessions"`
+	Sessions             map[string]*SessionInfo `json:"sessions"`
+	TotalSessionsCreated int64                   `json:"total_sessions_created"`
+	OpsAssumeRole        int64                   `json:"ops_assume_role"`
+	OpsAssumeRoleWithWI  int64                   `json:"ops_assume_role_with_wi"`
+	OpsGetCallerIdentity int64                   `json:"ops_get_caller_identity"`
+	OpsGetSessionToken   int64                   `json:"ops_get_session_token"`
+	OpsGetFedToken       int64                   `json:"ops_get_fed_token"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -24,7 +30,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		}
 	}
 
-	snap := backendSnapshot{Sessions: sessions}
+	snap := backendSnapshot{
+		Sessions:             sessions,
+		TotalSessionsCreated: b.totalSessionsCreated.Load(),
+		OpsAssumeRole:        b.cntAssumeRole.Load(),
+		OpsAssumeRoleWithWI:  b.cntAssumeRoleWithWebIdentity.Load(),
+		OpsGetCallerIdentity: b.cntGetCallerIdentity.Load(),
+		OpsGetSessionToken:   b.cntGetSessionToken.Load(),
+		OpsGetFedToken:       b.cntGetFederationToken.Load(),
+	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -60,8 +74,6 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	now := time.Now().UTC()
 
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	b.ensureNonNilMaps()
 	b.sessions = make(map[string]*SessionInfo)
 
@@ -77,6 +89,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 		b.sessions[k] = s
 	}
+
+	b.mu.Unlock()
+
+	// Restore operation counters (atomics are safe without the mutex).
+	b.totalSessionsCreated.Store(snap.TotalSessionsCreated)
+	b.cntAssumeRole.Store(snap.OpsAssumeRole)
+	b.cntAssumeRoleWithWebIdentity.Store(snap.OpsAssumeRoleWithWI)
+	b.cntGetCallerIdentity.Store(snap.OpsGetCallerIdentity)
+	b.cntGetSessionToken.Store(snap.OpsGetSessionToken)
+	b.cntGetFederationToken.Store(snap.OpsGetFedToken)
 
 	return nil
 }

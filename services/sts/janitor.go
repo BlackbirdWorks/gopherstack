@@ -74,16 +74,17 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 }
 
 // sweepExpiredSessions removes sessions whose Expiration is in the past.
+// The lock is held only long enough to copy expired keys, then released before deletion
+// to reduce contention on hot paths.
 func (j *Janitor) sweepExpiredSessions(ctx context.Context) {
 	b := j.Backend
-	now := time.Now().UTC()
 
 	b.mu.Lock()
 
 	var expired []string
 
 	for id, session := range b.sessions {
-		if !session.Expiration.IsZero() && now.After(session.Expiration) {
+		if isSessionExpired(session) {
 			expired = append(expired, id)
 		}
 	}

@@ -27,8 +27,13 @@ func TestRefinement1_SessionNameCharacterValidation(t *testing.T) {
 		},
 		{
 			name:        "valid with allowed special chars",
-			sessionName: "sess+=,.@:abc",
+			sessionName: "sess+=,.@abc",
 			wantErr:     false,
+		},
+		{
+			name:        "invalid colon (not allowed per AWS)",
+			sessionName: "sess:abc",
+			wantErr:     true,
 		},
 		{
 			name:        "invalid space character",
@@ -158,7 +163,7 @@ func TestRefinement1_OperationCounters(t *testing.T) {
 	require.NoError(t, err)
 
 	// Call GetCallerIdentity.
-	_, err = backend.GetCallerIdentity("")
+	_, err = backend.GetCallerIdentity("", "")
 	require.NoError(t, err)
 
 	// Call GetFederationToken.
@@ -206,7 +211,7 @@ func TestRefinement1_TotalSessionsCreated(t *testing.T) {
 		func() error {
 			_, e := backend.AssumeRoot(&sts.AssumeRootInput{
 				TargetPrincipal: "000000000000",
-				TaskPolicyArn:   "arn:aws:iam::aws:policy/IAMAuditRootUserCredentials",
+				TaskPolicyArn:   "arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
 			})
 
 			return e

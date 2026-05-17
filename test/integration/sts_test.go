@@ -297,7 +297,7 @@ func TestIntegration_STS_AssumeRoot(t *testing.T) {
 	ctx := t.Context()
 
 	targetAccount := "000000000000"
-	taskPolicyARN := "arn:aws:iam::aws:policy/IAMAuditRootUserCredentials"
+	taskPolicyARN := "arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials"
 
 	out, err := client.AssumeRoot(ctx, &sts.AssumeRootInput{
 		TargetPrincipal: aws.String(targetAccount),
@@ -544,9 +544,10 @@ func TestIntegration_STS_GetAccessKeyInfo(t *testing.T) {
 			accessKeyID: accessKeyID,
 		},
 		{
-			name:            "unknown_key",
-			accessKeyID:     "ASIAIOSFODNN7EXAMPLE",
-			wantErrContains: "InvalidClientTokenId",
+			// Well-formed ASIA-prefixed keys that are not in the session store
+			// return the backend account ID per AWS behavior (account encoded in key prefix).
+			name:        "unknown_well_formed_key",
+			accessKeyID: "ASIAIOSFODNN7EXAMPLE",
 		},
 		{
 			name:            "empty_key_id",

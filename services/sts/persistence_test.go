@@ -49,7 +49,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				require.Equal(t, 1, b.SessionCount())
 
 				// Session should still resolve correctly.
-				ciResp, err := b.GetCallerIdentity(accessKeyID)
+				ciResp, err := b.GetCallerIdentity(accessKeyID, "")
 				require.NoError(t, err)
 				assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "assumed-role")
 				assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "TestRole")

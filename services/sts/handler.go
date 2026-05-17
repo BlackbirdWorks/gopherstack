@@ -31,12 +31,13 @@ var (
 )
 
 const (
-	contentTypeForm  = "application/x-www-form-urlencoded"
-	stsVersion       = "Version=2011-06-15"
-	unknownOperation = "Unknown"
-	invalidAction    = "InvalidAction"
-	validationError  = "ValidationError"
-	kvPairLen        = 2
+	contentTypeForm   = "application/x-www-form-urlencoded"
+	stsVersion        = "Version=2011-06-15"
+	unknownOperation  = "Unknown"
+	invalidAction     = "InvalidAction"
+	validationError   = "ValidationError"
+	invalidParamValue = "InvalidParameterValue"
+	kvPairLen         = 2
 )
 
 // Handler is the Echo HTTP handler for STS operations.
@@ -118,7 +119,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		ct := c.Request().Header.Get("Content-Type")
+		ct := strings.ToLower(c.Request().Header.Get("Content-Type"))
 		if !strings.Contains(ct, contentTypeForm) {
 			return false
 		}
@@ -217,7 +218,10 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request) (any, error) {
 	case "AssumeRoot":
 		return h.dispatchAssumeRoot(r)
 	case "GetCallerIdentity":
-		return h.Backend.GetCallerIdentity(extractAccessKeyFromAuth(r))
+		return h.Backend.GetCallerIdentity(
+			extractAccessKeyFromAuth(r),
+			r.Header.Get("X-Amz-Security-Token"),
+		)
 	case "GetDelegatedAccessToken":
 		return h.dispatchGetDelegatedAccessToken(r)
 	case "GetFederationToken":
@@ -262,7 +266,7 @@ func (h *Handler) dispatchAssumeRole(r *http.Request) (*AssumeRoleResponse, erro
 	input.TransitiveTagKeys = parseTransitiveTagKeys(r)
 
 	// Parse policy ARNs: PolicyArns.member.N.arn
-	for i := 1; i <= MaxPolicyArnsCount; i++ {
+	for i := 1; i <= MaxPolicyArnsCount+1; i++ {
 		arn := r.FormValue(fmt.Sprintf("PolicyArns.member.%d.arn", i))
 		if arn == "" {
 			break
@@ -318,7 +322,7 @@ func (h *Handler) dispatchGetFederationToken(r *http.Request) (*GetFederationTok
 	}
 
 	// Parse policy ARNs: PolicyArns.member.N.arn
-	for i := 1; i <= MaxPolicyArnsCount; i++ {
+	for i := 1; i <= MaxPolicyArnsCount+1; i++ {
 		arnVal := r.FormValue(fmt.Sprintf("PolicyArns.member.%d.arn", i))
 		if arnVal == "" {
 			break
@@ -363,7 +367,7 @@ func (h *Handler) dispatchAssumeRoleWithWebIdentity(r *http.Request) (*AssumeRol
 	}
 
 	// Parse policy ARNs: PolicyArns.member.N.arn
-	for i := 1; i <= MaxPolicyArnsCount; i++ {
+	for i := 1; i <= MaxPolicyArnsCount+1; i++ {
 		arn := r.FormValue(fmt.Sprintf("PolicyArns.member.%d.arn", i))
 		if arn == "" {
 			break
@@ -397,7 +401,7 @@ func (h *Handler) dispatchAssumeRoleWithSAML(r *http.Request) (*AssumeRoleWithSA
 	}
 
 	// Parse policy ARNs: PolicyArns.member.N.arn
-	for i := 1; i <= MaxPolicyArnsCount; i++ {
+	for i := 1; i <= MaxPolicyArnsCount+1; i++ {
 		arn := r.FormValue(fmt.Sprintf("PolicyArns.member.%d.arn", i))
 		if arn == "" {
 			break
@@ -405,6 +409,9 @@ func (h *Handler) dispatchAssumeRoleWithSAML(r *http.Request) (*AssumeRoleWithSA
 
 		input.PolicyArns = append(input.PolicyArns, arn)
 	}
+
+	// Parse session tags: Tags.member.N.Key / Tags.member.N.Value
+	input.Tags = parseSessionTags(r)
 
 	return h.Backend.AssumeRoleWithSAML(input)
 }
@@ -496,7 +503,7 @@ func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoRe
 		return nil, ErrEmptyAccessKeyID
 	}
 
-	// Look up the key in the session store; unknown keys return InvalidClientTokenId.
+	// Look up the key in the session store.
 	b, ok := h.Backend.(*InMemoryBackend)
 	if ok {
 		b.mu.Lock()
@@ -514,8 +521,26 @@ func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoRe
 		}
 	}
 
-	// Key not found in any session — treat as an unknown / foreign key.
-	return nil, ErrUnknownAccessKeyID
+	// Key not in session store. If the key is well-formed (known prefix + 16 alphanumeric chars),
+	// return the backend account ID — AWS derives the account from the key prefix encoding.
+	// Only completely malformed keys return ErrUnknownAccessKeyID → InvalidClientTokenId.
+	if isWellFormedAccessKey(accessKeyID) {
+		account := MockAccountID
+		if b != nil {
+			account = b.AccountID()
+		}
+
+		return &GetAccessKeyInfoResponse{
+			Xmlns: STSNamespace,
+			GetAccessKeyInfoResult: GetAccessKeyInfoResult{
+				Account: account,
+			},
+			ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+		}, nil
+	}
+
+	// Malformed key format — ValidationError per AWS.
+	return nil, fmt.Errorf("%w: AccessKeyId %q does not match expected format", ErrEmptyAccessKeyID, accessKeyID)
 }
 
 // dispatchDecodeAuthorizationMessage handles the DecodeAuthorizationMessage action.
@@ -548,6 +573,52 @@ func (h *Handler) dispatchDecodeAuthorizationMessage(r *http.Request) (*DecodeAu
 	}, nil
 }
 
+// mapErrorToCode maps a known STS error to its AWS error code and HTTP status.
+// Returns ("", 0) when the error is not a known client error.
+func mapErrorToCode(reqErr error) (string, int) {
+	switch {
+	case errors.Is(reqErr, ErrMissingRoleArn), errors.Is(reqErr, ErrMissingSessionName),
+		errors.Is(reqErr, ErrMissingFederationTokenName), errors.Is(reqErr, ErrMissingWebIdentityToken),
+		errors.Is(reqErr, ErrMissingSAMLAssertion), errors.Is(reqErr, ErrMissingPrincipalArn),
+		errors.Is(reqErr, ErrMissingTargetPrincipal), errors.Is(reqErr, ErrMissingTaskPolicyArn),
+		errors.Is(reqErr, ErrMissingTradeInToken), errors.Is(reqErr, ErrMissingAudience),
+		errors.Is(reqErr, ErrMissingSigningAlgorithm), errors.Is(reqErr, ErrMFACodeRequired):
+		return "MissingParameter", http.StatusBadRequest
+	case errors.Is(reqErr, ErrMissingEncodedMessage):
+		return "InvalidParameter", http.StatusBadRequest
+	case errors.Is(reqErr, ErrInvalidRoleArn), errors.Is(reqErr, ErrInvalidSourceIdentity),
+		errors.Is(reqErr, ErrInvalidPrincipalArn), errors.Is(reqErr, ErrValidation):
+		return invalidParamValue, http.StatusBadRequest
+	case errors.Is(reqErr, ErrInvalidDuration), errors.Is(reqErr, ErrInvalidSessionName),
+		errors.Is(reqErr, ErrInvalidFederationName), errors.Is(reqErr, ErrTooManyTags),
+		errors.Is(reqErr, ErrTooManyAudiences), errors.Is(reqErr, ErrEmptyAccessKeyID),
+		errors.Is(reqErr, ErrInvalidMFATokenCode), errors.Is(reqErr, ErrInvalidMFASerialNumber),
+		errors.Is(reqErr, ErrInvalidTagKey), errors.Is(reqErr, ErrInvalidTagValue),
+		errors.Is(reqErr, ErrTooManyPolicyArns), errors.Is(reqErr, ErrInvalidPolicyArn),
+		errors.Is(reqErr, ErrInvalidProvidedContext), errors.Is(reqErr, ErrInvalidTargetPrincipal),
+		errors.Is(reqErr, ErrTokenCodeWithoutSerial):
+		return validationError, http.StatusBadRequest
+	case errors.Is(reqErr, ErrMalformedPolicyDocument):
+		return "MalformedPolicyDocument", http.StatusBadRequest
+	case errors.Is(reqErr, ErrPackedPolicyTooLarge):
+		return "PackedPolicyTooLarge", http.StatusBadRequest
+	case errors.Is(reqErr, ErrExpiredToken):
+		return "ExpiredTokenException", http.StatusBadRequest
+	case errors.Is(reqErr, ErrInvalidIdentityToken):
+		return "InvalidIdentityToken", http.StatusBadRequest
+	case errors.Is(reqErr, ErrInvalidAuthorizationMessage):
+		return "InvalidAuthorizationMessageException", http.StatusBadRequest
+	case errors.Is(reqErr, ErrUnknownAccessKeyID):
+		return "InvalidClientTokenId", http.StatusBadRequest
+	case errors.Is(reqErr, ErrMissingAction), errors.Is(reqErr, ErrInvalidAction):
+		return invalidAction, http.StatusBadRequest
+	case errors.Is(reqErr, ErrIDPRejectedClaim), errors.Is(reqErr, ErrAccessDenied):
+		return "AccessDenied", http.StatusForbidden
+	}
+
+	return "", 0
+}
+
 // handleError writes a standardised STS XML error response.
 func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error) error {
 	log := logger.Load(ctx)
@@ -555,41 +626,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 	code := "InternalFailure"
 	httpStatus := http.StatusInternalServerError
 
-	switch {
-	case errors.Is(reqErr, ErrMissingRoleArn), errors.Is(reqErr, ErrMissingSessionName),
-		errors.Is(reqErr, ErrMissingFederationTokenName), errors.Is(reqErr, ErrMissingWebIdentityToken),
-		errors.Is(reqErr, ErrMissingSAMLAssertion), errors.Is(reqErr, ErrMissingPrincipalArn),
-		errors.Is(reqErr, ErrMissingTargetPrincipal), errors.Is(reqErr, ErrMissingTaskPolicyArn),
-		errors.Is(reqErr, ErrMissingTradeInToken), errors.Is(reqErr, ErrMissingAudience),
-		errors.Is(reqErr, ErrMissingSigningAlgorithm),
-		errors.Is(reqErr, ErrMFACodeRequired):
-		code = "MissingParameter"
-		httpStatus = http.StatusBadRequest
-	case errors.Is(reqErr, ErrMissingEncodedMessage):
-		// AWS returns InvalidParameter (not MissingParameter) for an empty EncodedMessage.
-		code = "InvalidParameter"
-		httpStatus = http.StatusBadRequest
-	case errors.Is(reqErr, ErrInvalidRoleArn):
-		code = "InvalidParameterValue"
-		httpStatus = http.StatusBadRequest
-	case errors.Is(reqErr, ErrInvalidDuration),
-		errors.Is(reqErr, ErrInvalidSessionName), errors.Is(reqErr, ErrInvalidFederationName),
-		errors.Is(reqErr, ErrTooManyTags), errors.Is(reqErr, ErrTooManyAudiences),
-		errors.Is(reqErr, ErrEmptyAccessKeyID):
-		code = validationError
-		httpStatus = http.StatusBadRequest
-	case errors.Is(reqErr, ErrUnknownAccessKeyID):
-		code = "InvalidClientTokenId"
-		httpStatus = http.StatusBadRequest
-	case errors.Is(reqErr, ErrValidation):
-		code = "InvalidParameterValue"
-		httpStatus = http.StatusBadRequest
-	case errors.Is(reqErr, ErrMissingAction), errors.Is(reqErr, ErrInvalidAction):
-		code = invalidAction
-		httpStatus = http.StatusBadRequest
-	case errors.Is(reqErr, ErrAccessDenied):
-		code = "AccessDenied"
-		httpStatus = http.StatusForbidden
+	if c, s := mapErrorToCode(reqErr); c != "" {
+		code = c
+		httpStatus = s
 	}
 
 	if httpStatus == http.StatusInternalServerError {

@@ -125,7 +125,7 @@ func TestGetFederationToken_SessionTrackedForCallerIdentity(t *testing.T) {
 
 	accessKeyID := resp.GetFederationTokenResult.Credentials.AccessKeyID
 
-	ciResp, err := b.GetCallerIdentity(accessKeyID)
+	ciResp, err := b.GetCallerIdentity(accessKeyID, "")
 	require.NoError(t, err)
 	assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "federated-user/feduser")
 	assert.Contains(t, ciResp.GetCallerIdentityResult.UserID, "feduser")
@@ -337,7 +337,7 @@ func TestAssumeRoleWithWebIdentity_SessionTrackedForCallerIdentity(t *testing.T)
 
 	accessKeyID := resp.AssumeRoleWithWebIdentityResult.Credentials.AccessKeyID
 
-	ciResp, err := b.GetCallerIdentity(accessKeyID)
+	ciResp, err := b.GetCallerIdentity(accessKeyID, "")
 	require.NoError(t, err)
 	assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "assumed-role")
 	assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "WebRole")
