@@ -3,18 +3,21 @@ package xray
 import (
 	"encoding/json"
 	"log/slog"
+	"time"
 )
 
 type backendSnapshot struct {
-	EncryptionConfig *EncryptionConfig          `json:"encryptionConfig,omitempty"`
-	Groups           map[string]*Group          `json:"groups"`
-	SamplingRules    map[string]*SamplingRule   `json:"samplingRules"`
-	Traces           map[string]*Trace          `json:"traces"`
-	Insights         map[string]*Insight        `json:"insights"`
-	InsightEvents    map[string][]*InsightEvent `json:"insightEvents"`
-	ResourcePolicies map[string]*ResourcePolicy `json:"resourcePolicies"`
-	TraceRetrievals  map[string]*TraceRetrieval `json:"traceRetrievals"`
-	IndexingRules    []*IndexingRule            `json:"indexingRules,omitempty"`
+	LastRuleModification time.Time                            `json:"lastRuleModification"`
+	EncryptionConfig     *EncryptionConfig                    `json:"encryptionConfig,omitempty"`
+	Groups               map[string]*Group                    `json:"groups"`
+	SamplingRules        map[string]*SamplingRule             `json:"samplingRules"`
+	Traces               map[string]*Trace                    `json:"traces"`
+	Insights             map[string]*Insight                  `json:"insights"`
+	InsightEvents        map[string][]*InsightEvent           `json:"insightEvents"`
+	ResourcePolicies     map[string]*ResourcePolicy           `json:"resourcePolicies"`
+	TraceRetrievals      map[string]*TraceRetrieval           `json:"traceRetrievals"`
+	SamplingStats        map[string]*SamplingStatisticSummary `json:"samplingStats,omitempty"`
+	IndexingRules        []*IndexingRule                      `json:"indexingRules,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -32,15 +35,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	snap := backendSnapshot{
-		EncryptionConfig: &cfgCopy,
-		Groups:           b.groups,
-		SamplingRules:    b.samplingRules,
-		Traces:           b.traces,
-		Insights:         b.insights,
-		InsightEvents:    b.insightEvents,
-		ResourcePolicies: b.resourcePolicies,
-		TraceRetrievals:  b.traceRetrievals,
-		IndexingRules:    rules,
+		EncryptionConfig:     &cfgCopy,
+		Groups:               b.groups,
+		SamplingRules:        b.samplingRules,
+		Traces:               b.traces,
+		Insights:             b.insights,
+		InsightEvents:        b.insightEvents,
+		ResourcePolicies:     b.resourcePolicies,
+		TraceRetrievals:      b.traceRetrievals,
+		IndexingRules:        rules,
+		SamplingStats:        b.samplingStats,
+		LastRuleModification: b.lastRuleModification,
 	}
 
 	data, err := json.Marshal(snap)
@@ -82,6 +87,10 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.TraceRetrievals == nil {
 		snap.TraceRetrievals = make(map[string]*TraceRetrieval)
 	}
+
+	if snap.SamplingStats == nil {
+		snap.SamplingStats = make(map[string]*SamplingStatisticSummary)
+	}
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -104,6 +113,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.insightEvents = snap.InsightEvents
 	b.resourcePolicies = snap.ResourcePolicies
 	b.traceRetrievals = snap.TraceRetrievals
+	b.samplingStats = snap.SamplingStats
+	b.lastRuleModification = snap.LastRuleModification
 
 	if snap.EncryptionConfig != nil {
 		b.encryptionConfig = snap.EncryptionConfig
@@ -111,6 +122,22 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	if len(snap.IndexingRules) > 0 {
 		b.indexingRules = snap.IndexingRules
+	}
+
+	// Rebuild parsed segment indexes from stored traces.
+	b.parsedSegments = make(map[string]*Segment)
+	b.traceSegments = make(map[string][]*Segment)
+
+	for traceID, t := range b.traces {
+		for _, rawSeg := range t.Segments {
+			var seg Segment
+			if err := json.Unmarshal([]byte(rawSeg), &seg); err == nil {
+				seg.Document = rawSeg
+				segKey := traceID + ":" + seg.ID
+				b.parsedSegments[segKey] = &seg
+				b.traceSegments[traceID] = append(b.traceSegments[traceID], &seg)
+			}
+		}
 	}
 
 	return nil

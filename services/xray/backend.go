@@ -4,8 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
+	"regexp"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,7 +20,8 @@ import (
 )
 
 const (
-	statusActive = "ACTIVE"
+	statusActive   = "ACTIVE"
+	statusUpdating = "UPDATING"
 )
 
 var (
@@ -36,6 +41,16 @@ var (
 	ErrIndexingRuleNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
 	// ErrValidation is returned when a request fails field-level validation.
 	ErrValidation = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
+	// ErrInvalidSamplingRule is returned when sampling rule fields fail validation.
+	ErrInvalidSamplingRule = awserr.New("InvalidSamplingRuleException", awserr.ErrInvalidParameter)
+	// ErrInvalidPolicyRevisionID is returned when a policy revision ID does not match.
+	ErrInvalidPolicyRevisionID = awserr.New("InvalidPolicyRevisionIdException", awserr.ErrConflict)
+	// ErrMalformedPolicyDocument is returned when a policy document is not valid JSON.
+	ErrMalformedPolicyDocument = awserr.New("MalformedPolicyDocumentException", awserr.ErrInvalidParameter)
+	// ErrTooManyPolicies is returned when the max policy count is exceeded.
+	ErrTooManyPolicies = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
+	// ErrBatchGetTracesLimit is returned when more than 5 trace IDs are requested.
+	ErrBatchGetTracesLimit = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
 )
 
 // InsightsConfiguration holds insight notification/notification settings for a group.
@@ -69,6 +84,61 @@ type SamplingRule struct {
 	FixedRate     float64           `json:"fixedRate"`
 	Priority      int32             `json:"priority"`
 	ReservoirSize int32             `json:"reservoirSize"`
+}
+
+// SamplingRuleUpdate holds pointer-semantic updates for UpdateSamplingRule.
+// A nil pointer means "no change"; a non-nil pointer (even to zero/empty) means "apply".
+type SamplingRuleUpdate struct {
+	ResourceARN   *string
+	ServiceName   *string
+	ServiceType   *string
+	Host          *string
+	HTTPMethod    *string
+	URLPath       *string
+	FixedRate     *float64
+	Priority      *int32
+	ReservoirSize *int32
+}
+
+// Segment is a parsed X-Ray segment document.
+type Segment struct {
+	AWS         map[string]any `json:"aws,omitempty"`
+	Annotations map[string]any `json:"annotations,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+	HTTP        *SegmentHTTP   `json:"http,omitempty"`
+	Namespace   string         `json:"namespace,omitempty"`
+	Document    string         `json:"-"`
+	TraceID     string         `json:"trace_id"`
+	ID          string         `json:"id"`
+	ParentID    string         `json:"parent_id,omitempty"`
+	Name        string         `json:"name"`
+	Origin      string         `json:"origin,omitempty"`
+	Subsegments []Segment      `json:"subsegments,omitempty"`
+	StartTime   float64        `json:"start_time"`
+	EndTime     float64        `json:"end_time,omitempty"`
+	Error       bool           `json:"error"`
+	Fault       bool           `json:"fault"`
+	Throttle    bool           `json:"throttle"`
+}
+
+// SegmentHTTP holds HTTP request/response data from a segment.
+type SegmentHTTP struct {
+	Request  *SegmentHTTPRequest  `json:"request,omitempty"`
+	Response *SegmentHTTPResponse `json:"response,omitempty"`
+}
+
+// SegmentHTTPRequest holds HTTP request fields from a segment.
+type SegmentHTTPRequest struct {
+	URL       string `json:"url,omitempty"`
+	Method    string `json:"method,omitempty"`
+	UserAgent string `json:"user_agent,omitempty"`
+	ClientIP  string `json:"client_ip,omitempty"`
+}
+
+// SegmentHTTPResponse holds HTTP response fields from a segment.
+type SegmentHTTPResponse struct {
+	Status        int `json:"status,omitempty"`
+	ContentLength int `json:"content_length,omitempty"`
 }
 
 // Trace represents a collected X-Ray trace with its constituent segments.
@@ -131,6 +201,15 @@ type SamplingStatisticSummary struct {
 	BorrowCount  int32     `json:"borrowCount"`
 }
 
+// TelemetryRecord holds a single telemetry data point.
+type TelemetryRecord struct {
+	Timestamp              time.Time `json:"timestamp"`
+	SegmentsReceivedCount  int32     `json:"segmentsReceivedCount"`
+	SegmentsSentCount      int32     `json:"segmentsSentCount"`
+	SegmentsSpilloverCount int32     `json:"segmentsSpilloverCount"`
+	SegmentsRejectedCount  int32     `json:"segmentsRejectedCount"`
+}
+
 const (
 	// encTypeNone is the X-Ray encryption type for no encryption.
 	encTypeNone = "NONE"
@@ -148,23 +227,57 @@ const (
 	// compaction. Compacting only when the slice has grown to twice the cap
 	// keeps the per-call cost amortized O(1).
 	segmentCompactionHighWater = maxSegmentsPerTrace + maxSegmentsPerTrace
+	// maxResourcePolicies is the maximum number of resource policies per account.
+	maxResourcePolicies = 5
+	// maxBatchGetTraces is the maximum number of trace IDs in a BatchGetTraces call.
+	maxBatchGetTraces = 5
+	// telemetryRingSize is the capacity of the telemetry ring buffer.
+	telemetryRingSize = 100
+	// maxServiceNameLen is the maximum length of a sampling rule ServiceName.
+	maxServiceNameLen = 64
+	// nanosPerSecond is the number of nanoseconds in a second.
+	nanosPerSecond = 1e9
+	// filterParts3 is the expected length of a 3-part filter expression.
+	filterParts3 = 3
+	// filterParts2 is the expected length of a 2-part filter expression.
+	filterParts2 = 2
+	// serviceGraphTotalCount is the key for the TotalCount stat in service graph nodes.
+	serviceGraphTotalCount = "TotalCount"
+)
+
+// validKMSKeyID checks whether a KMS KeyId is in an acceptable format:
+// alias/... | arn:aws:kms:... | UUID (hex with dashes, 36 chars).
+//
+//nolint:lll // regex is intentionally long; splitting would harm readability
+var validKMSKeyID = regexp.MustCompile(
+	`^(alias/[a-zA-Z0-9/_-]+|arn:aws:kms:[a-z0-9-]+:\d+:key/[a-zA-Z0-9/_-]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`,
 )
 
 // InMemoryBackend is the in-memory store for X-Ray resources.
 type InMemoryBackend struct {
-	groups                  map[string]*Group
-	samplingRules           map[string]*SamplingRule
-	traces                  map[string]*Trace
-	insights                map[string]*Insight
-	insightEvents           map[string][]*InsightEvent
-	resourcePolicies        map[string]*ResourcePolicy
-	traceRetrievals         map[string]*TraceRetrieval
-	retrievedTraces         map[string][]*Trace
-	resourceTags            map[string]map[string]string
-	encryptionConfig        *EncryptionConfig
-	mu                      *lockmetrics.RWMutex
-	traceSegmentDestination string
-	indexingRules           []*IndexingRule
+	groups        map[string]*Group
+	samplingRules map[string]*SamplingRule
+	traces        map[string]*Trace
+	// parsedSegments indexes segments by traceID+":"+segID
+	parsedSegments map[string]*Segment
+	// traceSegments maps traceID → list of segments (pointers into parsedSegments)
+	traceSegments        map[string][]*Segment
+	insights             map[string]*Insight
+	insightEvents        map[string][]*InsightEvent
+	resourcePolicies     map[string]*ResourcePolicy
+	traceRetrievals      map[string]*TraceRetrieval
+	retrievedTraces      map[string][]*Trace
+	resourceTags         map[string]map[string]string
+	encryptionConfig     *EncryptionConfig
+	mu                   *lockmetrics.RWMutex
+	traceSegmentDest     string
+	indexingRules        []*IndexingRule
+	lastRuleModification time.Time
+	// samplingStats accumulates per-rule statistics from PutSamplingTargets docs.
+	samplingStats map[string]*SamplingStatisticSummary
+	// telemetry is a ring buffer of the last telemetryRingSize records.
+	telemetry    []*TelemetryRecord
+	telemetryIdx int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -173,6 +286,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		groups:           make(map[string]*Group),
 		samplingRules:    make(map[string]*SamplingRule),
 		traces:           make(map[string]*Trace),
+		parsedSegments:   make(map[string]*Segment),
+		traceSegments:    make(map[string][]*Segment),
 		insights:         make(map[string]*Insight),
 		insightEvents:    make(map[string][]*InsightEvent),
 		resourcePolicies: make(map[string]*ResourcePolicy),
@@ -180,6 +295,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		retrievedTraces:  make(map[string][]*Trace),
 		resourceTags:     make(map[string]map[string]string),
 		indexingRules:    defaultIndexingRules(),
+		samplingStats:    make(map[string]*SamplingStatisticSummary),
+		telemetry:        make([]*TelemetryRecord, telemetryRingSize),
 		mu:               lockmetrics.New("xray"),
 		encryptionConfig: &EncryptionConfig{
 			Type:   "NONE",
@@ -242,7 +359,28 @@ func (b *InMemoryBackend) CreateGroup(name, filterExpr string) (*Group, error) {
 	return cloneGroup(g), nil
 }
 
-// GetGroup returns the group with the given name.
+// CreateGroupWithInsights creates a new group with full InsightsConfiguration.
+func (b *InMemoryBackend) CreateGroupWithInsights(name, filterExpr string, ic InsightsConfiguration) (*Group, error) {
+	b.mu.Lock("CreateGroupWithInsights")
+	defer b.mu.Unlock()
+
+	if _, ok := b.groups[name]; ok {
+		return nil, fmt.Errorf("%w: group %s already exists", ErrGroupAlreadyExists, name)
+	}
+
+	g := &Group{
+		GroupARN:              groupARN(name),
+		GroupName:             name,
+		FilterExpression:      filterExpr,
+		InsightsConfiguration: ic,
+		CreatedAt:             time.Now(),
+	}
+	b.groups[name] = g
+
+	return cloneGroup(g), nil
+}
+
+// GetGroup returns the group with the given name, or by ARN if name is empty.
 func (b *InMemoryBackend) GetGroup(name string) (*Group, error) {
 	b.mu.RLock("GetGroup")
 	defer b.mu.RUnlock()
@@ -253,6 +391,20 @@ func (b *InMemoryBackend) GetGroup(name string) (*Group, error) {
 	}
 
 	return cloneGroup(g), nil
+}
+
+// GetGroupByARN returns the group with the given ARN.
+func (b *InMemoryBackend) GetGroupByARN(arn string) (*Group, error) {
+	b.mu.RLock("GetGroupByARN")
+	defer b.mu.RUnlock()
+
+	for _, g := range b.groups {
+		if g.GroupARN == arn {
+			return cloneGroup(g), nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: group with ARN %s not found", ErrGroupNotFound, arn)
 }
 
 // GetGroups returns all groups sorted by name.
@@ -287,6 +439,39 @@ func (b *InMemoryBackend) UpdateGroup(name, filterExpr string) (*Group, error) {
 	return cloneGroup(g), nil
 }
 
+// UpdateGroupByARN updates a group by ARN or name.
+func (b *InMemoryBackend) UpdateGroupByARN(name, arn, filterExpr string) (*Group, error) {
+	b.mu.Lock("UpdateGroupByARN")
+	defer b.mu.Unlock()
+
+	var g *Group
+
+	if arn != "" {
+		for _, grp := range b.groups {
+			if grp.GroupARN == arn {
+				g = grp
+
+				break
+			}
+		}
+	} else {
+		g = b.groups[name]
+	}
+
+	if g == nil {
+		key := name
+		if arn != "" {
+			key = arn
+		}
+
+		return nil, fmt.Errorf("%w: group %s not found", ErrGroupNotFound, key)
+	}
+
+	g.FilterExpression = filterExpr
+
+	return cloneGroup(g), nil
+}
+
 // DeleteGroup removes the group with the given name.
 func (b *InMemoryBackend) DeleteGroup(name string) error {
 	b.mu.Lock("DeleteGroup")
@@ -297,6 +482,57 @@ func (b *InMemoryBackend) DeleteGroup(name string) error {
 	}
 
 	delete(b.groups, name)
+
+	return nil
+}
+
+// DeleteGroupByARN removes the group with the given ARN or name.
+func (b *InMemoryBackend) DeleteGroupByARN(name, arn string) error {
+	b.mu.Lock("DeleteGroupByARN")
+	defer b.mu.Unlock()
+
+	if arn != "" {
+		for n, g := range b.groups {
+			if g.GroupARN == arn {
+				delete(b.groups, n)
+
+				return nil
+			}
+		}
+
+		return fmt.Errorf("%w: group with ARN %s not found", ErrGroupNotFound, arn)
+	}
+
+	if _, ok := b.groups[name]; !ok {
+		return fmt.Errorf("%w: group %s not found", ErrGroupNotFound, name)
+	}
+
+	delete(b.groups, name)
+
+	return nil
+}
+
+// ValidateSamplingRule validates sampling rule fields per AWS constraints.
+func ValidateSamplingRule(rule SamplingRule) error {
+	if rule.RuleName == "" || len(rule.RuleName) > 32 {
+		return fmt.Errorf("%w: RuleName must be 1-32 characters", ErrInvalidSamplingRule)
+	}
+
+	if len(rule.ServiceName) > maxServiceNameLen {
+		return fmt.Errorf("%w: ServiceName must be at most %d characters", ErrInvalidSamplingRule, maxServiceNameLen)
+	}
+
+	if rule.Priority < 1 || rule.Priority > 9999 {
+		return fmt.Errorf("%w: Priority must be between 1 and 9999", ErrInvalidSamplingRule)
+	}
+
+	if rule.FixedRate < 0 || rule.FixedRate > 1.0 {
+		return fmt.Errorf("%w: FixedRate must be between 0.0 and 1.0", ErrInvalidSamplingRule)
+	}
+
+	if rule.ReservoirSize < 0 {
+		return fmt.Errorf("%w: ReservoirSize must be >= 0", ErrInvalidSamplingRule)
+	}
 
 	return nil
 }
@@ -315,6 +551,7 @@ func (b *InMemoryBackend) CreateSamplingRule(rule SamplingRule) (*SamplingRule, 
 	rule.CreatedAt = now
 	rule.ModifiedAt = now
 	b.samplingRules[rule.RuleName] = &rule
+	b.lastRuleModification = now
 
 	return cloneRule(&rule), nil
 }
@@ -337,6 +574,7 @@ func (b *InMemoryBackend) GetSamplingRules() []SamplingRule {
 }
 
 // UpdateSamplingRule updates the mutable fields of an existing sampling rule.
+// It accepts a SamplingRule struct where non-zero values are applied (legacy API).
 func (b *InMemoryBackend) UpdateSamplingRule(ruleName string, updates SamplingRule) (*SamplingRule, error) {
 	b.mu.Lock("UpdateSamplingRule")
 	defer b.mu.Unlock()
@@ -344,14 +582,6 @@ func (b *InMemoryBackend) UpdateSamplingRule(ruleName string, updates SamplingRu
 	r, ok := b.samplingRules[ruleName]
 	if !ok {
 		return nil, fmt.Errorf("%w: sampling rule %s not found", ErrSamplingRuleNotFound, ruleName)
-	}
-
-	if updates.FixedRate >= 0 {
-		r.FixedRate = updates.FixedRate
-	}
-
-	if updates.ReservoirSize >= 0 {
-		r.ReservoirSize = updates.ReservoirSize
 	}
 
 	if updates.ResourceARN != "" {
@@ -383,6 +613,62 @@ func (b *InMemoryBackend) UpdateSamplingRule(ruleName string, updates SamplingRu
 	}
 
 	r.ModifiedAt = time.Now()
+	b.lastRuleModification = r.ModifiedAt
+
+	return cloneRule(r), nil
+}
+
+// UpdateSamplingRuleWithPointers applies pointer-semantic updates so zero values apply.
+func (b *InMemoryBackend) UpdateSamplingRuleWithPointers(
+	ruleName string,
+	updates SamplingRuleUpdate,
+) (*SamplingRule, error) {
+	b.mu.Lock("UpdateSamplingRuleWithPointers")
+	defer b.mu.Unlock()
+
+	r, ok := b.samplingRules[ruleName]
+	if !ok {
+		return nil, fmt.Errorf("%w: sampling rule %s not found", ErrSamplingRuleNotFound, ruleName)
+	}
+
+	if updates.FixedRate != nil {
+		r.FixedRate = *updates.FixedRate
+	}
+
+	if updates.ReservoirSize != nil {
+		r.ReservoirSize = *updates.ReservoirSize
+	}
+
+	if updates.ResourceARN != nil {
+		r.ResourceARN = *updates.ResourceARN
+	}
+
+	if updates.ServiceName != nil {
+		r.ServiceName = *updates.ServiceName
+	}
+
+	if updates.ServiceType != nil {
+		r.ServiceType = *updates.ServiceType
+	}
+
+	if updates.Host != nil {
+		r.Host = *updates.Host
+	}
+
+	if updates.HTTPMethod != nil {
+		r.HTTPMethod = *updates.HTTPMethod
+	}
+
+	if updates.URLPath != nil {
+		r.URLPath = *updates.URLPath
+	}
+
+	if updates.Priority != nil {
+		r.Priority = *updates.Priority
+	}
+
+	r.ModifiedAt = time.Now()
+	b.lastRuleModification = r.ModifiedAt
 
 	return cloneRule(r), nil
 }
@@ -399,6 +685,7 @@ func (b *InMemoryBackend) DeleteSamplingRule(ruleName string) (*SamplingRule, er
 
 	deleted := cloneRule(r)
 	delete(b.samplingRules, ruleName)
+	b.lastRuleModification = time.Now()
 
 	return deleted, nil
 }
@@ -406,10 +693,11 @@ func (b *InMemoryBackend) DeleteSamplingRule(ruleName string) (*SamplingRule, er
 // segmentHeader is used to extract the trace_id from a raw segment JSON.
 type segmentHeader struct {
 	TraceID string `json:"trace_id"`
+	ID      string `json:"id"`
 }
 
-// PutTraceSegments stores raw segment JSON strings and returns the list of
-// unprocessed segment IDs (empty slice means all segments were accepted).
+// PutTraceSegments stores raw segment JSON strings, parses them into typed Segment structs,
+// and returns the list of unprocessed segment IDs (empty slice means all segments were accepted).
 func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 	b.mu.Lock("PutTraceSegments")
 	defer b.mu.Unlock()
@@ -434,13 +722,7 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 			b.traces[hdr.TraceID] = t
 		}
 
-		// Cap per-trace segment count so a single misbehaving trace cannot
-		// consume unbounded memory before the janitor's TTL sweep evicts it.
-		// Compact only when the slice has grown to twice the cap so the per-call
-		// cost is amortized O(1) rather than O(cap) on every insert past the cap.
-		// Reslice into a fresh backing array so the dropped prefix and any
-		// over-allocated tail are released for GC immediately rather than
-		// pinned for the lifetime of the trace.
+		// Cap per-trace segment count.
 		if len(t.Segments) >= segmentCompactionHighWater {
 			trimmed := make([]string, maxSegmentsPerTrace, segmentCompactionHighWater)
 			copy(trimmed, t.Segments[len(t.Segments)-maxSegmentsPerTrace:])
@@ -448,6 +730,27 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 		}
 
 		t.Segments = append(t.Segments, seg)
+
+		// Parse into typed Segment struct and index it.
+		var parsed Segment
+		if err := json.Unmarshal([]byte(seg), &parsed); err == nil {
+			parsed.Document = seg
+
+			segKey := hdr.TraceID + ":" + parsed.ID
+			b.parsedSegments[segKey] = &parsed
+			b.traceSegments[hdr.TraceID] = append(b.traceSegments[hdr.TraceID], &parsed)
+
+			// Update trace StartTime from the earliest segment start_time.
+			if parsed.StartTime > 0 {
+				segStart := time.Unix(
+					int64(parsed.StartTime),
+					int64((parsed.StartTime-math.Floor(parsed.StartTime))*nanosPerSecond),
+				)
+				if segStart.Before(t.StartTime) {
+					t.StartTime = segStart
+				}
+			}
+		}
 	}
 
 	return unprocessed
@@ -490,6 +793,33 @@ func (b *InMemoryBackend) GetTrace(traceID string) *Trace {
 	return &cp
 }
 
+// GetParsedSegments returns a copy of the parsed segments for a given trace ID.
+func (b *InMemoryBackend) GetParsedSegments(traceID string) []*Segment {
+	b.mu.RLock("GetParsedSegments")
+	defer b.mu.RUnlock()
+
+	segs := b.traceSegments[traceID]
+	out := make([]*Segment, len(segs))
+	copy(out, segs)
+
+	return out
+}
+
+// GetAllParsedSegments returns all parsed segments.
+func (b *InMemoryBackend) GetAllParsedSegments() map[string][]*Segment {
+	b.mu.RLock("GetAllParsedSegments")
+	defer b.mu.RUnlock()
+
+	out := make(map[string][]*Segment, len(b.traceSegments))
+	for k, v := range b.traceSegments {
+		cp := make([]*Segment, len(v))
+		copy(cp, v)
+		out[k] = cp
+	}
+
+	return out
+}
+
 // Reset clears all backend state, resetting to an empty store.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
@@ -498,18 +828,29 @@ func (b *InMemoryBackend) Reset() {
 	b.groups = make(map[string]*Group)
 	b.samplingRules = make(map[string]*SamplingRule)
 	b.traces = make(map[string]*Trace)
+	b.parsedSegments = make(map[string]*Segment)
+	b.traceSegments = make(map[string][]*Segment)
 	b.insights = make(map[string]*Insight)
 	b.insightEvents = make(map[string][]*InsightEvent)
 	b.resourcePolicies = make(map[string]*ResourcePolicy)
 	b.traceRetrievals = make(map[string]*TraceRetrieval)
+	b.samplingStats = make(map[string]*SamplingStatisticSummary)
+	b.telemetry = make([]*TelemetryRecord, telemetryRingSize)
+	b.telemetryIdx = 0
 	b.indexingRules = defaultIndexingRules()
 	b.encryptionConfig = &EncryptionConfig{Type: "NONE", Status: statusActive}
+	b.lastRuleModification = time.Time{}
 }
 
 // GetEncryptionConfig returns the current X-Ray encryption configuration.
+// If the current status is UPDATING, this call advances it to ACTIVE.
 func (b *InMemoryBackend) GetEncryptionConfig() *EncryptionConfig {
-	b.mu.RLock("GetEncryptionConfig")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetEncryptionConfig")
+	defer b.mu.Unlock()
+
+	if b.encryptionConfig.Status == statusUpdating {
+		b.encryptionConfig.Status = statusActive
+	}
 
 	cp := *b.encryptionConfig
 
@@ -518,22 +859,36 @@ func (b *InMemoryBackend) GetEncryptionConfig() *EncryptionConfig {
 
 // PutEncryptionConfig updates the X-Ray encryption configuration.
 // encType must be one of "NONE" or "KMS". keyID is only used when encType is "KMS".
+// When encType is KMS the keyID must match alias/..., ARN, or UUID format.
+// The status is initially set to UPDATING; the next GET will advance it to ACTIVE.
 func (b *InMemoryBackend) PutEncryptionConfig(encType, keyID string) (*EncryptionConfig, error) {
 	if encType != encTypeNone && encType != encTypeKMS {
 		return nil, fmt.Errorf("%w: Type must be NONE or KMS", ErrValidation)
 	}
 
-	if encType == encTypeKMS && keyID == "" {
-		return nil, fmt.Errorf("%w: KeyId is required when Type is KMS", ErrValidation)
+	if encType == encTypeKMS {
+		if keyID == "" {
+			return nil, fmt.Errorf("%w: KeyId is required when Type is KMS", ErrValidation)
+		}
+
+		if !validKMSKeyID.MatchString(keyID) {
+			return nil, fmt.Errorf("%w: KeyId must be alias/..., key ARN, or UUID", ErrValidation)
+		}
 	}
 
 	b.mu.Lock("PutEncryptionConfig")
 	defer b.mu.Unlock()
 
+	status := statusActive
+
+	if encType == encTypeKMS {
+		status = statusUpdating
+	}
+
 	b.encryptionConfig = &EncryptionConfig{
 		Type:   encType,
 		KeyID:  keyID,
-		Status: statusActive,
+		Status: status,
 	}
 
 	cp := *b.encryptionConfig
@@ -598,20 +953,40 @@ func (b *InMemoryBackend) GetInsightEvents(insightID string) ([]*InsightEvent, e
 	return out, nil
 }
 
+// isValidInsightState returns true if s is a recognised insight state name.
+func isValidInsightState(s string) bool {
+	return s == statusActive || s == "CLOSED"
+}
+
 // GetInsightSummaries returns all insights as summaries, optionally filtered by state.
-// If states is empty, all insights are returned.
-func (b *InMemoryBackend) GetInsightSummaries(states []string) []Insight {
+// If states is empty, all insights are returned. "ALL" matches both ACTIVE and CLOSED.
+// Unknown states return ErrValidation.
+func (b *InMemoryBackend) GetInsightSummaries(states []string) ([]Insight, error) {
 	b.mu.RLock("GetInsightSummaries")
 	defer b.mu.RUnlock()
 
+	// Validate states and resolve ALL.
+	wantAll := len(states) == 0
 	stateSet := make(map[string]bool, len(states))
+
 	for _, s := range states {
+		if s == "ALL" {
+			wantAll = true
+
+			continue
+		}
+
+		if !isValidInsightState(s) {
+			return nil, fmt.Errorf("%w: unknown insight state %q", ErrValidation, s)
+		}
+
 		stateSet[s] = true
 	}
 
 	out := make([]Insight, 0, len(b.insights))
+
 	for _, i := range b.insights {
-		if len(stateSet) > 0 && !stateSet[i.State] {
+		if !wantAll && !stateSet[i.State] {
 			continue
 		}
 
@@ -622,7 +997,7 @@ func (b *InMemoryBackend) GetInsightSummaries(states []string) []Insight {
 		return out[i].InsightID < out[j].InsightID
 	})
 
-	return out
+	return out, nil
 }
 
 // --- Resource policy operations ---
@@ -634,9 +1009,33 @@ func cloneResourcePolicy(p *ResourcePolicy) *ResourcePolicy {
 }
 
 // PutResourcePolicy creates or updates a resource policy with the given name and document.
-func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument string) *ResourcePolicy {
+// Returns ErrTooManyPolicies if the account already has maxResourcePolicies.
+// Returns ErrInvalidPolicyRevisionID if revisionID doesn't match the stored one.
+// Returns ErrMalformedPolicyDocument if policyDocument is not valid JSON.
+func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument, revisionID string) (*ResourcePolicy, error) {
+	// Validate JSON.
+	var js json.RawMessage
+	if err := json.Unmarshal([]byte(policyDocument), &js); err != nil {
+		return nil, fmt.Errorf("%w: policy document is not valid JSON: %w", ErrMalformedPolicyDocument, err)
+	}
+
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
+
+	existing, exists := b.resourcePolicies[policyName]
+
+	if !exists && len(b.resourcePolicies) >= maxResourcePolicies {
+		return nil, fmt.Errorf(
+			"%w: maximum of %d resource policies per account",
+			ErrTooManyPolicies,
+			maxResourcePolicies,
+		)
+	}
+
+	// Revision ID check: if a revision is provided it must match the stored one.
+	if revisionID != "" && exists && existing.PolicyRevisionID != revisionID {
+		return nil, fmt.Errorf("%w: policy revision ID does not match", ErrInvalidPolicyRevisionID)
+	}
 
 	p := &ResourcePolicy{
 		PolicyName:       policyName,
@@ -645,7 +1044,7 @@ func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument string) *
 	}
 	b.resourcePolicies[policyName] = p
 
-	return cloneResourcePolicy(p)
+	return cloneResourcePolicy(p), nil
 }
 
 // ListResourcePolicies returns all resource policies sorted by name.
@@ -737,20 +1136,105 @@ func (b *InMemoryBackend) GetRetrievedTracesGraph(retrievalToken string) (string
 
 // --- Sampling statistic operations ---
 
-// GetSamplingStatisticSummaries returns an empty list of sampling statistic summaries.
-// In a production implementation statistics would be accumulated per sampling rule.
+// GetSamplingStatisticSummaries returns accumulated sampling statistic summaries.
 func (b *InMemoryBackend) GetSamplingStatisticSummaries() []SamplingStatisticSummary {
 	b.mu.RLock("GetSamplingStatisticSummaries")
 	defer b.mu.RUnlock()
 
-	return []SamplingStatisticSummary{}
+	out := make([]SamplingStatisticSummary, 0, len(b.samplingStats))
+	for _, s := range b.samplingStats {
+		cp := *s
+		out = append(out, cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].RuleName < out[j].RuleName
+	})
+
+	return out
+}
+
+// SamplingStatisticsDocument is a single document submitted in GetSamplingTargets.
+type SamplingStatisticsDocument struct {
+	RuleName     string
+	ClientID     string
+	RequestCount int32
+	SampledCount int32
+	BorrowCount  int32
 }
 
 // SamplingTargetResult holds the per-document results of GetSamplingTargets.
 type SamplingTargetResult struct {
-	RuleName      string
-	FixedRate     float64
-	ReservoirSize int32
+	ReservoirQuotaTTL time.Time
+	RuleName          string
+	FixedRate         float64
+	ReservoirSize     int32
+}
+
+// UnprocessedStatisticsResult holds results for unknown rule names.
+type UnprocessedStatisticsResult struct {
+	RuleName  string
+	ErrorCode string
+	Message   string
+}
+
+// GetSamplingTargets returns target documents for the provided stat documents.
+// Rules that do not exist are returned in the unprocessed list.
+// Statistics from known rules are accumulated for GetSamplingStatisticSummaries.
+func (b *InMemoryBackend) GetSamplingTargets(
+	docs []SamplingStatisticsDocument,
+) ([]SamplingTargetResult, []UnprocessedStatisticsResult) {
+	b.mu.Lock("GetSamplingTargets")
+	defer b.mu.Unlock()
+
+	targets := make([]SamplingTargetResult, 0, len(docs))
+	unprocessed := make([]UnprocessedStatisticsResult, 0)
+
+	for _, d := range docs {
+		r, ok := b.samplingRules[d.RuleName]
+		if !ok {
+			unprocessed = append(unprocessed, UnprocessedStatisticsResult{
+				RuleName:  d.RuleName,
+				ErrorCode: "404",
+				Message:   "Rule not found",
+			})
+
+			continue
+		}
+
+		// Accumulate statistics.
+		if existing := b.samplingStats[d.RuleName]; existing != nil {
+			existing.RequestCount += d.RequestCount
+			existing.SampledCount += d.SampledCount
+			existing.BorrowCount += d.BorrowCount
+			existing.Timestamp = time.Now()
+		} else {
+			b.samplingStats[d.RuleName] = &SamplingStatisticSummary{
+				RuleName:     d.RuleName,
+				RequestCount: d.RequestCount,
+				SampledCount: d.SampledCount,
+				BorrowCount:  d.BorrowCount,
+				Timestamp:    time.Now(),
+			}
+		}
+
+		targets = append(targets, SamplingTargetResult{
+			RuleName:          r.RuleName,
+			FixedRate:         r.FixedRate,
+			ReservoirSize:     r.ReservoirSize,
+			ReservoirQuotaTTL: time.Now().Add(samplingTargetInterval * time.Second),
+		})
+	}
+
+	return targets, unprocessed
+}
+
+// LastRuleModification returns the timestamp of the last sampling rule modification.
+func (b *InMemoryBackend) LastRuleModification() time.Time {
+	b.mu.RLock("LastRuleModification")
+	defer b.mu.RUnlock()
+
+	return b.lastRuleModification
 }
 
 // --- Tag operations ---
@@ -808,23 +1292,340 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) []map[string]s
 	return out
 }
 
-// --- Service graph operations ---
+// --- serviceNode is used to build the service graph ---
 
-// GetServiceGraph returns a simplified service graph derived from stored traces.
-// Each unique service name found in segments is returned as a node.
-func (b *InMemoryBackend) GetServiceGraph(_, _ time.Time) []map[string]any {
+type serviceNode struct {
+	Name          string
+	Type          string
+	ReferenceID   int
+	OkCount       int64
+	ErrorCount    int64
+	ThrottleCount int64
+	FaultCount    int64
+	TotalCount    int64
+	TotalRespTime float64
+	StartTime     float64
+	EndTime       float64
+	IsRoot        bool
+}
+
+// serviceKey identifies a unique service node in the service graph.
+type serviceKey struct{ Name, Type string }
+
+// edgeKey identifies a directed edge between two service nodes.
+type edgeKey struct{ From, To serviceKey }
+
+// accumulateServiceNodes builds nodeMap and segToService from the trace segments.
+func accumulateServiceNodes(
+	traceSegs map[string][]*Segment,
+) (map[serviceKey]*serviceNode, map[string]serviceKey) {
+	nodeMap := map[serviceKey]*serviceNode{}
+	segToService := map[string]serviceKey{}
+	refID := 0
+
+	for _, segs := range traceSegs {
+		for _, seg := range segs {
+			svcType := seg.Origin
+			if svcType == "" {
+				svcType = seg.Namespace
+			}
+
+			key := serviceKey{Name: seg.Name, Type: svcType}
+
+			node, ok := nodeMap[key]
+			if !ok {
+				node = &serviceNode{Name: seg.Name, Type: svcType, ReferenceID: refID}
+				refID++
+				nodeMap[key] = node
+			}
+
+			accumulateNodeStats(node, seg)
+			segToService[seg.ID] = key
+		}
+	}
+
+	return nodeMap, segToService
+}
+
+// accumulateNodeStats updates a service node with stats from a single segment.
+func accumulateNodeStats(node *serviceNode, seg *Segment) {
+	if seg.StartTime > 0 && (node.StartTime == 0 || seg.StartTime < node.StartTime) {
+		node.StartTime = seg.StartTime
+	}
+
+	if seg.EndTime > node.EndTime {
+		node.EndTime = seg.EndTime
+	}
+
+	node.TotalCount++
+
+	switch {
+	case seg.Fault:
+		node.FaultCount++
+	case seg.Error && seg.Throttle:
+		node.ThrottleCount++
+	case seg.Error:
+		node.ErrorCount++
+	default:
+		node.OkCount++
+	}
+
+	if seg.EndTime > 0 && seg.StartTime > 0 {
+		node.TotalRespTime += seg.EndTime - seg.StartTime
+	}
+
+	if seg.ParentID == "" {
+		node.IsRoot = true
+	}
+}
+
+// buildEdgeSet returns the set of directed edges between service nodes.
+func buildEdgeSet(
+	traceSegs map[string][]*Segment,
+	segToService map[string]serviceKey,
+) map[edgeKey]bool {
+	edgeSet := map[edgeKey]bool{}
+
+	for _, segs := range traceSegs {
+		for _, seg := range segs {
+			if seg.ParentID == "" {
+				continue
+			}
+
+			parentKey, ok := segToService[seg.ParentID]
+			if !ok {
+				continue
+			}
+
+			childKey := segToService[seg.ID]
+			if childKey != parentKey {
+				edgeSet[edgeKey{From: childKey, To: parentKey}] = true
+			}
+		}
+	}
+
+	return edgeSet
+}
+
+// nodeToView converts a service node to its JSON output representation.
+func nodeToView(
+	key serviceKey,
+	node *serviceNode,
+	edgeSet map[edgeKey]bool,
+	nodeMap map[serviceKey]*serviceNode,
+) map[string]any {
+	nodeEdges := make([]map[string]any, 0)
+
+	for e := range edgeSet {
+		if e.From == key {
+			to := nodeMap[e.To]
+			nodeEdges = append(nodeEdges, map[string]any{
+				"ReferenceId": to.ReferenceID,
+			})
+		}
+	}
+
+	return map[string]any{
+		"ReferenceId": node.ReferenceID,
+		"Name":        node.Name,
+		"Type":        node.Type,
+		"State":       "active",
+		"Root":        node.IsRoot,
+		"StartTime":   node.StartTime,
+		"EndTime":     node.EndTime,
+		"Edges":       nodeEdges,
+		"SummaryStatistics": map[string]any{
+			"OkCount": node.OkCount,
+			"ErrorStatistics": map[string]any{
+				"ThrottleCount":        node.ThrottleCount,
+				"OtherCount":           node.ErrorCount,
+				serviceGraphTotalCount: node.ThrottleCount + node.ErrorCount,
+			},
+			"FaultStatistics": map[string]any{
+				serviceGraphTotalCount: node.FaultCount,
+			},
+			serviceGraphTotalCount: node.TotalCount,
+			"TotalResponseTime":    node.TotalRespTime,
+			"DurationHistogram":    []any{},
+		},
+	}
+}
+
+// buildServiceGraph builds service nodes from a map of traceID → segments.
+func buildServiceGraph(traceSegs map[string][]*Segment) []map[string]any {
+	nodeMap, segToService := accumulateServiceNodes(traceSegs)
+	edgeSet := buildEdgeSet(traceSegs, segToService)
+
+	nodes := make([]map[string]any, 0, len(nodeMap))
+
+	for key, node := range nodeMap {
+		nodes = append(nodes, nodeToView(key, node, edgeSet, nodeMap))
+	}
+
+	sort.Slice(nodes, func(i, j int) bool {
+		ri, _ := nodes[i]["ReferenceId"].(int)
+		rj, _ := nodes[j]["ReferenceId"].(int)
+
+		return ri < rj
+	})
+
+	return nodes
+}
+
+// GetServiceGraph returns a service graph derived from stored traces in the time window.
+func (b *InMemoryBackend) GetServiceGraph(startTime, endTime time.Time) []map[string]any {
 	b.mu.RLock("GetServiceGraph")
 	defer b.mu.RUnlock()
 
-	return []map[string]any{}
+	// Filter segments to those within the time window.
+	filtered := map[string][]*Segment{}
+
+	for traceID, segs := range b.traceSegments {
+		var inWindow []*Segment
+
+		for _, seg := range segs {
+			if seg.StartTime == 0 {
+				inWindow = append(inWindow, seg)
+
+				continue
+			}
+
+			t := time.Unix(int64(seg.StartTime), 0)
+			if !t.Before(startTime) && !t.After(endTime) {
+				inWindow = append(inWindow, seg)
+			}
+		}
+
+		if len(inWindow) > 0 {
+			filtered[traceID] = inWindow
+		}
+	}
+
+	if len(filtered) == 0 {
+		return []map[string]any{}
+	}
+
+	return buildServiceGraph(filtered)
 }
 
-// GetTraceGraph returns an empty service graph for the specified trace IDs.
-func (b *InMemoryBackend) GetTraceGraph(_ []string) []map[string]any {
+// GetTraceGraph returns a service graph scoped to the given trace IDs.
+func (b *InMemoryBackend) GetTraceGraph(traceIDs []string) []map[string]any {
 	b.mu.RLock("GetTraceGraph")
 	defer b.mu.RUnlock()
 
-	return []map[string]any{}
+	filtered := map[string][]*Segment{}
+
+	for _, id := range traceIDs {
+		if segs, ok := b.traceSegments[id]; ok {
+			filtered[id] = segs
+		}
+	}
+
+	if len(filtered) == 0 {
+		return []map[string]any{}
+	}
+
+	return buildServiceGraph(filtered)
+}
+
+// GetTimeSeriesServiceStatistics returns per-period bucketed statistics.
+// tsBucket accumulates time-series statistics for one time period.
+type tsBucket struct {
+	OkCount       int64
+	ErrorCount    int64
+	ThrottleCount int64
+	FaultCount    int64
+	TotalCount    int64
+	TotalRespTime float64
+}
+
+// accumulateToBucket adds one segment's stats into the appropriate time bucket.
+func accumulateToBucket(buckets map[int64]*tsBucket, seg *Segment, period int) {
+	bk := (int64(seg.StartTime) / int64(period)) * int64(period)
+
+	bkt := buckets[bk]
+	if bkt == nil {
+		bkt = &tsBucket{}
+		buckets[bk] = bkt
+	}
+
+	bkt.TotalCount++
+
+	switch {
+	case seg.Fault:
+		bkt.FaultCount++
+	case seg.Error && seg.Throttle:
+		bkt.ThrottleCount++
+	case seg.Error:
+		bkt.ErrorCount++
+	default:
+		bkt.OkCount++
+	}
+
+	if seg.EndTime > seg.StartTime {
+		bkt.TotalRespTime += seg.EndTime - seg.StartTime
+	}
+}
+
+// tsBucketToView converts a tsBucket to its JSON output map.
+func tsBucketToView(k int64, bkt *tsBucket) map[string]any {
+	return map[string]any{
+		"Timestamp": float64(k),
+		"ServiceSummaryStatistics": map[string]any{
+			"OkCount": bkt.OkCount,
+			"ErrorStatistics": map[string]any{
+				"ThrottleCount":        bkt.ThrottleCount,
+				"OtherCount":           bkt.ErrorCount,
+				serviceGraphTotalCount: bkt.ThrottleCount + bkt.ErrorCount,
+			},
+			"FaultStatistics": map[string]any{
+				serviceGraphTotalCount: bkt.FaultCount,
+			},
+			serviceGraphTotalCount: bkt.TotalCount,
+			"TotalResponseTime":    bkt.TotalRespTime,
+		},
+	}
+}
+
+// GetTimeSeriesServiceStatistics returns per-period bucketed statistics for segments in the time window.
+func (b *InMemoryBackend) GetTimeSeriesServiceStatistics(startTime, endTime time.Time, period int) []map[string]any {
+	b.mu.RLock("GetTimeSeriesServiceStatistics")
+	defer b.mu.RUnlock()
+
+	if period <= 0 {
+		period = 60
+	}
+
+	buckets := map[int64]*tsBucket{}
+
+	for _, segs := range b.traceSegments {
+		for _, seg := range segs {
+			if seg.StartTime == 0 {
+				continue
+			}
+
+			t := time.Unix(int64(seg.StartTime), 0)
+			if t.Before(startTime) || t.After(endTime) {
+				continue
+			}
+
+			accumulateToBucket(buckets, seg, period)
+		}
+	}
+
+	keys := make([]int64, 0, len(buckets))
+	for k := range buckets {
+		keys = append(keys, k)
+	}
+
+	slices.Sort(keys)
+
+	out := make([]map[string]any, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, tsBucketToView(k, buckets[k]))
+	}
+
+	return out
 }
 
 // --- Trace segment destination operations ---
@@ -834,11 +1635,11 @@ func (b *InMemoryBackend) GetTraceSegmentDestination() string {
 	b.mu.RLock("GetTraceSegmentDestination")
 	defer b.mu.RUnlock()
 
-	if b.traceSegmentDestination == "" {
+	if b.traceSegmentDest == "" {
 		return "XRay"
 	}
 
-	return b.traceSegmentDestination
+	return b.traceSegmentDest
 }
 
 // UpdateTraceSegmentDestination sets the trace segment destination and returns it.
@@ -846,7 +1647,7 @@ func (b *InMemoryBackend) UpdateTraceSegmentDestination(destination string) stri
 	b.mu.Lock("UpdateTraceSegmentDestination")
 	defer b.mu.Unlock()
 
-	b.traceSegmentDestination = destination
+	b.traceSegmentDest = destination
 
 	return destination
 }
@@ -932,29 +1733,264 @@ func (b *InMemoryBackend) UpdateIndexingRule(name string) (*IndexingRule, error)
 	return nil, fmt.Errorf("%w: indexing rule %s not found", ErrIndexingRuleNotFound, name)
 }
 
-// GetSamplingTargets returns target documents for the provided rule names.
-// Rules that do not exist are returned in the unprocessed list.
-func (b *InMemoryBackend) GetSamplingTargets(ruleNames []string) ([]SamplingTargetResult, []string) {
-	b.mu.RLock("GetSamplingTargets")
-	defer b.mu.RUnlock()
+// PutTelemetryRecords stores telemetry records in a ring buffer.
+func (b *InMemoryBackend) PutTelemetryRecords(records []TelemetryRecord) {
+	b.mu.Lock("PutTelemetryRecords")
+	defer b.mu.Unlock()
 
-	targets := make([]SamplingTargetResult, 0, len(ruleNames))
-	unprocessed := make([]string, 0, len(ruleNames))
+	for i := range records {
+		b.telemetry[b.telemetryIdx%telemetryRingSize] = &records[i]
+		b.telemetryIdx++
+	}
+}
 
-	for _, name := range ruleNames {
-		r, ok := b.samplingRules[name]
-		if !ok {
-			unprocessed = append(unprocessed, name)
+// TraceSummaryData holds derived data for GetTraceSummaries response.
+type TraceSummaryData struct {
+	Annotations  map[string]any
+	HTTP         *TraceSummaryHTTP
+	TraceID      string
+	EntryPoint   string
+	ServiceIDs   []TraceSummaryServiceID
+	Duration     float64
+	ResponseTime float64
+	ApproxTime   float64
+	HasFault     bool
+	HasError     bool
+	HasThrottle  bool
+	IsPartial    bool
+}
 
-			continue
-		}
+// TraceSummaryHTTP holds HTTP fields for a trace summary.
+type TraceSummaryHTTP struct {
+	HTTPURL    string
+	HTTPMethod string
+	ClientIP   string
+	UserAgent  string
+	HTTPStatus int
+}
 
-		targets = append(targets, SamplingTargetResult{
-			RuleName:      r.RuleName,
-			FixedRate:     r.FixedRate,
-			ReservoirSize: r.ReservoirSize,
-		})
+// TraceSummaryServiceID is a service identifier in a trace summary.
+type TraceSummaryServiceID struct {
+	Name string
+	Type string
+}
+
+// extractRootHTTP populates HTTP fields from the root segment's HTTP data.
+// Returns the updated (or newly created) TraceSummaryHTTP pointer.
+func extractRootHTTP(segHTTP *SegmentHTTP, existing *TraceSummaryHTTP) *TraceSummaryHTTP {
+	if segHTTP == nil {
+		return existing
 	}
 
-	return targets, unprocessed
+	if segHTTP.Request != nil {
+		if existing == nil {
+			existing = &TraceSummaryHTTP{}
+		}
+
+		existing.HTTPURL = segHTTP.Request.URL
+		existing.HTTPMethod = segHTTP.Request.Method
+		existing.ClientIP = segHTTP.Request.ClientIP
+		existing.UserAgent = segHTTP.Request.UserAgent
+	}
+
+	if segHTTP.Response != nil {
+		if existing == nil {
+			existing = &TraceSummaryHTTP{}
+		}
+
+		existing.HTTPStatus = segHTTP.Response.Status
+	}
+
+	return existing
+}
+
+// BuildTraceSummary derives TraceSummaryData from parsed segments.
+func BuildTraceSummary(traceID string, segs []*Segment) TraceSummaryData {
+	summary := TraceSummaryData{
+		TraceID:     traceID,
+		ApproxTime:  float64(time.Now().Unix()),
+		Annotations: map[string]any{},
+	}
+
+	if len(segs) == 0 {
+		summary.IsPartial = true
+
+		return summary
+	}
+
+	var minStart, maxEnd float64
+
+	seen := map[serviceKey]bool{}
+	hasRoot := false
+
+	for _, seg := range segs {
+		accumulateTraceSummaryFlags(&summary, seg)
+
+		if seg.StartTime > 0 && (minStart == 0 || seg.StartTime < minStart) {
+			minStart = seg.StartTime
+		}
+
+		if seg.EndTime > maxEnd {
+			maxEnd = seg.EndTime
+		}
+
+		maps.Copy(summary.Annotations, seg.Annotations)
+
+		svcType := seg.Origin
+		if svcType == "" {
+			svcType = seg.Namespace
+		}
+
+		key := serviceKey{Name: seg.Name, Type: svcType}
+		if !seen[key] {
+			seen[key] = true
+			summary.ServiceIDs = append(summary.ServiceIDs, TraceSummaryServiceID{Name: seg.Name, Type: svcType})
+		}
+
+		// Root segment has no parent.
+		if seg.ParentID == "" {
+			hasRoot = true
+			summary.EntryPoint = seg.Name
+			summary.HTTP = extractRootHTTP(seg.HTTP, summary.HTTP)
+		}
+	}
+
+	if !hasRoot {
+		summary.IsPartial = true
+	}
+
+	if maxEnd > 0 && minStart > 0 {
+		summary.Duration = maxEnd - minStart
+	}
+
+	// ResponseTime: root segment duration or overall duration.
+	summary.ResponseTime = summary.Duration
+
+	return summary
+}
+
+// accumulateTraceSummaryFlags copies boolean fault/error/throttle flags from a segment.
+func accumulateTraceSummaryFlags(summary *TraceSummaryData, seg *Segment) {
+	if seg.Fault {
+		summary.HasFault = true
+	}
+
+	if seg.Error {
+		summary.HasError = true
+	}
+
+	if seg.Throttle {
+		summary.HasThrottle = true
+	}
+}
+
+// evaluateHTTPStatusFilter matches `http.status = N` expressions.
+func evaluateHTTPStatusFilter(expr string, http *TraceSummaryHTTP) bool {
+	parts := strings.Fields(expr)
+	if len(parts) != filterParts3 || parts[1] != "=" {
+		return false
+	}
+
+	n, err := strconv.Atoi(parts[2])
+	if err != nil || http == nil {
+		return false
+	}
+
+	return http.HTTPStatus == n
+}
+
+// compareResponseTime applies a comparison operator to response time.
+func compareResponseTime(op string, rt, n float64) bool {
+	switch op {
+	case ">":
+		return rt > n
+	case ">=":
+		return rt >= n
+	case "<":
+		return rt < n
+	case "<=":
+		return rt <= n
+	case "=":
+		return rt == n
+	}
+
+	return false
+}
+
+// evaluateResponseTimeFilter matches `responsetime OP N.N` expressions.
+func evaluateResponseTimeFilter(expr string, rt float64) bool {
+	parts := strings.Fields(expr)
+	if len(parts) != filterParts3 {
+		return false
+	}
+
+	n, err := strconv.ParseFloat(parts[2], 64)
+	if err != nil {
+		return false
+	}
+
+	return compareResponseTime(parts[1], rt, n)
+}
+
+// evaluateAnnotationFilter matches `annotation.KEY = "VALUE"` expressions.
+func evaluateAnnotationFilter(expr string, annotations map[string]any) bool {
+	parts := strings.SplitN(expr, "=", filterParts2)
+	if len(parts) != filterParts2 {
+		return false
+	}
+
+	key := strings.TrimSpace(parts[0])
+	key = key[len("annotation."):]
+	val := strings.TrimSpace(parts[1])
+	val = strings.Trim(val, `"`)
+
+	v, ok := annotations[key]
+
+	return ok && fmt.Sprintf("%v", v) == val
+}
+
+// evaluateFilter checks a trace summary against a simple filter expression.
+// Supported tokens:
+//   - `fault`                      — trace has fault
+//   - `error`                      — trace has error
+//   - `http.status = N`            — HTTP status equals N
+//   - `responsetime > N.N`         — response time comparison (also >=, <, <=, =)
+//   - `annotation.KEY = "VALUE"`   — annotation match
+//
+// Empty expression always returns true.
+func evaluateFilter(expr string, summary TraceSummaryData) bool {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return true
+	}
+
+	lower := strings.ToLower(expr)
+
+	switch lower {
+	case "fault":
+		return summary.HasFault
+	case "error":
+		return summary.HasError
+	case "throttle":
+		return summary.HasThrottle
+	}
+
+	if strings.HasPrefix(lower, "http.status") {
+		return evaluateHTTPStatusFilter(expr, summary.HTTP)
+	}
+
+	if strings.HasPrefix(lower, "responsetime") {
+		return evaluateResponseTimeFilter(expr, summary.ResponseTime)
+	}
+
+	if strings.HasPrefix(lower, "annotation.") {
+		return evaluateAnnotationFilter(expr, summary.Annotations)
+	}
+
+	return false
+}
+
+// EvaluateFilter is exported for tests.
+func EvaluateFilter(expr string, summary TraceSummaryData) bool {
+	return evaluateFilter(expr, summary)
 }
