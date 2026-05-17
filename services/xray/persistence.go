@@ -3,6 +3,7 @@ package xray
 import (
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"time"
 )
 
@@ -16,6 +17,7 @@ type backendSnapshot struct {
 	InsightEvents        map[string][]*InsightEvent           `json:"insightEvents"`
 	ResourcePolicies     map[string]*ResourcePolicy           `json:"resourcePolicies"`
 	TraceRetrievals      map[string]*TraceRetrieval           `json:"traceRetrievals"`
+	RetrievedTraces      map[string][]*Trace                  `json:"retrievedTraces,omitempty"`
 	SamplingStats        map[string]*SamplingStatisticSummary `json:"samplingStats,omitempty"`
 	IndexingRules        []*IndexingRule                      `json:"indexingRules,omitempty"`
 }
@@ -43,6 +45,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		InsightEvents:        b.insightEvents,
 		ResourcePolicies:     b.resourcePolicies,
 		TraceRetrievals:      b.traceRetrievals,
+		RetrievedTraces:      b.retrievedTraces,
 		IndexingRules:        rules,
 		SamplingStats:        b.samplingStats,
 		LastRuleModification: b.lastRuleModification,
@@ -65,7 +68,7 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	}
 
 	if snap.SamplingRules == nil {
-		snap.SamplingRules = make(map[string]*SamplingRule)
+		snap.SamplingRules = defaultSamplingRules()
 	}
 
 	if snap.Traces == nil {
@@ -86,6 +89,10 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 	if snap.TraceRetrievals == nil {
 		snap.TraceRetrievals = make(map[string]*TraceRetrieval)
+	}
+
+	if snap.RetrievedTraces == nil {
+		snap.RetrievedTraces = make(map[string][]*Trace)
 	}
 
 	if snap.SamplingStats == nil {
@@ -113,6 +120,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.insightEvents = snap.InsightEvents
 	b.resourcePolicies = snap.ResourcePolicies
 	b.traceRetrievals = snap.TraceRetrievals
+	b.retrievedTraces = snap.RetrievedTraces
 	b.samplingStats = snap.SamplingStats
 	b.lastRuleModification = snap.LastRuleModification
 
@@ -122,6 +130,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	if len(snap.IndexingRules) > 0 {
 		b.indexingRules = snap.IndexingRules
+	}
+
+	// Ensure the built-in Default sampling rule is always present after restore.
+	if _, ok := b.samplingRules[defaultSamplingRuleName]; !ok {
+		maps.Copy(b.samplingRules, defaultSamplingRules())
 	}
 
 	// Rebuild parsed segment indexes from stored traces.

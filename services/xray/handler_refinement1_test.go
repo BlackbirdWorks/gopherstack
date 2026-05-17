@@ -91,7 +91,8 @@ func TestRefinement1_CountHelpers(t *testing.T) {
 	b := xray.NewInMemoryBackend()
 
 	assert.Equal(t, 0, b.GroupCount())
-	assert.Equal(t, 0, b.SamplingRuleCount())
+	// A fresh backend always has the Default sampling rule pre-seeded.
+	assert.Equal(t, 1, b.SamplingRuleCount())
 	assert.Equal(t, 0, b.TraceCount())
 	assert.Equal(t, 0, b.InsightCount())
 	assert.Equal(t, 0, b.ResourcePolicyCount())
@@ -548,12 +549,15 @@ func TestRefinement1_AddSamplingRuleInternal(t *testing.T) {
 	b := xray.NewInMemoryBackend()
 	b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "seed-rule", FixedRate: 0.5, Priority: 5})
 
-	assert.Equal(t, 1, b.SamplingRuleCount())
+	// Default rule + seed-rule = 2.
+	assert.Equal(t, 2, b.SamplingRuleCount())
 
 	rules := b.GetSamplingRules()
-	require.Len(t, rules, 1)
+	require.Len(t, rules, 2)
+	// Sorted by priority: seed-rule (5) comes before Default (10000).
 	assert.Equal(t, "seed-rule", rules[0].RuleName)
 	assert.NotEmpty(t, rules[0].RuleARN)
+	assert.Equal(t, "Default", rules[1].RuleName)
 }
 
 // TestRefinement1_GetInsightImpactGraphNotFound verifies insight-not-found returns 400.
@@ -595,10 +599,16 @@ func TestRefinement1_SamplingRuleModifiedAtInRecord(t *testing.T) {
 
 	records, ok := resp["SamplingRuleRecords"].([]any)
 	require.True(t, ok)
-	require.Len(t, records, 1)
+	// 2 rules: time-rule + Default.
+	require.Len(t, records, 2)
 
+	// The first record (sorted by priority=1) should be time-rule.
 	record, ok := records[0].(map[string]any)
 	require.True(t, ok)
+
+	samplingRule, ok := record["SamplingRule"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "time-rule", samplingRule["RuleName"])
 
 	createdAt, ok1 := record["CreatedAt"].(float64)
 	modifiedAt, ok2 := record["ModifiedAt"].(float64)

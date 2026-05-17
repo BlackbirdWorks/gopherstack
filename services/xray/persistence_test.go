@@ -39,9 +39,15 @@ func TestXRay_PersistenceSnapshotRestore(t *testing.T) {
 				groups := b.GetGroups()
 				require.Len(t, groups, 1)
 				assert.Equal(t, "my-group", groups[0].GroupName)
+				// GetSamplingRules returns the user-created rule + the built-in Default rule.
 				rules := b.GetSamplingRules()
-				require.Len(t, rules, 1)
-				assert.Equal(t, "my-rule", rules[0].RuleName)
+				require.GreaterOrEqual(t, len(rules), 2, "expected at least 2 rules (my-rule + Default)")
+				ruleNames := make(map[string]bool, len(rules))
+				for _, r := range rules {
+					ruleNames[r.RuleName] = true
+				}
+				assert.True(t, ruleNames["my-rule"], "my-rule should be present")
+				assert.True(t, ruleNames["Default"], "Default rule should always be present")
 			},
 		},
 	}
