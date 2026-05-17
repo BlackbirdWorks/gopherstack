@@ -20,8 +20,11 @@ func TestWafv2Dashboard(t *testing.T) {
 		"e2e-test-acl",
 		"REGIONAL",
 		"test web ACL",
-		"ALLOW",
-		"",
+		[]byte(`{"Allow":{}}`),
+		[]byte(`{"SampledRequestsEnabled":true,"CloudWatchMetricsEnabled":true,"MetricName":"e2e-test-acl"}`),
+		nil,
+		nil,
+		nil, nil, nil, nil,
 		map[string]string{"Environment": "test"},
 	)
 	require.NoError(t, err)

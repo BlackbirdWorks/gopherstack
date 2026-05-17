@@ -1,5 +1,25 @@
 package wafv2
 
+import "encoding/json"
+
+// CreateWebACLSimple is a test helper that creates a WebACL with minimal parameters,
+// using the new extended backend signature. It accepts the old-style positional args
+// to ease migration of existing tests.
+func CreateWebACLSimple(
+	b StorageBackend,
+	name, scope, description, defaultAction string,
+	tags map[string]string,
+) (*WebACL, error) {
+	var da json.RawMessage
+	if defaultAction == "BLOCK" {
+		da = json.RawMessage(`{"Block":{}}`)
+	} else {
+		da = json.RawMessage(`{"Allow":{}}`)
+	}
+
+	return b.CreateWebACL(name, scope, description, da, nil, nil, nil, nil, nil, nil, nil, tags)
+}
+
 // WebACLCount returns the number of WebACLs in the backend.
 func WebACLCount(b *InMemoryBackend) int {
 	b.mu.RLock("WebACLCount")
@@ -62,6 +82,10 @@ func AddWebACLInternal(b *InMemoryBackend, w *WebACL) {
 		w.Tags = make(map[string]string)
 	}
 
+	if w.Rules == nil {
+		w.Rules = []map[string]any{}
+	}
+
 	b.webACLs[w.ID] = w
 	b.webACLByARN[b.WebACLARN(w.Name, w.ID, w.Scope)] = w.ID
 	b.webACLByNameScope[nameScope(w.Name, w.Scope)] = w.ID
@@ -95,7 +119,7 @@ func AddRegexPatternSetInternal(b *InMemoryBackend, r *RegexPatternSet) {
 	}
 
 	if r.RegularExpressionList == nil {
-		r.RegularExpressionList = []string{}
+		r.RegularExpressionList = []RegexEntry{}
 	}
 
 	b.regexPatternSets[r.ID] = r
