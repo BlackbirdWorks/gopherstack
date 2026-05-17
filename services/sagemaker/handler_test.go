@@ -22,7 +22,12 @@ func newTestHandler(t *testing.T) *sagemaker.Handler {
 	return sagemaker.NewHandler(sagemaker.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
-func doSageMakerRequest(t *testing.T, h *sagemaker.Handler, target string, body any) *httptest.ResponseRecorder {
+func doSageMakerRequest(
+	t *testing.T,
+	h *sagemaker.Handler,
+	target string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyBytes []byte
@@ -37,7 +42,10 @@ func doSageMakerRequest(t *testing.T, h *sagemaker.Handler, target string, body 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	req.Header.Set("X-Amz-Target", "SageMaker."+target)
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/sagemaker/aws4_request")
+	req.Header.Set(
+		"Authorization",
+		"AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/sagemaker/aws4_request",
+	)
 
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -326,7 +334,13 @@ func TestHandler_DeleteModel(t *testing.T) {
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
 
-				_, err := h.Backend.CreateModel("to-delete", "arn:aws:iam::000000000000:role/test", nil, nil, nil)
+				_, err := h.Backend.CreateModel(
+					"to-delete",
+					"arn:aws:iam::000000000000:role/test",
+					nil,
+					nil,
+					nil,
+				)
 				require.NoError(t, err)
 			},
 			body:     map[string]any{"ModelName": "to-delete"},
@@ -508,7 +522,13 @@ func TestHandler_Tags(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	m, err := h.Backend.CreateModel("tagged-model", "arn:aws:iam::000000000000:role/test", nil, nil, nil)
+	m, err := h.Backend.CreateModel(
+		"tagged-model",
+		"arn:aws:iam::000000000000:role/test",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	// Add tags.
@@ -568,7 +588,9 @@ func TestHandler_Tags_NotFound(t *testing.T) {
 		{
 			name:   "list tags for nonexistent resource",
 			target: "ListTags",
-			body:   map[string]any{"ResourceArn": "arn:aws:sagemaker:us-east-1:000000000000:model/nonexistent"},
+			body: map[string]any{
+				"ResourceArn": "arn:aws:sagemaker:us-east-1:000000000000:model/nonexistent",
+			},
 		},
 		{
 			name:   "delete tags from nonexistent resource",
@@ -804,7 +826,12 @@ func TestHandler_ListModelsPagination(t *testing.T) {
 				assert.NotEmpty(t, nextToken)
 
 				// Second page using the token.
-				rec2 := doSageMakerRequest(t, h, "ListModels", map[string]any{"NextToken": nextToken})
+				rec2 := doSageMakerRequest(
+					t,
+					h,
+					"ListModels",
+					map[string]any{"NextToken": nextToken},
+				)
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				var resp2 map[string]any
@@ -873,7 +900,12 @@ func TestHandler_ListEndpointConfigsPagination(t *testing.T) {
 				assert.NotEmpty(t, nextToken)
 
 				// Second page.
-				rec2 := doSageMakerRequest(t, h, "ListEndpointConfigs", map[string]any{"NextToken": nextToken})
+				rec2 := doSageMakerRequest(
+					t,
+					h,
+					"ListEndpointConfigs",
+					map[string]any{"NextToken": nextToken},
+				)
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				var resp2 map[string]any

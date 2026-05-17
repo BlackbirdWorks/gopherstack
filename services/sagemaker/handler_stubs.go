@@ -73,6 +73,7 @@ const (
 	keyEventTimeFeatureName            = "EventTimeFeatureName"
 	keyMonitoringAlertName             = "MonitoringAlertName"
 	keyClusterSchedulerConfigSummaries = "ClusterSchedulerConfigSummaries"
+	keyTrainingJobSummaries            = "TrainingJobSummaries"
 	keyDeviceFleetName                 = "DeviceFleetName"
 	keyStatus                          = "Status"
 	statusCompleted                    = algorithmStatusCompleted
@@ -124,14 +125,12 @@ func stubOpsSupported() []string {
 		"CreateModelPackageGroup",
 		"CreateModelQualityJobDefinition",
 		"CreateMonitoringSchedule",
-		"CreateNotebookInstanceLifecycleConfig",
 		"CreateOptimizationJob",
 		"CreatePartnerApp",
 		"CreatePartnerAppPresignedUrl",
 		"CreatePresignedDomainUrl",
 		"CreatePresignedMlflowAppUrl",
 		"CreatePresignedMlflowTrackingServerUrl",
-		"CreateProcessingJob",
 		"CreateProject",
 		"CreateSpace",
 		"CreateStudioLifecycleConfig",
@@ -173,7 +172,6 @@ func stubOpsSupported() []string {
 		"DeleteModelPackageGroupPolicy",
 		"DeleteModelQualityJobDefinition",
 		"DeleteMonitoringSchedule",
-		"DeleteNotebookInstanceLifecycleConfig",
 		"DeleteOptimizationJob",
 		"DeletePartnerApp",
 		"DeleteProcessingJob",
@@ -224,11 +222,9 @@ func stubOpsSupported() []string {
 		"DescribeModelPackageGroup",
 		"DescribeModelQualityJobDefinition",
 		"DescribeMonitoringSchedule",
-		"DescribeNotebookInstanceLifecycleConfig",
 		"DescribeOptimizationJob",
 		"DescribePartnerApp",
 		"DescribePipelineDefinitionForExecution",
-		"DescribeProcessingJob",
 		"DescribeProject",
 		"DescribeReservedCapacity",
 		"DescribeSpace",
@@ -301,13 +297,10 @@ func stubOpsSupported() []string {
 		"ListMonitoringAlerts",
 		"ListMonitoringExecutions",
 		"ListMonitoringSchedules",
-		"ListNotebookInstanceLifecycleConfigs",
 		"ListOptimizationJobs",
 		"ListPartnerApps",
-		"ListPipelineExecutionSteps",
 		"ListPipelineParametersForExecution",
 		"ListPipelineVersions",
-		"ListProcessingJobs",
 		"ListProjects",
 		"ListResourceCatalogs",
 		"ListSpaces",
@@ -325,11 +318,8 @@ func stubOpsSupported() []string {
 		"QueryLineage",
 		"RegisterDevices",
 		"RenderUiTemplate",
-		"RetryPipelineExecution",
 		"Search",
 		"SearchTrainingPlanOfferings",
-		"SendPipelineExecutionStepFailure",
-		"SendPipelineExecutionStepSuccess",
 		"StartEdgeDeploymentStage",
 		"StartInferenceExperiment",
 		"StartMlflowTrackingServer",
@@ -345,8 +335,6 @@ func stubOpsSupported() []string {
 		"StopMlflowTrackingServer",
 		"StopMonitoringSchedule",
 		"StopOptimizationJob",
-		"StopPipelineExecution",
-		"StopProcessingJob",
 		"StopTransformJob",
 		"UpdateAction",
 		"UpdateAppImageConfig",
@@ -376,7 +364,6 @@ func stubOpsSupported() []string {
 		"UpdateModelPackage",
 		"UpdateMonitoringAlert",
 		"UpdateMonitoringSchedule",
-		"UpdateNotebookInstanceLifecycleConfig",
 		"UpdatePartnerApp",
 		"UpdatePipelineExecution",
 		"UpdatePipelineVersion",
@@ -509,9 +496,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateMonitoringSchedule":
 		return mustMarshal(m{keyMonitoringScheduleArn: ""}), true
 
-	case "CreateNotebookInstanceLifecycleConfig":
-		return mustMarshal(m{keyNotebookLifecycleConfigArn: ""}), true
-
 	case "CreateOptimizationJob":
 		return mustMarshal(m{keyOptimizationJobArn: ""}), true
 
@@ -523,9 +507,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "CreatePipeline":
 		return mustMarshal(m{keyPipelineArn: ""}), true
-
-	case "CreateProcessingJob":
-		return mustMarshal(m{keyProcessingJobArn: ""}), true
 
 	case "CreateProject":
 		return mustMarshal(m{keyProjectArn: "", "ProjectId": ""}), true
@@ -598,7 +579,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DeleteModelPackageGroupPolicy",
 		"DeleteModelQualityJobDefinition",
 		"DeleteMonitoringSchedule",
-		"DeleteNotebookInstanceLifecycleConfig",
 		"DeleteOptimizationJob",
 		"DeletePartnerApp",
 		"DeletePipeline",
@@ -635,14 +615,11 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"StopMlflowTrackingServer",
 		"StopMonitoringSchedule",
 		"StopOptimizationJob",
-		"StopPipelineExecution",
-		"StopProcessingJob",
 		"StopTransformJob",
 		"UpdateClusterSoftware",
 		"UpdateDeviceFleet",
 		"UpdateDevices",
-		"UpdateFeatureMetadata",
-		"UpdateNotebookInstanceLifecycleConfig":
+		"UpdateFeatureMetadata":
 		return mustMarshal(m{}), true
 
 	// -----------------------------------------------------------------------
@@ -828,11 +805,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 			keyMonitoringScheduleStatus: "Scheduled",
 		}), true
 
-	case "DescribeNotebookInstanceLifecycleConfig":
-		return mustMarshal(m{
-			keyNotebookLifecycleConfigArn: "", "NotebookInstanceLifecycleConfigName": "",
-		}), true
-
 	case "DescribeOptimizationJob":
 		return mustMarshal(m{
 			keyOptimizationJobArn: "", "OptimizationJobName": "", "OptimizationJobStatus": statusCompletedUpper,
@@ -842,7 +814,9 @@ func stubResponseFor(op string) ([]byte, bool) {
 		return mustMarshal(m{keyGenericArn: "", keyStatus: "Available"}), true
 
 	case "DescribePipeline":
-		return mustMarshal(m{keyPipelineArn: "", "PipelineName": "", "PipelineStatus": statusActive}), true
+		return mustMarshal(
+			m{keyPipelineArn: "", "PipelineName": "", "PipelineStatus": statusActive},
+		), true
 
 	case "DescribePipelineDefinitionForExecution":
 		return mustMarshal(m{"PipelineDefinition": ""}), true
@@ -850,11 +824,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "DescribePipelineExecution":
 		return mustMarshal(m{
 			keyPipelineExecutionArn: "", keyPipelineExecutionStatus: pipelineStatusSucceeded,
-		}), true
-
-	case "DescribeProcessingJob":
-		return mustMarshal(m{
-			keyProcessingJobArn: "", "ProcessingJobName": "", "ProcessingJobStatus": statusCompleted,
 		}), true
 
 	case "DescribeProject":
@@ -894,7 +863,9 @@ func stubResponseFor(op string) ([]byte, bool) {
 		return mustMarshal(m{keyTrialComponentArn: "", "TrialComponentName": ""}), true
 
 	case "DescribeUserProfile":
-		return mustMarshal(m{keyUserProfileArn: "", "UserProfileName": "", keyStatus: statusInService}), true
+		return mustMarshal(
+			m{keyUserProfileArn: "", "UserProfileName": "", keyStatus: statusInService},
+		), true
 
 	case "DescribeWorkforce":
 		return mustMarshal(m{"Workforce": m{keyWorkforceArn: "", "WorkforceName": ""}}), true
@@ -1073,17 +1044,11 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListMonitoringSchedules":
 		return mustMarshal(m{"MonitoringScheduleSummaries": []any{}}), true
 
-	case "ListNotebookInstanceLifecycleConfigs":
-		return mustMarshal(m{"NotebookInstanceLifecycleConfigs": []any{}}), true
-
 	case "ListOptimizationJobs":
 		return mustMarshal(m{"OptimizationJobSummaries": []any{}}), true
 
 	case "ListPartnerApps":
 		return mustMarshal(m{"Summaries": []any{}}), true
-
-	case "ListPipelineExecutionSteps":
-		return mustMarshal(m{"PipelineExecutionSteps": []any{}}), true
 
 	case "ListPipelineExecutions":
 		return mustMarshal(m{"PipelineExecutionSummaries": []any{}}), true
@@ -1096,9 +1061,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListPipelines":
 		return mustMarshal(m{"PipelineSummaries": []any{}}), true
-
-	case "ListProcessingJobs":
-		return mustMarshal(m{"ProcessingJobSummaries": []any{}}), true
 
 	case "ListProjects":
 		return mustMarshal(m{"ProjectSummaryList": []any{}}), true
@@ -1119,7 +1081,7 @@ func stubResponseFor(op string) ([]byte, bool) {
 		return mustMarshal(m{"SubscribedWorkteams": []any{}}), true
 
 	case "ListTrainingJobsForHyperParameterTuningJob":
-		return mustMarshal(m{"TrainingJobSummaries": []any{}}), true
+		return mustMarshal(m{keyTrainingJobSummaries: []any{}}), true
 
 	case "ListTrainingPlans":
 		return mustMarshal(m{"TrainingPlanSummaries": []any{}}), true
@@ -1156,11 +1118,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "SearchTrainingPlanOfferings":
 		return mustMarshal(m{"TrainingPlanOfferings": []any{}}), true
-
-	case "RetryPipelineExecution",
-		"SendPipelineExecutionStepFailure",
-		"SendPipelineExecutionStepSuccess":
-		return mustMarshal(m{keyPipelineExecutionArn: ""}), true
 
 	case "StartInferenceExperiment":
 		return mustMarshal(m{keyInferenceExperimentArn: ""}), true

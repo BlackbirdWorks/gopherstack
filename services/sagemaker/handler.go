@@ -87,8 +87,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateHyperParameterTuningJob",
 		"CreateModel",
 		"CreateNotebookInstance",
+		"CreateNotebookInstanceLifecycleConfig",
 		opCreatePipeline,
 		"CreatePresignedNotebookInstanceUrl",
+		"CreateProcessingJob",
 		"CreateTrainingJob",
 		opCreateTrial,
 		opCreateTrialComponent,
@@ -102,6 +104,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteHyperParameterTuningJob",
 		"DeleteModel",
 		"DeleteNotebookInstance",
+		"DeleteNotebookInstanceLifecycleConfig",
 		opDeletePipeline,
 		opDeleteTrial,
 		opDeleteTrialComponent,
@@ -117,6 +120,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeHyperParameterTuningJob",
 		"DescribeModel",
 		"DescribeNotebookInstance",
+		"DescribeNotebookInstanceLifecycleConfig",
+		"DescribeProcessingJob",
 		opDescribePipeline,
 		opDescribePipelineExec,
 		opDescribeTrial,
@@ -132,20 +137,29 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListHyperParameterTuningJobs",
 		"ListModels",
 		"ListNotebookInstances",
+		"ListNotebookInstanceLifecycleConfigs",
 		opListPipelineExecutions,
+		"ListPipelineExecutionSteps",
 		opListPipelines,
+		"ListProcessingJobs",
 		opListTrials,
 		opListUserProfiles,
 		"ListTags",
 		"ListTrainingJobs",
 		"StartNotebookInstance",
+		"RetryPipelineExecution",
+		"SendPipelineExecutionStepFailure",
+		"SendPipelineExecutionStepSuccess",
 		opStartPipelineExecution,
 		"StopHyperParameterTuningJob",
 		"StopNotebookInstance",
+		"StopPipelineExecution",
+		"StopProcessingJob",
 		"StopTrainingJob",
 		opUpdateDomain,
 		"UpdateEndpoint",
 		"UpdateEndpointWeightsAndCapacities",
+		"UpdateNotebookInstanceLifecycleConfig",
 		opUpdatePipeline,
 		"UpdateNotebookInstance",
 		"UpdateTrainingJob",
@@ -224,7 +238,11 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 	return h.dispatchNewOps(ctx, op, body)
 }
 
-func (h *Handler) dispatchCoreOps(ctx context.Context, op string, body []byte) ([]byte, bool, error) {
+func (h *Handler) dispatchCoreOps(
+	ctx context.Context,
+	op string,
+	body []byte,
+) ([]byte, bool, error) {
 	switch op {
 	case "CreateModel":
 		r, err := h.handleCreateModel(ctx, body)
@@ -355,7 +373,7 @@ func (h *Handler) dispatchEndpointOps(
 ) ([]byte, bool, error) {
 	switch op {
 	case "CreateEndpoint":
-		r, err := h.handleCreateEndpoint(ctx, body)
+		r, err := h.handleCreateEndpointFSM(ctx, body)
 
 		return r, true, err
 	case "DescribeEndpoint":
@@ -369,11 +387,11 @@ func (h *Handler) dispatchEndpointOps(
 	case "DeleteEndpoint":
 		return nil, true, h.handleDeleteEndpoint(ctx, body)
 	case "UpdateEndpoint":
-		r, err := h.handleUpdateEndpoint(ctx, body)
+		r, err := h.handleUpdateEndpointFSM(ctx, body)
 
 		return r, true, err
 	case "UpdateEndpointWeightsAndCapacities":
-		r, err := h.handleUpdateEndpointWeightsAndCapacities(ctx, body)
+		r, err := h.handleUpdateEndpointWeightsAndCapacitiesFull(ctx, body)
 
 		return r, true, err
 	}
@@ -384,25 +402,93 @@ func (h *Handler) dispatchEndpointOps(
 func (h *Handler) dispatchTrainingJobOps(
 	ctx context.Context, op string, body []byte,
 ) ([]byte, bool, error) {
+	r, handled, err := h.dispatchTrainingOps(ctx, op, body)
+	if handled {
+		return r, true, err
+	}
+	r, handled, err = h.dispatchProcessingOps(ctx, op, body)
+	if handled {
+		return r, true, err
+	}
+	r, handled, err = h.dispatchPipelineOps(ctx, op, body)
+
+	return r, handled, err
+}
+
+func (h *Handler) dispatchTrainingOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
 	switch op {
 	case "CreateTrainingJob":
-		r, err := h.handleCreateTrainingJob(ctx, body)
+		r, err := h.handleCreateTrainingJobFull(ctx, body)
 
 		return r, true, err
 	case "DescribeTrainingJob":
-		r, err := h.handleDescribeTrainingJob(ctx, body)
+		r, err := h.handleDescribeTrainingJobFull(ctx, body)
 
 		return r, true, err
 	case "ListTrainingJobs":
-		r, err := h.handleListTrainingJobs(body)
+		r, err := h.handleListTrainingJobsFiltered(body)
 
 		return r, true, err
 	case "StopTrainingJob":
-		return nil, true, h.handleStopTrainingJob(ctx, body)
+		return nil, true, h.handleStopTrainingJobFSM(ctx, body)
 	case "DeleteTrainingJob":
 		return nil, true, h.handleDeleteTrainingJob(ctx, body)
 	case "UpdateTrainingJob":
 		r, err := h.handleUpdateTrainingJob(ctx, body)
+
+		return r, true, err
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchProcessingOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
+	case "CreateProcessingJob":
+		r, err := h.handleCreateProcessingJob(ctx, body)
+
+		return r, true, err
+	case "DescribeProcessingJob":
+		r, err := h.handleDescribeProcessingJob(ctx, body)
+
+		return r, true, err
+	case "StopProcessingJob":
+		return nil, true, h.handleStopProcessingJob(ctx, body)
+	case "ListProcessingJobs":
+		r, err := h.handleListProcessingJobs(body)
+
+		return r, true, err
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchPipelineOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
+	case "RetryPipelineExecution":
+		r, err := h.handleRetryPipelineExecution(ctx, body)
+
+		return r, true, err
+	case "StopPipelineExecution":
+		r, err := h.handleStopPipelineExecution(ctx, body)
+
+		return r, true, err
+	case "SendPipelineExecutionStepSuccess":
+		r, err := h.handleSendPipelineExecutionStepSuccess(ctx, body)
+
+		return r, true, err
+	case "SendPipelineExecutionStepFailure":
+		r, err := h.handleSendPipelineExecutionStepFailure(ctx, body)
+
+		return r, true, err
+	case "ListPipelineExecutionSteps":
+		r, err := h.handleListPipelineExecutionSteps(ctx, body)
 
 		return r, true, err
 	}
@@ -415,11 +501,11 @@ func (h *Handler) dispatchNotebookOps(
 ) ([]byte, bool, error) {
 	switch op {
 	case "CreateNotebookInstance":
-		r, err := h.handleCreateNotebookInstance(ctx, body)
+		r, err := h.handleCreateNotebookInstanceFull(ctx, body)
 
 		return r, true, err
 	case "DescribeNotebookInstance":
-		r, err := h.handleDescribeNotebookInstance(ctx, body)
+		r, err := h.handleDescribeNotebookInstanceFull(ctx, body)
 
 		return r, true, err
 	case "ListNotebookInstances":
@@ -433,9 +519,27 @@ func (h *Handler) dispatchNotebookOps(
 	case "StopNotebookInstance":
 		return nil, true, h.handleStopNotebookInstance(ctx, body)
 	case "UpdateNotebookInstance":
-		return nil, true, h.handleUpdateNotebookInstance(ctx, body)
+		return nil, true, h.handleUpdateNotebookInstanceFull(ctx, body)
 	case "CreatePresignedNotebookInstanceUrl":
 		r, err := h.handleCreatePresignedNotebookInstanceURL(ctx, body)
+
+		return r, true, err
+	case "CreateNotebookInstanceLifecycleConfig":
+		r, err := h.handleCreateNotebookInstanceLifecycleConfig(ctx, body)
+
+		return r, true, err
+	case "DescribeNotebookInstanceLifecycleConfig":
+		r, err := h.handleDescribeNotebookInstanceLifecycleConfig(ctx, body)
+
+		return r, true, err
+	case "UpdateNotebookInstanceLifecycleConfig":
+		r, err := h.handleUpdateNotebookInstanceLifecycleConfig(ctx, body)
+
+		return r, true, err
+	case "DeleteNotebookInstanceLifecycleConfig":
+		return nil, true, h.handleDeleteNotebookInstanceLifecycleConfig(ctx, body)
+	case "ListNotebookInstanceLifecycleConfigs":
+		r, err := h.handleListNotebookInstanceLifecycleConfigs(body)
 
 		return r, true, err
 	}
@@ -498,7 +602,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 }
 
@@ -542,11 +649,14 @@ func fromTagObjects(tags []tagObject) map[string]string {
 
 // createModelRequest is the request body for CreateModel.
 type createModelRequest struct {
-	PrimaryContainer *ContainerDefinition  `json:"PrimaryContainer"`
-	ModelName        string                `json:"ModelName"`
-	ExecutionRoleArn string                `json:"ExecutionRoleArn"`
-	Tags             []tagObject           `json:"Tags"`
-	Containers       []ContainerDefinition `json:"Containers"`
+	PrimaryContainer         *ContainerDefinition      `json:"PrimaryContainer"`
+	VpcConfig                *VpcConfig                `json:"VpcConfig,omitempty"`
+	InferenceExecutionConfig *InferenceExecutionConfig `json:"InferenceExecutionConfig,omitempty"`
+	ModelName                string                    `json:"ModelName"`
+	ExecutionRoleArn         string                    `json:"ExecutionRoleArn"`
+	Tags                     []tagObject               `json:"Tags"`
+	Containers               []ContainerDefinition     `json:"Containers"`
+	EnableNetworkIsolation   bool                      `json:"EnableNetworkIsolation,omitempty"`
 }
 
 // modelSummary is a summary of a SageMaker model for list responses.
@@ -558,12 +668,15 @@ type modelSummary struct {
 
 // describeModelResponse is the response body for DescribeModel.
 type describeModelResponse struct {
-	PrimaryContainer *ContainerDefinition  `json:"PrimaryContainer,omitempty"`
-	ModelArn         string                `json:"ModelArn"`
-	ModelName        string                `json:"ModelName"`
-	ExecutionRoleArn string                `json:"ExecutionRoleArn"`
-	Containers       []ContainerDefinition `json:"Containers,omitempty"`
-	CreationTime     float64               `json:"CreationTime"`
+	PrimaryContainer         *ContainerDefinition      `json:"PrimaryContainer,omitempty"`
+	VpcConfig                *VpcConfig                `json:"VpcConfig,omitempty"`
+	InferenceExecutionConfig *InferenceExecutionConfig `json:"InferenceExecutionConfig,omitempty"`
+	ModelArn                 string                    `json:"ModelArn"`
+	ModelName                string                    `json:"ModelName"`
+	ExecutionRoleArn         string                    `json:"ExecutionRoleArn"`
+	Containers               []ContainerDefinition     `json:"Containers,omitempty"`
+	CreationTime             float64                   `json:"CreationTime"`
+	EnableNetworkIsolation   bool                      `json:"EnableNetworkIsolation,omitempty"`
 }
 
 func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, error) {
@@ -587,6 +700,17 @@ func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, e
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if req.VpcConfig != nil || req.EnableNetworkIsolation || req.InferenceExecutionConfig != nil {
+		if extErr := h.Backend.SetModelExtras(
+			req.ModelName,
+			req.VpcConfig,
+			req.EnableNetworkIsolation,
+			req.InferenceExecutionConfig,
+		); extErr != nil {
+			return nil, extErr
+		}
 	}
 
 	log := logger.Load(ctx)
@@ -614,12 +738,15 @@ func (h *Handler) handleDescribeModel(_ context.Context, body []byte) ([]byte, e
 	}
 
 	resp := describeModelResponse{
-		ModelName:        m.ModelName,
-		ModelArn:         m.ModelARN,
-		ExecutionRoleArn: m.ExecutionRoleARN,
-		CreationTime:     epochSeconds(m.CreationTime),
-		PrimaryContainer: m.PrimaryContainer,
-		Containers:       m.Containers,
+		ModelName:                m.ModelName,
+		ModelArn:                 m.ModelARN,
+		ExecutionRoleArn:         m.ExecutionRoleARN,
+		CreationTime:             epochSeconds(m.CreationTime),
+		PrimaryContainer:         m.PrimaryContainer,
+		Containers:               m.Containers,
+		VpcConfig:                m.VpcConfig,
+		EnableNetworkIsolation:   m.EnableNetworkIsolation,
+		InferenceExecutionConfig: m.InferenceExecutionConfig,
 	}
 
 	if len(resp.Containers) == 0 {
@@ -682,9 +809,16 @@ func (h *Handler) handleDeleteModel(ctx context.Context, body []byte) error {
 
 // createEndpointConfigRequest is the request body for CreateEndpointConfig.
 type createEndpointConfigRequest struct {
-	EndpointConfigName string              `json:"EndpointConfigName"`
-	Tags               []tagObject         `json:"Tags"`
-	ProductionVariants []ProductionVariant `json:"ProductionVariants"`
+	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
+	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
+	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
+	EndpointConfigName       string                `json:"EndpointConfigName"`
+	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
+	KmsKeyID                 string                `json:"KmsKeyId,omitempty"`
+	Tags                     []tagObject           `json:"Tags"`
+	ProductionVariants       []ProductionVariant   `json:"ProductionVariants"`
+	ShadowProductionVariants []ProductionVariant   `json:"ShadowProductionVariants,omitempty"`
+	EnableNetworkIsolation   bool                  `json:"EnableNetworkIsolation,omitempty"`
 }
 
 // endpointConfigSummary is a summary of an endpoint config for list responses.
@@ -696,10 +830,17 @@ type endpointConfigSummary struct {
 
 // describeEndpointConfigResponse is the response body for DescribeEndpointConfig.
 type describeEndpointConfigResponse struct {
-	EndpointConfigArn  string              `json:"EndpointConfigArn"`
-	EndpointConfigName string              `json:"EndpointConfigName"`
-	ProductionVariants []ProductionVariant `json:"ProductionVariants"`
-	CreationTime       float64             `json:"CreationTime"`
+	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
+	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
+	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
+	EndpointConfigArn        string                `json:"EndpointConfigArn"`
+	EndpointConfigName       string                `json:"EndpointConfigName"`
+	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
+	KmsKeyID                 string                `json:"KmsKeyId,omitempty"`
+	ProductionVariants       []ProductionVariant   `json:"ProductionVariants"`
+	ShadowProductionVariants []ProductionVariant   `json:"ShadowProductionVariants,omitempty"`
+	CreationTime             float64               `json:"CreationTime"`
+	EnableNetworkIsolation   bool                  `json:"EnableNetworkIsolation,omitempty"`
 }
 
 func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) ([]byte, error) {
@@ -717,6 +858,25 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 	ec, err := h.Backend.CreateEndpointConfig(req.EndpointConfigName, req.ProductionVariants, tags)
 	if err != nil {
 		return nil, err
+	}
+
+	hasExtras := req.DataCaptureConfig != nil || req.AsyncInferenceConfig != nil ||
+		req.VpcConfig != nil || req.ExecutionRoleArn != "" || req.KmsKeyID != "" ||
+		len(req.ShadowProductionVariants) > 0 || req.EnableNetworkIsolation
+
+	if hasExtras {
+		if extErr := h.Backend.SetEndpointConfigExtras(
+			req.EndpointConfigName,
+			req.DataCaptureConfig,
+			req.AsyncInferenceConfig,
+			req.VpcConfig,
+			req.ExecutionRoleArn,
+			req.KmsKeyID,
+			req.ShadowProductionVariants,
+			req.EnableNetworkIsolation,
+		); extErr != nil {
+			return nil, extErr
+		}
 	}
 
 	log := logger.Load(ctx)
@@ -751,14 +911,25 @@ func (h *Handler) handleDescribeEndpointConfig(_ context.Context, body []byte) (
 	}
 
 	resp := describeEndpointConfigResponse{
-		EndpointConfigName: ec.EndpointConfigName,
-		EndpointConfigArn:  ec.EndpointConfigARN,
-		ProductionVariants: ec.ProductionVariants,
-		CreationTime:       epochSeconds(ec.CreationTime),
+		EndpointConfigName:       ec.EndpointConfigName,
+		EndpointConfigArn:        ec.EndpointConfigARN,
+		ProductionVariants:       ec.ProductionVariants,
+		CreationTime:             epochSeconds(ec.CreationTime),
+		DataCaptureConfig:        ec.DataCaptureConfig,
+		AsyncInferenceConfig:     ec.AsyncInferenceConfig,
+		VpcConfig:                ec.VpcConfig,
+		ExecutionRoleArn:         ec.ExecutionRoleArn,
+		KmsKeyID:                 ec.KmsKeyID,
+		ShadowProductionVariants: ec.ShadowProductionVariants,
+		EnableNetworkIsolation:   ec.EnableNetworkIsolation,
 	}
 
 	if len(resp.ProductionVariants) == 0 {
 		resp.ProductionVariants = nil
+	}
+
+	if len(resp.ShadowProductionVariants) == 0 {
+		resp.ShadowProductionVariants = nil
 	}
 
 	return json.Marshal(resp)
@@ -929,7 +1100,12 @@ func (h *Handler) handleAddAssociation(ctx context.Context, body []byte) ([]byte
 
 	tags := fromTagObjects(req.Tags)
 
-	assoc, err := h.Backend.AddAssociation(req.SourceArn, req.DestinationArn, req.AssociationType, tags)
+	assoc, err := h.Backend.AddAssociation(
+		req.SourceArn,
+		req.DestinationArn,
+		req.AssociationType,
+		tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1013,7 +1189,14 @@ func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "sagemaker: attached cluster node volume", "cluster", clusterArn, "node", nodeID)
+	log.InfoContext(
+		ctx,
+		"sagemaker: attached cluster node volume",
+		"cluster",
+		clusterArn,
+		"node",
+		nodeID,
+	)
 
 	return json.Marshal(map[string]string{
 		keyClusterArn: clusterArn,
@@ -1107,7 +1290,10 @@ func (h *Handler) handleBatchDeleteClusterNodes(ctx context.Context, body []byte
 		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
 	}
 
-	clusterArn, errored, successful, err := h.Backend.BatchDeleteClusterNodes(req.ClusterName, req.NodeIDs)
+	clusterArn, errored, successful, err := h.Backend.BatchDeleteClusterNodes(
+		req.ClusterName,
+		req.NodeIDs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1203,7 +1389,10 @@ func (h *Handler) handleBatchRebootClusterNodes(ctx context.Context, body []byte
 		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
 	}
 
-	clusterArn, failures, successful, err := h.Backend.BatchRebootClusterNodes(req.ClusterName, req.NodeIDs)
+	clusterArn, failures, successful, err := h.Backend.BatchRebootClusterNodes(
+		req.ClusterName,
+		req.NodeIDs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1328,7 +1517,14 @@ func (h *Handler) handleCreateAlgorithm(ctx context.Context, body []byte) ([]byt
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "sagemaker: created algorithm", "name", al.AlgorithmName, "arn", al.AlgorithmArn)
+	log.InfoContext(
+		ctx,
+		"sagemaker: created algorithm",
+		"name",
+		al.AlgorithmName,
+		"arn",
+		al.AlgorithmArn,
+	)
 
 	return json.Marshal(map[string]string{"AlgorithmArn": al.AlgorithmArn})
 }

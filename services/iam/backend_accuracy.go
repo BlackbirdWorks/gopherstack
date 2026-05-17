@@ -370,11 +370,11 @@ func (b *InMemoryBackend) policyDocByARNLocked(policyArn string) string {
 // ---- Trust Policy Evaluation ----
 
 // trustStatement is a parsed trust policy statement for AssumeRole evaluation.
-type trustStatement struct { //nolint:govet // field order prioritizes readability
-	Condition map[string]map[string]any `json:"Condition,omitempty"`
+type trustStatement struct {
 	Action    any                       `json:"Action"`
-	Principal trustPrincipal            `json:"Principal"`
+	Condition map[string]map[string]any `json:"Condition,omitempty"`
 	Effect    string                    `json:"Effect"`
+	Principal trustPrincipal            `json:"Principal"`
 }
 
 // trustPrincipal holds the parsed Principal from a trust policy statement.
