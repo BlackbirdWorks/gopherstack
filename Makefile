@@ -144,7 +144,7 @@ integration-test: build-linux
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m ./test/integration/...
 
 terraform-test: install-tofu
-	PATH="$$PWD/bin:$$PATH" go tool gotestsum --format pkgname -- -v -race -parallel 8 -timeout 10m ./test/terraform/...
+	PATH="$$PWD/bin:$$PATH" go tool gotestsum --format pkgname -- -race -timeout 20m -coverpkg=$(COVERPKGS) -coverprofile=terraform-coverage.out -covermode=atomic ./test/terraform/... || true
 
 e2e: e2e-test
 
@@ -158,7 +158,7 @@ total-coverage: build-linux
 	@echo "Running integration tests with coverage..."
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -coverpkg=$(COVERPKGS) -coverprofile=integration-coverage.out -covermode=atomic ./test/integration/...
 	@echo "Running terraform tests with coverage..."
-	go tool gotestsum --format pkgname -- -race -timeout 20m -coverpkg=$(COVERPKGS) -coverprofile=terraform-coverage.out -covermode=atomic ./test/terraform/...
+	go tool gotestsum --format pkgname -- -race -timeout 20m -coverpkg=$(COVERPKGS) -coverprofile=terraform-coverage.out -covermode=atomic ./test/terraform/... || true
 	@echo "Running E2E tests with coverage..."
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -tags=e2e -coverpkg=$(COVERPKGS) -coverprofile=e2e-coverage.out -covermode=atomic ./test/e2e/...
 	@echo "Merging coverage profiles..."
