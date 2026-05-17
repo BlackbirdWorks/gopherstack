@@ -36,7 +36,6 @@ const (
 	notebookStatusPending       = "Pending"
 	notebookStatusStopping      = "Stopping"
 	trainingJobStatusInProgress = "InProgress"
-	trainingJobStatusCompleted  = "Completed"
 	keyNotebookInstanceArn      = "NotebookInstanceArn"
 )
 
@@ -68,10 +67,10 @@ type NotebookLifecycleHook struct {
 type NotebookInstanceLifecycleConfig struct {
 	CreationTime     time.Time               `json:"CreationTime"`
 	LastModifiedTime time.Time               `json:"LastModifiedTime"`
-	OnCreate         []NotebookLifecycleHook `json:"OnCreate,omitempty"`
-	OnStart          []NotebookLifecycleHook `json:"OnStart,omitempty"`
 	Name             string                  `json:"NotebookInstanceLifecycleConfigName"`
 	ARN              string                  `json:"NotebookInstanceLifecycleConfigArn"`
+	OnCreate         []NotebookLifecycleHook `json:"OnCreate,omitempty"`
+	OnStart          []NotebookLifecycleHook `json:"OnStart,omitempty"`
 }
 
 // cloneNotebookLifecycleConfig returns a deep copy.
@@ -83,6 +82,7 @@ func cloneNotebookLifecycleConfig(
 	copy(cp.OnCreate, lc.OnCreate)
 	cp.OnStart = make([]NotebookLifecycleHook, len(lc.OnStart))
 	copy(cp.OnStart, lc.OnStart)
+
 	return &cp
 }
 
@@ -196,8 +196,7 @@ func (b *InMemoryBackend) ListNotebookInstanceLifecycleConfigs(
 
 	list := make([]*NotebookInstanceLifecycleConfig, 0, len(b.notebookLifecycleConfigs))
 	for _, lc := range b.notebookLifecycleConfigs {
-		cp := *lc
-		list = append(list, &cp)
+		list = append(list, cloneNotebookLifecycleConfig(lc))
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 
@@ -305,15 +304,16 @@ func (b *InMemoryBackend) StopNotebookInstanceFSM(name string) error {
 func (b *InMemoryBackend) CreateNotebookInstanceFSM(
 	opts NotebookInstanceOptions,
 ) (*NotebookInstance, error) {
-	b.mu.Lock("CreateNotebookInstanceFSM.lock")
+	b.mu.RLock("CreateNotebookInstanceFSM.ctx")
 	ctx := b.lifecycleCtx
-	b.mu.Unlock()
+	b.mu.RUnlock()
 
 	nb, err := b.CreateNotebookInstanceFull(opts)
 	if err != nil {
 		return nil, err
 	}
 	b.scheduleNotebookTransition(ctx, opts.Name, statusInService, notebookPendingToInServiceDelay)
+
 	return nb, nil
 }
 
@@ -365,11 +365,11 @@ func (b *InMemoryBackend) UpdateNotebookInstanceFull(
 
 // NotebookUpdateOptions holds mutable fields for UpdateNotebookInstance.
 type NotebookUpdateOptions struct {
-	AdditionalCodeRepositories             []string
 	InstanceType                           string
 	RoleArn                                string
 	LifecycleConfigName                    string
 	DefaultCodeRepository                  string
+	AdditionalCodeRepositories             []string
 	VolumeSizeInGB                         int32
 	DisassociateLifecycleConfig            bool
 	DisassociateDefaultCodeRepository      bool
@@ -382,12 +382,12 @@ type NotebookUpdateOptions struct {
 
 // AlgorithmSpecification is the typed algorithm spec for a training job.
 type AlgorithmSpecification struct {
-	MetricDefinitions                []MetricDefinition `json:"MetricDefinitions,omitempty"`
-	ContainerEntrypoint              []string           `json:"ContainerEntrypoint,omitempty"`
-	ContainerArguments               []string           `json:"ContainerArguments,omitempty"`
 	TrainingImage                    string             `json:"TrainingImage,omitempty"`
 	AlgorithmName                    string             `json:"AlgorithmName,omitempty"`
 	TrainingInputMode                string             `json:"TrainingInputMode,omitempty"`
+	MetricDefinitions                []MetricDefinition `json:"MetricDefinitions,omitempty"`
+	ContainerEntrypoint              []string           `json:"ContainerEntrypoint,omitempty"`
+	ContainerArguments               []string           `json:"ContainerArguments,omitempty"`
 	EnableSageMakerMetricsTimeSeries bool               `json:"EnableSageMakerMetricsTimeSeries,omitempty"`
 }
 
@@ -422,17 +422,17 @@ type Channel struct {
 // OutputDataConfig specifies where training output is stored.
 type OutputDataConfig struct {
 	S3OutputPath    string `json:"S3OutputPath"`
-	KmsKeyId        string `json:"KmsKeyId,omitempty"`
+	KmsKeyID        string `json:"KmsKeyId,omitempty"`
 	CompressionType string `json:"CompressionType,omitempty"`
 }
 
 // ResourceConfig specifies compute resources for a training job.
 type ResourceConfig struct {
-	InstanceGroups           []InstanceGroup `json:"InstanceGroups,omitempty"`
 	InstanceType             string          `json:"InstanceType"`
+	VolumeKmsKeyID           string          `json:"VolumeKmsKeyId,omitempty"`
+	InstanceGroups           []InstanceGroup `json:"InstanceGroups,omitempty"`
 	InstanceCount            int32           `json:"InstanceCount"`
 	VolumeSizeInGB           int32           `json:"VolumeSizeInGB"`
-	VolumeKmsKeyId           string          `json:"VolumeKmsKeyId,omitempty"`
 	KeepAlivePeriodInSeconds int32           `json:"KeepAlivePeriodInSeconds,omitempty"`
 }
 
@@ -452,7 +452,7 @@ type StoppingCondition struct {
 
 // VpcConfig specifies the VPC subnets and security groups.
 type VpcConfig struct {
-	SecurityGroupIds []string `json:"SecurityGroupIds,omitempty"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds,omitempty"`
 	Subnets          []string `json:"Subnets,omitempty"`
 }
 
@@ -477,18 +477,18 @@ type SecondaryStatusTransition struct {
 
 // TrainingJobOptions holds all fields for CreateTrainingJob.
 type TrainingJobOptions struct {
-	AlgorithmSpecification                AlgorithmSpecification `json:"AlgorithmSpecification"`
-	InputDataConfig                       []Channel              `json:"InputDataConfig,omitempty"`
-	OutputDataConfig                      OutputDataConfig       `json:"OutputDataConfig"`
-	ResourceConfig                        ResourceConfig         `json:"ResourceConfig"`
-	StoppingCondition                     StoppingCondition      `json:"StoppingCondition"`
-	VpcConfig                             *VpcConfig             `json:"VpcConfig,omitempty"`
-	CheckpointConfig                      *CheckpointConfig      `json:"CheckpointConfig,omitempty"`
-	HyperParameters                       map[string]string      `json:"HyperParameters,omitempty"`
-	Environment                           map[string]string      `json:"Environment,omitempty"`
 	Tags                                  map[string]string      `json:"Tags,omitempty"`
+	Environment                           map[string]string      `json:"Environment,omitempty"`
+	HyperParameters                       map[string]string      `json:"HyperParameters,omitempty"`
+	CheckpointConfig                      *CheckpointConfig      `json:"CheckpointConfig,omitempty"`
+	VpcConfig                             *VpcConfig             `json:"VpcConfig,omitempty"`
+	OutputDataConfig                      OutputDataConfig       `json:"OutputDataConfig"`
 	TrainingJobName                       string                 `json:"TrainingJobName"`
 	RoleArn                               string                 `json:"RoleArn"`
+	InputDataConfig                       []Channel              `json:"InputDataConfig,omitempty"`
+	AlgorithmSpecification                AlgorithmSpecification `json:"AlgorithmSpecification"`
+	ResourceConfig                        ResourceConfig         `json:"ResourceConfig"`
+	StoppingCondition                     StoppingCondition      `json:"StoppingCondition"`
 	EnableNetworkIsolation                bool                   `json:"EnableNetworkIsolation,omitempty"`
 	EnableManagedSpotTraining             bool                   `json:"EnableManagedSpotTraining,omitempty"`
 	EnableInterContainerTrafficEncryption bool                   `json:"EnableInterContainerTrafficEncryption,omitempty"`
@@ -569,11 +569,12 @@ func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, name s
 
 		now := time.Now()
 		tj.TrainingJobStatus = algorithmStatusCompleted
-		tj.SecondaryStatus = "Completed"
+		tj.SecondaryStatus = algorithmStatusCompleted
 		tj.TrainingEndTime = &now
 		tj.LastModifiedTime = now
-		tj.BillableTimeInSeconds = int32(trainingInProgressToCompleted.Seconds())
-		tj.TrainingTimeInSeconds = int32(trainingInProgressToCompleted.Seconds())
+		billable := max(int32(trainingInProgressToCompleted.Seconds()), 1)
+		tj.BillableTimeInSeconds = billable
+		tj.TrainingTimeInSeconds = billable
 		tj.ModelArtifacts = &ModelArtifacts{
 			S3ModelArtifacts: "s3://" + name + "-output/output/model.tar.gz",
 		}
@@ -582,7 +583,7 @@ func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, name s
 		}
 
 		tj.SecondaryStatusTransitions = append(tj.SecondaryStatusTransitions,
-			SecondaryStatusTransition{StartTime: now, EndTime: &now, Status: "Completed"},
+			SecondaryStatusTransition{StartTime: now, EndTime: &now, Status: algorithmStatusCompleted},
 		)
 	}()
 }
@@ -656,8 +657,7 @@ func (b *InMemoryBackend) ListTrainingJobsFiltered(
 		if f.CreationTimeBefore != nil && !tj.CreationTime.Before(*f.CreationTimeBefore) {
 			continue
 		}
-		cp := *tj
-		list = append(list, &cp)
+		list = append(list, cloneTrainingJob(tj))
 	}
 	sort.Slice(
 		list,
@@ -717,29 +717,31 @@ func (b *InMemoryBackend) CreateEndpointFSM(
 	name, endpointConfigName string,
 	tags map[string]string,
 ) (*Endpoint, error) {
-	b.mu.Lock("CreateEndpointFSM.ctx")
+	b.mu.RLock("CreateEndpointFSM.ctx")
 	ctx := b.lifecycleCtx
-	b.mu.Unlock()
+	b.mu.RUnlock()
 
 	ep, err := b.CreateEndpoint(name, endpointConfigName, tags)
 	if err != nil {
 		return nil, err
 	}
 	b.scheduleEndpointTransition(ctx, name, statusInService, endpointCreatingToInService)
+
 	return ep, nil
 }
 
 // UpdateEndpointFSM updates config and drives InService → Updating → InService.
 func (b *InMemoryBackend) UpdateEndpointFSM(name, endpointConfigName string) (*Endpoint, error) {
-	b.mu.Lock("UpdateEndpointFSM.ctx")
+	b.mu.RLock("UpdateEndpointFSM.ctx")
 	ctx := b.lifecycleCtx
-	b.mu.Unlock()
+	b.mu.RUnlock()
 
 	ep, err := b.UpdateEndpoint(name, endpointConfigName)
 	if err != nil {
 		return nil, err
 	}
 	b.scheduleEndpointTransition(ctx, name, statusInService, endpointUpdatingToInService)
+
 	return ep, nil
 }
 
@@ -768,6 +770,7 @@ func (b *InMemoryBackend) UpdateEndpointWeightsAndCapacitiesFull(
 					ep.ProductionVariants[i].InitialInstanceCount = *change.DesiredInstanceCount
 				}
 				found = true
+
 				break
 			}
 		}
@@ -792,9 +795,9 @@ func (b *InMemoryBackend) UpdateEndpointWeightsAndCapacitiesFull(
 
 // DesiredWeightAndCapacity is one entry in UpdateEndpointWeightsAndCapacities.
 type DesiredWeightAndCapacity struct {
-	VariantName          string   `json:"VariantName"`
 	DesiredWeight        *float64 `json:"DesiredWeight,omitempty"`
 	DesiredInstanceCount *int32   `json:"DesiredInstanceCount,omitempty"`
+	VariantName          string   `json:"VariantName"`
 }
 
 // ---------------------------------------------------------------------------
@@ -803,9 +806,9 @@ type DesiredWeightAndCapacity struct {
 
 // ProcessingInput specifies input data for a processing job.
 type ProcessingInput struct {
-	InputName         string             `json:"InputName"`
 	S3Input           *ProcessingS3Input `json:"S3Input,omitempty"`
 	DatasetDefinition *DatasetDefinition `json:"DatasetDefinition,omitempty"`
+	InputName         string             `json:"InputName"`
 	AppManaged        bool               `json:"AppManaged,omitempty"`
 }
 
@@ -827,8 +830,8 @@ type DatasetDefinition struct {
 
 // ProcessingOutput specifies output data for a processing job.
 type ProcessingOutput struct {
-	OutputName string              `json:"OutputName"`
 	S3Output   *ProcessingS3Output `json:"S3Output,omitempty"`
+	OutputName string              `json:"OutputName"`
 	AppManaged bool                `json:"AppManaged,omitempty"`
 }
 
@@ -841,8 +844,8 @@ type ProcessingS3Output struct {
 
 // ProcessingOutputConfig wraps outputs plus optional KMS key.
 type ProcessingOutputConfig struct {
+	KmsKeyID string             `json:"KmsKeyId,omitempty"`
 	Outputs  []ProcessingOutput `json:"Outputs,omitempty"`
-	KmsKeyId string             `json:"KmsKeyId,omitempty"`
 }
 
 // ProcessingResources specifies compute for a processing job.
@@ -853,14 +856,14 @@ type ProcessingResources struct {
 // ProcessingClusterConfig is the compute config for a processing job.
 type ProcessingClusterConfig struct {
 	InstanceType   string `json:"InstanceType"`
+	VolumeKmsKeyID string `json:"VolumeKmsKeyId,omitempty"`
 	InstanceCount  int32  `json:"InstanceCount"`
 	VolumeSizeInGB int32  `json:"VolumeSizeInGB"`
-	VolumeKmsKeyId string `json:"VolumeKmsKeyId,omitempty"`
 }
 
 // ProcessingAppSpec identifies the container image for a processing job.
 type ProcessingAppSpec struct {
-	ImageUri            string   `json:"ImageUri"`
+	ImageURI            string   `json:"ImageUri"`
 	ContainerArguments  []string `json:"ContainerArguments,omitempty"`
 	ContainerEntrypoint []string `json:"ContainerEntrypoint,omitempty"`
 }
@@ -873,16 +876,16 @@ type ProcessingJob struct {
 	ProcessingEndTime      *time.Time             `json:"ProcessingEndTime,omitempty"`
 	Tags                   map[string]string      `json:"Tags,omitempty"`
 	Environment            map[string]string      `json:"Environment,omitempty"`
-	ProcessingInputs       []ProcessingInput      `json:"ProcessingInputs,omitempty"`
-	ProcessingOutputConfig ProcessingOutputConfig `json:"ProcessingOutputConfig"`
-	ProcessingResources    ProcessingResources    `json:"ProcessingResources"`
-	AppSpecification       ProcessingAppSpec      `json:"AppSpecification"`
 	VpcConfig              *VpcConfig             `json:"VpcConfig,omitempty"`
+	ProcessingResources    ProcessingResources    `json:"ProcessingResources"`
+	ProcessingOutputConfig ProcessingOutputConfig `json:"ProcessingOutputConfig"`
 	ProcessingJobName      string                 `json:"ProcessingJobName"`
 	ProcessingJobArn       string                 `json:"ProcessingJobArn"`
 	ProcessingJobStatus    string                 `json:"ProcessingJobStatus"`
 	RoleArn                string                 `json:"RoleArn,omitempty"`
 	FailureReason          string                 `json:"FailureReason,omitempty"`
+	AppSpecification       ProcessingAppSpec      `json:"AppSpecification"`
+	ProcessingInputs       []ProcessingInput      `json:"ProcessingInputs,omitempty"`
 }
 
 // cloneProcessingJob returns a deep copy of pj.
@@ -891,12 +894,31 @@ func cloneProcessingJob(pj *ProcessingJob) *ProcessingJob {
 	cp.Tags = maps.Clone(pj.Tags)
 	cp.Environment = maps.Clone(pj.Environment)
 	cp.ProcessingInputs = make([]ProcessingInput, len(pj.ProcessingInputs))
-	copy(cp.ProcessingInputs, pj.ProcessingInputs)
+	for i, inp := range pj.ProcessingInputs {
+		pi := inp
+		if inp.S3Input != nil {
+			s3 := *inp.S3Input
+			pi.S3Input = &s3
+		}
+		if inp.DatasetDefinition != nil {
+			dd := *inp.DatasetDefinition
+			pi.DatasetDefinition = &dd
+		}
+		cp.ProcessingInputs[i] = pi
+	}
 	cp.ProcessingOutputConfig.Outputs = make(
 		[]ProcessingOutput,
 		len(pj.ProcessingOutputConfig.Outputs),
 	)
-	copy(cp.ProcessingOutputConfig.Outputs, pj.ProcessingOutputConfig.Outputs)
+	for i, out := range pj.ProcessingOutputConfig.Outputs {
+		po := out
+		if out.S3Output != nil {
+			s3 := *out.S3Output
+			po.S3Output = &s3
+		}
+		cp.ProcessingOutputConfig.Outputs[i] = po
+	}
+
 	return &cp
 }
 
@@ -957,7 +979,7 @@ func (b *InMemoryBackend) scheduleProcessingCompletion(ctx context.Context, name
 			return
 		}
 		now := time.Now()
-		pj.ProcessingJobStatus = "Completed"
+		pj.ProcessingJobStatus = algorithmStatusCompleted
 		pj.ProcessingEndTime = &now
 		pj.LastModifiedTime = now
 	}()
@@ -1022,8 +1044,7 @@ func (b *InMemoryBackend) ListProcessingJobs(
 		if statusEquals != "" && !strings.EqualFold(pj.ProcessingJobStatus, statusEquals) {
 			continue
 		}
-		cp := *pj
-		list = append(list, &cp)
+		list = append(list, cloneProcessingJob(pj))
 	}
 	sort.Slice(
 		list,
@@ -1073,21 +1094,21 @@ func (b *InMemoryBackend) resetLifecycleContext() {
 
 // NotebookInstanceOptions holds all CreateNotebookInstance request fields.
 type NotebookInstanceOptions struct {
-	AdditionalCodeRepositories []string          `json:"AdditionalCodeRepositories,omitempty"`
-	AcceleratorTypes           []string          `json:"AcceleratorTypes,omitempty"`
 	Tags                       map[string]string `json:"Tags,omitempty"`
+	SubnetID                   string            `json:"SubnetId,omitempty"`
+	LifecycleConfigName        string            `json:"LifecycleConfigName,omitempty"`
 	Name                       string            `json:"NotebookInstanceName"`
 	InstanceType               string            `json:"InstanceType"`
 	RoleArn                    string            `json:"RoleArn"`
-	SubnetId                   string            `json:"SubnetId,omitempty"`
-	KmsKeyId                   string            `json:"KmsKeyId,omitempty"`
-	LifecycleConfigName        string            `json:"LifecycleConfigName,omitempty"`
+	RootAccess                 string            `json:"RootAccess,omitempty"`
+	KmsKeyID                   string            `json:"KmsKeyId,omitempty"`
+	DirectInternetAccess       string            `json:"DirectInternetAccess,omitempty"`
 	DefaultCodeRepository      string            `json:"DefaultCodeRepository,omitempty"`
 	PlatformIdentifier         string            `json:"PlatformIdentifier,omitempty"`
-	DirectInternetAccess       string            `json:"DirectInternetAccess,omitempty"`
-	RootAccess                 string            `json:"RootAccess,omitempty"`
+	AcceleratorTypes           []string          `json:"AcceleratorTypes,omitempty"`
+	AdditionalCodeRepositories []string          `json:"AdditionalCodeRepositories,omitempty"`
+	SecurityGroupIDs           []string          `json:"SecurityGroupIds,omitempty"`
 	VolumeSizeInGB             int32             `json:"VolumeSizeInGB,omitempty"`
-	SecurityGroupIds           []string          `json:"SecurityGroupIds,omitempty"`
 }
 
 // CreateNotebookInstanceFull persists all NotebookInstanceOptions fields.
@@ -1123,14 +1144,14 @@ func (b *InMemoryBackend) CreateNotebookInstanceFull(
 		NotebookInstanceStatus:     "Pending",
 		InstanceType:               opts.InstanceType,
 		RoleArn:                    opts.RoleArn,
-		SubnetId:                   opts.SubnetId,
-		SecurityGroupIds:           opts.SecurityGroupIds,
-		KmsKeyId:                   opts.KmsKeyId,
+		SubnetID:                   opts.SubnetID,
+		SecurityGroupIDs:           append([]string(nil), opts.SecurityGroupIDs...),
+		KmsKeyID:                   opts.KmsKeyID,
 		LifecycleConfigName:        opts.LifecycleConfigName,
 		DirectInternetAccess:       opts.DirectInternetAccess,
 		RootAccess:                 opts.RootAccess,
-		AcceleratorTypes:           opts.AcceleratorTypes,
-		AdditionalCodeRepositories: opts.AdditionalCodeRepositories,
+		AcceleratorTypes:           append([]string(nil), opts.AcceleratorTypes...),
+		AdditionalCodeRepositories: append([]string(nil), opts.AdditionalCodeRepositories...),
 		DefaultCodeRepository:      opts.DefaultCodeRepository,
 		VolumeSizeInGB:             opts.VolumeSizeInGB,
 		PlatformIdentifier:         opts.PlatformIdentifier,

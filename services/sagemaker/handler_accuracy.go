@@ -18,9 +18,9 @@ type lifecycleHookRequest struct {
 }
 
 type createNotebookLifecycleConfigRequest struct {
+	NotebookInstanceLifecycleConfigName string                 `json:"NotebookInstanceLifecycleConfigName"`
 	OnCreate                            []lifecycleHookRequest `json:"OnCreate,omitempty"`
 	OnStart                             []lifecycleHookRequest `json:"OnStart,omitempty"`
-	NotebookInstanceLifecycleConfigName string                 `json:"NotebookInstanceLifecycleConfigName"`
 }
 
 func (h *Handler) handleCreateNotebookInstanceLifecycleConfig(
@@ -41,11 +41,11 @@ func (h *Handler) handleCreateNotebookInstanceLifecycleConfig(
 
 	onCreate := make([]NotebookLifecycleHook, len(req.OnCreate))
 	for i, h := range req.OnCreate {
-		onCreate[i] = NotebookLifecycleHook{Content: h.Content}
+		onCreate[i] = NotebookLifecycleHook(h)
 	}
 	onStart := make([]NotebookLifecycleHook, len(req.OnStart))
 	for i, h := range req.OnStart {
-		onStart[i] = NotebookLifecycleHook{Content: h.Content}
+		onStart[i] = NotebookLifecycleHook(h)
 	}
 
 	lc, err := h.Backend.CreateNotebookInstanceLifecycleConfig(
@@ -111,9 +111,9 @@ func (h *Handler) handleUpdateNotebookInstanceLifecycleConfig(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
+		NotebookInstanceLifecycleConfigName string                 `json:"NotebookInstanceLifecycleConfigName"`
 		OnCreate                            []lifecycleHookRequest `json:"OnCreate,omitempty"`
 		OnStart                             []lifecycleHookRequest `json:"OnStart,omitempty"`
-		NotebookInstanceLifecycleConfigName string                 `json:"NotebookInstanceLifecycleConfigName"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -129,14 +129,14 @@ func (h *Handler) handleUpdateNotebookInstanceLifecycleConfig(
 	if req.OnCreate != nil {
 		onCreate = make([]NotebookLifecycleHook, len(req.OnCreate))
 		for i, h := range req.OnCreate {
-			onCreate[i] = NotebookLifecycleHook{Content: h.Content}
+			onCreate[i] = NotebookLifecycleHook(h)
 		}
 	}
 	var onStart []NotebookLifecycleHook
 	if req.OnStart != nil {
 		onStart = make([]NotebookLifecycleHook, len(req.OnStart))
 		for i, h := range req.OnStart {
-			onStart[i] = NotebookLifecycleHook{Content: h.Content}
+			onStart[i] = NotebookLifecycleHook(h)
 		}
 	}
 
@@ -288,9 +288,15 @@ func (h *Handler) handleSendPipelineExecutionStepSuccess(
 		stepName = "callback-step"
 	}
 
-	// Lenient: if execArn not found, return success (callback token may reference
-	// executions from before this session).
-	_ = h.Backend.SendPipelineExecutionStepSuccess(execArn, stepName)
+	// Propagate error when execArn is known; be lenient when it's empty
+	// (callback token may reference executions from before this session).
+	if execArn != "" {
+		if err := h.Backend.SendPipelineExecutionStepSuccess(execArn, stepName); err != nil {
+			return nil, err
+		}
+	} else {
+		_ = h.Backend.SendPipelineExecutionStepSuccess(execArn, stepName)
+	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: sent pipeline step success", "token", execArn)
@@ -322,8 +328,14 @@ func (h *Handler) handleSendPipelineExecutionStepFailure(
 		stepName = "callback-step"
 	}
 
-	// Lenient: tolerate missing execArn (stale callback token).
-	_ = h.Backend.SendPipelineExecutionStepFailure(execArn, stepName, req.FailureReason)
+	// Propagate error when execArn is known; be lenient when it's empty (stale callback token).
+	if execArn != "" {
+		if err := h.Backend.SendPipelineExecutionStepFailure(execArn, stepName, req.FailureReason); err != nil {
+			return nil, err
+		}
+	} else {
+		_ = h.Backend.SendPipelineExecutionStepFailure(execArn, stepName, req.FailureReason)
+	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: sent pipeline step failure", "token", execArn)
@@ -350,6 +362,11 @@ func (h *Handler) handleListPipelineExecutionSteps(_ context.Context, body []byt
 	}
 	if req.PipelineExecutionArn == "" {
 		return nil, fmt.Errorf("%w: PipelineExecutionArn is required", errInvalidRequest)
+	}
+
+	// Verify execution exists before listing steps.
+	if _, err := h.Backend.DescribePipelineExecution(req.PipelineExecutionArn); err != nil {
+		return nil, err
 	}
 
 	steps, nextToken := h.Backend.ListPipelineExecutionSteps(
@@ -384,16 +401,16 @@ func (h *Handler) handleListPipelineExecutionSteps(_ context.Context, body []byt
 // ---------------------------------------------------------------------------
 
 type processingAppSpecRequest struct {
+	ImageURI            string   `json:"ImageUri"`
 	ContainerArguments  []string `json:"ContainerArguments,omitempty"`
 	ContainerEntrypoint []string `json:"ContainerEntrypoint,omitempty"`
-	ImageUri            string   `json:"ImageUri"`
 }
 
 type processingClusterConfigRequest struct {
 	InstanceType   string `json:"InstanceType"`
+	VolumeKmsKeyID string `json:"VolumeKmsKeyId,omitempty"`
 	InstanceCount  int32  `json:"InstanceCount"`
 	VolumeSizeInGB int32  `json:"VolumeSizeInGB"`
-	VolumeKmsKeyId string `json:"VolumeKmsKeyId,omitempty"`
 }
 
 type processingResourcesRequest struct {
@@ -410,8 +427,8 @@ type processingS3InputRequest struct {
 }
 
 type processingInputRequest struct {
-	InputName  string                    `json:"InputName"`
 	S3Input    *processingS3InputRequest `json:"S3Input,omitempty"`
+	InputName  string                    `json:"InputName"`
 	AppManaged bool                      `json:"AppManaged,omitempty"`
 }
 
@@ -422,26 +439,26 @@ type processingS3OutputRequest struct {
 }
 
 type processingOutputRequest struct {
-	OutputName string                     `json:"OutputName"`
 	S3Output   *processingS3OutputRequest `json:"S3Output,omitempty"`
+	OutputName string                     `json:"OutputName"`
 	AppManaged bool                       `json:"AppManaged,omitempty"`
 }
 
 type processingOutputConfigRequest struct {
+	KmsKeyID string                    `json:"KmsKeyId,omitempty"`
 	Outputs  []processingOutputRequest `json:"Outputs,omitempty"`
-	KmsKeyId string                    `json:"KmsKeyId,omitempty"`
 }
 
 type createProcessingJobRequest struct {
-	AppSpecification       processingAppSpecRequest      `json:"AppSpecification"`
-	ProcessingResources    processingResourcesRequest    `json:"ProcessingResources"`
-	ProcessingInputs       []processingInputRequest      `json:"ProcessingInputs,omitempty"`
-	ProcessingOutputConfig processingOutputConfigRequest `json:"ProcessingOutputConfig,omitempty"`
 	VpcConfig              *VpcConfig                    `json:"VpcConfig,omitempty"`
 	Environment            map[string]string             `json:"Environment,omitempty"`
-	Tags                   []tagObject                   `json:"Tags"`
+	AppSpecification       processingAppSpecRequest      `json:"AppSpecification"`
+	ProcessingResources    processingResourcesRequest    `json:"ProcessingResources"`
+	ProcessingOutputConfig processingOutputConfigRequest `json:"ProcessingOutputConfig,omitempty"`
 	ProcessingJobName      string                        `json:"ProcessingJobName"`
 	RoleArn                string                        `json:"RoleArn,omitempty"`
+	ProcessingInputs       []processingInputRequest      `json:"ProcessingInputs,omitempty"`
+	Tags                   []tagObject                   `json:"Tags"`
 }
 
 func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([]byte, error) {
@@ -486,7 +503,7 @@ func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([
 		ProcessingJobName: req.ProcessingJobName,
 		RoleArn:           req.RoleArn,
 		AppSpecification: ProcessingAppSpec{
-			ImageUri:            req.AppSpecification.ImageUri,
+			ImageURI:            req.AppSpecification.ImageURI,
 			ContainerArguments:  req.AppSpecification.ContainerArguments,
 			ContainerEntrypoint: req.AppSpecification.ContainerEntrypoint,
 		},
@@ -495,13 +512,13 @@ func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([
 				InstanceType:   req.ProcessingResources.ClusterConfig.InstanceType,
 				InstanceCount:  req.ProcessingResources.ClusterConfig.InstanceCount,
 				VolumeSizeInGB: req.ProcessingResources.ClusterConfig.VolumeSizeInGB,
-				VolumeKmsKeyId: req.ProcessingResources.ClusterConfig.VolumeKmsKeyId,
+				VolumeKmsKeyID: req.ProcessingResources.ClusterConfig.VolumeKmsKeyID,
 			},
 		},
 		ProcessingInputs: inputs,
 		ProcessingOutputConfig: ProcessingOutputConfig{
 			Outputs:  outputs,
-			KmsKeyId: req.ProcessingOutputConfig.KmsKeyId,
+			KmsKeyID: req.ProcessingOutputConfig.KmsKeyID,
 		},
 		VpcConfig:   req.VpcConfig,
 		Environment: req.Environment,
@@ -697,8 +714,8 @@ func (h *Handler) handleUpdateEndpointWeightsAndCapacitiesFull(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
-		DesiredWeightsAndCapacities []DesiredWeightAndCapacity `json:"DesiredWeightsAndCapacities"`
 		EndpointName                string                     `json:"EndpointName"`
+		DesiredWeightsAndCapacities []DesiredWeightAndCapacity `json:"DesiredWeightsAndCapacities"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -731,20 +748,20 @@ func (h *Handler) handleUpdateEndpointWeightsAndCapacitiesFull(
 // ---------------------------------------------------------------------------
 
 type createNotebookInstanceFullRequest struct {
-	AdditionalCodeRepositories []string    `json:"AdditionalCodeRepositories,omitempty"`
-	AcceleratorTypes           []string    `json:"AcceleratorTypes,omitempty"`
-	SecurityGroupIds           []string    `json:"SecurityGroupIds,omitempty"`
-	Tags                       []tagObject `json:"Tags"`
-	NotebookInstanceName       string      `json:"NotebookInstanceName"`
-	InstanceType               string      `json:"InstanceType"`
-	RoleArn                    string      `json:"RoleArn"`
-	SubnetId                   string      `json:"SubnetId,omitempty"`
-	KmsKeyId                   string      `json:"KmsKeyId,omitempty"`
 	LifecycleConfigName        string      `json:"NotebookInstanceLifecycleConfigName,omitempty"`
 	DefaultCodeRepository      string      `json:"DefaultCodeRepository,omitempty"`
-	PlatformIdentifier         string      `json:"PlatformIdentifier,omitempty"`
-	DirectInternetAccess       string      `json:"DirectInternetAccess,omitempty"`
 	RootAccess                 string      `json:"RootAccess,omitempty"`
+	DirectInternetAccess       string      `json:"DirectInternetAccess,omitempty"`
+	NotebookInstanceName       string      `json:"NotebookInstanceName"`
+	InstanceType               string      `json:"InstanceType"`
+	PlatformIdentifier         string      `json:"PlatformIdentifier,omitempty"`
+	KmsKeyID                   string      `json:"KmsKeyId,omitempty"`
+	RoleArn                    string      `json:"RoleArn"`
+	SubnetID                   string      `json:"SubnetId,omitempty"`
+	AdditionalCodeRepositories []string    `json:"AdditionalCodeRepositories,omitempty"`
+	AcceleratorTypes           []string    `json:"AcceleratorTypes,omitempty"`
+	Tags                       []tagObject `json:"Tags"`
+	SecurityGroupIDs           []string    `json:"SecurityGroupIds,omitempty"`
 	VolumeSizeInGB             int32       `json:"VolumeSizeInGB,omitempty"`
 }
 
@@ -761,9 +778,9 @@ func (h *Handler) handleCreateNotebookInstanceFull(
 		Name:                       req.NotebookInstanceName,
 		InstanceType:               req.InstanceType,
 		RoleArn:                    req.RoleArn,
-		SubnetId:                   req.SubnetId,
-		SecurityGroupIds:           req.SecurityGroupIds,
-		KmsKeyId:                   req.KmsKeyId,
+		SubnetID:                   req.SubnetID,
+		SecurityGroupIDs:           req.SecurityGroupIDs,
+		KmsKeyID:                   req.KmsKeyID,
 		LifecycleConfigName:        req.LifecycleConfigName,
 		DirectInternetAccess:       req.DirectInternetAccess,
 		RootAccess:                 req.RootAccess,
@@ -789,60 +806,6 @@ func (h *Handler) handleCreateNotebookInstanceFull(
 	)
 
 	return json.Marshal(map[string]string{keyNotebookInstanceArn: nb.NotebookInstanceArn})
-}
-
-// handleStartNotebookInstanceFSM wraps StartNotebookInstanceFSM with proper status validation.
-func (h *Handler) handleStartNotebookInstanceFSM(ctx context.Context, body []byte) error {
-	var req struct {
-		NotebookInstanceName string `json:"NotebookInstanceName"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-	if req.NotebookInstanceName == "" {
-		return fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
-	}
-
-	if err := h.Backend.StartNotebookInstanceFSM(req.NotebookInstanceName); err != nil {
-		return err
-	}
-
-	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"sagemaker: started notebook instance (FSM)",
-		"name",
-		req.NotebookInstanceName,
-	)
-
-	return nil
-}
-
-// handleStopNotebookInstanceFSM wraps StopNotebookInstanceFSM with proper status validation.
-func (h *Handler) handleStopNotebookInstanceFSM(ctx context.Context, body []byte) error {
-	var req struct {
-		NotebookInstanceName string `json:"NotebookInstanceName"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-	if req.NotebookInstanceName == "" {
-		return fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
-	}
-
-	if err := h.Backend.StopNotebookInstanceFSM(req.NotebookInstanceName); err != nil {
-		return err
-	}
-
-	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"sagemaker: stopped notebook instance (FSM)",
-		"name",
-		req.NotebookInstanceName,
-	)
-
-	return nil
 }
 
 // handleDescribeNotebookInstanceFull returns all notebook fields.
@@ -875,15 +838,16 @@ func (h *Handler) handleDescribeNotebookInstanceFull(
 		keyLastModifiedTime:      epochSeconds(nb.LastModifiedTime),
 	}
 	addNotebookOptionalFields(resp, nb)
+
 	return json.Marshal(resp)
 }
 
 func addNotebookOptionalFields(resp map[string]any, nb *NotebookInstance) {
-	if nb.SubnetId != "" {
-		resp["SubnetId"] = nb.SubnetId
+	if nb.SubnetID != "" {
+		resp["SubnetId"] = nb.SubnetID
 	}
-	if nb.KmsKeyId != "" {
-		resp["KmsKeyId"] = nb.KmsKeyId
+	if nb.KmsKeyID != "" {
+		resp["KmsKeyId"] = nb.KmsKeyID
 	}
 	if nb.LifecycleConfigName != "" {
 		resp["NotebookInstanceLifecycleConfigName"] = nb.LifecycleConfigName
@@ -903,8 +867,8 @@ func addNotebookOptionalFields(resp map[string]any, nb *NotebookInstance) {
 	if nb.VolumeSizeInGB > 0 {
 		resp["VolumeSizeInGB"] = nb.VolumeSizeInGB
 	}
-	if len(nb.SecurityGroupIds) > 0 {
-		resp["SecurityGroupIds"] = nb.SecurityGroupIds
+	if len(nb.SecurityGroupIDs) > 0 {
+		resp["SecurityGroupIds"] = nb.SecurityGroupIDs
 	}
 	if len(nb.AcceleratorTypes) > 0 {
 		resp["AcceleratorTypes"] = nb.AcceleratorTypes
@@ -918,14 +882,14 @@ func addNotebookOptionalFields(resp map[string]any, nb *NotebookInstance) {
 }
 
 // handleUpdateNotebookInstanceFull supports all mutable fields (#1 update coverage).
-func (h *Handler) handleUpdateNotebookInstanceFullFull(ctx context.Context, body []byte) error {
+func (h *Handler) handleUpdateNotebookInstanceFull(ctx context.Context, body []byte) error {
 	var req struct {
-		AdditionalCodeRepositories             []string `json:"AdditionalCodeRepositories,omitempty"`
 		NotebookInstanceName                   string   `json:"NotebookInstanceName"`
 		InstanceType                           string   `json:"InstanceType,omitempty"`
 		RoleArn                                string   `json:"RoleArn,omitempty"`
 		LifecycleConfigName                    string   `json:"NotebookInstanceLifecycleConfigName,omitempty"`
 		DefaultCodeRepository                  string   `json:"DefaultCodeRepository,omitempty"`
+		AdditionalCodeRepositories             []string `json:"AdditionalCodeRepositories,omitempty"`
 		VolumeSizeInGB                         int32    `json:"VolumeSizeInGB,omitempty"`
 		DisassociateLifecycleConfig            bool     `json:"DisassociateLifecycleConfig,omitempty"`
 		DisassociateDefaultCodeRepository      bool     `json:"DisassociateDefaultCodeRepository,omitempty"`
@@ -968,29 +932,29 @@ func (h *Handler) handleUpdateNotebookInstanceFullFull(ctx context.Context, body
 // ---------------------------------------------------------------------------
 
 type createTrainingJobFullRequest struct {
+	Environment            map[string]string `json:"Environment,omitempty"`
+	VpcConfig              *VpcConfig        `json:"VpcConfig,omitempty"`
+	CheckpointConfig       *CheckpointConfig `json:"CheckpointConfig,omitempty"`
+	HyperParameters        map[string]string `json:"HyperParameters,omitempty"`
+	OutputDataConfig       OutputDataConfig  `json:"OutputDataConfig,omitempty"`
+	TrainingJobName        string            `json:"TrainingJobName"`
+	RoleArn                string            `json:"RoleArn"`
 	AlgorithmSpecification struct {
+		TrainingImage     string `json:"TrainingImage,omitempty"`
+		AlgorithmName     string `json:"AlgorithmName,omitempty"`
+		TrainingInputMode string `json:"TrainingInputMode,omitempty"`
 		MetricDefinitions []struct {
 			Name  string `json:"Name"`
 			Regex string `json:"Regex,omitempty"`
 		} `json:"MetricDefinitions,omitempty"`
 		ContainerEntrypoint              []string `json:"ContainerEntrypoint,omitempty"`
 		ContainerArguments               []string `json:"ContainerArguments,omitempty"`
-		TrainingImage                    string   `json:"TrainingImage,omitempty"`
-		AlgorithmName                    string   `json:"AlgorithmName,omitempty"`
-		TrainingInputMode                string   `json:"TrainingInputMode,omitempty"`
 		EnableSageMakerMetricsTimeSeries bool     `json:"EnableSageMakerMetricsTimeSeries,omitempty"`
 	} `json:"AlgorithmSpecification"`
+	Tags                                  []tagObject       `json:"Tags"`
 	InputDataConfig                       []Channel         `json:"InputDataConfig,omitempty"`
-	OutputDataConfig                      OutputDataConfig  `json:"OutputDataConfig,omitempty"`
 	ResourceConfig                        ResourceConfig    `json:"ResourceConfig,omitempty"`
 	StoppingCondition                     StoppingCondition `json:"StoppingCondition,omitempty"`
-	VpcConfig                             *VpcConfig        `json:"VpcConfig,omitempty"`
-	CheckpointConfig                      *CheckpointConfig `json:"CheckpointConfig,omitempty"`
-	HyperParameters                       map[string]string `json:"HyperParameters,omitempty"`
-	Environment                           map[string]string `json:"Environment,omitempty"`
-	Tags                                  []tagObject       `json:"Tags"`
-	TrainingJobName                       string            `json:"TrainingJobName"`
-	RoleArn                               string            `json:"RoleArn"`
 	EnableNetworkIsolation                bool              `json:"EnableNetworkIsolation,omitempty"`
 	EnableManagedSpotTraining             bool              `json:"EnableManagedSpotTraining,omitempty"`
 	EnableInterContainerTrafficEncryption bool              `json:"EnableInterContainerTrafficEncryption,omitempty"`
@@ -1081,6 +1045,7 @@ func (h *Handler) handleDescribeTrainingJobFull(_ context.Context, body []byte) 
 		keyLastModifiedTime:      epochSeconds(tj.LastModifiedTime),
 	}
 	addTrainingJobOptionalFields(resp, tj)
+
 	return json.Marshal(resp)
 }
 
@@ -1141,6 +1106,7 @@ func buildSecondaryStatusTransitions(transitions []SecondaryStatusTransition) []
 		}
 		result[i] = entry
 	}
+
 	return result
 }
 
@@ -1167,22 +1133,34 @@ func (h *Handler) handleStopTrainingJobFSM(ctx context.Context, body []byte) err
 
 func (h *Handler) handleListTrainingJobsFiltered(body []byte) ([]byte, error) {
 	var req struct {
-		CreationTimeAfter  *time.Time `json:"CreationTimeAfter,omitempty"`
-		CreationTimeBefore *time.Time `json:"CreationTimeBefore,omitempty"`
-		NextToken          string     `json:"NextToken"`
-		NameContains       string     `json:"NameContains,omitempty"`
-		StatusEquals       string     `json:"StatusEquals,omitempty"`
-		MaxResults         int32      `json:"MaxResults,omitempty"`
+		CreationTimeAfterEpoch  *float64 `json:"CreationTimeAfter,omitempty"`
+		CreationTimeBeforeEpoch *float64 `json:"CreationTimeBefore,omitempty"`
+		NextToken               string   `json:"NextToken"`
+		NameContains            string   `json:"NameContains,omitempty"`
+		StatusEquals            string   `json:"StatusEquals,omitempty"`
+		MaxResults              int32    `json:"MaxResults,omitempty"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	var creationTimeAfter, creationTimeBefore *time.Time
+
+	if req.CreationTimeAfterEpoch != nil {
+		t := time.Unix(int64(*req.CreationTimeAfterEpoch), 0)
+		creationTimeAfter = &t
+	}
+
+	if req.CreationTimeBeforeEpoch != nil {
+		t := time.Unix(int64(*req.CreationTimeBeforeEpoch), 0)
+		creationTimeBefore = &t
+	}
+
 	jobs, nextToken := h.Backend.ListTrainingJobsFiltered(req.NextToken, ListTrainingJobsFilter{
 		StatusEquals:       req.StatusEquals,
 		NameContains:       req.NameContains,
-		CreationTimeAfter:  req.CreationTimeAfter,
-		CreationTimeBefore: req.CreationTimeBefore,
+		CreationTimeAfter:  creationTimeAfter,
+		CreationTimeBefore: creationTimeBefore,
 		MaxResults:         req.MaxResults,
 	})
 

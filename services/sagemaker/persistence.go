@@ -135,6 +135,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	b.restoreFields(&snap)
+	b.resetLifecycleContext() // cancel pending goroutines, create fresh context
 	b.rebuildARNIndexes()
 
 	return nil

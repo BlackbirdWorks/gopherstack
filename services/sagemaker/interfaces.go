@@ -12,6 +12,12 @@ type StorageBackend interface {
 	DescribeModel(name string) (*Model, error)
 	ListModels(nextToken string) ([]*Model, string)
 	DeleteModel(name string) error
+	SetModelExtras(
+		name string,
+		vpcConfig *VpcConfig,
+		enableNetworkIsolation bool,
+		inferenceExecConfig *InferenceExecutionConfig,
+	) error
 
 	CreateEndpointConfig(
 		name string,
@@ -21,6 +27,16 @@ type StorageBackend interface {
 	DescribeEndpointConfig(name string) (*EndpointConfig, error)
 	ListEndpointConfigs(nextToken string) ([]*EndpointConfig, string)
 	DeleteEndpointConfig(name string) error
+	SetEndpointConfigExtras(
+		name string,
+		dataCaptureConfig *DataCaptureConfig,
+		asyncInferenceConfig *AsyncInferenceConfig,
+		vpcConfig *VpcConfig,
+		executionRoleArn string,
+		kmsKeyID string,
+		shadowProductionVariants []ProductionVariant,
+		enableNetworkIsolation bool,
+	) error
 
 	AddTags(resourceARN string, tags map[string]string) error
 	ListTags(resourceARN string) (map[string]string, error)

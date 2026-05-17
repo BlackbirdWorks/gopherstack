@@ -411,6 +411,7 @@ func (h *Handler) dispatchTrainingJobOps(
 		return r, true, err
 	}
 	r, handled, err = h.dispatchPipelineOps(ctx, op, body)
+
 	return r, handled, err
 }
 
@@ -420,12 +421,15 @@ func (h *Handler) dispatchTrainingOps(
 	switch op {
 	case "CreateTrainingJob":
 		r, err := h.handleCreateTrainingJobFull(ctx, body)
+
 		return r, true, err
 	case "DescribeTrainingJob":
 		r, err := h.handleDescribeTrainingJobFull(ctx, body)
+
 		return r, true, err
 	case "ListTrainingJobs":
 		r, err := h.handleListTrainingJobsFiltered(body)
+
 		return r, true, err
 	case "StopTrainingJob":
 		return nil, true, h.handleStopTrainingJobFSM(ctx, body)
@@ -433,8 +437,10 @@ func (h *Handler) dispatchTrainingOps(
 		return nil, true, h.handleDeleteTrainingJob(ctx, body)
 	case "UpdateTrainingJob":
 		r, err := h.handleUpdateTrainingJob(ctx, body)
+
 		return r, true, err
 	}
+
 	return nil, false, nil
 }
 
@@ -444,16 +450,20 @@ func (h *Handler) dispatchProcessingOps(
 	switch op {
 	case "CreateProcessingJob":
 		r, err := h.handleCreateProcessingJob(ctx, body)
+
 		return r, true, err
 	case "DescribeProcessingJob":
 		r, err := h.handleDescribeProcessingJob(ctx, body)
+
 		return r, true, err
 	case "StopProcessingJob":
 		return nil, true, h.handleStopProcessingJob(ctx, body)
 	case "ListProcessingJobs":
 		r, err := h.handleListProcessingJobs(body)
+
 		return r, true, err
 	}
+
 	return nil, false, nil
 }
 
@@ -463,20 +473,26 @@ func (h *Handler) dispatchPipelineOps(
 	switch op {
 	case "RetryPipelineExecution":
 		r, err := h.handleRetryPipelineExecution(ctx, body)
+
 		return r, true, err
 	case "StopPipelineExecution":
 		r, err := h.handleStopPipelineExecution(ctx, body)
+
 		return r, true, err
 	case "SendPipelineExecutionStepSuccess":
 		r, err := h.handleSendPipelineExecutionStepSuccess(ctx, body)
+
 		return r, true, err
 	case "SendPipelineExecutionStepFailure":
 		r, err := h.handleSendPipelineExecutionStepFailure(ctx, body)
+
 		return r, true, err
 	case "ListPipelineExecutionSteps":
 		r, err := h.handleListPipelineExecutionSteps(ctx, body)
+
 		return r, true, err
 	}
+
 	return nil, false, nil
 }
 
@@ -503,7 +519,7 @@ func (h *Handler) dispatchNotebookOps(
 	case "StopNotebookInstance":
 		return nil, true, h.handleStopNotebookInstance(ctx, body)
 	case "UpdateNotebookInstance":
-		return nil, true, h.handleUpdateNotebookInstanceFullFull(ctx, body)
+		return nil, true, h.handleUpdateNotebookInstanceFull(ctx, body)
 	case "CreatePresignedNotebookInstanceUrl":
 		r, err := h.handleCreatePresignedNotebookInstanceURL(ctx, body)
 
@@ -633,11 +649,14 @@ func fromTagObjects(tags []tagObject) map[string]string {
 
 // createModelRequest is the request body for CreateModel.
 type createModelRequest struct {
-	PrimaryContainer *ContainerDefinition  `json:"PrimaryContainer"`
-	ModelName        string                `json:"ModelName"`
-	ExecutionRoleArn string                `json:"ExecutionRoleArn"`
-	Tags             []tagObject           `json:"Tags"`
-	Containers       []ContainerDefinition `json:"Containers"`
+	PrimaryContainer         *ContainerDefinition      `json:"PrimaryContainer"`
+	VpcConfig                *VpcConfig                `json:"VpcConfig,omitempty"`
+	InferenceExecutionConfig *InferenceExecutionConfig `json:"InferenceExecutionConfig,omitempty"`
+	ModelName                string                    `json:"ModelName"`
+	ExecutionRoleArn         string                    `json:"ExecutionRoleArn"`
+	Tags                     []tagObject               `json:"Tags"`
+	Containers               []ContainerDefinition     `json:"Containers"`
+	EnableNetworkIsolation   bool                      `json:"EnableNetworkIsolation,omitempty"`
 }
 
 // modelSummary is a summary of a SageMaker model for list responses.
@@ -649,12 +668,15 @@ type modelSummary struct {
 
 // describeModelResponse is the response body for DescribeModel.
 type describeModelResponse struct {
-	PrimaryContainer *ContainerDefinition  `json:"PrimaryContainer,omitempty"`
-	ModelArn         string                `json:"ModelArn"`
-	ModelName        string                `json:"ModelName"`
-	ExecutionRoleArn string                `json:"ExecutionRoleArn"`
-	Containers       []ContainerDefinition `json:"Containers,omitempty"`
-	CreationTime     float64               `json:"CreationTime"`
+	PrimaryContainer         *ContainerDefinition      `json:"PrimaryContainer,omitempty"`
+	VpcConfig                *VpcConfig                `json:"VpcConfig,omitempty"`
+	InferenceExecutionConfig *InferenceExecutionConfig `json:"InferenceExecutionConfig,omitempty"`
+	ModelArn                 string                    `json:"ModelArn"`
+	ModelName                string                    `json:"ModelName"`
+	ExecutionRoleArn         string                    `json:"ExecutionRoleArn"`
+	Containers               []ContainerDefinition     `json:"Containers,omitempty"`
+	CreationTime             float64                   `json:"CreationTime"`
+	EnableNetworkIsolation   bool                      `json:"EnableNetworkIsolation,omitempty"`
 }
 
 func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, error) {
@@ -678,6 +700,17 @@ func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, e
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if req.VpcConfig != nil || req.EnableNetworkIsolation || req.InferenceExecutionConfig != nil {
+		if extErr := h.Backend.SetModelExtras(
+			req.ModelName,
+			req.VpcConfig,
+			req.EnableNetworkIsolation,
+			req.InferenceExecutionConfig,
+		); extErr != nil {
+			return nil, extErr
+		}
 	}
 
 	log := logger.Load(ctx)
@@ -705,12 +738,15 @@ func (h *Handler) handleDescribeModel(_ context.Context, body []byte) ([]byte, e
 	}
 
 	resp := describeModelResponse{
-		ModelName:        m.ModelName,
-		ModelArn:         m.ModelARN,
-		ExecutionRoleArn: m.ExecutionRoleARN,
-		CreationTime:     epochSeconds(m.CreationTime),
-		PrimaryContainer: m.PrimaryContainer,
-		Containers:       m.Containers,
+		ModelName:                m.ModelName,
+		ModelArn:                 m.ModelARN,
+		ExecutionRoleArn:         m.ExecutionRoleARN,
+		CreationTime:             epochSeconds(m.CreationTime),
+		PrimaryContainer:         m.PrimaryContainer,
+		Containers:               m.Containers,
+		VpcConfig:                m.VpcConfig,
+		EnableNetworkIsolation:   m.EnableNetworkIsolation,
+		InferenceExecutionConfig: m.InferenceExecutionConfig,
 	}
 
 	if len(resp.Containers) == 0 {
@@ -773,9 +809,16 @@ func (h *Handler) handleDeleteModel(ctx context.Context, body []byte) error {
 
 // createEndpointConfigRequest is the request body for CreateEndpointConfig.
 type createEndpointConfigRequest struct {
-	EndpointConfigName string              `json:"EndpointConfigName"`
-	Tags               []tagObject         `json:"Tags"`
-	ProductionVariants []ProductionVariant `json:"ProductionVariants"`
+	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
+	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
+	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
+	EndpointConfigName       string                `json:"EndpointConfigName"`
+	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
+	KmsKeyID                 string                `json:"KmsKeyId,omitempty"`
+	Tags                     []tagObject           `json:"Tags"`
+	ProductionVariants       []ProductionVariant   `json:"ProductionVariants"`
+	ShadowProductionVariants []ProductionVariant   `json:"ShadowProductionVariants,omitempty"`
+	EnableNetworkIsolation   bool                  `json:"EnableNetworkIsolation,omitempty"`
 }
 
 // endpointConfigSummary is a summary of an endpoint config for list responses.
@@ -787,10 +830,17 @@ type endpointConfigSummary struct {
 
 // describeEndpointConfigResponse is the response body for DescribeEndpointConfig.
 type describeEndpointConfigResponse struct {
-	EndpointConfigArn  string              `json:"EndpointConfigArn"`
-	EndpointConfigName string              `json:"EndpointConfigName"`
-	ProductionVariants []ProductionVariant `json:"ProductionVariants"`
-	CreationTime       float64             `json:"CreationTime"`
+	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
+	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
+	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
+	EndpointConfigArn        string                `json:"EndpointConfigArn"`
+	EndpointConfigName       string                `json:"EndpointConfigName"`
+	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
+	KmsKeyID                 string                `json:"KmsKeyId,omitempty"`
+	ProductionVariants       []ProductionVariant   `json:"ProductionVariants"`
+	ShadowProductionVariants []ProductionVariant   `json:"ShadowProductionVariants,omitempty"`
+	CreationTime             float64               `json:"CreationTime"`
+	EnableNetworkIsolation   bool                  `json:"EnableNetworkIsolation,omitempty"`
 }
 
 func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) ([]byte, error) {
@@ -808,6 +858,25 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 	ec, err := h.Backend.CreateEndpointConfig(req.EndpointConfigName, req.ProductionVariants, tags)
 	if err != nil {
 		return nil, err
+	}
+
+	hasExtras := req.DataCaptureConfig != nil || req.AsyncInferenceConfig != nil ||
+		req.VpcConfig != nil || req.ExecutionRoleArn != "" || req.KmsKeyID != "" ||
+		len(req.ShadowProductionVariants) > 0 || req.EnableNetworkIsolation
+
+	if hasExtras {
+		if extErr := h.Backend.SetEndpointConfigExtras(
+			req.EndpointConfigName,
+			req.DataCaptureConfig,
+			req.AsyncInferenceConfig,
+			req.VpcConfig,
+			req.ExecutionRoleArn,
+			req.KmsKeyID,
+			req.ShadowProductionVariants,
+			req.EnableNetworkIsolation,
+		); extErr != nil {
+			return nil, extErr
+		}
 	}
 
 	log := logger.Load(ctx)
@@ -842,14 +911,25 @@ func (h *Handler) handleDescribeEndpointConfig(_ context.Context, body []byte) (
 	}
 
 	resp := describeEndpointConfigResponse{
-		EndpointConfigName: ec.EndpointConfigName,
-		EndpointConfigArn:  ec.EndpointConfigARN,
-		ProductionVariants: ec.ProductionVariants,
-		CreationTime:       epochSeconds(ec.CreationTime),
+		EndpointConfigName:       ec.EndpointConfigName,
+		EndpointConfigArn:        ec.EndpointConfigARN,
+		ProductionVariants:       ec.ProductionVariants,
+		CreationTime:             epochSeconds(ec.CreationTime),
+		DataCaptureConfig:        ec.DataCaptureConfig,
+		AsyncInferenceConfig:     ec.AsyncInferenceConfig,
+		VpcConfig:                ec.VpcConfig,
+		ExecutionRoleArn:         ec.ExecutionRoleArn,
+		KmsKeyID:                 ec.KmsKeyID,
+		ShadowProductionVariants: ec.ShadowProductionVariants,
+		EnableNetworkIsolation:   ec.EnableNetworkIsolation,
 	}
 
 	if len(resp.ProductionVariants) == 0 {
 		resp.ProductionVariants = nil
+	}
+
+	if len(resp.ShadowProductionVariants) == 0 {
+		resp.ShadowProductionVariants = nil
 	}
 
 	return json.Marshal(resp)

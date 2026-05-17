@@ -40,12 +40,12 @@ type Endpoint struct {
 	CreationTime       time.Time           `json:"CreationTime"`
 	LastModifiedTime   time.Time           `json:"LastModifiedTime"`
 	Tags               map[string]string   `json:"Tags,omitempty"`
-	ProductionVariants []ProductionVariant `json:"ProductionVariants,omitempty"`
 	EndpointName       string              `json:"EndpointName"`
 	EndpointArn        string              `json:"EndpointArn"`
 	EndpointConfigName string              `json:"EndpointConfigName"`
 	EndpointStatus     string              `json:"EndpointStatus"`
 	FailureReason      string              `json:"FailureReason,omitempty"`
+	ProductionVariants []ProductionVariant `json:"ProductionVariants,omitempty"`
 }
 
 // cloneEndpoint returns a deep copy of ep.
@@ -53,35 +53,37 @@ func cloneEndpoint(ep *Endpoint) *Endpoint {
 	cp := *ep
 	cp.Tags = maps.Clone(ep.Tags)
 	cp.ProductionVariants = make([]ProductionVariant, len(ep.ProductionVariants))
-	copy(cp.ProductionVariants, ep.ProductionVariants)
+	for i, pv := range ep.ProductionVariants {
+		cp.ProductionVariants[i] = cloneProductionVariant(pv)
+	}
 
 	return &cp
 }
 
 // TrainingJob represents a SageMaker training job.
 type TrainingJob struct {
-	CreationTime                          time.Time                   `json:"CreationTime"`
 	LastModifiedTime                      time.Time                   `json:"LastModifiedTime"`
+	CreationTime                          time.Time                   `json:"CreationTime"`
+	VpcConfig                             *VpcConfig                  `json:"VpcConfig,omitempty"`
 	TrainingStartTime                     *time.Time                  `json:"TrainingStartTime,omitempty"`
 	TrainingEndTime                       *time.Time                  `json:"TrainingEndTime,omitempty"`
 	Tags                                  map[string]string           `json:"Tags,omitempty"`
 	HyperParameters                       map[string]string           `json:"HyperParameters,omitempty"`
 	Environment                           map[string]string           `json:"Environment,omitempty"`
+	ModelArtifacts                        *ModelArtifacts             `json:"ModelArtifacts,omitempty"`
+	CheckpointConfig                      *CheckpointConfig           `json:"CheckpointConfig,omitempty"`
+	OutputDataConfig                      OutputDataConfig            `json:"OutputDataConfig,omitempty"`
+	SecondaryStatus                       string                      `json:"SecondaryStatus,omitempty"`
+	FailureReason                         string                      `json:"FailureReason,omitempty"`
+	TrainingJobName                       string                      `json:"TrainingJobName"`
+	TrainingJobArn                        string                      `json:"TrainingJobArn"`
+	RoleArn                               string                      `json:"RoleArn,omitempty"`
+	TrainingJobStatus                     string                      `json:"TrainingJobStatus"`
 	InputDataConfig                       []Channel                   `json:"InputDataConfig,omitempty"`
 	SecondaryStatusTransitions            []SecondaryStatusTransition `json:"SecondaryStatusTransitions,omitempty"`
 	AlgorithmSpecification                AlgorithmSpecification      `json:"AlgorithmSpecification,omitempty"`
-	OutputDataConfig                      OutputDataConfig            `json:"OutputDataConfig,omitempty"`
 	ResourceConfig                        ResourceConfig              `json:"ResourceConfig,omitempty"`
 	StoppingCondition                     StoppingCondition           `json:"StoppingCondition,omitempty"`
-	VpcConfig                             *VpcConfig                  `json:"VpcConfig,omitempty"`
-	CheckpointConfig                      *CheckpointConfig           `json:"CheckpointConfig,omitempty"`
-	ModelArtifacts                        *ModelArtifacts             `json:"ModelArtifacts,omitempty"`
-	TrainingJobName                       string                      `json:"TrainingJobName"`
-	TrainingJobArn                        string                      `json:"TrainingJobArn"`
-	TrainingJobStatus                     string                      `json:"TrainingJobStatus"`
-	SecondaryStatus                       string                      `json:"SecondaryStatus,omitempty"`
-	RoleArn                               string                      `json:"RoleArn,omitempty"`
-	FailureReason                         string                      `json:"FailureReason,omitempty"`
 	BillableTimeInSeconds                 int32                       `json:"BillableTimeInSeconds,omitempty"`
 	TrainingTimeInSeconds                 int32                       `json:"TrainingTimeInSeconds,omitempty"`
 	EnableNetworkIsolation                bool                        `json:"EnableNetworkIsolation,omitempty"`
@@ -102,6 +104,21 @@ func cloneTrainingJob(tj *TrainingJob) *TrainingJob {
 		len(tj.SecondaryStatusTransitions),
 	)
 	copy(cp.SecondaryStatusTransitions, tj.SecondaryStatusTransitions)
+	if tj.VpcConfig != nil {
+		vpc := *tj.VpcConfig
+		vpc.SecurityGroupIDs = append([]string(nil), tj.VpcConfig.SecurityGroupIDs...)
+		vpc.Subnets = append([]string(nil), tj.VpcConfig.Subnets...)
+		cp.VpcConfig = &vpc
+	}
+	if tj.CheckpointConfig != nil {
+		cc := *tj.CheckpointConfig
+		cp.CheckpointConfig = &cc
+	}
+	if tj.ModelArtifacts != nil {
+		ma := *tj.ModelArtifacts
+		cp.ModelArtifacts = &ma
+	}
+
 	return &cp
 }
 
@@ -110,22 +127,22 @@ type NotebookInstance struct {
 	CreationTime               time.Time         `json:"CreationTime"`
 	LastModifiedTime           time.Time         `json:"LastModifiedTime"`
 	Tags                       map[string]string `json:"Tags,omitempty"`
-	SecurityGroupIds           []string          `json:"SecurityGroupIds,omitempty"`
-	AcceleratorTypes           []string          `json:"AcceleratorTypes,omitempty"`
-	AdditionalCodeRepositories []string          `json:"AdditionalCodeRepositories,omitempty"`
+	RootAccess                 string            `json:"RootAccess,omitempty"`
+	KmsKeyID                   string            `json:"KmsKeyId,omitempty"`
+	URL                        string            `json:"Url,omitempty"`
 	NotebookInstanceName       string            `json:"NotebookInstanceName"`
 	NotebookInstanceArn        string            `json:"NotebookInstanceArn"`
 	NotebookInstanceStatus     string            `json:"NotebookInstanceStatus"`
 	InstanceType               string            `json:"InstanceType,omitempty"`
 	RoleArn                    string            `json:"RoleArn,omitempty"`
-	SubnetId                   string            `json:"SubnetId,omitempty"`
-	KmsKeyId                   string            `json:"KmsKeyId,omitempty"`
+	SubnetID                   string            `json:"SubnetId,omitempty"`
+	PlatformIdentifier         string            `json:"PlatformIdentifier,omitempty"`
 	LifecycleConfigName        string            `json:"NotebookInstanceLifecycleConfigName,omitempty"`
 	DirectInternetAccess       string            `json:"DirectInternetAccess,omitempty"`
-	RootAccess                 string            `json:"RootAccess,omitempty"`
 	DefaultCodeRepository      string            `json:"DefaultCodeRepository,omitempty"`
-	PlatformIdentifier         string            `json:"PlatformIdentifier,omitempty"`
-	URL                        string            `json:"Url,omitempty"`
+	SecurityGroupIDs           []string          `json:"SecurityGroupIds,omitempty"`
+	AcceleratorTypes           []string          `json:"AcceleratorTypes,omitempty"`
+	AdditionalCodeRepositories []string          `json:"AdditionalCodeRepositories,omitempty"`
 	VolumeSizeInGB             int32             `json:"VolumeSizeInGB,omitempty"`
 }
 
@@ -133,6 +150,9 @@ type NotebookInstance struct {
 func cloneNotebook(nb *NotebookInstance) *NotebookInstance {
 	cp := *nb
 	cp.Tags = maps.Clone(nb.Tags)
+	cp.SecurityGroupIDs = append([]string(nil), nb.SecurityGroupIDs...)
+	cp.AcceleratorTypes = append([]string(nil), nb.AcceleratorTypes...)
+	cp.AdditionalCodeRepositories = append([]string(nil), nb.AdditionalCodeRepositories...)
 
 	return &cp
 }

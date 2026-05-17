@@ -110,6 +110,14 @@ type Model struct {
 // cloneContainer returns a deep copy of a ContainerDefinition, including its Environment map.
 func cloneContainer(c ContainerDefinition) ContainerDefinition {
 	c.Environment = maps.Clone(c.Environment)
+	if c.ImageConfig != nil {
+		ic := *c.ImageConfig
+		c.ImageConfig = &ic
+	}
+	if c.MultiModelConfig != nil {
+		mc := *c.MultiModelConfig
+		c.MultiModelConfig = &mc
+	}
 
 	return c
 }
@@ -130,6 +138,17 @@ func cloneModel(m *Model) *Model {
 		cp.Containers[i] = cloneContainer(c)
 	}
 
+	if m.VpcConfig != nil {
+		vpc := *m.VpcConfig
+		vpc.SecurityGroupIDs = append([]string(nil), m.VpcConfig.SecurityGroupIDs...)
+		vpc.Subnets = append([]string(nil), m.VpcConfig.Subnets...)
+		cp.VpcConfig = &vpc
+	}
+	if m.InferenceExecutionConfig != nil {
+		iec := *m.InferenceExecutionConfig
+		cp.InferenceExecutionConfig = &iec
+	}
+
 	return &cp
 }
 
@@ -143,7 +162,7 @@ type ServerlessConfig struct {
 // CoreDumpConfig specifies where core dumps are stored.
 type CoreDumpConfig struct {
 	DestinationS3Uri string `json:"DestinationS3Uri,omitempty"`
-	KmsKeyId         string `json:"KmsKeyId,omitempty"`
+	KmsKeyID         string `json:"KmsKeyId,omitempty"`
 }
 
 // ProductionVariant holds configuration for a production variant in an endpoint config.
@@ -167,7 +186,7 @@ type ProductionVariant struct {
 type DataCaptureConfig struct {
 	DestinationS3Uri          string `json:"DestinationS3Uri"`
 	CaptureMode               string `json:"CaptureMode,omitempty"`
-	KmsKeyId                  string `json:"KmsKeyId,omitempty"`
+	KmsKeyID                  string `json:"KmsKeyId,omitempty"`
 	InitialSamplingPercentage int32  `json:"InitialSamplingPercentage,omitempty"`
 	EnableCapture             bool   `json:"EnableCapture,omitempty"`
 }
@@ -180,7 +199,7 @@ type AsyncInferenceConfig struct {
 // AsyncOutputConfig specifies the async inference output location.
 type AsyncOutputConfig struct {
 	S3OutputPath string `json:"S3OutputPath"`
-	KmsKeyId     string `json:"KmsKeyId,omitempty"`
+	KmsKeyID     string `json:"KmsKeyId,omitempty"`
 }
 
 // EndpointConfig represents a SageMaker endpoint configuration.
@@ -190,13 +209,27 @@ type EndpointConfig struct {
 	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
 	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
 	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
-	ProductionVariants       []ProductionVariant   `json:"ProductionVariants,omitempty"`
-	ShadowProductionVariants []ProductionVariant   `json:"ShadowProductionVariants,omitempty"`
 	EndpointConfigName       string                `json:"EndpointConfigName"`
 	EndpointConfigARN        string                `json:"EndpointConfigARN"`
 	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
-	KmsKeyId                 string                `json:"KmsKeyId,omitempty"`
+	KmsKeyID                 string                `json:"KmsKeyId,omitempty"`
+	ProductionVariants       []ProductionVariant   `json:"ProductionVariants,omitempty"`
+	ShadowProductionVariants []ProductionVariant   `json:"ShadowProductionVariants,omitempty"`
 	EnableNetworkIsolation   bool                  `json:"EnableNetworkIsolation,omitempty"`
+}
+
+// cloneProductionVariant returns a deep copy of a ProductionVariant.
+func cloneProductionVariant(pv ProductionVariant) ProductionVariant {
+	if pv.ServerlessConfig != nil {
+		sc := *pv.ServerlessConfig
+		pv.ServerlessConfig = &sc
+	}
+	if pv.CoreDumpConfig != nil {
+		cdc := *pv.CoreDumpConfig
+		pv.CoreDumpConfig = &cdc
+	}
+
+	return pv
 }
 
 // cloneEndpointConfig returns a deep copy of ec.
@@ -204,9 +237,27 @@ func cloneEndpointConfig(ec *EndpointConfig) *EndpointConfig {
 	cp := *ec
 	cp.Tags = maps.Clone(ec.Tags)
 	cp.ProductionVariants = make([]ProductionVariant, len(ec.ProductionVariants))
-	copy(cp.ProductionVariants, ec.ProductionVariants)
+	for i, pv := range ec.ProductionVariants {
+		cp.ProductionVariants[i] = cloneProductionVariant(pv)
+	}
 	cp.ShadowProductionVariants = make([]ProductionVariant, len(ec.ShadowProductionVariants))
-	copy(cp.ShadowProductionVariants, ec.ShadowProductionVariants)
+	for i, pv := range ec.ShadowProductionVariants {
+		cp.ShadowProductionVariants[i] = cloneProductionVariant(pv)
+	}
+	if ec.VpcConfig != nil {
+		vpc := *ec.VpcConfig
+		vpc.SecurityGroupIDs = append([]string(nil), ec.VpcConfig.SecurityGroupIDs...)
+		vpc.Subnets = append([]string(nil), ec.VpcConfig.Subnets...)
+		cp.VpcConfig = &vpc
+	}
+	if ec.DataCaptureConfig != nil {
+		dcc := *ec.DataCaptureConfig
+		cp.DataCaptureConfig = &dcc
+	}
+	if ec.AsyncInferenceConfig != nil {
+		aic := *ec.AsyncInferenceConfig
+		cp.AsyncInferenceConfig = &aic
+	}
 
 	return &cp
 }
@@ -437,6 +488,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mu:                         lockmetrics.New("sagemaker"),
 	}
 	b.resetLifecycleContext()
+
 	return b
 }
 
@@ -596,6 +648,39 @@ func (b *InMemoryBackend) DeleteModel(name string) error {
 	return nil
 }
 
+// SetModelExtras sets optional fields on an existing model that were not included
+// in the original CreateModel signature (VpcConfig, EnableNetworkIsolation, InferenceExecutionConfig).
+func (b *InMemoryBackend) SetModelExtras(
+	name string,
+	vpcConfig *VpcConfig,
+	enableNetworkIsolation bool,
+	inferenceExecConfig *InferenceExecutionConfig,
+) error {
+	b.mu.Lock("SetModelExtras")
+	defer b.mu.Unlock()
+
+	m, ok := b.models[name]
+	if !ok {
+		return fmt.Errorf("%w: could not find model %q", ErrModelNotFound, name)
+	}
+
+	if vpcConfig != nil {
+		vpc := *vpcConfig
+		vpc.SecurityGroupIDs = append([]string(nil), vpcConfig.SecurityGroupIDs...)
+		vpc.Subnets = append([]string(nil), vpcConfig.Subnets...)
+		m.VpcConfig = &vpc
+	}
+
+	m.EnableNetworkIsolation = enableNetworkIsolation
+
+	if inferenceExecConfig != nil {
+		iec := *inferenceExecConfig
+		m.InferenceExecutionConfig = &iec
+	}
+
+	return nil
+}
+
 // CreateEndpointConfig creates a new SageMaker endpoint configuration.
 func (b *InMemoryBackend) CreateEndpointConfig(
 	name string,
@@ -698,6 +783,62 @@ func (b *InMemoryBackend) DeleteEndpointConfig(name string) error {
 	return nil
 }
 
+// SetEndpointConfigExtras sets optional fields on an existing endpoint config that were not
+// included in the original CreateEndpointConfig signature.
+func (b *InMemoryBackend) SetEndpointConfigExtras(
+	name string,
+	dataCaptureConfig *DataCaptureConfig,
+	asyncInferenceConfig *AsyncInferenceConfig,
+	vpcConfig *VpcConfig,
+	executionRoleArn string,
+	kmsKeyID string,
+	shadowProductionVariants []ProductionVariant,
+	enableNetworkIsolation bool,
+) error {
+	b.mu.Lock("SetEndpointConfigExtras")
+	defer b.mu.Unlock()
+
+	ec, ok := b.endpointConfigs[name]
+	if !ok {
+		return fmt.Errorf(
+			"%w: could not find endpoint configuration %q",
+			ErrEndpointConfigNotFound,
+			name,
+		)
+	}
+
+	if dataCaptureConfig != nil {
+		dcc := *dataCaptureConfig
+		ec.DataCaptureConfig = &dcc
+	}
+
+	if asyncInferenceConfig != nil {
+		aic := *asyncInferenceConfig
+		ec.AsyncInferenceConfig = &aic
+	}
+
+	if vpcConfig != nil {
+		vpc := *vpcConfig
+		vpc.SecurityGroupIDs = append([]string(nil), vpcConfig.SecurityGroupIDs...)
+		vpc.Subnets = append([]string(nil), vpcConfig.Subnets...)
+		ec.VpcConfig = &vpc
+	}
+
+	ec.ExecutionRoleArn = executionRoleArn
+	ec.KmsKeyID = kmsKeyID
+	ec.EnableNetworkIsolation = enableNetworkIsolation
+
+	if len(shadowProductionVariants) > 0 {
+		stored := make([]ProductionVariant, len(shadowProductionVariants))
+		for i, pv := range shadowProductionVariants {
+			stored[i] = cloneProductionVariant(pv)
+		}
+		ec.ShadowProductionVariants = stored
+	}
+
+	return nil
+}
+
 // AddTags adds or updates tags on a resource identified by ARN.
 func (b *InMemoryBackend) AddTags(resourceARN string, tags map[string]string) error {
 	b.mu.Lock("AddTags")
@@ -766,6 +907,14 @@ func (b *InMemoryBackend) AddTags(resourceARN string, tags map[string]string) er
 		return nil
 	}
 
+	if name, ok := b.processingJobARNIndex[resourceARN]; ok {
+		if pj, found := b.processingJobs[name]; found {
+			pj.Tags = mergeTags(pj.Tags, tags)
+
+			return nil
+		}
+	}
+
 	return fmt.Errorf("%w: resource %s not found", ErrValidation, resourceARN)
 }
 
@@ -774,79 +923,15 @@ func (b *InMemoryBackend) ListTags(resourceARN string) (map[string]string, error
 	b.mu.RLock("ListTags")
 	defer b.mu.RUnlock()
 
-	if name, ok := b.modelARNIndex[resourceARN]; ok {
-		m := b.models[name]
-		result := make(map[string]string, len(m.Tags))
-		maps.Copy(result, m.Tags)
-
-		return result, nil
+	tagMap := b.findTagMapLocked(resourceARN)
+	if tagMap == nil {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrValidation, resourceARN)
 	}
 
-	if name, ok := b.endpointConfigARNIndex[resourceARN]; ok {
-		ec := b.endpointConfigs[name]
-		result := make(map[string]string, len(ec.Tags))
-		maps.Copy(result, ec.Tags)
+	result := make(map[string]string, len(*tagMap))
+	maps.Copy(result, *tagMap)
 
-		return result, nil
-	}
-
-	if name, ok := b.actionARNIndex[resourceARN]; ok {
-		a := b.actions[name]
-		result := make(map[string]string, len(a.Tags))
-		maps.Copy(result, a.Tags)
-
-		return result, nil
-	}
-
-	if name, ok := b.algorithmARNIndex[resourceARN]; ok {
-		al := b.algorithms[name]
-		result := make(map[string]string, len(al.Tags))
-		maps.Copy(result, al.Tags)
-
-		return result, nil
-	}
-
-	if _, ok := b.modelPackageARNIndex[resourceARN]; ok {
-		mp := b.modelPackages[resourceARN]
-		result := make(map[string]string, len(mp.Tags))
-		maps.Copy(result, mp.Tags)
-
-		return result, nil
-	}
-
-	if name, ok := b.endpointARNIndex[resourceARN]; ok {
-		ep := b.endpoints[name]
-		result := make(map[string]string, len(ep.Tags))
-		maps.Copy(result, ep.Tags)
-
-		return result, nil
-	}
-
-	if name, ok := b.trainingJobARNIndex[resourceARN]; ok {
-		tj := b.trainingJobs[name]
-		result := make(map[string]string, len(tj.Tags))
-		maps.Copy(result, tj.Tags)
-
-		return result, nil
-	}
-
-	if name, ok := b.notebookARNIndex[resourceARN]; ok {
-		nb := b.notebooks[name]
-		result := make(map[string]string, len(nb.Tags))
-		maps.Copy(result, nb.Tags)
-
-		return result, nil
-	}
-
-	if name, ok := b.hpTuningJobARNIndex[resourceARN]; ok {
-		j := b.hpTuningJobs[name]
-		result := make(map[string]string, len(j.Tags))
-		maps.Copy(result, j.Tags)
-
-		return result, nil
-	}
-
-	return nil, fmt.Errorf("%w: resource %s not found", ErrValidation, resourceARN)
+	return result, nil
 }
 
 // findTagMapLocked returns a pointer to the tags map for a resource identified by ARN.
@@ -886,6 +971,12 @@ func (b *InMemoryBackend) findTagMapLocked(resourceARN string) *map[string]strin
 
 	if name, ok := b.hpTuningJobARNIndex[resourceARN]; ok {
 		return &b.hpTuningJobs[name].Tags
+	}
+
+	if name, ok := b.processingJobARNIndex[resourceARN]; ok {
+		if pj, found := b.processingJobs[name]; found {
+			return &pj.Tags
+		}
 	}
 
 	return nil
