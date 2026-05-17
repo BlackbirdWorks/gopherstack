@@ -563,12 +563,12 @@ func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, name s
 			return
 		}
 
-		if tj.TrainingJobStatus != "InProgress" {
+		if tj.TrainingJobStatus != trainingJobStatusInProgress {
 			return
 		}
 
 		now := time.Now()
-		tj.TrainingJobStatus = "Completed"
+		tj.TrainingJobStatus = algorithmStatusCompleted
 		tj.SecondaryStatus = "Completed"
 		tj.TrainingEndTime = &now
 		tj.LastModifiedTime = now

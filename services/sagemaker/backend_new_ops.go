@@ -598,7 +598,7 @@ func (b *InMemoryBackend) CreateHyperParameterTuningJob(
 	j := &HyperParameterTuningJob{
 		HyperParameterTuningJobName:   name,
 		HyperParameterTuningJobArn:    jobARN,
-		HyperParameterTuningJobStatus: "InProgress",
+		HyperParameterTuningJobStatus: trainingJobStatusInProgress,
 		Strategy:                      strategy,
 		CreationTime:                  now,
 		LastModifiedTime:              now,

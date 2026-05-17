@@ -544,7 +544,7 @@ func (h *Handler) handleDescribeProcessingJob(_ context.Context, body []byte) ([
 		"ProcessingJobName":      pj.ProcessingJobName,
 		keyProcessingJobArn:      pj.ProcessingJobArn,
 		"ProcessingJobStatus":    pj.ProcessingJobStatus,
-		"RoleArn":                pj.RoleArn,
+		keyRoleArn:               pj.RoleArn,
 		"AppSpecification":       pj.AppSpecification,
 		"ProcessingResources":    pj.ProcessingResources,
 		"ProcessingInputs":       pj.ProcessingInputs,
@@ -870,7 +870,7 @@ func (h *Handler) handleDescribeNotebookInstanceFull(
 		keyNotebookInstanceArn:   nb.NotebookInstanceArn,
 		"NotebookInstanceStatus": nb.NotebookInstanceStatus,
 		"InstanceType":           nb.InstanceType,
-		"RoleArn":                nb.RoleArn,
+		keyRoleArn:               nb.RoleArn,
 		keyCreationTime:          epochSeconds(nb.CreationTime),
 		keyLastModifiedTime:      epochSeconds(nb.LastModifiedTime),
 	}
@@ -1197,7 +1197,7 @@ func (h *Handler) handleListTrainingJobsFiltered(body []byte) ([]byte, error) {
 		})
 	}
 
-	resp := map[string]any{"TrainingJobSummaries": summaries}
+	resp := map[string]any{keyTrainingJobSummaries: summaries}
 	if nextToken != "" {
 		resp["NextToken"] = nextToken
 	}

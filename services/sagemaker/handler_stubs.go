@@ -73,6 +73,7 @@ const (
 	keyEventTimeFeatureName            = "EventTimeFeatureName"
 	keyMonitoringAlertName             = "MonitoringAlertName"
 	keyClusterSchedulerConfigSummaries = "ClusterSchedulerConfigSummaries"
+	keyTrainingJobSummaries            = "TrainingJobSummaries"
 	keyDeviceFleetName                 = "DeviceFleetName"
 	keyStatus                          = "Status"
 	statusCompleted                    = algorithmStatusCompleted
@@ -1080,7 +1081,7 @@ func stubResponseFor(op string) ([]byte, bool) {
 		return mustMarshal(m{"SubscribedWorkteams": []any{}}), true
 
 	case "ListTrainingJobsForHyperParameterTuningJob":
-		return mustMarshal(m{"TrainingJobSummaries": []any{}}), true
+		return mustMarshal(m{keyTrainingJobSummaries: []any{}}), true
 
 	case "ListTrainingPlans":
 		return mustMarshal(m{"TrainingPlanSummaries": []any{}}), true

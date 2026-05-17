@@ -315,7 +315,7 @@ func (h *Handler) handleListTrainingJobs(body []byte) ([]byte, error) {
 		})
 	}
 
-	resp := map[string]any{"TrainingJobSummaries": summaries}
+	resp := map[string]any{keyTrainingJobSummaries: summaries}
 	if nextToken != "" {
 		resp["NextToken"] = nextToken
 	}
@@ -462,7 +462,7 @@ func (h *Handler) handleDescribeNotebookInstance(_ context.Context, body []byte)
 		"NotebookInstanceArn":    nb.NotebookInstanceArn,
 		"NotebookInstanceStatus": nb.NotebookInstanceStatus,
 		"InstanceType":           nb.InstanceType,
-		"RoleArn":                nb.RoleArn,
+		keyRoleArn:               nb.RoleArn,
 		keyCreationTime:          epochSeconds(nb.CreationTime),
 		keyLastModifiedTime:      epochSeconds(nb.LastModifiedTime),
 	})
