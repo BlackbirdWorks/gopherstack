@@ -157,14 +157,14 @@ func tagsToXML(tags map[string]string) []TagXML {
 }
 
 // UserXML is the XML representation of an IAM User.
-type UserXML struct { //nolint:govet // field order optimizes readability over alignment
+type UserXML struct {
 	PermissionsBoundary *PermissionsBoundaryXML `xml:"PermissionsBoundary,omitempty"`
-	Tags                []TagXML                `xml:"Tags>member,omitempty"`
 	Path                string                  `xml:"Path"`
 	UserName            string                  `xml:"UserName"`
 	UserID              string                  `xml:"UserId"`
 	Arn                 string                  `xml:"Arn"`
 	CreateDate          string                  `xml:"CreateDate"`
+	Tags                []TagXML                `xml:"Tags>member,omitempty"`
 }
 
 // CreateUserResponse is the XML response for CreateUser.
@@ -218,9 +218,8 @@ type ListUsersResult struct {
 // ---- Role XML responses ----
 
 // RoleXML is the XML representation of an IAM Role.
-type RoleXML struct { //nolint:govet // field order optimizes readability over alignment
+type RoleXML struct {
 	PermissionsBoundary      *PermissionsBoundaryXML `xml:"PermissionsBoundary,omitempty"`
-	Tags                     []TagXML                `xml:"Tags>member,omitempty"`
 	Path                     string                  `xml:"Path"`
 	RoleName                 string                  `xml:"RoleName"`
 	RoleID                   string                  `xml:"RoleId"`
@@ -228,6 +227,7 @@ type RoleXML struct { //nolint:govet // field order optimizes readability over a
 	CreateDate               string                  `xml:"CreateDate"`
 	AssumeRolePolicyDocument string                  `xml:"AssumeRolePolicyDocument"`
 	Description              string                  `xml:"Description,omitempty"`
+	Tags                     []TagXML                `xml:"Tags>member,omitempty"`
 	MaxSessionDuration       int32                   `xml:"MaxSessionDuration,omitempty"`
 }
 
@@ -349,13 +349,13 @@ type DetachRolePolicyResponse struct {
 // ---- Group XML responses ----
 
 // GroupXML is the XML representation of an IAM Group.
-type GroupXML struct { //nolint:govet // field order optimizes readability over alignment
-	Tags       []TagXML `xml:"Tags>member,omitempty"`
+type GroupXML struct {
 	Path       string   `xml:"Path"`
 	GroupName  string   `xml:"GroupName"`
 	GroupID    string   `xml:"GroupId"`
 	Arn        string   `xml:"Arn"`
 	CreateDate string   `xml:"CreateDate"`
+	Tags       []TagXML `xml:"Tags>member,omitempty"`
 }
 
 // CreateGroupResponse is the XML response for CreateGroup.
