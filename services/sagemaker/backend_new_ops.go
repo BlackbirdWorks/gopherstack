@@ -403,7 +403,7 @@ func (b *InMemoryBackend) CreateNotebookInstance(
 	nb := &NotebookInstance{
 		NotebookInstanceName:   name,
 		NotebookInstanceArn:    nbARN,
-		NotebookInstanceStatus: "Pending",
+		NotebookInstanceStatus: notebookStatusPending,
 		InstanceType:           instanceType,
 		RoleArn:                roleArn,
 		CreationTime:           now,
@@ -534,7 +534,7 @@ func (b *InMemoryBackend) StopNotebookInstance(name string) error {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
 
-	nb.NotebookInstanceStatus = "Stopped"
+	nb.NotebookInstanceStatus = notebookStatusStopped
 	nb.LastModifiedTime = time.Now()
 
 	return nil

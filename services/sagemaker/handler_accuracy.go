@@ -788,7 +788,7 @@ func (h *Handler) handleCreateNotebookInstanceFull(
 		nb.NotebookInstanceArn,
 	)
 
-	return json.Marshal(map[string]string{"NotebookInstanceArn": nb.NotebookInstanceArn})
+	return json.Marshal(map[string]string{keyNotebookInstanceArn: nb.NotebookInstanceArn})
 }
 
 // handleStartNotebookInstanceFSM wraps StartNotebookInstanceFSM with proper status validation.
@@ -867,15 +867,18 @@ func (h *Handler) handleDescribeNotebookInstanceFull(
 
 	resp := map[string]any{
 		"NotebookInstanceName":   nb.NotebookInstanceName,
-		"NotebookInstanceArn":    nb.NotebookInstanceArn,
+		keyNotebookInstanceArn:   nb.NotebookInstanceArn,
 		"NotebookInstanceStatus": nb.NotebookInstanceStatus,
 		"InstanceType":           nb.InstanceType,
 		"RoleArn":                nb.RoleArn,
 		keyCreationTime:          epochSeconds(nb.CreationTime),
 		keyLastModifiedTime:      epochSeconds(nb.LastModifiedTime),
 	}
+	addNotebookOptionalFields(resp, nb)
+	return json.Marshal(resp)
+}
 
-	// Optional fields — only include if set.
+func addNotebookOptionalFields(resp map[string]any, nb *NotebookInstance) {
 	if nb.SubnetId != "" {
 		resp["SubnetId"] = nb.SubnetId
 	}
@@ -912,8 +915,6 @@ func (h *Handler) handleDescribeNotebookInstanceFull(
 	if nb.URL != "" {
 		resp["Url"] = nb.URL
 	}
-
-	return json.Marshal(resp)
 }
 
 // handleUpdateNotebookInstanceFull supports all mutable fields (#1 update coverage).
@@ -1079,6 +1080,11 @@ func (h *Handler) handleDescribeTrainingJobFull(_ context.Context, body []byte) 
 		keyCreationTime:          epochSeconds(tj.CreationTime),
 		keyLastModifiedTime:      epochSeconds(tj.LastModifiedTime),
 	}
+	addTrainingJobOptionalFields(resp, tj)
+	return json.Marshal(resp)
+}
+
+func addTrainingJobOptionalFields(resp map[string]any, tj *TrainingJob) {
 	if len(tj.InputDataConfig) > 0 {
 		resp["InputDataConfig"] = tj.InputDataConfig
 	}
@@ -1120,8 +1126,6 @@ func (h *Handler) handleDescribeTrainingJobFull(_ context.Context, body []byte) 
 	if tj.FailureReason != "" {
 		resp["FailureReason"] = tj.FailureReason
 	}
-
-	return json.Marshal(resp)
 }
 
 func buildSecondaryStatusTransitions(transitions []SecondaryStatusTransition) []map[string]any {

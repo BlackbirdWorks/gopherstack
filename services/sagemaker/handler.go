@@ -402,18 +402,30 @@ func (h *Handler) dispatchEndpointOps(
 func (h *Handler) dispatchTrainingJobOps(
 	ctx context.Context, op string, body []byte,
 ) ([]byte, bool, error) {
+	r, handled, err := h.dispatchTrainingOps(ctx, op, body)
+	if handled {
+		return r, true, err
+	}
+	r, handled, err = h.dispatchProcessingOps(ctx, op, body)
+	if handled {
+		return r, true, err
+	}
+	r, handled, err = h.dispatchPipelineOps(ctx, op, body)
+	return r, handled, err
+}
+
+func (h *Handler) dispatchTrainingOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
 	switch op {
 	case "CreateTrainingJob":
 		r, err := h.handleCreateTrainingJobFull(ctx, body)
-
 		return r, true, err
 	case "DescribeTrainingJob":
 		r, err := h.handleDescribeTrainingJobFull(ctx, body)
-
 		return r, true, err
 	case "ListTrainingJobs":
 		r, err := h.handleListTrainingJobsFiltered(body)
-
 		return r, true, err
 	case "StopTrainingJob":
 		return nil, true, h.handleStopTrainingJobFSM(ctx, body)
@@ -421,44 +433,50 @@ func (h *Handler) dispatchTrainingJobOps(
 		return nil, true, h.handleDeleteTrainingJob(ctx, body)
 	case "UpdateTrainingJob":
 		r, err := h.handleUpdateTrainingJob(ctx, body)
-
 		return r, true, err
+	}
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchProcessingOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateProcessingJob":
 		r, err := h.handleCreateProcessingJob(ctx, body)
-
 		return r, true, err
 	case "DescribeProcessingJob":
 		r, err := h.handleDescribeProcessingJob(ctx, body)
-
 		return r, true, err
 	case "StopProcessingJob":
 		return nil, true, h.handleStopProcessingJob(ctx, body)
 	case "ListProcessingJobs":
 		r, err := h.handleListProcessingJobs(body)
-
 		return r, true, err
+	}
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchPipelineOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "RetryPipelineExecution":
 		r, err := h.handleRetryPipelineExecution(ctx, body)
-
 		return r, true, err
 	case "StopPipelineExecution":
 		r, err := h.handleStopPipelineExecution(ctx, body)
-
 		return r, true, err
 	case "SendPipelineExecutionStepSuccess":
 		r, err := h.handleSendPipelineExecutionStepSuccess(ctx, body)
-
 		return r, true, err
 	case "SendPipelineExecutionStepFailure":
 		r, err := h.handleSendPipelineExecutionStepFailure(ctx, body)
-
 		return r, true, err
 	case "ListPipelineExecutionSteps":
 		r, err := h.handleListPipelineExecutionSteps(ctx, body)
-
 		return r, true, err
 	}
-
 	return nil, false, nil
 }
 

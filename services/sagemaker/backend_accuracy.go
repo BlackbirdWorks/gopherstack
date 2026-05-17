@@ -28,6 +28,19 @@ const (
 )
 
 // ---------------------------------------------------------------------------
+// Status constants
+// ---------------------------------------------------------------------------
+
+const (
+	notebookStatusStopped       = "Stopped"
+	notebookStatusPending       = "Pending"
+	notebookStatusStopping      = "Stopping"
+	trainingJobStatusInProgress = "InProgress"
+	trainingJobStatusCompleted  = "Completed"
+	keyNotebookInstanceArn      = "NotebookInstanceArn"
+)
+
+// ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 
@@ -241,7 +254,7 @@ func (b *InMemoryBackend) StartNotebookInstanceFSM(name string) error {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
 
-	if nb.NotebookInstanceStatus != "Stopped" {
+	if nb.NotebookInstanceStatus != notebookStatusStopped {
 		return fmt.Errorf(
 			"%w: notebook %q is not Stopped (status=%s)",
 			ErrValidation,
@@ -250,7 +263,7 @@ func (b *InMemoryBackend) StartNotebookInstanceFSM(name string) error {
 		)
 	}
 
-	nb.NotebookInstanceStatus = "Pending"
+	nb.NotebookInstanceStatus = notebookStatusPending
 	nb.LastModifiedTime = time.Now()
 	b.scheduleNotebookTransition(
 		b.lifecycleCtx,
@@ -281,9 +294,9 @@ func (b *InMemoryBackend) StopNotebookInstanceFSM(name string) error {
 		)
 	}
 
-	nb.NotebookInstanceStatus = "Stopping"
+	nb.NotebookInstanceStatus = notebookStatusStopping
 	nb.LastModifiedTime = time.Now()
-	b.scheduleNotebookTransition(b.lifecycleCtx, name, "Stopped", notebookStoppingToStoppedDelay)
+	b.scheduleNotebookTransition(b.lifecycleCtx, name, notebookStatusStopped, notebookStoppingToStoppedDelay)
 
 	return nil
 }
@@ -501,7 +514,7 @@ func (b *InMemoryBackend) CreateTrainingJobFull(opts TrainingJobOptions) (*Train
 	tj := &TrainingJob{
 		TrainingJobName:                       opts.TrainingJobName,
 		TrainingJobArn:                        jobARN,
-		TrainingJobStatus:                     "InProgress",
+		TrainingJobStatus:                     trainingJobStatusInProgress,
 		SecondaryStatus:                       "Starting",
 		RoleArn:                               opts.RoleArn,
 		AlgorithmSpecification:                opts.AlgorithmSpecification,

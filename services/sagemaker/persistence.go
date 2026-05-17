@@ -282,53 +282,49 @@ func (b *InMemoryBackend) rebuildARNIndexes() {
 }
 
 func ensureNonNilMaps(snap *backendSnapshot) {
+	ensureCoreResourceMaps(snap)
+	ensureJobMaps(snap)
+	ensureConfigMaps(snap)
+	ensureMetadataMaps(snap)
+}
+
+func ensureCoreResourceMaps(snap *backendSnapshot) {
 	if snap.Models == nil {
 		snap.Models = make(map[string]*Model)
 	}
-
 	if snap.EndpointConfigs == nil {
 		snap.EndpointConfigs = make(map[string]*EndpointConfig)
 	}
-
 	if snap.Endpoints == nil {
 		snap.Endpoints = make(map[string]*Endpoint)
 	}
-
-	if snap.TrainingJobs == nil {
-		snap.TrainingJobs = make(map[string]*TrainingJob)
-	}
-
-	if snap.Notebooks == nil {
-		snap.Notebooks = make(map[string]*NotebookInstance)
-	}
-
-	if snap.HPTuningJobs == nil {
-		snap.HPTuningJobs = make(map[string]*HyperParameterTuningJob)
-	}
-
-	if snap.Associations == nil {
-		snap.Associations = make(map[string]*Association)
-	}
-
-	if snap.TrialComponentAssociations == nil {
-		snap.TrialComponentAssociations = make(map[string]*TrialComponentAssociation)
-	}
-
 	if snap.Actions == nil {
 		snap.Actions = make(map[string]*Action)
 	}
-
 	if snap.Algorithms == nil {
 		snap.Algorithms = make(map[string]*Algorithm)
 	}
-
-	if snap.Clusters == nil {
-		snap.Clusters = make(map[string]*persistedCluster)
-	}
-
 	if snap.ModelPackages == nil {
 		snap.ModelPackages = make(map[string]*ModelPackage)
 	}
+}
+
+func ensureJobMaps(snap *backendSnapshot) {
+	if snap.TrainingJobs == nil {
+		snap.TrainingJobs = make(map[string]*TrainingJob)
+	}
+	if snap.Notebooks == nil {
+		snap.Notebooks = make(map[string]*NotebookInstance)
+	}
+	if snap.HPTuningJobs == nil {
+		snap.HPTuningJobs = make(map[string]*HyperParameterTuningJob)
+	}
+	if snap.ProcessingJobs == nil {
+		snap.ProcessingJobs = make(map[string]*ProcessingJob)
+	}
+}
+
+func ensureConfigMaps(snap *backendSnapshot) {
 	if snap.Domains == nil {
 		snap.Domains = make(map[string]*Domain)
 	}
@@ -341,6 +337,15 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.FeatureGroups == nil {
 		snap.FeatureGroups = make(map[string]*FeatureGroup)
 	}
+	if snap.NotebookLifecycleConfigs == nil {
+		snap.NotebookLifecycleConfigs = make(map[string]*NotebookInstanceLifecycleConfig)
+	}
+	if snap.Clusters == nil {
+		snap.Clusters = make(map[string]*persistedCluster)
+	}
+}
+
+func ensureMetadataMaps(snap *backendSnapshot) {
 	if snap.Pipelines == nil {
 		snap.Pipelines = make(map[string]*Pipeline)
 	}
@@ -359,11 +364,11 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.TrialComponents == nil {
 		snap.TrialComponents = make(map[string]*TrialComponent)
 	}
-	if snap.NotebookLifecycleConfigs == nil {
-		snap.NotebookLifecycleConfigs = make(map[string]*NotebookInstanceLifecycleConfig)
+	if snap.Associations == nil {
+		snap.Associations = make(map[string]*Association)
 	}
-	if snap.ProcessingJobs == nil {
-		snap.ProcessingJobs = make(map[string]*ProcessingJob)
+	if snap.TrialComponentAssociations == nil {
+		snap.TrialComponentAssociations = make(map[string]*TrialComponentAssociation)
 	}
 }
 
