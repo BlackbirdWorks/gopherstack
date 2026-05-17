@@ -934,7 +934,7 @@ func TestAccuracy_StartDirectoryListing_UniqueId(t *testing.T) {
 	assert.NotEqual(t, id1, id2, "each StartDirectoryListing must return a distinct ID")
 }
 
-// Test 29: SendWorkflowStepState SUCCESS transitions execution to COMPLETED.
+// Test 29: SendWorkflowStepState COMPLETE transitions execution to COMPLETED.
 func TestAccuracy_SendWorkflowStepState_Success(t *testing.T) {
 	t.Parallel()
 
@@ -949,7 +949,7 @@ func TestAccuracy_SendWorkflowStepState_Success(t *testing.T) {
 		"WorkflowId":  wf.WorkflowID,
 		"ExecutionId": exec.ExecutionID,
 		"Token":       "tok-abc",
-		"Status":      "SUCCESS",
+		"Status":      "COMPLETE",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -284,6 +285,20 @@ func TestHandler_DeleteServer(t *testing.T) {
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 	serverID := createResp["ServerId"].(string)
+
+	// AWS requires server to be OFFLINE before deletion; stop it first.
+	stopRec := doTransferRequest(t, h, "StopServer", map[string]any{"ServerId": serverID})
+	require.Equal(t, http.StatusOK, stopRec.Code)
+	// Poll until OFFLINE.
+	for range 30 {
+		descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
+		var resp map[string]any
+		_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
+		if resp["Server"].(map[string]any)["State"].(string) == "OFFLINE" {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
 
 	rec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -667,6 +682,21 @@ func TestHandler_StartStopDeleteServer(t *testing.T) {
 			body := tt.body
 			if id, ok := body["ServerId"]; ok && id == "PLACEHOLDER" {
 				body = map[string]any{"ServerId": serverID}
+			}
+
+			// DeleteServer requires the server to be OFFLINE first.
+			if tt.action == "DeleteServer" {
+				stopRec := doTransferRequest(t, h, "StopServer", map[string]any{"ServerId": serverID})
+				require.Equal(t, http.StatusOK, stopRec.Code)
+				for range 30 {
+					descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
+					var resp map[string]any
+					_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
+					if resp["Server"].(map[string]any)["State"].(string) == "OFFLINE" {
+						break
+					}
+					time.Sleep(15 * time.Millisecond)
+				}
 			}
 
 			rec := doTransferRequest(t, h, tt.action, body)

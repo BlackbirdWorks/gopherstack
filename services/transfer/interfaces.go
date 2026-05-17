@@ -11,6 +11,7 @@ type StorageBackend interface {
 	CreateServer(protocols []string, tags map[string]string) (*Server, error)
 	CreateServerFull(in *CreateServerInput) (*Server, error)
 	DescribeServer(serverID string) (*Server, error)
+	ServerUserCount(serverID string) int
 	ListServers() []Server
 	StartServer(serverID string) error
 	StopServer(serverID string) error

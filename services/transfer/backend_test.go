@@ -166,6 +166,15 @@ func TestInMemoryBackend_DeleteServer(t *testing.T) {
 				s, err := b.CreateServer(nil, nil)
 				require.NoError(t, err)
 				serverID = s.ServerID
+				// AWS requires the server to be OFFLINE before deletion.
+				require.NoError(t, b.StopServer(serverID))
+				for range 30 {
+					got, _ := b.DescribeServer(serverID)
+					if got != nil && got.State == "OFFLINE" {
+						break
+					}
+					time.Sleep(15 * time.Millisecond)
+				}
 			}
 
 			err := b.DeleteServer(serverID)

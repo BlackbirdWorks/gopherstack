@@ -529,6 +529,7 @@ type serverView struct {
 	Tags                          []map[string]string          `json:"Tags"`
 	Protocols                     []string                     `json:"Protocols"`
 	StructuredLogDestinations     []string                     `json:"StructuredLogDestinations,omitempty"`
+	UserCount                     int                          `json:"UserCount"`
 }
 
 type identityProviderDetailsView struct {
@@ -585,9 +586,10 @@ func (h *Handler) handleDescribeServer(
 		return nil, err
 	}
 
-	return &describeServerOutput{
-		Server: toServerView(s, serverARN(s.AccountID, s.Region, s.ServerID)),
-	}, nil
+	view := toServerView(s, serverARN(s.AccountID, s.Region, s.ServerID))
+	view.UserCount = h.Backend.ServerUserCount(in.ServerID)
+
+	return &describeServerOutput{Server: view}, nil
 }
 
 type listServersOutput struct {
@@ -601,10 +603,13 @@ type listServersInput struct {
 }
 
 type serverListItem struct {
-	Arn      string `json:"Arn"`
-	ServerID string `json:"ServerId"`
-	State    string `json:"State"`
-	Domain   string `json:"Domain"`
+	Arn                  string `json:"Arn"`
+	ServerID             string `json:"ServerId"`
+	State                string `json:"State"`
+	Domain               string `json:"Domain"`
+	EndpointType         string `json:"EndpointType,omitempty"`
+	IdentityProviderType string `json:"IdentityProviderType,omitempty"`
+	UserCount            int    `json:"UserCount"`
 }
 
 func (h *Handler) handleListServers(
@@ -617,10 +622,13 @@ func (h *Handler) handleListServers(
 	for i := range servers {
 		s := &servers[i]
 		items = append(items, serverListItem{
-			Arn:      serverARN(s.AccountID, s.Region, s.ServerID),
-			ServerID: s.ServerID,
-			State:    s.State,
-			Domain:   s.Domain,
+			Arn:                  serverARN(s.AccountID, s.Region, s.ServerID),
+			ServerID:             s.ServerID,
+			State:                s.State,
+			Domain:               s.Domain,
+			EndpointType:         s.EndpointType,
+			IdentityProviderType: s.IdentityProviderType,
+			UserCount:            h.Backend.ServerUserCount(s.ServerID),
 		})
 	}
 

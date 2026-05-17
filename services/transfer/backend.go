@@ -44,6 +44,8 @@ var (
 	)
 	// ErrAccessNotFound is returned when a Transfer access is not found.
 	ErrAccessNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrAccessAlreadyExists is returned when an access with the same ExternalId already exists.
+	ErrAccessAlreadyExists = awserr.New("ResourceExistsException", awserr.ErrConflict)
 	// ErrAgreementNotFound is returned when a Transfer agreement is not found.
 	ErrAgreementNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrConnectorNotFound is returned when a Transfer connector is not found.
@@ -107,6 +109,12 @@ const (
 	agreementStatusInactive = "INACTIVE"
 	defaultHostKeyType      = "ssh-rsa"
 	sshKeyTypeEd25519       = "ssh-ed25519"
+)
+
+// Workflow step state status constants (SendWorkflowStepState).
+const (
+	workflowStepStatusComplete  = "COMPLETE"
+	workflowStepStatusException = "EXCEPTION"
 )
 
 // IdentityProviderDetails holds identity provider configuration for a Transfer server.
@@ -287,8 +295,9 @@ type User struct {
 }
 
 // userARN builds the ARN for a Transfer user.
+// AWS format: arn:aws:transfer:<region>:<account>:user/<serverId>/<userName>.
 func userARN(accountID, region, serverID, userName string) string {
-	return arn.Build("transfer", region, accountID, "server/"+serverID+"/user/"+userName)
+	return arn.Build("transfer", region, accountID, "user/"+serverID+"/"+userName)
 }
 
 // cloneUser returns a deep copy of a User.
@@ -915,7 +924,16 @@ func (b *InMemoryBackend) DescribeServer(serverID string) (*Server, error) {
 	return cloneServer(s), nil
 }
 
-// ListServers returns all servers sorted by creation time (newest first).
+// ServerUserCount returns the number of users on the given server.
+// Returns 0 if the server does not exist.
+func (b *InMemoryBackend) ServerUserCount(serverID string) int {
+	b.mu.RLock("ServerUserCount")
+	defer b.mu.RUnlock()
+
+	return len(b.users[serverID])
+}
+
+// ListServers returns all servers sorted by ServerId (ascending, deterministic).
 func (b *InMemoryBackend) ListServers() []Server {
 	b.mu.RLock("ListServers")
 	defer b.mu.RUnlock()
@@ -926,25 +944,40 @@ func (b *InMemoryBackend) ListServers() []Server {
 	}
 
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].CreatedAt.After(out[j].CreatedAt)
+		return out[i].ServerID < out[j].ServerID
 	})
 
 	return out
 }
 
-// DeleteServer removes a server and all of its associated resources (users, accesses, agreements).
+// ErrServerOnline is returned when an operation requires the server to be OFFLINE.
+var ErrServerOnline = awserr.New(
+	"ConflictException: server must be offline to be deleted",
+	awserr.ErrConflict,
+)
+
+// DeleteServer removes a server and all of its associated resources (users, accesses, agreements,
+// SSH keys, and host keys). The server must be OFFLINE; returns ErrServerOnline otherwise.
 func (b *InMemoryBackend) DeleteServer(serverID string) error {
 	b.mu.Lock("DeleteServer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.servers[serverID]; !ok {
+	s, ok := b.servers[serverID]
+	if !ok {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	// AWS requires the server to be OFFLINE before deletion.
+	if s.State != serverStatusOffline {
+		return fmt.Errorf("%w: server %s is in state %s", ErrServerOnline, serverID, s.State)
 	}
 
 	delete(b.servers, serverID)
 	delete(b.users, serverID)
 	delete(b.accesses, serverID)
 	delete(b.agreements, serverID)
+	delete(b.sshPublicKeys, serverID)
+	delete(b.hostKeys, serverID)
 
 	return nil
 }
@@ -953,6 +986,7 @@ func (b *InMemoryBackend) DeleteServer(serverID string) error {
 const startServerTransitionDelay = 100 * time.Millisecond
 
 // StartServer transitions a server to ONLINE state (via STARTING).
+// Calling StartServer on an already-ONLINE server is idempotent (no-op, no error).
 func (b *InMemoryBackend) StartServer(serverID string) error {
 	b.mu.Lock("StartServer")
 	defer b.mu.Unlock()
@@ -960,6 +994,11 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 	s, ok := b.servers[serverID]
 	if !ok {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	// Idempotent: already ONLINE is a no-op.
+	if s.State == serverStatusOnline {
+		return nil
 	}
 
 	// Set to STARTING, then transition to ONLINE asynchronously.
@@ -980,6 +1019,7 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 }
 
 // StopServer transitions a server to OFFLINE state (via STOPPING).
+// Calling StopServer on an already-OFFLINE server is idempotent (no-op, no error).
 func (b *InMemoryBackend) StopServer(serverID string) error {
 	b.mu.Lock("StopServer")
 	defer b.mu.Unlock()
@@ -987,6 +1027,11 @@ func (b *InMemoryBackend) StopServer(serverID string) error {
 	s, ok := b.servers[serverID]
 	if !ok {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	// Idempotent: already OFFLINE is a no-op.
+	if s.State == serverStatusOffline {
+		return nil
 	}
 
 	// Set to STOPPING, then transition to OFFLINE asynchronously.
@@ -1259,7 +1304,7 @@ func (b *InMemoryBackend) ListUsers(serverID string) ([]User, error) {
 	return out, nil
 }
 
-// DeleteUser removes a user from the given server.
+// DeleteUser removes a user from the given server and also deletes all SSH public keys for that user.
 func (b *InMemoryBackend) DeleteUser(serverID, userName string) error {
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
@@ -1274,6 +1319,11 @@ func (b *InMemoryBackend) DeleteUser(serverID, userName string) error {
 	}
 
 	delete(users, userName)
+
+	// Delete all SSH public keys for this user.
+	if serverKeys, exists := b.sshPublicKeys[serverID]; exists {
+		delete(serverKeys, userName)
+	}
 
 	return nil
 }
@@ -1454,6 +1504,16 @@ func (b *InMemoryBackend) CreateAccessFull(in *CreateAccessInput) (*Access, erro
 
 	if _, ok := b.accesses[in.ServerID]; !ok {
 		b.accesses[in.ServerID] = make(map[string]*Access)
+	}
+
+	// ExternalId must be unique per server.
+	if _, exists := b.accesses[in.ServerID][in.ExternalID]; exists {
+		return nil, fmt.Errorf(
+			"%w: access with ExternalId %s already exists on server %s",
+			ErrAccessAlreadyExists,
+			in.ExternalID,
+			in.ServerID,
+		)
 	}
 
 	merged := make(map[string]string, len(in.Tags))
@@ -2416,7 +2476,20 @@ func (b *InMemoryBackend) TestIdentityProvider(serverID, userName string) (int, 
 }
 
 // SendWorkflowStepStateRecord advances an execution by matching a token.
+// Status must be "COMPLETE" or "EXCEPTION" per AWS API contract.
 func (b *InMemoryBackend) SendWorkflowStepStateRecord(workflowID, executionID, token, status string) error {
+	// Validate status before acquiring the lock.
+	switch status {
+	case workflowStepStatusComplete, workflowStepStatusException:
+		// valid
+	default:
+		return fmt.Errorf(
+			"%w: Status must be COMPLETE or EXCEPTION, got %q",
+			ErrValidation,
+			status,
+		)
+	}
+
 	b.mu.Lock("SendWorkflowStepState")
 	defer b.mu.Unlock()
 
@@ -2438,10 +2511,10 @@ func (b *InMemoryBackend) SendWorkflowStepStateRecord(workflowID, executionID, t
 	e.PendingTokens[token] = status
 
 	switch status {
-	case "SUCCESS":
+	case workflowStepStatusComplete:
 		e.Status = "COMPLETED"
-	case "FAILURE":
-		e.Status = "EXCEPTION"
+	case workflowStepStatusException:
+		e.Status = workflowStepStatusException
 	}
 
 	return nil
@@ -2685,6 +2758,18 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 
 	if _, ok := b.sshPublicKeys[serverID][userName]; !ok {
 		b.sshPublicKeys[serverID][userName] = make(map[string]*SSHPublicKey)
+	}
+
+	// AWS limits each user to 50 SSH public keys.
+	const maxSSHPublicKeysPerUser = 50
+	if len(b.sshPublicKeys[serverID][userName]) >= maxSSHPublicKeysPerUser {
+		return nil, fmt.Errorf(
+			"%w: user %s on server %s has reached the maximum of %d SSH public keys",
+			ErrValidation,
+			userName,
+			serverID,
+			maxSSHPublicKeysPerUser,
+		)
 	}
 
 	// Check for duplicate key body.
