@@ -186,6 +186,7 @@ type InMemoryBackend struct {
 	callAnalyticsJobs        map[string]*CallAnalyticsJob
 	medicalScribeJobs        map[string]*MedicalScribeJob
 	medicalTranscriptionJobs map[string]*MedicalTranscriptionJob
+	resourceTags             map[string]map[string]string // ARN → tag map
 	mu                       *lockmetrics.RWMutex
 }
 
@@ -220,6 +221,7 @@ func (b *InMemoryBackend) ensureNonNilMaps() {
 	b.callAnalyticsJobs = make(map[string]*CallAnalyticsJob)
 	b.medicalScribeJobs = make(map[string]*MedicalScribeJob)
 	b.medicalTranscriptionJobs = make(map[string]*MedicalTranscriptionJob)
+	b.resourceTags = make(map[string]map[string]string)
 }
 
 // StartTranscriptionJob creates a new transcription job with synthetic results.
@@ -1419,6 +1421,67 @@ func paginateList[T any](all []T, nextToken string) ([]T, string) {
 	}
 
 	return all[startIdx:end], outToken
+}
+
+// TagResource adds or updates tags on a resource identified by ARN.
+func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string) error {
+	if resourceArn == "" {
+		return fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+	}
+
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	if _, ok := b.resourceTags[resourceArn]; !ok {
+		b.resourceTags[resourceArn] = make(map[string]string)
+	}
+
+	for k, v := range tags {
+		b.resourceTags[resourceArn][k] = v
+	}
+
+	return nil
+}
+
+// UntagResource removes specific tag keys from a resource identified by ARN.
+func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
+	if resourceArn == "" {
+		return fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+	}
+
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	if existing, ok := b.resourceTags[resourceArn]; ok {
+		for _, k := range tagKeys {
+			delete(existing, k)
+		}
+	}
+
+	return nil
+}
+
+// ListTagsForResource returns all tags for a resource identified by ARN.
+func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]string, error) {
+	if resourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+	}
+
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	existing, ok := b.resourceTags[resourceArn]
+	if !ok {
+		return map[string]string{}, nil
+	}
+
+	// Return a copy so callers can't mutate the stored map.
+	result := make(map[string]string, len(existing))
+	for k, v := range existing {
+		result[k] = v
+	}
+
+	return result, nil
 }
 
 // parseNextToken parses a pagination token (integer offset) into a slice index.

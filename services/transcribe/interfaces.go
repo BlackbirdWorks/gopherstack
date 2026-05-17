@@ -67,6 +67,11 @@ type StorageBackend interface {
 	DescribeLanguageModel(modelName string) (*LanguageModel, error)
 	ListLanguageModels(statusFilter, nextToken string) ([]LanguageModel, string)
 
+	// Tags
+	TagResource(resourceArn string, tags map[string]string) error
+	UntagResource(resourceArn string, tagKeys []string) error
+	ListTagsForResource(resourceArn string) (map[string]string, error)
+
 	// Lifecycle
 	Snapshot() []byte
 	Restore(data []byte) error

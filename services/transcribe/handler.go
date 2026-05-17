@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -251,10 +252,28 @@ type transcriptOutput struct {
 }
 
 type transcriptionJobOutput struct {
-	Transcript             transcriptOutput `json:"Transcript"`
-	TranscriptionJobName   string           `json:"TranscriptionJobName"`
-	TranscriptionJobStatus string           `json:"TranscriptionJobStatus"`
-	LanguageCode           string           `json:"LanguageCode"`
+	Tags                      map[string]string           `json:"Tags,omitempty"`
+	Settings                  *TranscriptionSettings      `json:"Settings,omitempty"`
+	ModelSettings             *ModelSettings              `json:"ModelSettings,omitempty"`
+	ContentRedaction          *ContentRedaction           `json:"ContentRedaction,omitempty"`
+	Subtitles                 *SubtitlesOutput            `json:"Subtitles,omitempty"`
+	Transcript                transcriptOutput            `json:"Transcript"`
+	CreationTime              *string                     `json:"CreationTime,omitempty"`
+	StartTime                 *string                     `json:"StartTime,omitempty"`
+	CompletionTime            *string                     `json:"CompletionTime,omitempty"`
+	TranscriptionJobName      string                      `json:"TranscriptionJobName"`
+	TranscriptionJobStatus    string                      `json:"TranscriptionJobStatus"`
+	LanguageCode              string                      `json:"LanguageCode,omitempty"`
+	MediaFormat               string                      `json:"MediaFormat,omitempty"`
+	OutputBucketName          string                      `json:"OutputBucketName,omitempty"`
+	OutputKey                 string                      `json:"OutputKey,omitempty"`
+	FailureReason             string                      `json:"FailureReason,omitempty"`
+	LanguageOptions           []string                    `json:"LanguageOptions,omitempty"`
+	ToxicityDetection         []ToxicityDetectionSettings `json:"ToxicityDetection,omitempty"`
+	IdentifiedLanguageScore   float32                     `json:"IdentifiedLanguageScore,omitempty"`
+	MediaSampleRateHertz      int32                       `json:"MediaSampleRateHertz,omitempty"`
+	IdentifyLanguage          bool                        `json:"IdentifyLanguage,omitempty"`
+	IdentifyMultipleLanguages bool                        `json:"IdentifyMultipleLanguages,omitempty"`
 }
 
 type startTranscriptionJobOutput struct {
@@ -355,25 +374,59 @@ func buildTranscriptURI(job *TranscriptionJob) string {
 
 func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) transcriptionJobOutput {
 	out := transcriptionJobOutput{
-		TranscriptionJobName:   job.JobName,
-		TranscriptionJobStatus: job.JobStatus,
-		LanguageCode:           job.LanguageCode,
+		TranscriptionJobName:      job.JobName,
+		TranscriptionJobStatus:    job.JobStatus,
+		LanguageCode:              job.LanguageCode,
+		MediaFormat:               job.MediaFormat,
+		MediaSampleRateHertz:      job.MediaSampleRateHertz,
+		OutputBucketName:          job.OutputBucketName,
+		OutputKey:                 job.OutputKey,
+		FailureReason:             job.FailureReason,
+		Settings:                  job.Settings,
+		ModelSettings:             job.ModelSettings,
+		ContentRedaction:          job.ContentRedaction,
+		Subtitles:                 job.Subtitles,
+		IdentifyLanguage:          job.IdentifyLanguage,
+		IdentifyMultipleLanguages: job.IdentifyMultipleLanguages,
+		LanguageOptions:           job.LanguageOptions,
+		ToxicityDetection:         job.ToxicityDetection,
+		IdentifiedLanguageScore:   job.IdentifiedLanguageScore,
+		Tags:                      job.Tags,
 		Transcript: transcriptOutput{
 			TranscriptFileURI: transcriptURI,
 		},
 	}
+
 	if job.ContentRedaction != nil {
 		redacted := "s3://synthetic-transcripts/" + job.JobName + "-redacted.json"
 		out.Transcript.RedactedTranscriptFileURI = &redacted
+	}
+
+	if !job.CreationTime.IsZero() {
+		s := job.CreationTime.Format(time.RFC3339)
+		out.CreationTime = &s
+	}
+
+	if !job.StartTime.IsZero() {
+		s := job.StartTime.Format(time.RFC3339)
+		out.StartTime = &s
+	}
+
+	if !job.CompletionTime.IsZero() {
+		s := job.CompletionTime.Format(time.RFC3339)
+		out.CompletionTime = &s
 	}
 
 	return out
 }
 
 type transcriptionJobSummary struct {
-	TranscriptionJobName   string `json:"TranscriptionJobName"`
-	TranscriptionJobStatus string `json:"TranscriptionJobStatus"`
-	LanguageCode           string `json:"LanguageCode"`
+	CreationTime           *string `json:"CreationTime,omitempty"`
+	CompletionTime         *string `json:"CompletionTime,omitempty"`
+	TranscriptionJobName   string  `json:"TranscriptionJobName"`
+	TranscriptionJobStatus string  `json:"TranscriptionJobStatus"`
+	LanguageCode           string  `json:"LanguageCode,omitempty"`
+	FailureReason          string  `json:"FailureReason,omitempty"`
 }
 
 type listTranscriptionJobsOutput struct {
@@ -394,11 +447,24 @@ func (h *Handler) handleListTranscriptionJobs(
 
 	summaries := make([]transcriptionJobSummary, 0, len(jobs))
 	for _, j := range jobs {
-		summaries = append(summaries, transcriptionJobSummary{
+		s := transcriptionJobSummary{
 			TranscriptionJobName:   j.JobName,
 			TranscriptionJobStatus: j.JobStatus,
 			LanguageCode:           j.LanguageCode,
-		})
+			FailureReason:          j.FailureReason,
+		}
+
+		if !j.CreationTime.IsZero() {
+			ts := j.CreationTime.Format(time.RFC3339)
+			s.CreationTime = &ts
+		}
+
+		if !j.CompletionTime.IsZero() {
+			ts := j.CompletionTime.Format(time.RFC3339)
+			s.CompletionTime = &ts
+		}
+
+		summaries = append(summaries, s)
 	}
 
 	return &listTranscriptionJobsOutput{
