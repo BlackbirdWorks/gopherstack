@@ -1389,7 +1389,16 @@ func TestRoute53_AssociateVPCWithHostedZone(t *testing.T) {
 
 			var path string
 			if tt.useRealZone {
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+				privateZoneXML := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>private.example.com</Name>
+  <CallerReference>ref-private-1</CallerReference>
+  <HostedZoneConfig>
+    <Comment>private test zone</Comment>
+    <PrivateZone>true</PrivateZone>
+  </HostedZoneConfig>
+</CreateHostedZoneRequest>`
+				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", privateZoneXML)
 				require.Equal(t, http.StatusCreated, rec.Code)
 				zoneID := extractZoneID(t, rec.Body.String())
 				path = "/2013-04-01/hostedzone/" + zoneID + "/associatevpc"

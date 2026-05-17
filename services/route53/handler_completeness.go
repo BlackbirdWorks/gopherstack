@@ -2,7 +2,9 @@ package route53
 
 import (
 	"encoding/xml"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,9 +90,12 @@ func (h *Handler) routeCompletenessInfo(c *echo.Context, path, method string) (b
 		return true, h.testDNSAnswer(c)
 	case route53CheckerIPRangesPath:
 		return true, h.getCheckerIPRanges(c)
-	case route53GeoLocationPath:
-		return true, h.getGeoLocation(c)
-	case route53GeoLocationsPath:
+	case route53GeoLocationPath, route53GeoLocationsPath:
+		q := c.Request().URL.Query()
+		if q.Get("continentcode") != "" || q.Get("countrycode") != "" || q.Get("subdivisioncode") != "" {
+			return true, h.getGeoLocation(c)
+		}
+
 		return true, h.listGeoLocations(c)
 	case route53HealthCheckCountPath:
 		return true, h.getHealthCheckCount(c)
@@ -260,14 +265,31 @@ type geoLocationResponse struct {
 
 func (h *Handler) getGeoLocation(c *echo.Context) error {
 	q := c.Request().URL.Query()
+	continentCode := q.Get("continentcode")
+	countryCode := q.Get("countrycode")
+	subdivisionCode := q.Get("subdivisioncode")
 
-	return writeXML(c, http.StatusOK, geoLocationResponse{
-		Xmlns: route53Namespace,
-		GeoLocation: xmlGeoLocation{
-			ContinentCode: q.Get("continentcode"),
-			CountryCode:   q.Get("countrycode"),
-		},
-	})
+	for _, loc := range geoLocationTable {
+		if continentCode != "" && loc.ContinentCode != continentCode {
+			continue
+		}
+
+		if countryCode != "" && loc.CountryCode != countryCode {
+			continue
+		}
+
+		if subdivisionCode != "" && loc.SubdivisionCode != subdivisionCode {
+			continue
+		}
+
+		return writeXML(c, http.StatusOK, geoLocationResponse{
+			Xmlns:       route53Namespace,
+			GeoLocation: loc,
+		})
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchGeoLocation",
+		"the specified geographic location was not found")
 }
 
 type listGeoLocationsResponse struct {
@@ -281,10 +303,39 @@ type listGeoLocationsResponse struct {
 func (h *Handler) listGeoLocations(c *echo.Context) error {
 	return writeXML(c, http.StatusOK, listGeoLocationsResponse{
 		Xmlns:        route53Namespace,
-		GeoLocations: []xmlGeoLocation{{ContinentCode: "*"}},
+		GeoLocations: geoLocationTable,
 		IsTruncated:  false,
 		MaxItems:     "100",
 	})
+}
+
+// geoLocationTable is a static table of AWS Route 53 supported geo locations.
+//
+//nolint:gochecknoglobals // read-only lookup table initialized once at package load
+var geoLocationTable = []xmlGeoLocation{
+	{ContinentCode: "AF", ContinentName: "Africa"},
+	{ContinentCode: "AN", ContinentName: "Antarctica"},
+	{ContinentCode: "AS", ContinentName: "Asia"},
+	{ContinentCode: "EU", ContinentName: "Europe"},
+	{ContinentCode: "NA", ContinentName: "North America"},
+	{ContinentCode: "OC", ContinentName: "Oceania"},
+	{ContinentCode: "SA", ContinentName: "South America"},
+	{ContinentCode: "NA", CountryCode: "US", CountryName: "United States"},
+	{ContinentCode: "EU", CountryCode: "GB", CountryName: "United Kingdom"},
+	{ContinentCode: "EU", CountryCode: "DE", CountryName: "Germany"},
+	{ContinentCode: "EU", CountryCode: "FR", CountryName: "France"},
+	{ContinentCode: "AS", CountryCode: "JP", CountryName: "Japan"},
+	{ContinentCode: "AS", CountryCode: "CN", CountryName: "China"},
+	{ContinentCode: "AS", CountryCode: "IN", CountryName: "India"},
+	{ContinentCode: "AS", CountryCode: "SG", CountryName: "Singapore"},
+	{ContinentCode: "OC", CountryCode: "AU", CountryName: "Australia"},
+	{ContinentCode: "NA", CountryCode: "CA", CountryName: "Canada"},
+	{ContinentCode: "SA", CountryCode: "BR", CountryName: "Brazil"},
+	{ContinentCode: "NA", CountryCode: "US", SubdivisionCode: "US-CA", SubdivisionName: "California"},
+	{ContinentCode: "NA", CountryCode: "US", SubdivisionCode: "US-NY", SubdivisionName: "New York"},
+	{ContinentCode: "NA", CountryCode: "US", SubdivisionCode: "US-TX", SubdivisionName: "Texas"},
+	{ContinentCode: "NA", CountryCode: "US", SubdivisionCode: "US-WA", SubdivisionName: "Washington"},
+	{ContinentCode: "NA", CountryCode: "US", SubdivisionCode: "US-VA", SubdivisionName: "Virginia"},
 }
 
 type healthCheckCountResponse struct {
@@ -442,10 +493,20 @@ type vpcAssocAuthorizationsResponse struct {
 func (h *Handler) listVPCAssociationAuthorizations(c *echo.Context, path string) error {
 	zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53AuthorizeVPCSuffix)
 
+	auths, err := h.Backend.ListVPCAssociationAuthorizations(zoneID)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	vpcs := make([]xmlVPC, 0, len(auths))
+	for _, a := range auths {
+		vpcs = append(vpcs, xmlVPC{VPCRegion: a.VPCRegion, VPCID: a.VPCID})
+	}
+
 	return writeXML(c, http.StatusOK, vpcAssocAuthorizationsResponse{
 		Xmlns:        route53Namespace,
 		HostedZoneID: zoneID,
-		VPCs:         []xmlVPC{},
+		VPCs:         vpcs,
 	})
 }
 
@@ -456,13 +517,33 @@ type createVPCAssocAuthorizationResponse struct {
 	VPC          xmlVPC   `xml:"VPC"`
 }
 
+type createVPCAssocAuthRequest struct {
+	XMLName xml.Name `xml:"CreateVPCAssociationAuthorizationRequest"`
+	VPC     xmlVPC   `xml:"VPC"`
+}
+
 func (h *Handler) createVPCAssociationAuthorization(c *echo.Context, path string) error {
 	zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53AuthorizeVPCSuffix)
 
-	return writeXML(c, http.StatusOK, createVPCAssocAuthorizationResponse{
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req createVPCAssocAuthRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	auth, err := h.Backend.CreateVPCAssociationAuthorization(zoneID, req.VPC.VPCID, req.VPC.VPCRegion)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	return writeXML(c, http.StatusCreated, createVPCAssocAuthorizationResponse{
 		Xmlns:        route53Namespace,
 		HostedZoneID: zoneID,
-		VPC:          xmlVPC{VPCRegion: "us-east-1", VPCID: "vpc-stub"},
+		VPC:          xmlVPC{VPCRegion: auth.VPCRegion, VPCID: auth.VPCID},
 	})
 }
 
@@ -471,7 +552,31 @@ type deleteVPCAssocAuthorizationResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-func (h *Handler) deleteVPCAssociationAuthorization(c *echo.Context, _ string) error {
+type deleteVPCAssocAuthRequest struct {
+	XMLName xml.Name `xml:"DeleteVPCAssociationAuthorizationRequest"`
+	VPC     xmlVPC   `xml:"VPC"`
+}
+
+func (h *Handler) deleteVPCAssociationAuthorization(c *echo.Context, path string) error {
+	zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53AuthorizeVPCSuffix)
+	if zoneID == "" {
+		zoneID = strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53DeauthorizeVPCSuffix)
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req deleteVPCAssocAuthRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	if err = h.Backend.DeleteVPCAssociationAuthorization(zoneID, req.VPC.VPCID); err != nil {
+		return handleBackendError(c, err)
+	}
+
 	return writeXML(c, http.StatusOK, deleteVPCAssocAuthorizationResponse{
 		Xmlns: route53Namespace,
 	})
@@ -547,11 +652,27 @@ type updateHZCommentResponse struct {
 	HostedZone xmlHostedZone `xml:"HostedZone"`
 }
 
+type updateHZCommentRequest struct {
+	XMLName xml.Name `xml:"UpdateHostedZoneCommentRequest"`
+	Comment string   `xml:"Comment"`
+}
+
 func (h *Handler) updateHostedZoneComment(c *echo.Context, path string) error {
 	zoneID := strings.TrimPrefix(path, route53HZPrefix)
-	zone, err := h.Backend.GetHostedZone(zoneID)
+
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return xmlError(c, http.StatusNotFound, "NoSuchHostedZone", "zone not found: "+zoneID)
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req updateHZCommentRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	zone, err := h.Backend.UpdateHostedZoneComment(zoneID, req.Comment)
+	if err != nil {
+		return handleBackendError(c, err)
 	}
 
 	return writeXML(c, http.StatusOK, updateHZCommentResponse{
@@ -560,39 +681,79 @@ func (h *Handler) updateHostedZoneComment(c *echo.Context, path string) error {
 			ID:              "/hostedzone/" + zone.ID,
 			Name:            zone.Name,
 			CallerReference: zone.CallerReference,
+			Config:          xmlHostedZoneConfig{Comment: zone.Comment},
 		},
 	})
 }
 
 type listTPInstancesByHZResponse struct {
-	XMLName                xml.Name `xml:"ListTrafficPolicyInstancesByHostedZoneResponse"`
-	Xmlns                  string   `xml:"xmlns,attr"`
-	MaxItems               string   `xml:"MaxItems"`
-	TrafficPolicyInstances []any    `xml:"TrafficPolicyInstances>TrafficPolicyInstance"`
-	IsTruncated            bool     `xml:"IsTruncated"`
+	XMLName                xml.Name                   `xml:"ListTrafficPolicyInstancesByHostedZoneResponse"`
+	Xmlns                  string                     `xml:"xmlns,attr"`
+	MaxItems               string                     `xml:"MaxItems"`
+	TrafficPolicyInstances []xmlTrafficPolicyInstance `xml:"TrafficPolicyInstances>TrafficPolicyInstance"`
+	IsTruncated            bool                       `xml:"IsTruncated"`
 }
 
 func (h *Handler) listTrafficPolicyInstancesByHostedZone(c *echo.Context) error {
+	hostedZoneID := c.Request().URL.Query().Get("hostedzoneid")
+
+	instances, err := h.Backend.ListTrafficPolicyInstancesByHostedZone(hostedZoneID)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	xmlInstances := make([]xmlTrafficPolicyInstance, 0, len(instances))
+	for _, inst := range instances {
+		xmlInstances = append(xmlInstances, toXMLTPInstance(inst))
+	}
+
 	return writeXML(c, http.StatusOK, listTPInstancesByHZResponse{
 		Xmlns:                  route53Namespace,
-		TrafficPolicyInstances: []any{},
+		TrafficPolicyInstances: xmlInstances,
 		IsTruncated:            false,
 		MaxItems:               "100",
 	})
 }
 
 type listTPInstancesByPolicyResponse struct {
-	XMLName                xml.Name `xml:"ListTrafficPolicyInstancesByPolicyResponse"`
-	Xmlns                  string   `xml:"xmlns,attr"`
-	MaxItems               string   `xml:"MaxItems"`
-	TrafficPolicyInstances []any    `xml:"TrafficPolicyInstances>TrafficPolicyInstance"`
-	IsTruncated            bool     `xml:"IsTruncated"`
+	XMLName                xml.Name                   `xml:"ListTrafficPolicyInstancesByPolicyResponse"`
+	Xmlns                  string                     `xml:"xmlns,attr"`
+	MaxItems               string                     `xml:"MaxItems"`
+	TrafficPolicyInstances []xmlTrafficPolicyInstance `xml:"TrafficPolicyInstances>TrafficPolicyInstance"`
+	IsTruncated            bool                       `xml:"IsTruncated"`
 }
 
 func (h *Handler) listTrafficPolicyInstancesByPolicy(c *echo.Context) error {
+	tpID := c.Request().URL.Query().Get("trafficpolicyid")
+	tpVersionStr := c.Request().URL.Query().Get("trafficpolicyversion")
+
+	var tpVersion int32
+	if tpVersionStr != "" {
+		v, err := strconv.Atoi(tpVersionStr)
+		if err != nil {
+			return xmlError(c, http.StatusBadRequest, "InvalidInput", "invalid trafficpolicyversion")
+		}
+
+		if v < math.MinInt32 || v > math.MaxInt32 {
+			return xmlError(c, http.StatusBadRequest, "InvalidInput", "trafficpolicyversion out of range")
+		}
+
+		tpVersion = int32(v) //nolint:gosec // bounds checked above
+	}
+
+	instances, err := h.Backend.ListTrafficPolicyInstancesByPolicy(tpID, tpVersion)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	xmlInstances := make([]xmlTrafficPolicyInstance, 0, len(instances))
+	for _, inst := range instances {
+		xmlInstances = append(xmlInstances, toXMLTPInstance(inst))
+	}
+
 	return writeXML(c, http.StatusOK, listTPInstancesByPolicyResponse{
 		Xmlns:                  route53Namespace,
-		TrafficPolicyInstances: []any{},
+		TrafficPolicyInstances: xmlInstances,
 		IsTruncated:            false,
 		MaxItems:               "100",
 	})
@@ -617,10 +778,34 @@ type updateTPInstanceResponse struct {
 	TrafficPolicyInstance xmlTrafficPolicyInstance `xml:"TrafficPolicyInstance"`
 }
 
-func (h *Handler) updateTrafficPolicyInstance(c *echo.Context, _ string) error {
+type updateTPInstanceRequest struct {
+	XMLName          xml.Name `xml:"UpdateTrafficPolicyInstanceRequest"`
+	TrafficPolicyID  string   `xml:"TrafficPolicyId"`
+	TrafficPolicyVer int32    `xml:"TrafficPolicyVersion"`
+	TTL              int64    `xml:"TTL"`
+}
+
+func (h *Handler) updateTrafficPolicyInstance(c *echo.Context, path string) error {
+	instanceID := strings.TrimPrefix(path, "/2013-04-01/trafficpolicyinstance/")
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req updateTPInstanceRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	inst, err := h.Backend.UpdateTrafficPolicyInstance(instanceID, req.TrafficPolicyID, req.TrafficPolicyVer, req.TTL)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
 	return writeXML(c, http.StatusOK, updateTPInstanceResponse{
 		Xmlns:                 route53Namespace,
-		TrafficPolicyInstance: xmlTrafficPolicyInstance{},
+		TrafficPolicyInstance: toXMLTPInstance(inst),
 	})
 }
 
@@ -792,10 +977,20 @@ type listCidrBlocksResponse struct {
 	IsTruncated bool     `xml:"IsTruncated"`
 }
 
-func (h *Handler) listCidrBlocks(c *echo.Context, _ string) error {
+func (h *Handler) listCidrBlocks(c *echo.Context, path string) error {
+	// path: /2013-04-01/cidrcollection/{id}/cidrblocks[?location=...]
+	trimmed := strings.TrimPrefix(path, route53CidrCollectionPrefix)
+	collectionID, _, _ := strings.Cut(trimmed, "/")
+	locationName := c.Request().URL.Query().Get("location")
+
+	blocks, err := h.Backend.ListCidrBlocks(collectionID, locationName)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
 	return writeXML(c, http.StatusOK, listCidrBlocksResponse{
 		Xmlns:       route53Namespace,
-		CidrBlocks:  []string{},
+		CidrBlocks:  blocks,
 		IsTruncated: false,
 	})
 }
@@ -807,10 +1002,19 @@ type listCidrLocationsResponse struct {
 	IsTruncated   bool     `xml:"IsTruncated"`
 }
 
-func (h *Handler) listCidrLocations(c *echo.Context, _ string) error {
+func (h *Handler) listCidrLocations(c *echo.Context, path string) error {
+	// path: /2013-04-01/cidrcollection/{id}[/cidrlocations]
+	trimmed := strings.TrimPrefix(path, route53CidrCollectionPrefix)
+	collectionID, _, _ := strings.Cut(trimmed, "/")
+
+	locations, err := h.Backend.ListCidrLocations(collectionID)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
 	return writeXML(c, http.StatusOK, listCidrLocationsResponse{
 		Xmlns:         route53Namespace,
-		CidrLocations: []string{},
+		CidrLocations: locations,
 		IsTruncated:   false,
 	})
 }

@@ -590,6 +590,10 @@ func (h *Handler) routeNewOpsKSKCidr(c *echo.Context, path, method string) (bool
 		return true, h.routeKSK(c, path, method)
 	case path == route53CidrCollectionRoot:
 		return true, h.routeCidrCollectionRoot(c, method)
+	case strings.Contains(path, "/cidrblocks") && strings.HasPrefix(path, route53CidrCollectionPrefix):
+		return true, h.listCidrBlocks(c, path)
+	case strings.Contains(path, "/cidrlocations") && strings.HasPrefix(path, route53CidrCollectionPrefix):
+		return true, h.listCidrLocations(c, path)
 	case strings.HasPrefix(path, route53CidrCollectionPrefix):
 		return true, h.routeCidrCollection(c, path, method)
 	default:
@@ -669,6 +673,10 @@ func (h *Handler) routeHostedZoneSuffix(c *echo.Context, path, method string) (b
 		return true, h.routeAssociateVPC(c, path, method)
 	}
 
+	if strings.HasSuffix(path, route53AuthorizeVPCSuffix) {
+		return true, h.routeAuthorizeVPC(c, path, method)
+	}
+
 	if strings.HasSuffix(path, route53DeauthorizeVPCSuffix) && method == http.MethodPost {
 		return true, h.deleteVPCAssociationAuthorization(c, path)
 	}
@@ -682,6 +690,21 @@ func (h *Handler) routeHostedZoneSuffix(c *echo.Context, path, method string) (b
 	}
 
 	return false, nil
+}
+
+// routeAuthorizeVPC routes VPC association authorization requests.
+func (h *Handler) routeAuthorizeVPC(c *echo.Context, path, method string) error {
+	switch method {
+	case http.MethodPost:
+		return h.createVPCAssociationAuthorization(c, path)
+	case http.MethodGet:
+		return h.listVPCAssociationAuthorizations(c, path)
+	case http.MethodDelete:
+		return h.deleteVPCAssociationAuthorization(c, path)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on authorizevpcassociation")
+	}
 }
 
 // routeRRSet routes resource record set requests.
@@ -713,7 +736,10 @@ func (h *Handler) routeAssociateVPC(c *echo.Context, path, method string) error 
 func (h *Handler) routeHostedZoneDNSSEC(c *echo.Context, path, method string) (bool, error) {
 	if strings.HasSuffix(path, route53EnableDNSSECSuffix) {
 		if method == http.MethodPost {
-			zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53EnableDNSSECSuffix)
+			zoneID := strings.TrimSuffix(
+				strings.TrimPrefix(path, route53HZPrefix),
+				route53EnableDNSSECSuffix,
+			)
 
 			return true, h.enableHostedZoneDNSSEC(c, zoneID)
 		}
@@ -724,7 +750,10 @@ func (h *Handler) routeHostedZoneDNSSEC(c *echo.Context, path, method string) (b
 
 	if strings.HasSuffix(path, route53DisableDNSSECSuffix) {
 		if method == http.MethodPost {
-			zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53DisableDNSSECSuffix)
+			zoneID := strings.TrimSuffix(
+				strings.TrimPrefix(path, route53HZPrefix),
+				route53DisableDNSSECSuffix,
+			)
 
 			return true, h.disableHostedZoneDNSSEC(c, zoneID)
 		}
@@ -735,7 +764,10 @@ func (h *Handler) routeHostedZoneDNSSEC(c *echo.Context, path, method string) (b
 
 	if strings.HasSuffix(path, route53DNSSECSuffix) {
 		if method == http.MethodGet {
-			zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53DNSSECSuffix)
+			zoneID := strings.TrimSuffix(
+				strings.TrimPrefix(path, route53HZPrefix),
+				route53DNSSECSuffix,
+			)
 
 			return true, h.getHostedZoneDNSSEC(c, zoneID)
 		}
@@ -912,31 +944,57 @@ type xmlAliasTarget struct {
 
 type xmlGeoLocation struct {
 	ContinentCode   string `xml:"ContinentCode,omitempty"`
+	ContinentName   string `xml:"ContinentName,omitempty"`
 	CountryCode     string `xml:"CountryCode,omitempty"`
+	CountryName     string `xml:"CountryName,omitempty"`
 	SubdivisionCode string `xml:"SubdivisionCode,omitempty"`
+	SubdivisionName string `xml:"SubdivisionName,omitempty"`
+}
+
+type xmlGeoProximityCoordinates struct {
+	Latitude  string `xml:"Latitude,omitempty"`
+	Longitude string `xml:"Longitude,omitempty"`
+}
+
+type xmlGeoProximityLocation struct {
+	Coordinates    *xmlGeoProximityCoordinates `xml:"Coordinates,omitempty"`
+	AWSRegion      string                      `xml:"AWSRegion,omitempty"`
+	LocalZoneGroup string                      `xml:"LocalZoneGroup,omitempty"`
+	Bias           int                         `xml:"Bias,omitempty"`
+}
+
+type xmlCidrRoutingConfig struct {
+	CollectionID string `xml:"CollectionId,omitempty"`
+	LocationName string `xml:"LocationName,omitempty"`
 }
 
 type xmlResourceRecordSet struct {
-	XMLName         xml.Name            `xml:"ResourceRecordSet"`
-	AliasTarget     *xmlAliasTarget     `xml:"AliasTarget,omitempty"`
-	GeoLocation     *xmlGeoLocation     `xml:"GeoLocation,omitempty"`
-	Name            string              `xml:"Name"`
-	Type            string              `xml:"Type"`
-	SetIdentifier   string              `xml:"SetIdentifier,omitempty"`
-	Failover        string              `xml:"Failover,omitempty"`
-	Region          string              `xml:"Region,omitempty"`
-	HealthCheckID   string              `xml:"HealthCheckId,omitempty"`
-	ResourceRecords []xmlResourceRecord `xml:"ResourceRecords>ResourceRecord,omitempty"`
-	TTL             int64               `xml:"TTL,omitempty"`
-	Weight          int64               `xml:"Weight,omitempty"`
+	XMLName              xml.Name                 `xml:"ResourceRecordSet"`
+	AliasTarget          *xmlAliasTarget          `xml:"AliasTarget,omitempty"`
+	GeoLocation          *xmlGeoLocation          `xml:"GeoLocation,omitempty"`
+	GeoProximityLocation *xmlGeoProximityLocation `xml:"GeoProximityLocation,omitempty"`
+	CidrRoutingConfig    *xmlCidrRoutingConfig    `xml:"CidrRoutingConfig,omitempty"`
+	Name                 string                   `xml:"Name"`
+	Type                 string                   `xml:"Type"`
+	SetIdentifier        string                   `xml:"SetIdentifier,omitempty"`
+	Failover             string                   `xml:"Failover,omitempty"`
+	Region               string                   `xml:"Region,omitempty"`
+	HealthCheckID        string                   `xml:"HealthCheckId,omitempty"`
+	ResourceRecords      []xmlResourceRecord      `xml:"ResourceRecords>ResourceRecord,omitempty"`
+	TTL                  int64                    `xml:"TTL,omitempty"`
+	Weight               int64                    `xml:"Weight,omitempty"`
+	MultiValueAnswer     bool                     `xml:"MultiValueAnswer,omitempty"`
 }
 
 type xmlListResourceRecordSetsResponse struct {
-	XMLName            xml.Name               `xml:"ListResourceRecordSetsResponse"`
-	Xmlns              string                 `xml:"xmlns,attr"`
-	MaxItems           string                 `xml:"MaxItems"`
-	ResourceRecordSets []xmlResourceRecordSet `xml:"ResourceRecordSets>ResourceRecordSet"`
-	IsTruncated        bool                   `xml:"IsTruncated"`
+	XMLName              xml.Name               `xml:"ListResourceRecordSetsResponse"`
+	Xmlns                string                 `xml:"xmlns,attr"`
+	NextRecordName       string                 `xml:"NextRecordName,omitempty"`
+	NextRecordType       string                 `xml:"NextRecordType,omitempty"`
+	NextRecordIdentifier string                 `xml:"NextRecordIdentifier,omitempty"`
+	MaxItems             string                 `xml:"MaxItems"`
+	ResourceRecordSets   []xmlResourceRecordSet `xml:"ResourceRecordSets>ResourceRecordSet"`
+	IsTruncated          bool                   `xml:"IsTruncated"`
 }
 
 // ---- XML request types ----
@@ -950,17 +1008,20 @@ type xmlCreateHostedZoneRequest struct {
 
 // xmlResourceRecordSetChange is the ResourceRecordSet element within a change batch entry.
 type xmlResourceRecordSetChange struct {
-	AliasTarget     *xmlAliasTarget     `xml:"AliasTarget"`
-	GeoLocation     *xmlGeoLocation     `xml:"GeoLocation"`
-	Name            string              `xml:"Name"`
-	Type            string              `xml:"Type"`
-	SetIdentifier   string              `xml:"SetIdentifier"`
-	Failover        string              `xml:"Failover"`
-	Region          string              `xml:"Region"`
-	HealthCheckID   string              `xml:"HealthCheckId"`
-	ResourceRecords []xmlResourceRecord `xml:"ResourceRecords>ResourceRecord"`
-	TTL             int64               `xml:"TTL"`
-	Weight          int64               `xml:"Weight"`
+	AliasTarget          *xmlAliasTarget          `xml:"AliasTarget"`
+	GeoLocation          *xmlGeoLocation          `xml:"GeoLocation"`
+	GeoProximityLocation *xmlGeoProximityLocation `xml:"GeoProximityLocation"`
+	CidrRoutingConfig    *xmlCidrRoutingConfig    `xml:"CidrRoutingConfig"`
+	Name                 string                   `xml:"Name"`
+	Type                 string                   `xml:"Type"`
+	SetIdentifier        string                   `xml:"SetIdentifier"`
+	Failover             string                   `xml:"Failover"`
+	Region               string                   `xml:"Region"`
+	HealthCheckID        string                   `xml:"HealthCheckId"`
+	ResourceRecords      []xmlResourceRecord      `xml:"ResourceRecords>ResourceRecord"`
+	TTL                  int64                    `xml:"TTL"`
+	Weight               int64                    `xml:"Weight"`
+	MultiValueAnswer     bool                     `xml:"MultiValueAnswer"`
 }
 
 // xmlChange is a single change entry within a ChangeBatch.
@@ -991,7 +1052,12 @@ func (h *Handler) createHostedZone(c *echo.Context) error {
 
 	var req xmlCreateHostedZoneRequest
 	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		return xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInput",
+			"failed to parse XML: "+err.Error(),
+		)
 	}
 
 	hz, err := h.Backend.CreateHostedZone(
@@ -1099,6 +1165,7 @@ func (h *Handler) listHostedZones(c *echo.Context) error {
 	return writeXML(c, http.StatusOK, resp)
 }
 
+//nolint:funlen // handles full ChangeResourceRecordSets request including validation and response
 func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 	ctx := c.Request().Context()
 	zoneID := extractZoneID(c.Request().URL.Path)
@@ -1110,7 +1177,12 @@ func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 
 	var req xmlChangeResourceRecordSetsRequest
 	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		return xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInput",
+			"failed to parse XML: "+err.Error(),
+		)
 	}
 
 	changes := make([]Change, 0, len(req.ChangeBatch.Changes))
@@ -1121,15 +1193,16 @@ func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 		}
 
 		rrs := ResourceRecordSet{
-			Name:          ch.ResourceRecordSet.Name,
-			Type:          ch.ResourceRecordSet.Type,
-			TTL:           ch.ResourceRecordSet.TTL,
-			Records:       records,
-			SetIdentifier: ch.ResourceRecordSet.SetIdentifier,
-			Failover:      FailoverPolicy(ch.ResourceRecordSet.Failover),
-			Region:        ch.ResourceRecordSet.Region,
-			HealthCheckID: ch.ResourceRecordSet.HealthCheckID,
-			Weight:        ch.ResourceRecordSet.Weight,
+			Name:             ch.ResourceRecordSet.Name,
+			Type:             ch.ResourceRecordSet.Type,
+			TTL:              ch.ResourceRecordSet.TTL,
+			Records:          records,
+			SetIdentifier:    ch.ResourceRecordSet.SetIdentifier,
+			Failover:         FailoverPolicy(ch.ResourceRecordSet.Failover),
+			Region:           ch.ResourceRecordSet.Region,
+			HealthCheckID:    ch.ResourceRecordSet.HealthCheckID,
+			Weight:           ch.ResourceRecordSet.Weight,
+			MultiValueAnswer: ch.ResourceRecordSet.MultiValueAnswer,
 		}
 
 		if ch.ResourceRecordSet.AliasTarget != nil {
@@ -1150,22 +1223,47 @@ func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 			}
 		}
 
+		if ch.ResourceRecordSet.GeoProximityLocation != nil {
+			gpl := ch.ResourceRecordSet.GeoProximityLocation
+			rrs.GeoProximityLocation = &GeoProximityLocation{
+				AWSRegion:      gpl.AWSRegion,
+				LocalZoneGroup: gpl.LocalZoneGroup,
+				Bias:           gpl.Bias,
+			}
+			if gpl.Coordinates != nil {
+				rrs.GeoProximityLocation.Coordinates = &GeoProximityCoordinates{
+					Latitude:  gpl.Coordinates.Latitude,
+					Longitude: gpl.Coordinates.Longitude,
+				}
+			}
+		}
+
+		if ch.ResourceRecordSet.CidrRoutingConfig != nil {
+			crc := ch.ResourceRecordSet.CidrRoutingConfig
+			rrs.CidrRoutingConfig = &CidrRoutingConfig{
+				CollectionID: crc.CollectionID,
+				LocationName: crc.LocationName,
+			}
+		}
+
 		changes = append(changes, Change{
 			Action:            ChangeAction(strings.ToUpper(ch.Action)),
 			ResourceRecordSet: rrs,
 		})
 	}
 
-	if err = h.Backend.ChangeResourceRecordSets(zoneID, changes); err != nil {
+	changeID, err := h.Backend.ChangeResourceRecordSets(zoneID, changes)
+	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "Route53 ChangeResourceRecordSets", "zoneID", zoneID, "changes", len(changes))
+	logger.Load(ctx).
+		DebugContext(ctx, "Route53 ChangeResourceRecordSets", "zoneID", zoneID, "changes", len(changes))
 
 	resp := xmlChangeResourceRecordSetsResponse{
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
-			ID:          "/change/C" + zoneID,
+			ID:          changeID,
 			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
@@ -1174,66 +1272,142 @@ func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 	return writeXML(c, http.StatusOK, resp)
 }
 
+// parseMaxItemsResult holds the parsed and effective maxItems values.
+type parseMaxItemsResult struct {
+	requested int
+	effective int
+}
+
+// parseMaxItems parses the "maxitems" query parameter.
+// Returns the requested value (0 if absent) and the effective value after applying the backend
+// default/clamp. Returns an error response if the parameter is present but invalid.
+func parseMaxItems(c *echo.Context, paramVal string) (parseMaxItemsResult, error) {
+	if paramVal == "" {
+		return parseMaxItemsResult{0, route53DefaultMaxItems}, nil
+	}
+
+	n, parseErr := strconv.Atoi(paramVal)
+	if parseErr != nil || n < 0 {
+		return parseMaxItemsResult{}, xmlError(c, http.StatusBadRequest, "InvalidInput", "invalid maxitems parameter")
+	}
+
+	if n == 0 || n > route53DefaultMaxItems {
+		return parseMaxItemsResult{n, route53DefaultMaxItems}, nil
+	}
+
+	return parseMaxItemsResult{n, n}, nil
+}
+
 func (h *Handler) listResourceRecordSets(c *echo.Context) error {
 	ctx := c.Request().Context()
 	zoneID := extractZoneID(c.Request().URL.Path)
+	q := c.Request().URL.Query()
 
-	records, err := h.Backend.ListResourceRecordSets(zoneID)
+	startName := q.Get("name")
+	startType := q.Get("type")
+	startIdentifier := q.Get("identifier")
+
+	mi, parseErr := parseMaxItems(c, q.Get("maxitems"))
+	if parseErr != nil {
+		return parseErr
+	}
+
+	pg, err := h.Backend.ListResourceRecordSets(
+		zoneID,
+		startName,
+		startType,
+		startIdentifier,
+		mi.requested,
+	)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "Route53 ListResourceRecordSets", "zoneID", zoneID, "count", len(records))
+	logger.Load(ctx).
+		DebugContext(ctx, "Route53 ListResourceRecordSets", "zoneID", zoneID, "count", len(pg.Records))
 
-	xmlRecords := make([]xmlResourceRecordSet, len(records))
-	for i, rrs := range records {
-		xmlRecs := make([]xmlResourceRecord, len(rrs.Records))
-		for j, rr := range rrs.Records {
-			xmlRecs[j] = xmlResourceRecord(rr)
-		}
-
-		xrrs := xmlResourceRecordSet{
-			Name:            rrs.Name,
-			Type:            rrs.Type,
-			TTL:             rrs.TTL,
-			ResourceRecords: xmlRecs,
-			SetIdentifier:   rrs.SetIdentifier,
-			Failover:        string(rrs.Failover),
-			Region:          rrs.Region,
-			HealthCheckID:   rrs.HealthCheckID,
-			Weight:          rrs.Weight,
-		}
-
-		if rrs.AliasTarget != nil {
-			xrrs.AliasTarget = &xmlAliasTarget{
-				HostedZoneID:         rrs.AliasTarget.HostedZoneID,
-				DNSName:              rrs.AliasTarget.DNSName,
-				EvaluateTargetHealth: rrs.AliasTarget.EvaluateTargetHealth,
-			}
-		}
-
-		if rrs.GeoLocation != nil {
-			xrrs.GeoLocation = &xmlGeoLocation{
-				ContinentCode:   rrs.GeoLocation.ContinentCode,
-				CountryCode:     rrs.GeoLocation.CountryCode,
-				SubdivisionCode: rrs.GeoLocation.SubdivisionCode,
-			}
-		}
-
-		xmlRecords[i] = xrrs
+	xmlRecords := make([]xmlResourceRecordSet, len(pg.Records))
+	for i, rrs := range pg.Records {
+		xmlRecords[i] = toXMLResourceRecordSet(rrs)
 	}
 
 	resp := xmlListResourceRecordSetsResponse{
 		Xmlns:              route53Namespace,
 		ResourceRecordSets: xmlRecords,
-		IsTruncated:        false,
-		MaxItems:           "300",
+		IsTruncated:        pg.IsTruncated,
+		MaxItems:           strconv.Itoa(mi.effective),
+	}
+
+	if pg.IsTruncated {
+		resp.NextRecordName = pg.NextName
+		resp.NextRecordType = pg.NextType
+		resp.NextRecordIdentifier = pg.NextIdentifier
 	}
 
 	return writeXML(c, http.StatusOK, resp)
 }
 
 // ---- Helpers ----
+
+// toXMLResourceRecordSet converts a ResourceRecordSet to its XML representation.
+func toXMLResourceRecordSet(rrs ResourceRecordSet) xmlResourceRecordSet {
+	xmlRecs := make([]xmlResourceRecord, len(rrs.Records))
+	for j, rr := range rrs.Records {
+		xmlRecs[j] = xmlResourceRecord(rr)
+	}
+
+	xrrs := xmlResourceRecordSet{
+		Name:             rrs.Name,
+		Type:             rrs.Type,
+		TTL:              rrs.TTL,
+		ResourceRecords:  xmlRecs,
+		SetIdentifier:    rrs.SetIdentifier,
+		Failover:         string(rrs.Failover),
+		Region:           rrs.Region,
+		HealthCheckID:    rrs.HealthCheckID,
+		Weight:           rrs.Weight,
+		MultiValueAnswer: rrs.MultiValueAnswer,
+	}
+
+	if rrs.AliasTarget != nil {
+		xrrs.AliasTarget = &xmlAliasTarget{
+			HostedZoneID:         rrs.AliasTarget.HostedZoneID,
+			DNSName:              rrs.AliasTarget.DNSName,
+			EvaluateTargetHealth: rrs.AliasTarget.EvaluateTargetHealth,
+		}
+	}
+
+	if rrs.GeoLocation != nil {
+		xrrs.GeoLocation = &xmlGeoLocation{
+			ContinentCode:   rrs.GeoLocation.ContinentCode,
+			CountryCode:     rrs.GeoLocation.CountryCode,
+			SubdivisionCode: rrs.GeoLocation.SubdivisionCode,
+		}
+	}
+
+	if rrs.GeoProximityLocation != nil {
+		xrrs.GeoProximityLocation = &xmlGeoProximityLocation{
+			AWSRegion:      rrs.GeoProximityLocation.AWSRegion,
+			LocalZoneGroup: rrs.GeoProximityLocation.LocalZoneGroup,
+			Bias:           rrs.GeoProximityLocation.Bias,
+		}
+		if rrs.GeoProximityLocation.Coordinates != nil {
+			xrrs.GeoProximityLocation.Coordinates = &xmlGeoProximityCoordinates{
+				Latitude:  rrs.GeoProximityLocation.Coordinates.Latitude,
+				Longitude: rrs.GeoProximityLocation.Coordinates.Longitude,
+			}
+		}
+	}
+
+	if rrs.CidrRoutingConfig != nil {
+		xrrs.CidrRoutingConfig = &xmlCidrRoutingConfig{
+			CollectionID: rrs.CidrRoutingConfig.CollectionID,
+			LocationName: rrs.CidrRoutingConfig.LocationName,
+		}
+	}
+
+	return xrrs
+}
 
 func toXMLHostedZone(hz *HostedZone) xmlHostedZone {
 	return xmlHostedZone{
@@ -1291,7 +1465,7 @@ func (h *Handler) listTagsForResource(c *echo.Context, path string) error {
 	return writeXML(c, http.StatusOK, resp)
 }
 
-// getChange stubs the Route53 GetChange API, always returning INSYNC so callers don't wait.
+// getChange returns the status of a Route 53 change batch.
 func (h *Handler) getChange(c *echo.Context, path string) error {
 	type getChangeResp struct {
 		XMLName    xml.Name      `xml:"GetChangeResponse"`
@@ -1299,12 +1473,20 @@ func (h *Handler) getChange(c *echo.Context, path string) error {
 		ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
 	}
 
+	// Extract change ID from path /2013-04-01/change/{id}.
+	changeID := strings.TrimPrefix(path, route53ChangePrefix)
+
+	ci, err := h.Backend.GetChange(changeID)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
 	return writeXML(c, http.StatusOK, getChangeResp{
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
-			ID:          "/" + path,
-			Status:      statusInsync,
-			SubmittedAt: time.Now(),
+			ID:          ci.ID,
+			Status:      ci.Status,
+			SubmittedAt: ci.SubmittedAt,
 		},
 	})
 }
@@ -1419,6 +1601,8 @@ func xmlError(c *echo.Context, statusCode int, code, message string) error {
 }
 
 // handleBackendError maps backend errors to HTTP responses.
+//
+//nolint:cyclop // one branch per error type; this is an exhaustive mapping function
 func handleBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrHostedZoneNotFound):
@@ -1441,6 +1625,18 @@ func handleBackendError(c *echo.Context, err error) error {
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", err.Error())
 	case errors.Is(err, ErrInvalidAction):
 		return xmlError(c, http.StatusBadRequest, "InvalidChangeBatch", err.Error())
+	case errors.Is(err, ErrChangeNotFound):
+		return xmlError(c, http.StatusNotFound, "NoSuchChange", err.Error())
+	case errors.Is(err, ErrNoSuchGeoLocation):
+		return xmlError(c, http.StatusNotFound, "NoSuchGeoLocation", err.Error())
+	case errors.Is(err, ErrQueryLoggingConfigAlreadyExists):
+		return xmlError(c, http.StatusBadRequest, "QueryLoggingConfigAlreadyExists", err.Error())
+	case errors.Is(err, ErrPublicZoneVPCAssociation):
+		return xmlError(c, http.StatusBadRequest, "PublicZoneVPCAssociation", err.Error())
+	case errors.Is(err, ErrVPCAssociationAuthorizationNF):
+		return xmlError(c, http.StatusNotFound, "VPCAssociationAuthorizationNotFound", err.Error())
+	case errors.Is(err, ErrKeySigningKeyWithActiveStatusNF):
+		return xmlError(c, http.StatusBadRequest, "KeySigningKeyWithActiveStatusNotFound", err.Error())
 	default:
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}
@@ -1448,17 +1644,30 @@ func handleBackendError(c *echo.Context, err error) error {
 
 // ---- Health check XML types ----
 
+type xmlAlarmIdentifier struct {
+	Name   string `xml:"Name"`
+	Region string `xml:"Region"`
+}
+
 type xmlHealthCheckConfig struct {
-	IPAddress                string   `xml:"IPAddress,omitempty"`
-	FullyQualifiedDomainName string   `xml:"FullyQualifiedDomainName,omitempty"`
-	ResourcePath             string   `xml:"ResourcePath,omitempty"`
-	Type                     string   `xml:"Type"`
-	ChildHealthChecks        []string `xml:"ChildHealthChecks>ChildHealthCheck,omitempty"`
-	Port                     int      `xml:"Port,omitempty"`
-	RequestInterval          int      `xml:"RequestInterval,omitempty"`
-	FailureThreshold         int      `xml:"FailureThreshold,omitempty"`
-	HealthThreshold          int      `xml:"HealthThreshold,omitempty"`
-	Inverted                 bool     `xml:"Inverted,omitempty"`
+	AlarmIdentifier              *xmlAlarmIdentifier `xml:"AlarmIdentifier,omitempty"`
+	IPAddress                    string              `xml:"IPAddress,omitempty"`
+	FullyQualifiedDomainName     string              `xml:"FullyQualifiedDomainName,omitempty"`
+	ResourcePath                 string              `xml:"ResourcePath,omitempty"`
+	SearchString                 string              `xml:"SearchString,omitempty"`
+	InsufficientDataHealthStatus string              `xml:"InsufficientDataHealthStatus,omitempty"`
+	RoutingControlArn            string              `xml:"RoutingControlArn,omitempty"`
+	Type                         string              `xml:"Type"`
+	Regions                      []string            `xml:"Regions>Region,omitempty"`
+	ChildHealthChecks            []string            `xml:"ChildHealthChecks>ChildHealthCheck,omitempty"`
+	Port                         int                 `xml:"Port,omitempty"`
+	RequestInterval              int                 `xml:"RequestInterval,omitempty"`
+	FailureThreshold             int                 `xml:"FailureThreshold,omitempty"`
+	HealthThreshold              int                 `xml:"HealthThreshold,omitempty"`
+	EnableSNI                    bool                `xml:"EnableSNI,omitempty"`
+	MeasureLatency               bool                `xml:"MeasureLatency,omitempty"`
+	Disabled                     bool                `xml:"Disabled,omitempty"`
+	Inverted                     bool                `xml:"Inverted,omitempty"`
 }
 
 type xmlHealthCheck struct {
@@ -1475,15 +1684,24 @@ type xmlCreateHealthCheckRequest struct {
 }
 
 type xmlUpdateHealthCheckRequest struct {
-	Inverted                 *bool    `xml:"Inverted"`
-	XMLName                  xml.Name `xml:"UpdateHealthCheckRequest"`
-	IPAddress                string   `xml:"IPAddress,omitempty"`
-	FullyQualifiedDomainName string   `xml:"FullyQualifiedDomainName,omitempty"`
-	ResourcePath             string   `xml:"ResourcePath,omitempty"`
-	Port                     int      `xml:"Port,omitempty"`
-	RequestInterval          int      `xml:"RequestInterval,omitempty"`
-	FailureThreshold         int      `xml:"FailureThreshold,omitempty"`
-	HealthThreshold          int      `xml:"HealthThreshold,omitempty"`
+	AlarmIdentifier              *xmlAlarmIdentifier `xml:"AlarmIdentifier"`
+	Inverted                     *bool               `xml:"Inverted"`
+	XMLName                      xml.Name            `xml:"UpdateHealthCheckRequest"`
+	IPAddress                    string              `xml:"IPAddress,omitempty"`
+	FullyQualifiedDomainName     string              `xml:"FullyQualifiedDomainName,omitempty"`
+	ResourcePath                 string              `xml:"ResourcePath,omitempty"`
+	SearchString                 string              `xml:"SearchString,omitempty"`
+	InsufficientDataHealthStatus string              `xml:"InsufficientDataHealthStatus,omitempty"`
+	RoutingControlArn            string              `xml:"RoutingControlArn,omitempty"`
+	Regions                      []string            `xml:"Regions>Region,omitempty"`
+	ChildHealthChecks            []string            `xml:"ChildHealthChecks>ChildHealthCheck,omitempty"`
+	Port                         int                 `xml:"Port,omitempty"`
+	RequestInterval              int                 `xml:"RequestInterval,omitempty"`
+	FailureThreshold             int                 `xml:"FailureThreshold,omitempty"`
+	HealthThreshold              int                 `xml:"HealthThreshold,omitempty"`
+	EnableSNI                    bool                `xml:"EnableSNI,omitempty"`
+	MeasureLatency               bool                `xml:"MeasureLatency,omitempty"`
+	Disabled                     bool                `xml:"Disabled,omitempty"`
 }
 
 type xmlCreateHealthCheckResponse struct {
@@ -1535,21 +1753,37 @@ type xmlGetHealthCheckStatusResponse struct {
 
 // toXMLHealthCheck converts a HealthCheck to its XML representation.
 func toXMLHealthCheck(hc *HealthCheck) xmlHealthCheck {
+	cfg := xmlHealthCheckConfig{
+		IPAddress:                    hc.Config.IPAddress,
+		FullyQualifiedDomainName:     hc.Config.FullyQualifiedDomainName,
+		ResourcePath:                 hc.Config.ResourcePath,
+		SearchString:                 hc.Config.SearchString,
+		InsufficientDataHealthStatus: hc.Config.InsufficientDataHealthStatus,
+		RoutingControlArn:            hc.Config.RoutingControlArn,
+		Type:                         string(hc.Config.Type),
+		Port:                         hc.Config.Port,
+		RequestInterval:              hc.Config.RequestInterval,
+		FailureThreshold:             hc.Config.FailureThreshold,
+		HealthThreshold:              hc.Config.HealthThreshold,
+		EnableSNI:                    hc.Config.EnableSNI,
+		MeasureLatency:               hc.Config.MeasureLatency,
+		Disabled:                     hc.Config.Disabled,
+		Inverted:                     hc.Config.Inverted,
+		ChildHealthChecks:            hc.Config.ChildHealthChecks,
+		Regions:                      hc.Config.Regions,
+	}
+
+	if hc.Config.AlarmIdentifier != nil {
+		cfg.AlarmIdentifier = &xmlAlarmIdentifier{
+			Name:   hc.Config.AlarmIdentifier.Name,
+			Region: hc.Config.AlarmIdentifier.Region,
+		}
+	}
+
 	return xmlHealthCheck{
 		ID:              hc.ID,
 		CallerReference: hc.CallerReference,
-		Config: xmlHealthCheckConfig{
-			IPAddress:                hc.Config.IPAddress,
-			FullyQualifiedDomainName: hc.Config.FullyQualifiedDomainName,
-			ResourcePath:             hc.Config.ResourcePath,
-			Type:                     string(hc.Config.Type),
-			Port:                     hc.Config.Port,
-			RequestInterval:          hc.Config.RequestInterval,
-			FailureThreshold:         hc.Config.FailureThreshold,
-			HealthThreshold:          hc.Config.HealthThreshold,
-			Inverted:                 hc.Config.Inverted,
-			ChildHealthChecks:        hc.Config.ChildHealthChecks,
-		},
+		Config:          cfg,
 	}
 }
 
@@ -1576,7 +1810,12 @@ func (h *Handler) createHealthCheck(c *echo.Context) error {
 
 	var req xmlCreateHealthCheckRequest
 	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		return xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInput",
+			"failed to parse XML: "+err.Error(),
+		)
 	}
 
 	cfg := HealthCheckConfig{
@@ -1669,6 +1908,7 @@ func (h *Handler) deleteHealthCheck(c *echo.Context, path string) error {
 	return writeXML(c, http.StatusOK, xmlDeleteHealthCheckResponse{Xmlns: route53Namespace})
 }
 
+//nolint:gocognit,cyclop,funlen // health check update applies many optional fields conditionally
 func (h *Handler) updateHealthCheck(c *echo.Context, path string) error {
 	ctx := c.Request().Context()
 	id := extractHealthCheckID(path)
@@ -1680,7 +1920,12 @@ func (h *Handler) updateHealthCheck(c *echo.Context, path string) error {
 
 	var req xmlUpdateHealthCheckRequest
 	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		return xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInput",
+			"failed to parse XML: "+err.Error(),
+		)
 	}
 
 	existing, err := h.Backend.GetHealthCheck(id)
@@ -1722,6 +1967,45 @@ func (h *Handler) updateHealthCheck(c *echo.Context, path string) error {
 		cfg.Inverted = *req.Inverted
 	}
 
+	if req.SearchString != "" {
+		cfg.SearchString = req.SearchString
+	}
+
+	if req.InsufficientDataHealthStatus != "" {
+		cfg.InsufficientDataHealthStatus = req.InsufficientDataHealthStatus
+	}
+
+	if req.RoutingControlArn != "" {
+		cfg.RoutingControlArn = req.RoutingControlArn
+	}
+
+	if req.EnableSNI {
+		cfg.EnableSNI = true
+	}
+
+	if req.MeasureLatency {
+		cfg.MeasureLatency = true
+	}
+
+	if req.Disabled {
+		cfg.Disabled = true
+	}
+
+	if len(req.Regions) > 0 {
+		cfg.Regions = req.Regions
+	}
+
+	if len(req.ChildHealthChecks) > 0 {
+		cfg.ChildHealthChecks = req.ChildHealthChecks
+	}
+
+	if req.AlarmIdentifier != nil {
+		cfg.AlarmIdentifier = &AlarmIdentifier{
+			Name:   req.AlarmIdentifier.Name,
+			Region: req.AlarmIdentifier.Region,
+		}
+	}
+
 	hc, err := h.Backend.UpdateHealthCheck(id, cfg)
 	if err != nil {
 		return handleBackendError(c, err)
@@ -1748,16 +2032,37 @@ func (h *Handler) getHealthCheckStatus(c *echo.Context, path string) error {
 
 	logger.Load(ctx).DebugContext(ctx, "Route53 GetHealthCheckStatus", "id", id, "status", status)
 
-	obs := xmlHealthCheckObservation{
-		Region:    "us-east-1",
-		IPAddress: "0.0.0.0",
+	hc, hcErr := h.Backend.GetHealthCheck(id)
+	observerRegions := []string{"us-east-1", "us-west-2", "eu-west-1"}
+	if hcErr == nil && len(hc.Config.Regions) > 0 {
+		observerRegions = hc.Config.Regions
 	}
-	obs.StatusReport.Status = status
-	obs.StatusReport.CheckedTime = time.Now()
+
+	checkedAt := time.Now()
+	observations := make([]xmlHealthCheckObservation, 0, len(observerRegions))
+
+	for _, region := range observerRegions {
+		obsStatus := status
+		if hcErr == nil && hc.Config.Inverted {
+			if obsStatus == "Healthy" {
+				obsStatus = "Unhealthy"
+			} else {
+				obsStatus = "Healthy"
+			}
+		}
+
+		obs := xmlHealthCheckObservation{
+			Region:    region,
+			IPAddress: "0.0.0.0",
+		}
+		obs.StatusReport.Status = obsStatus
+		obs.StatusReport.CheckedTime = checkedAt
+		observations = append(observations, obs)
+	}
 
 	return writeXML(c, http.StatusOK, xmlGetHealthCheckStatusResponse{
 		Xmlns:                   route53Namespace,
-		HealthCheckObservations: []xmlHealthCheckObservation{obs},
+		HealthCheckObservations: observations,
 	})
 }
 
@@ -1790,10 +2095,19 @@ type xmlAssociateVPCResponse struct {
 }
 
 type xmlKSK struct {
-	XMLName xml.Name `xml:"KeySigningKey"`
-	Name    string   `xml:"Name"`
-	KMSArn  string   `xml:"KmsArn,omitempty"`
-	Status  string   `xml:"Status"`
+	XMLName                  xml.Name `xml:"KeySigningKey"`
+	Name                     string   `xml:"Name"`
+	KMSArn                   string   `xml:"KmsArn,omitempty"`
+	Status                   string   `xml:"Status"`
+	SigningAlgorithmMnemonic string   `xml:"SigningAlgorithmMnemonic,omitempty"`
+	DigestAlgorithmMnemonic  string   `xml:"DigestAlgorithmMnemonic,omitempty"`
+	PublicKey                string   `xml:"PublicKey,omitempty"`
+	DSRecord                 string   `xml:"DSRecord,omitempty"`
+	DigestValue              string   `xml:"DigestValue,omitempty"`
+	Flag                     int      `xml:"Flag,omitempty"`
+	SigningAlgorithmType     int      `xml:"SigningAlgorithmType,omitempty"`
+	DigestAlgorithmType      int      `xml:"DigestAlgorithmType,omitempty"`
+	KeyTag                   int      `xml:"KeyTag,omitempty"`
 }
 
 type xmlCreateKSKRequest struct {
@@ -2027,7 +2341,12 @@ func (h *Handler) routeKSKRoot(c *echo.Context, method string) error {
 		return h.createKeySigningKey(c)
 	}
 
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /keysigningkey")
+	return xmlError(
+		c,
+		http.StatusNotFound,
+		"NoSuchOperation",
+		"unsupported method on /keysigningkey",
+	)
 }
 
 func (h *Handler) routeKSK(c *echo.Context, path, method string) error {
@@ -2043,7 +2362,12 @@ func (h *Handler) routeKSK(c *echo.Context, path, method string) error {
 		return h.deleteKeySigningKey(c, path)
 	}
 
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported operation on key signing key")
+	return xmlError(
+		c,
+		http.StatusNotFound,
+		"NoSuchOperation",
+		"unsupported operation on key signing key",
+	)
 }
 
 func (h *Handler) routeCidrCollectionRoot(c *echo.Context, method string) error {
@@ -2053,7 +2377,12 @@ func (h *Handler) routeCidrCollectionRoot(c *echo.Context, method string) error 
 	case http.MethodGet:
 		return h.listCidrCollections(c)
 	default:
-		return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /cidrcollection")
+		return xmlError(
+			c,
+			http.StatusNotFound,
+			"NoSuchOperation",
+			"unsupported method on /cidrcollection",
+		)
 	}
 }
 
@@ -2072,7 +2401,12 @@ func (h *Handler) routeCidrCollection(c *echo.Context, path, method string) erro
 
 		return h.listCidrLocations(c, path)
 	default:
-		return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on cidrcollection")
+		return xmlError(
+			c,
+			http.StatusNotFound,
+			"NoSuchOperation",
+			"unsupported method on cidrcollection",
+		)
 	}
 }
 
@@ -2103,7 +2437,12 @@ func (h *Handler) routeTrafficPolicyRoot(c *echo.Context, method string) error {
 		return h.createTrafficPolicy(c)
 	}
 
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /trafficpolicy")
+	return xmlError(
+		c,
+		http.StatusNotFound,
+		"NoSuchOperation",
+		"unsupported method on /trafficpolicy",
+	)
 }
 
 func (h *Handler) routeTrafficPolicyVersion(c *echo.Context, path, method string) error {
@@ -2138,7 +2477,12 @@ func (h *Handler) routeTrafficPolicyVersion(c *echo.Context, path, method string
 		return h.createTrafficPolicyVersion(c, path)
 	}
 
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on traffic policy version")
+	return xmlError(
+		c,
+		http.StatusNotFound,
+		"NoSuchOperation",
+		"unsupported method on traffic policy version",
+	)
 }
 
 func (h *Handler) routeTPInstanceRoot(c *echo.Context, method string) error {
@@ -2146,7 +2490,12 @@ func (h *Handler) routeTPInstanceRoot(c *echo.Context, method string) error {
 		return h.createTrafficPolicyInstance(c)
 	}
 
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /trafficpolicyinstance")
+	return xmlError(
+		c,
+		http.StatusNotFound,
+		"NoSuchOperation",
+		"unsupported method on /trafficpolicyinstance",
+	)
 }
 
 func (h *Handler) routeTrafficPoliciesRoot(c *echo.Context, method string) error {
@@ -2154,7 +2503,12 @@ func (h *Handler) routeTrafficPoliciesRoot(c *echo.Context, method string) error
 		return h.listTrafficPolicies(c)
 	}
 
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /trafficpolicies")
+	return xmlError(
+		c,
+		http.StatusNotFound,
+		"NoSuchOperation",
+		"unsupported method on /trafficpolicies",
+	)
 }
 
 func (h *Handler) routeTrafficPoliciesVersions(c *echo.Context, path, method string) error {
@@ -2166,7 +2520,12 @@ func (h *Handler) routeTrafficPoliciesVersions(c *echo.Context, path, method str
 		return h.listTrafficPolicyVersions(c, id)
 	}
 
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on traffic policy versions")
+	return xmlError(
+		c,
+		http.StatusNotFound,
+		"NoSuchOperation",
+		"unsupported method on traffic policy versions",
+	)
 }
 
 func (h *Handler) routeTPInstancesRoot(c *echo.Context, method string) error {
@@ -2174,7 +2533,12 @@ func (h *Handler) routeTPInstancesRoot(c *echo.Context, method string) error {
 		return h.listTrafficPolicyInstances(c)
 	}
 
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /trafficpolicyinstances")
+	return xmlError(
+		c,
+		http.StatusNotFound,
+		"NoSuchOperation",
+		"unsupported method on /trafficpolicyinstances",
+	)
 }
 
 func (h *Handler) routeTPInstanceCount(c *echo.Context, method string) error {
@@ -2182,7 +2546,12 @@ func (h *Handler) routeTPInstanceCount(c *echo.Context, method string) error {
 		return h.getTrafficPolicyInstanceCount(c)
 	}
 
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /trafficpolicyinstancecount")
+	return xmlError(
+		c,
+		http.StatusNotFound,
+		"NoSuchOperation",
+		"unsupported method on /trafficpolicyinstancecount",
+	)
 }
 
 func (h *Handler) routeTPInstance(c *echo.Context, path, method string) error {
@@ -2196,7 +2565,12 @@ func (h *Handler) routeTPInstance(c *echo.Context, path, method string) error {
 	case http.MethodPost:
 		return h.updateTrafficPolicyInstance(c, path)
 	default:
-		return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on traffic policy instance")
+		return xmlError(
+			c,
+			http.StatusNotFound,
+			"NoSuchOperation",
+			"unsupported method on traffic policy instance",
+		)
 	}
 }
 
@@ -2204,9 +2578,18 @@ func (h *Handler) routeTPInstance(c *echo.Context, path, method string) error {
 
 func toXMLKSK(ksk *KeySigningKey) xmlKSK {
 	return xmlKSK{
-		Name:   ksk.Name,
-		KMSArn: ksk.KeyManagementServiceArn,
-		Status: ksk.Status,
+		Name:                     ksk.Name,
+		KMSArn:                   ksk.KeyManagementServiceArn,
+		Status:                   ksk.Status,
+		Flag:                     ksk.Flag,
+		SigningAlgorithmMnemonic: ksk.SigningAlgorithmMnemonic,
+		SigningAlgorithmType:     ksk.SigningAlgorithmType,
+		DigestAlgorithmMnemonic:  ksk.DigestAlgorithmMnemonic,
+		DigestAlgorithmType:      ksk.DigestAlgorithmType,
+		KeyTag:                   ksk.KeyTag,
+		PublicKey:                ksk.PublicKey,
+		DigestValue:              ksk.DigestValue,
+		DSRecord:                 ksk.DSRecord,
 	}
 }
 
@@ -2244,7 +2627,12 @@ func (h *Handler) createKeySigningKey(c *echo.Context) error {
 
 	var req xmlCreateKSKRequest
 	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		return xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInput",
+			"failed to parse XML: "+err.Error(),
+		)
 	}
 
 	ksk, err := h.Backend.CreateKeySigningKey(
@@ -2270,7 +2658,9 @@ func (h *Handler) createKeySigningKey(c *echo.Context) error {
 		},
 	}
 
-	c.Response().Header().Set("Location", "/2013-04-01/keysigningkey/"+ksk.HostedZoneID+"/"+ksk.Name)
+	c.Response().
+		Header().
+		Set("Location", "/2013-04-01/keysigningkey/"+ksk.HostedZoneID+"/"+ksk.Name)
 
 	return writeXML(c, http.StatusCreated, resp)
 }
@@ -2294,7 +2684,8 @@ func (h *Handler) activateKeySigningKey(c *echo.Context, path string) error {
 		return handleBackendError(c, err)
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "Route53 ActivateKeySigningKey", "name", name, "zoneID", hostedZoneID)
+	logger.Load(ctx).
+		DebugContext(ctx, "Route53 ActivateKeySigningKey", "name", name, "zoneID", hostedZoneID)
 
 	return writeXML(c, http.StatusOK, xmlActivateKSKResponse{
 		Xmlns:         route53Namespace,
@@ -2320,14 +2711,20 @@ func (h *Handler) associateVPCWithHostedZone(c *echo.Context, path string) error
 
 	var req xmlAssociateVPCRequest
 	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		return xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInput",
+			"failed to parse XML: "+err.Error(),
+		)
 	}
 
 	if err = h.Backend.AssociateVPCWithHostedZone(zoneID, req.VPC.VPCID, req.VPC.VPCRegion); err != nil {
 		return handleBackendError(c, err)
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "Route53 AssociateVPCWithHostedZone", "zoneID", zoneID, "vpcID", req.VPC.VPCID)
+	logger.Load(ctx).
+		DebugContext(ctx, "Route53 AssociateVPCWithHostedZone", "zoneID", zoneID, "vpcID", req.VPC.VPCID)
 
 	return writeXML(c, http.StatusOK, xmlAssociateVPCResponse{
 		Xmlns: route53Namespace,
@@ -2349,7 +2746,12 @@ func (h *Handler) createCidrCollection(c *echo.Context) error {
 
 	var req xmlCreateCidrCollectionRequest
 	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		return xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInput",
+			"failed to parse XML: "+err.Error(),
+		)
 	}
 
 	col, err := h.Backend.CreateCidrCollection(req.Name, req.CallerReference)
@@ -2357,7 +2759,8 @@ func (h *Handler) createCidrCollection(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "Route53 CreateCidrCollection", "id", col.ID, "name", col.Name)
+	logger.Load(ctx).
+		DebugContext(ctx, "Route53 CreateCidrCollection", "id", col.ID, "name", col.Name)
 
 	resp := xmlCreateCidrCollectionResponse{
 		Xmlns: route53Namespace,
@@ -2386,7 +2789,12 @@ func (h *Handler) changeCidrCollection(c *echo.Context, path string) error {
 	var req xmlChangeCidrCollectionRequest
 	if len(body) > 0 {
 		if err = xml.Unmarshal(body, &req); err != nil {
-			return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"InvalidInput",
+				"failed to parse XML: "+err.Error(),
+			)
 		}
 	}
 
@@ -2419,7 +2827,12 @@ func (h *Handler) createQueryLoggingConfig(c *echo.Context) error {
 
 	var req xmlCreateQueryLoggingConfigRequest
 	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		return xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInput",
+			"failed to parse XML: "+err.Error(),
+		)
 	}
 
 	cfg, err := h.Backend.CreateQueryLoggingConfig(req.HostedZoneID, req.CloudWatchLogsLogGroupArn)
@@ -2453,7 +2866,12 @@ func (h *Handler) createReusableDelegationSet(c *echo.Context) error {
 
 	var req xmlDelegationSetCreate
 	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		return xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInput",
+			"failed to parse XML: "+err.Error(),
+		)
 	}
 
 	ds, err := h.Backend.CreateReusableDelegationSet(req.CallerReference, req.HostedZoneID)
@@ -2486,7 +2904,12 @@ func (h *Handler) createTrafficPolicy(c *echo.Context) error {
 
 	var req xmlCreateTrafficPolicyRequest
 	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		return xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInput",
+			"failed to parse XML: "+err.Error(),
+		)
 	}
 
 	tp, err := h.Backend.CreateTrafficPolicy(req.Name, req.Document, req.Comment)
@@ -2517,7 +2940,12 @@ func (h *Handler) createTrafficPolicyVersion(c *echo.Context, path string) error
 
 	var req xmlCreateTrafficPolicyVersionRequest
 	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		return xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInput",
+			"failed to parse XML: "+err.Error(),
+		)
 	}
 
 	tp, err := h.Backend.CreateTrafficPolicyVersion(id, req.Document, req.Comment)
@@ -2525,7 +2953,8 @@ func (h *Handler) createTrafficPolicyVersion(c *echo.Context, path string) error
 		return handleBackendError(c, err)
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "Route53 CreateTrafficPolicyVersion", "id", id, "version", tp.Version)
+	logger.Load(ctx).
+		DebugContext(ctx, "Route53 CreateTrafficPolicyVersion", "id", id, "version", tp.Version)
 
 	return writeXML(c, http.StatusCreated, xmlCreateTrafficPolicyVersionResponse{
 		Xmlns:         route53Namespace,
@@ -2543,7 +2972,12 @@ func (h *Handler) createTrafficPolicyInstance(c *echo.Context) error {
 
 	var req xmlCreateTrafficPolicyInstanceRequest
 	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		return xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInput",
+			"failed to parse XML: "+err.Error(),
+		)
 	}
 
 	inst, err := h.Backend.CreateTrafficPolicyInstance(
@@ -2672,7 +3106,8 @@ func (h *Handler) deactivateKeySigningKey(c *echo.Context, path string) error {
 		return handleBackendError(c, err)
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "Route53 DeactivateKeySigningKey", "zoneID", zoneID, "name", name)
+	logger.Load(ctx).
+		DebugContext(ctx, "Route53 DeactivateKeySigningKey", "zoneID", zoneID, "name", name)
 
 	resp := struct {
 		XMLName    xml.Name      `xml:"DeactivateKeySigningKeyResponse"`
@@ -2707,7 +3142,8 @@ func (h *Handler) deleteKeySigningKey(c *echo.Context, path string) error {
 		return handleBackendError(c, err)
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "Route53 DeleteKeySigningKey", "zoneID", zoneID, "name", name)
+	logger.Load(ctx).
+		DebugContext(ctx, "Route53 DeleteKeySigningKey", "zoneID", zoneID, "name", name)
 
 	resp := struct {
 		XMLName    xml.Name      `xml:"DeleteKeySigningKeyResponse"`
@@ -2795,7 +3231,8 @@ func (h *Handler) listTrafficPolicyVersions(c *echo.Context, id string) error {
 		return handleBackendError(c, err)
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "Route53 ListTrafficPolicyVersions", "id", id, "count", len(versions))
+	logger.Load(ctx).
+		DebugContext(ctx, "Route53 ListTrafficPolicyVersions", "id", id, "count", len(versions))
 
 	xmlPolicies := make([]xmlTrafficPolicy, 0, len(versions))
 	for _, v := range versions {
@@ -2851,7 +3288,8 @@ func (h *Handler) listTrafficPolicyInstances(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "Route53 ListTrafficPolicyInstances", "count", len(instances))
+	logger.Load(ctx).
+		DebugContext(ctx, "Route53 ListTrafficPolicyInstances", "count", len(instances))
 
 	xmlInstances := make([]xmlTrafficPolicyInstance, 0, len(instances))
 	for _, inst := range instances {

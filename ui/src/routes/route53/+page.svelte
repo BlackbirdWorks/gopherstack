@@ -35,7 +35,7 @@
 	let showCreateRecord = $state(false);
 	let creatingRecord = $state(false);
 	let newRecordName = $state('');
-	let newRecordType = $state<'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SOA' | 'PTR' | 'SRV'>('A');
+	let newRecordType = $state<'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SOA' | 'PTR' | 'SRV' | 'CAA' | 'DS' | 'HTTPS' | 'SVCB' | 'SSHFP' | 'TLSA' | 'NAPTR' | 'SPF'>('A');
 	let newRecordTTL = $state(300);
 	let newRecordValues = $state('');
 
@@ -49,7 +49,9 @@
 	const recordTypeColor = (type: string) => {
 		const colors: Record<string, string> = {
 			A: 'blue', AAAA: 'purple', CNAME: 'green', MX: 'yellow', TXT: 'gray',
-			NS: 'orange', SOA: 'red', PTR: 'teal', SRV: 'pink'
+			NS: 'orange', SOA: 'red', PTR: 'teal', SRV: 'pink',
+			CAA: 'indigo', DS: 'violet', HTTPS: 'cyan', SVCB: 'rose',
+			SSHFP: 'amber', TLSA: 'lime', NAPTR: 'sky', SPF: 'emerald'
 		};
 		return colors[type] ?? 'gray';
 	};
@@ -171,7 +173,7 @@
 		}
 	}
 
-	const recordTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'PTR', 'SRV'];
+	const recordTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'PTR', 'SRV', 'CAA', 'DS', 'HTTPS', 'SVCB', 'SSHFP', 'TLSA', 'NAPTR', 'SPF'];
 
 	onMount(loadZones);
 </script>
