@@ -25,6 +25,8 @@ const (
 	trainingStoppingToStopped       = 150 * time.Millisecond
 	endpointCreatingToInService     = 300 * time.Millisecond
 	endpointUpdatingToInService     = 250 * time.Millisecond
+	processingJobCompletionDelay    = 300 * time.Millisecond
+	processingJobStopDelay          = 150 * time.Millisecond
 )
 
 // ---------------------------------------------------------------------------
@@ -968,7 +970,7 @@ func (b *InMemoryBackend) scheduleProcessingCompletion(ctx context.Context, name
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(300 * time.Millisecond):
+		case <-time.After(processingJobCompletionDelay):
 		}
 
 		b.mu.Lock("scheduleProcessingCompletion.goroutine")
@@ -1016,7 +1018,7 @@ func (b *InMemoryBackend) StopProcessingJob(name string) error {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(150 * time.Millisecond):
+		case <-time.After(processingJobStopDelay):
 		}
 
 		b.mu.Lock("StopProcessingJob.goroutine")

@@ -171,8 +171,8 @@ type UserXML struct {
 type CreateUserResponse struct {
 	XMLName          xml.Name         `xml:"CreateUserResponse"`
 	Xmlns            string           `xml:"xmlns,attr"`
-	CreateUserResult CreateUserResult `xml:"CreateUserResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+	CreateUserResult CreateUserResult `xml:"CreateUserResult"`
 }
 
 // CreateUserResult wraps the created user.
@@ -184,8 +184,8 @@ type CreateUserResult struct {
 type GetUserResponse struct {
 	XMLName          xml.Name         `xml:"GetUserResponse"`
 	Xmlns            string           `xml:"xmlns,attr"`
-	GetUserResult    GetUserResult    `xml:"GetUserResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+	GetUserResult    GetUserResult    `xml:"GetUserResult"`
 }
 
 // GetUserResult wraps a single user.
@@ -362,8 +362,8 @@ type GroupXML struct {
 type CreateGroupResponse struct {
 	XMLName           xml.Name          `xml:"CreateGroupResponse"`
 	Xmlns             string            `xml:"xmlns,attr"`
-	CreateGroupResult CreateGroupResult `xml:"CreateGroupResult"`
 	ResponseMetadata  ResponseMetadata  `xml:"ResponseMetadata"`
+	CreateGroupResult CreateGroupResult `xml:"CreateGroupResult"`
 }
 
 // CreateGroupResult wraps the created group.

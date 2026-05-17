@@ -454,7 +454,7 @@ type createProcessingJobRequest struct {
 	Environment            map[string]string             `json:"Environment,omitempty"`
 	AppSpecification       processingAppSpecRequest      `json:"AppSpecification"`
 	ProcessingResources    processingResourcesRequest    `json:"ProcessingResources"`
-	ProcessingOutputConfig processingOutputConfigRequest `json:"ProcessingOutputConfig,omitempty"`
+	ProcessingOutputConfig processingOutputConfigRequest `json:"ProcessingOutputConfig"`
 	ProcessingJobName      string                        `json:"ProcessingJobName"`
 	RoleArn                string                        `json:"RoleArn,omitempty"`
 	ProcessingInputs       []processingInputRequest      `json:"ProcessingInputs,omitempty"`
@@ -936,7 +936,7 @@ type createTrainingJobFullRequest struct {
 	VpcConfig              *VpcConfig        `json:"VpcConfig,omitempty"`
 	CheckpointConfig       *CheckpointConfig `json:"CheckpointConfig,omitempty"`
 	HyperParameters        map[string]string `json:"HyperParameters,omitempty"`
-	OutputDataConfig       OutputDataConfig  `json:"OutputDataConfig,omitempty"`
+	OutputDataConfig       OutputDataConfig  `json:"OutputDataConfig"`
 	TrainingJobName        string            `json:"TrainingJobName"`
 	RoleArn                string            `json:"RoleArn"`
 	AlgorithmSpecification struct {
@@ -953,8 +953,8 @@ type createTrainingJobFullRequest struct {
 	} `json:"AlgorithmSpecification"`
 	Tags                                  []tagObject       `json:"Tags"`
 	InputDataConfig                       []Channel         `json:"InputDataConfig,omitempty"`
-	ResourceConfig                        ResourceConfig    `json:"ResourceConfig,omitempty"`
-	StoppingCondition                     StoppingCondition `json:"StoppingCondition,omitempty"`
+	ResourceConfig                        ResourceConfig    `json:"ResourceConfig"`
+	StoppingCondition                     StoppingCondition `json:"StoppingCondition"`
 	EnableNetworkIsolation                bool              `json:"EnableNetworkIsolation,omitempty"`
 	EnableManagedSpotTraining             bool              `json:"EnableManagedSpotTraining,omitempty"`
 	EnableInterContainerTrafficEncryption bool              `json:"EnableInterContainerTrafficEncryption,omitempty"`

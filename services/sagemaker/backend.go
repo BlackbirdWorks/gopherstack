@@ -178,7 +178,7 @@ type ProductionVariant struct {
 	InitialInstanceCount                        int32             `json:"InitialInstanceCount,omitempty"`
 	VolumeSizeInGB                              int32             `json:"VolumeSizeInGB,omitempty"`
 	ModelDataDownloadTimeoutInSeconds           int32             `json:"ModelDataDownloadTimeoutInSeconds,omitempty"`
-	ContainerStartupHealthCheckTimeoutInSeconds int32             `json:"ContainerStartupHealthCheckTimeoutInSeconds,omitempty"`
+	ContainerStartupHealthCheckTimeoutInSeconds int32             `json:"ContainerStartupHealthCheckTimeoutInSeconds,omitempty"` //nolint:lll // AWS API field name exceeds 120 chars; cannot be shortened
 	EnableSSMAccess                             bool              `json:"EnableSSMAccess,omitempty"`
 }
 

@@ -72,7 +72,7 @@ type TrainingJob struct {
 	Environment                           map[string]string           `json:"Environment,omitempty"`
 	ModelArtifacts                        *ModelArtifacts             `json:"ModelArtifacts,omitempty"`
 	CheckpointConfig                      *CheckpointConfig           `json:"CheckpointConfig,omitempty"`
-	OutputDataConfig                      OutputDataConfig            `json:"OutputDataConfig,omitempty"`
+	OutputDataConfig                      OutputDataConfig            `json:"OutputDataConfig"`
 	SecondaryStatus                       string                      `json:"SecondaryStatus,omitempty"`
 	FailureReason                         string                      `json:"FailureReason,omitempty"`
 	TrainingJobName                       string                      `json:"TrainingJobName"`
@@ -81,14 +81,14 @@ type TrainingJob struct {
 	TrainingJobStatus                     string                      `json:"TrainingJobStatus"`
 	InputDataConfig                       []Channel                   `json:"InputDataConfig,omitempty"`
 	SecondaryStatusTransitions            []SecondaryStatusTransition `json:"SecondaryStatusTransitions,omitempty"`
-	AlgorithmSpecification                AlgorithmSpecification      `json:"AlgorithmSpecification,omitempty"`
-	ResourceConfig                        ResourceConfig              `json:"ResourceConfig,omitempty"`
-	StoppingCondition                     StoppingCondition           `json:"StoppingCondition,omitempty"`
+	AlgorithmSpecification                AlgorithmSpecification      `json:"AlgorithmSpecification"`
+	ResourceConfig                        ResourceConfig              `json:"ResourceConfig"`
+	StoppingCondition                     StoppingCondition           `json:"StoppingCondition"`
 	BillableTimeInSeconds                 int32                       `json:"BillableTimeInSeconds,omitempty"`
 	TrainingTimeInSeconds                 int32                       `json:"TrainingTimeInSeconds,omitempty"`
 	EnableNetworkIsolation                bool                        `json:"EnableNetworkIsolation,omitempty"`
 	EnableManagedSpotTraining             bool                        `json:"EnableManagedSpotTraining,omitempty"`
-	EnableInterContainerTrafficEncryption bool                        `json:"EnableInterContainerTrafficEncryption,omitempty"`
+	EnableInterContainerTrafficEncryption bool                        `json:"EnableInterContainerTrafficEncryption,omitempty"` //nolint:lll // AWS API field name exceeds 120 chars; cannot be shortened
 }
 
 // cloneTrainingJob returns a deep copy of tj.
