@@ -137,6 +137,12 @@ var (
 
 	// ErrInvalidProvidedContext is returned when a ProvidedContext entry exceeds length limits.
 	ErrInvalidProvidedContext = errors.New("invalid provided context")
+
+	// ErrInvalidTargetPrincipal is returned when AssumeRoot TargetPrincipal is not a 12-digit account ID.
+	ErrInvalidTargetPrincipal = errors.New("TargetPrincipal must be a 12-digit AWS account ID")
+
+	// ErrTokenCodeWithoutSerial is returned when a TokenCode is supplied without a SerialNumber.
+	ErrTokenCodeWithoutSerial = errors.New("SerialNumber is required when TokenCode is provided")
 )
 
 const (
@@ -184,11 +190,43 @@ func validateRoleSessionName(name string) error {
 	return nil
 }
 
-// validateRoleArn checks that a role ARN looks like a valid IAM role ARN.
+// accountIDRe matches a 12-digit AWS account ID.
+var accountIDRe = regexp.MustCompile(`^\d{12}$`)
+
+// isSessionExpired reports whether s has a non-zero expiry time that has already passed.
+func isSessionExpired(s *SessionInfo) bool {
+	return !s.Expiration.IsZero() && !time.Now().UTC().Before(s.Expiration)
+}
+
+// validateRoleArn checks that a role ARN is a valid IAM role ARN:
+// - format: arn:<partition>:iam::<12-digit-account>:role/<name>.
 func validateRoleArn(roleArn string) error {
 	parts := strings.SplitN(roleArn, ":", arnComponentCount)
 	if len(parts) < arnComponentCount || parts[0] != "arn" || parts[2] != "iam" {
 		return fmt.Errorf("%w: %q", ErrInvalidRoleArn, roleArn)
+	}
+
+	account := parts[4]
+	if !accountIDRe.MatchString(account) {
+		return fmt.Errorf("%w: account ID %q must be 12 digits", ErrInvalidRoleArn, account)
+	}
+
+	resource := parts[5]
+	if !strings.HasPrefix(resource, "role/") {
+		return fmt.Errorf("%w: resource %q must start with role/", ErrInvalidRoleArn, resource)
+	}
+
+	return nil
+}
+
+// validateFederationTokenName checks federation token name length and charset.
+func validateFederationTokenName(name string) error {
+	if len(name) < MinFederationTokenNameLen || len(name) > MaxFederationTokenNameLen {
+		return fmt.Errorf("%w: got length %d", ErrInvalidFederationName, len(name))
+	}
+
+	if !roleSessionNameRe.MatchString(name) {
+		return fmt.Errorf("%w: federation token name contains invalid characters", ErrInvalidFederationName)
 	}
 
 	return nil
@@ -485,7 +523,7 @@ func (b *InMemoryBackend) GetCallerIdentity(accessKeyID, sessionToken string) (*
 		b.mu.Lock()
 		session, ok := b.sessions[accessKeyID]
 
-		if ok && !session.Expiration.IsZero() && !time.Now().UTC().Before(session.Expiration) {
+		if ok && isSessionExpired(session) {
 			delete(b.sessions, accessKeyID)
 			ok = false
 		}
@@ -530,7 +568,7 @@ func (b *InMemoryBackend) ValidateSessionCredential(accessKeyID, sessionToken st
 	b.mu.Lock()
 	session, ok := b.sessions[accessKeyID]
 
-	if ok && !session.Expiration.IsZero() && !time.Now().UTC().Before(session.Expiration) {
+	if ok && isSessionExpired(session) {
 		delete(b.sessions, accessKeyID)
 		ok = false
 	}
@@ -552,9 +590,13 @@ func (b *InMemoryBackend) ValidateSessionCredential(accessKeyID, sessionToken st
 func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSessionTokenResponse, error) {
 	b.cntGetSessionToken.Add(1)
 
-	// When a serial number (MFA device ARN) is provided, the token code is mandatory.
+	// Both SerialNumber and TokenCode must be provided together (MFA requires both).
 	if input.SerialNumber != "" && input.TokenCode == "" {
 		return nil, ErrMFACodeRequired
+	}
+
+	if input.TokenCode != "" && input.SerialNumber == "" {
+		return nil, ErrTokenCodeWithoutSerial
 	}
 
 	if err := validateMFASerialNumber(input.SerialNumber); err != nil {
@@ -624,12 +666,28 @@ func (b *InMemoryBackend) GetFederationToken(input *GetFederationTokenInput) (*G
 		return nil, ErrMissingFederationTokenName
 	}
 
-	if len(input.Name) < MinFederationTokenNameLen || len(input.Name) > MaxFederationTokenNameLen {
-		return nil, fmt.Errorf("%w: got length %d", ErrInvalidFederationName, len(input.Name))
+	if err := validateFederationTokenName(input.Name); err != nil {
+		return nil, err
 	}
 
 	if len(input.Tags) > MaxTagCount {
 		return nil, fmt.Errorf("%w: got %d", ErrTooManyTags, len(input.Tags))
+	}
+
+	if err := validateTagConstraints(input.Tags); err != nil {
+		return nil, err
+	}
+
+	if err := validatePolicyArns(input.PolicyArns); err != nil {
+		return nil, err
+	}
+
+	if err := validateInlinePolicy(input.Policy); err != nil {
+		return nil, err
+	}
+
+	if err := checkPackedPolicyBudget(input.Policy, input.PolicyArns); err != nil {
+		return nil, err
 	}
 
 	duration := input.DurationSeconds
@@ -715,6 +773,14 @@ func validateWebIdentityInput(input *AssumeRoleWithWebIdentityInput) error {
 	}
 
 	if err := validateSourceIdentity(input.SourceIdentity); err != nil {
+		return err
+	}
+
+	if len(input.Tags) > MaxTagCount {
+		return fmt.Errorf("%w: got %d", ErrTooManyTags, len(input.Tags))
+	}
+
+	if err := validateTagConstraints(input.Tags); err != nil {
 		return err
 	}
 
@@ -999,6 +1065,12 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 		return nil, err
 	}
 
+	// TargetPrincipal must be a 12-digit member account ID.
+	account := extractAccountFromPrincipal(input.TargetPrincipal)
+	if !accountIDRe.MatchString(account) {
+		return nil, fmt.Errorf("%w: got %q", ErrInvalidTargetPrincipal, input.TargetPrincipal)
+	}
+
 	duration := input.DurationSeconds
 	if duration == 0 {
 		duration = MaxRootDurationSeconds
@@ -1017,7 +1089,6 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 	}
 
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
-	account := extractAccountFromPrincipal(input.TargetPrincipal)
 	assumedRoleArn := arn.Build("sts", "", account, "assumed-root")
 
 	session := &SessionInfo{
@@ -1407,11 +1478,25 @@ func generateCredentialSet() (credentialSet, error) {
 	}, nil
 }
 
-// deriveRoleID extracts a pseudo role-ID from the ARN (uses last segment).
+// deriveRoleID produces a stable pseudo role-ID from the role ARN.
+// Uses the last path segment padded/hashed to 16 uppercase chars to reduce collision risk.
 func deriveRoleID(roleArn string) string {
 	parts := strings.Split(roleArn, "/")
+	roleName := strings.ToUpper(parts[len(parts)-1])
 
-	return "AROA" + strings.ToUpper(parts[len(parts)-1])
+	const roleIDSuffix = 16
+	if len(roleName) >= roleIDSuffix {
+		return "AROA" + roleName[:roleIDSuffix]
+	}
+
+	// Hash the full ARN to fill remaining characters deterministically.
+	h := sha1.New() //nolint:gosec // SHA1 for non-cryptographic ID derivation only
+	_, _ = h.Write([]byte(roleArn))
+	hexHash := strings.ToUpper(hex.EncodeToString(h.Sum(nil)))
+
+	padded := roleName + hexHash
+
+	return "AROA" + padded[:roleIDSuffix]
 }
 
 // buildAssumedRoleArn constructs the assumed-role ARN from the source role ARN.

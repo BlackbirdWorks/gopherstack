@@ -592,7 +592,8 @@ func mapErrorToCode(reqErr error) (string, int) {
 		errors.Is(reqErr, ErrInvalidMFATokenCode), errors.Is(reqErr, ErrInvalidMFASerialNumber),
 		errors.Is(reqErr, ErrInvalidTagKey), errors.Is(reqErr, ErrInvalidTagValue),
 		errors.Is(reqErr, ErrTooManyPolicyArns), errors.Is(reqErr, ErrInvalidPolicyArn),
-		errors.Is(reqErr, ErrInvalidProvidedContext):
+		errors.Is(reqErr, ErrInvalidProvidedContext), errors.Is(reqErr, ErrInvalidTargetPrincipal),
+		errors.Is(reqErr, ErrTokenCodeWithoutSerial):
 		return validationError, http.StatusBadRequest
 	case errors.Is(reqErr, ErrMalformedPolicyDocument):
 		return "MalformedPolicyDocument", http.StatusBadRequest
