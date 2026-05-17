@@ -11,7 +11,7 @@ type backendSnapshot struct {
 	RegexPatternSets   map[string]*RegexPatternSet `json:"regexPatternSets,omitempty"`
 	RuleGroups         map[string]*RuleGroup       `json:"ruleGroups,omitempty"`
 	APIKeys            map[string]*APIKey          `json:"apiKeys,omitempty"`
-	LoggingConfigs     map[string]bool             `json:"loggingConfigs,omitempty"`
+	LoggingConfigs     map[string]json.RawMessage  `json:"loggingConfigs,omitempty"`
 	PermissionPolicies map[string]string           `json:"permissionPolicies,omitempty"`
 	Associations       map[string]string           `json:"associations,omitempty"`
 	AccountID          string                      `json:"accountID"`
@@ -70,7 +70,7 @@ func (snap *backendSnapshot) ensureNonNilMaps() {
 	}
 
 	if snap.LoggingConfigs == nil {
-		snap.LoggingConfigs = make(map[string]bool)
+		snap.LoggingConfigs = make(map[string]json.RawMessage)
 	}
 
 	if snap.PermissionPolicies == nil {

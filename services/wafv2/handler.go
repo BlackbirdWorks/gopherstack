@@ -2,10 +2,12 @@ package wafv2
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -31,6 +33,8 @@ const (
 	keyIPAddressVersion = "IPAddressVersion"
 	keyAddresses        = "Addresses"
 	keyRules            = "Rules"
+	keyCapacity         = "Capacity"
+	keyVendorName       = "VendorName"
 )
 
 const (
@@ -38,7 +42,29 @@ const (
 	wafv2TargetPrefix  = "AWSWAF_20190729."
 	wafv2MatchPriority = service.PriorityHeaderExact
 	defaultActionAllow = "ALLOW"
+
+	// maxAPIKeyTokenDomains is the AWS-imposed limit for token domains per API key.
+	maxAPIKeyTokenDomains = 5
+
+	// maxSampledRequestsItems is the maximum value for GetSampledRequests.MaxItems.
+	maxSampledRequestsItems = 500
 )
+
+// validLoggingDestinationPrefixes lists accepted ARN prefixes for logging destinations.
+var validLoggingDestinationPrefixes = []string{ //nolint:gochecknoglobals // package-level lookup table
+	"arn:aws:firehose:",
+	"arn:aws:s3:::",
+	"arn:aws:logs:",
+}
+
+// regionalResourceServices are the AWS service identifiers accepted for REGIONAL WebACL associations.
+var regionalResourceServices = []string{ //nolint:gochecknoglobals // package-level lookup table
+	"elasticloadbalancing",
+	"execute-api",
+	"appsync",
+	"cognito-idp",
+	"apprunner",
+}
 
 var (
 	errUnknownAction  = errors.New("unknown action")
@@ -287,43 +313,47 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
+	var errType string
+	var statusCode int
+
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "WAFNonexistentItemException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		errType = "WAFNonexistentItemException"
+		statusCode = http.StatusBadRequest
+	case errors.Is(err, ErrOptimisticLock):
+		errType = "WAFOptimisticLockException"
+		statusCode = http.StatusBadRequest
+	case errors.Is(err, ErrAssociatedItem):
+		errType = "WAFAssociatedItemException"
+		statusCode = http.StatusBadRequest
+	case errors.Is(err, ErrLimitsExceeded):
+		errType = "WAFLimitsExceededException"
+		statusCode = http.StatusBadRequest
+	case errors.Is(err, ErrTagOperation):
+		errType = "WAFTagOperationException"
+		statusCode = http.StatusBadRequest
 	case errors.Is(err, awserr.ErrConflict):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "WAFDuplicateItemException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		errType = "WAFDuplicateItemException"
+		statusCode = http.StatusBadRequest
 	case errors.Is(err, errInvalidRequest), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "WAFInvalidParameterException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		errType = "WAFInvalidParameterException"
+		statusCode = http.StatusBadRequest
 	case errors.Is(err, errUnknownAction):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "WAFInvalidOperationException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		errType = "WAFInvalidOperationException"
+		statusCode = http.StatusBadRequest
 	default:
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "WAFInternalErrorException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusInternalServerError, payload)
+		errType = "WAFInternalErrorException"
+		statusCode = http.StatusInternalServerError
 	}
+
+	payload, _ := json.Marshal(map[string]string{
+		keyTypeField:    errType,
+		keyMessageField: err.Error(),
+	})
+
+	c.Response().Header().Set("X-Amzn-Errortype", errType)
+
+	return c.JSONBlob(statusCode, payload)
 }
 
 // tagItem represents a key/value pair for Tags fields.
@@ -358,12 +388,18 @@ func tagsToItems(tags map[string]string) []tagItem {
 
 // createWebACLRequest is the request body for CreateWebACL.
 type createWebACLRequest struct {
-	Name             string          `json:"Name"`
-	Scope            string          `json:"Scope"`
-	Description      string          `json:"Description"`
-	DefaultAction    json.RawMessage `json:"DefaultAction"`
-	VisibilityConfig json.RawMessage `json:"VisibilityConfig"`
-	Tags             []tagItem       `json:"Tags"`
+	DefaultAction        json.RawMessage  `json:"DefaultAction"`
+	VisibilityConfig     json.RawMessage  `json:"VisibilityConfig"`
+	CustomResponseBodies json.RawMessage  `json:"CustomResponseBodies"`
+	AssociationConfig    json.RawMessage  `json:"AssociationConfig"`
+	CaptchaConfig        json.RawMessage  `json:"CaptchaConfig"`
+	ChallengeConfig      json.RawMessage  `json:"ChallengeConfig"`
+	Name                 string           `json:"Name"`
+	Scope                string           `json:"Scope"`
+	Description          string           `json:"Description"`
+	Tags                 []tagItem        `json:"Tags"`
+	TokenDomains         []string         `json:"TokenDomains"`
+	Rules                []map[string]any `json:"Rules"`
 }
 
 func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, error) {
@@ -384,16 +420,36 @@ func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: Scope must be %s or %s", errInvalidRequest, ScopeRegional, ScopeCloudFront)
 	}
 
-	defaultAction := extractDefaultAction(req.DefaultAction)
-	visibilityConfig := string(req.VisibilityConfig)
+	if err := validateVisibilityConfig(req.VisibilityConfig); err != nil {
+		return nil, err
+	}
+
+	if err := validateDefaultAction(req.DefaultAction); err != nil {
+		return nil, err
+	}
+
+	if err := validateRules(req.Rules); err != nil {
+		return nil, err
+	}
+
+	tags := tagsFromItems(req.Tags)
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
 
 	w, err := h.Backend.CreateWebACL(
 		req.Name,
 		req.Scope,
 		req.Description,
-		defaultAction,
-		visibilityConfig,
-		tagsFromItems(req.Tags),
+		req.DefaultAction,
+		req.VisibilityConfig,
+		req.Rules,
+		req.TokenDomains,
+		req.CustomResponseBodies,
+		req.AssociationConfig,
+		req.CaptchaConfig,
+		req.ChallengeConfig,
+		tags,
 	)
 	if err != nil {
 		return nil, err
@@ -412,6 +468,27 @@ func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, 
 			keyLockToken: w.LockToken,
 		},
 	})
+}
+
+// validateDefaultAction validates that exactly one of Allow/Block is set in DefaultAction.
+func validateDefaultAction(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return fmt.Errorf("%w: invalid DefaultAction JSON: %w", errInvalidRequest, err)
+	}
+
+	_, hasAllow := m["Allow"]
+	_, hasBlock := m["Block"]
+
+	if hasAllow && hasBlock {
+		return fmt.Errorf("%w: DefaultAction must specify exactly one of Allow or Block", errInvalidRequest)
+	}
+
+	return nil
 }
 
 // getWebACLRequest is the request body for GetWebACL.
@@ -436,33 +513,97 @@ func (h *Handler) handleGetWebACL(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
+	if req.Scope != "" && w.Scope != req.Scope {
+		return nil, fmt.Errorf("%w: web ACL %q has scope %s, not %s", ErrWebACLNotFound, req.ID, w.Scope, req.Scope)
+	}
+
+	return h.marshalWebACL(w)
+}
+
+// marshalWebACL builds the canonical WebACL JSON response.
+func (h *Handler) marshalWebACL(w *WebACL) ([]byte, error) {
 	arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
-	defaultActionMap := buildDefaultActionMap(w.DefaultAction)
 	visConfig := parseVisibilityConfig(w.VisibilityConfig, w.Name)
 
+	defaultActionJSON := w.DefaultAction
+	if len(defaultActionJSON) == 0 {
+		defaultActionJSON = json.RawMessage(`{"Allow":{}}`)
+	}
+
+	var defaultActionMap any
+	if err := json.Unmarshal(defaultActionJSON, &defaultActionMap); err != nil {
+		defaultActionMap = map[string]any{"Allow": map[string]any{}}
+	}
+
+	rules := w.Rules
+	if rules == nil {
+		rules = []map[string]any{}
+	}
+
+	webACLMap := map[string]any{
+		"Id":                w.ID,
+		keyName:             w.Name,
+		keyARN:              arnStr,
+		keyLockToken:        w.LockToken,
+		keyDescription:      w.Description,
+		"DefaultAction":     defaultActionMap,
+		keyVisibilityConfig: visConfig,
+		keyRules:            rules,
+	}
+
+	if len(w.TokenDomains) > 0 {
+		webACLMap["TokenDomains"] = w.TokenDomains
+	}
+
+	if len(w.CustomResponseBodies) > 0 {
+		var crb any
+		if json.Unmarshal(w.CustomResponseBodies, &crb) == nil {
+			webACLMap["CustomResponseBodies"] = crb
+		}
+	}
+
+	if len(w.AssociationConfig) > 0 {
+		var ac any
+		if json.Unmarshal(w.AssociationConfig, &ac) == nil {
+			webACLMap["AssociationConfig"] = ac
+		}
+	}
+
+	if len(w.CaptchaConfig) > 0 {
+		var cc any
+		if json.Unmarshal(w.CaptchaConfig, &cc) == nil {
+			webACLMap["CaptchaConfig"] = cc
+		}
+	}
+
+	if len(w.ChallengeConfig) > 0 {
+		var chc any
+		if json.Unmarshal(w.ChallengeConfig, &chc) == nil {
+			webACLMap["ChallengeConfig"] = chc
+		}
+	}
+
 	return json.Marshal(map[string]any{
-		"WebACL": map[string]any{
-			"Id":                w.ID,
-			keyName:             w.Name,
-			keyARN:              arnStr,
-			keyLockToken:        w.LockToken,
-			keyDescription:      w.Description,
-			"DefaultAction":     defaultActionMap,
-			keyVisibilityConfig: visConfig,
-		},
+		"WebACL":     webACLMap,
 		keyLockToken: w.LockToken,
 	})
 }
 
 // updateWebACLRequest is the request body for UpdateWebACL.
 type updateWebACLRequest struct {
-	ID               string          `json:"Id"`
-	Name             string          `json:"Name"`
-	Scope            string          `json:"Scope"`
-	LockToken        string          `json:"LockToken"`
-	Description      string          `json:"Description"`
-	DefaultAction    json.RawMessage `json:"DefaultAction"`
-	VisibilityConfig json.RawMessage `json:"VisibilityConfig"`
+	DefaultAction        json.RawMessage  `json:"DefaultAction"`
+	VisibilityConfig     json.RawMessage  `json:"VisibilityConfig"`
+	CustomResponseBodies json.RawMessage  `json:"CustomResponseBodies"`
+	AssociationConfig    json.RawMessage  `json:"AssociationConfig"`
+	CaptchaConfig        json.RawMessage  `json:"CaptchaConfig"`
+	ChallengeConfig      json.RawMessage  `json:"ChallengeConfig"`
+	ID                   string           `json:"Id"`
+	Name                 string           `json:"Name"`
+	Scope                string           `json:"Scope"`
+	LockToken            string           `json:"LockToken"`
+	Description          string           `json:"Description"`
+	TokenDomains         []string         `json:"TokenDomains"`
+	Rules                []map[string]any `json:"Rules"`
 }
 
 func (h *Handler) handleUpdateWebACL(ctx context.Context, body []byte) ([]byte, error) {
@@ -475,10 +616,31 @@ func (h *Handler) handleUpdateWebACL(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	defaultAction := extractDefaultAction(req.DefaultAction)
-	visibilityConfig := string(req.VisibilityConfig)
+	if err := validateVisibilityConfig(req.VisibilityConfig); err != nil {
+		return nil, err
+	}
 
-	w, err := h.Backend.UpdateWebACL(req.ID, req.Description, defaultAction, visibilityConfig)
+	if err := validateDefaultAction(req.DefaultAction); err != nil {
+		return nil, err
+	}
+
+	if err := validateRules(req.Rules); err != nil {
+		return nil, err
+	}
+
+	w, err := h.Backend.UpdateWebACL(
+		req.ID,
+		req.Description,
+		req.LockToken,
+		req.DefaultAction,
+		req.VisibilityConfig,
+		req.Rules,
+		req.TokenDomains,
+		req.CustomResponseBodies,
+		req.AssociationConfig,
+		req.CaptchaConfig,
+		req.ChallengeConfig,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +671,7 @@ func (h *Handler) handleDeleteWebACL(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteWebACL(req.ID); err != nil {
+	if err := h.Backend.DeleteWebACL(req.ID, req.LockToken); err != nil {
 		return nil, err
 	}
 
@@ -526,6 +688,9 @@ type listWebACLsRequest struct {
 	Limit      int    `json:"Limit"`
 }
 
+// handleListWebACLs handles the ListWebACLs request.
+//
+//nolint:dupl // list handlers share structural similarity but operate on different types
 func (h *Handler) handleListWebACLs(body []byte) ([]byte, error) {
 	var req listWebACLsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -533,24 +698,45 @@ func (h *Handler) handleListWebACLs(body []byte) ([]byte, error) {
 	}
 
 	webACLs := h.Backend.ListWebACLs()
-	items := buildSummaryItems(webACLs, req.Scope,
-		func(w *WebACL) string { return w.Scope },
-		func(w *WebACL) map[string]string {
-			arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 
-			return map[string]string{
-				"Id":           w.ID,
-				keyName:        w.Name,
-				keyARN:         arnStr,
-				keyLockToken:   w.LockToken,
-				keyDescription: w.Description,
-			}
-		},
+	// Filter by scope.
+	filtered := make([]*WebACL, 0, len(webACLs))
+
+	for _, w := range webACLs {
+		if req.Scope != "" && w.Scope != req.Scope {
+			continue
+		}
+
+		filtered = append(filtered, w)
+	}
+
+	// Apply pagination.
+	items, nextMarker := paginateByName(
+		filtered,
+		func(w *WebACL) string { return w.Name },
+		req.NextMarker,
+		req.Limit,
 	)
 
-	return json.Marshal(map[string]any{
-		"WebACLs": items,
-	})
+	summaries := make([]map[string]string, 0, len(items))
+
+	for _, w := range items {
+		arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+		summaries = append(summaries, map[string]string{
+			"Id":           w.ID,
+			keyName:        w.Name,
+			keyARN:         arnStr,
+			keyLockToken:   w.LockToken,
+			keyDescription: w.Description,
+		})
+	}
+
+	resp := map[string]any{"WebACLs": summaries}
+	if nextMarker != "" {
+		resp["NextMarker"] = nextMarker
+	}
+
+	return json.Marshal(resp)
 }
 
 // createIPSetRequest is the request body for CreateIPSet.
@@ -589,13 +775,22 @@ func (h *Handler) handleCreateIPSet(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: IPAddressVersion must be %s or %s", errInvalidRequest, IPVersionIPv4, IPVersionIPv6)
 	}
 
+	if err := validateCIDRs(req.Addresses, req.IPAddressVersion); err != nil {
+		return nil, err
+	}
+
+	tags := tagsFromItems(req.Tags)
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
 	s, err := h.Backend.CreateIPSet(
 		req.Name,
 		req.Scope,
 		req.Description,
 		req.IPAddressVersion,
 		req.Addresses,
-		tagsFromItems(req.Tags),
+		tags,
 	)
 	if err != nil {
 		return nil, err
@@ -638,6 +833,10 @@ func (h *Handler) handleGetIPSet(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
+	if req.Scope != "" && s.Scope != req.Scope {
+		return nil, fmt.Errorf("%w: IP set %q has scope %s, not %s", ErrIPSetNotFound, req.ID, s.Scope, req.Scope)
+	}
+
 	arnStr := h.Backend.IPSetARN(s.Name, s.ID, s.Scope)
 
 	return json.Marshal(map[string]any{
@@ -674,7 +873,19 @@ func (h *Handler) handleUpdateIPSet(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	s, err := h.Backend.UpdateIPSet(req.ID, req.Description, req.Addresses)
+	// Validate CIDRs against stored IP version — fetch first.
+	existing, err := h.Backend.GetIPSet(req.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.Addresses != nil {
+		if cidrErr := validateCIDRs(req.Addresses, existing.IPAddressVersion); cidrErr != nil {
+			return nil, cidrErr
+		}
+	}
+
+	s, err := h.Backend.UpdateIPSet(req.ID, req.Description, req.LockToken, req.Addresses)
 	if err != nil {
 		return nil, err
 	}
@@ -705,7 +916,7 @@ func (h *Handler) handleDeleteIPSet(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteIPSet(req.ID); err != nil {
+	if err := h.Backend.DeleteIPSet(req.ID, req.LockToken); err != nil {
 		return nil, err
 	}
 
@@ -722,6 +933,7 @@ type listIPSetsRequest struct {
 	Limit      int    `json:"Limit"`
 }
 
+//nolint:dupl // list handlers share structural similarity but operate on different types
 func (h *Handler) handleListIPSets(body []byte) ([]byte, error) {
 	var req listIPSetsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -729,24 +941,43 @@ func (h *Handler) handleListIPSets(body []byte) ([]byte, error) {
 	}
 
 	ipSets := h.Backend.ListIPSets()
-	items := buildSummaryItems(ipSets, req.Scope,
-		func(s *IPSet) string { return s.Scope },
-		func(s *IPSet) map[string]string {
-			arnStr := h.Backend.IPSetARN(s.Name, s.ID, s.Scope)
 
-			return map[string]string{
-				"Id":           s.ID,
-				keyName:        s.Name,
-				keyARN:         arnStr,
-				keyLockToken:   s.LockToken,
-				keyDescription: s.Description,
-			}
-		},
+	filtered := make([]*IPSet, 0, len(ipSets))
+
+	for _, s := range ipSets {
+		if req.Scope != "" && s.Scope != req.Scope {
+			continue
+		}
+
+		filtered = append(filtered, s)
+	}
+
+	items, nextMarker := paginateByName(
+		filtered,
+		func(s *IPSet) string { return s.Name },
+		req.NextMarker,
+		req.Limit,
 	)
 
-	return json.Marshal(map[string]any{
-		"IPSets": items,
-	})
+	summaries := make([]map[string]string, 0, len(items))
+
+	for _, s := range items {
+		arnStr := h.Backend.IPSetARN(s.Name, s.ID, s.Scope)
+		summaries = append(summaries, map[string]string{
+			"Id":           s.ID,
+			keyName:        s.Name,
+			keyARN:         arnStr,
+			keyLockToken:   s.LockToken,
+			keyDescription: s.Description,
+		})
+	}
+
+	resp := map[string]any{"IPSets": summaries}
+	if nextMarker != "" {
+		resp["NextMarker"] = nextMarker
+	}
+
+	return json.Marshal(resp)
 }
 
 // tagResourceRequest is the request body for TagResource.
@@ -765,7 +996,12 @@ func (h *Handler) handleTagResource(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.TagResource(req.ResourceARN, tagsFromItems(req.Tags)); err != nil {
+	tags := tagsFromItems(req.Tags)
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.TagResource(req.ResourceARN, tags); err != nil {
 		return nil, err
 	}
 
@@ -823,38 +1059,11 @@ func (h *Handler) handleUntagResource(body []byte) ([]byte, error) {
 	return nil, nil
 }
 
-func buildDefaultActionMap(action string) map[string]any {
-	switch strings.ToUpper(action) {
-	case "BLOCK":
-		return map[string]any{"Block": map[string]any{}}
-	default:
-		return map[string]any{"Allow": map[string]any{}}
-	}
-}
-
-// extractDefaultAction parses a DefaultAction JSON object and returns "ALLOW" or "BLOCK".
-func extractDefaultAction(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return defaultActionAllow
-	}
-
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return defaultActionAllow
-	}
-
-	if _, ok := m["Block"]; ok {
-		return "BLOCK"
-	}
-
-	return defaultActionAllow
-}
-
 // parseVisibilityConfig parses a stored VisibilityConfig JSON string or returns a default.
-func parseVisibilityConfig(stored, metricName string) map[string]any {
-	if stored != "" {
+func parseVisibilityConfig(stored json.RawMessage, metricName string) map[string]any {
+	if len(stored) > 0 {
 		var m map[string]any
-		if err := json.Unmarshal([]byte(stored), &m); err == nil {
+		if err := json.Unmarshal(stored, &m); err == nil {
 			return m
 		}
 	}
@@ -866,24 +1075,41 @@ func parseVisibilityConfig(stored, metricName string) map[string]any {
 	}
 }
 
-// buildSummaryItems filters and maps a slice of resources to summary maps.
-func buildSummaryItems[T any](
-	items []T,
-	scope string,
-	getScope func(T) string,
-	toMap func(T) map[string]string,
-) []map[string]string {
-	result := make([]map[string]string, 0, len(items))
+// paginateByName implements cursor-based pagination over name-sorted items.
+// The cursor is base64(last-name-seen). Returns the page of items and the
+// next marker (empty string if no more pages).
+func paginateByName[T any](items []T, getName func(T) string, nextMarker string, limit int) ([]T, string) {
+	// Decode cursor.
+	startAfter := ""
 
-	for _, item := range items {
-		if scope != "" && getScope(item) != scope {
-			continue
+	if nextMarker != "" {
+		decoded, err := base64.StdEncoding.DecodeString(nextMarker)
+		if err == nil {
+			startAfter = string(decoded)
 		}
-
-		result = append(result, toMap(item))
 	}
 
-	return result
+	// Skip items up to and including the cursor name.
+	start := 0
+
+	if startAfter != "" {
+		for start < len(items) && getName(items[start]) <= startAfter {
+			start++
+		}
+	}
+
+	items = items[start:]
+
+	// Apply limit.
+	if limit <= 0 || limit > len(items) {
+		return items, ""
+	}
+
+	page := items[:limit]
+	lastName := getName(page[len(page)-1])
+	newMarker := base64.StdEncoding.EncodeToString([]byte(lastName))
+
+	return page, newMarker
 }
 
 // associateWebACLRequest is the request body for AssociateWebACL.
@@ -906,11 +1132,49 @@ func (h *Handler) handleAssociateWebACL(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
+	if err := h.validateAssociationScope(req.WebACLArn, req.ResourceArn); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.AssociateWebACL(req.WebACLArn, req.ResourceArn); err != nil {
 		return nil, err
 	}
 
 	return nil, nil
+}
+
+// validateAssociationScope checks that the resource ARN's service is compatible with the WebACL scope.
+func (h *Handler) validateAssociationScope(webACLArn, resourceArn string) error {
+	// Determine WebACL scope from ARN (global → CLOUDFRONT, regional → REGIONAL).
+	if strings.Contains(webACLArn, "/global/") {
+		return fmt.Errorf(
+			"%w: CLOUDFRONT WebACL associations must be managed through the CloudFront API",
+			ErrInvalidOperation,
+		)
+	}
+
+	// For REGIONAL WebACLs, validate service.
+	service := extractARNService(resourceArn)
+	if slices.Contains(regionalResourceServices, service) {
+		return nil
+	}
+
+	// If service is unrecognised, still allow (for compatibility with unknown resource types).
+	return nil
+}
+
+const arnServiceIndex = 2 // position of service segment in arn:partition:SERVICE:...
+
+// extractARNService extracts the service segment from an ARN (arn:partition:SERVICE:...).
+func extractARNService(arnStr string) string {
+	const minARNParts = 3
+
+	parts := strings.Split(arnStr, ":")
+	if len(parts) >= minARNParts {
+		return parts[arnServiceIndex]
+	}
+
+	return ""
 }
 
 // disassociateWebACLRequest is the request body for DisassociateWebACL.
@@ -955,23 +1219,7 @@ func (h *Handler) handleGetWebACLForResource(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
-	defaultActionMap := buildDefaultActionMap(w.DefaultAction)
-	visConfig := parseVisibilityConfig(w.VisibilityConfig, w.Name)
-
-	return json.Marshal(map[string]any{
-		"WebACL": map[string]any{
-			"Id":                w.ID,
-			keyName:             w.Name,
-			keyARN:              arnStr,
-			keyLockToken:        w.LockToken,
-			keyScope:            w.Scope,
-			keyDescription:      w.Description,
-			"DefaultAction":     defaultActionMap,
-			keyVisibilityConfig: visConfig,
-			keyRules:            []any{},
-		},
-	})
+	return h.marshalWebACL(w)
 }
 
 // checkCapacityRequest is the request body for CheckCapacity.
@@ -1016,6 +1264,14 @@ func (h *Handler) handleCreateAPIKey(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
 	}
 
+	if len(req.TokenDomains) < 1 || len(req.TokenDomains) > maxAPIKeyTokenDomains {
+		return nil, fmt.Errorf(
+			"%w: TokenDomains must have 1 to %d entries",
+			errInvalidRequest,
+			maxAPIKeyTokenDomains,
+		)
+	}
+
 	a, err := h.Backend.CreateAPIKey(req.Scope, req.TokenDomains)
 	if err != nil {
 		return nil, err
@@ -1024,8 +1280,11 @@ func (h *Handler) handleCreateAPIKey(ctx context.Context, body []byte) ([]byte, 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: created API key", "scope", a.Scope)
 
+	// Emit a base64-encoded key value as AWS does.
+	encodedKey := base64.StdEncoding.EncodeToString([]byte(a.APIKeyValue))
+
 	return json.Marshal(map[string]any{
-		"APIKey": a.APIKeyValue,
+		"APIKey": encodedKey,
 	})
 }
 
@@ -1049,7 +1308,13 @@ func (h *Handler) handleDeleteAPIKey(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: APIKey is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteAPIKey(req.Scope, req.APIKey); err != nil {
+	// API keys may be passed as base64-encoded values; try decoding first.
+	lookupKey := req.APIKey
+	if decoded, err := base64.StdEncoding.DecodeString(req.APIKey); err == nil {
+		lookupKey = string(decoded)
+	}
+
+	if err := h.Backend.DeleteAPIKey(req.Scope, lookupKey); err != nil {
 		return nil, err
 	}
 
@@ -1060,12 +1325,13 @@ func (h *Handler) handleDeleteAPIKey(ctx context.Context, body []byte) ([]byte, 
 }
 
 // createRegexPatternSetRequest is the request body for CreateRegexPatternSet.
+// RegularExpressionList accepts both []string and []{RegexString:...} shapes.
 type createRegexPatternSetRequest struct {
-	Name                  string    `json:"Name"`
-	Scope                 string    `json:"Scope"`
-	Description           string    `json:"Description"`
-	RegularExpressionList []string  `json:"RegularExpressionList"`
-	Tags                  []tagItem `json:"Tags"`
+	Name                  string          `json:"Name"`
+	Scope                 string          `json:"Scope"`
+	Description           string          `json:"Description"`
+	RegularExpressionList json.RawMessage `json:"RegularExpressionList"`
+	Tags                  []tagItem       `json:"Tags"`
 }
 
 func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) ([]byte, error) {
@@ -1086,12 +1352,26 @@ func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: Scope must be %s or %s", errInvalidRequest, ScopeRegional, ScopeCloudFront)
 	}
 
+	entries, err := parseRegexEntries(req.RegularExpressionList)
+	if err != nil {
+		return nil, err
+	}
+
+	if validateErr := validateRegexEntries(entries); validateErr != nil {
+		return nil, validateErr
+	}
+
+	tags := tagsFromItems(req.Tags)
+	if tagsErr := validateTags(tags); tagsErr != nil {
+		return nil, tagsErr
+	}
+
 	rps, err := h.Backend.CreateRegexPatternSet(
 		req.Name,
 		req.Scope,
 		req.Description,
-		req.RegularExpressionList,
-		tagsFromItems(req.Tags),
+		entries,
+		tags,
 	)
 	if err != nil {
 		return nil, err
@@ -1112,6 +1392,32 @@ func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) 
 	})
 }
 
+// parseRegexEntries accepts either []RegexEntry or []string and normalises to []RegexEntry.
+func parseRegexEntries(raw json.RawMessage) ([]RegexEntry, error) {
+	if len(raw) == 0 {
+		return []RegexEntry{}, nil
+	}
+
+	// Try object form first: [{"RegexString": "..."}]
+	var entries []RegexEntry
+	if err := json.Unmarshal(raw, &entries); err == nil {
+		return entries, nil
+	}
+
+	// Fall back to plain string form: ["...", "..."]
+	var strs []string
+	if err := json.Unmarshal(raw, &strs); err != nil {
+		return nil, fmt.Errorf("%w: RegularExpressionList must be an array of objects or strings", errInvalidRequest)
+	}
+
+	result := make([]RegexEntry, len(strs))
+	for i, s := range strs {
+		result[i] = RegexEntry{RegexString: s}
+	}
+
+	return result, nil
+}
+
 // deleteRegexPatternSetRequest is the request body for DeleteRegexPatternSet.
 type deleteRegexPatternSetRequest struct {
 	ID        string `json:"Id"`
@@ -1130,7 +1436,7 @@ func (h *Handler) handleDeleteRegexPatternSet(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteRegexPatternSet(req.ID); err != nil {
+	if err := h.Backend.DeleteRegexPatternSet(req.ID, req.LockToken); err != nil {
 		return nil, err
 	}
 
@@ -1169,6 +1475,24 @@ func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: Scope must be %s or %s", errInvalidRequest, ScopeRegional, ScopeCloudFront)
 	}
 
+	if req.Capacity < minRuleGroupCapacity || req.Capacity > maxRuleGroupCapacity {
+		return nil, fmt.Errorf(
+			"%w: Capacity must be between %d and %d",
+			errInvalidRequest,
+			minRuleGroupCapacity,
+			maxRuleGroupCapacity,
+		)
+	}
+
+	if err := validateVisibilityConfig(req.VisibilityConfig); err != nil {
+		return nil, err
+	}
+
+	tags := tagsFromItems(req.Tags)
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
 	rg, err := h.Backend.CreateRuleGroup(
 		req.Name,
 		req.Scope,
@@ -1176,7 +1500,7 @@ func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byt
 		string(req.VisibilityConfig),
 		req.Capacity,
 		req.Rules,
-		tagsFromItems(req.Tags),
+		tags,
 	)
 	if err != nil {
 		return nil, err
@@ -1298,6 +1622,16 @@ func (h *Handler) handleGetRegexPatternSet(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
+	if req.Scope != "" && r.Scope != req.Scope {
+		return nil, fmt.Errorf(
+			"%w: regex pattern set %q has scope %s, not %s",
+			ErrRegexPatternSetNotFound,
+			req.ID,
+			r.Scope,
+			req.Scope,
+		)
+	}
+
 	arnStr := h.Backend.RegexPatternSetARN(r.Name, r.ID, r.Scope)
 
 	return json.Marshal(map[string]any{
@@ -1319,6 +1653,7 @@ type listRegexPatternSetsRequest struct {
 	Limit      int    `json:"Limit"`
 }
 
+//nolint:dupl // list handlers share structural similarity but operate on different types
 func (h *Handler) handleListRegexPatternSets(body []byte) ([]byte, error) {
 	var req listRegexPatternSetsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1326,30 +1661,52 @@ func (h *Handler) handleListRegexPatternSets(body []byte) ([]byte, error) {
 	}
 
 	sets := h.Backend.ListRegexPatternSets()
-	items := buildSummaryItems(sets, req.Scope,
-		func(r *RegexPatternSet) string { return r.Scope },
-		func(r *RegexPatternSet) map[string]string {
-			return map[string]string{
-				"Id":           r.ID,
-				keyName:        r.Name,
-				keyARN:         h.Backend.RegexPatternSetARN(r.Name, r.ID, r.Scope),
-				keyLockToken:   r.LockToken,
-				keyDescription: r.Description,
-			}
-		},
+
+	filtered := make([]*RegexPatternSet, 0, len(sets))
+
+	for _, r := range sets {
+		if req.Scope != "" && r.Scope != req.Scope {
+			continue
+		}
+
+		filtered = append(filtered, r)
+	}
+
+	items, nextMarker := paginateByName(
+		filtered,
+		func(r *RegexPatternSet) string { return r.Name },
+		req.NextMarker,
+		req.Limit,
 	)
 
-	return json.Marshal(map[string]any{"RegexPatternSets": items})
+	summaries := make([]map[string]string, 0, len(items))
+
+	for _, r := range items {
+		summaries = append(summaries, map[string]string{
+			"Id":           r.ID,
+			keyName:        r.Name,
+			keyARN:         h.Backend.RegexPatternSetARN(r.Name, r.ID, r.Scope),
+			keyLockToken:   r.LockToken,
+			keyDescription: r.Description,
+		})
+	}
+
+	resp := map[string]any{"RegexPatternSets": summaries}
+	if nextMarker != "" {
+		resp["NextMarker"] = nextMarker
+	}
+
+	return json.Marshal(resp)
 }
 
 // updateRegexPatternSetRequest is the request body for UpdateRegexPatternSet.
 type updateRegexPatternSetRequest struct {
-	ID                    string   `json:"Id"`
-	Name                  string   `json:"Name"`
-	Scope                 string   `json:"Scope"`
-	LockToken             string   `json:"LockToken"`
-	Description           string   `json:"Description"`
-	RegularExpressionList []string `json:"RegularExpressionList"`
+	ID                    string          `json:"Id"`
+	Name                  string          `json:"Name"`
+	Scope                 string          `json:"Scope"`
+	LockToken             string          `json:"LockToken"`
+	Description           string          `json:"Description"`
+	RegularExpressionList json.RawMessage `json:"RegularExpressionList"`
 }
 
 func (h *Handler) handleUpdateRegexPatternSet(ctx context.Context, body []byte) ([]byte, error) {
@@ -1362,7 +1719,16 @@ func (h *Handler) handleUpdateRegexPatternSet(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	r, err := h.Backend.UpdateRegexPatternSet(req.ID, req.Description, req.RegularExpressionList)
+	entries, err := parseRegexEntries(req.RegularExpressionList)
+	if err != nil {
+		return nil, err
+	}
+
+	if validateErr := validateRegexEntries(entries); validateErr != nil {
+		return nil, validateErr
+	}
+
+	r, err := h.Backend.UpdateRegexPatternSet(req.ID, req.Description, req.LockToken, entries)
 	if err != nil {
 		return nil, err
 	}
@@ -1396,8 +1762,18 @@ func (h *Handler) handleGetRuleGroup(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
+	if req.Scope != "" && rg.Scope != req.Scope {
+		return nil, fmt.Errorf(
+			"%w: rule group %q has scope %s, not %s",
+			ErrRuleGroupNotFound,
+			req.ID,
+			rg.Scope,
+			req.Scope,
+		)
+	}
+
 	arnStr := h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
-	visConfig := parseVisibilityConfig(rg.VisibilityConfig, rg.Name)
+	visConfig := parseVisibilityConfig(json.RawMessage(rg.VisibilityConfig), rg.Name)
 
 	return json.Marshal(map[string]any{
 		"RuleGroup": map[string]any{
@@ -1405,7 +1781,7 @@ func (h *Handler) handleGetRuleGroup(body []byte) ([]byte, error) {
 			keyName:             rg.Name,
 			keyARN:              arnStr,
 			keyDescription:      rg.Description,
-			"Capacity":          rg.Capacity,
+			keyCapacity:         rg.Capacity,
 			keyRules:            rg.Rules,
 			keyVisibilityConfig: visConfig,
 		},
@@ -1420,6 +1796,7 @@ type listRuleGroupsRequest struct {
 	Limit      int    `json:"Limit"`
 }
 
+//nolint:dupl // list handlers share structural similarity but operate on different types
 func (h *Handler) handleListRuleGroups(body []byte) ([]byte, error) {
 	var req listRuleGroupsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1427,20 +1804,42 @@ func (h *Handler) handleListRuleGroups(body []byte) ([]byte, error) {
 	}
 
 	groups := h.Backend.ListRuleGroups()
-	items := buildSummaryItems(groups, req.Scope,
-		func(rg *RuleGroup) string { return rg.Scope },
-		func(rg *RuleGroup) map[string]string {
-			return map[string]string{
-				"Id":           rg.ID,
-				keyName:        rg.Name,
-				keyARN:         h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope),
-				keyLockToken:   rg.LockToken,
-				keyDescription: rg.Description,
-			}
-		},
+
+	filtered := make([]*RuleGroup, 0, len(groups))
+
+	for _, rg := range groups {
+		if req.Scope != "" && rg.Scope != req.Scope {
+			continue
+		}
+
+		filtered = append(filtered, rg)
+	}
+
+	items, nextMarker := paginateByName(
+		filtered,
+		func(rg *RuleGroup) string { return rg.Name },
+		req.NextMarker,
+		req.Limit,
 	)
 
-	return json.Marshal(map[string]any{"RuleGroups": items})
+	summaries := make([]map[string]string, 0, len(items))
+
+	for _, rg := range items {
+		summaries = append(summaries, map[string]string{
+			"Id":           rg.ID,
+			keyName:        rg.Name,
+			keyARN:         h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope),
+			keyLockToken:   rg.LockToken,
+			keyDescription: rg.Description,
+		})
+	}
+
+	resp := map[string]any{"RuleGroups": summaries}
+	if nextMarker != "" {
+		resp["NextMarker"] = nextMarker
+	}
+
+	return json.Marshal(resp)
 }
 
 // updateRuleGroupRequest is the request body for UpdateRuleGroup.
@@ -1464,7 +1863,17 @@ func (h *Handler) handleUpdateRuleGroup(ctx context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	rg, err := h.Backend.UpdateRuleGroup(req.ID, req.Description, string(req.VisibilityConfig), req.Rules)
+	if err := validateVisibilityConfig(req.VisibilityConfig); err != nil {
+		return nil, err
+	}
+
+	rg, err := h.Backend.UpdateRuleGroup(
+		req.ID,
+		req.Description,
+		string(req.VisibilityConfig),
+		req.LockToken,
+		req.Rules,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1489,17 +1898,31 @@ func (h *Handler) handleListAPIKeys(body []byte) ([]byte, error) {
 	}
 
 	keys := h.Backend.ListAPIKeys(req.Scope)
-	items := make([]map[string]any, 0, len(keys))
 
-	for _, k := range keys {
+	// Apply pagination.
+	page, nextMarker := paginateByName(
+		keys,
+		func(k *APIKey) string { return k.APIKeyValue },
+		req.NextMarker,
+		req.Limit,
+	)
+
+	items := make([]map[string]any, 0, len(page))
+
+	for _, k := range page {
 		items = append(items, map[string]any{
-			"APIKey":       k.APIKeyValue,
+			"APIKey":       base64.StdEncoding.EncodeToString([]byte(k.APIKeyValue)),
 			keyScope:       k.Scope,
 			"TokenDomains": k.TokenDomains,
 		})
 	}
 
-	return json.Marshal(map[string]any{"APIKeys": items})
+	resp := map[string]any{"APIKeys": items}
+	if nextMarker != "" {
+		resp["NextMarker"] = nextMarker
+	}
+
+	return json.Marshal(resp)
 }
 
 // getDecryptedAPIKeyRequest is the request body for GetDecryptedAPIKey.
@@ -1522,7 +1945,13 @@ func (h *Handler) handleGetDecryptedAPIKey(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: APIKey is required", errInvalidRequest)
 	}
 
-	a, err := h.Backend.GetDecryptedAPIKey(req.Scope, req.APIKey)
+	// API keys may be passed as base64-encoded values; try decoding first.
+	lookupKey := req.APIKey
+	if decoded, err := base64.StdEncoding.DecodeString(req.APIKey); err == nil {
+		lookupKey = string(decoded)
+	}
+
+	a, err := h.Backend.GetDecryptedAPIKey(req.Scope, lookupKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1535,7 +1964,7 @@ func (h *Handler) handleGetDecryptedAPIKey(body []byte) ([]byte, error) {
 
 // putLoggingConfigurationRequest is the request body for PutLoggingConfiguration.
 type putLoggingConfigurationRequest struct {
-	LoggingConfiguration map[string]any `json:"LoggingConfiguration"`
+	LoggingConfiguration json.RawMessage `json:"LoggingConfiguration"`
 }
 
 func (h *Handler) handlePutLoggingConfiguration(ctx context.Context, body []byte) ([]byte, error) {
@@ -1544,21 +1973,63 @@ func (h *Handler) handlePutLoggingConfiguration(ctx context.Context, body []byte
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	resourceARN, _ := req.LoggingConfiguration["ResourceArn"].(string)
-	if resourceARN == "" {
+	// Extract ResourceArn for validation.
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal(req.LoggingConfiguration, &cfg); err != nil {
+		return nil, fmt.Errorf("%w: invalid LoggingConfiguration JSON: %w", errInvalidRequest, err)
+	}
+
+	var resourceARN string
+	if raw, ok := cfg["ResourceArn"]; ok {
+		if err := json.Unmarshal(raw, &resourceARN); err != nil || resourceARN == "" {
+			return nil, fmt.Errorf("%w: LoggingConfiguration.ResourceArn is required", errInvalidRequest)
+		}
+	} else {
 		return nil, fmt.Errorf("%w: LoggingConfiguration.ResourceArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.PutLoggingConfiguration(resourceARN); err != nil {
+	// Validate destination ARN prefixes.
+	if destRaw, ok := cfg["LogDestinationConfigs"]; ok {
+		var destinations []string
+		if unmarshalErr := json.Unmarshal(destRaw, &destinations); unmarshalErr == nil {
+			for _, dest := range destinations {
+				if destErr := validateLoggingDestination(dest); destErr != nil {
+					return nil, destErr
+				}
+			}
+		}
+	}
+
+	if err := h.Backend.PutLoggingConfiguration(resourceARN, req.LoggingConfiguration); err != nil {
 		return nil, err
 	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: put logging configuration", "resourceArn", resourceARN)
 
+	var respCfg any
+	if err := json.Unmarshal(req.LoggingConfiguration, &respCfg); err != nil {
+		respCfg = map[string]any{"ResourceArn": resourceARN}
+	}
+
 	return json.Marshal(map[string]any{
-		"LoggingConfiguration": map[string]any{"ResourceArn": resourceARN},
+		"LoggingConfiguration": respCfg,
 	})
+}
+
+// validateLoggingDestination checks that a destination ARN has an accepted prefix.
+func validateLoggingDestination(dest string) error {
+	for _, prefix := range validLoggingDestinationPrefixes {
+		if strings.HasPrefix(dest, prefix) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf(
+		"%w: LogDestinationConfig ARN %q must start with one of: firehose, s3, or CloudWatch Logs",
+		errInvalidRequest,
+		dest,
+	)
 }
 
 // getLoggingConfigurationRequest is the request body for GetLoggingConfiguration.
@@ -1576,12 +2047,18 @@ func (h *Handler) handleGetLoggingConfiguration(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	if _, err := h.Backend.GetLoggingConfiguration(req.ResourceArn); err != nil {
+	cfgJSON, err := h.Backend.GetLoggingConfiguration(req.ResourceArn)
+	if err != nil {
 		return nil, err
 	}
 
+	var cfg any
+	if unmarshalErr := json.Unmarshal(cfgJSON, &cfg); unmarshalErr != nil {
+		cfg = map[string]any{"ResourceArn": req.ResourceArn}
+	}
+
 	return json.Marshal(map[string]any{
-		"LoggingConfiguration": map[string]any{"ResourceArn": req.ResourceArn},
+		"LoggingConfiguration": cfg,
 	})
 }
 
@@ -1676,15 +2153,29 @@ func (h *Handler) handleDeleteRuleGroup(ctx context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	if err := h.Backend.DeleteRuleGroup(req.ID, req.LockToken); err != nil {
+		return nil, err
+	}
+
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: deleted rule group", "id", req.ID)
 
 	return nil, nil
 }
 
-// handleDescribeAllManagedProducts returns an empty list of managed products.
+// handleDescribeAllManagedProducts returns the catalog of managed products.
 func (h *Handler) handleDescribeAllManagedProducts(_ []byte) ([]byte, error) {
-	return json.Marshal(map[string]any{"ManagedProducts": []any{}})
+	products := make([]map[string]any, 0, len(getManagedRuleGroups()))
+
+	for _, mrg := range getManagedRuleGroups() {
+		products = append(products, map[string]any{
+			keyVendorName:        mrg.VendorName,
+			"ManagedRuleSetName": mrg.Name,
+			"ProductDescription": mrg.Description,
+		})
+	}
+
+	return json.Marshal(map[string]any{"ManagedProducts": products})
 }
 
 // describeManagedProductsByVendorRequest is the request body for DescribeManagedProductsByVendor.
@@ -1693,14 +2184,28 @@ type describeManagedProductsByVendorRequest struct {
 	VendorName string `json:"VendorName"`
 }
 
-// handleDescribeManagedProductsByVendor returns an empty list of managed products for a vendor.
+// handleDescribeManagedProductsByVendor returns catalog entries filtered by vendor.
 func (h *Handler) handleDescribeManagedProductsByVendor(body []byte) ([]byte, error) {
 	var req describeManagedProductsByVendorRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	return json.Marshal(map[string]any{"ManagedProducts": []any{}})
+	products := make([]map[string]any, 0)
+
+	for _, mrg := range getManagedRuleGroups() {
+		if req.VendorName != "" && mrg.VendorName != req.VendorName {
+			continue
+		}
+
+		products = append(products, map[string]any{
+			keyVendorName:        mrg.VendorName,
+			"ManagedRuleSetName": mrg.Name,
+			"ProductDescription": mrg.Description,
+		})
+	}
+
+	return json.Marshal(map[string]any{"ManagedProducts": products})
 }
 
 // describeManagedRuleGroupRequest is the request body for DescribeManagedRuleGroup.
@@ -1711,17 +2216,32 @@ type describeManagedRuleGroupRequest struct {
 	VersionName string `json:"VersionName"`
 }
 
-// handleDescribeManagedRuleGroup returns a stub managed rule group description.
+// handleDescribeManagedRuleGroup returns catalog data for the requested managed rule group.
 func (h *Handler) handleDescribeManagedRuleGroup(body []byte) ([]byte, error) {
 	var req describeManagedRuleGroupRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	// Look up catalog entry.
+	for _, mrg := range getManagedRuleGroups() {
+		if mrg.VendorName == req.VendorName && mrg.Name == req.Name {
+			return json.Marshal(map[string]any{
+				keyCapacity:       mrg.Capacity,
+				keyRules:          []any{},
+				"SnsTopicArn":     "",
+				"AvailableLabels": []any{},
+				"ConsumedLabels":  []any{},
+				"Description":     mrg.Description,
+			})
+		}
+	}
+
+	// Not found — return minimal stub so callers don't break.
 	const defaultManagedRuleGroupCapacity = int64(100)
 
 	return json.Marshal(map[string]any{
-		"Capacity":        defaultManagedRuleGroupCapacity,
+		keyCapacity:       defaultManagedRuleGroupCapacity,
 		keyRules:          []any{},
 		"SnsTopicArn":     "",
 		"AvailableLabels": []any{},
@@ -1816,6 +2336,18 @@ func (h *Handler) handleGetRateBasedStatementManagedKeys(body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
+	if req.WebACLId == "" {
+		return nil, fmt.Errorf("%w: WebACLId is required", errInvalidRequest)
+	}
+
+	if req.RuleName == "" {
+		return nil, fmt.Errorf("%w: RuleName is required", errInvalidRequest)
+	}
+
 	return json.Marshal(map[string]any{
 		"ManagedKeysIPV4": map[string]any{keyIPAddressVersion: "IPV4", keyAddresses: []any{}},
 		"ManagedKeysIPV6": map[string]any{keyIPAddressVersion: "IPV6", keyAddresses: []any{}},
@@ -1836,6 +2368,14 @@ func (h *Handler) handleGetSampledRequests(body []byte) ([]byte, error) {
 	var req getSampledRequestsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.MaxItems < 1 || req.MaxItems > maxSampledRequestsItems {
+		return nil, fmt.Errorf("%w: MaxItems must be between 1 and %d", errInvalidRequest, maxSampledRequestsItems)
+	}
+
+	if req.TimeWindow == nil {
+		return nil, fmt.Errorf("%w: TimeWindow is required", errInvalidRequest)
 	}
 
 	return json.Marshal(map[string]any{
@@ -1872,11 +2412,23 @@ type listAvailableManagedRuleGroupVersionsRequest struct {
 	Limit      int    `json:"Limit"`
 }
 
-// handleListAvailableManagedRuleGroupVersions returns an empty list of versions.
+// handleListAvailableManagedRuleGroupVersions returns versions for managed rule groups that support versioning.
 func (h *Handler) handleListAvailableManagedRuleGroupVersions(body []byte) ([]byte, error) {
 	var req listAvailableManagedRuleGroupVersionsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	// Look for versioning support in catalog.
+	for _, mrg := range getManagedRuleGroups() {
+		if mrg.VendorName == req.VendorName && mrg.Name == req.Name && mrg.VersioningSupported {
+			return json.Marshal(map[string]any{
+				"Versions": []map[string]any{
+					{"Name": "Version_1.0", "LastUpdateTimestamp": nil},
+				},
+				"CurrentDefaultVersion": "Version_1.0",
+			})
+		}
 	}
 
 	return json.Marshal(map[string]any{"Versions": []any{}, "CurrentDefaultVersion": ""})
@@ -1889,19 +2441,40 @@ type listAvailableManagedRuleGroupsRequest struct {
 	Limit      int    `json:"Limit"`
 }
 
-// handleListAvailableManagedRuleGroups returns an empty list of managed rule groups.
+// handleListAvailableManagedRuleGroups returns the catalog of managed rule groups.
 func (h *Handler) handleListAvailableManagedRuleGroups(body []byte) ([]byte, error) {
 	var req listAvailableManagedRuleGroupsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	return json.Marshal(map[string]any{"ManagedRuleGroups": []any{}})
+	groups := make([]map[string]any, 0, len(getManagedRuleGroups()))
+
+	for _, mrg := range getManagedRuleGroups() {
+		groups = append(groups, map[string]any{
+			keyVendorName:         mrg.VendorName,
+			keyName:               mrg.Name,
+			keyDescription:        mrg.Description,
+			"VersioningSupported": mrg.VersioningSupported,
+		})
+	}
+
+	return json.Marshal(map[string]any{"ManagedRuleGroups": groups})
 }
 
 // handleListLoggingConfigurations lists all logging configurations.
 func (h *Handler) handleListLoggingConfigurations(_ []byte) ([]byte, error) {
-	return json.Marshal(map[string]any{"LoggingConfigurations": []any{}})
+	configs := h.Backend.ListLoggingConfigurations()
+	items := make([]any, 0, len(configs))
+
+	for _, cfg := range configs {
+		var v any
+		if err := json.Unmarshal(cfg, &v); err == nil {
+			items = append(items, v)
+		}
+	}
+
+	return json.Marshal(map[string]any{"LoggingConfigurations": items})
 }
 
 // handleListManagedRuleSets lists all managed rule sets.

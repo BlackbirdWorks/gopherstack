@@ -1,6 +1,7 @@
 package cloudformation
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -347,7 +348,12 @@ func (rc *ResourceCreator) createWAFv2WebACL(
 		scope = wafScopeRegional
 	}
 
-	acl, err := rc.backends.WAFv2.Backend.CreateWebACL(name, scope, "", "ALLOW", "", nil)
+	acl, err := rc.backends.WAFv2.Backend.CreateWebACL(
+		name, scope, "",
+		json.RawMessage(`{"Allow":{}}`), nil,
+		nil, nil, nil, nil, nil, nil,
+		nil,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create WAFv2 WebACL %s: %w", name, err)
 	}
@@ -360,7 +366,7 @@ func (rc *ResourceCreator) deleteWAFv2WebACL(id string) error {
 		return nil
 	}
 
-	return rc.backends.WAFv2.Backend.DeleteWebACL(id)
+	return rc.backends.WAFv2.Backend.DeleteWebACL(id, "")
 }
 
 // ---- WAFv2 IPSet ----
@@ -402,7 +408,7 @@ func (rc *ResourceCreator) deleteWAFv2IPSet(id string) error {
 		return nil
 	}
 
-	return rc.backends.WAFv2.Backend.DeleteIPSet(id)
+	return rc.backends.WAFv2.Backend.DeleteIPSet(id, "")
 }
 
 // ---- WAFv2 RuleGroup ----

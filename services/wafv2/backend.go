@@ -1,9 +1,13 @@
 package wafv2
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
+	"net/netip"
+	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -37,6 +41,20 @@ var (
 	ErrLoggingConfigNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
 	// ErrPermissionPolicyNotFound is returned when a permission policy does not exist.
 	ErrPermissionPolicyNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
+	// ErrOptimisticLock is returned when the LockToken does not match.
+	ErrOptimisticLock = awserr.New("WAFOptimisticLockException", awserr.ErrConflict)
+	// ErrAssociatedItem is returned when a resource is referenced by another resource.
+	ErrAssociatedItem = awserr.New("WAFAssociatedItemException", awserr.ErrConflict)
+	// ErrLimitsExceeded is returned when a resource limit is exceeded.
+	ErrLimitsExceeded = awserr.New("WAFLimitsExceededException", awserr.ErrConflict)
+	// ErrInvalidOperation is returned when an operation is invalid.
+	ErrInvalidOperation = awserr.New("WAFInvalidOperationException", awserr.ErrInvalidParameter)
+	// ErrUnavailableEntity is returned when a resource is temporarily unavailable.
+	ErrUnavailableEntity = awserr.New("WAFUnavailableEntityException", awserr.ErrConflict)
+	// ErrTagOperation is returned when a tag operation fails validation.
+	ErrTagOperation = awserr.New("WAFTagOperationException", awserr.ErrInvalidParameter)
+	// ErrConfigurationWarning is returned when there is a configuration warning.
+	ErrConfigurationWarning = awserr.New("WAFConfigurationWarningException", awserr.ErrInvalidParameter)
 )
 
 const (
@@ -49,18 +67,61 @@ const (
 	// IPVersionIPv6 is the IPV6 address version.
 	IPVersionIPv6 = "IPV6"
 	wcuPerRule    = int64(1)
+
+	// maxIPSetEntries is the AWS-imposed cap on IP set entries.
+	maxIPSetEntries = 10_000
+	// maxRegexPatternSetEntries is the AWS-imposed cap on regex pattern set entries.
+	maxRegexPatternSetEntries = 10
+	// maxTagsPerResource is the AWS-imposed max number of tags per resource.
+	maxTagsPerResource = 50
+	// minRuleGroupCapacity is the minimum capacity for a rule group.
+	minRuleGroupCapacity = int64(1)
+	// maxRuleGroupCapacity is the maximum capacity for a rule group.
+	maxRuleGroupCapacity = int64(1500)
+	// minRateLimit is the minimum RateBasedStatement Limit.
+	minRateLimit = int64(100)
+	// maxRateLimit is the maximum RateBasedStatement Limit.
+	maxRateLimit = int64(2_000_000_000)
+	// maxTagKeyLen is the maximum length for a tag key.
+	maxTagKeyLen = 128
+	// maxTagValueLen is the maximum length for a tag value.
+	maxTagValueLen = 256
 )
+
+// validEvaluationWindowSecs contains the allowed EvaluationWindowSec values.
+var validEvaluationWindowSecs = map[int64]bool{ //nolint:gochecknoglobals // package-level lookup table
+	60: true, 120: true, 300: true, 600: true,
+	1800: true, 3600: true, 7200: true, 21600: true,
+}
+
+// RegexEntry represents a single regex pattern in AWS API shape.
+type RegexEntry struct {
+	RegexString string `json:"RegexString"`
+}
+
+// VisibilityConfig holds the parsed VisibilityConfig structure.
+type VisibilityConfig struct {
+	MetricName               string `json:"MetricName"`
+	SampledRequestsEnabled   bool   `json:"SampledRequestsEnabled"`
+	CloudWatchMetricsEnabled bool   `json:"CloudWatchMetricsEnabled"`
+}
 
 // WebACL represents an AWS WAFv2 Web ACL.
 type WebACL struct {
-	Tags             map[string]string `json:"tags,omitempty"`
-	ID               string            `json:"id"`
-	Name             string            `json:"name"`
-	Scope            string            `json:"scope"`
-	Description      string            `json:"description"`
-	DefaultAction    string            `json:"defaultAction"`
-	VisibilityConfig string            `json:"visibilityConfig"`
-	LockToken        string            `json:"lockToken"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	DefaultAction        json.RawMessage   `json:"defaultAction,omitempty"`
+	VisibilityConfig     json.RawMessage   `json:"visibilityConfig,omitempty"`
+	CustomResponseBodies json.RawMessage   `json:"customResponseBodies,omitempty"`
+	AssociationConfig    json.RawMessage   `json:"associationConfig,omitempty"`
+	CaptchaConfig        json.RawMessage   `json:"captchaConfig,omitempty"`
+	ChallengeConfig      json.RawMessage   `json:"challengeConfig,omitempty"`
+	ID                   string            `json:"id"`
+	Name                 string            `json:"name"`
+	Scope                string            `json:"scope"`
+	Description          string            `json:"description"`
+	LockToken            string            `json:"lockToken"`
+	TokenDomains         []string          `json:"tokenDomains,omitempty"`
+	Rules                []map[string]any  `json:"rules,omitempty"`
 }
 
 // IPSet represents an AWS WAFv2 IP Set.
@@ -83,7 +144,7 @@ type RegexPatternSet struct {
 	Scope                 string            `json:"scope"`
 	Description           string            `json:"description"`
 	LockToken             string            `json:"lockToken"`
-	RegularExpressionList []string          `json:"regularExpressionList,omitempty"`
+	RegularExpressionList []RegexEntry      `json:"regularExpressionList,omitempty"`
 }
 
 // RuleGroup represents an AWS WAFv2 Rule Group.
@@ -112,18 +173,18 @@ type InMemoryBackend struct {
 	ipSets                 map[string]*IPSet
 	regexPatternSets       map[string]*RegexPatternSet
 	ruleGroups             map[string]*RuleGroup
-	apiKeys                map[string]*APIKey // key: scope+":"+apiKeyValue
-	loggingConfigs         map[string]bool    // resourceARN → configured
-	permissionPolicies     map[string]string  // resourceARN → policy JSON
-	webACLByARN            map[string]string  // ARN → webACL ID
-	ipSetByARN             map[string]string  // ARN → ipSet ID
-	regexPatternSetByARN   map[string]string  // ARN → regexPatternSet ID
-	ruleGroupByARN         map[string]string  // ARN → ruleGroup ID
-	webACLByNameScope      map[string]string  // "name:scope" → webACL ID (O(1) duplicate check)
-	ipSetByNameScope       map[string]string  // "name:scope" → ipSet ID (O(1) duplicate check)
-	regexPatternSetByScope map[string]string  // "name:scope" → regexPatternSet ID
-	ruleGroupByNameScope   map[string]string  // "name:scope" → ruleGroup ID
-	associations           map[string]string  // resourceARN → webACL ID (AssociateWebACL)
+	apiKeys                map[string]*APIKey         // key: scope+":"+apiKeyValue
+	loggingConfigs         map[string]json.RawMessage // resourceARN → full config JSON
+	permissionPolicies     map[string]string          // resourceARN → policy JSON
+	webACLByARN            map[string]string          // ARN → webACL ID
+	ipSetByARN             map[string]string          // ARN → ipSet ID
+	regexPatternSetByARN   map[string]string          // ARN → regexPatternSet ID
+	ruleGroupByARN         map[string]string          // ARN → ruleGroup ID
+	webACLByNameScope      map[string]string          // "name:scope" → webACL ID (O(1) duplicate check)
+	ipSetByNameScope       map[string]string          // "name:scope" → ipSet ID (O(1) duplicate check)
+	regexPatternSetByScope map[string]string          // "name:scope" → regexPatternSet ID
+	ruleGroupByNameScope   map[string]string          // "name:scope" → ruleGroup ID
+	associations           map[string]string          // resourceARN → webACL ID (AssociateWebACL)
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -137,7 +198,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		regexPatternSets:       make(map[string]*RegexPatternSet),
 		ruleGroups:             make(map[string]*RuleGroup),
 		apiKeys:                make(map[string]*APIKey),
-		loggingConfigs:         make(map[string]bool),
+		loggingConfigs:         make(map[string]json.RawMessage),
 		permissionPolicies:     make(map[string]string),
 		webACLByARN:            make(map[string]string),
 		ipSetByARN:             make(map[string]string),
@@ -209,9 +270,272 @@ func nameScope(name, scope string) string {
 	return name + ":" + scope
 }
 
+// validateTags checks that tags conform to AWS constraints:
+// - Keys: 1–128 chars, cannot start with "aws:"
+// - Values: 0–256 chars
+// - Max 50 tags per resource.
+func validateTags(tags map[string]string) error {
+	if len(tags) > maxTagsPerResource {
+		return fmt.Errorf(
+			"%w: too many tags: %d (max %d)",
+			ErrTagOperation,
+			len(tags),
+			maxTagsPerResource,
+		)
+	}
+
+	for k, v := range tags {
+		if len(k) == 0 || len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key %q must be 1–%d characters", ErrTagOperation, k, maxTagKeyLen)
+		}
+
+		if strings.HasPrefix(k, "aws:") {
+			return fmt.Errorf("%w: tag key %q uses reserved prefix aws", ErrTagOperation, k)
+		}
+
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value for key %q must be 0–%d characters", ErrTagOperation, k, maxTagValueLen)
+		}
+	}
+
+	return nil
+}
+
+// validateVisibilityConfig parses and validates a VisibilityConfig JSON blob.
+func validateVisibilityConfig(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	var vc VisibilityConfig
+	if err := json.Unmarshal(raw, &vc); err != nil {
+		return fmt.Errorf("%w: invalid VisibilityConfig: %w", errInvalidRequest, err)
+	}
+
+	if vc.MetricName == "" {
+		return fmt.Errorf("%w: VisibilityConfig.MetricName is required", errInvalidRequest)
+	}
+
+	return nil
+}
+
+// maxStatementNestingDepth is the maximum allowed nesting depth for rule statements.
+const maxStatementNestingDepth = 3
+
+// nestedStatementKeys are statement wrapper keys that may contain nested statements.
+var nestedStatementKeys = []string{ //nolint:gochecknoglobals // package-level lookup table
+	"AndStatement", "OrStatement", "NotStatement",
+	"ManagedRuleGroupStatement", "RuleGroupReferenceStatement",
+}
+
+// validateStatement performs basic structural validation on a rule statement map.
+// It handles RateBasedStatement and RegexPatternReferenceStatement recursively (depth-limited).
+func validateStatement(stmt map[string]any, depth int) error { //nolint:gocognit
+	if depth > maxStatementNestingDepth {
+		return fmt.Errorf(
+			"%w: statement nesting exceeds maximum depth of %d",
+			errInvalidRequest,
+			maxStatementNestingDepth,
+		)
+	}
+
+	if rbs, isRBS := stmt["RateBasedStatement"].(map[string]any); isRBS {
+		return validateRateBasedStatement(rbs)
+	}
+
+	// Recurse into nested statement wrappers.
+	for _, key := range nestedStatementKeys {
+		nested, isNested := stmt[key].(map[string]any)
+		if !isNested {
+			continue
+		}
+
+		if inner, hasInner := nested["Statement"].(map[string]any); hasInner {
+			if err := validateStatement(inner, depth+1); err != nil {
+				return err
+			}
+		}
+
+		// AndStatement and OrStatement have Statements (plural).
+		stmts, hasStmts := nested["Statements"].([]any)
+		if hasStmts {
+			for _, s := range stmts {
+				sm, isSM := s.(map[string]any)
+				if isSM {
+					if err := validateStatement(sm, depth+1); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+
+	// Validate regex patterns if present.
+	rps, hasRPS := stmt["RegexPatternSetReferenceStatement"].(map[string]any)
+	if hasRPS {
+		pattern, hasPattern := rps["RegexString"].(string)
+		if hasPattern {
+			if _, err := regexp.Compile(pattern); err != nil {
+				return fmt.Errorf("%w: invalid regex pattern %q: %w", errInvalidRequest, pattern, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateRateBasedStatement(rbs map[string]any) error {
+	limit, _ := toInt64(rbs["Limit"])
+	if limit < minRateLimit || limit > maxRateLimit {
+		return fmt.Errorf(
+			"%w: RateBasedStatement.Limit must be between %d and %d",
+			errInvalidRequest,
+			minRateLimit,
+			maxRateLimit,
+		)
+	}
+
+	if ewsRaw, ok := rbs["EvaluationWindowSec"]; ok {
+		ews, _ := toInt64(ewsRaw)
+		if !validEvaluationWindowSecs[ews] {
+			return fmt.Errorf(
+				"%w: RateBasedStatement.EvaluationWindowSec must be one of {60,120,300,600,1800,3600,7200,21600}",
+				errInvalidRequest,
+			)
+		}
+	}
+
+	return nil
+}
+
+func toInt64(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	case float64:
+		return int64(n), true
+	case json.Number:
+		i, err := n.Int64()
+
+		return i, err == nil
+	}
+
+	return 0, false
+}
+
+// validateRules validates a slice of rules for a WebACL or RuleGroup.
+func validateRules(rules []map[string]any) error {
+	priorities := make(map[int64]bool)
+
+	for _, rule := range rules {
+		name, _ := rule["Name"].(string)
+		if name == "" {
+			return fmt.Errorf("%w: rule Name is required", errInvalidRequest)
+		}
+
+		priorityRaw, hasPriority := rule["Priority"]
+		if !hasPriority {
+			return fmt.Errorf("%w: rule %q is missing Priority", errInvalidRequest, name)
+		}
+
+		priority, ok := toInt64(priorityRaw)
+		if !ok {
+			return fmt.Errorf("%w: rule %q Priority must be an integer", errInvalidRequest, name)
+		}
+
+		if priorities[priority] {
+			return fmt.Errorf("%w: duplicate Priority %d in rules", errInvalidRequest, priority)
+		}
+
+		priorities[priority] = true
+
+		if _, hasStatement := rule["Statement"]; !hasStatement {
+			return fmt.Errorf("%w: rule %q is missing Statement", errInvalidRequest, name)
+		}
+
+		if stmt, isMap := rule["Statement"].(map[string]any); isMap {
+			if err := validateStatement(stmt, 0); err != nil {
+				return err
+			}
+		}
+
+		if _, hasVC := rule["VisibilityConfig"]; !hasVC {
+			return fmt.Errorf("%w: rule %q is missing VisibilityConfig", errInvalidRequest, name)
+		}
+	}
+
+	return nil
+}
+
+// validateCIDRs validates a list of CIDRs against the given IP version.
+func validateCIDRs(addresses []string, ipVersion string) error {
+	if len(addresses) > maxIPSetEntries {
+		return fmt.Errorf(
+			"%w: IP set exceeds maximum of %d addresses",
+			ErrLimitsExceeded,
+			maxIPSetEntries,
+		)
+	}
+
+	for _, addr := range addresses {
+		prefix, err := netip.ParsePrefix(addr)
+		if err != nil {
+			return fmt.Errorf("%w: invalid CIDR %q: %s", errInvalidRequest, addr, err.Error())
+		}
+
+		if ipVersion == IPVersionIPv4 && !prefix.Addr().Is4() {
+			return fmt.Errorf(
+				"%w: CIDR %q is not a valid IPv4 address for IPV4 set",
+				errInvalidRequest,
+				addr,
+			)
+		}
+
+		if ipVersion == IPVersionIPv6 && !prefix.Addr().Is6() {
+			return fmt.Errorf(
+				"%w: CIDR %q is not a valid IPv6 address for IPV6 set",
+				errInvalidRequest,
+				addr,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateRegexEntries validates a list of RegexEntry objects.
+func validateRegexEntries(entries []RegexEntry) error {
+	if len(entries) > maxRegexPatternSetEntries {
+		return fmt.Errorf(
+			"%w: regex pattern set exceeds maximum of %d entries",
+			ErrLimitsExceeded,
+			maxRegexPatternSetEntries,
+		)
+	}
+
+	for _, entry := range entries {
+		if _, err := regexp.Compile(entry.RegexString); err != nil {
+			return fmt.Errorf(
+				"%w: invalid regex %q: %s",
+				errInvalidRequest,
+				entry.RegexString,
+				err.Error(),
+			)
+		}
+	}
+
+	return nil
+}
+
 // CreateWebACL creates a new WebACL.
 func (b *InMemoryBackend) CreateWebACL(
-	name, scope, description, defaultAction, visibilityConfig string,
+	name, scope, description string,
+	defaultAction, visibilityConfig json.RawMessage,
+	rules []map[string]any,
+	tokenDomains []string,
+	customResponseBodies, associationConfig, captchaConfig, challengeConfig json.RawMessage,
 	tags map[string]string,
 ) (*WebACL, error) {
 	b.mu.Lock("CreateWebACL")
@@ -223,14 +547,20 @@ func (b *InMemoryBackend) CreateWebACL(
 
 	id := uuid.NewString()
 	w := &WebACL{
-		ID:               id,
-		Name:             name,
-		Scope:            scope,
-		Description:      description,
-		DefaultAction:    defaultAction,
-		VisibilityConfig: visibilityConfig,
-		LockToken:        uuid.NewString(),
-		Tags:             cloneTags(tags),
+		ID:                   id,
+		Name:                 name,
+		Scope:                scope,
+		Description:          description,
+		DefaultAction:        defaultAction,
+		VisibilityConfig:     visibilityConfig,
+		Rules:                cloneRules(rules),
+		TokenDomains:         cloneAddresses(tokenDomains),
+		CustomResponseBodies: customResponseBodies,
+		AssociationConfig:    associationConfig,
+		CaptchaConfig:        captchaConfig,
+		ChallengeConfig:      challengeConfig,
+		LockToken:            uuid.NewString(),
+		Tags:                 cloneTags(tags),
 	}
 	b.webACLs[id] = w
 	b.webACLByARN[b.WebACLARN(name, id, scope)] = id
@@ -238,6 +568,7 @@ func (b *InMemoryBackend) CreateWebACL(
 
 	return cloneWebACL(w), nil
 }
+
 func (b *InMemoryBackend) GetWebACL(id string) (*WebACL, error) {
 	b.mu.RLock("GetWebACL")
 	defer b.mu.RUnlock()
@@ -251,7 +582,13 @@ func (b *InMemoryBackend) GetWebACL(id string) (*WebACL, error) {
 }
 
 // UpdateWebACL updates a WebACL by ID.
-func (b *InMemoryBackend) UpdateWebACL(id, description, defaultAction, visibilityConfig string) (*WebACL, error) {
+func (b *InMemoryBackend) UpdateWebACL(
+	id, description, lockToken string,
+	defaultAction, visibilityConfig json.RawMessage,
+	rules []map[string]any,
+	tokenDomains []string,
+	customResponseBodies, associationConfig, captchaConfig, challengeConfig json.RawMessage,
+) (*WebACL, error) {
 	b.mu.Lock("UpdateWebACL")
 	defer b.mu.Unlock()
 
@@ -260,16 +597,44 @@ func (b *InMemoryBackend) UpdateWebACL(id, description, defaultAction, visibilit
 		return nil, fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, id)
 	}
 
+	if lockToken != "" && lockToken != w.LockToken {
+		return nil, fmt.Errorf("%w: lock token mismatch for web ACL %q", ErrOptimisticLock, id)
+	}
+
 	if description != "" {
 		w.Description = description
 	}
 
-	if defaultAction != "" {
+	if len(defaultAction) > 0 {
 		w.DefaultAction = defaultAction
 	}
 
-	if visibilityConfig != "" {
+	if len(visibilityConfig) > 0 {
 		w.VisibilityConfig = visibilityConfig
+	}
+
+	if rules != nil {
+		w.Rules = cloneRules(rules)
+	}
+
+	if tokenDomains != nil {
+		w.TokenDomains = cloneAddresses(tokenDomains)
+	}
+
+	if len(customResponseBodies) > 0 {
+		w.CustomResponseBodies = customResponseBodies
+	}
+
+	if len(associationConfig) > 0 {
+		w.AssociationConfig = associationConfig
+	}
+
+	if len(captchaConfig) > 0 {
+		w.CaptchaConfig = captchaConfig
+	}
+
+	if len(challengeConfig) > 0 {
+		w.ChallengeConfig = challengeConfig
 	}
 
 	w.LockToken = uuid.NewString()
@@ -278,13 +643,17 @@ func (b *InMemoryBackend) UpdateWebACL(id, description, defaultAction, visibilit
 }
 
 // DeleteWebACL deletes a WebACL by ID.
-func (b *InMemoryBackend) DeleteWebACL(id string) error {
+func (b *InMemoryBackend) DeleteWebACL(id, lockToken string) error {
 	b.mu.Lock("DeleteWebACL")
 	defer b.mu.Unlock()
 
 	w, ok := b.webACLs[id]
 	if !ok {
 		return fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, id)
+	}
+
+	if lockToken != "" && lockToken != w.LockToken {
+		return fmt.Errorf("%w: lock token mismatch for web ACL %q", ErrOptimisticLock, id)
 	}
 
 	delete(b.webACLByARN, b.WebACLARN(w.Name, w.ID, w.Scope))
@@ -369,13 +738,17 @@ func (b *InMemoryBackend) GetIPSet(id string) (*IPSet, error) {
 }
 
 // UpdateIPSet updates an IPSet by ID.
-func (b *InMemoryBackend) UpdateIPSet(id, description string, addresses []string) (*IPSet, error) {
+func (b *InMemoryBackend) UpdateIPSet(id, description, lockToken string, addresses []string) (*IPSet, error) {
 	b.mu.Lock("UpdateIPSet")
 	defer b.mu.Unlock()
 
 	s, ok := b.ipSets[id]
 	if !ok {
 		return nil, fmt.Errorf("%w: IP set %q not found", ErrIPSetNotFound, id)
+	}
+
+	if lockToken != "" && lockToken != s.LockToken {
+		return nil, fmt.Errorf("%w: lock token mismatch for IP set %q", ErrOptimisticLock, id)
 	}
 
 	if description != "" {
@@ -392,17 +765,21 @@ func (b *InMemoryBackend) UpdateIPSet(id, description string, addresses []string
 }
 
 // DeleteIPSet deletes an IPSet by ID.
-func (b *InMemoryBackend) DeleteIPSet(id string) error {
+func (b *InMemoryBackend) DeleteIPSet(id, lockToken string) error {
 	b.mu.Lock("DeleteIPSet")
 	defer b.mu.Unlock()
 
-	if s, ok := b.ipSets[id]; ok {
-		delete(b.ipSetByARN, b.IPSetARN(s.Name, s.ID, s.Scope))
-		delete(b.ipSetByNameScope, nameScope(s.Name, s.Scope))
-	} else {
+	s, ok := b.ipSets[id]
+	if !ok {
 		return fmt.Errorf("%w: IP set %q not found", ErrIPSetNotFound, id)
 	}
 
+	if lockToken != "" && lockToken != s.LockToken {
+		return fmt.Errorf("%w: lock token mismatch for IP set %q", ErrOptimisticLock, id)
+	}
+
+	delete(b.ipSetByARN, b.IPSetARN(s.Name, s.ID, s.Scope))
+	delete(b.ipSetByNameScope, nameScope(s.Name, s.Scope))
 	delete(b.ipSets, id)
 
 	return nil
@@ -549,6 +926,45 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 func cloneWebACL(w *WebACL) *WebACL {
 	cp := *w
 	cp.Tags = maps.Clone(w.Tags)
+	cp.Rules = cloneRules(w.Rules)
+	cp.TokenDomains = cloneAddresses(w.TokenDomains)
+
+	// Clone RawMessage fields (byte slices).
+	if w.DefaultAction != nil {
+		da := make(json.RawMessage, len(w.DefaultAction))
+		copy(da, w.DefaultAction)
+		cp.DefaultAction = da
+	}
+
+	if w.VisibilityConfig != nil {
+		vc := make(json.RawMessage, len(w.VisibilityConfig))
+		copy(vc, w.VisibilityConfig)
+		cp.VisibilityConfig = vc
+	}
+
+	if w.CustomResponseBodies != nil {
+		crb := make(json.RawMessage, len(w.CustomResponseBodies))
+		copy(crb, w.CustomResponseBodies)
+		cp.CustomResponseBodies = crb
+	}
+
+	if w.AssociationConfig != nil {
+		ac := make(json.RawMessage, len(w.AssociationConfig))
+		copy(ac, w.AssociationConfig)
+		cp.AssociationConfig = ac
+	}
+
+	if w.CaptchaConfig != nil {
+		cc := make(json.RawMessage, len(w.CaptchaConfig))
+		copy(cc, w.CaptchaConfig)
+		cp.CaptchaConfig = cc
+	}
+
+	if w.ChallengeConfig != nil {
+		chc := make(json.RawMessage, len(w.ChallengeConfig))
+		copy(chc, w.ChallengeConfig)
+		cp.ChallengeConfig = chc
+	}
 
 	return &cp
 }
@@ -590,7 +1006,7 @@ func (b *InMemoryBackend) Reset() {
 	b.regexPatternSets = make(map[string]*RegexPatternSet)
 	b.ruleGroups = make(map[string]*RuleGroup)
 	b.apiKeys = make(map[string]*APIKey)
-	b.loggingConfigs = make(map[string]bool)
+	b.loggingConfigs = make(map[string]json.RawMessage)
 	b.permissionPolicies = make(map[string]string)
 	b.webACLByARN = make(map[string]string)
 	b.ipSetByARN = make(map[string]string)
@@ -694,7 +1110,7 @@ func (b *InMemoryBackend) DeleteAPIKey(scope, apiKey string) error {
 // CreateRegexPatternSet creates a new RegexPatternSet.
 func (b *InMemoryBackend) CreateRegexPatternSet(
 	name, scope, description string,
-	regularExpressionList []string,
+	regularExpressionList []RegexEntry,
 	tags map[string]string,
 ) (*RegexPatternSet, error) {
 	b.mu.Lock("CreateRegexPatternSet")
@@ -715,7 +1131,7 @@ func (b *InMemoryBackend) CreateRegexPatternSet(
 		Name:                  name,
 		Scope:                 scope,
 		Description:           description,
-		RegularExpressionList: cloneAddresses(regularExpressionList),
+		RegularExpressionList: cloneRegexEntries(regularExpressionList),
 		LockToken:             uuid.NewString(),
 		Tags:                  cloneTags(tags),
 	}
@@ -728,13 +1144,17 @@ func (b *InMemoryBackend) CreateRegexPatternSet(
 }
 
 // DeleteRegexPatternSet deletes a RegexPatternSet by ID.
-func (b *InMemoryBackend) DeleteRegexPatternSet(id string) error {
+func (b *InMemoryBackend) DeleteRegexPatternSet(id, lockToken string) error {
 	b.mu.Lock("DeleteRegexPatternSet")
 	defer b.mu.Unlock()
 
 	rps, ok := b.regexPatternSets[id]
 	if !ok {
 		return fmt.Errorf("%w: regex pattern set %q not found", ErrRegexPatternSetNotFound, id)
+	}
+
+	if lockToken != "" && lockToken != rps.LockToken {
+		return fmt.Errorf("%w: lock token mismatch for regex pattern set %q", ErrOptimisticLock, id)
 	}
 
 	delete(b.regexPatternSetByARN, b.RegexPatternSetARN(rps.Name, rps.ID, rps.Scope))
@@ -778,6 +1198,60 @@ func (b *InMemoryBackend) CreateRuleGroup(
 	return cloneRuleGroup(rg), nil
 }
 
+// DeleteRuleGroup deletes a RuleGroup by ID, checking for WebACL references.
+func (b *InMemoryBackend) DeleteRuleGroup(id, lockToken string) error {
+	b.mu.Lock("DeleteRuleGroup")
+	defer b.mu.Unlock()
+
+	rg, ok := b.ruleGroups[id]
+	if !ok {
+		return fmt.Errorf("%w: rule group %q not found", ErrRuleGroupNotFound, id)
+	}
+
+	if lockToken != "" && lockToken != rg.LockToken {
+		return fmt.Errorf("%w: lock token mismatch for rule group %q", ErrOptimisticLock, id)
+	}
+
+	// Check if this rule group is referenced by any WebACL.
+	rgARN := b.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
+
+	for _, w := range b.webACLs {
+		for _, rule := range w.Rules {
+			if b.ruleReferencesARN(rule, rgARN) {
+				return fmt.Errorf(
+					"%w: rule group %q is referenced by web ACL %q",
+					ErrAssociatedItem,
+					id,
+					w.ID,
+				)
+			}
+		}
+	}
+
+	delete(b.ruleGroupByARN, rgARN)
+	delete(b.ruleGroupByNameScope, nameScope(rg.Name, rg.Scope))
+	delete(b.ruleGroups, id)
+
+	return nil
+}
+
+// ruleReferencesARN checks if a rule map references the given ARN.
+func (b *InMemoryBackend) ruleReferencesARN(rule map[string]any, arnStr string) bool {
+	stmt, isStmt := rule["Statement"].(map[string]any)
+	if !isStmt {
+		return false
+	}
+
+	rgrStmt, isRGR := stmt["RuleGroupReferenceStatement"].(map[string]any)
+	if !isRGR {
+		return false
+	}
+
+	ref, isStr := rgrStmt["ARN"].(string)
+
+	return isStr && ref == arnStr
+}
+
 // DeleteFirewallManagerRuleGroups removes all Firewall Manager rule group
 // associations from the WebACL identified by webACLARN, then returns a fresh
 // copy of the updated WebACL.
@@ -800,12 +1274,14 @@ func (b *InMemoryBackend) DeleteFirewallManagerRuleGroups(webACLARN string) (*We
 	return cloneWebACL(w), nil
 }
 
-// PutLoggingConfiguration stores a logging configuration for the given resource ARN.
-func (b *InMemoryBackend) PutLoggingConfiguration(resourceARN string) error {
+// PutLoggingConfiguration stores a full logging configuration JSON for the given resource ARN.
+func (b *InMemoryBackend) PutLoggingConfiguration(resourceARN string, configJSON json.RawMessage) error {
 	b.mu.Lock("PutLoggingConfiguration")
 	defer b.mu.Unlock()
 
-	b.loggingConfigs[resourceARN] = true
+	stored := make(json.RawMessage, len(configJSON))
+	copy(stored, configJSON)
+	b.loggingConfigs[resourceARN] = stored
 
 	return nil
 }
@@ -815,13 +1291,49 @@ func (b *InMemoryBackend) DeleteLoggingConfiguration(resourceARN string) error {
 	b.mu.Lock("DeleteLoggingConfiguration")
 	defer b.mu.Unlock()
 
-	if !b.loggingConfigs[resourceARN] {
+	if _, exists := b.loggingConfigs[resourceARN]; !exists {
 		return fmt.Errorf("%w: no logging configuration found for resource %q", ErrLoggingConfigNotFound, resourceARN)
 	}
 
 	delete(b.loggingConfigs, resourceARN)
 
 	return nil
+}
+
+// GetLoggingConfiguration returns the stored logging configuration JSON for the given resource ARN.
+func (b *InMemoryBackend) GetLoggingConfiguration(resourceARN string) (json.RawMessage, error) {
+	b.mu.RLock("GetLoggingConfiguration")
+	defer b.mu.RUnlock()
+
+	cfg, exists := b.loggingConfigs[resourceARN]
+	if !exists {
+		return nil, fmt.Errorf(
+			"%w: no logging configuration found for resource %q",
+			ErrLoggingConfigNotFound,
+			resourceARN,
+		)
+	}
+
+	out := make(json.RawMessage, len(cfg))
+	copy(out, cfg)
+
+	return out, nil
+}
+
+// ListLoggingConfigurations returns all stored logging configuration JSONs.
+func (b *InMemoryBackend) ListLoggingConfigurations() []json.RawMessage {
+	b.mu.RLock("ListLoggingConfigurations")
+	defer b.mu.RUnlock()
+
+	result := make([]json.RawMessage, 0, len(b.loggingConfigs))
+
+	for _, cfg := range b.loggingConfigs {
+		out := make(json.RawMessage, len(cfg))
+		copy(out, cfg)
+		result = append(result, out)
+	}
+
+	return result
 }
 
 // PutPermissionPolicy stores a permission policy for the given resource ARN.
@@ -879,8 +1391,8 @@ func (b *InMemoryBackend) ListRegexPatternSets() []*RegexPatternSet {
 
 // UpdateRegexPatternSet updates a RegexPatternSet by ID.
 func (b *InMemoryBackend) UpdateRegexPatternSet(
-	id, description string,
-	regularExpressionList []string,
+	id, description, lockToken string,
+	regularExpressionList []RegexEntry,
 ) (*RegexPatternSet, error) {
 	b.mu.Lock("UpdateRegexPatternSet")
 	defer b.mu.Unlock()
@@ -890,12 +1402,16 @@ func (b *InMemoryBackend) UpdateRegexPatternSet(
 		return nil, fmt.Errorf("%w: regex pattern set %q not found", ErrRegexPatternSetNotFound, id)
 	}
 
+	if lockToken != "" && lockToken != r.LockToken {
+		return nil, fmt.Errorf("%w: lock token mismatch for regex pattern set %q", ErrOptimisticLock, id)
+	}
+
 	if description != "" {
 		r.Description = description
 	}
 
 	if regularExpressionList != nil {
-		r.RegularExpressionList = cloneAddresses(regularExpressionList)
+		r.RegularExpressionList = cloneRegexEntries(regularExpressionList)
 	}
 
 	r.LockToken = uuid.NewString()
@@ -934,7 +1450,7 @@ func (b *InMemoryBackend) ListRuleGroups() []*RuleGroup {
 
 // UpdateRuleGroup updates a RuleGroup by ID.
 func (b *InMemoryBackend) UpdateRuleGroup(
-	id, description, visibilityConfig string,
+	id, description, visibilityConfig, lockToken string,
 	rules []map[string]any,
 ) (*RuleGroup, error) {
 	b.mu.Lock("UpdateRuleGroup")
@@ -943,6 +1459,10 @@ func (b *InMemoryBackend) UpdateRuleGroup(
 	rg, ok := b.ruleGroups[id]
 	if !ok {
 		return nil, fmt.Errorf("%w: rule group %q not found", ErrRuleGroupNotFound, id)
+	}
+
+	if lockToken != "" && lockToken != rg.LockToken {
+		return nil, fmt.Errorf("%w: lock token mismatch for rule group %q", ErrOptimisticLock, id)
 	}
 
 	if description != "" {
@@ -1001,22 +1521,6 @@ func (b *InMemoryBackend) GetDecryptedAPIKey(scope, apiKey string) (*APIKey, err
 	}, nil
 }
 
-// GetLoggingConfiguration returns whether a logging configuration exists for the given resource ARN.
-func (b *InMemoryBackend) GetLoggingConfiguration(resourceARN string) (bool, error) {
-	b.mu.RLock("GetLoggingConfiguration")
-	defer b.mu.RUnlock()
-
-	if !b.loggingConfigs[resourceARN] {
-		return false, fmt.Errorf(
-			"%w: no logging configuration found for resource %q",
-			ErrLoggingConfigNotFound,
-			resourceARN,
-		)
-	}
-
-	return true, nil
-}
-
 // GetPermissionPolicy returns the permission policy for the given resource ARN.
 func (b *InMemoryBackend) GetPermissionPolicy(resourceARN string) (string, error) {
 	b.mu.RLock("GetPermissionPolicy")
@@ -1060,9 +1564,20 @@ func (b *InMemoryBackend) ListResourcesForWebACL(webACLARN string) ([]string, er
 func cloneRegexPatternSet(r *RegexPatternSet) *RegexPatternSet {
 	cp := *r
 	cp.Tags = maps.Clone(r.Tags)
-	cp.RegularExpressionList = cloneAddresses(r.RegularExpressionList)
+	cp.RegularExpressionList = cloneRegexEntries(r.RegularExpressionList)
 
 	return &cp
+}
+
+func cloneRegexEntries(entries []RegexEntry) []RegexEntry {
+	if entries == nil {
+		return []RegexEntry{}
+	}
+
+	out := make([]RegexEntry, len(entries))
+	copy(out, entries)
+
+	return out
 }
 
 func cloneRuleGroup(rg *RuleGroup) *RuleGroup {

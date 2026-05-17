@@ -135,7 +135,7 @@ func TestHandler_CreateWebACL(t *testing.T) {
 			body: map[string]any{
 				"Name":          "my-web-acl",
 				"Scope":         "REGIONAL",
-				"DefaultAction": "ALLOW",
+				"DefaultAction": map[string]any{"Allow": map[string]any{}},
 			},
 			wantStatus: http.StatusOK,
 			wantID:     true,
@@ -188,7 +188,7 @@ func TestHandler_GetWebACL(t *testing.T) {
 		{
 			name: "existing",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 
 				return w.ID
 			},
@@ -233,7 +233,7 @@ func TestHandler_UpdateWebACL(t *testing.T) {
 		{
 			name: "existing",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 
 				return w.ID
 			},
@@ -242,7 +242,7 @@ func TestHandler_UpdateWebACL(t *testing.T) {
 					"Id":          id,
 					"Name":        "my-acl",
 					"Scope":       "REGIONAL",
-					"LockToken":   "tok",
+					"LockToken":   "",
 					"Description": "updated",
 				}
 			},
@@ -254,7 +254,7 @@ func TestHandler_UpdateWebACL(t *testing.T) {
 				return "nonexistent"
 			},
 			body: func(id string) map[string]any {
-				return map[string]any{"Id": id, "Name": "x", "Scope": "REGIONAL", "LockToken": "tok"}
+				return map[string]any{"Id": id, "Name": "x", "Scope": "REGIONAL", "LockToken": ""}
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -290,12 +290,12 @@ func TestHandler_DeleteWebACL(t *testing.T) {
 		{
 			name: "existing",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 
 				return w.ID
 			},
 			body: func(id string) map[string]any {
-				return map[string]any{"Id": id, "Name": "my-acl", "Scope": "REGIONAL", "LockToken": "tok"}
+				return map[string]any{"Id": id, "Name": "my-acl", "Scope": "REGIONAL", "LockToken": ""}
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -305,7 +305,7 @@ func TestHandler_DeleteWebACL(t *testing.T) {
 				return "nonexistent"
 			},
 			body: func(id string) map[string]any {
-				return map[string]any{"Id": id, "Name": "x", "Scope": "REGIONAL", "LockToken": "tok"}
+				return map[string]any{"Id": id, "Name": "x", "Scope": "REGIONAL", "LockToken": ""}
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -339,8 +339,8 @@ func TestHandler_ListWebACLs(t *testing.T) {
 		{
 			name: "with_items",
 			setup: func(h *wafv2.Handler) {
-				_, _ = h.Backend.CreateWebACL("acl1", "REGIONAL", "", "ALLOW", "", nil)
-				_, _ = h.Backend.CreateWebACL("acl2", "REGIONAL", "", "BLOCK", "", nil)
+				_, _ = wafv2.CreateWebACLSimple(h.Backend, "acl1", "REGIONAL", "", "ALLOW", nil)
+				_, _ = wafv2.CreateWebACLSimple(h.Backend, "acl2", "REGIONAL", "", "BLOCK", nil)
 			},
 			wantCount: 2,
 		},
@@ -482,7 +482,7 @@ func TestHandler_UpdateIPSet(t *testing.T) {
 					"Id":        id,
 					"Name":      "my-ipset",
 					"Scope":     "REGIONAL",
-					"LockToken": "tok",
+					"LockToken": "",
 					"Addresses": []string{"10.0.0.0/8"},
 				}
 			},
@@ -498,7 +498,7 @@ func TestHandler_UpdateIPSet(t *testing.T) {
 					"Id":        id,
 					"Name":      "x",
 					"Scope":     "REGIONAL",
-					"LockToken": "tok",
+					"LockToken": "",
 					"Addresses": []string{},
 				}
 			},
@@ -541,7 +541,7 @@ func TestHandler_DeleteIPSet(t *testing.T) {
 				return s.ID
 			},
 			body: func(id string) map[string]any {
-				return map[string]any{"Id": id, "Name": "my-ipset", "Scope": "REGIONAL", "LockToken": "tok"}
+				return map[string]any{"Id": id, "Name": "my-ipset", "Scope": "REGIONAL", "LockToken": ""}
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -551,7 +551,7 @@ func TestHandler_DeleteIPSet(t *testing.T) {
 				return "nonexistent"
 			},
 			body: func(id string) map[string]any {
-				return map[string]any{"Id": id, "Name": "x", "Scope": "REGIONAL", "LockToken": "tok"}
+				return map[string]any{"Id": id, "Name": "x", "Scope": "REGIONAL", "LockToken": ""}
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -625,7 +625,7 @@ func TestHandler_TagResource_and_ListTags(t *testing.T) {
 		{
 			name: "tags_flow",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL("tagged-acl", "REGIONAL", "", "ALLOW", "", nil)
+				w, _ := wafv2.CreateWebACLSimple(h.Backend, "tagged-acl", "REGIONAL", "", "ALLOW", nil)
 
 				return h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 			},
@@ -770,7 +770,7 @@ func TestBackend_Reset(t *testing.T) {
 
 	b := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateWebACL("acl1", "REGIONAL", "", "ALLOW", "", nil)
+	_, err := wafv2.CreateWebACLSimple(b, "acl1", "REGIONAL", "", "ALLOW", nil)
 	require.NoError(t, err)
 	_, err = b.CreateIPSet("set1", "REGIONAL", "", "IPV4", nil, nil)
 	require.NoError(t, err)
@@ -792,7 +792,7 @@ func TestHandler_AssociateWebACL(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *wafv2.Handler) (string, string) {
-				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 
 				return webACLARN, "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/abc"
@@ -809,7 +809,7 @@ func TestHandler_AssociateWebACL(t *testing.T) {
 		{
 			name: "missing_resource_arn",
 			setup: func(h *wafv2.Handler) (string, string) {
-				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 
 				return webACLARN, ""
@@ -860,7 +860,7 @@ func TestHandler_DisassociateWebACL(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 				resourceARN := "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/abc"
 				require.NoError(t, h.Backend.AssociateWebACL(webACLARN, resourceARN))
@@ -914,7 +914,7 @@ func TestHandler_GetWebACLForResource(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 				resourceARN := "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/abc"
 				require.NoError(t, h.Backend.AssociateWebACL(webACLARN, resourceARN))
@@ -978,12 +978,12 @@ func TestHandler_UntagResource(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL(
+				w, _ := wafv2.CreateWebACLSimple(
+					h.Backend,
 					"tagged-acl",
 					"REGIONAL",
 					"",
 					"ALLOW",
-					"",
 					map[string]string{"env": "prod", "team": "ops"},
 				)
 				arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
@@ -1260,8 +1260,8 @@ func TestHandler_ListWebACLs_Scope_Filter(t *testing.T) {
 		{
 			name: "filter_cloudfront",
 			setup: func(h *wafv2.Handler) {
-				_, _ = h.Backend.CreateWebACL("regional-acl", "REGIONAL", "", "ALLOW", "", nil)
-				_, _ = h.Backend.CreateWebACL("cf-acl", "CLOUDFRONT", "", "ALLOW", "", nil)
+				_, _ = wafv2.CreateWebACLSimple(h.Backend, "regional-acl", "REGIONAL", "", "ALLOW", nil)
+				_, _ = wafv2.CreateWebACLSimple(h.Backend, "cf-acl", "CLOUDFRONT", "", "ALLOW", nil)
 			},
 			scope:     "CLOUDFRONT",
 			wantCount: 1,
@@ -1269,8 +1269,8 @@ func TestHandler_ListWebACLs_Scope_Filter(t *testing.T) {
 		{
 			name: "no_filter_returns_all",
 			setup: func(h *wafv2.Handler) {
-				_, _ = h.Backend.CreateWebACL("regional-acl", "REGIONAL", "", "ALLOW", "", nil)
-				_, _ = h.Backend.CreateWebACL("cf-acl", "CLOUDFRONT", "", "ALLOW", "", nil)
+				_, _ = wafv2.CreateWebACLSimple(h.Backend, "regional-acl", "REGIONAL", "", "ALLOW", nil)
+				_, _ = wafv2.CreateWebACLSimple(h.Backend, "cf-acl", "CLOUDFRONT", "", "ALLOW", nil)
 			},
 			scope:     "",
 			wantCount: 2,
@@ -1404,7 +1404,7 @@ func TestHandler_GetWebACL_BlockDefaultAction(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	w, err := h.Backend.CreateWebACL("blocked-acl", "REGIONAL", "", "BLOCK", "", nil)
+	w, err := wafv2.CreateWebACLSimple(h.Backend, "blocked-acl", "REGIONAL", "", "BLOCK", nil)
 	require.NoError(t, err)
 
 	rec := doWafv2Request(t, h, "GetWebACL", map[string]any{
@@ -1459,7 +1459,7 @@ func TestBackend_Snapshot_And_Restore(t *testing.T) {
 		{
 			name: "with_webacls_and_ipsets",
 			setup: func(b *wafv2.InMemoryBackend) {
-				_, _ = b.CreateWebACL("acl1", "REGIONAL", "desc", "ALLOW", "", nil)
+				_, _ = wafv2.CreateWebACLSimple(b, "acl1", "REGIONAL", "desc", "ALLOW", nil)
 				_, _ = b.CreateIPSet("set1", "REGIONAL", "desc", "IPV4", []string{"1.2.3.4/32"}, nil)
 			},
 			wantIDs: 1,
@@ -1492,7 +1492,7 @@ func TestHandler_Snapshot_And_Restore(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	_, err := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+	_, err := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 	require.NoError(t, err)
 
 	snap := h.Snapshot()
@@ -1526,14 +1526,29 @@ func TestHandler_GetWebACL_WithVisibilityConfig(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	visConfig := `{"CloudWatchMetricsEnabled":true,"MetricName":"my-acl","SampledRequestsEnabled":true}`
-	w, err := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", visConfig, nil)
-	require.NoError(t, err)
+
+	// Create WebACL via HTTP API to include VisibilityConfig.
+	createRec := doWafv2Request(t, h, "CreateWebACL", map[string]any{
+		"Name":          "my-acl",
+		"Scope":         "REGIONAL",
+		"DefaultAction": map[string]any{"Allow": map[string]any{}},
+		"VisibilityConfig": map[string]any{
+			"CloudWatchMetricsEnabled": true,
+			"MetricName":               "my-acl",
+			"SampledRequestsEnabled":   true,
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResult map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResult))
+	summary := createResult["Summary"].(map[string]any)
+	id := summary["Id"].(string)
 
 	rec := doWafv2Request(t, h, "GetWebACL", map[string]any{
-		"Id":    w.ID,
-		"Name":  w.Name,
-		"Scope": w.Scope,
+		"Id":    id,
+		"Name":  "my-acl",
+		"Scope": "REGIONAL",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1550,8 +1565,7 @@ func TestHandler_GetWebACLForResource_WithVisibilityConfig(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	visConfig := `{"CloudWatchMetricsEnabled":true,"MetricName":"my-acl","SampledRequestsEnabled":true}`
-	w, err := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "BLOCK", visConfig, nil)
+	w, err := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "BLOCK", nil)
 	require.NoError(t, err)
 
 	webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
@@ -1668,7 +1682,7 @@ func TestHandler_CreateAndDeleteAPIKey(t *testing.T) {
 		},
 		{
 			name:       "delete_missing_scope",
-			createBody: map[string]any{"Scope": "REGIONAL"},
+			createBody: map[string]any{"Scope": "REGIONAL", "TokenDomains": []string{"example.com"}},
 			deleteBody: func(_ string) map[string]any {
 				return map[string]any{"APIKey": "somekey"}
 			},
@@ -1677,7 +1691,7 @@ func TestHandler_CreateAndDeleteAPIKey(t *testing.T) {
 		},
 		{
 			name:       "delete_missing_key",
-			createBody: map[string]any{"Scope": "REGIONAL"},
+			createBody: map[string]any{"Scope": "REGIONAL", "TokenDomains": []string{"example.com"}},
 			deleteBody: func(_ string) map[string]any {
 				return map[string]any{"Scope": "REGIONAL"}
 			},
@@ -1686,7 +1700,7 @@ func TestHandler_CreateAndDeleteAPIKey(t *testing.T) {
 		},
 		{
 			name:       "delete_not_found",
-			createBody: map[string]any{"Scope": "REGIONAL"},
+			createBody: map[string]any{"Scope": "REGIONAL", "TokenDomains": []string{"example.com"}},
 			deleteBody: func(_ string) map[string]any {
 				return map[string]any{"Scope": "REGIONAL", "APIKey": "nonexistent-key"}
 			},
@@ -1807,7 +1821,7 @@ func TestHandler_DeleteRegexPatternSet(t *testing.T) {
 				return rps.ID
 			},
 			body: func(id string) map[string]any {
-				return map[string]any{"Id": id, "Name": "my-regex", "Scope": "REGIONAL", "LockToken": "tok"}
+				return map[string]any{"Id": id, "Name": "my-regex", "Scope": "REGIONAL", "LockToken": ""}
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -1817,7 +1831,7 @@ func TestHandler_DeleteRegexPatternSet(t *testing.T) {
 				return "nonexistent"
 			},
 			body: func(id string) map[string]any {
-				return map[string]any{"Id": id, "Name": "x", "Scope": "REGIONAL", "LockToken": "tok"}
+				return map[string]any{"Id": id, "Name": "x", "Scope": "REGIONAL", "LockToken": ""}
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -1827,7 +1841,7 @@ func TestHandler_DeleteRegexPatternSet(t *testing.T) {
 				return ""
 			},
 			body: func(_ string) map[string]any {
-				return map[string]any{"Name": "x", "Scope": "REGIONAL", "LockToken": "tok"}
+				return map[string]any{"Name": "x", "Scope": "REGIONAL", "LockToken": ""}
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -1932,7 +1946,7 @@ func TestHandler_DeleteFirewallManagerRuleGroups(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 
 				return h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 			},
@@ -1993,9 +2007,12 @@ func TestHandler_DeleteLoggingConfiguration(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 				arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
-				require.NoError(t, h.Backend.PutLoggingConfiguration(arnStr))
+				require.NoError(
+					t,
+					h.Backend.PutLoggingConfiguration(arnStr, json.RawMessage(`{"ResourceArn":"`+arnStr+`"}`)),
+				)
 
 				return arnStr
 			},
@@ -2146,7 +2163,7 @@ func TestBackend_Snapshot_WithNewResources(t *testing.T) {
 
 	b := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateRegexPatternSet("my-regex", "REGIONAL", "", []string{"^foo"}, nil)
+	_, err := b.CreateRegexPatternSet("my-regex", "REGIONAL", "", []wafv2.RegexEntry{{RegexString: "^foo"}}, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateRuleGroup("my-rg", "REGIONAL", "", "", 10, nil, nil)
@@ -2164,5 +2181,5 @@ func TestBackend_Snapshot_WithNewResources(t *testing.T) {
 	// Verify regex pattern sets are restored (via delete which requires lookup).
 	rps2, err := b.CreateRegexPatternSet("another-regex", "REGIONAL", "", nil, nil)
 	require.NoError(t, err)
-	require.NoError(t, b.DeleteRegexPatternSet(rps2.ID))
+	require.NoError(t, b.DeleteRegexPatternSet(rps2.ID, ""))
 }
