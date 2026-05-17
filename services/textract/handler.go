@@ -230,7 +230,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 // documentInput is the input for synchronous document operations.
 type documentInput struct {
-	Document struct {
+	QueriesConfig *QueriesConfig `json:"QueriesConfig"`
+	Document      struct {
 		S3Object struct {
 			Bucket string `json:"Bucket"`
 			Name   string `json:"Name"`
@@ -240,10 +241,20 @@ type documentInput struct {
 	FeatureTypes []string `json:"FeatureTypes"`
 }
 
-// documentResponse is the response for synchronous document operations.
-type documentResponse struct {
-	Blocks           []Block `json:"Blocks"`
-	DocumentMetadata struct {
+// analyzeDocumentResponse is the response for AnalyzeDocument.
+type analyzeDocumentResponse struct {
+	AnalyzeDocumentModelVersion string  `json:"AnalyzeDocumentModelVersion"`
+	Blocks                      []Block `json:"Blocks"`
+	DocumentMetadata            struct {
+		Pages int `json:"Pages"`
+	} `json:"DocumentMetadata"`
+}
+
+// detectDocumentTextResponse is the response for DetectDocumentText.
+type detectDocumentTextResponse struct {
+	DetectDocumentTextModelVersion string  `json:"DetectDocumentTextModelVersion"`
+	Blocks                         []Block `json:"Blocks"`
+	DocumentMetadata               struct {
 		Pages int `json:"Pages"`
 	} `json:"DocumentMetadata"`
 }
@@ -259,11 +270,22 @@ func documentURI(bucket, key string) string {
 func (h *Handler) handleAnalyzeDocument(
 	_ context.Context,
 	in *documentInput,
-) (*documentResponse, error) {
+) (*analyzeDocumentResponse, error) {
 	uri := documentURI(in.Document.S3Object.Bucket, in.Document.S3Object.Name)
-	blocks := h.Backend.AnalyzeDocument(uri)
 
-	resp := &documentResponse{Blocks: blocks}
+	var blocks []Block
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		blocks = b.AnalyzeDocumentWithFeatures(uri, in.FeatureTypes, in.QueriesConfig)
+	} else {
+		blocks = h.Backend.AnalyzeDocument(uri)
+	}
+
+	resp := &analyzeDocumentResponse{
+		Blocks:                      blocks,
+		AnalyzeDocumentModelVersion: modelVersion10,
+	}
+	// Pages=1 for now; should reflect actual page count for multi-page PDFs.
 	resp.DocumentMetadata.Pages = 1
 
 	return resp, nil
@@ -272,11 +294,15 @@ func (h *Handler) handleAnalyzeDocument(
 func (h *Handler) handleDetectDocumentText(
 	_ context.Context,
 	in *documentInput,
-) (*documentResponse, error) {
+) (*detectDocumentTextResponse, error) {
 	uri := documentURI(in.Document.S3Object.Bucket, in.Document.S3Object.Name)
 	blocks := h.Backend.DetectDocumentText(uri)
 
-	resp := &documentResponse{Blocks: blocks}
+	resp := &detectDocumentTextResponse{
+		Blocks:                         blocks,
+		DetectDocumentTextModelVersion: modelVersion10,
+	}
+	// Pages=1 for now; should reflect actual page count for multi-page PDFs.
 	resp.DocumentMetadata.Pages = 1
 
 	return resp, nil
@@ -284,17 +310,18 @@ func (h *Handler) handleDetectDocumentText(
 
 // asyncInput is the input for async document operations.
 type asyncInput struct {
-	DocumentLocation struct {
+	NotificationChannel *NotificationChannel `json:"NotificationChannel"`
+	OutputConfig        *OutputConfig        `json:"OutputConfig"`
+	QueriesConfig       *QueriesConfig       `json:"QueriesConfig"`
+	DocumentLocation    struct {
 		S3Object struct {
 			Bucket string `json:"Bucket"`
 			Name   string `json:"Name"`
 		} `json:"S3Object"`
 	} `json:"DocumentLocation"`
-	NotificationChannel struct {
-		RoleArn     string `json:"RoleArn"`
-		SNSTopicArn string `json:"SNSTopicArn"`
-	} `json:"NotificationChannel"`
-	FeatureTypes []string `json:"FeatureTypes"`
+	JobTag             string   `json:"JobTag"`
+	ClientRequestToken string   `json:"ClientRequestToken"`
+	FeatureTypes       []string `json:"FeatureTypes"`
 }
 
 type startJobResponse struct {
@@ -314,7 +341,22 @@ func (h *Handler) handleStartDocumentAnalysis(
 
 	uri := "s3://" + bucket + "/" + key
 
-	job, err := h.Backend.StartDocumentAnalysis(uri)
+	var job *DocumentJob
+	var err error
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		job, err = b.StartDocumentAnalysisWithOptions(
+			uri,
+			in.FeatureTypes,
+			in.QueriesConfig,
+			in.OutputConfig,
+			in.JobTag,
+			in.ClientRequestToken,
+		)
+	} else {
+		job, err = h.Backend.StartDocumentAnalysis(uri)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -322,14 +364,22 @@ func (h *Handler) handleStartDocumentAnalysis(
 	return &startJobResponse{JobID: job.JobID}, nil
 }
 
+// getJobInput is the input for Get* async job operations.
 type getJobInput struct {
-	JobID string `json:"JobId"`
+	JobID      string `json:"JobId"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
-type getJobResponse struct {
-	JobStatus        string  `json:"JobStatus"`
-	Blocks           []Block `json:"Blocks"`
-	DocumentMetadata struct {
+// getDocumentAnalysisResponse is the response for GetDocumentAnalysis.
+type getDocumentAnalysisResponse struct {
+	JobStatus                   string         `json:"JobStatus"`
+	NextToken                   string         `json:"NextToken,omitempty"`
+	StatusMessage               string         `json:"StatusMessage,omitempty"`
+	AnalyzeDocumentModelVersion string         `json:"AnalyzeDocumentModelVersion"`
+	Blocks                      []Block        `json:"Blocks"`
+	Warnings                    []WarningBlock `json:"Warnings,omitempty"`
+	DocumentMetadata            struct {
 		Pages int `json:"Pages"`
 	} `json:"DocumentMetadata"`
 }
@@ -337,7 +387,7 @@ type getJobResponse struct {
 func (h *Handler) handleGetDocumentAnalysis(
 	_ context.Context,
 	in *getJobInput,
-) (*getJobResponse, error) {
+) (*getDocumentAnalysisResponse, error) {
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
@@ -347,9 +397,15 @@ func (h *Handler) handleGetDocumentAnalysis(
 		return nil, err
 	}
 
-	resp := &getJobResponse{
-		JobStatus: job.JobStatus,
-		Blocks:    job.Blocks,
+	blocks, nextToken := PaginateBlocks(job.Blocks, in.MaxResults, in.NextToken)
+
+	resp := &getDocumentAnalysisResponse{
+		JobStatus:                   job.JobStatus,
+		Blocks:                      blocks,
+		NextToken:                   nextToken,
+		StatusMessage:               job.StatusMessage,
+		Warnings:                    job.Warnings,
+		AnalyzeDocumentModelVersion: modelVersion10,
 	}
 	resp.DocumentMetadata.Pages = 1
 
@@ -369,7 +425,21 @@ func (h *Handler) handleStartDocumentTextDetection(
 
 	uri := "s3://" + bucket + "/" + key
 
-	job, err := h.Backend.StartDocumentTextDetection(uri)
+	var job *DocumentJob
+	var err error
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		job, err = b.StartDocumentTextDetectionWithOptions(
+			uri,
+			in.OutputConfig,
+			in.NotificationChannel,
+			in.JobTag,
+			in.ClientRequestToken,
+		)
+	} else {
+		job, err = h.Backend.StartDocumentTextDetection(uri)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -377,10 +447,23 @@ func (h *Handler) handleStartDocumentTextDetection(
 	return &startJobResponse{JobID: job.JobID}, nil
 }
 
+// getDocumentTextDetectionResponse is the response for GetDocumentTextDetection.
+type getDocumentTextDetectionResponse struct {
+	JobStatus                      string         `json:"JobStatus"`
+	NextToken                      string         `json:"NextToken,omitempty"`
+	StatusMessage                  string         `json:"StatusMessage,omitempty"`
+	DetectDocumentTextModelVersion string         `json:"DetectDocumentTextModelVersion"`
+	Blocks                         []Block        `json:"Blocks"`
+	Warnings                       []WarningBlock `json:"Warnings,omitempty"`
+	DocumentMetadata               struct {
+		Pages int `json:"Pages"`
+	} `json:"DocumentMetadata"`
+}
+
 func (h *Handler) handleGetDocumentTextDetection(
 	_ context.Context,
 	in *getJobInput,
-) (*getJobResponse, error) {
+) (*getDocumentTextDetectionResponse, error) {
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
@@ -390,9 +473,15 @@ func (h *Handler) handleGetDocumentTextDetection(
 		return nil, err
 	}
 
-	resp := &getJobResponse{
-		JobStatus: job.JobStatus,
-		Blocks:    job.Blocks,
+	blocks, nextToken := PaginateBlocks(job.Blocks, in.MaxResults, in.NextToken)
+
+	resp := &getDocumentTextDetectionResponse{
+		JobStatus:                      job.JobStatus,
+		Blocks:                         blocks,
+		NextToken:                      nextToken,
+		StatusMessage:                  job.StatusMessage,
+		Warnings:                       job.Warnings,
+		DetectDocumentTextModelVersion: modelVersion10,
 	}
 	resp.DocumentMetadata.Pages = 1
 
@@ -477,11 +566,12 @@ func (h *Handler) handleAnalyzeID(
 
 // createAdapterInput is the input for CreateAdapter.
 type createAdapterInput struct {
-	Tags         map[string]string `json:"Tags"`
-	AdapterName  string            `json:"AdapterName"`
-	AutoUpdate   string            `json:"AutoUpdate"`
-	Description  string            `json:"Description"`
-	FeatureTypes []string          `json:"FeatureTypes"`
+	Tags               map[string]string `json:"Tags"`
+	AdapterName        string            `json:"AdapterName"`
+	AutoUpdate         string            `json:"AutoUpdate"`
+	Description        string            `json:"Description"`
+	ClientRequestToken string            `json:"ClientRequestToken"`
+	FeatureTypes       []string          `json:"FeatureTypes"`
 }
 
 // createAdapterResponse is the response for CreateAdapter.
@@ -497,7 +587,18 @@ func (h *Handler) handleCreateAdapter(
 		return nil, fmt.Errorf("%w: AdapterName is required", errInvalidRequest)
 	}
 
-	adapter, err := h.Backend.CreateAdapter(in.AdapterName, in.Description, in.AutoUpdate, in.FeatureTypes, in.Tags)
+	var adapter *Adapter
+	var err error
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		adapter, err = b.CreateAdapterWithToken(
+			in.AdapterName, in.Description, in.AutoUpdate,
+			in.FeatureTypes, in.Tags, in.ClientRequestToken,
+		)
+	} else {
+		adapter, err = h.Backend.CreateAdapter(in.AdapterName, in.Description, in.AutoUpdate, in.FeatureTypes, in.Tags)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -646,8 +747,13 @@ func (h *Handler) handleDeleteAdapter(
 
 // createAdapterVersionInput is the input for CreateAdapterVersion.
 type createAdapterVersionInput struct {
-	Tags      map[string]string `json:"Tags"`
-	AdapterID string            `json:"AdapterId"`
+	Tags               map[string]string `json:"Tags"`
+	DatasetConfig      *DatasetConfig    `json:"DatasetConfig"`
+	OutputConfig       *OutputConfig     `json:"OutputConfig"`
+	AdapterID          string            `json:"AdapterId"`
+	ClientRequestToken string            `json:"ClientRequestToken"`
+	//nolint:revive,staticcheck // KMSKeyId: AWS SDK field name convention
+	KMSKeyId string `json:"KMSKeyId"`
 }
 
 // createAdapterVersionResponse is the response for CreateAdapterVersion.
@@ -664,7 +770,19 @@ func (h *Handler) handleCreateAdapterVersion(
 		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
 	}
 
-	av, err := h.Backend.CreateAdapterVersion(in.AdapterID, in.Tags)
+	var av *AdapterVersion
+	var err error
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		av, err = b.CreateAdapterVersionWithOptions(
+			in.AdapterID, in.Tags,
+			in.DatasetConfig, in.OutputConfig,
+			in.KMSKeyId, in.ClientRequestToken,
+		)
+	} else {
+		av, err = h.Backend.CreateAdapterVersion(in.AdapterID, in.Tags)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -683,13 +801,18 @@ type getAdapterVersionInput struct {
 
 // getAdapterVersionResponse is the response for GetAdapterVersion.
 type getAdapterVersionResponse struct {
-	Tags           map[string]string `json:"Tags"`
-	AdapterID      string            `json:"AdapterId"`
-	AdapterVersion string            `json:"AdapterVersion"`
-	CreationTime   string            `json:"CreationTime"`
-	Status         string            `json:"Status"`
-	StatusMessage  string            `json:"StatusMessage"`
-	FeatureTypes   []string          `json:"FeatureTypes"`
+	Tags              map[string]string  `json:"Tags"`
+	DatasetConfig     *DatasetConfig     `json:"DatasetConfig,omitempty"`
+	OutputConfig      *OutputConfig      `json:"OutputConfig,omitempty"`
+	EvaluationMetrics *EvaluationMetrics `json:"EvaluationMetrics,omitempty"`
+	AdapterID         string             `json:"AdapterId"`
+	AdapterVersion    string             `json:"AdapterVersion"`
+	CreationTime      string             `json:"CreationTime"`
+	Status            string             `json:"Status"`
+	StatusMessage     string             `json:"StatusMessage"`
+	//nolint:revive,staticcheck // KMSKeyId: AWS SDK field name convention
+	KMSKeyId     string   `json:"KMSKeyId,omitempty"`
+	FeatureTypes []string `json:"FeatureTypes"`
 }
 
 func (h *Handler) handleGetAdapterVersion(
@@ -710,13 +833,17 @@ func (h *Handler) handleGetAdapterVersion(
 	}
 
 	return &getAdapterVersionResponse{
-		AdapterID:      av.AdapterID,
-		AdapterVersion: av.AdapterVersion,
-		CreationTime:   av.CreationTime.Format("2006-01-02T15:04:05Z"),
-		FeatureTypes:   av.FeatureTypes,
-		Status:         av.Status,
-		StatusMessage:  av.StatusMessage,
-		Tags:           av.Tags,
+		AdapterID:         av.AdapterID,
+		AdapterVersion:    av.AdapterVersion,
+		CreationTime:      av.CreationTime.Format("2006-01-02T15:04:05Z"),
+		FeatureTypes:      av.FeatureTypes,
+		Status:            av.Status,
+		StatusMessage:     av.StatusMessage,
+		Tags:              av.Tags,
+		DatasetConfig:     av.DatasetConfig,
+		OutputConfig:      av.OutputConfig,
+		KMSKeyId:          av.KMSKeyId,
+		EvaluationMetrics: av.EvaluationMetrics,
 	}, nil
 }
 
@@ -862,13 +989,17 @@ func (h *Handler) handleListTagsForResource(
 
 // getExpenseAnalysisInput is the input for GetExpenseAnalysis.
 type getExpenseAnalysisInput struct {
-	JobID string `json:"JobId"`
+	JobID      string `json:"JobId"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 // getExpenseAnalysisResponse is the response for GetExpenseAnalysis.
 type getExpenseAnalysisResponse struct {
 	AnalyzeExpenseModelVersion string            `json:"AnalyzeExpenseModelVersion"`
 	JobStatus                  string            `json:"JobStatus"`
+	StatusMessage              string            `json:"StatusMessage,omitempty"`
+	Warnings                   []WarningBlock    `json:"Warnings,omitempty"`
 	ExpenseDocuments           []ExpenseDocument `json:"ExpenseDocuments"`
 	DocumentMetadata           struct {
 		Pages int `json:"Pages"`
@@ -892,6 +1023,8 @@ func (h *Handler) handleGetExpenseAnalysis(
 		AnalyzeExpenseModelVersion: modelVersion10,
 		ExpenseDocuments:           job.ExpenseDocuments,
 		JobStatus:                  job.JobStatus,
+		StatusMessage:              job.StatusMessage,
+		Warnings:                   job.Warnings,
 	}
 	resp.DocumentMetadata.Pages = 1
 
@@ -906,6 +1039,10 @@ type startExpenseAnalysisInput struct {
 			Name   string `json:"Name"`
 		} `json:"S3Object"`
 	} `json:"DocumentLocation"`
+	NotificationChannel *NotificationChannel `json:"NotificationChannel"`
+	OutputConfig        *OutputConfig        `json:"OutputConfig"`
+	JobTag              string               `json:"JobTag"`
+	ClientRequestToken  string               `json:"ClientRequestToken"`
 }
 
 func (h *Handler) handleStartExpenseAnalysis(
@@ -931,13 +1068,17 @@ func (h *Handler) handleStartExpenseAnalysis(
 
 // getLendingAnalysisInput is the input for GetLendingAnalysis.
 type getLendingAnalysisInput struct {
-	JobID string `json:"JobId"`
+	JobID      string `json:"JobId"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 // getLendingAnalysisResponse is the response for GetLendingAnalysis.
 type getLendingAnalysisResponse struct {
 	AnalyzeLendingModelVersion string          `json:"AnalyzeLendingModelVersion"`
 	JobStatus                  string          `json:"JobStatus"`
+	StatusMessage              string          `json:"StatusMessage,omitempty"`
+	Warnings                   []WarningBlock  `json:"Warnings,omitempty"`
 	Results                    []LendingResult `json:"Results"`
 	DocumentMetadata           struct {
 		Pages int `json:"Pages"`
@@ -960,6 +1101,8 @@ func (h *Handler) handleGetLendingAnalysis(
 	resp := &getLendingAnalysisResponse{
 		AnalyzeLendingModelVersion: modelVersion10,
 		JobStatus:                  job.JobStatus,
+		StatusMessage:              job.StatusMessage,
+		Warnings:                   job.Warnings,
 		Results:                    job.Results,
 	}
 	resp.DocumentMetadata.Pages = 1
@@ -974,8 +1117,10 @@ type getLendingAnalysisSummaryInput struct {
 
 // getLendingAnalysisSummaryResponse is the response for GetLendingAnalysisSummary.
 type getLendingAnalysisSummaryResponse struct {
-	AnalyzeLendingModelVersion string `json:"AnalyzeLendingModelVersion"`
-	JobStatus                  string `json:"JobStatus"`
+	Summary                    *LendingSummary `json:"Summary,omitempty"`
+	AnalyzeLendingModelVersion string          `json:"AnalyzeLendingModelVersion"`
+	JobStatus                  string          `json:"JobStatus"`
+	StatusMessage              string          `json:"StatusMessage,omitempty"`
 	DocumentMetadata           struct {
 		Pages int `json:"Pages"`
 	} `json:"DocumentMetadata"`
@@ -997,6 +1142,8 @@ func (h *Handler) handleGetLendingAnalysisSummary(
 	resp := &getLendingAnalysisSummaryResponse{
 		AnalyzeLendingModelVersion: modelVersion10,
 		JobStatus:                  job.JobStatus,
+		StatusMessage:              job.StatusMessage,
+		Summary:                    job.Summary,
 	}
 	resp.DocumentMetadata.Pages = 1
 
@@ -1011,6 +1158,10 @@ type startLendingAnalysisInput struct {
 			Name   string `json:"Name"`
 		} `json:"S3Object"`
 	} `json:"DocumentLocation"`
+	NotificationChannel *NotificationChannel `json:"NotificationChannel"`
+	OutputConfig        *OutputConfig        `json:"OutputConfig"`
+	JobTag              string               `json:"JobTag"`
+	ClientRequestToken  string               `json:"ClientRequestToken"`
 }
 
 func (h *Handler) handleStartLendingAnalysis(

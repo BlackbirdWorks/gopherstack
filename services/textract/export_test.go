@@ -1,11 +1,27 @@
 package textract
 
+import "time"
+
 // NewInMemoryBackendWithCap creates a backend with a custom job history cap for testing.
 func NewInMemoryBackendWithCap(maxJobs int) *InMemoryBackend {
 	b := NewInMemoryBackend("123456789012", "us-east-1")
 	b.maxJobs = maxJobs
 
 	return b
+}
+
+// NewInMemoryBackendSync creates a backend where async jobs complete synchronously (zero delay).
+// Use this for tests that need immediate SUCCEEDED status without time.Sleep.
+func NewInMemoryBackendSync(accountID, region string) *InMemoryBackend {
+	b := NewInMemoryBackend(accountID, region)
+	b.asyncJobDelay = 0
+
+	return b
+}
+
+// SetBackendAsyncDelay sets the async job completion delay on a specific backend.
+func SetBackendAsyncDelay(b *InMemoryBackend, d time.Duration) {
+	b.asyncJobDelay = d
 }
 
 // JobCount returns the number of document jobs stored in the backend (for testing).

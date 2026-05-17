@@ -18,7 +18,7 @@ import (
 func newTestHandler(t *testing.T) *textract.Handler {
 	t.Helper()
 
-	return textract.NewHandler(textract.NewInMemoryBackend("123456789012", "us-east-1"))
+	return textract.NewHandler(textract.NewInMemoryBackendSync("123456789012", "us-east-1"))
 }
 
 func doTextractRequest(

@@ -18,7 +18,7 @@ import (
 func newTestBackend(t *testing.T) *textract.InMemoryBackend {
 	t.Helper()
 
-	return textract.NewInMemoryBackend("123456789012", "us-east-1")
+	return textract.NewInMemoryBackendSync("123456789012", "us-east-1")
 }
 
 func newTestHandlerR1(t *testing.T) *textract.Handler {
@@ -69,7 +69,7 @@ func TestRefinement1_BackendReset(t *testing.T) {
 	_, err := b.StartDocumentAnalysis("s3://bucket/doc.pdf")
 	require.NoError(t, err)
 
-	_, err = b.CreateAdapter("myAdapter", "desc", "DISABLED", []string{"TABLES"}, nil)
+	_, err = b.CreateAdapter("myAdapter", "desc", "DISABLED", []string{"FORMS"}, nil)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, textract.JobCount(b))
@@ -237,9 +237,10 @@ func TestRefinement1_CreateAdapter_FeatureTypeValidation(t *testing.T) {
 		wantStatus   int
 	}{
 		{
-			name:         "valid TABLES",
+			// TABLES is not allowed for adapters (only FORMS and QUERIES per AWS spec).
+			name:         "TABLES returns 400 for adapter",
 			featureTypes: []string{"TABLES"},
-			wantStatus:   http.StatusOK,
+			wantStatus:   http.StatusBadRequest,
 		},
 		{
 			name:         "valid FORMS",
@@ -252,8 +253,8 @@ func TestRefinement1_CreateAdapter_FeatureTypeValidation(t *testing.T) {
 			wantStatus:   http.StatusOK,
 		},
 		{
-			name:         "multiple valid types",
-			featureTypes: []string{"TABLES", "FORMS"},
+			name:         "multiple valid types FORMS+QUERIES",
+			featureTypes: []string{"FORMS", "QUERIES"},
 			wantStatus:   http.StatusOK,
 		},
 		{
@@ -305,7 +306,7 @@ func TestRefinement1_CreateAdapter_AutoUpdateValidation(t *testing.T) {
 			h := newTestHandlerR1(t)
 			rec := doTextractRequest(t, h, "CreateAdapter", map[string]any{
 				"AdapterName":  "adapter",
-				"FeatureTypes": []string{"TABLES"},
+				"FeatureTypes": []string{"FORMS"},
 				"AutoUpdate":   tt.autoUpdate,
 			})
 
@@ -322,7 +323,7 @@ func TestRefinement1_UpdateAdapter_HappyPath(t *testing.T) {
 
 	createRec := doTextractRequest(t, h, "CreateAdapter", map[string]any{
 		"AdapterName":  "my-adapter",
-		"FeatureTypes": []string{"TABLES"},
+		"FeatureTypes": []string{"FORMS"},
 		"Description":  "original",
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
@@ -369,7 +370,7 @@ func TestRefinement1_ListAdapters_HappyPath(t *testing.T) {
 	for _, name := range []string{"alpha", "beta", "gamma"} {
 		rec := doTextractRequest(t, h, "CreateAdapter", map[string]any{
 			"AdapterName":  name,
-			"FeatureTypes": []string{"TABLES"},
+			"FeatureTypes": []string{"FORMS"},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
@@ -437,7 +438,7 @@ func TestRefinement1_TagResource_HappyPath(t *testing.T) {
 
 	createRec := doTextractRequest(t, h, "CreateAdapter", map[string]any{
 		"AdapterName":  "taggable-adapter",
-		"FeatureTypes": []string{"TABLES"},
+		"FeatureTypes": []string{"FORMS"},
 	})
 	var createResp map[string]string
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
@@ -470,7 +471,7 @@ func TestRefinement1_UntagResource_HappyPath(t *testing.T) {
 
 	createRec := doTextractRequest(t, h, "CreateAdapter", map[string]any{
 		"AdapterName":  "tagged-adapter",
-		"FeatureTypes": []string{"TABLES"},
+		"FeatureTypes": []string{"FORMS"},
 		"Tags":         map[string]string{"env": "dev", "team": "ml"},
 	})
 	var createResp map[string]string
@@ -548,7 +549,7 @@ func TestRefinement1_DeleteAdapter_CascadesVersions(t *testing.T) {
 
 	b := newTestBackend(t)
 
-	adapter, err := b.CreateAdapter("cascade-test", "", "DISABLED", []string{"TABLES"}, nil)
+	adapter, err := b.CreateAdapter("cascade-test", "", "DISABLED", []string{"FORMS"}, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAdapterVersion(adapter.AdapterID, nil)
@@ -706,7 +707,7 @@ func TestRefinement1_CloneTags_NilInput(t *testing.T) {
 
 	b := newTestBackend(t)
 	// Create adapter without tags.
-	adapter, err := b.CreateAdapter("no-tags", "", "DISABLED", []string{"TABLES"}, nil)
+	adapter, err := b.CreateAdapter("no-tags", "", "DISABLED", []string{"FORMS"}, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, adapter.Tags)
 }
