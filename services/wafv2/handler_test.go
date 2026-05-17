@@ -877,11 +877,13 @@ func TestHandler_DisassociateWebACL(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "not_found",
+			// AWS DisassociateWebACL is idempotent — calling it when no
+			// association exists succeeds (no-op), matching real AWS behaviour.
+			name: "not_found_idempotent",
 			setup: func(_ *wafv2.Handler) string {
 				return "arn:aws:ec2:us-east-1:000000000000:instance/i-nonexistent"
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusOK,
 		},
 	}
 

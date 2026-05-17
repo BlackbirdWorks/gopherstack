@@ -86,12 +86,49 @@ const (
 	maxTagKeyLen = 128
 	// maxTagValueLen is the maximum length for a tag value.
 	maxTagValueLen = 256
+	// maxDescriptionLen is the AWS-imposed max length for resource descriptions.
+	maxDescriptionLen = 256
+	// maxRulePriority is the maximum priority value for a rule (0–1000).
+	maxRulePriority = int64(1000)
 )
 
 // validEvaluationWindowSecs contains the allowed EvaluationWindowSec values.
 var validEvaluationWindowSecs = map[int64]bool{ //nolint:gochecknoglobals // package-level lookup table
 	60: true, 120: true, 300: true, 600: true,
 	1800: true, 3600: true, 7200: true, 21600: true,
+}
+
+// validResourceNameRe is the pattern AWS requires for WAFv2 resource names.
+var validResourceNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9\-_]{0,127}$`)
+
+// validateResourceName checks that a WAFv2 resource name conforms to the AWS
+// allowed pattern: starts with alphanumeric, followed by alphanumeric, hyphen,
+// or underscore, up to 128 characters total.
+func validateResourceName(name string) error {
+	if !validResourceNameRe.MatchString(name) {
+		return fmt.Errorf(
+			"%w: Name %q must match ^[a-zA-Z0-9][a-zA-Z0-9-_]{0,127}$",
+			errInvalidRequest,
+			name,
+		)
+	}
+
+	return nil
+}
+
+// validateDescription checks that a resource description does not exceed the
+// AWS-imposed maximum of 256 characters.
+func validateDescription(description string) error {
+	if len(description) > maxDescriptionLen {
+		return fmt.Errorf(
+			"%w: Description must be at most %d characters, got %d",
+			errInvalidRequest,
+			maxDescriptionLen,
+			len(description),
+		)
+	}
+
+	return nil
 }
 
 // RegexEntry represents a single regex pattern in AWS API shape.
@@ -226,32 +263,43 @@ func validScope(scope string) bool {
 	return scope == ScopeRegional || scope == ScopeCloudFront
 }
 
+// arnRegion returns the correct region segment for a WAFv2 ARN. CLOUDFRONT
+// (global) resources use an empty region, matching the real AWS ARN format:
+// arn:aws:wafv2::123456789012:global/webacl/...
+func (b *InMemoryBackend) arnRegion(scope string) string {
+	if scope == ScopeCloudFront {
+		return ""
+	}
+
+	return b.region
+}
+
 // WebACLARN builds an ARN for a WebACL.
 func (b *InMemoryBackend) WebACLARN(name, id, scope string) string {
 	prefix := scopePrefix(scope)
 
-	return arn.Build("wafv2", b.region, b.accountID, prefix+"/webacl/"+name+"/"+id)
+	return arn.Build("wafv2", b.arnRegion(scope), b.accountID, prefix+"/webacl/"+name+"/"+id)
 }
 
 // IPSetARN builds a public ARN for an IPSet.
 func (b *InMemoryBackend) IPSetARN(name, id, scope string) string {
 	prefix := scopePrefix(scope)
 
-	return arn.Build("wafv2", b.region, b.accountID, prefix+"/ipset/"+name+"/"+id)
+	return arn.Build("wafv2", b.arnRegion(scope), b.accountID, prefix+"/ipset/"+name+"/"+id)
 }
 
 // RegexPatternSetARN builds an ARN for a RegexPatternSet.
 func (b *InMemoryBackend) RegexPatternSetARN(name, id, scope string) string {
 	prefix := scopePrefix(scope)
 
-	return arn.Build("wafv2", b.region, b.accountID, prefix+"/regexpatternset/"+name+"/"+id)
+	return arn.Build("wafv2", b.arnRegion(scope), b.accountID, prefix+"/regexpatternset/"+name+"/"+id)
 }
 
 // RuleGroupARN builds an ARN for a RuleGroup.
 func (b *InMemoryBackend) RuleGroupARN(name, id, scope string) string {
 	prefix := scopePrefix(scope)
 
-	return arn.Build("wafv2", b.region, b.accountID, prefix+"/rulegroup/"+name+"/"+id)
+	return arn.Build("wafv2", b.arnRegion(scope), b.accountID, prefix+"/rulegroup/"+name+"/"+id)
 }
 
 func apiKeyMapKey(scope, apiKey string) string {
@@ -428,42 +476,70 @@ func toInt64(v any) (int64, bool) {
 // validateRules validates a slice of rules for a WebACL or RuleGroup.
 func validateRules(rules []map[string]any) error {
 	priorities := make(map[int64]bool)
+	names := make(map[string]bool)
 
 	for _, rule := range rules {
-		name, _ := rule["Name"].(string)
-		if name == "" {
-			return fmt.Errorf("%w: rule Name is required", errInvalidRequest)
+		if err := validateSingleRule(rule, priorities, names); err != nil {
+			return err
 		}
+	}
 
-		priorityRaw, hasPriority := rule["Priority"]
-		if !hasPriority {
-			return fmt.Errorf("%w: rule %q is missing Priority", errInvalidRequest, name)
+	return nil
+}
+
+// validateSingleRule validates a single rule map and updates the seen priority
+// and name sets. Extracted to keep validateRules below the cognitive complexity
+// threshold.
+func validateSingleRule(rule map[string]any, priorities map[int64]bool, names map[string]bool) error {
+	name, _ := rule["Name"].(string)
+	if name == "" {
+		return fmt.Errorf("%w: rule Name is required", errInvalidRequest)
+	}
+
+	if names[name] {
+		return fmt.Errorf("%w: duplicate rule Name %q in rules", errInvalidRequest, name)
+	}
+
+	names[name] = true
+
+	priorityRaw, hasPriority := rule["Priority"]
+	if !hasPriority {
+		return fmt.Errorf("%w: rule %q is missing Priority", errInvalidRequest, name)
+	}
+
+	priority, ok := toInt64(priorityRaw)
+	if !ok {
+		return fmt.Errorf("%w: rule %q Priority must be an integer", errInvalidRequest, name)
+	}
+
+	if priority < 0 || priority > maxRulePriority {
+		return fmt.Errorf(
+			"%w: rule %q Priority must be between 0 and %d, got %d",
+			errInvalidRequest,
+			name,
+			maxRulePriority,
+			priority,
+		)
+	}
+
+	if priorities[priority] {
+		return fmt.Errorf("%w: duplicate Priority %d in rules", errInvalidRequest, priority)
+	}
+
+	priorities[priority] = true
+
+	if _, hasStatement := rule["Statement"]; !hasStatement {
+		return fmt.Errorf("%w: rule %q is missing Statement", errInvalidRequest, name)
+	}
+
+	if stmt, isMap := rule["Statement"].(map[string]any); isMap {
+		if err := validateStatement(stmt, 0); err != nil {
+			return err
 		}
+	}
 
-		priority, ok := toInt64(priorityRaw)
-		if !ok {
-			return fmt.Errorf("%w: rule %q Priority must be an integer", errInvalidRequest, name)
-		}
-
-		if priorities[priority] {
-			return fmt.Errorf("%w: duplicate Priority %d in rules", errInvalidRequest, priority)
-		}
-
-		priorities[priority] = true
-
-		if _, hasStatement := rule["Statement"]; !hasStatement {
-			return fmt.Errorf("%w: rule %q is missing Statement", errInvalidRequest, name)
-		}
-
-		if stmt, isMap := rule["Statement"].(map[string]any); isMap {
-			if err := validateStatement(stmt, 0); err != nil {
-				return err
-			}
-		}
-
-		if _, hasVC := rule["VisibilityConfig"]; !hasVC {
-			return fmt.Errorf("%w: rule %q is missing VisibilityConfig", errInvalidRequest, name)
-		}
+	if _, hasVC := rule["VisibilityConfig"]; !hasVC {
+		return fmt.Errorf("%w: rule %q is missing VisibilityConfig", errInvalidRequest, name)
 	}
 
 	return nil
@@ -656,19 +732,25 @@ func (b *InMemoryBackend) DeleteWebACL(id, lockToken string) error {
 		return fmt.Errorf("%w: lock token mismatch for web ACL %q", ErrOptimisticLock, id)
 	}
 
-	delete(b.webACLByARN, b.WebACLARN(w.Name, w.ID, w.Scope))
-	delete(b.webACLByNameScope, nameScope(w.Name, w.Scope))
-	delete(b.webACLs, id)
-
-	// Cascade: remove all resource associations for this WebACL.
-	for resourceARN, assocID := range b.associations {
+	// AWS returns WAFAssociatedItemException when the WebACL is still associated
+	// with a resource (e.g. an ALB or API Gateway stage).
+	for _, assocID := range b.associations {
 		if assocID == id {
-			delete(b.associations, resourceARN)
+			return fmt.Errorf(
+				"%w: web ACL %q is still associated with a resource; disassociate first",
+				ErrAssociatedItem,
+				id,
+			)
 		}
 	}
 
-	// Cascade: remove the WebACL's own logging config and permission policy.
 	webACLArnStr := b.WebACLARN(w.Name, w.ID, w.Scope)
+
+	delete(b.webACLByARN, webACLArnStr)
+	delete(b.webACLByNameScope, nameScope(w.Name, w.Scope))
+	delete(b.webACLs, id)
+
+	// Cascade: remove the WebACL's own logging config and permission policy.
 	delete(b.loggingConfigs, webACLArnStr)
 	delete(b.permissionPolicies, webACLArnStr)
 
@@ -1035,14 +1117,13 @@ func (b *InMemoryBackend) AssociateWebACL(webACLARN, resourceARN string) error {
 }
 
 // DisassociateWebACL removes the WebACL association from a resource ARN.
+// Per AWS behaviour, this is a no-op if no association exists (idempotent).
 func (b *InMemoryBackend) DisassociateWebACL(resourceARN string) error {
 	b.mu.Lock("DisassociateWebACL")
 	defer b.mu.Unlock()
 
-	if _, ok := b.associations[resourceARN]; !ok {
-		return fmt.Errorf("%w: no web ACL association found for resource %q", ErrAssociationNotFound, resourceARN)
-	}
-
+	// AWS treats DisassociateWebACL as idempotent — calling it when no
+	// association exists succeeds silently.
 	delete(b.associations, resourceARN)
 
 	return nil
@@ -1588,17 +1669,36 @@ func cloneRuleGroup(rg *RuleGroup) *RuleGroup {
 	return &cp
 }
 
+// shallowCopyRules returns a shallow copy of each rule map in rules.
+// Used as a fallback when JSON round-trip fails in cloneRules.
+func shallowCopyRules(rules []map[string]any) []map[string]any {
+	out := make([]map[string]any, len(rules))
+
+	for i, r := range rules {
+		rm := make(map[string]any, len(r))
+		maps.Copy(rm, r)
+		out[i] = rm
+	}
+
+	return out
+}
+
+// cloneRules performs a deep clone of a rules slice. A JSON round-trip is used
+// to ensure that nested maps and any json.RawMessage-backed values do not share
+// backing arrays with the original, preventing data races and mutation aliasing.
 func cloneRules(rules []map[string]any) []map[string]any {
 	if rules == nil {
 		return []map[string]any{}
 	}
 
-	out := make([]map[string]any, len(rules))
-	for i, r := range rules {
-		rm := make(map[string]any, len(r))
-		maps.Copy(rm, r)
+	data, marshalErr := json.Marshal(rules)
+	if marshalErr != nil {
+		return shallowCopyRules(rules)
+	}
 
-		out[i] = rm
+	var out []map[string]any
+	if unmarshalErr := json.Unmarshal(data, &out); unmarshalErr != nil {
+		return shallowCopyRules(rules)
 	}
 
 	return out

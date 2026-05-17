@@ -412,6 +412,14 @@ func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
+	if err := validateResourceName(req.Name); err != nil {
+		return nil, err
+	}
+
+	if err := validateDescription(req.Description); err != nil {
+		return nil, err
+	}
+
 	if req.Scope == "" {
 		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
 	}
@@ -757,6 +765,14 @@ func (h *Handler) handleCreateIPSet(ctx context.Context, body []byte) ([]byte, e
 
 	if req.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if err := validateResourceName(req.Name); err != nil {
+		return nil, err
+	}
+
+	if err := validateDescription(req.Description); err != nil {
+		return nil, err
 	}
 
 	if req.Scope == "" {
@@ -1344,6 +1360,14 @@ func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
+	if err := validateResourceName(req.Name); err != nil {
+		return nil, err
+	}
+
+	if err := validateDescription(req.Description); err != nil {
+		return nil, err
+	}
+
 	if req.Scope == "" {
 		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
 	}
@@ -1465,6 +1489,14 @@ func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byt
 
 	if req.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if err := validateResourceName(req.Name); err != nil {
+		return nil, err
+	}
+
+	if err := validateDescription(req.Description); err != nil {
+		return nil, err
 	}
 
 	if req.Scope == "" {

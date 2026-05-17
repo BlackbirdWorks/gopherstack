@@ -15,6 +15,7 @@ import (
 
 // ---- helpers ---------------------------------------------------------------
 
+//nolint:unparam // scope kept for call-site readability; callers may vary it in future
 func createWebACLWithRules(t *testing.T, h *wafv2.Handler, name, scope string) (string, string) {
 	t.Helper()
 

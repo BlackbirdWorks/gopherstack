@@ -355,6 +355,7 @@
 						<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
 							<tr>
 								<th class="px-4 py-3 text-left">Web ACL Name</th>
+								<th class="px-4 py-3 text-left">Default Action</th>
 								<th class="px-4 py-3 text-left">Description</th>
 								<th class="px-4 py-3 text-left">Actions</th>
 							</tr>
@@ -364,6 +365,15 @@
 								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
 									<td class="px-4 py-3">
 										<button onclick={() => selectWebACL(acl)} class="text-red-600 dark:text-red-400 hover:underline font-medium">{acl.Name}</button>
+									</td>
+									<td class="px-4 py-3 text-xs">
+										{#if acl.DefaultAction}
+											<span class={`px-2 py-0.5 rounded font-medium ${Object.keys(acl.DefaultAction)[0] === 'Allow' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+												{Object.keys(acl.DefaultAction)[0]?.toUpperCase() ?? '-'}
+											</span>
+										{:else}
+											<span class="text-gray-400">-</span>
+										{/if}
 									</td>
 									<td class="px-4 py-3 text-xs text-gray-500">{acl.Description ?? '-'}</td>
 									<td class="px-4 py-3">
@@ -397,7 +407,7 @@
 					</thead>
 					<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 						{#each ipSets as ipset}
-							<tr><td class="px-4 py-3 font-medium">{ipset.Name}</td><td class="px-4 py-3 text-xs text-gray-500">-</td><td class="px-4 py-3 text-xs text-gray-500">{ipset.Description ?? '-'}</td></tr>
+							<tr><td class="px-4 py-3 font-medium">{ipset.Name}</td><td class="px-4 py-3 text-xs text-gray-500">{ipset.IPAddressVersion ?? '-'}</td><td class="px-4 py-3 text-xs text-gray-500">{ipset.Description ?? '-'}</td></tr>
 						{/each}
 					</tbody>
 				</table>
@@ -422,7 +432,7 @@
 					</thead>
 					<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 						{#each ruleGroups as rg}
-							<tr><td class="px-4 py-3 font-medium">{rg.Name}</td><td class="px-4 py-3 text-gray-600">-</td><td class="px-4 py-3 text-xs text-gray-500">{rg.Description ?? '-'}</td></tr>
+							<tr><td class="px-4 py-3 font-medium">{rg.Name}</td><td class="px-4 py-3 text-gray-600">{rg.Capacity ?? '-'}</td><td class="px-4 py-3 text-xs text-gray-500">{rg.Description ?? '-'}</td></tr>
 						{/each}
 					</tbody>
 				</table>
