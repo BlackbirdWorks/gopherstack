@@ -8,19 +8,21 @@ import (
 
 // backendSnapshot is the serialisable representation of InMemoryBackend state.
 type backendSnapshot struct {
-	Servers       map[string]*Server                             `json:"servers"`
-	Users         map[string]map[string]*User                    `json:"users"`
-	Accesses      map[string]map[string]*Access                  `json:"accesses"`
-	Agreements    map[string]map[string]*Agreement               `json:"agreements"`
-	Connectors    map[string]*Connector                          `json:"connectors"`
-	Profiles      map[string]*Profile                            `json:"profiles"`
-	WebApps       map[string]*WebApp                             `json:"web_apps"`
-	Workflows     map[string]*Workflow                           `json:"workflows"`
-	Certificates  map[string]*Certificate                        `json:"certificates"`
-	HostKeys      map[string]map[string]*HostKey                 `json:"host_keys"`
-	SSHPublicKeys map[string]map[string]map[string]*SSHPublicKey `json:"ssh_public_keys"`
-	Executions    map[string]map[string]*Execution               `json:"executions"`
-	TagsStore     map[string]map[string]string                   `json:"tags_store"`
+	Servers             map[string]*Server                             `json:"servers"`
+	Users               map[string]map[string]*User                    `json:"users"`
+	Accesses            map[string]map[string]*Access                  `json:"accesses"`
+	Agreements          map[string]map[string]*Agreement               `json:"agreements"`
+	Connectors          map[string]*Connector                          `json:"connectors"`
+	Profiles            map[string]*Profile                            `json:"profiles"`
+	WebApps             map[string]*WebApp                             `json:"web_apps"`
+	Workflows           map[string]*Workflow                           `json:"workflows"`
+	Certificates        map[string]*Certificate                        `json:"certificates"`
+	HostKeys            map[string]map[string]*HostKey                 `json:"host_keys"`
+	SSHPublicKeys       map[string]map[string]map[string]*SSHPublicKey `json:"ssh_public_keys"`
+	Executions          map[string]map[string]*Execution               `json:"executions"`
+	TagsStore           map[string]map[string]string                   `json:"tags_store"`
+	FileTransferResults map[string]*FileTransferResult                 `json:"transfer_records"`
+	AsyncOperations     map[string]*AsyncOperationRecord               `json:"async_operations"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -44,22 +46,50 @@ func (b *InMemoryBackend) Snapshot() []byte {
 // buildSnapshot constructs the serialisable snapshot from backend state.
 func (b *InMemoryBackend) buildSnapshot() backendSnapshot {
 	snap := backendSnapshot{
-		Servers:       snapshotServers(b.servers),
-		Users:         snapshotNestedMap(b.users, cloneUser),
-		Accesses:      snapshotNestedMap(b.accesses, cloneAccess),
-		Agreements:    snapshotNestedMap(b.agreements, cloneAgreement),
-		Connectors:    snapshotFlatMap(b.connectors, cloneConnector),
-		Profiles:      snapshotFlatMap(b.profiles, cloneProfile),
-		WebApps:       snapshotFlatMap(b.webApps, cloneWebApp),
-		Workflows:     snapshotFlatMap(b.workflows, cloneWorkflow),
-		Certificates:  snapshotCertificates(b.certificates),
-		HostKeys:      snapshotNestedMap(b.hostKeys, cloneHostKey),
-		SSHPublicKeys: snapshotSSHPublicKeys(b.sshPublicKeys),
-		Executions:    snapshotExecutions(b.executions),
-		TagsStore:     snapshotTagsStore(b.tagsStore),
+		Servers:             snapshotServers(b.servers),
+		Users:               snapshotNestedMap(b.users, cloneUser),
+		Accesses:            snapshotNestedMap(b.accesses, cloneAccess),
+		Agreements:          snapshotNestedMap(b.agreements, cloneAgreement),
+		Connectors:          snapshotFlatMap(b.connectors, cloneConnector),
+		Profiles:            snapshotFlatMap(b.profiles, cloneProfile),
+		WebApps:             snapshotFlatMap(b.webApps, cloneWebApp),
+		Workflows:           snapshotFlatMap(b.workflows, cloneWorkflow),
+		Certificates:        snapshotCertificates(b.certificates),
+		HostKeys:            snapshotNestedMap(b.hostKeys, cloneHostKey),
+		SSHPublicKeys:       snapshotSSHPublicKeys(b.sshPublicKeys),
+		Executions:          snapshotExecutions(b.executions),
+		TagsStore:           snapshotTagsStore(b.tagsStore),
+		FileTransferResults: snapshotFileTransferResults(b.transferRecords),
+		AsyncOperations:     snapshotAsyncOperations(b.asyncOperations),
 	}
 
 	return snap
+}
+
+// snapshotFileTransferResults clones the transfer records map.
+func snapshotFileTransferResults(src map[string]*FileTransferResult) map[string]*FileTransferResult {
+	dst := make(map[string]*FileTransferResult, len(src))
+	for k, v := range src {
+		cp := *v
+		if v.Files != nil {
+			cp.Files = make([]string, len(v.Files))
+			copy(cp.Files, v.Files)
+		}
+		dst[k] = &cp
+	}
+
+	return dst
+}
+
+// snapshotAsyncOperations clones the async operations map.
+func snapshotAsyncOperations(src map[string]*AsyncOperationRecord) map[string]*AsyncOperationRecord {
+	dst := make(map[string]*AsyncOperationRecord, len(src))
+	for k, v := range src {
+		cp := *v
+		dst[k] = &cp
+	}
+
+	return dst
 }
 
 // snapshotServers clones the servers map.
@@ -187,6 +217,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.sshPublicKeys = snap.SSHPublicKeys
 	b.executions = snap.Executions
 	b.tagsStore = snap.TagsStore
+	b.transferRecords = snap.FileTransferResults
+	b.asyncOperations = snap.AsyncOperations
 
 	return nil
 }
@@ -194,6 +226,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 // ensureNonNilMaps guarantees no map field in the snapshot is nil after
 // unmarshalling.
 func ensureNonNilMaps(s *backendSnapshot) {
+	ensureNonNilCoreMaps(s)
+	ensureNonNilSecondaryMaps(s)
+}
+
+// ensureNonNilCoreMaps ensures nil core resource maps are initialised.
+func ensureNonNilCoreMaps(s *backendSnapshot) {
 	if s.Servers == nil {
 		s.Servers = make(map[string]*Server)
 	}
@@ -225,7 +263,10 @@ func ensureNonNilMaps(s *backendSnapshot) {
 	if s.Workflows == nil {
 		s.Workflows = make(map[string]*Workflow)
 	}
+}
 
+// ensureNonNilSecondaryMaps ensures nil secondary resource maps are initialised.
+func ensureNonNilSecondaryMaps(s *backendSnapshot) {
 	if s.Certificates == nil {
 		s.Certificates = make(map[string]*Certificate)
 	}
@@ -244,6 +285,14 @@ func ensureNonNilMaps(s *backendSnapshot) {
 
 	if s.TagsStore == nil {
 		s.TagsStore = make(map[string]map[string]string)
+	}
+
+	if s.FileTransferResults == nil {
+		s.FileTransferResults = make(map[string]*FileTransferResult)
+	}
+
+	if s.AsyncOperations == nil {
+		s.AsyncOperations = make(map[string]*AsyncOperationRecord)
 	}
 }
 

@@ -2,12 +2,17 @@ package transfer
 
 import (
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"maps"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/google/uuid"
 
@@ -61,8 +66,33 @@ var (
 
 // Server state constants.
 const (
-	serverStatusOnline  = "ONLINE"
-	serverStatusOffline = "OFFLINE"
+	serverStatusOnline      = "ONLINE"
+	serverStatusOffline     = "OFFLINE"
+	serverStatusStarting    = "STARTING"
+	serverStatusStopping    = "STOPPING"
+	serverStatusStartFailed = "START_FAILED"
+	serverStatusStopFailed  = "STOP_FAILED"
+)
+
+// IdentityProviderType constants.
+const (
+	identityProviderServiceManaged   = "SERVICE_MANAGED"
+	identityProviderAPIGateway       = "API_GATEWAY"
+	identityProviderDirectoryService = "AWS_DIRECTORY_SERVICE"
+	identityProviderLambda           = "AWS_LAMBDA"
+)
+
+// EndpointType constants.
+const (
+	endpointTypePublic      = "PUBLIC"
+	endpointTypeVPC         = "VPC"
+	endpointTypeVPCEndpoint = "VPC_ENDPOINT"
+)
+
+// HomeDirectoryType constants.
+const (
+	homeDirectoryTypePath    = "PATH"
+	homeDirectoryTypeLogical = "LOGICAL"
 )
 
 // Profile type constants.
@@ -73,21 +103,81 @@ const (
 
 // Agreement status constants.
 const (
-	agreementStatusActive = "ACTIVE"
-	defaultHostKeyType    = "ssh-rsa"
+	agreementStatusActive   = "ACTIVE"
+	agreementStatusInactive = "INACTIVE"
+	defaultHostKeyType      = "ssh-rsa"
+	sshKeyTypeEd25519       = "ssh-ed25519"
 )
+
+// IdentityProviderDetails holds identity provider configuration for a Transfer server.
+type IdentityProviderDetails struct {
+	URL                       string `json:"url,omitempty"`
+	InvocationRole            string `json:"invocation_role,omitempty"`
+	DirectoryID               string `json:"directory_id,omitempty"`
+	Function                  string `json:"function,omitempty"`
+	SftpAuthenticationMethods string `json:"sftp_authentication_methods,omitempty"`
+}
+
+// EndpointDetails holds VPC endpoint configuration for a Transfer server.
+type EndpointDetails struct {
+	VpcEndpointID        string   `json:"vpc_endpoint_id,omitempty"`
+	VpcID                string   `json:"vpc_id,omitempty"`
+	AddressAllocationIDs []string `json:"address_allocation_ids,omitempty"`
+	SubnetIDs            []string `json:"subnet_ids,omitempty"`
+	SecurityGroupIDs     []string `json:"security_group_ids,omitempty"`
+}
+
+// ProtocolDetails holds protocol-specific configuration for a Transfer server.
+type ProtocolDetails struct {
+	PassiveIP                string   `json:"passive_ip,omitempty"`
+	TLSSessionResumptionMode string   `json:"tls_session_resumption_mode,omitempty"`
+	SetStatOption            string   `json:"set_stat_option,omitempty"`
+	As2Transports            []string `json:"as2_transports,omitempty"`
+}
+
+// WorkflowDetail holds a single workflow ID + execution role pair.
+type WorkflowDetail struct {
+	WorkflowID    string `json:"workflow_id"`
+	ExecutionRole string `json:"execution_role"`
+}
+
+// WorkflowDetails holds workflow trigger configuration for a Transfer server.
+type WorkflowDetails struct {
+	OnUpload        []WorkflowDetail `json:"on_upload,omitempty"`
+	OnPartialUpload []WorkflowDetail `json:"on_partial_upload,omitempty"`
+}
+
+// S3StorageOptions holds S3 storage configuration for a Transfer server.
+type S3StorageOptions struct {
+	DirectoryListingOptimization string `json:"directory_listing_optimization,omitempty"`
+}
 
 // Server represents an AWS Transfer Family server.
 type Server struct {
-	CreatedAt time.Time         `json:"created_at"`
-	Tags      map[string]string `json:"tags"`
-	ServerID  string            `json:"server_id"`
-	State     string            `json:"state"`
-	Endpoint  string            `json:"endpoint"`
-	Domain    string            `json:"domain"`
-	Region    string            `json:"region"`
-	AccountID string            `json:"account_id"`
-	Protocols []string          `json:"protocols"`
+	IdentityProviderDetails       *IdentityProviderDetails `json:"identity_provider_details,omitempty"`
+	EndpointDetails               *EndpointDetails         `json:"endpoint_details,omitempty"`
+	ProtocolDetails               *ProtocolDetails         `json:"protocol_details,omitempty"`
+	WorkflowDetails               *WorkflowDetails         `json:"workflow_details,omitempty"`
+	S3StorageOptions              *S3StorageOptions        `json:"s3_storage_options,omitempty"`
+	CreatedAt                     time.Time                `json:"created_at"`
+	Tags                          map[string]string        `json:"tags"`
+	ServerID                      string                   `json:"server_id"`
+	State                         string                   `json:"state"`
+	Endpoint                      string                   `json:"endpoint"`
+	Domain                        string                   `json:"domain"`
+	Region                        string                   `json:"region"`
+	AccountID                     string                   `json:"account_id"`
+	IdentityProviderType          string                   `json:"identity_provider_type,omitempty"`
+	EndpointType                  string                   `json:"endpoint_type,omitempty"`
+	LoggingRole                   string                   `json:"logging_role,omitempty"`
+	PreAuthenticationLoginBanner  string                   `json:"pre_authentication_login_banner,omitempty"`
+	PostAuthenticationLoginBanner string                   `json:"post_authentication_login_banner,omitempty"`
+	HostKey                       string                   `json:"host_key,omitempty"`
+	Certificate                   string                   `json:"certificate,omitempty"`
+	SecurityPolicyName            string                   `json:"security_policy_name,omitempty"`
+	IPAddressType                 string                   `json:"ip_address_type,omitempty"`
+	StructuredLogDestinations     []string                 `json:"structured_log_destinations,omitempty"`
+	Protocols                     []string                 `json:"protocols"`
 }
 
 // serverARN builds the ARN for a Transfer server.
@@ -104,19 +194,96 @@ func cloneServer(s *Server) *Server {
 	cp.Protocols = make([]string, len(s.Protocols))
 	copy(cp.Protocols, s.Protocols)
 
+	if s.StructuredLogDestinations != nil {
+		cp.StructuredLogDestinations = make([]string, len(s.StructuredLogDestinations))
+		copy(cp.StructuredLogDestinations, s.StructuredLogDestinations)
+	}
+
+	if s.IdentityProviderDetails != nil {
+		ipd := *s.IdentityProviderDetails
+		cp.IdentityProviderDetails = &ipd
+	}
+
+	if s.EndpointDetails != nil {
+		ed := *s.EndpointDetails
+		if s.EndpointDetails.AddressAllocationIDs != nil {
+			ed.AddressAllocationIDs = make([]string, len(s.EndpointDetails.AddressAllocationIDs))
+			copy(ed.AddressAllocationIDs, s.EndpointDetails.AddressAllocationIDs)
+		}
+		if s.EndpointDetails.SubnetIDs != nil {
+			ed.SubnetIDs = make([]string, len(s.EndpointDetails.SubnetIDs))
+			copy(ed.SubnetIDs, s.EndpointDetails.SubnetIDs)
+		}
+		if s.EndpointDetails.SecurityGroupIDs != nil {
+			ed.SecurityGroupIDs = make([]string, len(s.EndpointDetails.SecurityGroupIDs))
+			copy(ed.SecurityGroupIDs, s.EndpointDetails.SecurityGroupIDs)
+		}
+		cp.EndpointDetails = &ed
+	}
+
+	if s.ProtocolDetails != nil {
+		pd := *s.ProtocolDetails
+		if s.ProtocolDetails.As2Transports != nil {
+			pd.As2Transports = make([]string, len(s.ProtocolDetails.As2Transports))
+			copy(pd.As2Transports, s.ProtocolDetails.As2Transports)
+		}
+		cp.ProtocolDetails = &pd
+	}
+
+	if s.WorkflowDetails != nil {
+		wd := WorkflowDetails{
+			OnUpload:        cloneWorkflowDetails(s.WorkflowDetails.OnUpload),
+			OnPartialUpload: cloneWorkflowDetails(s.WorkflowDetails.OnPartialUpload),
+		}
+		cp.WorkflowDetails = &wd
+	}
+
+	if s.S3StorageOptions != nil {
+		so := *s.S3StorageOptions
+		cp.S3StorageOptions = &so
+	}
+
 	return &cp
+}
+
+func cloneWorkflowDetails(wds []WorkflowDetail) []WorkflowDetail {
+	if wds == nil {
+		return nil
+	}
+	out := make([]WorkflowDetail, len(wds))
+	copy(out, wds)
+
+	return out
+}
+
+// PosixProfile holds POSIX profile configuration for a Transfer user or access.
+type PosixProfile struct {
+	SecondaryGids []int64 `json:"secondary_gids,omitempty"`
+	UID           int64   `json:"uid"`
+	GID           int64   `json:"gid"`
+}
+
+// HomeDirectoryMapEntry holds a single logical directory mapping.
+type HomeDirectoryMapEntry struct {
+	Entry  string `json:"entry"`
+	Target string `json:"target"`
+	Type   string `json:"type,omitempty"`
 }
 
 // User represents a user on an AWS Transfer Family server.
 type User struct {
-	CreatedAt time.Time         `json:"created_at"`
-	Tags      map[string]string `json:"tags"`
-	UserName  string            `json:"user_name"`
-	ServerID  string            `json:"server_id"`
-	HomeDir   string            `json:"home_dir"`
-	Role      string            `json:"role"`
-	AccountID string            `json:"account_id"`
-	Region    string            `json:"region"`
+	CreatedAt             time.Time               `json:"created_at"`
+	PosixProfile          *PosixProfile           `json:"posix_profile,omitempty"`
+	Tags                  map[string]string       `json:"tags"`
+	UserName              string                  `json:"user_name"`
+	ServerID              string                  `json:"server_id"`
+	HomeDir               string                  `json:"home_dir"`
+	Role                  string                  `json:"role"`
+	AccountID             string                  `json:"account_id"`
+	Region                string                  `json:"region"`
+	HomeDirectoryType     string                  `json:"home_directory_type,omitempty"`
+	Policy                string                  `json:"policy,omitempty"`
+	HomeDirectoryMappings []HomeDirectoryMapEntry `json:"home_directory_mappings,omitempty"`
 }
 
 // userARN builds the ARN for a Transfer user.
@@ -130,19 +297,37 @@ func cloneUser(u *User) *User {
 	cp.Tags = make(map[string]string, len(u.Tags))
 	maps.Copy(cp.Tags, u.Tags)
 
+	if u.PosixProfile != nil {
+		pp := *u.PosixProfile
+		if u.PosixProfile.SecondaryGids != nil {
+			pp.SecondaryGids = make([]int64, len(u.PosixProfile.SecondaryGids))
+			copy(pp.SecondaryGids, u.PosixProfile.SecondaryGids)
+		}
+		cp.PosixProfile = &pp
+	}
+
+	if u.HomeDirectoryMappings != nil {
+		cp.HomeDirectoryMappings = make([]HomeDirectoryMapEntry, len(u.HomeDirectoryMappings))
+		copy(cp.HomeDirectoryMappings, u.HomeDirectoryMappings)
+	}
+
 	return &cp
 }
 
 // Access represents an AWS Transfer access policy entry for a server.
 type Access struct {
-	CreatedAt  time.Time         `json:"created_at"`
-	Tags       map[string]string `json:"tags"`
-	ExternalID string            `json:"external_id"`
-	ServerID   string            `json:"server_id"`
-	Role       string            `json:"role"`
-	HomeDir    string            `json:"home_dir"`
-	AccountID  string            `json:"account_id"`
-	Region     string            `json:"region"`
+	CreatedAt             time.Time               `json:"created_at"`
+	PosixProfile          *PosixProfile           `json:"posix_profile,omitempty"`
+	Tags                  map[string]string       `json:"tags"`
+	ExternalID            string                  `json:"external_id"`
+	ServerID              string                  `json:"server_id"`
+	Role                  string                  `json:"role"`
+	HomeDir               string                  `json:"home_dir"`
+	AccountID             string                  `json:"account_id"`
+	Region                string                  `json:"region"`
+	HomeDirectoryType     string                  `json:"home_directory_type,omitempty"`
+	Policy                string                  `json:"policy,omitempty"`
+	HomeDirectoryMappings []HomeDirectoryMapEntry `json:"home_directory_mappings,omitempty"`
 }
 
 // cloneAccess returns a deep copy of an Access.
@@ -150,6 +335,20 @@ func cloneAccess(a *Access) *Access {
 	cp := *a
 	cp.Tags = make(map[string]string, len(a.Tags))
 	maps.Copy(cp.Tags, a.Tags)
+
+	if a.PosixProfile != nil {
+		pp := *a.PosixProfile
+		if a.PosixProfile.SecondaryGids != nil {
+			pp.SecondaryGids = make([]int64, len(a.PosixProfile.SecondaryGids))
+			copy(pp.SecondaryGids, a.PosixProfile.SecondaryGids)
+		}
+		cp.PosixProfile = &pp
+	}
+
+	if a.HomeDirectoryMappings != nil {
+		cp.HomeDirectoryMappings = make([]HomeDirectoryMapEntry, len(a.HomeDirectoryMappings))
+		copy(cp.HomeDirectoryMappings, a.HomeDirectoryMappings)
+	}
 
 	return &cp
 }
@@ -199,15 +398,35 @@ type ConnectorAs2Config struct {
 
 // Connector represents an AWS Transfer connector used to initiate file transfers.
 type Connector struct {
-	SftpConfig  *ConnectorSftpConfig `json:"sftp_config,omitempty"`
-	As2Config   *ConnectorAs2Config  `json:"as2_config,omitempty"`
-	CreatedAt   time.Time            `json:"created_at"`
-	Tags        map[string]string    `json:"tags"`
-	ConnectorID string               `json:"connector_id"`
-	URL         string               `json:"url"`
-	AccessRole  string               `json:"access_role"`
-	AccountID   string               `json:"account_id"`
-	Region      string               `json:"region"`
+	SftpConfig         *ConnectorSftpConfig `json:"sftp_config,omitempty"`
+	As2Config          *ConnectorAs2Config  `json:"as2_config,omitempty"`
+	CreatedAt          time.Time            `json:"created_at"`
+	Tags               map[string]string    `json:"tags"`
+	ConnectorID        string               `json:"connector_id"`
+	URL                string               `json:"url"`
+	AccessRole         string               `json:"access_role"`
+	AccountID          string               `json:"account_id"`
+	Region             string               `json:"region"`
+	LoggingRole        string               `json:"logging_role,omitempty"`
+	SecurityPolicyName string               `json:"security_policy_name,omitempty"`
+}
+
+// FileTransferResult stores state for a file transfer operation started via StartFileTransfer.
+type FileTransferResult struct {
+	CreatedAt   time.Time `json:"created_at"`
+	TransferID  string    `json:"transfer_id"`
+	ConnectorID string    `json:"connector_id"`
+	Status      string    `json:"status"`
+	Files       []string  `json:"files,omitempty"`
+}
+
+// AsyncOperationRecord stores state for async connector operations (directory listing, delete, move).
+type AsyncOperationRecord struct {
+	CreatedAt   time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	ConnectorID string    `json:"connector_id"`
+	Status      string    `json:"status"`
+	Type        string    `json:"type"`
 }
 
 // cloneConnector returns a deep copy of a Connector.
@@ -287,10 +506,52 @@ func cloneWebApp(w *WebApp) *WebApp {
 	return &cp
 }
 
+// CopyStepDetails holds details for a Copy workflow step.
+type CopyStepDetails struct {
+	DestinationFileLocation map[string]any `json:"destination_file_location,omitempty"`
+	Name                    string         `json:"name,omitempty"`
+	SourceFileLocation      string         `json:"source_file_location,omitempty"`
+	OverwriteExisting       string         `json:"overwrite_existing,omitempty"`
+}
+
+// CustomStepDetails holds details for a Custom workflow step.
+type CustomStepDetails struct {
+	Name               string `json:"name,omitempty"`
+	Target             string `json:"target,omitempty"`
+	SourceFileLocation string `json:"source_file_location,omitempty"`
+	Timeout            int32  `json:"timeout,omitempty"`
+}
+
+// DeleteStepDetails holds details for a Delete workflow step.
+type DeleteStepDetails struct {
+	Name               string `json:"name,omitempty"`
+	SourceFileLocation string `json:"source_file_location,omitempty"`
+}
+
+// TagStepDetails holds details for a Tag workflow step.
+type TagStepDetails struct {
+	Name               string           `json:"name,omitempty"`
+	SourceFileLocation string           `json:"source_file_location,omitempty"`
+	Tags               []map[string]any `json:"tags,omitempty"`
+}
+
+// DecryptStepDetails holds details for a Decrypt workflow step.
+type DecryptStepDetails struct {
+	DestinationFileLocation map[string]any `json:"destination_file_location,omitempty"`
+	Name                    string         `json:"name,omitempty"`
+	Type                    string         `json:"type,omitempty"`
+	SourceFileLocation      string         `json:"source_file_location,omitempty"`
+	OverwriteExisting       string         `json:"overwrite_existing,omitempty"`
+}
+
 // WorkflowStep represents a single step in an AWS Transfer workflow.
 type WorkflowStep struct {
-	StepDetails map[string]any `json:"step_details,omitempty"`
-	Type        string         `json:"type"`
+	CopyStepDetails    *CopyStepDetails    `json:"copy_step_details,omitempty"`
+	CustomStepDetails  *CustomStepDetails  `json:"custom_step_details,omitempty"`
+	DeleteStepDetails  *DeleteStepDetails  `json:"delete_step_details,omitempty"`
+	TagStepDetails     *TagStepDetails     `json:"tag_step_details,omitempty"`
+	DecryptStepDetails *DecryptStepDetails `json:"decrypt_step_details,omitempty"`
+	Type               string              `json:"type"`
 }
 
 // Workflow represents an AWS Transfer workflow for file processing.
@@ -314,9 +575,25 @@ func cloneWorkflowSteps(steps []WorkflowStep) []WorkflowStep {
 	out := make([]WorkflowStep, len(steps))
 	for i, s := range steps {
 		out[i] = WorkflowStep{Type: s.Type}
-		if s.StepDetails != nil {
-			out[i].StepDetails = make(map[string]any, len(s.StepDetails))
-			maps.Copy(out[i].StepDetails, s.StepDetails)
+		if s.CopyStepDetails != nil {
+			cp := *s.CopyStepDetails
+			out[i].CopyStepDetails = &cp
+		}
+		if s.CustomStepDetails != nil {
+			cp := *s.CustomStepDetails
+			out[i].CustomStepDetails = &cp
+		}
+		if s.DeleteStepDetails != nil {
+			cp := *s.DeleteStepDetails
+			out[i].DeleteStepDetails = &cp
+		}
+		if s.TagStepDetails != nil {
+			cp := *s.TagStepDetails
+			out[i].TagStepDetails = &cp
+		}
+		if s.DecryptStepDetails != nil {
+			cp := *s.DecryptStepDetails
+			out[i].DecryptStepDetails = &cp
 		}
 	}
 
@@ -379,60 +656,88 @@ type SSHPublicKey struct {
 	SSHPublicKeyID   string    `json:"ssh_public_key_id"`
 	SSHPublicKeyBody string    `json:"ssh_public_key_body"`
 	Fingerprint      string    `json:"fingerprint,omitempty"`
+	KeyType          string    `json:"key_type,omitempty"`
 	UserName         string    `json:"user_name"`
 	ServerID         string    `json:"server_id"`
 }
 
 // Execution represents the lifecycle of a workflow execution.
 type Execution struct {
-	InitialFileLocation map[string]any `json:"initial_file_location,omitempty"`
-	CurrentStep         *WorkflowStep  `json:"current_step,omitempty"`
-	CreatedAt           time.Time      `json:"created_at"`
-	ExecutionID         string         `json:"execution_id"`
-	WorkflowID          string         `json:"workflow_id"`
-	Status              string         `json:"status"` // "IN_PROGRESS", "COMPLETED", "EXCEPTION", "HANDLING_EXCEPTION"
+	InitialFileLocation map[string]any    `json:"initial_file_location,omitempty"`
+	CurrentStep         *WorkflowStep     `json:"current_step,omitempty"`
+	PendingTokens       map[string]string `json:"pending_tokens,omitempty"` // token -> stepName
+	CreatedAt           time.Time         `json:"created_at"`
+	ExecutionID         string            `json:"execution_id"`
+	WorkflowID          string            `json:"workflow_id"`
+	Status              string            `json:"status"` // "IN_PROGRESS", "COMPLETED", "EXCEPTION", "HANDLING_EXCEPTION"
 }
 
 // InMemoryBackend is the in-memory store for Transfer resources.
 type InMemoryBackend struct {
-	servers       map[string]*Server
-	users         map[string]map[string]*User      // serverID -> userName -> User
-	accesses      map[string]map[string]*Access    // serverID -> externalID -> Access
-	agreements    map[string]map[string]*Agreement // serverID -> agreementID -> Agreement
-	connectors    map[string]*Connector
-	profiles      map[string]*Profile
-	webApps       map[string]*WebApp
-	workflows     map[string]*Workflow
-	certificates  map[string]*Certificate
-	hostKeys      map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
-	sshPublicKeys map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
-	executions    map[string]map[string]*Execution               // workflowID -> executionID -> Execution
-	tagsStore     map[string]map[string]string                   // arn -> tags
-	mu            *lockmetrics.RWMutex
-	accountID     string
-	region        string
+	servers         map[string]*Server
+	users           map[string]map[string]*User      // serverID -> userName -> User
+	accesses        map[string]map[string]*Access    // serverID -> externalID -> Access
+	agreements      map[string]map[string]*Agreement // serverID -> agreementID -> Agreement
+	connectors      map[string]*Connector
+	profiles        map[string]*Profile
+	webApps         map[string]*WebApp
+	workflows       map[string]*Workflow
+	certificates    map[string]*Certificate
+	hostKeys        map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
+	sshPublicKeys   map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
+	executions      map[string]map[string]*Execution               // workflowID -> executionID -> Execution
+	tagsStore       map[string]map[string]string                   // arn -> tags
+	transferRecords map[string]*FileTransferResult                 // transferID -> FileTransferResult
+	asyncOperations map[string]*AsyncOperationRecord               // operationID -> AsyncOperationRecord
+	mu              *lockmetrics.RWMutex
+	accountID       string
+	region          string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		servers:       make(map[string]*Server),
-		users:         make(map[string]map[string]*User),
-		accesses:      make(map[string]map[string]*Access),
-		agreements:    make(map[string]map[string]*Agreement),
-		connectors:    make(map[string]*Connector),
-		profiles:      make(map[string]*Profile),
-		webApps:       make(map[string]*WebApp),
-		workflows:     make(map[string]*Workflow),
-		certificates:  make(map[string]*Certificate),
-		hostKeys:      make(map[string]map[string]*HostKey),
-		sshPublicKeys: make(map[string]map[string]map[string]*SSHPublicKey),
-		executions:    make(map[string]map[string]*Execution),
-		tagsStore:     make(map[string]map[string]string),
-		accountID:     accountID,
-		region:        region,
-		mu:            lockmetrics.New("transfer"),
+		servers:         make(map[string]*Server),
+		users:           make(map[string]map[string]*User),
+		accesses:        make(map[string]map[string]*Access),
+		agreements:      make(map[string]map[string]*Agreement),
+		connectors:      make(map[string]*Connector),
+		profiles:        make(map[string]*Profile),
+		webApps:         make(map[string]*WebApp),
+		workflows:       make(map[string]*Workflow),
+		certificates:    make(map[string]*Certificate),
+		hostKeys:        make(map[string]map[string]*HostKey),
+		sshPublicKeys:   make(map[string]map[string]map[string]*SSHPublicKey),
+		executions:      make(map[string]map[string]*Execution),
+		tagsStore:       make(map[string]map[string]string),
+		transferRecords: make(map[string]*FileTransferResult),
+		asyncOperations: make(map[string]*AsyncOperationRecord),
+		accountID:       accountID,
+		region:          region,
+		mu:              lockmetrics.New("transfer"),
 	}
+}
+
+// CreateServerInput holds all optional fields for CreateServer.
+type CreateServerInput struct {
+	IdentityProviderDetails       *IdentityProviderDetails
+	EndpointDetails               *EndpointDetails
+	ProtocolDetails               *ProtocolDetails
+	WorkflowDetails               *WorkflowDetails
+	S3StorageOptions              *S3StorageOptions
+	Protocols                     []string
+	Tags                          map[string]string
+	IdentityProviderType          string
+	EndpointType                  string
+	LoggingRole                   string
+	PreAuthenticationLoginBanner  string
+	PostAuthenticationLoginBanner string
+	HostKey                       string
+	Certificate                   string
+	Domain                        string
+	SecurityPolicyName            string
+	IPAddressType                 string
+	StructuredLogDestinations     []string
 }
 
 // CreateServer creates a new Transfer Family server.
@@ -440,13 +745,17 @@ func (b *InMemoryBackend) CreateServer(
 	protocols []string,
 	tags map[string]string,
 ) (*Server, error) {
-	b.mu.Lock("CreateServer")
-	defer b.mu.Unlock()
+	return b.CreateServerFull(&CreateServerInput{
+		Protocols: protocols,
+		Tags:      tags,
+	})
+}
 
-	serverID := "s-" + uuid.NewString()[:20]
-
+// CreateServerFull creates a new Transfer Family server with full configuration.
+// validateAndDefaultServerProtocols validates protocols and returns the default if empty.
+func validateAndDefaultServerProtocols(protocols []string) ([]string, error) {
 	if len(protocols) == 0 {
-		protocols = []string{protocolSFTP}
+		return []string{protocolSFTP}, nil
 	}
 
 	for _, p := range protocols {
@@ -458,19 +767,134 @@ func (b *InMemoryBackend) CreateServer(
 		}
 	}
 
-	merged := make(map[string]string, len(tags))
-	maps.Copy(merged, tags)
+	return protocols, nil
+}
+
+// validateAndDefaultIdentityProviderType validates and defaults the identity provider type.
+func validateAndDefaultIdentityProviderType(t string) (string, error) {
+	if t == "" {
+		return identityProviderServiceManaged, nil
+	}
+
+	switch t {
+	case identityProviderServiceManaged, identityProviderAPIGateway,
+		identityProviderDirectoryService, identityProviderLambda:
+		return t, nil
+	default:
+		return "", fmt.Errorf(
+			"%w: IdentityProviderType must be one of SERVICE_MANAGED, API_GATEWAY,"+
+				" AWS_DIRECTORY_SERVICE, AWS_LAMBDA, got %q",
+			ErrValidation, t,
+		)
+	}
+}
+
+// validateAndDefaultDomain validates and defaults the domain.
+func validateAndDefaultDomain(domain string) (string, error) {
+	if domain == "" {
+		return "S3", nil
+	}
+
+	switch domain {
+	case "S3", "EFS":
+		return domain, nil
+	default:
+		return "", fmt.Errorf("%w: Domain must be S3 or EFS, got %q", ErrValidation, domain)
+	}
+}
+
+// validateAndDefaultEndpointType validates and defaults the endpoint type.
+func validateAndDefaultEndpointType(t string) (string, error) {
+	if t == "" {
+		return endpointTypePublic, nil
+	}
+
+	switch t {
+	case endpointTypePublic, endpointTypeVPC, endpointTypeVPCEndpoint:
+		return t, nil
+	default:
+		return "", fmt.Errorf(
+			"%w: EndpointType must be PUBLIC, VPC, or VPC_ENDPOINT, got %q",
+			ErrValidation, t,
+		)
+	}
+}
+
+// validateProtocolDetails validates the protocol details TLS mode.
+func validateProtocolDetails(pd *ProtocolDetails) error {
+	if pd == nil || pd.TLSSessionResumptionMode == "" {
+		return nil
+	}
+
+	switch pd.TLSSessionResumptionMode {
+	case "DISABLED", "ENABLED", "ENFORCED":
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: TlsSessionResumptionMode must be DISABLED, ENABLED, or ENFORCED, got %q",
+			ErrValidation, pd.TLSSessionResumptionMode,
+		)
+	}
+}
+
+func (b *InMemoryBackend) CreateServerFull(in *CreateServerInput) (*Server, error) {
+	b.mu.Lock("CreateServer")
+	defer b.mu.Unlock()
+
+	serverID := "s-" + uuid.NewString()[:20]
+
+	protocols, err := validateAndDefaultServerProtocols(in.Protocols)
+	if err != nil {
+		return nil, err
+	}
+
+	identityProviderType, err := validateAndDefaultIdentityProviderType(in.IdentityProviderType)
+	if err != nil {
+		return nil, err
+	}
+
+	domain, err := validateAndDefaultDomain(in.Domain)
+	if err != nil {
+		return nil, err
+	}
+
+	endpointType, err := validateAndDefaultEndpointType(in.EndpointType)
+	if err != nil {
+		return nil, err
+	}
+
+	if pdErr := validateProtocolDetails(in.ProtocolDetails); pdErr != nil {
+		return nil, pdErr
+	}
+
+	merged := make(map[string]string, len(in.Tags))
+	maps.Copy(merged, in.Tags)
 
 	s := &Server{
-		ServerID:  serverID,
-		State:     serverStatusOnline,
-		Endpoint:  fmt.Sprintf("%s.server.transfer.%s.amazonaws.com", serverID, b.region),
-		Protocols: protocols,
-		Domain:    "S3",
-		CreatedAt: time.Now(),
-		Tags:      merged,
-		AccountID: b.accountID,
-		Region:    b.region,
+		ServerID:                      serverID,
+		State:                         serverStatusOnline,
+		Endpoint:                      fmt.Sprintf("%s.server.transfer.%s.amazonaws.com", serverID, b.region),
+		Protocols:                     protocols,
+		Domain:                        domain,
+		IdentityProviderType:          identityProviderType,
+		EndpointType:                  endpointType,
+		LoggingRole:                   in.LoggingRole,
+		PreAuthenticationLoginBanner:  in.PreAuthenticationLoginBanner,
+		PostAuthenticationLoginBanner: in.PostAuthenticationLoginBanner,
+		HostKey:                       in.HostKey,
+		Certificate:                   in.Certificate,
+		SecurityPolicyName:            in.SecurityPolicyName,
+		IPAddressType:                 in.IPAddressType,
+		IdentityProviderDetails:       in.IdentityProviderDetails,
+		EndpointDetails:               in.EndpointDetails,
+		ProtocolDetails:               in.ProtocolDetails,
+		WorkflowDetails:               in.WorkflowDetails,
+		S3StorageOptions:              in.S3StorageOptions,
+		StructuredLogDestinations:     in.StructuredLogDestinations,
+		CreatedAt:                     time.Now(),
+		Tags:                          merged,
+		AccountID:                     b.accountID,
+		Region:                        b.region,
 	}
 	b.servers[serverID] = s
 	b.users[serverID] = make(map[string]*User)
@@ -525,7 +949,10 @@ func (b *InMemoryBackend) DeleteServer(serverID string) error {
 	return nil
 }
 
-// StartServer transitions a server to ONLINE state.
+// startServerTransitionDelay is the async delay before a server reaches ONLINE/OFFLINE state.
+const startServerTransitionDelay = 100 * time.Millisecond
+
+// StartServer transitions a server to ONLINE state (via STARTING).
 func (b *InMemoryBackend) StartServer(serverID string) error {
 	b.mu.Lock("StartServer")
 	defer b.mu.Unlock()
@@ -535,12 +962,24 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	s.State = serverStatusOnline
+	// Set to STARTING, then transition to ONLINE asynchronously.
+	s.State = serverStatusStarting
+
+	go func() {
+		time.Sleep(startServerTransitionDelay)
+
+		b.mu.Lock("StartServer-async")
+		defer b.mu.Unlock()
+
+		if sv, found := b.servers[serverID]; found && sv.State == serverStatusStarting {
+			sv.State = serverStatusOnline
+		}
+	}()
 
 	return nil
 }
 
-// StopServer transitions a server to OFFLINE state.
+// StopServer transitions a server to OFFLINE state (via STOPPING).
 func (b *InMemoryBackend) StopServer(serverID string) error {
 	b.mu.Lock("StopServer")
 	defer b.mu.Unlock()
@@ -550,26 +989,158 @@ func (b *InMemoryBackend) StopServer(serverID string) error {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	s.State = serverStatusOffline
+	// Set to STOPPING, then transition to OFFLINE asynchronously.
+	s.State = serverStatusStopping
+
+	go func() {
+		time.Sleep(startServerTransitionDelay)
+
+		b.mu.Lock("StopServer-async")
+		defer b.mu.Unlock()
+
+		if sv, found := b.servers[serverID]; found && sv.State == serverStatusStopping {
+			sv.State = serverStatusOffline
+		}
+	}()
 
 	return nil
 }
 
+// UpdateServerInput holds all optional fields for UpdateServer.
+type UpdateServerInput struct {
+	IdentityProviderDetails       *IdentityProviderDetails
+	EndpointDetails               *EndpointDetails
+	ProtocolDetails               *ProtocolDetails
+	WorkflowDetails               *WorkflowDetails
+	S3StorageOptions              *S3StorageOptions
+	SecurityPolicyName            string
+	ServerID                      string
+	Certificate                   string
+	EndpointType                  string
+	HostKey                       string
+	LoggingRole                   string
+	PreAuthenticationLoginBanner  string
+	PostAuthenticationLoginBanner string
+	IPAddressType                 string
+	StructuredLogDestinations     []string
+	Protocols                     []string
+	SetLoggingRole                bool
+	SetIdentityProviderDetails    bool
+	SetCertificate                bool
+	SetPreAuthBanner              bool
+	SetPostAuthBanner             bool
+	SetSecurityPolicyName         bool
+	SetIPAddressType              bool
+	SetEndpointType               bool
+	SetEndpointDetails            bool
+	SetProtocolDetails            bool
+	SetWorkflowDetails            bool
+	SetS3StorageOptions           bool
+	SetStructuredLogDestinations  bool
+	SetHostKey                    bool
+}
+
 // UpdateServer updates mutable fields on an existing server.
 func (b *InMemoryBackend) UpdateServer(serverID string, protocols []string) (*Server, error) {
+	return b.UpdateServerFull(&UpdateServerInput{
+		ServerID:  serverID,
+		Protocols: protocols,
+	})
+}
+
+// applyServerStringFields applies optional string updates to a server.
+func applyServerStringFields(s *Server, in *UpdateServerInput) {
+	if len(in.Protocols) > 0 {
+		s.Protocols = in.Protocols
+	}
+
+	if in.SetCertificate {
+		s.Certificate = in.Certificate
+	}
+
+	if in.SetEndpointType && in.EndpointType != "" {
+		s.EndpointType = in.EndpointType
+	}
+
+	if in.SetLoggingRole {
+		s.LoggingRole = in.LoggingRole
+	}
+
+	if in.SetPreAuthBanner {
+		s.PreAuthenticationLoginBanner = in.PreAuthenticationLoginBanner
+	}
+
+	if in.SetPostAuthBanner {
+		s.PostAuthenticationLoginBanner = in.PostAuthenticationLoginBanner
+	}
+
+	if in.SetSecurityPolicyName {
+		s.SecurityPolicyName = in.SecurityPolicyName
+	}
+
+	if in.SetIPAddressType {
+		s.IPAddressType = in.IPAddressType
+	}
+
+	if in.SetHostKey {
+		s.HostKey = in.HostKey
+	}
+}
+
+// applyServerStructFields applies optional struct updates to a server.
+func applyServerStructFields(s *Server, in *UpdateServerInput) {
+	if in.SetIdentityProviderDetails {
+		s.IdentityProviderDetails = in.IdentityProviderDetails
+	}
+
+	if in.SetEndpointDetails {
+		s.EndpointDetails = in.EndpointDetails
+	}
+
+	if in.SetProtocolDetails {
+		s.ProtocolDetails = in.ProtocolDetails
+	}
+
+	if in.SetWorkflowDetails {
+		s.WorkflowDetails = in.WorkflowDetails
+	}
+
+	if in.SetS3StorageOptions {
+		s.S3StorageOptions = in.S3StorageOptions
+	}
+
+	if in.SetStructuredLogDestinations {
+		s.StructuredLogDestinations = in.StructuredLogDestinations
+	}
+}
+
+// UpdateServerFull updates all mutable fields on an existing server.
+func (b *InMemoryBackend) UpdateServerFull(in *UpdateServerInput) (*Server, error) {
 	b.mu.Lock("UpdateServer")
 	defer b.mu.Unlock()
 
-	s, ok := b.servers[serverID]
+	s, ok := b.servers[in.ServerID]
 	if !ok {
-		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, in.ServerID)
 	}
 
-	if len(protocols) > 0 {
-		s.Protocols = protocols
-	}
+	applyServerStringFields(s, in)
+	applyServerStructFields(s, in)
 
 	return cloneServer(s), nil
+}
+
+// CreateUserInput holds all optional fields for CreateUser.
+type CreateUserInput struct {
+	PosixProfile          *PosixProfile
+	Tags                  map[string]string
+	ServerID              string
+	UserName              string
+	HomeDir               string
+	Role                  string
+	HomeDirectoryType     string
+	Policy                string
+	HomeDirectoryMappings []HomeDirectoryMapEntry
 }
 
 // CreateUser creates a user on the given server.
@@ -577,36 +1148,68 @@ func (b *InMemoryBackend) CreateUser(
 	serverID, userName, homeDir, role string,
 	tags map[string]string,
 ) (*User, error) {
+	return b.CreateUserFull(&CreateUserInput{
+		ServerID: serverID,
+		UserName: userName,
+		HomeDir:  homeDir,
+		Role:     role,
+		Tags:     tags,
+	})
+}
+
+// CreateUserFull creates a user on the given server with full configuration.
+func (b *InMemoryBackend) CreateUserFull(in *CreateUserInput) (*User, error) {
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
-	if _, ok := b.servers[serverID]; !ok {
-		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	if _, ok := b.servers[in.ServerID]; !ok {
+		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, in.ServerID)
 	}
 
-	if _, ok := b.users[serverID][userName]; ok {
+	if _, ok := b.users[in.ServerID][in.UserName]; ok {
 		return nil, fmt.Errorf(
 			"%w: user %s already exists on server %s",
 			ErrUserAlreadyExists,
-			userName,
-			serverID,
+			in.UserName,
+			in.ServerID,
 		)
 	}
 
-	merged := make(map[string]string, len(tags))
-	maps.Copy(merged, tags)
+	// Validate HomeDirectoryType.
+	homeDirectoryType := in.HomeDirectoryType
+	if homeDirectoryType == "" {
+		homeDirectoryType = homeDirectoryTypePath
+	} else {
+		switch homeDirectoryType {
+		case homeDirectoryTypePath, homeDirectoryTypeLogical:
+			// valid
+		default:
+			return nil, fmt.Errorf(
+				"%w: HomeDirectoryType must be PATH or LOGICAL, got %q",
+				ErrValidation,
+				homeDirectoryType,
+			)
+		}
+	}
+
+	merged := make(map[string]string, len(in.Tags))
+	maps.Copy(merged, in.Tags)
 
 	u := &User{
-		UserName:  userName,
-		ServerID:  serverID,
-		HomeDir:   homeDir,
-		Role:      role,
-		CreatedAt: time.Now(),
-		Tags:      merged,
-		AccountID: b.accountID,
-		Region:    b.region,
+		UserName:              in.UserName,
+		ServerID:              in.ServerID,
+		HomeDir:               in.HomeDir,
+		Role:                  in.Role,
+		HomeDirectoryType:     homeDirectoryType,
+		HomeDirectoryMappings: in.HomeDirectoryMappings,
+		Policy:                in.Policy,
+		PosixProfile:          in.PosixProfile,
+		CreatedAt:             time.Now(),
+		Tags:                  merged,
+		AccountID:             b.accountID,
+		Region:                b.region,
 	}
-	b.users[serverID][userName] = u
+	b.users[in.ServerID][in.UserName] = u
 
 	return cloneUser(u), nil
 }
@@ -675,32 +1278,83 @@ func (b *InMemoryBackend) DeleteUser(serverID, userName string) error {
 	return nil
 }
 
+// UpdateUserInput holds all optional fields for UpdateUser.
+type UpdateUserInput struct {
+	PosixProfile             *PosixProfile
+	ServerID                 string
+	UserName                 string
+	HomeDir                  string
+	Role                     string
+	HomeDirectoryType        string
+	Policy                   string
+	HomeDirectoryMappings    []HomeDirectoryMapEntry
+	SetPosixProfile          bool
+	SetHomeDirectoryMappings bool
+	SetPolicy                bool
+	SetHomeDirectoryType     bool
+}
+
 // UpdateUser updates mutable fields on a user.
 func (b *InMemoryBackend) UpdateUser(serverID, userName, homeDir, role string) (*User, error) {
+	return b.UpdateUserFull(&UpdateUserInput{
+		ServerID: serverID,
+		UserName: userName,
+		HomeDir:  homeDir,
+		Role:     role,
+	})
+}
+
+// UpdateUserFull updates all mutable fields on a user.
+func (b *InMemoryBackend) UpdateUserFull(in *UpdateUserInput) (*User, error) {
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 
-	users, ok := b.users[serverID]
+	users, ok := b.users[in.ServerID]
 	if !ok {
-		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, in.ServerID)
 	}
 
-	u, ok := users[userName]
+	u, ok := users[in.UserName]
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: user %s not found on server %s",
 			ErrUserNotFound,
-			userName,
-			serverID,
+			in.UserName,
+			in.ServerID,
 		)
 	}
 
-	if homeDir != "" {
-		u.HomeDir = homeDir
+	if in.HomeDir != "" {
+		u.HomeDir = in.HomeDir
 	}
 
-	if role != "" {
-		u.Role = role
+	if in.Role != "" {
+		u.Role = in.Role
+	}
+
+	if in.SetPosixProfile {
+		u.PosixProfile = in.PosixProfile
+	}
+
+	if in.SetHomeDirectoryMappings {
+		u.HomeDirectoryMappings = in.HomeDirectoryMappings
+	}
+
+	if in.SetPolicy {
+		u.Policy = in.Policy
+	}
+
+	if in.SetHomeDirectoryType && in.HomeDirectoryType != "" {
+		switch in.HomeDirectoryType {
+		case homeDirectoryTypePath, homeDirectoryTypeLogical:
+			u.HomeDirectoryType = in.HomeDirectoryType
+		default:
+			return nil, fmt.Errorf(
+				"%w: HomeDirectoryType must be PATH or LOGICAL, got %q",
+				ErrValidation,
+				in.HomeDirectoryType,
+			)
+		}
 	}
 
 	return cloneUser(u), nil
@@ -711,6 +1365,34 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // Region returns the AWS region for this backend.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// ListSSHPublicKeys returns all SSH public keys for a user on a server.
+func (b *InMemoryBackend) ListSSHPublicKeys(serverID, userName string) []*SSHPublicKey {
+	b.mu.RLock("ListSSHPublicKeys")
+	defer b.mu.RUnlock()
+
+	userMap, ok := b.sshPublicKeys[serverID]
+	if !ok {
+		return nil
+	}
+
+	keyMap, ok := userMap[userName]
+	if !ok {
+		return nil
+	}
+
+	keys := make([]*SSHPublicKey, 0, len(keyMap))
+	for _, k := range keyMap {
+		cp := *k
+		keys = append(keys, &cp)
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i].SSHPublicKeyID < keys[j].SSHPublicKeyID
+	})
+
+	return keys
+}
 
 // Reset clears all stored resources, returning the backend to a clean state.
 func (b *InMemoryBackend) Reset() {
@@ -730,6 +1412,21 @@ func (b *InMemoryBackend) Reset() {
 	b.sshPublicKeys = make(map[string]map[string]map[string]*SSHPublicKey)
 	b.executions = make(map[string]map[string]*Execution)
 	b.tagsStore = make(map[string]map[string]string)
+	b.transferRecords = make(map[string]*FileTransferResult)
+	b.asyncOperations = make(map[string]*AsyncOperationRecord)
+}
+
+// CreateAccessInput holds all optional fields for CreateAccess.
+type CreateAccessInput struct {
+	PosixProfile          *PosixProfile
+	Tags                  map[string]string
+	ServerID              string
+	ExternalID            string
+	Role                  string
+	HomeDir               string
+	HomeDirectoryType     string
+	Policy                string
+	HomeDirectoryMappings []HomeDirectoryMapEntry
 }
 
 // CreateAccess creates an access policy entry on an existing server.
@@ -737,31 +1434,51 @@ func (b *InMemoryBackend) CreateAccess(
 	serverID, externalID, role, homeDir string,
 	tags map[string]string,
 ) (*Access, error) {
+	return b.CreateAccessFull(&CreateAccessInput{
+		ServerID:   serverID,
+		ExternalID: externalID,
+		Role:       role,
+		HomeDir:    homeDir,
+		Tags:       tags,
+	})
+}
+
+// CreateAccessFull creates an access entry with full configuration.
+func (b *InMemoryBackend) CreateAccessFull(in *CreateAccessInput) (*Access, error) {
 	b.mu.Lock("CreateAccess")
 	defer b.mu.Unlock()
 
-	if _, ok := b.servers[serverID]; !ok {
-		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	if _, ok := b.servers[in.ServerID]; !ok {
+		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, in.ServerID)
 	}
 
-	if _, ok := b.accesses[serverID]; !ok {
-		b.accesses[serverID] = make(map[string]*Access)
+	if _, ok := b.accesses[in.ServerID]; !ok {
+		b.accesses[in.ServerID] = make(map[string]*Access)
 	}
 
-	merged := make(map[string]string, len(tags))
-	maps.Copy(merged, tags)
+	merged := make(map[string]string, len(in.Tags))
+	maps.Copy(merged, in.Tags)
+
+	homeDirectoryType := in.HomeDirectoryType
+	if homeDirectoryType == "" {
+		homeDirectoryType = homeDirectoryTypePath
+	}
 
 	a := &Access{
-		ExternalID: externalID,
-		ServerID:   serverID,
-		Role:       role,
-		HomeDir:    homeDir,
-		CreatedAt:  time.Now(),
-		Tags:       merged,
-		AccountID:  b.accountID,
-		Region:     b.region,
+		ExternalID:            in.ExternalID,
+		ServerID:              in.ServerID,
+		Role:                  in.Role,
+		HomeDir:               in.HomeDir,
+		HomeDirectoryType:     homeDirectoryType,
+		HomeDirectoryMappings: in.HomeDirectoryMappings,
+		Policy:                in.Policy,
+		PosixProfile:          in.PosixProfile,
+		CreatedAt:             time.Now(),
+		Tags:                  merged,
+		AccountID:             b.accountID,
+		Region:                b.region,
 	}
-	b.accesses[serverID][externalID] = a
+	b.accesses[in.ServerID][in.ExternalID] = a
 
 	return cloneAccess(a), nil
 }
@@ -804,11 +1521,44 @@ func (b *InMemoryBackend) CreateAgreement(
 	serverID, description, localProfileID, partnerProfileID, baseDirectory, accessRole string,
 	tags map[string]string,
 ) (*Agreement, error) {
+	return b.CreateAgreementFull(
+		serverID,
+		description,
+		localProfileID,
+		partnerProfileID,
+		baseDirectory,
+		accessRole,
+		agreementStatusActive,
+		tags,
+	)
+}
+
+// CreateAgreementFull creates an AS2 agreement with an explicit initial status.
+func (b *InMemoryBackend) CreateAgreementFull(
+	serverID, description, localProfileID, partnerProfileID, baseDirectory, accessRole, status string,
+	tags map[string]string,
+) (*Agreement, error) {
 	b.mu.Lock("CreateAgreement")
 	defer b.mu.Unlock()
 
 	if _, ok := b.servers[serverID]; !ok {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	// Validate status.
+	if status == "" {
+		status = agreementStatusActive
+	}
+
+	switch status {
+	case agreementStatusActive, agreementStatusInactive:
+		// valid
+	default:
+		return nil, fmt.Errorf(
+			"%w: Status must be ACTIVE or INACTIVE, got %q",
+			ErrValidation,
+			status,
+		)
 	}
 
 	if _, ok := b.agreements[serverID]; !ok {
@@ -828,7 +1578,7 @@ func (b *InMemoryBackend) CreateAgreement(
 		PartnerProfileID: partnerProfileID,
 		BaseDirectory:    baseDirectory,
 		AccessRole:       accessRole,
-		Status:           agreementStatusActive,
+		Status:           status,
 		CreatedAt:        time.Now(),
 		Tags:             merged,
 		AccountID:        b.accountID,
@@ -872,6 +1622,17 @@ func (b *InMemoryBackend) DeleteAgreement(serverID, agreementID string) error {
 	return nil
 }
 
+// CreateConnectorInput holds all fields for CreateConnector.
+type CreateConnectorInput struct {
+	SftpConfig         *ConnectorSftpConfig
+	As2Config          *ConnectorAs2Config
+	Tags               map[string]string
+	URL                string
+	AccessRole         string
+	LoggingRole        string
+	SecurityPolicyName string
+}
+
 // CreateConnector creates a Transfer connector. URL is required.
 func (b *InMemoryBackend) CreateConnector(
 	url, accessRole string,
@@ -879,7 +1640,18 @@ func (b *InMemoryBackend) CreateConnector(
 	as2Config *ConnectorAs2Config,
 	tags map[string]string,
 ) (*Connector, error) {
-	if url == "" {
+	return b.CreateConnectorFull(&CreateConnectorInput{
+		URL:        url,
+		AccessRole: accessRole,
+		SftpConfig: sftpConfig,
+		As2Config:  as2Config,
+		Tags:       tags,
+	})
+}
+
+// CreateConnectorFull creates a Transfer connector with full configuration.
+func (b *InMemoryBackend) CreateConnectorFull(in *CreateConnectorInput) (*Connector, error) {
+	if in.URL == "" {
 		return nil, fmt.Errorf("%w: Url is required", ErrValidation)
 	}
 
@@ -888,19 +1660,21 @@ func (b *InMemoryBackend) CreateConnector(
 
 	connectorID := "c-" + uuid.NewString()[:20]
 
-	merged := make(map[string]string, len(tags))
-	maps.Copy(merged, tags)
+	merged := make(map[string]string, len(in.Tags))
+	maps.Copy(merged, in.Tags)
 
 	c := &Connector{
-		ConnectorID: connectorID,
-		URL:         url,
-		AccessRole:  accessRole,
-		SftpConfig:  sftpConfig,
-		As2Config:   as2Config,
-		CreatedAt:   time.Now(),
-		Tags:        merged,
-		AccountID:   b.accountID,
-		Region:      b.region,
+		ConnectorID:        connectorID,
+		URL:                in.URL,
+		AccessRole:         in.AccessRole,
+		SftpConfig:         in.SftpConfig,
+		As2Config:          in.As2Config,
+		LoggingRole:        in.LoggingRole,
+		SecurityPolicyName: in.SecurityPolicyName,
+		CreatedAt:          time.Now(),
+		Tags:               merged,
+		AccountID:          b.accountID,
+		Region:             b.region,
 	}
 	b.connectors[connectorID] = c
 
@@ -1198,7 +1972,7 @@ func (b *InMemoryBackend) UpdateAgreement(
 
 	if status != "" {
 		switch status {
-		case "ACTIVE", "INACTIVE":
+		case agreementStatusActive, agreementStatusInactive:
 			// valid
 		default:
 			return nil, fmt.Errorf(
@@ -1245,34 +2019,66 @@ func (b *InMemoryBackend) ListConnectors() []*Connector {
 	return out
 }
 
+// UpdateConnectorInput holds all optional fields for UpdateConnector.
+type UpdateConnectorInput struct {
+	SftpConfig            *ConnectorSftpConfig
+	As2Config             *ConnectorAs2Config
+	ConnectorID           string
+	URL                   string
+	AccessRole            string
+	LoggingRole           string
+	SecurityPolicyName    string
+	SetLoggingRole        bool
+	SetSecurityPolicyName bool
+}
+
 // UpdateConnector updates mutable fields on a connector.
 func (b *InMemoryBackend) UpdateConnector(
 	connectorID, url, accessRole string,
 	sftpConfig *ConnectorSftpConfig,
 	as2Config *ConnectorAs2Config,
 ) (*Connector, error) {
+	return b.UpdateConnectorFull(&UpdateConnectorInput{
+		ConnectorID: connectorID,
+		URL:         url,
+		AccessRole:  accessRole,
+		SftpConfig:  sftpConfig,
+		As2Config:   as2Config,
+	})
+}
+
+// UpdateConnectorFull updates all mutable fields on a connector.
+func (b *InMemoryBackend) UpdateConnectorFull(in *UpdateConnectorInput) (*Connector, error) {
 	b.mu.Lock("UpdateConnector")
 	defer b.mu.Unlock()
 
-	c, ok := b.connectors[connectorID]
+	c, ok := b.connectors[in.ConnectorID]
 	if !ok {
-		return nil, fmt.Errorf("%w: connector %s not found", ErrConnectorNotFound, connectorID)
+		return nil, fmt.Errorf("%w: connector %s not found", ErrConnectorNotFound, in.ConnectorID)
 	}
 
-	if url != "" {
-		c.URL = url
+	if in.URL != "" {
+		c.URL = in.URL
 	}
 
-	if accessRole != "" {
-		c.AccessRole = accessRole
+	if in.AccessRole != "" {
+		c.AccessRole = in.AccessRole
 	}
 
-	if sftpConfig != nil {
-		c.SftpConfig = sftpConfig
+	if in.SftpConfig != nil {
+		c.SftpConfig = in.SftpConfig
 	}
 
-	if as2Config != nil {
-		c.As2Config = as2Config
+	if in.As2Config != nil {
+		c.As2Config = in.As2Config
+	}
+
+	if in.SetLoggingRole {
+		c.LoggingRole = in.LoggingRole
+	}
+
+	if in.SetSecurityPolicyName {
+		c.SecurityPolicyName = in.SecurityPolicyName
 	}
 
 	return cloneConnector(c), nil
@@ -1452,6 +2258,7 @@ func (b *InMemoryBackend) ListWorkflows() []*Workflow {
 
 // ImportCertificate imports a certificate.
 // notBefore and notAfter are optional; zero values use defaults (now and +1 year).
+// If body is a valid PEM certificate, NotBefore/NotAfter are extracted from it.
 func (b *InMemoryBackend) ImportCertificate(
 	usage, body, description string,
 	notBefore, notAfter time.Time,
@@ -1459,6 +2266,30 @@ func (b *InMemoryBackend) ImportCertificate(
 ) (*Certificate, error) {
 	b.mu.Lock("ImportCertificate")
 	defer b.mu.Unlock()
+
+	// Try to parse PEM if provided.
+	if body != "" {
+		block, _ := pem.Decode([]byte(body))
+		if block == nil {
+			return nil, fmt.Errorf(
+				"%w: certificate body is not a valid PEM block",
+				ErrValidation,
+			)
+		}
+
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"%w: failed to parse certificate: %w",
+				ErrValidation,
+				err,
+			)
+		}
+
+		// Override notBefore/notAfter from certificate.
+		notBefore = cert.NotBefore
+		notAfter = cert.NotAfter
+	}
 
 	certID := "cert-" + uuid.NewString()[:20]
 
@@ -1479,7 +2310,7 @@ func (b *InMemoryBackend) ImportCertificate(
 		Usage:         usage,
 		Body:          body,
 		Description:   description,
-		Status:        "ACTIVE",
+		Status:        agreementStatusActive,
 		NotBeforeDate: notBefore,
 		NotAfterDate:  notAfter,
 		CreatedAt:     now,
@@ -1494,6 +2325,126 @@ func (b *InMemoryBackend) ImportCertificate(
 	maps.Copy(cp.Tags, merged)
 
 	return &cp, nil
+}
+
+// StartFileFileTransferResult persists a transfer record and returns the transferID.
+func (b *InMemoryBackend) StartFileFileTransferResult(connectorID string, files []string) string {
+	b.mu.Lock("StartFileFileTransferResult")
+	defer b.mu.Unlock()
+
+	transferID := uuid.NewString()
+
+	b.transferRecords[transferID] = &FileTransferResult{
+		TransferID:  transferID,
+		ConnectorID: connectorID,
+		Status:      "QUEUED",
+		Files:       files,
+		CreatedAt:   time.Now(),
+	}
+
+	return transferID
+}
+
+// ListFileFileTransferResults returns all transfer records for a connector.
+func (b *InMemoryBackend) ListFileFileTransferResults(connectorID string) []*FileTransferResult {
+	b.mu.RLock("ListFileFileTransferResults")
+	defer b.mu.RUnlock()
+
+	var out []*FileTransferResult
+
+	for _, r := range b.transferRecords {
+		if connectorID == "" || r.ConnectorID == connectorID {
+			cp := *r
+			out = append(out, &cp)
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].TransferID < out[j].TransferID
+	})
+
+	return out
+}
+
+// StartAsyncOperationRecord persists an async operation record and returns the operationID.
+func (b *InMemoryBackend) StartAsyncOperationRecord(connectorID, opType string) string {
+	b.mu.Lock("StartAsyncOperationRecord")
+	defer b.mu.Unlock()
+
+	opID := uuid.NewString()
+
+	b.asyncOperations[opID] = &AsyncOperationRecord{
+		ID:          opID,
+		ConnectorID: connectorID,
+		Status:      "QUEUED",
+		Type:        opType,
+		CreatedAt:   time.Now(),
+	}
+
+	return opID
+}
+
+// HTTP status code constants for TestIdentityProvider.
+const (
+	httpStatusOK           = http.StatusOK
+	httpStatusBadRequest   = http.StatusBadRequest
+	httpStatusUnauthorized = http.StatusUnauthorized
+)
+
+// TestIdentityProvider tests the identity provider for a server.
+func (b *InMemoryBackend) TestIdentityProvider(serverID, userName string) (int, string) {
+	b.mu.RLock("TestIdentityProvider")
+	defer b.mu.RUnlock()
+
+	s, found := b.servers[serverID]
+	if !found {
+		return httpStatusBadRequest, "server not found"
+	}
+
+	if s.IdentityProviderType != identityProviderServiceManaged && s.IdentityProviderType != "" {
+		return httpStatusOK, "No validation for this provider type"
+	}
+
+	// SERVICE_MANAGED: check if user exists.
+	if users, hasUsers := b.users[serverID]; hasUsers {
+		if _, hasUser := users[userName]; hasUser {
+			return httpStatusOK, ""
+		}
+	}
+
+	return httpStatusUnauthorized, "user not found"
+}
+
+// SendWorkflowStepStateRecord advances an execution by matching a token.
+func (b *InMemoryBackend) SendWorkflowStepStateRecord(workflowID, executionID, token, status string) error {
+	b.mu.Lock("SendWorkflowStepState")
+	defer b.mu.Unlock()
+
+	execs, ok := b.executions[workflowID]
+	if !ok {
+		return fmt.Errorf("%w: workflow %s not found", ErrWorkflowNotFound, workflowID)
+	}
+
+	e, ok := execs[executionID]
+	if !ok {
+		return fmt.Errorf("%w: execution %s not found", ErrWorkflowNotFound, executionID)
+	}
+
+	if e.PendingTokens == nil {
+		e.PendingTokens = make(map[string]string)
+	}
+
+	// Mark token as processed.
+	e.PendingTokens[token] = status
+
+	switch status {
+	case "SUCCESS":
+		e.Status = "COMPLETED"
+	case "FAILURE":
+		e.Status = "EXCEPTION"
+	}
+
+	return nil
 }
 
 // DescribeCertificate returns a certificate by ID.
@@ -1714,6 +2665,9 @@ func (b *InMemoryBackend) UpdateHostKey(serverID, hostKeyID, description string)
 	return cloneHostKey(hk), nil
 }
 
+// ErrSSHPublicKeyDuplicate is returned when an SSH public key body already exists for the user.
+var ErrSSHPublicKeyDuplicate = awserr.New("ResourceExistsException", awserr.ErrConflict)
+
 // ImportSSHPublicKey imports an SSH public key for a user on a server.
 func (b *InMemoryBackend) ImportSSHPublicKey(
 	serverID, userName, sshPublicKeyBody string,
@@ -1733,13 +2687,27 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 		b.sshPublicKeys[serverID][userName] = make(map[string]*SSHPublicKey)
 	}
 
+	// Check for duplicate key body.
+	normalizedBody := strings.TrimSpace(sshPublicKeyBody)
+	for _, existing := range b.sshPublicKeys[serverID][userName] {
+		if strings.TrimSpace(existing.SSHPublicKeyBody) == normalizedBody {
+			return nil, fmt.Errorf(
+				"%w: SSH public key body already exists for user %s on server %s",
+				ErrSSHPublicKeyDuplicate,
+				userName,
+				serverID,
+			)
+		}
+	}
+
 	keyID := "key-" + uuid.NewString()[:8]
-	fingerprint := computeSSHKeyFingerprint(sshPublicKeyBody)
+	fingerprint, keyType := computeSSHKeyFingerprintAndType(sshPublicKeyBody)
 
 	k := &SSHPublicKey{
 		SSHPublicKeyID:   keyID,
 		SSHPublicKeyBody: sshPublicKeyBody,
 		Fingerprint:      fingerprint,
+		KeyType:          keyType,
 		UserName:         userName,
 		ServerID:         serverID,
 		DateImported:     time.Now(),
@@ -1750,6 +2718,7 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 		SSHPublicKeyID:   k.SSHPublicKeyID,
 		SSHPublicKeyBody: k.SSHPublicKeyBody,
 		Fingerprint:      k.Fingerprint,
+		KeyType:          k.KeyType,
 		UserName:         k.UserName,
 		ServerID:         k.ServerID,
 		DateImported:     k.DateImported,
@@ -1997,23 +2966,37 @@ func (b *InMemoryBackend) ListExecutions(workflowID string) ([]*Execution, error
 	return out, nil
 }
 
-// computeSSHKeyFingerprint computes the SHA256 fingerprint of an SSH public key body.
-// Returns empty string if the key is malformed.
-func computeSSHKeyFingerprint(keyBody string) string {
+// computeSSHKeyFingerprintAndType computes the SHA256 fingerprint and detects the key type.
+// Uses golang.org/x/crypto/ssh when possible for accurate fingerprint; falls back to manual SHA256.
+func computeSSHKeyFingerprintAndType(keyBody string) (string, string) {
+	// Try golang.org/x/crypto/ssh first for accurate fingerprint.
+	pk, _, _, _, err := ssh.ParseAuthorizedKey([]byte(keyBody))
+	if err == nil {
+		return ssh.FingerprintSHA256(pk), pk.Type()
+	}
+
+	// Fallback: manual computation.
 	parts := strings.Fields(keyBody)
-	const minSSHKeyParts = 2 // type + base64-encoded key
+	const minSSHKeyParts = 2
 	if len(parts) < minSSHKeyParts {
-		return ""
+		return "", ""
 	}
 
 	decoded, err := base64.StdEncoding.DecodeString(parts[1])
 	if err != nil {
-		return ""
+		return "", ""
 	}
 
 	sum := sha256.Sum256(decoded)
+	fp := "SHA256:" + base64.StdEncoding.EncodeToString(sum[:])
 
-	return "SHA256:" + base64.StdEncoding.EncodeToString(sum[:])
+	// Detect type from prefix.
+	switch parts[0] {
+	case defaultHostKeyType, "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", sshKeyTypeEd25519:
+		return fp, parts[0]
+	default:
+		return fp, ""
+	}
 }
 
 // detectHostKeyType returns the host key type string from the key body prefix.
@@ -2028,8 +3011,8 @@ func detectHostKeyType(hostKeyBody string) string {
 		return defaultHostKeyType
 	case "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521":
 		return prefix[0]
-	case "ssh-ed25519":
-		return "ssh-ed25519"
+	case sshKeyTypeEd25519:
+		return sshKeyTypeEd25519
 	default:
 		return defaultHostKeyType
 	}

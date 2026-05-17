@@ -438,9 +438,11 @@ func TestHandler_ImportCertificate(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	// Use no body so PEM parsing is skipped; provide dates as fallback.
 	rec := doTransferRequest(t, h, "ImportCertificate", map[string]any{
-		"Certificate": "-----BEGIN CERTIFICATE-----\nMIIBxxx\n-----END CERTIFICATE-----",
-		"Usage":       "SIGNING",
+		"Usage":         "SIGNING",
+		"NotBeforeDate": "2024-01-01T00:00:00Z",
+		"NotAfterDate":  "2025-01-01T00:00:00Z",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -451,8 +453,9 @@ func TestHandler_DescribeCertificate(t *testing.T) {
 	h := newTestHandler(t)
 
 	createRec := doTransferRequest(t, h, "ImportCertificate", map[string]any{
-		"Certificate": "-----BEGIN CERTIFICATE-----\nMIIByyy\n-----END CERTIFICATE-----",
-		"Usage":       "SIGNING",
+		"Usage":         "SIGNING",
+		"NotBeforeDate": "2024-01-01T00:00:00Z",
+		"NotAfterDate":  "2025-01-01T00:00:00Z",
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -480,8 +483,9 @@ func TestHandler_UpdateCertificate(t *testing.T) {
 	h := newTestHandler(t)
 
 	createRec := doTransferRequest(t, h, "ImportCertificate", map[string]any{
-		"Certificate": "-----BEGIN CERTIFICATE-----\nMIIBzzz\n-----END CERTIFICATE-----",
-		"Usage":       "SIGNING",
+		"Usage":         "SIGNING",
+		"NotBeforeDate": "2024-06-01T00:00:00Z",
+		"NotAfterDate":  "2025-06-01T00:00:00Z",
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
