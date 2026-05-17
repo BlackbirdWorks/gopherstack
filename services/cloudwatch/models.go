@@ -17,6 +17,9 @@ type MetricDatum struct {
 	Min               float64     `json:"Min"`
 	Max               float64     `json:"Max"`
 	StorageResolution int32       `json:"StorageResolution,omitempty"`
+	// HasStatisticSet is true when the datum was built from a StatisticValues input (not from Value).
+	// Used to enforce mutual exclusion of Value + StatisticSet at the handler level.
+	HasStatisticSet bool `json:"-"`
 }
 
 // UnprocessedMetricDatum describes a MetricDatum entry that could not be stored.
@@ -47,8 +50,12 @@ type Datapoint struct {
 	Maximum            *float64           `json:"Maximum,omitempty"`
 	SampleCount        *float64           `json:"SampleCount,omitempty"`
 	ExtendedStatistics map[string]float64 `json:"ExtendedStatistics,omitempty"`
-	Timestamp          time.Time          `json:"Timestamp"`
-	Unit               string             `json:"Unit,omitempty"`
+	// BandLower and BandUpper are the anomaly detection band boundaries for this point.
+	// Only populated when a matching AnomalyDetector exists for the metric.
+	BandLower *float64  `json:"BandLower,omitempty"`
+	BandUpper *float64  `json:"BandUpper,omitempty"`
+	Timestamp time.Time `json:"Timestamp"`
+	Unit      string    `json:"Unit,omitempty"`
 }
 
 // MetricAlarm represents a CloudWatch metric alarm.
@@ -165,10 +172,12 @@ type DashboardEntry struct {
 
 // AnomalyDetector represents a CloudWatch anomaly detector.
 type AnomalyDetector struct {
-	Namespace  string `json:"Namespace"`
-	MetricName string `json:"MetricName"`
-	Stat       string `json:"Stat"`
-	StateValue string `json:"StateValue"`
+	Namespace  string      `json:"Namespace"`
+	MetricName string      `json:"MetricName"`
+	Stat       string      `json:"Stat"`
+	StateValue string      `json:"StateValue"`
+	Dimensions []Dimension `json:"Dimensions,omitempty"`
+	BandWidth  float64     `json:"BandWidth,omitempty"`
 }
 
 // InsightRule represents a CloudWatch Contributor Insights rule.

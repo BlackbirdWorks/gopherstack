@@ -1825,6 +1825,10 @@ func (h *Handler) handleDeleteAnomalyDetector(form url.Values, c *echo.Context) 
 		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 
+	// Clean up tags for the deleted anomaly detector's ARN.
+	detectorARN := buildAnomalyDetectorARN(namespace, metricName, stat)
+	h.deleteResourceTags(detectorARN)
+
 	type response struct {
 		XMLName   xml.Name `xml:"DeleteAnomalyDetectorResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -1832,6 +1836,11 @@ func (h *Handler) handleDeleteAnomalyDetector(form url.Values, c *echo.Context) 
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+// buildAnomalyDetectorARN constructs a synthetic ARN for an anomaly detector (for tag storage).
+func buildAnomalyDetectorARN(namespace, metricName, stat string) string {
+	return "arn:aws:cloudwatch::anomaly-detector:" + namespace + "/" + metricName + "/" + stat
 }
 
 func (h *Handler) handleDescribeAnomalyDetectors(form url.Values, c *echo.Context) error {
@@ -1853,7 +1862,12 @@ func (h *Handler) handleDescribeAnomalyDetectors(form url.Values, c *echo.Contex
 	}
 	members := make([]detectorXML, 0, len(p.Data))
 	for _, d := range p.Data {
-		members = append(members, detectorXML(d))
+		members = append(members, detectorXML{
+			Namespace:  d.Namespace,
+			MetricName: d.MetricName,
+			Stat:       d.Stat,
+			StateValue: d.StateValue,
+		})
 	}
 
 	type descResult struct {
@@ -2144,6 +2158,10 @@ func (h *Handler) handleDeleteMetricStream(form url.Values, c *echo.Context) err
 		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 
+	// Clean up tags for the deleted metric stream's ARN.
+	streamARN := "arn:aws:cloudwatch::metric-stream/" + name
+	h.deleteResourceTags(streamARN)
+
 	type response struct {
 		XMLName   xml.Name `xml:"DeleteMetricStreamResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -2242,10 +2260,24 @@ func (h *Handler) handlePutAnomalyDetector(form url.Values, c *echo.Context) err
 		)
 	}
 
+	// Parse dimensions for the anomaly detector.
+	dims := parseDimensionsFromForm(form, "SingleMetricAnomalyDetector.Dimensions")
+	if len(dims) == 0 {
+		dims = parseDimensionsFromForm(form, "Dimensions")
+	}
+
+	// Parse optional band width.
+	bandWidth := 0.0
+	if bwStr := form.Get("Configuration.BandWidth"); bwStr != "" {
+		bandWidth, _ = strconv.ParseFloat(bwStr, 64)
+	}
+
 	if err := h.Backend.PutAnomalyDetector(&AnomalyDetector{
 		Namespace:  namespace,
 		MetricName: metricName,
 		Stat:       stat,
+		Dimensions: dims,
+		BandWidth:  bandWidth,
 		StateValue: statusTrainedInsufficient,
 	}); err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

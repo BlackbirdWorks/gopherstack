@@ -2,6 +2,44 @@ package cloudwatch
 
 import "time"
 
+// SignPageTokenForTest exposes signPageToken for unit testing.
+func SignPageTokenForTest(offset int) string { return signPageToken(offset) }
+
+// ParseSignedPageTokenForTest exposes parseSignedPageToken for unit testing.
+func ParseSignedPageTokenForTest(token string) (int, error) { return parseSignedPageToken(token) }
+
+// ValidateMetricDatumForTest exposes validateMetricDatum for unit testing.
+func ValidateMetricDatumForTest(d MetricDatum) error { return validateMetricDatum(d) }
+
+// ValidateStorageResolutionForTest exposes validateStorageResolution for unit testing.
+func ValidateStorageResolutionForTest(res int32) error { return validateStorageResolution(res) }
+
+// TopoSortExpressionsForTest exposes topoSortExpressions for unit testing.
+func TopoSortExpressionsForTest(queries []MetricDataQuery) ([]string, error) {
+	return topoSortExpressions(queries)
+}
+
+// ExtractExprDepsForTest exposes extractExprDeps for unit testing.
+func ExtractExprDepsForTest(expr string, known map[string]bool) []string {
+	return extractExprDeps(expr, known)
+}
+
+// RollingStatsForTest exposes rollingStats for unit testing.
+func RollingStatsForTest(vals []float64) (float64, float64) { return rollingStats(vals) }
+
+// ComputeAnomalyBandForTest exposes computeAnomalyBand for unit testing.
+func ComputeAnomalyBandForTest(values []float64) ([]float64, []float64) {
+	return computeAnomalyBand(values)
+}
+
+// EvalAnomalyDetectionBandForTest exposes evalAnomalyDetectionBand for unit testing.
+func EvalAnomalyDetectionBandForTest(
+	expr string,
+	resolved map[string]MetricDataResult,
+) (MetricDataResult, MetricDataResult, bool) {
+	return evalAnomalyDetectionBand(expr, resolved)
+}
+
 // EvaluateAlarmRuleForTest is a test-visible wrapper around evaluateAlarmRule.
 func EvaluateAlarmRuleForTest(rule string, states map[string]string) string {
 	return evaluateAlarmRule(rule, func(name string) string {

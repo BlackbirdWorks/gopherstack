@@ -337,6 +337,28 @@ func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) ([
 	for _, d := range data {
 		d.Namespace = namespace
 
+		// Reject entries that set both Value and StatisticSet.
+		if err := validateMetricDatum(d); err != nil {
+			unprocessed = append(unprocessed, UnprocessedMetricDatum{
+				MetricName:   d.MetricName,
+				ErrorCode:    "InvalidParameterCombination",
+				ErrorMessage: err.Error(),
+			})
+
+			continue
+		}
+
+		// Validate StorageResolution is 1 or 60 (or 0 = default).
+		if err := validateStorageResolution(d.StorageResolution); err != nil {
+			unprocessed = append(unprocessed, UnprocessedMetricDatum{
+				MetricName:   d.MetricName,
+				ErrorCode:    "InvalidParameterValue",
+				ErrorMessage: err.Error(),
+			})
+
+			continue
+		}
+
 		key := metricStorageKey(d.MetricName, d.Dimensions)
 		rec, exists := b.metrics[namespace][key]
 
@@ -645,7 +667,74 @@ func (b *InMemoryBackend) GetMetricStatistics(
 		return datapoints[i].Timestamp.Before(datapoints[j].Timestamp)
 	})
 
+	// Annotate datapoints with anomaly band if a detector exists for this metric.
+	b.annotateAnomalyBand(namespace, metricName, dimensions, datapoints)
+
 	return datapoints, nil
+}
+
+// annotateAnomalyBand adds BandLower/BandUpper to each Datapoint when a matching
+// AnomalyDetector exists. Caller must hold b.mu (at least read lock).
+func (b *InMemoryBackend) annotateAnomalyBand(
+	namespace, metricName string,
+	dimensions []Dimension,
+	datapoints []Datapoint,
+) {
+	if len(datapoints) == 0 {
+		return
+	}
+
+	// Look for a detector matching this metric (any stat matches since band is stat-agnostic).
+	var matchedDetector *AnomalyDetector
+
+	for _, d := range b.anomalyDetectors {
+		if d.Namespace != namespace || d.MetricName != metricName {
+			continue
+		}
+
+		// Dimension match: stored detector must have a subset of the request dimensions.
+		if !dimsContainAll(dimensions, d.Dimensions) {
+			continue
+		}
+
+		matchedDetector = d
+
+		break
+	}
+
+	if matchedDetector == nil {
+		return
+	}
+
+	// Extract values from datapoints for band computation.
+	vals := make([]float64, len(datapoints))
+	for i, dp := range datapoints {
+		switch {
+		case dp.Average != nil:
+			vals[i] = *dp.Average
+		case dp.Sum != nil:
+			vals[i] = *dp.Sum
+		case dp.Maximum != nil:
+			vals[i] = *dp.Maximum
+		default:
+			vals[i] = 0
+		}
+	}
+
+	bandWidth := matchedDetector.BandWidth
+	if bandWidth <= 0 {
+		bandWidth = defaultAnomalyBandStdDevs
+	}
+
+	mean, stddev := rollingStats(vals)
+	halfWidth := bandWidth * stddev
+
+	for i := range datapoints {
+		lo := mean - halfWidth
+		hi := mean + halfWidth
+		datapoints[i].BandLower = &lo
+		datapoints[i].BandUpper = &hi
+	}
 }
 
 // GetMetricData executes multiple metric queries and returns results.
@@ -682,13 +771,23 @@ func (b *InMemoryBackend) GetMetricDataWithOptions(
 		resolved[q.ID] = b.resolveMetricStat(q, startTime, endTime)
 	}
 
-	// Second pass: evaluate expression queries in declaration order so later
-	// expressions can reference results of earlier expressions.
+	// Second pass: evaluate expression queries in topological order so forward
+	// references work regardless of declaration order.
+	exprOrder, _ := topoSortExpressions(queries)
+
+	exprByID := make(map[string]MetricDataQuery, len(queries))
 	for _, q := range queries {
-		if q.Expression == "" {
+		if q.Expression != "" {
+			exprByID[q.ID] = q
+		}
+	}
+
+	for _, id := range exprOrder {
+		q, ok := exprByID[id]
+		if !ok {
 			continue
 		}
-		resolved[q.ID] = evalExpression(q, resolved)
+		resolved[id] = evalExpression(q, resolved)
 	}
 
 	descending := strings.EqualFold(scanBy, "TimestampDescending")
@@ -1708,6 +1807,7 @@ func (b *InMemoryBackend) GetInsightRuleContributors(
 }
 
 // anomalyDetectorKey returns a stable map key for an anomaly detector.
+// Dimensions are included in the key so different dimension sets produce distinct detectors.
 func anomalyDetectorKey(namespace, metricName, stat string) string {
 	return namespace + "/" + metricName + "/" + stat
 }

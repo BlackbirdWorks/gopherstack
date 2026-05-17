@@ -77,6 +77,14 @@ func evalExpression(q MetricDataQuery, resolved map[string]MetricDataResult) Met
 	expr := strings.TrimSpace(q.Expression)
 	upper := strings.ToUpper(expr)
 
+	// ANOMALY_DETECTION_BAND returns the upper band; the lower band is stored in a synthetic key.
+	if upperBand, _, ok := evalAnomalyDetectionBand(expr, resolved); ok {
+		result.Timestamps = upperBand.Timestamps
+		result.Values = upperBand.Values
+
+		return result
+	}
+
 	if evalFillExpr(upper, resolved, &result) {
 		return result
 	}
