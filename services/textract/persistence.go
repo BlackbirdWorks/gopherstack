@@ -3,14 +3,17 @@ package textract
 import (
 	"encoding/json"
 	"log/slog"
+	"maps"
 )
 
 type backendSnapshot struct {
-	Jobs            map[string]*DocumentJob    `json:"jobs"`
-	ExpenseJobs     map[string]*ExpenseJob     `json:"expenseJobs"`
-	LendingJobs     map[string]*LendingJob     `json:"lendingJobs"`
-	Adapters        map[string]*Adapter        `json:"adapters"`
-	AdapterVersions map[string]*AdapterVersion `json:"adapterVersions"`
+	Jobs                   map[string]*DocumentJob    `json:"jobs"`
+	ExpenseJobs            map[string]*ExpenseJob     `json:"expenseJobs"`
+	LendingJobs            map[string]*LendingJob     `json:"lendingJobs"`
+	Adapters               map[string]*Adapter        `json:"adapters"`
+	AdapterVersions        map[string]*AdapterVersion `json:"adapterVersions"`
+	ClientTokenToJobID     map[string]string          `json:"clientTokenToJobId,omitempty"`
+	AdapterClientTokenToID map[string]string          `json:"adapterClientTokenToId,omitempty"`
 }
 
 // ensureNonNilMaps guarantees that all map fields in the snapshot are non-nil.
@@ -33,6 +36,14 @@ func (s *backendSnapshot) ensureNonNilMaps() {
 
 	if s.AdapterVersions == nil {
 		s.AdapterVersions = make(map[string]*AdapterVersion)
+	}
+
+	if s.ClientTokenToJobID == nil {
+		s.ClientTokenToJobID = make(map[string]string)
+	}
+
+	if s.AdapterClientTokenToID == nil {
+		s.AdapterClientTokenToID = make(map[string]string)
 	}
 }
 
@@ -67,12 +78,20 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		adapterVersionsCopy[k] = cloneAdapterVersion(v)
 	}
 
+	tokenMapCopy := make(map[string]string, len(b.clientTokenToJobID))
+	maps.Copy(tokenMapCopy, b.clientTokenToJobID)
+
+	adapterTokenMapCopy := make(map[string]string, len(b.adapterClientTokenToID))
+	maps.Copy(adapterTokenMapCopy, b.adapterClientTokenToID)
+
 	snap := backendSnapshot{
-		Jobs:            jobsCopy,
-		ExpenseJobs:     expenseJobsCopy,
-		LendingJobs:     lendingJobsCopy,
-		Adapters:        adaptersCopy,
-		AdapterVersions: adapterVersionsCopy,
+		Jobs:                   jobsCopy,
+		ExpenseJobs:            expenseJobsCopy,
+		LendingJobs:            lendingJobsCopy,
+		Adapters:               adaptersCopy,
+		AdapterVersions:        adapterVersionsCopy,
+		ClientTokenToJobID:     tokenMapCopy,
+		AdapterClientTokenToID: adapterTokenMapCopy,
 	}
 
 	data, err := json.Marshal(snap)
@@ -104,6 +123,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.lendingJobs = snap.LendingJobs
 	b.adapters = snap.Adapters
 	b.adapterVersions = snap.AdapterVersions
+	b.clientTokenToJobID = snap.ClientTokenToJobID
+	b.adapterClientTokenToID = snap.AdapterClientTokenToID
 
 	return nil
 }
