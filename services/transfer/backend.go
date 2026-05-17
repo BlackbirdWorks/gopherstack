@@ -968,7 +968,8 @@ func (b *InMemoryBackend) DeleteServer(serverID string) error {
 	}
 
 	// AWS requires the server to be OFFLINE before deletion.
-	if s.State != serverStatusOffline {
+	// STOPPING is also accepted — server is already transitioning offline.
+	if s.State == serverStatusOnline || s.State == serverStatusStarting {
 		return fmt.Errorf("%w: server %s is in state %s", ErrServerOnline, serverID, s.State)
 	}
 
