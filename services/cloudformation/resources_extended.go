@@ -903,7 +903,7 @@ func (rc *ResourceCreator) createRoute53RecordSet(
 		},
 	}
 
-	if err := rc.backends.Route53.Backend.ChangeResourceRecordSets(
+	if _, err := rc.backends.Route53.Backend.ChangeResourceRecordSets(
 		hostedZoneID,
 		[]route53backend.Change{change},
 	); err != nil {

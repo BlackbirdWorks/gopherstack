@@ -106,7 +106,9 @@ func TestRoute53_EnableDisableGetDNSSEC(t *testing.T) {
 			setup: func(t *testing.T, h *route53.Handler) string {
 				t.Helper()
 
-				return createZoneForOpsTest(t, h)
+				zoneID := createZoneForOpsTest(t, h)
+				createKSKForOpsTest(t, h, zoneID, "main-key")
+				return zoneID
 			},
 			method:       http.MethodPost,
 			pathSuffix:   "/enable-dnssec",
@@ -130,6 +132,7 @@ func TestRoute53_EnableDisableGetDNSSEC(t *testing.T) {
 				t.Helper()
 
 				zoneID := createZoneForOpsTest(t, h)
+				createKSKForOpsTest(t, h, zoneID, "disable-key")
 				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/enable-dnssec", "")
 				require.Equal(t, http.StatusOK, rec.Code)
 
@@ -158,6 +161,7 @@ func TestRoute53_EnableDisableGetDNSSEC(t *testing.T) {
 				t.Helper()
 
 				zoneID := createZoneForOpsTest(t, h)
+				createKSKForOpsTest(t, h, zoneID, "signing-key")
 				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/enable-dnssec", "")
 				require.Equal(t, http.StatusOK, rec.Code)
 

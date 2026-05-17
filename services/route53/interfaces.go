@@ -10,10 +10,12 @@ type StorageBackend interface {
 	DeleteHostedZone(zoneID string) error
 	GetHostedZone(zoneID string) (*HostedZone, error)
 	ListHostedZones(marker string, maxItems int) (page.Page[HostedZone], error)
+	UpdateHostedZoneComment(zoneID, comment string) (*HostedZone, error)
 
 	// Record set operations
-	ChangeResourceRecordSets(zoneID string, changes []Change) error
-	ListResourceRecordSets(zoneID string) ([]ResourceRecordSet, error)
+	ChangeResourceRecordSets(zoneID string, changes []Change) (string, error)
+	ListResourceRecordSets(zoneID, startName, startType, startIdentifier string, maxItems int) (RRSetPage, error)
+	GetChange(changeID string) (*ChangeInfo, error)
 
 	// Health check operations
 	CreateHealthCheck(callerRef string, cfg HealthCheckConfig) (*HealthCheck, error)
@@ -37,12 +39,20 @@ type StorageBackend interface {
 
 	// VPC association operations
 	AssociateVPCWithHostedZone(zoneID, vpcID, vpcRegion string) error
+	DisassociateVPCFromHostedZone(zoneID, vpcID string) error
+	ListVPCAssociations(zoneID string) ([]vpcAssociation, error)
+	ListHostedZonesByVPC(vpcID, vpcRegion string) ([]HostedZone, error)
+	CreateVPCAssociationAuthorization(zoneID, vpcID, vpcRegion string) (*VPCAssociationAuthorization, error)
+	DeleteVPCAssociationAuthorization(zoneID, vpcID string) error
+	ListVPCAssociationAuthorizations(zoneID string) ([]VPCAssociationAuthorization, error)
 
 	// CIDR collection operations
 	CreateCidrCollection(name, callerRef string) (*CidrCollection, error)
 	ChangeCidrCollection(collectionID string, changes []CidrCollectionChange) (*CidrCollection, error)
 	DeleteCidrCollection(id string) error
 	ListCidrCollections() ([]*CidrCollection, error)
+	ListCidrLocations(collectionID string) ([]string, error)
+	ListCidrBlocks(collectionID, locationName string) ([]string, error)
 
 	// Query logging operations
 	CreateQueryLoggingConfig(hostedZoneID, logGroupArn string) (*QueryLoggingConfig, error)
@@ -56,10 +66,6 @@ type StorageBackend interface {
 	DeleteReusableDelegationSet(id string) error
 	ListReusableDelegationSets() ([]*ReusableDelegationSet, error)
 
-	// VPC disassociation
-	DisassociateVPCFromHostedZone(zoneID, vpcID string) error
-	GetVPCAssociations(zoneID string) ([]vpcAssociation, error)
-
 	// DNS query simulation
 	TestDNSAnswer(zoneID, recordName, recordType string) ([]string, error)
 
@@ -71,6 +77,7 @@ type StorageBackend interface {
 		tpVersion int32,
 		ttl int64,
 	) (*TrafficPolicyInstance, error)
+	UpdateTrafficPolicyInstance(id, tpID string, tpVersion int32, ttl int64) (*TrafficPolicyInstance, error)
 	DeleteTrafficPolicy(id string, version int32) error
 	GetTrafficPolicy(id string, version int32) (*TrafficPolicy, error)
 	DeleteTrafficPolicyInstance(id string) error
@@ -78,6 +85,8 @@ type StorageBackend interface {
 	ListTrafficPolicies() ([]*TrafficPolicy, error)
 	ListTrafficPolicyVersions(id string) ([]*TrafficPolicy, error)
 	ListTrafficPolicyInstances() ([]*TrafficPolicyInstance, error)
+	ListTrafficPolicyInstancesByHostedZone(hostedZoneID string) ([]*TrafficPolicyInstance, error)
+	ListTrafficPolicyInstancesByPolicy(tpID string, tpVersion int32) ([]*TrafficPolicyInstance, error)
 
 	// Lifecycle
 	Reset()
