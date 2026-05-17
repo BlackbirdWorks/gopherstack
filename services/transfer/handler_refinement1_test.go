@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -380,6 +381,16 @@ func TestRefinement1_DeleteServerCascade(t *testing.T) {
 	assert.Equal(t, 1, transfer.AccessCount(b))
 	assert.Equal(t, 1, transfer.AgreementCount(b))
 
+	// AWS requires server to be OFFLINE before deletion.
+	require.NoError(t, b.StopServer(s.ServerID))
+	for range 30 {
+		got, _ := b.DescribeServer(s.ServerID)
+		if got != nil && got.State == "OFFLINE" {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+
 	require.NoError(t, b.DeleteServer(s.ServerID))
 
 	assert.Equal(t, 0, transfer.ServerCount(b))
@@ -603,6 +614,19 @@ func TestRefinement1_DeleteServerCascadeHTTP(t *testing.T) {
 
 	assert.Equal(t, 1, transfer.AccessCount(b))
 	assert.Equal(t, 1, transfer.AgreementCount(b))
+
+	// AWS requires server to be OFFLINE before deletion.
+	stopRec := doTransferRequest(t, h, "StopServer", map[string]any{"ServerId": serverID})
+	require.Equal(t, http.StatusOK, stopRec.Code)
+	for range 30 {
+		descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
+		var resp map[string]any
+		_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
+		if resp["Server"].(map[string]any)["State"].(string) == "OFFLINE" {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
 
 	deleteRec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
 	require.Equal(t, http.StatusOK, deleteRec.Code)

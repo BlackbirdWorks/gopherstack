@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -26,15 +27,19 @@ const (
 )
 
 const transferTargetPrefix = "TransferService."
-const idSuffixLen = 8 // length of zero-padded ID suffix
 
 const (
-	keyDescription = "Description"
-	keyStatus      = "Status"
-	keyWorkflowID  = "WorkflowId"
-	keyConnectorID = "ConnectorId"
-	keyURL         = "Url"
-	keyTransferID  = "TransferId"
+	keyDescription      = "Description"
+	keyStatus           = "Status"
+	keyWorkflowID       = "WorkflowId"
+	keyConnectorID      = "ConnectorId"
+	keyURL              = "Url"
+	keyTransferID       = "TransferId"
+	keyStepType         = "Type"
+	keyStepName         = "Name"
+	keySourceFileLoc    = "SourceFileLocation"
+	keyLocalProfileID   = "LocalProfileId"
+	keyPartnerProfileID = "PartnerProfileId"
 )
 
 var (
@@ -330,9 +335,136 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 // --- Server operations ---
 
+type identityProviderDetailsInput struct {
+	URL                       string `json:"Url,omitempty"`
+	InvocationRole            string `json:"InvocationRole,omitempty"`
+	DirectoryID               string `json:"DirectoryId,omitempty"`
+	Function                  string `json:"Function,omitempty"`
+	SftpAuthenticationMethods string `json:"SftpAuthenticationMethods,omitempty"`
+}
+
+type endpointDetailsInput struct {
+	VpcEndpointID        string   `json:"VpcEndpointId,omitempty"`
+	VpcID                string   `json:"VpcId,omitempty"`
+	AddressAllocationIDs []string `json:"AddressAllocationIds,omitempty"`
+	SubnetIDs            []string `json:"SubnetIds,omitempty"`
+	SecurityGroupIDs     []string `json:"SecurityGroupIds,omitempty"`
+}
+
+type protocolDetailsInput struct {
+	PassiveIP                string   `json:"PassiveIp,omitempty"`
+	TLSSessionResumptionMode string   `json:"TlsSessionResumptionMode,omitempty"`
+	SetStatOption            string   `json:"SetStatOption,omitempty"`
+	As2Transports            []string `json:"As2Transports,omitempty"`
+}
+
+type workflowDetailInput struct {
+	WorkflowID    string `json:"WorkflowId"`
+	ExecutionRole string `json:"ExecutionRole"`
+}
+
+type workflowDetailsInput struct {
+	OnUpload        []workflowDetailInput `json:"OnUpload,omitempty"`
+	OnPartialUpload []workflowDetailInput `json:"OnPartialUpload,omitempty"`
+}
+
+type s3StorageOptionsInput struct {
+	DirectoryListingOptimization string `json:"DirectoryListingOptimization,omitempty"`
+}
+
+func toIdentityProviderDetails(in *identityProviderDetailsInput) *IdentityProviderDetails {
+	if in == nil {
+		return nil
+	}
+
+	return &IdentityProviderDetails{
+		URL:                       in.URL,
+		InvocationRole:            in.InvocationRole,
+		DirectoryID:               in.DirectoryID,
+		Function:                  in.Function,
+		SftpAuthenticationMethods: in.SftpAuthenticationMethods,
+	}
+}
+
+func toEndpointDetails(in *endpointDetailsInput) *EndpointDetails {
+	if in == nil {
+		return nil
+	}
+
+	return &EndpointDetails{
+		AddressAllocationIDs: in.AddressAllocationIDs,
+		SubnetIDs:            in.SubnetIDs,
+		SecurityGroupIDs:     in.SecurityGroupIDs,
+		VpcEndpointID:        in.VpcEndpointID,
+		VpcID:                in.VpcID,
+	}
+}
+
+func toProtocolDetails(in *protocolDetailsInput) *ProtocolDetails {
+	if in == nil {
+		return nil
+	}
+
+	return &ProtocolDetails{
+		PassiveIP:                in.PassiveIP,
+		TLSSessionResumptionMode: in.TLSSessionResumptionMode,
+		SetStatOption:            in.SetStatOption,
+		As2Transports:            in.As2Transports,
+	}
+}
+
+func toWorkflowDetails(in *workflowDetailsInput) *WorkflowDetails {
+	if in == nil {
+		return nil
+	}
+
+	toDetails := func(items []workflowDetailInput) []WorkflowDetail {
+		if items == nil {
+			return nil
+		}
+		out := make([]WorkflowDetail, len(items))
+		for i, d := range items {
+			out[i] = WorkflowDetail(d)
+		}
+
+		return out
+	}
+
+	return &WorkflowDetails{
+		OnUpload:        toDetails(in.OnUpload),
+		OnPartialUpload: toDetails(in.OnPartialUpload),
+	}
+}
+
+func toS3StorageOptions(in *s3StorageOptionsInput) *S3StorageOptions {
+	if in == nil {
+		return nil
+	}
+
+	return &S3StorageOptions{
+		DirectoryListingOptimization: in.DirectoryListingOptimization,
+	}
+}
+
 type createServerInput struct {
-	Protocols []string            `json:"Protocols"`
-	Tags      []map[string]string `json:"Tags"`
+	IdentityProviderDetails       *identityProviderDetailsInput `json:"IdentityProviderDetails,omitempty"`
+	EndpointDetails               *endpointDetailsInput         `json:"EndpointDetails,omitempty"`
+	ProtocolDetails               *protocolDetailsInput         `json:"ProtocolDetails,omitempty"`
+	WorkflowDetails               *workflowDetailsInput         `json:"WorkflowDetails,omitempty"`
+	S3StorageOptions              *s3StorageOptionsInput        `json:"S3StorageOptions,omitempty"`
+	IdentityProviderType          string                        `json:"IdentityProviderType,omitempty"`
+	EndpointType                  string                        `json:"EndpointType,omitempty"`
+	LoggingRole                   string                        `json:"LoggingRole,omitempty"`
+	PreAuthenticationLoginBanner  string                        `json:"PreAuthenticationLoginBanner,omitempty"`
+	PostAuthenticationLoginBanner string                        `json:"PostAuthenticationLoginBanner,omitempty"`
+	HostKey                       string                        `json:"HostKey,omitempty"`
+	Certificate                   string                        `json:"Certificate,omitempty"`
+	Domain                        string                        `json:"Domain,omitempty"`
+	SecurityPolicyName            string                        `json:"SecurityPolicyName,omitempty"`
+	IPAddressType                 string                        `json:"IpAddressType,omitempty"`
+	StructuredLogDestinations     []string                      `json:"StructuredLogDestinations,omitempty"`
+	Tags                          []map[string]string           `json:"Tags"`
+	Protocols                     []string                      `json:"Protocols"`
 }
 
 type createServerOutput struct {
@@ -345,7 +477,26 @@ func (h *Handler) handleCreateServer(
 ) (*createServerOutput, error) {
 	tags := tagsFromList(in.Tags)
 
-	s, err := h.Backend.CreateServer(in.Protocols, tags)
+	s, err := h.Backend.CreateServerFull(&CreateServerInput{
+		Protocols:                     in.Protocols,
+		Tags:                          tags,
+		IdentityProviderType:          in.IdentityProviderType,
+		EndpointType:                  in.EndpointType,
+		LoggingRole:                   in.LoggingRole,
+		PreAuthenticationLoginBanner:  in.PreAuthenticationLoginBanner,
+		PostAuthenticationLoginBanner: in.PostAuthenticationLoginBanner,
+		HostKey:                       in.HostKey,
+		Certificate:                   in.Certificate,
+		Domain:                        in.Domain,
+		SecurityPolicyName:            in.SecurityPolicyName,
+		IPAddressType:                 in.IPAddressType,
+		StructuredLogDestinations:     in.StructuredLogDestinations,
+		IdentityProviderDetails:       toIdentityProviderDetails(in.IdentityProviderDetails),
+		EndpointDetails:               toEndpointDetails(in.EndpointDetails),
+		ProtocolDetails:               toProtocolDetails(in.ProtocolDetails),
+		WorkflowDetails:               toWorkflowDetails(in.WorkflowDetails),
+		S3StorageOptions:              toS3StorageOptions(in.S3StorageOptions),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -358,12 +509,64 @@ type serverIDInput struct {
 }
 
 type serverView struct {
-	Arn       string              `json:"Arn"`
-	ServerID  string              `json:"ServerId"`
-	State     string              `json:"State"`
-	Protocols []string            `json:"Protocols"`
-	Domain    string              `json:"Domain"`
-	Tags      []map[string]string `json:"Tags"`
+	IdentityProviderDetails       *identityProviderDetailsView `json:"IdentityProviderDetails,omitempty"`
+	EndpointDetails               *endpointDetailsView         `json:"EndpointDetails,omitempty"`
+	ProtocolDetails               *protocolDetailsView         `json:"ProtocolDetails,omitempty"`
+	WorkflowDetails               *workflowDetailsView         `json:"WorkflowDetails,omitempty"`
+	S3StorageOptions              *s3StorageOptionsView        `json:"S3StorageOptions,omitempty"`
+	PreAuthenticationLoginBanner  string                       `json:"PreAuthenticationLoginBanner,omitempty"`
+	IdentityProviderType          string                       `json:"IdentityProviderType,omitempty"`
+	IPAddressType                 string                       `json:"IpAddressType,omitempty"`
+	Arn                           string                       `json:"Arn"`
+	ServerID                      string                       `json:"ServerId"`
+	State                         string                       `json:"State"`
+	Domain                        string                       `json:"Domain"`
+	SecurityPolicyName            string                       `json:"SecurityPolicyName,omitempty"`
+	EndpointType                  string                       `json:"EndpointType,omitempty"`
+	LoggingRole                   string                       `json:"LoggingRole,omitempty"`
+	Certificate                   string                       `json:"Certificate,omitempty"`
+	PostAuthenticationLoginBanner string                       `json:"PostAuthenticationLoginBanner,omitempty"`
+	Tags                          []map[string]string          `json:"Tags"`
+	Protocols                     []string                     `json:"Protocols"`
+	StructuredLogDestinations     []string                     `json:"StructuredLogDestinations,omitempty"`
+	UserCount                     int                          `json:"UserCount"`
+}
+
+type identityProviderDetailsView struct {
+	URL                       string `json:"Url,omitempty"`
+	InvocationRole            string `json:"InvocationRole,omitempty"`
+	DirectoryID               string `json:"DirectoryId,omitempty"`
+	Function                  string `json:"Function,omitempty"`
+	SftpAuthenticationMethods string `json:"SftpAuthenticationMethods,omitempty"`
+}
+
+type endpointDetailsView struct {
+	VpcEndpointID        string   `json:"VpcEndpointId,omitempty"`
+	VpcID                string   `json:"VpcId,omitempty"`
+	AddressAllocationIDs []string `json:"AddressAllocationIds,omitempty"`
+	SubnetIDs            []string `json:"SubnetIds,omitempty"`
+	SecurityGroupIDs     []string `json:"SecurityGroupIds,omitempty"`
+}
+
+type protocolDetailsView struct {
+	PassiveIP                string   `json:"PassiveIp,omitempty"`
+	TLSSessionResumptionMode string   `json:"TlsSessionResumptionMode,omitempty"`
+	SetStatOption            string   `json:"SetStatOption,omitempty"`
+	As2Transports            []string `json:"As2Transports,omitempty"`
+}
+
+type workflowDetailView struct {
+	WorkflowID    string `json:"WorkflowId"`
+	ExecutionRole string `json:"ExecutionRole"`
+}
+
+type workflowDetailsView struct {
+	OnUpload        []workflowDetailView `json:"OnUpload,omitempty"`
+	OnPartialUpload []workflowDetailView `json:"OnPartialUpload,omitempty"`
+}
+
+type s3StorageOptionsView struct {
+	DirectoryListingOptimization string `json:"DirectoryListingOptimization,omitempty"`
 }
 
 type describeServerOutput struct {
@@ -383,9 +586,10 @@ func (h *Handler) handleDescribeServer(
 		return nil, err
 	}
 
-	return &describeServerOutput{
-		Server: toServerView(s, serverARN(s.AccountID, s.Region, s.ServerID)),
-	}, nil
+	view := toServerView(s, serverARN(s.AccountID, s.Region, s.ServerID))
+	view.UserCount = h.Backend.ServerUserCount(in.ServerID)
+
+	return &describeServerOutput{Server: view}, nil
 }
 
 type listServersOutput struct {
@@ -399,10 +603,13 @@ type listServersInput struct {
 }
 
 type serverListItem struct {
-	Arn      string `json:"Arn"`
-	ServerID string `json:"ServerId"`
-	State    string `json:"State"`
-	Domain   string `json:"Domain"`
+	Arn                  string `json:"Arn"`
+	ServerID             string `json:"ServerId"`
+	State                string `json:"State"`
+	Domain               string `json:"Domain"`
+	EndpointType         string `json:"EndpointType,omitempty"`
+	IdentityProviderType string `json:"IdentityProviderType,omitempty"`
+	UserCount            int    `json:"UserCount"`
 }
 
 func (h *Handler) handleListServers(
@@ -415,10 +622,13 @@ func (h *Handler) handleListServers(
 	for i := range servers {
 		s := &servers[i]
 		items = append(items, serverListItem{
-			Arn:      serverARN(s.AccountID, s.Region, s.ServerID),
-			ServerID: s.ServerID,
-			State:    s.State,
-			Domain:   s.Domain,
+			Arn:                  serverARN(s.AccountID, s.Region, s.ServerID),
+			ServerID:             s.ServerID,
+			State:                s.State,
+			Domain:               s.Domain,
+			EndpointType:         s.EndpointType,
+			IdentityProviderType: s.IdentityProviderType,
+			UserCount:            h.Backend.ServerUserCount(s.ServerID),
 		})
 	}
 
@@ -464,8 +674,22 @@ func (h *Handler) handleDeleteServer(_ context.Context, in *serverIDInput) (*str
 }
 
 type updateServerInput struct {
-	ServerID  string   `json:"ServerId"`
-	Protocols []string `json:"Protocols"`
+	IdentityProviderDetails       *identityProviderDetailsInput `json:"IdentityProviderDetails,omitempty"`
+	EndpointDetails               *endpointDetailsInput         `json:"EndpointDetails,omitempty"`
+	ProtocolDetails               *protocolDetailsInput         `json:"ProtocolDetails,omitempty"`
+	WorkflowDetails               *workflowDetailsInput         `json:"WorkflowDetails,omitempty"`
+	S3StorageOptions              *s3StorageOptionsInput        `json:"S3StorageOptions,omitempty"`
+	Certificate                   string                        `json:"Certificate,omitempty"`
+	ServerID                      string                        `json:"ServerId"`
+	EndpointType                  string                        `json:"EndpointType,omitempty"`
+	HostKey                       string                        `json:"HostKey,omitempty"`
+	LoggingRole                   string                        `json:"LoggingRole,omitempty"`
+	PreAuthenticationLoginBanner  string                        `json:"PreAuthenticationLoginBanner,omitempty"`
+	PostAuthenticationLoginBanner string                        `json:"PostAuthenticationLoginBanner,omitempty"`
+	SecurityPolicyName            string                        `json:"SecurityPolicyName,omitempty"`
+	IPAddressType                 string                        `json:"IpAddressType,omitempty"`
+	StructuredLogDestinations     []string                      `json:"StructuredLogDestinations,omitempty"`
+	Protocols                     []string                      `json:"Protocols,omitempty"`
 }
 
 type updateServerOutput struct {
@@ -480,7 +704,38 @@ func (h *Handler) handleUpdateServer(
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
 
-	s, err := h.Backend.UpdateServer(in.ServerID, in.Protocols)
+	s, err := h.Backend.UpdateServerFull(&UpdateServerInput{
+		ServerID:                      in.ServerID,
+		Protocols:                     in.Protocols,
+		Certificate:                   in.Certificate,
+		SetCertificate:                in.Certificate != "",
+		EndpointType:                  in.EndpointType,
+		SetEndpointType:               in.EndpointType != "",
+		HostKey:                       in.HostKey,
+		SetHostKey:                    in.HostKey != "",
+		LoggingRole:                   in.LoggingRole,
+		SetLoggingRole:                in.LoggingRole != "",
+		PreAuthenticationLoginBanner:  in.PreAuthenticationLoginBanner,
+		SetPreAuthBanner:              in.PreAuthenticationLoginBanner != "",
+		PostAuthenticationLoginBanner: in.PostAuthenticationLoginBanner,
+		SetPostAuthBanner:             in.PostAuthenticationLoginBanner != "",
+		SecurityPolicyName:            in.SecurityPolicyName,
+		SetSecurityPolicyName:         in.SecurityPolicyName != "",
+		IPAddressType:                 in.IPAddressType,
+		SetIPAddressType:              in.IPAddressType != "",
+		IdentityProviderDetails:       toIdentityProviderDetails(in.IdentityProviderDetails),
+		SetIdentityProviderDetails:    in.IdentityProviderDetails != nil,
+		EndpointDetails:               toEndpointDetails(in.EndpointDetails),
+		SetEndpointDetails:            in.EndpointDetails != nil,
+		ProtocolDetails:               toProtocolDetails(in.ProtocolDetails),
+		SetProtocolDetails:            in.ProtocolDetails != nil,
+		WorkflowDetails:               toWorkflowDetails(in.WorkflowDetails),
+		SetWorkflowDetails:            in.WorkflowDetails != nil,
+		S3StorageOptions:              toS3StorageOptions(in.S3StorageOptions),
+		SetS3StorageOptions:           in.S3StorageOptions != nil,
+		StructuredLogDestinations:     in.StructuredLogDestinations,
+		SetStructuredLogDestinations:  in.StructuredLogDestinations != nil,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -490,12 +745,53 @@ func (h *Handler) handleUpdateServer(
 
 // --- User operations ---
 
+type posixProfileInput struct {
+	SecondaryGids []int64 `json:"SecondaryGids,omitempty"`
+	UID           int64   `json:"Uid"`
+	GID           int64   `json:"Gid"`
+}
+
+type homeDirectoryMapEntryInput struct {
+	Entry  string `json:"Entry"`
+	Target string `json:"Target"`
+	Type   string `json:"Type,omitempty"`
+}
+
+func toPosixProfile(in *posixProfileInput) *PosixProfile {
+	if in == nil {
+		return nil
+	}
+
+	return &PosixProfile{
+		UID:           in.UID,
+		GID:           in.GID,
+		SecondaryGids: in.SecondaryGids,
+	}
+}
+
+func toHomeDirectoryMappings(in []homeDirectoryMapEntryInput) []HomeDirectoryMapEntry {
+	if in == nil {
+		return nil
+	}
+
+	out := make([]HomeDirectoryMapEntry, len(in))
+	for i, e := range in {
+		out[i] = HomeDirectoryMapEntry(e)
+	}
+
+	return out
+}
+
 type createUserInput struct {
-	ServerID string              `json:"ServerId"`
-	UserName string              `json:"UserName"`
-	HomeDir  string              `json:"HomeDirectory"`
-	Role     string              `json:"Role"`
-	Tags     []map[string]string `json:"Tags"`
+	PosixProfile          *posixProfileInput           `json:"PosixProfile,omitempty"`
+	ServerID              string                       `json:"ServerId"`
+	UserName              string                       `json:"UserName"`
+	HomeDir               string                       `json:"HomeDirectory"`
+	Role                  string                       `json:"Role"`
+	HomeDirectoryType     string                       `json:"HomeDirectoryType,omitempty"`
+	Policy                string                       `json:"Policy,omitempty"`
+	HomeDirectoryMappings []homeDirectoryMapEntryInput `json:"HomeDirectoryMappings,omitempty"`
+	Tags                  []map[string]string          `json:"Tags"`
 }
 
 type createUserOutput struct {
@@ -517,7 +813,17 @@ func (h *Handler) handleCreateUser(
 
 	tags := tagsFromList(in.Tags)
 
-	u, err := h.Backend.CreateUser(in.ServerID, in.UserName, in.HomeDir, in.Role, tags)
+	u, err := h.Backend.CreateUserFull(&CreateUserInput{
+		ServerID:              in.ServerID,
+		UserName:              in.UserName,
+		HomeDir:               in.HomeDir,
+		Role:                  in.Role,
+		HomeDirectoryType:     in.HomeDirectoryType,
+		HomeDirectoryMappings: toHomeDirectoryMappings(in.HomeDirectoryMappings),
+		Policy:                in.Policy,
+		PosixProfile:          toPosixProfile(in.PosixProfile),
+		Tags:                  tags,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -530,12 +836,36 @@ type describeUserInput struct {
 	UserName string `json:"UserName"`
 }
 
+type sshKeyView struct {
+	DateImported     string `json:"DateImported"`
+	SSHPublicKeyID   string `json:"SshPublicKeyId"`
+	SSHPublicKeyBody string `json:"SshPublicKeyBody"`
+	KeyType          string `json:"KeyType,omitempty"`
+}
+
+type posixProfileView struct {
+	SecondaryGids []int64 `json:"SecondaryGids,omitempty"`
+	UID           int64   `json:"Uid"`
+	GID           int64   `json:"Gid"`
+}
+
+type homeDirectoryMapEntryView struct {
+	Entry  string `json:"Entry"`
+	Target string `json:"Target"`
+	Type   string `json:"Type,omitempty"`
+}
+
 type userView struct {
-	Arn      string              `json:"Arn"`
-	UserName string              `json:"UserName"`
-	HomeDir  string              `json:"HomeDirectory"`
-	Role     string              `json:"Role"`
-	Tags     []map[string]string `json:"Tags"`
+	PosixProfile          *posixProfileView           `json:"PosixProfile,omitempty"`
+	Arn                   string                      `json:"Arn"`
+	UserName              string                      `json:"UserName"`
+	HomeDir               string                      `json:"HomeDirectory"`
+	Role                  string                      `json:"Role"`
+	HomeDirectoryType     string                      `json:"HomeDirectoryType,omitempty"`
+	Policy                string                      `json:"Policy,omitempty"`
+	SSHPublicKeys         []sshKeyView                `json:"SshPublicKeys,omitempty"`
+	HomeDirectoryMappings []homeDirectoryMapEntryView `json:"HomeDirectoryMappings,omitempty"`
+	Tags                  []map[string]string         `json:"Tags"`
 }
 
 type describeUserOutput struct {
@@ -560,9 +890,21 @@ func (h *Handler) handleDescribeUser(
 		return nil, err
 	}
 
+	// Include SSH public keys.
+	sshKeys := h.Backend.ListSSHPublicKeys(in.ServerID, in.UserName)
+	keyViews := make([]sshKeyView, len(sshKeys))
+	for i, k := range sshKeys {
+		keyViews[i] = sshKeyView{
+			SSHPublicKeyID:   k.SSHPublicKeyID,
+			SSHPublicKeyBody: k.SSHPublicKeyBody,
+			DateImported:     k.DateImported.Format(time.RFC3339),
+			KeyType:          k.KeyType,
+		}
+	}
+
 	return &describeUserOutput{
 		ServerID: u.ServerID,
-		User:     toUserView(u, userARN(u.AccountID, u.Region, u.ServerID, u.UserName)),
+		User:     toUserView(u, userARN(u.AccountID, u.Region, u.ServerID, u.UserName), keyViews),
 	}, nil
 }
 
@@ -629,10 +971,14 @@ func (h *Handler) handleDeleteUser(_ context.Context, in *describeUserInput) (*s
 }
 
 type updateUserInput struct {
-	ServerID string `json:"ServerId"`
-	UserName string `json:"UserName"`
-	HomeDir  string `json:"HomeDirectory"`
-	Role     string `json:"Role"`
+	PosixProfile          *posixProfileInput           `json:"PosixProfile,omitempty"`
+	ServerID              string                       `json:"ServerId"`
+	UserName              string                       `json:"UserName"`
+	HomeDir               string                       `json:"HomeDirectory"`
+	Role                  string                       `json:"Role"`
+	HomeDirectoryType     string                       `json:"HomeDirectoryType,omitempty"`
+	Policy                string                       `json:"Policy,omitempty"`
+	HomeDirectoryMappings []homeDirectoryMapEntryInput `json:"HomeDirectoryMappings,omitempty"`
 }
 
 type updateUserOutput struct {
@@ -652,7 +998,20 @@ func (h *Handler) handleUpdateUser(
 		return nil, fmt.Errorf("%w: UserName is required", errInvalidRequest)
 	}
 
-	u, err := h.Backend.UpdateUser(in.ServerID, in.UserName, in.HomeDir, in.Role)
+	u, err := h.Backend.UpdateUserFull(&UpdateUserInput{
+		ServerID:                 in.ServerID,
+		UserName:                 in.UserName,
+		HomeDir:                  in.HomeDir,
+		Role:                     in.Role,
+		HomeDirectoryType:        in.HomeDirectoryType,
+		SetHomeDirectoryType:     in.HomeDirectoryType != "",
+		Policy:                   in.Policy,
+		SetPolicy:                in.Policy != "",
+		PosixProfile:             toPosixProfile(in.PosixProfile),
+		SetPosixProfile:          in.PosixProfile != nil,
+		HomeDirectoryMappings:    toHomeDirectoryMappings(in.HomeDirectoryMappings),
+		SetHomeDirectoryMappings: in.HomeDirectoryMappings != nil,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -663,34 +1022,122 @@ func (h *Handler) handleUpdateUser(
 // --- View helpers ---
 
 func toServerView(s *Server, arnStr string) serverView {
-	return serverView{
-		Arn:       arnStr,
-		ServerID:  s.ServerID,
-		State:     s.State,
-		Protocols: s.Protocols,
-		Domain:    s.Domain,
-		Tags:      tagsToList(s.Tags),
+	v := serverView{
+		Arn:                           arnStr,
+		ServerID:                      s.ServerID,
+		State:                         s.State,
+		Protocols:                     s.Protocols,
+		Domain:                        s.Domain,
+		Tags:                          tagsToList(s.Tags),
+		IdentityProviderType:          s.IdentityProviderType,
+		EndpointType:                  s.EndpointType,
+		LoggingRole:                   s.LoggingRole,
+		PreAuthenticationLoginBanner:  s.PreAuthenticationLoginBanner,
+		PostAuthenticationLoginBanner: s.PostAuthenticationLoginBanner,
+		Certificate:                   s.Certificate,
+		SecurityPolicyName:            s.SecurityPolicyName,
+		IPAddressType:                 s.IPAddressType,
+		StructuredLogDestinations:     s.StructuredLogDestinations,
 	}
+
+	if s.IdentityProviderDetails != nil {
+		v.IdentityProviderDetails = &identityProviderDetailsView{
+			URL:                       s.IdentityProviderDetails.URL,
+			InvocationRole:            s.IdentityProviderDetails.InvocationRole,
+			DirectoryID:               s.IdentityProviderDetails.DirectoryID,
+			Function:                  s.IdentityProviderDetails.Function,
+			SftpAuthenticationMethods: s.IdentityProviderDetails.SftpAuthenticationMethods,
+		}
+	}
+
+	if s.EndpointDetails != nil {
+		v.EndpointDetails = &endpointDetailsView{
+			AddressAllocationIDs: s.EndpointDetails.AddressAllocationIDs,
+			SubnetIDs:            s.EndpointDetails.SubnetIDs,
+			SecurityGroupIDs:     s.EndpointDetails.SecurityGroupIDs,
+			VpcEndpointID:        s.EndpointDetails.VpcEndpointID,
+			VpcID:                s.EndpointDetails.VpcID,
+		}
+	}
+
+	if s.ProtocolDetails != nil {
+		v.ProtocolDetails = &protocolDetailsView{
+			PassiveIP:                s.ProtocolDetails.PassiveIP,
+			TLSSessionResumptionMode: s.ProtocolDetails.TLSSessionResumptionMode,
+			SetStatOption:            s.ProtocolDetails.SetStatOption,
+			As2Transports:            s.ProtocolDetails.As2Transports,
+		}
+	}
+
+	if s.WorkflowDetails != nil {
+		toViews := func(wds []WorkflowDetail) []workflowDetailView {
+			if wds == nil {
+				return nil
+			}
+			out := make([]workflowDetailView, len(wds))
+			for i, d := range wds {
+				out[i] = workflowDetailView(d)
+			}
+
+			return out
+		}
+		v.WorkflowDetails = &workflowDetailsView{
+			OnUpload:        toViews(s.WorkflowDetails.OnUpload),
+			OnPartialUpload: toViews(s.WorkflowDetails.OnPartialUpload),
+		}
+	}
+
+	if s.S3StorageOptions != nil {
+		v.S3StorageOptions = &s3StorageOptionsView{
+			DirectoryListingOptimization: s.S3StorageOptions.DirectoryListingOptimization,
+		}
+	}
+
+	return v
 }
 
-func toUserView(u *User, arnStr string) userView {
-	return userView{
-		Arn:      arnStr,
-		UserName: u.UserName,
-		HomeDir:  u.HomeDir,
-		Role:     u.Role,
-		Tags:     tagsToList(u.Tags),
+func toUserView(u *User, arnStr string, sshKeys []sshKeyView) userView {
+	v := userView{
+		Arn:               arnStr,
+		UserName:          u.UserName,
+		HomeDir:           u.HomeDir,
+		Role:              u.Role,
+		Tags:              tagsToList(u.Tags),
+		HomeDirectoryType: u.HomeDirectoryType,
+		Policy:            u.Policy,
+		SSHPublicKeys:     sshKeys,
 	}
+
+	if u.PosixProfile != nil {
+		v.PosixProfile = &posixProfileView{
+			UID:           u.PosixProfile.UID,
+			GID:           u.PosixProfile.GID,
+			SecondaryGids: u.PosixProfile.SecondaryGids,
+		}
+	}
+
+	if u.HomeDirectoryMappings != nil {
+		v.HomeDirectoryMappings = make([]homeDirectoryMapEntryView, len(u.HomeDirectoryMappings))
+		for i, m := range u.HomeDirectoryMappings {
+			v.HomeDirectoryMappings[i] = homeDirectoryMapEntryView(m)
+		}
+	}
+
+	return v
 }
 
 // --- Access operations ---
 
 type createAccessInput struct {
-	ServerID   string              `json:"ServerId"`
-	ExternalID string              `json:"ExternalId"`
-	Role       string              `json:"Role"`
-	HomeDir    string              `json:"HomeDirectory"`
-	Tags       []map[string]string `json:"Tags"`
+	PosixProfile          *posixProfileInput           `json:"PosixProfile,omitempty"`
+	ServerID              string                       `json:"ServerId"`
+	ExternalID            string                       `json:"ExternalId"`
+	Role                  string                       `json:"Role"`
+	HomeDir               string                       `json:"HomeDirectory"`
+	HomeDirectoryType     string                       `json:"HomeDirectoryType,omitempty"`
+	Policy                string                       `json:"Policy,omitempty"`
+	HomeDirectoryMappings []homeDirectoryMapEntryInput `json:"HomeDirectoryMappings,omitempty"`
+	Tags                  []map[string]string          `json:"Tags"`
 }
 
 type createAccessOutput struct {
@@ -712,7 +1159,17 @@ func (h *Handler) handleCreateAccess(
 
 	tags := tagsFromList(in.Tags)
 
-	a, err := h.Backend.CreateAccess(in.ServerID, in.ExternalID, in.Role, in.HomeDir, tags)
+	a, err := h.Backend.CreateAccessFull(&CreateAccessInput{
+		ServerID:              in.ServerID,
+		ExternalID:            in.ExternalID,
+		Role:                  in.Role,
+		HomeDir:               in.HomeDir,
+		HomeDirectoryType:     in.HomeDirectoryType,
+		HomeDirectoryMappings: toHomeDirectoryMappings(in.HomeDirectoryMappings),
+		Policy:                in.Policy,
+		PosixProfile:          toPosixProfile(in.PosixProfile),
+		Tags:                  tags,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -750,11 +1207,17 @@ type createAgreementInput struct {
 	PartnerProfileID string              `json:"PartnerProfileId"`
 	BaseDirectory    string              `json:"BaseDirectory"`
 	AccessRole       string              `json:"AccessRole"`
+	Status           string              `json:"Status,omitempty"`
 	Tags             []map[string]string `json:"Tags"`
 }
 
 type createAgreementOutput struct {
 	AgreementID string `json:"AgreementId"`
+}
+
+// agreementARN builds the ARN for a Transfer agreement.
+func agreementARN(accountID, region, serverID, agreementID string) string {
+	return arn.Build("transfer", region, accountID, "server/"+serverID+"/agreement/"+agreementID)
 }
 
 func (h *Handler) handleCreateAgreement(
@@ -767,13 +1230,14 @@ func (h *Handler) handleCreateAgreement(
 
 	tags := tagsFromList(in.Tags)
 
-	ag, err := h.Backend.CreateAgreement(
+	ag, err := h.Backend.CreateAgreementFull(
 		in.ServerID,
 		in.Description,
 		in.LocalProfileID,
 		in.PartnerProfileID,
 		in.BaseDirectory,
 		in.AccessRole,
+		in.Status,
 		tags,
 	)
 	if err != nil {
@@ -854,11 +1318,13 @@ func toConnectorAs2Config(in *connectorAs2ConfigInput) *ConnectorAs2Config {
 }
 
 type createConnectorInput struct {
-	SftpConfig *connectorSftpConfigInput `json:"SftpConfig,omitempty"`
-	As2Config  *connectorAs2ConfigInput  `json:"As2Config,omitempty"`
-	URL        string                    `json:"Url"`
-	AccessRole string                    `json:"AccessRole"`
-	Tags       []map[string]string       `json:"Tags"`
+	SftpConfig         *connectorSftpConfigInput `json:"SftpConfig,omitempty"`
+	As2Config          *connectorAs2ConfigInput  `json:"As2Config,omitempty"`
+	URL                string                    `json:"Url"`
+	AccessRole         string                    `json:"AccessRole"`
+	LoggingRole        string                    `json:"LoggingRole,omitempty"`
+	SecurityPolicyName string                    `json:"SecurityPolicyName,omitempty"`
+	Tags               []map[string]string       `json:"Tags"`
 }
 
 type createConnectorOutput struct {
@@ -875,13 +1341,15 @@ func (h *Handler) handleCreateConnector(
 
 	tags := tagsFromList(in.Tags)
 
-	c, err := h.Backend.CreateConnector(
-		in.URL,
-		in.AccessRole,
-		toConnectorSftpConfig(in.SftpConfig),
-		toConnectorAs2Config(in.As2Config),
-		tags,
-	)
+	c, err := h.Backend.CreateConnectorFull(&CreateConnectorInput{
+		URL:                in.URL,
+		AccessRole:         in.AccessRole,
+		SftpConfig:         toConnectorSftpConfig(in.SftpConfig),
+		As2Config:          toConnectorAs2Config(in.As2Config),
+		LoggingRole:        in.LoggingRole,
+		SecurityPolicyName: in.SecurityPolicyName,
+		Tags:               tags,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -964,9 +1432,46 @@ func (h *Handler) handleCreateWebApp(
 
 // --- Workflow operations ---
 
+type copyStepDetailsInput struct {
+	DestinationFileLocation map[string]any `json:"DestinationFileLocation,omitempty"`
+	Name                    string         `json:"Name,omitempty"`
+	SourceFileLocation      string         `json:"SourceFileLocation,omitempty"`
+	OverwriteExisting       string         `json:"OverwriteExisting,omitempty"`
+}
+
+type customStepDetailsInput struct {
+	Name               string `json:"Name,omitempty"`
+	Target             string `json:"Target,omitempty"`
+	SourceFileLocation string `json:"SourceFileLocation,omitempty"`
+	Timeout            int32  `json:"Timeout,omitempty"`
+}
+
+type deleteStepDetailsInput struct {
+	Name               string `json:"Name,omitempty"`
+	SourceFileLocation string `json:"SourceFileLocation,omitempty"`
+}
+
+type tagStepDetailsInput struct {
+	Name               string           `json:"Name,omitempty"`
+	SourceFileLocation string           `json:"SourceFileLocation,omitempty"`
+	Tags               []map[string]any `json:"Tags,omitempty"`
+}
+
+type decryptStepDetailsInput struct {
+	DestinationFileLocation map[string]any `json:"DestinationFileLocation,omitempty"`
+	Name                    string         `json:"Name,omitempty"`
+	Type                    string         `json:"Type,omitempty"`
+	SourceFileLocation      string         `json:"SourceFileLocation,omitempty"`
+	OverwriteExisting       string         `json:"OverwriteExisting,omitempty"`
+}
+
 type workflowStepInput struct {
-	StepDetails map[string]any `json:"CopyStepDetails,omitempty"`
-	Type        string         `json:"Type"`
+	CopyStepDetails    *copyStepDetailsInput    `json:"CopyStepDetails,omitempty"`
+	CustomStepDetails  *customStepDetailsInput  `json:"CustomStepDetails,omitempty"`
+	DeleteStepDetails  *deleteStepDetailsInput  `json:"DeleteStepDetails,omitempty"`
+	TagStepDetails     *tagStepDetailsInput     `json:"TagStepDetails,omitempty"`
+	DecryptStepDetails *decryptStepDetailsInput `json:"DecryptStepDetails,omitempty"`
+	Type               string                   `json:"Type"`
 }
 
 type createWorkflowInput struct {
@@ -980,6 +1485,55 @@ type createWorkflowOutput struct {
 	WorkflowID string `json:"WorkflowId"`
 }
 
+func toWorkflowStep(s workflowStepInput) WorkflowStep {
+	ws := WorkflowStep{Type: s.Type}
+
+	if s.CopyStepDetails != nil {
+		ws.CopyStepDetails = &CopyStepDetails{
+			Name:                    s.CopyStepDetails.Name,
+			SourceFileLocation:      s.CopyStepDetails.SourceFileLocation,
+			OverwriteExisting:       s.CopyStepDetails.OverwriteExisting,
+			DestinationFileLocation: s.CopyStepDetails.DestinationFileLocation,
+		}
+	}
+
+	if s.CustomStepDetails != nil {
+		ws.CustomStepDetails = &CustomStepDetails{
+			Name:               s.CustomStepDetails.Name,
+			Target:             s.CustomStepDetails.Target,
+			SourceFileLocation: s.CustomStepDetails.SourceFileLocation,
+			Timeout:            s.CustomStepDetails.Timeout,
+		}
+	}
+
+	if s.DeleteStepDetails != nil {
+		ws.DeleteStepDetails = &DeleteStepDetails{
+			Name:               s.DeleteStepDetails.Name,
+			SourceFileLocation: s.DeleteStepDetails.SourceFileLocation,
+		}
+	}
+
+	if s.TagStepDetails != nil {
+		ws.TagStepDetails = &TagStepDetails{
+			Name:               s.TagStepDetails.Name,
+			SourceFileLocation: s.TagStepDetails.SourceFileLocation,
+			Tags:               s.TagStepDetails.Tags,
+		}
+	}
+
+	if s.DecryptStepDetails != nil {
+		ws.DecryptStepDetails = &DecryptStepDetails{
+			Name:                    s.DecryptStepDetails.Name,
+			Type:                    s.DecryptStepDetails.Type,
+			SourceFileLocation:      s.DecryptStepDetails.SourceFileLocation,
+			OverwriteExisting:       s.DecryptStepDetails.OverwriteExisting,
+			DestinationFileLocation: s.DecryptStepDetails.DestinationFileLocation,
+		}
+	}
+
+	return ws
+}
+
 func toWorkflowSteps(inputs []workflowStepInput) []WorkflowStep {
 	if inputs == nil {
 		return nil
@@ -987,10 +1541,59 @@ func toWorkflowSteps(inputs []workflowStepInput) []WorkflowStep {
 
 	out := make([]WorkflowStep, len(inputs))
 	for i, s := range inputs {
-		out[i] = WorkflowStep(s)
+		out[i] = toWorkflowStep(s)
 	}
 
 	return out
+}
+
+func workflowStepToMap(s WorkflowStep) map[string]any {
+	m := map[string]any{keyStepType: s.Type}
+
+	if s.CopyStepDetails != nil {
+		m["CopyStepDetails"] = map[string]any{
+			keyStepName:               s.CopyStepDetails.Name,
+			keySourceFileLoc:          s.CopyStepDetails.SourceFileLocation,
+			"OverwriteExisting":       s.CopyStepDetails.OverwriteExisting,
+			"DestinationFileLocation": s.CopyStepDetails.DestinationFileLocation,
+		}
+	}
+
+	if s.CustomStepDetails != nil {
+		m["CustomStepDetails"] = map[string]any{
+			keyStepName:      s.CustomStepDetails.Name,
+			"Target":         s.CustomStepDetails.Target,
+			keySourceFileLoc: s.CustomStepDetails.SourceFileLocation,
+			"Timeout":        s.CustomStepDetails.Timeout,
+		}
+	}
+
+	if s.DeleteStepDetails != nil {
+		m["DeleteStepDetails"] = map[string]any{
+			keyStepName:      s.DeleteStepDetails.Name,
+			keySourceFileLoc: s.DeleteStepDetails.SourceFileLocation,
+		}
+	}
+
+	if s.TagStepDetails != nil {
+		m["TagStepDetails"] = map[string]any{
+			keyStepName:      s.TagStepDetails.Name,
+			keySourceFileLoc: s.TagStepDetails.SourceFileLocation,
+			"Tags":           s.TagStepDetails.Tags,
+		}
+	}
+
+	if s.DecryptStepDetails != nil {
+		m["DecryptStepDetails"] = map[string]any{
+			keyStepName:               s.DecryptStepDetails.Name,
+			keyStepType:               s.DecryptStepDetails.Type,
+			keySourceFileLoc:          s.DecryptStepDetails.SourceFileLocation,
+			"OverwriteExisting":       s.DecryptStepDetails.OverwriteExisting,
+			"DestinationFileLocation": s.DecryptStepDetails.DestinationFileLocation,
+		}
+	}
+
+	return m
 }
 
 func (h *Handler) handleCreateWorkflow(
@@ -1062,14 +1665,38 @@ func (h *Handler) handleDescribeAccess(
 		return nil, err
 	}
 
+	accessMap := map[string]any{
+		"ExternalId":        a.ExternalID,
+		"ServerId":          a.ServerID,
+		"Role":              a.Role,
+		"HomeDirectory":     a.HomeDir,
+		"HomeDirectoryType": a.HomeDirectoryType,
+		"Policy":            a.Policy,
+	}
+
+	if a.PosixProfile != nil {
+		accessMap["PosixProfile"] = map[string]any{
+			"Uid":           a.PosixProfile.UID,
+			"Gid":           a.PosixProfile.GID,
+			"SecondaryGids": a.PosixProfile.SecondaryGids,
+		}
+	}
+
+	if a.HomeDirectoryMappings != nil {
+		mappings := make([]map[string]any, len(a.HomeDirectoryMappings))
+		for i, m := range a.HomeDirectoryMappings {
+			mappings[i] = map[string]any{"Entry": m.Entry, "Target": m.Target, keyStepType: m.Type}
+		}
+		accessMap["HomeDirectoryMappings"] = mappings
+	}
+
+	if a.Tags != nil {
+		accessMap["Tags"] = tagsToList(a.Tags)
+	}
+
 	return &describeAccessOutput{
 		ServerID: a.ServerID,
-		Access: map[string]any{
-			"ExternalId":    a.ExternalID,
-			"ServerId":      a.ServerID,
-			"Role":          a.Role,
-			"HomeDirectory": a.HomeDir,
-		},
+		Access:   accessMap,
 	}, nil
 }
 
@@ -1174,14 +1801,14 @@ func (h *Handler) handleDescribeAgreement(
 
 	return &describeAgreementOutput{
 		Agreement: map[string]any{
-			"AgreementId":      ag.AgreementID,
-			"ServerId":         ag.ServerID,
-			keyDescription:     ag.Description,
-			keyStatus:          ag.Status,
-			"LocalProfileId":   ag.LocalProfileID,
-			"PartnerProfileId": ag.PartnerProfileID,
-			"BaseDirectory":    ag.BaseDirectory,
-			"AccessRole":       ag.AccessRole,
+			"AgreementId":       ag.AgreementID,
+			"ServerId":          ag.ServerID,
+			keyDescription:      ag.Description,
+			keyStatus:           ag.Status,
+			keyLocalProfileID:   ag.LocalProfileID,
+			keyPartnerProfileID: ag.PartnerProfileID,
+			"BaseDirectory":     ag.BaseDirectory,
+			"AccessRole":        ag.AccessRole,
 		},
 	}, nil
 }
@@ -1215,9 +1842,12 @@ func (h *Handler) handleListAgreements(
 
 	for i, ag := range page {
 		out[i] = map[string]any{
-			"AgreementId":  ag.AgreementID,
-			keyDescription: ag.Description,
-			keyStatus:      ag.Status,
+			"AgreementId":       ag.AgreementID,
+			"Arn":               agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
+			keyDescription:      ag.Description,
+			keyStatus:           ag.Status,
+			keyLocalProfileID:   ag.LocalProfileID,
+			keyPartnerProfileID: ag.PartnerProfileID,
 		}
 	}
 
@@ -1265,6 +1895,11 @@ type describeConnectorOutput struct {
 	Connector map[string]any `json:"Connector"`
 }
 
+// connectorARN builds the ARN for a Transfer connector.
+func connectorARN(accountID, region, connectorID string) string {
+	return arn.Build("transfer", region, accountID, "connector/"+connectorID)
+}
+
 func (h *Handler) handleDescribeConnector(
 	_ context.Context,
 	in *describeConnectorInput,
@@ -1278,12 +1913,38 @@ func (h *Handler) handleDescribeConnector(
 		return nil, err
 	}
 
+	connMap := map[string]any{
+		keyConnectorID:       c.ConnectorID,
+		keyURL:               c.URL,
+		"AccessRole":         c.AccessRole,
+		"Arn":                connectorARN(c.AccountID, c.Region, c.ConnectorID),
+		"Tags":               tagsToList(c.Tags),
+		"LoggingRole":        c.LoggingRole,
+		"SecurityPolicyName": c.SecurityPolicyName,
+	}
+
+	if c.SftpConfig != nil {
+		connMap["SftpConfig"] = map[string]any{
+			"UserSecretId":    c.SftpConfig.UserSecretID,
+			"TrustedHostKeys": c.SftpConfig.TrustedHostKeys,
+		}
+	}
+
+	if c.As2Config != nil {
+		connMap["As2Config"] = map[string]any{
+			keyLocalProfileID:     c.As2Config.LocalProfileID,
+			keyPartnerProfileID:   c.As2Config.PartnerProfileID,
+			"SigningAlgorithm":    c.As2Config.SigningAlgorithm,
+			"EncryptionAlgorithm": c.As2Config.EncryptionAlgorithm,
+			"MdnSigningAlgorithm": c.As2Config.MdnSigningAlgorithm,
+			"MdnResponse":         c.As2Config.MdnResponse,
+			"MessageSubject":      c.As2Config.MessageSubject,
+			"Compression":         c.As2Config.Compression,
+		}
+	}
+
 	return &describeConnectorOutput{
-		Connector: map[string]any{
-			keyConnectorID: c.ConnectorID,
-			keyURL:         c.URL,
-			"AccessRole":   c.AccessRole,
-		},
+		Connector: connMap,
 	}, nil
 }
 
@@ -1650,10 +2311,21 @@ func (h *Handler) handleDescribeWorkflow(
 		return nil, err
 	}
 
+	stepsToList := func(steps []WorkflowStep) []any {
+		out := make([]any, len(steps))
+		for i, s := range steps {
+			out[i] = workflowStepToMap(s)
+		}
+
+		return out
+	}
+
 	return &describeWorkflowOutput{
 		Workflow: map[string]any{
-			keyWorkflowID:  wf.WorkflowID,
-			keyDescription: wf.Description,
+			keyWorkflowID:      wf.WorkflowID,
+			keyDescription:     wf.Description,
+			"Steps":            stepsToList(wf.Steps),
+			"OnExceptionSteps": stepsToList(wf.OnExceptionSteps),
 		},
 	}, nil
 }
@@ -1688,6 +2360,21 @@ func (h *Handler) handleListWorkflows(
 
 // --- Extended Certificate operations ---
 
+// parseCertDate parses an RFC3339 date string for use as a certificate date fallback.
+// When the certificate body is non-empty, dates come from the PEM, so this returns zero.
+func parseCertDate(body, dateStr string) time.Time {
+	if body != "" || dateStr == "" {
+		return time.Time{}
+	}
+
+	t, err := time.Parse(time.RFC3339, dateStr)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return t
+}
+
 type importCertificateInput struct {
 	Usage         string              `json:"Usage"`
 	Body          string              `json:"Certificate"`
@@ -1705,21 +2392,16 @@ func (h *Handler) handleImportCertificate(
 	_ context.Context,
 	in *importCertificateInput,
 ) (*importCertificateOutput, error) {
+	if in.Usage == "" {
+		return nil, fmt.Errorf("%w: Usage is required", errInvalidRequest)
+	}
+
 	tags := tagsFromList(in.Tags)
 
-	var notBefore, notAfter time.Time
-
-	if in.NotBeforeDate != "" {
-		if t, err := time.Parse(time.RFC3339, in.NotBeforeDate); err == nil {
-			notBefore = t
-		}
-	}
-
-	if in.NotAfterDate != "" {
-		if t, err := time.Parse(time.RFC3339, in.NotAfterDate); err == nil {
-			notAfter = t
-		}
-	}
+	// If body is provided, the backend will parse PEM and extract dates.
+	// Only use user-provided dates as fallback when no body.
+	notBefore := parseCertDate(in.Body, in.NotBeforeDate)
+	notAfter := parseCertDate(in.Body, in.NotAfterDate)
 
 	c, err := h.Backend.ImportCertificate(
 		in.Usage,
@@ -1757,13 +2439,23 @@ func (h *Handler) handleDescribeCertificate(
 		return nil, err
 	}
 
+	certMap := map[string]any{
+		"CertificateId": c.CertificateID,
+		"Usage":         c.Usage,
+		keyDescription:  c.Description,
+		keyStatus:       c.Status,
+	}
+
+	if !c.NotBeforeDate.IsZero() {
+		certMap["NotBeforeDate"] = c.NotBeforeDate.Format(time.RFC3339)
+	}
+
+	if !c.NotAfterDate.IsZero() {
+		certMap["NotAfterDate"] = c.NotAfterDate.Format(time.RFC3339)
+	}
+
 	return &describeCertificateOutput{
-		Certificate: map[string]any{
-			"CertificateId": c.CertificateID,
-			"Usage":         c.Usage,
-			keyDescription:  c.Description,
-			keyStatus:       c.Status,
-		},
+		Certificate: certMap,
 	}, nil
 }
 
@@ -2188,11 +2880,35 @@ func (h *Handler) handleDescribeExecution(
 
 // --- Other improved operations ---
 
+type listFileTransferResultsInput struct {
+	ConnectorID string `json:"ConnectorId"`
+	TransferID  string `json:"TransferId,omitempty"`
+	NextToken   string `json:"NextToken,omitempty"`
+	MaxResults  int    `json:"MaxResults,omitempty"`
+}
+
 func (h *Handler) handleListFileTransferResults(
 	_ context.Context,
-	_ *struct{},
+	in *listFileTransferResultsInput,
 ) (*map[string]any, error) {
-	return &map[string]any{"FileTransferResults": []any{}}, nil
+	connID := ""
+	if in != nil {
+		connID = in.ConnectorID
+	}
+
+	records := h.Backend.ListFileFileTransferResults(connID)
+	results := make([]any, len(records))
+
+	for i, r := range records {
+		results[i] = map[string]any{
+			keyTransferID:  r.TransferID,
+			keyConnectorID: r.ConnectorID,
+			keyStatus:      r.Status,
+			"FilePaths":    r.Files,
+		}
+	}
+
+	return &map[string]any{"FileTransferResults": results}, nil
 }
 
 type describeSecurityPolicyInput struct {
@@ -2271,6 +2987,10 @@ func (h *Handler) handleSendWorkflowStepState(
 		return nil, fmt.Errorf("%w: Token is required", errInvalidRequest)
 	}
 
+	if err := h.Backend.SendWorkflowStepStateRecord(in.WorkflowID, in.ExecutionID, in.Token, in.Status); err != nil {
+		return nil, err
+	}
+
 	return &struct{}{}, nil
 }
 
@@ -2289,7 +3009,9 @@ func (h *Handler) handleStartDirectoryListing(
 		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
 	}
 
-	return &map[string]any{"DirectoryListingId": "listing-" + strings.Repeat("0", idSuffixLen)}, nil
+	opID := h.Backend.StartAsyncOperationRecord(in.ConnectorID, "DIRECTORY_LISTING")
+
+	return &map[string]any{"DirectoryListingId": opID}, nil
 }
 
 type startFileTransferInput struct {
@@ -2308,15 +3030,42 @@ func (h *Handler) handleStartFileTransfer(
 		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
 	}
 
-	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", idSuffixLen)}, nil
+	allFiles := append(in.SendFilePaths, in.RetrieveFilePaths...) //nolint:gocritic // intentional append to first slice
+
+	transferID := h.Backend.StartFileFileTransferResult(in.ConnectorID, allFiles)
+
+	return &map[string]any{keyTransferID: transferID}, nil
 }
 
-func (h *Handler) handleStartRemoteDelete(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", idSuffixLen)}, nil
+type startRemoteDeleteInput struct {
+	ConnectorID string   `json:"ConnectorId"`
+	DeletePaths []string `json:"DeletePaths,omitempty"`
 }
 
-func (h *Handler) handleStartRemoteMove(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", idSuffixLen)}, nil
+func (h *Handler) handleStartRemoteDelete(_ context.Context, in *startRemoteDeleteInput) (*map[string]any, error) {
+	connID := ""
+	if in != nil {
+		connID = in.ConnectorID
+	}
+	opID := h.Backend.StartAsyncOperationRecord(connID, "REMOTE_DELETE")
+
+	return &map[string]any{keyTransferID: opID}, nil
+}
+
+type startRemoteMoveInput struct {
+	ConnectorID string   `json:"ConnectorId"`
+	TargetPath  string   `json:"TargetPath,omitempty"`
+	SourcePaths []string `json:"SourcePaths,omitempty"`
+}
+
+func (h *Handler) handleStartRemoteMove(_ context.Context, in *startRemoteMoveInput) (*map[string]any, error) {
+	connID := ""
+	if in != nil {
+		connID = in.ConnectorID
+	}
+	opID := h.Backend.StartAsyncOperationRecord(connID, "REMOTE_MOVE")
+
+	return &map[string]any{keyTransferID: opID}, nil
 }
 
 type testConnectionInput struct {
@@ -2362,10 +3111,17 @@ func (h *Handler) handleTestIdentityProvider(
 		return nil, fmt.Errorf("%w: UserName is required", errInvalidRequest)
 	}
 
+	statusCode, message := h.Backend.TestIdentityProvider(in.ServerID, in.UserName)
+
+	response := ""
+	if statusCode == http.StatusOK {
+		response = `{"Role":"arn:aws:iam::000000000000:role/transfer-test-role","HomeDirectory":"/"}`
+	}
+
 	return &map[string]any{
-		"StatusCode": http.StatusOK,
-		"Message":    "",
-		"Response":   `{"Role":"arn:aws:iam::000000000000:role/transfer-test-role","HomeDirectory":"/"}`,
+		"StatusCode": statusCode,
+		"Message":    message,
+		"Response":   response,
 		keyURL:       "",
 	}, nil
 }

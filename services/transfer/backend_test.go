@@ -2,6 +2,7 @@ package transfer_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -165,6 +166,15 @@ func TestInMemoryBackend_DeleteServer(t *testing.T) {
 				s, err := b.CreateServer(nil, nil)
 				require.NoError(t, err)
 				serverID = s.ServerID
+				// AWS requires the server to be OFFLINE before deletion.
+				require.NoError(t, b.StopServer(serverID))
+				for range 30 {
+					got, _ := b.DescribeServer(serverID)
+					if got != nil && got.State == "OFFLINE" {
+						break
+					}
+					time.Sleep(15 * time.Millisecond)
+				}
 			}
 
 			err := b.DeleteServer(serverID)
@@ -192,16 +202,30 @@ func TestInMemoryBackend_StartStopServer(t *testing.T) {
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
-	// Stop
+	// Stop — state becomes STOPPING then asynchronously OFFLINE.
 	require.NoError(t, b.StopServer(s.ServerID))
-	got, err := b.DescribeServer(s.ServerID)
-	require.NoError(t, err)
+	// Poll until OFFLINE (async transition takes ~100ms).
+	var got *transfer.Server
+	for range 20 {
+		got, err = b.DescribeServer(s.ServerID)
+		require.NoError(t, err)
+		if got.State == "OFFLINE" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	assert.Equal(t, "OFFLINE", got.State)
 
-	// Start
+	// Start — state becomes STARTING then asynchronously ONLINE.
 	require.NoError(t, b.StartServer(s.ServerID))
-	got, err = b.DescribeServer(s.ServerID)
-	require.NoError(t, err)
+	for range 20 {
+		got, err = b.DescribeServer(s.ServerID)
+		require.NoError(t, err)
+		if got.State == "ONLINE" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	assert.Equal(t, "ONLINE", got.State)
 }
 

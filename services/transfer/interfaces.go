@@ -9,27 +9,38 @@ type StorageBackend interface {
 	Region() string
 	Reset()
 	CreateServer(protocols []string, tags map[string]string) (*Server, error)
+	CreateServerFull(in *CreateServerInput) (*Server, error)
 	DescribeServer(serverID string) (*Server, error)
+	ServerUserCount(serverID string) int
 	ListServers() []Server
 	StartServer(serverID string) error
 	StopServer(serverID string) error
 	DeleteServer(serverID string) error
 	UpdateServer(serverID string, protocols []string) (*Server, error)
+	UpdateServerFull(in *UpdateServerInput) (*Server, error)
 	CreateUser(serverID, userName, homeDir, role string, tags map[string]string) (*User, error)
+	CreateUserFull(in *CreateUserInput) (*User, error)
 	DescribeUser(serverID, userName string) (*User, error)
 	ListUsers(serverID string) ([]User, error)
 	DeleteUser(serverID, userName string) error
 	UpdateUser(serverID, userName, homeDir, role string) (*User, error)
+	UpdateUserFull(in *UpdateUserInput) (*User, error)
+	ListSSHPublicKeys(serverID, userName string) []*SSHPublicKey
 	CreateAccess(
 		serverID, externalID, role, homeDir string,
 		tags map[string]string,
 	) (*Access, error)
+	CreateAccessFull(in *CreateAccessInput) (*Access, error)
 	DeleteAccess(serverID, externalID string) error
 	DescribeAccess(serverID, externalID string) (*Access, error)
 	ListAccesses(serverID string) ([]*Access, error)
 	UpdateAccess(serverID, externalID, role, homeDir string) (*Access, error)
 	CreateAgreement(
 		serverID, description, localProfileID, partnerProfileID, baseDirectory, accessRole string,
+		tags map[string]string,
+	) (*Agreement, error)
+	CreateAgreementFull(
+		serverID, description, localProfileID, partnerProfileID, baseDirectory, accessRole, status string,
 		tags map[string]string,
 	) (*Agreement, error)
 	DeleteAgreement(serverID, agreementID string) error
@@ -42,6 +53,7 @@ type StorageBackend interface {
 		as2Config *ConnectorAs2Config,
 		tags map[string]string,
 	) (*Connector, error)
+	CreateConnectorFull(in *CreateConnectorInput) (*Connector, error)
 	DeleteConnector(connectorID string) error
 	DescribeConnector(connectorID string) (*Connector, error)
 	ListConnectors() []*Connector
@@ -50,6 +62,7 @@ type StorageBackend interface {
 		sftpConfig *ConnectorSftpConfig,
 		as2Config *ConnectorAs2Config,
 	) (*Connector, error)
+	UpdateConnectorFull(in *UpdateConnectorInput) (*Connector, error)
 	CreateProfile(profileType, as2ID string, tags map[string]string) (*Profile, error)
 	DeleteProfile(profileID string) error
 	DescribeProfile(profileID string) (*Profile, error)
@@ -97,6 +110,11 @@ type StorageBackend interface {
 	CreateExecution(workflowID string) (*Execution, error)
 	DescribeExecution(workflowID, executionID string) (*Execution, error)
 	ListExecutions(workflowID string) ([]*Execution, error)
+	StartFileFileTransferResult(connectorID string, files []string) string
+	ListFileFileTransferResults(connectorID string) []*FileTransferResult
+	StartAsyncOperationRecord(connectorID, opType string) string
+	TestIdentityProvider(serverID, userName string) (int, string)
+	SendWorkflowStepStateRecord(workflowID, executionID, token, status string) error
 }
 
 // Compile-time assertion: InMemoryBackend must implement StorageBackend.

@@ -996,6 +996,8 @@ func (rc *ResourceCreator) deleteTransferServer(serverID string) error {
 		return nil
 	}
 
+	_ = rc.backends.Transfer.Backend.StopServer(serverID)
+
 	return rc.backends.Transfer.Backend.DeleteServer(serverID)
 }
 
