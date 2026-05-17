@@ -119,7 +119,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		ct := c.Request().Header.Get("Content-Type")
+		ct := strings.ToLower(c.Request().Header.Get("Content-Type"))
 		if !strings.Contains(ct, contentTypeForm) {
 			return false
 		}
@@ -410,6 +410,9 @@ func (h *Handler) dispatchAssumeRoleWithSAML(r *http.Request) (*AssumeRoleWithSA
 		input.PolicyArns = append(input.PolicyArns, arn)
 	}
 
+	// Parse session tags: Tags.member.N.Key / Tags.member.N.Value
+	input.Tags = parseSessionTags(r)
+
 	return h.Backend.AssumeRoleWithSAML(input)
 }
 
@@ -584,7 +587,7 @@ func mapErrorToCode(reqErr error) (string, int) {
 	case errors.Is(reqErr, ErrMissingEncodedMessage):
 		return "InvalidParameter", http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidRoleArn), errors.Is(reqErr, ErrInvalidSourceIdentity),
-		errors.Is(reqErr, ErrValidation):
+		errors.Is(reqErr, ErrInvalidPrincipalArn), errors.Is(reqErr, ErrValidation):
 		return invalidParamValue, http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidDuration), errors.Is(reqErr, ErrInvalidSessionName),
 		errors.Is(reqErr, ErrInvalidFederationName), errors.Is(reqErr, ErrTooManyTags),

@@ -82,17 +82,35 @@ func validateMFATokenCode(code string) error {
 	return nil
 }
 
+// samlProviderARNRe matches IAM SAML provider ARNs.
+// Format: arn:<partition>:iam::<account>:saml-provider/<name>.
+var samlProviderARNRe = regexp.MustCompile(`^arn:[a-z0-9\-]+:iam::\d{12}:saml-provider/.+$`)
+
+// validateSAMLProviderArn checks that a PrincipalArn is a valid IAM SAML provider ARN.
+func validateSAMLProviderArn(principalArn string) error {
+	if !samlProviderARNRe.MatchString(principalArn) {
+		return fmt.Errorf("%w: %q must be arn:<partition>:iam::<account>:saml-provider/<name>",
+			ErrInvalidPrincipalArn, principalArn)
+	}
+
+	return nil
+}
+
+// managedPolicyARNRe matches AWS managed (account="aws") and customer-managed (account=12 digits) policy ARNs.
+// Format: arn:<partition>:iam::<account-or-aws>:policy/<path/name>.
+var managedPolicyARNRe = regexp.MustCompile(`^arn:[a-z0-9\-]+:iam::(?:\d{12}|aws)?:policy/.+$`)
+
 // validatePolicyArns validates a list of managed policy ARNs:
 // - count must not exceed MaxPolicyArnsCount
-// - each ARN must be a non-empty string (basic shape: arn:...)
+// - each ARN must match arn:<partition>:iam::<account>:policy/<name>.
 func validatePolicyArns(arns []string) error {
 	if len(arns) > MaxPolicyArnsCount {
 		return fmt.Errorf("%w: got %d", ErrTooManyPolicyArns, len(arns))
 	}
 
 	for _, a := range arns {
-		if a == "" || !strings.HasPrefix(a, "arn:") {
-			return fmt.Errorf("%w: %q does not look like a policy ARN", ErrInvalidPolicyArn, a)
+		if a == "" || !managedPolicyARNRe.MatchString(a) {
+			return fmt.Errorf("%w: %q is not a valid managed policy ARN", ErrInvalidPolicyArn, a)
 		}
 	}
 
@@ -128,7 +146,7 @@ func validateProvidedContexts(contexts []ProvidedContext) error {
 	return nil
 }
 
-// validateInlinePolicy checks that an inline session policy is valid JSON when non-empty.
+// validateInlinePolicy checks that an inline session policy is valid JSON and has a Statement field.
 func validateInlinePolicy(policy string) error {
 	if policy == "" {
 		return nil
@@ -137,6 +155,10 @@ func validateInlinePolicy(policy string) error {
 	var doc map[string]any
 	if err := json.Unmarshal([]byte(policy), &doc); err != nil {
 		return fmt.Errorf("%w: %w", ErrMalformedPolicyDocument, err)
+	}
+
+	if _, hasStatement := doc["Statement"]; !hasStatement {
+		return fmt.Errorf("%w: policy document must contain a Statement field", ErrMalformedPolicyDocument)
 	}
 
 	return nil

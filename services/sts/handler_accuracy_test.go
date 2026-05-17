@@ -661,11 +661,11 @@ func TestAccuracy_Gap19_PackedPolicySizeWithArns(t *testing.T) {
 		t.Parallel()
 
 		b := sts.NewInMemoryBackend()
-		// A policy of exactly 1 byte should return 1% (ceiling: (1*100+2047)/2048 = 1).
+		smallPolicy := `{"Statement":[]}`
 		resp, err := b.AssumeRole(&sts.AssumeRoleInput{
 			RoleArn:         "arn:aws:iam::123456789012:role/R",
 			RoleSessionName: "session",
-			Policy:          "{}",
+			Policy:          smallPolicy,
 		})
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, resp.AssumeRoleResult.PackedPolicySize, int32(1))

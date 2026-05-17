@@ -330,6 +330,7 @@ type AssumeRoleWithSAMLInput struct {
 	RoleSessionName string
 	SourceIdentity  string
 	PolicyArns      []string
+	Tags            []Tag
 	DurationSeconds int32
 }
 

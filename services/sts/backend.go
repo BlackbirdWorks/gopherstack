@@ -143,6 +143,9 @@ var (
 
 	// ErrTokenCodeWithoutSerial is returned when a TokenCode is supplied without a SerialNumber.
 	ErrTokenCodeWithoutSerial = errors.New("SerialNumber is required when TokenCode is provided")
+
+	// ErrInvalidPrincipalArn is returned when AssumeRoleWithSAML PrincipalArn is not a valid SAML provider ARN.
+	ErrInvalidPrincipalArn = errors.New("PrincipalArn is not a valid SAML provider ARN")
 )
 
 const (
@@ -922,40 +925,64 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 	}
 }
 
+// validateSAMLInput checks the common parameter constraints for AssumeRoleWithSAML.
+func validateSAMLInput(input *AssumeRoleWithSAMLInput) error {
+	if input.RoleArn == "" {
+		return ErrMissingRoleArn
+	}
+
+	if err := validateRoleArn(input.RoleArn); err != nil {
+		return err
+	}
+
+	if input.PrincipalArn == "" {
+		return ErrMissingPrincipalArn
+	}
+
+	if err := validateSAMLProviderArn(input.PrincipalArn); err != nil {
+		return err
+	}
+
+	if input.SAMLAssertion == "" {
+		return ErrMissingSAMLAssertion
+	}
+
+	// RoleSessionName is optional for SAML (derived from assertion), but when supplied validate it.
+	if input.RoleSessionName != "" {
+		if err := validateRoleSessionName(input.RoleSessionName); err != nil {
+			return err
+		}
+	}
+
+	if err := validateSourceIdentity(input.SourceIdentity); err != nil {
+		return err
+	}
+
+	if len(input.Tags) > MaxTagCount {
+		return fmt.Errorf("%w: got %d", ErrTooManyTags, len(input.Tags))
+	}
+
+	if err := validateTagConstraints(input.Tags); err != nil {
+		return err
+	}
+
+	if err := validatePolicyArns(input.PolicyArns); err != nil {
+		return err
+	}
+
+	if err := validateInlinePolicy(input.Policy); err != nil {
+		return err
+	}
+
+	return checkPackedPolicyBudget(input.Policy, input.PolicyArns)
+}
+
 // AssumeRoleWithSAML generates temporary credentials using a SAML 2.0 assertion.
 // In this mock, the SAMLAssertion is not cryptographically validated.
 func (b *InMemoryBackend) AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*AssumeRoleWithSAMLResponse, error) {
 	b.cntAssumeRoleWithSAML.Add(1)
 
-	if input.RoleArn == "" {
-		return nil, ErrMissingRoleArn
-	}
-
-	if err := validateRoleArn(input.RoleArn); err != nil {
-		return nil, err
-	}
-
-	if input.PrincipalArn == "" {
-		return nil, ErrMissingPrincipalArn
-	}
-
-	if input.SAMLAssertion == "" {
-		return nil, ErrMissingSAMLAssertion
-	}
-
-	if err := validateSourceIdentity(input.SourceIdentity); err != nil {
-		return nil, err
-	}
-
-	if err := validatePolicyArns(input.PolicyArns); err != nil {
-		return nil, err
-	}
-
-	if err := validateInlinePolicy(input.Policy); err != nil {
-		return nil, err
-	}
-
-	if err := checkPackedPolicyBudget(input.Policy, input.PolicyArns); err != nil {
+	if err := validateSAMLInput(input); err != nil {
 		return nil, err
 	}
 
@@ -1012,6 +1039,7 @@ func (b *InMemoryBackend) buildSAMLResponse(
 		SessionToken:    creds.SessionToken,
 		AssumedRoleID:   assumedRoleID,
 		SourceIdentity:  input.SourceIdentity,
+		Tags:            input.Tags,
 	}
 
 	b.mu.Lock()
@@ -1196,6 +1224,14 @@ func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (
 		return nil, fmt.Errorf("%w: got %d", ErrTooManyAudiences, len(input.Audience))
 	}
 
+	if len(input.Tags) > MaxTagCount {
+		return nil, fmt.Errorf("%w: got %d", ErrTooManyTags, len(input.Tags))
+	}
+
+	if err := validateTagConstraints(input.Tags); err != nil {
+		return nil, err
+	}
+
 	if input.SigningAlgorithm == "" {
 		return nil, ErrMissingSigningAlgorithm
 	}
@@ -1222,7 +1258,8 @@ func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (
 
 	// Build a minimal mock JWT payload (unsigned, for testing purposes only).
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"mock","typ":"JWT"}`))
-	payload, err := json.Marshal(map[string]any{
+
+	claims := map[string]any{
 		"sub": MockUserID,
 		"aud": input.Audience,
 		"iss": issuer,
@@ -1230,7 +1267,19 @@ func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (
 		"iat": now.Unix(),
 		"nbf": now.Unix(),
 		"acc": b.accountID,
-	})
+	}
+
+	// Include session tags as custom claims when present.
+	if len(input.Tags) > 0 {
+		tagMap := make(map[string]string, len(input.Tags))
+		for _, t := range input.Tags {
+			tagMap[t.Key] = t.Value
+		}
+
+		claims["https://aws.amazon.com/tags"] = tagMap
+	}
+
+	payload, err := json.Marshal(claims)
 	if err != nil {
 		return nil, fmt.Errorf("build token payload: %w", err)
 	}
