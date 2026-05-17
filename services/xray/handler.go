@@ -420,10 +420,14 @@ func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
 		})
 	case errors.Is(err, awserr.ErrConflict):
 		typeName := errInvalidRequestException
-		if errors.Is(err, ErrGroupAlreadyExists) {
+
+		switch {
+		case errors.Is(err, ErrGroupAlreadyExists):
 			typeName = "GroupAlreadyExistsException"
-		} else if errors.Is(err, ErrSamplingRuleAlreadyExists) {
+		case errors.Is(err, ErrSamplingRuleAlreadyExists):
 			typeName = "RuleAlreadyExistsException"
+		case errors.Is(err, ErrInvalidPolicyRevisionID):
+			typeName = "InvalidPolicyRevisionIdException"
 		}
 
 		return c.JSON(http.StatusBadRequest, map[string]string{
@@ -431,8 +435,16 @@ func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
 			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, awserr.ErrInvalidParameter):
+		typeName := errInvalidRequestException
+
+		if errors.Is(err, ErrInvalidSamplingRule) {
+			typeName = "InvalidSamplingRuleException"
+		} else if errors.Is(err, ErrMalformedPolicyDocument) {
+			typeName = "MalformedPolicyDocumentException"
+		}
+
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyTypeField:    errInvalidRequestException,
+			keyTypeField:    typeName,
 			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownPath),
@@ -495,14 +507,19 @@ func (h *Handler) handleCreateGroup(_ context.Context, body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: GroupName is required", errInvalidRequest)
 	}
 
-	g, err := h.Backend.CreateGroup(in.GroupName, in.FilterExpression)
-	if err != nil {
-		return nil, err
+	// Validate: NotificationsEnabled=true requires InsightsEnabled=true.
+	if in.InsightsConfiguration.NotificationsEnabled && !in.InsightsConfiguration.InsightsEnabled {
+		return nil, fmt.Errorf("%w: NotificationsEnabled requires InsightsEnabled to be true", errInvalidRequest)
 	}
 
-	g.InsightsConfiguration = InsightsConfiguration{
+	ic := InsightsConfiguration{
 		InsightsEnabled:      in.InsightsConfiguration.InsightsEnabled,
 		NotificationsEnabled: in.InsightsConfiguration.NotificationsEnabled,
+	}
+
+	g, err := h.Backend.CreateGroupWithInsights(in.GroupName, in.FilterExpression, ic)
+	if err != nil {
+		return nil, err
 	}
 
 	return json.Marshal(map[string]any{
@@ -512,6 +529,7 @@ func (h *Handler) handleCreateGroup(_ context.Context, body []byte) ([]byte, err
 
 type getGroupInput struct {
 	GroupName string `json:"GroupName"`
+	GroupARN  string `json:"GroupARN"`
 }
 
 func (h *Handler) handleGetGroup(_ context.Context, body []byte) ([]byte, error) {
@@ -522,11 +540,21 @@ func (h *Handler) handleGetGroup(_ context.Context, body []byte) ([]byte, error)
 		}
 	}
 
-	if in.GroupName == "" {
-		return nil, fmt.Errorf("%w: GroupName is required", errInvalidRequest)
+	if in.GroupName == "" && in.GroupARN == "" {
+		return nil, fmt.Errorf("%w: GroupName or GroupARN is required", errInvalidRequest)
 	}
 
-	g, err := h.Backend.GetGroup(in.GroupName)
+	var (
+		g   *Group
+		err error
+	)
+
+	if in.GroupARN != "" {
+		g, err = h.Backend.GetGroupByARN(in.GroupARN)
+	} else {
+		g, err = h.Backend.GetGroup(in.GroupName)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -551,8 +579,10 @@ func (h *Handler) handleGetGroups(_ context.Context, _ []byte) ([]byte, error) {
 }
 
 type updateGroupInput struct {
-	GroupName        string `json:"GroupName"`
-	FilterExpression string `json:"FilterExpression"`
+	GroupName             string             `json:"GroupName"`
+	GroupARN              string             `json:"GroupARN"`
+	FilterExpression      string             `json:"FilterExpression"`
+	InsightsConfiguration insightsConfigView `json:"InsightsConfiguration"`
 }
 
 func (h *Handler) handleUpdateGroup(_ context.Context, body []byte) ([]byte, error) {
@@ -563,11 +593,11 @@ func (h *Handler) handleUpdateGroup(_ context.Context, body []byte) ([]byte, err
 		}
 	}
 
-	if in.GroupName == "" {
+	if in.GroupName == "" && in.GroupARN == "" {
 		return nil, fmt.Errorf("%w: GroupName is required", errInvalidRequest)
 	}
 
-	g, err := h.Backend.UpdateGroup(in.GroupName, in.FilterExpression)
+	g, err := h.Backend.UpdateGroupByARN(in.GroupName, in.GroupARN, in.FilterExpression)
 	if err != nil {
 		return nil, err
 	}
@@ -579,6 +609,7 @@ func (h *Handler) handleUpdateGroup(_ context.Context, body []byte) ([]byte, err
 
 type deleteGroupInput struct {
 	GroupName string `json:"GroupName"`
+	GroupARN  string `json:"GroupARN"`
 }
 
 func (h *Handler) handleDeleteGroup(_ context.Context, body []byte) ([]byte, error) {
@@ -589,11 +620,11 @@ func (h *Handler) handleDeleteGroup(_ context.Context, body []byte) ([]byte, err
 		}
 	}
 
-	if in.GroupName == "" {
+	if in.GroupName == "" && in.GroupARN == "" {
 		return nil, fmt.Errorf("%w: GroupName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteGroup(in.GroupName); err != nil {
+	if err := h.Backend.DeleteGroupByARN(in.GroupName, in.GroupARN); err != nil {
 		return nil, err
 	}
 
@@ -696,6 +727,10 @@ func (h *Handler) handleCreateSamplingRule(_ context.Context, body []byte) ([]by
 		Attributes:    in.SamplingRule.Attributes,
 	}
 
+	if err := ValidateSamplingRule(rule); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.CreateSamplingRule(rule)
 	if err != nil {
 		return nil, err
@@ -720,21 +755,23 @@ func (h *Handler) handleGetSamplingRules(_ context.Context, _ []byte) ([]byte, e
 	})
 }
 
-type samplingRuleUpdate struct {
-	RuleName      string  `json:"RuleName"`
-	ResourceARN   string  `json:"ResourceARN"`
-	ServiceName   string  `json:"ServiceName"`
-	ServiceType   string  `json:"ServiceType"`
-	Host          string  `json:"Host"`
-	HTTPMethod    string  `json:"HTTPMethod"`
-	URLPath       string  `json:"URLPath"`
-	FixedRate     float64 `json:"FixedRate"`
-	Priority      int32   `json:"Priority"`
-	ReservoirSize int32   `json:"ReservoirSize"`
+// samplingRuleUpdateInput uses json.RawMessage so we can detect which fields
+// were explicitly provided (even zero values like FixedRate=0).
+type samplingRuleUpdateInput struct {
+	ResourceARN   *string  `json:"ResourceARN"`
+	ServiceName   *string  `json:"ServiceName"`
+	ServiceType   *string  `json:"ServiceType"`
+	Host          *string  `json:"Host"`
+	HTTPMethod    *string  `json:"HTTPMethod"`
+	URLPath       *string  `json:"URLPath"`
+	FixedRate     *float64 `json:"FixedRate"`
+	Priority      *int32   `json:"Priority"`
+	ReservoirSize *int32   `json:"ReservoirSize"`
+	RuleName      string   `json:"RuleName"`
 }
 
 type updateSamplingRuleInput struct {
-	SamplingRuleUpdate samplingRuleUpdate `json:"SamplingRuleUpdate"`
+	SamplingRuleUpdate samplingRuleUpdateInput `json:"SamplingRuleUpdate"`
 }
 
 func (h *Handler) handleUpdateSamplingRule(_ context.Context, body []byte) ([]byte, error) {
@@ -749,7 +786,7 @@ func (h *Handler) handleUpdateSamplingRule(_ context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: RuleName is required", errInvalidRequest)
 	}
 
-	updates := SamplingRule{
+	updates := SamplingRuleUpdate{
 		ResourceARN:   in.SamplingRuleUpdate.ResourceARN,
 		ServiceName:   in.SamplingRuleUpdate.ServiceName,
 		ServiceType:   in.SamplingRuleUpdate.ServiceType,
@@ -761,7 +798,7 @@ func (h *Handler) handleUpdateSamplingRule(_ context.Context, body []byte) ([]by
 		ReservoirSize: in.SamplingRuleUpdate.ReservoirSize,
 	}
 
-	r, err := h.Backend.UpdateSamplingRule(in.SamplingRuleUpdate.RuleName, updates)
+	r, err := h.Backend.UpdateSamplingRuleWithPointers(in.SamplingRuleUpdate.RuleName, updates)
 	if err != nil {
 		return nil, err
 	}
@@ -829,18 +866,122 @@ func (h *Handler) handlePutTraceSegments(_ context.Context, body []byte) ([]byte
 	})
 }
 
-func (h *Handler) handlePutTelemetryRecords(_ context.Context, _ []byte) ([]byte, error) {
+type telemetryRecordInput struct {
+	Timestamp              float64 `json:"Timestamp"`
+	SegmentsReceivedCount  int32   `json:"SegmentsReceivedCount"`
+	SegmentsSentCount      int32   `json:"SegmentsSentCount"`
+	SegmentsSpilloverCount int32   `json:"SegmentsSpilloverCount"`
+	SegmentsRejectedCount  int32   `json:"SegmentsRejectedCount"`
+}
+
+type putTelemetryRecordsInput struct {
+	TelemetryRecords []telemetryRecordInput `json:"TelemetryRecords"`
+}
+
+func (h *Handler) handlePutTelemetryRecords(_ context.Context, body []byte) ([]byte, error) {
+	var in putTelemetryRecordsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	records := make([]TelemetryRecord, 0, len(in.TelemetryRecords))
+
+	for _, r := range in.TelemetryRecords {
+		ts := time.Now()
+		if r.Timestamp > 0 {
+			ts = time.Unix(int64(r.Timestamp), 0)
+		}
+
+		records = append(records, TelemetryRecord{
+			Timestamp:              ts,
+			SegmentsReceivedCount:  r.SegmentsReceivedCount,
+			SegmentsSentCount:      r.SegmentsSentCount,
+			SegmentsSpilloverCount: r.SegmentsSpilloverCount,
+			SegmentsRejectedCount:  r.SegmentsRejectedCount,
+		})
+	}
+
+	if len(records) > 0 {
+		h.Backend.PutTelemetryRecords(records)
+	}
+
 	return json.Marshal(map[string]any{})
 }
 
 type getTraceSummariesInput struct {
-	StartTime float64 `json:"StartTime"`
-	EndTime   float64 `json:"EndTime"`
+	FilterExpression string  `json:"FilterExpression"`
+	TimeRangeType    string  `json:"TimeRangeType"`
+	NextToken        string  `json:"NextToken"`
+	StartTime        float64 `json:"StartTime"`
+	EndTime          float64 `json:"EndTime"`
+}
+
+type traceSummaryHTTPView struct {
+	HTTPURL    string `json:"HttpURL,omitempty"`
+	HTTPMethod string `json:"HttpMethod,omitempty"`
+	ClientIP   string `json:"ClientIp,omitempty"`
+	UserAgent  string `json:"UserAgent,omitempty"`
+	HTTPStatus int    `json:"HttpStatus,omitempty"`
+}
+
+type traceSummaryServiceIDView struct {
+	Name string `json:"Name"`
+	Type string `json:"Type"`
 }
 
 type traceSummary struct {
-	ID       string  `json:"Id"`
-	Duration float64 `json:"Duration"`
+	HTTP            *traceSummaryHTTPView       `json:"Http,omitempty"`
+	Annotations     map[string]any              `json:"Annotations,omitempty"`
+	ID              string                      `json:"Id"`
+	EntryPoint      string                      `json:"EntryPoint,omitempty"`
+	ServiceIds      []traceSummaryServiceIDView `json:"ServiceIds,omitempty"` //nolint:revive // AWS API field name
+	Duration        float64                     `json:"Duration"`
+	ResponseTime    float64                     `json:"ResponseTime"`
+	ApproximateTime float64                     `json:"ApproximateTime"`
+	HasFault        bool                        `json:"HasFault"`
+	HasError        bool                        `json:"HasError"`
+	HasThrottle     bool                        `json:"HasThrottle"`
+	IsPartial       bool                        `json:"IsPartial"`
+}
+
+// buildTraceSummaryView converts a TraceSummaryData to the JSON view struct.
+func buildTraceSummaryView(traceID string, sd TraceSummaryData) traceSummary {
+	s := traceSummary{
+		ID:              traceID,
+		Duration:        sd.Duration,
+		ResponseTime:    sd.ResponseTime,
+		ApproximateTime: sd.ApproxTime,
+		HasFault:        sd.HasFault,
+		HasError:        sd.HasError,
+		HasThrottle:     sd.HasThrottle,
+		IsPartial:       sd.IsPartial,
+		EntryPoint:      sd.EntryPoint,
+	}
+
+	if sd.HTTP != nil {
+		s.HTTP = &traceSummaryHTTPView{
+			HTTPStatus: sd.HTTP.HTTPStatus,
+			HTTPURL:    sd.HTTP.HTTPURL,
+			HTTPMethod: sd.HTTP.HTTPMethod,
+			ClientIP:   sd.HTTP.ClientIP,
+			UserAgent:  sd.HTTP.UserAgent,
+		}
+	}
+
+	if len(sd.Annotations) > 0 {
+		s.Annotations = sd.Annotations
+	}
+
+	if len(sd.ServiceIDs) > 0 {
+		s.ServiceIds = make([]traceSummaryServiceIDView, 0, len(sd.ServiceIDs))
+		for _, svc := range sd.ServiceIDs {
+			s.ServiceIds = append(s.ServiceIds, traceSummaryServiceIDView(svc))
+		}
+	}
+
+	return s
 }
 
 func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byte, error) {
@@ -852,6 +993,8 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 	}
 
 	traces := h.Backend.GetTraceSummaries()
+	allSegs := h.Backend.GetAllParsedSegments()
+
 	summaries := make([]traceSummary, 0, len(traces))
 
 	for i := range traces {
@@ -863,10 +1006,14 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 			}
 		}
 
-		summaries = append(summaries, traceSummary{
-			ID:       traces[i].TraceID,
-			Duration: 0,
-		})
+		segs := allSegs[traces[i].TraceID]
+		sd := BuildTraceSummary(traces[i].TraceID, segs)
+
+		if !evaluateFilter(in.FilterExpression, sd) {
+			continue
+		}
+
+		summaries = append(summaries, buildTraceSummaryView(traces[i].TraceID, sd))
 	}
 
 	return json.Marshal(map[string]any{
@@ -880,10 +1027,15 @@ type batchGetTracesInput struct {
 	TraceIDs []string `json:"TraceIds"`
 }
 
+type batchSegmentOutput struct {
+	ID       string `json:"Id"`
+	Document string `json:"Document"`
+}
+
 type traceOutput struct {
-	ID       string   `json:"Id"`
-	Segments []string `json:"Segments"`
-	Duration float64  `json:"Duration"`
+	ID       string               `json:"Id"`
+	Segments []batchSegmentOutput `json:"Segments"`
+	Duration float64              `json:"Duration"`
 }
 
 func (h *Handler) handleBatchGetTraces(_ context.Context, body []byte) ([]byte, error) {
@@ -892,6 +1044,11 @@ func (h *Handler) handleBatchGetTraces(_ context.Context, body []byte) ([]byte, 
 		if err := json.Unmarshal(body, &in); err != nil {
 			return nil, err
 		}
+	}
+
+	if len(in.TraceIDs) > maxBatchGetTraces {
+		return nil, fmt.Errorf("%w: BatchGetTraces supports at most %d trace IDs, got %d",
+			ErrBatchGetTracesLimit, maxBatchGetTraces, len(in.TraceIDs))
 	}
 
 	traces := make([]traceOutput, 0, len(in.TraceIDs))
@@ -905,10 +1062,37 @@ func (h *Handler) handleBatchGetTraces(_ context.Context, body []byte) ([]byte, 
 			continue
 		}
 
+		segs := h.Backend.GetParsedSegments(id)
+		sd := BuildTraceSummary(id, segs)
+
+		segViews := make([]batchSegmentOutput, 0, len(segs))
+		for _, seg := range segs {
+			segViews = append(segViews, batchSegmentOutput{
+				ID:       seg.ID,
+				Document: seg.Document,
+			})
+		}
+
+		// Fall back to raw segments when parsed segments are unavailable.
+		if len(segViews) == 0 {
+			for _, rawDoc := range t.Segments {
+				var hdr struct {
+					ID string `json:"id"`
+				}
+
+				if err := json.Unmarshal([]byte(rawDoc), &hdr); err == nil {
+					segViews = append(segViews, batchSegmentOutput{
+						ID:       hdr.ID,
+						Document: rawDoc,
+					})
+				}
+			}
+		}
+
 		traces = append(traces, traceOutput{
 			ID:       t.TraceID,
-			Duration: 0,
-			Segments: t.Segments,
+			Duration: sd.Duration,
+			Segments: segViews,
 		})
 	}
 
@@ -1182,7 +1366,11 @@ func (h *Handler) handleGetInsightSummaries(_ context.Context, body []byte) ([]b
 		}
 	}
 
-	summaries := h.Backend.GetInsightSummaries(in.States)
+	summaries, err := h.Backend.GetInsightSummaries(in.States)
+	if err != nil {
+		return nil, err
+	}
+
 	views := make([]insightView, 0, len(summaries))
 
 	for i := range summaries {
@@ -1268,10 +1456,11 @@ type getSamplingTargetsInput struct {
 }
 
 type samplingTargetDocumentView struct {
-	RuleName       string  `json:"RuleName"`
-	FixedRate      float64 `json:"FixedRate"`
-	ReservoirQuota int32   `json:"ReservoirQuota"`
-	Interval       int32   `json:"Interval"`
+	RuleName          string  `json:"RuleName"`
+	ReservoirQuotaTTL float64 `json:"ReservoirQuotaTTL"`
+	FixedRate         float64 `json:"FixedRate"`
+	ReservoirQuota    int32   `json:"ReservoirQuota"`
+	Interval          int32   `json:"Interval"`
 }
 
 type unprocessedStatisticsView struct {
@@ -1288,36 +1477,42 @@ func (h *Handler) handleGetSamplingTargets(_ context.Context, body []byte) ([]by
 		}
 	}
 
-	ruleNames := make([]string, 0, len(in.SamplingStatisticsDocuments))
+	docs := make([]SamplingStatisticsDocument, 0, len(in.SamplingStatisticsDocuments))
 	for _, d := range in.SamplingStatisticsDocuments {
-		ruleNames = append(ruleNames, d.RuleName)
+		docs = append(docs, SamplingStatisticsDocument(d))
 	}
 
-	targets, unprocessedNames := h.Backend.GetSamplingTargets(ruleNames)
+	targets, unprocessed := h.Backend.GetSamplingTargets(docs)
 
 	targetViews := make([]samplingTargetDocumentView, 0, len(targets))
 	for _, t := range targets {
 		targetViews = append(targetViews, samplingTargetDocumentView{
-			RuleName:       t.RuleName,
-			FixedRate:      t.FixedRate,
-			ReservoirQuota: t.ReservoirSize,
-			Interval:       samplingTargetInterval,
+			RuleName:          t.RuleName,
+			FixedRate:         t.FixedRate,
+			ReservoirQuota:    t.ReservoirSize,
+			ReservoirQuotaTTL: float64(t.ReservoirQuotaTTL.Unix()),
+			Interval:          samplingTargetInterval,
 		})
 	}
 
-	unprocessedViews := make([]unprocessedStatisticsView, 0, len(unprocessedNames))
-	for _, name := range unprocessedNames {
-		unprocessedViews = append(unprocessedViews, unprocessedStatisticsView{
-			RuleName:  name,
-			ErrorCode: "RuleDoesNotExist",
-			Message:   "sampling rule " + name + " not found",
-		})
+	unprocessedViews := make([]unprocessedStatisticsView, 0, len(unprocessed))
+	for _, u := range unprocessed {
+		unprocessedViews = append(unprocessedViews, unprocessedStatisticsView(u))
+	}
+
+	lastMod := h.Backend.LastRuleModification()
+	var lastModTS float64
+
+	if !lastMod.IsZero() {
+		lastModTS = float64(lastMod.Unix())
+	} else {
+		lastModTS = float64(time.Now().Unix())
 	}
 
 	return json.Marshal(map[string]any{
 		"SamplingTargetDocuments": targetViews,
 		"UnprocessedStatistics":   unprocessedViews,
-		"LastRuleModification":    float64(time.Now().Unix()),
+		"LastRuleModification":    lastModTS,
 	})
 }
 
@@ -1354,9 +1549,10 @@ func (h *Handler) handleListResourcePolicies(_ context.Context, _ []byte) ([]byt
 // --- PutResourcePolicy ---
 
 type putResourcePolicyInput struct {
-	PolicyName       string `json:"PolicyName"`
-	PolicyDocument   string `json:"PolicyDocument"`
-	PolicyRevisionID string `json:"PolicyRevisionId"`
+	PolicyName               string `json:"PolicyName"`
+	PolicyDocument           string `json:"PolicyDocument"`
+	PolicyRevisionID         string `json:"PolicyRevisionId"`
+	BypassPolicyLockoutCheck bool   `json:"BypassPolicyLockoutCheck"`
 }
 
 func (h *Handler) handlePutResourcePolicy(_ context.Context, body []byte) ([]byte, error) {
@@ -1375,7 +1571,10 @@ func (h *Handler) handlePutResourcePolicy(_ context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: PolicyDocument is required", errInvalidRequest)
 	}
 
-	p := h.Backend.PutResourcePolicy(in.PolicyName, in.PolicyDocument)
+	p, err := h.Backend.PutResourcePolicy(in.PolicyName, in.PolicyDocument, in.PolicyRevisionID)
+	if err != nil {
+		return nil, err
+	}
 
 	return json.Marshal(map[string]any{
 		"ResourcePolicy": toResourcePolicyView(p),

@@ -11,6 +11,8 @@ import (
 
 type getServiceGraphInput struct {
 	NextToken string  `json:"NextToken"`
+	GroupName string  `json:"GroupName"`
+	GroupARN  string  `json:"GroupARN"`
 	StartTime float64 `json:"StartTime"`
 	EndTime   float64 `json:"EndTime"`
 }
@@ -38,9 +40,14 @@ func (h *Handler) handleGetServiceGraph(_ context.Context, body []byte) ([]byte,
 // --- GetTimeSeriesServiceStatistics ---
 
 type getTimeSeriesServiceStatisticsInput struct {
-	NextToken string  `json:"NextToken"`
-	StartTime float64 `json:"StartTime"`
-	EndTime   float64 `json:"EndTime"`
+	NextToken                string  `json:"NextToken"`
+	EntitySelectorExpression string  `json:"EntitySelectorExpression"`
+	GroupName                string  `json:"GroupName"`
+	GroupARN                 string  `json:"GroupARN"`
+	StartTime                float64 `json:"StartTime"`
+	EndTime                  float64 `json:"EndTime"`
+	Period                   int     `json:"Period"`
+	ForecastStatistics       bool    `json:"ForecastStatistics"`
 }
 
 func (h *Handler) handleGetTimeSeriesServiceStatistics(_ context.Context, body []byte) ([]byte, error) {
@@ -55,8 +62,20 @@ func (h *Handler) handleGetTimeSeriesServiceStatistics(_ context.Context, body [
 		return nil, fmt.Errorf("%w: StartTime and EndTime are required", errInvalidRequest)
 	}
 
+	period := in.Period
+	if period <= 0 {
+		period = 60
+	}
+
+	stats := h.Backend.GetTimeSeriesServiceStatistics(
+		time.Unix(int64(in.StartTime), 0),
+		time.Unix(int64(in.EndTime), 0),
+		period,
+	)
+
 	return json.Marshal(map[string]any{
-		"TimeSeriesServiceStatistics": []any{},
+		"TimeSeriesServiceStatistics": stats,
+		"ContainsOldGroupVersions":    false,
 		keyNextToken:                  "",
 	})
 }
@@ -95,7 +114,7 @@ func (h *Handler) handleGetTraceSegmentDestination(_ context.Context, _ []byte) 
 
 	return json.Marshal(map[string]any{
 		"Destination": dest,
-		"Status":      "ACTIVE",
+		"Status":      statusActive,
 	})
 }
 
@@ -291,6 +310,6 @@ func (h *Handler) handleUpdateTraceSegmentDestination(_ context.Context, body []
 
 	return json.Marshal(map[string]any{
 		"Destination": dest,
-		"Status":      "ACTIVE",
+		"Status":      statusActive,
 	})
 }
