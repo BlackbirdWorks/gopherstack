@@ -155,7 +155,12 @@ func TestHandler_UserProfileLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recDesc.Code)
 
 	// List user profiles.
-	recList := doSageMakerRequest(t, h, "ListUserProfiles", map[string]any{"DomainIdEquals": domainID})
+	recList := doSageMakerRequest(
+		t,
+		h,
+		"ListUserProfiles",
+		map[string]any{"DomainIdEquals": domainID},
+	)
 	assert.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
@@ -174,7 +179,12 @@ func TestHandler_UserProfile_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	recDomain := doSageMakerRequest(t, h, "CreateDomain", map[string]any{"DomainName": "up-notfound-domain"})
+	recDomain := doSageMakerRequest(
+		t,
+		h,
+		"CreateDomain",
+		map[string]any{"DomainName": "up-notfound-domain"},
+	)
 	require.Equal(t, http.StatusOK, recDomain.Code)
 
 	var domainOut map[string]any
@@ -200,7 +210,12 @@ func TestHandler_AppLifecycle(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Create domain and user profile first.
-	recDomain := doSageMakerRequest(t, h, "CreateDomain", map[string]any{"DomainName": "app-domain"})
+	recDomain := doSageMakerRequest(
+		t,
+		h,
+		"CreateDomain",
+		map[string]any{"DomainName": "app-domain"},
+	)
 	require.Equal(t, http.StatusOK, recDomain.Code)
 
 	var domainOut map[string]any
@@ -372,7 +387,12 @@ func TestHandler_PipelineLifecycle(t *testing.T) {
 	assert.NotEmpty(t, createOut["PipelineArn"])
 
 	// Describe pipeline.
-	recDesc := doSageMakerRequest(t, h, "DescribePipeline", map[string]any{"PipelineName": "my-pipeline"})
+	recDesc := doSageMakerRequest(
+		t,
+		h,
+		"DescribePipeline",
+		map[string]any{"PipelineName": "my-pipeline"},
+	)
 	assert.Equal(t, http.StatusOK, recDesc.Code)
 
 	// List pipelines.
@@ -414,7 +434,12 @@ func TestHandler_PipelineLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recListExec.Code)
 
 	// Delete pipeline.
-	recDelete := doSageMakerRequest(t, h, "DeletePipeline", map[string]any{"PipelineName": "my-pipeline"})
+	recDelete := doSageMakerRequest(
+		t,
+		h,
+		"DeletePipeline",
+		map[string]any{"PipelineName": "my-pipeline"},
+	)
 	assert.Equal(t, http.StatusOK, recDelete.Code)
 }
 
@@ -559,7 +584,12 @@ func TestHandler_TrialLifecycle(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Create experiment first.
-	doSageMakerRequest(t, h, "CreateExperiment", map[string]any{"ExperimentName": "trial-experiment"})
+	doSageMakerRequest(
+		t,
+		h,
+		"CreateExperiment",
+		map[string]any{"ExperimentName": "trial-experiment"},
+	)
 
 	// Create trial.
 	recCreate := doSageMakerRequest(t, h, "CreateTrial", map[string]any{
@@ -624,7 +654,12 @@ func TestHandler_EndpointLifecycle(t *testing.T) {
 	doSageMakerRequest(t, h, "CreateEndpointConfig", map[string]any{
 		"EndpointConfigName": "my-ep-config",
 		"ProductionVariants": []map[string]any{
-			{"VariantName": "main", "ModelName": "m", "InstanceType": "ml.m5.large", "InitialInstanceCount": 1},
+			{
+				"VariantName":          "main",
+				"ModelName":            "m",
+				"InstanceType":         "ml.m5.large",
+				"InitialInstanceCount": 1,
+			},
 		},
 	})
 
@@ -640,7 +675,12 @@ func TestHandler_EndpointLifecycle(t *testing.T) {
 	assert.NotEmpty(t, createOut["EndpointArn"])
 
 	// Describe endpoint.
-	recDesc := doSageMakerRequest(t, h, "DescribeEndpoint", map[string]any{"EndpointName": "my-endpoint"})
+	recDesc := doSageMakerRequest(
+		t,
+		h,
+		"DescribeEndpoint",
+		map[string]any{"EndpointName": "my-endpoint"},
+	)
 	assert.Equal(t, http.StatusOK, recDesc.Code)
 
 	// List endpoints.
@@ -659,14 +699,24 @@ func TestHandler_EndpointLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recUpdate.Code)
 
 	// UpdateEndpointWeightsAndCapacities.
-	recUpdateWeights := doSageMakerRequest(t, h, "UpdateEndpointWeightsAndCapacities", map[string]any{
-		"EndpointName":                "my-endpoint",
-		"DesiredWeightsAndCapacities": []map[string]any{},
-	})
+	recUpdateWeights := doSageMakerRequest(
+		t,
+		h,
+		"UpdateEndpointWeightsAndCapacities",
+		map[string]any{
+			"EndpointName":                "my-endpoint",
+			"DesiredWeightsAndCapacities": []map[string]any{},
+		},
+	)
 	assert.Equal(t, http.StatusOK, recUpdateWeights.Code)
 
 	// Delete endpoint.
-	recDelete := doSageMakerRequest(t, h, "DeleteEndpoint", map[string]any{"EndpointName": "my-endpoint"})
+	recDelete := doSageMakerRequest(
+		t,
+		h,
+		"DeleteEndpoint",
+		map[string]any{"EndpointName": "my-endpoint"},
+	)
 	assert.Equal(t, http.StatusOK, recDelete.Code)
 }
 

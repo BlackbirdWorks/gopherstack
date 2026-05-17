@@ -41,13 +41,17 @@ func TestHandler_AddAssociation(t *testing.T) {
 			wantARN:  true,
 		},
 		{
-			name:     "missing SourceArn",
-			body:     map[string]any{"DestinationArn": "arn:aws:sagemaker:us-east-1:000000000000:artifact/x"},
+			name: "missing SourceArn",
+			body: map[string]any{
+				"DestinationArn": "arn:aws:sagemaker:us-east-1:000000000000:artifact/x",
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "missing DestinationArn",
-			body:     map[string]any{"SourceArn": "arn:aws:sagemaker:us-east-1:000000000000:trial/x"},
+			name: "missing DestinationArn",
+			body: map[string]any{
+				"SourceArn": "arn:aws:sagemaker:us-east-1:000000000000:trial/x",
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -573,7 +577,9 @@ func TestHandler_BatchReplaceClusterNodes(t *testing.T) {
 			},
 			body: map[string]any{
 				"ClusterName": "replace-cluster-2",
-				"Nodes":       []map[string]any{{"NodeId": "nonexistent", "InstanceType": "ml.p3.2xlarge"}},
+				"Nodes": []map[string]any{
+					{"NodeId": "nonexistent", "InstanceType": "ml.p3.2xlarge"},
+				},
 			},
 			wantCode: http.StatusOK,
 			wantARN:  true,

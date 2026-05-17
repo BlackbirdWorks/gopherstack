@@ -37,58 +37,96 @@ var (
 
 // Endpoint represents a SageMaker inference endpoint.
 type Endpoint struct {
-	CreationTime       time.Time         `json:"CreationTime"`
-	LastModifiedTime   time.Time         `json:"LastModifiedTime"`
-	Tags               map[string]string `json:"Tags,omitempty"`
-	EndpointName       string            `json:"EndpointName"`
-	EndpointArn        string            `json:"EndpointArn"`
-	EndpointConfigName string            `json:"EndpointConfigName"`
-	EndpointStatus     string            `json:"EndpointStatus"`
-	FailureReason      string            `json:"FailureReason,omitempty"`
+	CreationTime       time.Time           `json:"CreationTime"`
+	LastModifiedTime   time.Time           `json:"LastModifiedTime"`
+	Tags               map[string]string   `json:"Tags,omitempty"`
+	ProductionVariants []ProductionVariant `json:"ProductionVariants,omitempty"`
+	EndpointName       string              `json:"EndpointName"`
+	EndpointArn        string              `json:"EndpointArn"`
+	EndpointConfigName string              `json:"EndpointConfigName"`
+	EndpointStatus     string              `json:"EndpointStatus"`
+	FailureReason      string              `json:"FailureReason,omitempty"`
 }
 
 // cloneEndpoint returns a deep copy of ep.
 func cloneEndpoint(ep *Endpoint) *Endpoint {
 	cp := *ep
 	cp.Tags = maps.Clone(ep.Tags)
+	cp.ProductionVariants = make([]ProductionVariant, len(ep.ProductionVariants))
+	copy(cp.ProductionVariants, ep.ProductionVariants)
 
 	return &cp
 }
 
 // TrainingJob represents a SageMaker training job.
 type TrainingJob struct {
-	CreationTime      time.Time         `json:"CreationTime"`
-	LastModifiedTime  time.Time         `json:"LastModifiedTime"`
-	TrainingEndTime   *time.Time        `json:"TrainingEndTime,omitempty"`
-	Tags              map[string]string `json:"Tags,omitempty"`
-	TrainingJobName   string            `json:"TrainingJobName"`
-	TrainingJobArn    string            `json:"TrainingJobArn"`
-	TrainingJobStatus string            `json:"TrainingJobStatus"`
-	AlgorithmSpec     map[string]string `json:"AlgorithmSpecification,omitempty"`
-	RoleArn           string            `json:"RoleArn,omitempty"`
-	FailureReason     string            `json:"FailureReason,omitempty"`
+	CreationTime                          time.Time                   `json:"CreationTime"`
+	LastModifiedTime                      time.Time                   `json:"LastModifiedTime"`
+	TrainingStartTime                     *time.Time                  `json:"TrainingStartTime,omitempty"`
+	TrainingEndTime                       *time.Time                  `json:"TrainingEndTime,omitempty"`
+	Tags                                  map[string]string           `json:"Tags,omitempty"`
+	HyperParameters                       map[string]string           `json:"HyperParameters,omitempty"`
+	Environment                           map[string]string           `json:"Environment,omitempty"`
+	InputDataConfig                       []Channel                   `json:"InputDataConfig,omitempty"`
+	SecondaryStatusTransitions            []SecondaryStatusTransition `json:"SecondaryStatusTransitions,omitempty"`
+	AlgorithmSpecification                AlgorithmSpecification      `json:"AlgorithmSpecification,omitempty"`
+	OutputDataConfig                      OutputDataConfig            `json:"OutputDataConfig,omitempty"`
+	ResourceConfig                        ResourceConfig              `json:"ResourceConfig,omitempty"`
+	StoppingCondition                     StoppingCondition           `json:"StoppingCondition,omitempty"`
+	VpcConfig                             *VpcConfig                  `json:"VpcConfig,omitempty"`
+	CheckpointConfig                      *CheckpointConfig           `json:"CheckpointConfig,omitempty"`
+	ModelArtifacts                        *ModelArtifacts             `json:"ModelArtifacts,omitempty"`
+	TrainingJobName                       string                      `json:"TrainingJobName"`
+	TrainingJobArn                        string                      `json:"TrainingJobArn"`
+	TrainingJobStatus                     string                      `json:"TrainingJobStatus"`
+	SecondaryStatus                       string                      `json:"SecondaryStatus,omitempty"`
+	RoleArn                               string                      `json:"RoleArn,omitempty"`
+	FailureReason                         string                      `json:"FailureReason,omitempty"`
+	BillableTimeInSeconds                 int32                       `json:"BillableTimeInSeconds,omitempty"`
+	TrainingTimeInSeconds                 int32                       `json:"TrainingTimeInSeconds,omitempty"`
+	EnableNetworkIsolation                bool                        `json:"EnableNetworkIsolation,omitempty"`
+	EnableManagedSpotTraining             bool                        `json:"EnableManagedSpotTraining,omitempty"`
+	EnableInterContainerTrafficEncryption bool                        `json:"EnableInterContainerTrafficEncryption,omitempty"`
 }
 
 // cloneTrainingJob returns a deep copy of tj.
 func cloneTrainingJob(tj *TrainingJob) *TrainingJob {
 	cp := *tj
 	cp.Tags = maps.Clone(tj.Tags)
-	cp.AlgorithmSpec = maps.Clone(tj.AlgorithmSpec)
-
+	cp.HyperParameters = maps.Clone(tj.HyperParameters)
+	cp.Environment = maps.Clone(tj.Environment)
+	cp.InputDataConfig = make([]Channel, len(tj.InputDataConfig))
+	copy(cp.InputDataConfig, tj.InputDataConfig)
+	cp.SecondaryStatusTransitions = make(
+		[]SecondaryStatusTransition,
+		len(tj.SecondaryStatusTransitions),
+	)
+	copy(cp.SecondaryStatusTransitions, tj.SecondaryStatusTransitions)
 	return &cp
 }
 
 // NotebookInstance represents a SageMaker notebook instance.
 type NotebookInstance struct {
-	CreationTime           time.Time         `json:"CreationTime"`
-	LastModifiedTime       time.Time         `json:"LastModifiedTime"`
-	Tags                   map[string]string `json:"Tags,omitempty"`
-	NotebookInstanceName   string            `json:"NotebookInstanceName"`
-	NotebookInstanceArn    string            `json:"NotebookInstanceArn"`
-	NotebookInstanceStatus string            `json:"NotebookInstanceStatus"`
-	InstanceType           string            `json:"InstanceType,omitempty"`
-	RoleArn                string            `json:"RoleArn,omitempty"`
-	URL                    string            `json:"Url,omitempty"`
+	CreationTime               time.Time         `json:"CreationTime"`
+	LastModifiedTime           time.Time         `json:"LastModifiedTime"`
+	Tags                       map[string]string `json:"Tags,omitempty"`
+	SecurityGroupIds           []string          `json:"SecurityGroupIds,omitempty"`
+	AcceleratorTypes           []string          `json:"AcceleratorTypes,omitempty"`
+	AdditionalCodeRepositories []string          `json:"AdditionalCodeRepositories,omitempty"`
+	NotebookInstanceName       string            `json:"NotebookInstanceName"`
+	NotebookInstanceArn        string            `json:"NotebookInstanceArn"`
+	NotebookInstanceStatus     string            `json:"NotebookInstanceStatus"`
+	InstanceType               string            `json:"InstanceType,omitempty"`
+	RoleArn                    string            `json:"RoleArn,omitempty"`
+	SubnetId                   string            `json:"SubnetId,omitempty"`
+	KmsKeyId                   string            `json:"KmsKeyId,omitempty"`
+	LifecycleConfigName        string            `json:"NotebookInstanceLifecycleConfigName,omitempty"`
+	DirectInternetAccess       string            `json:"DirectInternetAccess,omitempty"`
+	RootAccess                 string            `json:"RootAccess,omitempty"`
+	DefaultCodeRepository      string            `json:"DefaultCodeRepository,omitempty"`
+	PlatformIdentifier         string            `json:"PlatformIdentifier,omitempty"`
+	URL                        string            `json:"Url,omitempty"`
+	VolumeSizeInGB             int32             `json:"VolumeSizeInGB,omitempty"`
 }
 
 // cloneNotebook returns a deep copy of nb.
@@ -235,35 +273,24 @@ func (b *InMemoryBackend) UpdateEndpoint(name, endpointConfigName string) (*Endp
 // TrainingJob
 // ---------------------------------------------------------------------------
 
-// CreateTrainingJob creates a new training job.
+// CreateTrainingJob creates a new training job (legacy signature, kept for compatibility).
 func (b *InMemoryBackend) CreateTrainingJob(
 	name, roleArn string,
 	algorithmSpec map[string]string,
 	tags map[string]string,
 ) (*TrainingJob, error) {
-	b.mu.Lock("CreateTrainingJob")
-	defer b.mu.Unlock()
-
-	if _, ok := b.trainingJobs[name]; ok {
-		return nil, fmt.Errorf("%w: training job %s already exists", ErrTrainingJobAlreadyExists, name)
+	spec := AlgorithmSpecification{
+		TrainingImage:     algorithmSpec["TrainingImage"],
+		AlgorithmName:     algorithmSpec["AlgorithmName"],
+		TrainingInputMode: algorithmSpec["TrainingInputMode"],
 	}
 
-	jobARN := arn.Build("sagemaker", b.region, b.accountID, "training-job/"+name)
-	now := time.Now()
-	tj := &TrainingJob{
-		TrainingJobName:   name,
-		TrainingJobArn:    jobARN,
-		TrainingJobStatus: "InProgress",
-		RoleArn:           roleArn,
-		AlgorithmSpec:     maps.Clone(algorithmSpec),
-		CreationTime:      now,
-		LastModifiedTime:  now,
-		Tags:              mergeTags(nil, tags),
-	}
-	b.trainingJobs[name] = tj
-	b.trainingJobARNIndex[jobARN] = name
-
-	return cloneTrainingJob(tj), nil
+	return b.CreateTrainingJobFull(TrainingJobOptions{
+		TrainingJobName:        name,
+		RoleArn:                roleArn,
+		AlgorithmSpecification: spec,
+		Tags:                   tags,
+	})
 }
 
 // DescribeTrainingJob returns a training job by name.
@@ -364,7 +391,11 @@ func (b *InMemoryBackend) CreateNotebookInstance(
 	defer b.mu.Unlock()
 
 	if _, ok := b.notebooks[name]; ok {
-		return nil, fmt.Errorf("%w: notebook instance %s already exists", ErrNotebookAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: notebook instance %s already exists",
+			ErrNotebookAlreadyExists,
+			name,
+		)
 	}
 
 	nbARN := arn.Build("sagemaker", b.region, b.accountID, "notebook-instance/"+name)
@@ -451,7 +482,10 @@ func matchesNotebookFilter(nb *NotebookInstance, f ListNotebookInstancesFilter) 
 	}
 
 	if f.NameContains != "" &&
-		!strings.Contains(strings.ToLower(nb.NotebookInstanceName), strings.ToLower(f.NameContains)) {
+		!strings.Contains(
+			strings.ToLower(nb.NotebookInstanceName),
+			strings.ToLower(f.NameContains),
+		) {
 		return false
 	}
 
@@ -552,7 +586,11 @@ func (b *InMemoryBackend) CreateHyperParameterTuningJob(
 	defer b.mu.Unlock()
 
 	if _, ok := b.hpTuningJobs[name]; ok {
-		return nil, fmt.Errorf("%w: HP tuning job %s already exists", ErrHPTuningJobAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: HP tuning job %s already exists",
+			ErrHPTuningJobAlreadyExists,
+			name,
+		)
 	}
 
 	jobARN := arn.Build("sagemaker", b.region, b.accountID, "hyper-parameter-tuning-job/"+name)
@@ -573,7 +611,9 @@ func (b *InMemoryBackend) CreateHyperParameterTuningJob(
 }
 
 // DescribeHyperParameterTuningJob returns an HP tuning job by name.
-func (b *InMemoryBackend) DescribeHyperParameterTuningJob(name string) (*HyperParameterTuningJob, error) {
+func (b *InMemoryBackend) DescribeHyperParameterTuningJob(
+	name string,
+) (*HyperParameterTuningJob, error) {
 	b.mu.RLock("DescribeHyperParameterTuningJob")
 	defer b.mu.RUnlock()
 
@@ -586,7 +626,9 @@ func (b *InMemoryBackend) DescribeHyperParameterTuningJob(name string) (*HyperPa
 }
 
 // ListHyperParameterTuningJobs returns HP tuning jobs sorted by name.
-func (b *InMemoryBackend) ListHyperParameterTuningJobs(nextToken string) ([]*HyperParameterTuningJob, string) {
+func (b *InMemoryBackend) ListHyperParameterTuningJobs(
+	nextToken string,
+) ([]*HyperParameterTuningJob, string) {
 	b.mu.RLock("ListHyperParameterTuningJobs")
 	defer b.mu.RUnlock()
 

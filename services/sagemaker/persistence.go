@@ -17,20 +17,32 @@ type persistedCluster struct {
 
 // backendSnapshot holds the serialisable state of InMemoryBackend.
 type backendSnapshot struct {
-	Models                     map[string]*Model                     `json:"models"`
-	EndpointConfigs            map[string]*EndpointConfig            `json:"endpointConfigs"`
-	Endpoints                  map[string]*Endpoint                  `json:"endpoints"`
-	TrainingJobs               map[string]*TrainingJob               `json:"trainingJobs"`
-	Notebooks                  map[string]*NotebookInstance          `json:"notebooks"`
-	HPTuningJobs               map[string]*HyperParameterTuningJob   `json:"hpTuningJobs"`
-	Associations               map[string]*Association               `json:"associations"`
-	TrialComponentAssociations map[string]*TrialComponentAssociation `json:"trialComponentAssociations"`
-	Actions                    map[string]*Action                    `json:"actions"`
-	Algorithms                 map[string]*Algorithm                 `json:"algorithms"`
-	Clusters                   map[string]*persistedCluster          `json:"clusters"`
-	ModelPackages              map[string]*ModelPackage              `json:"modelPackages"`
-	AccountID                  string                                `json:"accountID"`
-	Region                     string                                `json:"region"`
+	Models                     map[string]*Model                           `json:"models"`
+	EndpointConfigs            map[string]*EndpointConfig                  `json:"endpointConfigs"`
+	Endpoints                  map[string]*Endpoint                        `json:"endpoints"`
+	TrainingJobs               map[string]*TrainingJob                     `json:"trainingJobs"`
+	Notebooks                  map[string]*NotebookInstance                `json:"notebooks"`
+	HPTuningJobs               map[string]*HyperParameterTuningJob         `json:"hpTuningJobs"`
+	Associations               map[string]*Association                     `json:"associations"`
+	TrialComponentAssociations map[string]*TrialComponentAssociation       `json:"trialComponentAssociations"`
+	Actions                    map[string]*Action                          `json:"actions"`
+	Algorithms                 map[string]*Algorithm                       `json:"algorithms"`
+	Clusters                   map[string]*persistedCluster                `json:"clusters"`
+	ModelPackages              map[string]*ModelPackage                    `json:"modelPackages"`
+	Domains                    map[string]*Domain                          `json:"domains"`
+	UserProfiles               map[string]*UserProfile                     `json:"userProfiles"`
+	Apps                       map[string]*App                             `json:"apps"`
+	FeatureGroups              map[string]*FeatureGroup                    `json:"featureGroups"`
+	Pipelines                  map[string]*Pipeline                        `json:"pipelines"`
+	PipelineExecutions         map[string]*PipelineExecution               `json:"pipelineExecutions"`
+	PipelineExecSteps          map[string]*PipelineExecutionStep           `json:"pipelineExecSteps"`
+	Experiments                map[string]*Experiment                      `json:"experiments"`
+	Trials                     map[string]*Trial                           `json:"trials"`
+	TrialComponents            map[string]*TrialComponent                  `json:"trialComponents"`
+	NotebookLifecycleConfigs   map[string]*NotebookInstanceLifecycleConfig `json:"notebookLifecycleConfigs"`
+	ProcessingJobs             map[string]*ProcessingJob                   `json:"processingJobs"`
+	AccountID                  string                                      `json:"accountID"`
+	Region                     string                                      `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -57,6 +69,18 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		clusters[k] = pc
 	}
 
+	// Serialise userProfiles and apps maps (composite key → string key).
+	userProfiles := make(map[string]*UserProfile, len(b.userProfiles))
+	for k, v := range b.userProfiles {
+		cp := *v
+		userProfiles[k.DomainID+"|"+k.UserProfileName] = &cp
+	}
+	apps := make(map[string]*App, len(b.apps))
+	for k, v := range b.apps {
+		cp := *v
+		apps[k.DomainID+"|"+k.UserProfileName+"|"+k.AppType+"|"+k.AppName] = &cp
+	}
+
 	snap := backendSnapshot{
 		Models:                     b.models,
 		EndpointConfigs:            b.endpointConfigs,
@@ -70,6 +94,18 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Algorithms:                 b.algorithms,
 		Clusters:                   clusters,
 		ModelPackages:              b.modelPackages,
+		Domains:                    b.domains,
+		UserProfiles:               userProfiles,
+		Apps:                       apps,
+		FeatureGroups:              b.featureGroups,
+		Pipelines:                  b.pipelines,
+		PipelineExecutions:         b.pipelineExecutions,
+		PipelineExecSteps:          b.pipelineExecSteps,
+		Experiments:                b.experiments,
+		Trials:                     b.trials,
+		TrialComponents:            b.trialComponents,
+		NotebookLifecycleConfigs:   b.notebookLifecycleConfigs,
+		ProcessingJobs:             b.processingJobs,
 		AccountID:                  b.accountID,
 		Region:                     b.region,
 	}
@@ -117,8 +153,37 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.actions = snap.Actions
 	b.algorithms = snap.Algorithms
 	b.modelPackages = snap.ModelPackages
+	b.domains = snap.Domains
+	b.featureGroups = snap.FeatureGroups
+	b.pipelines = snap.Pipelines
+	b.pipelineExecutions = snap.PipelineExecutions
+	b.pipelineExecSteps = snap.PipelineExecSteps
+	b.experiments = snap.Experiments
+	b.trials = snap.Trials
+	b.trialComponents = snap.TrialComponents
+	b.notebookLifecycleConfigs = snap.NotebookLifecycleConfigs
+	b.processingJobs = snap.ProcessingJobs
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	// Restore composite-key maps (string key → composite key).
+	b.userProfiles = make(map[userProfileKey]*UserProfile, len(snap.UserProfiles))
+	for _, v := range snap.UserProfiles {
+		key := userProfileKey{DomainID: v.DomainID, UserProfileName: v.UserProfileName}
+		cp := *v
+		b.userProfiles[key] = &cp
+	}
+	b.apps = make(map[appKey]*App, len(snap.Apps))
+	for _, v := range snap.Apps {
+		key := appKey{
+			DomainID:        v.DomainID,
+			UserProfileName: v.UserProfileName,
+			AppType:         v.AppType,
+			AppName:         v.AppName,
+		}
+		cp := *v
+		b.apps[key] = &cp
+	}
 
 	// Restore clusters, converting persistedCluster back to Cluster.
 	b.clusters = make(map[string]*Cluster, len(snap.Clusters))
@@ -126,7 +191,8 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	for k, pc := range snap.Clusters {
 		t, err := time.Parse("2006-01-02T15:04:05Z07:00", pc.CreationTime)
 		if err != nil {
-			slog.Default().Warn("sagemaker: failed to parse cluster creation time", "cluster", k, "error", err)
+			slog.Default().
+				Warn("sagemaker: failed to parse cluster creation time", "cluster", k, "error", err)
 		}
 
 		c := &Cluster{
@@ -207,6 +273,12 @@ func (b *InMemoryBackend) rebuildARNIndexes() {
 	for name, j := range b.hpTuningJobs {
 		b.hpTuningJobARNIndex[j.HyperParameterTuningJobArn] = name
 	}
+
+	b.processingJobARNIndex = make(map[string]string, len(b.processingJobs))
+
+	for name, pj := range b.processingJobs {
+		b.processingJobARNIndex[pj.ProcessingJobArn] = name
+	}
 }
 
 func ensureNonNilMaps(snap *backendSnapshot) {
@@ -256,6 +328,42 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 	if snap.ModelPackages == nil {
 		snap.ModelPackages = make(map[string]*ModelPackage)
+	}
+	if snap.Domains == nil {
+		snap.Domains = make(map[string]*Domain)
+	}
+	if snap.UserProfiles == nil {
+		snap.UserProfiles = make(map[string]*UserProfile)
+	}
+	if snap.Apps == nil {
+		snap.Apps = make(map[string]*App)
+	}
+	if snap.FeatureGroups == nil {
+		snap.FeatureGroups = make(map[string]*FeatureGroup)
+	}
+	if snap.Pipelines == nil {
+		snap.Pipelines = make(map[string]*Pipeline)
+	}
+	if snap.PipelineExecutions == nil {
+		snap.PipelineExecutions = make(map[string]*PipelineExecution)
+	}
+	if snap.PipelineExecSteps == nil {
+		snap.PipelineExecSteps = make(map[string]*PipelineExecutionStep)
+	}
+	if snap.Experiments == nil {
+		snap.Experiments = make(map[string]*Experiment)
+	}
+	if snap.Trials == nil {
+		snap.Trials = make(map[string]*Trial)
+	}
+	if snap.TrialComponents == nil {
+		snap.TrialComponents = make(map[string]*TrialComponent)
+	}
+	if snap.NotebookLifecycleConfigs == nil {
+		snap.NotebookLifecycleConfigs = make(map[string]*NotebookInstanceLifecycleConfig)
+	}
+	if snap.ProcessingJobs == nil {
+		snap.ProcessingJobs = make(map[string]*ProcessingJob)
 	}
 }
 

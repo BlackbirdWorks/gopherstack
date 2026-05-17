@@ -49,7 +49,11 @@ func (b *InMemoryBackend) RetryPipelineExecution(execArn string) (*PipelineExecu
 
 	pe, ok := b.pipelineExecutions[execArn]
 	if !ok {
-		return nil, fmt.Errorf("%w: pipeline execution %q not found", ErrPipelineExecutionNotFound, execArn)
+		return nil, fmt.Errorf(
+			"%w: pipeline execution %q not found",
+			ErrPipelineExecutionNotFound,
+			execArn,
+		)
 	}
 
 	newID := generateID(idByteLen)
@@ -86,7 +90,11 @@ func (b *InMemoryBackend) StopPipelineExecution(execArn string) (*PipelineExecut
 
 	pe, ok := b.pipelineExecutions[execArn]
 	if !ok {
-		return nil, fmt.Errorf("%w: pipeline execution %q not found", ErrPipelineExecutionNotFound, execArn)
+		return nil, fmt.Errorf(
+			"%w: pipeline execution %q not found",
+			ErrPipelineExecutionNotFound,
+			execArn,
+		)
 	}
 
 	pe.PipelineExecutionStatus = pipelineStatusStopping
@@ -117,7 +125,11 @@ func (b *InMemoryBackend) SendPipelineExecutionStepSuccess(execArn, stepName str
 	defer b.mu.Unlock()
 
 	if _, ok := b.pipelineExecutions[execArn]; !ok {
-		return fmt.Errorf("%w: pipeline execution %q not found", ErrPipelineExecutionNotFound, execArn)
+		return fmt.Errorf(
+			"%w: pipeline execution %q not found",
+			ErrPipelineExecutionNotFound,
+			execArn,
+		)
 	}
 
 	key := pipelineExecutionStepsKey(execArn, stepName)
@@ -135,12 +147,18 @@ func (b *InMemoryBackend) SendPipelineExecutionStepSuccess(execArn, stepName str
 }
 
 // SendPipelineExecutionStepFailure records a step failure for a callback step.
-func (b *InMemoryBackend) SendPipelineExecutionStepFailure(execArn, stepName, failureReason string) error {
+func (b *InMemoryBackend) SendPipelineExecutionStepFailure(
+	execArn, stepName, failureReason string,
+) error {
 	b.mu.Lock("SendPipelineExecutionStepFailure")
 	defer b.mu.Unlock()
 
 	if _, ok := b.pipelineExecutions[execArn]; !ok {
-		return fmt.Errorf("%w: pipeline execution %q not found", ErrPipelineExecutionNotFound, execArn)
+		return fmt.Errorf(
+			"%w: pipeline execution %q not found",
+			ErrPipelineExecutionNotFound,
+			execArn,
+		)
 	}
 
 	key := pipelineExecutionStepsKey(execArn, stepName)
@@ -159,7 +177,9 @@ func (b *InMemoryBackend) SendPipelineExecutionStepFailure(execArn, stepName, fa
 }
 
 // ListPipelineExecutionSteps lists the steps for a pipeline execution.
-func (b *InMemoryBackend) ListPipelineExecutionSteps(execArn, nextToken string) ([]*PipelineExecutionStep, string) {
+func (b *InMemoryBackend) ListPipelineExecutionSteps(
+	execArn, nextToken string,
+) ([]*PipelineExecutionStep, string) {
 	b.mu.RLock("ListPipelineExecutionSteps")
 	defer b.mu.RUnlock()
 

@@ -1,6 +1,7 @@
 package sagemaker
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -63,22 +64,47 @@ var (
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
+// ImageConfig specifies where SageMaker should pull the container image from.
+type ImageConfig struct {
+	RepositoryAccessMode string `json:"RepositoryAccessMode,omitempty"`
+}
+
+// MultiModelConfig specifies the multi-model serving mode.
+type MultiModelConfig struct {
+	ModelCacheSetting string `json:"ModelCacheSetting,omitempty"`
+}
+
 // ContainerDefinition holds image details for a model container.
 type ContainerDefinition struct {
-	Image        string            `json:"Image,omitempty"`
-	Environment  map[string]string `json:"Environment,omitempty"`
-	ModelDataURL string            `json:"ModelDataUrl,omitempty"`
+	Environment                map[string]string `json:"Environment,omitempty"`
+	ImageConfig                *ImageConfig      `json:"ImageConfig,omitempty"`
+	MultiModelConfig           *MultiModelConfig `json:"MultiModelConfig,omitempty"`
+	Image                      string            `json:"Image,omitempty"`
+	ModelDataURL               string            `json:"ModelDataUrl,omitempty"`
+	ModelPackageName           string            `json:"ModelPackageName,omitempty"`
+	ModelDataSource            string            `json:"ModelDataSource,omitempty"`
+	InferenceSpecificationName string            `json:"InferenceSpecificationName,omitempty"`
+	ContainerHostname          string            `json:"ContainerHostname,omitempty"`
+	Mode                       string            `json:"Mode,omitempty"`
+}
+
+// InferenceExecutionConfig controls serial vs. direct routing in multi-container models.
+type InferenceExecutionConfig struct {
+	Mode string `json:"Mode,omitempty"` // Serial or Direct
 }
 
 // Model represents a SageMaker model.
 type Model struct {
-	CreationTime     time.Time             `json:"CreationTime"`
-	Tags             map[string]string     `json:"Tags,omitempty"`
-	ModelName        string                `json:"ModelName"`
-	ModelARN         string                `json:"ModelARN"`
-	ExecutionRoleARN string                `json:"ExecutionRoleARN"`
-	PrimaryContainer *ContainerDefinition  `json:"PrimaryContainer,omitempty"`
-	Containers       []ContainerDefinition `json:"Containers,omitempty"`
+	CreationTime             time.Time                 `json:"CreationTime"`
+	Tags                     map[string]string         `json:"Tags,omitempty"`
+	VpcConfig                *VpcConfig                `json:"VpcConfig,omitempty"`
+	InferenceExecutionConfig *InferenceExecutionConfig `json:"InferenceExecutionConfig,omitempty"`
+	ModelName                string                    `json:"ModelName"`
+	ModelARN                 string                    `json:"ModelARN"`
+	ExecutionRoleARN         string                    `json:"ExecutionRoleARN"`
+	PrimaryContainer         *ContainerDefinition      `json:"PrimaryContainer,omitempty"`
+	Containers               []ContainerDefinition     `json:"Containers,omitempty"`
+	EnableNetworkIsolation   bool                      `json:"EnableNetworkIsolation,omitempty"`
 }
 
 // cloneContainer returns a deep copy of a ContainerDefinition, including its Environment map.
@@ -107,22 +133,70 @@ func cloneModel(m *Model) *Model {
 	return &cp
 }
 
+// ServerlessConfig configures serverless inference for a variant.
+type ServerlessConfig struct {
+	MemorySizeInMB         int32 `json:"MemorySizeInMB,omitempty"`
+	MaxConcurrency         int32 `json:"MaxConcurrency,omitempty"`
+	ProvisionedConcurrency int32 `json:"ProvisionedConcurrency,omitempty"`
+}
+
+// CoreDumpConfig specifies where core dumps are stored.
+type CoreDumpConfig struct {
+	DestinationS3Uri string `json:"DestinationS3Uri,omitempty"`
+	KmsKeyId         string `json:"KmsKeyId,omitempty"`
+}
+
 // ProductionVariant holds configuration for a production variant in an endpoint config.
 type ProductionVariant struct {
-	VariantName          string  `json:"VariantName"`
-	ModelName            string  `json:"ModelName"`
-	InstanceType         string  `json:"InstanceType,omitempty"`
-	InitialInstanceCount int32   `json:"InitialInstanceCount,omitempty"`
-	InitialVariantWeight float64 `json:"InitialVariantWeight,omitempty"`
+	ServerlessConfig                            *ServerlessConfig `json:"ServerlessConfig,omitempty"`
+	CoreDumpConfig                              *CoreDumpConfig   `json:"CoreDumpConfig,omitempty"`
+	VariantName                                 string            `json:"VariantName"`
+	ModelName                                   string            `json:"ModelName"`
+	AcceleratorType                             string            `json:"AcceleratorType,omitempty"`
+	InstanceType                                string            `json:"InstanceType,omitempty"`
+	InferenceAmiVersion                         string            `json:"InferenceAmiVersion,omitempty"`
+	InitialVariantWeight                        float64           `json:"InitialVariantWeight,omitempty"`
+	InitialInstanceCount                        int32             `json:"InitialInstanceCount,omitempty"`
+	VolumeSizeInGB                              int32             `json:"VolumeSizeInGB,omitempty"`
+	ModelDataDownloadTimeoutInSeconds           int32             `json:"ModelDataDownloadTimeoutInSeconds,omitempty"`
+	ContainerStartupHealthCheckTimeoutInSeconds int32             `json:"ContainerStartupHealthCheckTimeoutInSeconds,omitempty"`
+	EnableSSMAccess                             bool              `json:"EnableSSMAccess,omitempty"`
+}
+
+// DataCaptureConfig specifies real-time data capture for an endpoint config.
+type DataCaptureConfig struct {
+	DestinationS3Uri          string `json:"DestinationS3Uri"`
+	CaptureMode               string `json:"CaptureMode,omitempty"`
+	KmsKeyId                  string `json:"KmsKeyId,omitempty"`
+	InitialSamplingPercentage int32  `json:"InitialSamplingPercentage,omitempty"`
+	EnableCapture             bool   `json:"EnableCapture,omitempty"`
+}
+
+// AsyncInferenceConfig configures asynchronous inference for an endpoint.
+type AsyncInferenceConfig struct {
+	OutputConfig AsyncOutputConfig `json:"OutputConfig"`
+}
+
+// AsyncOutputConfig specifies the async inference output location.
+type AsyncOutputConfig struct {
+	S3OutputPath string `json:"S3OutputPath"`
+	KmsKeyId     string `json:"KmsKeyId,omitempty"`
 }
 
 // EndpointConfig represents a SageMaker endpoint configuration.
 type EndpointConfig struct {
-	CreationTime       time.Time           `json:"CreationTime"`
-	Tags               map[string]string   `json:"Tags,omitempty"`
-	EndpointConfigName string              `json:"EndpointConfigName"`
-	EndpointConfigARN  string              `json:"EndpointConfigARN"`
-	ProductionVariants []ProductionVariant `json:"ProductionVariants,omitempty"`
+	CreationTime             time.Time             `json:"CreationTime"`
+	Tags                     map[string]string     `json:"Tags,omitempty"`
+	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
+	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
+	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
+	ProductionVariants       []ProductionVariant   `json:"ProductionVariants,omitempty"`
+	ShadowProductionVariants []ProductionVariant   `json:"ShadowProductionVariants,omitempty"`
+	EndpointConfigName       string                `json:"EndpointConfigName"`
+	EndpointConfigARN        string                `json:"EndpointConfigARN"`
+	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
+	KmsKeyId                 string                `json:"KmsKeyId,omitempty"`
+	EnableNetworkIsolation   bool                  `json:"EnableNetworkIsolation,omitempty"`
 }
 
 // cloneEndpointConfig returns a deep copy of ec.
@@ -131,6 +205,8 @@ func cloneEndpointConfig(ec *EndpointConfig) *EndpointConfig {
 	cp.Tags = maps.Clone(ec.Tags)
 	cp.ProductionVariants = make([]ProductionVariant, len(ec.ProductionVariants))
 	copy(cp.ProductionVariants, ec.ProductionVariants)
+	cp.ShadowProductionVariants = make([]ProductionVariant, len(ec.ShadowProductionVariants))
+	copy(cp.ShadowProductionVariants, ec.ShadowProductionVariants)
 
 	return &cp
 }
@@ -274,38 +350,43 @@ func cloneModelPackage(mp *ModelPackage) *ModelPackage {
 type InMemoryBackend struct {
 	models                     map[string]*Model
 	endpointConfigs            map[string]*EndpointConfig
-	endpoints                  map[string]*Endpoint                  // key: endpointName
-	trainingJobs               map[string]*TrainingJob               // key: jobName
-	notebooks                  map[string]*NotebookInstance          // key: instanceName
-	hpTuningJobs               map[string]*HyperParameterTuningJob   // key: jobName
-	associations               map[string]*Association               // key: sourceArn+"|"+destinationArn
-	trialComponentAssociations map[string]*TrialComponentAssociation // key: trialName+"|"+componentName
-	actions                    map[string]*Action                    // key: actionName
-	algorithms                 map[string]*Algorithm                 // key: algorithmName
-	clusters                   map[string]*Cluster                   // key: clusterName
-	modelPackages              map[string]*ModelPackage              // key: modelPackageArn
-	modelARNIndex              map[string]string                     // ARN → model name
-	endpointConfigARNIndex     map[string]string                     // ARN → endpoint config name
-	endpointARNIndex           map[string]string                     // ARN → endpoint name
-	trainingJobARNIndex        map[string]string                     // ARN → training job name
-	notebookARNIndex           map[string]string                     // ARN → notebook instance name
-	hpTuningJobARNIndex        map[string]string                     // ARN → HP tuning job name
-	actionARNIndex             map[string]string                     // ARN → action name
-	algorithmARNIndex          map[string]string                     // ARN → algorithm name
-	clusterARNIndex            map[string]string                     // ARN → cluster name
-	modelPackageARNIndex       map[string]string                     // ARN → model package ARN
-	domains                    map[string]*Domain                    // key: domainID
-	userProfiles               map[userProfileKey]*UserProfile       // key: domainID+name
-	apps                       map[appKey]*App                       // key: domainID+userProfile+appType+appName
-	featureGroups              map[string]*FeatureGroup              // key: featureGroupName
-	featureRecords             map[string]*FeatureRecord             // key: groupName|recordID
-	featureMetadata            map[string]*FeatureMetadata           // key: groupName/featureName
-	pipelines                  map[string]*Pipeline                  // key: pipelineName
-	pipelineExecutions         map[string]*PipelineExecution         // key: executionArn
-	pipelineExecSteps          map[string]*PipelineExecutionStep     // key: execArn|stepName
-	experiments                map[string]*Experiment                // key: experimentName
-	trials                     map[string]*Trial                     // key: trialName
-	trialComponents            map[string]*TrialComponent            // key: trialComponentName
+	endpoints                  map[string]*Endpoint                        // key: endpointName
+	trainingJobs               map[string]*TrainingJob                     // key: jobName
+	notebooks                  map[string]*NotebookInstance                // key: instanceName
+	hpTuningJobs               map[string]*HyperParameterTuningJob         // key: jobName
+	associations               map[string]*Association                     // key: sourceArn+"|"+destinationArn
+	trialComponentAssociations map[string]*TrialComponentAssociation       // key: trialName+"|"+componentName
+	actions                    map[string]*Action                          // key: actionName
+	algorithms                 map[string]*Algorithm                       // key: algorithmName
+	clusters                   map[string]*Cluster                         // key: clusterName
+	modelPackages              map[string]*ModelPackage                    // key: modelPackageArn
+	modelARNIndex              map[string]string                           // ARN → model name
+	endpointConfigARNIndex     map[string]string                           // ARN → endpoint config name
+	endpointARNIndex           map[string]string                           // ARN → endpoint name
+	trainingJobARNIndex        map[string]string                           // ARN → training job name
+	notebookARNIndex           map[string]string                           // ARN → notebook instance name
+	hpTuningJobARNIndex        map[string]string                           // ARN → HP tuning job name
+	actionARNIndex             map[string]string                           // ARN → action name
+	algorithmARNIndex          map[string]string                           // ARN → algorithm name
+	clusterARNIndex            map[string]string                           // ARN → cluster name
+	modelPackageARNIndex       map[string]string                           // ARN → model package ARN
+	domains                    map[string]*Domain                          // key: domainID
+	userProfiles               map[userProfileKey]*UserProfile             // key: domainID+name
+	apps                       map[appKey]*App                             // key: domainID+userProfile+appType+appName
+	featureGroups              map[string]*FeatureGroup                    // key: featureGroupName
+	featureRecords             map[string]*FeatureRecord                   // key: groupName|recordID
+	featureMetadata            map[string]*FeatureMetadata                 // key: groupName/featureName
+	pipelines                  map[string]*Pipeline                        // key: pipelineName
+	pipelineExecutions         map[string]*PipelineExecution               // key: executionArn
+	pipelineExecSteps          map[string]*PipelineExecutionStep           // key: execArn|stepName
+	experiments                map[string]*Experiment                      // key: experimentName
+	trials                     map[string]*Trial                           // key: trialName
+	trialComponents            map[string]*TrialComponent                  // key: trialComponentName
+	notebookLifecycleConfigs   map[string]*NotebookInstanceLifecycleConfig // key: configName
+	processingJobs             map[string]*ProcessingJob                   // key: jobName
+	processingJobARNIndex      map[string]string                           // ARN → job name
+	lifecycleCtx               context.Context
+	lifecycleCancel            context.CancelFunc
 	mu                         *lockmetrics.RWMutex
 	accountID                  string
 	region                     string
@@ -313,7 +394,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new in-memory SageMaker backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		models:                     make(map[string]*Model),
 		endpointConfigs:            make(map[string]*EndpointConfig),
 		endpoints:                  make(map[string]*Endpoint),
@@ -348,10 +429,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		experiments:                make(map[string]*Experiment),
 		trials:                     make(map[string]*Trial),
 		trialComponents:            make(map[string]*TrialComponent),
+		notebookLifecycleConfigs:   make(map[string]*NotebookInstanceLifecycleConfig),
+		processingJobs:             make(map[string]*ProcessingJob),
+		processingJobARNIndex:      make(map[string]string),
 		accountID:                  accountID,
 		region:                     region,
 		mu:                         lockmetrics.New("sagemaker"),
 	}
+	b.resetLifecycleContext()
+	return b
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -399,6 +485,11 @@ func (b *InMemoryBackend) Reset() {
 	b.experiments = make(map[string]*Experiment)
 	b.trials = make(map[string]*Trial)
 	b.trialComponents = make(map[string]*TrialComponent)
+	b.notebookLifecycleConfigs = make(map[string]*NotebookInstanceLifecycleConfig)
+	b.processingJobs = make(map[string]*ProcessingJob)
+	b.processingJobARNIndex = make(map[string]string)
+	// Cancel pending goroutines and start fresh lifecycle context.
+	b.resetLifecycleContext()
 }
 
 // CreateModel creates a new SageMaker model.
@@ -515,7 +606,11 @@ func (b *InMemoryBackend) CreateEndpointConfig(
 	defer b.mu.Unlock()
 
 	if _, ok := b.endpointConfigs[name]; ok {
-		return nil, fmt.Errorf("%w: endpoint config %s already exists", ErrEndpointConfigAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: endpoint config %s already exists",
+			ErrEndpointConfigAlreadyExists,
+			name,
+		)
 	}
 
 	configARN := arn.Build("sagemaker", b.region, b.accountID, "endpoint-config/"+name)
@@ -543,7 +638,11 @@ func (b *InMemoryBackend) DescribeEndpointConfig(name string) (*EndpointConfig, 
 
 	ec, ok := b.endpointConfigs[name]
 	if !ok {
-		return nil, fmt.Errorf("%w: could not find endpoint configuration %q", ErrEndpointConfigNotFound, name)
+		return nil, fmt.Errorf(
+			"%w: could not find endpoint configuration %q",
+			ErrEndpointConfigNotFound,
+			name,
+		)
 	}
 
 	return cloneEndpointConfig(ec), nil
@@ -586,7 +685,11 @@ func (b *InMemoryBackend) DeleteEndpointConfig(name string) error {
 
 	ec, ok := b.endpointConfigs[name]
 	if !ok {
-		return fmt.Errorf("%w: could not find endpoint configuration %q", ErrEndpointConfigNotFound, name)
+		return fmt.Errorf(
+			"%w: could not find endpoint configuration %q",
+			ErrEndpointConfigNotFound,
+			name,
+		)
 	}
 
 	delete(b.endpointConfigARNIndex, ec.EndpointConfigARN)
@@ -906,7 +1009,12 @@ func (b *InMemoryBackend) AssociateTrialComponent(
 	}
 
 	trialArn := arn.Build("sagemaker", b.region, b.accountID, "experiment-trial/"+trialName)
-	componentArn := arn.Build("sagemaker", b.region, b.accountID, "experiment-trial-component/"+trialComponentName)
+	componentArn := arn.Build(
+		"sagemaker",
+		b.region,
+		b.accountID,
+		"experiment-trial-component/"+trialComponentName,
+	)
 
 	assoc := &TrialComponentAssociation{
 		TrialName:          trialName,

@@ -40,7 +40,13 @@ func TestRefinement1_Reset(t *testing.T) {
 
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 			if tt.seedModel {
-				_, err := b.CreateModel("test-model", "arn:aws:iam::000000000000:role/role", nil, nil, nil)
+				_, err := b.CreateModel(
+					"test-model",
+					"arn:aws:iam::000000000000:role/role",
+					nil,
+					nil,
+					nil,
+				)
 				require.NoError(t, err)
 			}
 
@@ -332,7 +338,10 @@ func TestRefinement1_ModelPackageCount(t *testing.T) {
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 			for i := range tt.numPkgs {
-				arnStr := fmt.Sprintf("arn:aws:sagemaker:us-east-1:000000000000:model-package/pkg-%d", i)
+				arnStr := fmt.Sprintf(
+					"arn:aws:sagemaker:us-east-1:000000000000:model-package/pkg-%d",
+					i,
+				)
 				b.AddModelPackageInternal(&sagemaker.ModelPackage{
 					ModelPackageName:   fmt.Sprintf("pkg-%d", i),
 					ModelPackageArn:    arnStr,
