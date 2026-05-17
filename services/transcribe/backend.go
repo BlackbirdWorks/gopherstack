@@ -2,6 +2,7 @@ package transcribe
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -1436,9 +1437,7 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 		b.resourceTags[resourceArn] = make(map[string]string)
 	}
 
-	for k, v := range tags {
-		b.resourceTags[resourceArn][k] = v
-	}
+	maps.Copy(b.resourceTags[resourceArn], tags)
 
 	return nil
 }
@@ -1477,9 +1476,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 
 	// Return a copy so callers can't mutate the stored map.
 	result := make(map[string]string, len(existing))
-	for k, v := range existing {
-		result[k] = v
-	}
+	maps.Copy(result, existing)
 
 	return result, nil
 }

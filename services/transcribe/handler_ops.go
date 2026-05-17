@@ -57,6 +57,7 @@ func buildCallAnalyticsJobOutput(job *CallAnalyticsJob) *callAnalyticsJobOutput 
 		m := job.Media
 		out.Media = &m
 	}
+
 	return out
 }
 
@@ -266,19 +267,19 @@ type getMedicalScribeJobInput struct {
 }
 
 type medicalScribeJobOutput struct {
-	Settings                       *MedicalScribeSettings          `json:"Settings,omitempty"`
-	Media                          *Media                          `json:"Media,omitempty"`
-	ClinicalNoteGenerationSettings *ClinicalNoteGenerationSettings `json:"ClinicalNoteGenerationSettings,omitempty"`
-	Tags                           map[string]string               `json:"Tags,omitempty"`
-	CreationTime                   *string                         `json:"CreationTime,omitempty"`
-	StartTime                      *string                         `json:"StartTime,omitempty"`
-	CompletionTime                 *string                         `json:"CompletionTime,omitempty"`
-	MedicalScribeJobName           string                          `json:"MedicalScribeJobName"`
-	MedicalScribeJobStatus         string                          `json:"MedicalScribeJobStatus"`
-	LanguageCode                   string                          `json:"LanguageCode,omitempty"`
-	DataAccessRoleArn              string                          `json:"DataAccessRoleArn,omitempty"`
-	OutputBucketName               string                          `json:"OutputBucketName,omitempty"`
-	FailureReason                  string                          `json:"FailureReason,omitempty"`
+	Settings                       *MedicalScribeSettings           `json:"Settings,omitempty"`
+	Media                          *Media                           `json:"Media,omitempty"`
+	ClinicalNoteGenerationSettings *ClinicalNoteGenerationSettings  `json:"ClinicalNoteGenerationSettings,omitempty"`
+	Tags                           map[string]string                `json:"Tags,omitempty"`
+	CreationTime                   *string                          `json:"CreationTime,omitempty"`
+	StartTime                      *string                          `json:"StartTime,omitempty"`
+	CompletionTime                 *string                          `json:"CompletionTime,omitempty"`
+	MedicalScribeJobName           string                           `json:"MedicalScribeJobName"`
+	MedicalScribeJobStatus         string                           `json:"MedicalScribeJobStatus"`
+	LanguageCode                   string                           `json:"LanguageCode,omitempty"`
+	DataAccessRoleArn              string                           `json:"DataAccessRoleArn,omitempty"`
+	OutputBucketName               string                           `json:"OutputBucketName,omitempty"`
+	FailureReason                  string                           `json:"FailureReason,omitempty"`
 	ChannelDefinitions             []MedicalScribeChannelDefinition `json:"ChannelDefinitions,omitempty"`
 }
 
@@ -311,6 +312,7 @@ func buildMedicalScribeJobOutput(job *MedicalScribeJob) *medicalScribeJobOutput 
 		m := job.Media
 		out.Media = &m
 	}
+
 	return out
 }
 
@@ -459,6 +461,7 @@ func buildMedicalTranscriptionJobOutput(job *MedicalTranscriptionJob) *medicalTr
 		m := job.Media
 		out.Media = &m
 	}
+
 	return out
 }
 

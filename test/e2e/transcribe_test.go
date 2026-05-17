@@ -10,6 +10,8 @@ import (
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	transcribe "github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
 // TestTranscribeDashboard verifies the Transcribe dashboard UI renders transcription jobs.
@@ -17,7 +19,7 @@ func TestTranscribeDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.TranscribeHandler.Backend.StartTranscriptionJob(
-		"e2e-test-job", "en-US", "s3://my-bucket/audio.mp3",
+		&transcribe.TranscriptionJob{JobName: "e2e-test-job", LanguageCode: "en-US", Media: transcribe.Media{MediaFileURI: "s3://my-bucket/audio.mp3"}},
 	)
 	require.NoError(t, err)
 
@@ -91,7 +93,7 @@ func TestTranscribeDashboard_StartJob(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.TranscribeHandler.Backend.StartTranscriptionJob(
-		"ui-created-job", "en-US", "s3://my-bucket/input.wav",
+		&transcribe.TranscriptionJob{JobName: "ui-created-job", LanguageCode: "en-US", Media: transcribe.Media{MediaFileURI: "s3://my-bucket/input.wav"}},
 	)
 	require.NoError(t, err)
 

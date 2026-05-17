@@ -75,8 +75,6 @@ func TestAccuracy_TranscriptionJobName_Validation(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
-
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -215,8 +213,6 @@ func TestAccuracy_MediaFormat_Validation(t *testing.T) {
 	validFormats := []string{"mp3", "mp4", "wav", "flac", "ogg", "amr", "webm", "m4a"}
 
 	for _, format := range validFormats {
-		format := format
-
 		t.Run("valid_format_"+format, func(t *testing.T) {
 			t.Parallel()
 
@@ -264,8 +260,6 @@ func TestAccuracy_MediaSampleRateHertz_Validation(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
-
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -300,10 +294,10 @@ func TestAccuracy_Settings_Validation(t *testing.T) {
 			LanguageCode: "en-US",
 			Media:        transcribe.Media{MediaFileURI: "s3://b/f"},
 			Settings: &transcribe.TranscriptionSettings{
-				ShowSpeakerLabels: true,
-				MaxSpeakerLabels:  4,
-				ShowAlternatives:  true,
-				MaxAlternatives:   3,
+				ShowSpeakerLabels:      true,
+				MaxSpeakerLabels:       4,
+				ShowAlternatives:       true,
+				MaxAlternatives:        3,
 				VocabularyFilterMethod: "mask",
 			},
 		})
@@ -665,11 +659,11 @@ func TestAccuracy_StartMedicalTranscriptionJob_SpecialtyType(t *testing.T) {
 
 		b := transcribe.NewInMemoryBackend()
 		job, err := b.StartMedicalTranscriptionJob(&transcribe.MedicalTranscriptionJob{
-			MedicalTranscriptionJobName:    "med-job-phi",
-			LanguageCode:                   "en-US",
-			Media:                          transcribe.Media{MediaFileURI: "s3://b/f"},
-			Specialty:                      "PRIMARYCARE",
-			Type:                           "CONVERSATION",
+			MedicalTranscriptionJobName:      "med-job-phi",
+			LanguageCode:                     "en-US",
+			Media:                            transcribe.Media{MediaFileURI: "s3://b/f"},
+			Specialty:                        "PRIMARYCARE",
+			Type:                             "CONVERSATION",
 			MedicalContentIdentificationType: "PHI",
 		})
 		require.NoError(t, err)
@@ -687,10 +681,10 @@ func TestAccuracy_StartMedicalScribeJob_RequiredFields(t *testing.T) {
 
 		b := transcribe.NewInMemoryBackend()
 		job, err := b.StartMedicalScribeJob(&transcribe.MedicalScribeJob{
-			MedicalScribeJobName:  "scribe-ok",
-			Media:                 transcribe.Media{MediaFileURI: "s3://b/f.mp3"},
-			DataAccessRoleArn:     "arn:aws:iam::123456789012:role/TranscribeRole",
-			OutputBucketName:      "my-output-bucket",
+			MedicalScribeJobName: "scribe-ok",
+			Media:                transcribe.Media{MediaFileURI: "s3://b/f.mp3"},
+			DataAccessRoleArn:    "arn:aws:iam::123456789012:role/TranscribeRole",
+			OutputBucketName:     "my-output-bucket",
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "COMPLETED", job.MedicalScribeJobStatus)
