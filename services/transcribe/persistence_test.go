@@ -20,7 +20,13 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *transcribe.InMemoryBackend) string {
-				job, err := b.StartTranscriptionJob("test-job", "en-US", "s3://my-bucket/audio.mp3")
+				job, err := b.StartTranscriptionJob(
+					&transcribe.TranscriptionJob{
+						JobName:      "test-job",
+						LanguageCode: "en-US",
+						Media:        transcribe.Media{MediaFileURI: "s3://my-bucket/audio.mp3"},
+					},
+				)
 				if err != nil {
 					return ""
 				}

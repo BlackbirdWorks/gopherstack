@@ -147,7 +147,7 @@ func TestTranscribe_HandlerActions(t *testing.T) {
 				"TranscriptionJobName": "test-job",
 				"LanguageCode":         "en-US",
 				"Media": map[string]any{
-					"MediaFileUri": "s3://my-bucket/audio.mp3",
+					"MediaFileURI": "s3://my-bucket/audio.mp3",
 				},
 			},
 			wantCode:     http.StatusOK,
@@ -260,7 +260,13 @@ func TestTranscribe_DeleteTranscriptionJob(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *transcribe.Handler) {
 				t.Helper()
-				_, err := h.Backend.StartTranscriptionJob("job-to-delete", "en-US", "s3://bucket/file.mp4")
+				_, err := h.Backend.StartTranscriptionJob(
+					&transcribe.TranscriptionJob{
+						JobName:      "job-to-delete",
+						LanguageCode: "en-US",
+						Media:        transcribe.Media{MediaFileURI: "s3://bucket/file.mp4"},
+					},
+				)
 				require.NoError(t, err)
 			},
 			body:     map[string]any{"TranscriptionJobName": "job-to-delete"},
@@ -320,11 +326,11 @@ func TestTranscribe_ListTranscriptionJobsPagination(t *testing.T) {
 			h := newTestTranscribeHandler(t)
 
 			for i := range tt.count {
-				_, err := h.Backend.StartTranscriptionJob(
-					fmt.Sprintf("job-%04d", i),
-					"en-US",
-					fmt.Sprintf("s3://bucket/file%d.mp4", i),
-				)
+				_, err := h.Backend.StartTranscriptionJob(&transcribe.TranscriptionJob{
+					JobName:      fmt.Sprintf("job-%04d", i),
+					LanguageCode: "en-US",
+					Media:        transcribe.Media{MediaFileURI: fmt.Sprintf("s3://bucket/file%d.mp4", i)},
+				})
 				require.NoError(t, err)
 			}
 
@@ -386,7 +392,9 @@ func TestTranscribe_CreateCallAnalyticsCategory(t *testing.T) {
 			name: "duplicate",
 			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateCallAnalyticsCategory("dup-cat", "POST_CALL")
+				_, err := b.CreateCallAnalyticsCategory(
+					&transcribe.CallAnalyticsCategory{CategoryName: "dup-cat", InputType: "POST_CALL"},
+				)
 				require.NoError(t, err)
 			},
 			body: map[string]any{
@@ -433,7 +441,9 @@ func TestTranscribe_DeleteCallAnalyticsCategory(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateCallAnalyticsCategory("cat-to-delete", "POST_CALL")
+				_, err := b.CreateCallAnalyticsCategory(
+					&transcribe.CallAnalyticsCategory{CategoryName: "cat-to-delete", InputType: "POST_CALL"},
+				)
 				require.NoError(t, err)
 			},
 			body:     map[string]any{"CategoryName": "cat-to-delete"},
@@ -486,7 +496,9 @@ func TestTranscribe_CreateLanguageModel(t *testing.T) {
 			name: "duplicate",
 			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLanguageModel("dup-model", "WideBand", "en-US")
+				_, err := b.CreateLanguageModel(
+					&transcribe.LanguageModel{ModelName: "dup-model", BaseModelName: "WideBand", LanguageCode: "en-US"},
+				)
 				require.NoError(t, err)
 			},
 			body: map[string]any{
@@ -535,7 +547,13 @@ func TestTranscribe_DeleteLanguageModel(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLanguageModel("model-to-delete", "WideBand", "en-US")
+				_, err := b.CreateLanguageModel(
+					&transcribe.LanguageModel{
+						ModelName:     "model-to-delete",
+						BaseModelName: "WideBand",
+						LanguageCode:  "en-US",
+					},
+				)
 				require.NoError(t, err)
 			},
 			body:     map[string]any{"ModelName": "model-to-delete"},
@@ -579,7 +597,7 @@ func TestTranscribe_CreateMedicalVocabulary(t *testing.T) {
 			body: map[string]any{
 				"VocabularyName":    "my-med-vocab",
 				"LanguageCode":      "en-US",
-				"VocabularyFileUri": "s3://bucket/med-vocab.txt",
+				"VocabularyFileURI": "s3://bucket/med-vocab.txt",
 			},
 			wantCode: http.StatusOK,
 			wantKey:  "my-med-vocab",
@@ -594,7 +612,7 @@ func TestTranscribe_CreateMedicalVocabulary(t *testing.T) {
 			body: map[string]any{
 				"VocabularyName":    "dup-med-vocab",
 				"LanguageCode":      "en-US",
-				"VocabularyFileUri": "s3://bucket/f.txt",
+				"VocabularyFileURI": "s3://bucket/f.txt",
 			},
 			wantCode: http.StatusConflict,
 		},
@@ -648,7 +666,13 @@ func TestTranscribe_CreateVocabulary(t *testing.T) {
 			name: "duplicate",
 			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateVocabulary("dup-vocab", "en-US")
+				_, err := b.CreateVocabulary(
+					&transcribe.Vocabulary{
+						VocabularyName: "dup-vocab",
+						LanguageCode:   "en-US",
+						Phrases:        []string{"test"},
+					},
+				)
 				require.NoError(t, err)
 			},
 			body: map[string]any{
@@ -699,6 +723,7 @@ func TestTranscribe_CreateVocabularyFilter(t *testing.T) {
 			body: map[string]any{
 				"VocabularyFilterName": "my-filter",
 				"LanguageCode":         "en-US",
+				"Words":                []string{"badword"},
 			},
 			wantCode: http.StatusOK,
 			wantKey:  "my-filter",
@@ -707,12 +732,19 @@ func TestTranscribe_CreateVocabularyFilter(t *testing.T) {
 			name: "duplicate",
 			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateVocabularyFilter("dup-filter", "en-US")
+				_, err := b.CreateVocabularyFilter(
+					&transcribe.VocabularyFilter{
+						VocabularyFilterName: "dup-filter",
+						LanguageCode:         "en-US",
+						Words:                []string{"test"},
+					},
+				)
 				require.NoError(t, err)
 			},
 			body: map[string]any{
 				"VocabularyFilterName": "dup-filter",
 				"LanguageCode":         "en-US",
+				"Words":                []string{"word"},
 			},
 			wantCode: http.StatusConflict,
 		},

@@ -41,9 +41,12 @@ func (h *Handler) handleGetCallAnalyticsJob(
 // --- StartCallAnalyticsJob ---
 
 type startCallAnalyticsJobInput struct {
-	CallAnalyticsJobName string          `json:"CallAnalyticsJobName"`
-	LanguageCode         string          `json:"LanguageCode"`
-	Media                transcribeMedia `json:"Media"`
+	Settings             *CallAnalyticsSettings `json:"Settings"`
+	Media                Media                  `json:"Media"`
+	CallAnalyticsJobName string                 `json:"CallAnalyticsJobName"`
+	LanguageCode         string                 `json:"LanguageCode"`
+	DataAccessRoleArn    string                 `json:"DataAccessRoleArn"`
+	ChannelDefinitions   []ChannelDefinition    `json:"ChannelDefinitions"`
 }
 
 type startCallAnalyticsJobOutput struct {
@@ -54,11 +57,14 @@ func (h *Handler) handleStartCallAnalyticsJob(
 	_ context.Context,
 	in *startCallAnalyticsJobInput,
 ) (*startCallAnalyticsJobOutput, error) {
-	job, err := h.Backend.StartCallAnalyticsJob(
-		in.CallAnalyticsJobName,
-		in.LanguageCode,
-		in.Media.MediaFileURI,
-	)
+	job, err := h.Backend.StartCallAnalyticsJob(&CallAnalyticsJob{
+		CallAnalyticsJobName: in.CallAnalyticsJobName,
+		LanguageCode:         in.LanguageCode,
+		Media:                in.Media,
+		DataAccessRoleArn:    in.DataAccessRoleArn,
+		ChannelDefinitions:   in.ChannelDefinitions,
+		Settings:             in.Settings,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -141,8 +147,9 @@ func (h *Handler) handleGetCallAnalyticsCategory(
 // --- UpdateCallAnalyticsCategory ---
 
 type updateCallAnalyticsCategoryInput struct {
-	CategoryName string `json:"CategoryName"`
-	InputType    string `json:"InputType"`
+	CategoryName string              `json:"CategoryName"`
+	InputType    string              `json:"InputType"`
+	Rules        []CallAnalyticsRule `json:"Rules"`
 }
 
 type updateCallAnalyticsCategoryOutput struct {
@@ -153,7 +160,11 @@ func (h *Handler) handleUpdateCallAnalyticsCategory(
 	_ context.Context,
 	in *updateCallAnalyticsCategoryInput,
 ) (*updateCallAnalyticsCategoryOutput, error) {
-	cat, err := h.Backend.UpdateCallAnalyticsCategory(in.CategoryName, in.InputType)
+	cat, err := h.Backend.UpdateCallAnalyticsCategory(&CallAnalyticsCategory{
+		CategoryName: in.CategoryName,
+		InputType:    in.InputType,
+		Rules:        in.Rules,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -232,8 +243,12 @@ func (h *Handler) handleGetMedicalScribeJob(
 // --- StartMedicalScribeJob ---
 
 type startMedicalScribeJobInput struct {
-	MedicalScribeJobName string          `json:"MedicalScribeJobName"`
-	Media                transcribeMedia `json:"Media"`
+	Settings             *MedicalScribeSettings           `json:"Settings"`
+	Media                Media                            `json:"Media"`
+	MedicalScribeJobName string                           `json:"MedicalScribeJobName"`
+	DataAccessRoleArn    string                           `json:"DataAccessRoleArn"`
+	OutputBucketName     string                           `json:"OutputBucketName"`
+	ChannelDefinitions   []MedicalScribeChannelDefinition `json:"ChannelDefinitions"`
 }
 
 type startMedicalScribeJobOutput struct {
@@ -244,7 +259,14 @@ func (h *Handler) handleStartMedicalScribeJob(
 	_ context.Context,
 	in *startMedicalScribeJobInput,
 ) (*startMedicalScribeJobOutput, error) {
-	job, err := h.Backend.StartMedicalScribeJob(in.MedicalScribeJobName, in.Media.MediaFileURI)
+	job, err := h.Backend.StartMedicalScribeJob(&MedicalScribeJob{
+		MedicalScribeJobName: in.MedicalScribeJobName,
+		Media:                in.Media,
+		DataAccessRoleArn:    in.DataAccessRoleArn,
+		OutputBucketName:     in.OutputBucketName,
+		ChannelDefinitions:   in.ChannelDefinitions,
+		Settings:             in.Settings,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -326,9 +348,17 @@ func (h *Handler) handleGetMedicalTranscriptionJob(
 // --- StartMedicalTranscriptionJob ---
 
 type startMedicalTranscriptionJobInput struct {
-	MedicalTranscriptionJobName string          `json:"MedicalTranscriptionJobName"`
-	LanguageCode                string          `json:"LanguageCode"`
-	Media                       transcribeMedia `json:"Media"`
+	Settings                         *MedicalTranscriptionSettings `json:"Settings"`
+	Media                            Media                         `json:"Media"`
+	MedicalTranscriptionJobName      string                        `json:"MedicalTranscriptionJobName"`
+	LanguageCode                     string                        `json:"LanguageCode"`
+	Specialty                        string                        `json:"Specialty"`
+	Type                             string                        `json:"Type"`
+	MediaFormat                      string                        `json:"MediaFormat"`
+	OutputBucketName                 string                        `json:"OutputBucketName"`
+	OutputKey                        string                        `json:"OutputKey"`
+	MedicalContentIdentificationType string                        `json:"MedicalContentIdentificationType"`
+	MediaSampleRateHertz             int32                         `json:"MediaSampleRateHertz"`
 }
 
 type startMedicalTranscriptionJobOutput struct {
@@ -339,11 +369,19 @@ func (h *Handler) handleStartMedicalTranscriptionJob(
 	_ context.Context,
 	in *startMedicalTranscriptionJobInput,
 ) (*startMedicalTranscriptionJobOutput, error) {
-	job, err := h.Backend.StartMedicalTranscriptionJob(
-		in.MedicalTranscriptionJobName,
-		in.LanguageCode,
-		in.Media.MediaFileURI,
-	)
+	job, err := h.Backend.StartMedicalTranscriptionJob(&MedicalTranscriptionJob{
+		MedicalTranscriptionJobName:      in.MedicalTranscriptionJobName,
+		LanguageCode:                     in.LanguageCode,
+		Media:                            in.Media,
+		Specialty:                        in.Specialty,
+		Type:                             in.Type,
+		MediaFormat:                      in.MediaFormat,
+		MediaSampleRateHertz:             in.MediaSampleRateHertz,
+		OutputBucketName:                 in.OutputBucketName,
+		OutputKey:                        in.OutputKey,
+		Settings:                         in.Settings,
+		MedicalContentIdentificationType: in.MedicalContentIdentificationType,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -421,8 +459,10 @@ func (h *Handler) handleGetVocabulary(
 // --- UpdateVocabulary ---
 
 type updateVocabularyInput struct {
-	VocabularyName string `json:"VocabularyName"`
-	LanguageCode   string `json:"LanguageCode"`
+	VocabularyName    string   `json:"VocabularyName"`
+	LanguageCode      string   `json:"LanguageCode"`
+	VocabularyFileURI string   `json:"VocabularyFileURI"`
+	Phrases           []string `json:"Phrases"`
 }
 
 type updateVocabularyOutput struct {
@@ -435,7 +475,12 @@ func (h *Handler) handleUpdateVocabulary(
 	_ context.Context,
 	in *updateVocabularyInput,
 ) (*updateVocabularyOutput, error) {
-	v, err := h.Backend.UpdateVocabulary(in.VocabularyName, in.LanguageCode)
+	v, err := h.Backend.UpdateVocabulary(&Vocabulary{
+		VocabularyName:    in.VocabularyName,
+		LanguageCode:      in.LanguageCode,
+		Phrases:           in.Phrases,
+		VocabularyFileURI: in.VocabularyFileURI,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -537,15 +582,22 @@ func (h *Handler) handleGetVocabularyFilter(
 // --- UpdateVocabularyFilter ---
 
 type updateVocabularyFilterInput struct {
-	VocabularyFilterName string `json:"VocabularyFilterName"`
-	LanguageCode         string `json:"LanguageCode"`
+	VocabularyFilterName    string   `json:"VocabularyFilterName"`
+	LanguageCode            string   `json:"LanguageCode"`
+	VocabularyFilterFileURI string   `json:"VocabularyFilterFileURI"`
+	Words                   []string `json:"Words"`
 }
 
 func (h *Handler) handleUpdateVocabularyFilter(
 	_ context.Context,
 	in *updateVocabularyFilterInput,
 ) (*vocabularyFilterOutput, error) {
-	f, err := h.Backend.UpdateVocabularyFilter(in.VocabularyFilterName, in.LanguageCode)
+	f, err := h.Backend.UpdateVocabularyFilter(&VocabularyFilter{
+		VocabularyFilterName:    in.VocabularyFilterName,
+		LanguageCode:            in.LanguageCode,
+		Words:                   in.Words,
+		VocabularyFilterFileURI: in.VocabularyFilterFileURI,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -637,7 +689,7 @@ func (h *Handler) handleGetMedicalVocabulary(
 type updateMedicalVocabularyInput struct {
 	VocabularyName    string `json:"VocabularyName"`
 	LanguageCode      string `json:"LanguageCode"`
-	VocabularyFileURI string `json:"VocabularyFileUri"`
+	VocabularyFileURI string `json:"VocabularyFileURI"`
 }
 
 type updateMedicalVocabularyOutput struct {
