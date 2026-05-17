@@ -146,7 +146,7 @@ func TestAssumeRoleWithSAML_SessionTrackedForCallerIdentity(t *testing.T) {
 
 	accessKeyID := resp.AssumeRoleWithSAMLResult.Credentials.AccessKeyID
 
-	ciResp, err := b.GetCallerIdentity(accessKeyID)
+	ciResp, err := b.GetCallerIdentity(accessKeyID, "")
 	require.NoError(t, err)
 	assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "assumed-role")
 }
@@ -257,14 +257,14 @@ func TestAssumeRoot_Success(t *testing.T) {
 			name: "default_duration",
 			input: &sts.AssumeRootInput{
 				TargetPrincipal: "123456789012",
-				TaskPolicyArn:   "arn:aws:iam::aws:policy/IAMAuditRootUserCredentials",
+				TaskPolicyArn:   "arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
 			},
 		},
 		{
 			name: "custom_duration",
 			input: &sts.AssumeRootInput{
 				TargetPrincipal: "123456789012",
-				TaskPolicyArn:   "arn:aws:iam::aws:policy/IAMAuditRootUserCredentials",
+				TaskPolicyArn:   "arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
 				DurationSeconds: sts.MaxRootDurationSeconds,
 			},
 		},
@@ -301,7 +301,7 @@ func TestAssumeRoot_ValidationErrors(t *testing.T) {
 		{
 			name: "missing_target_principal",
 			input: &sts.AssumeRootInput{
-				TaskPolicyArn: "arn:aws:iam::aws:policy/IAMAuditRootUserCredentials",
+				TaskPolicyArn: "arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
 			},
 			wantErr: sts.ErrMissingTargetPrincipal,
 		},
@@ -316,7 +316,7 @@ func TestAssumeRoot_ValidationErrors(t *testing.T) {
 			name: "duration_too_long",
 			input: &sts.AssumeRootInput{
 				TargetPrincipal: "123456789012",
-				TaskPolicyArn:   "arn:aws:iam::aws:policy/IAMAuditRootUserCredentials",
+				TaskPolicyArn:   "arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
 				DurationSeconds: sts.MaxRootDurationSeconds + 1,
 			},
 			wantErr: sts.ErrInvalidDuration,
@@ -340,13 +340,13 @@ func TestAssumeRoot_SessionTrackedForCallerIdentity(t *testing.T) {
 	b := sts.NewInMemoryBackend()
 	resp, err := b.AssumeRoot(&sts.AssumeRootInput{
 		TargetPrincipal: "123456789012",
-		TaskPolicyArn:   "arn:aws:iam::aws:policy/IAMAuditRootUserCredentials",
+		TaskPolicyArn:   "arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
 	})
 	require.NoError(t, err)
 
 	accessKeyID := resp.AssumeRootResult.Credentials.AccessKeyID
 
-	ciResp, err := b.GetCallerIdentity(accessKeyID)
+	ciResp, err := b.GetCallerIdentity(accessKeyID, "")
 	require.NoError(t, err)
 	assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "assumed-root")
 	assert.Equal(t, 1, b.SessionCount())
@@ -367,7 +367,7 @@ func TestHandler_AssumeRoot(t *testing.T) {
 				"Action":          {"AssumeRoot"},
 				"Version":         {"2011-06-15"},
 				"TargetPrincipal": {"123456789012"},
-				"TaskPolicyArn":   {"arn:aws:iam::aws:policy/IAMAuditRootUserCredentials"},
+				"TaskPolicyArn":   {"arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials"},
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -376,7 +376,7 @@ func TestHandler_AssumeRoot(t *testing.T) {
 			formValues: url.Values{
 				"Action":        {"AssumeRoot"},
 				"Version":       {"2011-06-15"},
-				"TaskPolicyArn": {"arn:aws:iam::aws:policy/IAMAuditRootUserCredentials"},
+				"TaskPolicyArn": {"arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials"},
 			},
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "MissingParameter",
@@ -397,7 +397,7 @@ func TestHandler_AssumeRoot(t *testing.T) {
 				"Action":          {"AssumeRoot"},
 				"Version":         {"2011-06-15"},
 				"TargetPrincipal": {"123456789012"},
-				"TaskPolicyArn":   {"arn:aws:iam::aws:policy/IAMAuditRootUserCredentials"},
+				"TaskPolicyArn":   {"arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials"},
 				"DurationSeconds": {"901"},
 			},
 			wantStatus: http.StatusBadRequest,
@@ -505,7 +505,7 @@ func TestGetDelegatedAccessToken_SessionTrackedForCallerIdentity(t *testing.T) {
 
 	accessKeyID := resp.GetDelegatedAccessTokenResult.Credentials.AccessKeyID
 
-	ciResp, err := b.GetCallerIdentity(accessKeyID)
+	ciResp, err := b.GetCallerIdentity(accessKeyID, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, ciResp.GetCallerIdentityResult.Arn)
 	assert.Equal(t, 1, b.SessionCount())

@@ -305,7 +305,7 @@ func TestGetCallerIdentity_ExpiredSession_FallsBackToDefault(t *testing.T) {
 			accessKeyID := resp.AssumeRoleResult.Credentials.AccessKeyID
 
 			// Verify the session is valid before expiry.
-			ciResp, err := b.GetCallerIdentity(accessKeyID)
+			ciResp, err := b.GetCallerIdentity(accessKeyID, "")
 			require.NoError(t, err)
 			assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "assumed-role")
 
@@ -313,7 +313,7 @@ func TestGetCallerIdentity_ExpiredSession_FallsBackToDefault(t *testing.T) {
 			b.SetSessionExpiration(accessKeyID, time.Now().Add(-tt.expiredAgo))
 
 			// After expiry, GetCallerIdentity must return the default identity.
-			ciResp, err = b.GetCallerIdentity(accessKeyID)
+			ciResp, err = b.GetCallerIdentity(accessKeyID, "")
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantARN, ciResp.GetCallerIdentityResult.Arn)
 		})

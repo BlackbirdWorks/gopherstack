@@ -266,7 +266,7 @@ func TestRefinement1_AssumeRootDerivedAccount(t *testing.T) {
 			b := sts.NewInMemoryBackend()
 			resp, err := b.AssumeRoot(&sts.AssumeRootInput{
 				TargetPrincipal: tt.targetPrincipal,
-				TaskPolicyArn:   "arn:aws:iam::aws:policy/AdministratorAccess",
+				TaskPolicyArn:   "arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
 			})
 			require.NoError(t, err)
 			require.NotEmpty(t, resp.AssumeRootResult.Credentials.AccessKeyID)
@@ -277,7 +277,7 @@ func TestRefinement1_AssumeRootDerivedAccount(t *testing.T) {
 			b2 := sts.NewInMemoryBackend()
 			require.NoError(t, b2.Restore(snap))
 
-			ci, err := b2.GetCallerIdentity(accessKeyID)
+			ci, err := b2.GetCallerIdentity(accessKeyID, "")
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantAccount, ci.GetCallerIdentityResult.Account)
 		})
@@ -353,7 +353,7 @@ func TestRefinement1_AssumeRoleWithWebIdentityTagsStored(t *testing.T) {
 
 	assert.Equal(t, 1, b2.SessionCount())
 
-	ci, err := b2.GetCallerIdentity(accessKeyID)
+	ci, err := b2.GetCallerIdentity(accessKeyID, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, ci.GetCallerIdentityResult.Arn)
 }
@@ -434,7 +434,7 @@ func TestRefinement1_SnapshotRestoreRoundtrip(t *testing.T) {
 	require.NoError(t, b2.Restore(snap))
 	assert.Equal(t, 1, b2.SessionCount())
 
-	ci, err := b2.GetCallerIdentity("ASIATEST000000000099")
+	ci, err := b2.GetCallerIdentity("ASIATEST000000000099", "")
 	require.NoError(t, err)
 	assert.Equal(t, sts.MockAccountID, ci.GetCallerIdentityResult.Account)
 	assert.Equal(t, original.AssumedRoleArn, ci.GetCallerIdentityResult.Arn)

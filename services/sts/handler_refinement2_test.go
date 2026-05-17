@@ -26,7 +26,7 @@ func TestRefinement2_AssumeRootWithPolicyDescriptorType(t *testing.T) {
 		"Action":            {"AssumeRoot"},
 		"Version":           {"2011-06-15"},
 		"TargetPrincipal":   {"000000000000"},
-		"TaskPolicyArn.arn": {"arn:aws:iam::aws:policy/IAMAuditRootUserCredentials"},
+		"TaskPolicyArn.arn": {"arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials"},
 	})
 
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -42,7 +42,7 @@ func TestRefinement2_AssumeRootMissingTargetPrincipal(t *testing.T) {
 	rec := r1PostForm(t, h, url.Values{
 		"Action":            {"AssumeRoot"},
 		"Version":           {"2011-06-15"},
-		"TaskPolicyArn.arn": {"arn:aws:iam::aws:policy/IAMAuditRootUserCredentials"},
+		"TaskPolicyArn.arn": {"arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials"},
 	})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -177,7 +177,7 @@ func TestRefinement2_GetSessionTokenSessionStored(t *testing.T) {
 	require.NoError(t, err)
 
 	accessKeyID := resp.GetSessionTokenResult.Credentials.AccessKeyID
-	ci, err := b.GetCallerIdentity(accessKeyID)
+	ci, err := b.GetCallerIdentity(accessKeyID, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, ci.GetCallerIdentityResult.Arn)
 }
@@ -401,8 +401,8 @@ func TestRefinement2_PackedPolicySizeNonZero(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	// PackedPolicySize is proportional to the policy length: (len*100)/2048, minimum 1.
-	expectedSize := max(int32((len(policy)*100)/2048), 1)
+	// PackedPolicySize uses ceiling division: (len*100 + 2047) / 2048, minimum 1.
+	expectedSize := max(int32((len(policy)*100+2047)/2048), 1)
 	assert.Equal(t, expectedSize, resp.AssumeRoleResult.PackedPolicySize)
 	assert.Positive(t, resp.AssumeRoleResult.PackedPolicySize)
 }

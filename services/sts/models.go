@@ -26,7 +26,7 @@ const (
 	// MinDurationSeconds is the minimum allowed credential lifetime.
 	MinDurationSeconds = 900
 
-	// MaxDurationSeconds is the maximum allowed credential lifetime.
+	// MaxDurationSeconds is the maximum allowed credential lifetime for AssumeRole (12 hours).
 	MaxDurationSeconds = 43200
 
 	// DefaultSessionTokenDurationSeconds is the default lifetime for GetSessionToken (12 hours).
@@ -34,6 +34,9 @@ const (
 
 	// MinSessionTokenDurationSeconds is the minimum allowed lifetime (15 minutes).
 	MinSessionTokenDurationSeconds = 900
+
+	// MaxSessionTokenDurationSeconds is the maximum allowed lifetime for GetSessionToken (36 hours for IAM users).
+	MaxSessionTokenDurationSeconds = 129600
 
 	// MaxTagCount is the maximum number of session tags allowed per AssumeRole call.
 	MaxTagCount = 50
@@ -73,6 +76,27 @@ const (
 
 	// MaxProvidedContextsCount is the maximum number of provided contexts per operation.
 	MaxProvidedContextsCount = 5
+
+	// MaxTagKeyLen is the maximum allowed length for a session tag key.
+	MaxTagKeyLen = 128
+
+	// MaxTagValueLen is the maximum allowed length for a session tag value.
+	MaxTagValueLen = 256
+
+	// MinTagKeyLen is the minimum allowed length for a session tag key.
+	MinTagKeyLen = 1
+
+	// MinSourceIdentityLen is the minimum allowed length for SourceIdentity.
+	MinSourceIdentityLen = 2
+
+	// MaxSourceIdentityLen is the maximum allowed length for SourceIdentity.
+	MaxSourceIdentityLen = 64
+
+	// MaxProvidedContextLen is the maximum allowed length for a ProvidedContext assertion or ARN.
+	MaxProvidedContextLen = 2048
+
+	// MFATokenCodeLen is the required length for MFA token codes.
+	MFATokenCodeLen = 6
 )
 
 // Tag represents a session tag key-value pair passed to AssumeRole.
@@ -222,6 +246,10 @@ type SessionInfo struct {
 	AccountID      string    `json:"account_id"`
 	SessionName    string    `json:"session_name"`
 	AccessKeyID    string    `json:"access_key_id"`
+	// SecretAccessKey is the secret key for this session, stored for in-process SigV4 validation.
+	SecretAccessKey string `json:"secret_access_key,omitempty"`
+	// SessionToken is the session token for this credential set, used to match X-Amz-Security-Token.
+	SessionToken string `json:"session_token,omitempty"`
 	// AssumedRoleID is the AROA-prefixed role ID + session name (e.g. "AROATESTROLEID:session").
 	// It is the value returned by GetCallerIdentity as the UserId for assumed-role credentials.
 	AssumedRoleID     string   `json:"assumed_role_id"`
