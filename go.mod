@@ -162,7 +162,11 @@ require (
 	github.com/moby/moby/client v0.4.0
 )
 
-require github.com/google/jsonschema-go v0.4.2 // indirect
+require (
+	github.com/cedar-policy/cedar-go v1.6.1
+	github.com/google/jsonschema-go v0.4.2 // indirect
+	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df // indirect
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

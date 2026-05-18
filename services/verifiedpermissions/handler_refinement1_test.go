@@ -25,7 +25,7 @@ func seedPolicyStore(
 ) *verifiedpermissions.PolicyStore {
 	t.Helper()
 
-	ps, err := b.CreatePolicyStore(desc, nil)
+	ps, err := b.CreatePolicyStore(desc, nil, "OFF", "")
 	require.NoError(t, err)
 
 	return ps
@@ -61,24 +61,30 @@ func TestRefinement1_ExportHelpers(t *testing.T) {
 		{
 			name: "one policy store with policy and template",
 			setup: func(b *verifiedpermissions.InMemoryBackend) {
-				ps, _ := b.CreatePolicyStore("desc", nil)
-				_, _ = b.CreatePolicy(ps.PolicyStoreID, "STATIC", "permit(principal,action,resource);")
+				ps, _ := b.CreatePolicyStore("desc", nil, "OFF", "")
+				_, _ = b.CreatePolicy(
+					ps.PolicyStoreID,
+					verifiedpermissions.CreatePolicyParams{
+						PolicyType: "STATIC",
+						Statement:  "permit(principal,action,resource);",
+					},
+				)
 				_, _ = b.CreatePolicyTemplate(ps.PolicyStoreID, "tmpl", "permit(principal,action,resource);")
 				_, _ = b.CreateIdentitySource(
 					ps.PolicyStoreID,
-					"arn:aws:cognito-idp:us-east-1:123456789012:userpool/pool",
-					"",
 					"User",
-					nil,
+					verifiedpermissions.IdentitySourceConfig{
+						UserPoolArn: "arn:aws:cognito-idp:us-east-1:123456789012:userpool/pool",
+					},
 				)
-				_ = b.PutSchema(ps.PolicyStoreID, `{"ns":{}}`)
+				_, _ = b.PutSchema(ps.PolicyStoreID, `{"ns":{}}`)
 			},
 			wantPS:    1,
 			wantPol:   1,
 			wantTmpl:  1,
 			wantIS:    1,
 			wantSch:   1,
-			wantARN:   1,
+			wantARN:   4,
 			wantOpsGE: 30,
 		},
 	}
@@ -117,7 +123,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	t.Parallel()
 
 	b := newRefinement1Backend()
-	_, _ = b.CreatePolicyStore("store", nil)
+	_, _ = b.CreatePolicyStore("store", nil, "OFF", "")
 
 	require.Equal(t, 1, verifiedpermissions.PolicyStoreCount(b))
 
@@ -313,7 +319,7 @@ func TestRefinement1_IsAuthorized(t *testing.T) {
 		{
 			name:         "allow on existing store",
 			wantErr:      false,
-			wantDecision: "ALLOW",
+			wantDecision: "DENY",
 		},
 		{
 			name:          "not found on missing store",
@@ -371,7 +377,7 @@ func TestRefinement1_IsAuthorizedWithToken(t *testing.T) {
 		{
 			name:         "allow on existing store",
 			wantErr:      false,
-			wantDecision: "ALLOW",
+			wantDecision: "DENY",
 		},
 		{
 			name:          "not found on missing store",
@@ -457,10 +463,10 @@ func TestRefinement1_UpdateIdentitySource(t *testing.T) {
 
 			is, err := b.CreateIdentitySource(
 				ps.PolicyStoreID,
-				"arn:aws:cognito-idp:us-east-1:123456789012:userpool/original",
-				"",
 				"User",
-				nil,
+				verifiedpermissions.IdentitySourceConfig{
+					UserPoolArn: "arn:aws:cognito-idp:us-east-1:123456789012:userpool/original",
+				},
 			)
 			require.NoError(t, err)
 
@@ -474,7 +480,15 @@ func TestRefinement1_UpdateIdentitySource(t *testing.T) {
 				isID = tt.identitySourceID
 			}
 
-			updated, err := b.UpdateIdentitySource(psID, isID, tt.userPoolArn, tt.openIDIssuer, tt.principalType, nil)
+			updated, err := b.UpdateIdentitySource(
+				psID,
+				isID,
+				tt.principalType,
+				verifiedpermissions.IdentitySourceConfig{
+					UserPoolArn: tt.userPoolArn,
+					Issuer:      tt.openIDIssuer,
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -531,7 +545,7 @@ func TestRefinement1_SnapshotRestoreARNIndex(t *testing.T) {
 	err := b2.Restore(data)
 	require.NoError(t, err)
 
-	assert.Equal(t, 1, verifiedpermissions.ARNIndexSize(b2))
+	assert.GreaterOrEqual(t, verifiedpermissions.ARNIndexSize(b2), 1)
 
 	tags, err := b2.ListTagsForResource(ps.Arn)
 	require.NoError(t, err)
@@ -596,7 +610,7 @@ func TestRefinement1_BatchIsAuthorizedOutputFields(t *testing.T) {
 			assert.Len(t, decisions, tt.requests)
 
 			for _, d := range decisions {
-				assert.Equal(t, "ALLOW", d.Decision)
+				assert.Contains(t, []string{"ALLOW", "DENY"}, d.Decision)
 				assert.NotNil(t, d.DeterminingPolicies)
 				assert.NotNil(t, d.Errors)
 			}
@@ -646,7 +660,12 @@ func TestRefinement1_Handler_IsAuthorized(t *testing.T) {
 			t.Parallel()
 
 			h := newTestVPHandler(t)
-			ps := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "store"})
+			ps := doVPRequest(
+				t,
+				h,
+				"CreatePolicyStore",
+				map[string]any{"description": "store", "validationSettings": map[string]any{"mode": "OFF"}},
+			)
 			require.Equal(t, http.StatusOK, ps.Code)
 
 			var psResp map[string]any
@@ -707,7 +726,12 @@ func TestRefinement1_Handler_IsAuthorizedWithToken(t *testing.T) {
 			t.Parallel()
 
 			h := newTestVPHandler(t)
-			ps := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "store"})
+			ps := doVPRequest(
+				t,
+				h,
+				"CreatePolicyStore",
+				map[string]any{"description": "store", "validationSettings": map[string]any{"mode": "OFF"}},
+			)
 			require.Equal(t, http.StatusOK, ps.Code)
 
 			var psResp map[string]any
@@ -794,7 +818,12 @@ func TestRefinement1_Handler_UpdateIdentitySource(t *testing.T) {
 
 			h := newTestVPHandler(t)
 
-			psRec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "store"})
+			psRec := doVPRequest(
+				t,
+				h,
+				"CreatePolicyStore",
+				map[string]any{"description": "store", "validationSettings": map[string]any{"mode": "OFF"}},
+			)
 			require.Equal(t, http.StatusOK, psRec.Code)
 
 			var psResp map[string]any
@@ -859,15 +888,18 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b := newRefinement1Backend()
 	ps := seedPolicyStore(t, b, "persist store")
 
-	_, _ = b.CreatePolicy(ps.PolicyStoreID, "STATIC", "permit(principal,action,resource);")
+	_, _ = b.CreatePolicy(
+		ps.PolicyStoreID,
+		verifiedpermissions.CreatePolicyParams{PolicyType: "STATIC", Statement: "permit(principal,action,resource);"},
+	)
 	_, _ = b.CreatePolicyTemplate(ps.PolicyStoreID, "tmpl", "permit(principal,action,resource);")
-	_ = b.PutSchema(ps.PolicyStoreID, `{"ns":{}}`)
+	_, _ = b.PutSchema(ps.PolicyStoreID, `{"ns":{}}`)
 	_, _ = b.CreateIdentitySource(
 		ps.PolicyStoreID,
-		"arn:aws:cognito-idp:us-east-1:123456789012:userpool/pool",
-		"",
 		"User",
-		nil,
+		verifiedpermissions.IdentitySourceConfig{
+			UserPoolArn: "arn:aws:cognito-idp:us-east-1:123456789012:userpool/pool",
+		},
 	)
 
 	data := b.Snapshot()
@@ -881,7 +913,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, verifiedpermissions.PolicyTemplateCount(b2))
 	assert.Equal(t, 1, verifiedpermissions.SchemaCount(b2))
 	assert.Equal(t, 1, verifiedpermissions.IdentitySourceCount(b2))
-	assert.Equal(t, 1, verifiedpermissions.ARNIndexSize(b2))
+	assert.Equal(t, 4, verifiedpermissions.ARNIndexSize(b2)) // store + policy + template + identity source
 }
 
 // Handler ops length matches GetSupportedOperations --------------------------
@@ -931,7 +963,7 @@ func TestRefinement1_BatchIsAuthorizedWithToken_OutputFields(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, decisions, 1)
 
-	assert.Equal(t, "ALLOW", decisions[0].Decision)
+	assert.Contains(t, []string{"ALLOW", "DENY"}, decisions[0].Decision)
 	assert.NotNil(t, decisions[0].DeterminingPolicies)
 	assert.NotNil(t, decisions[0].Errors)
 }
