@@ -35,6 +35,36 @@ var (
 	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 )
 
+// RejectedRecord describes a single record that could not be written due to a version conflict.
+type RejectedRecord struct {
+	Reason          string `json:"Reason"`
+	ExistingVersion int64  `json:"ExistingVersion,omitempty"`
+	RecordIndex     int    `json:"RecordIndex"`
+}
+
+// RejectedRecordsError is returned by WriteRecords when one or more records are
+// rejected due to version conflicts.
+type RejectedRecordsError struct {
+	RejectedRecords []RejectedRecord
+}
+
+func (e *RejectedRecordsError) Error() string {
+	return fmt.Sprintf(
+		"RejectedRecordsException: %d record(s) rejected due to version conflict",
+		len(e.RejectedRecords),
+	)
+}
+
+// Is satisfies errors.Is so that errors.Is(err, ErrRejectedRecords) returns true.
+func (e *RejectedRecordsError) Is(target error) bool {
+	_, ok := target.(*RejectedRecordsError)
+
+	return ok
+}
+
+// ErrRejectedRecords is the sentinel used with errors.Is for RejectedRecordsError.
+var ErrRejectedRecords = &RejectedRecordsError{}
+
 const (
 	// BatchLoadStatusCreated indicates a task has been created and is pending execution.
 	BatchLoadStatusCreated = "CREATED"
@@ -64,9 +94,68 @@ type RetentionProperties struct {
 	MagneticStoreRetentionPeriodInDays int64 `json:"MagneticStoreRetentionPeriodInDays,omitempty"`
 }
 
-// MagneticStoreWriteProperties configures rejected-record delivery for the magnetic store.
+// S3Configuration holds S3 location config for rejected-record delivery.
+type S3Configuration struct {
+	BucketName       string `json:"bucket_name,omitempty"`
+	ObjectKeyPrefix  string `json:"object_key_prefix,omitempty"`
+	EncryptionOption string `json:"encryption_option,omitempty"`
+	KmsKeyID         string `json:"kms_key_id,omitempty"`
+}
+
+// MagneticStoreRejectedDataLocation configures where rejected magnetic-store records are written.
+type MagneticStoreRejectedDataLocation struct {
+	S3Configuration *S3Configuration `json:"s3_configuration,omitempty"`
+}
+
+// MagneticStoreWriteProperties configures magnetic store writes and rejected-record delivery.
 type MagneticStoreWriteProperties struct {
-	EnableMagneticStoreWrites bool `json:"EnableMagneticStoreWrites"`
+	MagneticStoreRejectedDataLocation *MagneticStoreRejectedDataLocation `json:"magnetic_store_rejected_data_location,omitempty"` //nolint:lll // AWS field name is inherently long
+	EnableMagneticStoreWrites         bool                               `json:"enable_magnetic_store_writes"`
+}
+
+// PartitionKeyType specifies whether a partition key is a dimension or measure key.
+type PartitionKeyType = string
+
+const (
+	PartitionKeyTypeDimension PartitionKeyType = "DIMENSION"
+	PartitionKeyTypeMeasure   PartitionKeyType = "MEASURE"
+)
+
+// PartitionKeyEnforcementLevel controls whether a dimension partition key is required on write.
+type PartitionKeyEnforcementLevel = string
+
+const (
+	PartitionKeyEnforcementRequired PartitionKeyEnforcementLevel = "REQUIRED"
+	PartitionKeyEnforcementOptional PartitionKeyEnforcementLevel = "OPTIONAL"
+)
+
+// PartitionKey defines a single key in a table's composite partition key schema.
+type PartitionKey struct {
+	Type                PartitionKeyType             `json:"type"`
+	Name                string                       `json:"name,omitempty"`
+	EnforcementInRecord PartitionKeyEnforcementLevel `json:"enforcement_in_record,omitempty"`
+}
+
+// Schema defines the composite partition key configuration for a table.
+type Schema struct {
+	CompositePartitionKey []PartitionKey `json:"composite_partition_key,omitempty"`
+}
+
+// MeasureValue holds a name-value-type triple for multi-measure (MULTI type) records.
+type MeasureValue struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+	Type  string `json:"type"`
+}
+
+// BatchLoadProgressReport captures incremental progress metrics for a batch load task.
+type BatchLoadProgressReport struct {
+	BytesMetered            int64 `json:"bytes_metered,omitempty"`
+	FileFailures            int64 `json:"file_failures,omitempty"`
+	ParseFailures           int64 `json:"parse_failures,omitempty"`
+	RecordIngestionFailures int64 `json:"record_ingestion_failures,omitempty"`
+	RecordsIngested         int64 `json:"records_ingested,omitempty"`
+	RecordsProcessed        int64 `json:"records_processed,omitempty"`
 }
 
 // Database represents a Timestream database.
@@ -85,6 +174,7 @@ type Table struct {
 	LastUpdatedTime              time.Time                     `json:"last_updated_time"`
 	RetentionProperties          *RetentionProperties          `json:"retention_properties,omitempty"`
 	MagneticStoreWriteProperties *MagneticStoreWriteProperties `json:"magnetic_store_write_properties,omitempty"`
+	Schema                       *Schema                       `json:"schema,omitempty"`
 	DatabaseName                 string                        `json:"database_name"`
 	TableName                    string                        `json:"table_name"`
 	ARN                          string                        `json:"arn"`
@@ -93,21 +183,23 @@ type Table struct {
 
 // Dimension holds a name/value pair for a time-series record.
 type Dimension struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
+	Name               string `json:"name"`
+	Value              string `json:"value"`
+	DimensionValueType string `json:"dimension_value_type,omitempty"`
 }
 
 // Record represents a time-series data point written to a table.
 type Record struct {
 	// InternalTimestamp is the parsed value of Time, used for retention sweeping.
-	InternalTimestamp time.Time   `json:"-"`
-	MeasureName       string      `json:"measure_name"`
-	MeasureValue      string      `json:"measure_value"`
-	MeasureValueType  string      `json:"measure_value_type"`
-	Time              string      `json:"time"`
-	TimeUnit          string      `json:"time_unit"`
-	Dimensions        []Dimension `json:"dimensions,omitempty"`
-	Version           int64       `json:"version,omitempty"`
+	InternalTimestamp time.Time      `json:"-"`
+	MeasureName       string         `json:"measure_name"`
+	MeasureValue      string         `json:"measure_value"`
+	MeasureValueType  string         `json:"measure_value_type"`
+	Time              string         `json:"time"`
+	TimeUnit          string         `json:"time_unit"`
+	Dimensions        []Dimension    `json:"dimensions,omitempty"`
+	MeasureValues     []MeasureValue `json:"measure_values,omitempty"`
+	Version           int64          `json:"version,omitempty"`
 }
 
 // DataSourceS3Configuration holds S3 source configuration for batch loads.
@@ -135,6 +227,7 @@ type BatchLoadTask struct {
 	ResumableUntil          *time.Time               `json:"resumable_until,omitempty"`
 	DataSourceConfiguration *DataSourceConfiguration `json:"data_source_configuration,omitempty"`
 	ReportConfiguration     *ReportConfiguration     `json:"report_configuration,omitempty"`
+	ProgressReport          *BatchLoadProgressReport `json:"progress_report,omitempty"`
 	TargetDatabaseName      string                   `json:"target_database_name"`
 	TargetTableName         string                   `json:"target_table_name"`
 	TaskID                  string                   `json:"task_id"`
@@ -143,14 +236,18 @@ type BatchLoadTask struct {
 	RecordVersion           int64                    `json:"record_version,omitempty"`
 }
 
-// tableRecords owns the records slice and per-table mutex for a single table.
+// tableRecords owns the records slice, dedup index, and per-table mutex for a single table.
 // Storing the slice and lock together inside a pointer lets WriteRecords mutate
 // the slice through the pointer without writing to the enclosing maps in
 // b.records — which would race against concurrent WriteRecords calls to other
 // tables in the same database under the global read-lock.
+//
+// recordIndex maps a record's dedup key (measure+time+dimensions) to its position in
+// the records slice, enabling O(1) version-based upsert lookups.
 type tableRecords struct {
-	mu      *lockmetrics.RWMutex
-	records []Record
+	mu          *lockmetrics.RWMutex
+	recordIndex map[string]int
+	records     []Record
 }
 
 // InMemoryBackend is the in-memory store for Timestream Write resources.
@@ -380,6 +477,7 @@ func (b *InMemoryBackend) UpdateDatabase(name, kmsKeyID string) (*Database, erro
 type CreateTableInput struct {
 	RetentionProperties          *RetentionProperties
 	MagneticStoreWriteProperties *MagneticStoreWriteProperties
+	Schema                       *Schema
 }
 
 // CreateTable creates a new table in the specified database with optional initial tags.
@@ -412,10 +510,14 @@ func (b *InMemoryBackend) CreateTable(
 	if inp != nil {
 		tbl.RetentionProperties = inp.RetentionProperties
 		tbl.MagneticStoreWriteProperties = inp.MagneticStoreWriteProperties
+		tbl.Schema = inp.Schema
 	}
 
 	b.tables[dbName][tblName] = tbl
-	b.records[dbName][tblName] = &tableRecords{mu: lockmetrics.New("timestreamwrite.table")}
+	b.records[dbName][tblName] = &tableRecords{
+		mu:          lockmetrics.New("timestreamwrite.table"),
+		recordIndex: make(map[string]int),
+	}
 	b.databases[dbName].TableCount++
 
 	if len(tags) > 0 {
@@ -500,6 +602,7 @@ func (b *InMemoryBackend) DeleteTable(dbName, tblName string) error {
 type UpdateTableInput struct {
 	RetentionProperties          *RetentionProperties
 	MagneticStoreWriteProperties *MagneticStoreWriteProperties
+	Schema                       *Schema
 }
 
 // UpdateTable updates a table's properties.
@@ -524,6 +627,10 @@ func (b *InMemoryBackend) UpdateTable(dbName, tblName string, inp *UpdateTableIn
 		if inp.MagneticStoreWriteProperties != nil {
 			tbl.MagneticStoreWriteProperties = inp.MagneticStoreWriteProperties
 		}
+
+		if inp.Schema != nil {
+			tbl.Schema = inp.Schema
+		}
 	}
 
 	tbl.LastUpdatedTime = time.Now()
@@ -534,8 +641,22 @@ func (b *InMemoryBackend) UpdateTable(dbName, tblName string, inp *UpdateTableIn
 
 // WriteRecordsOutput summarises the results of a WriteRecords call.
 type WriteRecordsOutput struct {
-	Total       int32
-	MemoryStore int32
+	RejectedRecords []RejectedRecord
+	Total           int32
+	MemoryStore     int32
+}
+
+// recordKey computes a deterministic dedup key for a record using measure name,
+// time, time unit, and sorted dimension name=value pairs.
+func recordKey(r Record) string {
+	dims := make([]string, 0, len(r.Dimensions))
+	for _, d := range r.Dimensions {
+		dims = append(dims, d.Name+"="+d.Value)
+	}
+
+	sort.Strings(dims)
+
+	return strings.Join([]string{r.MeasureName, r.Time, r.TimeUnit, strings.Join(dims, ",")}, "\x00")
 }
 
 // WriteRecords appends records to the specified table.
@@ -565,20 +686,61 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 	slot.mu.Lock("WriteRecords")
 	defer slot.mu.Unlock()
 
-	// Append first, then stamp InternalTimestamp on the copies inside slot.records
-	// so that we never mutate the caller's input slice (which they may share
-	// across goroutines).
-	start := len(slot.records)
-	slot.records = append(slot.records, records...)
+	if slot.recordIndex == nil {
+		slot.recordIndex = make(map[string]int)
+	}
 
-	for i := start; i < len(slot.records); i++ {
-		slot.records[i].InternalTimestamp = parseTimestreamTime(slot.records[i].Time, slot.records[i].TimeUnit)
+	var rejected []RejectedRecord
+	var inserted int32
+
+	for i, r := range records {
+		key := recordKey(r)
+
+		// Normalise version: Version 0 is treated as 1 per AWS docs.
+		newVersion := r.Version
+		if newVersion == 0 {
+			newVersion = 1
+		}
+
+		if idx, exists := slot.recordIndex[key]; exists {
+			// Record with same dedup key exists — apply version upsert.
+			existingVersion := slot.records[idx].Version
+			if existingVersion == 0 {
+				existingVersion = 1
+			}
+
+			if newVersion > existingVersion {
+				// Higher version: update the existing record in-place.
+				cp := r
+				cp.Version = newVersion
+				cp.InternalTimestamp = parseTimestreamTime(r.Time, r.TimeUnit)
+				slot.records[idx] = cp
+				inserted++
+			} else {
+				// Same or lower version: reject.
+				rejected = append(rejected, RejectedRecord{
+					RecordIndex:     i,
+					Reason:          "Record with same dimensions, time and measure name already exists with same or higher version",
+					ExistingVersion: existingVersion,
+				})
+			}
+		} else {
+			// New record: append and index.
+			cp := r
+			cp.Version = newVersion
+			cp.InternalTimestamp = parseTimestreamTime(r.Time, r.TimeUnit)
+			slot.recordIndex[key] = len(slot.records)
+			slot.records = append(slot.records, cp)
+			inserted++
+		}
+	}
+
+	if len(rejected) > 0 {
+		return nil, &RejectedRecordsError{RejectedRecords: rejected}
 	}
 
 	// Record counts are bounded by request size limits (< MaxInt32).
-	count := int32(len(records)) //#nosec G115
-
-	return &WriteRecordsOutput{Total: count, MemoryStore: count}, nil
+	return &WriteRecordsOutput{Total: inserted, MemoryStore: inserted}, nil //#nosec G115
 }
 
 func parseTimestreamTime(ts, unit string) time.Time {
@@ -649,6 +811,11 @@ func (b *InMemoryBackend) pruneTableRecords(dbName, tblName string, tbl *Table, 
 	pruned := len(slot.records) - len(newRecords)
 	if pruned > 0 {
 		slot.records = newRecords
+		// Rebuild the dedup index after pruning to keep offsets consistent.
+		slot.recordIndex = make(map[string]int, len(newRecords))
+		for i, r := range slot.records {
+			slot.recordIndex[recordKey(r)] = i
+		}
 	}
 
 	return pruned
@@ -862,7 +1029,8 @@ func (b *InMemoryBackend) AddTableInternal(tbl *Table) {
 	}
 
 	b.records[tbl.DatabaseName][tbl.TableName] = &tableRecords{
-		mu: lockmetrics.New("timestreamwrite.table"),
+		mu:          lockmetrics.New("timestreamwrite.table"),
+		recordIndex: make(map[string]int),
 	}
 
 	if db, ok := b.databases[tbl.DatabaseName]; ok {
