@@ -4,55 +4,55 @@ package swf
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
 	// Domain lifecycle
-	RegisterDomain(name, description string) error
+	RegisterDomain(name, description, retention string) error
 	DescribeDomain(name string) (*Domain, error)
-	ListDomains(registrationStatus string) []Domain
+	ListDomains(registrationStatus string) ([]Domain, error)
 	DeprecateDomain(name string) error
 	UndeprecateDomain(name string) error
 
 	// WorkflowType lifecycle
-	RegisterWorkflowType(domain, name, version, description string) error
-	ListWorkflowTypes(domain, registrationStatus string) []WorkflowType
+	RegisterWorkflowType(domain, name, version, description string, defaults WorkflowTypeDefaults) error
+	ListWorkflowTypes(domain, registrationStatus string) ([]WorkflowType, error)
 	DescribeWorkflowType(domain, name, version string) (*WorkflowType, error)
 	DeprecateWorkflowType(domain, name, version string) error
 	UndeprecateWorkflowType(domain, name, version string) error
 	DeleteWorkflowType(domain, name, version string) error
 
 	// ActivityType lifecycle
-	RegisterActivityType(domain, name, version, description string) error
-	ListActivityTypes(domain, registrationStatus string) []ActivityType
+	RegisterActivityType(domain, name, version, description string, defaults ActivityTypeDefaults) error
+	ListActivityTypes(domain, registrationStatus string) ([]ActivityType, error)
 	DescribeActivityType(domain, name, version string) (*ActivityType, error)
 	DeprecateActivityType(domain, name, version string) error
 	UndeprecateActivityType(domain, name, version string) error
 	DeleteActivityType(domain, name, version string) error
 
 	// Execution counts
-	CountOpenWorkflowExecutions(domain string) int
-	CountClosedWorkflowExecutions(domain string) int
-	CountPendingActivityTasks(taskListName string) int
-	CountPendingDecisionTasks(taskListName string) int
+	CountOpenWorkflowExecutions(domain string, filter ExecutionFilter) int
+	CountClosedWorkflowExecutions(domain string, filter ExecutionFilter) int
+	CountPendingActivityTasks(domain, taskList string) int
+	CountPendingDecisionTasks(domain, taskList string) int
 
 	// Execution lifecycle
-	StartWorkflowExecution(domain, workflowID, runID string) (*WorkflowExecution, error)
-	TerminateWorkflowExecution(domain, workflowID string) error
+	StartWorkflowExecution(input StartWorkflowExecutionInput) (*WorkflowExecution, error)
+	TerminateWorkflowExecution(domain, workflowID, runID, reason, details string) error
 	DescribeWorkflowExecution(domain, workflowID string) (*WorkflowExecution, error)
-	GetWorkflowExecutionHistory(domain, workflowID string) []HistoryEvent
-	ListOpenWorkflowExecutions(domain string) []WorkflowExecution
-	ListClosedWorkflowExecutions(domain string) []WorkflowExecution
-	RequestCancelWorkflowExecution(domain, workflowID string) error
-	SignalWorkflowExecution(domain, workflowID, signalName, input string) error
+	GetWorkflowExecutionHistory(domain, workflowID string, maxPageSize int, nextPageToken string, reverseOrder bool) ([]HistoryEvent, string)
+	ListOpenWorkflowExecutions(domain string, filter ExecutionFilter) []WorkflowExecution
+	ListClosedWorkflowExecutions(domain string, filter ExecutionFilter) []WorkflowExecution
+	RequestCancelWorkflowExecution(domain, workflowID, runID string) error
+	SignalWorkflowExecution(domain, workflowID, runID, signalName, input string) error
 
 	// Task polling and responses
 	PollForActivityTask(domain, taskList string) *ActivityTask
-	PollForDecisionTask(domain, taskList string) *DecisionTask
-	RecordActivityTaskHeartbeat(taskToken string) bool
-	RespondActivityTaskCanceled(taskToken string) error
-	RespondActivityTaskCompleted(taskToken string) error
-	RespondActivityTaskFailed(taskToken string) error
-	RespondDecisionTaskCompleted(taskToken string) error
+	PollForDecisionTask(domain, taskList string, maxPageSize int, nextPageToken string) *DecisionTask
+	RecordActivityTaskHeartbeat(taskToken string) (bool, error)
+	RespondActivityTaskCanceled(taskToken, details string) error
+	RespondActivityTaskCompleted(taskToken, result string) error
+	RespondActivityTaskFailed(taskToken, reason, details string) error
+	RespondDecisionTaskCompleted(taskToken, executionContext string) error
 
 	// Resource tagging
-	ListTagsForResource(resourceARN string) map[string]string
+	ListTagsForResource(resourceARN string) (map[string]string, error)
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
 
