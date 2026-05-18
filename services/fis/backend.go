@@ -508,6 +508,14 @@ func (b *InMemoryBackend) DeleteExperimentTemplate(id string) error {
 	delete(b.templates, id)
 	delete(b.targetAccountConfigs, id)
 
+	// Drop idempotency-token entries pointing at this template so the map
+	// cannot grow unbounded across long-lived backends.
+	for tok, tid := range b.tplClientTokens {
+		if tid == id {
+			delete(b.tplClientTokens, tok)
+		}
+	}
+
 	return nil
 }
 

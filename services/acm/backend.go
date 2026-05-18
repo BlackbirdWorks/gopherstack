@@ -817,6 +817,14 @@ func (b *InMemoryBackend) DeleteCertificate(certARN string) error {
 
 	delete(b.certs, certARN)
 
+	// Drop any idempotency-token entries that pointed at this cert so the
+	// map cannot grow unbounded for long-running backends.
+	for tok, entry := range b.idempotencyMap {
+		if entry.ARN == certARN {
+			delete(b.idempotencyMap, tok)
+		}
+	}
+
 	return nil
 }
 

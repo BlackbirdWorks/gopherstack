@@ -2047,8 +2047,8 @@ type listContributorInsightsOutput struct {
 	ContributorInsightsSummaries []contributorInsightsSummaryWire `json:"ContributorInsightsSummaries"`
 }
 
-func (h *DynamoDBHandler) handleListContributorInsights(_ context.Context, _ []byte) (any, error) {
-	out, err := h.Backend.ListContributorInsights(context.Background(), &sdkDDB.ListContributorInsightsInput{})
+func (h *DynamoDBHandler) handleListContributorInsights(ctx context.Context, _ []byte) (any, error) {
+	out, err := h.Backend.ListContributorInsights(ctx, &sdkDDB.ListContributorInsightsInput{})
 	if err != nil {
 		return nil, err
 	}
@@ -2287,8 +2287,8 @@ type listImportsOutput struct {
 	ImportSummaryList []importTableDescriptionWire `json:"ImportSummaryList"`
 }
 
-func (h *DynamoDBHandler) handleListImports(_ context.Context, _ []byte) (any, error) {
-	out, err := h.Backend.ListImports(context.Background(), &sdkDDB.ListImportsInput{})
+func (h *DynamoDBHandler) handleListImports(ctx context.Context, _ []byte) (any, error) {
+	out, err := h.Backend.ListImports(ctx, &sdkDDB.ListImportsInput{})
 	if err != nil {
 		return nil, err
 	}

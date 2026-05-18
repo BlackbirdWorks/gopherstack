@@ -28,9 +28,15 @@ const (
 
 // Handler is the Echo HTTP handler for EC2 operations.
 type Handler struct {
-	Backend   Backend
-	ops       map[string]ec2ActionFn
-	janitor   *Janitor
+	Backend Backend
+	ops     map[string]ec2ActionFn
+	janitor *Janitor
+	// svcCtx is the service-lifetime context derived from the root service
+	// context via StartWorker. It is used for detached background work
+	// (compute launch/terminate hooks) that must outlive the per-request HTTP
+	// context but should still be cancelled at service shutdown.
+	// Falls back to context.Background until StartWorker has run.
+	svcCtx    context.Context
 	AccountID string
 	Region    string
 }
@@ -38,7 +44,7 @@ type Handler struct {
 // NewHandler creates a new EC2 handler with the given backend.
 // The dispatch table is built once and cached in h.ops.
 func NewHandler(backend Backend) *Handler {
-	h := &Handler{Backend: backend}
+	h := &Handler{Backend: backend, svcCtx: context.Background()}
 	h.ops = h.buildOps()
 
 	return h
@@ -68,8 +74,16 @@ func (h *Handler) WithJanitor(
 	return h
 }
 
-// StartWorker starts the background janitor if configured.
+// StartWorker starts the background janitor if configured and captures the
+// service-lifetime context for detached compute hook calls.
 func (h *Handler) StartWorker(ctx context.Context) error {
+	// Capture the root service ctx so detached fire-and-forget compute hooks
+	// (launchOnCompute, terminateOnCompute, computeStartOrStop) can run with
+	// a context that outlives any individual HTTP request but is cancelled
+	// when the service shuts down. Use WithoutCancel-like semantics: just
+	// reuse the parent so cancellation propagates from the root.
+	h.svcCtx = ctx
+
 	if h.janitor != nil {
 		go h.janitor.Run(ctx)
 	}
@@ -493,7 +507,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	}
 
 	if cb, c := h.computeBackend(); c != nil {
-		h.launchOnCompute(context.Background(), cb, c, instances, keyName, userData)
+		h.launchOnCompute(h.svcCtx, cb, c, instances, keyName, userData)
 	}
 
 	if tags := parseTagSpecification(vals, "instance"); len(tags) > 0 {
@@ -599,7 +613,7 @@ func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, 
 	}
 
 	if c != nil {
-		h.terminateOnCompute(context.Background(), cb, c, providerIDs, dnsNames)
+		h.terminateOnCompute(h.svcCtx, cb, c, providerIDs, dnsNames)
 	}
 
 	items := make([]instanceStateChangeItem, 0, len(changes))
