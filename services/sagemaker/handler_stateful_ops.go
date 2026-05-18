@@ -22,42 +22,43 @@ const (
 // Defining them here eliminates goconst warnings when the same string
 // appears in switch statements across multiple files.
 const (
-	opCreateApp              = "CreateApp"
-	opDescribeApp            = "DescribeApp"
-	opListApps               = "ListApps"
-	opDeleteApp              = "DeleteApp"
-	opCreateDomain           = "CreateDomain"
-	opDescribeDomain         = "DescribeDomain"
-	opListDomains            = "ListDomains"
-	opDeleteDomain           = "DeleteDomain"
-	opUpdateDomain           = "UpdateDomain"
-	opCreateUserProfile      = "CreateUserProfile"
-	opDescribeUserProfile    = "DescribeUserProfile"
-	opListUserProfiles       = "ListUserProfiles"
-	opDeleteUserProfile      = "DeleteUserProfile"
-	opCreateFeatureGroup     = "CreateFeatureGroup"
-	opDescribeFeatureGroup   = "DescribeFeatureGroup"
-	opListFeatureGroups      = "ListFeatureGroups"
-	opDeleteFeatureGroup     = "DeleteFeatureGroup"
-	opCreatePipeline         = "CreatePipeline"
-	opDescribePipeline       = "DescribePipeline"
-	opListPipelines          = "ListPipelines"
-	opUpdatePipeline         = "UpdatePipeline"
-	opDeletePipeline         = "DeletePipeline"
-	opStartPipelineExecution = "StartPipelineExecution"
-	opDescribePipelineExec   = "DescribePipelineExecution"
-	opListPipelineExecutions = "ListPipelineExecutions"
-	opCreateExperiment       = "CreateExperiment"
-	opDescribeExperiment     = "DescribeExperiment"
-	opListExperiments        = "ListExperiments"
-	opDeleteExperiment       = "DeleteExperiment"
-	opCreateTrial            = "CreateTrial"
-	opDescribeTrial          = "DescribeTrial"
-	opListTrials             = "ListTrials"
-	opDeleteTrial            = "DeleteTrial"
-	opCreateTrialComponent   = "CreateTrialComponent"
-	opDescribeTrialComponent = "DescribeTrialComponent"
-	opDeleteTrialComponent   = "DeleteTrialComponent"
+	opCreateApp                     = "CreateApp"
+	opDescribeApp                   = "DescribeApp"
+	opListApps                      = "ListApps"
+	opDeleteApp                     = "DeleteApp"
+	opCreateDomain                  = "CreateDomain"
+	opDescribeDomain                = "DescribeDomain"
+	opListDomains                   = "ListDomains"
+	opDeleteDomain                  = "DeleteDomain"
+	opUpdateDomain                  = "UpdateDomain"
+	opCreateUserProfile             = "CreateUserProfile"
+	opDescribeUserProfile           = "DescribeUserProfile"
+	opListUserProfiles              = "ListUserProfiles"
+	opDeleteUserProfile             = "DeleteUserProfile"
+	opCreateFeatureGroup            = "CreateFeatureGroup"
+	opDescribeFeatureGroup          = "DescribeFeatureGroup"
+	opListFeatureGroups             = "ListFeatureGroups"
+	opDeleteFeatureGroup            = "DeleteFeatureGroup"
+	opCreatePipeline                = "CreatePipeline"
+	opDescribePipeline              = "DescribePipeline"
+	opListPipelines                 = "ListPipelines"
+	opUpdatePipeline                = "UpdatePipeline"
+	opDeletePipeline                = "DeletePipeline"
+	opStartPipelineExecution        = "StartPipelineExecution"
+	opDescribePipelineExec          = "DescribePipelineExecution"
+	opListPipelineExecutions        = "ListPipelineExecutions"
+	opListPipelineParametersForExec = "ListPipelineParametersForExecution"
+	opCreateExperiment              = "CreateExperiment"
+	opDescribeExperiment            = "DescribeExperiment"
+	opListExperiments               = "ListExperiments"
+	opDeleteExperiment              = "DeleteExperiment"
+	opCreateTrial                   = "CreateTrial"
+	opDescribeTrial                 = "DescribeTrial"
+	opListTrials                    = "ListTrials"
+	opDeleteTrial                   = "DeleteTrial"
+	opCreateTrialComponent          = "CreateTrialComponent"
+	opDescribeTrialComponent        = "DescribeTrialComponent"
+	opDeleteTrialComponent          = "DeleteTrialComponent"
 )
 
 func (h *Handler) dispatchStatefulOps(
@@ -157,8 +158,12 @@ func (h *Handler) dispatchFeatureGroupAndPipelineOps(
 		return r, true, err
 	case opDeleteFeatureGroup:
 		return nil, true, h.handleDeleteFeatureGroup(ctx, body)
+	case "UpdateFeatureGroup":
+		r, err := h.handleUpdateFeatureGroup(ctx, body)
+
+		return r, true, err
 	case opCreatePipeline:
-		r, err := h.handleCreatePipeline(ctx, body)
+		r, err := h.handleCreatePipelineFull(ctx, body)
 
 		return r, true, err
 	case opDescribePipeline:
@@ -170,7 +175,7 @@ func (h *Handler) dispatchFeatureGroupAndPipelineOps(
 
 		return r, true, err
 	case opUpdatePipeline:
-		r, err := h.handleUpdatePipeline(ctx, body)
+		r, err := h.handleUpdatePipelineFull(ctx, body)
 
 		return r, true, err
 	case opDeletePipeline:
@@ -178,7 +183,7 @@ func (h *Handler) dispatchFeatureGroupAndPipelineOps(
 
 		return r, true, err
 	case opStartPipelineExecution:
-		r, err := h.handleStartPipelineExecution(ctx, body)
+		r, err := h.handleStartPipelineExecutionFull(ctx, body)
 
 		return r, true, err
 	case opDescribePipelineExec:
@@ -187,6 +192,10 @@ func (h *Handler) dispatchFeatureGroupAndPipelineOps(
 		return r, true, err
 	case opListPipelineExecutions:
 		r, err := h.handleListPipelineExecutions(body)
+
+		return r, true, err
+	case opListPipelineParametersForExec:
+		r, err := h.handleListPipelineParametersForExecution(ctx, body)
 
 		return r, true, err
 	}
@@ -242,6 +251,18 @@ func (h *Handler) dispatchExperimentAndTrialOps(
 		return r, true, err
 	case opDeleteTrialComponent:
 		r, err := h.handleDeleteTrialComponent(ctx, body)
+
+		return r, true, err
+	case "UpdateExperiment":
+		r, err := h.handleUpdateExperiment(ctx, body)
+
+		return r, true, err
+	case "UpdateTrial":
+		r, err := h.handleUpdateTrial(ctx, body)
+
+		return r, true, err
+	case "UpdateTrialComponent":
+		r, err := h.handleUpdateTrialComponent(ctx, body)
 
 		return r, true, err
 	}
@@ -822,37 +843,6 @@ func (h *Handler) handleDeleteFeatureGroup(ctx context.Context, body []byte) err
 // Pipeline handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreatePipeline(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineName       string      `json:"PipelineName"`
-		PipelineDefinition string      `json:"PipelineDefinition"`
-		RoleArn            string      `json:"RoleArn"`
-		Tags               []tagObject `json:"Tags"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.PipelineName == "" {
-		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
-	}
-
-	p, err := h.Backend.CreatePipeline(
-		req.PipelineName,
-		req.PipelineDefinition,
-		req.RoleArn,
-		fromTagObjects(req.Tags),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Load(ctx).InfoContext(ctx, "sagemaker: created pipeline", "name", p.PipelineName)
-
-	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
-}
-
 func (h *Handler) handleDescribePipeline(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		PipelineName string `json:"PipelineName"`
@@ -871,7 +861,7 @@ func (h *Handler) handleDescribePipeline(_ context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"PipelineName":       p.PipelineName,
 		keyPipelineArn:       p.PipelineArn,
 		"PipelineStatus":     p.PipelineStatus,
@@ -879,7 +869,18 @@ func (h *Handler) handleDescribePipeline(_ context.Context, body []byte) ([]byte
 		keyRoleArn:           p.RoleArn,
 		keyCreationTime:      epochSeconds(p.CreationTime),
 		keyLastModifiedTime:  epochSeconds(p.LastModifiedTime),
-	})
+	}
+	if p.PipelineDisplayName != "" {
+		resp["PipelineDisplayName"] = p.PipelineDisplayName
+	}
+	if p.PipelineDescription != "" {
+		resp["PipelineDescription"] = p.PipelineDescription
+	}
+	if p.ParallelismConfiguration != nil {
+		resp["ParallelismConfiguration"] = p.ParallelismConfiguration
+	}
+
+	return json.Marshal(resp)
 }
 
 type pipelineSummary struct {
@@ -920,30 +921,6 @@ func (h *Handler) handleListPipelines(body []byte) ([]byte, error) {
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleUpdatePipeline(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineName       string `json:"PipelineName"`
-		PipelineDefinition string `json:"PipelineDefinition"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.PipelineName == "" {
-		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
-	}
-
-	p, err := h.Backend.UpdatePipeline(req.PipelineName, req.PipelineDefinition)
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Load(ctx).InfoContext(ctx, "sagemaker: updated pipeline", "name", req.PipelineName)
-
-	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
-}
-
 func (h *Handler) handleDeletePipeline(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		PipelineName string `json:"PipelineName"`
@@ -967,30 +944,6 @@ func (h *Handler) handleDeletePipeline(ctx context.Context, body []byte) ([]byte
 	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
 }
 
-func (h *Handler) handleStartPipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineName string `json:"PipelineName"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.PipelineName == "" {
-		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
-	}
-
-	pe, err := h.Backend.StartPipelineExecution(req.PipelineName)
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Load(ctx).
-		InfoContext(ctx, "sagemaker: started pipeline execution", "arn", pe.PipelineExecutionArn)
-
-	return json.Marshal(map[string]string{keyPipelineExecutionArn: pe.PipelineExecutionArn})
-}
-
 func (h *Handler) handleDescribePipelineExecution(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		PipelineExecutionArn string `json:"PipelineExecutionArn"`
@@ -1009,12 +962,26 @@ func (h *Handler) handleDescribePipelineExecution(_ context.Context, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		keyPipelineArn:             pe.PipelineArn,
 		keyPipelineExecutionArn:    pe.PipelineExecutionArn,
 		keyPipelineExecutionStatus: pe.PipelineExecutionStatus,
 		"StartTime":                epochSeconds(pe.StartTime),
-	})
+	}
+	if pe.PipelineExecutionDisplayName != "" {
+		resp["PipelineExecutionDisplayName"] = pe.PipelineExecutionDisplayName
+	}
+	if pe.PipelineExecutionDescription != "" {
+		resp["PipelineExecutionDescription"] = pe.PipelineExecutionDescription
+	}
+	if len(pe.PipelineParameters) > 0 {
+		resp["PipelineParameters"] = pe.PipelineParameters
+	}
+	if pe.FailureReason != "" {
+		resp["FailureReason"] = pe.FailureReason
+	}
+
+	return json.Marshal(resp)
 }
 
 type pipelineExecutionSummary struct {
@@ -1102,12 +1069,20 @@ func (h *Handler) handleDescribeExperiment(_ context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		keyExperimentName:   e.ExperimentName,
 		keyExperimentArn:    e.ExperimentArn,
 		keyCreationTime:     epochSeconds(e.CreationTime),
 		keyLastModifiedTime: epochSeconds(e.LastModifiedTime),
-	})
+	}
+	if e.DisplayName != "" {
+		resp["DisplayName"] = e.DisplayName
+	}
+	if e.Description != "" {
+		resp["Description"] = e.Description
+	}
+
+	return json.Marshal(resp)
 }
 
 type experimentSummary struct {
@@ -1214,13 +1189,18 @@ func (h *Handler) handleDescribeTrial(_ context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"TrialName":         t.TrialName,
 		keyTrialArn:         t.TrialArn,
 		keyExperimentName:   t.ExperimentName,
 		keyCreationTime:     epochSeconds(t.CreationTime),
 		keyLastModifiedTime: epochSeconds(t.LastModifiedTime),
-	})
+	}
+	if t.DisplayName != "" {
+		resp["DisplayName"] = t.DisplayName
+	}
+
+	return json.Marshal(resp)
 }
 
 type trialSummary struct {
@@ -1327,12 +1307,29 @@ func (h *Handler) handleDescribeTrialComponent(_ context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"TrialComponentName": tc.TrialComponentName,
 		keyTrialComponentArn: tc.TrialComponentArn,
 		keyCreationTime:      epochSeconds(tc.CreationTime),
 		keyLastModifiedTime:  epochSeconds(tc.LastModifiedTime),
-	})
+	}
+	if tc.DisplayName != "" {
+		resp["DisplayName"] = tc.DisplayName
+	}
+	if tc.Status != "" {
+		resp["Status"] = tc.Status
+	}
+	if len(tc.Parameters) > 0 {
+		resp["Parameters"] = tc.Parameters
+	}
+	if len(tc.InputArtifacts) > 0 {
+		resp["InputArtifacts"] = tc.InputArtifacts
+	}
+	if len(tc.OutputArtifacts) > 0 {
+		resp["OutputArtifacts"] = tc.OutputArtifacts
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleDeleteTrialComponent(ctx context.Context, body []byte) ([]byte, error) {

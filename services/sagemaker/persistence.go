@@ -41,6 +41,9 @@ type backendSnapshot struct {
 	TrialComponents            map[string]*TrialComponent                  `json:"trialComponents"`
 	NotebookLifecycleConfigs   map[string]*NotebookInstanceLifecycleConfig `json:"notebookLifecycleConfigs"`
 	ProcessingJobs             map[string]*ProcessingJob                   `json:"processingJobs"`
+	TransformJobs              map[string]*TransformJob                    `json:"transformJobs"`
+	FeatureRecords             map[string]*FeatureRecord                   `json:"featureRecords"`
+	FeatureMetadata            map[string]*FeatureMetadata                 `json:"featureMetadata"`
 	AccountID                  string                                      `json:"accountID"`
 	Region                     string                                      `json:"region"`
 }
@@ -106,6 +109,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		TrialComponents:            b.trialComponents,
 		NotebookLifecycleConfigs:   b.notebookLifecycleConfigs,
 		ProcessingJobs:             b.processingJobs,
+		TransformJobs:              b.transformJobs,
+		FeatureRecords:             b.featureRecords,
+		FeatureMetadata:            b.featureMetadata,
 		AccountID:                  b.accountID,
 		Region:                     b.region,
 	}
@@ -164,6 +170,9 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.trialComponents = snap.TrialComponents
 	b.notebookLifecycleConfigs = snap.NotebookLifecycleConfigs
 	b.processingJobs = snap.ProcessingJobs
+	b.transformJobs = snap.TransformJobs
+	b.featureRecords = snap.FeatureRecords
+	b.featureMetadata = snap.FeatureMetadata
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -280,6 +289,12 @@ func (b *InMemoryBackend) rebuildARNIndexes() {
 	for name, pj := range b.processingJobs {
 		b.processingJobARNIndex[pj.ProcessingJobArn] = name
 	}
+
+	b.transformJobARNIndex = make(map[string]string, len(b.transformJobs))
+
+	for name, tj := range b.transformJobs {
+		b.transformJobARNIndex[tj.TransformJobArn] = name
+	}
 }
 
 func ensureNonNilMaps(snap *backendSnapshot) {
@@ -322,6 +337,15 @@ func ensureJobMaps(snap *backendSnapshot) {
 	}
 	if snap.ProcessingJobs == nil {
 		snap.ProcessingJobs = make(map[string]*ProcessingJob)
+	}
+	if snap.TransformJobs == nil {
+		snap.TransformJobs = make(map[string]*TransformJob)
+	}
+	if snap.FeatureRecords == nil {
+		snap.FeatureRecords = make(map[string]*FeatureRecord)
+	}
+	if snap.FeatureMetadata == nil {
+		snap.FeatureMetadata = make(map[string]*FeatureMetadata)
 	}
 }
 

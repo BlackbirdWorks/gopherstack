@@ -164,16 +164,30 @@ func cloneFeatureGroup(fg *FeatureGroup) *FeatureGroup {
 // Pipeline
 // ---------------------------------------------------------------------------
 
+// ParallelismConfiguration limits concurrent steps in a pipeline execution.
+type ParallelismConfiguration struct {
+	MaxParallelExecutionSteps int32 `json:"MaxParallelExecutionSteps,omitempty"`
+}
+
+// PipelineParameter is a name/value pair passed to StartPipelineExecution.
+type PipelineParameter struct {
+	Name  string `json:"Name"`
+	Value string `json:"Value"`
+}
+
 // Pipeline represents a SageMaker Pipeline.
 type Pipeline struct {
-	CreationTime       time.Time         `json:"CreationTime"`
-	LastModifiedTime   time.Time         `json:"LastModifiedTime"`
-	Tags               map[string]string `json:"Tags,omitempty"`
-	PipelineName       string            `json:"PipelineName"`
-	PipelineArn        string            `json:"PipelineArn"`
-	PipelineStatus     string            `json:"PipelineStatus"`
-	PipelineDefinition string            `json:"PipelineDefinition,omitempty"`
-	RoleArn            string            `json:"RoleArn,omitempty"`
+	CreationTime             time.Time                 `json:"CreationTime"`
+	LastModifiedTime         time.Time                 `json:"LastModifiedTime"`
+	Tags                     map[string]string         `json:"Tags,omitempty"`
+	ParallelismConfiguration *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
+	PipelineName             string                    `json:"PipelineName"`
+	PipelineArn              string                    `json:"PipelineArn"`
+	PipelineStatus           string                    `json:"PipelineStatus"`
+	PipelineDefinition       string                    `json:"PipelineDefinition,omitempty"`
+	PipelineDisplayName      string                    `json:"PipelineDisplayName,omitempty"`
+	PipelineDescription      string                    `json:"PipelineDescription,omitempty"`
+	RoleArn                  string                    `json:"RoleArn,omitempty"`
 }
 
 func clonePipeline(p *Pipeline) *Pipeline {
@@ -185,14 +199,20 @@ func clonePipeline(p *Pipeline) *Pipeline {
 
 // PipelineExecution represents a single execution of a SageMaker Pipeline.
 type PipelineExecution struct {
-	StartTime               time.Time `json:"StartTime"`
-	PipelineArn             string    `json:"PipelineArn"`
-	PipelineExecutionArn    string    `json:"PipelineExecutionArn"`
-	PipelineExecutionStatus string    `json:"PipelineExecutionStatus"`
+	StartTime                    time.Time           `json:"StartTime"`
+	PipelineArn                  string              `json:"PipelineArn"`
+	PipelineExecutionArn         string              `json:"PipelineExecutionArn"`
+	PipelineExecutionStatus      string              `json:"PipelineExecutionStatus"`
+	PipelineExecutionDisplayName string              `json:"PipelineExecutionDisplayName,omitempty"`
+	PipelineExecutionDescription string              `json:"PipelineExecutionDescription,omitempty"`
+	FailureReason                string              `json:"FailureReason,omitempty"`
+	PipelineParameters           []PipelineParameter `json:"PipelineParameters,omitempty"`
 }
 
 func clonePipelineExecution(pe *PipelineExecution) *PipelineExecution {
 	cp := *pe
+	cp.PipelineParameters = make([]PipelineParameter, len(pe.PipelineParameters))
+	copy(cp.PipelineParameters, pe.PipelineParameters)
 
 	return &cp
 }
@@ -208,6 +228,8 @@ type Experiment struct {
 	Tags             map[string]string `json:"Tags,omitempty"`
 	ExperimentName   string            `json:"ExperimentName"`
 	ExperimentArn    string            `json:"ExperimentArn"`
+	DisplayName      string            `json:"DisplayName,omitempty"`
+	Description      string            `json:"Description,omitempty"`
 }
 
 func cloneExperiment(e *Experiment) *Experiment {
@@ -225,6 +247,7 @@ type Trial struct {
 	TrialName        string            `json:"TrialName"`
 	TrialArn         string            `json:"TrialArn"`
 	ExperimentName   string            `json:"ExperimentName"`
+	DisplayName      string            `json:"DisplayName,omitempty"`
 }
 
 func cloneTrial(t *Trial) *Trial {
@@ -236,16 +259,38 @@ func cloneTrial(t *Trial) *Trial {
 
 // TrialComponent represents a SageMaker Trial Component.
 type TrialComponent struct {
-	CreationTime       time.Time         `json:"CreationTime"`
-	LastModifiedTime   time.Time         `json:"LastModifiedTime"`
-	Tags               map[string]string `json:"Tags,omitempty"`
-	TrialComponentName string            `json:"TrialComponentName"`
-	TrialComponentArn  string            `json:"TrialComponentArn"`
+	CreationTime       time.Time                         `json:"CreationTime"`
+	LastModifiedTime   time.Time                         `json:"LastModifiedTime"`
+	StartTime          *time.Time                        `json:"StartTime,omitempty"`
+	EndTime            *time.Time                        `json:"EndTime,omitempty"`
+	Tags               map[string]string                 `json:"Tags,omitempty"`
+	Parameters         map[string]TrialComponentValue    `json:"Parameters,omitempty"`
+	InputArtifacts     map[string]TrialComponentArtifact `json:"InputArtifacts,omitempty"`
+	OutputArtifacts    map[string]TrialComponentArtifact `json:"OutputArtifacts,omitempty"`
+	TrialComponentName string                            `json:"TrialComponentName"`
+	TrialComponentArn  string                            `json:"TrialComponentArn"`
+	DisplayName        string                            `json:"DisplayName,omitempty"`
+	Status             string                            `json:"Status,omitempty"`
+}
+
+// TrialComponentValue is a number or string parameter value.
+type TrialComponentValue struct {
+	NumberValue *float64 `json:"NumberValue,omitempty"`
+	StringValue string   `json:"StringValue,omitempty"`
+}
+
+// TrialComponentArtifact is a URI/media-type artifact reference.
+type TrialComponentArtifact struct {
+	Value     string `json:"Value"`
+	MediaType string `json:"MediaType,omitempty"`
 }
 
 func cloneTrialComponent(tc *TrialComponent) *TrialComponent {
 	cp := *tc
 	cp.Tags = maps.Clone(tc.Tags)
+	cp.Parameters = maps.Clone(tc.Parameters)
+	cp.InputArtifacts = maps.Clone(tc.InputArtifacts)
+	cp.OutputArtifacts = maps.Clone(tc.OutputArtifacts)
 
 	return &cp
 }
@@ -268,7 +313,7 @@ func (b *InMemoryBackend) CreateDomain(
 		}
 	}
 
-	id := fmt.Sprintf("d-%s", generateID(idByteLen))
+	id := fmt.Sprintf("d-%s", generateID())
 	domainArn := arn.Build("sagemaker", b.region, b.accountID, "domain/"+id)
 	now := time.Now()
 
@@ -828,7 +873,7 @@ func (b *InMemoryBackend) StartPipelineExecution(pipelineName string) (*Pipeline
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, pipelineName)
 	}
 
-	execID := generateID(idByteLen)
+	execID := generateID()
 	execArn := p.PipelineArn + "/execution/" + execID
 
 	pe := &PipelineExecution{
@@ -1141,4 +1186,239 @@ func (b *InMemoryBackend) DeleteTrialComponent(name string) (*TrialComponent, er
 	delete(b.trialComponents, name)
 
 	return cp, nil
+}
+
+// ---------------------------------------------------------------------------
+// Backend methods — Update operations (gaps #19, #23, #25, #26)
+// ---------------------------------------------------------------------------
+
+// UpdateFeatureGroup mutates FeatureDefinitions on an existing feature group.
+func (b *InMemoryBackend) UpdateFeatureGroup(
+	name string,
+	featureDefinitions []FeatureDefinition,
+) (*FeatureGroup, error) {
+	b.mu.Lock("UpdateFeatureGroup")
+	defer b.mu.Unlock()
+
+	fg, ok := b.featureGroups[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: feature group %q not found", ErrFeatureGroupNotFound, name)
+	}
+
+	if len(featureDefinitions) > 0 {
+		fg.FeatureDefinitions = append(fg.FeatureDefinitions, featureDefinitions...)
+	}
+
+	return cloneFeatureGroup(fg), nil
+}
+
+// UpdateExperiment mutates DisplayName and Description on an experiment.
+func (b *InMemoryBackend) UpdateExperiment(
+	name, displayName, description string,
+) (*Experiment, error) {
+	b.mu.Lock("UpdateExperiment")
+	defer b.mu.Unlock()
+
+	e, ok := b.experiments[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: experiment %q not found", ErrExperimentNotFound, name)
+	}
+
+	if displayName != "" {
+		e.DisplayName = displayName
+	}
+	if description != "" {
+		e.Description = description
+	}
+	e.LastModifiedTime = time.Now()
+
+	return cloneExperiment(e), nil
+}
+
+// UpdateTrial mutates DisplayName on a trial.
+func (b *InMemoryBackend) UpdateTrial(name, displayName string) (*Trial, error) {
+	b.mu.Lock("UpdateTrial")
+	defer b.mu.Unlock()
+
+	t, ok := b.trials[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: trial %q not found", ErrTrialNotFound, name)
+	}
+
+	if displayName != "" {
+		t.DisplayName = displayName
+	}
+	t.LastModifiedTime = time.Now()
+
+	return cloneTrial(t), nil
+}
+
+// UpdateTrialComponentOptions holds optional fields for UpdateTrialComponent.
+type UpdateTrialComponentOptions struct {
+	Parameters      map[string]TrialComponentValue    `json:"Parameters,omitempty"`
+	InputArtifacts  map[string]TrialComponentArtifact `json:"InputArtifacts,omitempty"`
+	OutputArtifacts map[string]TrialComponentArtifact `json:"OutputArtifacts,omitempty"`
+	DisplayName     string                            `json:"DisplayName,omitempty"`
+	Status          string                            `json:"Status,omitempty"`
+}
+
+// UpdateTrialComponent mutates DisplayName, Parameters, and Artifacts on a trial component.
+func (b *InMemoryBackend) UpdateTrialComponent(
+	name string,
+	opts UpdateTrialComponentOptions,
+) (*TrialComponent, error) {
+	b.mu.Lock("UpdateTrialComponent")
+	defer b.mu.Unlock()
+
+	tc, ok := b.trialComponents[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: trial component %q not found", ErrTrialComponentNotFound, name)
+	}
+
+	if opts.DisplayName != "" {
+		tc.DisplayName = opts.DisplayName
+	}
+	if opts.Status != "" {
+		tc.Status = opts.Status
+	}
+	if len(opts.Parameters) > 0 {
+		if tc.Parameters == nil {
+			tc.Parameters = make(map[string]TrialComponentValue)
+		}
+		maps.Copy(tc.Parameters, opts.Parameters)
+	}
+	if len(opts.InputArtifacts) > 0 {
+		if tc.InputArtifacts == nil {
+			tc.InputArtifacts = make(map[string]TrialComponentArtifact)
+		}
+		maps.Copy(tc.InputArtifacts, opts.InputArtifacts)
+	}
+	if len(opts.OutputArtifacts) > 0 {
+		if tc.OutputArtifacts == nil {
+			tc.OutputArtifacts = make(map[string]TrialComponentArtifact)
+		}
+		maps.Copy(tc.OutputArtifacts, opts.OutputArtifacts)
+	}
+	tc.LastModifiedTime = time.Now()
+
+	return cloneTrialComponent(tc), nil
+}
+
+// CreatePipelineOptions holds full input for CreatePipeline.
+type CreatePipelineOptions struct {
+	Tags                     map[string]string
+	ParallelismConfiguration *ParallelismConfiguration
+	PipelineName             string
+	PipelineDefinition       string
+	PipelineDisplayName      string
+	PipelineDescription      string
+	RoleArn                  string
+}
+
+// CreatePipelineFull creates a pipeline with full AWS input fields.
+func (b *InMemoryBackend) CreatePipelineFull(opts CreatePipelineOptions) (*Pipeline, error) {
+	b.mu.Lock("CreatePipelineFull")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pipelines[opts.PipelineName]; ok {
+		return nil, fmt.Errorf(
+			"%w: pipeline %s already exists",
+			ErrPipelineAlreadyExists,
+			opts.PipelineName,
+		)
+	}
+
+	pArn := arn.Build("sagemaker", b.region, b.accountID, "pipeline/"+opts.PipelineName)
+	now := time.Now()
+
+	p := &Pipeline{
+		PipelineName:             opts.PipelineName,
+		PipelineArn:              pArn,
+		PipelineStatus:           "Active",
+		PipelineDefinition:       opts.PipelineDefinition,
+		PipelineDisplayName:      opts.PipelineDisplayName,
+		PipelineDescription:      opts.PipelineDescription,
+		RoleArn:                  opts.RoleArn,
+		ParallelismConfiguration: opts.ParallelismConfiguration,
+		CreationTime:             now,
+		LastModifiedTime:         now,
+		Tags:                     mergeTags(nil, opts.Tags),
+	}
+	b.pipelines[opts.PipelineName] = p
+
+	return clonePipeline(p), nil
+}
+
+// UpdatePipelineFull updates a pipeline with full AWS input fields.
+func (b *InMemoryBackend) UpdatePipelineFull(
+	name, definition, displayName, description, roleArn string,
+	parallelismConfig *ParallelismConfiguration,
+) (*Pipeline, error) {
+	b.mu.Lock("UpdatePipelineFull")
+	defer b.mu.Unlock()
+
+	p, ok := b.pipelines[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
+	}
+
+	if definition != "" {
+		p.PipelineDefinition = definition
+	}
+	if displayName != "" {
+		p.PipelineDisplayName = displayName
+	}
+	if description != "" {
+		p.PipelineDescription = description
+	}
+	if roleArn != "" {
+		p.RoleArn = roleArn
+	}
+	if parallelismConfig != nil {
+		p.ParallelismConfiguration = parallelismConfig
+	}
+	p.LastModifiedTime = time.Now()
+
+	return clonePipeline(p), nil
+}
+
+// StartPipelineExecutionOptions holds full input for StartPipelineExecution.
+type StartPipelineExecutionOptions struct {
+	ParallelismConfiguration     *ParallelismConfiguration
+	PipelineName                 string
+	PipelineExecutionDisplayName string
+	PipelineExecutionDescription string
+	PipelineParameters           []PipelineParameter
+}
+
+// StartPipelineExecutionFull creates an execution with full AWS input fields.
+func (b *InMemoryBackend) StartPipelineExecutionFull(
+	opts StartPipelineExecutionOptions,
+) (*PipelineExecution, error) {
+	b.mu.Lock("StartPipelineExecutionFull")
+	defer b.mu.Unlock()
+
+	p, ok := b.pipelines[opts.PipelineName]
+	if !ok {
+		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, opts.PipelineName)
+	}
+
+	execID := generateID()
+	execArn := p.PipelineArn + "/execution/" + execID
+
+	params := make([]PipelineParameter, len(opts.PipelineParameters))
+	copy(params, opts.PipelineParameters)
+
+	pe := &PipelineExecution{
+		PipelineArn:                  p.PipelineArn,
+		PipelineExecutionArn:         execArn,
+		PipelineExecutionStatus:      pipelineStatusSucceeded,
+		PipelineExecutionDisplayName: opts.PipelineExecutionDisplayName,
+		PipelineExecutionDescription: opts.PipelineExecutionDescription,
+		PipelineParameters:           params,
+		StartTime:                    time.Now(),
+	}
+	b.pipelineExecutions[execArn] = pe
+
+	return clonePipelineExecution(pe), nil
 }

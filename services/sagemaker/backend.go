@@ -15,9 +15,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
-// generateID returns a random hex string of the given byte length (output chars = 2*n).
-func generateID(n int) string {
-	b := make([]byte, n)
+// generateID returns a 24-char random hex string (12 random bytes).
+func generateID() string {
+	b := make([]byte, idByteLen)
 	_, _ = rand.Read(b)
 
 	return hex.EncodeToString(b)
@@ -436,6 +436,8 @@ type InMemoryBackend struct {
 	notebookLifecycleConfigs   map[string]*NotebookInstanceLifecycleConfig // key: configName
 	processingJobs             map[string]*ProcessingJob                   // key: jobName
 	processingJobARNIndex      map[string]string                           // ARN → job name
+	transformJobs              map[string]*TransformJob                    // key: jobName
+	transformJobARNIndex       map[string]string                           // ARN → job name
 	lifecycleCtx               context.Context
 	lifecycleCancel            context.CancelFunc
 	mu                         *lockmetrics.RWMutex
@@ -482,6 +484,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		trialComponents:            make(map[string]*TrialComponent),
 		notebookLifecycleConfigs:   make(map[string]*NotebookInstanceLifecycleConfig),
 		processingJobs:             make(map[string]*ProcessingJob),
+		transformJobs:              make(map[string]*TransformJob),
+		transformJobARNIndex:       make(map[string]string),
 		processingJobARNIndex:      make(map[string]string),
 		accountID:                  accountID,
 		region:                     region,
@@ -540,6 +544,8 @@ func (b *InMemoryBackend) Reset() {
 	b.notebookLifecycleConfigs = make(map[string]*NotebookInstanceLifecycleConfig)
 	b.processingJobs = make(map[string]*ProcessingJob)
 	b.processingJobARNIndex = make(map[string]string)
+	b.transformJobs = make(map[string]*TransformJob)
+	b.transformJobARNIndex = make(map[string]string)
 	// Cancel pending goroutines and start fresh lifecycle context.
 	b.resetLifecycleContext()
 }
@@ -976,6 +982,50 @@ func (b *InMemoryBackend) findTagMapLocked(resourceARN string) *map[string]strin
 	if name, ok := b.processingJobARNIndex[resourceARN]; ok {
 		if pj, found := b.processingJobs[name]; found {
 			return &pj.Tags
+		}
+	}
+
+	if name, ok := b.transformJobARNIndex[resourceARN]; ok {
+		if tj, found := b.transformJobs[name]; found {
+			return &tj.Tags
+		}
+	}
+
+	return b.findTagMapStatefulLocked(resourceARN)
+}
+
+// findTagMapStatefulLocked handles tag lookups for stateful resources (domains,
+// featureGroups, pipelines, experiments, trials, trialComponents). Separated
+// to keep findTagMapLocked within cognitive-complexity limits.
+func (b *InMemoryBackend) findTagMapStatefulLocked(resourceARN string) *map[string]string {
+	for _, d := range b.domains {
+		if d.DomainArn == resourceARN {
+			return &d.Tags
+		}
+	}
+	for _, fg := range b.featureGroups {
+		if fg.FeatureGroupArn == resourceARN {
+			return &fg.Tags
+		}
+	}
+	for _, p := range b.pipelines {
+		if p.PipelineArn == resourceARN {
+			return &p.Tags
+		}
+	}
+	for _, e := range b.experiments {
+		if e.ExperimentArn == resourceARN {
+			return &e.Tags
+		}
+	}
+	for _, t := range b.trials {
+		if t.TrialArn == resourceARN {
+			return &t.Tags
+		}
+	}
+	for _, tc := range b.trialComponents {
+		if tc.TrialComponentArn == resourceARN {
+			return &tc.Tags
 		}
 	}
 

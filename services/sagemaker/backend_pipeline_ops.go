@@ -56,7 +56,7 @@ func (b *InMemoryBackend) RetryPipelineExecution(execArn string) (*PipelineExecu
 		)
 	}
 
-	newID := generateID(idByteLen)
+	newID := generateID()
 	newArn := pe.PipelineArn + "/execution/" + newID
 	now := time.Now()
 

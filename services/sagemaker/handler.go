@@ -65,6 +65,8 @@ func (h *Handler) Reset() {
 }
 
 // GetSupportedOperations returns the list of supported SageMaker operations.
+//
+//nolint:funlen
 func (h *Handler) GetSupportedOperations() []string {
 	core := []string{ //nolint:prealloc // literal initialization, not append loop
 		"AddAssociation",
@@ -92,6 +94,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreatePresignedNotebookInstanceUrl",
 		"CreateProcessingJob",
 		"CreateTrainingJob",
+		"CreateTransformJob",
 		opCreateTrial,
 		opCreateTrialComponent,
 		opCreateUserProfile,
@@ -128,6 +131,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDescribeTrialComponent,
 		opDescribeUserProfile,
 		"DescribeTrainingJob",
+		"DescribeTransformJob",
 		opListApps,
 		opListDomains,
 		"ListEndpointConfigs",
@@ -140,12 +144,14 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListNotebookInstanceLifecycleConfigs",
 		opListPipelineExecutions,
 		"ListPipelineExecutionSteps",
+		opListPipelineParametersForExec,
 		opListPipelines,
 		"ListProcessingJobs",
 		opListTrials,
 		opListUserProfiles,
 		"ListTags",
 		"ListTrainingJobs",
+		"ListTransformJobs",
 		"StartNotebookInstance",
 		"RetryPipelineExecution",
 		"SendPipelineExecutionStepFailure",
@@ -156,13 +162,18 @@ func (h *Handler) GetSupportedOperations() []string {
 		"StopPipelineExecution",
 		"StopProcessingJob",
 		"StopTrainingJob",
+		"StopTransformJob",
 		opUpdateDomain,
 		"UpdateEndpoint",
 		"UpdateEndpointWeightsAndCapacities",
+		"UpdateExperiment",
+		"UpdateFeatureGroup",
 		"UpdateNotebookInstanceLifecycleConfig",
 		opUpdatePipeline,
 		"UpdateNotebookInstance",
 		"UpdateTrainingJob",
+		"UpdateTrial",
+		"UpdateTrialComponent",
 	}
 
 	return append(core, stubOpsSupported()...)
@@ -411,8 +422,34 @@ func (h *Handler) dispatchTrainingJobOps(
 		return r, true, err
 	}
 	r, handled, err = h.dispatchPipelineOps(ctx, op, body)
+	if handled {
+		return r, true, err
+	}
 
-	return r, handled, err
+	return h.dispatchTransformJobOps(ctx, op, body)
+}
+
+func (h *Handler) dispatchTransformJobOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
+	case "CreateTransformJob":
+		r, err := h.handleCreateTransformJob(ctx, body)
+
+		return r, true, err
+	case "DescribeTransformJob":
+		r, err := h.handleDescribeTransformJob(ctx, body)
+
+		return r, true, err
+	case "ListTransformJobs":
+		r, err := h.handleListTransformJobs(body)
+
+		return r, true, err
+	case "StopTransformJob":
+		return nil, true, h.handleStopTransformJob(ctx, body)
+	}
+
+	return nil, false, nil
 }
 
 func (h *Handler) dispatchTrainingOps(

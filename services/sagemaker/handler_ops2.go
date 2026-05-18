@@ -37,14 +37,22 @@ func (h *Handler) handleDescribeEndpoint(_ context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"EndpointName":       ep.EndpointName,
 		keyEndpointArn:       ep.EndpointArn,
 		"EndpointConfigName": ep.EndpointConfigName,
 		"EndpointStatus":     ep.EndpointStatus,
 		keyCreationTime:      epochSeconds(ep.CreationTime),
 		keyLastModifiedTime:  epochSeconds(ep.LastModifiedTime),
-	})
+	}
+	if ep.FailureReason != "" {
+		resp["FailureReason"] = ep.FailureReason
+	}
+	if len(ep.ProductionVariants) > 0 {
+		resp["ProductionVariants"] = ep.ProductionVariants
+	}
+
+	return json.Marshal(resp)
 }
 
 type endpointSummary struct {

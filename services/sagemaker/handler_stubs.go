@@ -135,7 +135,6 @@ func stubOpsSupported() []string {
 		"CreateSpace",
 		"CreateStudioLifecycleConfig",
 		"CreateTrainingPlan",
-		"CreateTransformJob",
 		"CreateWorkforce",
 		"CreateWorkteam",
 		"DeleteAction",
@@ -232,7 +231,6 @@ func stubOpsSupported() []string {
 		"DescribeSubscribedWorkteam",
 		"DescribeTrainingPlan",
 		"DescribeTrainingPlanExtensionHistory",
-		"DescribeTransformJob",
 		"DescribeWorkforce",
 		"DescribeWorkteam",
 		"DetachClusterNodeVolume",
@@ -299,7 +297,7 @@ func stubOpsSupported() []string {
 		"ListMonitoringSchedules",
 		"ListOptimizationJobs",
 		"ListPartnerApps",
-		"ListPipelineParametersForExecution",
+		// ListPipelineParametersForExecution — real implementation in handler_accuracy2.go
 		"ListPipelineVersions",
 		"ListProjects",
 		"ListResourceCatalogs",
@@ -309,7 +307,6 @@ func stubOpsSupported() []string {
 		"ListSubscribedWorkteams",
 		"ListTrainingJobsForHyperParameterTuningJob",
 		"ListTrainingPlans",
-		"ListTransformJobs",
 		"ListTrialComponents",
 		"ListUltraServersByReservedCapacity",
 		"ListWorkforces",
@@ -335,7 +332,6 @@ func stubOpsSupported() []string {
 		"StopMlflowTrackingServer",
 		"StopMonitoringSchedule",
 		"StopOptimizationJob",
-		"StopTransformJob",
 		"UpdateAction",
 		"UpdateAppImageConfig",
 		"UpdateArtifact",
@@ -347,8 +343,6 @@ func stubOpsSupported() []string {
 		"UpdateContext",
 		"UpdateDeviceFleet",
 		"UpdateDevices",
-		"UpdateExperiment",
-		"UpdateFeatureGroup",
 		"UpdateFeatureMetadata",
 		"UpdateHub",
 		"UpdateHubContent",
@@ -369,8 +363,6 @@ func stubOpsSupported() []string {
 		"UpdatePipelineVersion",
 		"UpdateProject",
 		"UpdateSpace",
-		"UpdateTrial",
-		"UpdateTrialComponent",
 		"UpdateUserProfile",
 		"UpdateWorkforce",
 		"UpdateWorkteam",
@@ -520,9 +512,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateTrainingPlan":
 		return mustMarshal(m{keyTrainingPlanArn: ""}), true
 
-	case "CreateTransformJob":
-		return mustMarshal(m{keyTransformJobArn: ""}), true
-
 	case "CreateTrial":
 		return mustMarshal(m{keyTrialArn: ""}), true
 
@@ -615,7 +604,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"StopMlflowTrackingServer",
 		"StopMonitoringSchedule",
 		"StopOptimizationJob",
-		"StopTransformJob",
 		"UpdateClusterSoftware",
 		"UpdateDeviceFleet",
 		"UpdateDevices",
@@ -851,11 +839,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "DescribeTrainingPlanExtensionHistory":
 		return mustMarshal(m{keyTrainingPlanArn: "", "Extensions": []any{}}), true
 
-	case "DescribeTransformJob":
-		return mustMarshal(m{
-			keyTransformJobArn: "", "TransformJobName": "", "TransformJobStatus": statusCompleted,
-		}), true
-
 	case "DescribeTrial":
 		return mustMarshal(m{keyTrialArn: "", "TrialName": ""}), true
 
@@ -1053,9 +1036,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListPipelineExecutions":
 		return mustMarshal(m{"PipelineExecutionSummaries": []any{}}), true
 
-	case "ListPipelineParametersForExecution":
-		return mustMarshal(m{"PipelineParameters": []any{}}), true
-
 	case "ListPipelineVersions":
 		return mustMarshal(m{"PipelineVersionSummaries": []any{}}), true
 
@@ -1085,9 +1065,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListTrainingPlans":
 		return mustMarshal(m{"TrainingPlanSummaries": []any{}}), true
-
-	case "ListTransformJobs":
-		return mustMarshal(m{"TransformJobSummaries": []any{}}), true
 
 	case "ListTrialComponents":
 		return mustMarshal(m{"TrialComponentSummaries": []any{}}), true
@@ -1155,12 +1132,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "UpdateDomain":
 		return mustMarshal(m{keyDomainArn: ""}), true
 
-	case "UpdateExperiment":
-		return mustMarshal(m{keyExperimentArn: ""}), true
-
-	case "UpdateFeatureGroup":
-		return mustMarshal(m{keyFeatureGroupArn: ""}), true
-
 	case "UpdateHub":
 		return mustMarshal(m{keyHubArn: ""}), true
 
@@ -1211,12 +1182,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "UpdateSpace":
 		return mustMarshal(m{keySpaceArn: ""}), true
-
-	case "UpdateTrial":
-		return mustMarshal(m{keyTrialArn: ""}), true
-
-	case "UpdateTrialComponent":
-		return mustMarshal(m{keyTrialComponentArn: ""}), true
 
 	case "UpdateUserProfile":
 		return mustMarshal(m{keyUserProfileArn: ""}), true
