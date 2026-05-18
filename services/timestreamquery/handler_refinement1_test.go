@@ -531,7 +531,7 @@ func TestRefinement1_HandleErrorBranches(t *testing.T) {
 				"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 				"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusConflict,
 			wantType: "ConflictException",
 		},
 		{

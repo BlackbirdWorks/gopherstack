@@ -232,7 +232,7 @@ func (h *Handler) dispatchScheduledQueryAndTagOps(op string, body []byte) ([]byt
 	case "ExecuteScheduledQuery":
 		return h.handleExecuteScheduledQuery(body)
 	case "ListScheduledQueries":
-		return h.handleListScheduledQueries()
+		return h.handleListScheduledQueries(body)
 	case "UpdateScheduledQuery":
 		return h.handleUpdateScheduledQuery(body)
 	case opTagResource:
@@ -272,31 +272,84 @@ func (h *Handler) handleDescribeEndpoints(host string) ([]byte, error) {
 
 func (h *Handler) handleQuery(body []byte) ([]byte, error) {
 	var req struct {
+		QueryInsights *struct {
+			Mode string `json:"Mode"`
+		} `json:"QueryInsights"`
 		QueryString string `json:"QueryString"`
+		ClientToken string `json:"ClientToken"`
 		NextToken   string `json:"NextToken"`
-		MaxRows     int    `json:"MaxRows"`
+		MaxRows     int32  `json:"MaxRows"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
-	if req.QueryString == "" {
+	insightsMode := ""
+	if req.QueryInsights != nil {
+		insightsMode = req.QueryInsights.Mode
+	}
+
+	if req.NextToken == "" && req.QueryString == "" {
 		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
 	}
 
-	result := h.Backend.Query(req.QueryString)
-
-	return json.Marshal(map[string]any{
-		"QueryId":    result.QueryID,
-		"Rows":       result.Rows,
-		"ColumnInfo": result.Columns,
-		"QueryStatus": map[string]any{
-			"ProgressPercentage":     queryProgressPercentage,
-			"CumulativeBytesScanned": int64(0),
-			"CumulativeBytesMetered": int64(0),
-		},
+	page, err := h.Backend.QueryWithOptions(QueryOptions{
+		QueryString:  req.QueryString,
+		ClientToken:  req.ClientToken,
+		NextToken:    req.NextToken,
+		MaxRows:      req.MaxRows,
+		InsightsMode: insightsMode,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	resp := map[string]any{
+		"QueryId":    page.QueryID,
+		"Rows":       marshalRows(page.Rows),
+		"ColumnInfo": marshalColumnInfos(page.Columns),
+		"QueryStatus": map[string]any{
+			"ProgressPercentage":     page.QueryStatus.ProgressPercentage,
+			"CumulativeBytesScanned": page.QueryStatus.CumulativeBytesScanned,
+			"CumulativeBytesMetered": page.QueryStatus.CumulativeBytesMetered,
+		},
+	}
+	if page.NextToken != "" {
+		resp["NextToken"] = page.NextToken
+	}
+	if page.Insights != nil {
+		resp["QueryInsightsResponse"] = page.Insights
+	}
+
+	return json.Marshal(resp)
+}
+
+// marshalRows converts []Row to JSON-serialisable form.
+func marshalRows(rows []Row) []map[string]any {
+	out := make([]map[string]any, len(rows))
+	for i, r := range rows {
+		data := make([]any, len(r.Data))
+		for j, d := range r.Data {
+			data[j] = d
+		}
+		out[i] = map[string]any{"Data": data}
+	}
+
+	return out
+}
+
+// marshalColumnInfos converts []ColumnInfo to JSON-serialisable form.
+func marshalColumnInfos(cols []ColumnInfo) []map[string]any {
+	out := make([]map[string]any, len(cols))
+	for i, c := range cols {
+		out[i] = map[string]any{
+			"Name": c.Name,
+			"Type": map[string]any{"ScalarType": c.Type.ScalarType},
+		}
+	}
+
+	return out
 }
 
 func (h *Handler) handleCancelQuery(body []byte) ([]byte, error) {
@@ -482,21 +535,25 @@ func (h *Handler) handleExecuteScheduledQuery(body []byte) ([]byte, error) {
 	return nil, nil
 }
 
-func (h *Handler) handleListScheduledQueries() ([]byte, error) {
-	list := h.Backend.ListScheduledQueries()
-
-	items := make([]map[string]any, 0, len(list))
-	for _, sq := range list {
-		items = append(items, map[string]any{
-			keyArn:  sq.Arn,
-			"Name":  sq.Name,
-			"State": sq.State,
-		})
+func (h *Handler) handleListScheduledQueries(body []byte) ([]byte, error) {
+	var req struct {
+		NextToken  string `json:"NextToken"`
+		MaxResults int32  `json:"MaxResults"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
 	}
 
-	return json.Marshal(map[string]any{
-		"ScheduledQueries": items,
-	})
+	result := h.Backend.ListScheduledQueriesEnriched(req.NextToken, req.MaxResults)
+
+	resp := map[string]any{
+		"ScheduledQueries": result.Items,
+	}
+	if result.NextToken != "" {
+		resp["NextToken"] = result.NextToken
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleUpdateScheduledQuery(body []byte) ([]byte, error) {
@@ -601,15 +658,24 @@ func (h *Handler) handleListTagsForResource(body []byte) ([]byte, error) {
 func (h *Handler) handleDescribeAccountSettings() ([]byte, error) {
 	settings := h.Backend.DescribeAccountSettings()
 
+	return json.Marshal(buildAccountSettingsResponse(settings))
+}
+
+func buildAccountSettingsResponse(settings AccountSettings) map[string]any {
 	resp := map[string]any{
 		"QueryPricingModel": settings.QueryPricingModel,
 	}
-
 	if settings.MaxQueryTCU != nil {
 		resp["MaxQueryTCU"] = *settings.MaxQueryTCU
 	}
+	if settings.LastUpdatedTime != nil {
+		resp["LastUpdatedTime"] = settings.LastUpdatedTime.Unix()
+	}
+	if settings.QueryCompute != nil {
+		resp["QueryCompute"] = settings.QueryCompute
+	}
 
-	return json.Marshal(resp)
+	return resp
 }
 
 func (h *Handler) handlePrepareQuery(body []byte) ([]byte, error) {
@@ -633,8 +699,8 @@ func (h *Handler) handlePrepareQuery(body []byte) ([]byte, error) {
 
 	return json.Marshal(map[string]any{
 		"QueryString": result.QueryString,
-		"Columns":     result.Columns,
-		"Parameters":  result.Parameters,
+		"Columns":     marshalColumnInfos(result.Columns),
+		"Parameters":  marshalColumnInfos(result.Parameters),
 	})
 }
 
@@ -653,15 +719,7 @@ func (h *Handler) handleUpdateAccountSettings(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	resp := map[string]any{
-		"QueryPricingModel": settings.QueryPricingModel,
-	}
-
-	if settings.MaxQueryTCU != nil {
-		resp["MaxQueryTCU"] = *settings.MaxQueryTCU
-	}
-
-	return json.Marshal(resp)
+	return json.Marshal(buildAccountSettingsResponse(settings))
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
@@ -671,7 +729,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrNotFound):
 		return c.JSONBlob(http.StatusBadRequest, errorPayload("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSONBlob(http.StatusBadRequest, errorPayload("ConflictException", err.Error()))
+		return c.JSONBlob(http.StatusConflict, errorPayload("ConflictException", err.Error()))
 	case errors.Is(err, ErrValidation):
 		return c.JSONBlob(http.StatusBadRequest, errorPayload("ValidationException", err.Error()))
 	case errors.Is(err, ErrUnknownOperation):
@@ -735,10 +793,14 @@ func scheduledQueryToView(sq *ScheduledQuery) map[string]any {
 		}
 	}
 
+	if summary := buildLastRunSummary(sq); summary != nil {
+		view["LastRunSummary"] = summary
+	}
+
+	now := time.Now()
+	view["NextInvocationTime"] = epochSeconds(nextInvocationTime(sq.ScheduleExpression, now))
 	if !sq.LastRunTime.IsZero() {
-		view["LastRunSummary"] = map[string]any{
-			"InvocationTime": epochSeconds(sq.LastRunTime),
-		}
+		view["PreviousInvocationTime"] = epochSeconds(sq.LastRunTime)
 	}
 
 	if len(sq.Tags) > 0 {

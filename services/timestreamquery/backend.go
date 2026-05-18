@@ -7,8 +7,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -53,25 +51,28 @@ type ScheduledQuerySummary struct {
 	State string `json:"State"`
 }
 
-// QueryResult represents the result of a Query call.
+// QueryResult represents the result of a Query call (typed).
 type QueryResult struct {
 	QueryID     string
-	QueryStatus string
-	Rows        []map[string]any
-	Columns     []map[string]any
+	Rows        []Row
+	Columns     []ColumnInfo
+	Insights    QueryInsightsResponse
+	QueryStatus QueryStatusDetail
 }
 
 // AccountSettings holds the account-level settings for Timestream Query.
 type AccountSettings struct {
+	LastUpdatedTime   *time.Time
 	MaxQueryTCU       *int32
+	QueryCompute      *QueryCompute
 	QueryPricingModel string
 }
 
-// PrepareQueryResult holds the result of a PrepareQuery call.
+// PrepareQueryResult holds the result of a PrepareQuery call (typed).
 type PrepareQueryResult struct {
 	QueryString string
-	Columns     []map[string]any
-	Parameters  []map[string]any
+	Columns     []ColumnInfo
+	Parameters  []ColumnInfo
 }
 
 // maxRetainedQueries bounds the queries map so a long-running instance cannot
@@ -86,6 +87,8 @@ type InMemoryBackend struct {
 	scheduledQueries map[string]*ScheduledQuery // keyed by name
 	arnIndex         map[string]string          // ARN → name
 	queries          map[string]*QueryResult
+	clientTokens     *clientTokenCache
+	pageStore        *nextTokenStore
 	accountSettings  AccountSettings
 	accountID        string
 	region           string
@@ -98,7 +101,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		scheduledQueries: make(map[string]*ScheduledQuery),
 		arnIndex:         make(map[string]string),
 		queries:          make(map[string]*QueryResult),
-		accountSettings:  AccountSettings{QueryPricingModel: pricingModelBytesScanned},
+		clientTokens:     newClientTokenCache(),
+		pageStore:        newNextTokenStore(),
+		accountSettings:  AccountSettings{QueryPricingModel: pricingModelComputeUnits},
 		accountID:        accountID,
 		region:           region,
 	}
@@ -112,7 +117,9 @@ func (b *InMemoryBackend) Reset() {
 	b.scheduledQueries = make(map[string]*ScheduledQuery)
 	b.arnIndex = make(map[string]string)
 	b.queries = make(map[string]*QueryResult)
-	b.accountSettings = AccountSettings{QueryPricingModel: pricingModelBytesScanned}
+	b.clientTokens = newClientTokenCache()
+	b.pageStore = newNextTokenStore()
+	b.accountSettings = AccountSettings{QueryPricingModel: pricingModelComputeUnits}
 }
 
 // AccountID returns the account ID for the backend.
@@ -127,6 +134,10 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable string,
 	tags map[string]string,
 ) (*ScheduledQuery, error) {
+	if err := validateScheduleExpression(scheduleExpression); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateScheduledQuery")
 	defer b.mu.Unlock()
 
@@ -252,28 +263,152 @@ func (b *InMemoryBackend) ExecuteScheduledQuery(arnStr string, invocationTime ti
 	return nil
 }
 
-// Query runs a query and returns an empty result set (simulated).
-// The query string is accepted but not evaluated; this is an in-memory simulation
-// that returns empty results regardless of the query content.
+// QueryOptions holds parameters for a Query call.
+type QueryOptions struct {
+	QueryString  string
+	ClientToken  string
+	NextToken    string
+	InsightsMode string
+	MaxRows      int32
+}
+
+// QueryPage is the page-level result returned by QueryWithOptions.
+type QueryPage struct {
+	Insights    *QueryInsightsResponse
+	QueryID     string
+	NextToken   string
+	Rows        []Row
+	Columns     []ColumnInfo
+	QueryStatus QueryStatusDetail
+}
+
+// QueryWithOptions executes a query with full options support (clientToken, pagination).
+func (b *InMemoryBackend) QueryWithOptions(opts QueryOptions) (*QueryPage, error) {
+	// Validate MaxRows.
+	maxRows, err := validateMaxRows(opts.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+
+	// Continuation page from NextToken.
+	if opts.NextToken != "" {
+		queryID, rows, cols, nextTok, resolveErr := b.pageStore.resolve(opts.NextToken, maxRows)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		scanned := estimateBytesScanned(len(rows), len(cols))
+
+		return &QueryPage{
+			QueryID: queryID,
+			Rows:    rows,
+			Columns: cols,
+			QueryStatus: QueryStatusDetail{
+				ProgressPercentage:     100,
+				CumulativeBytesScanned: scanned,
+				CumulativeBytesMetered: estimateBytesMetered(scanned),
+			},
+			NextToken: nextTok,
+		}, nil
+	}
+
+	// ClientToken idempotency check.
+	if opts.ClientToken != "" {
+		b.clientTokens.sweep()
+		if cachedID := b.clientTokens.get(opts.ClientToken); cachedID != "" {
+			// Return the first page of the cached result.
+			page, nextTok, resumeErr := b.resumeFirstPage(cachedID, maxRows)
+			if resumeErr == nil {
+				return &QueryPage{QueryID: cachedID, Rows: page, NextToken: nextTok}, nil
+			}
+			// If cached result is gone, fall through and re-execute.
+		}
+	}
+
+	// New query execution — infer schema from SQL.
+	cols, _ := inferColumnsFromSQL(opts.QueryString)
+	rows := []Row{} // Simulator: always empty (no live Timestream Write data available).
+
+	queryID := newQueryID()
+	scanned := estimateBytesScanned(len(rows), len(cols))
+
+	result := &QueryResult{
+		QueryID: queryID,
+		QueryStatus: QueryStatusDetail{
+			ProgressPercentage:     100,
+			CumulativeBytesScanned: scanned,
+			CumulativeBytesMetered: estimateBytesMetered(scanned),
+		},
+		Rows:     rows,
+		Columns:  cols,
+		Insights: buildQueryInsightsResponse(rows, cols),
+	}
+
+	b.mu.Lock("QueryWithOptions")
+	// Evict to stay under cap.
+	for len(b.queries) >= maxRetainedQueries {
+		for id := range b.queries {
+			delete(b.queries, id)
+
+			break
+		}
+	}
+	b.queries[queryID] = result
+	b.mu.Unlock()
+
+	if opts.ClientToken != "" {
+		b.clientTokens.set(opts.ClientToken, queryID)
+	}
+
+	page, nextTok := b.pageStore.store(queryID, rows, cols, maxRows)
+
+	var insights *QueryInsightsResponse
+	if opts.InsightsMode != "DISABLED" {
+		ins := result.Insights
+		insights = &ins
+	}
+
+	return &QueryPage{
+		QueryID:     queryID,
+		Rows:        page,
+		Columns:     cols,
+		QueryStatus: result.QueryStatus,
+		Insights:    insights,
+		NextToken:   nextTok,
+	}, nil
+}
+
+// resumeFirstPage retrieves the first page of a previously-stored query result.
+func (b *InMemoryBackend) resumeFirstPage(queryID string, maxRows int) ([]Row, string, error) {
+	b.pageStore.mu.Lock()
+	defer b.pageStore.mu.Unlock()
+	r, ok := b.pageStore.results[queryID]
+	if !ok {
+		return nil, "", fmt.Errorf("%w: query %q not found in page store", ErrNotFound, queryID)
+	}
+	r.offset = 0
+	page, next := r.nextPage(maxRows)
+
+	return page, next, nil
+}
+
+// Query runs a query and returns a result (legacy path, calls QueryWithOptions).
 func (b *InMemoryBackend) Query(queryString string) *QueryResult {
 	b.mu.Lock("Query")
 	defer b.mu.Unlock()
 
-	queryID := uuid.NewString()
+	queryID := newQueryID()
+	cols, _ := inferColumnsFromSQL(queryString)
 	result := &QueryResult{
-		QueryID:     queryID,
-		QueryStatus: "SUCCEEDED",
-		Rows:        []map[string]any{},
-		Columns:     []map[string]any{},
+		QueryID: queryID,
+		QueryStatus: QueryStatusDetail{
+			ProgressPercentage:     100,
+			CumulativeBytesScanned: 0,
+			CumulativeBytesMetered: 0,
+		},
+		Rows:    []Row{},
+		Columns: cols,
 	}
 
-	// Evict arbitrary entries when over the cap so a long-running instance
-	// cannot leak memory through repeated Query calls. Map iteration order
-	// is random in Go; for the simulator this is acceptable since only
-	// CancelQuery interacts with stored results.
-	// Evict before inserting so the new query is never randomly chosen for
-	// eviction — callers that immediately CancelQuery on the returned ID
-	// must not see a spurious ErrNotFound.
 	for len(b.queries) >= maxRetainedQueries {
 		for id := range b.queries {
 			delete(b.queries, id)
@@ -284,9 +419,6 @@ func (b *InMemoryBackend) Query(queryString string) *QueryResult {
 
 	b.queries[queryID] = result
 
-	// queryString is intentionally not evaluated — this is a simulation.
-	_ = queryString
-
 	return result
 }
 
@@ -296,7 +428,8 @@ func (b *InMemoryBackend) CancelQuery(queryID string) error {
 	defer b.mu.Unlock()
 
 	if _, exists := b.queries[queryID]; !exists {
-		return fmt.Errorf("%w: query %q not found", ErrNotFound, queryID)
+		// Real Timestream returns ValidationException for unknown IDs (gap #9).
+		return fmt.Errorf("%w: invalid identifier: query %q not found", ErrValidation, queryID)
 	}
 
 	delete(b.queries, queryID)
@@ -427,16 +560,28 @@ func (b *InMemoryBackend) DescribeAccountSettings() AccountSettings {
 }
 
 // PrepareQuery validates a query string and returns its column and parameter metadata.
-// This is a simulated implementation: the query string is accepted but not evaluated.
-func (b *InMemoryBackend) PrepareQuery(queryString string, _ bool) (*PrepareQueryResult, error) {
+// It infers columns from the SELECT projection and parameters from ? markers.
+// When validateOnly is true, only parse errors are surfaced.
+func (b *InMemoryBackend) PrepareQuery(queryString string, validateOnly bool) (*PrepareQueryResult, error) {
 	if queryString == "" {
 		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
 	}
 
+	cols, params := inferColumnsFromSQL(queryString)
+
+	if validateOnly {
+		// Surface syntax issues only — we use the inferred result either way.
+		return &PrepareQueryResult{
+			QueryString: queryString,
+			Columns:     []ColumnInfo{},
+			Parameters:  []ColumnInfo{},
+		}, nil
+	}
+
 	return &PrepareQueryResult{
 		QueryString: queryString,
-		Columns:     []map[string]any{},
-		Parameters:  []map[string]any{},
+		Columns:     cols,
+		Parameters:  params,
 	}, nil
 }
 
@@ -472,7 +617,22 @@ func (b *InMemoryBackend) UpdateAccountSettings(queryPricingModel string, maxQue
 		b.accountSettings.MaxQueryTCU = maxQueryTCU
 	}
 
+	now := time.Now()
+	b.accountSettings.LastUpdatedTime = &now
+
 	return b.accountSettings, nil
+}
+
+// ListScheduledQueriesEnriched returns paged enriched scheduled query summaries (gaps #18, #19).
+func (b *InMemoryBackend) ListScheduledQueriesEnriched(nextToken string, maxResults int32) ListScheduledQueriesResult {
+	b.mu.RLock("ListScheduledQueriesEnriched")
+	all := make([]*ScheduledQuery, 0, len(b.scheduledQueries))
+	for _, sq := range b.scheduledQueries {
+		all = append(all, cloneScheduledQuery(sq))
+	}
+	b.mu.RUnlock()
+
+	return listScheduledQueriesPaged(all, nextToken, maxResults)
 }
 
 // AddScheduledQueryInternal is a test-only seed helper that stores a scheduled query directly,
