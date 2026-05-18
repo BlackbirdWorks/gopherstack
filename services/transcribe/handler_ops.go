@@ -2,6 +2,7 @@ package transcribe
 
 import (
 	"context"
+	"time"
 )
 
 // --- GetCallAnalyticsJob ---
@@ -11,9 +12,53 @@ type getCallAnalyticsJobInput struct {
 }
 
 type callAnalyticsJobOutput struct {
-	CallAnalyticsJobName   string `json:"CallAnalyticsJobName"`
-	CallAnalyticsJobStatus string `json:"CallAnalyticsJobStatus"`
-	LanguageCode           string `json:"LanguageCode"`
+	Tags                   map[string]string      `json:"Tags,omitempty"`
+	Settings               *CallAnalyticsSettings `json:"Settings,omitempty"`
+	Media                  *Media                 `json:"Media,omitempty"`
+	CreationTime           *string                `json:"CreationTime,omitempty"`
+	StartTime              *string                `json:"StartTime,omitempty"`
+	CompletionTime         *string                `json:"CompletionTime,omitempty"`
+	CallAnalyticsJobName   string                 `json:"CallAnalyticsJobName"`
+	CallAnalyticsJobStatus string                 `json:"CallAnalyticsJobStatus"`
+	LanguageCode           string                 `json:"LanguageCode,omitempty"`
+	FailureReason          string                 `json:"FailureReason,omitempty"`
+	DataAccessRoleArn      string                 `json:"DataAccessRoleArn,omitempty"`
+	MediaFormat            string                 `json:"MediaFormat,omitempty"`
+	ChannelDefinitions     []ChannelDefinition    `json:"ChannelDefinitions,omitempty"`
+	MediaSampleRateHertz   int32                  `json:"MediaSampleRateHertz,omitempty"`
+}
+
+func buildCallAnalyticsJobOutput(job *CallAnalyticsJob) *callAnalyticsJobOutput {
+	out := &callAnalyticsJobOutput{
+		CallAnalyticsJobName:   job.CallAnalyticsJobName,
+		CallAnalyticsJobStatus: job.CallAnalyticsJobStatus,
+		LanguageCode:           job.LanguageCode,
+		FailureReason:          job.FailureReason,
+		DataAccessRoleArn:      job.DataAccessRoleArn,
+		ChannelDefinitions:     job.ChannelDefinitions,
+		Settings:               job.Settings,
+		MediaFormat:            job.MediaFormat,
+		MediaSampleRateHertz:   job.MediaSampleRateHertz,
+		Tags:                   job.Tags,
+	}
+	if !job.CreationTime.IsZero() {
+		s := job.CreationTime.Format(time.RFC3339)
+		out.CreationTime = &s
+	}
+	if !job.StartTime.IsZero() {
+		s := job.StartTime.Format(time.RFC3339)
+		out.StartTime = &s
+	}
+	if !job.CompletionTime.IsZero() {
+		s := job.CompletionTime.Format(time.RFC3339)
+		out.CompletionTime = &s
+	}
+	if job.Media.MediaFileURI != "" || job.Media.RedactedMediaFileURI != "" {
+		m := job.Media
+		out.Media = &m
+	}
+
+	return out
 }
 
 type getCallAnalyticsJobOutput struct {
@@ -30,20 +75,20 @@ func (h *Handler) handleGetCallAnalyticsJob(
 	}
 
 	return &getCallAnalyticsJobOutput{
-		CallAnalyticsJob: &callAnalyticsJobOutput{
-			CallAnalyticsJobName:   job.CallAnalyticsJobName,
-			CallAnalyticsJobStatus: job.CallAnalyticsJobStatus,
-			LanguageCode:           job.LanguageCode,
-		},
+		CallAnalyticsJob: buildCallAnalyticsJobOutput(job),
 	}, nil
 }
 
 // --- StartCallAnalyticsJob ---
 
 type startCallAnalyticsJobInput struct {
-	CallAnalyticsJobName string          `json:"CallAnalyticsJobName"`
-	LanguageCode         string          `json:"LanguageCode"`
-	Media                transcribeMedia `json:"Media"`
+	Settings             *CallAnalyticsSettings `json:"Settings"`
+	Media                Media                  `json:"Media"`
+	Tags                 map[string]string      `json:"Tags"`
+	CallAnalyticsJobName string                 `json:"CallAnalyticsJobName"`
+	LanguageCode         string                 `json:"LanguageCode"`
+	DataAccessRoleArn    string                 `json:"DataAccessRoleArn"`
+	ChannelDefinitions   []ChannelDefinition    `json:"ChannelDefinitions"`
 }
 
 type startCallAnalyticsJobOutput struct {
@@ -54,21 +99,21 @@ func (h *Handler) handleStartCallAnalyticsJob(
 	_ context.Context,
 	in *startCallAnalyticsJobInput,
 ) (*startCallAnalyticsJobOutput, error) {
-	job, err := h.Backend.StartCallAnalyticsJob(
-		in.CallAnalyticsJobName,
-		in.LanguageCode,
-		in.Media.MediaFileURI,
-	)
+	job, err := h.Backend.StartCallAnalyticsJob(&CallAnalyticsJob{
+		CallAnalyticsJobName: in.CallAnalyticsJobName,
+		LanguageCode:         in.LanguageCode,
+		Media:                in.Media,
+		DataAccessRoleArn:    in.DataAccessRoleArn,
+		ChannelDefinitions:   in.ChannelDefinitions,
+		Settings:             in.Settings,
+		Tags:                 in.Tags,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &startCallAnalyticsJobOutput{
-		CallAnalyticsJob: &callAnalyticsJobOutput{
-			CallAnalyticsJobName:   job.CallAnalyticsJobName,
-			CallAnalyticsJobStatus: job.CallAnalyticsJobStatus,
-			LanguageCode:           job.LanguageCode,
-		},
+		CallAnalyticsJob: buildCallAnalyticsJobOutput(job),
 	}, nil
 }
 
@@ -80,9 +125,12 @@ type listCallAnalyticsJobsInput struct {
 }
 
 type callAnalyticsJobSummary struct {
-	CallAnalyticsJobName   string `json:"CallAnalyticsJobName"`
-	CallAnalyticsJobStatus string `json:"CallAnalyticsJobStatus"`
-	LanguageCode           string `json:"LanguageCode"`
+	CreationTime           *string `json:"CreationTime,omitempty"`
+	CompletionTime         *string `json:"CompletionTime,omitempty"`
+	CallAnalyticsJobName   string  `json:"CallAnalyticsJobName"`
+	CallAnalyticsJobStatus string  `json:"CallAnalyticsJobStatus"`
+	LanguageCode           string  `json:"LanguageCode,omitempty"`
+	FailureReason          string  `json:"FailureReason,omitempty"`
 }
 
 type listCallAnalyticsJobsOutput struct {
@@ -98,11 +146,21 @@ func (h *Handler) handleListCallAnalyticsJobs(
 
 	summaries := make([]callAnalyticsJobSummary, 0, len(jobs))
 	for _, j := range jobs {
-		summaries = append(summaries, callAnalyticsJobSummary{
+		s := callAnalyticsJobSummary{
 			CallAnalyticsJobName:   j.CallAnalyticsJobName,
 			CallAnalyticsJobStatus: j.CallAnalyticsJobStatus,
 			LanguageCode:           j.LanguageCode,
-		})
+			FailureReason:          j.FailureReason,
+		}
+		if !j.CreationTime.IsZero() {
+			ts := j.CreationTime.Format(time.RFC3339)
+			s.CreationTime = &ts
+		}
+		if !j.CompletionTime.IsZero() {
+			ts := j.CompletionTime.Format(time.RFC3339)
+			s.CompletionTime = &ts
+		}
+		summaries = append(summaries, s)
 	}
 
 	return &listCallAnalyticsJobsOutput{
@@ -141,8 +199,9 @@ func (h *Handler) handleGetCallAnalyticsCategory(
 // --- UpdateCallAnalyticsCategory ---
 
 type updateCallAnalyticsCategoryInput struct {
-	CategoryName string `json:"CategoryName"`
-	InputType    string `json:"InputType"`
+	CategoryName string              `json:"CategoryName"`
+	InputType    string              `json:"InputType"`
+	Rules        []CallAnalyticsRule `json:"Rules"`
 }
 
 type updateCallAnalyticsCategoryOutput struct {
@@ -153,7 +212,11 @@ func (h *Handler) handleUpdateCallAnalyticsCategory(
 	_ context.Context,
 	in *updateCallAnalyticsCategoryInput,
 ) (*updateCallAnalyticsCategoryOutput, error) {
-	cat, err := h.Backend.UpdateCallAnalyticsCategory(in.CategoryName, in.InputType)
+	cat, err := h.Backend.UpdateCallAnalyticsCategory(&CallAnalyticsCategory{
+		CategoryName: in.CategoryName,
+		InputType:    in.InputType,
+		Rules:        in.Rules,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -204,8 +267,53 @@ type getMedicalScribeJobInput struct {
 }
 
 type medicalScribeJobOutput struct {
-	MedicalScribeJobName   string `json:"MedicalScribeJobName"`
-	MedicalScribeJobStatus string `json:"MedicalScribeJobStatus"`
+	Settings                       *MedicalScribeSettings           `json:"Settings,omitempty"`
+	Media                          *Media                           `json:"Media,omitempty"`
+	ClinicalNoteGenerationSettings *ClinicalNoteGenerationSettings  `json:"ClinicalNoteGenerationSettings,omitempty"`
+	Tags                           map[string]string                `json:"Tags,omitempty"`
+	CreationTime                   *string                          `json:"CreationTime,omitempty"`
+	StartTime                      *string                          `json:"StartTime,omitempty"`
+	CompletionTime                 *string                          `json:"CompletionTime,omitempty"`
+	MedicalScribeJobName           string                           `json:"MedicalScribeJobName"`
+	MedicalScribeJobStatus         string                           `json:"MedicalScribeJobStatus"`
+	LanguageCode                   string                           `json:"LanguageCode,omitempty"`
+	DataAccessRoleArn              string                           `json:"DataAccessRoleArn,omitempty"`
+	OutputBucketName               string                           `json:"OutputBucketName,omitempty"`
+	FailureReason                  string                           `json:"FailureReason,omitempty"`
+	ChannelDefinitions             []MedicalScribeChannelDefinition `json:"ChannelDefinitions,omitempty"`
+}
+
+func buildMedicalScribeJobOutput(job *MedicalScribeJob) *medicalScribeJobOutput {
+	out := &medicalScribeJobOutput{
+		MedicalScribeJobName:           job.MedicalScribeJobName,
+		MedicalScribeJobStatus:         job.MedicalScribeJobStatus,
+		LanguageCode:                   job.LanguageCode,
+		DataAccessRoleArn:              job.DataAccessRoleArn,
+		OutputBucketName:               job.OutputBucketName,
+		FailureReason:                  job.FailureReason,
+		Settings:                       job.Settings,
+		ChannelDefinitions:             job.ChannelDefinitions,
+		ClinicalNoteGenerationSettings: job.ClinicalNoteGenerationSettings,
+		Tags:                           job.Tags,
+	}
+	if !job.CreationTime.IsZero() {
+		s := job.CreationTime.Format(time.RFC3339)
+		out.CreationTime = &s
+	}
+	if !job.StartTime.IsZero() {
+		s := job.StartTime.Format(time.RFC3339)
+		out.StartTime = &s
+	}
+	if !job.CompletionTime.IsZero() {
+		s := job.CompletionTime.Format(time.RFC3339)
+		out.CompletionTime = &s
+	}
+	if job.Media.MediaFileURI != "" {
+		m := job.Media
+		out.Media = &m
+	}
+
+	return out
 }
 
 type getMedicalScribeJobOutput struct {
@@ -222,18 +330,21 @@ func (h *Handler) handleGetMedicalScribeJob(
 	}
 
 	return &getMedicalScribeJobOutput{
-		MedicalScribeJob: &medicalScribeJobOutput{
-			MedicalScribeJobName:   job.MedicalScribeJobName,
-			MedicalScribeJobStatus: job.MedicalScribeJobStatus,
-		},
+		MedicalScribeJob: buildMedicalScribeJobOutput(job),
 	}, nil
 }
 
 // --- StartMedicalScribeJob ---
 
 type startMedicalScribeJobInput struct {
-	MedicalScribeJobName string          `json:"MedicalScribeJobName"`
-	Media                transcribeMedia `json:"Media"`
+	Settings                       *MedicalScribeSettings           `json:"Settings"`
+	Media                          Media                            `json:"Media"`
+	ClinicalNoteGenerationSettings *ClinicalNoteGenerationSettings  `json:"ClinicalNoteGenerationSettings"`
+	Tags                           map[string]string                `json:"Tags"`
+	MedicalScribeJobName           string                           `json:"MedicalScribeJobName"`
+	DataAccessRoleArn              string                           `json:"DataAccessRoleArn"`
+	OutputBucketName               string                           `json:"OutputBucketName"`
+	ChannelDefinitions             []MedicalScribeChannelDefinition `json:"ChannelDefinitions"`
 }
 
 type startMedicalScribeJobOutput struct {
@@ -244,16 +355,22 @@ func (h *Handler) handleStartMedicalScribeJob(
 	_ context.Context,
 	in *startMedicalScribeJobInput,
 ) (*startMedicalScribeJobOutput, error) {
-	job, err := h.Backend.StartMedicalScribeJob(in.MedicalScribeJobName, in.Media.MediaFileURI)
+	job, err := h.Backend.StartMedicalScribeJob(&MedicalScribeJob{
+		MedicalScribeJobName:           in.MedicalScribeJobName,
+		Media:                          in.Media,
+		DataAccessRoleArn:              in.DataAccessRoleArn,
+		OutputBucketName:               in.OutputBucketName,
+		ChannelDefinitions:             in.ChannelDefinitions,
+		Settings:                       in.Settings,
+		ClinicalNoteGenerationSettings: in.ClinicalNoteGenerationSettings,
+		Tags:                           in.Tags,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &startMedicalScribeJobOutput{
-		MedicalScribeJob: &medicalScribeJobOutput{
-			MedicalScribeJobName:   job.MedicalScribeJobName,
-			MedicalScribeJobStatus: job.MedicalScribeJobStatus,
-		},
+		MedicalScribeJob: buildMedicalScribeJobOutput(job),
 	}, nil
 }
 
@@ -276,11 +393,8 @@ func (h *Handler) handleListMedicalScribeJobs(
 	jobs, nextToken := h.Backend.ListMedicalScribeJobs(in.Status, in.NextToken)
 
 	summaries := make([]medicalScribeJobOutput, 0, len(jobs))
-	for _, j := range jobs {
-		summaries = append(summaries, medicalScribeJobOutput{
-			MedicalScribeJobName:   j.MedicalScribeJobName,
-			MedicalScribeJobStatus: j.MedicalScribeJobStatus,
-		})
+	for i := range jobs {
+		summaries = append(summaries, *buildMedicalScribeJobOutput(&jobs[i]))
 	}
 
 	return &listMedicalScribeJobsOutput{
@@ -296,9 +410,59 @@ type getMedicalTranscriptionJobInput struct {
 }
 
 type medicalTranscriptionJobOutput struct {
-	MedicalTranscriptionJobName string `json:"MedicalTranscriptionJobName"`
-	TranscriptionJobStatus      string `json:"TranscriptionJobStatus"`
-	LanguageCode                string `json:"LanguageCode"`
+	Settings                         *MedicalTranscriptionSettings `json:"Settings,omitempty"`
+	Media                            *Media                        `json:"Media,omitempty"`
+	Tags                             map[string]string             `json:"Tags,omitempty"`
+	CreationTime                     *string                       `json:"CreationTime,omitempty"`
+	StartTime                        *string                       `json:"StartTime,omitempty"`
+	CompletionTime                   *string                       `json:"CompletionTime,omitempty"`
+	MedicalTranscriptionJobName      string                        `json:"MedicalTranscriptionJobName"`
+	TranscriptionJobStatus           string                        `json:"TranscriptionJobStatus"`
+	LanguageCode                     string                        `json:"LanguageCode,omitempty"`
+	Specialty                        string                        `json:"Specialty,omitempty"`
+	Type                             string                        `json:"Type,omitempty"`
+	MediaFormat                      string                        `json:"MediaFormat,omitempty"`
+	OutputBucketName                 string                        `json:"OutputBucketName,omitempty"`
+	OutputKey                        string                        `json:"OutputKey,omitempty"`
+	MedicalContentIdentificationType string                        `json:"MedicalContentIdentificationType,omitempty"`
+	FailureReason                    string                        `json:"FailureReason,omitempty"`
+	MediaSampleRateHertz             int32                         `json:"MediaSampleRateHertz,omitempty"`
+}
+
+func buildMedicalTranscriptionJobOutput(job *MedicalTranscriptionJob) *medicalTranscriptionJobOutput {
+	out := &medicalTranscriptionJobOutput{
+		MedicalTranscriptionJobName:      job.MedicalTranscriptionJobName,
+		TranscriptionJobStatus:           job.TranscriptionJobStatus,
+		LanguageCode:                     job.LanguageCode,
+		Specialty:                        job.Specialty,
+		Type:                             job.Type,
+		MediaFormat:                      job.MediaFormat,
+		OutputBucketName:                 job.OutputBucketName,
+		OutputKey:                        job.OutputKey,
+		MedicalContentIdentificationType: job.MedicalContentIdentificationType,
+		FailureReason:                    job.FailureReason,
+		MediaSampleRateHertz:             job.MediaSampleRateHertz,
+		Settings:                         job.Settings,
+		Tags:                             job.Tags,
+	}
+	if !job.CreationTime.IsZero() {
+		s := job.CreationTime.Format(time.RFC3339)
+		out.CreationTime = &s
+	}
+	if !job.StartTime.IsZero() {
+		s := job.StartTime.Format(time.RFC3339)
+		out.StartTime = &s
+	}
+	if !job.CompletionTime.IsZero() {
+		s := job.CompletionTime.Format(time.RFC3339)
+		out.CompletionTime = &s
+	}
+	if job.Media.MediaFileURI != "" {
+		m := job.Media
+		out.Media = &m
+	}
+
+	return out
 }
 
 type getMedicalTranscriptionJobOutput struct {
@@ -315,20 +479,25 @@ func (h *Handler) handleGetMedicalTranscriptionJob(
 	}
 
 	return &getMedicalTranscriptionJobOutput{
-		MedicalTranscriptionJob: &medicalTranscriptionJobOutput{
-			MedicalTranscriptionJobName: job.MedicalTranscriptionJobName,
-			TranscriptionJobStatus:      job.TranscriptionJobStatus,
-			LanguageCode:                job.LanguageCode,
-		},
+		MedicalTranscriptionJob: buildMedicalTranscriptionJobOutput(job),
 	}, nil
 }
 
 // --- StartMedicalTranscriptionJob ---
 
 type startMedicalTranscriptionJobInput struct {
-	MedicalTranscriptionJobName string          `json:"MedicalTranscriptionJobName"`
-	LanguageCode                string          `json:"LanguageCode"`
-	Media                       transcribeMedia `json:"Media"`
+	Settings                         *MedicalTranscriptionSettings `json:"Settings"`
+	Media                            Media                         `json:"Media"`
+	Tags                             map[string]string             `json:"Tags"`
+	MedicalTranscriptionJobName      string                        `json:"MedicalTranscriptionJobName"`
+	LanguageCode                     string                        `json:"LanguageCode"`
+	Specialty                        string                        `json:"Specialty"`
+	Type                             string                        `json:"Type"`
+	MediaFormat                      string                        `json:"MediaFormat"`
+	OutputBucketName                 string                        `json:"OutputBucketName"`
+	OutputKey                        string                        `json:"OutputKey"`
+	MedicalContentIdentificationType string                        `json:"MedicalContentIdentificationType"`
+	MediaSampleRateHertz             int32                         `json:"MediaSampleRateHertz"`
 }
 
 type startMedicalTranscriptionJobOutput struct {
@@ -339,21 +508,26 @@ func (h *Handler) handleStartMedicalTranscriptionJob(
 	_ context.Context,
 	in *startMedicalTranscriptionJobInput,
 ) (*startMedicalTranscriptionJobOutput, error) {
-	job, err := h.Backend.StartMedicalTranscriptionJob(
-		in.MedicalTranscriptionJobName,
-		in.LanguageCode,
-		in.Media.MediaFileURI,
-	)
+	job, err := h.Backend.StartMedicalTranscriptionJob(&MedicalTranscriptionJob{
+		MedicalTranscriptionJobName:      in.MedicalTranscriptionJobName,
+		LanguageCode:                     in.LanguageCode,
+		Media:                            in.Media,
+		Specialty:                        in.Specialty,
+		Type:                             in.Type,
+		MediaFormat:                      in.MediaFormat,
+		MediaSampleRateHertz:             in.MediaSampleRateHertz,
+		OutputBucketName:                 in.OutputBucketName,
+		OutputKey:                        in.OutputKey,
+		Settings:                         in.Settings,
+		MedicalContentIdentificationType: in.MedicalContentIdentificationType,
+		Tags:                             in.Tags,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &startMedicalTranscriptionJobOutput{
-		MedicalTranscriptionJob: &medicalTranscriptionJobOutput{
-			MedicalTranscriptionJobName: job.MedicalTranscriptionJobName,
-			TranscriptionJobStatus:      job.TranscriptionJobStatus,
-			LanguageCode:                job.LanguageCode,
-		},
+		MedicalTranscriptionJob: buildMedicalTranscriptionJobOutput(job),
 	}, nil
 }
 
@@ -376,12 +550,8 @@ func (h *Handler) handleListMedicalTranscriptionJobs(
 	jobs, nextToken := h.Backend.ListMedicalTranscriptionJobs(in.Status, in.NextToken)
 
 	summaries := make([]medicalTranscriptionJobOutput, 0, len(jobs))
-	for _, j := range jobs {
-		summaries = append(summaries, medicalTranscriptionJobOutput{
-			MedicalTranscriptionJobName: j.MedicalTranscriptionJobName,
-			TranscriptionJobStatus:      j.TranscriptionJobStatus,
-			LanguageCode:                j.LanguageCode,
-		})
+	for i := range jobs {
+		summaries = append(summaries, *buildMedicalTranscriptionJobOutput(&jobs[i]))
 	}
 
 	return &listMedicalTranscriptionJobsOutput{
@@ -421,8 +591,10 @@ func (h *Handler) handleGetVocabulary(
 // --- UpdateVocabulary ---
 
 type updateVocabularyInput struct {
-	VocabularyName string `json:"VocabularyName"`
-	LanguageCode   string `json:"LanguageCode"`
+	VocabularyName    string   `json:"VocabularyName"`
+	LanguageCode      string   `json:"LanguageCode"`
+	VocabularyFileURI string   `json:"VocabularyFileURI"`
+	Phrases           []string `json:"Phrases"`
 }
 
 type updateVocabularyOutput struct {
@@ -435,7 +607,12 @@ func (h *Handler) handleUpdateVocabulary(
 	_ context.Context,
 	in *updateVocabularyInput,
 ) (*updateVocabularyOutput, error) {
-	v, err := h.Backend.UpdateVocabulary(in.VocabularyName, in.LanguageCode)
+	v, err := h.Backend.UpdateVocabulary(&Vocabulary{
+		VocabularyName:    in.VocabularyName,
+		LanguageCode:      in.LanguageCode,
+		Phrases:           in.Phrases,
+		VocabularyFileURI: in.VocabularyFileURI,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -537,15 +714,22 @@ func (h *Handler) handleGetVocabularyFilter(
 // --- UpdateVocabularyFilter ---
 
 type updateVocabularyFilterInput struct {
-	VocabularyFilterName string `json:"VocabularyFilterName"`
-	LanguageCode         string `json:"LanguageCode"`
+	VocabularyFilterName    string   `json:"VocabularyFilterName"`
+	LanguageCode            string   `json:"LanguageCode"`
+	VocabularyFilterFileURI string   `json:"VocabularyFilterFileURI"`
+	Words                   []string `json:"Words"`
 }
 
 func (h *Handler) handleUpdateVocabularyFilter(
 	_ context.Context,
 	in *updateVocabularyFilterInput,
 ) (*vocabularyFilterOutput, error) {
-	f, err := h.Backend.UpdateVocabularyFilter(in.VocabularyFilterName, in.LanguageCode)
+	f, err := h.Backend.UpdateVocabularyFilter(&VocabularyFilter{
+		VocabularyFilterName:    in.VocabularyFilterName,
+		LanguageCode:            in.LanguageCode,
+		Words:                   in.Words,
+		VocabularyFilterFileURI: in.VocabularyFilterFileURI,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -637,7 +821,7 @@ func (h *Handler) handleGetMedicalVocabulary(
 type updateMedicalVocabularyInput struct {
 	VocabularyName    string `json:"VocabularyName"`
 	LanguageCode      string `json:"LanguageCode"`
-	VocabularyFileURI string `json:"VocabularyFileUri"`
+	VocabularyFileURI string `json:"VocabularyFileURI"`
 }
 
 type updateMedicalVocabularyOutput struct {
@@ -729,10 +913,11 @@ type describeLanguageModelInput struct {
 }
 
 type languageModelOutput struct {
-	ModelName     string `json:"ModelName"`
-	BaseModelName string `json:"BaseModelName"`
-	LanguageCode  string `json:"LanguageCode"`
-	ModelStatus   string `json:"ModelStatus"`
+	InputDataConfig *InputDataConfig `json:"InputDataConfig,omitempty"`
+	ModelName       string           `json:"ModelName"`
+	BaseModelName   string           `json:"BaseModelName"`
+	LanguageCode    string           `json:"LanguageCode"`
+	ModelStatus     string           `json:"ModelStatus"`
 }
 
 type describeLanguageModelOutput struct {
@@ -750,10 +935,11 @@ func (h *Handler) handleDescribeLanguageModel(
 
 	return &describeLanguageModelOutput{
 		LanguageModel: &languageModelOutput{
-			ModelName:     m.ModelName,
-			BaseModelName: m.BaseModelName,
-			LanguageCode:  m.LanguageCode,
-			ModelStatus:   m.ModelStatus,
+			ModelName:       m.ModelName,
+			BaseModelName:   m.BaseModelName,
+			LanguageCode:    m.LanguageCode,
+			ModelStatus:     m.ModelStatus,
+			InputDataConfig: m.InputDataConfig,
 		},
 	}, nil
 }
@@ -779,10 +965,11 @@ func (h *Handler) handleListLanguageModels(
 	result := make([]languageModelOutput, 0, len(models))
 	for _, m := range models {
 		result = append(result, languageModelOutput{
-			ModelName:     m.ModelName,
-			BaseModelName: m.BaseModelName,
-			LanguageCode:  m.LanguageCode,
-			ModelStatus:   m.ModelStatus,
+			ModelName:       m.ModelName,
+			BaseModelName:   m.BaseModelName,
+			LanguageCode:    m.LanguageCode,
+			ModelStatus:     m.ModelStatus,
+			InputDataConfig: m.InputDataConfig,
 		})
 	}
 
@@ -801,8 +988,12 @@ type tagResourceInput struct {
 
 func (h *Handler) handleTagResource(
 	_ context.Context,
-	_ *tagResourceInput,
+	in *tagResourceInput,
 ) (*struct{}, error) {
+	if err := h.Backend.TagResource(in.ResourceArn, in.Tags); err != nil {
+		return nil, err
+	}
+
 	return &struct{}{}, nil
 }
 
@@ -813,8 +1004,12 @@ type untagResourceInput struct {
 
 func (h *Handler) handleUntagResource(
 	_ context.Context,
-	_ *untagResourceInput,
+	in *untagResourceInput,
 ) (*struct{}, error) {
+	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+		return nil, err
+	}
+
 	return &struct{}{}, nil
 }
 
@@ -831,9 +1026,14 @@ func (h *Handler) handleListTagsForResource(
 	_ context.Context,
 	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
+	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
 	return &listTagsForResourceOutput{
 		ResourceArn: in.ResourceArn,
-		Tags:        map[string]string{},
+		Tags:        tags,
 	}, nil
 }
 

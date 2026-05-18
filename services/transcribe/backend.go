@@ -2,6 +2,8 @@ package transcribe
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -37,31 +39,53 @@ const (
 
 // TranscriptionJob represents an Amazon Transcribe transcription job.
 type TranscriptionJob struct {
-	CreationTime   time.Time `json:"creationTime"`
-	CompletionTime time.Time `json:"completionTime"`
-	JobName        string    `json:"jobName"`
-	JobStatus      string    `json:"jobStatus"`
-	LanguageCode   string    `json:"languageCode"`
-	MediaFileURI   string    `json:"mediaFileURI"`
-	TranscriptText string    `json:"transcriptText"`
+	StartTime                 time.Time                   `json:"startTime"`
+	CompletionTime            time.Time                   `json:"completionTime"`
+	CreationTime              time.Time                   `json:"creationTime"`
+	Tags                      map[string]string           `json:"tags,omitempty"`
+	Subtitles                 *SubtitlesOutput            `json:"subtitles,omitempty"`
+	ContentRedaction          *ContentRedaction           `json:"contentRedaction,omitempty"`
+	ModelSettings             *ModelSettings              `json:"modelSettings,omitempty"`
+	Settings                  *TranscriptionSettings      `json:"settings,omitempty"`
+	Media                     Media                       `json:"media"`
+	LanguageCode              string                      `json:"languageCode"`
+	JobStatus                 string                      `json:"jobStatus"`
+	MediaFormat               string                      `json:"mediaFormat,omitempty"`
+	OutputBucketName          string                      `json:"outputBucketName,omitempty"`
+	OutputKey                 string                      `json:"outputKey,omitempty"`
+	OutputEncryptionKMSKeyID  string                      `json:"outputEncryptionKMSKeyId,omitempty"`
+	TranscriptText            string                      `json:"transcriptText"`
+	JobName                   string                      `json:"jobName"`
+	FailureReason             string                      `json:"failureReason,omitempty"`
+	LanguageOptions           []string                    `json:"languageOptions,omitempty"`
+	ToxicityDetection         []ToxicityDetectionSettings `json:"toxicityDetection,omitempty"`
+	LanguageCodes             []LanguageCodeItem          `json:"languageCodes,omitempty"`
+	TranscriptJSON            []byte                      `json:"-"`
+	MediaSampleRateHertz      int32                       `json:"mediaSampleRateHertz,omitempty"`
+	IdentifiedLanguageScore   float32                     `json:"identifiedLanguageScore,omitempty"`
+	IdentifyLanguage          bool                        `json:"identifyLanguage,omitempty"`
+	IdentifyMultipleLanguages bool                        `json:"identifyMultipleLanguages,omitempty"`
 }
 
 // CallAnalyticsCategory represents an Amazon Transcribe Call Analytics category.
 type CallAnalyticsCategory struct {
-	CreateTime     time.Time `json:"createTime"`
-	LastUpdateTime time.Time `json:"lastUpdateTime"`
-	CategoryName   string    `json:"categoryName"`
-	InputType      string    `json:"inputType"`
+	CreateTime     time.Time           `json:"createTime"`
+	LastUpdateTime time.Time           `json:"lastUpdateTime"`
+	CategoryName   string              `json:"categoryName"`
+	InputType      string              `json:"inputType"`
+	Rules          []CallAnalyticsRule `json:"rules,omitempty"`
 }
 
 // LanguageModel represents a custom Amazon Transcribe language model.
 type LanguageModel struct {
-	CreateTime       time.Time `json:"createTime"`
-	LastModifiedTime time.Time `json:"lastModifiedTime"`
-	ModelName        string    `json:"modelName"`
-	BaseModelName    string    `json:"baseModelName"`
-	LanguageCode     string    `json:"languageCode"`
-	ModelStatus      string    `json:"modelStatus"`
+	CreateTime          time.Time        `json:"createTime"`
+	LastModifiedTime    time.Time        `json:"lastModifiedTime"`
+	InputDataConfig     *InputDataConfig `json:"inputDataConfig,omitempty"`
+	ModelName           string           `json:"modelName"`
+	BaseModelName       string           `json:"baseModelName"`
+	LanguageCode        string           `json:"languageCode"`
+	ModelStatus         string           `json:"modelStatus"`
+	UpgradeAvailability bool             `json:"upgradeAvailability,omitempty"`
 }
 
 // MedicalVocabulary represents an Amazon Transcribe Medical custom vocabulary.
@@ -75,43 +99,81 @@ type MedicalVocabulary struct {
 
 // Vocabulary represents an Amazon Transcribe custom vocabulary.
 type Vocabulary struct {
-	LastModifiedTime time.Time `json:"lastModifiedTime"`
-	VocabularyName   string    `json:"vocabularyName"`
-	LanguageCode     string    `json:"languageCode"`
-	VocabularyState  string    `json:"vocabularyState"`
+	LastModifiedTime  time.Time `json:"lastModifiedTime"`
+	VocabularyName    string    `json:"vocabularyName"`
+	LanguageCode      string    `json:"languageCode"`
+	VocabularyState   string    `json:"vocabularyState"`
+	VocabularyFileURI string    `json:"vocabularyFileUri,omitempty"`
+	Phrases           []string  `json:"phrases,omitempty"`
 }
 
 // VocabularyFilter represents an Amazon Transcribe custom vocabulary filter.
 type VocabularyFilter struct {
-	LastModifiedTime     time.Time `json:"lastModifiedTime"`
-	VocabularyFilterName string    `json:"vocabularyFilterName"`
-	LanguageCode         string    `json:"languageCode"`
+	LastModifiedTime        time.Time `json:"lastModifiedTime"`
+	VocabularyFilterName    string    `json:"vocabularyFilterName"`
+	LanguageCode            string    `json:"languageCode"`
+	VocabularyFilterFileURI string    `json:"vocabularyFilterFileUri,omitempty"`
+	Words                   []string  `json:"words,omitempty"`
 }
 
 // CallAnalyticsJob represents an Amazon Transcribe Call Analytics job.
 type CallAnalyticsJob struct {
-	CreationTime           time.Time `json:"creationTime"`
-	CompletionTime         time.Time `json:"completionTime"`
-	CallAnalyticsJobName   string    `json:"callAnalyticsJobName"`
-	CallAnalyticsJobStatus string    `json:"callAnalyticsJobStatus"`
-	LanguageCode           string    `json:"languageCode"`
+	StartTime               time.Time              `json:"startTime"`
+	CompletionTime          time.Time              `json:"completionTime"`
+	CreationTime            time.Time              `json:"creationTime"`
+	Tags                    map[string]string      `json:"tags,omitempty"`
+	Settings                *CallAnalyticsSettings `json:"settings,omitempty"`
+	Media                   Media                  `json:"media"`
+	CallAnalyticsJobStatus  string                 `json:"callAnalyticsJobStatus"`
+	LanguageCode            string                 `json:"languageCode"`
+	MediaFormat             string                 `json:"mediaFormat,omitempty"`
+	DataAccessRoleArn       string                 `json:"dataAccessRoleArn,omitempty"`
+	FailureReason           string                 `json:"failureReason,omitempty"`
+	CallAnalyticsJobName    string                 `json:"callAnalyticsJobName"`
+	ChannelDefinitions      []ChannelDefinition    `json:"channelDefinitions,omitempty"`
+	TranscriptJSON          []byte                 `json:"-"`
+	IdentifiedLanguageScore float32                `json:"identifiedLanguageScore,omitempty"`
+	MediaSampleRateHertz    int32                  `json:"mediaSampleRateHertz,omitempty"`
 }
 
 // MedicalScribeJob represents an Amazon Transcribe Medical Scribe job.
 type MedicalScribeJob struct {
-	CreationTime           time.Time `json:"creationTime"`
-	CompletionTime         time.Time `json:"completionTime"`
-	MedicalScribeJobName   string    `json:"medicalScribeJobName"`
-	MedicalScribeJobStatus string    `json:"medicalScribeJobStatus"`
+	StartTime                      time.Time                        `json:"startTime"`
+	CompletionTime                 time.Time                        `json:"completionTime"`
+	CreationTime                   time.Time                        `json:"creationTime"`
+	Tags                           map[string]string                `json:"tags,omitempty"`
+	ClinicalNoteGenerationSettings *ClinicalNoteGenerationSettings  `json:"clinicalNoteGenerationSettings,omitempty"`
+	Settings                       *MedicalScribeSettings           `json:"settings,omitempty"`
+	Media                          Media                            `json:"media"`
+	LanguageCode                   string                           `json:"languageCode,omitempty"`
+	DataAccessRoleArn              string                           `json:"dataAccessRoleArn,omitempty"`
+	OutputBucketName               string                           `json:"outputBucketName,omitempty"`
+	FailureReason                  string                           `json:"failureReason,omitempty"`
+	MedicalScribeJobStatus         string                           `json:"medicalScribeJobStatus"`
+	MedicalScribeJobName           string                           `json:"medicalScribeJobName"`
+	ChannelDefinitions             []MedicalScribeChannelDefinition `json:"channelDefinitions,omitempty"`
 }
 
 // MedicalTranscriptionJob represents an Amazon Transcribe Medical transcription job.
 type MedicalTranscriptionJob struct {
-	CreationTime                time.Time `json:"creationTime"`
-	CompletionTime              time.Time `json:"completionTime"`
-	MedicalTranscriptionJobName string    `json:"medicalTranscriptionJobName"`
-	TranscriptionJobStatus      string    `json:"transcriptionJobStatus"`
-	LanguageCode                string    `json:"languageCode"`
+	CreationTime                     time.Time                     `json:"creationTime"`
+	StartTime                        time.Time                     `json:"startTime"`
+	CompletionTime                   time.Time                     `json:"completionTime"`
+	Tags                             map[string]string             `json:"tags,omitempty"`
+	Settings                         *MedicalTranscriptionSettings `json:"settings,omitempty"`
+	Media                            Media                         `json:"media"`
+	Type                             string                        `json:"type,omitempty"`
+	Specialty                        string                        `json:"specialty,omitempty"`
+	LanguageCode                     string                        `json:"languageCode"`
+	MediaFormat                      string                        `json:"mediaFormat,omitempty"`
+	FailureReason                    string                        `json:"failureReason,omitempty"`
+	OutputBucketName                 string                        `json:"outputBucketName,omitempty"`
+	OutputKey                        string                        `json:"outputKey,omitempty"`
+	TranscriptionJobStatus           string                        `json:"transcriptionJobStatus"`
+	MedicalContentIdentificationType string                        `json:"medicalContentIdentificationType,omitempty"`
+	MedicalTranscriptionJobName      string                        `json:"medicalTranscriptionJobName"`
+	TranscriptJSON                   []byte                        `json:"-"`
+	MediaSampleRateHertz             int32                         `json:"mediaSampleRateHertz,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for Transcribe jobs.
@@ -125,6 +187,7 @@ type InMemoryBackend struct {
 	callAnalyticsJobs        map[string]*CallAnalyticsJob
 	medicalScribeJobs        map[string]*MedicalScribeJob
 	medicalTranscriptionJobs map[string]*MedicalTranscriptionJob
+	resourceTags             map[string]map[string]string // ARN → tag map
 	mu                       *lockmetrics.RWMutex
 }
 
@@ -159,42 +222,126 @@ func (b *InMemoryBackend) ensureNonNilMaps() {
 	b.callAnalyticsJobs = make(map[string]*CallAnalyticsJob)
 	b.medicalScribeJobs = make(map[string]*MedicalScribeJob)
 	b.medicalTranscriptionJobs = make(map[string]*MedicalTranscriptionJob)
+	b.resourceTags = make(map[string]map[string]string)
 }
 
 // StartTranscriptionJob creates a new transcription job with synthetic results.
-func (b *InMemoryBackend) StartTranscriptionJob(
-	jobName, languageCode, mediaFileURI string,
-) (*TranscriptionJob, error) {
-	if jobName == "" {
-		return nil, fmt.Errorf("%w: TranscriptionJobName is required", ErrValidation)
+// The input struct carries all supported fields; validation is performed before storage.
+func (b *InMemoryBackend) StartTranscriptionJob(input *TranscriptionJob) (*TranscriptionJob, error) {
+	if err := validateJobName(input.JobName); err != nil {
+		return nil, err
 	}
 
-	if languageCode == "" {
-		return nil, fmt.Errorf("%w: LanguageCode is required", ErrValidation)
+	// LanguageCode is required unless IdentifyLanguage or IdentifyMultipleLanguages is true.
+	if !input.IdentifyLanguage && !input.IdentifyMultipleLanguages && input.LanguageCode == "" {
+		return nil, fmt.Errorf(
+			"%w: LanguageCode is required (or set IdentifyLanguage/IdentifyMultipleLanguages)",
+			ErrValidation,
+		)
+	}
+
+	if err := validateLanguageCode(input.LanguageCode); err != nil {
+		return nil, err
+	}
+
+	if err := validateMediaFormat(input.MediaFormat); err != nil {
+		return nil, err
+	}
+
+	if err := validateMediaSampleRateHertz(input.MediaSampleRateHertz); err != nil {
+		return nil, err
+	}
+
+	if err := validateSettings(input.Settings); err != nil {
+		return nil, err
+	}
+
+	if err := validateContentRedaction(input.ContentRedaction); err != nil {
+		return nil, err
+	}
+
+	if err := validateSubtitles(subtitlesInputFromOutput(input.Subtitles)); err != nil {
+		return nil, err
+	}
+
+	if err := validateLanguageOptions(input.LanguageOptions); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("StartTranscriptionJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.jobs[jobName]; ok {
-		return nil, fmt.Errorf("%w: job %s already exists", ErrAlreadyExists, jobName)
+	if _, ok := b.jobs[input.JobName]; ok {
+		return nil, fmt.Errorf("%w: job %s already exists", ErrAlreadyExists, input.JobName)
 	}
 
-	now := time.Now()
-	job := &TranscriptionJob{
-		JobName:        jobName,
-		JobStatus:      jobStatusCompleted,
-		LanguageCode:   languageCode,
-		MediaFileURI:   mediaFileURI,
-		TranscriptText: "This is a synthetic transcription result for " + jobName + ".",
-		CreationTime:   now,
-		CompletionTime: now,
-	}
-	b.jobs[jobName] = job
+	job := buildCompletedTranscriptionJob(input)
 
-	cp := *job
+	b.jobs[input.JobName] = &job
+	cp := job
 
 	return &cp, nil
+}
+
+// buildCompletedTranscriptionJob initialises a job as COMPLETED with synthetic results.
+func buildCompletedTranscriptionJob(input *TranscriptionJob) TranscriptionJob {
+	now := time.Now()
+	transcriptText := "This is a synthetic transcription result for " + input.JobName + "."
+
+	job := *input
+	job.JobStatus = jobStatusCompleted
+	job.CreationTime = now
+	job.StartTime = now
+	job.CompletionTime = now
+	job.TranscriptText = transcriptText
+	job.TranscriptJSON = synthesizeTranscriptJSON(input.JobName, transcriptText)
+
+	// Synthesize subtitle file URIs when subtitles were requested.
+	if input.Subtitles != nil && len(input.Subtitles.Formats) > 0 {
+		uris := make([]string, 0, len(input.Subtitles.Formats))
+		for _, f := range input.Subtitles.Formats {
+			uris = append(uris, "s3://synthetic-transcripts/"+input.JobName+"."+f)
+		}
+
+		job.Subtitles = &SubtitlesOutput{
+			Formats:          input.Subtitles.Formats,
+			SubtitleFileURIs: uris,
+			OutputStartIndex: input.Subtitles.OutputStartIndex,
+		}
+	}
+
+	// Synthesize identified language score when language identification is enabled.
+	if input.IdentifyLanguage || input.IdentifyMultipleLanguages {
+		job.LanguageCode = resolveEffectiveLanguageCode(input.LanguageCode, input.LanguageOptions)
+		job.IdentifiedLanguageScore = syntheticIdentifiedLanguageScore
+	}
+
+	return job
+}
+
+// syntheticIdentifiedLanguageScore is the confidence score returned when language identification is enabled.
+const syntheticIdentifiedLanguageScore = float32(0.97)
+
+// resolveEffectiveLanguageCode returns the best language code to use when language identification is on.
+func resolveEffectiveLanguageCode(languageCode string, options []string) string {
+	if languageCode != "" {
+		return languageCode
+	}
+
+	if len(options) > 0 {
+		return options[0]
+	}
+
+	return "en-US"
+}
+
+// subtitlesInputFromOutput converts a SubtitlesOutput back to input for validation.
+func subtitlesInputFromOutput(s *SubtitlesOutput) *SubtitlesInput {
+	if s == nil {
+		return nil
+	}
+
+	return &SubtitlesInput{Formats: s.Formats, OutputStartIndex: s.OutputStartIndex}
 }
 
 // GetTranscriptionJob returns a transcription job by name.
@@ -250,30 +397,29 @@ func (b *InMemoryBackend) DeleteTranscriptionJob(jobName string) error {
 }
 
 // CreateCallAnalyticsCategory creates a new Call Analytics category.
-func (b *InMemoryBackend) CreateCallAnalyticsCategory(
-	categoryName, inputType string,
-) (*CallAnalyticsCategory, error) {
-	if categoryName == "" {
+func (b *InMemoryBackend) CreateCallAnalyticsCategory(input *CallAnalyticsCategory) (*CallAnalyticsCategory, error) {
+	if input.CategoryName == "" {
 		return nil, fmt.Errorf("%w: CategoryName is required", ErrValidation)
+	}
+
+	if err := validateCallAnalyticsInputType(input.InputType); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateCallAnalyticsCategory")
 	defer b.mu.Unlock()
 
-	if _, ok := b.callAnalyticsCategories[categoryName]; ok {
-		return nil, fmt.Errorf("%w: category %s already exists", ErrAlreadyExists, categoryName)
+	if _, ok := b.callAnalyticsCategories[input.CategoryName]; ok {
+		return nil, fmt.Errorf("%w: category %s already exists", ErrAlreadyExists, input.CategoryName)
 	}
 
 	now := time.Now()
-	cat := &CallAnalyticsCategory{
-		CategoryName:   categoryName,
-		InputType:      inputType,
-		CreateTime:     now,
-		LastUpdateTime: now,
-	}
-	b.callAnalyticsCategories[categoryName] = cat
+	cat := *input
+	cat.CreateTime = now
+	cat.LastUpdateTime = now
+	b.callAnalyticsCategories[input.CategoryName] = &cat
 
-	cp := *cat
+	cp := cat
 
 	return &cp, nil
 }
@@ -297,40 +443,48 @@ func (b *InMemoryBackend) DeleteCallAnalyticsCategory(categoryName string) error
 }
 
 // CreateLanguageModel creates a new custom language model.
-func (b *InMemoryBackend) CreateLanguageModel(
-	modelName, baseModelName, languageCode string,
-) (*LanguageModel, error) {
-	if modelName == "" {
+func (b *InMemoryBackend) CreateLanguageModel(input *LanguageModel) (*LanguageModel, error) {
+	if input.ModelName == "" {
 		return nil, fmt.Errorf("%w: ModelName is required", ErrValidation)
 	}
 
-	if baseModelName == "" {
-		return nil, fmt.Errorf("%w: BaseModelName is required", ErrValidation)
+	if err := validateBaseModelName(input.BaseModelName); err != nil {
+		return nil, err
 	}
 
-	if languageCode == "" {
+	if err := validateLanguageCode(input.LanguageCode); err != nil {
+		return nil, err
+	}
+
+	if input.LanguageCode == "" {
 		return nil, fmt.Errorf("%w: LanguageCode is required", ErrValidation)
+	}
+
+	if input.InputDataConfig != nil {
+		if input.InputDataConfig.S3Uri == "" {
+			return nil, fmt.Errorf("%w: InputDataConfig.S3Uri is required", ErrValidation)
+		}
+
+		if input.InputDataConfig.DataAccessRoleArn == "" {
+			return nil, fmt.Errorf("%w: InputDataConfig.DataAccessRoleArn is required", ErrValidation)
+		}
 	}
 
 	b.mu.Lock("CreateLanguageModel")
 	defer b.mu.Unlock()
 
-	if _, ok := b.languageModels[modelName]; ok {
-		return nil, fmt.Errorf("%w: language model %s already exists", ErrAlreadyExists, modelName)
+	if _, ok := b.languageModels[input.ModelName]; ok {
+		return nil, fmt.Errorf("%w: language model %s already exists", ErrAlreadyExists, input.ModelName)
 	}
 
 	now := time.Now()
-	m := &LanguageModel{
-		ModelName:        modelName,
-		BaseModelName:    baseModelName,
-		LanguageCode:     languageCode,
-		ModelStatus:      modelStatusCompleted,
-		CreateTime:       now,
-		LastModifiedTime: now,
-	}
-	b.languageModels[modelName] = m
+	m := *input
+	m.ModelStatus = modelStatusCompleted
+	m.CreateTime = now
+	m.LastModifiedTime = now
+	b.languageModels[input.ModelName] = &m
 
-	cp := *m
+	cp := m
 
 	return &cp, nil
 }
@@ -366,7 +520,7 @@ func (b *InMemoryBackend) CreateMedicalVocabulary(
 	}
 
 	if vocabularyFileURI == "" {
-		return nil, fmt.Errorf("%w: VocabularyFileUri is required", ErrValidation)
+		return nil, fmt.Errorf("%w: VocabularyFileURI is required", ErrValidation)
 	}
 
 	b.mu.Lock("CreateMedicalVocabulary")
@@ -396,70 +550,90 @@ func (b *InMemoryBackend) CreateMedicalVocabulary(
 }
 
 // CreateVocabulary creates a new custom vocabulary.
-func (b *InMemoryBackend) CreateVocabulary(
-	vocabularyName, languageCode string,
-) (*Vocabulary, error) {
-	if vocabularyName == "" {
+func (b *InMemoryBackend) CreateVocabulary(input *Vocabulary) (*Vocabulary, error) {
+	if input.VocabularyName == "" {
 		return nil, fmt.Errorf("%w: VocabularyName is required", ErrValidation)
 	}
 
-	if languageCode == "" {
+	if err := validateLanguageCode(input.LanguageCode); err != nil {
+		return nil, err
+	}
+
+	if input.LanguageCode == "" {
 		return nil, fmt.Errorf("%w: LanguageCode is required", ErrValidation)
+	}
+
+	// Exactly one of Phrases or VocabularyFileURI must be set.
+	if len(input.Phrases) > 0 && input.VocabularyFileURI != "" {
+		return nil, fmt.Errorf("%w: provide either Phrases or VocabularyFileURI, not both", ErrValidation)
+	}
+
+	if err := validateVocabularyPhrases(input.Phrases); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateVocabulary")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vocabularies[vocabularyName]; ok {
-		return nil, fmt.Errorf("%w: vocabulary %s already exists", ErrAlreadyExists, vocabularyName)
+	if _, ok := b.vocabularies[input.VocabularyName]; ok {
+		return nil, fmt.Errorf("%w: vocabulary %s already exists", ErrAlreadyExists, input.VocabularyName)
 	}
 
 	now := time.Now()
-	v := &Vocabulary{
-		VocabularyName:   vocabularyName,
-		LanguageCode:     languageCode,
-		VocabularyState:  vocabStateReady,
-		LastModifiedTime: now,
-	}
-	b.vocabularies[vocabularyName] = v
+	v := *input
+	v.VocabularyState = vocabStateReady
+	v.LastModifiedTime = now
+	b.vocabularies[input.VocabularyName] = &v
 
-	cp := *v
+	cp := v
 
 	return &cp, nil
 }
 
 // CreateVocabularyFilter creates a new custom vocabulary filter.
-func (b *InMemoryBackend) CreateVocabularyFilter(
-	vocabularyFilterName, languageCode string,
-) (*VocabularyFilter, error) {
-	if vocabularyFilterName == "" {
+func (b *InMemoryBackend) CreateVocabularyFilter(input *VocabularyFilter) (*VocabularyFilter, error) {
+	if input.VocabularyFilterName == "" {
 		return nil, fmt.Errorf("%w: VocabularyFilterName is required", ErrValidation)
 	}
 
-	if languageCode == "" {
+	if err := validateLanguageCode(input.LanguageCode); err != nil {
+		return nil, err
+	}
+
+	if input.LanguageCode == "" {
 		return nil, fmt.Errorf("%w: LanguageCode is required", ErrValidation)
+	}
+
+	// Exactly one of Words or VocabularyFilterFileURI must be set.
+	if len(input.Words) > 0 && input.VocabularyFilterFileURI != "" {
+		return nil, fmt.Errorf("%w: provide either Words or VocabularyFilterFileURI, not both", ErrValidation)
+	}
+
+	if len(input.Words) == 0 && input.VocabularyFilterFileURI == "" {
+		return nil, fmt.Errorf("%w: one of Words or VocabularyFilterFileURI is required", ErrValidation)
+	}
+
+	if err := validateVocabularyFilterWords(input.Words); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateVocabularyFilter")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vocabularyFilters[vocabularyFilterName]; ok {
+	if _, ok := b.vocabularyFilters[input.VocabularyFilterName]; ok {
 		return nil, fmt.Errorf(
 			"%w: vocabulary filter %s already exists",
 			ErrAlreadyExists,
-			vocabularyFilterName,
+			input.VocabularyFilterName,
 		)
 	}
 
 	now := time.Now()
-	f := &VocabularyFilter{
-		VocabularyFilterName: vocabularyFilterName,
-		LanguageCode:         languageCode,
-		LastModifiedTime:     now,
-	}
-	b.vocabularyFilters[vocabularyFilterName] = f
+	f := *input
+	f.LastModifiedTime = now
+	b.vocabularyFilters[input.VocabularyFilterName] = &f
 
-	cp := *f
+	cp := f
 
 	return &cp, nil
 }
@@ -593,35 +767,39 @@ func (b *InMemoryBackend) AddVocabularyFilterInternal(f *VocabularyFilter) {
 // --- Call Analytics jobs ---
 
 // StartCallAnalyticsJob creates a new Call Analytics job.
-func (b *InMemoryBackend) StartCallAnalyticsJob(
-	jobName, languageCode, _ string,
-) (*CallAnalyticsJob, error) {
-	if jobName == "" {
+func (b *InMemoryBackend) StartCallAnalyticsJob(input *CallAnalyticsJob) (*CallAnalyticsJob, error) {
+	if err := validateJobName(input.CallAnalyticsJobName); err != nil {
 		return nil, fmt.Errorf("%w: CallAnalyticsJobName is required", ErrValidation)
+	}
+
+	if err := validateLanguageCode(input.LanguageCode); err != nil {
+		return nil, err
+	}
+
+	if err := validateChannelDefinitions(input.ChannelDefinitions); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("StartCallAnalyticsJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.callAnalyticsJobs[jobName]; ok {
+	if _, ok := b.callAnalyticsJobs[input.CallAnalyticsJobName]; ok {
 		return nil, fmt.Errorf(
 			"%w: call analytics job %s already exists",
 			ErrAlreadyExists,
-			jobName,
+			input.CallAnalyticsJobName,
 		)
 	}
 
 	now := time.Now()
-	job := &CallAnalyticsJob{
-		CallAnalyticsJobName:   jobName,
-		CallAnalyticsJobStatus: jobStatusCompleted,
-		LanguageCode:           languageCode,
-		CreationTime:           now,
-		CompletionTime:         now,
-	}
-	b.callAnalyticsJobs[jobName] = job
+	job := *input
+	job.CallAnalyticsJobStatus = jobStatusCompleted
+	job.CreationTime = now
+	job.StartTime = now
+	job.CompletionTime = now
+	b.callAnalyticsJobs[input.CallAnalyticsJobName] = &job
 
-	cp := *job
+	cp := job
 
 	return &cp, nil
 }
@@ -683,22 +861,25 @@ func (b *InMemoryBackend) GetCallAnalyticsCategory(
 }
 
 // UpdateCallAnalyticsCategory updates an existing Call Analytics category.
-func (b *InMemoryBackend) UpdateCallAnalyticsCategory(
-	categoryName, inputType string,
-) (*CallAnalyticsCategory, error) {
-	if categoryName == "" {
+func (b *InMemoryBackend) UpdateCallAnalyticsCategory(input *CallAnalyticsCategory) (*CallAnalyticsCategory, error) {
+	if input.CategoryName == "" {
 		return nil, fmt.Errorf("%w: CategoryName is required", ErrValidation)
+	}
+
+	if err := validateCallAnalyticsInputType(input.InputType); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("UpdateCallAnalyticsCategory")
 	defer b.mu.Unlock()
 
-	cat, ok := b.callAnalyticsCategories[categoryName]
+	cat, ok := b.callAnalyticsCategories[input.CategoryName]
 	if !ok {
-		return nil, fmt.Errorf("%w: category %s not found", ErrNotFound, categoryName)
+		return nil, fmt.Errorf("%w: category %s not found", ErrNotFound, input.CategoryName)
 	}
 
-	cat.InputType = inputType
+	cat.InputType = input.InputType
+	cat.Rules = input.Rules
 	cat.LastUpdateTime = time.Now()
 
 	cp := *cat
@@ -741,23 +922,37 @@ func (b *InMemoryBackend) GetVocabulary(vocabularyName string) (*Vocabulary, err
 }
 
 // UpdateVocabulary updates an existing custom vocabulary.
+//
+//nolint:dupl // mirrors UpdateVocabularyFilter but operates on Vocabulary not VocabularyFilter
 func (b *InMemoryBackend) UpdateVocabulary(
-	vocabularyName, languageCode string,
+	input *Vocabulary,
 ) (*Vocabulary, error) {
-	if vocabularyName == "" {
+	if input.VocabularyName == "" {
 		return nil, fmt.Errorf("%w: VocabularyName is required", ErrValidation)
+	}
+
+	if err := validateVocabularyPhrases(input.Phrases); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("UpdateVocabulary")
 	defer b.mu.Unlock()
 
-	v, ok := b.vocabularies[vocabularyName]
+	v, ok := b.vocabularies[input.VocabularyName]
 	if !ok {
-		return nil, fmt.Errorf("%w: vocabulary %s not found", ErrNotFound, vocabularyName)
+		return nil, fmt.Errorf("%w: vocabulary %s not found", ErrNotFound, input.VocabularyName)
 	}
 
-	if languageCode != "" {
-		v.LanguageCode = languageCode
+	if input.LanguageCode != "" {
+		v.LanguageCode = input.LanguageCode
+	}
+
+	if len(input.Phrases) > 0 {
+		v.Phrases = input.Phrases
+		v.VocabularyFileURI = ""
+	} else if input.VocabularyFileURI != "" {
+		v.VocabularyFileURI = input.VocabularyFileURI
+		v.Phrases = nil
 	}
 
 	v.LastModifiedTime = time.Now()
@@ -826,27 +1021,41 @@ func (b *InMemoryBackend) GetVocabularyFilter(
 }
 
 // UpdateVocabularyFilter updates an existing vocabulary filter.
+//
+//nolint:dupl // mirrors UpdateVocabulary but operates on VocabularyFilter not Vocabulary
 func (b *InMemoryBackend) UpdateVocabularyFilter(
-	vocabularyFilterName, languageCode string,
+	input *VocabularyFilter,
 ) (*VocabularyFilter, error) {
-	if vocabularyFilterName == "" {
+	if input.VocabularyFilterName == "" {
 		return nil, fmt.Errorf("%w: VocabularyFilterName is required", ErrValidation)
+	}
+
+	if err := validateVocabularyFilterWords(input.Words); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("UpdateVocabularyFilter")
 	defer b.mu.Unlock()
 
-	f, ok := b.vocabularyFilters[vocabularyFilterName]
+	f, ok := b.vocabularyFilters[input.VocabularyFilterName]
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: vocabulary filter %s not found",
 			ErrNotFound,
-			vocabularyFilterName,
+			input.VocabularyFilterName,
 		)
 	}
 
-	if languageCode != "" {
-		f.LanguageCode = languageCode
+	if input.LanguageCode != "" {
+		f.LanguageCode = input.LanguageCode
+	}
+
+	if len(input.Words) > 0 {
+		f.Words = input.Words
+		f.VocabularyFilterFileURI = ""
+	} else if input.VocabularyFilterFileURI != "" {
+		f.VocabularyFilterFileURI = input.VocabularyFilterFileURI
+		f.Words = nil
 	}
 
 	f.LastModifiedTime = time.Now()
@@ -980,32 +1189,39 @@ func (b *InMemoryBackend) ListMedicalVocabularies(
 // --- Medical Scribe jobs ---
 
 // StartMedicalScribeJob creates a new Medical Scribe job.
-func (b *InMemoryBackend) StartMedicalScribeJob(jobName, _ string) (*MedicalScribeJob, error) {
-	if jobName == "" {
+func (b *InMemoryBackend) StartMedicalScribeJob(input *MedicalScribeJob) (*MedicalScribeJob, error) {
+	if err := validateJobName(input.MedicalScribeJobName); err != nil {
 		return nil, fmt.Errorf("%w: MedicalScribeJobName is required", ErrValidation)
+	}
+
+	if input.DataAccessRoleArn == "" {
+		return nil, fmt.Errorf("%w: DataAccessRoleArn is required for MedicalScribeJob", ErrValidation)
+	}
+
+	if input.OutputBucketName == "" {
+		return nil, fmt.Errorf("%w: OutputBucketName is required for MedicalScribeJob", ErrValidation)
 	}
 
 	b.mu.Lock("StartMedicalScribeJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.medicalScribeJobs[jobName]; ok {
+	if _, ok := b.medicalScribeJobs[input.MedicalScribeJobName]; ok {
 		return nil, fmt.Errorf(
 			"%w: medical scribe job %s already exists",
 			ErrAlreadyExists,
-			jobName,
+			input.MedicalScribeJobName,
 		)
 	}
 
 	now := time.Now()
-	job := &MedicalScribeJob{
-		MedicalScribeJobName:   jobName,
-		MedicalScribeJobStatus: jobStatusCompleted,
-		CreationTime:           now,
-		CompletionTime:         now,
-	}
-	b.medicalScribeJobs[jobName] = job
+	job := *input
+	job.MedicalScribeJobStatus = jobStatusCompleted
+	job.CreationTime = now
+	job.StartTime = now
+	job.CompletionTime = now
+	b.medicalScribeJobs[input.MedicalScribeJobName] = &job
 
-	cp := *job
+	cp := job
 
 	return &cp, nil
 }
@@ -1051,34 +1267,65 @@ func (b *InMemoryBackend) ListMedicalScribeJobs(
 
 // StartMedicalTranscriptionJob creates a new Medical Transcription job.
 func (b *InMemoryBackend) StartMedicalTranscriptionJob(
-	jobName, languageCode, _ string,
+	input *MedicalTranscriptionJob,
 ) (*MedicalTranscriptionJob, error) {
-	if jobName == "" {
+	if err := validateJobName(input.MedicalTranscriptionJobName); err != nil {
 		return nil, fmt.Errorf("%w: MedicalTranscriptionJobName is required", ErrValidation)
+	}
+
+	if err := validateLanguageCode(input.LanguageCode); err != nil {
+		return nil, err
+	}
+
+	if input.LanguageCode == "" {
+		return nil, fmt.Errorf("%w: LanguageCode is required", ErrValidation)
+	}
+
+	if err := validateMedicalSpecialty(input.Specialty); err != nil {
+		return nil, err
+	}
+
+	if err := validateMedicalType(input.Type); err != nil {
+		return nil, err
+	}
+
+	if err := validateMediaFormat(input.MediaFormat); err != nil {
+		return nil, err
+	}
+
+	if err := validateMediaSampleRateHertz(input.MediaSampleRateHertz); err != nil {
+		return nil, err
+	}
+
+	if input.MedicalContentIdentificationType != "" {
+		if !slices.Contains(supportedMedicalContentIDTypes(), input.MedicalContentIdentificationType) {
+			return nil, fmt.Errorf("%w: MedicalContentIdentificationType %q must be PHI",
+				ErrValidation, input.MedicalContentIdentificationType)
+		}
 	}
 
 	b.mu.Lock("StartMedicalTranscriptionJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.medicalTranscriptionJobs[jobName]; ok {
+	if _, ok := b.medicalTranscriptionJobs[input.MedicalTranscriptionJobName]; ok {
 		return nil, fmt.Errorf(
 			"%w: medical transcription job %s already exists",
 			ErrAlreadyExists,
-			jobName,
+			input.MedicalTranscriptionJobName,
 		)
 	}
 
 	now := time.Now()
-	job := &MedicalTranscriptionJob{
-		MedicalTranscriptionJobName: jobName,
-		TranscriptionJobStatus:      jobStatusCompleted,
-		LanguageCode:                languageCode,
-		CreationTime:                now,
-		CompletionTime:              now,
-	}
-	b.medicalTranscriptionJobs[jobName] = job
+	job := *input
+	job.TranscriptionJobStatus = jobStatusCompleted
+	job.CreationTime = now
+	job.StartTime = now
+	job.CompletionTime = now
+	job.TranscriptJSON = synthesizeTranscriptJSON(input.MedicalTranscriptionJobName,
+		"Medical transcription result for "+input.MedicalTranscriptionJobName+".")
+	b.medicalTranscriptionJobs[input.MedicalTranscriptionJobName] = &job
 
-	cp := *job
+	cp := job
 
 	return &cp, nil
 }
@@ -1175,6 +1422,63 @@ func paginateList[T any](all []T, nextToken string) ([]T, string) {
 	}
 
 	return all[startIdx:end], outToken
+}
+
+// TagResource adds or updates tags on a resource identified by ARN.
+func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string) error {
+	if resourceArn == "" {
+		return fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+	}
+
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	if _, ok := b.resourceTags[resourceArn]; !ok {
+		b.resourceTags[resourceArn] = make(map[string]string)
+	}
+
+	maps.Copy(b.resourceTags[resourceArn], tags)
+
+	return nil
+}
+
+// UntagResource removes specific tag keys from a resource identified by ARN.
+func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
+	if resourceArn == "" {
+		return fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+	}
+
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	if existing, ok := b.resourceTags[resourceArn]; ok {
+		for _, k := range tagKeys {
+			delete(existing, k)
+		}
+	}
+
+	return nil
+}
+
+// ListTagsForResource returns all tags for a resource identified by ARN.
+func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]string, error) {
+	if resourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+	}
+
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	existing, ok := b.resourceTags[resourceArn]
+	if !ok {
+		return map[string]string{}, nil
+	}
+
+	// Return a copy so callers can't mutate the stored map.
+	result := make(map[string]string, len(existing))
+	maps.Copy(result, existing)
+
+	return result, nil
 }
 
 // parseNextToken parses a pagination token (integer offset) into a slice index.

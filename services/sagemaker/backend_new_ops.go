@@ -235,7 +235,7 @@ func (b *InMemoryBackend) ListEndpoints(nextToken string) ([]*Endpoint, string) 
 
 	list := make([]*Endpoint, 0, len(b.endpoints))
 	for _, ep := range b.endpoints {
-		list = append(list, ep)
+		list = append(list, cloneEndpoint(ep))
 	}
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].EndpointName < list[j].EndpointName
@@ -333,7 +333,7 @@ func (b *InMemoryBackend) ListTrainingJobs(nextToken string) ([]*TrainingJob, st
 
 	list := make([]*TrainingJob, 0, len(b.trainingJobs))
 	for _, tj := range b.trainingJobs {
-		list = append(list, tj)
+		list = append(list, cloneTrainingJob(tj))
 	}
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].TrainingJobName < list[j].TrainingJobName
@@ -472,7 +472,7 @@ func (b *InMemoryBackend) ListNotebookInstances(
 			continue
 		}
 
-		list = append(list, nb)
+		list = append(list, cloneNotebook(nb))
 	}
 
 	sort.Slice(list, func(i, j int) bool {
@@ -654,7 +654,7 @@ func (b *InMemoryBackend) ListHyperParameterTuningJobs(
 
 	list := make([]*HyperParameterTuningJob, 0, len(b.hpTuningJobs))
 	for _, j := range b.hpTuningJobs {
-		list = append(list, j)
+		list = append(list, cloneHPTuningJob(j))
 	}
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].HyperParameterTuningJobName < list[j].HyperParameterTuningJobName
