@@ -5,21 +5,27 @@ package servicediscovery
 type StorageBackend interface {
 	// Namespace operations.
 	CreateHTTPNamespace(name, description string, tags map[string]string) (string, error)
-	CreatePrivateDNSNamespace(name, description string, tags map[string]string) (string, error)
-	CreatePublicDNSNamespace(name, description string, tags map[string]string) (string, error)
+	CreatePrivateDNSNamespace(name, description, vpc string, soaTTL int64, tags map[string]string) (string, error)
+	CreatePublicDNSNamespace(name, description string, soaTTL int64, tags map[string]string) (string, error)
 	DeleteNamespace(id string) (string, error)
 	GetNamespace(id string) (*Namespace, error)
-	ListNamespaces() []Namespace
+	ListNamespaces(filter ListNamespacesFilter) []Namespace
 	UpdateHTTPNamespace(id, description string) (string, error)
 	UpdatePrivateDNSNamespace(id, description string) (string, error)
 	UpdatePublicDNSNamespace(id, description string) (string, error)
 
 	// Service operations.
-	CreateService(name, namespaceID, description string, tags map[string]string) (*Service, error)
+	CreateService(
+		name, namespaceID, description, svcType string,
+		dnsConfig *DnsConfig,
+		hcc *HealthCheckConfig,
+		hccc *HealthCheckCustomConfig,
+		tags map[string]string,
+	) (*Service, error)
 	DeleteService(id string) error
 	GetService(id string) (*Service, error)
-	ListServices(namespaceID string) []Service
-	UpdateService(id, description string) (*Service, error)
+	ListServices(filter ListServicesFilter) []Service
+	UpdateService(id, description string, dnsConfig *DnsConfig, hcc *HealthCheckConfig) (*Service, error)
 	GetServiceAttributes(serviceID string) (string, map[string]string, error)
 	UpdateServiceAttributes(serviceARN string, attributes map[string]string) error
 	DeleteServiceAttributes(serviceID string) error
@@ -32,14 +38,14 @@ type StorageBackend interface {
 	DiscoverInstances(
 		namespaceName, serviceName, healthStatus string,
 		queryParams map[string]string,
-	) ([]Instance, error)
+	) ([]DiscoveredInstance, int64, error)
 	DiscoverInstancesRevision(namespaceName, serviceName string) (int64, error)
 	GetInstancesHealthStatus(serviceID string, instanceIDs []string) (map[string]string, error)
 	UpdateInstanceCustomHealthStatus(serviceID, instanceID, status string) error
 
 	// Operation operations.
 	GetOperation(id string) (*Operation, error)
-	ListOperations() []Operation
+	ListOperations(filter ListOperationsFilter) []Operation
 
 	// Tag operations.
 	ListTagsForResource(arn string) (map[string]string, error)

@@ -1,8 +1,10 @@
 package servicediscovery
 
 import (
+	"encoding/base64"
 	"fmt"
 	"maps"
+	"math/rand"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +15,8 @@ import (
 
 const (
 	typeNamespace = "NAMESPACE"
+	typeService   = "SERVICE"
+	typeInstance  = "INSTANCE"
 )
 
 var (
@@ -32,6 +36,11 @@ var (
 	ErrInvalidInput = awserr.New("InvalidInput", awserr.ErrInvalidParameter)
 	// ErrResourceNotFound is returned when a tagged resource ARN is not found.
 	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrResourceInUse is returned when a delete is attempted on a non-empty namespace or service.
+	ErrResourceInUse = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrCustomHealthNotFound is returned when UpdateInstanceCustomHealthStatus is called on a
+	// service that has no HealthCheckCustomConfig.
+	ErrCustomHealthNotFound = awserr.New("CustomHealthNotFound", awserr.ErrNotFound)
 )
 
 const (
@@ -50,28 +59,90 @@ const (
 
 	instanceHealthStatusHealthy   = "HEALTHY"
 	instanceHealthStatusUnhealthy = "UNHEALTHY"
+
+	serviceTypeHTTP    = "HTTP"
+	serviceTypeDNS     = "DNS"
+	serviceTypeDNSHTTP = "DNS_HTTP"
+
+	defaultSOATTL int64 = 15
+
+	maxResultsDefault = 100
+	maxResultsCap     = 100
 )
+
+// DnsRecord represents a single DNS record configuration in a Cloud Map service.
+type DnsRecord struct {
+	Type string `json:"type"`
+	TTL  int64  `json:"ttl"`
+}
+
+// DnsConfig holds the DNS configuration for a Cloud Map service.
+type DnsConfig struct {
+	NamespaceID   string      `json:"namespaceID,omitempty"`
+	RoutingPolicy string      `json:"routingPolicy,omitempty"`
+	DnsRecords    []DnsRecord `json:"dnsRecords,omitempty"`
+}
+
+// HealthCheckConfig holds the configuration for an AWS-managed HTTP/TCP health check.
+type HealthCheckConfig struct {
+	Type             string `json:"type"`
+	ResourcePath     string `json:"resourcePath,omitempty"`
+	FailureThreshold int    `json:"failureThreshold,omitempty"`
+}
+
+// HealthCheckCustomConfig holds the configuration for a custom health check.
+type HealthCheckCustomConfig struct {
+	FailureThreshold int `json:"failureThreshold,omitempty"`
+}
+
+// SOA holds the Start of Authority TTL for a DNS namespace.
+type SOA struct {
+	TTL int64 `json:"ttl"`
+}
+
+// DnsProperties holds the DNS-specific properties of a namespace.
+type DnsProperties struct {
+	HostedZoneID string `json:"hostedZoneId,omitempty"`
+	SOA          *SOA   `json:"soa,omitempty"`
+}
+
+// HttpProperties holds the HTTP-specific properties of a namespace.
+type HttpProperties struct {
+	HttpName string `json:"httpName,omitempty"`
+}
+
+// NamespaceProperties holds the type-specific properties of a namespace.
+type NamespaceProperties struct {
+	DnsProperties  *DnsProperties  `json:"dnsProperties,omitempty"`
+	HttpProperties *HttpProperties `json:"httpProperties,omitempty"`
+}
 
 // Namespace represents an AWS Cloud Map namespace.
 type Namespace struct {
-	CreatedAt   time.Time         `json:"createdAt"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	ID          string            `json:"id"`
-	ARN         string            `json:"arn"`
-	Name        string            `json:"name"`
-	Type        string            `json:"type"`
-	Description string            `json:"description,omitempty"`
+	CreatedAt   time.Time            `json:"createdAt"`
+	Tags        map[string]string    `json:"tags,omitempty"`
+	Properties  *NamespaceProperties `json:"properties,omitempty"`
+	ID          string               `json:"id"`
+	ARN         string               `json:"arn"`
+	Name        string               `json:"name"`
+	Type        string               `json:"type"`
+	Description string               `json:"description,omitempty"`
+	VPC         string               `json:"vpc,omitempty"`
 }
 
 // Service represents an AWS Cloud Map service.
 type Service struct {
-	CreatedAt   time.Time         `json:"createdAt"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	ID          string            `json:"id"`
-	ARN         string            `json:"arn"`
-	Name        string            `json:"name"`
-	NamespaceID string            `json:"namespaceID"`
-	Description string            `json:"description,omitempty"`
+	CreatedAt               time.Time                `json:"createdAt"`
+	Tags                    map[string]string        `json:"tags,omitempty"`
+	DnsConfig               *DnsConfig               `json:"dnsConfig,omitempty"`
+	HealthCheckConfig       *HealthCheckConfig       `json:"healthCheckConfig,omitempty"`
+	HealthCheckCustomConfig *HealthCheckCustomConfig `json:"healthCheckCustomConfig,omitempty"`
+	ID                      string                   `json:"id"`
+	ARN                     string                   `json:"arn"`
+	Name                    string                   `json:"name"`
+	NamespaceID             string                   `json:"namespaceID"`
+	Description             string                   `json:"description,omitempty"`
+	Type                    string                   `json:"type,omitempty"`
 }
 
 // Instance represents a registered instance in a Cloud Map service.
@@ -81,13 +152,42 @@ type Instance struct {
 	ServiceID  string            `json:"serviceID"`
 }
 
+// DiscoveredInstance is the richer per-instance response for DiscoverInstances.
+type DiscoveredInstance struct {
+	Attributes    map[string]string
+	InstanceID    string
+	NamespaceName string
+	ServiceName   string
+	HealthStatus  string
+}
+
 // Operation represents an async Cloud Map operation (e.g., create/delete namespace).
 type Operation struct {
-	ID         string `json:"id"`
-	Type       string `json:"type"`
-	Status     string `json:"status"`
-	TargetID   string `json:"targetID"`
-	TargetType string `json:"targetType"`
+	CreateDate   time.Time         `json:"createDate"`
+	UpdateDate   time.Time         `json:"updateDate"`
+	Targets      map[string]string `json:"targets,omitempty"`
+	ID           string            `json:"id"`
+	Type         string            `json:"type"`
+	Status       string            `json:"status"`
+	ErrorCode    string            `json:"errorCode,omitempty"`
+	ErrorMessage string            `json:"errorMessage,omitempty"`
+}
+
+// ListNamespacesFilter contains optional filter parameters for ListNamespaces.
+type ListNamespacesFilter struct {
+	Type string
+	Name string
+}
+
+// ListServicesFilter contains optional filter parameters for ListServices.
+type ListServicesFilter struct {
+	NamespaceID string
+}
+
+// ListOperationsFilter contains optional filter parameters for ListOperations.
+type ListOperationsFilter struct {
+	Status string
+	Type   string
 }
 
 // InMemoryBackend is the in-memory Cloud Map backend.
@@ -96,19 +196,21 @@ type InMemoryBackend struct {
 	services               map[string]*Service
 	instances              map[string]*Instance
 	operations             map[string]*Operation
-	serviceAttributes      map[string]map[string]string // service ID → attributes
-	instanceHealthStatuses map[string]string            // instanceKey → health status
-	nsARNIndex             map[string]string            // ARN → namespace ID
-	svcARNIndex            map[string]string            // ARN → service ID
-	nsNameIndex            map[string]string            // name → namespace ID
+	serviceAttributes      map[string]map[string]string
+	instanceHealthStatuses map[string]string
+	serviceRevisions       map[string]int64
+	instancesByService     map[string]map[string]*Instance
+	svcByNsAndName         map[string]string
+	nsARNIndex             map[string]string
+	svcARNIndex            map[string]string
+	nsNameIndex            map[string]string
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
 	nsCounter              int
 	svcCounter             int
-	instCounter            int
 	opCounter              int
-	revisionCounter        int64
+	deterministicIDs       bool
 }
 
 // NewInMemoryBackend creates a new in-memory Cloud Map backend.
@@ -120,6 +222,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		operations:             make(map[string]*Operation),
 		serviceAttributes:      make(map[string]map[string]string),
 		instanceHealthStatuses: make(map[string]string),
+		serviceRevisions:       make(map[string]int64),
+		instancesByService:     make(map[string]map[string]*Instance),
+		svcByNsAndName:         make(map[string]string),
 		nsARNIndex:             make(map[string]string),
 		svcARNIndex:            make(map[string]string),
 		nsNameIndex:            make(map[string]string),
@@ -143,8 +248,52 @@ func (b *InMemoryBackend) serviceARN(id string) string {
 	return fmt.Sprintf("arn:aws:servicediscovery:%s:%s:service/%s", b.region, b.accountID, id)
 }
 
+const idChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+func (b *InMemoryBackend) nextNsID() string {
+	if b.deterministicIDs {
+		b.nsCounter++
+		return fmt.Sprintf("ns-%026d", b.nsCounter)
+	}
+
+	return "ns-" + randAlnum(26)
+}
+
+func (b *InMemoryBackend) nextSvcID() string {
+	if b.deterministicIDs {
+		b.svcCounter++
+		return fmt.Sprintf("srv-%025d", b.svcCounter)
+	}
+
+	return "srv-" + randAlnum(26)
+}
+
+func (b *InMemoryBackend) nextOpID() string {
+	b.opCounter++
+
+	return fmt.Sprintf("op-%08d", b.opCounter)
+}
+
+func randAlnum(n int) string {
+	buf := make([]byte, n)
+	for i := range buf {
+		buf[i] = idChars[rand.Intn(len(idChars))] //nolint:gosec
+	}
+
+	return string(buf)
+}
+
+// syntheticHostedZoneID generates a synthetic Route53 hosted zone ID for DNS namespaces.
+func syntheticHostedZoneID() string {
+	return "Z" + strings.ToUpper(randAlnum(8))
+}
+
 // createNamespace is the internal helper used by all three create-namespace operations.
-func (b *InMemoryBackend) createNamespace(name, nsType, description string, tags map[string]string) (string, error) {
+func (b *InMemoryBackend) createNamespace(
+	name, nsType, description, vpc string,
+	soaTTL int64,
+	tags map[string]string,
+) (string, error) {
 	b.mu.Lock("createNamespace")
 	defer b.mu.Unlock()
 
@@ -152,31 +301,52 @@ func (b *InMemoryBackend) createNamespace(name, nsType, description string, tags
 		return "", fmt.Errorf("%w: namespace %s already exists", ErrNamespaceAlreadyExists, name)
 	}
 
-	b.nsCounter++
-	id := fmt.Sprintf("ns-%08d", b.nsCounter)
+	id := b.nextNsID()
 
+	var props *NamespaceProperties
+	switch nsType {
+	case namespaceTypeDNSPrivate, namespaceTypeDNSPublic:
+		ttl := soaTTL
+		if ttl == 0 {
+			ttl = defaultSOATTL
+		}
+
+		props = &NamespaceProperties{
+			DnsProperties: &DnsProperties{
+				HostedZoneID: syntheticHostedZoneID(),
+				SOA:          &SOA{TTL: ttl},
+			},
+		}
+	case namespaceTypeHTTP:
+		props = &NamespaceProperties{
+			HttpProperties: &HttpProperties{HttpName: name},
+		}
+	}
+
+	now := time.Now()
 	ns := &Namespace{
 		ID:          id,
 		ARN:         b.namespaceARN(id),
 		Name:        name,
 		Type:        nsType,
 		Description: description,
+		VPC:         vpc,
+		Properties:  props,
 		Tags:        copyTags(tags),
-		CreatedAt:   time.Now(),
+		CreatedAt:   now,
 	}
 	b.namespaces[id] = ns
 	b.nsARNIndex[ns.ARN] = id
 	b.nsNameIndex[name] = id
 
-	b.opCounter++
-	opID := fmt.Sprintf("op-%08d", b.opCounter)
-
+	opID := b.nextOpID()
 	b.operations[opID] = &Operation{
 		ID:         opID,
 		Type:       operationTypeCreateNamespace,
 		Status:     operationStatusSuccess,
-		TargetID:   id,
-		TargetType: typeNamespace,
+		Targets:    map[string]string{typeNamespace: id},
+		CreateDate: now,
+		UpdateDate: now,
 	}
 
 	return opID, nil
@@ -184,20 +354,27 @@ func (b *InMemoryBackend) createNamespace(name, nsType, description string, tags
 
 // CreateHTTPNamespace creates an HTTP namespace.
 func (b *InMemoryBackend) CreateHTTPNamespace(name, description string, tags map[string]string) (string, error) {
-	return b.createNamespace(name, namespaceTypeHTTP, description, tags)
+	return b.createNamespace(name, namespaceTypeHTTP, description, "", 0, tags)
 }
 
 // CreatePrivateDNSNamespace creates a private DNS namespace.
-func (b *InMemoryBackend) CreatePrivateDNSNamespace(name, description string, tags map[string]string) (string, error) {
-	return b.createNamespace(name, namespaceTypeDNSPrivate, description, tags)
+// Vpc is required; soaTTL defaults to 15 when zero.
+func (b *InMemoryBackend) CreatePrivateDNSNamespace(name, description, vpc string, soaTTL int64, tags map[string]string) (string, error) {
+	if vpc == "" {
+		return "", fmt.Errorf("%w: Vpc is required for private DNS namespaces", ErrInvalidInput)
+	}
+
+	return b.createNamespace(name, namespaceTypeDNSPrivate, description, vpc, soaTTL, tags)
 }
 
 // CreatePublicDNSNamespace creates a public DNS namespace.
-func (b *InMemoryBackend) CreatePublicDNSNamespace(name, description string, tags map[string]string) (string, error) {
-	return b.createNamespace(name, namespaceTypeDNSPublic, description, tags)
+// soaTTL defaults to 15 when zero.
+func (b *InMemoryBackend) CreatePublicDNSNamespace(name, description string, soaTTL int64, tags map[string]string) (string, error) {
+	return b.createNamespace(name, namespaceTypeDNSPublic, description, "", soaTTL, tags)
 }
 
 // DeleteNamespace deletes a namespace by ID.
+// Returns ResourceInUse if the namespace still has services.
 func (b *InMemoryBackend) DeleteNamespace(id string) (string, error) {
 	b.mu.Lock("DeleteNamespace")
 	defer b.mu.Unlock()
@@ -207,36 +384,25 @@ func (b *InMemoryBackend) DeleteNamespace(id string) (string, error) {
 		return "", fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, id)
 	}
 
+	for _, svc := range b.services {
+		if svc.NamespaceID == id {
+			return "", fmt.Errorf("%w: namespace %s has services; delete them first", ErrResourceInUse, id)
+		}
+	}
+
 	delete(b.nsARNIndex, ns.ARN)
 	delete(b.nsNameIndex, ns.Name)
 	delete(b.namespaces, id)
 
-	// Cascade delete services and their instances.
-	for svcID, svc := range b.services {
-		if svc.NamespaceID == id {
-			delete(b.svcARNIndex, svc.ARN)
-			delete(b.services, svcID)
-			delete(b.serviceAttributes, svcID)
-
-			prefix := svcID + "/"
-			for instKey := range b.instances {
-				if strings.HasPrefix(instKey, prefix) {
-					delete(b.instances, instKey)
-					delete(b.instanceHealthStatuses, instKey)
-				}
-			}
-		}
-	}
-
-	b.opCounter++
-	opID := fmt.Sprintf("op-%08d", b.opCounter)
-
+	now := time.Now()
+	opID := b.nextOpID()
 	b.operations[opID] = &Operation{
 		ID:         opID,
 		Type:       operationTypeDeleteNamespace,
 		Status:     operationStatusSuccess,
-		TargetID:   id,
-		TargetType: typeNamespace,
+		Targets:    map[string]string{typeNamespace: id},
+		CreateDate: now,
+		UpdateDate: now,
 	}
 
 	return opID, nil
@@ -252,23 +418,26 @@ func (b *InMemoryBackend) GetNamespace(id string) (*Namespace, error) {
 		return nil, fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, id)
 	}
 
-	result := *ns
-	result.Tags = copyTags(ns.Tags)
-
-	return &result, nil
+	return copyNamespace(ns), nil
 }
 
-// ListNamespaces returns all namespaces sorted by name.
-func (b *InMemoryBackend) ListNamespaces() []Namespace {
+// ListNamespaces returns all namespaces sorted by name, optionally filtered.
+func (b *InMemoryBackend) ListNamespaces(filter ListNamespacesFilter) []Namespace {
 	b.mu.RLock("ListNamespaces")
 	defer b.mu.RUnlock()
 
 	result := make([]Namespace, 0, len(b.namespaces))
 
 	for _, ns := range b.namespaces {
-		cp := *ns
-		cp.Tags = copyTags(ns.Tags)
-		result = append(result, cp)
+		if filter.Type != "" && ns.Type != filter.Type {
+			continue
+		}
+
+		if filter.Name != "" && ns.Name != filter.Name {
+			continue
+		}
+
+		result = append(result, *copyNamespace(ns))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -280,7 +449,10 @@ func (b *InMemoryBackend) ListNamespaces() []Namespace {
 
 // CreateService creates a new Cloud Map service.
 func (b *InMemoryBackend) CreateService(
-	name, namespaceID, description string,
+	name, namespaceID, description, svcType string,
+	dnsConfig *DnsConfig,
+	hcc *HealthCheckConfig,
+	hccc *HealthCheckCustomConfig,
 	tags map[string]string,
 ) (*Service, error) {
 	b.mu.Lock("CreateService")
@@ -292,29 +464,52 @@ func (b *InMemoryBackend) CreateService(
 		}
 	}
 
-	b.svcCounter++
-	id := fmt.Sprintf("svc-%08d", b.svcCounter)
+	// Derive service type when not explicitly set.
+	resolvedType := svcType
+	if resolvedType == "" && namespaceID != "" {
+		if ns, ok := b.namespaces[namespaceID]; ok {
+			switch ns.Type {
+			case namespaceTypeHTTP:
+				resolvedType = serviceTypeHTTP
+			case namespaceTypeDNSPrivate, namespaceTypeDNSPublic:
+				if dnsConfig != nil {
+					resolvedType = serviceTypeDNSHTTP
+				} else {
+					resolvedType = serviceTypeDNS
+				}
+			}
+		}
+	}
+
+	id := b.nextSvcID()
 
 	svc := &Service{
-		ID:          id,
-		ARN:         b.serviceARN(id),
-		Name:        name,
-		NamespaceID: namespaceID,
-		Description: description,
-		Tags:        copyTags(tags),
-		CreatedAt:   time.Now(),
+		ID:                      id,
+		ARN:                     b.serviceARN(id),
+		Name:                    name,
+		NamespaceID:             namespaceID,
+		Description:             description,
+		Type:                    resolvedType,
+		DnsConfig:               copyDnsConfig(dnsConfig),
+		HealthCheckConfig:       copyHealthCheckConfig(hcc),
+		HealthCheckCustomConfig: copyHealthCheckCustomConfig(hccc),
+		Tags:                    copyTags(tags),
+		CreatedAt:               time.Now(),
 	}
 
 	b.services[id] = svc
 	b.svcARNIndex[svc.ARN] = id
+	b.instancesByService[id] = make(map[string]*Instance)
 
-	cp := *svc
-	cp.Tags = copyTags(svc.Tags)
+	if namespaceID != "" {
+		b.svcByNsAndName[namespaceID+":"+name] = id
+	}
 
-	return &cp, nil
+	return copyService(svc), nil
 }
 
 // DeleteService deletes a service by ID.
+// Returns ResourceInUse if instances are still registered.
 func (b *InMemoryBackend) DeleteService(id string) error {
 	b.mu.Lock("DeleteService")
 	defer b.mu.Unlock()
@@ -324,17 +519,18 @@ func (b *InMemoryBackend) DeleteService(id string) error {
 		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
 	}
 
+	if insts, ok := b.instancesByService[id]; ok && len(insts) > 0 {
+		return fmt.Errorf("%w: service %s has registered instances; deregister them first", ErrResourceInUse, id)
+	}
+
 	delete(b.svcARNIndex, svc.ARN)
 	delete(b.services, id)
 	delete(b.serviceAttributes, id)
+	delete(b.instancesByService, id)
+	delete(b.serviceRevisions, id)
 
-	// Cascade delete all instances for this service.
-	prefix := id + "/"
-	for instKey := range b.instances {
-		if strings.HasPrefix(instKey, prefix) {
-			delete(b.instances, instKey)
-			delete(b.instanceHealthStatuses, instKey)
-		}
+	if svc.NamespaceID != "" {
+		delete(b.svcByNsAndName, svc.NamespaceID+":"+svc.Name)
 	}
 
 	return nil
@@ -350,27 +546,22 @@ func (b *InMemoryBackend) GetService(id string) (*Service, error) {
 		return nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
 	}
 
-	cp := *svc
-	cp.Tags = copyTags(svc.Tags)
-
-	return &cp, nil
+	return copyService(svc), nil
 }
 
-// ListServices returns all services, optionally filtered by namespace ID.
-func (b *InMemoryBackend) ListServices(namespaceID string) []Service {
+// ListServices returns all services, optionally filtered.
+func (b *InMemoryBackend) ListServices(filter ListServicesFilter) []Service {
 	b.mu.RLock("ListServices")
 	defer b.mu.RUnlock()
 
 	result := make([]Service, 0, len(b.services))
 
 	for _, svc := range b.services {
-		if namespaceID != "" && svc.NamespaceID != namespaceID {
+		if filter.NamespaceID != "" && svc.NamespaceID != filter.NamespaceID {
 			continue
 		}
 
-		cp := *svc
-		cp.Tags = copyTags(svc.Tags)
-		result = append(result, cp)
+		result = append(result, *copyService(svc))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -389,26 +580,31 @@ func (b *InMemoryBackend) RegisterInstance(serviceID, instanceID string, attrs m
 		return "", fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
-	b.instCounter++
 	key := instanceKey(serviceID, instanceID)
 
-	b.instances[key] = &Instance{
+	inst := &Instance{
 		ID:         instanceID,
 		ServiceID:  serviceID,
 		Attributes: copyAttrs(attrs),
 	}
+	b.instances[key] = inst
 
-	b.revisionCounter++
+	if b.instancesByService[serviceID] == nil {
+		b.instancesByService[serviceID] = make(map[string]*Instance)
+	}
 
-	b.opCounter++
-	opID := fmt.Sprintf("op-%08d", b.opCounter)
+	b.instancesByService[serviceID][instanceID] = inst
+	b.serviceRevisions[serviceID]++
 
+	now := time.Now()
+	opID := b.nextOpID()
 	b.operations[opID] = &Operation{
 		ID:         opID,
 		Type:       operationTypeRegisterInstance,
 		Status:     operationStatusSuccess,
-		TargetID:   instanceID,
-		TargetType: "INSTANCE",
+		Targets:    map[string]string{typeInstance: instanceID, typeService: serviceID},
+		CreateDate: now,
+		UpdateDate: now,
 	}
 
 	return opID, nil
@@ -427,17 +623,21 @@ func (b *InMemoryBackend) DeregisterInstance(serviceID, instanceID string) (stri
 	delete(b.instances, key)
 	delete(b.instanceHealthStatuses, key)
 
-	b.revisionCounter++
+	if insts, ok := b.instancesByService[serviceID]; ok {
+		delete(insts, instanceID)
+	}
 
-	b.opCounter++
-	opID := fmt.Sprintf("op-%08d", b.opCounter)
+	b.serviceRevisions[serviceID]++
 
+	now := time.Now()
+	opID := b.nextOpID()
 	b.operations[opID] = &Operation{
 		ID:         opID,
 		Type:       operationTypeDeregisterInstance,
 		Status:     operationStatusSuccess,
-		TargetID:   instanceID,
-		TargetType: "INSTANCE",
+		Targets:    map[string]string{typeInstance: instanceID, typeService: serviceID},
+		CreateDate: now,
+		UpdateDate: now,
 	}
 
 	return opID, nil
@@ -470,15 +670,13 @@ func (b *InMemoryBackend) ListInstances(serviceID string) ([]Instance, error) {
 		return nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
-	result := make([]Instance, 0, len(b.instances))
-	prefix := serviceID + "/"
+	insts := b.instancesByService[serviceID]
+	result := make([]Instance, 0, len(insts))
 
-	for key, inst := range b.instances {
-		if strings.HasPrefix(key, prefix) {
-			cp := *inst
-			cp.Attributes = copyAttrs(inst.Attributes)
-			result = append(result, cp)
-		}
+	for _, inst := range insts {
+		cp := *inst
+		cp.Attributes = copyAttrs(inst.Attributes)
+		result = append(result, cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -488,55 +686,31 @@ func (b *InMemoryBackend) ListInstances(serviceID string) ([]Instance, error) {
 	return result, nil
 }
 
-// DiscoverInstances returns instances matching filters.
+// DiscoverInstances returns discovered instances with full per-instance metadata.
+// Also returns the per-service revision counter.
 func (b *InMemoryBackend) DiscoverInstances(
 	namespaceName, serviceName, healthStatus string,
 	queryParams map[string]string,
-) ([]Instance, error) {
+) ([]DiscoveredInstance, int64, error) {
 	b.mu.RLock("DiscoverInstances")
 	defer b.mu.RUnlock()
 
 	nsID, ok := b.nsNameIndex[namespaceName]
 	if !ok {
-		return []Instance{}, nil
+		return []DiscoveredInstance{}, 0, nil
 	}
 
-	svcID := b.findServiceID(nsID, serviceName)
-	if svcID == "" {
-		return []Instance{}, nil
+	svcID, ok := b.svcByNsAndName[nsID+":"+serviceName]
+	if !ok {
+		return []DiscoveredInstance{}, 0, nil
 	}
 
-	result := b.collectInstances(svcID, healthStatus, queryParams)
+	revision := b.serviceRevisions[svcID]
+	insts := b.instancesByService[svcID]
+	result := make([]DiscoveredInstance, 0, len(insts))
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].ID < result[j].ID
-	})
-
-	return result, nil
-}
-
-// findServiceID returns the service ID matching the given namespace and service name.
-// Caller must hold at least a read lock.
-func (b *InMemoryBackend) findServiceID(nsID, serviceName string) string {
-	for _, svc := range b.services {
-		if svc.NamespaceID == nsID && svc.Name == serviceName {
-			return svc.ID
-		}
-	}
-
-	return ""
-}
-
-// collectInstances collects and filters instances for a given service.
-// Caller must hold at least a read lock.
-func (b *InMemoryBackend) collectInstances(svcID, healthStatus string, queryParams map[string]string) []Instance {
-	result := make([]Instance, 0, len(b.instances))
-	prefix := svcID + "/"
-
-	for key, inst := range b.instances {
-		if !strings.HasPrefix(key, prefix) {
-			continue
-		}
+	for instID, inst := range insts {
+		key := instanceKey(svcID, instID)
 
 		if !b.instanceMatchesHealth(key, healthStatus) {
 			continue
@@ -546,12 +720,25 @@ func (b *InMemoryBackend) collectInstances(svcID, healthStatus string, queryPara
 			continue
 		}
 
-		cp := *inst
-		cp.Attributes = copyAttrs(inst.Attributes)
-		result = append(result, cp)
+		hs := b.instanceHealthStatuses[key]
+		if hs == "" {
+			hs = instanceHealthStatusHealthy
+		}
+
+		result = append(result, DiscoveredInstance{
+			InstanceID:    inst.ID,
+			NamespaceName: namespaceName,
+			ServiceName:   serviceName,
+			HealthStatus:  hs,
+			Attributes:    copyAttrs(inst.Attributes),
+		})
 	}
 
-	return result
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].InstanceID < result[j].InstanceID
+	})
+
+	return result, revision, nil
 }
 
 // instanceMatchesHealth returns true when the instance matches the health filter.
@@ -582,7 +769,7 @@ func instanceMatchesQueryParams(inst *Instance, queryParams map[string]string) b
 }
 
 // GetInstancesHealthStatus returns the health status for instances in a service.
-// If instanceIDs is non-empty, only those instances are included in the result.
+// If instanceIDs is non-empty, only those instances are included.
 // Instances without a recorded status default to HEALTHY.
 func (b *InMemoryBackend) GetInstancesHealthStatus(serviceID string, instanceIDs []string) (map[string]string, error) {
 	b.mu.RLock("GetInstancesHealthStatus")
@@ -598,25 +785,22 @@ func (b *InMemoryBackend) GetInstancesHealthStatus(serviceID string, instanceIDs
 	}
 
 	statuses := make(map[string]string)
-	prefix := serviceID + "/"
+	insts := b.instancesByService[serviceID]
 
-	for key, inst := range b.instances {
-		if !strings.HasPrefix(key, prefix) {
-			continue
-		}
-
+	for instID := range insts {
 		if len(filter) > 0 {
-			if _, ok := filter[inst.ID]; !ok {
+			if _, ok := filter[instID]; !ok {
 				continue
 			}
 		}
 
+		key := instanceKey(serviceID, instID)
 		status := b.instanceHealthStatuses[key]
 		if status == "" {
 			status = instanceHealthStatusHealthy
 		}
 
-		statuses[inst.ID] = status
+		statuses[instID] = status
 	}
 
 	return statuses, nil
@@ -632,20 +816,28 @@ func (b *InMemoryBackend) GetOperation(id string) (*Operation, error) {
 		return nil, fmt.Errorf("%w: operation %s not found", ErrOperationNotFound, id)
 	}
 
-	cp := *op
+	cp := copyOperation(op)
 
 	return &cp, nil
 }
 
-// ListOperations returns all operations sorted by ID.
-func (b *InMemoryBackend) ListOperations() []Operation {
+// ListOperations returns all operations sorted by ID, optionally filtered.
+func (b *InMemoryBackend) ListOperations(filter ListOperationsFilter) []Operation {
 	b.mu.RLock("ListOperations")
 	defer b.mu.RUnlock()
 
 	result := make([]Operation, 0, len(b.operations))
 
 	for _, op := range b.operations {
-		result = append(result, *op)
+		if filter.Status != "" && op.Status != filter.Status {
+			continue
+		}
+
+		if filter.Type != "" && op.Type != filter.Type {
+			continue
+		}
+
+		result = append(result, copyOperation(op))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -756,22 +948,22 @@ func (b *InMemoryBackend) updateNamespace(id, nsType, description string) (strin
 
 	ns.Description = description
 
-	b.opCounter++
-	opID := fmt.Sprintf("op-%08d", b.opCounter)
-
+	now := time.Now()
+	opID := b.nextOpID()
 	b.operations[opID] = &Operation{
 		ID:         opID,
 		Type:       operationTypeUpdateNamespace,
 		Status:     operationStatusSuccess,
-		TargetID:   id,
-		TargetType: typeNamespace,
+		Targets:    map[string]string{typeNamespace: id},
+		CreateDate: now,
+		UpdateDate: now,
 	}
 
 	return opID, nil
 }
 
-// UpdateService updates the description of a service.
-func (b *InMemoryBackend) UpdateService(id, description string) (*Service, error) {
+// UpdateService updates the description and optionally DnsConfig/HealthCheckConfig of a service.
+func (b *InMemoryBackend) UpdateService(id, description string, dnsConfig *DnsConfig, hcc *HealthCheckConfig) (*Service, error) {
 	b.mu.Lock("UpdateService")
 	defer b.mu.Unlock()
 
@@ -782,21 +974,34 @@ func (b *InMemoryBackend) UpdateService(id, description string) (*Service, error
 
 	svc.Description = description
 
-	b.opCounter++
-	opID := fmt.Sprintf("op-%08d", b.opCounter)
+	if dnsConfig != nil && len(dnsConfig.DnsRecords) > 0 {
+		if svc.DnsConfig == nil {
+			svc.DnsConfig = &DnsConfig{}
+		}
 
+		for i, newRec := range dnsConfig.DnsRecords {
+			if i < len(svc.DnsConfig.DnsRecords) {
+				svc.DnsConfig.DnsRecords[i].TTL = newRec.TTL
+			}
+		}
+	}
+
+	if hcc != nil {
+		svc.HealthCheckConfig = copyHealthCheckConfig(hcc)
+	}
+
+	now := time.Now()
+	opID := b.nextOpID()
 	b.operations[opID] = &Operation{
 		ID:         opID,
 		Type:       operationTypeUpdateService,
 		Status:     operationStatusSuccess,
-		TargetID:   id,
-		TargetType: "SERVICE",
+		Targets:    map[string]string{typeService: id},
+		CreateDate: now,
+		UpdateDate: now,
 	}
 
-	cp := *svc
-	cp.Tags = copyTags(svc.Tags)
-
-	return &cp, nil
+	return copyService(svc), nil
 }
 
 // GetServiceAttributes returns the custom attributes for a service.
@@ -854,6 +1059,7 @@ func (b *InMemoryBackend) DeleteServiceAttributes(serviceID string) error {
 }
 
 // UpdateInstanceCustomHealthStatus sets a custom health status for an instance.
+// Returns CustomHealthNotFound if the service has no HealthCheckCustomConfig.
 func (b *InMemoryBackend) UpdateInstanceCustomHealthStatus(serviceID, instanceID, status string) error {
 	b.mu.Lock("UpdateInstanceCustomHealthStatus")
 	defer b.mu.Unlock()
@@ -867,6 +1073,15 @@ func (b *InMemoryBackend) UpdateInstanceCustomHealthStatus(serviceID, instanceID
 		)
 	}
 
+	svc, ok := b.services[serviceID]
+	if !ok {
+		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
+	}
+
+	if svc.HealthCheckCustomConfig == nil {
+		return fmt.Errorf("%w: service %s has no HealthCheckCustomConfig", ErrCustomHealthNotFound, serviceID)
+	}
+
 	key := instanceKey(serviceID, instanceID)
 	if _, ok := b.instances[key]; !ok {
 		return fmt.Errorf("%w: instance %s in service %s not found", ErrInstanceNotFound, instanceID, serviceID)
@@ -877,8 +1092,8 @@ func (b *InMemoryBackend) UpdateInstanceCustomHealthStatus(serviceID, instanceID
 	return nil
 }
 
-// DiscoverInstancesRevision returns the current revision number for instance discovery
-// in the given namespace/service combination, incremented each time instances change.
+// DiscoverInstancesRevision returns the current revision for the specified service.
+// Revision is per-service, incremented on each RegisterInstance/DeregisterInstance.
 func (b *InMemoryBackend) DiscoverInstancesRevision(namespaceName, serviceName string) (int64, error) {
 	b.mu.RLock("DiscoverInstancesRevision")
 	defer b.mu.RUnlock()
@@ -888,21 +1103,12 @@ func (b *InMemoryBackend) DiscoverInstancesRevision(namespaceName, serviceName s
 		return 0, fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, namespaceName)
 	}
 
-	var found bool
-
-	for _, svc := range b.services {
-		if svc.NamespaceID == nsID && svc.Name == serviceName {
-			found = true
-
-			break
-		}
-	}
-
-	if !found {
+	svcID, ok := b.svcByNsAndName[nsID+":"+serviceName]
+	if !ok {
 		return 0, fmt.Errorf("%w: service %s not found in namespace %s", ErrServiceNotFound, serviceName, namespaceName)
 	}
 
-	return b.revisionCounter, nil
+	return b.serviceRevisions[svcID], nil
 }
 
 // instanceKey creates a unique key for storing instances.
@@ -910,22 +1116,222 @@ func instanceKey(serviceID, instanceID string) string {
 	return serviceID + "/" + instanceID
 }
 
-// copyTags returns a shallow copy of a tag map.
+// copyTags returns a shallow copy of a tag map, or nil when input is nil/empty.
 func copyTags(tags map[string]string) map[string]string {
-	if tags == nil {
-		return make(map[string]string)
+	if len(tags) == 0 {
+		return nil
 	}
 
 	cp := make(map[string]string, len(tags))
-
 	maps.Copy(cp, tags)
 
 	return cp
 }
 
-// copyAttrs returns a shallow copy of an attributes map.
+// copyAttrs returns a shallow copy of an attributes map, or nil when input is nil/empty.
 func copyAttrs(attrs map[string]string) map[string]string {
 	return copyTags(attrs)
+}
+
+func copyDnsConfig(dc *DnsConfig) *DnsConfig {
+	if dc == nil {
+		return nil
+	}
+
+	cp := *dc
+
+	if len(dc.DnsRecords) > 0 {
+		cp.DnsRecords = make([]DnsRecord, len(dc.DnsRecords))
+		copy(cp.DnsRecords, dc.DnsRecords)
+	}
+
+	return &cp
+}
+
+func copyHealthCheckConfig(hcc *HealthCheckConfig) *HealthCheckConfig {
+	if hcc == nil {
+		return nil
+	}
+
+	cp := *hcc
+
+	return &cp
+}
+
+func copyHealthCheckCustomConfig(hccc *HealthCheckCustomConfig) *HealthCheckCustomConfig {
+	if hccc == nil {
+		return nil
+	}
+
+	cp := *hccc
+
+	return &cp
+}
+
+func copyNamespace(ns *Namespace) *Namespace {
+	cp := *ns
+	cp.Tags = copyTags(ns.Tags)
+
+	if ns.Properties != nil {
+		props := *ns.Properties
+
+		if ns.Properties.DnsProperties != nil {
+			dp := *ns.Properties.DnsProperties
+
+			if ns.Properties.DnsProperties.SOA != nil {
+				soa := *ns.Properties.DnsProperties.SOA
+				dp.SOA = &soa
+			}
+
+			props.DnsProperties = &dp
+		}
+
+		if ns.Properties.HttpProperties != nil {
+			hp := *ns.Properties.HttpProperties
+			props.HttpProperties = &hp
+		}
+
+		cp.Properties = &props
+	}
+
+	return &cp
+}
+
+func copyService(svc *Service) *Service {
+	cp := *svc
+	cp.Tags = copyTags(svc.Tags)
+	cp.DnsConfig = copyDnsConfig(svc.DnsConfig)
+	cp.HealthCheckConfig = copyHealthCheckConfig(svc.HealthCheckConfig)
+	cp.HealthCheckCustomConfig = copyHealthCheckCustomConfig(svc.HealthCheckCustomConfig)
+
+	return &cp
+}
+
+func copyOperation(op *Operation) Operation {
+	cp := *op
+
+	if len(op.Targets) > 0 {
+		cp.Targets = make(map[string]string, len(op.Targets))
+		maps.Copy(cp.Targets, op.Targets)
+	}
+
+	return cp
+}
+
+// encodeCursor encodes an integer offset as an opaque NextToken.
+func encodeCursor(offset int) string {
+	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%d", offset)))
+}
+
+// decodeCursor decodes an opaque NextToken to an integer offset.
+func decodeCursor(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	b, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return 0
+	}
+
+	var offset int
+
+	fmt.Sscanf(string(b), "%d", &offset) //nolint:errcheck
+
+	return offset
+}
+
+func applyPaginationNamespaces(items []Namespace, nextToken string, maxResults int) ([]Namespace, string) {
+	if maxResults <= 0 || maxResults > maxResultsCap {
+		maxResults = maxResultsDefault
+	}
+
+	offset := decodeCursor(nextToken)
+	if offset >= len(items) {
+		return nil, ""
+	}
+
+	end := offset + maxResults
+
+	var newToken string
+
+	if end < len(items) {
+		newToken = encodeCursor(end)
+		end = end
+	} else {
+		end = len(items)
+	}
+
+	return items[offset:end], newToken
+}
+
+func applyPaginationServices(items []Service, nextToken string, maxResults int) ([]Service, string) {
+	if maxResults <= 0 || maxResults > maxResultsCap {
+		maxResults = maxResultsDefault
+	}
+
+	offset := decodeCursor(nextToken)
+	if offset >= len(items) {
+		return nil, ""
+	}
+
+	end := offset + maxResults
+
+	var newToken string
+
+	if end < len(items) {
+		newToken = encodeCursor(end)
+	} else {
+		end = len(items)
+	}
+
+	return items[offset:end], newToken
+}
+
+func applyPaginationInstances(items []Instance, nextToken string, maxResults int) ([]Instance, string) {
+	if maxResults <= 0 || maxResults > maxResultsCap {
+		maxResults = maxResultsDefault
+	}
+
+	offset := decodeCursor(nextToken)
+	if offset >= len(items) {
+		return nil, ""
+	}
+
+	end := offset + maxResults
+
+	var newToken string
+
+	if end < len(items) {
+		newToken = encodeCursor(end)
+	} else {
+		end = len(items)
+	}
+
+	return items[offset:end], newToken
+}
+
+func applyPaginationOperations(items []Operation, nextToken string, maxResults int) ([]Operation, string) {
+	if maxResults <= 0 || maxResults > maxResultsCap {
+		maxResults = maxResultsDefault
+	}
+
+	offset := decodeCursor(nextToken)
+	if offset >= len(items) {
+		return nil, ""
+	}
+
+	end := offset + maxResults
+
+	var newToken string
+
+	if end < len(items) {
+		newToken = encodeCursor(end)
+	} else {
+		end = len(items)
+	}
+
+	return items[offset:end], newToken
 }
 
 // Reset clears all backend state, resetting to an empty store.
@@ -939,12 +1345,13 @@ func (b *InMemoryBackend) Reset() {
 	b.operations = make(map[string]*Operation)
 	b.serviceAttributes = make(map[string]map[string]string)
 	b.instanceHealthStatuses = make(map[string]string)
+	b.serviceRevisions = make(map[string]int64)
+	b.instancesByService = make(map[string]map[string]*Instance)
+	b.svcByNsAndName = make(map[string]string)
 	b.nsARNIndex = make(map[string]string)
 	b.svcARNIndex = make(map[string]string)
 	b.nsNameIndex = make(map[string]string)
 	b.nsCounter = 0
 	b.svcCounter = 0
-	b.instCounter = 0
 	b.opCounter = 0
-	b.revisionCounter = 0
 }
