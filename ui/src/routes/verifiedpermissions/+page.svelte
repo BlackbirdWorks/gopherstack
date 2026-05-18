@@ -743,6 +743,7 @@
 				{:else}
 					<div class="space-y-2">
 						{#each filteredStores as store}
+							{@const storeX = store as unknown as { description?: string; validationSettings?: { mode?: string }; deletionProtection?: string }}
 							<div
 								class="rounded-lg bg-gray-50 dark:bg-slate-700/50 {selectedStoreId === store.policyStoreId ? 'ring-2 ring-green-500' : ''}"
 							>
@@ -757,7 +758,6 @@
 												{store.policyStoreId}
 											</p>
 											<p class="text-xs text-gray-500 dark:text-gray-400">{store.arn}</p>
-											{@const storeX = store as unknown as { description?: string; validationSettings?: { mode?: string }; deletionProtection?: string }}
 											{#if storeX.description}
 												<p class="text-xs text-gray-400 italic">
 													{storeX.description}
@@ -960,9 +960,9 @@
 											</p>
 											{#if src.configuration}
 												{#if 'cognitoUserPoolConfiguration' in src.configuration}
-													<p class="text-xs text-gray-400">Cognito: {src.configuration.cognitoUserPoolConfiguration.userPoolArn}</p>
+													<p class="text-xs text-gray-400">Cognito: {src.configuration.cognitoUserPoolConfiguration?.userPoolArn}</p>
 												{:else if 'openIdConnectConfiguration' in src.configuration}
-													<p class="text-xs text-gray-400">OIDC: {src.configuration.openIdConnectConfiguration.issuer}</p>
+													<p class="text-xs text-gray-400">OIDC: {src.configuration.openIdConnectConfiguration?.issuer}</p>
 												{/if}
 											{/if}
 										</div>

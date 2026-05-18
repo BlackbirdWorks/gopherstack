@@ -103,8 +103,8 @@ const (
 
 	// upgradeProgressComplete is the 100% progress value for a completed upgrade step.
 	upgradeProgressComplete = float64(100)
-	// autoTuneScheduleHours is the look-ahead duration in hours for the next auto-tune window.
-	autoTuneScheduleHours = 24 * time.Hour
+	// autoTuneScheduleLookahead is the look-ahead duration for the next auto-tune window.
+	autoTuneScheduleLookahead = 24 * time.Hour
 	// maxDataNodesR6gLarge is the max data-node count for r6g.large.search.
 	maxDataNodesR6gLarge = 40
 	// maxDataNodesR6gXLarge is the max data-node count for r6g.xlarge.search.
@@ -260,7 +260,7 @@ func (b *InMemoryBackend) GetAutoTune(domainName string) ([]*AutoTune, error) {
 			AutoTuneType: "SCHEDULED",
 			AutoTuneDetails: AutoTuneDetails{
 				ScheduledAutoTuneDetails: ScheduledAutoTuneDetails{
-					Date:       float64(time.Now().Add(autoTuneScheduleHours).Unix()),
+					Date:       float64(time.Now().Add(autoTuneScheduleLookahead).Unix()),
 					ActionType: "JVM_HEAP_SIZE_TUNING",
 					Action:     "Increase JVM heap size to improve performance",
 					Severity:   "LOW",
