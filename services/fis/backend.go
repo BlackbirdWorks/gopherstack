@@ -1334,9 +1334,9 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 	b.setAllActionStatuses(expID, actionStatusInitiating)
 
 	initiatingTimer := time.NewTimer(lifecycleDelay)
+	defer initiatingTimer.Stop()
 	select {
 	case <-ctx.Done():
-		initiatingTimer.Stop()
 		b.cleanupActions(nil, expID, statusStopped, actionStatusCancelled)
 
 		return
@@ -1380,9 +1380,9 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 		b.setAllActionStatuses(expID, actionStatusCompleting)
 
 		completingTimer := time.NewTimer(lifecycleDelay)
+		defer completingTimer.Stop()
 		select {
 		case <-ctx.Done():
-			completingTimer.Stop()
 			b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
 
 			return
@@ -1408,9 +1408,9 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 		b.setAllActionStatuses(expID, actionStatusCompleting)
 
 		finalTimer := time.NewTimer(lifecycleDelay)
+		defer finalTimer.Stop()
 		select {
 		case <-ctx.Done():
-			finalTimer.Stop()
 			b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
 		case <-finalTimer.C:
 			b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
