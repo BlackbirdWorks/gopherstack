@@ -548,11 +548,9 @@
 									</div>
 								</div>
 								<span
-									class="text-xs px-2 py-1 rounded-full {pipeline.PipelineStatus === 'Active'
-										? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-										: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
+									class="text-xs px-2 py-1 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
 								>
-									{pipeline.PipelineStatus ?? 'Unknown'}
+									Active
 								</span>
 							</div>
 						{/each}
