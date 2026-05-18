@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -251,10 +252,28 @@ type transcriptOutput struct {
 }
 
 type transcriptionJobOutput struct {
-	Transcript             transcriptOutput `json:"Transcript"`
-	TranscriptionJobName   string           `json:"TranscriptionJobName"`
-	TranscriptionJobStatus string           `json:"TranscriptionJobStatus"`
-	LanguageCode           string           `json:"LanguageCode"`
+	Tags                      map[string]string           `json:"Tags,omitempty"`
+	Settings                  *TranscriptionSettings      `json:"Settings,omitempty"`
+	ModelSettings             *ModelSettings              `json:"ModelSettings,omitempty"`
+	ContentRedaction          *ContentRedaction           `json:"ContentRedaction,omitempty"`
+	Subtitles                 *SubtitlesOutput            `json:"Subtitles,omitempty"`
+	Transcript                transcriptOutput            `json:"Transcript"`
+	CreationTime              *string                     `json:"CreationTime,omitempty"`
+	StartTime                 *string                     `json:"StartTime,omitempty"`
+	CompletionTime            *string                     `json:"CompletionTime,omitempty"`
+	TranscriptionJobName      string                      `json:"TranscriptionJobName"`
+	TranscriptionJobStatus    string                      `json:"TranscriptionJobStatus"`
+	LanguageCode              string                      `json:"LanguageCode,omitempty"`
+	MediaFormat               string                      `json:"MediaFormat,omitempty"`
+	OutputBucketName          string                      `json:"OutputBucketName,omitempty"`
+	OutputKey                 string                      `json:"OutputKey,omitempty"`
+	FailureReason             string                      `json:"FailureReason,omitempty"`
+	LanguageOptions           []string                    `json:"LanguageOptions,omitempty"`
+	ToxicityDetection         []ToxicityDetectionSettings `json:"ToxicityDetection,omitempty"`
+	IdentifiedLanguageScore   float32                     `json:"IdentifiedLanguageScore,omitempty"`
+	MediaSampleRateHertz      int32                       `json:"MediaSampleRateHertz,omitempty"`
+	IdentifyLanguage          bool                        `json:"IdentifyLanguage,omitempty"`
+	IdentifyMultipleLanguages bool                        `json:"IdentifyMultipleLanguages,omitempty"`
 }
 
 type startTranscriptionJobOutput struct {
@@ -265,35 +284,62 @@ type getTranscriptionJobOutput struct {
 	TranscriptionJob transcriptionJobOutput `json:"TranscriptionJob"`
 }
 
-// transcribeMedia holds the media file URI for a transcription job request.
-type transcribeMedia struct {
-	MediaFileURI string `json:"MediaFileUri"`
-}
-
 type handleStartTranscriptionJobInput struct {
-	TranscriptionJobName string          `json:"TranscriptionJobName"`
-	LanguageCode         string          `json:"LanguageCode"`
-	Media                transcribeMedia `json:"Media"`
+	Settings                  *TranscriptionSettings      `json:"Settings"`
+	Tags                      map[string]string           `json:"Tags"`
+	Subtitles                 *SubtitlesInput             `json:"Subtitles"`
+	ContentRedaction          *ContentRedaction           `json:"ContentRedaction"`
+	ModelSettings             *ModelSettings              `json:"ModelSettings"`
+	Media                     Media                       `json:"Media"`
+	MediaFormat               string                      `json:"MediaFormat"`
+	OutputEncryptionKMSKeyID  string                      `json:"OutputEncryptionKMSKeyID"`
+	OutputKey                 string                      `json:"OutputKey"`
+	OutputBucketName          string                      `json:"OutputBucketName"`
+	TranscriptionJobName      string                      `json:"TranscriptionJobName"`
+	LanguageCode              string                      `json:"LanguageCode"`
+	LanguageOptions           []string                    `json:"LanguageOptions"`
+	ToxicityDetection         []ToxicityDetectionSettings `json:"ToxicityDetection"`
+	MediaSampleRateHertz      int32                       `json:"MediaSampleRateHertz"`
+	IdentifyMultipleLanguages bool                        `json:"IdentifyMultipleLanguages"`
+	IdentifyLanguage          bool                        `json:"IdentifyLanguage"`
 }
 
 func (h *Handler) handleStartTranscriptionJob(
 	_ context.Context,
 	in *handleStartTranscriptionJobInput,
 ) (*startTranscriptionJobOutput, error) {
-	job, err := h.Backend.StartTranscriptionJob(in.TranscriptionJobName, in.LanguageCode, in.Media.MediaFileURI)
+	subtitlesOut := (*SubtitlesOutput)(nil)
+	if in.Subtitles != nil {
+		subtitlesOut = &SubtitlesOutput{Formats: in.Subtitles.Formats, OutputStartIndex: in.Subtitles.OutputStartIndex}
+	}
+
+	job, err := h.Backend.StartTranscriptionJob(&TranscriptionJob{
+		JobName:                   in.TranscriptionJobName,
+		LanguageCode:              in.LanguageCode,
+		Media:                     in.Media,
+		MediaFormat:               in.MediaFormat,
+		MediaSampleRateHertz:      in.MediaSampleRateHertz,
+		OutputBucketName:          in.OutputBucketName,
+		OutputKey:                 in.OutputKey,
+		OutputEncryptionKMSKeyID:  in.OutputEncryptionKMSKeyID,
+		Settings:                  in.Settings,
+		ModelSettings:             in.ModelSettings,
+		ContentRedaction:          in.ContentRedaction,
+		Subtitles:                 subtitlesOut,
+		IdentifyLanguage:          in.IdentifyLanguage,
+		IdentifyMultipleLanguages: in.IdentifyMultipleLanguages,
+		LanguageOptions:           in.LanguageOptions,
+		ToxicityDetection:         in.ToxicityDetection,
+		Tags:                      in.Tags,
+	})
 	if err != nil {
 		return nil, err
 	}
 
+	transcriptURI := buildTranscriptURI(job)
+
 	return &startTranscriptionJobOutput{
-		TranscriptionJob: transcriptionJobOutput{
-			TranscriptionJobName:   job.JobName,
-			TranscriptionJobStatus: job.JobStatus,
-			LanguageCode:           job.LanguageCode,
-			Transcript: transcriptOutput{
-				TranscriptFileURI: "s3://synthetic-transcripts/" + job.JobName + ".json",
-			},
-		},
+		TranscriptionJob: buildTranscriptionJobOutput(job, transcriptURI),
 	}, nil
 }
 
@@ -306,23 +352,81 @@ func (h *Handler) handleGetTranscriptionJob(
 		return nil, err
 	}
 
+	transcriptURI := buildTranscriptURI(job)
+
 	return &getTranscriptionJobOutput{
-		TranscriptionJob: transcriptionJobOutput{
-			TranscriptionJobName:   job.JobName,
-			TranscriptionJobStatus: job.JobStatus,
-			LanguageCode:           job.LanguageCode,
-			Transcript: transcriptOutput{
-				TranscriptFileURI:         "s3://synthetic-transcripts/" + job.JobName + ".json",
-				RedactedTranscriptFileURI: nil,
-			},
-		},
+		TranscriptionJob: buildTranscriptionJobOutput(job, transcriptURI),
 	}, nil
 }
 
+func buildTranscriptURI(job *TranscriptionJob) string {
+	if job.OutputBucketName != "" {
+		key := job.OutputKey
+		if key == "" {
+			key = job.JobName + ".json"
+		}
+
+		return "s3://" + job.OutputBucketName + "/" + key
+	}
+
+	return "s3://synthetic-transcripts/" + job.JobName + ".json"
+}
+
+func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) transcriptionJobOutput {
+	out := transcriptionJobOutput{
+		TranscriptionJobName:      job.JobName,
+		TranscriptionJobStatus:    job.JobStatus,
+		LanguageCode:              job.LanguageCode,
+		MediaFormat:               job.MediaFormat,
+		MediaSampleRateHertz:      job.MediaSampleRateHertz,
+		OutputBucketName:          job.OutputBucketName,
+		OutputKey:                 job.OutputKey,
+		FailureReason:             job.FailureReason,
+		Settings:                  job.Settings,
+		ModelSettings:             job.ModelSettings,
+		ContentRedaction:          job.ContentRedaction,
+		Subtitles:                 job.Subtitles,
+		IdentifyLanguage:          job.IdentifyLanguage,
+		IdentifyMultipleLanguages: job.IdentifyMultipleLanguages,
+		LanguageOptions:           job.LanguageOptions,
+		ToxicityDetection:         job.ToxicityDetection,
+		IdentifiedLanguageScore:   job.IdentifiedLanguageScore,
+		Tags:                      job.Tags,
+		Transcript: transcriptOutput{
+			TranscriptFileURI: transcriptURI,
+		},
+	}
+
+	if job.ContentRedaction != nil {
+		redacted := "s3://synthetic-transcripts/" + job.JobName + "-redacted.json"
+		out.Transcript.RedactedTranscriptFileURI = &redacted
+	}
+
+	if !job.CreationTime.IsZero() {
+		s := job.CreationTime.Format(time.RFC3339)
+		out.CreationTime = &s
+	}
+
+	if !job.StartTime.IsZero() {
+		s := job.StartTime.Format(time.RFC3339)
+		out.StartTime = &s
+	}
+
+	if !job.CompletionTime.IsZero() {
+		s := job.CompletionTime.Format(time.RFC3339)
+		out.CompletionTime = &s
+	}
+
+	return out
+}
+
 type transcriptionJobSummary struct {
-	TranscriptionJobName   string `json:"TranscriptionJobName"`
-	TranscriptionJobStatus string `json:"TranscriptionJobStatus"`
-	LanguageCode           string `json:"LanguageCode"`
+	CreationTime           *string `json:"CreationTime,omitempty"`
+	CompletionTime         *string `json:"CompletionTime,omitempty"`
+	TranscriptionJobName   string  `json:"TranscriptionJobName"`
+	TranscriptionJobStatus string  `json:"TranscriptionJobStatus"`
+	LanguageCode           string  `json:"LanguageCode,omitempty"`
+	FailureReason          string  `json:"FailureReason,omitempty"`
 }
 
 type listTranscriptionJobsOutput struct {
@@ -343,11 +447,24 @@ func (h *Handler) handleListTranscriptionJobs(
 
 	summaries := make([]transcriptionJobSummary, 0, len(jobs))
 	for _, j := range jobs {
-		summaries = append(summaries, transcriptionJobSummary{
+		s := transcriptionJobSummary{
 			TranscriptionJobName:   j.JobName,
 			TranscriptionJobStatus: j.JobStatus,
 			LanguageCode:           j.LanguageCode,
-		})
+			FailureReason:          j.FailureReason,
+		}
+
+		if !j.CreationTime.IsZero() {
+			ts := j.CreationTime.Format(time.RFC3339)
+			s.CreationTime = &ts
+		}
+
+		if !j.CompletionTime.IsZero() {
+			ts := j.CompletionTime.Format(time.RFC3339)
+			s.CompletionTime = &ts
+		}
+
+		summaries = append(summaries, s)
 	}
 
 	return &listTranscriptionJobsOutput{
@@ -370,8 +487,9 @@ func (h *Handler) handleDeleteTranscriptionJob(
 // --- CreateCallAnalyticsCategory ---
 
 type createCallAnalyticsCategoryInput struct {
-	CategoryName string `json:"CategoryName"`
-	InputType    string `json:"InputType"`
+	CategoryName string              `json:"CategoryName"`
+	InputType    string              `json:"InputType"`
+	Rules        []CallAnalyticsRule `json:"Rules"`
 }
 
 type callAnalyticsCategoryProperties struct {
@@ -387,7 +505,11 @@ func (h *Handler) handleCreateCallAnalyticsCategory(
 	_ context.Context,
 	in *createCallAnalyticsCategoryInput,
 ) (*createCallAnalyticsCategoryOutput, error) {
-	cat, err := h.Backend.CreateCallAnalyticsCategory(in.CategoryName, in.InputType)
+	cat, err := h.Backend.CreateCallAnalyticsCategory(&CallAnalyticsCategory{
+		CategoryName: in.CategoryName,
+		InputType:    in.InputType,
+		Rules:        in.Rules,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -420,9 +542,10 @@ func (h *Handler) handleDeleteCallAnalyticsCategory(
 // --- CreateLanguageModel ---
 
 type createLanguageModelInput struct {
-	ModelName     string `json:"ModelName"`
-	BaseModelName string `json:"BaseModelName"`
-	LanguageCode  string `json:"LanguageCode"`
+	InputDataConfig *InputDataConfig `json:"InputDataConfig"`
+	ModelName       string           `json:"ModelName"`
+	BaseModelName   string           `json:"BaseModelName"`
+	LanguageCode    string           `json:"LanguageCode"`
 }
 
 type createLanguageModelOutput struct {
@@ -436,7 +559,12 @@ func (h *Handler) handleCreateLanguageModel(
 	_ context.Context,
 	in *createLanguageModelInput,
 ) (*createLanguageModelOutput, error) {
-	m, err := h.Backend.CreateLanguageModel(in.ModelName, in.BaseModelName, in.LanguageCode)
+	m, err := h.Backend.CreateLanguageModel(&LanguageModel{
+		ModelName:       in.ModelName,
+		BaseModelName:   in.BaseModelName,
+		LanguageCode:    in.LanguageCode,
+		InputDataConfig: in.InputDataConfig,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -471,7 +599,7 @@ func (h *Handler) handleDeleteLanguageModel(
 type createMedicalVocabularyInput struct {
 	VocabularyName    string `json:"VocabularyName"`
 	LanguageCode      string `json:"LanguageCode"`
-	VocabularyFileURI string `json:"VocabularyFileUri"`
+	VocabularyFileURI string `json:"VocabularyFileURI"`
 }
 
 type createMedicalVocabularyOutput struct {
@@ -499,8 +627,10 @@ func (h *Handler) handleCreateMedicalVocabulary(
 // --- CreateVocabulary ---
 
 type createVocabularyInput struct {
-	VocabularyName string `json:"VocabularyName"`
-	LanguageCode   string `json:"LanguageCode"`
+	VocabularyName    string   `json:"VocabularyName"`
+	LanguageCode      string   `json:"LanguageCode"`
+	VocabularyFileURI string   `json:"VocabularyFileURI"`
+	Phrases           []string `json:"Phrases"`
 }
 
 type createVocabularyOutput struct {
@@ -513,7 +643,12 @@ func (h *Handler) handleCreateVocabulary(
 	_ context.Context,
 	in *createVocabularyInput,
 ) (*createVocabularyOutput, error) {
-	v, err := h.Backend.CreateVocabulary(in.VocabularyName, in.LanguageCode)
+	v, err := h.Backend.CreateVocabulary(&Vocabulary{
+		VocabularyName:    in.VocabularyName,
+		LanguageCode:      in.LanguageCode,
+		Phrases:           in.Phrases,
+		VocabularyFileURI: in.VocabularyFileURI,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -528,8 +663,10 @@ func (h *Handler) handleCreateVocabulary(
 // --- CreateVocabularyFilter ---
 
 type createVocabularyFilterInput struct {
-	VocabularyFilterName string `json:"VocabularyFilterName"`
-	LanguageCode         string `json:"LanguageCode"`
+	VocabularyFilterName    string   `json:"VocabularyFilterName"`
+	LanguageCode            string   `json:"LanguageCode"`
+	VocabularyFilterFileURI string   `json:"VocabularyFilterFileURI"`
+	Words                   []string `json:"Words"`
 }
 
 type createVocabularyFilterOutput struct {
@@ -541,7 +678,12 @@ func (h *Handler) handleCreateVocabularyFilter(
 	_ context.Context,
 	in *createVocabularyFilterInput,
 ) (*createVocabularyFilterOutput, error) {
-	f, err := h.Backend.CreateVocabularyFilter(in.VocabularyFilterName, in.LanguageCode)
+	f, err := h.Backend.CreateVocabularyFilter(&VocabularyFilter{
+		VocabularyFilterName:    in.VocabularyFilterName,
+		LanguageCode:            in.LanguageCode,
+		Words:                   in.Words,
+		VocabularyFilterFileURI: in.VocabularyFilterFileURI,
+	})
 	if err != nil {
 		return nil, err
 	}

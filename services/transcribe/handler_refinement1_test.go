@@ -70,7 +70,13 @@ func TestRefinement1_ErrValidationSentinel(t *testing.T) {
 	t.Parallel()
 
 	b := transcribe.NewInMemoryBackend()
-	_, err := b.StartTranscriptionJob("", "en-US", "")
+	_, err := b.StartTranscriptionJob(
+		&transcribe.TranscriptionJob{
+			JobName:      "",
+			LanguageCode: "en-US",
+			Media:        transcribe.Media{MediaFileURI: ""},
+		},
+	)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, transcribe.ErrValidation)
@@ -81,10 +87,22 @@ func TestRefinement1_ErrAlreadyExistsSentinel(t *testing.T) {
 	t.Parallel()
 
 	b := transcribe.NewInMemoryBackend()
-	_, err := b.StartTranscriptionJob("dup", "en-US", "s3://b/f")
+	_, err := b.StartTranscriptionJob(
+		&transcribe.TranscriptionJob{
+			JobName:      "dup",
+			LanguageCode: "en-US",
+			Media:        transcribe.Media{MediaFileURI: "s3://b/f"},
+		},
+	)
 	require.NoError(t, err)
 
-	_, err = b.StartTranscriptionJob("dup", "en-US", "s3://b/f")
+	_, err = b.StartTranscriptionJob(
+		&transcribe.TranscriptionJob{
+			JobName:      "dup",
+			LanguageCode: "en-US",
+			Media:        transcribe.Media{MediaFileURI: "s3://b/f"},
+		},
+	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, transcribe.ErrAlreadyExists)
 }
@@ -94,7 +112,13 @@ func TestRefinement1_BackendReset(t *testing.T) {
 	t.Parallel()
 
 	b := transcribe.NewInMemoryBackend()
-	_, err := b.StartTranscriptionJob("job1", "en-US", "s3://b/f")
+	_, err := b.StartTranscriptionJob(
+		&transcribe.TranscriptionJob{
+			JobName:      "job1",
+			LanguageCode: "en-US",
+			Media:        transcribe.Media{MediaFileURI: "s3://b/f"},
+		},
+	)
 	require.NoError(t, err)
 
 	b.Reset()
@@ -109,7 +133,13 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	b := transcribe.NewInMemoryBackend()
 	h := transcribe.NewHandler(b)
 
-	_, err := b.StartTranscriptionJob("job1", "en-US", "s3://b/f")
+	_, err := b.StartTranscriptionJob(
+		&transcribe.TranscriptionJob{
+			JobName:      "job1",
+			LanguageCode: "en-US",
+			Media:        transcribe.Media{MediaFileURI: "s3://b/f"},
+		},
+	)
 	require.NoError(t, err)
 
 	h.Reset()
@@ -163,8 +193,16 @@ func TestRefinement1_ConflictIs409(t *testing.T) {
 		{
 			name:   "vocabulary_filter",
 			action: "CreateVocabularyFilter",
-			first:  map[string]any{"VocabularyFilterName": "flt-dup", "LanguageCode": "en-US"},
-			second: map[string]any{"VocabularyFilterName": "flt-dup", "LanguageCode": "en-US"},
+			first: map[string]any{
+				"VocabularyFilterName": "flt-dup",
+				"LanguageCode":         "en-US",
+				"Words":                []string{"bad"},
+			},
+			second: map[string]any{
+				"VocabularyFilterName": "flt-dup",
+				"LanguageCode":         "en-US",
+				"Words":                []string{"bad"},
+			},
 		},
 	}
 
@@ -251,7 +289,13 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 
 	b := transcribe.NewInMemoryBackend()
 
-	_, err := b.StartTranscriptionJob("tj1", "en-US", "s3://b/f")
+	_, err := b.StartTranscriptionJob(
+		&transcribe.TranscriptionJob{
+			JobName:      "tj1",
+			LanguageCode: "en-US",
+			Media:        transcribe.Media{MediaFileURI: "s3://b/f"},
+		},
+	)
 	require.NoError(t, err)
 
 	b.AddCallAnalyticsCategoryInternal(&transcribe.CallAnalyticsCategory{CategoryName: "cat1"})
@@ -280,7 +324,13 @@ func TestRefinement1_ResetClearsAllMaps(t *testing.T) {
 
 	b := transcribe.NewInMemoryBackend()
 
-	_, err := b.StartTranscriptionJob("tj1", "en-US", "s3://b/f")
+	_, err := b.StartTranscriptionJob(
+		&transcribe.TranscriptionJob{
+			JobName:      "tj1",
+			LanguageCode: "en-US",
+			Media:        transcribe.Media{MediaFileURI: "s3://b/f"},
+		},
+	)
 	require.NoError(t, err)
 
 	b.AddCallAnalyticsCategoryInternal(&transcribe.CallAnalyticsCategory{CategoryName: "cat1"})
@@ -311,7 +361,13 @@ func TestRefinement1_SnapshotRestoreAllMaps(t *testing.T) {
 
 	b := transcribe.NewInMemoryBackend()
 
-	_, err := b.StartTranscriptionJob("tj1", "en-US", "s3://b/f")
+	_, err := b.StartTranscriptionJob(
+		&transcribe.TranscriptionJob{
+			JobName:      "tj1",
+			LanguageCode: "en-US",
+			Media:        transcribe.Media{MediaFileURI: "s3://b/f"},
+		},
+	)
 	require.NoError(t, err)
 
 	b.AddCallAnalyticsCategoryInternal(&transcribe.CallAnalyticsCategory{CategoryName: "cat1", InputType: "POST_CALL"})
@@ -447,7 +503,7 @@ func TestRefinement1_MedVocabStateReady(t *testing.T) {
 	rec := doTranscribeRequest(t, h, "CreateMedicalVocabulary", map[string]any{
 		"VocabularyName":    "med-vocab-state-test",
 		"LanguageCode":      "en-US",
-		"VocabularyFileUri": "s3://bucket/vocab.txt",
+		"VocabularyFileURI": "s3://bucket/vocab.txt",
 	})
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -516,7 +572,13 @@ func TestRefinement1_ConcurrentCreateDeleteSafe(t *testing.T) {
 
 	for i := range n {
 		go func(i int) {
-			_, e := b.CreateVocabulary(fmt.Sprintf("vocab-%d", i), "en-US")
+			_, e := b.CreateVocabulary(
+				&transcribe.Vocabulary{
+					VocabularyName: fmt.Sprintf("vocab-%d", i),
+					LanguageCode:   "en-US",
+					Phrases:        []string{"test"},
+				},
+			)
 			errs <- e
 		}(i)
 	}
@@ -538,7 +600,13 @@ func TestRefinement1_DeleteAfterResetIs404(t *testing.T) {
 	b := transcribe.NewInMemoryBackend()
 	h := transcribe.NewHandler(b)
 
-	_, err := b.StartTranscriptionJob("reset-job", "en-US", "s3://b/f")
+	_, err := b.StartTranscriptionJob(
+		&transcribe.TranscriptionJob{
+			JobName:      "reset-job",
+			LanguageCode: "en-US",
+			Media:        transcribe.Media{MediaFileURI: "s3://b/f"},
+		},
+	)
 	require.NoError(t, err)
 
 	h.Reset()
@@ -559,6 +627,7 @@ func TestRefinement1_CreateVocabularyFilterOutput(t *testing.T) {
 	rec := doTranscribeRequest(t, h, "CreateVocabularyFilter", map[string]any{
 		"VocabularyFilterName": "output-filter",
 		"LanguageCode":         "en-US",
+		"Words":                []string{"badword"},
 	})
 
 	require.Equal(t, http.StatusOK, rec.Code)
