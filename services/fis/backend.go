@@ -1325,12 +1325,14 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 	b.setExperimentStatus(expID, statusInitiating)
 	b.setAllActionStatuses(expID, actionStatusInitiating)
 
+	initiatingTimer := time.NewTimer(lifecycleDelay)
 	select {
 	case <-ctx.Done():
+		initiatingTimer.Stop()
 		b.cleanupActions(nil, expID, statusStopped, actionStatusCancelled)
 
 		return
-	case <-time.After(lifecycleDelay):
+	case <-initiatingTimer.C:
 	}
 
 	// INITIATING → RUNNING.
@@ -1369,12 +1371,14 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 		b.setExperimentStatus(expID, statusCompleting)
 		b.setAllActionStatuses(expID, actionStatusCompleting)
 
+		completingTimer := time.NewTimer(lifecycleDelay)
 		select {
 		case <-ctx.Done():
+			completingTimer.Stop()
 			b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
 
 			return
-		case <-time.After(lifecycleDelay):
+		case <-completingTimer.C:
 		}
 
 		b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
@@ -1395,10 +1399,12 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 		b.setExperimentStatus(expID, statusCompleting)
 		b.setAllActionStatuses(expID, actionStatusCompleting)
 
+		finalTimer := time.NewTimer(lifecycleDelay)
 		select {
 		case <-ctx.Done():
+			finalTimer.Stop()
 			b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
-		case <-time.After(lifecycleDelay):
+		case <-finalTimer.C:
 			b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
 		}
 	}
