@@ -603,7 +603,9 @@ func (b *InMemoryBackend) StartJobRun(jobName string) (*JobRun, error) {
 		run.ExecutionTime = jobRunDefaultExecTime
 	}()
 
-	return run, nil
+	cp := *run
+
+	return &cp, nil
 }
 
 func (b *InMemoryBackend) ListJobRuns(jobName string) ([]*JobRun, error) {
