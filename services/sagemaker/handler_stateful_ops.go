@@ -887,7 +887,7 @@ func (h *Handler) handleDescribePipeline(_ context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"PipelineName":       p.PipelineName,
 		keyPipelineArn:       p.PipelineArn,
 		"PipelineStatus":     p.PipelineStatus,
@@ -895,7 +895,18 @@ func (h *Handler) handleDescribePipeline(_ context.Context, body []byte) ([]byte
 		keyRoleArn:           p.RoleArn,
 		keyCreationTime:      epochSeconds(p.CreationTime),
 		keyLastModifiedTime:  epochSeconds(p.LastModifiedTime),
-	})
+	}
+	if p.PipelineDisplayName != "" {
+		resp["PipelineDisplayName"] = p.PipelineDisplayName
+	}
+	if p.PipelineDescription != "" {
+		resp["PipelineDescription"] = p.PipelineDescription
+	}
+	if p.ParallelismConfiguration != nil {
+		resp["ParallelismConfiguration"] = p.ParallelismConfiguration
+	}
+
+	return json.Marshal(resp)
 }
 
 type pipelineSummary struct {
@@ -1025,12 +1036,26 @@ func (h *Handler) handleDescribePipelineExecution(_ context.Context, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		keyPipelineArn:             pe.PipelineArn,
 		keyPipelineExecutionArn:    pe.PipelineExecutionArn,
 		keyPipelineExecutionStatus: pe.PipelineExecutionStatus,
 		"StartTime":                epochSeconds(pe.StartTime),
-	})
+	}
+	if pe.PipelineExecutionDisplayName != "" {
+		resp["PipelineExecutionDisplayName"] = pe.PipelineExecutionDisplayName
+	}
+	if pe.PipelineExecutionDescription != "" {
+		resp["PipelineExecutionDescription"] = pe.PipelineExecutionDescription
+	}
+	if len(pe.PipelineParameters) > 0 {
+		resp["PipelineParameters"] = pe.PipelineParameters
+	}
+	if pe.FailureReason != "" {
+		resp["FailureReason"] = pe.FailureReason
+	}
+
+	return json.Marshal(resp)
 }
 
 type pipelineExecutionSummary struct {
@@ -1118,12 +1143,20 @@ func (h *Handler) handleDescribeExperiment(_ context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		keyExperimentName:   e.ExperimentName,
 		keyExperimentArn:    e.ExperimentArn,
 		keyCreationTime:     epochSeconds(e.CreationTime),
 		keyLastModifiedTime: epochSeconds(e.LastModifiedTime),
-	})
+	}
+	if e.DisplayName != "" {
+		resp["DisplayName"] = e.DisplayName
+	}
+	if e.Description != "" {
+		resp["Description"] = e.Description
+	}
+
+	return json.Marshal(resp)
 }
 
 type experimentSummary struct {
@@ -1230,13 +1263,18 @@ func (h *Handler) handleDescribeTrial(_ context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"TrialName":         t.TrialName,
 		keyTrialArn:         t.TrialArn,
 		keyExperimentName:   t.ExperimentName,
 		keyCreationTime:     epochSeconds(t.CreationTime),
 		keyLastModifiedTime: epochSeconds(t.LastModifiedTime),
-	})
+	}
+	if t.DisplayName != "" {
+		resp["DisplayName"] = t.DisplayName
+	}
+
+	return json.Marshal(resp)
 }
 
 type trialSummary struct {
@@ -1343,12 +1381,29 @@ func (h *Handler) handleDescribeTrialComponent(_ context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"TrialComponentName": tc.TrialComponentName,
 		keyTrialComponentArn: tc.TrialComponentArn,
 		keyCreationTime:      epochSeconds(tc.CreationTime),
 		keyLastModifiedTime:  epochSeconds(tc.LastModifiedTime),
-	})
+	}
+	if tc.DisplayName != "" {
+		resp["DisplayName"] = tc.DisplayName
+	}
+	if tc.Status != "" {
+		resp["Status"] = tc.Status
+	}
+	if len(tc.Parameters) > 0 {
+		resp["Parameters"] = tc.Parameters
+	}
+	if len(tc.InputArtifacts) > 0 {
+		resp["InputArtifacts"] = tc.InputArtifacts
+	}
+	if len(tc.OutputArtifacts) > 0 {
+		resp["OutputArtifacts"] = tc.OutputArtifacts
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleDeleteTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
