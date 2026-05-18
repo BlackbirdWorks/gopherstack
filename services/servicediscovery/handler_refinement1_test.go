@@ -277,7 +277,11 @@ func TestRefinement1_GetInstancesHealthStatusStoredValue(t *testing.T) {
 	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp))
 	nsID := nsOpResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
-	svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-health", "NamespaceId": nsID})
+	svcRec := doSDRequest(t, h, "CreateService", map[string]any{
+		"Name":                    "svc-health",
+		"NamespaceId":             nsID,
+		"HealthCheckCustomConfig": map[string]any{"FailureThreshold": 1},
+	})
 	var svcResp map[string]any
 	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
 	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
@@ -369,7 +373,11 @@ func TestRefinement1_DiscoverInstancesHealthStatusFilter(t *testing.T) {
 	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp))
 	nsID := nsOpResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
-	svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-discover-health", "NamespaceId": nsID})
+	svcRec := doSDRequest(t, h, "CreateService", map[string]any{
+		"Name":                    "svc-discover-health",
+		"NamespaceId":             nsID,
+		"HealthCheckCustomConfig": map[string]any{"FailureThreshold": 1},
+	})
 	var svcResp map[string]any
 	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
 	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
@@ -665,7 +673,11 @@ func TestRefinement1_DiscoverInstancesUnhealthyFilter(t *testing.T) {
 	h := newTestHandler(t)
 
 	nsID := createNamespaceHelper(t, h, "ns-unhealthy-disc")
-	svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-unhealthy-disc", "NamespaceId": nsID})
+	svcRec := doSDRequest(t, h, "CreateService", map[string]any{
+		"Name":                    "svc-unhealthy-disc",
+		"NamespaceId":             nsID,
+		"HealthCheckCustomConfig": map[string]any{"FailureThreshold": 1},
+	})
 	var svcResp map[string]any
 	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
 	svcID := svcResp["Service"].(map[string]any)["Id"].(string)

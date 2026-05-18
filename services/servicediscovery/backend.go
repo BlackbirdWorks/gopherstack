@@ -1355,3 +1355,26 @@ func (b *InMemoryBackend) Reset() {
 	b.svcCounter = 0
 	b.opCounter = 0
 }
+
+func applyPaginationHealthStatuses(ids []string, nextToken string, maxResults int) ([]string, string) {
+	if maxResults <= 0 || maxResults > maxResultsCap {
+		maxResults = maxResultsDefault
+	}
+
+	offset := decodeCursor(nextToken)
+	if offset >= len(ids) {
+		return nil, ""
+	}
+
+	end := offset + maxResults
+
+	var newToken string
+
+	if end < len(ids) {
+		newToken = encodeCursor(end)
+	} else {
+		end = len(ids)
+	}
+
+	return ids[offset:end], newToken
+}
