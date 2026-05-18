@@ -17,7 +17,7 @@ ui-lint: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run lint
 
 ui-check: ui-install
-	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run check
+	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run check
 
 ui-lint-fix: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run lint:fix
@@ -29,12 +29,12 @@ ui-fmt-fix: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run fmt
 
 ui-test: ui-install
-	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run test:coverage
+	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run test:coverage
 
 ui-build: ui-install
 	mkdir -p dashboard/static/spa
 	find dashboard/static/spa -mindepth 1 ! -name '.keep' -exec rm -rf {} +
-	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run build
+	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run build
 	touch dashboard/static/spa/.keep
 
 build-releaser:
