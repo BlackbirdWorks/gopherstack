@@ -49,7 +49,7 @@ func TestIntegration_VerifiedPermissions_CreatePolicyStore(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	resp := verifiedPermissionsPost(t, "CreatePolicyStore", map[string]any{
-		"description": "integ-test-store",
+		"description": "integ-test-store", "validationSettings": map[string]any{"mode": "OFF"},
 	})
 	body := verifiedPermissionsReadBody(t, resp)
 
@@ -64,7 +64,7 @@ func TestIntegration_VerifiedPermissions_PolicyStoreLifecycle(t *testing.T) {
 
 	// Create a policy store.
 	createResp := verifiedPermissionsPost(t, "CreatePolicyStore", map[string]any{
-		"description": "lifecycle-store",
+		"description": "lifecycle-store", "validationSettings": map[string]any{"mode": "OFF"},
 	})
 	createBody := verifiedPermissionsReadBody(t, createResp)
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "create body: %s", createBody)
@@ -119,7 +119,7 @@ func TestIntegration_VerifiedPermissions_PolicyLifecycle(t *testing.T) {
 
 	// Create a policy store first.
 	createStoreResp := verifiedPermissionsPost(t, "CreatePolicyStore", map[string]any{
-		"description": "policy-lifecycle-store",
+		"description": "policy-lifecycle-store", "validationSettings": map[string]any{"mode": "OFF"},
 	})
 	createStoreBody := verifiedPermissionsReadBody(t, createStoreResp)
 	require.Equal(t, http.StatusOK, createStoreResp.StatusCode, "create store body: %s", createStoreBody)
@@ -190,7 +190,7 @@ func TestIntegration_VerifiedPermissions_PolicyTemplateLifecycle(t *testing.T) {
 
 	// Create a policy store first.
 	createStoreResp := verifiedPermissionsPost(t, "CreatePolicyStore", map[string]any{
-		"description": "template-lifecycle-store",
+		"description": "template-lifecycle-store", "validationSettings": map[string]any{"mode": "OFF"},
 	})
 	createStoreBody := verifiedPermissionsReadBody(t, createStoreResp)
 	require.Equal(t, http.StatusOK, createStoreResp.StatusCode, "create store body: %s", createStoreBody)

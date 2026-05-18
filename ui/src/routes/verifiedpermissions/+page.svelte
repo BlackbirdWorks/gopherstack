@@ -1131,7 +1131,7 @@
 							<textarea
 								bind:value={authzContext}
 								rows={3}
-								placeholder="{}"
+								placeholder="&#123;&#125;"
 								class="w-full font-mono text-xs bg-gray-900 text-green-300 p-3 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500 resize-y"
 							></textarea>
 						</div>
