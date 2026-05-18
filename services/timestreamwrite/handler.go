@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -23,7 +24,11 @@ const (
 	keyMessageField = "message"
 )
 
-const endpointCachePeriodMinutes = 60
+const (
+	endpointCachePeriodMinutes = 60
+	// defaultTimestreamMaxResults is the default page size when MaxResults is not specified.
+	defaultTimestreamMaxResults = 100
+)
 
 var (
 	errUnknownAction  = errors.New("unknown action")
@@ -190,8 +195,15 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
+	var rejectedErr *RejectedRecordsError
 
 	switch {
+	case errors.As(err, &rejectedErr):
+		return c.JSON(http.StatusBadRequest, map[string]any{
+			keyTypeField:      "RejectedRecordsException",
+			keyMessageField:   err.Error(),
+			"RejectedRecords": rejectedErr.RejectedRecords,
+		})
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ResourceNotFoundException",
@@ -245,6 +257,7 @@ type listDatabasesInput struct {
 }
 
 type listDatabasesOutput struct {
+	NextToken string         `json:"NextToken,omitempty"`
 	Databases []databaseView `json:"Databases"`
 }
 
@@ -258,6 +271,7 @@ type updateDatabaseInput struct {
 }
 
 type createTableInput struct {
+	Schema                       *schemaInput                  `json:"Schema,omitempty"`
 	RetentionProperties          *retentionPropertiesInput     `json:"RetentionProperties,omitempty"`
 	MagneticStoreWriteProperties *magneticStoreWritePropsInput `json:"MagneticStoreWriteProperties,omitempty"`
 	DatabaseName                 string                        `json:"DatabaseName"`
@@ -270,8 +284,30 @@ type retentionPropertiesInput struct {
 	MagneticStoreRetentionPeriodInDays int64 `json:"MagneticStoreRetentionPeriodInDays"`
 }
 
+type s3ConfigInput struct {
+	BucketName       string `json:"BucketName,omitempty"`
+	ObjectKeyPrefix  string `json:"ObjectKeyPrefix,omitempty"`
+	EncryptionOption string `json:"EncryptionOption,omitempty"`
+	KmsKeyID         string `json:"KmsKeyId,omitempty"`
+}
+
+type magneticStoreRejectedDataLocationInput struct {
+	S3Configuration *s3ConfigInput `json:"S3Configuration,omitempty"`
+}
+
 type magneticStoreWritePropsInput struct {
-	EnableMagneticStoreWrites bool `json:"EnableMagneticStoreWrites"`
+	MagneticStoreRejectedDataLocation *magneticStoreRejectedDataLocationInput `json:"MagneticStoreRejectedDataLocation,omitempty"` //nolint:lll // AWS field name is inherently long
+	EnableMagneticStoreWrites         bool                                    `json:"EnableMagneticStoreWrites"`
+}
+
+type partitionKeyInput struct {
+	Type                string `json:"Type"`
+	Name                string `json:"Name,omitempty"`
+	EnforcementInRecord string `json:"EnforcementInRecord,omitempty"`
+}
+
+type schemaInput struct {
+	CompositePartitionKey []partitionKeyInput `json:"CompositePartitionKey,omitempty"`
 }
 
 type tableInput struct {
@@ -280,6 +316,7 @@ type tableInput struct {
 }
 
 type updateTableInput struct {
+	Schema                       *schemaInput                  `json:"Schema,omitempty"`
 	RetentionProperties          *retentionPropertiesInput     `json:"RetentionProperties,omitempty"`
 	MagneticStoreWriteProperties *magneticStoreWritePropsInput `json:"MagneticStoreWriteProperties,omitempty"`
 	DatabaseName                 string                        `json:"DatabaseName"`
@@ -290,7 +327,18 @@ type tableOutput struct {
 	Table tableView `json:"Table"`
 }
 
+type partitionKeyView struct {
+	Type                string `json:"Type"`
+	Name                string `json:"Name,omitempty"`
+	EnforcementInRecord string `json:"EnforcementInRecord,omitempty"`
+}
+
+type schemaView struct {
+	CompositePartitionKey []partitionKeyView `json:"CompositePartitionKey,omitempty"`
+}
+
 type tableView struct {
+	Schema                       *schemaView                   `json:"Schema,omitempty"`
 	RetentionProperties          *retentionPropertiesInput     `json:"RetentionProperties,omitempty"`
 	MagneticStoreWriteProperties *magneticStoreWritePropsInput `json:"MagneticStoreWriteProperties,omitempty"`
 	Arn                          string                        `json:"Arn"`
@@ -308,28 +356,38 @@ type listTablesInput struct {
 }
 
 type listTablesOutput struct {
-	Tables []tableView `json:"Tables"`
+	NextToken string      `json:"NextToken,omitempty"`
+	Tables    []tableView `json:"Tables"`
 }
 
 type writeRecordsInput struct {
-	DatabaseName string        `json:"DatabaseName"`
-	TableName    string        `json:"TableName"`
-	Records      []recordInput `json:"Records"`
+	CommonAttributes *recordInput  `json:"CommonAttributes,omitempty"`
+	DatabaseName     string        `json:"DatabaseName"`
+	TableName        string        `json:"TableName"`
+	Records          []recordInput `json:"Records"`
+}
+
+type measureValueInput struct {
+	Name  string `json:"Name"`
+	Value string `json:"Value"`
+	Type  string `json:"Type"`
 }
 
 type recordInput struct {
-	MeasureName      string           `json:"MeasureName"`
-	MeasureValue     string           `json:"MeasureValue"`
-	MeasureValueType string           `json:"MeasureValueType"`
-	Time             string           `json:"Time"`
-	TimeUnit         string           `json:"TimeUnit"`
-	Dimensions       []dimensionInput `json:"Dimensions"`
-	Version          int64            `json:"Version"`
+	MeasureName      string              `json:"MeasureName"`
+	MeasureValue     string              `json:"MeasureValue"`
+	MeasureValueType string              `json:"MeasureValueType"`
+	Time             string              `json:"Time"`
+	TimeUnit         string              `json:"TimeUnit"`
+	Dimensions       []dimensionInput    `json:"Dimensions"`
+	MeasureValues    []measureValueInput `json:"MeasureValues"`
+	Version          int64               `json:"Version"`
 }
 
 type dimensionInput struct {
-	Name  string `json:"Name"`
-	Value string `json:"Value"`
+	Name               string `json:"Name"`
+	Value              string `json:"Value"`
+	DimensionValueType string `json:"DimensionValueType,omitempty"`
 }
 
 type writeRecordsOutput struct {
@@ -378,6 +436,62 @@ type emptyOutput struct{}
 
 // --- handlers ---
 
+// buildCreateTableInput converts handler-level optional table-property inputs into a
+// *CreateTableInput for the backend.  Returns nil when all inputs are nil.
+func buildCreateTableInput(
+	rp *retentionPropertiesInput,
+	mswp *magneticStoreWritePropsInput,
+	sc *schemaInput,
+) *CreateTableInput {
+	if rp == nil && mswp == nil && sc == nil {
+		return nil
+	}
+
+	inp := &CreateTableInput{}
+
+	if rp != nil {
+		inp.RetentionProperties = &RetentionProperties{
+			MemoryStoreRetentionPeriodInHours:  rp.MemoryStoreRetentionPeriodInHours,
+			MagneticStoreRetentionPeriodInDays: rp.MagneticStoreRetentionPeriodInDays,
+		}
+	}
+
+	if mswp != nil {
+		backendMSWP := &MagneticStoreWriteProperties{
+			EnableMagneticStoreWrites: mswp.EnableMagneticStoreWrites,
+		}
+
+		if mswp.MagneticStoreRejectedDataLocation != nil {
+			loc := mswp.MagneticStoreRejectedDataLocation
+			backendLoc := &MagneticStoreRejectedDataLocation{}
+
+			if loc.S3Configuration != nil {
+				backendLoc.S3Configuration = &S3Configuration{
+					BucketName:       loc.S3Configuration.BucketName,
+					ObjectKeyPrefix:  loc.S3Configuration.ObjectKeyPrefix,
+					EncryptionOption: loc.S3Configuration.EncryptionOption,
+					KmsKeyID:         loc.S3Configuration.KmsKeyID,
+				}
+			}
+
+			backendMSWP.MagneticStoreRejectedDataLocation = backendLoc
+		}
+
+		inp.MagneticStoreWriteProperties = backendMSWP
+	}
+
+	if sc != nil && len(sc.CompositePartitionKey) > 0 {
+		keys := make([]PartitionKey, 0, len(sc.CompositePartitionKey))
+		for _, pk := range sc.CompositePartitionKey {
+			keys = append(keys, PartitionKey(pk))
+		}
+
+		inp.Schema = &Schema{CompositePartitionKey: keys}
+	}
+
+	return inp
+}
+
 func toDatabaseView(db *Database) databaseView {
 	return databaseView{
 		Arn:             db.ARN,
@@ -407,9 +521,36 @@ func toTableView(tbl *Table) tableView {
 	}
 
 	if tbl.MagneticStoreWriteProperties != nil {
-		v.MagneticStoreWriteProperties = &magneticStoreWritePropsInput{
+		mswp := &magneticStoreWritePropsInput{
 			EnableMagneticStoreWrites: tbl.MagneticStoreWriteProperties.EnableMagneticStoreWrites,
 		}
+
+		if tbl.MagneticStoreWriteProperties.MagneticStoreRejectedDataLocation != nil {
+			loc := tbl.MagneticStoreWriteProperties.MagneticStoreRejectedDataLocation
+			inputLoc := &magneticStoreRejectedDataLocationInput{}
+
+			if loc.S3Configuration != nil {
+				inputLoc.S3Configuration = &s3ConfigInput{
+					BucketName:       loc.S3Configuration.BucketName,
+					ObjectKeyPrefix:  loc.S3Configuration.ObjectKeyPrefix,
+					EncryptionOption: loc.S3Configuration.EncryptionOption,
+					KmsKeyID:         loc.S3Configuration.KmsKeyID,
+				}
+			}
+
+			mswp.MagneticStoreRejectedDataLocation = inputLoc
+		}
+
+		v.MagneticStoreWriteProperties = mswp
+	}
+
+	if tbl.Schema != nil && len(tbl.Schema.CompositePartitionKey) > 0 {
+		keys := make([]partitionKeyView, 0, len(tbl.Schema.CompositePartitionKey))
+		for _, pk := range tbl.Schema.CompositePartitionKey {
+			keys = append(keys, partitionKeyView(pk))
+		}
+
+		v.Schema = &schemaView{CompositePartitionKey: keys}
 	}
 
 	return v
@@ -451,16 +592,17 @@ func (h *Handler) handleDescribeDatabase(
 
 func (h *Handler) handleListDatabases(
 	_ context.Context,
-	_ *listDatabasesInput,
+	in *listDatabasesInput,
 ) (*listDatabasesOutput, error) {
 	dbs := h.Backend.ListDatabases()
-	views := make([]databaseView, 0, len(dbs))
+	pg := page.New(dbs, in.NextToken, in.MaxResults, defaultTimestreamMaxResults)
+	views := make([]databaseView, 0, len(pg.Data))
 
-	for i := range dbs {
-		views = append(views, toDatabaseView(&dbs[i]))
+	for i := range pg.Data {
+		views = append(views, toDatabaseView(&pg.Data[i]))
 	}
 
-	return &listDatabasesOutput{Databases: views}, nil
+	return &listDatabasesOutput{Databases: views, NextToken: pg.Next}, nil
 }
 
 func (h *Handler) handleDeleteDatabase(
@@ -504,24 +646,7 @@ func (h *Handler) handleCreateTable(
 
 	tags := tagsFromInput(in.Tags)
 
-	var inp *CreateTableInput
-
-	if in.RetentionProperties != nil || in.MagneticStoreWriteProperties != nil {
-		inp = &CreateTableInput{}
-
-		if in.RetentionProperties != nil {
-			inp.RetentionProperties = &RetentionProperties{
-				MemoryStoreRetentionPeriodInHours:  in.RetentionProperties.MemoryStoreRetentionPeriodInHours,
-				MagneticStoreRetentionPeriodInDays: in.RetentionProperties.MagneticStoreRetentionPeriodInDays,
-			}
-		}
-
-		if in.MagneticStoreWriteProperties != nil {
-			inp.MagneticStoreWriteProperties = &MagneticStoreWriteProperties{
-				EnableMagneticStoreWrites: in.MagneticStoreWriteProperties.EnableMagneticStoreWrites,
-			}
-		}
-	}
+	inp := buildCreateTableInput(in.RetentionProperties, in.MagneticStoreWriteProperties, in.Schema)
 
 	tbl, err := h.Backend.CreateTable(in.DatabaseName, in.TableName, tags, inp)
 	if err != nil {
@@ -560,12 +685,14 @@ func (h *Handler) handleListTables(
 		return nil, err
 	}
 
-	views := make([]tableView, 0, len(tbls))
-	for i := range tbls {
-		views = append(views, toTableView(&tbls[i]))
+	pg := page.New(tbls, in.NextToken, in.MaxResults, defaultTimestreamMaxResults)
+	views := make([]tableView, 0, len(pg.Data))
+
+	for i := range pg.Data {
+		views = append(views, toTableView(&pg.Data[i]))
 	}
 
-	return &listTablesOutput{Tables: views}, nil
+	return &listTablesOutput{Tables: views, NextToken: pg.Next}, nil
 }
 
 func (h *Handler) handleDeleteTable(
@@ -592,21 +719,13 @@ func (h *Handler) handleUpdateTable(
 	}
 
 	var inp *UpdateTableInput
+	cti := buildCreateTableInput(in.RetentionProperties, in.MagneticStoreWriteProperties, in.Schema)
 
-	if in.RetentionProperties != nil || in.MagneticStoreWriteProperties != nil {
-		inp = &UpdateTableInput{}
-
-		if in.RetentionProperties != nil {
-			inp.RetentionProperties = &RetentionProperties{
-				MemoryStoreRetentionPeriodInHours:  in.RetentionProperties.MemoryStoreRetentionPeriodInHours,
-				MagneticStoreRetentionPeriodInDays: in.RetentionProperties.MagneticStoreRetentionPeriodInDays,
-			}
-		}
-
-		if in.MagneticStoreWriteProperties != nil {
-			inp.MagneticStoreWriteProperties = &MagneticStoreWriteProperties{
-				EnableMagneticStoreWrites: in.MagneticStoreWriteProperties.EnableMagneticStoreWrites,
-			}
+	if cti != nil {
+		inp = &UpdateTableInput{
+			RetentionProperties:          cti.RetentionProperties,
+			MagneticStoreWriteProperties: cti.MagneticStoreWriteProperties,
+			Schema:                       cti.Schema,
 		}
 	}
 
@@ -629,20 +748,8 @@ func (h *Handler) handleWriteRecords(
 	records := make([]Record, 0, len(in.Records))
 
 	for _, r := range in.Records {
-		dims := make([]Dimension, 0, len(r.Dimensions))
-		for _, d := range r.Dimensions {
-			dims = append(dims, Dimension(d))
-		}
-
-		records = append(records, Record{
-			Dimensions:       dims,
-			MeasureName:      r.MeasureName,
-			MeasureValue:     r.MeasureValue,
-			MeasureValueType: r.MeasureValueType,
-			Time:             r.Time,
-			TimeUnit:         r.TimeUnit,
-			Version:          r.Version,
-		})
+		merged := mergeRecordWithCommon(r, in.CommonAttributes)
+		records = append(records, recordInputToBackend(merged))
 	}
 
 	result, err := h.Backend.WriteRecords(in.DatabaseName, in.TableName, records)
@@ -655,6 +762,91 @@ func (h *Handler) handleWriteRecords(
 	out.RecordsIngested.MemoryStore = result.MemoryStore
 
 	return out, nil
+}
+
+// mergeRecordWithCommon merges CommonAttributes into a record per AWS semantics:
+// record-specific values take priority; common fills in missing fields and dimensions.
+func mergeRecordWithCommon(r recordInput, common *recordInput) recordInput {
+	if common == nil {
+		return r
+	}
+
+	merged := r
+
+	// Merge dimensions: start with common, override with record-specific on name conflict.
+	dimSet := make(map[string]dimensionInput, len(common.Dimensions)+len(r.Dimensions))
+	for _, d := range common.Dimensions {
+		dimSet[d.Name] = d
+	}
+
+	for _, d := range r.Dimensions {
+		dimSet[d.Name] = d
+	}
+
+	if len(dimSet) > 0 {
+		dims := make([]dimensionInput, 0, len(dimSet))
+		for _, d := range dimSet {
+			dims = append(dims, d)
+		}
+
+		sort.Slice(dims, func(i, j int) bool { return dims[i].Name < dims[j].Name })
+		merged.Dimensions = dims
+	}
+
+	// Fill scalar fields from common when record does not set them.
+	if merged.MeasureName == "" {
+		merged.MeasureName = common.MeasureName
+	}
+
+	if merged.MeasureValue == "" {
+		merged.MeasureValue = common.MeasureValue
+	}
+
+	if merged.MeasureValueType == "" {
+		merged.MeasureValueType = common.MeasureValueType
+	}
+
+	if merged.Time == "" {
+		merged.Time = common.Time
+	}
+
+	if merged.TimeUnit == "" {
+		merged.TimeUnit = common.TimeUnit
+	}
+
+	if merged.Version == 0 {
+		merged.Version = common.Version
+	}
+
+	if len(merged.MeasureValues) == 0 {
+		merged.MeasureValues = common.MeasureValues
+	}
+
+	return merged
+}
+
+// recordInputToBackend converts a handler-level recordInput to the backend Record type.
+func recordInputToBackend(r recordInput) Record {
+	dims := make([]Dimension, 0, len(r.Dimensions))
+	for _, d := range r.Dimensions {
+		dims = append(dims, Dimension(d))
+	}
+
+	mvs := make([]MeasureValue, 0, len(r.MeasureValues))
+	for _, mv := range r.MeasureValues {
+		mvs = append(mvs, MeasureValue(mv))
+	}
+
+	return Record{
+		Dimensions:       dims,
+		MeasureName:      r.MeasureName,
+		MeasureValue:     r.MeasureValue,
+		MeasureValueType: r.MeasureValueType,
+		Time:             r.Time,
+		TimeUnit:         r.TimeUnit,
+		MeasureValues:    mvs,
+		Version:          r.Version,
+	}
 }
 
 func (h *Handler) handleTagResource(
@@ -760,6 +952,7 @@ type batchLoadTaskDescriptionView struct {
 	ResumableUntil          *float64               `json:"ResumableUntil,omitempty"`
 	DataSourceConfiguration *dataSourceConfigInput `json:"DataSourceConfiguration,omitempty"`
 	ReportConfiguration     *reportConfigInput     `json:"ReportConfiguration,omitempty"`
+	ProgressReport          *progressReportView    `json:"ProgressReport,omitempty"`
 	TaskID                  string                 `json:"TaskId"`
 	TargetDatabaseName      string                 `json:"TargetDatabaseName"`
 	TargetTableName         string                 `json:"TargetTableName"`
@@ -791,7 +984,17 @@ type batchLoadTaskSummaryView struct {
 }
 
 type listBatchLoadTasksOutput struct {
+	NextToken      string                     `json:"NextToken,omitempty"`
 	BatchLoadTasks []batchLoadTaskSummaryView `json:"BatchLoadTasks"`
+}
+
+type progressReportView struct {
+	BytesMetered            int64 `json:"BytesMetered,omitempty"`
+	FileFailures            int64 `json:"FileFailures,omitempty"`
+	ParseFailures           int64 `json:"ParseFailures,omitempty"`
+	RecordIngestionFailures int64 `json:"RecordIngestionFailures,omitempty"`
+	RecordsIngested         int64 `json:"RecordsIngested,omitempty"`
+	RecordsProcessed        int64 `json:"RecordsProcessed,omitempty"`
 }
 
 func toBatchLoadTaskDescriptionView(task *BatchLoadTask) batchLoadTaskDescriptionView {
@@ -804,6 +1007,17 @@ func toBatchLoadTaskDescriptionView(task *BatchLoadTask) batchLoadTaskDescriptio
 		LastUpdatedTime:    float64(task.LastUpdatedTime.Unix()),
 		ErrorMessage:       task.ErrorMessage,
 		RecordVersion:      task.RecordVersion,
+	}
+
+	if task.ProgressReport != nil {
+		v.ProgressReport = &progressReportView{
+			BytesMetered:            task.ProgressReport.BytesMetered,
+			FileFailures:            task.ProgressReport.FileFailures,
+			ParseFailures:           task.ProgressReport.ParseFailures,
+			RecordIngestionFailures: task.ProgressReport.RecordIngestionFailures,
+			RecordsIngested:         task.ProgressReport.RecordsIngested,
+			RecordsProcessed:        task.ProgressReport.RecordsProcessed,
+		}
 	}
 
 	if task.ResumableUntil != nil {
@@ -948,13 +1162,14 @@ func (h *Handler) handleListBatchLoadTasks(
 	in *listBatchLoadTasksInput,
 ) (*listBatchLoadTasksOutput, error) {
 	tasks := h.Backend.ListBatchLoadTasks(in.TaskStatus)
-	views := make([]batchLoadTaskSummaryView, 0, len(tasks))
+	pg := page.New(tasks, in.NextToken, in.MaxResults, defaultTimestreamMaxResults)
+	views := make([]batchLoadTaskSummaryView, 0, len(pg.Data))
 
-	for i := range tasks {
-		views = append(views, toBatchLoadTaskSummaryView(&tasks[i]))
+	for i := range pg.Data {
+		views = append(views, toBatchLoadTaskSummaryView(&pg.Data[i]))
 	}
 
-	return &listBatchLoadTasksOutput{BatchLoadTasks: views}, nil
+	return &listBatchLoadTasksOutput{BatchLoadTasks: views, NextToken: pg.Next}, nil
 }
 
 func (h *Handler) handleResumeBatchLoadTask(

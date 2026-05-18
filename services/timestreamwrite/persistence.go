@@ -106,13 +106,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	// Convert snapshot's flat record map back into per-table slots so that
 	// each table owns its own mutex and slice independent of the enclosing maps.
+	// Rebuild the dedup index from the restored records so that version-based
+	// upsert works correctly after restore.
 	b.records = make(map[string]map[string]*tableRecords, len(snap.Records))
 	for dbName, tblRecs := range snap.Records {
 		b.records[dbName] = make(map[string]*tableRecords, len(tblRecs))
 		for tblName, recs := range tblRecs {
+			idx := make(map[string]int, len(recs))
+			for i, r := range recs {
+				idx[recordKey(r)] = i
+			}
+
 			b.records[dbName][tblName] = &tableRecords{
-				mu:      lockmetrics.New("timestreamwrite.table"),
-				records: recs,
+				mu:          lockmetrics.New("timestreamwrite.table"),
+				records:     recs,
+				recordIndex: idx,
 			}
 		}
 	}
@@ -156,8 +164,11 @@ func (b *InMemoryBackend) ensureNonNilMapsFromSnapshot() {
 		for tblName := range tbls {
 			if b.records[dbName][tblName] == nil {
 				b.records[dbName][tblName] = &tableRecords{
-					mu: lockmetrics.New("timestreamwrite.table"),
+					mu:          lockmetrics.New("timestreamwrite.table"),
+					recordIndex: make(map[string]int),
 				}
+			} else if b.records[dbName][tblName].recordIndex == nil {
+				b.records[dbName][tblName].recordIndex = make(map[string]int)
 			}
 		}
 	}

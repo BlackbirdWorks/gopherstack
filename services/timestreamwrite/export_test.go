@@ -61,3 +61,20 @@ func TableMutexCount(b *InMemoryBackend) int {
 
 	return total
 }
+
+// RecordCount returns the number of records stored for a specific table.
+// Exposed for testing only.
+func RecordCount(b *InMemoryBackend, dbName, tblName string) int {
+	b.mu.RLock("RecordCount")
+	defer b.mu.RUnlock()
+
+	slot := b.records[dbName][tblName]
+	if slot == nil {
+		return 0
+	}
+
+	slot.mu.RLock("RecordCount")
+	defer slot.mu.RUnlock()
+
+	return len(slot.records)
+}

@@ -300,7 +300,7 @@ func TestTimestreamQueryHandler_CreateScheduledQuery_Duplicate(t *testing.T) {
 	}{
 		{
 			name:     "duplicate name returns conflict",
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusConflict,
 		},
 	}
 
