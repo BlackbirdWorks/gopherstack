@@ -100,9 +100,13 @@ func cloneActivityType(at *ActivityType) *ActivityType {
 	return &cp
 }
 
-// cloneExecution returns a shallow copy of e.
+// cloneExecution returns a deep copy of e (TagList slice is cloned).
 func cloneExecution(e *WorkflowExecution) *WorkflowExecution {
 	cp := *e
+	if e.TagList != nil {
+		cp.TagList = make([]string, len(e.TagList))
+		copy(cp.TagList, e.TagList)
+	}
 
 	return &cp
 }

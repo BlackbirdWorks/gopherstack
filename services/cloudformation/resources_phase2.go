@@ -914,8 +914,9 @@ func (rc *ResourceCreator) createSWFDomain(
 	}
 
 	description := strProp(props, "Description", params, physicalIDs)
+	retention := strProp(props, "WorkflowExecutionRetentionPeriodInDays", params, physicalIDs)
 
-	if err := rc.backends.SWF.Backend.RegisterDomain(name, description); err != nil {
+	if err := rc.backends.SWF.Backend.RegisterDomain(name, description, retention); err != nil {
 		return "", fmt.Errorf("create SWF domain %s: %w", name, err)
 	}
 

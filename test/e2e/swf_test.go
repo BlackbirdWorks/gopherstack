@@ -16,7 +16,7 @@ import (
 func TestSWFDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	err := stack.SWFHandler.Backend.RegisterDomain("test-domain", "an e2e test domain")
+	err := stack.SWFHandler.Backend.RegisterDomain("test-domain", "an e2e test domain", "NONE")
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)

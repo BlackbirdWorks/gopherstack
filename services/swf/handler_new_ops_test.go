@@ -866,9 +866,9 @@ func TestSWF_TerminateWorkflowExecution(t *testing.T) {
 		{
 			name: "success",
 			setup: []setupAction{
+				{action: "RegisterDomain", body: map[string]any{"name": "d1"}},
 				{action: "StartWorkflowExecution", body: map[string]any{
 					"domain": "d1", "workflowId": "wf-1",
-					"workflowType": map[string]any{"name": "wf", "version": "1.0"},
 				}},
 			},
 			body:     map[string]any{"domain": "d1", "workflowId": "wf-1"},
@@ -900,9 +900,9 @@ func TestSWF_DescribeWorkflowExecution_StartTimestamp(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSWFHandler(t)
+	doSWFRequest(t, h, "RegisterDomain", map[string]any{"name": "d1"})
 	doSWFRequest(t, h, "StartWorkflowExecution", map[string]any{
 		"domain": "d1", "workflowId": "wf-1",
-		"workflowType": map[string]any{"name": "wf", "version": "1.0"},
 	})
 
 	rec := doSWFRequest(t, h, "DescribeWorkflowExecution", map[string]any{

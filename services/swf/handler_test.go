@@ -113,7 +113,10 @@ func TestSWFHandler_Actions(t *testing.T) {
 			wantRespContains: "typeInfos",
 		},
 		{
-			name:              "StartWorkflowExecution",
+			name: "StartWorkflowExecution",
+			setup: []setupAction{
+				{action: "RegisterDomain", body: map[string]any{"name": "my-domain"}},
+			},
 			action:            "StartWorkflowExecution",
 			body:              map[string]any{"domain": "my-domain", "workflowId": "wf-001"},
 			wantCode:          http.StatusOK,
@@ -122,6 +125,7 @@ func TestSWFHandler_Actions(t *testing.T) {
 		{
 			name: "DescribeWorkflowExecution",
 			setup: []setupAction{
+				{action: "RegisterDomain", body: map[string]any{"name": "d1"}},
 				{action: "StartWorkflowExecution", body: map[string]any{"domain": "d1", "workflowId": "wf-001"}},
 			},
 			action:           "DescribeWorkflowExecution",
@@ -651,11 +655,13 @@ func TestHandler_ListWorkflowTypes_TokenChaining(t *testing.T) {
 	names1 := make(map[string]bool)
 	for _, wt := range infos1 {
 		wm := wt.(map[string]any)
-		names1[wm["name"].(string)] = true
+		wtRef := wm["workflowType"].(map[string]any)
+		names1[wtRef["name"].(string)] = true
 	}
 
 	for _, wt := range infos2 {
 		wm := wt.(map[string]any)
-		assert.False(t, names1[wm["name"].(string)], "duplicate workflow type in page 2")
+		wtRef := wm["workflowType"].(map[string]any)
+		assert.False(t, names1[wtRef["name"].(string)], "duplicate workflow type in page 2")
 	}
 }
