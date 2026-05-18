@@ -313,7 +313,7 @@ func (b *InMemoryBackend) CreateDomain(
 		}
 	}
 
-	id := fmt.Sprintf("d-%s", generateID(idByteLen))
+	id := fmt.Sprintf("d-%s", generateID())
 	domainArn := arn.Build("sagemaker", b.region, b.accountID, "domain/"+id)
 	now := time.Now()
 
@@ -873,7 +873,7 @@ func (b *InMemoryBackend) StartPipelineExecution(pipelineName string) (*Pipeline
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, pipelineName)
 	}
 
-	execID := generateID(idByteLen)
+	execID := generateID()
 	execArn := p.PipelineArn + "/execution/" + execID
 
 	pe := &PipelineExecution{
@@ -1403,7 +1403,7 @@ func (b *InMemoryBackend) StartPipelineExecutionFull(
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, opts.PipelineName)
 	}
 
-	execID := generateID(idByteLen)
+	execID := generateID()
 	execArn := p.PipelineArn + "/execution/" + execID
 
 	params := make([]PipelineParameter, len(opts.PipelineParameters))

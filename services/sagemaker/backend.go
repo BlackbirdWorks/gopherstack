@@ -15,9 +15,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
-// generateID returns a random hex string of the given byte length (output chars = 2*n).
-func generateID(n int) string {
-	b := make([]byte, n)
+// generateID returns a 24-char random hex string (12 random bytes).
+func generateID() string {
+	b := make([]byte, idByteLen)
 	_, _ = rand.Read(b)
 
 	return hex.EncodeToString(b)
@@ -991,7 +991,13 @@ func (b *InMemoryBackend) findTagMapLocked(resourceARN string) *map[string]strin
 		}
 	}
 
-	// Domains, FeatureGroups, Pipelines, Experiments, Trials, TrialComponents.
+	return b.findTagMapStatefulLocked(resourceARN)
+}
+
+// findTagMapStatefulLocked handles tag lookups for stateful resources (domains,
+// featureGroups, pipelines, experiments, trials, trialComponents). Separated
+// to keep findTagMapLocked within cognitive-complexity limits.
+func (b *InMemoryBackend) findTagMapStatefulLocked(resourceARN string) *map[string]string {
 	for _, d := range b.domains {
 		if d.DomainArn == resourceARN {
 			return &d.Tags

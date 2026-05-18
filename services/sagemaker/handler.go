@@ -65,6 +65,8 @@ func (h *Handler) Reset() {
 }
 
 // GetSupportedOperations returns the list of supported SageMaker operations.
+//
+//nolint:funlen
 func (h *Handler) GetSupportedOperations() []string {
 	core := []string{ //nolint:prealloc // literal initialization, not append loop
 		"AddAssociation",

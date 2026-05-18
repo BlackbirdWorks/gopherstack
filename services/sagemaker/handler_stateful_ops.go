@@ -843,37 +843,6 @@ func (h *Handler) handleDeleteFeatureGroup(ctx context.Context, body []byte) err
 // Pipeline handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreatePipeline(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineName       string      `json:"PipelineName"`
-		PipelineDefinition string      `json:"PipelineDefinition"`
-		RoleArn            string      `json:"RoleArn"`
-		Tags               []tagObject `json:"Tags"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.PipelineName == "" {
-		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
-	}
-
-	p, err := h.Backend.CreatePipeline(
-		req.PipelineName,
-		req.PipelineDefinition,
-		req.RoleArn,
-		fromTagObjects(req.Tags),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Load(ctx).InfoContext(ctx, "sagemaker: created pipeline", "name", p.PipelineName)
-
-	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
-}
-
 func (h *Handler) handleDescribePipeline(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		PipelineName string `json:"PipelineName"`
@@ -952,30 +921,6 @@ func (h *Handler) handleListPipelines(body []byte) ([]byte, error) {
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleUpdatePipeline(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineName       string `json:"PipelineName"`
-		PipelineDefinition string `json:"PipelineDefinition"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.PipelineName == "" {
-		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
-	}
-
-	p, err := h.Backend.UpdatePipeline(req.PipelineName, req.PipelineDefinition)
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Load(ctx).InfoContext(ctx, "sagemaker: updated pipeline", "name", req.PipelineName)
-
-	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
-}
-
 func (h *Handler) handleDeletePipeline(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		PipelineName string `json:"PipelineName"`
@@ -997,30 +942,6 @@ func (h *Handler) handleDeletePipeline(ctx context.Context, body []byte) ([]byte
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: deleted pipeline", "name", req.PipelineName)
 
 	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
-}
-
-func (h *Handler) handleStartPipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineName string `json:"PipelineName"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.PipelineName == "" {
-		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
-	}
-
-	pe, err := h.Backend.StartPipelineExecution(req.PipelineName)
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Load(ctx).
-		InfoContext(ctx, "sagemaker: started pipeline execution", "arn", pe.PipelineExecutionArn)
-
-	return json.Marshal(map[string]string{keyPipelineExecutionArn: pe.PipelineExecutionArn})
 }
 
 func (h *Handler) handleDescribePipelineExecution(_ context.Context, body []byte) ([]byte, error) {

@@ -23,7 +23,10 @@ var (
 	ErrTransformJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )
 
-const transformJobCompletionDelay = 300 * time.Millisecond
+const (
+	transformJobCompletionDelay = 300 * time.Millisecond
+	transformJobStoppingDelay   = 150 * time.Millisecond
+)
 
 // TransformDataSource specifies the S3 input location for a transform job.
 type TransformDataSource struct {
@@ -137,7 +140,7 @@ func (b *InMemoryBackend) CreateTransformJob(opts TransformJobOptions) (*Transfo
 	tj := &TransformJob{
 		TransformJobName:        opts.TransformJobName,
 		TransformJobArn:         jobARN,
-		TransformJobStatus:      "InProgress",
+		TransformJobStatus:      trainingJobStatusInProgress,
 		ModelName:               opts.ModelName,
 		RoleArn:                 opts.RoleArn,
 		BatchStrategy:           opts.BatchStrategy,
@@ -172,7 +175,7 @@ func (b *InMemoryBackend) applyTransformJobCompletion(_ context.Context, name st
 	defer b.mu.Unlock()
 
 	tj, ok := b.transformJobs[name]
-	if !ok || tj.TransformJobStatus != "InProgress" {
+	if !ok || tj.TransformJobStatus != trainingJobStatusInProgress {
 		return
 	}
 
@@ -204,7 +207,7 @@ func (b *InMemoryBackend) StopTransformJob(name string) error {
 	if !ok {
 		return fmt.Errorf("%w: transform job %q not found", ErrTransformJobNotFound, name)
 	}
-	if tj.TransformJobStatus != "InProgress" {
+	if tj.TransformJobStatus != trainingJobStatusInProgress {
 		return fmt.Errorf(
 			"%w: transform job %q is not in InProgress state (status: %s)",
 			ErrValidation,
@@ -213,7 +216,7 @@ func (b *InMemoryBackend) StopTransformJob(name string) error {
 		)
 	}
 
-	tj.TransformJobStatus = "Stopping"
+	tj.TransformJobStatus = pipelineStatusStopping
 	tj.LastModifiedTime = time.Now()
 
 	ctx := b.lifecycleCtx
@@ -221,13 +224,13 @@ func (b *InMemoryBackend) StopTransformJob(name string) error {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(150 * time.Millisecond):
+		case <-time.After(transformJobStoppingDelay):
 		}
 		b.mu.Lock("StopTransformJob.goroutine")
 		defer b.mu.Unlock()
-		if t, ok := b.transformJobs[name]; ok && t.TransformJobStatus == "Stopping" {
-			t.TransformJobStatus = "Stopped"
-			t.LastModifiedTime = time.Now()
+		if tj2, found := b.transformJobs[name]; found && tj2.TransformJobStatus == pipelineStatusStopping {
+			tj2.TransformJobStatus = "Stopped"
+			tj2.LastModifiedTime = time.Now()
 		}
 	}()
 
