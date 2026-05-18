@@ -357,6 +357,9 @@ func (d *DockerCompute) buildLabels(req LaunchRequest) map[string]string {
 // IP address is assigned, returning the discovered private IP and the host
 // port mapped to sshd.
 func (d *DockerCompute) waitForRunning(ctx context.Context, containerID string) (string, int, error) {
+	timer := time.NewTimer(inspectRetryDelay)
+	defer timer.Stop()
+
 	for range inspectMaxRetries {
 		res, err := d.api.ContainerInspect(ctx, containerID, mobyclient.ContainerInspectOptions{})
 		if err != nil {
@@ -368,10 +371,18 @@ func (d *DockerCompute) waitForRunning(ctx context.Context, containerID string) 
 			return ip, port, nil
 		}
 
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(inspectRetryDelay)
+
 		select {
 		case <-ctx.Done():
 			return "", 0, fmt.Errorf("container inspect: %w", ctx.Err())
-		case <-time.After(inspectRetryDelay):
+		case <-timer.C:
 		}
 	}
 
