@@ -68,10 +68,12 @@ func TestRefinement1_BackendReset(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("d1", ""))
-	require.NoError(t, b.RegisterWorkflowType("d1", "wf1", "1.0", ""))
+	require.NoError(t, b.RegisterDomain("d1", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("d1", "wf1", "1.0", "", swf.WorkflowTypeDefaults{}))
 	b.AddActivityTypeInternal("d1", "act1", "1.0", "REGISTERED")
-	_, err := b.StartWorkflowExecution("d1", "wf-1", "run-1")
+	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain: "d1", WorkflowID: "wf-1", RunID: "run-1",
+	})
 	require.NoError(t, err)
 
 	b.Reset()
@@ -87,7 +89,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("d1", ""))
+	require.NoError(t, b.RegisterDomain("d1", "", "NONE"))
 	h := swf.NewHandler(b)
 
 	h.Reset()
@@ -106,16 +108,18 @@ func TestRefinement1_ExportCounts(t *testing.T) {
 	assert.Zero(t, swf.ActivityTypeCount(b))
 	assert.Zero(t, swf.ExecutionCount(b))
 
-	require.NoError(t, b.RegisterDomain("dom1", ""))
+	require.NoError(t, b.RegisterDomain("dom1", "", "NONE"))
 	assert.Equal(t, 1, swf.DomainCount(b))
 
-	require.NoError(t, b.RegisterWorkflowType("dom1", "wf1", "1.0", ""))
+	require.NoError(t, b.RegisterWorkflowType("dom1", "wf1", "1.0", "", swf.WorkflowTypeDefaults{}))
 	assert.Equal(t, 1, swf.WorkflowTypeCount(b))
 
-	require.NoError(t, b.RegisterActivityType("dom1", "act1", "1.0", ""))
+	require.NoError(t, b.RegisterActivityType("dom1", "act1", "1.0", "", swf.ActivityTypeDefaults{}))
 	assert.Equal(t, 1, swf.ActivityTypeCount(b))
 
-	_, err := b.StartWorkflowExecution("dom1", "wf-1", "run-1")
+	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain: "dom1", WorkflowID: "wf-1", RunID: "run-1",
+	})
 	require.NoError(t, err)
 	assert.Equal(t, 1, swf.ExecutionCount(b))
 
@@ -127,7 +131,7 @@ func TestRefinement1_ErrValidation_RegisterDomain(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	err := b.RegisterDomain("", "desc")
+	err := b.RegisterDomain("", "desc", "NONE")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, swf.ErrValidation)
@@ -153,7 +157,7 @@ func TestRefinement1_ErrValidation_RegisterWorkflowType(t *testing.T) {
 			t.Parallel()
 
 			b := swf.NewInMemoryBackend()
-			err := b.RegisterWorkflowType(tt.domain, tt.wfName, tt.version, "")
+			err := b.RegisterWorkflowType(tt.domain, tt.wfName, tt.version, "", swf.WorkflowTypeDefaults{})
 
 			require.Error(t, err)
 			assert.ErrorIs(t, err, swf.ErrValidation)
@@ -179,7 +183,11 @@ func TestRefinement1_ErrValidation_StartWorkflowExecution(t *testing.T) {
 			t.Parallel()
 
 			b := swf.NewInMemoryBackend()
-			_, err := b.StartWorkflowExecution(tt.domain, tt.workflowID, "run-1")
+			_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+				Domain:     tt.domain,
+				WorkflowID: tt.workflowID,
+				RunID:      "run-1",
+			})
 
 			require.Error(t, err)
 			assert.ErrorIs(t, err, swf.ErrValidation)
@@ -192,7 +200,7 @@ func TestRefinement1_DeprecateDomain_AlreadyDeprecated(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("dom", ""))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
 	require.NoError(t, b.DeprecateDomain("dom"))
 
 	err := b.DeprecateDomain("dom")
@@ -206,7 +214,7 @@ func TestRefinement1_UndeprecateDomain(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("dom", ""))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
 	require.NoError(t, b.DeprecateDomain("dom"))
 	require.NoError(t, b.UndeprecateDomain("dom"))
 
@@ -231,7 +239,7 @@ func TestRefinement1_UndeprecateDomain_AlreadyRegistered(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("dom", ""))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
 
 	err := b.UndeprecateDomain("dom")
 
@@ -244,8 +252,8 @@ func TestRefinement1_RegisterWorkflowType_StoredDescription(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("dom", ""))
-	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "1.0", "my desc"))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "1.0", "my desc", swf.WorkflowTypeDefaults{}))
 
 	wt, err := b.DescribeWorkflowType("dom", "wf", "1.0")
 	require.NoError(t, err)
@@ -257,14 +265,17 @@ func TestRefinement1_ListWorkflowTypes_FilterStatus(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("dom", ""))
-	require.NoError(t, b.RegisterWorkflowType("dom", "wf1", "1.0", ""))
-	require.NoError(t, b.RegisterWorkflowType("dom", "wf2", "1.0", ""))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("dom", "wf1", "1.0", "", swf.WorkflowTypeDefaults{}))
+	require.NoError(t, b.RegisterWorkflowType("dom", "wf2", "1.0", "", swf.WorkflowTypeDefaults{}))
 	require.NoError(t, b.DeprecateWorkflowType("dom", "wf2", "1.0"))
 
-	registered := b.ListWorkflowTypes("dom", "REGISTERED")
-	deprecated := b.ListWorkflowTypes("dom", "DEPRECATED")
-	all := b.ListWorkflowTypes("dom", "")
+	registered, err := b.ListWorkflowTypes("dom", "REGISTERED")
+	require.NoError(t, err)
+	deprecated, err := b.ListWorkflowTypes("dom", "DEPRECATED")
+	require.NoError(t, err)
+	all, err := b.ListWorkflowTypes("dom", "")
+	require.NoError(t, err)
 
 	assert.Len(t, registered, 1)
 	assert.Equal(t, "wf1", registered[0].Name)
@@ -278,8 +289,8 @@ func TestRefinement1_UndeprecateWorkflowType(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("dom", ""))
-	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "1.0", ""))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "1.0", "", swf.WorkflowTypeDefaults{}))
 	require.NoError(t, b.DeprecateWorkflowType("dom", "wf", "1.0"))
 	require.NoError(t, b.UndeprecateWorkflowType("dom", "wf", "1.0"))
 
@@ -293,8 +304,8 @@ func TestRefinement1_UndeprecateWorkflowType_AlreadyRegistered(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("dom", ""))
-	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "1.0", ""))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "1.0", "", swf.WorkflowTypeDefaults{}))
 
 	err := b.UndeprecateWorkflowType("dom", "wf", "1.0")
 
@@ -307,8 +318,8 @@ func TestRefinement1_DeleteWorkflowType_RequiresDeprecated(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("dom", ""))
-	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "1.0", ""))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "1.0", "", swf.WorkflowTypeDefaults{}))
 
 	err := b.DeleteWorkflowType("dom", "wf", "1.0")
 
@@ -321,7 +332,8 @@ func TestRefinement1_RegisterActivityType(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterActivityType("dom", "act", "2.0", "activity desc"))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterActivityType("dom", "act", "2.0", "activity desc", swf.ActivityTypeDefaults{}))
 
 	at, err := b.DescribeActivityType("dom", "act", "2.0")
 	require.NoError(t, err)
@@ -335,9 +347,10 @@ func TestRefinement1_RegisterActivityType_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterActivityType("dom", "act", "1.0", ""))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterActivityType("dom", "act", "1.0", "", swf.ActivityTypeDefaults{}))
 
-	err := b.RegisterActivityType("dom", "act", "1.0", "")
+	err := b.RegisterActivityType("dom", "act", "1.0", "", swf.ActivityTypeDefaults{})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, swf.ErrTypeAlreadyExists)
@@ -348,13 +361,17 @@ func TestRefinement1_ListActivityTypes_FilterStatus(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterActivityType("dom", "act1", "1.0", ""))
-	require.NoError(t, b.RegisterActivityType("dom", "act2", "1.0", ""))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterActivityType("dom", "act1", "1.0", "", swf.ActivityTypeDefaults{}))
+	require.NoError(t, b.RegisterActivityType("dom", "act2", "1.0", "", swf.ActivityTypeDefaults{}))
 	require.NoError(t, b.DeprecateActivityType("dom", "act2", "1.0"))
 
-	reg := b.ListActivityTypes("dom", "REGISTERED")
-	dep := b.ListActivityTypes("dom", "DEPRECATED")
-	all := b.ListActivityTypes("dom", "")
+	reg, err := b.ListActivityTypes("dom", "REGISTERED")
+	require.NoError(t, err)
+	dep, err := b.ListActivityTypes("dom", "DEPRECATED")
+	require.NoError(t, err)
+	all, err := b.ListActivityTypes("dom", "")
+	require.NoError(t, err)
 
 	assert.Len(t, reg, 1)
 	assert.Len(t, dep, 1)
@@ -366,7 +383,8 @@ func TestRefinement1_UndeprecateActivityType(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterActivityType("dom", "act", "1.0", ""))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterActivityType("dom", "act", "1.0", "", swf.ActivityTypeDefaults{}))
 	require.NoError(t, b.DeprecateActivityType("dom", "act", "1.0"))
 	require.NoError(t, b.UndeprecateActivityType("dom", "act", "1.0"))
 
@@ -380,7 +398,8 @@ func TestRefinement1_DeleteActivityType_RequiresDeprecated(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterActivityType("dom", "act", "1.0", ""))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterActivityType("dom", "act", "1.0", "", swf.ActivityTypeDefaults{}))
 
 	err := b.DeleteActivityType("dom", "act", "1.0")
 
@@ -393,10 +412,13 @@ func TestRefinement1_TerminateWorkflowExecution(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	_, err := b.StartWorkflowExecution("dom", "wf-1", "run-1")
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain: "dom", WorkflowID: "wf-1", RunID: "run-1",
+	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1"))
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", ""))
 
 	exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
 	require.NoError(t, err)
@@ -410,7 +432,7 @@ func TestRefinement1_TerminateWorkflowExecution_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	err := b.TerminateWorkflowExecution("dom", "missing")
+	err := b.TerminateWorkflowExecution("dom", "missing", "", "", "")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, swf.ErrNotFound)
@@ -421,12 +443,15 @@ func TestRefinement1_TerminateWorkflowExecution_AlreadyTerminated(t *testing.T) 
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	_, err := b.StartWorkflowExecution("dom", "wf-1", "run-1")
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain: "dom", WorkflowID: "wf-1", RunID: "run-1",
+	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1"))
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", ""))
 
-	err = b.TerminateWorkflowExecution("dom", "wf-1")
+	err = b.TerminateWorkflowExecution("dom", "wf-1", "", "", "")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, swf.ErrValidation)
@@ -437,7 +462,10 @@ func TestRefinement1_StartWorkflowExecution_SetsTimestamp(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	exec, err := b.StartWorkflowExecution("dom", "wf-1", "run-1")
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	exec, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain: "dom", WorkflowID: "wf-1", RunID: "run-1",
+	})
 
 	require.NoError(t, err)
 	assert.NotZero(t, exec.StartTimestamp)
@@ -448,16 +476,19 @@ func TestRefinement1_CountTerminatedExecution_CountsClosed(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	_, err := b.StartWorkflowExecution("dom", "wf-1", "run-1")
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain: "dom", WorkflowID: "wf-1", RunID: "run-1",
+	})
 	require.NoError(t, err)
 
-	assert.Equal(t, 1, b.CountOpenWorkflowExecutions("dom"))
-	assert.Equal(t, 0, b.CountClosedWorkflowExecutions("dom"))
+	assert.Equal(t, 1, b.CountOpenWorkflowExecutions("dom", swf.ExecutionFilter{}))
+	assert.Equal(t, 0, b.CountClosedWorkflowExecutions("dom", swf.ExecutionFilter{}))
 
-	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1"))
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", ""))
 
-	assert.Equal(t, 0, b.CountOpenWorkflowExecutions("dom"))
-	assert.Equal(t, 1, b.CountClosedWorkflowExecutions("dom"))
+	assert.Equal(t, 0, b.CountOpenWorkflowExecutions("dom", swf.ExecutionFilter{}))
+	assert.Equal(t, 1, b.CountClosedWorkflowExecutions("dom", swf.ExecutionFilter{}))
 }
 
 // TestRefinement1_SnapshotRestoreActivities verifies activities survive snapshot/restore.
@@ -465,7 +496,8 @@ func TestRefinement1_SnapshotRestoreActivities(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterActivityType("dom", "act", "1.0", "persisted"))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterActivityType("dom", "act", "1.0", "persisted", swf.ActivityTypeDefaults{}))
 
 	data := b.Snapshot()
 	require.NotNil(t, data)
@@ -483,7 +515,8 @@ func TestRefinement1_SnapshotRestoreWorkflowTypes(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "2.0", "wf desc"))
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "2.0", "wf desc", swf.WorkflowTypeDefaults{}))
 	require.NoError(t, b.DeprecateWorkflowType("dom", "wf", "2.0"))
 
 	data := b.Snapshot()

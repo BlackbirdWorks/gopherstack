@@ -393,16 +393,16 @@ type taskListInput struct {
 }
 
 type handleRegisterWorkflowTypeInput struct {
-	Domain                              string        `json:"domain"`
-	Name                                string        `json:"name"`
-	Version                             string        `json:"version"`
-	Description                         string        `json:"description,omitempty"`
+	Domain                              string         `json:"domain"`
+	Name                                string         `json:"name"`
+	Version                             string         `json:"version"`
+	Description                         string         `json:"description,omitempty"`
 	DefaultTaskList                     *taskListInput `json:"defaultTaskList,omitempty"`
-	DefaultTaskPriority                 string        `json:"defaultTaskPriority,omitempty"`
-	DefaultTaskStartToCloseTimeout      string        `json:"defaultTaskStartToCloseTimeout,omitempty"`
-	DefaultExecutionStartToCloseTimeout string        `json:"defaultExecutionStartToCloseTimeout,omitempty"`
-	DefaultChildPolicy                  string        `json:"defaultChildPolicy,omitempty"`
-	DefaultLambdaRole                   string        `json:"defaultLambdaRole,omitempty"`
+	DefaultTaskPriority                 string         `json:"defaultTaskPriority,omitempty"`
+	DefaultTaskStartToCloseTimeout      string         `json:"defaultTaskStartToCloseTimeout,omitempty"`
+	DefaultExecutionStartToCloseTimeout string         `json:"defaultExecutionStartToCloseTimeout,omitempty"`
+	DefaultChildPolicy                  string         `json:"defaultChildPolicy,omitempty"`
+	DefaultLambdaRole                   string         `json:"defaultLambdaRole,omitempty"`
 }
 
 func (h *Handler) handleRegisterWorkflowType(
@@ -591,16 +591,16 @@ func (h *Handler) handleDeleteWorkflowType(
 type registerActivityTypeOutput struct{}
 
 type handleRegisterActivityTypeInput struct {
-	Domain                            string        `json:"domain"`
-	Name                              string        `json:"name"`
-	Version                           string        `json:"version"`
-	Description                       string        `json:"description,omitempty"`
+	Domain                            string         `json:"domain"`
+	Name                              string         `json:"name"`
+	Version                           string         `json:"version"`
+	Description                       string         `json:"description,omitempty"`
 	DefaultTaskList                   *taskListInput `json:"defaultTaskList,omitempty"`
-	DefaultTaskPriority               string        `json:"defaultTaskPriority,omitempty"`
-	DefaultTaskHeartbeatTimeout       string        `json:"defaultTaskHeartbeatTimeout,omitempty"`
-	DefaultTaskScheduleToCloseTimeout string        `json:"defaultTaskScheduleToCloseTimeout,omitempty"`
-	DefaultTaskScheduleToStartTimeout string        `json:"defaultTaskScheduleToStartTimeout,omitempty"`
-	DefaultTaskStartToCloseTimeout    string        `json:"defaultTaskStartToCloseTimeout,omitempty"`
+	DefaultTaskPriority               string         `json:"defaultTaskPriority,omitempty"`
+	DefaultTaskHeartbeatTimeout       string         `json:"defaultTaskHeartbeatTimeout,omitempty"`
+	DefaultTaskScheduleToCloseTimeout string         `json:"defaultTaskScheduleToCloseTimeout,omitempty"`
+	DefaultTaskScheduleToStartTimeout string         `json:"defaultTaskScheduleToStartTimeout,omitempty"`
+	DefaultTaskStartToCloseTimeout    string         `json:"defaultTaskStartToCloseTimeout,omitempty"`
 }
 
 func (h *Handler) handleRegisterActivityType(
@@ -855,11 +855,11 @@ func buildExecutionFilter(
 }
 
 type handleCountOpenWorkflowExecutionsInput struct {
-	Domain          string                `json:"domain"`
 	StartTimeFilter *timeFilter           `json:"startTimeFilter,omitempty"`
 	ExecutionFilter *executionFilterInput `json:"executionFilter,omitempty"`
 	TypeFilter      *typeFilterInput      `json:"typeFilter,omitempty"`
 	TagFilter       *tagFilterInput       `json:"tagFilter,omitempty"`
+	Domain          string                `json:"domain"`
 }
 
 func (h *Handler) handleCountOpenWorkflowExecutions(
@@ -872,13 +872,13 @@ func (h *Handler) handleCountOpenWorkflowExecutions(
 }
 
 type handleCountClosedWorkflowExecutionsInput struct {
-	Domain            string                  `json:"domain"`
 	StartTimeFilter   *timeFilter             `json:"startTimeFilter,omitempty"`
 	CloseTimeFilter   *timeFilter             `json:"closeTimeFilter,omitempty"`
 	ExecutionFilter   *executionFilterInput   `json:"executionFilter,omitempty"`
 	TypeFilter        *typeFilterInput        `json:"typeFilter,omitempty"`
 	TagFilter         *tagFilterInput         `json:"tagFilter,omitempty"`
 	CloseStatusFilter *closeStatusFilterInput `json:"closeStatusFilter,omitempty"`
+	Domain            string                  `json:"domain"`
 }
 
 func (h *Handler) handleCountClosedWorkflowExecutions(
@@ -896,8 +896,8 @@ type pendingTaskCountOutput struct {
 }
 
 type handleCountPendingActivityTasksInput struct {
-	Domain   string       `json:"domain"`
-	TaskList taskListRef  `json:"taskList"`
+	Domain   string      `json:"domain"`
+	TaskList taskListRef `json:"taskList"`
 }
 
 func (h *Handler) handleCountPendingActivityTasks(
@@ -933,17 +933,17 @@ type workflowTypeRefInput struct {
 }
 
 type handleStartWorkflowExecutionInput struct {
+	TaskList                     *taskListInput       `json:"taskList,omitempty"`
+	WorkflowType                 workflowTypeRefInput `json:"workflowType"`
 	Domain                       string               `json:"domain"`
 	WorkflowID                   string               `json:"workflowId"`
-	WorkflowType                 workflowTypeRefInput `json:"workflowType"`
-	TaskList                     *taskListInput       `json:"taskList,omitempty"`
 	Input                        string               `json:"input,omitempty"`
-	TagList                      []string             `json:"tagList,omitempty"`
 	ChildPolicy                  string               `json:"childPolicy,omitempty"`
 	LambdaRole                   string               `json:"lambdaRole,omitempty"`
 	ExecutionStartToCloseTimeout string               `json:"executionStartToCloseTimeout,omitempty"`
 	TaskStartToCloseTimeout      string               `json:"taskStartToCloseTimeout,omitempty"`
 	TaskPriority                 string               `json:"taskPriority,omitempty"`
+	TagList                      []string             `json:"tagList,omitempty"`
 }
 
 func (h *Handler) handleStartWorkflowExecution(
@@ -984,14 +984,14 @@ type workflowExecutionRef struct {
 }
 
 type executionInfoOutput struct {
-	Execution         workflowExecutionRef `json:"execution"`
-	WorkflowType      *workflowTypeRef     `json:"workflowType,omitempty"`
-	StartTimestamp    float64              `json:"startTimestamp"`
-	CloseTimestamp    float64              `json:"closeTimestamp,omitempty"`
-	ExecutionStatus   string               `json:"executionStatus"`
-	CloseStatus       string               `json:"closeStatus,omitempty"`
-	TagList           []string             `json:"tagList,omitempty"`
-	CancelRequested   bool                 `json:"cancelRequested,omitempty"`
+	WorkflowType    *workflowTypeRef     `json:"workflowType,omitempty"`
+	Execution       workflowExecutionRef `json:"execution"`
+	ExecutionStatus string               `json:"executionStatus"`
+	CloseStatus     string               `json:"closeStatus,omitempty"`
+	TagList         []string             `json:"tagList,omitempty"`
+	StartTimestamp  float64              `json:"startTimestamp"`
+	CloseTimestamp  float64              `json:"closeTimestamp,omitempty"`
+	CancelRequested bool                 `json:"cancelRequested,omitempty"`
 }
 
 type executionConfigOutput struct {
@@ -1011,10 +1011,10 @@ type openCountsOutput struct {
 }
 
 type describeWorkflowExecutionOutput struct {
-	ExecutionInfo          executionInfoOutput   `json:"executionInfo"`
 	ExecutionConfiguration executionConfigOutput `json:"executionConfiguration"`
-	OpenCounts             openCountsOutput      `json:"openCounts"`
 	LatestExecutionContext string                `json:"latestExecutionContext,omitempty"`
+	ExecutionInfo          executionInfoOutput   `json:"executionInfo"`
+	OpenCounts             openCountsOutput      `json:"openCounts"`
 }
 
 type handleDescribeWorkflowExecutionInput struct {
@@ -1104,10 +1104,10 @@ func (h *Handler) handleTerminateWorkflowExecution(
 // --- GetWorkflowExecutionHistory ---
 
 type handleGetWorkflowExecutionHistoryInput struct {
-	Domain          string               `json:"domain"`
 	Execution       workflowExecutionRef `json:"execution"`
-	MaximumPageSize int                  `json:"maximumPageSize,omitempty"`
+	Domain          string               `json:"domain"`
 	NextPageToken   string               `json:"nextPageToken,omitempty"`
+	MaximumPageSize int                  `json:"maximumPageSize,omitempty"`
 	ReverseOrder    bool                 `json:"reverseOrder,omitempty"`
 }
 
@@ -1130,7 +1130,7 @@ func (h *Handler) handleGetWorkflowExecutionHistory(
 // --- ListOpenWorkflowExecutions ---
 
 type listWorkflowExecutionsOutput struct {
-	NextPageToken  string               `json:"nextPageToken,omitempty"`
+	NextPageToken  string                `json:"nextPageToken,omitempty"`
 	ExecutionInfos []executionInfoOutput `json:"executionInfos"`
 }
 
@@ -1306,23 +1306,23 @@ type decisionTaskWorkflowTypeOutput struct {
 }
 
 type decisionTaskOutput struct {
+	WorkflowType           *decisionTaskWorkflowTypeOutput `json:"workflowType,omitempty"`
+	WorkflowExecution      *workflowExecutionRef           `json:"workflowExecution,omitempty"`
 	TaskToken              string                          `json:"taskToken"`
 	WorkflowID             string                          `json:"workflowId"`
 	RunID                  string                          `json:"runId"`
+	NextPageToken          string                          `json:"nextPageToken,omitempty"`
 	Events                 []HistoryEvent                  `json:"events"`
 	StartedEventID         int64                           `json:"startedEventId"`
 	PreviousStartedEventID int64                           `json:"previousStartedEventId"`
-	NextPageToken          string                          `json:"nextPageToken,omitempty"`
-	WorkflowType           *decisionTaskWorkflowTypeOutput `json:"workflowType,omitempty"`
-	WorkflowExecution      *workflowExecutionRef           `json:"workflowExecution,omitempty"`
 }
 
 type handlePollForDecisionTaskInput struct {
 	Domain          string      `json:"domain"`
 	TaskList        taskListRef `json:"taskList"`
 	NextPageToken   string      `json:"nextPageToken,omitempty"`
-	MaximumPageSize int         `json:"maximumPageSize,omitempty"`
 	Identity        string      `json:"identity,omitempty"`
+	MaximumPageSize int         `json:"maximumPageSize,omitempty"`
 	ReverseOrder    bool        `json:"reverseOrder,omitempty"`
 }
 
@@ -1461,7 +1461,7 @@ func (h *Handler) handleRespondActivityTaskFailed(
 
 type handleRespondDecisionTaskCompletedInput struct {
 	TaskToken        string `json:"taskToken"`
-	ExecutionContext  string `json:"executionContext,omitempty"`
+	ExecutionContext string `json:"executionContext,omitempty"`
 }
 
 type respondDecisionTaskCompletedOutput struct{}

@@ -40,14 +40,14 @@ const (
 	// maxWorkflowExecutions is the maximum number of workflow executions retained.
 	maxWorkflowExecutions = 10_000
 
-	statusDeprecated  = "DEPRECATED"
-	statusRegistered  = "REGISTERED"
-	statusRunning     = "RUNNING"
-	statusTerminated  = "TERMINATED"
-	statusCanceled    = "CANCELED"
-	statusCompleted   = "COMPLETED"
-	statusFailed      = "FAILED"
-	statusTimedOut    = "TIMED_OUT"
+	statusDeprecated     = "DEPRECATED"
+	statusRegistered     = "REGISTERED"
+	statusRunning        = "RUNNING"
+	statusTerminated     = "TERMINATED"
+	statusCanceled       = "CANCELED"
+	statusCompleted      = "COMPLETED"
+	statusFailed         = "FAILED"
+	statusTimedOut       = "TIMED_OUT"
 	statusContinuedAsNew = "CONTINUED_AS_NEW"
 
 	defaultAccountID = "123456789012"
@@ -83,10 +83,10 @@ type ActivityTypeDefaults struct {
 // The Attributes map holds the event-type-specific payload which is serialised
 // under the key "<eventType>EventAttributes" per the AWS SWF JSON protocol.
 type HistoryEvent struct {
+	Attributes map[string]any `json:"-"`
 	EventType  string         `json:"eventType"`
 	EventID    int64          `json:"eventId"`
 	Timestamp  float64        `json:"eventTimestamp"`
-	Attributes map[string]any `json:"-"`
 }
 
 // MarshalJSON emits the event-type-specific attributes alongside the standard fields.
@@ -151,7 +151,7 @@ type ActivityTaskActivityType struct {
 type ActivityTask struct {
 	TaskToken        string                   `json:"taskToken"`
 	ActivityID       string                   `json:"activityId"`
-	ActivityType     ActivityTaskActivityType  `json:"activityType"`
+	ActivityType     ActivityTaskActivityType `json:"activityType"`
 	Input            string                   `json:"input,omitempty"`
 	WorkflowID       string                   `json:"workflowId"`
 	RunID            string                   `json:"runId"`
@@ -164,12 +164,12 @@ type DecisionTask struct {
 	TaskToken              string         `json:"taskToken"`
 	WorkflowID             string         `json:"workflowId"`
 	RunID                  string         `json:"runId"`
-	Events                 []HistoryEvent `json:"events"`
-	StartedEventID         int64          `json:"startedEventId"`
-	PreviousStartedEventID int64          `json:"previousStartedEventId"`
 	NextPageToken          string         `json:"nextPageToken,omitempty"`
 	WorkflowTypeName       string         `json:"workflowTypeName,omitempty"`
 	WorkflowTypeVersion    string         `json:"workflowTypeVersion,omitempty"`
+	Events                 []HistoryEvent `json:"events"`
+	StartedEventID         int64          `json:"startedEventId"`
+	PreviousStartedEventID int64          `json:"previousStartedEventId"`
 }
 
 // Domain represents an SWF domain.
@@ -182,91 +182,91 @@ type Domain struct {
 
 // ActivityType represents an SWF activity type.
 type ActivityType struct {
+	Defaults     ActivityTypeDefaults `json:"defaults,omitempty"`
 	Description  string               `json:"description"`
 	Domain       string               `json:"domain"`
 	Name         string               `json:"name"`
 	Version      string               `json:"version"`
 	Status       string               `json:"status"`
 	CreationDate float64              `json:"creationDate"`
-	Defaults     ActivityTypeDefaults `json:"defaults,omitempty"`
 }
 
 // WorkflowType represents an SWF workflow type.
 type WorkflowType struct {
+	Defaults     WorkflowTypeDefaults `json:"defaults,omitempty"`
 	Description  string               `json:"description"`
 	Domain       string               `json:"domain"`
 	Name         string               `json:"name"`
 	Version      string               `json:"version"`
 	Status       string               `json:"status"`
 	CreationDate float64              `json:"creationDate"`
-	Defaults     WorkflowTypeDefaults `json:"defaults,omitempty"`
 }
 
 // WorkflowExecution represents an SWF workflow execution.
 type WorkflowExecution struct {
-	Domain               string   `json:"domain"`
-	WorkflowID           string   `json:"workflowID"`
-	RunID                string   `json:"runID"`
-	Status               string   `json:"status"`
-	CloseStatus          string   `json:"closeStatus,omitempty"`
-	StartTimestamp       float64  `json:"startTimestamp"`
-	CloseTimestamp       float64  `json:"closeTimestamp,omitempty"`
-	WorkflowTypeName     string   `json:"workflowTypeName,omitempty"`
-	WorkflowTypeVersion  string   `json:"workflowTypeVersion,omitempty"`
-	TaskList             string   `json:"taskList,omitempty"`
-	Input                string   `json:"input,omitempty"`
-	TagList              []string `json:"tagList,omitempty"`
-	ChildPolicy          string   `json:"childPolicy,omitempty"`
-	LambdaRole           string   `json:"lambdaRole,omitempty"`
-	ExecutionStartToCloseTimeout string `json:"executionStartToCloseTimeout,omitempty"`
-	TaskStartToCloseTimeout      string `json:"taskStartToCloseTimeout,omitempty"`
-	TaskPriority         string   `json:"taskPriority,omitempty"`
-	CancelRequested      bool     `json:"cancelRequested,omitempty"`
-	LatestExecutionContext string `json:"latestExecutionContext,omitempty"`
+	WorkflowTypeVersion          string   `json:"workflowTypeVersion,omitempty"`
+	LambdaRole                   string   `json:"lambdaRole,omitempty"`
+	RunID                        string   `json:"runID"`
+	TaskList                     string   `json:"taskList,omitempty"`
+	CloseStatus                  string   `json:"closeStatus,omitempty"`
+	LatestExecutionContext       string   `json:"latestExecutionContext,omitempty"`
+	TaskPriority                 string   `json:"taskPriority,omitempty"`
+	WorkflowTypeName             string   `json:"workflowTypeName,omitempty"`
+	WorkflowID                   string   `json:"workflowID"`
+	Input                        string   `json:"input,omitempty"`
+	Status                       string   `json:"status"`
+	TaskStartToCloseTimeout      string   `json:"taskStartToCloseTimeout,omitempty"`
+	ChildPolicy                  string   `json:"childPolicy,omitempty"`
+	Domain                       string   `json:"domain"`
+	ExecutionStartToCloseTimeout string   `json:"executionStartToCloseTimeout,omitempty"`
+	TagList                      []string `json:"tagList,omitempty"`
+	CloseTimestamp               float64  `json:"closeTimestamp,omitempty"`
+	StartTimestamp               float64  `json:"startTimestamp"`
+	CancelRequested              bool     `json:"cancelRequested,omitempty"`
 }
 
 // StartWorkflowExecutionInput holds all parameters for starting a workflow execution.
 type StartWorkflowExecutionInput struct {
-	Domain                       string
+	Input                        string
 	WorkflowID                   string
 	RunID                        string
 	WorkflowTypeName             string
 	WorkflowTypeVersion          string
 	TaskList                     string
-	Input                        string
-	TagList                      []string
+	Domain                       string
 	ChildPolicy                  string
 	LambdaRole                   string
 	ExecutionStartToCloseTimeout string
 	TaskStartToCloseTimeout      string
 	TaskPriority                 string
+	TagList                      []string
 }
 
 // activeActivityTaskRecord tracks an activity task that has been dispatched to a poller.
 type activeActivityTaskRecord struct {
+	ActivityType     ActivityTaskActivityType
 	Domain           string
 	WorkflowID       string
 	RunID            string
 	ActivityID       string
-	ActivityType     ActivityTaskActivityType
+	TaskList         string
 	ScheduledEventID int64
 	StartedEventID   int64
-	TaskList         string
 }
 
 // InMemoryBackend is the in-memory store for SWF resources.
 type InMemoryBackend struct {
-	domains              map[string]*Domain
-	workflows            map[string]*WorkflowType      // key: domain+":"+name+":"+version
-	activities           map[string]*ActivityType      // key: domain+":"+name+":"+version
-	executions           map[string]*WorkflowExecution // key: domain+":"+workflowID
-	history              map[string][]HistoryEvent     // key: domain+":"+workflowID
-	activityQueues       map[string][]*ActivityTask    // key: domain+":"+taskList
-	decisionQueues       map[string][]*DecisionTask    // key: domain+":"+taskList
-	activeActivityTasks  map[string]*activeActivityTaskRecord // key: taskToken
-	tags                 map[string]map[string]string  // key: resourceARN
-	mu                   *lockmetrics.RWMutex
-	executionOrder       []string // FIFO order of execution keys for eviction
+	domains             map[string]*Domain
+	workflows           map[string]*WorkflowType             // key: domain+":"+name+":"+version
+	activities          map[string]*ActivityType             // key: domain+":"+name+":"+version
+	executions          map[string]*WorkflowExecution        // key: domain+":"+workflowID
+	history             map[string][]HistoryEvent            // key: domain+":"+workflowID
+	activityQueues      map[string][]*ActivityTask           // key: domain+":"+taskList
+	decisionQueues      map[string][]*DecisionTask           // key: domain+":"+taskList
+	activeActivityTasks map[string]*activeActivityTaskRecord // key: taskToken
+	tags                map[string]map[string]string         // key: resourceARN
+	mu                  *lockmetrics.RWMutex
+	executionOrder      []string // FIFO order of execution keys for eviction
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -467,9 +467,9 @@ func (b *InMemoryBackend) RegisterDomain(name, description, retention string) er
 	}
 
 	b.domains[name] = &Domain{
-		Name:        name,
-		Description: description,
-		Status:      statusRegistered,
+		Name:                                   name,
+		Description:                            description,
+		Status:                                 statusRegistered,
 		WorkflowExecutionRetentionPeriodInDays: retention,
 	}
 	return nil
@@ -565,10 +565,6 @@ func (b *InMemoryBackend) RegisterWorkflowType(
 
 	b.mu.Lock("RegisterWorkflowType")
 	defer b.mu.Unlock()
-
-	if _, ok := b.domains[domain]; !ok {
-		return fmt.Errorf("%w: domain %s not found", ErrNotFound, domain)
-	}
 
 	key := domain + ":" + name + ":" + version
 	if _, ok := b.workflows[key]; ok {
@@ -707,10 +703,6 @@ func (b *InMemoryBackend) RegisterActivityType(
 	b.mu.Lock("RegisterActivityType")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domains[domain]; !ok {
-		return fmt.Errorf("%w: domain %s not found", ErrNotFound, domain)
-	}
-
 	key := domain + ":" + name + ":" + version
 	if _, ok := b.activities[key]; ok {
 		return fmt.Errorf("%w: activity type %s/%s", ErrTypeAlreadyExists, name, version)
@@ -820,15 +812,15 @@ func (b *InMemoryBackend) DeleteActivityType(domain, name, version string) error
 
 // ExecutionFilter holds optional filters for counting/listing executions.
 type ExecutionFilter struct {
-	WorkflowID       string
-	WorkflowTypeName string
+	OldestDate          *time.Time
+	LatestDate          *time.Time
+	CloseOldestDate     *time.Time
+	CloseLatestDate     *time.Time
+	WorkflowID          string
+	WorkflowTypeName    string
 	WorkflowTypeVersion string
-	Tag              string
-	CloseStatus      string
-	OldestDate       *time.Time
-	LatestDate       *time.Time
-	CloseOldestDate  *time.Time
-	CloseLatestDate  *time.Time
+	Tag                 string
+	CloseStatus         string
 }
 
 func (f ExecutionFilter) matchOpen(e *WorkflowExecution) bool {
@@ -1044,35 +1036,35 @@ func (b *InMemoryBackend) StartWorkflowExecution(input StartWorkflowExecutionInp
 
 	now := float64(time.Now().UnixMilli()) / 1000.0
 	exec := &WorkflowExecution{
-		Domain:               input.Domain,
-		WorkflowID:           input.WorkflowID,
-		RunID:                runID,
-		Status:               statusRunning,
-		StartTimestamp:       now,
-		WorkflowTypeName:     input.WorkflowTypeName,
-		WorkflowTypeVersion:  input.WorkflowTypeVersion,
-		TaskList:             taskList,
-		Input:                input.Input,
-		TagList:              input.TagList,
-		ChildPolicy:          childPolicy,
-		LambdaRole:           lambdaRole,
+		Domain:                       input.Domain,
+		WorkflowID:                   input.WorkflowID,
+		RunID:                        runID,
+		Status:                       statusRunning,
+		StartTimestamp:               now,
+		WorkflowTypeName:             input.WorkflowTypeName,
+		WorkflowTypeVersion:          input.WorkflowTypeVersion,
+		TaskList:                     taskList,
+		Input:                        input.Input,
+		TagList:                      input.TagList,
+		ChildPolicy:                  childPolicy,
+		LambdaRole:                   lambdaRole,
 		ExecutionStartToCloseTimeout: execTimeout,
 		TaskStartToCloseTimeout:      taskTimeout,
-		TaskPriority:         input.TaskPriority,
+		TaskPriority:                 input.TaskPriority,
 	}
 	b.executions[key] = exec
 
 	attrKey := eventAttrKey("WorkflowExecutionStarted")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			"input":                input.Input,
-			"childPolicy":          childPolicy,
-			"taskList":             map[string]any{"name": taskList},
-			"workflowType":         map[string]any{"name": input.WorkflowTypeName, "version": input.WorkflowTypeVersion},
+			"input":                        input.Input,
+			"childPolicy":                  childPolicy,
+			"taskList":                     map[string]any{"name": taskList},
+			"workflowType":                 map[string]any{"name": input.WorkflowTypeName, "version": input.WorkflowTypeVersion},
 			"executionStartToCloseTimeout": execTimeout,
 			"taskStartToCloseTimeout":      taskTimeout,
-			"lambdaRole":           lambdaRole,
-			"tagList":              input.TagList,
+			"lambdaRole":                   lambdaRole,
+			"tagList":                      input.TagList,
 		},
 	}
 	b.appendHistoryEventLocked(input.Domain, input.WorkflowID, "WorkflowExecutionStarted", attrs)
@@ -1178,9 +1170,9 @@ func (b *InMemoryBackend) openCountsLocked(domain, workflowID string) map[string
 		}
 	}
 	return map[string]int{
-		"openActivityTasks": activityCount,
-		"openDecisionTasks": decisionCount,
-		"openTimers":        0,
+		"openActivityTasks":           activityCount,
+		"openDecisionTasks":           decisionCount,
+		"openTimers":                  0,
 		"openChildWorkflowExecutions": 0,
 	}
 }

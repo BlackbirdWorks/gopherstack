@@ -440,6 +440,7 @@ func TestHistoryEvent_AttributesMarshal(t *testing.T) {
 
 	b := swf.NewInMemoryBackend()
 	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "1.0", "", swf.WorkflowTypeDefaults{}))
 	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
 		Domain:              "dom",
 		WorkflowID:          "wf-1",

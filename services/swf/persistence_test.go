@@ -20,11 +20,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *swf.InMemoryBackend) string {
-				err := b.RegisterDomain("test-domain", "test description")
+				err := b.RegisterDomain("test-domain", "test description", "30")
 				if err != nil {
 					return ""
 				}
-
 				return "test-domain"
 			},
 			verify: func(t *testing.T, b *swf.InMemoryBackend, id string) {
@@ -34,6 +33,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, id, domain.Name)
 				assert.Equal(t, "test description", domain.Description)
+				assert.Equal(t, "30", domain.WorkflowExecutionRetentionPeriodInDays)
 			},
 		},
 		{
@@ -42,7 +42,8 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *swf.InMemoryBackend, _ string) {
 				t.Helper()
 
-				domains := b.ListDomains("REGISTERED")
+				domains, err := b.ListDomains("REGISTERED")
+				require.NoError(t, err)
 				assert.Empty(t, domains)
 			},
 		},
