@@ -738,6 +738,17 @@ func (h *Handler) handleDeleteService(_ context.Context, body []byte) error {
 		return fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	insts, err := h.Backend.ListInstances(req.ID)
+	if err != nil {
+		return err
+	}
+
+	for _, inst := range insts {
+		if _, derr := h.Backend.DeregisterInstance(req.ID, inst.ID); derr != nil {
+			return derr
+		}
+	}
+
 	return h.Backend.DeleteService(req.ID)
 }
 

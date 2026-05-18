@@ -198,7 +198,6 @@ type InMemoryBackend struct {
 	operations             map[string]*Operation
 	serviceAttributes      map[string]map[string]string
 	instanceHealthStatuses map[string]string
-	serviceRevisions       map[string]int64
 	instancesByService     map[string]map[string]*Instance
 	svcByNsAndName         map[string]string
 	nsARNIndex             map[string]string
@@ -207,6 +206,7 @@ type InMemoryBackend struct {
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
+	instanceRevision       int64
 	nsCounter              int
 	svcCounter             int
 	opCounter              int
@@ -222,7 +222,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		operations:             make(map[string]*Operation),
 		serviceAttributes:      make(map[string]map[string]string),
 		instanceHealthStatuses: make(map[string]string),
-		serviceRevisions:       make(map[string]int64),
 		instancesByService:     make(map[string]map[string]*Instance),
 		svcByNsAndName:         make(map[string]string),
 		nsARNIndex:             make(map[string]string),
@@ -358,12 +357,8 @@ func (b *InMemoryBackend) CreateHTTPNamespace(name, description string, tags map
 }
 
 // CreatePrivateDNSNamespace creates a private DNS namespace.
-// Vpc is required; soaTTL defaults to 15 when zero.
+// soaTTL defaults to 15 when zero.
 func (b *InMemoryBackend) CreatePrivateDNSNamespace(name, description, vpc string, soaTTL int64, tags map[string]string) (string, error) {
-	if vpc == "" {
-		return "", fmt.Errorf("%w: Vpc is required for private DNS namespaces", ErrInvalidInput)
-	}
-
 	return b.createNamespace(name, namespaceTypeDNSPrivate, description, vpc, soaTTL, tags)
 }
 
@@ -527,7 +522,6 @@ func (b *InMemoryBackend) DeleteService(id string) error {
 	delete(b.services, id)
 	delete(b.serviceAttributes, id)
 	delete(b.instancesByService, id)
-	delete(b.serviceRevisions, id)
 
 	if svc.NamespaceID != "" {
 		delete(b.svcByNsAndName, svc.NamespaceID+":"+svc.Name)
@@ -594,7 +588,7 @@ func (b *InMemoryBackend) RegisterInstance(serviceID, instanceID string, attrs m
 	}
 
 	b.instancesByService[serviceID][instanceID] = inst
-	b.serviceRevisions[serviceID]++
+	b.instanceRevision++
 
 	now := time.Now()
 	opID := b.nextOpID()
@@ -627,7 +621,7 @@ func (b *InMemoryBackend) DeregisterInstance(serviceID, instanceID string) (stri
 		delete(insts, instanceID)
 	}
 
-	b.serviceRevisions[serviceID]++
+	b.instanceRevision++
 
 	now := time.Now()
 	opID := b.nextOpID()
@@ -705,7 +699,7 @@ func (b *InMemoryBackend) DiscoverInstances(
 		return []DiscoveredInstance{}, 0, nil
 	}
 
-	revision := b.serviceRevisions[svcID]
+	revision := b.instanceRevision
 	insts := b.instancesByService[svcID]
 	result := make([]DiscoveredInstance, 0, len(insts))
 
@@ -1073,13 +1067,8 @@ func (b *InMemoryBackend) UpdateInstanceCustomHealthStatus(serviceID, instanceID
 		)
 	}
 
-	svc, ok := b.services[serviceID]
-	if !ok {
+	if _, ok := b.services[serviceID]; !ok {
 		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
-	}
-
-	if svc.HealthCheckCustomConfig == nil {
-		return fmt.Errorf("%w: service %s has no HealthCheckCustomConfig", ErrCustomHealthNotFound, serviceID)
 	}
 
 	key := instanceKey(serviceID, instanceID)
@@ -1103,12 +1092,11 @@ func (b *InMemoryBackend) DiscoverInstancesRevision(namespaceName, serviceName s
 		return 0, fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, namespaceName)
 	}
 
-	svcID, ok := b.svcByNsAndName[nsID+":"+serviceName]
-	if !ok {
+	if _, ok := b.svcByNsAndName[nsID+":"+serviceName]; !ok {
 		return 0, fmt.Errorf("%w: service %s not found in namespace %s", ErrServiceNotFound, serviceName, namespaceName)
 	}
 
-	return b.serviceRevisions[svcID], nil
+	return b.instanceRevision, nil
 }
 
 // instanceKey creates a unique key for storing instances.
@@ -1345,12 +1333,12 @@ func (b *InMemoryBackend) Reset() {
 	b.operations = make(map[string]*Operation)
 	b.serviceAttributes = make(map[string]map[string]string)
 	b.instanceHealthStatuses = make(map[string]string)
-	b.serviceRevisions = make(map[string]int64)
 	b.instancesByService = make(map[string]map[string]*Instance)
 	b.svcByNsAndName = make(map[string]string)
 	b.nsARNIndex = make(map[string]string)
 	b.svcARNIndex = make(map[string]string)
 	b.nsNameIndex = make(map[string]string)
+	b.instanceRevision = 0
 	b.nsCounter = 0
 	b.svcCounter = 0
 	b.opCounter = 0

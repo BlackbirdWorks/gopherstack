@@ -13,9 +13,9 @@ type backendSnapshot struct {
 	Operations             map[string]*Operation            `json:"operations"`
 	ServiceAttributes      map[string]map[string]string     `json:"serviceAttributes"`
 	InstanceHealthStatuses map[string]string                `json:"instanceHealthStatuses"`
-	ServiceRevisions       map[string]int64                 `json:"serviceRevisions"`
 	AccountID              string                           `json:"accountID"`
 	Region                 string                           `json:"region"`
+	InstanceRevision       int64                            `json:"instanceRevision"`
 	NsCounter              int                              `json:"nsCounter"`
 	SvcCounter             int                              `json:"svcCounter"`
 	OpCounter              int                              `json:"opCounter"`
@@ -33,9 +33,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Operations:             b.operations,
 		ServiceAttributes:      b.serviceAttributes,
 		InstanceHealthStatuses: b.instanceHealthStatuses,
-		ServiceRevisions:       b.serviceRevisions,
 		AccountID:              b.accountID,
 		Region:                 b.region,
+		InstanceRevision:       b.instanceRevision,
 		NsCounter:              b.nsCounter,
 		SvcCounter:             b.svcCounter,
 		OpCounter:              b.opCounter,
@@ -86,17 +86,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.InstanceHealthStatuses = make(map[string]string)
 	}
 
-	if snap.ServiceRevisions == nil {
-		snap.ServiceRevisions = make(map[string]int64)
-	}
-
 	b.namespaces = snap.Namespaces
 	b.services = snap.Services
 	b.instances = snap.Instances
 	b.operations = snap.Operations
 	b.serviceAttributes = snap.ServiceAttributes
 	b.instanceHealthStatuses = snap.InstanceHealthStatuses
-	b.serviceRevisions = snap.ServiceRevisions
+	b.instanceRevision = snap.InstanceRevision
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.nsCounter = snap.NsCounter
