@@ -136,9 +136,7 @@
 			(s) =>
 				(s.policyStoreId ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
 				(s.arn ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-				((s as Record<string, unknown>).description as string ?? '')
-					.toLowerCase()
-					.includes(searchQuery.toLowerCase())
+				(s.description ?? '').toLowerCase().includes(searchQuery.toLowerCase())
 		)
 	);
 	const filteredPolicies = $derived(
@@ -318,7 +316,7 @@
 	function openEditTemplate(tmpl: PolicyTemplateItem) {
 		templateEditorMode = 'edit';
 		templateEditorId = tmpl.policyTemplateId ?? '';
-		templateEditorStatement = (tmpl as Record<string, unknown>).statement as string ?? '';
+		templateEditorStatement = ((tmpl as unknown as Record<string, unknown>).statement as string) ?? '';
 		templateEditorDescription = tmpl.description ?? '';
 		templateEditorOpen = true;
 	}
@@ -374,13 +372,13 @@
 	}
 
 	function openEditStore(store: PolicyStoreItem) {
+		type StoreExtra = { description?: string; validationSettings?: { mode?: string }; deletionProtection?: string };
+		const s = store as unknown as StoreExtra;
 		storeEditorMode = 'edit';
 		storeEditorId = store.policyStoreId ?? '';
-		storeEditorDescription = (store as Record<string, unknown>).description as string ?? '';
-		storeEditorValidationMode =
-			(((store as Record<string, unknown>).validationSettings as Record<string, unknown>)?.mode as 'OFF' | 'STRICT') ?? 'OFF';
-		storeEditorDeletionProtection =
-			((store as Record<string, unknown>).deletionProtection as 'DISABLED' | 'ENABLED') ?? 'DISABLED';
+		storeEditorDescription = s.description ?? '';
+		storeEditorValidationMode = (s.validationSettings?.mode as 'OFF' | 'STRICT') ?? 'OFF';
+		storeEditorDeletionProtection = (s.deletionProtection as 'DISABLED' | 'ENABLED') ?? 'DISABLED';
 		storeEditorOpen = true;
 	}
 
@@ -451,7 +449,10 @@
 						configuration: {
 							openIdConnectConfiguration: {
 								issuer: identitySourceEditorIssuer,
-								entityIdPrefix: identitySourceEditorEntityIdPrefix || undefined
+								entityIdPrefix: identitySourceEditorEntityIdPrefix || undefined,
+								tokenSelection: {
+									identityTokenOnly: { principalIdClaim: 'sub' }
+								}
 							}
 						}
 					})
@@ -756,20 +757,21 @@
 												{store.policyStoreId}
 											</p>
 											<p class="text-xs text-gray-500 dark:text-gray-400">{store.arn}</p>
-											{#if (store as Record<string, unknown>).description}
+											{@const storeX = store as unknown as { description?: string; validationSettings?: { mode?: string }; deletionProtection?: string }}
+											{#if storeX.description}
 												<p class="text-xs text-gray-400 italic">
-													{(store as Record<string, unknown>).description as string}
+													{storeX.description}
 												</p>
 											{/if}
 											<div class="flex gap-2 mt-1">
-												{#if (store as Record<string, unknown>).validationSettings}
+												{#if storeX.validationSettings}
 													<span
 														class="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
 													>
-														Validation: {((store as Record<string, unknown>).validationSettings as Record<string, unknown>)?.mode ?? 'OFF'}
+														Validation: {storeX.validationSettings.mode ?? 'OFF'}
 													</span>
 												{/if}
-												{#if (store as Record<string, unknown>).deletionProtection === 'ENABLED'}
+												{#if storeX.deletionProtection === 'ENABLED'}
 													<span
 														class="text-xs px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300"
 													>
@@ -956,14 +958,11 @@
 											<p class="text-xs text-gray-500 dark:text-gray-400">
 												{src.principalEntityType}
 											</p>
-											{#if (src as Record<string, unknown>).configuration}
-												{@const cfg = (src as Record<string, unknown>).configuration as Record<string, unknown>}
-												{#if cfg.cognitoUserPoolConfiguration}
-													{@const cognito = cfg.cognitoUserPoolConfiguration as Record<string, unknown>}
-													<p class="text-xs text-gray-400">Cognito: {cognito.userPoolArn as string}</p>
-												{:else if cfg.openIdConnectConfiguration}
-													{@const oidc = cfg.openIdConnectConfiguration as Record<string, unknown>}
-													<p class="text-xs text-gray-400">OIDC: {oidc.issuer as string}</p>
+											{#if src.configuration}
+												{#if 'cognitoUserPoolConfiguration' in src.configuration}
+													<p class="text-xs text-gray-400">Cognito: {src.configuration.cognitoUserPoolConfiguration.userPoolArn}</p>
+												{:else if 'openIdConnectConfiguration' in src.configuration}
+													<p class="text-xs text-gray-400">OIDC: {src.configuration.openIdConnectConfiguration.issuer}</p>
 												{/if}
 											{/if}
 										</div>
