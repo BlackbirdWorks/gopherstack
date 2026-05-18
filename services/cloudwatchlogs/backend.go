@@ -894,11 +894,6 @@ func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string
 		return nil, "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	streamSet := make(map[string]bool)
-	for _, s := range streamNames {
-		streamSet[s] = true
-	}
-
 	// Compile the filter pattern once before iterating over events so that
 	// wildcard regexes are not recompiled for every event.
 	var compiled *compiledFilterPattern
@@ -906,12 +901,11 @@ func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string
 		compiled = compileFilterPattern(filterPattern)
 	}
 
+	streamOrder := b.filterStreamOrderLocked(groupName, streamNames)
+
 	var all []*OutputLogEvent
-	streamOrder := sortedKeys(b.streams[groupName])
+
 	for _, sName := range streamOrder {
-		if len(streamSet) > 0 && !streamSet[sName] {
-			continue
-		}
 		for _, ev := range b.events[groupName][sName] {
 			if compiled != nil && !compiled.matches(ev.Message) {
 				continue
@@ -1405,6 +1399,37 @@ func sortedKeys(m map[string]*LogStream) []string {
 	sort.Strings(keys)
 
 	return keys
+}
+
+// filterStreamOrderLocked returns the ordered list of stream names to iterate
+// for FilterLogEvents. When streamNames is empty, all streams in the group are
+// returned in sorted order. When streamNames is non-empty, only the requested
+// names that exist in the group are returned, in sorted order, deduplicated.
+// Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) filterStreamOrderLocked(groupName string, streamNames []string) []string {
+	if len(streamNames) == 0 {
+		return sortedKeys(b.streams[groupName])
+	}
+
+	groupStreams := b.streams[groupName]
+	seen := make(map[string]bool, len(streamNames))
+	out := make([]string, 0, len(streamNames))
+
+	for _, s := range streamNames {
+		if seen[s] {
+			continue
+		}
+
+		seen[s] = true
+
+		if _, ok := groupStreams[s]; ok {
+			out = append(out, s)
+		}
+	}
+
+	sort.Strings(out)
+
+	return out
 }
 
 func paginateGroups(all []LogGroup, nextToken string, limit int) ([]LogGroup, string) {

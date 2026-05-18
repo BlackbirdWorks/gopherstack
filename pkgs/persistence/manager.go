@@ -79,9 +79,22 @@ func (m *Manager) RestoreAll(ctx context.Context) {
 
 // Notify schedules a debounced save for the named service.
 // If no service with that name is registered the call is a no-op.
-// A generation counter ensures that only the most-recent callback fires a save;
-// any earlier callback that was still running is skipped, preventing concurrent
-// writes to the same snapshot file.
+//
+// Each Notify bumps a per-entry generation counter, stops any pending timer,
+// and starts a fresh AfterFunc that captures the new generation. The save
+// callback only proceeds if the generation it was created with is still the
+// current one. This prevents two pathological cases:
+//
+//  1. A previously-fired AfterFunc whose closure captured an old generation
+//     racing with a newer Notify (the old fire is skipped by the gen check).
+//  2. Notify being called multiple times during the debounce window: only
+//     the most recent timer's closure will pass the generation check and
+//     perform the save.
+//
+// Earlier versions of this function captured the generation only on the
+// first Notify and reused the same AfterFunc via Reset, which caused the
+// captured generation to fall stale and the eventual save to be skipped
+// indefinitely after a second Notify.
 func (m *Manager) Notify(name string) {
 	m.mu.RLock()
 	e, ok := m.entries[name]
@@ -92,20 +105,18 @@ func (m *Manager) Notify(name string) {
 	}
 
 	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	e.generation++
 	gen := e.generation
 
 	if e.timer != nil {
-		e.timer.Reset(debounceDuration)
-		e.mu.Unlock()
-
-		return
+		e.timer.Stop()
 	}
 
 	e.timer = time.AfterFunc(debounceDuration, func() {
 		m.saveIfCurrent(e, gen)
 	})
-	e.mu.Unlock()
 }
 
 // SaveAll immediately persists all registered backends.

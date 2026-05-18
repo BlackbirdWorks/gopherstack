@@ -697,10 +697,47 @@ func checkAllArnsFound(arns []string, result []LoadBalancer) error {
 
 // DescribeLoadBalancers returns load balancers filtered by ARNs and/or names.
 // The returned LoadBalancer values contain a Tags pointer that is backend-owned; callers must treat it as read-only.
+//
+// Fast path: when only ARNs are supplied (no names), look them up directly in
+// the ARN-keyed map instead of scanning every load balancer in the backend.
 func (b *InMemoryBackend) DescribeLoadBalancers(arns []string, names []string) ([]LoadBalancer, error) {
 	b.mu.RLock("DescribeLoadBalancers")
 	defer b.mu.RUnlock()
 
+	if len(arns) > 0 && len(names) == 0 {
+		result := make([]LoadBalancer, 0, len(arns))
+
+		for _, a := range arns {
+			if lb, ok := b.loadBalancers[a]; ok {
+				result = append(result, *lb)
+			}
+		}
+
+		sortLoadBalancersByName(result)
+
+		if err := checkAllArnsFound(arns, result); err != nil {
+			return nil, err
+		}
+
+		return result, nil
+	}
+
+	result := b.filterLoadBalancersLocked(arns, names)
+	sortLoadBalancersByName(result)
+
+	if len(arns) > 0 {
+		if err := checkAllArnsFound(arns, result); err != nil {
+			return nil, err
+		}
+	}
+
+	return result, nil
+}
+
+// filterLoadBalancersLocked scans all load balancers and returns those whose
+// ARN is in arns (when non-empty) and whose name is in names (when non-empty).
+// Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) filterLoadBalancersLocked(arns, names []string) []LoadBalancer {
 	arnSet := make(map[string]bool, len(arns))
 	for _, a := range arns {
 		arnSet[a] = true
@@ -725,17 +762,14 @@ func (b *InMemoryBackend) DescribeLoadBalancers(arns []string, names []string) (
 		result = append(result, *lb)
 	}
 
+	return result
+}
+
+// sortLoadBalancersByName sorts load balancers by name in ascending order.
+func sortLoadBalancersByName(result []LoadBalancer) {
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].LoadBalancerName < result[j].LoadBalancerName
 	})
-
-	if len(arns) > 0 {
-		if err := checkAllArnsFound(arns, result); err != nil {
-			return nil, err
-		}
-	}
-
-	return result, nil
 }
 
 // DeleteLoadBalancer deletes a load balancer by ARN.
@@ -1132,10 +1166,48 @@ func (b *InMemoryBackend) tgToLBArnsLocked() map[string]map[string]bool {
 
 // DescribeTargetGroups returns target groups filtered by ARNs, names, or load balancer ARN.
 // The returned TargetGroup values contain a Tags pointer that is backend-owned; callers must treat it as read-only.
+//
+// Fast path: when only ARNs are supplied (no names, no lbArn), look them up
+// directly in the ARN-keyed map instead of scanning every target group.
 func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lbArn string) ([]TargetGroup, error) {
 	b.mu.RLock("DescribeTargetGroups")
 	defer b.mu.RUnlock()
 
+	// Build TG -> LB ARNs mapping to populate LoadBalancerArns field.
+	tgLBMap := b.tgToLBArnsLocked()
+
+	if len(arns) > 0 && len(names) == 0 && lbArn == "" {
+		result := make([]TargetGroup, 0, len(arns))
+
+		for _, a := range arns {
+			tg, ok := b.targetGroups[a]
+			if !ok {
+				continue
+			}
+
+			cp := *tg
+			cp.LoadBalancerArns = sortedLBArns(tgLBMap[tg.TargetGroupArn])
+			result = append(result, cp)
+		}
+
+		sortTargetGroupsByName(result)
+
+		return result, nil
+	}
+
+	result := b.filterTargetGroupsLocked(arns, names, lbArn, tgLBMap)
+	sortTargetGroupsByName(result)
+
+	return result, nil
+}
+
+// filterTargetGroupsLocked scans all target groups and returns those matching
+// the supplied filters. Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) filterTargetGroupsLocked(
+	arns, names []string,
+	lbArn string,
+	tgLBMap map[string]map[string]bool,
+) []TargetGroup {
 	arnSet := make(map[string]bool, len(arns))
 	for _, a := range arns {
 		arnSet[a] = true
@@ -1150,9 +1222,6 @@ func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lb
 	if lbArn != "" {
 		lbTGArns = b.tgArnsForLB(lbArn)
 	}
-
-	// Build TG -> LB ARNs mapping to populate LoadBalancerArns field.
-	tgLBMap := b.tgToLBArnsLocked()
 
 	result := make([]TargetGroup, 0, len(b.targetGroups))
 
@@ -1170,23 +1239,30 @@ func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lb
 		}
 
 		cp := *tg
-
-		// Populate LoadBalancerArns from the computed map.
-		lbArns := make([]string, 0, len(tgLBMap[tg.TargetGroupArn]))
-		for lb := range tgLBMap[tg.TargetGroupArn] {
-			lbArns = append(lbArns, lb)
-		}
-
-		sort.Strings(lbArns)
-		cp.LoadBalancerArns = lbArns
+		cp.LoadBalancerArns = sortedLBArns(tgLBMap[tg.TargetGroupArn])
 		result = append(result, cp)
 	}
 
+	return result
+}
+
+// sortTargetGroupsByName sorts target groups by name in ascending order.
+func sortTargetGroupsByName(result []TargetGroup) {
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].TargetGroupName < result[j].TargetGroupName
 	})
+}
 
-	return result, nil
+// sortedLBArns flattens a set of load balancer ARNs into a sorted slice.
+func sortedLBArns(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for lb := range set {
+		out = append(out, lb)
+	}
+
+	sort.Strings(out)
+
+	return out
 }
 
 // isTGInUseLocked returns true if the target group ARN is referenced by any listener or rule.
@@ -1470,9 +1546,32 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 
 // DescribeListeners returns listeners filtered by load balancer ARN and/or listener ARNs.
 // The returned Listener values contain a Tags pointer that is backend-owned; callers must treat it as read-only.
+//
+// Fast path: when only listener ARNs are supplied (no lbArn filter), look them
+// up directly in the ARN-keyed map instead of scanning every listener.
 func (b *InMemoryBackend) DescribeListeners(lbArn string, listenerArns []string) ([]Listener, error) {
 	b.mu.RLock("DescribeListeners")
 	defer b.mu.RUnlock()
+
+	if lbArn == "" && len(listenerArns) > 0 {
+		result := make([]Listener, 0, len(listenerArns))
+
+		for _, a := range listenerArns {
+			if l, ok := b.listeners[a]; ok {
+				result = append(result, *l)
+			}
+		}
+
+		sort.Slice(result, func(i, j int) bool {
+			return result[i].Port < result[j].Port
+		})
+
+		if err := checkAllListenerArnsFound(listenerArns, result); err != nil {
+			return nil, err
+		}
+
+		return result, nil
+	}
 
 	arnSet := make(map[string]bool, len(listenerArns))
 	for _, a := range listenerArns {
@@ -1687,9 +1786,26 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 }
 
 // DescribeRules returns rules filtered by listener ARN and/or rule ARNs.
+//
+// Fast path: when only rule ARNs are supplied (no listenerArn filter), look
+// them up directly in the ARN-keyed map instead of scanning every rule.
 func (b *InMemoryBackend) DescribeRules(listenerArn string, ruleArns []string) ([]Rule, error) {
 	b.mu.RLock("DescribeRules")
 	defer b.mu.RUnlock()
+
+	if listenerArn == "" && len(ruleArns) > 0 {
+		result := make([]Rule, 0, len(ruleArns))
+
+		for _, a := range ruleArns {
+			if r, ok := b.rules[a]; ok {
+				result = append(result, *r)
+			}
+		}
+
+		sortRulesByPriority(result)
+
+		return result, nil
+	}
 
 	arnSet := make(map[string]bool, len(ruleArns))
 	for _, a := range ruleArns {
@@ -1710,7 +1826,14 @@ func (b *InMemoryBackend) DescribeRules(listenerArn string, ruleArns []string) (
 		result = append(result, *r)
 	}
 
-	// Sort numerically by priority; "default" sorts last (highest priority number).
+	sortRulesByPriority(result)
+
+	return result, nil
+}
+
+// sortRulesByPriority sorts rules numerically by priority; "default" sorts last
+// (highest priority number). Non-numeric priorities fall back to string compare.
+func sortRulesByPriority(result []Rule) {
 	sort.Slice(result, func(i, j int) bool {
 		pi, pj := result[i].Priority, result[j].Priority
 		if pi == pj {
@@ -1733,8 +1856,6 @@ func (b *InMemoryBackend) DescribeRules(listenerArn string, ruleArns []string) (
 
 		return ni < nj
 	})
-
-	return result, nil
 }
 
 // DeleteRule deletes a rule by ARN.

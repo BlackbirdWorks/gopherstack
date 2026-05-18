@@ -13,6 +13,13 @@ import (
 
 const (
 	defaultChannelSize = 100
+
+	// maxCapturedBodyBytes caps how much of each request body is kept in the
+	// API console ring buffer. The handler still sees the full body via a
+	// pass-through reader; only the captured copy is bounded so a few large
+	// uploads (for example S3 PutObject) cannot pin hundreds of MiB in memory
+	// for the lifetime of the ring buffer.
+	maxCapturedBodyBytes = 8 * 1024
 )
 
 // CapturedRequest represents a single HTTP request captured by the console middleware.
@@ -136,14 +143,16 @@ func APIConsoleMiddleware() echo.MiddlewareFunc {
 				}
 			}
 
-			// Capture body if present
-			var reqBody string
+			// Capture body if present. cappedTeeBody copies at most
+			// maxCapturedBodyBytes into bodyBuf while passing the original
+			// stream through to the handler unchanged. This avoids
+			// io.ReadAll-ing the entire body (which would double-buffer
+			// large uploads in memory) and bounds what the ring buffer can
+			// retain per request.
+			var bodyBuf *bytes.Buffer
 			if req.Body != nil {
-				bodyBytes, _ := io.ReadAll(req.Body)
-				req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes)) // restore
-				if len(bodyBytes) > 0 {
-					reqBody = string(bodyBytes)
-				}
+				bodyBuf = &bytes.Buffer{}
+				req.Body = &cappedTeeBody{src: req.Body, buf: bodyBuf, cap: maxCapturedBodyBytes}
 			}
 
 			reqID := c.Response().Header().Get(echo.HeaderXRequestID)
@@ -158,6 +167,14 @@ func APIConsoleMiddleware() echo.MiddlewareFunc {
 				status = rw.StatusCode()
 			} else if rw, ok2 := c.Response().(interface{ Status() int }); ok2 {
 				status = rw.Status()
+			}
+
+			// Resolve captured body after the handler has read req.Body. The
+			// teed buffer holds at most maxCapturedBodyBytes regardless of how
+			// large the actual request body was.
+			var reqBody string
+			if bodyBuf != nil && bodyBuf.Len() > 0 {
+				reqBody = bodyBuf.String()
 			}
 
 			// Store in ring buffer
@@ -175,4 +192,30 @@ func APIConsoleMiddleware() echo.MiddlewareFunc {
 			return err
 		}
 	}
+}
+
+// cappedTeeBody wraps an http.Request body so that at most cap bytes are
+// copied into buf while every Read passes through to the underlying body
+// unchanged. Once buf is full, further reads are not copied; this bounds the
+// memory the API console retains per request even if the body is large.
+type cappedTeeBody struct {
+	src io.ReadCloser
+	buf *bytes.Buffer
+	cap int
+}
+
+func (c *cappedTeeBody) Read(p []byte) (int, error) {
+	n, err := c.src.Read(p)
+	if n > 0 && c.buf.Len() < c.cap {
+		room := min(c.cap-c.buf.Len(), n)
+		c.buf.Write(p[:room])
+	}
+
+	return n, err //nolint:wrapcheck // pass-through reader; wrapping obscures the upstream error.
+}
+
+// Close closes the underlying body. It returns the underlying error directly
+// so the caller observes the original close failure mode.
+func (c *cappedTeeBody) Close() error {
+	return c.src.Close() //nolint:wrapcheck // pass-through; underlying close error semantics must be preserved.
 }

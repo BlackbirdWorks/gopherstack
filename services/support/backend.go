@@ -325,23 +325,36 @@ func (b *InMemoryBackend) CreateCase(subject, serviceCode, categoryCode, severit
 
 // DescribeCases returns all support cases, optionally filtered by caseIds.
 // When includeResolvedCases is false, resolved cases are excluded.
+//
+// Fast path: when caseIDs are supplied, look them up directly in the
+// case-ID-keyed map instead of scanning every case in the backend.
 func (b *InMemoryBackend) DescribeCases(caseIDs []string, includeResolvedCases bool) []Case {
 	b.mu.RLock("DescribeCases")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(caseIDs))
-	for _, id := range caseIDs {
-		idSet[id] = true
+	if len(caseIDs) > 0 {
+		out := make([]Case, 0, len(caseIDs))
+
+		for _, id := range caseIDs {
+			c, ok := b.cases[id]
+			if !ok {
+				continue
+			}
+
+			if !includeResolvedCases && c.Status == caseStatusResolved {
+				continue
+			}
+
+			out = append(out, *c)
+		}
+
+		return out
 	}
 
 	out := make([]Case, 0, len(b.cases))
 
 	for _, c := range b.cases {
 		if !includeResolvedCases && c.Status == caseStatusResolved {
-			continue
-		}
-
-		if len(caseIDs) > 0 && !idSet[c.CaseID] {
 			continue
 		}
 

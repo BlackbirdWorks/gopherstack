@@ -396,6 +396,9 @@ func TestManager_Notify_ResetTimerOnRapidCalls(t *testing.T) {
 
 // --- Debounce generation mechanism ---
 
+// TestManager_Notify_GenerationSkipsStaleCallback verifies that SaveAll
+// stops any pending debounce timer and performs exactly one authoritative
+// save, even after multiple rapid Notify calls.
 func TestManager_Notify_GenerationSkipsStaleCallback(t *testing.T) {
 	t.Parallel()
 
@@ -405,24 +408,20 @@ func TestManager_Notify_GenerationSkipsStaleCallback(t *testing.T) {
 	mgr := persistence.NewManager(store)
 	mgr.Register("svc", p)
 
-	// Trigger a Notify so a timer is created (generation=1, closure captures gen=1).
+	mgr.Notify("svc")
 	mgr.Notify("svc")
 
-	// Immediately trigger again; generation advances to 2 but the closure
-	// created above still holds gen=1. When saveIfCurrent fires it will see
-	// generation(2) != gen(1) and skip the save.
-	mgr.Notify("svc")
-
-	// SaveAll stops the timer and does the authoritative synchronous save.
+	// SaveAll stops the pending timer and does a synchronous save.
 	mgr.SaveAll(t.Context())
 
-	// Exactly one save must have been performed (by SaveAll, not the stale timer).
 	assert.Equal(t, 1, store.SaveCount())
 }
 
 // TestManager_Notify_StaleGenerationSkipped verifies that when two Notify calls
-// arrive before the debounce timer fires, the stale generation check in
-// saveIfCurrent prevents a save (covering the early-return branch).
+// arrive before the debounce timer fires, exactly one save is performed. Each
+// Notify cancels the previous timer and starts a fresh AfterFunc whose closure
+// captures the current generation; the stale generation check guarantees a
+// previously-scheduled fire that races past Stop is skipped.
 func TestManager_Notify_StaleGenerationSkipped(t *testing.T) {
 	t.Parallel()
 
@@ -432,17 +431,15 @@ func TestManager_Notify_StaleGenerationSkipped(t *testing.T) {
 	mgr := persistence.NewManager(store)
 	mgr.Register("svc", p)
 
-	// First Notify: generation=1, AfterFunc closure captures gen=1.
-	// Second Notify: generation=2, timer.Reset() called — closure still holds gen=1.
-	// When the timer fires, saveIfCurrent sees generation(2)!=gen(1) and skips.
+	// Two Notify calls within the debounce window: only the second timer's
+	// closure carries the current generation, so exactly one save happens.
 	mgr.Notify("svc")
 	mgr.Notify("svc")
 
-	// Wait long enough for the debounce timer to fire and execute the stale check.
+	// Wait long enough for the debounce timer to fire.
 	time.Sleep(750 * time.Millisecond)
 
-	// The timer fired with a stale generation; no save should have occurred.
-	assert.Equal(t, 0, store.SaveCount())
+	assert.Equal(t, 1, store.SaveCount())
 }
 
 // TestManager_Notify_SaveErrorInCallback covers the error-logging branch inside

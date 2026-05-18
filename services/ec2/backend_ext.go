@@ -488,22 +488,32 @@ func (b *InMemoryBackend) ImportKeyPair(name, publicKeyMaterial string) (*KeyPai
 }
 
 // DescribeKeyPairs returns key pairs, optionally filtered by name.
+// When names are provided, lookups are O(len(names)) via the key-pair map
+// rather than scanning every key pair in the backend.
 func (b *InMemoryBackend) DescribeKeyPairs(names []string) []*KeyPair {
 	b.mu.RLock("DescribeKeyPairs")
 	defer b.mu.RUnlock()
 
-	nameSet := make(map[string]bool, len(names))
-	for _, n := range names {
-		nameSet[n] = true
-	}
+	if len(names) > 0 {
+		out := make([]*KeyPair, 0, len(names))
 
-	var out []*KeyPair
+		for _, n := range names {
+			kp, ok := b.keyPairs[n]
+			if !ok {
+				continue
+			}
 
-	for _, kp := range b.keyPairs {
-		if len(nameSet) > 0 && !nameSet[kp.Name] {
-			continue
+			cp := *kp
+			cp.Material = "" // don't return private key material on describe
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*KeyPair, 0, len(b.keyPairs))
+
+	for _, kp := range b.keyPairs {
 		cp := *kp
 		cp.Material = "" // don't return private key material on describe
 		out = append(out, &cp)
@@ -559,22 +569,31 @@ func (b *InMemoryBackend) CreateVolume(az, volType string, size int) (*Volume, e
 }
 
 // DescribeVolumes returns volumes, optionally filtered by IDs.
+// When ids are provided, lookups are O(len(ids)) via the volume map rather
+// than scanning every volume in the backend.
 func (b *InMemoryBackend) DescribeVolumes(ids []string) []*Volume {
 	b.mu.RLock("DescribeVolumes")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
+	if len(ids) > 0 {
+		out := make([]*Volume, 0, len(ids))
 
-	var out []*Volume
+		for _, id := range ids {
+			vol, ok := b.volumes[id]
+			if !ok {
+				continue
+			}
 
-	for _, vol := range b.volumes {
-		if len(idSet) > 0 && !idSet[vol.ID] {
-			continue
+			cp := *vol
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*Volume, 0, len(b.volumes))
+
+	for _, vol := range b.volumes {
 		cp := *vol
 		out = append(out, &cp)
 	}
@@ -731,22 +750,31 @@ func (b *InMemoryBackend) ReleaseAddress(allocationID string) error {
 }
 
 // DescribeAddresses returns Elastic IPs, optionally filtered by allocation IDs.
+// When allocationIDs are provided, lookups are O(len(allocationIDs)) via the
+// address map rather than scanning every address in the backend.
 func (b *InMemoryBackend) DescribeAddresses(allocationIDs []string) []*Address {
 	b.mu.RLock("DescribeAddresses")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(allocationIDs))
-	for _, id := range allocationIDs {
-		idSet[id] = true
-	}
+	if len(allocationIDs) > 0 {
+		out := make([]*Address, 0, len(allocationIDs))
 
-	var out []*Address
+		for _, id := range allocationIDs {
+			addr, ok := b.addresses[id]
+			if !ok {
+				continue
+			}
 
-	for _, addr := range b.addresses {
-		if len(idSet) > 0 && !idSet[addr.AllocationID] {
-			continue
+			cp := *addr
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*Address, 0, len(b.addresses))
+
+	for _, addr := range b.addresses {
 		cp := *addr
 		out = append(out, &cp)
 	}
@@ -785,22 +813,31 @@ func (b *InMemoryBackend) DeleteInternetGateway(id string) error {
 }
 
 // DescribeInternetGateways returns IGWs, optionally filtered by IDs.
+// When ids are provided, lookups are O(len(ids)) via the IGW map rather than
+// scanning every IGW in the backend.
 func (b *InMemoryBackend) DescribeInternetGateways(ids []string) []*InternetGateway {
 	b.mu.RLock("DescribeInternetGateways")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
+	if len(ids) > 0 {
+		out := make([]*InternetGateway, 0, len(ids))
 
-	var out []*InternetGateway
+		for _, id := range ids {
+			igw, ok := b.internetGateways[id]
+			if !ok {
+				continue
+			}
 
-	for _, igw := range b.internetGateways {
-		if len(idSet) > 0 && !idSet[igw.ID] {
-			continue
+			cp := *igw
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*InternetGateway, 0, len(b.internetGateways))
+
+	for _, igw := range b.internetGateways {
 		cp := *igw
 		out = append(out, &cp)
 	}
@@ -885,22 +922,31 @@ func (b *InMemoryBackend) DeleteRouteTable(id string) error {
 }
 
 // DescribeRouteTables returns route tables, optionally filtered by IDs.
+// When ids are provided, lookups are O(len(ids)) via the route-table map
+// rather than scanning every route table in the backend.
 func (b *InMemoryBackend) DescribeRouteTables(ids []string) []*RouteTable {
 	b.mu.RLock("DescribeRouteTables")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
+	if len(ids) > 0 {
+		out := make([]*RouteTable, 0, len(ids))
 
-	var out []*RouteTable
+		for _, id := range ids {
+			rt, ok := b.routeTables[id]
+			if !ok {
+				continue
+			}
 
-	for _, rt := range b.routeTables {
-		if len(idSet) > 0 && !idSet[rt.ID] {
-			continue
+			cp := *rt
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*RouteTable, 0, len(b.routeTables))
+
+	for _, rt := range b.routeTables {
 		cp := *rt
 		out = append(out, &cp)
 	}
@@ -1038,22 +1084,31 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 }
 
 // DescribeNatGateways returns NAT Gateways, optionally filtered by IDs.
+// When ids are provided, lookups are O(len(ids)) via the NAT-gateway map
+// rather than scanning every gateway in the backend.
 func (b *InMemoryBackend) DescribeNatGateways(ids []string) []*NatGateway {
 	b.mu.RLock("DescribeNatGateways")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
+	if len(ids) > 0 {
+		out := make([]*NatGateway, 0, len(ids))
 
-	var out []*NatGateway
+		for _, id := range ids {
+			ngw, ok := b.natGateways[id]
+			if !ok {
+				continue
+			}
 
-	for _, ngw := range b.natGateways {
-		if len(idSet) > 0 && !idSet[ngw.ID] {
-			continue
+			cp := *ngw
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*NatGateway, 0, len(b.natGateways))
+
+	for _, ngw := range b.natGateways {
 		cp := *ngw
 		out = append(out, &cp)
 	}
@@ -1062,22 +1117,31 @@ func (b *InMemoryBackend) DescribeNatGateways(ids []string) []*NatGateway {
 }
 
 // DescribeNetworkInterfaces returns network interfaces, optionally filtered by IDs.
+// When ids are provided, lookups are O(len(ids)) via the ENI map rather than
+// scanning every interface in the backend.
 func (b *InMemoryBackend) DescribeNetworkInterfaces(ids []string) []*NetworkInterface {
 	b.mu.RLock("DescribeNetworkInterfaces")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
+	if len(ids) > 0 {
+		out := make([]*NetworkInterface, 0, len(ids))
 
-	var out []*NetworkInterface
+		for _, id := range ids {
+			eni, ok := b.networkInterfaces[id]
+			if !ok {
+				continue
+			}
 
-	for _, eni := range b.networkInterfaces {
-		if len(idSet) > 0 && !idSet[eni.ID] {
-			continue
+			cp := *eni
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*NetworkInterface, 0, len(b.networkInterfaces))
+
+	for _, eni := range b.networkInterfaces {
 		cp := *eni
 		out = append(out, &cp)
 	}
@@ -1412,22 +1476,31 @@ func (b *InMemoryBackend) RequestSpotInstances(
 }
 
 // DescribeSpotInstanceRequests returns spot requests, optionally filtered by IDs.
+// When ids are provided, lookups are O(len(ids)) via the spot-request map
+// rather than scanning every spot request in the backend.
 func (b *InMemoryBackend) DescribeSpotInstanceRequests(ids []string) []*SpotInstanceRequest {
 	b.mu.RLock("DescribeSpotInstanceRequests")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
+	if len(ids) > 0 {
+		out := make([]*SpotInstanceRequest, 0, len(ids))
 
-	var out []*SpotInstanceRequest
+		for _, id := range ids {
+			req, ok := b.spotRequests[id]
+			if !ok {
+				continue
+			}
 
-	for _, req := range b.spotRequests {
-		if len(idSet) > 0 && !idSet[req.ID] {
-			continue
+			cp := *req
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*SpotInstanceRequest, 0, len(b.spotRequests))
+
+	for _, req := range b.spotRequests {
 		cp := *req
 		out = append(out, &cp)
 	}
@@ -1483,22 +1556,31 @@ func (b *InMemoryBackend) CreatePlacementGroup(name, strategy string) (*Placemen
 }
 
 // DescribePlacementGroups returns placement groups, optionally filtered by names.
+// When names are provided, lookups are O(len(names)) via the placement-group
+// map rather than scanning every group in the backend.
 func (b *InMemoryBackend) DescribePlacementGroups(names []string) []*PlacementGroup {
 	b.mu.RLock("DescribePlacementGroups")
 	defer b.mu.RUnlock()
 
-	nameSet := make(map[string]bool, len(names))
-	for _, n := range names {
-		nameSet[n] = true
-	}
+	if len(names) > 0 {
+		out := make([]*PlacementGroup, 0, len(names))
 
-	var out []*PlacementGroup
+		for _, n := range names {
+			pg, ok := b.placementGroups[n]
+			if !ok {
+				continue
+			}
 
-	for _, pg := range b.placementGroups {
-		if len(nameSet) > 0 && !nameSet[pg.Name] {
-			continue
+			cp := *pg
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*PlacementGroup, 0, len(b.placementGroups))
+
+	for _, pg := range b.placementGroups {
 		cp := *pg
 		out = append(out, &cp)
 	}

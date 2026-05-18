@@ -562,22 +562,35 @@ func (b *InMemoryBackend) findDefaultSubnetID() string {
 }
 
 // DescribeInstances returns instances, optionally filtered by IDs or state.
+// When ids are provided, lookups are O(len(ids)) via the instance map rather
+// than scanning every instance in the backend.
 func (b *InMemoryBackend) DescribeInstances(ids []string, state string) []*Instance {
 	b.mu.RLock("DescribeInstances")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
+	if len(ids) > 0 {
+		out := make([]*Instance, 0, len(ids))
 
-	var out []*Instance
+		for _, id := range ids {
+			inst, ok := b.instances[id]
+			if !ok {
+				continue
+			}
 
-	for _, inst := range b.instances {
-		if len(idSet) > 0 && !idSet[inst.ID] {
-			continue
+			if state != "" && inst.State.Name != state {
+				continue
+			}
+
+			cp := *inst
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*Instance, 0, len(b.instances))
+
+	for _, inst := range b.instances {
 		if state != "" && inst.State.Name != state {
 			continue
 		}
@@ -656,22 +669,31 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 }
 
 // DescribeSecurityGroups returns security groups, optionally filtered by IDs.
+// When ids are provided, lookups are O(len(ids)) via the security-group map
+// rather than scanning every group in the backend.
 func (b *InMemoryBackend) DescribeSecurityGroups(ids []string) []*SecurityGroup {
 	b.mu.RLock("DescribeSecurityGroups")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
+	if len(ids) > 0 {
+		out := make([]*SecurityGroup, 0, len(ids))
 
-	var out []*SecurityGroup
+		for _, id := range ids {
+			sg, ok := b.securityGroups[id]
+			if !ok {
+				continue
+			}
 
-	for _, sg := range b.securityGroups {
-		if len(idSet) > 0 && !idSet[sg.ID] {
-			continue
+			cp := *sg
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*SecurityGroup, 0, len(b.securityGroups))
+
+	for _, sg := range b.securityGroups {
 		cp := *sg
 		out = append(out, &cp)
 	}
@@ -735,22 +757,31 @@ func (b *InMemoryBackend) DeleteSecurityGroup(id string) error {
 }
 
 // DescribeVpcs returns VPCs, optionally filtered by IDs.
+// When ids are provided, lookups are O(len(ids)) via the VPC map rather than
+// scanning every VPC in the backend.
 func (b *InMemoryBackend) DescribeVpcs(ids []string) []*VPC {
 	b.mu.RLock("DescribeVpcs")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
+	if len(ids) > 0 {
+		out := make([]*VPC, 0, len(ids))
 
-	var out []*VPC
+		for _, id := range ids {
+			v, ok := b.vpcs[id]
+			if !ok {
+				continue
+			}
 
-	for _, v := range b.vpcs {
-		if len(idSet) > 0 && !idSet[v.ID] {
-			continue
+			cp := *v
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*VPC, 0, len(b.vpcs))
+
+	for _, v := range b.vpcs {
 		cp := *v
 		out = append(out, &cp)
 	}
@@ -872,22 +903,31 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 }
 
 // DescribeSubnets returns subnets, optionally filtered by IDs.
+// When ids are provided, lookups are O(len(ids)) via the subnet map rather
+// than scanning every subnet in the backend.
 func (b *InMemoryBackend) DescribeSubnets(ids []string) []*Subnet {
 	b.mu.RLock("DescribeSubnets")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
+	if len(ids) > 0 {
+		out := make([]*Subnet, 0, len(ids))
 
-	var out []*Subnet
+		for _, id := range ids {
+			s, ok := b.subnets[id]
+			if !ok {
+				continue
+			}
 
-	for _, s := range b.subnets {
-		if len(idSet) > 0 && !idSet[s.ID] {
-			continue
+			cp := *s
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	out := make([]*Subnet, 0, len(b.subnets))
+
+	for _, s := range b.subnets {
 		cp := *s
 		out = append(out, &cp)
 	}
