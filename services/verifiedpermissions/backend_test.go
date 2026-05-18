@@ -51,7 +51,7 @@ func TestBackend_PolicyStore(t *testing.T) {
 				return
 			}
 
-			ps, err := b.CreatePolicyStore(tt.description, nil)
+			ps, err := b.CreatePolicyStore(tt.description, nil, "OFF", "")
 			require.NoError(t, err)
 			assert.NotEmpty(t, ps.PolicyStoreID)
 			assert.Equal(t, tt.description, ps.Description)
@@ -89,11 +89,11 @@ func TestBackend_ListPolicyStores(t *testing.T) {
 			b := newTestBackend()
 
 			for range tt.numStores {
-				_, err := b.CreatePolicyStore("desc", nil)
+				_, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 			}
 
-			stores := b.ListPolicyStores()
+			stores, _ := b.ListPolicyStores("", 0)
 			assert.Len(t, stores, tt.numStores)
 		})
 	}
@@ -114,7 +114,7 @@ func TestBackend_UpdatePolicyStore(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("original", nil)
+				ps, err := b.CreatePolicyStore("original", nil, "OFF", "")
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID
@@ -141,7 +141,7 @@ func TestBackend_UpdatePolicyStore(t *testing.T) {
 				id = tt.setup(t, b)
 			}
 
-			ps, err := b.UpdatePolicyStore(id, tt.newDesc)
+			ps, err := b.UpdatePolicyStore(id, tt.newDesc, "", "")
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -168,7 +168,7 @@ func TestBackend_DeletePolicyStore(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID
@@ -221,10 +221,16 @@ func TestBackend_Policy(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
-				p, err := b.CreatePolicy(ps.PolicyStoreID, "STATIC", "permit(principal, action, resource);")
+				p, err := b.CreatePolicy(
+					ps.PolicyStoreID,
+					verifiedpermissions.CreatePolicyParams{
+						PolicyType: "STATIC",
+						Statement:  "permit(principal, action, resource);",
+					},
+				)
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID, p.PolicyID
@@ -278,7 +284,7 @@ func TestBackend_ListPolicies(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID
@@ -303,11 +309,17 @@ func TestBackend_ListPolicies(t *testing.T) {
 			storeID := tt.setup(t, b)
 
 			for range tt.numPolicies {
-				_, err := b.CreatePolicy(storeID, "STATIC", "permit(principal, action, resource);")
+				_, err := b.CreatePolicy(
+					storeID,
+					verifiedpermissions.CreatePolicyParams{
+						PolicyType: "STATIC",
+						Statement:  "permit(principal, action, resource);",
+					},
+				)
 				require.NoError(t, err)
 			}
 
-			policies, err := b.ListPolicies(storeID)
+			policies, _, err := b.ListPolicies(storeID, verifiedpermissions.ListPoliciesFilter{}, "", 0)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -334,10 +346,16 @@ func TestBackend_UpdatePolicy(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
-				p, err := b.CreatePolicy(ps.PolicyStoreID, "STATIC", "permit(principal, action, resource);")
+				p, err := b.CreatePolicy(
+					ps.PolicyStoreID,
+					verifiedpermissions.CreatePolicyParams{
+						PolicyType: "STATIC",
+						Statement:  "permit(principal, action, resource);",
+					},
+				)
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID, p.PolicyID
@@ -362,7 +380,7 @@ func TestBackend_UpdatePolicy(t *testing.T) {
 			b := newTestBackend()
 			storeID, policyID := tt.setup(t, b)
 
-			p, err := b.UpdatePolicy(storeID, policyID, tt.newStmt)
+			p, err := b.UpdatePolicy(storeID, policyID, verifiedpermissions.UpdatePolicyParams{Statement: tt.newStmt})
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -388,10 +406,16 @@ func TestBackend_DeletePolicy(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
-				p, err := b.CreatePolicy(ps.PolicyStoreID, "STATIC", "permit(principal, action, resource);")
+				p, err := b.CreatePolicy(
+					ps.PolicyStoreID,
+					verifiedpermissions.CreatePolicyParams{
+						PolicyType: "STATIC",
+						Statement:  "permit(principal, action, resource);",
+					},
+				)
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID, p.PolicyID
@@ -403,7 +427,7 @@ func TestBackend_DeletePolicy(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID, "nonexistent-policy"
@@ -447,7 +471,7 @@ func TestBackend_PolicyTemplate(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
 				pt, err := b.CreatePolicyTemplate(
@@ -506,7 +530,7 @@ func TestBackend_ListPolicyTemplates(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID
@@ -539,7 +563,7 @@ func TestBackend_ListPolicyTemplates(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			templates, err := b.ListPolicyTemplates(storeID)
+			templates, _, err := b.ListPolicyTemplates(storeID, "", 0)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -567,7 +591,7 @@ func TestBackend_UpdatePolicyTemplate(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
 				pt, err := b.CreatePolicyTemplate(
@@ -628,7 +652,7 @@ func TestBackend_DeletePolicyTemplate(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
 				pt, err := b.CreatePolicyTemplate(
@@ -647,7 +671,7 @@ func TestBackend_DeletePolicyTemplate(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID, "nonexistent-template"
@@ -703,15 +727,17 @@ func TestBackend_Reset(t *testing.T) {
 			b := newTestBackend()
 
 			for range tt.numStores {
-				_, err := b.CreatePolicyStore("desc", nil)
+				_, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 			}
 
-			assert.Len(t, b.ListPolicyStores(), tt.numStores)
+			stores, _ := b.ListPolicyStores("", 0)
+			assert.Len(t, stores, tt.numStores)
 
 			b.Reset()
 
-			assert.Empty(t, b.ListPolicyStores())
+			stores, _ = b.ListPolicyStores("", 0)
+			assert.Empty(t, stores)
 		})
 	}
 }
@@ -730,7 +756,7 @@ func TestBackend_TagResource(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
 				return ps.Arn
@@ -741,7 +767,7 @@ func TestBackend_TagResource(t *testing.T) {
 		{
 			name: "tag non-existent resource",
 			setup: func(_ *testing.T, _ *verifiedpermissions.InMemoryBackend) string {
-				return "arn:aws:verifiedpermissions:us-east-1:123456789012:policy-store/nonexistent"
+				return "arn:aws:verifiedpermissions::123456789012:policy-store/nonexistent"
 			},
 			tags:    map[string]string{"key": "value"},
 			wantErr: true,
@@ -751,7 +777,7 @@ func TestBackend_TagResource(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", map[string]string{"existing": "tag"})
+				ps, err := b.CreatePolicyStore("desc", map[string]string{"existing": "tag"}, "OFF", "")
 				require.NoError(t, err)
 
 				return ps.Arn
@@ -801,7 +827,7 @@ func TestBackend_UntagResource(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "prod", "team": "platform"})
+				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "prod", "team": "platform"}, "OFF", "")
 				require.NoError(t, err)
 
 				return ps.Arn
@@ -812,7 +838,7 @@ func TestBackend_UntagResource(t *testing.T) {
 		{
 			name: "untag non-existent resource",
 			setup: func(_ *testing.T, _ *verifiedpermissions.InMemoryBackend) string {
-				return "arn:aws:verifiedpermissions:us-east-1:123456789012:policy-store/nonexistent"
+				return "arn:aws:verifiedpermissions::123456789012:policy-store/nonexistent"
 			},
 			tagKeys: []string{"key"},
 			wantErr: true,
@@ -822,7 +848,7 @@ func TestBackend_UntagResource(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "prod"})
+				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "prod"}, "OFF", "")
 				require.NoError(t, err)
 
 				return ps.Arn
@@ -875,7 +901,7 @@ func TestBackend_ListTagsForResource(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "prod"})
+				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "prod"}, "OFF", "")
 				require.NoError(t, err)
 
 				return ps.Arn
@@ -888,7 +914,7 @@ func TestBackend_ListTagsForResource(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil)
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 				require.NoError(t, err)
 
 				return ps.Arn
@@ -899,7 +925,7 @@ func TestBackend_ListTagsForResource(t *testing.T) {
 		{
 			name: "list tags for non-existent resource",
 			setup: func(_ *testing.T, _ *verifiedpermissions.InMemoryBackend) string {
-				return "arn:aws:verifiedpermissions:us-east-1:123456789012:policy-store/nonexistent"
+				return "arn:aws:verifiedpermissions::123456789012:policy-store/nonexistent"
 			},
 			wantErr: true,
 		},
@@ -932,7 +958,10 @@ func TestBackend_CreatePolicy_NonExistentStore(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.CreatePolicy("nonexistent-store", "STATIC", "permit(principal, action, resource);")
+	_, err := b.CreatePolicy(
+		"nonexistent-store",
+		verifiedpermissions.CreatePolicyParams{PolicyType: "STATIC", Statement: "permit(principal, action, resource);"},
+	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, awserr.ErrNotFound)
 }
@@ -942,7 +971,7 @@ func TestBackend_GetPolicy_NonExistentPolicyInExistingStore(t *testing.T) {
 
 	b := newTestBackend()
 
-	ps, err := b.CreatePolicyStore("desc", nil)
+	ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 	require.NoError(t, err)
 
 	_, err = b.GetPolicy(ps.PolicyStoreID, "nonexistent-policy")
@@ -973,7 +1002,7 @@ func TestBackend_GetPolicyTemplate_NonExistentInExistingStore(t *testing.T) {
 
 	b := newTestBackend()
 
-	ps, err := b.CreatePolicyStore("desc", nil)
+	ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 	require.NoError(t, err)
 
 	_, err = b.GetPolicyTemplate(ps.PolicyStoreID, "nonexistent-template")
@@ -995,10 +1024,14 @@ func TestBackend_UpdatePolicy_NonExistentPolicy(t *testing.T) {
 
 	b := newTestBackend()
 
-	ps, err := b.CreatePolicyStore("desc", nil)
+	ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
 	require.NoError(t, err)
 
-	_, err = b.UpdatePolicy(ps.PolicyStoreID, "nonexistent-policy", "forbid(principal, action, resource);")
+	_, err = b.UpdatePolicy(
+		ps.PolicyStoreID,
+		"nonexistent-policy",
+		verifiedpermissions.UpdatePolicyParams{Statement: "forbid(principal, action, resource);"},
+	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, awserr.ErrNotFound)
 }
@@ -1022,10 +1055,16 @@ func TestBackend_Snapshot_Restore(t *testing.T) {
 			var storeIDs []string
 
 			for range tt.numStores {
-				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "test"})
+				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "test"}, "OFF", "")
 				require.NoError(t, err)
 
-				_, err = b.CreatePolicy(ps.PolicyStoreID, "STATIC", "permit(principal, action, resource);")
+				_, err = b.CreatePolicy(
+					ps.PolicyStoreID,
+					verifiedpermissions.CreatePolicyParams{
+						PolicyType: "STATIC",
+						Statement:  "permit(principal, action, resource);",
+					},
+				)
 				require.NoError(t, err)
 
 				_, err = b.CreatePolicyTemplate(
@@ -1042,18 +1081,19 @@ func TestBackend_Snapshot_Restore(t *testing.T) {
 			b2 := newTestBackend()
 			require.NoError(t, b2.Restore(snap))
 
-			assert.Len(t, b2.ListPolicyStores(), tt.numStores)
+			stores2, _ := b2.ListPolicyStores("", 0)
+			assert.Len(t, stores2, tt.numStores)
 
 			for _, id := range storeIDs {
 				ps, err := b2.GetPolicyStore(id)
 				require.NoError(t, err)
 				assert.Equal(t, id, ps.PolicyStoreID)
 
-				policies, err := b2.ListPolicies(id)
+				policies, _, err := b2.ListPolicies(id, verifiedpermissions.ListPoliciesFilter{}, "", 0)
 				require.NoError(t, err)
 				assert.Len(t, policies, 1)
 
-				templates, err := b2.ListPolicyTemplates(id)
+				templates, _, err := b2.ListPolicyTemplates(id, "", 0)
 				require.NoError(t, err)
 				assert.Len(t, templates, 1)
 			}
@@ -1095,7 +1135,7 @@ func TestBackend_CreatePolicyStore_WithTags(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			ps, err := b.CreatePolicyStore("desc", tt.tags)
+			ps, err := b.CreatePolicyStore("desc", tt.tags, "OFF", "")
 			require.NoError(t, err)
 			assert.NotEmpty(t, ps.PolicyStoreID)
 			assert.NotEmpty(t, ps.Arn)

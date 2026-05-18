@@ -3,19 +3,28 @@ package verifiedpermissions
 // StorageBackend is the interface for Verified Permissions storage operations.
 type StorageBackend interface {
 	AccountID() string
-	CreatePolicyStore(description string, tags map[string]string) (*PolicyStore, error)
+	CreatePolicyStore(
+		description string,
+		tags map[string]string,
+		validationMode, deletionProtection string,
+	) (*PolicyStore, error)
 	GetPolicyStore(policyStoreID string) (*PolicyStore, error)
-	ListPolicyStores() []PolicyStore
-	UpdatePolicyStore(policyStoreID, description string) (*PolicyStore, error)
+	ListPolicyStores(nextToken string, maxResults int) ([]PolicyStore, string)
+	UpdatePolicyStore(policyStoreID, description, validationMode, deletionProtection string) (*PolicyStore, error)
 	DeletePolicyStore(policyStoreID string) error
-	CreatePolicy(policyStoreID, policyType, statement string) (*Policy, error)
+	CreatePolicy(policyStoreID string, params CreatePolicyParams) (*Policy, error)
 	GetPolicy(policyStoreID, policyID string) (*Policy, error)
-	ListPolicies(policyStoreID string) ([]Policy, error)
-	UpdatePolicy(policyStoreID, policyID, statement string) (*Policy, error)
+	ListPolicies(
+		policyStoreID string,
+		filter ListPoliciesFilter,
+		nextToken string,
+		maxResults int,
+	) ([]Policy, string, error)
+	UpdatePolicy(policyStoreID, policyID string, params UpdatePolicyParams) (*Policy, error)
 	DeletePolicy(policyStoreID, policyID string) error
 	CreatePolicyTemplate(policyStoreID, description, statement string) (*PolicyTemplate, error)
 	GetPolicyTemplate(policyStoreID, policyTemplateID string) (*PolicyTemplate, error)
-	ListPolicyTemplates(policyStoreID string) ([]PolicyTemplate, error)
+	ListPolicyTemplates(policyStoreID, nextToken string, maxResults int) ([]PolicyTemplate, string, error)
 	UpdatePolicyTemplate(policyStoreID, policyTemplateID, description, statement string) (*PolicyTemplate, error)
 	DeletePolicyTemplate(policyStoreID, policyTemplateID string) error
 	Reset()
@@ -27,18 +36,15 @@ type StorageBackend interface {
 	BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPolicyResult
 	BatchIsAuthorized(policyStoreID string, requests []AuthorizationRequest) ([]AuthDecision, error)
 	BatchIsAuthorizedWithToken(policyStoreID string, requests []AuthorizationRequest) ([]AuthDecision, error)
-	CreateIdentitySource(
-		policyStoreID, userPoolArn, openIDIssuer, principalEntityType string,
-		clientIDs []string,
-	) (*IdentitySource, error)
+	CreateIdentitySource(policyStoreID, principalEntityType string, cfg IdentitySourceConfig) (*IdentitySource, error)
 	GetIdentitySource(policyStoreID, identitySourceID string) (*IdentitySource, error)
 	DeleteIdentitySource(policyStoreID, identitySourceID string) error
-	ListIdentitySources(policyStoreID string) ([]IdentitySource, error)
+	ListIdentitySources(policyStoreID, nextToken string, maxResults int) ([]IdentitySource, string, error)
 	UpdateIdentitySource(
-		policyStoreID, identitySourceID, userPoolArn, openIDIssuer, principalEntityType string,
-		clientIDs []string,
+		policyStoreID, identitySourceID, principalEntityType string,
+		cfg IdentitySourceConfig,
 	) (*IdentitySource, error)
-	PutSchema(policyStoreID, schema string) error
+	PutSchema(policyStoreID, schema string) ([]string, error)
 	GetSchema(policyStoreID string) (*PolicyStoreSchema, error)
 	Snapshot() []byte
 	Restore(data []byte) error

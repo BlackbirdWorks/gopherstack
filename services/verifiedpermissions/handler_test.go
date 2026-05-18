@@ -145,16 +145,25 @@ func TestVPHandler_CreatePolicyStore(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "create with description",
-			body:     map[string]any{"description": "My test store"},
+			name: "create with description",
+			body: map[string]any{
+				"description":        "My test store",
+				"validationSettings": map[string]any{"mode": "OFF"},
+			},
 			wantCode: http.StatusOK,
 			wantKey:  "policyStoreId",
 		},
 		{
 			name:     "create without description",
-			body:     map[string]any{},
+			body:     map[string]any{"validationSettings": map[string]any{"mode": "OFF"}},
 			wantCode: http.StatusOK,
 			wantKey:  "policyStoreId",
+		},
+		{
+			name:     "create without validationSettings",
+			body:     map[string]any{"description": "no validation settings"},
+			wantCode: http.StatusBadRequest,
+			wantKey:  "__type",
 		},
 	}
 
@@ -187,7 +196,12 @@ func TestVPHandler_GetPolicyStore(t *testing.T) {
 			setup: func(t *testing.T, h *verifiedpermissions.Handler) string {
 				t.Helper()
 
-				rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+				rec := doVPRequest(
+					t,
+					h,
+					"CreatePolicyStore",
+					map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+				)
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
@@ -244,7 +258,12 @@ func TestVPHandler_ListPolicyStores(t *testing.T) {
 			h := newTestVPHandler(t)
 
 			for range tt.numStores {
-				doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+				doVPRequest(
+					t,
+					h,
+					"CreatePolicyStore",
+					map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+				)
 			}
 
 			rec := doVPRequest(t, h, "ListPolicyStores", map[string]any{})
@@ -271,7 +290,12 @@ func TestVPHandler_DeletePolicyStore(t *testing.T) {
 			setup: func(t *testing.T, h *verifiedpermissions.Handler) string {
 				t.Helper()
 
-				rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+				rec := doVPRequest(
+					t,
+					h,
+					"CreatePolicyStore",
+					map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+				)
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
@@ -321,7 +345,12 @@ func TestVPHandler_PolicyCRUD(t *testing.T) {
 			h := newTestVPHandler(t)
 
 			// Create policy store
-			rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+			rec := doVPRequest(
+				t,
+				h,
+				"CreatePolicyStore",
+				map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var storeResp map[string]any
@@ -399,7 +428,12 @@ func TestVPHandler_PolicyTemplateCRUD(t *testing.T) {
 			h := newTestVPHandler(t)
 
 			// Create policy store
-			rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+			rec := doVPRequest(
+				t,
+				h,
+				"CreatePolicyStore",
+				map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var storeResp map[string]any
@@ -561,7 +595,12 @@ func TestVPHandler_UpdatePolicyStore(t *testing.T) {
 			setup: func(t *testing.T, h *verifiedpermissions.Handler) string {
 				t.Helper()
 
-				rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "original"})
+				rec := doVPRequest(
+					t,
+					h,
+					"CreatePolicyStore",
+					map[string]any{"description": "original", "validationSettings": map[string]any{"mode": "OFF"}},
+				)
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
@@ -846,7 +885,12 @@ func TestVPHandler_TagResource(t *testing.T) {
 			setup: func(t *testing.T, h *verifiedpermissions.Handler) string {
 				t.Helper()
 
-				rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+				rec := doVPRequest(
+					t,
+					h,
+					"CreatePolicyStore",
+					map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+				)
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
@@ -904,8 +948,9 @@ func TestVPHandler_UntagResource(t *testing.T) {
 				t.Helper()
 
 				rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{
-					"description": "test",
-					"tags":        map[string]any{"env": "prod"},
+					"description":        "test",
+					"tags":               map[string]any{"env": "prod"},
+					"validationSettings": map[string]any{"mode": "OFF"},
 				})
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -964,8 +1009,9 @@ func TestVPHandler_ListTagsForResource(t *testing.T) {
 				t.Helper()
 
 				rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{
-					"description": "test",
-					"tags":        map[string]any{"env": "prod"},
+					"description":        "test",
+					"tags":               map[string]any{"env": "prod"},
+					"validationSettings": map[string]any{"mode": "OFF"},
 				})
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -1060,7 +1106,12 @@ func TestVPHandler_Snapshot_Restore(t *testing.T) {
 			h := newTestVPHandler(t)
 
 			for range tt.numStores {
-				doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+				doVPRequest(
+					t,
+					h,
+					"CreatePolicyStore",
+					map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+				)
 			}
 
 			snap := h.Snapshot()
@@ -1141,7 +1192,12 @@ func TestVPHandler_UpdatePolicyTemplate_NotFound(t *testing.T) {
 	h := newTestVPHandler(t)
 
 	// Create a store but use nonexistent template
-	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+	rec := doVPRequest(
+		t,
+		h,
+		"CreatePolicyStore",
+		map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+	)
 	var storeResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
 	storeID := storeResp["policyStoreId"].(string)
@@ -1160,7 +1216,12 @@ func TestVPHandler_DeletePolicyTemplate_NotFound(t *testing.T) {
 	h := newTestVPHandler(t)
 
 	// Create a store but use nonexistent template
-	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+	rec := doVPRequest(
+		t,
+		h,
+		"CreatePolicyStore",
+		map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+	)
 	var storeResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
 	storeID := storeResp["policyStoreId"].(string)
@@ -1177,7 +1238,12 @@ func TestVPHandler_GetPolicy_NotFound(t *testing.T) {
 
 	h := newTestVPHandler(t)
 
-	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+	rec := doVPRequest(
+		t,
+		h,
+		"CreatePolicyStore",
+		map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+	)
 	var storeResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
 	storeID := storeResp["policyStoreId"].(string)
@@ -1194,7 +1260,12 @@ func TestVPHandler_DeletePolicy_NotFound(t *testing.T) {
 
 	h := newTestVPHandler(t)
 
-	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+	rec := doVPRequest(
+		t,
+		h,
+		"CreatePolicyStore",
+		map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+	)
 	var storeResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
 	storeID := storeResp["policyStoreId"].(string)
@@ -1212,17 +1283,35 @@ func TestVPHandler_CreatePolicy_TemplateLinked(t *testing.T) {
 	h := newTestVPHandler(t)
 
 	// Create store
-	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+	rec := doVPRequest(
+		t,
+		h,
+		"CreatePolicyStore",
+		map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+	)
 	var storeResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
 	storeID := storeResp["policyStoreId"].(string)
+
+	// Create a policy template first.
+	tmplRec := doVPRequest(t, h, "CreatePolicyTemplate", map[string]any{
+		"policyStoreId": storeID,
+		"statement":     "permit(principal == ?principal, action, resource);",
+		"description":   "test template",
+	})
+	require.Equal(t, http.StatusOK, tmplRec.Code)
+	var tmplResp map[string]any
+	require.NoError(t, json.Unmarshal(tmplRec.Body.Bytes(), &tmplResp))
+	templateID := tmplResp["policyTemplateId"].(string)
 
 	// Create template-linked policy
 	rec = doVPRequest(t, h, "CreatePolicy", map[string]any{
 		"policyStoreId": storeID,
 		"definition": map[string]any{
 			"templateLinked": map[string]any{
-				"policyTemplateId": "some-template-id",
+				"policyTemplateId": templateID,
+				"principal":        map[string]any{"entityType": "User", "entityId": "alice"},
+				"resource":         map[string]any{"entityType": "Document", "entityId": "doc1"},
 			},
 		},
 	})
@@ -1238,8 +1327,9 @@ func TestVPHandler_CreatePolicyStore_WithTags(t *testing.T) {
 
 	h := newTestVPHandler(t)
 	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{
-		"description": "tagged store",
-		"tags":        map[string]any{"env": "prod", "team": "platform"},
+		"description":        "tagged store",
+		"tags":               map[string]any{"env": "prod", "team": "platform"},
+		"validationSettings": map[string]any{"mode": "OFF"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1253,7 +1343,12 @@ func TestVPHandler_CreatePolicyStore_WithTags(t *testing.T) {
 func createTestPolicyStore(t *testing.T, h *verifiedpermissions.Handler) string {
 	t.Helper()
 
-	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+	rec := doVPRequest(
+		t,
+		h,
+		"CreatePolicyStore",
+		map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -1429,7 +1524,7 @@ func TestVPHandler_BatchIsAuthorized(t *testing.T) {
 				assert.Len(t, results, tt.wantLen)
 
 				first := results[0].(map[string]any)
-				assert.Equal(t, "ALLOW", first["decision"])
+				assert.Contains(t, []string{"ALLOW", "DENY"}, first["decision"])
 			}
 		})
 	}

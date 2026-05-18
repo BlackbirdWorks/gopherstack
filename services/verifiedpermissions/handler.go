@@ -235,32 +235,54 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 // --- Policy Store operations ---
 
+type validationSettingsJSON struct {
+	Mode string `json:"mode"`
+}
+
 type createPolicyStoreInput struct {
-	Tags        map[string]string `json:"tags"`
-	Description string            `json:"description"`
+	Tags               map[string]string      `json:"tags"`
+	Description        string                 `json:"description"`
+	ValidationSettings validationSettingsJSON `json:"validationSettings"`
+	DeletionProtection string                 `json:"deletionProtection,omitempty"`
 }
 
 type createPolicyStoreOutput struct {
-	PolicyStoreID   string `json:"policyStoreId"`
-	Arn             string `json:"arn"`
-	CreatedDate     string `json:"createdDate"`
-	LastUpdatedDate string `json:"lastUpdatedDate"`
+	PolicyStoreID      string                 `json:"policyStoreId"`
+	Arn                string                 `json:"arn"`
+	CreatedDate        string                 `json:"createdDate"`
+	LastUpdatedDate    string                 `json:"lastUpdatedDate"`
+	ValidationSettings validationSettingsJSON `json:"validationSettings"`
 }
 
 func (h *Handler) handleCreatePolicyStore(
 	_ context.Context,
 	in *createPolicyStoreInput,
 ) (*createPolicyStoreOutput, error) {
-	ps, err := h.Backend.CreatePolicyStore(in.Description, in.Tags)
+	if in.ValidationSettings.Mode == "" {
+		return nil, fmt.Errorf("%w: validationSettings.mode is required", errInvalidRequest)
+	}
+
+	if in.ValidationSettings.Mode != ValidationModeOff && in.ValidationSettings.Mode != ValidationModeStrict {
+		return nil, fmt.Errorf(
+			"%w: validationSettings.mode must be %q or %q",
+			errInvalidRequest, ValidationModeOff, ValidationModeStrict,
+		)
+	}
+
+	ps, err := h.Backend.CreatePolicyStore(
+		in.Description, in.Tags,
+		in.ValidationSettings.Mode, in.DeletionProtection,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &createPolicyStoreOutput{
-		PolicyStoreID:   ps.PolicyStoreID,
-		Arn:             ps.Arn,
-		CreatedDate:     ps.CreatedDate.UTC().Format(timeFormat),
-		LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
+		PolicyStoreID:      ps.PolicyStoreID,
+		Arn:                ps.Arn,
+		CreatedDate:        ps.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:    ps.LastUpdated.UTC().Format(timeFormat),
+		ValidationSettings: validationSettingsJSON{Mode: ps.ValidationMode},
 	}, nil
 }
 
@@ -269,19 +291,23 @@ type policyStoreIDInput struct {
 }
 
 type policyStoreView struct {
-	PolicyStoreID   string `json:"policyStoreId"`
-	Arn             string `json:"arn"`
-	Description     string `json:"description"`
-	CreatedDate     string `json:"createdDate"`
-	LastUpdatedDate string `json:"lastUpdatedDate"`
+	PolicyStoreID      string                 `json:"policyStoreId"`
+	Arn                string                 `json:"arn"`
+	Description        string                 `json:"description"`
+	CreatedDate        string                 `json:"createdDate"`
+	LastUpdatedDate    string                 `json:"lastUpdatedDate"`
+	ValidationSettings validationSettingsJSON `json:"validationSettings"`
+	DeletionProtection string                 `json:"deletionProtection,omitempty"`
 }
 
 type getPolicyStoreOutput struct {
-	PolicyStoreID   string `json:"policyStoreId"`
-	Arn             string `json:"arn"`
-	Description     string `json:"description"`
-	CreatedDate     string `json:"createdDate"`
-	LastUpdatedDate string `json:"lastUpdatedDate"`
+	PolicyStoreID      string                 `json:"policyStoreId"`
+	Arn                string                 `json:"arn"`
+	Description        string                 `json:"description"`
+	CreatedDate        string                 `json:"createdDate"`
+	LastUpdatedDate    string                 `json:"lastUpdatedDate"`
+	ValidationSettings validationSettingsJSON `json:"validationSettings"`
+	DeletionProtection string                 `json:"deletionProtection,omitempty"`
 }
 
 func (h *Handler) handleGetPolicyStore(_ context.Context, in *policyStoreIDInput) (*getPolicyStoreOutput, error) {
@@ -295,45 +321,61 @@ func (h *Handler) handleGetPolicyStore(_ context.Context, in *policyStoreIDInput
 	}
 
 	return &getPolicyStoreOutput{
-		PolicyStoreID:   ps.PolicyStoreID,
-		Arn:             ps.Arn,
-		Description:     ps.Description,
-		CreatedDate:     ps.CreatedDate.UTC().Format(timeFormat),
-		LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
+		PolicyStoreID:      ps.PolicyStoreID,
+		Arn:                ps.Arn,
+		Description:        ps.Description,
+		CreatedDate:        ps.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:    ps.LastUpdated.UTC().Format(timeFormat),
+		ValidationSettings: validationSettingsJSON{Mode: ps.ValidationMode},
+		DeletionProtection: ps.DeletionProtection,
 	}, nil
 }
 
+type listPolicyStoresInput struct {
+	NextToken  string `json:"nextToken,omitempty"`
+	MaxResults int    `json:"maxResults,omitempty"`
+}
+
 type listPolicyStoresOutput struct {
+	NextToken    string            `json:"nextToken,omitempty"`
 	PolicyStores []policyStoreView `json:"policyStores"`
 }
 
-func (h *Handler) handleListPolicyStores(_ context.Context, _ *struct{}) (*listPolicyStoresOutput, error) {
-	stores := h.Backend.ListPolicyStores()
+func (h *Handler) handleListPolicyStores(
+	_ context.Context,
+	in *listPolicyStoresInput,
+) (*listPolicyStoresOutput, error) {
+	stores, nextToken := h.Backend.ListPolicyStores(in.NextToken, in.MaxResults)
 	items := make([]policyStoreView, 0, len(stores))
 
 	for i := range stores {
 		ps := &stores[i]
 		items = append(items, policyStoreView{
-			PolicyStoreID:   ps.PolicyStoreID,
-			Arn:             ps.Arn,
-			Description:     ps.Description,
-			CreatedDate:     ps.CreatedDate.UTC().Format(timeFormat),
-			LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
+			PolicyStoreID:      ps.PolicyStoreID,
+			Arn:                ps.Arn,
+			Description:        ps.Description,
+			CreatedDate:        ps.CreatedDate.UTC().Format(timeFormat),
+			LastUpdatedDate:    ps.LastUpdated.UTC().Format(timeFormat),
+			ValidationSettings: validationSettingsJSON{Mode: ps.ValidationMode},
+			DeletionProtection: ps.DeletionProtection,
 		})
 	}
 
-	return &listPolicyStoresOutput{PolicyStores: items}, nil
+	return &listPolicyStoresOutput{PolicyStores: items, NextToken: nextToken}, nil
 }
 
 type updatePolicyStoreInput struct {
-	PolicyStoreID string `json:"policyStoreId"`
-	Description   string `json:"description"`
+	PolicyStoreID      string                  `json:"policyStoreId"`
+	Description        string                  `json:"description"`
+	ValidationSettings *validationSettingsJSON `json:"validationSettings,omitempty"`
+	DeletionProtection string                  `json:"deletionProtection,omitempty"`
 }
 
 type updatePolicyStoreOutput struct {
-	PolicyStoreID   string `json:"policyStoreId"`
-	Arn             string `json:"arn"`
-	LastUpdatedDate string `json:"lastUpdatedDate"`
+	PolicyStoreID      string                 `json:"policyStoreId"`
+	Arn                string                 `json:"arn"`
+	LastUpdatedDate    string                 `json:"lastUpdatedDate"`
+	ValidationSettings validationSettingsJSON `json:"validationSettings"`
 }
 
 func (h *Handler) handleUpdatePolicyStore(
@@ -344,15 +386,22 @@ func (h *Handler) handleUpdatePolicyStore(
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
-	ps, err := h.Backend.UpdatePolicyStore(in.PolicyStoreID, in.Description)
+	var validationMode string
+
+	if in.ValidationSettings != nil {
+		validationMode = in.ValidationSettings.Mode
+	}
+
+	ps, err := h.Backend.UpdatePolicyStore(in.PolicyStoreID, in.Description, validationMode, in.DeletionProtection)
 	if err != nil {
 		return nil, err
 	}
 
 	return &updatePolicyStoreOutput{
-		PolicyStoreID:   ps.PolicyStoreID,
-		Arn:             ps.Arn,
-		LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
+		PolicyStoreID:      ps.PolicyStoreID,
+		Arn:                ps.Arn,
+		LastUpdatedDate:    ps.LastUpdated.UTC().Format(timeFormat),
+		ValidationSettings: validationSettingsJSON{Mode: ps.ValidationMode},
 	}, nil
 }
 
@@ -372,21 +421,44 @@ func (h *Handler) handleDeletePolicyStore(_ context.Context, in *policyStoreIDIn
 
 type staticPolicyDefinition struct {
 	Statement   string `json:"statement"`
-	Description string `json:"description"`
+	Description string `json:"description,omitempty"`
 }
 
 type templateLinkedPolicyDefinition struct {
-	PolicyTemplateID string `json:"policyTemplateId"`
+	Principal        *entityIdentifier `json:"principal,omitempty"`
+	Resource         *entityIdentifier `json:"resource,omitempty"`
+	PolicyTemplateID string            `json:"policyTemplateId"`
 }
 
-type policyDefinition struct {
+type entityIdentifier struct {
+	EntityType string `json:"entityType"`
+	EntityID   string `json:"entityId"`
+}
+
+type policyDefinitionIn struct {
 	Static         *staticPolicyDefinition         `json:"static,omitempty"`
 	TemplateLinked *templateLinkedPolicyDefinition `json:"templateLinked,omitempty"`
 }
 
+type staticPolicyDefinitionOut struct {
+	Statement   string `json:"statement"`
+	Description string `json:"description,omitempty"`
+}
+
+type templateLinkedPolicyDefinitionOut struct {
+	Principal        *entityIdentifier `json:"principal,omitempty"`
+	Resource         *entityIdentifier `json:"resource,omitempty"`
+	PolicyTemplateID string            `json:"policyTemplateId"`
+}
+
+type policyDefinitionOut struct {
+	Static         *staticPolicyDefinitionOut         `json:"static,omitempty"`
+	TemplateLinked *templateLinkedPolicyDefinitionOut `json:"templateLinked,omitempty"`
+}
+
 type createPolicyInput struct {
-	Definition    policyDefinition `json:"definition"`
-	PolicyStoreID string           `json:"policyStoreId"`
+	Definition    policyDefinitionIn `json:"definition"`
+	PolicyStoreID string             `json:"policyStoreId"`
 }
 
 type policyIDsOutput struct {
@@ -397,6 +469,7 @@ type policyIDsOutput struct {
 	LastUpdatedDate string `json:"lastUpdatedDate"`
 }
 
+//nolint:nestif // definition union type dispatch
 func (h *Handler) handleCreatePolicy(_ context.Context, in *createPolicyInput) (*policyIDsOutput, error) {
 	if in.PolicyStoreID == "" {
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
@@ -406,26 +479,37 @@ func (h *Handler) handleCreatePolicy(_ context.Context, in *createPolicyInput) (
 		return nil, fmt.Errorf("%w: definition must contain exactly one of static or templateLinked", errInvalidRequest)
 	}
 
-	policyType := "STATIC"
-
-	var statement string
+	var params CreatePolicyParams
 
 	if in.Definition.Static != nil {
 		if in.Definition.Static.Statement == "" {
 			return nil, fmt.Errorf("%w: definition.static.statement is required", errInvalidRequest)
 		}
 
-		statement = in.Definition.Static.Statement
+		params.PolicyType = policyTypeStatic
+		params.Statement = in.Definition.Static.Statement
+		params.Description = in.Definition.Static.Description
 	} else {
-		if in.Definition.TemplateLinked.PolicyTemplateID == "" {
+		tl := in.Definition.TemplateLinked
+		if tl.PolicyTemplateID == "" {
 			return nil, fmt.Errorf("%w: definition.templateLinked.policyTemplateId is required", errInvalidRequest)
 		}
 
-		policyType = "TEMPLATE_LINKED"
-		statement = in.Definition.TemplateLinked.PolicyTemplateID
+		params.PolicyType = policyTypeTemplateLinked
+		params.PolicyTemplateID = tl.PolicyTemplateID
+
+		if tl.Principal != nil {
+			params.PrincipalEntityType = tl.Principal.EntityType
+			params.PrincipalEntityID = tl.Principal.EntityID
+		}
+
+		if tl.Resource != nil {
+			params.ResourceEntityType = tl.Resource.EntityType
+			params.ResourceEntityID = tl.Resource.EntityID
+		}
 	}
 
-	p, err := h.Backend.CreatePolicy(in.PolicyStoreID, policyType, statement)
+	p, err := h.Backend.CreatePolicy(in.PolicyStoreID, params)
 	if err != nil {
 		return nil, err
 	}
@@ -445,19 +529,71 @@ type policyInput struct {
 }
 
 type policyView struct {
-	PolicyStoreID   string `json:"policyStoreId"`
-	PolicyID        string `json:"policyId"`
-	PolicyType      string `json:"policyType"`
-	CreatedDate     string `json:"createdDate"`
-	LastUpdatedDate string `json:"lastUpdatedDate"`
+	PolicyStoreID   string              `json:"policyStoreId"`
+	PolicyID        string              `json:"policyId"`
+	PolicyType      string              `json:"policyType"`
+	Definition      policyDefinitionOut `json:"definition"`
+	Principal       *entityIdentifier   `json:"principal,omitempty"`
+	Resource        *entityIdentifier   `json:"resource,omitempty"`
+	CreatedDate     string              `json:"createdDate"`
+	LastUpdatedDate string              `json:"lastUpdatedDate"`
 }
 
 type getPolicyOutput struct {
-	PolicyStoreID   string `json:"policyStoreId"`
-	PolicyID        string `json:"policyId"`
-	PolicyType      string `json:"policyType"`
-	CreatedDate     string `json:"createdDate"`
-	LastUpdatedDate string `json:"lastUpdatedDate"`
+	PolicyStoreID   string              `json:"policyStoreId"`
+	PolicyID        string              `json:"policyId"`
+	PolicyType      string              `json:"policyType"`
+	Definition      policyDefinitionOut `json:"definition"`
+	Principal       *entityIdentifier   `json:"principal,omitempty"`
+	Resource        *entityIdentifier   `json:"resource,omitempty"`
+	CreatedDate     string              `json:"createdDate"`
+	LastUpdatedDate string              `json:"lastUpdatedDate"`
+}
+
+func policyToView(p *Policy) policyView {
+	v := policyView{
+		PolicyStoreID:   p.PolicyStoreID,
+		PolicyID:        p.PolicyID,
+		PolicyType:      p.PolicyType,
+		CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
+	}
+
+	switch p.PolicyType {
+	case policyTypeStatic:
+		v.Definition.Static = &staticPolicyDefinitionOut{
+			Statement:   p.Statement,
+			Description: p.Description,
+		}
+	case policyTypeTemplateLinked:
+		v.Definition.TemplateLinked = &templateLinkedPolicyDefinitionOut{
+			PolicyTemplateID: p.PolicyTemplateID,
+		}
+
+		if p.PrincipalEntityType != "" {
+			v.Definition.TemplateLinked.Principal = &entityIdentifier{
+				EntityType: p.PrincipalEntityType,
+				EntityID:   p.PrincipalEntityID,
+			}
+			v.Principal = &entityIdentifier{
+				EntityType: p.PrincipalEntityType,
+				EntityID:   p.PrincipalEntityID,
+			}
+		}
+
+		if p.ResourceEntityType != "" {
+			v.Definition.TemplateLinked.Resource = &entityIdentifier{
+				EntityType: p.ResourceEntityType,
+				EntityID:   p.ResourceEntityID,
+			}
+			v.Resource = &entityIdentifier{
+				EntityType: p.ResourceEntityType,
+				EntityID:   p.ResourceEntityID,
+			}
+		}
+	}
+
+	return v
 }
 
 func (h *Handler) handleGetPolicy(_ context.Context, in *policyInput) (*getPolicyOutput, error) {
@@ -474,21 +610,37 @@ func (h *Handler) handleGetPolicy(_ context.Context, in *policyInput) (*getPolic
 		return nil, err
 	}
 
+	v := policyToView(p)
+
 	return &getPolicyOutput{
-		PolicyStoreID:   p.PolicyStoreID,
-		PolicyID:        p.PolicyID,
-		PolicyType:      p.PolicyType,
-		CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
-		LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
+		PolicyStoreID:   v.PolicyStoreID,
+		PolicyID:        v.PolicyID,
+		PolicyType:      v.PolicyType,
+		Definition:      v.Definition,
+		Principal:       v.Principal,
+		Resource:        v.Resource,
+		CreatedDate:     v.CreatedDate,
+		LastUpdatedDate: v.LastUpdatedDate,
 	}, nil
 }
 
+type listPoliciesFilterJSON struct {
+	Principal                 *entityIdentifier `json:"principal,omitempty"`
+	Resource                  *entityIdentifier `json:"resource,omitempty"`
+	PolicyType                string            `json:"policyType,omitempty"`
+	PolicyTemplateIDForFilter string            `json:"policyTemplateId,omitempty"`
+}
+
 type listPoliciesInput struct {
-	PolicyStoreID string `json:"policyStoreId"`
+	PolicyStoreID string                  `json:"policyStoreId"`
+	Filter        *listPoliciesFilterJSON `json:"filter,omitempty"`
+	NextToken     string                  `json:"nextToken,omitempty"`
+	MaxResults    int                     `json:"maxResults,omitempty"`
 }
 
 type listPoliciesOutput struct {
-	Policies []policyView `json:"policies"`
+	NextToken string       `json:"nextToken,omitempty"`
+	Policies  []policyView `json:"policies"`
 }
 
 func (h *Handler) handleListPolicies(_ context.Context, in *listPoliciesInput) (*listPoliciesOutput, error) {
@@ -496,7 +648,24 @@ func (h *Handler) handleListPolicies(_ context.Context, in *listPoliciesInput) (
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
-	policies, err := h.Backend.ListPolicies(in.PolicyStoreID)
+	var filter ListPoliciesFilter
+
+	if in.Filter != nil {
+		filter.PolicyType = in.Filter.PolicyType
+		filter.PolicyTemplateID = in.Filter.PolicyTemplateIDForFilter
+
+		if in.Filter.Principal != nil {
+			filter.PrincipalEntityType = in.Filter.Principal.EntityType
+			filter.PrincipalEntityID = in.Filter.Principal.EntityID
+		}
+
+		if in.Filter.Resource != nil {
+			filter.ResourceEntityType = in.Filter.Resource.EntityType
+			filter.ResourceEntityID = in.Filter.Resource.EntityID
+		}
+	}
+
+	policies, nextToken, err := h.Backend.ListPolicies(in.PolicyStoreID, filter, in.NextToken, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -504,23 +673,16 @@ func (h *Handler) handleListPolicies(_ context.Context, in *listPoliciesInput) (
 	items := make([]policyView, 0, len(policies))
 
 	for i := range policies {
-		p := &policies[i]
-		items = append(items, policyView{
-			PolicyStoreID:   p.PolicyStoreID,
-			PolicyID:        p.PolicyID,
-			PolicyType:      p.PolicyType,
-			CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
-			LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
-		})
+		items = append(items, policyToView(&policies[i]))
 	}
 
-	return &listPoliciesOutput{Policies: items}, nil
+	return &listPoliciesOutput{Policies: items, NextToken: nextToken}, nil
 }
 
 type updatePolicyInput struct {
-	Definition    policyDefinition `json:"definition"`
-	PolicyStoreID string           `json:"policyStoreId"`
-	PolicyID      string           `json:"policyId"`
+	Definition    policyDefinitionIn `json:"definition"`
+	PolicyStoreID string             `json:"policyStoreId"`
+	PolicyID      string             `json:"policyId"`
 }
 
 func (h *Handler) handleUpdatePolicy(_ context.Context, in *updatePolicyInput) (*policyIDsOutput, error) {
@@ -532,15 +694,33 @@ func (h *Handler) handleUpdatePolicy(_ context.Context, in *updatePolicyInput) (
 		return nil, fmt.Errorf("%w: policyId is required", errInvalidRequest)
 	}
 
-	if in.Definition.TemplateLinked != nil {
-		return nil, fmt.Errorf("%w: updating TEMPLATE_LINKED policies is not supported", errInvalidRequest)
+	if (in.Definition.Static == nil) == (in.Definition.TemplateLinked == nil) {
+		return nil, fmt.Errorf("%w: definition must contain exactly one of static or templateLinked", errInvalidRequest)
 	}
 
-	if in.Definition.Static == nil || in.Definition.Static.Statement == "" {
-		return nil, fmt.Errorf("%w: definition.static.statement is required", errInvalidRequest)
+	var params UpdatePolicyParams
+
+	if in.Definition.Static != nil {
+		if in.Definition.Static.Statement == "" {
+			return nil, fmt.Errorf("%w: definition.static.statement is required", errInvalidRequest)
+		}
+
+		params.Statement = in.Definition.Static.Statement
+		params.Description = in.Definition.Static.Description
+	} else {
+		tl := in.Definition.TemplateLinked
+		if tl.Principal != nil {
+			params.PrincipalEntityType = tl.Principal.EntityType
+			params.PrincipalEntityID = tl.Principal.EntityID
+		}
+
+		if tl.Resource != nil {
+			params.ResourceEntityType = tl.Resource.EntityType
+			params.ResourceEntityID = tl.Resource.EntityID
+		}
 	}
 
-	p, err := h.Backend.UpdatePolicy(in.PolicyStoreID, in.PolicyID, in.Definition.Static.Statement)
+	p, err := h.Backend.UpdatePolicy(in.PolicyStoreID, in.PolicyID, params)
 	if err != nil {
 		return nil, err
 	}
@@ -662,9 +842,12 @@ func (h *Handler) handleGetPolicyTemplate(
 
 type listPolicyTemplatesInput struct {
 	PolicyStoreID string `json:"policyStoreId"`
+	NextToken     string `json:"nextToken,omitempty"`
+	MaxResults    int    `json:"maxResults,omitempty"`
 }
 
 type listPolicyTemplatesOutput struct {
+	NextToken       string               `json:"nextToken,omitempty"`
 	PolicyTemplates []policyTemplateView `json:"policyTemplates"`
 }
 
@@ -676,7 +859,7 @@ func (h *Handler) handleListPolicyTemplates(
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
-	templates, err := h.Backend.ListPolicyTemplates(in.PolicyStoreID)
+	templates, nextToken, err := h.Backend.ListPolicyTemplates(in.PolicyStoreID, in.NextToken, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -695,7 +878,7 @@ func (h *Handler) handleListPolicyTemplates(
 		})
 	}
 
-	return &listPolicyTemplatesOutput{PolicyTemplates: items}, nil
+	return &listPolicyTemplatesOutput{PolicyTemplates: items, NextToken: nextToken}, nil
 }
 
 type updatePolicyTemplateInput struct {
@@ -859,6 +1042,12 @@ type actionIdentifierJSON struct {
 	ActionID   string `json:"actionId"`
 }
 
+type entityJSON struct {
+	Identifier *entityIdentifierJSON      `json:"identifier,omitempty"`
+	Attributes map[string]json.RawMessage `json:"attrs,omitempty"`
+	Parents    []entityIdentifierJSON     `json:"parents,omitempty"`
+}
+
 type batchIsAuthorizedRequestItem struct {
 	Principal *entityIdentifierJSON `json:"principal,omitempty"`
 	Action    *actionIdentifierJSON `json:"action,omitempty"`
@@ -867,6 +1056,7 @@ type batchIsAuthorizedRequestItem struct {
 
 type batchIsAuthorizedInput struct {
 	PolicyStoreID string                         `json:"policyStoreId"`
+	Entities      []entityJSON                   `json:"entities,omitempty"`
 	Requests      []batchIsAuthorizedRequestItem `json:"requests"`
 }
 
@@ -897,6 +1087,13 @@ func (h *Handler) handleBatchIsAuthorized(
 ) (*batchIsAuthorizedOutput, error) {
 	if in.PolicyStoreID == "" {
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	if len(in.Requests) > maxBatchRequests {
+		return nil, fmt.Errorf(
+			"%w: batch size %d exceeds maximum of %d",
+			errInvalidRequest, len(in.Requests), maxBatchRequests,
+		)
 	}
 
 	requests := make([]AuthorizationRequest, 0, len(in.Requests))
@@ -941,6 +1138,7 @@ type batchIsAuthorizedWithTokenInput struct {
 	PolicyStoreID string                                  `json:"policyStoreId"`
 	AccessToken   string                                  `json:"accessToken,omitempty"`
 	IdentityToken string                                  `json:"identityToken,omitempty"`
+	Entities      []entityJSON                            `json:"entities,omitempty"`
 	Requests      []batchIsAuthorizedWithTokenRequestItem `json:"requests"`
 }
 
@@ -954,6 +1152,13 @@ func (h *Handler) handleBatchIsAuthorizedWithToken(
 
 	if in.AccessToken == "" && in.IdentityToken == "" {
 		return nil, fmt.Errorf("%w: accessToken or identityToken is required", errInvalidRequest)
+	}
+
+	if len(in.Requests) > maxBatchRequests {
+		return nil, fmt.Errorf(
+			"%w: batch size %d exceeds maximum of %d",
+			errInvalidRequest, len(in.Requests), maxBatchRequests,
+		)
 	}
 
 	requests := make([]AuthorizationRequest, 0, len(in.Requests))
@@ -984,13 +1189,36 @@ func (h *Handler) handleBatchIsAuthorizedWithToken(
 
 // --- IdentitySource operations ---
 
+type cognitoGroupConfigJSON struct {
+	GroupEntityType string `json:"groupEntityType,omitempty"`
+}
+
 type cognitoUserPoolConfigJSON struct {
-	UserPoolArn string   `json:"userPoolArn"`
-	ClientIDs   []string `json:"clientIds,omitempty"`
+	GroupConfiguration *cognitoGroupConfigJSON `json:"groupConfiguration,omitempty"`
+	UserPoolArn        string                  `json:"userPoolArn"`
+	ClientIDs          []string                `json:"clientIds,omitempty"`
+}
+
+type oidcGroupConfigJSON struct {
+	GroupClaim      string `json:"groupClaim,omitempty"`
+	GroupEntityType string `json:"groupEntityType,omitempty"`
+}
+
+type oidcTokenSelectionJSON struct {
+	IdentityTokenOnly *oidcTokenOnlyJSON `json:"identityTokenOnly,omitempty"`
+	AccessTokenOnly   *oidcTokenOnlyJSON `json:"accessTokenOnly,omitempty"`
+}
+
+type oidcTokenOnlyJSON struct {
+	PrincipalIDClaim string   `json:"principalIdClaim,omitempty"`
+	Audiences        []string `json:"audiences,omitempty"`
 }
 
 type openIDConnectConfigJSON struct {
-	Issuer string `json:"issuer"`
+	GroupConfiguration *oidcGroupConfigJSON    `json:"groupConfiguration,omitempty"`
+	TokenSelection     *oidcTokenSelectionJSON `json:"tokenSelection,omitempty"`
+	Issuer             string                  `json:"issuer"`
+	EntityIDPrefix     string                  `json:"entityIdPrefix,omitempty"`
 }
 
 type identitySourceConfigJSON struct {
@@ -1006,11 +1234,71 @@ type createIdentitySourceInput struct {
 }
 
 type identitySourceOutput struct {
-	IdentitySourceID    string `json:"identitySourceId"`
-	PolicyStoreID       string `json:"policyStoreId"`
-	PrincipalEntityType string `json:"principalEntityType"`
-	CreatedDate         string `json:"createdDate"`
-	LastUpdatedDate     string `json:"lastUpdatedDate"`
+	IdentitySourceID    string                    `json:"identitySourceId"`
+	PolicyStoreID       string                    `json:"policyStoreId"`
+	PrincipalEntityType string                    `json:"principalEntityType"`
+	Configuration       *identitySourceConfigJSON `json:"configuration,omitempty"`
+	CreatedDate         string                    `json:"createdDate"`
+	LastUpdatedDate     string                    `json:"lastUpdatedDate"`
+}
+
+func identitySourceToConfigJSON(is *IdentitySource) *identitySourceConfigJSON {
+	if is.UserPoolArn != "" {
+		cfg := &identitySourceConfigJSON{
+			CognitoUserPool: &cognitoUserPoolConfigJSON{
+				UserPoolArn: is.UserPoolArn,
+				ClientIDs:   is.ClientIDs,
+			},
+		}
+
+		if is.CognitoGroupConfig != nil {
+			cfg.CognitoUserPool.GroupConfiguration = &cognitoGroupConfigJSON{
+				GroupEntityType: is.CognitoGroupConfig.GroupEntityType,
+			}
+		}
+
+		return cfg
+	}
+
+	if is.OpenIDIssuer != "" {
+		cfg := &identitySourceConfigJSON{
+			OpenIDConnect: &openIDConnectConfigJSON{
+				Issuer:         is.OpenIDIssuer,
+				EntityIDPrefix: is.EntityIDPrefix,
+			},
+		}
+
+		if is.OIDCGroupConfig != nil {
+			cfg.OpenIDConnect.GroupConfiguration = &oidcGroupConfigJSON{
+				GroupClaim:      is.OIDCGroupConfig.GroupClaim,
+				GroupEntityType: is.OIDCGroupConfig.GroupEntityType,
+			}
+		}
+
+		if is.OIDCTokenSelection != nil {
+			sel := is.OIDCTokenSelection
+			tok := &oidcTokenSelectionJSON{}
+
+			switch sel.TokenType {
+			case "IDENTITY":
+				tok.IdentityTokenOnly = &oidcTokenOnlyJSON{
+					PrincipalIDClaim: sel.PrincipalIDClaim,
+					Audiences:        sel.Audiences,
+				}
+			case "ACCESS":
+				tok.AccessTokenOnly = &oidcTokenOnlyJSON{
+					PrincipalIDClaim: sel.PrincipalIDClaim,
+					Audiences:        sel.Audiences,
+				}
+			}
+
+			cfg.OpenIDConnect.TokenSelection = tok
+		}
+
+		return cfg
+	}
+
+	return nil
 }
 
 func identitySourceToOutput(is *IdentitySource) *identitySourceOutput {
@@ -1018,9 +1306,48 @@ func identitySourceToOutput(is *IdentitySource) *identitySourceOutput {
 		IdentitySourceID:    is.IdentitySourceID,
 		PolicyStoreID:       is.PolicyStoreID,
 		PrincipalEntityType: is.PrincipalEntityType,
+		Configuration:       identitySourceToConfigJSON(is),
 		CreatedDate:         is.CreatedDate.UTC().Format(timeFormat),
 		LastUpdatedDate:     is.LastUpdated.UTC().Format(timeFormat),
 	}
+}
+
+//nolint:nestif // identity source config union type
+func configJSONToBackend(cfg identitySourceConfigJSON) IdentitySourceConfig {
+	var out IdentitySourceConfig
+
+	if cfg.CognitoUserPool != nil {
+		out.UserPoolArn = cfg.CognitoUserPool.UserPoolArn
+		out.ClientIDs = cfg.CognitoUserPool.ClientIDs
+
+		if cfg.CognitoUserPool.GroupConfiguration != nil {
+			out.CognitoGroupEntityType = cfg.CognitoUserPool.GroupConfiguration.GroupEntityType
+		}
+	} else if cfg.OpenIDConnect != nil {
+		out.Issuer = cfg.OpenIDConnect.Issuer
+		out.EntityIDPrefix = cfg.OpenIDConnect.EntityIDPrefix
+
+		if cfg.OpenIDConnect.GroupConfiguration != nil {
+			out.OIDCGroupClaim = cfg.OpenIDConnect.GroupConfiguration.GroupClaim
+			out.OIDCGroupEntityType = cfg.OpenIDConnect.GroupConfiguration.GroupEntityType
+		}
+
+		if cfg.OpenIDConnect.TokenSelection != nil {
+			if cfg.OpenIDConnect.TokenSelection.IdentityTokenOnly != nil {
+				tok := cfg.OpenIDConnect.TokenSelection.IdentityTokenOnly
+				out.TokenType = "IDENTITY"
+				out.PrincipalIDClaim = tok.PrincipalIDClaim
+				out.Audiences = tok.Audiences
+			} else if cfg.OpenIDConnect.TokenSelection.AccessTokenOnly != nil {
+				tok := cfg.OpenIDConnect.TokenSelection.AccessTokenOnly
+				out.TokenType = "ACCESS"
+				out.PrincipalIDClaim = tok.PrincipalIDClaim
+				out.Audiences = tok.Audiences
+			}
+		}
+	}
+
+	return out
 }
 
 func (h *Handler) handleCreateIdentitySource(
@@ -1038,32 +1365,17 @@ func (h *Handler) handleCreateIdentitySource(
 		)
 	}
 
-	var userPoolArn, openIDIssuer string
-
-	var clientIDs []string
-
-	if in.Configuration.CognitoUserPool != nil {
-		if in.Configuration.CognitoUserPool.UserPoolArn == "" {
-			return nil, fmt.Errorf("%w: cognitoUserPoolConfiguration.userPoolArn is required", errInvalidRequest)
-		}
-
-		userPoolArn = in.Configuration.CognitoUserPool.UserPoolArn
-		clientIDs = in.Configuration.CognitoUserPool.ClientIDs
-	} else {
-		if in.Configuration.OpenIDConnect.Issuer == "" {
-			return nil, fmt.Errorf("%w: openIdConnectConfiguration.issuer is required", errInvalidRequest)
-		}
-
-		openIDIssuer = in.Configuration.OpenIDConnect.Issuer
+	if in.Configuration.CognitoUserPool != nil && in.Configuration.CognitoUserPool.UserPoolArn == "" {
+		return nil, fmt.Errorf("%w: cognitoUserPoolConfiguration.userPoolArn is required", errInvalidRequest)
 	}
 
-	is, err := h.Backend.CreateIdentitySource(
-		in.PolicyStoreID,
-		userPoolArn,
-		openIDIssuer,
-		in.PrincipalEntityType,
-		clientIDs,
-	)
+	if in.Configuration.OpenIDConnect != nil && in.Configuration.OpenIDConnect.Issuer == "" {
+		return nil, fmt.Errorf("%w: openIdConnectConfiguration.issuer is required", errInvalidRequest)
+	}
+
+	cfg := configJSONToBackend(in.Configuration)
+
+	is, err := h.Backend.CreateIdentitySource(in.PolicyStoreID, in.PrincipalEntityType, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -1114,9 +1426,12 @@ func (h *Handler) handleDeleteIdentitySource(_ context.Context, in *identitySour
 
 type listIdentitySourcesInput struct {
 	PolicyStoreID string `json:"policyStoreId"`
+	NextToken     string `json:"nextToken,omitempty"`
+	MaxResults    int    `json:"maxResults,omitempty"`
 }
 
 type listIdentitySourcesOutput struct {
+	NextToken       string                 `json:"nextToken,omitempty"`
 	IdentitySources []identitySourceOutput `json:"identitySources"`
 }
 
@@ -1128,7 +1443,7 @@ func (h *Handler) handleListIdentitySources(
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
-	sources, err := h.Backend.ListIdentitySources(in.PolicyStoreID)
+	sources, nextToken, err := h.Backend.ListIdentitySources(in.PolicyStoreID, in.NextToken, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -1139,7 +1454,7 @@ func (h *Handler) handleListIdentitySources(
 		items = append(items, *identitySourceToOutput(&sources[i]))
 	}
 
-	return &listIdentitySourcesOutput{IdentitySources: items}, nil
+	return &listIdentitySourcesOutput{IdentitySources: items, NextToken: nextToken}, nil
 }
 
 // --- Schema operations ---
@@ -1169,20 +1484,26 @@ func (h *Handler) handlePutSchema(_ context.Context, in *putSchemaInput) (*putSc
 		return nil, fmt.Errorf("%w: definition.cedarJson is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.PutSchema(in.PolicyStoreID, in.Definition.CedarJSON); err != nil {
+	namespaces, err := h.Backend.PutSchema(in.PolicyStoreID, in.Definition.CedarJSON)
+	if err != nil {
 		return nil, err
 	}
 
+	// Read back timestamps directly from stored schema.
 	s, err := h.Backend.GetSchema(in.PolicyStoreID)
 	if err != nil {
 		return nil, err
+	}
+
+	if namespaces == nil {
+		namespaces = []string{}
 	}
 
 	return &putSchemaOutput{
 		PolicyStoreID:   in.PolicyStoreID,
 		CreatedDate:     s.CreatedDate.UTC().Format(timeFormat),
 		LastUpdatedDate: s.LastUpdated.UTC().Format(timeFormat),
-		Namespaces:      []string{},
+		Namespaces:      namespaces,
 	}, nil
 }
 
@@ -1191,10 +1512,11 @@ type getSchemaInput struct {
 }
 
 type getSchemaOutput struct {
-	PolicyStoreID   string `json:"policyStoreId"`
-	Schema          string `json:"schema"`
-	CreatedDate     string `json:"createdDate"`
-	LastUpdatedDate string `json:"lastUpdatedDate"`
+	PolicyStoreID   string   `json:"policyStoreId"`
+	Schema          string   `json:"schema"`
+	CreatedDate     string   `json:"createdDate"`
+	LastUpdatedDate string   `json:"lastUpdatedDate"`
+	Namespaces      []string `json:"namespaces,omitempty"`
 }
 
 func (h *Handler) handleGetSchema(_ context.Context, in *getSchemaInput) (*getSchemaOutput, error) {
@@ -1210,6 +1532,7 @@ func (h *Handler) handleGetSchema(_ context.Context, in *getSchemaInput) (*getSc
 	return &getSchemaOutput{
 		PolicyStoreID:   in.PolicyStoreID,
 		Schema:          s.Schema,
+		Namespaces:      s.Namespaces,
 		CreatedDate:     s.CreatedDate.UTC().Format(timeFormat),
 		LastUpdatedDate: s.LastUpdated.UTC().Format(timeFormat),
 	}, nil
@@ -1346,38 +1669,24 @@ func (h *Handler) handleUpdateIdentitySource(
 		)
 	}
 
-	var userPoolArn, openIDIssuer string
-
-	var clientIDs []string
-
-	if in.UpdateConfiguration.CognitoUserPool != nil {
-		if in.UpdateConfiguration.CognitoUserPool.UserPoolArn == "" {
-			return nil, fmt.Errorf(
-				"%w: updateConfiguration.cognitoUserPoolConfiguration.userPoolArn is required",
-				errInvalidRequest,
-			)
-		}
-
-		userPoolArn = in.UpdateConfiguration.CognitoUserPool.UserPoolArn
-		clientIDs = in.UpdateConfiguration.CognitoUserPool.ClientIDs
-	} else {
-		if in.UpdateConfiguration.OpenIDConnect.Issuer == "" {
-			return nil, fmt.Errorf(
-				"%w: updateConfiguration.openIdConnectConfiguration.issuer is required",
-				errInvalidRequest,
-			)
-		}
-
-		openIDIssuer = in.UpdateConfiguration.OpenIDConnect.Issuer
+	if in.UpdateConfiguration.CognitoUserPool != nil && in.UpdateConfiguration.CognitoUserPool.UserPoolArn == "" {
+		return nil, fmt.Errorf(
+			"%w: updateConfiguration.cognitoUserPoolConfiguration.userPoolArn is required",
+			errInvalidRequest,
+		)
 	}
 
+	if in.UpdateConfiguration.OpenIDConnect != nil && in.UpdateConfiguration.OpenIDConnect.Issuer == "" {
+		return nil, fmt.Errorf(
+			"%w: updateConfiguration.openIdConnectConfiguration.issuer is required",
+			errInvalidRequest,
+		)
+	}
+
+	cfg := configJSONToBackend(in.UpdateConfiguration)
+
 	is, err := h.Backend.UpdateIdentitySource(
-		in.PolicyStoreID,
-		in.IdentitySourceID,
-		userPoolArn,
-		openIDIssuer,
-		in.PrincipalEntityType,
-		clientIDs,
+		in.PolicyStoreID, in.IdentitySourceID, in.PrincipalEntityType, cfg,
 	)
 	if err != nil {
 		return nil, err

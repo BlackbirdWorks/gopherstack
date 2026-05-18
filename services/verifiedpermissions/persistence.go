@@ -61,11 +61,42 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
-	// Rebuild the ARN index from the restored policy stores.
-	b.arnIndex = make(map[string]string, len(snap.PolicyStores))
+	// Rebuild the ARN index from all restored resources.
+	count := len(snap.PolicyStores)
+	for _, policies := range snap.Policies {
+		count += len(policies)
+	}
+
+	for _, templates := range snap.PolicyTemplates {
+		count += len(templates)
+	}
+
+	for _, sources := range snap.IdentitySources {
+		count += len(sources)
+	}
+
+	b.arnIndex = make(map[string]string, count)
 
 	for id, ps := range snap.PolicyStores {
-		b.arnIndex[ps.Arn] = id
+		b.arnIndex[ps.Arn] = "policyStore:" + id
+	}
+
+	for storeID, policies := range snap.Policies {
+		for policyID := range policies {
+			b.arnIndex[policyARN(snap.AccountID, storeID, policyID)] = "policy:" + storeID + ":" + policyID
+		}
+	}
+
+	for storeID, templates := range snap.PolicyTemplates {
+		for templateID := range templates {
+			b.arnIndex[policyTemplateARN(snap.AccountID, storeID, templateID)] = "policyTemplate:" + storeID + ":" + templateID
+		}
+	}
+
+	for storeID, sources := range snap.IdentitySources {
+		for sourceID := range sources {
+			b.arnIndex[identitySourceARN(snap.AccountID, storeID, sourceID)] = "identitySource:" + storeID + ":" + sourceID
+		}
 	}
 
 	return nil
