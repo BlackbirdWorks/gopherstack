@@ -76,16 +76,18 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const [nb, tj, mo, ep] = await Promise.all([
+			const [nb, tj, mo, ep, pl] = await Promise.all([
 				sm.send(new ListNotebookInstancesCommand({})),
 				sm.send(new ListTrainingJobsCommand({})),
 				sm.send(new ListModelsCommand({})),
-				sm.send(new ListEndpointsCommand({}))
+				sm.send(new ListEndpointsCommand({})),
+				sm.send(new ListPipelinesCommand({}))
 			]);
 			notebooks = nb.NotebookInstances ?? [];
 			trainingJobs = tj.TrainingJobSummaries ?? [];
 			models = mo.Models ?? [];
 			endpoints = ep.Endpoints ?? [];
+			pipelines = pl.PipelineSummaries ?? [];
 		} catch (e) {
 			toast.error('Failed to load SageMaker data: ' + String(e));
 		} finally {
@@ -372,7 +374,7 @@
 			class="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row gap-3 justify-between"
 		>
 			<div class="flex gap-2 flex-wrap">
-				{#each ['notebooks', 'training', 'models', 'endpoints'] as tab}
+				{#each ['notebooks', 'training', 'models', 'endpoints', 'pipelines'] as tab}
 					<button
 						onclick={() => {
 							activeTab = tab as typeof activeTab;
@@ -515,9 +517,42 @@
 								<span
 									class="text-xs px-2 py-1 rounded-full {ep.EndpointStatus === 'InService'
 										? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-										: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
+										: ep.EndpointStatus === 'Failed'
+											? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+											: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
 								>
 									{ep.EndpointStatus}
+								</span>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			{:else if activeTab === 'pipelines'}
+				{#if filteredPipelines.length === 0}
+					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No pipelines found</div>
+				{:else}
+					<div class="space-y-2">
+						{#each filteredPipelines as pipeline}
+							<div
+								class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50"
+							>
+								<div class="flex items-center gap-3">
+									<GitBranch class="w-5 h-5 text-indigo-500" />
+									<div>
+										<p class="font-medium text-gray-900 dark:text-white">
+											{pipeline.PipelineName}
+										</p>
+										<p class="text-xs text-gray-500 dark:text-gray-400">
+											{pipeline.PipelineArn ?? ''}
+										</p>
+									</div>
+								</div>
+								<span
+									class="text-xs px-2 py-1 rounded-full {pipeline.PipelineStatus === 'Active'
+										? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+										: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
+								>
+									{pipeline.PipelineStatus ?? 'Unknown'}
 								</span>
 							</div>
 						{/each}

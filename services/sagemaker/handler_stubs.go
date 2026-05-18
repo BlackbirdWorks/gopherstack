@@ -1036,7 +1036,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListPipelineExecutions":
 		return mustMarshal(m{"PipelineExecutionSummaries": []any{}}), true
 
-
 	case "ListPipelineVersions":
 		return mustMarshal(m{"PipelineVersionSummaries": []any{}}), true
 
