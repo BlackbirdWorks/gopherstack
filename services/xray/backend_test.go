@@ -329,18 +329,19 @@ func TestInMemoryBackend_GetSamplingRules(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		ruleNames []string
-		wantCount int
+		name          string
+		ruleNames     []string
+		wantUserRules int // number of user-created rules (not counting Default)
 	}{
 		{
-			name:      "empty",
-			wantCount: 0,
+			// A fresh backend always has the built-in Default rule.
+			name:          "default_rule_present",
+			wantUserRules: 0,
 		},
 		{
-			name:      "multiple rules sorted by name",
-			ruleNames: []string{"rule-b", "rule-a", "rule-c"},
-			wantCount: 3,
+			name:          "multiple rules sorted by priority",
+			ruleNames:     []string{"rule-b", "rule-a", "rule-c"},
+			wantUserRules: 3,
 		},
 	}
 
@@ -351,15 +352,18 @@ func TestInMemoryBackend_GetSamplingRules(t *testing.T) {
 			b := newTestBackend(t)
 
 			for _, name := range tt.ruleNames {
-				_, err := b.CreateSamplingRule(xray.SamplingRule{RuleName: name})
+				_, err := b.CreateSamplingRule(xray.SamplingRule{RuleName: name, Priority: 1})
 				require.NoError(t, err)
 			}
 
 			rules := b.GetSamplingRules()
-			assert.Len(t, rules, tt.wantCount)
+			// +1 for the always-present Default rule.
+			assert.Len(t, rules, tt.wantUserRules+1)
 
-			if len(rules) > 1 {
-				assert.Less(t, rules[0].RuleName, rules[1].RuleName)
+			// Default rule should be last (highest priority value = lowest precedence).
+			if len(rules) > 0 {
+				assert.Equal(t, "Default", rules[len(rules)-1].RuleName,
+					"Default rule should be sorted last (priority 10000)")
 			}
 		})
 	}
@@ -439,6 +443,12 @@ func TestInMemoryBackend_DeleteSamplingRule(t *testing.T) {
 			wantErr:   true,
 			wantErrIs: awserr.ErrNotFound,
 		},
+		{
+			name:      "cannot delete Default rule",
+			ruleName:  "Default",
+			wantErr:   true,
+			wantErrIs: awserr.ErrInvalidParameter,
+		},
 	}
 
 	for _, tt := range tests {
@@ -448,7 +458,7 @@ func TestInMemoryBackend_DeleteSamplingRule(t *testing.T) {
 			b := newTestBackend(t)
 
 			if tt.create {
-				_, err := b.CreateSamplingRule(xray.SamplingRule{RuleName: tt.ruleName})
+				_, err := b.CreateSamplingRule(xray.SamplingRule{RuleName: tt.ruleName, Priority: 1})
 				require.NoError(t, err)
 			}
 
@@ -466,8 +476,10 @@ func TestInMemoryBackend_DeleteSamplingRule(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.ruleName, r.RuleName)
 
+			// After deleting user rule, only the Default rule should remain.
 			rules := b.GetSamplingRules()
-			assert.Empty(t, rules)
+			require.Len(t, rules, 1)
+			assert.Equal(t, "Default", rules[0].RuleName, "Default rule should always remain")
 		})
 	}
 }

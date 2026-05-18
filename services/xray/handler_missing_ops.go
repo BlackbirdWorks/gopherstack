@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+const (
+	keyStartTime = "StartTime"
+	keyEndTime   = "EndTime"
+)
+
 // --- GetServiceGraph ---
 
 type getServiceGraphInput struct {
@@ -32,8 +37,11 @@ func (h *Handler) handleGetServiceGraph(_ context.Context, body []byte) ([]byte,
 	services := h.Backend.GetServiceGraph(time.Unix(int64(in.StartTime), 0), time.Unix(int64(in.EndTime), 0))
 
 	return json.Marshal(map[string]any{
-		keyServices:  services,
-		keyNextToken: "",
+		keyServices:                services,
+		keyNextToken:               "",
+		"ContainsOldGroupVersions": false,
+		keyStartTime:               in.StartTime,
+		keyEndTime:                 in.EndTime,
 	})
 }
 
@@ -65,6 +73,11 @@ func (h *Handler) handleGetTimeSeriesServiceStatistics(_ context.Context, body [
 	period := in.Period
 	if period <= 0 {
 		period = 60
+	}
+
+	// AWS docs: Period must be 60 or 300 seconds.
+	if period != 60 && period != 300 {
+		return nil, fmt.Errorf("%w: Period must be 60 or 300 seconds, got %d", errInvalidRequest, period)
 	}
 
 	stats := h.Backend.GetTimeSeriesServiceStatistics(
