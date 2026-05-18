@@ -2,11 +2,13 @@ package shield
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -27,12 +29,93 @@ const (
 	keyStartTime    = "StartTime"
 	keyEndTime      = "EndTime"
 	keyResourceArn  = "ResourceArn"
+	keyAttackID     = "AttackId"
+	keyMax          = "Max"
+	keyType         = "Type"
+
+	// nanosPerSecond is used to convert UnixNano to fractional seconds (AWS timestamp format).
+	nanosPerSecond = 1e9
+
+	// maxProtectionsPerPage is the upper bound for ListProtections pagination.
+	maxProtectionsPerPage = 1000
+	// maxProtectionGroupsPerPage is the upper bound for ListProtectionGroups pagination.
+	maxProtectionGroupsPerPage = 1000
+	// maxAttacksPerPage is the upper bound for ListAttacks pagination.
+	maxAttacksPerPage = 10000
+
+	// subscriptionMaxProtections is the Shield Advanced limit for total protections.
+	subscriptionMaxProtections = 1000
+	// subscriptionMaxProtectionsPerType is the per-resource-type protection limit.
+	subscriptionMaxProtectionsPerType = 100
+	// subscriptionMaxProtectionGroups is the Shield Advanced limit for protection groups.
+	subscriptionMaxProtectionGroups = 100
+	// subscriptionMaxMembersPerGroup is the limit for ARBITRARY pattern members.
+	subscriptionMaxMembersPerGroup = 10000
 )
 
 var (
 	errUnknownAction  = errors.New("unknown action")
 	errInvalidRequest = errors.New("invalid request")
 )
+
+// floatSeconds converts t to a float64 seconds-since-epoch value (AWS timestamp protocol).
+func floatSeconds(t interface {
+	Unix() int64
+	UnixNano() int64
+}) float64 {
+	return float64(t.UnixNano()) / nanosPerSecond
+}
+
+// protectedARNEntry describes an ARN service/resource fragment for Shield-supported resource types.
+type protectedARNEntry struct {
+	service  string
+	resource string
+}
+
+// shieldSupportedARNs returns the ARN patterns for Shield-supported resource types.
+func shieldSupportedARNs() []protectedARNEntry {
+	return []protectedARNEntry{
+		{"cloudfront", ""},
+		{"route53", "hostedzone"},
+		{"elasticloadbalancing", "loadbalancer/app/"},
+		{"elasticloadbalancing", "loadbalancer/"},
+		{"ec2", "eip"},
+		{"globalaccelerator", ""},
+	}
+}
+
+// validateProtectedResourceARN checks that the ARN refers to a Shield-supported resource type.
+func validateProtectedResourceARN(arn string) error {
+	lower := strings.ToLower(arn)
+
+	for _, entry := range shieldSupportedARNs() {
+		if strings.Contains(lower, entry.service) {
+			if entry.resource == "" || strings.Contains(lower, strings.ToLower(entry.resource)) {
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf(
+		"%w: ResourceArn %q does not refer to a Shield-supported resource type "+
+			"(CloudFront, Route 53 Hosted Zone, ALB, CLB, EIP, Global Accelerator)",
+		errInvalidRequest,
+		arn,
+	)
+}
+
+// validateHealthCheckARN checks that the ARN is a Route 53 health check ARN.
+func validateHealthCheckARN(arn string) error {
+	if !strings.HasPrefix(arn, "arn:aws:route53:::healthcheck/") {
+		return fmt.Errorf(
+			"%w: HealthCheckArn %q must be a Route 53 health check ARN (arn:aws:route53:::healthcheck/<id>)",
+			errInvalidRequest,
+			arn,
+		)
+	}
+
+	return nil
+}
 
 // Handler is the HTTP handler for the AWS Shield Advanced API.
 type Handler struct {
@@ -81,6 +164,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DisassociateHealthCheck",
 		"EnableApplicationLayerAutomaticResponse",
 		"EnableProactiveEngagement",
+		"GetAttackVectorDefinitionVersion",
 		"GetSubscriptionState",
 		"ListAttacks",
 		"ListProtectionGroups",
@@ -205,7 +289,7 @@ func (h *Handler) dispatchSubscriptionAndProtectionOps(
 	case "DeleteProtection":
 		return nil, true, h.handleDeleteProtection(ctx, body)
 	case "ListProtections":
-		res, err := h.handleListProtections()
+		res, err := h.handleListProtections(body)
 
 		return res, true, err
 	}
@@ -272,7 +356,7 @@ func (h *Handler) dispatchProtectionGroupAndAttackOps(op string, body []byte) ([
 
 		return res, true, err
 	case "ListProtectionGroups":
-		res, err := h.handleListProtectionGroups()
+		res, err := h.handleListProtectionGroups(body)
 
 		return res, true, err
 	case "UpdateProtectionGroup":
@@ -291,6 +375,10 @@ func (h *Handler) dispatchProtectionGroupAndAttackOps(op string, body []byte) ([
 		res, err := h.handleDescribeAttackStatistics()
 
 		return res, true, err
+	case "GetAttackVectorDefinitionVersion":
+		res, err := h.handleGetAttackVectorDefinitionVersion()
+
+		return res, true, err
 	case "EnableApplicationLayerAutomaticResponse":
 		return nil, true, h.handleEnableApplicationLayerAutomaticResponse(body)
 	case "DisableApplicationLayerAutomaticResponse":
@@ -299,6 +387,10 @@ func (h *Handler) dispatchProtectionGroupAndAttackOps(op string, body []byte) ([
 		return nil, true, h.handleUpdateApplicationLayerAutomaticResponse(body)
 	case "ListResourcesInProtectionGroup":
 		res, err := h.handleListResourcesInProtectionGroup(body)
+
+		return res, true, err
+	case "__SimulateAttack":
+		res, err := h.handleSimulateAttack(body)
 
 		return res, true, err
 	}
@@ -360,22 +452,66 @@ func (h *Handler) handleCreateSubscription(ctx context.Context) error {
 	return nil
 }
 
+// subscriptionLimits returns the standard Shield Advanced subscription limits.
+func subscriptionLimits() map[string]any {
+	const maxPerType = int64(subscriptionMaxProtectionsPerType)
+
+	return map[string]any{
+		"ProtectionLimits": map[string]any{
+			"MaxProtections": int64(subscriptionMaxProtections),
+			"ProtectedResourceTypeLimits": []map[string]any{
+				{keyType: ResourceTypeCloudFrontDistribution, keyMax: maxPerType},
+				{keyType: ResourceTypeRoute53HostedZone, keyMax: maxPerType},
+				{keyType: ResourceTypeApplicationLoadBalancer, keyMax: maxPerType},
+				{keyType: ResourceTypeClassicLoadBalancer, keyMax: maxPerType},
+				{keyType: ResourceTypeElasticIPAllocation, keyMax: maxPerType},
+				{keyType: ResourceTypeGlobalAccelerator, keyMax: maxPerType},
+			},
+		},
+		"ProtectionGroupLimits": map[string]any{
+			"MaxProtectionGroups": int64(subscriptionMaxProtectionGroups),
+			"PatternTypeLimits": map[string]any{
+				"ArbitraryPatternLimits": map[string]any{
+					"MaxMembers": int64(subscriptionMaxMembersPerGroup),
+				},
+			},
+		},
+	}
+}
+
+// subscriptionResourceLimits returns per-resource-type max count limits.
+func subscriptionResourceLimits() []map[string]any {
+	maxStr := "100"
+
+	return []map[string]any{
+		{keyType: ResourceTypeCloudFrontDistribution, keyMax: maxStr},
+		{keyType: ResourceTypeRoute53HostedZone, keyMax: maxStr},
+		{keyType: ResourceTypeApplicationLoadBalancer, keyMax: maxStr},
+		{keyType: ResourceTypeClassicLoadBalancer, keyMax: maxStr},
+		{keyType: ResourceTypeElasticIPAllocation, keyMax: maxStr},
+		{keyType: ResourceTypeGlobalAccelerator, keyMax: maxStr},
+	}
+}
+
 func (h *Handler) handleDescribeSubscription() ([]byte, error) {
 	sub, err := h.Backend.DescribeSubscription()
 	if err != nil {
 		return nil, err
 	}
 
-	subscriptionArn := fmt.Sprintf("arn:aws:shield::%s:subscription/%s",
-		h.Backend.AccountID(), "default")
+	// Gap 22: correct SubscriptionArn format — no trailing path segment.
+	subscriptionArn := fmt.Sprintf("arn:aws:shield::%s:subscription", h.Backend.AccountID())
 
 	return json.Marshal(map[string]any{
 		"Subscription": map[string]any{
-			keyStartTime:           sub.StartTime.Unix(),
-			keyEndTime:             sub.EndTime.Unix(),
-			"AutoRenew":            sub.AutoRenew,
-			"TimeCommitmentInDays": sub.TimeCommitmentInDays,
-			"SubscriptionArn":      subscriptionArn,
+			keyStartTime:                floatSeconds(sub.StartTime),
+			keyEndTime:                  floatSeconds(sub.EndTime),
+			"AutoRenew":                 sub.AutoRenew,
+			"TimeCommitmentInDays":      sub.TimeCommitmentInDays,
+			"SubscriptionArn":           subscriptionArn,
+			"ProactiveEngagementStatus": h.Backend.GetProactiveEngagementStatus(),
+			"Limits":                    subscriptionResourceLimits(),
+			"SubscriptionLimits":        subscriptionLimits(),
 		},
 	})
 }
@@ -457,6 +593,10 @@ func (h *Handler) handleCreateProtection(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
+	if err := validateProtectedResourceARN(req.ResourceArn); err != nil {
+		return nil, err
+	}
+
 	tags := tagsFromItems(req.Tags)
 
 	p, err := h.Backend.CreateProtection(req.Name, req.ResourceArn, tags)
@@ -493,8 +633,10 @@ func (h *Handler) handleDescribeProtection(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
+	alarCfg := h.Backend.GetALARConfig(p.ResourceARN)
+
 	return json.Marshal(map[string]any{
-		"Protection": protectionToMap(p),
+		"Protection": protectionToMap(p, alarCfg),
 	})
 }
 
@@ -523,17 +665,218 @@ func (h *Handler) handleDeleteProtection(ctx context.Context, body []byte) error
 	return nil
 }
 
-func (h *Handler) handleListProtections() ([]byte, error) {
+// listProtectionsRequest is the request body for ListProtections.
+type listProtectionsRequest struct {
+	InclusionFilters *struct {
+		ResourceArns    []string `json:"ResourceArns"`
+		ProtectionNames []string `json:"ProtectionNames"`
+		ResourceTypes   []string `json:"ResourceTypes"`
+	} `json:"InclusionFilters,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
+}
+
+func (h *Handler) handleListProtections(body []byte) ([]byte, error) {
+	var req listProtectionsRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+		}
+	}
+
 	protections := h.Backend.ListProtections()
+
+	if f := req.InclusionFilters; f != nil {
+		protections = applyProtectionFilters(
+			protections,
+			sliceToSet(f.ResourceArns),
+			sliceToSet(f.ProtectionNames),
+			sliceToSet(f.ResourceTypes),
+		)
+	}
+
+	maxResults := clampMaxResults(req.MaxResults, maxProtectionsPerPage)
+	start := decodeOffsetToken(req.NextToken)
+
+	if start >= len(protections) {
+		return json.Marshal(map[string]any{"Protections": []map[string]any{}})
+	}
+
+	end := start + maxResults
+
+	var nextToken string
+
+	if end < len(protections) {
+		nextToken = encodeOffsetToken(end)
+		protections = protections[start:end]
+	} else {
+		protections = protections[start:]
+	}
+
 	items := make([]map[string]any, 0, len(protections))
 
 	for _, p := range protections {
-		items = append(items, protectionToMap(p))
+		alarCfg := h.Backend.GetALARConfig(p.ResourceARN)
+		items = append(items, protectionToMap(p, alarCfg))
 	}
 
-	return json.Marshal(map[string]any{
-		"Protections": items,
-	})
+	resp := map[string]any{"Protections": items}
+
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
+}
+
+// sliceToSet builds a string set from a slice.
+func sliceToSet(ss []string) map[string]struct{} {
+	if len(ss) == 0 {
+		return nil
+	}
+
+	m := make(map[string]struct{}, len(ss))
+
+	for _, s := range ss {
+		m[s] = struct{}{}
+	}
+
+	return m
+}
+
+// decodeOffsetToken decodes a base64-encoded integer cursor token, returning 0 on any error.
+func decodeOffsetToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return 0
+	}
+
+	n, err := strconv.Atoi(string(decoded))
+	if err != nil || n < 0 {
+		return 0
+	}
+
+	return n
+}
+
+// encodeOffsetToken encodes an integer cursor as a base64 string.
+func encodeOffsetToken(offset int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// clampMaxResults clamps maxResults to [1, maxCap].
+func clampMaxResults(v, maxCap int) int {
+	if v <= 0 || v > maxCap {
+		return maxCap
+	}
+
+	return v
+}
+
+// protectionMatchesFilters returns true if p passes all inclusion filter sets.
+func protectionMatchesFilters(
+	p *Protection,
+	arnSet, nameSet, typeSet map[string]struct{},
+) bool {
+	if len(arnSet) > 0 {
+		if _, ok := arnSet[p.ResourceARN]; !ok {
+			return false
+		}
+	}
+
+	if len(nameSet) > 0 {
+		if _, ok := nameSet[p.Name]; !ok {
+			return false
+		}
+	}
+
+	if len(typeSet) > 0 {
+		for rt := range typeSet {
+			if resourceARNMatchesType(p.ResourceARN, rt) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	return true
+}
+
+// applyProtectionFilters filters protections by the given inclusion filter sets.
+func applyProtectionFilters(
+	protections []*Protection,
+	arnSet, nameSet, typeSet map[string]struct{},
+) []*Protection {
+	if len(arnSet) == 0 && len(nameSet) == 0 && len(typeSet) == 0 {
+		return protections
+	}
+
+	out := protections[:0]
+
+	for _, p := range protections {
+		if protectionMatchesFilters(p, arnSet, nameSet, typeSet) {
+			out = append(out, p)
+		}
+	}
+
+	return out
+}
+
+// protectionGroupMatchesFilters returns true if pg passes all filter sets.
+func protectionGroupMatchesFilters(
+	pg *ProtectionGroup,
+	idSet, patternSet, typeSet, aggSet map[string]struct{},
+) bool {
+	if len(idSet) > 0 {
+		if _, ok := idSet[pg.ID]; !ok {
+			return false
+		}
+	}
+
+	if len(patternSet) > 0 {
+		if _, ok := patternSet[pg.Pattern]; !ok {
+			return false
+		}
+	}
+
+	if len(typeSet) > 0 {
+		if _, ok := typeSet[pg.ResourceType]; !ok {
+			return false
+		}
+	}
+
+	if len(aggSet) > 0 {
+		if _, ok := aggSet[pg.Aggregation]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+// applyProtectionGroupFilters filters protection groups by the given inclusion filter sets.
+func applyProtectionGroupFilters(
+	groups []*ProtectionGroup,
+	idSet, patternSet, typeSet, aggSet map[string]struct{},
+) []*ProtectionGroup {
+	if len(idSet) == 0 && len(patternSet) == 0 && len(typeSet) == 0 && len(aggSet) == 0 {
+		return groups
+	}
+
+	out := groups[:0]
+
+	for _, pg := range groups {
+		if protectionGroupMatchesFilters(pg, idSet, patternSet, typeSet, aggSet) {
+			out = append(out, pg)
+		}
+	}
+
+	return out
 }
 
 // tagResourceRequest is the request body for TagResource.
@@ -607,20 +950,42 @@ func (h *Handler) handleUntagResource(body []byte) error {
 	return nil
 }
 
-func protectionToMap(p *Protection) map[string]any {
+func protectionToMap(p *Protection, alarCfg *ALARConfig) map[string]any {
 	healthChecks := p.HealthCheckIDs
 	if healthChecks == nil {
 		healthChecks = []string{}
 	}
 
-	return map[string]any{
+	m := map[string]any{
 		"Id":             p.ID,
 		"ProtectionArn":  p.ProtectionArn,
 		"Name":           p.Name,
 		keyResourceArn:   p.ResourceARN,
 		"HealthCheckIds": healthChecks,
-		"CreationTime":   p.CreationTime.Unix(),
+		"CreationTime":   floatSeconds(p.CreationTime),
 	}
+
+	// Gap 4: include ALAR config when present.
+	if alarCfg != nil {
+		status := "DISABLED"
+		if alarCfg.Enabled {
+			status = "ENABLED"
+		}
+
+		action := map[string]any{}
+		if alarCfg.Action == "BLOCK" {
+			action["Block"] = map[string]any{}
+		} else {
+			action["Count"] = map[string]any{}
+		}
+
+		m["ApplicationLayerAutomaticResponseConfiguration"] = map[string]any{
+			"Status": status,
+			"Action": action,
+		}
+	}
+
+	return m
 }
 
 // associateDRTLogBucketRequest is the request body for AssociateDRTLogBucket.
@@ -716,6 +1081,10 @@ func (h *Handler) handleAssociateHealthCheck(body []byte) error {
 
 	if req.HealthCheckArn == "" {
 		return fmt.Errorf("%w: HealthCheckArn is required", errInvalidRequest)
+	}
+
+	if err := validateHealthCheckARN(req.HealthCheckArn); err != nil {
+		return err
 	}
 
 	return h.Backend.AssociateHealthCheck(req.ProtectionID, req.HealthCheckArn)
@@ -879,17 +1248,69 @@ func (h *Handler) handleDescribeProtectionGroup(body []byte) ([]byte, error) {
 	})
 }
 
-func (h *Handler) handleListProtectionGroups() ([]byte, error) {
+// listProtectionGroupsRequest is the request body for ListProtectionGroups.
+type listProtectionGroupsRequest struct {
+	InclusionFilters *struct {
+		ProtectionGroupIDs []string `json:"ProtectionGroupIds"`
+		Patterns           []string `json:"Patterns"`
+		ResourceTypes      []string `json:"ResourceTypes"`
+		Aggregations       []string `json:"Aggregations"`
+	} `json:"InclusionFilters,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
+}
+
+func (h *Handler) handleListProtectionGroups(body []byte) ([]byte, error) {
+	var req listProtectionGroupsRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+		}
+	}
+
 	groups := h.Backend.ListProtectionGroups()
+
+	if f := req.InclusionFilters; f != nil {
+		groups = applyProtectionGroupFilters(
+			groups,
+			sliceToSet(f.ProtectionGroupIDs),
+			sliceToSet(f.Patterns),
+			sliceToSet(f.ResourceTypes),
+			sliceToSet(f.Aggregations),
+		)
+	}
+
+	maxResults := clampMaxResults(req.MaxResults, maxProtectionGroupsPerPage)
+	start := decodeOffsetToken(req.NextToken)
+
+	if start >= len(groups) {
+		return json.Marshal(map[string]any{"ProtectionGroups": []map[string]any{}})
+	}
+
+	end := start + maxResults
+
+	var nextToken string
+
+	if end < len(groups) {
+		nextToken = encodeOffsetToken(end)
+		groups = groups[start:end]
+	} else {
+		groups = groups[start:]
+	}
+
 	items := make([]map[string]any, 0, len(groups))
 
 	for _, pg := range groups {
 		items = append(items, protectionGroupToMap(pg))
 	}
 
-	return json.Marshal(map[string]any{
-		"ProtectionGroups": items,
-	})
+	resp := map[string]any{"ProtectionGroups": items}
+
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }
 
 // updateProtectionGroupRequest is the request body for UpdateProtectionGroup.
@@ -925,22 +1346,22 @@ func (h *Handler) handleUpdateProtectionGroup(body []byte) error {
 }
 
 // listAttacksRequest is the request body for ListAttacks.
+//
+//nolint:govet // field order matches AWS API shape
 type listAttacksRequest struct {
 	StartTime    *int64   `json:"StartTime,omitempty"`
 	EndTime      *int64   `json:"EndTime,omitempty"`
 	ResourceARNs []string `json:"ResourceArns"`
+	NextToken    string   `json:"NextToken,omitempty"`
+	MaxResults   int      `json:"MaxResults,omitempty"`
 }
 
 func (h *Handler) handleListAttacks(body []byte) ([]byte, error) {
 	var req listAttacksRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	// ListAttacks supports multiple ResourceArns; we filter by the first if present.
-	resourceARN := ""
-	if len(req.ResourceARNs) > 0 {
-		resourceARN = req.ResourceARNs[0]
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+		}
 	}
 
 	var startTime, endTime int64
@@ -952,21 +1373,49 @@ func (h *Handler) handleListAttacks(body []byte) ([]byte, error) {
 		endTime = *req.EndTime
 	}
 
-	attacks := h.Backend.ListAttacks(resourceARN, startTime, endTime)
+	attacks := h.Backend.ListAttacks(req.ResourceARNs, startTime, endTime)
+
+	maxResults := clampMaxResults(req.MaxResults, maxAttacksPerPage)
+	start := decodeOffsetToken(req.NextToken)
+
+	var nextToken string
+
+	if start < len(attacks) {
+		end := start + maxResults
+		if end < len(attacks) {
+			nextToken = encodeOffsetToken(end)
+			attacks = attacks[start:end]
+		} else {
+			attacks = attacks[start:]
+		}
+	} else {
+		attacks = nil
+	}
+
 	items := make([]map[string]any, 0, len(attacks))
 
 	for _, a := range attacks {
+		vectors := make([]map[string]any, 0, len(a.AttackVectors))
+		for _, v := range a.AttackVectors {
+			vectors = append(vectors, map[string]any{"VectorType": v.VectorType})
+		}
+
 		items = append(items, map[string]any{
-			"AttackId":     a.AttackID,
-			keyResourceArn: a.ResourceARN,
-			keyStartTime:   a.StartTime.Unix(),
-			keyEndTime:     a.EndTime.Unix(),
+			keyAttackID:     a.AttackID,
+			keyResourceArn:  a.ResourceARN,
+			keyStartTime:    floatSeconds(a.StartTime),
+			keyEndTime:      floatSeconds(a.EndTime),
+			"AttackVectors": vectors,
 		})
 	}
 
-	return json.Marshal(map[string]any{
-		"AttackSummaries": items,
-	})
+	resp := map[string]any{"AttackSummaries": items}
+
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }
 
 func protectionGroupToMap(pg *ProtectionGroup) map[string]any {
@@ -982,7 +1431,7 @@ func protectionGroupToMap(pg *ProtectionGroup) map[string]any {
 		"Pattern":            pg.Pattern,
 		"ResourceType":       pg.ResourceType,
 		"Members":            members,
-		"CreationTime":       pg.CreationTime.Unix(),
+		"CreationTime":       floatSeconds(pg.CreationTime),
 	}
 }
 
@@ -1008,6 +1457,43 @@ func (h *Handler) handleDeleteSubscription() error {
 	return h.Backend.DeleteSubscription()
 }
 
+// handleGetAttackVectorDefinitionVersion returns the current attack-vector taxonomy version (gap 11).
+func (h *Handler) handleGetAttackVectorDefinitionVersion() ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"AttackVectorDefinitionVersion": "1",
+	})
+}
+
+// simulateAttackRequest is the request body for the __SimulateAttack endpoint (gap 25).
+type simulateAttackRequest struct {
+	ResourceArn       string   `json:"ResourceArn"`
+	AttackVectorTypes []string `json:"AttackVectorTypes,omitempty"`
+}
+
+// handleSimulateAttack creates a synthetic attack record via the chaos endpoint (gap 25/10).
+func (h *Handler) handleSimulateAttack(body []byte) ([]byte, error) {
+	var req simulateAttackRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ResourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
+	}
+
+	attack, err := h.Backend.SimulateAttack(req.ResourceArn, req.AttackVectorTypes)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{
+		keyAttackID:    attack.AttackID,
+		keyResourceArn: attack.ResourceARN,
+		keyStartTime:   floatSeconds(attack.StartTime),
+		keyEndTime:     floatSeconds(attack.EndTime),
+	})
+}
+
 // describeAttackRequest is the request body for DescribeAttack.
 type describeAttackRequest struct {
 	AttackID string `json:"AttackId"`
@@ -1028,12 +1514,37 @@ func (h *Handler) handleDescribeAttack(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
+	vectors := make([]map[string]any, 0, len(attack.AttackVectors))
+	for _, v := range attack.AttackVectors {
+		vectors = append(vectors, map[string]any{"VectorType": v.VectorType})
+	}
+
+	counters := make([]map[string]any, 0, len(attack.AttackCounters))
+	for _, c := range attack.AttackCounters {
+		counters = append(counters, map[string]any{
+			"Name":    c.Name,
+			keyMax:    c.Max,
+			"Average": c.Average,
+			"Sum":     c.Sum,
+			"N":       c.N,
+			"Unit":    c.Unit,
+		})
+	}
+
+	mitigations := make([]map[string]any, 0, len(attack.Mitigations))
+	for _, m := range attack.Mitigations {
+		mitigations = append(mitigations, map[string]any{"MitigationName": m.MitigationName})
+	}
+
 	return json.Marshal(map[string]any{
 		"Attack": map[string]any{
-			"AttackId":     attack.AttackID,
-			keyResourceArn: attack.ResourceARN,
-			keyStartTime:   attack.StartTime.Unix(),
-			keyEndTime:     attack.EndTime.Unix(),
+			keyAttackID:      attack.AttackID,
+			keyResourceArn:   attack.ResourceARN,
+			keyStartTime:     floatSeconds(attack.StartTime),
+			keyEndTime:       floatSeconds(attack.EndTime),
+			"AttackVectors":  vectors,
+			"AttackCounters": counters,
+			"Mitigations":    mitigations,
 		},
 	})
 }

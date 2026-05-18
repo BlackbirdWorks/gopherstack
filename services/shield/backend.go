@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -36,6 +37,16 @@ const (
 const (
 	AutoRenewEnabled  = "ENABLED"
 	AutoRenewDisabled = "DISABLED"
+)
+
+// ResourceType values for Shield Advanced protected resources.
+const (
+	ResourceTypeCloudFrontDistribution  = "CLOUDFRONT_DISTRIBUTION"
+	ResourceTypeRoute53HostedZone       = "ROUTE_53_HOSTED_ZONE"
+	ResourceTypeApplicationLoadBalancer = "APPLICATION_LOAD_BALANCER"
+	ResourceTypeClassicLoadBalancer     = "CLASSIC_LOAD_BALANCER"
+	ResourceTypeElasticIPAllocation     = "ELASTIC_IP_ALLOCATION"
+	ResourceTypeGlobalAccelerator       = "GLOBAL_ACCELERATOR"
 )
 
 // ProactiveEngagementStatus values.
@@ -174,12 +185,49 @@ func cloneProtectionGroup(pg *ProtectionGroup) *ProtectionGroup {
 	return &cp
 }
 
+// AttackVector represents a type of attack traffic seen during an attack.
+type AttackVector struct {
+	VectorType string `json:"VectorType"`
+}
+
+// AttackCounter represents a named counter during an attack.
+//
+//nolint:govet // field order matches AWS API shape
+type AttackCounter struct {
+	Max     float64 `json:"Max"`
+	Average float64 `json:"Average"`
+	Sum     float64 `json:"Sum"`
+	N       int64   `json:"N"`
+	Name    string  `json:"Name"`
+	Unit    string  `json:"Unit"`
+}
+
+// Mitigation represents a mitigation applied during an attack.
+type Mitigation struct {
+	MitigationName string `json:"MitigationName"`
+}
+
 // Attack represents a Shield Advanced attack event.
 type Attack struct {
-	StartTime   time.Time `json:"startTime"`
-	EndTime     time.Time `json:"endTime"`
-	AttackID    string    `json:"attackId"`
-	ResourceARN string    `json:"resourceArn"`
+	StartTime      time.Time       `json:"startTime"`
+	EndTime        time.Time       `json:"endTime"`
+	AttackID       string          `json:"attackId"`
+	ResourceARN    string          `json:"resourceArn"`
+	AttackVectors  []AttackVector  `json:"attackVectors,omitempty"`
+	AttackCounters []AttackCounter `json:"attackCounters,omitempty"`
+	Mitigations    []Mitigation    `json:"mitigations,omitempty"`
+}
+
+// AttackVolume represents volume metrics in attack statistics.
+type AttackVolume struct {
+	BitsPerSecond     *AttackVolumeStatistics `json:"BitsPerSecond,omitempty"`
+	PacketsPerSecond  *AttackVolumeStatistics `json:"PacketsPerSecond,omitempty"`
+	RequestsPerSecond *AttackVolumeStatistics `json:"RequestsPerSecond,omitempty"`
+}
+
+// AttackVolumeStatistics is a single volume metric.
+type AttackVolumeStatistics struct {
+	Max float64 `json:"Max"`
 }
 
 // AttackStatistics represents Shield Advanced attack statistics.
@@ -196,7 +244,8 @@ type AttackTimeRange struct {
 
 // AttackStatisticsItem is a single item in attack statistics.
 type AttackStatisticsItem struct {
-	AttackCount int64 `json:"AttackCount"`
+	AttackVolume *AttackVolume `json:"AttackVolume,omitempty"`
+	AttackCount  int64         `json:"AttackCount"`
 }
 
 // ALARConfig holds Application Layer Automatic Response configuration for a protection.
@@ -245,6 +294,21 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // AccountID returns the AWS account ID this backend is configured for.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
+// GetALARConfig returns the ALAR config for a resource ARN, or nil if none.
+func (b *InMemoryBackend) GetALARConfig(resourceARN string) *ALARConfig {
+	b.mu.RLock("GetALARConfig")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.alarConfigs[resourceARN]
+	if !ok {
+		return nil
+	}
+
+	cp := *cfg
+
+	return &cp
+}
+
 // CreateSubscription enables Shield Advanced. Returns an error if already subscribed.
 func (b *InMemoryBackend) CreateSubscription() error {
 	b.mu.Lock("CreateSubscription")
@@ -260,6 +324,10 @@ func (b *InMemoryBackend) CreateSubscription() error {
 		EndTime:              now.AddDate(1, 0, 0),
 		AutoRenew:            "ENABLED",
 		TimeCommitmentInDays: subscriptionCommitmentDays,
+	}
+
+	if b.proactiveEngagementStatus == "" {
+		b.proactiveEngagementStatus = ProactiveEngagementDisabled
 	}
 
 	return nil
@@ -394,18 +462,43 @@ func (b *InMemoryBackend) ListProtections() []*Protection {
 	return list
 }
 
-// TagResource adds tags to a protection.
+const (
+	maxTagsPerResource = 50
+	maxTagKeyLen       = 128
+	maxTagValueLen     = 256
+)
+
+// TagResource adds tags to a protection, keyed by Shield protection ARN or resource ARN.
+// Requires an active subscription. Enforces 50-tag cap and key/value length limits.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	p, ok := b.protections[resourceARN]
-	if !ok {
-		return fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, resourceARN)
+	if b.subscription == nil {
+		return fmt.Errorf("%w: Shield Advanced subscription is required", ErrSubscriptionRequired)
+	}
+
+	for k, v := range tags {
+		if len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key %q exceeds 128 characters", ErrValidation, k)
+		}
+
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value for key %q exceeds 256 characters", ErrValidation, k)
+		}
+	}
+
+	p, err := b.resolveTaggableProtection(resourceARN)
+	if err != nil {
+		return err
 	}
 
 	if p.Tags == nil {
 		p.Tags = make(map[string]string)
+	}
+
+	if len(p.Tags)+len(tags) > maxTagsPerResource {
+		return fmt.Errorf("%w: resource would exceed the 50-tag limit", ErrValidation)
 	}
 
 	maps.Copy(p.Tags, tags)
@@ -418,9 +511,9 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	p, ok := b.protections[resourceARN]
-	if !ok {
-		return nil, fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, resourceARN)
+	p, err := b.resolveTaggableProtection(resourceARN)
+	if err != nil {
+		return nil, err
 	}
 
 	return maps.Clone(p.Tags), nil
@@ -431,13 +524,61 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	p, ok := b.protections[resourceARN]
-	if !ok {
-		return fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, resourceARN)
+	p, err := b.resolveTaggableProtection(resourceARN)
+	if err != nil {
+		return err
 	}
 
 	for _, k := range tagKeys {
 		delete(p.Tags, k)
+	}
+
+	return nil
+}
+
+// resolveTaggableProtection resolves a Shield protection ARN or resource ARN to a Protection.
+// AWS TagResource accepts:
+//   - arn:aws:shield::<acct>:protection/<id>  (Shield protection ARN)
+//   - any other ARN treated as a resource ARN lookup
+//
+// Must be called with b.mu held.
+func (b *InMemoryBackend) resolveTaggableProtection(resourceARN string) (*Protection, error) {
+	// Shield protection ARN: arn:aws:shield::<acct>:protection/<id>
+	if p := b.resolveShieldProtectionARN(resourceARN); p != nil {
+		return p, nil
+	}
+
+	// Fall back to resource ARN index.
+	if pid, ok := b.resourceARNIndex[resourceARN]; ok {
+		return b.protections[pid], nil
+	}
+
+	return nil, fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, resourceARN)
+}
+
+// resolveShieldProtectionARN resolves a Shield protection ARN (arn:aws:shield::*:protection/<id>)
+// to a protection, or returns nil if the ARN is not a Shield protection ARN or not found.
+func (b *InMemoryBackend) resolveShieldProtectionARN(resourceARN string) *Protection {
+	if !strings.HasPrefix(resourceARN, "arn:aws:shield::") || !strings.Contains(resourceARN, ":protection/") {
+		return nil
+	}
+
+	parts := strings.SplitN(resourceARN, ":protection/", 2) //nolint:mnd // split into prefix and ID
+	if len(parts) < 2 {                                     //nolint:mnd // require 2 parts
+		return nil
+	}
+
+	id := parts[1]
+
+	if p, ok := b.protections[id]; ok {
+		return p
+	}
+
+	// Scan by ProtectionArn in case format differs.
+	for _, p := range b.protections {
+		if p.ProtectionArn == resourceARN {
+			return p
+		}
 	}
 
 	return nil
@@ -452,10 +593,9 @@ func cloneTags(tags map[string]string) map[string]string {
 	return maps.Clone(tags)
 }
 
-// Reset clears all Shield protections and subscription state.
+// Reset clears all Shield protections and subscription state atomically.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Close()
-	b.mu = lockmetrics.New("shield")
+	b.mu.Lock("Reset")
 	b.protections = make(map[string]*Protection)
 	b.protectionGroups = make(map[string]*ProtectionGroup)
 	b.attacks = make(map[string]*Attack)
@@ -466,6 +606,7 @@ func (b *InMemoryBackend) Reset() {
 	b.drtAccess = nil
 	b.emergencyContacts = nil
 	b.proactiveEngagementStatus = ""
+	b.mu.Unlock()
 }
 
 // EnableApplicationLayerAutomaticResponse enables ALAR for the given resource ARN.
@@ -524,8 +665,32 @@ func (b *InMemoryBackend) UpdateApplicationLayerAutomaticResponse(resourceARN, a
 	return nil
 }
 
+// resourceARNMatchesType returns true if the resource ARN belongs to the given Shield resource type.
+func resourceARNMatchesType(resourceARN, resourceType string) bool {
+	arn := strings.ToLower(resourceARN)
+
+	switch resourceType {
+	case ResourceTypeCloudFrontDistribution:
+		return strings.Contains(arn, ":cloudfront:") || strings.Contains(arn, "cloudfront")
+	case ResourceTypeRoute53HostedZone:
+		return strings.Contains(arn, ":route53:") || strings.Contains(arn, "hostedzone")
+	case ResourceTypeApplicationLoadBalancer:
+		return strings.Contains(arn, "elasticloadbalancing") && strings.Contains(arn, "loadbalancer/app/")
+	case ResourceTypeClassicLoadBalancer:
+		return strings.Contains(arn, "elasticloadbalancing") && strings.Contains(arn, "loadbalancer/") &&
+			!strings.Contains(arn, "/app/") && !strings.Contains(arn, "/net/")
+	case ResourceTypeElasticIPAllocation:
+		return strings.Contains(arn, ":ec2:") &&
+			(strings.Contains(arn, "eip-allocation") || strings.Contains(arn, "/eip"))
+	case ResourceTypeGlobalAccelerator:
+		return strings.Contains(arn, "globalaccelerator")
+	}
+
+	return false
+}
+
 // ListResourcesInProtectionGroup returns the member ARNs for a protection group.
-// For groups with Pattern=ALL it returns ARNs of all current protections.
+// For Pattern=ALL returns all protections; for Pattern=BY_RESOURCE_TYPE derives members by resource type.
 func (b *InMemoryBackend) ListResourcesInProtectionGroup(protectionGroupID string) ([]string, error) {
 	b.mu.RLock("ListResourcesInProtectionGroup")
 	defer b.mu.RUnlock()
@@ -535,10 +700,23 @@ func (b *InMemoryBackend) ListResourcesInProtectionGroup(protectionGroupID strin
 		return nil, fmt.Errorf("%w: protection group %q not found", ErrProtectionGroupNotFound, protectionGroupID)
 	}
 
-	if pg.Pattern == PatternAll {
+	switch pg.Pattern {
+	case PatternAll:
 		arns := make([]string, 0, len(b.protections))
 		for _, p := range b.protections {
 			arns = append(arns, p.ResourceARN)
+		}
+
+		slices.Sort(arns)
+
+		return arns, nil
+
+	case PatternByResourceType:
+		arns := make([]string, 0)
+		for _, p := range b.protections {
+			if resourceARNMatchesType(p.ResourceARN, pg.ResourceType) {
+				arns = append(arns, p.ResourceARN)
+			}
 		}
 
 		slices.Sort(arns)
@@ -670,16 +848,14 @@ func (b *InMemoryBackend) AssociateDRTRole(roleARN string) error {
 	return nil
 }
 
-// DisassociateDRTRole removes the IAM role association from the DRT.
+// DisassociateDRTRole removes the IAM role association from the DRT. Idempotent per AWS.
 func (b *InMemoryBackend) DisassociateDRTRole() error {
 	b.mu.Lock("DisassociateDRTRole")
 	defer b.mu.Unlock()
 
-	if b.drtAccess == nil || b.drtAccess.RoleArn == "" {
-		return fmt.Errorf("%w: no DRT role is currently associated", ErrProtectionNotFound)
+	if b.drtAccess != nil {
+		b.drtAccess.RoleArn = ""
 	}
-
-	b.drtAccess.RoleArn = ""
 
 	return nil
 }
@@ -744,8 +920,40 @@ func (b *InMemoryBackend) DisassociateHealthCheck(protectionID, healthCheckARN s
 }
 
 // AssociateProactiveEngagementDetails stores emergency contact details for proactive engagement.
+// Sets status to PENDING when transitioning from DISABLED or empty.
 func (b *InMemoryBackend) AssociateProactiveEngagementDetails(contacts []EmergencyContact) error {
 	b.mu.Lock("AssociateProactiveEngagementDetails")
+	defer b.mu.Unlock()
+
+	b.emergencyContacts = append([]EmergencyContact(nil), contacts...)
+
+	if b.proactiveEngagementStatus == "" || b.proactiveEngagementStatus == ProactiveEngagementDisabled {
+		b.proactiveEngagementStatus = ProactiveEngagementPending
+	}
+
+	return nil
+}
+
+const maxEmergencyContacts = 10
+
+// UpdateEmergencyContactSettings replaces the emergency contact list.
+// Enforces: max 10 contacts, non-empty EmailAddress required.
+func (b *InMemoryBackend) UpdateEmergencyContactSettings(contacts []EmergencyContact) error {
+	if len(contacts) > maxEmergencyContacts {
+		return fmt.Errorf(
+			"%w: EmergencyContactList cannot exceed %d contacts",
+			ErrValidation,
+			maxEmergencyContacts,
+		)
+	}
+
+	for _, c := range contacts {
+		if c.EmailAddress == "" {
+			return fmt.Errorf("%w: EmailAddress is required for each emergency contact", ErrValidation)
+		}
+	}
+
+	b.mu.Lock("UpdateEmergencyContactSettings")
 	defer b.mu.Unlock()
 
 	b.emergencyContacts = append([]EmergencyContact(nil), contacts...)
@@ -753,14 +961,12 @@ func (b *InMemoryBackend) AssociateProactiveEngagementDetails(contacts []Emergen
 	return nil
 }
 
-// UpdateEmergencyContactSettings replaces the emergency contact list.
-func (b *InMemoryBackend) UpdateEmergencyContactSettings(contacts []EmergencyContact) error {
-	b.mu.Lock("UpdateEmergencyContactSettings")
-	defer b.mu.Unlock()
+// GetProactiveEngagementStatus returns the current proactive engagement status.
+func (b *InMemoryBackend) GetProactiveEngagementStatus() string {
+	b.mu.RLock("GetProactiveEngagementStatus")
+	defer b.mu.RUnlock()
 
-	b.emergencyContacts = append([]EmergencyContact(nil), contacts...)
-
-	return nil
+	return b.proactiveEngagementStatus
 }
 
 // DescribeEmergencyContactSettings returns the current emergency contacts.
@@ -772,12 +978,20 @@ func (b *InMemoryBackend) DescribeEmergencyContactSettings() []EmergencyContact 
 }
 
 // EnableProactiveEngagement enables proactive engagement for the subscription.
+// Requires at least one emergency contact to be configured.
 func (b *InMemoryBackend) EnableProactiveEngagement() error {
 	b.mu.Lock("EnableProactiveEngagement")
 	defer b.mu.Unlock()
 
 	if b.subscription == nil {
 		return fmt.Errorf("%w: Shield Advanced subscription is required", ErrSubscriptionRequired)
+	}
+
+	if len(b.emergencyContacts) == 0 {
+		return fmt.Errorf(
+			"%w: EmergencyContactList must be populated before enabling proactive engagement",
+			ErrValidation,
+		)
 	}
 
 	b.proactiveEngagementStatus = ProactiveEngagementEnabled
@@ -941,17 +1155,24 @@ func (b *InMemoryBackend) UpdateProtectionGroup(
 	return nil
 }
 
-// ListAttacks returns all attacks, optionally filtered by resource ARN.
+// ListAttacks returns all attacks, optionally filtered by resource ARNs (match any).
 // start and end are optional Unix epoch seconds (0 = not filtered).
-func (b *InMemoryBackend) ListAttacks(resourceARN string, startTime, endTime int64) []*Attack {
+func (b *InMemoryBackend) ListAttacks(resourceARNs []string, startTime, endTime int64) []*Attack {
 	b.mu.RLock("ListAttacks")
 	defer b.mu.RUnlock()
+
+	arnSet := make(map[string]struct{}, len(resourceARNs))
+	for _, a := range resourceARNs {
+		arnSet[a] = struct{}{}
+	}
 
 	list := make([]*Attack, 0, len(b.attacks))
 
 	for _, a := range b.attacks {
-		if resourceARN != "" && a.ResourceARN != resourceARN {
-			continue
+		if len(arnSet) > 0 {
+			if _, ok := arnSet[a.ResourceARN]; !ok {
+				continue
+			}
 		}
 
 		ts := a.StartTime.Unix()
@@ -964,6 +1185,9 @@ func (b *InMemoryBackend) ListAttacks(resourceARN string, startTime, endTime int
 		}
 
 		cp := *a
+		cp.AttackVectors = append([]AttackVector(nil), a.AttackVectors...)
+		cp.AttackCounters = append([]AttackCounter(nil), a.AttackCounters...)
+		cp.Mitigations = append([]Mitigation(nil), a.Mitigations...)
 		list = append(list, &cp)
 	}
 
@@ -1007,12 +1231,79 @@ func (b *InMemoryBackend) AddAttackInternal(attackID, resourceARN string) *Attac
 		ResourceARN: resourceARN,
 		StartTime:   now.Add(-1 * time.Hour),
 		EndTime:     now,
+		AttackVectors: []AttackVector{
+			{VectorType: "SYN_FLOOD"},
+		},
+		Mitigations: []Mitigation{
+			{MitigationName: "Shield Advanced mitigation"},
+		},
 	}
 	b.attacks[attackID] = a
 
 	cp := *a
 
 	return &cp
+}
+
+// Representative traffic magnitudes for simulated attack counters.
+const (
+	simBpsMax  = 1e9
+	simBpsAvg  = 5e8
+	simBpsSum  = 3e10
+	simPpsMax  = 1e6
+	simPpsAvg  = 5e5
+	simPpsSum  = 3e7
+	simSamples = 60
+)
+
+// simAttackCounters returns representative traffic counters for a simulated attack.
+func simAttackCounters() []AttackCounter {
+	return []AttackCounter{
+		{Name: "Total bps", Max: simBpsMax, Average: simBpsAvg, Sum: simBpsSum, N: simSamples, Unit: "bits/second"},
+		{Name: "Total pps", Max: simPpsMax, Average: simPpsAvg, Sum: simPpsSum, N: simSamples, Unit: "packets/second"},
+	}
+}
+
+// SimulateAttack creates a synthetic attack record reachable via the API.
+// attackVectorTypes may be empty; defaults to SYN_FLOOD if omitted.
+func (b *InMemoryBackend) SimulateAttack(resourceARN string, attackVectorTypes []string) (*Attack, error) {
+	b.mu.Lock("SimulateAttack")
+	defer b.mu.Unlock()
+
+	if _, ok := b.resourceARNIndex[resourceARN]; !ok {
+		return nil, fmt.Errorf("%w: no protection found for resource %q", ErrProtectionNotFound, resourceARN)
+	}
+
+	if len(attackVectorTypes) == 0 {
+		attackVectorTypes = []string{"SYN_FLOOD"}
+	}
+
+	vectors := make([]AttackVector, 0, len(attackVectorTypes))
+	for _, vt := range attackVectorTypes {
+		vectors = append(vectors, AttackVector{VectorType: vt})
+	}
+
+	id := newShieldID()
+	now := time.Now()
+	a := &Attack{
+		AttackID:       id,
+		ResourceARN:    resourceARN,
+		StartTime:      now.Add(-5 * time.Minute),
+		EndTime:        now,
+		AttackVectors:  vectors,
+		AttackCounters: simAttackCounters(),
+		Mitigations: []Mitigation{
+			{MitigationName: "Shield Advanced mitigation"},
+		},
+	}
+	b.attacks[id] = a
+
+	cp := *a
+	cp.AttackVectors = append([]AttackVector(nil), a.AttackVectors...)
+	cp.AttackCounters = append([]AttackCounter(nil), a.AttackCounters...)
+	cp.Mitigations = append([]Mitigation(nil), a.Mitigations...)
+
+	return &cp, nil
 }
 
 // AddProtectionGroupInternal creates a protection group directly (for tests).
@@ -1050,21 +1341,108 @@ func (b *InMemoryBackend) DescribeAttack(attackID string) (*Attack, error) {
 	return &atk, nil
 }
 
-// DescribeAttackStatistics returns summary statistics about attacks.
+// attackStatsBucket holds per-month volume maxima.
+type attackStatsBucket struct {
+	count  int64
+	maxBps float64
+	maxPps float64
+	maxRps float64
+}
+
+// accumulateCounters updates bucket maxima from attack counters.
+func accumulateCounters(bk *attackStatsBucket, counters []AttackCounter) {
+	for _, c := range counters {
+		switch {
+		case strings.Contains(c.Name, "bps"):
+			if c.Max > bk.maxBps {
+				bk.maxBps = c.Max
+			}
+		case strings.Contains(c.Name, "pps"):
+			if c.Max > bk.maxPps {
+				bk.maxPps = c.Max
+			}
+		case strings.Contains(c.Name, "rps"):
+			if c.Max > bk.maxRps {
+				bk.maxRps = c.Max
+			}
+		}
+	}
+}
+
+// buildAttackVolumeFromBucket converts non-zero maxima to an AttackVolume.
+func buildAttackVolumeFromBucket(bk *attackStatsBucket) *AttackVolume {
+	if bk.maxBps == 0 && bk.maxPps == 0 && bk.maxRps == 0 {
+		return nil
+	}
+
+	vol := &AttackVolume{}
+
+	if bk.maxBps > 0 {
+		vol.BitsPerSecond = &AttackVolumeStatistics{Max: bk.maxBps}
+	}
+
+	if bk.maxPps > 0 {
+		vol.PacketsPerSecond = &AttackVolumeStatistics{Max: bk.maxPps}
+	}
+
+	if bk.maxRps > 0 {
+		vol.RequestsPerSecond = &AttackVolumeStatistics{Max: bk.maxRps}
+	}
+
+	return vol
+}
+
+// DescribeAttackStatistics returns summary statistics about attacks, bucketed by month.
 func (b *InMemoryBackend) DescribeAttackStatistics() *AttackStatistics {
 	b.mu.RLock("DescribeAttackStatistics")
 	defer b.mu.RUnlock()
 
 	now := time.Now()
-	stats := &AttackStatistics{
-		TimeRange: AttackTimeRange{
-			FromInclusive: now.AddDate(-1, 0, 0).Unix(),
-			ToExclusive:   now.Unix(),
-		},
-		DataItems: []AttackStatisticsItem{
-			{AttackCount: int64(len(b.attacks))},
-		},
+	from := now.AddDate(-1, 0, 0)
+
+	buckets := make(map[string]*attackStatsBucket)
+
+	for _, a := range b.attacks {
+		if a.StartTime.Before(from) || a.StartTime.After(now) {
+			continue
+		}
+
+		key := a.StartTime.Format("2006-01")
+		bk := buckets[key]
+
+		if bk == nil {
+			bk = &attackStatsBucket{}
+			buckets[key] = bk
+		}
+
+		bk.count++
+		accumulateCounters(bk, a.AttackCounters)
 	}
 
-	return stats
+	keys := make([]string, 0, len(buckets))
+	for k := range buckets {
+		keys = append(keys, k)
+	}
+
+	slices.Sort(keys)
+
+	items := make([]AttackStatisticsItem, 0, len(keys))
+
+	for _, k := range keys {
+		bk := buckets[k]
+		item := AttackStatisticsItem{AttackCount: bk.count, AttackVolume: buildAttackVolumeFromBucket(bk)}
+		items = append(items, item)
+	}
+
+	if len(items) == 0 {
+		items = []AttackStatisticsItem{{AttackCount: 0}}
+	}
+
+	return &AttackStatistics{
+		TimeRange: AttackTimeRange{
+			FromInclusive: from.Unix(),
+			ToExclusive:   now.Unix(),
+		},
+		DataItems: items,
+	}
 }
