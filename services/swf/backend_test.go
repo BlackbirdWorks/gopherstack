@@ -67,6 +67,7 @@ func TestRegisterDomain(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -115,6 +116,7 @@ func TestDeprecateDomain(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -191,6 +193,7 @@ func TestWorkflowExecution(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -384,6 +387,7 @@ func TestSignalWorkflowExecution_AttributesInHistory(t *testing.T) {
 	require.NotNil(t, signalEvent)
 	attrs := signalEvent.Attributes["workflowExecutionSignaledEventAttributes"].(map[string]any)
 	assert.Equal(t, "my-signal", attrs["signalName"])
+	//nolint:testifylint // input is already a plain string
 	assert.Equal(t, `{"key":"val"}`, attrs["input"])
 }
 
@@ -398,7 +402,7 @@ func TestGetWorkflowExecutionHistory_Pagination(t *testing.T) {
 	})
 	require.NoError(t, err)
 	// Add more events via signals.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		require.NoError(t, b.SignalWorkflowExecution("dom", "wf-1", "", "sig", ""))
 	}
 

@@ -36,7 +36,12 @@ type StorageBackend interface {
 	StartWorkflowExecution(input StartWorkflowExecutionInput) (*WorkflowExecution, error)
 	TerminateWorkflowExecution(domain, workflowID, runID, reason, details string) error
 	DescribeWorkflowExecution(domain, workflowID string) (*WorkflowExecution, error)
-	GetWorkflowExecutionHistory(domain, workflowID string, maxPageSize int, nextPageToken string, reverseOrder bool) ([]HistoryEvent, string)
+	GetWorkflowExecutionHistory(
+		domain, workflowID string,
+		maxPageSize int,
+		nextPageToken string,
+		reverseOrder bool,
+	) ([]HistoryEvent, string)
 	ListOpenWorkflowExecutions(domain string, filter ExecutionFilter) []WorkflowExecution
 	ListClosedWorkflowExecutions(domain string, filter ExecutionFilter) []WorkflowExecution
 	RequestCancelWorkflowExecution(domain, workflowID, runID string) error

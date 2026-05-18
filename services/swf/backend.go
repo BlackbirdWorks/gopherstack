@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -54,9 +55,16 @@ const (
 	maxTags          = 50
 	maxTagKeyLen     = 128
 	maxTagValueLen   = 256
+
+	milliDivisor = 1000.0
+
+	retentionNone     = "NONE"
+	attrDetails       = "details"
+	attrScheduledEvID = "scheduledEventId"
+	attrStartedEvID   = "startedEventId"
 )
 
-// swfARNRegex matches arn:aws:swf:{region}:{account}:/domain/{name}
+// swfARNRegex matches arn:aws:swf:{region}:{account}:/domain/{name}.
 var swfARNRegex = regexp.MustCompile(`^arn:aws:swf:[^:]+:[^:]+:/domain/(.+)$`)
 
 // WorkflowTypeDefaults holds the registered defaults for a workflow type.
@@ -96,9 +104,8 @@ func (e HistoryEvent) MarshalJSON() ([]byte, error) {
 		"eventId":        e.EventID,
 		"eventTimestamp": e.Timestamp,
 	}
-	for k, v := range e.Attributes {
-		m[k] = v
-	}
+	maps.Copy(m, e.Attributes)
+
 	return json.Marshal(m)
 }
 
@@ -129,6 +136,7 @@ func (e *HistoryEvent) UnmarshalJSON(data []byte) error {
 			e.Attributes[k] = x
 		}
 	}
+
 	return nil
 }
 
@@ -138,6 +146,7 @@ func eventAttrKey(eventType string) string {
 	if eventType == "" {
 		return ""
 	}
+
 	return strings.ToLower(eventType[:1]) + eventType[1:] + "EventAttributes"
 }
 
@@ -182,7 +191,7 @@ type Domain struct {
 
 // ActivityType represents an SWF activity type.
 type ActivityType struct {
-	Defaults     ActivityTypeDefaults `json:"defaults,omitempty"`
+	Defaults     ActivityTypeDefaults `json:"defaults"`
 	Description  string               `json:"description"`
 	Domain       string               `json:"domain"`
 	Name         string               `json:"name"`
@@ -193,7 +202,7 @@ type ActivityType struct {
 
 // WorkflowType represents an SWF workflow type.
 type WorkflowType struct {
-	Defaults     WorkflowTypeDefaults `json:"defaults,omitempty"`
+	Defaults     WorkflowTypeDefaults `json:"defaults"`
 	Description  string               `json:"description"`
 	Domain       string               `json:"domain"`
 	Name         string               `json:"name"`
@@ -305,19 +314,23 @@ func (b *InMemoryBackend) Reset() {
 // appendHistoryEventLocked appends a history event for a workflow execution.
 // attrs is the event-type-specific attributes map; pass nil if none.
 // Caller must hold the write lock.
-func (b *InMemoryBackend) appendHistoryEventLocked(domain, workflowID, eventType string, attrs map[string]any) int64 {
+func (b *InMemoryBackend) appendHistoryEventLocked(
+	domain, workflowID, eventType string,
+	attrs map[string]any,
+) int64 {
 	key := domain + ":" + workflowID
 	events := b.history[key]
 	eventID := int64(len(events)) + 1
 	ev := HistoryEvent{
 		EventID:   eventID,
 		EventType: eventType,
-		Timestamp: float64(time.Now().UnixMilli()) / 1000.0,
+		Timestamp: float64(time.Now().UnixMilli()) / milliDivisor,
 	}
 	if len(attrs) > 0 {
 		ev.Attributes = attrs
 	}
 	b.history[key] = append(events, ev)
+
 	return eventID
 }
 
@@ -329,20 +342,6 @@ func domainARN(region, account, name string) string {
 	return fmt.Sprintf("arn:aws:swf:%s:%s:/domain/%s", region, account, name)
 }
 
-// validateDomainARN checks that the ARN is a valid SWF domain ARN and the domain
-// exists, returning the domain name or an error.
-func (b *InMemoryBackend) validateDomainARN(arn string) (string, error) {
-	m := swfARNRegex.FindStringSubmatch(arn)
-	if m == nil {
-		return "", fmt.Errorf("%w: invalid SWF domain ARN: %s", ErrValidation, arn)
-	}
-	domainName := m[1]
-	if _, ok := b.domains[domainName]; !ok {
-		return "", fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
-	}
-	return domainName, nil
-}
-
 // validateChildPolicy returns an error if policy is not a valid SWF child policy.
 // An empty string is allowed (means "use default").
 func validateChildPolicy(policy string) error {
@@ -350,26 +349,36 @@ func validateChildPolicy(policy string) error {
 	case "", "TERMINATE", "REQUEST_CANCEL", "ABANDON":
 		return nil
 	}
-	return fmt.Errorf("%w: invalid childPolicy %q, must be TERMINATE, REQUEST_CANCEL, or ABANDON", ErrValidation, policy)
+
+	return fmt.Errorf(
+		"%w: invalid childPolicy %q, must be TERMINATE, REQUEST_CANCEL, or ABANDON",
+		ErrValidation,
+		policy,
+	)
 }
 
 // validateDuration returns an error if d is not a valid SWF duration string.
 // Valid values: positive integer (seconds) or "NONE". Empty string means unset.
 func validateDuration(d string) error {
-	if d == "" || d == "NONE" {
+	if d == "" || d == retentionNone {
 		return nil
 	}
 	n, err := strconv.Atoi(d)
 	if err != nil || n < 0 {
-		return fmt.Errorf("%w: invalid duration %q, must be a non-negative integer or NONE", ErrValidation, d)
+		return fmt.Errorf(
+			"%w: invalid duration %q, must be a non-negative integer or NONE",
+			ErrValidation,
+			d,
+		)
 	}
+
 	return nil
 }
 
 // validateRetention returns an error if retention is not a valid SWF retention period.
 // Valid values: "0"-"90" or "NONE".
 func validateRetention(retention string) error {
-	if retention == "" || retention == "NONE" {
+	if retention == "" || retention == retentionNone {
 		return nil
 	}
 	n, err := strconv.Atoi(retention)
@@ -379,6 +388,7 @@ func validateRetention(retention string) error {
 			ErrValidation, retention,
 		)
 	}
+
 	return nil
 }
 
@@ -390,6 +400,7 @@ func validateRegistrationStatus(status string) error {
 	case "":
 		return nil
 	}
+
 	return fmt.Errorf(
 		"%w: invalid registrationStatus %q, must be REGISTERED or DEPRECATED",
 		ErrValidation, status,
@@ -450,7 +461,7 @@ func (b *InMemoryBackend) RegisterDomain(name, description, retention string) er
 		return fmt.Errorf("%w: name is required", ErrValidation)
 	}
 	if retention == "" {
-		retention = "NONE"
+		retention = retentionNone
 	}
 	if err := validateRetention(retention); err != nil {
 		return err
@@ -463,6 +474,7 @@ func (b *InMemoryBackend) RegisterDomain(name, description, retention string) er
 		if d.Status == statusDeprecated {
 			return fmt.Errorf("%w: %s", ErrDeprecated, name)
 		}
+
 		return fmt.Errorf("%w: %s", ErrAlreadyExists, name)
 	}
 
@@ -472,6 +484,7 @@ func (b *InMemoryBackend) RegisterDomain(name, description, retention string) er
 		Status:                                 statusRegistered,
 		WorkflowExecutionRetentionPeriodInDays: retention,
 	}
+
 	return nil
 }
 
@@ -491,6 +504,7 @@ func (b *InMemoryBackend) ListDomains(registrationStatus string) ([]Domain, erro
 			out = append(out, *d)
 		}
 	}
+
 	return out, nil
 }
 
@@ -504,6 +518,7 @@ func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 	cp := *d
+
 	return &cp, nil
 }
 
@@ -520,6 +535,7 @@ func (b *InMemoryBackend) DeprecateDomain(name string) error {
 		return fmt.Errorf("%w: %s", ErrDeprecated, name)
 	}
 	d.Status = statusDeprecated
+
 	return nil
 }
 
@@ -536,6 +552,7 @@ func (b *InMemoryBackend) UndeprecateDomain(name string) error {
 		return fmt.Errorf("%w: domain %s is not deprecated", ErrValidation, name)
 	}
 	d.Status = statusRegistered
+
 	return nil
 }
 
@@ -577,14 +594,17 @@ func (b *InMemoryBackend) RegisterWorkflowType(
 		Version:      version,
 		Status:       statusRegistered,
 		Description:  description,
-		CreationDate: float64(time.Now().UnixMilli()) / 1000.0,
+		CreationDate: float64(time.Now().UnixMilli()) / milliDivisor,
 		Defaults:     defaults,
 	}
+
 	return nil
 }
 
 // ListWorkflowTypes returns workflow types for a domain, optionally filtered by registrationStatus.
-func (b *InMemoryBackend) ListWorkflowTypes(domain, registrationStatus string) ([]WorkflowType, error) {
+func (b *InMemoryBackend) ListWorkflowTypes(
+	domain, registrationStatus string,
+) ([]WorkflowType, error) {
 	if err := validateRegistrationStatus(registrationStatus); err != nil {
 		return nil, err
 	}
@@ -602,11 +622,14 @@ func (b *InMemoryBackend) ListWorkflowTypes(domain, registrationStatus string) (
 		}
 		out = append(out, *wt)
 	}
+
 	return out, nil
 }
 
 // DescribeWorkflowType returns the details of a workflow type.
-func (b *InMemoryBackend) DescribeWorkflowType(domain, name, version string) (*WorkflowType, error) {
+func (b *InMemoryBackend) DescribeWorkflowType(
+	domain, name, version string,
+) (*WorkflowType, error) {
 	b.mu.RLock("DescribeWorkflowType")
 	defer b.mu.RUnlock()
 
@@ -616,6 +639,7 @@ func (b *InMemoryBackend) DescribeWorkflowType(domain, name, version string) (*W
 		return nil, fmt.Errorf("%w: workflow type %s/%s not found", ErrNotFound, name, version)
 	}
 	cp := *wt
+
 	return &cp, nil
 }
 
@@ -633,6 +657,7 @@ func (b *InMemoryBackend) DeprecateWorkflowType(domain, name, version string) er
 		return fmt.Errorf("%w: workflow type %s/%s", ErrTypeDeprecated, name, version)
 	}
 	wt.Status = statusDeprecated
+
 	return nil
 }
 
@@ -650,6 +675,7 @@ func (b *InMemoryBackend) UndeprecateWorkflowType(domain, name, version string) 
 		return fmt.Errorf("%w: workflow type %s/%s is not deprecated", ErrValidation, name, version)
 	}
 	wt.Status = statusRegistered
+
 	return nil
 }
 
@@ -670,6 +696,7 @@ func (b *InMemoryBackend) DeleteWorkflowType(domain, name, version string) error
 		)
 	}
 	delete(b.workflows, key)
+
 	return nil
 }
 
@@ -714,14 +741,17 @@ func (b *InMemoryBackend) RegisterActivityType(
 		Version:      version,
 		Status:       statusRegistered,
 		Description:  description,
-		CreationDate: float64(time.Now().UnixMilli()) / 1000.0,
+		CreationDate: float64(time.Now().UnixMilli()) / milliDivisor,
 		Defaults:     defaults,
 	}
+
 	return nil
 }
 
 // ListActivityTypes returns activity types for a domain, optionally filtered by registrationStatus.
-func (b *InMemoryBackend) ListActivityTypes(domain, registrationStatus string) ([]ActivityType, error) {
+func (b *InMemoryBackend) ListActivityTypes(
+	domain, registrationStatus string,
+) ([]ActivityType, error) {
 	if err := validateRegistrationStatus(registrationStatus); err != nil {
 		return nil, err
 	}
@@ -739,11 +769,14 @@ func (b *InMemoryBackend) ListActivityTypes(domain, registrationStatus string) (
 		}
 		out = append(out, *at)
 	}
+
 	return out, nil
 }
 
 // DescribeActivityType returns the details of an activity type.
-func (b *InMemoryBackend) DescribeActivityType(domain, name, version string) (*ActivityType, error) {
+func (b *InMemoryBackend) DescribeActivityType(
+	domain, name, version string,
+) (*ActivityType, error) {
 	b.mu.RLock("DescribeActivityType")
 	defer b.mu.RUnlock()
 
@@ -753,6 +786,7 @@ func (b *InMemoryBackend) DescribeActivityType(domain, name, version string) (*A
 		return nil, fmt.Errorf("%w: activity type %s/%s not found", ErrNotFound, name, version)
 	}
 	cp := *at
+
 	return &cp, nil
 }
 
@@ -770,6 +804,7 @@ func (b *InMemoryBackend) DeprecateActivityType(domain, name, version string) er
 		return fmt.Errorf("%w: activity type %s/%s", ErrTypeDeprecated, name, version)
 	}
 	at.Status = statusDeprecated
+
 	return nil
 }
 
@@ -787,6 +822,7 @@ func (b *InMemoryBackend) UndeprecateActivityType(domain, name, version string) 
 		return fmt.Errorf("%w: activity type %s/%s is not deprecated", ErrValidation, name, version)
 	}
 	at.Status = statusRegistered
+
 	return nil
 }
 
@@ -807,6 +843,7 @@ func (b *InMemoryBackend) DeleteActivityType(domain, name, version string) error
 		)
 	}
 	delete(b.activities, key)
+
 	return nil
 }
 
@@ -836,7 +873,7 @@ func (f ExecutionFilter) matchOpen(e *WorkflowExecution) bool {
 	if f.WorkflowTypeVersion != "" && e.WorkflowTypeVersion != f.WorkflowTypeVersion {
 		return false
 	}
-	if f.Tag != "" && !containsTag(e.TagList, f.Tag) {
+	if f.Tag != "" && !slices.Contains(e.TagList, f.Tag) {
 		return false
 	}
 	st := time.Unix(int64(e.StartTimestamp), 0)
@@ -846,10 +883,14 @@ func (f ExecutionFilter) matchOpen(e *WorkflowExecution) bool {
 	if f.LatestDate != nil && st.After(*f.LatestDate) {
 		return false
 	}
+
 	return true
 }
 
-func (f ExecutionFilter) matchClosed(e *WorkflowExecution) bool {
+//nolint:gocognit,cyclop // sequential date/filter checks are inherently complex
+func (f ExecutionFilter) matchClosed(
+	e *WorkflowExecution,
+) bool {
 	if e.Status == statusRunning {
 		return false
 	}
@@ -862,7 +903,7 @@ func (f ExecutionFilter) matchClosed(e *WorkflowExecution) bool {
 	if f.WorkflowTypeVersion != "" && e.WorkflowTypeVersion != f.WorkflowTypeVersion {
 		return false
 	}
-	if f.Tag != "" && !containsTag(e.TagList, f.Tag) {
+	if f.Tag != "" && !slices.Contains(e.TagList, f.Tag) {
 		return false
 	}
 	if f.CloseStatus != "" && e.CloseStatus != f.CloseStatus {
@@ -889,16 +930,8 @@ func (f ExecutionFilter) matchClosed(e *WorkflowExecution) bool {
 			return false
 		}
 	}
-	return true
-}
 
-func containsTag(tags []string, tag string) bool {
-	for _, t := range tags {
-		if t == tag {
-			return true
-		}
-	}
-	return false
+	return true
 }
 
 // CountOpenWorkflowExecutions counts RUNNING workflow executions in a domain, applying filters.
@@ -915,6 +948,7 @@ func (b *InMemoryBackend) CountOpenWorkflowExecutions(domain string, filter Exec
 			count++
 		}
 	}
+
 	return count
 }
 
@@ -932,6 +966,7 @@ func (b *InMemoryBackend) CountClosedWorkflowExecutions(domain string, filter Ex
 			count++
 		}
 	}
+
 	return count
 }
 
@@ -953,7 +988,11 @@ func (b *InMemoryBackend) CountPendingDecisionTasks(domain, taskList string) int
 
 // StartWorkflowExecution starts a new workflow execution.
 // It validates that the referenced WorkflowType exists and is REGISTERED.
-func (b *InMemoryBackend) StartWorkflowExecution(input StartWorkflowExecutionInput) (*WorkflowExecution, error) {
+//
+//nolint:gocognit,cyclop,nestif,funlen // sequential parameter validation is inherently complex
+func (b *InMemoryBackend) StartWorkflowExecution(
+	input StartWorkflowExecutionInput,
+) (*WorkflowExecution, error) {
 	if input.Domain == "" {
 		return nil, fmt.Errorf("%w: domain is required", ErrValidation)
 	}
@@ -1034,7 +1073,7 @@ func (b *InMemoryBackend) StartWorkflowExecution(input StartWorkflowExecutionInp
 		}
 	}
 
-	now := float64(time.Now().UnixMilli()) / 1000.0
+	now := float64(time.Now().UnixMilli()) / milliDivisor
 	exec := &WorkflowExecution{
 		Domain:                       input.Domain,
 		WorkflowID:                   input.WorkflowID,
@@ -1057,10 +1096,13 @@ func (b *InMemoryBackend) StartWorkflowExecution(input StartWorkflowExecutionInp
 	attrKey := eventAttrKey("WorkflowExecutionStarted")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			"input":                        input.Input,
-			"childPolicy":                  childPolicy,
-			"taskList":                     map[string]any{"name": taskList},
-			"workflowType":                 map[string]any{"name": input.WorkflowTypeName, "version": input.WorkflowTypeVersion},
+			"input":       input.Input,
+			"childPolicy": childPolicy,
+			"taskList":    map[string]any{"name": taskList},
+			"workflowType": map[string]any{
+				"name":    input.WorkflowTypeName,
+				"version": input.WorkflowTypeVersion,
+			},
 			"executionStartToCloseTimeout": execTimeout,
 			"taskStartToCloseTimeout":      taskTimeout,
 			"lambdaRole":                   lambdaRole,
@@ -1070,12 +1112,15 @@ func (b *InMemoryBackend) StartWorkflowExecution(input StartWorkflowExecutionInp
 	b.appendHistoryEventLocked(input.Domain, input.WorkflowID, "WorkflowExecutionStarted", attrs)
 
 	cp := *exec
+
 	return &cp, nil
 }
 
 // TerminateWorkflowExecution terminates a running workflow execution.
 // runID is optional; if provided, it must match. reason and details are stored in history.
-func (b *InMemoryBackend) TerminateWorkflowExecution(domain, workflowID, runID, reason, details string) error {
+func (b *InMemoryBackend) TerminateWorkflowExecution(
+	domain, workflowID, runID, reason, details string,
+) error {
 	b.mu.Lock("TerminateWorkflowExecution")
 	defer b.mu.Unlock()
 
@@ -1088,28 +1133,36 @@ func (b *InMemoryBackend) TerminateWorkflowExecution(domain, workflowID, runID, 
 		return fmt.Errorf("%w: execution %s/%s is not running", ErrValidation, domain, workflowID)
 	}
 	if runID != "" && exec.RunID != runID {
-		return fmt.Errorf("%w: runId %s does not match current run %s", ErrNotFound, runID, exec.RunID)
+		return fmt.Errorf(
+			"%w: runId %s does not match current run %s",
+			ErrNotFound,
+			runID,
+			exec.RunID,
+		)
 	}
 
 	exec.Status = statusTerminated
 	exec.CloseStatus = statusTerminated
-	exec.CloseTimestamp = float64(time.Now().UnixMilli()) / 1000.0
+	exec.CloseTimestamp = float64(time.Now().UnixMilli()) / milliDivisor
 
 	attrKey := eventAttrKey("WorkflowExecutionTerminated")
 	attrs := map[string]any{
 		attrKey: map[string]any{
 			"reason":      reason,
-			"details":     details,
+			attrDetails:   details,
 			"cause":       "OPERATOR_INITIATED",
 			"childPolicy": exec.ChildPolicy,
 		},
 	}
 	b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionTerminated", attrs)
+
 	return nil
 }
 
 // DescribeWorkflowExecution returns a workflow execution.
-func (b *InMemoryBackend) DescribeWorkflowExecution(domain, workflowID string) (*WorkflowExecution, error) {
+func (b *InMemoryBackend) DescribeWorkflowExecution(
+	domain, workflowID string,
+) (*WorkflowExecution, error) {
 	b.mu.RLock("DescribeWorkflowExecution")
 	defer b.mu.RUnlock()
 
@@ -1119,6 +1172,7 @@ func (b *InMemoryBackend) DescribeWorkflowExecution(domain, workflowID string) (
 		return nil, fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
 	}
 	cp := *exec
+
 	return &cp, nil
 }
 
@@ -1149,6 +1203,7 @@ func (b *InMemoryBackend) GetWorkflowExecutionHistory(
 
 	const maxDefault = 1000
 	p := page.New(cp, nextPageToken, maxPageSize, maxDefault)
+
 	return p.Data, p.Next
 }
 
@@ -1169,6 +1224,7 @@ func (b *InMemoryBackend) openCountsLocked(domain, workflowID string) map[string
 			}
 		}
 	}
+
 	return map[string]int{
 		"openActivityTasks":           activityCount,
 		"openDecisionTasks":           decisionCount,
@@ -1178,7 +1234,10 @@ func (b *InMemoryBackend) openCountsLocked(domain, workflowID string) map[string
 }
 
 // ListOpenWorkflowExecutions returns all running executions in a domain matching the filter.
-func (b *InMemoryBackend) ListOpenWorkflowExecutions(domain string, filter ExecutionFilter) []WorkflowExecution {
+func (b *InMemoryBackend) ListOpenWorkflowExecutions(
+	domain string,
+	filter ExecutionFilter,
+) []WorkflowExecution {
 	b.mu.RLock("ListOpenWorkflowExecutions")
 	defer b.mu.RUnlock()
 
@@ -1191,11 +1250,15 @@ func (b *InMemoryBackend) ListOpenWorkflowExecutions(domain string, filter Execu
 			out = append(out, *e)
 		}
 	}
+
 	return out
 }
 
 // ListClosedWorkflowExecutions returns all closed executions in a domain matching the filter.
-func (b *InMemoryBackend) ListClosedWorkflowExecutions(domain string, filter ExecutionFilter) []WorkflowExecution {
+func (b *InMemoryBackend) ListClosedWorkflowExecutions(
+	domain string,
+	filter ExecutionFilter,
+) []WorkflowExecution {
 	b.mu.RLock("ListClosedWorkflowExecutions")
 	defer b.mu.RUnlock()
 
@@ -1208,6 +1271,7 @@ func (b *InMemoryBackend) ListClosedWorkflowExecutions(domain string, filter Exe
 			out = append(out, *e)
 		}
 	}
+
 	return out
 }
 
@@ -1217,13 +1281,14 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if _, err := b.validateDomainARNLocked(resourceARN); err != nil {
+	if err := b.validateDomainARNLocked(resourceARN); err != nil {
 		return nil, err
 	}
 
 	tags := b.tags[resourceARN]
 	cp := make(map[string]string, len(tags))
 	maps.Copy(cp, tags)
+
 	return cp, nil
 }
 
@@ -1235,14 +1300,18 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 			return fmt.Errorf("%w: tag key must be 1-%d characters", ErrValidation, maxTagKeyLen)
 		}
 		if len(v) > maxTagValueLen {
-			return fmt.Errorf("%w: tag value must be 0-%d characters", ErrValidation, maxTagValueLen)
+			return fmt.Errorf(
+				"%w: tag value must be 0-%d characters",
+				ErrValidation,
+				maxTagValueLen,
+			)
 		}
 	}
 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if _, err := b.validateDomainARNLocked(resourceARN); err != nil {
+	if err := b.validateDomainARNLocked(resourceARN); err != nil {
 		return err
 	}
 
@@ -1261,6 +1330,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		b.tags[resourceARN] = make(map[string]string)
 	}
 	maps.Copy(b.tags[resourceARN], tags)
+
 	return nil
 }
 
@@ -1269,7 +1339,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if _, err := b.validateDomainARNLocked(resourceARN); err != nil {
+	if err := b.validateDomainARNLocked(resourceARN); err != nil {
 		return err
 	}
 
@@ -1278,20 +1348,22 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 			delete(b.tags[resourceARN], k)
 		}
 	}
+
 	return nil
 }
 
 // validateDomainARNLocked validates a SWF ARN. Caller must hold at least RLock.
-func (b *InMemoryBackend) validateDomainARNLocked(arn string) (string, error) {
+func (b *InMemoryBackend) validateDomainARNLocked(arn string) error {
 	m := swfARNRegex.FindStringSubmatch(arn)
 	if m == nil {
-		return "", fmt.Errorf("%w: invalid SWF domain ARN: %s", ErrValidation, arn)
+		return fmt.Errorf("%w: invalid SWF domain ARN: %s", ErrValidation, arn)
 	}
 	domainName := m[1]
 	if _, ok := b.domains[domainName]; !ok {
-		return "", fmt.Errorf("%w: domain %s not found for ARN %s", ErrNotFound, domainName, arn)
+		return fmt.Errorf("%w: domain %s not found for ARN %s", ErrNotFound, domainName, arn)
 	}
-	return domainName, nil
+
+	return nil
 }
 
 // PollForActivityTask returns the next available activity task for a task list, or nil if none.
@@ -1315,7 +1387,7 @@ func (b *InMemoryBackend) PollForActivityTask(domain, taskList string) *Activity
 		domain, task.WorkflowID, "ActivityTaskStarted",
 		map[string]any{
 			eventAttrKey("ActivityTaskStarted"): map[string]any{
-				"scheduledEventId": task.ScheduledEventID,
+				attrScheduledEvID: task.ScheduledEventID,
 			},
 		},
 	)
@@ -1336,7 +1408,11 @@ func (b *InMemoryBackend) PollForActivityTask(domain, taskList string) *Activity
 }
 
 // PollForDecisionTask returns the next available decision task for a task list, or nil if none.
-func (b *InMemoryBackend) PollForDecisionTask(domain, taskList string, maxPageSize int, nextPageToken string) *DecisionTask {
+func (b *InMemoryBackend) PollForDecisionTask(
+	domain, taskList string,
+	maxPageSize int,
+	nextPageToken string,
+) *DecisionTask {
 	b.mu.Lock("PollForDecisionTask")
 	defer b.mu.Unlock()
 
@@ -1384,6 +1460,7 @@ func (b *InMemoryBackend) RecordActivityTaskHeartbeat(taskToken string) (bool, e
 	if !ok {
 		return false, nil
 	}
+
 	return exec.CancelRequested, nil
 }
 
@@ -1402,7 +1479,12 @@ func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID, run
 		return fmt.Errorf("%w: execution %s/%s is not running", ErrValidation, domain, workflowID)
 	}
 	if runID != "" && exec.RunID != runID {
-		return fmt.Errorf("%w: runId %s does not match current run %s", ErrNotFound, runID, exec.RunID)
+		return fmt.Errorf(
+			"%w: runId %s does not match current run %s",
+			ErrNotFound,
+			runID,
+			exec.RunID,
+		)
 	}
 
 	exec.CancelRequested = true
@@ -1441,13 +1523,14 @@ func (b *InMemoryBackend) RespondActivityTaskCanceled(taskToken, details string)
 	attrKey := eventAttrKey("ActivityTaskCanceled")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			"details":          details,
-			"scheduledEventId": rec.ScheduledEventID,
-			"startedEventId":   rec.StartedEventID,
+			"details":         details,
+			attrScheduledEvID: rec.ScheduledEventID,
+			attrStartedEvID:   rec.StartedEventID,
 		},
 	}
 	b.appendHistoryEventLocked(rec.Domain, rec.WorkflowID, "ActivityTaskCanceled", attrs)
 	b.enqueueDecisionTaskLocked(rec.Domain, rec.WorkflowID)
+
 	return nil
 }
 
@@ -1465,13 +1548,14 @@ func (b *InMemoryBackend) RespondActivityTaskCompleted(taskToken, result string)
 	attrKey := eventAttrKey("ActivityTaskCompleted")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			"result":           result,
-			"scheduledEventId": rec.ScheduledEventID,
-			"startedEventId":   rec.StartedEventID,
+			"result":          result,
+			attrScheduledEvID: rec.ScheduledEventID,
+			attrStartedEvID:   rec.StartedEventID,
 		},
 	}
 	b.appendHistoryEventLocked(rec.Domain, rec.WorkflowID, "ActivityTaskCompleted", attrs)
 	b.enqueueDecisionTaskLocked(rec.Domain, rec.WorkflowID)
+
 	return nil
 }
 
@@ -1489,14 +1573,15 @@ func (b *InMemoryBackend) RespondActivityTaskFailed(taskToken, reason, details s
 	attrKey := eventAttrKey("ActivityTaskFailed")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			"reason":           reason,
-			"details":          details,
-			"scheduledEventId": rec.ScheduledEventID,
-			"startedEventId":   rec.StartedEventID,
+			"reason":          reason,
+			"details":         details,
+			attrScheduledEvID: rec.ScheduledEventID,
+			attrStartedEvID:   rec.StartedEventID,
 		},
 	}
 	b.appendHistoryEventLocked(rec.Domain, rec.WorkflowID, "ActivityTaskFailed", attrs)
 	b.enqueueDecisionTaskLocked(rec.Domain, rec.WorkflowID)
+
 	return nil
 }
 
@@ -1532,7 +1617,9 @@ func (b *InMemoryBackend) enqueueDecisionTaskLocked(domain, workflowID string) {
 }
 
 // SignalWorkflowExecution sends a signal to a workflow execution, recording it in history.
-func (b *InMemoryBackend) SignalWorkflowExecution(domain, workflowID, runID, signalName, input string) error {
+func (b *InMemoryBackend) SignalWorkflowExecution(
+	domain, workflowID, runID, signalName, input string,
+) error {
 	b.mu.Lock("SignalWorkflowExecution")
 	defer b.mu.Unlock()
 
@@ -1542,7 +1629,12 @@ func (b *InMemoryBackend) SignalWorkflowExecution(domain, workflowID, runID, sig
 		return fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
 	}
 	if runID != "" && exec.RunID != runID {
-		return fmt.Errorf("%w: runId %s does not match current run %s", ErrNotFound, runID, exec.RunID)
+		return fmt.Errorf(
+			"%w: runId %s does not match current run %s",
+			ErrNotFound,
+			runID,
+			exec.RunID,
+		)
 	}
 	if exec.Status != statusRunning {
 		return fmt.Errorf("%w: execution %s/%s is not running", ErrValidation, domain, workflowID)

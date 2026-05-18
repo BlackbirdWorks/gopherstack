@@ -89,12 +89,14 @@ func cloneDomain(d *Domain) *Domain {
 // cloneWorkflowType returns a shallow copy of wt.
 func cloneWorkflowType(wt *WorkflowType) *WorkflowType {
 	cp := *wt
+
 	return &cp
 }
 
 // cloneActivityType returns a shallow copy of at.
 func cloneActivityType(at *ActivityType) *ActivityType {
 	cp := *at
+
 	return &cp
 }
 
@@ -105,6 +107,7 @@ func cloneExecution(e *WorkflowExecution) *WorkflowExecution {
 		cp.TagList = make([]string, len(e.TagList))
 		copy(cp.TagList, e.TagList)
 	}
+
 	return &cp
 }
 

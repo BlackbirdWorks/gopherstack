@@ -24,6 +24,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				if err != nil {
 					return ""
 				}
+
 				return "test-domain"
 			},
 			verify: func(t *testing.T, b *swf.InMemoryBackend, id string) {

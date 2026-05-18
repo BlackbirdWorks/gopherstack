@@ -37,6 +37,7 @@ type Handler struct {
 func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{Backend: backend}
 	h.ops = h.buildOps()
+
 	return h
 }
 
@@ -119,6 +120,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	if action == "" || action == target {
 		return "Unknown"
 	}
+
 	return action
 }
 
@@ -138,6 +140,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	if req.Name != "" {
 		return req.Name
 	}
+
 	return req.Domain
 }
 
@@ -207,6 +210,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	if err != nil {
 		return nil, err
 	}
+
 	return json.Marshal(result)
 }
 
@@ -251,6 +255,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	if errType != "" {
 		resp["__type"] = errType
 	}
+
 	return c.JSON(code, resp)
 }
 
@@ -289,6 +294,7 @@ func (h *Handler) handleRegisterDomain(
 			return nil, err
 		}
 	}
+
 	return &registerDomainOutput{}, nil
 }
 
@@ -317,8 +323,9 @@ func (h *Handler) handleDescribeDomain(
 	}
 	retention := d.WorkflowExecutionRetentionPeriodInDays
 	if retention == "" {
-		retention = "NONE"
+		retention = retentionNone
 	}
+
 	return &describeDomainOutput{
 		DomainInfo:    d,
 		Configuration: domainConfigOutput{WorkflowExecutionRetentionPeriodInDays: retention},
@@ -345,6 +352,7 @@ func (h *Handler) handleListDomains(_ context.Context, in *handleListDomainsInpu
 	}
 	sort.Slice(domains, func(i, j int) bool { return domains[i].Name < domains[j].Name })
 	domains, nextPageToken := applyPageTokenSlice(domains, in.NextPageToken, in.MaximumPageSize)
+
 	return &listDomainsOutput{DomainInfos: domains, NextPageToken: nextPageToken}, nil
 }
 
@@ -363,6 +371,7 @@ func (h *Handler) handleDeprecateDomain(
 	if err := h.Backend.DeprecateDomain(in.Name); err != nil {
 		return nil, err
 	}
+
 	return &deprecateDomainOutput{}, nil
 }
 
@@ -381,6 +390,7 @@ func (h *Handler) handleUndeprecateDomain(
 	if err := h.Backend.UndeprecateDomain(in.Name); err != nil {
 		return nil, err
 	}
+
 	return &undeprecateDomainOutput{}, nil
 }
 
@@ -422,6 +432,7 @@ func (h *Handler) handleRegisterWorkflowType(
 	if err := h.Backend.RegisterWorkflowType(in.Domain, in.Name, in.Version, in.Description, defaults); err != nil {
 		return nil, err
 	}
+
 	return &registerWorkflowTypeOutput{}, nil
 }
 
@@ -451,6 +462,7 @@ type handleListWorkflowTypesInput struct {
 	MaximumPageSize    int    `json:"maximumPageSize,omitempty"`
 }
 
+//nolint:dupl // WorkflowType and ActivityType have parallel list structure
 func (h *Handler) handleListWorkflowTypes(
 	_ context.Context,
 	in *handleListWorkflowTypesInput,
@@ -472,6 +484,7 @@ func (h *Handler) handleListWorkflowTypes(
 		return infos[i].WorkflowType.Name < infos[j].WorkflowType.Name
 	})
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
+
 	return &listWorkflowTypesOutput{TypeInfos: infos, NextPageToken: nextPageToken}, nil
 }
 
@@ -500,6 +513,7 @@ type handleDescribeWorkflowTypeInput struct {
 	WorkflowType workflowTypeRef `json:"workflowType"`
 }
 
+//nolint:dupl // mirrors ActivityType describe structure
 func (h *Handler) handleDescribeWorkflowType(
 	_ context.Context,
 	in *handleDescribeWorkflowTypeInput,
@@ -518,6 +532,7 @@ func (h *Handler) handleDescribeWorkflowType(
 	if wt.Defaults.DefaultTaskList != "" {
 		cfg.DefaultTaskList = &taskListRef{Name: wt.Defaults.DefaultTaskList}
 	}
+
 	return &describeWorkflowTypeOutput{
 		TypeInfo: workflowTypeInfoOutput{
 			WorkflowType: &workflowTypeRef{Name: wt.Name, Version: wt.Version},
@@ -545,6 +560,7 @@ func (h *Handler) handleDeprecateWorkflowType(
 	if err := h.Backend.DeprecateWorkflowType(in.Domain, in.WorkflowType.Name, in.WorkflowType.Version); err != nil {
 		return nil, err
 	}
+
 	return &deprecateWorkflowTypeOutput{}, nil
 }
 
@@ -564,6 +580,7 @@ func (h *Handler) handleUndeprecateWorkflowType(
 	if err := h.Backend.UndeprecateWorkflowType(in.Domain, in.WorkflowType.Name, in.WorkflowType.Version); err != nil {
 		return nil, err
 	}
+
 	return &undeprecateWorkflowTypeOutput{}, nil
 }
 
@@ -583,6 +600,7 @@ func (h *Handler) handleDeleteWorkflowType(
 	if err := h.Backend.DeleteWorkflowType(in.Domain, in.WorkflowType.Name, in.WorkflowType.Version); err != nil {
 		return nil, err
 	}
+
 	return &deleteWorkflowTypeOutput{}, nil
 }
 
@@ -620,6 +638,7 @@ func (h *Handler) handleRegisterActivityType(
 	if err := h.Backend.RegisterActivityType(in.Domain, in.Name, in.Version, in.Description, defaults); err != nil {
 		return nil, err
 	}
+
 	return &registerActivityTypeOutput{}, nil
 }
 
@@ -649,6 +668,7 @@ type handleListActivityTypesInput struct {
 	MaximumPageSize    int    `json:"maximumPageSize,omitempty"`
 }
 
+//nolint:dupl // ActivityType list mirrors WorkflowType list structure
 func (h *Handler) handleListActivityTypes(
 	_ context.Context,
 	in *handleListActivityTypesInput,
@@ -670,6 +690,7 @@ func (h *Handler) handleListActivityTypes(
 		return infos[i].ActivityType.Name < infos[j].ActivityType.Name
 	})
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
+
 	return &listActivityTypesOutput{TypeInfos: infos, NextPageToken: nextPageToken}, nil
 }
 
@@ -694,6 +715,7 @@ type handleDescribeActivityTypeInput struct {
 	ActivityType activityTypeRef `json:"activityType"`
 }
 
+//nolint:dupl // ActivityType describe mirrors WorkflowType describe structure
 func (h *Handler) handleDescribeActivityType(
 	_ context.Context,
 	in *handleDescribeActivityTypeInput,
@@ -712,6 +734,7 @@ func (h *Handler) handleDescribeActivityType(
 	if at.Defaults.DefaultTaskList != "" {
 		cfg.DefaultTaskList = &taskListRef{Name: at.Defaults.DefaultTaskList}
 	}
+
 	return &describeActivityTypeOutput{
 		TypeInfo: activityTypeInfoOutput{
 			ActivityType: &activityTypeRef{Name: at.Name, Version: at.Version},
@@ -739,6 +762,7 @@ func (h *Handler) handleDeprecateActivityType(
 	if err := h.Backend.DeprecateActivityType(in.Domain, in.ActivityType.Name, in.ActivityType.Version); err != nil {
 		return nil, err
 	}
+
 	return &deprecateActivityTypeOutput{}, nil
 }
 
@@ -758,6 +782,7 @@ func (h *Handler) handleUndeprecateActivityType(
 	if err := h.Backend.UndeprecateActivityType(in.Domain, in.ActivityType.Name, in.ActivityType.Version); err != nil {
 		return nil, err
 	}
+
 	return &undeprecateActivityTypeOutput{}, nil
 }
 
@@ -777,6 +802,7 @@ func (h *Handler) handleDeleteActivityType(
 	if err := h.Backend.DeleteActivityType(in.Domain, in.ActivityType.Name, in.ActivityType.Version); err != nil {
 		return nil, err
 	}
+
 	return &deleteActivityTypeOutput{}, nil
 }
 
@@ -851,6 +877,7 @@ func buildExecutionFilter(
 			f.CloseLatestDate = &t
 		}
 	}
+
 	return f
 }
 
@@ -868,6 +895,7 @@ func (h *Handler) handleCountOpenWorkflowExecutions(
 ) (*workflowExecutionCountOutput, error) {
 	f := buildExecutionFilter(in.ExecutionFilter, in.TypeFilter, in.TagFilter, nil, in.StartTimeFilter, nil)
 	count := h.Backend.CountOpenWorkflowExecutions(in.Domain, f)
+
 	return &workflowExecutionCountOutput{Count: count}, nil
 }
 
@@ -885,8 +913,16 @@ func (h *Handler) handleCountClosedWorkflowExecutions(
 	_ context.Context,
 	in *handleCountClosedWorkflowExecutionsInput,
 ) (*workflowExecutionCountOutput, error) {
-	f := buildExecutionFilter(in.ExecutionFilter, in.TypeFilter, in.TagFilter, in.CloseStatusFilter, in.StartTimeFilter, in.CloseTimeFilter)
+	f := buildExecutionFilter(
+		in.ExecutionFilter,
+		in.TypeFilter,
+		in.TagFilter,
+		in.CloseStatusFilter,
+		in.StartTimeFilter,
+		in.CloseTimeFilter,
+	)
 	count := h.Backend.CountClosedWorkflowExecutions(in.Domain, f)
+
 	return &workflowExecutionCountOutput{Count: count}, nil
 }
 
@@ -905,6 +941,7 @@ func (h *Handler) handleCountPendingActivityTasks(
 	in *handleCountPendingActivityTasksInput,
 ) (*pendingTaskCountOutput, error) {
 	count := h.Backend.CountPendingActivityTasks(in.Domain, in.TaskList.Name)
+
 	return &pendingTaskCountOutput{Count: count}, nil
 }
 
@@ -918,6 +955,7 @@ func (h *Handler) handleCountPendingDecisionTasks(
 	in *handleCountPendingDecisionTasksInput,
 ) (*pendingTaskCountOutput, error) {
 	count := h.Backend.CountPendingDecisionTasks(in.Domain, in.TaskList.Name)
+
 	return &pendingTaskCountOutput{Count: count}, nil
 }
 
@@ -973,6 +1011,7 @@ func (h *Handler) handleStartWorkflowExecution(
 	if err != nil {
 		return nil, err
 	}
+
 	return &startWorkflowExecutionOutput{RunID: exec.RunID}, nil
 }
 
@@ -1095,9 +1134,16 @@ func (h *Handler) handleTerminateWorkflowExecution(
 	_ context.Context,
 	in *handleTerminateWorkflowExecutionInput,
 ) (*terminateWorkflowExecutionOutput, error) {
-	if err := h.Backend.TerminateWorkflowExecution(in.Domain, in.WorkflowID, in.RunID, in.Reason, in.Details); err != nil {
+	if err := h.Backend.TerminateWorkflowExecution(
+		in.Domain,
+		in.WorkflowID,
+		in.RunID,
+		in.Reason,
+		in.Details,
+	); err != nil {
 		return nil, err
 	}
+
 	return &terminateWorkflowExecutionOutput{}, nil
 }
 
@@ -1124,6 +1170,7 @@ func (h *Handler) handleGetWorkflowExecutionHistory(
 		in.Domain, in.Execution.WorkflowID,
 		in.MaximumPageSize, in.NextPageToken, in.ReverseOrder,
 	)
+
 	return &getWorkflowExecutionHistoryOutput{Events: events, NextPageToken: nextPageToken}, nil
 }
 
@@ -1157,6 +1204,7 @@ func executionToInfo(e WorkflowExecution) executionInfoOutput {
 	if e.WorkflowTypeName != "" {
 		info.WorkflowType = &workflowTypeRef{Name: e.WorkflowTypeName, Version: e.WorkflowTypeVersion}
 	}
+
 	return info
 }
 
@@ -1171,6 +1219,7 @@ func (h *Handler) handleListOpenWorkflowExecutions(
 		infos[i] = executionToInfo(e)
 	}
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
+
 	return &listWorkflowExecutionsOutput{ExecutionInfos: infos, NextPageToken: nextPageToken}, nil
 }
 
@@ -1192,13 +1241,21 @@ func (h *Handler) handleListClosedWorkflowExecutions(
 	_ context.Context,
 	in *handleListClosedWorkflowExecutionsInput,
 ) (*listWorkflowExecutionsOutput, error) {
-	f := buildExecutionFilter(in.ExecutionFilter, in.TypeFilter, in.TagFilter, in.CloseStatusFilter, in.StartTimeFilter, in.CloseTimeFilter)
+	f := buildExecutionFilter(
+		in.ExecutionFilter,
+		in.TypeFilter,
+		in.TagFilter,
+		in.CloseStatusFilter,
+		in.StartTimeFilter,
+		in.CloseTimeFilter,
+	)
 	execs := h.Backend.ListClosedWorkflowExecutions(in.Domain, f)
 	infos := make([]executionInfoOutput, len(execs))
 	for i, e := range execs {
 		infos[i] = executionToInfo(e)
 	}
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
+
 	return &listWorkflowExecutionsOutput{ExecutionInfos: infos, NextPageToken: nextPageToken}, nil
 }
 
@@ -1234,6 +1291,7 @@ func (h *Handler) handleListTagsForResource(
 	for _, k := range keys {
 		tags = append(tags, resourceTag{Key: k, Value: tagMap[k]})
 	}
+
 	return &listTagsForResourceOutput{Tags: tags}, nil
 }
 
@@ -1257,6 +1315,7 @@ func (h *Handler) handleTagResource(
 	if err := h.Backend.TagResource(in.ResourceArn, tagMap); err != nil {
 		return nil, err
 	}
+
 	return &tagResourceOutput{}, nil
 }
 
@@ -1276,6 +1335,7 @@ func (h *Handler) handleUntagResource(
 	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
 		return nil, err
 	}
+
 	return &untagResourceOutput{}, nil
 }
 
@@ -1295,6 +1355,7 @@ func (h *Handler) handlePollForActivityTask(
 	if task == nil {
 		return &ActivityTask{}, nil
 	}
+
 	return task, nil
 }
 
@@ -1352,6 +1413,7 @@ func (h *Handler) handlePollForDecisionTask(
 	if task.WorkflowID != "" {
 		out.WorkflowExecution = &workflowExecutionRef{WorkflowID: task.WorkflowID, RunID: task.RunID}
 	}
+
 	return out, nil
 }
 
@@ -1374,8 +1436,10 @@ func (h *Handler) handleRecordActivityTaskHeartbeat(
 	if err != nil {
 		// Unknown token: per AWS, return cancelRequested:false rather than error
 		// for heartbeats on tokens that may have expired.
+		//nolint:nilerr // AWS returns false for unknown tokens, not an error
 		return &recordActivityTaskHeartbeatOutput{CancelRequested: false}, nil
 	}
+
 	return &recordActivityTaskHeartbeatOutput{CancelRequested: cancelRequested}, nil
 }
 
@@ -1396,6 +1460,7 @@ func (h *Handler) handleRequestCancelWorkflowExecution(
 	if err := h.Backend.RequestCancelWorkflowExecution(in.Domain, in.WorkflowID, in.RunID); err != nil {
 		return nil, err
 	}
+
 	return &requestCancelWorkflowExecutionOutput{}, nil
 }
 
@@ -1415,6 +1480,7 @@ func (h *Handler) handleRespondActivityTaskCanceled(
 	if err := h.Backend.RespondActivityTaskCanceled(in.TaskToken, in.Details); err != nil {
 		return nil, err
 	}
+
 	return &respondActivityTaskCanceledOutput{}, nil
 }
 
@@ -1434,6 +1500,7 @@ func (h *Handler) handleRespondActivityTaskCompleted(
 	if err := h.Backend.RespondActivityTaskCompleted(in.TaskToken, in.Result); err != nil {
 		return nil, err
 	}
+
 	return &respondActivityTaskCompletedOutput{}, nil
 }
 
@@ -1454,6 +1521,7 @@ func (h *Handler) handleRespondActivityTaskFailed(
 	if err := h.Backend.RespondActivityTaskFailed(in.TaskToken, in.Reason, in.Details); err != nil {
 		return nil, err
 	}
+
 	return &respondActivityTaskFailedOutput{}, nil
 }
 
@@ -1473,6 +1541,7 @@ func (h *Handler) handleRespondDecisionTaskCompleted(
 	if err := h.Backend.RespondDecisionTaskCompleted(in.TaskToken, in.ExecutionContext); err != nil {
 		return nil, err
 	}
+
 	return &respondDecisionTaskCompletedOutput{}, nil
 }
 
@@ -1492,9 +1561,16 @@ func (h *Handler) handleSignalWorkflowExecution(
 	_ context.Context,
 	in *handleSignalWorkflowExecutionInput,
 ) (*signalWorkflowExecutionOutput, error) {
-	if err := h.Backend.SignalWorkflowExecution(in.Domain, in.WorkflowID, in.RunID, in.SignalName, in.Input); err != nil {
+	if err := h.Backend.SignalWorkflowExecution(
+		in.Domain,
+		in.WorkflowID,
+		in.RunID,
+		in.SignalName,
+		in.Input,
+	); err != nil {
 		return nil, err
 	}
+
 	return &signalWorkflowExecutionOutput{}, nil
 }
 
@@ -1504,5 +1580,6 @@ const defaultSWFMaxPageSize = 1000
 // pkgs/page opaque token format.
 func applyPageTokenSlice[T any](items []T, nextPageToken string, maximumPageSize int) ([]T, string) {
 	p := page.New(items, nextPageToken, maximumPageSize, defaultSWFMaxPageSize)
+
 	return p.Data, p.Next
 }
