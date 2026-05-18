@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { getTimestreamQueryClient } from '$lib/aws-client';
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import {
 		QueryCommand,
 		CancelQueryCommand,
@@ -14,6 +15,7 @@
 		UpdateAccountSettingsCommand,
 		type ColumnInfo,
 		type Row,
+		type Datum,
 		type ScheduledQuery,
 		type QueryStatus
 	} from '@aws-sdk/client-timestream-query';
@@ -125,7 +127,7 @@
 			const resp = await tsQuery.send(
 				new QueryCommand({ QueryString: sqlText, NextToken: nextToken, MaxRows: maxRows })
 			);
-			prevToken = null; // simplified: no full back-stack
+			prevToken = null;
 			resultRows = resp.Rows ?? [];
 			resultColumns = resp.ColumnInfo ?? resultColumns;
 			resultStatus = resp.QueryStatus ?? null;
@@ -210,7 +212,11 @@
 	}
 
 	async function deleteScheduledQuery(arn: string, name: string) {
-		if (!confirm(`Delete scheduled query "${name}"?`)) return;
+		const ok = await confirmDestructive({
+			title: 'Delete Scheduled Query',
+			message: `Delete scheduled query "${name}"? This cannot be undone.`
+		});
+		if (!ok) return;
 		try {
 			await tsQuery.send(new DeleteScheduledQueryCommand({ ScheduledQueryArn: arn }));
 			toast.success('Deleted');
@@ -272,7 +278,7 @@
 			const resp = await tsQuery.send(new DescribeAccountSettingsCommand({}));
 			accountPricingModel = resp.QueryPricingModel ?? 'COMPUTE_UNITS';
 			accountMaxTCU = resp.MaxQueryTCU ?? null;
-			accountLastUpdated = (resp as Record<string, unknown>)['LastUpdatedTime'] as number ?? null;
+			accountLastUpdated = ((resp as unknown) as Record<string, unknown>)['LastUpdatedTime'] as number ?? null;
 		} catch (e) {
 			toast.error('Failed to load account settings: ' + String(e));
 		} finally {
@@ -299,7 +305,7 @@
 	// Datum cell rendering
 	// ---------------------------------------------------------------------------
 
-	function renderDatum(datum: Row['Data'][number] | undefined): string {
+	function renderDatum(datum: Datum | undefined): string {
 		if (!datum) return '';
 		if (datum.ScalarValue !== undefined && datum.ScalarValue !== null) {
 			return datum.ScalarValue;
@@ -510,7 +516,7 @@
 						</label>
 						<label class="col-span-2 flex flex-col gap-1">
 							Query String *
-							<textarea bind:value={newSqQueryString} rows={3} class="rounded border px-2 py-1 font-mono text-xs" placeholder="SELECT ..." />
+							<textarea bind:value={newSqQueryString} rows={3} class="rounded border px-2 py-1 font-mono text-xs" placeholder="SELECT ..."></textarea>
 						</label>
 						<label class="flex flex-col gap-1">
 							Execution Role ARN
@@ -576,10 +582,10 @@
 									<div class="mt-1 font-mono text-xs text-gray-500 truncate max-w-md">
 										{sq.Arn}
 									</div>
-									{#if (sq as Record<string, unknown>)['NextInvocationTime']}
+									{#if ((sq as unknown) as Record<string, unknown>)['NextInvocationTime']}
 										<div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
 											<Clock class="size-3" />
-											Next: {new Date(((sq as Record<string, unknown>)['NextInvocationTime'] as number) * 1000).toLocaleString()}
+											Next: {new Date((((sq as unknown) as Record<string, unknown>)['NextInvocationTime'] as number) * 1000).toLocaleString()}
 										</div>
 									{/if}
 								</div>
