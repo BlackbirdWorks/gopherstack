@@ -16,9 +16,11 @@ type StorageBackend interface {
 	DeleteScheduledQuery(arnStr string) error
 	ListScheduledQueries() []ScheduledQuerySummary
 	ListScheduledQueriesFull() []*ScheduledQuery
+	ListScheduledQueriesEnriched(nextToken string, maxResults int32) ListScheduledQueriesResult
 	UpdateScheduledQuery(arnStr, state string) error
 	ExecuteScheduledQuery(arnStr string, invocationTime time.Time) error
 	Query(queryString string) *QueryResult
+	QueryWithOptions(opts QueryOptions) (*QueryPage, error)
 	CancelQuery(queryID string) error
 	TagResource(arn string, tags map[string]string) error
 	UntagResource(arn string, tagKeys []string) error

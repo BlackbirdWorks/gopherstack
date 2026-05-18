@@ -1,5 +1,10 @@
 package timestreamquery
 
+// ExportBackend returns the InMemoryBackend from a Handler for test use.
+func ExportBackend(h *Handler) *InMemoryBackend {
+	return h.Backend.(*InMemoryBackend)
+}
+
 // ScheduledQueryCount returns the number of scheduled queries stored in the backend.
 // This is exported for use in tests only.
 func ScheduledQueryCount(b *InMemoryBackend) int {
