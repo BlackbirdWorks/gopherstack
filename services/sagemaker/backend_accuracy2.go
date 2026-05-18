@@ -1,0 +1,291 @@
+package sagemaker
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"sort"
+	"strconv"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
+
+// ---------------------------------------------------------------------------
+// TransformJob — gap #12 (partial)
+// ---------------------------------------------------------------------------
+
+var (
+	// ErrTransformJobNotFound is returned when a transform job does not exist.
+	ErrTransformJobNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	// ErrTransformJobAlreadyExists is returned when a transform job already exists.
+	ErrTransformJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+)
+
+const transformJobCompletionDelay = 300 * time.Millisecond
+
+// TransformDataSource specifies the S3 input location for a transform job.
+type TransformDataSource struct {
+	S3DataSource TransformS3DataSource `json:"S3DataSource"`
+}
+
+// TransformS3DataSource is the S3-specific input for a batch transform job.
+type TransformS3DataSource struct {
+	S3Uri         string `json:"S3Uri"`
+	S3DataType    string `json:"S3DataType,omitempty"`
+	S3CompressionType string `json:"S3CompressionType,omitempty"`
+}
+
+// TransformInput specifies the input data location and format for a transform job.
+type TransformInput struct {
+	DataSource          TransformDataSource `json:"DataSource"`
+	ContentType         string             `json:"ContentType,omitempty"`
+	CompressionType     string             `json:"CompressionType,omitempty"`
+	SplitType           string             `json:"SplitType,omitempty"`
+}
+
+// TransformOutput specifies where to store transform results.
+type TransformOutput struct {
+	S3OutputPath string `json:"S3OutputPath"`
+	Accept       string `json:"Accept,omitempty"`
+	KmsKeyID     string `json:"KmsKeyId,omitempty"`
+	AssembleWith string `json:"AssembleWith,omitempty"`
+}
+
+// TransformResources specifies compute resources for a transform job.
+type TransformResources struct {
+	InstanceType   string `json:"InstanceType"`
+	VolumeKmsKeyID string `json:"VolumeKmsKeyId,omitempty"`
+	InstanceCount  int32  `json:"InstanceCount"`
+}
+
+// TransformJob represents a SageMaker batch transform job.
+type TransformJob struct {
+	CreationTime         time.Time           `json:"CreationTime"`
+	LastModifiedTime     time.Time           `json:"LastModifiedTime"`
+	TransformStartTime   *time.Time          `json:"TransformStartTime,omitempty"`
+	TransformEndTime     *time.Time          `json:"TransformEndTime,omitempty"`
+	Tags                 map[string]string   `json:"Tags,omitempty"`
+	Environment          map[string]string   `json:"Environment,omitempty"`
+	TransformInput       TransformInput      `json:"TransformInput"`
+	TransformOutput      TransformOutput     `json:"TransformOutput"`
+	TransformResources   TransformResources  `json:"TransformResources"`
+	TransformJobName     string              `json:"TransformJobName"`
+	TransformJobArn      string              `json:"TransformJobArn"`
+	TransformJobStatus   string              `json:"TransformJobStatus"`
+	ModelName            string              `json:"ModelName,omitempty"`
+	RoleArn              string              `json:"RoleArn,omitempty"`
+	BatchStrategy        string              `json:"BatchStrategy,omitempty"`
+	FailureReason        string              `json:"FailureReason,omitempty"`
+	MaxConcurrentTransforms int32            `json:"MaxConcurrentTransforms,omitempty"`
+	MaxPayloadInMB       int32               `json:"MaxPayloadInMB,omitempty"`
+}
+
+// cloneTransformJob returns a deep copy of tj.
+func cloneTransformJob(tj *TransformJob) *TransformJob {
+	cp := *tj
+	cp.Tags = maps.Clone(tj.Tags)
+	cp.Environment = maps.Clone(tj.Environment)
+
+	return &cp
+}
+
+// TransformJobOptions holds all input fields for CreateTransformJob.
+type TransformJobOptions struct {
+	Tags                    map[string]string
+	Environment             map[string]string
+	TransformInput          TransformInput
+	TransformOutput         TransformOutput
+	TransformResources      TransformResources
+	TransformJobName        string
+	ModelName               string
+	RoleArn                 string
+	BatchStrategy           string
+	MaxConcurrentTransforms int32
+	MaxPayloadInMB          int32
+}
+
+// CreateTransformJob creates a new batch transform job.
+func (b *InMemoryBackend) CreateTransformJob(opts TransformJobOptions) (*TransformJob, error) {
+	if opts.TransformJobName == "" {
+		return nil, fmt.Errorf("%w: TransformJobName is required", ErrValidation)
+	}
+	if opts.ModelName == "" {
+		return nil, fmt.Errorf("%w: ModelName is required", ErrValidation)
+	}
+
+	b.mu.Lock("CreateTransformJob")
+	defer b.mu.Unlock()
+
+	if _, ok := b.transformJobs[opts.TransformJobName]; ok {
+		return nil, fmt.Errorf(
+			"%w: transform job %s already exists",
+			ErrTransformJobAlreadyExists,
+			opts.TransformJobName,
+		)
+	}
+
+	jobARN := arn.Build(
+		"sagemaker",
+		b.region,
+		b.accountID,
+		"transform-job/"+opts.TransformJobName,
+	)
+	now := time.Now()
+
+	tj := &TransformJob{
+		TransformJobName:        opts.TransformJobName,
+		TransformJobArn:         jobARN,
+		TransformJobStatus:      "InProgress",
+		ModelName:               opts.ModelName,
+		RoleArn:                 opts.RoleArn,
+		BatchStrategy:           opts.BatchStrategy,
+		MaxConcurrentTransforms: opts.MaxConcurrentTransforms,
+		MaxPayloadInMB:          opts.MaxPayloadInMB,
+		TransformInput:          opts.TransformInput,
+		TransformOutput:         opts.TransformOutput,
+		TransformResources:      opts.TransformResources,
+		Tags:                    mergeTags(nil, opts.Tags),
+		Environment:             maps.Clone(opts.Environment),
+		CreationTime:            now,
+		LastModifiedTime:        now,
+	}
+	b.transformJobs[opts.TransformJobName] = tj
+	b.transformJobARNIndex[jobARN] = opts.TransformJobName
+
+	ctx := b.lifecycleCtx
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(transformJobCompletionDelay):
+		}
+		b.applyTransformJobCompletion(ctx, opts.TransformJobName)
+	}()
+
+	return cloneTransformJob(tj), nil
+}
+
+func (b *InMemoryBackend) applyTransformJobCompletion(_ context.Context, name string) {
+	b.mu.Lock("applyTransformJobCompletion")
+	defer b.mu.Unlock()
+
+	tj, ok := b.transformJobs[name]
+	if !ok || tj.TransformJobStatus != "InProgress" {
+		return
+	}
+
+	now := time.Now()
+	tj.TransformJobStatus = "Completed"
+	tj.TransformEndTime = &now
+	tj.LastModifiedTime = now
+}
+
+// DescribeTransformJob returns a transform job by name.
+func (b *InMemoryBackend) DescribeTransformJob(name string) (*TransformJob, error) {
+	b.mu.RLock("DescribeTransformJob")
+	defer b.mu.RUnlock()
+
+	tj, ok := b.transformJobs[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: transform job %q not found", ErrTransformJobNotFound, name)
+	}
+
+	return cloneTransformJob(tj), nil
+}
+
+// StopTransformJob transitions a transform job to Stopping then Stopped.
+func (b *InMemoryBackend) StopTransformJob(name string) error {
+	b.mu.Lock("StopTransformJob")
+	defer b.mu.Unlock()
+
+	tj, ok := b.transformJobs[name]
+	if !ok {
+		return fmt.Errorf("%w: transform job %q not found", ErrTransformJobNotFound, name)
+	}
+	if tj.TransformJobStatus != "InProgress" {
+		return fmt.Errorf(
+			"%w: transform job %q is not in InProgress state (status: %s)",
+			ErrValidation,
+			name,
+			tj.TransformJobStatus,
+		)
+	}
+
+	tj.TransformJobStatus = "Stopping"
+	tj.LastModifiedTime = time.Now()
+
+	ctx := b.lifecycleCtx
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(150 * time.Millisecond):
+		}
+		b.mu.Lock("StopTransformJob.goroutine")
+		defer b.mu.Unlock()
+		if t, ok := b.transformJobs[name]; ok && t.TransformJobStatus == "Stopping" {
+			t.TransformJobStatus = "Stopped"
+			t.LastModifiedTime = time.Now()
+		}
+	}()
+
+	return nil
+}
+
+// ListTransformJobsFilter narrows ListTransformJobs results.
+type ListTransformJobsFilter struct {
+	StatusEquals string
+	NameContains string
+}
+
+// ListTransformJobs returns transform jobs sorted by name with optional pagination.
+func (b *InMemoryBackend) ListTransformJobs(
+	nextToken string,
+	filter ListTransformJobsFilter,
+) ([]*TransformJob, string) {
+	b.mu.RLock("ListTransformJobs")
+	defer b.mu.RUnlock()
+
+	list := make([]*TransformJob, 0, len(b.transformJobs))
+
+	for _, tj := range b.transformJobs {
+		if filter.StatusEquals != "" && tj.TransformJobStatus != filter.StatusEquals {
+			continue
+		}
+		if filter.NameContains != "" {
+			var matched bool
+			for i := 0; i+len(filter.NameContains) <= len(tj.TransformJobName); i++ {
+				if tj.TransformJobName[i:i+len(filter.NameContains)] == filter.NameContains {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		list = append(list, cloneTransformJob(tj))
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].TransformJobName < list[j].TransformJobName
+	})
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*TransformJob{}, ""
+	}
+
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}

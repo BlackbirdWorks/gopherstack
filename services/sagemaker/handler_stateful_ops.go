@@ -157,8 +157,12 @@ func (h *Handler) dispatchFeatureGroupAndPipelineOps(
 		return r, true, err
 	case opDeleteFeatureGroup:
 		return nil, true, h.handleDeleteFeatureGroup(ctx, body)
+	case "UpdateFeatureGroup":
+		r, err := h.handleUpdateFeatureGroup(ctx, body)
+
+		return r, true, err
 	case opCreatePipeline:
-		r, err := h.handleCreatePipeline(ctx, body)
+		r, err := h.handleCreatePipelineFull(ctx, body)
 
 		return r, true, err
 	case opDescribePipeline:
@@ -170,7 +174,7 @@ func (h *Handler) dispatchFeatureGroupAndPipelineOps(
 
 		return r, true, err
 	case opUpdatePipeline:
-		r, err := h.handleUpdatePipeline(ctx, body)
+		r, err := h.handleUpdatePipelineFull(ctx, body)
 
 		return r, true, err
 	case opDeletePipeline:
@@ -178,7 +182,7 @@ func (h *Handler) dispatchFeatureGroupAndPipelineOps(
 
 		return r, true, err
 	case opStartPipelineExecution:
-		r, err := h.handleStartPipelineExecution(ctx, body)
+		r, err := h.handleStartPipelineExecutionFull(ctx, body)
 
 		return r, true, err
 	case opDescribePipelineExec:
@@ -242,6 +246,18 @@ func (h *Handler) dispatchExperimentAndTrialOps(
 		return r, true, err
 	case opDeleteTrialComponent:
 		r, err := h.handleDeleteTrialComponent(ctx, body)
+
+		return r, true, err
+	case "UpdateExperiment":
+		r, err := h.handleUpdateExperiment(ctx, body)
+
+		return r, true, err
+	case "UpdateTrial":
+		r, err := h.handleUpdateTrial(ctx, body)
+
+		return r, true, err
+	case "UpdateTrialComponent":
+		r, err := h.handleUpdateTrialComponent(ctx, body)
 
 		return r, true, err
 	}
