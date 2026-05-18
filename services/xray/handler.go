@@ -931,19 +931,24 @@ type traceSummaryServiceIDView struct {
 	Type string `json:"Type"`
 }
 
+type traceSummaryForecastView struct{}
+
 type traceSummary struct {
-	HTTP            *traceSummaryHTTPView       `json:"Http,omitempty"`
-	Annotations     map[string]any              `json:"Annotations,omitempty"`
-	ID              string                      `json:"Id"`
-	EntryPoint      string                      `json:"EntryPoint,omitempty"`
-	ServiceIds      []traceSummaryServiceIDView `json:"ServiceIds,omitempty"` //nolint:revive // AWS API field name
-	Duration        float64                     `json:"Duration"`
-	ResponseTime    float64                     `json:"ResponseTime"`
-	ApproximateTime float64                     `json:"ApproximateTime"`
-	HasFault        bool                        `json:"HasFault"`
-	HasError        bool                        `json:"HasError"`
-	HasThrottle     bool                        `json:"HasThrottle"`
-	IsPartial       bool                        `json:"IsPartial"`
+	HTTP               *traceSummaryHTTPView       `json:"Http,omitempty"`
+	Annotations        map[string]any              `json:"Annotations,omitempty"`
+	ForecastStatistics *traceSummaryForecastView   `json:"ForecastStatistics,omitempty"`
+	EntryPoint         string                      `json:"EntryPoint,omitempty"`
+	ID                 string                      `json:"Id"`
+	ServiceIds         []traceSummaryServiceIDView `json:"ServiceIds,omitempty"` //nolint:revive // AWS API field name
+	Users              []string                    `json:"Users,omitempty"`
+	Duration           float64                     `json:"Duration"`
+	ResponseTime       float64                     `json:"ResponseTime"`
+	ApproximateTime    float64                     `json:"ApproximateTime"`
+	Revision           int                         `json:"Revision"`
+	HasFault           bool                        `json:"HasFault"`
+	HasError           bool                        `json:"HasError"`
+	HasThrottle        bool                        `json:"HasThrottle"`
+	IsPartial          bool                        `json:"IsPartial"`
 }
 
 // buildTraceSummaryView converts a TraceSummaryData to the JSON view struct.
@@ -958,6 +963,13 @@ func buildTraceSummaryView(traceID string, sd TraceSummaryData) traceSummary {
 		HasThrottle:     sd.HasThrottle,
 		IsPartial:       sd.IsPartial,
 		EntryPoint:      sd.EntryPoint,
+		Revision:        sd.Revision,
+		// ForecastStatistics is always present per AWS API (even as empty object).
+		ForecastStatistics: &traceSummaryForecastView{},
+	}
+
+	if len(sd.Users) > 0 {
+		s.Users = sd.Users
 	}
 
 	if sd.HTTP != nil {

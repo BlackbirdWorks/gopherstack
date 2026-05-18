@@ -438,18 +438,19 @@ func TestHandler_GetSamplingRules(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		ruleNames []string
-		wantCount int
+		name          string
+		ruleNames     []string
+		wantUserRules int // number of user-created rules; Default is always included
 	}{
 		{
-			name:      "returns empty list",
-			wantCount: 0,
+			// A fresh backend includes the built-in Default rule.
+			name:          "returns default rule only",
+			wantUserRules: 0,
 		},
 		{
-			name:      "returns seeded rules",
-			ruleNames: []string{"rule-a", "rule-b"},
-			wantCount: 2,
+			name:          "returns seeded rules plus Default",
+			ruleNames:     []string{"rule-a", "rule-b"},
+			wantUserRules: 2,
 		},
 	}
 
@@ -474,7 +475,8 @@ func TestHandler_GetSamplingRules(t *testing.T) {
 
 			records, ok := resp["SamplingRuleRecords"].([]any)
 			require.True(t, ok)
-			assert.Len(t, records, tt.wantCount)
+			// +1 for the always-present Default rule.
+			assert.Len(t, records, tt.wantUserRules+1)
 		})
 	}
 }

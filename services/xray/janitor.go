@@ -79,6 +79,7 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 }
 
 // sweepExpiredTraces removes traces older than TraceTTL.
+// It also cleans up the associated parsed-segment indexes to prevent memory leaks.
 func (j *Janitor) sweepExpiredTraces(ctx context.Context) {
 	cutoff := time.Now().Add(-j.TraceTTL)
 
@@ -90,6 +91,15 @@ func (j *Janitor) sweepExpiredTraces(ctx context.Context) {
 		if t.StartTime.Before(cutoff) {
 			swept = append(swept, id)
 			delete(j.Backend.traces, id)
+
+			// Clean up segment indexes for the evicted trace.
+			if segs, ok := j.Backend.traceSegments[id]; ok {
+				for _, seg := range segs {
+					delete(j.Backend.parsedSegments, id+":"+seg.ID)
+				}
+
+				delete(j.Backend.traceSegments, id)
+			}
 		}
 	}
 

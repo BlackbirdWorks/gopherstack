@@ -22,6 +22,10 @@ import (
 const (
 	statusActive   = "ACTIVE"
 	statusUpdating = "UPDATING"
+
+	// defaultSamplingRuleName is the name of the built-in default sampling rule.
+	// AWS X-Ray always maintains this rule and it cannot be deleted.
+	defaultSamplingRuleName = "Default"
 )
 
 var (
@@ -51,6 +55,8 @@ var (
 	ErrTooManyPolicies = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
 	// ErrBatchGetTracesLimit is returned when more than 5 trace IDs are requested.
 	ErrBatchGetTracesLimit = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
+	// ErrDefaultRuleUndeletable is returned when the built-in Default sampling rule is deleted.
+	ErrDefaultRuleUndeletable = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
 )
 
 // InsightsConfiguration holds insight notification/notification settings for a group.
@@ -243,6 +249,10 @@ const (
 	filterParts2 = 2
 	// serviceGraphTotalCount is the key for the TotalCount stat in service graph nodes.
 	serviceGraphTotalCount = "TotalCount"
+	// defaultFixedRate is the FixedRate of the built-in Default sampling rule.
+	defaultFixedRate = 0.05
+	// defaultSamplingPriority is the priority of the built-in Default sampling rule.
+	defaultSamplingPriority = int32(10000)
 )
 
 // validKMSKeyID checks whether a KMS KeyId is in an acceptable format:
@@ -280,11 +290,35 @@ type InMemoryBackend struct {
 	telemetryIdx int
 }
 
+// defaultSamplingRules returns the built-in X-Ray sampling rules that are always present.
+// The "Default" rule matches all requests and has the lowest priority (10000).
+func defaultSamplingRules() map[string]*SamplingRule {
+	now := time.Now()
+	rules := make(map[string]*SamplingRule, 1)
+	rules[defaultSamplingRuleName] = &SamplingRule{
+		RuleName:      defaultSamplingRuleName,
+		RuleARN:       samplingRuleARN(defaultSamplingRuleName),
+		ResourceARN:   "*",
+		ServiceName:   "*",
+		ServiceType:   "*",
+		Host:          "*",
+		HTTPMethod:    "*",
+		URLPath:       "*",
+		FixedRate:     defaultFixedRate,
+		Priority:      defaultSamplingPriority,
+		ReservoirSize: 1,
+		CreatedAt:     now,
+		ModifiedAt:    now,
+	}
+
+	return rules
+}
+
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		groups:           make(map[string]*Group),
-		samplingRules:    make(map[string]*SamplingRule),
+		samplingRules:    defaultSamplingRules(),
 		traces:           make(map[string]*Trace),
 		parsedSegments:   make(map[string]*Segment),
 		traceSegments:    make(map[string][]*Segment),
@@ -556,7 +590,7 @@ func (b *InMemoryBackend) CreateSamplingRule(rule SamplingRule) (*SamplingRule, 
 	return cloneRule(&rule), nil
 }
 
-// GetSamplingRules returns all sampling rules sorted by name.
+// GetSamplingRules returns all sampling rules sorted by priority (ascending), then by name for stability.
 func (b *InMemoryBackend) GetSamplingRules() []SamplingRule {
 	b.mu.RLock("GetSamplingRules")
 	defer b.mu.RUnlock()
@@ -567,6 +601,10 @@ func (b *InMemoryBackend) GetSamplingRules() []SamplingRule {
 	}
 
 	sort.Slice(out, func(i, j int) bool {
+		if out[i].Priority != out[j].Priority {
+			return out[i].Priority < out[j].Priority
+		}
+
 		return out[i].RuleName < out[j].RuleName
 	})
 
@@ -674,7 +712,16 @@ func (b *InMemoryBackend) UpdateSamplingRuleWithPointers(
 }
 
 // DeleteSamplingRule removes the sampling rule with the given name and returns it.
+// The built-in "Default" rule cannot be deleted; attempting to do so returns ErrDefaultRuleUndeletable.
 func (b *InMemoryBackend) DeleteSamplingRule(ruleName string) (*SamplingRule, error) {
+	if ruleName == defaultSamplingRuleName {
+		return nil, fmt.Errorf(
+			"%w: the %s sampling rule cannot be deleted",
+			ErrDefaultRuleUndeletable,
+			defaultSamplingRuleName,
+		)
+	}
+
 	b.mu.Lock("DeleteSamplingRule")
 	defer b.mu.Unlock()
 
@@ -826,7 +873,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.groups = make(map[string]*Group)
-	b.samplingRules = make(map[string]*SamplingRule)
+	b.samplingRules = defaultSamplingRules()
 	b.traces = make(map[string]*Trace)
 	b.parsedSegments = make(map[string]*Segment)
 	b.traceSegments = make(map[string][]*Segment)
@@ -1180,6 +1227,7 @@ type UnprocessedStatisticsResult struct {
 
 // GetSamplingTargets returns target documents for the provided stat documents.
 // Rules that do not exist are returned in the unprocessed list.
+// Documents with an empty ClientID are returned in the unprocessed list.
 // Statistics from known rules are accumulated for GetSamplingStatisticSummaries.
 func (b *InMemoryBackend) GetSamplingTargets(
 	docs []SamplingStatisticsDocument,
@@ -1191,6 +1239,16 @@ func (b *InMemoryBackend) GetSamplingTargets(
 	unprocessed := make([]UnprocessedStatisticsResult, 0)
 
 	for _, d := range docs {
+		if d.ClientID == "" {
+			unprocessed = append(unprocessed, UnprocessedStatisticsResult{
+				RuleName:  d.RuleName,
+				ErrorCode: "400",
+				Message:   "ClientID is required",
+			})
+
+			continue
+		}
+
 		r, ok := b.samplingRules[d.RuleName]
 		if !ok {
 			unprocessed = append(unprocessed, UnprocessedStatisticsResult{
@@ -1750,10 +1808,12 @@ type TraceSummaryData struct {
 	HTTP         *TraceSummaryHTTP
 	TraceID      string
 	EntryPoint   string
+	Users        []string
 	ServiceIDs   []TraceSummaryServiceID
 	Duration     float64
 	ResponseTime float64
 	ApproxTime   float64
+	Revision     int
 	HasFault     bool
 	HasError     bool
 	HasThrottle  bool
@@ -1805,6 +1865,38 @@ func extractRootHTTP(segHTTP *SegmentHTTP, existing *TraceSummaryHTTP) *TraceSum
 }
 
 // BuildTraceSummary derives TraceSummaryData from parsed segments.
+// accumulateUserFromAnnotations checks segment annotations for a "user" key and
+// appends the value to summary.Users when not already present.
+func accumulateUserFromAnnotations(summary *TraceSummaryData, seg *Segment, seenUsers map[string]bool) {
+	userVal, ok := seg.Annotations["user"]
+	if !ok {
+		return
+	}
+
+	userStr, isStr := userVal.(string)
+	if !isStr || userStr == "" || seenUsers[userStr] {
+		return
+	}
+
+	seenUsers[userStr] = true
+	summary.Users = append(summary.Users, userStr)
+}
+
+// accumulateServiceID records the service identity from seg into summary.ServiceIDs when not yet seen.
+func accumulateServiceID(summary *TraceSummaryData, seg *Segment, seen map[serviceKey]bool) {
+	svcType := seg.Origin
+	if svcType == "" {
+		svcType = seg.Namespace
+	}
+
+	key := serviceKey{Name: seg.Name, Type: svcType}
+	if !seen[key] {
+		seen[key] = true
+		summary.ServiceIDs = append(summary.ServiceIDs, TraceSummaryServiceID{Name: seg.Name, Type: svcType})
+	}
+}
+
+// BuildTraceSummary derives TraceSummaryData from parsed segments.
 func BuildTraceSummary(traceID string, segs []*Segment) TraceSummaryData {
 	summary := TraceSummaryData{
 		TraceID:     traceID,
@@ -1821,6 +1913,7 @@ func BuildTraceSummary(traceID string, segs []*Segment) TraceSummaryData {
 	var minStart, maxEnd float64
 
 	seen := map[serviceKey]bool{}
+	seenUsers := map[string]bool{}
 	hasRoot := false
 
 	for _, seg := range segs {
@@ -1835,17 +1928,8 @@ func BuildTraceSummary(traceID string, segs []*Segment) TraceSummaryData {
 		}
 
 		maps.Copy(summary.Annotations, seg.Annotations)
-
-		svcType := seg.Origin
-		if svcType == "" {
-			svcType = seg.Namespace
-		}
-
-		key := serviceKey{Name: seg.Name, Type: svcType}
-		if !seen[key] {
-			seen[key] = true
-			summary.ServiceIDs = append(summary.ServiceIDs, TraceSummaryServiceID{Name: seg.Name, Type: svcType})
-		}
+		accumulateUserFromAnnotations(&summary, seg, seenUsers)
+		accumulateServiceID(&summary, seg, seen)
 
 		// Root segment has no parent.
 		if seg.ParentID == "" {
