@@ -6,6 +6,7 @@ import (
 	"maps"
 	"math/rand"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -102,8 +103,8 @@ type SOA struct {
 
 // DnsProperties holds the DNS-specific properties of a namespace.
 type DnsProperties struct {
-	HostedZoneID string `json:"hostedZoneId,omitempty"`
 	SOA          *SOA   `json:"soa,omitempty"`
+	HostedZoneID string `json:"hostedZoneId,omitempty"`
 }
 
 // HttpProperties holds the HTTP-specific properties of a namespace.
@@ -252,6 +253,7 @@ const idChars = "abcdefghijklmnopqrstuvwxyz0123456789"
 func (b *InMemoryBackend) nextNsID() string {
 	if b.deterministicIDs {
 		b.nsCounter++
+
 		return fmt.Sprintf("ns-%026d", b.nsCounter)
 	}
 
@@ -261,6 +263,7 @@ func (b *InMemoryBackend) nextNsID() string {
 func (b *InMemoryBackend) nextSvcID() string {
 	if b.deterministicIDs {
 		b.svcCounter++
+
 		return fmt.Sprintf("srv-%025d", b.svcCounter)
 	}
 
@@ -358,13 +361,21 @@ func (b *InMemoryBackend) CreateHTTPNamespace(name, description string, tags map
 
 // CreatePrivateDNSNamespace creates a private DNS namespace.
 // soaTTL defaults to 15 when zero.
-func (b *InMemoryBackend) CreatePrivateDNSNamespace(name, description, vpc string, soaTTL int64, tags map[string]string) (string, error) {
+func (b *InMemoryBackend) CreatePrivateDNSNamespace(
+	name, description, vpc string,
+	soaTTL int64,
+	tags map[string]string,
+) (string, error) {
 	return b.createNamespace(name, namespaceTypeDNSPrivate, description, vpc, soaTTL, tags)
 }
 
 // CreatePublicDNSNamespace creates a public DNS namespace.
 // soaTTL defaults to 15 when zero.
-func (b *InMemoryBackend) CreatePublicDNSNamespace(name, description string, soaTTL int64, tags map[string]string) (string, error) {
+func (b *InMemoryBackend) CreatePublicDNSNamespace(
+	name, description string,
+	soaTTL int64,
+	tags map[string]string,
+) (string, error) {
 	return b.createNamespace(name, namespaceTypeDNSPublic, description, "", soaTTL, tags)
 }
 
@@ -957,7 +968,11 @@ func (b *InMemoryBackend) updateNamespace(id, nsType, description string) (strin
 }
 
 // UpdateService updates the description and optionally DnsConfig/HealthCheckConfig of a service.
-func (b *InMemoryBackend) UpdateService(id, description string, dnsConfig *DnsConfig, hcc *HealthCheckConfig) (*Service, error) {
+func (b *InMemoryBackend) UpdateService(
+	id, description string,
+	dnsConfig *DnsConfig,
+	hcc *HealthCheckConfig,
+) (*Service, error) {
 	b.mu.Lock("UpdateService")
 	defer b.mu.Unlock()
 
@@ -1208,7 +1223,7 @@ func copyOperation(op *Operation) Operation {
 
 // encodeCursor encodes an integer offset as an opaque NextToken.
 func encodeCursor(offset int) string {
-	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%d", offset)))
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
 }
 
 // decodeCursor decodes an opaque NextToken to an integer offset.
@@ -1245,7 +1260,6 @@ func applyPaginationNamespaces(items []Namespace, nextToken string, maxResults i
 
 	if end < len(items) {
 		newToken = encodeCursor(end)
-		end = end
 	} else {
 		end = len(items)
 	}

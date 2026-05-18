@@ -119,12 +119,12 @@ func NewServiceForTest(id, name, namespaceID string) *Service {
 // NewServiceWithCustomHealthForTest creates a Service with HealthCheckCustomConfig for seeding.
 func NewServiceWithCustomHealthForTest(id, name, namespaceID string) *Service {
 	return &Service{
-		ID:          id,
-		ARN:         "arn:aws:servicediscovery:us-east-1:000000000000:service/" + id,
-		Name:        name,
-		NamespaceID: namespaceID,
+		ID:                      id,
+		ARN:                     "arn:aws:servicediscovery:us-east-1:000000000000:service/" + id,
+		Name:                    name,
+		NamespaceID:             namespaceID,
 		HealthCheckCustomConfig: &HealthCheckCustomConfig{FailureThreshold: 1},
-		CreatedAt:   time.Now(),
+		CreatedAt:               time.Now(),
 	}
 }
 

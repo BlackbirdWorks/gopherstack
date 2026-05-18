@@ -390,7 +390,12 @@ func validateTags(tags []tagEntry) error {
 		}
 
 		if len(t.Value) > maxTagValueLen {
-			return fmt.Errorf("%w: tag value for key %q exceeds maximum length of %d", ErrInvalidInput, t.Key, maxTagValueLen)
+			return fmt.Errorf(
+				"%w: tag value for key %q exceeds maximum length of %d",
+				ErrInvalidInput,
+				t.Key,
+				maxTagValueLen,
+			)
 		}
 	}
 
@@ -643,8 +648,8 @@ type createServiceRequest struct {
 	Type                    string                          `json:"Type"`
 	CreatorRequestID        string                          `json:"CreatorRequestId"`
 	DnsConfig               *dnsConfigRequest               `json:"DnsConfig"`
-	HealthCheckConfig       *healthCheckConfigRequest        `json:"HealthCheckConfig"`
-	HealthCheckCustomConfig *healthCheckCustomConfigRequest  `json:"HealthCheckCustomConfig"`
+	HealthCheckConfig       *healthCheckConfigRequest       `json:"HealthCheckConfig"`
+	HealthCheckCustomConfig *healthCheckCustomConfigRequest `json:"HealthCheckCustomConfig"`
 	Tags                    []tagEntry                      `json:"Tags"`
 }
 
@@ -659,7 +664,7 @@ func parseDnsConfig(req *dnsConfigRequest) *DnsConfig {
 	}
 
 	for _, r := range req.DnsRecords {
-		dc.DnsRecords = append(dc.DnsRecords, DnsRecord{Type: r.Type, TTL: r.TTL})
+		dc.DnsRecords = append(dc.DnsRecords, DnsRecord(r))
 	}
 
 	return dc
@@ -698,7 +703,10 @@ func (h *Handler) handleCreateService(_ context.Context, body []byte) ([]byte, e
 	}
 
 	if req.HealthCheckConfig != nil && req.HealthCheckCustomConfig != nil {
-		return nil, fmt.Errorf("%w: HealthCheckConfig and HealthCheckCustomConfig are mutually exclusive", ErrInvalidInput)
+		return nil, fmt.Errorf(
+			"%w: HealthCheckConfig and HealthCheckCustomConfig are mutually exclusive",
+			ErrInvalidInput,
+		)
 	}
 
 	if err := validateTags(req.Tags); err != nil {
@@ -1329,11 +1337,11 @@ func serviceToMap(svc *Service) map[string]any {
 // operationToMap converts an Operation to a JSON-serialisable map with full fields.
 func operationToMap(op *Operation) map[string]any {
 	m := map[string]any{
-		"Id":         op.ID,
-		"Type":       op.Type,
+		"Id":           op.ID,
+		"Type":         op.Type,
 		keyStatusField: op.Status,
-		"CreateDate": op.CreateDate.Unix(),
-		"UpdateDate": op.UpdateDate.Unix(),
+		"CreateDate":   op.CreateDate.Unix(),
+		"UpdateDate":   op.UpdateDate.Unix(),
 	}
 
 	if len(op.Targets) > 0 {
@@ -1494,14 +1502,14 @@ func (h *Handler) handleUpdatePublicDNSNamespace(_ context.Context, body []byte)
 // --- UpdateService ---
 
 type updateServiceChange struct {
-	Description       string                    `json:"Description"`
 	DnsConfig         *dnsConfigRequest         `json:"DnsConfig"`
-	HealthCheckConfig *healthCheckConfigRequest  `json:"HealthCheckConfig"`
+	HealthCheckConfig *healthCheckConfigRequest `json:"HealthCheckConfig"`
+	Description       string                    `json:"Description"`
 }
 
 type updateServiceRequest struct {
-	ID      string              `json:"Id"`
 	Service updateServiceChange `json:"Service"`
+	ID      string              `json:"Id"`
 }
 
 func (h *Handler) handleUpdateService(_ context.Context, body []byte) ([]byte, error) {

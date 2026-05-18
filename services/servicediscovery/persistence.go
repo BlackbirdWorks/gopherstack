@@ -7,18 +7,18 @@ import (
 )
 
 type backendSnapshot struct {
-	Namespaces             map[string]*Namespace            `json:"namespaces"`
-	Services               map[string]*Service              `json:"services"`
-	Instances              map[string]*Instance             `json:"instances"`
-	Operations             map[string]*Operation            `json:"operations"`
-	ServiceAttributes      map[string]map[string]string     `json:"serviceAttributes"`
-	InstanceHealthStatuses map[string]string                `json:"instanceHealthStatuses"`
-	AccountID              string                           `json:"accountID"`
-	Region                 string                           `json:"region"`
-	InstanceRevision       int64                            `json:"instanceRevision"`
-	NsCounter              int                              `json:"nsCounter"`
-	SvcCounter             int                              `json:"svcCounter"`
-	OpCounter              int                              `json:"opCounter"`
+	Namespaces             map[string]*Namespace        `json:"namespaces"`
+	Services               map[string]*Service          `json:"services"`
+	Instances              map[string]*Instance         `json:"instances"`
+	Operations             map[string]*Operation        `json:"operations"`
+	ServiceAttributes      map[string]map[string]string `json:"serviceAttributes"`
+	InstanceHealthStatuses map[string]string            `json:"instanceHealthStatuses"`
+	AccountID              string                       `json:"accountID"`
+	Region                 string                       `json:"region"`
+	InstanceRevision       int64                        `json:"instanceRevision"`
+	NsCounter              int                          `json:"nsCounter"`
+	SvcCounter             int                          `json:"svcCounter"`
+	OpCounter              int                          `json:"opCounter"`
 }
 
 // Snapshot serialises the backend state to JSON.
