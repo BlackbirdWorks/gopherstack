@@ -498,12 +498,11 @@ func TestStartJobRun_TransitionsToSucceeded(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.StartJobRun("run-j2")
 	require.NoError(t, err)
-	// Wait for async transition.
-	time.Sleep(300 * time.Millisecond)
-	runs, err := b.ListJobRuns("run-j2")
-	require.NoError(t, err)
-	require.Len(t, runs, 1)
-	assert.Equal(t, "SUCCEEDED", runs[0].State)
+	// Poll for async state transition instead of fixed sleep.
+	require.Eventually(t, func() bool {
+		runs, err := b.ListJobRuns("run-j2")
+		return err == nil && len(runs) == 1 && runs[0].State == "SUCCEEDED"
+	}, 3*time.Second, 25*time.Millisecond)
 }
 
 func TestStartJobRun_JobNotFound(t *testing.T) {
