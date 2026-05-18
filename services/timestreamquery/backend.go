@@ -16,6 +16,7 @@ const (
 	pricingModelComputeUnits    = "COMPUTE_UNITS"
 	scheduledQueryStateEnabled  = "ENABLED"
 	scheduledQueryStateDisabled = "DISABLED"
+	queryProgressComplete       = 100.0
 )
 
 var (
@@ -303,7 +304,7 @@ func (b *InMemoryBackend) QueryWithOptions(opts QueryOptions) (*QueryPage, error
 			Rows:    rows,
 			Columns: cols,
 			QueryStatus: QueryStatusDetail{
-				ProgressPercentage:     100,
+				ProgressPercentage:     queryProgressComplete,
 				CumulativeBytesScanned: scanned,
 				CumulativeBytesMetered: estimateBytesMetered(scanned),
 			},
@@ -334,7 +335,7 @@ func (b *InMemoryBackend) QueryWithOptions(opts QueryOptions) (*QueryPage, error
 	result := &QueryResult{
 		QueryID: queryID,
 		QueryStatus: QueryStatusDetail{
-			ProgressPercentage:     100,
+			ProgressPercentage:     queryProgressComplete,
 			CumulativeBytesScanned: scanned,
 			CumulativeBytesMetered: estimateBytesMetered(scanned),
 		},
@@ -401,7 +402,7 @@ func (b *InMemoryBackend) Query(queryString string) *QueryResult {
 	result := &QueryResult{
 		QueryID: queryID,
 		QueryStatus: QueryStatusDetail{
-			ProgressPercentage:     100,
+			ProgressPercentage:     queryProgressComplete,
 			CumulativeBytesScanned: 0,
 			CumulativeBytesMetered: 0,
 		},

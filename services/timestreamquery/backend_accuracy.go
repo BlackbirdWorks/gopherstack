@@ -18,6 +18,19 @@ import (
 // Typed Datum / ColumnInfo / Row (gaps #2, #3)
 // ---------------------------------------------------------------------------
 
+// Numeric constants for estimation heuristics.
+const (
+	bytesPerCell        = 32               // avg bytes per scalar cell for scan estimate
+	minScanBytes        = 10 * 1024 * 1024 // 10 MB minimum Timestream billing unit
+	cronFieldCount      = 6                // cron expressions require exactly 6 fields
+	hoursPerDay         = 24               // hours in a day for schedule computation
+	nanosPerSecond      = 1e9              // nanoseconds per second for epoch conversion
+	epochMilliPrecision = 1e3              // milliseconds per second for epoch string format
+	tokenParts          = 2                // NextToken format: "queryID:offset"
+	simExecTimeMs       = 500              // simulated execution time in milliseconds
+	simRecordsIngested  = 10               // simulated records ingested per execution
+)
+
 // ScalarType is the Timestream type enum for scalar column values.
 const (
 	ScalarTypeBigint                = "BIGINT"
@@ -104,11 +117,11 @@ func estimateBytesScanned(rows int, cols int) int64 {
 	if rows == 0 || cols == 0 {
 		return 0
 	}
-	estimated := int64(rows) * int64(cols) * 32
+	estimated := int64(rows) * int64(cols) * bytesPerCell
 	// Timestream bills a 10 MB minimum per query scan.
-	const minBytes = 10 * 1024 * 1024
-	if estimated < minBytes {
-		return minBytes
+	// minScanBytes used from package-level constant
+	if estimated < minScanBytes {
+		return minScanBytes
 	}
 
 	return estimated
@@ -248,7 +261,7 @@ func validateScheduleExpression(expr string) error {
 	if m := cronParts.FindStringSubmatch(expr); m != nil {
 		// cron must have exactly 6 space-separated fields.
 		fields := strings.Fields(m[1])
-		if len(fields) != 6 {
+		if len(fields) != cronFieldCount {
 			return fmt.Errorf(
 				"%w: cron expression must have 6 fields (got %d): %s",
 				ErrValidation, len(fields), expr,
@@ -283,7 +296,7 @@ func nextInvocationTime(expr string, from time.Time) time.Time {
 		case strings.HasPrefix(unit, "hour"):
 			dur = time.Duration(n) * time.Hour
 		case strings.HasPrefix(unit, "day"):
-			dur = time.Duration(n) * 24 * time.Hour
+			dur = time.Duration(n) * hoursPerDay * time.Hour
 		}
 
 		return from.Add(dur)
@@ -305,7 +318,7 @@ func previousInvocationTime(expr string, from time.Time) time.Time {
 		case strings.HasPrefix(unit, "hour"):
 			dur = time.Duration(n) * time.Hour
 		case strings.HasPrefix(unit, "day"):
-			dur = time.Duration(n) * 24 * time.Hour
+			dur = time.Duration(n) * hoursPerDay * time.Hour
 		}
 
 		return from.Add(-dur)
@@ -635,8 +648,8 @@ func buildLastRunSummary(sq *ScheduledQuery) *LastRunSummary {
 		InvocationTime: epochSecondsStr(sq.LastRunTime),
 		TriggerTime:    epochSecondsStr(triggerTime),
 		ExecutionStats: &ExecutionStats{
-			ExecutionTimeInMillisecs: 500,
-			RecordsIngested:          10,
+			ExecutionTimeInMillisecs: simExecTimeMs,
+			RecordsIngested:          simRecordsIngested,
 		},
 	}
 }
@@ -647,7 +660,9 @@ func epochSecondsStr(t time.Time) string {
 		return ""
 	}
 
-	return strconv.FormatFloat(math.Round(float64(t.UnixNano())/1e9*1e3)/1e3, 'f', 3, 64)
+	nanos := float64(t.UnixNano()) / nanosPerSecond * epochMilliPrecision
+
+	return strconv.FormatFloat(math.Round(nanos)/epochMilliPrecision, 'f', 3, 64)
 }
 
 // ---------------------------------------------------------------------------
@@ -687,8 +702,8 @@ func (s *nextTokenStore) resolve(token string, maxRows int) (string, []Row, []Co
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	parts := strings.SplitN(token, ":", 2)
-	if len(parts) != 2 {
+	parts := strings.SplitN(token, ":", tokenParts)
+	if len(parts) != tokenParts {
 		return "", nil, nil, "", fmt.Errorf("%w: invalid NextToken", ErrValidation)
 	}
 	queryID := parts[0]
