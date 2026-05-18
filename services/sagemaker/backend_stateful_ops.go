@@ -177,17 +177,17 @@ type PipelineParameter struct {
 
 // Pipeline represents a SageMaker Pipeline.
 type Pipeline struct {
-	CreationTime              time.Time                  `json:"CreationTime"`
-	LastModifiedTime          time.Time                  `json:"LastModifiedTime"`
-	Tags                      map[string]string          `json:"Tags,omitempty"`
-	ParallelismConfiguration  *ParallelismConfiguration  `json:"ParallelismConfiguration,omitempty"`
-	PipelineName              string                     `json:"PipelineName"`
-	PipelineArn               string                     `json:"PipelineArn"`
-	PipelineStatus            string                     `json:"PipelineStatus"`
-	PipelineDefinition        string                     `json:"PipelineDefinition,omitempty"`
-	PipelineDisplayName       string                     `json:"PipelineDisplayName,omitempty"`
-	PipelineDescription       string                     `json:"PipelineDescription,omitempty"`
-	RoleArn                   string                     `json:"RoleArn,omitempty"`
+	CreationTime             time.Time                 `json:"CreationTime"`
+	LastModifiedTime         time.Time                 `json:"LastModifiedTime"`
+	Tags                     map[string]string         `json:"Tags,omitempty"`
+	ParallelismConfiguration *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
+	PipelineName             string                    `json:"PipelineName"`
+	PipelineArn              string                    `json:"PipelineArn"`
+	PipelineStatus           string                    `json:"PipelineStatus"`
+	PipelineDefinition       string                    `json:"PipelineDefinition,omitempty"`
+	PipelineDisplayName      string                    `json:"PipelineDisplayName,omitempty"`
+	PipelineDescription      string                    `json:"PipelineDescription,omitempty"`
+	RoleArn                  string                    `json:"RoleArn,omitempty"`
 }
 
 func clonePipeline(p *Pipeline) *Pipeline {
@@ -200,13 +200,13 @@ func clonePipeline(p *Pipeline) *Pipeline {
 // PipelineExecution represents a single execution of a SageMaker Pipeline.
 type PipelineExecution struct {
 	StartTime                    time.Time           `json:"StartTime"`
-	PipelineParameters           []PipelineParameter `json:"PipelineParameters,omitempty"`
 	PipelineArn                  string              `json:"PipelineArn"`
 	PipelineExecutionArn         string              `json:"PipelineExecutionArn"`
 	PipelineExecutionStatus      string              `json:"PipelineExecutionStatus"`
 	PipelineExecutionDisplayName string              `json:"PipelineExecutionDisplayName,omitempty"`
 	PipelineExecutionDescription string              `json:"PipelineExecutionDescription,omitempty"`
 	FailureReason                string              `json:"FailureReason,omitempty"`
+	PipelineParameters           []PipelineParameter `json:"PipelineParameters,omitempty"`
 }
 
 func clonePipelineExecution(pe *PipelineExecution) *PipelineExecution {
@@ -259,18 +259,18 @@ func cloneTrial(t *Trial) *Trial {
 
 // TrialComponent represents a SageMaker Trial Component.
 type TrialComponent struct {
-	CreationTime       time.Time                      `json:"CreationTime"`
-	LastModifiedTime   time.Time                      `json:"LastModifiedTime"`
-	StartTime          *time.Time                     `json:"StartTime,omitempty"`
-	EndTime            *time.Time                     `json:"EndTime,omitempty"`
-	Tags               map[string]string              `json:"Tags,omitempty"`
-	Parameters         map[string]TrialComponentValue `json:"Parameters,omitempty"`
+	CreationTime       time.Time                         `json:"CreationTime"`
+	LastModifiedTime   time.Time                         `json:"LastModifiedTime"`
+	StartTime          *time.Time                        `json:"StartTime,omitempty"`
+	EndTime            *time.Time                        `json:"EndTime,omitempty"`
+	Tags               map[string]string                 `json:"Tags,omitempty"`
+	Parameters         map[string]TrialComponentValue    `json:"Parameters,omitempty"`
 	InputArtifacts     map[string]TrialComponentArtifact `json:"InputArtifacts,omitempty"`
 	OutputArtifacts    map[string]TrialComponentArtifact `json:"OutputArtifacts,omitempty"`
-	TrialComponentName string                         `json:"TrialComponentName"`
-	TrialComponentArn  string                         `json:"TrialComponentArn"`
-	DisplayName        string                         `json:"DisplayName,omitempty"`
-	Status             string                         `json:"Status,omitempty"`
+	TrialComponentName string                            `json:"TrialComponentName"`
+	TrialComponentArn  string                            `json:"TrialComponentArn"`
+	DisplayName        string                            `json:"DisplayName,omitempty"`
+	Status             string                            `json:"Status,omitempty"`
 }
 
 // TrialComponentValue is a number or string parameter value.
@@ -1285,25 +1285,19 @@ func (b *InMemoryBackend) UpdateTrialComponent(
 		if tc.Parameters == nil {
 			tc.Parameters = make(map[string]TrialComponentValue)
 		}
-		for k, v := range opts.Parameters {
-			tc.Parameters[k] = v
-		}
+		maps.Copy(tc.Parameters, opts.Parameters)
 	}
 	if len(opts.InputArtifacts) > 0 {
 		if tc.InputArtifacts == nil {
 			tc.InputArtifacts = make(map[string]TrialComponentArtifact)
 		}
-		for k, v := range opts.InputArtifacts {
-			tc.InputArtifacts[k] = v
-		}
+		maps.Copy(tc.InputArtifacts, opts.InputArtifacts)
 	}
 	if len(opts.OutputArtifacts) > 0 {
 		if tc.OutputArtifacts == nil {
 			tc.OutputArtifacts = make(map[string]TrialComponentArtifact)
 		}
-		for k, v := range opts.OutputArtifacts {
-			tc.OutputArtifacts[k] = v
-		}
+		maps.Copy(tc.OutputArtifacts, opts.OutputArtifacts)
 	}
 	tc.LastModifiedTime = time.Now()
 
@@ -1390,11 +1384,11 @@ func (b *InMemoryBackend) UpdatePipelineFull(
 
 // StartPipelineExecutionOptions holds full input for StartPipelineExecution.
 type StartPipelineExecutionOptions struct {
-	PipelineParameters           []PipelineParameter
 	ParallelismConfiguration     *ParallelismConfiguration
 	PipelineName                 string
 	PipelineExecutionDisplayName string
 	PipelineExecutionDescription string
+	PipelineParameters           []PipelineParameter
 }
 
 // StartPipelineExecutionFull creates an execution with full AWS input fields.

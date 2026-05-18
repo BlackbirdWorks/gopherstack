@@ -6,25 +6,28 @@
 		ListTrainingJobsCommand,
 		ListModelsCommand,
 		ListEndpointsCommand,
+		ListPipelinesCommand,
 		CreateEndpointCommand,
 		CreateTrainingJobCommand,
 		type NotebookInstanceSummary,
 		type TrainingJobSummary,
 		type ModelSummary,
-		type EndpointSummary
+		type EndpointSummary,
+		type PipelineSummary
 	} from '@aws-sdk/client-sagemaker';
 	import { toast } from 'svelte-sonner';
-	import { Brain, RefreshCw, Search, Server, Activity, Box, BookOpen, Plus, X } from 'lucide-svelte';
+	import { Brain, RefreshCw, Search, Server, Activity, Box, BookOpen, Plus, X, GitBranch } from 'lucide-svelte';
 
 	const sm = getSageMakerClient();
 
 	let loading = $state(false);
-	let activeTab = $state<'notebooks' | 'training' | 'models' | 'endpoints'>('notebooks');
+	let activeTab = $state<'notebooks' | 'training' | 'models' | 'endpoints' | 'pipelines'>('notebooks');
 	let searchQuery = $state('');
 	let notebooks = $state<NotebookInstanceSummary[]>([]);
 	let trainingJobs = $state<TrainingJobSummary[]>([]);
 	let models = $state<ModelSummary[]>([]);
 	let endpoints = $state<EndpointSummary[]>([]);
+	let pipelines = $state<PipelineSummary[]>([]);
 
 	// Create Endpoint dialog
 	let showCreateEndpoint = $state(false);
@@ -55,6 +58,11 @@
 	const filteredEndpoints = $derived(
 		endpoints.filter((e) =>
 			(e.EndpointName ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+		)
+	);
+	const filteredPipelines = $derived(
+		pipelines.filter((p) =>
+			(p.PipelineName ?? '').toLowerCase().includes(searchQuery.toLowerCase())
 		)
 	);
 

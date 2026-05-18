@@ -45,8 +45,9 @@ const (
 	opUpdatePipeline         = "UpdatePipeline"
 	opDeletePipeline         = "DeletePipeline"
 	opStartPipelineExecution = "StartPipelineExecution"
-	opDescribePipelineExec   = "DescribePipelineExecution"
-	opListPipelineExecutions = "ListPipelineExecutions"
+	opDescribePipelineExec              = "DescribePipelineExecution"
+	opListPipelineExecutions            = "ListPipelineExecutions"
+	opListPipelineParametersForExec     = "ListPipelineParametersForExecution"
 	opCreateExperiment       = "CreateExperiment"
 	opDescribeExperiment     = "DescribeExperiment"
 	opListExperiments        = "ListExperiments"
@@ -191,6 +192,10 @@ func (h *Handler) dispatchFeatureGroupAndPipelineOps(
 		return r, true, err
 	case opListPipelineExecutions:
 		r, err := h.handleListPipelineExecutions(body)
+
+		return r, true, err
+	case opListPipelineParametersForExec:
+		r, err := h.handleListPipelineParametersForExecution(ctx, body)
 
 		return r, true, err
 	}

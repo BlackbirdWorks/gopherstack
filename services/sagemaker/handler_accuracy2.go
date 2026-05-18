@@ -17,12 +17,12 @@ func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]
 		Environment             map[string]string  `json:"Environment,omitempty"`
 		TransformInput          TransformInput     `json:"TransformInput"`
 		TransformOutput         TransformOutput    `json:"TransformOutput"`
-		TransformResources      TransformResources `json:"TransformResources"`
-		Tags                    []tagObject        `json:"Tags,omitempty"`
 		TransformJobName        string             `json:"TransformJobName"`
 		ModelName               string             `json:"ModelName"`
 		RoleArn                 string             `json:"RoleArn,omitempty"`
 		BatchStrategy           string             `json:"BatchStrategy,omitempty"`
+		TransformResources      TransformResources `json:"TransformResources"`
+		Tags                    []tagObject        `json:"Tags,omitempty"`
 		MaxConcurrentTransforms int32              `json:"MaxConcurrentTransforms,omitempty"`
 		MaxPayloadInMB          int32              `json:"MaxPayloadInMB,omitempty"`
 	}
@@ -179,8 +179,8 @@ func (h *Handler) handleListTransformJobs(body []byte) ([]byte, error) {
 
 func (h *Handler) handleUpdateFeatureGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		FeatureDefinitions []FeatureDefinition `json:"FeatureAdditions,omitempty"`
 		FeatureGroupName   string              `json:"FeatureGroupName"`
+		FeatureDefinitions []FeatureDefinition `json:"FeatureAdditions,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -256,12 +256,12 @@ func (h *Handler) handleUpdateTrial(ctx context.Context, body []byte) ([]byte, e
 
 func (h *Handler) handleUpdateTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Parameters      map[string]TrialComponentValue    `json:"Parameters,omitempty"`
-		InputArtifacts  map[string]TrialComponentArtifact `json:"InputArtifacts,omitempty"`
-		OutputArtifacts map[string]TrialComponentArtifact `json:"OutputArtifacts,omitempty"`
-		TrialComponentName string                         `json:"TrialComponentName"`
-		DisplayName        string                         `json:"DisplayName,omitempty"`
-		Status             string                         `json:"Status,omitempty"`
+		Parameters         map[string]TrialComponentValue    `json:"Parameters,omitempty"`
+		InputArtifacts     map[string]TrialComponentArtifact `json:"InputArtifacts,omitempty"`
+		OutputArtifacts    map[string]TrialComponentArtifact `json:"OutputArtifacts,omitempty"`
+		TrialComponentName string                            `json:"TrialComponentName"`
+		DisplayName        string                            `json:"DisplayName,omitempty"`
+		Status             string                            `json:"Status,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -301,13 +301,13 @@ func (h *Handler) handleUpdateTrialComponent(ctx context.Context, body []byte) (
 
 func (h *Handler) handleCreatePipelineFull(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags                     []tagObject               `json:"Tags,omitempty"`
 		ParallelismConfiguration *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
 		PipelineName             string                    `json:"PipelineName"`
 		PipelineDefinition       string                    `json:"PipelineDefinition,omitempty"`
 		PipelineDisplayName      string                    `json:"PipelineDisplayName,omitempty"`
 		PipelineDescription      string                    `json:"PipelineDescription,omitempty"`
 		RoleArn                  string                    `json:"RoleArn,omitempty"`
+		Tags                     []tagObject               `json:"Tags,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -376,11 +376,11 @@ func (h *Handler) handleStartPipelineExecutionFull(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
-		PipelineParameters           []PipelineParameter       `json:"PipelineParameters,omitempty"`
 		ParallelismConfiguration     *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
 		PipelineName                 string                    `json:"PipelineName"`
 		PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
 		PipelineExecutionDescription string                    `json:"PipelineExecutionDescription,omitempty"`
+		PipelineParameters           []PipelineParameter       `json:"PipelineParameters,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -410,4 +410,38 @@ func (h *Handler) handleStartPipelineExecutionFull(
 	)
 
 	return json.Marshal(map[string]string{keyPipelineExecutionArn: pe.PipelineExecutionArn})
+}
+
+// ---------------------------------------------------------------------------
+// ListPipelineParametersForExecution — gap #25
+// ---------------------------------------------------------------------------
+
+func (h *Handler) handleListPipelineParametersForExecution(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
+	var req struct {
+		PipelineExecutionArn string `json:"PipelineExecutionArn"`
+		NextToken            string `json:"NextToken,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.PipelineExecutionArn == "" {
+		return nil, fmt.Errorf("%w: PipelineExecutionArn is required", errInvalidRequest)
+	}
+
+	pe, err := h.Backend.DescribePipelineExecution(req.PipelineExecutionArn)
+	if err != nil {
+		return nil, err
+	}
+
+	params := pe.PipelineParameters
+	if params == nil {
+		params = []PipelineParameter{}
+	}
+
+	return json.Marshal(map[string]any{"PipelineParameters": params})
 }

@@ -297,7 +297,7 @@ func stubOpsSupported() []string {
 		"ListMonitoringSchedules",
 		"ListOptimizationJobs",
 		"ListPartnerApps",
-		"ListPipelineParametersForExecution",
+		// ListPipelineParametersForExecution — real implementation in handler_accuracy2.go
 		"ListPipelineVersions",
 		"ListProjects",
 		"ListResourceCatalogs",
@@ -1036,8 +1036,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListPipelineExecutions":
 		return mustMarshal(m{"PipelineExecutionSummaries": []any{}}), true
 
-	case "ListPipelineParametersForExecution":
-		return mustMarshal(m{"PipelineParameters": []any{}}), true
 
 	case "ListPipelineVersions":
 		return mustMarshal(m{"PipelineVersionSummaries": []any{}}), true

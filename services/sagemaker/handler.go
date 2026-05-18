@@ -142,6 +142,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListNotebookInstanceLifecycleConfigs",
 		opListPipelineExecutions,
 		"ListPipelineExecutionSteps",
+		opListPipelineParametersForExec,
 		opListPipelines,
 		"ListProcessingJobs",
 		opListTrials,

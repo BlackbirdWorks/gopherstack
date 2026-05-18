@@ -32,17 +32,17 @@ type TransformDataSource struct {
 
 // TransformS3DataSource is the S3-specific input for a batch transform job.
 type TransformS3DataSource struct {
-	S3Uri         string `json:"S3Uri"`
-	S3DataType    string `json:"S3DataType,omitempty"`
+	S3Uri             string `json:"S3Uri"`
+	S3DataType        string `json:"S3DataType,omitempty"`
 	S3CompressionType string `json:"S3CompressionType,omitempty"`
 }
 
 // TransformInput specifies the input data location and format for a transform job.
 type TransformInput struct {
-	DataSource          TransformDataSource `json:"DataSource"`
-	ContentType         string             `json:"ContentType,omitempty"`
-	CompressionType     string             `json:"CompressionType,omitempty"`
-	SplitType           string             `json:"SplitType,omitempty"`
+	DataSource      TransformDataSource `json:"DataSource"`
+	ContentType     string              `json:"ContentType,omitempty"`
+	CompressionType string              `json:"CompressionType,omitempty"`
+	SplitType       string              `json:"SplitType,omitempty"`
 }
 
 // TransformOutput specifies where to store transform results.
@@ -62,24 +62,24 @@ type TransformResources struct {
 
 // TransformJob represents a SageMaker batch transform job.
 type TransformJob struct {
-	CreationTime         time.Time           `json:"CreationTime"`
-	LastModifiedTime     time.Time           `json:"LastModifiedTime"`
-	TransformStartTime   *time.Time          `json:"TransformStartTime,omitempty"`
-	TransformEndTime     *time.Time          `json:"TransformEndTime,omitempty"`
-	Tags                 map[string]string   `json:"Tags,omitempty"`
-	Environment          map[string]string   `json:"Environment,omitempty"`
-	TransformInput       TransformInput      `json:"TransformInput"`
-	TransformOutput      TransformOutput     `json:"TransformOutput"`
-	TransformResources   TransformResources  `json:"TransformResources"`
-	TransformJobName     string              `json:"TransformJobName"`
-	TransformJobArn      string              `json:"TransformJobArn"`
-	TransformJobStatus   string              `json:"TransformJobStatus"`
-	ModelName            string              `json:"ModelName,omitempty"`
-	RoleArn              string              `json:"RoleArn,omitempty"`
-	BatchStrategy        string              `json:"BatchStrategy,omitempty"`
-	FailureReason        string              `json:"FailureReason,omitempty"`
-	MaxConcurrentTransforms int32            `json:"MaxConcurrentTransforms,omitempty"`
-	MaxPayloadInMB       int32               `json:"MaxPayloadInMB,omitempty"`
+	CreationTime            time.Time          `json:"CreationTime"`
+	LastModifiedTime        time.Time          `json:"LastModifiedTime"`
+	TransformStartTime      *time.Time         `json:"TransformStartTime,omitempty"`
+	TransformEndTime        *time.Time         `json:"TransformEndTime,omitempty"`
+	Tags                    map[string]string  `json:"Tags,omitempty"`
+	Environment             map[string]string  `json:"Environment,omitempty"`
+	TransformInput          TransformInput     `json:"TransformInput"`
+	TransformOutput         TransformOutput    `json:"TransformOutput"`
+	ModelName               string             `json:"ModelName,omitempty"`
+	TransformJobName        string             `json:"TransformJobName"`
+	TransformJobArn         string             `json:"TransformJobArn"`
+	TransformJobStatus      string             `json:"TransformJobStatus"`
+	RoleArn                 string             `json:"RoleArn,omitempty"`
+	BatchStrategy           string             `json:"BatchStrategy,omitempty"`
+	FailureReason           string             `json:"FailureReason,omitempty"`
+	TransformResources      TransformResources `json:"TransformResources"`
+	MaxConcurrentTransforms int32              `json:"MaxConcurrentTransforms,omitempty"`
+	MaxPayloadInMB          int32              `json:"MaxPayloadInMB,omitempty"`
 }
 
 // cloneTransformJob returns a deep copy of tj.
@@ -97,11 +97,11 @@ type TransformJobOptions struct {
 	Environment             map[string]string
 	TransformInput          TransformInput
 	TransformOutput         TransformOutput
-	TransformResources      TransformResources
 	TransformJobName        string
 	ModelName               string
 	RoleArn                 string
 	BatchStrategy           string
+	TransformResources      TransformResources
 	MaxConcurrentTransforms int32
 	MaxPayloadInMB          int32
 }
@@ -259,6 +259,7 @@ func (b *InMemoryBackend) ListTransformJobs(
 			for i := 0; i+len(filter.NameContains) <= len(tj.TransformJobName); i++ {
 				if tj.TransformJobName[i:i+len(filter.NameContains)] == filter.NameContains {
 					matched = true
+
 					break
 				}
 			}
