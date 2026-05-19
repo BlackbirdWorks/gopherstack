@@ -411,7 +411,7 @@ func (h *Handler) iamServerCertDispatch() map[string]iamActionFn {
 
 // ----- SSH Public Keys and Signing Certificates -----
 
-//nolint:funlen // contains all operations for this IAM resource type
+//nolint:funlen,gocognit // contains all operations for this IAM resource type
 func (h *Handler) iamSSHSigningDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListSSHPublicKeys": func(vals url.Values, reqID string) (any, error) {
@@ -474,7 +474,11 @@ func (h *Handler) iamSSHSigningDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"UpdateSSHPublicKey": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.UpdateSSHPublicKey(vals.Get("UserName"), vals.Get("SSHPublicKeyId"), vals.Get("Status")); err != nil {
+			userName := vals.Get("UserName")
+			keyID := vals.Get("SSHPublicKeyId")
+			status := vals.Get("Status")
+
+			if err := h.Backend.UpdateSSHPublicKey(userName, keyID, status); err != nil {
 				return nil, err
 			}
 
@@ -746,12 +750,14 @@ func (h *Handler) iamDelegationDispatch() map[string]iamActionFn {
 
 func (h *Handler) iamOrgsReportDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"GenerateOrganizationsAccessReport": func(_ url.Values, reqID string) (any, error) {
+		"GenerateOrganizationsAccessReport": func(vals url.Values, reqID string) (any, error) {
+			jobID := h.Backend.GenerateOrganizationsAccessReport(vals.Get("EntityPath"))
+
 			return &generateOrganizationsAccessReportResponse{
 				XMLName: xml.Name{Local: "GenerateOrganizationsAccessReportResponse"},
 				Xmlns:   iamXMLNS,
 				GenerateOrganizationsAccessReportResult: generateOrgAccessReportResult{
-					JobID: "orgjob-" + reqID,
+					JobID: jobID,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -766,13 +772,20 @@ func (h *Handler) iamOrgsReportDispatch() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"GetOrganizationsAccessReport": func(_ url.Values, reqID string) (any, error) {
+		"GetOrganizationsAccessReport": func(vals url.Values, reqID string) (any, error) {
+			jobID := vals.Get("JobId")
+			status, createdAt, found := h.Backend.GetOrganizationsAccessReport(jobID)
+			if !found {
+				status = jobStatusCompleted
+				createdAt = time.Now()
+			}
+
 			return &getOrganizationsAccessReportResponse{
 				XMLName: xml.Name{Local: "GetOrganizationsAccessReportResponse"},
 				Xmlns:   iamXMLNS,
 				GetOrganizationsAccessReportResult: getOrgAccessReportResult{
-					JobStatus:                   jobStatusCompleted,
-					JobCreationDate:             isoTime(time.Now()),
+					JobStatus:                   status,
+					JobCreationDate:             isoTime(createdAt),
 					AccessDetails:               []string{},
 					IsTruncated:                 false,
 					NumberOfServicesAccessible:  0,

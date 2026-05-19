@@ -227,6 +227,10 @@ type StorageBackend interface {
 	GetServiceLastAccessedDetails(jobID string) (status string, details []ServiceLastAccessedDetail, err error)
 	RecordServiceAccess(entityARN, serviceNamespace, serviceName string)
 
+	// Organizations Access Report
+	GenerateOrganizationsAccessReport(entityPath string) string
+	GetOrganizationsAccessReport(jobID string) (status string, createdAt time.Time, found bool)
+
 	// Reset service-specific credential password
 	ResetServiceSpecificCredentialFull(userName, credentialID string) (*ServiceSpecificCredential, error)
 
@@ -343,8 +347,8 @@ type InMemoryBackend struct {
 	deletedV1Policies    map[string]bool // tracks policies where v1 has been explicitly deleted
 	serviceSpecificCreds map[string]ServiceSpecificCredential
 	virtualMFADevices    map[string]VirtualMFADevice
-	signingCertificates  map[string]SigningCertificate  // certID → SigningCertificate
-	serverCertificates   map[string]ServerCertificate   // name → ServerCertificate
+	signingCertificates  map[string]SigningCertificate // certID → SigningCertificate
+	serverCertificates   map[string]ServerCertificate  // name → ServerCertificate
 	passwordPolicy       *PasswordPolicy
 	users                map[string]User
 	comprehensive        *comprehensiveBackend

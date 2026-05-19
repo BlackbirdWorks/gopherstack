@@ -687,7 +687,7 @@ func (b *InMemoryBackend) UpdateServerCertificate(name, newName, newPath string)
 	}
 
 	if newName != "" && newName != name {
-		if _, exists := b.serverCertificates[newName]; exists {
+		if _, nameExists := b.serverCertificates[newName]; nameExists {
 			return fmt.Errorf("%w: server certificate %q already exists", ErrUserAlreadyExists, newName)
 		}
 
