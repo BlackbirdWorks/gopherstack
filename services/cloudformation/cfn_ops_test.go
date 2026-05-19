@@ -13,13 +13,13 @@ import (
 // extractField is a helper to extract a simple XML element value from a response body.
 func extractField(body, tag string) string {
 	open := "<" + tag + ">"
-	close := "</" + tag + ">"
+	closeTag := "</" + tag + ">"
 	start := strings.Index(body, open)
 	if start == -1 {
 		return ""
 	}
 	start += len(open)
-	end := strings.Index(body[start:], close)
+	end := strings.Index(body[start:], closeTag)
 	if end == -1 {
 		return ""
 	}
@@ -481,7 +481,9 @@ func TestCFN_Misc(t *testing.T) {
 	rec := postForm(t, h, url.Values{
 		"Action":       []string{"CreateStack"},
 		"StackName":    []string{"misc-test-stack"},
-		"TemplateBody": []string{`{"AWSTemplateFormatVersion":"2010-09-09","Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}}}}`},
+		"TemplateBody": []string{
+			`{"AWSTemplateFormatVersion":"2010-09-09","Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}}}}`,
+		},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 

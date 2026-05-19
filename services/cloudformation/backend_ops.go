@@ -46,7 +46,7 @@ func (b *InMemoryBackend) UpdateStackSet(name, templateBody string) (*StackSet, 
 	if templateBody != "" {
 		ss.TemplateBody = templateBody
 	}
-	b.recordStackSetOperation(name, "UPDATE", "SUCCEEDED")
+	b.recordStackSetOperation(name, "UPDATE")
 
 	return ss, nil
 }
@@ -106,7 +106,7 @@ func (b *InMemoryBackend) CreateStackInstances(stackSetName string, accounts, re
 			})
 		}
 	}
-	b.recordStackSetOperation(stackSetName, "CREATE_INSTANCES", "SUCCEEDED")
+	b.recordStackSetOperation(stackSetName, "CREATE_INSTANCES")
 
 	return nil
 }
@@ -130,7 +130,7 @@ func (b *InMemoryBackend) DeleteStackInstances(stackSetName string, accounts, re
 		}
 	}
 	b.stackInstances[stackSetName] = filtered
-	b.recordStackSetOperation(stackSetName, "DELETE_INSTANCES", "SUCCEEDED")
+	b.recordStackSetOperation(stackSetName, "DELETE_INSTANCES")
 
 	return nil
 }
@@ -141,7 +141,7 @@ func (b *InMemoryBackend) UpdateStackInstances(stackSetName string, _, _ []strin
 	if _, ok := b.stackSets[stackSetName]; !ok {
 		return ErrStackSetNotFound
 	}
-	b.recordStackSetOperation(stackSetName, "UPDATE_INSTANCES", "SUCCEEDED")
+	b.recordStackSetOperation(stackSetName, "UPDATE_INSTANCES")
 
 	return nil
 }
@@ -173,14 +173,14 @@ func (b *InMemoryBackend) DetectStackSetDrift(stackSetName string) (string, erro
 	if _, ok := b.stackSets[stackSetName]; !ok {
 		return "", ErrStackSetNotFound
 	}
-	opID := b.recordStackSetOperation(stackSetName, "DETECT_DRIFT", "SUCCEEDED")
+	opID := b.recordStackSetOperation(stackSetName, "DETECT_DRIFT")
 
 	return opID, nil
 }
 
 // recordStackSetOperation creates a StackSetOperation record and returns its ID.
 // Caller must hold b.mu.Lock.
-func (b *InMemoryBackend) recordStackSetOperation(stackSetName, action, status string) string {
+func (b *InMemoryBackend) recordStackSetOperation(stackSetName, action string) string {
 	opID := uuid.New().String()
 	if b.stackSetOperations[stackSetName] == nil {
 		b.stackSetOperations[stackSetName] = make(map[string]*StackSetOperation)
@@ -189,7 +189,7 @@ func (b *InMemoryBackend) recordStackSetOperation(stackSetName, action, status s
 		OperationID:  opID,
 		StackSetName: stackSetName,
 		Action:       action,
-		Status:       status,
+		Status:       "SUCCEEDED",
 		CreatedAt:    time.Now(),
 	}
 
@@ -285,7 +285,7 @@ func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, _ []string
 	if _, ok := b.stackSets[stackSetName]; !ok {
 		return ErrStackSetNotFound
 	}
-	b.recordStackSetOperation(stackSetName, "IMPORT", "SUCCEEDED")
+	b.recordStackSetOperation(stackSetName, "IMPORT")
 
 	return nil
 }

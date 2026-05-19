@@ -30,13 +30,13 @@ var (
 	ErrStackSetNotFound          = errors.New("stack set not found")
 	ErrStackSetAlreadyExists     = errors.New("stack set already exists")
 	ErrStackInstanceNotFound     = errors.New("stack instance not found")
-	ErrGeneratedTemplateNotFound    = errors.New("generated template not found")
-	ErrResourceScanNotFound         = errors.New("resource scan not found")
-	ErrOperationNotFound            = errors.New("operation not found in stack set")
-	ErrOperationNotRunning          = errors.New("operation is not in RUNNING state")
-	ErrTypeNotFound                 = errors.New("type not found")
-	ErrRegistrationTokenNotFound    = errors.New("registration token not found")
-	ErrPublisherNotFound            = errors.New("publisher not found")
+	ErrGeneratedTemplateNotFound = errors.New("generated template not found")
+	ErrResourceScanNotFound      = errors.New("resource scan not found")
+	ErrOperationNotFound         = errors.New("operation not found in stack set")
+	ErrOperationNotRunning       = errors.New("operation is not in RUNNING state")
+	ErrTypeNotFound              = errors.New("type not found")
+	ErrRegistrationTokenNotFound = errors.New("registration token not found")
+	ErrPublisherNotFound         = errors.New("publisher not found")
 )
 
 // StorageBackend defines the interface for the CloudFormation in-memory backend.
@@ -170,13 +170,13 @@ type InMemoryBackend struct {
 	stackRefactors      map[string]*StackRefactor          // refactorID → refactor
 	hookResults         map[string]*HookResult             // token → result
 	handlerProgress     map[string]string                  // bearerToken → status
-	signals             map[string][]SignalRecord           // stackName+logicalID → records
-	orgAccessEnabled    bool
+	signals             map[string][]SignalRecord // stackName+logicalID → records
 	creator             *ResourceCreator
 	resolver            DynamicRefResolver
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
+	orgAccessEnabled    bool
 }
 
 const (
