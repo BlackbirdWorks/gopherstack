@@ -16,13 +16,22 @@ import (
 )
 
 const (
-	keyRepositoryID   = "repositoryId"
-	keyRepositoryName = "repositoryName"
-	keyCreationDate   = "creationDate"
-	keyErrors         = "errors"
-	keyMessage        = "message"
-	keyCommitID       = "commitId"
-	keyTreeID         = "treeId"
+	keyRepositoryID     = "repositoryId"
+	keyRepositoryName   = "repositoryName"
+	keyCreationDate     = "creationDate"
+	keyErrors           = "errors"
+	keyMessage          = "message"
+	keyCommitID         = "commitId"
+	keyTreeID           = "treeId"
+	keyLastModifiedDate = "lastModifiedDate"
+	keyApprovalRuleTmpl = "approvalRuleTemplate"
+	keyPullRequest      = "pullRequest"
+	keyComment          = "comment"
+	keySourceCommitID   = "sourceCommitId"
+	keyDestCommitID     = "destinationCommitId"
+	keyBlobID           = "blobId"
+	keyFilePath         = "filePath"
+	prStatusMerged      = "MERGED"
 )
 
 const codecommitTargetPrefix = "CodeCommit_20150413."
@@ -73,69 +82,69 @@ func (h *Handler) buildOps() map[string]func([]byte) (any, error) {
 		"TagResource":                h.handleTagResource,
 		"UntagResource":              h.handleUntagResource,
 		"ListTagsForResource":        h.handleListTagsForResource,
-		// Stub ops for SDK completeness
-		"CreatePullRequestApprovalRule":                    h.handleStub,
-		"CreateUnreferencedMergeCommit":                    h.handleStub,
-		"DeleteApprovalRuleTemplate":                       h.handleStub,
+		// Implemented ops
+		"CreatePullRequestApprovalRule":                    h.handleCreatePullRequestApprovalRule,
+		"CreateUnreferencedMergeCommit":                    h.handleCreateUnreferencedMergeCommit,
+		"DeleteApprovalRuleTemplate":                       h.handleDeleteApprovalRuleTemplate,
 		"DeleteBranch":                                     h.handleDeleteBranch,
-		"DeleteCommentContent":                             h.handleStub,
-		"DeleteFile":                                       h.handleStub,
-		"DeletePullRequestApprovalRule":                    h.handleStub,
-		"DescribeMergeConflicts":                           h.handleStub,
-		"DescribePullRequestEvents":                        h.handleStub,
-		"DisassociateApprovalRuleTemplateFromRepository":   h.handleStub,
-		"EvaluatePullRequestApprovalRules":                 h.handleStub,
-		"GetApprovalRuleTemplate":                          h.handleStub,
-		"GetBlob":                                          h.handleStub,
+		"DeleteCommentContent":                             h.handleDeleteCommentContent,
+		"DeleteFile":                                       h.handleDeleteFile,
+		"DeletePullRequestApprovalRule":                    h.handleDeletePullRequestApprovalRule,
+		"DescribeMergeConflicts":                           h.handleDescribeMergeConflicts,
+		"DescribePullRequestEvents":                        h.handleDescribePullRequestEvents,
+		"DisassociateApprovalRuleTemplateFromRepository":   h.handleDisassociateApprovalRuleTemplateFromRepository,
+		"EvaluatePullRequestApprovalRules":                 h.handleEvaluatePullRequestApprovalRules,
+		"GetApprovalRuleTemplate":                          h.handleGetApprovalRuleTemplate,
+		"GetBlob":                                          h.handleGetBlob,
 		"GetBranch":                                        h.handleGetBranch,
-		"GetComment":                                       h.handleStub,
-		"GetCommentReactions":                              h.handleStub,
-		"GetCommentsForComparedCommit":                     h.handleStub,
-		"GetCommentsForPullRequest":                        h.handleStub,
+		"GetComment":                                       h.handleGetComment,
+		"GetCommentReactions":                              h.handleGetCommentReactions,
+		"GetCommentsForComparedCommit":                     h.handleGetCommentsForComparedCommit,
+		"GetCommentsForPullRequest":                        h.handleGetCommentsForPullRequest,
 		"GetCommit":                                        h.handleGetCommit,
-		"GetDifferences":                                   h.handleStub,
-		"GetFile":                                          h.handleStub,
-		"GetFolder":                                        h.handleStub,
-		"GetMergeCommit":                                   h.handleStub,
-		"GetMergeConflicts":                                h.handleStub,
-		"GetMergeOptions":                                  h.handleStub,
+		"GetDifferences":                                   h.handleGetDifferences,
+		"GetFile":                                          h.handleGetFile,
+		"GetFolder":                                        h.handleGetFolder,
+		"GetMergeCommit":                                   h.handleGetMergeCommit,
+		"GetMergeConflicts":                                h.handleGetMergeConflicts,
+		"GetMergeOptions":                                  h.handleGetMergeOptions,
 		"GetPullRequest":                                   h.handleGetPullRequest,
-		"GetPullRequestApprovalStates":                     h.handleStub,
-		"GetPullRequestOverrideState":                      h.handleStub,
-		"GetRepositoryTriggers":                            h.handleStub,
-		"ListApprovalRuleTemplates":                        h.handleStub,
-		"ListAssociatedApprovalRuleTemplatesForRepository": h.handleStub,
+		"GetPullRequestApprovalStates":                     h.handleGetPullRequestApprovalStates,
+		"GetPullRequestOverrideState":                      h.handleGetPullRequestOverrideState,
+		"GetRepositoryTriggers":                            h.handleGetRepositoryTriggers,
+		"ListApprovalRuleTemplates":                        h.handleListApprovalRuleTemplates,
+		"ListAssociatedApprovalRuleTemplatesForRepository": h.handleListAssociatedApprovalRuleTemplatesForRepository,
 		"ListBranches":                                     h.handleListBranches,
-		"ListFileCommitHistory":                            h.handleStub,
+		"ListFileCommitHistory":                            h.handleListFileCommitHistory,
 		"ListPullRequests":                                 h.handleListPullRequests,
-		"ListRepositoriesForApprovalRuleTemplate":          h.handleStub,
-		"MergeBranchesByFastForward":                       h.handleStub,
-		"MergeBranchesBySquash":                            h.handleStub,
-		"MergeBranchesByThreeWay":                          h.handleStub,
-		"MergePullRequestByFastForward":                    h.handleStub,
-		"MergePullRequestBySquash":                         h.handleStub,
-		"MergePullRequestByThreeWay":                       h.handleStub,
-		"OverridePullRequestApprovalRules":                 h.handleStub,
-		"PostCommentForComparedCommit":                     h.handleStub,
-		"PostCommentForPullRequest":                        h.handleStub,
-		"PostCommentReply":                                 h.handleStub,
-		"PutCommentReaction":                               h.handleStub,
-		"PutFile":                                          h.handleStub,
-		"PutRepositoryTriggers":                            h.handleStub,
-		"TestRepositoryTriggers":                           h.handleStub,
-		"UpdateApprovalRuleTemplateContent":                h.handleStub,
-		"UpdateApprovalRuleTemplateDescription":            h.handleStub,
-		"UpdateApprovalRuleTemplateName":                   h.handleStub,
-		"UpdateComment":                                    h.handleStub,
-		"UpdateDefaultBranch":                              h.handleStub,
-		"UpdatePullRequestApprovalRuleContent":             h.handleStub,
-		"UpdatePullRequestApprovalState":                   h.handleStub,
-		"UpdatePullRequestDescription":                     h.handleStub,
-		"UpdatePullRequestStatus":                          h.handleStub,
-		"UpdatePullRequestTitle":                           h.handleStub,
-		"UpdateRepositoryDescription":                      h.handleStub,
-		"UpdateRepositoryEncryptionKey":                    h.handleStub,
-		"UpdateRepositoryName":                             h.handleStub,
+		"ListRepositoriesForApprovalRuleTemplate":          h.handleListRepositoriesForApprovalRuleTemplate,
+		"MergeBranchesByFastForward":                       h.handleMergeBranchesByFastForward,
+		"MergeBranchesBySquash":                            h.handleMergeBranchesBySquash,
+		"MergeBranchesByThreeWay":                          h.handleMergeBranchesByThreeWay,
+		"MergePullRequestByFastForward":                    h.handleMergePullRequestByFastForward,
+		"MergePullRequestBySquash":                         h.handleMergePullRequestBySquash,
+		"MergePullRequestByThreeWay":                       h.handleMergePullRequestByThreeWay,
+		"OverridePullRequestApprovalRules":                 h.handleOverridePullRequestApprovalRules,
+		"PostCommentForComparedCommit":                     h.handlePostCommentForComparedCommit,
+		"PostCommentForPullRequest":                        h.handlePostCommentForPullRequest,
+		"PostCommentReply":                                 h.handlePostCommentReply,
+		"PutCommentReaction":                               h.handlePutCommentReaction,
+		"PutFile":                                          h.handlePutFile,
+		"PutRepositoryTriggers":                            h.handlePutRepositoryTriggers,
+		"TestRepositoryTriggers":                           h.handleTestRepositoryTriggers,
+		"UpdateApprovalRuleTemplateContent":                h.handleUpdateApprovalRuleTemplateContent,
+		"UpdateApprovalRuleTemplateDescription":            h.handleUpdateApprovalRuleTemplateDescription,
+		"UpdateApprovalRuleTemplateName":                   h.handleUpdateApprovalRuleTemplateName,
+		"UpdateComment":                                    h.handleUpdateComment,
+		"UpdateDefaultBranch":                              h.handleUpdateDefaultBranch,
+		"UpdatePullRequestApprovalRuleContent":             h.handleUpdatePullRequestApprovalRuleContent,
+		"UpdatePullRequestApprovalState":                   h.handleUpdatePullRequestApprovalState,
+		"UpdatePullRequestDescription":                     h.handleUpdatePullRequestDescription,
+		"UpdatePullRequestStatus":                          h.handleUpdatePullRequestStatus,
+		"UpdatePullRequestTitle":                           h.handleUpdatePullRequestTitle,
+		"UpdateRepositoryDescription":                      h.handleUpdateRepositoryDescription,
+		"UpdateRepositoryEncryptionKey":                    h.handleUpdateRepositoryEncryptionKey,
+		"UpdateRepositoryName":                             h.handleUpdateRepositoryName,
 	}
 }
 
@@ -380,14 +389,14 @@ type listTagsForResourceInput struct {
 
 func repoMetadata(r *Repository) map[string]any {
 	m := map[string]any{
-		keyRepositoryID:    r.RepositoryID,
-		keyRepositoryName:  r.RepositoryName,
-		"Arn":              r.ARN,
-		"accountId":        r.AccountID,
-		"cloneUrlHttp":     r.CloneURLHTTP,
-		"cloneUrlSsh":      r.CloneURLSSH,
-		keyCreationDate:    r.CreationDate.Unix(),
-		"lastModifiedDate": r.LastModifiedDate.Unix(),
+		keyRepositoryID:     r.RepositoryID,
+		keyRepositoryName:   r.RepositoryName,
+		"Arn":               r.ARN,
+		"accountId":         r.AccountID,
+		"cloneUrlHttp":      r.CloneURLHTTP,
+		"cloneUrlSsh":       r.CloneURLSSH,
+		keyCreationDate:     r.CreationDate.Unix(),
+		keyLastModifiedDate: r.LastModifiedDate.Unix(),
 	}
 	if r.Description != "" {
 		m["repositoryDescription"] = r.Description
@@ -597,7 +606,7 @@ func approvalRuleTemplateToMap(t *ApprovalRuleTemplate) map[string]any {
 		"approvalRuleTemplateContent":     t.ApprovalRuleTemplateContent,
 		"approvalRuleTemplateDescription": t.ApprovalRuleTemplateDescription,
 		keyCreationDate:                   t.CreationDate.Unix(),
-		"lastModifiedDate":                t.LastModifiedDate.Unix(),
+		keyLastModifiedDate:               t.LastModifiedDate.Unix(),
 		"ruleContentSha256":               t.RuleContentSha256,
 	}
 	if t.LastModifiedUser != "" {
@@ -631,7 +640,7 @@ func (h *Handler) handleCreateApprovalRuleTemplate(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"approvalRuleTemplate": approvalRuleTemplateToMap(t),
+		keyApprovalRuleTmpl: approvalRuleTemplateToMap(t),
 	}, nil
 }
 
@@ -773,10 +782,10 @@ func (h *Handler) handleBatchDescribeMergeConflicts(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"conflicts":           result.Conflicts,
-		"destinationCommitId": result.DestinationCommitID,
-		"sourceCommitId":      result.SourceCommitID,
-		keyErrors:             errs,
+		"conflicts":       result.Conflicts,
+		keyDestCommitID:   result.DestinationCommitID,
+		keySourceCommitID: result.SourceCommitID,
+		keyErrors:         errs,
 	}, nil
 }
 
@@ -976,13 +985,8 @@ func (h *Handler) handleCreatePullRequest(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"pullRequest": pullRequestToMap(pr),
+		keyPullRequest: pullRequestToMap(pr),
 	}, nil
-}
-
-// handleStub returns an empty JSON object for unimplemented operations.
-func (h *Handler) handleStub(_ []byte) (any, error) {
-	return map[string]any{}, nil
 }
 
 func (h *Handler) handleDeleteBranch(body []byte) (any, error) {
@@ -1093,7 +1097,7 @@ func (h *Handler) handleGetPullRequest(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"pullRequest": pullRequestToMap(pr),
+		keyPullRequest: pullRequestToMap(pr),
 	}, nil
 }
 

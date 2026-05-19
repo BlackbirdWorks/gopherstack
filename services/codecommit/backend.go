@@ -119,6 +119,8 @@ type Repository struct {
 	Region           string     `json:"-"`
 	CloneURLHTTP     string     `json:"cloneUrlHttp"`
 	CloneURLSSH      string     `json:"cloneUrlSsh"`
+	KmsKeyID         string     `json:"kmsKeyId,omitempty"`
+	DefaultBranch    string     `json:"defaultBranch,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for CodeCommit resources.
@@ -133,7 +135,25 @@ type InMemoryBackend struct {
 	// commits maps repositoryName -> commitId -> Commit
 	commits map[string]map[string]*Commit
 	// pullRequests maps pullRequestId -> PullRequest
-	pullRequests  map[string]*PullRequest
+	pullRequests map[string]*PullRequest
+	// prApprovals maps prID -> userARN -> approvalState
+	prApprovals map[string]map[string]string
+	// prApprovalRules maps prID -> ruleName -> rule
+	prApprovalRules map[string]map[string]*PullRequestApprovalRule
+	// prOverrides maps prID -> overridden
+	prOverrides map[string]bool
+	// prOverriders maps prID -> overrider ARN
+	prOverriders map[string]string
+	// prEvents maps prID -> events
+	prEvents map[string][]PullRequestEvent
+	// comments maps commentID -> Comment
+	comments map[string]*Comment
+	// commentReactions maps commentID -> reactions
+	commentReactions map[string][]Reaction
+	// files maps repoName -> filePath -> File
+	files map[string]map[string]*File
+	// triggers maps repoName -> triggers
+	triggers      map[string][]RepositoryTrigger
 	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
@@ -150,6 +170,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		branches:              make(map[string]map[string]*Branch),
 		commits:               make(map[string]map[string]*Commit),
 		pullRequests:          make(map[string]*PullRequest),
+		prApprovals:           make(map[string]map[string]string),
+		prApprovalRules:       make(map[string]map[string]*PullRequestApprovalRule),
+		prOverrides:           make(map[string]bool),
+		prOverriders:          make(map[string]string),
+		prEvents:              make(map[string][]PullRequestEvent),
+		comments:              make(map[string]*Comment),
+		commentReactions:      make(map[string][]Reaction),
+		files:                 make(map[string]map[string]*File),
+		triggers:              make(map[string][]RepositoryTrigger),
 		accountID:             accountID,
 		region:                region,
 		mu:                    lockmetrics.New("codecommit"),
@@ -172,6 +201,15 @@ func (b *InMemoryBackend) Reset() {
 	b.branches = make(map[string]map[string]*Branch)
 	b.commits = make(map[string]map[string]*Commit)
 	b.pullRequests = make(map[string]*PullRequest)
+	b.prApprovals = make(map[string]map[string]string)
+	b.prApprovalRules = make(map[string]map[string]*PullRequestApprovalRule)
+	b.prOverrides = make(map[string]bool)
+	b.prOverriders = make(map[string]string)
+	b.prEvents = make(map[string][]PullRequestEvent)
+	b.comments = make(map[string]*Comment)
+	b.commentReactions = make(map[string][]Reaction)
+	b.files = make(map[string]map[string]*File)
+	b.triggers = make(map[string][]RepositoryTrigger)
 	b.nextPRCounter = 0
 }
 
