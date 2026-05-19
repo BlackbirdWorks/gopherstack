@@ -261,32 +261,32 @@ type InMemoryBackend struct {
 	imageAttributes               map[string]map[string]string
 	vgwRoutePropagation           map[string]bool
 	// batch3 additions
-	instanceConnectEndpoints map[string]*InstanceConnectEndpoint
-	instanceEventWindows     map[string]*InstanceEventWindow
-	imageImportTasks         map[string]*ImageImportTask
-	snapshotImportTasks      map[string]*SnapshotImportTask
-	recycleBinImages         map[string]*RecycleBinImage
-	recycleBinSnapshots      map[string]*Snapshot
-	recycleBinVolumes        map[string]*RecycleBinVolume
-	fastLaunchImages         map[string]bool
-	fastSnapshotRestores     map[string]bool
-	vpnConnectionRoutes      map[string]*VpnConnectionRoute
-	spotDatafeed             *SpotDatafeed
-	mu                       *lockmetrics.RWMutex
-	eniIDByAttachment             map[string]string
-	eniIDsByInstance              map[string]map[string]struct{}
-	instanceIDsByVPC              map[string]map[string]struct{}
-	snapshotBlockPublicAccess     string
-	ebsDefaultKmsKeyID            string
-	imageBlockPublicAccess        string
-	defaultCreditSpec             string
-	Region                        string
-	AccountID                     string
-	freePrivateIPs                []string
-	nextPrivateIPIndex            int
-	nextElasticIPIndex            int
-	ebsEncryptionByDefault        bool
-	serialConsoleAccess           bool
+	instanceConnectEndpoints  map[string]*InstanceConnectEndpoint
+	instanceEventWindows      map[string]*InstanceEventWindow
+	imageImportTasks          map[string]*ImageImportTask
+	snapshotImportTasks       map[string]*SnapshotImportTask
+	recycleBinImages          map[string]*RecycleBinImage
+	recycleBinSnapshots       map[string]*Snapshot
+	recycleBinVolumes         map[string]*RecycleBinVolume
+	fastLaunchImages          map[string]bool
+	fastSnapshotRestores      map[string]bool
+	vpnConnectionRoutes       map[string]*VpnConnectionRoute
+	spotDatafeed              *SpotDatafeed
+	mu                        *lockmetrics.RWMutex
+	eniIDByAttachment         map[string]string
+	eniIDsByInstance          map[string]map[string]struct{}
+	instanceIDsByVPC          map[string]map[string]struct{}
+	snapshotBlockPublicAccess string
+	ebsDefaultKmsKeyID        string
+	imageBlockPublicAccess    string
+	defaultCreditSpec         string
+	Region                    string
+	AccountID                 string
+	freePrivateIPs            []string
+	nextPrivateIPIndex        int
+	nextElasticIPIndex        int
+	ebsEncryptionByDefault    bool
+	serialConsoleAccess       bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.

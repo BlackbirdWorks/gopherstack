@@ -864,11 +864,18 @@ type Backend interface {
 
 	// ---- batch3 ----
 
-	CreateCapacityReservation(instanceType, availabilityZone string, instanceCount int) (*CapacityReservation, error)
+	CreateCapacityReservation(
+		instanceType, availabilityZone string,
+		instanceCount int,
+	) (*CapacityReservation, error)
 	CancelCapacityReservation(reservationID string) error
 	ModifyCapacityReservation(reservationID string, instanceCount int) error
 	GetGroupsForCapacityReservation(reservationID string) ([]string, error)
-	CreateInstanceConnectEndpoint(subnetID string, securityGroupIDs []string, preserveClientIP bool) (*InstanceConnectEndpoint, error)
+	CreateInstanceConnectEndpoint(
+		subnetID string,
+		securityGroupIDs []string,
+		preserveClientIP bool,
+	) (*InstanceConnectEndpoint, error)
 	DeleteInstanceConnectEndpoint(id string) error
 	DescribeInstanceConnectEndpoints(ids []string) []*InstanceConnectEndpoint
 	ModifyInstanceConnectEndpoint(id string, preserveClientIP bool) error

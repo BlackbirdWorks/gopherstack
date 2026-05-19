@@ -4886,14 +4886,6 @@ func (h *Handler) handleStubRequestSpotFleet(_ url.Values, reqID string) (any, e
 	}, nil
 }
 
-func (h *Handler) handleStubResetEbsDefaultKmsKeyID(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ResetEbsDefaultKmsKeyIdResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubResetFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ResetFpgaImageAttributeResponse"},

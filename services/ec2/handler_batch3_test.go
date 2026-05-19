@@ -210,16 +210,16 @@ func TestBatch3_SnapshotRecycleBin(t *testing.T) {
 	})
 }
 
-//nolint:tparallel,paralleltest // subtests share sequential state
 func TestBatch3_RestoreSnapshotTier(t *testing.T) {
 	t.Parallel()
-	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-
-	vol, _ := b.CreateVolume("us-east-1a", "gp2", 10)
-	snap, _ := b.CreateSnapshot(vol.ID, "tier test")
-	_ = b.ModifySnapshotTier(snap.SnapshotID, "archive")
 
 	t.Run("restore from archive to standard", func(t *testing.T) {
+		t.Parallel()
+		b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+		vol, _ := b.CreateVolume("us-east-1a", "gp2", 10)
+		snap, _ := b.CreateSnapshot(vol.ID, "tier test")
+		_ = b.ModifySnapshotTier(snap.SnapshotID, "archive")
+
 		require.NoError(t, b.RestoreSnapshotTier(snap.SnapshotID))
 		items := b.DescribeSnapshotTierStatus([]string{snap.SnapshotID})
 		require.Len(t, items, 1)

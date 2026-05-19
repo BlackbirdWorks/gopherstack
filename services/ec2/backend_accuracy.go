@@ -30,9 +30,11 @@ const (
 	attrEBSOptimized                      = "ebsOptimized"
 	attrInstanceInitiatedShutdownBehavior = "instanceInitiatedShutdownBehavior"
 
-	instanceTypeT3Micro = "t3.micro"
-	instanceTypeT3Small = "t3.small"
-	instanceTypeC5XL    = "c5.xlarge"
+	instanceTypeT3Micro  = "t3.micro"
+	instanceTypeT3Small  = "t3.small"
+	instanceTypeT3Medium = "t3.medium"
+	instanceTypeM5Xlarge = "m5.xlarge"
+	instanceTypeC5XL     = "c5.xlarge"
 
 	// spotPriceHashModulus is the hash modulus used to produce a 0–0.40 spread in
 	// deterministicSpotPrice; combined with spotPriceDivisor it yields a 0.30–0.70 ratio.
@@ -137,12 +139,12 @@ var spotPriceBaseTable = map[string]float64{
 	"t2.large":                   0.0928,
 	instanceTypeT3Micro:          0.0104,
 	instanceTypeT3Small:          0.0208,
-	"t3.medium":                  0.0416,
+	instanceTypeT3Medium:         0.0416,
 	"t3.large":                   0.0832,
 	"t3.xlarge":                  0.1664,
 	"t3.2xlarge":                 0.3328,
 	spotFleetDefaultInstanceType: 0.096,
-	"m5.xlarge":                  0.192,
+	instanceTypeM5Xlarge:         0.192,
 	"m5.2xlarge":                 0.384,
 	"m5.4xlarge":                 0.768,
 	"c5.large":                   0.085,

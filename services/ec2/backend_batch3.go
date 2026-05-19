@@ -785,8 +785,8 @@ func (b *InMemoryBackend) GetConsoleScreenshot(instanceID string) (string, error
 // matching the given requirements (simplified mock).
 func (b *InMemoryBackend) GetInstanceTypesFromInstanceRequirements() []string {
 	return []string{
-		instanceTypeT3Micro, "t3.small", "t3.medium", "m5.large", //nolint:goconst // static instance type list
-		"m5.xlarge", //nolint:goconst // static instance type list
+		instanceTypeT3Micro, instanceTypeT3Small, instanceTypeT3Medium, "m5.large",
+		instanceTypeM5Xlarge,
 	}
 }
 
