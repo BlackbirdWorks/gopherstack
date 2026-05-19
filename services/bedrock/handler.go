@@ -36,11 +36,23 @@ const (
 	marketplaceEndpointsPrefix   = "/marketplace-model/endpoints"
 	loggingConfigPath            = "/logging/modelinvocations"
 
-	// Stub response key constants.
-	keyJobArn          = "jobArn"
-	keyStatus          = "status"
-	keyDeploymentArn   = "deploymentArn"
-	jobStatusCompleted = "Completed"
+	// Response key constants.
+	keyJobArn                   = "jobArn"
+	keyStatus                   = "status"
+	keyDeploymentArn            = "deploymentArn"
+	keyJobName                  = "jobName"
+	keyCreationTime             = "creationTime"
+	keyLastModifiedTime         = "lastModifiedTime"
+	keyPolicyArn                = "policyArn"
+	keyBuildWorkflowID          = "buildWorkflowId"
+	keyCreatedAt                = "createdAt"
+	jobStatusCompleted          = "Completed"
+	keyTestCaseID               = "testCaseId"
+	keyName                     = "name"
+	keyUpdatedAt                = "updatedAt"
+	keyModelArn                 = "modelArn"
+	keyPromptRouterArn          = "promptRouterArn"
+	keyCustomModelDeploymentArn = "customModelDeploymentArn"
 
 	// Stub operation paths.
 	modelCopyJobsPrefix           = "/model-copy-jobs"
@@ -161,7 +173,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateGuardrail",
 		"UpdateMarketplaceModelEndpoint",
 		"UpdateProvisionedModelThroughput",
-		// Stub operations.
+		// Batch 2: real stateful ops implemented in this release.
 		"CreateModelCopyJob",
 		"CreateModelImportJob",
 		"CreateModelInvocationJob",
@@ -664,12 +676,12 @@ func (h *Handler) handleGetModelCopyJob(c *echo.Context, jobARN string) error {
 
 func modelCopyJobToOutput(j *ModelCopyJob) map[string]any {
 	out := map[string]any{
-		keyJobArn:          j.JobArn,
-		"sourceModelArn":   j.SourceModelArn,
-		"targetModelArn":   j.TargetModelArn,
-		keyStatus:          j.Status,
-		"creationTime":     j.CreationTime.Format(time.RFC3339),
-		"lastModifiedTime": j.LastModifiedTime.Format(time.RFC3339),
+		keyJobArn:           j.JobArn,
+		"sourceModelArn":    j.SourceModelArn,
+		"targetModelArn":    j.TargetModelArn,
+		keyStatus:           j.Status,
+		keyCreationTime:     j.CreationTime.Format(time.RFC3339),
+		keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
 	}
 
 	if j.FailureMessage != "" {
@@ -730,12 +742,12 @@ func (h *Handler) handleGetModelImportJob(c *echo.Context, jobARN string) error 
 
 func modelImportJobToOutput(j *ModelImportJob) map[string]any {
 	out := map[string]any{
-		keyJobArn:          j.JobArn,
-		"jobName":          j.JobName,
-		"importedModelArn": j.ImportedModelArn,
-		keyStatus:          j.Status,
-		"creationTime":     j.CreationTime.Format(time.RFC3339),
-		"lastModifiedTime": j.LastModifiedTime.Format(time.RFC3339),
+		keyJobArn:           j.JobArn,
+		keyJobName:          j.JobName,
+		"importedModelArn":  j.ImportedModelArn,
+		keyStatus:           j.Status,
+		keyCreationTime:     j.CreationTime.Format(time.RFC3339),
+		keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
 	}
 
 	if j.EndTime != nil {
@@ -749,18 +761,21 @@ func modelImportJobToOutput(j *ModelImportJob) map[string]any {
 	return out
 }
 
-// routeStubInvocationOps handles model invocation job stubs.
+// routeStubInvocationOps handles model invocation job operations.
 func (h *Handler) routeStubInvocationOps(c *echo.Context, path, method string) (bool, error) {
 	switch {
 	case path == modelInvocationJobsPrefix && method == http.MethodPost:
-		return true, c.JSON(http.StatusCreated,
-			map[string]any{keyJobArn: "arn:aws:bedrock:us-east-1:000000000000:model-invocation-job/stub"})
+		return true, h.handleCreateModelInvocationJob(c)
 	case path == modelInvocationJobsPrefix && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"invocationJobSummaries": []any{}})
+		return true, h.handleListModelInvocationJobs(c)
 	case strings.HasPrefix(path, modelInvocationJobsPrefix+"/") && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{keyJobArn: path, keyStatus: jobStatusCompleted})
+		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, modelInvocationJobsPrefix+"/"))
+
+		return true, h.handleGetModelInvocationJob(c, jobARN)
 	case strings.HasPrefix(path, modelInvocationJobsPrefix+"/") && method == http.MethodDelete:
-		return true, c.NoContent(http.StatusNoContent)
+		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, modelInvocationJobsPrefix+"/"))
+
+		return true, h.handleStopModelInvocationJob(c, jobARN)
 	}
 
 	return false, nil
@@ -775,39 +790,48 @@ func (h *Handler) routeStubModelOps(c *echo.Context, path, method string) (bool,
 	return h.routeStubFoundationModelOps(c, path, method)
 }
 
-// routeStubPromptRouterOps handles prompt router and imported model stubs.
+// routeStubPromptRouterOps handles prompt router and imported model operations.
 func (h *Handler) routeStubPromptRouterOps(c *echo.Context, path, method string) (bool, error) {
 	switch {
 	case path == promptRoutersPrefix && method == http.MethodPost:
-		return true, c.JSON(http.StatusCreated,
-			map[string]any{"promptRouterArn": "arn:aws:bedrock:us-east-1:000000000000:prompt-router/stub"})
+		return true, h.handleCreatePromptRouter(c)
 	case path == promptRoutersPrefix && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"promptRouters": []any{}})
+		return true, h.handleListPromptRouters(c)
 	case strings.HasPrefix(path, promptRoutersPrefix+"/") && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"promptRouterArn": path})
+		routerARN, _ := url.PathUnescape(strings.TrimPrefix(path, promptRoutersPrefix+"/"))
+
+		return true, h.handleGetPromptRouter(c, routerARN)
 	case strings.HasPrefix(path, promptRoutersPrefix+"/") && method == http.MethodDelete:
-		return true, c.NoContent(http.StatusNoContent)
+		routerARN, _ := url.PathUnescape(strings.TrimPrefix(path, promptRoutersPrefix+"/"))
+
+		return true, h.handleDeletePromptRouter(c, routerARN)
 	case path == importedModelsPrefix && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"modelSummaries": []any{}})
+		return true, h.handleListImportedModels(c)
 	case strings.HasPrefix(path, importedModelsPrefix+"/") && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"modelArn": path})
+		modelARN, _ := url.PathUnescape(strings.TrimPrefix(path, importedModelsPrefix+"/"))
+
+		return true, h.handleGetImportedModel(c, modelARN)
 	case strings.HasPrefix(path, importedModelsPrefix+"/") && method == http.MethodDelete:
-		return true, c.NoContent(http.StatusNoContent)
+		modelARN, _ := url.PathUnescape(strings.TrimPrefix(path, importedModelsPrefix+"/"))
+
+		return true, h.handleDeleteImportedModel(c, modelARN)
 	}
 
 	return false, nil
 }
 
-// routeStubFoundationModelOps handles foundation model availability and agreement stubs.
+// routeStubFoundationModelOps handles foundation model availability and agreement operations.
 func (h *Handler) routeStubFoundationModelOps(c *echo.Context, path, method string) (bool, error) {
 	switch {
 	case strings.HasPrefix(path, foundationModelAvailPath+"/") && method == http.MethodGet:
 		return true, c.JSON(http.StatusOK,
-			map[string]any{"agreementAvailability": map[string]string{"status": "AVAILABLE"}})
+			map[string]any{"agreementAvailability": map[string]string{keyStatus: "AVAILABLE"}})
 	case path == foundationModelAgreementsPath && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"modelAgreementOffers": []any{}})
+		return true, h.handleListFoundationModelAgreementOffers(c)
 	case strings.HasPrefix(path, "/delete-foundation-model-agreement") && method == http.MethodDelete:
-		return true, c.NoContent(http.StatusNoContent)
+		modelID := strings.TrimPrefix(path, "/delete-foundation-model-agreement/")
+
+		return true, h.handleDeleteFoundationModelAgreement(c, modelID)
 	}
 
 	return false, nil
@@ -822,38 +846,41 @@ func (h *Handler) routeStubMiscOps(c *echo.Context, path, method string) (bool, 
 	return h.routeStubAccessOps(c, path, method)
 }
 
-// routeStubDeploymentOps handles custom model deployment stubs.
+// routeStubDeploymentOps handles custom model deployment operations.
 func (h *Handler) routeStubDeploymentOps(c *echo.Context, path, method string) (bool, error) {
 	switch {
 	case path == customModelDeployments2Path && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"deploymentSummaries": []any{}})
+		return true, h.handleListCustomModelDeployments(c)
 	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{keyDeploymentArn: path})
-	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodPost:
-		return true, c.JSON(http.StatusCreated,
-			map[string]any{keyDeploymentArn: "arn:aws:bedrock:us-east-1:000000000000:custom-model-deployment/stub"})
+		deployARN, _ := url.PathUnescape(strings.TrimPrefix(path, customModelDeployments2Path+"/"))
+
+		return true, h.handleGetCustomModelDeployment(c, deployARN)
 	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodPatch:
-		return true, c.JSON(http.StatusOK, map[string]any{keyDeploymentArn: path})
+		deployARN, _ := url.PathUnescape(strings.TrimPrefix(path, customModelDeployments2Path+"/"))
+
+		return true, h.handleUpdateCustomModelDeployment(c, deployARN)
 	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodDelete:
-		return true, c.NoContent(http.StatusNoContent)
+		deployARN, _ := url.PathUnescape(strings.TrimPrefix(path, customModelDeployments2Path+"/"))
+
+		return true, h.handleDeleteCustomModelDeployment(c, deployARN)
 	}
 
 	return false, nil
 }
 
-// routeStubAccessOps handles use case for model access and enforced guardrail stubs.
+// routeStubAccessOps handles use case for model access and enforced guardrail operations.
 func (h *Handler) routeStubAccessOps(c *echo.Context, path, method string) (bool, error) {
 	switch {
 	case path == useCaseForModelAccessPath && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"useCaseType": "", "useCaseDescription": ""})
+		return true, h.handleGetUseCaseForModelAccess(c)
 	case path == useCaseForModelAccessPath && method == http.MethodPut:
-		return true, c.NoContent(http.StatusNoContent)
+		return true, h.handlePutUseCaseForModelAccess(c)
 	case path == enforcedGuardrailsPath && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"enforcedGuardrailConfigurations": []any{}})
+		return true, h.handleListEnforcedGuardrailsConfiguration(c)
 	case path == enforcedGuardrailsPath && method == http.MethodPut:
-		return true, c.NoContent(http.StatusNoContent)
+		return true, h.handlePutEnforcedGuardrailConfiguration(c)
 	case path == enforcedGuardrailsPath && method == http.MethodDelete:
-		return true, c.NoContent(http.StatusNoContent)
+		return true, h.handleDeleteEnforcedGuardrailConfiguration(c)
 	}
 
 	return false, nil
@@ -939,28 +966,147 @@ func (h *Handler) routeEvaluationJob(
 		return true, h.handleBatchDeleteEvaluationJob(c, body)
 	case path == evaluationJobsPrefix && method == http.MethodPost:
 		return true, h.handleCreateEvaluationJob(c, body)
+	case path == evaluationJobsPrefix && method == http.MethodGet:
+		return true, h.handleListEvaluationJobs(c)
+	case strings.HasPrefix(path, evaluationJobsPrefix+"/") && method == http.MethodGet:
+		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, evaluationJobsPrefix+"/"))
+
+		return true, h.handleGetEvaluationJob(c, jobARN)
+	case strings.HasPrefix(path, evaluationJobsPrefix+"/") && method == http.MethodDelete:
+		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, evaluationJobsPrefix+"/"))
+
+		return true, h.handleStopEvaluationJob(c, jobARN)
 	default:
 		return false, nil
 	}
 }
 
 func (h *Handler) routeARP(c *echo.Context, path, method string, body []byte) (bool, error) {
-	if method != http.MethodPost {
+	if !strings.HasPrefix(path, automatedReasoningPrefix) {
 		return false, nil
 	}
 
-	switch {
-	case path == automatedReasoningPrefix:
+	if path == automatedReasoningPrefix {
+		return h.routeARPRoot(c, method, body)
+	}
+
+	if ok, err := h.routeARPBuildWorkflow(c, path, method); ok {
+		return true, err
+	}
+
+	if ok, err := h.routeARPTestCase(c, path, method); ok {
+		return true, err
+	}
+
+	if ok, err := h.routeARPVersionAnnotation(c, path, method, body); ok {
+		return true, err
+	}
+
+	return h.routeARPSingleItem(c, path, method, body)
+}
+
+func (h *Handler) routeARPRoot(c *echo.Context, method string, body []byte) (bool, error) {
+	switch method {
+	case http.MethodPost:
 		return true, h.handleCreateAutomatedReasoningPolicy(c, body)
-	case isARPBuildWorkflowCancelPath(path):
+	case http.MethodGet:
+		return true, h.handleListAutomatedReasoningPolicies(c)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) routeARPBuildWorkflow(c *echo.Context, path, method string) (bool, error) {
+	switch {
+	case isARPBuildWorkflowCancelPath(path) && method == http.MethodPost:
 		return true, h.handleCancelAutomatedReasoningPolicyBuildWorkflow(c, path)
-	case isARPTestCasesPath(path):
+	case isARPBuildWorkflowResultAssetsPath(path) && method == http.MethodGet:
+		return true, h.handleGetARPBuildWorkflowResultAssets(c, path)
+	case isARPBuildWorkflowSubPath(path) && method == http.MethodGet:
+		return true, h.handleGetARPBuildWorkflow(c, path)
+	case isARPBuildWorkflowSubPath(path) && method == http.MethodDelete:
+		return true, h.handleDeleteARPBuildWorkflow(c, path)
+	case isARPBuildWorkflowsPath(path) && method == http.MethodPost:
+		return true, h.handleStartARPBuildWorkflow(c, path)
+	case isARPBuildWorkflowsPath(path) && method == http.MethodGet:
+		return true, h.handleListARPBuildWorkflows(c, path)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) routeARPTestCase(c *echo.Context, path, method string) (bool, error) {
+	if ok, err := h.routeARPTestCaseCreate(c, path, method); ok {
+		return true, err
+	}
+
+	return h.routeARPTestCaseItem(c, path, method)
+}
+
+func (h *Handler) routeARPTestCaseCreate(c *echo.Context, path, method string) (bool, error) {
+	switch {
+	case isARPTestCasesPath(path) && method == http.MethodPost:
 		return true, h.handleCreateAutomatedReasoningPolicyTestCase(c, path)
-	case isARPVersionsPath(path):
+	case isARPTestCasesPath(path) && method == http.MethodGet:
+		return true, h.handleListARPTestCases(c, path)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) routeARPTestCaseItem(c *echo.Context, path, method string) (bool, error) {
+	switch {
+	case isARPTestCasesResultsPath(path) && method == http.MethodGet:
+		return true, h.handleListARPTestResults(c, path)
+	case isARPTestCaseRunPath(path) && method == http.MethodPost:
+		return true, h.handleStartARPTestWorkflow(c, path)
+	case isARPTestCaseResultPath(path) && method == http.MethodGet:
+		return true, h.handleGetARPTestResult(c, path)
+	case isARPTestCaseSubPath(path) && method == http.MethodGet:
+		return true, h.handleGetARPTestCase(c, path)
+	case isARPTestCaseSubPath(path) && method == http.MethodPut:
+		return true, h.handleUpdateARPTestCase(c, path)
+	case isARPTestCaseSubPath(path) && method == http.MethodDelete:
+		return true, h.handleDeleteARPTestCase(c, path)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) routeARPVersionAnnotation(c *echo.Context, path, method string, body []byte) (bool, error) {
+	switch {
+	case isARPVersionsPath(path) && method == http.MethodPost:
 		return true, h.handleCreateAutomatedReasoningPolicyVersion(c, path, body)
-	default:
+	case isARPVersionExportPath(path) && method == http.MethodPost:
+		return true, h.handleExportARPVersion(c, path)
+	case isARPAnnotationsPath(path) && method == http.MethodGet:
+		return true, h.handleGetARPAnnotations(c, path)
+	case isARPAnnotationsPath(path) && method == http.MethodPut:
+		return true, h.handleUpdateARPAnnotations(c, path)
+	case isARPNextScenarioPath(path) && method == http.MethodGet:
+		return true, h.handleGetARPNextScenario(c, path)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) routeARPSingleItem(c *echo.Context, path, method string, body []byte) (bool, error) {
+	if !strings.HasPrefix(path, automatedReasoningPrefix+"/") {
 		return false, nil
 	}
+
+	policyARN := decodePath(strings.TrimPrefix(path, automatedReasoningPrefix+"/"))
+
+	switch method {
+	case http.MethodGet:
+		return true, h.handleGetAutomatedReasoningPolicy(c, policyARN)
+	case http.MethodPut:
+		return true, h.handleUpdateAutomatedReasoningPolicy(c, policyARN, body)
+	case http.MethodDelete:
+		return true, h.handleDeleteAutomatedReasoningPolicy(c, policyARN)
+	}
+
+	return false, nil
 }
 
 func (h *Handler) routeCustomModel(
@@ -1603,8 +1749,8 @@ func (h *Handler) handleCreateAutomatedReasoningPolicyTestCase(c *echo.Context, 
 	}
 
 	return c.JSON(http.StatusCreated, map[string]string{
-		"policyArn":  tc.PolicyArn,
-		"testCaseId": tc.TestCaseID,
+		"policyArn":   tc.PolicyArn,
+		keyTestCaseID: tc.TestCaseID,
 	})
 }
 
@@ -1640,7 +1786,7 @@ func (h *Handler) handleCreateAutomatedReasoningPolicyVersion(
 
 	return c.JSON(http.StatusCreated, map[string]any{
 		"policyArn":      version.PolicyArn,
-		"name":           version.Name,
+		keyName:          version.Name,
 		"definitionHash": version.DefinitionHash,
 		"version":        version.Version,
 		"createdAt":      isoTime{version.CreatedAt},
