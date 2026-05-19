@@ -15,12 +15,12 @@ func newR1Backend() *shield.InMemoryBackend {
 	return shield.NewInMemoryBackend("000000000000", "us-east-1")
 }
 
-// TestRefinement1_HandlerOpsLen verifies 36 operations are supported.
+// TestRefinement1_HandlerOpsLen verifies 37 operations are supported.
 func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := shield.NewHandler(newR1Backend())
-	assert.Equal(t, 36, shield.HandlerOpsLen(h))
+	assert.Equal(t, 37, shield.HandlerOpsLen(h))
 }
 
 // TestRefinement1_AccountID verifies AccountID returns the configured value.
@@ -55,7 +55,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := newR1Backend()
-	b.AddProtectionInternal("my-prot", "arn:aws:ec2:us-east-1::instance/i-123")
+	b.AddProtectionInternal("my-prot", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-123")
 	assert.Equal(t, 1, shield.ProtectionCount(b))
 
 	b.Reset()
@@ -68,7 +68,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 
 	b := newR1Backend()
 	h := shield.NewHandler(b)
-	b.AddProtectionInternal("my-prot", "arn:aws:ec2:us-east-1::instance/i-123")
+	b.AddProtectionInternal("my-prot", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-123")
 
 	h.Reset()
 	assert.Equal(t, 0, shield.ProtectionCount(b))
@@ -86,7 +86,7 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	b := newR1Backend()
-	b.AddProtectionInternal("prot-1", "arn:aws:ec2:us-east-1::instance/i-111")
+	b.AddProtectionInternal("prot-1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-111")
 	require.NoError(t, b.CreateSubscription())
 
 	snap := b.Snapshot()
@@ -107,7 +107,7 @@ func TestRefinement1_AddProtectionInternal(t *testing.T) {
 	t.Parallel()
 
 	b := newR1Backend()
-	p := b.AddProtectionInternal("my-prot", "arn:aws:ec2:us-east-1::instance/i-123")
+	p := b.AddProtectionInternal("my-prot", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-123")
 
 	require.NotNil(t, p)
 	assert.Equal(t, "my-prot", p.Name)
@@ -162,7 +162,7 @@ func TestRefinement1_CreateProtectionRequiresSubscription(t *testing.T) {
 	t.Parallel()
 
 	b := newR1Backend()
-	_, err := b.CreateProtection("prot", "arn:aws:ec2:us-east-1::instance/i-1", nil)
+	_, err := b.CreateProtection("prot", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1", nil)
 	require.Error(t, err)
 }
 
@@ -183,28 +183,28 @@ func TestRefinement1_CreateProtection(t *testing.T) {
 				require.NoError(t, b.CreateSubscription())
 			},
 			protName:    "my-prot",
-			resourceARN: "arn:aws:ec2:us-east-1::instance/i-1",
+			resourceARN: "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1",
 		},
 		{
 			name: "duplicate_name",
 			setup: func(b *shield.InMemoryBackend) {
 				require.NoError(t, b.CreateSubscription())
-				_, err := b.CreateProtection("my-prot", "arn:aws:ec2:us-east-1::instance/i-1", nil)
+				_, err := b.CreateProtection("my-prot", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1", nil)
 				require.NoError(t, err)
 			},
 			protName:    "my-prot",
-			resourceARN: "arn:aws:ec2:us-east-1::instance/i-2",
+			resourceARN: "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-2",
 			wantErr:     true,
 		},
 		{
 			name: "duplicate_resource",
 			setup: func(b *shield.InMemoryBackend) {
 				require.NoError(t, b.CreateSubscription())
-				_, err := b.CreateProtection("prot-1", "arn:aws:ec2:us-east-1::instance/i-1", nil)
+				_, err := b.CreateProtection("prot-1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1", nil)
 				require.NoError(t, err)
 			},
 			protName:    "prot-2",
-			resourceARN: "arn:aws:ec2:us-east-1::instance/i-1",
+			resourceARN: "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1",
 			wantErr:     true,
 		},
 	}
@@ -250,7 +250,7 @@ func TestRefinement1_DescribeProtection(t *testing.T) {
 		{
 			name:         "by_resource_arn",
 			protectionID: "",
-			resourceARN:  "arn:aws:ec2:us-east-1::instance/i-123",
+			resourceARN:  "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-123",
 		},
 		{
 			name:         "not_found_by_id",
@@ -261,7 +261,7 @@ func TestRefinement1_DescribeProtection(t *testing.T) {
 		{
 			name:         "not_found_by_arn",
 			protectionID: "",
-			resourceARN:  "arn:aws:ec2:us-east-1::instance/i-999",
+			resourceARN:  "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-999",
 			wantErr:      true,
 		},
 		{
@@ -277,7 +277,7 @@ func TestRefinement1_DescribeProtection(t *testing.T) {
 			t.Parallel()
 
 			b := newR1Backend()
-			p := b.AddProtectionInternal("test-prot", "arn:aws:ec2:us-east-1::instance/i-123")
+			p := b.AddProtectionInternal("test-prot", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-123")
 
 			protID := tt.protectionID
 			if tt.name == "by_id" {
@@ -310,7 +310,7 @@ func TestRefinement1_DeleteProtection(t *testing.T) {
 		{
 			name: "delete_existing",
 			setup: func(b *shield.InMemoryBackend) string {
-				p := b.AddProtectionInternal("prot-1", "arn:aws:ec2:us-east-1::instance/i-1")
+				p := b.AddProtectionInternal("prot-1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1")
 
 				return p.ID
 			},
@@ -352,7 +352,7 @@ func TestRefinement1_ListProtectionsSorted(t *testing.T) {
 	b := newR1Backend()
 
 	for i, name := range []string{"z-prot", "a-prot", "m-prot"} {
-		b.AddProtectionInternal(name, "arn:aws:ec2:us-east-1::instance/i-"+string(rune('0'+i)))
+		b.AddProtectionInternal(name, "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-"+string(rune('0'+i)))
 	}
 
 	list := b.ListProtections()
@@ -375,9 +375,10 @@ func TestRefinement1_TagResource(t *testing.T) {
 		{
 			name: "tag_existing",
 			setup: func(b *shield.InMemoryBackend) string {
-				p := b.AddProtectionInternal("prot-1", "arn:aws:ec2:us-east-1::instance/i-1")
+				require.NoError(t, b.CreateSubscription())
+				p := b.AddProtectionInternal("prot-1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1")
 
-				return p.ID
+				return p.ProtectionArn
 			},
 			tags: map[string]string{"env": "prod"},
 		},
@@ -416,13 +417,14 @@ func TestRefinement1_UntagResource(t *testing.T) {
 	t.Parallel()
 
 	b := newR1Backend()
-	p := b.AddProtectionInternal("prot-1", "arn:aws:ec2:us-east-1::instance/i-1")
-	require.NoError(t, b.TagResource(p.ID, map[string]string{"env": "prod", "owner": "team"}))
+	require.NoError(t, b.CreateSubscription())
+	p := b.AddProtectionInternal("prot-1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1")
+	require.NoError(t, b.TagResource(p.ProtectionArn, map[string]string{"env": "prod", "owner": "team"}))
 
-	err := b.UntagResource(p.ID, []string{"env"})
+	err := b.UntagResource(p.ProtectionArn, []string{"env"})
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(p.ID)
+	tags, err := b.ListTagsForResource(p.ProtectionArn)
 	require.NoError(t, err)
 	assert.NotContains(t, tags, "env")
 	assert.Contains(t, tags, "owner")
@@ -515,7 +517,7 @@ func TestRefinement1_HTTPCreateProtection(t *testing.T) {
 
 	rec := doShieldRequest(t, h, "CreateProtection", map[string]any{
 		"Name":        "test-prot",
-		"ResourceArn": "arn:aws:ec2:us-east-1::instance/i-123",
+		"ResourceArn": "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-123",
 	})
 	assert.Equal(t, 200, rec.Code)
 }
@@ -525,7 +527,7 @@ func TestRefinement1_HTTPListProtections(t *testing.T) {
 	t.Parallel()
 
 	b := newR1Backend()
-	b.AddProtectionInternal("p1", "arn:aws:ec2:us-east-1::instance/i-1")
+	b.AddProtectionInternal("p1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1")
 	h := shield.NewHandler(b)
 
 	rec := doShieldRequest(t, h, "ListProtections", nil)
@@ -738,9 +740,9 @@ func TestRefinement1_DisassociateDRTRole(t *testing.T) {
 			},
 		},
 		{
-			name:    "no_role_associated",
+			name:    "no_role_associated_idempotent",
 			setup:   func(*shield.InMemoryBackend) {},
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 
@@ -791,7 +793,7 @@ func TestRefinement1_DisassociateHealthCheck(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *shield.InMemoryBackend) string {
-				p := b.AddProtectionInternal("p1", "arn:aws:ec2:us-east-1::instance/i-1")
+				p := b.AddProtectionInternal("p1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1")
 				require.NoError(t, b.AssociateHealthCheck(p.ID, "arn:aws:route53:::healthcheck/hc-1"))
 
 				return p.ID
@@ -801,7 +803,7 @@ func TestRefinement1_DisassociateHealthCheck(t *testing.T) {
 		{
 			name: "health_check_not_associated",
 			setup: func(b *shield.InMemoryBackend) string {
-				p := b.AddProtectionInternal("p2", "arn:aws:ec2:us-east-1::instance/i-2")
+				p := b.AddProtectionInternal("p2", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-2")
 
 				return p.ID
 			},
@@ -843,7 +845,7 @@ func TestRefinement1_HTTPDisassociateHealthCheck(t *testing.T) {
 	t.Parallel()
 
 	b := newR1Backend()
-	p := b.AddProtectionInternal("p1", "arn:aws:ec2:us-east-1::instance/i-1")
+	p := b.AddProtectionInternal("p1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1")
 	require.NoError(t, b.AssociateHealthCheck(p.ID, "arn:aws:route53:::healthcheck/hc-1"))
 
 	h := shield.NewHandler(b)
@@ -1063,24 +1065,24 @@ func TestRefinement1_ListAttacks(t *testing.T) {
 	t.Parallel()
 
 	b := newR1Backend()
-	b.AddAttackInternal("atk-1", "arn:aws:ec2:us-east-1::instance/i-1")
-	b.AddAttackInternal("atk-2", "arn:aws:ec2:us-east-1::instance/i-2")
+	b.AddAttackInternal("atk-1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1")
+	b.AddAttackInternal("atk-2", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-2")
 
 	tests := []struct {
-		name        string
-		resourceARN string
-		wantLen     int
+		name         string
+		resourceARNs []string
+		wantLen      int
 	}{
-		{name: "all", resourceARN: "", wantLen: 2},
-		{name: "filtered", resourceARN: "arn:aws:ec2:us-east-1::instance/i-1", wantLen: 1},
-		{name: "no_match", resourceARN: "arn:aws:ec2:us-east-1::instance/i-99", wantLen: 0},
+		{name: "all", resourceARNs: nil, wantLen: 2},
+		{name: "filtered", resourceARNs: []string{"arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1"}, wantLen: 1},
+		{name: "no_match", resourceARNs: []string{"arn:aws:ec2:us-east-1::eip-allocation/eipalloc-99"}, wantLen: 0},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			attacks := b.ListAttacks(tt.resourceARN, 0, 0)
+			attacks := b.ListAttacks(tt.resourceARNs, 0, 0)
 			assert.Len(t, attacks, tt.wantLen)
 		})
 	}
@@ -1091,7 +1093,7 @@ func TestRefinement1_HTTPListAttacks(t *testing.T) {
 	t.Parallel()
 
 	b := newR1Backend()
-	b.AddAttackInternal("atk-1", "arn:aws:ec2:us-east-1::instance/i-1")
+	b.AddAttackInternal("atk-1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1")
 
 	h := shield.NewHandler(b)
 	rec := doShieldRequest(t, h, "ListAttacks", map[string]any{})
@@ -1181,6 +1183,9 @@ func TestRefinement1_EnableDisableProactiveEngagement(t *testing.T) {
 			name: "enable_with_subscription",
 			setup: func(b *shield.InMemoryBackend) {
 				require.NoError(t, b.CreateSubscription())
+				require.NoError(t, b.AssociateProactiveEngagementDetails([]shield.EmergencyContact{
+					{EmailAddress: "sec@example.com"},
+				}))
 			},
 			action: func(b *shield.InMemoryBackend) error {
 				return b.EnableProactiveEngagement()
@@ -1191,6 +1196,9 @@ func TestRefinement1_EnableDisableProactiveEngagement(t *testing.T) {
 			name: "disable_with_subscription",
 			setup: func(b *shield.InMemoryBackend) {
 				require.NoError(t, b.CreateSubscription())
+				require.NoError(t, b.AssociateProactiveEngagementDetails([]shield.EmergencyContact{
+					{EmailAddress: "sec@example.com"},
+				}))
 				require.NoError(t, b.EnableProactiveEngagement())
 			},
 			action: func(b *shield.InMemoryBackend) error {
@@ -1227,6 +1235,9 @@ func TestRefinement1_HTTPEnableProactiveEngagement(t *testing.T) {
 
 	b := newR1Backend()
 	require.NoError(t, b.CreateSubscription())
+	require.NoError(t, b.AssociateProactiveEngagementDetails([]shield.EmergencyContact{
+		{EmailAddress: "sec@example.com"},
+	}))
 
 	h := shield.NewHandler(b)
 	rec := doShieldRequest(t, h, "EnableProactiveEngagement", nil)
@@ -1239,6 +1250,9 @@ func TestRefinement1_HTTPDisableProactiveEngagement(t *testing.T) {
 
 	b := newR1Backend()
 	require.NoError(t, b.CreateSubscription())
+	require.NoError(t, b.AssociateProactiveEngagementDetails([]shield.EmergencyContact{
+		{EmailAddress: "sec@example.com"},
+	}))
 	require.NoError(t, b.EnableProactiveEngagement())
 
 	h := shield.NewHandler(b)
@@ -1253,7 +1267,7 @@ func TestRefinement1_ProtectionIDIsUUID(t *testing.T) {
 	b := newR1Backend()
 	require.NoError(t, b.CreateSubscription())
 
-	p, err := b.CreateProtection("test-prot", "arn:aws:ec2:us-east-1::instance/i-1", nil)
+	p, err := b.CreateProtection("test-prot", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1", nil)
 	require.NoError(t, err)
 
 	// ID should be a 32-char hex string (16 bytes), not a full ARN.
@@ -1282,7 +1296,7 @@ func TestRefinement1_SnapshotDeepCopy(t *testing.T) {
 	t.Parallel()
 
 	b := newR1Backend()
-	p := b.AddProtectionInternal("prot-1", "arn:aws:ec2:us-east-1::instance/i-1")
+	p := b.AddProtectionInternal("prot-1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1")
 
 	snap := b.Snapshot()
 	require.NotEmpty(t, snap)
@@ -1303,6 +1317,9 @@ func TestRefinement1_ProactiveEngagementStatusPersistedInSnapshot(t *testing.T) 
 
 	b := newR1Backend()
 	require.NoError(t, b.CreateSubscription())
+	require.NoError(t, b.AssociateProactiveEngagementDetails([]shield.EmergencyContact{
+		{EmailAddress: "sec@example.com"},
+	}))
 	require.NoError(t, b.EnableProactiveEngagement())
 
 	snap := b.Snapshot()

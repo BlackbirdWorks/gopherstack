@@ -31,13 +31,16 @@ type StorageBackend interface {
 	ListProtectionGroups() []*ProtectionGroup
 	UpdateProtectionGroup(id, aggregation, pattern, resourceType string, members []string) error
 	DeleteProtectionGroup(protectionGroupID string) error
-	ListAttacks(resourceARN string, startTime, endTime int64) []*Attack
+	ListAttacks(resourceARNs []string, startTime, endTime int64) []*Attack
 	DescribeAttack(attackID string) (*Attack, error)
 	DescribeAttackStatistics() *AttackStatistics
+	SimulateAttack(resourceARN string, attackVectorTypes []string) (*Attack, error)
 	EnableApplicationLayerAutomaticResponse(resourceARN, action string) error
 	DisableApplicationLayerAutomaticResponse(resourceARN string) error
 	UpdateApplicationLayerAutomaticResponse(resourceARN, action string) error
 	ListResourcesInProtectionGroup(protectionGroupID string) ([]string, error)
+	GetProactiveEngagementStatus() string
+	GetALARConfig(resourceARN string) *ALARConfig
 	AccountID() string
 	Region() string
 	Reset()
