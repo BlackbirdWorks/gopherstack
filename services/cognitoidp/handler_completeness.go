@@ -291,11 +291,21 @@ func (h *Handler) handleCreateIdentityProvider(
 	_ context.Context,
 	in *createIdentityProviderInput,
 ) (*createIdentityProviderOutput, error) {
+	idp, err := h.Backend.CreateIdentityProvider(in.UserPoolID, in.ProviderName, in.ProviderType, in.ProviderDetails)
+	if err != nil {
+		return nil, err
+	}
+
+	ts := float64(idp.CreatedAt.Unix())
+
 	return &createIdentityProviderOutput{
 		IdentityProvider: &identityProviderType{
-			UserPoolID:   in.UserPoolID,
-			ProviderName: in.ProviderName,
-			ProviderType: in.ProviderType,
+			UserPoolID:       idp.UserPoolID,
+			ProviderName:     idp.ProviderName,
+			ProviderType:     idp.ProviderType,
+			ProviderDetails:  idp.ProviderDetails,
+			CreationDate:     &ts,
+			LastModifiedDate: &ts,
 		},
 	}, nil
 }
@@ -309,8 +319,12 @@ type deleteIdentityProviderOutput struct{}
 
 func (h *Handler) handleDeleteIdentityProvider(
 	_ context.Context,
-	_ *deleteIdentityProviderInput,
+	in *deleteIdentityProviderInput,
 ) (*deleteIdentityProviderOutput, error) {
+	if err := h.Backend.DeleteIdentityProvider(in.UserPoolID, in.ProviderName); err != nil {
+		return nil, err
+	}
+
 	return &deleteIdentityProviderOutput{}, nil
 }
 
@@ -327,10 +341,22 @@ func (h *Handler) handleDescribeIdentityProvider(
 	_ context.Context,
 	in *describeIdentityProviderInput,
 ) (*describeIdentityProviderOutput, error) {
+	idp, err := h.Backend.DescribeIdentityProvider(in.UserPoolID, in.ProviderName)
+	if err != nil {
+		return nil, err
+	}
+
+	ts := float64(idp.CreatedAt.Unix())
+	mod := float64(idp.LastModifiedAt.Unix())
+
 	return &describeIdentityProviderOutput{
 		IdentityProvider: &identityProviderType{
-			UserPoolID:   in.UserPoolID,
-			ProviderName: in.ProviderName,
+			UserPoolID:       idp.UserPoolID,
+			ProviderName:     idp.ProviderName,
+			ProviderType:     idp.ProviderType,
+			ProviderDetails:  idp.ProviderDetails,
+			CreationDate:     &ts,
+			LastModifiedDate: &mod,
 		},
 	}, nil
 }
@@ -346,9 +372,24 @@ type getIdentityProviderByIdentifierOutput struct {
 
 func (h *Handler) handleGetIdentityProviderByIdentifier(
 	_ context.Context,
-	_ *getIdentityProviderByIdentifierInput,
+	in *getIdentityProviderByIdentifierInput,
 ) (*getIdentityProviderByIdentifierOutput, error) {
-	return &getIdentityProviderByIdentifierOutput{IdentityProvider: &identityProviderType{}}, nil
+	idp, err := h.Backend.GetIdentityProviderByIdentifier(in.UserPoolID, in.IdpIdentifier)
+	if err != nil {
+		return nil, err
+	}
+
+	ts := float64(idp.CreatedAt.Unix())
+
+	return &getIdentityProviderByIdentifierOutput{
+		IdentityProvider: &identityProviderType{
+			UserPoolID:      idp.UserPoolID,
+			ProviderName:    idp.ProviderName,
+			ProviderType:    idp.ProviderType,
+			ProviderDetails: idp.ProviderDetails,
+			CreationDate:    &ts,
+		},
+	}, nil
 }
 
 type listIdentityProvidersInput struct {
@@ -366,9 +407,22 @@ type listIdentityProvidersOutput struct {
 
 func (h *Handler) handleListIdentityProviders(
 	_ context.Context,
-	_ *listIdentityProvidersInput,
+	in *listIdentityProvidersInput,
 ) (*listIdentityProvidersOutput, error) {
-	return &listIdentityProvidersOutput{Providers: []identityProviderSummary{}}, nil
+	idps, err := h.Backend.ListIdentityProviders(in.UserPoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]identityProviderSummary, 0, len(idps))
+	for _, idp := range idps {
+		summaries = append(summaries, identityProviderSummary{
+			ProviderName: idp.ProviderName,
+			ProviderType: idp.ProviderType,
+		})
+	}
+
+	return &listIdentityProvidersOutput{Providers: summaries}, nil
 }
 
 type updateIdentityProviderInput struct {
@@ -385,10 +439,20 @@ func (h *Handler) handleUpdateIdentityProvider(
 	_ context.Context,
 	in *updateIdentityProviderInput,
 ) (*updateIdentityProviderOutput, error) {
+	idp, err := h.Backend.UpdateIdentityProvider(in.UserPoolID, in.ProviderName, in.ProviderDetails)
+	if err != nil {
+		return nil, err
+	}
+
+	mod := float64(idp.LastModifiedAt.Unix())
+
 	return &updateIdentityProviderOutput{
 		IdentityProvider: &identityProviderType{
-			UserPoolID:   in.UserPoolID,
-			ProviderName: in.ProviderName,
+			UserPoolID:       idp.UserPoolID,
+			ProviderName:     idp.ProviderName,
+			ProviderType:     idp.ProviderType,
+			ProviderDetails:  idp.ProviderDetails,
+			LastModifiedDate: &mod,
 		},
 	}, nil
 }
@@ -413,8 +477,16 @@ func (h *Handler) handleCreateManagedLoginBranding(
 	_ context.Context,
 	in *createManagedLoginBrandingInput,
 ) (*createManagedLoginBrandingOutput, error) {
+	mlb, err := h.Backend.CreateManagedLoginBranding(in.UserPoolID, in.ClientID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &createManagedLoginBrandingOutput{
-		ManagedLoginBranding: &managedLoginBrandingType{UserPoolID: in.UserPoolID, ManagedLoginBrandingID: "mlb-stub"},
+		ManagedLoginBranding: &managedLoginBrandingType{
+			UserPoolID:             mlb.UserPoolID,
+			ManagedLoginBrandingID: mlb.ManagedLoginBrandingID,
+		},
 	}, nil
 }
 
@@ -427,8 +499,12 @@ type deleteManagedLoginBrandingOutput struct{}
 
 func (h *Handler) handleDeleteManagedLoginBranding(
 	_ context.Context,
-	_ *deleteManagedLoginBrandingInput,
+	in *deleteManagedLoginBrandingInput,
 ) (*deleteManagedLoginBrandingOutput, error) {
+	if err := h.Backend.DeleteManagedLoginBranding(in.UserPoolID, in.ManagedLoginBrandingID); err != nil {
+		return nil, err
+	}
+
 	return &deleteManagedLoginBrandingOutput{}, nil
 }
 
@@ -445,10 +521,15 @@ func (h *Handler) handleDescribeManagedLoginBranding(
 	_ context.Context,
 	in *describeManagedLoginBrandingInput,
 ) (*describeManagedLoginBrandingOutput, error) {
+	mlb, err := h.Backend.DescribeManagedLoginBranding(in.UserPoolID, in.ManagedLoginBrandingID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &describeManagedLoginBrandingOutput{
 		ManagedLoginBranding: &managedLoginBrandingType{
-			ManagedLoginBrandingID: in.ManagedLoginBrandingID,
-			UserPoolID:             in.UserPoolID,
+			ManagedLoginBrandingID: mlb.ManagedLoginBrandingID,
+			UserPoolID:             mlb.UserPoolID,
 		},
 	}, nil
 }
@@ -464,9 +545,19 @@ type describeManagedLoginBrandingByClientOutput struct {
 
 func (h *Handler) handleDescribeManagedLoginBrandingByClient(
 	_ context.Context,
-	_ *describeManagedLoginBrandingByClientInput,
+	in *describeManagedLoginBrandingByClientInput,
 ) (*describeManagedLoginBrandingByClientOutput, error) {
-	return &describeManagedLoginBrandingByClientOutput{ManagedLoginBranding: &managedLoginBrandingType{}}, nil
+	mlb, err := h.Backend.DescribeManagedLoginBrandingByClient(in.UserPoolID, in.ClientID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeManagedLoginBrandingByClientOutput{
+		ManagedLoginBranding: &managedLoginBrandingType{
+			ManagedLoginBrandingID: mlb.ManagedLoginBrandingID,
+			UserPoolID:             mlb.UserPoolID,
+		},
+	}, nil
 }
 
 type updateManagedLoginBrandingInput struct {
@@ -482,10 +573,15 @@ func (h *Handler) handleUpdateManagedLoginBranding(
 	_ context.Context,
 	in *updateManagedLoginBrandingInput,
 ) (*updateManagedLoginBrandingOutput, error) {
+	mlb, err := h.Backend.UpdateManagedLoginBranding(in.UserPoolID, in.ManagedLoginBrandingID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &updateManagedLoginBrandingOutput{
 		ManagedLoginBranding: &managedLoginBrandingType{
-			ManagedLoginBrandingID: in.ManagedLoginBrandingID,
-			UserPoolID:             in.UserPoolID,
+			ManagedLoginBrandingID: mlb.ManagedLoginBrandingID,
+			UserPoolID:             mlb.UserPoolID,
 		},
 	}, nil
 }
@@ -598,8 +694,13 @@ type createTermsOutput struct {
 	Terms *termsType `json:"Terms,omitempty"`
 }
 
-func (h *Handler) handleCreateTerms(_ context.Context, _ *createTermsInput) (*createTermsOutput, error) {
-	return &createTermsOutput{Terms: &termsType{}}, nil
+func (h *Handler) handleCreateTerms(_ context.Context, in *createTermsInput) (*createTermsOutput, error) {
+	t, err := h.Backend.CreateTerms(in.UserPoolID, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return &createTermsOutput{Terms: &termsType{DefaultTermsAndConditions: t.Text}}, nil
 }
 
 type deleteTermsInput struct {
@@ -608,7 +709,11 @@ type deleteTermsInput struct {
 
 type deleteTermsOutput struct{}
 
-func (h *Handler) handleDeleteTerms(_ context.Context, _ *deleteTermsInput) (*deleteTermsOutput, error) {
+func (h *Handler) handleDeleteTerms(_ context.Context, in *deleteTermsInput) (*deleteTermsOutput, error) {
+	if err := h.Backend.DeleteTerms(in.UserPoolID); err != nil {
+		return nil, err
+	}
+
 	return &deleteTermsOutput{}, nil
 }
 
@@ -620,8 +725,13 @@ type describeTermsOutput struct {
 	Terms *termsType `json:"Terms,omitempty"`
 }
 
-func (h *Handler) handleDescribeTerms(_ context.Context, _ *describeTermsInput) (*describeTermsOutput, error) {
-	return &describeTermsOutput{Terms: &termsType{}}, nil
+func (h *Handler) handleDescribeTerms(_ context.Context, in *describeTermsInput) (*describeTermsOutput, error) {
+	t, err := h.Backend.DescribeTerms(in.UserPoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeTermsOutput{Terms: &termsType{DefaultTermsAndConditions: t.Text}}, nil
 }
 
 type listTermsInput struct {
@@ -632,8 +742,18 @@ type listTermsOutput struct {
 	Terms []termsType `json:"Terms"`
 }
 
-func (h *Handler) handleListTerms(_ context.Context, _ *listTermsInput) (*listTermsOutput, error) {
-	return &listTermsOutput{Terms: []termsType{}}, nil
+func (h *Handler) handleListTerms(_ context.Context, in *listTermsInput) (*listTermsOutput, error) {
+	ts, err := h.Backend.ListTerms(in.UserPoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]termsType, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, termsType{DefaultTermsAndConditions: t.Text})
+	}
+
+	return &listTermsOutput{Terms: out}, nil
 }
 
 type updateTermsInput struct {
@@ -644,8 +764,13 @@ type updateTermsOutput struct {
 	Terms *termsType `json:"Terms,omitempty"`
 }
 
-func (h *Handler) handleUpdateTerms(_ context.Context, _ *updateTermsInput) (*updateTermsOutput, error) {
-	return &updateTermsOutput{Terms: &termsType{}}, nil
+func (h *Handler) handleUpdateTerms(_ context.Context, in *updateTermsInput) (*updateTermsOutput, error) {
+	t, err := h.Backend.UpdateTerms(in.UserPoolID, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateTermsOutput{Terms: &termsType{DefaultTermsAndConditions: t.Text}}, nil
 }
 
 // ----- User Import Job -----
@@ -670,12 +795,17 @@ func (h *Handler) handleCreateUserImportJob(
 	_ context.Context,
 	in *createUserImportJobInput,
 ) (*createUserImportJobOutput, error) {
+	job, err := h.Backend.CreateUserImportJob(in.UserPoolID, in.JobName)
+	if err != nil {
+		return nil, err
+	}
+
 	return &createUserImportJobOutput{
 		UserImportJob: &userImportJobType{
-			JobID:      "job-stub",
-			JobName:    in.JobName,
-			UserPoolID: in.UserPoolID,
-			Status:     "Created",
+			JobID:      job.JobID,
+			JobName:    job.JobName,
+			UserPoolID: job.UserPoolID,
+			Status:     job.Status,
 		},
 	}, nil
 }
@@ -693,8 +823,18 @@ func (h *Handler) handleDescribeUserImportJob(
 	_ context.Context,
 	in *describeUserImportJobInput,
 ) (*describeUserImportJobOutput, error) {
+	job, err := h.Backend.DescribeUserImportJob(in.UserPoolID, in.JobID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &describeUserImportJobOutput{
-		UserImportJob: &userImportJobType{JobID: in.JobID, UserPoolID: in.UserPoolID, Status: "Created"},
+		UserImportJob: &userImportJobType{
+			JobID:      job.JobID,
+			JobName:    job.JobName,
+			UserPoolID: job.UserPoolID,
+			Status:     job.Status,
+		},
 	}, nil
 }
 
@@ -708,9 +848,24 @@ type listUserImportJobsOutput struct {
 
 func (h *Handler) handleListUserImportJobs(
 	_ context.Context,
-	_ *listUserImportJobsInput,
+	in *listUserImportJobsInput,
 ) (*listUserImportJobsOutput, error) {
-	return &listUserImportJobsOutput{UserImportJobs: []userImportJobType{}}, nil
+	jobs, err := h.Backend.ListUserImportJobs(in.UserPoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]userImportJobType, 0, len(jobs))
+	for _, job := range jobs {
+		out = append(out, userImportJobType{
+			JobID:      job.JobID,
+			JobName:    job.JobName,
+			UserPoolID: job.UserPoolID,
+			Status:     job.Status,
+		})
+	}
+
+	return &listUserImportJobsOutput{UserImportJobs: out}, nil
 }
 
 type startUserImportJobInput struct {
@@ -726,8 +881,18 @@ func (h *Handler) handleStartUserImportJob(
 	_ context.Context,
 	in *startUserImportJobInput,
 ) (*startUserImportJobOutput, error) {
+	job, err := h.Backend.StartUserImportJob(in.UserPoolID, in.JobID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &startUserImportJobOutput{
-		UserImportJob: &userImportJobType{JobID: in.JobID, UserPoolID: in.UserPoolID, Status: "InProgress"},
+		UserImportJob: &userImportJobType{
+			JobID:      job.JobID,
+			JobName:    job.JobName,
+			UserPoolID: job.UserPoolID,
+			Status:     job.Status,
+		},
 	}, nil
 }
 
@@ -744,8 +909,18 @@ func (h *Handler) handleStopUserImportJob(
 	_ context.Context,
 	in *stopUserImportJobInput,
 ) (*stopUserImportJobOutput, error) {
+	job, err := h.Backend.StopUserImportJob(in.UserPoolID, in.JobID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &stopUserImportJobOutput{
-		UserImportJob: &userImportJobType{JobID: in.JobID, UserPoolID: in.UserPoolID, Status: "Stopped"},
+		UserImportJob: &userImportJobType{
+			JobID:      job.JobID,
+			JobName:    job.JobName,
+			UserPoolID: job.UserPoolID,
+			Status:     job.Status,
+		},
 	}, nil
 }
 
@@ -764,7 +939,12 @@ func (h *Handler) handleCreateUserPoolDomain(
 	_ context.Context,
 	in *createUserPoolDomainInput,
 ) (*createUserPoolDomainOutput, error) {
-	return &createUserPoolDomainOutput{CloudFrontDomain: in.Domain + ".auth.us-east-1.amazoncognito.com"}, nil
+	d, err := h.Backend.CreateUserPoolDomain(in.UserPoolID, in.Domain)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createUserPoolDomainOutput{CloudFrontDomain: d.CloudFrontDistribution}, nil
 }
 
 type deleteUserPoolDomainInput struct {
@@ -776,8 +956,12 @@ type deleteUserPoolDomainOutput struct{}
 
 func (h *Handler) handleDeleteUserPoolDomain(
 	_ context.Context,
-	_ *deleteUserPoolDomainInput,
+	in *deleteUserPoolDomainInput,
 ) (*deleteUserPoolDomainOutput, error) {
+	if err := h.Backend.DeleteUserPoolDomain(in.UserPoolID, in.Domain); err != nil {
+		return nil, err
+	}
+
 	return &deleteUserPoolDomainOutput{}, nil
 }
 
@@ -800,8 +984,18 @@ func (h *Handler) handleDescribeUserPoolDomain(
 	_ context.Context,
 	in *describeUserPoolDomainInput,
 ) (*describeUserPoolDomainOutput, error) {
+	d, err := h.Backend.DescribeUserPoolDomain(in.Domain)
+	if err != nil {
+		return &describeUserPoolDomainOutput{DomainDescription: &userPoolDomainDescription{}}, nil
+	}
+
 	return &describeUserPoolDomainOutput{
-		DomainDescription: &userPoolDomainDescription{Domain: in.Domain, Status: "ACTIVE"},
+		DomainDescription: &userPoolDomainDescription{
+			Domain:                 d.Domain,
+			UserPoolID:             d.UserPoolID,
+			Status:                 d.Status,
+			CloudFrontDistribution: d.CloudFrontDistribution,
+		},
 	}, nil
 }
 
@@ -818,7 +1012,12 @@ func (h *Handler) handleUpdateUserPoolDomain(
 	_ context.Context,
 	in *updateUserPoolDomainInput,
 ) (*updateUserPoolDomainOutput, error) {
-	return &updateUserPoolDomainOutput{CloudFrontDomain: in.Domain + ".auth.us-east-1.amazoncognito.com"}, nil
+	cfDomain, err := h.Backend.UpdateUserPoolDomain(in.UserPoolID, in.Domain)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateUserPoolDomainOutput{CloudFrontDomain: cfDomain}, nil
 }
 
 // ----- WebAuthn -----
@@ -882,8 +1081,12 @@ type describeRiskConfigurationOutput struct {
 
 func (h *Handler) handleDescribeRiskConfiguration(
 	_ context.Context,
-	_ *describeRiskConfigurationInput,
+	in *describeRiskConfigurationInput,
 ) (*describeRiskConfigurationOutput, error) {
+	if _, err := h.Backend.DescribeRiskConfiguration(in.UserPoolID, in.ClientID); err != nil {
+		return nil, err
+	}
+
 	return &describeRiskConfigurationOutput{RiskConfiguration: &riskConfigurationType{}}, nil
 }
 
@@ -898,8 +1101,12 @@ type setRiskConfigurationOutput struct {
 
 func (h *Handler) handleSetRiskConfiguration(
 	_ context.Context,
-	_ *setRiskConfigurationInput,
+	in *setRiskConfigurationInput,
 ) (*setRiskConfigurationOutput, error) {
+	if err := h.Backend.SetRiskConfiguration(in.UserPoolID, in.ClientID, nil); err != nil {
+		return nil, err
+	}
+
 	return &setRiskConfigurationOutput{RiskConfiguration: &riskConfigurationType{}}, nil
 }
 
@@ -915,9 +1122,19 @@ type getLogDeliveryConfigurationOutput struct {
 
 func (h *Handler) handleGetLogDeliveryConfiguration(
 	_ context.Context,
-	_ *getLogDeliveryConfigurationInput,
+	in *getLogDeliveryConfigurationInput,
 ) (*getLogDeliveryConfigurationOutput, error) {
-	return &getLogDeliveryConfigurationOutput{LogDeliveryConfiguration: map[string]any{}}, nil
+	cfg, err := h.Backend.GetLogDeliveryConfiguration(in.UserPoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	raw := cfg.Raw
+	if raw == nil {
+		raw = map[string]any{}
+	}
+
+	return &getLogDeliveryConfigurationOutput{LogDeliveryConfiguration: raw}, nil
 }
 
 type setLogDeliveryConfigurationInput struct {
@@ -930,8 +1147,12 @@ type setLogDeliveryConfigurationOutput struct {
 
 func (h *Handler) handleSetLogDeliveryConfiguration(
 	_ context.Context,
-	_ *setLogDeliveryConfigurationInput,
+	in *setLogDeliveryConfigurationInput,
 ) (*setLogDeliveryConfigurationOutput, error) {
+	if err := h.Backend.SetLogDeliveryConfiguration(in.UserPoolID, nil); err != nil {
+		return nil, err
+	}
+
 	return &setLogDeliveryConfigurationOutput{LogDeliveryConfiguration: map[string]any{}}, nil
 }
 
@@ -948,9 +1169,22 @@ type getTokensFromRefreshTokenOutput struct {
 
 func (h *Handler) handleGetTokensFromRefreshToken(
 	_ context.Context,
-	_ *getTokensFromRefreshTokenInput,
+	in *getTokensFromRefreshTokenInput,
 ) (*getTokensFromRefreshTokenOutput, error) {
-	return &getTokensFromRefreshTokenOutput{AuthenticationResult: &authResult{}}, nil
+	tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, in.RefreshToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getTokensFromRefreshTokenOutput{
+		AuthenticationResult: &authResult{
+			AccessToken:  tokens.AccessToken,
+			IDToken:      tokens.IDToken,
+			RefreshToken: tokens.RefreshToken,
+			TokenType:    authTypeBearer,
+			ExpiresIn:    tokens.ExpiresIn,
+		},
+	}, nil
 }
 
 // ----- UI Customization -----
@@ -974,7 +1208,16 @@ func (h *Handler) handleGetUICustomization(
 	_ context.Context,
 	in *getUICustomizationInput,
 ) (*getUICustomizationOutput, error) {
-	return &getUICustomizationOutput{UICustomization: &uiCustomizationType{UserPoolID: in.UserPoolID}}, nil
+	ui, err := h.Backend.GetUICustomization(in.UserPoolID, in.ClientID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getUICustomizationOutput{UICustomization: &uiCustomizationType{
+		UserPoolID: ui.UserPoolID,
+		ClientID:   ui.ClientID,
+		CSS:        ui.CSS,
+	}}, nil
 }
 
 type setUICustomizationInput struct {
@@ -991,7 +1234,16 @@ func (h *Handler) handleSetUICustomization(
 	_ context.Context,
 	in *setUICustomizationInput,
 ) (*setUICustomizationOutput, error) {
-	return &setUICustomizationOutput{UICustomization: &uiCustomizationType{UserPoolID: in.UserPoolID}}, nil
+	ui, err := h.Backend.SetUICustomization(in.UserPoolID, in.ClientID, in.CSS)
+	if err != nil {
+		return nil, err
+	}
+
+	return &setUICustomizationOutput{UICustomization: &uiCustomizationType{
+		UserPoolID: ui.UserPoolID,
+		ClientID:   ui.ClientID,
+		CSS:        ui.CSS,
+	}}, nil
 }
 
 // ----- User Attribute Verification -----
@@ -1119,9 +1371,14 @@ type listTagsForResourceOutput struct {
 
 func (h *Handler) handleListTagsForResource(
 	_ context.Context,
-	_ *listTagsForResourceInput,
+	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	return &listTagsForResourceOutput{Tags: map[string]string{}}, nil
+	tags := h.Backend.ListTagsForResource(in.ResourceArn)
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	return &listTagsForResourceOutput{Tags: tags}, nil
 }
 
 type tagResourceInput struct {
@@ -1131,7 +1388,9 @@ type tagResourceInput struct {
 
 type tagResourceOutput struct{}
 
-func (h *Handler) handleTagResource(_ context.Context, _ *tagResourceInput) (*tagResourceOutput, error) {
+func (h *Handler) handleTagResource(_ context.Context, in *tagResourceInput) (*tagResourceOutput, error) {
+	h.Backend.TagResource(in.ResourceArn, in.Tags)
+
 	return &tagResourceOutput{}, nil
 }
 
@@ -1142,7 +1401,9 @@ type untagResourceInput struct {
 
 type untagResourceOutput struct{}
 
-func (h *Handler) handleUntagResource(_ context.Context, _ *untagResourceInput) (*untagResourceOutput, error) {
+func (h *Handler) handleUntagResource(_ context.Context, in *untagResourceInput) (*untagResourceOutput, error) {
+	h.Backend.UntagResource(in.ResourceArn, in.TagKeys)
+
 	return &untagResourceOutput{}, nil
 }
 
@@ -1158,8 +1419,12 @@ type deleteUserPoolClientSecretOutput struct{}
 
 func (h *Handler) handleDeleteUserPoolClientSecret(
 	_ context.Context,
-	_ *deleteUserPoolClientSecretInput,
+	in *deleteUserPoolClientSecretInput,
 ) (*deleteUserPoolClientSecretOutput, error) {
+	if err := h.Backend.DeleteUserPoolClientSecret(in.UserPoolID, in.ClientID); err != nil {
+		return nil, err
+	}
+
 	return &deleteUserPoolClientSecretOutput{}, nil
 }
 
@@ -1174,9 +1439,14 @@ type listUserPoolClientSecretsOutput struct {
 
 func (h *Handler) handleListUserPoolClientSecrets(
 	_ context.Context,
-	_ *listUserPoolClientSecretsInput,
+	in *listUserPoolClientSecretsInput,
 ) (*listUserPoolClientSecretsOutput, error) {
-	return &listUserPoolClientSecretsOutput{Secrets: []string{}}, nil
+	secrets, err := h.Backend.ListUserPoolClientSecrets(in.UserPoolID, in.ClientID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listUserPoolClientSecretsOutput{Secrets: secrets}, nil
 }
 
 // ----- MFA Preferences / Settings -----
