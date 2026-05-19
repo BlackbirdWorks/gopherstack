@@ -13,6 +13,7 @@ const (
 	statusComplete              = "COMPLETE"
 	statusEnabled               = "ENABLED"
 	resourceScanCompletePercent = 100
+	typeKindResource            = "RESOURCE"
 )
 
 // ---- Stack Sets ----
@@ -219,11 +220,11 @@ func (b *InMemoryBackend) DescribeStackSetOperation(stackSetName, operationID st
 	defer b.mu.RUnlock()
 	ops := b.stackSetOperations[stackSetName]
 	if ops == nil {
-		return "", fmt.Errorf("operation %s not found in stack set %s", operationID, stackSetName)
+		return "", fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
 	}
 	op, ok := ops[operationID]
 	if !ok {
-		return "", fmt.Errorf("operation %s not found in stack set %s", operationID, stackSetName)
+		return "", fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
 	}
 
 	return op.Status, nil
@@ -234,14 +235,14 @@ func (b *InMemoryBackend) StopStackSetOperation(stackSetName, operationID string
 	defer b.mu.Unlock()
 	ops := b.stackSetOperations[stackSetName]
 	if ops == nil {
-		return fmt.Errorf("operation %s not found in stack set %s", operationID, stackSetName)
+		return fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
 	}
 	op, ok := ops[operationID]
 	if !ok {
-		return fmt.Errorf("operation %s not found in stack set %s", operationID, stackSetName)
+		return fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
 	}
 	if op.Status != "RUNNING" {
-		return fmt.Errorf("operation %s is not in RUNNING state (current: %s)", operationID, op.Status)
+		return fmt.Errorf("%w: %s (current: %s)", ErrOperationNotRunning, operationID, op.Status)
 	}
 	op.Status = "STOPPED"
 
@@ -442,7 +443,7 @@ func (b *InMemoryBackend) ActivateType(typeName, typeArn string) error {
 		b.typeRegistry[key] = &RegisteredType{
 			TypeArn:     key,
 			TypeName:    typeName,
-			Type:        "RESOURCE",
+			Type:        typeKindResource,
 			VersionID:   "00000001",
 			Status:      statusComplete,
 			IsActivated: true,
@@ -495,7 +496,7 @@ func (b *InMemoryBackend) DeregisterType(typeArn string) error {
 	defer b.mu.Unlock()
 	t, ok := b.typeRegistry[typeArn]
 	if !ok {
-		return fmt.Errorf("type %s not found", typeArn)
+		return fmt.Errorf("%w: %s", ErrTypeNotFound, typeArn)
 	}
 	t.Status = "DEPRECATED"
 
@@ -591,7 +592,7 @@ func (b *InMemoryBackend) DescribeTypeRegistration(registrationToken string) (st
 	defer b.mu.RUnlock()
 	rec, ok := b.typeRegistrations[registrationToken]
 	if !ok {
-		return "", fmt.Errorf("registration token %s not found", registrationToken)
+		return "", fmt.Errorf("%w: %s", ErrRegistrationTokenNotFound, registrationToken)
 	}
 
 	return rec.Status, nil
@@ -633,7 +634,7 @@ func (b *InMemoryBackend) DescribePublisher(publisherID string) (string, error) 
 	defer b.mu.RUnlock()
 	p, ok := b.publishers[publisherID]
 	if !ok {
-		return "", fmt.Errorf("publisher %s not found", publisherID)
+		return "", fmt.Errorf("%w: %s", ErrPublisherNotFound, publisherID)
 	}
 
 	return p.Status, nil

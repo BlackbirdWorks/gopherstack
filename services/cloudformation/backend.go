@@ -30,8 +30,13 @@ var (
 	ErrStackSetNotFound          = errors.New("stack set not found")
 	ErrStackSetAlreadyExists     = errors.New("stack set already exists")
 	ErrStackInstanceNotFound     = errors.New("stack instance not found")
-	ErrGeneratedTemplateNotFound = errors.New("generated template not found")
-	ErrResourceScanNotFound      = errors.New("resource scan not found")
+	ErrGeneratedTemplateNotFound    = errors.New("generated template not found")
+	ErrResourceScanNotFound         = errors.New("resource scan not found")
+	ErrOperationNotFound            = errors.New("operation not found in stack set")
+	ErrOperationNotRunning          = errors.New("operation is not in RUNNING state")
+	ErrTypeNotFound                 = errors.New("type not found")
+	ErrRegistrationTokenNotFound    = errors.New("registration token not found")
+	ErrPublisherNotFound            = errors.New("publisher not found")
 )
 
 // StorageBackend defines the interface for the CloudFormation in-memory backend.
