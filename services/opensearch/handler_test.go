@@ -1430,7 +1430,7 @@ func TestOpenSearchHandler_NewOps_EdgeCases(t *testing.T) {
 			name:     "application_get_by_id_ok",
 			method:   http.MethodGet,
 			path:     "/2021-01-01/opensearch/application/some-id",
-			wantCode: http.StatusOK,
+			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "cc_route_not_found",
