@@ -207,11 +207,11 @@ func (h *Handler) handleGetEvaluationJob(c *echo.Context, jobARN string) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyJobArn:          job.JobArn,
-		"jobName":          job.JobName,
-		keyStatus:          job.Status,
-		"creationTime":     job.CreationTime.Format(time.RFC3339),
-		"lastModifiedTime": job.LastModifiedTime.Format(time.RFC3339),
+		keyJobArn:           job.JobArn,
+		keyJobName:          job.JobName,
+		keyStatus:           job.Status,
+		keyCreationTime:     job.CreationTime.Format(time.RFC3339),
+		keyLastModifiedTime: job.LastModifiedTime.Format(time.RFC3339),
 	})
 }
 
@@ -221,11 +221,11 @@ func (h *Handler) handleListEvaluationJobs(c *echo.Context) error {
 
 	for _, j := range jobs {
 		summaries = append(summaries, map[string]any{
-			keyJobArn:          j.JobArn,
-			"jobName":          j.JobName,
-			keyStatus:          j.Status,
-			"creationTime":     j.CreationTime.Format(time.RFC3339),
-			"lastModifiedTime": j.LastModifiedTime.Format(time.RFC3339),
+			keyJobArn:           j.JobArn,
+			keyJobName:          j.JobName,
+			keyStatus:           j.Status,
+			keyCreationTime:     j.CreationTime.Format(time.RFC3339),
+			keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
 		})
 	}
 

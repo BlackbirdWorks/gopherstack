@@ -36,10 +36,16 @@ const (
 	marketplaceEndpointsPrefix   = "/marketplace-model/endpoints"
 	loggingConfigPath            = "/logging/modelinvocations"
 
-	// Stub response key constants.
+	// Response key constants.
 	keyJobArn          = "jobArn"
 	keyStatus          = "status"
 	keyDeploymentArn   = "deploymentArn"
+	keyJobName         = "jobName"
+	keyCreationTime    = "creationTime"
+	keyLastModifiedTime = "lastModifiedTime"
+	keyPolicyArn       = "policyArn"
+	keyBuildWorkflowID = "buildWorkflowId"
+	keyCreatedAt       = "createdAt"
 	jobStatusCompleted = "Completed"
 
 	// Stub operation paths.
@@ -667,9 +673,9 @@ func modelCopyJobToOutput(j *ModelCopyJob) map[string]any {
 		keyJobArn:          j.JobArn,
 		"sourceModelArn":   j.SourceModelArn,
 		"targetModelArn":   j.TargetModelArn,
-		keyStatus:          j.Status,
-		"creationTime":     j.CreationTime.Format(time.RFC3339),
-		"lastModifiedTime": j.LastModifiedTime.Format(time.RFC3339),
+		keyStatus:           j.Status,
+		keyCreationTime:     j.CreationTime.Format(time.RFC3339),
+		keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
 	}
 
 	if j.FailureMessage != "" {
@@ -730,12 +736,12 @@ func (h *Handler) handleGetModelImportJob(c *echo.Context, jobARN string) error 
 
 func modelImportJobToOutput(j *ModelImportJob) map[string]any {
 	out := map[string]any{
-		keyJobArn:          j.JobArn,
-		"jobName":          j.JobName,
-		"importedModelArn": j.ImportedModelArn,
-		keyStatus:          j.Status,
-		"creationTime":     j.CreationTime.Format(time.RFC3339),
-		"lastModifiedTime": j.LastModifiedTime.Format(time.RFC3339),
+		keyJobArn:           j.JobArn,
+		keyJobName:          j.JobName,
+		"importedModelArn":  j.ImportedModelArn,
+		keyStatus:           j.Status,
+		keyCreationTime:     j.CreationTime.Format(time.RFC3339),
+		keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
 	}
 
 	if j.EndTime != nil {
@@ -807,7 +813,7 @@ func (h *Handler) routeStubFoundationModelOps(c *echo.Context, path, method stri
 	switch {
 	case strings.HasPrefix(path, foundationModelAvailPath+"/") && method == http.MethodGet:
 		return true, c.JSON(http.StatusOK,
-			map[string]any{"agreementAvailability": map[string]string{"status": "AVAILABLE"}})
+			map[string]any{"agreementAvailability": map[string]string{keyStatus: "AVAILABLE"}})
 	case path == foundationModelAgreementsPath && method == http.MethodGet:
 		return true, h.handleListFoundationModelAgreementOffers(c)
 	case strings.HasPrefix(path, "/delete-foundation-model-agreement") && method == http.MethodDelete:

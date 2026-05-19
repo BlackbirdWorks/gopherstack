@@ -9,6 +9,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+const statusRunning = "Running"
+
 // --- ModelInvocationJob ---
 
 // ModelInvocationJob represents a batch model invocation job.
@@ -204,7 +206,7 @@ func (b *InMemoryBackend) StartAutomatedReasoningPolicyBuildWorkflow(policyARN s
 	wf := &AutomatedReasoningPolicyBuildWorkflow{
 		BuildWorkflowID: id,
 		PolicyArn:       policyARN,
-		Status:          "Running",
+		Status:          statusRunning,
 	}
 	b.arpBuildWorkflows[id] = wf
 	cp := *wf
@@ -377,7 +379,7 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyNextScenario(policyARN stri
 		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
 
-	return map[string]any{"scenario": nil, "policyArn": policyARN}, nil
+	return map[string]any{"scenario": nil, keyPolicyArn: policyARN}, nil
 }
 
 // GetAutomatedReasoningPolicyBuildWorkflowResultAssets returns result asset URLs for a workflow.
@@ -390,7 +392,7 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflowResultAssets(p
 		return nil, fmt.Errorf("%w: build workflow %s not found", ErrNotFound, workflowID)
 	}
 
-	return map[string]any{"buildWorkflowId": workflowID, "resultAssets": []any{}}, nil
+	return map[string]any{keyBuildWorkflowID: workflowID, "resultAssets": []any{}}, nil
 }
 
 // ExportAutomatedReasoningPolicyVersion exports a policy version definition.
@@ -406,10 +408,10 @@ func (b *InMemoryBackend) ExportAutomatedReasoningPolicyVersion(policyARN, versi
 	}
 
 	return map[string]any{
-		"policyArn":      v.PolicyArn,
-		"version":        v.Version,
+		keyPolicyArn:   v.PolicyArn,
+		"version":      v.Version,
 		"definitionHash": v.DefinitionHash,
-		"createdAt":      v.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		keyCreatedAt:   v.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}, nil
 }
 
@@ -423,7 +425,7 @@ func (b *InMemoryBackend) StartAutomatedReasoningPolicyTestWorkflow(policyARN, t
 		return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
 	}
 
-	return map[string]any{"testCaseId": testCaseID, "policyArn": policyARN, "status": "Running"}, nil
+	return map[string]any{"testCaseId": testCaseID, keyPolicyArn: policyARN, keyStatus: statusRunning}, nil
 }
 
 // GetAutomatedReasoningPolicyTestResult returns the result for a test case execution.
@@ -436,7 +438,7 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyTestResult(policyARN, testC
 		return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
 	}
 
-	return map[string]any{"testCaseId": testCaseID, "policyArn": policyARN, "status": statusCompleted}, nil
+	return map[string]any{"testCaseId": testCaseID, keyPolicyArn: policyARN, keyStatus: statusCompleted}, nil
 }
 
 // ListAutomatedReasoningPolicyTestResults returns test results for a policy.
@@ -449,14 +451,16 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(policyARN stri
 		if tc.PolicyArn == policyARN {
 			results = append(results, map[string]any{
 				"testCaseId": tc.TestCaseID,
-				"policyArn":  policyARN,
-				"status":     statusCompleted,
+				keyPolicyArn: policyARN,
+				keyStatus:    statusCompleted,
 			})
 		}
 	}
 
 	sort.Slice(results, func(i, k int) bool {
-		return results[i]["testCaseId"].(string) < results[k]["testCaseId"].(string)
+		a, _ := results[i]["testCaseId"].(string)
+		b, _ := results[k]["testCaseId"].(string)
+		return a < b
 	})
 
 	return results
