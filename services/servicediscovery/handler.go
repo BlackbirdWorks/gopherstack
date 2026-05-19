@@ -46,6 +46,23 @@ var (
 	errInvalidRequest = errors.New("invalid request")
 )
 
+func resolveMaxResults(ptr *int) int {
+	if ptr != nil && *ptr > 0 {
+		return *ptr
+	}
+
+	return maxResultsDefault
+}
+
+func marshalPagedResponse(key string, items []map[string]any, nextToken string) ([]byte, error) {
+	resp := map[string]any{key: items}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
+}
+
 // Handler is the HTTP handler for the AWS Cloud Map service discovery API.
 type Handler struct {
 	Backend   StorageBackend
@@ -576,50 +593,43 @@ type listNamespacesRequest struct {
 	Filters    []namespaceFilter `json:"Filters"`
 }
 
+func buildNamespacesFilter(filters []namespaceFilter) ListNamespacesFilter {
+	f := ListNamespacesFilter{}
+
+	for _, entry := range filters {
+		if len(entry.Values) == 0 {
+			continue
+		}
+
+		switch entry.Name {
+		case "TYPE":
+			f.Type = entry.Values[0]
+		case "NAME":
+			f.Name = entry.Values[0]
+		}
+	}
+
+	return f
+}
+
 func (h *Handler) handleListNamespaces(_ context.Context, body []byte) ([]byte, error) {
 	var req listNamespacesRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	filter := ListNamespacesFilter{}
-
-	for _, f := range req.Filters {
-		switch f.Name {
-		case "TYPE":
-			if len(f.Values) > 0 {
-				filter.Type = f.Values[0]
-			}
-		case "NAME":
-			if len(f.Values) > 0 {
-				filter.Name = f.Values[0]
-			}
-		}
-	}
-
-	namespaces := h.Backend.ListNamespaces(filter)
-
-	maxResults := maxResultsDefault
-	if req.MaxResults != nil && *req.MaxResults > 0 {
-		maxResults = *req.MaxResults
-	}
-
-	page, nextToken := applyPaginationNamespaces(namespaces, req.NextToken, maxResults)
+	page, nextToken := applyPaginationNamespaces(
+		h.Backend.ListNamespaces(buildNamespacesFilter(req.Filters)),
+		req.NextToken,
+		resolveMaxResults(req.MaxResults),
+	)
 
 	items := make([]map[string]any, 0, len(page))
 	for i := range page {
 		items = append(items, namespaceToMap(&page[i]))
 	}
 
-	resp := map[string]any{
-		"Namespaces": items,
-	}
-
-	if nextToken != "" {
-		resp["NextToken"] = nextToken
-	}
-
-	return json.Marshal(resp)
+	return marshalPagedResponse("Namespaces", items, nextToken)
 }
 
 // --- Service handlers ---
@@ -1080,50 +1090,43 @@ type listOperationsRequest struct {
 	Filters    []operationFilter `json:"Filters"`
 }
 
+func buildOperationsFilter(filters []operationFilter) ListOperationsFilter {
+	f := ListOperationsFilter{}
+
+	for _, entry := range filters {
+		if len(entry.Values) == 0 {
+			continue
+		}
+
+		switch entry.Name {
+		case "STATUS":
+			f.Status = entry.Values[0]
+		case "TYPE":
+			f.Type = entry.Values[0]
+		}
+	}
+
+	return f
+}
+
 func (h *Handler) handleListOperations(_ context.Context, body []byte) ([]byte, error) {
 	var req listOperationsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	filter := ListOperationsFilter{}
-
-	for _, f := range req.Filters {
-		switch f.Name {
-		case "STATUS":
-			if len(f.Values) > 0 {
-				filter.Status = f.Values[0]
-			}
-		case "TYPE":
-			if len(f.Values) > 0 {
-				filter.Type = f.Values[0]
-			}
-		}
-	}
-
-	ops := h.Backend.ListOperations(filter)
-
-	maxResults := maxResultsDefault
-	if req.MaxResults != nil && *req.MaxResults > 0 {
-		maxResults = *req.MaxResults
-	}
-
-	page, nextToken := applyPaginationOperations(ops, req.NextToken, maxResults)
+	page, nextToken := applyPaginationOperations(
+		h.Backend.ListOperations(buildOperationsFilter(req.Filters)),
+		req.NextToken,
+		resolveMaxResults(req.MaxResults),
+	)
 
 	items := make([]map[string]any, 0, len(page))
 	for i := range page {
 		items = append(items, operationToMap(&page[i]))
 	}
 
-	resp := map[string]any{
-		"Operations": items,
-	}
-
-	if nextToken != "" {
-		resp["NextToken"] = nextToken
-	}
-
-	return json.Marshal(resp)
+	return marshalPagedResponse("Operations", items, nextToken)
 }
 
 // --- Tags handlers ---
