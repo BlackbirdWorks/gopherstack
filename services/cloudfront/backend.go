@@ -302,53 +302,70 @@ type InMemoryBackend struct {
 	keyValueStoreByName               map[string]string // name → ID
 	vpcOrigins                        map[string]*VpcOrigin
 	distributionFunctionAssociations  map[string][]FunctionAssociation // distribution ID → associations
-	mu                                *lockmetrics.RWMutex
-	accountID                         string
-	region                            string
+	// Batch 1 additions.
+	trustStores                         map[string]*TrustStore
+	streamingDistributions              map[string]*StreamingDistribution
+	monitoringSubscriptions             map[string]*MonitoringSubscription // distribution ID → subscription
+	resourcePolicies                    map[string]*resourcePolicyEntry    // resource ARN → policy
+	distributionCachePolicies           map[string]string                  // distribution ID → cache policy ID
+	distributionOriginRequestPolicies   map[string]string                  // distribution ID → ORP ID
+	distributionResponseHeadersPolicies map[string]string                  // distribution ID → RHP ID
+	distributionRealtimeLogConfigs      map[string]string                  // distribution ID → RLC ARN
+	mu                                  *lockmetrics.RWMutex
+	accountID                           string
+	region                              string
 }
 
 // NewInMemoryBackend creates a new in-memory CloudFront backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		distributions:                     make(map[string]*Distribution),
-		distributionARNs:                  make(map[string]string),
-		distributionCallerRefs:            make(map[string]string),
-		distributionAliases:               make(map[string][]string),
-		distributionWebACLs:               make(map[string]string),
-		distributionTenantWebACLs:         make(map[string]string),
-		invalidations:                     make(map[string][]*Invalidation),
-		oais:                              make(map[string]*OriginAccessIdentity),
-		oaiCallerRefs:                     make(map[string]string),
-		anycastIPLists:                    make(map[string]*AnycastIPList),
-		cachePolicies:                     make(map[string]*CachePolicy),
-		cachePolicyByName:                 make(map[string]string),
-		connectionFunctions:               make(map[string]*ConnectionFunction),
-		connectionGroups:                  make(map[string]*ConnectionGroup),
-		continuousDeploymentPolicies:      make(map[string]*ContinuousDeploymentPolicy),
-		originAccessControls:              make(map[string]*OriginAccessControl),
-		originAccessControlByName:         make(map[string]string),
-		responseHeadersPolicies:           make(map[string]*ResponseHeadersPolicy),
-		responseHeadersPolicyByName:       make(map[string]string),
-		functions:                         make(map[string]*Function),
-		originRequestPolicies:             make(map[string]*OriginRequestPolicy),
-		originRequestPolicyByName:         make(map[string]string),
-		fieldLevelEncryptions:             make(map[string]*FieldLevelEncryption),
-		fieldLevelEncryptionByName:        make(map[string]string),
-		fieldLevelEncryptionProfiles:      make(map[string]*FieldLevelEncryptionProfile),
-		fieldLevelEncryptionProfileByName: make(map[string]string),
-		publicKeys:                        make(map[string]*PublicKey),
-		publicKeyByName:                   make(map[string]string),
-		keyGroups:                         make(map[string]*KeyGroup),
-		keyGroupByName:                    make(map[string]string),
-		realtimeLogConfigs:                make(map[string]*RealtimeLogConfig),
-		realtimeLogConfigByName:           make(map[string]string),
-		keyValueStores:                    make(map[string]*KeyValueStore),
-		keyValueStoreByName:               make(map[string]string),
-		vpcOrigins:                        make(map[string]*VpcOrigin),
-		distributionFunctionAssociations:  make(map[string][]FunctionAssociation),
-		mu:                                lockmetrics.New("cloudfront"),
-		accountID:                         accountID,
-		region:                            region,
+		distributions:                       make(map[string]*Distribution),
+		distributionARNs:                    make(map[string]string),
+		distributionCallerRefs:              make(map[string]string),
+		distributionAliases:                 make(map[string][]string),
+		distributionWebACLs:                 make(map[string]string),
+		distributionTenantWebACLs:           make(map[string]string),
+		invalidations:                       make(map[string][]*Invalidation),
+		oais:                                make(map[string]*OriginAccessIdentity),
+		oaiCallerRefs:                       make(map[string]string),
+		anycastIPLists:                      make(map[string]*AnycastIPList),
+		cachePolicies:                       make(map[string]*CachePolicy),
+		cachePolicyByName:                   make(map[string]string),
+		connectionFunctions:                 make(map[string]*ConnectionFunction),
+		connectionGroups:                    make(map[string]*ConnectionGroup),
+		continuousDeploymentPolicies:        make(map[string]*ContinuousDeploymentPolicy),
+		originAccessControls:                make(map[string]*OriginAccessControl),
+		originAccessControlByName:           make(map[string]string),
+		responseHeadersPolicies:             make(map[string]*ResponseHeadersPolicy),
+		responseHeadersPolicyByName:         make(map[string]string),
+		functions:                           make(map[string]*Function),
+		originRequestPolicies:               make(map[string]*OriginRequestPolicy),
+		originRequestPolicyByName:           make(map[string]string),
+		fieldLevelEncryptions:               make(map[string]*FieldLevelEncryption),
+		fieldLevelEncryptionByName:          make(map[string]string),
+		fieldLevelEncryptionProfiles:        make(map[string]*FieldLevelEncryptionProfile),
+		fieldLevelEncryptionProfileByName:   make(map[string]string),
+		publicKeys:                          make(map[string]*PublicKey),
+		publicKeyByName:                     make(map[string]string),
+		keyGroups:                           make(map[string]*KeyGroup),
+		keyGroupByName:                      make(map[string]string),
+		realtimeLogConfigs:                  make(map[string]*RealtimeLogConfig),
+		realtimeLogConfigByName:             make(map[string]string),
+		keyValueStores:                      make(map[string]*KeyValueStore),
+		keyValueStoreByName:                 make(map[string]string),
+		vpcOrigins:                          make(map[string]*VpcOrigin),
+		distributionFunctionAssociations:    make(map[string][]FunctionAssociation),
+		trustStores:                         make(map[string]*TrustStore),
+		streamingDistributions:              make(map[string]*StreamingDistribution),
+		monitoringSubscriptions:             make(map[string]*MonitoringSubscription),
+		resourcePolicies:                    make(map[string]*resourcePolicyEntry),
+		distributionCachePolicies:           make(map[string]string),
+		distributionOriginRequestPolicies:   make(map[string]string),
+		distributionResponseHeadersPolicies: make(map[string]string),
+		distributionRealtimeLogConfigs:      make(map[string]string),
+		mu:                                  lockmetrics.New("cloudfront"),
+		accountID:                           accountID,
+		region:                              region,
 	}
 }
 
@@ -393,6 +410,14 @@ func (b *InMemoryBackend) Reset() {
 	b.keyValueStoreByName = make(map[string]string)
 	b.vpcOrigins = make(map[string]*VpcOrigin)
 	b.distributionFunctionAssociations = make(map[string][]FunctionAssociation)
+	b.trustStores = make(map[string]*TrustStore)
+	b.streamingDistributions = make(map[string]*StreamingDistribution)
+	b.monitoringSubscriptions = make(map[string]*MonitoringSubscription)
+	b.resourcePolicies = make(map[string]*resourcePolicyEntry)
+	b.distributionCachePolicies = make(map[string]string)
+	b.distributionOriginRequestPolicies = make(map[string]string)
+	b.distributionResponseHeadersPolicies = make(map[string]string)
+	b.distributionRealtimeLogConfigs = make(map[string]string)
 }
 
 // Region returns the AWS region this backend is configured for.
