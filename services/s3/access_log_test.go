@@ -87,17 +87,17 @@ func TestHandler_AccessLogDispatch(t *testing.T) {
 				require.Contains(t, line, tt.bucket)
 				require.Contains(t, line, tt.key)
 				require.True(t, strings.HasSuffix(line, "\n"), "log line must end with newline")
-
-				return
 			}
 
-			time.Sleep(100 * time.Millisecond)
+			if !tt.wantLog {
+				time.Sleep(100 * time.Millisecond)
 
-			out, err := backend.ListObjectsV2(t.Context(), &sdk_s3.ListObjectsV2Input{
-				Bucket: aws.String(tt.bucket),
-			})
-			require.NoError(t, err)
-			require.Len(t, out.Contents, tt.wantObjects)
+				out, err := backend.ListObjectsV2(t.Context(), &sdk_s3.ListObjectsV2Input{
+					Bucket: aws.String(tt.bucket),
+				})
+				require.NoError(t, err)
+				require.Len(t, out.Contents, tt.wantObjects)
+			}
 		})
 	}
 }
