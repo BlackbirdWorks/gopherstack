@@ -32,6 +32,11 @@ var (
 	ErrStackInstanceNotFound     = errors.New("stack instance not found")
 	ErrGeneratedTemplateNotFound = errors.New("generated template not found")
 	ErrResourceScanNotFound      = errors.New("resource scan not found")
+	ErrOperationNotFound         = errors.New("operation not found in stack set")
+	ErrOperationNotRunning       = errors.New("operation is not in RUNNING state")
+	ErrTypeNotFound              = errors.New("type not found")
+	ErrRegistrationTokenNotFound = errors.New("registration token not found")
+	ErrPublisherNotFound         = errors.New("publisher not found")
 )
 
 // StorageBackend defines the interface for the CloudFormation in-memory backend.
@@ -154,14 +159,24 @@ type InMemoryBackend struct {
 	driftDetections    map[string]*DriftDetectionStatus
 	stackPolicies      map[string]string
 	stackSets          map[string]*StackSet
-	stackInstances     map[string][]StackInstance // stackSetName → instances
+	stackInstances     map[string][]StackInstance               // stackSetName → instances
+	stackSetOperations map[string]map[string]*StackSetOperation // stackSetName → operationID → op
 	generatedTemplates map[string]*GeneratedTemplate
 	resourceScans      map[string]*ResourceScan
+	typeRegistry       map[string]*RegisteredType         // typeArn → type
+	typeRegistrations  map[string]*TypeRegistrationRecord // token → record
+	typeConfigs        map[string]string                  // typeName → config json
+	publishers         map[string]*Publisher              // publisherID → publisher
+	stackRefactors     map[string]*StackRefactor          // refactorID → refactor
+	hookResults        map[string]*HookResult             // token → result
+	handlerProgress    map[string]string                  // bearerToken → status
+	signals            map[string][]SignalRecord          // stackName+logicalID → records
 	creator            *ResourceCreator
 	resolver           DynamicRefResolver
 	mu                 *lockmetrics.RWMutex
 	accountID          string
 	region             string
+	orgAccessEnabled   bool
 }
 
 const (
@@ -207,8 +222,17 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 		stackPolicies:      make(map[string]string),
 		stackSets:          make(map[string]*StackSet),
 		stackInstances:     make(map[string][]StackInstance),
+		stackSetOperations: make(map[string]map[string]*StackSetOperation),
 		generatedTemplates: make(map[string]*GeneratedTemplate),
 		resourceScans:      make(map[string]*ResourceScan),
+		typeRegistry:       make(map[string]*RegisteredType),
+		typeRegistrations:  make(map[string]*TypeRegistrationRecord),
+		typeConfigs:        make(map[string]string),
+		publishers:         make(map[string]*Publisher),
+		stackRefactors:     make(map[string]*StackRefactor),
+		hookResults:        make(map[string]*HookResult),
+		handlerProgress:    make(map[string]string),
+		signals:            make(map[string][]SignalRecord),
 		creator:            creator,
 		resolver:           resolver,
 		accountID:          accountID,
