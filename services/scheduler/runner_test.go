@@ -640,6 +640,72 @@ func (m *mockSFNStarterWithPayload) Last() string {
 	return m.last
 }
 
+// TestScheduler_Runner_CronCacheEviction tests that stale cronCache entries are swept when
+// a schedule is deleted or its expression changes.
+func TestScheduler_Runner_CronCacheEviction(t *testing.T) {
+	t.Parallel()
+
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:evict-fn"
+
+	tests := []struct {
+		name     string
+		setup    func(backend *scheduler.InMemoryBackend) // mutates backend after first fire
+		wantSize int                                      // expected cache size after sweep
+	}{
+		{
+			name: "delete schedule removes cache entry",
+			setup: func(b *scheduler.InMemoryBackend) {
+				require.NoError(t, b.DeleteSchedule("evict-sched", ""))
+			},
+			wantSize: 0,
+		},
+		{
+			name: "update schedule to different expression removes old entry",
+			setup: func(b *scheduler.InMemoryBackend) {
+				// Replace the schedule with a different cron expression.
+				require.NoError(t, b.DeleteSchedule("evict-sched", ""))
+				_, err := b.CreateSchedule(
+					"evict-sched", "", "cron(0 6 * * ? *)", "", "",
+					scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::000000000000:role/r"},
+					"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+				)
+				require.NoError(t, err)
+			},
+			// After update: old expression is swept, new expression is cached during the same poll.
+			wantSize: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := backend.CreateSchedule(
+				"evict-sched", "", "cron(0 12 * * ? *)", "", "",
+				scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::000000000000:role/r"},
+				"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+			)
+			require.NoError(t, err)
+
+			runner := scheduler.NewRunner(backend)
+			runner.SetLambdaInvoker(&mockLambdaInvoker{})
+
+			// Fire at match time so the cron expression gets cached.
+			matchTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+			scheduler.CheckAndFireSchedules(t.Context(), runner, matchTime)
+			require.Equal(t, 1, scheduler.CronCacheLen(runner), "expression should be cached after first fire")
+
+			// Mutate the backend (delete or change the schedule).
+			tt.setup(backend)
+
+			// Next poll sweeps stale cache entries.
+			scheduler.CheckAndFireSchedules(t.Context(), runner, matchTime.Add(time.Hour))
+			assert.Equal(t, tt.wantSize, scheduler.CronCacheLen(runner), "stale cache entries should be evicted")
+		})
+	}
+}
+
 // TestScheduler_Runner_CronMonthAliases tests all 12 month name aliases in cron expressions.
 func TestScheduler_Runner_CronMonthAliases(t *testing.T) {
 	t.Parallel()
