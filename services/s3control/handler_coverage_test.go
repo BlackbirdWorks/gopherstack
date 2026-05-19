@@ -1118,86 +1118,9 @@ func TestHandler_StubOperations(t *testing.T) {
 		wantStatus int
 	}{
 		// Object Lambda Policy dispatch
-		{
-			name:       "get_object_lambda_policy",
-			method:     http.MethodGet,
-			path:       "/v20180820/accesspointforobjectlambda/myolap/policy",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetAccessPointPolicyForObjectLambda",
-		},
-		{
-			name:       "put_object_lambda_policy",
-			method:     http.MethodPut,
-			path:       "/v20180820/accesspointforobjectlambda/myolap/policy",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "PutAccessPointPolicyForObjectLambda",
-		},
-		{
-			name:       "delete_object_lambda_policy",
-			method:     http.MethodDelete,
-			path:       "/v20180820/accesspointforobjectlambda/myolap/policy",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteAccessPointPolicyForObjectLambda",
-		},
 		// Object Lambda Config dispatch
-		{
-			name:       "get_object_lambda_config",
-			method:     http.MethodGet,
-			path:       "/v20180820/accesspointforobjectlambda/myolap/configuration",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetAccessPointConfigurationForObjectLambda",
-		},
-		{
-			name:       "put_object_lambda_config",
-			method:     http.MethodPut,
-			path:       "/v20180820/accesspointforobjectlambda/myolap/configuration",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "PutAccessPointConfigurationForObjectLambda",
-		},
 		// Bucket lifecycle dispatch
-		{
-			name:       "get_bucket_lifecycle",
-			method:     http.MethodGet,
-			path:       "/v20180820/bucket/mybucket/lifecycle",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetBucketLifecycleConfiguration",
-		},
-		{
-			name:       "put_bucket_lifecycle",
-			method:     http.MethodPut,
-			path:       "/v20180820/bucket/mybucket/lifecycle",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "PutBucketLifecycleConfiguration",
-		},
-		{
-			name:       "delete_bucket_lifecycle",
-			method:     http.MethodDelete,
-			path:       "/v20180820/bucket/mybucket/lifecycle",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteBucketLifecycleConfiguration",
-		},
 		// Bucket policy dispatch
-		{
-			name:       "get_bucket_policy",
-			method:     http.MethodGet,
-			path:       "/v20180820/bucket/mybucket/policy",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetBucketPolicy",
-		},
-		{
-			name:       "put_bucket_policy",
-			method:     http.MethodPut,
-			path:       "/v20180820/bucket/mybucket/policy",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "PutBucketPolicy",
-		},
-		{
-			name:       "delete_bucket_policy",
-			method:     http.MethodDelete,
-			path:       "/v20180820/bucket/mybucket/policy",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteBucketPolicy",
-		},
 		// Tag dispatch
 		{
 			name:       "list_tags_for_resource",
@@ -1221,49 +1144,7 @@ func TestHandler_StubOperations(t *testing.T) {
 			wantBody:   "UntagResource",
 		},
 		// Access point scope stubs
-		{
-			name:       "get_access_point_scope",
-			method:     http.MethodGet,
-			path:       "/v20180820/accesspoint/ap1/scope",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetAccessPointScope",
-		},
-		{
-			name:       "put_access_point_scope",
-			method:     http.MethodPut,
-			path:       "/v20180820/accesspoint/ap1/scope",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "PutAccessPointScope",
-		},
-		{
-			name:       "delete_access_point_scope",
-			method:     http.MethodDelete,
-			path:       "/v20180820/accesspoint/ap1/scope",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteAccessPointScope",
-		},
 		// Job tagging stubs
-		{
-			name:       "get_job_tagging",
-			method:     http.MethodGet,
-			path:       "/v20180820/jobs/job-1/tagging",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetJobTagging",
-		},
-		{
-			name:       "put_job_tagging",
-			method:     http.MethodPut,
-			path:       "/v20180820/jobs/job-1/tagging",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "PutJobTagging",
-		},
-		{
-			name:       "delete_job_tagging",
-			method:     http.MethodDelete,
-			path:       "/v20180820/jobs/job-1/tagging",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteJobTagging",
-		},
 		// Bucket replication stubs
 		{
 			name:       "get_bucket_replication",
@@ -1287,42 +1168,7 @@ func TestHandler_StubOperations(t *testing.T) {
 			wantBody:   "DeleteBucketReplication",
 		},
 		// Bucket tagging stubs
-		{
-			name:       "get_bucket_tagging",
-			method:     http.MethodGet,
-			path:       "/v20180820/bucket/mybucket/tagging",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetBucketTagging",
-		},
-		{
-			name:       "put_bucket_tagging",
-			method:     http.MethodPut,
-			path:       "/v20180820/bucket/mybucket/tagging",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "PutBucketTagging",
-		},
-		{
-			name:       "delete_bucket_tagging",
-			method:     http.MethodDelete,
-			path:       "/v20180820/bucket/mybucket/tagging",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteBucketTagging",
-		},
 		// Bucket versioning stubs
-		{
-			name:       "get_bucket_versioning",
-			method:     http.MethodGet,
-			path:       "/v20180820/bucket/mybucket/versioning",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetBucketVersioning",
-		},
-		{
-			name:       "put_bucket_versioning",
-			method:     http.MethodPut,
-			path:       "/v20180820/bucket/mybucket/versioning",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "PutBucketVersioning",
-		},
 		// Storage lens config stubs
 		{
 			name:       "get_storage_lens_config",
@@ -1403,162 +1249,8 @@ func TestHandler_StubOperations(t *testing.T) {
 			wantBody:   "ListStorageLensGroups",
 		},
 		// Access grants stubs
-		{
-			name:       "get_access_grants_instance",
-			method:     http.MethodGet,
-			path:       "/v20180820/accessgrantsinstance",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetAccessGrantsInstance",
-		},
-		{
-			name:       "delete_access_grants_instance",
-			method:     http.MethodDelete,
-			path:       "/v20180820/accessgrantsinstance",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteAccessGrantsInstance",
-		},
-		{
-			name:       "get_access_grants_instance_resource_policy",
-			method:     http.MethodGet,
-			path:       "/v20180820/accessgrantsinstance/resourcepolicy",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetAccessGrantsInstanceResourcePolicy",
-		},
-		{
-			name:       "put_access_grants_instance_resource_policy",
-			method:     http.MethodPut,
-			path:       "/v20180820/accessgrantsinstance/resourcepolicy",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "PutAccessGrantsInstanceResourcePolicy",
-		},
-		{
-			name:       "delete_access_grants_instance_resource_policy",
-			method:     http.MethodDelete,
-			path:       "/v20180820/accessgrantsinstance/resourcepolicy",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteAccessGrantsInstanceResourcePolicy",
-		},
-		{
-			name:       "dissociate_identity_center",
-			method:     http.MethodDelete,
-			path:       "/v20180820/accessgrantsinstance/identitycenter",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DissociateAccessGrantsIdentityCenter",
-		},
-		{
-			name:       "list_access_grants",
-			method:     http.MethodGet,
-			path:       "/v20180820/accessgrantsinstance/grant",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "ListAccessGrants",
-		},
-		{
-			name:       "list_caller_access_grants",
-			method:     http.MethodGet,
-			path:       "/v20180820/accessgrantsinstance/caller-grants",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "ListCallerAccessGrants",
-		},
-		{
-			name:       "get_data_access",
-			method:     http.MethodGet,
-			path:       "/v20180820/accessgrantsinstance/dataaccess",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetDataAccess",
-		},
-		{
-			name:       "list_access_grants_locations",
-			method:     http.MethodGet,
-			path:       "/v20180820/accessgrantsinstance/location",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "ListAccessGrantsLocations",
-		},
-		{
-			name:       "get_access_grant",
-			method:     http.MethodGet,
-			path:       "/v20180820/accessgrantsinstance/grant/grant-1",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetAccessGrant",
-		},
-		{
-			name:       "delete_access_grant",
-			method:     http.MethodDelete,
-			path:       "/v20180820/accessgrantsinstance/grant/grant-1",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteAccessGrant",
-		},
-		{
-			name:       "get_access_grants_location",
-			method:     http.MethodGet,
-			path:       "/v20180820/accessgrantsinstance/location/location-1",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetAccessGrantsLocation",
-		},
-		{
-			name:       "delete_access_grants_location",
-			method:     http.MethodDelete,
-			path:       "/v20180820/accessgrantsinstance/location/location-1",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteAccessGrantsLocation",
-		},
-		{
-			name:       "update_access_grants_location",
-			method:     http.MethodPut,
-			path:       "/v20180820/accessgrantsinstance/location/location-1",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "UpdateAccessGrantsLocation",
-		},
-		{
-			name:       "get_access_grants_instance_for_prefix",
-			method:     http.MethodGet,
-			path:       "/v20180820/accessgrantsinstance/prefixs3://mybucket/mypath",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetAccessGrantsInstanceForPrefix",
-		},
 		// Access point for directory buckets
-		{
-			name:       "list_access_points_for_directory_buckets",
-			method:     http.MethodGet,
-			path:       "/v20180820/accesspointfordirectories",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "ListAccessPointsForDirectoryBuckets",
-		},
-		{
-			name:       "list_access_points_for_object_lambda",
-			method:     http.MethodGet,
-			path:       "/v20180820/accesspointforobjectlambda",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "ListAccessPointsForObjectLambda",
-		},
 		// MRAP stubs
-		{
-			name:       "describe_mrap_operation",
-			method:     http.MethodGet,
-			path:       "/v20180820/async-requests/mrap/sometoken",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DescribeMultiRegionAccessPointOperation",
-		},
-		{
-			name:       "get_mrap_policy",
-			method:     http.MethodGet,
-			path:       "/v20180820/mrap/instances/mymrap/policy",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetMultiRegionAccessPointPolicy",
-		},
-		{
-			name:       "get_mrap_policy_status",
-			method:     http.MethodGet,
-			path:       "/v20180820/mrap/instances/mymrap/policyStatus",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetMultiRegionAccessPointPolicyStatus",
-		},
-		{
-			name:       "get_mrap_routes",
-			method:     http.MethodGet,
-			path:       "/v20180820/mrap/instances/mymrap/routes",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetMultiRegionAccessPointRoutes",
-		},
 		{
 			name:       "submit_mrap_routes",
 			method:     http.MethodPatch,
@@ -1567,50 +1259,8 @@ func TestHandler_StubOperations(t *testing.T) {
 			wantBody:   "SubmitMultiRegionAccessPointRoutes",
 		},
 		// Object lambda policyStatus stub
-		{
-			name:       "get_object_lambda_policy_status",
-			method:     http.MethodGet,
-			path:       "/v20180820/accesspointforobjectlambda/myolap/policyStatus",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetAccessPointPolicyStatusForObjectLambda",
-		},
 		// Get/delete object lambda stubs
-		{
-			name:       "get_object_lambda",
-			method:     http.MethodGet,
-			path:       "/v20180820/accesspointforobjectlambda/myolap",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetAccessPointForObjectLambda",
-		},
-		{
-			name:       "delete_object_lambda",
-			method:     http.MethodDelete,
-			path:       "/v20180820/accesspointforobjectlambda/myolap",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteAccessPointForObjectLambda",
-		},
 		// Bucket stubs
-		{
-			name:       "get_bucket",
-			method:     http.MethodGet,
-			path:       "/v20180820/bucket/mybucket",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetBucket",
-		},
-		{
-			name:       "delete_bucket",
-			method:     http.MethodDelete,
-			path:       "/v20180820/bucket/mybucket",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteBucket",
-		},
-		{
-			name:       "list_regional_buckets",
-			method:     http.MethodGet,
-			path:       "/v20180820/bucket",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "ListRegionalBuckets",
-		},
 	}
 
 	for _, tt := range tests {
@@ -1766,24 +1416,6 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			wantOp: "UpdateJobStatus",
 		},
 		{
-			name:   "get_job_tagging",
-			method: http.MethodGet,
-			path:   "/v20180820/jobs/job-1/tagging",
-			wantOp: "GetJobTagging",
-		},
-		{
-			name:   "put_job_tagging",
-			method: http.MethodPut,
-			path:   "/v20180820/jobs/job-1/tagging",
-			wantOp: "PutJobTagging",
-		},
-		{
-			name:   "delete_job_tagging",
-			method: http.MethodDelete,
-			path:   "/v20180820/jobs/job-1/tagging",
-			wantOp: "DeleteJobTagging",
-		},
-		{
 			name:   "list_mrap",
 			method: http.MethodGet,
 			path:   "/v20180820/mrap/instances",
@@ -1800,24 +1432,6 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			method: http.MethodDelete,
 			path:   "/v20180820/mrap/instances/mymrap",
 			wantOp: "DeleteMultiRegionAccessPoint",
-		},
-		{
-			name:   "get_mrap_policy",
-			method: http.MethodGet,
-			path:   "/v20180820/mrap/instances/mymrap/policy",
-			wantOp: "GetMultiRegionAccessPointPolicy",
-		},
-		{
-			name:   "get_mrap_policy_status",
-			method: http.MethodGet,
-			path:   "/v20180820/mrap/instances/mymrap/policyStatus",
-			wantOp: "GetMultiRegionAccessPointPolicyStatus",
-		},
-		{
-			name:   "get_mrap_routes",
-			method: http.MethodGet,
-			path:   "/v20180820/mrap/instances/mymrap/routes",
-			wantOp: "GetMultiRegionAccessPointRoutes",
 		},
 		{
 			name:   "submit_mrap_routes",
@@ -1846,42 +1460,6 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{name: "get_bucket", method: http.MethodGet, path: "/v20180820/bucket/mybucket", wantOp: "GetBucket"},
 		{name: "delete_bucket", method: http.MethodDelete, path: "/v20180820/bucket/mybucket", wantOp: "DeleteBucket"},
 		{
-			name:   "get_bucket_lifecycle",
-			method: http.MethodGet,
-			path:   "/v20180820/bucket/mybucket/lifecycle",
-			wantOp: "GetBucketLifecycleConfiguration",
-		},
-		{
-			name:   "put_bucket_lifecycle",
-			method: http.MethodPut,
-			path:   "/v20180820/bucket/mybucket/lifecycle",
-			wantOp: "PutBucketLifecycleConfiguration",
-		},
-		{
-			name:   "delete_bucket_lifecycle",
-			method: http.MethodDelete,
-			path:   "/v20180820/bucket/mybucket/lifecycle",
-			wantOp: "DeleteBucketLifecycleConfiguration",
-		},
-		{
-			name:   "get_bucket_policy",
-			method: http.MethodGet,
-			path:   "/v20180820/bucket/mybucket/policy",
-			wantOp: "GetBucketPolicy",
-		},
-		{
-			name:   "put_bucket_policy",
-			method: http.MethodPut,
-			path:   "/v20180820/bucket/mybucket/policy",
-			wantOp: "PutBucketPolicy",
-		},
-		{
-			name:   "delete_bucket_policy",
-			method: http.MethodDelete,
-			path:   "/v20180820/bucket/mybucket/policy",
-			wantOp: "DeleteBucketPolicy",
-		},
-		{
 			name:   "get_bucket_replication",
 			method: http.MethodGet,
 			path:   "/v20180820/bucket/mybucket/replication",
@@ -1898,42 +1476,6 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			method: http.MethodDelete,
 			path:   "/v20180820/bucket/mybucket/replication",
 			wantOp: "DeleteBucketReplication",
-		},
-		{
-			name:   "get_bucket_tagging",
-			method: http.MethodGet,
-			path:   "/v20180820/bucket/mybucket/tagging",
-			wantOp: "GetBucketTagging",
-		},
-		{
-			name:   "put_bucket_tagging",
-			method: http.MethodPut,
-			path:   "/v20180820/bucket/mybucket/tagging",
-			wantOp: "PutBucketTagging",
-		},
-		{
-			name:   "delete_bucket_tagging",
-			method: http.MethodDelete,
-			path:   "/v20180820/bucket/mybucket/tagging",
-			wantOp: "DeleteBucketTagging",
-		},
-		{
-			name:   "get_bucket_versioning",
-			method: http.MethodGet,
-			path:   "/v20180820/bucket/mybucket/versioning",
-			wantOp: "GetBucketVersioning",
-		},
-		{
-			name:   "put_bucket_versioning",
-			method: http.MethodPut,
-			path:   "/v20180820/bucket/mybucket/versioning",
-			wantOp: "PutBucketVersioning",
-		},
-		{
-			name:   "list_regional_buckets",
-			method: http.MethodGet,
-			path:   "/v20180820/bucket",
-			wantOp: "ListRegionalBuckets",
 		},
 		{
 			name:   "get_storage_lens",
@@ -1978,48 +1520,6 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			wantOp: "DeleteStorageLensConfigurationTagging",
 		},
 		{
-			name:   "get_object_lambda_policy",
-			method: http.MethodGet,
-			path:   "/v20180820/accesspointforobjectlambda/myolap/policy",
-			wantOp: "GetAccessPointPolicyForObjectLambda",
-		},
-		{
-			name:   "put_object_lambda_policy",
-			method: http.MethodPut,
-			path:   "/v20180820/accesspointforobjectlambda/myolap/policy",
-			wantOp: "PutAccessPointPolicyForObjectLambda",
-		},
-		{
-			name:   "delete_object_lambda_policy",
-			method: http.MethodDelete,
-			path:   "/v20180820/accesspointforobjectlambda/myolap/policy",
-			wantOp: "DeleteAccessPointPolicyForObjectLambda",
-		},
-		{
-			name:   "get_object_lambda_policy_status",
-			method: http.MethodGet,
-			path:   "/v20180820/accesspointforobjectlambda/myolap/policyStatus",
-			wantOp: "GetAccessPointPolicyStatusForObjectLambda",
-		},
-		{
-			name:   "get_object_lambda_config",
-			method: http.MethodGet,
-			path:   "/v20180820/accesspointforobjectlambda/myolap/configuration",
-			wantOp: "GetAccessPointConfigurationForObjectLambda",
-		},
-		{
-			name:   "put_object_lambda_config",
-			method: http.MethodPut,
-			path:   "/v20180820/accesspointforobjectlambda/myolap/configuration",
-			wantOp: "PutAccessPointConfigurationForObjectLambda",
-		},
-		{
-			name:   "list_access_points_for_object_lambda",
-			method: http.MethodGet,
-			path:   "/v20180820/accesspointforobjectlambda",
-			wantOp: "ListAccessPointsForObjectLambda",
-		},
-		{
 			name:   "get_storage_lens_group",
 			method: http.MethodGet,
 			path:   "/v20180820/storagelensgroup/mygroup",
@@ -2048,12 +1548,6 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/v20180820/storagelensgroup",
 			wantOp: "CreateStorageLensGroup",
-		},
-		{
-			name:   "describe_mrap_operation",
-			method: http.MethodGet,
-			path:   "/v20180820/async-requests/mrap/sometoken",
-			wantOp: "DescribeMultiRegionAccessPointOperation",
 		},
 		{
 			name:   "delete_mrap_async",
