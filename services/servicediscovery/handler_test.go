@@ -397,7 +397,7 @@ func TestHandler_GetNamespace(t *testing.T) {
 			name:       "not_found",
 			body:       map[string]any{"Id": "ns-does-not-exist"},
 			wantStatus: http.StatusBadRequest,
-			wantBody:   "ResourceNotFoundException",
+			wantBody:   "NamespaceNotFound",
 		},
 		{
 			name:       "missing_id",
@@ -597,7 +597,7 @@ func TestHandler_GetService(t *testing.T) {
 			name:       "not_found",
 			body:       map[string]any{"Id": "svc-does-not-exist"},
 			wantStatus: http.StatusBadRequest,
-			wantBody:   "ResourceNotFoundException",
+			wantBody:   "ServiceNotFound",
 		},
 		{
 			name:       "missing_id",
@@ -808,7 +808,7 @@ func TestHandler_GetInstance(t *testing.T) {
 			name:       "not_found",
 			body:       map[string]any{"ServiceId": svcID, "InstanceId": "i-does-not-exist"},
 			wantStatus: http.StatusBadRequest,
-			wantBody:   "ResourceNotFoundException",
+			wantBody:   "InstanceNotFound",
 		},
 		{
 			name:       "missing_service_id",
@@ -1051,7 +1051,7 @@ func TestHandler_GetOperation(t *testing.T) {
 			name:       "not_found",
 			body:       map[string]any{"OperationId": "op-does-not-exist"},
 			wantStatus: http.StatusBadRequest,
-			wantBody:   "ResourceNotFoundException",
+			wantBody:   "OperationNotFound",
 		},
 		{
 			name:       "missing_operation_id",
@@ -1228,7 +1228,7 @@ func TestBackend_ListNamespaces(t *testing.T) {
 	_, err = b.CreateHTTPNamespace("ns-a", "", nil)
 	require.NoError(t, err)
 
-	list := b.ListNamespaces()
+	list := b.ListNamespaces(servicediscovery.ListNamespacesFilter{})
 	require.Len(t, list, 2)
 	assert.Equal(t, "ns-a", list[0].Name, "namespaces should be sorted by name")
 }
@@ -1244,18 +1244,18 @@ func TestBackend_ListServices_FilterByNamespace(t *testing.T) {
 	op, err := b.GetOperation(opID)
 	require.NoError(t, err)
 
-	nsID := op.TargetID
+	nsID := op.Targets["NAMESPACE"]
 
-	_, err = b.CreateService("svc-in-ns", nsID, "", nil)
+	_, err = b.CreateService("svc-in-ns", nsID, "", "", nil, nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateService("svc-no-ns", "", "", nil)
+	_, err = b.CreateService("svc-no-ns", "", "", "", nil, nil, nil, nil)
 	require.NoError(t, err)
 
-	all := b.ListServices("")
+	all := b.ListServices(servicediscovery.ListServicesFilter{})
 	assert.Len(t, all, 2)
 
-	filtered := b.ListServices(nsID)
+	filtered := b.ListServices(servicediscovery.ListServicesFilter{NamespaceID: nsID})
 	assert.Len(t, filtered, 1)
 	assert.Equal(t, "svc-in-ns", filtered[0].Name)
 }

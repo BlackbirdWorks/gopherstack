@@ -23,7 +23,7 @@ func TestServiceDiscovery_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *servicediscovery.InMemoryBackend) {
 				t.Helper()
 
-				assert.Empty(t, b.ListNamespaces())
+				assert.Empty(t, b.ListNamespaces(servicediscovery.ListNamespacesFilter{}))
 			},
 		},
 		{
@@ -34,17 +34,17 @@ func TestServiceDiscovery_PersistenceSnapshotRestore(t *testing.T) {
 					return
 				}
 
-				nsList := b.ListNamespaces()
+				nsList := b.ListNamespaces(servicediscovery.ListNamespacesFilter{})
 				if len(nsList) == 0 {
 					return
 				}
 
-				_, _ = b.CreateService("my-svc", nsList[0].ID, "desc", nil)
+				_, _ = b.CreateService("my-svc", nsList[0].ID, "desc", "", nil, nil, nil, nil)
 			},
 			verify: func(t *testing.T, b *servicediscovery.InMemoryBackend) {
 				t.Helper()
 
-				nsList := b.ListNamespaces()
+				nsList := b.ListNamespaces(servicediscovery.ListNamespacesFilter{})
 				require.Len(t, nsList, 1)
 				assert.Equal(t, "my-ns", nsList[0].Name)
 				// Verify ARN index rebuilt (tag ops work)
@@ -76,63 +76,51 @@ func TestServiceDiscovery_PersistenceSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestServiceDiscovery_CascadeDelete(t *testing.T) {
+// TestServiceDiscovery_DeleteOrder verifies the AWS-correct delete ordering:
+// namespace cannot be deleted while services exist, and service cannot be deleted
+// while instances are registered. Explicit cleanup is required.
+func TestServiceDiscovery_DeleteOrder(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		setup  func(b *servicediscovery.InMemoryBackend) (string, string)
-		verify func(t *testing.T, b *servicediscovery.InMemoryBackend, nsID, svcID string)
-		name   string
-	}{
-		{
-			name: "delete_namespace_cascades_to_service_and_instance",
-			setup: func(b *servicediscovery.InMemoryBackend) (string, string) {
-				_, err := b.CreateHTTPNamespace("my-ns", "", nil)
-				if err != nil {
-					return "", ""
-				}
+	b := servicediscovery.NewInMemoryBackend("123456789012", "us-east-1")
 
-				nsList := b.ListNamespaces()
-				if len(nsList) == 0 {
-					return "", ""
-				}
+	_, err := b.CreateHTTPNamespace("my-ns", "", nil)
+	require.NoError(t, err)
 
-				nsID := nsList[0].ID
+	nsList := b.ListNamespaces(servicediscovery.ListNamespacesFilter{})
+	require.Len(t, nsList, 1)
 
-				svc, err := b.CreateService("my-svc", nsID, "", nil)
-				if err != nil {
-					return nsID, ""
-				}
+	nsID := nsList[0].ID
 
-				_, _ = b.RegisterInstance(svc.ID, "inst-1", map[string]string{"ip": "1.2.3.4"})
+	svc, err := b.CreateService("my-svc", nsID, "", "", nil, nil, nil, nil)
+	require.NoError(t, err)
 
-				return nsID, svc.ID
-			},
-			verify: func(t *testing.T, b *servicediscovery.InMemoryBackend, nsID, svcID string) {
-				t.Helper()
+	_, err = b.RegisterInstance(svc.ID, "inst-1", map[string]string{"ip": "1.2.3.4"})
+	require.NoError(t, err)
 
-				_, err := b.DeleteNamespace(nsID)
-				require.NoError(t, err)
-				// namespace gone
-				_, err = b.GetNamespace(nsID)
-				require.Error(t, err)
-				// service cascade-deleted
-				_, err = b.GetService(svcID)
-				require.Error(t, err)
-				// instance cascade-deleted
-				_, err = b.GetInstance(svcID, "inst-1")
-				require.Error(t, err)
-			},
-		},
-	}
+	// Namespace delete refused while service exists.
+	_, err = b.DeleteNamespace(nsID)
+	require.ErrorIs(t, err, servicediscovery.ErrResourceInUse)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	// Service delete refused while instance registered.
+	err = b.DeleteService(svc.ID)
+	require.ErrorIs(t, err, servicediscovery.ErrResourceInUse)
 
-			b := servicediscovery.NewInMemoryBackend("123456789012", "us-east-1")
-			nsID, svcID := tt.setup(b)
-			tt.verify(t, b, nsID, svcID)
-		})
-	}
+	// Deregister instance first.
+	_, err = b.DeregisterInstance(svc.ID, "inst-1")
+	require.NoError(t, err)
+
+	// Now service can be deleted.
+	err = b.DeleteService(svc.ID)
+	require.NoError(t, err)
+
+	_, err = b.GetService(svc.ID)
+	require.ErrorIs(t, err, servicediscovery.ErrServiceNotFound)
+
+	// Now namespace can be deleted.
+	_, err = b.DeleteNamespace(nsID)
+	require.NoError(t, err)
+
+	_, err = b.GetNamespace(nsID)
+	require.ErrorIs(t, err, servicediscovery.ErrNamespaceNotFound)
 }
