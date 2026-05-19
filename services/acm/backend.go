@@ -1091,6 +1091,7 @@ func (b *InMemoryBackend) ResendValidationEmail(certARN, domain, validationDomai
 	// Reset the auto-validate timer to simulate email resend triggering re-validation.
 	if t, exists := b.timers[certARN]; exists {
 		t.Stop()
+		delete(b.timers, certARN)
 	}
 
 	t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func() { b.autoValidate(certARN) })

@@ -44,6 +44,7 @@ type invocationResult struct {
 type runtimeServer struct {
 	srv     *http.Server
 	queue   chan *pendingInvocation
+	done    chan struct{}
 	pending sync.Map
 	port    int
 }
@@ -71,6 +72,7 @@ func newRuntimeServer(port int) *runtimeServer {
 	return &runtimeServer{
 		port:  port,
 		queue: make(chan *pendingInvocation, runtimeQueueSize),
+		done:  make(chan struct{}),
 	}
 }
 
@@ -93,6 +95,8 @@ func (s *runtimeServer) start(ctx context.Context) error {
 	}
 
 	go func() {
+		defer close(s.done)
+
 		if serveErr := s.srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			slog.Default().ErrorContext(ctx, "lambda runtime server error", "port", s.port, "error", serveErr)
 		}
@@ -105,6 +109,11 @@ func (s *runtimeServer) start(ctx context.Context) error {
 func (s *runtimeServer) stop(ctx context.Context) {
 	if s.srv != nil {
 		_ = s.srv.Shutdown(ctx)
+
+		select {
+		case <-s.done:
+		case <-ctx.Done():
+		}
 	}
 }
 
