@@ -1954,7 +1954,7 @@ func (b *InMemoryBackend) dispatchInvocationLog(ctx context.Context, functionNam
 		return
 	}
 
-	go func() { // #nosec G118 -- intentional detached log goroutine bounded by logSem
+	go func() { // #nosec G114 -- intentional detached log goroutine bounded by logSem
 		defer func() { <-b.logSem }()
 		b.pushInvocationLog(ctx, functionName, payload, result)
 	}()
