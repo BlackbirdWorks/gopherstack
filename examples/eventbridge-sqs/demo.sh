@@ -24,8 +24,12 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== Creating SQS target queue ==="
-QUEUE_URL=$($AWS sqs create-queue --queue-name "$QUEUE_NAME" | python3 -c "import json,sys;print(json.load(sys.stdin)['QueueUrl'])")
-QUEUE_ARN=$($AWS sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn | python3 -c "import json,sys;print(json.load(sys.stdin)['Attributes']['QueueArn'])")
+QUEUE_URL=$($AWS sqs create-queue --queue-name "$QUEUE_NAME" --query QueueUrl --output text)
+QUEUE_ARN=$($AWS sqs get-queue-attributes \
+  --queue-url "$QUEUE_URL" \
+  --attribute-names QueueArn \
+  --query 'Attributes.QueueArn' \
+  --output text)
 echo "queue: $QUEUE_URL"
 echo "arn:   $QUEUE_ARN"
 

@@ -26,18 +26,26 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== Creating SNS topic ==="
-TOPIC_ARN=$($AWS sns create-topic --name orders | python3 -c "import json,sys;print(json.load(sys.stdin)['TopicArn'])")
+TOPIC_ARN=$($AWS sns create-topic --name orders --query TopicArn --output text)
 echo "TopicArn: $TOPIC_ARN"
 
 echo ""
 echo "=== Creating SQS queues ==="
-BILLING_URL=$($AWS sqs create-queue --queue-name billing  | python3 -c "import json,sys;print(json.load(sys.stdin)['QueueUrl'])")
-SHIPPING_URL=$($AWS sqs create-queue --queue-name shipping | python3 -c "import json,sys;print(json.load(sys.stdin)['QueueUrl'])")
+BILLING_URL=$($AWS sqs create-queue --queue-name billing --query QueueUrl --output text)
+SHIPPING_URL=$($AWS sqs create-queue --queue-name shipping --query QueueUrl --output text)
 echo "billing : $BILLING_URL"
 echo "shipping: $SHIPPING_URL"
 
-BILLING_ARN=$($AWS sqs get-queue-attributes  --queue-url "$BILLING_URL"  --attribute-names QueueArn | python3 -c "import json,sys;print(json.load(sys.stdin)['Attributes']['QueueArn'])")
-SHIPPING_ARN=$($AWS sqs get-queue-attributes --queue-url "$SHIPPING_URL" --attribute-names QueueArn | python3 -c "import json,sys;print(json.load(sys.stdin)['Attributes']['QueueArn'])")
+BILLING_ARN=$($AWS sqs get-queue-attributes \
+  --queue-url "$BILLING_URL" \
+  --attribute-names QueueArn \
+  --query 'Attributes.QueueArn' \
+  --output text)
+SHIPPING_ARN=$($AWS sqs get-queue-attributes \
+  --queue-url "$SHIPPING_URL" \
+  --attribute-names QueueArn \
+  --query 'Attributes.QueueArn' \
+  --output text)
 
 echo ""
 echo "=== Subscribing both queues to the topic ==="
@@ -60,8 +68,8 @@ receive() {
   out="/tmp/sns-${name}.json"
   $AWS sqs receive-message --queue-url "$url" --wait-time-seconds 2 --max-number-of-messages 1 >"$out"
   cat "$out"
-  grep -q '"orderId":"o-123"' "$out"
-  python3 -c "import json,sys; data=json.load(open(sys.argv[1])); assert len(data.get('Messages', [])) == 1" "$out"
+  grep -q '"Messages"' "$out"
+  grep -q "o-123" "$out"
 }
 
 receive billing  "$BILLING_URL"

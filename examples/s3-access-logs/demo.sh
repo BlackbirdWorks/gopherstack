@@ -16,9 +16,13 @@ LOG_KEY=""
 cleanup() {
   rm -f /tmp/logging.json /tmp/order.json /tmp/downloaded-order.json /tmp/access.log
   $AWS s3api delete-object --bucket "$SRC_BUCKET" --key "$OBJECT_KEY" >/dev/null 2>&1 || true
-  if [ -n "$LOG_KEY" ] && [ "$LOG_KEY" != "None" ]; then
-    $AWS s3api delete-object --bucket "$LOG_BUCKET" --key "$LOG_KEY" >/dev/null 2>&1 || true
-  fi
+  for key in $($AWS s3api list-objects-v2 \
+    --bucket "$LOG_BUCKET" \
+    --prefix access/ \
+    --query 'Contents[].Key' \
+    --output text 2>/dev/null || true); do
+    $AWS s3api delete-object --bucket "$LOG_BUCKET" --key "$key" >/dev/null 2>&1 || true
+  done
   $AWS s3api delete-bucket --bucket "$SRC_BUCKET" >/dev/null 2>&1 || true
   $AWS s3api delete-bucket --bucket "$LOG_BUCKET" >/dev/null 2>&1 || true
 }
@@ -62,16 +66,24 @@ $AWS s3api get-object \
 echo ""
 echo "=== Waiting for access log delivery ==="
 for i in $(seq 1 30); do
-  LOG_KEY=$($AWS s3api list-objects-v2 \
+  LOG_KEYS=$($AWS s3api list-objects-v2 \
     --bucket "$LOG_BUCKET" \
     --prefix access/ \
-    --query 'Contents[0].Key' \
+    --query 'Contents[].Key' \
     --output text 2>/dev/null || true)
 
-  if [ -n "$LOG_KEY" ] && [ "$LOG_KEY" != "None" ]; then
-    echo "log object: $LOG_KEY"
-    break
-  fi
+  for key in $LOG_KEYS; do
+    $AWS s3api get-object \
+      --bucket "$LOG_BUCKET" \
+      --key "$key" \
+      /tmp/access.log >/dev/null
+
+    if grep -q "REST.GET.OBJECT" /tmp/access.log; then
+      LOG_KEY=$key
+      echo "log object: $LOG_KEY"
+      break 2
+    fi
+  done
 
   echo "  attempt $i: pending"
   sleep 1
@@ -81,11 +93,6 @@ if [ -z "$LOG_KEY" ] || [ "$LOG_KEY" = "None" ]; then
   echo "ERROR: no access log object appeared in $LOG_BUCKET" >&2
   exit 1
 fi
-
-$AWS s3api get-object \
-  --bucket "$LOG_BUCKET" \
-  --key "$LOG_KEY" \
-  /tmp/access.log >/dev/null
 
 echo ""
 echo "=== Access log record ==="
