@@ -800,4 +800,57 @@ type Backend interface {
 	DescribePrincipalIDFormat(_ string) []IDFormatItem
 	DescribeInstanceEventNotificationAttributes() *InstanceEventNotificationAttributes
 	DeregisterInstanceEventNotificationAttributes()
+
+	// ---- batch2 ----
+
+	CreateVpcEndpointConnectionNotification(serviceID, endpointID, notifARN string, events []string) (*VpcEndpointConnectionNotification, error)
+	DescribeVpcEndpointConnectionNotifications(ids []string) []*VpcEndpointConnectionNotification
+	DeleteVpcEndpointConnectionNotifications(ids []string) error
+	ModifyVpcEndpointConnectionNotification(id, notifARN string, events []string) (*VpcEndpointConnectionNotification, error)
+	DescribeVpcEndpointConnections(serviceIDs []string) []*VpcEndpointConnection
+	DescribeVpcEndpointAssociations(endpointIDs []string) []*VpcEndpoint
+	ModifyVpcEndpointServicePayerResponsibility(serviceID, payerResponsibility string) error
+	DescribeVpcEndpointServicePermissions(serviceID string) []string
+	ModifyVpcEndpointServicePermissions(serviceID string, add, remove []string) error
+	ModifyVpcEndpoint(endpointID string, addSubnetIDs, removeSubnetIDs []string) error
+	EnableEbsEncryptionByDefault()
+	DisableEbsEncryptionByDefault()
+	GetEbsEncryptionByDefault() bool
+	GetEbsDefaultKmsKeyID() string
+	ModifyEbsDefaultKmsKeyID(kmsKeyID string) error
+	EnableVolumeIO(volumeID string) error
+	LockSnapshot(snapshotID, lockMode string, durationDays int) (*SnapshotLock, error)
+	UnlockSnapshot(snapshotID string) error
+	DescribeLockedSnapshots(ids []string) []*SnapshotLock
+	CopyVolumes(volumeIDs []string, destinationRegion string) ([]CopyVolumesResult, error)
+	DisassociateVpcCidrBlock(associationID string) error
+	DisassociateNatGatewayAddress(natGatewayID string) error
+	AssociateNatGatewayAddress(natGatewayID, allocationID string) error
+	AssignPrivateNatGatewayAddress(natGatewayID string) error
+	DisableImage(imageID string) error
+	EnableImage(imageID string) error
+	EnableImageBlockPublicAccess(state string) error
+	DisableImageBlockPublicAccess()
+	GetImageBlockPublicAccessState() string
+	EnableImageDeprecation(imageID, deprecateAt string) error
+	DisableImageDeprecation(imageID string) error
+	EnableImageDeregistrationProtection(imageID string) error
+	DisableImageDeregistrationProtection(imageID string) error
+	ModifyImageAttribute(imageID, attribute, value string) error
+	ResetImageAttribute(imageID, attribute string) error
+	DescribeInstanceImageMetadata(instanceIDs []string) []InstanceImageMetadataItem
+	EnableSerialConsoleAccess()
+	DisableSerialConsoleAccess()
+	GetSerialConsoleAccessStatus() bool
+	EnableVgwRoutePropagation(routeTableID, gatewayID string) error
+	DisableVgwRoutePropagation(routeTableID, gatewayID string) error
+	GetDefaultCreditSpecification() string
+	ModifyDefaultCreditSpecification(cpuCredits string) error
+	CreateReplaceRootVolumeTask(instanceID, snapshotID string) (*ReplaceRootVolumeTask, error)
+	DescribeReplaceRootVolumeTasks(ids []string) []*ReplaceRootVolumeTask
+	EnableAddressTransfer(allocationID, transferAccountID string) (*AddressTransfer, error)
+	DisableAddressTransfer(allocationID string) error
+	DescribeAddressTransfers(allocationIDs []string) []*AddressTransfer
+	CreateSubnetCidrReservation(subnetID, cidr, reservationType, description string) (*SubnetCIDRReservation, error)
+	DeleteSubnetCidrReservation(reservationID string) error
 }
