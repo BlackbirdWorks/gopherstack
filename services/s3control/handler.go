@@ -822,25 +822,25 @@ func (h *Handler) dispatchAccessGrantsInstanceOps(c *echo.Context, path, method 
 		case http.MethodPost:
 			return true, h.handleCreateAccessGrantsInstance(c)
 		case http.MethodGet:
-			return true, h.handleStub(c, "GetAccessGrantsInstance")
+			return true, h.handleGetAccessGrantsInstance(c)
 		case http.MethodDelete:
-			return true, h.handleStub(c, "DeleteAccessGrantsInstance")
+			return true, h.handleDeleteAccessGrantsInstance(c)
 		}
 	case pathAccessGrantsInstanceResourcePolicy:
 		switch method {
 		case http.MethodGet:
-			return true, h.handleStub(c, "GetAccessGrantsInstanceResourcePolicy")
+			return true, h.handleGetAccessGrantsInstanceResourcePolicy(c)
 		case http.MethodPut:
-			return true, h.handleStub(c, "PutAccessGrantsInstanceResourcePolicy")
+			return true, h.handlePutAccessGrantsInstanceResourcePolicy(c)
 		case http.MethodDelete:
-			return true, h.handleStub(c, "DeleteAccessGrantsInstanceResourcePolicy")
+			return true, h.handleDeleteAccessGrantsInstanceResourcePolicy(c)
 		}
 	case pathIdentityCenter:
 		switch method {
 		case http.MethodPost:
 			return true, h.handleAssociateAccessGrantsIdentityCenter(c)
 		case http.MethodDelete:
-			return true, h.handleStub(c, "DissociateAccessGrantsIdentityCenter")
+			return true, h.handleDissociateAccessGrantsIdentityCenter(c)
 		}
 	}
 
@@ -864,22 +864,22 @@ func (h *Handler) dispatchAccessGrantsExactOps(c *echo.Context, path, method str
 		case http.MethodPost:
 			return true, h.handleCreateAccessGrant(c)
 		case http.MethodGet:
-			return true, h.handleStub(c, "ListAccessGrants")
+			return true, h.handleListAccessGrants(c)
 		}
 	case pathCallerAccessGrants:
 		if method == http.MethodGet {
-			return true, h.handleStub(c, "ListCallerAccessGrants")
+			return true, h.handleListCallerAccessGrants(c)
 		}
 	case pathDataAccess:
 		if method == http.MethodGet {
-			return true, h.handleStub(c, "GetDataAccess")
+			return true, h.handleGetDataAccess(c)
 		}
 	case pathAccessGrantsLocation:
 		switch method {
 		case http.MethodPost:
 			return true, h.handleCreateAccessGrantsLocation(c)
 		case http.MethodGet:
-			return true, h.handleStub(c, "ListAccessGrantsLocations")
+			return true, h.handleListAccessGrantsLocations(c)
 		}
 	}
 
@@ -890,17 +890,17 @@ func (h *Handler) dispatchAccessGrantsExactOps(c *echo.Context, path, method str
 func (h *Handler) dispatchAccessGrantsPrefixOps(c *echo.Context, path, method string) (bool, error) {
 	switch {
 	case strings.HasPrefix(path, pathAccessGrantsInstancePrefix+"prefix") && method == http.MethodGet:
-		return true, h.handleStub(c, "GetAccessGrantsInstanceForPrefix")
+		return true, h.handleGetAccessGrantsInstanceForPrefix(c)
 	case strings.HasPrefix(path, pathAccessGrantPrefix) && method == http.MethodGet:
-		return true, h.handleStub(c, "GetAccessGrant")
+		return true, h.handleGetAccessGrant(c)
 	case strings.HasPrefix(path, pathAccessGrantPrefix) && method == http.MethodDelete:
-		return true, h.handleStub(c, "DeleteAccessGrant")
+		return true, h.handleDeleteAccessGrant(c)
 	case isGrantsLocationPath(path) && method == http.MethodGet:
-		return true, h.handleStub(c, "GetAccessGrantsLocation")
+		return true, h.handleGetAccessGrantsLocation(c)
 	case isGrantsLocationPath(path) && method == http.MethodDelete:
-		return true, h.handleStub(c, "DeleteAccessGrantsLocation")
+		return true, h.handleDeleteAccessGrantsLocation(c)
 	case isGrantsLocationPath(path) && method == http.MethodPut:
-		return true, h.handleStub(c, "UpdateAccessGrantsLocation")
+		return true, h.handleUpdateAccessGrantsLocation(c)
 	}
 
 	return false, nil
@@ -950,11 +950,11 @@ func (h *Handler) dispatchAccessPointBasicOps(c *echo.Context, path, method stri
 		}
 	case pathAccessPointsDirectoryBuckets:
 		if method == http.MethodGet {
-			return true, h.handleStub(c, "ListAccessPointsForDirectoryBuckets")
+			return true, h.handleListAccessPointsForDirectoryBuckets(c)
 		}
 	case pathAccessPointsForObjectLambdaList:
 		if method == http.MethodGet {
-			return true, h.handleStub(c, "ListAccessPointsForObjectLambda")
+			return true, h.handleListAccessPointsForObjectLambda(c)
 		}
 	}
 
@@ -973,11 +973,11 @@ func (h *Handler) dispatchAccessPointSubResourceOps(c *echo.Context, path, metho
 	case isPrefixSuffix(pathAccessPointPrefix, path, "/policyStatus") && method == http.MethodGet:
 		return true, h.handleGetAccessPointPolicyStatus(c)
 	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodGet:
-		return true, h.handleStub(c, "GetAccessPointScope")
+		return true, h.handleGetAccessPointScope(c)
 	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodPut:
-		return true, h.handleStub(c, "PutAccessPointScope")
+		return true, h.handlePutAccessPointScope(c)
 	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodDelete:
-		return true, h.handleStub(c, "DeleteAccessPointScope")
+		return true, h.handleDeleteAccessPointScope(c)
 	}
 
 	return false, nil
@@ -991,7 +991,7 @@ func (h *Handler) dispatchObjectLambdaOps(c *echo.Context, path, method string) 
 	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policy"):
 		return h.dispatchObjectLambdaPolicyMethod(c, method)
 	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policyStatus") && method == http.MethodGet:
-		return true, h.handleStub(c, "GetAccessPointPolicyStatusForObjectLambda")
+		return true, h.handleGetAccessPointPolicyStatusForObjectLambda(c)
 	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/configuration"):
 		return h.dispatchObjectLambdaConfigMethod(c, method)
 	}
@@ -1004,9 +1004,9 @@ func (h *Handler) dispatchObjectLambdaRootMethod(c *echo.Context, method string)
 	case http.MethodPut:
 		return true, h.handleCreateAccessPointForObjectLambda(c)
 	case http.MethodGet:
-		return true, h.handleStub(c, "GetAccessPointForObjectLambda")
+		return true, h.handleGetAccessPointForObjectLambda(c)
 	case http.MethodDelete:
-		return true, h.handleStub(c, "DeleteAccessPointForObjectLambda")
+		return true, h.handleDeleteAccessPointForObjectLambda(c)
 	}
 
 	return false, nil
@@ -1015,11 +1015,11 @@ func (h *Handler) dispatchObjectLambdaRootMethod(c *echo.Context, method string)
 func (h *Handler) dispatchObjectLambdaPolicyMethod(c *echo.Context, method string) (bool, error) {
 	switch method {
 	case http.MethodGet:
-		return true, h.handleStub(c, "GetAccessPointPolicyForObjectLambda")
+		return true, h.handleGetAccessPointPolicyForObjectLambda(c)
 	case http.MethodPut:
-		return true, h.handleStub(c, "PutAccessPointPolicyForObjectLambda")
+		return true, h.handlePutAccessPointPolicyForObjectLambda(c)
 	case http.MethodDelete:
-		return true, h.handleStub(c, "DeleteAccessPointPolicyForObjectLambda")
+		return true, h.handleDeleteAccessPointPolicyForObjectLambda(c)
 	}
 
 	return false, nil
@@ -1028,9 +1028,9 @@ func (h *Handler) dispatchObjectLambdaPolicyMethod(c *echo.Context, method strin
 func (h *Handler) dispatchObjectLambdaConfigMethod(c *echo.Context, method string) (bool, error) {
 	switch method {
 	case http.MethodGet:
-		return true, h.handleStub(c, "GetAccessPointConfigurationForObjectLambda")
+		return true, h.handleGetAccessPointConfigurationForObjectLambda(c)
 	case http.MethodPut:
-		return true, h.handleStub(c, "PutAccessPointConfigurationForObjectLambda")
+		return true, h.handlePutAccessPointConfigurationForObjectLambda(c)
 	}
 
 	return false, nil
@@ -1068,9 +1068,9 @@ func (h *Handler) dispatchBucketBaseMethod(c *echo.Context, method string) (bool
 	case http.MethodPut:
 		return true, h.handleCreateBucket(c)
 	case http.MethodGet:
-		return true, h.handleStub(c, "GetBucket")
+		return true, h.handleGetBucket(c)
 	case http.MethodDelete:
-		return true, h.handleStub(c, "DeleteBucket")
+		return true, h.handleDeleteBucket(c)
 	}
 
 	return false, nil
@@ -1079,11 +1079,11 @@ func (h *Handler) dispatchBucketBaseMethod(c *echo.Context, method string) (bool
 func (h *Handler) dispatchBucketLifecycleMethod(c *echo.Context, method string) (bool, error) {
 	switch method {
 	case http.MethodGet:
-		return true, h.handleStub(c, "GetBucketLifecycleConfiguration")
+		return true, h.handleGetBucketLifecycleConfiguration(c)
 	case http.MethodPut:
-		return true, h.handleStub(c, "PutBucketLifecycleConfiguration")
+		return true, h.handlePutBucketLifecycleConfiguration(c)
 	case http.MethodDelete:
-		return true, h.handleStub(c, "DeleteBucketLifecycleConfiguration")
+		return true, h.handleDeleteBucketLifecycleConfiguration(c)
 	}
 
 	return false, nil
@@ -1092,11 +1092,11 @@ func (h *Handler) dispatchBucketLifecycleMethod(c *echo.Context, method string) 
 func (h *Handler) dispatchBucketPolicyMethod(c *echo.Context, method string) (bool, error) {
 	switch method {
 	case http.MethodGet:
-		return true, h.handleStub(c, "GetBucketPolicy")
+		return true, h.handleGetBucketPolicy(c)
 	case http.MethodPut:
-		return true, h.handleStub(c, "PutBucketPolicy")
+		return true, h.handlePutBucketPolicy(c)
 	case http.MethodDelete:
-		return true, h.handleStub(c, "DeleteBucketPolicy")
+		return true, h.handleDeleteBucketPolicy(c)
 	}
 
 	return false, nil
@@ -1125,11 +1125,11 @@ func (h *Handler) dispatchBucketTagVersionStubs(c *echo.Context, path, method st
 	if isPrefixSuffix(pathBucketPrefix, path, "/tagging") {
 		switch method {
 		case http.MethodGet:
-			return true, h.handleStub(c, "GetBucketTagging")
+			return true, h.handleGetBucketTagging(c)
 		case http.MethodPut:
-			return true, h.handleStub(c, "PutBucketTagging")
+			return true, h.handlePutBucketTagging(c)
 		case http.MethodDelete:
-			return true, h.handleStub(c, "DeleteBucketTagging")
+			return true, h.handleDeleteBucketTagging(c)
 		}
 
 		return false, nil
@@ -1138,16 +1138,16 @@ func (h *Handler) dispatchBucketTagVersionStubs(c *echo.Context, path, method st
 	if isPrefixSuffix(pathBucketPrefix, path, "/versioning") {
 		switch method {
 		case http.MethodGet:
-			return true, h.handleStub(c, "GetBucketVersioning")
+			return true, h.handleGetBucketVersioning(c)
 		case http.MethodPut:
-			return true, h.handleStub(c, "PutBucketVersioning")
+			return true, h.handlePutBucketVersioning(c)
 		}
 
 		return false, nil
 	}
 
 	if path == pathRegionalBuckets && method == http.MethodGet {
-		return true, h.handleStub(c, "ListRegionalBuckets")
+		return true, h.handleListRegionalBuckets(c)
 	}
 
 	return false, nil
@@ -1191,11 +1191,11 @@ func (h *Handler) dispatchJobSubResourceOps(c *echo.Context, path, method string
 	if isPrefixSuffix(pathJobPrefix, path, "/tagging") {
 		switch method {
 		case http.MethodGet:
-			return true, h.handleStub(c, "GetJobTagging")
+			return true, h.handleGetJobTagging(c)
 		case http.MethodPut:
-			return true, h.handleStub(c, "PutJobTagging")
+			return true, h.handlePutJobTagging(c)
 		case http.MethodDelete:
-			return true, h.handleStub(c, "DeleteJobTagging")
+			return true, h.handleDeleteJobTagging(c)
 		}
 
 		return false, nil
@@ -1231,7 +1231,7 @@ func (h *Handler) dispatchMRAPCreateListOps(c *echo.Context, path, method string
 	case strings.HasPrefix(path, pathMRAPPutPolicyPrefix) && method == http.MethodPost:
 		return true, h.handlePutMultiRegionAccessPointPolicy(c)
 	case strings.HasPrefix(path, pathMRAPPrefix) && method == http.MethodGet:
-		return true, h.handleStub(c, "DescribeMultiRegionAccessPointOperation")
+		return true, h.handleDescribeMultiRegionAccessPointOperation(c)
 	case path == pathMRAPList && method == http.MethodGet:
 		return true, h.handleListMultiRegionAccessPoints(c)
 	}
@@ -1254,11 +1254,11 @@ func (h *Handler) dispatchMRAPInstanceDispatch(c *echo.Context, path, method str
 
 	switch {
 	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/policy") && method == http.MethodGet:
-		return true, h.handleStub(c, "GetMultiRegionAccessPointPolicy")
+		return true, h.handleGetMultiRegionAccessPointPolicy(c)
 	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/policyStatus") && method == http.MethodGet:
-		return true, h.handleStub(c, "GetMultiRegionAccessPointPolicyStatus")
+		return true, h.handleGetMultiRegionAccessPointPolicyStatus(c)
 	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/routes") && method == http.MethodGet:
-		return true, h.handleStub(c, "GetMultiRegionAccessPointRoutes")
+		return true, h.handleGetMultiRegionAccessPointRoutes(c)
 	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/routes") && method == http.MethodPatch:
 		return true, h.handleStub(c, "SubmitMultiRegionAccessPointRoutes")
 	}
