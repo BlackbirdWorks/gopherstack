@@ -47,6 +47,11 @@ func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
 
+// SetDeterministicIDs enables counter-based ID generation for deterministic test output.
+func SetDeterministicIDs(b *InMemoryBackend) {
+	b.deterministicIDs = true
+}
+
 // AddNamespaceInternal directly seeds a namespace into the backend (test use only).
 func AddNamespaceInternal(b *InMemoryBackend, ns *Namespace) {
 	b.mu.Lock("AddNamespaceInternal")
@@ -64,6 +69,14 @@ func AddServiceInternal(b *InMemoryBackend, svc *Service) {
 
 	b.services[svc.ID] = svc
 	b.svcARNIndex[svc.ARN] = svc.ID
+
+	if b.instancesByService[svc.ID] == nil {
+		b.instancesByService[svc.ID] = make(map[string]*Instance)
+	}
+
+	if svc.NamespaceID != "" {
+		b.svcByNsAndName[svc.NamespaceID+":"+svc.Name] = svc.ID
+	}
 }
 
 // AddInstanceInternal directly seeds an instance into the backend (test use only).
@@ -73,6 +86,12 @@ func AddInstanceInternal(b *InMemoryBackend, inst *Instance) {
 
 	key := instanceKey(inst.ServiceID, inst.ID)
 	b.instances[key] = inst
+
+	if b.instancesByService[inst.ServiceID] == nil {
+		b.instancesByService[inst.ServiceID] = make(map[string]*Instance)
+	}
+
+	b.instancesByService[inst.ServiceID][inst.ID] = inst
 }
 
 // NewNamespaceForTest creates a Namespace value for seeding in tests.
@@ -83,7 +102,6 @@ func NewNamespaceForTest(id, name, nsType string) *Namespace {
 		Name:      name,
 		Type:      nsType,
 		CreatedAt: time.Now(),
-		Tags:      make(map[string]string),
 	}
 }
 
@@ -95,7 +113,18 @@ func NewServiceForTest(id, name, namespaceID string) *Service {
 		Name:        name,
 		NamespaceID: namespaceID,
 		CreatedAt:   time.Now(),
-		Tags:        make(map[string]string),
+	}
+}
+
+// NewServiceWithCustomHealthForTest creates a Service with HealthCheckCustomConfig for seeding.
+func NewServiceWithCustomHealthForTest(id, name, namespaceID string) *Service {
+	return &Service{
+		ID:                      id,
+		ARN:                     "arn:aws:servicediscovery:us-east-1:000000000000:service/" + id,
+		Name:                    name,
+		NamespaceID:             namespaceID,
+		HealthCheckCustomConfig: &HealthCheckCustomConfig{FailureThreshold: 1},
+		CreatedAt:               time.Now(),
 	}
 }
 

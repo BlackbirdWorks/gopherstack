@@ -26,17 +26,42 @@ const (
 	keyStatusField  = "Status"
 	keyTags         = "Tags"
 	keyArn          = "Arn"
+
+	maxTagCount    = 50
+	maxTagKeyLen   = 128
+	maxTagValueLen = 256
 )
 
 const (
 	serviceDiscoveryService      = "servicediscovery"
 	serviceDiscoveryTargetPrefix = "Route53AutoNaming_v20170314."
+
+	keyNamespaceID = "NamespaceId"
+	keyType        = "Type"
+	keyCreateDate  = "CreateDate"
 )
 
 var (
 	errUnknownAction  = errors.New("unknown action")
 	errInvalidRequest = errors.New("invalid request")
 )
+
+func resolveMaxResults(ptr *int) int {
+	if ptr != nil && *ptr > 0 {
+		return *ptr
+	}
+
+	return maxResultsDefault
+}
+
+func marshalPagedResponse(key string, items []map[string]any, nextToken string) ([]byte, error) {
+	resp := map[string]any{key: items}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
+}
 
 // Handler is the HTTP handler for the AWS Cloud Map service discovery API.
 type Handler struct {
@@ -130,7 +155,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	for _, key := range []string{"Id", "ServiceId", "NamespaceId", "ResourceARN"} {
+	for _, key := range []string{"Id", "ServiceId", keyNamespaceID, "ResourceARN"} {
 		if v, ok := data[key]; ok {
 			if s, isStr := v.(string); isStr {
 				return s
@@ -328,38 +353,31 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
-	case errors.Is(err, ErrNamespaceNotFound), errors.Is(err, ErrServiceNotFound),
-		errors.Is(err, ErrInstanceNotFound), errors.Is(err, ErrOperationNotFound),
-		errors.Is(err, ErrServiceAttributesNotFound), errors.Is(err, ErrResourceNotFound):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "ResourceNotFoundException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrNamespaceNotFound):
+		return h.errorResponse(c, "NamespaceNotFound", err)
+	case errors.Is(err, ErrServiceNotFound):
+		return h.errorResponse(c, "ServiceNotFound", err)
+	case errors.Is(err, ErrInstanceNotFound):
+		return h.errorResponse(c, "InstanceNotFound", err)
+	case errors.Is(err, ErrOperationNotFound):
+		return h.errorResponse(c, "OperationNotFound", err)
+	case errors.Is(err, ErrServiceAttributesNotFound):
+		return h.errorResponse(c, "ServiceAttributesNotFound", err)
+	case errors.Is(err, ErrResourceNotFound):
+		return h.errorResponse(c, "ResourceNotFoundException", err)
+	case errors.Is(err, ErrCustomHealthNotFound):
+		return h.errorResponse(c, "CustomHealthNotFound", err)
 	case errors.Is(err, ErrNamespaceAlreadyExists):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "NamespaceAlreadyExists",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return h.errorResponse(c, "NamespaceAlreadyExists", err)
+	case errors.Is(err, ErrResourceInUse):
+		return h.errorResponse(c, "ResourceInUse", err)
 	case errors.Is(err, ErrInvalidInput):
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyTypeField:    errInvalidInput,
-			keyMessageField: err.Error(),
-		})
+		return h.errorResponse(c, errInvalidInput, err)
 	case errors.Is(err, errUnknownAction):
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyTypeField:    errInvalidInput,
-			keyMessageField: err.Error(),
-		})
+		return h.errorResponse(c, errInvalidInput, err)
 	case errors.Is(err, errInvalidRequest),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyTypeField:    errInvalidInput,
-			keyMessageField: err.Error(),
-		})
+		return h.errorResponse(c, errInvalidInput, err)
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			keyTypeField:    "InternalServiceError",
@@ -368,7 +386,50 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	}
 }
 
+func (h *Handler) errorResponse(c *echo.Context, errType string, err error) error {
+	payload, _ := json.Marshal(map[string]string{
+		keyTypeField:    errType,
+		keyMessageField: err.Error(),
+	})
+
+	return c.JSONBlob(http.StatusBadRequest, payload)
+}
+
+// validateTags enforces AWS Cloud Map tag limits and reserved key rules.
+func validateTags(tags []tagEntry) error {
+	if len(tags) > maxTagCount {
+		return fmt.Errorf("%w: cannot have more than %d tags", ErrInvalidInput, maxTagCount)
+	}
+
+	for _, t := range tags {
+		if strings.HasPrefix(t.Key, "aws:") {
+			return fmt.Errorf("%w: tag key %q uses reserved prefix \"aws:\"", ErrInvalidInput, t.Key)
+		}
+
+		if len(t.Key) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key %q exceeds maximum length of %d", ErrInvalidInput, t.Key, maxTagKeyLen)
+		}
+
+		if len(t.Value) > maxTagValueLen {
+			return fmt.Errorf(
+				"%w: tag value for key %q exceeds maximum length of %d",
+				ErrInvalidInput,
+				t.Key,
+				maxTagValueLen,
+			)
+		}
+	}
+
+	return nil
+}
+
 // --- Namespace handlers ---
+
+type dnsPropertiesRequest struct {
+	SOA *struct {
+		TTL int64 `json:"TTL"`
+	} `json:"SOA"`
+}
 
 type createHTTPNamespaceRequest struct {
 	Name             string     `json:"Name"`
@@ -387,6 +448,10 @@ func (h *Handler) handleCreateHTTPNamespace(_ context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
+	if err := validateTags(req.Tags); err != nil {
+		return nil, err
+	}
+
 	opID, err := h.Backend.CreateHTTPNamespace(req.Name, req.Description, tagsToMap(req.Tags))
 	if err != nil {
 		return nil, err
@@ -396,11 +461,14 @@ func (h *Handler) handleCreateHTTPNamespace(_ context.Context, body []byte) ([]b
 }
 
 type createPrivateDNSNamespaceRequest struct {
-	Name             string     `json:"Name"`
-	Description      string     `json:"Description"`
-	Vpc              string     `json:"Vpc"`
-	CreatorRequestID string     `json:"CreatorRequestId"`
-	Tags             []tagEntry `json:"Tags"`
+	Name             string `json:"Name"`
+	Description      string `json:"Description"`
+	Vpc              string `json:"Vpc"`
+	CreatorRequestID string `json:"CreatorRequestId"`
+	Properties       *struct {
+		DNSProperties *dnsPropertiesRequest `json:"DNSProperties"`
+	} `json:"Properties"`
+	Tags []tagEntry `json:"Tags"`
 }
 
 func (h *Handler) handleCreatePrivateDNSNamespace(_ context.Context, body []byte) ([]byte, error) {
@@ -413,7 +481,16 @@ func (h *Handler) handleCreatePrivateDNSNamespace(_ context.Context, body []byte
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	opID, err := h.Backend.CreatePrivateDNSNamespace(req.Name, req.Description, tagsToMap(req.Tags))
+	if err := validateTags(req.Tags); err != nil {
+		return nil, err
+	}
+
+	var soaTTL int64
+	if req.Properties != nil && req.Properties.DNSProperties != nil && req.Properties.DNSProperties.SOA != nil {
+		soaTTL = req.Properties.DNSProperties.SOA.TTL
+	}
+
+	opID, err := h.Backend.CreatePrivateDNSNamespace(req.Name, req.Description, req.Vpc, soaTTL, tagsToMap(req.Tags))
 	if err != nil {
 		return nil, err
 	}
@@ -422,10 +499,13 @@ func (h *Handler) handleCreatePrivateDNSNamespace(_ context.Context, body []byte
 }
 
 type createPublicDNSNamespaceRequest struct {
-	Name             string     `json:"Name"`
-	Description      string     `json:"Description"`
-	CreatorRequestID string     `json:"CreatorRequestId"`
-	Tags             []tagEntry `json:"Tags"`
+	Name             string `json:"Name"`
+	Description      string `json:"Description"`
+	CreatorRequestID string `json:"CreatorRequestId"`
+	Properties       *struct {
+		DNSProperties *dnsPropertiesRequest `json:"DNSProperties"`
+	} `json:"Properties"`
+	Tags []tagEntry `json:"Tags"`
 }
 
 func (h *Handler) handleCreatePublicDNSNamespace(_ context.Context, body []byte) ([]byte, error) {
@@ -438,7 +518,16 @@ func (h *Handler) handleCreatePublicDNSNamespace(_ context.Context, body []byte)
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	opID, err := h.Backend.CreatePublicDNSNamespace(req.Name, req.Description, tagsToMap(req.Tags))
+	if err := validateTags(req.Tags); err != nil {
+		return nil, err
+	}
+
+	var soaTTL int64
+	if req.Properties != nil && req.Properties.DNSProperties != nil && req.Properties.DNSProperties.SOA != nil {
+		soaTTL = req.Properties.DNSProperties.SOA.TTL
+	}
+
+	opID, err := h.Backend.CreatePublicDNSNamespace(req.Name, req.Description, soaTTL, tagsToMap(req.Tags))
 	if err != nil {
 		return nil, err
 	}
@@ -492,10 +581,35 @@ func (h *Handler) handleGetNamespace(_ context.Context, body []byte) ([]byte, er
 	})
 }
 
+type namespaceFilter struct {
+	Name      string   `json:"Name"`
+	Condition string   `json:"Condition"`
+	Values    []string `json:"Values"`
+}
+
 type listNamespacesRequest struct {
-	MaxResults *int   `json:"MaxResults"`
-	NextToken  string `json:"NextToken"`
-	Filters    []any  `json:"Filters"`
+	MaxResults *int              `json:"MaxResults"`
+	NextToken  string            `json:"NextToken"`
+	Filters    []namespaceFilter `json:"Filters"`
+}
+
+func buildNamespacesFilter(filters []namespaceFilter) ListNamespacesFilter {
+	f := ListNamespacesFilter{}
+
+	for _, entry := range filters {
+		if len(entry.Values) == 0 {
+			continue
+		}
+
+		switch entry.Name {
+		case "TYPE":
+			f.Type = entry.Values[0]
+		case "NAME":
+			f.Name = entry.Values[0]
+		}
+	}
+
+	return f
 }
 
 func (h *Handler) handleListNamespaces(_ context.Context, body []byte) ([]byte, error) {
@@ -504,27 +618,92 @@ func (h *Handler) handleListNamespaces(_ context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	namespaces := h.Backend.ListNamespaces()
-	items := make([]map[string]any, 0, len(namespaces))
+	page, nextToken := applyPaginationNamespaces(
+		h.Backend.ListNamespaces(buildNamespacesFilter(req.Filters)),
+		req.NextToken,
+		resolveMaxResults(req.MaxResults),
+	)
 
-	for i := range namespaces {
-		items = append(items, namespaceToMap(&namespaces[i]))
+	items := make([]map[string]any, 0, len(page))
+	for i := range page {
+		items = append(items, namespaceToMap(&page[i]))
 	}
 
-	return json.Marshal(map[string]any{
-		"Namespaces": items,
-	})
+	return marshalPagedResponse("Namespaces", items, nextToken)
 }
 
 // --- Service handlers ---
 
+type dnsRecordRequest struct {
+	Type string `json:"Type"`
+	TTL  int64  `json:"TTL"`
+}
+
+type dnsConfigRequest struct {
+	NamespaceID   string             `json:"NamespaceId"`
+	RoutingPolicy string             `json:"RoutingPolicy"`
+	DNSRecords    []dnsRecordRequest `json:"DnsRecords"`
+}
+
+type healthCheckConfigRequest struct {
+	Type             string `json:"Type"`
+	ResourcePath     string `json:"ResourcePath"`
+	FailureThreshold int    `json:"FailureThreshold"`
+}
+
+type healthCheckCustomConfigRequest struct {
+	FailureThreshold int `json:"FailureThreshold"`
+}
+
 type createServiceRequest struct {
-	DNSConfig        any        `json:"DnsConfig"`
-	Name             string     `json:"Name"`
-	Description      string     `json:"Description"`
-	NamespaceID      string     `json:"NamespaceId"`
-	CreatorRequestID string     `json:"CreatorRequestId"`
-	Tags             []tagEntry `json:"Tags"`
+	Name                    string                          `json:"Name"`
+	Description             string                          `json:"Description"`
+	NamespaceID             string                          `json:"NamespaceId"`
+	Type                    string                          `json:"Type"`
+	CreatorRequestID        string                          `json:"CreatorRequestId"`
+	DNSConfig               *dnsConfigRequest               `json:"DnsConfig"`
+	HealthCheckConfig       *healthCheckConfigRequest       `json:"HealthCheckConfig"`
+	HealthCheckCustomConfig *healthCheckCustomConfigRequest `json:"HealthCheckCustomConfig"`
+	Tags                    []tagEntry                      `json:"Tags"`
+}
+
+func parseDNSConfig(req *dnsConfigRequest) *DNSConfig {
+	if req == nil {
+		return nil
+	}
+
+	dc := &DNSConfig{
+		NamespaceID:   req.NamespaceID,
+		RoutingPolicy: req.RoutingPolicy,
+	}
+
+	for _, r := range req.DNSRecords {
+		dc.DNSRecords = append(dc.DNSRecords, DNSRecord(r))
+	}
+
+	return dc
+}
+
+func parseHealthCheckConfig(req *healthCheckConfigRequest) *HealthCheckConfig {
+	if req == nil {
+		return nil
+	}
+
+	return &HealthCheckConfig{
+		Type:             req.Type,
+		ResourcePath:     req.ResourcePath,
+		FailureThreshold: req.FailureThreshold,
+	}
+}
+
+func parseHealthCheckCustomConfig(req *healthCheckCustomConfigRequest) *HealthCheckCustomConfig {
+	if req == nil {
+		return nil
+	}
+
+	return &HealthCheckCustomConfig{
+		FailureThreshold: req.FailureThreshold,
+	}
 }
 
 func (h *Handler) handleCreateService(_ context.Context, body []byte) ([]byte, error) {
@@ -537,7 +716,27 @@ func (h *Handler) handleCreateService(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	svc, err := h.Backend.CreateService(req.Name, req.NamespaceID, req.Description, tagsToMap(req.Tags))
+	if req.HealthCheckConfig != nil && req.HealthCheckCustomConfig != nil {
+		return nil, fmt.Errorf(
+			"%w: HealthCheckConfig and HealthCheckCustomConfig are mutually exclusive",
+			ErrInvalidInput,
+		)
+	}
+
+	if err := validateTags(req.Tags); err != nil {
+		return nil, err
+	}
+
+	svc, err := h.Backend.CreateService(
+		req.Name,
+		req.NamespaceID,
+		req.Description,
+		req.Type,
+		parseDNSConfig(req.DNSConfig),
+		parseHealthCheckConfig(req.HealthCheckConfig),
+		parseHealthCheckCustomConfig(req.HealthCheckCustomConfig),
+		tagsToMap(req.Tags),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -559,6 +758,17 @@ func (h *Handler) handleDeleteService(_ context.Context, body []byte) error {
 
 	if req.ID == "" {
 		return fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	insts, err := h.Backend.ListInstances(req.ID)
+	if err != nil {
+		return err
+	}
+
+	for _, inst := range insts {
+		if _, derr := h.Backend.DeregisterInstance(req.ID, inst.ID); derr != nil {
+			return derr
+		}
 	}
 
 	return h.Backend.DeleteService(req.ID)
@@ -606,27 +816,39 @@ func (h *Handler) handleListServices(_ context.Context, body []byte) ([]byte, er
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	// Extract optional NAMESPACE_ID filter from Filters list.
-	var namespaceID string
+	filter := ListServicesFilter{}
 
 	for _, f := range req.Filters {
 		if f.Name == "NAMESPACE_ID" && len(f.Values) > 0 {
-			namespaceID = f.Values[0]
+			filter.NamespaceID = f.Values[0]
 
 			break
 		}
 	}
 
-	services := h.Backend.ListServices(namespaceID)
-	items := make([]map[string]any, 0, len(services))
+	services := h.Backend.ListServices(filter)
 
-	for i := range services {
-		items = append(items, serviceToMap(&services[i]))
+	maxResults := maxResultsDefault
+	if req.MaxResults != nil && *req.MaxResults > 0 {
+		maxResults = *req.MaxResults
 	}
 
-	return json.Marshal(map[string]any{
+	page, nextToken := applyPaginationServices(services, req.NextToken, maxResults)
+
+	items := make([]map[string]any, 0, len(page))
+	for i := range page {
+		items = append(items, serviceToMap(&page[i]))
+	}
+
+	resp := map[string]any{
 		"Services": items,
-	})
+	}
+
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }
 
 // --- Instance handlers ---
@@ -740,26 +962,39 @@ func (h *Handler) handleListInstances(_ context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	items := make([]map[string]any, 0, len(instances))
+	maxResults := maxResultsDefault
+	if req.MaxResults != nil && *req.MaxResults > 0 {
+		maxResults = *req.MaxResults
+	}
 
-	for _, inst := range instances {
+	page, nextToken := applyPaginationInstances(instances, req.NextToken, maxResults)
+
+	items := make([]map[string]any, 0, len(page))
+	for _, inst := range page {
 		items = append(items, map[string]any{
 			"Id":          inst.ID,
 			keyAttributes: inst.Attributes,
 		})
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"Instances": items,
-	})
+	}
+
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }
 
 type discoverInstancesRequest struct {
-	QueryParameters map[string]string `json:"QueryParameters"`
-	MaxResults      *int              `json:"MaxResults"`
-	NamespaceName   string            `json:"NamespaceName"`
-	ServiceName     string            `json:"ServiceName"`
-	HealthStatus    string            `json:"HealthStatus"`
+	QueryParameters    map[string]string `json:"QueryParameters"`
+	OptionalParameters map[string]string `json:"OptionalParameters"`
+	MaxResults         *int              `json:"MaxResults"`
+	NamespaceName      string            `json:"NamespaceName"`
+	ServiceName        string            `json:"ServiceName"`
+	HealthStatus       string            `json:"HealthStatus"`
 }
 
 func (h *Handler) handleDiscoverInstances(_ context.Context, body []byte) ([]byte, error) {
@@ -776,7 +1011,7 @@ func (h *Handler) handleDiscoverInstances(_ context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: ServiceName is required", errInvalidRequest)
 	}
 
-	instances, err := h.Backend.DiscoverInstances(
+	discovered, revision, err := h.Backend.DiscoverInstances(
 		req.NamespaceName,
 		req.ServiceName,
 		req.HealthStatus,
@@ -786,17 +1021,34 @@ func (h *Handler) handleDiscoverInstances(_ context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	items := make([]map[string]any, 0, len(instances))
+	maxResults := 0
+	if req.MaxResults != nil {
+		maxResults = *req.MaxResults
+	}
 
-	for _, inst := range instances {
+	if maxResults > 0 && maxResults < len(discovered) {
+		discovered = discovered[:maxResults]
+	}
+
+	items := make([]map[string]any, 0, len(discovered))
+	for _, inst := range discovered {
+		attrs := inst.Attributes
+		if attrs == nil {
+			attrs = map[string]string{}
+		}
+
 		items = append(items, map[string]any{
-			"InstanceId":  inst.ID,
-			keyAttributes: inst.Attributes,
+			"InstanceId":    inst.InstanceID,
+			"NamespaceName": inst.NamespaceName,
+			"ServiceName":   inst.ServiceName,
+			"HealthStatus":  inst.HealthStatus,
+			keyAttributes:   attrs,
 		})
 	}
 
 	return json.Marshal(map[string]any{
-		"Instances": items,
+		"Instances":         items,
+		"InstancesRevision": revision,
 	})
 }
 
@@ -822,21 +1074,39 @@ func (h *Handler) handleGetOperation(_ context.Context, body []byte) ([]byte, er
 	}
 
 	return json.Marshal(map[string]any{
-		"Operation": map[string]any{
-			"Id":           op.ID,
-			"Type":         op.Type,
-			keyStatusField: op.Status,
-			"Targets": map[string]string{
-				op.TargetType: op.TargetID,
-			},
-		},
+		"Operation": operationToMap(op),
 	})
 }
 
+type operationFilter struct {
+	Name      string   `json:"Name"`
+	Condition string   `json:"Condition"`
+	Values    []string `json:"Values"`
+}
+
 type listOperationsRequest struct {
-	MaxResults *int   `json:"MaxResults"`
-	NextToken  string `json:"NextToken"`
-	Filters    []any  `json:"Filters"`
+	MaxResults *int              `json:"MaxResults"`
+	NextToken  string            `json:"NextToken"`
+	Filters    []operationFilter `json:"Filters"`
+}
+
+func buildOperationsFilter(filters []operationFilter) ListOperationsFilter {
+	f := ListOperationsFilter{}
+
+	for _, entry := range filters {
+		if len(entry.Values) == 0 {
+			continue
+		}
+
+		switch entry.Name {
+		case "STATUS":
+			f.Status = entry.Values[0]
+		case "TYPE":
+			f.Type = entry.Values[0]
+		}
+	}
+
+	return f
 }
 
 func (h *Handler) handleListOperations(_ context.Context, body []byte) ([]byte, error) {
@@ -845,19 +1115,18 @@ func (h *Handler) handleListOperations(_ context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	ops := h.Backend.ListOperations()
-	items := make([]map[string]any, 0, len(ops))
+	page, nextToken := applyPaginationOperations(
+		h.Backend.ListOperations(buildOperationsFilter(req.Filters)),
+		req.NextToken,
+		resolveMaxResults(req.MaxResults),
+	)
 
-	for _, op := range ops {
-		items = append(items, map[string]any{
-			"Id":           op.ID,
-			keyStatusField: op.Status,
-		})
+	items := make([]map[string]any, 0, len(page))
+	for i := range page {
+		items = append(items, operationToMap(&page[i]))
 	}
 
-	return json.Marshal(map[string]any{
-		"Operations": items,
-	})
+	return marshalPagedResponse("Operations", items, nextToken)
 }
 
 // --- Tags handlers ---
@@ -903,6 +1172,10 @@ func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
+	if err := validateTags(req.Tags); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.TagResource(req.ResourceARN, tagsToMap(req.Tags)); err != nil {
 		return nil, err
 	}
@@ -943,7 +1216,7 @@ type tagEntry struct {
 // tagsToMap converts a slice of tag entries to a map.
 func tagsToMap(tags []tagEntry) map[string]string {
 	if len(tags) == 0 {
-		return map[string]string{}
+		return nil
 	}
 
 	m := make(map[string]string, len(tags))
@@ -974,30 +1247,131 @@ func mapToTagEntries(tags map[string]string) []tagEntry {
 	return entries
 }
 
-// namespaceToMap converts a Namespace to a JSON-serialisable map.
+func namespacePropertiesToMap(ns *Namespace) map[string]any {
+	if ns.Properties == nil {
+		return nil
+	}
+
+	props := map[string]any{}
+
+	if ns.Properties.DNSProperties != nil {
+		dp := map[string]any{}
+
+		if ns.Properties.DNSProperties.HostedZoneID != "" {
+			dp["HostedZoneId"] = ns.Properties.DNSProperties.HostedZoneID
+		}
+
+		if ns.Properties.DNSProperties.SOA != nil {
+			dp["SOA"] = map[string]any{
+				"TTL": ns.Properties.DNSProperties.SOA.TTL,
+			}
+		}
+
+		props["DnsProperties"] = dp
+	}
+
+	if ns.Properties.HTTPProperties != nil {
+		props["HttpProperties"] = map[string]any{
+			"HttpName": ns.Properties.HTTPProperties.HTTPName,
+		}
+	}
+
+	return props
+}
+
+// namespaceToMap converts a Namespace to a JSON-serialisable map including Properties.
 func namespaceToMap(ns *Namespace) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"Id":          ns.ID,
 		keyArn:        ns.ARN,
 		"Name":        ns.Name,
-		"Type":        ns.Type,
+		keyType:       ns.Type,
 		"Description": ns.Description,
 		keyTags:       mapToTagEntries(ns.Tags),
-		"CreateDate":  ns.CreatedAt.Unix(),
+		keyCreateDate: ns.CreatedAt.Unix(),
 	}
+
+	if props := namespacePropertiesToMap(ns); props != nil {
+		m["Properties"] = props
+	}
+
+	return m
 }
 
-// serviceToMap converts a Service to a JSON-serialisable map.
+// serviceToMap converts a Service to a JSON-serialisable map including DNS and health check config.
 func serviceToMap(svc *Service) map[string]any {
-	return map[string]any{
-		"Id":          svc.ID,
-		keyArn:        svc.ARN,
-		"Name":        svc.Name,
-		"NamespaceId": svc.NamespaceID,
-		"Description": svc.Description,
-		keyTags:       mapToTagEntries(svc.Tags),
-		"CreateDate":  svc.CreatedAt.Unix(),
+	m := map[string]any{
+		"Id":           svc.ID,
+		keyArn:         svc.ARN,
+		"Name":         svc.Name,
+		keyNamespaceID: svc.NamespaceID,
+		"Description":  svc.Description,
+		keyTags:        mapToTagEntries(svc.Tags),
+		keyCreateDate:  svc.CreatedAt.Unix(),
 	}
+
+	if svc.Type != "" {
+		m[keyType] = svc.Type
+	}
+
+	if svc.DNSConfig != nil {
+		dc := map[string]any{
+			keyNamespaceID:  svc.DNSConfig.NamespaceID,
+			"RoutingPolicy": svc.DNSConfig.RoutingPolicy,
+		}
+
+		records := make([]map[string]any, 0, len(svc.DNSConfig.DNSRecords))
+		for _, r := range svc.DNSConfig.DNSRecords {
+			records = append(records, map[string]any{
+				keyType: r.Type,
+				"TTL":   r.TTL,
+			})
+		}
+
+		dc["DnsRecords"] = records
+		m["DnsConfig"] = dc
+	}
+
+	if svc.HealthCheckConfig != nil {
+		m["HealthCheckConfig"] = map[string]any{
+			keyType:            svc.HealthCheckConfig.Type,
+			"ResourcePath":     svc.HealthCheckConfig.ResourcePath,
+			"FailureThreshold": svc.HealthCheckConfig.FailureThreshold,
+		}
+	}
+
+	if svc.HealthCheckCustomConfig != nil {
+		m["HealthCheckCustomConfig"] = map[string]any{
+			"FailureThreshold": svc.HealthCheckCustomConfig.FailureThreshold,
+		}
+	}
+
+	return m
+}
+
+// operationToMap converts an Operation to a JSON-serialisable map with full fields.
+func operationToMap(op *Operation) map[string]any {
+	m := map[string]any{
+		"Id":           op.ID,
+		keyType:        op.Type,
+		keyStatusField: op.Status,
+		keyCreateDate:  op.CreateDate.Unix(),
+		"UpdateDate":   op.UpdateDate.Unix(),
+	}
+
+	if len(op.Targets) > 0 {
+		m["Targets"] = op.Targets
+	}
+
+	if op.ErrorCode != "" {
+		m["ErrorCode"] = op.ErrorCode
+	}
+
+	if op.ErrorMessage != "" {
+		m["ErrorMessage"] = op.ErrorMessage
+	}
+
+	return m
 }
 
 // Reset clears all backend state.
@@ -1031,12 +1405,38 @@ func (h *Handler) handleGetInstancesHealthStatus(_ context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
-		keyStatusField: statuses,
-	})
+	// Build sorted list of instance IDs for stable pagination.
+	ids := make([]string, 0, len(statuses))
+	for id := range statuses {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+
+	maxResults := maxResultsDefault
+	if req.MaxResults != nil && *req.MaxResults > 0 {
+		maxResults = *req.MaxResults
+	}
+
+	page, nextToken := applyPaginationHealthStatuses(ids, req.NextToken, maxResults)
+
+	paged := make(map[string]string, len(page))
+	for _, id := range page {
+		paged[id] = statuses[id]
+	}
+
+	resp := map[string]any{
+		keyStatusField: paged,
+	}
+
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }
 
-// --- UpdateHttpNamespace / UpdatePrivateDnsNamespace / UpdatePublicDnsNamespace ---
+// --- UpdateHTTPNamespace / UpdatePrivateDnsNamespace / UpdatePublicDnsNamespace ---
 
 type updateNamespaceChange struct {
 	Description string `json:"Description"`
@@ -1117,12 +1517,14 @@ func (h *Handler) handleUpdatePublicDNSNamespace(_ context.Context, body []byte)
 // --- UpdateService ---
 
 type updateServiceChange struct {
-	Description string `json:"Description"`
+	DNSConfig         *dnsConfigRequest         `json:"DnsConfig"`
+	HealthCheckConfig *healthCheckConfigRequest `json:"HealthCheckConfig"`
+	Description       string                    `json:"Description"`
 }
 
 type updateServiceRequest struct {
-	ID      string              `json:"Id"`
 	Service updateServiceChange `json:"Service"`
+	ID      string              `json:"Id"`
 }
 
 func (h *Handler) handleUpdateService(_ context.Context, body []byte) ([]byte, error) {
@@ -1135,7 +1537,12 @@ func (h *Handler) handleUpdateService(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	svc, err := h.Backend.UpdateService(req.ID, req.Service.Description)
+	svc, err := h.Backend.UpdateService(
+		req.ID,
+		req.Service.Description,
+		parseDNSConfig(req.Service.DNSConfig),
+		parseHealthCheckConfig(req.Service.HealthCheckConfig),
+	)
 	if err != nil {
 		return nil, err
 	}
