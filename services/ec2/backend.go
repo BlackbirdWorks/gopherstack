@@ -260,7 +260,19 @@ type InMemoryBackend struct {
 	imageDeregistrationProtection map[string]bool
 	imageAttributes               map[string]map[string]string
 	vgwRoutePropagation           map[string]bool
-	mu                            *lockmetrics.RWMutex
+	// batch3 additions
+	instanceConnectEndpoints map[string]*InstanceConnectEndpoint
+	instanceEventWindows     map[string]*InstanceEventWindow
+	imageImportTasks         map[string]*ImageImportTask
+	snapshotImportTasks      map[string]*SnapshotImportTask
+	recycleBinImages         map[string]*RecycleBinImage
+	recycleBinSnapshots      map[string]*Snapshot
+	recycleBinVolumes        map[string]*RecycleBinVolume
+	fastLaunchImages         map[string]bool
+	fastSnapshotRestores     map[string]bool
+	vpnConnectionRoutes      map[string]*VpnConnectionRoute
+	spotDatafeed             *SpotDatafeed
+	mu                       *lockmetrics.RWMutex
 	eniIDByAttachment             map[string]string
 	eniIDsByInstance              map[string]map[string]struct{}
 	instanceIDsByVPC              map[string]map[string]struct{}
@@ -352,6 +364,16 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		imageDeregistrationProtection:  make(map[string]bool),
 		imageAttributes:                make(map[string]map[string]string),
 		vgwRoutePropagation:            make(map[string]bool),
+		instanceConnectEndpoints:       make(map[string]*InstanceConnectEndpoint),
+		instanceEventWindows:           make(map[string]*InstanceEventWindow),
+		imageImportTasks:               make(map[string]*ImageImportTask),
+		snapshotImportTasks:            make(map[string]*SnapshotImportTask),
+		recycleBinImages:               make(map[string]*RecycleBinImage),
+		recycleBinSnapshots:            make(map[string]*Snapshot),
+		recycleBinVolumes:              make(map[string]*RecycleBinVolume),
+		fastLaunchImages:               make(map[string]bool),
+		fastSnapshotRestores:           make(map[string]bool),
+		vpnConnectionRoutes:            make(map[string]*VpnConnectionRoute),
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),
