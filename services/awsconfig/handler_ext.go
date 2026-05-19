@@ -229,13 +229,13 @@ func (h *Handler) handleDeleteResourceConfig(
 
 // DeleteRetentionConfiguration request/response types and handler.
 type deleteRetentionConfigurationInput struct {
-	RetentionPeriodInDays int32 `json:"RetentionPeriodInDays"`
+	RetentionConfigurationName string `json:"RetentionConfigurationName"`
 }
 
 func (h *Handler) handleDeleteRetentionConfiguration(
 	_ context.Context, in *deleteRetentionConfigurationInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.DeleteRetentionConfiguration(in.RetentionPeriodInDays)
+	return &emptyOutput{}, h.Backend.DeleteRetentionConfiguration(in.RetentionConfigurationName)
 }
 
 // DeleteServiceLinkedConfigurationRecorder request/response types and handler.
@@ -311,15 +311,18 @@ func (h *Handler) handleDescribeAggregationAuthorizations(
 }
 
 // DescribeComplianceByConfigRule request/response types and handler.
+type describeComplianceByConfigRuleInput struct {
+	ConfigRuleNames []string `json:"ConfigRuleNames"`
+}
 type describeComplianceByConfigRuleOutput struct {
-	ComplianceByConfigRules []any `json:"ComplianceByConfigRules"`
+	ComplianceByConfigRules []ComplianceByConfigRule `json:"ComplianceByConfigRules"`
 }
 
 func (h *Handler) handleDescribeComplianceByConfigRule(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeComplianceByConfigRuleInput,
 ) (*describeComplianceByConfigRuleOutput, error) {
 	return &describeComplianceByConfigRuleOutput{
-		ComplianceByConfigRules: h.Backend.DescribeComplianceByConfigRule(),
+		ComplianceByConfigRules: h.Backend.DescribeComplianceByConfigRule(in.ConfigRuleNames),
 	}, nil
 }
 
@@ -337,15 +340,18 @@ func (h *Handler) handleDescribeComplianceByResource(
 }
 
 // DescribeConfigRuleEvaluationStatus request/response types and handler.
+type describeConfigRuleEvaluationStatusInput struct {
+	ConfigRuleNames []string `json:"ConfigRuleNames"`
+}
 type describeConfigRuleEvaluationStatusOutput struct {
-	ConfigRulesEvaluationStatus []any `json:"ConfigRulesEvaluationStatus"`
+	ConfigRulesEvaluationStatus []ConfigRuleEvaluationStatus `json:"ConfigRulesEvaluationStatus"`
 }
 
 func (h *Handler) handleDescribeConfigRuleEvaluationStatus(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeConfigRuleEvaluationStatusInput,
 ) (*describeConfigRuleEvaluationStatusOutput, error) {
 	return &describeConfigRuleEvaluationStatusOutput{
-		ConfigRulesEvaluationStatus: h.Backend.DescribeConfigRuleEvaluationStatus(),
+		ConfigRulesEvaluationStatus: h.Backend.DescribeConfigRuleEvaluationStatus(in.ConfigRuleNames),
 	}, nil
 }
 
@@ -376,28 +382,34 @@ func (h *Handler) handleDescribeConfigurationAggregators(
 }
 
 // DescribeConformancePackCompliance request/response types and handler.
+type describeConformancePackComplianceInput struct {
+	ConformancePackName string `json:"ConformancePackName"`
+}
 type describeConformancePackComplianceOutput struct {
-	ConformancePackRuleComplianceList []any `json:"ConformancePackRuleComplianceList"`
+	ConformancePackRuleComplianceList []ConformancePackComplianceItem `json:"ConformancePackRuleComplianceList"`
 }
 
 func (h *Handler) handleDescribeConformancePackCompliance(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeConformancePackComplianceInput,
 ) (*describeConformancePackComplianceOutput, error) {
 	return &describeConformancePackComplianceOutput{
-		ConformancePackRuleComplianceList: h.Backend.DescribeConformancePackCompliance(),
+		ConformancePackRuleComplianceList: h.Backend.DescribeConformancePackCompliance(in.ConformancePackName),
 	}, nil
 }
 
 // DescribeConformancePackStatus request/response types and handler.
+type describeConformancePackStatusInput struct {
+	ConformancePackNames []string `json:"ConformancePackNames"`
+}
 type describeConformancePackStatusOutput struct {
-	ConformancePackStatusDetails []any `json:"ConformancePackStatusDetails"`
+	ConformancePackStatusDetails []ConformancePackStatus `json:"ConformancePackStatusDetails"`
 }
 
 func (h *Handler) handleDescribeConformancePackStatus(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeConformancePackStatusInput,
 ) (*describeConformancePackStatusOutput, error) {
 	return &describeConformancePackStatusOutput{
-		ConformancePackStatusDetails: h.Backend.DescribeConformancePackStatus(),
+		ConformancePackStatusDetails: h.Backend.DescribeConformancePackStatus(in.ConformancePackNames),
 	}, nil
 }
 
@@ -415,28 +427,36 @@ func (h *Handler) handleDescribeConformancePacks(
 }
 
 // DescribeDeliveryChannelStatus request/response types and handler.
+type describeDeliveryChannelStatusInput struct {
+	DeliveryChannelNames []string `json:"DeliveryChannelNames"`
+}
 type describeDeliveryChannelStatusOutput struct {
-	DeliveryChannelsStatus []any `json:"DeliveryChannelsStatus"`
+	DeliveryChannelsStatus []DeliveryChannelStatus `json:"DeliveryChannelsStatus"`
 }
 
 func (h *Handler) handleDescribeDeliveryChannelStatus(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeDeliveryChannelStatusInput,
 ) (*describeDeliveryChannelStatusOutput, error) {
 	return &describeDeliveryChannelStatusOutput{
-		DeliveryChannelsStatus: h.Backend.DescribeDeliveryChannelStatus(),
+		DeliveryChannelsStatus: h.Backend.DescribeDeliveryChannelStatus(in.DeliveryChannelNames),
 	}, nil
 }
 
 // DescribeOrganizationConfigRuleStatuses request/response types and handler.
+type describeOrganizationConfigRuleStatusesInput struct {
+	OrganizationConfigRuleNames []string `json:"OrganizationConfigRuleNames"`
+}
 type describeOrganizationConfigRuleStatusesOutput struct {
-	OrganizationConfigRuleStatuses []any `json:"OrganizationConfigRuleStatuses"`
+	OrganizationConfigRuleStatuses []OrganizationConfigRuleStatus `json:"OrganizationConfigRuleStatuses"`
 }
 
 func (h *Handler) handleDescribeOrganizationConfigRuleStatuses(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeOrganizationConfigRuleStatusesInput,
 ) (*describeOrganizationConfigRuleStatusesOutput, error) {
 	return &describeOrganizationConfigRuleStatusesOutput{
-		OrganizationConfigRuleStatuses: h.Backend.DescribeOrganizationConfigRuleStatuses(),
+		OrganizationConfigRuleStatuses: h.Backend.DescribeOrganizationConfigRuleStatuses(
+			in.OrganizationConfigRuleNames,
+		),
 	}, nil
 }
 
@@ -454,15 +474,20 @@ func (h *Handler) handleDescribeOrganizationConfigRules(
 }
 
 // DescribeOrganizationConformancePackStatuses request/response types and handler.
+type describeOrganizationConformancePackStatusesInput struct {
+	OrganizationConformancePackNames []string `json:"OrganizationConformancePackNames"`
+}
 type describeOrganizationConformancePackStatusesOutput struct {
-	OrganizationConformancePackStatuses []any `json:"OrganizationConformancePackStatuses"`
+	OrganizationConformancePackStatuses []OrganizationConformancePackStatus `json:"OrganizationConformancePackStatuses"`
 }
 
 func (h *Handler) handleDescribeOrganizationConformancePackStatuses(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeOrganizationConformancePackStatusesInput,
 ) (*describeOrganizationConformancePackStatusesOutput, error) {
 	return &describeOrganizationConformancePackStatusesOutput{
-		OrganizationConformancePackStatuses: h.Backend.DescribeOrganizationConformancePackStatuses(),
+		OrganizationConformancePackStatuses: h.Backend.DescribeOrganizationConformancePackStatuses(
+			in.OrganizationConformancePackNames,
+		),
 	}, nil
 }
 
@@ -493,28 +518,34 @@ func (h *Handler) handleDescribePendingAggregationRequests(
 }
 
 // DescribeRemediationConfigurations request/response types and handler.
+type describeRemediationConfigurationsInput struct {
+	ConfigRuleNames []string `json:"ConfigRuleNames"`
+}
 type describeRemediationConfigurationsOutput struct {
-	RemediationConfigurations []any `json:"RemediationConfigurations"`
+	RemediationConfigurations []RemediationConfiguration `json:"RemediationConfigurations"`
 }
 
 func (h *Handler) handleDescribeRemediationConfigurations(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeRemediationConfigurationsInput,
 ) (*describeRemediationConfigurationsOutput, error) {
 	return &describeRemediationConfigurationsOutput{
-		RemediationConfigurations: h.Backend.DescribeRemediationConfigurations(),
+		RemediationConfigurations: h.Backend.DescribeRemediationConfigurations(in.ConfigRuleNames),
 	}, nil
 }
 
 // DescribeRemediationExceptions request/response types and handler.
+type describeRemediationExceptionsInput struct {
+	ConfigRuleName string `json:"ConfigRuleName"`
+}
 type describeRemediationExceptionsOutput struct {
-	RemediationExceptions []any `json:"RemediationExceptions"`
+	RemediationExceptions []RemediationException `json:"RemediationExceptions"`
 }
 
 func (h *Handler) handleDescribeRemediationExceptions(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeRemediationExceptionsInput,
 ) (*describeRemediationExceptionsOutput, error) {
 	return &describeRemediationExceptionsOutput{
-		RemediationExceptions: h.Backend.DescribeRemediationExceptions(),
+		RemediationExceptions: h.Backend.DescribeRemediationExceptions(in.ConfigRuleName),
 	}, nil
 }
 
@@ -533,7 +564,7 @@ func (h *Handler) handleDescribeRemediationExecutionStatus(
 
 // DescribeRetentionConfigurations request/response types and handler.
 type describeRetentionConfigurationsOutput struct {
-	RetentionConfigurations []any `json:"RetentionConfigurations"`
+	RetentionConfigurations []RetentionConfiguration `json:"RetentionConfigurations"`
 }
 
 func (h *Handler) handleDescribeRetentionConfigurations(
@@ -634,7 +665,7 @@ func (h *Handler) handleGetComplianceDetailsByResource(
 
 // GetComplianceSummaryByConfigRule request/response types and handler.
 type getComplianceSummaryByConfigRuleOutput struct {
-	ComplianceSummariesByConfigRule []any `json:"ComplianceSummariesByConfigRule"`
+	ComplianceSummariesByConfigRule []ComplianceSummary `json:"ComplianceSummariesByConfigRule"`
 }
 
 func (h *Handler) handleGetComplianceSummaryByConfigRule(
@@ -756,15 +787,19 @@ func (h *Handler) handleGetOrganizationCustomRulePolicy(
 }
 
 // GetResourceConfigHistory request/response types and handler.
+type getResourceConfigHistoryInput struct {
+	ResourceType string `json:"resourceType"`
+	ResourceID   string `json:"resourceId"`
+}
 type getResourceConfigHistoryOutput struct {
-	ConfigurationItems []any `json:"ConfigurationItems"`
+	ConfigurationItems []ResourceConfigItem `json:"ConfigurationItems"`
 }
 
 func (h *Handler) handleGetResourceConfigHistory(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getResourceConfigHistoryInput,
 ) (*getResourceConfigHistoryOutput, error) {
 	return &getResourceConfigHistoryOutput{
-		ConfigurationItems: h.Backend.GetResourceConfigHistory(),
+		ConfigurationItems: h.Backend.GetResourceConfigHistory(in.ResourceType, in.ResourceID),
 	}, nil
 }
 
@@ -837,15 +872,18 @@ func (h *Handler) handleListConformancePackComplianceScores(
 }
 
 // ListDiscoveredResources request/response types and handler.
+type listDiscoveredResourcesInput struct {
+	ResourceType string `json:"resourceType"`
+}
 type listDiscoveredResourcesOutput struct {
-	ResourceIdentifiers []any `json:"ResourceIdentifiers"`
+	ResourceIdentifiers []ResourceConfigItem `json:"ResourceIdentifiers"`
 }
 
 func (h *Handler) handleListDiscoveredResources(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *listDiscoveredResourcesInput,
 ) (*listDiscoveredResourcesOutput, error) {
 	return &listDiscoveredResourcesOutput{
-		ResourceIdentifiers: h.Backend.ListDiscoveredResources(),
+		ResourceIdentifiers: h.Backend.ListDiscoveredResources(in.ResourceType),
 	}, nil
 }
 
@@ -967,17 +1005,25 @@ func (h *Handler) handlePutConformancePack(
 }
 
 // PutEvaluations request/response types and handler.
+type putEvaluationsInput struct {
+	Evaluations []EvaluationResult `json:"Evaluations"`
+}
+
 func (h *Handler) handlePutEvaluations(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *putEvaluationsInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutEvaluations()
+	return &emptyOutput{}, h.Backend.PutEvaluations(in.Evaluations)
 }
 
 // PutExternalEvaluation request/response types and handler.
+type putExternalEvaluationInput struct {
+	ExternalEvaluation EvaluationResult `json:"ExternalEvaluation"`
+}
+
 func (h *Handler) handlePutExternalEvaluation(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *putExternalEvaluationInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutExternalEvaluation()
+	return &emptyOutput{}, h.Backend.PutExternalEvaluation(in.ExternalEvaluation)
 }
 
 // PutOrganizationConfigRule request/response types and handler.
@@ -1005,31 +1051,52 @@ func (h *Handler) handlePutOrganizationConformancePack(
 }
 
 // PutRemediationConfigurations request/response types and handler.
+type putRemediationConfigurationsInput struct {
+	RemediationConfigurations []RemediationConfiguration `json:"RemediationConfigurations"`
+}
+
 func (h *Handler) handlePutRemediationConfigurations(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *putRemediationConfigurationsInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutRemediationConfigurations()
+	return &emptyOutput{}, h.Backend.PutRemediationConfigurations(in.RemediationConfigurations)
 }
 
 // PutRemediationExceptions request/response types and handler.
+type putRemediationExceptionsInput struct {
+	ConfigRuleName string `json:"ConfigRuleName"`
+	ResourceType   string `json:"ResourceType"`
+	ResourceID     string `json:"ResourceId"`
+}
+
 func (h *Handler) handlePutRemediationExceptions(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *putRemediationExceptionsInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutRemediationExceptions()
+	return &emptyOutput{}, h.Backend.PutRemediationExceptions(in.ConfigRuleName, in.ResourceType, in.ResourceID)
 }
 
 // PutResourceConfig request/response types and handler.
+type putResourceConfigInput struct {
+	ResourceType  string `json:"ResourceType"`
+	ResourceID    string `json:"ResourceId"`
+	Configuration string `json:"Configuration"`
+}
+
 func (h *Handler) handlePutResourceConfig(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *putResourceConfigInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutResourceConfig()
+	return &emptyOutput{}, h.Backend.PutResourceConfig(in.ResourceType, in.ResourceID, in.Configuration)
 }
 
 // PutRetentionConfiguration request/response types and handler.
+type putRetentionConfigurationInput struct {
+	RetentionConfigurationName string `json:"RetentionConfigurationName"`
+	RetentionPeriodInDays      int32  `json:"RetentionPeriodInDays"`
+}
+
 func (h *Handler) handlePutRetentionConfiguration(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *putRetentionConfigurationInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutRetentionConfiguration()
+	return &emptyOutput{}, h.Backend.PutRetentionConfiguration(in.RetentionConfigurationName, in.RetentionPeriodInDays)
 }
 
 // PutServiceLinkedConfigurationRecorder request/response types and handler.
@@ -1115,7 +1182,7 @@ type tagResourceInput struct {
 func (h *Handler) handleTagResource(
 	_ context.Context, in *tagResourceInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.TagResource(in.ResourceArn, "")
+	return &emptyOutput{}, h.Backend.TagResource(in.ResourceArn, in.Tags)
 }
 
 // UntagResource request/response types and handler.
@@ -1127,7 +1194,7 @@ type untagResourceInput struct {
 func (h *Handler) handleUntagResource(
 	_ context.Context, in *untagResourceInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.UntagResource(in.ResourceArn, "")
+	return &emptyOutput{}, h.Backend.UntagResource(in.ResourceArn, in.TagKeys)
 }
 
 // buildExtendedDispatchTable returns dispatch entries for all extended ops.
