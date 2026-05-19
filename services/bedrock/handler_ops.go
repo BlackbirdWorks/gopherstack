@@ -689,12 +689,12 @@ func (h *Handler) handleGetCustomModelDeployment(c *echo.Context, deployARN stri
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyDeploymentArn:       d.CustomModelDeploymentArn,
-		"modelDeploymentName":  d.ModelDeploymentName,
-		"modelArn":             d.ModelArn,
-		keyStatus:              d.Status,
-		"creationTime":         d.CreationTime.Format(time.RFC3339),
-		"lastModifiedTime":     d.LastModifiedTime.Format(time.RFC3339),
+		"customModelDeploymentArn": d.CustomModelDeploymentArn,
+		"modelDeploymentName":      d.ModelDeploymentName,
+		"modelArn":                 d.ModelArn,
+		keyStatus:                  d.Status,
+		"creationTime":             d.CreationTime.Format(time.RFC3339),
+		"lastModifiedTime":         d.LastModifiedTime.Format(time.RFC3339),
 	})
 }
 
@@ -704,12 +704,12 @@ func (h *Handler) handleListCustomModelDeployments(c *echo.Context) error {
 
 	for _, d := range deployments {
 		summaries = append(summaries, map[string]any{
-			keyDeploymentArn:      d.CustomModelDeploymentArn,
-			"modelDeploymentName": d.ModelDeploymentName,
-			"modelArn":            d.ModelArn,
-			keyStatus:             d.Status,
-			"creationTime":        d.CreationTime.Format(time.RFC3339),
-			"lastModifiedTime":    d.LastModifiedTime.Format(time.RFC3339),
+			"customModelDeploymentArn": d.CustomModelDeploymentArn,
+			"modelDeploymentName":      d.ModelDeploymentName,
+			"modelArn":                 d.ModelArn,
+			keyStatus:                  d.Status,
+			"creationTime":             d.CreationTime.Format(time.RFC3339),
+			"lastModifiedTime":         d.LastModifiedTime.Format(time.RFC3339),
 		})
 	}
 
@@ -722,7 +722,7 @@ func (h *Handler) handleUpdateCustomModelDeployment(c *echo.Context, deployARN s
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyDeploymentArn: d.CustomModelDeploymentArn})
+	return c.JSON(http.StatusOK, map[string]any{"customModelDeploymentArn": d.CustomModelDeploymentArn})
 }
 
 func (h *Handler) handleDeleteCustomModelDeployment(c *echo.Context, deployARN string) error {
