@@ -298,8 +298,8 @@ func (b *InMemoryBackend) DescribeInstanceTypeLimits(
 // instanceTypeLimitsTable returns known limits for common OpenSearch instance types.
 func instanceTypeLimitsTable(instanceType string) *InstanceTypeLimits {
 	table := map[string]*InstanceTypeLimits{
-		"r6g.large.search": {
-			InstanceType: "r6g.large.search",
+		instanceTypeR6gLarge: {
+			InstanceType: instanceTypeR6gLarge,
 			InstanceLimits: map[string]any{
 				instanceCountLimitsKey: map[string]any{
 					minInstanceCountKey: minNodesStr1,
@@ -334,8 +334,8 @@ func instanceTypeLimitsTable(instanceType string) *InstanceTypeLimits {
 				},
 			},
 		},
-		"m6g.large.search": {
-			InstanceType: "m6g.large.search",
+		instanceTypeM6gLarge: {
+			InstanceType: instanceTypeM6gLarge,
 			InstanceLimits: map[string]any{
 				instanceCountLimitsKey: map[string]any{
 					minInstanceCountKey: minNodesStr1,
