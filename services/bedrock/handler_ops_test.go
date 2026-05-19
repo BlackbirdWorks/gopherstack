@@ -112,7 +112,8 @@ func TestHandler_GetAutomatedReasoningPolicy_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodGet, "/automated-reasoning-policies/"+url.PathEscape("arn:aws:bedrock:us-east-1::arp/nope"), nil)
+	path := "/automated-reasoning-policies/" + url.PathEscape("arn:aws:bedrock:us-east-1::arp/nope")
+	rec := doRequest(t, h, http.MethodGet, path, nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 

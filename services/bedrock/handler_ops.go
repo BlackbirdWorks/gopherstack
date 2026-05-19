@@ -233,11 +233,11 @@ func (h *Handler) handleGetAutomatedReasoningPolicy(c *echo.Context, policyARN s
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyPolicyArn:  policy.PolicyArn,
-		keyName:        policy.Name,
+		keyName:       policy.Name,
 		"description": policy.Description,
 		keyStatus:     policy.Status,
 		keyCreatedAt:  isoTime{policy.CreatedAt},
-		keyUpdatedAt:   isoTime{policy.UpdatedAt},
+		keyUpdatedAt:  isoTime{policy.UpdatedAt},
 	})
 }
 
@@ -248,10 +248,10 @@ func (h *Handler) handleListAutomatedReasoningPolicies(c *echo.Context) error {
 	for _, p := range policies {
 		summaries = append(summaries, map[string]any{
 			keyPolicyArn: p.PolicyArn,
-			keyName:       p.Name,
+			keyName:      p.Name,
 			keyStatus:    p.Status,
 			keyCreatedAt: isoTime{p.CreatedAt},
-			keyUpdatedAt:  isoTime{p.UpdatedAt},
+			keyUpdatedAt: isoTime{p.UpdatedAt},
 		})
 	}
 
@@ -275,9 +275,9 @@ func (h *Handler) handleUpdateAutomatedReasoningPolicy(c *echo.Context, policyAR
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyPolicyArn: policy.PolicyArn,
-		keyName:       policy.Name,
+		keyName:      policy.Name,
 		keyStatus:    policy.Status,
-		keyUpdatedAt:  isoTime{policy.UpdatedAt},
+		keyUpdatedAt: isoTime{policy.UpdatedAt},
 	})
 }
 
@@ -370,7 +370,7 @@ func (h *Handler) handleGetARPTestCase(c *echo.Context, path string) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyTestCaseID: tc.TestCaseID,
-		keyPolicyArn: tc.PolicyArn,
+		keyPolicyArn:  tc.PolicyArn,
 	})
 }
 
@@ -382,7 +382,7 @@ func (h *Handler) handleListARPTestCases(c *echo.Context, path string) error {
 	for _, tc := range cases {
 		summaries = append(summaries, map[string]any{
 			keyTestCaseID: tc.TestCaseID,
-			keyPolicyArn: tc.PolicyArn,
+			keyPolicyArn:  tc.PolicyArn,
 		})
 	}
 
@@ -399,7 +399,7 @@ func (h *Handler) handleUpdateARPTestCase(c *echo.Context, path string) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyTestCaseID: tc.TestCaseID,
-		keyPolicyArn: tc.PolicyArn,
+		keyPolicyArn:  tc.PolicyArn,
 	})
 }
 
@@ -566,7 +566,7 @@ func (h *Handler) handleGetImportedModel(c *echo.Context, modelARN string) error
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyModelArn:   job.ImportedModelArn,
+		keyModelArn:  job.ImportedModelArn,
 		keyJobName:   job.JobName,
 		keyStatus:    job.Status,
 		keyCreatedAt: job.CreationTime.Format(time.RFC3339),
@@ -579,7 +579,7 @@ func (h *Handler) handleListImportedModels(c *echo.Context) error {
 
 	for _, m := range models {
 		summaries = append(summaries, map[string]any{
-			keyModelArn:   m.ImportedModelArn,
+			keyModelArn:  m.ImportedModelArn,
 			keyJobName:   m.JobName,
 			keyStatus:    m.Status,
 			keyCreatedAt: m.CreationTime.Format(time.RFC3339),
@@ -630,11 +630,11 @@ func (h *Handler) handleGetPromptRouter(c *echo.Context, routerARN string) error
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyPromptRouterArn:  router.PromptRouterArn,
+		keyPromptRouterArn: router.PromptRouterArn,
 		"promptRouterName": router.PromptRouterName,
 		keyStatus:          router.Status,
 		keyCreatedAt:       router.CreatedAt.Format(time.RFC3339),
-		keyUpdatedAt:        router.UpdatedAt.Format(time.RFC3339),
+		keyUpdatedAt:       router.UpdatedAt.Format(time.RFC3339),
 	})
 }
 
@@ -644,11 +644,11 @@ func (h *Handler) handleListPromptRouters(c *echo.Context) error {
 
 	for _, r := range routers {
 		summaries = append(summaries, map[string]any{
-			keyPromptRouterArn:  r.PromptRouterArn,
+			keyPromptRouterArn: r.PromptRouterArn,
 			"promptRouterName": r.PromptRouterName,
 			keyStatus:          r.Status,
 			keyCreatedAt:       r.CreatedAt.Format(time.RFC3339),
-			keyUpdatedAt:        r.UpdatedAt.Format(time.RFC3339),
+			keyUpdatedAt:       r.UpdatedAt.Format(time.RFC3339),
 		})
 	}
 
@@ -673,11 +673,11 @@ func (h *Handler) handleGetCustomModelDeployment(c *echo.Context, deployARN stri
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyCustomModelDeploymentArn: d.CustomModelDeploymentArn,
-		"modelDeploymentName":      d.ModelDeploymentName,
+		"modelDeploymentName":       d.ModelDeploymentName,
 		keyModelArn:                 d.ModelArn,
-		keyStatus:                  d.Status,
-		keyCreationTime:            d.CreationTime.Format(time.RFC3339),
-		keyLastModifiedTime:        d.LastModifiedTime.Format(time.RFC3339),
+		keyStatus:                   d.Status,
+		keyCreationTime:             d.CreationTime.Format(time.RFC3339),
+		keyLastModifiedTime:         d.LastModifiedTime.Format(time.RFC3339),
 	})
 }
 
@@ -688,11 +688,11 @@ func (h *Handler) handleListCustomModelDeployments(c *echo.Context) error {
 	for _, d := range deployments {
 		summaries = append(summaries, map[string]any{
 			keyCustomModelDeploymentArn: d.CustomModelDeploymentArn,
-			"modelDeploymentName":      d.ModelDeploymentName,
+			"modelDeploymentName":       d.ModelDeploymentName,
 			keyModelArn:                 d.ModelArn,
-			keyStatus:                  d.Status,
-			keyCreationTime:            d.CreationTime.Format(time.RFC3339),
-			keyLastModifiedTime:        d.LastModifiedTime.Format(time.RFC3339),
+			keyStatus:                   d.Status,
+			keyCreationTime:             d.CreationTime.Format(time.RFC3339),
+			keyLastModifiedTime:         d.LastModifiedTime.Format(time.RFC3339),
 		})
 	}
 

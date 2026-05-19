@@ -144,7 +144,9 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicies() []*AutomatedReasoning
 }
 
 // UpdateAutomatedReasoningPolicy updates description (and other mutable fields) of a policy.
-func (b *InMemoryBackend) UpdateAutomatedReasoningPolicy(policyARN, description string) (*AutomatedReasoningPolicy, error) {
+func (b *InMemoryBackend) UpdateAutomatedReasoningPolicy(
+	policyARN, description string,
+) (*AutomatedReasoningPolicy, error) {
 	b.mu.Lock("UpdateAutomatedReasoningPolicy")
 	defer b.mu.Unlock()
 
@@ -194,7 +196,9 @@ func (b *InMemoryBackend) DeleteAutomatedReasoningPolicy(policyARN string) error
 // --- ARP Build Workflow ---
 
 // StartAutomatedReasoningPolicyBuildWorkflow creates a new build workflow for a policy.
-func (b *InMemoryBackend) StartAutomatedReasoningPolicyBuildWorkflow(policyARN string) (*AutomatedReasoningPolicyBuildWorkflow, error) {
+func (b *InMemoryBackend) StartAutomatedReasoningPolicyBuildWorkflow(
+	policyARN string,
+) (*AutomatedReasoningPolicyBuildWorkflow, error) {
 	b.mu.Lock("StartAutomatedReasoningPolicyBuildWorkflow")
 	defer b.mu.Unlock()
 
@@ -217,7 +221,9 @@ func (b *InMemoryBackend) StartAutomatedReasoningPolicyBuildWorkflow(policyARN s
 }
 
 // GetAutomatedReasoningPolicyBuildWorkflow returns a workflow by policy ARN and workflow ID.
-func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflow(policyARN, workflowID string) (*AutomatedReasoningPolicyBuildWorkflow, error) {
+func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflow(
+	policyARN, workflowID string,
+) (*AutomatedReasoningPolicyBuildWorkflow, error) {
 	b.mu.RLock("GetAutomatedReasoningPolicyBuildWorkflow")
 	defer b.mu.RUnlock()
 
@@ -232,7 +238,9 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflow(policyARN, wo
 }
 
 // ListAutomatedReasoningPolicyBuildWorkflows returns all workflows for a policy.
-func (b *InMemoryBackend) ListAutomatedReasoningPolicyBuildWorkflows(policyARN string) []*AutomatedReasoningPolicyBuildWorkflow {
+func (b *InMemoryBackend) ListAutomatedReasoningPolicyBuildWorkflows(
+	policyARN string,
+) []*AutomatedReasoningPolicyBuildWorkflow {
 	b.mu.RLock("ListAutomatedReasoningPolicyBuildWorkflows")
 	defer b.mu.RUnlock()
 
@@ -269,7 +277,9 @@ func (b *InMemoryBackend) DeleteAutomatedReasoningPolicyBuildWorkflow(policyARN,
 // --- ARP Test Cases ---
 
 // GetAutomatedReasoningPolicyTestCase returns a test case by ID.
-func (b *InMemoryBackend) GetAutomatedReasoningPolicyTestCase(policyARN, testCaseID string) (*AutomatedReasoningPolicyTestCase, error) {
+func (b *InMemoryBackend) GetAutomatedReasoningPolicyTestCase(
+	policyARN, testCaseID string,
+) (*AutomatedReasoningPolicyTestCase, error) {
 	b.mu.RLock("GetAutomatedReasoningPolicyTestCase")
 	defer b.mu.RUnlock()
 
@@ -304,7 +314,9 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestCases(policyARN string
 }
 
 // UpdateAutomatedReasoningPolicyTestCase updates a test case (idempotent touch).
-func (b *InMemoryBackend) UpdateAutomatedReasoningPolicyTestCase(policyARN, testCaseID string) (*AutomatedReasoningPolicyTestCase, error) {
+func (b *InMemoryBackend) UpdateAutomatedReasoningPolicyTestCase(
+	policyARN, testCaseID string,
+) (*AutomatedReasoningPolicyTestCase, error) {
 	b.mu.Lock("UpdateAutomatedReasoningPolicyTestCase")
 	defer b.mu.Unlock()
 
@@ -385,7 +397,9 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyNextScenario(policyARN stri
 }
 
 // GetAutomatedReasoningPolicyBuildWorkflowResultAssets returns result asset URLs for a workflow.
-func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflowResultAssets(policyARN, workflowID string) (map[string]any, error) {
+func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflowResultAssets(
+	policyARN, workflowID string,
+) (map[string]any, error) {
 	b.mu.RLock("GetAutomatedReasoningPolicyBuildWorkflowResultAssets")
 	defer b.mu.RUnlock()
 
@@ -418,7 +432,9 @@ func (b *InMemoryBackend) ExportAutomatedReasoningPolicyVersion(policyARN, versi
 }
 
 // StartAutomatedReasoningPolicyTestWorkflow starts a test workflow for a test case.
-func (b *InMemoryBackend) StartAutomatedReasoningPolicyTestWorkflow(policyARN, testCaseID string) (map[string]any, error) {
+func (b *InMemoryBackend) StartAutomatedReasoningPolicyTestWorkflow(
+	policyARN, testCaseID string,
+) (map[string]any, error) {
 	b.mu.Lock("StartAutomatedReasoningPolicyTestWorkflow")
 	defer b.mu.Unlock()
 
@@ -453,8 +469,8 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(policyARN stri
 		if tc.PolicyArn == policyARN {
 			results = append(results, map[string]any{
 				keyTestCaseID: tc.TestCaseID,
-				keyPolicyArn: policyARN,
-				keyStatus:    statusCompleted,
+				keyPolicyArn:  policyARN,
+				keyStatus:     statusCompleted,
 			})
 		}
 	}

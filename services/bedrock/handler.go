@@ -37,22 +37,22 @@ const (
 	loggingConfigPath            = "/logging/modelinvocations"
 
 	// Response key constants.
-	keyJobArn                      = "jobArn"
-	keyStatus                      = "status"
-	keyDeploymentArn               = "deploymentArn"
-	keyJobName                     = "jobName"
-	keyCreationTime                = "creationTime"
-	keyLastModifiedTime            = "lastModifiedTime"
-	keyPolicyArn                   = "policyArn"
-	keyBuildWorkflowID             = "buildWorkflowId"
-	keyCreatedAt                   = "createdAt"
-	jobStatusCompleted             = "Completed"
-	keyTestCaseID                  = "testCaseId"
-	keyName                        = "name"
-	keyUpdatedAt                   = "updatedAt"
-	keyModelArn                    = "modelArn"
-	keyPromptRouterArn             = "promptRouterArn"
-	keyCustomModelDeploymentArn    = "customModelDeploymentArn"
+	keyJobArn                   = "jobArn"
+	keyStatus                   = "status"
+	keyDeploymentArn            = "deploymentArn"
+	keyJobName                  = "jobName"
+	keyCreationTime             = "creationTime"
+	keyLastModifiedTime         = "lastModifiedTime"
+	keyPolicyArn                = "policyArn"
+	keyBuildWorkflowID          = "buildWorkflowId"
+	keyCreatedAt                = "createdAt"
+	jobStatusCompleted          = "Completed"
+	keyTestCaseID               = "testCaseId"
+	keyName                     = "name"
+	keyUpdatedAt                = "updatedAt"
+	keyModelArn                 = "modelArn"
+	keyPromptRouterArn          = "promptRouterArn"
+	keyCustomModelDeploymentArn = "customModelDeploymentArn"
 
 	// Stub operation paths.
 	modelCopyJobsPrefix           = "/model-copy-jobs"
@@ -970,9 +970,11 @@ func (h *Handler) routeEvaluationJob(
 		return true, h.handleListEvaluationJobs(c)
 	case strings.HasPrefix(path, evaluationJobsPrefix+"/") && method == http.MethodGet:
 		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, evaluationJobsPrefix+"/"))
+
 		return true, h.handleGetEvaluationJob(c, jobARN)
 	case strings.HasPrefix(path, evaluationJobsPrefix+"/") && method == http.MethodDelete:
 		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, evaluationJobsPrefix+"/"))
+
 		return true, h.handleStopEvaluationJob(c, jobARN)
 	default:
 		return false, nil
@@ -1747,7 +1749,7 @@ func (h *Handler) handleCreateAutomatedReasoningPolicyTestCase(c *echo.Context, 
 	}
 
 	return c.JSON(http.StatusCreated, map[string]string{
-		"policyArn":    tc.PolicyArn,
+		"policyArn":   tc.PolicyArn,
 		keyTestCaseID: tc.TestCaseID,
 	})
 }
