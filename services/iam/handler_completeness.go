@@ -78,12 +78,28 @@ func (h *Handler) iamInstanceProfileTagDispatch() map[string]iamActionFn {
 
 func (h *Handler) iamMFADeviceDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"ListMFADevices": func(_ url.Values, reqID string) (any, error) {
+		"ListMFADevices": func(vals url.Values, reqID string) (any, error) {
+			userName := vals.Get("UserName")
+			devices, err := h.Backend.ListMFADevicesForUser(userName)
+			if err != nil {
+				// If user not found, return empty list (matches AWS behavior for optional UserName).
+				devices = nil
+			}
+
+			members := make([]mfaDeviceXML, 0, len(devices))
+			for _, d := range devices {
+				members = append(members, mfaDeviceXML{
+					UserName:     h.Backend.GetMFADeviceOwner(d.SerialNumber),
+					SerialNumber: d.SerialNumber,
+					EnableDate:   isoTime(d.CreateDate),
+				})
+			}
+
 			return &listMFADevicesResponse{
 				XMLName: xml.Name{Local: "ListMFADevicesResponse"},
 				Xmlns:   iamXMLNS,
 				ListMFADevicesResult: listMFADevicesResult{
-					MFADevices:  []mfaDeviceXML{},
+					MFADevices:  members,
 					IsTruncated: false,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
@@ -122,14 +138,25 @@ func (h *Handler) iamMFADeviceDispatch() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"DeactivateMFADevice": func(_ url.Values, reqID string) (any, error) {
+		"DeactivateMFADevice": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeactivateMFADevice(vals.Get("UserName"), vals.Get("SerialNumber")); err != nil {
+				return nil, err
+			}
+
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "DeactivateMFADeviceResponse"},
 				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"EnableMFADevice": func(_ url.Values, reqID string) (any, error) {
+		"EnableMFADevice": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.EnableMFADevice(
+				vals.Get("UserName"), vals.Get("SerialNumber"),
+				vals.Get("AuthenticationCode1"), vals.Get("AuthenticationCode2"),
+			); err != nil {
+				return nil, err
+			}
+
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "EnableMFADeviceResponse"},
 				Xmlns:            iamXMLNS,
@@ -239,12 +266,28 @@ func (h *Handler) iamSAMLTagDispatch() map[string]iamActionFn {
 //nolint:funlen // contains all operations for this IAM resource type
 func (h *Handler) iamServerCertDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"ListServerCertificates": func(_ url.Values, reqID string) (any, error) {
+		"ListServerCertificates": func(vals url.Values, reqID string) (any, error) {
+			certs, err := h.Backend.ListServerCertificates(vals.Get("PathPrefix"))
+			if err != nil {
+				return nil, err
+			}
+
+			members := make([]serverCertMetaXML, 0, len(certs))
+			for _, c := range certs {
+				members = append(members, serverCertMetaXML{
+					ServerCertificateName: c.ServerCertificateName,
+					ServerCertificateID:   c.ServerCertificateID,
+					Arn:                   c.Arn,
+					Path:                  c.Path,
+					UploadDate:            isoTime(c.UploadDate),
+				})
+			}
+
 			return &listServerCertificatesResponse{
 				XMLName: xml.Name{Local: "ListServerCertificatesResponse"},
 				Xmlns:   iamXMLNS,
 				ListServerCertificatesResult: listServerCertificatesResult{
-					ServerCertificateMetadataList: []serverCertMetaXML{},
+					ServerCertificateMetadataList: members,
 					IsTruncated:                   false,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
@@ -287,8 +330,10 @@ func (h *Handler) iamServerCertDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"GetServerCertificate": func(vals url.Values, reqID string) (any, error) {
-			name := vals.Get("ServerCertificateName")
-			now := isoTime(time.Now())
+			cert, err := h.Backend.GetServerCertificate(vals.Get("ServerCertificateName"))
+			if err != nil {
+				return nil, err
+			}
 
 			return &getServerCertificateResponse{
 				XMLName: xml.Name{Local: "GetServerCertificateResponse"},
@@ -296,27 +341,39 @@ func (h *Handler) iamServerCertDispatch() map[string]iamActionFn {
 				GetServerCertificateResult: getServerCertificateResult{
 					ServerCertificate: serverCertXML{
 						ServerCertificateMetadata: serverCertMetaXML{
-							ServerCertificateName: name,
-							ServerCertificateID:   "ASCA" + name,
-							Arn:                   "arn:aws:iam::" + IAMAccountID + ":server-certificate/" + name,
-							Path:                  "/",
-							UploadDate:            now,
+							ServerCertificateName: cert.ServerCertificateName,
+							ServerCertificateID:   cert.ServerCertificateID,
+							Arn:                   cert.Arn,
+							Path:                  cert.Path,
+							UploadDate:            isoTime(cert.UploadDate),
 						},
-						CertificateBody:  "-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----",
-						CertificateChain: "",
+						CertificateBody:  cert.CertificateBody,
+						CertificateChain: cert.CertificateChain,
 					},
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"DeleteServerCertificate": func(_ url.Values, reqID string) (any, error) {
+		"DeleteServerCertificate": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeleteServerCertificate(vals.Get("ServerCertificateName")); err != nil {
+				return nil, err
+			}
+
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "DeleteServerCertificateResponse"},
 				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"UpdateServerCertificate": func(_ url.Values, reqID string) (any, error) {
+		"UpdateServerCertificate": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.UpdateServerCertificate(
+				vals.Get("ServerCertificateName"),
+				vals.Get("NewServerCertificateName"),
+				vals.Get("NewPath"),
+			); err != nil {
+				return nil, err
+			}
+
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "UpdateServerCertificateResponse"},
 				Xmlns:            iamXMLNS,
@@ -324,19 +381,26 @@ func (h *Handler) iamServerCertDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"UploadServerCertificate": func(vals url.Values, reqID string) (any, error) {
-			name := vals.Get("ServerCertificateName")
-			now := isoTime(time.Now())
+			cert, err := h.Backend.UploadServerCertificate(
+				vals.Get("ServerCertificateName"),
+				vals.Get("Path"),
+				vals.Get("CertificateBody"),
+				vals.Get("CertificateChain"),
+			)
+			if err != nil {
+				return nil, err
+			}
 
 			return &uploadServerCertificateResponse{
 				XMLName: xml.Name{Local: "UploadServerCertificateResponse"},
 				Xmlns:   iamXMLNS,
 				UploadServerCertificateResult: uploadServerCertificateResult{
 					ServerCertificateMetadata: serverCertMetaXML{
-						ServerCertificateName: name,
-						ServerCertificateID:   "ASCA" + name,
-						Arn:                   "arn:aws:iam::" + IAMAccountID + ":server-certificate/" + name,
-						Path:                  normPath(vals.Get("Path")),
-						UploadDate:            now,
+						ServerCertificateName: cert.ServerCertificateName,
+						ServerCertificateID:   cert.ServerCertificateID,
+						Arn:                   cert.Arn,
+						Path:                  cert.Path,
+						UploadDate:            isoTime(cert.UploadDate),
 					},
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
@@ -350,45 +414,70 @@ func (h *Handler) iamServerCertDispatch() map[string]iamActionFn {
 //nolint:funlen // contains all operations for this IAM resource type
 func (h *Handler) iamSSHSigningDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"ListSSHPublicKeys": func(_ url.Values, reqID string) (any, error) {
+		"ListSSHPublicKeys": func(vals url.Values, reqID string) (any, error) {
+			p, err := h.Backend.ListSSHPublicKeys(vals.Get("UserName"), vals.Get("Marker"), iamDefaultMaxItems)
+			if err != nil {
+				return nil, err
+			}
+
+			members := make([]sshPublicKeyMetaXML, 0, len(p.Data))
+			for _, k := range p.Data {
+				members = append(members, sshPublicKeyMetaXML{
+					UserName:       k.UserName,
+					SSHPublicKeyID: k.SSHPublicKeyID,
+					Status:         k.Status,
+					UploadDate:     isoTime(k.UploadDate),
+				})
+			}
+
 			return &listSSHPublicKeysResponse{
 				XMLName: xml.Name{Local: "ListSSHPublicKeysResponse"},
 				Xmlns:   iamXMLNS,
 				ListSSHPublicKeysResult: listSSHPublicKeysResult{
-					SSHPublicKeys: []sshPublicKeyMetaXML{},
-					IsTruncated:   false,
+					SSHPublicKeys: members,
+					IsTruncated:   p.Next != "",
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 		"GetSSHPublicKey": func(vals url.Values, reqID string) (any, error) {
-			keyID := vals.Get("SSHPublicKeyId")
-			userName := vals.Get("UserName")
+			key, err := h.Backend.GetSSHPublicKey(vals.Get("UserName"), vals.Get("SSHPublicKeyId"))
+			if err != nil {
+				return nil, err
+			}
 
 			return &getSSHPublicKeyResponse{
 				XMLName: xml.Name{Local: "GetSSHPublicKeyResponse"},
 				Xmlns:   iamXMLNS,
 				GetSSHPublicKeyResult: getSSHPublicKeyResult{
 					SSHPublicKey: sshPublicKeyXML{
-						UserName:         userName,
-						SSHPublicKeyID:   keyID,
-						Fingerprint:      "aa:bb:cc:dd:ee:ff",
-						SSHPublicKeyBody: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC",
-						Status:           accessKeyStatusActive,
-						UploadDate:       isoTime(time.Now()),
+						UserName:         key.UserName,
+						SSHPublicKeyID:   key.SSHPublicKeyID,
+						Fingerprint:      key.Fingerprint,
+						SSHPublicKeyBody: key.SSHPublicKeyBody,
+						Status:           key.Status,
+						UploadDate:       isoTime(key.UploadDate),
 					},
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"DeleteSSHPublicKey": func(_ url.Values, reqID string) (any, error) {
+		"DeleteSSHPublicKey": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeleteSSHPublicKey(vals.Get("UserName"), vals.Get("SSHPublicKeyId")); err != nil {
+				return nil, err
+			}
+
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "DeleteSSHPublicKeyResponse"},
 				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"UpdateSSHPublicKey": func(_ url.Values, reqID string) (any, error) {
+		"UpdateSSHPublicKey": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.UpdateSSHPublicKey(vals.Get("UserName"), vals.Get("SSHPublicKeyId"), vals.Get("Status")); err != nil {
+				return nil, err
+			}
+
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "UpdateSSHPublicKeyResponse"},
 				Xmlns:            iamXMLNS,
@@ -396,19 +485,22 @@ func (h *Handler) iamSSHSigningDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"UploadSSHPublicKey": func(vals url.Values, reqID string) (any, error) {
-			userName := vals.Get("UserName")
+			key, err := h.Backend.UploadSSHPublicKey(vals.Get("UserName"), vals.Get("SSHPublicKeyBody"))
+			if err != nil {
+				return nil, err
+			}
 
 			return &uploadSSHPublicKeyResponse{
 				XMLName: xml.Name{Local: "UploadSSHPublicKeyResponse"},
 				Xmlns:   iamXMLNS,
 				UploadSSHPublicKeyResult: uploadSSHPublicKeyResult{
 					SSHPublicKey: sshPublicKeyXML{
-						UserName:         userName,
-						SSHPublicKeyID:   "APKA" + userName,
-						Fingerprint:      "aa:bb:cc:dd:ee:ff",
-						SSHPublicKeyBody: vals.Get("SSHPublicKeyBody"),
-						Status:           accessKeyStatusActive,
-						UploadDate:       isoTime(time.Now()),
+						UserName:         key.UserName,
+						SSHPublicKeyID:   key.SSHPublicKeyID,
+						Fingerprint:      key.Fingerprint,
+						SSHPublicKeyBody: key.SSHPublicKeyBody,
+						Status:           key.Status,
+						UploadDate:       isoTime(key.UploadDate),
 					},
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},

@@ -266,6 +266,13 @@ type StorageBackend interface {
 	UpdateSigningCertificate(certificateID, status string) error
 	DeleteSigningCertificate(certificateID string) error
 
+	// Server Certificates
+	UploadServerCertificate(name, path, certBody, certChain string) (*ServerCertificate, error)
+	GetServerCertificate(name string) (*ServerCertificate, error)
+	ListServerCertificates(pathPrefix string) ([]ServerCertificate, error)
+	UpdateServerCertificate(name, newName, newPath string) error
+	DeleteServerCertificate(name string) error
+
 	// Group membership queries
 	ListGroupsForUser(userName string) ([]Group, error)
 
@@ -336,7 +343,8 @@ type InMemoryBackend struct {
 	deletedV1Policies    map[string]bool // tracks policies where v1 has been explicitly deleted
 	serviceSpecificCreds map[string]ServiceSpecificCredential
 	virtualMFADevices    map[string]VirtualMFADevice
-	signingCertificates  map[string]SigningCertificate // certID → SigningCertificate
+	signingCertificates  map[string]SigningCertificate  // certID → SigningCertificate
+	serverCertificates   map[string]ServerCertificate   // name → ServerCertificate
 	passwordPolicy       *PasswordPolicy
 	users                map[string]User
 	comprehensive        *comprehensiveBackend
@@ -383,6 +391,7 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		serviceSpecificCreds: make(map[string]ServiceSpecificCredential),
 		virtualMFADevices:    make(map[string]VirtualMFADevice),
 		signingCertificates:  make(map[string]SigningCertificate),
+		serverCertificates:   make(map[string]ServerCertificate),
 		delegationRequests:   make(map[string]DelegationRequest),
 		accountID:            accountID,
 		mu:                   lockmetrics.New("iam"),
@@ -2200,6 +2209,7 @@ func (b *InMemoryBackend) Reset() {
 	b.serviceSpecificCreds = make(map[string]ServiceSpecificCredential)
 	b.virtualMFADevices = make(map[string]VirtualMFADevice)
 	b.signingCertificates = make(map[string]SigningCertificate)
+	b.serverCertificates = make(map[string]ServerCertificate)
 	b.delegationRequests = make(map[string]DelegationRequest)
 	b.ResetComprehensiveBackend()
 }
