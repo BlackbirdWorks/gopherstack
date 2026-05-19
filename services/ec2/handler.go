@@ -106,6 +106,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, advancedNetworkingSupportedOperations()...)
 	extOps = append(extOps, ec2CoreSupportedOperations()...)
 	extOps = append(extOps, spotFleetSupportedOperations()...)
+	extOps = append(extOps, batch1SupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
 
 	return append([]string{
@@ -447,6 +448,7 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerRefinement3Ops(h, ops)
 	registerNetworking1Ops(h, ops)
 	registerEC2CoreOps(h, ops)
+	registerBatch1Ops(h, ops)
 	registerStubOps(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)

@@ -60,7 +60,6 @@ jobs:
           git fetch origin badges || true
 
           if git show-ref --verify --quiet refs/remotes/origin/badges; then
-            git clean -fd
             git checkout badges
             NEW_BRANCH=false
           else
