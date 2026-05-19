@@ -2,6 +2,7 @@ package s3_test
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -91,7 +92,7 @@ func TestHandler_PostObject(t *testing.T) {
 			}
 
 			if tt.wantVerifyObject {
-				out, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+				out, err := backend.GetObject(context.Background(), &sdk_s3.GetObjectInput{
 					Bucket: aws.String("form-bkt"),
 					Key:    aws.String(tt.wantObjectKey),
 				})

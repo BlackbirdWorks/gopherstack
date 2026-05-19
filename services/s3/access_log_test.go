@@ -1,6 +1,7 @@
 package s3_test
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -73,7 +74,7 @@ func TestHandler_AccessLogDispatch(t *testing.T) {
 
 			if tt.wantLog {
 				logKey := waitForAccessLog(t, backend)
-				out, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+				out, err := backend.GetObject(context.Background(), &sdk_s3.GetObjectInput{
 					Bucket: aws.String("log-bkt"),
 					Key:    aws.String(logKey),
 				})
@@ -91,14 +92,14 @@ func TestHandler_AccessLogDispatch(t *testing.T) {
 
 			if !tt.wantLog {
 				require.Never(t, func() bool {
-					out, err := backend.ListObjectsV2(t.Context(), &sdk_s3.ListObjectsV2Input{
+					out, err := backend.ListObjectsV2(context.Background(), &sdk_s3.ListObjectsV2Input{
 						Bucket: aws.String(tt.bucket),
 					})
 
 					return err == nil && len(out.Contents) != tt.wantObjects
 				}, 100*time.Millisecond, 20*time.Millisecond)
 
-				out, err := backend.ListObjectsV2(t.Context(), &sdk_s3.ListObjectsV2Input{
+				out, err := backend.ListObjectsV2(context.Background(), &sdk_s3.ListObjectsV2Input{
 					Bucket: aws.String(tt.bucket),
 				})
 				require.NoError(t, err)
@@ -113,7 +114,7 @@ func waitForAccessLog(t *testing.T, backend *s3.InMemoryBackend) string {
 
 	var logKey string
 	require.Eventually(t, func() bool {
-		out, err := backend.ListObjectsV2(t.Context(), &sdk_s3.ListObjectsV2Input{
+		out, err := backend.ListObjectsV2(context.Background(), &sdk_s3.ListObjectsV2Input{
 			Bucket: aws.String("log-bkt"),
 			Prefix: aws.String("logs/"),
 		})
