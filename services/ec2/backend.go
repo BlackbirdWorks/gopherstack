@@ -182,6 +182,8 @@ type Subnet struct {
 
 // InMemoryBackend is the in-memory store for EC2 resources.
 type InMemoryBackend struct {
+	compute                        Compute
+	dnsRegistrar                   DNSRegistrar
 	addressTransfers               map[string]*AddressTransfer
 	capacityReservations           map[string]*CapacityReservation
 	vpcs                           map[string]*VPC
@@ -231,34 +233,48 @@ type InMemoryBackend struct {
 	spotFleets                     map[string]*SpotFleetRequest
 	spotFleetHistory               map[string][]SpotFleetHistoryRecord
 	// batch1 additions
-	volumeModifications       map[string]*VolumeModification
-	snapshotTiers             map[string]string
-	snapshotAttributes        map[string]map[string]string
-	snapshotBlockPublicAccess string
-	sgVpcAssociations         map[string]map[string]string
-	vpcTenancy                map[string]string
-	vpcPeeringOptions         map[string]*PeeringConnectionOptions
-	subnetCIDRAssociations    map[string][]*SubnetCIDRAssociation
-	addressAttributes         map[string]*AddressAttribute
-	instanceMonitoring        map[string]string
-	instanceCreditSpecs       map[string]string
-	instanceIMDSOptions       map[string]*IMDSOptions
-	instanceMetadataDefaults  *InstanceMetadataDefaults
-	instanceEventNotifAttrs   *InstanceEventNotificationAttributes
-	niPermissions             map[string]*NetworkInterfacePermission
-	niIPv6Addresses           map[string][]string
-	idFormatSettings          map[string]bool
-	mu                        *lockmetrics.RWMutex
-	eniIDByAttachment         map[string]string
-	eniIDsByInstance          map[string]map[string]struct{}
-	instanceIDsByVPC          map[string]map[string]struct{}
-	compute                   Compute
-	dnsRegistrar              DNSRegistrar
-	Region                    string
-	AccountID                 string
-	freePrivateIPs            []string
-	nextPrivateIPIndex        int
-	nextElasticIPIndex        int
+	volumeModifications      map[string]*VolumeModification
+	snapshotTiers            map[string]string
+	snapshotAttributes       map[string]map[string]string
+	sgVpcAssociations        map[string]map[string]string
+	vpcTenancy               map[string]string
+	vpcPeeringOptions        map[string]*PeeringConnectionOptions
+	subnetCIDRAssociations   map[string][]*SubnetCIDRAssociation
+	addressAttributes        map[string]*AddressAttribute
+	instanceMonitoring       map[string]string
+	instanceCreditSpecs      map[string]string
+	instanceIMDSOptions      map[string]*IMDSOptions
+	instanceMetadataDefaults *InstanceMetadataDefaults
+	instanceEventNotifAttrs  *InstanceEventNotificationAttributes
+	niPermissions            map[string]*NetworkInterfacePermission
+	niIPv6Addresses          map[string][]string
+	idFormatSettings         map[string]bool
+	// batch2 additions
+	endpointConnectionNotifs      map[string]*VpcEndpointConnectionNotification
+	vpcEndpointServicePermissions map[string][]string
+	snapshotLocks                 map[string]*SnapshotLock
+	replaceRootVolumeTasks        map[string]*ReplaceRootVolumeTask
+	subnetCIDRReservations        map[string][]*SubnetCIDRReservation
+	imageDisabled                 map[string]bool
+	imageDeprecated               map[string]string
+	imageDeregistrationProtection map[string]bool
+	imageAttributes               map[string]map[string]string
+	vgwRoutePropagation           map[string]bool
+	mu                            *lockmetrics.RWMutex
+	eniIDByAttachment             map[string]string
+	eniIDsByInstance              map[string]map[string]struct{}
+	instanceIDsByVPC              map[string]map[string]struct{}
+	snapshotBlockPublicAccess     string
+	ebsDefaultKmsKeyID            string
+	imageBlockPublicAccess        string
+	defaultCreditSpec             string
+	Region                        string
+	AccountID                     string
+	freePrivateIPs                []string
+	nextPrivateIPIndex            int
+	nextElasticIPIndex            int
+	ebsEncryptionByDefault        bool
+	serialConsoleAccess           bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
@@ -326,6 +342,16 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		niPermissions:                  make(map[string]*NetworkInterfacePermission),
 		niIPv6Addresses:                make(map[string][]string),
 		idFormatSettings:               make(map[string]bool),
+		endpointConnectionNotifs:       make(map[string]*VpcEndpointConnectionNotification),
+		vpcEndpointServicePermissions:  make(map[string][]string),
+		snapshotLocks:                  make(map[string]*SnapshotLock),
+		replaceRootVolumeTasks:         make(map[string]*ReplaceRootVolumeTask),
+		subnetCIDRReservations:         make(map[string][]*SubnetCIDRReservation),
+		imageDisabled:                  make(map[string]bool),
+		imageDeprecated:                make(map[string]string),
+		imageDeregistrationProtection:  make(map[string]bool),
+		imageAttributes:                make(map[string]map[string]string),
+		vgwRoutePropagation:            make(map[string]bool),
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),

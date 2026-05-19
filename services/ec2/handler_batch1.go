@@ -9,7 +9,7 @@ import (
 
 // ---- Registration ----
 
-//nolint:funlen
+//nolint:funlen,dupl // large registration table; dupl is unavoidable across batches
 func registerBatch1Ops(h *Handler, ops map[string]ec2ActionFn) {
 	// EBS volume lifecycle
 	ops["ModifyVolume"] = h.handleModifyVolume
