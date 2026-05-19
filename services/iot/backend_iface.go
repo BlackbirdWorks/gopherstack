@@ -164,6 +164,75 @@ type StorageBackend interface {
 	ListSecurityProfiles() []*SecurityProfile
 	UpdateSecurityProfile(name, description string) (*SecurityProfile, error)
 	DeleteSecurityProfile(name string) error
+
+	// Batch 2: CACertificate operations.
+	RegisterCACertificate(pem, status string) (*CACertificate, error)
+	DescribeCACertificate(id string) (*CACertificate, error)
+	ListCACertificates() []*CACertificate
+	UpdateCACertificate(id, status string) error
+	DeleteCACertificate(id string) error
+	ListCertificatesByCA(caID string) []*Certificate
+
+	// Batch 2: Stream operations.
+	CreateStream(input *CreateStreamInput) (*IoTStream, error)
+	DescribeStream(id string) (*IoTStream, error)
+	ListStreams() []*IoTStream
+	UpdateStream(id, description, roleARN string, files []StreamFile) (*IoTStream, error)
+	DeleteStream(id string) error
+
+	// Batch 2: FleetMetric operations.
+	CreateFleetMetric(input *CreateFleetMetricInput) (*FleetMetric, error)
+	DescribeFleetMetric(name string) (*FleetMetric, error)
+	ListFleetMetrics() []*FleetMetric
+	UpdateFleetMetric(name, queryString, description string, period int32) error
+	DeleteFleetMetric(name string) error
+
+	// Batch 2: CustomMetric operations.
+	CreateCustomMetric(input *CreateCustomMetricInput) (*CustomMetric, error)
+	DescribeCustomMetric(name string) (*CustomMetric, error)
+	ListCustomMetrics() []*CustomMetric
+	UpdateCustomMetric(name, displayName string) (*CustomMetric, error)
+	DeleteCustomMetric(name string) error
+
+	// Batch 2: Dimension operations.
+	CreateDimension(input *CreateDimensionInput) (*Dimension, error)
+	DescribeDimension(name string) (*Dimension, error)
+	ListDimensions() []*Dimension
+	UpdateDimension(name string, stringValues []string) (*Dimension, error)
+	DeleteDimension(name string) error
+
+	// Batch 2: Tag operations.
+	TagResourceGeneric(resourceARN string, tags map[string]string) error
+	UntagResource(resourceARN string, tagKeys []string) error
+	ListTagsForResource(resourceARN string) map[string]string
+
+	// Batch 2: Audit configuration.
+	UpdateAccountAuditConfiguration(roleARN string, checks map[string]*AuditCheckConfig) error
+	DescribeAccountAuditConfiguration() *AccountAuditConfiguration
+
+	// Batch 2: Audit task.
+	StartOnDemandAuditTask(checks []string) (string, error)
+	DescribeAuditTask(taskID string) (*AuditTask, error)
+	ListAuditTasks(taskType string) []*AuditTask
+
+	// Batch 2: Misc.
+	DetachThingPrincipal(thingName, principal string) error
+	CancelCertificateTransfer(certID string) error
+	GetRegistrationCode() string
+	DeleteRegistrationCode() error
+	ListThingGroupsForThing(thingName string) []string
+	ListThingsInBillingGroup(groupName string) []string
+	RemoveThingFromBillingGroup(thingName, billingGroupName string) error
+	ListPrincipalPolicies(principal string) []*Policy
+	ListPolicyPrincipals(policyName string) []string
+	ListTargetsForPolicy(policyName string) []string
+	ListPrincipalThings(principal string) []string
+	GetEffectivePolicies(thingName, principal string) []*Policy
+	SetDefaultAuthorizer(authorizerName string) error
+	ClearDefaultAuthorizer() error
+	DescribeDefaultAuthorizer() (string, error)
+	ListJobExecutionsForJob(jobID string) []*JobExecution
+	ListJobExecutionsForThing(thingName string) []*JobExecution
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

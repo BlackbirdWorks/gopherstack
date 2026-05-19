@@ -67,6 +67,9 @@ func resolveJobOps(path, method string) string {
 	// GET /jobs → ListJobs
 	case path == "/jobs" && method == http.MethodGet:
 		return opListJobs
+	// GET /jobs/{jobId}/things → ListJobExecutionsForJob (no thingName segment)
+	case strings.HasPrefix(path, "/jobs/") && strings.HasSuffix(path, "/things") && method == http.MethodGet:
+		return opListJobExecutionsForJob
 	// POST /jobs/{jobId} → CreateJob
 	case strings.HasPrefix(path, "/jobs/") && method == http.MethodPost:
 		return opCreateJob
@@ -188,10 +191,17 @@ func resolveAuthorizerOps(path, method string) string {
 	return unknownOperation
 }
 
+//nolint:cyclop // mechanical routing switch
 func resolveBillingGroupOps(path, method string) string {
 	switch {
 	case path == "/billing-groups" && method == http.MethodGet:
 		return opListBillingGroups
+	case path == "/billing-groups/removeThingFromBillingGroup" && method == http.MethodPut:
+		return opRemoveThingFromBillingGroup
+	case strings.HasPrefix(path, "/billing-groups/") &&
+		strings.HasSuffix(path, "/things") &&
+		method == http.MethodGet:
+		return opListThingsInBillingGroup
 	case strings.HasPrefix(path, "/billing-groups/") && method == http.MethodPost:
 		return opCreateBillingGroup
 	case strings.HasPrefix(path, "/billing-groups/") && method == http.MethodGet:
