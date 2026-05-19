@@ -139,20 +139,27 @@ type ResourceKey struct {
 
 // InMemoryBackend is the in-memory store for AWS Config resources.
 type InMemoryBackend struct {
-	recorders           map[string]*ConfigurationRecorder
-	channels            map[string]*DeliveryChannel
-	aggregationAuths    map[string]*AggregationAuthorization
-	configRules         map[string]*ConfigRule
-	ruleEvaluations     map[string]string // rule name → compliance type after evaluation
-	aggregators         map[string]*ConfigurationAggregator
-	conformancePacks    map[string]*ConformancePack
-	orgConfigRules      map[string]*OrganizationConfigRule
-	orgConformancePacks map[string]*OrganizationConformancePack
-	storedQueries       map[string]*StoredQuery
-	mu                  *lockmetrics.RWMutex
-	accountID           string
-	region              string
-	ruleCounter         int
+	recorders             map[string]*ConfigurationRecorder
+	channels              map[string]*DeliveryChannel
+	aggregationAuths      map[string]*AggregationAuthorization
+	configRules           map[string]*ConfigRule
+	ruleEvaluations       map[string]string // rule name → compliance type after evaluation
+	aggregators           map[string]*ConfigurationAggregator
+	conformancePacks      map[string]*ConformancePack
+	orgConfigRules        map[string]*OrganizationConfigRule
+	orgConformancePacks   map[string]*OrganizationConformancePack
+	storedQueries         map[string]*StoredQuery
+	resourceTags          map[string][]Tag                          // ARN → tags
+	retentionConfigs      map[string]*RetentionConfiguration        // name → config
+	remediationConfigs    map[string]*RemediationConfiguration      // rule name → config
+	remediationExceptions map[string][]RemediationException         // rule name → exceptions
+	resourceConfigs       map[string]map[string]*ResourceConfigItem // type → id → item
+	customRulePolicies    map[string]string                         // rule name → policy text
+	orgCustomRulePolicies map[string]string                         // rule name → policy text
+	mu                    *lockmetrics.RWMutex
+	accountID             string
+	region                string
+	ruleCounter           int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -163,19 +170,26 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithMeta creates a new InMemoryBackend with account and region context.
 func NewInMemoryBackendWithMeta(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		recorders:           make(map[string]*ConfigurationRecorder),
-		channels:            make(map[string]*DeliveryChannel),
-		aggregationAuths:    make(map[string]*AggregationAuthorization),
-		configRules:         make(map[string]*ConfigRule),
-		ruleEvaluations:     make(map[string]string),
-		aggregators:         make(map[string]*ConfigurationAggregator),
-		conformancePacks:    make(map[string]*ConformancePack),
-		orgConfigRules:      make(map[string]*OrganizationConfigRule),
-		orgConformancePacks: make(map[string]*OrganizationConformancePack),
-		storedQueries:       make(map[string]*StoredQuery),
-		mu:                  lockmetrics.New("awsconfig"),
-		accountID:           accountID,
-		region:              region,
+		recorders:             make(map[string]*ConfigurationRecorder),
+		channels:              make(map[string]*DeliveryChannel),
+		aggregationAuths:      make(map[string]*AggregationAuthorization),
+		configRules:           make(map[string]*ConfigRule),
+		ruleEvaluations:       make(map[string]string),
+		aggregators:           make(map[string]*ConfigurationAggregator),
+		conformancePacks:      make(map[string]*ConformancePack),
+		orgConfigRules:        make(map[string]*OrganizationConfigRule),
+		orgConformancePacks:   make(map[string]*OrganizationConformancePack),
+		storedQueries:         make(map[string]*StoredQuery),
+		resourceTags:          make(map[string][]Tag),
+		retentionConfigs:      make(map[string]*RetentionConfiguration),
+		remediationConfigs:    make(map[string]*RemediationConfiguration),
+		remediationExceptions: make(map[string][]RemediationException),
+		resourceConfigs:       make(map[string]map[string]*ResourceConfigItem),
+		customRulePolicies:    make(map[string]string),
+		orgCustomRulePolicies: make(map[string]string),
+		mu:                    lockmetrics.New("awsconfig"),
+		accountID:             accountID,
+		region:                region,
 	}
 }
 
@@ -429,6 +443,13 @@ func (b *InMemoryBackend) Reset() {
 	b.orgConfigRules = make(map[string]*OrganizationConfigRule)
 	b.orgConformancePacks = make(map[string]*OrganizationConformancePack)
 	b.storedQueries = make(map[string]*StoredQuery)
+	b.resourceTags = make(map[string][]Tag)
+	b.retentionConfigs = make(map[string]*RetentionConfiguration)
+	b.remediationConfigs = make(map[string]*RemediationConfiguration)
+	b.remediationExceptions = make(map[string][]RemediationException)
+	b.resourceConfigs = make(map[string]map[string]*ResourceConfigItem)
+	b.customRulePolicies = make(map[string]string)
+	b.orgCustomRulePolicies = make(map[string]string)
 }
 
 // aggregationAuthKey returns a composite key for an aggregation authorization.
