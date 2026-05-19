@@ -35,6 +35,10 @@ const (
 const (
 	serviceDiscoveryService      = "servicediscovery"
 	serviceDiscoveryTargetPrefix = "Route53AutoNaming_v20170314."
+
+	keyNamespaceID = "NamespaceId"
+	keyType        = "Type"
+	keyCreateDate  = "CreateDate"
 )
 
 var (
@@ -134,7 +138,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	for _, key := range []string{"Id", "ServiceId", "NamespaceId", "ResourceARN"} {
+	for _, key := range []string{"Id", "ServiceId", keyNamespaceID, "ResourceARN"} {
 		if v, ok := data[key]; ok {
 			if s, isStr := v.(string); isStr {
 				return s
@@ -1246,10 +1250,10 @@ func namespaceToMap(ns *Namespace) map[string]any {
 		"Id":          ns.ID,
 		keyArn:        ns.ARN,
 		"Name":        ns.Name,
-		"Type":        ns.Type,
+		keyType:       ns.Type,
 		"Description": ns.Description,
 		keyTags:       mapToTagEntries(ns.Tags),
-		"CreateDate":  ns.CreatedAt.Unix(),
+		keyCreateDate: ns.CreatedAt.Unix(),
 	}
 
 	if ns.Properties != nil {
@@ -1286,30 +1290,30 @@ func namespaceToMap(ns *Namespace) map[string]any {
 // serviceToMap converts a Service to a JSON-serialisable map including DNS and health check config.
 func serviceToMap(svc *Service) map[string]any {
 	m := map[string]any{
-		"Id":          svc.ID,
-		keyArn:        svc.ARN,
-		"Name":        svc.Name,
-		"NamespaceId": svc.NamespaceID,
-		"Description": svc.Description,
-		keyTags:       mapToTagEntries(svc.Tags),
-		"CreateDate":  svc.CreatedAt.Unix(),
+		"Id":           svc.ID,
+		keyArn:         svc.ARN,
+		"Name":         svc.Name,
+		keyNamespaceID: svc.NamespaceID,
+		"Description":  svc.Description,
+		keyTags:        mapToTagEntries(svc.Tags),
+		keyCreateDate:  svc.CreatedAt.Unix(),
 	}
 
 	if svc.Type != "" {
-		m["Type"] = svc.Type
+		m[keyType] = svc.Type
 	}
 
 	if svc.DnsConfig != nil {
 		dc := map[string]any{
-			"NamespaceId":   svc.DnsConfig.NamespaceID,
+			keyNamespaceID:  svc.DnsConfig.NamespaceID,
 			"RoutingPolicy": svc.DnsConfig.RoutingPolicy,
 		}
 
 		records := make([]map[string]any, 0, len(svc.DnsConfig.DnsRecords))
 		for _, r := range svc.DnsConfig.DnsRecords {
 			records = append(records, map[string]any{
-				"Type": r.Type,
-				"TTL":  r.TTL,
+				keyType: r.Type,
+				"TTL":   r.TTL,
 			})
 		}
 
@@ -1319,7 +1323,7 @@ func serviceToMap(svc *Service) map[string]any {
 
 	if svc.HealthCheckConfig != nil {
 		m["HealthCheckConfig"] = map[string]any{
-			"Type":             svc.HealthCheckConfig.Type,
+			keyType:            svc.HealthCheckConfig.Type,
 			"ResourcePath":     svc.HealthCheckConfig.ResourcePath,
 			"FailureThreshold": svc.HealthCheckConfig.FailureThreshold,
 		}
@@ -1338,9 +1342,9 @@ func serviceToMap(svc *Service) map[string]any {
 func operationToMap(op *Operation) map[string]any {
 	m := map[string]any{
 		"Id":           op.ID,
-		"Type":         op.Type,
+		keyType:        op.Type,
 		keyStatusField: op.Status,
-		"CreateDate":   op.CreateDate.Unix(),
+		keyCreateDate:  op.CreateDate.Unix(),
 		"UpdateDate":   op.UpdateDate.Unix(),
 	}
 

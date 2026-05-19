@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"maps"
-	"math/rand"
+	"math/rand/v2"
 	"sort"
 	"strconv"
 	"strings"
@@ -279,7 +279,7 @@ func (b *InMemoryBackend) nextOpID() string {
 func randAlnum(n int) string {
 	buf := make([]byte, n)
 	for i := range buf {
-		buf[i] = idChars[rand.Intn(len(idChars))] //nolint:gosec
+		buf[i] = idChars[rand.IntN(len(idChars))] //nolint:gosec // non-cryptographic, math/rand/v2 sufficient
 	}
 
 	return string(buf)
@@ -525,7 +525,7 @@ func (b *InMemoryBackend) DeleteService(id string) error {
 		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
 	}
 
-	if insts, ok := b.instancesByService[id]; ok && len(insts) > 0 {
+	if insts, hasInsts := b.instancesByService[id]; hasInsts && len(insts) > 0 {
 		return fmt.Errorf("%w: service %s has registered instances; deregister them first", ErrResourceInUse, id)
 	}
 
@@ -1107,7 +1107,7 @@ func (b *InMemoryBackend) DiscoverInstancesRevision(namespaceName, serviceName s
 		return 0, fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, namespaceName)
 	}
 
-	if _, ok := b.svcByNsAndName[nsID+":"+serviceName]; !ok {
+	if _, hasSvc := b.svcByNsAndName[nsID+":"+serviceName]; !hasSvc {
 		return 0, fmt.Errorf("%w: service %s not found in namespace %s", ErrServiceNotFound, serviceName, namespaceName)
 	}
 
@@ -1239,7 +1239,7 @@ func decodeCursor(token string) int {
 
 	var offset int
 
-	fmt.Sscanf(string(b), "%d", &offset) //nolint:errcheck
+	_, _ = fmt.Sscanf(string(b), "%d", &offset)
 
 	return offset
 }
