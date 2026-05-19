@@ -719,4 +719,85 @@ type Backend interface {
 
 	// Reset clears all resource state, returning the backend to its initial state.
 	Reset()
+
+	// ---- batch1: EBS volume lifecycle ----
+
+	ModifyVolume(volumeID, volumeType string, size, iops int) (*VolumeModification, error)
+	DescribeVolumeStatus(ids []string) []VolumeStatusItem
+	DescribeVolumesModifications(ids []string) []*VolumeModification
+	CopySnapshot(sourceSnapshotID, description string) (*Snapshot, error)
+	CreateSnapshots(volumeIDs []string, description string) ([]*Snapshot, error)
+
+	// ---- batch1: snapshot block public access ----
+
+	GetSnapshotBlockPublicAccessState() string
+	EnableSnapshotBlockPublicAccess(state string) error
+	DisableSnapshotBlockPublicAccess()
+	DescribeSnapshotTierStatus(ids []string) []SnapshotTierItem
+	ModifySnapshotTier(snapshotID, storageTier string) error
+	ResetSnapshotAttribute(snapshotID string) error
+
+	// ---- batch1: VPC/Subnet/SG ----
+
+	CreateDefaultVpc() (*VPC, error)
+	CreateDefaultSubnet(az string) (*Subnet, error)
+	AssociateSubnetCidrBlock(subnetID, ipv6CIDRBlock string) (*SubnetCIDRAssociation, error)
+	DisassociateSubnetCidrBlock(associationID string) (string, error)
+	AssociateSecurityGroupVpc(sgID, vpcID string) (*SGVpcAssociationState, error)
+	DisassociateSecurityGroupVpc(sgID, vpcID string) error
+	DescribeSecurityGroupReferences(sgIDs []string) []SGReference
+	DescribeStaleSecurityGroups(vpcID string) []StaleSGItem
+	DescribeSecurityGroupVpcAssociations(sgIDs []string) []SGVpcAssocItem
+	ModifyVpcTenancy(vpcID, tenancy string) error
+	ModifyVpcPeeringConnectionOptions(peeringID string, opts PeeringConnectionOptions) error
+	GetVpcPeeringConnectionOptions(peeringID string) *PeeringConnectionOptions
+
+	// ---- batch1: EIP attributes ----
+
+	DescribeAddressesAttribute(allocationIDs []string) []AddressAttribute
+	ModifyAddressAttribute(allocationID, domainName string) error
+	ResetAddressAttribute(allocationID string) error
+
+	// ---- batch1: instance ----
+
+	GetConsoleOutput(instanceID string) (string, time.Time, error)
+	ModifyInstanceMetadataOptions(
+		instanceID, httpTokens, httpEndpoint, instanceMetadataTags string,
+		hopLimit int,
+	) (*IMDSOptions, error)
+	GetInstanceMetadataDefaults() *InstanceMetadataDefaults
+	ModifyInstanceMetadataDefaults(
+		httpTokens, httpEndpoint, instanceMetadataTags string,
+		hopLimit int,
+	) error
+	DescribeInstanceCreditSpecifications(ids []string) []InstanceCreditSpec
+	ModifyInstanceCreditSpecification(instanceID, cpuCredits string) error
+	DescribeInstanceTopology(ids []string) []InstanceTopologyItem
+	MonitorInstances(instanceIDs []string) ([]MonitoringState, error)
+	UnmonitorInstances(instanceIDs []string) ([]MonitoringState, error)
+
+	// ---- batch1: network interface ----
+
+	DescribeNetworkInterfaceAttribute(niID, attribute string) (*NIAttributeResult, error)
+	ResetNetworkInterfaceAttribute(niID string) error
+	DescribeNetworkInterfacePermissions(niIDs []string) []*NetworkInterfacePermission
+	CreateNetworkInterfacePermission(
+		niID, awsAccountID, awsService, permission string,
+	) (*NetworkInterfacePermission, error)
+	DeleteNetworkInterfacePermission(permissionID string) error
+	AssignIpv6Addresses(niID string, count int) ([]string, error)
+	UnassignIpv6Addresses(niID string, addresses []string) error
+
+	// ---- batch1: account/misc ----
+
+	DescribeAccountAttributes(names []string) []AccountAttribute
+	DescribePrefixLists(ids []string) []PrefixList
+	DescribeIDFormat(resources []string) []IDFormatItem
+	ModifyIDFormat(resource string, useLongIDs bool) error
+	DescribeIdentityIDFormat(_ string, resources []string) []IDFormatItem
+	ModifyIdentityIDFormat(_ string, resource string, useLongIDs bool) error
+	DescribeAggregateIDFormat() []IDFormatItem
+	DescribePrincipalIDFormat(_ string) []IDFormatItem
+	DescribeInstanceEventNotificationAttributes() *InstanceEventNotificationAttributes
+	DeregisterInstanceEventNotificationAttributes()
 }

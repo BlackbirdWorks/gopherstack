@@ -230,17 +230,35 @@ type InMemoryBackend struct {
 	ipamPoolAllocations            map[string]*IpamPoolAllocation
 	spotFleets                     map[string]*SpotFleetRequest
 	spotFleetHistory               map[string][]SpotFleetHistoryRecord
-	mu                             *lockmetrics.RWMutex
-	eniIDByAttachment              map[string]string
-	eniIDsByInstance               map[string]map[string]struct{}
-	instanceIDsByVPC               map[string]map[string]struct{}
-	compute                        Compute
-	dnsRegistrar                   DNSRegistrar
-	Region                         string
-	AccountID                      string
-	freePrivateIPs                 []string
-	nextPrivateIPIndex             int
-	nextElasticIPIndex             int
+	// batch1 additions
+	volumeModifications       map[string]*VolumeModification
+	snapshotTiers             map[string]string
+	snapshotAttributes        map[string]map[string]string
+	snapshotBlockPublicAccess string
+	sgVpcAssociations         map[string]map[string]string
+	vpcTenancy                map[string]string
+	vpcPeeringOptions         map[string]*PeeringConnectionOptions
+	subnetCIDRAssociations    map[string][]*SubnetCIDRAssociation
+	addressAttributes         map[string]*AddressAttribute
+	instanceMonitoring        map[string]string
+	instanceCreditSpecs       map[string]string
+	instanceIMDSOptions       map[string]*IMDSOptions
+	instanceMetadataDefaults  *InstanceMetadataDefaults
+	instanceEventNotifAttrs   *InstanceEventNotificationAttributes
+	niPermissions             map[string]*NetworkInterfacePermission
+	niIPv6Addresses           map[string][]string
+	idFormatSettings          map[string]bool
+	mu                        *lockmetrics.RWMutex
+	eniIDByAttachment         map[string]string
+	eniIDsByInstance          map[string]map[string]struct{}
+	instanceIDsByVPC          map[string]map[string]struct{}
+	compute                   Compute
+	dnsRegistrar              DNSRegistrar
+	Region                    string
+	AccountID                 string
+	freePrivateIPs            []string
+	nextPrivateIPIndex        int
+	nextElasticIPIndex        int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
@@ -294,6 +312,20 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		ipamPoolAllocations:            make(map[string]*IpamPoolAllocation),
 		spotFleets:                     make(map[string]*SpotFleetRequest),
 		spotFleetHistory:               make(map[string][]SpotFleetHistoryRecord),
+		volumeModifications:            make(map[string]*VolumeModification),
+		snapshotTiers:                  make(map[string]string),
+		snapshotAttributes:             make(map[string]map[string]string),
+		sgVpcAssociations:              make(map[string]map[string]string),
+		vpcTenancy:                     make(map[string]string),
+		vpcPeeringOptions:              make(map[string]*PeeringConnectionOptions),
+		subnetCIDRAssociations:         make(map[string][]*SubnetCIDRAssociation),
+		addressAttributes:              make(map[string]*AddressAttribute),
+		instanceMonitoring:             make(map[string]string),
+		instanceCreditSpecs:            make(map[string]string),
+		instanceIMDSOptions:            make(map[string]*IMDSOptions),
+		niPermissions:                  make(map[string]*NetworkInterfacePermission),
+		niIPv6Addresses:                make(map[string][]string),
+		idFormatSettings:               make(map[string]bool),
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),
