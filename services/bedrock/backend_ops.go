@@ -25,12 +25,12 @@ type ModelInvocationJob struct {
 
 // PromptRouter represents a prompt router resource.
 type PromptRouter struct {
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
-	PromptRouterArn string    `json:"promptRouterArn"`
-	PromptRouterName string   `json:"promptRouterName"`
-	Status          string    `json:"status"`
-	Tags            []Tag     `json:"tags,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+	PromptRouterArn  string    `json:"promptRouterArn"`
+	PromptRouterName string    `json:"promptRouterName"`
+	Status           string    `json:"status"`
+	Tags             []Tag     `json:"tags,omitempty"`
 }
 
 // EnforcedGuardrailConfig represents an enforced guardrail configuration entry.
@@ -43,11 +43,13 @@ type EnforcedGuardrailConfig struct {
 
 func (b *InMemoryBackend) newModelInvocationJobID() string {
 	b.modelInvocationJobCounter++
+
 	return "mij-" + strconv.Itoa(b.modelInvocationJobCounter)
 }
 
 func (b *InMemoryBackend) newPromptRouterID() string {
 	b.promptRouterCounter++
+
 	return "pr-" + strconv.Itoa(b.promptRouterCounter)
 }
 
@@ -408,10 +410,10 @@ func (b *InMemoryBackend) ExportAutomatedReasoningPolicyVersion(policyARN, versi
 	}
 
 	return map[string]any{
-		keyPolicyArn:   v.PolicyArn,
-		"version":      v.Version,
+		keyPolicyArn:     v.PolicyArn,
+		"version":        v.Version,
 		"definitionHash": v.DefinitionHash,
-		keyCreatedAt:   v.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		keyCreatedAt:     v.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}, nil
 }
 
@@ -425,7 +427,7 @@ func (b *InMemoryBackend) StartAutomatedReasoningPolicyTestWorkflow(policyARN, t
 		return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
 	}
 
-	return map[string]any{"testCaseId": testCaseID, keyPolicyArn: policyARN, keyStatus: statusRunning}, nil
+	return map[string]any{keyTestCaseID: testCaseID, keyPolicyArn: policyARN, keyStatus: statusRunning}, nil
 }
 
 // GetAutomatedReasoningPolicyTestResult returns the result for a test case execution.
@@ -438,7 +440,7 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyTestResult(policyARN, testC
 		return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
 	}
 
-	return map[string]any{"testCaseId": testCaseID, keyPolicyArn: policyARN, keyStatus: statusCompleted}, nil
+	return map[string]any{keyTestCaseID: testCaseID, keyPolicyArn: policyARN, keyStatus: statusCompleted}, nil
 }
 
 // ListAutomatedReasoningPolicyTestResults returns test results for a policy.
@@ -450,7 +452,7 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(policyARN stri
 	for _, tc := range b.arpTestCases {
 		if tc.PolicyArn == policyARN {
 			results = append(results, map[string]any{
-				"testCaseId": tc.TestCaseID,
+				keyTestCaseID: tc.TestCaseID,
 				keyPolicyArn: policyARN,
 				keyStatus:    statusCompleted,
 			})
@@ -458,8 +460,9 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(policyARN stri
 	}
 
 	sort.Slice(results, func(i, k int) bool {
-		a, _ := results[i]["testCaseId"].(string)
-		b, _ := results[k]["testCaseId"].(string)
+		a, _ := results[i][keyTestCaseID].(string)
+		b, _ := results[k][keyTestCaseID].(string)
+
 		return a < b
 	})
 

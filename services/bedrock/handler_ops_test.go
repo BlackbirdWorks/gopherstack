@@ -38,7 +38,8 @@ func TestHandler_GetEvaluationJob_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodGet, "/evaluation-jobs/"+url.PathEscape("arn:aws:bedrock:us-east-1::evaluation-job/nope"), nil)
+	path := "/evaluation-jobs/" + url.PathEscape("arn:aws:bedrock:us-east-1::evaluation-job/nope")
+	rec := doRequest(t, h, http.MethodGet, path, nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
@@ -534,7 +535,7 @@ func TestHandler_UseCaseForModelAccess(t *testing.T) {
 
 	var out map[string]any
 	mustUnmarshal(t, rec, &out)
-	assert.Equal(t, "", out["useCaseType"])
+	assert.Empty(t, out["useCaseType"])
 
 	// Put
 	rec2 := doRequest(t, h, http.MethodPut, "/usecase-for-model-access",

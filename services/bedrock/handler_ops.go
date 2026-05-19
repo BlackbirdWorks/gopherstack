@@ -30,12 +30,12 @@ func isARPBuildWorkflowSubPath(path string) bool {
 		return false
 	}
 
-	idx := strings.Index(rest, "/build-workflows/")
-	if idx < 0 {
+	_, after, ok := strings.Cut(rest, "/build-workflows/")
+	if !ok {
 		return false
 	}
 
-	segment := rest[idx+len("/build-workflows/"):]
+	segment := after
 
 	return !strings.Contains(segment, "/")
 }
@@ -68,12 +68,12 @@ func isARPTestCaseSubPath(path string) bool {
 		return false
 	}
 
-	idx := strings.Index(rest, "/test-cases/")
-	if idx < 0 {
+	_, after, ok := strings.Cut(rest, "/test-cases/")
+	if !ok {
 		return false
 	}
 
-	segment := rest[idx+len("/test-cases/"):]
+	segment := after
 	// Exclude known sub-paths: results (the collection), and further nesting.
 	return segment != "results" && !strings.Contains(segment, "/")
 }
@@ -136,64 +136,47 @@ func extractARPPolicyARN(path, suffix string) string {
 }
 
 // extractARPWorkflowIDs extracts policyARN and workflowID from a build-workflow path.
-func extractARPWorkflowIDs(path string) (policyARN, workflowID string) {
+func extractARPWorkflowIDs(path string) (string, string) {
 	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
-	idx := strings.Index(rest, "/build-workflows/")
 
-	if idx < 0 {
+	before, after, ok := strings.Cut(rest, "/build-workflows/")
+	if !ok {
 		return "", ""
 	}
 
-	policyARN = decodePath(rest[:idx])
-	after := rest[idx+len("/build-workflows/"):]
+	policyARN := decodePath(before)
 	// Strip any trailing sub-path like /result-assets, /cancel.
-	if slashIdx := strings.Index(after, "/"); slashIdx >= 0 {
-		workflowID = after[:slashIdx]
-	} else {
-		workflowID = after
-	}
+	workflowID, _, _ := strings.Cut(after, "/")
 
 	return policyARN, workflowID
 }
 
 // extractARPTestCaseIDs extracts policyARN and testCaseID from a test-case path.
-func extractARPTestCaseIDs(path string) (policyARN, testCaseID string) {
+func extractARPTestCaseIDs(path string) (string, string) {
 	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
-	idx := strings.Index(rest, "/test-cases/")
 
-	if idx < 0 {
+	before, after, ok := strings.Cut(rest, "/test-cases/")
+	if !ok {
 		return "", ""
 	}
 
-	policyARN = decodePath(rest[:idx])
-	after := rest[idx+len("/test-cases/"):]
-
-	if slashIdx := strings.Index(after, "/"); slashIdx >= 0 {
-		testCaseID = after[:slashIdx]
-	} else {
-		testCaseID = after
-	}
+	policyARN := decodePath(before)
+	testCaseID, _, _ := strings.Cut(after, "/")
 
 	return policyARN, testCaseID
 }
 
 // extractARPVersionIDs extracts policyARN and version from a versions path.
-func extractARPVersionIDs(path string) (policyARN, version string) {
+func extractARPVersionIDs(path string) (string, string) {
 	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
-	idx := strings.Index(rest, "/versions/")
 
-	if idx < 0 {
+	before, after, ok := strings.Cut(rest, "/versions/")
+	if !ok {
 		return "", ""
 	}
 
-	policyARN = decodePath(rest[:idx])
-	after := rest[idx+len("/versions/"):]
-
-	if slashIdx := strings.Index(after, "/"); slashIdx >= 0 {
-		version = after[:slashIdx]
-	} else {
-		version = after
-	}
+	policyARN := decodePath(before)
+	version, _, _ := strings.Cut(after, "/")
 
 	return policyARN, version
 }
@@ -249,12 +232,12 @@ func (h *Handler) handleGetAutomatedReasoningPolicy(c *echo.Context, policyARN s
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"policyArn":   policy.PolicyArn,
-		"name":        policy.Name,
+		keyPolicyArn:  policy.PolicyArn,
+		keyName:        policy.Name,
 		"description": policy.Description,
 		keyStatus:     policy.Status,
-		"createdAt":   isoTime{policy.CreatedAt},
-		"updatedAt":   isoTime{policy.UpdatedAt},
+		keyCreatedAt:  isoTime{policy.CreatedAt},
+		keyUpdatedAt:   isoTime{policy.UpdatedAt},
 	})
 }
 
@@ -264,11 +247,11 @@ func (h *Handler) handleListAutomatedReasoningPolicies(c *echo.Context) error {
 
 	for _, p := range policies {
 		summaries = append(summaries, map[string]any{
-			"policyArn": p.PolicyArn,
-			"name":      p.Name,
-			keyStatus:   p.Status,
-			"createdAt": isoTime{p.CreatedAt},
-			"updatedAt": isoTime{p.UpdatedAt},
+			keyPolicyArn: p.PolicyArn,
+			keyName:       p.Name,
+			keyStatus:    p.Status,
+			keyCreatedAt: isoTime{p.CreatedAt},
+			keyUpdatedAt:  isoTime{p.UpdatedAt},
 		})
 	}
 
@@ -291,10 +274,10 @@ func (h *Handler) handleUpdateAutomatedReasoningPolicy(c *echo.Context, policyAR
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"policyArn": policy.PolicyArn,
-		"name":      policy.Name,
-		keyStatus:   policy.Status,
-		"updatedAt": isoTime{policy.UpdatedAt},
+		keyPolicyArn: policy.PolicyArn,
+		keyName:       policy.Name,
+		keyStatus:    policy.Status,
+		keyUpdatedAt:  isoTime{policy.UpdatedAt},
 	})
 }
 
@@ -317,9 +300,9 @@ func (h *Handler) handleStartARPBuildWorkflow(c *echo.Context, path string) erro
 	}
 
 	return c.JSON(http.StatusCreated, map[string]any{
-		"buildWorkflowId": wf.BuildWorkflowID,
-		"policyArn":       wf.PolicyArn,
-		keyStatus:         wf.Status,
+		keyBuildWorkflowID: wf.BuildWorkflowID,
+		keyPolicyArn:       wf.PolicyArn,
+		keyStatus:          wf.Status,
 	})
 }
 
@@ -332,9 +315,9 @@ func (h *Handler) handleGetARPBuildWorkflow(c *echo.Context, path string) error 
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"buildWorkflowId": wf.BuildWorkflowID,
-		"policyArn":       wf.PolicyArn,
-		keyStatus:         wf.Status,
+		keyBuildWorkflowID: wf.BuildWorkflowID,
+		keyPolicyArn:       wf.PolicyArn,
+		keyStatus:          wf.Status,
 	})
 }
 
@@ -345,9 +328,9 @@ func (h *Handler) handleListARPBuildWorkflows(c *echo.Context, path string) erro
 
 	for _, wf := range workflows {
 		summaries = append(summaries, map[string]any{
-			"buildWorkflowId": wf.BuildWorkflowID,
-			"policyArn":       wf.PolicyArn,
-			keyStatus:         wf.Status,
+			keyBuildWorkflowID: wf.BuildWorkflowID,
+			keyPolicyArn:       wf.PolicyArn,
+			keyStatus:          wf.Status,
 		})
 	}
 
@@ -386,8 +369,8 @@ func (h *Handler) handleGetARPTestCase(c *echo.Context, path string) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"testCaseId": tc.TestCaseID,
-		"policyArn":  tc.PolicyArn,
+		keyTestCaseID: tc.TestCaseID,
+		keyPolicyArn: tc.PolicyArn,
 	})
 }
 
@@ -398,8 +381,8 @@ func (h *Handler) handleListARPTestCases(c *echo.Context, path string) error {
 
 	for _, tc := range cases {
 		summaries = append(summaries, map[string]any{
-			"testCaseId": tc.TestCaseID,
-			"policyArn":  tc.PolicyArn,
+			keyTestCaseID: tc.TestCaseID,
+			keyPolicyArn: tc.PolicyArn,
 		})
 	}
 
@@ -415,8 +398,8 @@ func (h *Handler) handleUpdateARPTestCase(c *echo.Context, path string) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"testCaseId": tc.TestCaseID,
-		"policyArn":  tc.PolicyArn,
+		keyTestCaseID: tc.TestCaseID,
+		keyPolicyArn: tc.PolicyArn,
 	})
 }
 
@@ -541,11 +524,11 @@ func (h *Handler) handleGetModelInvocationJob(c *echo.Context, jobARN string) er
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyJobArn:          job.JobArn,
-		"jobName":          job.JobName,
-		keyStatus:          job.Status,
-		"creationTime":     job.CreationTime.Format(time.RFC3339),
-		"lastModifiedTime": job.LastModifiedTime.Format(time.RFC3339),
+		keyJobArn:           job.JobArn,
+		keyJobName:          job.JobName,
+		keyStatus:           job.Status,
+		keyCreationTime:     job.CreationTime.Format(time.RFC3339),
+		keyLastModifiedTime: job.LastModifiedTime.Format(time.RFC3339),
 	})
 }
 
@@ -555,11 +538,11 @@ func (h *Handler) handleListModelInvocationJobs(c *echo.Context) error {
 
 	for _, j := range jobs {
 		summaries = append(summaries, map[string]any{
-			keyJobArn:          j.JobArn,
-			"jobName":          j.JobName,
-			keyStatus:          j.Status,
-			"creationTime":     j.CreationTime.Format(time.RFC3339),
-			"lastModifiedTime": j.LastModifiedTime.Format(time.RFC3339),
+			keyJobArn:           j.JobArn,
+			keyJobName:          j.JobName,
+			keyStatus:           j.Status,
+			keyCreationTime:     j.CreationTime.Format(time.RFC3339),
+			keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
 		})
 	}
 
@@ -583,10 +566,10 @@ func (h *Handler) handleGetImportedModel(c *echo.Context, modelARN string) error
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"modelArn":  job.ImportedModelArn,
-		"jobName":   job.JobName,
-		keyStatus:   job.Status,
-		"createdAt": job.CreationTime.Format(time.RFC3339),
+		keyModelArn:   job.ImportedModelArn,
+		keyJobName:   job.JobName,
+		keyStatus:    job.Status,
+		keyCreatedAt: job.CreationTime.Format(time.RFC3339),
 	})
 }
 
@@ -596,10 +579,10 @@ func (h *Handler) handleListImportedModels(c *echo.Context) error {
 
 	for _, m := range models {
 		summaries = append(summaries, map[string]any{
-			"modelArn":  m.ImportedModelArn,
-			"jobName":   m.JobName,
-			keyStatus:   m.Status,
-			"createdAt": m.CreationTime.Format(time.RFC3339),
+			keyModelArn:   m.ImportedModelArn,
+			keyJobName:   m.JobName,
+			keyStatus:    m.Status,
+			keyCreatedAt: m.CreationTime.Format(time.RFC3339),
 		})
 	}
 
@@ -637,7 +620,7 @@ func (h *Handler) handleCreatePromptRouter(c *echo.Context) error {
 		return h.writeError(c, opErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"promptRouterArn": router.PromptRouterArn})
+	return c.JSON(http.StatusCreated, map[string]any{keyPromptRouterArn: router.PromptRouterArn})
 }
 
 func (h *Handler) handleGetPromptRouter(c *echo.Context, routerARN string) error {
@@ -647,11 +630,11 @@ func (h *Handler) handleGetPromptRouter(c *echo.Context, routerARN string) error
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"promptRouterArn":  router.PromptRouterArn,
+		keyPromptRouterArn:  router.PromptRouterArn,
 		"promptRouterName": router.PromptRouterName,
 		keyStatus:          router.Status,
-		"createdAt":        router.CreatedAt.Format(time.RFC3339),
-		"updatedAt":        router.UpdatedAt.Format(time.RFC3339),
+		keyCreatedAt:       router.CreatedAt.Format(time.RFC3339),
+		keyUpdatedAt:        router.UpdatedAt.Format(time.RFC3339),
 	})
 }
 
@@ -661,11 +644,11 @@ func (h *Handler) handleListPromptRouters(c *echo.Context) error {
 
 	for _, r := range routers {
 		summaries = append(summaries, map[string]any{
-			"promptRouterArn":  r.PromptRouterArn,
+			keyPromptRouterArn:  r.PromptRouterArn,
 			"promptRouterName": r.PromptRouterName,
 			keyStatus:          r.Status,
-			"createdAt":        r.CreatedAt.Format(time.RFC3339),
-			"updatedAt":        r.UpdatedAt.Format(time.RFC3339),
+			keyCreatedAt:       r.CreatedAt.Format(time.RFC3339),
+			keyUpdatedAt:        r.UpdatedAt.Format(time.RFC3339),
 		})
 	}
 
@@ -689,12 +672,12 @@ func (h *Handler) handleGetCustomModelDeployment(c *echo.Context, deployARN stri
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"customModelDeploymentArn": d.CustomModelDeploymentArn,
+		keyCustomModelDeploymentArn: d.CustomModelDeploymentArn,
 		"modelDeploymentName":      d.ModelDeploymentName,
-		"modelArn":                 d.ModelArn,
+		keyModelArn:                 d.ModelArn,
 		keyStatus:                  d.Status,
-		"creationTime":             d.CreationTime.Format(time.RFC3339),
-		"lastModifiedTime":         d.LastModifiedTime.Format(time.RFC3339),
+		keyCreationTime:            d.CreationTime.Format(time.RFC3339),
+		keyLastModifiedTime:        d.LastModifiedTime.Format(time.RFC3339),
 	})
 }
 
@@ -704,12 +687,12 @@ func (h *Handler) handleListCustomModelDeployments(c *echo.Context) error {
 
 	for _, d := range deployments {
 		summaries = append(summaries, map[string]any{
-			"customModelDeploymentArn": d.CustomModelDeploymentArn,
+			keyCustomModelDeploymentArn: d.CustomModelDeploymentArn,
 			"modelDeploymentName":      d.ModelDeploymentName,
-			"modelArn":                 d.ModelArn,
+			keyModelArn:                 d.ModelArn,
 			keyStatus:                  d.Status,
-			"creationTime":             d.CreationTime.Format(time.RFC3339),
-			"lastModifiedTime":         d.LastModifiedTime.Format(time.RFC3339),
+			keyCreationTime:            d.CreationTime.Format(time.RFC3339),
+			keyLastModifiedTime:        d.LastModifiedTime.Format(time.RFC3339),
 		})
 	}
 
@@ -722,7 +705,7 @@ func (h *Handler) handleUpdateCustomModelDeployment(c *echo.Context, deployARN s
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"customModelDeploymentArn": d.CustomModelDeploymentArn})
+	return c.JSON(http.StatusOK, map[string]any{keyCustomModelDeploymentArn: d.CustomModelDeploymentArn})
 }
 
 func (h *Handler) handleDeleteCustomModelDeployment(c *echo.Context, deployARN string) error {
@@ -827,7 +810,10 @@ func (h *Handler) handlePutEnforcedGuardrailConfiguration(c *echo.Context) error
 func (h *Handler) handleDeleteEnforcedGuardrailConfiguration(c *echo.Context) error {
 	guardrailID := c.Request().URL.Query().Get("guardrailId")
 	if guardrailID == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "guardrailId query parameter is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "guardrailId query parameter is required"),
+		)
 	}
 
 	if err := h.Backend.DeleteEnforcedGuardrailConfiguration(guardrailID); err != nil {
@@ -836,4 +822,3 @@ func (h *Handler) handleDeleteEnforcedGuardrailConfiguration(c *echo.Context) er
 
 	return c.NoContent(http.StatusNoContent)
 }
-

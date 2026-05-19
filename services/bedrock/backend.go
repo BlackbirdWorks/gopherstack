@@ -258,10 +258,10 @@ type InMemoryBackend struct {
 	inferenceProfiles           map[string]*InferenceProfile                      // profileArn → profile
 	marketplaceEndpoints        map[string]*MarketplaceModelEndpoint              // endpointArn → endpoint
 	loggingConfig               *ModelInvocationLoggingConfiguration
-	modelInvocationJobs         map[string]*ModelInvocationJob                    // jobArn → job
-	promptRouters               map[string]*PromptRouter                          // routerArn → router
-	enforcedGuardrailConfigs    map[string]*EnforcedGuardrailConfig               // guardrailID → config
-	arpAnnotations              map[string][]any                                  // policyARN → annotations
+	modelInvocationJobs         map[string]*ModelInvocationJob      // jobArn → job
+	promptRouters               map[string]*PromptRouter            // routerArn → router
+	enforcedGuardrailConfigs    map[string]*EnforcedGuardrailConfig // guardrailID → config
+	arpAnnotations              map[string][]any                    // policyARN → annotations
 	useCaseType                 string
 	useCaseDescription          string
 	guardrailsByName            map[string]string // guardrail name → ID
@@ -302,10 +302,10 @@ type InMemoryBackend struct {
 	copyJobCounter             int
 	importJobCounter           int
 	inferenceProfileCounter    int
-	marketplaceEndpointCounter  int
-	modelInvocationJobCounter   int
-	promptRouterCounter         int
-	agentCounter                int
+	marketplaceEndpointCounter int
+	modelInvocationJobCounter  int
+	promptRouterCounter        int
+	agentCounter               int
 	actionGroupCounter         int
 	agentAliasCounter          int
 	kbCounter                  int
