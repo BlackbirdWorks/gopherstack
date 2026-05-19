@@ -12,6 +12,16 @@ AWS="aws --endpoint-url ${ENDPOINT:-http://localhost:8000} --no-cli-pager --outp
 
 QUEUE_NAME=audit-events
 RULE_NAME=order-created
+QUEUE_URL=""
+
+cleanup() {
+  if [ -n "$QUEUE_URL" ]; then
+    $AWS events remove-targets --rule "$RULE_NAME" --ids 1 >/dev/null 2>&1 || true
+    $AWS events delete-rule --name "$RULE_NAME" >/dev/null 2>&1 || true
+    $AWS sqs delete-queue --queue-url "$QUEUE_URL" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
 
 echo "=== Creating SQS target queue ==="
 QUEUE_URL=$($AWS sqs create-queue --queue-name "$QUEUE_NAME" | python3 -c "import json,sys;print(json.load(sys.stdin)['QueueUrl'])")
@@ -47,7 +57,11 @@ sleep 1
 
 echo ""
 echo "=== Draining target queue ==="
-$AWS sqs receive-message --queue-url "$QUEUE_URL" --wait-time-seconds 2 --max-number-of-messages 1
+$AWS sqs receive-message --queue-url "$QUEUE_URL" --wait-time-seconds 2 --max-number-of-messages 1 >/tmp/eventbridge-message.json
+cat /tmp/eventbridge-message.json
+grep -q "com.example.orders" /tmp/eventbridge-message.json
+grep -q "OrderCreated" /tmp/eventbridge-message.json
+grep -q "o-42" /tmp/eventbridge-message.json
 
 echo ""
 echo "=== SUCCESS: EventBridge rule delivered event to SQS ==="

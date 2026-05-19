@@ -302,12 +302,12 @@ func (b *InMemoryBackend) DescribeCertificateAuthority(caARN string) (*Certifica
 // ListCertificateAuthorities returns a paginated list of CAs sorted by ARN.
 func (b *InMemoryBackend) ListCertificateAuthorities(nextToken string, maxItems int) page.Page[CertificateAuthority] {
 	b.mu.RLock("ListCertificateAuthorities")
-	defer b.mu.RUnlock()
 
 	cas := make([]CertificateAuthority, 0, len(b.cas))
 	for _, ca := range b.cas {
 		cas = append(cas, copyCA(ca))
 	}
+	b.mu.RUnlock()
 
 	sort.Slice(cas, func(i, j int) bool { return cas[i].ARN < cas[j].ARN })
 

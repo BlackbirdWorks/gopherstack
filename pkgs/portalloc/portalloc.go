@@ -30,6 +30,7 @@ type Allocator struct {
 	mu    *lockmetrics.RWMutex
 	start int
 	end   int
+	next  int
 }
 
 // New creates a new Allocator for the half-open range [start, end).
@@ -42,6 +43,7 @@ func New(start, end int) (*Allocator, error) {
 	return &Allocator{
 		start: start,
 		end:   end,
+		next:  start,
 		used:  make(map[int]string),
 		mu:    lockmetrics.New("portalloc"),
 	}, nil
@@ -53,12 +55,15 @@ func (a *Allocator) Acquire(label string) (int, error) {
 	a.mu.Lock("Acquire")
 	defer a.mu.Unlock()
 
-	for port := a.start; port < a.end; port++ {
+	for range a.end - a.start {
+		port := a.next
 		if _, taken := a.used[port]; !taken {
 			a.used[port] = label
+			a.advanceNext(port)
 
 			return port, nil
 		}
+		a.advanceNext(port)
 	}
 
 	return 0, ErrNoPortsAvailable
@@ -75,14 +80,24 @@ func (a *Allocator) Release(port int) error {
 	}
 
 	delete(a.used, port)
+	if port < a.next {
+		a.next = port
+	}
 
 	return nil
 }
 
+func (a *Allocator) advanceNext(port int) {
+	a.next = port + 1
+	if a.next >= a.end {
+		a.next = a.start
+	}
+}
+
 // IsAllocated reports whether port is currently allocated.
 func (a *Allocator) IsAllocated(port int) bool {
-	a.mu.Lock("IsAllocated")
-	defer a.mu.Unlock()
+	a.mu.RLock("IsAllocated")
+	defer a.mu.RUnlock()
 
 	_, ok := a.used[port]
 
@@ -91,8 +106,8 @@ func (a *Allocator) IsAllocated(port int) bool {
 
 // Allocated returns a snapshot of all currently allocated ports and their labels.
 func (a *Allocator) Allocated() map[int]string {
-	a.mu.Lock("Allocated")
-	defer a.mu.Unlock()
+	a.mu.RLock("Allocated")
+	defer a.mu.RUnlock()
 
 	out := make(map[int]string, len(a.used))
 	maps.Copy(out, a.used)
@@ -102,8 +117,8 @@ func (a *Allocator) Allocated() map[int]string {
 
 // Available returns the number of unallocated ports in the range.
 func (a *Allocator) Available() int {
-	a.mu.Lock("Available")
-	defer a.mu.Unlock()
+	a.mu.RLock("Available")
+	defer a.mu.RUnlock()
 
 	return (a.end - a.start) - len(a.used)
 }

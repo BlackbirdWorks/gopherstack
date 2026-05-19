@@ -11,6 +11,18 @@ AWS="aws --endpoint-url ${ENDPOINT:-http://localhost:8000} --no-cli-pager --outp
 SRC_BUCKET=app-upload-source
 LOG_BUCKET=app-upload-access-logs
 OBJECT_KEY=incoming/order-1001.json
+LOG_KEY=""
+
+cleanup() {
+  rm -f /tmp/logging.json /tmp/order.json /tmp/downloaded-order.json /tmp/access.log
+  $AWS s3api delete-object --bucket "$SRC_BUCKET" --key "$OBJECT_KEY" >/dev/null 2>&1 || true
+  if [ -n "$LOG_KEY" ] && [ "$LOG_KEY" != "None" ]; then
+    $AWS s3api delete-object --bucket "$LOG_BUCKET" --key "$LOG_KEY" >/dev/null 2>&1 || true
+  fi
+  $AWS s3api delete-bucket --bucket "$SRC_BUCKET" >/dev/null 2>&1 || true
+  $AWS s3api delete-bucket --bucket "$LOG_BUCKET" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
 echo "=== Creating S3 buckets ==="
 $AWS s3api create-bucket --bucket "$SRC_BUCKET" >/dev/null
@@ -49,7 +61,6 @@ $AWS s3api get-object \
 
 echo ""
 echo "=== Waiting for access log delivery ==="
-LOG_KEY=""
 for i in $(seq 1 30); do
   LOG_KEY=$($AWS s3api list-objects-v2 \
     --bucket "$LOG_BUCKET" \
@@ -83,6 +94,7 @@ cat /tmp/access.log
 grep -q "REST.GET.OBJECT" /tmp/access.log
 grep -q "$SRC_BUCKET" /tmp/access.log
 grep -q "$OBJECT_KEY" /tmp/access.log
+grep -q "200" /tmp/access.log
 
 echo ""
 echo "=== SUCCESS: S3 wrote realistic server access logs to the target bucket ==="

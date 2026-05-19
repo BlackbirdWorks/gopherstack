@@ -8,6 +8,22 @@
 set -eu
 
 AWS="aws --endpoint-url ${ENDPOINT:-http://localhost:8000} --no-cli-pager --output json"
+TOPIC_ARN=""
+BILLING_URL=""
+SHIPPING_URL=""
+
+cleanup() {
+  if [ -n "$TOPIC_ARN" ]; then
+    $AWS sns delete-topic --topic-arn "$TOPIC_ARN" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$BILLING_URL" ]; then
+    $AWS sqs delete-queue --queue-url "$BILLING_URL" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$SHIPPING_URL" ]; then
+    $AWS sqs delete-queue --queue-url "$SHIPPING_URL" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
 
 echo "=== Creating SNS topic ==="
 TOPIC_ARN=$($AWS sns create-topic --name orders | python3 -c "import json,sys;print(json.load(sys.stdin)['TopicArn'])")
@@ -41,7 +57,11 @@ receive() {
   url=$2
   echo ""
   echo "=== Receive from $name ==="
-  $AWS sqs receive-message --queue-url "$url" --wait-time-seconds 2 --max-number-of-messages 1
+  out="/tmp/sns-${name}.json"
+  $AWS sqs receive-message --queue-url "$url" --wait-time-seconds 2 --max-number-of-messages 1 >"$out"
+  cat "$out"
+  grep -q '"orderId":"o-123"' "$out"
+  python3 -c "import json,sys; data=json.load(open(sys.argv[1])); assert len(data.get('Messages', [])) == 1" "$out"
 }
 
 receive billing  "$BILLING_URL"
