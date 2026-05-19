@@ -649,8 +649,8 @@ func TestScheduler_Runner_CronCacheEviction(t *testing.T) {
 	const role = "arn:aws:iam::000000000000:role/r"
 
 	tests := []struct {
-		name     string
 		setup    func(t *testing.T, backend *scheduler.InMemoryBackend)
+		name     string
 		wantSize int
 	}{
 		{
