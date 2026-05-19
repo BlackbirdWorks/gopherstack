@@ -82,6 +82,17 @@ type SigningCertificate struct {
 	Status          string    `json:"Status"`
 }
 
+// ServerCertificate represents an IAM server certificate.
+type ServerCertificate struct {
+	UploadDate            time.Time `json:"UploadDate"`
+	ServerCertificateName string    `json:"ServerCertificateName"`
+	ServerCertificateID   string    `json:"ServerCertificateId"`
+	Arn                   string    `json:"Arn"`
+	Path                  string    `json:"Path"`
+	CertificateBody       string    `json:"CertificateBody"`
+	CertificateChain      string    `json:"CertificateChain,omitempty"`
+}
+
 // InstanceProfile represents an IAM instance profile.
 type InstanceProfile struct {
 	CreateDate          time.Time `json:"CreateDate"`

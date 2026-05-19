@@ -60,6 +60,9 @@ type comprehensiveBackend struct {
 	// Service last accessed: entityARN → service namespace → detail
 	serviceLastAccessed map[string]map[string]ServiceLastAccessedDetail
 
+	// Org access report jobs: jobID → creation time
+	orgReportJobs map[string]time.Time
+
 	mu sync.Mutex
 }
 
@@ -69,6 +72,7 @@ func newComprehensiveBackend() *comprehensiveBackend {
 		mfaUserLinks:        make(map[string]string),
 		accessAdvisorJobs:   make(map[string]*accessAdvisorJob),
 		serviceLastAccessed: make(map[string]map[string]ServiceLastAccessedDetail),
+		orgReportJobs:       make(map[string]time.Time),
 	}
 }
 
@@ -100,7 +104,7 @@ func (b *InMemoryBackend) UploadSSHPublicKey(userName, body string) (*SSHPublicK
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	keyID := "APKA" + strings.ToUpper(newID("")[4:20])
+	keyID := strings.ToUpper(newID("apka"))
 	fingerprint := computeSSHFingerprint(body)
 
 	key := SSHPublicKey{
@@ -501,4 +505,34 @@ func (b *InMemoryBackend) ResetComprehensiveBackend() {
 	c.mfaUserLinks = make(map[string]string)
 	c.accessAdvisorJobs = make(map[string]*accessAdvisorJob)
 	c.serviceLastAccessed = make(map[string]map[string]ServiceLastAccessedDetail)
+	c.orgReportJobs = make(map[string]time.Time)
+}
+
+// ---- Organizations Access Report ----
+
+// GenerateOrganizationsAccessReport creates a new org access report job and returns its ID.
+func (b *InMemoryBackend) GenerateOrganizationsAccessReport(_ string) string {
+	jobID := "orgjob-" + newID("")
+	now := time.Now().UTC()
+
+	c := b.comp()
+	c.mu.Lock()
+	c.orgReportJobs[jobID] = now
+	c.mu.Unlock()
+
+	return jobID
+}
+
+// GetOrganizationsAccessReport retrieves the status of an org access report job.
+func (b *InMemoryBackend) GetOrganizationsAccessReport(jobID string) (string, time.Time, bool) {
+	c := b.comp()
+	c.mu.Lock()
+	createdAt, found := c.orgReportJobs[jobID]
+	c.mu.Unlock()
+
+	if !found {
+		return "", time.Time{}, false
+	}
+
+	return jobStatusCompleted, createdAt, true
 }
