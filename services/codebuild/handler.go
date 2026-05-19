@@ -952,6 +952,8 @@ func (h *Handler) handleDeleteResourcePolicy(
 		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
 	}
 
+	_ = h.Backend.DeleteResourcePolicy(in.ResourceArn)
+
 	return &deleteResourcePolicyOutput{}, nil
 }
 
@@ -971,6 +973,10 @@ func (h *Handler) handleDeleteSourceCredentials(
 		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
 	}
 
+	if err := h.Backend.DeleteSourceCredentials(in.Arn); err != nil {
+		return nil, err
+	}
+
 	return &deleteSourceCredentialsOutput{Arn: in.Arn}, nil
 }
 
@@ -983,6 +989,10 @@ type deleteWebhookOutput struct{}
 func (h *Handler) handleDeleteWebhook(_ context.Context, in *deleteWebhookInput) (*deleteWebhookOutput, error) {
 	if in.ProjectName == "" {
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteWebhook(in.ProjectName); err != nil {
+		return nil, err
 	}
 
 	return &deleteWebhookOutput{}, nil
@@ -998,9 +1008,23 @@ type describeCodeCoveragesOutput struct {
 
 func (h *Handler) handleDescribeCodeCoverages(
 	_ context.Context,
-	_ *describeCodeCoveragesInput,
+	in *describeCodeCoveragesInput,
 ) (*describeCodeCoveragesOutput, error) {
-	return &describeCodeCoveragesOutput{CodeCoverages: []map[string]any{}}, nil
+	coverages, err := h.Backend.DescribeCodeCoverages(in.ReportArn)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]map[string]any, 0, len(coverages))
+	for _, c := range coverages {
+		result = append(result, map[string]any{
+			"filePath":       c.FilePath,
+			"branchCoverage": c.BranchCoverage,
+			"lineCoverage":   c.LineCoverage,
+		})
+	}
+
+	return &describeCodeCoveragesOutput{CodeCoverages: result}, nil
 }
 
 type describeTestCasesInput struct {
@@ -1013,9 +1037,23 @@ type describeTestCasesOutput struct {
 
 func (h *Handler) handleDescribeTestCases(
 	_ context.Context,
-	_ *describeTestCasesInput,
+	in *describeTestCasesInput,
 ) (*describeTestCasesOutput, error) {
-	return &describeTestCasesOutput{TestCases: []map[string]any{}}, nil
+	cases, err := h.Backend.DescribeTestCases(in.ReportArn)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]map[string]any, 0, len(cases))
+	for _, tc := range cases {
+		result = append(result, map[string]any{
+			"name":     tc.Name,
+			"status":   tc.Status,
+			"duration": tc.Duration,
+		})
+	}
+
+	return &describeTestCasesOutput{TestCases: result}, nil
 }
 
 type getReportGroupTrendInput struct {
@@ -1029,9 +1067,14 @@ type getReportGroupTrendOutput struct {
 
 func (h *Handler) handleGetReportGroupTrend(
 	_ context.Context,
-	_ *getReportGroupTrendInput,
+	in *getReportGroupTrendInput,
 ) (*getReportGroupTrendOutput, error) {
-	return &getReportGroupTrendOutput{Stats: map[string]any{}}, nil
+	stats, err := h.Backend.GetReportGroupTrend(in.ReportGroupArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getReportGroupTrendOutput{Stats: stats}, nil
 }
 
 type getResourcePolicyInput struct {
@@ -1050,7 +1093,12 @@ func (h *Handler) handleGetResourcePolicy(
 		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
 	}
 
-	return &getResourcePolicyOutput{Policy: "{}"}, nil
+	policy, err := h.Backend.GetResourcePolicy(in.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getResourcePolicyOutput{Policy: policy}, nil
 }
 
 type importSourceCredentialsInput struct {
@@ -1072,7 +1120,12 @@ func (h *Handler) handleImportSourceCredentials(
 		return nil, fmt.Errorf("%w: token is required", errInvalidRequest)
 	}
 
-	return &importSourceCredentialsOutput{Arn: "arn:aws:codebuild:us-east-1:000000000000:token/" + in.ServerType}, nil
+	arnStr, err := h.Backend.ImportSourceCredentials(in.AuthType, in.ServerType, in.Token)
+	if err != nil {
+		return nil, err
+	}
+
+	return &importSourceCredentialsOutput{Arn: arnStr}, nil
 }
 
 type invalidateProjectCacheInput struct {
@@ -1087,6 +1140,10 @@ func (h *Handler) handleInvalidateProjectCache(
 ) (*invalidateProjectCacheOutput, error) {
 	if in.ProjectName == "" {
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.InvalidateProjectCache(in.ProjectName); err != nil {
+		return nil, err
 	}
 
 	return &invalidateProjectCacheOutput{}, nil
@@ -1118,7 +1175,12 @@ func (h *Handler) handleListBuildBatchesForProject(
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	return &listBuildBatchesForProjectOutput{IDs: []string{}}, nil
+	ids, err := h.Backend.ListBuildBatchesForProject(in.ProjectName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listBuildBatchesForProjectOutput{IDs: ids}, nil
 }
 
 type listCommandExecutionsForSandboxInput struct {
@@ -1137,7 +1199,12 @@ func (h *Handler) handleListCommandExecutionsForSandbox(
 		return nil, fmt.Errorf("%w: sandboxId is required", errInvalidRequest)
 	}
 
-	return &listCommandExecutionsForSandboxOutput{CommandExecutions: []string{}}, nil
+	ids, err := h.Backend.ListCommandExecutionsForSandbox(in.SandboxID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listCommandExecutionsForSandboxOutput{CommandExecutions: ids}, nil
 }
 
 type listCuratedEnvironmentImagesInput struct{}
@@ -1150,7 +1217,7 @@ func (h *Handler) handleListCuratedEnvironmentImages(
 	_ context.Context,
 	_ *listCuratedEnvironmentImagesInput,
 ) (*listCuratedEnvironmentImagesOutput, error) {
-	return &listCuratedEnvironmentImagesOutput{Platforms: []map[string]any{}}, nil
+	return &listCuratedEnvironmentImagesOutput{Platforms: h.Backend.ListCuratedEnvironmentImages()}, nil
 }
 
 type listFleetsInput struct{}
@@ -1180,7 +1247,7 @@ type listReportsOutput struct {
 }
 
 func (h *Handler) handleListReports(_ context.Context, _ *listReportsInput) (*listReportsOutput, error) {
-	return &listReportsOutput{Reports: []string{}}, nil
+	return &listReportsOutput{Reports: h.Backend.ListReports()}, nil
 }
 
 type listReportsForReportGroupInput struct {
@@ -1193,9 +1260,9 @@ type listReportsForReportGroupOutput struct {
 
 func (h *Handler) handleListReportsForReportGroup(
 	_ context.Context,
-	_ *listReportsForReportGroupInput,
+	in *listReportsForReportGroupInput,
 ) (*listReportsForReportGroupOutput, error) {
-	return &listReportsForReportGroupOutput{Reports: []string{}}, nil
+	return &listReportsForReportGroupOutput{Reports: h.Backend.ListReportsForReportGroup(in.ReportGroupArn)}, nil
 }
 
 type listSandboxesInput struct{}
@@ -1224,7 +1291,12 @@ func (h *Handler) handleListSandboxesForProject(
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	return &listSandboxesForProjectOutput{IDs: []string{}}, nil
+	ids, err := h.Backend.ListSandboxesForProject(in.ProjectName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listSandboxesForProjectOutput{IDs: ids}, nil
 }
 
 type listSharedProjectsInput struct{}
@@ -1237,7 +1309,7 @@ func (h *Handler) handleListSharedProjects(
 	_ context.Context,
 	_ *listSharedProjectsInput,
 ) (*listSharedProjectsOutput, error) {
-	return &listSharedProjectsOutput{Projects: []string{}}, nil
+	return &listSharedProjectsOutput{Projects: h.Backend.ListSharedProjects()}, nil
 }
 
 type listSharedReportGroupsInput struct{}
@@ -1250,7 +1322,7 @@ func (h *Handler) handleListSharedReportGroups(
 	_ context.Context,
 	_ *listSharedReportGroupsInput,
 ) (*listSharedReportGroupsOutput, error) {
-	return &listSharedReportGroupsOutput{ReportGroups: []string{}}, nil
+	return &listSharedReportGroupsOutput{ReportGroups: h.Backend.ListSharedReportGroups()}, nil
 }
 
 type listSourceCredentialsInput struct{}
@@ -1263,7 +1335,17 @@ func (h *Handler) handleListSourceCredentials(
 	_ context.Context,
 	_ *listSourceCredentialsInput,
 ) (*listSourceCredentialsOutput, error) {
-	return &listSourceCredentialsOutput{SourceCredentialsInfos: []map[string]any{}}, nil
+	creds := h.Backend.ListSourceCredentials()
+	infos := make([]map[string]any, 0, len(creds))
+	for _, c := range creds {
+		infos = append(infos, map[string]any{
+			"arn":        c.Arn,
+			"serverType": c.ServerType,
+			"authType":   c.AuthType,
+		})
+	}
+
+	return &listSourceCredentialsOutput{SourceCredentialsInfos: infos}, nil
 }
 
 type putResourcePolicyInput struct {
@@ -1283,6 +1365,10 @@ func (h *Handler) handlePutResourcePolicy(
 		return nil, fmt.Errorf("%w: resourceArn and policy are required", errInvalidRequest)
 	}
 
+	if err := h.Backend.PutResourcePolicy(in.ResourceArn, in.Policy); err != nil {
+		return nil, err
+	}
+
 	return &putResourcePolicyOutput{ResourceArn: in.ResourceArn}, nil
 }
 
@@ -1299,7 +1385,12 @@ func (h *Handler) handleRetryBuildBatch(_ context.Context, in *retryBuildBatchIn
 		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
 	}
 
-	return &retryBuildBatchOutput{}, nil
+	bb, err := h.Backend.RetryBuildBatch(in.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &retryBuildBatchOutput{BuildBatch: bb}, nil
 }
 
 type startBuildBatchInput struct {
@@ -1402,7 +1493,12 @@ func (h *Handler) handleStopBuildBatch(_ context.Context, in *stopBuildBatchInpu
 		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
 	}
 
-	return &stopBuildBatchOutput{}, nil
+	bb, err := h.Backend.StopBuildBatch(in.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &stopBuildBatchOutput{BuildBatch: bb}, nil
 }
 
 type stopSandboxInput struct {
@@ -1418,7 +1514,12 @@ func (h *Handler) handleStopSandbox(_ context.Context, in *stopSandboxInput) (*s
 		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
 	}
 
-	return &stopSandboxOutput{}, nil
+	sb, err := h.Backend.StopSandbox(in.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &stopSandboxOutput{Sandbox: sb}, nil
 }
 
 type updateFleetInput struct {
@@ -1435,7 +1536,12 @@ func (h *Handler) handleUpdateFleet(_ context.Context, in *updateFleetInput) (*u
 		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
 	}
 
-	return &updateFleetOutput{}, nil
+	f, err := h.Backend.UpdateFleet(in.Arn, in.BaseCapacity)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateFleetOutput{Fleet: f}, nil
 }
 
 type updateProjectVisibilityInput struct {
@@ -1454,6 +1560,10 @@ func (h *Handler) handleUpdateProjectVisibility(
 ) (*updateProjectVisibilityOutput, error) {
 	if in.ProjectArn == "" {
 		return nil, fmt.Errorf("%w: projectArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.UpdateProjectVisibility(in.ProjectArn, in.ProjectVisibility); err != nil {
+		return nil, err
 	}
 
 	return &updateProjectVisibilityOutput{
@@ -1479,7 +1589,12 @@ func (h *Handler) handleUpdateReportGroup(
 		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
 	}
 
-	return &updateReportGroupOutput{}, nil
+	rg, err := h.Backend.UpdateReportGroup(in.Arn, in.ExportConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateReportGroupOutput{ReportGroup: rg}, nil
 }
 
 type updateWebhookInput struct {
@@ -1497,5 +1612,10 @@ func (h *Handler) handleUpdateWebhook(_ context.Context, in *updateWebhookInput)
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	return &updateWebhookOutput{}, nil
+	w, err := h.Backend.UpdateWebhook(in.ProjectName, in.BranchFilter, in.BuildType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateWebhookOutput{Webhook: w}, nil
 }

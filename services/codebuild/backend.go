@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	// buildStatusSucceeded is the terminal succeeded status for builds/batches.
-	buildStatusSucceeded = "SUCCEEDED"
+	buildStatusSucceeded  = "SUCCEEDED"
+	buildStatusInProgress = "IN_PROGRESS"
+	buildStatusStopped    = "STOPPED"
 )
 
 var (
@@ -443,7 +444,7 @@ func (b *InMemoryBackend) StartBuild(projectName string) (*Build, error) {
 		ID:           fullID,
 		Arn:          b.buildBuildARN(projectName, buildID),
 		ProjectName:  projectName,
-		BuildStatus:  "IN_PROGRESS",
+		BuildStatus:  buildStatusInProgress,
 		StartTime:    float64(time.Now().Unix()),
 		CurrentPhase: "SUBMITTED",
 	}
@@ -561,7 +562,7 @@ func (b *InMemoryBackend) RetryBuild(id string) (*Build, error) {
 		ID:           fullID,
 		Arn:          b.buildBuildARN(projectName, buildID),
 		ProjectName:  projectName,
-		BuildStatus:  "IN_PROGRESS",
+		BuildStatus:  buildStatusInProgress,
 		StartTime:    float64(time.Now().Unix()),
 		CurrentPhase: "SUBMITTED",
 	}
@@ -1394,7 +1395,7 @@ func (b *InMemoryBackend) RetryBuildBatch(id string) (*BuildBatch, error) {
 	bb := &BuildBatch{
 		ID:               newID,
 		ProjectName:      projectName,
-		BuildBatchStatus: "IN_PROGRESS",
+		BuildBatchStatus: buildStatusInProgress,
 		StartTime:        float64(time.Now().Unix()),
 	}
 	b.buildBatches[newID] = bb
@@ -1419,7 +1420,7 @@ func (b *InMemoryBackend) StopBuildBatch(id string) (*BuildBatch, error) {
 		return nil, ErrNotFound
 	}
 
-	bb.BuildBatchStatus = "STOPPED"
+	bb.BuildBatchStatus = buildStatusStopped
 	out := *bb
 
 	return &out, nil
@@ -1457,7 +1458,7 @@ func (b *InMemoryBackend) StopSandbox(id string) (*Sandbox, error) {
 		return nil, ErrNotFound
 	}
 
-	sb.Status = "STOPPED"
+	sb.Status = buildStatusStopped
 	out := *sb
 
 	return &out, nil
