@@ -81,10 +81,21 @@ type InMemoryBackend struct {
 	scheduledAudits      map[string]*ScheduledAudit
 	mitigationActions    map[string]*MitigationAction
 	securityProfiles     map[string]*SecurityProfile
-	accountID            string
-	region               string
-	mqttPort             int
-	mu                   sync.RWMutex
+	// Batch 2 resources.
+	caCertificates     map[string]*CACertificate
+	streams            map[string]*IoTStream
+	fleetMetrics       map[string]*FleetMetric
+	customMetrics      map[string]*CustomMetric
+	dimensions         map[string]*Dimension
+	resourceTags       map[string]map[string]string // resourceARN -> tags
+	auditConfiguration *AccountAuditConfiguration
+	auditTaskObjects   map[string]*AuditTask
+	registrationCode   string
+	defaultAuthorizer  string
+	accountID          string
+	region             string
+	mqttPort           int
+	mu                 sync.RWMutex
 }
 
 // Compile-time assertion that InMemoryBackend implements StorageBackend.
@@ -128,6 +139,13 @@ func NewInMemoryBackend() *InMemoryBackend {
 		scheduledAudits:        make(map[string]*ScheduledAudit),
 		mitigationActions:      make(map[string]*MitigationAction),
 		securityProfiles:       make(map[string]*SecurityProfile),
+		caCertificates:         make(map[string]*CACertificate),
+		streams:                make(map[string]*IoTStream),
+		fleetMetrics:           make(map[string]*FleetMetric),
+		customMetrics:          make(map[string]*CustomMetric),
+		dimensions:             make(map[string]*Dimension),
+		resourceTags:           make(map[string]map[string]string),
+		auditTaskObjects:       make(map[string]*AuditTask),
 		accountID:              "000000000000",
 		region:                 "us-east-1",
 		mqttPort:               mqttDefaultPort,
@@ -180,6 +198,16 @@ func (b *InMemoryBackend) Reset() {
 	b.scheduledAudits = make(map[string]*ScheduledAudit)
 	b.mitigationActions = make(map[string]*MitigationAction)
 	b.securityProfiles = make(map[string]*SecurityProfile)
+	b.caCertificates = make(map[string]*CACertificate)
+	b.streams = make(map[string]*IoTStream)
+	b.fleetMetrics = make(map[string]*FleetMetric)
+	b.customMetrics = make(map[string]*CustomMetric)
+	b.dimensions = make(map[string]*Dimension)
+	b.resourceTags = make(map[string]map[string]string)
+	b.auditTaskObjects = make(map[string]*AuditTask)
+	b.registrationCode = ""
+	b.defaultAuthorizer = ""
+	b.auditConfiguration = nil
 }
 
 // SetRuleDispatcher wires the SQS/Lambda action dispatcher.

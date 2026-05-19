@@ -253,12 +253,13 @@ type ThingGroup struct {
 
 // Certificate represents an AWS IoT Certificate.
 type Certificate struct {
-	CreatedAt      time.Time `json:"createdAt"`
-	LastModifiedAt time.Time `json:"lastModifiedDate"`
-	CertificateID  string    `json:"certificateId"`
-	ARN            string    `json:"certificateArn"`
-	Status         string    `json:"status"`
-	PEM            string    `json:"certificatePem"`
+	CreatedAt       time.Time `json:"createdAt"`
+	LastModifiedAt  time.Time `json:"lastModifiedDate"`
+	CertificateID   string    `json:"certificateId"`
+	CACertificateID string    `json:"caCertificateId,omitempty"`
+	ARN             string    `json:"certificateArn"`
+	Status          string    `json:"status"`
+	PEM             string    `json:"certificatePem"`
 }
 
 // PolicyVersion represents a version of an AWS IoT policy.

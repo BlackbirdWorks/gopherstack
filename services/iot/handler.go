@@ -297,6 +297,66 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListSecurityProfiles,
 		opUpdateSecurityProfile,
 		opDeleteSecurityProfile,
+		// Batch 2: CACertificate
+		opRegisterCACertificate,
+		opDescribeCACertificate,
+		opListCACertificates,
+		opUpdateCACertificate,
+		opDeleteCACertificate,
+		opListCertificatesByCA,
+		// Batch 2: Stream
+		opCreateStream,
+		opDescribeStream,
+		opListStreams,
+		opUpdateStream,
+		opDeleteStream,
+		// Batch 2: FleetMetric
+		opCreateFleetMetric,
+		opDescribeFleetMetric,
+		opListFleetMetrics,
+		opUpdateFleetMetric,
+		opDeleteFleetMetric,
+		// Batch 2: CustomMetric
+		opCreateCustomMetric,
+		opDescribeCustomMetric,
+		opListCustomMetrics,
+		opUpdateCustomMetric,
+		opDeleteCustomMetric,
+		// Batch 2: Dimension
+		opCreateDimension,
+		opDescribeDimension,
+		opListDimensions,
+		opUpdateDimension,
+		opDeleteDimension,
+		// Batch 2: Tags
+		opTagResource,
+		opUntagResource,
+		opListTagsForResource,
+		// Batch 2: Audit
+		opDescribeAccountAuditConfiguration,
+		opUpdateAccountAuditConfiguration,
+		opStartOnDemandAuditTask,
+		opDescribeAuditTask,
+		opListAuditTasks,
+		// Batch 2: Misc
+		opDetachThingPrincipal,
+		opCancelCertificateTransfer,
+		opGetRegistrationCode,
+		opDeleteRegistrationCode,
+		opListThingGroupsForThing,
+		opListThingsInBillingGroup,
+		opRemoveThingFromBillingGroup,
+		opListPrincipalPolicies,
+		opListPolicyPrincipals,
+		opListTargetsForPolicy,
+		opListPrincipalThings,
+		opListPrincipalThingsV2,
+		opGetEffectivePolicies,
+		opSetDefaultAuthorizer,
+		opClearDefaultAuthorizer,
+		opDescribeDefaultAuthorizer,
+		opListJobExecutionsForJob,
+		opListJobExecutionsForThing,
 	)
 
 	return append(core, allStubOps()...)
@@ -410,11 +470,23 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
+//nolint:cyclop // mechanical path-based routing switch
 func resolveOperation(path, method string) string {
 	switch {
 	case path == "/things" && method == http.MethodGet:
 
 		return opListThings
+	// Batch 2: /things/{name}/thing-groups, /things/{name}/jobs before generic thing routing
+	case strings.HasPrefix(path, "/things/") &&
+		strings.HasSuffix(path, "/thing-groups") &&
+		method == http.MethodGet:
+
+		return opListThingGroupsForThing
+	case strings.HasPrefix(path, "/things/") &&
+		strings.HasSuffix(path, "/jobs") &&
+		method == http.MethodGet:
+
+		return opListJobExecutionsForThing
 	case strings.HasPrefix(path, "/things/"):
 
 		return thingOperation(path, method)
@@ -477,7 +549,37 @@ func resolveBatch1Ops(path, method string) string {
 		return op
 	}
 
-	return resolveSecurityProfileOps(path, method)
+	if op := resolveSecurityProfileOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveBatch2Ops(path, method)
+}
+
+func resolveBatch2Ops(path, method string) string {
+	if op := resolveCACertOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveStreamOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveFleetMetricOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveCustomMetricOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveDimensionOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveTagOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveAuditConfigOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveMiscBatch2Ops(path, method)
 }
 
 func resolveNewStatefulOps(path, method string) string {
@@ -976,7 +1078,11 @@ func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
 		return true, err
 	}
 
-	return h.dispatchBatch1Ops(c, op)
+	if handled, err := h.dispatchBatch1Ops(c, op); handled {
+		return true, err
+	}
+
+	return h.dispatchBatch2Ops(c, op)
 }
 
 func (h *Handler) dispatchMiscNewOps(c *echo.Context, op string) (bool, error) {
@@ -1293,6 +1399,126 @@ func (h *Handler) dispatchBatch1Ops(c *echo.Context, op string) (bool, error) {
 		return true, h.handleUpdateSecurityProfile(c)
 	case opDeleteSecurityProfile:
 		return true, h.handleDeleteSecurityProfile(c)
+	}
+
+	return false, nil
+}
+
+//nolint:gocyclo,cyclop,funlen // mechanical routing switch
+func (h *Handler) dispatchBatch2Ops(c *echo.Context, op string) (bool, error) {
+	switch op {
+	// CACertificate
+	case opRegisterCACertificate:
+		return true, h.handleRegisterCACertificate(c)
+	case opDescribeCACertificate:
+		return true, h.handleDescribeCACertificate(c)
+	case opListCACertificates:
+		return true, h.handleListCACertificates(c)
+	case opUpdateCACertificate:
+		return true, h.handleUpdateCACertificate(c)
+	case opDeleteCACertificate:
+		return true, h.handleDeleteCACertificate(c)
+	case opListCertificatesByCA:
+		return true, h.handleListCertificatesByCA(c)
+	// Stream
+	case opCreateStream:
+		return true, h.handleCreateStream(c)
+	case opDescribeStream:
+		return true, h.handleDescribeStream(c)
+	case opListStreams:
+		return true, h.handleListStreams(c)
+	case opUpdateStream:
+		return true, h.handleUpdateStream(c)
+	case opDeleteStream:
+		return true, h.handleDeleteStream(c)
+	// FleetMetric
+	case opCreateFleetMetric:
+		return true, h.handleCreateFleetMetric(c)
+	case opDescribeFleetMetric:
+		return true, h.handleDescribeFleetMetric(c)
+	case opListFleetMetrics:
+		return true, h.handleListFleetMetrics(c)
+	case opUpdateFleetMetric:
+		return true, h.handleUpdateFleetMetric(c)
+	case opDeleteFleetMetric:
+		return true, h.handleDeleteFleetMetric(c)
+	// CustomMetric
+	case opCreateCustomMetric:
+		return true, h.handleCreateCustomMetric(c)
+	case opDescribeCustomMetric:
+		return true, h.handleDescribeCustomMetric(c)
+	case opListCustomMetrics:
+		return true, h.handleListCustomMetrics(c)
+	case opUpdateCustomMetric:
+		return true, h.handleUpdateCustomMetric(c)
+	case opDeleteCustomMetric:
+		return true, h.handleDeleteCustomMetric(c)
+	// Dimension
+	case opCreateDimension:
+		return true, h.handleCreateDimension(c)
+	case opDescribeDimension:
+		return true, h.handleDescribeDimension(c)
+	case opListDimensions:
+		return true, h.handleListDimensions(c)
+	case opUpdateDimension:
+		return true, h.handleUpdateDimension(c)
+	case opDeleteDimension:
+		return true, h.handleDeleteDimension(c)
+	// Tags
+	case opTagResource:
+		return true, h.handleTagResource(c)
+	case opUntagResource:
+		return true, h.handleUntagResource(c)
+	case opListTagsForResource:
+		return true, h.handleListTagsForResource(c)
+	// Audit config
+	case opDescribeAccountAuditConfiguration:
+		return true, h.handleDescribeAccountAuditConfiguration(c)
+	case opUpdateAccountAuditConfiguration:
+		return true, h.handleUpdateAccountAuditConfiguration(c)
+	case opStartOnDemandAuditTask:
+		return true, h.handleStartOnDemandAuditTask(c)
+	case opDescribeAuditTask:
+		return true, h.handleDescribeAuditTask(c)
+	case opListAuditTasks:
+		return true, h.handleListAuditTasks(c)
+	// Misc
+	case opDetachThingPrincipal:
+		return true, h.handleDetachThingPrincipal(c)
+	case opCancelCertificateTransfer:
+		return true, h.handleCancelCertificateTransfer(c)
+	case opGetRegistrationCode:
+		return true, h.handleGetRegistrationCode(c)
+	case opDeleteRegistrationCode:
+		return true, h.handleDeleteRegistrationCode(c)
+	case opListThingGroupsForThing:
+		return true, h.handleListThingGroupsForThing(c)
+	case opListThingsInBillingGroup:
+		return true, h.handleListThingsInBillingGroup(c)
+	case opRemoveThingFromBillingGroup:
+		return true, h.handleRemoveThingFromBillingGroup(c)
+	case opListPrincipalPolicies:
+		return true, h.handleListPrincipalPolicies(c)
+	case opListPolicyPrincipals:
+		return true, h.handleListPolicyPrincipals(c)
+	case opListTargetsForPolicy:
+		return true, h.handleListTargetsForPolicy(c)
+	case opListPrincipalThings:
+		return true, h.handleListPrincipalThings(c)
+	case opListPrincipalThingsV2:
+		return true, h.handleListPrincipalThingsV2(c)
+	case opGetEffectivePolicies:
+		return true, h.handleGetEffectivePolicies(c)
+	case opSetDefaultAuthorizer:
+		return true, h.handleSetDefaultAuthorizer(c)
+	case opClearDefaultAuthorizer:
+		return true, h.handleClearDefaultAuthorizer(c)
+	case opDescribeDefaultAuthorizer:
+		return true, h.handleDescribeDefaultAuthorizer(c)
+	case opListJobExecutionsForJob:
+		return true, h.handleListJobExecutionsForJob(c)
+	case opListJobExecutionsForThing:
+		return true, h.handleListJobExecutionsForThing(c)
 	}
 
 	return false, nil
