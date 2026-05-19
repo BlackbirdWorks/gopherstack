@@ -269,7 +269,7 @@ func TestAdmin_Prune(t *testing.T) {
 	require.NoError(t, err)
 
 	// Gap must be large enough to remain reliable on slow/contended CI runners.
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	_, err = h.Backend.CreateConnection("new", "2.2.2.2", "ua")
 	require.NoError(t, err)

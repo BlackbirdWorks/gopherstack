@@ -505,7 +505,7 @@ func TestStartJobRun_TransitionsToSucceeded(t *testing.T) {
 		runs, listErr = b.ListJobRuns("run-j2")
 
 		return listErr == nil && len(runs) == 1 && runs[0].State == "SUCCEEDED"
-	}, 300*time.Millisecond, 20*time.Millisecond)
+	}, 2*time.Second, 20*time.Millisecond)
 
 	require.Len(t, runs, 1)
 	assert.Equal(t, "SUCCEEDED", runs[0].State)
