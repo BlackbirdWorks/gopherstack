@@ -87,6 +87,83 @@ type StorageBackend interface {
 	ListCertificateProviders() []*CertificateProvider
 	UpdateCertificateProvider(input *UpdateCertificateProviderInput) error
 	DeleteCertificateProvider(name string) error
+
+	// Job operations.
+	CreateJob(input *CreateJobInput) (*Job, error)
+	DescribeJob(jobID string) (*Job, error)
+	ListJobs() []*Job
+	UpdateJob(jobID, description string) error
+	CancelJob(jobID, comment string) (*Job, error)
+	DeleteJob(jobID string) error
+	GetJobDocument(jobID string) (string, error)
+	DescribeJobExecution(jobID, thingName string) (*JobExecution, error)
+	CancelJobExecution(jobID, thingName string) error
+	DeleteJobExecution(jobID, thingName string) error
+
+	// JobTemplate operations.
+	CreateJobTemplate(input *CreateJobTemplateInput) (*JobTemplate, error)
+	DescribeJobTemplate(id string) (*JobTemplate, error)
+	ListJobTemplates() []*JobTemplate
+	DeleteJobTemplate(id string) error
+
+	// RoleAlias operations.
+	CreateRoleAlias(input *CreateRoleAliasInput) (*RoleAlias, error)
+	DescribeRoleAlias(alias string) (*RoleAlias, error)
+	ListRoleAliases() []*RoleAlias
+	UpdateRoleAlias(alias, roleARN string, credDuration int) (*RoleAlias, error)
+	DeleteRoleAlias(alias string) error
+
+	// DomainConfiguration operations.
+	CreateDomainConfiguration(input *CreateDomainConfigurationInput) (*DomainConfiguration, error)
+	DescribeDomainConfiguration(name string) (*DomainConfiguration, error)
+	ListDomainConfigurations() []*DomainConfiguration
+	UpdateDomainConfiguration(name, status string) (*DomainConfiguration, error)
+	DeleteDomainConfiguration(name string) error
+
+	// ProvisioningTemplate operations.
+	CreateProvisioningTemplate(input *CreateProvisioningTemplateInput) (*ProvisioningTemplate, error)
+	DescribeProvisioningTemplate(name string) (*ProvisioningTemplate, error)
+	ListProvisioningTemplates() []*ProvisioningTemplate
+	UpdateProvisioningTemplate(name, description string, enabled *bool, provRoleARN string) error
+	DeleteProvisioningTemplate(name string) error
+	CreateProvisioningTemplateVersion(name, body string) (*ProvisioningTemplateVersion, error)
+	ListProvisioningTemplateVersions(name string) ([]*ProvisioningTemplateVersion, error)
+	DeleteProvisioningTemplateVersion(name string, versionID int32) error
+
+	// Authorizer operations.
+	CreateAuthorizer(input *CreateAuthorizerInput) (*Authorizer, error)
+	DescribeAuthorizer(name string) (*Authorizer, error)
+	ListAuthorizers() []*Authorizer
+	UpdateAuthorizer(name, functionARN, status string) (*Authorizer, error)
+	DeleteAuthorizer(name string) error
+
+	// BillingGroup operations.
+	CreateBillingGroup(input *CreateBillingGroupInput) (*BillingGroup, error)
+	DescribeBillingGroup(name string) (*BillingGroup, error)
+	ListBillingGroups() []*BillingGroup
+	UpdateBillingGroup(name string, props BillingGroupProperties) (int64, error)
+	DeleteBillingGroup(name string) error
+
+	// ScheduledAudit operations.
+	CreateScheduledAudit(input *CreateScheduledAuditInput) (*ScheduledAudit, error)
+	DescribeScheduledAudit(name string) (*ScheduledAudit, error)
+	ListScheduledAudits() []*ScheduledAudit
+	UpdateScheduledAudit(name, frequency, dayOfMonth, dayOfWeek string, checks []string) (*ScheduledAudit, error)
+	DeleteScheduledAudit(name string) error
+
+	// MitigationAction operations.
+	CreateMitigationAction(input *CreateMitigationActionInput) (*MitigationAction, error)
+	DescribeMitigationAction(name string) (*MitigationAction, error)
+	ListMitigationActions() []*MitigationAction
+	UpdateMitigationAction(name, roleARN string, params map[string]any) (*MitigationAction, error)
+	DeleteMitigationAction(name string) error
+
+	// SecurityProfile operations.
+	CreateSecurityProfile(input *CreateSecurityProfileInput) (*SecurityProfile, error)
+	DescribeSecurityProfile(name string) (*SecurityProfile, error)
+	ListSecurityProfiles() []*SecurityProfile
+	UpdateSecurityProfile(name, description string) (*SecurityProfile, error)
+	DeleteSecurityProfile(name string) error
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement
