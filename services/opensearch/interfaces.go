@@ -21,7 +21,10 @@ type StorageBackend interface {
 	DescribeInboundConnections() []*InboundConnection
 
 	// Outbound cross-cluster connection operations
-	CreateOutboundConnection(connectionAlias string, localDomainInfo, remoteDomainInfo map[string]any) (*OutboundConnection, error)
+	CreateOutboundConnection(
+		connectionAlias string,
+		localDomainInfo, remoteDomainInfo map[string]any,
+	) (*OutboundConnection, error)
 	DescribeOutboundConnections() []*OutboundConnection
 	DeleteOutboundConnection(connectionID string) (*OutboundConnection, error)
 

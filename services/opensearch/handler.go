@@ -1,6 +1,7 @@
 package opensearch
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -571,7 +572,7 @@ func (h *Handler) dispatchDomainPutRoutes(w http.ResponseWriter, r *http.Request
 	// UpdateIndex: PUT {domainName}/index/{indexName}
 	if strings.Contains(trimmed, "/index/") {
 		parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd
-		if len(parts) == 2 {                            //nolint:mnd
+		if len(parts) == 2 {                           //nolint:mnd
 			body, _ := httputils.ReadBody(r)
 			var req struct {
 				Mappings map[string]any `json:"Mappings"`
@@ -1021,7 +1022,7 @@ func (h *Handler) handleCCInboundRoutes(w http.ResponseWriter, r *http.Request, 
 		connID := strings.TrimPrefix(rest, prefix)
 		conn, err := h.Backend.DeleteInboundConnection(connID)
 		if err != nil {
-			conn = &InboundConnection{ConnectionID: connID, Status: "DELETED"}
+			conn = &InboundConnection{ConnectionID: connID, Status: statusDeleted}
 		}
 		h.writeJSON(r, w, map[string]any{jsonKeyConnection: map[string]any{
 			jsonKeyConnectionID:     conn.ConnectionID,
@@ -1058,7 +1059,11 @@ func (h *Handler) handleCCOutboundRoutes(w http.ResponseWriter, r *http.Request,
 		if len(body) > 0 {
 			_ = json.Unmarshal(body, &req)
 		}
-		conn, createErr := h.Backend.CreateOutboundConnection(req.ConnectionAlias, req.LocalDomainInfo, req.RemoteDomainInfo)
+		conn, createErr := h.Backend.CreateOutboundConnection(
+			req.ConnectionAlias,
+			req.LocalDomainInfo,
+			req.RemoteDomainInfo,
+		)
 		if createErr != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", createErr.Error())
 			return
@@ -1099,42 +1104,51 @@ func (h *Handler) handleDirectQueryRoutes(w http.ResponseWriter, r *http.Request
 		h.writeJSON(r, w, map[string]any{"DirectQueryDataSources": sources})
 	// GET /2021-01-01/opensearch/directQueryDataSource/{dataSourceName} → GetDirectQueryDataSource
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodGet:
-		name := strings.TrimPrefix(rest, "/")
-		ds, err := h.Backend.GetDirectQueryDataSource(name)
-		if err != nil {
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-			return
-		}
-		h.writeJSON(r, w, ds)
+		h.handleGetDirectQueryDataSource(w, r, strings.TrimPrefix(rest, "/"))
 	// DELETE /2021-01-01/opensearch/directQueryDataSource/{dataSourceName} → DeleteDirectQueryDataSource
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodDelete:
-		name := strings.TrimPrefix(rest, "/")
-		_ = h.Backend.DeleteDirectQueryDataSource(name)
-		w.WriteHeader(http.StatusOK)
+		h.handleDeleteDirectQueryDataSource(w, r, strings.TrimPrefix(rest, "/"))
 	// PUT /2021-01-01/opensearch/directQueryDataSource/{dataSourceName} → UpdateDirectQueryDataSource
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodPut:
-		name := strings.TrimPrefix(rest, "/")
-		body, err := httputils.ReadBody(r)
-		if err != nil {
-			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
-			return
-		}
-		var req struct {
-			Description    string   `json:"Description"`
-			OpenSearchArns []string `json:"OpenSearchArns"`
-		}
-		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
-		}
-		ds, updateErr := h.Backend.UpdateDirectQueryDataSource(name, req.Description, req.OpenSearchArns)
-		if updateErr != nil {
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
-			return
-		}
-		h.writeJSON(r, w, map[string]any{"DataSourceArn": ds.DataSourceArn})
+		h.handleUpdateDirectQueryDataSource(w, r, strings.TrimPrefix(rest, "/"))
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
+}
+
+func (h *Handler) handleGetDirectQueryDataSource(w http.ResponseWriter, r *http.Request, name string) {
+	ds, err := h.Backend.GetDirectQueryDataSource(name)
+	if err != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		return
+	}
+	h.writeJSON(r, w, ds)
+}
+
+func (h *Handler) handleDeleteDirectQueryDataSource(w http.ResponseWriter, r *http.Request, name string) {
+	_ = h.Backend.DeleteDirectQueryDataSource(name)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) handleUpdateDirectQueryDataSource(w http.ResponseWriter, r *http.Request, name string) {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+		return
+	}
+	var req struct {
+		Description    string   `json:"Description"`
+		OpenSearchArns []string `json:"OpenSearchArns"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+	ds, updateErr := h.Backend.UpdateDirectQueryDataSource(name, req.Description, req.OpenSearchArns)
+	if updateErr != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
+		return
+	}
+	h.writeJSON(r, w, map[string]any{"DataSourceArn": ds.DataSourceArn})
 }
 
 // handlePackageRoutes handles package routes.
@@ -2168,7 +2182,11 @@ func (h *Handler) handleReservedInstancesRoutes(w http.ResponseWriter, r *http.R
 		if req.InstanceCount == 0 {
 			req.InstanceCount = 1
 		}
-		ri, purchaseErr := h.Backend.PurchaseReservedInstanceOffering(offeringID, req.ReservationName, req.InstanceCount)
+		ri, purchaseErr := h.Backend.PurchaseReservedInstanceOffering(
+			offeringID,
+			req.ReservationName,
+			req.InstanceCount,
+		)
 		if purchaseErr != nil {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", purchaseErr.Error())
 			return
@@ -2282,6 +2300,17 @@ func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.R
 			"StepStatus":  upgradeStatus,
 			"UpgradeStep": upgradeStep,
 		})
+	default:
+		return h.dispatchDomainGetVpcRoutes(w, trimmed)
+	}
+
+	return true
+}
+
+// dispatchDomainGetVpcRoutes handles VPC-related GET sub-routes on a domain.
+// Returns true if handled.
+func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, trimmed string) bool {
+	switch {
 	case strings.HasSuffix(trimmed, "/vpcEndpoints"):
 		// ListVpcEndpointsForDomain
 		domainName, _ := strings.CutSuffix(trimmed, "/vpcEndpoints")
@@ -2291,7 +2320,7 @@ func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.R
 			domainArn = domain.ARN
 		}
 		endpoints := h.Backend.ListVpcEndpointsForDomain(domainArn)
-		h.writeJSON(r, w, map[string]any{"VpcEndpointSummaryList": endpoints})
+		httputils.WriteJSON(context.Background(), w, http.StatusOK, map[string]any{"VpcEndpointSummaryList": endpoints})
 	case strings.HasSuffix(trimmed, "/listVpcEndpointAccess"):
 		// ListVpcEndpointAccess
 		domainName, _ := strings.CutSuffix(trimmed, "/listVpcEndpointAccess")
@@ -2299,7 +2328,12 @@ func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.R
 		if principals == nil {
 			principals = []AuthorizedPrincipal{}
 		}
-		h.writeJSON(r, w, map[string]any{"AuthorizedPrincipalList": principals})
+		httputils.WriteJSON(
+			context.Background(),
+			w,
+			http.StatusOK,
+			map[string]any{"AuthorizedPrincipalList": principals},
+		)
 	default:
 		return false
 	}
@@ -2314,16 +2348,16 @@ func (h *Handler) dispatchDomainGetResourceRoutes(w http.ResponseWriter, r *http
 	case strings.Contains(trimmed, "/dataSource/"):
 		// GetDataSource: {domainName}/dataSource/{name}
 		parts := strings.SplitN(trimmed, "/dataSource/", 2) //nolint:mnd
-		if len(parts) == 2 {                                 //nolint:mnd
-			ds, err := h.Backend.GetDataSource(parts[0], parts[1])
-			if err != nil {
-				h.writeJSON(r, w, map[string]any{"DataSource": map[string]any{}})
-				return true
-			}
-			h.writeJSON(r, w, map[string]any{"DataSource": ds})
-		} else {
+		if len(parts) != 2 || parts[1] == "" {              //nolint:mnd
 			h.writeJSON(r, w, map[string]any{"DataSource": map[string]any{}})
+			return true
 		}
+		ds, err := h.Backend.GetDataSource(parts[0], parts[1])
+		if err != nil {
+			h.writeJSON(r, w, map[string]any{"DataSource": map[string]any{}})
+			return true
+		}
+		h.writeJSON(r, w, map[string]any{"DataSource": ds})
 	case strings.HasSuffix(trimmed, "/dataSource"):
 		// ListDataSources
 		domainName, _ := strings.CutSuffix(trimmed, "/dataSource")
@@ -2340,16 +2374,16 @@ func (h *Handler) dispatchDomainGetResourceRoutes(w http.ResponseWriter, r *http
 	case strings.Contains(trimmed, "/maintenance/"):
 		// GetDomainMaintenanceStatus: {domainName}/maintenance/{maintenanceId}
 		parts := strings.SplitN(trimmed, "/maintenance/", 2) //nolint:mnd
-		if len(parts) == 2 {                                  //nolint:mnd
-			m, err := h.Backend.GetDomainMaintenanceStatus(parts[0], parts[1])
-			if err != nil {
-				h.writeJSON(r, w, map[string]any{jsonKeyStatus: softwareUpdateCompleted})
-				return true
-			}
-			h.writeJSON(r, w, m)
-		} else {
+		if len(parts) != 2 || parts[1] == "" {               //nolint:mnd
 			h.writeJSON(r, w, map[string]any{jsonKeyStatus: softwareUpdateCompleted})
+			return true
 		}
+		m, err := h.Backend.GetDomainMaintenanceStatus(parts[0], parts[1])
+		if err != nil {
+			h.writeJSON(r, w, map[string]any{jsonKeyStatus: softwareUpdateCompleted})
+			return true
+		}
+		h.writeJSON(r, w, m)
 	case strings.HasSuffix(trimmed, "/maintenance"):
 		// ListDomainMaintenances
 		domainName, _ := strings.CutSuffix(trimmed, "/maintenance")
@@ -2361,16 +2395,16 @@ func (h *Handler) dispatchDomainGetResourceRoutes(w http.ResponseWriter, r *http
 	case strings.Contains(trimmed, "/index/"):
 		// GetIndex: {domainName}/index/{indexName}
 		parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd
-		if len(parts) == 2 {                            //nolint:mnd
-			idx, err := h.Backend.GetIndex(parts[0], parts[1])
-			if err != nil {
-				h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-				return true
-			}
-			h.writeJSON(r, w, idx)
-		} else {
+		if len(parts) != 2 || parts[1] == "" {         //nolint:mnd
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
+			return true
 		}
+		idx, err := h.Backend.GetIndex(parts[0], parts[1])
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+			return true
+		}
+		h.writeJSON(r, w, idx)
 	default:
 		return false
 	}
@@ -2438,31 +2472,36 @@ func (h *Handler) dispatchDomainPostRoutesExtended(w http.ResponseWriter, r *htt
 		_ = h.Backend.UpdateDataSource(domainName, req.Name, req.Description)
 		h.writeJSON(r, w, map[string]any{"Message": "DataSource updated"})
 	case strings.Contains(trimmed, "/index/"):
-		// CreateIndex: POST {domainName}/index/{indexName}
-		parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd
-		if len(parts) != 2 {                            //nolint:mnd
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
-			return true
-		}
-		body, _ := httputils.ReadBody(r)
-		var req struct {
-			Mappings map[string]any `json:"Mappings"`
-			Settings map[string]any `json:"Settings"`
-			Aliases  map[string]any `json:"Aliases"`
-		}
-		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
-		}
-		idx, err := h.Backend.CreateIndex(parts[0], parts[1], req.Mappings, req.Settings, req.Aliases)
-		if err != nil {
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-			return true
-		}
-		h.writeJSON(r, w, idx)
+		return h.handleCreateIndexRoute(w, r, trimmed)
 	default:
 		return false
 	}
 
+	return true
+}
+
+// handleCreateIndexRoute handles the POST {domainName}/index/{indexName} route.
+func (h *Handler) handleCreateIndexRoute(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd
+	if len(parts) != 2 {                           //nolint:mnd
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
+		return true
+	}
+	body, _ := httputils.ReadBody(r)
+	var req struct {
+		Mappings map[string]any `json:"Mappings"`
+		Settings map[string]any `json:"Settings"`
+		Aliases  map[string]any `json:"Aliases"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+	idx, err := h.Backend.CreateIndex(parts[0], parts[1], req.Mappings, req.Settings, req.Aliases)
+	if err != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		return true
+	}
+	h.writeJSON(r, w, idx)
 	return true
 }
 
@@ -2472,7 +2511,7 @@ func (h *Handler) dispatchDomainDeleteRoutesExtended(w http.ResponseWriter, r *h
 	if strings.Contains(trimmed, "/dataSource/") {
 		// DeleteDataSource: {domainName}/dataSource/{name}
 		parts := strings.SplitN(trimmed, "/dataSource/", 2) //nolint:mnd
-		if len(parts) == 2 {                                 //nolint:mnd
+		if len(parts) == 2 {                                //nolint:mnd
 			_ = h.Backend.DeleteDataSource(parts[0], parts[1])
 		}
 		h.writeJSON(r, w, map[string]any{"Message": "DataSource deleted"})
@@ -2483,7 +2522,7 @@ func (h *Handler) dispatchDomainDeleteRoutesExtended(w http.ResponseWriter, r *h
 	if strings.Contains(trimmed, "/index/") {
 		// DeleteIndex: {domainName}/index/{indexName}
 		parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd
-		if len(parts) == 2 {                            //nolint:mnd
+		if len(parts) == 2 {                           //nolint:mnd
 			idx, err := h.Backend.DeleteIndex(parts[0], parts[1])
 			if err != nil {
 				h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())

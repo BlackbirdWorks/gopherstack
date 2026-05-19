@@ -38,6 +38,14 @@ const (
 	softwareUpdateCompleted = "COMPLETED"
 )
 
+// Repeated string literal constants.
+const (
+	statusDeleted        = "DELETED"
+	currencyUSD          = "USD"
+	instanceTypeR6gLarge = "r6g.large.search"
+	instanceTypeM6gLarge = "m6g.large.search"
+)
+
 // Default engine version applied when CreateDomain receives an empty EngineVersion.
 const defaultEngineVersion = "OpenSearch_2.11"
 
@@ -837,7 +845,7 @@ func (b *InMemoryBackend) DeleteOutboundConnection(connectionID string) (*Outbou
 	}
 
 	cp := *conn
-	cp.Status = "DELETED"
+	cp.Status = statusDeleted
 	delete(b.outboundConnections, connectionID)
 
 	return &cp, nil
@@ -866,12 +874,12 @@ func (b *InMemoryBackend) DeleteInboundConnection(connectionID string) (*Inbound
 
 	conn, exists := b.inboundConnections[connectionID]
 	if !exists {
-		conn = &InboundConnection{ConnectionID: connectionID, Status: "DELETED"}
+		conn = &InboundConnection{ConnectionID: connectionID, Status: statusDeleted}
 		return conn, nil
 	}
 
 	cp := *conn
-	cp.Status = "DELETED"
+	cp.Status = statusDeleted
 	delete(b.inboundConnections, connectionID)
 
 	return &cp, nil
@@ -976,7 +984,7 @@ func (b *InMemoryBackend) DeleteVpcEndpoint(id string) (*VpcEndpoint, error) {
 	}
 
 	cp := *ep
-	cp.Status = "DELETED"
+	cp.Status = statusDeleted
 	delete(b.vpcEndpoints, id)
 
 	return &cp, nil
@@ -1403,25 +1411,25 @@ func staticReservedInstanceOfferings() []*ReservedInstanceOffering {
 			Duration:                   31536000,
 			FixedPrice:                 500.0,
 			UsagePrice:                 0.0,
-			CurrencyCode:               "USD",
+			CurrencyCode:               currencyUSD,
 			PaymentOption:              "ALL_UPFRONT",
 		},
 		{
 			ReservedInstanceOfferingID: "ri-offering-2",
-			InstanceType:               "r6g.large.search",
+			InstanceType:               instanceTypeR6gLarge,
 			Duration:                   31536000,
 			FixedPrice:                 300.0,
 			UsagePrice:                 0.05,
-			CurrencyCode:               "USD",
+			CurrencyCode:               currencyUSD,
 			PaymentOption:              "PARTIAL_UPFRONT",
 		},
 		{
 			ReservedInstanceOfferingID: "ri-offering-3",
-			InstanceType:               "m6g.large.search",
+			InstanceType:               instanceTypeM6gLarge,
 			Duration:                   94608000,
 			FixedPrice:                 0.0,
 			UsagePrice:                 0.15,
-			CurrencyCode:               "USD",
+			CurrencyCode:               currencyUSD,
 			PaymentOption:              "NO_UPFRONT",
 		},
 	}
@@ -1534,7 +1542,12 @@ func (b *InMemoryBackend) GetDomainMaintenanceStatus(domainName, maintenanceID s
 		}
 	}
 
-	return nil, fmt.Errorf("%w: maintenance %s not found on domain %s", ErrConnectionNotFound, maintenanceID, domainName)
+	return nil, fmt.Errorf(
+		"%w: maintenance %s not found on domain %s",
+		ErrConnectionNotFound,
+		maintenanceID,
+		domainName,
+	)
 }
 
 // ListDomainMaintenances returns all maintenance records for a domain.
