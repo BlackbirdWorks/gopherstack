@@ -715,7 +715,7 @@ func (h *DashboardHandler) setupSubRouter() {
 			}
 		}
 
-		var allocated []allocatedPort
+		allocated := make([]allocatedPort, 0)
 		if h.config.PortAlloc != nil {
 			snapshot := h.config.PortAlloc.Allocated()
 			allocated = make([]allocatedPort, 0, len(snapshot))

@@ -1356,12 +1356,12 @@ func (h *Handler) handleUpdateProtectionGroup(body []byte) error {
 
 // listAttacksRequest is the request body for ListAttacks.
 //
-//nolint:govet // field order matches AWS API shape
+
 type listAttacksRequest struct {
 	StartTime    *int64   `json:"StartTime,omitempty"`
 	EndTime      *int64   `json:"EndTime,omitempty"`
-	ResourceARNs []string `json:"ResourceArns"`
 	NextToken    string   `json:"NextToken,omitempty"`
+	ResourceARNs []string `json:"ResourceArns"`
 	MaxResults   int      `json:"MaxResults,omitempty"`
 }
 

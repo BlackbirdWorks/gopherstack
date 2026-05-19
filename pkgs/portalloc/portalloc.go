@@ -80,9 +80,6 @@ func (a *Allocator) Release(port int) error {
 	}
 
 	delete(a.used, port)
-	if port < a.next {
-		a.next = port
-	}
 
 	return nil
 }

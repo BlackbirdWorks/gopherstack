@@ -58,19 +58,17 @@ type Runner struct {
 	backend   *InMemoryBackend
 	sem       chan struct{}
 	done      chan struct{}
+	doneMu    sync.RWMutex
 	wg        sync.WaitGroup
-	doneOnce  sync.Once
+	started   bool
 }
 
 func NewRunner(backend *InMemoryBackend) *Runner {
-	r := &Runner{
+	return &Runner{
 		backend: backend,
 		sem:     make(chan struct{}, maxPipeWorkers),
 		done:    make(chan struct{}),
 	}
-	close(r.done)
-
-	return r
 }
 
 func (r *Runner) SetSQSReader(s SQSReader)                           { r.sqsReader = s }
@@ -78,22 +76,38 @@ func (r *Runner) SetLambdaInvoker(l PipeLambdaInvoker)               { r.lambda 
 func (r *Runner) SetStepFunctionsStarter(s PipeStepFunctionsStarter) { r.sfn = s }
 
 func (r *Runner) Start(ctx context.Context) {
-	r.done = make(chan struct{})
+	r.doneMu.Lock()
+	if r.started {
+		r.doneMu.Unlock()
+
+		return
+	}
+	r.started = true
+	done := r.done
+	r.doneMu.Unlock()
+
 	r.wg.Go(func() {
 		r.run(ctx)
 	})
-	r.doneOnce.Do(func() {
-		go func() {
-			r.wg.Wait()
-			close(r.done)
-		}()
-	})
+	go func() {
+		r.wg.Wait()
+		close(done)
+	}()
 }
 
 // Wait blocks until all runner goroutines have exited, or ctx expires.
 func (r *Runner) Wait(ctx context.Context) {
+	r.doneMu.RLock()
+	if !r.started {
+		r.doneMu.RUnlock()
+
+		return
+	}
+	done := r.done
+	r.doneMu.RUnlock()
+
 	select {
-	case <-r.done:
+	case <-done:
 	case <-ctx.Done():
 	}
 }
