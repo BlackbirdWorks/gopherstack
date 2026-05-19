@@ -1117,7 +1117,7 @@ func (b *InMemoryBackend) emitMetricFilterMatches(emitter MetricEmitter, matches
 			}
 			for range m.matchCount {
 				if emitErr := emitter.EmitMetric(t.MetricNamespace, t.MetricName, val, ""); emitErr != nil {
-					logger.Load(context.Background()).Warn("cloudwatchlogs: metric filter emit failed",
+					logger.Load(b.ctx).Warn("cloudwatchlogs: metric filter emit failed",
 						"namespace", t.MetricNamespace,
 						"metric", t.MetricName,
 						"err", emitErr,

@@ -45,3 +45,12 @@ func ScheduleGroupCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.ops)
 }
+
+// CronCacheLen returns the number of entries in the runner's cronCache map.
+// Intended for use in unit tests to verify cache eviction.
+func CronCacheLen(r *Runner) int {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
+
+	return len(r.cronCache)
+}

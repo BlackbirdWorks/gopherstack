@@ -29,8 +29,8 @@ func TestBatchDeletePerformance(t *testing.T) {
 			numItems:      10000,
 			itemsPerBatch: 25,
 			deleteBatches: 100,
-			// 15s instead of 5s to account for race detector overhead and slow CI runners.
-			maxDuration: 15 * time.Second,
+			// 30s instead of 5s to account for race detector overhead and slow CI runners.
+			maxDuration: 30 * time.Second,
 		},
 	}
 

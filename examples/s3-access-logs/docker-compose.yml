@@ -1,0 +1,25 @@
+services:
+  gopherstack:
+    build: ../..
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "./gopherstack", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+
+  demo:
+    image: amazon/aws-cli:2.17.0
+    depends_on:
+      gopherstack:
+        condition: service_healthy
+    environment:
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - ENDPOINT=http://gopherstack:8000
+    entrypoint: ["/bin/sh", "/demo.sh"]
+    volumes:
+      - ./demo.sh:/demo.sh:ro

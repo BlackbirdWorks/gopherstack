@@ -817,6 +817,14 @@ func (b *InMemoryBackend) DeleteCertificate(certARN string) error {
 
 	delete(b.certs, certARN)
 
+	// Drop any idempotency-token entries that pointed at this cert so the
+	// map cannot grow unbounded for long-running backends.
+	for tok, entry := range b.idempotencyMap {
+		if entry.ARN == certARN {
+			delete(b.idempotencyMap, tok)
+		}
+	}
+
 	return nil
 }
 
@@ -1083,6 +1091,7 @@ func (b *InMemoryBackend) ResendValidationEmail(certARN, domain, validationDomai
 	// Reset the auto-validate timer to simulate email resend triggering re-validation.
 	if t, exists := b.timers[certARN]; exists {
 		t.Stop()
+		delete(b.timers, certARN)
 	}
 
 	t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func() { b.autoValidate(certARN) })

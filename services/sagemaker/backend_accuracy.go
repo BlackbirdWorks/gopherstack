@@ -229,10 +229,13 @@ func (b *InMemoryBackend) scheduleNotebookTransition(
 	delay time.Duration,
 ) {
 	go func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(delay):
+		case <-timer.C:
 		}
 
 		b.mu.Lock("scheduleNotebookTransition.goroutine")
@@ -551,10 +554,13 @@ func (b *InMemoryBackend) CreateTrainingJobFull(opts TrainingJobOptions) (*Train
 // ctx must be b.lifecycleCtx captured by the caller while holding b.mu.
 func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, name string) {
 	go func() {
+		timer := time.NewTimer(trainingInProgressToCompleted)
+		defer timer.Stop()
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(trainingInProgressToCompleted):
+		case <-timer.C:
 		}
 
 		b.mu.Lock("scheduleTrainingCompletion.goroutine")
@@ -605,10 +611,13 @@ func (b *InMemoryBackend) StopTrainingJobFSM(name string) error {
 
 	ctx := b.lifecycleCtx
 	go func() {
+		timer := time.NewTimer(trainingStoppingToStopped)
+		defer timer.Stop()
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(trainingStoppingToStopped):
+		case <-timer.C:
 		}
 
 		b.mu.Lock("StopTrainingJobFSM.goroutine")
@@ -698,10 +707,13 @@ func (b *InMemoryBackend) scheduleEndpointTransition(
 	delay time.Duration,
 ) {
 	go func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(delay):
+		case <-timer.C:
 		}
 
 		b.mu.Lock("scheduleEndpointTransition.goroutine")
@@ -967,10 +979,13 @@ func (b *InMemoryBackend) CreateProcessingJob(opts ProcessingJob) (*ProcessingJo
 // ctx must be b.lifecycleCtx captured by the caller while holding b.mu.
 func (b *InMemoryBackend) scheduleProcessingCompletion(ctx context.Context, name string) {
 	go func() {
+		timer := time.NewTimer(processingJobCompletionDelay)
+		defer timer.Stop()
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(processingJobCompletionDelay):
+		case <-timer.C:
 		}
 
 		b.mu.Lock("scheduleProcessingCompletion.goroutine")
@@ -1015,10 +1030,13 @@ func (b *InMemoryBackend) StopProcessingJob(name string) error {
 
 	ctx := b.lifecycleCtx
 	go func() {
+		timer := time.NewTimer(processingJobStopDelay)
+		defer timer.Stop()
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(processingJobStopDelay):
+		case <-timer.C:
 		}
 
 		b.mu.Lock("StopProcessingJob.goroutine")

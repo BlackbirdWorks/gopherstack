@@ -2761,9 +2761,11 @@ func purgeAllServices(
 			}
 			// Drain the goroutine with a grace period so it does not accumulate
 			// across repeated purge cycles.
+			graceTimer := time.NewTimer(goroutineGracePeriod)
 			select {
 			case <-done:
-			case <-time.After(goroutineGracePeriod):
+				graceTimer.Stop()
+			case <-graceTimer.C:
 				log.WarnContext(ctx, "purge goroutine did not exit after grace period",
 					"service", svc.Name())
 			}

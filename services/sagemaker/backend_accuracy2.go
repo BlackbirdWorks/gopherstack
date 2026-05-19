@@ -159,10 +159,13 @@ func (b *InMemoryBackend) CreateTransformJob(opts TransformJobOptions) (*Transfo
 
 	ctx := b.lifecycleCtx
 	go func() {
+		timer := time.NewTimer(transformJobCompletionDelay)
+		defer timer.Stop()
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(transformJobCompletionDelay):
+		case <-timer.C:
 		}
 		b.applyTransformJobCompletion(ctx, opts.TransformJobName)
 	}()
@@ -221,10 +224,13 @@ func (b *InMemoryBackend) StopTransformJob(name string) error {
 
 	ctx := b.lifecycleCtx
 	go func() {
+		timer := time.NewTimer(transformJobStoppingDelay)
+		defer timer.Stop()
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(transformJobStoppingDelay):
+		case <-timer.C:
 		}
 		b.mu.Lock("StopTransformJob.goroutine")
 		defer b.mu.Unlock()

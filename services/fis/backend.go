@@ -508,6 +508,14 @@ func (b *InMemoryBackend) DeleteExperimentTemplate(id string) error {
 	delete(b.templates, id)
 	delete(b.targetAccountConfigs, id)
 
+	// Drop idempotency-token entries pointing at this template so the map
+	// cannot grow unbounded across long-lived backends.
+	for tok, tid := range b.tplClientTokens {
+		if tid == id {
+			delete(b.tplClientTokens, tok)
+		}
+	}
+
 	return nil
 }
 
@@ -1325,12 +1333,14 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 	b.setExperimentStatus(expID, statusInitiating)
 	b.setAllActionStatuses(expID, actionStatusInitiating)
 
+	initiatingTimer := time.NewTimer(lifecycleDelay)
+	defer initiatingTimer.Stop()
 	select {
 	case <-ctx.Done():
 		b.cleanupActions(nil, expID, statusStopped, actionStatusCancelled)
 
 		return
-	case <-time.After(lifecycleDelay):
+	case <-initiatingTimer.C:
 	}
 
 	// INITIATING → RUNNING.
@@ -1369,12 +1379,14 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 		b.setExperimentStatus(expID, statusCompleting)
 		b.setAllActionStatuses(expID, actionStatusCompleting)
 
+		completingTimer := time.NewTimer(lifecycleDelay)
+		defer completingTimer.Stop()
 		select {
 		case <-ctx.Done():
 			b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
 
 			return
-		case <-time.After(lifecycleDelay):
+		case <-completingTimer.C:
 		}
 
 		b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
@@ -1395,10 +1407,12 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 		b.setExperimentStatus(expID, statusCompleting)
 		b.setAllActionStatuses(expID, actionStatusCompleting)
 
+		finalTimer := time.NewTimer(lifecycleDelay)
+		defer finalTimer.Stop()
 		select {
 		case <-ctx.Done():
 			b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
-		case <-time.After(lifecycleDelay):
+		case <-finalTimer.C:
 			b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
 		}
 	}

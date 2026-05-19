@@ -192,14 +192,14 @@ type AttackVector struct {
 
 // AttackCounter represents a named counter during an attack.
 //
-//nolint:govet // field order matches AWS API shape
+
 type AttackCounter struct {
+	Name    string  `json:"Name"`
+	Unit    string  `json:"Unit"`
 	Max     float64 `json:"Max"`
 	Average float64 `json:"Average"`
 	Sum     float64 `json:"Sum"`
 	N       int64   `json:"N"`
-	Name    string  `json:"Name"`
-	Unit    string  `json:"Unit"`
 }
 
 // Mitigation represents a mitigation applied during an attack.

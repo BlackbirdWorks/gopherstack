@@ -57,13 +57,17 @@ type Runner struct {
 	sfn       PipeStepFunctionsStarter
 	backend   *InMemoryBackend
 	sem       chan struct{}
+	done      chan struct{}
+	doneMu    sync.RWMutex
 	wg        sync.WaitGroup
+	started   bool
 }
 
 func NewRunner(backend *InMemoryBackend) *Runner {
 	return &Runner{
 		backend: backend,
 		sem:     make(chan struct{}, maxPipeWorkers),
+		done:    make(chan struct{}),
 	}
 }
 
@@ -72,19 +76,35 @@ func (r *Runner) SetLambdaInvoker(l PipeLambdaInvoker)               { r.lambda 
 func (r *Runner) SetStepFunctionsStarter(s PipeStepFunctionsStarter) { r.sfn = s }
 
 func (r *Runner) Start(ctx context.Context) {
+	r.doneMu.Lock()
+	if r.started {
+		r.doneMu.Unlock()
+
+		return
+	}
+	r.started = true
+	done := r.done
+	r.doneMu.Unlock()
+
 	r.wg.Go(func() {
 		r.run(ctx)
 	})
-}
-
-// Wait blocks until all runner goroutines have exited, or ctx expires.
-func (r *Runner) Wait(ctx context.Context) {
-	done := make(chan struct{})
-
 	go func() {
 		r.wg.Wait()
 		close(done)
 	}()
+}
+
+// Wait blocks until all runner goroutines have exited, or ctx expires.
+func (r *Runner) Wait(ctx context.Context) {
+	r.doneMu.RLock()
+	if !r.started {
+		r.doneMu.RUnlock()
+
+		return
+	}
+	done := r.done
+	r.doneMu.RUnlock()
 
 	select {
 	case <-done:

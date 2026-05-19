@@ -1,7 +1,6 @@
 package ec2
 
 import (
-	"context"
 	"encoding/xml"
 	"fmt"
 	"net/url"
@@ -505,7 +504,7 @@ func (h *Handler) handleStartInstances(vals url.Values, reqID string) (any, erro
 	}
 
 	if cb, c := h.computeBackend(); c != nil {
-		h.computeStartOrStop(context.Background(), cb, c, ids, true)
+		h.computeStartOrStop(h.svcCtx, cb, c, ids, true)
 	}
 
 	return &startInstancesResponse{
@@ -527,7 +526,7 @@ func (h *Handler) handleStopInstances(vals url.Values, reqID string) (any, error
 	}
 
 	if cb, c := h.computeBackend(); c != nil {
-		h.computeStartOrStop(context.Background(), cb, c, ids, false)
+		h.computeStartOrStop(h.svcCtx, cb, c, ids, false)
 	}
 
 	return &stopInstancesResponse{

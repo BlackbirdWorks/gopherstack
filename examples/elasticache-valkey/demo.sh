@@ -1,5 +1,16 @@
 #!/bin/sh
-set -e
+set -eu
+
+CLUSTER_ID=my-valkey-cluster
+ENDPOINT="http://localhost:8000"
+
+cleanup() {
+  aws elasticache delete-cache-cluster \
+    --cache-cluster-id "$CLUSTER_ID" \
+    --endpoint-url "$ENDPOINT" \
+    --no-cli-pager >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
 echo "=== Installing tools ==="
 apk add --no-cache aws-cli valkey-cli jq bind-tools > /dev/null 2>&1
@@ -13,12 +24,11 @@ echo "options ndots:0" >> /etc/resolv.conf
 export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 export AWS_DEFAULT_REGION=us-east-1
-ENDPOINT="http://localhost:8000"
 
 echo ""
 echo "=== Creating ElastiCache cluster ==="
 aws elasticache create-cache-cluster \
-  --cache-cluster-id my-valkey-cluster \
+  --cache-cluster-id "$CLUSTER_ID" \
   --engine redis \
   --cache-node-type cache.t3.micro \
   --num-cache-nodes 1 \
@@ -28,7 +38,7 @@ aws elasticache create-cache-cluster \
 echo ""
 echo "=== Describing cluster ==="
 RESULT=$(aws elasticache describe-cache-clusters \
-  --cache-cluster-id my-valkey-cluster \
+  --cache-cluster-id "$CLUSTER_ID" \
   --show-cache-node-info \
   --endpoint-url "$ENDPOINT" \
   --output json \
@@ -56,7 +66,9 @@ valkey-cli -h "$HOST" -p "$PORT" SET greeting "Hello from Gopherstack!"
 
 echo ""
 echo "GET greeting:"
-valkey-cli -h "$HOST" -p "$PORT" GET greeting
+VALUE=$(valkey-cli -h "$HOST" -p "$PORT" GET greeting)
+echo "$VALUE"
+test "$VALUE" = "Hello from Gopherstack!"
 
 echo ""
 echo "=== Demo complete ==="

@@ -95,6 +95,13 @@ const maxEphemeralStorageSize int32 = 10240
 // maxCleanupConcurrency is the maximum number of concurrent runtime cleanup goroutines.
 const maxCleanupConcurrency = 64
 
+// maxConcurrentInvocationLogs bounds the number of in-flight async log delivery
+// goroutines spawned by dispatchInvocationLog. When saturated, additional log
+// emissions are dropped (with a warn log) rather than queued, preventing
+// unbounded goroutine growth under high invocation throughput when the
+// CloudWatch Logs backend is slow or unavailable.
+const maxConcurrentInvocationLogs = 256
+
 const extractParentDirPerm = 0o750
 
 // invocationChainKeyType is the context key type used to track the current Lambda invocation chain.
@@ -210,7 +217,10 @@ type InMemoryBackend struct {
 	// versionIndex indexes published versions by function name and version number.
 	versionIndex map[string]map[string]*FunctionVersion
 	// cleanupSem bounds concurrent runtime cleanup goroutines.
-	cleanupSem               chan struct{}
+	cleanupSem chan struct{}
+	// logSem bounds concurrent invocation-log delivery goroutines so that a
+	// slow CloudWatch Logs backend cannot leak goroutines under high load.
+	logSem                   chan struct{}
 	layerPolicies            map[string]map[int64]map[string]*LayerVersionStatement
 	fisFaults                map[string]*FISInvocationFault
 	permissions              map[string]map[string]*FunctionPermission
@@ -244,6 +254,7 @@ func NewInMemoryBackend(
 		esmByFunctionARN:         make(map[string]map[string]struct{}),
 		versionIndex:             make(map[string]map[string]*FunctionVersion),
 		cleanupSem:               make(chan struct{}, maxCleanupConcurrency),
+		logSem:                   make(chan struct{}, maxConcurrentInvocationLogs),
 		functionURLConfigs:       make(map[string]*FunctionURLConfig),
 		functionURLServers:       make(map[string]*functionURLServer),
 		versions:                 make(map[string][]*FunctionVersion),
@@ -1616,7 +1627,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// Per Lambda convention, function-level errors (isError=true) still return HTTP 200.
 	_ = isError
 
-	go b.pushInvocationLog(context.WithoutCancel(ctx), fn.FunctionName, payload, result)
+	b.dispatchInvocationLog(context.WithoutCancel(ctx), fn.FunctionName, payload, result)
 
 	return result, http.StatusOK, nil
 }
@@ -1739,7 +1750,7 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 
 		if !result.isError || attempt == maxRetries {
 			if !result.isError {
-				go b.pushInvocationLog(context.Background(), functionName, inv.payload, result.payload)
+				b.dispatchInvocationLog(context.Background(), functionName, inv.payload, result.payload)
 			} else {
 				slog.Default().Warn("lambda: async invocation failed after retries",
 					"function", functionName, "attempts", attempt+1)
@@ -1927,6 +1938,26 @@ func (b *InMemoryBackend) releaseConcurrencySlot(functionName string) {
 	if b.activeConcurrencies[functionName] > 0 {
 		b.activeConcurrencies[functionName]--
 	}
+}
+
+// dispatchInvocationLog asynchronously emits an invocation log entry. The
+// goroutine count is bounded by b.logSem; when saturated, the log is dropped
+// (best-effort observability) so a slow CloudWatch Logs backend cannot leak
+// goroutines under high invocation throughput.
+func (b *InMemoryBackend) dispatchInvocationLog(ctx context.Context, functionName string, payload, result []byte) {
+	select {
+	case b.logSem <- struct{}{}:
+	default:
+		logger.Load(ctx).WarnContext(ctx, "lambda: invocation log dropped: logSem saturated",
+			"function", functionName)
+
+		return
+	}
+
+	go func() {
+		defer func() { <-b.logSem }()
+		b.pushInvocationLog(ctx, functionName, payload, result)
+	}()
 }
 
 // pushInvocationLog writes a minimal invocation log entry to CloudWatch Logs when a backend is set.

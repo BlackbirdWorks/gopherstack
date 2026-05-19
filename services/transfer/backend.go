@@ -1005,16 +1005,14 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 	// Set to STARTING, then transition to ONLINE asynchronously.
 	s.State = serverStatusStarting
 
-	go func() {
-		time.Sleep(startServerTransitionDelay)
-
+	time.AfterFunc(startServerTransitionDelay, func() {
 		b.mu.Lock("StartServer-async")
 		defer b.mu.Unlock()
 
 		if sv, found := b.servers[serverID]; found && sv.State == serverStatusStarting {
 			sv.State = serverStatusOnline
 		}
-	}()
+	})
 
 	return nil
 }
@@ -1038,16 +1036,14 @@ func (b *InMemoryBackend) StopServer(serverID string) error {
 	// Set to STOPPING, then transition to OFFLINE asynchronously.
 	s.State = serverStatusStopping
 
-	go func() {
-		time.Sleep(startServerTransitionDelay)
-
+	time.AfterFunc(startServerTransitionDelay, func() {
 		b.mu.Lock("StopServer-async")
 		defer b.mu.Unlock()
 
 		if sv, found := b.servers[serverID]; found && sv.State == serverStatusStopping {
 			sv.State = serverStatusOffline
 		}
-	}()
+	})
 
 	return nil
 }

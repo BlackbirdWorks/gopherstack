@@ -111,9 +111,11 @@ func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
 	schedules := r.backend.ListSchedules("", "", "")
 
 	activeNames := make(map[string]struct{}, len(schedules))
+	activeExprs := make(map[string]struct{}, len(schedules))
 
 	for _, s := range schedules {
 		activeNames[s.Name] = struct{}{}
+		activeExprs[strings.TrimSpace(s.ScheduleExpression)] = struct{}{}
 
 		if s.State != "ENABLED" {
 			continue
@@ -136,6 +138,17 @@ func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
 		}
 	}
 	r.mu.Unlock()
+
+	// Sweep cronCache entries for expressions that no schedule references anymore.
+	// Without this the cache would grow unbounded as schedules churn through unique
+	// cron expressions across the runner's lifetime.
+	r.cacheMu.Lock()
+	for expr := range r.cronCache {
+		if _, ok := activeExprs[expr]; !ok {
+			delete(r.cronCache, expr)
+		}
+	}
+	r.cacheMu.Unlock()
 }
 
 // isDue reports whether the schedule s should fire at time now.
