@@ -645,28 +645,31 @@ func (m *mockSFNStarterWithPayload) Last() string {
 func TestScheduler_Runner_CronCacheEviction(t *testing.T) {
 	t.Parallel()
 
-	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:evict-fn"
+	const lambdaARN = "arn:aws:lambda:us-east-1:000000000000:function:evict-fn"
+	const role = "arn:aws:iam::000000000000:role/r"
 
 	tests := []struct {
 		name     string
-		setup    func(backend *scheduler.InMemoryBackend) // mutates backend after first fire
-		wantSize int                                      // expected cache size after sweep
+		setup    func(t *testing.T, backend *scheduler.InMemoryBackend)
+		wantSize int
 	}{
 		{
 			name: "delete schedule removes cache entry",
-			setup: func(b *scheduler.InMemoryBackend) {
+			setup: func(t *testing.T, b *scheduler.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.DeleteSchedule("evict-sched", ""))
 			},
 			wantSize: 0,
 		},
 		{
 			name: "update schedule to different expression removes old entry",
-			setup: func(b *scheduler.InMemoryBackend) {
-				// Replace the schedule with a different cron expression.
+			setup: func(t *testing.T, b *scheduler.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.DeleteSchedule("evict-sched", ""))
+
 				_, err := b.CreateSchedule(
 					"evict-sched", "", "cron(0 6 * * ? *)", "", "",
-					scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::000000000000:role/r"},
+					scheduler.Target{ARN: lambdaARN, RoleARN: role},
 					"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
 				)
 				require.NoError(t, err)
@@ -683,7 +686,7 @@ func TestScheduler_Runner_CronCacheEviction(t *testing.T) {
 			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := backend.CreateSchedule(
 				"evict-sched", "", "cron(0 12 * * ? *)", "", "",
-				scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::000000000000:role/r"},
+				scheduler.Target{ARN: lambdaARN, RoleARN: role},
 				"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
 			)
 			require.NoError(t, err)
@@ -697,7 +700,7 @@ func TestScheduler_Runner_CronCacheEviction(t *testing.T) {
 			require.Equal(t, 1, scheduler.CronCacheLen(runner), "expression should be cached after first fire")
 
 			// Mutate the backend (delete or change the schedule).
-			tt.setup(backend)
+			tt.setup(t, backend)
 
 			// Next poll sweeps stale cache entries.
 			scheduler.CheckAndFireSchedules(t.Context(), runner, matchTime.Add(time.Hour))
