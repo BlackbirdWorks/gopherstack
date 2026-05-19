@@ -214,6 +214,18 @@ type InMemoryBackend struct {
 	planIDIndex              map[string]string                              // plan ID → plan name
 	frameworkARNIndex        map[string]string                              // ARN → framework name
 	reportPlanARNIndex       map[string]string                              // ARN → report plan name
+	// batch1 additions
+	restoreJobs              map[string]*RestoreJob
+	reportJobs               map[string]*ReportJob
+	scanJobs                 map[string]*ScanJob
+	tieringConfigs           map[string]*TieringConfiguration
+	protectedResources       map[string]*ProtectedResource
+	globalSettings           map[string]string
+	regionSettings           *RegionSettings
+	recoveryPointLifecycle   map[string]string // vaultName:rpArn → lifecycle spec
+	recoveryPointIndexStatus map[string]string // vaultName:rpArn → index status
+	restoreValidations       map[string]string // restoreJobID → validation status
+	globalSettingsLastUpdate time.Time
 	mu                       *lockmetrics.RWMutex
 	accountID                string
 	region                   string
@@ -243,6 +255,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		planIDIndex:              make(map[string]string),
 		frameworkARNIndex:        make(map[string]string),
 		reportPlanARNIndex:       make(map[string]string),
+		restoreJobs:              make(map[string]*RestoreJob),
+		reportJobs:               make(map[string]*ReportJob),
+		scanJobs:                 make(map[string]*ScanJob),
+		tieringConfigs:           make(map[string]*TieringConfiguration),
+		protectedResources:       make(map[string]*ProtectedResource),
+		globalSettings:           make(map[string]string),
+		recoveryPointLifecycle:   make(map[string]string),
+		recoveryPointIndexStatus: make(map[string]string),
+		restoreValidations:       make(map[string]string),
 		accountID:                accountID,
 		region:                   region,
 		mu:                       lockmetrics.New("backup"),
@@ -1012,6 +1033,16 @@ func (b *InMemoryBackend) Reset() {
 	b.planIDIndex = make(map[string]string)
 	b.frameworkARNIndex = make(map[string]string)
 	b.reportPlanARNIndex = make(map[string]string)
+	b.restoreJobs = make(map[string]*RestoreJob)
+	b.reportJobs = make(map[string]*ReportJob)
+	b.scanJobs = make(map[string]*ScanJob)
+	b.tieringConfigs = make(map[string]*TieringConfiguration)
+	b.protectedResources = make(map[string]*ProtectedResource)
+	b.globalSettings = make(map[string]string)
+	b.regionSettings = nil
+	b.recoveryPointLifecycle = make(map[string]string)
+	b.recoveryPointIndexStatus = make(map[string]string)
+	b.restoreValidations = make(map[string]string)
 }
 
 // --- Recovery Point methods ---
