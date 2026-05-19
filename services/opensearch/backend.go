@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -44,6 +45,16 @@ const (
 	currencyUSD          = "USD"
 	instanceTypeR6gLarge = "r6g.large.search"
 	instanceTypeM6gLarge = "m6g.large.search"
+)
+
+// Reserved instance offering durations (seconds) and prices.
+const (
+	reservedDuration1Year           = 31536000
+	reservedDuration3Year           = 94608000
+	reservedPrice1YearAllUpfront    = 500.0
+	reservedPrice1YearPartialFixed  = 300.0
+	reservedPrice1YearPartialHourly = 0.05
+	reservedPrice3YearNoUpfrontHrly = 0.15
 )
 
 // Default engine version applied when CreateDomain receives an empty EngineVersion.
@@ -127,12 +138,12 @@ type OutboundConnection struct {
 
 // VpcEndpoint represents a VPC endpoint for an OpenSearch domain.
 type VpcEndpoint struct {
+	VpcOptions       map[string]any `json:"VpcOptions"`
 	VpcEndpointID    string         `json:"VpcEndpointId"`
 	VpcEndpointOwner string         `json:"VpcEndpointOwner"`
 	DomainArn        string         `json:"DomainArn"`
 	Status           string         `json:"Status"`
 	Endpoint         string         `json:"Endpoint"`
-	VpcOptions       map[string]any `json:"VpcOptions"`
 }
 
 // Package represents an OpenSearch package.
@@ -142,8 +153,8 @@ type Package struct {
 	PackageType        string                   `json:"PackageType"`
 	PackageDescription string                   `json:"PackageDescription"`
 	PackageStatus      string                   `json:"PackageStatus"`
-	CreatedAt          float64                  `json:"CreatedAt"`
 	VersionHistory     []*PackageVersionHistory `json:"-"`
+	CreatedAt          float64                  `json:"CreatedAt"`
 }
 
 // PackageVersionHistory records a version of a package.
@@ -158,10 +169,10 @@ type ScheduledAction struct {
 	ID            string  `json:"Id"`
 	Type          string  `json:"Type"`
 	Severity      string  `json:"Severity"`
-	ScheduledTime float64 `json:"ScheduledTime"`
 	Description   string  `json:"Description"`
 	ScheduledBy   string  `json:"ScheduledBy"`
 	Status        string  `json:"Status"`
+	ScheduledTime float64 `json:"ScheduledTime"`
 	Mandatory     bool    `json:"Mandatory"`
 	Cancellable   bool    `json:"Cancellable"`
 }
@@ -170,11 +181,11 @@ type ScheduledAction struct {
 type ReservedInstanceOffering struct {
 	ReservedInstanceOfferingID string  `json:"ReservedInstanceOfferingId"`
 	InstanceType               string  `json:"InstanceType"`
+	CurrencyCode               string  `json:"CurrencyCode"`
+	PaymentOption              string  `json:"PaymentOption"`
 	Duration                   int     `json:"Duration"`
 	FixedPrice                 float64 `json:"FixedPrice"`
 	UsagePrice                 float64 `json:"UsagePrice"`
-	CurrencyCode               string  `json:"CurrencyCode"`
-	PaymentOption              string  `json:"PaymentOption"`
 }
 
 // ReservedInstance is a purchased reserved instance.
@@ -183,13 +194,13 @@ type ReservedInstance struct {
 	ReservedInstanceOfferingID string  `json:"ReservedInstanceOfferingId"`
 	InstanceType               string  `json:"InstanceType"`
 	ReservationName            string  `json:"ReservationName"`
+	CurrencyCode               string  `json:"CurrencyCode"`
+	PaymentOption              string  `json:"PaymentOption"`
+	State                      string  `json:"State"`
 	Duration                   int     `json:"Duration"`
 	FixedPrice                 float64 `json:"FixedPrice"`
 	UsagePrice                 float64 `json:"UsagePrice"`
 	InstanceCount              int     `json:"InstanceCount"`
-	CurrencyCode               string  `json:"CurrencyCode"`
-	PaymentOption              string  `json:"PaymentOption"`
-	State                      string  `json:"State"`
 	StartTime                  float64 `json:"StartTime"`
 }
 
@@ -207,11 +218,11 @@ type DomainMaintenance struct {
 
 // DomainIndex represents an OpenSearch index.
 type DomainIndex struct {
-	IndexName   string         `json:"IndexName"`
-	IndexStatus string         `json:"IndexStatus"`
 	Mappings    map[string]any `json:"Mappings,omitempty"`
 	Settings    map[string]any `json:"Settings,omitempty"`
 	Aliases     map[string]any `json:"Aliases,omitempty"`
+	IndexName   string         `json:"IndexName"`
+	IndexStatus string         `json:"IndexStatus"`
 }
 
 // DNSRegistrar can register and deregister hostnames with an embedded DNS server.
@@ -875,6 +886,7 @@ func (b *InMemoryBackend) DeleteInboundConnection(connectionID string) (*Inbound
 	conn, exists := b.inboundConnections[connectionID]
 	if !exists {
 		conn = &InboundConnection{ConnectionID: connectionID, Status: statusDeleted}
+
 		return conn, nil
 	}
 
@@ -1167,7 +1179,7 @@ func (b *InMemoryBackend) UpdatePackage(packageID, description string) (*Package
 
 	pkg.PackageDescription = description
 	pkg.VersionHistory = append(pkg.VersionHistory, &PackageVersionHistory{
-		PackageVersion: fmt.Sprintf("%d", len(pkg.VersionHistory)+1),
+		PackageVersion: strconv.Itoa(len(pkg.VersionHistory) + 1),
 		CommitMessage:  "updated",
 		CreatedAt:      float64(time.Now().Unix()),
 	})
@@ -1178,7 +1190,7 @@ func (b *InMemoryBackend) UpdatePackage(packageID, description string) (*Package
 }
 
 // UpdatePackageScope is a no-op that returns the package (scope is not tracked in-memory).
-func (b *InMemoryBackend) UpdatePackageScope(packageID, operation string, domainNames []string) (*Package, error) {
+func (b *InMemoryBackend) UpdatePackageScope(packageID, _ string, _ []string) (*Package, error) {
 	b.mu.RLock("UpdatePackageScope")
 	defer b.mu.RUnlock()
 
@@ -1408,8 +1420,8 @@ func staticReservedInstanceOfferings() []*ReservedInstanceOffering {
 		{
 			ReservedInstanceOfferingID: "ri-offering-1",
 			InstanceType:               instanceTypeT3Small,
-			Duration:                   31536000,
-			FixedPrice:                 500.0,
+			Duration:                   reservedDuration1Year,
+			FixedPrice:                 reservedPrice1YearAllUpfront,
 			UsagePrice:                 0.0,
 			CurrencyCode:               currencyUSD,
 			PaymentOption:              "ALL_UPFRONT",
@@ -1417,18 +1429,18 @@ func staticReservedInstanceOfferings() []*ReservedInstanceOffering {
 		{
 			ReservedInstanceOfferingID: "ri-offering-2",
 			InstanceType:               instanceTypeR6gLarge,
-			Duration:                   31536000,
-			FixedPrice:                 300.0,
-			UsagePrice:                 0.05,
+			Duration:                   reservedDuration1Year,
+			FixedPrice:                 reservedPrice1YearPartialFixed,
+			UsagePrice:                 reservedPrice1YearPartialHourly,
 			CurrencyCode:               currencyUSD,
 			PaymentOption:              "PARTIAL_UPFRONT",
 		},
 		{
 			ReservedInstanceOfferingID: "ri-offering-3",
 			InstanceType:               instanceTypeM6gLarge,
-			Duration:                   94608000,
+			Duration:                   reservedDuration3Year,
 			FixedPrice:                 0.0,
-			UsagePrice:                 0.15,
+			UsagePrice:                 reservedPrice3YearNoUpfrontHrly,
 			CurrencyCode:               currencyUSD,
 			PaymentOption:              "NO_UPFRONT",
 		},
