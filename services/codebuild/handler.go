@@ -909,6 +909,10 @@ func (h *Handler) handleDeleteReport(_ context.Context, in *deleteReportInput) (
 		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
 	}
 
+	if err := h.Backend.DeleteReport(in.Arn); err != nil {
+		return nil, err
+	}
+
 	return &deleteReportOutput{}, nil
 }
 
@@ -925,6 +929,10 @@ func (h *Handler) handleDeleteReportGroup(
 ) (*deleteReportGroupOutput, error) {
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteReportGroup(in.Arn); err != nil {
+		return nil, err
 	}
 
 	return &deleteReportGroupOutput{}, nil

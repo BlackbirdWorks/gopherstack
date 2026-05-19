@@ -57,6 +57,7 @@ type Project struct {
 	Arn          string             `json:"arn"`
 	Description  string             `json:"description,omitempty"`
 	ServiceRole  string             `json:"serviceRole,omitempty"`
+	Visibility   string             `json:"projectVisibility,omitempty"`
 	Environment  ProjectEnvironment `json:"environment"`
 	Created      float64            `json:"created,omitempty"`
 	LastModified float64            `json:"lastModified,omitempty"`
@@ -152,6 +153,27 @@ type Webhook struct {
 	BuildType    string `json:"buildType,omitempty"`
 }
 
+// SourceCredentials represents imported source credentials.
+type SourceCredentials struct {
+	Arn        string `json:"arn"`
+	ServerType string `json:"serverType"`
+	AuthType   string `json:"authType"`
+}
+
+// CodeCoverage represents a code coverage entry returned by DescribeCodeCoverages.
+type CodeCoverage struct {
+	FilePath       string  `json:"filePath,omitempty"`
+	BranchCoverage float64 `json:"branchCoverage,omitempty"`
+	LineCoverage   float64 `json:"lineCoverage,omitempty"`
+}
+
+// TestCase represents a test case entry returned by DescribeTestCases.
+type TestCase struct {
+	Name     string  `json:"name,omitempty"`
+	Status   string  `json:"status,omitempty"`
+	Duration float64 `json:"duration,omitempty"`
+}
+
 // InMemoryBackend is a thread-safe in-memory store for CodeBuild resources.
 type InMemoryBackend struct {
 	projects            map[string]*Project
@@ -168,6 +190,12 @@ type InMemoryBackend struct {
 	commandExecutions   map[string]*CommandExecution   // ID → CommandExecution
 	sandboxes           map[string]*Sandbox            // ID → Sandbox
 	webhooks            map[string]*Webhook            // projectName → Webhook
+	resourcePolicies    map[string]string              // ARN → policy JSON
+	sourceCredentials   map[string]*SourceCredentials  // ARN → creds
+	sandboxesByProject  map[string]map[string]struct{} // project name → sandbox ID set
+	batchesByProject    map[string]map[string]struct{} // project name → batch ID set
+	commandsBySandbox   map[string]map[string]struct{} // sandboxID → commandExecution ID set
+	reportsByGroup      map[string]map[string]struct{} // reportGroupARN → report ARN set
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
@@ -190,6 +218,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		commandExecutions:   make(map[string]*CommandExecution),
 		sandboxes:           make(map[string]*Sandbox),
 		webhooks:            make(map[string]*Webhook),
+		resourcePolicies:    make(map[string]string),
+		sourceCredentials:   make(map[string]*SourceCredentials),
+		sandboxesByProject:  make(map[string]map[string]struct{}),
+		batchesByProject:    make(map[string]map[string]struct{}),
+		commandsBySandbox:   make(map[string]map[string]struct{}),
+		reportsByGroup:      make(map[string]map[string]struct{}),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("codebuild"),
@@ -218,6 +252,12 @@ func (b *InMemoryBackend) Reset() {
 	b.commandExecutions = make(map[string]*CommandExecution)
 	b.sandboxes = make(map[string]*Sandbox)
 	b.webhooks = make(map[string]*Webhook)
+	b.resourcePolicies = make(map[string]string)
+	b.sourceCredentials = make(map[string]*SourceCredentials)
+	b.sandboxesByProject = make(map[string]map[string]struct{})
+	b.batchesByProject = make(map[string]map[string]struct{})
+	b.commandsBySandbox = make(map[string]map[string]struct{})
+	b.reportsByGroup = make(map[string]map[string]struct{})
 }
 
 func (b *InMemoryBackend) buildProjectARN(name string) string {
@@ -845,6 +885,12 @@ func (b *InMemoryBackend) AddReportInternal(r *Report) {
 	defer b.mu.Unlock()
 
 	b.reports[r.Arn] = r
+	if r.ReportGroupArn != "" {
+		if b.reportsByGroup[r.ReportGroupArn] == nil {
+			b.reportsByGroup[r.ReportGroupArn] = make(map[string]struct{})
+		}
+		b.reportsByGroup[r.ReportGroupArn][r.Arn] = struct{}{}
+	}
 }
 
 // BatchGetReports returns reports by ARN. Missing ARNs are returned separately.
@@ -1036,6 +1082,11 @@ func (b *InMemoryBackend) StartBuildBatch(projectName string) (*BuildBatch, erro
 	}
 	b.buildBatches[id] = bb
 
+	if b.batchesByProject[projectName] == nil {
+		b.batchesByProject[projectName] = make(map[string]struct{})
+	}
+	b.batchesByProject[projectName][id] = struct{}{}
+
 	out := *bb
 
 	return &out, nil
@@ -1061,6 +1112,11 @@ func (b *InMemoryBackend) StartCommandExecution(sandboxID, command, execType str
 	_ = execType
 	b.commandExecutions[id] = ce
 
+	if b.commandsBySandbox[sandboxID] == nil {
+		b.commandsBySandbox[sandboxID] = make(map[string]struct{})
+	}
+	b.commandsBySandbox[sandboxID][id] = struct{}{}
+
 	out := *ce
 
 	return &out, nil
@@ -1083,9 +1139,443 @@ func (b *InMemoryBackend) StartSandbox(projectName string) (*Sandbox, error) {
 	}
 	b.sandboxes[id] = sb
 
+	if b.sandboxesByProject[projectName] == nil {
+		b.sandboxesByProject[projectName] = make(map[string]struct{})
+	}
+	b.sandboxesByProject[projectName][id] = struct{}{}
+
 	out := *sb
 
 	return &out, nil
+}
+
+// --- Webhook operations ---
+
+// --- Source Credentials operations ---
+
+// ImportSourceCredentials imports source credentials and returns the ARN.
+func (b *InMemoryBackend) ImportSourceCredentials(authType, serverType, token string) (string, error) {
+	b.mu.Lock("ImportSourceCredentials")
+	defer b.mu.Unlock()
+
+	_ = token
+	arnStr := "arn:aws:codebuild:" + b.region + ":" + b.accountID + ":token/" + serverType
+	b.sourceCredentials[arnStr] = &SourceCredentials{
+		Arn:        arnStr,
+		ServerType: serverType,
+		AuthType:   authType,
+	}
+
+	return arnStr, nil
+}
+
+// DeleteSourceCredentials removes source credentials by ARN.
+func (b *InMemoryBackend) DeleteSourceCredentials(arnStr string) error {
+	b.mu.Lock("DeleteSourceCredentials")
+	defer b.mu.Unlock()
+
+	if _, ok := b.sourceCredentials[arnStr]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.sourceCredentials, arnStr)
+
+	return nil
+}
+
+// ListSourceCredentials returns all stored source credentials.
+func (b *InMemoryBackend) ListSourceCredentials() []*SourceCredentials {
+	b.mu.RLock("ListSourceCredentials")
+	defer b.mu.RUnlock()
+
+	result := make([]*SourceCredentials, 0, len(b.sourceCredentials))
+	for _, sc := range b.sourceCredentials {
+		out := *sc
+		result = append(result, &out)
+	}
+
+	return result
+}
+
+// --- Resource Policy operations ---
+
+// PutResourcePolicy stores a resource policy for the given ARN.
+func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policy string) error {
+	b.mu.Lock("PutResourcePolicy")
+	defer b.mu.Unlock()
+
+	b.resourcePolicies[resourceArn] = policy
+
+	return nil
+}
+
+// GetResourcePolicy returns the resource policy for the given ARN, or "{}" if not found.
+func (b *InMemoryBackend) GetResourcePolicy(resourceArn string) (string, error) {
+	b.mu.RLock("GetResourcePolicy")
+	defer b.mu.RUnlock()
+
+	if p, ok := b.resourcePolicies[resourceArn]; ok {
+		return p, nil
+	}
+
+	return "{}", nil
+}
+
+// DeleteResourcePolicy removes the resource policy for the given ARN (idempotent).
+func (b *InMemoryBackend) DeleteResourcePolicy(resourceArn string) error {
+	b.mu.Lock("DeleteResourcePolicy")
+	defer b.mu.Unlock()
+
+	delete(b.resourcePolicies, resourceArn)
+
+	return nil
+}
+
+// --- Extended Report operations ---
+
+// DeleteReport removes a report by ARN.
+func (b *InMemoryBackend) DeleteReport(arnStr string) error {
+	b.mu.Lock("DeleteReport")
+	defer b.mu.Unlock()
+
+	r, ok := b.reports[arnStr]
+	if !ok {
+		return ErrNotFound
+	}
+
+	if r.ReportGroupArn != "" {
+		if set, ok2 := b.reportsByGroup[r.ReportGroupArn]; ok2 {
+			delete(set, arnStr)
+		}
+	}
+
+	delete(b.reports, arnStr)
+
+	return nil
+}
+
+// ListReports returns all report ARNs in sorted order.
+func (b *InMemoryBackend) ListReports() []string {
+	b.mu.RLock("ListReports")
+	defer b.mu.RUnlock()
+
+	arns := make([]string, 0, len(b.reports))
+	for a := range b.reports {
+		arns = append(arns, a)
+	}
+
+	sort.Strings(arns)
+
+	return arns
+}
+
+// ListReportsForReportGroup returns all report ARNs for the given report group ARN.
+func (b *InMemoryBackend) ListReportsForReportGroup(reportGroupArn string) []string {
+	b.mu.RLock("ListReportsForReportGroup")
+	defer b.mu.RUnlock()
+
+	set := b.reportsByGroup[reportGroupArn]
+	arns := make([]string, 0, len(set))
+	for a := range set {
+		arns = append(arns, a)
+	}
+
+	sort.Strings(arns)
+
+	return arns
+}
+
+// --- Extended ReportGroup operations ---
+
+// DeleteReportGroup removes a report group by ARN.
+func (b *InMemoryBackend) DeleteReportGroup(arnStr string) error {
+	b.mu.Lock("DeleteReportGroup")
+	defer b.mu.Unlock()
+
+	name, ok := b.reportGroupARNIndex[arnStr]
+	if !ok {
+		return ErrNotFound
+	}
+
+	delete(b.reportGroups, name)
+	delete(b.reportGroupARNIndex, arnStr)
+
+	return nil
+}
+
+// UpdateReportGroup updates the export config of a report group.
+func (b *InMemoryBackend) UpdateReportGroup(arnStr string, exportConfig *ReportExportConfig) (*ReportGroup, error) {
+	b.mu.Lock("UpdateReportGroup")
+	defer b.mu.Unlock()
+
+	name, ok := b.reportGroupARNIndex[arnStr]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	rg := b.reportGroups[name]
+	if exportConfig != nil {
+		rg.ExportConfig = *exportConfig
+	}
+
+	rg.LastModified = float64(time.Now().Unix())
+	out := *rg
+
+	return &out, nil
+}
+
+// --- Extended Webhook operations ---
+
+// DeleteWebhook removes the webhook for a project.
+func (b *InMemoryBackend) DeleteWebhook(projectName string) error {
+	b.mu.Lock("DeleteWebhook")
+	defer b.mu.Unlock()
+
+	if _, ok := b.webhooks[projectName]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.webhooks, projectName)
+
+	return nil
+}
+
+// UpdateWebhook updates the branchFilter and buildType of an existing webhook.
+func (b *InMemoryBackend) UpdateWebhook(projectName, branchFilter, buildType string) (*Webhook, error) {
+	b.mu.Lock("UpdateWebhook")
+	defer b.mu.Unlock()
+
+	w, ok := b.webhooks[projectName]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	w.BranchFilter = branchFilter
+	w.BuildType = buildType
+	out := *w
+
+	return &out, nil
+}
+
+// --- Extended Fleet operations ---
+
+// UpdateFleet updates the base capacity of a fleet.
+func (b *InMemoryBackend) UpdateFleet(arnStr string, baseCapacity int32) (*Fleet, error) {
+	b.mu.Lock("UpdateFleet")
+	defer b.mu.Unlock()
+
+	name, ok := b.fleetARNIndex[arnStr]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	f := b.fleets[name]
+	f.BaseCapacity = baseCapacity
+	f.LastModified = float64(time.Now().Unix())
+	out := *f
+
+	return &out, nil
+}
+
+// --- Extended BuildBatch operations ---
+
+// RetryBuildBatch creates a new build batch with the same project as an existing one.
+func (b *InMemoryBackend) RetryBuildBatch(id string) (*BuildBatch, error) {
+	b.mu.Lock("RetryBuildBatch")
+	defer b.mu.Unlock()
+
+	existing, ok := b.buildBatches[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	projectName := existing.ProjectName
+	newID := projectName + ":" + uuid.NewString()
+	bb := &BuildBatch{
+		ID:               newID,
+		ProjectName:      projectName,
+		BuildBatchStatus: "IN_PROGRESS",
+		StartTime:        float64(time.Now().Unix()),
+	}
+	b.buildBatches[newID] = bb
+
+	if b.batchesByProject[projectName] == nil {
+		b.batchesByProject[projectName] = make(map[string]struct{})
+	}
+	b.batchesByProject[projectName][newID] = struct{}{}
+
+	out := *bb
+
+	return &out, nil
+}
+
+// StopBuildBatch marks a build batch as STOPPED.
+func (b *InMemoryBackend) StopBuildBatch(id string) (*BuildBatch, error) {
+	b.mu.Lock("StopBuildBatch")
+	defer b.mu.Unlock()
+
+	bb, ok := b.buildBatches[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	bb.BuildBatchStatus = "STOPPED"
+	out := *bb
+
+	return &out, nil
+}
+
+// ListBuildBatchesForProject returns all batch IDs for a project in sorted order.
+func (b *InMemoryBackend) ListBuildBatchesForProject(projectName string) ([]string, error) {
+	b.mu.RLock("ListBuildBatchesForProject")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.projects[projectName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	set := b.batchesByProject[projectName]
+	ids := make([]string, 0, len(set))
+	for id := range set {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+
+	return ids, nil
+}
+
+// --- Extended Sandbox operations ---
+
+// StopSandbox marks a sandbox as STOPPED.
+func (b *InMemoryBackend) StopSandbox(id string) (*Sandbox, error) {
+	b.mu.Lock("StopSandbox")
+	defer b.mu.Unlock()
+
+	sb, ok := b.sandboxes[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	sb.Status = "STOPPED"
+	out := *sb
+
+	return &out, nil
+}
+
+// ListSandboxesForProject returns all sandbox IDs for a project in sorted order.
+func (b *InMemoryBackend) ListSandboxesForProject(projectName string) ([]string, error) {
+	b.mu.RLock("ListSandboxesForProject")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.projects[projectName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	set := b.sandboxesByProject[projectName]
+	ids := make([]string, 0, len(set))
+	for id := range set {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+
+	return ids, nil
+}
+
+// --- Extended CommandExecution operations ---
+
+// ListCommandExecutionsForSandbox returns all command execution IDs for a sandbox in sorted order.
+func (b *InMemoryBackend) ListCommandExecutionsForSandbox(sandboxID string) ([]string, error) {
+	b.mu.RLock("ListCommandExecutionsForSandbox")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.sandboxes[sandboxID]; !ok {
+		return nil, ErrNotFound
+	}
+
+	set := b.commandsBySandbox[sandboxID]
+	ids := make([]string, 0, len(set))
+	for id := range set {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+
+	return ids, nil
+}
+
+// --- Extended Project operations ---
+
+// UpdateProjectVisibility sets the visibility of a project by ARN.
+func (b *InMemoryBackend) UpdateProjectVisibility(projectArn, visibility string) error {
+	b.mu.Lock("UpdateProjectVisibility")
+	defer b.mu.Unlock()
+
+	name, ok := b.projectARNIndex[projectArn]
+	if !ok {
+		return ErrNotFound
+	}
+
+	b.projects[name].Visibility = visibility
+
+	return nil
+}
+
+// InvalidateProjectCache is a no-op cache invalidation (returns ErrNotFound if project missing).
+func (b *InMemoryBackend) InvalidateProjectCache(projectName string) error {
+	b.mu.RLock("InvalidateProjectCache")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.projects[projectName]; !ok {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// --- Misc read-only operations ---
+
+// DescribeCodeCoverages returns an empty list (no state needed).
+func (b *InMemoryBackend) DescribeCodeCoverages(_ string) ([]CodeCoverage, error) {
+	return []CodeCoverage{}, nil
+}
+
+// DescribeTestCases returns an empty list (no state needed).
+func (b *InMemoryBackend) DescribeTestCases(_ string) ([]TestCase, error) {
+	return []TestCase{}, nil
+}
+
+// GetReportGroupTrend returns an empty stats map (no state needed).
+func (b *InMemoryBackend) GetReportGroupTrend(_ string) (map[string]any, error) {
+	return map[string]any{}, nil
+}
+
+// ListSharedProjects returns an empty list (no shared projects in emulator).
+func (b *InMemoryBackend) ListSharedProjects() []string {
+	return []string{}
+}
+
+// ListSharedReportGroups returns an empty list (no shared report groups in emulator).
+func (b *InMemoryBackend) ListSharedReportGroups() []string {
+	return []string{}
+}
+
+// ListCuratedEnvironmentImages returns a minimal hardcoded list of curated images.
+func (b *InMemoryBackend) ListCuratedEnvironmentImages() []map[string]any {
+	return []map[string]any{
+		{
+			"platform": "UBUNTU",
+			"languages": []map[string]any{
+				{
+					"language": "PYTHON",
+					"images": []map[string]any{
+						{"name": "aws/codebuild/standard:7.0"},
+					},
+				},
+			},
+		},
+	}
 }
 
 // --- Webhook operations ---
