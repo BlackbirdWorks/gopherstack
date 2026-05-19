@@ -158,9 +158,9 @@ type InstanceTypeOffering struct {
 func (b *InMemoryBackend) DescribeInstanceTypeOfferings() []InstanceTypeOffering {
 	azs := b.DescribeAvailabilityZones(b.Region)
 	types := []string{
-		"t3.nano", instanceTypeT3Micro, "t3.small", "t3.medium", "t3.large",
+		"t3.nano", instanceTypeT3Micro, "t3.small", instanceTypeT3Medium, "t3.large",
 		"t3.xlarge", "t3.2xlarge",
-		"m5.large", "m5.xlarge", "m5.2xlarge", "m5.4xlarge",
+		"m5.large", instanceTypeM5Xlarge, "m5.2xlarge", "m5.4xlarge",
 		"c5.large", "c5.xlarge", "c5.2xlarge",
 		"r5.large", "r5.xlarge",
 		"p3.2xlarge",

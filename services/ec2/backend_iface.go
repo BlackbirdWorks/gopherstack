@@ -861,4 +861,64 @@ type Backend interface {
 		subnetID, cidr, reservationType, description string,
 	) (*SubnetCIDRReservation, error)
 	DeleteSubnetCidrReservation(reservationID string) error
+
+	// ---- batch3 ----
+
+	CreateCapacityReservation(
+		instanceType, availabilityZone string,
+		instanceCount int,
+	) (*CapacityReservation, error)
+	CancelCapacityReservation(reservationID string) error
+	ModifyCapacityReservation(reservationID string, instanceCount int) error
+	GetGroupsForCapacityReservation(reservationID string) ([]string, error)
+	CreateInstanceConnectEndpoint(
+		subnetID string,
+		securityGroupIDs []string,
+		preserveClientIP bool,
+	) (*InstanceConnectEndpoint, error)
+	DeleteInstanceConnectEndpoint(id string) error
+	DescribeInstanceConnectEndpoints(ids []string) []*InstanceConnectEndpoint
+	ModifyInstanceConnectEndpoint(id string, preserveClientIP bool) error
+	CreateInstanceEventWindow(name, cronExpression string) (*InstanceEventWindow, error)
+	DeleteInstanceEventWindow(id string) error
+	DescribeInstanceEventWindows(ids []string) []*InstanceEventWindow
+	ModifyInstanceEventWindow(id, name, cronExpression string) error
+	CreateSpotDatafeedSubscription(bucket, prefix string) (*SpotDatafeed, error)
+	DeleteSpotDatafeedSubscription()
+	DescribeSpotDatafeedSubscription() *SpotDatafeed
+	RegisterImage(name, description, architecture string) (*AMIStub, error)
+	ImportImage(description, architecture, platform string) (*ImageImportTask, error)
+	DescribeImportImageTasks(taskIDs []string) []*ImageImportTask
+	ExportImage(imageID, description string) (string, error)
+	ListImagesInRecycleBin(imageIDs []string) []*RecycleBinImage
+	RestoreImageFromRecycleBin(imageID string) error
+	ListSnapshotsInRecycleBin(snapshotIDs []string) []*Snapshot
+	RestoreSnapshotFromRecycleBin(snapshotID string) error
+	RestoreSnapshotTier(snapshotID string) error
+	ImportSnapshot(description string) (*SnapshotImportTask, error)
+	DescribeImportSnapshotTasks(taskIDs []string) []*SnapshotImportTask
+	EnableFastLaunch(imageID string) error
+	DisableFastLaunch(imageID string) error
+	DescribeFastLaunchImages(imageIDs []string) []FastLaunchImageItem
+	EnableFastSnapshotRestores(snapshotIDs, availabilityZones []string) error
+	DisableFastSnapshotRestores(snapshotIDs, availabilityZones []string) error
+	DescribeFastSnapshotRestores() []FastSnapshotRestoreItem
+	GetPasswordData(instanceID string) (string, time.Time, error)
+	GetConsoleScreenshot(instanceID string) (string, error)
+	GetInstanceTypesFromInstanceRequirements() []string
+	GetSubnetCidrReservations(subnetID string) ([]*SubnetCIDRReservation, error)
+	GetSecurityGroupsForVpc(vpcID string) ([]SecurityGroupForVpcItem, error)
+	ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID string) error
+	RegisterInstanceEventNotificationAttributes(includeAllTags bool)
+	ResetEbsDefaultKmsKeyID()
+	UpdateSecurityGroupRuleDescriptionsIngress(groupID string, rules []SecurityGroupRule) error
+	UpdateSecurityGroupRuleDescriptionsEgress(groupID string, rules []SecurityGroupRule) error
+	ListVolumesInRecycleBin(volumeIDs []string) []*RecycleBinVolume
+	RestoreVolumeFromRecycleBin(volumeID string) error
+	RestoreAddressToClassic(publicIP string) error
+	ReportInstanceStatus(instanceID, status, description string) error
+	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error
+	CreateVpnConnectionRoute(vpnConnectionID, destinationCIDR string) (*VpnConnectionRoute, error)
+	DeleteVpnConnectionRoute(vpnConnectionID, destinationCIDR string) error
+	ModifyTransitGateway(tgwID, description string) error
 }
