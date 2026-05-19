@@ -531,7 +531,7 @@ func TestHandler_TagResource(t *testing.T) {
 				_ = h.Backend.CreateSubscription()
 				p, _ := h.Backend.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
 
-				return p.ID
+				return p.ProtectionArn
 			},
 			body: func(id string) map[string]any {
 				return map[string]any{
@@ -596,7 +596,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 				p, _ := h.Backend.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1",
 					map[string]string{"env": "prod"})
 
-				return p.ID
+				return p.ProtectionArn
 			},
 			body: func(id string) map[string]any {
 				return map[string]any{"ResourceARN": id}
@@ -653,7 +653,7 @@ func TestHandler_UntagResource(t *testing.T) {
 				p, _ := h.Backend.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1",
 					map[string]string{"env": "prod"})
 
-				return p.ID
+				return p.ProtectionArn
 			},
 			body: func(id string) map[string]any {
 				return map[string]any{
