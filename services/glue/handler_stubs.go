@@ -78,19 +78,29 @@ func (h *Handler) handleBatchGetPartition(
 }
 
 // batchGetTableOptimizerInput holds input for BatchGetTableOptimizer.
-type batchGetTableOptimizerInput struct{}
+type batchGetTableOptimizerInput struct {
+	Entries []BatchGetTableOptimizerEntry `json:"Entries"`
+}
 
 // batchGetTableOptimizerOutput holds the result for BatchGetTableOptimizer.
 type batchGetTableOptimizerOutput struct {
-	TableOptimizers []any `json:"TableOptimizers"`
-	Failures        []any `json:"Failures"`
+	TableOptimizers []*TableOptimizer             `json:"TableOptimizers"`
+	Failures        []BatchGetTableOptimizerError `json:"Failures"`
 }
 
 func (h *Handler) handleBatchGetTableOptimizer(
 	_ context.Context,
-	_ *batchGetTableOptimizerInput,
+	in *batchGetTableOptimizerInput,
 ) (*batchGetTableOptimizerOutput, error) {
-	return &batchGetTableOptimizerOutput{TableOptimizers: []any{}, Failures: []any{}}, nil
+	found, errs := h.Backend.BatchGetTableOptimizer(in.Entries)
+	if found == nil {
+		found = []*TableOptimizer{}
+	}
+	if errs == nil {
+		errs = []BatchGetTableOptimizerError{}
+	}
+
+	return &batchGetTableOptimizerOutput{TableOptimizers: found, Failures: errs}, nil
 }
 
 // batchGetTriggersInput holds input for BatchGetTriggers.
@@ -185,7 +195,10 @@ func (h *Handler) handleBatchUpdatePartition(
 		); err != nil {
 			errs = append(errs, batchUpdatePartitionError{
 				PartitionValueList: entry.PartitionValueList,
-				ErrorDetail:        ErrorDetail{ErrorCode: errEntityNotFoundCode, ErrorMessage: err.Error()},
+				ErrorDetail: ErrorDetail{
+					ErrorCode:    errEntityNotFoundCode,
+					ErrorMessage: err.Error(),
+				},
 			})
 		}
 	}
@@ -214,13 +227,16 @@ func (h *Handler) handleCancelMLTaskRun(
 }
 
 // cancelStatementInput holds input for CancelStatement.
-type cancelStatementInput struct{}
+type cancelStatementInput struct {
+	SessionID   string `json:"SessionId"`
+	StatementID int32  `json:"Id"`
+}
 
 func (h *Handler) handleCancelStatement(
 	_ context.Context,
-	_ *cancelStatementInput,
+	in *cancelStatementInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.CancelStatement(in.SessionID, in.StatementID)
 }
 
 // checkSchemaVersionValidityInput holds input for CheckSchemaVersionValidity.
@@ -257,13 +273,25 @@ func (h *Handler) handleCreateBlueprint(
 }
 
 // createCatalogInput holds input for CreateCatalog.
-type createCatalogInput struct{}
+type createCatalogInput struct { //nolint:govet // JSON field order matters
+	CatalogID    string   `json:"CatalogId"`
+	CatalogInput struct { //nolint:govet // JSON field order matters
+		Name        string            `json:"Name,omitempty"`
+		Description string            `json:"Description,omitempty"`
+		Parameters  map[string]string `json:"Parameters,omitzero"`
+	} `json:"CatalogInput"`
+}
 
 func (h *Handler) handleCreateCatalog(
 	_ context.Context,
-	_ *createCatalogInput,
+	in *createCatalogInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.CreateCatalog(
+		in.CatalogID,
+		in.CatalogInput.Name,
+		in.CatalogInput.Description,
+		in.CatalogInput.Parameters,
+	)
 }
 
 // createClassifierInput holds input for CreateClassifier.
@@ -389,8 +417,13 @@ func (h *Handler) handleCreateIntegrationTableProperties(
 }
 
 // createMLTransformInput holds input for CreateMLTransform.
-type createMLTransformInput struct {
-	Name string `json:"Name"`
+type createMLTransformInput struct { //nolint:govet // JSON field order matters
+	Tags              map[string]string    `json:"Tags,omitempty"`
+	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
+	Parameters        MLTransformParameter `json:"Parameters,omitzero"`
+	Name              string               `json:"Name"`
+	Description       string               `json:"Description,omitempty"`
+	Role              string               `json:"Role,omitempty"`
 }
 
 // createMLTransformOutput holds the result for CreateMLTransform.
@@ -400,9 +433,21 @@ type createMLTransformOutput struct {
 
 func (h *Handler) handleCreateMLTransform(
 	_ context.Context,
-	_ *createMLTransformInput,
+	in *createMLTransformInput,
 ) (*createMLTransformOutput, error) {
-	return &createMLTransformOutput{TransformID: "transform-stub"}, nil
+	m, err := h.Backend.CreateMLTransform(
+		in.Name,
+		in.Description,
+		in.Role,
+		in.InputRecordTables,
+		in.Parameters,
+		in.Tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createMLTransformOutput{TransformID: m.TransformID}, nil
 }
 
 // createPartitionInput holds input for CreatePartition.
@@ -549,7 +594,8 @@ func (h *Handler) handleCreateScript(
 
 // createSecurityConfigurationInput holds input for CreateSecurityConfiguration.
 type createSecurityConfigurationInput struct {
-	Name string `json:"Name"`
+	EncryptionConfiguration EncryptionConfiguration `json:"EncryptionConfiguration"`
+	Name                    string                  `json:"Name"`
 }
 
 // createSecurityConfigurationOutput holds the result for CreateSecurityConfiguration.
@@ -562,36 +608,68 @@ func (h *Handler) handleCreateSecurityConfiguration(
 	_ context.Context,
 	in *createSecurityConfigurationInput,
 ) (*createSecurityConfigurationOutput, error) {
-	return &createSecurityConfigurationOutput{Name: in.Name}, nil
+	sc, err := h.Backend.CreateSecurityConfiguration(in.Name, in.EncryptionConfiguration)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createSecurityConfigurationOutput{Name: sc.Name, CreatedOn: sc.CreatedTimeStamp}, nil
 }
 
 // createSessionInput holds input for CreateSession.
 type createSessionInput struct {
-	ID string `json:"Id"`
+	DefaultArguments map[string]string `json:"DefaultArguments,omitempty"`
+	Command          SessionCommand    `json:"Command"`
+	ID               string            `json:"Id"`
+	Role             string            `json:"Role,omitempty"`
+	Description      string            `json:"Description,omitempty"`
+	Timeout          int32             `json:"Timeout,omitempty"`
+	MaxCapacity      float64           `json:"MaxCapacity,omitempty"`
 }
 
 // createSessionOutput holds the result for CreateSession.
 type createSessionOutput struct {
-	Session any `json:"Session"`
+	Session *Session `json:"Session"`
 }
 
 func (h *Handler) handleCreateSession(
 	_ context.Context,
 	in *createSessionInput,
 ) (*createSessionOutput, error) {
-	return &createSessionOutput{
-		Session: map[string]string{"Id": in.ID, "Status": stateProvisioning},
-	}, nil
+	opts := Session{
+		Timeout:          in.Timeout,
+		MaxCapacity:      in.MaxCapacity,
+		Description:      in.Description,
+		DefaultArguments: in.DefaultArguments,
+	}
+	s, err := h.Backend.CreateSession(in.ID, in.Role, in.Command, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createSessionOutput{Session: s}, nil
 }
 
 // createTableOptimizerInput holds input for CreateTableOptimizer.
-type createTableOptimizerInput struct{}
+type createTableOptimizerInput struct {
+	CatalogID                   string                      `json:"CatalogId,omitempty"`
+	DatabaseName                string                      `json:"DatabaseName"`
+	TableName                   string                      `json:"TableName"`
+	Type                        string                      `json:"Type"`
+	TableOptimizerConfiguration TableOptimizerConfiguration `json:"TableOptimizerConfiguration"`
+}
 
 func (h *Handler) handleCreateTableOptimizer(
 	_ context.Context,
-	_ *createTableOptimizerInput,
+	in *createTableOptimizerInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.CreateTableOptimizer(
+		in.CatalogID,
+		in.DatabaseName,
+		in.TableName,
+		in.Type,
+		in.TableOptimizerConfiguration,
+	)
 }
 
 // createTriggerInput holds input for CreateTrigger.
@@ -647,13 +725,19 @@ func (h *Handler) handleCreateUsageProfile(
 }
 
 // createUserDefinedFunctionInput holds input for CreateUserDefinedFunction.
-type createUserDefinedFunctionInput struct{}
+type createUserDefinedFunctionInput struct { //nolint:govet // JSON field order matters
+	DatabaseName  string              `json:"DatabaseName"`
+	FunctionInput UserDefinedFunction `json:"FunctionInput"`
+	Tags          map[string]string   `json:"Tags,omitempty"`
+}
 
 func (h *Handler) handleCreateUserDefinedFunction(
 	_ context.Context,
-	_ *createUserDefinedFunctionInput,
+	in *createUserDefinedFunctionInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	_, err := h.Backend.CreateUserDefinedFunction(in.DatabaseName, in.FunctionInput, in.Tags)
+
+	return &emptyOutput{}, err
 }
 
 // createWorkflowInput holds input for CreateWorkflow.
@@ -705,13 +789,15 @@ func (h *Handler) handleDeleteBlueprint(
 }
 
 // deleteCatalogInput holds input for DeleteCatalog.
-type deleteCatalogInput struct{}
+type deleteCatalogInput struct {
+	CatalogID string `json:"CatalogId"`
+}
 
 func (h *Handler) handleDeleteCatalog(
 	_ context.Context,
-	_ *deleteCatalogInput,
+	in *deleteCatalogInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteCatalog(in.CatalogID)
 }
 
 // deleteClassifierInput holds input for DeleteClassifier.
@@ -731,23 +817,41 @@ func (h *Handler) handleDeleteClassifier(
 }
 
 // deleteColumnStatisticsForPartitionInput holds input for DeleteColumnStatisticsForPartition.
-type deleteColumnStatisticsForPartitionInput struct{}
+type deleteColumnStatisticsForPartitionInput struct { //nolint:govet // JSON field order matters
+	DatabaseName    string   `json:"DatabaseName"`
+	TableName       string   `json:"TableName"`
+	PartitionValues []string `json:"PartitionValues"`
+	ColumnName      string   `json:"ColumnName"`
+}
 
 func (h *Handler) handleDeleteColumnStatisticsForPartition(
 	_ context.Context,
-	_ *deleteColumnStatisticsForPartitionInput,
+	in *deleteColumnStatisticsForPartitionInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteColumnStatisticsForPartition(
+		in.DatabaseName,
+		in.TableName,
+		in.PartitionValues,
+		in.ColumnName,
+	)
 }
 
 // deleteColumnStatisticsForTableInput holds input for DeleteColumnStatisticsForTable.
-type deleteColumnStatisticsForTableInput struct{}
+type deleteColumnStatisticsForTableInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+	ColumnName   string `json:"ColumnName"`
+}
 
 func (h *Handler) handleDeleteColumnStatisticsForTable(
 	_ context.Context,
-	_ *deleteColumnStatisticsForTableInput,
+	in *deleteColumnStatisticsForTableInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteColumnStatisticsForTable(
+		in.DatabaseName,
+		in.TableName,
+		in.ColumnName,
+	)
 }
 
 // deleteColumnStatisticsTaskSettingsInput holds input for DeleteColumnStatisticsTaskSettings.
@@ -864,6 +968,10 @@ func (h *Handler) handleDeleteMLTransform(
 	_ context.Context,
 	in *deleteMLTransformInput,
 ) (*deleteMLTransformOutput, error) {
+	if err := h.Backend.DeleteMLTransform(in.TransformID); err != nil {
+		return nil, err
+	}
+
 	return &deleteMLTransformOutput{TransformID: in.TransformID}, nil
 }
 
@@ -929,13 +1037,16 @@ func (h *Handler) handleDeleteRegistry(
 }
 
 // deleteResourcePolicyInput holds input for DeleteResourcePolicy.
-type deleteResourcePolicyInput struct{}
+type deleteResourcePolicyInput struct {
+	ResourceArn string `json:"ResourceArn,omitempty"`
+	PolicyHash  string `json:"PolicyHashCondition,omitempty"`
+}
 
 func (h *Handler) handleDeleteResourcePolicy(
 	_ context.Context,
-	_ *deleteResourcePolicyInput,
+	in *deleteResourcePolicyInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteResourcePolicy(in.ResourceArn, in.PolicyHash)
 }
 
 // schemaIDInput identifies a schema by registry + schema name or by ARN.
@@ -990,13 +1101,15 @@ func (h *Handler) handleDeleteSchemaVersions(
 }
 
 // deleteSecurityConfigurationInput holds input for DeleteSecurityConfiguration.
-type deleteSecurityConfigurationInput struct{}
+type deleteSecurityConfigurationInput struct {
+	Name string `json:"Name"`
+}
 
 func (h *Handler) handleDeleteSecurityConfiguration(
 	_ context.Context,
-	_ *deleteSecurityConfigurationInput,
+	in *deleteSecurityConfigurationInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteSecurityConfiguration(in.Name)
 }
 
 // deleteSessionInput holds input for DeleteSession.
@@ -1013,27 +1126,40 @@ func (h *Handler) handleDeleteSession(
 	_ context.Context,
 	in *deleteSessionInput,
 ) (*deleteSessionOutput, error) {
+	if err := h.Backend.DeleteSession(in.ID); err != nil {
+		return nil, err
+	}
+
 	return &deleteSessionOutput{ID: in.ID}, nil
 }
 
 // deleteTableOptimizerInput holds input for DeleteTableOptimizer.
-type deleteTableOptimizerInput struct{}
+type deleteTableOptimizerInput struct {
+	CatalogID    string `json:"CatalogId,omitempty"`
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+	Type         string `json:"Type"`
+}
 
 func (h *Handler) handleDeleteTableOptimizer(
 	_ context.Context,
-	_ *deleteTableOptimizerInput,
+	in *deleteTableOptimizerInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteTableOptimizer(in.DatabaseName, in.TableName, in.Type)
 }
 
 // deleteTableVersionInput holds input for DeleteTableVersion.
-type deleteTableVersionInput struct{}
+type deleteTableVersionInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+	VersionID    string `json:"VersionId"`
+}
 
 func (h *Handler) handleDeleteTableVersion(
 	_ context.Context,
-	_ *deleteTableVersionInput,
+	in *deleteTableVersionInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteTableVersion(in.DatabaseName, in.TableName, in.VersionID)
 }
 
 // deleteTriggerInput holds input for DeleteTrigger.
@@ -1068,13 +1194,16 @@ func (h *Handler) handleDeleteUsageProfile(
 }
 
 // deleteUserDefinedFunctionInput holds input for DeleteUserDefinedFunction.
-type deleteUserDefinedFunctionInput struct{}
+type deleteUserDefinedFunctionInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	FunctionName string `json:"FunctionName"`
+}
 
 func (h *Handler) handleDeleteUserDefinedFunction(
 	_ context.Context,
-	_ *deleteUserDefinedFunctionInput,
+	in *deleteUserDefinedFunctionInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteUserDefinedFunction(in.DatabaseName, in.FunctionName)
 }
 
 // deleteWorkflowInput holds input for DeleteWorkflow.
@@ -1211,22 +1340,31 @@ func (h *Handler) handleGetBlueprintRuns(
 }
 
 // getCatalogInput holds input for GetCatalog.
-type getCatalogInput struct{}
+type getCatalogInput struct {
+	CatalogID string `json:"CatalogId"`
+}
 
 // getCatalogOutput holds the result for GetCatalog.
 type getCatalogOutput struct {
-	Catalog any `json:"Catalog"`
+	Catalog *CatalogEntry `json:"Catalog"`
 }
 
 func (h *Handler) handleGetCatalog(
 	_ context.Context,
-	_ *getCatalogInput,
+	in *getCatalogInput,
 ) (*getCatalogOutput, error) {
-	return &getCatalogOutput{}, nil
+	c, err := h.Backend.GetCatalog(in.CatalogID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getCatalogOutput{Catalog: c}, nil
 }
 
 // getCatalogImportStatusInput holds input for GetCatalogImportStatus.
-type getCatalogImportStatusInput struct{}
+type getCatalogImportStatusInput struct {
+	CatalogID string `json:"CatalogId,omitempty"`
+}
 
 // getCatalogImportStatusOutput holds the result for GetCatalogImportStatus.
 type getCatalogImportStatusOutput struct {
@@ -1245,14 +1383,19 @@ type getCatalogsInput struct{}
 
 // getCatalogsOutput holds the result for GetCatalogs.
 type getCatalogsOutput struct {
-	CatalogList []any `json:"CatalogList"`
+	CatalogList []*CatalogEntry `json:"CatalogList"`
 }
 
 func (h *Handler) handleGetCatalogs(
 	_ context.Context,
 	_ *getCatalogsInput,
 ) (*getCatalogsOutput, error) {
-	return &getCatalogsOutput{CatalogList: []any{}}, nil
+	catalogs := h.Backend.GetCatalogs()
+	if catalogs == nil {
+		catalogs = []*CatalogEntry{}
+	}
+
+	return &getCatalogsOutput{CatalogList: catalogs}, nil
 }
 
 // getClassifierInput holds input for GetClassifier.
@@ -1293,38 +1436,69 @@ func (h *Handler) handleGetClassifiers(
 }
 
 // getColumnStatisticsForPartitionInput holds input for GetColumnStatisticsForPartition.
-type getColumnStatisticsForPartitionInput struct{}
+type getColumnStatisticsForPartitionInput struct {
+	DatabaseName    string   `json:"DatabaseName"`
+	TableName       string   `json:"TableName"`
+	PartitionValues []string `json:"PartitionValues"`
+	ColumnNames     []string `json:"ColumnNames,omitempty"`
+}
 
 // getColumnStatisticsForPartitionOutput holds the result for GetColumnStatisticsForPartition.
 type getColumnStatisticsForPartitionOutput struct {
-	ColumnStatisticsList []any `json:"ColumnStatisticsList"`
-	Errors               []any `json:"Errors"`
+	ColumnStatisticsList []*ColumnStatistics `json:"ColumnStatisticsList"`
+	Errors               []any               `json:"Errors"`
 }
 
 func (h *Handler) handleGetColumnStatisticsForPartition(
 	_ context.Context,
-	_ *getColumnStatisticsForPartitionInput,
+	in *getColumnStatisticsForPartitionInput,
 ) (*getColumnStatisticsForPartitionOutput, error) {
-	return &getColumnStatisticsForPartitionOutput{
-		ColumnStatisticsList: []any{},
-		Errors:               []any{},
-	}, nil
+	stats, err := h.Backend.GetColumnStatisticsForPartition(
+		in.DatabaseName,
+		in.TableName,
+		in.PartitionValues,
+		in.ColumnNames,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if stats == nil {
+		stats = []*ColumnStatistics{}
+	}
+
+	return &getColumnStatisticsForPartitionOutput{ColumnStatisticsList: stats, Errors: []any{}}, nil
 }
 
 // getColumnStatisticsForTableInput holds input for GetColumnStatisticsForTable.
-type getColumnStatisticsForTableInput struct{}
+type getColumnStatisticsForTableInput struct {
+	DatabaseName string   `json:"DatabaseName"`
+	TableName    string   `json:"TableName"`
+	ColumnNames  []string `json:"ColumnNames,omitempty"`
+}
 
 // getColumnStatisticsForTableOutput holds the result for GetColumnStatisticsForTable.
 type getColumnStatisticsForTableOutput struct {
-	ColumnStatisticsList []any `json:"ColumnStatisticsList"`
-	Errors               []any `json:"Errors"`
+	ColumnStatisticsList []*ColumnStatistics `json:"ColumnStatisticsList"`
+	Errors               []any               `json:"Errors"`
 }
 
 func (h *Handler) handleGetColumnStatisticsForTable(
 	_ context.Context,
-	_ *getColumnStatisticsForTableInput,
+	in *getColumnStatisticsForTableInput,
 ) (*getColumnStatisticsForTableOutput, error) {
-	return &getColumnStatisticsForTableOutput{ColumnStatisticsList: []any{}, Errors: []any{}}, nil
+	stats, err := h.Backend.GetColumnStatisticsForTable(
+		in.DatabaseName,
+		in.TableName,
+		in.ColumnNames,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if stats == nil {
+		stats = []*ColumnStatistics{}
+	}
+
+	return &getColumnStatisticsForTableOutput{ColumnStatisticsList: stats, Errors: []any{}}, nil
 }
 
 // getColumnStatisticsTaskRunInput holds input for GetColumnStatisticsTaskRun.
@@ -1420,20 +1594,25 @@ func (h *Handler) handleGetCustomEntityType(
 }
 
 // getDataCatalogEncryptionSettingsInput holds input for GetDataCatalogEncryptionSettings.
-type getDataCatalogEncryptionSettingsInput struct{}
+type getDataCatalogEncryptionSettingsInput struct {
+	CatalogID string `json:"CatalogId,omitempty"`
+}
 
 // getDataCatalogEncryptionSettingsOutput holds the result for GetDataCatalogEncryptionSettings.
 type getDataCatalogEncryptionSettingsOutput struct {
-	DataCatalogEncryptionSettings any `json:"DataCatalogEncryptionSettings"`
+	DataCatalogEncryptionSettings *DataCatalogEncryptionSettings `json:"DataCatalogEncryptionSettings"`
 }
 
 func (h *Handler) handleGetDataCatalogEncryptionSettings(
 	_ context.Context,
-	_ *getDataCatalogEncryptionSettingsInput,
+	in *getDataCatalogEncryptionSettingsInput,
 ) (*getDataCatalogEncryptionSettingsOutput, error) {
-	return &getDataCatalogEncryptionSettingsOutput{
-		DataCatalogEncryptionSettings: map[string]any{},
-	}, nil
+	s, err := h.Backend.GetDataCatalogEncryptionSettings(in.CatalogID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getDataCatalogEncryptionSettingsOutput{DataCatalogEncryptionSettings: s}, nil
 }
 
 // getDataQualityModelInput holds input for GetDataQualityModel.
@@ -1652,19 +1831,25 @@ func (h *Handler) handleGetMLTaskRuns(
 }
 
 // getMLTransformInput holds input for GetMLTransform.
-type getMLTransformInput struct{}
+type getMLTransformInput struct {
+	TransformID string `json:"TransformId"`
+}
 
 // getMLTransformOutput holds the result for GetMLTransform.
 type getMLTransformOutput struct {
-	TransformID string `json:"TransformId"`
-	Status      string `json:"Status"`
+	*MLTransform
 }
 
 func (h *Handler) handleGetMLTransform(
 	_ context.Context,
-	_ *getMLTransformInput,
+	in *getMLTransformInput,
 ) (*getMLTransformOutput, error) {
-	return &getMLTransformOutput{Status: stateReady}, nil
+	m, err := h.Backend.GetMLTransform(in.TransformID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getMLTransformOutput{MLTransform: m}, nil
 }
 
 // getMLTransformsInput holds input for GetMLTransforms.
@@ -1672,14 +1857,19 @@ type getMLTransformsInput struct{}
 
 // getMLTransformsOutput holds the result for GetMLTransforms.
 type getMLTransformsOutput struct {
-	Transforms []any `json:"Transforms"`
+	Transforms []*MLTransform `json:"Transforms"`
 }
 
 func (h *Handler) handleGetMLTransforms(
 	_ context.Context,
 	_ *getMLTransformsInput,
 ) (*getMLTransformsOutput, error) {
-	return &getMLTransformsOutput{Transforms: []any{}}, nil
+	transforms := h.Backend.GetMLTransforms()
+	if transforms == nil {
+		transforms = []*MLTransform{}
+	}
+
+	return &getMLTransformsOutput{Transforms: transforms}, nil
 }
 
 // getMappingInput holds input for GetMapping.
@@ -1845,18 +2035,26 @@ func (h *Handler) handleGetResourcePolicies(
 }
 
 // getResourcePolicyInput holds input for GetResourcePolicy.
-type getResourcePolicyInput struct{}
+type getResourcePolicyInput struct {
+	ResourceArn string `json:"ResourceArn,omitempty"`
+}
 
 // getResourcePolicyOutput holds the result for GetResourcePolicy.
 type getResourcePolicyOutput struct {
 	PolicyInJSON string `json:"PolicyInJson"`
+	PolicyHash   string `json:"PolicyHash,omitempty"`
 }
 
 func (h *Handler) handleGetResourcePolicy(
 	_ context.Context,
-	_ *getResourcePolicyInput,
+	in *getResourcePolicyInput,
 ) (*getResourcePolicyOutput, error) {
-	return &getResourcePolicyOutput{}, nil
+	policy, hash, err := h.Backend.GetResourcePolicy(in.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getResourcePolicyOutput{PolicyInJSON: policy, PolicyHash: hash}, nil
 }
 
 // getSchemaInput holds input for GetSchema.
@@ -1990,18 +2188,25 @@ func (h *Handler) handleGetSchemaVersionsDiff(
 }
 
 // getSecurityConfigurationInput holds input for GetSecurityConfiguration.
-type getSecurityConfigurationInput struct{}
+type getSecurityConfigurationInput struct {
+	Name string `json:"Name"`
+}
 
 // getSecurityConfigurationOutput holds the result for GetSecurityConfiguration.
 type getSecurityConfigurationOutput struct {
-	SecurityConfiguration any `json:"SecurityConfiguration"`
+	SecurityConfiguration *SecurityConfiguration `json:"SecurityConfiguration"`
 }
 
 func (h *Handler) handleGetSecurityConfiguration(
 	_ context.Context,
-	_ *getSecurityConfigurationInput,
+	in *getSecurityConfigurationInput,
 ) (*getSecurityConfigurationOutput, error) {
-	return &getSecurityConfigurationOutput{}, nil
+	sc, err := h.Backend.GetSecurityConfiguration(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getSecurityConfigurationOutput{SecurityConfiguration: sc}, nil
 }
 
 // getSecurityConfigurationsInput holds input for GetSecurityConfigurations.
@@ -2009,14 +2214,19 @@ type getSecurityConfigurationsInput struct{}
 
 // getSecurityConfigurationsOutput holds the result for GetSecurityConfigurations.
 type getSecurityConfigurationsOutput struct {
-	SecurityConfigurations []any `json:"SecurityConfigurations"`
+	SecurityConfigurations []*SecurityConfiguration `json:"SecurityConfigurations"`
 }
 
 func (h *Handler) handleGetSecurityConfigurations(
 	_ context.Context,
 	_ *getSecurityConfigurationsInput,
 ) (*getSecurityConfigurationsOutput, error) {
-	return &getSecurityConfigurationsOutput{SecurityConfigurations: []any{}}, nil
+	configs := h.Backend.ListSecurityConfigurations()
+	if configs == nil {
+		configs = []*SecurityConfiguration{}
+	}
+
+	return &getSecurityConfigurationsOutput{SecurityConfigurations: configs}, nil
 }
 
 // getSessionInput holds input for GetSession.
@@ -2026,44 +2236,75 @@ type getSessionInput struct {
 
 // getSessionOutput holds the result for GetSession.
 type getSessionOutput struct {
-	Session any `json:"Session"`
+	Session *Session `json:"Session"`
 }
 
 func (h *Handler) handleGetSession(
 	_ context.Context,
 	in *getSessionInput,
 ) (*getSessionOutput, error) {
-	return &getSessionOutput{Session: map[string]string{"Id": in.ID, "Status": stateReady}}, nil
+	s, err := h.Backend.GetSession(in.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getSessionOutput{Session: s}, nil
 }
 
 // getStatementInput holds input for GetStatement.
-type getStatementInput struct{}
+type getStatementInput struct {
+	SessionID   string `json:"SessionId"`
+	StatementID int32  `json:"Id"`
+}
 
 // getStatementOutput holds the result for GetStatement.
 type getStatementOutput struct {
-	Statement any `json:"Statement"`
+	Statement *Statement `json:"Statement"`
 }
 
 func (h *Handler) handleGetStatement(
 	_ context.Context,
-	_ *getStatementInput,
+	in *getStatementInput,
 ) (*getStatementOutput, error) {
-	return &getStatementOutput{}, nil
+	st, err := h.Backend.GetStatement(in.SessionID, in.StatementID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getStatementOutput{Statement: st}, nil
 }
 
 // getTableOptimizerInput holds input for GetTableOptimizer.
-type getTableOptimizerInput struct{}
+type getTableOptimizerInput struct {
+	CatalogID    string `json:"CatalogId,omitempty"`
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+	Type         string `json:"Type"`
+}
 
 // getTableOptimizerOutput holds the result for GetTableOptimizer.
 type getTableOptimizerOutput struct {
-	TableOptimizer any `json:"TableOptimizer"`
+	TableOptimizer *TableOptimizer `json:"TableOptimizer"`
+	CatalogID      string          `json:"CatalogId,omitempty"`
+	DatabaseName   string          `json:"DatabaseName,omitempty"`
+	TableName      string          `json:"TableName,omitempty"`
 }
 
 func (h *Handler) handleGetTableOptimizer(
 	_ context.Context,
-	_ *getTableOptimizerInput,
+	in *getTableOptimizerInput,
 ) (*getTableOptimizerOutput, error) {
-	return &getTableOptimizerOutput{}, nil
+	to, err := h.Backend.GetTableOptimizer(in.DatabaseName, in.TableName, in.Type)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getTableOptimizerOutput{
+		TableOptimizer: to,
+		CatalogID:      in.CatalogID,
+		DatabaseName:   in.DatabaseName,
+		TableName:      in.TableName,
+	}, nil
 }
 
 // getTableVersionInput holds input for GetTableVersion.
@@ -2214,33 +2455,48 @@ func (h *Handler) handleGetUsageProfile(
 }
 
 // getUserDefinedFunctionInput holds input for GetUserDefinedFunction.
-type getUserDefinedFunctionInput struct{}
+type getUserDefinedFunctionInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	FunctionName string `json:"FunctionName"`
+}
 
 // getUserDefinedFunctionOutput holds the result for GetUserDefinedFunction.
 type getUserDefinedFunctionOutput struct {
-	UserDefinedFunction any `json:"UserDefinedFunction"`
+	UserDefinedFunction *UserDefinedFunction `json:"UserDefinedFunction"`
 }
 
 func (h *Handler) handleGetUserDefinedFunction(
 	_ context.Context,
-	_ *getUserDefinedFunctionInput,
+	in *getUserDefinedFunctionInput,
 ) (*getUserDefinedFunctionOutput, error) {
-	return &getUserDefinedFunctionOutput{}, nil
+	u, err := h.Backend.GetUserDefinedFunction(in.DatabaseName, in.FunctionName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getUserDefinedFunctionOutput{UserDefinedFunction: u}, nil
 }
 
 // getUserDefinedFunctionsInput holds input for GetUserDefinedFunctions.
-type getUserDefinedFunctionsInput struct{}
+type getUserDefinedFunctionsInput struct {
+	DatabaseName string `json:"DatabaseName,omitempty"`
+}
 
 // getUserDefinedFunctionsOutput holds the result for GetUserDefinedFunctions.
 type getUserDefinedFunctionsOutput struct {
-	UserDefinedFunctions []any `json:"UserDefinedFunctions"`
+	UserDefinedFunctions []*UserDefinedFunction `json:"UserDefinedFunctions"`
 }
 
 func (h *Handler) handleGetUserDefinedFunctions(
 	_ context.Context,
-	_ *getUserDefinedFunctionsInput,
+	in *getUserDefinedFunctionsInput,
 ) (*getUserDefinedFunctionsOutput, error) {
-	return &getUserDefinedFunctionsOutput{UserDefinedFunctions: []any{}}, nil
+	udfs := h.Backend.GetUserDefinedFunctions(in.DatabaseName)
+	if udfs == nil {
+		udfs = []*UserDefinedFunction{}
+	}
+
+	return &getUserDefinedFunctionsOutput{UserDefinedFunctions: udfs}, nil
 }
 
 // getWorkflowInput holds input for GetWorkflow.
@@ -2659,30 +2915,46 @@ type listSessionsInput struct{}
 
 // listSessionsOutput holds the result for ListSessions.
 type listSessionsOutput struct {
-	IDs      []string `json:"Ids"`
-	Sessions []any    `json:"Sessions"`
+	IDs      []string   `json:"Ids"`
+	Sessions []*Session `json:"Sessions"`
 }
 
 func (h *Handler) handleListSessions(
 	_ context.Context,
 	_ *listSessionsInput,
 ) (*listSessionsOutput, error) {
-	return &listSessionsOutput{IDs: []string{}, Sessions: []any{}}, nil
+	sessions := h.Backend.ListSessions()
+	ids := make([]string, len(sessions))
+	for i, s := range sessions {
+		ids[i] = s.SessionID
+	}
+
+	return &listSessionsOutput{IDs: ids, Sessions: sessions}, nil
 }
 
 // listStatementsInput holds input for ListStatements.
-type listStatementsInput struct{}
+type listStatementsInput struct {
+	SessionID string `json:"SessionId"`
+}
 
 // listStatementsOutput holds the result for ListStatements.
 type listStatementsOutput struct {
-	Statements []any `json:"Statements"`
+	Statements []*Statement `json:"Statements"`
 }
 
 func (h *Handler) handleListStatements(
 	_ context.Context,
-	_ *listStatementsInput,
+	in *listStatementsInput,
 ) (*listStatementsOutput, error) {
-	return &listStatementsOutput{Statements: []any{}}, nil
+	stmts, err := h.Backend.GetStatements(in.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	if stmts == nil {
+		stmts = []*Statement{}
+	}
+
+	return &listStatementsOutput{Statements: stmts}, nil
 }
 
 // listTableOptimizerRunsInput holds input for ListTableOptimizerRuns.
@@ -2770,13 +3042,19 @@ func (h *Handler) handleModifyIntegration(
 }
 
 // putDataCatalogEncryptionSettingsInput holds input for PutDataCatalogEncryptionSettings.
-type putDataCatalogEncryptionSettingsInput struct{}
+type putDataCatalogEncryptionSettingsInput struct { //nolint:govet // JSON field order matters
+	CatalogID                     string                        `json:"CatalogId,omitempty"`
+	DataCatalogEncryptionSettings DataCatalogEncryptionSettings `json:"DataCatalogEncryptionSettings"`
+}
 
 func (h *Handler) handlePutDataCatalogEncryptionSettings(
 	_ context.Context,
-	_ *putDataCatalogEncryptionSettingsInput,
+	in *putDataCatalogEncryptionSettingsInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.PutDataCatalogEncryptionSettings(
+		in.CatalogID,
+		in.DataCatalogEncryptionSettings,
+	)
 }
 
 // putDataQualityProfileAnnotationInput holds input for PutDataQualityProfileAnnotation.
@@ -2790,7 +3068,10 @@ func (h *Handler) handlePutDataQualityProfileAnnotation(
 }
 
 // putResourcePolicyInput holds input for PutResourcePolicy.
-type putResourcePolicyInput struct{}
+type putResourcePolicyInput struct {
+	PolicyInJSON string `json:"PolicyInJson"`
+	ResourceArn  string `json:"ResourceArn,omitempty"`
+}
 
 // putResourcePolicyOutput holds the result for PutResourcePolicy.
 type putResourcePolicyOutput struct {
@@ -2799,9 +3080,14 @@ type putResourcePolicyOutput struct {
 
 func (h *Handler) handlePutResourcePolicy(
 	_ context.Context,
-	_ *putResourcePolicyInput,
+	in *putResourcePolicyInput,
 ) (*putResourcePolicyOutput, error) {
-	return &putResourcePolicyOutput{PolicyHash: "stub-hash"}, nil
+	hash, err := h.Backend.PutResourcePolicy(in.PolicyInJSON, in.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putResourcePolicyOutput{PolicyHash: hash}, nil
 }
 
 // putSchemaVersionMetadataInput holds input for PutSchemaVersionMetadata.
@@ -2823,13 +3109,17 @@ func (h *Handler) handlePutSchemaVersionMetadata(
 }
 
 // putWorkflowRunPropertiesInput holds input for PutWorkflowRunProperties.
-type putWorkflowRunPropertiesInput struct{}
+type putWorkflowRunPropertiesInput struct {
+	RunProperties map[string]string `json:"RunProperties"`
+	Name          string            `json:"Name"`
+	RunID         string            `json:"RunId"`
+}
 
 func (h *Handler) handlePutWorkflowRunProperties(
 	_ context.Context,
-	_ *putWorkflowRunPropertiesInput,
+	in *putWorkflowRunPropertiesInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.PutWorkflowRunProperties(in.Name, in.RunID, in.RunProperties)
 }
 
 // querySchemaVersionMetadataInput holds input for QuerySchemaVersionMetadata.
@@ -2936,7 +3226,10 @@ func (h *Handler) handleResumeWorkflowRun(
 }
 
 // runStatementInput holds input for RunStatement.
-type runStatementInput struct{}
+type runStatementInput struct {
+	SessionID string `json:"SessionId"`
+	Code      string `json:"Code"`
+}
 
 // runStatementOutput holds the result for RunStatement.
 type runStatementOutput struct {
@@ -2945,9 +3238,14 @@ type runStatementOutput struct {
 
 func (h *Handler) handleRunStatement(
 	_ context.Context,
-	_ *runStatementInput,
+	in *runStatementInput,
 ) (*runStatementOutput, error) {
-	return &runStatementOutput{ID: 1}, nil
+	st, err := h.Backend.RunStatement(in.SessionID, in.Code)
+	if err != nil {
+		return nil, err
+	}
+
+	return &runStatementOutput{ID: st.Id}, nil
 }
 
 // searchTablesInput holds input for SearchTables.
@@ -3186,6 +3484,10 @@ func (h *Handler) handleStopSession(
 	_ context.Context,
 	in *stopSessionInput,
 ) (*stopSessionOutput, error) {
+	if err := h.Backend.StopSession(in.ID); err != nil {
+		return nil, err
+	}
+
 	return &stopSessionOutput{ID: in.ID}, nil
 }
 
@@ -3211,13 +3513,16 @@ func (h *Handler) handleStopTrigger(
 }
 
 // stopWorkflowRunInput holds input for StopWorkflowRun.
-type stopWorkflowRunInput struct{}
+type stopWorkflowRunInput struct {
+	Name  string `json:"Name"`
+	RunID string `json:"RunId"`
+}
 
 func (h *Handler) handleStopWorkflowRun(
 	_ context.Context,
-	_ *stopWorkflowRunInput,
+	in *stopWorkflowRunInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.StopWorkflowRun(in.Name, in.RunID)
 }
 
 // testConnectionInput holds input for TestConnection.
@@ -3253,13 +3558,23 @@ func (h *Handler) handleUpdateBlueprint(
 }
 
 // updateCatalogInput holds input for UpdateCatalog.
-type updateCatalogInput struct{}
+type updateCatalogInput struct { //nolint:govet // JSON field order matters
+	CatalogID    string   `json:"CatalogId"`
+	CatalogInput struct { //nolint:govet // JSON field order matters
+		Description string            `json:"Description,omitempty"`
+		Parameters  map[string]string `json:"Parameters,omitzero"`
+	} `json:"CatalogInput"`
+}
 
 func (h *Handler) handleUpdateCatalog(
 	_ context.Context,
-	_ *updateCatalogInput,
+	in *updateCatalogInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.UpdateCatalog(
+		in.CatalogID,
+		in.CatalogInput.Description,
+		in.CatalogInput.Parameters,
+	)
 }
 
 // updateClassifierInput holds input for UpdateClassifier.
@@ -3288,7 +3603,12 @@ func (h *Handler) handleUpdateClassifier(
 }
 
 // updateColumnStatisticsForPartitionInput holds input for UpdateColumnStatisticsForPartition.
-type updateColumnStatisticsForPartitionInput struct{}
+type updateColumnStatisticsForPartitionInput struct {
+	DatabaseName         string              `json:"DatabaseName"`
+	TableName            string              `json:"TableName"`
+	PartitionValues      []string            `json:"PartitionValues"`
+	ColumnStatisticsList []*ColumnStatistics `json:"ColumnStatisticsList"`
+}
 
 // updateColumnStatisticsForPartitionOutput holds the result for UpdateColumnStatisticsForPartition.
 type updateColumnStatisticsForPartitionOutput struct {
@@ -3297,13 +3617,27 @@ type updateColumnStatisticsForPartitionOutput struct {
 
 func (h *Handler) handleUpdateColumnStatisticsForPartition(
 	_ context.Context,
-	_ *updateColumnStatisticsForPartitionInput,
+	in *updateColumnStatisticsForPartitionInput,
 ) (*updateColumnStatisticsForPartitionOutput, error) {
+	err := h.Backend.UpdateColumnStatisticsForPartition(
+		in.DatabaseName,
+		in.TableName,
+		in.PartitionValues,
+		in.ColumnStatisticsList,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &updateColumnStatisticsForPartitionOutput{Errors: []any{}}, nil
 }
 
 // updateColumnStatisticsForTableInput holds input for UpdateColumnStatisticsForTable.
-type updateColumnStatisticsForTableInput struct{}
+type updateColumnStatisticsForTableInput struct {
+	DatabaseName         string              `json:"DatabaseName"`
+	TableName            string              `json:"TableName"`
+	ColumnStatisticsList []*ColumnStatistics `json:"ColumnStatisticsList"`
+}
 
 // updateColumnStatisticsForTableOutput holds the result for UpdateColumnStatisticsForTable.
 type updateColumnStatisticsForTableOutput struct {
@@ -3312,8 +3646,17 @@ type updateColumnStatisticsForTableOutput struct {
 
 func (h *Handler) handleUpdateColumnStatisticsForTable(
 	_ context.Context,
-	_ *updateColumnStatisticsForTableInput,
+	in *updateColumnStatisticsForTableInput,
 ) (*updateColumnStatisticsForTableOutput, error) {
+	err := h.Backend.UpdateColumnStatisticsForTable(
+		in.DatabaseName,
+		in.TableName,
+		in.ColumnStatisticsList,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &updateColumnStatisticsForTableOutput{Errors: []any{}}, nil
 }
 
@@ -3349,13 +3692,16 @@ func (h *Handler) handleUpdateConnection(
 }
 
 // updateDevEndpointInput holds input for UpdateDevEndpoint.
-type updateDevEndpointInput struct{}
+type updateDevEndpointInput struct {
+	AddArguments map[string]string `json:"AddArguments,omitempty"`
+	EndpointName string            `json:"EndpointName"`
+}
 
 func (h *Handler) handleUpdateDevEndpoint(
 	_ context.Context,
-	_ *updateDevEndpointInput,
+	in *updateDevEndpointInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.UpdateDevEndpoint(in.EndpointName, in.AddArguments)
 }
 
 // updateGlueIdentityCenterConfigurationInput holds input for UpdateGlueIdentityCenterConfiguration.
@@ -3411,8 +3757,13 @@ func (h *Handler) handleUpdateJobFromSourceControl(
 }
 
 // updateMLTransformInput holds input for UpdateMLTransform.
-type updateMLTransformInput struct {
-	TransformID string `json:"TransformId"`
+type updateMLTransformInput struct { //nolint:govet // JSON field order matters
+	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
+	Parameters        MLTransformParameter `json:"Parameters,omitzero"`
+	TransformID       string               `json:"TransformId"`
+	Description       string               `json:"Description,omitempty"`
+	Role              string               `json:"Role,omitempty"`
+	Name              string               `json:"Name,omitempty"`
 }
 
 // updateMLTransformOutput holds the result for UpdateMLTransform.
@@ -3424,6 +3775,17 @@ func (h *Handler) handleUpdateMLTransform(
 	_ context.Context,
 	in *updateMLTransformInput,
 ) (*updateMLTransformOutput, error) {
+	update := MLTransform{
+		Name:              in.Name,
+		Description:       in.Description,
+		Role:              in.Role,
+		InputRecordTables: in.InputRecordTables,
+		Parameters:        in.Parameters,
+	}
+	if err := h.Backend.UpdateMLTransform(in.TransformID, update); err != nil {
+		return nil, err
+	}
+
 	return &updateMLTransformOutput{TransformID: in.TransformID}, nil
 }
 
@@ -3526,13 +3888,24 @@ func (h *Handler) handleUpdateSourceControlFromJob(
 }
 
 // updateTableOptimizerInput holds input for UpdateTableOptimizer.
-type updateTableOptimizerInput struct{}
+type updateTableOptimizerInput struct {
+	CatalogID                   string                      `json:"CatalogId,omitempty"`
+	DatabaseName                string                      `json:"DatabaseName"`
+	TableName                   string                      `json:"TableName"`
+	Type                        string                      `json:"Type"`
+	TableOptimizerConfiguration TableOptimizerConfiguration `json:"TableOptimizerConfiguration"`
+}
 
 func (h *Handler) handleUpdateTableOptimizer(
 	_ context.Context,
-	_ *updateTableOptimizerInput,
+	in *updateTableOptimizerInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.UpdateTableOptimizer(
+		in.DatabaseName,
+		in.TableName,
+		in.Type,
+		in.TableOptimizerConfiguration,
+	)
 }
 
 // updateTriggerInput holds input for UpdateTrigger.
@@ -3592,13 +3965,21 @@ func (h *Handler) handleUpdateUsageProfile(
 }
 
 // updateUserDefinedFunctionInput holds input for UpdateUserDefinedFunction.
-type updateUserDefinedFunctionInput struct{}
+type updateUserDefinedFunctionInput struct {
+	DatabaseName  string              `json:"DatabaseName"`
+	FunctionName  string              `json:"FunctionName"`
+	FunctionInput UserDefinedFunction `json:"FunctionInput"`
+}
 
 func (h *Handler) handleUpdateUserDefinedFunction(
 	_ context.Context,
-	_ *updateUserDefinedFunctionInput,
+	in *updateUserDefinedFunctionInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.UpdateUserDefinedFunction(
+		in.DatabaseName,
+		in.FunctionName,
+		in.FunctionInput,
+	)
 }
 
 // updateWorkflowInput holds input for UpdateWorkflow.

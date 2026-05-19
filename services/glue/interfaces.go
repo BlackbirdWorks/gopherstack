@@ -202,6 +202,97 @@ type StorageBackend interface {
 
 	// SearchTables returns tables matching a case-insensitive substring filter.
 	SearchTables(searchText string) []*Table
+
+	// UserDefinedFunction operations.
+	CreateUserDefinedFunction(
+		dbName string,
+		input UserDefinedFunction,
+		tags map[string]string,
+	) (*UserDefinedFunction, error)
+	GetUserDefinedFunction(dbName, name string) (*UserDefinedFunction, error)
+	GetUserDefinedFunctions(dbName string) []*UserDefinedFunction
+	UpdateUserDefinedFunction(dbName, name string, input UserDefinedFunction) error
+	DeleteUserDefinedFunction(dbName, name string) error
+
+	// SecurityConfiguration operations.
+	CreateSecurityConfiguration(name string, enc EncryptionConfiguration) (*SecurityConfiguration, error)
+	GetSecurityConfiguration(name string) (*SecurityConfiguration, error)
+	DeleteSecurityConfiguration(name string) error
+	ListSecurityConfigurations() []*SecurityConfiguration
+
+	// Session operations.
+	CreateSession(id, role string, cmd SessionCommand, opts Session) (*Session, error)
+	GetSession(id string) (*Session, error)
+	ListSessions() []*Session
+	DeleteSession(id string) error
+	StopSession(id string) error
+
+	// Statement operations.
+	RunStatement(sessionID, code string) (*Statement, error)
+	GetStatement(sessionID string, statementID int32) (*Statement, error)
+	GetStatements(sessionID string) ([]*Statement, error)
+	CancelStatement(sessionID string, statementID int32) error
+
+	// TableOptimizer operations.
+	CreateTableOptimizer(catalogID, dbName, tableName, optimizerType string, config TableOptimizerConfiguration) error
+	GetTableOptimizer(dbName, tableName, optimizerType string) (*TableOptimizer, error)
+	UpdateTableOptimizer(dbName, tableName, optimizerType string, config TableOptimizerConfiguration) error
+	DeleteTableOptimizer(dbName, tableName, optimizerType string) error
+	BatchGetTableOptimizer(entries []BatchGetTableOptimizerEntry) ([]*TableOptimizer, []BatchGetTableOptimizerError)
+
+	// Column statistics operations.
+	UpdateColumnStatisticsForTable(dbName, tableName string, stats []*ColumnStatistics) error
+	GetColumnStatisticsForTable(dbName, tableName string, columnNames []string) ([]*ColumnStatistics, error)
+	DeleteColumnStatisticsForTable(dbName, tableName, columnName string) error
+	UpdateColumnStatisticsForPartition(
+		dbName, tableName string,
+		partitionValues []string,
+		stats []*ColumnStatistics,
+	) error
+	GetColumnStatisticsForPartition(
+		dbName, tableName string,
+		partitionValues []string,
+		columnNames []string,
+	) ([]*ColumnStatistics, error)
+	DeleteColumnStatisticsForPartition(dbName, tableName string, partitionValues []string, columnName string) error
+
+	// Resource policy operations.
+	PutResourcePolicy(policy, resourceARN string) (string, error)
+	GetResourcePolicy(resourceARN string) (string, string, error)
+	DeleteResourcePolicy(resourceARN, policyHash string) error
+
+	// MLTransform operations.
+	CreateMLTransform(
+		name, description, role string,
+		tables []GlueTable,
+		params MLTransformParameter,
+		tags map[string]string,
+	) (*MLTransform, error)
+	GetMLTransform(id string) (*MLTransform, error)
+	GetMLTransforms() []*MLTransform
+	UpdateMLTransform(id string, update MLTransform) error
+	DeleteMLTransform(id string) error
+
+	// Catalog operations.
+	CreateCatalog(catalogID, name, description string, params map[string]string) error
+	GetCatalog(catalogID string) (*CatalogEntry, error)
+	GetCatalogs() []*CatalogEntry
+	UpdateCatalog(catalogID, description string, params map[string]string) error
+	DeleteCatalog(catalogID string) error
+
+	// WorkflowRun extras.
+	StopWorkflowRun(workflowName, runID string) error
+	PutWorkflowRunProperties(workflowName, runID string, props map[string]string) error
+
+	// Table version deletion.
+	DeleteTableVersion(dbName, tableName, versionID string) error
+
+	// DevEndpoint update.
+	UpdateDevEndpoint(name string, args map[string]string) error
+
+	// Data catalog encryption settings.
+	PutDataCatalogEncryptionSettings(catalogID string, settings DataCatalogEncryptionSettings) error
+	GetDataCatalogEncryptionSettings(catalogID string) (*DataCatalogEncryptionSettings, error)
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

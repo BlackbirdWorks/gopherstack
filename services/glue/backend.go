@@ -236,8 +236,9 @@ type DataQualityResult struct {
 
 // DevEndpoint represents a Glue development endpoint.
 type DevEndpoint struct {
-	EndpointName string `json:"EndpointName"`
-	Status       string `json:"Status,omitempty"`
+	Arguments    map[string]string `json:"Arguments,omitempty"`
+	EndpointName string            `json:"EndpointName"`
+	Status       string            `json:"Status,omitempty"`
 }
 
 // CrawlerSchedule represents the schedule configuration for a crawler.
@@ -297,61 +298,83 @@ type DataQualityEvaluationRun struct {
 
 // InMemoryBackend stores Glue state in memory.
 type InMemoryBackend struct {
-	databases           map[string]*Database                 // key: databaseName
-	tables              map[string]*Table                    // key: "databaseName|tableName"
-	crawlers            map[string]*Crawler                  // key: crawlerName
-	jobs                map[string]*Job                      // key: jobName
-	partitions          map[string]*Partition                // key: partitionKey(db, table, values)
-	tableVersions       map[string]*TableVersion             // key: tableVersionKey(db, table, versionID)
-	connections         map[string]*Connection               // key: connectionName
-	blueprints          map[string]*Blueprint                // key: blueprintName
-	customEntityTypes   map[string]*CustomEntityType         // key: name
-	dataQualityResult   map[string]*DataQualityResult        // key: resultID
-	devEndpoints        map[string]*DevEndpoint              // key: endpointName
-	jobRuns             map[string][]*JobRun                 // key: jobName
-	jobBookmarks        map[string]*JobBookmark              // key: jobName
-	dataQualityRulesets map[string]*DataQualityRuleset       // key: name
-	dataQualityEvalRuns map[string]*DataQualityEvaluationRun // key: runId
-	triggers            map[string]*Trigger                  // key: triggerName
-	workflows           map[string]*Workflow                 // key: workflowName
-	workflowRuns        map[string][]*WorkflowRun            // key: workflowName
-	classifiers         map[string]*Classifier               // key: classifierName
-	registries          map[string]*Registry                 // key: registryName
-	schemas             map[string]*Schema                   // key: "registryName|schemaName"
-	schemaVersions      map[string][]*SchemaVersion          // key: schemaARN
-	mu                  *lockmetrics.RWMutex
-	accountID           string
-	region              string
+	databases                 map[string]*Database                      // key: databaseName
+	tables                    map[string]*Table                         // key: "databaseName|tableName"
+	crawlers                  map[string]*Crawler                       // key: crawlerName
+	jobs                      map[string]*Job                           // key: jobName
+	partitions                map[string]*Partition                     // key: partitionKey(db, table, values)
+	tableVersions             map[string]*TableVersion                  // key: tableVersionKey(db, table, versionID)
+	connections               map[string]*Connection                    // key: connectionName
+	blueprints                map[string]*Blueprint                     // key: blueprintName
+	customEntityTypes         map[string]*CustomEntityType              // key: name
+	dataQualityResult         map[string]*DataQualityResult             // key: resultID
+	devEndpoints              map[string]*DevEndpoint                   // key: endpointName
+	jobRuns                   map[string][]*JobRun                      // key: jobName
+	jobBookmarks              map[string]*JobBookmark                   // key: jobName
+	dataQualityRulesets       map[string]*DataQualityRuleset            // key: name
+	dataQualityEvalRuns       map[string]*DataQualityEvaluationRun      // key: runId
+	triggers                  map[string]*Trigger                       // key: triggerName
+	workflows                 map[string]*Workflow                      // key: workflowName
+	workflowRuns              map[string][]*WorkflowRun                 // key: workflowName
+	classifiers               map[string]*Classifier                    // key: classifierName
+	registries                map[string]*Registry                      // key: registryName
+	schemas                   map[string]*Schema                        // key: "registryName|schemaName"
+	schemaVersions            map[string][]*SchemaVersion               // key: schemaARN
+	udfs                      map[string]*UserDefinedFunction           // key: "dbName|udfName"
+	securityConfigs           map[string]*SecurityConfiguration         // key: name
+	sessions                  map[string]*Session                       // key: sessionID
+	sessionStatements         map[string][]*Statement                   // key: sessionID
+	tableOptimizers           map[string]*TableOptimizer                // key: "dbName|tableName|type"
+	tableColumnStats          map[string]*ColumnStatistics              // key: "dbName|tableName|colName"
+	partitionColumnStats      map[string]*ColumnStatistics              // key: partKey+"|"+colName
+	resourcePolicies          map[string]*resourcePolicyEntry           // key: resourceARN or "__global__"
+	mlTransforms              map[string]*MLTransform                   // key: transformID
+	catalogs                  map[string]*CatalogEntry                  // key: catalogID
+	catalogEncryptionSettings map[string]*DataCatalogEncryptionSettings // key: catalogID or accountID
+	mu                        *lockmetrics.RWMutex
+	accountID                 string
+	region                    string
 }
 
 // NewInMemoryBackend creates a new in-memory Glue backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		databases:           make(map[string]*Database),
-		tables:              make(map[string]*Table),
-		crawlers:            make(map[string]*Crawler),
-		jobs:                make(map[string]*Job),
-		partitions:          make(map[string]*Partition),
-		tableVersions:       make(map[string]*TableVersion),
-		connections:         make(map[string]*Connection),
-		blueprints:          make(map[string]*Blueprint),
-		customEntityTypes:   make(map[string]*CustomEntityType),
-		dataQualityResult:   make(map[string]*DataQualityResult),
-		devEndpoints:        make(map[string]*DevEndpoint),
-		jobRuns:             make(map[string][]*JobRun),
-		jobBookmarks:        make(map[string]*JobBookmark),
-		dataQualityRulesets: make(map[string]*DataQualityRuleset),
-		dataQualityEvalRuns: make(map[string]*DataQualityEvaluationRun),
-		triggers:            make(map[string]*Trigger),
-		workflows:           make(map[string]*Workflow),
-		workflowRuns:        make(map[string][]*WorkflowRun),
-		classifiers:         make(map[string]*Classifier),
-		registries:          make(map[string]*Registry),
-		schemas:             make(map[string]*Schema),
-		schemaVersions:      make(map[string][]*SchemaVersion),
-		mu:                  lockmetrics.New("glue"),
-		accountID:           accountID,
-		region:              region,
+		databases:                 make(map[string]*Database),
+		tables:                    make(map[string]*Table),
+		crawlers:                  make(map[string]*Crawler),
+		jobs:                      make(map[string]*Job),
+		partitions:                make(map[string]*Partition),
+		tableVersions:             make(map[string]*TableVersion),
+		connections:               make(map[string]*Connection),
+		blueprints:                make(map[string]*Blueprint),
+		customEntityTypes:         make(map[string]*CustomEntityType),
+		dataQualityResult:         make(map[string]*DataQualityResult),
+		devEndpoints:              make(map[string]*DevEndpoint),
+		jobRuns:                   make(map[string][]*JobRun),
+		jobBookmarks:              make(map[string]*JobBookmark),
+		dataQualityRulesets:       make(map[string]*DataQualityRuleset),
+		dataQualityEvalRuns:       make(map[string]*DataQualityEvaluationRun),
+		triggers:                  make(map[string]*Trigger),
+		workflows:                 make(map[string]*Workflow),
+		workflowRuns:              make(map[string][]*WorkflowRun),
+		classifiers:               make(map[string]*Classifier),
+		registries:                make(map[string]*Registry),
+		schemas:                   make(map[string]*Schema),
+		schemaVersions:            make(map[string][]*SchemaVersion),
+		udfs:                      make(map[string]*UserDefinedFunction),
+		securityConfigs:           make(map[string]*SecurityConfiguration),
+		sessions:                  make(map[string]*Session),
+		sessionStatements:         make(map[string][]*Statement),
+		tableOptimizers:           make(map[string]*TableOptimizer),
+		tableColumnStats:          make(map[string]*ColumnStatistics),
+		partitionColumnStats:      make(map[string]*ColumnStatistics),
+		resourcePolicies:          make(map[string]*resourcePolicyEntry),
+		mlTransforms:              make(map[string]*MLTransform),
+		catalogs:                  make(map[string]*CatalogEntry),
+		catalogEncryptionSettings: make(map[string]*DataCatalogEncryptionSettings),
+		mu:                        lockmetrics.New("glue"),
+		accountID:                 accountID,
+		region:                    region,
 	}
 }
 
@@ -382,6 +405,17 @@ func (b *InMemoryBackend) Reset() {
 	b.registries = make(map[string]*Registry)
 	b.schemas = make(map[string]*Schema)
 	b.schemaVersions = make(map[string][]*SchemaVersion)
+	b.udfs = make(map[string]*UserDefinedFunction)
+	b.securityConfigs = make(map[string]*SecurityConfiguration)
+	b.sessions = make(map[string]*Session)
+	b.sessionStatements = make(map[string][]*Statement)
+	b.tableOptimizers = make(map[string]*TableOptimizer)
+	b.tableColumnStats = make(map[string]*ColumnStatistics)
+	b.partitionColumnStats = make(map[string]*ColumnStatistics)
+	b.resourcePolicies = make(map[string]*resourcePolicyEntry)
+	b.mlTransforms = make(map[string]*MLTransform)
+	b.catalogs = make(map[string]*CatalogEntry)
+	b.catalogEncryptionSettings = make(map[string]*DataCatalogEncryptionSettings)
 }
 
 // Region returns the backend region.
