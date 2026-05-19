@@ -351,7 +351,7 @@ func (h *Handler) handleDescribeType(form url.Values, c *echo.Context) error {
 			IsActivated:      true,
 			IsDefaultVersion: true,
 			Schema:           string(schemaBytes),
-			Type:             "RESOURCE",
+			Type:             typeKindResource,
 			TypeName:         typeName,
 			Visibility:       "PUBLIC",
 		},

@@ -543,7 +543,10 @@ func (h *Handler) handleListStackSetOperations(form url.Values, c *echo.Context)
 func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
 	opID := form.Get("OperationId")
-	status, _ := h.Backend.DescribeStackSetOperation(name, opID)
+	status, err := h.Backend.DescribeStackSetOperation(name, opID)
+	if err != nil {
+		return h.xmlError(c, "OperationNotFoundException", err.Error())
+	}
 	type result struct {
 		StackSetOperation struct {
 			OperationID string `xml:"OperationId"`
@@ -1064,7 +1067,10 @@ func (h *Handler) handleListTypeRegistrations(_ url.Values, c *echo.Context) err
 }
 
 func (h *Handler) handleDescribeTypeRegistration(form url.Values, c *echo.Context) error {
-	status, _ := h.Backend.DescribeTypeRegistration(form.Get("RegistrationToken"))
+	status, err := h.Backend.DescribeTypeRegistration(form.Get("RegistrationToken"))
+	if err != nil {
+		return h.xmlError(c, "CFNRegistryException", err.Error())
+	}
 	type result struct {
 		ProgressStatus string `xml:"ProgressStatus"`
 	}
@@ -1126,7 +1132,10 @@ func (h *Handler) handleRegisterPublisher(form url.Values, c *echo.Context) erro
 }
 
 func (h *Handler) handleDescribePublisher(form url.Values, c *echo.Context) error {
-	status, _ := h.Backend.DescribePublisher(form.Get("PublisherId"))
+	status, err := h.Backend.DescribePublisher(form.Get("PublisherId"))
+	if err != nil {
+		return h.xmlError(c, "CFNRegistryException", err.Error())
+	}
 	type result struct {
 		PublisherStatus string `xml:"PublisherStatus"`
 	}
