@@ -14,6 +14,7 @@ import (
 
 func newIoTHandlerBatch1(t *testing.T) *iot.Handler {
 	t.Helper()
+
 	return iot.NewHandler(iot.NewInMemoryBackend(), nil)
 }
 
@@ -40,6 +41,7 @@ func iotRequest(
 	if err := h.Handler()(c); err != nil {
 		t.Fatalf("handler error for %s %s: %v", method, path, err)
 	}
+
 	return rec
 }
 
@@ -56,16 +58,16 @@ func iotOK(t *testing.T, h *iot.Handler, method, path string, body any) map[stri
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
+
 	return out
 }
 
-func iotExpectError(t *testing.T, h *iot.Handler, method, path string, body any) int {
+func iotExpectError(t *testing.T, h *iot.Handler, path string) {
 	t.Helper()
-	rec := iotRequest(t, h, method, path, body)
+	rec := iotRequest(t, h, http.MethodGet, path, nil)
 	if rec.Code == http.StatusOK {
-		t.Fatalf("%s %s: expected error got 200, body: %s", method, path, rec.Body.String())
+		t.Fatalf("%s %s: expected error got 200, body: %s", http.MethodGet, path, rec.Body.String())
 	}
-	return rec.Code
 }
 
 // TestNewOps_Job tests Job lifecycle.
@@ -117,7 +119,7 @@ func TestNewOps_Job(t *testing.T) {
 	iotOK(t, h, http.MethodDelete, "/jobs/my-job", nil)
 
 	// Verify deletion
-	iotExpectError(t, h, http.MethodGet, "/jobs/my-job", nil)
+	iotExpectError(t, h, "/jobs/my-job")
 }
 
 // TestNewOps_JobExecution tests job execution lifecycle.
@@ -179,7 +181,7 @@ func TestNewOps_JobTemplate(t *testing.T) {
 	iotOK(t, h, http.MethodDelete, "/job-templates/my-template", nil)
 
 	// Verify deletion
-	iotExpectError(t, h, http.MethodGet, "/job-templates/my-template", nil)
+	iotExpectError(t, h, "/job-templates/my-template")
 }
 
 // TestNewOps_RoleAlias tests RoleAlias CRUD.
@@ -218,7 +220,7 @@ func TestNewOps_RoleAlias(t *testing.T) {
 	// DeleteRoleAlias
 	iotOK(t, h, http.MethodDelete, "/role-aliases/my-alias", nil)
 
-	iotExpectError(t, h, http.MethodGet, "/role-aliases/my-alias", nil)
+	iotExpectError(t, h, "/role-aliases/my-alias")
 }
 
 // TestNewOps_DomainConfiguration tests DomainConfiguration CRUD.
@@ -255,7 +257,7 @@ func TestNewOps_DomainConfiguration(t *testing.T) {
 	// DeleteDomainConfiguration
 	iotOK(t, h, http.MethodDelete, "/domainConfigurations/my-config", nil)
 
-	iotExpectError(t, h, http.MethodGet, "/domainConfigurations/my-config", nil)
+	iotExpectError(t, h, "/domainConfigurations/my-config")
 }
 
 // TestNewOps_ProvisioningTemplate tests ProvisioningTemplate CRUD.
@@ -318,7 +320,7 @@ func TestNewOps_ProvisioningTemplate(t *testing.T) {
 	// DeleteProvisioningTemplate
 	iotOK(t, h, http.MethodDelete, "/provisioning-templates/my-template", nil)
 
-	iotExpectError(t, h, http.MethodGet, "/provisioning-templates/my-template", nil)
+	iotExpectError(t, h, "/provisioning-templates/my-template")
 }
 
 // TestNewOps_Authorizer tests Authorizer CRUD.
@@ -357,7 +359,7 @@ func TestNewOps_Authorizer(t *testing.T) {
 	// DeleteAuthorizer
 	iotOK(t, h, http.MethodDelete, "/authorizer/my-auth", nil)
 
-	iotExpectError(t, h, http.MethodGet, "/authorizer/my-auth", nil)
+	iotExpectError(t, h, "/authorizer/my-auth")
 }
 
 // TestNewOps_BillingGroup tests BillingGroup CRUD.
@@ -401,7 +403,7 @@ func TestNewOps_BillingGroup(t *testing.T) {
 	// DeleteBillingGroup
 	iotOK(t, h, http.MethodDelete, "/billing-groups/my-group", nil)
 
-	iotExpectError(t, h, http.MethodGet, "/billing-groups/my-group", nil)
+	iotExpectError(t, h, "/billing-groups/my-group")
 }
 
 // TestNewOps_ScheduledAudit tests ScheduledAudit CRUD.
@@ -440,7 +442,7 @@ func TestNewOps_ScheduledAudit(t *testing.T) {
 	// DeleteScheduledAudit
 	iotOK(t, h, http.MethodDelete, "/audit/scheduledaudits/my-audit", nil)
 
-	iotExpectError(t, h, http.MethodGet, "/audit/scheduledaudits/my-audit", nil)
+	iotExpectError(t, h, "/audit/scheduledaudits/my-audit")
 }
 
 // TestNewOps_MitigationAction tests MitigationAction CRUD.
@@ -480,7 +482,7 @@ func TestNewOps_MitigationAction(t *testing.T) {
 	// DeleteMitigationAction
 	iotOK(t, h, http.MethodDelete, "/mitigationactions/actions/my-action", nil)
 
-	iotExpectError(t, h, http.MethodGet, "/mitigationactions/actions/my-action", nil)
+	iotExpectError(t, h, "/mitigationactions/actions/my-action")
 }
 
 // TestNewOps_SecurityProfile tests SecurityProfile CRUD.
@@ -520,5 +522,5 @@ func TestNewOps_SecurityProfile(t *testing.T) {
 	// DeleteSecurityProfile
 	iotOK(t, h, http.MethodDelete, "/security-profiles/my-profile", nil)
 
-	iotExpectError(t, h, http.MethodGet, "/security-profiles/my-profile", nil)
+	iotExpectError(t, h, "/security-profiles/my-profile")
 }

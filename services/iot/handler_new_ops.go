@@ -15,13 +15,34 @@ func readBody(c *echo.Context, dst any) error {
 	if err := json.NewDecoder(c.Request().Body).Decode(dst); err != nil && !errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
+
 	return nil
 }
+
+const (
+	twoparts = 2 // used for SplitN to get at most 2 parts
+
+	keyJobID               = "jobId"
+	keyJobARN              = "jobArn"
+	keyDescription         = "description"
+	keyCreatedAt           = "createdAt"
+	keyLastUpdatedAt       = "lastUpdatedAt"
+	keyDomainConfigName    = "domainConfigurationName"
+	keyDomainConfigARN     = "domainConfigurationArn"
+	keyTemplateName        = "templateName"
+	keyAuthorizerName      = "authorizerName"
+	keyAuthorizerARN       = "authorizerArn"
+	keyScheduledAuditARN   = "scheduledAuditArn"
+	keyActionARN           = "actionArn"
+	keySecurityProfileName = "securityProfileName"
+	keySecurityProfileARN  = "securityProfileArn"
+)
 
 // ---------------------------------------------------------------------------
 // Route resolution helpers for new ops
 // ---------------------------------------------------------------------------
 
+//nolint:cyclop // mechanical switch over URL path patterns
 func resolveJobOps(path, method string) string {
 	switch {
 	// GET /jobs/{jobId}/document → GetJobDocument
@@ -29,7 +50,10 @@ func resolveJobOps(path, method string) string {
 		return opGetJobDocument
 	// More-specific thing-scoped ops before job-scoped.
 	// PUT /jobs/{jobId}/things/{thingName}/cancel → CancelJobExecution
-	case strings.HasPrefix(path, "/jobs/") && strings.Contains(path, "/things/") && strings.HasSuffix(path, "/cancel") && method == http.MethodPut:
+	case strings.HasPrefix(path, "/jobs/") &&
+		strings.Contains(path, "/things/") &&
+		strings.HasSuffix(path, "/cancel") &&
+		method == http.MethodPut:
 		return opCancelJobExecution
 	// PUT /jobs/{jobId}/cancel → CancelJob
 	case strings.HasPrefix(path, "/jobs/") && strings.HasSuffix(path, "/cancel") && method == http.MethodPut:
@@ -56,6 +80,7 @@ func resolveJobOps(path, method string) string {
 	case strings.HasPrefix(path, "/jobs/") && method == http.MethodDelete:
 		return opDeleteJob
 	}
+
 	return unknownOperation
 }
 
@@ -70,6 +95,7 @@ func resolveJobTemplateOps(path, method string) string {
 	case strings.HasPrefix(path, "/job-templates/") && method == http.MethodDelete:
 		return opDeleteJobTemplate
 	}
+
 	return unknownOperation
 }
 
@@ -86,6 +112,7 @@ func resolveRoleAliasOps(path, method string) string {
 	case strings.HasPrefix(path, "/role-aliases/") && method == http.MethodDelete:
 		return opDeleteRoleAlias
 	}
+
 	return unknownOperation
 }
 
@@ -102,9 +129,11 @@ func resolveDomainConfigOps(path, method string) string {
 	case strings.HasPrefix(path, "/domainConfigurations/") && method == http.MethodDelete:
 		return opDeleteDomainConfiguration
 	}
+
 	return unknownOperation
 }
 
+//nolint:cyclop // mechanical switch over URL path patterns
 func resolveProvisioningTemplateOps(path, method string) string {
 	switch {
 	// POST /provisioning-templates → CreateProvisioningTemplate
@@ -114,13 +143,19 @@ func resolveProvisioningTemplateOps(path, method string) string {
 	case path == "/provisioning-templates" && method == http.MethodGet:
 		return opListProvisioningTemplates
 	// POST /provisioning-templates/{templateName}/versions → CreateProvisioningTemplateVersion
-	case strings.HasPrefix(path, "/provisioning-templates/") && strings.HasSuffix(path, "/versions") && method == http.MethodPost:
+	case strings.HasPrefix(path, "/provisioning-templates/") &&
+		strings.HasSuffix(path, "/versions") &&
+		method == http.MethodPost:
 		return opCreateProvisioningTemplateVersion
 	// GET /provisioning-templates/{templateName}/versions → ListProvisioningTemplateVersions
-	case strings.HasPrefix(path, "/provisioning-templates/") && strings.HasSuffix(path, "/versions") && method == http.MethodGet:
+	case strings.HasPrefix(path, "/provisioning-templates/") &&
+		strings.HasSuffix(path, "/versions") &&
+		method == http.MethodGet:
 		return opListProvisioningTemplateVersions
 	// DELETE /provisioning-templates/{templateName}/versions/{versionId} → DeleteProvisioningTemplateVersion
-	case strings.HasPrefix(path, "/provisioning-templates/") && strings.Contains(path, "/versions/") && method == http.MethodDelete:
+	case strings.HasPrefix(path, "/provisioning-templates/") &&
+		strings.Contains(path, "/versions/") &&
+		method == http.MethodDelete:
 		return opDeleteProvisioningTemplateVersion
 	// GET /provisioning-templates/{templateName} → DescribeProvisioningTemplate
 	case strings.HasPrefix(path, "/provisioning-templates/") && method == http.MethodGet:
@@ -132,6 +167,7 @@ func resolveProvisioningTemplateOps(path, method string) string {
 	case strings.HasPrefix(path, "/provisioning-templates/") && method == http.MethodDelete:
 		return opDeleteProvisioningTemplate
 	}
+
 	return unknownOperation
 }
 
@@ -148,6 +184,7 @@ func resolveAuthorizerOps(path, method string) string {
 	case strings.HasPrefix(path, "/authorizer/") && method == http.MethodDelete:
 		return opDeleteAuthorizer
 	}
+
 	return unknownOperation
 }
 
@@ -164,6 +201,7 @@ func resolveBillingGroupOps(path, method string) string {
 	case strings.HasPrefix(path, "/billing-groups/") && method == http.MethodDelete:
 		return opDeleteBillingGroup
 	}
+
 	return unknownOperation
 }
 
@@ -180,6 +218,7 @@ func resolveScheduledAuditOps(path, method string) string {
 	case strings.HasPrefix(path, "/audit/scheduledaudits/") && method == http.MethodDelete:
 		return opDeleteScheduledAudit
 	}
+
 	return unknownOperation
 }
 
@@ -196,6 +235,7 @@ func resolveMitigationActionOps(path, method string) string {
 	case strings.HasPrefix(path, "/mitigationactions/actions/") && method == http.MethodDelete:
 		return opDeleteMitigationAction
 	}
+
 	return unknownOperation
 }
 
@@ -212,16 +252,13 @@ func resolveSecurityProfileOps(path, method string) string {
 	case strings.HasPrefix(path, "/security-profiles/") && method == http.MethodDelete:
 		return opDeleteSecurityProfile
 	}
+
 	return unknownOperation
 }
 
 // ---------------------------------------------------------------------------
 // HTTP handler implementations
 // ---------------------------------------------------------------------------
-
-func pathSegment(path, prefix string) string {
-	return strings.TrimPrefix(strings.TrimPrefix(path, prefix), "/")
-}
 
 func respondNotFound(c *echo.Context, msg string) error {
 	return c.JSON(http.StatusNotFound, map[string]string{keyError: msg})
@@ -238,6 +275,7 @@ func respondErr(c *echo.Context, err error) error {
 	if errors.Is(err, ErrAlreadyExists) {
 		return respondConflict(c, err.Error())
 	}
+
 	return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 }
 
@@ -255,10 +293,11 @@ func (h *Handler) handleCreateJob(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"jobId":       job.JobID,
-		"jobArn":      job.JobARN,
-		"description": job.Description,
+		keyJobID:       job.JobID,
+		keyJobARN:      job.JobARN,
+		keyDescription: job.Description,
 	})
 }
 
@@ -268,6 +307,7 @@ func (h *Handler) handleDescribeJob(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"job": job})
 }
 
@@ -276,14 +316,15 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 	summaries := make([]map[string]any, len(jobs))
 	for i, j := range jobs {
 		summaries[i] = map[string]any{
-			"jobId":           j.JobID,
-			"jobArn":          j.JobARN,
+			keyJobID:          j.JobID,
+			keyJobARN:         j.JobARN,
 			"status":          j.Status,
 			"targetSelection": j.TargetSelection,
-			"createdAt":       j.CreatedAt,
-			"lastUpdatedAt":   j.LastUpdatedAt,
+			keyCreatedAt:      j.CreatedAt,
+			keyLastUpdatedAt:  j.LastUpdatedAt,
 		}
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"jobs": summaries})
 }
 
@@ -298,6 +339,7 @@ func (h *Handler) handleUpdateJob(c *echo.Context) error {
 	if err := h.Backend.UpdateJob(jobID, req.Description); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -306,6 +348,7 @@ func (h *Handler) handleDeleteJob(c *echo.Context) error {
 	if err := h.Backend.DeleteJob(jobID); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -321,9 +364,10 @@ func (h *Handler) handleCancelJob(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"jobId":  job.JobID,
-		"jobArn": job.JobARN,
+		keyJobID:  job.JobID,
+		keyJobARN: job.JobARN,
 	})
 }
 
@@ -335,6 +379,7 @@ func (h *Handler) handleGetJobDocument(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"document": doc})
 }
 
@@ -345,6 +390,7 @@ func (h *Handler) handleDescribeJobExecution(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"execution": exec})
 }
 
@@ -356,6 +402,7 @@ func (h *Handler) handleCancelJobExecution(c *echo.Context) error {
 	if err := h.Backend.CancelJobExecution(jobID, thingName); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -365,18 +412,19 @@ func (h *Handler) handleDeleteJobExecution(c *echo.Context) error {
 	if err := h.Backend.DeleteJobExecution(jobID, thingName); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
 // parseJobThingPath extracts jobId and thingName from /jobs/{jobId}/things/{thingName}[/...].
-func parseJobThingPath(path string) (jobID, thingName string) {
+func parseJobThingPath(path string) (string, string) {
 	trimmed := strings.TrimPrefix(path, "/jobs/")
-	parts := strings.SplitN(trimmed, "/things/", 2)
-	if len(parts) == 2 {
-		jobID = parts[0]
-		thingName = strings.SplitN(parts[1], "/", 2)[0]
+	parts := strings.SplitN(trimmed, "/things/", twoparts)
+	if len(parts) == twoparts {
+		return parts[0], strings.SplitN(parts[1], "/", twoparts)[0]
 	}
-	return
+
+	return "", ""
 }
 
 // --- JobTemplates ---
@@ -392,6 +440,7 @@ func (h *Handler) handleCreateJobTemplate(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"jobTemplateId":  jt.JobTemplateID,
 		"jobTemplateArn": jt.JobTemplateARN,
@@ -404,6 +453,7 @@ func (h *Handler) handleDescribeJobTemplate(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, jt)
 }
 
@@ -414,10 +464,11 @@ func (h *Handler) handleListJobTemplates(c *echo.Context) error {
 		summaries[i] = map[string]any{
 			"jobTemplateId":  jt.JobTemplateID,
 			"jobTemplateArn": jt.JobTemplateARN,
-			"description":    jt.Description,
-			"createdAt":      jt.CreatedAt,
+			keyDescription:   jt.Description,
+			keyCreatedAt:     jt.CreatedAt,
 		}
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"jobTemplates": summaries})
 }
 
@@ -426,6 +477,7 @@ func (h *Handler) handleDeleteJobTemplate(c *echo.Context) error {
 	if err := h.Backend.DeleteJobTemplate(id); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -442,6 +494,7 @@ func (h *Handler) handleCreateRoleAlias(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"roleAlias":    ra.RoleAlias,
 		"roleAliasArn": ra.RoleAliasARN,
@@ -454,6 +507,7 @@ func (h *Handler) handleDescribeRoleAlias(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"roleAliasDescription": ra})
 }
 
@@ -463,6 +517,7 @@ func (h *Handler) handleListRoleAliases(c *echo.Context) error {
 	for i, ra := range aliases {
 		names[i] = ra.RoleAlias
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"roleAliases": names})
 }
 
@@ -479,6 +534,7 @@ func (h *Handler) handleUpdateRoleAlias(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"roleAlias":    ra.RoleAlias,
 		"roleAliasArn": ra.RoleAliasARN,
@@ -490,6 +546,7 @@ func (h *Handler) handleDeleteRoleAlias(c *echo.Context) error {
 	if err := h.Backend.DeleteRoleAlias(alias); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -506,9 +563,10 @@ func (h *Handler) handleCreateDomainConfiguration(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"domainConfigurationName": dc.DomainConfigurationName,
-		"domainConfigurationArn":  dc.DomainConfigurationARN,
+		keyDomainConfigName: dc.DomainConfigurationName,
+		keyDomainConfigARN:  dc.DomainConfigurationARN,
 	})
 }
 
@@ -518,6 +576,7 @@ func (h *Handler) handleDescribeDomainConfiguration(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, dc)
 }
 
@@ -526,12 +585,13 @@ func (h *Handler) handleListDomainConfigurations(c *echo.Context) error {
 	summaries := make([]map[string]any, len(configs))
 	for i, dc := range configs {
 		summaries[i] = map[string]any{
-			"domainConfigurationName":   dc.DomainConfigurationName,
-			"domainConfigurationArn":    dc.DomainConfigurationARN,
+			keyDomainConfigName:         dc.DomainConfigurationName,
+			keyDomainConfigARN:          dc.DomainConfigurationARN,
 			"domainConfigurationStatus": dc.DomainConfigurationStatus,
 			"serviceType":               dc.ServiceType,
 		}
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"domainConfigurations": summaries})
 }
 
@@ -547,9 +607,10 @@ func (h *Handler) handleUpdateDomainConfiguration(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"domainConfigurationName": dc.DomainConfigurationName,
-		"domainConfigurationArn":  dc.DomainConfigurationARN,
+		keyDomainConfigName: dc.DomainConfigurationName,
+		keyDomainConfigARN:  dc.DomainConfigurationARN,
 	})
 }
 
@@ -558,6 +619,7 @@ func (h *Handler) handleDeleteDomainConfiguration(c *echo.Context) error {
 	if err := h.Backend.DeleteDomainConfiguration(name); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -572,9 +634,10 @@ func (h *Handler) handleCreateProvisioningTemplate(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"templateArn":  pt.TemplateARN,
-		"templateName": pt.TemplateName,
+		"templateArn":   pt.TemplateARN,
+		keyTemplateName: pt.TemplateName,
 	})
 }
 
@@ -584,6 +647,7 @@ func (h *Handler) handleDescribeProvisioningTemplate(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, pt)
 }
 
@@ -593,29 +657,33 @@ func (h *Handler) handleListProvisioningTemplates(c *echo.Context) error {
 	for i, pt := range templates {
 		summaries[i] = map[string]any{
 			"templateArn":      pt.TemplateARN,
-			"templateName":     pt.TemplateName,
-			"description":      pt.Description,
+			keyTemplateName:    pt.TemplateName,
+			keyDescription:     pt.Description,
 			"enabled":          pt.Enabled,
 			"creationDate":     pt.CreationDate,
 			"lastModifiedDate": pt.LastModifiedDate,
 		}
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"templates": summaries})
 }
 
 func (h *Handler) handleUpdateProvisioningTemplate(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/provisioning-templates/")
 	var req struct {
+		Enabled             *bool  `json:"enabled"`
 		Description         string `json:"description"`
 		ProvisioningRoleARN string `json:"provisioningRoleArn"`
-		Enabled             *bool  `json:"enabled"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	if err := h.Backend.UpdateProvisioningTemplate(name, req.Description, req.Enabled, req.ProvisioningRoleARN); err != nil {
+	if err := h.Backend.UpdateProvisioningTemplate(
+		name, req.Description, req.Enabled, req.ProvisioningRoleARN,
+	); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -624,6 +692,7 @@ func (h *Handler) handleDeleteProvisioningTemplate(c *echo.Context) error {
 	if err := h.Backend.DeleteProvisioningTemplate(name); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -641,9 +710,10 @@ func (h *Handler) handleCreateProvisioningTemplateVersion(c *echo.Context) error
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"templateName": name,
-		"versionId":    v.VersionID,
+		keyTemplateName: name,
+		"versionId":     v.VersionID,
 	})
 }
 
@@ -654,14 +724,15 @@ func (h *Handler) handleListProvisioningTemplateVersions(c *echo.Context) error 
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"versions": versions})
 }
 
 func (h *Handler) handleDeleteProvisioningTemplateVersion(c *echo.Context) error {
 	// DELETE /provisioning-templates/{templateName}/versions/{versionId}
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/provisioning-templates/")
-	parts := strings.SplitN(trimmed, "/versions/", 2)
-	if len(parts) != 2 {
+	parts := strings.SplitN(trimmed, "/versions/", twoparts)
+	if len(parts) != twoparts {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "invalid path"})
 	}
 	name := parts[0]
@@ -672,6 +743,7 @@ func (h *Handler) handleDeleteProvisioningTemplateVersion(c *echo.Context) error
 	if err := h.Backend.DeleteProvisioningTemplateVersion(name, versionID); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -688,9 +760,10 @@ func (h *Handler) handleCreateAuthorizer(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"authorizerName": a.AuthorizerName,
-		"authorizerArn":  a.AuthorizerARN,
+		keyAuthorizerName: a.AuthorizerName,
+		keyAuthorizerARN:  a.AuthorizerARN,
 	})
 }
 
@@ -700,6 +773,7 @@ func (h *Handler) handleDescribeAuthorizer(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"authorizerDescription": a})
 }
 
@@ -708,10 +782,11 @@ func (h *Handler) handleListAuthorizers(c *echo.Context) error {
 	summaries := make([]map[string]any, len(authorizers))
 	for i, a := range authorizers {
 		summaries[i] = map[string]any{
-			"authorizerName": a.AuthorizerName,
-			"authorizerArn":  a.AuthorizerARN,
+			keyAuthorizerName: a.AuthorizerName,
+			keyAuthorizerARN:  a.AuthorizerARN,
 		}
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"authorizers": summaries})
 }
 
@@ -728,9 +803,10 @@ func (h *Handler) handleUpdateAuthorizer(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"authorizerName": a.AuthorizerName,
-		"authorizerArn":  a.AuthorizerARN,
+		keyAuthorizerName: a.AuthorizerName,
+		keyAuthorizerARN:  a.AuthorizerARN,
 	})
 }
 
@@ -739,6 +815,7 @@ func (h *Handler) handleDeleteAuthorizer(c *echo.Context) error {
 	if err := h.Backend.DeleteAuthorizer(name); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -755,6 +832,7 @@ func (h *Handler) handleCreateBillingGroup(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"billingGroupName": bg.BillingGroupName,
 		"billingGroupArn":  bg.BillingGroupARN,
@@ -768,6 +846,7 @@ func (h *Handler) handleDescribeBillingGroup(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, bg)
 }
 
@@ -780,6 +859,7 @@ func (h *Handler) handleListBillingGroups(c *echo.Context) error {
 			"groupArn":  bg.BillingGroupARN,
 		}
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"billingGroups": summaries})
 }
 
@@ -796,7 +876,8 @@ func (h *Handler) handleUpdateBillingGroup(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"version": version})
+
+	return c.JSON(http.StatusOK, map[string]any{keyVersion: version})
 }
 
 func (h *Handler) handleDeleteBillingGroup(c *echo.Context) error {
@@ -804,6 +885,7 @@ func (h *Handler) handleDeleteBillingGroup(c *echo.Context) error {
 	if err := h.Backend.DeleteBillingGroup(name); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -820,7 +902,8 @@ func (h *Handler) handleCreateScheduledAudit(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"scheduledAuditArn": sa.ScheduledAuditARN})
+
+	return c.JSON(http.StatusOK, map[string]any{keyScheduledAuditARN: sa.ScheduledAuditARN})
 }
 
 func (h *Handler) handleDescribeScheduledAudit(c *echo.Context) error {
@@ -829,6 +912,7 @@ func (h *Handler) handleDescribeScheduledAudit(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, sa)
 }
 
@@ -838,10 +922,11 @@ func (h *Handler) handleListScheduledAudits(c *echo.Context) error {
 	for i, sa := range audits {
 		summaries[i] = map[string]any{
 			"scheduledAuditName": sa.ScheduledAuditName,
-			"scheduledAuditArn":  sa.ScheduledAuditARN,
+			keyScheduledAuditARN: sa.ScheduledAuditARN,
 			"frequency":          sa.Frequency,
 		}
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"scheduledAudits": summaries})
 }
 
@@ -866,7 +951,8 @@ func (h *Handler) handleUpdateScheduledAudit(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"scheduledAuditArn": sa.ScheduledAuditARN})
+
+	return c.JSON(http.StatusOK, map[string]any{keyScheduledAuditARN: sa.ScheduledAuditARN})
 }
 
 func (h *Handler) handleDeleteScheduledAudit(c *echo.Context) error {
@@ -874,6 +960,7 @@ func (h *Handler) handleDeleteScheduledAudit(c *echo.Context) error {
 	if err := h.Backend.DeleteScheduledAudit(name); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -890,9 +977,10 @@ func (h *Handler) handleCreateMitigationAction(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"actionArn": ma.ActionARN,
-		"actionId":  ma.ActionID,
+		keyActionARN: ma.ActionARN,
+		"actionId":   ma.ActionID,
 	})
 }
 
@@ -902,6 +990,7 @@ func (h *Handler) handleDescribeMitigationAction(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, ma)
 }
 
@@ -911,17 +1000,18 @@ func (h *Handler) handleListMitigationActions(c *echo.Context) error {
 	for i, ma := range actions {
 		summaries[i] = map[string]any{
 			"actionName": ma.ActionName,
-			"actionArn":  ma.ActionARN,
+			keyActionARN: ma.ActionARN,
 		}
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"actionIdentifiers": summaries})
 }
 
 func (h *Handler) handleUpdateMitigationAction(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/mitigationactions/actions/")
 	var req struct {
-		RoleARN      string         `json:"roleArn"`
 		ActionParams map[string]any `json:"actionParams"`
+		RoleARN      string         `json:"roleArn"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
@@ -930,9 +1020,10 @@ func (h *Handler) handleUpdateMitigationAction(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"actionArn": ma.ActionARN,
-		"actionId":  ma.ActionID,
+		keyActionARN: ma.ActionARN,
+		"actionId":   ma.ActionID,
 	})
 }
 
@@ -941,6 +1032,7 @@ func (h *Handler) handleDeleteMitigationAction(c *echo.Context) error {
 	if err := h.Backend.DeleteMitigationAction(name); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -957,9 +1049,10 @@ func (h *Handler) handleCreateSecurityProfile(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"securityProfileName": sp.SecurityProfileName,
-		"securityProfileArn":  sp.SecurityProfileARN,
+		keySecurityProfileName: sp.SecurityProfileName,
+		keySecurityProfileARN:  sp.SecurityProfileARN,
 	})
 }
 
@@ -969,6 +1062,7 @@ func (h *Handler) handleDescribeSecurityProfile(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, sp)
 }
 
@@ -977,10 +1071,11 @@ func (h *Handler) handleListSecurityProfiles(c *echo.Context) error {
 	summaries := make([]map[string]any, len(profiles))
 	for i, sp := range profiles {
 		summaries[i] = map[string]any{
-			"securityProfileName": sp.SecurityProfileName,
-			"securityProfileArn":  sp.SecurityProfileARN,
+			keySecurityProfileName: sp.SecurityProfileName,
+			keySecurityProfileARN:  sp.SecurityProfileARN,
 		}
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"securityProfileIdentifiers": summaries})
 }
 
@@ -996,10 +1091,11 @@ func (h *Handler) handleUpdateSecurityProfile(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"securityProfileName": sp.SecurityProfileName,
-		"securityProfileArn":  sp.SecurityProfileARN,
-		"version":             sp.Version,
+		keySecurityProfileName: sp.SecurityProfileName,
+		keySecurityProfileARN:  sp.SecurityProfileARN,
+		keyVersion:             sp.Version,
 	})
 }
 
@@ -1008,6 +1104,7 @@ func (h *Handler) handleDeleteSecurityProfile(c *echo.Context) error {
 	if err := h.Backend.DeleteSecurityProfile(name); err != nil {
 		return respondErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -1021,6 +1118,7 @@ func parseInt32(s string, out *int32) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	*out = int32(n)
+	*out = int32(n) //nolint:gosec // safe: versionId values are small positive integers
+
 	return true, nil
 }

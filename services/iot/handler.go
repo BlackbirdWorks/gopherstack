@@ -152,6 +152,8 @@ func (h *Handler) Broker() *Broker { return h.broker }
 func (h *Handler) Name() string { return "IoT" }
 
 // GetSupportedOperations returns the list of supported IoT control-plane operations.
+//
+//nolint:funlen // mechanical list of all supported op names
 func (h *Handler) GetSupportedOperations() []string {
 	const coreOpCount = 65
 	core := make([]string, 0, coreOpCount)
@@ -474,6 +476,7 @@ func resolveBatch1Ops(path, method string) string {
 	if op := resolveMitigationActionOps(path, method); op != unknownOperation {
 		return op
 	}
+
 	return resolveSecurityProfileOps(path, method)
 }
 
@@ -622,7 +625,10 @@ func resolvePolicyVersionSubOps(path, method string) string {
 	return resolvePolicyVersionByMethod(path, method, hasVersionSlash, endsVersion, endsDefault)
 }
 
-func resolvePolicyVersionByMethod(path, method string, hasVersionSlash, endsVersion, endsDefault bool) string {
+func resolvePolicyVersionByMethod(
+	path, method string,
+	hasVersionSlash, endsVersion, endsDefault bool,
+) string {
 	switch method {
 	case http.MethodGet:
 		if hasVersionSlash {
@@ -844,7 +850,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return err
 		}
 
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "unknown operation: " + op})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyError: "unknown operation: " + op},
+		)
 	}
 }
 
@@ -1157,6 +1166,7 @@ func (h *Handler) dispatchCertificateProviderOps(c *echo.Context, op string) (bo
 	return false, nil
 }
 
+//nolint:gocyclo,cyclop,funlen // mechanical routing switch
 func (h *Handler) dispatchBatch1Ops(c *echo.Context, op string) (bool, error) {
 	switch op {
 	// Jobs
@@ -1284,6 +1294,7 @@ func (h *Handler) dispatchBatch1Ops(c *echo.Context, op string) (bool, error) {
 	case opDeleteSecurityProfile:
 		return true, h.handleDeleteSecurityProfile(c)
 	}
+
 	return false, nil
 }
 
@@ -1319,7 +1330,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusConflict, awsErr{"DeleteConflictException", err.Error()})
 	default:
 
-		return c.JSON(http.StatusInternalServerError, awsErr{"InternalFailureException", err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			awsErr{"InternalFailureException", err.Error()},
+		)
 	}
 }
 
@@ -1331,7 +1345,8 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 		ThingTypeName    string            `json:"thingTypeName"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1384,7 +1399,8 @@ func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 
 	var payload TopicRulePayload
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1412,10 +1428,10 @@ func (h *Handler) handleGetTopicRule(c *echo.Context) error {
 			"ruleName":         r.RuleName,
 			"sql":              r.SQL,
 			"awsIotSqlVersion": r.AWSIoTSQLVersion,
-			"description":      r.Description,
+			keyDescription:     r.Description,
 			"actions":          r.Actions,
 			"ruleDisabled":     !r.Enabled,
-			"createdAt":        r.CreatedAt,
+			keyCreatedAt:       r.CreatedAt,
 		},
 	})
 }
@@ -1451,7 +1467,8 @@ func (h *Handler) handleCreatePolicy(c *echo.Context) error {
 		PolicyDocument string `json:"policyDocument"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1491,7 +1508,8 @@ func (h *Handler) handleAcceptCertificateTransfer(c *echo.Context) error {
 		SetAsActive bool `json:"setAsActive"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1508,7 +1526,8 @@ func (h *Handler) handleAcceptCertificateTransfer(c *echo.Context) error {
 func (h *Handler) handleAddThingToBillingGroup(c *echo.Context) error {
 	var body AddThingToBillingGroupInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1522,7 +1541,8 @@ func (h *Handler) handleAddThingToBillingGroup(c *echo.Context) error {
 func (h *Handler) handleAddThingToThingGroup(c *echo.Context) error {
 	var body AddThingToThingGroupInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1541,7 +1561,11 @@ const packageVersionPartsMin = 3
 
 func (h *Handler) handleAssociateSbomWithPackageVersion(c *echo.Context) error {
 	// Path: /packages/{packageName}/versions/{versionName}/sbom
-	parts := strings.SplitN(strings.TrimPrefix(c.Request().URL.Path, "/packages/"), "/", maxPackagePathSegments)
+	parts := strings.SplitN(
+		strings.TrimPrefix(c.Request().URL.Path, "/packages/"),
+		"/",
+		maxPackagePathSegments,
+	)
 
 	var packageName, versionName string
 	// len(parts) >= packageVersionPartsMin guarantees indices 0, 1, 2 are valid.
@@ -1554,7 +1578,8 @@ func (h *Handler) handleAssociateSbomWithPackageVersion(c *echo.Context) error {
 		Sbom *SbomDocument `json:"sbom"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1581,7 +1606,8 @@ func (h *Handler) handleAssociateTargetsWithJob(c *echo.Context) error {
 		Targets     []string `json:"targets"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1605,7 +1631,8 @@ func (h *Handler) handleAttachPolicy(c *echo.Context) error {
 		Target string `json:"target"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1748,7 +1775,7 @@ func (h *Handler) handleListTopicRules(c *echo.Context) error {
 			"ruleArn":      r.ARN,
 			"sql":          r.SQL,
 			"ruleDisabled": !r.Enabled,
-			"createdAt":    r.CreatedAt,
+			keyCreatedAt:   r.CreatedAt,
 		})
 	}
 
@@ -1760,7 +1787,8 @@ func (h *Handler) handleUpdateThing(c *echo.Context) error {
 
 	var body UpdateThingInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1802,7 +1830,8 @@ func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
 
 	var payload TopicRulePayload
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1843,7 +1872,8 @@ func (h *Handler) handleCreateThingType(c *echo.Context) error {
 		} `json:"thingTypeProperties"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1933,7 +1963,8 @@ func (h *Handler) handleDeprecateThingType(c *echo.Context) error {
 		UndoDeprecate bool `json:"undoDeprecate"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1971,7 +2002,8 @@ func (h *Handler) handleCreateThingGroup(c *echo.Context) error {
 		ParentGroupName string `json:"parentGroupName"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -2048,7 +2080,8 @@ func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
 		ExpectedVersion int64 `json:"expectedVersion"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -2071,7 +2104,7 @@ func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"version": newVersion})
+	return c.JSON(http.StatusOK, map[string]any{keyVersion: newVersion})
 }
 
 func (h *Handler) handleDeleteThingGroup(c *echo.Context) error {
@@ -2085,7 +2118,8 @@ func (h *Handler) handleDeleteThingGroup(c *echo.Context) error {
 
 func (h *Handler) handleRemoveThingFromThingGroup(c *echo.Context) error {
 	var body RemoveThingFromThingGroupInput
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	if err := h.Backend.RemoveThingFromThingGroup(&body); err != nil {
@@ -2098,7 +2132,9 @@ func (h *Handler) handleRemoveThingFromThingGroup(c *echo.Context) error {
 func (h *Handler) handleListThingsInThingGroup(c *echo.Context) error {
 	after := strings.TrimPrefix(c.Request().URL.Path, "/thing-groups/")
 	thingGroupName := strings.TrimSuffix(after, "/things")
-	things, err := h.Backend.ListThingsInThingGroup(&ListThingsInThingGroupInput{ThingGroupName: thingGroupName})
+	things, err := h.Backend.ListThingsInThingGroup(
+		&ListThingsInThingGroupInput{ThingGroupName: thingGroupName},
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -2115,7 +2151,8 @@ func (h *Handler) handleCreateCertificateFromCsr(c *echo.Context) error {
 		CertificateSigningRequest string `json:"certificateSigningRequest"`
 		SetAsActive               bool   `json:"setAsActive"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	cert, err := h.Backend.CreateCertificateFromCsr(&CreateCertificateFromCsrInput{
@@ -2139,7 +2176,8 @@ func (h *Handler) handleRegisterCertificate(c *echo.Context) error {
 		CertificatePem string `json:"certificatePem"`
 		Status         string `json:"status"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	cert, err := h.Backend.RegisterCertificate(&RegisterCertificateInput{
@@ -2161,7 +2199,8 @@ func (h *Handler) handleRegisterCertificateWithoutCA(c *echo.Context) error {
 		CertificatePem string `json:"certificatePem"`
 		Status         string `json:"status"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	cert, err := h.Backend.RegisterCertificateWithoutCA(&RegisterCertificateInput{
@@ -2246,7 +2285,8 @@ func (h *Handler) handleDetachPolicy(c *echo.Context) error {
 		Target string `json:"target"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -2262,7 +2302,8 @@ func (h *Handler) handleListAttachedPolicies(c *echo.Context) error {
 		Target    string `json:"target"`
 		Recursive bool   `json:"recursive"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	policies, err := h.Backend.ListAttachedPolicies(
@@ -2287,7 +2328,8 @@ func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
 		PolicyDocument string `json:"policyDocument"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -2382,7 +2424,8 @@ func (h *Handler) handleCreateTopicRuleDestination(c *echo.Context) error {
 	var body struct {
 		DestinationConfiguration *TopicRuleDestinationConfiguration `json:"destinationConfiguration"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	dest, err := h.Backend.CreateTopicRuleDestination(&CreateTopicRuleDestinationInput{
@@ -2424,7 +2467,8 @@ func (h *Handler) handleUpdateTopicRuleDestination(c *echo.Context) error {
 		ARN    string `json:"arn"`
 		Status string `json:"status"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	if err := h.Backend.UpdateTopicRuleDestination(&UpdateTopicRuleDestinationInput{
@@ -2458,7 +2502,8 @@ func (h *Handler) handleCreateCertificateProvider(c *echo.Context) error {
 		AccountDefaultForOperations []string `json:"accountDefaultForOperations"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -2515,7 +2560,8 @@ func (h *Handler) handleUpdateCertificateProvider(c *echo.Context) error {
 		AccountDefaultForOperations []string `json:"accountDefaultForOperations"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 

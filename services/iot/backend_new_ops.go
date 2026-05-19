@@ -1,7 +1,9 @@
 package iot
 
 import (
+	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -95,11 +97,9 @@ func cloneJob(j *Job) *Job {
 	cp := *j
 	cp.Targets = append([]string(nil), j.Targets...)
 	if j.Tags != nil {
-		cp.Tags = make(map[string]string, len(j.Tags))
-		for k, v := range j.Tags {
-			cp.Tags[k] = v
-		}
+		cp.Tags = maps.Clone(j.Tags)
 	}
+
 	return &cp
 }
 
@@ -130,7 +130,7 @@ func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
 	if _, exists := b.jobs[input.JobID]; exists {
 		return nil, fmt.Errorf("job %q already exists: %w", input.JobID, ErrAlreadyExists)
 	}
-	now := float64(time.Now().UnixMilli()) / 1000
+	now := float64(time.Now().Unix())
 	j := &Job{
 		JobID:                      input.JobID,
 		JobARN:                     b.jobARN(input.JobID),
@@ -150,6 +150,7 @@ func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
 		LastUpdatedAt:              now,
 	}
 	b.jobs[input.JobID] = j
+
 	return cloneJob(j), nil
 }
 
@@ -161,6 +162,7 @@ func (b *InMemoryBackend) DescribeJob(jobID string) (*Job, error) {
 	if !ok {
 		return nil, fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
+
 	return cloneJob(j), nil
 }
 
@@ -172,6 +174,7 @@ func (b *InMemoryBackend) ListJobs() []*Job {
 	for _, k := range sortedKeys(b.jobs) {
 		out = append(out, cloneJob(b.jobs[k]))
 	}
+
 	return out
 }
 
@@ -186,11 +189,12 @@ func (b *InMemoryBackend) UpdateJob(jobID, description string) error {
 	if description != "" {
 		j.Description = description
 	}
-	j.LastUpdatedAt = float64(time.Now().UnixMilli()) / 1000
+	j.LastUpdatedAt = float64(time.Now().Unix())
+
 	return nil
 }
 
-func (b *InMemoryBackend) CancelJob(jobID, comment string) (*Job, error) {
+func (b *InMemoryBackend) CancelJob(jobID, _ string) (*Job, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -199,7 +203,8 @@ func (b *InMemoryBackend) CancelJob(jobID, comment string) (*Job, error) {
 		return nil, fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
 	j.Status = JobStatusCanceled
-	j.LastUpdatedAt = float64(time.Now().UnixMilli()) / 1000
+	j.LastUpdatedAt = float64(time.Now().Unix())
+
 	return cloneJob(j), nil
 }
 
@@ -217,6 +222,7 @@ func (b *InMemoryBackend) DeleteJob(jobID string) error {
 			delete(b.jobExecutions, k)
 		}
 	}
+
 	return nil
 }
 
@@ -228,6 +234,7 @@ func (b *InMemoryBackend) GetJobDocument(jobID string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
+
 	return j.Document, nil
 }
 
@@ -250,6 +257,7 @@ func (b *InMemoryBackend) DescribeJobExecution(jobID, thingName string) (*JobExe
 		)
 	}
 	cp := *exec
+
 	return &cp, nil
 }
 
@@ -266,9 +274,11 @@ func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string) error {
 			ThingName: thingName,
 			Status:    JobExecCanceled,
 		}
+
 		return nil
 	}
 	exec.Status = JobExecCanceled
+
 	return nil
 }
 
@@ -278,6 +288,7 @@ func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string) error {
 
 	key := jobExecKey(jobID, thingName)
 	delete(b.jobExecutions, key)
+
 	return nil
 }
 
@@ -301,6 +312,7 @@ type JobTemplate struct {
 
 func cloneJobTemplate(jt *JobTemplate) *JobTemplate {
 	cp := *jt
+
 	return &cp
 }
 
@@ -342,9 +354,10 @@ func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*Job
 		JobExecutionsRolloutConfig: input.JobExecutionsRolloutConfig,
 		TimeoutConfig:              input.TimeoutConfig,
 		Tags:                       input.Tags,
-		CreatedAt:                  float64(time.Now().UnixMilli()) / 1000,
+		CreatedAt:                  float64(time.Now().Unix()),
 	}
 	b.jobTemplates[input.JobTemplateID] = jt
+
 	return cloneJobTemplate(jt), nil
 }
 
@@ -356,6 +369,7 @@ func (b *InMemoryBackend) DescribeJobTemplate(id string) (*JobTemplate, error) {
 	if !ok {
 		return nil, fmt.Errorf("job template %q not found: %w", id, ErrResourceNotFound)
 	}
+
 	return cloneJobTemplate(jt), nil
 }
 
@@ -367,6 +381,7 @@ func (b *InMemoryBackend) ListJobTemplates() []*JobTemplate {
 	for _, k := range sortedKeys(b.jobTemplates) {
 		out = append(out, cloneJobTemplate(b.jobTemplates[k]))
 	}
+
 	return out
 }
 
@@ -378,6 +393,7 @@ func (b *InMemoryBackend) DeleteJobTemplate(id string) error {
 		return fmt.Errorf("job template %q not found: %w", id, ErrResourceNotFound)
 	}
 	delete(b.jobTemplates, id)
+
 	return nil
 }
 
@@ -399,6 +415,7 @@ type RoleAlias struct {
 
 func cloneRoleAlias(ra *RoleAlias) *RoleAlias {
 	cp := *ra
+
 	return &cp
 }
 
@@ -425,7 +442,7 @@ func (b *InMemoryBackend) CreateRoleAlias(input *CreateRoleAliasInput) (*RoleAli
 			ErrAlreadyExists,
 		)
 	}
-	now := float64(time.Now().UnixMilli()) / 1000
+	now := float64(time.Now().Unix())
 	ra := &RoleAlias{
 		RoleAlias:                 input.RoleAlias,
 		RoleAliasARN:              b.roleAliasARN(input.RoleAlias),
@@ -439,6 +456,7 @@ func (b *InMemoryBackend) CreateRoleAlias(input *CreateRoleAliasInput) (*RoleAli
 		ra.CredentialDurationSeconds = 3600
 	}
 	b.roleAliases[input.RoleAlias] = ra
+
 	return cloneRoleAlias(ra), nil
 }
 
@@ -450,6 +468,7 @@ func (b *InMemoryBackend) DescribeRoleAlias(alias string) (*RoleAlias, error) {
 	if !ok {
 		return nil, fmt.Errorf("role alias %q not found: %w", alias, ErrResourceNotFound)
 	}
+
 	return cloneRoleAlias(ra), nil
 }
 
@@ -461,6 +480,7 @@ func (b *InMemoryBackend) ListRoleAliases() []*RoleAlias {
 	for _, k := range sortedKeys(b.roleAliases) {
 		out = append(out, cloneRoleAlias(b.roleAliases[k]))
 	}
+
 	return out
 }
 
@@ -481,7 +501,8 @@ func (b *InMemoryBackend) UpdateRoleAlias(
 	if credDuration > 0 {
 		ra.CredentialDurationSeconds = credDuration
 	}
-	ra.LastModifiedDate = float64(time.Now().UnixMilli()) / 1000
+	ra.LastModifiedDate = float64(time.Now().Unix())
+
 	return cloneRoleAlias(ra), nil
 }
 
@@ -493,6 +514,7 @@ func (b *InMemoryBackend) DeleteRoleAlias(alias string) error {
 		return fmt.Errorf("role alias %q not found: %w", alias, ErrResourceNotFound)
 	}
 	delete(b.roleAliases, alias)
+
 	return nil
 }
 
@@ -515,6 +537,7 @@ type DomainConfiguration struct {
 
 func cloneDomainConfig(dc *DomainConfiguration) *DomainConfiguration {
 	cp := *dc
+
 	return &cp
 }
 
@@ -543,7 +566,7 @@ func (b *InMemoryBackend) CreateDomainConfiguration(
 			ErrAlreadyExists,
 		)
 	}
-	now := float64(time.Now().UnixMilli()) / 1000
+	now := float64(time.Now().Unix())
 	dc := &DomainConfiguration{
 		DomainConfigurationName:   input.DomainConfigurationName,
 		DomainConfigurationARN:    b.domainConfigARN(input.DomainConfigurationName),
@@ -558,6 +581,7 @@ func (b *InMemoryBackend) CreateDomainConfiguration(
 		dc.ServiceType = "DATA"
 	}
 	b.domainConfigs[input.DomainConfigurationName] = dc
+
 	return cloneDomainConfig(dc), nil
 }
 
@@ -569,6 +593,7 @@ func (b *InMemoryBackend) DescribeDomainConfiguration(name string) (*DomainConfi
 	if !ok {
 		return nil, fmt.Errorf("domain configuration %q not found: %w", name, ErrResourceNotFound)
 	}
+
 	return cloneDomainConfig(dc), nil
 }
 
@@ -580,6 +605,7 @@ func (b *InMemoryBackend) ListDomainConfigurations() []*DomainConfiguration {
 	for _, k := range sortedKeys(b.domainConfigs) {
 		out = append(out, cloneDomainConfig(b.domainConfigs[k]))
 	}
+
 	return out
 }
 
@@ -596,7 +622,8 @@ func (b *InMemoryBackend) UpdateDomainConfiguration(
 	if status != "" {
 		dc.DomainConfigurationStatus = status
 	}
-	dc.LastModifiedDate = float64(time.Now().UnixMilli()) / 1000
+	dc.LastModifiedDate = float64(time.Now().Unix())
+
 	return cloneDomainConfig(dc), nil
 }
 
@@ -608,6 +635,7 @@ func (b *InMemoryBackend) DeleteDomainConfiguration(name string) error {
 		return fmt.Errorf("domain configuration %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.domainConfigs, name)
+
 	return nil
 }
 
@@ -632,14 +660,15 @@ type ProvisioningTemplate struct {
 
 // ProvisioningTemplateVersion represents a version of a provisioning template.
 type ProvisioningTemplateVersion struct {
-	VersionID        int32   `json:"versionId"`
 	TemplateBody     string  `json:"templateBody,omitempty"`
 	CreationDate     float64 `json:"creationDate,omitempty"`
+	VersionID        int32   `json:"versionId"`
 	IsDefaultVersion bool    `json:"isDefaultVersion"`
 }
 
 func cloneProvTemplate(pt *ProvisioningTemplate) *ProvisioningTemplate {
 	cp := *pt
+
 	return &cp
 }
 
@@ -671,7 +700,7 @@ func (b *InMemoryBackend) CreateProvisioningTemplate(
 			ErrAlreadyExists,
 		)
 	}
-	now := float64(time.Now().UnixMilli()) / 1000
+	now := float64(time.Now().Unix())
 	pt := &ProvisioningTemplate{
 		TemplateName:        input.TemplateName,
 		TemplateARN:         b.provTemplateARN(input.TemplateName),
@@ -690,6 +719,7 @@ func (b *InMemoryBackend) CreateProvisioningTemplate(
 	b.provTemplateVersions[input.TemplateName] = []*ProvisioningTemplateVersion{
 		{VersionID: 1, TemplateBody: input.TemplateBody, CreationDate: now, IsDefaultVersion: true},
 	}
+
 	return cloneProvTemplate(pt), nil
 }
 
@@ -701,6 +731,7 @@ func (b *InMemoryBackend) DescribeProvisioningTemplate(name string) (*Provisioni
 	if !ok {
 		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
+
 	return cloneProvTemplate(pt), nil
 }
 
@@ -712,6 +743,7 @@ func (b *InMemoryBackend) ListProvisioningTemplates() []*ProvisioningTemplate {
 	for _, k := range sortedKeys(b.provTemplates) {
 		out = append(out, cloneProvTemplate(b.provTemplates[k]))
 	}
+
 	return out
 }
 
@@ -736,7 +768,8 @@ func (b *InMemoryBackend) UpdateProvisioningTemplate(
 	if provRoleARN != "" {
 		pt.ProvisioningRoleARN = provRoleARN
 	}
-	pt.LastModifiedDate = float64(time.Now().UnixMilli()) / 1000
+	pt.LastModifiedDate = float64(time.Now().Unix())
+
 	return nil
 }
 
@@ -749,6 +782,7 @@ func (b *InMemoryBackend) DeleteProvisioningTemplate(name string) error {
 	}
 	delete(b.provTemplates, name)
 	delete(b.provTemplateVersions, name)
+
 	return nil
 }
 
@@ -762,13 +796,14 @@ func (b *InMemoryBackend) CreateProvisioningTemplateVersion(
 		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
 	versions := b.provTemplateVersions[name]
-	newID := int32(len(versions) + 1)
+	newID := int32(len(versions) + 1) //nolint:gosec // safe: version count is always small
 	v := &ProvisioningTemplateVersion{
 		VersionID:    newID,
 		TemplateBody: body,
-		CreationDate: float64(time.Now().UnixMilli()) / 1000,
+		CreationDate: float64(time.Now().Unix()),
 	}
 	b.provTemplateVersions[name] = append(versions, v)
+
 	return v, nil
 }
 
@@ -784,6 +819,7 @@ func (b *InMemoryBackend) ListProvisioningTemplateVersions(
 	src := b.provTemplateVersions[name]
 	out := make([]*ProvisioningTemplateVersion, len(src))
 	copy(out, src)
+
 	return out, nil
 }
 
@@ -798,9 +834,11 @@ func (b *InMemoryBackend) DeleteProvisioningTemplateVersion(name string, version
 	for i, v := range versions {
 		if v.VersionID == versionID {
 			b.provTemplateVersions[name] = append(versions[:i], versions[i+1:]...)
+
 			return nil
 		}
 	}
+
 	return fmt.Errorf("version %d not found: %w", versionID, ErrResourceNotFound)
 }
 
@@ -825,6 +863,7 @@ type Authorizer struct {
 
 func cloneAuthorizer(a *Authorizer) *Authorizer {
 	cp := *a
+
 	return &cp
 }
 
@@ -855,7 +894,7 @@ func (b *InMemoryBackend) CreateAuthorizer(input *CreateAuthorizerInput) (*Autho
 			ErrAlreadyExists,
 		)
 	}
-	now := float64(time.Now().UnixMilli()) / 1000
+	now := float64(time.Now().Unix())
 	a := &Authorizer{
 		AuthorizerName:         input.AuthorizerName,
 		AuthorizerARN:          b.authorizerARN(input.AuthorizerName),
@@ -873,6 +912,7 @@ func (b *InMemoryBackend) CreateAuthorizer(input *CreateAuthorizerInput) (*Autho
 		a.Status = "ACTIVE"
 	}
 	b.authorizers[input.AuthorizerName] = a
+
 	return cloneAuthorizer(a), nil
 }
 
@@ -884,6 +924,7 @@ func (b *InMemoryBackend) DescribeAuthorizer(name string) (*Authorizer, error) {
 	if !ok {
 		return nil, fmt.Errorf("authorizer %q not found: %w", name, ErrResourceNotFound)
 	}
+
 	return cloneAuthorizer(a), nil
 }
 
@@ -895,6 +936,7 @@ func (b *InMemoryBackend) ListAuthorizers() []*Authorizer {
 	for _, k := range sortedKeys(b.authorizers) {
 		out = append(out, cloneAuthorizer(b.authorizers[k]))
 	}
+
 	return out
 }
 
@@ -912,7 +954,8 @@ func (b *InMemoryBackend) UpdateAuthorizer(name, functionARN, status string) (*A
 	if status != "" {
 		a.Status = status
 	}
-	a.LastModifiedDate = float64(time.Now().UnixMilli()) / 1000
+	a.LastModifiedDate = float64(time.Now().Unix())
+
 	return cloneAuthorizer(a), nil
 }
 
@@ -924,6 +967,7 @@ func (b *InMemoryBackend) DeleteAuthorizer(name string) error {
 		return fmt.Errorf("authorizer %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.authorizers, name)
+
 	return nil
 }
 
@@ -947,13 +991,14 @@ type BillingGroup struct {
 	BillingGroupName       string                 `json:"billingGroupName"`
 	BillingGroupARN        string                 `json:"billingGroupArn"`
 	BillingGroupID         string                 `json:"billingGroupId"`
-	BillingGroupProperties BillingGroupProperties `json:"billingGroupProperties,omitempty"`
-	BillingGroupMetadata   BillingGroupMetadata   `json:"billingGroupMetadata,omitempty"`
+	BillingGroupProperties BillingGroupProperties `json:"billingGroupProperties,omitzero"`
+	BillingGroupMetadata   BillingGroupMetadata   `json:"billingGroupMetadata,omitzero"`
 	Version                int64                  `json:"version"`
 }
 
 func cloneBillingGroup(bg *BillingGroup) *BillingGroup {
 	cp := *bg
+
 	return &cp
 }
 
@@ -965,7 +1010,7 @@ func (b *InMemoryBackend) billingGroupARN(name string) string {
 type CreateBillingGroupInput struct {
 	Tags                   map[string]string      `json:"tags,omitempty"`
 	BillingGroupName       string                 `json:"billingGroupName"`
-	BillingGroupProperties BillingGroupProperties `json:"billingGroupProperties,omitempty"`
+	BillingGroupProperties BillingGroupProperties `json:"billingGroupProperties,omitzero"`
 }
 
 func (b *InMemoryBackend) CreateBillingGroup(
@@ -987,12 +1032,13 @@ func (b *InMemoryBackend) CreateBillingGroup(
 		BillingGroupID:         uuid.NewString(),
 		BillingGroupProperties: input.BillingGroupProperties,
 		BillingGroupMetadata: BillingGroupMetadata{
-			CreationDate: float64(time.Now().UnixMilli()) / 1000,
+			CreationDate: float64(time.Now().Unix()),
 		},
 		Tags:    input.Tags,
 		Version: 1,
 	}
 	b.billingGroups[input.BillingGroupName] = bg
+
 	return cloneBillingGroup(bg), nil
 }
 
@@ -1004,6 +1050,7 @@ func (b *InMemoryBackend) DescribeBillingGroup(name string) (*BillingGroup, erro
 	if !ok {
 		return nil, fmt.Errorf("billing group %q not found: %w", name, ErrResourceNotFound)
 	}
+
 	return cloneBillingGroup(bg), nil
 }
 
@@ -1015,6 +1062,7 @@ func (b *InMemoryBackend) ListBillingGroups() []*BillingGroup {
 	for _, k := range sortedKeys(b.billingGroups) {
 		out = append(out, cloneBillingGroup(b.billingGroups[k]))
 	}
+
 	return out
 }
 
@@ -1031,6 +1079,7 @@ func (b *InMemoryBackend) UpdateBillingGroup(
 	}
 	bg.BillingGroupProperties = props
 	bg.Version++
+
 	return bg.Version, nil
 }
 
@@ -1042,6 +1091,7 @@ func (b *InMemoryBackend) DeleteBillingGroup(name string) error {
 		return fmt.Errorf("billing group %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.billingGroups, name)
+
 	return nil
 }
 
@@ -1050,7 +1100,7 @@ func (b *InMemoryBackend) DeleteBillingGroup(name string) error {
 // ---------------------------------------------------------------------------
 
 // ScheduledAudit represents an IoT scheduled audit.
-type ScheduledAudit struct {
+type ScheduledAudit struct { //nolint:govet // JSON field order matters
 	Tags               map[string]string `json:"tags,omitempty"`
 	TargetCheckNames   []string          `json:"targetCheckNames,omitempty"`
 	ScheduledAuditName string            `json:"scheduledAuditName"`
@@ -1063,6 +1113,7 @@ type ScheduledAudit struct {
 func cloneScheduledAudit(sa *ScheduledAudit) *ScheduledAudit {
 	cp := *sa
 	cp.TargetCheckNames = append([]string(nil), sa.TargetCheckNames...)
+
 	return &cp
 }
 
@@ -1071,7 +1122,7 @@ func (b *InMemoryBackend) scheduledAuditARN(name string) string {
 }
 
 // CreateScheduledAuditInput holds input for CreateScheduledAudit.
-type CreateScheduledAuditInput struct {
+type CreateScheduledAuditInput struct { //nolint:govet // JSON field order matters
 	Tags               map[string]string `json:"tags,omitempty"`
 	TargetCheckNames   []string          `json:"targetCheckNames,omitempty"`
 	ScheduledAuditName string            `json:"scheduledAuditName"`
@@ -1103,6 +1154,7 @@ func (b *InMemoryBackend) CreateScheduledAudit(
 		Tags:               input.Tags,
 	}
 	b.scheduledAudits[input.ScheduledAuditName] = sa
+
 	return cloneScheduledAudit(sa), nil
 }
 
@@ -1114,6 +1166,7 @@ func (b *InMemoryBackend) DescribeScheduledAudit(name string) (*ScheduledAudit, 
 	if !ok {
 		return nil, fmt.Errorf("scheduled audit %q not found: %w", name, ErrResourceNotFound)
 	}
+
 	return cloneScheduledAudit(sa), nil
 }
 
@@ -1125,6 +1178,7 @@ func (b *InMemoryBackend) ListScheduledAudits() []*ScheduledAudit {
 	for _, k := range sortedKeys(b.scheduledAudits) {
 		out = append(out, cloneScheduledAudit(b.scheduledAudits[k]))
 	}
+
 	return out
 }
 
@@ -1151,6 +1205,7 @@ func (b *InMemoryBackend) UpdateScheduledAudit(
 	if len(checks) > 0 {
 		sa.TargetCheckNames = append([]string(nil), checks...)
 	}
+
 	return cloneScheduledAudit(sa), nil
 }
 
@@ -1162,6 +1217,7 @@ func (b *InMemoryBackend) DeleteScheduledAudit(name string) error {
 		return fmt.Errorf("scheduled audit %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.scheduledAudits, name)
+
 	return nil
 }
 
@@ -1172,17 +1228,18 @@ func (b *InMemoryBackend) DeleteScheduledAudit(name string) error {
 // MitigationAction represents an IoT mitigation action.
 type MitigationAction struct {
 	Tags             map[string]string `json:"tags,omitempty"`
+	ActionParams     map[string]any    `json:"actionParams,omitempty"`
 	ActionName       string            `json:"actionName"`
 	ActionARN        string            `json:"actionArn"`
 	ActionID         string            `json:"actionId"`
 	RoleARN          string            `json:"roleArn,omitempty"`
-	ActionParams     map[string]any    `json:"actionParams,omitempty"`
 	CreationDate     float64           `json:"creationDate,omitempty"`
 	LastModifiedDate float64           `json:"lastModifiedDate,omitempty"`
 }
 
 func cloneMitigationAction(ma *MitigationAction) *MitigationAction {
 	cp := *ma
+
 	return &cp
 }
 
@@ -1193,9 +1250,9 @@ func (b *InMemoryBackend) mitigationActionARN(name string) string {
 // CreateMitigationActionInput holds input for CreateMitigationAction.
 type CreateMitigationActionInput struct {
 	Tags         map[string]string `json:"tags,omitempty"`
+	ActionParams map[string]any    `json:"actionParams,omitempty"`
 	ActionName   string            `json:"actionName"`
 	RoleARN      string            `json:"roleArn,omitempty"`
-	ActionParams map[string]any    `json:"actionParams,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateMitigationAction(
@@ -1211,7 +1268,7 @@ func (b *InMemoryBackend) CreateMitigationAction(
 			ErrAlreadyExists,
 		)
 	}
-	now := float64(time.Now().UnixMilli()) / 1000
+	now := float64(time.Now().Unix())
 	ma := &MitigationAction{
 		ActionName:       input.ActionName,
 		ActionARN:        b.mitigationActionARN(input.ActionName),
@@ -1223,6 +1280,7 @@ func (b *InMemoryBackend) CreateMitigationAction(
 		LastModifiedDate: now,
 	}
 	b.mitigationActions[input.ActionName] = ma
+
 	return cloneMitigationAction(ma), nil
 }
 
@@ -1234,6 +1292,7 @@ func (b *InMemoryBackend) DescribeMitigationAction(name string) (*MitigationActi
 	if !ok {
 		return nil, fmt.Errorf("mitigation action %q not found: %w", name, ErrResourceNotFound)
 	}
+
 	return cloneMitigationAction(ma), nil
 }
 
@@ -1245,6 +1304,7 @@ func (b *InMemoryBackend) ListMitigationActions() []*MitigationAction {
 	for _, k := range sortedKeys(b.mitigationActions) {
 		out = append(out, cloneMitigationAction(b.mitigationActions[k]))
 	}
+
 	return out
 }
 
@@ -1265,7 +1325,8 @@ func (b *InMemoryBackend) UpdateMitigationAction(
 	if params != nil {
 		ma.ActionParams = params
 	}
-	ma.LastModifiedDate = float64(time.Now().UnixMilli()) / 1000
+	ma.LastModifiedDate = float64(time.Now().Unix())
+
 	return cloneMitigationAction(ma), nil
 }
 
@@ -1277,6 +1338,7 @@ func (b *InMemoryBackend) DeleteMitigationAction(name string) error {
 		return fmt.Errorf("mitigation action %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.mitigationActions, name)
+
 	return nil
 }
 
@@ -1297,6 +1359,7 @@ type SecurityProfile struct {
 
 func cloneSecurityProfile(sp *SecurityProfile) *SecurityProfile {
 	cp := *sp
+
 	return &cp
 }
 
@@ -1324,7 +1387,7 @@ func (b *InMemoryBackend) CreateSecurityProfile(
 			ErrAlreadyExists,
 		)
 	}
-	now := float64(time.Now().UnixMilli()) / 1000
+	now := float64(time.Now().Unix())
 	sp := &SecurityProfile{
 		SecurityProfileName:        input.SecurityProfileName,
 		SecurityProfileARN:         b.securityProfileARN(input.SecurityProfileName),
@@ -1335,6 +1398,7 @@ func (b *InMemoryBackend) CreateSecurityProfile(
 		LastModifiedDate:           now,
 	}
 	b.securityProfiles[input.SecurityProfileName] = sp
+
 	return cloneSecurityProfile(sp), nil
 }
 
@@ -1346,6 +1410,7 @@ func (b *InMemoryBackend) DescribeSecurityProfile(name string) (*SecurityProfile
 	if !ok {
 		return nil, fmt.Errorf("security profile %q not found: %w", name, ErrResourceNotFound)
 	}
+
 	return cloneSecurityProfile(sp), nil
 }
 
@@ -1357,6 +1422,7 @@ func (b *InMemoryBackend) ListSecurityProfiles() []*SecurityProfile {
 	for _, k := range sortedKeys(b.securityProfiles) {
 		out = append(out, cloneSecurityProfile(b.securityProfiles[k]))
 	}
+
 	return out
 }
 
@@ -1374,7 +1440,8 @@ func (b *InMemoryBackend) UpdateSecurityProfile(
 		sp.SecurityProfileDescription = description
 	}
 	sp.Version++
-	sp.LastModifiedDate = float64(time.Now().UnixMilli()) / 1000
+	sp.LastModifiedDate = float64(time.Now().Unix())
+
 	return cloneSecurityProfile(sp), nil
 }
 
@@ -1386,11 +1453,12 @@ func (b *InMemoryBackend) DeleteSecurityProfile(name string) error {
 		return fmt.Errorf("security profile %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.securityProfiles, name)
+
 	return nil
 }
 
 // ErrResourceNotFound is returned when a new-op resource is not found.
-var ErrResourceNotFound = fmt.Errorf("ResourceNotFoundException")
+var ErrResourceNotFound = errors.New("ResourceNotFoundException")
 
 // Ensure sort is used.
 var _ = sort.Strings
