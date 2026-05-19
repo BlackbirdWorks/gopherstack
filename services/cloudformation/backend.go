@@ -150,33 +150,33 @@ type StorageBackend interface {
 
 // InMemoryBackend is a concurrency-safe in-memory CloudFormation backend.
 type InMemoryBackend struct {
-	stacks              map[string]*Stack
-	stackIDIndex        map[string]string // stackID (ARN) → stackName
-	events              map[string][]StackEvent
-	resources           map[string]map[string]*StackResource
-	changeSets          map[string]map[string]*ChangeSet
-	exports             map[string]*Export
-	driftDetections     map[string]*DriftDetectionStatus
-	stackPolicies       map[string]string
-	stackSets           map[string]*StackSet
-	stackInstances      map[string][]StackInstance  // stackSetName → instances
-	stackSetOperations  map[string]map[string]*StackSetOperation // stackSetName → operationID → op
-	generatedTemplates  map[string]*GeneratedTemplate
-	resourceScans       map[string]*ResourceScan
-	typeRegistry        map[string]*RegisteredType         // typeArn → type
-	typeRegistrations   map[string]*TypeRegistrationRecord // token → record
-	typeConfigs         map[string]string                  // typeName → config json
-	publishers          map[string]*Publisher              // publisherID → publisher
-	stackRefactors      map[string]*StackRefactor          // refactorID → refactor
-	hookResults         map[string]*HookResult             // token → result
-	handlerProgress     map[string]string                  // bearerToken → status
-	signals             map[string][]SignalRecord // stackName+logicalID → records
-	creator             *ResourceCreator
-	resolver            DynamicRefResolver
-	mu                  *lockmetrics.RWMutex
-	accountID           string
-	region              string
-	orgAccessEnabled    bool
+	stacks             map[string]*Stack
+	stackIDIndex       map[string]string // stackID (ARN) → stackName
+	events             map[string][]StackEvent
+	resources          map[string]map[string]*StackResource
+	changeSets         map[string]map[string]*ChangeSet
+	exports            map[string]*Export
+	driftDetections    map[string]*DriftDetectionStatus
+	stackPolicies      map[string]string
+	stackSets          map[string]*StackSet
+	stackInstances     map[string][]StackInstance               // stackSetName → instances
+	stackSetOperations map[string]map[string]*StackSetOperation // stackSetName → operationID → op
+	generatedTemplates map[string]*GeneratedTemplate
+	resourceScans      map[string]*ResourceScan
+	typeRegistry       map[string]*RegisteredType         // typeArn → type
+	typeRegistrations  map[string]*TypeRegistrationRecord // token → record
+	typeConfigs        map[string]string                  // typeName → config json
+	publishers         map[string]*Publisher              // publisherID → publisher
+	stackRefactors     map[string]*StackRefactor          // refactorID → refactor
+	hookResults        map[string]*HookResult             // token → result
+	handlerProgress    map[string]string                  // bearerToken → status
+	signals            map[string][]SignalRecord          // stackName+logicalID → records
+	creator            *ResourceCreator
+	resolver           DynamicRefResolver
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
+	orgAccessEnabled   bool
 }
 
 const (

@@ -291,10 +291,10 @@ func TestCFN_StackSetOperations(t *testing.T) {
 
 	// CreateStackInstances creates an operation
 	rec = postForm(t, h, url.Values{
-		"Action":           []string{"CreateStackInstances"},
-		"StackSetName":     []string{"ops-test-set"},
+		"Action":            []string{"CreateStackInstances"},
+		"StackSetName":      []string{"ops-test-set"},
 		"Accounts.member.1": []string{"111111111111"},
-		"Regions.member.1": []string{"us-east-1"},
+		"Regions.member.1":  []string{"us-east-1"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -360,19 +360,19 @@ func TestCFN_StackSetOperations(t *testing.T) {
 
 	// ImportStacksToStackSet — creates an IMPORT operation
 	rec = postForm(t, h, url.Values{
-		"Action":           []string{"ImportStacksToStackSet"},
-		"StackSetName":     []string{"ops-test-set"},
+		"Action":            []string{"ImportStacksToStackSet"},
+		"StackSetName":      []string{"ops-test-set"},
 		"StackIds.member.1": []string{"stack-abc"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// ListStackInstanceResourceDrifts
 	rec = postForm(t, h, url.Values{
-		"Action":                []string{"ListStackInstanceResourceDrifts"},
-		"StackSetName":          []string{"ops-test-set"},
-		"OperationId":           []string{opID},
-		"StackInstanceAccount":  []string{"111111111111"},
-		"StackInstanceRegion":   []string{"us-east-1"},
+		"Action":               []string{"ListStackInstanceResourceDrifts"},
+		"StackSetName":         []string{"ops-test-set"},
+		"OperationId":          []string{opID},
+		"StackInstanceAccount": []string{"111111111111"},
+		"StackInstanceRegion":  []string{"us-east-1"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -386,19 +386,19 @@ func TestCFN_StackSetOperations(t *testing.T) {
 
 	// UpdateStackInstances — creates an UPDATE_INSTANCES operation
 	rec = postForm(t, h, url.Values{
-		"Action":           []string{"UpdateStackInstances"},
-		"StackSetName":     []string{"ops-test-set"},
+		"Action":            []string{"UpdateStackInstances"},
+		"StackSetName":      []string{"ops-test-set"},
 		"Accounts.member.1": []string{"111111111111"},
-		"Regions.member.1": []string{"us-east-1"},
+		"Regions.member.1":  []string{"us-east-1"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// DeleteStackInstances — creates a DELETE_INSTANCES operation
 	rec = postForm(t, h, url.Values{
-		"Action":           []string{"DeleteStackInstances"},
-		"StackSetName":     []string{"ops-test-set"},
+		"Action":            []string{"DeleteStackInstances"},
+		"StackSetName":      []string{"ops-test-set"},
 		"Accounts.member.1": []string{"111111111111"},
-		"Regions.member.1": []string{"us-east-1"},
+		"Regions.member.1":  []string{"us-east-1"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 }
@@ -479,8 +479,8 @@ func TestCFN_Misc(t *testing.T) {
 
 	// Create a stack to use with SignalResource
 	rec := postForm(t, h, url.Values{
-		"Action":       []string{"CreateStack"},
-		"StackName":    []string{"misc-test-stack"},
+		"Action":    []string{"CreateStack"},
+		"StackName": []string{"misc-test-stack"},
 		"TemplateBody": []string{
 			`{"AWSTemplateFormatVersion":"2010-09-09","Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}}}}`,
 		},

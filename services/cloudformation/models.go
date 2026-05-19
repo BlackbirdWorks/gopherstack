@@ -223,11 +223,11 @@ type TypeSummary struct {
 
 // StackSetOperation represents a StackSet operation (create/update/delete instances, etc.).
 type StackSetOperation struct {
+	CreatedAt    time.Time
 	OperationID  string
 	StackSetName string
 	Action       string // CREATE_INSTANCES / UPDATE_INSTANCES / DELETE_INSTANCES / UPDATE / DETECT_DRIFT / IMPORT
 	Status       string // RUNNING / SUCCEEDED / STOPPED / STOPPING / FAILED
-	CreatedAt    time.Time
 }
 
 // RegisteredType holds registration info for a CloudFormation type.
