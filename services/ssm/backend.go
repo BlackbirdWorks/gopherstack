@@ -173,6 +173,8 @@ type InMemoryBackend struct {
 	opsItemRelatedItems        map[string][]OpsItemRelatedItem
 	opsMetadata                map[string]OpsMetadata
 	patchBaselines             map[string]PatchBaseline
+	inventory                  map[string][]InventoryItem  // key: instanceID
+	compliance                 map[string][]ComplianceItem // key: resourceID
 	mu                         *lockmetrics.RWMutex
 	miscResourceTags           map[string]map[string]string
 	resourceIDToOpsMetadataArn map[string]string
@@ -201,6 +203,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		opsItemRelatedItems:        make(map[string][]OpsItemRelatedItem),
 		opsMetadata:                make(map[string]OpsMetadata),
 		patchBaselines:             make(map[string]PatchBaseline),
+		inventory:                  make(map[string][]InventoryItem),
+		compliance:                 make(map[string][]ComplianceItem),
 		commandExpirySecs:          defaultCommandExpirySecs,
 		mu:                         lockmetrics.New("ssm"),
 		resourceIDToOpsMetadataArn: make(map[string]string),

@@ -53,11 +53,12 @@ type Workflow struct {
 
 // WorkflowRun represents a single run of a Glue workflow.
 type WorkflowRun struct {
-	WorkflowName string  `json:"WorkflowName"`
-	RunID        string  `json:"WorkflowRunId"`
-	Status       string  `json:"Status"`
-	StartedOn    float64 `json:"StartedOn,omitempty"`
-	CompletedOn  float64 `json:"CompletedOn,omitempty"`
+	Properties   map[string]string `json:"WorkflowRunProperties,omitempty"`
+	WorkflowName string            `json:"WorkflowName"`
+	RunID        string            `json:"WorkflowRunId"`
+	Status       string            `json:"Status"`
+	StartedOn    float64           `json:"StartedOn,omitempty"`
+	CompletedOn  float64           `json:"CompletedOn,omitempty"`
 }
 
 // GrokClassifier is a Grok-based classifier.

@@ -719,4 +719,206 @@ type Backend interface {
 
 	// Reset clears all resource state, returning the backend to its initial state.
 	Reset()
+
+	// ---- batch1: EBS volume lifecycle ----
+
+	ModifyVolume(volumeID, volumeType string, size, iops int) (*VolumeModification, error)
+	DescribeVolumeStatus(ids []string) []VolumeStatusItem
+	DescribeVolumesModifications(ids []string) []*VolumeModification
+	CopySnapshot(sourceSnapshotID, description string) (*Snapshot, error)
+	CreateSnapshots(volumeIDs []string, description string) ([]*Snapshot, error)
+
+	// ---- batch1: snapshot block public access ----
+
+	GetSnapshotBlockPublicAccessState() string
+	EnableSnapshotBlockPublicAccess(state string) error
+	DisableSnapshotBlockPublicAccess()
+	DescribeSnapshotTierStatus(ids []string) []SnapshotTierItem
+	ModifySnapshotTier(snapshotID, storageTier string) error
+	ResetSnapshotAttribute(snapshotID string) error
+
+	// ---- batch1: VPC/Subnet/SG ----
+
+	CreateDefaultVpc() (*VPC, error)
+	CreateDefaultSubnet(az string) (*Subnet, error)
+	AssociateSubnetCidrBlock(subnetID, ipv6CIDRBlock string) (*SubnetCIDRAssociation, error)
+	DisassociateSubnetCidrBlock(associationID string) (string, error)
+	AssociateSecurityGroupVpc(sgID, vpcID string) (*SGVpcAssociationState, error)
+	DisassociateSecurityGroupVpc(sgID, vpcID string) error
+	DescribeSecurityGroupReferences(sgIDs []string) []SGReference
+	DescribeStaleSecurityGroups(vpcID string) []StaleSGItem
+	DescribeSecurityGroupVpcAssociations(sgIDs []string) []SGVpcAssocItem
+	ModifyVpcTenancy(vpcID, tenancy string) error
+	ModifyVpcPeeringConnectionOptions(peeringID string, opts PeeringConnectionOptions) error
+	GetVpcPeeringConnectionOptions(peeringID string) *PeeringConnectionOptions
+
+	// ---- batch1: EIP attributes ----
+
+	DescribeAddressesAttribute(allocationIDs []string) []AddressAttribute
+	ModifyAddressAttribute(allocationID, domainName string) error
+	ResetAddressAttribute(allocationID string) error
+
+	// ---- batch1: instance ----
+
+	GetConsoleOutput(instanceID string) (string, time.Time, error)
+	ModifyInstanceMetadataOptions(
+		instanceID, httpTokens, httpEndpoint, instanceMetadataTags string,
+		hopLimit int,
+	) (*IMDSOptions, error)
+	GetInstanceMetadataDefaults() *InstanceMetadataDefaults
+	ModifyInstanceMetadataDefaults(
+		httpTokens, httpEndpoint, instanceMetadataTags string,
+		hopLimit int,
+	) error
+	DescribeInstanceCreditSpecifications(ids []string) []InstanceCreditSpec
+	ModifyInstanceCreditSpecification(instanceID, cpuCredits string) error
+	DescribeInstanceTopology(ids []string) []InstanceTopologyItem
+	MonitorInstances(instanceIDs []string) ([]MonitoringState, error)
+	UnmonitorInstances(instanceIDs []string) ([]MonitoringState, error)
+
+	// ---- batch1: network interface ----
+
+	DescribeNetworkInterfaceAttribute(niID, attribute string) (*NIAttributeResult, error)
+	ResetNetworkInterfaceAttribute(niID string) error
+	DescribeNetworkInterfacePermissions(niIDs []string) []*NetworkInterfacePermission
+	CreateNetworkInterfacePermission(
+		niID, awsAccountID, awsService, permission string,
+	) (*NetworkInterfacePermission, error)
+	DeleteNetworkInterfacePermission(permissionID string) error
+	AssignIpv6Addresses(niID string, count int) ([]string, error)
+	UnassignIpv6Addresses(niID string, addresses []string) error
+
+	// ---- batch1: account/misc ----
+
+	DescribeAccountAttributes(names []string) []AccountAttribute
+	DescribePrefixLists(ids []string) []PrefixList
+	DescribeIDFormat(resources []string) []IDFormatItem
+	ModifyIDFormat(resource string, useLongIDs bool) error
+	DescribeIdentityIDFormat(_ string, resources []string) []IDFormatItem
+	ModifyIdentityIDFormat(_ string, resource string, useLongIDs bool) error
+	DescribeAggregateIDFormat() []IDFormatItem
+	DescribePrincipalIDFormat(_ string) []IDFormatItem
+	DescribeInstanceEventNotificationAttributes() *InstanceEventNotificationAttributes
+	DeregisterInstanceEventNotificationAttributes()
+
+	// ---- batch2 ----
+
+	CreateVpcEndpointConnectionNotification(
+		serviceID, endpointID, notifARN string,
+		events []string,
+	) (*VpcEndpointConnectionNotification, error)
+	DescribeVpcEndpointConnectionNotifications(ids []string) []*VpcEndpointConnectionNotification
+	DeleteVpcEndpointConnectionNotifications(ids []string) error
+	ModifyVpcEndpointConnectionNotification(
+		id, notifARN string,
+		events []string,
+	) (*VpcEndpointConnectionNotification, error)
+	DescribeVpcEndpointConnections(serviceIDs []string) []*VpcEndpointConnection
+	DescribeVpcEndpointAssociations(endpointIDs []string) []*VpcEndpoint
+	ModifyVpcEndpointServicePayerResponsibility(serviceID, payerResponsibility string) error
+	DescribeVpcEndpointServicePermissions(serviceID string) []string
+	ModifyVpcEndpointServicePermissions(serviceID string, add, remove []string) error
+	ModifyVpcEndpoint(endpointID string, addSubnetIDs, removeSubnetIDs []string) error
+	EnableEbsEncryptionByDefault()
+	DisableEbsEncryptionByDefault()
+	GetEbsEncryptionByDefault() bool
+	GetEbsDefaultKmsKeyID() string
+	ModifyEbsDefaultKmsKeyID(kmsKeyID string) error
+	EnableVolumeIO(volumeID string) error
+	LockSnapshot(snapshotID, lockMode string, durationDays int) (*SnapshotLock, error)
+	UnlockSnapshot(snapshotID string) error
+	DescribeLockedSnapshots(ids []string) []*SnapshotLock
+	CopyVolumes(volumeIDs []string, destinationRegion string) ([]CopyVolumesResult, error)
+	DisassociateVpcCidrBlock(associationID string) error
+	DisassociateNatGatewayAddress(natGatewayID string) error
+	AssociateNatGatewayAddress(natGatewayID, allocationID string) error
+	AssignPrivateNatGatewayAddress(natGatewayID string) error
+	DisableImage(imageID string) error
+	EnableImage(imageID string) error
+	EnableImageBlockPublicAccess(state string) error
+	DisableImageBlockPublicAccess()
+	GetImageBlockPublicAccessState() string
+	EnableImageDeprecation(imageID, deprecateAt string) error
+	DisableImageDeprecation(imageID string) error
+	EnableImageDeregistrationProtection(imageID string) error
+	DisableImageDeregistrationProtection(imageID string) error
+	ModifyImageAttribute(imageID, attribute, value string) error
+	ResetImageAttribute(imageID, attribute string) error
+	DescribeInstanceImageMetadata(instanceIDs []string) []InstanceImageMetadataItem
+	EnableSerialConsoleAccess()
+	DisableSerialConsoleAccess()
+	GetSerialConsoleAccessStatus() bool
+	EnableVgwRoutePropagation(routeTableID, gatewayID string) error
+	DisableVgwRoutePropagation(routeTableID, gatewayID string) error
+	GetDefaultCreditSpecification() string
+	ModifyDefaultCreditSpecification(cpuCredits string) error
+	CreateReplaceRootVolumeTask(instanceID, snapshotID string) (*ReplaceRootVolumeTask, error)
+	DescribeReplaceRootVolumeTasks(ids []string) []*ReplaceRootVolumeTask
+	EnableAddressTransfer(allocationID, transferAccountID string) (*AddressTransfer, error)
+	DisableAddressTransfer(allocationID string) error
+	DescribeAddressTransfers(allocationIDs []string) []*AddressTransfer
+	CreateSubnetCidrReservation(
+		subnetID, cidr, reservationType, description string,
+	) (*SubnetCIDRReservation, error)
+	DeleteSubnetCidrReservation(reservationID string) error
+
+	// ---- batch3 ----
+
+	CreateCapacityReservation(
+		instanceType, availabilityZone string,
+		instanceCount int,
+	) (*CapacityReservation, error)
+	CancelCapacityReservation(reservationID string) error
+	ModifyCapacityReservation(reservationID string, instanceCount int) error
+	GetGroupsForCapacityReservation(reservationID string) ([]string, error)
+	CreateInstanceConnectEndpoint(
+		subnetID string,
+		securityGroupIDs []string,
+		preserveClientIP bool,
+	) (*InstanceConnectEndpoint, error)
+	DeleteInstanceConnectEndpoint(id string) error
+	DescribeInstanceConnectEndpoints(ids []string) []*InstanceConnectEndpoint
+	ModifyInstanceConnectEndpoint(id string, preserveClientIP bool) error
+	CreateInstanceEventWindow(name, cronExpression string) (*InstanceEventWindow, error)
+	DeleteInstanceEventWindow(id string) error
+	DescribeInstanceEventWindows(ids []string) []*InstanceEventWindow
+	ModifyInstanceEventWindow(id, name, cronExpression string) error
+	CreateSpotDatafeedSubscription(bucket, prefix string) (*SpotDatafeed, error)
+	DeleteSpotDatafeedSubscription()
+	DescribeSpotDatafeedSubscription() *SpotDatafeed
+	RegisterImage(name, description, architecture string) (*AMIStub, error)
+	ImportImage(description, architecture, platform string) (*ImageImportTask, error)
+	DescribeImportImageTasks(taskIDs []string) []*ImageImportTask
+	ExportImage(imageID, description string) (string, error)
+	ListImagesInRecycleBin(imageIDs []string) []*RecycleBinImage
+	RestoreImageFromRecycleBin(imageID string) error
+	ListSnapshotsInRecycleBin(snapshotIDs []string) []*Snapshot
+	RestoreSnapshotFromRecycleBin(snapshotID string) error
+	RestoreSnapshotTier(snapshotID string) error
+	ImportSnapshot(description string) (*SnapshotImportTask, error)
+	DescribeImportSnapshotTasks(taskIDs []string) []*SnapshotImportTask
+	EnableFastLaunch(imageID string) error
+	DisableFastLaunch(imageID string) error
+	DescribeFastLaunchImages(imageIDs []string) []FastLaunchImageItem
+	EnableFastSnapshotRestores(snapshotIDs, availabilityZones []string) error
+	DisableFastSnapshotRestores(snapshotIDs, availabilityZones []string) error
+	DescribeFastSnapshotRestores() []FastSnapshotRestoreItem
+	GetPasswordData(instanceID string) (string, time.Time, error)
+	GetConsoleScreenshot(instanceID string) (string, error)
+	GetInstanceTypesFromInstanceRequirements() []string
+	GetSubnetCidrReservations(subnetID string) ([]*SubnetCIDRReservation, error)
+	GetSecurityGroupsForVpc(vpcID string) ([]SecurityGroupForVpcItem, error)
+	ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID string) error
+	RegisterInstanceEventNotificationAttributes(includeAllTags bool)
+	ResetEbsDefaultKmsKeyID()
+	UpdateSecurityGroupRuleDescriptionsIngress(groupID string, rules []SecurityGroupRule) error
+	UpdateSecurityGroupRuleDescriptionsEgress(groupID string, rules []SecurityGroupRule) error
+	ListVolumesInRecycleBin(volumeIDs []string) []*RecycleBinVolume
+	RestoreVolumeFromRecycleBin(volumeID string) error
+	RestoreAddressToClassic(publicIP string) error
+	ReportInstanceStatus(instanceID, status, description string) error
+	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error
+	CreateVpnConnectionRoute(vpnConnectionID, destinationCIDR string) (*VpnConnectionRoute, error)
+	DeleteVpnConnectionRoute(vpnConnectionID, destinationCIDR string) error
+	ModifyTransitGateway(tgwID, description string) error
 }

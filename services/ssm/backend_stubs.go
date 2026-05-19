@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// backend_stubs.go provides stub implementations for the 123 SSM operations
+// backend_stubs.go provides stub implementations for the SSM operations
 // that are acknowledged but not yet fully implemented.  Each stub returns an
 // empty success response, which is sufficient for the SDK-completeness test
 // and for callers that only need the operation to not error.
@@ -33,9 +33,6 @@ type DeleteAssociationInput struct {
 	InstanceID    string `json:"InstanceId,omitempty"`
 }
 
-// DeleteInventoryInput is the request for DeleteInventory.
-type DeleteInventoryInput struct{}
-
 // DeleteMaintenanceWindowInput is the request for DeleteMaintenanceWindow.
 type DeleteMaintenanceWindowInput struct {
 	WindowID string `json:"WindowId"`
@@ -49,11 +46,6 @@ type DeleteOpsItemInput struct {
 // DeleteOpsMetadataInput is the request for DeleteOpsMetadata.
 type DeleteOpsMetadataInput struct {
 	OpsMetadataArn string `json:"OpsMetadataArn"`
-}
-
-// DeletePatchBaselineInput is the request for DeletePatchBaseline.
-type DeletePatchBaselineInput struct {
-	BaselineID string `json:"BaselineId"`
 }
 
 // DeleteResourceDataSyncInput is the request for DeleteResourceDataSync.
@@ -139,12 +131,6 @@ type DescribeEffectiveInstanceAssociationsInput struct{}
 // DescribeEffectiveInstanceAssociationsOutput is the response for DescribeEffectiveInstanceAssociations.
 type DescribeEffectiveInstanceAssociationsOutput struct{}
 
-// DescribeEffectivePatchesForPatchBaselineInput is the request for DescribeEffectivePatchesForPatchBaseline.
-type DescribeEffectivePatchesForPatchBaselineInput struct{}
-
-// DescribeEffectivePatchesForPatchBaselineOutput is the response for DescribeEffectivePatchesForPatchBaseline.
-type DescribeEffectivePatchesForPatchBaselineOutput struct{}
-
 // DescribeInstanceAssociationsStatusInput is the request for DescribeInstanceAssociationsStatus.
 type DescribeInstanceAssociationsStatusInput struct{}
 
@@ -180,12 +166,6 @@ type DescribeInstancePropertiesInput struct{}
 
 // DescribeInstancePropertiesOutput is the response for DescribeInstanceProperties.
 type DescribeInstancePropertiesOutput struct{}
-
-// DescribeInventoryDeletionsInput is the request for DescribeInventoryDeletions.
-type DescribeInventoryDeletionsInput struct{}
-
-// DescribeInventoryDeletionsOutput is the response for DescribeInventoryDeletions.
-type DescribeInventoryDeletionsOutput struct{}
 
 // DescribeMaintenanceWindowExecutionTaskInvocationsInput is the request payload.
 type DescribeMaintenanceWindowExecutionTaskInvocationsInput struct{}
@@ -254,12 +234,6 @@ type MaintenanceWindowIdentity struct {
 	Enabled     bool   `json:"Enabled"`
 }
 
-// DescribeMaintenanceWindowsForTargetInput is the request payload.
-type DescribeMaintenanceWindowsForTargetInput struct{}
-
-// DescribeMaintenanceWindowsForTargetOutput is the response payload.
-type DescribeMaintenanceWindowsForTargetOutput struct{}
-
 // DescribeOpsItemsInput is the request payload for DescribeOpsItems.
 type DescribeOpsItemsInput struct {
 	MaxResults *int64 `json:"MaxResults,omitempty"`
@@ -301,32 +275,11 @@ type PatchBaselineIdentity struct {
 	Description     string `json:"Description,omitempty"`
 }
 
-// DescribePatchGroupStateInput is the request payload.
-type DescribePatchGroupStateInput struct{}
-
-// DescribePatchGroupStateOutput is the response payload.
-type DescribePatchGroupStateOutput struct{}
-
-// DescribePatchGroupsInput is the request payload.
-type DescribePatchGroupsInput struct{}
-
-// DescribePatchGroupsOutput is the response payload.
-type DescribePatchGroupsOutput struct{}
-
-// DescribePatchPropertiesInput is the request payload.
-type DescribePatchPropertiesInput struct{}
-
-// DescribePatchPropertiesOutput is the response payload.
-type DescribePatchPropertiesOutput struct{}
-
 // DescribeSessionsInput is the request payload.
 type DescribeSessionsInput struct{}
 
 // DescribeSessionsOutput is the response payload.
 type DescribeSessionsOutput struct{}
-
-// DisassociateOpsItemRelatedItemInput is the request payload.
-type DisassociateOpsItemRelatedItemInput struct{}
 
 // GetAccessTokenInput is the request payload.
 type GetAccessTokenInput struct{}
@@ -352,35 +305,11 @@ type GetConnectionStatusInput struct{}
 // GetConnectionStatusOutput is the response payload.
 type GetConnectionStatusOutput struct{}
 
-// GetDefaultPatchBaselineInput is the request payload.
-type GetDefaultPatchBaselineInput struct{}
-
-// GetDefaultPatchBaselineOutput is the response payload.
-type GetDefaultPatchBaselineOutput struct{}
-
-// GetDeployablePatchSnapshotForInstanceInput is the request payload.
-type GetDeployablePatchSnapshotForInstanceInput struct{}
-
-// GetDeployablePatchSnapshotForInstanceOutput is the response payload.
-type GetDeployablePatchSnapshotForInstanceOutput struct{}
-
 // GetExecutionPreviewInput is the request payload.
 type GetExecutionPreviewInput struct{}
 
 // GetExecutionPreviewOutput is the response payload.
 type GetExecutionPreviewOutput struct{}
-
-// GetInventoryInput is the request payload.
-type GetInventoryInput struct{}
-
-// GetInventoryOutput is the response payload.
-type GetInventoryOutput struct{}
-
-// GetInventorySchemaInput is the request payload.
-type GetInventorySchemaInput struct{}
-
-// GetInventorySchemaOutput is the response payload.
-type GetInventorySchemaOutput struct{}
 
 // GetMaintenanceWindowInput is the request payload for GetMaintenanceWindow.
 type GetMaintenanceWindowInput struct {
@@ -409,12 +338,6 @@ type GetMaintenanceWindowExecutionTaskInvocationInput struct{}
 
 // GetMaintenanceWindowExecutionTaskInvocationOutput is the response payload.
 type GetMaintenanceWindowExecutionTaskInvocationOutput struct{}
-
-// GetMaintenanceWindowTaskInput is the request payload.
-type GetMaintenanceWindowTaskInput struct{}
-
-// GetMaintenanceWindowTaskOutput is the response payload.
-type GetMaintenanceWindowTaskOutput struct{}
 
 // GetOpsItemInput is the request payload for GetOpsItem.
 type GetOpsItemInput struct {
@@ -452,12 +375,6 @@ type GetPatchBaselineOutput struct {
 	PatchBaseline
 }
 
-// GetPatchBaselineForPatchGroupInput is the request payload.
-type GetPatchBaselineForPatchGroupInput struct{}
-
-// GetPatchBaselineForPatchGroupOutput is the response payload.
-type GetPatchBaselineForPatchGroupOutput struct{}
-
 // GetResourcePoliciesInput is the request payload.
 type GetResourcePoliciesInput struct{}
 
@@ -490,30 +407,6 @@ type ListAssociationsOutput struct {
 	Associations []Association `json:"Associations"`
 }
 
-// ListComplianceItemsInput is the request payload.
-type ListComplianceItemsInput struct{}
-
-// ListComplianceItemsOutput is the response payload.
-type ListComplianceItemsOutput struct{}
-
-// ListComplianceSummariesInput is the request payload.
-type ListComplianceSummariesInput struct{}
-
-// ListComplianceSummariesOutput is the response payload.
-type ListComplianceSummariesOutput struct{}
-
-// ListDocumentMetadataHistoryInput is the request payload.
-type ListDocumentMetadataHistoryInput struct{}
-
-// ListDocumentMetadataHistoryOutput is the response payload.
-type ListDocumentMetadataHistoryOutput struct{}
-
-// ListInventoryEntriesInput is the request payload.
-type ListInventoryEntriesInput struct{}
-
-// ListInventoryEntriesOutput is the response payload.
-type ListInventoryEntriesOutput struct{}
-
 // ListNodesInput is the request payload.
 type ListNodesInput struct{}
 
@@ -526,29 +419,11 @@ type ListNodesSummaryInput struct{}
 // ListNodesSummaryOutput is the response payload.
 type ListNodesSummaryOutput struct{}
 
-// ListOpsItemEventsInput is the request payload.
-type ListOpsItemEventsInput struct{}
-
-// ListOpsItemEventsOutput is the response payload.
-type ListOpsItemEventsOutput struct{}
-
-// ListOpsItemRelatedItemsInput is the request payload.
-type ListOpsItemRelatedItemsInput struct{}
-
-// ListOpsItemRelatedItemsOutput is the response payload.
-type ListOpsItemRelatedItemsOutput struct{}
-
 // ListOpsMetadataInput is the request payload.
 type ListOpsMetadataInput struct{}
 
 // ListOpsMetadataOutput is the response payload.
 type ListOpsMetadataOutput struct{}
-
-// ListResourceComplianceSummariesInput is the request payload.
-type ListResourceComplianceSummariesInput struct{}
-
-// ListResourceComplianceSummariesOutput is the response payload.
-type ListResourceComplianceSummariesOutput struct{}
 
 // ListResourceDataSyncInput is the request payload.
 type ListResourceDataSyncInput struct{}
@@ -556,23 +431,17 @@ type ListResourceDataSyncInput struct{}
 // ListResourceDataSyncOutput is the response payload.
 type ListResourceDataSyncOutput struct{}
 
-// PutComplianceItemsInput is the request payload.
-type PutComplianceItemsInput struct{}
-
-// PutInventoryInput is the request payload.
-type PutInventoryInput struct{}
-
 // PutResourcePolicyInput is the request payload.
 type PutResourcePolicyInput struct{}
 
 // PutResourcePolicyOutput is the response payload.
 type PutResourcePolicyOutput struct{}
 
-// RegisterDefaultPatchBaselineInput is the request payload.
-type RegisterDefaultPatchBaselineInput struct{}
-
-// RegisterDefaultPatchBaselineOutput is the response payload.
-type RegisterDefaultPatchBaselineOutput struct{}
+// WindowTarget is a target specification for maintenance window tasks.
+type WindowTarget struct {
+	Key    string   `json:"Key"`
+	Values []string `json:"Values"`
+}
 
 // RegisterPatchBaselineForPatchGroupInput is the request payload.
 type RegisterPatchBaselineForPatchGroupInput struct {
@@ -584,12 +453,6 @@ type RegisterPatchBaselineForPatchGroupInput struct {
 type RegisterPatchBaselineForPatchGroupOutput struct {
 	BaselineID string `json:"BaselineId"`
 	PatchGroup string `json:"PatchGroup"`
-}
-
-// WindowTarget is a target specification for maintenance window tasks.
-type WindowTarget struct {
-	Key    string   `json:"Key"`
-	Values []string `json:"Values"`
 }
 
 // RegisterTargetWithMaintenanceWindowInput is the request payload.
@@ -717,15 +580,6 @@ type UpdateAssociationStatusInput struct{}
 // UpdateAssociationStatusOutput is the response payload.
 type UpdateAssociationStatusOutput struct{}
 
-// UpdateDocumentDefaultVersionInput is the request payload.
-type UpdateDocumentDefaultVersionInput struct{}
-
-// UpdateDocumentDefaultVersionOutput is the response payload.
-type UpdateDocumentDefaultVersionOutput struct{}
-
-// UpdateDocumentMetadataInput is the request payload.
-type UpdateDocumentMetadataInput struct{}
-
 // UpdateMaintenanceWindowInput is the request payload for UpdateMaintenanceWindow.
 type UpdateMaintenanceWindowInput struct {
 	Enabled     *bool  `json:"Enabled,omitempty"`
@@ -742,18 +596,6 @@ type UpdateMaintenanceWindowOutput struct {
 	MaintenanceWindow
 }
 
-// UpdateMaintenanceWindowTargetInput is the request payload.
-type UpdateMaintenanceWindowTargetInput struct{}
-
-// UpdateMaintenanceWindowTargetOutput is the response payload.
-type UpdateMaintenanceWindowTargetOutput struct{}
-
-// UpdateMaintenanceWindowTaskInput is the request payload.
-type UpdateMaintenanceWindowTaskInput struct{}
-
-// UpdateMaintenanceWindowTaskOutput is the response payload.
-type UpdateMaintenanceWindowTaskOutput struct{}
-
 // UpdateManagedInstanceRoleInput is the request payload.
 type UpdateManagedInstanceRoleInput struct{}
 
@@ -763,6 +605,8 @@ type UpdateOpsItemInput struct {
 	Title       string `json:"Title,omitempty"`
 	Description string `json:"Description,omitempty"`
 	Status      string `json:"Status,omitempty"`
+	Severity    string `json:"Severity,omitempty"`
+	Category    string `json:"Category,omitempty"`
 }
 
 // UpdateOpsMetadataInput is the request payload for UpdateOpsMetadata.
@@ -828,70 +672,6 @@ func (b *InMemoryBackend) DeleteAssociation(input *DeleteAssociationInput) (*Stu
 	}
 
 	delete(b.associations, input.AssociationID)
-
-	return &StubOutput{}, nil
-}
-
-// DeleteInventory is a stub implementation.
-func (b *InMemoryBackend) DeleteInventory(_ *DeleteInventoryInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
-}
-
-// DeleteMaintenanceWindow removes a maintenance window by ID.
-func (b *InMemoryBackend) DeleteMaintenanceWindow(input *DeleteMaintenanceWindowInput) (*StubOutput, error) {
-	b.mu.Lock("DeleteMaintenanceWindow")
-	defer b.mu.Unlock()
-
-	if _, exists := b.maintenanceWindows[input.WindowID]; !exists {
-		return nil, ErrMaintenanceWindowNotFound
-	}
-
-	delete(b.maintenanceWindows, input.WindowID)
-
-	return &StubOutput{}, nil
-}
-
-// DeleteOpsItem removes an OpsItem by ID.
-func (b *InMemoryBackend) DeleteOpsItem(input *DeleteOpsItemInput) (*StubOutput, error) {
-	b.mu.Lock("DeleteOpsItem")
-	defer b.mu.Unlock()
-
-	if _, exists := b.opsItems[input.OpsItemID]; !exists {
-		return nil, ErrOpsItemNotFound
-	}
-
-	delete(b.opsItems, input.OpsItemID)
-	delete(b.opsItemRelatedItems, input.OpsItemID)
-
-	return &StubOutput{}, nil
-}
-
-// DeleteOpsMetadata removes OpsMetadata by ARN.
-func (b *InMemoryBackend) DeleteOpsMetadata(input *DeleteOpsMetadataInput) (*StubOutput, error) {
-	b.mu.Lock("DeleteOpsMetadata")
-	defer b.mu.Unlock()
-
-	meta, exists := b.opsMetadata[input.OpsMetadataArn]
-	if !exists {
-		return nil, ErrOpsMetadataNotFound
-	}
-
-	delete(b.resourceIDToOpsMetadataArn, meta.ResourceID)
-	delete(b.opsMetadata, input.OpsMetadataArn)
-
-	return &StubOutput{}, nil
-}
-
-// DeletePatchBaseline removes a patch baseline by ID.
-func (b *InMemoryBackend) DeletePatchBaseline(input *DeletePatchBaselineInput) (*StubOutput, error) {
-	b.mu.Lock("DeletePatchBaseline")
-	defer b.mu.Unlock()
-
-	if _, exists := b.patchBaselines[input.BaselineID]; !exists {
-		return nil, ErrPatchBaselineNotFound
-	}
-
-	delete(b.patchBaselines, input.BaselineID)
 
 	return &StubOutput{}, nil
 }
@@ -1025,13 +805,6 @@ func (b *InMemoryBackend) DescribeEffectiveInstanceAssociations(
 	return &DescribeEffectiveInstanceAssociationsOutput{}, nil
 }
 
-// DescribeEffectivePatchesForPatchBaseline is a stub implementation.
-func (b *InMemoryBackend) DescribeEffectivePatchesForPatchBaseline(
-	_ *DescribeEffectivePatchesForPatchBaselineInput,
-) (*DescribeEffectivePatchesForPatchBaselineOutput, error) {
-	return &DescribeEffectivePatchesForPatchBaselineOutput{}, nil
-}
-
 // DescribeInstanceAssociationsStatus is a stub implementation.
 func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
 	_ *DescribeInstanceAssociationsStatusInput,
@@ -1072,13 +845,6 @@ func (b *InMemoryBackend) DescribeInstanceProperties(
 	_ *DescribeInstancePropertiesInput,
 ) (*DescribeInstancePropertiesOutput, error) {
 	return &DescribeInstancePropertiesOutput{}, nil
-}
-
-// DescribeInventoryDeletions is a stub implementation.
-func (b *InMemoryBackend) DescribeInventoryDeletions(
-	_ *DescribeInventoryDeletionsInput,
-) (*DescribeInventoryDeletionsOutput, error) {
-	return &DescribeInventoryDeletionsOutput{}, nil
 }
 
 // DescribeMaintenanceWindowExecutionTaskInvocations is a stub implementation.
@@ -1200,13 +966,6 @@ func (b *InMemoryBackend) DescribeMaintenanceWindows(
 	}, nil
 }
 
-// DescribeMaintenanceWindowsForTarget is a stub implementation.
-func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
-	_ *DescribeMaintenanceWindowsForTargetInput,
-) (*DescribeMaintenanceWindowsForTargetOutput, error) {
-	return &DescribeMaintenanceWindowsForTargetOutput{}, nil
-}
-
 // DescribeOpsItems lists OpsItems.
 func (b *InMemoryBackend) DescribeOpsItems(input *DescribeOpsItemsInput) (*DescribeOpsItemsOutput, error) {
 	b.mu.RLock("DescribeOpsItems")
@@ -1298,35 +1057,9 @@ func (b *InMemoryBackend) DescribePatchBaselines(
 	}, nil
 }
 
-// DescribePatchGroupState is a stub implementation.
-func (b *InMemoryBackend) DescribePatchGroupState(
-	_ *DescribePatchGroupStateInput,
-) (*DescribePatchGroupStateOutput, error) {
-	return &DescribePatchGroupStateOutput{}, nil
-}
-
-// DescribePatchGroups is a stub implementation.
-func (b *InMemoryBackend) DescribePatchGroups(_ *DescribePatchGroupsInput) (*DescribePatchGroupsOutput, error) {
-	return &DescribePatchGroupsOutput{}, nil
-}
-
-// DescribePatchProperties is a stub implementation.
-func (b *InMemoryBackend) DescribePatchProperties(
-	_ *DescribePatchPropertiesInput,
-) (*DescribePatchPropertiesOutput, error) {
-	return &DescribePatchPropertiesOutput{}, nil
-}
-
 // DescribeSessions is a stub implementation.
 func (b *InMemoryBackend) DescribeSessions(_ *DescribeSessionsInput) (*DescribeSessionsOutput, error) {
 	return &DescribeSessionsOutput{}, nil
-}
-
-// DisassociateOpsItemRelatedItem is a stub implementation.
-func (b *InMemoryBackend) DisassociateOpsItemRelatedItem(
-	_ *DisassociateOpsItemRelatedItemInput,
-) (*StubOutput, error) {
-	return &StubOutput{}, nil
 }
 
 // GetAccessToken is a stub implementation.
@@ -1351,33 +1084,9 @@ func (b *InMemoryBackend) GetConnectionStatus(_ *GetConnectionStatusInput) (*Get
 	return &GetConnectionStatusOutput{}, nil
 }
 
-// GetDefaultPatchBaseline is a stub implementation.
-func (b *InMemoryBackend) GetDefaultPatchBaseline(
-	_ *GetDefaultPatchBaselineInput,
-) (*GetDefaultPatchBaselineOutput, error) {
-	return &GetDefaultPatchBaselineOutput{}, nil
-}
-
-// GetDeployablePatchSnapshotForInstance is a stub implementation.
-func (b *InMemoryBackend) GetDeployablePatchSnapshotForInstance(
-	_ *GetDeployablePatchSnapshotForInstanceInput,
-) (*GetDeployablePatchSnapshotForInstanceOutput, error) {
-	return &GetDeployablePatchSnapshotForInstanceOutput{}, nil
-}
-
 // GetExecutionPreview is a stub implementation.
 func (b *InMemoryBackend) GetExecutionPreview(_ *GetExecutionPreviewInput) (*GetExecutionPreviewOutput, error) {
 	return &GetExecutionPreviewOutput{}, nil
-}
-
-// GetInventory is a stub implementation.
-func (b *InMemoryBackend) GetInventory(_ *GetInventoryInput) (*GetInventoryOutput, error) {
-	return &GetInventoryOutput{}, nil
-}
-
-// GetInventorySchema is a stub implementation.
-func (b *InMemoryBackend) GetInventorySchema(_ *GetInventorySchemaInput) (*GetInventorySchemaOutput, error) {
-	return &GetInventorySchemaOutput{}, nil
 }
 
 // GetMaintenanceWindow retrieves a maintenance window by ID.
@@ -1412,13 +1121,6 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTaskInvocation(
 	_ *GetMaintenanceWindowExecutionTaskInvocationInput,
 ) (*GetMaintenanceWindowExecutionTaskInvocationOutput, error) {
 	return &GetMaintenanceWindowExecutionTaskInvocationOutput{}, nil
-}
-
-// GetMaintenanceWindowTask is a stub implementation.
-func (b *InMemoryBackend) GetMaintenanceWindowTask(
-	_ *GetMaintenanceWindowTaskInput,
-) (*GetMaintenanceWindowTaskOutput, error) {
-	return &GetMaintenanceWindowTaskOutput{}, nil
 }
 
 // GetOpsItem retrieves an OpsItem by ID.
@@ -1465,13 +1167,6 @@ func (b *InMemoryBackend) GetPatchBaseline(input *GetPatchBaselineInput) (*GetPa
 	return &GetPatchBaselineOutput{PatchBaseline: bl}, nil
 }
 
-// GetPatchBaselineForPatchGroup is a stub implementation.
-func (b *InMemoryBackend) GetPatchBaselineForPatchGroup(
-	_ *GetPatchBaselineForPatchGroupInput,
-) (*GetPatchBaselineForPatchGroupOutput, error) {
-	return &GetPatchBaselineForPatchGroupOutput{}, nil
-}
-
 // GetResourcePolicies is a stub implementation.
 func (b *InMemoryBackend) GetResourcePolicies(_ *GetResourcePoliciesInput) (*GetResourcePoliciesOutput, error) {
 	return &GetResourcePoliciesOutput{}, nil
@@ -1507,30 +1202,6 @@ func (b *InMemoryBackend) ListAssociations(_ *ListAssociationsInput) (*ListAssoc
 	return &ListAssociationsOutput{Associations: list}, nil
 }
 
-// ListComplianceItems is a stub implementation.
-func (b *InMemoryBackend) ListComplianceItems(_ *ListComplianceItemsInput) (*ListComplianceItemsOutput, error) {
-	return &ListComplianceItemsOutput{}, nil
-}
-
-// ListComplianceSummaries is a stub implementation.
-func (b *InMemoryBackend) ListComplianceSummaries(
-	_ *ListComplianceSummariesInput,
-) (*ListComplianceSummariesOutput, error) {
-	return &ListComplianceSummariesOutput{}, nil
-}
-
-// ListDocumentMetadataHistory is a stub implementation.
-func (b *InMemoryBackend) ListDocumentMetadataHistory(
-	_ *ListDocumentMetadataHistoryInput,
-) (*ListDocumentMetadataHistoryOutput, error) {
-	return &ListDocumentMetadataHistoryOutput{}, nil
-}
-
-// ListInventoryEntries is a stub implementation.
-func (b *InMemoryBackend) ListInventoryEntries(_ *ListInventoryEntriesInput) (*ListInventoryEntriesOutput, error) {
-	return &ListInventoryEntriesOutput{}, nil
-}
-
 // ListNodes is a stub implementation.
 func (b *InMemoryBackend) ListNodes(_ *ListNodesInput) (*ListNodesOutput, error) {
 	return &ListNodesOutput{}, nil
@@ -1541,28 +1212,9 @@ func (b *InMemoryBackend) ListNodesSummary(_ *ListNodesSummaryInput) (*ListNodes
 	return &ListNodesSummaryOutput{}, nil
 }
 
-// ListOpsItemEvents is a stub implementation.
-func (b *InMemoryBackend) ListOpsItemEvents(_ *ListOpsItemEventsInput) (*ListOpsItemEventsOutput, error) {
-	return &ListOpsItemEventsOutput{}, nil
-}
-
-// ListOpsItemRelatedItems is a stub implementation.
-func (b *InMemoryBackend) ListOpsItemRelatedItems(
-	_ *ListOpsItemRelatedItemsInput,
-) (*ListOpsItemRelatedItemsOutput, error) {
-	return &ListOpsItemRelatedItemsOutput{}, nil
-}
-
 // ListOpsMetadata is a stub implementation.
 func (b *InMemoryBackend) ListOpsMetadata(_ *ListOpsMetadataInput) (*ListOpsMetadataOutput, error) {
 	return &ListOpsMetadataOutput{}, nil
-}
-
-// ListResourceComplianceSummaries is a stub implementation.
-func (b *InMemoryBackend) ListResourceComplianceSummaries(
-	_ *ListResourceComplianceSummariesInput,
-) (*ListResourceComplianceSummariesOutput, error) {
-	return &ListResourceComplianceSummariesOutput{}, nil
 }
 
 // ListResourceDataSync is a stub implementation.
@@ -1570,26 +1222,9 @@ func (b *InMemoryBackend) ListResourceDataSync(_ *ListResourceDataSyncInput) (*L
 	return &ListResourceDataSyncOutput{}, nil
 }
 
-// PutComplianceItems is a stub implementation.
-func (b *InMemoryBackend) PutComplianceItems(_ *PutComplianceItemsInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
-}
-
-// PutInventory is a stub implementation.
-func (b *InMemoryBackend) PutInventory(_ *PutInventoryInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
-}
-
 // PutResourcePolicy is a stub implementation.
 func (b *InMemoryBackend) PutResourcePolicy(_ *PutResourcePolicyInput) (*PutResourcePolicyOutput, error) {
 	return &PutResourcePolicyOutput{}, nil
-}
-
-// RegisterDefaultPatchBaseline is a stub implementation.
-func (b *InMemoryBackend) RegisterDefaultPatchBaseline(
-	_ *RegisterDefaultPatchBaselineInput,
-) (*RegisterDefaultPatchBaselineOutput, error) {
-	return &RegisterDefaultPatchBaselineOutput{}, nil
 }
 
 // RegisterPatchBaselineForPatchGroup associates a baseline with a patch group.
@@ -1801,18 +1436,6 @@ func (b *InMemoryBackend) UpdateAssociationStatus(
 	return &UpdateAssociationStatusOutput{}, nil
 }
 
-// UpdateDocumentDefaultVersion is a stub implementation.
-func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
-	_ *UpdateDocumentDefaultVersionInput,
-) (*UpdateDocumentDefaultVersionOutput, error) {
-	return &UpdateDocumentDefaultVersionOutput{}, nil
-}
-
-// UpdateDocumentMetadata is a stub implementation.
-func (b *InMemoryBackend) UpdateDocumentMetadata(_ *UpdateDocumentMetadataInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
-}
-
 // UpdateMaintenanceWindow updates a maintenance window.
 func (b *InMemoryBackend) UpdateMaintenanceWindow(
 	input *UpdateMaintenanceWindowInput,
@@ -1855,20 +1478,6 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 	return &UpdateMaintenanceWindowOutput{MaintenanceWindow: mw}, nil
 }
 
-// UpdateMaintenanceWindowTarget is a stub implementation.
-func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
-	_ *UpdateMaintenanceWindowTargetInput,
-) (*UpdateMaintenanceWindowTargetOutput, error) {
-	return &UpdateMaintenanceWindowTargetOutput{}, nil
-}
-
-// UpdateMaintenanceWindowTask is a stub implementation.
-func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
-	_ *UpdateMaintenanceWindowTaskInput,
-) (*UpdateMaintenanceWindowTaskOutput, error) {
-	return &UpdateMaintenanceWindowTaskOutput{}, nil
-}
-
 // UpdateManagedInstanceRole is a stub implementation.
 func (b *InMemoryBackend) UpdateManagedInstanceRole(_ *UpdateManagedInstanceRoleInput) (*StubOutput, error) {
 	return &StubOutput{}, nil
@@ -1894,6 +1503,14 @@ func (b *InMemoryBackend) UpdateOpsItem(input *UpdateOpsItemInput) (*StubOutput,
 
 	if input.Status != "" {
 		item.Status = input.Status
+	}
+
+	if input.Severity != "" {
+		item.Severity = input.Severity
+	}
+
+	if input.Category != "" {
+		item.Category = input.Category
 	}
 
 	item.LastModifiedTime = UnixTimeFloat(timeNow())

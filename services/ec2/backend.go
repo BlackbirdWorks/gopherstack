@@ -182,6 +182,8 @@ type Subnet struct {
 
 // InMemoryBackend is the in-memory store for EC2 resources.
 type InMemoryBackend struct {
+	compute                        Compute
+	dnsRegistrar                   DNSRegistrar
 	addressTransfers               map[string]*AddressTransfer
 	capacityReservations           map[string]*CapacityReservation
 	vpcs                           map[string]*VPC
@@ -230,17 +232,61 @@ type InMemoryBackend struct {
 	ipamPoolAllocations            map[string]*IpamPoolAllocation
 	spotFleets                     map[string]*SpotFleetRequest
 	spotFleetHistory               map[string][]SpotFleetHistoryRecord
-	mu                             *lockmetrics.RWMutex
-	eniIDByAttachment              map[string]string
-	eniIDsByInstance               map[string]map[string]struct{}
-	instanceIDsByVPC               map[string]map[string]struct{}
-	compute                        Compute
-	dnsRegistrar                   DNSRegistrar
-	Region                         string
-	AccountID                      string
-	freePrivateIPs                 []string
-	nextPrivateIPIndex             int
-	nextElasticIPIndex             int
+	// batch1 additions
+	volumeModifications      map[string]*VolumeModification
+	snapshotTiers            map[string]string
+	snapshotAttributes       map[string]map[string]string
+	sgVpcAssociations        map[string]map[string]string
+	vpcTenancy               map[string]string
+	vpcPeeringOptions        map[string]*PeeringConnectionOptions
+	subnetCIDRAssociations   map[string][]*SubnetCIDRAssociation
+	addressAttributes        map[string]*AddressAttribute
+	instanceMonitoring       map[string]string
+	instanceCreditSpecs      map[string]string
+	instanceIMDSOptions      map[string]*IMDSOptions
+	instanceMetadataDefaults *InstanceMetadataDefaults
+	instanceEventNotifAttrs  *InstanceEventNotificationAttributes
+	niPermissions            map[string]*NetworkInterfacePermission
+	niIPv6Addresses          map[string][]string
+	idFormatSettings         map[string]bool
+	// batch2 additions
+	endpointConnectionNotifs      map[string]*VpcEndpointConnectionNotification
+	vpcEndpointServicePermissions map[string][]string
+	snapshotLocks                 map[string]*SnapshotLock
+	replaceRootVolumeTasks        map[string]*ReplaceRootVolumeTask
+	subnetCIDRReservations        map[string][]*SubnetCIDRReservation
+	imageDisabled                 map[string]bool
+	imageDeprecated               map[string]string
+	imageDeregistrationProtection map[string]bool
+	imageAttributes               map[string]map[string]string
+	vgwRoutePropagation           map[string]bool
+	// batch3 additions
+	instanceConnectEndpoints  map[string]*InstanceConnectEndpoint
+	instanceEventWindows      map[string]*InstanceEventWindow
+	imageImportTasks          map[string]*ImageImportTask
+	snapshotImportTasks       map[string]*SnapshotImportTask
+	recycleBinImages          map[string]*RecycleBinImage
+	recycleBinSnapshots       map[string]*Snapshot
+	recycleBinVolumes         map[string]*RecycleBinVolume
+	fastLaunchImages          map[string]bool
+	fastSnapshotRestores      map[string]bool
+	vpnConnectionRoutes       map[string]*VpnConnectionRoute
+	spotDatafeed              *SpotDatafeed
+	mu                        *lockmetrics.RWMutex
+	eniIDByAttachment         map[string]string
+	eniIDsByInstance          map[string]map[string]struct{}
+	instanceIDsByVPC          map[string]map[string]struct{}
+	snapshotBlockPublicAccess string
+	ebsDefaultKmsKeyID        string
+	imageBlockPublicAccess    string
+	defaultCreditSpec         string
+	Region                    string
+	AccountID                 string
+	freePrivateIPs            []string
+	nextPrivateIPIndex        int
+	nextElasticIPIndex        int
+	ebsEncryptionByDefault    bool
+	serialConsoleAccess       bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
@@ -294,6 +340,40 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		ipamPoolAllocations:            make(map[string]*IpamPoolAllocation),
 		spotFleets:                     make(map[string]*SpotFleetRequest),
 		spotFleetHistory:               make(map[string][]SpotFleetHistoryRecord),
+		volumeModifications:            make(map[string]*VolumeModification),
+		snapshotTiers:                  make(map[string]string),
+		snapshotAttributes:             make(map[string]map[string]string),
+		sgVpcAssociations:              make(map[string]map[string]string),
+		vpcTenancy:                     make(map[string]string),
+		vpcPeeringOptions:              make(map[string]*PeeringConnectionOptions),
+		subnetCIDRAssociations:         make(map[string][]*SubnetCIDRAssociation),
+		addressAttributes:              make(map[string]*AddressAttribute),
+		instanceMonitoring:             make(map[string]string),
+		instanceCreditSpecs:            make(map[string]string),
+		instanceIMDSOptions:            make(map[string]*IMDSOptions),
+		niPermissions:                  make(map[string]*NetworkInterfacePermission),
+		niIPv6Addresses:                make(map[string][]string),
+		idFormatSettings:               make(map[string]bool),
+		endpointConnectionNotifs:       make(map[string]*VpcEndpointConnectionNotification),
+		vpcEndpointServicePermissions:  make(map[string][]string),
+		snapshotLocks:                  make(map[string]*SnapshotLock),
+		replaceRootVolumeTasks:         make(map[string]*ReplaceRootVolumeTask),
+		subnetCIDRReservations:         make(map[string][]*SubnetCIDRReservation),
+		imageDisabled:                  make(map[string]bool),
+		imageDeprecated:                make(map[string]string),
+		imageDeregistrationProtection:  make(map[string]bool),
+		imageAttributes:                make(map[string]map[string]string),
+		vgwRoutePropagation:            make(map[string]bool),
+		instanceConnectEndpoints:       make(map[string]*InstanceConnectEndpoint),
+		instanceEventWindows:           make(map[string]*InstanceEventWindow),
+		imageImportTasks:               make(map[string]*ImageImportTask),
+		snapshotImportTasks:            make(map[string]*SnapshotImportTask),
+		recycleBinImages:               make(map[string]*RecycleBinImage),
+		recycleBinSnapshots:            make(map[string]*Snapshot),
+		recycleBinVolumes:              make(map[string]*RecycleBinVolume),
+		fastLaunchImages:               make(map[string]bool),
+		fastSnapshotRestores:           make(map[string]bool),
+		vpnConnectionRoutes:            make(map[string]*VpnConnectionRoute),
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),

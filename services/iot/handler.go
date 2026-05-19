@@ -152,6 +152,8 @@ func (h *Handler) Broker() *Broker { return h.broker }
 func (h *Handler) Name() string { return "IoT" }
 
 // GetSupportedOperations returns the list of supported IoT control-plane operations.
+//
+//nolint:funlen // mechanical list of all supported op names
 func (h *Handler) GetSupportedOperations() []string {
 	const coreOpCount = 65
 	core := make([]string, 0, coreOpCount)
@@ -228,6 +230,133 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListCertificateProviders,
 		opUpdateCertificateProvider,
 		opDeleteCertificateProvider,
+		// Batch 1: Jobs
+		opCreateJob,
+		opDescribeJob,
+		opListJobs,
+		opUpdateJob,
+		opCancelJob,
+		opDeleteJob,
+		opGetJobDocument,
+		opDescribeJobExecution,
+		opCancelJobExecution,
+		opDeleteJobExecution,
+		// Batch 1: JobTemplates
+		opCreateJobTemplate,
+		opDescribeJobTemplate,
+		opListJobTemplates,
+		opDeleteJobTemplate,
+		// Batch 1: RoleAliases
+		opCreateRoleAlias,
+		opDescribeRoleAlias,
+		opListRoleAliases,
+		opUpdateRoleAlias,
+		opDeleteRoleAlias,
+		// Batch 1: DomainConfigurations
+		opCreateDomainConfiguration,
+		opDescribeDomainConfiguration,
+		opListDomainConfigurations,
+		opUpdateDomainConfiguration,
+		opDeleteDomainConfiguration,
+		// Batch 1: ProvisioningTemplates
+		opCreateProvisioningTemplate,
+		opDescribeProvisioningTemplate,
+		opListProvisioningTemplates,
+		opUpdateProvisioningTemplate,
+		opDeleteProvisioningTemplate,
+		opCreateProvisioningTemplateVersion,
+		opListProvisioningTemplateVersions,
+		opDeleteProvisioningTemplateVersion,
+		// Batch 1: Authorizers
+		opCreateAuthorizer,
+		opDescribeAuthorizer,
+		opListAuthorizers,
+		opUpdateAuthorizer,
+		opDeleteAuthorizer,
+		// Batch 1: BillingGroups
+		opCreateBillingGroup,
+		opDescribeBillingGroup,
+		opListBillingGroups,
+		opUpdateBillingGroup,
+		opDeleteBillingGroup,
+		// Batch 1: ScheduledAudits
+		opCreateScheduledAudit,
+		opDescribeScheduledAudit,
+		opListScheduledAudits,
+		opUpdateScheduledAudit,
+		opDeleteScheduledAudit,
+		// Batch 1: MitigationActions
+		opCreateMitigationAction,
+		opDescribeMitigationAction,
+		opListMitigationActions,
+		opUpdateMitigationAction,
+		opDeleteMitigationAction,
+		// Batch 1: SecurityProfiles
+		opCreateSecurityProfile,
+		opDescribeSecurityProfile,
+		opListSecurityProfiles,
+		opUpdateSecurityProfile,
+		opDeleteSecurityProfile,
+		// Batch 2: CACertificate
+		opRegisterCACertificate,
+		opDescribeCACertificate,
+		opListCACertificates,
+		opUpdateCACertificate,
+		opDeleteCACertificate,
+		opListCertificatesByCA,
+		// Batch 2: Stream
+		opCreateStream,
+		opDescribeStream,
+		opListStreams,
+		opUpdateStream,
+		opDeleteStream,
+		// Batch 2: FleetMetric
+		opCreateFleetMetric,
+		opDescribeFleetMetric,
+		opListFleetMetrics,
+		opUpdateFleetMetric,
+		opDeleteFleetMetric,
+		// Batch 2: CustomMetric
+		opCreateCustomMetric,
+		opDescribeCustomMetric,
+		opListCustomMetrics,
+		opUpdateCustomMetric,
+		opDeleteCustomMetric,
+		// Batch 2: Dimension
+		opCreateDimension,
+		opDescribeDimension,
+		opListDimensions,
+		opUpdateDimension,
+		opDeleteDimension,
+		// Batch 2: Tags
+		opTagResource,
+		opUntagResource,
+		opListTagsForResource,
+		// Batch 2: Audit
+		opDescribeAccountAuditConfiguration,
+		opUpdateAccountAuditConfiguration,
+		opStartOnDemandAuditTask,
+		opDescribeAuditTask,
+		opListAuditTasks,
+		// Batch 2: Misc
+		opDetachThingPrincipal,
+		opCancelCertificateTransfer,
+		opGetRegistrationCode,
+		opDeleteRegistrationCode,
+		opListThingGroupsForThing,
+		opListThingsInBillingGroup,
+		opRemoveThingFromBillingGroup,
+		opListPrincipalPolicies,
+		opListPolicyPrincipals,
+		opListTargetsForPolicy,
+		opListPrincipalThings,
+		opListPrincipalThingsV2,
+		opGetEffectivePolicies,
+		opSetDefaultAuthorizer,
+		opClearDefaultAuthorizer,
+		opDescribeDefaultAuthorizer,
+		opListJobExecutionsForJob,
+		opListJobExecutionsForThing,
 	)
 
 	return append(core, allStubOps()...)
@@ -341,11 +470,23 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
+//nolint:cyclop // mechanical path-based routing switch
 func resolveOperation(path, method string) string {
 	switch {
 	case path == "/things" && method == http.MethodGet:
 
 		return opListThings
+	// Batch 2: /things/{name}/thing-groups, /things/{name}/jobs before generic thing routing
+	case strings.HasPrefix(path, "/things/") &&
+		strings.HasSuffix(path, "/thing-groups") &&
+		method == http.MethodGet:
+
+		return opListThingGroupsForThing
+	case strings.HasPrefix(path, "/things/") &&
+		strings.HasSuffix(path, "/jobs") &&
+		method == http.MethodGet:
+
+		return opListJobExecutionsForThing
 	case strings.HasPrefix(path, "/things/"):
 
 		return thingOperation(path, method)
@@ -372,7 +513,73 @@ func resolveOperation(path, method string) string {
 		return op
 	}
 
-	return resolveJobAndAuditOps(path, method)
+	if op := resolveJobAndAuditOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveBatch1Ops(path, method)
+}
+
+func resolveBatch1Ops(path, method string) string {
+	if op := resolveJobOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveJobTemplateOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveRoleAliasOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveDomainConfigOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveProvisioningTemplateOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveAuthorizerOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveBillingGroupOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveScheduledAuditOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveMitigationActionOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	if op := resolveSecurityProfileOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveBatch2Ops(path, method)
+}
+
+func resolveBatch2Ops(path, method string) string {
+	if op := resolveCACertOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveStreamOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveFleetMetricOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveCustomMetricOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveDimensionOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveTagOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveAuditConfigOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveMiscBatch2Ops(path, method)
 }
 
 func resolveNewStatefulOps(path, method string) string {
@@ -520,7 +727,10 @@ func resolvePolicyVersionSubOps(path, method string) string {
 	return resolvePolicyVersionByMethod(path, method, hasVersionSlash, endsVersion, endsDefault)
 }
 
-func resolvePolicyVersionByMethod(path, method string, hasVersionSlash, endsVersion, endsDefault bool) string {
+func resolvePolicyVersionByMethod(
+	path, method string,
+	hasVersionSlash, endsVersion, endsDefault bool,
+) string {
 	switch method {
 	case http.MethodGet:
 		if hasVersionSlash {
@@ -742,7 +952,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return err
 		}
 
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "unknown operation: " + op})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyError: "unknown operation: " + op},
+		)
 	}
 }
 
@@ -861,7 +1074,15 @@ func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
 		return true, err
 	}
 
-	return h.dispatchCertificateProviderOps(c, op)
+	if handled, err := h.dispatchCertificateProviderOps(c, op); handled {
+		return true, err
+	}
+
+	if handled, err := h.dispatchBatch1Ops(c, op); handled {
+		return true, err
+	}
+
+	return h.dispatchBatch2Ops(c, op)
 }
 
 func (h *Handler) dispatchMiscNewOps(c *echo.Context, op string) (bool, error) {
@@ -1051,6 +1272,258 @@ func (h *Handler) dispatchCertificateProviderOps(c *echo.Context, op string) (bo
 	return false, nil
 }
 
+//nolint:gocyclo,cyclop,funlen // mechanical routing switch
+func (h *Handler) dispatchBatch1Ops(c *echo.Context, op string) (bool, error) {
+	switch op {
+	// Jobs
+	case opCreateJob:
+		return true, h.handleCreateJob(c)
+	case opDescribeJob:
+		return true, h.handleDescribeJob(c)
+	case opListJobs:
+		return true, h.handleListJobs(c)
+	case opUpdateJob:
+		return true, h.handleUpdateJob(c)
+	case opCancelJob:
+		return true, h.handleCancelJob(c)
+	case opDeleteJob:
+		return true, h.handleDeleteJob(c)
+	case opGetJobDocument:
+		return true, h.handleGetJobDocument(c)
+	case opDescribeJobExecution:
+		return true, h.handleDescribeJobExecution(c)
+	case opCancelJobExecution:
+		return true, h.handleCancelJobExecution(c)
+	case opDeleteJobExecution:
+		return true, h.handleDeleteJobExecution(c)
+	// JobTemplates
+	case opCreateJobTemplate:
+		return true, h.handleCreateJobTemplate(c)
+	case opDescribeJobTemplate:
+		return true, h.handleDescribeJobTemplate(c)
+	case opListJobTemplates:
+		return true, h.handleListJobTemplates(c)
+	case opDeleteJobTemplate:
+		return true, h.handleDeleteJobTemplate(c)
+	// RoleAliases
+	case opCreateRoleAlias:
+		return true, h.handleCreateRoleAlias(c)
+	case opDescribeRoleAlias:
+		return true, h.handleDescribeRoleAlias(c)
+	case opListRoleAliases:
+		return true, h.handleListRoleAliases(c)
+	case opUpdateRoleAlias:
+		return true, h.handleUpdateRoleAlias(c)
+	case opDeleteRoleAlias:
+		return true, h.handleDeleteRoleAlias(c)
+	// DomainConfigurations
+	case opCreateDomainConfiguration:
+		return true, h.handleCreateDomainConfiguration(c)
+	case opDescribeDomainConfiguration:
+		return true, h.handleDescribeDomainConfiguration(c)
+	case opListDomainConfigurations:
+		return true, h.handleListDomainConfigurations(c)
+	case opUpdateDomainConfiguration:
+		return true, h.handleUpdateDomainConfiguration(c)
+	case opDeleteDomainConfiguration:
+		return true, h.handleDeleteDomainConfiguration(c)
+	// ProvisioningTemplates
+	case opCreateProvisioningTemplate:
+		return true, h.handleCreateProvisioningTemplate(c)
+	case opDescribeProvisioningTemplate:
+		return true, h.handleDescribeProvisioningTemplate(c)
+	case opListProvisioningTemplates:
+		return true, h.handleListProvisioningTemplates(c)
+	case opUpdateProvisioningTemplate:
+		return true, h.handleUpdateProvisioningTemplate(c)
+	case opDeleteProvisioningTemplate:
+		return true, h.handleDeleteProvisioningTemplate(c)
+	case opCreateProvisioningTemplateVersion:
+		return true, h.handleCreateProvisioningTemplateVersion(c)
+	case opListProvisioningTemplateVersions:
+		return true, h.handleListProvisioningTemplateVersions(c)
+	case opDeleteProvisioningTemplateVersion:
+		return true, h.handleDeleteProvisioningTemplateVersion(c)
+	// Authorizers
+	case opCreateAuthorizer:
+		return true, h.handleCreateAuthorizer(c)
+	case opDescribeAuthorizer:
+		return true, h.handleDescribeAuthorizer(c)
+	case opListAuthorizers:
+		return true, h.handleListAuthorizers(c)
+	case opUpdateAuthorizer:
+		return true, h.handleUpdateAuthorizer(c)
+	case opDeleteAuthorizer:
+		return true, h.handleDeleteAuthorizer(c)
+	// BillingGroups
+	case opCreateBillingGroup:
+		return true, h.handleCreateBillingGroup(c)
+	case opDescribeBillingGroup:
+		return true, h.handleDescribeBillingGroup(c)
+	case opListBillingGroups:
+		return true, h.handleListBillingGroups(c)
+	case opUpdateBillingGroup:
+		return true, h.handleUpdateBillingGroup(c)
+	case opDeleteBillingGroup:
+		return true, h.handleDeleteBillingGroup(c)
+	// ScheduledAudits
+	case opCreateScheduledAudit:
+		return true, h.handleCreateScheduledAudit(c)
+	case opDescribeScheduledAudit:
+		return true, h.handleDescribeScheduledAudit(c)
+	case opListScheduledAudits:
+		return true, h.handleListScheduledAudits(c)
+	case opUpdateScheduledAudit:
+		return true, h.handleUpdateScheduledAudit(c)
+	case opDeleteScheduledAudit:
+		return true, h.handleDeleteScheduledAudit(c)
+	// MitigationActions
+	case opCreateMitigationAction:
+		return true, h.handleCreateMitigationAction(c)
+	case opDescribeMitigationAction:
+		return true, h.handleDescribeMitigationAction(c)
+	case opListMitigationActions:
+		return true, h.handleListMitigationActions(c)
+	case opUpdateMitigationAction:
+		return true, h.handleUpdateMitigationAction(c)
+	case opDeleteMitigationAction:
+		return true, h.handleDeleteMitigationAction(c)
+	// SecurityProfiles
+	case opCreateSecurityProfile:
+		return true, h.handleCreateSecurityProfile(c)
+	case opDescribeSecurityProfile:
+		return true, h.handleDescribeSecurityProfile(c)
+	case opListSecurityProfiles:
+		return true, h.handleListSecurityProfiles(c)
+	case opUpdateSecurityProfile:
+		return true, h.handleUpdateSecurityProfile(c)
+	case opDeleteSecurityProfile:
+		return true, h.handleDeleteSecurityProfile(c)
+	}
+
+	return false, nil
+}
+
+//nolint:gocyclo,cyclop,funlen // mechanical routing switch
+func (h *Handler) dispatchBatch2Ops(c *echo.Context, op string) (bool, error) {
+	switch op {
+	// CACertificate
+	case opRegisterCACertificate:
+		return true, h.handleRegisterCACertificate(c)
+	case opDescribeCACertificate:
+		return true, h.handleDescribeCACertificate(c)
+	case opListCACertificates:
+		return true, h.handleListCACertificates(c)
+	case opUpdateCACertificate:
+		return true, h.handleUpdateCACertificate(c)
+	case opDeleteCACertificate:
+		return true, h.handleDeleteCACertificate(c)
+	case opListCertificatesByCA:
+		return true, h.handleListCertificatesByCA(c)
+	// Stream
+	case opCreateStream:
+		return true, h.handleCreateStream(c)
+	case opDescribeStream:
+		return true, h.handleDescribeStream(c)
+	case opListStreams:
+		return true, h.handleListStreams(c)
+	case opUpdateStream:
+		return true, h.handleUpdateStream(c)
+	case opDeleteStream:
+		return true, h.handleDeleteStream(c)
+	// FleetMetric
+	case opCreateFleetMetric:
+		return true, h.handleCreateFleetMetric(c)
+	case opDescribeFleetMetric:
+		return true, h.handleDescribeFleetMetric(c)
+	case opListFleetMetrics:
+		return true, h.handleListFleetMetrics(c)
+	case opUpdateFleetMetric:
+		return true, h.handleUpdateFleetMetric(c)
+	case opDeleteFleetMetric:
+		return true, h.handleDeleteFleetMetric(c)
+	// CustomMetric
+	case opCreateCustomMetric:
+		return true, h.handleCreateCustomMetric(c)
+	case opDescribeCustomMetric:
+		return true, h.handleDescribeCustomMetric(c)
+	case opListCustomMetrics:
+		return true, h.handleListCustomMetrics(c)
+	case opUpdateCustomMetric:
+		return true, h.handleUpdateCustomMetric(c)
+	case opDeleteCustomMetric:
+		return true, h.handleDeleteCustomMetric(c)
+	// Dimension
+	case opCreateDimension:
+		return true, h.handleCreateDimension(c)
+	case opDescribeDimension:
+		return true, h.handleDescribeDimension(c)
+	case opListDimensions:
+		return true, h.handleListDimensions(c)
+	case opUpdateDimension:
+		return true, h.handleUpdateDimension(c)
+	case opDeleteDimension:
+		return true, h.handleDeleteDimension(c)
+	// Tags
+	case opTagResource:
+		return true, h.handleTagResource(c)
+	case opUntagResource:
+		return true, h.handleUntagResource(c)
+	case opListTagsForResource:
+		return true, h.handleListTagsForResource(c)
+	// Audit config
+	case opDescribeAccountAuditConfiguration:
+		return true, h.handleDescribeAccountAuditConfiguration(c)
+	case opUpdateAccountAuditConfiguration:
+		return true, h.handleUpdateAccountAuditConfiguration(c)
+	case opStartOnDemandAuditTask:
+		return true, h.handleStartOnDemandAuditTask(c)
+	case opDescribeAuditTask:
+		return true, h.handleDescribeAuditTask(c)
+	case opListAuditTasks:
+		return true, h.handleListAuditTasks(c)
+	// Misc
+	case opDetachThingPrincipal:
+		return true, h.handleDetachThingPrincipal(c)
+	case opCancelCertificateTransfer:
+		return true, h.handleCancelCertificateTransfer(c)
+	case opGetRegistrationCode:
+		return true, h.handleGetRegistrationCode(c)
+	case opDeleteRegistrationCode:
+		return true, h.handleDeleteRegistrationCode(c)
+	case opListThingGroupsForThing:
+		return true, h.handleListThingGroupsForThing(c)
+	case opListThingsInBillingGroup:
+		return true, h.handleListThingsInBillingGroup(c)
+	case opRemoveThingFromBillingGroup:
+		return true, h.handleRemoveThingFromBillingGroup(c)
+	case opListPrincipalPolicies:
+		return true, h.handleListPrincipalPolicies(c)
+	case opListPolicyPrincipals:
+		return true, h.handleListPolicyPrincipals(c)
+	case opListTargetsForPolicy:
+		return true, h.handleListTargetsForPolicy(c)
+	case opListPrincipalThings:
+		return true, h.handleListPrincipalThings(c)
+	case opListPrincipalThingsV2:
+		return true, h.handleListPrincipalThingsV2(c)
+	case opGetEffectivePolicies:
+		return true, h.handleGetEffectivePolicies(c)
+	case opSetDefaultAuthorizer:
+		return true, h.handleSetDefaultAuthorizer(c)
+	case opClearDefaultAuthorizer:
+		return true, h.handleClearDefaultAuthorizer(c)
+	case opDescribeDefaultAuthorizer:
+		return true, h.handleDescribeDefaultAuthorizer(c)
+	case opListJobExecutionsForJob:
+		return true, h.handleListJobExecutionsForJob(c)
+	case opListJobExecutionsForThing:
+		return true, h.handleListJobExecutionsForThing(c)
+	}
+
+	return false, nil
+}
+
 // handleError maps backend errors to appropriate HTTP responses.
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	type awsErr struct {
@@ -1083,7 +1556,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusConflict, awsErr{"DeleteConflictException", err.Error()})
 	default:
 
-		return c.JSON(http.StatusInternalServerError, awsErr{"InternalFailureException", err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			awsErr{"InternalFailureException", err.Error()},
+		)
 	}
 }
 
@@ -1095,7 +1571,8 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 		ThingTypeName    string            `json:"thingTypeName"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1148,7 +1625,8 @@ func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 
 	var payload TopicRulePayload
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1176,10 +1654,10 @@ func (h *Handler) handleGetTopicRule(c *echo.Context) error {
 			"ruleName":         r.RuleName,
 			"sql":              r.SQL,
 			"awsIotSqlVersion": r.AWSIoTSQLVersion,
-			"description":      r.Description,
+			keyDescription:     r.Description,
 			"actions":          r.Actions,
 			"ruleDisabled":     !r.Enabled,
-			"createdAt":        r.CreatedAt,
+			keyCreatedAt:       r.CreatedAt,
 		},
 	})
 }
@@ -1215,7 +1693,8 @@ func (h *Handler) handleCreatePolicy(c *echo.Context) error {
 		PolicyDocument string `json:"policyDocument"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1255,7 +1734,8 @@ func (h *Handler) handleAcceptCertificateTransfer(c *echo.Context) error {
 		SetAsActive bool `json:"setAsActive"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1272,7 +1752,8 @@ func (h *Handler) handleAcceptCertificateTransfer(c *echo.Context) error {
 func (h *Handler) handleAddThingToBillingGroup(c *echo.Context) error {
 	var body AddThingToBillingGroupInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1286,7 +1767,8 @@ func (h *Handler) handleAddThingToBillingGroup(c *echo.Context) error {
 func (h *Handler) handleAddThingToThingGroup(c *echo.Context) error {
 	var body AddThingToThingGroupInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1305,7 +1787,11 @@ const packageVersionPartsMin = 3
 
 func (h *Handler) handleAssociateSbomWithPackageVersion(c *echo.Context) error {
 	// Path: /packages/{packageName}/versions/{versionName}/sbom
-	parts := strings.SplitN(strings.TrimPrefix(c.Request().URL.Path, "/packages/"), "/", maxPackagePathSegments)
+	parts := strings.SplitN(
+		strings.TrimPrefix(c.Request().URL.Path, "/packages/"),
+		"/",
+		maxPackagePathSegments,
+	)
 
 	var packageName, versionName string
 	// len(parts) >= packageVersionPartsMin guarantees indices 0, 1, 2 are valid.
@@ -1318,7 +1804,8 @@ func (h *Handler) handleAssociateSbomWithPackageVersion(c *echo.Context) error {
 		Sbom *SbomDocument `json:"sbom"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1345,7 +1832,8 @@ func (h *Handler) handleAssociateTargetsWithJob(c *echo.Context) error {
 		Targets     []string `json:"targets"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1369,7 +1857,8 @@ func (h *Handler) handleAttachPolicy(c *echo.Context) error {
 		Target string `json:"target"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1512,7 +2001,7 @@ func (h *Handler) handleListTopicRules(c *echo.Context) error {
 			"ruleArn":      r.ARN,
 			"sql":          r.SQL,
 			"ruleDisabled": !r.Enabled,
-			"createdAt":    r.CreatedAt,
+			keyCreatedAt:   r.CreatedAt,
 		})
 	}
 
@@ -1524,7 +2013,8 @@ func (h *Handler) handleUpdateThing(c *echo.Context) error {
 
 	var body UpdateThingInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1566,7 +2056,8 @@ func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
 
 	var payload TopicRulePayload
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1607,7 +2098,8 @@ func (h *Handler) handleCreateThingType(c *echo.Context) error {
 		} `json:"thingTypeProperties"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1697,7 +2189,8 @@ func (h *Handler) handleDeprecateThingType(c *echo.Context) error {
 		UndoDeprecate bool `json:"undoDeprecate"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1735,7 +2228,8 @@ func (h *Handler) handleCreateThingGroup(c *echo.Context) error {
 		ParentGroupName string `json:"parentGroupName"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1812,7 +2306,8 @@ func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
 		ExpectedVersion int64 `json:"expectedVersion"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -1835,7 +2330,7 @@ func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"version": newVersion})
+	return c.JSON(http.StatusOK, map[string]any{keyVersion: newVersion})
 }
 
 func (h *Handler) handleDeleteThingGroup(c *echo.Context) error {
@@ -1849,7 +2344,8 @@ func (h *Handler) handleDeleteThingGroup(c *echo.Context) error {
 
 func (h *Handler) handleRemoveThingFromThingGroup(c *echo.Context) error {
 	var body RemoveThingFromThingGroupInput
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	if err := h.Backend.RemoveThingFromThingGroup(&body); err != nil {
@@ -1862,7 +2358,9 @@ func (h *Handler) handleRemoveThingFromThingGroup(c *echo.Context) error {
 func (h *Handler) handleListThingsInThingGroup(c *echo.Context) error {
 	after := strings.TrimPrefix(c.Request().URL.Path, "/thing-groups/")
 	thingGroupName := strings.TrimSuffix(after, "/things")
-	things, err := h.Backend.ListThingsInThingGroup(&ListThingsInThingGroupInput{ThingGroupName: thingGroupName})
+	things, err := h.Backend.ListThingsInThingGroup(
+		&ListThingsInThingGroupInput{ThingGroupName: thingGroupName},
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1879,7 +2377,8 @@ func (h *Handler) handleCreateCertificateFromCsr(c *echo.Context) error {
 		CertificateSigningRequest string `json:"certificateSigningRequest"`
 		SetAsActive               bool   `json:"setAsActive"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	cert, err := h.Backend.CreateCertificateFromCsr(&CreateCertificateFromCsrInput{
@@ -1903,7 +2402,8 @@ func (h *Handler) handleRegisterCertificate(c *echo.Context) error {
 		CertificatePem string `json:"certificatePem"`
 		Status         string `json:"status"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	cert, err := h.Backend.RegisterCertificate(&RegisterCertificateInput{
@@ -1925,7 +2425,8 @@ func (h *Handler) handleRegisterCertificateWithoutCA(c *echo.Context) error {
 		CertificatePem string `json:"certificatePem"`
 		Status         string `json:"status"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	cert, err := h.Backend.RegisterCertificateWithoutCA(&RegisterCertificateInput{
@@ -2010,7 +2511,8 @@ func (h *Handler) handleDetachPolicy(c *echo.Context) error {
 		Target string `json:"target"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -2026,7 +2528,8 @@ func (h *Handler) handleListAttachedPolicies(c *echo.Context) error {
 		Target    string `json:"target"`
 		Recursive bool   `json:"recursive"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	policies, err := h.Backend.ListAttachedPolicies(
@@ -2051,7 +2554,8 @@ func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
 		PolicyDocument string `json:"policyDocument"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -2146,7 +2650,8 @@ func (h *Handler) handleCreateTopicRuleDestination(c *echo.Context) error {
 	var body struct {
 		DestinationConfiguration *TopicRuleDestinationConfiguration `json:"destinationConfiguration"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	dest, err := h.Backend.CreateTopicRuleDestination(&CreateTopicRuleDestinationInput{
@@ -2188,7 +2693,8 @@ func (h *Handler) handleUpdateTopicRuleDestination(c *echo.Context) error {
 		ARN    string `json:"arn"`
 		Status string `json:"status"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 	if err := h.Backend.UpdateTopicRuleDestination(&UpdateTopicRuleDestinationInput{
@@ -2222,7 +2728,8 @@ func (h *Handler) handleCreateCertificateProvider(c *echo.Context) error {
 		AccountDefaultForOperations []string `json:"accountDefaultForOperations"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
@@ -2279,7 +2786,8 @@ func (h *Handler) handleUpdateCertificateProvider(c *echo.Context) error {
 		AccountDefaultForOperations []string `json:"accountDefaultForOperations"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
