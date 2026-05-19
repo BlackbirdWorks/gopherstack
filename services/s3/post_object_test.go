@@ -28,6 +28,7 @@ func TestHandler_PostObject(t *testing.T) {
 		wantObjectType     string
 		wantObjectContents []byte
 		wantStatus         int
+		wantVerifyObject   bool
 	}{
 		{
 			name: "basic_upload_defaults_to_204",
@@ -41,6 +42,7 @@ func TestHandler_PostObject(t *testing.T) {
 			wantObjectType:     "text/plain",
 			wantObjectContents: []byte("hello world"),
 			wantStatus:         http.StatusNoContent,
+			wantVerifyObject:   true,
 		},
 		{
 			name: "success_action_status_201_returns_post_response",
@@ -88,20 +90,18 @@ func TestHandler_PostObject(t *testing.T) {
 				require.Contains(t, rec.Header().Get("Location"), part)
 			}
 
-			if tt.wantObjectKey == "" {
-				return
+			if tt.wantVerifyObject {
+				out, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+					Bucket: aws.String("form-bkt"),
+					Key:    aws.String(tt.wantObjectKey),
+				})
+				require.NoError(t, err)
+
+				got, err := io.ReadAll(out.Body)
+				require.NoError(t, err)
+				require.Equal(t, tt.wantObjectContents, got)
+				require.Equal(t, tt.wantObjectType, aws.ToString(out.ContentType))
 			}
-
-			out, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
-				Bucket: aws.String("form-bkt"),
-				Key:    aws.String(tt.wantObjectKey),
-			})
-			require.NoError(t, err)
-
-			got, err := io.ReadAll(out.Body)
-			require.NoError(t, err)
-			require.Equal(t, tt.wantObjectContents, got)
-			require.Equal(t, tt.wantObjectType, aws.ToString(out.ContentType))
 		})
 	}
 }

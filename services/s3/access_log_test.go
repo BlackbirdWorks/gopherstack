@@ -105,19 +105,20 @@ func TestHandler_AccessLogDispatch(t *testing.T) {
 func waitForAccessLog(t *testing.T, backend *s3.InMemoryBackend) string {
 	t.Helper()
 
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
+	var logKey string
+	require.Eventually(t, func() bool {
 		out, err := backend.ListObjectsV2(t.Context(), &sdk_s3.ListObjectsV2Input{
 			Bucket: aws.String("log-bkt"),
 			Prefix: aws.String("logs/"),
 		})
 		if err == nil && len(out.Contents) > 0 {
-			return aws.ToString(out.Contents[0].Key)
+			logKey = aws.ToString(out.Contents[0].Key)
+
+			return true
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
 
-	require.FailNow(t, "expected an access-log object under logs/")
+		return false
+	}, time.Second, 20*time.Millisecond, "expected an access-log object under logs/")
 
-	return ""
+	return logKey
 }
