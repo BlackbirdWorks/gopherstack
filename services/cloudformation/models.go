@@ -220,3 +220,61 @@ type TypeSummary struct {
 	Visibility  string `xml:"Visibility,omitempty"`
 	Description string `xml:"Description,omitempty"`
 }
+
+// StackSetOperation represents a StackSet operation (create/update/delete instances, etc.).
+type StackSetOperation struct {
+	OperationID  string
+	StackSetName string
+	Action       string // CREATE_INSTANCES / UPDATE_INSTANCES / DELETE_INSTANCES / UPDATE / DETECT_DRIFT / IMPORT
+	Status       string // RUNNING / SUCCEEDED / STOPPED / STOPPING / FAILED
+	CreatedAt    time.Time
+}
+
+// RegisteredType holds registration info for a CloudFormation type.
+type RegisteredType struct {
+	TypeArn        string
+	TypeName       string
+	Type           string // RESOURCE / MODULE / HOOK
+	VersionID      string
+	DefaultVersion string
+	Status         string // COMPLETE / IN_PROGRESS / FAILED / DEPRECATED
+	Configuration  string
+	IsActivated    bool
+	IsPublished    bool
+}
+
+// TypeRegistrationRecord holds the state of a type registration request.
+type TypeRegistrationRecord struct {
+	Token    string
+	TypeName string
+	TypeArn  string
+	Status   string // COMPLETE / IN_PROGRESS / FAILED
+}
+
+// Publisher holds publisher registration info.
+type Publisher struct {
+	PublisherID   string
+	ConnectionArn string
+	Status        string // VERIFIED / UNVERIFIED
+}
+
+// StackRefactor holds info about a stack refactor operation.
+type StackRefactor struct {
+	RefactorID       string
+	Description      string
+	Status           string // CREATE_IN_PROGRESS / CREATE_COMPLETE / EXECUTE_IN_PROGRESS / EXECUTE_COMPLETE
+	StackDefinitions []string
+}
+
+// HookResult holds the result of a CloudFormation hook invocation.
+type HookResult struct {
+	Token      string
+	HookStatus string // IN_PROGRESS / SUCCEEDED / FAILED / SKIPPED
+	ErrorCode  string
+}
+
+// SignalRecord holds a single resource signal.
+type SignalRecord struct {
+	UniqueID string
+	Status   string
+}

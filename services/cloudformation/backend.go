@@ -145,23 +145,33 @@ type StorageBackend interface {
 
 // InMemoryBackend is a concurrency-safe in-memory CloudFormation backend.
 type InMemoryBackend struct {
-	stacks             map[string]*Stack
-	stackIDIndex       map[string]string // stackID (ARN) → stackName
-	events             map[string][]StackEvent
-	resources          map[string]map[string]*StackResource
-	changeSets         map[string]map[string]*ChangeSet
-	exports            map[string]*Export
-	driftDetections    map[string]*DriftDetectionStatus
-	stackPolicies      map[string]string
-	stackSets          map[string]*StackSet
-	stackInstances     map[string][]StackInstance // stackSetName → instances
-	generatedTemplates map[string]*GeneratedTemplate
-	resourceScans      map[string]*ResourceScan
-	creator            *ResourceCreator
-	resolver           DynamicRefResolver
-	mu                 *lockmetrics.RWMutex
-	accountID          string
-	region             string
+	stacks              map[string]*Stack
+	stackIDIndex        map[string]string // stackID (ARN) → stackName
+	events              map[string][]StackEvent
+	resources           map[string]map[string]*StackResource
+	changeSets          map[string]map[string]*ChangeSet
+	exports             map[string]*Export
+	driftDetections     map[string]*DriftDetectionStatus
+	stackPolicies       map[string]string
+	stackSets           map[string]*StackSet
+	stackInstances      map[string][]StackInstance  // stackSetName → instances
+	stackSetOperations  map[string]map[string]*StackSetOperation // stackSetName → operationID → op
+	generatedTemplates  map[string]*GeneratedTemplate
+	resourceScans       map[string]*ResourceScan
+	typeRegistry        map[string]*RegisteredType         // typeArn → type
+	typeRegistrations   map[string]*TypeRegistrationRecord // token → record
+	typeConfigs         map[string]string                  // typeName → config json
+	publishers          map[string]*Publisher              // publisherID → publisher
+	stackRefactors      map[string]*StackRefactor          // refactorID → refactor
+	hookResults         map[string]*HookResult             // token → result
+	handlerProgress     map[string]string                  // bearerToken → status
+	signals             map[string][]SignalRecord           // stackName+logicalID → records
+	orgAccessEnabled    bool
+	creator             *ResourceCreator
+	resolver            DynamicRefResolver
+	mu                  *lockmetrics.RWMutex
+	accountID           string
+	region              string
 }
 
 const (
@@ -207,8 +217,17 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 		stackPolicies:      make(map[string]string),
 		stackSets:          make(map[string]*StackSet),
 		stackInstances:     make(map[string][]StackInstance),
+		stackSetOperations: make(map[string]map[string]*StackSetOperation),
 		generatedTemplates: make(map[string]*GeneratedTemplate),
 		resourceScans:      make(map[string]*ResourceScan),
+		typeRegistry:       make(map[string]*RegisteredType),
+		typeRegistrations:  make(map[string]*TypeRegistrationRecord),
+		typeConfigs:        make(map[string]string),
+		publishers:         make(map[string]*Publisher),
+		stackRefactors:     make(map[string]*StackRefactor),
+		hookResults:        make(map[string]*HookResult),
+		handlerProgress:    make(map[string]string),
+		signals:            make(map[string][]SignalRecord),
 		creator:            creator,
 		resolver:           resolver,
 		accountID:          accountID,
