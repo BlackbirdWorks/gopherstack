@@ -228,6 +228,73 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListCertificateProviders,
 		opUpdateCertificateProvider,
 		opDeleteCertificateProvider,
+		// Batch 1: Jobs
+		opCreateJob,
+		opDescribeJob,
+		opListJobs,
+		opUpdateJob,
+		opCancelJob,
+		opDeleteJob,
+		opGetJobDocument,
+		opDescribeJobExecution,
+		opCancelJobExecution,
+		opDeleteJobExecution,
+		// Batch 1: JobTemplates
+		opCreateJobTemplate,
+		opDescribeJobTemplate,
+		opListJobTemplates,
+		opDeleteJobTemplate,
+		// Batch 1: RoleAliases
+		opCreateRoleAlias,
+		opDescribeRoleAlias,
+		opListRoleAliases,
+		opUpdateRoleAlias,
+		opDeleteRoleAlias,
+		// Batch 1: DomainConfigurations
+		opCreateDomainConfiguration,
+		opDescribeDomainConfiguration,
+		opListDomainConfigurations,
+		opUpdateDomainConfiguration,
+		opDeleteDomainConfiguration,
+		// Batch 1: ProvisioningTemplates
+		opCreateProvisioningTemplate,
+		opDescribeProvisioningTemplate,
+		opListProvisioningTemplates,
+		opUpdateProvisioningTemplate,
+		opDeleteProvisioningTemplate,
+		opCreateProvisioningTemplateVersion,
+		opListProvisioningTemplateVersions,
+		opDeleteProvisioningTemplateVersion,
+		// Batch 1: Authorizers
+		opCreateAuthorizer,
+		opDescribeAuthorizer,
+		opListAuthorizers,
+		opUpdateAuthorizer,
+		opDeleteAuthorizer,
+		// Batch 1: BillingGroups
+		opCreateBillingGroup,
+		opDescribeBillingGroup,
+		opListBillingGroups,
+		opUpdateBillingGroup,
+		opDeleteBillingGroup,
+		// Batch 1: ScheduledAudits
+		opCreateScheduledAudit,
+		opDescribeScheduledAudit,
+		opListScheduledAudits,
+		opUpdateScheduledAudit,
+		opDeleteScheduledAudit,
+		// Batch 1: MitigationActions
+		opCreateMitigationAction,
+		opDescribeMitigationAction,
+		opListMitigationActions,
+		opUpdateMitigationAction,
+		opDeleteMitigationAction,
+		// Batch 1: SecurityProfiles
+		opCreateSecurityProfile,
+		opDescribeSecurityProfile,
+		opListSecurityProfiles,
+		opUpdateSecurityProfile,
+		opDeleteSecurityProfile,
 	)
 
 	return append(core, allStubOps()...)
@@ -372,7 +439,42 @@ func resolveOperation(path, method string) string {
 		return op
 	}
 
-	return resolveJobAndAuditOps(path, method)
+	if op := resolveJobAndAuditOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveBatch1Ops(path, method)
+}
+
+func resolveBatch1Ops(path, method string) string {
+	if op := resolveJobOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveJobTemplateOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveRoleAliasOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveDomainConfigOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveProvisioningTemplateOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveAuthorizerOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveBillingGroupOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveScheduledAuditOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveMitigationActionOps(path, method); op != unknownOperation {
+		return op
+	}
+	return resolveSecurityProfileOps(path, method)
 }
 
 func resolveNewStatefulOps(path, method string) string {
@@ -861,7 +963,11 @@ func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
 		return true, err
 	}
 
-	return h.dispatchCertificateProviderOps(c, op)
+	if handled, err := h.dispatchCertificateProviderOps(c, op); handled {
+		return true, err
+	}
+
+	return h.dispatchBatch1Ops(c, op)
 }
 
 func (h *Handler) dispatchMiscNewOps(c *echo.Context, op string) (bool, error) {
@@ -1048,6 +1154,136 @@ func (h *Handler) dispatchCertificateProviderOps(c *echo.Context, op string) (bo
 		return true, h.handleDeleteCertificateProvider(c)
 	}
 
+	return false, nil
+}
+
+func (h *Handler) dispatchBatch1Ops(c *echo.Context, op string) (bool, error) {
+	switch op {
+	// Jobs
+	case opCreateJob:
+		return true, h.handleCreateJob(c)
+	case opDescribeJob:
+		return true, h.handleDescribeJob(c)
+	case opListJobs:
+		return true, h.handleListJobs(c)
+	case opUpdateJob:
+		return true, h.handleUpdateJob(c)
+	case opCancelJob:
+		return true, h.handleCancelJob(c)
+	case opDeleteJob:
+		return true, h.handleDeleteJob(c)
+	case opGetJobDocument:
+		return true, h.handleGetJobDocument(c)
+	case opDescribeJobExecution:
+		return true, h.handleDescribeJobExecution(c)
+	case opCancelJobExecution:
+		return true, h.handleCancelJobExecution(c)
+	case opDeleteJobExecution:
+		return true, h.handleDeleteJobExecution(c)
+	// JobTemplates
+	case opCreateJobTemplate:
+		return true, h.handleCreateJobTemplate(c)
+	case opDescribeJobTemplate:
+		return true, h.handleDescribeJobTemplate(c)
+	case opListJobTemplates:
+		return true, h.handleListJobTemplates(c)
+	case opDeleteJobTemplate:
+		return true, h.handleDeleteJobTemplate(c)
+	// RoleAliases
+	case opCreateRoleAlias:
+		return true, h.handleCreateRoleAlias(c)
+	case opDescribeRoleAlias:
+		return true, h.handleDescribeRoleAlias(c)
+	case opListRoleAliases:
+		return true, h.handleListRoleAliases(c)
+	case opUpdateRoleAlias:
+		return true, h.handleUpdateRoleAlias(c)
+	case opDeleteRoleAlias:
+		return true, h.handleDeleteRoleAlias(c)
+	// DomainConfigurations
+	case opCreateDomainConfiguration:
+		return true, h.handleCreateDomainConfiguration(c)
+	case opDescribeDomainConfiguration:
+		return true, h.handleDescribeDomainConfiguration(c)
+	case opListDomainConfigurations:
+		return true, h.handleListDomainConfigurations(c)
+	case opUpdateDomainConfiguration:
+		return true, h.handleUpdateDomainConfiguration(c)
+	case opDeleteDomainConfiguration:
+		return true, h.handleDeleteDomainConfiguration(c)
+	// ProvisioningTemplates
+	case opCreateProvisioningTemplate:
+		return true, h.handleCreateProvisioningTemplate(c)
+	case opDescribeProvisioningTemplate:
+		return true, h.handleDescribeProvisioningTemplate(c)
+	case opListProvisioningTemplates:
+		return true, h.handleListProvisioningTemplates(c)
+	case opUpdateProvisioningTemplate:
+		return true, h.handleUpdateProvisioningTemplate(c)
+	case opDeleteProvisioningTemplate:
+		return true, h.handleDeleteProvisioningTemplate(c)
+	case opCreateProvisioningTemplateVersion:
+		return true, h.handleCreateProvisioningTemplateVersion(c)
+	case opListProvisioningTemplateVersions:
+		return true, h.handleListProvisioningTemplateVersions(c)
+	case opDeleteProvisioningTemplateVersion:
+		return true, h.handleDeleteProvisioningTemplateVersion(c)
+	// Authorizers
+	case opCreateAuthorizer:
+		return true, h.handleCreateAuthorizer(c)
+	case opDescribeAuthorizer:
+		return true, h.handleDescribeAuthorizer(c)
+	case opListAuthorizers:
+		return true, h.handleListAuthorizers(c)
+	case opUpdateAuthorizer:
+		return true, h.handleUpdateAuthorizer(c)
+	case opDeleteAuthorizer:
+		return true, h.handleDeleteAuthorizer(c)
+	// BillingGroups
+	case opCreateBillingGroup:
+		return true, h.handleCreateBillingGroup(c)
+	case opDescribeBillingGroup:
+		return true, h.handleDescribeBillingGroup(c)
+	case opListBillingGroups:
+		return true, h.handleListBillingGroups(c)
+	case opUpdateBillingGroup:
+		return true, h.handleUpdateBillingGroup(c)
+	case opDeleteBillingGroup:
+		return true, h.handleDeleteBillingGroup(c)
+	// ScheduledAudits
+	case opCreateScheduledAudit:
+		return true, h.handleCreateScheduledAudit(c)
+	case opDescribeScheduledAudit:
+		return true, h.handleDescribeScheduledAudit(c)
+	case opListScheduledAudits:
+		return true, h.handleListScheduledAudits(c)
+	case opUpdateScheduledAudit:
+		return true, h.handleUpdateScheduledAudit(c)
+	case opDeleteScheduledAudit:
+		return true, h.handleDeleteScheduledAudit(c)
+	// MitigationActions
+	case opCreateMitigationAction:
+		return true, h.handleCreateMitigationAction(c)
+	case opDescribeMitigationAction:
+		return true, h.handleDescribeMitigationAction(c)
+	case opListMitigationActions:
+		return true, h.handleListMitigationActions(c)
+	case opUpdateMitigationAction:
+		return true, h.handleUpdateMitigationAction(c)
+	case opDeleteMitigationAction:
+		return true, h.handleDeleteMitigationAction(c)
+	// SecurityProfiles
+	case opCreateSecurityProfile:
+		return true, h.handleCreateSecurityProfile(c)
+	case opDescribeSecurityProfile:
+		return true, h.handleDescribeSecurityProfile(c)
+	case opListSecurityProfiles:
+		return true, h.handleListSecurityProfiles(c)
+	case opUpdateSecurityProfile:
+		return true, h.handleUpdateSecurityProfile(c)
+	case opDeleteSecurityProfile:
+		return true, h.handleDeleteSecurityProfile(c)
+	}
 	return false, nil
 }
 

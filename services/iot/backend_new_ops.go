@@ -43,10 +43,10 @@ type AbortConfig struct {
 
 // AbortCriteria is a single abort criterion.
 type AbortCriteria struct {
-	Action             string  `json:"action,omitempty"`
-	FailureType        string  `json:"failureType,omitempty"`
+	Action                    string  `json:"action,omitempty"`
+	FailureType               string  `json:"failureType,omitempty"`
 	MinNumberOfExecutedThings int     `json:"minNumberOfExecutedThings,omitempty"`
-	ThresholdPercentage float64 `json:"thresholdPercentage,omitempty"`
+	ThresholdPercentage       float64 `json:"thresholdPercentage,omitempty"`
 }
 
 // JobExecutionsRolloutConfig holds rollout config for a job.
@@ -82,13 +82,13 @@ type Job struct {
 
 // JobExecution represents a single job execution on a thing.
 type JobExecution struct {
-	JobID          string             `json:"jobId"`
-	ThingName      string             `json:"thingName"`
-	Status         JobExecutionStatus `json:"status"`
-	ExecutionNumber int64             `json:"executionNumber,omitempty"`
-	QueuedAt       float64            `json:"queuedAt,omitempty"`
-	StartedAt      float64            `json:"startedAt,omitempty"`
-	LastUpdatedAt  float64            `json:"lastUpdatedAt,omitempty"`
+	JobID           string             `json:"jobId"`
+	ThingName       string             `json:"thingName"`
+	Status          JobExecutionStatus `json:"status"`
+	ExecutionNumber int64              `json:"executionNumber,omitempty"`
+	QueuedAt        float64            `json:"queuedAt,omitempty"`
+	StartedAt       float64            `json:"startedAt,omitempty"`
+	LastUpdatedAt   float64            `json:"lastUpdatedAt,omitempty"`
 }
 
 func cloneJob(j *Job) *Job {
@@ -159,7 +159,7 @@ func (b *InMemoryBackend) DescribeJob(jobID string) (*Job, error) {
 
 	j, ok := b.jobs[jobID]
 	if !ok {
-		return nil, fmt.Errorf("job %q not found: %w", jobID, ErrNotFound)
+		return nil, fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
 	return cloneJob(j), nil
 }
@@ -181,7 +181,7 @@ func (b *InMemoryBackend) UpdateJob(jobID, description string) error {
 
 	j, ok := b.jobs[jobID]
 	if !ok {
-		return fmt.Errorf("job %q not found: %w", jobID, ErrNotFound)
+		return fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
 	if description != "" {
 		j.Description = description
@@ -196,7 +196,7 @@ func (b *InMemoryBackend) CancelJob(jobID, comment string) (*Job, error) {
 
 	j, ok := b.jobs[jobID]
 	if !ok {
-		return nil, fmt.Errorf("job %q not found: %w", jobID, ErrNotFound)
+		return nil, fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
 	j.Status = JobStatusCanceled
 	j.LastUpdatedAt = float64(time.Now().UnixMilli()) / 1000
@@ -208,7 +208,7 @@ func (b *InMemoryBackend) DeleteJob(jobID string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.jobs[jobID]; !ok {
-		return fmt.Errorf("job %q not found: %w", jobID, ErrNotFound)
+		return fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
 	delete(b.jobs, jobID)
 	// Remove executions.
@@ -226,7 +226,7 @@ func (b *InMemoryBackend) GetJobDocument(jobID string) (string, error) {
 
 	j, ok := b.jobs[jobID]
 	if !ok {
-		return "", fmt.Errorf("job %q not found: %w", jobID, ErrNotFound)
+		return "", fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
 	return j.Document, nil
 }
@@ -242,7 +242,12 @@ func (b *InMemoryBackend) DescribeJobExecution(jobID, thingName string) (*JobExe
 	key := jobExecKey(jobID, thingName)
 	exec, ok := b.jobExecutions[key]
 	if !ok {
-		return nil, fmt.Errorf("job execution for job %q / thing %q not found: %w", jobID, thingName, ErrNotFound)
+		return nil, fmt.Errorf(
+			"job execution for job %q / thing %q not found: %w",
+			jobID,
+			thingName,
+			ErrResourceNotFound,
+		)
 	}
 	cp := *exec
 	return &cp, nil
@@ -321,7 +326,11 @@ func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*Job
 	defer b.mu.Unlock()
 
 	if _, exists := b.jobTemplates[input.JobTemplateID]; exists {
-		return nil, fmt.Errorf("job template %q already exists: %w", input.JobTemplateID, ErrAlreadyExists)
+		return nil, fmt.Errorf(
+			"job template %q already exists: %w",
+			input.JobTemplateID,
+			ErrAlreadyExists,
+		)
 	}
 	jt := &JobTemplate{
 		JobTemplateID:              input.JobTemplateID,
@@ -345,7 +354,7 @@ func (b *InMemoryBackend) DescribeJobTemplate(id string) (*JobTemplate, error) {
 
 	jt, ok := b.jobTemplates[id]
 	if !ok {
-		return nil, fmt.Errorf("job template %q not found: %w", id, ErrNotFound)
+		return nil, fmt.Errorf("job template %q not found: %w", id, ErrResourceNotFound)
 	}
 	return cloneJobTemplate(jt), nil
 }
@@ -366,7 +375,7 @@ func (b *InMemoryBackend) DeleteJobTemplate(id string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.jobTemplates[id]; !ok {
-		return fmt.Errorf("job template %q not found: %w", id, ErrNotFound)
+		return fmt.Errorf("job template %q not found: %w", id, ErrResourceNotFound)
 	}
 	delete(b.jobTemplates, id)
 	return nil
@@ -378,14 +387,14 @@ func (b *InMemoryBackend) DeleteJobTemplate(id string) error {
 
 // RoleAlias represents an IoT role alias.
 type RoleAlias struct {
-	Tags             map[string]string `json:"tags,omitempty"`
-	RoleAlias        string            `json:"roleAlias"`
-	RoleAliasARN     string            `json:"roleAliasArn"`
-	RoleARN          string            `json:"roleArn"`
-	Owner            string            `json:"owner,omitempty"`
-	CredentialDurationSeconds int      `json:"credentialDurationSeconds,omitempty"`
-	CreationDate     float64           `json:"creationDate,omitempty"`
-	LastModifiedDate float64           `json:"lastModifiedDate,omitempty"`
+	Tags                      map[string]string `json:"tags,omitempty"`
+	RoleAlias                 string            `json:"roleAlias"`
+	RoleAliasARN              string            `json:"roleAliasArn"`
+	RoleARN                   string            `json:"roleArn"`
+	Owner                     string            `json:"owner,omitempty"`
+	CredentialDurationSeconds int               `json:"credentialDurationSeconds,omitempty"`
+	CreationDate              float64           `json:"creationDate,omitempty"`
+	LastModifiedDate          float64           `json:"lastModifiedDate,omitempty"`
 }
 
 func cloneRoleAlias(ra *RoleAlias) *RoleAlias {
@@ -410,7 +419,11 @@ func (b *InMemoryBackend) CreateRoleAlias(input *CreateRoleAliasInput) (*RoleAli
 	defer b.mu.Unlock()
 
 	if _, exists := b.roleAliases[input.RoleAlias]; exists {
-		return nil, fmt.Errorf("role alias %q already exists: %w", input.RoleAlias, ErrAlreadyExists)
+		return nil, fmt.Errorf(
+			"role alias %q already exists: %w",
+			input.RoleAlias,
+			ErrAlreadyExists,
+		)
 	}
 	now := float64(time.Now().UnixMilli()) / 1000
 	ra := &RoleAlias{
@@ -435,7 +448,7 @@ func (b *InMemoryBackend) DescribeRoleAlias(alias string) (*RoleAlias, error) {
 
 	ra, ok := b.roleAliases[alias]
 	if !ok {
-		return nil, fmt.Errorf("role alias %q not found: %w", alias, ErrNotFound)
+		return nil, fmt.Errorf("role alias %q not found: %w", alias, ErrResourceNotFound)
 	}
 	return cloneRoleAlias(ra), nil
 }
@@ -451,13 +464,16 @@ func (b *InMemoryBackend) ListRoleAliases() []*RoleAlias {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateRoleAlias(alias, roleARN string, credDuration int) (*RoleAlias, error) {
+func (b *InMemoryBackend) UpdateRoleAlias(
+	alias, roleARN string,
+	credDuration int,
+) (*RoleAlias, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	ra, ok := b.roleAliases[alias]
 	if !ok {
-		return nil, fmt.Errorf("role alias %q not found: %w", alias, ErrNotFound)
+		return nil, fmt.Errorf("role alias %q not found: %w", alias, ErrResourceNotFound)
 	}
 	if roleARN != "" {
 		ra.RoleARN = roleARN
@@ -474,7 +490,7 @@ func (b *InMemoryBackend) DeleteRoleAlias(alias string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.roleAliases[alias]; !ok {
-		return fmt.Errorf("role alias %q not found: %w", alias, ErrNotFound)
+		return fmt.Errorf("role alias %q not found: %w", alias, ErrResourceNotFound)
 	}
 	delete(b.roleAliases, alias)
 	return nil
@@ -514,12 +530,18 @@ type CreateDomainConfigurationInput struct {
 	ServiceType             string            `json:"serviceType,omitempty"`
 }
 
-func (b *InMemoryBackend) CreateDomainConfiguration(input *CreateDomainConfigurationInput) (*DomainConfiguration, error) {
+func (b *InMemoryBackend) CreateDomainConfiguration(
+	input *CreateDomainConfigurationInput,
+) (*DomainConfiguration, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if _, exists := b.domainConfigs[input.DomainConfigurationName]; exists {
-		return nil, fmt.Errorf("domain configuration %q already exists: %w", input.DomainConfigurationName, ErrAlreadyExists)
+		return nil, fmt.Errorf(
+			"domain configuration %q already exists: %w",
+			input.DomainConfigurationName,
+			ErrAlreadyExists,
+		)
 	}
 	now := float64(time.Now().UnixMilli()) / 1000
 	dc := &DomainConfiguration{
@@ -545,7 +567,7 @@ func (b *InMemoryBackend) DescribeDomainConfiguration(name string) (*DomainConfi
 
 	dc, ok := b.domainConfigs[name]
 	if !ok {
-		return nil, fmt.Errorf("domain configuration %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("domain configuration %q not found: %w", name, ErrResourceNotFound)
 	}
 	return cloneDomainConfig(dc), nil
 }
@@ -561,13 +583,15 @@ func (b *InMemoryBackend) ListDomainConfigurations() []*DomainConfiguration {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateDomainConfiguration(name, status string) (*DomainConfiguration, error) {
+func (b *InMemoryBackend) UpdateDomainConfiguration(
+	name, status string,
+) (*DomainConfiguration, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	dc, ok := b.domainConfigs[name]
 	if !ok {
-		return nil, fmt.Errorf("domain configuration %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("domain configuration %q not found: %w", name, ErrResourceNotFound)
 	}
 	if status != "" {
 		dc.DomainConfigurationStatus = status
@@ -581,7 +605,7 @@ func (b *InMemoryBackend) DeleteDomainConfiguration(name string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.domainConfigs[name]; !ok {
-		return fmt.Errorf("domain configuration %q not found: %w", name, ErrNotFound)
+		return fmt.Errorf("domain configuration %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.domainConfigs, name)
 	return nil
@@ -593,17 +617,17 @@ func (b *InMemoryBackend) DeleteDomainConfiguration(name string) error {
 
 // ProvisioningTemplate represents an IoT fleet provisioning template.
 type ProvisioningTemplate struct {
-	Tags                    map[string]string `json:"tags,omitempty"`
-	TemplateName            string            `json:"templateName"`
-	TemplateARN             string            `json:"templateArn"`
-	Description             string            `json:"description,omitempty"`
-	TemplateBody            string            `json:"templateBody,omitempty"`
-	ProvisioningRoleARN     string            `json:"provisioningRoleArn,omitempty"`
-	TemplateType            string            `json:"type,omitempty"`
-	Enabled                 bool              `json:"enabled"`
-	DefaultVersionID        int32             `json:"defaultVersionId,omitempty"`
-	CreationDate            float64           `json:"creationDate,omitempty"`
-	LastModifiedDate        float64           `json:"lastModifiedDate,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	TemplateName        string            `json:"templateName"`
+	TemplateARN         string            `json:"templateArn"`
+	Description         string            `json:"description,omitempty"`
+	TemplateBody        string            `json:"templateBody,omitempty"`
+	ProvisioningRoleARN string            `json:"provisioningRoleArn,omitempty"`
+	TemplateType        string            `json:"type,omitempty"`
+	Enabled             bool              `json:"enabled"`
+	DefaultVersionID    int32             `json:"defaultVersionId,omitempty"`
+	CreationDate        float64           `json:"creationDate,omitempty"`
+	LastModifiedDate    float64           `json:"lastModifiedDate,omitempty"`
 }
 
 // ProvisioningTemplateVersion represents a version of a provisioning template.
@@ -634,12 +658,18 @@ type CreateProvisioningTemplateInput struct {
 	Enabled             bool              `json:"enabled"`
 }
 
-func (b *InMemoryBackend) CreateProvisioningTemplate(input *CreateProvisioningTemplateInput) (*ProvisioningTemplate, error) {
+func (b *InMemoryBackend) CreateProvisioningTemplate(
+	input *CreateProvisioningTemplateInput,
+) (*ProvisioningTemplate, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if _, exists := b.provTemplates[input.TemplateName]; exists {
-		return nil, fmt.Errorf("provisioning template %q already exists: %w", input.TemplateName, ErrAlreadyExists)
+		return nil, fmt.Errorf(
+			"provisioning template %q already exists: %w",
+			input.TemplateName,
+			ErrAlreadyExists,
+		)
 	}
 	now := float64(time.Now().UnixMilli()) / 1000
 	pt := &ProvisioningTemplate{
@@ -669,7 +699,7 @@ func (b *InMemoryBackend) DescribeProvisioningTemplate(name string) (*Provisioni
 
 	pt, ok := b.provTemplates[name]
 	if !ok {
-		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
 	return cloneProvTemplate(pt), nil
 }
@@ -685,13 +715,17 @@ func (b *InMemoryBackend) ListProvisioningTemplates() []*ProvisioningTemplate {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateProvisioningTemplate(name, description string, enabled *bool, provRoleARN string) error {
+func (b *InMemoryBackend) UpdateProvisioningTemplate(
+	name, description string,
+	enabled *bool,
+	provRoleARN string,
+) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	pt, ok := b.provTemplates[name]
 	if !ok {
-		return fmt.Errorf("provisioning template %q not found: %w", name, ErrNotFound)
+		return fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
 	if description != "" {
 		pt.Description = description
@@ -711,19 +745,21 @@ func (b *InMemoryBackend) DeleteProvisioningTemplate(name string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.provTemplates[name]; !ok {
-		return fmt.Errorf("provisioning template %q not found: %w", name, ErrNotFound)
+		return fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.provTemplates, name)
 	delete(b.provTemplateVersions, name)
 	return nil
 }
 
-func (b *InMemoryBackend) CreateProvisioningTemplateVersion(name, body string) (*ProvisioningTemplateVersion, error) {
+func (b *InMemoryBackend) CreateProvisioningTemplateVersion(
+	name, body string,
+) (*ProvisioningTemplateVersion, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if _, ok := b.provTemplates[name]; !ok {
-		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
 	versions := b.provTemplateVersions[name]
 	newID := int32(len(versions) + 1)
@@ -736,12 +772,14 @@ func (b *InMemoryBackend) CreateProvisioningTemplateVersion(name, body string) (
 	return v, nil
 }
 
-func (b *InMemoryBackend) ListProvisioningTemplateVersions(name string) ([]*ProvisioningTemplateVersion, error) {
+func (b *InMemoryBackend) ListProvisioningTemplateVersions(
+	name string,
+) ([]*ProvisioningTemplateVersion, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	if _, ok := b.provTemplates[name]; !ok {
-		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
 	src := b.provTemplateVersions[name]
 	out := make([]*ProvisioningTemplateVersion, len(src))
@@ -754,7 +792,7 @@ func (b *InMemoryBackend) DeleteProvisioningTemplateVersion(name string, version
 	defer b.mu.Unlock()
 
 	if _, ok := b.provTemplates[name]; !ok {
-		return fmt.Errorf("provisioning template %q not found: %w", name, ErrNotFound)
+		return fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
 	versions := b.provTemplateVersions[name]
 	for i, v := range versions {
@@ -763,7 +801,7 @@ func (b *InMemoryBackend) DeleteProvisioningTemplateVersion(name string, version
 			return nil
 		}
 	}
-	return fmt.Errorf("version %d not found: %w", versionID, ErrNotFound)
+	return fmt.Errorf("version %d not found: %w", versionID, ErrResourceNotFound)
 }
 
 // ---------------------------------------------------------------------------
@@ -772,17 +810,17 @@ func (b *InMemoryBackend) DeleteProvisioningTemplateVersion(name string, version
 
 // Authorizer represents an IoT authorizer.
 type Authorizer struct {
-	Tags                         map[string]string `json:"tags,omitempty"`
-	TokenSigningPublicKeys        map[string]string `json:"tokenSigningPublicKeys,omitempty"`
-	AuthorizerName               string            `json:"authorizerName"`
-	AuthorizerARN                string            `json:"authorizerArn"`
-	AuthorizerFunctionARN        string            `json:"authorizerFunctionArn,omitempty"`
-	TokenKeyName                 string            `json:"tokenKeyName,omitempty"`
-	Status                       string            `json:"status"`
-	SigningDisabled               bool              `json:"signingDisabled"`
-	EnableCachingForHTTP         bool              `json:"enableCachingForHttp"`
-	CreationDate                 float64           `json:"creationDate,omitempty"`
-	LastModifiedDate             float64           `json:"lastModifiedDate,omitempty"`
+	Tags                   map[string]string `json:"tags,omitempty"`
+	TokenSigningPublicKeys map[string]string `json:"tokenSigningPublicKeys,omitempty"`
+	AuthorizerName         string            `json:"authorizerName"`
+	AuthorizerARN          string            `json:"authorizerArn"`
+	AuthorizerFunctionARN  string            `json:"authorizerFunctionArn,omitempty"`
+	TokenKeyName           string            `json:"tokenKeyName,omitempty"`
+	Status                 string            `json:"status"`
+	SigningDisabled        bool              `json:"signingDisabled"`
+	EnableCachingForHTTP   bool              `json:"enableCachingForHttp"`
+	CreationDate           float64           `json:"creationDate,omitempty"`
+	LastModifiedDate       float64           `json:"lastModifiedDate,omitempty"`
 }
 
 func cloneAuthorizer(a *Authorizer) *Authorizer {
@@ -802,7 +840,7 @@ type CreateAuthorizerInput struct {
 	AuthorizerFunctionARN  string            `json:"authorizerFunctionArn,omitempty"`
 	TokenKeyName           string            `json:"tokenKeyName,omitempty"`
 	Status                 string            `json:"status,omitempty"`
-	SigningDisabled         bool              `json:"signingDisabled"`
+	SigningDisabled        bool              `json:"signingDisabled"`
 	EnableCachingForHTTP   bool              `json:"enableCachingForHttp"`
 }
 
@@ -811,21 +849,25 @@ func (b *InMemoryBackend) CreateAuthorizer(input *CreateAuthorizerInput) (*Autho
 	defer b.mu.Unlock()
 
 	if _, exists := b.authorizers[input.AuthorizerName]; exists {
-		return nil, fmt.Errorf("authorizer %q already exists: %w", input.AuthorizerName, ErrAlreadyExists)
+		return nil, fmt.Errorf(
+			"authorizer %q already exists: %w",
+			input.AuthorizerName,
+			ErrAlreadyExists,
+		)
 	}
 	now := float64(time.Now().UnixMilli()) / 1000
 	a := &Authorizer{
-		AuthorizerName:        input.AuthorizerName,
-		AuthorizerARN:         b.authorizerARN(input.AuthorizerName),
-		AuthorizerFunctionARN: input.AuthorizerFunctionARN,
-		TokenKeyName:          input.TokenKeyName,
+		AuthorizerName:         input.AuthorizerName,
+		AuthorizerARN:          b.authorizerARN(input.AuthorizerName),
+		AuthorizerFunctionARN:  input.AuthorizerFunctionARN,
+		TokenKeyName:           input.TokenKeyName,
 		SigningDisabled:        input.SigningDisabled,
-		EnableCachingForHTTP:  input.EnableCachingForHTTP,
+		EnableCachingForHTTP:   input.EnableCachingForHTTP,
 		TokenSigningPublicKeys: input.TokenSigningPublicKeys,
-		Status:                input.Status,
-		Tags:                  input.Tags,
-		CreationDate:          now,
-		LastModifiedDate:      now,
+		Status:                 input.Status,
+		Tags:                   input.Tags,
+		CreationDate:           now,
+		LastModifiedDate:       now,
 	}
 	if a.Status == "" {
 		a.Status = "ACTIVE"
@@ -840,7 +882,7 @@ func (b *InMemoryBackend) DescribeAuthorizer(name string) (*Authorizer, error) {
 
 	a, ok := b.authorizers[name]
 	if !ok {
-		return nil, fmt.Errorf("authorizer %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("authorizer %q not found: %w", name, ErrResourceNotFound)
 	}
 	return cloneAuthorizer(a), nil
 }
@@ -862,7 +904,7 @@ func (b *InMemoryBackend) UpdateAuthorizer(name, functionARN, status string) (*A
 
 	a, ok := b.authorizers[name]
 	if !ok {
-		return nil, fmt.Errorf("authorizer %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("authorizer %q not found: %w", name, ErrResourceNotFound)
 	}
 	if functionARN != "" {
 		a.AuthorizerFunctionARN = functionARN
@@ -879,7 +921,7 @@ func (b *InMemoryBackend) DeleteAuthorizer(name string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.authorizers[name]; !ok {
-		return fmt.Errorf("authorizer %q not found: %w", name, ErrNotFound)
+		return fmt.Errorf("authorizer %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.authorizers, name)
 	return nil
@@ -926,21 +968,29 @@ type CreateBillingGroupInput struct {
 	BillingGroupProperties BillingGroupProperties `json:"billingGroupProperties,omitempty"`
 }
 
-func (b *InMemoryBackend) CreateBillingGroup(input *CreateBillingGroupInput) (*BillingGroup, error) {
+func (b *InMemoryBackend) CreateBillingGroup(
+	input *CreateBillingGroupInput,
+) (*BillingGroup, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if _, exists := b.billingGroups[input.BillingGroupName]; exists {
-		return nil, fmt.Errorf("billing group %q already exists: %w", input.BillingGroupName, ErrAlreadyExists)
+		return nil, fmt.Errorf(
+			"billing group %q already exists: %w",
+			input.BillingGroupName,
+			ErrAlreadyExists,
+		)
 	}
 	bg := &BillingGroup{
 		BillingGroupName:       input.BillingGroupName,
 		BillingGroupARN:        b.billingGroupARN(input.BillingGroupName),
 		BillingGroupID:         uuid.NewString(),
 		BillingGroupProperties: input.BillingGroupProperties,
-		BillingGroupMetadata:   BillingGroupMetadata{CreationDate: float64(time.Now().UnixMilli()) / 1000},
-		Tags:                   input.Tags,
-		Version:                1,
+		BillingGroupMetadata: BillingGroupMetadata{
+			CreationDate: float64(time.Now().UnixMilli()) / 1000,
+		},
+		Tags:    input.Tags,
+		Version: 1,
 	}
 	b.billingGroups[input.BillingGroupName] = bg
 	return cloneBillingGroup(bg), nil
@@ -952,7 +1002,7 @@ func (b *InMemoryBackend) DescribeBillingGroup(name string) (*BillingGroup, erro
 
 	bg, ok := b.billingGroups[name]
 	if !ok {
-		return nil, fmt.Errorf("billing group %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("billing group %q not found: %w", name, ErrResourceNotFound)
 	}
 	return cloneBillingGroup(bg), nil
 }
@@ -968,13 +1018,16 @@ func (b *InMemoryBackend) ListBillingGroups() []*BillingGroup {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateBillingGroup(name string, props BillingGroupProperties) (int64, error) {
+func (b *InMemoryBackend) UpdateBillingGroup(
+	name string,
+	props BillingGroupProperties,
+) (int64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	bg, ok := b.billingGroups[name]
 	if !ok {
-		return 0, fmt.Errorf("billing group %q not found: %w", name, ErrNotFound)
+		return 0, fmt.Errorf("billing group %q not found: %w", name, ErrResourceNotFound)
 	}
 	bg.BillingGroupProperties = props
 	bg.Version++
@@ -986,7 +1039,7 @@ func (b *InMemoryBackend) DeleteBillingGroup(name string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.billingGroups[name]; !ok {
-		return fmt.Errorf("billing group %q not found: %w", name, ErrNotFound)
+		return fmt.Errorf("billing group %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.billingGroups, name)
 	return nil
@@ -998,13 +1051,13 @@ func (b *InMemoryBackend) DeleteBillingGroup(name string) error {
 
 // ScheduledAudit represents an IoT scheduled audit.
 type ScheduledAudit struct {
-	Tags                  map[string]string `json:"tags,omitempty"`
-	TargetCheckNames      []string          `json:"targetCheckNames,omitempty"`
-	ScheduledAuditName    string            `json:"scheduledAuditName"`
-	ScheduledAuditARN     string            `json:"scheduledAuditArn"`
-	Frequency             string            `json:"frequency"`
-	DayOfMonth            string            `json:"dayOfMonth,omitempty"`
-	DayOfWeek             string            `json:"dayOfWeek,omitempty"`
+	Tags               map[string]string `json:"tags,omitempty"`
+	TargetCheckNames   []string          `json:"targetCheckNames,omitempty"`
+	ScheduledAuditName string            `json:"scheduledAuditName"`
+	ScheduledAuditARN  string            `json:"scheduledAuditArn"`
+	Frequency          string            `json:"frequency"`
+	DayOfMonth         string            `json:"dayOfMonth,omitempty"`
+	DayOfWeek          string            `json:"dayOfWeek,omitempty"`
 }
 
 func cloneScheduledAudit(sa *ScheduledAudit) *ScheduledAudit {
@@ -1027,12 +1080,18 @@ type CreateScheduledAuditInput struct {
 	DayOfWeek          string            `json:"dayOfWeek,omitempty"`
 }
 
-func (b *InMemoryBackend) CreateScheduledAudit(input *CreateScheduledAuditInput) (*ScheduledAudit, error) {
+func (b *InMemoryBackend) CreateScheduledAudit(
+	input *CreateScheduledAuditInput,
+) (*ScheduledAudit, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if _, exists := b.scheduledAudits[input.ScheduledAuditName]; exists {
-		return nil, fmt.Errorf("scheduled audit %q already exists: %w", input.ScheduledAuditName, ErrAlreadyExists)
+		return nil, fmt.Errorf(
+			"scheduled audit %q already exists: %w",
+			input.ScheduledAuditName,
+			ErrAlreadyExists,
+		)
 	}
 	sa := &ScheduledAudit{
 		ScheduledAuditName: input.ScheduledAuditName,
@@ -1053,7 +1112,7 @@ func (b *InMemoryBackend) DescribeScheduledAudit(name string) (*ScheduledAudit, 
 
 	sa, ok := b.scheduledAudits[name]
 	if !ok {
-		return nil, fmt.Errorf("scheduled audit %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("scheduled audit %q not found: %w", name, ErrResourceNotFound)
 	}
 	return cloneScheduledAudit(sa), nil
 }
@@ -1069,13 +1128,16 @@ func (b *InMemoryBackend) ListScheduledAudits() []*ScheduledAudit {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateScheduledAudit(name, frequency, dayOfMonth, dayOfWeek string, checks []string) (*ScheduledAudit, error) {
+func (b *InMemoryBackend) UpdateScheduledAudit(
+	name, frequency, dayOfMonth, dayOfWeek string,
+	checks []string,
+) (*ScheduledAudit, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	sa, ok := b.scheduledAudits[name]
 	if !ok {
-		return nil, fmt.Errorf("scheduled audit %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("scheduled audit %q not found: %w", name, ErrResourceNotFound)
 	}
 	if frequency != "" {
 		sa.Frequency = frequency
@@ -1097,7 +1159,7 @@ func (b *InMemoryBackend) DeleteScheduledAudit(name string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.scheduledAudits[name]; !ok {
-		return fmt.Errorf("scheduled audit %q not found: %w", name, ErrNotFound)
+		return fmt.Errorf("scheduled audit %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.scheduledAudits, name)
 	return nil
@@ -1109,14 +1171,14 @@ func (b *InMemoryBackend) DeleteScheduledAudit(name string) error {
 
 // MitigationAction represents an IoT mitigation action.
 type MitigationAction struct {
-	Tags            map[string]string `json:"tags,omitempty"`
-	ActionName      string            `json:"actionName"`
-	ActionARN       string            `json:"actionArn"`
-	ActionID        string            `json:"actionId"`
-	RoleARN         string            `json:"roleArn,omitempty"`
-	ActionParams    map[string]any    `json:"actionParams,omitempty"`
-	CreationDate    float64           `json:"creationDate,omitempty"`
-	LastModifiedDate float64          `json:"lastModifiedDate,omitempty"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	ActionName       string            `json:"actionName"`
+	ActionARN        string            `json:"actionArn"`
+	ActionID         string            `json:"actionId"`
+	RoleARN          string            `json:"roleArn,omitempty"`
+	ActionParams     map[string]any    `json:"actionParams,omitempty"`
+	CreationDate     float64           `json:"creationDate,omitempty"`
+	LastModifiedDate float64           `json:"lastModifiedDate,omitempty"`
 }
 
 func cloneMitigationAction(ma *MitigationAction) *MitigationAction {
@@ -1136,12 +1198,18 @@ type CreateMitigationActionInput struct {
 	ActionParams map[string]any    `json:"actionParams,omitempty"`
 }
 
-func (b *InMemoryBackend) CreateMitigationAction(input *CreateMitigationActionInput) (*MitigationAction, error) {
+func (b *InMemoryBackend) CreateMitigationAction(
+	input *CreateMitigationActionInput,
+) (*MitigationAction, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if _, exists := b.mitigationActions[input.ActionName]; exists {
-		return nil, fmt.Errorf("mitigation action %q already exists: %w", input.ActionName, ErrAlreadyExists)
+		return nil, fmt.Errorf(
+			"mitigation action %q already exists: %w",
+			input.ActionName,
+			ErrAlreadyExists,
+		)
 	}
 	now := float64(time.Now().UnixMilli()) / 1000
 	ma := &MitigationAction{
@@ -1164,7 +1232,7 @@ func (b *InMemoryBackend) DescribeMitigationAction(name string) (*MitigationActi
 
 	ma, ok := b.mitigationActions[name]
 	if !ok {
-		return nil, fmt.Errorf("mitigation action %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("mitigation action %q not found: %w", name, ErrResourceNotFound)
 	}
 	return cloneMitigationAction(ma), nil
 }
@@ -1180,13 +1248,16 @@ func (b *InMemoryBackend) ListMitigationActions() []*MitigationAction {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateMitigationAction(name, roleARN string, params map[string]any) (*MitigationAction, error) {
+func (b *InMemoryBackend) UpdateMitigationAction(
+	name, roleARN string,
+	params map[string]any,
+) (*MitigationAction, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	ma, ok := b.mitigationActions[name]
 	if !ok {
-		return nil, fmt.Errorf("mitigation action %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("mitigation action %q not found: %w", name, ErrResourceNotFound)
 	}
 	if roleARN != "" {
 		ma.RoleARN = roleARN
@@ -1203,7 +1274,7 @@ func (b *InMemoryBackend) DeleteMitigationAction(name string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.mitigationActions[name]; !ok {
-		return fmt.Errorf("mitigation action %q not found: %w", name, ErrNotFound)
+		return fmt.Errorf("mitigation action %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.mitigationActions, name)
 	return nil
@@ -1215,13 +1286,13 @@ func (b *InMemoryBackend) DeleteMitigationAction(name string) error {
 
 // SecurityProfile represents an IoT security profile.
 type SecurityProfile struct {
-	Tags                          map[string]string `json:"tags,omitempty"`
-	SecurityProfileName           string            `json:"securityProfileName"`
-	SecurityProfileARN            string            `json:"securityProfileArn"`
-	SecurityProfileDescription    string            `json:"securityProfileDescription,omitempty"`
-	Version                       int64             `json:"version"`
-	CreationDate                  float64           `json:"creationDate,omitempty"`
-	LastModifiedDate              float64           `json:"lastModifiedDate,omitempty"`
+	Tags                       map[string]string `json:"tags,omitempty"`
+	SecurityProfileName        string            `json:"securityProfileName"`
+	SecurityProfileARN         string            `json:"securityProfileArn"`
+	SecurityProfileDescription string            `json:"securityProfileDescription,omitempty"`
+	Version                    int64             `json:"version"`
+	CreationDate               float64           `json:"creationDate,omitempty"`
+	LastModifiedDate           float64           `json:"lastModifiedDate,omitempty"`
 }
 
 func cloneSecurityProfile(sp *SecurityProfile) *SecurityProfile {
@@ -1240,12 +1311,18 @@ type CreateSecurityProfileInput struct {
 	SecurityProfileDescription string            `json:"securityProfileDescription,omitempty"`
 }
 
-func (b *InMemoryBackend) CreateSecurityProfile(input *CreateSecurityProfileInput) (*SecurityProfile, error) {
+func (b *InMemoryBackend) CreateSecurityProfile(
+	input *CreateSecurityProfileInput,
+) (*SecurityProfile, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if _, exists := b.securityProfiles[input.SecurityProfileName]; exists {
-		return nil, fmt.Errorf("security profile %q already exists: %w", input.SecurityProfileName, ErrAlreadyExists)
+		return nil, fmt.Errorf(
+			"security profile %q already exists: %w",
+			input.SecurityProfileName,
+			ErrAlreadyExists,
+		)
 	}
 	now := float64(time.Now().UnixMilli()) / 1000
 	sp := &SecurityProfile{
@@ -1267,7 +1344,7 @@ func (b *InMemoryBackend) DescribeSecurityProfile(name string) (*SecurityProfile
 
 	sp, ok := b.securityProfiles[name]
 	if !ok {
-		return nil, fmt.Errorf("security profile %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("security profile %q not found: %w", name, ErrResourceNotFound)
 	}
 	return cloneSecurityProfile(sp), nil
 }
@@ -1283,13 +1360,15 @@ func (b *InMemoryBackend) ListSecurityProfiles() []*SecurityProfile {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateSecurityProfile(name, description string) (*SecurityProfile, error) {
+func (b *InMemoryBackend) UpdateSecurityProfile(
+	name, description string,
+) (*SecurityProfile, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	sp, ok := b.securityProfiles[name]
 	if !ok {
-		return nil, fmt.Errorf("security profile %q not found: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("security profile %q not found: %w", name, ErrResourceNotFound)
 	}
 	if description != "" {
 		sp.SecurityProfileDescription = description
@@ -1304,21 +1383,14 @@ func (b *InMemoryBackend) DeleteSecurityProfile(name string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.securityProfiles[name]; !ok {
-		return fmt.Errorf("security profile %q not found: %w", name, ErrNotFound)
+		return fmt.Errorf("security profile %q not found: %w", name, ErrResourceNotFound)
 	}
 	delete(b.securityProfiles, name)
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Error sentinels (package-level, not already defined)
-// ---------------------------------------------------------------------------
-
-// ErrNotFound is returned when a resource is not found.
-var ErrNotFound = fmt.Errorf("ResourceNotFoundException")
-
-// ErrAlreadyExists is returned when a resource already exists.
-var ErrAlreadyExists = fmt.Errorf("ResourceAlreadyExistsException")
+// ErrResourceNotFound is returned when a new-op resource is not found.
+var ErrResourceNotFound = fmt.Errorf("ResourceNotFoundException")
 
 // Ensure sort is used.
 var _ = sort.Strings

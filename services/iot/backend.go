@@ -68,10 +68,23 @@ type InMemoryBackend struct {
 	policyVersions         map[string][]*PolicyVersion // policyName -> []versions
 	topicRuleDestinations  map[string]*TopicRuleDestination
 	certificateProviders   map[string]*CertificateProvider
-	accountID              string
-	region                 string
-	mqttPort               int
-	mu                     sync.RWMutex
+	// New stateful resources (batch 1).
+	jobs                 map[string]*Job
+	jobExecutions        map[string]*JobExecution // key: jobID|thingName
+	jobTemplates         map[string]*JobTemplate
+	roleAliases          map[string]*RoleAlias
+	domainConfigs        map[string]*DomainConfiguration
+	provTemplates        map[string]*ProvisioningTemplate
+	provTemplateVersions map[string][]*ProvisioningTemplateVersion // templateName -> versions
+	authorizers          map[string]*Authorizer
+	billingGroups        map[string]*BillingGroup
+	scheduledAudits      map[string]*ScheduledAudit
+	mitigationActions    map[string]*MitigationAction
+	securityProfiles     map[string]*SecurityProfile
+	accountID            string
+	region               string
+	mqttPort             int
+	mu                   sync.RWMutex
 }
 
 // Compile-time assertion that InMemoryBackend implements StorageBackend.
@@ -103,6 +116,18 @@ func NewInMemoryBackend() *InMemoryBackend {
 		policyVersions:         make(map[string][]*PolicyVersion),
 		topicRuleDestinations:  make(map[string]*TopicRuleDestination),
 		certificateProviders:   make(map[string]*CertificateProvider),
+		jobs:                   make(map[string]*Job),
+		jobExecutions:          make(map[string]*JobExecution),
+		jobTemplates:           make(map[string]*JobTemplate),
+		roleAliases:            make(map[string]*RoleAlias),
+		domainConfigs:          make(map[string]*DomainConfiguration),
+		provTemplates:          make(map[string]*ProvisioningTemplate),
+		provTemplateVersions:   make(map[string][]*ProvisioningTemplateVersion),
+		authorizers:            make(map[string]*Authorizer),
+		billingGroups:          make(map[string]*BillingGroup),
+		scheduledAudits:        make(map[string]*ScheduledAudit),
+		mitigationActions:      make(map[string]*MitigationAction),
+		securityProfiles:       make(map[string]*SecurityProfile),
 		accountID:              "000000000000",
 		region:                 "us-east-1",
 		mqttPort:               mqttDefaultPort,
@@ -143,6 +168,18 @@ func (b *InMemoryBackend) Reset() {
 	b.policyVersions = make(map[string][]*PolicyVersion)
 	b.topicRuleDestinations = make(map[string]*TopicRuleDestination)
 	b.certificateProviders = make(map[string]*CertificateProvider)
+	b.jobs = make(map[string]*Job)
+	b.jobExecutions = make(map[string]*JobExecution)
+	b.jobTemplates = make(map[string]*JobTemplate)
+	b.roleAliases = make(map[string]*RoleAlias)
+	b.domainConfigs = make(map[string]*DomainConfiguration)
+	b.provTemplates = make(map[string]*ProvisioningTemplate)
+	b.provTemplateVersions = make(map[string][]*ProvisioningTemplateVersion)
+	b.authorizers = make(map[string]*Authorizer)
+	b.billingGroups = make(map[string]*BillingGroup)
+	b.scheduledAudits = make(map[string]*ScheduledAudit)
+	b.mitigationActions = make(map[string]*MitigationAction)
+	b.securityProfiles = make(map[string]*SecurityProfile)
 }
 
 // SetRuleDispatcher wires the SQS/Lambda action dispatcher.
