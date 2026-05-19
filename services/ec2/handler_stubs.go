@@ -4118,14 +4118,6 @@ func (h *Handler) handleStubGetDeclarativePoliciesReportSummary(
 	}, nil
 }
 
-func (h *Handler) handleStubGetEbsDefaultKmsKeyID(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetEbsDefaultKmsKeyIdResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubGetEnabledIpamPolicy(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetEnabledIpamPolicyResponse"},
@@ -4677,14 +4669,6 @@ func (h *Handler) handleStubModifyCapacityReservationFleet(
 func (h *Handler) handleStubModifyClientVpnEndpoint(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyClientVpnEndpointResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyEbsDefaultKmsKeyID(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyEbsDefaultKmsKeyIdResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

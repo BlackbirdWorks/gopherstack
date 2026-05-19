@@ -803,10 +803,16 @@ type Backend interface {
 
 	// ---- batch2 ----
 
-	CreateVpcEndpointConnectionNotification(serviceID, endpointID, notifARN string, events []string) (*VpcEndpointConnectionNotification, error)
+	CreateVpcEndpointConnectionNotification(
+		serviceID, endpointID, notifARN string,
+		events []string,
+	) (*VpcEndpointConnectionNotification, error)
 	DescribeVpcEndpointConnectionNotifications(ids []string) []*VpcEndpointConnectionNotification
 	DeleteVpcEndpointConnectionNotifications(ids []string) error
-	ModifyVpcEndpointConnectionNotification(id, notifARN string, events []string) (*VpcEndpointConnectionNotification, error)
+	ModifyVpcEndpointConnectionNotification(
+		id, notifARN string,
+		events []string,
+	) (*VpcEndpointConnectionNotification, error)
 	DescribeVpcEndpointConnections(serviceIDs []string) []*VpcEndpointConnection
 	DescribeVpcEndpointAssociations(endpointIDs []string) []*VpcEndpoint
 	ModifyVpcEndpointServicePayerResponsibility(serviceID, payerResponsibility string) error
@@ -851,6 +857,8 @@ type Backend interface {
 	EnableAddressTransfer(allocationID, transferAccountID string) (*AddressTransfer, error)
 	DisableAddressTransfer(allocationID string) error
 	DescribeAddressTransfers(allocationIDs []string) []*AddressTransfer
-	CreateSubnetCidrReservation(subnetID, cidr, reservationType, description string) (*SubnetCIDRReservation, error)
+	CreateSubnetCidrReservation(
+		subnetID, cidr, reservationType, description string,
+	) (*SubnetCIDRReservation, error)
 	DeleteSubnetCidrReservation(reservationID string) error
 }
