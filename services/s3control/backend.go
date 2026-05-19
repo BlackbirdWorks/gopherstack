@@ -160,9 +160,21 @@ type InMemoryBackend struct {
 	accessGrantsInstances    map[string]*AccessGrantsInstance
 	storageLensGroups        map[string]*StorageLensGroup
 	configs                  map[string]*PublicAccessBlock
-	accountID                string
-	region                   string
-	nextID                   int64
+	// batch1 additions
+	jobTags                      map[string]TagSet
+	accessGrantsInstancePolicies map[string]string
+	accessPointScopes            map[string]string
+	objectLambdaAPPolicies       map[string]string
+	objectLambdaAPConfigs        map[string]string
+	bucketPolicies               map[string]string
+	bucketTagging                map[string]TagSet
+	bucketLifecycle              map[string]string
+	bucketVersioning             map[string]string
+	mrapPolicies                 map[string]string
+	mrapRoutes                   map[string]string
+	accountID                    string
+	region                       string
+	nextID                       int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default config values.
@@ -173,21 +185,32 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with explicit config values.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		configs:                  make(map[string]*PublicAccessBlock),
-		accessGrantsInstances:    make(map[string]*AccessGrantsInstance),
-		accessGrants:             make(map[string]*AccessGrant),
-		accessGrantsLocations:    make(map[string]*AccessGrantsLocation),
-		accessPoints:             make(map[string]*AccessPoint),
-		accessPointPolicies:      make(map[string]string),
-		objectLambdaAccessPoints: make(map[string]*ObjectLambdaAccessPoint),
-		outpostsBuckets:          make(map[string]*OutpostsBucket),
-		batchJobs:                make(map[string]*BatchJob),
-		mrapRequests:             make(map[string]*MultiRegionAccessPointRequest),
-		mraps:                    make(map[string]*MultiRegionAccessPoint),
-		storageLensGroups:        make(map[string]*StorageLensGroup),
-		mu:                       lockmetrics.New("s3control"),
-		accountID:                accountID,
-		region:                   region,
+		configs:                      make(map[string]*PublicAccessBlock),
+		accessGrantsInstances:        make(map[string]*AccessGrantsInstance),
+		accessGrants:                 make(map[string]*AccessGrant),
+		accessGrantsLocations:        make(map[string]*AccessGrantsLocation),
+		accessPoints:                 make(map[string]*AccessPoint),
+		accessPointPolicies:          make(map[string]string),
+		objectLambdaAccessPoints:     make(map[string]*ObjectLambdaAccessPoint),
+		outpostsBuckets:              make(map[string]*OutpostsBucket),
+		batchJobs:                    make(map[string]*BatchJob),
+		mrapRequests:                 make(map[string]*MultiRegionAccessPointRequest),
+		mraps:                        make(map[string]*MultiRegionAccessPoint),
+		storageLensGroups:            make(map[string]*StorageLensGroup),
+		jobTags:                      make(map[string]TagSet),
+		accessGrantsInstancePolicies: make(map[string]string),
+		accessPointScopes:            make(map[string]string),
+		objectLambdaAPPolicies:       make(map[string]string),
+		objectLambdaAPConfigs:        make(map[string]string),
+		bucketPolicies:               make(map[string]string),
+		bucketTagging:                make(map[string]TagSet),
+		bucketLifecycle:              make(map[string]string),
+		bucketVersioning:             make(map[string]string),
+		mrapPolicies:                 make(map[string]string),
+		mrapRoutes:                   make(map[string]string),
+		mu:                           lockmetrics.New("s3control"),
+		accountID:                    accountID,
+		region:                       region,
 	}
 }
 
@@ -214,6 +237,17 @@ func (b *InMemoryBackend) Reset() {
 	b.mrapRequests = make(map[string]*MultiRegionAccessPointRequest)
 	b.mraps = make(map[string]*MultiRegionAccessPoint)
 	b.storageLensGroups = make(map[string]*StorageLensGroup)
+	b.jobTags = make(map[string]TagSet)
+	b.accessGrantsInstancePolicies = make(map[string]string)
+	b.accessPointScopes = make(map[string]string)
+	b.objectLambdaAPPolicies = make(map[string]string)
+	b.objectLambdaAPConfigs = make(map[string]string)
+	b.bucketPolicies = make(map[string]string)
+	b.bucketTagging = make(map[string]TagSet)
+	b.bucketLifecycle = make(map[string]string)
+	b.bucketVersioning = make(map[string]string)
+	b.mrapPolicies = make(map[string]string)
+	b.mrapRoutes = make(map[string]string)
 	b.nextID = 0
 }
 

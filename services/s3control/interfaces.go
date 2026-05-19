@@ -41,6 +41,72 @@ type StorageBackend interface {
 
 	Snapshot() []byte
 	Restore(data []byte) error
+
+	// ---- batch1 ----
+
+	// Job tagging
+	PutJobTagging(accountID, jobID string, tags TagSet) error
+	GetJobTagging(accountID, jobID string) (TagSet, error)
+	DeleteJobTagging(accountID, jobID string) error
+
+	// Access Grants Instance
+	GetAccessGrantsInstance(accountID string) (*AccessGrantsInstance, error)
+	DeleteAccessGrantsInstance(accountID string) error
+	GetAccessGrantsInstanceResourcePolicy(accountID string) (string, error)
+	PutAccessGrantsInstanceResourcePolicy(accountID, policy string)
+	DeleteAccessGrantsInstanceResourcePolicy(accountID string)
+	DissociateAccessGrantsIdentityCenter(accountID string)
+	GetAccessGrantsInstanceForPrefix(accountID, prefix string) (*AccessGrantsInstance, error)
+
+	// Access Grants CRUD
+	GetAccessGrant(accountID, grantID string) (*AccessGrant, error)
+	DeleteAccessGrant(accountID, grantID string) error
+	ListAccessGrants(accountID, locationScope string) []*AccessGrant
+	ListCallerAccessGrants(accountID string) []*AccessGrant
+	GetAccessGrantsLocation(accountID, locationID string) (*AccessGrantsLocation, error)
+	DeleteAccessGrantsLocation(accountID, locationID string) error
+	UpdateAccessGrantsLocation(accountID, locationID, iamRoleArn string) (*AccessGrantsLocation, error)
+	ListAccessGrantsLocations(accountID string) []*AccessGrantsLocation
+	GetDataAccess(accountID, target, permission string) (string, error)
+
+	// Access Point Scope
+	GetAccessPointScope(accountID, name string) (string, error)
+	PutAccessPointScope(accountID, name, scope string) error
+	DeleteAccessPointScope(accountID, name string) error
+	ListAccessPointsForDirectoryBuckets(accountID string) []*AccessPoint
+
+	// Object Lambda Access Points
+	GetAccessPointForObjectLambda(accountID, name string) (*ObjectLambdaAccessPoint, error)
+	DeleteAccessPointForObjectLambda(accountID, name string) error
+	ListAccessPointsForObjectLambda(accountID string) []*ObjectLambdaAccessPoint
+	GetAccessPointPolicyForObjectLambda(accountID, name string) (string, error)
+	PutAccessPointPolicyForObjectLambda(accountID, name, policy string) error
+	DeleteAccessPointPolicyForObjectLambda(accountID, name string) error
+	GetAccessPointPolicyStatusForObjectLambda(accountID, name string) (bool, error)
+	GetAccessPointConfigurationForObjectLambda(accountID, name string) (string, error)
+	PutAccessPointConfigurationForObjectLambda(accountID, name, config string) error
+
+	// Outposts Bucket
+	GetBucket(accountID, bucketName string) (*OutpostsBucket, error)
+	DeleteBucket(accountID, bucketName string) error
+	GetBucketLifecycleConfiguration(accountID, bucketName string) (string, error)
+	PutBucketLifecycleConfiguration(accountID, bucketName, lifecycleConfig string) error
+	DeleteBucketLifecycleConfiguration(accountID, bucketName string) error
+	GetBucketPolicy(accountID, bucketName string) (string, error)
+	PutBucketPolicy(accountID, bucketName, policy string) error
+	DeleteBucketPolicy(accountID, bucketName string) error
+	GetBucketTagging(accountID, bucketName string) (TagSet, error)
+	PutBucketTagging(accountID, bucketName string, tags TagSet) error
+	DeleteBucketTagging(accountID, bucketName string) error
+	GetBucketVersioning(accountID, bucketName string) (string, error)
+	PutBucketVersioning(accountID, bucketName, status string) error
+	ListRegionalBuckets(accountID string) []*OutpostsBucket
+
+	// MRAP
+	DescribeMultiRegionAccessPointOperation(accountID, requestToken string) (*MultiRegionAccessPointRequest, error)
+	GetMultiRegionAccessPointPolicy(accountID, name string) (string, error)
+	GetMultiRegionAccessPointPolicyStatus(accountID, name string) (bool, error)
+	GetMultiRegionAccessPointRoutes(accountID, mrap string) (string, error)
 }
 
 // Verify interface is satisfied at compile time.
