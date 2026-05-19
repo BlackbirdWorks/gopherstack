@@ -2,7 +2,6 @@ package s3_test
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -15,79 +14,96 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestHandler_PostObject_Basic exercises the POST /bucket form-upload path:
-// the file body is stored at the supplied key with the supplied Content-Type,
-// and the default response is 204.
-func TestHandler_PostObject_Basic(t *testing.T) {
+func TestHandler_PostObject(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "form-bkt")
+	tests := []struct {
+		fields             map[string]string
+		name               string
+		filename           string
+		contents           []byte
+		wantLocationParts  []string
+		wantBodyParts      []string
+		wantObjectKey      string
+		wantObjectType     string
+		wantObjectContents []byte
+		wantStatus         int
+	}{
+		{
+			name: "basic_upload_defaults_to_204",
+			fields: map[string]string{
+				"key":          "uploads/${filename}",
+				"Content-Type": "text/plain",
+			},
+			filename:           "hello.txt",
+			contents:           []byte("hello world"),
+			wantObjectKey:      "uploads/hello.txt",
+			wantObjectType:     "text/plain",
+			wantObjectContents: []byte("hello world"),
+			wantStatus:         http.StatusNoContent,
+		},
+		{
+			name: "success_action_status_201_returns_post_response",
+			fields: map[string]string{
+				"key":                   "dst.txt",
+				"success_action_status": "201",
+			},
+			filename:      "dst.txt",
+			contents:      []byte("body"),
+			wantBodyParts: []string{"<PostResponse>", "<Bucket>form-bkt</Bucket>"},
+			wantStatus:    http.StatusCreated,
+		},
+		{
+			name: "success_action_redirect_returns_303_location",
+			fields: map[string]string{
+				"key":                     "redir.txt",
+				"success_action_redirect": "https://app.example.com/done",
+			},
+			filename:          "redir.txt",
+			contents:          []byte("body"),
+			wantLocationParts: []string{"bucket=form-bkt", "key=redir.txt"},
+			wantStatus:        http.StatusSeeOther,
+		},
+	}
 
-	body, contentType := buildPostForm(t, map[string]string{
-		"key":          "uploads/${filename}",
-		"Content-Type": "text/plain",
-	}, "hello.txt", []byte("hello world"))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "/form-bkt", body)
-	req.Header.Set("Content-Type", contentType)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusNoContent, rec.Code)
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "form-bkt")
 
-	out, err := backend.GetObject(context.Background(), &sdk_s3.GetObjectInput{
-		Bucket: aws.String("form-bkt"),
-		Key:    aws.String("uploads/hello.txt"),
-	})
-	require.NoError(t, err)
-	got, _ := io.ReadAll(out.Body)
-	require.Equal(t, []byte("hello world"), got)
-	require.Equal(t, "text/plain", aws.ToString(out.ContentType))
-}
+			body, contentType := buildPostForm(t, tt.fields, tt.filename, tt.contents)
 
-// TestHandler_PostObject_SuccessActionStatus201 verifies that the form's
-// success_action_status field is honoured and that the 201 response carries
-// the PostResponse XML body.
-func TestHandler_PostObject_SuccessActionStatus201(t *testing.T) {
-	t.Parallel()
+			req := httptest.NewRequest(http.MethodPost, "/form-bkt", body)
+			req.Header.Set("Content-Type", contentType)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			require.Equal(t, tt.wantStatus, rec.Code)
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "form-bkt")
+			for _, part := range tt.wantBodyParts {
+				require.Contains(t, rec.Body.String(), part)
+			}
+			for _, part := range tt.wantLocationParts {
+				require.Contains(t, rec.Header().Get("Location"), part)
+			}
 
-	body, contentType := buildPostForm(t, map[string]string{
-		"key":                   "dst.txt",
-		"success_action_status": "201",
-	}, "dst.txt", []byte("body"))
+			if tt.wantObjectKey == "" {
+				return
+			}
 
-	req := httptest.NewRequest(http.MethodPost, "/form-bkt", body)
-	req.Header.Set("Content-Type", contentType)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusCreated, rec.Code)
-	require.Contains(t, rec.Body.String(), "<PostResponse>")
-	require.Contains(t, rec.Body.String(), "<Bucket>form-bkt</Bucket>")
-}
+			out, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+				Bucket: aws.String("form-bkt"),
+				Key:    aws.String(tt.wantObjectKey),
+			})
+			require.NoError(t, err)
 
-// TestHandler_PostObject_SuccessActionRedirect verifies that the redirect
-// form variant returns 303 with bucket/key/etag appended to the Location.
-func TestHandler_PostObject_SuccessActionRedirect(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "form-bkt")
-
-	body, contentType := buildPostForm(t, map[string]string{
-		"key":                     "redir.txt",
-		"success_action_redirect": "https://app.example.com/done",
-	}, "redir.txt", []byte("body"))
-
-	req := httptest.NewRequest(http.MethodPost, "/form-bkt", body)
-	req.Header.Set("Content-Type", contentType)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusSeeOther, rec.Code)
-	require.Contains(t, rec.Header().Get("Location"), "bucket=form-bkt")
-	require.Contains(t, rec.Header().Get("Location"), "key=redir.txt")
+			got, err := io.ReadAll(out.Body)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantObjectContents, got)
+			require.Equal(t, tt.wantObjectType, aws.ToString(out.ContentType))
+		})
+	}
 }
 
 // buildPostForm writes a multipart/form-data body with the supplied form

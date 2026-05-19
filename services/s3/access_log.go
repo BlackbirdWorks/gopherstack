@@ -16,6 +16,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+const accessLogDispatchTimeout = 5 * time.Second
+
 // dispatchAccessLog appends an AWS-format access log entry to the target
 // bucket when the source bucket has logging configured. This goes beyond
 // LocalStack — which stores the LoggingConfig but never actually writes log
@@ -54,7 +56,9 @@ func (h *S3Handler) dispatchAccessLog(
 	logKey := buildAccessLogKey(prefix)
 
 	go func() {
-		dispatchCtx := h.notificationDispatchContext()
+		dispatchCtx, cancel := context.WithTimeout(h.notificationDispatchContext(), accessLogDispatchTimeout)
+		defer cancel()
+
 		if _, putErr := h.Backend.PutObject(dispatchCtx, &awss3.PutObjectInput{
 			Bucket:      aws.String(target),
 			Key:         aws.String(logKey),
