@@ -17,7 +17,7 @@ type StorageBackend interface {
 	// Service operations.
 	CreateService(
 		name, namespaceID, description, svcType string,
-		dnsConfig *DnsConfig,
+		dnsConfig *DNSConfig,
 		hcc *HealthCheckConfig,
 		hccc *HealthCheckCustomConfig,
 		tags map[string]string,
@@ -25,7 +25,7 @@ type StorageBackend interface {
 	DeleteService(id string) error
 	GetService(id string) (*Service, error)
 	ListServices(filter ListServicesFilter) []Service
-	UpdateService(id, description string, dnsConfig *DnsConfig, hcc *HealthCheckConfig) (*Service, error)
+	UpdateService(id, description string, dnsConfig *DNSConfig, hcc *HealthCheckConfig) (*Service, error)
 	GetServiceAttributes(serviceID string) (string, map[string]string, error)
 	UpdateServiceAttributes(serviceARN string, attributes map[string]string) error
 	DeleteServiceAttributes(serviceID string) error

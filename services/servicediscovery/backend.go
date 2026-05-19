@@ -71,17 +71,17 @@ const (
 	maxResultsCap     = 100
 )
 
-// DnsRecord represents a single DNS record configuration in a Cloud Map service.
-type DnsRecord struct {
+// DNSRecord represents a single DNS record configuration in a Cloud Map service.
+type DNSRecord struct {
 	Type string `json:"type"`
 	TTL  int64  `json:"ttl"`
 }
 
-// DnsConfig holds the DNS configuration for a Cloud Map service.
-type DnsConfig struct {
+// DNSConfig holds the DNS configuration for a Cloud Map service.
+type DNSConfig struct {
 	NamespaceID   string      `json:"namespaceID,omitempty"`
 	RoutingPolicy string      `json:"routingPolicy,omitempty"`
-	DnsRecords    []DnsRecord `json:"dnsRecords,omitempty"`
+	DNSRecords    []DNSRecord `json:"dnsRecords,omitempty"`
 }
 
 // HealthCheckConfig holds the configuration for an AWS-managed HTTP/TCP health check.
@@ -101,21 +101,21 @@ type SOA struct {
 	TTL int64 `json:"ttl"`
 }
 
-// DnsProperties holds the DNS-specific properties of a namespace.
-type DnsProperties struct {
+// DNSProperties holds the DNS-specific properties of a namespace.
+type DNSProperties struct {
 	SOA          *SOA   `json:"soa,omitempty"`
 	HostedZoneID string `json:"hostedZoneId,omitempty"`
 }
 
-// HttpProperties holds the HTTP-specific properties of a namespace.
-type HttpProperties struct {
-	HttpName string `json:"httpName,omitempty"`
+// HTTPProperties holds the HTTP-specific properties of a namespace.
+type HTTPProperties struct {
+	HTTPName string `json:"httpName,omitempty"`
 }
 
 // NamespaceProperties holds the type-specific properties of a namespace.
 type NamespaceProperties struct {
-	DnsProperties  *DnsProperties  `json:"dnsProperties,omitempty"`
-	HttpProperties *HttpProperties `json:"httpProperties,omitempty"`
+	DNSProperties  *DNSProperties  `json:"dnsProperties,omitempty"`
+	HTTPProperties *HTTPProperties `json:"httpProperties,omitempty"`
 }
 
 // Namespace represents an AWS Cloud Map namespace.
@@ -135,7 +135,7 @@ type Namespace struct {
 type Service struct {
 	CreatedAt               time.Time                `json:"createdAt"`
 	Tags                    map[string]string        `json:"tags,omitempty"`
-	DnsConfig               *DnsConfig               `json:"dnsConfig,omitempty"`
+	DNSConfig               *DNSConfig               `json:"dnsConfig,omitempty"`
 	HealthCheckConfig       *HealthCheckConfig       `json:"healthCheckConfig,omitempty"`
 	HealthCheckCustomConfig *HealthCheckCustomConfig `json:"healthCheckCustomConfig,omitempty"`
 	ID                      string                   `json:"id"`
@@ -248,7 +248,11 @@ func (b *InMemoryBackend) serviceARN(id string) string {
 	return fmt.Sprintf("arn:aws:servicediscovery:%s:%s:service/%s", b.region, b.accountID, id)
 }
 
-const idChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+const (
+	idChars              = "abcdefghijklmnopqrstuvwxyz0123456789"
+	idAlnumLen           = 26
+	idOperationSuffixLen = 8
+)
 
 func (b *InMemoryBackend) nextNsID() string {
 	if b.deterministicIDs {
@@ -257,7 +261,7 @@ func (b *InMemoryBackend) nextNsID() string {
 		return fmt.Sprintf("ns-%026d", b.nsCounter)
 	}
 
-	return "ns-" + randAlnum(26)
+	return "ns-" + randAlnum(idAlnumLen)
 }
 
 func (b *InMemoryBackend) nextSvcID() string {
@@ -267,7 +271,7 @@ func (b *InMemoryBackend) nextSvcID() string {
 		return fmt.Sprintf("srv-%025d", b.svcCounter)
 	}
 
-	return "srv-" + randAlnum(26)
+	return "srv-" + randAlnum(idAlnumLen)
 }
 
 func (b *InMemoryBackend) nextOpID() string {
@@ -287,7 +291,7 @@ func randAlnum(n int) string {
 
 // syntheticHostedZoneID generates a synthetic Route53 hosted zone ID for DNS namespaces.
 func syntheticHostedZoneID() string {
-	return "Z" + strings.ToUpper(randAlnum(8))
+	return "Z" + strings.ToUpper(randAlnum(idOperationSuffixLen))
 }
 
 // createNamespace is the internal helper used by all three create-namespace operations.
@@ -314,14 +318,14 @@ func (b *InMemoryBackend) createNamespace(
 		}
 
 		props = &NamespaceProperties{
-			DnsProperties: &DnsProperties{
+			DNSProperties: &DNSProperties{
 				HostedZoneID: syntheticHostedZoneID(),
 				SOA:          &SOA{TTL: ttl},
 			},
 		}
 	case namespaceTypeHTTP:
 		props = &NamespaceProperties{
-			HttpProperties: &HttpProperties{HttpName: name},
+			HTTPProperties: &HTTPProperties{HTTPName: name},
 		}
 	}
 
@@ -456,7 +460,7 @@ func (b *InMemoryBackend) ListNamespaces(filter ListNamespacesFilter) []Namespac
 // CreateService creates a new Cloud Map service.
 func (b *InMemoryBackend) CreateService(
 	name, namespaceID, description, svcType string,
-	dnsConfig *DnsConfig,
+	dnsConfig *DNSConfig,
 	hcc *HealthCheckConfig,
 	hccc *HealthCheckCustomConfig,
 	tags map[string]string,
@@ -496,7 +500,7 @@ func (b *InMemoryBackend) CreateService(
 		NamespaceID:             namespaceID,
 		Description:             description,
 		Type:                    resolvedType,
-		DnsConfig:               copyDnsConfig(dnsConfig),
+		DNSConfig:               copyDNSConfig(dnsConfig),
 		HealthCheckConfig:       copyHealthCheckConfig(hcc),
 		HealthCheckCustomConfig: copyHealthCheckCustomConfig(hccc),
 		Tags:                    copyTags(tags),
@@ -967,10 +971,10 @@ func (b *InMemoryBackend) updateNamespace(id, nsType, description string) (strin
 	return opID, nil
 }
 
-// UpdateService updates the description and optionally DnsConfig/HealthCheckConfig of a service.
+// UpdateService updates the description and optionally DNSConfig/HealthCheckConfig of a service.
 func (b *InMemoryBackend) UpdateService(
 	id, description string,
-	dnsConfig *DnsConfig,
+	dnsConfig *DNSConfig,
 	hcc *HealthCheckConfig,
 ) (*Service, error) {
 	b.mu.Lock("UpdateService")
@@ -983,14 +987,14 @@ func (b *InMemoryBackend) UpdateService(
 
 	svc.Description = description
 
-	if dnsConfig != nil && len(dnsConfig.DnsRecords) > 0 {
-		if svc.DnsConfig == nil {
-			svc.DnsConfig = &DnsConfig{}
+	if dnsConfig != nil && len(dnsConfig.DNSRecords) > 0 {
+		if svc.DNSConfig == nil {
+			svc.DNSConfig = &DNSConfig{}
 		}
 
-		for i, newRec := range dnsConfig.DnsRecords {
-			if i < len(svc.DnsConfig.DnsRecords) {
-				svc.DnsConfig.DnsRecords[i].TTL = newRec.TTL
+		for i, newRec := range dnsConfig.DNSRecords {
+			if i < len(svc.DNSConfig.DNSRecords) {
+				svc.DNSConfig.DNSRecords[i].TTL = newRec.TTL
 			}
 		}
 	}
@@ -1136,16 +1140,16 @@ func copyAttrs(attrs map[string]string) map[string]string {
 	return copyTags(attrs)
 }
 
-func copyDnsConfig(dc *DnsConfig) *DnsConfig {
+func copyDNSConfig(dc *DNSConfig) *DNSConfig {
 	if dc == nil {
 		return nil
 	}
 
 	cp := *dc
 
-	if len(dc.DnsRecords) > 0 {
-		cp.DnsRecords = make([]DnsRecord, len(dc.DnsRecords))
-		copy(cp.DnsRecords, dc.DnsRecords)
+	if len(dc.DNSRecords) > 0 {
+		cp.DNSRecords = make([]DNSRecord, len(dc.DNSRecords))
+		copy(cp.DNSRecords, dc.DNSRecords)
 	}
 
 	return &cp
@@ -1178,20 +1182,20 @@ func copyNamespace(ns *Namespace) *Namespace {
 	if ns.Properties != nil {
 		props := *ns.Properties
 
-		if ns.Properties.DnsProperties != nil {
-			dp := *ns.Properties.DnsProperties
+		if ns.Properties.DNSProperties != nil {
+			dp := *ns.Properties.DNSProperties
 
-			if ns.Properties.DnsProperties.SOA != nil {
-				soa := *ns.Properties.DnsProperties.SOA
+			if ns.Properties.DNSProperties.SOA != nil {
+				soa := *ns.Properties.DNSProperties.SOA
 				dp.SOA = &soa
 			}
 
-			props.DnsProperties = &dp
+			props.DNSProperties = &dp
 		}
 
-		if ns.Properties.HttpProperties != nil {
-			hp := *ns.Properties.HttpProperties
-			props.HttpProperties = &hp
+		if ns.Properties.HTTPProperties != nil {
+			hp := *ns.Properties.HTTPProperties
+			props.HTTPProperties = &hp
 		}
 
 		cp.Properties = &props
@@ -1203,7 +1207,7 @@ func copyNamespace(ns *Namespace) *Namespace {
 func copyService(svc *Service) *Service {
 	cp := *svc
 	cp.Tags = copyTags(svc.Tags)
-	cp.DnsConfig = copyDnsConfig(svc.DnsConfig)
+	cp.DNSConfig = copyDNSConfig(svc.DNSConfig)
 	cp.HealthCheckConfig = copyHealthCheckConfig(svc.HealthCheckConfig)
 	cp.HealthCheckCustomConfig = copyHealthCheckCustomConfig(svc.HealthCheckCustomConfig)
 

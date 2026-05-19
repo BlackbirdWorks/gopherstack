@@ -449,7 +449,7 @@ type createPrivateDNSNamespaceRequest struct {
 	Vpc              string `json:"Vpc"`
 	CreatorRequestID string `json:"CreatorRequestId"`
 	Properties       *struct {
-		DnsProperties *dnsPropertiesRequest `json:"DnsProperties"`
+		DNSProperties *dnsPropertiesRequest `json:"DNSProperties"`
 	} `json:"Properties"`
 	Tags []tagEntry `json:"Tags"`
 }
@@ -469,8 +469,8 @@ func (h *Handler) handleCreatePrivateDNSNamespace(_ context.Context, body []byte
 	}
 
 	var soaTTL int64
-	if req.Properties != nil && req.Properties.DnsProperties != nil && req.Properties.DnsProperties.SOA != nil {
-		soaTTL = req.Properties.DnsProperties.SOA.TTL
+	if req.Properties != nil && req.Properties.DNSProperties != nil && req.Properties.DNSProperties.SOA != nil {
+		soaTTL = req.Properties.DNSProperties.SOA.TTL
 	}
 
 	opID, err := h.Backend.CreatePrivateDNSNamespace(req.Name, req.Description, req.Vpc, soaTTL, tagsToMap(req.Tags))
@@ -486,7 +486,7 @@ type createPublicDNSNamespaceRequest struct {
 	Description      string `json:"Description"`
 	CreatorRequestID string `json:"CreatorRequestId"`
 	Properties       *struct {
-		DnsProperties *dnsPropertiesRequest `json:"DnsProperties"`
+		DNSProperties *dnsPropertiesRequest `json:"DNSProperties"`
 	} `json:"Properties"`
 	Tags []tagEntry `json:"Tags"`
 }
@@ -506,8 +506,8 @@ func (h *Handler) handleCreatePublicDNSNamespace(_ context.Context, body []byte)
 	}
 
 	var soaTTL int64
-	if req.Properties != nil && req.Properties.DnsProperties != nil && req.Properties.DnsProperties.SOA != nil {
-		soaTTL = req.Properties.DnsProperties.SOA.TTL
+	if req.Properties != nil && req.Properties.DNSProperties != nil && req.Properties.DNSProperties.SOA != nil {
+		soaTTL = req.Properties.DNSProperties.SOA.TTL
 	}
 
 	opID, err := h.Backend.CreatePublicDNSNamespace(req.Name, req.Description, soaTTL, tagsToMap(req.Tags))
@@ -632,7 +632,7 @@ type dnsRecordRequest struct {
 type dnsConfigRequest struct {
 	NamespaceID   string             `json:"NamespaceId"`
 	RoutingPolicy string             `json:"RoutingPolicy"`
-	DnsRecords    []dnsRecordRequest `json:"DnsRecords"`
+	DNSRecords    []dnsRecordRequest `json:"DnsRecords"`
 }
 
 type healthCheckConfigRequest struct {
@@ -651,24 +651,24 @@ type createServiceRequest struct {
 	NamespaceID             string                          `json:"NamespaceId"`
 	Type                    string                          `json:"Type"`
 	CreatorRequestID        string                          `json:"CreatorRequestId"`
-	DnsConfig               *dnsConfigRequest               `json:"DnsConfig"`
+	DNSConfig               *dnsConfigRequest               `json:"DnsConfig"`
 	HealthCheckConfig       *healthCheckConfigRequest       `json:"HealthCheckConfig"`
 	HealthCheckCustomConfig *healthCheckCustomConfigRequest `json:"HealthCheckCustomConfig"`
 	Tags                    []tagEntry                      `json:"Tags"`
 }
 
-func parseDnsConfig(req *dnsConfigRequest) *DnsConfig {
+func parseDNSConfig(req *dnsConfigRequest) *DNSConfig {
 	if req == nil {
 		return nil
 	}
 
-	dc := &DnsConfig{
+	dc := &DNSConfig{
 		NamespaceID:   req.NamespaceID,
 		RoutingPolicy: req.RoutingPolicy,
 	}
 
-	for _, r := range req.DnsRecords {
-		dc.DnsRecords = append(dc.DnsRecords, DnsRecord(r))
+	for _, r := range req.DNSRecords {
+		dc.DNSRecords = append(dc.DNSRecords, DNSRecord(r))
 	}
 
 	return dc
@@ -722,7 +722,7 @@ func (h *Handler) handleCreateService(_ context.Context, body []byte) ([]byte, e
 		req.NamespaceID,
 		req.Description,
 		req.Type,
-		parseDnsConfig(req.DnsConfig),
+		parseDNSConfig(req.DNSConfig),
 		parseHealthCheckConfig(req.HealthCheckConfig),
 		parseHealthCheckCustomConfig(req.HealthCheckCustomConfig),
 		tagsToMap(req.Tags),
@@ -1244,6 +1244,38 @@ func mapToTagEntries(tags map[string]string) []tagEntry {
 	return entries
 }
 
+func namespacePropertiesToMap(ns *Namespace) map[string]any {
+	if ns.Properties == nil {
+		return nil
+	}
+
+	props := map[string]any{}
+
+	if ns.Properties.DNSProperties != nil {
+		dp := map[string]any{}
+
+		if ns.Properties.DNSProperties.HostedZoneID != "" {
+			dp["HostedZoneId"] = ns.Properties.DNSProperties.HostedZoneID
+		}
+
+		if ns.Properties.DNSProperties.SOA != nil {
+			dp["SOA"] = map[string]any{
+				"TTL": ns.Properties.DNSProperties.SOA.TTL,
+			}
+		}
+
+		props["DnsProperties"] = dp
+	}
+
+	if ns.Properties.HTTPProperties != nil {
+		props["HttpProperties"] = map[string]any{
+			"HttpName": ns.Properties.HTTPProperties.HTTPName,
+		}
+	}
+
+	return props
+}
+
 // namespaceToMap converts a Namespace to a JSON-serialisable map including Properties.
 func namespaceToMap(ns *Namespace) map[string]any {
 	m := map[string]any{
@@ -1256,31 +1288,7 @@ func namespaceToMap(ns *Namespace) map[string]any {
 		keyCreateDate: ns.CreatedAt.Unix(),
 	}
 
-	if ns.Properties != nil {
-		props := map[string]any{}
-
-		if ns.Properties.DnsProperties != nil {
-			dp := map[string]any{}
-
-			if ns.Properties.DnsProperties.HostedZoneID != "" {
-				dp["HostedZoneId"] = ns.Properties.DnsProperties.HostedZoneID
-			}
-
-			if ns.Properties.DnsProperties.SOA != nil {
-				dp["SOA"] = map[string]any{
-					"TTL": ns.Properties.DnsProperties.SOA.TTL,
-				}
-			}
-
-			props["DnsProperties"] = dp
-		}
-
-		if ns.Properties.HttpProperties != nil {
-			props["HttpProperties"] = map[string]any{
-				"HttpName": ns.Properties.HttpProperties.HttpName,
-			}
-		}
-
+	if props := namespacePropertiesToMap(ns); props != nil {
 		m["Properties"] = props
 	}
 
@@ -1303,14 +1311,14 @@ func serviceToMap(svc *Service) map[string]any {
 		m[keyType] = svc.Type
 	}
 
-	if svc.DnsConfig != nil {
+	if svc.DNSConfig != nil {
 		dc := map[string]any{
-			keyNamespaceID:  svc.DnsConfig.NamespaceID,
-			"RoutingPolicy": svc.DnsConfig.RoutingPolicy,
+			keyNamespaceID:  svc.DNSConfig.NamespaceID,
+			"RoutingPolicy": svc.DNSConfig.RoutingPolicy,
 		}
 
-		records := make([]map[string]any, 0, len(svc.DnsConfig.DnsRecords))
-		for _, r := range svc.DnsConfig.DnsRecords {
+		records := make([]map[string]any, 0, len(svc.DNSConfig.DNSRecords))
+		for _, r := range svc.DNSConfig.DNSRecords {
 			records = append(records, map[string]any{
 				keyType: r.Type,
 				"TTL":   r.TTL,
@@ -1425,7 +1433,7 @@ func (h *Handler) handleGetInstancesHealthStatus(_ context.Context, body []byte)
 	return json.Marshal(resp)
 }
 
-// --- UpdateHttpNamespace / UpdatePrivateDnsNamespace / UpdatePublicDnsNamespace ---
+// --- UpdateHTTPNamespace / UpdatePrivateDnsNamespace / UpdatePublicDnsNamespace ---
 
 type updateNamespaceChange struct {
 	Description string `json:"Description"`
@@ -1506,7 +1514,7 @@ func (h *Handler) handleUpdatePublicDNSNamespace(_ context.Context, body []byte)
 // --- UpdateService ---
 
 type updateServiceChange struct {
-	DnsConfig         *dnsConfigRequest         `json:"DnsConfig"`
+	DNSConfig         *dnsConfigRequest         `json:"DnsConfig"`
 	HealthCheckConfig *healthCheckConfigRequest `json:"HealthCheckConfig"`
 	Description       string                    `json:"Description"`
 }
@@ -1529,7 +1537,7 @@ func (h *Handler) handleUpdateService(_ context.Context, body []byte) ([]byte, e
 	svc, err := h.Backend.UpdateService(
 		req.ID,
 		req.Service.Description,
-		parseDnsConfig(req.Service.DnsConfig),
+		parseDNSConfig(req.Service.DNSConfig),
 		parseHealthCheckConfig(req.Service.HealthCheckConfig),
 	)
 	if err != nil {
