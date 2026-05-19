@@ -13,6 +13,7 @@ func newTestBackend(t *testing.T) *cloudwatchlogs.InMemoryBackend {
 	t.Helper()
 	b := cloudwatchlogs.NewInMemoryBackend()
 	t.Cleanup(func() { b.Close() })
+
 	return b
 }
 
@@ -165,7 +166,7 @@ func TestDestination_CRUD(t *testing.T) {
 	// DescribeDestinations
 	dests := b.DescribeDestinations("")
 	assert.Len(t, dests, 1)
-	assert.Equal(t, `{"Statement":[]}`, dests[0].AccessPolicy)
+	assert.JSONEq(t, `{"Statement":[]}`, dests[0].AccessPolicy)
 
 	// Filter by prefix
 	dests = b.DescribeDestinations("my")

@@ -11,9 +11,21 @@ const (
 	completenessStatusActive          = "ACTIVE"
 )
 
+const (
+	keyName                = "name"
+	keyArn                 = "arn"
+	keyPolicyName          = "policyName"
+	keyDeliveryDestination = "deliveryDestination"
+	keyDeliverySource      = "deliverySource"
+	keyDestinationName     = "destinationName"
+	keyTargetArn           = "targetArn"
+	keyRoleArn             = "roleArn"
+	keyIntegrationName     = "integrationName"
+	keyIntegrationStatus   = "integrationStatus"
+	keyIntegrationType     = "integrationType"
+)
+
 // completenessActions returns dispatch entries for all previously notImplemented CloudWatch Logs operations.
-//
-//nolint:funlen // large dispatch table by design
 func (h *Handler) completenessActions() map[string]actionFn {
 	return map[string]actionFn{
 		"DeleteDataProtectionPolicy":               h.handleDeleteDataProtectionPolicy,
@@ -66,6 +78,7 @@ func (h *Handler) completenessActions() map[string]actionFn {
 // cwlBackend returns the InMemoryBackend, or nil if the backend is not an InMemoryBackend.
 func cwlBackend(h *Handler) *InMemoryBackend {
 	b, _ := h.Backend.(*InMemoryBackend)
+
 	return b
 }
 
@@ -156,16 +169,17 @@ func (h *Handler) handlePutResourcePolicy(body []byte) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		return map[string]any{
 			"resourcePolicy": map[string]any{
-				"policyName":     p.PolicyName,
-				"policyDocument": p.PolicyDocument,
+				keyPolicyName:                 p.PolicyName,
+				completenessKeyPolicyDocument: p.PolicyDocument,
 			},
 		}, nil
 	}
 
 	return map[string]any{"resourcePolicy": map[string]any{
-		"policyName":                  in.PolicyName,
+		keyPolicyName:                 in.PolicyName,
 		completenessKeyPolicyDocument: in.PolicyDocument,
 	}}, nil
 }
@@ -176,12 +190,14 @@ func (h *Handler) handleDescribeResourcePolicies(_ []byte) (any, error) {
 		out := make([]map[string]any, 0, len(policies))
 		for _, p := range policies {
 			out = append(out, map[string]any{
-				"policyName":     p.PolicyName,
-				"policyDocument": p.PolicyDocument,
+				keyPolicyName:                 p.PolicyName,
+				completenessKeyPolicyDocument: p.PolicyDocument,
 			})
 		}
+
 		return map[string]any{"resourcePolicies": out}, nil
 	}
+
 	return map[string]any{"resourcePolicies": []any{}}, nil
 }
 
@@ -206,13 +222,6 @@ func (h *Handler) handleDeleteResourcePolicy(body []byte) (any, error) {
 
 // ---- DeliveryDestination ----
 
-type putDeliveryDestinationInput struct {
-	Name         string            `json:"name"`
-	TargetArn    string            `json:"deliveryDestinationConfiguration"`
-	OutputFormat string            `json:"outputFormat,omitempty"`
-	Tags         map[string]string `json:"tags,omitempty"`
-}
-
 type putDeliveryDestinationInputFull struct {
 	Name         string            `json:"name"`
 	OutputFormat string            `json:"outputFormat,omitempty"`
@@ -233,14 +242,15 @@ func (h *Handler) handlePutDeliveryDestination(body []byte) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"deliveryDestination": map[string]any{
-			"name":         dest.Name,
-			"arn":          dest.Arn,
+
+		return map[string]any{keyDeliveryDestination: map[string]any{
+			keyName:        dest.Name,
+			keyArn:         dest.Arn,
 			"outputFormat": dest.OutputFormat,
 		}}, nil
 	}
 
-	return map[string]any{"deliveryDestination": map[string]any{}}, nil
+	return map[string]any{keyDeliveryDestination: map[string]any{}}, nil
 }
 
 type getDeliveryDestinationInput struct {
@@ -258,14 +268,15 @@ func (h *Handler) handleGetDeliveryDestination(body []byte) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"deliveryDestination": map[string]any{
-			"name":         dest.Name,
-			"arn":          dest.Arn,
+
+		return map[string]any{keyDeliveryDestination: map[string]any{
+			keyName:        dest.Name,
+			keyArn:         dest.Arn,
 			"outputFormat": dest.OutputFormat,
 		}}, nil
 	}
 
-	return map[string]any{"deliveryDestination": map[string]any{}}, nil
+	return map[string]any{keyDeliveryDestination: map[string]any{}}, nil
 }
 
 func (h *Handler) handleDescribeDeliveryDestinations(_ []byte) (any, error) {
@@ -273,10 +284,12 @@ func (h *Handler) handleDescribeDeliveryDestinations(_ []byte) (any, error) {
 		dests := b.DescribeDeliveryDestinations()
 		out := make([]map[string]any, 0, len(dests))
 		for _, d := range dests {
-			out = append(out, map[string]any{"name": d.Name, "arn": d.Arn})
+			out = append(out, map[string]any{keyName: d.Name, keyArn: d.Arn})
 		}
+
 		return map[string]any{"deliveryDestinations": out}, nil
 	}
+
 	return map[string]any{"deliveryDestinations": []any{}}, nil
 }
 
@@ -365,10 +378,10 @@ func (h *Handler) handleDeleteDeliveryDestinationPolicy(body []byte) (any, error
 // ---- DeliverySource ----
 
 type putDeliverySourceInput struct {
+	Tags         map[string]string `json:"tags,omitempty"`
 	Name         string            `json:"name"`
 	LogType      string            `json:"logType,omitempty"`
 	ResourceArns []string          `json:"resourceArns,omitempty"`
-	Tags         map[string]string `json:"tags,omitempty"`
 }
 
 func (h *Handler) handlePutDeliverySource(body []byte) (any, error) {
@@ -382,13 +395,14 @@ func (h *Handler) handlePutDeliverySource(body []byte) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"deliverySource": map[string]any{
-			"name": src.Name,
-			"arn":  src.Arn,
+
+		return map[string]any{keyDeliverySource: map[string]any{
+			keyName: src.Name,
+			keyArn:  src.Arn,
 		}}, nil
 	}
 
-	return map[string]any{"deliverySource": map[string]any{}}, nil
+	return map[string]any{keyDeliverySource: map[string]any{}}, nil
 }
 
 type getDeliverySourceInput struct {
@@ -406,13 +420,14 @@ func (h *Handler) handleGetDeliverySource(body []byte) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"deliverySource": map[string]any{
-			"name": src.Name,
-			"arn":  src.Arn,
+
+		return map[string]any{keyDeliverySource: map[string]any{
+			keyName: src.Name,
+			keyArn:  src.Arn,
 		}}, nil
 	}
 
-	return map[string]any{"deliverySource": map[string]any{}}, nil
+	return map[string]any{keyDeliverySource: map[string]any{}}, nil
 }
 
 func (h *Handler) handleDescribeDeliverySources(_ []byte) (any, error) {
@@ -420,10 +435,12 @@ func (h *Handler) handleDescribeDeliverySources(_ []byte) (any, error) {
 		srcs := b.DescribeDeliverySources()
 		out := make([]map[string]any, 0, len(srcs))
 		for _, s := range srcs {
-			out = append(out, map[string]any{"name": s.Name, "arn": s.Arn})
+			out = append(out, map[string]any{keyName: s.Name, keyArn: s.Arn})
 		}
+
 		return map[string]any{"deliverySources": out}, nil
 	}
+
 	return map[string]any{"deliverySources": []any{}}, nil
 }
 
@@ -465,19 +482,20 @@ func (h *Handler) handlePutDestination(body []byte) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		return map[string]any{"destination": map[string]any{
-			"destinationName": dest.DestinationName,
-			"targetArn":       dest.TargetArn,
-			"roleArn":         dest.RoleArn,
-			"arn":             dest.Arn,
+			keyDestinationName: dest.DestinationName,
+			keyTargetArn:       dest.TargetArn,
+			keyRoleArn:         dest.RoleArn,
+			keyArn:             dest.Arn,
 		}}, nil
 	}
 
 	return map[string]any{"destination": map[string]any{
-		"destinationName": in.DestinationName,
-		"targetArn":       in.TargetArn,
-		"roleArn":         in.RoleArn,
-		"arn":             "",
+		keyDestinationName: in.DestinationName,
+		keyTargetArn:       in.TargetArn,
+		keyRoleArn:         in.RoleArn,
+		keyArn:             "",
 	}}, nil
 }
 
@@ -514,12 +532,13 @@ func (h *Handler) handleDescribeDestinations(body []byte) (any, error) {
 		out := make([]map[string]any, 0, len(dests))
 		for _, d := range dests {
 			out = append(out, map[string]any{
-				"destinationName": d.DestinationName,
-				"targetArn":       d.TargetArn,
-				"roleArn":         d.RoleArn,
-				"arn":             d.Arn,
+				keyDestinationName: d.DestinationName,
+				keyTargetArn:       d.TargetArn,
+				keyRoleArn:         d.RoleArn,
+				keyArn:             d.Arn,
 			})
 		}
+
 		return map[string]any{"destinations": out}, nil
 	}
 
@@ -563,9 +582,10 @@ func (h *Handler) handlePutIndexPolicy(body []byte) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		return map[string]any{"indexPolicy": map[string]any{
-			"logGroupIdentifier": p.LogGroupIdentifier,
-			"policyDocument":     p.PolicyDocument,
+			completenessKeyLogGroupIdentifier: p.LogGroupIdentifier,
+			completenessKeyPolicyDocument:     p.PolicyDocument,
 		}}, nil
 	}
 
@@ -578,12 +598,14 @@ func (h *Handler) handleDescribeIndexPolicies(_ []byte) (any, error) {
 		out := make([]map[string]any, 0, len(policies))
 		for _, p := range policies {
 			out = append(out, map[string]any{
-				"logGroupIdentifier": p.LogGroupIdentifier,
-				"policyDocument":     p.PolicyDocument,
+				completenessKeyLogGroupIdentifier: p.LogGroupIdentifier,
+				completenessKeyPolicyDocument:     p.PolicyDocument,
 			})
 		}
+
 		return map[string]any{"indexPolicies": out}, nil
 	}
+
 	return map[string]any{"indexPolicies": []any{}}, nil
 }
 
@@ -643,6 +665,7 @@ func (h *Handler) handleGetTransformer(body []byte) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		return map[string]any{
 			completenessKeyLogGroupIdentifier: t.LogGroupIdentifier,
 			"transformerConfig":               t.Processors,
@@ -692,15 +715,16 @@ func (h *Handler) handlePutIntegration(body []byte) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		return map[string]any{
-			"integrationName":   ig.Name,
-			"integrationStatus": ig.Status,
+			keyIntegrationName:   ig.Name,
+			keyIntegrationStatus: ig.Status,
 		}, nil
 	}
 
 	return map[string]any{
-		"integrationName":   in.IntegrationName,
-		"integrationStatus": completenessStatusActive,
+		keyIntegrationName:   in.IntegrationName,
+		keyIntegrationStatus: completenessStatusActive,
 	}, nil
 }
 
@@ -719,17 +743,18 @@ func (h *Handler) handleGetIntegration(body []byte) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		return map[string]any{
-			"integrationName":   ig.Name,
-			"integrationType":   ig.Type,
-			"integrationStatus": ig.Status,
+			keyIntegrationName:   ig.Name,
+			keyIntegrationType:   ig.Type,
+			keyIntegrationStatus: ig.Status,
 		}, nil
 	}
 
 	return map[string]any{
-		"integrationName":   "",
-		"integrationType":   "",
-		"integrationStatus": completenessStatusActive,
+		keyIntegrationName:   "",
+		keyIntegrationType:   "",
+		keyIntegrationStatus: completenessStatusActive,
 	}, nil
 }
 
@@ -739,13 +764,15 @@ func (h *Handler) handleListIntegrations(_ []byte) (any, error) {
 		out := make([]map[string]any, 0, len(igs))
 		for _, ig := range igs {
 			out = append(out, map[string]any{
-				"integrationName":   ig.Name,
-				"integrationType":   ig.Type,
-				"integrationStatus": ig.Status,
+				keyIntegrationName:   ig.Name,
+				keyIntegrationType:   ig.Type,
+				keyIntegrationStatus: ig.Status,
 			})
 		}
+
 		return map[string]any{"integrationSummaries": out}, nil
 	}
+
 	return map[string]any{"integrationSummaries": []any{}}, nil
 }
 

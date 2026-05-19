@@ -147,12 +147,12 @@ type ImportTask struct {
 // Delivery represents a CloudWatch Logs delivery configuration.
 type Delivery struct {
 	Tags                   map[string]string `json:"tags,omitempty"`
-	RecordFields           []string          `json:"recordFields,omitempty"`
 	ID                     string            `json:"id"`
 	Arn                    string            `json:"arn"`
 	DeliverySourceName     string            `json:"deliverySourceName"`
 	DeliveryDestinationArn string            `json:"deliveryDestinationArn"`
 	FieldDelimiter         string            `json:"fieldDelimiter,omitempty"`
+	RecordFields           []string          `json:"recordFields,omitempty"`
 	CreationTime           int64             `json:"creationTime"`
 }
 

@@ -1942,7 +1942,7 @@ func (b *InMemoryBackend) CancelImportTask(importID string) (*ImportTask, error)
 	}
 
 	// AWS only allows cancellation of ACTIVE tasks.
-	if task.Status != "ACTIVE" {
+	if task.Status != completenessStatusActive {
 		return nil, fmt.Errorf("%w: import task %s is in state %s and cannot be cancelled",
 			ErrValidation, importID, task.Status)
 	}
@@ -2055,7 +2055,7 @@ func (b *InMemoryBackend) CreateImportTask(importRoleArn, importSourceArn string
 		ImportSourceArn:      importSourceArn,
 		ImportRoleArn:        importRoleArn,
 		ImportDestinationArn: destARN,
-		Status:               "ACTIVE",
+		Status:               completenessStatusActive,
 		CreationTime:         now,
 		LastUpdatedTime:      now,
 	}

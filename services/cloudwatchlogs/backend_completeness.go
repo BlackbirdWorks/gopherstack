@@ -1,6 +1,7 @@
 package cloudwatchlogs
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -8,22 +9,22 @@ import (
 )
 
 var (
-	ErrResourcePolicyNotFound      = fmt.Errorf("ResourceNotFoundException")
-	ErrDeliveryDestinationNotFound = fmt.Errorf("ResourceNotFoundException")
-	ErrDeliverySourceNotFound      = fmt.Errorf("ResourceNotFoundException")
-	ErrDestinationNotFound         = fmt.Errorf("ResourceNotFoundException")
-	ErrIndexPolicyNotFound         = fmt.Errorf("ResourceNotFoundException")
-	ErrTransformerNotFound         = fmt.Errorf("ResourceNotFoundException")
-	ErrIntegrationNotFound         = fmt.Errorf("ResourceNotFoundException")
+	ErrResourcePolicyNotFound      = errors.New("ResourceNotFoundException")
+	ErrDeliveryDestinationNotFound = errors.New("ResourceNotFoundException")
+	ErrDeliverySourceNotFound      = errors.New("ResourceNotFoundException")
+	ErrDestinationNotFound         = errors.New("ResourceNotFoundException")
+	ErrIndexPolicyNotFound         = errors.New("ResourceNotFoundException")
+	ErrTransformerNotFound         = errors.New("ResourceNotFoundException")
+	ErrIntegrationNotFound         = errors.New("ResourceNotFoundException")
 )
 
 // ---- ResourcePolicy ----
 
 // ResourcePolicy represents a CloudWatch Logs resource policy.
 type ResourcePolicy struct {
+	LastUpdated    time.Time
 	PolicyName     string
 	PolicyDocument string
-	LastUpdated    time.Time
 }
 
 // PutResourcePolicy creates or updates a resource-based policy.
@@ -78,15 +79,13 @@ func (b *InMemoryBackend) DeleteResourcePolicy(policyName string) error {
 
 // DeliveryDestination represents a CloudWatch Logs delivery destination.
 type DeliveryDestination struct {
+	CreatedAt    time.Time         `json:"-"`
+	Tags         map[string]string `json:"tags,omitempty"`
 	Name         string            `json:"name"`
 	Arn          string            `json:"arn"`
 	OutputFormat string            `json:"outputFormat,omitempty"`
-	Tags         map[string]string `json:"tags,omitempty"`
-	CreatedAt    time.Time         `json:"-"`
-	// DeliveryDestinationConfiguration holds the target ARN.
-	TargetArn string `json:"deliveryDestinationConfiguration,omitempty"`
-	// Policy stored separately
-	Policy string `json:"-"`
+	TargetArn    string            `json:"deliveryDestinationConfiguration,omitempty"`
+	Policy       string            `json:"-"`
 }
 
 // PutDeliveryDestination creates or updates a delivery destination.
@@ -217,12 +216,12 @@ func (b *InMemoryBackend) DeleteDeliveryDestinationPolicy(name string) error {
 
 // DeliverySource represents a CloudWatch Logs delivery source.
 type DeliverySource struct {
+	CreatedAt    time.Time         `json:"-"`
+	Tags         map[string]string `json:"tags,omitempty"`
 	Name         string            `json:"name"`
 	Arn          string            `json:"arn"`
 	LogType      string            `json:"logType,omitempty"`
 	ResourceArns []string          `json:"resourceArns,omitempty"`
-	Tags         map[string]string `json:"tags,omitempty"`
-	CreatedAt    time.Time         `json:"-"`
 }
 
 // PutDeliverySource creates or updates a delivery source.
@@ -309,12 +308,12 @@ func (b *InMemoryBackend) DeleteDeliverySource(name string) error {
 
 // CWLDestination represents a CloudWatch Logs log routing destination.
 type CWLDestination struct {
+	CreatedAt       time.Time `json:"-"`
 	DestinationName string    `json:"destinationName"`
 	TargetArn       string    `json:"targetArn"`
 	RoleArn         string    `json:"roleArn"`
 	AccessPolicy    string    `json:"accessPolicy,omitempty"`
 	Arn             string    `json:"arn"`
-	CreatedAt       time.Time `json:"-"`
 }
 
 // PutDestination creates or updates a log routing destination.
@@ -399,9 +398,9 @@ func (b *InMemoryBackend) DeleteDestination(name string) error {
 
 // IndexPolicy represents a CloudWatch Logs field index policy.
 type IndexPolicy struct {
+	LastUpdated        time.Time `json:"lastUpdateTime"`
 	LogGroupIdentifier string    `json:"logGroupIdentifier"`
 	PolicyDocument     string    `json:"policyDocument"`
-	LastUpdated        time.Time `json:"lastUpdateTime"`
 }
 
 // PutIndexPolicy creates or updates an index policy for a log group.
@@ -456,9 +455,9 @@ func (b *InMemoryBackend) DeleteIndexPolicy(logGroupIdentifier string) error {
 
 // Transformer represents a CloudWatch Logs log transformer.
 type Transformer struct {
+	CreatedAt          time.Time        `json:"-"`
 	LogGroupIdentifier string           `json:"logGroupIdentifier"`
 	Processors         []map[string]any `json:"transformerConfig"`
-	CreatedAt          time.Time        `json:"-"`
 }
 
 // PutTransformer creates or updates a log transformer.
@@ -510,10 +509,10 @@ func (b *InMemoryBackend) DeleteTransformer(logGroupIdentifier string) error {
 
 // CWLIntegration represents a CloudWatch Logs integration (e.g. OpenSearch).
 type CWLIntegration struct {
+	CreatedAt time.Time `json:"-"`
 	Name      string    `json:"integrationName"`
 	Type      string    `json:"integrationType"`
 	Status    string    `json:"integrationStatus"`
-	CreatedAt time.Time `json:"-"`
 }
 
 // PutIntegration creates or updates an integration.
@@ -528,7 +527,7 @@ func (b *InMemoryBackend) PutIntegration(name, integrationType string) (*CWLInte
 	ig := CWLIntegration{
 		Name:      name,
 		Type:      integrationType,
-		Status:    "ACTIVE",
+		Status:    completenessStatusActive,
 		CreatedAt: time.Now().UTC(),
 	}
 	b.integrations[name] = ig
