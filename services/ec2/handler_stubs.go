@@ -35,7 +35,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["AuthorizeClientVpnIngress"] = h.handleStubAuthorizeClientVpnIngress
 	ops["BundleInstance"] = h.handleStubBundleInstance
 	ops["CancelBundleTask"] = h.handleStubCancelBundleTask
-	ops["CancelCapacityReservation"] = h.handleStubCancelCapacityReservation
 	ops["CancelCapacityReservationFleets"] = h.handleStubCancelCapacityReservationFleets
 	ops["CancelConversionTask"] = h.handleStubCancelConversionTask
 	ops["CancelDeclarativePoliciesReport"] = h.handleStubCancelDeclarativePoliciesReport
@@ -47,7 +46,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ConfirmProductInstance"] = h.handleStubConfirmProductInstance
 	ops["CopyFpgaImage"] = h.handleStubCopyFpgaImage
 	ops["CreateCapacityManagerDataExport"] = h.handleStubCreateCapacityManagerDataExport
-	ops["CreateCapacityReservation"] = h.handleStubCreateCapacityReservation
 	ops["CreateCapacityReservationBySplitting"] = h.handleStubCreateCapacityReservationBySplitting
 	ops["CreateCapacityReservationFleet"] = h.handleStubCreateCapacityReservationFleet
 	ops["CreateCarrierGateway"] = h.handleStubCreateCarrierGateway
@@ -61,8 +59,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateFleet"] = h.handleStubCreateFleet
 	ops["CreateFpgaImage"] = h.handleStubCreateFpgaImage
 	ops["CreateImageUsageReport"] = h.handleStubCreateImageUsageReport
-	ops["CreateInstanceConnectEndpoint"] = h.handleStubCreateInstanceConnectEndpoint
-	ops["CreateInstanceEventWindow"] = h.handleStubCreateInstanceEventWindow
 	ops["CreateInstanceExportTask"] = h.handleStubCreateInstanceExportTask
 	ops["CreateInterruptibleCapacityReservationAllocation"] = h.handleStubCreateInterruptibleCapacityReservationAllocation
 	ops["CreateIpam"] = h.handleStubCreateIpam
@@ -92,7 +88,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateRouteServerPeer"] = h.handleStubCreateRouteServerPeer
 	ops["CreateSecondaryNetwork"] = h.handleStubCreateSecondaryNetwork
 	ops["CreateSecondarySubnet"] = h.handleStubCreateSecondarySubnet
-	ops["CreateSpotDatafeedSubscription"] = h.handleStubCreateSpotDatafeedSubscription
 	ops["CreateStoreImageTask"] = h.handleStubCreateStoreImageTask
 	ops["CreateTrafficMirrorFilter"] = h.handleStubCreateTrafficMirrorFilter
 	ops["CreateTrafficMirrorFilterRule"] = h.handleStubCreateTrafficMirrorFilterRule
@@ -118,7 +113,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateVpcEndpointServiceConfiguration"] = h.handleStubCreateVpcEndpointServiceConfiguration
 	ops["CreateVpnConcentrator"] = h.handleStubCreateVpnConcentrator
 	ops["CreateVpnConnection"] = h.handleStubCreateVpnConnection
-	ops["CreateVpnConnectionRoute"] = h.handleStubCreateVpnConnectionRoute
 	ops["CreateVpnGateway"] = h.handleStubCreateVpnGateway
 	ops["DeleteCapacityManagerDataExport"] = h.handleStubDeleteCapacityManagerDataExport
 	ops["DeleteCarrierGateway"] = h.handleStubDeleteCarrierGateway
@@ -131,8 +125,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteFleets"] = h.handleStubDeleteFleets
 	ops["DeleteFpgaImage"] = h.handleStubDeleteFpgaImage
 	ops["DeleteImageUsageReport"] = h.handleStubDeleteImageUsageReport
-	ops["DeleteInstanceConnectEndpoint"] = h.handleStubDeleteInstanceConnectEndpoint
-	ops["DeleteInstanceEventWindow"] = h.handleStubDeleteInstanceEventWindow
 	ops["DeleteIpam"] = h.handleStubDeleteIpam
 	ops["DeleteIpamExternalResourceVerificationToken"] = h.handleStubDeleteIpamExternalResourceVerificationToken
 	ops["DeleteIpamPolicy"] = h.handleStubDeleteIpamPolicy
@@ -159,7 +151,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteRouteServerPeer"] = h.handleStubDeleteRouteServerPeer
 	ops["DeleteSecondaryNetwork"] = h.handleStubDeleteSecondaryNetwork
 	ops["DeleteSecondarySubnet"] = h.handleStubDeleteSecondarySubnet
-	ops["DeleteSpotDatafeedSubscription"] = h.handleStubDeleteSpotDatafeedSubscription
 	ops["DeleteTrafficMirrorFilter"] = h.handleStubDeleteTrafficMirrorFilter
 	ops["DeleteTrafficMirrorFilterRule"] = h.handleStubDeleteTrafficMirrorFilterRule
 	ops["DeleteTrafficMirrorSession"] = h.handleStubDeleteTrafficMirrorSession
@@ -184,7 +175,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteVpcEndpointServiceConfigurations"] = h.handleStubDeleteVpcEndpointServiceConfigurations
 	ops["DeleteVpnConcentrator"] = h.handleStubDeleteVpnConcentrator
 	ops["DeleteVpnConnection"] = h.handleStubDeleteVpnConnection
-	ops["DeleteVpnConnectionRoute"] = h.handleStubDeleteVpnConnectionRoute
 	ops["DeleteVpnGateway"] = h.handleStubDeleteVpnGateway
 	ops["DeprovisionByoipCidr"] = h.handleStubDeprovisionByoipCidr
 	ops["DeprovisionIpamByoasn"] = h.handleStubDeprovisionIpamByoasn
@@ -217,8 +207,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeElasticGpus"] = h.handleStubDescribeElasticGpus
 	ops["DescribeExportImageTasks"] = h.handleStubDescribeExportImageTasks
 	ops["DescribeExportTasks"] = h.handleStubDescribeExportTasks
-	ops["DescribeFastLaunchImages"] = h.handleStubDescribeFastLaunchImages
-	ops["DescribeFastSnapshotRestores"] = h.handleStubDescribeFastSnapshotRestores
 	ops["DescribeFleetHistory"] = h.handleStubDescribeFleetHistory
 	ops["DescribeFleetInstances"] = h.handleStubDescribeFleetInstances
 	ops["DescribeFleets"] = h.handleStubDescribeFleets
@@ -229,10 +217,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DescribeIamInstanceProfileAssociations — moved to handler_ec2core.go
 	ops["DescribeImageReferences"] = h.handleStubDescribeImageReferences
 	ops["DescribeImageUsageReportEntries"] = h.handleStubDescribeImageUsageReportEntries
-	ops["DescribeImportImageTasks"] = h.handleStubDescribeImportImageTasks
-	ops["DescribeImportSnapshotTasks"] = h.handleStubDescribeImportSnapshotTasks
-	ops["DescribeInstanceConnectEndpoints"] = h.handleStubDescribeInstanceConnectEndpoints
-	ops["DescribeInstanceEventWindows"] = h.handleStubDescribeInstanceEventWindows
 	ops["DescribeInstanceSqlHaHistoryStates"] = h.handleStubDescribeInstanceSQLHaHistoryStates
 	ops["DescribeInstanceSqlHaStates"] = h.handleStubDescribeInstanceSQLHaStates
 	ops["DescribeIpamByoasn"] = h.handleStubDescribeIpamByoasn
@@ -274,7 +258,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeSecondaryNetworks"] = h.handleStubDescribeSecondaryNetworks
 	ops["DescribeSecondarySubnets"] = h.handleStubDescribeSecondarySubnets
 	ops["DescribeServiceLinkVirtualInterfaces"] = h.handleStubDescribeServiceLinkVirtualInterfaces
-	ops["DescribeSpotDatafeedSubscription"] = h.handleStubDescribeSpotDatafeedSubscription
 	ops["DescribeSpotFleetInstances"] = h.handleStubDescribeSpotFleetInstances
 	ops["DescribeSpotFleetRequestHistory"] = h.handleStubDescribeSpotFleetRequestHistory
 	ops["DescribeSpotFleetRequests"] = h.handleStubDescribeSpotFleetRequests
@@ -310,12 +293,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeVpnGateways"] = h.handleStubDescribeVpnGateways
 	ops["DetachClassicLinkVpc"] = h.handleStubDetachClassicLinkVpc
 	ops["DetachVerifiedAccessTrustProvider"] = h.handleStubDetachVerifiedAccessTrustProvider
-	ops["DetachVpnGateway"] = h.handleStubDetachVpnGateway
 	ops["DisableAllowedImagesSettings"] = h.handleStubDisableAllowedImagesSettings
 	ops["DisableAwsNetworkPerformanceMetricSubscription"] = h.handleStubDisableAwsNetworkPerformanceMetricSubscription
 	ops["DisableCapacityManager"] = h.handleStubDisableCapacityManager
-	ops["DisableFastLaunch"] = h.handleStubDisableFastLaunch
-	ops["DisableFastSnapshotRestores"] = h.handleStubDisableFastSnapshotRestores
 	ops["DisableInstanceSqlHaStandbyDetections"] = h.handleStubDisableInstanceSQLHaStandbyDetections
 	ops["DisableIpamOrganizationAdminAccount"] = h.handleStubDisableIpamOrganizationAdminAccount
 	ops["DisableIpamPolicy"] = h.handleStubDisableIpamPolicy
@@ -338,8 +318,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["EnableAllowedImagesSettings"] = h.handleStubEnableAllowedImagesSettings
 	ops["EnableAwsNetworkPerformanceMetricSubscription"] = h.handleStubEnableAwsNetworkPerformanceMetricSubscription
 	ops["EnableCapacityManager"] = h.handleStubEnableCapacityManager
-	ops["EnableFastLaunch"] = h.handleStubEnableFastLaunch
-	ops["EnableFastSnapshotRestores"] = h.handleStubEnableFastSnapshotRestores
 	ops["EnableInstanceSqlHaStandbyDetections"] = h.handleStubEnableInstanceSQLHaStandbyDetections
 	ops["EnableIpamOrganizationAdminAccount"] = h.handleStubEnableIpamOrganizationAdminAccount
 	ops["EnableIpamPolicy"] = h.handleStubEnableIpamPolicy
@@ -350,7 +328,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["EnableVpcClassicLinkDnsSupport"] = h.handleStubEnableVpcClassicLinkDNSSupport
 	ops["ExportClientVpnClientCertificateRevocationList"] = h.handleStubExportClientVpnClientCertificateRevocationList
 	ops["ExportClientVpnClientConfiguration"] = h.handleStubExportClientVpnClientConfiguration
-	ops["ExportImage"] = h.handleStubExportImage
 	ops["ExportTransitGatewayRoutes"] = h.handleStubExportTransitGatewayRoutes
 	ops["ExportVerifiedAccessInstanceClientConfiguration"] = h.handleStubExportVerifiedAccessInstanceClientConfiguration
 	ops["GetActiveVpnTunnelStatus"] = h.handleStubGetActiveVpnTunnelStatus
@@ -362,15 +339,12 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetCapacityManagerMetricDimensions"] = h.handleStubGetCapacityManagerMetricDimensions
 	ops["GetCapacityReservationUsage"] = h.handleStubGetCapacityReservationUsage
 	ops["GetCoipPoolUsage"] = h.handleStubGetCoipPoolUsage
-	ops["GetConsoleScreenshot"] = h.handleStubGetConsoleScreenshot
 	ops["GetDeclarativePoliciesReportSummary"] = h.handleStubGetDeclarativePoliciesReportSummary
 	ops["GetEnabledIpamPolicy"] = h.handleStubGetEnabledIpamPolicy
 	ops["GetFlowLogsIntegrationTemplate"] = h.handleStubGetFlowLogsIntegrationTemplate
-	ops["GetGroupsForCapacityReservation"] = h.handleStubGetGroupsForCapacityReservation
 	ops["GetHostReservationPurchasePreview"] = h.handleStubGetHostReservationPurchasePreview
 	ops["GetImageAncestry"] = h.handleStubGetImageAncestry
 	ops["GetInstanceTpmEkPub"] = h.handleStubGetInstanceTpmEkPub
-	ops["GetInstanceTypesFromInstanceRequirements"] = h.handleStubGetInstanceTypesFromInstanceRequirements
 	ops["GetInstanceUefiData"] = h.handleStubGetInstanceUefiData
 	ops["GetIpamAddressHistory"] = h.handleStubGetIpamAddressHistory
 	ops["GetIpamDiscoveredAccounts"] = h.handleStubGetIpamDiscoveredAccounts
@@ -388,14 +362,11 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetManagedPrefixListEntries"] = h.handleStubGetManagedPrefixListEntries
 	ops["GetNetworkInsightsAccessScopeAnalysisFindings"] = h.handleStubGetNetworkInsightsAccessScopeAnalysisFindings
 	ops["GetNetworkInsightsAccessScopeContent"] = h.handleStubGetNetworkInsightsAccessScopeContent
-	ops["GetPasswordData"] = h.handleStubGetPasswordData
 	ops["GetReservedInstancesExchangeQuote"] = h.handleStubGetReservedInstancesExchangeQuote
 	ops["GetRouteServerAssociations"] = h.handleStubGetRouteServerAssociations
 	ops["GetRouteServerPropagations"] = h.handleStubGetRouteServerPropagations
 	ops["GetRouteServerRoutingDatabase"] = h.handleStubGetRouteServerRoutingDatabase
-	ops["GetSecurityGroupsForVpc"] = h.handleStubGetSecurityGroupsForVpc
 	ops["GetSpotPlacementScores"] = h.handleStubGetSpotPlacementScores
-	ops["GetSubnetCidrReservations"] = h.handleStubGetSubnetCidrReservations
 	ops["GetTransitGatewayAttachmentPropagations"] = h.handleStubGetTransitGatewayAttachmentPropagations
 	ops["GetTransitGatewayMeteringPolicyEntries"] = h.handleStubGetTransitGatewayMeteringPolicyEntries
 	ops["GetTransitGatewayMulticastDomainAssociations"] = h.handleStubGetTransitGatewayMulticastDomainAssociations
@@ -412,25 +383,17 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetVpnConnectionDeviceTypes"] = h.handleStubGetVpnConnectionDeviceTypes
 	ops["GetVpnTunnelReplacementStatus"] = h.handleStubGetVpnTunnelReplacementStatus
 	ops["ImportClientVpnClientCertificateRevocationList"] = h.handleStubImportClientVpnClientCertificateRevocationList
-	ops["ImportImage"] = h.handleStubImportImage
 	ops["ImportInstance"] = h.handleStubImportInstance
-	ops["ImportSnapshot"] = h.handleStubImportSnapshot
 	ops["ImportVolume"] = h.handleStubImportVolume
-	ops["ListImagesInRecycleBin"] = h.handleStubListImagesInRecycleBin
-	ops["ListSnapshotsInRecycleBin"] = h.handleStubListSnapshotsInRecycleBin
-	ops["ListVolumesInRecycleBin"] = h.handleStubListVolumesInRecycleBin
 	ops["ModifyAvailabilityZoneGroup"] = h.handleStubModifyAvailabilityZoneGroup
-	ops["ModifyCapacityReservation"] = h.handleStubModifyCapacityReservation
 	ops["ModifyCapacityReservationFleet"] = h.handleStubModifyCapacityReservationFleet
 	ops["ModifyClientVpnEndpoint"] = h.handleStubModifyClientVpnEndpoint
 	ops["ModifyFleet"] = h.handleStubModifyFleet
 	ops["ModifyFpgaImageAttribute"] = h.handleStubModifyFpgaImageAttribute
 	ops["ModifyHosts"] = h.handleStubModifyHosts
 	ops["ModifyInstanceCapacityReservationAttributes"] = h.handleStubModifyInstanceCapacityReservationAttributes
-	ops["ModifyInstanceConnectEndpoint"] = h.handleStubModifyInstanceConnectEndpoint
 	ops["ModifyInstanceCpuOptions"] = h.handleStubModifyInstanceCPUOptions
 	ops["ModifyInstanceEventStartTime"] = h.handleStubModifyInstanceEventStartTime
-	ops["ModifyInstanceEventWindow"] = h.handleStubModifyInstanceEventWindow
 	ops["ModifyInstanceMaintenanceOptions"] = h.handleStubModifyInstanceMaintenanceOptions
 	ops["ModifyInstanceNetworkPerformanceOptions"] = h.handleStubModifyInstanceNetworkPerformanceOptions
 	ops["ModifyInstancePlacement"] = h.handleStubModifyInstancePlacement
@@ -452,7 +415,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyTrafficMirrorFilterNetworkServices"] = h.handleStubModifyTrafficMirrorFilterNetworkServices
 	ops["ModifyTrafficMirrorFilterRule"] = h.handleStubModifyTrafficMirrorFilterRule
 	ops["ModifyTrafficMirrorSession"] = h.handleStubModifyTrafficMirrorSession
-	ops["ModifyTransitGateway"] = h.handleStubModifyTransitGateway
 	ops["ModifyTransitGatewayMeteringPolicy"] = h.handleStubModifyTransitGatewayMeteringPolicy
 	ops["ModifyTransitGatewayPrefixListReference"] = h.handleStubModifyTransitGatewayPrefixListReference
 	ops["ModifyTransitGatewayVpcAttachment"] = h.handleStubModifyTransitGatewayVpcAttachment
@@ -466,7 +428,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyVpcBlockPublicAccessExclusion"] = h.handleStubModifyVpcBlockPublicAccessExclusion
 	ops["ModifyVpcBlockPublicAccessOptions"] = h.handleStubModifyVpcBlockPublicAccessOptions
 	ops["ModifyVpcEncryptionControl"] = h.handleStubModifyVpcEncryptionControl
-	ops["ModifyVpnConnection"] = h.handleStubModifyVpnConnection
 	ops["ModifyVpnConnectionOptions"] = h.handleStubModifyVpnConnectionOptions
 	ops["ModifyVpnTunnelCertificate"] = h.handleStubModifyVpnTunnelCertificate
 	ops["ModifyVpnTunnelOptions"] = h.handleStubModifyVpnTunnelOptions
@@ -481,8 +442,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["PurchaseHostReservation"] = h.handleStubPurchaseHostReservation
 	ops["PurchaseReservedInstancesOffering"] = h.handleStubPurchaseReservedInstancesOffering
 	ops["PurchaseScheduledInstances"] = h.handleStubPurchaseScheduledInstances
-	ops["RegisterImage"] = h.handleStubRegisterImage
-	ops["RegisterInstanceEventNotificationAttributes"] = h.handleStubRegisterInstanceEventNotificationAttributes
 	ops["RegisterTransitGatewayMulticastGroupMembers"] = h.handleStubRegisterTransitGatewayMulticastGroupMembers
 	ops["RegisterTransitGatewayMulticastGroupSources"] = h.handleStubRegisterTransitGatewayMulticastGroupSources
 	ops["RejectCapacityReservationBillingOwnership"] = h.handleStubRejectCapacityReservationBillingOwnership
@@ -495,20 +454,12 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ReleaseIpamPoolAllocation"] = h.handleStubReleaseIpamPoolAllocation
 	// ReplaceIamInstanceProfileAssociation — moved to handler_ec2core.go
 	ops["ReplaceImageCriteriaInAllowedImagesSettings"] = h.handleStubReplaceImageCriteriaInAllowedImagesSettings
-	ops["ReplaceRoute"] = h.handleStubReplaceRoute
 	// ReplaceRouteTableAssociation — moved to handler_ec2core.go
 	// ReplaceTransitGatewayRoute — moved to handler_ec2core.go
 	ops["ReplaceVpnTunnel"] = h.handleStubReplaceVpnTunnel
-	ops["ReportInstanceStatus"] = h.handleStubReportInstanceStatus
 	ops["RequestSpotFleet"] = h.handleStubRequestSpotFleet
-	ops["ResetEbsDefaultKmsKeyId"] = h.handleStubResetEbsDefaultKmsKeyID
 	ops["ResetFpgaImageAttribute"] = h.handleStubResetFpgaImageAttribute
-	ops["RestoreAddressToClassic"] = h.handleStubRestoreAddressToClassic
-	ops["RestoreImageFromRecycleBin"] = h.handleStubRestoreImageFromRecycleBin
 	ops["RestoreManagedPrefixListVersion"] = h.handleStubRestoreManagedPrefixListVersion
-	ops["RestoreSnapshotFromRecycleBin"] = h.handleStubRestoreSnapshotFromRecycleBin
-	ops["RestoreSnapshotTier"] = h.handleStubRestoreSnapshotTier
-	ops["RestoreVolumeFromRecycleBin"] = h.handleStubRestoreVolumeFromRecycleBin
 	ops["RevokeClientVpnIngress"] = h.handleStubRevokeClientVpnIngress
 	ops["RunScheduledInstances"] = h.handleStubRunScheduledInstances
 	ops["SearchLocalGatewayRoutes"] = h.handleStubSearchLocalGatewayRoutes
@@ -523,8 +474,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["UnassignPrivateNatGatewayAddress"] = h.handleStubUnassignPrivateNatGatewayAddress
 	ops["UpdateCapacityManagerOrganizationsAccess"] = h.handleStubUpdateCapacityManagerOrganizationsAccess
 	ops["UpdateInterruptibleCapacityReservationAllocation"] = h.handleStubUpdateInterruptibleCapacityReservationAllocation
-	ops["UpdateSecurityGroupRuleDescriptionsEgress"] = h.handleStubUpdateSecurityGroupRuleDescriptionsEgress
-	ops["UpdateSecurityGroupRuleDescriptionsIngress"] = h.handleStubUpdateSecurityGroupRuleDescriptionsIngress
 	ops["WithdrawByoipCidr"] = h.handleStubWithdrawByoipCidr
 	ops["CreatePublicIpv4Pool"] = h.handleStubCreatePublicIpv4Pool
 	ops["DeletePublicIpv4Pool"] = h.handleStubDeletePublicIpv4Pool
@@ -559,7 +508,6 @@ func stubSupportedOperations() []string {
 		"AuthorizeClientVpnIngress",
 		"BundleInstance",
 		"CancelBundleTask",
-		"CancelCapacityReservation",
 		"CancelCapacityReservationFleets",
 		"CancelConversionTask",
 		"CancelDeclarativePoliciesReport",
@@ -570,7 +518,6 @@ func stubSupportedOperations() []string {
 		"ConfirmProductInstance",
 		"CopyFpgaImage",
 		"CreateCapacityManagerDataExport",
-		"CreateCapacityReservation",
 		"CreateCapacityReservationBySplitting",
 		"CreateCapacityReservationFleet",
 		"CreateCarrierGateway",
@@ -584,8 +531,6 @@ func stubSupportedOperations() []string {
 		"CreateFleet",
 		"CreateFpgaImage",
 		"CreateImageUsageReport",
-		"CreateInstanceConnectEndpoint",
-		"CreateInstanceEventWindow",
 		"CreateInstanceExportTask",
 		"CreateInterruptibleCapacityReservationAllocation",
 		// "CreateIpam", — moved to advancedNetworkingSupportedOperations
@@ -613,7 +558,6 @@ func stubSupportedOperations() []string {
 		"CreateRouteServerPeer",
 		"CreateSecondaryNetwork",
 		"CreateSecondarySubnet",
-		"CreateSpotDatafeedSubscription",
 		"CreateStoreImageTask",
 		"CreateTrafficMirrorFilter",
 		"CreateTrafficMirrorFilterRule",
@@ -639,7 +583,6 @@ func stubSupportedOperations() []string {
 		// "CreateVpcEndpointServiceConfiguration", — moved to advancedNetworkingSupportedOperations
 		"CreateVpnConcentrator",
 		// "CreateVpnConnection", — moved to advancedNetworkingSupportedOperations
-		"CreateVpnConnectionRoute",
 		// "CreateVpnGateway", — moved to advancedNetworkingSupportedOperations
 		"DeleteCapacityManagerDataExport",
 		"DeleteCarrierGateway",
@@ -652,8 +595,6 @@ func stubSupportedOperations() []string {
 		"DeleteFleets",
 		"DeleteFpgaImage",
 		"DeleteImageUsageReport",
-		"DeleteInstanceConnectEndpoint",
-		"DeleteInstanceEventWindow",
 		// "DeleteIpam", — moved to advancedNetworkingSupportedOperations
 		"DeleteIpamExternalResourceVerificationToken",
 		"DeleteIpamPolicy",
@@ -679,7 +620,6 @@ func stubSupportedOperations() []string {
 		"DeleteRouteServerPeer",
 		"DeleteSecondaryNetwork",
 		"DeleteSecondarySubnet",
-		"DeleteSpotDatafeedSubscription",
 		"DeleteTrafficMirrorFilter",
 		"DeleteTrafficMirrorFilterRule",
 		"DeleteTrafficMirrorSession",
@@ -704,7 +644,6 @@ func stubSupportedOperations() []string {
 		// "DeleteVpcEndpointServiceConfigurations", — moved to advancedNetworkingSupportedOperations
 		"DeleteVpnConcentrator",
 		// "DeleteVpnConnection", — moved to advancedNetworkingSupportedOperations
-		"DeleteVpnConnectionRoute",
 		// "DeleteVpnGateway", — moved to advancedNetworkingSupportedOperations
 		"DeprovisionByoipCidr",
 		"DeprovisionIpamByoasn",
@@ -737,8 +676,6 @@ func stubSupportedOperations() []string {
 		"DescribeElasticGpus",
 		"DescribeExportImageTasks",
 		"DescribeExportTasks",
-		"DescribeFastLaunchImages",
-		"DescribeFastSnapshotRestores",
 		"DescribeFleetHistory",
 		"DescribeFleetInstances",
 		"DescribeFleets",
@@ -749,10 +686,6 @@ func stubSupportedOperations() []string {
 		// DescribeIamInstanceProfileAssociations — moved to ec2CoreSupportedOperations
 		"DescribeImageReferences",
 		"DescribeImageUsageReportEntries",
-		"DescribeImportImageTasks",
-		"DescribeImportSnapshotTasks",
-		"DescribeInstanceConnectEndpoints",
-		"DescribeInstanceEventWindows",
 		"DescribeInstanceSqlHaHistoryStates",
 		"DescribeInstanceSqlHaStates",
 		"DescribeIpamByoasn",
@@ -793,7 +726,6 @@ func stubSupportedOperations() []string {
 		"DescribeSecondaryNetworks",
 		"DescribeSecondarySubnets",
 		"DescribeServiceLinkVirtualInterfaces",
-		"DescribeSpotDatafeedSubscription",
 		"DescribeStoreImageTasks",
 		"DescribeTrafficMirrorFilterRules",
 		"DescribeTrafficMirrorFilters",
@@ -829,8 +761,6 @@ func stubSupportedOperations() []string {
 		"DisableAllowedImagesSettings",
 		"DisableAwsNetworkPerformanceMetricSubscription",
 		"DisableCapacityManager",
-		"DisableFastLaunch",
-		"DisableFastSnapshotRestores",
 		"DisableInstanceSqlHaStandbyDetections",
 		"DisableIpamOrganizationAdminAccount",
 		"DisableIpamPolicy",
@@ -853,8 +783,6 @@ func stubSupportedOperations() []string {
 		"EnableAllowedImagesSettings",
 		"EnableAwsNetworkPerformanceMetricSubscription",
 		"EnableCapacityManager",
-		"EnableFastLaunch",
-		"EnableFastSnapshotRestores",
 		"EnableInstanceSqlHaStandbyDetections",
 		"EnableIpamOrganizationAdminAccount",
 		"EnableIpamPolicy",
@@ -865,7 +793,6 @@ func stubSupportedOperations() []string {
 		"EnableVpcClassicLinkDnsSupport",
 		"ExportClientVpnClientCertificateRevocationList",
 		"ExportClientVpnClientConfiguration",
-		"ExportImage",
 		"ExportTransitGatewayRoutes",
 		"ExportVerifiedAccessInstanceClientConfiguration",
 		"GetActiveVpnTunnelStatus",
@@ -877,15 +804,12 @@ func stubSupportedOperations() []string {
 		"GetCapacityManagerMetricDimensions",
 		"GetCapacityReservationUsage",
 		"GetCoipPoolUsage",
-		"GetConsoleScreenshot",
 		"GetDeclarativePoliciesReportSummary",
 		"GetEnabledIpamPolicy",
 		"GetFlowLogsIntegrationTemplate",
-		"GetGroupsForCapacityReservation",
 		"GetHostReservationPurchasePreview",
 		"GetImageAncestry",
 		"GetInstanceTpmEkPub",
-		"GetInstanceTypesFromInstanceRequirements",
 		"GetInstanceUefiData",
 		"GetIpamAddressHistory",
 		"GetIpamDiscoveredAccounts",
@@ -903,14 +827,11 @@ func stubSupportedOperations() []string {
 		"GetManagedPrefixListEntries",
 		"GetNetworkInsightsAccessScopeAnalysisFindings",
 		"GetNetworkInsightsAccessScopeContent",
-		"GetPasswordData",
 		"GetReservedInstancesExchangeQuote",
 		"GetRouteServerAssociations",
 		"GetRouteServerPropagations",
 		"GetRouteServerRoutingDatabase",
-		"GetSecurityGroupsForVpc",
 		"GetSpotPlacementScores",
-		"GetSubnetCidrReservations",
 		"GetTransitGatewayAttachmentPropagations",
 		"GetTransitGatewayMeteringPolicyEntries",
 		"GetTransitGatewayMulticastDomainAssociations",
@@ -927,25 +848,17 @@ func stubSupportedOperations() []string {
 		"GetVpnConnectionDeviceTypes",
 		"GetVpnTunnelReplacementStatus",
 		"ImportClientVpnClientCertificateRevocationList",
-		"ImportImage",
 		"ImportInstance",
-		"ImportSnapshot",
 		"ImportVolume",
-		"ListImagesInRecycleBin",
-		"ListSnapshotsInRecycleBin",
-		"ListVolumesInRecycleBin",
 		"ModifyAvailabilityZoneGroup",
-		"ModifyCapacityReservation",
 		"ModifyCapacityReservationFleet",
 		"ModifyClientVpnEndpoint",
 		"ModifyFleet",
 		"ModifyFpgaImageAttribute",
 		"ModifyHosts",
 		"ModifyInstanceCapacityReservationAttributes",
-		"ModifyInstanceConnectEndpoint",
 		"ModifyInstanceCpuOptions",
 		"ModifyInstanceEventStartTime",
-		"ModifyInstanceEventWindow",
 		"ModifyInstanceMaintenanceOptions",
 		"ModifyInstanceNetworkPerformanceOptions",
 		"ModifyInstancePlacement",
@@ -966,7 +879,6 @@ func stubSupportedOperations() []string {
 		"ModifyTrafficMirrorFilterNetworkServices",
 		"ModifyTrafficMirrorFilterRule",
 		"ModifyTrafficMirrorSession",
-		"ModifyTransitGateway",
 		"ModifyTransitGatewayMeteringPolicy",
 		"ModifyTransitGatewayPrefixListReference",
 		"ModifyTransitGatewayVpcAttachment",
@@ -981,7 +893,6 @@ func stubSupportedOperations() []string {
 		"ModifyVpcBlockPublicAccessOptions",
 		"ModifyVpcEncryptionControl",
 		// "ModifyVpcEndpointServiceConfiguration", — moved to advancedNetworkingSupportedOperations
-		"ModifyVpnConnection",
 		"ModifyVpnConnectionOptions",
 		"ModifyVpnTunnelCertificate",
 		"ModifyVpnTunnelOptions",
@@ -996,8 +907,6 @@ func stubSupportedOperations() []string {
 		"PurchaseHostReservation",
 		"PurchaseReservedInstancesOffering",
 		"PurchaseScheduledInstances",
-		"RegisterImage",
-		"RegisterInstanceEventNotificationAttributes",
 		"RegisterTransitGatewayMulticastGroupMembers",
 		"RegisterTransitGatewayMulticastGroupSources",
 		"RejectCapacityReservationBillingOwnership",
@@ -1010,19 +919,11 @@ func stubSupportedOperations() []string {
 		// "ReleaseIpamPoolAllocation", — moved to advancedNetworkingSupportedOperations
 		// ReplaceIamInstanceProfileAssociation — moved to ec2CoreSupportedOperations
 		"ReplaceImageCriteriaInAllowedImagesSettings",
-		"ReplaceRoute",
 		// ReplaceRouteTableAssociation — moved to ec2CoreSupportedOperations
 		// ReplaceTransitGatewayRoute — moved to ec2CoreSupportedOperations
 		"ReplaceVpnTunnel",
-		"ReportInstanceStatus",
-		"ResetEbsDefaultKmsKeyId",
 		"ResetFpgaImageAttribute",
-		"RestoreAddressToClassic",
-		"RestoreImageFromRecycleBin",
 		"RestoreManagedPrefixListVersion",
-		"RestoreSnapshotFromRecycleBin",
-		"RestoreSnapshotTier",
-		"RestoreVolumeFromRecycleBin",
 		"RevokeClientVpnIngress",
 		"RunScheduledInstances",
 		"SearchLocalGatewayRoutes",
@@ -1037,8 +938,6 @@ func stubSupportedOperations() []string {
 		"UnassignPrivateNatGatewayAddress",
 		"UpdateCapacityManagerOrganizationsAccess",
 		"UpdateInterruptibleCapacityReservationAllocation",
-		"UpdateSecurityGroupRuleDescriptionsEgress",
-		"UpdateSecurityGroupRuleDescriptionsIngress",
 		"WithdrawByoipCidr",
 		"CreatePublicIpv4Pool",
 		"DeletePublicIpv4Pool",
@@ -1218,14 +1117,6 @@ func (h *Handler) handleStubCancelBundleTask(_ url.Values, reqID string) (any, e
 	}, nil
 }
 
-func (h *Handler) handleStubCancelCapacityReservation(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CancelCapacityReservationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCancelCapacityReservationFleets(
 	_ url.Values,
 	reqID string,
@@ -1321,14 +1212,6 @@ func (h *Handler) handleStubCreateCapacityManagerDataExport(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateCapacityManagerDataExportResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateCapacityReservation(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateCapacityReservationResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1434,22 +1317,6 @@ func (h *Handler) handleStubCreateFpgaImage(_ url.Values, reqID string) (any, er
 func (h *Handler) handleStubCreateImageUsageReport(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateImageUsageReportResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateInstanceConnectEndpoint(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateInstanceConnectEndpointResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateInstanceEventWindow(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateInstanceEventWindowResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1703,17 +1570,6 @@ func (h *Handler) handleStubCreateSecondarySubnet(_ url.Values, reqID string) (a
 	}, nil
 }
 
-func (h *Handler) handleStubCreateSpotDatafeedSubscription(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateSpotDatafeedSubscriptionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateStoreImageTask(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateStoreImageTaskResponse"},
@@ -1931,14 +1787,6 @@ func (h *Handler) handleStubCreateVpnConnection(_ url.Values, reqID string) (any
 	}, nil
 }
 
-func (h *Handler) handleStubCreateVpnConnectionRoute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateVpnConnectionRouteResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateVpnGateway(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateVpnGatewayResponse"},
@@ -2025,22 +1873,6 @@ func (h *Handler) handleStubDeleteFpgaImage(_ url.Values, reqID string) (any, er
 func (h *Handler) handleStubDeleteImageUsageReport(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteImageUsageReportResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteInstanceConnectEndpoint(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteInstanceConnectEndpointResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteInstanceEventWindow(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteInstanceEventWindowResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2272,17 +2104,6 @@ func (h *Handler) handleStubDeleteSecondarySubnet(_ url.Values, reqID string) (a
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteSpotDatafeedSubscription(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteSpotDatafeedSubscriptionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDeleteTrafficMirrorFilter(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteTrafficMirrorFilterResponse"},
@@ -2487,14 +2308,6 @@ func (h *Handler) handleStubDeleteVpnConcentrator(_ url.Values, reqID string) (a
 func (h *Handler) handleStubDeleteVpnConnection(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteVpnConnectionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteVpnConnectionRoute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteVpnConnectionRouteResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2787,22 +2600,6 @@ func (h *Handler) handleStubDescribeExportTasks(_ url.Values, reqID string) (any
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeFastLaunchImages(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeFastLaunchImagesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeFastSnapshotRestores(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeFastSnapshotRestoresResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeFleetHistory(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeFleetHistoryResponse"},
@@ -2876,41 +2673,6 @@ func (h *Handler) handleStubDescribeImageUsageReportEntries(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeImageUsageReportEntriesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeImportImageTasks(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeImportImageTasksResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeImportSnapshotTasks(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeImportSnapshotTasksResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeInstanceConnectEndpoints(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeInstanceConnectEndpointsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeInstanceEventWindows(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeInstanceEventWindowsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3295,17 +3057,6 @@ func (h *Handler) handleStubDescribeServiceLinkVirtualInterfaces(
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeSpotDatafeedSubscription(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeSpotDatafeedSubscriptionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeSpotFleetInstances(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeSpotFleetInstancesResponse"},
@@ -3630,14 +3381,6 @@ func (h *Handler) handleStubDetachVerifiedAccessTrustProvider(
 	}, nil
 }
 
-func (h *Handler) handleStubDetachVpnGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DetachVpnGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDisableAllowedImagesSettings(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisableAllowedImagesSettingsResponse"},
@@ -3660,22 +3403,6 @@ func (h *Handler) handleStubDisableAwsNetworkPerformanceMetricSubscription(
 func (h *Handler) handleStubDisableCapacityManager(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisableCapacityManagerResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDisableFastLaunch(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableFastLaunchResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDisableFastSnapshotRestores(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableFastSnapshotRestoresResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3877,22 +3604,6 @@ func (h *Handler) handleStubEnableCapacityManager(_ url.Values, reqID string) (a
 	}, nil
 }
 
-func (h *Handler) handleStubEnableFastLaunch(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableFastLaunchResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubEnableFastSnapshotRestores(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableFastSnapshotRestoresResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubEnableInstanceSQLHaStandbyDetections(
 	_ url.Values,
 	reqID string,
@@ -3989,14 +3700,6 @@ func (h *Handler) handleStubExportClientVpnClientConfiguration(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ExportClientVpnClientConfigurationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubExportImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ExportImageResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -4099,14 +3802,6 @@ func (h *Handler) handleStubGetCoipPoolUsage(_ url.Values, reqID string) (any, e
 	}, nil
 }
 
-func (h *Handler) handleStubGetConsoleScreenshot(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetConsoleScreenshotResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubGetDeclarativePoliciesReportSummary(
 	_ url.Values,
 	reqID string,
@@ -4137,17 +3832,6 @@ func (h *Handler) handleStubGetFlowLogsIntegrationTemplate(
 	}, nil
 }
 
-func (h *Handler) handleStubGetGroupsForCapacityReservation(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetGroupsForCapacityReservationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubGetHostReservationPurchasePreview(
 	_ url.Values,
 	reqID string,
@@ -4170,17 +3854,6 @@ func (h *Handler) handleStubGetImageAncestry(_ url.Values, reqID string) (any, e
 func (h *Handler) handleStubGetInstanceTpmEkPub(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetInstanceTpmEkPubResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetInstanceTypesFromInstanceRequirements(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetInstanceTypesFromInstanceRequirementsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -4349,14 +4022,6 @@ func (h *Handler) handleStubGetNetworkInsightsAccessScopeContent(
 	}, nil
 }
 
-func (h *Handler) handleStubGetPasswordData(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetPasswordDataResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubGetReservedInstancesExchangeQuote(
 	_ url.Values,
 	reqID string,
@@ -4392,25 +4057,9 @@ func (h *Handler) handleStubGetRouteServerRoutingDatabase(_ url.Values, reqID st
 	}, nil
 }
 
-func (h *Handler) handleStubGetSecurityGroupsForVpc(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetSecurityGroupsForVpcResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubGetSpotPlacementScores(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetSpotPlacementScoresResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetSubnetCidrReservations(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetSubnetCidrReservationsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -4583,25 +4232,9 @@ func (h *Handler) handleStubImportClientVpnClientCertificateRevocationList(
 	}, nil
 }
 
-func (h *Handler) handleStubImportImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ImportImageResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubImportInstance(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ImportInstanceResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubImportSnapshot(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ImportSnapshotResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -4615,41 +4248,9 @@ func (h *Handler) handleStubImportVolume(_ url.Values, reqID string) (any, error
 	}, nil
 }
 
-func (h *Handler) handleStubListImagesInRecycleBin(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ListImagesInRecycleBinResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubListSnapshotsInRecycleBin(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ListSnapshotsInRecycleBinResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubListVolumesInRecycleBin(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ListVolumesInRecycleBinResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyAvailabilityZoneGroup(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyAvailabilityZoneGroupResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyCapacityReservation(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyCapacityReservationResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -4709,14 +4310,6 @@ func (h *Handler) handleStubModifyInstanceCapacityReservationAttributes(
 	}, nil
 }
 
-func (h *Handler) handleStubModifyInstanceConnectEndpoint(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstanceConnectEndpointResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyInstanceCPUOptions(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyInstanceCpuOptionsResponse"},
@@ -4728,14 +4321,6 @@ func (h *Handler) handleStubModifyInstanceCPUOptions(_ url.Values, reqID string)
 func (h *Handler) handleStubModifyInstanceEventStartTime(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyInstanceEventStartTimeResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyInstanceEventWindow(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstanceEventWindowResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -4924,14 +4509,6 @@ func (h *Handler) handleStubModifyTrafficMirrorSession(_ url.Values, reqID strin
 	}, nil
 }
 
-func (h *Handler) handleStubModifyTransitGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTransitGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyTransitGatewayMeteringPolicy(
 	_ url.Values,
 	reqID string,
@@ -5063,14 +4640,6 @@ func (h *Handler) handleStubModifyVpcEncryptionControl(_ url.Values, reqID strin
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVpnConnection(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVpnConnectionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyVpnConnectionOptions(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVpnConnectionOptionsResponse"},
@@ -5192,25 +4761,6 @@ func (h *Handler) handleStubPurchaseScheduledInstances(_ url.Values, reqID strin
 	}, nil
 }
 
-func (h *Handler) handleStubRegisterImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RegisterImageResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubRegisterInstanceEventNotificationAttributes(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RegisterInstanceEventNotificationAttributesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubRegisterTransitGatewayMulticastGroupMembers(
 	_ url.Values,
 	reqID string,
@@ -5320,25 +4870,9 @@ func (h *Handler) handleStubReplaceImageCriteriaInAllowedImagesSettings(
 	}, nil
 }
 
-func (h *Handler) handleStubReplaceRoute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ReplaceRouteResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubReplaceVpnTunnel(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ReplaceVpnTunnelResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubReportInstanceStatus(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ReportInstanceStatusResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -5352,33 +4886,9 @@ func (h *Handler) handleStubRequestSpotFleet(_ url.Values, reqID string) (any, e
 	}, nil
 }
 
-func (h *Handler) handleStubResetEbsDefaultKmsKeyID(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ResetEbsDefaultKmsKeyIdResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubResetFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ResetFpgaImageAttributeResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubRestoreAddressToClassic(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RestoreAddressToClassicResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubRestoreImageFromRecycleBin(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RestoreImageFromRecycleBinResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -5390,30 +4900,6 @@ func (h *Handler) handleStubRestoreManagedPrefixListVersion(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RestoreManagedPrefixListVersionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubRestoreSnapshotFromRecycleBin(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RestoreSnapshotFromRecycleBinResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubRestoreSnapshotTier(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RestoreSnapshotTierResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubRestoreVolumeFromRecycleBin(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RestoreVolumeFromRecycleBinResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -5547,28 +5033,6 @@ func (h *Handler) handleStubUpdateInterruptibleCapacityReservationAllocation(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "UpdateInterruptibleCapacityReservationAllocationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubUpdateSecurityGroupRuleDescriptionsEgress(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "UpdateSecurityGroupRuleDescriptionsEgressResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubUpdateSecurityGroupRuleDescriptionsIngress(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "UpdateSecurityGroupRuleDescriptionsIngressResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
