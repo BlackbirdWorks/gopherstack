@@ -76,10 +76,12 @@ func startServerOnPort(t *testing.T, port int, demo bool, stopChan chan struct{}
 	defer cancel()
 
 	cli := CLI{
-		LogLevel: "info",
-		Port:     strconv.Itoa(port),
-		Region:   "us-east-1",
-		Demo:     demo,
+		LogLevel:       "info",
+		Port:           strconv.Itoa(port),
+		Region:         "us-east-1",
+		Demo:           demo,
+		PortRangeStart: 10000,
+		PortRangeEnd:   10100,
 	}
 
 	errChan := make(chan error, 1)
