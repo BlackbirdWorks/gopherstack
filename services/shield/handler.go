@@ -347,7 +347,10 @@ func (h *Handler) dispatchDRTAndEngagementOps(op string, body []byte) ([]byte, b
 	return nil, false, nil
 }
 
-func (h *Handler) dispatchProtectionGroupAndAttackOps(op string, body []byte) ([]byte, bool, error) {
+func (h *Handler) dispatchProtectionGroupAndAttackOps(
+	op string,
+	body []byte,
+) ([]byte, bool, error) {
 	switch op {
 	case "CreateProtectionGroup":
 		return nil, true, h.handleCreateProtectionGroup(body)
@@ -481,15 +484,15 @@ func subscriptionLimits() map[string]any {
 
 // subscriptionResourceLimits returns per-resource-type max count limits.
 func subscriptionResourceLimits() []map[string]any {
-	maxStr := "100"
+	const maxInt = int64(100)
 
 	return []map[string]any{
-		{keyType: ResourceTypeCloudFrontDistribution, keyMax: maxStr},
-		{keyType: ResourceTypeRoute53HostedZone, keyMax: maxStr},
-		{keyType: ResourceTypeApplicationLoadBalancer, keyMax: maxStr},
-		{keyType: ResourceTypeClassicLoadBalancer, keyMax: maxStr},
-		{keyType: ResourceTypeElasticIPAllocation, keyMax: maxStr},
-		{keyType: ResourceTypeGlobalAccelerator, keyMax: maxStr},
+		{keyType: ResourceTypeCloudFrontDistribution, keyMax: maxInt},
+		{keyType: ResourceTypeRoute53HostedZone, keyMax: maxInt},
+		{keyType: ResourceTypeApplicationLoadBalancer, keyMax: maxInt},
+		{keyType: ResourceTypeClassicLoadBalancer, keyMax: maxInt},
+		{keyType: ResourceTypeElasticIPAllocation, keyMax: maxInt},
+		{keyType: ResourceTypeGlobalAccelerator, keyMax: maxInt},
 	}
 }
 
@@ -1132,14 +1135,20 @@ func (h *Handler) handleAssociateProactiveEngagementDetails(body []byte) error {
 	}
 
 	if len(req.EmergencyContactList) == 0 {
-		return fmt.Errorf("%w: EmergencyContactList must have at least one entry", errInvalidRequest)
+		return fmt.Errorf(
+			"%w: EmergencyContactList must have at least one entry",
+			errInvalidRequest,
+		)
 	}
 
 	contacts := make([]EmergencyContact, 0, len(req.EmergencyContactList))
 
 	for _, c := range req.EmergencyContactList {
 		if c.EmailAddress == "" {
-			return fmt.Errorf("%w: EmailAddress is required in each emergency contact", errInvalidRequest)
+			return fmt.Errorf(
+				"%w: EmailAddress is required in each emergency contact",
+				errInvalidRequest,
+			)
 		}
 
 		contacts = append(contacts, EmergencyContact(c))
