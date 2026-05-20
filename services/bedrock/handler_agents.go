@@ -35,6 +35,7 @@ func (h *AgentsHandler) Name() string { return "BedrockAgents" }
 // GetSupportedOperations returns supported operations.
 func (h *AgentsHandler) GetSupportedOperations() []string {
 	return []string{
+		// Existing agent ops
 		"CreateAgent",
 		"DeleteAgent",
 		"GetAgent",
@@ -68,6 +69,58 @@ func (h *AgentsHandler) GetSupportedOperations() []string {
 		"StartIngestionJob",
 		"GetIngestionJob",
 		"ListIngestionJobs",
+		// Flows
+		"CreateFlow",
+		"DeleteFlow",
+		"GetFlow",
+		"ListFlows",
+		"UpdateFlow",
+		"PrepareFlow",
+		"CreateFlowAlias",
+		"DeleteFlowAlias",
+		"GetFlowAlias",
+		"ListFlowAliases",
+		"UpdateFlowAlias",
+		"CreateFlowVersion",
+		"DeleteFlowVersion",
+		"GetFlowVersion",
+		"ListFlowVersions",
+		"ValidateFlowDefinition",
+		// Prompts
+		"CreatePrompt",
+		"DeletePrompt",
+		"GetPrompt",
+		"ListPrompts",
+		"UpdatePrompt",
+		"CreatePromptVersion",
+		"DeletePromptVersion",
+		"GetPromptVersion",
+		"ListPromptVersions",
+		// Agent versions
+		"CreateAgentVersion",
+		"GetAgentVersion",
+		"ListAgentVersions",
+		"DeleteAgentVersion",
+		// Agent collaborators
+		"AssociateAgentCollaborator",
+		"DisassociateAgentCollaborator",
+		"GetAgentCollaborator",
+		"ListAgentCollaborators",
+		"UpdateAgentCollaborator",
+		// Knowledge base documents
+		"IngestKnowledgeBaseDocuments",
+		"DeleteKnowledgeBaseDocuments",
+		"ListKnowledgeBaseDocuments",
+		"UpdateKnowledgeBaseDocuments",
+		// Ingestion job management
+		"StopIngestionJob",
+		// Resource tags (agent-domain)
+		opTagResource,
+		opUntagResource,
+		opListTagsForResource,
+		// Agent memory
+		"GetAgentMemory",
+		"DeleteAgentMemory",
 	}
 }
 
@@ -94,12 +147,31 @@ func (h *AgentsHandler) Reset() {
 	h.Backend.kbByName = make(map[string]string)
 	h.Backend.dataSources = make(map[string]*DataSource)
 	h.Backend.ingestionJobs = make(map[string]*IngestionJob)
+	h.Backend.flows = make(map[string]*Flow)
+	h.Backend.flowsByName = make(map[string]string)
+	h.Backend.flowAliases = make(map[string]*FlowAlias)
+	h.Backend.flowVersions = make(map[string]map[string]*FlowVersion)
+	h.Backend.flowVersionCounters = make(map[string]int)
+	h.Backend.prompts = make(map[string]*Prompt)
+	h.Backend.promptsByName = make(map[string]string)
+	h.Backend.promptVersions = make(map[string]map[string]*PromptVersion)
+	h.Backend.promptVersionCounters = make(map[string]int)
+	h.Backend.agentVersions = make(map[string]map[string]*AgentVersion)
+	h.Backend.agentVersionCounters = make(map[string]int)
+	h.Backend.agentCollaborators = make(map[string]map[string]*AgentCollaborator)
+	h.Backend.kbDocuments = make(map[string]*KnowledgeBaseDocument)
+	h.Backend.agentTags = make(map[string]map[string]string)
+	h.Backend.agentMemory = make(map[string][]any)
 	// Reset ID counters for deterministic IDs after reset.
 	h.Backend.agentCounter = 0
 	h.Backend.actionGroupCounter = 0
 	h.Backend.agentAliasCounter = 0
 	h.Backend.kbCounter = 0
 	h.Backend.dataSourceCounter = 0
+	h.Backend.flowCounter = 0
+	h.Backend.flowAliasCounter = 0
+	h.Backend.promptCounter = 0
+	h.Backend.agentCollabCounter = 0
 }
 
 // Route path constants.
@@ -124,6 +196,15 @@ const (
 	// JSON response key constants.
 	keyAgentID         = "agentId"
 	keyKnowledgeBaseID = "knowledgeBaseId"
+
+	// Op name constants shared between BedrockAgents and Bedrock handlers.
+	opTagResource         = "TagResource"
+	opUntagResource       = "UntagResource"
+	opListTagsForResource = "ListTagsForResource"
+
+	// Agent sub-path suffixes.
+	suffixAgentAliases = "/aliases"
+	opAgentStatusKey   = "agentStatus"
 )
 
 // RouteMatcher returns a function matching Bedrock Agents requests.
@@ -134,7 +215,8 @@ func (h *AgentsHandler) RouteMatcher() service.Matcher {
 		return strings.HasPrefix(path, "/agents/") ||
 			path == agentsPath ||
 			strings.HasPrefix(path, "/knowledgebases/") ||
-			path == knowledgeBasePath
+			path == knowledgeBasePath ||
+			routeMatcherBatch3(path)
 	}
 }
 
@@ -159,9 +241,9 @@ func (h *AgentsHandler) ExtractOperation(c *echo.Context) string {
 		return "CreateAgentActionGroup"
 	case strings.HasSuffix(path, "/action-groups") && method == http.MethodGet:
 		return "ListAgentActionGroups"
-	case strings.HasSuffix(path, "/aliases") && method == http.MethodPost:
+	case strings.HasSuffix(path, suffixAgentAliases) && method == http.MethodPost:
 		return "CreateAgentAlias"
-	case strings.HasSuffix(path, "/aliases") && method == http.MethodGet:
+	case strings.HasSuffix(path, suffixAgentAliases) && method == http.MethodGet:
 		return "ListAgentAliases"
 	case strings.Contains(path, "/agentversions/") &&
 		strings.Contains(path, "/knowledgebases") && method == http.MethodGet:
@@ -198,7 +280,8 @@ func (h *AgentsHandler) Handler() echo.HandlerFunc {
 		log := logger.Load(r.Context())
 
 		var body []byte
-		if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
+		switch method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 			var err error
 
 			body, err = httputils.ReadBody(r)
@@ -217,78 +300,136 @@ func (h *AgentsHandler) Handler() echo.HandlerFunc {
 }
 
 // dispatch routes requests to the appropriate handler.
-//
-//nolint:cyclop,gocognit,gocyclo // large dispatch table for agents routing is inherently complex
 func (h *AgentsHandler) dispatch(c *echo.Context, path, method string, body []byte) error {
-	// Agent routes
+	if handled, err := h.dispatchAgentRoutes(c, path, method, body); handled {
+		return err
+	}
+
+	if handled, err := h.dispatchKBRoutes(c, path, method, body); handled {
+		return err
+	}
+
+	// Flow, Prompt, and Tag routes (batch-3)
 	switch {
-	case path == agentsPath && method == http.MethodPost:
-		return h.handleCreateAgent(c, body)
-	case path == agentsPath && method == http.MethodGet:
-		return h.handleListAgents(c)
-	}
-
-	// /agents/{agentId}/...
-	if rest, cutOK := strings.CutPrefix(path, "/agents/"); cutOK {
-		parts := strings.SplitN(rest, "/", splitInTwo)
-		agentID := parts[0]
-		suffix := ""
-
-		if len(parts) > splitInTwo-1 {
-			suffix = "/" + parts[1]
-		}
-
-		switch {
-		case suffix == "" && method == http.MethodGet:
-			return h.handleGetAgent(c, agentID)
-		case suffix == "" && method == http.MethodPut:
-			return h.handleUpdateAgent(c, agentID, body)
-		case suffix == "" && method == http.MethodDelete:
-			return h.handleDeleteAgent(c, agentID)
-		case suffix == "/prepare" && method == http.MethodPost:
-			return h.handlePrepareAgent(c, agentID)
-		case strings.HasPrefix(suffix, "/agentversions/") && strings.Contains(suffix, "/knowledgebases"):
-			return h.dispatchAgentKBRoutes(c, agentID, suffix, method, body)
-		case strings.HasPrefix(suffix, "/action-groups"):
-			return h.dispatchActionGroupRoutes(c, agentID, suffix, method, body)
-		case strings.HasPrefix(suffix, "/aliases"):
-			return h.dispatchAliasRoutes(c, agentID, suffix, method, body)
-		}
-	}
-
-	// Knowledge base routes
-	switch {
-	case path == knowledgeBasePath && method == http.MethodPost:
-		return h.handleCreateKnowledgeBase(c, body)
-	case path == knowledgeBasePath && method == http.MethodGet:
-		return h.handleListKnowledgeBases(c)
-	}
-
-	if rest, cutOK := strings.CutPrefix(path, "/knowledgebases/"); cutOK {
-		// rest already set by CutPrefix
-		parts := strings.SplitN(rest, "/", splitInTwo)
-		kbID := parts[0]
-		suffix := ""
-
-		if len(parts) > splitInTwo-1 {
-			suffix = "/" + parts[1]
-		}
-
-		switch {
-		case suffix == "" && method == http.MethodGet:
-			return h.handleGetKnowledgeBase(c, kbID)
-		case suffix == "" && method == http.MethodPut:
-			return h.handleUpdateKnowledgeBase(c, kbID, body)
-		case suffix == "" && method == http.MethodDelete:
-			return h.handleDeleteKnowledgeBase(c, kbID)
-		case strings.HasPrefix(suffix, "/datasources"):
-			return h.dispatchDataSourceRoutes(c, kbID, suffix, method, body)
-		}
+	case strings.HasPrefix(path, flowsPath):
+		return h.dispatchFlowRoutes(c, path, method, body)
+	case strings.HasPrefix(path, promptsPath):
+		return h.dispatchPromptRoutes(c, path, method, body)
+	case strings.HasPrefix(path, "/tags/"):
+		return h.dispatchTagRoutes(c, path, method, body)
 	}
 
 	return c.JSON(
 		http.StatusNotFound,
 		agentErrResp("UnknownOperationException", "unknown operation: "+path),
+	)
+}
+
+// dispatchAgentRoutes handles /agents and /agents/{agentId}/... routes.
+// Returns (true, err) when the path was matched; (false, nil) when it was not.
+func (h *AgentsHandler) dispatchAgentRoutes(
+	c *echo.Context, path, method string, body []byte,
+) (bool, error) {
+	switch {
+	case path == agentsPath && method == http.MethodPost:
+		return true, h.handleCreateAgent(c, body)
+	case path == agentsPath && method == http.MethodGet:
+		return true, h.handleListAgents(c)
+	}
+
+	rest, cutOK := strings.CutPrefix(path, "/agents/")
+	if !cutOK {
+		return false, nil
+	}
+
+	parts := strings.SplitN(rest, "/", splitInTwo)
+	agentID := parts[0]
+	suffix := ""
+
+	if len(parts) > splitInTwo-1 {
+		suffix = "/" + parts[1]
+	}
+
+	return true, h.dispatchAgentIDRoutes(c, agentID, suffix, method, body)
+}
+
+// dispatchAgentIDRoutes handles routes for a specific agent ID.
+//
+//nolint:cyclop // agent sub-route dispatch is inherently branchy
+func (h *AgentsHandler) dispatchAgentIDRoutes(
+	c *echo.Context, agentID, suffix, method string, body []byte,
+) error {
+	switch {
+	case suffix == "" && method == http.MethodGet:
+		return h.handleGetAgent(c, agentID)
+	case suffix == "" && method == http.MethodPut:
+		return h.handleUpdateAgent(c, agentID, body)
+	case suffix == "" && method == http.MethodDelete:
+		return h.handleDeleteAgent(c, agentID)
+	case suffix == "/prepare" && method == http.MethodPost:
+		return h.handlePrepareAgent(c, agentID)
+	case strings.HasPrefix(suffix, "/agentversions/") &&
+		strings.Contains(suffix, "/knowledgebases"):
+		return h.dispatchAgentKBRoutes(c, agentID, suffix, method, body)
+	case strings.HasPrefix(suffix, "/agentversions/") &&
+		strings.Contains(suffix, "/agentcollaborators"):
+		return h.dispatchAgentCollabRoutes(c, agentID, suffix, method, body)
+	case strings.HasPrefix(suffix, "/agentversions/") &&
+		strings.Contains(suffix, "/memories"):
+		return h.dispatchMemoryRoutes(c, agentID, suffix, method)
+	case strings.HasPrefix(suffix, "/action-groups"):
+		return h.dispatchActionGroupRoutes(c, agentID, suffix, method, body)
+	case strings.HasPrefix(suffix, suffixAgentAliases):
+		return h.dispatchAliasRoutes(c, agentID, suffix, method, body)
+	case strings.HasPrefix(suffix, "/versions"):
+		return h.dispatchAgentVersionRoutes(c, agentID, suffix, method)
+	}
+
+	return c.JSON(
+		http.StatusNotFound,
+		agentErrResp("UnknownOperationException", "unknown agent operation"),
+	)
+}
+
+// dispatchKBRoutes handles /knowledgebases and /knowledgebases/{kbId}/... routes.
+// Returns (true, err) when the path was matched; (false, nil) when it was not.
+func (h *AgentsHandler) dispatchKBRoutes(
+	c *echo.Context, path, method string, body []byte,
+) (bool, error) {
+	switch {
+	case path == knowledgeBasePath && method == http.MethodPost:
+		return true, h.handleCreateKnowledgeBase(c, body)
+	case path == knowledgeBasePath && method == http.MethodGet:
+		return true, h.handleListKnowledgeBases(c)
+	}
+
+	rest, cutOK := strings.CutPrefix(path, "/knowledgebases/")
+	if !cutOK {
+		return false, nil
+	}
+
+	parts := strings.SplitN(rest, "/", splitInTwo)
+	kbID := parts[0]
+	suffix := ""
+
+	if len(parts) > splitInTwo-1 {
+		suffix = "/" + parts[1]
+	}
+
+	switch {
+	case suffix == "" && method == http.MethodGet:
+		return true, h.handleGetKnowledgeBase(c, kbID)
+	case suffix == "" && method == http.MethodPut:
+		return true, h.handleUpdateKnowledgeBase(c, kbID, body)
+	case suffix == "" && method == http.MethodDelete:
+		return true, h.handleDeleteKnowledgeBase(c, kbID)
+	case strings.HasPrefix(suffix, "/datasources"):
+		return true, h.dispatchDataSourceRoutes(c, kbID, suffix, method, body)
+	}
+
+	return true, c.JSON(
+		http.StatusNotFound,
+		agentErrResp("UnknownOperationException", "unknown kb operation"),
 	)
 }
 
@@ -384,7 +525,7 @@ func (h *AgentsHandler) handleDeleteAgent(c *echo.Context, agentID string) error
 
 	return c.JSON(
 		http.StatusAccepted,
-		map[string]any{keyAgentID: agentID, "agentStatus": statusDeleting},
+		map[string]any{keyAgentID: agentID, opAgentStatusKey: statusDeleting},
 	)
 }
 
@@ -397,9 +538,9 @@ func (h *AgentsHandler) handlePrepareAgent(c *echo.Context, agentID string) erro
 	return c.JSON(
 		http.StatusAccepted,
 		map[string]any{
-			keyAgentID:     ag.AgentID,
-			"agentStatus":  ag.AgentStatus,
-			"agentVersion": ag.AgentVersion,
+			keyAgentID:       ag.AgentID,
+			opAgentStatusKey: ag.AgentStatus,
+			"agentVersion":   ag.AgentVersion,
 		},
 	)
 }
@@ -564,15 +705,15 @@ func (h *AgentsHandler) dispatchAliasRoutes(
 	agentID, suffix, method string,
 	body []byte,
 ) error {
-	if suffix == "/aliases" && method == http.MethodPost {
+	if suffix == suffixAgentAliases && method == http.MethodPost {
 		return h.handleCreateAgentAlias(c, agentID, body)
 	}
 
-	if suffix == "/aliases" && method == http.MethodGet {
+	if suffix == suffixAgentAliases && method == http.MethodGet {
 		return h.handleListAgentAliases(c, agentID)
 	}
 
-	if aliasID, aliasOK := strings.CutPrefix(suffix, "/aliases/"); aliasOK {
+	if aliasID, aliasOK := strings.CutPrefix(suffix, suffixAgentAliases+"/"); aliasOK {
 		switch method {
 		case http.MethodGet:
 			return h.handleGetAgentAlias(c, agentID, aliasID)
@@ -757,7 +898,7 @@ func (h *AgentsHandler) handleDisassociateAgentKB(c *echo.Context, agentID, kbID
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusNoContent, nil)
+	return c.NoContent(http.StatusNoContent)
 }
 
 // ---------------------------------------------------------------------------
@@ -892,16 +1033,41 @@ func (h *AgentsHandler) dispatchDataSourceRoutes(
 			return h.handleStartIngestionJob(c, kbID, dsID, body)
 		case dsSuffix == "/ingestionjobs" && method == http.MethodGet:
 			return h.handleListIngestionJobs(c, kbID, dsID)
-		case strings.HasPrefix(dsSuffix, "/ingestionjobs/") && method == http.MethodGet:
-			jobID := strings.TrimPrefix(dsSuffix, "/ingestionjobs/")
-
-			return h.handleGetIngestionJob(c, kbID, dsID, jobID)
+		case strings.HasPrefix(dsSuffix, "/ingestionjobs/"):
+			return h.dispatchIngestionJobRoutes(c, kbID, dsID, dsSuffix, method)
+		case strings.HasPrefix(dsSuffix, "/documents"):
+			return h.dispatchDocumentOps(c, kbID, dsID, method, body)
 		}
 	}
 
 	return c.JSON(
 		http.StatusNotFound,
 		agentErrResp("UnknownOperationException", "unknown data source operation"),
+	)
+}
+
+func (h *AgentsHandler) dispatchIngestionJobRoutes(
+	c *echo.Context,
+	kbID, dsID, dsSuffix, method string,
+) error {
+	jobID := strings.TrimPrefix(dsSuffix, "/ingestionjobs/")
+	// strip any further sub-path
+	if idx := strings.Index(jobID, "/"); idx >= 0 {
+		subPath := jobID[idx:]
+		jobID = jobID[:idx]
+
+		if subPath == "/stop" && method == http.MethodPost {
+			return h.handleStopIngestionJob(c, kbID, dsID, jobID)
+		}
+	}
+
+	if method == http.MethodGet {
+		return h.handleGetIngestionJob(c, kbID, dsID, jobID)
+	}
+
+	return c.JSON(
+		http.StatusNotFound,
+		agentErrResp("UnknownOperationException", "unknown ingestion job operation"),
 	)
 }
 
