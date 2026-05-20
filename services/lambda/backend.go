@@ -230,6 +230,7 @@ type InMemoryBackend struct {
 	runtimeManagementConfigs map[string]*RuntimeManagementConfig
 	functionRecursionConfigs map[string]*FunctionRecursionConfig
 	functionScalingConfigs   map[string]*FunctionScalingConfig
+	durableExecs             *durableExecutionStore
 	asyncEnqueueWaiters      chan struct{}
 	mu                       *lockmetrics.RWMutex
 	portAlloc                *portalloc.Allocator
@@ -275,6 +276,7 @@ func NewInMemoryBackend(
 		runtimeManagementConfigs: make(map[string]*RuntimeManagementConfig),
 		functionRecursionConfigs: make(map[string]*FunctionRecursionConfig),
 		functionScalingConfigs:   make(map[string]*FunctionScalingConfig),
+		durableExecs:             newDurableExecutionStore(),
 		asyncEnqueueWaiters:      make(chan struct{}, maxAsyncEnqueueWaiters),
 		docker:                   dockerClient,
 		portAlloc:                portAlloc,
@@ -3329,6 +3331,7 @@ func (b *InMemoryBackend) Reset() {
 	b.runtimeManagementConfigs = make(map[string]*RuntimeManagementConfig)
 	b.functionRecursionConfigs = make(map[string]*FunctionRecursionConfig)
 	b.functionScalingConfigs = make(map[string]*FunctionScalingConfig)
+	b.durableExecs.reset()
 
 	b.mu.Unlock()
 

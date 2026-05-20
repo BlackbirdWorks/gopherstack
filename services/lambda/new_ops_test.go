@@ -490,7 +490,7 @@ func TestNewOps_CheckpointDurableExecution(t *testing.T) {
 		},
 		{
 			name:       "get_not_found",
-			path:       "/2025-12-01/durable-executions/arn:aws:lambda:us-east-1:000000000000:durable:abc",
+			path:       "/2025-12-01/durable-executions/arn:aws:lambda:us-east-1:000000000000:durable:never-created",
 			method:     http.MethodGet,
 			wantStatus: http.StatusNotFound,
 		},
