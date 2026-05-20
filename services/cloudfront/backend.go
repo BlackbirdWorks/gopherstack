@@ -87,7 +87,6 @@ func generateID() string {
 // Distribution represents a CloudFront distribution.
 type Distribution struct {
 	Tags             map[string]string `json:"tags,omitempty"`
-	RawConfig        []byte            `json:"rawConfig,omitempty"` // raw DistributionConfig XML from request
 	ID               string            `json:"id"`
 	ARN              string            `json:"arn"`
 	DomainName       string            `json:"domainName"`
@@ -96,6 +95,7 @@ type Distribution struct {
 	CallerReference  string            `json:"callerReference"`
 	Comment          string            `json:"comment,omitempty"`
 	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
+	RawConfig        []byte            `json:"rawConfig,omitempty"`
 	Enabled          bool              `json:"enabled"`
 }
 

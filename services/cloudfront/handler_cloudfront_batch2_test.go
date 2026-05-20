@@ -106,7 +106,10 @@ func TestBatch2_DistributionTenantInvalidation(t *testing.T) {
 	}
 
 	// Create invalidation
-	invBody := `<InvalidationBatch><CallerReference>ref1</CallerReference><Paths><Quantity>1</Quantity><Items><Path>/*</Path></Items></Paths></InvalidationBatch>`
+	invBody := `<InvalidationBatch>` +
+		`<CallerReference>ref1</CallerReference>` +
+		`<Paths><Quantity>1</Quantity><Items><Path>/*</Path></Items></Paths>` +
+		`</InvalidationBatch>`
 	invResp := cfOK(t, h, http.MethodPost, prefix+"distribution-tenant/"+tenantID+"/invalidation", invBody)
 	if !strings.Contains(invResp, "Invalidation") {
 		t.Fatalf("expected Invalidation in response, got: %s", invResp)
@@ -264,7 +267,9 @@ func TestBatch2_UpdateDistributionWithStagingConfig(t *testing.T) {
 	stagingID := extractXMLID(t, stagingResp)
 
 	// Promote staging to primary
-	promoteBody := `<UpdateDistributionWithStagingConfigRequest><StagingDistributionId>` + stagingID + `</StagingDistributionId></UpdateDistributionWithStagingConfigRequest>`
+	promoteBody := `<UpdateDistributionWithStagingConfigRequest>` +
+		`<StagingDistributionId>` + stagingID + `</StagingDistributionId>` +
+		`</UpdateDistributionWithStagingConfigRequest>`
 	promoteResp := cfOK(t, h, http.MethodPut, prefix+"distribution/"+primaryID+"/staging", promoteBody)
 	if !strings.Contains(promoteResp, "Distribution") {
 		t.Errorf("expected Distribution in response, got: %s", promoteResp)
