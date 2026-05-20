@@ -346,10 +346,10 @@ func (h *Handler) handleListStreams(c *echo.Context) error {
 
 func (h *Handler) handleUpdateStream(c *echo.Context) error {
 	id := strings.TrimPrefix(c.Request().URL.Path, "/streams/")
-	var req struct { //nolint:govet // JSON field order matters
-		Files       []StreamFile `json:"files,omitempty"`
+	var req struct {
 		Description string       `json:"description,omitempty"`
 		RoleARN     string       `json:"roleArn,omitempty"`
+		Files       []StreamFile `json:"files,omitempty"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
@@ -527,8 +527,8 @@ func (h *Handler) handleCreateDimension(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"name": d.Name,
-		"arn":  d.ARN,
+		keyName: d.Name,
+		"arn":   d.ARN,
 	})
 }
 
@@ -566,8 +566,8 @@ func (h *Handler) handleUpdateDimension(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"name": d.Name,
-		"arn":  d.ARN,
+		keyName: d.Name,
+		"arn":   d.ARN,
 	})
 }
 

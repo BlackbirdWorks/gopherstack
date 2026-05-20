@@ -170,7 +170,7 @@ func compareValues(fieldVal any, rawVal, op string) bool {
 			return v != rawVal
 		}
 	case bool:
-		target := rawVal == "true"
+		target := rawVal == keyBoolTrue
 		switch op {
 		case "=":
 			return v == target
