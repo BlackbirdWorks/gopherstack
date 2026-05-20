@@ -141,7 +141,7 @@ func (h *Handler) handleSendDurableExecutionCallbackFailure(c *echo.Context) err
 	}
 
 	arn := extractDurableExecARN(c.Request().URL.Path)
-	_, _ = store.sendCallback(arn, "CallbackFailure")
+	_ = store.sendCallback(arn, "CallbackFailure")
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
@@ -156,7 +156,7 @@ func (h *Handler) handleSendDurableExecutionCallbackHeartbeat(c *echo.Context) e
 	}
 
 	arn := extractDurableExecARN(c.Request().URL.Path)
-	_, _ = store.sendCallback(arn, "CallbackHeartbeat")
+	_ = store.sendCallback(arn, "CallbackHeartbeat")
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
@@ -171,7 +171,7 @@ func (h *Handler) handleSendDurableExecutionCallbackSuccess(c *echo.Context) err
 	}
 
 	arn := extractDurableExecARN(c.Request().URL.Path)
-	_, _ = store.sendCallback(arn, "CallbackSuccess")
+	_ = store.sendCallback(arn, "CallbackSuccess")
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }

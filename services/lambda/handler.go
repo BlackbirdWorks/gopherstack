@@ -989,6 +989,9 @@ func (h *Handler) dispatchSpecialRoutes(c *echo.Context, path, method string) (b
 		return true, h.handleESMRoute(c, path, method)
 	case strings.HasPrefix(path, lambdaTagsPathPrefix):
 		return true, h.handleTagsRoute(c, method)
+	// layers-by-arn must be checked before lambdaLayersPathPrefix (it's a prefix match)
+	case path == lambdaLayersByArnPath:
+		return true, h.handleGetLayerVersionByArn(c)
 	case strings.HasPrefix(path, lambdaLayersPathPrefix):
 		return true, h.handleLayersRoute(c, path, method)
 	case path == lambdaAccountSettingsPath:
@@ -1007,8 +1010,6 @@ func (h *Handler) dispatchSpecialRoutes(c *echo.Context, path, method string) (b
 		return true, h.handleRecursionConfigRoute(c, path, method)
 	case strings.HasPrefix(path, lambda2023ScalingPathPrefix):
 		return true, h.handleScalingConfigRoute(c, path, method)
-	case path == lambdaLayersByArnPath:
-		return true, h.handleGetLayerVersionByArn(c)
 	}
 
 	if rest2020, ok := strings.CutPrefix(path, lambda2020PathPrefix); ok {

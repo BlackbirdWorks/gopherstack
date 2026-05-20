@@ -26,12 +26,12 @@ var ErrDurableExecutionNotFound = errors.New("durable execution not found")
 
 // DurableExecution represents a Lambda Durable Execution record.
 type DurableExecution struct {
-	ExecutionARN   string                 `json:"ExecutionArn"`
-	FunctionARN    string                 `json:"FunctionArn,omitempty"`
-	Status         DurableExecutionStatus `json:"Status"`
-	CheckpointData map[string]any         `json:"CheckpointData,omitempty"`
-	StartTime      time.Time              `json:"StartTime"`
-	StopTime       *time.Time             `json:"StopTime,omitempty"`
+	ExecutionARN   string                  `json:"ExecutionArn"`
+	FunctionARN    string                  `json:"FunctionArn,omitempty"`
+	Status         DurableExecutionStatus  `json:"Status"`
+	CheckpointData map[string]any          `json:"CheckpointData,omitempty"`
+	StartTime      time.Time               `json:"StartTime"`
+	StopTime       *time.Time              `json:"StopTime,omitempty"`
 	History        []DurableExecutionEvent `json:"Events,omitempty"`
 }
 
@@ -44,9 +44,9 @@ type DurableExecutionEvent struct {
 
 // DurableExecutionState holds the current state of a durable execution.
 type DurableExecutionState struct {
+	StateData    map[string]any         `json:"StateData,omitempty"`
 	ExecutionARN string                 `json:"ExecutionArn"`
 	Status       DurableExecutionStatus `json:"Status"`
-	StateData    map[string]any         `json:"StateData,omitempty"`
 }
 
 // durableExecutionStore manages durable executions in memory.
@@ -129,7 +129,7 @@ func (s *durableExecutionStore) stop(executionARN string) (*DurableExecution, er
 }
 
 // sendCallback records a callback event on the execution.
-func (s *durableExecutionStore) sendCallback(executionARN, callbackType string) (*DurableExecution, error) {
+func (s *durableExecutionStore) sendCallback(executionARN, callbackType string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -150,15 +150,16 @@ func (s *durableExecutionStore) sendCallback(executionARN, callbackType string) 
 		EventType: callbackType,
 	})
 
-	if callbackType == "CallbackSuccess" {
+	switch callbackType {
+	case "CallbackSuccess":
 		ex.Status = DurableExecutionStatusSucceeded
 		ex.StopTime = &now
-	} else if callbackType == "CallbackFailure" {
+	case "CallbackFailure":
 		ex.Status = DurableExecutionStatusFailed
 		ex.StopTime = &now
 	}
 
-	return ex, nil
+	return nil
 }
 
 // listByFunction returns executions for a given function ARN prefix.
