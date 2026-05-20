@@ -987,8 +987,7 @@ func (h *Handler) handleDescribeUserPoolDomain(
 	d, err := h.Backend.DescribeUserPoolDomain(in.Domain)
 	if err != nil {
 		// AWS returns an empty description for unknown domains, not an error.
-		err = nil
-		return &describeUserPoolDomainOutput{DomainDescription: &userPoolDomainDescription{}}, err
+		return &describeUserPoolDomainOutput{DomainDescription: &userPoolDomainDescription{}}, nil
 	}
 
 	return &describeUserPoolDomainOutput{
