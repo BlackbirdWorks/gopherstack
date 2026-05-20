@@ -233,6 +233,102 @@ type StorageBackend interface {
 	DescribeDefaultAuthorizer() (string, error)
 	ListJobExecutionsForJob(jobID string) []*JobExecution
 	ListJobExecutionsForThing(thingName string) []*JobExecution
+
+	// Batch 3: OTA Updates.
+	CreateOTAUpdate(id, description, roleARN string, targets []string, files []any) (*OTAUpdate, error)
+	GetOTAUpdate(id string) (*OTAUpdate, error)
+	DeleteOTAUpdate(id string) error
+	ListOTAUpdates() []*OTAUpdate
+
+	// Batch 3: IoT Packages.
+	CreateIoTPackage(name, description string, tags map[string]string) (*IoTPackage, error)
+	GetIoTPackage(name string) (*IoTPackage, error)
+	UpdateIoTPackage(name, description, defaultVersionName string) error
+	DeleteIoTPackage(name string) error
+	ListIoTPackages() []*IoTPackage
+
+	// Batch 3: IoT Package Versions.
+	CreateIoTPackageVersion(
+		packageName, versionName, description string,
+		tags map[string]string,
+	) (*IoTPackageVersion, error)
+	GetIoTPackageVersion(packageName, versionName string) (*IoTPackageVersion, error)
+	UpdateIoTPackageVersion(packageName, versionName, description, status string) error
+	DeleteIoTPackageVersion(packageName, versionName string) error
+	ListIoTPackageVersions(packageName string) []*IoTPackageVersion
+
+	// Batch 3: Package configuration.
+	GetPackageConfiguration() *PackageConfiguration
+	UpdatePackageConfiguration(cfg map[string]any) error
+
+	// Batch 3: Audit suppressions.
+	CreateAuditSuppression(
+		checkName string,
+		resourceID map[string]any,
+		description string,
+		suppressIndefinitely bool,
+		expirationDate float64,
+	) error
+	DescribeAuditSuppression(checkName string, resourceID map[string]any) (*AuditSuppression, error)
+	UpdateAuditSuppression(
+		checkName string,
+		resourceID map[string]any,
+		description string,
+		suppressIndefinitely bool,
+		expirationDate float64,
+	) error
+	DeleteAuditSuppression(checkName string, resourceID map[string]any) error
+	ListAuditSuppressions() []*AuditSuppression
+
+	// Batch 3: Audit findings.
+	DescribeAuditFinding(findingID string) (*AuditFinding, error)
+	ListAuditFindings() []*AuditFinding
+
+	// Batch 3: V2 logging.
+	GetV2LoggingOptions() *V2LoggingOptions
+	SetV2LoggingOptions(roleARN, defaultLogLevel string, disableAllLogs bool) error
+	SetV2LoggingLevel(target map[string]any, logLevel string) error
+	DeleteV2LoggingLevel(target map[string]any) error
+	ListV2LoggingLevels() []*V2LoggingLevel
+
+	// Batch 3: Logging options.
+	GetLoggingOptions() *LoggingOptions
+	SetLoggingOptions(roleARN, logLevel string) error
+
+	// Batch 3: Provisioning claim.
+	CreateProvisioningClaim(templateName string) (string, string, string, error)
+
+	// Batch 3: Keys and certs.
+	CreateKeysAndCertificate(setAsActive bool) (*Certificate, string, string, error)
+	TransferCertificate(certID, targetAccount string) error
+	RejectCertificateTransfer(certID string) error
+
+	// Batch 3: Event configurations.
+	DescribeEventConfigurations() *EventConfigurations
+	UpdateEventConfigurations(cfgs map[string]*EventConfigEntry) error
+
+	// Batch 3: Security profile targets.
+	DetachSecurityProfile(profileName, targetARN string) error
+	ListTargetsForSecurityProfile(profileName string) []string
+	ListSecurityProfilesForTarget(targetARN string) []string
+
+	// Batch 3: Dynamic thing groups.
+	CreateDynamicThingGroup(input *CreateThingGroupInput) (*ThingGroup, error)
+	DeleteDynamicThingGroup(name string) error
+	UpdateDynamicThingGroup(input *UpdateThingGroupInput) (int64, error)
+
+	// Batch 3: Commands.
+	CreateCommand(
+		id, displayName, description, namespace string,
+		payload map[string]any,
+		tags map[string]string,
+	) (*IoTCommand, error)
+	GetCommand(id string) (*IoTCommand, error)
+	UpdateCommand(id, displayName, description string, deprecated bool) error
+	DeleteCommand(id string) error
+	ListCommands() []*IoTCommand
+	GetCommandExecution(commandID, executionID string) (*IoTCommandExecution, error)
+	ListCommandExecutions(commandID string) []*IoTCommandExecution
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

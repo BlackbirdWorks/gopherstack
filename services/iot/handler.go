@@ -579,7 +579,11 @@ func resolveBatch2Ops(path, method string) string {
 		return op
 	}
 
-	return resolveMiscBatch2Ops(path, method)
+	if op := resolveMiscBatch2Ops(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveBatch3Op(path, method)
 }
 
 func resolveNewStatefulOps(path, method string) string {
@@ -1082,7 +1086,11 @@ func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
 		return true, err
 	}
 
-	return h.dispatchBatch2Ops(c, op)
+	if handled, err := h.dispatchBatch2Ops(c, op); handled {
+		return true, err
+	}
+
+	return h.dispatchBatch3Ops(c, op)
 }
 
 func (h *Handler) dispatchMiscNewOps(c *echo.Context, op string) (bool, error) {
@@ -2255,7 +2263,7 @@ func (h *Handler) handleCreateThingGroup(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		keyThingGroupName: tg.ThingGroupName,
 		keyThingGroupArn:  tg.ThingGroupARN,
-		"thingGroupId":    tg.ThingGroupID,
+		keyThingGroupID:   tg.ThingGroupID,
 	})
 }
 
@@ -2269,7 +2277,7 @@ func (h *Handler) handleDescribeThingGroup(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		keyThingGroupName: tg.ThingGroupName,
 		keyThingGroupArn:  tg.ThingGroupARN,
-		"thingGroupId":    tg.ThingGroupID,
+		keyThingGroupID:   tg.ThingGroupID,
 		keyVersion:        tg.Version,
 		"thingGroupProperties": map[string]any{
 			"thingGroupDescription": tg.Description,
@@ -2392,7 +2400,7 @@ func (h *Handler) handleCreateCertificateFromCsr(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		keyCertificateID:  cert.CertificateID,
 		keyCertificateArn: cert.ARN,
-		"certificatePem":  cert.PEM,
+		keyCertificatePem: cert.PEM,
 		keyStatus:         cert.Status,
 	})
 }
@@ -2559,7 +2567,7 @@ func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
-	setAsDefault := c.QueryParam("setAsDefault") == "true"
+	setAsDefault := c.QueryParam("setAsDefault") == keyBoolTrue
 
 	pv, err := h.Backend.CreatePolicyVersion(&CreatePolicyVersionInput{
 		PolicyName:     policyName,
