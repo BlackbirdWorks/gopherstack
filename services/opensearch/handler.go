@@ -521,7 +521,7 @@ func (h *Handler) dispatchDomainRoutes(w http.ResponseWriter, r *http.Request) {
 
 	// Bulk describe: GET /domain/describe → DescribeDomains.
 	if rest == "/describe" && r.Method == http.MethodGet {
-		h.writeJSON(r, w, map[string]any{"DomainStatusList": []any{}})
+		h.handleDescribeDomains(w, r)
 
 		return
 	}
@@ -612,9 +612,19 @@ func (h *Handler) dispatchDomainPutRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	domain, err := h.Backend.DescribeDomain(name)
+	body, _ := httputils.ReadBody(r)
+	var input UpdateDomainConfigInput
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &input)
+	}
+
+	domain, err := h.Backend.UpdateDomainConfig(name, input)
 	if err != nil {
-		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		if errors.Is(err, ErrDomainNotFound) {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		} else {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
+		}
 
 		return
 	}
@@ -779,6 +789,107 @@ func (h *Handler) handleListDomainNames(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.writeJSON(r, w, domainListJSON{DomainNames: entries})
+}
+
+func (h *Handler) handleDescribeDomains(w http.ResponseWriter, r *http.Request) {
+	body, _ := httputils.ReadBody(r)
+	var req struct {
+		DomainNames []string `json:"DomainNames"`
+	}
+
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	domains, err := h.Backend.DescribeDomains(req.DomainNames)
+	if err != nil {
+		h.writeError(r, w, http.StatusInternalServerError, "InternalException", err.Error())
+
+		return
+	}
+
+	list := make([]map[string]any, 0, len(domains))
+
+	for _, d := range domains {
+		list = append(list, map[string]any{
+			"DomainName":    d.Name,
+			"ARN":           d.ARN,
+			"Endpoints":     map[string]any{"vpc": d.Endpoint},
+			"EngineVersion": d.EngineVersion,
+			"ClusterConfig": map[string]any{
+				jsonKeyInstanceType: d.ClusterConfig.InstanceType,
+				"InstanceCount":     d.ClusterConfig.InstanceCount,
+			},
+		})
+	}
+
+	h.writeJSON(r, w, map[string]any{"DomainStatusList": list})
+}
+
+func (h *Handler) handleDissociatePackage(w http.ResponseWriter, r *http.Request, packageID, domainName string) {
+	details, err := h.Backend.DissociatePackage(packageID, domainName)
+	if err != nil {
+		if errors.Is(err, ErrDomainNotFound) {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		} else {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
+		}
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"DomainPackageDetails": domainPackageDetailsJSON{
+		PackageID:           details.PackageID,
+		DomainName:          details.DomainName,
+		DomainPackageStatus: details.State,
+	}})
+}
+
+func (h *Handler) handleDissociatePackages(w http.ResponseWriter, r *http.Request) {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return
+	}
+
+	var req struct {
+		DomainName  string            `json:"DomainName"`
+		PackageList []packageForAssoc `json:"PackageList"`
+	}
+
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	packageIDs := make([]string, 0, len(req.PackageList))
+
+	for _, p := range req.PackageList {
+		packageIDs = append(packageIDs, p.PackageID)
+	}
+
+	details, dissocErr := h.Backend.DissociatePackages(req.DomainName, packageIDs)
+	if dissocErr != nil {
+		if errors.Is(dissocErr, ErrDomainNotFound) {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", dissocErr.Error())
+		} else {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", dissocErr.Error())
+		}
+
+		return
+	}
+
+	outList := make([]domainPackageDetailsJSON, 0, len(details))
+
+	for _, d := range details {
+		outList = append(outList, domainPackageDetailsJSON{
+			PackageID:           d.PackageID,
+			DomainName:          d.DomainName,
+			DomainPackageStatus: d.State,
+		})
+	}
+
+	h.writeJSON(r, w, map[string]any{"DomainPackageDetailsList": outList})
 }
 
 func toDomainStatusJSON(d *Domain) domainStatusJSON {
@@ -949,8 +1060,8 @@ func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Requ
 	out.DomainConfig.EngineVersion = opensearchConfigValue{Options: domain.EngineVersion, Status: activeStatus}
 	out.DomainConfig.ClusterConfig = opensearchConfigValue{
 		Options: map[string]any{
-			"InstanceType":  domain.ClusterConfig.InstanceType,
-			"InstanceCount": domain.ClusterConfig.InstanceCount,
+			jsonKeyInstanceType: domain.ClusterConfig.InstanceType,
+			"InstanceCount":     domain.ClusterConfig.InstanceCount,
 		},
 		Status: activeStatus,
 	}
@@ -1216,12 +1327,19 @@ func (h *Handler) handlePackageAssocRoutes(w http.ResponseWriter, r *http.Reques
 		return true
 	// DELETE /packages/dissociate/{PackageID}/{DomainName} → DissociatePackage
 	case strings.HasPrefix(rest, "/dissociate/") && r.Method == http.MethodDelete:
-		h.writeJSON(r, w, map[string]any{"DomainPackageDetails": map[string]any{"DomainPackageStatus": "DISSOCIATING"}})
+		parts := strings.SplitN(strings.TrimPrefix(rest, "/dissociate/"), "/", pkgPathParts)
+		if len(parts) != pkgPathParts {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid dissociate package path")
+
+			return true
+		}
+
+		h.handleDissociatePackage(w, r, parts[0], parts[1])
 
 		return true
 	// POST /packages/dissociateMultiple → DissociatePackages
 	case rest == "/dissociateMultiple" && r.Method == http.MethodPost:
-		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: []any{}})
+		h.handleDissociatePackages(w, r)
 
 		return true
 	}
@@ -1428,11 +1546,43 @@ func (h *Handler) handleApplicationRootRoutes(w http.ResponseWriter, r *http.Req
 func (h *Handler) handleApplicationSettingsRoutes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		appType := r.URL.Query().Get("ApplicationType")
+		if appType == "" {
+			appType = "OpenSearchDashboards"
+		}
+
+		settings, _ := h.Backend.GetDefaultApplicationSettings(appType)
+		if settings == nil {
+			settings = []AppSetting{}
+		}
+
 		h.writeJSON(r, w, map[string]any{
-			"ApplicationType":            "OpenSearchDashboards",
-			"DefaultApplicationSettings": []any{},
+			"ApplicationType":            appType,
+			"DefaultApplicationSettings": settings,
 		})
 	case http.MethodPut:
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+			return
+		}
+
+		var req struct {
+			ApplicationType            string       `json:"ApplicationType"`
+			DefaultApplicationSettings []AppSetting `json:"DefaultApplicationSettings"`
+		}
+
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+
+		appType := req.ApplicationType
+		if appType == "" {
+			appType = "OpenSearchDashboards"
+		}
+
+		_ = h.Backend.PutDefaultApplicationSettings(appType, req.DefaultApplicationSettings)
 		w.WriteHeader(http.StatusOK)
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
@@ -1977,7 +2127,10 @@ func (h *Handler) handleVersionsRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(r, w, map[string]any{
-		"Versions": []string{"OpenSearch_2.11", "OpenSearch_2.9", "OpenSearch_2.7", "Elasticsearch_8.11"},
+		"Versions": []string{
+			engineVersionOpenSearch211, engineVersionOpenSearch29,
+			engineVersionOpenSearch27, "Elasticsearch_8.11",
+		},
 	})
 }
 
@@ -2028,7 +2181,10 @@ func (h *Handler) handleInstanceTypeDetailsRoutes(w http.ResponseWriter, r *http
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"InstanceTypeDetails": []any{}})
+	engineVersion := r.URL.Query().Get("engineVersion")
+	instanceType := r.URL.Query().Get("instanceType")
+	details := h.Backend.ListInstanceTypeDetails(engineVersion, instanceType)
+	h.writeJSON(r, w, map[string]any{"InstanceTypeDetails": details})
 }
 
 // handleCompatibleVersionsRoutes handles GET /2021-01-01/opensearch/compatibleVersions → GetCompatibleVersions.
@@ -2039,7 +2195,9 @@ func (h *Handler) handleCompatibleVersionsRoutes(w http.ResponseWriter, r *http.
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"CompatibleVersions": []any{}})
+	domainName := r.URL.Query().Get("domainName")
+	versions := h.Backend.GetCompatibleVersions(domainName)
+	h.writeJSON(r, w, map[string]any{"CompatibleVersions": versions})
 }
 
 // handleVpcEndpointsRoutes handles VPC endpoint routes.
@@ -2284,6 +2442,14 @@ func (h *Handler) dispatchDomainGetRoutesExtended(w http.ResponseWriter, r *http
 // dispatchDomainGetStatusRoutes handles status/health/upgrade/vpc GET sub-routes on a domain.
 // Returns true if handled.
 func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	if h.dispatchDomainGetHealthRoutes(w, r, trimmed) {
+		return true
+	}
+
+	if h.dispatchDomainGetUpgradeRoutes(w, r, trimmed) {
+		return true
+	}
+
 	switch {
 	case strings.HasSuffix(trimmed, "/autoTunes"):
 		// DescribeDomainAutoTunes
@@ -2294,23 +2460,72 @@ func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.R
 		}
 
 		h.writeJSON(r, w, map[string]any{"AutoTunes": autoTunes})
+
+		return true
+	default:
+		return h.dispatchDomainGetVpcRoutes(w, trimmed)
+	}
+}
+
+// dispatchDomainGetHealthRoutes handles health/nodes/progress/dryRun GET sub-routes on a domain.
+// Returns true if handled.
+func (h *Handler) dispatchDomainGetHealthRoutes(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	switch {
 	case strings.HasSuffix(trimmed, "/progress"):
 		// DescribeDomainChangeProgress
-		h.writeJSON(r, w, map[string]any{"ChangeProgressStatus": map[string]any{
-			"ChangeId": EngineStub, jsonKeyStatus: softwareUpdateCompleted,
-			"CompletedProperties": []any{}, "PendingProperties": []any{}, "TotalNumberOfStages": 0,
-		}})
+		domainName, _ := strings.CutSuffix(trimmed, "/progress")
+		progress, err := h.Backend.GetChangeProgress(domainName)
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return true
+		}
+
+		h.writeJSON(r, w, map[string]any{"ChangeProgressStatus": progress})
 	case strings.HasSuffix(trimmed, "/health"):
 		// DescribeDomainHealth
-		h.writeJSON(r, w, map[string]any{"DomainState": "Active", "TotalShards": 0, "ActiveShards": 0})
+		domainName, _ := strings.CutSuffix(trimmed, "/health")
+		health, err := h.Backend.GetDomainHealth(domainName)
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return true
+		}
+
+		h.writeJSON(r, w, health)
 	case strings.HasSuffix(trimmed, "/nodes"):
 		// DescribeDomainNodes
-		h.writeJSON(r, w, map[string]any{"DomainNodesStatusList": []any{}})
+		domainName, _ := strings.CutSuffix(trimmed, "/nodes")
+		nodes, err := h.Backend.GetDomainNodes(domainName)
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return true
+		}
+
+		h.writeJSON(r, w, map[string]any{"DomainNodesStatusList": nodes})
 	case strings.HasSuffix(trimmed, "/dryRun"):
 		// DescribeDryRunProgress
-		h.writeJSON(r, w, map[string]any{"DryRunProgressStatus": map[string]any{
-			"DryRunId": "stub", "DryRunStatus": softwareUpdateCompleted, "CreationDate": "", "UpdateDate": "",
-		}})
+		domainName, _ := strings.CutSuffix(trimmed, "/dryRun")
+		dr, err := h.Backend.GetDryRunProgress(domainName)
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return true
+		}
+
+		h.writeJSON(r, w, map[string]any{"DryRunProgressStatus": dr})
+	default:
+		return false
+	}
+
+	return true
+}
+
+// dispatchDomainGetUpgradeRoutes handles upgrade-related GET sub-routes on a domain.
+// Returns true if handled.
+func (h *Handler) dispatchDomainGetUpgradeRoutes(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	switch {
 	case strings.HasSuffix(trimmed, "/upgradeHistory"):
 		// GetUpgradeHistory
 		domainName, _ := strings.CutSuffix(trimmed, "/upgradeHistory")
@@ -2335,7 +2550,7 @@ func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.R
 			"UpgradeStep": upgradeStep,
 		})
 	default:
-		return h.dispatchDomainGetVpcRoutes(w, trimmed)
+		return false
 	}
 
 	return true
