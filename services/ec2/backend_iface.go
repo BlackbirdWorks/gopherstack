@@ -921,4 +921,73 @@ type Backend interface {
 	CreateVpnConnectionRoute(vpnConnectionID, destinationCIDR string) (*VpnConnectionRoute, error)
 	DeleteVpnConnectionRoute(vpnConnectionID, destinationCIDR string) error
 	ModifyTransitGateway(tgwID, description string) error
+
+	// ---- batch4: ManagedPrefixList ----
+	CreateManagedPrefixList(name, addressFamily string, maxEntries int) (*ManagedPrefixList, error)
+	DeleteManagedPrefixList(id string) error
+	DescribeManagedPrefixLists(ids []string) []*ManagedPrefixList
+	GetManagedPrefixListEntries(id string) ([]PrefixListEntry, error)
+	ModifyManagedPrefixList(id string, addEntries, removeEntries []PrefixListEntry) error
+	RestoreManagedPrefixListVersion(id string, version int64) error
+
+	// ---- batch4: ClientVpnEndpoint ----
+	CreateClientVpnEndpoint(clientCidrBlock, description string, dnsServers []string) (*ClientVpnEndpoint, error)
+	DeleteClientVpnEndpoint(id string) error
+	DescribeClientVpnEndpoints(ids []string) []*ClientVpnEndpoint
+	AssociateClientVpnTargetNetwork(endpointID, subnetID string) error
+	DisassociateClientVpnTargetNetwork(endpointID, subnetID string) error
+	DescribeClientVpnTargetNetworks(endpointID string) ([]string, error)
+	CreateClientVpnRoute(endpointID, destinationCidr, description string) error
+	DeleteClientVpnRoute(endpointID, destinationCidr string) error
+	DescribeClientVpnRoutes(endpointID string) ([]ClientVpnRoute, error)
+	AuthorizeClientVpnIngress(endpointID, cidr, description string) error
+	RevokeClientVpnIngress(endpointID, cidr string) error
+	DescribeClientVpnAuthorizationRules(endpointID string) ([]ClientVpnAuthRule, error)
+	ModifyClientVpnEndpoint(endpointID, description string, dnsServers []string) error
+	ApplySecurityGroupsToClientVpnTargetNetwork(endpointID string, sgIDs []string) error
+	DescribeClientVpnConnections(endpointID string) ([]string, error)
+	TerminateClientVpnConnections(endpointID string) error
+
+	// ---- batch4: TGW Peering ----
+	CreateTransitGatewayPeeringAttachment(
+		transitGatewayID, peerTransitGatewayID string, _ string,
+	) (*TransitGatewayPeeringAttachment, error)
+	DeleteTransitGatewayPeeringAttachment(id string) error
+	DescribeTransitGatewayPeeringAttachments(ids []string) []*TransitGatewayPeeringAttachment
+
+	// ---- batch4: TGW Connect ----
+	CreateTransitGatewayConnect(transportAttachmentID, transitGatewayID string) (*TransitGatewayConnect, error)
+	DeleteTransitGatewayConnect(id string) error
+	DescribeTransitGatewayConnects(ids []string) []*TransitGatewayConnect
+	CreateTransitGatewayConnectPeer(
+		connectAttachmentID, peerAddress string,
+		insideCidrBlocks []string,
+	) (*TransitGatewayConnectPeer, error)
+	DeleteTransitGatewayConnectPeer(id string) error
+	DescribeTransitGatewayConnectPeers(ids []string) []*TransitGatewayConnectPeer
+
+	// ---- batch4: TGW PrefixListRef ----
+	CreateTransitGatewayPrefixListReference(
+		routeTableID, prefixListID string,
+		blackhole bool,
+	) (*TransitGatewayPrefixListReference, error)
+	DeleteTransitGatewayPrefixListReference(routeTableID, prefixListID string) error
+	GetTransitGatewayPrefixListReferences(routeTableID string) ([]*TransitGatewayPrefixListReference, error)
+
+	// ---- batch4: VerifiedAccess ----
+	CreateVerifiedAccessEndpoint(groupID, endpointType, description string) (*VerifiedAccessEndpoint, error)
+	DeleteVerifiedAccessEndpoint(id string) error
+	DescribeVerifiedAccessEndpoints(ids []string) []*VerifiedAccessEndpoint
+	ModifyVerifiedAccessEndpoint(id, description string) error
+	CreateVerifiedAccessGroup(instanceID, description string) (*VerifiedAccessGroup, error)
+	DeleteVerifiedAccessGroup(id string) error
+	DescribeVerifiedAccessGroups(ids []string) []*VerifiedAccessGroup
+	CreateVerifiedAccessInstance(description string) (*VerifiedAccessInstance, error)
+	DeleteVerifiedAccessInstance(id string) error
+	DescribeVerifiedAccessInstances(ids []string) []*VerifiedAccessInstance
+	CreateVerifiedAccessTrustProvider(trustProviderType, description string) (*VerifiedAccessTrustProvider, error)
+	DeleteVerifiedAccessTrustProvider(id string) error
+	DescribeVerifiedAccessTrustProviders(ids []string) []*VerifiedAccessTrustProvider
+	AttachVerifiedAccessTrustProvider(instanceID, trustProviderID string) error
+	DetachVerifiedAccessTrustProvider(instanceID, trustProviderID string) error
 }

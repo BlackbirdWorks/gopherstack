@@ -331,6 +331,14 @@ type InMemoryBackend struct {
 	mlTransforms              map[string]*MLTransform                   // key: transformID
 	catalogs                  map[string]*CatalogEntry                  // key: catalogID
 	catalogEncryptionSettings map[string]*DataCatalogEncryptionSettings // key: catalogID or accountID
+	usageProfiles             map[string]*UsageProfile                  // key: name
+	blueprintRuns             map[string]*BlueprintRun                  // key: runID
+	dqRecommendationRuns      map[string]*DQRuleRecommendationRun       // key: runID
+	columnStatTaskSettings    map[string]*ColumnStatisticsTaskSettings  // key: "dbName|tableName"
+	columnStatTaskRuns        map[string]*ColumnStatisticsTaskRun       // key: runID
+	materializedViewRuns      map[string]*MaterializedViewRefreshRun    // key: taskRunID
+	integrations              map[string]*Integration                   // key: integrationName
+	glueIdentityCenterConfig  *IdentityCenterConfig
 	mu                        *lockmetrics.RWMutex
 	accountID                 string
 	region                    string
@@ -372,6 +380,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mlTransforms:              make(map[string]*MLTransform),
 		catalogs:                  make(map[string]*CatalogEntry),
 		catalogEncryptionSettings: make(map[string]*DataCatalogEncryptionSettings),
+		usageProfiles:             make(map[string]*UsageProfile),
+		blueprintRuns:             make(map[string]*BlueprintRun),
+		dqRecommendationRuns:      make(map[string]*DQRuleRecommendationRun),
+		columnStatTaskSettings:    make(map[string]*ColumnStatisticsTaskSettings),
+		columnStatTaskRuns:        make(map[string]*ColumnStatisticsTaskRun),
+		materializedViewRuns:      make(map[string]*MaterializedViewRefreshRun),
+		integrations:              make(map[string]*Integration),
 		mu:                        lockmetrics.New("glue"),
 		accountID:                 accountID,
 		region:                    region,
@@ -416,6 +431,14 @@ func (b *InMemoryBackend) Reset() {
 	b.mlTransforms = make(map[string]*MLTransform)
 	b.catalogs = make(map[string]*CatalogEntry)
 	b.catalogEncryptionSettings = make(map[string]*DataCatalogEncryptionSettings)
+	b.usageProfiles = make(map[string]*UsageProfile)
+	b.blueprintRuns = make(map[string]*BlueprintRun)
+	b.dqRecommendationRuns = make(map[string]*DQRuleRecommendationRun)
+	b.columnStatTaskSettings = make(map[string]*ColumnStatisticsTaskSettings)
+	b.columnStatTaskRuns = make(map[string]*ColumnStatisticsTaskRun)
+	b.materializedViewRuns = make(map[string]*MaterializedViewRefreshRun)
+	b.integrations = make(map[string]*Integration)
+	b.glueIdentityCenterConfig = nil
 }
 
 // Region returns the backend region.

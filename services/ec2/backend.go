@@ -260,6 +260,16 @@ type InMemoryBackend struct {
 	imageDeregistrationProtection map[string]bool
 	imageAttributes               map[string]map[string]string
 	vgwRoutePropagation           map[string]bool
+	// batch4 additions
+	managedPrefixLists           map[string]*ManagedPrefixList
+	clientVpnEndpoints           map[string]*ClientVpnEndpoint
+	tgwConnects                  map[string]*TransitGatewayConnect
+	tgwConnectPeers              map[string]*TransitGatewayConnectPeer
+	tgwPrefixListRefs            map[string]*TransitGatewayPrefixListReference
+	verifiedAccessEndpoints      map[string]*VerifiedAccessEndpoint
+	verifiedAccessGroups         map[string]*VerifiedAccessGroup
+	verifiedAccessInstances      map[string]*VerifiedAccessInstance
+	verifiedAccessTrustProviders map[string]*VerifiedAccessTrustProvider
 	// batch3 additions
 	instanceConnectEndpoints  map[string]*InstanceConnectEndpoint
 	instanceEventWindows      map[string]*InstanceEventWindow
@@ -289,9 +299,8 @@ type InMemoryBackend struct {
 	serialConsoleAccess       bool
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
-func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	b := &InMemoryBackend{
+func newInMemoryBackendMaps() *InMemoryBackend {
+	return &InMemoryBackend{
 		instances:                      make(map[string]*Instance),
 		securityGroups:                 make(map[string]*SecurityGroup),
 		vpcs:                           make(map[string]*VPC),
@@ -364,6 +373,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		imageDeregistrationProtection:  make(map[string]bool),
 		imageAttributes:                make(map[string]map[string]string),
 		vgwRoutePropagation:            make(map[string]bool),
+		managedPrefixLists:             make(map[string]*ManagedPrefixList),
+		clientVpnEndpoints:             make(map[string]*ClientVpnEndpoint),
+		tgwConnects:                    make(map[string]*TransitGatewayConnect),
+		tgwConnectPeers:                make(map[string]*TransitGatewayConnectPeer),
+		tgwPrefixListRefs:              make(map[string]*TransitGatewayPrefixListReference),
+		verifiedAccessEndpoints:        make(map[string]*VerifiedAccessEndpoint),
+		verifiedAccessGroups:           make(map[string]*VerifiedAccessGroup),
+		verifiedAccessInstances:        make(map[string]*VerifiedAccessInstance),
+		verifiedAccessTrustProviders:   make(map[string]*VerifiedAccessTrustProvider),
 		instanceConnectEndpoints:       make(map[string]*InstanceConnectEndpoint),
 		instanceEventWindows:           make(map[string]*InstanceEventWindow),
 		imageImportTasks:               make(map[string]*ImageImportTask),
@@ -377,11 +395,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),
-		AccountID:                      accountID,
-		Region:                         region,
-		mu:                             lockmetrics.New("ec2"),
 	}
+}
 
+// NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
+func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	b := newInMemoryBackendMaps()
+	b.AccountID = accountID
+	b.Region = region
+	b.mu = lockmetrics.New("ec2")
 	b.initDefaults()
 
 	return b
