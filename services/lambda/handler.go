@@ -3372,7 +3372,7 @@ func (h *Handler) handleListCapacityProviders(c *echo.Context, bk *InMemoryBacke
 func (h *Handler) handleDurableExecRoute(c *echo.Context, path, method string) error {
 	// CheckpointDurableExecution: POST /2025-12-01/durable-executions/{arn}/checkpoint
 	if method == http.MethodPost && strings.HasSuffix(path, "/checkpoint") {
-		return c.JSON(http.StatusOK, &CheckpointDurableExecutionOutput{})
+		return h.handleCheckpointDurableExecution(c, path)
 	}
 
 	// StopDurableExecution: DELETE /2025-12-01/durable-executions/{arn}
@@ -3407,6 +3407,25 @@ func (h *Handler) handleDurableExecRoute(c *echo.Context, path, method string) e
 	}
 
 	return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+}
+
+// handleCheckpointDurableExecution handles POST /2025-12-01/durable-executions/{arn}/checkpoint.
+func (h *Handler) handleCheckpointDurableExecution(c *echo.Context, path string) error {
+	store := durableExecFromBackend(h)
+	if store == nil {
+		return c.JSON(http.StatusOK, &CheckpointDurableExecutionOutput{})
+	}
+
+	executionARN := extractDurableExecARN(path)
+
+	var data map[string]any
+	if body, err := httputils.ReadBody(c.Request()); err == nil && len(body) > 0 {
+		_ = json.Unmarshal(body, &data)
+	}
+
+	_ = store.checkpoint(executionARN, data)
+
+	return c.JSON(http.StatusOK, &CheckpointDurableExecutionOutput{})
 }
 
 // --- Account settings handler ---

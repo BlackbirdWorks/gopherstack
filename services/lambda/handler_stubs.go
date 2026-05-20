@@ -9,6 +9,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
@@ -20,61 +22,176 @@ const contentTypeEventStream = "application/vnd.amazon.eventstream"
 
 // --- Durable Execution stubs ---
 
-// durableExecutionStub is a minimal response for unimplemented durable execution ops.
-type durableExecutionStub struct {
-	ExecutionID string `json:"ExecutionId,omitempty"`
-	Status      string `json:"Status,omitempty"`
+// extractDurableExecARN extracts the execution ARN from a durable execution path.
+// Path format: /2025-12-01/durable-executions/{encodedARN}[/...].
+func extractDurableExecARN(path string) string {
+	rest := strings.TrimPrefix(path, lambdaDurableExecPathPrefix+"/")
+	// Strip any sub-path (e.g. /checkpoint, /history, /state, /callback/...).
+	if idx := strings.Index(rest, "/"); idx >= 0 {
+		rest = rest[:idx]
+	}
+
+	decoded, err := url.PathUnescape(rest)
+	if err != nil {
+		return rest
+	}
+
+	return decoded
 }
 
-// durableExecutionListStub is a minimal list response for durable executions.
-type durableExecutionListStub struct {
-	DurableExecutions []durableExecutionStub `json:"DurableExecutions"`
+// extractDurableExecFunctionARN extracts an optional FunctionArn from the query string.
+func extractDurableExecFunctionARN(c *echo.Context) string {
+	return c.Request().URL.Query().Get("FunctionArn")
 }
 
-// handleGetDurableExecution returns a stub 404 (execution not found).
+// durableExecFromBackend returns the durableExecutionStore from the backend, or nil.
+func durableExecFromBackend(h *Handler) *durableExecutionStore {
+	bk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return nil
+	}
+
+	return bk.durableExecs
+}
+
+// handleGetDurableExecution returns the durable execution for the given ARN.
 func (h *Handler) handleGetDurableExecution(c *echo.Context) error {
-	return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "durable execution not found")
+	store := durableExecFromBackend(h)
+	if store == nil {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	arn := extractDurableExecARN(c.Request().URL.Path)
+	ex := store.get(arn)
+
+	if ex == nil {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "durable execution not found: "+arn)
+	}
+
+	return c.JSON(http.StatusOK, ex)
 }
 
-// handleGetDurableExecutionHistory returns an empty history stub.
+// handleGetDurableExecutionHistory returns the event history for the given execution.
 func (h *Handler) handleGetDurableExecutionHistory(c *echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]any{"Events": []any{}})
+	store := durableExecFromBackend(h)
+	if store == nil {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	arn := extractDurableExecARN(c.Request().URL.Path)
+	ex := store.get(arn)
+
+	if ex == nil {
+		return c.JSON(http.StatusOK, map[string]any{"Events": []any{}})
+	}
+
+	events := ex.History
+	if events == nil {
+		events = []DurableExecutionEvent{}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Events": events})
 }
 
-// handleGetDurableExecutionState returns a stub 404.
+// handleGetDurableExecutionState returns the state of the given execution.
 func (h *Handler) handleGetDurableExecutionState(c *echo.Context) error {
-	return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "durable execution not found")
+	store := durableExecFromBackend(h)
+	if store == nil {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	arn := extractDurableExecARN(c.Request().URL.Path)
+	ex := store.get(arn)
+
+	if ex == nil {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "durable execution not found: "+arn)
+	}
+
+	return c.JSON(http.StatusOK, &DurableExecutionState{
+		ExecutionARN: ex.ExecutionARN,
+		Status:       ex.Status,
+		StateData:    ex.CheckpointData,
+	})
 }
 
-// handleListDurableExecutionsByFunction returns an empty list stub.
+// handleListDurableExecutionsByFunction returns executions for the function in the query.
 func (h *Handler) handleListDurableExecutionsByFunction(c *echo.Context) error {
-	return c.JSON(http.StatusOK, &durableExecutionListStub{DurableExecutions: []durableExecutionStub{}})
+	store := durableExecFromBackend(h)
+	if store == nil {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	functionARN := extractDurableExecFunctionARN(c)
+	executions := store.listByFunction(functionARN)
+
+	if executions == nil {
+		executions = []*DurableExecution{}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"DurableExecutions": executions})
 }
 
-// handleSendDurableExecutionCallbackFailure accepts a callback failure (stub).
+// handleSendDurableExecutionCallbackFailure records a callback failure.
 func (h *Handler) handleSendDurableExecutionCallbackFailure(c *echo.Context) error {
-	c.Response().WriteHeader(http.StatusOK)
+	store := durableExecFromBackend(h)
+	if store == nil {
+		c.Response().WriteHeader(http.StatusOK)
 
-	return nil
+		return nil
+	}
+
+	arn := extractDurableExecARN(c.Request().URL.Path)
+	_, _ = store.sendCallback(arn, "CallbackFailure")
+
+	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-// handleSendDurableExecutionCallbackHeartbeat accepts a callback heartbeat (stub).
+// handleSendDurableExecutionCallbackHeartbeat records a heartbeat callback.
 func (h *Handler) handleSendDurableExecutionCallbackHeartbeat(c *echo.Context) error {
-	c.Response().WriteHeader(http.StatusOK)
+	store := durableExecFromBackend(h)
+	if store == nil {
+		c.Response().WriteHeader(http.StatusOK)
 
-	return nil
+		return nil
+	}
+
+	arn := extractDurableExecARN(c.Request().URL.Path)
+	_, _ = store.sendCallback(arn, "CallbackHeartbeat")
+
+	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-// handleSendDurableExecutionCallbackSuccess accepts a callback success (stub).
+// handleSendDurableExecutionCallbackSuccess records a success callback.
 func (h *Handler) handleSendDurableExecutionCallbackSuccess(c *echo.Context) error {
-	c.Response().WriteHeader(http.StatusOK)
+	store := durableExecFromBackend(h)
+	if store == nil {
+		c.Response().WriteHeader(http.StatusOK)
 
-	return nil
+		return nil
+	}
+
+	arn := extractDurableExecARN(c.Request().URL.Path)
+	_, _ = store.sendCallback(arn, "CallbackSuccess")
+
+	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-// handleStopDurableExecution accepts a stop request (stub).
+// handleStopDurableExecution marks the execution as stopped.
 func (h *Handler) handleStopDurableExecution(c *echo.Context) error {
-	return c.JSON(http.StatusOK, &durableExecutionStub{Status: "STOPPED"})
+	store := durableExecFromBackend(h)
+	if store == nil {
+		return c.JSON(http.StatusOK, map[string]any{"Status": string(DurableExecutionStatusStopped)})
+	}
+
+	arn := extractDurableExecARN(c.Request().URL.Path)
+	ex, err := store.stop(arn)
+
+	if err != nil {
+		// If not found, stop is a no-op — return a synthetic stopped response.
+		return c.JSON(http.StatusOK, map[string]any{"Status": string(DurableExecutionStatusStopped)})
+	}
+
+	return c.JSON(http.StatusOK, ex)
 }
 
 // --- ListFunctionVersionsByCapacityProvider stub ---
