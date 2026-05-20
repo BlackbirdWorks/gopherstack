@@ -1100,14 +1100,14 @@ func (b *InMemoryBackend) DeleteBillingGroup(name string) error {
 // ---------------------------------------------------------------------------
 
 // ScheduledAudit represents an IoT scheduled audit.
-type ScheduledAudit struct { //nolint:govet // JSON field order matters
+type ScheduledAudit struct {
 	Tags               map[string]string `json:"tags,omitempty"`
-	TargetCheckNames   []string          `json:"targetCheckNames,omitempty"`
 	ScheduledAuditName string            `json:"scheduledAuditName"`
 	ScheduledAuditARN  string            `json:"scheduledAuditArn"`
 	Frequency          string            `json:"frequency"`
 	DayOfMonth         string            `json:"dayOfMonth,omitempty"`
 	DayOfWeek          string            `json:"dayOfWeek,omitempty"`
+	TargetCheckNames   []string          `json:"targetCheckNames,omitempty"`
 }
 
 func cloneScheduledAudit(sa *ScheduledAudit) *ScheduledAudit {
@@ -1122,13 +1122,13 @@ func (b *InMemoryBackend) scheduledAuditARN(name string) string {
 }
 
 // CreateScheduledAuditInput holds input for CreateScheduledAudit.
-type CreateScheduledAuditInput struct { //nolint:govet // JSON field order matters
+type CreateScheduledAuditInput struct {
 	Tags               map[string]string `json:"tags,omitempty"`
-	TargetCheckNames   []string          `json:"targetCheckNames,omitempty"`
 	ScheduledAuditName string            `json:"scheduledAuditName"`
 	Frequency          string            `json:"frequency"`
 	DayOfMonth         string            `json:"dayOfMonth,omitempty"`
 	DayOfWeek          string            `json:"dayOfWeek,omitempty"`
+	TargetCheckNames   []string          `json:"targetCheckNames,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateScheduledAudit(

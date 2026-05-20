@@ -247,8 +247,10 @@ type ThingGroup struct {
 	ThingGroupID    string            `json:"thingGroupId"`
 	Description     string            `json:"description,omitempty"`
 	ParentGroupName string            `json:"parentGroupName,omitempty"`
+	QueryString     string            `json:"queryString,omitempty"`
 	Members         []string          `json:"members"`
 	Version         int64             `json:"version"`
+	IsDynamic       bool              `json:"isDynamic,omitempty"`
 }
 
 // Certificate represents an AWS IoT Certificate.
@@ -311,6 +313,7 @@ type CreateThingGroupInput struct {
 	ThingGroupName  string
 	ParentGroupName string
 	Description     string
+	QueryString     string
 }
 
 // UpdateThingGroupInput is the input for UpdateThingGroup.
@@ -318,6 +321,7 @@ type UpdateThingGroupInput struct {
 	Attributes      map[string]string
 	ThingGroupName  string
 	Description     string
+	QueryString     string
 	ExpectedVersion int64
 }
 
