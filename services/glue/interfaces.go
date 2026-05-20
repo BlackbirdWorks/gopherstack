@@ -325,7 +325,10 @@ type StorageBackend interface {
 	ListDataQualityRuleRecommendationRuns() []*DQRuleRecommendationRun
 
 	// ColumnStatisticsTask operations.
-	CreateColumnStatisticsTaskSettings(dbName, tableName, roleArn string, columns []string) (*ColumnStatisticsTaskSettings, error)
+	CreateColumnStatisticsTaskSettings(
+		dbName, tableName, roleArn string,
+		columns []string,
+	) (*ColumnStatisticsTaskSettings, error)
 	GetColumnStatisticsTaskSettings(dbName, tableName string) (*ColumnStatisticsTaskSettings, error)
 	UpdateColumnStatisticsTaskSettings(dbName, tableName, roleArn string) error
 	DeleteColumnStatisticsTaskSettings(dbName, tableName string) error
