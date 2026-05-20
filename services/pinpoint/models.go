@@ -22,6 +22,7 @@ type Campaign struct {
 	CreationDate     string            `json:"CreationDate,omitempty"`
 	LastModifiedDate string            `json:"LastModifiedDate,omitempty"`
 	SegmentVersion   int               `json:"SegmentVersion,omitempty"`
+	Version          int               `json:"Version,omitempty"`
 }
 
 // EmailTemplate represents a Pinpoint email template.
@@ -106,6 +107,7 @@ type Segment struct {
 	Name          string            `json:"Name"`
 	CreationDate  string            `json:"CreationDate,omitempty"`
 	SegmentType   string            `json:"SegmentType"`
+	Version       int               `json:"Version,omitempty"`
 }
 
 // SmsTemplate represents a Pinpoint SMS template.
@@ -715,4 +717,10 @@ type segmentVersionsResponse struct {
 type messageBodyResponse struct {
 	Message string `json:"Message"`
 	ARN     string `json:"Arn,omitempty"`
+}
+
+// storedPinpointEvent is a single persisted event from PutEvents.
+type storedPinpointEvent struct {
+	EventType string `json:"EventType"`
+	Timestamp string `json:"Timestamp"`
 }

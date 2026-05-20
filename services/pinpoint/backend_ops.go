@@ -116,6 +116,12 @@ func (b *InMemoryBackend) CreateVoiceTemplate(
 
 	b.voiceTemplates[templateName] = t
 
+	// Track template version history.
+	versionKey := templateName + "/VOICE"
+	b.templateVersionHistory[versionKey] = []templateVersionItem{
+		{TemplateName: templateName, TemplateType: "VOICE", TemplateVersion: "1"},
+	}
+
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
 
@@ -308,6 +314,11 @@ func (b *InMemoryBackend) UpdateCampaign(appID, campaignID string, req updateCam
 	}
 
 	c.LastModifiedDate = nowRFC3339()
+	c.Version++
+
+	// Track campaign version history.
+	versionKey := appID + "/" + campaignID
+	b.campaignVersions[versionKey] = append(b.campaignVersions[versionKey], cloneCampaign(c))
 
 	return cloneCampaign(c), nil
 }
@@ -382,6 +393,12 @@ func (b *InMemoryBackend) UpdateSegment(appID, segmentID string, req updateSegme
 	if req.Name != "" {
 		s.Name = req.Name
 	}
+
+	s.Version++
+
+	// Track segment version history.
+	versionKey := appID + "/" + segmentID
+	b.segmentVersions[versionKey] = append(b.segmentVersions[versionKey], cloneSegment(s))
 
 	return cloneSegment(s), nil
 }
@@ -474,6 +491,17 @@ func (b *InMemoryBackend) UpdateJourneyState(appID, journeyID, state string) (*J
 
 	j.State = state
 	j.LastModifiedDate = nowRFC3339()
+
+	// When activating, create a journey run record.
+	if state == "ACTIVE" {
+		runKey := appID + "/" + journeyID
+		b.journeyRuns[runKey] = append(b.journeyRuns[runKey], &journeyRun{
+			RunID:         uuid.NewString(),
+			JourneyID:     journeyID,
+			ApplicationID: appID,
+			Status:        "SCHEDULED",
+		})
+	}
 
 	return cloneJourney(j), nil
 }
