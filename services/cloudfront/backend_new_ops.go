@@ -120,13 +120,13 @@ func (b *InMemoryBackend) DeleteTrustStore(id string) error {
 // ---------------------------------------------------------------------------
 
 // StreamingDistribution represents a CloudFront RTMP streaming distribution.
-type StreamingDistribution struct { //nolint:govet // JSON field order matters
-	RawConfig  []byte `json:"rawConfig,omitempty"`
+type StreamingDistribution struct {
 	ID         string `json:"id"`
 	ARN        string `json:"arn"`
 	DomainName string `json:"domainName"`
 	Status     string `json:"status"`
 	ETag       string `json:"etag"`
+	RawConfig  []byte `json:"rawConfig,omitempty"`
 }
 
 func (b *InMemoryBackend) streamingDistributionARN(id string) string {
