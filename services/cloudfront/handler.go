@@ -1745,7 +1745,7 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 	case opDescribeKeyValueStore:
 		return h.handleGetKeyValueStore(c, resource)
 	case opUpdateKeyValueStore:
-		return h.handleGetKeyValueStore(c, resource)
+		return h.handleUpdateKeyValueStore(c, resource)
 	case opDeleteKeyValueStore:
 		return h.handleDeleteKeyValueStore(c, resource)
 	case opGetVpcOrigin:
@@ -1913,33 +1913,30 @@ func (h *Handler) dispatchStubsDistributions(c *echo.Context, hlp cfStubHelpers,
 }
 
 // dispatchStubsDistributionTenant handles distribution tenant and web ACL stubs.
-func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	noContent, emptyList, created := hlp.noContent, hlp.emptyList, hlp.created
-	_ = noContent
+func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, _ cfStubHelpers, operation string) error {
+	path := c.Request().URL.Path
 
 	switch operation {
 	case opCreateDistributionTenant:
-		return created("DistributionTenant", "tenant-stub")
+		return h.handleCreateDistributionTenant(c)
 	case opCreateDistributionWithTags:
-		return created("Distribution", "dist-stub")
+		return h.handleCreateDistributionWithTags(c)
 	case opUpdateDistributionTenant:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><DistributionTenant xmlns="`+cfNS+`"/>`)
+		return h.handleUpdateDistributionTenant(c, extractResourceID(path, "distribution-tenant/"))
 	case opDeleteDistributionTenant:
-		return noContent()
-	case opGetDistributionTenant, opGetDistributionTenantByDomain:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><DistributionTenant xmlns="`+cfNS+`"/>`)
+		return h.handleDeleteDistributionTenant(c, extractResourceID(path, "distribution-tenant/"))
+	case opGetDistributionTenant:
+		return h.handleGetDistributionTenant(c, extractResourceID(path, "distribution-tenant/"))
+	case opGetDistributionTenantByDomain:
+		return h.handleGetDistributionTenantByDomain(c)
 	case opListDistributionTenants, opListDistributionTenantsByCustom:
-		return emptyList("DistributionTenantList")
+		return h.handleListDistributionTenants(c)
 	case opUpdateDistributionWithStagingConfig:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><Distribution xmlns="`+cfNS+`"/>`)
+		return h.handleUpdateDistributionWithStagingConfig(c, extractResourceID(path, "distribution/"))
 	case opUpdateDomainAssociation:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><DomainAssociation xmlns="`+cfNS+`"/>`)
+		return h.handleUpdateDomainAssociation(c, extractResourceID(path, "distribution/"))
 	case opVerifyDNSConfiguration:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><VerifyDnsConfigurationResponse xmlns="`+cfNS+`"/>`,
-		)
+		return h.handleVerifyDNSConfiguration(c)
 	}
 
 	return errNotDispatched
@@ -1960,8 +1957,20 @@ func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, _ cfStubH
 		distID := extractMonitoringDistID(c.Request().URL.Path)
 
 		return h.handleDeleteMonitoringSubscription(c, distID)
-	case opDisassociateDistributionWebACL, opDisassociateDistributionTenantWebACL:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><Distribution xmlns="`+cfNS+`"/>`)
+	case opDisassociateDistributionWebACL:
+		distID := strings.TrimSuffix(
+			strings.TrimPrefix(c.Request().URL.Path, cfPathPrefix+"distribution/"),
+			"/disassociate-web-acl",
+		)
+
+		return h.handleDisassociateDistributionWebACL(c, distID)
+	case opDisassociateDistributionTenantWebACL:
+		tenantID := strings.TrimSuffix(
+			strings.TrimPrefix(c.Request().URL.Path, cfPathPrefix+"distribution-tenant/"),
+			"/disassociate-web-acl",
+		)
+
+		return h.handleDisassociateDistributionTenantWebACL(c, tenantID)
 	case opCreateStreamingDistribution:
 		return h.handleCreateStreamingDistribution(c)
 	case opCreateStreamingDistributionWithTags:
@@ -2096,8 +2105,15 @@ func (h *Handler) dispatchStubsConnectionGroupAndCDP(
 
 // dispatchStubsResourcePolicyAndMisc handles distribution list, invalidation, and managed certificate stubs.
 func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	noContent, emptyList, created, getStub := hlp.noContent, hlp.emptyList, hlp.created, hlp.getStub
-	_ = noContent
+	if err := h.dispatchStubsDistributionListBy(c, operation); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchStubsTenantAndCerts(c, hlp, operation)
+}
+
+// dispatchStubsDistributionListBy handles the ListDistributionsBy-* operations.
+func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation string) error {
 	path := c.Request().URL.Path
 
 	switch operation {
@@ -2120,28 +2136,48 @@ func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, hlp cfStub
 			c,
 			extractResourceID(path, "distributionsByRealtimeLogConfig/"),
 		)
-	case opListDistributionsByKeyGroup, opListDistributionsByVpcOriginID,
-		opListDistributionsByAnycastIPListID, opListDistributionsByConnectionFunction,
-		opListDistributionsByConnectionMode, opListDistributionsByTrustStore,
-		opListDistributionsByOwnedResource:
-
-		return emptyList("DistributionList")
-	case opListConflictingAliases:
-		return emptyList("ConflictingAliasesList")
-	case opListDomainConflicts:
-		return emptyList("DomainConflictList")
-	case opCreateInvalidationForDistTenant:
-		return created("Invalidation", "inv-stub")
-	case opGetInvalidationForDistTenant:
-		return getStub("Invalidation", "inv-stub")
-	case opListInvalidationsForDistTenant:
-		return emptyList("InvalidationList")
-	case opGetManagedCertificateDetails:
-		return xmlResp(
+	case opListDistributionsByKeyGroup:
+		return h.handleListDistributionsByKeyGroup(c, extractResourceID(path, "distributions/by-key-group/"))
+	case opListDistributionsByVpcOriginID:
+		return h.handleListDistributionsByVpcOriginID(c, extractResourceID(path, "distributions/by-vpc-origin-id/"))
+	case opListDistributionsByAnycastIPListID:
+		return h.handleListDistributionsByAnycastIPListID(
 			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><ManagedCertificateDetails xmlns="`+cfNS+`"/>`,
+			extractResourceID(path, "distributions/by-anycast-ip-list-id/"),
 		)
+	case opListDistributionsByConnectionFunction:
+		return h.handleListDistributionsByConnectionFunction(
+			c,
+			extractResourceID(path, "distributions/by-connection-function/"),
+		)
+	case opListDistributionsByConnectionMode:
+		return h.handleListDistributionsByConnectionMode(c, c.Request().URL.Query().Get("ConnectionMode"))
+	case opListDistributionsByTrustStore:
+		return h.handleListDistributionsByTrustStore(c, extractResourceID(path, "trust-store/"))
+	case opListDistributionsByOwnedResource:
+		return h.handleListDistributionsByOwnedResource(c, c.Request().URL.Query().Get("ResourceArn"))
+	case opListConflictingAliases:
+		return h.handleListConflictingAliases(c)
+	case opListDomainConflicts:
+		return h.handleListDomainConflicts(c)
+	}
+
+	return errNotDispatched
+}
+
+// dispatchStubsTenantAndCerts handles tenant invalidation and managed certificate stubs.
+func (h *Handler) dispatchStubsTenantAndCerts(c *echo.Context, _ cfStubHelpers, operation string) error {
+	path := c.Request().URL.Path
+
+	switch operation {
+	case opCreateInvalidationForDistTenant:
+		return h.handleCreateInvalidationForTenant(c, extractResourceID(path, "distribution-tenant/"))
+	case opGetInvalidationForDistTenant:
+		return h.handleGetInvalidationForTenant(c, extractResourceID(path, "distribution-tenant/"))
+	case opListInvalidationsForDistTenant:
+		return h.handleListInvalidationsForTenant(c, extractResourceID(path, "distribution-tenant/"))
+	case opGetManagedCertificateDetails:
+		return h.handleGetManagedCertificateDetails(c, extractResourceID(path, "distribution-tenant/"))
 	default:
 
 		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchOperation", "unknown operation: "+operation))
@@ -2207,6 +2243,8 @@ func notFoundCodeExtended(err error) (string, bool) {
 		return "EntityNotFound", true
 	case errors.Is(err, ErrVpcOriginNotFound):
 		return "NoSuchVpcOrigin", true
+	case errors.Is(err, ErrDistributionTenantNotFound):
+		return "NoSuchDistributionTenant", true
 	}
 
 	return "", false
