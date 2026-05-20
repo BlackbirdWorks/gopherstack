@@ -1107,11 +1107,11 @@ func (h *Handler) dispatchBucketSubResourceStubs(c *echo.Context, path, method s
 	if isPrefixSuffix(pathBucketPrefix, path, "/replication") {
 		switch method {
 		case http.MethodGet:
-			return true, h.handleStub(c, "GetBucketReplication")
+			return true, h.handleGetBucketReplication(c)
 		case http.MethodPut:
-			return true, h.handleStub(c, "PutBucketReplication")
+			return true, h.handlePutBucketReplication(c)
 		case http.MethodDelete:
-			return true, h.handleStub(c, "DeleteBucketReplication")
+			return true, h.handleDeleteBucketReplication(c)
 		}
 
 		return false, nil
@@ -1260,7 +1260,7 @@ func (h *Handler) dispatchMRAPInstanceDispatch(c *echo.Context, path, method str
 	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/routes") && method == http.MethodGet:
 		return true, h.handleGetMultiRegionAccessPointRoutes(c)
 	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/routes") && method == http.MethodPatch:
-		return true, h.handleStub(c, "SubmitMultiRegionAccessPointRoutes")
+		return true, h.handleSubmitMultiRegionAccessPointRoutes(c)
 	}
 
 	return false, nil
@@ -1289,11 +1289,11 @@ func (h *Handler) dispatchStorageLensConfigDispatch(c *echo.Context, path, metho
 	if isSimplePath(pathStorageLensPrefix, path) {
 		switch method {
 		case http.MethodGet:
-			return true, h.handleStub(c, "GetStorageLensConfiguration")
+			return true, h.handleGetStorageLensConfiguration(c)
 		case http.MethodPut:
-			return true, h.handleStub(c, "PutStorageLensConfiguration")
+			return true, h.handlePutStorageLensConfiguration(c)
 		case http.MethodDelete:
-			return true, h.handleStub(c, "DeleteStorageLensConfiguration")
+			return true, h.handleDeleteStorageLensConfiguration(c)
 		}
 
 		return false, nil
@@ -1302,18 +1302,18 @@ func (h *Handler) dispatchStorageLensConfigDispatch(c *echo.Context, path, metho
 	if isPrefixSuffix(pathStorageLensPrefix, path, "/tagging") {
 		switch method {
 		case http.MethodGet:
-			return true, h.handleStub(c, "GetStorageLensConfigurationTagging")
+			return true, h.handleGetStorageLensConfigurationTagging(c)
 		case http.MethodPut:
-			return true, h.handleStub(c, "PutStorageLensConfigurationTagging")
+			return true, h.handlePutStorageLensConfigurationTagging(c)
 		case http.MethodDelete:
-			return true, h.handleStub(c, "DeleteStorageLensConfigurationTagging")
+			return true, h.handleDeleteStorageLensConfigurationTagging(c)
 		}
 
 		return false, nil
 	}
 
 	if path == pathStorageLensList && method == http.MethodGet {
-		return true, h.handleStub(c, "ListStorageLensConfigurations")
+		return true, h.handleListStorageLensConfigurations(c)
 	}
 
 	return false, nil
@@ -1326,17 +1326,17 @@ func (h *Handler) dispatchStorageLensGroupDispatch(c *echo.Context, path, method
 		case http.MethodPost:
 			return true, h.handleCreateStorageLensGroup(c)
 		case http.MethodGet:
-			return true, h.handleStub(c, "ListStorageLensGroups")
+			return true, h.handleListStorageLensGroups(c)
 		}
 	}
 
 	switch {
 	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodGet:
-		return true, h.handleStub(c, "GetStorageLensGroup")
+		return true, h.handleGetStorageLensGroup(c)
 	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodPut:
-		return true, h.handleStub(c, "UpdateStorageLensGroup")
+		return true, h.handleUpdateStorageLensGroup(c)
 	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodDelete:
-		return true, h.handleStub(c, "DeleteStorageLensGroup")
+		return true, h.handleDeleteStorageLensGroup(c)
 	}
 
 	return false, nil
@@ -1346,11 +1346,11 @@ func (h *Handler) dispatchStorageLensGroupDispatch(c *echo.Context, path, method
 func (h *Handler) dispatchTagDispatch(c *echo.Context, path, method string) error {
 	switch {
 	case strings.HasPrefix(path, pathTagsPrefix) && method == http.MethodGet:
-		return h.handleStub(c, "ListTagsForResource")
+		return h.handleListTagsForResource(c)
 	case strings.HasPrefix(path, pathTagsPrefix) && method == http.MethodPost:
-		return h.handleStub(c, "TagResource")
+		return h.handleTagResource(c)
 	case strings.HasPrefix(path, pathTagsPrefix) && method == http.MethodDelete:
-		return h.handleStub(c, "UntagResource")
+		return h.handleUntagResource(c)
 	}
 
 	return c.String(http.StatusNotFound, "not found")
@@ -1399,12 +1399,6 @@ func writeXML(c *echo.Context, v any) error {
 	}
 
 	return c.Blob(http.StatusOK, "application/xml", append([]byte(xml.Header), data...))
-}
-
-// handleStub returns 501 Not Implemented for operations that are stubbed.
-// The operation name is included in the response body for debugging.
-func (h *Handler) handleStub(c *echo.Context, operation string) error {
-	return c.String(http.StatusNotImplemented, operation+" not implemented")
 }
 
 // --- public access block handlers ---

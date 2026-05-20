@@ -19,7 +19,12 @@ type backendSnapshot struct {
 	MRAPRequests             map[string]*MultiRegionAccessPointRequest `json:"mrapRequests"`
 	MRAPs                    map[string]*MultiRegionAccessPoint        `json:"mraps"`
 	StorageLensGroups        map[string]*StorageLensGroup              `json:"storageLensGroups"`
-	NextID                   int64                                     `json:"nextID"`
+	// batch2 additions
+	BucketReplication     map[string]string            `json:"bucketReplication"`
+	StorageLensConfigs    map[string]string            `json:"storageLensConfigs"`
+	StorageLensConfigTags map[string]TagSet            `json:"storageLensConfigTags"`
+	ResourceTags          map[string]map[string]string `json:"resourceTags"`
+	NextID                int64                        `json:"nextID"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -41,6 +46,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		MRAPRequests:             cloneMapMRAP(b.mrapRequests),
 		MRAPs:                    cloneMapMRAPObj(b.mraps),
 		StorageLensGroups:        cloneMapSLG(b.storageLensGroups),
+		BucketReplication:        cloneMapStr(b.bucketReplication),
+		StorageLensConfigs:       cloneMapStr(b.storageLensConfigs),
+		StorageLensConfigTags:    cloneMapTagSet(b.storageLensConfigTags),
+		ResourceTags:             cloneMapResourceTags(b.resourceTags),
 		NextID:                   b.nextID,
 	}
 
@@ -171,7 +180,34 @@ func cloneMapSLG(m map[string]*StorageLensGroup) map[string]*StorageLensGroup {
 	return out
 }
 
+func cloneMapTagSet(m map[string]TagSet) map[string]TagSet {
+	out := make(map[string]TagSet, len(m))
+	for k, v := range m {
+		cp := make(TagSet, len(v))
+		maps.Copy(cp, v)
+		out[k] = cp
+	}
+
+	return out
+}
+
+func cloneMapResourceTags(m map[string]map[string]string) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(m))
+	for k, v := range m {
+		cp := make(map[string]string, len(v))
+		maps.Copy(cp, v)
+		out[k] = cp
+	}
+
+	return out
+}
+
 func ensureNonNilMaps(snap *backendSnapshot) {
+	ensureNonNilMapsBatch1(snap)
+	ensureNonNilMapsBatch2(snap)
+}
+
+func ensureNonNilMapsBatch1(snap *backendSnapshot) {
 	if snap.Configs == nil {
 		snap.Configs = make(map[string]*PublicAccessBlock)
 	}
@@ -221,6 +257,24 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	}
 }
 
+func ensureNonNilMapsBatch2(snap *backendSnapshot) {
+	if snap.BucketReplication == nil {
+		snap.BucketReplication = make(map[string]string)
+	}
+
+	if snap.StorageLensConfigs == nil {
+		snap.StorageLensConfigs = make(map[string]string)
+	}
+
+	if snap.StorageLensConfigTags == nil {
+		snap.StorageLensConfigTags = make(map[string]TagSet)
+	}
+
+	if snap.ResourceTags == nil {
+		snap.ResourceTags = make(map[string]map[string]string)
+	}
+}
+
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Restore(data []byte) error {
@@ -247,6 +301,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mrapRequests = snap.MRAPRequests
 	b.mraps = snap.MRAPs
 	b.storageLensGroups = snap.StorageLensGroups
+	b.bucketReplication = snap.BucketReplication
+	b.storageLensConfigs = snap.StorageLensConfigs
+	b.storageLensConfigTags = snap.StorageLensConfigTags
+	b.resourceTags = snap.ResourceTags
 	b.nextID = snap.NextID
 
 	return nil
