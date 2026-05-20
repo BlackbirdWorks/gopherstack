@@ -338,7 +338,7 @@ type InMemoryBackend struct {
 	columnStatTaskRuns        map[string]*ColumnStatisticsTaskRun       // key: runID
 	materializedViewRuns      map[string]*MaterializedViewRefreshRun    // key: taskRunID
 	integrations              map[string]*Integration                   // key: integrationName
-	glueIdentityCenterConfig  *GlueIdentityCenterConfig
+	glueIdentityCenterConfig  *IdentityCenterConfig
 	mu                        *lockmetrics.RWMutex
 	accountID                 string
 	region                    string

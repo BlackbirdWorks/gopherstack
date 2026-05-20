@@ -9,6 +9,7 @@ import (
 
 // awserrFromDetail converts an ErrorDetail to an error wrapping ErrNotFound.
 func awserrFromDetail(d ErrorDetail) error {
+
 	return awserr.New(d.ErrorCode+": "+d.ErrorMessage, awserr.ErrNotFound)
 }
 
@@ -67,10 +68,12 @@ func (h *Handler) handleBatchGetPartition(
 	in *batchGetPartitionInput,
 ) (*batchGetPartitionOutput, error) {
 	if in.DatabaseName == "" || in.TableName == "" {
+
 		return nil, fmt.Errorf("%w: DatabaseName and TableName are required", ErrValidation)
 	}
 
 	if _, err := h.Backend.GetTable(in.DatabaseName, in.TableName); err != nil {
+
 		return nil, err
 	}
 
@@ -155,6 +158,7 @@ func (h *Handler) handleBatchPutDataQualityStatisticAnnotation(
 	_ context.Context,
 	_ *batchPutDataQualityStatisticAnnotationInput,
 ) (*batchPutDataQualityStatisticAnnotationOutput, error) {
+
 	return &batchPutDataQualityStatisticAnnotationOutput{FailedEntries: []any{}}, nil
 }
 
@@ -216,6 +220,7 @@ func (h *Handler) handleCancelDataQualityRuleRecommendationRun(
 	in *cancelDataQualityRuleRecommendationRunInput,
 ) (*emptyOutput, error) {
 	_ = h.Backend.CancelDataQualityRuleRecommendationRun(in.RunID)
+
 	return &emptyOutput{}, nil
 }
 
@@ -226,6 +231,7 @@ func (h *Handler) handleCancelMLTaskRun(
 	_ context.Context,
 	_ *cancelMLTaskRunInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -239,6 +245,7 @@ func (h *Handler) handleCancelStatement(
 	_ context.Context,
 	in *cancelStatementInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.CancelStatement(in.SessionID, in.StatementID)
 }
 
@@ -255,6 +262,7 @@ func (h *Handler) handleCheckSchemaVersionValidity(
 	_ context.Context,
 	_ *checkSchemaVersionValidityInput,
 ) (*checkSchemaVersionValidityOutput, error) {
+
 	return &checkSchemaVersionValidityOutput{Valid: true}, nil
 }
 
@@ -273,25 +281,28 @@ func (h *Handler) handleCreateBlueprint(
 	in *createBlueprintInput,
 ) (*createBlueprintOutput, error) {
 	if err := h.Backend.CreateBlueprint(in.Name); err != nil {
+
 		return nil, err
 	}
+
 	return &createBlueprintOutput{Name: in.Name}, nil
 }
 
 // createCatalogInput holds input for CreateCatalog.
-type createCatalogInput struct { //nolint:govet // JSON field order matters
-	CatalogID    string   `json:"CatalogId"`
-	CatalogInput struct { //nolint:govet // JSON field order matters
+type createCatalogInput struct {
+	CatalogInput struct {
 		Name        string            `json:"Name,omitempty"`
 		Description string            `json:"Description,omitempty"`
 		Parameters  map[string]string `json:"Parameters,omitzero"`
 	} `json:"CatalogInput"`
+	CatalogID string `json:"CatalogId"`
 }
 
 func (h *Handler) handleCreateCatalog(
 	_ context.Context,
 	in *createCatalogInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.CreateCatalog(
 		in.CatalogID,
 		in.CatalogInput.Name,
@@ -319,6 +330,7 @@ func (h *Handler) handleCreateClassifier(
 		CsvClassifier:  in.CsvClassifier,
 	}
 	if err := h.Backend.CreateClassifier(c); err != nil {
+
 		return nil, err
 	}
 
@@ -332,6 +344,7 @@ func (h *Handler) handleCreateColumnStatisticsTaskSettings(
 	_ context.Context,
 	_ *createColumnStatisticsTaskSettingsInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -350,6 +363,7 @@ func (h *Handler) handleCreateCustomEntityType(
 	in *createCustomEntityTypeInput,
 ) (*createCustomEntityTypeOutput, error) {
 	_, _ = h.Backend.CreateCustomEntityType(in.Name, "", nil)
+
 	return &createCustomEntityTypeOutput{Name: in.Name}, nil
 }
 
@@ -370,20 +384,22 @@ func (h *Handler) handleCreateDevEndpoint(
 ) (*createDevEndpointOutput, error) {
 	dep, err := h.Backend.CreateDevEndpoint(in.EndpointName)
 	if err != nil {
+
 		return nil, err
 	}
 
 	return &createDevEndpointOutput{EndpointName: dep.EndpointName, Status: dep.Status}, nil
 }
 
-// createGlueIdentityCenterConfigurationInput holds input for CreateGlueIdentityCenterConfiguration.
-type createGlueIdentityCenterConfigurationInput struct{}
+// createIdentityCenterConfigurationInput holds input for CreateIdentityCenterConfiguration.
+type createIdentityCenterConfigurationInput struct{}
 
-func (h *Handler) handleCreateGlueIdentityCenterConfiguration(
+func (h *Handler) handleCreateIdentityCenterConfiguration(
 	_ context.Context,
-	_ *createGlueIdentityCenterConfigurationInput,
+	_ *createIdentityCenterConfigurationInput,
 ) (*emptyOutput, error) {
-	_ = h.Backend.CreateGlueIdentityCenterConfiguration("")
+	_ = h.Backend.CreateIdentityCenterConfiguration("")
+
 	return &emptyOutput{}, nil
 }
 
@@ -402,6 +418,7 @@ func (h *Handler) handleCreateIntegration(
 	in *createIntegrationInput,
 ) (*createIntegrationOutput, error) {
 	_, _ = h.Backend.CreateIntegration(in.IntegrationName, nil)
+
 	return &createIntegrationOutput{IntegrationName: in.IntegrationName}, nil
 }
 
@@ -412,6 +429,7 @@ func (h *Handler) handleCreateIntegrationResourceProperty(
 	_ context.Context,
 	_ *createIntegrationResourcePropertyInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -422,17 +440,18 @@ func (h *Handler) handleCreateIntegrationTableProperties(
 	_ context.Context,
 	_ *createIntegrationTablePropertiesInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
 // createMLTransformInput holds input for CreateMLTransform.
-type createMLTransformInput struct { //nolint:govet // JSON field order matters
-	Tags              map[string]string    `json:"Tags,omitempty"`
-	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
+type createMLTransformInput struct {
 	Parameters        MLTransformParameter `json:"Parameters,omitzero"`
+	Tags              map[string]string    `json:"Tags,omitempty"`
 	Name              string               `json:"Name"`
 	Description       string               `json:"Description,omitempty"`
 	Role              string               `json:"Role,omitempty"`
+	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
 }
 
 // createMLTransformOutput holds the result for CreateMLTransform.
@@ -453,6 +472,7 @@ func (h *Handler) handleCreateMLTransform(
 		in.Tags,
 	)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -476,6 +496,7 @@ func (h *Handler) handleCreatePartition(
 		[]PartitionInput{in.PartitionInput},
 	)
 	if len(errs) > 0 {
+
 		return nil, awserrFromDetail(errs[0].ErrorDetail)
 	}
 
@@ -489,6 +510,7 @@ func (h *Handler) handleCreatePartitionIndex(
 	_ context.Context,
 	_ *createPartitionIndexInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -513,6 +535,7 @@ func (h *Handler) handleCreateRegistry(
 ) (*createRegistryOutput, error) {
 	reg, err := h.Backend.CreateRegistry(in.RegistryName, in.Description, in.Tags)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -570,6 +593,7 @@ func (h *Handler) handleCreateSchema(
 		in.Tags,
 	)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -598,13 +622,14 @@ func (h *Handler) handleCreateScript(
 	_ context.Context,
 	_ *createScriptInput,
 ) (*createScriptOutput, error) {
+
 	return &createScriptOutput{PythonScript: "", ScalaCode: ""}, nil
 }
 
 // createSecurityConfigurationInput holds input for CreateSecurityConfiguration.
 type createSecurityConfigurationInput struct {
-	EncryptionConfiguration EncryptionConfiguration `json:"EncryptionConfiguration"`
 	Name                    string                  `json:"Name"`
+	EncryptionConfiguration EncryptionConfiguration `json:"EncryptionConfiguration"`
 }
 
 // createSecurityConfigurationOutput holds the result for CreateSecurityConfiguration.
@@ -619,6 +644,7 @@ func (h *Handler) handleCreateSecurityConfiguration(
 ) (*createSecurityConfigurationOutput, error) {
 	sc, err := h.Backend.CreateSecurityConfiguration(in.Name, in.EncryptionConfiguration)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -653,6 +679,7 @@ func (h *Handler) handleCreateSession(
 	}
 	s, err := h.Backend.CreateSession(in.ID, in.Role, in.Command, opts)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -672,6 +699,7 @@ func (h *Handler) handleCreateTableOptimizer(
 	_ context.Context,
 	in *createTableOptimizerInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.CreateTableOptimizer(
 		in.CatalogID,
 		in.DatabaseName,
@@ -710,6 +738,7 @@ func (h *Handler) handleCreateTrigger(
 
 	created, err := h.Backend.CreateTrigger(t, in.Tags)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -718,9 +747,9 @@ func (h *Handler) handleCreateTrigger(
 
 // createUsageProfileInput holds input for CreateUsageProfile.
 type createUsageProfileInput struct {
+	Tags        map[string]string `json:"Tags,omitempty"`
 	Name        string            `json:"Name"`
 	Description string            `json:"Description,omitempty"`
-	Tags        map[string]string `json:"Tags,omitempty"`
 }
 
 // createUsageProfileOutput holds the result for CreateUsageProfile.
@@ -733,14 +762,15 @@ func (h *Handler) handleCreateUsageProfile(
 	in *createUsageProfileInput,
 ) (*createUsageProfileOutput, error) {
 	_, _ = h.Backend.CreateUsageProfile(in.Name, in.Description, in.Tags)
+
 	return &createUsageProfileOutput{Name: in.Name}, nil
 }
 
 // createUserDefinedFunctionInput holds input for CreateUserDefinedFunction.
-type createUserDefinedFunctionInput struct { //nolint:govet // JSON field order matters
+type createUserDefinedFunctionInput struct {
+	Tags          map[string]string   `json:"Tags,omitempty"`
 	DatabaseName  string              `json:"DatabaseName"`
 	FunctionInput UserDefinedFunction `json:"FunctionInput"`
-	Tags          map[string]string   `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handleCreateUserDefinedFunction(
@@ -777,6 +807,7 @@ func (h *Handler) handleCreateWorkflow(
 
 	created, err := h.Backend.CreateWorkflow(w, in.Tags)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -798,6 +829,7 @@ func (h *Handler) handleDeleteBlueprint(
 	in *deleteBlueprintInput,
 ) (*deleteBlueprintOutput, error) {
 	_ = h.Backend.DeleteBlueprint(in.Name)
+
 	return &deleteBlueprintOutput{Name: in.Name}, nil
 }
 
@@ -810,6 +842,7 @@ func (h *Handler) handleDeleteCatalog(
 	_ context.Context,
 	in *deleteCatalogInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.DeleteCatalog(in.CatalogID)
 }
 
@@ -823,6 +856,7 @@ func (h *Handler) handleDeleteClassifier(
 	in *deleteClassifierInput,
 ) (*emptyOutput, error) {
 	if err := h.Backend.DeleteClassifier(in.Name); err != nil {
+
 		return nil, err
 	}
 
@@ -830,17 +864,18 @@ func (h *Handler) handleDeleteClassifier(
 }
 
 // deleteColumnStatisticsForPartitionInput holds input for DeleteColumnStatisticsForPartition.
-type deleteColumnStatisticsForPartitionInput struct { //nolint:govet // JSON field order matters
+type deleteColumnStatisticsForPartitionInput struct {
 	DatabaseName    string   `json:"DatabaseName"`
 	TableName       string   `json:"TableName"`
-	PartitionValues []string `json:"PartitionValues"`
 	ColumnName      string   `json:"ColumnName"`
+	PartitionValues []string `json:"PartitionValues"`
 }
 
 func (h *Handler) handleDeleteColumnStatisticsForPartition(
 	_ context.Context,
 	in *deleteColumnStatisticsForPartitionInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.DeleteColumnStatisticsForPartition(
 		in.DatabaseName,
 		in.TableName,
@@ -860,6 +895,7 @@ func (h *Handler) handleDeleteColumnStatisticsForTable(
 	_ context.Context,
 	in *deleteColumnStatisticsForTableInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.DeleteColumnStatisticsForTable(
 		in.DatabaseName,
 		in.TableName,
@@ -874,6 +910,7 @@ func (h *Handler) handleDeleteColumnStatisticsTaskSettings(
 	_ context.Context,
 	_ *deleteColumnStatisticsTaskSettingsInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -884,6 +921,7 @@ func (h *Handler) handleDeleteConnectionType(
 	_ context.Context,
 	_ *deleteConnectionTypeInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -902,6 +940,7 @@ func (h *Handler) handleDeleteCustomEntityType(
 	in *deleteCustomEntityTypeInput,
 ) (*deleteCustomEntityTypeOutput, error) {
 	_ = h.Backend.DeleteCustomEntityType(in.Name)
+
 	return &deleteCustomEntityTypeOutput{Name: in.Name}, nil
 }
 
@@ -915,20 +954,22 @@ func (h *Handler) handleDeleteDevEndpoint(
 	in *deleteDevEndpointInput,
 ) (*emptyOutput, error) {
 	if err := h.Backend.DeleteDevEndpoint(in.EndpointName); err != nil {
+
 		return nil, err
 	}
 
 	return &emptyOutput{}, nil
 }
 
-// deleteGlueIdentityCenterConfigurationInput holds input for DeleteGlueIdentityCenterConfiguration.
-type deleteGlueIdentityCenterConfigurationInput struct{}
+// deleteIdentityCenterConfigurationInput holds input for DeleteIdentityCenterConfiguration.
+type deleteIdentityCenterConfigurationInput struct{}
 
-func (h *Handler) handleDeleteGlueIdentityCenterConfiguration(
+func (h *Handler) handleDeleteIdentityCenterConfiguration(
 	_ context.Context,
-	_ *deleteGlueIdentityCenterConfigurationInput,
+	_ *deleteIdentityCenterConfigurationInput,
 ) (*emptyOutput, error) {
-	_ = h.Backend.DeleteGlueIdentityCenterConfiguration()
+	_ = h.Backend.DeleteIdentityCenterConfiguration()
+
 	return &emptyOutput{}, nil
 }
 
@@ -947,6 +988,7 @@ func (h *Handler) handleDeleteIntegration(
 	in *deleteIntegrationInput,
 ) (*deleteIntegrationOutput, error) {
 	_ = h.Backend.DeleteIntegration(in.IntegrationIdentifier)
+
 	return &deleteIntegrationOutput{IntegrationName: in.IntegrationIdentifier}, nil
 }
 
@@ -957,6 +999,7 @@ func (h *Handler) handleDeleteIntegrationResourceProperty(
 	_ context.Context,
 	_ *deleteIntegrationResourcePropertyInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -967,6 +1010,7 @@ func (h *Handler) handleDeleteIntegrationTableProperties(
 	_ context.Context,
 	_ *deleteIntegrationTablePropertiesInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -985,6 +1029,7 @@ func (h *Handler) handleDeleteMLTransform(
 	in *deleteMLTransformInput,
 ) (*deleteMLTransformOutput, error) {
 	if err := h.Backend.DeleteMLTransform(in.TransformID); err != nil {
+
 		return nil, err
 	}
 
@@ -1008,6 +1053,7 @@ func (h *Handler) handleDeletePartition(
 		[]PartitionValueList{{Values: in.PartitionValues}},
 	)
 	if len(errs) > 0 {
+
 		return nil, awserrFromDetail(errs[0].ErrorDetail)
 	}
 
@@ -1021,6 +1067,7 @@ func (h *Handler) handleDeletePartitionIndex(
 	_ context.Context,
 	_ *deletePartitionIndexInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -1046,6 +1093,7 @@ func (h *Handler) handleDeleteRegistry(
 	}
 
 	if err := h.Backend.DeleteRegistry(name); err != nil {
+
 		return nil, err
 	}
 
@@ -1062,6 +1110,7 @@ func (h *Handler) handleDeleteResourcePolicy(
 	_ context.Context,
 	in *deleteResourcePolicyInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.DeleteResourcePolicy(in.ResourceArn, in.PolicyHash)
 }
 
@@ -1095,6 +1144,7 @@ func (h *Handler) handleDeleteSchema(
 	}
 
 	if err := h.Backend.DeleteSchema(registryName, schemaName); err != nil {
+
 		return nil, err
 	}
 
@@ -1113,6 +1163,7 @@ func (h *Handler) handleDeleteSchemaVersions(
 	_ context.Context,
 	_ *deleteSchemaVersionsInput,
 ) (*deleteSchemaVersionsOutput, error) {
+
 	return &deleteSchemaVersionsOutput{SchemaVersionErrors: []any{}}, nil
 }
 
@@ -1125,6 +1176,7 @@ func (h *Handler) handleDeleteSecurityConfiguration(
 	_ context.Context,
 	in *deleteSecurityConfigurationInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.DeleteSecurityConfiguration(in.Name)
 }
 
@@ -1143,6 +1195,7 @@ func (h *Handler) handleDeleteSession(
 	in *deleteSessionInput,
 ) (*deleteSessionOutput, error) {
 	if err := h.Backend.DeleteSession(in.ID); err != nil {
+
 		return nil, err
 	}
 
@@ -1161,6 +1214,7 @@ func (h *Handler) handleDeleteTableOptimizer(
 	_ context.Context,
 	in *deleteTableOptimizerInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.DeleteTableOptimizer(in.DatabaseName, in.TableName, in.Type)
 }
 
@@ -1175,6 +1229,7 @@ func (h *Handler) handleDeleteTableVersion(
 	_ context.Context,
 	in *deleteTableVersionInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.DeleteTableVersion(in.DatabaseName, in.TableName, in.VersionID)
 }
 
@@ -1193,6 +1248,7 @@ func (h *Handler) handleDeleteTrigger(
 	in *deleteTriggerInput,
 ) (*deleteTriggerOutput, error) {
 	if err := h.Backend.DeleteTrigger(in.Name); err != nil {
+
 		return nil, err
 	}
 
@@ -1209,6 +1265,7 @@ func (h *Handler) handleDeleteUsageProfile(
 	in *deleteUsageProfileInput,
 ) (*emptyOutput, error) {
 	_ = h.Backend.DeleteUsageProfile(in.Name)
+
 	return &emptyOutput{}, nil
 }
 
@@ -1222,6 +1279,7 @@ func (h *Handler) handleDeleteUserDefinedFunction(
 	_ context.Context,
 	in *deleteUserDefinedFunctionInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.DeleteUserDefinedFunction(in.DatabaseName, in.FunctionName)
 }
 
@@ -1240,6 +1298,7 @@ func (h *Handler) handleDeleteWorkflow(
 	in *deleteWorkflowInput,
 ) (*deleteWorkflowOutput, error) {
 	if err := h.Backend.DeleteWorkflow(in.Name); err != nil {
+
 		return nil, err
 	}
 
@@ -1258,6 +1317,7 @@ func (h *Handler) handleDescribeConnectionType(
 	_ context.Context,
 	_ *describeConnectionTypeInput,
 ) (*describeConnectionTypeOutput, error) {
+
 	return &describeConnectionTypeOutput{}, nil
 }
 
@@ -1273,6 +1333,7 @@ func (h *Handler) handleDescribeEntity(
 	_ context.Context,
 	_ *describeEntityInput,
 ) (*describeEntityOutput, error) {
+
 	return &describeEntityOutput{Fields: []any{}}, nil
 }
 
@@ -1288,6 +1349,7 @@ func (h *Handler) handleDescribeInboundIntegrations(
 	_ context.Context,
 	_ *describeInboundIntegrationsInput,
 ) (*describeInboundIntegrationsOutput, error) {
+
 	return &describeInboundIntegrationsOutput{Integrations: []any{}}, nil // inbound integrations are always empty
 }
 
@@ -1308,6 +1370,7 @@ func (h *Handler) handleDescribeIntegrations(
 	for _, ig := range list {
 		result = append(result, ig)
 	}
+
 	return &describeIntegrationsOutput{Integrations: result}, nil
 }
 
@@ -1327,6 +1390,7 @@ func (h *Handler) handleGetBlueprint(
 ) (*getBlueprintOutput, error) {
 	found, _ := h.Backend.BatchGetBlueprints([]string{in.Name})
 	if len(found) > 0 {
+
 		return &getBlueprintOutput{Blueprint: found[0]}, nil
 	}
 
@@ -1349,12 +1413,15 @@ func (h *Handler) handleGetBlueprintRun(
 	in *getBlueprintRunInput,
 ) (*getBlueprintRunOutput, error) {
 	if in.RunID == "" {
+
 		return &getBlueprintRunOutput{}, nil
 	}
 	run, err := h.Backend.GetBlueprintRun(in.BlueprintName, in.RunID)
 	if err != nil {
+
 		return &getBlueprintRunOutput{}, nil //nolint:nilerr // graceful empty
 	}
+
 	return &getBlueprintRunOutput{Run: run}, nil
 }
 
@@ -1377,6 +1444,7 @@ func (h *Handler) handleGetBlueprintRuns(
 	for _, r := range runs {
 		result = append(result, r)
 	}
+
 	return &getBlueprintRunsOutput{Runs: result}, nil
 }
 
@@ -1396,6 +1464,7 @@ func (h *Handler) handleGetCatalog(
 ) (*getCatalogOutput, error) {
 	c, err := h.Backend.GetCatalog(in.CatalogID)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -1416,6 +1485,7 @@ func (h *Handler) handleGetCatalogImportStatus(
 	_ context.Context,
 	_ *getCatalogImportStatusInput,
 ) (*getCatalogImportStatusOutput, error) {
+
 	return &getCatalogImportStatusOutput{}, nil
 }
 
@@ -1455,6 +1525,7 @@ func (h *Handler) handleGetClassifier(
 ) (*getClassifierOutput, error) {
 	c, err := h.Backend.GetClassifier(in.Name)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -1473,6 +1544,7 @@ func (h *Handler) handleGetClassifiers(
 	_ context.Context,
 	_ *getClassifiersInput,
 ) (*getClassifiersOutput, error) {
+
 	return &getClassifiersOutput{Classifiers: h.Backend.GetClassifiers()}, nil
 }
 
@@ -1501,6 +1573,7 @@ func (h *Handler) handleGetColumnStatisticsForPartition(
 		in.ColumnNames,
 	)
 	if err != nil {
+
 		return nil, err
 	}
 	if stats == nil {
@@ -1533,6 +1606,7 @@ func (h *Handler) handleGetColumnStatisticsForTable(
 		in.ColumnNames,
 	)
 	if err != nil {
+
 		return nil, err
 	}
 	if stats == nil {
@@ -1556,8 +1630,10 @@ func (h *Handler) handleGetColumnStatisticsTaskRun(
 ) (*getColumnStatisticsTaskRunOutput, error) {
 	runs := h.Backend.GetColumnStatisticsTaskRuns()
 	if len(runs) == 0 {
+
 		return &getColumnStatisticsTaskRunOutput{}, nil
 	}
+
 	return &getColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRun: runs[0]}, nil
 }
 
@@ -1578,6 +1654,7 @@ func (h *Handler) handleGetColumnStatisticsTaskRuns(
 	for _, r := range runs {
 		result = append(result, r)
 	}
+
 	return &getColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRuns: result}, nil
 }
 
@@ -1594,6 +1671,7 @@ func (h *Handler) handleGetColumnStatisticsTaskSettings(
 	_ *getColumnStatisticsTaskSettingsInput,
 ) (*getColumnStatisticsTaskSettingsOutput, error) {
 	s, _ := h.Backend.GetColumnStatisticsTaskSettings("", "")
+
 	return &getColumnStatisticsTaskSettingsOutput{ColumnStatisticsTaskSettings: s}, nil
 }
 
@@ -1634,6 +1712,7 @@ func (h *Handler) handleGetCustomEntityType(
 ) (*getCustomEntityTypeOutput, error) {
 	found, missing := h.Backend.BatchGetCustomEntityTypes([]string{in.Name})
 	if len(missing) > 0 {
+
 		return nil, awserr.New("EntityNotFoundException", awserr.ErrNotFound)
 	}
 
@@ -1660,6 +1739,7 @@ func (h *Handler) handleGetDataCatalogEncryptionSettings(
 ) (*getDataCatalogEncryptionSettingsOutput, error) {
 	s, err := h.Backend.GetDataCatalogEncryptionSettings(in.CatalogID)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -1678,6 +1758,7 @@ func (h *Handler) handleGetDataQualityModel(
 	_ context.Context,
 	_ *getDataQualityModelInput,
 ) (*getDataQualityModelOutput, error) {
+
 	return &getDataQualityModelOutput{Status: stateSucceeded}, nil
 }
 
@@ -1693,6 +1774,7 @@ func (h *Handler) handleGetDataQualityModelResult(
 	_ context.Context,
 	_ *getDataQualityModelResultInput,
 ) (*getDataQualityModelResultOutput, error) {
+
 	return &getDataQualityModelResultOutput{}, nil
 }
 
@@ -1713,6 +1795,7 @@ func (h *Handler) handleGetDataQualityResult(
 ) (*getDataQualityResultOutput, error) {
 	found, errs := h.Backend.BatchGetDataQualityResult([]string{in.ResultID})
 	if len(errs) > 0 {
+
 		return nil, awserr.New("EntityNotFoundException", awserr.ErrNotFound)
 	}
 
@@ -1735,12 +1818,15 @@ func (h *Handler) handleGetDataQualityRuleRecommendationRun(
 	in *getDataQualityRuleRecommendationRunInput,
 ) (*getDataQualityRuleRecommendationRunOutput, error) {
 	if in.RunID == "" {
+
 		return &getDataQualityRuleRecommendationRunOutput{Status: stateSucceeded}, nil
 	}
 	run, err := h.Backend.GetDataQualityRuleRecommendationRun(in.RunID)
 	if err != nil {
-		return &getDataQualityRuleRecommendationRunOutput{Status: stateSucceeded}, nil //nolint:nilerr
+
+		return &getDataQualityRuleRecommendationRunOutput{Status: stateSucceeded}, nil //nolint:nilerr // graceful degradation
 	}
+
 	return &getDataQualityRuleRecommendationRunOutput{RunID: run.RecommendationRunID, Status: run.Status}, nil
 }
 
@@ -1757,6 +1843,7 @@ func (h *Handler) handleGetDataflowGraph(
 	_ context.Context,
 	_ *getDataflowGraphInput,
 ) (*getDataflowGraphOutput, error) {
+
 	return &getDataflowGraphOutput{DagNodes: []any{}, DagEdges: []any{}}, nil
 }
 
@@ -1776,6 +1863,7 @@ func (h *Handler) handleGetDevEndpoint(
 ) (*getDevEndpointOutput, error) {
 	dep, err := h.Backend.GetDevEndpoint(in.EndpointName)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -1794,6 +1882,7 @@ func (h *Handler) handleGetDevEndpoints(
 	_ context.Context,
 	_ *getDevEndpointsInput,
 ) (*getDevEndpointsOutput, error) {
+
 	return &getDevEndpointsOutput{DevEndpoints: h.Backend.GetAllDevEndpoints()}, nil
 }
 
@@ -1809,26 +1898,29 @@ func (h *Handler) handleGetEntityRecords(
 	_ context.Context,
 	_ *getEntityRecordsInput,
 ) (*getEntityRecordsOutput, error) {
+
 	return &getEntityRecordsOutput{Records: []any{}}, nil
 }
 
-// getGlueIdentityCenterConfigurationInput holds input for GetGlueIdentityCenterConfiguration.
-type getGlueIdentityCenterConfigurationInput struct{}
+// getIdentityCenterConfigurationInput holds input for GetIdentityCenterConfiguration.
+type getIdentityCenterConfigurationInput struct{}
 
-// getGlueIdentityCenterConfigurationOutput holds the result for GetGlueIdentityCenterConfiguration.
-type getGlueIdentityCenterConfigurationOutput struct {
+// getIdentityCenterConfigurationOutput holds the result for GetIdentityCenterConfiguration.
+type getIdentityCenterConfigurationOutput struct {
 	InstanceArn string `json:"InstanceArn"`
 }
 
-func (h *Handler) handleGetGlueIdentityCenterConfiguration(
+func (h *Handler) handleGetIdentityCenterConfiguration(
 	_ context.Context,
-	_ *getGlueIdentityCenterConfigurationInput,
-) (*getGlueIdentityCenterConfigurationOutput, error) {
-	cfg, _ := h.Backend.GetGlueIdentityCenterConfiguration()
+	_ *getIdentityCenterConfigurationInput,
+) (*getIdentityCenterConfigurationOutput, error) {
+	cfg, _ := h.Backend.GetIdentityCenterConfiguration()
 	if cfg == nil {
-		return &getGlueIdentityCenterConfigurationOutput{}, nil
+
+		return &getIdentityCenterConfigurationOutput{}, nil
 	}
-	return &getGlueIdentityCenterConfigurationOutput{InstanceArn: cfg.InstanceARN}, nil
+
+	return &getIdentityCenterConfigurationOutput{InstanceArn: cfg.InstanceARN}, nil
 }
 
 // getIntegrationResourcePropertyInput holds input for GetIntegrationResourceProperty.
@@ -1843,6 +1935,7 @@ func (h *Handler) handleGetIntegrationResourceProperty(
 	_ context.Context,
 	_ *getIntegrationResourcePropertyInput,
 ) (*getIntegrationResourcePropertyOutput, error) {
+
 	return &getIntegrationResourcePropertyOutput{}, nil
 }
 
@@ -1859,6 +1952,7 @@ func (h *Handler) handleGetIntegrationTableProperties(
 	_ context.Context,
 	_ *getIntegrationTablePropertiesInput,
 ) (*getIntegrationTablePropertiesOutput, error) {
+
 	return &getIntegrationTablePropertiesOutput{}, nil
 }
 
@@ -1876,6 +1970,7 @@ func (h *Handler) handleGetMLTaskRun(
 	_ context.Context,
 	_ *getMLTaskRunInput,
 ) (*getMLTaskRunOutput, error) {
+
 	return &getMLTaskRunOutput{Status: stateSucceeded}, nil
 }
 
@@ -1891,6 +1986,7 @@ func (h *Handler) handleGetMLTaskRuns(
 	_ context.Context,
 	_ *getMLTaskRunsInput,
 ) (*getMLTaskRunsOutput, error) {
+
 	return &getMLTaskRunsOutput{TaskRuns: []any{}}, nil
 }
 
@@ -1910,6 +2006,7 @@ func (h *Handler) handleGetMLTransform(
 ) (*getMLTransformOutput, error) {
 	m, err := h.Backend.GetMLTransform(in.TransformID)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -1948,6 +2045,7 @@ func (h *Handler) handleGetMapping(
 	_ context.Context,
 	_ *getMappingInput,
 ) (*getMappingOutput, error) {
+
 	return &getMappingOutput{Mapping: []any{}}, nil
 }
 
@@ -1966,8 +2064,10 @@ func (h *Handler) handleGetMaterializedViewRefreshTaskRun(
 ) (*getMaterializedViewRefreshTaskRunOutput, error) {
 	runs := h.Backend.ListMaterializedViewRefreshTaskRuns()
 	if len(runs) == 0 {
+
 		return &getMaterializedViewRefreshTaskRunOutput{Status: stateSucceeded}, nil
 	}
+
 	return &getMaterializedViewRefreshTaskRunOutput{RunID: runs[0].TaskRunID, Status: runs[0].Status}, nil
 }
 
@@ -1989,6 +2089,7 @@ func (h *Handler) handleGetPartition(
 ) (*getPartitionOutput, error) {
 	p, err := h.Backend.GetPartition(in.DatabaseName, in.TableName, in.PartitionValues)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2007,6 +2108,7 @@ func (h *Handler) handleGetPartitionIndexes(
 	_ context.Context,
 	_ *getPartitionIndexesInput,
 ) (*getPartitionIndexesOutput, error) {
+
 	return &getPartitionIndexesOutput{PartitionIndexDescriptorList: []any{}}, nil
 }
 
@@ -2027,6 +2129,7 @@ func (h *Handler) handleGetPartitions(
 ) (*getPartitionsOutput, error) {
 	partitions, err := h.Backend.GetPartitions(in.DatabaseName, in.TableName)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2043,6 +2146,7 @@ type getPlanOutput struct {
 }
 
 func (h *Handler) handleGetPlan(_ context.Context, _ *getPlanInput) (*getPlanOutput, error) {
+
 	return &getPlanOutput{}, nil
 }
 
@@ -2073,6 +2177,7 @@ func (h *Handler) handleGetRegistry(
 
 	reg, err := h.Backend.DescribeRegistry(name)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2099,6 +2204,7 @@ func (h *Handler) handleGetResourcePolicies(
 	_ context.Context,
 	_ *getResourcePoliciesInput,
 ) (*getResourcePoliciesOutput, error) {
+
 	return &getResourcePoliciesOutput{GetResourcePoliciesResponseList: []any{}}, nil
 }
 
@@ -2119,6 +2225,7 @@ func (h *Handler) handleGetResourcePolicy(
 ) (*getResourcePolicyOutput, error) {
 	policy, hash, err := h.Backend.GetResourcePolicy(in.ResourceArn)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2153,6 +2260,7 @@ func (h *Handler) handleGetSchema(_ context.Context, in *getSchemaInput) (*getSc
 
 	s, err := h.Backend.DescribeSchema(registryName, schemaName)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2185,6 +2293,7 @@ func (h *Handler) handleGetSchemaByDefinition(
 	_ context.Context,
 	_ *getSchemaByDefinitionInput,
 ) (*getSchemaByDefinitionOutput, error) {
+
 	return &getSchemaByDefinitionOutput{Status: stateAvailable}, nil
 }
 
@@ -2226,6 +2335,7 @@ func (h *Handler) handleGetSchemaVersion(
 
 	sv, err := h.Backend.GetSchemaVersion(registryName, schemaName, versionNumber)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2252,6 +2362,7 @@ func (h *Handler) handleGetSchemaVersionsDiff(
 	_ context.Context,
 	_ *getSchemaVersionsDiffInput,
 ) (*getSchemaVersionsDiffOutput, error) {
+
 	return &getSchemaVersionsDiffOutput{}, nil
 }
 
@@ -2271,6 +2382,7 @@ func (h *Handler) handleGetSecurityConfiguration(
 ) (*getSecurityConfigurationOutput, error) {
 	sc, err := h.Backend.GetSecurityConfiguration(in.Name)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2313,6 +2425,7 @@ func (h *Handler) handleGetSession(
 ) (*getSessionOutput, error) {
 	s, err := h.Backend.GetSession(in.ID)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2336,6 +2449,7 @@ func (h *Handler) handleGetStatement(
 ) (*getStatementOutput, error) {
 	st, err := h.Backend.GetStatement(in.SessionID, in.StatementID)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2364,6 +2478,7 @@ func (h *Handler) handleGetTableOptimizer(
 ) (*getTableOptimizerOutput, error) {
 	to, err := h.Backend.GetTableOptimizer(in.DatabaseName, in.TableName, in.Type)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2393,6 +2508,7 @@ func (h *Handler) handleGetTableVersion(
 ) (*getTableVersionOutput, error) {
 	tv, err := h.Backend.GetTableVersion(in.DatabaseName, in.TableName, in.VersionID)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2435,6 +2551,7 @@ func (h *Handler) handleGetTrigger(
 ) (*getTriggerOutput, error) {
 	t, err := h.Backend.GetTrigger(in.Name)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2453,6 +2570,7 @@ func (h *Handler) handleGetTriggers(
 	_ context.Context,
 	_ *getTriggersInput,
 ) (*getTriggersOutput, error) {
+
 	return &getTriggersOutput{Triggers: h.Backend.GetTriggers()}, nil
 }
 
@@ -2470,6 +2588,7 @@ func (h *Handler) handleGetUnfilteredPartitionMetadata(
 	_ context.Context,
 	_ *getUnfilteredPartitionMetadataInput,
 ) (*getUnfilteredPartitionMetadataOutput, error) {
+
 	return &getUnfilteredPartitionMetadataOutput{AuthorizedColumns: []string{}}, nil
 }
 
@@ -2485,6 +2604,7 @@ func (h *Handler) handleGetUnfilteredPartitionsMetadata(
 	_ context.Context,
 	_ *getUnfilteredPartitionsMetadataInput,
 ) (*getUnfilteredPartitionsMetadataOutput, error) {
+
 	return &getUnfilteredPartitionsMetadataOutput{UnfilteredPartitions: []any{}}, nil
 }
 
@@ -2502,6 +2622,7 @@ func (h *Handler) handleGetUnfilteredTableMetadata(
 	_ context.Context,
 	_ *getUnfilteredTableMetadataInput,
 ) (*getUnfilteredTableMetadataOutput, error) {
+
 	return &getUnfilteredTableMetadataOutput{AuthorizedColumns: []string{}}, nil
 }
 
@@ -2520,12 +2641,15 @@ func (h *Handler) handleGetUsageProfile(
 	in *getUsageProfileInput,
 ) (*getUsageProfileOutput, error) {
 	if in.Name == "" {
+
 		return &getUsageProfileOutput{}, nil
 	}
 	p, err := h.Backend.GetUsageProfile(in.Name)
 	if err != nil {
-		return &getUsageProfileOutput{Name: in.Name}, nil //nolint:nilerr
+
+		return &getUsageProfileOutput{Name: in.Name}, nil //nolint:nilerr // graceful degradation: return empty on not-found
 	}
+
 	return &getUsageProfileOutput{Name: p.Name}, nil
 }
 
@@ -2546,6 +2670,7 @@ func (h *Handler) handleGetUserDefinedFunction(
 ) (*getUserDefinedFunctionOutput, error) {
 	u, err := h.Backend.GetUserDefinedFunction(in.DatabaseName, in.FunctionName)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2590,6 +2715,7 @@ func (h *Handler) handleGetWorkflow(
 ) (*getWorkflowOutput, error) {
 	w, err := h.Backend.GetWorkflow(in.Name)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2613,6 +2739,7 @@ func (h *Handler) handleGetWorkflowRun(
 ) (*getWorkflowRunOutput, error) {
 	run, err := h.Backend.GetWorkflowRun(in.Name, in.RunID)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2631,6 +2758,7 @@ func (h *Handler) handleGetWorkflowRunProperties(
 	_ context.Context,
 	_ *getWorkflowRunPropertiesInput,
 ) (*getWorkflowRunPropertiesOutput, error) {
+
 	return &getWorkflowRunPropertiesOutput{RunProperties: map[string]string{}}, nil
 }
 
@@ -2650,6 +2778,7 @@ func (h *Handler) handleGetWorkflowRuns(
 ) (*getWorkflowRunsOutput, error) {
 	runs, err := h.Backend.GetWorkflowRuns(in.Name)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -2663,6 +2792,7 @@ func (h *Handler) handleImportCatalogToGlue(
 	_ context.Context,
 	_ *importCatalogToGlueInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -2678,6 +2808,7 @@ func (h *Handler) handleListBlueprints(
 	_ context.Context,
 	_ *listBlueprintsInput,
 ) (*listBlueprintsOutput, error) {
+
 	return &listBlueprintsOutput{Blueprints: h.Backend.ListBlueprints()}, nil
 }
 
@@ -2698,6 +2829,7 @@ func (h *Handler) handleListColumnStatisticsTaskRuns(
 	for _, r := range runs {
 		ids = append(ids, r.ColumnStatisticsTaskRunID)
 	}
+
 	return &listColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRunIDs: ids}, nil
 }
 
@@ -2713,6 +2845,7 @@ func (h *Handler) handleListConnectionTypes(
 	_ context.Context,
 	_ *listConnectionTypesInput,
 ) (*listConnectionTypesOutput, error) {
+
 	return &listConnectionTypesOutput{ConnectionTypes: []any{}}, nil
 }
 
@@ -2728,6 +2861,7 @@ func (h *Handler) handleListCrawls(
 	_ context.Context,
 	_ *listCrawlsInput,
 ) (*listCrawlsOutput, error) {
+
 	return &listCrawlsOutput{Crawls: []any{}}, nil
 }
 
@@ -2743,6 +2877,7 @@ func (h *Handler) handleListCustomEntityTypes(
 	_ context.Context,
 	_ *listCustomEntityTypesInput,
 ) (*listCustomEntityTypesOutput, error) {
+
 	return &listCustomEntityTypesOutput{CustomEntityTypes: h.Backend.ListCustomEntityTypes()}, nil
 }
 
@@ -2758,6 +2893,7 @@ func (h *Handler) handleListDataQualityResults(
 	_ context.Context,
 	_ *listDataQualityResultsInput,
 ) (*listDataQualityResultsOutput, error) {
+
 	return &listDataQualityResultsOutput{Results: []any{}}, nil
 }
 
@@ -2778,6 +2914,7 @@ func (h *Handler) handleListDataQualityRuleRecommendationRuns(
 	for _, r := range runs {
 		result = append(result, r)
 	}
+
 	return &listDataQualityRuleRecommendationRunsOutput{Runs: result}, nil
 }
 
@@ -2793,6 +2930,7 @@ func (h *Handler) handleListDataQualityRulesetEvaluationRuns(
 	_ context.Context,
 	_ *listDataQualityRulesetEvaluationRunsInput,
 ) (*listDataQualityRulesetEvaluationRunsOutput, error) {
+
 	return &listDataQualityRulesetEvaluationRunsOutput{Runs: []any{}}, nil
 }
 
@@ -2808,6 +2946,7 @@ func (h *Handler) handleListDataQualityStatisticAnnotations(
 	_ context.Context,
 	_ *listDataQualityStatisticAnnotationsInput,
 ) (*listDataQualityStatisticAnnotationsOutput, error) {
+
 	return &listDataQualityStatisticAnnotationsOutput{StatisticAnnotationList: []any{}}, nil
 }
 
@@ -2823,6 +2962,7 @@ func (h *Handler) handleListDataQualityStatistics(
 	_ context.Context,
 	_ *listDataQualityStatisticsInput,
 ) (*listDataQualityStatisticsOutput, error) {
+
 	return &listDataQualityStatisticsOutput{Statistics: []any{}}, nil
 }
 
@@ -2859,6 +2999,7 @@ func (h *Handler) handleListEntities(
 	_ context.Context,
 	_ *listEntitiesInput,
 ) (*listEntitiesOutput, error) {
+
 	return &listEntitiesOutput{Entities: []any{}}, nil
 }
 
@@ -2874,6 +3015,7 @@ func (h *Handler) handleListIntegrationResourceProperties(
 	_ context.Context,
 	_ *listIntegrationResourcePropertiesInput,
 ) (*listIntegrationResourcePropertiesOutput, error) {
+
 	return &listIntegrationResourcePropertiesOutput{ResourcePropertiesList: []any{}}, nil
 }
 
@@ -2908,6 +3050,7 @@ func (h *Handler) handleListMLTransforms(
 	_ context.Context,
 	_ *listMLTransformsInput,
 ) (*listMLTransformsOutput, error) {
+
 	return &listMLTransformsOutput{TransformIDs: []string{}}, nil
 }
 
@@ -2928,6 +3071,7 @@ func (h *Handler) handleListMaterializedViewRefreshTaskRuns(
 	for _, r := range runs {
 		result = append(result, r)
 	}
+
 	return &listMaterializedViewRefreshTaskRunsOutput{Runs: result}, nil
 }
 
@@ -3038,6 +3182,7 @@ func (h *Handler) handleListStatements(
 ) (*listStatementsOutput, error) {
 	stmts, err := h.Backend.GetStatements(in.SessionID)
 	if err != nil {
+
 		return nil, err
 	}
 	if stmts == nil {
@@ -3059,6 +3204,7 @@ func (h *Handler) handleListTableOptimizerRuns(
 	_ context.Context,
 	_ *listTableOptimizerRunsInput,
 ) (*listTableOptimizerRunsOutput, error) {
+
 	return &listTableOptimizerRunsOutput{Runs: []any{}}, nil
 }
 
@@ -3100,6 +3246,7 @@ func (h *Handler) handleListUsageProfiles(
 	for _, p := range profiles {
 		result = append(result, p)
 	}
+
 	return &listUsageProfilesOutput{Profiles: result}, nil
 }
 
@@ -3115,6 +3262,7 @@ func (h *Handler) handleListWorkflows(
 	_ context.Context,
 	_ *listWorkflowsInput,
 ) (*listWorkflowsOutput, error) {
+
 	return &listWorkflowsOutput{Workflows: h.Backend.GetWorkflows()}, nil
 }
 
@@ -3134,19 +3282,21 @@ func (h *Handler) handleModifyIntegration(
 	in *modifyIntegrationInput,
 ) (*modifyIntegrationOutput, error) {
 	_ = h.Backend.ModifyIntegration(in.IntegrationIdentifier)
+
 	return &modifyIntegrationOutput{Status: stateActive}, nil
 }
 
 // putDataCatalogEncryptionSettingsInput holds input for PutDataCatalogEncryptionSettings.
-type putDataCatalogEncryptionSettingsInput struct { //nolint:govet // JSON field order matters
-	CatalogID                     string                        `json:"CatalogId,omitempty"`
+type putDataCatalogEncryptionSettingsInput struct {
 	DataCatalogEncryptionSettings DataCatalogEncryptionSettings `json:"DataCatalogEncryptionSettings"`
+	CatalogID                     string                        `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handlePutDataCatalogEncryptionSettings(
 	_ context.Context,
 	in *putDataCatalogEncryptionSettingsInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.PutDataCatalogEncryptionSettings(
 		in.CatalogID,
 		in.DataCatalogEncryptionSettings,
@@ -3160,6 +3310,7 @@ func (h *Handler) handlePutDataQualityProfileAnnotation(
 	_ context.Context,
 	_ *putDataQualityProfileAnnotationInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -3180,6 +3331,7 @@ func (h *Handler) handlePutResourcePolicy(
 ) (*putResourcePolicyOutput, error) {
 	hash, err := h.Backend.PutResourcePolicy(in.PolicyInJSON, in.ResourceArn)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -3201,6 +3353,7 @@ func (h *Handler) handlePutSchemaVersionMetadata(
 	_ context.Context,
 	_ *putSchemaVersionMetadataInput,
 ) (*putSchemaVersionMetadataOutput, error) {
+
 	return &putSchemaVersionMetadataOutput{}, nil
 }
 
@@ -3215,6 +3368,7 @@ func (h *Handler) handlePutWorkflowRunProperties(
 	_ context.Context,
 	in *putWorkflowRunPropertiesInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.PutWorkflowRunProperties(in.Name, in.RunID, in.RunProperties)
 }
 
@@ -3231,6 +3385,7 @@ func (h *Handler) handleQuerySchemaVersionMetadata(
 	_ context.Context,
 	_ *querySchemaVersionMetadataInput,
 ) (*querySchemaVersionMetadataOutput, error) {
+
 	return &querySchemaVersionMetadataOutput{MetadataInfo: map[string]any{}}, nil
 }
 
@@ -3247,6 +3402,7 @@ func (h *Handler) handleRegisterConnectionType(
 	_ context.Context,
 	_ *registerConnectionTypeInput,
 ) (*registerConnectionTypeOutput, error) {
+
 	return &registerConnectionTypeOutput{Status: stateReady}, nil
 }
 
@@ -3276,6 +3432,7 @@ func (h *Handler) handleRegisterSchemaVersion(
 
 	sv, err := h.Backend.RegisterSchemaVersion(registryName, schemaName, in.SchemaDefinition)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -3302,6 +3459,7 @@ func (h *Handler) handleRemoveSchemaVersionMetadata(
 	_ context.Context,
 	_ *removeSchemaVersionMetadataInput,
 ) (*removeSchemaVersionMetadataOutput, error) {
+
 	return &removeSchemaVersionMetadataOutput{}, nil
 }
 
@@ -3318,6 +3476,7 @@ func (h *Handler) handleResumeWorkflowRun(
 	_ context.Context,
 	_ *resumeWorkflowRunInput,
 ) (*resumeWorkflowRunOutput, error) {
+
 	return &resumeWorkflowRunOutput{NodeIDs: []string{}}, nil
 }
 
@@ -3338,6 +3497,7 @@ func (h *Handler) handleRunStatement(
 ) (*runStatementOutput, error) {
 	st, err := h.Backend.RunStatement(in.SessionID, in.Code)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -3379,8 +3539,10 @@ func (h *Handler) handleStartBlueprintRun(
 ) (*startBlueprintRunOutput, error) {
 	run, err := h.Backend.StartBlueprintRun(in.BlueprintName)
 	if err != nil {
+
 		return nil, err
 	}
+
 	return &startBlueprintRunOutput{RunID: run.RunID}, nil
 }
 
@@ -3398,8 +3560,10 @@ func (h *Handler) handleStartColumnStatisticsTaskRun(
 ) (*startColumnStatisticsTaskRunOutput, error) {
 	run, err := h.Backend.StartColumnStatisticsTaskRun("", "")
 	if err != nil {
+
 		return nil, err
 	}
+
 	return &startColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRunID: run.ColumnStatisticsTaskRunID}, nil
 }
 
@@ -3410,6 +3574,7 @@ func (h *Handler) handleStartColumnStatisticsTaskRunSchedule(
 	_ context.Context,
 	_ *startColumnStatisticsTaskRunScheduleInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -3427,8 +3592,10 @@ func (h *Handler) handleStartDataQualityRuleRecommendationRun(
 ) (*startDataQualityRuleRecommendationRunOutput, error) {
 	run, err := h.Backend.StartDataQualityRuleRecommendationRun("")
 	if err != nil {
+
 		return nil, err
 	}
+
 	return &startDataQualityRuleRecommendationRunOutput{RunID: run.RecommendationRunID}, nil
 }
 
@@ -3444,6 +3611,7 @@ func (h *Handler) handleStartExportLabelsTaskRun(
 	_ context.Context,
 	_ *startExportLabelsTaskRunInput,
 ) (*startExportLabelsTaskRunOutput, error) {
+
 	return &startExportLabelsTaskRunOutput{TaskRunID: "export-labels-stub"}, nil
 }
 
@@ -3459,6 +3627,7 @@ func (h *Handler) handleStartImportLabelsTaskRun(
 	_ context.Context,
 	_ *startImportLabelsTaskRunInput,
 ) (*startImportLabelsTaskRunOutput, error) {
+
 	return &startImportLabelsTaskRunOutput{TaskRunID: "import-labels-stub"}, nil
 }
 
@@ -3474,6 +3643,7 @@ func (h *Handler) handleStartMLEvaluationTaskRun(
 	_ context.Context,
 	_ *startMLEvaluationTaskRunInput,
 ) (*startMLEvaluationTaskRunOutput, error) {
+
 	return &startMLEvaluationTaskRunOutput{TaskRunID: "ml-eval-stub"}, nil
 }
 
@@ -3489,6 +3659,7 @@ func (h *Handler) handleStartMLLabelingSetGenerationTaskRun(
 	_ context.Context,
 	_ *startMLLabelingSetGenerationTaskRunInput,
 ) (*startMLLabelingSetGenerationTaskRunOutput, error) {
+
 	return &startMLLabelingSetGenerationTaskRunOutput{TaskRunID: "ml-label-stub"}, nil
 }
 
@@ -3506,8 +3677,10 @@ func (h *Handler) handleStartMaterializedViewRefreshTaskRun(
 ) (*startMaterializedViewRefreshTaskRunOutput, error) {
 	run, err := h.Backend.StartMaterializedViewRefreshTaskRun("", "")
 	if err != nil {
+
 		return nil, err
 	}
+
 	return &startMaterializedViewRefreshTaskRunOutput{RunID: run.TaskRunID}, nil
 }
 
@@ -3526,6 +3699,7 @@ func (h *Handler) handleStartTrigger(
 	in *startTriggerInput,
 ) (*startTriggerOutput, error) {
 	if err := h.Backend.StartTrigger(in.Name); err != nil {
+
 		return nil, err
 	}
 
@@ -3548,6 +3722,7 @@ func (h *Handler) handleStartWorkflowRun(
 ) (*startWorkflowRunOutput, error) {
 	run, err := h.Backend.StartWorkflowRun(in.Name)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -3562,6 +3737,7 @@ func (h *Handler) handleStopColumnStatisticsTaskRun(
 	_ *stopColumnStatisticsTaskRunInput,
 ) (*emptyOutput, error) {
 	// No-op - nothing to stop if no run ID is provided.
+
 	return &emptyOutput{}, nil
 }
 
@@ -3572,6 +3748,7 @@ func (h *Handler) handleStopColumnStatisticsTaskRunSchedule(
 	_ context.Context,
 	_ *stopColumnStatisticsTaskRunScheduleInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -3583,6 +3760,7 @@ func (h *Handler) handleStopMaterializedViewRefreshTaskRun(
 	_ *stopMaterializedViewRefreshTaskRunInput,
 ) (*emptyOutput, error) {
 	// No-op - nothing to stop if no run ID is provided.
+
 	return &emptyOutput{}, nil
 }
 
@@ -3601,6 +3779,7 @@ func (h *Handler) handleStopSession(
 	in *stopSessionInput,
 ) (*stopSessionOutput, error) {
 	if err := h.Backend.StopSession(in.ID); err != nil {
+
 		return nil, err
 	}
 
@@ -3622,6 +3801,7 @@ func (h *Handler) handleStopTrigger(
 	in *stopTriggerInput,
 ) (*stopTriggerOutput, error) {
 	if err := h.Backend.StopTrigger(in.Name); err != nil {
+
 		return nil, err
 	}
 
@@ -3638,6 +3818,7 @@ func (h *Handler) handleStopWorkflowRun(
 	_ context.Context,
 	in *stopWorkflowRunInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.StopWorkflowRun(in.Name, in.RunID)
 }
 
@@ -3653,6 +3834,7 @@ func (h *Handler) handleTestConnection(
 	_ context.Context,
 	_ *testConnectionInput,
 ) (*testConnectionOutput, error) {
+
 	return &testConnectionOutput{Status: stateSucceeded}, nil
 }
 
@@ -3671,22 +3853,24 @@ func (h *Handler) handleUpdateBlueprint(
 	in *updateBlueprintInput,
 ) (*updateBlueprintOutput, error) {
 	_, _ = h.Backend.UpdateBlueprint(in.Name)
+
 	return &updateBlueprintOutput{Name: in.Name}, nil
 }
 
 // updateCatalogInput holds input for UpdateCatalog.
-type updateCatalogInput struct { //nolint:govet // JSON field order matters
-	CatalogID    string   `json:"CatalogId"`
-	CatalogInput struct { //nolint:govet // JSON field order matters
+type updateCatalogInput struct {
+	CatalogInput struct {
 		Description string            `json:"Description,omitempty"`
 		Parameters  map[string]string `json:"Parameters,omitzero"`
 	} `json:"CatalogInput"`
+	CatalogID string `json:"CatalogId"`
 }
 
 func (h *Handler) handleUpdateCatalog(
 	_ context.Context,
 	in *updateCatalogInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.UpdateCatalog(
 		in.CatalogID,
 		in.CatalogInput.Description,
@@ -3713,6 +3897,7 @@ func (h *Handler) handleUpdateClassifier(
 		CsvClassifier:  in.CsvClassifier,
 	}
 	if err := h.Backend.UpdateClassifier(c); err != nil {
+
 		return nil, err
 	}
 
@@ -3743,6 +3928,7 @@ func (h *Handler) handleUpdateColumnStatisticsForPartition(
 		in.ColumnStatisticsList,
 	)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -3771,6 +3957,7 @@ func (h *Handler) handleUpdateColumnStatisticsForTable(
 		in.ColumnStatisticsList,
 	)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -3784,6 +3971,7 @@ func (h *Handler) handleUpdateColumnStatisticsTaskSettings(
 	_ context.Context,
 	_ *updateColumnStatisticsTaskSettingsInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -3802,6 +3990,7 @@ func (h *Handler) handleUpdateConnection(
 		in.ConnectionInput.ConnectionType,
 		in.ConnectionInput.ConnectionProperties,
 	); err != nil {
+
 		return nil, err
 	}
 
@@ -3818,17 +4007,19 @@ func (h *Handler) handleUpdateDevEndpoint(
 	_ context.Context,
 	in *updateDevEndpointInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.UpdateDevEndpoint(in.EndpointName, in.AddArguments)
 }
 
-// updateGlueIdentityCenterConfigurationInput holds input for UpdateGlueIdentityCenterConfiguration.
-type updateGlueIdentityCenterConfigurationInput struct{}
+// updateIdentityCenterConfigurationInput holds input for UpdateIdentityCenterConfiguration.
+type updateIdentityCenterConfigurationInput struct{}
 
-func (h *Handler) handleUpdateGlueIdentityCenterConfiguration(
+func (h *Handler) handleUpdateIdentityCenterConfiguration(
 	_ context.Context,
-	_ *updateGlueIdentityCenterConfigurationInput,
+	_ *updateIdentityCenterConfigurationInput,
 ) (*emptyOutput, error) {
-	_ = h.Backend.UpdateGlueIdentityCenterConfiguration("")
+	_ = h.Backend.UpdateIdentityCenterConfiguration("")
+
 	return &emptyOutput{}, nil
 }
 
@@ -3844,6 +4035,7 @@ func (h *Handler) handleUpdateIntegrationResourceProperty(
 	_ context.Context,
 	_ *updateIntegrationResourcePropertyInput,
 ) (*updateIntegrationResourcePropertyOutput, error) {
+
 	return &updateIntegrationResourcePropertyOutput{}, nil
 }
 
@@ -3854,6 +4046,7 @@ func (h *Handler) handleUpdateIntegrationTableProperties(
 	_ context.Context,
 	_ *updateIntegrationTablePropertiesInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, nil
 }
 
@@ -3871,17 +4064,18 @@ func (h *Handler) handleUpdateJobFromSourceControl(
 	_ context.Context,
 	in *updateJobFromSourceControlInput,
 ) (*updateJobFromSourceControlOutput, error) {
+
 	return &updateJobFromSourceControlOutput{JobName: in.JobName}, nil
 }
 
 // updateMLTransformInput holds input for UpdateMLTransform.
-type updateMLTransformInput struct { //nolint:govet // JSON field order matters
-	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
+type updateMLTransformInput struct {
 	Parameters        MLTransformParameter `json:"Parameters,omitzero"`
 	TransformID       string               `json:"TransformId"`
 	Description       string               `json:"Description,omitempty"`
 	Role              string               `json:"Role,omitempty"`
 	Name              string               `json:"Name,omitempty"`
+	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
 }
 
 // updateMLTransformOutput holds the result for UpdateMLTransform.
@@ -3901,6 +4095,7 @@ func (h *Handler) handleUpdateMLTransform(
 		Parameters:        in.Parameters,
 	}
 	if err := h.Backend.UpdateMLTransform(in.TransformID, update); err != nil {
+
 		return nil, err
 	}
 
@@ -3923,6 +4118,7 @@ func (h *Handler) handleUpdatePartition(
 		in.DatabaseName, in.TableName,
 		in.PartitionValueList, in.PartitionInput,
 	); err != nil {
+
 		return nil, err
 	}
 
@@ -3951,6 +4147,7 @@ func (h *Handler) handleUpdateRegistry(
 	}
 
 	if err := h.Backend.UpdateRegistry(name, in.Description); err != nil {
+
 		return nil, err
 	}
 
@@ -3982,6 +4179,7 @@ func (h *Handler) handleUpdateSchema(
 	}
 
 	if err := h.Backend.UpdateSchema(registryName, schemaName, in.Compatibility, in.Description); err != nil {
+
 		return nil, err
 	}
 
@@ -4002,6 +4200,7 @@ func (h *Handler) handleUpdateSourceControlFromJob(
 	_ context.Context,
 	in *updateSourceControlFromJobInput,
 ) (*updateSourceControlFromJobOutput, error) {
+
 	return &updateSourceControlFromJobOutput{JobName: in.JobName}, nil
 }
 
@@ -4018,6 +4217,7 @@ func (h *Handler) handleUpdateTableOptimizer(
 	_ context.Context,
 	in *updateTableOptimizerInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.UpdateTableOptimizer(
 		in.DatabaseName,
 		in.TableName,
@@ -4054,11 +4254,13 @@ func (h *Handler) handleUpdateTrigger(
 		Predicate: in.TriggerUpdate.Predicate,
 	}
 	if err := h.Backend.UpdateTrigger(in.Name, update); err != nil {
+
 		return nil, err
 	}
 
 	t, err := h.Backend.GetTrigger(in.Name)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -4080,6 +4282,7 @@ func (h *Handler) handleUpdateUsageProfile(
 	in *updateUsageProfileInput,
 ) (*updateUsageProfileOutput, error) {
 	_, _ = h.Backend.UpdateUsageProfile(in.Name, "")
+
 	return &updateUsageProfileOutput{Name: in.Name}, nil
 }
 
@@ -4094,6 +4297,7 @@ func (h *Handler) handleUpdateUserDefinedFunction(
 	_ context.Context,
 	in *updateUserDefinedFunctionInput,
 ) (*emptyOutput, error) {
+
 	return &emptyOutput{}, h.Backend.UpdateUserDefinedFunction(
 		in.DatabaseName,
 		in.FunctionName,
@@ -4122,6 +4326,7 @@ func (h *Handler) handleUpdateWorkflow(
 		DefaultRunProperties: in.DefaultRunProperties,
 	}
 	if err := h.Backend.UpdateWorkflow(in.Name, update); err != nil {
+
 		return nil, err
 	}
 

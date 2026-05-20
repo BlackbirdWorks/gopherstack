@@ -12,36 +12,36 @@ import (
 
 // UsageProfile represents a Glue usage profile.
 type UsageProfile struct {
+	CreatedOn      time.Time         `json:"CreatedOn"`
+	LastModifiedOn time.Time         `json:"LastModifiedOn"`
 	Tags           map[string]string `json:"Tags,omitempty"`
 	Name           string            `json:"Name"`
 	Description    string            `json:"Description,omitempty"`
-	CreatedOn      time.Time         `json:"CreatedOn"`
-	LastModifiedOn time.Time         `json:"LastModifiedOn"`
 }
 
 // BlueprintRun represents a single execution of a Glue blueprint.
 type BlueprintRun struct {
+	StartedOn     time.Time `json:"StartedOn"`
 	BlueprintName string    `json:"BlueprintName"`
 	RunID         string    `json:"RunId"`
 	WorkflowName  string    `json:"WorkflowName"`
 	State         string    `json:"State"`
-	StartedOn     time.Time `json:"StartedOn"`
 }
 
 // DQRuleRecommendationRun represents a data quality rule recommendation run.
 type DQRuleRecommendationRun struct {
+	StartedOn           time.Time `json:"StartedOn"`
 	RecommendationRunID string    `json:"RecommendationRunId"`
 	DataSourceS3Path    string    `json:"DataSourceS3Path,omitempty"`
 	Status              string    `json:"Status"`
-	StartedOn           time.Time `json:"StartedOn"`
 }
 
 // ColumnStatisticsTaskSettings represents column statistics task settings.
 type ColumnStatisticsTaskSettings struct {
-	ColumnNameList []string `json:"ColumnNameList,omitempty"`
 	DatabaseName   string   `json:"DatabaseName"`
 	TableName      string   `json:"TableName"`
 	RoleArn        string   `json:"RoleArn,omitempty"`
+	ColumnNameList []string `json:"ColumnNameList,omitempty"`
 }
 
 // ColumnStatisticsTaskRun represents a column statistics task run.
@@ -64,14 +64,14 @@ type MaterializedViewRefreshRun struct {
 
 // Integration represents a Glue integration.
 type Integration struct {
+	CreatedAt       time.Time         `json:"CreateTime"`
+	Tags            map[string]string `json:"Tags,omitempty"`
 	IntegrationName string            `json:"IntegrationName"`
 	Status          string            `json:"Status"`
-	Tags            map[string]string `json:"Tags,omitempty"`
-	CreatedAt       time.Time         `json:"CreateTime"`
 }
 
-// GlueIdentityCenterConfig represents the Glue Identity Center configuration.
-type GlueIdentityCenterConfig struct {
+// IdentityCenterConfig represents the Glue Identity Center configuration.
+type IdentityCenterConfig struct {
 	InstanceARN string `json:"InstanceArn,omitempty"`
 	Status      string `json:"Status"`
 }
@@ -79,12 +79,12 @@ type GlueIdentityCenterConfig struct {
 // --- Error variables ---
 
 var (
-	ErrUsageProfileNotFound         = fmt.Errorf("usage profile not found: %w", ErrNotFound)
-	ErrBlueprintRunNotFound         = fmt.Errorf("blueprint run not found: %w", ErrNotFound)
-	ErrDQRecommendationRunNotFound  = fmt.Errorf("data quality recommendation run not found: %w", ErrNotFound)
-	ErrColumnStatTaskRunNotFound    = fmt.Errorf("column statistics task run not found: %w", ErrNotFound)
-	ErrMaterializedViewRunNotFound  = fmt.Errorf("materialized view refresh run not found: %w", ErrNotFound)
-	ErrIntegrationNotFound          = fmt.Errorf("integration not found: %w", ErrNotFound)
+	ErrUsageProfileNotFound        = fmt.Errorf("usage profile not found: %w", ErrNotFound)
+	ErrBlueprintRunNotFound        = fmt.Errorf("blueprint run not found: %w", ErrNotFound)
+	ErrDQRecommendationRunNotFound = fmt.Errorf("data quality recommendation run not found: %w", ErrNotFound)
+	ErrColumnStatTaskRunNotFound   = fmt.Errorf("column statistics task run not found: %w", ErrNotFound)
+	ErrMaterializedViewRunNotFound = fmt.Errorf("materialized view refresh run not found: %w", ErrNotFound)
+	ErrIntegrationNotFound         = fmt.Errorf("integration not found: %w", ErrNotFound)
 )
 
 // --- Blueprint CRUD ---
@@ -290,7 +290,10 @@ func (b *InMemoryBackend) UpdateUsageProfile(name, description string) (*UsagePr
 // --- CustomEntityType individual CRUD ---
 
 // CreateCustomEntityType stores a new custom entity type.
-func (b *InMemoryBackend) CreateCustomEntityType(name, regexString string, contextWords []string) (*CustomEntityType, error) {
+func (b *InMemoryBackend) CreateCustomEntityType(
+	name, regexString string,
+	contextWords []string,
+) (*CustomEntityType, error) {
 	b.mu.Lock("CreateCustomEntityType")
 	defer b.mu.Unlock()
 
@@ -442,7 +445,9 @@ func (b *InMemoryBackend) CreateColumnStatisticsTaskSettings(
 }
 
 // GetColumnStatisticsTaskSettings returns task settings.
-func (b *InMemoryBackend) GetColumnStatisticsTaskSettings(dbName, tableName string) (*ColumnStatisticsTaskSettings, error) {
+func (b *InMemoryBackend) GetColumnStatisticsTaskSettings(
+	dbName, tableName string,
+) (*ColumnStatisticsTaskSettings, error) {
 	b.mu.RLock("GetColumnStatisticsTaskSettings")
 	defer b.mu.RUnlock()
 
@@ -679,12 +684,12 @@ func (b *InMemoryBackend) ModifyIntegration(name string) error {
 
 // --- GlueIdentityCenter CRUD ---
 
-// CreateGlueIdentityCenterConfiguration creates the configuration.
-func (b *InMemoryBackend) CreateGlueIdentityCenterConfiguration(instanceARN string) error {
-	b.mu.Lock("CreateGlueIdentityCenterConfiguration")
+// CreateIdentityCenterConfiguration creates the configuration.
+func (b *InMemoryBackend) CreateIdentityCenterConfiguration(instanceARN string) error {
+	b.mu.Lock("CreateIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 
-	b.glueIdentityCenterConfig = &GlueIdentityCenterConfig{
+	b.glueIdentityCenterConfig = &IdentityCenterConfig{
 		InstanceARN: instanceARN,
 		Status:      "ENABLED",
 	}
@@ -692,13 +697,13 @@ func (b *InMemoryBackend) CreateGlueIdentityCenterConfiguration(instanceARN stri
 	return nil
 }
 
-// GetGlueIdentityCenterConfiguration returns the configuration.
-func (b *InMemoryBackend) GetGlueIdentityCenterConfiguration() (*GlueIdentityCenterConfig, error) {
-	b.mu.RLock("GetGlueIdentityCenterConfiguration")
+// GetIdentityCenterConfiguration returns the configuration.
+func (b *InMemoryBackend) GetIdentityCenterConfiguration() (*IdentityCenterConfig, error) {
+	b.mu.RLock("GetIdentityCenterConfiguration")
 	defer b.mu.RUnlock()
 
 	if b.glueIdentityCenterConfig == nil {
-		return &GlueIdentityCenterConfig{Status: "DISABLED"}, nil
+		return &IdentityCenterConfig{Status: "DISABLED"}, nil
 	}
 
 	cp := *b.glueIdentityCenterConfig
@@ -706,13 +711,13 @@ func (b *InMemoryBackend) GetGlueIdentityCenterConfiguration() (*GlueIdentityCen
 	return &cp, nil
 }
 
-// UpdateGlueIdentityCenterConfiguration updates the configuration.
-func (b *InMemoryBackend) UpdateGlueIdentityCenterConfiguration(instanceARN string) error {
-	b.mu.Lock("UpdateGlueIdentityCenterConfiguration")
+// UpdateIdentityCenterConfiguration updates the configuration.
+func (b *InMemoryBackend) UpdateIdentityCenterConfiguration(instanceARN string) error {
+	b.mu.Lock("UpdateIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 
 	if b.glueIdentityCenterConfig == nil {
-		b.glueIdentityCenterConfig = &GlueIdentityCenterConfig{}
+		b.glueIdentityCenterConfig = &IdentityCenterConfig{}
 	}
 
 	b.glueIdentityCenterConfig.InstanceARN = instanceARN
@@ -720,9 +725,9 @@ func (b *InMemoryBackend) UpdateGlueIdentityCenterConfiguration(instanceARN stri
 	return nil
 }
 
-// DeleteGlueIdentityCenterConfiguration removes the configuration.
-func (b *InMemoryBackend) DeleteGlueIdentityCenterConfiguration() error {
-	b.mu.Lock("DeleteGlueIdentityCenterConfiguration")
+// DeleteIdentityCenterConfiguration removes the configuration.
+func (b *InMemoryBackend) DeleteIdentityCenterConfiguration() error {
+	b.mu.Lock("DeleteIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 
 	b.glueIdentityCenterConfig = nil
@@ -733,20 +738,11 @@ func (b *InMemoryBackend) DeleteGlueIdentityCenterConfiguration() error {
 // --- DataQualityModel stubs (stateless) ---
 
 // GetDataQualityModel returns a data quality model result (stateless stub).
-func (b *InMemoryBackend) GetDataQualityModel(statName string) (string, error) {
+func (b *InMemoryBackend) GetDataQualityModel(_ string) (string, error) {
 	return "READY", nil
 }
 
 // GetDataQualityModelResult returns model result data (stateless stub).
-func (b *InMemoryBackend) GetDataQualityModelResult(statName string) (string, error) {
-	return statName, nil
-}
-
-// helper to generate short IDs using counter
-var globalCounter int
-
-func nextID(prefix string) string {
-	globalCounter++
-
-	return prefix + strconv.Itoa(globalCounter)
+func (b *InMemoryBackend) GetDataQualityModelResult(_ string) (string, error) {
+	return "READY", nil
 }
