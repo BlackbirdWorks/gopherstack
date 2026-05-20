@@ -318,8 +318,8 @@ func instanceTypeLimitsTable(instanceType string) *InstanceTypeLimits {
 				},
 			},
 		},
-		"r6g.xlarge.search": {
-			InstanceType: "r6g.xlarge.search",
+		instanceTypeR6gXLarge: {
+			InstanceType: instanceTypeR6gXLarge,
 			InstanceLimits: map[string]any{
 				instanceCountLimitsKey: map[string]any{
 					minInstanceCountKey: minNodesStr1,
@@ -363,8 +363,8 @@ func instanceTypeLimitsTable(instanceType string) *InstanceTypeLimits {
 				},
 			},
 		},
-		"or1.medium.search": {
-			InstanceType: "or1.medium.search",
+		instanceTypeOR1Medium: {
+			InstanceType: instanceTypeOR1Medium,
 			InstanceLimits: map[string]any{
 				instanceCountLimitsKey: map[string]any{
 					minInstanceCountKey: minNodesStr1,
