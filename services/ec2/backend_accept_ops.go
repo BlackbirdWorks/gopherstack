@@ -205,6 +205,21 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.tgwRTAssociations = make(map[string]*TransitGatewayRouteTableAssociation)
 	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
 	b.resetAdvancedNetworkingMapsLocked()
+	b.resetBatch4MapsLocked()
+}
+
+// resetBatch4MapsLocked re-initialises all batch4 resource maps.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) resetBatch4MapsLocked() {
+	b.managedPrefixLists = make(map[string]*ManagedPrefixList)
+	b.clientVpnEndpoints = make(map[string]*ClientVpnEndpoint)
+	b.tgwConnects = make(map[string]*TransitGatewayConnect)
+	b.tgwConnectPeers = make(map[string]*TransitGatewayConnectPeer)
+	b.tgwPrefixListRefs = make(map[string]*TransitGatewayPrefixListReference)
+	b.verifiedAccessEndpoints = make(map[string]*VerifiedAccessEndpoint)
+	b.verifiedAccessGroups = make(map[string]*VerifiedAccessGroup)
+	b.verifiedAccessInstances = make(map[string]*VerifiedAccessInstance)
+	b.verifiedAccessTrustProviders = make(map[string]*VerifiedAccessTrustProvider)
 }
 
 // ---- AcceptAddressTransfer ----
