@@ -227,6 +227,10 @@ type StorageBackend interface {
 	GetServiceLastAccessedDetails(jobID string) (status string, details []ServiceLastAccessedDetail, err error)
 	RecordServiceAccess(entityARN, serviceNamespace, serviceName string)
 
+	// Organizations Access Report
+	GenerateOrganizationsAccessReport(entityPath string) string
+	GetOrganizationsAccessReport(jobID string) (status string, createdAt time.Time, found bool)
+
 	// Reset service-specific credential password
 	ResetServiceSpecificCredentialFull(userName, credentialID string) (*ServiceSpecificCredential, error)
 
@@ -265,6 +269,13 @@ type StorageBackend interface {
 	ListSigningCertificates(userName string) ([]SigningCertificate, error)
 	UpdateSigningCertificate(certificateID, status string) error
 	DeleteSigningCertificate(certificateID string) error
+
+	// Server Certificates
+	UploadServerCertificate(name, path, certBody, certChain string) (*ServerCertificate, error)
+	GetServerCertificate(name string) (*ServerCertificate, error)
+	ListServerCertificates(pathPrefix string) ([]ServerCertificate, error)
+	UpdateServerCertificate(name, newName, newPath string) error
+	DeleteServerCertificate(name string) error
 
 	// Group membership queries
 	ListGroupsForUser(userName string) ([]Group, error)
@@ -337,6 +348,7 @@ type InMemoryBackend struct {
 	serviceSpecificCreds map[string]ServiceSpecificCredential
 	virtualMFADevices    map[string]VirtualMFADevice
 	signingCertificates  map[string]SigningCertificate // certID → SigningCertificate
+	serverCertificates   map[string]ServerCertificate  // name → ServerCertificate
 	passwordPolicy       *PasswordPolicy
 	users                map[string]User
 	comprehensive        *comprehensiveBackend
@@ -383,6 +395,7 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		serviceSpecificCreds: make(map[string]ServiceSpecificCredential),
 		virtualMFADevices:    make(map[string]VirtualMFADevice),
 		signingCertificates:  make(map[string]SigningCertificate),
+		serverCertificates:   make(map[string]ServerCertificate),
 		delegationRequests:   make(map[string]DelegationRequest),
 		accountID:            accountID,
 		mu:                   lockmetrics.New("iam"),
@@ -2200,6 +2213,7 @@ func (b *InMemoryBackend) Reset() {
 	b.serviceSpecificCreds = make(map[string]ServiceSpecificCredential)
 	b.virtualMFADevices = make(map[string]VirtualMFADevice)
 	b.signingCertificates = make(map[string]SigningCertificate)
+	b.serverCertificates = make(map[string]ServerCertificate)
 	b.delegationRequests = make(map[string]DelegationRequest)
 	b.ResetComprehensiveBackend()
 }

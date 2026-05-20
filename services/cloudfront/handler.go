@@ -1528,6 +1528,7 @@ func (h *Handler) dispatchCreateCore(c *echo.Context, operation string) error {
 	case opCreateResponseHeadersPolicy:
 		return h.handleCreateResponseHeadersPolicy(c)
 	default:
+
 		return errNotDispatched
 	}
 }
@@ -1549,6 +1550,7 @@ func (h *Handler) dispatchCreateExtended(c *echo.Context, operation string) erro
 	case opCreateVpcOrigin:
 		return h.handleCreateVpcOrigin(c)
 	default:
+
 		return errNotDispatched
 	}
 }
@@ -1759,6 +1761,7 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 	case opDeleteContinuousDeploymentPolicy:
 		return h.handleDeleteContinuousDeploymentPolicy(c, resource)
 	default:
+
 		return errNotDispatched
 	}
 }
@@ -1792,6 +1795,7 @@ func (h *Handler) dispatchListCore(c *echo.Context, operation, resource string) 
 	case opListTagsForResource:
 		return h.handleListTagsForResource(c)
 	default:
+
 		return errNotDispatched
 	}
 }
@@ -1815,6 +1819,7 @@ func (h *Handler) dispatchListExtended(c *echo.Context, operation string) error 
 	case opListContinuousDeploymentPolicies:
 		return h.handleListContinuousDeploymentPolicies(c)
 	default:
+
 		return errNotDispatched
 	}
 }
@@ -1846,6 +1851,7 @@ func (h *Handler) dispatchMisc(c *echo.Context, operation, resource string) erro
 	case opSetFunctionAssociations:
 		return h.handleSetFunctionAssociations(c, resource)
 	default:
+
 		return errNotDispatched
 	}
 }
@@ -1940,41 +1946,44 @@ func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, hlp cfStubHel
 }
 
 // dispatchStubsMonitoringAndStreaming handles monitoring subscription and streaming distribution stubs.
-func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	noContent, emptyList, created, getStub := hlp.noContent, hlp.emptyList, hlp.created, hlp.getStub
-	_ = created
-
+func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, _ cfStubHelpers, operation string) error {
 	switch operation {
 	case opCreateMonitoringSubscription:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><MonitoringSubscription xmlns="`+cfNS+`"/>`,
-		)
+		distID := extractMonitoringDistID(c.Request().URL.Path)
+
+		return h.handleCreateMonitoringSubscription(c, distID)
 	case opGetMonitoringSubscription:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><MonitoringSubscription xmlns="`+cfNS+`"/>`,
-		)
+		distID := extractMonitoringDistID(c.Request().URL.Path)
+
+		return h.handleGetMonitoringSubscription(c, distID)
 	case opDeleteMonitoringSubscription:
-		return noContent()
+		distID := extractMonitoringDistID(c.Request().URL.Path)
+
+		return h.handleDeleteMonitoringSubscription(c, distID)
 	case opDisassociateDistributionWebACL, opDisassociateDistributionTenantWebACL:
 		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><Distribution xmlns="`+cfNS+`"/>`)
-	case opCreateStreamingDistribution, opCreateStreamingDistributionWithTags:
-		return created("StreamingDistribution", "sdist-stub")
-	case opGetStreamingDistribution, opGetStreamingDistributionConfig:
-		return getStub("StreamingDistribution", "sdist-stub")
+	case opCreateStreamingDistribution:
+		return h.handleCreateStreamingDistribution(c)
+	case opCreateStreamingDistributionWithTags:
+		return h.handleCreateStreamingDistributionWithTags(c)
+	case opGetStreamingDistribution:
+		sdID := extractStreamingDistID(c.Request().URL.Path)
+
+		return h.handleGetStreamingDistribution(c, sdID)
+	case opGetStreamingDistributionConfig:
+		sdID := extractStreamingDistID(c.Request().URL.Path)
+
+		return h.handleGetStreamingDistributionConfig(c, sdID)
 	case opUpdateStreamingDistribution:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><StreamingDistribution xmlns="`+cfNS+`"/>`,
-		)
+		sdID := extractStreamingDistID(c.Request().URL.Path)
+
+		return h.handleUpdateStreamingDistribution(c, sdID)
 	case opDeleteStreamingDistribution:
-		return noContent()
+		sdID := extractStreamingDistID(c.Request().URL.Path)
+
+		return h.handleDeleteStreamingDistribution(c, sdID)
 	case opListStreamingDistributions:
-		return emptyList("StreamingDistributionList")
+		return h.handleListStreamingDistributions(c)
 	}
 
 	return errNotDispatched
@@ -1990,53 +1999,57 @@ func (h *Handler) dispatchStubsTrustAndMisc(c *echo.Context, hlp cfStubHelpers, 
 }
 
 // dispatchStubsTrustAnycast handles trust store and anycast IP list stubs.
-func (h *Handler) dispatchStubsTrustAnycast(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	noContent, emptyList, created, getStub := hlp.noContent, hlp.emptyList, hlp.created, hlp.getStub
-	_ = created
-
+func (h *Handler) dispatchStubsTrustAnycast(c *echo.Context, _ cfStubHelpers, operation string) error {
+	path := c.Request().URL.Path
 	switch operation {
 	case opCreateTrustStore:
-		return created("TrustStore", "ts-stub")
+		return h.handleCreateTrustStore(c)
 	case opGetTrustStore:
-		return getStub("TrustStore", "ts-stub")
+		return h.handleGetTrustStore(c, extractResourceID(path, "trust-store/"))
 	case opUpdateTrustStore:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><TrustStore xmlns="`+cfNS+`"/>`)
+		return h.handleUpdateTrustStore(c, extractResourceID(path, "trust-store/"))
 	case opDeleteTrustStore:
-		return noContent()
+		return h.handleDeleteTrustStore(c, extractResourceID(path, "trust-store/"))
 	case opListTrustStores:
-		return emptyList("TrustStoreList")
+		return h.handleListTrustStores(c)
 	case opGetAnycastIPList:
-		return getStub("AnycastIpList", "anycast-stub")
+		return h.handleGetAnycastIPList(c, extractResourceID(path, "anycast-ip-list/"))
 	case opUpdateAnycastIPList:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><AnycastIpList xmlns="`+cfNS+`"/>`)
+		return h.handleUpdateAnycastIPList(c, extractResourceID(path, "anycast-ip-list/"))
 	case opDeleteAnycastIPList:
-		return noContent()
+		return h.handleDeleteAnycastIPList(c, extractResourceID(path, "anycast-ip-list/"))
 	case opListAnycastIPLists:
-		return emptyList("AnycastIpLists")
+		return h.handleListAnycastIPLists(c)
 	}
 
 	return errNotDispatched
 }
 
 // dispatchStubsConnectionFunction handles connection function and connection group stubs.
-func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	noContent, emptyList, getStub := hlp.noContent, hlp.emptyList, hlp.getStub
-
+func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, _ cfStubHelpers, operation string) error {
+	path := c.Request().URL.Path
 	switch operation {
-	case opDescribeConnectionFunction, opGetConnectionFunction:
-		return getStub("ConnectionFunction", "cf-stub")
+	case opDescribeConnectionFunction:
+		return h.handleDescribeConnectionFunction(c, extractResourceID(path, "connection-function/"))
+	case opGetConnectionFunction:
+		return h.handleGetConnectionFunction(c, extractResourceID(path, "connection-function/"))
 	case opUpdateConnectionFunction:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ConnectionFunction xmlns="`+cfNS+`"/>`)
+		return h.handleUpdateConnectionFunction(c, extractResourceID(path, "connection-function/"))
 	case opDeleteConnectionFunction:
-		return noContent()
+		return h.handleDeleteConnectionFunction(c, extractResourceID(path, "connection-function/"))
 	case opListConnectionFunctions:
-		return emptyList("ConnectionFunctionList")
+		return h.handleListConnectionFunctions(c)
 	case opPublishConnectionFunction:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ConnectionFunction xmlns="`+cfNS+`"/>`)
+		return h.handlePublishConnectionFunction(c, extractResourceID(path, "connection-function/"))
 	case opTestConnectionFunction:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><TestResult xmlns="`+cfNS+`"/>`)
-	case opGetConnectionGroup, opGetConnectionGroupByRoutingEndpoint:
-		return getStub("ConnectionGroup", "cg-stub")
+		return h.handleTestConnectionFunction(c, extractResourceID(path, "connection-function/"))
+	case opGetConnectionGroup:
+		return h.handleGetConnectionGroup(c, extractResourceID(path, "connection-group/"))
+	case opGetConnectionGroupByRoutingEndpoint:
+		return h.handleGetConnectionGroupByRoutingEndpoint(
+			c,
+			extractResourceID(path, "connection-group-by-routing-endpoint/"),
+		)
 	}
 
 	return errNotDispatched
@@ -2052,30 +2065,30 @@ func (h *Handler) dispatchStubsConnectionAndPolicy(c *echo.Context, hlp cfStubHe
 }
 
 // dispatchStubsConnectionGroupAndCDP handles connection group and continuous deployment policy stubs.
-func (h *Handler) dispatchStubsConnectionGroupAndCDP(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	noContent, emptyList := hlp.noContent, hlp.emptyList
+func (h *Handler) dispatchStubsConnectionGroupAndCDP(
+	c *echo.Context,
+	_ cfStubHelpers,
+	operation string,
+) error {
+	path := c.Request().URL.Path
 
 	switch operation {
 	case opUpdateConnectionGroup:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ConnectionGroup xmlns="`+cfNS+`"/>`)
+		return h.handleUpdateConnectionGroup(c, extractResourceID(path, "connection-group/"))
 	case opDeleteConnectionGroup:
-		return noContent()
+		return h.handleDeleteConnectionGroup(c, extractResourceID(path, "connection-group/"))
 	case opListConnectionGroups:
-		return emptyList("ConnectionGroupList")
+		return h.handleListConnectionGroups(c)
 
 	// Continuous deployment policy — promoted to real handlers.
 
 	// Resource policy.
 	case opGetResourcePolicy:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><ResourcePolicy xmlns="`+cfNS+`"><Policy>{}</Policy></ResourcePolicy>`,
-		)
+		return h.handleGetResourcePolicy(c)
 	case opPutResourcePolicy:
-		return noContent()
+		return h.handlePutResourcePolicy(c)
 	case opDeleteResourcePolicy:
-		return noContent()
+		return h.handleDeleteResourcePolicy(c)
 	}
 
 	return errNotDispatched
@@ -2085,14 +2098,33 @@ func (h *Handler) dispatchStubsConnectionGroupAndCDP(c *echo.Context, hlp cfStub
 func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, hlp cfStubHelpers, operation string) error {
 	noContent, emptyList, created, getStub := hlp.noContent, hlp.emptyList, hlp.created, hlp.getStub
 	_ = noContent
+	path := c.Request().URL.Path
 
 	switch operation {
-	case opListDistributionsByCachePolicyID, opListDistributionsByOriginRequestPol,
-		opListDistributionsByResponseHeadersPol, opListDistributionsByWebACLID,
-		opListDistributionsByKeyGroup, opListDistributionsByRealtimeLogConfig,
-		opListDistributionsByVpcOriginID, opListDistributionsByAnycastIPListID,
-		opListDistributionsByConnectionFunction, opListDistributionsByConnectionMode,
-		opListDistributionsByTrustStore, opListDistributionsByOwnedResource:
+	case opListDistributionsByCachePolicyID:
+		return h.handleListDistributionsByCachePolicyID(c, extractResourceID(path, "distributions/by-cache-policy-id/"))
+	case opListDistributionsByOriginRequestPol:
+		return h.handleListDistributionsByOriginRequestPolicyID(
+			c,
+			extractResourceID(path, "distributions/by-origin-request-policy-id/"),
+		)
+	case opListDistributionsByResponseHeadersPol:
+		return h.handleListDistributionsByResponseHeadersPolicyID(
+			c,
+			extractResourceID(path, "distributions/by-response-headers-policy-id/"),
+		)
+	case opListDistributionsByWebACLID:
+		return h.handleListDistributionsByWebACLID(c, extractResourceID(path, "distributions/by-web-acl-id/"))
+	case opListDistributionsByRealtimeLogConfig:
+		return h.handleListDistributionsByRealtimeLogConfig(
+			c,
+			extractResourceID(path, "distributionsByRealtimeLogConfig/"),
+		)
+	case opListDistributionsByKeyGroup, opListDistributionsByVpcOriginID,
+		opListDistributionsByAnycastIPListID, opListDistributionsByConnectionFunction,
+		opListDistributionsByConnectionMode, opListDistributionsByTrustStore,
+		opListDistributionsByOwnedResource:
+
 		return emptyList("DistributionList")
 	case opListConflictingAliases:
 		return emptyList("ConflictingAliasesList")
@@ -2111,6 +2143,7 @@ func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, hlp cfStub
 			`<?xml version="1.0" encoding="UTF-8"?><ManagedCertificateDetails xmlns="`+cfNS+`"/>`,
 		)
 	default:
+
 		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchOperation", "unknown operation: "+operation))
 	}
 }
@@ -2190,6 +2223,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrValidation):
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", err.Error()))
 	default:
+
 		return xmlResp(
 			c,
 			http.StatusInternalServerError,
@@ -4975,6 +5009,7 @@ func (h *Handler) handleGetKeyValueStore(c *echo.Context, id string) error {
 	return xmlResp(c, http.StatusOK, kvsResponseXML(kvs))
 }
 
+//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListKeyValueStores(c *echo.Context) error {
 	items := h.Backend.ListKeyValueStores()
 
@@ -5146,4 +5181,32 @@ func (h *Handler) handleDeleteVpcOrigin(c *echo.Context, id string) error {
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+// extractMonitoringDistID extracts distribution ID from monitoring subscription path.
+func extractMonitoringDistID(path string) string {
+	suffix := strings.TrimPrefix(path, cfPathPrefix+"distribution/")
+
+	return strings.TrimSuffix(suffix, "/monitoring-subscription")
+}
+
+// extractStreamingDistID extracts streaming distribution ID from its path.
+func extractStreamingDistID(path string) string {
+	suffix := strings.TrimPrefix(path, cfPathPrefix+"streaming-distribution/")
+	if id, _, found := strings.Cut(suffix, "/"); found {
+		return id
+	}
+
+	return suffix
+}
+
+// extractResourceID extracts the resource ID from a CloudFront API path.
+func extractResourceID(path, prefix string) string {
+	suffix := strings.TrimPrefix(path, cfPathPrefix)
+	trimmed := strings.TrimPrefix(suffix, prefix)
+	if id, _, found := strings.Cut(trimmed, "/"); found {
+		return id
+	}
+
+	return trimmed
 }

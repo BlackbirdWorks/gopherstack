@@ -258,6 +258,12 @@ type InMemoryBackend struct {
 	inferenceProfiles           map[string]*InferenceProfile                      // profileArn → profile
 	marketplaceEndpoints        map[string]*MarketplaceModelEndpoint              // endpointArn → endpoint
 	loggingConfig               *ModelInvocationLoggingConfiguration
+	modelInvocationJobs         map[string]*ModelInvocationJob      // jobArn → job
+	promptRouters               map[string]*PromptRouter            // routerArn → router
+	enforcedGuardrailConfigs    map[string]*EnforcedGuardrailConfig // guardrailID → config
+	arpAnnotations              map[string][]any                    // policyARN → annotations
+	useCaseType                 string
+	useCaseDescription          string
 	guardrailsByName            map[string]string // guardrail name → ID
 	guardrailsByARN             map[string]string // guardrail ARN → ID
 	pmtsByName                  map[string]string // PMT name → ARN
@@ -268,6 +274,7 @@ type InMemoryBackend struct {
 	customizationJobsByName     map[string]string // job name → ARN
 	inferenceProfilesByName     map[string]string // profile name → ARN
 	marketplaceEndpointsByName  map[string]string // endpoint name → ARN
+	promptRoutersByName         map[string]string // router name → ARN
 	// Agents
 	agents                     map[string]*Agent
 	agentsByName               map[string]string                         // agentName → agentID
@@ -296,6 +303,8 @@ type InMemoryBackend struct {
 	importJobCounter           int
 	inferenceProfileCounter    int
 	marketplaceEndpointCounter int
+	modelInvocationJobCounter  int
+	promptRouterCounter        int
 	agentCounter               int
 	actionGroupCounter         int
 	agentAliasCounter          int
@@ -334,6 +343,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		customizationJobsByName:     make(map[string]string),
 		inferenceProfilesByName:     make(map[string]string),
 		marketplaceEndpointsByName:  make(map[string]string),
+		modelInvocationJobs:         make(map[string]*ModelInvocationJob),
+		promptRouters:               make(map[string]*PromptRouter),
+		enforcedGuardrailConfigs:    make(map[string]*EnforcedGuardrailConfig),
+		arpAnnotations:              make(map[string][]any),
+		promptRoutersByName:         make(map[string]string),
 		agents:                      make(map[string]*Agent),
 		agentsByName:                make(map[string]string),
 		agentActionGroups:           make(map[string]*AgentActionGroup),
@@ -420,6 +434,15 @@ func (b *InMemoryBackend) Reset() {
 	b.importJobCounter = 0
 	b.inferenceProfileCounter = 0
 	b.marketplaceEndpointCounter = 0
+	b.modelInvocationJobCounter = 0
+	b.promptRouterCounter = 0
+	b.modelInvocationJobs = make(map[string]*ModelInvocationJob)
+	b.promptRouters = make(map[string]*PromptRouter)
+	b.enforcedGuardrailConfigs = make(map[string]*EnforcedGuardrailConfig)
+	b.arpAnnotations = make(map[string][]any)
+	b.promptRoutersByName = make(map[string]string)
+	b.useCaseType = ""
+	b.useCaseDescription = ""
 }
 
 func (b *InMemoryBackend) seedFoundationModels() {
