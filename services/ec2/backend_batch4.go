@@ -363,7 +363,7 @@ func (b *InMemoryBackend) AssociateClientVpnTargetNetwork(
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
 
-	for _, s := range ep.AssociatedTargetNetworks { //nolint:modernize
+	for _, s := range ep.AssociatedTargetNetworks { //nolint:modernize // slices.Contains requires Go 1.21+
 		if s == subnetID {
 			return nil // already associated
 		}
@@ -875,7 +875,7 @@ func (b *InMemoryBackend) CreateTransitGatewayPrefixListReference(
 	ref := &TransitGatewayPrefixListReference{
 		PrefixListID:               prefixListID,
 		TransitGatewayRouteTableID: routeTableID,
-		State:                      "available",
+		State:                      stateAvailable,
 		Blackhole:                  blackhole,
 	}
 	b.tgwPrefixListRefs[key] = ref
@@ -1227,7 +1227,7 @@ func (b *InMemoryBackend) AttachVerifiedAccessTrustProvider(instanceID, trustPro
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessTrustProviderNF, trustProviderID)
 	}
 
-	for _, id := range inst.AttachedTrustProviderIDs { //nolint:modernize
+	for _, id := range inst.AttachedTrustProviderIDs { //nolint:modernize // slices.Contains requires Go 1.21+
 		if id == trustProviderID {
 			return nil // already attached
 		}
