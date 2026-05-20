@@ -155,9 +155,27 @@ type InMemoryBackend struct {
 	// tokenRevokedBefore maps poolID+":"+username → revocation time for GlobalSignOut.
 	// Access tokens with auth_time before this timestamp are rejected.
 	tokenRevokedBefore map[string]time.Time
-	accountID          string
-	region             string
-	endpoint           string
+	// identityProviders maps poolID → providerName → IdentityProvider
+	identityProviders map[string]map[string]*IdentityProvider
+	// domains maps domain → UserPoolDomain (domain names are globally unique in Cognito)
+	domains map[string]*UserPoolDomain
+	// resourceTags maps ARN → tag key → tag value
+	resourceTags map[string]map[string]string
+	// riskConfigurations maps poolID+":"+clientID → RiskConfiguration (clientID="" for pool-level)
+	riskConfigurations map[string]*RiskConfiguration
+	// logDeliveryConfigs maps poolID → LogDeliveryConfig
+	logDeliveryConfigs map[string]*LogDeliveryConfig
+	// uiCustomizations maps poolID+":"+clientID → UICustomization
+	uiCustomizations map[string]*UICustomization
+	// managedLoginBrandings maps poolID → brandingID → ManagedLoginBranding
+	managedLoginBrandings map[string]map[string]*ManagedLoginBranding
+	// terms maps poolID → Terms
+	terms map[string]*Terms
+	// userImportJobs maps poolID → jobID → UserImportJob
+	userImportJobs map[string]map[string]*UserImportJob
+	accountID      string
+	region         string
+	endpoint       string
 }
 
 // refreshTokenEntry holds the pool/user context for a refresh token.
@@ -216,6 +234,15 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		groupMembers:          make(map[string]map[string]map[string]struct{}),
 		resourceServers:       make(map[string]map[string]*ResourceServer),
 		tokenRevokedBefore:    make(map[string]time.Time),
+		identityProviders:     make(map[string]map[string]*IdentityProvider),
+		domains:               make(map[string]*UserPoolDomain),
+		resourceTags:          make(map[string]map[string]string),
+		riskConfigurations:    make(map[string]*RiskConfiguration),
+		logDeliveryConfigs:    make(map[string]*LogDeliveryConfig),
+		uiCustomizations:      make(map[string]*UICustomization),
+		managedLoginBrandings: make(map[string]map[string]*ManagedLoginBranding),
+		terms:                 make(map[string]*Terms),
+		userImportJobs:        make(map[string]map[string]*UserImportJob),
 		accountID:             accountID,
 		region:                region,
 		endpoint:              endpoint,
@@ -1703,6 +1730,15 @@ func (b *InMemoryBackend) Reset() {
 	b.groupMembers = make(map[string]map[string]map[string]struct{})
 	b.resourceServers = make(map[string]map[string]*ResourceServer)
 	b.tokenRevokedBefore = make(map[string]time.Time)
+	b.identityProviders = make(map[string]map[string]*IdentityProvider)
+	b.domains = make(map[string]*UserPoolDomain)
+	b.resourceTags = make(map[string]map[string]string)
+	b.riskConfigurations = make(map[string]*RiskConfiguration)
+	b.logDeliveryConfigs = make(map[string]*LogDeliveryConfig)
+	b.uiCustomizations = make(map[string]*UICustomization)
+	b.managedLoginBrandings = make(map[string]map[string]*ManagedLoginBranding)
+	b.terms = make(map[string]*Terms)
+	b.userImportJobs = make(map[string]map[string]*UserImportJob)
 }
 
 // UpdateUserPool updates mutable properties of an existing user pool.
