@@ -328,6 +328,14 @@ type InMemoryBackend struct {
 	metricFilters          map[string]map[string]*MetricFilter
 	queryDefinitions       map[string]*QueryDefinition
 	dataProtectionPolicies map[string]string // logGroupName -> policyDocument JSON
+	resourcePolicies       map[string]ResourcePolicy
+	deliveryDestinations   map[string]DeliveryDestination
+	deliverySources        map[string]DeliverySource
+	destinations           map[string]CWLDestination
+	indexPolicies          map[string]IndexPolicy
+	transformers           map[string]Transformer
+	integrations           map[string]CWLIntegration
+	deletionProtected      map[string]bool
 	cancel                 context.CancelFunc
 	region                 string
 	accountID              string
@@ -384,6 +392,14 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		metricFilters:          make(map[string]map[string]*MetricFilter),
 		queryDefinitions:       make(map[string]*QueryDefinition),
 		dataProtectionPolicies: make(map[string]string),
+		resourcePolicies:       make(map[string]ResourcePolicy),
+		deliveryDestinations:   make(map[string]DeliveryDestination),
+		deliverySources:        make(map[string]DeliverySource),
+		destinations:           make(map[string]CWLDestination),
+		indexPolicies:          make(map[string]IndexPolicy),
+		transformers:           make(map[string]Transformer),
+		integrations:           make(map[string]CWLIntegration),
+		deletionProtected:      make(map[string]bool),
 		mu:                     lockmetrics.New("cloudwatchlogs"),
 		queryTTL:               defaultQueryTTL,
 		maxQueries:             defaultMaxQueries,
@@ -1788,6 +1804,14 @@ func (b *InMemoryBackend) Reset() {
 	b.metricFilters = make(map[string]map[string]*MetricFilter)
 	b.queryDefinitions = make(map[string]*QueryDefinition)
 	b.dataProtectionPolicies = make(map[string]string)
+	b.resourcePolicies = make(map[string]ResourcePolicy)
+	b.deliveryDestinations = make(map[string]DeliveryDestination)
+	b.deliverySources = make(map[string]DeliverySource)
+	b.destinations = make(map[string]CWLDestination)
+	b.indexPolicies = make(map[string]IndexPolicy)
+	b.transformers = make(map[string]Transformer)
+	b.integrations = make(map[string]CWLIntegration)
+	b.deletionProtected = make(map[string]bool)
 
 	b.compiledPatternsMu.Lock()
 	b.compiledPatterns = make(map[string]*compiledFilterPattern)
@@ -1918,7 +1942,7 @@ func (b *InMemoryBackend) CancelImportTask(importID string) (*ImportTask, error)
 	}
 
 	// AWS only allows cancellation of ACTIVE tasks.
-	if task.Status != "ACTIVE" {
+	if task.Status != completenessStatusActive {
 		return nil, fmt.Errorf("%w: import task %s is in state %s and cannot be cancelled",
 			ErrValidation, importID, task.Status)
 	}
@@ -2031,7 +2055,7 @@ func (b *InMemoryBackend) CreateImportTask(importRoleArn, importSourceArn string
 		ImportSourceArn:      importSourceArn,
 		ImportRoleArn:        importRoleArn,
 		ImportDestinationArn: destARN,
-		Status:               "ACTIVE",
+		Status:               completenessStatusActive,
 		CreationTime:         now,
 		LastUpdatedTime:      now,
 	}
