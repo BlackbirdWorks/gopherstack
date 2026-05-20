@@ -13,12 +13,12 @@ import (
 
 // IdentityProvider represents a federated identity provider attached to a user pool.
 type IdentityProvider struct {
-	ProviderDetails  map[string]string
-	CreatedAt        time.Time
-	LastModifiedAt   time.Time
-	UserPoolID       string
-	ProviderName     string
-	ProviderType     string
+	ProviderDetails map[string]string
+	CreatedAt       time.Time
+	LastModifiedAt  time.Time
+	UserPoolID      string
+	ProviderName    string
+	ProviderType    string
 }
 
 // UserPoolDomain holds the custom domain configuration for a user pool.
@@ -491,7 +491,7 @@ func (b *InMemoryBackend) CreateManagedLoginBranding(userPoolID, clientID string
 		b.managedLoginBrandings[userPoolID] = make(map[string]*ManagedLoginBranding)
 	}
 
-	id := "mlb-" + randomAlphanumeric(8)
+	id := "mlb-" + randomAlphanumeric(managedLoginBrandingIDLen)
 	now := time.Now()
 	mlb := &ManagedLoginBranding{
 		ManagedLoginBrandingID: id,
@@ -681,7 +681,10 @@ func (b *InMemoryBackend) DeleteTerms(userPoolID string) error {
 // User Import Job
 // ---------------------------------------------------------------------------
 
-const userImportJobIDLen = 10
+const (
+	managedLoginBrandingIDLen = 8
+	userImportJobIDLen        = 10
+)
 
 // CreateUserImportJob creates a new import job for a user pool.
 func (b *InMemoryBackend) CreateUserImportJob(userPoolID, jobName string) (*UserImportJob, error) {
