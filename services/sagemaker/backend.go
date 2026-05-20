@@ -422,6 +422,21 @@ type InMemoryBackend struct {
 	compilationJobs            map[string]*CompilationJob                  // key: jobName
 	monitoringSchedules        map[string]*MonitoringSchedule              // key: scheduleName
 	workteams                  map[string]*Workteam                        // key: workteamName
+	dataQualityJobDefs         map[string]*JobDefinition                   // key: name
+	modelBiasJobDefs           map[string]*JobDefinition                   // key: name
+	modelQualityJobDefs        map[string]*JobDefinition                   // key: name
+	modelExplainJobDefs        map[string]*JobDefinition                   // key: name
+	humanTaskUis               map[string]*HumanTaskUi                     // key: name
+	workforces                 map[string]*Workforce                       // key: name
+	flowDefinitions            map[string]*FlowDefinition                  // key: name
+	appImageConfigs            map[string]*AppImageConfig                  // key: name
+	inferenceExperiments       map[string]*InferenceExperiment             // key: name
+	mlflowTrackingServers      map[string]*MlflowTrackingServer            // key: name
+	modelCards                 map[string]*ModelCard                       // key: name
+	optimizationJobs           map[string]*OptimizationJob                 // key: name
+	studioLifecycleConfigs     map[string]*StudioLifecycleConfig           // key: name
+	partnerApps                map[string]*PartnerApp                      // key: name (arn used as key)
+	trainingPlans              map[string]*TrainingPlan                    // key: name
 	modelARNIndex              map[string]string                           // ARN → model name
 	endpointConfigARNIndex     map[string]string                           // ARN → endpoint config name
 	endpointARNIndex           map[string]string                           // ARN → endpoint name
@@ -482,6 +497,21 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		compilationJobs:            make(map[string]*CompilationJob),
 		monitoringSchedules:        make(map[string]*MonitoringSchedule),
 		workteams:                  make(map[string]*Workteam),
+		dataQualityJobDefs:         make(map[string]*JobDefinition),
+		modelBiasJobDefs:           make(map[string]*JobDefinition),
+		modelQualityJobDefs:        make(map[string]*JobDefinition),
+		modelExplainJobDefs:        make(map[string]*JobDefinition),
+		humanTaskUis:               make(map[string]*HumanTaskUi),
+		workforces:                 make(map[string]*Workforce),
+		flowDefinitions:            make(map[string]*FlowDefinition),
+		appImageConfigs:            make(map[string]*AppImageConfig),
+		inferenceExperiments:       make(map[string]*InferenceExperiment),
+		mlflowTrackingServers:      make(map[string]*MlflowTrackingServer),
+		modelCards:                 make(map[string]*ModelCard),
+		optimizationJobs:           make(map[string]*OptimizationJob),
+		studioLifecycleConfigs:     make(map[string]*StudioLifecycleConfig),
+		partnerApps:                make(map[string]*PartnerApp),
+		trainingPlans:              make(map[string]*TrainingPlan),
 		modelARNIndex:              make(map[string]string),
 		endpointConfigARNIndex:     make(map[string]string),
 		endpointARNIndex:           make(map[string]string),
@@ -554,6 +584,21 @@ func (b *InMemoryBackend) Reset() {
 	b.compilationJobs = make(map[string]*CompilationJob)
 	b.monitoringSchedules = make(map[string]*MonitoringSchedule)
 	b.workteams = make(map[string]*Workteam)
+	b.dataQualityJobDefs = make(map[string]*JobDefinition)
+	b.modelBiasJobDefs = make(map[string]*JobDefinition)
+	b.modelQualityJobDefs = make(map[string]*JobDefinition)
+	b.modelExplainJobDefs = make(map[string]*JobDefinition)
+	b.humanTaskUis = make(map[string]*HumanTaskUi)
+	b.workforces = make(map[string]*Workforce)
+	b.flowDefinitions = make(map[string]*FlowDefinition)
+	b.appImageConfigs = make(map[string]*AppImageConfig)
+	b.inferenceExperiments = make(map[string]*InferenceExperiment)
+	b.mlflowTrackingServers = make(map[string]*MlflowTrackingServer)
+	b.modelCards = make(map[string]*ModelCard)
+	b.optimizationJobs = make(map[string]*OptimizationJob)
+	b.studioLifecycleConfigs = make(map[string]*StudioLifecycleConfig)
+	b.partnerApps = make(map[string]*PartnerApp)
+	b.trainingPlans = make(map[string]*TrainingPlan)
 	b.modelARNIndex = make(map[string]string)
 	b.endpointConfigARNIndex = make(map[string]string)
 	b.endpointARNIndex = make(map[string]string)

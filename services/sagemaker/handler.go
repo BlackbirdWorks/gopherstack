@@ -177,10 +177,12 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 
 	batch2 := batch2OpsSupported()
+	batch3 := batch3SupportedOperations()
 
-	combined := make([]string, 0, len(core)+len(batch2)+len(stubOpsSupported()))
+	combined := make([]string, 0, len(core)+len(batch2)+len(batch3)+len(stubOpsSupported()))
 	combined = append(combined, core...)
 	combined = append(combined, batch2...)
+	combined = append(combined, batch3...)
 
 	return append(combined, stubOpsSupported()...)
 }
@@ -398,6 +400,10 @@ func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([
 	}
 
 	if r, ok, err := h.dispatchBatch2Ops(ctx, op, body); ok {
+		return r, err
+	}
+
+	if r, ok, err := h.dispatchBatch3Ops(ctx, op, body); ok {
 		return r, err
 	}
 
