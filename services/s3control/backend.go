@@ -172,9 +172,14 @@ type InMemoryBackend struct {
 	bucketVersioning             map[string]string
 	mrapPolicies                 map[string]string
 	mrapRoutes                   map[string]string
-	accountID                    string
-	region                       string
-	nextID                       int64
+	// batch2 additions
+	bucketReplication     map[string]string            // accountID:bucketName → replication config XML
+	storageLensConfigs    map[string]string            // accountID:configName → config XML
+	storageLensConfigTags map[string]TagSet            // accountID:configName → tags
+	resourceTags          map[string]map[string]string // ARN → tag key → tag value
+	accountID             string
+	region                string
+	nextID                int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default config values.
@@ -208,6 +213,10 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		bucketVersioning:             make(map[string]string),
 		mrapPolicies:                 make(map[string]string),
 		mrapRoutes:                   make(map[string]string),
+		bucketReplication:            make(map[string]string),
+		storageLensConfigs:           make(map[string]string),
+		storageLensConfigTags:        make(map[string]TagSet),
+		resourceTags:                 make(map[string]map[string]string),
 		mu:                           lockmetrics.New("s3control"),
 		accountID:                    accountID,
 		region:                       region,
@@ -248,6 +257,10 @@ func (b *InMemoryBackend) Reset() {
 	b.bucketVersioning = make(map[string]string)
 	b.mrapPolicies = make(map[string]string)
 	b.mrapRoutes = make(map[string]string)
+	b.bucketReplication = make(map[string]string)
+	b.storageLensConfigs = make(map[string]string)
+	b.storageLensConfigTags = make(map[string]TagSet)
+	b.resourceTags = make(map[string]map[string]string)
 	b.nextID = 0
 }
 

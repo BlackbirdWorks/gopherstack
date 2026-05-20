@@ -107,6 +107,36 @@ type StorageBackend interface {
 	GetMultiRegionAccessPointPolicy(accountID, name string) (string, error)
 	GetMultiRegionAccessPointPolicyStatus(accountID, name string) (bool, error)
 	GetMultiRegionAccessPointRoutes(accountID, mrap string) (string, error)
+
+	// ---- batch2 ----
+
+	// Bucket Replication
+	GetBucketReplication(accountID, bucketName string) (string, error)
+	PutBucketReplication(accountID, bucketName, config string) error
+	DeleteBucketReplication(accountID, bucketName string) error
+
+	// MRAP routes (submit)
+	SubmitMultiRegionAccessPointRoutes(accountID, mrap, routes string) error
+
+	// Storage Lens Configuration
+	GetStorageLensConfiguration(accountID, configName string) (string, error)
+	PutStorageLensConfiguration(accountID, configName, config string) error
+	DeleteStorageLensConfiguration(accountID, configName string) error
+	GetStorageLensConfigurationTagging(accountID, configName string) (TagSet, error)
+	PutStorageLensConfigurationTagging(accountID, configName string, tags TagSet) error
+	DeleteStorageLensConfigurationTagging(accountID, configName string) error
+	ListStorageLensConfigurations(accountID string) []string
+
+	// Storage Lens Groups (additional CRUD)
+	GetStorageLensGroup(accountID, name string) (*StorageLensGroup, error)
+	UpdateStorageLensGroup(accountID, name string) (*StorageLensGroup, error)
+	DeleteStorageLensGroup(accountID, name string) error
+	ListStorageLensGroups(accountID string) []*StorageLensGroup
+
+	// Resource Tags
+	ListTagsForResource(arn string) map[string]string
+	TagResource(arn string, tags map[string]string)
+	UntagResource(arn string, tagKeys []string)
 }
 
 // Verify interface is satisfied at compile time.
