@@ -579,7 +579,11 @@ func resolveBatch2Ops(path, method string) string {
 		return op
 	}
 
-	return resolveMiscBatch2Ops(path, method)
+	if op := resolveMiscBatch2Ops(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveBatch3Op(path, method)
 }
 
 func resolveNewStatefulOps(path, method string) string {
@@ -1082,7 +1086,11 @@ func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
 		return true, err
 	}
 
-	return h.dispatchBatch2Ops(c, op)
+	if handled, err := h.dispatchBatch2Ops(c, op); handled {
+		return true, err
+	}
+
+	return h.dispatchBatch3Ops(c, op)
 }
 
 func (h *Handler) dispatchMiscNewOps(c *echo.Context, op string) (bool, error) {

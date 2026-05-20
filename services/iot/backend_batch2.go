@@ -133,23 +133,23 @@ func (b *InMemoryBackend) ListCertificatesByCA(caID string) []*Certificate {
 // ---------------------------------------------------------------------------
 
 // StreamFile holds file info for an IoT stream.
-type StreamFile struct { //nolint:govet // JSON field order matters
-	FileID   int32  `json:"fileId,omitempty"`
+type StreamFile struct {
 	S3Bucket string `json:"s3Bucket,omitempty"`
 	S3Key    string `json:"s3Key,omitempty"`
+	FileID   int32  `json:"fileId,omitempty"`
 }
 
 // IoTStream represents an IoT data stream.
-type IoTStream struct { //nolint:revive,govet // IoTStream distinct from existing Stream; JSON field order matters
+type IoTStream struct {
 	Tags          map[string]string `json:"tags,omitempty"`
-	Files         []StreamFile      `json:"files,omitempty"`
 	StreamID      string            `json:"streamId"`
 	StreamARN     string            `json:"streamArn"`
 	Description   string            `json:"description,omitempty"`
 	RoleARN       string            `json:"roleArn,omitempty"`
-	StreamVersion int32             `json:"streamVersion,omitempty"`
+	Files         []StreamFile      `json:"files,omitempty"`
 	CreatedAt     float64           `json:"createdAt,omitempty"`
 	LastUpdated   float64           `json:"lastUpdatedAt,omitempty"`
+	StreamVersion int32             `json:"streamVersion,omitempty"`
 }
 
 func cloneStream(s *IoTStream) *IoTStream {
@@ -164,12 +164,12 @@ func (b *InMemoryBackend) streamARN(id string) string {
 }
 
 // CreateStreamInput holds input for CreateStream.
-type CreateStreamInput struct { //nolint:govet // JSON field order matters
+type CreateStreamInput struct {
 	Tags        map[string]string `json:"tags,omitempty"`
-	Files       []StreamFile      `json:"files"`
 	StreamID    string            `json:"streamId"`
 	Description string            `json:"description,omitempty"`
 	RoleARN     string            `json:"roleArn,omitempty"`
+	Files       []StreamFile      `json:"files"`
 }
 
 func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) (*IoTStream, error) {
@@ -499,12 +499,12 @@ func (b *InMemoryBackend) DeleteCustomMetric(name string) error {
 // ---------------------------------------------------------------------------
 
 // Dimension represents an IoT dimension.
-type Dimension struct { //nolint:govet // JSON field order matters
+type Dimension struct {
 	Tags             map[string]string `json:"tags,omitempty"`
-	StringValues     []string          `json:"stringValues,omitempty"`
 	Name             string            `json:"name"`
 	ARN              string            `json:"arn"`
 	Type             string            `json:"type"`
+	StringValues     []string          `json:"stringValues,omitempty"`
 	CreationDate     float64           `json:"creationDate,omitempty"`
 	LastModifiedDate float64           `json:"lastModifiedDate,omitempty"`
 }
@@ -521,12 +521,12 @@ func (b *InMemoryBackend) dimensionARN(name string) string {
 }
 
 // CreateDimensionInput holds input for CreateDimension.
-type CreateDimensionInput struct { //nolint:govet // JSON field order matters
+type CreateDimensionInput struct {
 	Tags               map[string]string `json:"tags,omitempty"`
-	StringValues       []string          `json:"stringValues"`
 	Name               string            `json:"name"`
 	Type               string            `json:"type"`
 	ClientRequestToken string            `json:"clientRequestToken,omitempty"`
+	StringValues       []string          `json:"stringValues"`
 }
 
 func (b *InMemoryBackend) CreateDimension(input *CreateDimensionInput) (*Dimension, error) {

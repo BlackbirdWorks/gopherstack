@@ -253,6 +253,22 @@ func resolveSecurityProfileOps(path, method string) string {
 	switch {
 	case path == "/security-profiles" && method == http.MethodGet:
 		return opListSecurityProfiles
+	case path == "/security-profiles-for-target" && method == http.MethodGet:
+		return opListSecurityProfilesForTarget
+	// /security-profiles/{name}/targets — must be before generic prefix cases
+	case strings.HasPrefix(path, "/security-profiles/") &&
+		strings.HasSuffix(path, "/targets") &&
+		method == http.MethodDelete:
+		return opDetachSecurityProfile
+	case strings.HasPrefix(path, "/security-profiles/") &&
+		strings.HasSuffix(path, "/targets") &&
+		method == http.MethodGet:
+		return opListTargetsForSecurityProfile
+	// Attach is a PUT on /security-profiles/{name}/targets
+	case strings.HasPrefix(path, "/security-profiles/") &&
+		strings.HasSuffix(path, "/targets") &&
+		method == http.MethodPut:
+		return opAttachSecurityProfile
 	case strings.HasPrefix(path, "/security-profiles/") && method == http.MethodPost:
 		return opCreateSecurityProfile
 	case strings.HasPrefix(path, "/security-profiles/") && method == http.MethodGet:

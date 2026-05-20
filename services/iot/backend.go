@@ -90,12 +90,25 @@ type InMemoryBackend struct {
 	resourceTags       map[string]map[string]string // resourceARN -> tags
 	auditConfiguration *AccountAuditConfiguration
 	auditTaskObjects   map[string]*AuditTask
-	registrationCode   string
-	defaultAuthorizer  string
-	accountID          string
-	region             string
-	mqttPort           int
-	mu                 sync.RWMutex
+	// Batch 3 resources.
+	otaUpdates          map[string]*OTAUpdate
+	iotPackages         map[string]*IoTPackage
+	packageVersions2    map[string]map[string]*IoTPackageVersion // packageName -> versionName -> version
+	packageConfig       *PackageConfiguration
+	auditSuppressions   map[string]*AuditSuppression
+	auditFindings       map[string]*AuditFinding
+	v2LoggingOptions    *V2LoggingOptions
+	v2LoggingLevels     map[string]*V2LoggingLevel
+	loggingOptions      *LoggingOptions
+	eventConfigurations *EventConfigurations
+	commands            map[string]*IoTCommand
+	commandExecutions   map[string]*IoTCommandExecution
+	registrationCode    string
+	defaultAuthorizer   string
+	accountID           string
+	region              string
+	mqttPort            int
+	mu                  sync.RWMutex
 }
 
 // Compile-time assertion that InMemoryBackend implements StorageBackend.
@@ -146,6 +159,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 		dimensions:             make(map[string]*Dimension),
 		resourceTags:           make(map[string]map[string]string),
 		auditTaskObjects:       make(map[string]*AuditTask),
+		otaUpdates:             make(map[string]*OTAUpdate),
+		iotPackages:            make(map[string]*IoTPackage),
+		packageVersions2:       make(map[string]map[string]*IoTPackageVersion),
+		auditSuppressions:      make(map[string]*AuditSuppression),
+		auditFindings:          make(map[string]*AuditFinding),
+		v2LoggingLevels:        make(map[string]*V2LoggingLevel),
+		commands:               make(map[string]*IoTCommand),
+		commandExecutions:      make(map[string]*IoTCommandExecution),
 		accountID:              "000000000000",
 		region:                 "us-east-1",
 		mqttPort:               mqttDefaultPort,
@@ -205,6 +226,18 @@ func (b *InMemoryBackend) Reset() {
 	b.dimensions = make(map[string]*Dimension)
 	b.resourceTags = make(map[string]map[string]string)
 	b.auditTaskObjects = make(map[string]*AuditTask)
+	b.otaUpdates = make(map[string]*OTAUpdate)
+	b.iotPackages = make(map[string]*IoTPackage)
+	b.packageVersions2 = make(map[string]map[string]*IoTPackageVersion)
+	b.packageConfig = nil
+	b.auditSuppressions = make(map[string]*AuditSuppression)
+	b.auditFindings = make(map[string]*AuditFinding)
+	b.v2LoggingOptions = nil
+	b.v2LoggingLevels = make(map[string]*V2LoggingLevel)
+	b.loggingOptions = nil
+	b.eventConfigurations = nil
+	b.commands = make(map[string]*IoTCommand)
+	b.commandExecutions = make(map[string]*IoTCommandExecution)
 	b.registrationCode = ""
 	b.defaultAuthorizer = ""
 	b.auditConfiguration = nil
