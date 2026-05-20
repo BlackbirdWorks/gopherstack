@@ -272,6 +272,22 @@ func (b *InMemoryBackend) DescribeUserPoolDomain(domain string) (*UserPoolDomain
 	return &cp, nil
 }
 
+// FindUserPoolDomain returns a domain by name, or nil if not found (no error).
+// Use instead of DescribeUserPoolDomain when the caller treats "not found" as an empty result.
+func (b *InMemoryBackend) FindUserPoolDomain(domain string) *UserPoolDomain {
+	b.mu.RLock("FindUserPoolDomain")
+	defer b.mu.RUnlock()
+
+	d := b.domains[domain]
+	if d == nil {
+		return nil
+	}
+
+	cp := *d
+
+	return &cp
+}
+
 // UpdateUserPoolDomain updates a domain (e.g., custom certificate). Returns the cloudfront domain.
 func (b *InMemoryBackend) UpdateUserPoolDomain(userPoolID, domain string) (string, error) {
 	b.mu.Lock("UpdateUserPoolDomain")
