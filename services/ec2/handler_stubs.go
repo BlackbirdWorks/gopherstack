@@ -15,9 +15,9 @@ type stubResponse struct {
 //nolint:funlen
 func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["AllocateIpamPoolCidr"] = h.handleStubAllocateIpamPoolCidr
-	ops["ApplySecurityGroupsToClientVpnTargetNetwork"] = h.handleStubApplySecurityGroupsToClientVpnTargetNetwork
+	// ApplySecurityGroupsToClientVpnTargetNetwork — moved to handler_batch4.go
 	ops["AssociateCapacityReservationBillingOwner"] = h.handleStubAssociateCapacityReservationBillingOwner
-	ops["AssociateClientVpnTargetNetwork"] = h.handleStubAssociateClientVpnTargetNetwork
+	// AssociateClientVpnTargetNetwork — moved to handler_batch4.go
 	ops["AssociateEnclaveCertificateIamRole"] = h.handleStubAssociateEnclaveCertificateIamRole
 	// AssociateIamInstanceProfile — moved to handler_ec2core.go
 	ops["AssociateInstanceEventWindow"] = h.handleStubAssociateInstanceEventWindow
@@ -30,9 +30,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["AssociateTrunkInterface"] = h.handleStubAssociateTrunkInterface
 	// AssociateVpcCidrBlock — moved to handler_ec2core.go
 	ops["AttachClassicLinkVpc"] = h.handleStubAttachClassicLinkVpc
-	ops["AttachVerifiedAccessTrustProvider"] = h.handleStubAttachVerifiedAccessTrustProvider
+	// AttachVerifiedAccessTrustProvider — moved to handler_batch4.go
 	ops["AttachVpnGateway"] = h.handleStubAttachVpnGateway
-	ops["AuthorizeClientVpnIngress"] = h.handleStubAuthorizeClientVpnIngress
+	// AuthorizeClientVpnIngress — moved to handler_batch4.go
 	ops["BundleInstance"] = h.handleStubBundleInstance
 	ops["CancelBundleTask"] = h.handleStubCancelBundleTask
 	ops["CancelCapacityReservationFleets"] = h.handleStubCancelCapacityReservationFleets
@@ -49,8 +49,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateCapacityReservationBySplitting"] = h.handleStubCreateCapacityReservationBySplitting
 	ops["CreateCapacityReservationFleet"] = h.handleStubCreateCapacityReservationFleet
 	ops["CreateCarrierGateway"] = h.handleStubCreateCarrierGateway
-	ops["CreateClientVpnEndpoint"] = h.handleStubCreateClientVpnEndpoint
-	ops["CreateClientVpnRoute"] = h.handleStubCreateClientVpnRoute
+	// CreateClientVpnEndpoint — moved to handler_batch4.go
+	// CreateClientVpnRoute — moved to handler_batch4.go
 	ops["CreateCoipCidr"] = h.handleStubCreateCoipCidr
 	ops["CreateCoipPool"] = h.handleStubCreateCoipPool
 	ops["CreateCustomerGateway"] = h.handleStubCreateCustomerGateway
@@ -78,7 +78,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateLocalGatewayVirtualInterfaceGroup"] = h.handleStubCreateLocalGatewayVirtualInterfaceGroup
 	ops["CreateMacSystemIntegrityProtectionModificationTask"] =
 		h.handleStubCreateMacSystemIntegrityProtectionModificationTask
-	ops["CreateManagedPrefixList"] = h.handleStubCreateManagedPrefixList
+	// CreateManagedPrefixList — moved to handler_batch4.go
 	ops["CreateNetworkInsightsAccessScope"] = h.handleStubCreateNetworkInsightsAccessScope
 	ops["CreateNetworkInsightsPath"] = h.handleStubCreateNetworkInsightsPath
 	ops["CreateReservedInstancesListing"] = h.handleStubCreateReservedInstancesListing
@@ -93,21 +93,21 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateTrafficMirrorFilterRule"] = h.handleStubCreateTrafficMirrorFilterRule
 	ops["CreateTrafficMirrorSession"] = h.handleStubCreateTrafficMirrorSession
 	ops["CreateTrafficMirrorTarget"] = h.handleStubCreateTrafficMirrorTarget
-	ops["CreateTransitGatewayConnect"] = h.handleStubCreateTransitGatewayConnect
-	ops["CreateTransitGatewayConnectPeer"] = h.handleStubCreateTransitGatewayConnectPeer
+	// CreateTransitGatewayConnect — moved to handler_batch4.go
+	// CreateTransitGatewayConnectPeer — moved to handler_batch4.go
 	ops["CreateTransitGatewayMeteringPolicy"] = h.handleStubCreateTransitGatewayMeteringPolicy
 	ops["CreateTransitGatewayMeteringPolicyEntry"] = h.handleStubCreateTransitGatewayMeteringPolicyEntry
 	ops["CreateTransitGatewayMulticastDomain"] = h.handleStubCreateTransitGatewayMulticastDomain
-	ops["CreateTransitGatewayPeeringAttachment"] = h.handleStubCreateTransitGatewayPeeringAttachment
+	// CreateTransitGatewayPeeringAttachment — moved to handler_batch4.go
 	ops["CreateTransitGatewayPolicyTable"] = h.handleStubCreateTransitGatewayPolicyTable
-	ops["CreateTransitGatewayPrefixListReference"] = h.handleStubCreateTransitGatewayPrefixListReference
+	// CreateTransitGatewayPrefixListReference — moved to handler_batch4.go
 	// CreateTransitGatewayRoute — moved to handler_ec2core.go
 	// CreateTransitGatewayRouteTable — moved to handler_ec2core.go
 	ops["CreateTransitGatewayRouteTableAnnouncement"] = h.handleStubCreateTransitGatewayRouteTableAnnouncement
-	ops["CreateVerifiedAccessEndpoint"] = h.handleStubCreateVerifiedAccessEndpoint
-	ops["CreateVerifiedAccessGroup"] = h.handleStubCreateVerifiedAccessGroup
-	ops["CreateVerifiedAccessInstance"] = h.handleStubCreateVerifiedAccessInstance
-	ops["CreateVerifiedAccessTrustProvider"] = h.handleStubCreateVerifiedAccessTrustProvider
+	// CreateVerifiedAccessEndpoint — moved to handler_batch4.go
+	// CreateVerifiedAccessGroup — moved to handler_batch4.go
+	// CreateVerifiedAccessInstance — moved to handler_batch4.go
+	// CreateVerifiedAccessTrustProvider — moved to handler_batch4.go
 	ops["CreateVpcBlockPublicAccessExclusion"] = h.handleStubCreateVpcBlockPublicAccessExclusion
 	ops["CreateVpcEncryptionControl"] = h.handleStubCreateVpcEncryptionControl
 	ops["CreateVpcEndpointServiceConfiguration"] = h.handleStubCreateVpcEndpointServiceConfiguration
@@ -116,8 +116,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateVpnGateway"] = h.handleStubCreateVpnGateway
 	ops["DeleteCapacityManagerDataExport"] = h.handleStubDeleteCapacityManagerDataExport
 	ops["DeleteCarrierGateway"] = h.handleStubDeleteCarrierGateway
-	ops["DeleteClientVpnEndpoint"] = h.handleStubDeleteClientVpnEndpoint
-	ops["DeleteClientVpnRoute"] = h.handleStubDeleteClientVpnRoute
+	// DeleteClientVpnEndpoint — moved to handler_batch4.go
+	// DeleteClientVpnRoute — moved to handler_batch4.go
 	ops["DeleteCoipCidr"] = h.handleStubDeleteCoipCidr
 	ops["DeleteCoipPool"] = h.handleStubDeleteCoipPool
 	ops["DeleteCustomerGateway"] = h.handleStubDeleteCustomerGateway
@@ -140,7 +140,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteLocalGatewayRouteTableVpcAssociation"] = h.handleStubDeleteLocalGatewayRouteTableVpcAssociation
 	ops["DeleteLocalGatewayVirtualInterface"] = h.handleStubDeleteLocalGatewayVirtualInterface
 	ops["DeleteLocalGatewayVirtualInterfaceGroup"] = h.handleStubDeleteLocalGatewayVirtualInterfaceGroup
-	ops["DeleteManagedPrefixList"] = h.handleStubDeleteManagedPrefixList
+	// DeleteManagedPrefixList — moved to handler_batch4.go
 	ops["DeleteNetworkInsightsAccessScope"] = h.handleStubDeleteNetworkInsightsAccessScope
 	ops["DeleteNetworkInsightsAccessScopeAnalysis"] = h.handleStubDeleteNetworkInsightsAccessScopeAnalysis
 	ops["DeleteNetworkInsightsAnalysis"] = h.handleStubDeleteNetworkInsightsAnalysis
@@ -155,21 +155,21 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteTrafficMirrorFilterRule"] = h.handleStubDeleteTrafficMirrorFilterRule
 	ops["DeleteTrafficMirrorSession"] = h.handleStubDeleteTrafficMirrorSession
 	ops["DeleteTrafficMirrorTarget"] = h.handleStubDeleteTrafficMirrorTarget
-	ops["DeleteTransitGatewayConnect"] = h.handleStubDeleteTransitGatewayConnect
-	ops["DeleteTransitGatewayConnectPeer"] = h.handleStubDeleteTransitGatewayConnectPeer
+	// DeleteTransitGatewayConnect — moved to handler_batch4.go
+	// DeleteTransitGatewayConnectPeer — moved to handler_batch4.go
 	ops["DeleteTransitGatewayMeteringPolicy"] = h.handleStubDeleteTransitGatewayMeteringPolicy
 	ops["DeleteTransitGatewayMeteringPolicyEntry"] = h.handleStubDeleteTransitGatewayMeteringPolicyEntry
 	ops["DeleteTransitGatewayMulticastDomain"] = h.handleStubDeleteTransitGatewayMulticastDomain
-	ops["DeleteTransitGatewayPeeringAttachment"] = h.handleStubDeleteTransitGatewayPeeringAttachment
+	// DeleteTransitGatewayPeeringAttachment — moved to handler_batch4.go
 	ops["DeleteTransitGatewayPolicyTable"] = h.handleStubDeleteTransitGatewayPolicyTable
-	ops["DeleteTransitGatewayPrefixListReference"] = h.handleStubDeleteTransitGatewayPrefixListReference
+	// DeleteTransitGatewayPrefixListReference — moved to handler_batch4.go
 	// DeleteTransitGatewayRoute — moved to handler_ec2core.go
 	// DeleteTransitGatewayRouteTable — moved to handler_ec2core.go
 	ops["DeleteTransitGatewayRouteTableAnnouncement"] = h.handleStubDeleteTransitGatewayRouteTableAnnouncement
-	ops["DeleteVerifiedAccessEndpoint"] = h.handleStubDeleteVerifiedAccessEndpoint
-	ops["DeleteVerifiedAccessGroup"] = h.handleStubDeleteVerifiedAccessGroup
-	ops["DeleteVerifiedAccessInstance"] = h.handleStubDeleteVerifiedAccessInstance
-	ops["DeleteVerifiedAccessTrustProvider"] = h.handleStubDeleteVerifiedAccessTrustProvider
+	// DeleteVerifiedAccessEndpoint — moved to handler_batch4.go
+	// DeleteVerifiedAccessGroup — moved to handler_batch4.go
+	// DeleteVerifiedAccessInstance — moved to handler_batch4.go
+	// DeleteVerifiedAccessTrustProvider — moved to handler_batch4.go
 	ops["DeleteVpcBlockPublicAccessExclusion"] = h.handleStubDeleteVpcBlockPublicAccessExclusion
 	ops["DeleteVpcEncryptionControl"] = h.handleStubDeleteVpcEncryptionControl
 	ops["DeleteVpcEndpointServiceConfigurations"] = h.handleStubDeleteVpcEndpointServiceConfigurations
@@ -194,11 +194,11 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeCapacityReservationTopology"] = h.handleStubDescribeCapacityReservationTopology
 	ops["DescribeCarrierGateways"] = h.handleStubDescribeCarrierGateways
 	ops["DescribeClassicLinkInstances"] = h.handleStubDescribeClassicLinkInstances
-	ops["DescribeClientVpnAuthorizationRules"] = h.handleStubDescribeClientVpnAuthorizationRules
-	ops["DescribeClientVpnConnections"] = h.handleStubDescribeClientVpnConnections
-	ops["DescribeClientVpnEndpoints"] = h.handleStubDescribeClientVpnEndpoints
-	ops["DescribeClientVpnRoutes"] = h.handleStubDescribeClientVpnRoutes
-	ops["DescribeClientVpnTargetNetworks"] = h.handleStubDescribeClientVpnTargetNetworks
+	// DescribeClientVpnAuthorizationRules — moved to handler_batch4.go
+	// DescribeClientVpnConnections — moved to handler_batch4.go
+	// DescribeClientVpnEndpoints — moved to handler_batch4.go
+	// DescribeClientVpnRoutes — moved to handler_batch4.go
+	// DescribeClientVpnTargetNetworks — moved to handler_batch4.go
 	ops["DescribeCoipPools"] = h.handleStubDescribeCoipPools
 	ops["DescribeConversionTasks"] = h.handleStubDescribeConversionTasks
 	ops["DescribeCustomerGateways"] = h.handleStubDescribeCustomerGateways
@@ -238,7 +238,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeLocalGateways"] = h.handleStubDescribeLocalGateways
 	ops["DescribeMacHosts"] = h.handleStubDescribeMacHosts
 	ops["DescribeMacModificationTasks"] = h.handleStubDescribeMacModificationTasks
-	ops["DescribeManagedPrefixLists"] = h.handleStubDescribeManagedPrefixLists
+	// DescribeManagedPrefixLists — moved to handler_batch4.go
 	ops["DescribeMovingAddresses"] = h.handleStubDescribeMovingAddresses
 	ops["DescribeNetworkInsightsAccessScopeAnalyses"] = h.handleStubDescribeNetworkInsightsAccessScopeAnalyses
 	ops["DescribeNetworkInsightsAccessScopes"] = h.handleStubDescribeNetworkInsightsAccessScopes
@@ -267,21 +267,21 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeTrafficMirrorSessions"] = h.handleStubDescribeTrafficMirrorSessions
 	ops["DescribeTrafficMirrorTargets"] = h.handleStubDescribeTrafficMirrorTargets
 	ops["DescribeTransitGatewayAttachments"] = h.handleStubDescribeTransitGatewayAttachments
-	ops["DescribeTransitGatewayConnectPeers"] = h.handleStubDescribeTransitGatewayConnectPeers
-	ops["DescribeTransitGatewayConnects"] = h.handleStubDescribeTransitGatewayConnects
+	// DescribeTransitGatewayConnectPeers — moved to handler_batch4.go
+	// DescribeTransitGatewayConnects — moved to handler_batch4.go
 	ops["DescribeTransitGatewayMeteringPolicies"] = h.handleStubDescribeTransitGatewayMeteringPolicies
 	ops["DescribeTransitGatewayMulticastDomains"] = h.handleStubDescribeTransitGatewayMulticastDomains
-	ops["DescribeTransitGatewayPeeringAttachments"] = h.handleStubDescribeTransitGatewayPeeringAttachments
+	// DescribeTransitGatewayPeeringAttachments — moved to handler_batch4.go
 	ops["DescribeTransitGatewayPolicyTables"] = h.handleStubDescribeTransitGatewayPolicyTables
 	ops["DescribeTransitGatewayRouteTableAnnouncements"] = h.handleStubDescribeTransitGatewayRouteTableAnnouncements
 	// DescribeTransitGatewayRouteTables — moved to handler_ec2core.go
 	ops["DescribeTrunkInterfaceAssociations"] = h.handleStubDescribeTrunkInterfaceAssociations
-	ops["DescribeVerifiedAccessEndpoints"] = h.handleStubDescribeVerifiedAccessEndpoints
-	ops["DescribeVerifiedAccessGroups"] = h.handleStubDescribeVerifiedAccessGroups
+	// DescribeVerifiedAccessEndpoints — moved to handler_batch4.go
+	// DescribeVerifiedAccessGroups — moved to handler_batch4.go
 	ops["DescribeVerifiedAccessInstanceLoggingConfigurations"] =
 		h.handleStubDescribeVerifiedAccessInstanceLoggingConfigurations
-	ops["DescribeVerifiedAccessInstances"] = h.handleStubDescribeVerifiedAccessInstances
-	ops["DescribeVerifiedAccessTrustProviders"] = h.handleStubDescribeVerifiedAccessTrustProviders
+	// DescribeVerifiedAccessInstances — moved to handler_batch4.go
+	// DescribeVerifiedAccessTrustProviders — moved to handler_batch4.go
 	ops["DescribeVpcBlockPublicAccessExclusions"] = h.handleStubDescribeVpcBlockPublicAccessExclusions
 	ops["DescribeVpcBlockPublicAccessOptions"] = h.handleStubDescribeVpcBlockPublicAccessOptions
 	ops["DescribeVpcClassicLink"] = h.handleStubDescribeVpcClassicLink
@@ -292,7 +292,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeVpnConnections"] = h.handleStubDescribeVpnConnections
 	ops["DescribeVpnGateways"] = h.handleStubDescribeVpnGateways
 	ops["DetachClassicLinkVpc"] = h.handleStubDetachClassicLinkVpc
-	ops["DetachVerifiedAccessTrustProvider"] = h.handleStubDetachVerifiedAccessTrustProvider
+	// DetachVerifiedAccessTrustProvider — moved to handler_batch4.go
 	ops["DisableAllowedImagesSettings"] = h.handleStubDisableAllowedImagesSettings
 	ops["DisableAwsNetworkPerformanceMetricSubscription"] = h.handleStubDisableAwsNetworkPerformanceMetricSubscription
 	ops["DisableCapacityManager"] = h.handleStubDisableCapacityManager
@@ -304,7 +304,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DisableVpcClassicLink"] = h.handleStubDisableVpcClassicLink
 	ops["DisableVpcClassicLinkDnsSupport"] = h.handleStubDisableVpcClassicLinkDNSSupport
 	ops["DisassociateCapacityReservationBillingOwner"] = h.handleStubDisassociateCapacityReservationBillingOwner
-	ops["DisassociateClientVpnTargetNetwork"] = h.handleStubDisassociateClientVpnTargetNetwork
+	// DisassociateClientVpnTargetNetwork — moved to handler_batch4.go
 	ops["DisassociateEnclaveCertificateIamRole"] = h.handleStubDisassociateEnclaveCertificateIamRole
 	// DisassociateIamInstanceProfile — moved to handler_ec2core.go
 	ops["DisassociateInstanceEventWindow"] = h.handleStubDisassociateInstanceEventWindow
@@ -358,8 +358,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetIpamPrefixListResolverVersionEntries"] = h.handleStubGetIpamPrefixListResolverVersionEntries
 	ops["GetIpamPrefixListResolverVersions"] = h.handleStubGetIpamPrefixListResolverVersions
 	ops["GetIpamResourceCidrs"] = h.handleStubGetIpamResourceCidrs
-	ops["GetManagedPrefixListAssociations"] = h.handleStubGetManagedPrefixListAssociations
-	ops["GetManagedPrefixListEntries"] = h.handleStubGetManagedPrefixListEntries
+	// GetManagedPrefixListAssociations — moved to handler_batch4.go
+	// GetManagedPrefixListEntries — moved to handler_batch4.go
 	ops["GetNetworkInsightsAccessScopeAnalysisFindings"] = h.handleStubGetNetworkInsightsAccessScopeAnalysisFindings
 	ops["GetNetworkInsightsAccessScopeContent"] = h.handleStubGetNetworkInsightsAccessScopeContent
 	ops["GetReservedInstancesExchangeQuote"] = h.handleStubGetReservedInstancesExchangeQuote
@@ -372,7 +372,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetTransitGatewayMulticastDomainAssociations"] = h.handleStubGetTransitGatewayMulticastDomainAssociations
 	ops["GetTransitGatewayPolicyTableAssociations"] = h.handleStubGetTransitGatewayPolicyTableAssociations
 	ops["GetTransitGatewayPolicyTableEntries"] = h.handleStubGetTransitGatewayPolicyTableEntries
-	ops["GetTransitGatewayPrefixListReferences"] = h.handleStubGetTransitGatewayPrefixListReferences
+	// GetTransitGatewayPrefixListReferences — moved to handler_batch4.go
 	ops["GetTransitGatewayRouteTableAssociations"] = h.handleStubGetTransitGatewayRouteTableAssociations
 	ops["GetTransitGatewayRouteTablePropagations"] = h.handleStubGetTransitGatewayRouteTablePropagations
 	ops["GetVerifiedAccessEndpointPolicy"] = h.handleStubGetVerifiedAccessEndpointPolicy
@@ -387,7 +387,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ImportVolume"] = h.handleStubImportVolume
 	ops["ModifyAvailabilityZoneGroup"] = h.handleStubModifyAvailabilityZoneGroup
 	ops["ModifyCapacityReservationFleet"] = h.handleStubModifyCapacityReservationFleet
-	ops["ModifyClientVpnEndpoint"] = h.handleStubModifyClientVpnEndpoint
+	// ModifyClientVpnEndpoint — moved to handler_batch4.go
 	ops["ModifyFleet"] = h.handleStubModifyFleet
 	ops["ModifyFpgaImageAttribute"] = h.handleStubModifyFpgaImageAttribute
 	ops["ModifyHosts"] = h.handleStubModifyHosts
@@ -406,7 +406,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyIpamResourceDiscovery"] = h.handleStubModifyIpamResourceDiscovery
 	ops["ModifyIpamScope"] = h.handleStubModifyIpamScope
 	ops["ModifyLocalGatewayRoute"] = h.handleStubModifyLocalGatewayRoute
-	ops["ModifyManagedPrefixList"] = h.handleStubModifyManagedPrefixList
+	// ModifyManagedPrefixList — moved to handler_batch4.go
 	ops["ModifyPrivateDnsNameOptions"] = h.handleStubModifyPrivateDNSNameOptions
 	ops["ModifyPublicIpDnsNameOptions"] = h.handleStubModifyPublicIPDNSNameOptions
 	ops["ModifyReservedInstances"] = h.handleStubModifyReservedInstances
@@ -418,7 +418,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyTransitGatewayMeteringPolicy"] = h.handleStubModifyTransitGatewayMeteringPolicy
 	ops["ModifyTransitGatewayPrefixListReference"] = h.handleStubModifyTransitGatewayPrefixListReference
 	ops["ModifyTransitGatewayVpcAttachment"] = h.handleStubModifyTransitGatewayVpcAttachment
-	ops["ModifyVerifiedAccessEndpoint"] = h.handleStubModifyVerifiedAccessEndpoint
+	// ModifyVerifiedAccessEndpoint — moved to handler_batch4.go
 	ops["ModifyVerifiedAccessEndpointPolicy"] = h.handleStubModifyVerifiedAccessEndpointPolicy
 	ops["ModifyVerifiedAccessGroup"] = h.handleStubModifyVerifiedAccessGroup
 	ops["ModifyVerifiedAccessGroupPolicy"] = h.handleStubModifyVerifiedAccessGroupPolicy
@@ -459,8 +459,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ReplaceVpnTunnel"] = h.handleStubReplaceVpnTunnel
 	ops["RequestSpotFleet"] = h.handleStubRequestSpotFleet
 	ops["ResetFpgaImageAttribute"] = h.handleStubResetFpgaImageAttribute
-	ops["RestoreManagedPrefixListVersion"] = h.handleStubRestoreManagedPrefixListVersion
-	ops["RevokeClientVpnIngress"] = h.handleStubRevokeClientVpnIngress
+	// RestoreManagedPrefixListVersion — moved to handler_batch4.go
+	// RevokeClientVpnIngress — moved to handler_batch4.go
 	ops["RunScheduledInstances"] = h.handleStubRunScheduledInstances
 	ops["SearchLocalGatewayRoutes"] = h.handleStubSearchLocalGatewayRoutes
 	ops["SearchTransitGatewayMulticastGroups"] = h.handleStubSearchTransitGatewayMulticastGroups
@@ -470,7 +470,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["StartNetworkInsightsAccessScopeAnalysis"] = h.handleStubStartNetworkInsightsAccessScopeAnalysis
 	ops["StartNetworkInsightsAnalysis"] = h.handleStubStartNetworkInsightsAnalysis
 	ops["StartVpcEndpointServicePrivateDnsVerification"] = h.handleStubStartVpcEndpointServicePrivateDNSVerification
-	ops["TerminateClientVpnConnections"] = h.handleStubTerminateClientVpnConnections
+	// TerminateClientVpnConnections — moved to handler_batch4.go
 	ops["UnassignPrivateNatGatewayAddress"] = h.handleStubUnassignPrivateNatGatewayAddress
 	ops["UpdateCapacityManagerOrganizationsAccess"] = h.handleStubUpdateCapacityManagerOrganizationsAccess
 	ops["UpdateInterruptibleCapacityReservationAllocation"] = h.handleStubUpdateInterruptibleCapacityReservationAllocation
@@ -488,9 +488,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 func stubSupportedOperations() []string {
 	return []string{
 		// "AllocateIpamPoolCidr", — moved to advancedNetworkingSupportedOperations
-		"ApplySecurityGroupsToClientVpnTargetNetwork",
+		// "ApplySecurityGroupsToClientVpnTargetNetwork", — moved to batch4SupportedOperations
 		"AssociateCapacityReservationBillingOwner",
-		"AssociateClientVpnTargetNetwork",
+		// "AssociateClientVpnTargetNetwork", — moved to batch4SupportedOperations
 		"AssociateEnclaveCertificateIamRole",
 		// AssociateIamInstanceProfile — now in ec2CoreSupportedOperations
 		"AssociateInstanceEventWindow",
@@ -503,9 +503,9 @@ func stubSupportedOperations() []string {
 		"AssociateTrunkInterface",
 		// AssociateVpcCidrBlock — moved to ec2CoreSupportedOperations
 		"AttachClassicLinkVpc",
-		"AttachVerifiedAccessTrustProvider",
+		// "AttachVerifiedAccessTrustProvider", — moved to batch4SupportedOperations
 		// "AttachVpnGateway", — moved to advancedNetworkingSupportedOperations
-		"AuthorizeClientVpnIngress",
+		// "AuthorizeClientVpnIngress", — moved to batch4SupportedOperations
 		"BundleInstance",
 		"CancelBundleTask",
 		"CancelCapacityReservationFleets",
@@ -521,8 +521,8 @@ func stubSupportedOperations() []string {
 		"CreateCapacityReservationBySplitting",
 		"CreateCapacityReservationFleet",
 		"CreateCarrierGateway",
-		"CreateClientVpnEndpoint",
-		"CreateClientVpnRoute",
+		// "CreateClientVpnEndpoint", — moved to batch4SupportedOperations
+		// "CreateClientVpnRoute", — moved to batch4SupportedOperations
 		"CreateCoipCidr",
 		"CreateCoipPool",
 		// "CreateCustomerGateway", — moved to advancedNetworkingSupportedOperations
@@ -548,7 +548,7 @@ func stubSupportedOperations() []string {
 		"CreateLocalGatewayVirtualInterface",
 		"CreateLocalGatewayVirtualInterfaceGroup",
 		"CreateMacSystemIntegrityProtectionModificationTask",
-		"CreateManagedPrefixList",
+		// "CreateManagedPrefixList", — moved to batch4SupportedOperations
 		"CreateNetworkInsightsAccessScope",
 		"CreateNetworkInsightsPath",
 		"CreateReservedInstancesListing",
@@ -563,21 +563,21 @@ func stubSupportedOperations() []string {
 		"CreateTrafficMirrorFilterRule",
 		"CreateTrafficMirrorSession",
 		"CreateTrafficMirrorTarget",
-		"CreateTransitGatewayConnect",
-		"CreateTransitGatewayConnectPeer",
+		// "CreateTransitGatewayConnect", — moved to batch4SupportedOperations
+		// "CreateTransitGatewayConnectPeer", — moved to batch4SupportedOperations
 		"CreateTransitGatewayMeteringPolicy",
 		"CreateTransitGatewayMeteringPolicyEntry",
 		"CreateTransitGatewayMulticastDomain",
-		"CreateTransitGatewayPeeringAttachment",
+		// "CreateTransitGatewayPeeringAttachment", — moved to batch4SupportedOperations
 		"CreateTransitGatewayPolicyTable",
-		"CreateTransitGatewayPrefixListReference",
+		// "CreateTransitGatewayPrefixListReference", — moved to batch4SupportedOperations
 		// CreateTransitGatewayRoute — moved to ec2CoreSupportedOperations
 		// CreateTransitGatewayRouteTable — moved to ec2CoreSupportedOperations
 		"CreateTransitGatewayRouteTableAnnouncement",
-		"CreateVerifiedAccessEndpoint",
-		"CreateVerifiedAccessGroup",
-		"CreateVerifiedAccessInstance",
-		"CreateVerifiedAccessTrustProvider",
+		// "CreateVerifiedAccessEndpoint", — moved to batch4SupportedOperations
+		// "CreateVerifiedAccessGroup", — moved to batch4SupportedOperations
+		// "CreateVerifiedAccessInstance", — moved to batch4SupportedOperations
+		// "CreateVerifiedAccessTrustProvider", — moved to batch4SupportedOperations
 		"CreateVpcBlockPublicAccessExclusion",
 		"CreateVpcEncryptionControl",
 		// "CreateVpcEndpointServiceConfiguration", — moved to advancedNetworkingSupportedOperations
@@ -586,8 +586,8 @@ func stubSupportedOperations() []string {
 		// "CreateVpnGateway", — moved to advancedNetworkingSupportedOperations
 		"DeleteCapacityManagerDataExport",
 		"DeleteCarrierGateway",
-		"DeleteClientVpnEndpoint",
-		"DeleteClientVpnRoute",
+		// "DeleteClientVpnEndpoint", — moved to batch4SupportedOperations
+		// "DeleteClientVpnRoute", — moved to batch4SupportedOperations
 		"DeleteCoipCidr",
 		"DeleteCoipPool",
 		// "DeleteCustomerGateway", — moved to advancedNetworkingSupportedOperations
@@ -609,7 +609,7 @@ func stubSupportedOperations() []string {
 		"DeleteLocalGatewayRouteTableVpcAssociation",
 		"DeleteLocalGatewayVirtualInterface",
 		"DeleteLocalGatewayVirtualInterfaceGroup",
-		"DeleteManagedPrefixList",
+		// "DeleteManagedPrefixList", — moved to batch4SupportedOperations
 		"DeleteNetworkInsightsAccessScope",
 		"DeleteNetworkInsightsAccessScopeAnalysis",
 		"DeleteNetworkInsightsAnalysis",
@@ -624,21 +624,21 @@ func stubSupportedOperations() []string {
 		"DeleteTrafficMirrorFilterRule",
 		"DeleteTrafficMirrorSession",
 		"DeleteTrafficMirrorTarget",
-		"DeleteTransitGatewayConnect",
-		"DeleteTransitGatewayConnectPeer",
+		// "DeleteTransitGatewayConnect", — moved to batch4SupportedOperations
+		// "DeleteTransitGatewayConnectPeer", — moved to batch4SupportedOperations
 		"DeleteTransitGatewayMeteringPolicy",
 		"DeleteTransitGatewayMeteringPolicyEntry",
 		"DeleteTransitGatewayMulticastDomain",
-		"DeleteTransitGatewayPeeringAttachment",
+		// "DeleteTransitGatewayPeeringAttachment", — moved to batch4SupportedOperations
 		"DeleteTransitGatewayPolicyTable",
-		"DeleteTransitGatewayPrefixListReference",
+		// "DeleteTransitGatewayPrefixListReference", — moved to batch4SupportedOperations
 		// DeleteTransitGatewayRoute — moved to ec2CoreSupportedOperations
 		// DeleteTransitGatewayRouteTable — moved to ec2CoreSupportedOperations
 		"DeleteTransitGatewayRouteTableAnnouncement",
-		"DeleteVerifiedAccessEndpoint",
-		"DeleteVerifiedAccessGroup",
-		"DeleteVerifiedAccessInstance",
-		"DeleteVerifiedAccessTrustProvider",
+		// "DeleteVerifiedAccessEndpoint", — moved to batch4SupportedOperations
+		// "DeleteVerifiedAccessGroup", — moved to batch4SupportedOperations
+		// "DeleteVerifiedAccessInstance", — moved to batch4SupportedOperations
+		// "DeleteVerifiedAccessTrustProvider", — moved to batch4SupportedOperations
 		"DeleteVpcBlockPublicAccessExclusion",
 		"DeleteVpcEncryptionControl",
 		// "DeleteVpcEndpointServiceConfigurations", — moved to advancedNetworkingSupportedOperations
@@ -663,11 +663,11 @@ func stubSupportedOperations() []string {
 		"DescribeCapacityReservationTopology",
 		"DescribeCarrierGateways",
 		"DescribeClassicLinkInstances",
-		"DescribeClientVpnAuthorizationRules",
-		"DescribeClientVpnConnections",
-		"DescribeClientVpnEndpoints",
-		"DescribeClientVpnRoutes",
-		"DescribeClientVpnTargetNetworks",
+		// "DescribeClientVpnAuthorizationRules", — moved to batch4SupportedOperations
+		// "DescribeClientVpnConnections", — moved to batch4SupportedOperations
+		// "DescribeClientVpnEndpoints", — moved to batch4SupportedOperations
+		// "DescribeClientVpnRoutes", — moved to batch4SupportedOperations
+		// "DescribeClientVpnTargetNetworks", — moved to batch4SupportedOperations
 		"DescribeCoipPools",
 		"DescribeConversionTasks",
 		// "DescribeCustomerGateways", — moved to advancedNetworkingSupportedOperations
@@ -706,7 +706,7 @@ func stubSupportedOperations() []string {
 		"DescribeLocalGateways",
 		"DescribeMacHosts",
 		"DescribeMacModificationTasks",
-		"DescribeManagedPrefixLists",
+		// "DescribeManagedPrefixLists", — moved to batch4SupportedOperations
 		"DescribeMovingAddresses",
 		"DescribeNetworkInsightsAccessScopeAnalyses",
 		"DescribeNetworkInsightsAccessScopes",
@@ -732,20 +732,20 @@ func stubSupportedOperations() []string {
 		"DescribeTrafficMirrorSessions",
 		"DescribeTrafficMirrorTargets",
 		"DescribeTransitGatewayAttachments",
-		"DescribeTransitGatewayConnectPeers",
-		"DescribeTransitGatewayConnects",
+		// "DescribeTransitGatewayConnectPeers", — moved to batch4SupportedOperations
+		// "DescribeTransitGatewayConnects", — moved to batch4SupportedOperations
 		"DescribeTransitGatewayMeteringPolicies",
 		"DescribeTransitGatewayMulticastDomains",
-		"DescribeTransitGatewayPeeringAttachments",
+		// "DescribeTransitGatewayPeeringAttachments", — moved to batch4SupportedOperations
 		"DescribeTransitGatewayPolicyTables",
 		"DescribeTransitGatewayRouteTableAnnouncements",
 		// DescribeTransitGatewayRouteTables — moved to ec2CoreSupportedOperations
 		"DescribeTrunkInterfaceAssociations",
-		"DescribeVerifiedAccessEndpoints",
-		"DescribeVerifiedAccessGroups",
+		// "DescribeVerifiedAccessEndpoints", — moved to batch4SupportedOperations
+		// "DescribeVerifiedAccessGroups", — moved to batch4SupportedOperations
 		"DescribeVerifiedAccessInstanceLoggingConfigurations",
-		"DescribeVerifiedAccessInstances",
-		"DescribeVerifiedAccessTrustProviders",
+		// "DescribeVerifiedAccessInstances", — moved to batch4SupportedOperations
+		// "DescribeVerifiedAccessTrustProviders", — moved to batch4SupportedOperations
 		"DescribeVpcBlockPublicAccessExclusions",
 		"DescribeVpcBlockPublicAccessOptions",
 		"DescribeVpcClassicLink",
@@ -756,7 +756,7 @@ func stubSupportedOperations() []string {
 		// "DescribeVpnConnections", — moved to advancedNetworkingSupportedOperations
 		// "DescribeVpnGateways", — moved to advancedNetworkingSupportedOperations
 		"DetachClassicLinkVpc",
-		"DetachVerifiedAccessTrustProvider",
+		// "DetachVerifiedAccessTrustProvider", — moved to batch4SupportedOperations
 		// "DetachVpnGateway", — moved to advancedNetworkingSupportedOperations
 		"DisableAllowedImagesSettings",
 		"DisableAwsNetworkPerformanceMetricSubscription",
@@ -769,7 +769,7 @@ func stubSupportedOperations() []string {
 		"DisableVpcClassicLink",
 		"DisableVpcClassicLinkDnsSupport",
 		"DisassociateCapacityReservationBillingOwner",
-		"DisassociateClientVpnTargetNetwork",
+		// "DisassociateClientVpnTargetNetwork", — moved to batch4SupportedOperations
 		"DisassociateEnclaveCertificateIamRole",
 		// DisassociateIamInstanceProfile — moved to ec2CoreSupportedOperations
 		"DisassociateInstanceEventWindow",
@@ -823,8 +823,8 @@ func stubSupportedOperations() []string {
 		"GetIpamPrefixListResolverVersionEntries",
 		"GetIpamPrefixListResolverVersions",
 		"GetIpamResourceCidrs",
-		"GetManagedPrefixListAssociations",
-		"GetManagedPrefixListEntries",
+		// "GetManagedPrefixListAssociations", — moved to batch4SupportedOperations
+		// "GetManagedPrefixListEntries", — moved to batch4SupportedOperations
 		"GetNetworkInsightsAccessScopeAnalysisFindings",
 		"GetNetworkInsightsAccessScopeContent",
 		"GetReservedInstancesExchangeQuote",
@@ -837,7 +837,7 @@ func stubSupportedOperations() []string {
 		"GetTransitGatewayMulticastDomainAssociations",
 		"GetTransitGatewayPolicyTableAssociations",
 		"GetTransitGatewayPolicyTableEntries",
-		"GetTransitGatewayPrefixListReferences",
+		// "GetTransitGatewayPrefixListReferences", — moved to batch4SupportedOperations
 		"GetTransitGatewayRouteTableAssociations",
 		"GetTransitGatewayRouteTablePropagations",
 		"GetVerifiedAccessEndpointPolicy",
@@ -852,7 +852,7 @@ func stubSupportedOperations() []string {
 		"ImportVolume",
 		"ModifyAvailabilityZoneGroup",
 		"ModifyCapacityReservationFleet",
-		"ModifyClientVpnEndpoint",
+		// "ModifyClientVpnEndpoint", — moved to batch4SupportedOperations
 		"ModifyFleet",
 		"ModifyFpgaImageAttribute",
 		"ModifyHosts",
@@ -871,7 +871,7 @@ func stubSupportedOperations() []string {
 		"ModifyIpamResourceDiscovery",
 		"ModifyIpamScope",
 		"ModifyLocalGatewayRoute",
-		"ModifyManagedPrefixList",
+		// "ModifyManagedPrefixList", — moved to batch4SupportedOperations
 		"ModifyPrivateDnsNameOptions",
 		"ModifyPublicIpDnsNameOptions",
 		"ModifyReservedInstances",
@@ -882,7 +882,7 @@ func stubSupportedOperations() []string {
 		"ModifyTransitGatewayMeteringPolicy",
 		"ModifyTransitGatewayPrefixListReference",
 		"ModifyTransitGatewayVpcAttachment",
-		"ModifyVerifiedAccessEndpoint",
+		// "ModifyVerifiedAccessEndpoint", — moved to batch4SupportedOperations
 		"ModifyVerifiedAccessEndpointPolicy",
 		"ModifyVerifiedAccessGroup",
 		"ModifyVerifiedAccessGroupPolicy",
@@ -923,8 +923,8 @@ func stubSupportedOperations() []string {
 		// ReplaceTransitGatewayRoute — moved to ec2CoreSupportedOperations
 		"ReplaceVpnTunnel",
 		"ResetFpgaImageAttribute",
-		"RestoreManagedPrefixListVersion",
-		"RevokeClientVpnIngress",
+		// "RestoreManagedPrefixListVersion", — moved to batch4SupportedOperations
+		// "RevokeClientVpnIngress", — moved to batch4SupportedOperations
 		"RunScheduledInstances",
 		"SearchLocalGatewayRoutes",
 		"SearchTransitGatewayMulticastGroups",
@@ -934,7 +934,7 @@ func stubSupportedOperations() []string {
 		"StartNetworkInsightsAccessScopeAnalysis",
 		"StartNetworkInsightsAnalysis",
 		"StartVpcEndpointServicePrivateDnsVerification",
-		"TerminateClientVpnConnections",
+		// "TerminateClientVpnConnections", — moved to batch4SupportedOperations
 		"UnassignPrivateNatGatewayAddress",
 		"UpdateCapacityManagerOrganizationsAccess",
 		"UpdateInterruptibleCapacityReservationAllocation",

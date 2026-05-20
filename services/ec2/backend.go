@@ -260,6 +260,16 @@ type InMemoryBackend struct {
 	imageDeregistrationProtection map[string]bool
 	imageAttributes               map[string]map[string]string
 	vgwRoutePropagation           map[string]bool
+	// batch4 additions
+	managedPrefixLists           map[string]*ManagedPrefixList
+	clientVpnEndpoints           map[string]*ClientVpnEndpoint
+	tgwConnects                  map[string]*TransitGatewayConnect
+	tgwConnectPeers              map[string]*TransitGatewayConnectPeer
+	tgwPrefixListRefs            map[string]*TransitGatewayPrefixListReference
+	verifiedAccessEndpoints      map[string]*VerifiedAccessEndpoint
+	verifiedAccessGroups         map[string]*VerifiedAccessGroup
+	verifiedAccessInstances      map[string]*VerifiedAccessInstance
+	verifiedAccessTrustProviders map[string]*VerifiedAccessTrustProvider
 	// batch3 additions
 	instanceConnectEndpoints  map[string]*InstanceConnectEndpoint
 	instanceEventWindows      map[string]*InstanceEventWindow
@@ -364,6 +374,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		imageDeregistrationProtection:  make(map[string]bool),
 		imageAttributes:                make(map[string]map[string]string),
 		vgwRoutePropagation:            make(map[string]bool),
+		managedPrefixLists:             make(map[string]*ManagedPrefixList),
+		clientVpnEndpoints:             make(map[string]*ClientVpnEndpoint),
+		tgwConnects:                    make(map[string]*TransitGatewayConnect),
+		tgwConnectPeers:                make(map[string]*TransitGatewayConnectPeer),
+		tgwPrefixListRefs:              make(map[string]*TransitGatewayPrefixListReference),
+		verifiedAccessEndpoints:        make(map[string]*VerifiedAccessEndpoint),
+		verifiedAccessGroups:           make(map[string]*VerifiedAccessGroup),
+		verifiedAccessInstances:        make(map[string]*VerifiedAccessInstance),
+		verifiedAccessTrustProviders:   make(map[string]*VerifiedAccessTrustProvider),
 		instanceConnectEndpoints:       make(map[string]*InstanceConnectEndpoint),
 		instanceEventWindows:           make(map[string]*InstanceEventWindow),
 		imageImportTasks:               make(map[string]*ImageImportTask),
