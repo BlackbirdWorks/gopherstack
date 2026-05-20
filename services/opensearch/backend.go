@@ -41,10 +41,24 @@ const (
 
 // Repeated string literal constants.
 const (
-	statusDeleted        = "DELETED"
-	currencyUSD          = "USD"
-	instanceTypeR6gLarge = "r6g.large.search"
-	instanceTypeM6gLarge = "m6g.large.search"
+	statusDeleted              = "DELETED"
+	currencyUSD                = "USD"
+	instanceTypeR6gLarge       = "r6g.large.search"
+	instanceTypeM6gLarge       = "m6g.large.search"
+	instanceTypeR6gXLarge      = "r6g.xlarge.search"
+	instanceTypeOR1Medium      = "or1.medium.search"
+	changeProgressStub         = "no-change"
+	jsonKeySourceVersion       = "SourceVersion"
+	jsonKeyTargetVersions      = "TargetVersions"
+	jsonKeyInstanceType        = "InstanceType"
+	jsonKeyAppLogEnabled       = "AppLogEnabled"
+	jsonKeyCognitoEnabled      = "CognitoEnabled"
+	jsonKeyEncryptEnabled      = "EncryptionEnabled"
+	jsonKeyWarmEnabled         = "WarmEnabled"
+	engineVersionOpenSearch211 = "OpenSearch_2.11"
+	engineVersionOpenSearch29  = "OpenSearch_2.9"
+	engineVersionOpenSearch27  = "OpenSearch_2.7"
+	engineVersionOpenSearch13  = "OpenSearch_1.3"
 )
 
 // Reserved instance offering durations (seconds) and prices.
@@ -245,7 +259,28 @@ type Domain struct {
 	EngineVersion string        `json:"engineVersion"`
 	Endpoint      string        `json:"endpoint"`
 	Status        string        `json:"status"`
+	LastChangeID  string        `json:"lastChangeID,omitempty"`
 	ClusterConfig ClusterConfig `json:"clusterConfig"`
+}
+
+// UpdateDomainConfigInput holds mutable fields for UpdateDomainConfig.
+type UpdateDomainConfigInput struct {
+	ClusterConfig *ClusterConfig `json:"ClusterConfig"`
+	EngineVersion string         `json:"EngineVersion"`
+}
+
+// AppSetting is a key-value pair for default application settings.
+type AppSetting struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+// DryRunStatus holds dry-run progress state for a domain.
+type DryRunStatus struct {
+	DryRunID     string `json:"DryRunId"`
+	DryRunStatus string `json:"DryRunStatus"`
+	CreationDate string `json:"CreationDate"`
+	UpdateDate   string `json:"UpdateDate"`
 }
 
 // InMemoryBackend is the in-memory store for OpenSearch domains.
@@ -268,6 +303,8 @@ type InMemoryBackend struct {
 	domainIndexes          map[string]map[string]*DomainIndex
 	upgradeHistory         map[string][]*UpgradeHistory // key: upgradeHistoryKey(domainName)
 	autoTunes              map[string]*AutoTuneConfig   // key: autoTuneKey(domainName)
+	dryRuns                map[string]*DryRunStatus     // key: domainName
+	defaultAppSettings     map[string][]AppSetting      // key: applicationType
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -299,6 +336,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		domainIndexes:          make(map[string]map[string]*DomainIndex),
 		upgradeHistory:         make(map[string][]*UpgradeHistory),
 		autoTunes:              make(map[string]*AutoTuneConfig),
+		dryRuns:                make(map[string]*DryRunStatus),
+		defaultAppSettings:     make(map[string][]AppSetting),
 		accountID:              accountID,
 		region:                 region,
 		mu:                     lockmetrics.New("opensearch"),
@@ -782,6 +821,8 @@ func (b *InMemoryBackend) Reset() {
 	b.domainIndexes = make(map[string]map[string]*DomainIndex)
 	b.upgradeHistory = make(map[string][]*UpgradeHistory)
 	b.autoTunes = make(map[string]*AutoTuneConfig)
+	b.dryRuns = make(map[string]*DryRunStatus)
+	b.defaultAppSettings = make(map[string][]AppSetting)
 	b.appIDCounter = 0
 	b.connCounter = 0
 	b.vpcEndpointCounter = 0
@@ -1773,6 +1814,344 @@ func (b *InMemoryBackend) StartServiceSoftwareUpdate(domainName string) (*Servic
 		UpdateStatus:    "PENDING_UPDATE",
 		Description:     "A new service software version is ready to install.",
 	}, nil
+}
+
+// DescribeDomains returns a list of domains. If names is empty, all domains are returned.
+// Missing names are silently skipped.
+func (b *InMemoryBackend) DescribeDomains(names []string) ([]*Domain, error) {
+	b.mu.RLock("DescribeDomains")
+	defer b.mu.RUnlock()
+
+	if len(names) == 0 {
+		out := make([]*Domain, 0, len(b.domains))
+		for _, d := range b.domains {
+			cp := *d
+			out = append(out, &cp)
+		}
+
+		return out, nil
+	}
+
+	out := make([]*Domain, 0, len(names))
+
+	for _, name := range names {
+		d, exists := b.domains[name]
+		if !exists {
+			continue
+		}
+
+		cp := *d
+		out = append(out, &cp)
+	}
+
+	return out, nil
+}
+
+// UpdateDomainConfig updates mutable fields on a domain and records a change ID.
+func (b *InMemoryBackend) UpdateDomainConfig(name string, input UpdateDomainConfigInput) (*Domain, error) {
+	b.mu.Lock("UpdateDomainConfig")
+	defer b.mu.Unlock()
+
+	d, exists := b.domains[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
+	}
+
+	if input.ClusterConfig != nil {
+		d.ClusterConfig = *input.ClusterConfig
+	}
+
+	if input.EngineVersion != "" {
+		d.EngineVersion = input.EngineVersion
+	}
+
+	changeID := fmt.Sprintf("change-%s-%d", name, time.Now().UnixNano())
+	d.LastChangeID = changeID
+
+	cp := *d
+
+	return &cp, nil
+}
+
+// GetDefaultApplicationSettings returns stored settings for the given applicationType.
+func (b *InMemoryBackend) GetDefaultApplicationSettings(applicationType string) ([]AppSetting, error) {
+	b.mu.RLock("GetDefaultApplicationSettings")
+	defer b.mu.RUnlock()
+
+	settings := b.defaultAppSettings[applicationType]
+	out := make([]AppSetting, len(settings))
+	copy(out, settings)
+
+	return out, nil
+}
+
+// PutDefaultApplicationSettings stores settings for the given applicationType.
+func (b *InMemoryBackend) PutDefaultApplicationSettings(applicationType string, settings []AppSetting) error {
+	b.mu.Lock("PutDefaultApplicationSettings")
+	defer b.mu.Unlock()
+
+	stored := make([]AppSetting, len(settings))
+	copy(stored, settings)
+	b.defaultAppSettings[applicationType] = stored
+
+	return nil
+}
+
+// GetDomainHealth returns computed health metrics for a domain.
+func (b *InMemoryBackend) GetDomainHealth(domainName string) (map[string]any, error) {
+	b.mu.RLock("GetDomainHealth")
+	defer b.mu.RUnlock()
+
+	d, exists := b.domains[domainName]
+	if !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	instanceCount := d.ClusterConfig.InstanceCount
+	if instanceCount == 0 {
+		instanceCount = 1
+	}
+
+	totalShards := instanceCount * 5 //nolint:mnd // 5 shards per node is a common default
+
+	return map[string]any{
+		"DomainState":  domainStatusActive,
+		"TotalShards":  totalShards,
+		"ActiveShards": totalShards,
+		"WarmNodes":    0,
+	}, nil
+}
+
+// GetDomainNodes returns a list of node descriptors based on cluster config.
+func (b *InMemoryBackend) GetDomainNodes(domainName string) ([]map[string]any, error) {
+	b.mu.RLock("GetDomainNodes")
+	defer b.mu.RUnlock()
+
+	d, exists := b.domains[domainName]
+	if !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	count := d.ClusterConfig.InstanceCount
+	if count == 0 {
+		count = 1
+	}
+
+	nodes := make([]map[string]any, 0, count)
+
+	for i := range count {
+		nodes = append(nodes, map[string]any{
+			"NodeId":            fmt.Sprintf("node-%d", i),
+			"NodeType":          "Data",
+			jsonKeyInstanceType: d.ClusterConfig.InstanceType,
+			"NodeStatus":        domainStatusActive,
+		})
+	}
+
+	return nodes, nil
+}
+
+// GetDryRunProgress returns dry-run progress for a domain. Creates a default entry if none exists.
+func (b *InMemoryBackend) GetDryRunProgress(domainName string) (*DryRunStatus, error) {
+	b.mu.Lock("GetDryRunProgress")
+	defer b.mu.Unlock()
+
+	if _, exists := b.domains[domainName]; !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	dr, exists := b.dryRuns[domainName]
+	if !exists {
+		now := time.Now().UTC().Format(time.RFC3339)
+		dr = &DryRunStatus{
+			DryRunID:     fmt.Sprintf("dryrun-%s-%d", domainName, time.Now().UnixNano()),
+			DryRunStatus: softwareUpdateCompleted,
+			CreationDate: now,
+			UpdateDate:   now,
+		}
+		b.dryRuns[domainName] = dr
+	}
+
+	cp := *dr
+
+	return &cp, nil
+}
+
+// GetChangeProgress returns the last change progress for a domain.
+func (b *InMemoryBackend) GetChangeProgress(domainName string) (map[string]any, error) {
+	b.mu.RLock("GetChangeProgress")
+	defer b.mu.RUnlock()
+
+	d, exists := b.domains[domainName]
+	if !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	changeID := d.LastChangeID
+	if changeID == "" {
+		changeID = changeProgressStub
+	}
+
+	return map[string]any{
+		"ChangeId":            changeID,
+		jsonKeyStatus:         softwareUpdateCompleted,
+		"CompletedProperties": []any{},
+		"PendingProperties":   []any{},
+		"TotalNumberOfStages": 0,
+	}, nil
+}
+
+// ListInstanceTypeDetails returns a static list of common OpenSearch instance type details.
+func (b *InMemoryBackend) ListInstanceTypeDetails(_, _ string) []map[string]any {
+	return []map[string]any{
+		{
+			jsonKeyInstanceType:   instanceTypeT3Small,
+			jsonKeyAppLogEnabled:  true,
+			jsonKeyCognitoEnabled: false,
+			jsonKeyEncryptEnabled: true,
+			jsonKeyWarmEnabled:    false,
+		},
+		{
+			jsonKeyInstanceType:   instanceTypeR6gLarge,
+			jsonKeyAppLogEnabled:  true,
+			jsonKeyCognitoEnabled: true,
+			jsonKeyEncryptEnabled: true,
+			jsonKeyWarmEnabled:    true,
+		},
+		{
+			jsonKeyInstanceType:   instanceTypeM6gLarge,
+			jsonKeyAppLogEnabled:  true,
+			jsonKeyCognitoEnabled: true,
+			jsonKeyEncryptEnabled: true,
+			jsonKeyWarmEnabled:    true,
+		},
+		{
+			jsonKeyInstanceType:   instanceTypeR6gXLarge,
+			jsonKeyAppLogEnabled:  true,
+			jsonKeyCognitoEnabled: true,
+			jsonKeyEncryptEnabled: true,
+			jsonKeyWarmEnabled:    true,
+		},
+		{
+			jsonKeyInstanceType:   instanceTypeOR1Medium,
+			jsonKeyAppLogEnabled:  true,
+			jsonKeyCognitoEnabled: false,
+			jsonKeyEncryptEnabled: true,
+			jsonKeyWarmEnabled:    false,
+		},
+	}
+}
+
+// GetCompatibleVersions returns static compatible version pairs.
+// If domainName is non-empty, target versions are filtered to those
+// reachable from the domain's current EngineVersion.
+func (b *InMemoryBackend) GetCompatibleVersions(domainName string) []map[string]any {
+	static := []map[string]any{
+		{
+			jsonKeySourceVersion:  engineVersionOpenSearch29,
+			jsonKeyTargetVersions: []string{engineVersionOpenSearch211},
+		},
+		{
+			jsonKeySourceVersion:  engineVersionOpenSearch27,
+			jsonKeyTargetVersions: []string{engineVersionOpenSearch29, engineVersionOpenSearch211},
+		},
+		{
+			jsonKeySourceVersion:  engineVersionOpenSearch13,
+			jsonKeyTargetVersions: []string{engineVersionOpenSearch27},
+		},
+		{
+			jsonKeySourceVersion:  engineVersionOpenSearch211,
+			jsonKeyTargetVersions: []string{},
+		},
+	}
+
+	if domainName == "" {
+		return static
+	}
+
+	b.mu.RLock("GetCompatibleVersions")
+	d, exists := b.domains[domainName]
+	b.mu.RUnlock()
+
+	if !exists {
+		return static
+	}
+
+	for _, entry := range static {
+		if entry["SourceVersion"] == d.EngineVersion {
+			return []map[string]any{entry}
+		}
+	}
+
+	return []map[string]any{
+		{jsonKeySourceVersion: d.EngineVersion, jsonKeyTargetVersions: []string{}},
+	}
+}
+
+// DissociatePackage removes a package association from a domain.
+func (b *InMemoryBackend) DissociatePackage(packageID, domainName string) (*DomainPackageDetails, error) {
+	if packageID == "" {
+		return nil, fmt.Errorf("%w: PackageID is required", ErrInvalidParameter)
+	}
+
+	if domainName == "" {
+		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DissociatePackage")
+	defer b.mu.Unlock()
+
+	if _, exists := b.domains[domainName]; !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	if domains, ok := b.packageAssociations[packageID]; ok {
+		delete(domains, domainName)
+
+		if len(domains) == 0 {
+			delete(b.packageAssociations, packageID)
+		}
+	}
+
+	return &DomainPackageDetails{
+		PackageID:  packageID,
+		DomainName: domainName,
+		State:      "DISSOCIATED",
+	}, nil
+}
+
+// DissociatePackages removes multiple package associations from a domain.
+func (b *InMemoryBackend) DissociatePackages(domainName string, packageIDs []string) ([]DomainPackageDetails, error) {
+	if domainName == "" {
+		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DissociatePackages")
+	defer b.mu.Unlock()
+
+	if _, exists := b.domains[domainName]; !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	results := make([]DomainPackageDetails, 0, len(packageIDs))
+
+	for _, pkgID := range packageIDs {
+		if domains, ok := b.packageAssociations[pkgID]; ok {
+			delete(domains, domainName)
+
+			if len(domains) == 0 {
+				delete(b.packageAssociations, pkgID)
+			}
+		}
+
+		results = append(results, DomainPackageDetails{
+			PackageID:  pkgID,
+			DomainName: domainName,
+			State:      "DISSOCIATED",
+		})
+	}
+
+	return results, nil
 }
 
 // AddDomainInternal seeds a domain directly for use in tests.

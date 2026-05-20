@@ -7,7 +7,13 @@ type StorageBackend interface {
 	CreateDomain(name, engineVersion string, clusterConfig ClusterConfig) (*Domain, error)
 	DeleteDomain(name string) (*Domain, error)
 	DescribeDomain(name string) (*Domain, error)
+	DescribeDomains(names []string) ([]*Domain, error)
 	ListDomainNames() []string
+	UpdateDomainConfig(name string, input UpdateDomainConfigInput) (*Domain, error)
+	GetDomainHealth(domainName string) (map[string]any, error)
+	GetDomainNodes(domainName string) ([]map[string]any, error)
+	GetChangeProgress(domainName string) (map[string]any, error)
+	GetDryRunProgress(domainName string) (*DryRunStatus, error)
 
 	// Tag operations
 	ListTags(domainARN string) (map[string]string, error)
@@ -45,6 +51,8 @@ type StorageBackend interface {
 	// Package operations
 	AssociatePackage(packageID, domainName string) (*DomainPackageDetails, error)
 	AssociatePackages(domainName string, packageIDs []string) ([]DomainPackageDetails, error)
+	DissociatePackage(packageID, domainName string) (*DomainPackageDetails, error)
+	DissociatePackages(domainName string, packageIDs []string) ([]DomainPackageDetails, error)
 	CreatePackage(name, pkgType, description string) (*Package, error)
 	DeletePackage(packageID string) (*Package, error)
 	DescribePackages(ids []string) ([]*Package, error)
@@ -76,6 +84,8 @@ type StorageBackend interface {
 	ListApplications() []*Application
 	UpdateApplication(id string, appConfigs []AppConfig, dataSources []AppDataSource) (*Application, error)
 	DeleteApplication(id string) error
+	GetDefaultApplicationSettings(applicationType string) ([]AppSetting, error)
+	PutDefaultApplicationSettings(applicationType string, settings []AppSetting) error
 
 	// Scheduled actions
 	ListScheduledActions(domainName string) []*ScheduledAction
@@ -108,6 +118,10 @@ type StorageBackend interface {
 
 	// Instance type limits
 	DescribeInstanceTypeLimits(instanceType, engineVersion string) (*InstanceTypeLimits, error)
+
+	// Instance type details and compatible versions
+	ListInstanceTypeDetails(engineVersion, instanceType string) []map[string]any
+	GetCompatibleVersions(domainName string) []map[string]any
 
 	// Engine-type filtered list
 	ListDomainNamesByEngine(engineType string) []string
