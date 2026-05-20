@@ -128,6 +128,7 @@ func stubOpsSupported() []string {
 		"DeleteMlflowApp",
 		"DeleteModelPackageGroupPolicy",
 		"DeleteProcessingJob",
+		"DeleteWorkforce",
 		"DeregisterDevices",
 		"DescribeAction",
 		"DescribeAlgorithm",
@@ -254,6 +255,7 @@ func stubOpsSupported() []string {
 		"UpdateInferenceComponentRuntimeConfig",
 		"UpdateInferenceExperiment",
 		"UpdateMlflowApp",
+		"UpdateMlflowTrackingServer",
 		"UpdateModelPackage",
 		"UpdateMonitoringAlert",
 		"UpdatePartnerApp",
@@ -381,6 +383,7 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DeleteModelPackageGroupPolicy",
 		"DeletePipeline",
 		"DeleteProcessingJob",
+		"DeleteWorkforce",
 		"DeleteTrial",
 		"DeleteTrialComponent",
 		"DeleteUserProfile",
@@ -423,7 +426,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		return mustMarshal(m{
 			keyAppArn: "", "AppType": "", "AppName": "", keyStatus: statusInService,
 		}), true
-
 
 	case "DescribeArtifact":
 		return mustMarshal(m{keyArtifactArn: "", "ArtifactType": ""}), true
@@ -804,6 +806,9 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "UpdateMlflowApp", "UpdatePartnerApp":
 		return mustMarshal(m{keyGenericArn: ""}), true
+
+	case "UpdateMlflowTrackingServer":
+		return mustMarshal(m{keyTrackingServerArn: ""}), true
 
 	case "UpdateModelPackage":
 		return mustMarshal(m{keyModelPackageArn: ""}), true

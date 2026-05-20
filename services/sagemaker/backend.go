@@ -426,7 +426,7 @@ type InMemoryBackend struct {
 	modelBiasJobDefs           map[string]*JobDefinition                   // key: name
 	modelQualityJobDefs        map[string]*JobDefinition                   // key: name
 	modelExplainJobDefs        map[string]*JobDefinition                   // key: name
-	humanTaskUis               map[string]*HumanTaskUi                     // key: name
+	humanTaskUis               map[string]*HumanTaskUI                     // key: name
 	workforces                 map[string]*Workforce                       // key: name
 	flowDefinitions            map[string]*FlowDefinition                  // key: name
 	appImageConfigs            map[string]*AppImageConfig                  // key: name
@@ -501,7 +501,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		modelBiasJobDefs:           make(map[string]*JobDefinition),
 		modelQualityJobDefs:        make(map[string]*JobDefinition),
 		modelExplainJobDefs:        make(map[string]*JobDefinition),
-		humanTaskUis:               make(map[string]*HumanTaskUi),
+		humanTaskUis:               make(map[string]*HumanTaskUI),
 		workforces:                 make(map[string]*Workforce),
 		flowDefinitions:            make(map[string]*FlowDefinition),
 		appImageConfigs:            make(map[string]*AppImageConfig),
@@ -588,7 +588,7 @@ func (b *InMemoryBackend) Reset() {
 	b.modelBiasJobDefs = make(map[string]*JobDefinition)
 	b.modelQualityJobDefs = make(map[string]*JobDefinition)
 	b.modelExplainJobDefs = make(map[string]*JobDefinition)
-	b.humanTaskUis = make(map[string]*HumanTaskUi)
+	b.humanTaskUis = make(map[string]*HumanTaskUI)
 	b.workforces = make(map[string]*Workforce)
 	b.flowDefinitions = make(map[string]*FlowDefinition)
 	b.appImageConfigs = make(map[string]*AppImageConfig)

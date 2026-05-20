@@ -171,10 +171,10 @@ func TestHandler_DeleteModelExplainabilityJobDefinition(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// HumanTaskUi
+// HumanTaskUI
 // ---------------------------------------------------------------------------
 
-func TestHandler_CreateHumanTaskUi(t *testing.T) {
+func TestHandler_CreateHumanTaskUI(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -189,7 +189,7 @@ func TestHandler_CreateHumanTaskUi(t *testing.T) {
 	assert.Contains(t, resp["HumanTaskUiArn"], "my-ui")
 }
 
-func TestHandler_DescribeHumanTaskUi(t *testing.T) {
+func TestHandler_DescribeHumanTaskUI(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -203,7 +203,7 @@ func TestHandler_DescribeHumanTaskUi(t *testing.T) {
 	assert.Equal(t, "ui-1", resp["HumanTaskUiName"])
 }
 
-func TestHandler_DeleteHumanTaskUi(t *testing.T) {
+func TestHandler_DeleteHumanTaskUI(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -536,7 +536,7 @@ func TestHandler_UpdateModelCard(t *testing.T) {
 	rec = doSageMakerRequest(t, h, "DescribeModelCard", map[string]any{"ModelCardName": "card-upd"})
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, float64(2), resp["ModelCardVersion"])
+	assert.InDelta(t, float64(2), resp["ModelCardVersion"], 0)
 }
 
 func TestHandler_DeleteModelCard(t *testing.T) {

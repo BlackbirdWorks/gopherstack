@@ -22,8 +22,8 @@ var (
 	ErrModelQualityJobDefNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 	// ErrModelExplainJobDefNotFound is returned when a model explainability job definition does not exist.
 	ErrModelExplainJobDefNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
-	// ErrHumanTaskUiNotFound is returned when a human task UI does not exist.
-	ErrHumanTaskUiNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrHumanTaskUINotFound is returned when a human task UI does not exist.
+	ErrHumanTaskUINotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 	// ErrWorkforceNotFound is returned when a workforce does not exist.
 	ErrWorkforceNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 	// ErrFlowDefinitionNotFound is returned when a flow definition does not exist.
@@ -234,31 +234,31 @@ func (b *InMemoryBackend) DeleteModelExplainabilityJobDefinition(name string) er
 }
 
 // ---------------------------------------------------------------------------
-// HumanTaskUi
+// HumanTaskUI
 // ---------------------------------------------------------------------------
 
-// HumanTaskUi represents a SageMaker human task UI.
-type HumanTaskUi struct {
-	CreationTime     time.Time         `json:"CreationTime"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	HumanTaskUiName  string            `json:"HumanTaskUiName"`
-	HumanTaskUiArn   string            `json:"HumanTaskUiArn"`
-	HumanTaskUiStatus string           `json:"HumanTaskUiStatus"`
+// HumanTaskUI represents a SageMaker human task UI.
+type HumanTaskUI struct {
+	CreationTime      time.Time         `json:"CreationTime"`
+	Tags              map[string]string `json:"Tags,omitempty"`
+	HumanTaskUIName   string            `json:"HumanTaskUiName"`
+	HumanTaskUIArn    string            `json:"HumanTaskUiArn"`
+	HumanTaskUIStatus string            `json:"HumanTaskUiStatus"`
 }
 
-func cloneHumanTaskUi(h *HumanTaskUi) *HumanTaskUi {
+func cloneHumanTaskUI(h *HumanTaskUI) *HumanTaskUI {
 	cp := *h
 	cp.Tags = maps.Clone(h.Tags)
 
 	return &cp
 }
 
-// CreateHumanTaskUi creates a human task UI.
-func (b *InMemoryBackend) CreateHumanTaskUi(
+// CreateHumanTaskUI creates a human task UI.
+func (b *InMemoryBackend) CreateHumanTaskUI(
 	name string,
 	tags map[string]string,
-) (*HumanTaskUi, error) {
-	b.mu.Lock("CreateHumanTaskUi")
+) (*HumanTaskUI, error) {
+	b.mu.Lock("CreateHumanTaskUI")
 	defer b.mu.Unlock()
 
 	if name == "" {
@@ -271,38 +271,38 @@ func (b *InMemoryBackend) CreateHumanTaskUi(
 
 	uiARN := arn.Build("sagemaker", b.region, b.accountID, "human-task-ui/"+name)
 
-	ui := &HumanTaskUi{
-		HumanTaskUiName:   name,
-		HumanTaskUiArn:    uiARN,
-		HumanTaskUiStatus: "Active",
+	ui := &HumanTaskUI{
+		HumanTaskUIName:   name,
+		HumanTaskUIArn:    uiARN,
+		HumanTaskUIStatus: statusActive,
 		Tags:              mergeTags(nil, tags),
 		CreationTime:      time.Now(),
 	}
 	b.humanTaskUis[name] = ui
 
-	return cloneHumanTaskUi(ui), nil
+	return cloneHumanTaskUI(ui), nil
 }
 
-// DescribeHumanTaskUi returns a human task UI by name.
-func (b *InMemoryBackend) DescribeHumanTaskUi(name string) (*HumanTaskUi, error) {
-	b.mu.RLock("DescribeHumanTaskUi")
+// DescribeHumanTaskUI returns a human task UI by name.
+func (b *InMemoryBackend) DescribeHumanTaskUI(name string) (*HumanTaskUI, error) {
+	b.mu.RLock("DescribeHumanTaskUI")
 	defer b.mu.RUnlock()
 
 	ui, ok := b.humanTaskUis[name]
 	if !ok {
-		return nil, fmt.Errorf("%w: human task UI %q not found", ErrHumanTaskUiNotFound, name)
+		return nil, fmt.Errorf("%w: human task UI %q not found", ErrHumanTaskUINotFound, name)
 	}
 
-	return cloneHumanTaskUi(ui), nil
+	return cloneHumanTaskUI(ui), nil
 }
 
-// DeleteHumanTaskUi removes a human task UI by name.
-func (b *InMemoryBackend) DeleteHumanTaskUi(name string) error {
-	b.mu.Lock("DeleteHumanTaskUi")
+// DeleteHumanTaskUI removes a human task UI by name.
+func (b *InMemoryBackend) DeleteHumanTaskUI(name string) error {
+	b.mu.Lock("DeleteHumanTaskUI")
 	defer b.mu.Unlock()
 
 	if _, ok := b.humanTaskUis[name]; !ok {
-		return fmt.Errorf("%w: human task UI %q not found", ErrHumanTaskUiNotFound, name)
+		return fmt.Errorf("%w: human task UI %q not found", ErrHumanTaskUINotFound, name)
 	}
 
 	delete(b.humanTaskUis, name)
@@ -351,7 +351,7 @@ func (b *InMemoryBackend) CreateWorkforce(
 	w := &Workforce{
 		WorkforceName:    name,
 		WorkforceArn:     workforceARN,
-		Status:           "Active",
+		Status:           statusActive,
 		Tags:             mergeTags(nil, tags),
 		LastModifiedTime: time.Now(),
 	}
@@ -430,7 +430,7 @@ func (b *InMemoryBackend) CreateFlowDefinition(
 	f := &FlowDefinition{
 		FlowDefinitionName:   name,
 		FlowDefinitionArn:    flowARN,
-		FlowDefinitionStatus: "Active",
+		FlowDefinitionStatus: statusActive,
 		RoleArn:              roleArn,
 		Tags:                 mergeTags(nil, tags),
 		CreationTime:         time.Now(),
@@ -1076,7 +1076,7 @@ func clonePartnerApp(p *PartnerApp) *PartnerApp {
 	return &cp
 }
 
-// CreatePartnerApp creates a partner app.
+// CreatePartnerApp creates a partner app. Stores by ARN; returns both name and ARN.
 func (b *InMemoryBackend) CreatePartnerApp(
 	name, appType string,
 	tags map[string]string,
@@ -1088,11 +1088,11 @@ func (b *InMemoryBackend) CreatePartnerApp(
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
-	if _, ok := b.partnerApps[name]; ok {
+	appARN := arn.Build("sagemaker", b.region, b.accountID, "partner-app/"+name)
+
+	if _, ok := b.partnerApps[appARN]; ok {
 		return nil, fmt.Errorf("%w: partner app %q already exists", ErrValidation, name)
 	}
-
-	appARN := arn.Build("sagemaker", b.region, b.accountID, "partner-app/"+name)
 
 	p := &PartnerApp{
 		Name:         name,
@@ -1102,34 +1102,34 @@ func (b *InMemoryBackend) CreatePartnerApp(
 		Tags:         mergeTags(nil, tags),
 		CreationTime: time.Now(),
 	}
-	b.partnerApps[name] = p
+	b.partnerApps[appARN] = p
 
 	return clonePartnerApp(p), nil
 }
 
-// DescribePartnerApp returns a partner app by name.
-func (b *InMemoryBackend) DescribePartnerApp(name string) (*PartnerApp, error) {
+// DescribePartnerApp returns a partner app by ARN.
+func (b *InMemoryBackend) DescribePartnerApp(arnStr string) (*PartnerApp, error) {
 	b.mu.RLock("DescribePartnerApp")
 	defer b.mu.RUnlock()
 
-	p, ok := b.partnerApps[name]
+	p, ok := b.partnerApps[arnStr]
 	if !ok {
-		return nil, fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, name)
+		return nil, fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, arnStr)
 	}
 
 	return clonePartnerApp(p), nil
 }
 
-// DeletePartnerApp removes a partner app by name.
-func (b *InMemoryBackend) DeletePartnerApp(name string) error {
+// DeletePartnerApp removes a partner app by ARN.
+func (b *InMemoryBackend) DeletePartnerApp(arnStr string) error {
 	b.mu.Lock("DeletePartnerApp")
 	defer b.mu.Unlock()
 
-	if _, ok := b.partnerApps[name]; !ok {
-		return fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, name)
+	if _, ok := b.partnerApps[arnStr]; !ok {
+		return fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, arnStr)
 	}
 
-	delete(b.partnerApps, name)
+	delete(b.partnerApps, arnStr)
 
 	return nil
 }
@@ -1175,7 +1175,7 @@ func (b *InMemoryBackend) CreateTrainingPlan(
 	t := &TrainingPlan{
 		TrainingPlanName: name,
 		TrainingPlanArn:  planARN,
-		Status:           "Active",
+		Status:           statusActive,
 		Tags:             mergeTags(nil, tags),
 		CreationTime:     time.Now(),
 	}

@@ -25,7 +25,7 @@ func batch3SupportedOperations() []string {
 		"CreateModelExplainabilityJobDefinition",
 		"DescribeModelExplainabilityJobDefinition",
 		"DeleteModelExplainabilityJobDefinition",
-		// HumanTaskUi
+		// HumanTaskUI
 		"CreateHumanTaskUi",
 		"DescribeHumanTaskUi",
 		"DeleteHumanTaskUi",
@@ -134,17 +134,17 @@ func (h *Handler) dispatchBatch3Ops(
 	case "DeleteModelExplainabilityJobDefinition":
 		return nil, true, h.handleDeleteModelExplainabilityJobDefinition(body)
 
-	// HumanTaskUi
+	// HumanTaskUI
 	case "CreateHumanTaskUi":
-		r, err := h.handleCreateHumanTaskUi(body)
+		r, err := h.handleCreateHumanTaskUI(body)
 
 		return r, true, err
 	case "DescribeHumanTaskUi":
-		r, err := h.handleDescribeHumanTaskUi(body)
+		r, err := h.handleDescribeHumanTaskUI(body)
 
 		return r, true, err
 	case "DeleteHumanTaskUi":
-		return nil, true, h.handleDeleteHumanTaskUi(body)
+		return nil, true, h.handleDeleteHumanTaskUI(body)
 
 	// Workforce
 	case "CreateWorkforce":
@@ -292,9 +292,9 @@ func (h *Handler) dispatchBatch3Ops(
 
 func (h *Handler) handleCreateDataQualityJobDefinition(body []byte) ([]byte, error) {
 	var req struct {
-		Tags                          map[string]string `json:"Tags"`
-		DataQualityJobDefinitionName  string            `json:"DataQualityJobDefinitionName"`
-		RoleArn                       string            `json:"RoleArn"`
+		Tags                         map[string]string `json:"Tags"`
+		DataQualityJobDefinitionName string            `json:"DataQualityJobDefinitionName"`
+		RoleArn                      string            `json:"RoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -486,9 +486,9 @@ func (h *Handler) handleDeleteModelQualityJobDefinition(body []byte) error {
 
 func (h *Handler) handleCreateModelExplainabilityJobDefinition(body []byte) ([]byte, error) {
 	var req struct {
-		Tags                                   map[string]string `json:"Tags"`
-		ModelExplainabilityJobDefinitionName   string            `json:"ModelExplainabilityJobDefinitionName"`
-		RoleArn                                string            `json:"RoleArn"`
+		Tags                                 map[string]string `json:"Tags"`
+		ModelExplainabilityJobDefinitionName string            `json:"ModelExplainabilityJobDefinitionName"`
+		RoleArn                              string            `json:"RoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -547,45 +547,45 @@ func (h *Handler) handleDeleteModelExplainabilityJobDefinition(body []byte) erro
 }
 
 // ---------------------------------------------------------------------------
-// HumanTaskUi handlers
+// HumanTaskUI handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateHumanTaskUi(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateHumanTaskUI(body []byte) ([]byte, error) {
 	var req struct {
 		Tags            map[string]string `json:"Tags"`
-		HumanTaskUiName string            `json:"HumanTaskUiName"`
+		HumanTaskUIName string            `json:"HumanTaskUiName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.HumanTaskUiName == "" {
+	if req.HumanTaskUIName == "" {
 		return nil, fmt.Errorf("%w: HumanTaskUiName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateHumanTaskUi(req.HumanTaskUiName, req.Tags)
+	result, err := h.Backend.CreateHumanTaskUI(req.HumanTaskUIName, req.Tags)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyHumanTaskUIArn: result.HumanTaskUiArn})
+	return json.Marshal(map[string]any{keyHumanTaskUIArn: result.HumanTaskUIArn})
 }
 
-func (h *Handler) handleDescribeHumanTaskUi(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeHumanTaskUI(body []byte) ([]byte, error) {
 	var req struct {
-		HumanTaskUiName string `json:"HumanTaskUiName"`
+		HumanTaskUIName string `json:"HumanTaskUiName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.HumanTaskUiName == "" {
+	if req.HumanTaskUIName == "" {
 		return nil, fmt.Errorf("%w: HumanTaskUiName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeHumanTaskUi(req.HumanTaskUiName)
+	result, err := h.Backend.DescribeHumanTaskUI(req.HumanTaskUIName)
 	if err != nil {
 		return nil, err
 	}
@@ -593,20 +593,20 @@ func (h *Handler) handleDescribeHumanTaskUi(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteHumanTaskUi(body []byte) error {
+func (h *Handler) handleDeleteHumanTaskUI(body []byte) error {
 	var req struct {
-		HumanTaskUiName string `json:"HumanTaskUiName"`
+		HumanTaskUIName string `json:"HumanTaskUiName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.HumanTaskUiName == "" {
+	if req.HumanTaskUIName == "" {
 		return fmt.Errorf("%w: HumanTaskUiName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteHumanTaskUi(req.HumanTaskUiName)
+	return h.Backend.DeleteHumanTaskUI(req.HumanTaskUIName)
 }
 
 // ---------------------------------------------------------------------------
