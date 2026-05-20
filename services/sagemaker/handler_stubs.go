@@ -505,7 +505,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"StopInferenceRecommendationsJob",
 		"StopLabelingJob",
 		"StopMlflowTrackingServer",
-		"StopMonitoringSchedule",
 		"StopOptimizationJob",
 		"UpdateClusterSoftware",
 		"UpdateDeviceFleet",

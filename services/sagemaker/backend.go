@@ -525,6 +525,8 @@ func (b *InMemoryBackend) Region() string { return b.region }
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // Reset reinitialises all maps to empty, clearing all stored resources.
+//
+//nolint:funlen // Reset must reinitialise all maps; splitting would obscure the invariant
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()

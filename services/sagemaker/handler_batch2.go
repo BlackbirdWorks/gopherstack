@@ -4,12 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
+)
+
+// batch2 key constants to avoid goconst warnings.
+const (
+	keyNextToken             = "NextToken"
+	opStopMonitoringSchedule = "StopMonitoringSchedule"
 )
 
 // dispatchBatch2Ops dispatches the 50 new real stateful operations (batch 2).
 //
-//nolint:cyclop,gocyclo // large switch is required for dispatching many operations
+//nolint:cyclop,gocyclo,funlen // large switch is required for dispatching many operations
 func (h *Handler) dispatchBatch2Ops(
 	_ context.Context,
 	op string,
@@ -157,6 +162,8 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleDescribeCompilationJob(body)
 
 		return r, true, err
+	case "DeleteCompilationJob":
+		return nil, true, h.handleDeleteCompilationJob(body)
 	case "StopCompilationJob":
 		return nil, true, h.handleStopCompilationJob(body)
 	case "ListCompilationJobs":
@@ -175,7 +182,7 @@ func (h *Handler) dispatchBatch2Ops(
 		return r, true, err
 	case "DeleteMonitoringSchedule":
 		return nil, true, h.handleDeleteMonitoringSchedule(body)
-	case "StopMonitoringSchedule":
+	case opStopMonitoringSchedule:
 		return nil, true, h.handleStopMonitoringSchedule(body)
 	case "StartMonitoringSchedule":
 		return nil, true, h.handleStartMonitoringSchedule(body)
@@ -293,13 +300,13 @@ func (h *Handler) handleListModelPackages(body []byte) ([]byte, error) {
 			"ModelPackageName":   mp.ModelPackageName,
 			"ModelPackageArn":    mp.ModelPackageArn,
 			"ModelPackageStatus": mp.ModelPackageStatus,
-			"CreationTime":       mp.CreationTime,
+			keyCreationTime:      mp.CreationTime,
 		})
 	}
 
 	return json.Marshal(map[string]any{
 		"ModelPackageSummaryList": summaries,
-		"NextToken":               next,
+		keyNextToken:              next,
 	})
 }
 
@@ -386,13 +393,13 @@ func (h *Handler) handleListModelPackageGroups(body []byte) ([]byte, error) {
 			"ModelPackageGroupName":   g.ModelPackageGroupName,
 			"ModelPackageGroupArn":    g.ModelPackageGroupArn,
 			"ModelPackageGroupStatus": g.ModelPackageGroupStatus,
-			"CreationTime":            g.CreationTime,
+			keyCreationTime:           g.CreationTime,
 		})
 	}
 
 	return json.Marshal(map[string]any{
 		"ModelPackageGroupSummaryList": summaries,
-		"NextToken":                   next,
+		keyNextToken:                   next,
 	})
 }
 
@@ -477,13 +484,13 @@ func (h *Handler) handleListAutoMLJobs(body []byte) ([]byte, error) {
 			"AutoMLJobName":   j.AutoMLJobName,
 			"AutoMLJobArn":    j.AutoMLJobArn,
 			"AutoMLJobStatus": j.AutoMLJobStatus,
-			"CreationTime":    j.CreationTime,
+			keyCreationTime:   j.CreationTime,
 		})
 	}
 
 	return json.Marshal(map[string]any{
 		"AutoMLJobSummaries": summaries,
-		"NextToken":          next,
+		keyNextToken:         next,
 	})
 }
 
@@ -511,7 +518,7 @@ func (h *Handler) handleCreateCodeRepository(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"CodeRepositoryArn": result.CodeRepositoryArn})
+	return json.Marshal(map[string]any{keyCodeRepositoryArn: result.CodeRepositoryArn})
 }
 
 func (h *Handler) handleDescribeCodeRepository(body []byte) ([]byte, error) {
@@ -554,7 +561,7 @@ func (h *Handler) handleUpdateCodeRepository(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"CodeRepositoryArn": result.CodeRepositoryArn})
+	return json.Marshal(map[string]any{keyCodeRepositoryArn: result.CodeRepositoryArn})
 }
 
 func (h *Handler) handleDeleteCodeRepository(body []byte) error {
@@ -588,15 +595,15 @@ func (h *Handler) handleListCodeRepositories(body []byte) ([]byte, error) {
 	for _, r := range items {
 		summaries = append(summaries, map[string]any{
 			"CodeRepositoryName": r.CodeRepositoryName,
-			"CodeRepositoryArn":  r.CodeRepositoryArn,
-			"CreationTime":       r.CreationTime,
-			"LastModifiedTime":   r.LastModifiedTime,
+			keyCodeRepositoryArn: r.CodeRepositoryArn,
+			keyCreationTime:      r.CreationTime,
+			keyLastModifiedTime:  r.LastModifiedTime,
 		})
 	}
 
 	return json.Marshal(map[string]any{
 		"CodeRepositorySummaryList": summaries,
-		"NextToken":                next,
+		keyNextToken:                next,
 	})
 }
 
@@ -626,7 +633,7 @@ func (h *Handler) handleCreateProject(body []byte) ([]byte, error) {
 
 	return json.Marshal(map[string]any{
 		"ProjectArn": result.ProjectArn,
-		"ProjectId":  result.ProjectId,
+		"ProjectId":  result.ProjectID,
 	})
 }
 
@@ -683,15 +690,15 @@ func (h *Handler) handleListProjects(body []byte) ([]byte, error) {
 		summaries = append(summaries, map[string]any{
 			"ProjectName":   p.ProjectName,
 			"ProjectArn":    p.ProjectArn,
-			"ProjectId":     p.ProjectId,
+			"ProjectId":     p.ProjectID,
 			"ProjectStatus": p.ProjectStatus,
-			"CreationTime":  p.CreationTime,
+			keyCreationTime: p.CreationTime,
 		})
 	}
 
 	return json.Marshal(map[string]any{
 		"ProjectSummaryList": summaries,
-		"NextToken":          next,
+		keyNextToken:         next,
 	})
 }
 
@@ -701,7 +708,7 @@ func (h *Handler) handleListProjects(body []byte) ([]byte, error) {
 
 func (h *Handler) handleCreateSpace(body []byte) ([]byte, error) {
 	var req struct {
-		DomainId  string            `json:"DomainId"`
+		DomainID  string            `json:"DomainId"`
 		SpaceName string            `json:"SpaceName"`
 		Tags      map[string]string `json:"Tags"`
 	}
@@ -710,15 +717,15 @@ func (h *Handler) handleCreateSpace(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.DomainId == "" {
-		return nil, fmt.Errorf("%w: DomainId is required", errInvalidRequest)
+	if req.DomainID == "" {
+		return nil, fmt.Errorf("%w: DomainID is required", errInvalidRequest)
 	}
 
 	if req.SpaceName == "" {
 		return nil, fmt.Errorf("%w: SpaceName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateSpace(req.DomainId, req.SpaceName, req.Tags)
+	result, err := h.Backend.CreateSpace(req.DomainID, req.SpaceName, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -728,7 +735,7 @@ func (h *Handler) handleCreateSpace(body []byte) ([]byte, error) {
 
 func (h *Handler) handleDescribeSpace(body []byte) ([]byte, error) {
 	var req struct {
-		DomainId  string `json:"DomainId"`
+		DomainID  string `json:"DomainId"`
 		SpaceName string `json:"SpaceName"`
 	}
 
@@ -736,15 +743,15 @@ func (h *Handler) handleDescribeSpace(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.DomainId == "" {
-		return nil, fmt.Errorf("%w: DomainId is required", errInvalidRequest)
+	if req.DomainID == "" {
+		return nil, fmt.Errorf("%w: DomainID is required", errInvalidRequest)
 	}
 
 	if req.SpaceName == "" {
 		return nil, fmt.Errorf("%w: SpaceName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeSpace(req.DomainId, req.SpaceName)
+	result, err := h.Backend.DescribeSpace(req.DomainID, req.SpaceName)
 	if err != nil {
 		return nil, err
 	}
@@ -754,7 +761,7 @@ func (h *Handler) handleDescribeSpace(body []byte) ([]byte, error) {
 
 func (h *Handler) handleDeleteSpace(body []byte) error {
 	var req struct {
-		DomainId  string `json:"DomainId"`
+		DomainID  string `json:"DomainId"`
 		SpaceName string `json:"SpaceName"`
 	}
 
@@ -762,20 +769,20 @@ func (h *Handler) handleDeleteSpace(body []byte) error {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.DomainId == "" {
-		return fmt.Errorf("%w: DomainId is required", errInvalidRequest)
+	if req.DomainID == "" {
+		return fmt.Errorf("%w: DomainID is required", errInvalidRequest)
 	}
 
 	if req.SpaceName == "" {
 		return fmt.Errorf("%w: SpaceName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteSpace(req.DomainId, req.SpaceName)
+	return h.Backend.DeleteSpace(req.DomainID, req.SpaceName)
 }
 
 func (h *Handler) handleListSpaces(body []byte) ([]byte, error) {
 	var req struct {
-		DomainIdEquals string `json:"DomainIdEquals"`
+		DomainIDEquals string `json:"DomainIdEquals"`
 		NextToken      string `json:"NextToken"`
 	}
 
@@ -783,23 +790,23 @@ func (h *Handler) handleListSpaces(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListSpaces(req.DomainIdEquals, req.NextToken)
+	items, next := h.Backend.ListSpaces(req.DomainIDEquals, req.NextToken)
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, s := range items {
 		summaries = append(summaries, map[string]any{
-			"SpaceName":        s.SpaceName,
-			"SpaceArn":         s.SpaceArn,
-			"DomainId":         s.DomainId,
-			"SpaceStatus":      s.SpaceStatus,
-			"CreationTime":     s.CreationTime,
-			"LastModifiedTime": s.LastModifiedTime,
+			"SpaceName":         s.SpaceName,
+			"SpaceArn":          s.SpaceArn,
+			keyDomainID:         s.DomainID,
+			"SpaceStatus":       s.SpaceStatus,
+			keyCreationTime:     s.CreationTime,
+			keyLastModifiedTime: s.LastModifiedTime,
 		})
 	}
 
 	return json.Marshal(map[string]any{
-		"Spaces":    summaries,
-		"NextToken": next,
+		"Spaces":     summaries,
+		keyNextToken: next,
 	})
 }
 
@@ -882,17 +889,17 @@ func (h *Handler) handleListImages(body []byte) ([]byte, error) {
 	summaries := make([]map[string]any, 0, len(items))
 	for _, img := range items {
 		summaries = append(summaries, map[string]any{
-			"ImageName":        img.ImageName,
-			"ImageArn":         img.ImageArn,
-			"ImageStatus":      img.ImageStatus,
-			"CreationTime":     img.CreationTime,
-			"LastModifiedTime": img.LastModifiedTime,
+			"ImageName":         img.ImageName,
+			"ImageArn":          img.ImageArn,
+			"ImageStatus":       img.ImageStatus,
+			keyCreationTime:     img.CreationTime,
+			keyLastModifiedTime: img.LastModifiedTime,
 		})
 	}
 
 	return json.Marshal(map[string]any{
-		"Images":    summaries,
-		"NextToken": next,
+		"Images":     summaries,
+		keyNextToken: next,
 	})
 }
 
@@ -982,14 +989,14 @@ func (h *Handler) handleListImageVersions(body []byte) ([]byte, error) {
 			"ImageVersionArn":    iv.ImageVersionArn,
 			"ImageVersionStatus": iv.ImageVersionStatus,
 			"Version":            iv.Version,
-			"CreationTime":       iv.CreationTime,
-			"LastModifiedTime":   iv.LastModifiedTime,
+			keyCreationTime:      iv.CreationTime,
+			keyLastModifiedTime:  iv.LastModifiedTime,
 		})
 	}
 
 	return json.Marshal(map[string]any{
 		"ImageVersions": summaries,
-		"NextToken":     next,
+		keyNextToken:    next,
 	})
 }
 
@@ -1041,6 +1048,22 @@ func (h *Handler) handleDescribeCompilationJob(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
+func (h *Handler) handleDeleteCompilationJob(body []byte) error {
+	var req struct {
+		CompilationJobName string `json:"CompilationJobName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.CompilationJobName == "" {
+		return fmt.Errorf("%w: CompilationJobName is required", errInvalidRequest)
+	}
+
+	return h.Backend.DeleteCompilationJob(req.CompilationJobName)
+}
+
 func (h *Handler) handleStopCompilationJob(body []byte) error {
 	var req struct {
 		CompilationJobName string `json:"CompilationJobName"`
@@ -1074,14 +1097,14 @@ func (h *Handler) handleListCompilationJobs(body []byte) ([]byte, error) {
 			"CompilationJobName":   j.CompilationJobName,
 			"CompilationJobArn":    j.CompilationJobArn,
 			"CompilationJobStatus": j.CompilationJobStatus,
-			"CreationTime":         j.CreationTime,
-			"LastModifiedTime":     j.LastModifiedTime,
+			keyCreationTime:        j.CreationTime,
+			keyLastModifiedTime:    j.LastModifiedTime,
 		})
 	}
 
 	return json.Marshal(map[string]any{
 		"CompilationJobSummaries": summaries,
-		"NextToken":               next,
+		keyNextToken:              next,
 	})
 }
 
@@ -1108,7 +1131,7 @@ func (h *Handler) handleCreateMonitoringSchedule(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"MonitoringScheduleArn": result.MonitoringScheduleArn})
+	return json.Marshal(map[string]any{keyMonitoringScheduleArn: result.MonitoringScheduleArn})
 }
 
 func (h *Handler) handleDescribeMonitoringSchedule(body []byte) ([]byte, error) {
@@ -1198,7 +1221,7 @@ func (h *Handler) handleUpdateMonitoringSchedule(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"MonitoringScheduleArn": result.MonitoringScheduleArn})
+	return json.Marshal(map[string]any{keyMonitoringScheduleArn: result.MonitoringScheduleArn})
 }
 
 func (h *Handler) handleListMonitoringSchedules(body []byte) ([]byte, error) {
@@ -1216,16 +1239,16 @@ func (h *Handler) handleListMonitoringSchedules(body []byte) ([]byte, error) {
 	for _, ms := range items {
 		summaries = append(summaries, map[string]any{
 			"MonitoringScheduleName":   ms.MonitoringScheduleName,
-			"MonitoringScheduleArn":    ms.MonitoringScheduleArn,
+			keyMonitoringScheduleArn:   ms.MonitoringScheduleArn,
 			"MonitoringScheduleStatus": ms.MonitoringScheduleStatus,
-			"CreationTime":             ms.CreationTime,
-			"LastModifiedTime":         ms.LastModifiedTime,
+			keyCreationTime:            ms.CreationTime,
+			keyLastModifiedTime:        ms.LastModifiedTime,
 		})
 	}
 
 	return json.Marshal(map[string]any{
 		"MonitoringScheduleSummaries": summaries,
-		"NextToken":                   next,
+		keyNextToken:                  next,
 	})
 }
 
@@ -1307,19 +1330,16 @@ func (h *Handler) handleListWorkteams(body []byte) ([]byte, error) {
 	summaries := make([]map[string]any, 0, len(items))
 	for _, w := range items {
 		summaries = append(summaries, map[string]any{
-			"WorkteamName":     w.WorkteamName,
-			"WorkteamArn":      w.WorkteamArn,
-			"Description":      w.Description,
-			"CreationTime":     w.CreationTime,
-			"LastModifiedTime": w.LastModifiedTime,
+			"WorkteamName":      w.WorkteamName,
+			"WorkteamArn":       w.WorkteamArn,
+			"Description":       w.Description,
+			keyCreationTime:     w.CreationTime,
+			keyLastModifiedTime: w.LastModifiedTime,
 		})
 	}
 
 	return json.Marshal(map[string]any{
-		"Workteams": summaries,
-		"NextToken": next,
+		"Workteams":  summaries,
+		keyNextToken: next,
 	})
 }
-
-// ensure strconv is used (Version field in ImageVersion list handler uses it).
-var _ = strconv.Itoa

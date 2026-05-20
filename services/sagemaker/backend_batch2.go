@@ -81,7 +81,7 @@ func (b *InMemoryBackend) CreateModelPackageGroup(
 		ModelPackageGroupName:        name,
 		ModelPackageGroupArn:         groupARN,
 		ModelPackageGroupDescription: description,
-		ModelPackageGroupStatus:      "Completed",
+		ModelPackageGroupStatus:      algorithmStatusCompleted,
 		Tags:                         mergeTags(nil, tags),
 		CreationTime:                 time.Now(),
 	}
@@ -118,6 +118,8 @@ func (b *InMemoryBackend) DeleteModelPackageGroup(name string) error {
 }
 
 // ListModelPackageGroups returns all model package groups, sorted by name.
+//
+//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListModelPackageGroups(nextToken string) ([]*ModelPackageGroup, string) {
 	b.mu.RLock("ListModelPackageGroups")
 	defer b.mu.RUnlock()
@@ -140,10 +142,7 @@ func (b *InMemoryBackend) ListModelPackageGroups(nextToken string) ([]*ModelPack
 		}
 	}
 
-	end := start + sagemakerDefaultPageSize
-	if end > len(keys) {
-		end = len(keys)
-	}
+	end := min(start+sagemakerDefaultPageSize, len(keys))
 
 	out := make([]*ModelPackageGroup, 0, end-start)
 	for _, k := range keys[start:end] {
@@ -207,7 +206,7 @@ func (b *InMemoryBackend) DescribeModelPackage(nameOrArn string) (*ModelPackage,
 
 	// Try name → ARN index.
 	if arnStr, ok := b.modelPackageARNIndex[nameOrArn]; ok {
-		if mp, ok := b.modelPackages[arnStr]; ok {
+		if mp, found := b.modelPackages[arnStr]; found {
 			return cloneModelPackage(mp), nil
 		}
 	}
@@ -262,10 +261,7 @@ func (b *InMemoryBackend) ListModelPackages(groupName, nextToken string) ([]*Mod
 		}
 	}
 
-	end := start + sagemakerDefaultPageSize
-	if end > len(arns) {
-		end = len(arns)
-	}
+	end := min(start+sagemakerDefaultPageSize, len(arns))
 
 	out := make([]*ModelPackage, 0, end-start)
 	for _, k := range arns[start:end] {
@@ -322,7 +318,7 @@ func (b *InMemoryBackend) CreateAutoMLJob(
 	j := &AutoMLJob{
 		AutoMLJobName:   name,
 		AutoMLJobArn:    jobARN,
-		AutoMLJobStatus: "Completed",
+		AutoMLJobStatus: algorithmStatusCompleted,
 		RoleArn:         roleArn,
 		Tags:            mergeTags(nil, tags),
 		CreationTime:    time.Now(),
@@ -355,12 +351,14 @@ func (b *InMemoryBackend) StopAutoMLJob(name string) error {
 		return fmt.Errorf("%w: AutoML job %q not found", ErrAutoMLJobNotFound, name)
 	}
 
-	j.AutoMLJobStatus = "Stopped"
+	j.AutoMLJobStatus = pipelineStatusStopped
 
 	return nil
 }
 
 // ListAutoMLJobs returns all AutoML jobs sorted by name.
+//
+//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListAutoMLJobs(nextToken string) ([]*AutoMLJob, string) {
 	b.mu.RLock("ListAutoMLJobs")
 	defer b.mu.RUnlock()
@@ -383,10 +381,7 @@ func (b *InMemoryBackend) ListAutoMLJobs(nextToken string) ([]*AutoMLJob, string
 		}
 	}
 
-	end := start + sagemakerDefaultPageSize
-	if end > len(keys) {
-		end = len(keys)
-	}
+	end := min(start+sagemakerDefaultPageSize, len(keys))
 
 	out := make([]*AutoMLJob, 0, end-start)
 	for _, k := range keys[start:end] {
@@ -506,6 +501,8 @@ func (b *InMemoryBackend) DeleteCodeRepository(name string) error {
 }
 
 // ListCodeRepositories returns all code repositories sorted by name.
+//
+//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListCodeRepositories(nextToken string) ([]*CodeRepository, string) {
 	b.mu.RLock("ListCodeRepositories")
 	defer b.mu.RUnlock()
@@ -528,10 +525,7 @@ func (b *InMemoryBackend) ListCodeRepositories(nextToken string) ([]*CodeReposit
 		}
 	}
 
-	end := start + sagemakerDefaultPageSize
-	if end > len(keys) {
-		end = len(keys)
-	}
+	end := min(start+sagemakerDefaultPageSize, len(keys))
 
 	out := make([]*CodeRepository, 0, end-start)
 	for _, k := range keys[start:end] {
@@ -556,7 +550,7 @@ type Project struct {
 	Tags               map[string]string `json:"Tags,omitempty"`
 	ProjectName        string            `json:"ProjectName"`
 	ProjectArn         string            `json:"ProjectArn"`
-	ProjectId          string            `json:"ProjectId"`
+	ProjectID          string            `json:"ProjectId"`
 	ProjectStatus      string            `json:"ProjectStatus"`
 	ProjectDescription string            `json:"ProjectDescription,omitempty"`
 }
@@ -589,7 +583,7 @@ func (b *InMemoryBackend) CreateProject(
 	p := &Project{
 		ProjectName:        name,
 		ProjectArn:         projectARN,
-		ProjectId:          generateID(),
+		ProjectID:          generateID(),
 		ProjectStatus:      "CreateCompleted",
 		ProjectDescription: description,
 		Tags:               mergeTags(nil, tags),
@@ -628,6 +622,8 @@ func (b *InMemoryBackend) DeleteProject(name string) error {
 }
 
 // ListProjects returns all projects sorted by name.
+//
+//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListProjects(nextToken string) ([]*Project, string) {
 	b.mu.RLock("ListProjects")
 	defer b.mu.RUnlock()
@@ -650,10 +646,7 @@ func (b *InMemoryBackend) ListProjects(nextToken string) ([]*Project, string) {
 		}
 	}
 
-	end := start + sagemakerDefaultPageSize
-	if end > len(keys) {
-		end = len(keys)
-	}
+	end := min(start+sagemakerDefaultPageSize, len(keys))
 
 	out := make([]*Project, 0, end-start)
 	for _, k := range keys[start:end] {
@@ -679,7 +672,7 @@ type Space struct {
 	Tags             map[string]string `json:"Tags,omitempty"`
 	SpaceName        string            `json:"SpaceName"`
 	SpaceArn         string            `json:"SpaceArn"`
-	DomainId         string            `json:"DomainId"`
+	DomainID         string            `json:"DomainId"`
 	SpaceStatus      string            `json:"SpaceStatus"`
 }
 
@@ -700,7 +693,7 @@ func (b *InMemoryBackend) CreateSpace(domainID, spaceName string, tags map[strin
 	defer b.mu.Unlock()
 
 	if domainID == "" {
-		return nil, fmt.Errorf("%w: DomainId is required", ErrValidation)
+		return nil, fmt.Errorf("%w: DomainID is required", ErrValidation)
 	}
 
 	if spaceName == "" {
@@ -719,7 +712,7 @@ func (b *InMemoryBackend) CreateSpace(domainID, spaceName string, tags map[strin
 	s := &Space{
 		SpaceName:        spaceName,
 		SpaceArn:         spaceARN,
-		DomainId:         domainID,
+		DomainID:         domainID,
 		SpaceStatus:      "InService",
 		Tags:             mergeTags(nil, tags),
 		CreationTime:     now,
@@ -766,7 +759,7 @@ func (b *InMemoryBackend) ListSpaces(domainID, nextToken string) ([]*Space, stri
 
 	var keys []string
 	for k, s := range b.spaces {
-		if domainID == "" || s.DomainId == domainID {
+		if domainID == "" || s.DomainID == domainID {
 			keys = append(keys, k)
 		}
 	}
@@ -784,10 +777,7 @@ func (b *InMemoryBackend) ListSpaces(domainID, nextToken string) ([]*Space, stri
 		}
 	}
 
-	end := start + sagemakerDefaultPageSize
-	if end > len(keys) {
-		end = len(keys)
-	}
+	end := min(start+sagemakerDefaultPageSize, len(keys))
 
 	out := make([]*Space, 0, end-start)
 	for _, k := range keys[start:end] {
@@ -884,6 +874,8 @@ func (b *InMemoryBackend) DeleteImage(name string) error {
 }
 
 // ListImages returns all images sorted by name.
+//
+//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListImages(nextToken string) ([]*SMImage, string) {
 	b.mu.RLock("ListImages")
 	defer b.mu.RUnlock()
@@ -906,10 +898,7 @@ func (b *InMemoryBackend) ListImages(nextToken string) ([]*SMImage, string) {
 		}
 	}
 
-	end := start + sagemakerDefaultPageSize
-	if end > len(keys) {
-		end = len(keys)
-	}
+	end := min(start+sagemakerDefaultPageSize, len(keys))
 
 	out := make([]*SMImage, 0, end-start)
 	for _, k := range keys[start:end] {
@@ -1011,7 +1000,7 @@ func (b *InMemoryBackend) DeleteImageVersion(imageName string, version int) erro
 		return fmt.Errorf("%w: no versions found for image %q", ErrImageVersionNotFound, imageName)
 	}
 
-	if _, ok := versions[version]; !ok {
+	if _, exists := versions[version]; !exists {
 		return fmt.Errorf("%w: version %d not found for image %q", ErrImageVersionNotFound, version, imageName)
 	}
 
@@ -1047,10 +1036,7 @@ func (b *InMemoryBackend) ListImageVersions(imageName, nextToken string) ([]*Ima
 		}
 	}
 
-	end := start + sagemakerDefaultPageSize
-	if end > len(nums) {
-		end = len(nums)
-	}
+	end := min(start+sagemakerDefaultPageSize, len(nums))
 
 	out := make([]*ImageVersion, 0, end-start)
 	for _, n := range nums[start:end] {
@@ -1133,6 +1119,20 @@ func (b *InMemoryBackend) DescribeCompilationJob(name string) (*CompilationJob, 
 	return cloneCompilationJob(j), nil
 }
 
+// DeleteCompilationJob removes a compilation job by name.
+func (b *InMemoryBackend) DeleteCompilationJob(name string) error {
+	b.mu.Lock("DeleteCompilationJob")
+	defer b.mu.Unlock()
+
+	if _, ok := b.compilationJobs[name]; !ok {
+		return fmt.Errorf("%w: compilation job %q not found", ErrCompilationJobNotFound, name)
+	}
+
+	delete(b.compilationJobs, name)
+
+	return nil
+}
+
 // StopCompilationJob sets a compilation job status to "STOPPED".
 func (b *InMemoryBackend) StopCompilationJob(name string) error {
 	b.mu.Lock("StopCompilationJob")
@@ -1150,6 +1150,8 @@ func (b *InMemoryBackend) StopCompilationJob(name string) error {
 }
 
 // ListCompilationJobs returns all compilation jobs sorted by name.
+//
+//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListCompilationJobs(nextToken string) ([]*CompilationJob, string) {
 	b.mu.RLock("ListCompilationJobs")
 	defer b.mu.RUnlock()
@@ -1172,10 +1174,7 @@ func (b *InMemoryBackend) ListCompilationJobs(nextToken string) ([]*CompilationJ
 		}
 	}
 
-	end := start + sagemakerDefaultPageSize
-	if end > len(keys) {
-		end = len(keys)
-	}
+	end := min(start+sagemakerDefaultPageSize, len(keys))
 
 	out := make([]*CompilationJob, 0, end-start)
 	for _, k := range keys[start:end] {
@@ -1280,7 +1279,7 @@ func (b *InMemoryBackend) StopMonitoringSchedule(name string) error {
 		return fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
 
-	ms.MonitoringScheduleStatus = "Stopped"
+	ms.MonitoringScheduleStatus = pipelineStatusStopped
 	ms.LastModifiedTime = time.Now()
 
 	return nil
@@ -1318,6 +1317,8 @@ func (b *InMemoryBackend) UpdateMonitoringSchedule(name string) (*MonitoringSche
 }
 
 // ListMonitoringSchedules returns all monitoring schedules sorted by name.
+//
+//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListMonitoringSchedules(nextToken string) ([]*MonitoringSchedule, string) {
 	b.mu.RLock("ListMonitoringSchedules")
 	defer b.mu.RUnlock()
@@ -1340,10 +1341,7 @@ func (b *InMemoryBackend) ListMonitoringSchedules(nextToken string) ([]*Monitori
 		}
 	}
 
-	end := start + sagemakerDefaultPageSize
-	if end > len(keys) {
-		end = len(keys)
-	}
+	end := min(start+sagemakerDefaultPageSize, len(keys))
 
 	out := make([]*MonitoringSchedule, 0, end-start)
 	for _, k := range keys[start:end] {
@@ -1439,6 +1437,8 @@ func (b *InMemoryBackend) DeleteWorkteam(name string) error {
 }
 
 // ListWorkteams returns all workteams sorted by name.
+//
+//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListWorkteams(nextToken string) ([]*Workteam, string) {
 	b.mu.RLock("ListWorkteams")
 	defer b.mu.RUnlock()
@@ -1461,10 +1461,7 @@ func (b *InMemoryBackend) ListWorkteams(nextToken string) ([]*Workteam, string) 
 		}
 	}
 
-	end := start + sagemakerDefaultPageSize
-	if end > len(keys) {
-		end = len(keys)
-	}
+	end := min(start+sagemakerDefaultPageSize, len(keys))
 
 	out := make([]*Workteam, 0, end-start)
 	for _, k := range keys[start:end] {

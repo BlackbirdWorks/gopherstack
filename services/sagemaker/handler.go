@@ -241,12 +241,10 @@ func batch2OpsSupported() []string {
 		"CreateMonitoringSchedule",
 		"DescribeMonitoringSchedule",
 		"DeleteMonitoringSchedule",
-		"StopMonitoringSchedule",
+		opStopMonitoringSchedule,
 		"StartMonitoringSchedule",
 		"UpdateMonitoringSchedule",
 		"ListMonitoringSchedules",
-		// UpdateCodeRepository also goes to batch2
-		"UpdateCodeRepository",
 		// Workteam
 		"CreateWorkteam",
 		"DescribeWorkteam",
