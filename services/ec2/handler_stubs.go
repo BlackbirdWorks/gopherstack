@@ -1074,17 +1074,6 @@ func (h *Handler) handleStubAttachClassicLinkVpc(_ url.Values, reqID string) (an
 	}, nil
 }
 
-func (h *Handler) handleStubAttachVerifiedAccessTrustProvider(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AttachVerifiedAccessTrustProviderResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubAttachVpnGateway(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AttachVpnGatewayResponse"},
@@ -1618,17 +1607,6 @@ func (h *Handler) handleStubCreateTransitGatewayConnect(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayConnectPeer(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTransitGatewayConnectPeerResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateTransitGatewayMeteringPolicy(
 	_ url.Values,
 	reqID string,
@@ -1662,34 +1640,12 @@ func (h *Handler) handleStubCreateTransitGatewayMulticastDomain(
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayPeeringAttachment(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTransitGatewayPeeringAttachmentResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateTransitGatewayPolicyTable(
 	_ url.Values,
 	reqID string,
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateTransitGatewayPolicyTableResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateTransitGatewayPrefixListReference(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTransitGatewayPrefixListReferenceResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1725,17 +1681,6 @@ func (h *Handler) handleStubCreateVerifiedAccessGroup(_ url.Values, reqID string
 func (h *Handler) handleStubCreateVerifiedAccessInstance(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateVerifiedAccessInstanceResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateVerifiedAccessTrustProvider(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateVerifiedAccessTrustProviderResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2144,17 +2089,6 @@ func (h *Handler) handleStubDeleteTransitGatewayConnect(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteTransitGatewayConnectPeer(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayConnectPeerResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDeleteTransitGatewayMeteringPolicy(
 	_ url.Values,
 	reqID string,
@@ -2188,34 +2122,12 @@ func (h *Handler) handleStubDeleteTransitGatewayMulticastDomain(
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteTransitGatewayPeeringAttachment(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayPeeringAttachmentResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDeleteTransitGatewayPolicyTable(
 	_ url.Values,
 	reqID string,
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteTransitGatewayPolicyTableResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteTransitGatewayPrefixListReference(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayPrefixListReferenceResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2251,17 +2163,6 @@ func (h *Handler) handleStubDeleteVerifiedAccessGroup(_ url.Values, reqID string
 func (h *Handler) handleStubDeleteVerifiedAccessInstance(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteVerifiedAccessInstanceResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteVerifiedAccessTrustProvider(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteVerifiedAccessTrustProviderResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2495,17 +2396,6 @@ func (h *Handler) handleStubDescribeClassicLinkInstances(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeClientVpnAuthorizationRules(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeClientVpnAuthorizationRulesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeClientVpnConnections(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeClientVpnConnectionsResponse"},
@@ -2525,17 +2415,6 @@ func (h *Handler) handleStubDescribeClientVpnEndpoints(_ url.Values, reqID strin
 func (h *Handler) handleStubDescribeClientVpnRoutes(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeClientVpnRoutesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeClientVpnTargetNetworks(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeClientVpnTargetNetworksResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3138,28 +3017,6 @@ func (h *Handler) handleStubDescribeTransitGatewayAttachments(
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTransitGatewayConnectPeers(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTransitGatewayConnectPeersResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeTransitGatewayConnects(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTransitGatewayConnectsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeTransitGatewayMeteringPolicies(
 	_ url.Values,
 	reqID string,
@@ -3177,17 +3034,6 @@ func (h *Handler) handleStubDescribeTransitGatewayMulticastDomains(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeTransitGatewayMulticastDomainsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeTransitGatewayPeeringAttachments(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTransitGatewayPeeringAttachmentsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3226,17 +3072,6 @@ func (h *Handler) handleStubDescribeTrunkInterfaceAssociations(
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVerifiedAccessEndpoints(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeVerifiedAccessEndpointsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeVerifiedAccessGroups(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVerifiedAccessGroupsResponse"},
@@ -3251,28 +3086,6 @@ func (h *Handler) handleStubDescribeVerifiedAccessInstanceLoggingConfigurations(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVerifiedAccessInstanceLoggingConfigurationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeVerifiedAccessInstances(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeVerifiedAccessInstancesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeVerifiedAccessTrustProviders(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeVerifiedAccessTrustProvidersResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3365,17 +3178,6 @@ func (h *Handler) handleStubDescribeVpnGateways(_ url.Values, reqID string) (any
 func (h *Handler) handleStubDetachClassicLinkVpc(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DetachClassicLinkVpcResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDetachVerifiedAccessTrustProvider(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DetachVerifiedAccessTrustProviderResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3482,17 +3284,6 @@ func (h *Handler) handleStubDisassociateCapacityReservationBillingOwner(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateCapacityReservationBillingOwnerResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDisassociateClientVpnTargetNetwork(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateClientVpnTargetNetworkResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3981,17 +3772,6 @@ func (h *Handler) handleStubGetIpamResourceCidrs(_ url.Values, reqID string) (an
 	}, nil
 }
 
-func (h *Handler) handleStubGetManagedPrefixListAssociations(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetManagedPrefixListAssociationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubGetManagedPrefixListEntries(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetManagedPrefixListEntriesResponse"},
@@ -4115,17 +3895,6 @@ func (h *Handler) handleStubGetTransitGatewayPolicyTableEntries(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetTransitGatewayPolicyTableEntriesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetTransitGatewayPrefixListReferences(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetTransitGatewayPrefixListReferencesResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -4889,17 +4658,6 @@ func (h *Handler) handleStubRequestSpotFleet(_ url.Values, reqID string) (any, e
 func (h *Handler) handleStubResetFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ResetFpgaImageAttributeResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubRestoreManagedPrefixListVersion(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RestoreManagedPrefixListVersionResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
