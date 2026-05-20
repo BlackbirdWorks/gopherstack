@@ -12,25 +12,25 @@ type AssociationStatusValue struct {
 
 // ResourceDataSync represents a resource data sync configuration.
 type ResourceDataSync struct {
+	SyncCreatedTime time.Time `json:"SyncCreatedTime"`
+	LastSyncTime    time.Time `json:"LastSyncTime,omitzero"`
 	SyncName        string    `json:"SyncName"`
 	SyncType        string    `json:"SyncType"`
 	LastStatus      string    `json:"LastStatus"`
-	SyncCreatedTime time.Time `json:"SyncCreatedTime"`
-	LastSyncTime    time.Time `json:"LastSyncTime,omitempty"`
 }
 
 // --- AutomationExecution ---
 
 // AutomationExecution represents a running or completed SSM automation execution.
 type AutomationExecution struct {
-	AutomationExecutionID   string                  `json:"AutomationExecutionId"`
-	DocumentName            string                  `json:"DocumentName"`
-	DocumentVersion         string                  `json:"DocumentVersion"`
-	Status                  string                  `json:"AutomationExecutionStatus"`
-	StartTime               time.Time               `json:"StartTime"`
-	EndTime                 *time.Time              `json:"EndTime,omitempty"`
-	ExecutionType           string                  `json:"ExecutionType"` // "Standard" or "ChangeRequest"
-	Steps                   []AutomationStepExec    `json:"StepExecutions,omitempty"`
+	StartTime             time.Time            `json:"StartTime"`
+	EndTime               *time.Time           `json:"EndTime,omitempty"`
+	AutomationExecutionID string               `json:"AutomationExecutionId"`
+	DocumentName          string               `json:"DocumentName"`
+	DocumentVersion       string               `json:"DocumentVersion"`
+	Status                string               `json:"AutomationExecutionStatus"`
+	ExecutionType         string               `json:"ExecutionType"` // "Standard" or "ChangeRequest"
+	Steps                 []AutomationStepExec `json:"StepExecutions,omitempty"`
 }
 
 // AutomationStepExec represents a single step in an automation execution.
@@ -77,8 +77,8 @@ type CreateResourceDataSyncInputFull struct {
 
 // ListResourceDataSyncOutputFull extends the empty stub output.
 type ListResourceDataSyncOutputFull struct {
-	ResourceDataSyncItems []ResourceDataSync `json:"ResourceDataSyncItems"`
 	NextToken             string             `json:"NextToken,omitempty"`
+	ResourceDataSyncItems []ResourceDataSync `json:"ResourceDataSyncItems"`
 }
 
 // GetServiceSettingOutputFull extends the empty stub output.
@@ -98,25 +98,25 @@ type GetAutomationExecutionOutputFull struct {
 
 // DescribeAutomationExecutionsOutputFull extends the empty stub output.
 type DescribeAutomationExecutionsOutputFull struct {
-	AutomationExecutionMetadataList []AutomationExecution `json:"AutomationExecutionMetadataList"`
 	NextToken                       string                `json:"NextToken,omitempty"`
+	AutomationExecutionMetadataList []AutomationExecution `json:"AutomationExecutionMetadataList"`
 }
 
 // DescribeAutomationStepExecutionsOutputFull extends the empty stub output.
 type DescribeAutomationStepExecutionsOutputFull struct {
-	StepExecutions []AutomationStepExec `json:"StepExecutions"`
 	NextToken      string               `json:"NextToken,omitempty"`
+	StepExecutions []AutomationStepExec `json:"StepExecutions"`
 }
 
 // DescribeSessionsOutputFull extends the empty stub output.
 type DescribeSessionsOutputFull struct {
-	Sessions  []Session `json:"Sessions"`
 	NextToken string    `json:"NextToken,omitempty"`
+	Sessions  []Session `json:"Sessions"`
 }
 
 // GetCalendarStateOutputFull has a State field.
 type GetCalendarStateOutputFull struct {
-	State       string `json:"State"`
+	State              string `json:"State"`
 	NextTransitionTime string `json:"NextTransitionTime,omitempty"`
 }
 
@@ -133,52 +133,52 @@ type GetOpsSummaryOutputFull struct {
 
 // OpsSummaryEntity represents a summary entry for ops items.
 type OpsSummaryEntity struct {
-	ID   string `json:"Id"`
 	Data map[string]OpsSummaryValue `json:"Data,omitempty"`
+	ID   string                     `json:"Id"`
 }
 
 // OpsSummaryValue holds aggregated value for an ops summary.
 type OpsSummaryValue struct {
-	Count int    `json:"Count"`
 	Unit  string `json:"Unit"`
+	Count int    `json:"Count"`
 }
 
 // ListOpsMetadataOutputFull extends the empty output.
 type ListOpsMetadataOutputFull struct {
-	OpsMetadataList []OpsMetadata `json:"OpsMetadataList"`
 	NextToken       string        `json:"NextToken,omitempty"`
+	OpsMetadataList []OpsMetadata `json:"OpsMetadataList"`
 }
 
 // ListAssociationsOutputFull extends the stub list output.
 type ListAssociationsOutputFull struct {
-	Associations []Association `json:"Associations"`
 	NextToken    string        `json:"NextToken,omitempty"`
+	Associations []Association `json:"Associations"`
 }
 
 // ListAssociationVersionsOutputFull extends the empty output.
 type ListAssociationVersionsOutputFull struct {
-	AssociationVersions []Association `json:"AssociationVersions"`
 	NextToken           string        `json:"NextToken,omitempty"`
+	AssociationVersions []Association `json:"AssociationVersions"`
 }
 
 // DescribeAssociationExecutionsOutputFull extends the empty output.
 type DescribeAssociationExecutionsOutputFull struct {
-	AssociationExecutions []AssociationExecution `json:"AssociationExecutions"`
 	NextToken             string                 `json:"NextToken,omitempty"`
+	AssociationExecutions []AssociationExecution `json:"AssociationExecutions"`
 }
 
 // AssociationExecution represents a single execution record of an association.
 type AssociationExecution struct {
-	AssociationID      string    `json:"AssociationId"`
-	ExecutionID        string    `json:"ExecutionId"`
-	Status             string    `json:"Status"`
-	ExecutionDate      time.Time `json:"ExecutionDate"`
+	ExecutionDate time.Time `json:"ExecutionDate"`
+	AssociationID string    `json:"AssociationId"`
+	ExecutionID   string    `json:"ExecutionId"`
+	Status        string    `json:"Status"`
 }
 
 // DescribeAssociationExecutionTargetsOutputFull extends the empty output.
 type DescribeAssociationExecutionTargetsOutputFull struct {
-	AssociationExecutionTargets []AssociationExecutionTarget `json:"AssociationExecutionTargets"`
 	NextToken                   string                       `json:"NextToken,omitempty"`
+	AssociationExecutionTargets []AssociationExecutionTarget `json:"AssociationExecutionTargets"`
 }
 
 // AssociationExecutionTarget represents a single target of an association execution.
@@ -192,86 +192,86 @@ type AssociationExecutionTarget struct {
 
 // MaintenanceWindowExecution represents a single execution of a maintenance window.
 type MaintenanceWindowExecution struct {
-	WindowID          string    `json:"WindowId"`
-	WindowExecutionID string    `json:"WindowExecutionId"`
-	Status            string    `json:"Status"`
-	StartTime         time.Time `json:"StartTime"`
+	StartTime         time.Time  `json:"StartTime"`
 	EndTime           *time.Time `json:"EndTime,omitempty"`
+	WindowID          string     `json:"WindowId"`
+	WindowExecutionID string     `json:"WindowExecutionId"`
+	Status            string     `json:"Status"`
 }
 
 // MaintenanceWindowExecutionTask represents a task run within a window execution.
 type MaintenanceWindowExecutionTask struct {
+	StartTime         time.Time `json:"StartTime"`
 	WindowExecutionID string    `json:"WindowExecutionId"`
 	TaskExecutionID   string    `json:"TaskExecutionId"`
 	TaskARN           string    `json:"TaskArn"`
 	Status            string    `json:"Status"`
-	StartTime         time.Time `json:"StartTime"`
 }
 
 // MaintenanceWindowExecutionTaskInvocation represents a single invocation of a task.
 type MaintenanceWindowExecutionTaskInvocation struct {
+	StartTime         time.Time `json:"StartTime"`
 	WindowExecutionID string    `json:"WindowExecutionId"`
 	TaskExecutionID   string    `json:"TaskExecutionId"`
 	InvocationID      string    `json:"InvocationId"`
 	Status            string    `json:"Status"`
-	StartTime         time.Time `json:"StartTime"`
 }
 
 // DescribeMaintenanceWindowExecutionsOutputFull has executions list.
 type DescribeMaintenanceWindowExecutionsOutputFull struct {
-	WindowExecutions []MaintenanceWindowExecution `json:"WindowExecutions"`
 	NextToken        string                       `json:"NextToken,omitempty"`
+	WindowExecutions []MaintenanceWindowExecution `json:"WindowExecutions"`
 }
 
 // DescribeMaintenanceWindowExecutionTasksOutputFull has tasks list.
 type DescribeMaintenanceWindowExecutionTasksOutputFull struct {
+	NextToken                     string                           `json:"NextToken,omitempty"`
 	WindowExecutionTaskIdentities []MaintenanceWindowExecutionTask `json:"WindowExecutionTaskIdentities"`
-	NextToken                     string                          `json:"NextToken,omitempty"`
 }
 
 // DescribeMaintenanceWindowExecutionTaskInvocationsOutputFull has invocations.
 type DescribeMaintenanceWindowExecutionTaskInvocationsOutputFull struct {
-	WindowExecutionTaskInvocationIdentities []MaintenanceWindowExecutionTaskInvocation `json:"WindowExecutionTaskInvocationIdentities"`
-	NextToken string `json:"NextToken,omitempty"`
+	NextToken                               string                                     `json:"NextToken,omitempty"`
+	WindowExecutionTaskInvocationIdentities []MaintenanceWindowExecutionTaskInvocation `json:"WindowExecutionTaskInvocationIdentities"` //nolint:lll // AWS API field name is long by design
 }
 
 // DescribeMaintenanceWindowScheduleOutputFull has schedule entries.
 type DescribeMaintenanceWindowScheduleOutputFull struct {
-	ScheduledWindowExecutions []ScheduledWindowExecution `json:"ScheduledWindowExecutions"`
 	NextToken                 string                     `json:"NextToken,omitempty"`
+	ScheduledWindowExecutions []ScheduledWindowExecution `json:"ScheduledWindowExecutions"`
 }
 
 // ScheduledWindowExecution represents a future scheduled window execution.
 type ScheduledWindowExecution struct {
-	WindowID   string `json:"WindowId"`
-	Name       string `json:"Name"`
+	WindowID      string `json:"WindowId"`
+	Name          string `json:"Name"`
 	ExecutionTime string `json:"ExecutionTime"`
 }
 
 // NodeInfo represents an SSM managed node (instance).
 type NodeInfo struct {
+	RegistrationDate time.Time `json:"RegistrationDate"`
 	InstanceID       string    `json:"InstanceId"`
 	PlatformType     string    `json:"PlatformType"`
 	AgentVersion     string    `json:"AgentVersion"`
-	RegistrationDate time.Time `json:"RegistrationDate"`
 }
 
 // ListNodesOutputFull has nodes list.
 type ListNodesOutputFull struct {
-	Nodes     []NodeInfo `json:"Nodes"`
 	NextToken string     `json:"NextToken,omitempty"`
+	Nodes     []NodeInfo `json:"Nodes"`
 }
 
 // ListNodesSummaryOutputFull has summary.
 type ListNodesSummaryOutputFull struct {
-	Summary   []map[string]string `json:"Summary"`
 	NextToken string              `json:"NextToken,omitempty"`
+	Summary   []map[string]string `json:"Summary"`
 }
 
 // DescribeEffectiveInstanceAssociationsOutputFull has effective associations.
 type DescribeEffectiveInstanceAssociationsOutputFull struct {
+	NextToken    string                    `json:"NextToken,omitempty"`
 	Associations []InstanceAssociationInfo `json:"Associations"`
-	NextToken    string                   `json:"NextToken,omitempty"`
 }
 
 // InstanceAssociationInfo is a minimal association info for an instance.
@@ -284,45 +284,45 @@ type InstanceAssociationInfo struct {
 
 // DescribeInstanceAssociationsStatusOutputFull has status info.
 type DescribeInstanceAssociationsStatusOutputFull struct {
-	InstanceAssociationStatusInfos []InstanceAssociationStatusInfo `json:"InstanceAssociationStatusInfos"`
 	NextToken                      string                          `json:"NextToken,omitempty"`
+	InstanceAssociationStatusInfos []InstanceAssociationStatusInfo `json:"InstanceAssociationStatusInfos"`
 }
 
 // InstanceAssociationStatusInfo has status of an association on an instance.
 type InstanceAssociationStatusInfo struct {
+	ExecutionDate time.Time `json:"ExecutionDate"`
 	AssociationID string    `json:"AssociationId"`
 	Name          string    `json:"Name"`
 	Status        string    `json:"Status"`
-	ExecutionDate time.Time `json:"ExecutionDate"`
 }
 
 // DescribeInstanceInformationOutputFull extends the empty stub.
 type DescribeInstanceInformationOutputFull struct {
-	InstanceInformationList []InstanceInformation `json:"InstanceInformationList"`
 	NextToken               string                `json:"NextToken,omitempty"`
+	InstanceInformationList []InstanceInformation `json:"InstanceInformationList"`
 }
 
 // InstanceInformation represents info about a managed instance.
 type InstanceInformation struct {
+	RegistrationDate time.Time `json:"RegistrationDate"`
 	InstanceID       string    `json:"InstanceId"`
 	PingStatus       string    `json:"PingStatus"`
 	AgentVersion     string    `json:"AgentVersion"`
 	PlatformType     string    `json:"PlatformType"`
-	RegistrationDate time.Time `json:"RegistrationDate"`
 }
 
 // DescribeInstancePatchStatesOutputFull extends the empty stub.
 type DescribeInstancePatchStatesOutputFull struct {
-	InstancePatchStates []InstancePatchState `json:"InstancePatchStates"`
 	NextToken           string               `json:"NextToken,omitempty"`
+	InstancePatchStates []InstancePatchState `json:"InstancePatchStates"`
 }
 
 // InstancePatchState represents patch compliance state for an instance.
 type InstancePatchState struct {
+	OperationStartTime time.Time `json:"OperationStartTime"`
 	InstanceID         string    `json:"InstanceId"`
 	PatchGroup         string    `json:"PatchGroup"`
 	BaselineID         string    `json:"BaselineId"`
-	OperationStartTime time.Time `json:"OperationStartTime"`
 	Operation          string    `json:"Operation"`
 	FailedCount        int       `json:"FailedCount"`
 	InstalledCount     int       `json:"InstalledCount"`
@@ -331,9 +331,9 @@ type InstancePatchState struct {
 
 // GetExecutionPreviewOutputFull extends the empty stub.
 type GetExecutionPreviewOutputFull struct {
+	ExecutionPreview   *ExecutionPreview `json:"ExecutionPreview,omitempty"`
 	ExecutionPreviewID string            `json:"ExecutionPreviewId"`
 	Status             string            `json:"Status"`
-	ExecutionPreview   *ExecutionPreview `json:"ExecutionPreview,omitempty"`
 }
 
 // StartExecutionPreviewOutputFull extends the empty stub.

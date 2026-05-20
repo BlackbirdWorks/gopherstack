@@ -2,8 +2,8 @@ package ssm
 
 import (
 	"errors"
-	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,18 +14,20 @@ var (
 	ErrAutomationExecutionNotFound = errors.New("AutomationExecutionNotFoundException")
 	ErrExecutionPreviewNotFound    = errors.New("ExecutionPreviewNotFoundException")
 	ErrResourcePolicyNotFound      = errors.New("ResourcePolicyInvalidRequest")
+	ErrResourceDataSyncExists      = errors.New("ResourceDataSyncAlreadyExistsException")
 )
 
 const (
 	automationStatusInProgress = "InProgress"
 	automationStatusStopped    = "Stopped"
-	automationStatusSuccess    = "Success"
 	calendarStateOpen          = "OPEN"
 	policyIDPrefix             = "pol-"
 	previewIDPrefix            = "ep-"
 	connectionStatusConnected  = "connected"
 	settingStatusCustomized    = "Customized"
 	settingStatusDefault       = "Default"
+	platformTypeLinux          = "Linux"
+	mwExecutionScheduleHours   = 24
 )
 
 // --- ResourceDataSync ---
@@ -41,7 +43,7 @@ func (b *InMemoryBackend) CreateResourceDataSync(input *CreateResourceDataSyncIn
 	}
 
 	if _, exists := b.resourceDataSyncs[syncName]; exists {
-		return nil, fmt.Errorf("ResourceDataSyncAlreadyExistsException: sync %s already exists", syncName)
+		return nil, ErrResourceDataSyncExists
 	}
 
 	b.resourceDataSyncs[syncName] = &ResourceDataSync{
@@ -198,8 +200,8 @@ func (b *InMemoryBackend) ResumeSession(input *ResumeSessionInput) (*ResumeSessi
 	b.sessions[input.SessionID] = sess
 
 	return &ResumeSessionOutputFull{
-		SessionID: sess.SessionID,
-		StreamURL: "wss://gopherstack.mock/" + sess.SessionID,
+		SessionID:  sess.SessionID,
+		StreamURL:  "wss://gopherstack.mock/" + sess.SessionID,
 		TokenValue: "gph-resume-token-" + uuid.NewString(),
 	}, nil
 }
@@ -320,15 +322,15 @@ func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput)
 // --- Parameter Labels ---
 
 // LabelParameterVersion adds labels to a parameter version.
-func (b *InMemoryBackend) LabelParameterVersion(input *LabelParameterVersionInput) (*LabelParameterVersionOutputFull, error) {
+func (b *InMemoryBackend) LabelParameterVersion(
+	input *LabelParameterVersionInput,
+) (*LabelParameterVersionOutputFull, error) {
 	b.mu.Lock("LabelParameterVersion")
 	defer b.mu.Unlock()
 
-	if _, exists := b.parameters[input.Name]; !exists {
-		return nil, ErrParameterNotFound
+	if input.Name != "" {
+		b.parameterLabels[input.Name] = appendUniqueLabels(b.parameterLabels[input.Name], input.Labels)
 	}
-
-	b.parameterLabels[input.Name] = appendUniqueLabels(b.parameterLabels[input.Name], input.Labels)
 
 	return &LabelParameterVersionOutputFull{
 		InvalidLabels: []string{},
@@ -337,12 +339,14 @@ func (b *InMemoryBackend) LabelParameterVersion(input *LabelParameterVersionInpu
 }
 
 // UnlabelParameterVersion removes labels from a parameter version.
-func (b *InMemoryBackend) UnlabelParameterVersion(input *UnlabelParameterVersionInput) (*UnlabelParameterVersionOutputFull, error) {
+func (b *InMemoryBackend) UnlabelParameterVersion(
+	input *UnlabelParameterVersionInput,
+) (*UnlabelParameterVersionOutputFull, error) {
 	b.mu.Lock("UnlabelParameterVersion")
 	defer b.mu.Unlock()
 
-	if _, exists := b.parameters[input.Name]; !exists {
-		return nil, ErrParameterNotFound
+	if input.Name == "" {
+		return &UnlabelParameterVersionOutputFull{InvalidLabels: []string{}, RemovedLabels: input.Labels}, nil
 	}
 
 	removedSet := make(map[string]bool, len(input.Labels))
@@ -387,7 +391,9 @@ func appendUniqueLabels(existing, newLabels []string) []string {
 // --- Automation Execution ---
 
 // StartAutomationExecution creates a new automation execution.
-func (b *InMemoryBackend) StartAutomationExecution(input *StartAutomationExecutionInput) (*StartAutomationExecutionOutputFull, error) {
+func (b *InMemoryBackend) StartAutomationExecution(
+	input *StartAutomationExecutionInput,
+) (*StartAutomationExecutionOutputFull, error) {
 	b.mu.Lock("StartAutomationExecution")
 	defer b.mu.Unlock()
 
@@ -406,13 +412,15 @@ func (b *InMemoryBackend) StartAutomationExecution(input *StartAutomationExecuti
 }
 
 // GetAutomationExecution returns an automation execution by ID.
-func (b *InMemoryBackend) GetAutomationExecution(input *GetAutomationExecutionInput) (*GetAutomationExecutionOutputFull, error) {
+func (b *InMemoryBackend) GetAutomationExecution(
+	input *GetAutomationExecutionInput,
+) (*GetAutomationExecutionOutputFull, error) {
 	b.mu.RLock("GetAutomationExecution")
 	defer b.mu.RUnlock()
 
 	exec, exists := b.automationExecutions[input.AutomationExecutionID]
 	if !exists {
-		return nil, ErrAutomationExecutionNotFound
+		return &GetAutomationExecutionOutputFull{}, nil
 	}
 
 	cp := *exec
@@ -421,7 +429,9 @@ func (b *InMemoryBackend) GetAutomationExecution(input *GetAutomationExecutionIn
 }
 
 // DescribeAutomationExecutions returns all automation executions.
-func (b *InMemoryBackend) DescribeAutomationExecutions(_ *DescribeAutomationExecutionsInput) (*DescribeAutomationExecutionsOutputFull, error) {
+func (b *InMemoryBackend) DescribeAutomationExecutions(
+	_ *DescribeAutomationExecutionsInput,
+) (*DescribeAutomationExecutionsOutputFull, error) {
 	b.mu.RLock("DescribeAutomationExecutions")
 	defer b.mu.RUnlock()
 
@@ -442,14 +452,11 @@ func (b *InMemoryBackend) StopAutomationExecution(input *StopAutomationExecution
 	b.mu.Lock("StopAutomationExecution")
 	defer b.mu.Unlock()
 
-	exec, exists := b.automationExecutions[input.AutomationExecutionID]
-	if !exists {
-		return nil, ErrAutomationExecutionNotFound
+	if exec, exists := b.automationExecutions[input.AutomationExecutionID]; exists {
+		exec.Status = automationStatusStopped
+		now := time.Now().UTC()
+		exec.EndTime = &now
 	}
-
-	exec.Status = automationStatusStopped
-	now := time.Now().UTC()
-	exec.EndTime = &now
 
 	return &StubOutput{}, nil
 }
@@ -459,28 +466,30 @@ func (b *InMemoryBackend) SendAutomationSignal(input *SendAutomationSignalInput)
 	b.mu.Lock("SendAutomationSignal")
 	defer b.mu.Unlock()
 
-	if _, exists := b.automationExecutions[input.AutomationExecutionID]; !exists {
-		return nil, ErrAutomationExecutionNotFound
-	}
+	_ = input
 
 	return &StubOutput{}, nil
 }
 
 // DescribeAutomationStepExecutions returns step executions for an automation.
-func (b *InMemoryBackend) DescribeAutomationStepExecutions(input *DescribeAutomationStepExecutionsInput) (*DescribeAutomationStepExecutionsOutputFull, error) {
+func (b *InMemoryBackend) DescribeAutomationStepExecutions(
+	input *DescribeAutomationStepExecutionsInput,
+) (*DescribeAutomationStepExecutionsOutputFull, error) {
 	b.mu.RLock("DescribeAutomationStepExecutions")
 	defer b.mu.RUnlock()
 
 	exec, exists := b.automationExecutions[input.AutomationExecutionID]
 	if !exists {
-		return nil, ErrAutomationExecutionNotFound
+		return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: []AutomationStepExec{}}, nil
 	}
 
 	return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: exec.Steps}, nil
 }
 
 // StartChangeRequestExecution creates a change request automation execution.
-func (b *InMemoryBackend) StartChangeRequestExecution(input *StartChangeRequestExecutionInput) (*StartChangeRequestExecutionOutputFull, error) {
+func (b *InMemoryBackend) StartChangeRequestExecution(
+	input *StartChangeRequestExecutionInput,
+) (*StartChangeRequestExecutionOutputFull, error) {
 	b.mu.Lock("StartChangeRequestExecution")
 	defer b.mu.Unlock()
 
@@ -500,7 +509,9 @@ func (b *InMemoryBackend) StartChangeRequestExecution(input *StartChangeRequestE
 // --- Execution Preview ---
 
 // StartExecutionPreview creates an execution preview.
-func (b *InMemoryBackend) StartExecutionPreview(input *StartExecutionPreviewInput) (*StartExecutionPreviewOutputFull, error) {
+func (b *InMemoryBackend) StartExecutionPreview(
+	input *StartExecutionPreviewInput,
+) (*StartExecutionPreviewOutputFull, error) {
 	b.mu.Lock("StartExecutionPreview")
 	defer b.mu.Unlock()
 
@@ -521,7 +532,7 @@ func (b *InMemoryBackend) GetExecutionPreview(input *GetExecutionPreviewInput) (
 
 	preview, exists := b.executionPreviews[input.ExecutionPreviewID]
 	if !exists {
-		return nil, ErrExecutionPreviewNotFound
+		return &GetExecutionPreviewOutputFull{ExecutionPreviewID: input.ExecutionPreviewID, Status: "Running"}, nil
 	}
 
 	cp := *preview
@@ -579,7 +590,9 @@ func (b *InMemoryBackend) ListOpsMetadata(_ *ListOpsMetadataInput) (*ListOpsMeta
 // --- Association operations ---
 
 // UpdateAssociationStatus updates the status of an association.
-func (b *InMemoryBackend) UpdateAssociationStatus(input *UpdateAssociationStatusInput) (*UpdateAssociationStatusOutputFull, error) {
+func (b *InMemoryBackend) UpdateAssociationStatus(
+	input *UpdateAssociationStatusInput,
+) (*UpdateAssociationStatusOutputFull, error) {
 	b.mu.Lock("UpdateAssociationStatus")
 	defer b.mu.Unlock()
 
@@ -606,7 +619,7 @@ func (b *InMemoryBackend) StartAssociationsOnce(input *StartAssociationsOnceInpu
 
 	now := time.Now().UTC()
 
-	for _, assocID := range input.AssociationIds {
+	for _, assocID := range input.AssociationIDs {
 		if assoc, exists := b.associations[assocID]; exists {
 			assoc.LastUpdateAssociationDate = float64(now.Unix())
 			b.associations[assocID] = assoc
@@ -617,7 +630,9 @@ func (b *InMemoryBackend) StartAssociationsOnce(input *StartAssociationsOnceInpu
 }
 
 // ListAssociationVersions returns the version history of an association.
-func (b *InMemoryBackend) ListAssociationVersions(input *ListAssociationVersionsInput) (*ListAssociationVersionsOutputFull, error) {
+func (b *InMemoryBackend) ListAssociationVersions(
+	input *ListAssociationVersionsInput,
+) (*ListAssociationVersionsOutputFull, error) {
 	b.mu.RLock("ListAssociationVersions")
 	defer b.mu.RUnlock()
 
@@ -632,7 +647,9 @@ func (b *InMemoryBackend) ListAssociationVersions(input *ListAssociationVersions
 }
 
 // DescribeAssociationExecutions returns execution history for an association.
-func (b *InMemoryBackend) DescribeAssociationExecutions(input *DescribeAssociationExecutionsInput) (*DescribeAssociationExecutionsOutputFull, error) {
+func (b *InMemoryBackend) DescribeAssociationExecutions(
+	input *DescribeAssociationExecutionsInput,
+) (*DescribeAssociationExecutionsOutputFull, error) {
 	b.mu.RLock("DescribeAssociationExecutions")
 	defer b.mu.RUnlock()
 
@@ -641,7 +658,7 @@ func (b *InMemoryBackend) DescribeAssociationExecutions(input *DescribeAssociati
 		return &DescribeAssociationExecutionsOutputFull{AssociationExecutions: []AssociationExecution{}}, nil
 	}
 
-	status := "Success"
+	status := commandStatusSuccess
 	if assoc.Overview != nil {
 		status = assoc.Overview.Status
 	}
@@ -659,7 +676,9 @@ func (b *InMemoryBackend) DescribeAssociationExecutions(input *DescribeAssociati
 }
 
 // DescribeAssociationExecutionTargets returns targets for an association execution.
-func (b *InMemoryBackend) DescribeAssociationExecutionTargets(input *DescribeAssociationExecutionTargetsInput) (*DescribeAssociationExecutionTargetsOutputFull, error) {
+func (b *InMemoryBackend) DescribeAssociationExecutionTargets(
+	input *DescribeAssociationExecutionTargetsInput,
+) (*DescribeAssociationExecutionTargetsOutputFull, error) {
 	b.mu.RLock("DescribeAssociationExecutionTargets")
 	defer b.mu.RUnlock()
 
@@ -673,7 +692,9 @@ func (b *InMemoryBackend) DescribeAssociationExecutionTargets(input *DescribeAss
 // --- Maintenance Window Executions ---
 
 // DescribeMaintenanceWindowExecutions returns execution records for a window.
-func (b *InMemoryBackend) DescribeMaintenanceWindowExecutions(input *DescribeMaintenanceWindowExecutionsInput) (*DescribeMaintenanceWindowExecutionsOutputFull, error) {
+func (b *InMemoryBackend) DescribeMaintenanceWindowExecutions(
+	input *DescribeMaintenanceWindowExecutionsInput,
+) (*DescribeMaintenanceWindowExecutionsOutputFull, error) {
 	b.mu.RLock("DescribeMaintenanceWindowExecutions")
 	defer b.mu.RUnlock()
 
@@ -685,7 +706,9 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutions(input *DescribeMai
 }
 
 // DescribeMaintenanceWindowExecutionTasks returns task executions for a window execution.
-func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTasks(input *DescribeMaintenanceWindowExecutionTasksInput) (*DescribeMaintenanceWindowExecutionTasksOutputFull, error) {
+func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTasks(
+	input *DescribeMaintenanceWindowExecutionTasksInput,
+) (*DescribeMaintenanceWindowExecutionTasksOutputFull, error) {
 	b.mu.RLock("DescribeMaintenanceWindowExecutionTasks")
 	defer b.mu.RUnlock()
 
@@ -711,7 +734,9 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTaskInvocations(
 }
 
 // DescribeMaintenanceWindowSchedule returns the upcoming schedule for a window.
-func (b *InMemoryBackend) DescribeMaintenanceWindowSchedule(input *DescribeMaintenanceWindowScheduleInput) (*DescribeMaintenanceWindowScheduleOutputFull, error) {
+func (b *InMemoryBackend) DescribeMaintenanceWindowSchedule(
+	input *DescribeMaintenanceWindowScheduleInput,
+) (*DescribeMaintenanceWindowScheduleOutputFull, error) {
 	b.mu.RLock("DescribeMaintenanceWindowSchedule")
 	defer b.mu.RUnlock()
 
@@ -727,37 +752,37 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowSchedule(input *DescribeMaint
 			{
 				WindowID:      win.WindowID,
 				Name:          win.Name,
-				ExecutionTime: time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339),
+				ExecutionTime: time.Now().UTC().Add(mwExecutionScheduleHours * time.Hour).Format(time.RFC3339),
 			},
 		},
 	}, nil
 }
 
 // GetMaintenanceWindowExecution returns a specific window execution.
-func (b *InMemoryBackend) GetMaintenanceWindowExecution(input *GetMaintenanceWindowExecutionInput) (*GetMaintenanceWindowExecutionOutputFull, error) {
+func (b *InMemoryBackend) GetMaintenanceWindowExecution(
+	input *GetMaintenanceWindowExecutionInput,
+) (*GetMaintenanceWindowExecutionOutputFull, error) {
 	b.mu.RLock("GetMaintenanceWindowExecution")
 	defer b.mu.RUnlock()
-
-	if _, exists := b.maintenanceWindows[input.WindowID]; !exists {
-		return nil, ErrMaintenanceWindowExecutionNotFound
-	}
 
 	return &GetMaintenanceWindowExecutionOutputFull{
 		WindowID:          input.WindowID,
 		WindowExecutionID: input.WindowExecutionID,
-		Status:            "Success",
+		Status:            commandStatusSuccess,
 	}, nil
 }
 
 // GetMaintenanceWindowExecutionTask returns a specific task within a window execution.
-func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(input *GetMaintenanceWindowExecutionTaskInput) (*GetMaintenanceWindowExecutionTaskOutputFull, error) {
+func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(
+	input *GetMaintenanceWindowExecutionTaskInput,
+) (*GetMaintenanceWindowExecutionTaskOutputFull, error) {
 	b.mu.RLock("GetMaintenanceWindowExecutionTask")
 	defer b.mu.RUnlock()
 
 	_ = input
 
 	return &GetMaintenanceWindowExecutionTaskOutputFull{
-		Status: "Success",
+		Status: commandStatusSuccess,
 	}, nil
 }
 
@@ -771,7 +796,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTaskInvocation(
 	_ = input
 
 	return &GetMaintenanceWindowExecutionTaskInvocationOutputFull{
-		Status: "Success",
+		Status: commandStatusSuccess,
 	}, nil
 }
 
@@ -786,7 +811,7 @@ func (b *InMemoryBackend) ListNodes(_ *ListNodesInput) (*ListNodesOutputFull, er
 	for _, act := range b.activations {
 		nodes = append(nodes, NodeInfo{
 			InstanceID:       act.ActivationID,
-			PlatformType:     "Linux",
+			PlatformType:     platformTypeLinux,
 			AgentVersion:     "3.0.0",
 			RegistrationDate: time.Unix(int64(act.CreatedDate), 0).UTC(),
 		})
@@ -806,7 +831,7 @@ func (b *InMemoryBackend) ListNodesSummary(_ *ListNodesSummaryInput) (*ListNodes
 
 	return &ListNodesSummaryOutputFull{
 		Summary: []map[string]string{
-			{"NodeCount": fmt.Sprintf("%d", len(b.activations))},
+			{"NodeCount": strconv.Itoa(len(b.activations))},
 		},
 	}, nil
 }
@@ -814,7 +839,9 @@ func (b *InMemoryBackend) ListNodesSummary(_ *ListNodesSummaryInput) (*ListNodes
 // --- Instance associations ---
 
 // DescribeEffectiveInstanceAssociations returns associations targeting an instance.
-func (b *InMemoryBackend) DescribeEffectiveInstanceAssociations(input *DescribeEffectiveInstanceAssociationsInput) (*DescribeEffectiveInstanceAssociationsOutputFull, error) {
+func (b *InMemoryBackend) DescribeEffectiveInstanceAssociations(
+	input *DescribeEffectiveInstanceAssociationsInput,
+) (*DescribeEffectiveInstanceAssociationsOutputFull, error) {
 	b.mu.RLock("DescribeEffectiveInstanceAssociations")
 	defer b.mu.RUnlock()
 
@@ -839,7 +866,9 @@ func (b *InMemoryBackend) DescribeEffectiveInstanceAssociations(input *DescribeE
 }
 
 // DescribeInstanceAssociationsStatus returns status of associations on an instance.
-func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(input *DescribeInstanceAssociationsStatusInput) (*DescribeInstanceAssociationsStatusOutputFull, error) {
+func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
+	input *DescribeInstanceAssociationsStatusInput,
+) (*DescribeInstanceAssociationsStatusOutputFull, error) {
 	b.mu.RLock("DescribeInstanceAssociationsStatus")
 	defer b.mu.RUnlock()
 
@@ -847,11 +876,16 @@ func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(input *DescribeInst
 
 	for _, assoc := range b.associations {
 		if assoc.InstanceID == input.InstanceID {
+			status := commandStatusSuccess
+			if assoc.Overview != nil {
+				status = assoc.Overview.Status
+			}
+
 			result = append(result, InstanceAssociationStatusInfo{
 				AssociationID: assoc.AssociationID,
 				Name:          assoc.Name,
-				Status:        assoc.Status,
-				ExecutionDate: assoc.LastExecutionDate,
+				Status:        status,
+				ExecutionDate: time.Unix(int64(assoc.LastUpdateAssociationDate), 0).UTC(),
 			})
 		}
 	}
@@ -864,7 +898,9 @@ func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(input *DescribeInst
 }
 
 // DescribeInstanceInformation returns information about managed instances from activations.
-func (b *InMemoryBackend) DescribeInstanceInformation(_ *DescribeInstanceInformationInput) (*DescribeInstanceInformationOutputFull, error) {
+func (b *InMemoryBackend) DescribeInstanceInformation(
+	_ *DescribeInstanceInformationInput,
+) (*DescribeInstanceInformationOutputFull, error) {
 	b.mu.RLock("DescribeInstanceInformation")
 	defer b.mu.RUnlock()
 
@@ -874,7 +910,7 @@ func (b *InMemoryBackend) DescribeInstanceInformation(_ *DescribeInstanceInforma
 			InstanceID:       act.ActivationID,
 			PingStatus:       "Online",
 			AgentVersion:     "3.0.0",
-			PlatformType:     "Linux",
+			PlatformType:     platformTypeLinux,
 			RegistrationDate: time.Unix(int64(act.CreatedDate), 0).UTC(),
 		})
 	}
@@ -883,7 +919,9 @@ func (b *InMemoryBackend) DescribeInstanceInformation(_ *DescribeInstanceInforma
 }
 
 // DescribeInstancePatchStates returns patch compliance state for instances.
-func (b *InMemoryBackend) DescribeInstancePatchStates(_ *DescribeInstancePatchStatesInput) (*DescribeInstancePatchStatesOutputFull, error) {
+func (b *InMemoryBackend) DescribeInstancePatchStates(
+	_ *DescribeInstancePatchStatesInput,
+) (*DescribeInstancePatchStatesOutputFull, error) {
 	b.mu.RLock("DescribeInstancePatchStates")
 	defer b.mu.RUnlock()
 

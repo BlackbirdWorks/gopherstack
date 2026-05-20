@@ -19,7 +19,7 @@ import (
 type StubOutput struct{}
 
 // CreateResourceDataSyncInput is the request for CreateResourceDataSync.
-type CreateResourceDataSyncInput struct{
+type CreateResourceDataSyncInput struct {
 	SyncName string `json:"SyncName"`
 	SyncType string `json:"SyncType,omitempty"`
 }
@@ -52,18 +52,18 @@ type DeleteOpsMetadataInput struct {
 }
 
 // DeleteResourceDataSyncInput is the request for DeleteResourceDataSync.
-type DeleteResourceDataSyncInput struct{
+type DeleteResourceDataSyncInput struct {
 	SyncName string `json:"SyncName"`
 }
 
 // DeleteResourcePolicyInput is the request for DeleteResourcePolicy.
-type DeleteResourcePolicyInput struct{
+type DeleteResourcePolicyInput struct {
 	ResourceARN string `json:"ResourceArn"`
 	PolicyID    string `json:"PolicyId"`
 }
 
 // DeregisterManagedInstanceInput is the request for DeregisterManagedInstance.
-type DeregisterManagedInstanceInput struct{
+type DeregisterManagedInstanceInput struct {
 	InstanceID string `json:"InstanceId"`
 }
 
@@ -106,7 +106,7 @@ type DescribeAssociationOutput struct {
 }
 
 // DescribeAssociationExecutionTargetsInput is the request for DescribeAssociationExecutionTargets.
-type DescribeAssociationExecutionTargetsInput struct{
+type DescribeAssociationExecutionTargetsInput struct {
 	AssociationID string `json:"AssociationId"`
 	ExecutionID   string `json:"ExecutionId,omitempty"`
 }
@@ -115,7 +115,7 @@ type DescribeAssociationExecutionTargetsInput struct{
 type DescribeAssociationExecutionTargetsOutput struct{}
 
 // DescribeAssociationExecutionsInput is the request for DescribeAssociationExecutions.
-type DescribeAssociationExecutionsInput struct{
+type DescribeAssociationExecutionsInput struct {
 	AssociationID string `json:"AssociationId"`
 }
 
@@ -129,7 +129,7 @@ type DescribeAutomationExecutionsInput struct{}
 type DescribeAutomationExecutionsOutput struct{}
 
 // DescribeAutomationStepExecutionsInput is the request for DescribeAutomationStepExecutions.
-type DescribeAutomationStepExecutionsInput struct{
+type DescribeAutomationStepExecutionsInput struct {
 	AutomationExecutionID string `json:"AutomationExecutionId"`
 }
 
@@ -143,7 +143,7 @@ type DescribeAvailablePatchesInput struct{}
 type DescribeAvailablePatchesOutput struct{}
 
 // DescribeEffectiveInstanceAssociationsInput is the request for DescribeEffectiveInstanceAssociations.
-type DescribeEffectiveInstanceAssociationsInput struct{
+type DescribeEffectiveInstanceAssociationsInput struct {
 	InstanceID string `json:"InstanceId"`
 }
 
@@ -151,7 +151,7 @@ type DescribeEffectiveInstanceAssociationsInput struct{
 type DescribeEffectiveInstanceAssociationsOutput struct{}
 
 // DescribeInstanceAssociationsStatusInput is the request for DescribeInstanceAssociationsStatus.
-type DescribeInstanceAssociationsStatusInput struct{
+type DescribeInstanceAssociationsStatusInput struct {
 	InstanceID string `json:"InstanceId"`
 }
 
@@ -189,7 +189,7 @@ type DescribeInstancePropertiesInput struct{}
 type DescribeInstancePropertiesOutput struct{}
 
 // DescribeMaintenanceWindowExecutionTaskInvocationsInput is the request payload.
-type DescribeMaintenanceWindowExecutionTaskInvocationsInput struct{
+type DescribeMaintenanceWindowExecutionTaskInvocationsInput struct {
 	WindowExecutionID string `json:"WindowExecutionId"`
 	TaskID            string `json:"TaskId,omitempty"`
 }
@@ -198,7 +198,7 @@ type DescribeMaintenanceWindowExecutionTaskInvocationsInput struct{
 type DescribeMaintenanceWindowExecutionTaskInvocationsOutput struct{}
 
 // DescribeMaintenanceWindowExecutionTasksInput is the request payload.
-type DescribeMaintenanceWindowExecutionTasksInput struct{
+type DescribeMaintenanceWindowExecutionTasksInput struct {
 	WindowExecutionID string `json:"WindowExecutionId"`
 }
 
@@ -206,7 +206,7 @@ type DescribeMaintenanceWindowExecutionTasksInput struct{
 type DescribeMaintenanceWindowExecutionTasksOutput struct{}
 
 // DescribeMaintenanceWindowExecutionsInput is the request payload.
-type DescribeMaintenanceWindowExecutionsInput struct{
+type DescribeMaintenanceWindowExecutionsInput struct {
 	WindowID string `json:"WindowId"`
 }
 
@@ -214,7 +214,7 @@ type DescribeMaintenanceWindowExecutionsInput struct{
 type DescribeMaintenanceWindowExecutionsOutput struct{}
 
 // DescribeMaintenanceWindowScheduleInput is the request payload.
-type DescribeMaintenanceWindowScheduleInput struct{
+type DescribeMaintenanceWindowScheduleInput struct {
 	WindowID string `json:"WindowId,omitempty"`
 }
 
@@ -306,7 +306,7 @@ type PatchBaselineIdentity struct {
 }
 
 // DescribeSessionsInput is the request payload.
-type DescribeSessionsInput struct{
+type DescribeSessionsInput struct {
 	State string `json:"State,omitempty"`
 }
 
@@ -320,7 +320,7 @@ type GetAccessTokenInput struct{}
 type GetAccessTokenOutput struct{}
 
 // GetAutomationExecutionInput is the request payload.
-type GetAutomationExecutionInput struct{
+type GetAutomationExecutionInput struct {
 	AutomationExecutionID string `json:"AutomationExecutionId"`
 }
 
@@ -334,7 +334,7 @@ type GetCalendarStateInput struct{}
 type GetCalendarStateOutput struct{}
 
 // GetConnectionStatusInput is the request payload.
-type GetConnectionStatusInput struct{
+type GetConnectionStatusInput struct {
 	Target string `json:"Target"`
 }
 
@@ -342,7 +342,7 @@ type GetConnectionStatusInput struct{
 type GetConnectionStatusOutput struct{}
 
 // GetExecutionPreviewInput is the request payload.
-type GetExecutionPreviewInput struct{
+type GetExecutionPreviewInput struct {
 	ExecutionPreviewID string `json:"ExecutionPreviewId"`
 }
 
@@ -360,7 +360,7 @@ type GetMaintenanceWindowOutput struct {
 }
 
 // GetMaintenanceWindowExecutionInput is the request payload.
-type GetMaintenanceWindowExecutionInput struct{
+type GetMaintenanceWindowExecutionInput struct {
 	WindowID          string `json:"WindowId"`
 	WindowExecutionID string `json:"WindowExecutionId"`
 }
@@ -369,7 +369,7 @@ type GetMaintenanceWindowExecutionInput struct{
 type GetMaintenanceWindowExecutionOutput struct{}
 
 // GetMaintenanceWindowExecutionTaskInput is the request payload.
-type GetMaintenanceWindowExecutionTaskInput struct{
+type GetMaintenanceWindowExecutionTaskInput struct {
 	WindowExecutionID string `json:"WindowExecutionId"`
 	TaskExecutionID   string `json:"TaskExecutionId"`
 }
@@ -378,7 +378,7 @@ type GetMaintenanceWindowExecutionTaskInput struct{
 type GetMaintenanceWindowExecutionTaskOutput struct{}
 
 // GetMaintenanceWindowExecutionTaskInvocationInput is the request payload.
-type GetMaintenanceWindowExecutionTaskInvocationInput struct{
+type GetMaintenanceWindowExecutionTaskInvocationInput struct {
 	WindowExecutionID string `json:"WindowExecutionId"`
 	TaskExecutionID   string `json:"TaskExecutionId"`
 	InvocationID      string `json:"InvocationId"`
@@ -424,7 +424,7 @@ type GetPatchBaselineOutput struct {
 }
 
 // GetResourcePoliciesInput is the request payload.
-type GetResourcePoliciesInput struct{
+type GetResourcePoliciesInput struct {
 	ResourceARN string `json:"ResourceArn"`
 }
 
@@ -432,7 +432,7 @@ type GetResourcePoliciesInput struct{
 type GetResourcePoliciesOutput struct{}
 
 // GetServiceSettingInput is the request payload.
-type GetServiceSettingInput struct{
+type GetServiceSettingInput struct {
 	SettingID string `json:"SettingId"`
 }
 
@@ -440,16 +440,16 @@ type GetServiceSettingInput struct{
 type GetServiceSettingOutput struct{}
 
 // LabelParameterVersionInput is the request payload.
-type LabelParameterVersionInput struct{
-	Name    string   `json:"Name"`
-	Labels  []string `json:"Labels"`
+type LabelParameterVersionInput struct {
+	Name   string   `json:"Name"`
+	Labels []string `json:"Labels"`
 }
 
 // LabelParameterVersionOutput is the response payload.
 type LabelParameterVersionOutput struct{}
 
 // ListAssociationVersionsInput is the request payload.
-type ListAssociationVersionsInput struct{
+type ListAssociationVersionsInput struct {
 	AssociationID string `json:"AssociationId"`
 }
 
@@ -489,7 +489,7 @@ type ListResourceDataSyncInput struct{}
 type ListResourceDataSyncOutput struct{}
 
 // PutResourcePolicyInput is the request payload.
-type PutResourcePolicyInput struct{
+type PutResourcePolicyInput struct {
 	ResourceARN string `json:"ResourceArn"`
 	Policy      string `json:"Policy"`
 }
@@ -546,7 +546,7 @@ type RegisterTaskWithMaintenanceWindowOutput struct {
 }
 
 // ResetServiceSettingInput is the request payload.
-type ResetServiceSettingInput struct{
+type ResetServiceSettingInput struct {
 	SettingID string `json:"SettingId"`
 }
 
@@ -554,7 +554,7 @@ type ResetServiceSettingInput struct{
 type ResetServiceSettingOutput struct{}
 
 // ResumeSessionInput is the request payload.
-type ResumeSessionInput struct{
+type ResumeSessionInput struct {
 	SessionID string `json:"SessionId"`
 }
 
@@ -562,7 +562,7 @@ type ResumeSessionInput struct{
 type ResumeSessionOutput struct{}
 
 // SendAutomationSignalInput is the request payload.
-type SendAutomationSignalInput struct{
+type SendAutomationSignalInput struct {
 	AutomationExecutionID string `json:"AutomationExecutionId"`
 	SignalType            string `json:"SignalType,omitempty"`
 }
@@ -574,12 +574,12 @@ type StartAccessRequestInput struct{}
 type StartAccessRequestOutput struct{}
 
 // StartAssociationsOnceInput is the request payload.
-type StartAssociationsOnceInput struct{
-	AssociationIds []string `json:"AssociationIds"`
+type StartAssociationsOnceInput struct {
+	AssociationIDs []string `json:"AssociationIds"`
 }
 
 // StartAutomationExecutionInput is the request payload.
-type StartAutomationExecutionInput struct{
+type StartAutomationExecutionInput struct {
 	DocumentName    string `json:"DocumentName"`
 	DocumentVersion string `json:"DocumentVersion,omitempty"`
 }
@@ -588,7 +588,7 @@ type StartAutomationExecutionInput struct{
 type StartAutomationExecutionOutput struct{}
 
 // StartChangeRequestExecutionInput is the request payload.
-type StartChangeRequestExecutionInput struct{
+type StartChangeRequestExecutionInput struct {
 	DocumentName string `json:"DocumentName"`
 }
 
@@ -596,7 +596,7 @@ type StartChangeRequestExecutionInput struct{
 type StartChangeRequestExecutionOutput struct{}
 
 // StartExecutionPreviewInput is the request payload.
-type StartExecutionPreviewInput struct{
+type StartExecutionPreviewInput struct {
 	DocumentName string `json:"DocumentName,omitempty"`
 }
 
@@ -618,7 +618,7 @@ type StartSessionOutput struct {
 }
 
 // StopAutomationExecutionInput is the request payload.
-type StopAutomationExecutionInput struct{
+type StopAutomationExecutionInput struct {
 	AutomationExecutionID string `json:"AutomationExecutionId"`
 }
 
@@ -633,7 +633,7 @@ type TerminateSessionOutput struct {
 }
 
 // UnlabelParameterVersionInput is the request payload.
-type UnlabelParameterVersionInput struct{
+type UnlabelParameterVersionInput struct {
 	Name   string   `json:"Name"`
 	Labels []string `json:"Labels"`
 }
@@ -656,14 +656,14 @@ type UpdateAssociationOutput struct {
 }
 
 // UpdateAssociationStatusInput is the request payload.
-type UpdateAssociationStatusInput struct{
+type UpdateAssociationStatusInput struct {
 	InstanceID        string                 `json:"InstanceId"`
 	Name              string                 `json:"Name"`
-	AssociationStatus AssociationStatusValue  `json:"AssociationStatus"`
+	AssociationStatus AssociationStatusValue `json:"AssociationStatus"`
 }
 
 // UpdateAssociationStatusOutput is the response payload.
-type UpdateAssociationStatusOutput struct{
+type UpdateAssociationStatusOutput struct {
 	AssociationDescription Association `json:"AssociationDescription"`
 }
 
@@ -684,7 +684,7 @@ type UpdateMaintenanceWindowOutput struct {
 }
 
 // UpdateManagedInstanceRoleInput is the request payload.
-type UpdateManagedInstanceRoleInput struct{
+type UpdateManagedInstanceRoleInput struct {
 	InstanceID string `json:"InstanceId"`
 	IamRole    string `json:"IamRole"`
 }
@@ -725,12 +725,12 @@ type UpdatePatchBaselineOutput struct {
 }
 
 // UpdateResourceDataSyncInput is the request payload.
-type UpdateResourceDataSyncInput struct{
+type UpdateResourceDataSyncInput struct {
 	SyncName string `json:"SyncName"`
 }
 
 // UpdateServiceSettingInput is the request payload.
-type UpdateServiceSettingInput struct{
+type UpdateServiceSettingInput struct {
 	SettingID    string `json:"SettingId"`
 	SettingValue string `json:"SettingValue"`
 }
