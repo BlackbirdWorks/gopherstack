@@ -1135,17 +1135,97 @@ func (h *Handler) handleGetApps(c *echo.Context) error {
 
 // handleGetApplicationSettings handles GET /v1/apps/{appId}/settings.
 func (h *Handler) handleGetApplicationSettings(c *echo.Context, appID string) error {
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, newAppSettingsResponse(appID))
+	settings, err := h.Backend.GetApplicationSettings(appID)
+	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", err.Error())
+		}
+
+		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
+	}
+
+	resp := appSettingsResponse{
+		ApplicationID:    appID,
+		LastModifiedDate: nowRFC3339(),
+		CampaignHook:     settings.CampaignHook,
+		Limits:           settings.Limits,
+		QuietTime:        settings.QuietTime,
+	}
+
+	if resp.CampaignHook == nil {
+		resp.CampaignHook = map[string]any{}
+	}
+
+	if resp.Limits == nil {
+		resp.Limits = map[string]any{}
+	}
+
+	if resp.QuietTime == nil {
+		resp.QuietTime = map[string]any{}
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
 
 	return nil
 }
 
 // handleUpdateApplicationSettings handles PUT /v1/apps/{appId}/settings.
 func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string) error {
-	// Read and discard the body; no settings are persisted in the mock backend.
-	_, _ = httputils.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, newAppSettingsResponse(appID))
+	var incoming struct {
+		CampaignHook      map[string]any `json:"CampaignHook"`
+		Limits            map[string]any `json:"Limits"`
+		QuietTime         map[string]any `json:"QuietTime"`
+		CloudWatchMetrics bool           `json:"CloudWatchMetricsEnabled"`
+	}
+
+	if len(body) > 0 {
+		if jsonErr := json.Unmarshal(body, &incoming); jsonErr != nil {
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		}
+	}
+
+	settingsToStore := &storedAppSettings{
+		CampaignHook:      incoming.CampaignHook,
+		Limits:            incoming.Limits,
+		QuietTime:         incoming.QuietTime,
+		CloudWatchMetrics: incoming.CloudWatchMetrics,
+	}
+
+	settings, updateErr := h.Backend.UpdateApplicationSettings(appID, settingsToStore)
+	if updateErr != nil {
+		if errors.Is(updateErr, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", updateErr.Error())
+		}
+
+		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", updateErr.Error())
+	}
+
+	resp := appSettingsResponse{
+		ApplicationID:    appID,
+		LastModifiedDate: nowRFC3339(),
+		CampaignHook:     settings.CampaignHook,
+		Limits:           settings.Limits,
+		QuietTime:        settings.QuietTime,
+	}
+
+	if resp.CampaignHook == nil {
+		resp.CampaignHook = map[string]any{}
+	}
+
+	if resp.Limits == nil {
+		resp.Limits = map[string]any{}
+	}
+
+	if resp.QuietTime == nil {
+		resp.QuietTime = map[string]any{}
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
 
 	return nil
 }
