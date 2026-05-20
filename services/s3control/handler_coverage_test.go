@@ -1121,142 +1121,142 @@ func TestHandler_StubOperations(t *testing.T) {
 		// Object Lambda Config dispatch
 		// Bucket lifecycle dispatch
 		// Bucket policy dispatch
-		// Tag dispatch
+		// Tag dispatch — now implemented (batch2)
 		{
 			name:       "list_tags_for_resource",
 			method:     http.MethodGet,
 			path:       "/v20180820/tags/arn:aws:s3:us-east-1:123:accesspoint/myap",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "ListTagsForResource",
+			wantStatus: http.StatusOK,
+			wantBody:   "ListTagsForResourceResult",
 		},
 		{
 			name:       "tag_resource",
 			method:     http.MethodPost,
 			path:       "/v20180820/tags/arn:aws:s3:us-east-1:123:accesspoint/myap",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "TagResource",
+			wantStatus: http.StatusOK,
+			wantBody:   "TagResourceResult",
 		},
 		{
 			name:       "untag_resource",
 			method:     http.MethodDelete,
 			path:       "/v20180820/tags/arn:aws:s3:us-east-1:123:accesspoint/myap",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "UntagResource",
+			wantStatus: http.StatusNoContent,
+			wantBody:   "",
 		},
 		// Access point scope stubs
 		// Job tagging stubs
-		// Bucket replication stubs
+		// Bucket replication stubs — now implemented (batch2), return 404 when bucket missing
 		{
 			name:       "get_bucket_replication",
 			method:     http.MethodGet,
 			path:       "/v20180820/bucket/mybucket/replication",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetBucketReplication",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "ReplicationConfigurationNotFoundError",
 		},
 		{
 			name:       "put_bucket_replication",
 			method:     http.MethodPut,
 			path:       "/v20180820/bucket/mybucket/replication",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "PutBucketReplication",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchBucket",
 		},
 		{
 			name:       "delete_bucket_replication",
 			method:     http.MethodDelete,
 			path:       "/v20180820/bucket/mybucket/replication",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteBucketReplication",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "ReplicationConfigurationNotFoundError",
 		},
 		// Bucket tagging stubs
 		// Bucket versioning stubs
-		// Storage lens config stubs
+		// Storage lens config stubs — now implemented (batch2)
 		{
 			name:       "get_storage_lens_config",
 			method:     http.MethodGet,
 			path:       "/v20180820/storagelens/myconfig",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetStorageLensConfiguration",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchConfiguration",
 		},
 		{
 			name:       "put_storage_lens_config",
 			method:     http.MethodPut,
 			path:       "/v20180820/storagelens/myconfig",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "PutStorageLensConfiguration",
+			wantStatus: http.StatusOK,
+			wantBody:   "",
 		},
 		{
 			name:       "delete_storage_lens_config",
 			method:     http.MethodDelete,
 			path:       "/v20180820/storagelens/myconfig",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteStorageLensConfiguration",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchConfiguration",
 		},
 		{
 			name:       "get_storage_lens_tagging",
 			method:     http.MethodGet,
 			path:       "/v20180820/storagelens/myconfig/tagging",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetStorageLensConfigurationTagging",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchConfiguration",
 		},
 		{
 			name:       "put_storage_lens_tagging",
 			method:     http.MethodPut,
 			path:       "/v20180820/storagelens/myconfig/tagging",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "PutStorageLensConfigurationTagging",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchConfiguration",
 		},
 		{
 			name:       "delete_storage_lens_tagging",
 			method:     http.MethodDelete,
 			path:       "/v20180820/storagelens/myconfig/tagging",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteStorageLensConfigurationTagging",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchConfiguration",
 		},
 		{
 			name:       "list_storage_lens_configs",
 			method:     http.MethodGet,
 			path:       "/v20180820/storagelens",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "ListStorageLensConfigurations",
+			wantStatus: http.StatusOK,
+			wantBody:   "ListStorageLensConfigurationsResult",
 		},
-		// Storage lens group stubs
+		// Storage lens group stubs — now implemented (batch2)
 		{
 			name:       "get_storage_lens_group",
 			method:     http.MethodGet,
 			path:       "/v20180820/storagelensgroup/mygroup",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "GetStorageLensGroup",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchStorageLensGroup",
 		},
 		{
 			name:       "update_storage_lens_group",
 			method:     http.MethodPut,
 			path:       "/v20180820/storagelensgroup/mygroup",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "UpdateStorageLensGroup",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchStorageLensGroup",
 		},
 		{
 			name:       "delete_storage_lens_group",
 			method:     http.MethodDelete,
 			path:       "/v20180820/storagelensgroup/mygroup",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "DeleteStorageLensGroup",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchStorageLensGroup",
 		},
 		{
 			name:       "list_storage_lens_groups",
 			method:     http.MethodGet,
 			path:       "/v20180820/storagelensgroup",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "ListStorageLensGroups",
+			wantStatus: http.StatusOK,
+			wantBody:   "ListStorageLensGroupsResult",
 		},
 		// Access grants stubs
 		// Access point for directory buckets
-		// MRAP stubs
+		// MRAP stubs — now implemented (batch2), returns 404 when MRAP missing
 		{
 			name:       "submit_mrap_routes",
 			method:     http.MethodPatch,
 			path:       "/v20180820/mrap/instances/mymrap/routes",
-			wantStatus: http.StatusNotImplemented,
-			wantBody:   "SubmitMultiRegionAccessPointRoutes",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchMultiRegionAccessPoint",
 		},
 		// Object lambda policyStatus stub
 		// Get/delete object lambda stubs
