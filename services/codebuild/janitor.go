@@ -18,7 +18,7 @@ const (
 
 // isTerminalBuild reports whether the given build status is terminal.
 func isTerminalBuild(status string) bool {
-	return status == "SUCCEEDED" || status == "FAILED" || status == "STOPPED" ||
+	return status == buildStatusSucceeded || status == "FAILED" || status == buildStatusStopped ||
 		status == "TIMED_OUT" || status == "FAULT"
 }
 
