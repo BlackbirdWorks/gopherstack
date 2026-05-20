@@ -22,14 +22,14 @@ type ResourceURI struct {
 }
 
 // UserDefinedFunction represents a Glue UDF.
-type UserDefinedFunction struct { //nolint:govet // JSON field order matters
+type UserDefinedFunction struct {
 	DatabaseName string        `json:"DatabaseName"`
 	FunctionName string        `json:"FunctionName"`
 	ClassName    string        `json:"ClassName,omitempty"`
 	OwnerName    string        `json:"OwnerName,omitempty"`
 	OwnerType    string        `json:"OwnerType,omitempty"`
-	ResourceURIs []ResourceURI `json:"ResourceUris,omitempty"`
 	FunctionARN  string        `json:"FunctionArn,omitempty"`
+	ResourceURIs []ResourceURI `json:"ResourceUris,omitempty"`
 	CreateTime   float64       `json:"CreateTime,omitempty"`
 }
 
@@ -165,10 +165,10 @@ func (b *InMemoryBackend) DeleteUserDefinedFunction(dbName, name string) error {
 // ---------------------------------------------------------------------------
 
 // EncryptionConfiguration holds encryption settings for a SecurityConfiguration.
-type EncryptionConfiguration struct { //nolint:govet // JSON field order matters
-	S3Encryption           []S3EncryptionEntry     `json:"S3Encryption,omitempty"`
+type EncryptionConfiguration struct {
 	CloudWatchEncryption   *CloudWatchEncryption   `json:"CloudWatchEncryption,omitempty"`
 	JobBookmarksEncryption *JobBookmarksEncryption `json:"JobBookmarksEncryption,omitempty"`
+	S3Encryption           []S3EncryptionEntry     `json:"S3Encryption,omitempty"`
 }
 
 // S3EncryptionEntry holds per-S3-bucket encryption config.
@@ -190,7 +190,7 @@ type JobBookmarksEncryption struct {
 }
 
 // SecurityConfiguration represents a Glue security configuration.
-type SecurityConfiguration struct { //nolint:govet // JSON field order matters
+type SecurityConfiguration struct {
 	Name                    string                  `json:"Name"`
 	EncryptionConfiguration EncryptionConfiguration `json:"EncryptionConfiguration"`
 	CreatedTimeStamp        float64                 `json:"CreatedTimeStamp,omitempty"`
@@ -274,28 +274,28 @@ type SessionCommand struct {
 }
 
 // Session represents a Glue interactive session.
-type Session struct { //nolint:govet // JSON field order matters
+type Session struct {
+	DefaultArguments map[string]string `json:"DefaultArguments,omitempty"`
+	Command          SessionCommand    `json:"Command,omitzero"`
 	SessionID        string            `json:"Id"`
 	Role             string            `json:"Role,omitempty"`
-	Command          SessionCommand    `json:"Command,omitzero"`
 	Status           string            `json:"Status"`
-	CreatedOn        float64           `json:"CreatedOn,omitempty"`
-	Timeout          int32             `json:"Timeout,omitempty"`
-	MaxCapacity      float64           `json:"MaxCapacity,omitempty"`
 	Description      string            `json:"Description,omitempty"`
-	DefaultArguments map[string]string `json:"DefaultArguments,omitempty"`
+	CreatedOn        float64           `json:"CreatedOn,omitempty"`
+	MaxCapacity      float64           `json:"MaxCapacity,omitempty"`
+	Timeout          int32             `json:"Timeout,omitempty"`
 }
 
 // Statement represents a statement run within a Glue session.
-type Statement struct { //nolint:govet // JSON field order matters
-	Id          int32   `json:"Id"`                  //nolint:revive,staticcheck // AWS API uses Id not ID
+type Statement struct {
+	Output      any     `json:"Output,omitempty"`
 	SessionId   string  `json:"SessionId,omitempty"` //nolint:revive,staticcheck // AWS API naming
 	Code        string  `json:"Code,omitempty"`
 	State       string  `json:"State"`
-	Output      any     `json:"Output,omitempty"`
 	Progress    float64 `json:"Progress,omitempty"`
 	StartedOn   float64 `json:"StartedOn,omitempty"`
 	CompletedOn float64 `json:"CompletedOn,omitempty"`
+	Id          int32   `json:"Id"` //nolint:revive,staticcheck // AWS API uses Id not ID
 }
 
 func cloneSession(s *Session) *Session {
@@ -486,22 +486,22 @@ type TableOptimizerConfiguration struct {
 }
 
 // TableOptimizerRun holds a single run record for a table optimizer.
-type TableOptimizerRun struct { //nolint:govet // JSON field order matters
+type TableOptimizerRun struct {
+	Metrics   any     `json:"Metrics,omitempty"`
 	EventType string  `json:"EventType,omitempty"`
+	Error     string  `json:"Error,omitempty"`
 	StartedAt float64 `json:"StartedAt,omitempty"`
 	EndedAt   float64 `json:"EndedAt,omitempty"`
-	Metrics   any     `json:"Metrics,omitempty"`
-	Error     string  `json:"Error,omitempty"`
 }
 
 // TableOptimizer represents a single table optimizer resource.
-type TableOptimizer struct { //nolint:govet // JSON field order matters
+type TableOptimizer struct {
+	LastRun       *TableOptimizerRun          `json:"LastRun,omitempty"`
 	CatalogID     string                      `json:"CatalogId,omitempty"`
 	DatabaseName  string                      `json:"DatabaseName"`
 	TableName     string                      `json:"TableName"`
 	Type          string                      `json:"Type"`
 	Configuration TableOptimizerConfiguration `json:"Configuration,omitzero"`
-	LastRun       *TableOptimizerRun          `json:"LastRun,omitempty"`
 }
 
 func (b *InMemoryBackend) tableOptimizerKey(dbName, tableName, optimizerType string) string {
@@ -652,8 +652,7 @@ func (b *InMemoryBackend) BatchGetTableOptimizer(
 // ---------------------------------------------------------------------------
 
 // ColumnStatisticsData holds statistics for a column.
-type ColumnStatisticsData struct { //nolint:govet // JSON field order matters
-	Type                        string `json:"Type"`
+type ColumnStatisticsData struct {
 	BooleanColumnStatisticsData any    `json:"BooleanColumnStatisticsData,omitempty"`
 	DateColumnStatisticsData    any    `json:"DateColumnStatisticsData,omitempty"`
 	DecimalColumnStatisticsData any    `json:"DecimalColumnStatisticsData,omitempty"`
@@ -661,13 +660,14 @@ type ColumnStatisticsData struct { //nolint:govet // JSON field order matters
 	LongColumnStatisticsData    any    `json:"LongColumnStatisticsData,omitempty"`
 	StringColumnStatisticsData  any    `json:"StringColumnStatisticsData,omitempty"`
 	BinaryColumnStatisticsData  any    `json:"BinaryColumnStatisticsData,omitempty"`
+	Type                        string `json:"Type"`
 }
 
 // ColumnStatistics represents statistics for a single column.
-type ColumnStatistics struct { //nolint:govet // JSON field order matters
+type ColumnStatistics struct {
+	StatisticsData ColumnStatisticsData `json:"StatisticsData"`
 	ColumnName     string               `json:"ColumnName"`
 	ColumnType     string               `json:"ColumnType,omitempty"`
-	StatisticsData ColumnStatisticsData `json:"StatisticsData"`
 	AnalyzedTime   float64              `json:"AnalyzedTime,omitempty"`
 }
 
@@ -867,9 +867,9 @@ func (b *InMemoryBackend) DeleteResourcePolicy(resourceARN, _ string) error {
 // ---------------------------------------------------------------------------
 
 // MLTransformParameter holds transform hyperparameters.
-type MLTransformParameter struct { //nolint:govet // JSON field order matters
-	TransformType         string `json:"TransformType,omitempty"`
+type MLTransformParameter struct {
 	FindMatchesParameters any    `json:"FindMatchesParameters,omitempty"`
+	TransformType         string `json:"TransformType,omitempty"`
 }
 
 // GlueTable holds a reference to a Glue catalog table used by an ML transform.
@@ -881,20 +881,20 @@ type GlueTable struct { //nolint:revive // GlueTable is distinct from Table type
 }
 
 // MLTransform represents an AWS Glue ML transform.
-type MLTransform struct { //nolint:govet // JSON field order matters
+type MLTransform struct {
+	Parameters        MLTransformParameter `json:"Parameters,omitzero"`
 	TransformID       string               `json:"TransformId"`
 	Name              string               `json:"Name"`
 	Description       string               `json:"Description,omitempty"`
 	Role              string               `json:"Role,omitempty"`
 	GlueVersion       string               `json:"GlueVersion,omitempty"`
-	MaxCapacity       float64              `json:"MaxCapacity,omitempty"`
 	WorkerType        string               `json:"WorkerType,omitempty"`
-	NumberOfWorkers   int32                `json:"NumberOfWorkers,omitempty"`
-	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
-	Parameters        MLTransformParameter `json:"Parameters,omitzero"`
 	Status            string               `json:"Status"`
+	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
+	MaxCapacity       float64              `json:"MaxCapacity,omitempty"`
 	CreatedOn         float64              `json:"CreatedOn,omitempty"`
 	LastModifiedOn    float64              `json:"LastModifiedOn,omitempty"`
+	NumberOfWorkers   int32                `json:"NumberOfWorkers,omitempty"`
 }
 
 func cloneMLTransform(m *MLTransform) *MLTransform {
@@ -996,11 +996,11 @@ func (b *InMemoryBackend) DeleteMLTransform(id string) error {
 // ---------------------------------------------------------------------------
 
 // CatalogEntry represents a named AWS Glue catalog.
-type CatalogEntry struct { //nolint:govet // JSON field order matters
+type CatalogEntry struct {
+	Parameters  map[string]string `json:"Parameters,omitzero"`
 	CatalogID   string            `json:"CatalogId"`
 	Name        string            `json:"Name,omitempty"`
 	Description string            `json:"Description,omitempty"`
-	Parameters  map[string]string `json:"Parameters,omitzero"`
 	CreateTime  float64           `json:"CreateTime,omitempty"`
 }
 
@@ -1202,9 +1202,9 @@ type EncryptionAtRest struct {
 }
 
 // ConnectionPasswordEncryption holds connection password encryption config.
-type ConnectionPasswordEncryption struct { //nolint:govet // JSON field order matters
-	ReturnConnectionPasswordEncrypted bool   `json:"ReturnConnectionPasswordEncrypted"`
+type ConnectionPasswordEncryption struct {
 	AwsKmsKeyID                       string `json:"AwsKmsKeyId,omitempty"`
+	ReturnConnectionPasswordEncrypted bool   `json:"ReturnConnectionPasswordEncrypted"`
 }
 
 func (b *InMemoryBackend) PutDataCatalogEncryptionSettings(

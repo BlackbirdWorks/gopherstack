@@ -207,12 +207,16 @@ func (h *Handler) handleBatchUpdatePartition(
 }
 
 // cancelDataQualityRuleRecommendationRunInput holds input for CancelDataQualityRuleRecommendationRun.
-type cancelDataQualityRuleRecommendationRunInput struct{}
+type cancelDataQualityRuleRecommendationRunInput struct {
+	RunID string `json:"RunId"`
+}
 
 func (h *Handler) handleCancelDataQualityRuleRecommendationRun(
 	_ context.Context,
-	_ *cancelDataQualityRuleRecommendationRunInput,
+	in *cancelDataQualityRuleRecommendationRunInput,
 ) (*emptyOutput, error) {
+	_ = h.Backend.CancelDataQualityRuleRecommendationRun(in.RunID)
+
 	return &emptyOutput{}, nil
 }
 
@@ -269,17 +273,21 @@ func (h *Handler) handleCreateBlueprint(
 	_ context.Context,
 	in *createBlueprintInput,
 ) (*createBlueprintOutput, error) {
+	if err := h.Backend.CreateBlueprint(in.Name); err != nil {
+		return nil, err
+	}
+
 	return &createBlueprintOutput{Name: in.Name}, nil
 }
 
 // createCatalogInput holds input for CreateCatalog.
-type createCatalogInput struct { //nolint:govet // JSON field order matters
-	CatalogID    string   `json:"CatalogId"`
-	CatalogInput struct { //nolint:govet // JSON field order matters
+type createCatalogInput struct {
+	CatalogInput struct {
+		Parameters  map[string]string `json:"Parameters,omitzero"`
 		Name        string            `json:"Name,omitempty"`
 		Description string            `json:"Description,omitempty"`
-		Parameters  map[string]string `json:"Parameters,omitzero"`
 	} `json:"CatalogInput"`
+	CatalogID string `json:"CatalogId"`
 }
 
 func (h *Handler) handleCreateCatalog(
@@ -343,6 +351,8 @@ func (h *Handler) handleCreateCustomEntityType(
 	_ context.Context,
 	in *createCustomEntityTypeInput,
 ) (*createCustomEntityTypeOutput, error) {
+	_, _ = h.Backend.CreateCustomEntityType(in.Name, "", nil)
+
 	return &createCustomEntityTypeOutput{Name: in.Name}, nil
 }
 
@@ -369,13 +379,15 @@ func (h *Handler) handleCreateDevEndpoint(
 	return &createDevEndpointOutput{EndpointName: dep.EndpointName, Status: dep.Status}, nil
 }
 
-// createGlueIdentityCenterConfigurationInput holds input for CreateGlueIdentityCenterConfiguration.
-type createGlueIdentityCenterConfigurationInput struct{}
+// createIdentityCenterConfigurationInput holds input for CreateGlueIdentityCenterConfiguration.
+type createIdentityCenterConfigurationInput struct{}
 
 func (h *Handler) handleCreateGlueIdentityCenterConfiguration(
 	_ context.Context,
-	_ *createGlueIdentityCenterConfigurationInput,
+	_ *createIdentityCenterConfigurationInput,
 ) (*emptyOutput, error) {
+	_ = h.Backend.CreateGlueIdentityCenterConfiguration("")
+
 	return &emptyOutput{}, nil
 }
 
@@ -393,6 +405,8 @@ func (h *Handler) handleCreateIntegration(
 	_ context.Context,
 	in *createIntegrationInput,
 ) (*createIntegrationOutput, error) {
+	_, _ = h.Backend.CreateIntegration(in.IntegrationName, nil)
+
 	return &createIntegrationOutput{IntegrationName: in.IntegrationName}, nil
 }
 
@@ -417,13 +431,13 @@ func (h *Handler) handleCreateIntegrationTableProperties(
 }
 
 // createMLTransformInput holds input for CreateMLTransform.
-type createMLTransformInput struct { //nolint:govet // JSON field order matters
-	Tags              map[string]string    `json:"Tags,omitempty"`
-	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
+type createMLTransformInput struct {
 	Parameters        MLTransformParameter `json:"Parameters,omitzero"`
+	Tags              map[string]string    `json:"Tags,omitempty"`
 	Name              string               `json:"Name"`
 	Description       string               `json:"Description,omitempty"`
 	Role              string               `json:"Role,omitempty"`
+	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
 }
 
 // createMLTransformOutput holds the result for CreateMLTransform.
@@ -594,8 +608,8 @@ func (h *Handler) handleCreateScript(
 
 // createSecurityConfigurationInput holds input for CreateSecurityConfiguration.
 type createSecurityConfigurationInput struct {
-	EncryptionConfiguration EncryptionConfiguration `json:"EncryptionConfiguration"`
 	Name                    string                  `json:"Name"`
+	EncryptionConfiguration EncryptionConfiguration `json:"EncryptionConfiguration"`
 }
 
 // createSecurityConfigurationOutput holds the result for CreateSecurityConfiguration.
@@ -709,7 +723,9 @@ func (h *Handler) handleCreateTrigger(
 
 // createUsageProfileInput holds input for CreateUsageProfile.
 type createUsageProfileInput struct {
-	Name string `json:"Name"`
+	Tags        map[string]string `json:"Tags,omitempty"`
+	Name        string            `json:"Name"`
+	Description string            `json:"Description,omitempty"`
 }
 
 // createUsageProfileOutput holds the result for CreateUsageProfile.
@@ -721,14 +737,16 @@ func (h *Handler) handleCreateUsageProfile(
 	_ context.Context,
 	in *createUsageProfileInput,
 ) (*createUsageProfileOutput, error) {
+	_, _ = h.Backend.CreateUsageProfile(in.Name, in.Description, in.Tags)
+
 	return &createUsageProfileOutput{Name: in.Name}, nil
 }
 
 // createUserDefinedFunctionInput holds input for CreateUserDefinedFunction.
-type createUserDefinedFunctionInput struct { //nolint:govet // JSON field order matters
+type createUserDefinedFunctionInput struct {
+	Tags          map[string]string   `json:"Tags,omitempty"`
 	DatabaseName  string              `json:"DatabaseName"`
 	FunctionInput UserDefinedFunction `json:"FunctionInput"`
-	Tags          map[string]string   `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handleCreateUserDefinedFunction(
@@ -785,6 +803,8 @@ func (h *Handler) handleDeleteBlueprint(
 	_ context.Context,
 	in *deleteBlueprintInput,
 ) (*deleteBlueprintOutput, error) {
+	_ = h.Backend.DeleteBlueprint(in.Name)
+
 	return &deleteBlueprintOutput{Name: in.Name}, nil
 }
 
@@ -817,11 +837,11 @@ func (h *Handler) handleDeleteClassifier(
 }
 
 // deleteColumnStatisticsForPartitionInput holds input for DeleteColumnStatisticsForPartition.
-type deleteColumnStatisticsForPartitionInput struct { //nolint:govet // JSON field order matters
+type deleteColumnStatisticsForPartitionInput struct {
 	DatabaseName    string   `json:"DatabaseName"`
 	TableName       string   `json:"TableName"`
-	PartitionValues []string `json:"PartitionValues"`
 	ColumnName      string   `json:"ColumnName"`
+	PartitionValues []string `json:"PartitionValues"`
 }
 
 func (h *Handler) handleDeleteColumnStatisticsForPartition(
@@ -888,6 +908,8 @@ func (h *Handler) handleDeleteCustomEntityType(
 	_ context.Context,
 	in *deleteCustomEntityTypeInput,
 ) (*deleteCustomEntityTypeOutput, error) {
+	_ = h.Backend.DeleteCustomEntityType(in.Name)
+
 	return &deleteCustomEntityTypeOutput{Name: in.Name}, nil
 }
 
@@ -907,13 +929,15 @@ func (h *Handler) handleDeleteDevEndpoint(
 	return &emptyOutput{}, nil
 }
 
-// deleteGlueIdentityCenterConfigurationInput holds input for DeleteGlueIdentityCenterConfiguration.
-type deleteGlueIdentityCenterConfigurationInput struct{}
+// deleteIdentityCenterConfigurationInput holds input for DeleteGlueIdentityCenterConfiguration.
+type deleteIdentityCenterConfigurationInput struct{}
 
 func (h *Handler) handleDeleteGlueIdentityCenterConfiguration(
 	_ context.Context,
-	_ *deleteGlueIdentityCenterConfigurationInput,
+	_ *deleteIdentityCenterConfigurationInput,
 ) (*emptyOutput, error) {
+	_ = h.Backend.DeleteGlueIdentityCenterConfiguration()
+
 	return &emptyOutput{}, nil
 }
 
@@ -931,6 +955,8 @@ func (h *Handler) handleDeleteIntegration(
 	_ context.Context,
 	in *deleteIntegrationInput,
 ) (*deleteIntegrationOutput, error) {
+	_ = h.Backend.DeleteIntegration(in.IntegrationIdentifier)
+
 	return &deleteIntegrationOutput{IntegrationName: in.IntegrationIdentifier}, nil
 }
 
@@ -1184,12 +1210,16 @@ func (h *Handler) handleDeleteTrigger(
 }
 
 // deleteUsageProfileInput holds input for DeleteUsageProfile.
-type deleteUsageProfileInput struct{}
+type deleteUsageProfileInput struct {
+	Name string `json:"Name"`
+}
 
 func (h *Handler) handleDeleteUsageProfile(
 	_ context.Context,
-	_ *deleteUsageProfileInput,
+	in *deleteUsageProfileInput,
 ) (*emptyOutput, error) {
+	_ = h.Backend.DeleteUsageProfile(in.Name)
+
 	return &emptyOutput{}, nil
 }
 
@@ -1269,7 +1299,7 @@ func (h *Handler) handleDescribeInboundIntegrations(
 	_ context.Context,
 	_ *describeInboundIntegrationsInput,
 ) (*describeInboundIntegrationsOutput, error) {
-	return &describeInboundIntegrationsOutput{Integrations: []any{}}, nil
+	return &describeInboundIntegrationsOutput{Integrations: []any{}}, nil // inbound integrations are always empty
 }
 
 // describeIntegrationsInput holds input for DescribeIntegrations.
@@ -1284,7 +1314,13 @@ func (h *Handler) handleDescribeIntegrations(
 	_ context.Context,
 	_ *describeIntegrationsInput,
 ) (*describeIntegrationsOutput, error) {
-	return &describeIntegrationsOutput{Integrations: []any{}}, nil
+	list := h.Backend.ListIntegrations()
+	result := make([]any, 0, len(list))
+	for _, ig := range list {
+		result = append(result, ig)
+	}
+
+	return &describeIntegrationsOutput{Integrations: result}, nil
 }
 
 // getBlueprintInput holds input for GetBlueprint.
@@ -1310,7 +1346,10 @@ func (h *Handler) handleGetBlueprint(
 }
 
 // getBlueprintRunInput holds input for GetBlueprintRun.
-type getBlueprintRunInput struct{}
+type getBlueprintRunInput struct {
+	BlueprintName string `json:"BlueprintName"`
+	RunID         string `json:"RunId"`
+}
 
 // getBlueprintRunOutput holds the result for GetBlueprintRun.
 type getBlueprintRunOutput struct {
@@ -1319,13 +1358,23 @@ type getBlueprintRunOutput struct {
 
 func (h *Handler) handleGetBlueprintRun(
 	_ context.Context,
-	_ *getBlueprintRunInput,
+	in *getBlueprintRunInput,
 ) (*getBlueprintRunOutput, error) {
-	return &getBlueprintRunOutput{}, nil
+	if in.RunID == "" {
+		return &getBlueprintRunOutput{}, nil
+	}
+	run, err := h.Backend.GetBlueprintRun(in.BlueprintName, in.RunID)
+	if err != nil {
+		return &getBlueprintRunOutput{}, nil //nolint:nilerr // graceful empty
+	}
+
+	return &getBlueprintRunOutput{Run: run}, nil
 }
 
 // getBlueprintRunsInput holds input for GetBlueprintRuns.
-type getBlueprintRunsInput struct{}
+type getBlueprintRunsInput struct {
+	BlueprintName string `json:"BlueprintName"`
+}
 
 // getBlueprintRunsOutput holds the result for GetBlueprintRuns.
 type getBlueprintRunsOutput struct {
@@ -1334,9 +1383,15 @@ type getBlueprintRunsOutput struct {
 
 func (h *Handler) handleGetBlueprintRuns(
 	_ context.Context,
-	_ *getBlueprintRunsInput,
+	in *getBlueprintRunsInput,
 ) (*getBlueprintRunsOutput, error) {
-	return &getBlueprintRunsOutput{Runs: []any{}}, nil
+	runs := h.Backend.GetBlueprintRuns(in.BlueprintName)
+	result := make([]any, 0, len(runs))
+	for _, r := range runs {
+		result = append(result, r)
+	}
+
+	return &getBlueprintRunsOutput{Runs: result}, nil
 }
 
 // getCatalogInput holds input for GetCatalog.
@@ -1513,7 +1568,12 @@ func (h *Handler) handleGetColumnStatisticsTaskRun(
 	_ context.Context,
 	_ *getColumnStatisticsTaskRunInput,
 ) (*getColumnStatisticsTaskRunOutput, error) {
-	return &getColumnStatisticsTaskRunOutput{}, nil
+	runs := h.Backend.GetColumnStatisticsTaskRuns()
+	if len(runs) == 0 {
+		return &getColumnStatisticsTaskRunOutput{}, nil
+	}
+
+	return &getColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRun: runs[0]}, nil
 }
 
 // getColumnStatisticsTaskRunsInput holds input for GetColumnStatisticsTaskRuns.
@@ -1528,7 +1588,13 @@ func (h *Handler) handleGetColumnStatisticsTaskRuns(
 	_ context.Context,
 	_ *getColumnStatisticsTaskRunsInput,
 ) (*getColumnStatisticsTaskRunsOutput, error) {
-	return &getColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRuns: []any{}}, nil
+	runs := h.Backend.GetColumnStatisticsTaskRuns()
+	result := make([]any, 0, len(runs))
+	for _, r := range runs {
+		result = append(result, r)
+	}
+
+	return &getColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRuns: result}, nil
 }
 
 // getColumnStatisticsTaskSettingsInput holds input for GetColumnStatisticsTaskSettings.
@@ -1543,7 +1609,9 @@ func (h *Handler) handleGetColumnStatisticsTaskSettings(
 	_ context.Context,
 	_ *getColumnStatisticsTaskSettingsInput,
 ) (*getColumnStatisticsTaskSettingsOutput, error) {
-	return &getColumnStatisticsTaskSettingsOutput{}, nil
+	s, _ := h.Backend.GetColumnStatisticsTaskSettings("", "")
+
+	return &getColumnStatisticsTaskSettingsOutput{ColumnStatisticsTaskSettings: s}, nil
 }
 
 // getCrawlerMetricsInput holds input for GetCrawlerMetrics.
@@ -1669,7 +1737,9 @@ func (h *Handler) handleGetDataQualityResult(
 }
 
 // getDataQualityRuleRecommendationRunInput holds input for GetDataQualityRuleRecommendationRun.
-type getDataQualityRuleRecommendationRunInput struct{}
+type getDataQualityRuleRecommendationRunInput struct {
+	RunID string `json:"RunId"`
+}
 
 // getDataQualityRuleRecommendationRunOutput holds the result for GetDataQualityRuleRecommendationRun.
 type getDataQualityRuleRecommendationRunOutput struct {
@@ -1679,9 +1749,18 @@ type getDataQualityRuleRecommendationRunOutput struct {
 
 func (h *Handler) handleGetDataQualityRuleRecommendationRun(
 	_ context.Context,
-	_ *getDataQualityRuleRecommendationRunInput,
+	in *getDataQualityRuleRecommendationRunInput,
 ) (*getDataQualityRuleRecommendationRunOutput, error) {
-	return &getDataQualityRuleRecommendationRunOutput{Status: stateSucceeded}, nil
+	if in.RunID == "" {
+		return &getDataQualityRuleRecommendationRunOutput{Status: stateSucceeded}, nil
+	}
+	run, err := h.Backend.GetDataQualityRuleRecommendationRun(in.RunID)
+	if err != nil {
+		//nolint:nilerr // graceful degradation: return stub on not-found
+		return &getDataQualityRuleRecommendationRunOutput{Status: stateSucceeded}, nil
+	}
+
+	return &getDataQualityRuleRecommendationRunOutput{RunID: run.RecommendationRunID, Status: run.Status}, nil
 }
 
 // getDataflowGraphInput holds input for GetDataflowGraph.
@@ -1752,19 +1831,24 @@ func (h *Handler) handleGetEntityRecords(
 	return &getEntityRecordsOutput{Records: []any{}}, nil
 }
 
-// getGlueIdentityCenterConfigurationInput holds input for GetGlueIdentityCenterConfiguration.
-type getGlueIdentityCenterConfigurationInput struct{}
+// getIdentityCenterConfigurationInput holds input for GetGlueIdentityCenterConfiguration.
+type getIdentityCenterConfigurationInput struct{}
 
-// getGlueIdentityCenterConfigurationOutput holds the result for GetGlueIdentityCenterConfiguration.
-type getGlueIdentityCenterConfigurationOutput struct {
+// getIdentityCenterConfigurationOutput holds the result for GetGlueIdentityCenterConfiguration.
+type getIdentityCenterConfigurationOutput struct {
 	InstanceArn string `json:"InstanceArn"`
 }
 
 func (h *Handler) handleGetGlueIdentityCenterConfiguration(
 	_ context.Context,
-	_ *getGlueIdentityCenterConfigurationInput,
-) (*getGlueIdentityCenterConfigurationOutput, error) {
-	return &getGlueIdentityCenterConfigurationOutput{}, nil
+	_ *getIdentityCenterConfigurationInput,
+) (*getIdentityCenterConfigurationOutput, error) {
+	cfg, _ := h.Backend.GetGlueIdentityCenterConfiguration()
+	if cfg == nil {
+		return &getIdentityCenterConfigurationOutput{}, nil
+	}
+
+	return &getIdentityCenterConfigurationOutput{InstanceArn: cfg.InstanceARN}, nil
 }
 
 // getIntegrationResourcePropertyInput holds input for GetIntegrationResourceProperty.
@@ -1900,7 +1984,12 @@ func (h *Handler) handleGetMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	_ *getMaterializedViewRefreshTaskRunInput,
 ) (*getMaterializedViewRefreshTaskRunOutput, error) {
-	return &getMaterializedViewRefreshTaskRunOutput{Status: stateSucceeded}, nil
+	runs := h.Backend.ListMaterializedViewRefreshTaskRuns()
+	if len(runs) == 0 {
+		return &getMaterializedViewRefreshTaskRunOutput{Status: stateSucceeded}, nil
+	}
+
+	return &getMaterializedViewRefreshTaskRunOutput{RunID: runs[0].TaskRunID, Status: runs[0].Status}, nil
 }
 
 // getPartitionInput holds input for GetPartition.
@@ -2451,7 +2540,16 @@ func (h *Handler) handleGetUsageProfile(
 	_ context.Context,
 	in *getUsageProfileInput,
 ) (*getUsageProfileOutput, error) {
-	return &getUsageProfileOutput{Name: in.Name}, nil
+	if in.Name == "" {
+		return &getUsageProfileOutput{}, nil
+	}
+	p, err := h.Backend.GetUsageProfile(in.Name)
+	if err != nil {
+		//nolint:nilerr // graceful: return empty on not-found
+		return &getUsageProfileOutput{Name: in.Name}, nil
+	}
+
+	return &getUsageProfileOutput{Name: p.Name}, nil
 }
 
 // getUserDefinedFunctionInput holds input for GetUserDefinedFunction.
@@ -2603,7 +2701,7 @@ func (h *Handler) handleListBlueprints(
 	_ context.Context,
 	_ *listBlueprintsInput,
 ) (*listBlueprintsOutput, error) {
-	return &listBlueprintsOutput{Blueprints: []string{}}, nil
+	return &listBlueprintsOutput{Blueprints: h.Backend.ListBlueprints()}, nil
 }
 
 // listColumnStatisticsTaskRunsInput holds input for ListColumnStatisticsTaskRuns.
@@ -2618,7 +2716,13 @@ func (h *Handler) handleListColumnStatisticsTaskRuns(
 	_ context.Context,
 	_ *listColumnStatisticsTaskRunsInput,
 ) (*listColumnStatisticsTaskRunsOutput, error) {
-	return &listColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRunIDs: []string{}}, nil
+	runs := h.Backend.ListColumnStatisticsTaskRuns()
+	ids := make([]string, 0, len(runs))
+	for _, r := range runs {
+		ids = append(ids, r.ColumnStatisticsTaskRunID)
+	}
+
+	return &listColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRunIDs: ids}, nil
 }
 
 // listConnectionTypesInput holds input for ListConnectionTypes.
@@ -2663,7 +2767,7 @@ func (h *Handler) handleListCustomEntityTypes(
 	_ context.Context,
 	_ *listCustomEntityTypesInput,
 ) (*listCustomEntityTypesOutput, error) {
-	return &listCustomEntityTypesOutput{CustomEntityTypes: []*CustomEntityType{}}, nil
+	return &listCustomEntityTypesOutput{CustomEntityTypes: h.Backend.ListCustomEntityTypes()}, nil
 }
 
 // listDataQualityResultsInput holds input for ListDataQualityResults.
@@ -2693,7 +2797,13 @@ func (h *Handler) handleListDataQualityRuleRecommendationRuns(
 	_ context.Context,
 	_ *listDataQualityRuleRecommendationRunsInput,
 ) (*listDataQualityRuleRecommendationRunsOutput, error) {
-	return &listDataQualityRuleRecommendationRunsOutput{Runs: []any{}}, nil
+	runs := h.Backend.ListDataQualityRuleRecommendationRuns()
+	result := make([]any, 0, len(runs))
+	for _, r := range runs {
+		result = append(result, r)
+	}
+
+	return &listDataQualityRuleRecommendationRunsOutput{Runs: result}, nil
 }
 
 // listDataQualityRulesetEvaluationRunsInput holds input for ListDataQualityRulesetEvaluationRuns.
@@ -2838,7 +2948,13 @@ func (h *Handler) handleListMaterializedViewRefreshTaskRuns(
 	_ context.Context,
 	_ *listMaterializedViewRefreshTaskRunsInput,
 ) (*listMaterializedViewRefreshTaskRunsOutput, error) {
-	return &listMaterializedViewRefreshTaskRunsOutput{Runs: []any{}}, nil
+	runs := h.Backend.ListMaterializedViewRefreshTaskRuns()
+	result := make([]any, 0, len(runs))
+	for _, r := range runs {
+		result = append(result, r)
+	}
+
+	return &listMaterializedViewRefreshTaskRunsOutput{Runs: result}, nil
 }
 
 // listRegistriesInput holds input for ListRegistries.
@@ -3005,7 +3121,13 @@ func (h *Handler) handleListUsageProfiles(
 	_ context.Context,
 	_ *listUsageProfilesInput,
 ) (*listUsageProfilesOutput, error) {
-	return &listUsageProfilesOutput{Profiles: []any{}}, nil
+	profiles := h.Backend.ListUsageProfiles()
+	result := make([]any, 0, len(profiles))
+	for _, p := range profiles {
+		result = append(result, p)
+	}
+
+	return &listUsageProfilesOutput{Profiles: result}, nil
 }
 
 // listWorkflowsInput holds input for ListWorkflows.
@@ -3036,15 +3158,17 @@ type modifyIntegrationOutput struct {
 
 func (h *Handler) handleModifyIntegration(
 	_ context.Context,
-	_ *modifyIntegrationInput,
+	in *modifyIntegrationInput,
 ) (*modifyIntegrationOutput, error) {
+	_ = h.Backend.ModifyIntegration(in.IntegrationIdentifier)
+
 	return &modifyIntegrationOutput{Status: stateActive}, nil
 }
 
 // putDataCatalogEncryptionSettingsInput holds input for PutDataCatalogEncryptionSettings.
-type putDataCatalogEncryptionSettingsInput struct { //nolint:govet // JSON field order matters
-	CatalogID                     string                        `json:"CatalogId,omitempty"`
+type putDataCatalogEncryptionSettingsInput struct {
 	DataCatalogEncryptionSettings DataCatalogEncryptionSettings `json:"DataCatalogEncryptionSettings"`
+	CatalogID                     string                        `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handlePutDataCatalogEncryptionSettings(
@@ -3268,7 +3392,9 @@ func (h *Handler) handleSearchTables(
 }
 
 // startBlueprintRunInput holds input for StartBlueprintRun.
-type startBlueprintRunInput struct{}
+type startBlueprintRunInput struct {
+	BlueprintName string `json:"BlueprintName"`
+}
 
 // startBlueprintRunOutput holds the result for StartBlueprintRun.
 type startBlueprintRunOutput struct {
@@ -3277,9 +3403,14 @@ type startBlueprintRunOutput struct {
 
 func (h *Handler) handleStartBlueprintRun(
 	_ context.Context,
-	_ *startBlueprintRunInput,
+	in *startBlueprintRunInput,
 ) (*startBlueprintRunOutput, error) {
-	return &startBlueprintRunOutput{RunID: "blueprint-run-stub"}, nil
+	run, err := h.Backend.StartBlueprintRun(in.BlueprintName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startBlueprintRunOutput{RunID: run.RunID}, nil
 }
 
 // startColumnStatisticsTaskRunInput holds input for StartColumnStatisticsTaskRun.
@@ -3294,7 +3425,12 @@ func (h *Handler) handleStartColumnStatisticsTaskRun(
 	_ context.Context,
 	_ *startColumnStatisticsTaskRunInput,
 ) (*startColumnStatisticsTaskRunOutput, error) {
-	return &startColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRunID: "col-stats-run-stub"}, nil
+	run, err := h.Backend.StartColumnStatisticsTaskRun("", "")
+	if err != nil {
+		return nil, err
+	}
+
+	return &startColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRunID: run.ColumnStatisticsTaskRunID}, nil
 }
 
 // startColumnStatisticsTaskRunScheduleInput holds input for StartColumnStatisticsTaskRunSchedule.
@@ -3319,7 +3455,12 @@ func (h *Handler) handleStartDataQualityRuleRecommendationRun(
 	_ context.Context,
 	_ *startDataQualityRuleRecommendationRunInput,
 ) (*startDataQualityRuleRecommendationRunOutput, error) {
-	return &startDataQualityRuleRecommendationRunOutput{RunID: "dq-rec-run-stub"}, nil
+	run, err := h.Backend.StartDataQualityRuleRecommendationRun("")
+	if err != nil {
+		return nil, err
+	}
+
+	return &startDataQualityRuleRecommendationRunOutput{RunID: run.RecommendationRunID}, nil
 }
 
 // startExportLabelsTaskRunInput holds input for StartExportLabelsTaskRun.
@@ -3394,7 +3535,12 @@ func (h *Handler) handleStartMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	_ *startMaterializedViewRefreshTaskRunInput,
 ) (*startMaterializedViewRefreshTaskRunOutput, error) {
-	return &startMaterializedViewRefreshTaskRunOutput{RunID: "mat-view-refresh-stub"}, nil
+	run, err := h.Backend.StartMaterializedViewRefreshTaskRun("", "")
+	if err != nil {
+		return nil, err
+	}
+
+	return &startMaterializedViewRefreshTaskRunOutput{RunID: run.TaskRunID}, nil
 }
 
 // startTriggerInput holds input for StartTrigger.
@@ -3447,6 +3593,8 @@ func (h *Handler) handleStopColumnStatisticsTaskRun(
 	_ context.Context,
 	_ *stopColumnStatisticsTaskRunInput,
 ) (*emptyOutput, error) {
+	// No-op - nothing to stop if no run ID is provided.
+
 	return &emptyOutput{}, nil
 }
 
@@ -3467,6 +3615,8 @@ func (h *Handler) handleStopMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	_ *stopMaterializedViewRefreshTaskRunInput,
 ) (*emptyOutput, error) {
+	// No-op - nothing to stop if no run ID is provided.
+
 	return &emptyOutput{}, nil
 }
 
@@ -3554,16 +3704,18 @@ func (h *Handler) handleUpdateBlueprint(
 	_ context.Context,
 	in *updateBlueprintInput,
 ) (*updateBlueprintOutput, error) {
+	_, _ = h.Backend.UpdateBlueprint(in.Name)
+
 	return &updateBlueprintOutput{Name: in.Name}, nil
 }
 
 // updateCatalogInput holds input for UpdateCatalog.
-type updateCatalogInput struct { //nolint:govet // JSON field order matters
-	CatalogID    string   `json:"CatalogId"`
-	CatalogInput struct { //nolint:govet // JSON field order matters
-		Description string            `json:"Description,omitempty"`
+type updateCatalogInput struct {
+	CatalogInput struct {
 		Parameters  map[string]string `json:"Parameters,omitzero"`
+		Description string            `json:"Description,omitempty"`
 	} `json:"CatalogInput"`
+	CatalogID string `json:"CatalogId"`
 }
 
 func (h *Handler) handleUpdateCatalog(
@@ -3704,13 +3856,15 @@ func (h *Handler) handleUpdateDevEndpoint(
 	return &emptyOutput{}, h.Backend.UpdateDevEndpoint(in.EndpointName, in.AddArguments)
 }
 
-// updateGlueIdentityCenterConfigurationInput holds input for UpdateGlueIdentityCenterConfiguration.
-type updateGlueIdentityCenterConfigurationInput struct{}
+// updateIdentityCenterConfigurationInput holds input for UpdateGlueIdentityCenterConfiguration.
+type updateIdentityCenterConfigurationInput struct{}
 
 func (h *Handler) handleUpdateGlueIdentityCenterConfiguration(
 	_ context.Context,
-	_ *updateGlueIdentityCenterConfigurationInput,
+	_ *updateIdentityCenterConfigurationInput,
 ) (*emptyOutput, error) {
+	_ = h.Backend.UpdateGlueIdentityCenterConfiguration("")
+
 	return &emptyOutput{}, nil
 }
 
@@ -3757,13 +3911,13 @@ func (h *Handler) handleUpdateJobFromSourceControl(
 }
 
 // updateMLTransformInput holds input for UpdateMLTransform.
-type updateMLTransformInput struct { //nolint:govet // JSON field order matters
-	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
+type updateMLTransformInput struct {
 	Parameters        MLTransformParameter `json:"Parameters,omitzero"`
 	TransformID       string               `json:"TransformId"`
 	Description       string               `json:"Description,omitempty"`
 	Role              string               `json:"Role,omitempty"`
 	Name              string               `json:"Name,omitempty"`
+	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
 }
 
 // updateMLTransformOutput holds the result for UpdateMLTransform.
@@ -3961,6 +4115,8 @@ func (h *Handler) handleUpdateUsageProfile(
 	_ context.Context,
 	in *updateUsageProfileInput,
 ) (*updateUsageProfileOutput, error) {
+	_, _ = h.Backend.UpdateUsageProfile(in.Name, "")
+
 	return &updateUsageProfileOutput{Name: in.Name}, nil
 }
 
