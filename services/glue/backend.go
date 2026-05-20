@@ -431,6 +431,14 @@ func (b *InMemoryBackend) Reset() {
 	b.mlTransforms = make(map[string]*MLTransform)
 	b.catalogs = make(map[string]*CatalogEntry)
 	b.catalogEncryptionSettings = make(map[string]*DataCatalogEncryptionSettings)
+	b.usageProfiles = make(map[string]*UsageProfile)
+	b.blueprintRuns = make(map[string]*BlueprintRun)
+	b.dqRecommendationRuns = make(map[string]*DQRuleRecommendationRun)
+	b.columnStatTaskSettings = make(map[string]*ColumnStatisticsTaskSettings)
+	b.columnStatTaskRuns = make(map[string]*ColumnStatisticsTaskRun)
+	b.materializedViewRuns = make(map[string]*MaterializedViewRefreshRun)
+	b.integrations = make(map[string]*Integration)
+	b.glueIdentityCenterConfig = nil
 }
 
 // Region returns the backend region.

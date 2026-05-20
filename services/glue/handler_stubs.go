@@ -269,6 +269,9 @@ func (h *Handler) handleCreateBlueprint(
 	_ context.Context,
 	in *createBlueprintInput,
 ) (*createBlueprintOutput, error) {
+	if err := h.Backend.CreateBlueprint(in.Name); err != nil {
+		return nil, err
+	}
 	return &createBlueprintOutput{Name: in.Name}, nil
 }
 
@@ -343,6 +346,7 @@ func (h *Handler) handleCreateCustomEntityType(
 	_ context.Context,
 	in *createCustomEntityTypeInput,
 ) (*createCustomEntityTypeOutput, error) {
+	_, _ = h.Backend.CreateCustomEntityType(in.Name, "", nil)
 	return &createCustomEntityTypeOutput{Name: in.Name}, nil
 }
 
@@ -376,6 +380,7 @@ func (h *Handler) handleCreateGlueIdentityCenterConfiguration(
 	_ context.Context,
 	_ *createGlueIdentityCenterConfigurationInput,
 ) (*emptyOutput, error) {
+	_ = h.Backend.CreateGlueIdentityCenterConfiguration("")
 	return &emptyOutput{}, nil
 }
 
@@ -393,6 +398,7 @@ func (h *Handler) handleCreateIntegration(
 	_ context.Context,
 	in *createIntegrationInput,
 ) (*createIntegrationOutput, error) {
+	_, _ = h.Backend.CreateIntegration(in.IntegrationName, nil)
 	return &createIntegrationOutput{IntegrationName: in.IntegrationName}, nil
 }
 
@@ -721,6 +727,7 @@ func (h *Handler) handleCreateUsageProfile(
 	_ context.Context,
 	in *createUsageProfileInput,
 ) (*createUsageProfileOutput, error) {
+	_, _ = h.Backend.CreateUsageProfile(in.Name, in.Description, in.Tags)
 	return &createUsageProfileOutput{Name: in.Name}, nil
 }
 
@@ -785,6 +792,7 @@ func (h *Handler) handleDeleteBlueprint(
 	_ context.Context,
 	in *deleteBlueprintInput,
 ) (*deleteBlueprintOutput, error) {
+	_ = h.Backend.DeleteBlueprint(in.Name)
 	return &deleteBlueprintOutput{Name: in.Name}, nil
 }
 
@@ -888,6 +896,7 @@ func (h *Handler) handleDeleteCustomEntityType(
 	_ context.Context,
 	in *deleteCustomEntityTypeInput,
 ) (*deleteCustomEntityTypeOutput, error) {
+	_ = h.Backend.DeleteCustomEntityType(in.Name)
 	return &deleteCustomEntityTypeOutput{Name: in.Name}, nil
 }
 
@@ -914,6 +923,7 @@ func (h *Handler) handleDeleteGlueIdentityCenterConfiguration(
 	_ context.Context,
 	_ *deleteGlueIdentityCenterConfigurationInput,
 ) (*emptyOutput, error) {
+	_ = h.Backend.DeleteGlueIdentityCenterConfiguration()
 	return &emptyOutput{}, nil
 }
 
@@ -1184,12 +1194,15 @@ func (h *Handler) handleDeleteTrigger(
 }
 
 // deleteUsageProfileInput holds input for DeleteUsageProfile.
-type deleteUsageProfileInput struct{}
+type deleteUsageProfileInput struct {
+	Name string `json:"Name"`
+}
 
 func (h *Handler) handleDeleteUsageProfile(
 	_ context.Context,
-	_ *deleteUsageProfileInput,
+	in *deleteUsageProfileInput,
 ) (*emptyOutput, error) {
+	_ = h.Backend.DeleteUsageProfile(in.Name)
 	return &emptyOutput{}, nil
 }
 
@@ -1310,7 +1323,10 @@ func (h *Handler) handleGetBlueprint(
 }
 
 // getBlueprintRunInput holds input for GetBlueprintRun.
-type getBlueprintRunInput struct{}
+type getBlueprintRunInput struct {
+	BlueprintName string `json:"BlueprintName"`
+	RunID         string `json:"RunId"`
+}
 
 // getBlueprintRunOutput holds the result for GetBlueprintRun.
 type getBlueprintRunOutput struct {
@@ -1319,13 +1335,22 @@ type getBlueprintRunOutput struct {
 
 func (h *Handler) handleGetBlueprintRun(
 	_ context.Context,
-	_ *getBlueprintRunInput,
+	in *getBlueprintRunInput,
 ) (*getBlueprintRunOutput, error) {
-	return &getBlueprintRunOutput{}, nil
+	if in.RunID == "" {
+		return &getBlueprintRunOutput{}, nil
+	}
+	run, err := h.Backend.GetBlueprintRun(in.BlueprintName, in.RunID)
+	if err != nil {
+		return &getBlueprintRunOutput{}, nil //nolint:nilerr // graceful empty
+	}
+	return &getBlueprintRunOutput{Run: run}, nil
 }
 
 // getBlueprintRunsInput holds input for GetBlueprintRuns.
-type getBlueprintRunsInput struct{}
+type getBlueprintRunsInput struct {
+	BlueprintName string `json:"BlueprintName"`
+}
 
 // getBlueprintRunsOutput holds the result for GetBlueprintRuns.
 type getBlueprintRunsOutput struct {
@@ -1334,9 +1359,14 @@ type getBlueprintRunsOutput struct {
 
 func (h *Handler) handleGetBlueprintRuns(
 	_ context.Context,
-	_ *getBlueprintRunsInput,
+	in *getBlueprintRunsInput,
 ) (*getBlueprintRunsOutput, error) {
-	return &getBlueprintRunsOutput{Runs: []any{}}, nil
+	runs := h.Backend.GetBlueprintRuns(in.BlueprintName)
+	result := make([]any, 0, len(runs))
+	for _, r := range runs {
+		result = append(result, r)
+	}
+	return &getBlueprintRunsOutput{Runs: result}, nil
 }
 
 // getCatalogInput holds input for GetCatalog.
@@ -1764,7 +1794,11 @@ func (h *Handler) handleGetGlueIdentityCenterConfiguration(
 	_ context.Context,
 	_ *getGlueIdentityCenterConfigurationInput,
 ) (*getGlueIdentityCenterConfigurationOutput, error) {
-	return &getGlueIdentityCenterConfigurationOutput{}, nil
+	cfg, _ := h.Backend.GetGlueIdentityCenterConfiguration()
+	if cfg == nil {
+		return &getGlueIdentityCenterConfigurationOutput{}, nil
+	}
+	return &getGlueIdentityCenterConfigurationOutput{InstanceArn: cfg.InstanceARN}, nil
 }
 
 // getIntegrationResourcePropertyInput holds input for GetIntegrationResourceProperty.
@@ -2451,7 +2485,14 @@ func (h *Handler) handleGetUsageProfile(
 	_ context.Context,
 	in *getUsageProfileInput,
 ) (*getUsageProfileOutput, error) {
-	return &getUsageProfileOutput{Name: in.Name}, nil
+	if in.Name == "" {
+		return &getUsageProfileOutput{}, nil
+	}
+	p, err := h.Backend.GetUsageProfile(in.Name)
+	if err != nil {
+		return &getUsageProfileOutput{Name: in.Name}, nil //nolint:nilerr
+	}
+	return &getUsageProfileOutput{Name: p.Name}, nil
 }
 
 // getUserDefinedFunctionInput holds input for GetUserDefinedFunction.
@@ -2603,7 +2644,7 @@ func (h *Handler) handleListBlueprints(
 	_ context.Context,
 	_ *listBlueprintsInput,
 ) (*listBlueprintsOutput, error) {
-	return &listBlueprintsOutput{Blueprints: []string{}}, nil
+	return &listBlueprintsOutput{Blueprints: h.Backend.ListBlueprints()}, nil
 }
 
 // listColumnStatisticsTaskRunsInput holds input for ListColumnStatisticsTaskRuns.
@@ -2663,7 +2704,7 @@ func (h *Handler) handleListCustomEntityTypes(
 	_ context.Context,
 	_ *listCustomEntityTypesInput,
 ) (*listCustomEntityTypesOutput, error) {
-	return &listCustomEntityTypesOutput{CustomEntityTypes: []*CustomEntityType{}}, nil
+	return &listCustomEntityTypesOutput{CustomEntityTypes: h.Backend.ListCustomEntityTypes()}, nil
 }
 
 // listDataQualityResultsInput holds input for ListDataQualityResults.
@@ -3005,7 +3046,12 @@ func (h *Handler) handleListUsageProfiles(
 	_ context.Context,
 	_ *listUsageProfilesInput,
 ) (*listUsageProfilesOutput, error) {
-	return &listUsageProfilesOutput{Profiles: []any{}}, nil
+	profiles := h.Backend.ListUsageProfiles()
+	result := make([]any, 0, len(profiles))
+	for _, p := range profiles {
+		result = append(result, p)
+	}
+	return &listUsageProfilesOutput{Profiles: result}, nil
 }
 
 // listWorkflowsInput holds input for ListWorkflows.
@@ -3268,7 +3314,9 @@ func (h *Handler) handleSearchTables(
 }
 
 // startBlueprintRunInput holds input for StartBlueprintRun.
-type startBlueprintRunInput struct{}
+type startBlueprintRunInput struct {
+	BlueprintName string `json:"BlueprintName"`
+}
 
 // startBlueprintRunOutput holds the result for StartBlueprintRun.
 type startBlueprintRunOutput struct {
@@ -3277,9 +3325,13 @@ type startBlueprintRunOutput struct {
 
 func (h *Handler) handleStartBlueprintRun(
 	_ context.Context,
-	_ *startBlueprintRunInput,
+	in *startBlueprintRunInput,
 ) (*startBlueprintRunOutput, error) {
-	return &startBlueprintRunOutput{RunID: "blueprint-run-stub"}, nil
+	run, err := h.Backend.StartBlueprintRun(in.BlueprintName)
+	if err != nil {
+		return nil, err
+	}
+	return &startBlueprintRunOutput{RunID: run.RunID}, nil
 }
 
 // startColumnStatisticsTaskRunInput holds input for StartColumnStatisticsTaskRun.
@@ -3554,6 +3606,7 @@ func (h *Handler) handleUpdateBlueprint(
 	_ context.Context,
 	in *updateBlueprintInput,
 ) (*updateBlueprintOutput, error) {
+	_, _ = h.Backend.UpdateBlueprint(in.Name)
 	return &updateBlueprintOutput{Name: in.Name}, nil
 }
 
@@ -3711,6 +3764,7 @@ func (h *Handler) handleUpdateGlueIdentityCenterConfiguration(
 	_ context.Context,
 	_ *updateGlueIdentityCenterConfigurationInput,
 ) (*emptyOutput, error) {
+	_ = h.Backend.UpdateGlueIdentityCenterConfiguration("")
 	return &emptyOutput{}, nil
 }
 
@@ -3961,6 +4015,7 @@ func (h *Handler) handleUpdateUsageProfile(
 	_ context.Context,
 	in *updateUsageProfileInput,
 ) (*updateUsageProfileOutput, error) {
+	_, _ = h.Backend.UpdateUsageProfile(in.Name, "")
 	return &updateUsageProfileOutput{Name: in.Name}, nil
 }
 
