@@ -151,6 +151,8 @@ type Delivery struct {
 	Arn                    string            `json:"arn"`
 	DeliverySourceName     string            `json:"deliverySourceName"`
 	DeliveryDestinationArn string            `json:"deliveryDestinationArn"`
+	FieldDelimiter         string            `json:"fieldDelimiter,omitempty"`
+	RecordFields           []string          `json:"recordFields,omitempty"`
 	CreationTime           int64             `json:"creationTime"`
 }
 

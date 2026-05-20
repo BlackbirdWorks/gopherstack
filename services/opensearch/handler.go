@@ -1,6 +1,7 @@
 package opensearch
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,6 +50,9 @@ const (
 	jsonKeyPackageStatus    = "PackageStatus"
 	jsonKeyVpcEndpointID    = "VpcEndpointId"
 	jsonKeyStatusCode       = "StatusCode"
+	jsonKeyAppName          = "Name"
+	jsonKeyAppArn           = "Arn"
+	jsonKeyDataSource       = "DataSource"
 )
 
 // Handler is the HTTP handler for OpenSearch operations.
@@ -564,9 +568,42 @@ func (h *Handler) dispatchDomainDeleteRoutes(w http.ResponseWriter, r *http.Requ
 	h.handleDeleteDomain(w, r, domainNameFromRest(rest))
 }
 
-// dispatchDomainPutRoutes handles PUT under a domain path (UpdateDomainConfig).
+// handleUpdateIndexRoute handles PUT {domainName}/index/{indexName}.
+func (h *Handler) handleUpdateIndexRoute(w http.ResponseWriter, r *http.Request, trimmed string) {
+	parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
+	if len(parts) != 2 {                           //nolint:mnd // path split count
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
+
+		return
+	}
+
+	body, _ := httputils.ReadBody(r)
+	var req struct {
+		Mappings map[string]any `json:"Mappings"`
+		Settings map[string]any `json:"Settings"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+	idx, err := h.Backend.UpdateIndex(parts[0], parts[1], req.Mappings, req.Settings)
+	if err != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+		return
+	}
+	h.writeJSON(r, w, idx)
+}
+
+// dispatchDomainPutRoutes handles PUT under a domain path (UpdateDomainConfig, UpdateIndex).
 func (h *Handler) dispatchDomainPutRoutes(w http.ResponseWriter, r *http.Request, rest string) {
 	trimmed := domainNameFromRest(rest)
+
+	// UpdateIndex: PUT {domainName}/index/{indexName}
+	if strings.Contains(trimmed, "/index/") {
+		h.handleUpdateIndexRoute(w, r, trimmed)
+
+		return
+	}
 
 	name, ok := strings.CutSuffix(trimmed, "/config")
 	if !ok {
@@ -972,7 +1009,8 @@ func (h *Handler) handleCCInboundRoutes(w http.ResponseWriter, r *http.Request, 
 	switch {
 	// GET /inboundConnection → DescribeInboundConnections
 	case (rest == "/inboundConnection" || rest == "/inboundConnection/") && r.Method == http.MethodGet:
-		h.writeJSON(r, w, map[string]any{"Connections": []any{}})
+		conns := h.Backend.DescribeInboundConnections()
+		h.writeJSON(r, w, map[string]any{"Connections": conns})
 	// PUT /inboundConnection/{id}/accept → AcceptInboundConnection
 	case strings.HasPrefix(rest, prefix) && strings.HasSuffix(rest, "/accept") &&
 		r.Method == http.MethodPut:
@@ -982,19 +1020,25 @@ func (h *Handler) handleCCInboundRoutes(w http.ResponseWriter, r *http.Request, 
 	case strings.HasPrefix(rest, prefix) && strings.HasSuffix(rest, "/reject") &&
 		r.Method == http.MethodPut:
 		connID := strings.TrimSuffix(strings.TrimPrefix(rest, prefix), "/reject")
-		status := map[string]any{jsonKeyConnection: map[string]any{
-			jsonKeyConnectionID:     connID,
-			jsonKeyConnectionStatus: map[string]any{jsonKeyStatusCode: "REJECTED"},
-		}}
-		h.writeJSON(r, w, status)
+		conn, err := h.Backend.RejectInboundConnection(connID)
+		if err != nil {
+			conn = &InboundConnection{ConnectionID: connID, Status: "REJECTED"}
+		}
+		h.writeJSON(r, w, map[string]any{jsonKeyConnection: map[string]any{
+			jsonKeyConnectionID:     conn.ConnectionID,
+			jsonKeyConnectionStatus: map[string]any{jsonKeyStatusCode: conn.Status},
+		}})
 	// DELETE /inboundConnection/{id} → DeleteInboundConnection
 	case strings.HasPrefix(rest, prefix) && r.Method == http.MethodDelete:
 		connID := strings.TrimPrefix(rest, prefix)
-		status := map[string]any{jsonKeyConnection: map[string]any{
-			jsonKeyConnectionID:     connID,
-			jsonKeyConnectionStatus: map[string]any{jsonKeyStatusCode: "DELETED"},
-		}}
-		h.writeJSON(r, w, status)
+		conn, err := h.Backend.DeleteInboundConnection(connID)
+		if err != nil {
+			conn = &InboundConnection{ConnectionID: connID, Status: statusDeleted}
+		}
+		h.writeJSON(r, w, map[string]any{jsonKeyConnection: map[string]any{
+			jsonKeyConnectionID:     conn.ConnectionID,
+			jsonKeyConnectionStatus: map[string]any{jsonKeyStatusCode: conn.Status},
+		}})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -1008,22 +1052,53 @@ func (h *Handler) handleCCOutboundRoutes(w http.ResponseWriter, r *http.Request,
 	// GET /outboundConnection → DescribeOutboundConnections
 	case (rest == "/outboundConnection" || rest == "/outboundConnection/") &&
 		r.Method == http.MethodGet:
-		h.writeJSON(r, w, map[string]any{"Connections": []any{}})
+		conns := h.Backend.DescribeOutboundConnections()
+		h.writeJSON(r, w, map[string]any{"Connections": conns})
 	// POST /outboundConnection → CreateOutboundConnection
 	case (rest == "/outboundConnection" || rest == "/outboundConnection/") &&
 		r.Method == http.MethodPost:
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+			return
+		}
+		var req struct {
+			LocalDomainInfo  map[string]any `json:"LocalDomainInfo"`
+			RemoteDomainInfo map[string]any `json:"RemoteDomainInfo"`
+			ConnectionAlias  string         `json:"ConnectionAlias"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		conn, createErr := h.Backend.CreateOutboundConnection(
+			req.ConnectionAlias,
+			req.LocalDomainInfo,
+			req.RemoteDomainInfo,
+		)
+		if createErr != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", createErr.Error())
+
+			return
+		}
 		h.writeJSON(r, w, map[string]any{
-			"ConnectionId":     "stub-conn-id",
-			"ConnectionStatus": map[string]any{jsonKeyStatusCode: "VALIDATING"},
+			"ConnectionId":     conn.ConnectionID,
+			"ConnectionAlias":  conn.ConnectionAlias,
+			"ConnectionStatus": map[string]any{jsonKeyStatusCode: conn.Status},
 		})
 	// DELETE /outboundConnection/{id} → DeleteOutboundConnection
 	case strings.HasPrefix(rest, prefix) && r.Method == http.MethodDelete:
 		connID := strings.TrimPrefix(rest, prefix)
-		status := map[string]any{jsonKeyConnection: map[string]any{
-			jsonKeyConnectionID:     connID,
-			jsonKeyConnectionStatus: map[string]any{jsonKeyStatusCode: "DELETED"},
-		}}
-		h.writeJSON(r, w, status)
+		conn, err := h.Backend.DeleteOutboundConnection(connID)
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return
+		}
+		h.writeJSON(r, w, map[string]any{jsonKeyConnection: map[string]any{
+			jsonKeyConnectionID:     conn.ConnectionID,
+			jsonKeyConnectionStatus: map[string]any{jsonKeyStatusCode: conn.Status},
+		}})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -1039,23 +1114,58 @@ func (h *Handler) handleDirectQueryRoutes(w http.ResponseWriter, r *http.Request
 		h.handleAddDirectQueryDataSource(w, r)
 	// GET /2021-01-01/opensearch/directQueryDataSource → ListDirectQueryDataSources
 	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
-		h.writeJSON(r, w, map[string]any{"DirectQueryDataSources": []any{}})
+		sources := h.Backend.ListDirectQueryDataSources()
+		h.writeJSON(r, w, map[string]any{"DirectQueryDataSources": sources})
 	// GET /2021-01-01/opensearch/directQueryDataSource/{dataSourceName} → GetDirectQueryDataSource
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodGet:
-		h.writeJSON(r, w, map[string]any{
-			"DataSourceName": strings.TrimPrefix(rest, "/"),
-			"DataSourceType": map[string]any{},
-			"OpenSearchArns": []any{},
-		})
+		h.handleGetDirectQueryDataSource(w, r, strings.TrimPrefix(rest, "/"))
 	// DELETE /2021-01-01/opensearch/directQueryDataSource/{dataSourceName} → DeleteDirectQueryDataSource
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodDelete:
-		w.WriteHeader(http.StatusOK)
+		h.handleDeleteDirectQueryDataSource(w, r, strings.TrimPrefix(rest, "/"))
 	// PUT /2021-01-01/opensearch/directQueryDataSource/{dataSourceName} → UpdateDirectQueryDataSource
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodPut:
-		h.writeJSON(r, w, map[string]any{"DataSourceArn": "stub-arn"})
+		h.handleUpdateDirectQueryDataSource(w, r, strings.TrimPrefix(rest, "/"))
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
+}
+
+func (h *Handler) handleGetDirectQueryDataSource(w http.ResponseWriter, r *http.Request, name string) {
+	ds, err := h.Backend.GetDirectQueryDataSource(name)
+	if err != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+		return
+	}
+	h.writeJSON(r, w, ds)
+}
+
+func (h *Handler) handleDeleteDirectQueryDataSource(w http.ResponseWriter, _ *http.Request, name string) {
+	_ = h.Backend.DeleteDirectQueryDataSource(name)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) handleUpdateDirectQueryDataSource(w http.ResponseWriter, r *http.Request, name string) {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return
+	}
+	var req struct {
+		Description    string   `json:"Description"`
+		OpenSearchArns []string `json:"OpenSearchArns"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+	ds, updateErr := h.Backend.UpdateDirectQueryDataSource(name, req.Description, req.OpenSearchArns)
+	if updateErr != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
+
+		return
+	}
+	h.writeJSON(r, w, map[string]any{"DataSourceArn": ds.DataSourceArn})
 }
 
 // handlePackageRoutes handles package routes.
@@ -1125,19 +1235,41 @@ func (h *Handler) handlePackageSubResourceRoutes(w http.ResponseWriter, r *http.
 	switch {
 	// GET /packages/{packageId}/history → GetPackageVersionHistory
 	case strings.HasSuffix(rest, "/history") && r.Method == http.MethodGet:
-		h.writeJSON(r, w, map[string]any{"PackageVersionHistoryList": []any{}})
+		pkgID := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/history")
+		history, err := h.Backend.GetPackageVersionHistory(pkgID)
+		if err != nil {
+			history = []*PackageVersionHistory{}
+		}
+		h.writeJSON(r, w, map[string]any{"PackageVersionHistoryList": history})
 
 		return true
 	// GET /packages/{packageId}/domains → ListDomainsForPackage
 	case strings.HasSuffix(rest, "/domains") && r.Method == http.MethodGet:
-		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: []any{}})
+		pkgID := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/domains")
+		domains := h.Backend.ListDomainsForPackage(pkgID)
+		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: domains})
 
 		return true
 	// PUT /packages/{packageId}/scope → UpdatePackageScope
 	case strings.HasSuffix(rest, "/scope") && r.Method == http.MethodPut:
+		pkgID := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/scope")
+		body, _ := httputils.ReadBody(r)
+		var req struct {
+			Operation   string   `json:"Operation"`
+			DomainNames []string `json:"PackageScopeOperationConfig"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		pkg, err := h.Backend.UpdatePackageScope(pkgID, req.Operation, req.DomainNames)
+		var retPkgID string
+		if pkg != nil {
+			retPkgID = pkg.PackageID
+		}
+		_ = err
 		h.writeJSON(r, w, map[string]any{
-			jsonKeyPackageID:              "",
-			"Operation":                   "ADD",
+			jsonKeyPackageID:              retPkgID,
+			"Operation":                   req.Operation,
 			"PackageScopeOperationStatus": softwareUpdateCompleted,
 		})
 
@@ -1152,16 +1284,38 @@ func (h *Handler) handlePackageRootRoutes(w http.ResponseWriter, r *http.Request
 	switch r.Method {
 	// POST /packages → CreatePackage
 	case http.MethodPost:
-		h.writeJSON(r, w, map[string]any{
-			jsonKeyPackageDetails: map[string]any{
-				jsonKeyPackageID:     "pkg-stub",
-				jsonKeyPackageName:   EngineStub,
-				jsonKeyPackageStatus: pkgStateActive,
-			},
-		})
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+			return
+		}
+		var req struct {
+			PackageName        string `json:"PackageName"`
+			PackageType        string `json:"PackageType"`
+			PackageDescription string `json:"PackageDescription"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		pkg, createErr := h.Backend.CreatePackage(req.PackageName, req.PackageType, req.PackageDescription)
+		if createErr != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", createErr.Error())
+
+			return
+		}
+		h.writeJSON(r, w, map[string]any{jsonKeyPackageDetails: pkg})
 	// GET /packages → DescribePackages
 	case http.MethodGet:
-		h.writeJSON(r, w, map[string]any{"PackageDetailsList": []any{}})
+		var ids []string
+		if q := r.URL.Query().Get("PackageID"); q != "" {
+			ids = append(ids, q)
+		}
+		pkgs, _ := h.Backend.DescribePackages(ids)
+		if pkgs == nil {
+			pkgs = []*Package{}
+		}
+		h.writeJSON(r, w, map[string]any{"PackageDetailsList": pkgs})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -1179,14 +1333,34 @@ func (h *Handler) handlePackageIDRoutes(w http.ResponseWriter, r *http.Request, 
 	switch r.Method {
 	// DELETE /packages/{packageId} → DeletePackage
 	case http.MethodDelete:
-		h.writeJSON(r, w, map[string]any{
-			jsonKeyPackageDetails: map[string]any{jsonKeyPackageID: pkgID, jsonKeyPackageStatus: "DELETING"},
-		})
+		pkg, err := h.Backend.DeletePackage(pkgID)
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return
+		}
+		h.writeJSON(r, w, map[string]any{jsonKeyPackageDetails: pkg})
 	// POST /packages/{packageId} → UpdatePackage
 	case http.MethodPost:
-		h.writeJSON(r, w, map[string]any{
-			jsonKeyPackageDetails: map[string]any{jsonKeyPackageID: pkgID, jsonKeyPackageStatus: pkgStateActive},
-		})
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+			return
+		}
+		var req struct {
+			PackageDescription string `json:"PackageDescription"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		pkg, updateErr := h.Backend.UpdatePackage(pkgID, req.PackageDescription)
+		if updateErr != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
+
+			return
+		}
+		h.writeJSON(r, w, map[string]any{jsonKeyPackageDetails: pkg})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -1234,7 +1408,17 @@ func (h *Handler) handleApplicationRootRoutes(w http.ResponseWriter, r *http.Req
 	case http.MethodPost:
 		h.handleCreateApplication(w, r)
 	case http.MethodGet:
-		h.writeJSON(r, w, map[string]any{"ApplicationSummaries": []any{}})
+		apps := h.Backend.ListApplications()
+		summaries := make([]map[string]any, 0, len(apps))
+		for _, app := range apps {
+			summaries = append(summaries, map[string]any{
+				"Id":           app.ID,
+				jsonKeyAppName: app.Name,
+				jsonKeyAppArn:  app.ARN,
+				"Status":       pkgStateActive,
+			})
+		}
+		h.writeJSON(r, w, map[string]any{"ApplicationSummaries": summaries})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -1266,11 +1450,56 @@ func (h *Handler) handleApplicationIDRoutes(w http.ResponseWriter, r *http.Reque
 
 	switch r.Method {
 	case http.MethodGet:
-		h.writeJSON(r, w, map[string]any{"Id": appID, "Name": EngineStub, jsonKeyStatus: "ACTIVE"})
+		app, err := h.Backend.GetApplication(appID)
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return
+		}
+		h.writeJSON(r, w, map[string]any{
+			"Id": app.ID, jsonKeyAppName: app.Name, jsonKeyAppArn: app.ARN,
+			"AppConfigs": app.AppConfigs, "DataSources": app.DataSources,
+			jsonKeyStatus: pkgStateActive,
+		})
 	case http.MethodDelete:
+		if err := h.Backend.DeleteApplication(appID); err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	case http.MethodPut:
-		h.writeJSON(r, w, map[string]any{"Id": appID, "Name": EngineStub, jsonKeyStatus: "UPDATING"})
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+			return
+		}
+		var req struct {
+			AppConfigs  []appConfigJSON `json:"AppConfigs"`
+			DataSources []appDSJSON     `json:"DataSources"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		appConfigs := make([]AppConfig, len(req.AppConfigs))
+		for i, ac := range req.AppConfigs {
+			appConfigs[i] = AppConfig(ac)
+		}
+		dataSources := make([]AppDataSource, len(req.DataSources))
+		for i, ds := range req.DataSources {
+			dataSources[i] = AppDataSource(ds)
+		}
+		app, updateErr := h.Backend.UpdateApplication(appID, appConfigs, dataSources)
+		if updateErr != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
+
+			return
+		}
+		h.writeJSON(r, w, map[string]any{
+			"Id": app.ID, jsonKeyAppName: app.Name, jsonKeyAppArn: app.ARN,
+			jsonKeyStatus: pkgStateActive,
+		})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -1820,7 +2049,15 @@ func (h *Handler) handleVpcEndpointsRoutes(w http.ResponseWriter, r *http.Reques
 	switch {
 	// POST /vpcEndpoints/describe → DescribeVpcEndpoints
 	case rest == "/describe" && r.Method == http.MethodPost:
-		h.writeJSON(r, w, map[string]any{"VpcEndpoints": []any{}, "VpcEndpointErrors": []any{}})
+		body, _ := httputils.ReadBody(r)
+		var req struct {
+			VpcEndpointIDs []string `json:"VpcEndpointIds"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		endpoints, errs := h.Backend.DescribeVpcEndpoints(req.VpcEndpointIDs)
+		h.writeJSON(r, w, map[string]any{"VpcEndpoints": endpoints, "VpcEndpointErrors": errs})
 	// Root: Create/List.
 	case rest == "" || rest == "/":
 		h.handleVpcEndpointRootRoutes(w, r)
@@ -1836,11 +2073,32 @@ func (h *Handler) handleVpcEndpointsRoutes(w http.ResponseWriter, r *http.Reques
 func (h *Handler) handleVpcEndpointRootRoutes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		h.writeJSON(r, w, map[string]any{
-			"VpcEndpoint": map[string]any{jsonKeyVpcEndpointID: "vpce-stub", jsonKeyStatus: pkgStateActive},
-		})
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+			return
+		}
+		var req struct {
+			VpcOptions map[string]any `json:"VpcOptions"`
+			DomainArn  string         `json:"DomainArn"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		ep, createErr := h.Backend.CreateVpcEndpoint(req.DomainArn, req.VpcOptions)
+		if createErr != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", createErr.Error())
+
+			return
+		}
+		h.writeJSON(r, w, map[string]any{"VpcEndpoint": ep})
 	case http.MethodGet:
-		h.writeJSON(r, w, map[string]any{"VpcEndpoints": []any{}})
+		endpoints := h.Backend.ListVpcEndpoints()
+		if endpoints == nil {
+			endpoints = []*VpcEndpoint{}
+		}
+		h.writeJSON(r, w, map[string]any{"VpcEndpoints": endpoints})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -1850,13 +2108,35 @@ func (h *Handler) handleVpcEndpointRootRoutes(w http.ResponseWriter, r *http.Req
 func (h *Handler) handleVpcEndpointIDRoutes(w http.ResponseWriter, r *http.Request, endpointID string) {
 	switch r.Method {
 	case http.MethodDelete:
+		ep, err := h.Backend.DeleteVpcEndpoint(endpointID)
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return
+		}
 		h.writeJSON(r, w, map[string]any{
-			"VpcEndpointSummary": map[string]any{jsonKeyVpcEndpointID: endpointID, jsonKeyStatus: "DELETING"},
+			"VpcEndpointSummary": map[string]any{jsonKeyVpcEndpointID: ep.VpcEndpointID, jsonKeyStatus: ep.Status},
 		})
 	case http.MethodPut:
-		h.writeJSON(r, w, map[string]any{
-			"VpcEndpoint": map[string]any{jsonKeyVpcEndpointID: endpointID, jsonKeyStatus: "UPDATING"},
-		})
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+			return
+		}
+		var req struct {
+			VpcOptions map[string]any `json:"VpcOptions"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		ep, updateErr := h.Backend.UpdateVpcEndpoint(endpointID, req.VpcOptions)
+		if updateErr != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
+
+			return
+		}
+		h.writeJSON(r, w, map[string]any{"VpcEndpoint": ep})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -1869,10 +2149,32 @@ func (h *Handler) handleScheduledActionsRoutes(w http.ResponseWriter, r *http.Re
 	switch {
 	// GET /scheduledActions → ListScheduledActions
 	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
-		h.writeJSON(r, w, map[string]any{"ScheduledActions": []any{}})
+		domainName := r.URL.Query().Get("DomainName")
+		actions := h.Backend.ListScheduledActions(domainName)
+		if actions == nil {
+			actions = []*ScheduledAction{}
+		}
+		h.writeJSON(r, w, map[string]any{"ScheduledActions": actions})
 	// PUT /scheduledActions/update → UpdateScheduledAction
 	case rest == "/update" && r.Method == http.MethodPut:
-		h.writeJSON(r, w, map[string]any{"ScheduledAction": map[string]any{}})
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+			return
+		}
+		var req struct {
+			ScheduledAction *ScheduledAction `json:"ScheduledAction"`
+			DomainName      string           `json:"DomainName"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		if req.ScheduledAction == nil {
+			req.ScheduledAction = &ScheduledAction{}
+		}
+		action, _ := h.Backend.UpdateScheduledAction(req.DomainName, req.ScheduledAction)
+		h.writeJSON(r, w, map[string]any{"ScheduledAction": action})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -1885,14 +2187,48 @@ func (h *Handler) handleReservedInstancesRoutes(w http.ResponseWriter, r *http.R
 	switch {
 	// GET /reservedInstances → DescribeReservedInstances
 	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
-		h.writeJSON(r, w, map[string]any{"ReservedInstances": []any{}})
+		instances := h.Backend.DescribeReservedInstances()
+		if instances == nil {
+			instances = []*ReservedInstance{}
+		}
+		h.writeJSON(r, w, map[string]any{"ReservedInstances": instances})
 	// GET /reservedInstances/offerings → DescribeReservedInstanceOfferings
 	case rest == "/offerings" && r.Method == http.MethodGet:
-		h.writeJSON(r, w, map[string]any{"ReservedInstanceOfferings": []any{}})
+		offerings := h.Backend.DescribeReservedInstanceOfferings()
+		h.writeJSON(r, w, map[string]any{"ReservedInstanceOfferings": offerings})
 	// POST /reservedInstances/offerings/{offeringId} → PurchaseReservedInstanceOffering
 	case strings.HasPrefix(rest, "/offerings/") && r.Method == http.MethodPost:
 		offeringID := strings.TrimPrefix(rest, "/offerings/")
-		h.writeJSON(r, w, map[string]any{"ReservedInstanceId": offeringID, "ReservationName": EngineStub})
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+			return
+		}
+		var req struct {
+			ReservationName string `json:"ReservationName"`
+			InstanceCount   int    `json:"InstanceCount"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		if req.InstanceCount == 0 {
+			req.InstanceCount = 1
+		}
+		ri, purchaseErr := h.Backend.PurchaseReservedInstanceOffering(
+			offeringID,
+			req.ReservationName,
+			req.InstanceCount,
+		)
+		if purchaseErr != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", purchaseErr.Error())
+
+			return
+		}
+		h.writeJSON(r, w, map[string]any{
+			"ReservedInstanceId": ri.ReservedInstanceID,
+			"ReservationName":    ri.ReservationName,
+		})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -1906,10 +2242,31 @@ func (h *Handler) handleUpgradeDomainRoutes(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return
+	}
+
+	var req struct {
+		DomainName    string `json:"DomainName"`
+		TargetVersion string `json:"TargetVersion"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	if upgradeErr := h.Backend.UpgradeDomain(req.DomainName, req.TargetVersion); upgradeErr != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", upgradeErr.Error())
+
+		return
+	}
+
 	h.writeJSON(r, w, map[string]any{
-		"UpgradeId":     "stub-upgrade-id",
-		"DomainName":    "",
-		"TargetVersion": "",
+		"UpgradeId":     fmt.Sprintf("upgrade-%s", req.DomainName),
+		"DomainName":    req.DomainName,
+		"TargetVersion": req.TargetVersion,
 		"StepStatus":    "REQUESTED",
 	})
 }
@@ -1977,12 +2334,40 @@ func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.R
 			"StepStatus":  upgradeStatus,
 			"UpgradeStep": upgradeStep,
 		})
+	default:
+		return h.dispatchDomainGetVpcRoutes(w, trimmed)
+	}
+
+	return true
+}
+
+// dispatchDomainGetVpcRoutes handles VPC-related GET sub-routes on a domain.
+// Returns true if handled.
+func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, trimmed string) bool {
+	switch {
 	case strings.HasSuffix(trimmed, "/vpcEndpoints"):
 		// ListVpcEndpointsForDomain
-		h.writeJSON(r, w, map[string]any{"VpcEndpointSummaryList": []any{}})
+		domainName, _ := strings.CutSuffix(trimmed, "/vpcEndpoints")
+		domain, descErr := h.Backend.DescribeDomain(domainName)
+		var domainArn string
+		if descErr == nil {
+			domainArn = domain.ARN
+		}
+		endpoints := h.Backend.ListVpcEndpointsForDomain(domainArn)
+		httputils.WriteJSON(context.Background(), w, http.StatusOK, map[string]any{"VpcEndpointSummaryList": endpoints})
 	case strings.HasSuffix(trimmed, "/listVpcEndpointAccess"):
 		// ListVpcEndpointAccess
-		h.writeJSON(r, w, map[string]any{"AuthorizedPrincipalList": []any{}})
+		domainName, _ := strings.CutSuffix(trimmed, "/listVpcEndpointAccess")
+		principals, _ := h.Backend.ListVpcEndpointAccess(domainName)
+		if principals == nil {
+			principals = []AuthorizedPrincipal{}
+		}
+		httputils.WriteJSON(
+			context.Background(),
+			w,
+			http.StatusOK,
+			map[string]any{"AuthorizedPrincipalList": principals},
+		)
 	default:
 		return false
 	}
@@ -1993,22 +2378,81 @@ func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.R
 // dispatchDomainGetResourceRoutes handles resource-listing GET sub-routes on a domain.
 // Returns true if handled.
 func (h *Handler) dispatchDomainGetResourceRoutes(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	if h.dispatchDomainGetResourceByID(w, r, trimmed) {
+		return true
+	}
+
+	switch {
+	case strings.HasSuffix(trimmed, "/dataSource"):
+		domainName, _ := strings.CutSuffix(trimmed, "/dataSource")
+		sources, _ := h.Backend.ListDataSources(domainName)
+		if sources == nil {
+			sources = []*DataSource{}
+		}
+		h.writeJSON(r, w, map[string]any{"DataSources": sources})
+	case strings.HasSuffix(trimmed, "/packages"):
+		domainName, _ := strings.CutSuffix(trimmed, "/packages")
+		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: h.Backend.ListPackagesForDomain(domainName)})
+	case strings.HasSuffix(trimmed, "/maintenance"):
+		domainName, _ := strings.CutSuffix(trimmed, "/maintenance")
+		maintenances, _ := h.Backend.ListDomainMaintenances(domainName)
+		if maintenances == nil {
+			maintenances = []*DomainMaintenance{}
+		}
+		h.writeJSON(r, w, map[string]any{"DomainMaintenances": maintenances})
+	default:
+		return false
+	}
+
+	return true
+}
+
+// dispatchDomainGetResourceByID handles GET sub-routes that address a specific resource by ID.
+// Returns true if handled.
+func (h *Handler) dispatchDomainGetResourceByID(w http.ResponseWriter, r *http.Request, trimmed string) bool {
 	switch {
 	case strings.Contains(trimmed, "/dataSource/"):
-		// GetDataSource
-		h.writeJSON(r, w, map[string]any{"DataSource": map[string]any{}})
-	case strings.HasSuffix(trimmed, "/dataSource"):
-		// ListDataSources
-		h.writeJSON(r, w, map[string]any{"DataSources": []any{}})
-	case strings.HasSuffix(trimmed, "/packages"):
-		// ListPackagesForDomain
-		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: []any{}})
+		parts := strings.SplitN(trimmed, "/dataSource/", 2) //nolint:mnd // path split count
+		if len(parts) != 2 || parts[1] == "" {
+			h.writeJSON(r, w, map[string]any{jsonKeyDataSource: map[string]any{}})
+
+			return true
+		}
+		ds, err := h.Backend.GetDataSource(parts[0], parts[1])
+		if err != nil {
+			h.writeJSON(r, w, map[string]any{jsonKeyDataSource: map[string]any{}})
+
+			return true
+		}
+		h.writeJSON(r, w, map[string]any{jsonKeyDataSource: ds})
 	case strings.Contains(trimmed, "/maintenance/"):
-		// GetDomainMaintenanceStatus
-		h.writeJSON(r, w, map[string]any{jsonKeyStatus: softwareUpdateCompleted})
-	case strings.HasSuffix(trimmed, "/maintenance"):
-		// ListDomainMaintenances
-		h.writeJSON(r, w, map[string]any{"DomainMaintenances": []any{}})
+		parts := strings.SplitN(trimmed, "/maintenance/", 2) //nolint:mnd // path split count
+		if len(parts) != 2 || parts[1] == "" {
+			h.writeJSON(r, w, map[string]any{jsonKeyStatus: softwareUpdateCompleted})
+
+			return true
+		}
+		m, err := h.Backend.GetDomainMaintenanceStatus(parts[0], parts[1])
+		if err != nil {
+			h.writeJSON(r, w, map[string]any{jsonKeyStatus: softwareUpdateCompleted})
+
+			return true
+		}
+		h.writeJSON(r, w, m)
+	case strings.Contains(trimmed, "/index/"):
+		parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
+		if len(parts) != 2 || parts[1] == "" {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
+
+			return true
+		}
+		idx, err := h.Backend.GetIndex(parts[0], parts[1])
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return true
+		}
+		h.writeJSON(r, w, idx)
 	default:
 		return false
 	}
@@ -2022,21 +2466,94 @@ func (h *Handler) dispatchDomainPostRoutesExtended(w http.ResponseWriter, r *htt
 	switch {
 	case strings.HasSuffix(trimmed, "/maintenance"):
 		// StartDomainMaintenance
-		h.writeJSON(r, w, map[string]any{"MaintenanceId": "stub-maintenance-id"})
+		domainName, _ := strings.CutSuffix(trimmed, "/maintenance")
+		body, _ := httputils.ReadBody(r)
+		var req struct {
+			Action string `json:"Action"`
+			NodeID string `json:"NodeId"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		m, err := h.Backend.StartDomainMaintenance(domainName, req.Action, req.NodeID)
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return true
+		}
+		h.writeJSON(r, w, map[string]any{"MaintenanceId": m.MaintenanceID})
 	case strings.HasSuffix(trimmed, "/revokeVpcEndpointAccess"):
 		// RevokeVpcEndpointAccess
+		domainName, _ := strings.CutSuffix(trimmed, "/revokeVpcEndpointAccess")
+		body, _ := httputils.ReadBody(r)
+		var req struct {
+			Account string `json:"Account"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		_ = h.Backend.RevokeVpcEndpointAccess(domainName, req.Account)
 		w.WriteHeader(http.StatusOK)
 	case strings.HasSuffix(trimmed, "/serviceSoftwareUpdate"):
 		// StartServiceSoftwareUpdate
+		domainName, _ := strings.CutSuffix(trimmed, "/serviceSoftwareUpdate")
+		opts, err := h.Backend.StartServiceSoftwareUpdate(domainName)
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return true
+		}
 		h.writeJSON(r, w, map[string]any{
-			"ServiceSoftwareOptions": map[string]any{"UpdateStatus": "PENDING_UPDATE", "UpdateAvailable": true},
+			"ServiceSoftwareOptions": map[string]any{
+				"UpdateStatus": opts.UpdateStatus, "UpdateAvailable": opts.UpdateAvailable,
+			},
 		})
 	case strings.HasSuffix(trimmed, "/updateDataSource"):
 		// UpdateDataSource
+		domainName, _ := strings.CutSuffix(trimmed, "/updateDataSource")
+		body, _ := httputils.ReadBody(r)
+		var req struct {
+			Name        string `json:"Name"`
+			Description string `json:"Description"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		_ = h.Backend.UpdateDataSource(domainName, req.Name, req.Description)
 		h.writeJSON(r, w, map[string]any{"Message": "DataSource updated"})
+	case strings.Contains(trimmed, "/index/"):
+		return h.handleCreateIndexRoute(w, r, trimmed)
 	default:
 		return false
 	}
+
+	return true
+}
+
+// handleCreateIndexRoute handles the POST {domainName}/index/{indexName} route.
+func (h *Handler) handleCreateIndexRoute(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
+	if len(parts) != 2 {                           //nolint:mnd // path split count
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
+
+		return true
+	}
+	body, _ := httputils.ReadBody(r)
+	var req struct {
+		Mappings map[string]any `json:"Mappings"`
+		Settings map[string]any `json:"Settings"`
+		Aliases  map[string]any `json:"Aliases"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+	idx, err := h.Backend.CreateIndex(parts[0], parts[1], req.Mappings, req.Settings, req.Aliases)
+	if err != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+		return true
+	}
+	h.writeJSON(r, w, idx)
 
 	return true
 }
@@ -2045,8 +2562,30 @@ func (h *Handler) dispatchDomainPostRoutesExtended(w http.ResponseWriter, r *htt
 // Returns true if handled.
 func (h *Handler) dispatchDomainDeleteRoutesExtended(w http.ResponseWriter, r *http.Request, trimmed string) bool {
 	if strings.Contains(trimmed, "/dataSource/") {
-		// DeleteDataSource
+		// DeleteDataSource: {domainName}/dataSource/{name}
+		parts := strings.SplitN(trimmed, "/dataSource/", 2) //nolint:mnd // path split count
+		if len(parts) == 2 {                                //nolint:mnd // path split count
+			_ = h.Backend.DeleteDataSource(parts[0], parts[1])
+		}
 		h.writeJSON(r, w, map[string]any{"Message": "DataSource deleted"})
+
+		return true
+	}
+
+	if strings.Contains(trimmed, "/index/") {
+		// DeleteIndex: {domainName}/index/{indexName}
+		parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
+		if len(parts) == 2 {                           //nolint:mnd // path split count
+			idx, err := h.Backend.DeleteIndex(parts[0], parts[1])
+			if err != nil {
+				h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+				return true
+			}
+			h.writeJSON(r, w, idx)
+		} else {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
+		}
 
 		return true
 	}
