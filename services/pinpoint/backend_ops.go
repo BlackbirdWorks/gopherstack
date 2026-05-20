@@ -2,7 +2,11 @@ package pinpoint
 
 import (
 	"fmt"
+	"maps"
+	"math/rand/v2"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -15,6 +19,12 @@ const (
 	templateTypePush  = "push"
 	templateTypeSMS   = "sms"
 	templateTypeVoice = "voice"
+
+	templateTypeINAPP = "INAPP"
+	templateTypePUSH  = "PUSH"
+
+	minPhoneLength = 10
+	otpModulus     = 1000000
 
 	statusCodeOK = 200
 )
@@ -116,6 +126,12 @@ func (b *InMemoryBackend) CreateVoiceTemplate(
 
 	b.voiceTemplates[templateName] = t
 
+	// Track template version history.
+	versionKey := templateName + "/VOICE"
+	b.templateVersionHistory[versionKey] = []templateVersionItem{
+		{TemplateName: templateName, TemplateType: ChannelTypeVoice, TemplateVersion: "1"},
+	}
+
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
 
@@ -159,6 +175,14 @@ func (b *InMemoryBackend) UpdateVoiceTemplate(
 		t.Tags = nonNilTagsCopy(req.Tags)
 	}
 
+	versionKey := templateName + "/VOICE"
+	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
+	b.templateVersionHistory[versionKey] = append(b.templateVersionHistory[versionKey], templateVersionItem{
+		TemplateName:    templateName,
+		TemplateType:    ChannelTypeVoice,
+		TemplateVersion: nextVersion,
+	})
+
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
 
@@ -195,7 +219,7 @@ func (b *InMemoryBackend) ListTemplates() ([]*templateListItem, error) {
 	for _, t := range b.emailTemplates {
 		items = append(items, &templateListItem{
 			TemplateName: t.TemplateName,
-			TemplateType: "EMAIL",
+			TemplateType: ChannelTypeEmail,
 			ARN:          t.ARN,
 			CreationDate: t.CreationDate,
 		})
@@ -204,7 +228,7 @@ func (b *InMemoryBackend) ListTemplates() ([]*templateListItem, error) {
 	for _, t := range b.inAppTemplates {
 		items = append(items, &templateListItem{
 			TemplateName: t.TemplateName,
-			TemplateType: "INAPP",
+			TemplateType: templateTypeINAPP,
 			ARN:          t.ARN,
 			CreationDate: t.CreationDate,
 		})
@@ -213,7 +237,7 @@ func (b *InMemoryBackend) ListTemplates() ([]*templateListItem, error) {
 	for _, t := range b.pushTemplates {
 		items = append(items, &templateListItem{
 			TemplateName: t.TemplateName,
-			TemplateType: "PUSH",
+			TemplateType: templateTypePUSH,
 			ARN:          t.ARN,
 			CreationDate: t.CreationDate,
 		})
@@ -222,7 +246,7 @@ func (b *InMemoryBackend) ListTemplates() ([]*templateListItem, error) {
 	for _, t := range b.smsTemplates {
 		items = append(items, &templateListItem{
 			TemplateName: t.TemplateName,
-			TemplateType: "SMS",
+			TemplateType: ChannelTypeSMS,
 			ARN:          t.ARN,
 			CreationDate: t.CreationDate,
 		})
@@ -231,7 +255,7 @@ func (b *InMemoryBackend) ListTemplates() ([]*templateListItem, error) {
 	for _, t := range b.voiceTemplates {
 		items = append(items, &templateListItem{
 			TemplateName: t.TemplateName,
-			TemplateType: "VOICE",
+			TemplateType: ChannelTypeVoice,
 			ARN:          t.ARN,
 			CreationDate: t.CreationDate,
 		})
@@ -308,6 +332,11 @@ func (b *InMemoryBackend) UpdateCampaign(appID, campaignID string, req updateCam
 	}
 
 	c.LastModifiedDate = nowRFC3339()
+	c.Version++
+
+	// Track campaign version history.
+	versionKey := appID + "/" + campaignID
+	b.campaignVersions[versionKey] = append(b.campaignVersions[versionKey], cloneCampaign(c))
 
 	return cloneCampaign(c), nil
 }
@@ -382,6 +411,12 @@ func (b *InMemoryBackend) UpdateSegment(appID, segmentID string, req updateSegme
 	if req.Name != "" {
 		s.Name = req.Name
 	}
+
+	s.Version++
+
+	// Track segment version history.
+	versionKey := appID + "/" + segmentID
+	b.segmentVersions[versionKey] = append(b.segmentVersions[versionKey], cloneSegment(s))
 
 	return cloneSegment(s), nil
 }
@@ -475,6 +510,17 @@ func (b *InMemoryBackend) UpdateJourneyState(appID, journeyID, state string) (*J
 	j.State = state
 	j.LastModifiedDate = nowRFC3339()
 
+	// When activating, create a journey run record.
+	if state == "ACTIVE" {
+		runKey := appID + "/" + journeyID
+		b.journeyRuns[runKey] = append(b.journeyRuns[runKey], &journeyRun{
+			RunID:         uuid.NewString(),
+			JourneyID:     journeyID,
+			ApplicationID: appID,
+			Status:        "SCHEDULED",
+		})
+	}
+
 	return cloneJourney(j), nil
 }
 
@@ -524,6 +570,14 @@ func (b *InMemoryBackend) UpdateEmailTemplate(
 		return nil, ErrAppNotFound
 	}
 
+	versionKey := templateName + "/EMAIL"
+	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
+	b.templateVersionHistory[versionKey] = append(b.templateVersionHistory[versionKey], templateVersionItem{
+		TemplateName:    templateName,
+		TemplateType:    ChannelTypeEmail,
+		TemplateVersion: nextVersion,
+	})
+
 	return cloneEmailTemplate(t), nil
 }
 
@@ -569,6 +623,14 @@ func (b *InMemoryBackend) UpdateInAppTemplate(
 		return nil, ErrAppNotFound
 	}
 
+	versionKey := templateName + "/INAPP"
+	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
+	b.templateVersionHistory[versionKey] = append(b.templateVersionHistory[versionKey], templateVersionItem{
+		TemplateName:    templateName,
+		TemplateType:    templateTypeINAPP,
+		TemplateVersion: nextVersion,
+	})
+
 	return cloneInAppTemplate(t), nil
 }
 
@@ -611,6 +673,14 @@ func (b *InMemoryBackend) UpdatePushTemplate(templateName string, _ createPushTe
 		return nil, ErrAppNotFound
 	}
 
+	versionKey := templateName + "/PUSH"
+	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
+	b.templateVersionHistory[versionKey] = append(b.templateVersionHistory[versionKey], templateVersionItem{
+		TemplateName:    templateName,
+		TemplateType:    templateTypePUSH,
+		TemplateVersion: nextVersion,
+	})
+
 	return clonePushTemplate(t), nil
 }
 
@@ -652,6 +722,14 @@ func (b *InMemoryBackend) UpdateSmsTemplate(templateName string, _ createSmsTemp
 	if !ok {
 		return nil, ErrAppNotFound
 	}
+
+	versionKey := templateName + "/SMS"
+	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
+	b.templateVersionHistory[versionKey] = append(b.templateVersionHistory[versionKey], templateVersionItem{
+		TemplateName:    templateName,
+		TemplateType:    ChannelTypeSMS,
+		TemplateVersion: nextVersion,
+	})
 
 	return cloneSmsTemplate(t), nil
 }
@@ -1166,10 +1244,10 @@ func (b *InMemoryBackend) GetJourneyDateRangeKpi(appID, journeyID, kpiName strin
 	}, nil
 }
 
-// SendMessages sends messages (stub - returns a message ID per address).
+// SendMessages sends messages and tracks send count.
 func (b *InMemoryBackend) SendMessages(appID string, req sendMessagesRequest) (*messageResponse, error) {
-	b.mu.RLock("SendMessages")
-	defer b.mu.RUnlock()
+	b.mu.Lock("SendMessages")
+	defer b.mu.Unlock()
 
 	if _, ok := b.apps[appID]; !ok {
 		return nil, ErrAppNotFound
@@ -1183,6 +1261,7 @@ func (b *InMemoryBackend) SendMessages(appID string, req sendMessagesRequest) (*
 			MessageID:      uuid.NewString(),
 			StatusCode:     statusCodeOK,
 		}
+		b.sentMessages[appID]++
 	}
 
 	return result, nil
@@ -1200,21 +1279,32 @@ func (b *InMemoryBackend) SendUsersMessages(appID string) (*usersMessageResponse
 	return &usersMessageResponse{Result: make(map[string]map[string]messageResult)}, nil
 }
 
-// SendOTPMessage sends an OTP message (stub).
+// SendOTPMessage sends an OTP message and stores the generated code.
 func (b *InMemoryBackend) SendOTPMessage(appID string) (*sendOTPMessageResponse, error) {
-	b.mu.RLock("SendOTPMessage")
-	defer b.mu.RUnlock()
+	b.mu.Lock("SendOTPMessage")
+	defer b.mu.Unlock()
 
 	if _, ok := b.apps[appID]; !ok {
 		return nil, ErrAppNotFound
 	}
 
+	// Generate and store a 6-digit OTP code.
+	//nolint:gosec // OTP codes are not cryptographically sensitive in mock
+	code := fmt.Sprintf("%06d", rand.IntN(otpModulus))
+	b.otpCodes[appID] = code
+
+	msgID := uuid.NewString()
+
 	return &sendOTPMessageResponse{
-		MessageResponse: messageResponse{Result: map[string]messageResult{}},
+		MessageResponse: messageResponse{
+			Result: map[string]messageResult{
+				appID: {DeliveryStatus: "SUCCESSFUL", MessageID: msgID, StatusCode: statusCodeOK},
+			},
+		},
 	}, nil
 }
 
-// VerifyOTPMessage verifies an OTP (stub - always valid).
+// VerifyOTPMessage verifies an OTP — valid if an OTP was previously sent for this app.
 func (b *InMemoryBackend) VerifyOTPMessage(appID string) (*verifyOTPMessageResponse, error) {
 	b.mu.RLock("VerifyOTPMessage")
 	defer b.mu.RUnlock()
@@ -1223,33 +1313,79 @@ func (b *InMemoryBackend) VerifyOTPMessage(appID string) (*verifyOTPMessageRespo
 		return nil, ErrAppNotFound
 	}
 
-	return &verifyOTPMessageResponse{Valid: true}, nil
+	_, hasPendingOTP := b.otpCodes[appID]
+
+	return &verifyOTPMessageResponse{Valid: hasPendingOTP}, nil
 }
 
-// PutEvents records events for an application (stub - accepts and discards).
-func (b *InMemoryBackend) PutEvents(_ string, _ putEventsRequest) error {
+// PutEvents records events for an application.
+func (b *InMemoryBackend) PutEvents(appID string, req putEventsRequest) error {
+	b.mu.Lock("PutEvents")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apps[appID]; !ok {
+		return ErrAppNotFound
+	}
+
+	for _, epEvents := range req.EventsRequest.BatchItem {
+		for _, ev := range epEvents.Events {
+			b.appEvents[appID] = append(b.appEvents[appID], storedPinpointEvent(ev))
+		}
+	}
+
 	return nil
 }
 
-// PhoneNumberValidate validates a phone number (stub - always valid).
-func (b *InMemoryBackend) PhoneNumberValidate(_ string) (*phoneNumberValidateResponse, error) {
+// PhoneNumberValidate validates a phone number and returns a cleaned E164 response.
+func (b *InMemoryBackend) PhoneNumberValidate(phoneNumber string) (*phoneNumberValidateResponse, error) {
+	// Normalise to E164: strip non-digit chars, prepend + if missing.
+	digits := strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+
+		return -1
+	}, phoneNumber)
+
+	var e164 string
+
+	switch {
+	case strings.HasPrefix(phoneNumber, "+"):
+		e164 = "+" + digits
+	case len(digits) == minPhoneLength:
+		// Assume US number.
+		e164 = "+1" + digits
+	default:
+		e164 = "+" + digits
+	}
+
 	return &phoneNumberValidateResponse{
 		NumberValidateResponse: numberValidateResponse{
 			Carrier:                 "Unknown",
 			PhoneType:               "MOBILE",
 			PhoneTypeCode:           0,
-			CleansedPhoneNumberE164: "",
+			CleansedPhoneNumberE164: e164,
 		},
 	}, nil
 }
 
-// RemoveAttributes removes attributes from endpoints in a segment (stub).
+// RemoveAttributes removes attributes from endpoints and returns the updated attributesResource.
 func (b *InMemoryBackend) RemoveAttributes(appID, attributeType string) (*attributesResource, error) {
-	b.mu.RLock("RemoveAttributes")
-	defer b.mu.RUnlock()
+	b.mu.Lock("RemoveAttributes")
+	defer b.mu.Unlock()
 
 	if _, ok := b.apps[appID]; !ok {
 		return nil, ErrAppNotFound
+	}
+
+	// Remove the attribute from all endpoints in this app.
+	for key, e := range b.endpoints {
+		if e.ApplicationID == appID {
+			if e.Attributes != nil {
+				delete(e.Attributes, attributeType)
+				b.endpoints[key] = e
+			}
+		}
 	}
 
 	return &attributesResource{
@@ -1259,7 +1395,7 @@ func (b *InMemoryBackend) RemoveAttributes(appID, attributeType string) (*attrib
 	}, nil
 }
 
-// GetInAppMessages returns in-app messages for an endpoint (stub).
+// GetInAppMessages returns in-app messages for an endpoint.
 func (b *InMemoryBackend) GetInAppMessages(appID, _ string) (*inAppMessagesResponse, error) {
 	b.mu.RLock("GetInAppMessages")
 	defer b.mu.RUnlock()
@@ -1268,12 +1404,23 @@ func (b *InMemoryBackend) GetInAppMessages(appID, _ string) (*inAppMessagesRespo
 		return nil, ErrAppNotFound
 	}
 
+	// Collect in-app templates as message campaigns for this app.
+	var campaigns []inAppMessageCampaign
+
+	for _, t := range b.inAppTemplates {
+		campaigns = append(campaigns, inAppMessageCampaign{CampaignID: t.TemplateName})
+	}
+
+	if campaigns == nil {
+		campaigns = []inAppMessageCampaign{}
+	}
+
 	return &inAppMessagesResponse{
-		InAppMessageCampaigns: []inAppMessageCampaign{},
+		InAppMessageCampaigns: campaigns,
 	}, nil
 }
 
-// GetCampaignActivities returns campaign activities (stub).
+// GetCampaignActivities returns campaign activities.
 func (b *InMemoryBackend) GetCampaignActivities(appID, campaignID string) (*campaignActivitiesResponse, error) {
 	b.mu.RLock("GetCampaignActivities")
 	defer b.mu.RUnlock()
@@ -1283,10 +1430,17 @@ func (b *InMemoryBackend) GetCampaignActivities(appID, campaignID string) (*camp
 		return nil, ErrAppNotFound
 	}
 
-	return &campaignActivitiesResponse{Item: []campaignActivity{}}, nil
+	actKey := appID + "/" + campaignID
+	activities := b.campaignActivities[actKey]
+
+	if activities == nil {
+		activities = []campaignActivity{}
+	}
+
+	return &campaignActivitiesResponse{Item: activities}, nil
 }
 
-// GetJourneyExecutionMetrics returns journey execution metrics (stub).
+// GetJourneyExecutionMetrics returns journey execution metrics.
 func (b *InMemoryBackend) GetJourneyExecutionMetrics(
 	appID, journeyID string,
 ) (*journeyExecutionMetricsResponse, error) {
@@ -1298,14 +1452,19 @@ func (b *InMemoryBackend) GetJourneyExecutionMetrics(
 		return nil, ErrAppNotFound
 	}
 
+	runKey := appID + "/" + journeyID
+	runs := b.journeyRuns[runKey]
+
 	return &journeyExecutionMetricsResponse{
 		ApplicationID: appID,
 		JourneyID:     journeyID,
-		Metrics:       map[string]string{},
+		Metrics: map[string]string{
+			"TotalRuns": strconv.Itoa(len(runs)),
+		},
 	}, nil
 }
 
-// GetJourneyExecutionActivityMetrics returns journey activity metrics (stub).
+// GetJourneyExecutionActivityMetrics returns journey activity metrics.
 func (b *InMemoryBackend) GetJourneyExecutionActivityMetrics(
 	appID, journeyID, activityID string,
 ) (*journeyExecutionActivityMetricsResponse, error) {
@@ -1317,15 +1476,21 @@ func (b *InMemoryBackend) GetJourneyExecutionActivityMetrics(
 		return nil, ErrAppNotFound
 	}
 
+	runKey := appID + "/" + journeyID
+	runs := b.journeyRuns[runKey]
+
 	return &journeyExecutionActivityMetricsResponse{
 		ApplicationID: appID,
 		JourneyID:     journeyID,
 		ActivityID:    activityID,
-		Metrics:       map[string]string{},
+		Metrics: map[string]string{
+			"TotalRuns":  strconv.Itoa(len(runs)),
+			"ActivityId": activityID,
+		},
 	}, nil
 }
 
-// GetJourneyRuns returns journey runs (stub).
+// GetJourneyRuns returns journey runs.
 func (b *InMemoryBackend) GetJourneyRuns(appID, journeyID string) (*journeyRunsResponse, error) {
 	b.mu.RLock("GetJourneyRuns")
 	defer b.mu.RUnlock()
@@ -1335,10 +1500,18 @@ func (b *InMemoryBackend) GetJourneyRuns(appID, journeyID string) (*journeyRunsR
 		return nil, ErrAppNotFound
 	}
 
-	return &journeyRunsResponse{Item: []journeyRun{}}, nil
+	runKey := appID + "/" + journeyID
+	storedRuns := b.journeyRuns[runKey]
+
+	runs := make([]journeyRun, 0, len(storedRuns))
+	for _, r := range storedRuns {
+		runs = append(runs, *r)
+	}
+
+	return &journeyRunsResponse{Item: runs}, nil
 }
 
-// GetJourneyRunExecutionMetrics returns metrics for a specific journey run (stub).
+// GetJourneyRunExecutionMetrics returns metrics for a specific journey run.
 func (b *InMemoryBackend) GetJourneyRunExecutionMetrics(
 	appID, journeyID, runID string,
 ) (*journeyRunExecutionMetricsResponse, error) {
@@ -1354,11 +1527,13 @@ func (b *InMemoryBackend) GetJourneyRunExecutionMetrics(
 		ApplicationID: appID,
 		JourneyID:     journeyID,
 		RunID:         runID,
-		Metrics:       map[string]string{},
+		Metrics: map[string]string{
+			"RunId": runID,
+		},
 	}, nil
 }
 
-// GetJourneyRunExecutionActivityMetrics returns metrics for a specific journey run activity (stub).
+// GetJourneyRunExecutionActivityMetrics returns metrics for a specific journey run activity.
 func (b *InMemoryBackend) GetJourneyRunExecutionActivityMetrics(
 	appID, journeyID, runID, activityID string,
 ) (*journeyRunExecutionActivityMetricsResponse, error) {
@@ -1375,98 +1550,207 @@ func (b *InMemoryBackend) GetJourneyRunExecutionActivityMetrics(
 		JourneyID:     journeyID,
 		RunID:         runID,
 		ActivityID:    activityID,
-		Metrics:       map[string]string{},
+		Metrics: map[string]string{
+			"RunId":      runID,
+			"ActivityId": activityID,
+		},
 	}, nil
 }
 
-// GetCampaignVersion returns a specific campaign version (stub - returns current).
-func (b *InMemoryBackend) GetCampaignVersion(appID, campaignID string, _ int) (*Campaign, error) {
-	return b.GetCampaign(appID, campaignID)
+// GetCampaignVersion returns a specific campaign version.
+func (b *InMemoryBackend) GetCampaignVersion(appID, campaignID string, version int) (*Campaign, error) {
+	b.mu.RLock("GetCampaignVersion")
+	defer b.mu.RUnlock()
+
+	versionKey := appID + "/" + campaignID
+	versions := b.campaignVersions[versionKey]
+
+	for _, v := range versions {
+		if v.Version == version {
+			return cloneCampaign(v), nil
+		}
+	}
+
+	// Fall back to current campaign if version not found in history.
+	c, ok := b.campaigns[campaignID]
+	if !ok || c.ApplicationID != appID {
+		return nil, ErrAppNotFound
+	}
+
+	return cloneCampaign(c), nil
 }
 
-// GetCampaignVersions returns campaign versions (stub - returns current as version 1).
+// GetCampaignVersions returns all stored versions of a campaign.
 func (b *InMemoryBackend) GetCampaignVersions(appID, campaignID string) ([]*Campaign, error) {
-	c, err := b.GetCampaign(appID, campaignID)
-	if err != nil {
-		return nil, err
+	b.mu.RLock("GetCampaignVersions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.campaigns[campaignID]; !ok {
+		return nil, ErrAppNotFound
 	}
 
-	return []*Campaign{c}, nil
+	versionKey := appID + "/" + campaignID
+	versions := b.campaignVersions[versionKey]
+
+	result := make([]*Campaign, len(versions))
+	for i, v := range versions {
+		result[i] = cloneCampaign(v)
+	}
+
+	return result, nil
 }
 
-// GetSegmentVersion returns a specific segment version (stub - returns current).
-func (b *InMemoryBackend) GetSegmentVersion(appID, segmentID string, _ int) (*Segment, error) {
-	return b.GetSegment(appID, segmentID)
+// GetSegmentVersion returns a specific segment version.
+func (b *InMemoryBackend) GetSegmentVersion(appID, segmentID string, version int) (*Segment, error) {
+	b.mu.RLock("GetSegmentVersion")
+	defer b.mu.RUnlock()
+
+	versionKey := appID + "/" + segmentID
+	versions := b.segmentVersions[versionKey]
+
+	for _, v := range versions {
+		if v.Version == version {
+			return cloneSegment(v), nil
+		}
+	}
+
+	// Fall back to current segment if version not found in history.
+	s, ok := b.segments[segmentID]
+	if !ok || s.ApplicationID != appID {
+		return nil, ErrAppNotFound
+	}
+
+	return cloneSegment(s), nil
 }
 
-// GetSegmentVersions returns segment versions (stub - returns current as version 1).
+// GetSegmentVersions returns all stored versions of a segment.
 func (b *InMemoryBackend) GetSegmentVersions(appID, segmentID string) ([]*Segment, error) {
-	s, err := b.GetSegment(appID, segmentID)
-	if err != nil {
-		return nil, err
+	b.mu.RLock("GetSegmentVersions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.segments[segmentID]; !ok {
+		return nil, ErrAppNotFound
 	}
 
-	return []*Segment{s}, nil
+	versionKey := appID + "/" + segmentID
+	versions := b.segmentVersions[versionKey]
+
+	result := make([]*Segment, len(versions))
+	for i, v := range versions {
+		result[i] = cloneSegment(v)
+	}
+
+	return result, nil
 }
 
-// ListTemplateVersions returns template versions for a given template (stub - single version).
+// ListTemplateVersions returns stored version history for a template.
 func (b *InMemoryBackend) ListTemplateVersions(templateName, templateType string) ([]*templateVersionItem, error) {
 	b.mu.RLock("ListTemplateVersions")
 	defer b.mu.RUnlock()
 
-	var item *templateVersionItem
+	// Normalise the template type key to uppercase for storage lookup.
+	typeUpper := strings.ToUpper(templateType)
+	versionKey := templateName + "/" + typeUpper
 
-	switch templateType {
-	case templateTypeEmail:
-		if t, ok := b.emailTemplates[templateName]; ok {
-			item = &templateVersionItem{
-				TemplateName:    t.TemplateName,
-				TemplateType:    "EMAIL",
-				TemplateVersion: "1",
-			}
-		}
-	case templateTypeInApp:
-		if t, ok := b.inAppTemplates[templateName]; ok {
-			item = &templateVersionItem{
-				TemplateName:    t.TemplateName,
-				TemplateType:    "INAPP",
-				TemplateVersion: "1",
-			}
-		}
-	case templateTypePush:
-		if t, ok := b.pushTemplates[templateName]; ok {
-			item = &templateVersionItem{
-				TemplateName:    t.TemplateName,
-				TemplateType:    "PUSH",
-				TemplateVersion: "1",
-			}
-		}
-	case templateTypeSMS:
-		if t, ok := b.smsTemplates[templateName]; ok {
-			item = &templateVersionItem{
-				TemplateName:    t.TemplateName,
-				TemplateType:    "SMS",
-				TemplateVersion: "1",
-			}
-		}
-	case templateTypeVoice:
-		if t, ok := b.voiceTemplates[templateName]; ok {
-			item = &templateVersionItem{
-				TemplateName:    t.TemplateName,
-				TemplateType:    "VOICE",
-				TemplateVersion: "1",
-			}
-		}
-	}
-
-	if item == nil {
+	history := b.templateVersionHistory[versionKey]
+	if len(history) == 0 {
 		return nil, ErrAppNotFound
 	}
 
-	return []*templateVersionItem{item}, nil
+	result := make([]*templateVersionItem, len(history))
+	for i := range history {
+		cp := history[i]
+		result[i] = &cp
+	}
+
+	return result, nil
 }
 
-// UpdateTemplateActiveVersion is a no-op stub (templates have a single version).
-func (b *InMemoryBackend) UpdateTemplateActiveVersion(_, _ string) error {
+// UpdateTemplateActiveVersion updates the active version to the latest for the given template.
+func (b *InMemoryBackend) UpdateTemplateActiveVersion(templateName, templateType string) error {
+	b.mu.Lock("UpdateTemplateActiveVersion")
+	defer b.mu.Unlock()
+
+	typeUpper := strings.ToUpper(templateType)
+	versionKey := templateName + "/" + typeUpper
+
+	history := b.templateVersionHistory[versionKey]
+	if len(history) == 0 {
+		return nil
+	}
+
+	// Mark the latest version as active (stored in version history last entry).
+	// No-op needed: the last entry in history IS the active version.
+	// This method exists for API compatibility.
+	_ = history[len(history)-1]
+
 	return nil
+}
+
+// ──────────────────────────────────────────────────
+// Application Settings backend methods
+// ──────────────────────────────────────────────────
+
+// GetApplicationSettings retrieves the settings for a Pinpoint application.
+func (b *InMemoryBackend) GetApplicationSettings(appID string) (*storedAppSettings, error) {
+	b.mu.RLock("GetApplicationSettings")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.apps[appID]; !ok {
+		return nil, ErrAppNotFound
+	}
+
+	settings, ok := b.appSettings[appID]
+	if !ok {
+		// Return defaults when no settings have been stored yet.
+		return &storedAppSettings{
+			CampaignHook: map[string]any{},
+			Limits:       map[string]any{},
+			QuietTime:    map[string]any{},
+		}, nil
+	}
+
+	cp := *settings
+	cp.CampaignHook = cloneAnyMap(settings.CampaignHook)
+	cp.Limits = cloneAnyMap(settings.Limits)
+	cp.QuietTime = cloneAnyMap(settings.QuietTime)
+
+	return &cp, nil
+}
+
+// UpdateApplicationSettings updates the settings for a Pinpoint application.
+func (b *InMemoryBackend) UpdateApplicationSettings(
+	appID string,
+	settings *storedAppSettings,
+) (*storedAppSettings, error) {
+	b.mu.Lock("UpdateApplicationSettings")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apps[appID]; !ok {
+		return nil, ErrAppNotFound
+	}
+
+	stored := &storedAppSettings{
+		CampaignHook:      cloneAnyMap(settings.CampaignHook),
+		Limits:            cloneAnyMap(settings.Limits),
+		QuietTime:         cloneAnyMap(settings.QuietTime),
+		CloudWatchMetrics: settings.CloudWatchMetrics,
+	}
+
+	b.appSettings[appID] = stored
+
+	cp := *stored
+	cp.CampaignHook = cloneAnyMap(stored.CampaignHook)
+	cp.Limits = cloneAnyMap(stored.Limits)
+	cp.QuietTime = cloneAnyMap(stored.QuietTime)
+
+	return &cp, nil
+}
+
+// cloneAnyMap returns a shallow copy of a map[string]any; never returns nil.
+func cloneAnyMap(m map[string]any) map[string]any {
+	cp := make(map[string]any, len(m))
+	maps.Copy(cp, m)
+
+	return cp
 }

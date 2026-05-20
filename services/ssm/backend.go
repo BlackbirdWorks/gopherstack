@@ -175,6 +175,12 @@ type InMemoryBackend struct {
 	patchBaselines             map[string]PatchBaseline
 	inventory                  map[string][]InventoryItem  // key: instanceID
 	compliance                 map[string][]ComplianceItem // key: resourceID
+	resourceDataSyncs          map[string]*ResourceDataSync
+	parameterLabels            map[string][]string             // paramName → labels
+	automationExecutions       map[string]*AutomationExecution // executionID → exec
+	serviceSettings            map[string]*ServiceSetting      // settingID → setting
+	resourcePolicies           map[string][]*ResourcePolicy    // resourceARN → policies
+	executionPreviews          map[string]*ExecutionPreview    // previewID → preview
 	mu                         *lockmetrics.RWMutex
 	miscResourceTags           map[string]map[string]string
 	resourceIDToOpsMetadataArn map[string]string
@@ -205,6 +211,12 @@ func NewInMemoryBackend() *InMemoryBackend {
 		patchBaselines:             make(map[string]PatchBaseline),
 		inventory:                  make(map[string][]InventoryItem),
 		compliance:                 make(map[string][]ComplianceItem),
+		resourceDataSyncs:          make(map[string]*ResourceDataSync),
+		parameterLabels:            make(map[string][]string),
+		automationExecutions:       make(map[string]*AutomationExecution),
+		serviceSettings:            make(map[string]*ServiceSetting),
+		resourcePolicies:           make(map[string][]*ResourcePolicy),
+		executionPreviews:          make(map[string]*ExecutionPreview),
 		commandExpirySecs:          defaultCommandExpirySecs,
 		mu:                         lockmetrics.New("ssm"),
 		resourceIDToOpsMetadataArn: make(map[string]string),
@@ -1306,6 +1318,12 @@ func (b *InMemoryBackend) Reset() {
 	b.patchBaselines = make(map[string]PatchBaseline)
 	b.resourceIDToOpsMetadataArn = make(map[string]string)
 	b.miscResourceTags = make(map[string]map[string]string)
+	b.resourceDataSyncs = make(map[string]*ResourceDataSync)
+	b.parameterLabels = make(map[string][]string)
+	b.automationExecutions = make(map[string]*AutomationExecution)
+	b.serviceSettings = make(map[string]*ServiceSetting)
+	b.resourcePolicies = make(map[string][]*ResourcePolicy)
+	b.executionPreviews = make(map[string]*ExecutionPreview)
 	b.registerDefaultDocuments()
 }
 

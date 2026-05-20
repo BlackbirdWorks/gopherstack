@@ -29,51 +29,77 @@ type tagHolder interface {
 	setTags(map[string]string)
 }
 
+// storedAppSettings holds the persisted application-level settings.
+type storedAppSettings struct {
+	CampaignHook      map[string]any `json:"CampaignHook"`
+	Limits            map[string]any `json:"Limits"`
+	QuietTime         map[string]any `json:"QuietTime"`
+	CloudWatchMetrics bool           `json:"CloudWatchMetrics"`
+}
+
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	inAppTemplates map[string]*InAppTemplate
-	segments       map[string]*Segment
-	campaigns      map[string]*Campaign
-	emailTemplates map[string]*EmailTemplate
-	exportJobs     map[string]*ExportJob
-	importJobs     map[string]*ImportJob
-	arnIndex       map[string]tagHolder
-	pushTemplates  map[string]*PushTemplate
-	apps           map[string]*App
-	recommenders   map[string]*RecommenderConfiguration
-	journeys       map[string]*Journey
-	smsTemplates   map[string]*SmsTemplate
-	voiceTemplates map[string]*VoiceTemplate
-	endpoints      map[string]*Endpoint
-	eventStreams   map[string]*EventStream
-	channels       map[string]*Channel
-	mu             *lockmetrics.RWMutex
-	accountID      string
-	region         string
+	inAppTemplates         map[string]*InAppTemplate
+	segments               map[string]*Segment
+	campaigns              map[string]*Campaign
+	emailTemplates         map[string]*EmailTemplate
+	exportJobs             map[string]*ExportJob
+	importJobs             map[string]*ImportJob
+	arnIndex               map[string]tagHolder
+	pushTemplates          map[string]*PushTemplate
+	apps                   map[string]*App
+	recommenders           map[string]*RecommenderConfiguration
+	journeys               map[string]*Journey
+	smsTemplates           map[string]*SmsTemplate
+	voiceTemplates         map[string]*VoiceTemplate
+	endpoints              map[string]*Endpoint
+	eventStreams           map[string]*EventStream
+	channels               map[string]*Channel
+	appSettings            map[string]*storedAppSettings
+	campaignVersions       map[string][]*Campaign
+	segmentVersions        map[string][]*Segment
+	templateVersionHistory map[string][]templateVersionItem
+	campaignActivities     map[string][]campaignActivity
+	journeyRuns            map[string][]*journeyRun
+	appEvents              map[string][]storedPinpointEvent
+	sentMessages           map[string]int
+	otpCodes               map[string]string
+	mu                     *lockmetrics.RWMutex
+	accountID              string
+	region                 string
 }
 
 // NewInMemoryBackend creates a new Pinpoint in-memory backend.
 func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 	return &InMemoryBackend{
-		region:         region,
-		accountID:      accountID,
-		mu:             lockmetrics.New("pinpoint"),
-		apps:           make(map[string]*App),
-		arnIndex:       make(map[string]tagHolder),
-		campaigns:      make(map[string]*Campaign),
-		channels:       make(map[string]*Channel),
-		emailTemplates: make(map[string]*EmailTemplate),
-		endpoints:      make(map[string]*Endpoint),
-		eventStreams:   make(map[string]*EventStream),
-		exportJobs:     make(map[string]*ExportJob),
-		importJobs:     make(map[string]*ImportJob),
-		inAppTemplates: make(map[string]*InAppTemplate),
-		journeys:       make(map[string]*Journey),
-		pushTemplates:  make(map[string]*PushTemplate),
-		recommenders:   make(map[string]*RecommenderConfiguration),
-		segments:       make(map[string]*Segment),
-		smsTemplates:   make(map[string]*SmsTemplate),
-		voiceTemplates: make(map[string]*VoiceTemplate),
+		region:                 region,
+		accountID:              accountID,
+		mu:                     lockmetrics.New("pinpoint"),
+		apps:                   make(map[string]*App),
+		arnIndex:               make(map[string]tagHolder),
+		campaigns:              make(map[string]*Campaign),
+		channels:               make(map[string]*Channel),
+		emailTemplates:         make(map[string]*EmailTemplate),
+		endpoints:              make(map[string]*Endpoint),
+		eventStreams:           make(map[string]*EventStream),
+		exportJobs:             make(map[string]*ExportJob),
+		importJobs:             make(map[string]*ImportJob),
+		inAppTemplates:         make(map[string]*InAppTemplate),
+		journeys:               make(map[string]*Journey),
+		pushTemplates:          make(map[string]*PushTemplate),
+		recommenders:           make(map[string]*RecommenderConfiguration),
+		segments:               make(map[string]*Segment),
+		smsTemplates:           make(map[string]*SmsTemplate),
+		voiceTemplates:         make(map[string]*VoiceTemplate),
+		appSettings:            make(map[string]*storedAppSettings),
+		campaignVersions:       make(map[string][]*Campaign),
+		segmentVersions:        make(map[string][]*Segment),
+		templateVersionHistory: make(map[string][]templateVersionItem),
+		campaignActivities:     make(map[string][]campaignActivity),
+		journeyRuns:            make(map[string][]*journeyRun),
+		appEvents:              make(map[string][]storedPinpointEvent),
+		sentMessages:           make(map[string]int),
+		otpCodes:               make(map[string]string),
 	}
 }
 
@@ -98,6 +124,15 @@ func (b *InMemoryBackend) Reset() {
 	b.segments = make(map[string]*Segment)
 	b.smsTemplates = make(map[string]*SmsTemplate)
 	b.voiceTemplates = make(map[string]*VoiceTemplate)
+	b.appSettings = make(map[string]*storedAppSettings)
+	b.campaignVersions = make(map[string][]*Campaign)
+	b.segmentVersions = make(map[string][]*Segment)
+	b.templateVersionHistory = make(map[string][]templateVersionItem)
+	b.campaignActivities = make(map[string][]campaignActivity)
+	b.journeyRuns = make(map[string][]*journeyRun)
+	b.appEvents = make(map[string][]storedPinpointEvent)
+	b.sentMessages = make(map[string]int)
+	b.otpCodes = make(map[string]string)
 }
 
 // Region returns the configured AWS region.
@@ -308,8 +343,19 @@ func (b *InMemoryBackend) CreateCampaign(
 		LastModifiedDate: now,
 	}
 
+	c.Version = 1
 	b.campaigns[id] = c
 	b.arnIndex[campaignARN] = c
+
+	// Track campaign version history.
+	versionKey := appID + "/" + id
+	b.campaignVersions[versionKey] = []*Campaign{cloneCampaign(c)}
+
+	// Create an initial activity record.
+	actKey := appID + "/" + id
+	b.campaignActivities[actKey] = []campaignActivity{
+		{ApplicationID: appID, CampaignID: id, ID: uuid.NewString()},
+	}
 
 	return cloneCampaign(c), nil
 }
@@ -342,6 +388,12 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 	b.emailTemplates[templateName] = t
 	b.arnIndex[templateARN] = t
 
+	// Track template version history.
+	versionKey := templateName + "/EMAIL"
+	b.templateVersionHistory[versionKey] = []templateVersionItem{
+		{TemplateName: templateName, TemplateType: ChannelTypeEmail, TemplateVersion: "1"},
+	}
+
 	return cloneEmailTemplate(t), nil
 }
 
@@ -368,6 +420,12 @@ func (b *InMemoryBackend) CreateInAppTemplate(
 
 	b.inAppTemplates[templateName] = t
 	b.arnIndex[templateARN] = t
+
+	// Track template version history.
+	versionKey := templateName + "/INAPP"
+	b.templateVersionHistory[versionKey] = []templateVersionItem{
+		{TemplateName: templateName, TemplateType: templateTypeINAPP, TemplateVersion: "1"},
+	}
 
 	return cloneInAppTemplate(t), nil
 }
@@ -396,6 +454,12 @@ func (b *InMemoryBackend) CreatePushTemplate(
 	b.pushTemplates[templateName] = t
 	b.arnIndex[templateARN] = t
 
+	// Track template version history.
+	versionKey := templateName + "/PUSH"
+	b.templateVersionHistory[versionKey] = []templateVersionItem{
+		{TemplateName: templateName, TemplateType: templateTypePUSH, TemplateVersion: "1"},
+	}
+
 	return clonePushTemplate(t), nil
 }
 
@@ -422,6 +486,12 @@ func (b *InMemoryBackend) CreateSmsTemplate(
 
 	b.smsTemplates[templateName] = t
 	b.arnIndex[templateARN] = t
+
+	// Track template version history.
+	versionKey := templateName + "/SMS"
+	b.templateVersionHistory[versionKey] = []templateVersionItem{
+		{TemplateName: templateName, TemplateType: ChannelTypeSMS, TemplateVersion: "1"},
+	}
 
 	return cloneSmsTemplate(t), nil
 }
@@ -590,8 +660,13 @@ func (b *InMemoryBackend) CreateSegment(region, accountID, appID string, req cre
 		CreationDate:  nowRFC3339(),
 	}
 
+	s.Version = 1
 	b.segments[id] = s
 	b.arnIndex[segmentARN] = s
+
+	// Track segment version history.
+	versionKey := appID + "/" + id
+	b.segmentVersions[versionKey] = []*Segment{cloneSegment(s)}
 
 	return cloneSegment(s), nil
 }

@@ -135,25 +135,25 @@ type StorageBackend interface {
 	DescribeAssociation(input *DescribeAssociationInput) (*DescribeAssociationOutput, error)
 	DescribeAssociationExecutionTargets(
 		input *DescribeAssociationExecutionTargetsInput,
-	) (*DescribeAssociationExecutionTargetsOutput, error)
+	) (*DescribeAssociationExecutionTargetsOutputFull, error)
 	DescribeAssociationExecutions(
 		input *DescribeAssociationExecutionsInput,
-	) (*DescribeAssociationExecutionsOutput, error)
+	) (*DescribeAssociationExecutionsOutputFull, error)
 	DescribeAutomationExecutions(
 		input *DescribeAutomationExecutionsInput,
-	) (*DescribeAutomationExecutionsOutput, error)
+	) (*DescribeAutomationExecutionsOutputFull, error)
 	DescribeAutomationStepExecutions(
 		input *DescribeAutomationStepExecutionsInput,
-	) (*DescribeAutomationStepExecutionsOutput, error)
+	) (*DescribeAutomationStepExecutionsOutputFull, error)
 	DescribeAvailablePatches(input *DescribeAvailablePatchesInput) (*DescribeAvailablePatchesOutput, error)
 	DescribeEffectiveInstanceAssociations(
 		input *DescribeEffectiveInstanceAssociationsInput,
-	) (*DescribeEffectiveInstanceAssociationsOutput, error)
+	) (*DescribeEffectiveInstanceAssociationsOutputFull, error)
 	DescribeInstanceAssociationsStatus(
 		input *DescribeInstanceAssociationsStatusInput,
-	) (*DescribeInstanceAssociationsStatusOutput, error)
-	DescribeInstanceInformation(input *DescribeInstanceInformationInput) (*DescribeInstanceInformationOutput, error)
-	DescribeInstancePatchStates(input *DescribeInstancePatchStatesInput) (*DescribeInstancePatchStatesOutput, error)
+	) (*DescribeInstanceAssociationsStatusOutputFull, error)
+	DescribeInstanceInformation(input *DescribeInstanceInformationInput) (*DescribeInstanceInformationOutputFull, error)
+	DescribeInstancePatchStates(input *DescribeInstancePatchStatesInput) (*DescribeInstancePatchStatesOutputFull, error)
 	DescribeInstancePatchStatesForPatchGroup(
 		input *DescribeInstancePatchStatesForPatchGroupInput,
 	) (*DescribeInstancePatchStatesForPatchGroupOutput, error)
@@ -161,58 +161,58 @@ type StorageBackend interface {
 	DescribeInstanceProperties(input *DescribeInstancePropertiesInput) (*DescribeInstancePropertiesOutput, error)
 	DescribeMaintenanceWindowExecutionTaskInvocations(
 		input *DescribeMaintenanceWindowExecutionTaskInvocationsInput,
-	) (*DescribeMaintenanceWindowExecutionTaskInvocationsOutput, error)
+	) (*DescribeMaintenanceWindowExecutionTaskInvocationsOutputFull, error)
 	DescribeMaintenanceWindowExecutionTasks(
 		input *DescribeMaintenanceWindowExecutionTasksInput,
-	) (*DescribeMaintenanceWindowExecutionTasksOutput, error)
+	) (*DescribeMaintenanceWindowExecutionTasksOutputFull, error)
 	DescribeMaintenanceWindowExecutions(
 		input *DescribeMaintenanceWindowExecutionsInput,
-	) (*DescribeMaintenanceWindowExecutionsOutput, error)
+	) (*DescribeMaintenanceWindowExecutionsOutputFull, error)
 	DescribeMaintenanceWindowSchedule(
 		input *DescribeMaintenanceWindowScheduleInput,
-	) (*DescribeMaintenanceWindowScheduleOutput, error)
-	DescribeSessions(input *DescribeSessionsInput) (*DescribeSessionsOutput, error)
-	GetAccessToken(input *GetAccessTokenInput) (*GetAccessTokenOutput, error)
-	GetAutomationExecution(input *GetAutomationExecutionInput) (*GetAutomationExecutionOutput, error)
-	GetCalendarState(input *GetCalendarStateInput) (*GetCalendarStateOutput, error)
-	GetConnectionStatus(input *GetConnectionStatusInput) (*GetConnectionStatusOutput, error)
-	GetExecutionPreview(input *GetExecutionPreviewInput) (*GetExecutionPreviewOutput, error)
+	) (*DescribeMaintenanceWindowScheduleOutputFull, error)
+	DescribeSessions(input *DescribeSessionsInput) (*DescribeSessionsOutputFull, error)
+	GetAccessToken(input *GetAccessTokenInput) (*GetAccessTokenOutputFull, error)
+	GetAutomationExecution(input *GetAutomationExecutionInput) (*GetAutomationExecutionOutputFull, error)
+	GetCalendarState(input *GetCalendarStateInput) (*GetCalendarStateOutputFull, error)
+	GetConnectionStatus(input *GetConnectionStatusInput) (*GetConnectionStatusOutputFull, error)
+	GetExecutionPreview(input *GetExecutionPreviewInput) (*GetExecutionPreviewOutputFull, error)
 	GetMaintenanceWindowExecution(
 		input *GetMaintenanceWindowExecutionInput,
-	) (*GetMaintenanceWindowExecutionOutput, error)
+	) (*GetMaintenanceWindowExecutionOutputFull, error)
 	GetMaintenanceWindowExecutionTask(
 		input *GetMaintenanceWindowExecutionTaskInput,
-	) (*GetMaintenanceWindowExecutionTaskOutput, error)
+	) (*GetMaintenanceWindowExecutionTaskOutputFull, error)
 	GetMaintenanceWindowExecutionTaskInvocation(
 		input *GetMaintenanceWindowExecutionTaskInvocationInput,
-	) (*GetMaintenanceWindowExecutionTaskInvocationOutput, error)
-	GetOpsSummary(input *GetOpsSummaryInput) (*GetOpsSummaryOutput, error)
-	GetResourcePolicies(input *GetResourcePoliciesInput) (*GetResourcePoliciesOutput, error)
-	GetServiceSetting(input *GetServiceSettingInput) (*GetServiceSettingOutput, error)
-	LabelParameterVersion(input *LabelParameterVersionInput) (*LabelParameterVersionOutput, error)
-	ListAssociationVersions(input *ListAssociationVersionsInput) (*ListAssociationVersionsOutput, error)
+	) (*GetMaintenanceWindowExecutionTaskInvocationOutputFull, error)
+	GetOpsSummary(input *GetOpsSummaryInput) (*GetOpsSummaryOutputFull, error)
+	GetResourcePolicies(input *GetResourcePoliciesInput) (*GetResourcePoliciesOutputFull, error)
+	GetServiceSetting(input *GetServiceSettingInput) (*GetServiceSettingOutputFull, error)
+	LabelParameterVersion(input *LabelParameterVersionInput) (*LabelParameterVersionOutputFull, error)
+	ListAssociationVersions(input *ListAssociationVersionsInput) (*ListAssociationVersionsOutputFull, error)
 	ListAssociations(input *ListAssociationsInput) (*ListAssociationsOutput, error)
-	ListNodes(input *ListNodesInput) (*ListNodesOutput, error)
-	ListNodesSummary(input *ListNodesSummaryInput) (*ListNodesSummaryOutput, error)
-	ListOpsMetadata(input *ListOpsMetadataInput) (*ListOpsMetadataOutput, error)
-	ListResourceDataSync(input *ListResourceDataSyncInput) (*ListResourceDataSyncOutput, error)
-	PutResourcePolicy(input *PutResourcePolicyInput) (*PutResourcePolicyOutput, error)
-	ResetServiceSetting(input *ResetServiceSettingInput) (*ResetServiceSettingOutput, error)
-	ResumeSession(input *ResumeSessionInput) (*ResumeSessionOutput, error)
+	ListNodes(input *ListNodesInput) (*ListNodesOutputFull, error)
+	ListNodesSummary(input *ListNodesSummaryInput) (*ListNodesSummaryOutputFull, error)
+	ListOpsMetadata(input *ListOpsMetadataInput) (*ListOpsMetadataOutputFull, error)
+	ListResourceDataSync(input *ListResourceDataSyncInput) (*ListResourceDataSyncOutputFull, error)
+	PutResourcePolicy(input *PutResourcePolicyInput) (*PutResourcePolicyOutputFull, error)
+	ResetServiceSetting(input *ResetServiceSettingInput) (*ResetServiceSettingOutputFull, error)
+	ResumeSession(input *ResumeSessionInput) (*ResumeSessionOutputFull, error)
 	SendAutomationSignal(input *SendAutomationSignalInput) (*StubOutput, error)
-	StartAccessRequest(input *StartAccessRequestInput) (*StartAccessRequestOutput, error)
+	StartAccessRequest(input *StartAccessRequestInput) (*StartAccessRequestOutputFull, error)
 	StartAssociationsOnce(input *StartAssociationsOnceInput) (*StubOutput, error)
-	StartAutomationExecution(input *StartAutomationExecutionInput) (*StartAutomationExecutionOutput, error)
+	StartAutomationExecution(input *StartAutomationExecutionInput) (*StartAutomationExecutionOutputFull, error)
 	StartChangeRequestExecution(
 		input *StartChangeRequestExecutionInput,
-	) (*StartChangeRequestExecutionOutput, error)
-	StartExecutionPreview(input *StartExecutionPreviewInput) (*StartExecutionPreviewOutput, error)
+	) (*StartChangeRequestExecutionOutputFull, error)
+	StartExecutionPreview(input *StartExecutionPreviewInput) (*StartExecutionPreviewOutputFull, error)
 	StartSession(input *StartSessionInput) (*StartSessionOutput, error)
 	StopAutomationExecution(input *StopAutomationExecutionInput) (*StubOutput, error)
 	TerminateSession(input *TerminateSessionInput) (*TerminateSessionOutput, error)
-	UnlabelParameterVersion(input *UnlabelParameterVersionInput) (*UnlabelParameterVersionOutput, error)
+	UnlabelParameterVersion(input *UnlabelParameterVersionInput) (*UnlabelParameterVersionOutputFull, error)
 	UpdateAssociation(input *UpdateAssociationInput) (*UpdateAssociationOutput, error)
-	UpdateAssociationStatus(input *UpdateAssociationStatusInput) (*UpdateAssociationStatusOutput, error)
+	UpdateAssociationStatus(input *UpdateAssociationStatusInput) (*UpdateAssociationStatusOutputFull, error)
 	UpdateManagedInstanceRole(input *UpdateManagedInstanceRoleInput) (*StubOutput, error)
 	UpdatePatchBaseline(input *UpdatePatchBaselineInput) (*UpdatePatchBaselineOutput, error)
 	UpdateResourceDataSync(input *UpdateResourceDataSyncInput) (*StubOutput, error)
