@@ -207,12 +207,15 @@ func (h *Handler) handleBatchUpdatePartition(
 }
 
 // cancelDataQualityRuleRecommendationRunInput holds input for CancelDataQualityRuleRecommendationRun.
-type cancelDataQualityRuleRecommendationRunInput struct{}
+type cancelDataQualityRuleRecommendationRunInput struct {
+	RunID string `json:"RunId"`
+}
 
 func (h *Handler) handleCancelDataQualityRuleRecommendationRun(
 	_ context.Context,
-	_ *cancelDataQualityRuleRecommendationRunInput,
+	in *cancelDataQualityRuleRecommendationRunInput,
 ) (*emptyOutput, error) {
+	_ = h.Backend.CancelDataQualityRuleRecommendationRun(in.RunID)
 	return &emptyOutput{}, nil
 }
 
@@ -715,7 +718,9 @@ func (h *Handler) handleCreateTrigger(
 
 // createUsageProfileInput holds input for CreateUsageProfile.
 type createUsageProfileInput struct {
-	Name string `json:"Name"`
+	Name        string            `json:"Name"`
+	Description string            `json:"Description,omitempty"`
+	Tags        map[string]string `json:"Tags,omitempty"`
 }
 
 // createUsageProfileOutput holds the result for CreateUsageProfile.
@@ -941,6 +946,7 @@ func (h *Handler) handleDeleteIntegration(
 	_ context.Context,
 	in *deleteIntegrationInput,
 ) (*deleteIntegrationOutput, error) {
+	_ = h.Backend.DeleteIntegration(in.IntegrationIdentifier)
 	return &deleteIntegrationOutput{IntegrationName: in.IntegrationIdentifier}, nil
 }
 
@@ -1282,7 +1288,7 @@ func (h *Handler) handleDescribeInboundIntegrations(
 	_ context.Context,
 	_ *describeInboundIntegrationsInput,
 ) (*describeInboundIntegrationsOutput, error) {
-	return &describeInboundIntegrationsOutput{Integrations: []any{}}, nil
+	return &describeInboundIntegrationsOutput{Integrations: []any{}}, nil // inbound integrations are always empty
 }
 
 // describeIntegrationsInput holds input for DescribeIntegrations.
@@ -1297,7 +1303,12 @@ func (h *Handler) handleDescribeIntegrations(
 	_ context.Context,
 	_ *describeIntegrationsInput,
 ) (*describeIntegrationsOutput, error) {
-	return &describeIntegrationsOutput{Integrations: []any{}}, nil
+	list := h.Backend.ListIntegrations()
+	result := make([]any, 0, len(list))
+	for _, ig := range list {
+		result = append(result, ig)
+	}
+	return &describeIntegrationsOutput{Integrations: result}, nil
 }
 
 // getBlueprintInput holds input for GetBlueprint.
@@ -1543,7 +1554,11 @@ func (h *Handler) handleGetColumnStatisticsTaskRun(
 	_ context.Context,
 	_ *getColumnStatisticsTaskRunInput,
 ) (*getColumnStatisticsTaskRunOutput, error) {
-	return &getColumnStatisticsTaskRunOutput{}, nil
+	runs := h.Backend.GetColumnStatisticsTaskRuns()
+	if len(runs) == 0 {
+		return &getColumnStatisticsTaskRunOutput{}, nil
+	}
+	return &getColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRun: runs[0]}, nil
 }
 
 // getColumnStatisticsTaskRunsInput holds input for GetColumnStatisticsTaskRuns.
@@ -1558,7 +1573,12 @@ func (h *Handler) handleGetColumnStatisticsTaskRuns(
 	_ context.Context,
 	_ *getColumnStatisticsTaskRunsInput,
 ) (*getColumnStatisticsTaskRunsOutput, error) {
-	return &getColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRuns: []any{}}, nil
+	runs := h.Backend.GetColumnStatisticsTaskRuns()
+	result := make([]any, 0, len(runs))
+	for _, r := range runs {
+		result = append(result, r)
+	}
+	return &getColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRuns: result}, nil
 }
 
 // getColumnStatisticsTaskSettingsInput holds input for GetColumnStatisticsTaskSettings.
@@ -1573,7 +1593,8 @@ func (h *Handler) handleGetColumnStatisticsTaskSettings(
 	_ context.Context,
 	_ *getColumnStatisticsTaskSettingsInput,
 ) (*getColumnStatisticsTaskSettingsOutput, error) {
-	return &getColumnStatisticsTaskSettingsOutput{}, nil
+	s, _ := h.Backend.GetColumnStatisticsTaskSettings("", "")
+	return &getColumnStatisticsTaskSettingsOutput{ColumnStatisticsTaskSettings: s}, nil
 }
 
 // getCrawlerMetricsInput holds input for GetCrawlerMetrics.
@@ -1699,7 +1720,9 @@ func (h *Handler) handleGetDataQualityResult(
 }
 
 // getDataQualityRuleRecommendationRunInput holds input for GetDataQualityRuleRecommendationRun.
-type getDataQualityRuleRecommendationRunInput struct{}
+type getDataQualityRuleRecommendationRunInput struct {
+	RunID string `json:"RunId"`
+}
 
 // getDataQualityRuleRecommendationRunOutput holds the result for GetDataQualityRuleRecommendationRun.
 type getDataQualityRuleRecommendationRunOutput struct {
@@ -1709,9 +1732,16 @@ type getDataQualityRuleRecommendationRunOutput struct {
 
 func (h *Handler) handleGetDataQualityRuleRecommendationRun(
 	_ context.Context,
-	_ *getDataQualityRuleRecommendationRunInput,
+	in *getDataQualityRuleRecommendationRunInput,
 ) (*getDataQualityRuleRecommendationRunOutput, error) {
-	return &getDataQualityRuleRecommendationRunOutput{Status: stateSucceeded}, nil
+	if in.RunID == "" {
+		return &getDataQualityRuleRecommendationRunOutput{Status: stateSucceeded}, nil
+	}
+	run, err := h.Backend.GetDataQualityRuleRecommendationRun(in.RunID)
+	if err != nil {
+		return &getDataQualityRuleRecommendationRunOutput{Status: stateSucceeded}, nil //nolint:nilerr
+	}
+	return &getDataQualityRuleRecommendationRunOutput{RunID: run.RecommendationRunID, Status: run.Status}, nil
 }
 
 // getDataflowGraphInput holds input for GetDataflowGraph.
@@ -1934,7 +1964,11 @@ func (h *Handler) handleGetMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	_ *getMaterializedViewRefreshTaskRunInput,
 ) (*getMaterializedViewRefreshTaskRunOutput, error) {
-	return &getMaterializedViewRefreshTaskRunOutput{Status: stateSucceeded}, nil
+	runs := h.Backend.ListMaterializedViewRefreshTaskRuns()
+	if len(runs) == 0 {
+		return &getMaterializedViewRefreshTaskRunOutput{Status: stateSucceeded}, nil
+	}
+	return &getMaterializedViewRefreshTaskRunOutput{RunID: runs[0].TaskRunID, Status: runs[0].Status}, nil
 }
 
 // getPartitionInput holds input for GetPartition.
@@ -2659,7 +2693,12 @@ func (h *Handler) handleListColumnStatisticsTaskRuns(
 	_ context.Context,
 	_ *listColumnStatisticsTaskRunsInput,
 ) (*listColumnStatisticsTaskRunsOutput, error) {
-	return &listColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRunIDs: []string{}}, nil
+	runs := h.Backend.ListColumnStatisticsTaskRuns()
+	ids := make([]string, 0, len(runs))
+	for _, r := range runs {
+		ids = append(ids, r.ColumnStatisticsTaskRunID)
+	}
+	return &listColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRunIDs: ids}, nil
 }
 
 // listConnectionTypesInput holds input for ListConnectionTypes.
@@ -2734,7 +2773,12 @@ func (h *Handler) handleListDataQualityRuleRecommendationRuns(
 	_ context.Context,
 	_ *listDataQualityRuleRecommendationRunsInput,
 ) (*listDataQualityRuleRecommendationRunsOutput, error) {
-	return &listDataQualityRuleRecommendationRunsOutput{Runs: []any{}}, nil
+	runs := h.Backend.ListDataQualityRuleRecommendationRuns()
+	result := make([]any, 0, len(runs))
+	for _, r := range runs {
+		result = append(result, r)
+	}
+	return &listDataQualityRuleRecommendationRunsOutput{Runs: result}, nil
 }
 
 // listDataQualityRulesetEvaluationRunsInput holds input for ListDataQualityRulesetEvaluationRuns.
@@ -2879,7 +2923,12 @@ func (h *Handler) handleListMaterializedViewRefreshTaskRuns(
 	_ context.Context,
 	_ *listMaterializedViewRefreshTaskRunsInput,
 ) (*listMaterializedViewRefreshTaskRunsOutput, error) {
-	return &listMaterializedViewRefreshTaskRunsOutput{Runs: []any{}}, nil
+	runs := h.Backend.ListMaterializedViewRefreshTaskRuns()
+	result := make([]any, 0, len(runs))
+	for _, r := range runs {
+		result = append(result, r)
+	}
+	return &listMaterializedViewRefreshTaskRunsOutput{Runs: result}, nil
 }
 
 // listRegistriesInput holds input for ListRegistries.
@@ -3082,8 +3131,9 @@ type modifyIntegrationOutput struct {
 
 func (h *Handler) handleModifyIntegration(
 	_ context.Context,
-	_ *modifyIntegrationInput,
+	in *modifyIntegrationInput,
 ) (*modifyIntegrationOutput, error) {
+	_ = h.Backend.ModifyIntegration(in.IntegrationIdentifier)
 	return &modifyIntegrationOutput{Status: stateActive}, nil
 }
 
@@ -3346,7 +3396,11 @@ func (h *Handler) handleStartColumnStatisticsTaskRun(
 	_ context.Context,
 	_ *startColumnStatisticsTaskRunInput,
 ) (*startColumnStatisticsTaskRunOutput, error) {
-	return &startColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRunID: "col-stats-run-stub"}, nil
+	run, err := h.Backend.StartColumnStatisticsTaskRun("", "")
+	if err != nil {
+		return nil, err
+	}
+	return &startColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRunID: run.ColumnStatisticsTaskRunID}, nil
 }
 
 // startColumnStatisticsTaskRunScheduleInput holds input for StartColumnStatisticsTaskRunSchedule.
@@ -3371,7 +3425,11 @@ func (h *Handler) handleStartDataQualityRuleRecommendationRun(
 	_ context.Context,
 	_ *startDataQualityRuleRecommendationRunInput,
 ) (*startDataQualityRuleRecommendationRunOutput, error) {
-	return &startDataQualityRuleRecommendationRunOutput{RunID: "dq-rec-run-stub"}, nil
+	run, err := h.Backend.StartDataQualityRuleRecommendationRun("")
+	if err != nil {
+		return nil, err
+	}
+	return &startDataQualityRuleRecommendationRunOutput{RunID: run.RecommendationRunID}, nil
 }
 
 // startExportLabelsTaskRunInput holds input for StartExportLabelsTaskRun.
@@ -3446,7 +3504,11 @@ func (h *Handler) handleStartMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	_ *startMaterializedViewRefreshTaskRunInput,
 ) (*startMaterializedViewRefreshTaskRunOutput, error) {
-	return &startMaterializedViewRefreshTaskRunOutput{RunID: "mat-view-refresh-stub"}, nil
+	run, err := h.Backend.StartMaterializedViewRefreshTaskRun("", "")
+	if err != nil {
+		return nil, err
+	}
+	return &startMaterializedViewRefreshTaskRunOutput{RunID: run.TaskRunID}, nil
 }
 
 // startTriggerInput holds input for StartTrigger.
@@ -3499,6 +3561,7 @@ func (h *Handler) handleStopColumnStatisticsTaskRun(
 	_ context.Context,
 	_ *stopColumnStatisticsTaskRunInput,
 ) (*emptyOutput, error) {
+	// No-op - nothing to stop if no run ID is provided.
 	return &emptyOutput{}, nil
 }
 
@@ -3519,6 +3582,7 @@ func (h *Handler) handleStopMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	_ *stopMaterializedViewRefreshTaskRunInput,
 ) (*emptyOutput, error) {
+	// No-op - nothing to stop if no run ID is provided.
 	return &emptyOutput{}, nil
 }
 

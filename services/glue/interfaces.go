@@ -293,6 +293,65 @@ type StorageBackend interface {
 	// Data catalog encryption settings.
 	PutDataCatalogEncryptionSettings(catalogID string, settings DataCatalogEncryptionSettings) error
 	GetDataCatalogEncryptionSettings(catalogID string) (*DataCatalogEncryptionSettings, error)
+
+	// Blueprint CRUD (batch 2).
+	CreateBlueprint(name string) error
+	DeleteBlueprint(name string) error
+	UpdateBlueprint(name string) (*Blueprint, error)
+	ListBlueprints() []string
+
+	// BlueprintRun operations.
+	StartBlueprintRun(blueprintName string) (*BlueprintRun, error)
+	GetBlueprintRun(blueprintName, runID string) (*BlueprintRun, error)
+	GetBlueprintRuns(blueprintName string) []*BlueprintRun
+
+	// UsageProfile operations.
+	CreateUsageProfile(name, description string, tags map[string]string) (*UsageProfile, error)
+	GetUsageProfile(name string) (*UsageProfile, error)
+	DeleteUsageProfile(name string) error
+	ListUsageProfiles() []*UsageProfile
+	UpdateUsageProfile(name, description string) (*UsageProfile, error)
+
+	// CustomEntityType individual CRUD.
+	CreateCustomEntityType(name, regexString string, contextWords []string) (*CustomEntityType, error)
+	GetCustomEntityType(name string) (*CustomEntityType, error)
+	DeleteCustomEntityType(name string) error
+	ListCustomEntityTypes() []*CustomEntityType
+
+	// DataQuality recommendation runs.
+	StartDataQualityRuleRecommendationRun(s3Path string) (*DQRuleRecommendationRun, error)
+	GetDataQualityRuleRecommendationRun(runID string) (*DQRuleRecommendationRun, error)
+	CancelDataQualityRuleRecommendationRun(runID string) error
+	ListDataQualityRuleRecommendationRuns() []*DQRuleRecommendationRun
+
+	// ColumnStatisticsTask operations.
+	CreateColumnStatisticsTaskSettings(dbName, tableName, roleArn string, columns []string) (*ColumnStatisticsTaskSettings, error)
+	GetColumnStatisticsTaskSettings(dbName, tableName string) (*ColumnStatisticsTaskSettings, error)
+	UpdateColumnStatisticsTaskSettings(dbName, tableName, roleArn string) error
+	DeleteColumnStatisticsTaskSettings(dbName, tableName string) error
+	StartColumnStatisticsTaskRun(dbName, tableName string) (*ColumnStatisticsTaskRun, error)
+	StopColumnStatisticsTaskRun(runID string) error
+	GetColumnStatisticsTaskRun(runID string) (*ColumnStatisticsTaskRun, error)
+	GetColumnStatisticsTaskRuns() []*ColumnStatisticsTaskRun
+	ListColumnStatisticsTaskRuns() []*ColumnStatisticsTaskRun
+
+	// MaterializedView refresh operations.
+	StartMaterializedViewRefreshTaskRun(dbName, tableName string) (*MaterializedViewRefreshRun, error)
+	StopMaterializedViewRefreshTaskRun(taskRunID string) error
+	GetMaterializedViewRefreshTaskRun(taskRunID string) (*MaterializedViewRefreshRun, error)
+	ListMaterializedViewRefreshTaskRuns() []*MaterializedViewRefreshRun
+
+	// Integration operations.
+	CreateIntegration(name string, tags map[string]string) (*Integration, error)
+	DeleteIntegration(name string) error
+	ListIntegrations() []*Integration
+	ModifyIntegration(name string) error
+
+	// GlueIdentityCenter operations.
+	CreateGlueIdentityCenterConfiguration(instanceARN string) error
+	GetGlueIdentityCenterConfiguration() (*GlueIdentityCenterConfig, error)
+	UpdateGlueIdentityCenterConfiguration(instanceARN string) error
+	DeleteGlueIdentityCenterConfiguration() error
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

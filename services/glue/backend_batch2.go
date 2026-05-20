@@ -3,7 +3,6 @@ package glue
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,11 +12,11 @@ import (
 
 // UsageProfile represents a Glue usage profile.
 type UsageProfile struct {
-	Name        string            `json:"Name"`
-	Description string            `json:"Description,omitempty"`
-	Tags        map[string]string `json:"Tags,omitempty"`
-	CreatedOn   time.Time         `json:"CreatedOn"`
-	LastModifiedOn time.Time      `json:"LastModifiedOn"`
+	Tags           map[string]string `json:"Tags,omitempty"`
+	Name           string            `json:"Name"`
+	Description    string            `json:"Description,omitempty"`
+	CreatedOn      time.Time         `json:"CreatedOn"`
+	LastModifiedOn time.Time         `json:"LastModifiedOn"`
 }
 
 // BlueprintRun represents a single execution of a Glue blueprint.
@@ -39,28 +38,28 @@ type DQRuleRecommendationRun struct {
 
 // ColumnStatisticsTaskSettings represents column statistics task settings.
 type ColumnStatisticsTaskSettings struct {
-	DatabaseName string   `json:"DatabaseName"`
-	TableName    string   `json:"TableName"`
 	ColumnNameList []string `json:"ColumnNameList,omitempty"`
-	RoleArn      string   `json:"RoleArn,omitempty"`
+	DatabaseName   string   `json:"DatabaseName"`
+	TableName      string   `json:"TableName"`
+	RoleArn        string   `json:"RoleArn,omitempty"`
 }
 
 // ColumnStatisticsTaskRun represents a column statistics task run.
 type ColumnStatisticsTaskRun struct {
-	DatabaseName            string    `json:"DatabaseName"`
-	TableName               string    `json:"TableName"`
-	ColumnStatisticsTaskRunID string  `json:"ColumnStatisticsTaskRunId"`
-	Status                  string    `json:"Status"`
-	StartedOn               time.Time `json:"StartedOn"`
+	StartedOn                 time.Time `json:"StartedOn"`
+	DatabaseName              string    `json:"DatabaseName"`
+	TableName                 string    `json:"TableName"`
+	ColumnStatisticsTaskRunID string    `json:"ColumnStatisticsTaskRunId"`
+	Status                    string    `json:"Status"`
 }
 
 // MaterializedViewRefreshRun represents a materialized view refresh task run.
 type MaterializedViewRefreshRun struct {
-	DatabaseName  string    `json:"DatabaseName"`
-	TableName     string    `json:"TableName"`
-	TaskRunID     string    `json:"TaskRunId"`
-	Status        string    `json:"Status"`
-	StartedOn     time.Time `json:"StartedOn"`
+	StartedOn    time.Time `json:"StartedOn"`
+	DatabaseName string    `json:"DatabaseName"`
+	TableName    string    `json:"TableName"`
+	TaskRunID    string    `json:"TaskRunId"`
+	Status       string    `json:"Status"`
 }
 
 // Integration represents a Glue integration.
@@ -157,7 +156,7 @@ func (b *InMemoryBackend) StartBlueprintRun(blueprintName string) (*BlueprintRun
 		BlueprintName: blueprintName,
 		RunID:         runID,
 		WorkflowName:  "workflow-" + runID,
-		State:         "RUNNING",
+		State:         stateRunning,
 		StartedOn:     time.Now().UTC(),
 	}
 	b.blueprintRuns[runID] = run
@@ -360,7 +359,7 @@ func (b *InMemoryBackend) StartDataQualityRuleRecommendationRun(s3Path string) (
 	run := &DQRuleRecommendationRun{
 		RecommendationRunID: runID,
 		DataSourceS3Path:    s3Path,
-		Status:              "RUNNING",
+		Status:              stateRunning,
 		StartedOn:           time.Now().UTC(),
 	}
 	b.dqRecommendationRuns[runID] = run
@@ -565,7 +564,7 @@ func (b *InMemoryBackend) StartMaterializedViewRefreshTaskRun(dbName, tableName 
 		DatabaseName: dbName,
 		TableName:    tableName,
 		TaskRunID:    taskID,
-		Status:       "RUNNING",
+		Status:       stateRunning,
 		StartedOn:    time.Now().UTC(),
 	}
 	b.materializedViewRuns[taskID] = run
