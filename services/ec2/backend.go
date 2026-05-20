@@ -299,9 +299,8 @@ type InMemoryBackend struct {
 	serialConsoleAccess       bool
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
-func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	b := &InMemoryBackend{
+func newInMemoryBackendMaps() *InMemoryBackend {
+	return &InMemoryBackend{
 		instances:                      make(map[string]*Instance),
 		securityGroups:                 make(map[string]*SecurityGroup),
 		vpcs:                           make(map[string]*VPC),
@@ -396,11 +395,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),
-		AccountID:                      accountID,
-		Region:                         region,
-		mu:                             lockmetrics.New("ec2"),
 	}
+}
 
+// NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
+func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	b := newInMemoryBackendMaps()
+	b.AccountID = accountID
+	b.Region = region
+	b.mu = lockmetrics.New("ec2")
 	b.initDefaults()
 
 	return b
