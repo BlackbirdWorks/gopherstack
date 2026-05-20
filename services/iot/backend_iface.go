@@ -296,7 +296,7 @@ type StorageBackend interface {
 	SetLoggingOptions(roleARN, logLevel string) error
 
 	// Batch 3: Provisioning claim.
-	CreateProvisioningClaim(templateName string) (certPEM, publicKey, privateKey string, err error)
+	CreateProvisioningClaim(templateName string) (string, string, string, error)
 
 	// Batch 3: Keys and certs.
 	CreateKeysAndCertificate(setAsActive bool) (*Certificate, string, string, error)

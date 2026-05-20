@@ -140,6 +140,8 @@ type StreamFile struct {
 }
 
 // IoTStream represents an IoT data stream.
+//
+//nolint:revive // IoTStream is intentional to maintain AWS API naming clarity
 type IoTStream struct {
 	Tags          map[string]string `json:"tags,omitempty"`
 	StreamID      string            `json:"streamId"`

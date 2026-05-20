@@ -8,6 +8,22 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// Constants for handler_batch3
+// ---------------------------------------------------------------------------
+
+const (
+	pathSegmentVersions   = "versions"
+	pathSegmentExecutions = "executions"
+	pathV2LoggingLevel    = "/v2LoggingLevel"
+	keyCertificatePem     = "certificatePem"
+	keyBoolTrue           = "true"
+	keyName               = "name"
+	keyThingGroupID       = "thingGroupId"
+	pathSplitTwo          = 2
+	pathSplitThree        = 3
+)
+
+// ---------------------------------------------------------------------------
 // Route resolvers for batch 3 ops
 // ---------------------------------------------------------------------------
 
@@ -30,68 +46,57 @@ func resolveOTAUpdateOps(path, method string) string {
 	return unknownOperation
 }
 
-func resolvePackageOps(path, method string) string {
-	switch {
-	case path == "/packages" && method == http.MethodGet:
-
-		return opListPackages
-	case path == "/package-configuration" && method == http.MethodGet:
-
-		return opGetPackageConfiguration
-	case path == "/package-configuration" && method == http.MethodPatch:
-
-		return opUpdatePackageConfiguration
+// resolvePackageVersionOps resolves ops on /packages/{name}/versions[/{versionName}].
+func resolvePackageVersionOps(parts []string, method string) string {
+	if len(parts) == pathSplitTwo && parts[1] == pathSegmentVersions && method == http.MethodGet {
+		return opListPackageVersions
 	}
-
-	// /packages/{name}
-	if strings.HasPrefix(path, "/packages/") {
-		rest := strings.TrimPrefix(path, "/packages/")
-		parts := strings.SplitN(rest, "/", 3)
-		switch len(parts) {
-		case 1:
-			switch method {
-			case http.MethodPut:
-
-				return opCreatePackage
-			case http.MethodGet:
-
-				return opGetPackage
-			case http.MethodDelete:
-
-				return opDeletePackage
-			case http.MethodPatch:
-
-				return opUpdatePackage
-			}
-		case 2:
-			// /packages/{name}/versions
-			if parts[1] == "versions" {
-				if method == http.MethodGet {
-					return opListPackageVersions
-				}
-			}
-		case 3:
-			// /packages/{name}/versions/{versionName}
-			if parts[1] == "versions" {
-				switch method {
-				case http.MethodPut:
-
-					return opCreatePackageVersion
-				case http.MethodGet:
-
-					return opGetPackageVersion
-				case http.MethodDelete:
-
-					return opDeletePackageVersion
-				case http.MethodPatch:
-
-					return opUpdatePackageVersion
-				}
-			}
+	if len(parts) == pathSplitThree && parts[1] == pathSegmentVersions {
+		switch method {
+		case http.MethodPut:
+			return opCreatePackageVersion
+		case http.MethodGet:
+			return opGetPackageVersion
+		case http.MethodDelete:
+			return opDeletePackageVersion
+		case http.MethodPatch:
+			return opUpdatePackageVersion
 		}
 	}
 
 	return unknownOperation
+}
+
+func resolvePackageOps(path, method string) string {
+	switch {
+	case path == "/packages" && method == http.MethodGet:
+		return opListPackages
+	case path == "/package-configuration" && method == http.MethodGet:
+		return opGetPackageConfiguration
+	case path == "/package-configuration" && method == http.MethodPatch:
+		return opUpdatePackageConfiguration
+	}
+
+	// /packages/{name}
+	rest, ok := strings.CutPrefix(path, "/packages/")
+	if !ok {
+		return unknownOperation
+	}
+	parts := strings.SplitN(rest, "/", pathSplitThree)
+	if len(parts) == 1 {
+		switch method {
+		case http.MethodPut:
+			return opCreatePackage
+		case http.MethodGet:
+			return opGetPackage
+		case http.MethodDelete:
+			return opDeletePackage
+		case http.MethodPatch:
+			return opUpdatePackage
+		}
+	}
+
+	return resolvePackageVersionOps(parts, method)
 }
 
 func resolveAuditSuppressionOps(path, method string) string {
@@ -130,13 +135,13 @@ func resolveV2LoggingOps(path, method string) string {
 	case path == "/v2LoggingOptions" && method == http.MethodPost:
 
 		return opSetV2LoggingOptions
-	case path == "/v2LoggingLevel" && method == http.MethodPost:
+	case path == pathV2LoggingLevel && method == http.MethodPost:
 
 		return opSetV2LoggingLevel
-	case path == "/v2LoggingLevel" && method == http.MethodDelete:
+	case path == pathV2LoggingLevel && method == http.MethodDelete:
 
 		return opDeleteV2LoggingLevel
-	case path == "/v2LoggingLevel" && method == http.MethodGet:
+	case path == pathV2LoggingLevel && method == http.MethodGet:
 
 		return opListV2LoggingLevels
 	case path == "/loggingOptions" && method == http.MethodGet:
@@ -151,14 +156,11 @@ func resolveV2LoggingOps(path, method string) string {
 }
 
 func resolveCommandOps(path, method string) string {
-	switch {
-	case path == "/commands" && method == http.MethodGet:
-
+	if path == "/commands" && method == http.MethodGet {
 		return opListCommands
 	}
-	if strings.HasPrefix(path, "/commands/") {
-		rest := strings.TrimPrefix(path, "/commands/")
-		parts := strings.SplitN(rest, "/", 3)
+	if rest, ok := strings.CutPrefix(path, "/commands/"); ok {
+		parts := strings.SplitN(rest, "/", pathSplitThree)
 		switch len(parts) {
 		case 1:
 			switch method {
@@ -175,12 +177,12 @@ func resolveCommandOps(path, method string) string {
 
 				return opUpdateCommand
 			}
-		case 2:
-			if parts[1] == "executions" && method == http.MethodGet {
+		case pathSplitTwo:
+			if parts[1] == pathSegmentExecutions && method == http.MethodGet {
 				return opListCommandExecutions
 			}
-		case 3:
-			if parts[1] == "executions" {
+		case pathSplitThree:
+			if parts[1] == pathSegmentExecutions {
 				if method == http.MethodGet {
 					return opGetCommandExecution
 				}
@@ -191,7 +193,8 @@ func resolveCommandOps(path, method string) string {
 	return unknownOperation
 }
 
-func resolveBatch3MiscOps(path, method string) string {
+// resolveBatch3CertOps handles certificate-related misc ops.
+func resolveBatch3CertOps(path, method string) string {
 	switch {
 	case strings.HasPrefix(path, "/provisioning-templates/") &&
 		strings.HasSuffix(path, "/provisioning-claim") &&
@@ -209,12 +212,14 @@ func resolveBatch3MiscOps(path, method string) string {
 	case strings.HasPrefix(path, "/reject-certificate-transfer/") && method == http.MethodPatch:
 
 		return opRejectCertificateTransfer
-	case path == "/event-configurations" && method == http.MethodGet:
+	}
 
-		return opDescribeEventConfigurations
-	case path == "/event-configurations" && method == http.MethodPatch:
+	return unknownOperation
+}
 
-		return opUpdateEventConfigurations
+// resolveBatch3DynamicGroupOps handles dynamic thing group ops.
+func resolveBatch3DynamicGroupOps(path, method string) string {
+	switch {
 	case strings.HasPrefix(path, "/dynamic-thing-groups/") && method == http.MethodPost:
 
 		return opCreateDynamicThingGroup
@@ -224,6 +229,25 @@ func resolveBatch3MiscOps(path, method string) string {
 	case strings.HasPrefix(path, "/dynamic-thing-groups/") && method == http.MethodPatch:
 
 		return opUpdateDynamicThingGroup
+	}
+
+	return unknownOperation
+}
+
+func resolveBatch3MiscOps(path, method string) string {
+	if op := resolveBatch3CertOps(path, method); op != unknownOperation {
+		return op
+	}
+	if op := resolveBatch3DynamicGroupOps(path, method); op != unknownOperation {
+		return op
+	}
+	switch {
+	case path == "/event-configurations" && method == http.MethodGet:
+
+		return opDescribeEventConfigurations
+	case path == "/event-configurations" && method == http.MethodPatch:
+
+		return opUpdateEventConfigurations
 	}
 
 	return unknownOperation
@@ -369,11 +393,11 @@ func (h *Handler) handleListPackages(c *echo.Context) error {
 
 // --- Package Versions ---
 
-func packageAndVersion(path string) (packageName, versionName string) {
+func packageAndVersion(path string) (string, string) {
 	// /packages/{name}/versions/{versionName}
 	trimmed := strings.TrimPrefix(path, "/packages/")
-	parts := strings.SplitN(trimmed, "/versions/", 2)
-	if len(parts) == 2 {
+	parts := strings.SplitN(trimmed, "/versions/", pathSplitTwo)
+	if len(parts) == pathSplitTwo {
 		return parts[0], parts[1]
 	}
 
@@ -470,7 +494,9 @@ func (h *Handler) handleCreateAuditSuppression(c *echo.Context) error {
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	if err := h.Backend.CreateAuditSuppression(req.CheckName, req.ResourceIdentifier, req.Description, req.SuppressIndefinitely, req.ExpirationDate); err != nil {
+	if err := h.Backend.CreateAuditSuppression(
+		req.CheckName, req.ResourceIdentifier, req.Description, req.SuppressIndefinitely, req.ExpirationDate,
+	); err != nil {
 		return respondErr(c, err)
 	}
 
@@ -504,7 +530,9 @@ func (h *Handler) handleUpdateAuditSuppression(c *echo.Context) error {
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	if err := h.Backend.UpdateAuditSuppression(req.CheckName, req.ResourceIdentifier, req.Description, req.SuppressIndefinitely, req.ExpirationDate); err != nil {
+	if err := h.Backend.UpdateAuditSuppression(
+		req.CheckName, req.ResourceIdentifier, req.Description, req.SuppressIndefinitely, req.ExpirationDate,
+	); err != nil {
 		return respondErr(c, err)
 	}
 
@@ -641,7 +669,7 @@ func (h *Handler) handleCreateProvisioningClaim(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"certificatePem": certPEM,
+		keyCertificatePem: certPEM,
 		"keyPair": map[string]string{
 			"PublicKey":  publicKey,
 			"PrivateKey": privateKey,
@@ -652,16 +680,16 @@ func (h *Handler) handleCreateProvisioningClaim(c *echo.Context) error {
 // --- Keys and Certificate ---
 
 func (h *Handler) handleCreateKeysAndCertificate(c *echo.Context) error {
-	setAsActive := c.Request().URL.Query().Get("setAsActive") == "true"
+	setAsActive := c.Request().URL.Query().Get("setAsActive") == keyBoolTrue
 	cert, publicKey, privateKey, err := h.Backend.CreateKeysAndCertificate(setAsActive)
 	if err != nil {
 		return respondErr(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"certificateArn": cert.ARN,
-		"certificateId":  cert.CertificateID,
-		"certificatePem": cert.PEM,
+		"certificateArn":  cert.ARN,
+		"certificateId":   cert.CertificateID,
+		keyCertificatePem: cert.PEM,
 		"keyPair": map[string]string{
 			"PublicKey":  publicKey,
 			"PrivateKey": privateKey,
@@ -746,7 +774,7 @@ func (h *Handler) handleListSecurityProfilesForTarget(c *echo.Context) error {
 	profiles := h.Backend.ListSecurityProfilesForTarget(targetARN)
 	summaries := make([]map[string]any, len(profiles))
 	for i, p := range profiles {
-		summaries[i] = map[string]any{"securityProfileIdentifier": map[string]string{"name": p}}
+		summaries[i] = map[string]any{"securityProfileIdentifier": map[string]string{keyName: p}}
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"securityProfileTargetMappings": summaries})
@@ -773,7 +801,7 @@ func (h *Handler) handleCreateDynamicThingGroup(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"thingGroupName": tg.ThingGroupName,
 		"thingGroupArn":  tg.ThingGroupARN,
-		"thingGroupId":   tg.ThingGroupID,
+		keyThingGroupID:  tg.ThingGroupID,
 		"version":        tg.Version,
 	})
 }
@@ -872,8 +900,8 @@ func (h *Handler) handleListCommands(c *echo.Context) error {
 func (h *Handler) handleGetCommandExecution(c *echo.Context) error {
 	// /commands/{commandId}/executions/{executionId}
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/commands/")
-	parts := strings.SplitN(trimmed, "/executions/", 2)
-	if len(parts) != 2 {
+	parts := strings.SplitN(trimmed, "/executions/", pathSplitTwo)
+	if len(parts) != pathSplitTwo {
 		return respondNotFound(c, "command execution not found")
 	}
 	ex, err := h.Backend.GetCommandExecution(parts[0], parts[1])
@@ -897,7 +925,7 @@ func (h *Handler) handleListCommandExecutions(c *echo.Context) error {
 // dispatchBatch3Ops dispatches batch-3 operations.
 // ---------------------------------------------------------------------------
 
-//nolint:funlen // mechanical routing switch
+//nolint:funlen,gocyclo,cyclop // mechanical routing switch
 func (h *Handler) dispatchBatch3Ops(c *echo.Context, op string) (bool, error) {
 	switch op {
 	// OTA Updates

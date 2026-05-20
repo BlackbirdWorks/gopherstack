@@ -324,7 +324,8 @@ func TestBatch3_EventConfigurations(t *testing.T) {
 	}
 }
 
-// TestBatch3_SecurityProfileTargets tests DetachSecurityProfile, ListTargetsForSecurityProfile, ListSecurityProfilesForTarget.
+// TestBatch3_SecurityProfileTargets tests DetachSecurityProfile,
+// ListTargetsForSecurityProfile, ListSecurityProfilesForTarget.
 func TestBatch3_SecurityProfileTargets(t *testing.T) {
 	t.Parallel()
 	h, b := newHandlerForBatch3Test(t)

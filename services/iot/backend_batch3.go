@@ -3,7 +3,9 @@ package iot
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -215,6 +217,8 @@ func (b *InMemoryBackend) ListIoTPackages() []*IoTPackage {
 // ---------------------------------------------------------------------------
 
 // IoTPackageVersion represents a version of an AWS IoT software package.
+//
+//nolint:revive // IoTPackageVersion is intentional to avoid conflict with the builtin package keyword
 type IoTPackageVersion struct {
 	Tags              map[string]string `json:"tags,omitempty"`
 	PackageVersionARN string            `json:"packageVersionArn"`
@@ -392,14 +396,15 @@ type AuditSuppression struct {
 
 func auditSuppressionKey(checkName string, resourceID map[string]any) string {
 	// Use a stable key from checkName plus the first value found in the map.
-	key := checkName
+	var sb strings.Builder
+	sb.WriteString(checkName)
 	for k, v := range resourceID {
-		key += "/" + k + "=" + fmt.Sprint(v)
+		sb.WriteString("/" + k + "=" + fmt.Sprint(v))
 
 		break
 	}
 
-	return key
+	return sb.String()
 }
 
 func cloneAuditSuppression(s *AuditSuppression) *AuditSuppression {
@@ -683,9 +688,7 @@ func (b *InMemoryBackend) SetLoggingOptions(roleARN, logLevel string) error {
 // ---------------------------------------------------------------------------
 
 // CreateProvisioningClaim returns a fake cert/key pair for the given template.
-func (b *InMemoryBackend) CreateProvisioningClaim(
-	templateName string,
-) (certPEM, publicKey, privateKey string, err error) {
+func (b *InMemoryBackend) CreateProvisioningClaim(templateName string) (string, string, string, error) {
 	b.mu.RLock()
 	_, ok := b.provTemplates[templateName]
 	b.mu.RUnlock()
@@ -840,12 +843,8 @@ func (b *InMemoryBackend) ListSecurityProfilesForTarget(targetARN string) []stri
 
 	var out []string
 	for profileName, targets := range b.securityProfileTargets {
-		for _, t := range targets {
-			if t == targetARN {
-				out = append(out, profileName)
-
-				break
-			}
+		if slices.Contains(targets, targetARN) {
+			out = append(out, profileName)
 		}
 	}
 	sort.Strings(out)
@@ -937,6 +936,8 @@ func (b *InMemoryBackend) UpdateDynamicThingGroup(input *UpdateThingGroupInput) 
 // ---------------------------------------------------------------------------
 
 // IoTCommand represents an AWS IoT command.
+//
+//nolint:revive // IoTCommand is intentional to maintain AWS API naming clarity
 type IoTCommand struct {
 	Tags            map[string]string `json:"tags,omitempty"`
 	Payload         map[string]any    `json:"payload,omitempty"`
@@ -1057,6 +1058,8 @@ func (b *InMemoryBackend) ListCommands() []*IoTCommand {
 // ---------------------------------------------------------------------------
 
 // IoTCommandExecution represents an execution of an IoT command.
+//
+//nolint:revive // IoTCommandExecution is intentional to maintain AWS API naming clarity
 type IoTCommandExecution struct {
 	CommandARN   string  `json:"commandArn"`
 	ExecutionID  string  `json:"executionId"`
@@ -1109,6 +1112,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2a2rwplBQLzHPZe5TNJG
 pECOsDSZBBFKpbD+mBBpMBWMdQwCgYIKoZIzj0EAwIDSQADRgIhANXBFB+AAAAA
 -----END PUBLIC KEY-----`
 
+//nolint:gosec // fakePrivateKey is a test-only placeholder, not a real credential
 const fakePrivateKey = `-----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEA2a2rwplBQLzHPZe5TNJGpECOsDSZBBFKpbD+mBBpMBWMdQwC
 gYIKoZIzj0EAwIDSQADRgIhANXBFB+AAAAA

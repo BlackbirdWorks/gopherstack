@@ -327,8 +327,6 @@ func allStubOps() []string {
 }
 
 // dispatchStubOp returns (true, err) if op is a known stub operation.
-//
-//nolint:funlen // routes across many resource types
 func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 	switch op {
 	case opCancelDetectMitigationActionsTask,

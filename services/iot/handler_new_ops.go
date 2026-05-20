@@ -249,26 +249,35 @@ func resolveMitigationActionOps(path, method string) string {
 	return unknownOperation
 }
 
+// resolveSecurityProfileTargetOps handles /security-profiles/{name}/targets operations.
+func resolveSecurityProfileTargetOps(path, method string) string {
+	if !strings.HasPrefix(path, "/security-profiles/") || !strings.HasSuffix(path, "/targets") {
+		return unknownOperation
+	}
+	switch method {
+	case http.MethodDelete:
+		return opDetachSecurityProfile
+	case http.MethodGet:
+		return opListTargetsForSecurityProfile
+	case http.MethodPut:
+		return opAttachSecurityProfile
+	}
+
+	return unknownOperation
+}
+
 func resolveSecurityProfileOps(path, method string) string {
 	switch {
 	case path == "/security-profiles" && method == http.MethodGet:
 		return opListSecurityProfiles
 	case path == "/security-profiles-for-target" && method == http.MethodGet:
 		return opListSecurityProfilesForTarget
+	}
 	// /security-profiles/{name}/targets — must be before generic prefix cases
-	case strings.HasPrefix(path, "/security-profiles/") &&
-		strings.HasSuffix(path, "/targets") &&
-		method == http.MethodDelete:
-		return opDetachSecurityProfile
-	case strings.HasPrefix(path, "/security-profiles/") &&
-		strings.HasSuffix(path, "/targets") &&
-		method == http.MethodGet:
-		return opListTargetsForSecurityProfile
-	// Attach is a PUT on /security-profiles/{name}/targets
-	case strings.HasPrefix(path, "/security-profiles/") &&
-		strings.HasSuffix(path, "/targets") &&
-		method == http.MethodPut:
-		return opAttachSecurityProfile
+	if op := resolveSecurityProfileTargetOps(path, method); op != unknownOperation {
+		return op
+	}
+	switch {
 	case strings.HasPrefix(path, "/security-profiles/") && method == http.MethodPost:
 		return opCreateSecurityProfile
 	case strings.HasPrefix(path, "/security-profiles/") && method == http.MethodGet:
@@ -751,7 +760,7 @@ func (h *Handler) handleListProvisioningTemplateVersions(c *echo.Context) error 
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"versions": versions})
+	return c.JSON(http.StatusOK, map[string]any{pathSegmentVersions: versions})
 }
 
 func (h *Handler) handleDeleteProvisioningTemplateVersion(c *echo.Context) error {

@@ -2263,7 +2263,7 @@ func (h *Handler) handleCreateThingGroup(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		keyThingGroupName: tg.ThingGroupName,
 		keyThingGroupArn:  tg.ThingGroupARN,
-		"thingGroupId":    tg.ThingGroupID,
+		keyThingGroupID:   tg.ThingGroupID,
 	})
 }
 
@@ -2277,7 +2277,7 @@ func (h *Handler) handleDescribeThingGroup(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		keyThingGroupName: tg.ThingGroupName,
 		keyThingGroupArn:  tg.ThingGroupARN,
-		"thingGroupId":    tg.ThingGroupID,
+		keyThingGroupID:   tg.ThingGroupID,
 		keyVersion:        tg.Version,
 		"thingGroupProperties": map[string]any{
 			"thingGroupDescription": tg.Description,
@@ -2400,7 +2400,7 @@ func (h *Handler) handleCreateCertificateFromCsr(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		keyCertificateID:  cert.CertificateID,
 		keyCertificateArn: cert.ARN,
-		"certificatePem":  cert.PEM,
+		keyCertificatePem: cert.PEM,
 		keyStatus:         cert.Status,
 	})
 }
@@ -2567,7 +2567,7 @@ func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
-	setAsDefault := c.QueryParam("setAsDefault") == "true"
+	setAsDefault := c.QueryParam("setAsDefault") == keyBoolTrue
 
 	pv, err := h.Backend.CreatePolicyVersion(&CreatePolicyVersionInput{
 		PolicyName:     policyName,

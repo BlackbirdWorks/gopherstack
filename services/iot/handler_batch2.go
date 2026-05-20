@@ -527,8 +527,8 @@ func (h *Handler) handleCreateDimension(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"name": d.Name,
-		"arn":  d.ARN,
+		keyName: d.Name,
+		"arn":   d.ARN,
 	})
 }
 
@@ -566,8 +566,8 @@ func (h *Handler) handleUpdateDimension(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"name": d.Name,
-		"arn":  d.ARN,
+		keyName: d.Name,
+		"arn":   d.ARN,
 	})
 }
 

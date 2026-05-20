@@ -182,6 +182,22 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return b
 }
 
+// resetBatch3 clears all batch-3 backend state (called from Reset, lock held).
+func (b *InMemoryBackend) resetBatch3() {
+	b.otaUpdates = make(map[string]*OTAUpdate)
+	b.iotPackages = make(map[string]*IoTPackage)
+	b.packageVersions2 = make(map[string]map[string]*IoTPackageVersion)
+	b.packageConfig = nil
+	b.auditSuppressions = make(map[string]*AuditSuppression)
+	b.auditFindings = make(map[string]*AuditFinding)
+	b.v2LoggingOptions = nil
+	b.v2LoggingLevels = make(map[string]*V2LoggingLevel)
+	b.loggingOptions = nil
+	b.eventConfigurations = nil
+	b.commands = make(map[string]*IoTCommand)
+	b.commandExecutions = make(map[string]*IoTCommandExecution)
+}
+
 // Reset clears all backend state. Useful for test isolation.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
@@ -226,18 +242,7 @@ func (b *InMemoryBackend) Reset() {
 	b.dimensions = make(map[string]*Dimension)
 	b.resourceTags = make(map[string]map[string]string)
 	b.auditTaskObjects = make(map[string]*AuditTask)
-	b.otaUpdates = make(map[string]*OTAUpdate)
-	b.iotPackages = make(map[string]*IoTPackage)
-	b.packageVersions2 = make(map[string]map[string]*IoTPackageVersion)
-	b.packageConfig = nil
-	b.auditSuppressions = make(map[string]*AuditSuppression)
-	b.auditFindings = make(map[string]*AuditFinding)
-	b.v2LoggingOptions = nil
-	b.v2LoggingLevels = make(map[string]*V2LoggingLevel)
-	b.loggingOptions = nil
-	b.eventConfigurations = nil
-	b.commands = make(map[string]*IoTCommand)
-	b.commandExecutions = make(map[string]*IoTCommandExecution)
+	b.resetBatch3()
 	b.registrationCode = ""
 	b.defaultAuthorizer = ""
 	b.auditConfiguration = nil
