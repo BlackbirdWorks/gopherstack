@@ -23,15 +23,15 @@ var (
 
 // ManagedPrefixList represents a managed prefix list.
 type ManagedPrefixList struct {
-	PrefixListID   string           `json:"prefixListId"`
-	PrefixListName string           `json:"prefixListName"`
-	PrefixListArn  string           `json:"prefixListArn"`
-	AddressFamily  string           `json:"addressFamily"`
-	State          string           `json:"state"`
-	MaxEntries     int              `json:"maxEntries"`
-	Version        int64            `json:"version"`
-	OwnerId        string           `json:"ownerId"`
+	PrefixListID   string            `json:"prefixListId"`
+	PrefixListName string            `json:"prefixListName"`
+	PrefixListArn  string            `json:"prefixListArn"`
+	AddressFamily  string            `json:"addressFamily"`
+	State          string            `json:"state"`
+	OwnerID        string            `json:"ownerId"`
 	Entries        []PrefixListEntry `json:"entries"`
+	Version        int64             `json:"version"`
+	MaxEntries     int               `json:"maxEntries"`
 }
 
 // PrefixListEntry holds a single CIDR entry in a managed prefix list.
@@ -42,15 +42,15 @@ type PrefixListEntry struct {
 
 // ClientVpnEndpoint represents an EC2 Client VPN endpoint.
 type ClientVpnEndpoint struct {
-	ClientVpnEndpointID      string           `json:"clientVpnEndpointId"`
-	DnsName                  string           `json:"dnsName"`
-	Status                   string           `json:"status"`
-	Description              string           `json:"description"`
-	ClientCidrBlock          string           `json:"clientCidrBlock"`
-	DnsServers               []string         `json:"dnsServers"`
-	VpnProtocol              string           `json:"vpnProtocol"`
-	AssociatedTargetNetworks []string         `json:"associatedTargetNetworks"`
-	Routes                   []ClientVpnRoute `json:"routes"`
+	ClientVpnEndpointID      string              `json:"clientVpnEndpointId"`
+	DNSName                  string              `json:"dnsName"`
+	Status                   string              `json:"status"`
+	Description              string              `json:"description"`
+	ClientCidrBlock          string              `json:"clientCidrBlock"`
+	DNSServers               []string            `json:"dnsServers"`
+	VpnProtocol              string              `json:"vpnProtocol"`
+	AssociatedTargetNetworks []string            `json:"associatedTargetNetworks"`
+	Routes                   []ClientVpnRoute    `json:"routes"`
 	AuthRules                []ClientVpnAuthRule `json:"authRules"`
 }
 
@@ -80,9 +80,9 @@ type TransitGatewayConnect struct {
 type TransitGatewayConnectPeer struct {
 	TransitGatewayConnectPeerID string   `json:"transitGatewayConnectPeerId"`
 	TransitGatewayAttachmentID  string   `json:"transitGatewayAttachmentId"`
+	PeerAddress                 string   `json:"peerAddress"`
 	State                       string   `json:"state"`
 	InsideCidrBlocks            []string `json:"insideCidrBlocks"`
-	PeerAddress                 string   `json:"peerAddress"`
 }
 
 // TransitGatewayPrefixListReference represents a TGW prefix list reference.
@@ -112,10 +112,10 @@ type VerifiedAccessGroup struct {
 
 // VerifiedAccessInstance represents a Verified Access instance.
 type VerifiedAccessInstance struct {
-	VerifiedAccessInstanceID    string   `json:"verifiedAccessInstanceId"`
-	Status                      string   `json:"status"`
-	Description                 string   `json:"description"`
-	AttachedTrustProviderIDs    []string `json:"attachedTrustProviderIds"`
+	VerifiedAccessInstanceID string   `json:"verifiedAccessInstanceId"`
+	Status                   string   `json:"status"`
+	Description              string   `json:"description"`
+	AttachedTrustProviderIDs []string `json:"attachedTrustProviderIds"`
 }
 
 // VerifiedAccessTrustProvider represents a Verified Access trust provider.
@@ -152,7 +152,7 @@ func (b *InMemoryBackend) CreateManagedPrefixList(
 		State:          "create-complete",
 		MaxEntries:     maxEntries,
 		Version:        1,
-		OwnerId:        b.AccountID,
+		OwnerID:        b.AccountID,
 	}
 	b.managedPrefixLists[id] = pl
 
@@ -295,11 +295,11 @@ func (b *InMemoryBackend) CreateClientVpnEndpoint(
 	id := "cvpn-endpoint-" + uuid.New().String()[:8]
 	ep := &ClientVpnEndpoint{
 		ClientVpnEndpointID: id,
-		DnsName:             id + ".prod.clientvpn.us-east-1.amazonaws.com",
-		Status:              "available",
+		DNSName:             id + ".prod.clientvpn.us-east-1.amazonaws.com",
+		Status:              stateAvailable,
 		Description:         description,
 		ClientCidrBlock:     clientCidrBlock,
-		DnsServers:          dnsServers,
+		DNSServers:          dnsServers,
 		VpnProtocol:         "openvpn",
 	}
 	b.clientVpnEndpoints[id] = ep
@@ -363,7 +363,7 @@ func (b *InMemoryBackend) AssociateClientVpnTargetNetwork(
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
 
-	for _, s := range ep.AssociatedTargetNetworks {
+	for _, s := range ep.AssociatedTargetNetworks { //nolint:modernize
 		if s == subnetID {
 			return nil // already associated
 		}
@@ -438,7 +438,7 @@ func (b *InMemoryBackend) CreateClientVpnRoute(
 
 	ep.Routes = append(ep.Routes, ClientVpnRoute{
 		DestinationCidr: destinationCidr,
-		Status:          "active",
+		Status:          stateActive,
 		Description:     description,
 	})
 
@@ -508,7 +508,7 @@ func (b *InMemoryBackend) AuthorizeClientVpnIngress(
 
 	ep.AuthRules = append(ep.AuthRules, ClientVpnAuthRule{
 		Cidr:        cidr,
-		Status:      "active",
+		Status:      stateActive,
 		Description: description,
 	})
 
@@ -582,7 +582,7 @@ func (b *InMemoryBackend) ModifyClientVpnEndpoint(
 		ep.Description = description
 	}
 	if len(dnsServers) > 0 {
-		ep.DnsServers = dnsServers
+		ep.DNSServers = dnsServers
 	}
 
 	return nil
@@ -640,7 +640,7 @@ func (b *InMemoryBackend) TerminateClientVpnConnections(endpointID string) error
 
 // CreateTransitGatewayPeeringAttachment creates a TGW peering attachment.
 func (b *InMemoryBackend) CreateTransitGatewayPeeringAttachment(
-	transitGatewayID, peerTransitGatewayID, peerRegion string,
+	transitGatewayID, peerTransitGatewayID, _ string,
 ) (*TransitGatewayPeeringAttachment, error) {
 	if transitGatewayID == "" || peerTransitGatewayID == "" {
 		return nil, fmt.Errorf(
@@ -729,7 +729,7 @@ func (b *InMemoryBackend) CreateTransitGatewayConnect(
 		TransitGatewayAttachmentID:          id,
 		TransportTransitGatewayAttachmentID: transportAttachmentID,
 		TransitGatewayID:                    transitGatewayID,
-		State:                               "available",
+		State:                               stateAvailable,
 	}
 	b.tgwConnects[id] = conn
 
@@ -801,7 +801,7 @@ func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 	peer := &TransitGatewayConnectPeer{
 		TransitGatewayConnectPeerID: id,
 		TransitGatewayAttachmentID:  connectAttachmentID,
-		State:                       "available",
+		State:                       stateAvailable,
 		InsideCidrBlocks:            insideCidrBlocks,
 		PeerAddress:                 peerAddress,
 	}
@@ -946,7 +946,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessEndpoint(
 	ep := &VerifiedAccessEndpoint{
 		VerifiedAccessEndpointID: id,
 		VerifiedAccessGroupID:    groupID,
-		Status:                   "active",
+		Status:                   stateActive,
 		Description:              description,
 		EndpointType:             endpointType,
 	}
@@ -1032,7 +1032,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessGroup(
 	grp := &VerifiedAccessGroup{
 		VerifiedAccessGroupID:    id,
 		VerifiedAccessInstanceID: instanceID,
-		Status:                   "active",
+		Status:                   stateActive,
 		Description:              description,
 	}
 	b.verifiedAccessGroups[id] = grp
@@ -1090,7 +1090,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessInstance(description string) (*Ver
 	id := "vai-" + uuid.New().String()[:8]
 	inst := &VerifiedAccessInstance{
 		VerifiedAccessInstanceID: id,
-		Status:                   "active",
+		Status:                   stateActive,
 		Description:              description,
 	}
 	b.verifiedAccessInstances[id] = inst
@@ -1155,7 +1155,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessTrustProvider(
 	tp := &VerifiedAccessTrustProvider{
 		VerifiedAccessTrustProviderID: id,
 		TrustProviderType:             trustProviderType,
-		Status:                        "active",
+		Status:                        stateActive,
 		Description:                   description,
 	}
 	b.verifiedAccessTrustProviders[id] = tp
@@ -1223,11 +1223,11 @@ func (b *InMemoryBackend) AttachVerifiedAccessTrustProvider(instanceID, trustPro
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessInstanceNotFound, instanceID)
 	}
-	if _, ok := b.verifiedAccessTrustProviders[trustProviderID]; !ok {
+	if _, exists := b.verifiedAccessTrustProviders[trustProviderID]; !exists {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessTrustProviderNF, trustProviderID)
 	}
 
-	for _, id := range inst.AttachedTrustProviderIDs {
+	for _, id := range inst.AttachedTrustProviderIDs { //nolint:modernize
 		if id == trustProviderID {
 			return nil // already attached
 		}

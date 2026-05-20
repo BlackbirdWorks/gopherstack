@@ -15,9 +15,9 @@ func TestStubOperations(t *testing.T) {
 
 	// All 599 stub operation names registered in handler_stubs.go.
 	stubOps := []string{
-		"ApplySecurityGroupsToClientVpnTargetNetwork",
+		// "ApplySecurityGroupsToClientVpnTargetNetwork", — moved to batch4
 		"AssociateCapacityReservationBillingOwner",
-		"AssociateClientVpnTargetNetwork",
+		// "AssociateClientVpnTargetNetwork", — moved to batch4
 		"AssociateEnclaveCertificateIamRole",
 		"AssociateInstanceEventWindow",
 		"AssociateIpamByoasn",
@@ -27,8 +27,8 @@ func TestStubOperations(t *testing.T) {
 		"AssociateTransitGatewayPolicyTable",
 		"AssociateTrunkInterface",
 		"AttachClassicLinkVpc",
-		"AttachVerifiedAccessTrustProvider",
-		"AuthorizeClientVpnIngress",
+		// "AttachVerifiedAccessTrustProvider", — moved to batch4
+		// "AuthorizeClientVpnIngress", — moved to batch4
 		"BundleInstance",
 		"CancelBundleTask",
 		"CancelCapacityReservationFleets",
@@ -44,8 +44,8 @@ func TestStubOperations(t *testing.T) {
 		"CreateCapacityReservationBySplitting",
 		"CreateCapacityReservationFleet",
 		"CreateCarrierGateway",
-		"CreateClientVpnEndpoint",
-		"CreateClientVpnRoute",
+		// "CreateClientVpnEndpoint", — moved to batch4
+		// "CreateClientVpnRoute", — moved to batch4
 		"CreateCoipCidr",
 		"CreateCoipPool",
 		"CreateDelegateMacVolumeOwnershipTask",
@@ -68,7 +68,7 @@ func TestStubOperations(t *testing.T) {
 		"CreateLocalGatewayVirtualInterface",
 		"CreateLocalGatewayVirtualInterfaceGroup",
 		"CreateMacSystemIntegrityProtectionModificationTask",
-		"CreateManagedPrefixList",
+		// "CreateManagedPrefixList", — moved to batch4
 		"CreateNetworkInsightsAccessScope",
 		"CreateNetworkInsightsPath",
 		"CreateReservedInstancesListing",
@@ -83,19 +83,19 @@ func TestStubOperations(t *testing.T) {
 		"CreateTrafficMirrorFilterRule",
 		"CreateTrafficMirrorSession",
 		"CreateTrafficMirrorTarget",
-		"CreateTransitGatewayConnect",
-		"CreateTransitGatewayConnectPeer",
+		// "CreateTransitGatewayConnect", — moved to batch4
+		// "CreateTransitGatewayConnectPeer", — moved to batch4
 		"CreateTransitGatewayMeteringPolicy",
 		"CreateTransitGatewayMeteringPolicyEntry",
 		"CreateTransitGatewayMulticastDomain",
-		"CreateTransitGatewayPeeringAttachment",
+		// "CreateTransitGatewayPeeringAttachment", — moved to batch4
 		"CreateTransitGatewayPolicyTable",
-		"CreateTransitGatewayPrefixListReference",
+		// "CreateTransitGatewayPrefixListReference", — moved to batch4
 		"CreateTransitGatewayRouteTableAnnouncement",
-		"CreateVerifiedAccessEndpoint",
-		"CreateVerifiedAccessGroup",
-		"CreateVerifiedAccessInstance",
-		"CreateVerifiedAccessTrustProvider",
+		// "CreateVerifiedAccessEndpoint", — moved to batch4
+		// "CreateVerifiedAccessGroup", — moved to batch4
+		// "CreateVerifiedAccessInstance", — moved to batch4
+		// "CreateVerifiedAccessTrustProvider", — moved to batch4
 		"CreateVpcBlockPublicAccessExclusion",
 		"CreateVpcEncryptionControl",
 		"CreateVpcEndpointServiceConfiguration",
@@ -103,8 +103,8 @@ func TestStubOperations(t *testing.T) {
 		"CreateVpnGateway",
 		"DeleteCapacityManagerDataExport",
 		"DeleteCarrierGateway",
-		"DeleteClientVpnEndpoint",
-		"DeleteClientVpnRoute",
+		// "DeleteClientVpnEndpoint", — moved to batch4
+		// "DeleteClientVpnRoute", — moved to batch4
 		"DeleteCoipCidr",
 		"DeleteCoipPool",
 		"DeleteFleets",
@@ -122,7 +122,7 @@ func TestStubOperations(t *testing.T) {
 		"DeleteLocalGatewayRouteTableVpcAssociation",
 		"DeleteLocalGatewayVirtualInterface",
 		"DeleteLocalGatewayVirtualInterfaceGroup",
-		"DeleteManagedPrefixList",
+		// "DeleteManagedPrefixList", — moved to batch4
 		"DeleteNetworkInsightsAccessScope",
 		"DeleteNetworkInsightsAccessScopeAnalysis",
 		"DeleteNetworkInsightsAnalysis",
@@ -137,19 +137,19 @@ func TestStubOperations(t *testing.T) {
 		"DeleteTrafficMirrorFilterRule",
 		"DeleteTrafficMirrorSession",
 		"DeleteTrafficMirrorTarget",
-		"DeleteTransitGatewayConnect",
-		"DeleteTransitGatewayConnectPeer",
+		// "DeleteTransitGatewayConnect", — moved to batch4
+		// "DeleteTransitGatewayConnectPeer", — moved to batch4
 		"DeleteTransitGatewayMeteringPolicy",
 		"DeleteTransitGatewayMeteringPolicyEntry",
 		"DeleteTransitGatewayMulticastDomain",
-		"DeleteTransitGatewayPeeringAttachment",
+		// "DeleteTransitGatewayPeeringAttachment", — moved to batch4
 		"DeleteTransitGatewayPolicyTable",
-		"DeleteTransitGatewayPrefixListReference",
+		// "DeleteTransitGatewayPrefixListReference", — moved to batch4
 		"DeleteTransitGatewayRouteTableAnnouncement",
-		"DeleteVerifiedAccessEndpoint",
-		"DeleteVerifiedAccessGroup",
-		"DeleteVerifiedAccessInstance",
-		"DeleteVerifiedAccessTrustProvider",
+		// "DeleteVerifiedAccessEndpoint", — moved to batch4
+		// "DeleteVerifiedAccessGroup", — moved to batch4
+		// "DeleteVerifiedAccessInstance", — moved to batch4
+		// "DeleteVerifiedAccessTrustProvider", — moved to batch4
 		"DeleteVpcBlockPublicAccessExclusion",
 		"DeleteVpcEncryptionControl",
 		"DeleteVpcEndpointServiceConfigurations",
@@ -172,11 +172,11 @@ func TestStubOperations(t *testing.T) {
 		"DescribeCapacityReservationTopology",
 		"DescribeCarrierGateways",
 		"DescribeClassicLinkInstances",
-		"DescribeClientVpnAuthorizationRules",
-		"DescribeClientVpnConnections",
-		"DescribeClientVpnEndpoints",
-		"DescribeClientVpnRoutes",
-		"DescribeClientVpnTargetNetworks",
+		// "DescribeClientVpnAuthorizationRules", — moved to batch4
+		// "DescribeClientVpnConnections", — moved to batch4
+		// "DescribeClientVpnEndpoints", — moved to batch4
+		// "DescribeClientVpnRoutes", — moved to batch4
+		// "DescribeClientVpnTargetNetworks", — moved to batch4
 		"DescribeCoipPools",
 		"DescribeConversionTasks",
 		"DescribeCustomerGateways",
@@ -211,7 +211,7 @@ func TestStubOperations(t *testing.T) {
 		"DescribeLocalGateways",
 		"DescribeMacHosts",
 		"DescribeMacModificationTasks",
-		"DescribeManagedPrefixLists",
+		// "DescribeManagedPrefixLists", — moved to batch4
 		"DescribeMovingAddresses",
 		"DescribeNetworkInsightsAccessScopeAnalyses",
 		"DescribeNetworkInsightsAccessScopes",
@@ -238,19 +238,19 @@ func TestStubOperations(t *testing.T) {
 		"DescribeTrafficMirrorSessions",
 		"DescribeTrafficMirrorTargets",
 		"DescribeTransitGatewayAttachments",
-		"DescribeTransitGatewayConnectPeers",
-		"DescribeTransitGatewayConnects",
+		// "DescribeTransitGatewayConnectPeers", — moved to batch4
+		// "DescribeTransitGatewayConnects", — moved to batch4
 		"DescribeTransitGatewayMeteringPolicies",
 		"DescribeTransitGatewayMulticastDomains",
-		"DescribeTransitGatewayPeeringAttachments",
+		// "DescribeTransitGatewayPeeringAttachments", — moved to batch4
 		"DescribeTransitGatewayPolicyTables",
 		"DescribeTransitGatewayRouteTableAnnouncements",
 		"DescribeTrunkInterfaceAssociations",
-		"DescribeVerifiedAccessEndpoints",
-		"DescribeVerifiedAccessGroups",
+		// "DescribeVerifiedAccessEndpoints", — moved to batch4
+		// "DescribeVerifiedAccessGroups", — moved to batch4
 		"DescribeVerifiedAccessInstanceLoggingConfigurations",
-		"DescribeVerifiedAccessInstances",
-		"DescribeVerifiedAccessTrustProviders",
+		// "DescribeVerifiedAccessInstances", — moved to batch4
+		// "DescribeVerifiedAccessTrustProviders", — moved to batch4
 		"DescribeVpcBlockPublicAccessExclusions",
 		"DescribeVpcBlockPublicAccessOptions",
 		"DescribeVpcClassicLink",
@@ -260,7 +260,7 @@ func TestStubOperations(t *testing.T) {
 		"DescribeVpnConnections",
 		"DescribeVpnGateways",
 		"DetachClassicLinkVpc",
-		"DetachVerifiedAccessTrustProvider",
+		// "DetachVerifiedAccessTrustProvider", — moved to batch4
 		"DisableAllowedImagesSettings",
 		"DisableAwsNetworkPerformanceMetricSubscription",
 		"DisableCapacityManager",
@@ -270,7 +270,7 @@ func TestStubOperations(t *testing.T) {
 		"DisableTransitGatewayRouteTablePropagation",
 		"DisableVpcClassicLink",
 		"DisassociateCapacityReservationBillingOwner",
-		"DisassociateClientVpnTargetNetwork",
+		// "DisassociateClientVpnTargetNetwork", — moved to batch4
 		"DisassociateEnclaveCertificateIamRole",
 		"DisassociateInstanceEventWindow",
 		"DisassociateIpamByoasn",
@@ -320,8 +320,8 @@ func TestStubOperations(t *testing.T) {
 		"GetIpamPrefixListResolverVersionEntries",
 		"GetIpamPrefixListResolverVersions",
 		"GetIpamResourceCidrs",
-		"GetManagedPrefixListAssociations",
-		"GetManagedPrefixListEntries",
+		// "GetManagedPrefixListAssociations", — moved to batch4
+		// "GetManagedPrefixListEntries", — moved to batch4
 		"GetNetworkInsightsAccessScopeAnalysisFindings",
 		"GetNetworkInsightsAccessScopeContent",
 		"GetReservedInstancesExchangeQuote",
@@ -334,7 +334,7 @@ func TestStubOperations(t *testing.T) {
 		"GetTransitGatewayMulticastDomainAssociations",
 		"GetTransitGatewayPolicyTableAssociations",
 		"GetTransitGatewayPolicyTableEntries",
-		"GetTransitGatewayPrefixListReferences",
+		// "GetTransitGatewayPrefixListReferences", — moved to batch4
 		"GetTransitGatewayRouteTableAssociations",
 		"GetTransitGatewayRouteTablePropagations",
 		"GetVerifiedAccessEndpointPolicy",
@@ -349,7 +349,7 @@ func TestStubOperations(t *testing.T) {
 		"ImportVolume",
 		"ModifyAvailabilityZoneGroup",
 		"ModifyCapacityReservationFleet",
-		"ModifyClientVpnEndpoint",
+		// "ModifyClientVpnEndpoint", — moved to batch4
 		"ModifyFleet",
 		"ModifyFpgaImageAttribute",
 		"ModifyHosts",
@@ -367,7 +367,7 @@ func TestStubOperations(t *testing.T) {
 		"ModifyIpamResourceDiscovery",
 		"ModifyIpamScope",
 		"ModifyLocalGatewayRoute",
-		"ModifyManagedPrefixList",
+		// "ModifyManagedPrefixList", — moved to batch4
 		"ModifyReservedInstances",
 		"ModifyRouteServer",
 		"ModifyTrafficMirrorFilterNetworkServices",
@@ -376,7 +376,7 @@ func TestStubOperations(t *testing.T) {
 		"ModifyTransitGatewayMeteringPolicy",
 		"ModifyTransitGatewayPrefixListReference",
 		"ModifyTransitGatewayVpcAttachment",
-		"ModifyVerifiedAccessEndpoint",
+		// "ModifyVerifiedAccessEndpoint", — moved to batch4
 		"ModifyVerifiedAccessEndpointPolicy",
 		"ModifyVerifiedAccessGroup",
 		"ModifyVerifiedAccessGroupPolicy",
@@ -411,8 +411,8 @@ func TestStubOperations(t *testing.T) {
 		"ReplaceImageCriteriaInAllowedImagesSettings",
 		"ReplaceVpnTunnel",
 		"ResetFpgaImageAttribute",
-		"RestoreManagedPrefixListVersion",
-		"RevokeClientVpnIngress",
+		// "RestoreManagedPrefixListVersion", — moved to batch4
+		// "RevokeClientVpnIngress", — moved to batch4
 		"RunScheduledInstances",
 		"SearchLocalGatewayRoutes",
 		"SearchTransitGatewayMulticastGroups",
@@ -421,7 +421,7 @@ func TestStubOperations(t *testing.T) {
 		"StartDeclarativePoliciesReport",
 		"StartNetworkInsightsAccessScopeAnalysis",
 		"StartNetworkInsightsAnalysis",
-		"TerminateClientVpnConnections",
+		// "TerminateClientVpnConnections", — moved to batch4
 		"UnassignPrivateNatGatewayAddress",
 		"UpdateCapacityManagerOrganizationsAccess",
 		"UpdateInterruptibleCapacityReservationAllocation",

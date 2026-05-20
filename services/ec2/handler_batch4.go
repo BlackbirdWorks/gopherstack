@@ -3,11 +3,11 @@ package ec2
 import (
 	"encoding/xml"
 	"net/url"
+	"strconv"
 )
 
 // ---- Registration ----
 
-//nolint:funlen // large registration table
 func registerBatch4Ops(h *Handler, ops map[string]ec2ActionFn) {
 	// ManagedPrefixList
 	ops["CreateManagedPrefixList"] = h.handleCreateManagedPrefixList
@@ -138,15 +138,15 @@ type managedPrefixListItem struct {
 	PrefixListArn  string `xml:"prefixListArn"`
 	AddressFamily  string `xml:"addressFamily"`
 	State          string `xml:"state"`
-	MaxEntries     int    `xml:"maxEntries"`
+	OwnerID        string `xml:"ownerId"`
 	Version        int64  `xml:"version"`
-	OwnerId        string `xml:"ownerId"`
+	MaxEntries     int    `xml:"maxEntries"`
 }
 
 type createManagedPrefixListResponse struct {
-	XMLName       xml.Name              `xml:"CreateManagedPrefixListResponse"`
-	RequestID     string                `xml:"requestId"`
-	PrefixList    managedPrefixListItem `xml:"prefixList"`
+	XMLName    xml.Name              `xml:"CreateManagedPrefixListResponse"`
+	RequestID  string                `xml:"requestId"`
+	PrefixList managedPrefixListItem `xml:"prefixList"`
 }
 
 type describeManagedPrefixListsResponse struct {
@@ -163,9 +163,9 @@ type prefixListEntryItem struct {
 }
 
 type getManagedPrefixListEntriesResponse struct {
-	XMLName  xml.Name `xml:"GetManagedPrefixListEntriesResponse"`
-	RequestID string  `xml:"requestId"`
-	EntrySet struct {
+	XMLName   xml.Name `xml:"GetManagedPrefixListEntriesResponse"`
+	RequestID string   `xml:"requestId"`
+	EntrySet  struct {
 		Items []prefixListEntryItem `xml:"item"`
 	} `xml:"entrySet"`
 }
@@ -180,16 +180,16 @@ type getManagedPrefixListAssociationsResponse struct {
 
 type clientVpnEndpointItem struct {
 	ClientVpnEndpointID string `xml:"clientVpnEndpointId"`
-	DnsName             string `xml:"dnsName"`
+	DNSName             string `xml:"dnsName"`
 	Status              string `xml:"status"`
 	Description         string `xml:"description,omitempty"`
 	ClientCidrBlock     string `xml:"clientCidrBlock"`
 }
 
 type createClientVpnEndpointResponse struct {
-	XMLName             xml.Name              `xml:"CreateClientVpnEndpointResponse"`
-	RequestID           string                `xml:"requestId"`
-	ClientVpnEndpoint   clientVpnEndpointItem `xml:"clientVpnEndpoint"`
+	XMLName           xml.Name              `xml:"CreateClientVpnEndpointResponse"`
+	RequestID         string                `xml:"requestId"`
+	ClientVpnEndpoint clientVpnEndpointItem `xml:"clientVpnEndpoint"`
 }
 
 type describeClientVpnEndpointsResponse struct {
@@ -205,8 +205,8 @@ type clientVpnTargetNetworkItem struct {
 }
 
 type describeClientVpnTargetNetworksResponse struct {
-	XMLName           xml.Name `xml:"DescribeClientVpnTargetNetworksResponse"`
-	RequestID         string   `xml:"requestId"`
+	XMLName                 xml.Name `xml:"DescribeClientVpnTargetNetworksResponse"`
+	RequestID               string   `xml:"requestId"`
 	ClientVpnTargetNetworks struct {
 		Items []clientVpnTargetNetworkItem `xml:"item"`
 	} `xml:"clientVpnTargetNetworks"`
@@ -219,9 +219,9 @@ type clientVpnRouteItem struct {
 }
 
 type describeClientVpnRoutesResponse struct {
-	XMLName  xml.Name `xml:"DescribeClientVpnRoutesResponse"`
-	RequestID string  `xml:"requestId"`
-	Routes   struct {
+	XMLName   xml.Name `xml:"DescribeClientVpnRoutesResponse"`
+	RequestID string   `xml:"requestId"`
+	Routes    struct {
 		Items []clientVpnRouteItem `xml:"item"`
 	} `xml:"routes"`
 }
@@ -248,16 +248,9 @@ type describeClientVpnConnectionsResponse struct {
 	} `xml:"connections"`
 }
 
-type tgwPeeringAttachmentItem struct {
-	TransitGatewayAttachmentID string `xml:"transitGatewayAttachmentId"`
-	RequesterTransitGatewayID  string `xml:"requesterTransitGatewayId"`
-	AccepterTransitGatewayID   string `xml:"accepterTransitGatewayId"`
-	State                      string `xml:"state"`
-}
-
 type createTransitGatewayPeeringAttachmentResponse struct {
-	XMLName                      xml.Name                 `xml:"CreateTransitGatewayPeeringAttachmentResponse"`
-	RequestID                    string                   `xml:"requestId"`
+	XMLName                         xml.Name                 `xml:"CreateTransitGatewayPeeringAttachmentResponse"`
+	RequestID                       string                   `xml:"requestId"`
 	TransitGatewayPeeringAttachment tgwPeeringAttachmentItem `xml:"transitGatewayPeeringAttachment"`
 }
 
@@ -277,14 +270,14 @@ type tgwConnectItem struct {
 }
 
 type createTransitGatewayConnectResponse struct {
-	XMLName              xml.Name       `xml:"CreateTransitGatewayConnectResponse"`
-	RequestID            string         `xml:"requestId"`
+	XMLName               xml.Name       `xml:"CreateTransitGatewayConnectResponse"`
+	RequestID             string         `xml:"requestId"`
 	TransitGatewayConnect tgwConnectItem `xml:"transitGatewayConnect"`
 }
 
 type describeTransitGatewayConnectsResponse struct {
-	XMLName               xml.Name `xml:"DescribeTransitGatewayConnectsResponse"`
-	RequestID             string   `xml:"requestId"`
+	XMLName                xml.Name `xml:"DescribeTransitGatewayConnectsResponse"`
+	RequestID              string   `xml:"requestId"`
 	TransitGatewayConnects struct {
 		Items []tgwConnectItem `xml:"item"`
 	} `xml:"transitGatewayConnects"`
@@ -298,9 +291,9 @@ type tgwConnectPeerItem struct {
 }
 
 type createTransitGatewayConnectPeerResponse struct {
-	XMLName                    xml.Name           `xml:"CreateTransitGatewayConnectPeerResponse"`
-	RequestID                  string             `xml:"requestId"`
-	TransitGatewayConnectPeer  tgwConnectPeerItem `xml:"transitGatewayConnectPeer"`
+	XMLName                   xml.Name           `xml:"CreateTransitGatewayConnectPeerResponse"`
+	RequestID                 string             `xml:"requestId"`
+	TransitGatewayConnectPeer tgwConnectPeerItem `xml:"transitGatewayConnectPeer"`
 }
 
 type describeTransitGatewayConnectPeersResponse struct {
@@ -319,14 +312,14 @@ type tgwPrefixListRefItem struct {
 }
 
 type createTransitGatewayPrefixListReferenceResponse struct {
-	XMLName                          xml.Name             `xml:"CreateTransitGatewayPrefixListReferenceResponse"`
-	RequestID                        string               `xml:"requestId"`
+	XMLName                           xml.Name             `xml:"CreateTransitGatewayPrefixListReferenceResponse"`
+	RequestID                         string               `xml:"requestId"`
 	TransitGatewayPrefixListReference tgwPrefixListRefItem `xml:"transitGatewayPrefixListReference"`
 }
 
 type getTransitGatewayPrefixListReferencesResponse struct {
-	XMLName                            xml.Name `xml:"GetTransitGatewayPrefixListReferencesResponse"`
-	RequestID                          string   `xml:"requestId"`
+	XMLName                              xml.Name `xml:"GetTransitGatewayPrefixListReferencesResponse"`
+	RequestID                            string   `xml:"requestId"`
 	TransitGatewayPrefixListReferenceSet struct {
 		Items []tgwPrefixListRefItem `xml:"item"`
 	} `xml:"transitGatewayPrefixListReferenceSet"`
@@ -362,9 +355,9 @@ type verifiedAccessGroupItem struct {
 }
 
 type createVerifiedAccessGroupResponse struct {
-	XMLName              xml.Name                `xml:"CreateVerifiedAccessGroupResponse"`
-	RequestID            string                  `xml:"requestId"`
-	VerifiedAccessGroup  verifiedAccessGroupItem `xml:"verifiedAccessGroup"`
+	XMLName             xml.Name                `xml:"CreateVerifiedAccessGroupResponse"`
+	RequestID           string                  `xml:"requestId"`
+	VerifiedAccessGroup verifiedAccessGroupItem `xml:"verifiedAccessGroup"`
 }
 
 type describeVerifiedAccessGroupsResponse struct {
@@ -382,9 +375,9 @@ type verifiedAccessInstanceItem struct {
 }
 
 type createVerifiedAccessInstanceResponse struct {
-	XMLName                 xml.Name                   `xml:"CreateVerifiedAccessInstanceResponse"`
-	RequestID               string                     `xml:"requestId"`
-	VerifiedAccessInstance  verifiedAccessInstanceItem `xml:"verifiedAccessInstance"`
+	XMLName                xml.Name                   `xml:"CreateVerifiedAccessInstanceResponse"`
+	RequestID              string                     `xml:"requestId"`
+	VerifiedAccessInstance verifiedAccessInstanceItem `xml:"verifiedAccessInstance"`
 }
 
 type describeVerifiedAccessInstancesResponse struct {
@@ -403,9 +396,9 @@ type verifiedAccessTrustProviderItem struct {
 }
 
 type createVerifiedAccessTrustProviderResponse struct {
-	XMLName                      xml.Name                        `xml:"CreateVerifiedAccessTrustProviderResponse"`
-	RequestID                    string                          `xml:"requestId"`
-	VerifiedAccessTrustProvider  verifiedAccessTrustProviderItem `xml:"verifiedAccessTrustProvider"`
+	XMLName                     xml.Name                        `xml:"CreateVerifiedAccessTrustProviderResponse"`
+	RequestID                   string                          `xml:"requestId"`
+	VerifiedAccessTrustProvider verifiedAccessTrustProviderItem `xml:"verifiedAccessTrustProvider"`
 }
 
 type describeVerifiedAccessTrustProvidersResponse struct {
@@ -427,7 +420,7 @@ func toManagedPrefixListItem(pl *ManagedPrefixList) managedPrefixListItem {
 		State:          pl.State,
 		MaxEntries:     pl.MaxEntries,
 		Version:        pl.Version,
-		OwnerId:        pl.OwnerId,
+		OwnerID:        pl.OwnerID,
 	}
 }
 
@@ -436,9 +429,7 @@ func (h *Handler) handleCreateManagedPrefixList(vals url.Values, reqID string) (
 	af := vals.Get("AddressFamily")
 	maxEntries := 0
 	if v := vals.Get("MaxEntries"); v != "" {
-		if _, err := parseIntValue(v, &maxEntries); err != nil {
-			maxEntries = 0
-		}
+		parseIntValue(v, &maxEntries)
 	}
 
 	pl, err := h.Backend.CreateManagedPrefixList(name, af, maxEntries)
@@ -486,10 +477,7 @@ func (h *Handler) handleGetManagedPrefixListEntries(vals url.Values, reqID strin
 
 	resp := &getManagedPrefixListEntriesResponse{RequestID: reqID}
 	for _, e := range entries {
-		resp.EntrySet.Items = append(resp.EntrySet.Items, prefixListEntryItem{
-			Cidr:        e.Cidr,
-			Description: e.Description,
-		})
+		resp.EntrySet.Items = append(resp.EntrySet.Items, prefixListEntryItem(e))
 	}
 
 	return resp, nil
@@ -534,9 +522,9 @@ func (h *Handler) handleModifyManagedPrefixList(vals url.Values, reqID string) (
 
 func (h *Handler) handleRestoreManagedPrefixListVersion(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("PrefixListId")
-	version := int64(0)
-	parseIntValue(vals.Get("PreviousVersion"), (*int)(&version)) //nolint:errcheck // best-effort
-	if err := h.Backend.RestoreManagedPrefixListVersion(id, version); err != nil {
+	version := 0
+	parseIntValue(vals.Get("PreviousVersion"), &version)
+	if err := h.Backend.RestoreManagedPrefixListVersion(id, int64(version)); err != nil {
 		return nil, err
 	}
 
@@ -552,7 +540,7 @@ func (h *Handler) handleRestoreManagedPrefixListVersion(vals url.Values, reqID s
 func toClientVpnEndpointItem(ep *ClientVpnEndpoint) clientVpnEndpointItem {
 	return clientVpnEndpointItem{
 		ClientVpnEndpointID: ep.ClientVpnEndpointID,
-		DnsName:             ep.DnsName,
+		DNSName:             ep.DNSName,
 		Status:              ep.Status,
 		Description:         ep.Description,
 		ClientCidrBlock:     ep.ClientCidrBlock,
@@ -687,11 +675,7 @@ func (h *Handler) handleDescribeClientVpnRoutes(vals url.Values, reqID string) (
 
 	resp := &describeClientVpnRoutesResponse{RequestID: reqID}
 	for _, r := range routes {
-		resp.Routes.Items = append(resp.Routes.Items, clientVpnRouteItem{
-			DestinationCidr: r.DestinationCidr,
-			Status:          r.Status,
-			Description:     r.Description,
-		})
+		resp.Routes.Items = append(resp.Routes.Items, clientVpnRouteItem(r))
 	}
 
 	return resp, nil
@@ -741,11 +725,7 @@ func (h *Handler) handleDescribeClientVpnAuthorizationRules(
 
 	resp := &describeClientVpnAuthorizationRulesResponse{RequestID: reqID}
 	for _, r := range rules {
-		resp.AuthorizationRules.Items = append(resp.AuthorizationRules.Items, clientVpnAuthRuleItem{
-			Cidr:        r.Cidr,
-			Status:      r.Status,
-			Description: r.Description,
-		})
+		resp.AuthorizationRules.Items = append(resp.AuthorizationRules.Items, clientVpnAuthRuleItem(r))
 	}
 
 	return resp, nil
@@ -1308,37 +1288,18 @@ func (h *Handler) handleDetachVerifiedAccessTrustProvider(vals url.Values, reqID
 
 // ---- Helpers ----
 
-// itoa converts an int to string (local helper to avoid importing strconv).
+// itoa converts an int to decimal string.
 func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	buf := make([]byte, 0, 10)
-	neg := i < 0
-	if neg {
-		i = -i
-	}
-	for i > 0 {
-		buf = append([]byte{byte('0' + i%10)}, buf...)
-		i /= 10
-	}
-	if neg {
-		buf = append([]byte{'-'}, buf...)
-	}
-	return string(buf)
+	return strconv.Itoa(i)
 }
 
-// parseIntValue parses s into *v and returns any error.
-func parseIntValue(s string, v *int) (int, error) {
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return 0, ErrInvalidParameter
-		}
-		n = n*10 + int(c-'0')
+// parseIntValue parses s into *v. Ignores parse errors (best-effort).
+func parseIntValue(s string, v *int) {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return
 	}
 	if v != nil {
 		*v = n
 	}
-	return n, nil
 }
