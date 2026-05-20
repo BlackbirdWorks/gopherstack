@@ -17,6 +17,12 @@ type backendSnapshot struct {
 	CommandExecutions   map[string]*CommandExecution   `json:"commandExecutions"`
 	Sandboxes           map[string]*Sandbox            `json:"sandboxes"`
 	Webhooks            map[string]*Webhook            `json:"webhooks"`
+	ResourcePolicies    map[string]string              `json:"resourcePolicies"`
+	SourceCredentials   map[string]*SourceCredentials  `json:"sourceCredentials"`
+	SandboxesByProject  map[string]map[string]struct{} `json:"sandboxesByProject"`
+	BatchesByProject    map[string]map[string]struct{} `json:"batchesByProject"`
+	CommandsBySandbox   map[string]map[string]struct{} `json:"commandsBySandbox"`
+	ReportsByGroup      map[string]map[string]struct{} `json:"reportsByGroup"`
 	AccountID           string                         `json:"accountID"`
 	Region              string                         `json:"region"`
 }
@@ -24,60 +30,73 @@ type backendSnapshot struct {
 // ensureNonNil replaces nil maps in the snapshot with empty initialized maps
 // so callers don't need to guard against nil after a Restore.
 func (s *backendSnapshot) ensureNonNil() {
+	s.ensureNonNilCore()
+	s.ensureNonNilExt()
+}
+
+func (s *backendSnapshot) ensureNonNilCore() {
 	if s.Projects == nil {
 		s.Projects = make(map[string]*Project)
 	}
-
 	if s.Builds == nil {
 		s.Builds = make(map[string]*Build)
 	}
-
 	if s.BuildsByProject == nil {
 		s.BuildsByProject = make(map[string]map[string]struct{})
 	}
-
 	if s.ProjectARNIndex == nil {
 		s.ProjectARNIndex = make(map[string]string)
 	}
-
 	if s.BuildARNIndex == nil {
 		s.BuildARNIndex = make(map[string]string)
 	}
-
 	if s.Fleets == nil {
 		s.Fleets = make(map[string]*Fleet)
 	}
-
 	if s.FleetARNIndex == nil {
 		s.FleetARNIndex = make(map[string]string)
 	}
-
 	if s.ReportGroups == nil {
 		s.ReportGroups = make(map[string]*ReportGroup)
 	}
-
 	if s.ReportGroupARNIndex == nil {
 		s.ReportGroupARNIndex = make(map[string]string)
 	}
-
 	if s.Reports == nil {
 		s.Reports = make(map[string]*Report)
 	}
+}
 
+func (s *backendSnapshot) ensureNonNilExt() {
 	if s.BuildBatches == nil {
 		s.BuildBatches = make(map[string]*BuildBatch)
 	}
-
 	if s.CommandExecutions == nil {
 		s.CommandExecutions = make(map[string]*CommandExecution)
 	}
-
 	if s.Sandboxes == nil {
 		s.Sandboxes = make(map[string]*Sandbox)
 	}
-
 	if s.Webhooks == nil {
 		s.Webhooks = make(map[string]*Webhook)
+	}
+	if s.ResourcePolicies == nil {
+		s.ResourcePolicies = make(map[string]string)
+	}
+	if s.SourceCredentials == nil {
+		s.SourceCredentials = make(map[string]*SourceCredentials)
+	}
+	if s.SandboxesByProject == nil {
+		s.SandboxesByProject = make(map[string]map[string]struct{})
+	}
+	if s.BatchesByProject == nil {
+		s.BatchesByProject = make(map[string]map[string]struct{})
+	}
+	if s.CommandsBySandbox == nil {
+		s.CommandsBySandbox = make(map[string]map[string]struct{})
+	}
+	if s.ReportsByGroup == nil {
+		s.ReportsByGroup = make(map[string]map[string]struct{})
 	}
 }
 
@@ -101,6 +120,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		CommandExecutions:   b.commandExecutions,
 		Sandboxes:           b.sandboxes,
 		Webhooks:            b.webhooks,
+		ResourcePolicies:    b.resourcePolicies,
+		SourceCredentials:   b.sourceCredentials,
+		SandboxesByProject:  b.sandboxesByProject,
+		BatchesByProject:    b.batchesByProject,
+		CommandsBySandbox:   b.commandsBySandbox,
+		ReportsByGroup:      b.reportsByGroup,
 		AccountID:           b.accountID,
 		Region:              b.region,
 	}
@@ -137,6 +162,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.commandExecutions = snap.CommandExecutions
 	b.sandboxes = snap.Sandboxes
 	b.webhooks = snap.Webhooks
+	b.resourcePolicies = snap.ResourcePolicies
+	b.sourceCredentials = snap.SourceCredentials
+	b.sandboxesByProject = snap.SandboxesByProject
+	b.batchesByProject = snap.BatchesByProject
+	b.commandsBySandbox = snap.CommandsBySandbox
+	b.reportsByGroup = snap.ReportsByGroup
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
