@@ -164,12 +164,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListMarketplaceModelEndpoints",
 		"ListModelCustomizationJobs",
 		"ListProvisionedModelThroughputs",
-		"ListTagsForResource",
+		opListTagsForResource,
 		"PutModelInvocationLoggingConfiguration",
 		"RegisterMarketplaceModelEndpoint",
 		"StopModelCustomizationJob",
-		"TagResource",
-		"UntagResource",
+		opTagResource,
+		opUntagResource,
 		"UpdateGuardrail",
 		"UpdateMarketplaceModelEndpoint",
 		"UpdateProvisionedModelThroughput",
@@ -376,11 +376,11 @@ func extractTagOperation(path, method string) (string, bool) {
 
 	switch path {
 	case listTagsForResourcePath:
-		return "ListTagsForResource", true
+		return opListTagsForResource, true
 	case tagResourcePath:
-		return "TagResource", true
+		return opTagResource, true
 	case untagResourcePath:
-		return "UntagResource", true
+		return opUntagResource, true
 	default:
 		return "", false
 	}

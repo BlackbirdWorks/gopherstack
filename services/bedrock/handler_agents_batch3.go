@@ -33,8 +33,6 @@ const (
 
 	suffixAliases  = "/aliases"
 	suffixVersions = "/versions"
-
-	opAgentStatus = "agentStatus"
 )
 
 // ---------------------------------------------------------------------------
@@ -356,7 +354,6 @@ func (h *AgentsHandler) dispatchTagRoutes(
 		agentErrResp("UnknownOperationException", "unknown tag operation"),
 	)
 }
-
 
 func (h *AgentsHandler) dispatchDocumentOps(
 	c *echo.Context, kbID, dsID, method string, body []byte,
@@ -817,7 +814,7 @@ func (h *AgentsHandler) handleDeleteAgentVersion(
 
 	return c.JSON(
 		http.StatusAccepted,
-		map[string]any{keyAgentID: agentID, keyVersion: version, opAgentStatus: statusDeleting},
+		map[string]any{keyAgentID: agentID, keyVersion: version, opAgentStatusKey: statusDeleting},
 	)
 }
 
@@ -902,7 +899,7 @@ func (h *AgentsHandler) handleDisassociateAgentCollaborator(
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusNoContent, nil)
+	return c.NoContent(http.StatusNoContent)
 }
 
 // ---------------------------------------------------------------------------
@@ -1073,5 +1070,5 @@ func (h *AgentsHandler) handleDeleteAgentMemory(
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusNoContent, nil)
+	return c.NoContent(http.StatusNoContent)
 }

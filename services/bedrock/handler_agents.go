@@ -198,8 +198,8 @@ const (
 	keyKnowledgeBaseID = "knowledgeBaseId"
 
 	// Op name constants shared between BedrockAgents and Bedrock handlers.
-	opTagResource        = "TagResource"
-	opUntagResource      = "UntagResource"
+	opTagResource         = "TagResource"
+	opUntagResource       = "UntagResource"
 	opListTagsForResource = "ListTagsForResource"
 
 	// Agent sub-path suffixes.
@@ -241,9 +241,9 @@ func (h *AgentsHandler) ExtractOperation(c *echo.Context) string {
 		return "CreateAgentActionGroup"
 	case strings.HasSuffix(path, "/action-groups") && method == http.MethodGet:
 		return "ListAgentActionGroups"
-	case strings.HasSuffix(path, "/aliases") && method == http.MethodPost:
+	case strings.HasSuffix(path, suffixAgentAliases) && method == http.MethodPost:
 		return "CreateAgentAlias"
-	case strings.HasSuffix(path, "/aliases") && method == http.MethodGet:
+	case strings.HasSuffix(path, suffixAgentAliases) && method == http.MethodGet:
 		return "ListAgentAliases"
 	case strings.Contains(path, "/agentversions/") &&
 		strings.Contains(path, "/knowledgebases") && method == http.MethodGet:
@@ -280,7 +280,8 @@ func (h *AgentsHandler) Handler() echo.HandlerFunc {
 		log := logger.Load(r.Context())
 
 		var body []byte
-		if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
+		switch method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 			var err error
 
 			body, err = httputils.ReadBody(r)
@@ -299,8 +300,6 @@ func (h *AgentsHandler) Handler() echo.HandlerFunc {
 }
 
 // dispatch routes requests to the appropriate handler.
-//
-//nolint:cyclop,gocognit,gocyclo // large dispatch table for agents routing is inherently complex
 func (h *AgentsHandler) dispatch(c *echo.Context, path, method string, body []byte) error {
 	if handled, err := h.dispatchAgentRoutes(c, path, method, body); handled {
 		return err
@@ -328,8 +327,6 @@ func (h *AgentsHandler) dispatch(c *echo.Context, path, method string, body []by
 
 // dispatchAgentRoutes handles /agents and /agents/{agentId}/... routes.
 // Returns (true, err) when the path was matched; (false, nil) when it was not.
-//
-//nolint:cyclop // agent dispatch table is inherently branchy
 func (h *AgentsHandler) dispatchAgentRoutes(
 	c *echo.Context, path, method string, body []byte,
 ) (bool, error) {
@@ -382,7 +379,7 @@ func (h *AgentsHandler) dispatchAgentIDRoutes(
 		return h.dispatchMemoryRoutes(c, agentID, suffix, method)
 	case strings.HasPrefix(suffix, "/action-groups"):
 		return h.dispatchActionGroupRoutes(c, agentID, suffix, method, body)
-	case strings.HasPrefix(suffix, "/aliases"):
+	case strings.HasPrefix(suffix, suffixAgentAliases):
 		return h.dispatchAliasRoutes(c, agentID, suffix, method, body)
 	case strings.HasPrefix(suffix, "/versions"):
 		return h.dispatchAgentVersionRoutes(c, agentID, suffix, method)
@@ -528,7 +525,7 @@ func (h *AgentsHandler) handleDeleteAgent(c *echo.Context, agentID string) error
 
 	return c.JSON(
 		http.StatusAccepted,
-		map[string]any{keyAgentID: agentID, "agentStatus": statusDeleting},
+		map[string]any{keyAgentID: agentID, opAgentStatusKey: statusDeleting},
 	)
 }
 
@@ -541,9 +538,9 @@ func (h *AgentsHandler) handlePrepareAgent(c *echo.Context, agentID string) erro
 	return c.JSON(
 		http.StatusAccepted,
 		map[string]any{
-			keyAgentID:     ag.AgentID,
-			"agentStatus":  ag.AgentStatus,
-			"agentVersion": ag.AgentVersion,
+			keyAgentID:       ag.AgentID,
+			opAgentStatusKey: ag.AgentStatus,
+			"agentVersion":   ag.AgentVersion,
 		},
 	)
 }
@@ -708,15 +705,15 @@ func (h *AgentsHandler) dispatchAliasRoutes(
 	agentID, suffix, method string,
 	body []byte,
 ) error {
-	if suffix == "/aliases" && method == http.MethodPost {
+	if suffix == suffixAgentAliases && method == http.MethodPost {
 		return h.handleCreateAgentAlias(c, agentID, body)
 	}
 
-	if suffix == "/aliases" && method == http.MethodGet {
+	if suffix == suffixAgentAliases && method == http.MethodGet {
 		return h.handleListAgentAliases(c, agentID)
 	}
 
-	if aliasID, aliasOK := strings.CutPrefix(suffix, "/aliases/"); aliasOK {
+	if aliasID, aliasOK := strings.CutPrefix(suffix, suffixAgentAliases+"/"); aliasOK {
 		switch method {
 		case http.MethodGet:
 			return h.handleGetAgentAlias(c, agentID, aliasID)
@@ -901,7 +898,7 @@ func (h *AgentsHandler) handleDisassociateAgentKB(c *echo.Context, agentID, kbID
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusNoContent, nil)
+	return c.NoContent(http.StatusNoContent)
 }
 
 // ---------------------------------------------------------------------------

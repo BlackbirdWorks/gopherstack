@@ -276,31 +276,31 @@ type InMemoryBackend struct {
 	marketplaceEndpointsByName  map[string]string // endpoint name → ARN
 	promptRoutersByName         map[string]string // router name → ARN
 	// Agents
-	agents                     map[string]*Agent
-	agentsByName               map[string]string                         // agentName → agentID
-	agentActionGroups          map[string]*AgentActionGroup              // agentID/actionGroupID → group
-	agentAliases               map[string]*AgentAlias                    // agentID/aliasID → alias
-	agentKBAssociations        map[string]*AgentKnowledgeBaseAssociation // agentID/kbID → assoc
-	knowledgeBases             map[string]*KnowledgeBase                 // kbID → kb
-	kbByName                   map[string]string                         // kbName → kbID
-	dataSources                map[string]*DataSource                    // kbID/dsID → ds
-	ingestionJobs              map[string]*IngestionJob                  // kbID/dsID/jobID → job
+	agents              map[string]*Agent
+	agentsByName        map[string]string                         // agentName → agentID
+	agentActionGroups   map[string]*AgentActionGroup              // agentID/actionGroupID → group
+	agentAliases        map[string]*AgentAlias                    // agentID/aliasID → alias
+	agentKBAssociations map[string]*AgentKnowledgeBaseAssociation // agentID/kbID → assoc
+	knowledgeBases      map[string]*KnowledgeBase                 // kbID → kb
+	kbByName            map[string]string                         // kbName → kbID
+	dataSources         map[string]*DataSource                    // kbID/dsID → ds
+	ingestionJobs       map[string]*IngestionJob                  // kbID/dsID/jobID → job
 	// Agents batch-3 additions
-	flows                  map[string]*Flow                        // flowID → flow
-	flowsByName            map[string]string                       // flowName → flowID
-	flowAliases            map[string]*FlowAlias                   // flowAliasKey(flowID, aliasID) → alias
-	flowVersions           map[string]map[string]*FlowVersion      // flowID → version → flowVersion
-	flowVersionCounters    map[string]int                          // flowID → next version number
-	prompts                map[string]*Prompt                      // promptID → prompt
-	promptsByName          map[string]string                       // promptName → promptID
-	promptVersions         map[string]map[string]*PromptVersion    // promptID → version → promptVersion
-	promptVersionCounters  map[string]int                          // promptID → next version number
-	agentVersions          map[string]map[string]*AgentVersion     // agentID → version → agentVersion
-	agentVersionCounters   map[string]int                          // agentID → next version number
-	agentCollaborators     map[string]map[string]*AgentCollaborator // agentID → collabID → collaborator
-	kbDocuments            map[string]*KnowledgeBaseDocument       // kbDocKey → document
-	agentTags              map[string]map[string]string            // ARN → tagKey → tagValue
-	agentMemory            map[string][]any                        // agentID/sessionID → memory entries
+	flows                      map[string]*Flow                         // flowID → flow
+	flowsByName                map[string]string                        // flowName → flowID
+	flowAliases                map[string]*FlowAlias                    // flowAliasKey(flowID, aliasID) → alias
+	flowVersions               map[string]map[string]*FlowVersion       // flowID → version → flowVersion
+	flowVersionCounters        map[string]int                           // flowID → next version number
+	prompts                    map[string]*Prompt                       // promptID → prompt
+	promptsByName              map[string]string                        // promptName → promptID
+	promptVersions             map[string]map[string]*PromptVersion     // promptID → version → promptVersion
+	promptVersionCounters      map[string]int                           // promptID → next version number
+	agentVersions              map[string]map[string]*AgentVersion      // agentID → version → agentVersion
+	agentVersionCounters       map[string]int                           // agentID → next version number
+	agentCollaborators         map[string]map[string]*AgentCollaborator // agentID → collabID → collaborator
+	kbDocuments                map[string]*KnowledgeBaseDocument        // kbDocKey → document
+	agentTags                  map[string]map[string]string             // ARN → tagKey → tagValue
+	agentMemory                map[string][]any                         // agentID/sessionID → memory entries
 	mu                         *lockmetrics.RWMutex
 	accountID                  string
 	region                     string
@@ -328,10 +328,10 @@ type InMemoryBackend struct {
 	dataSourceCounter          int
 	ingestionJobCounter        int
 	// Batch-3 counters
-	flowCounter         int
-	flowAliasCounter    int
-	promptCounter       int
-	agentCollabCounter  int
+	flowCounter        int
+	flowAliasCounter   int
+	promptCounter      int
+	agentCollabCounter int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend pre-seeded with foundation models.
