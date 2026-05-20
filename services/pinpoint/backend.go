@@ -53,7 +53,7 @@ type InMemoryBackend struct {
 	smsTemplates           map[string]*SmsTemplate
 	voiceTemplates         map[string]*VoiceTemplate
 	endpoints              map[string]*Endpoint
-	eventStreams            map[string]*EventStream
+	eventStreams           map[string]*EventStream
 	channels               map[string]*Channel
 	appSettings            map[string]*storedAppSettings
 	campaignVersions       map[string][]*Campaign
@@ -81,7 +81,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		channels:               make(map[string]*Channel),
 		emailTemplates:         make(map[string]*EmailTemplate),
 		endpoints:              make(map[string]*Endpoint),
-		eventStreams:            make(map[string]*EventStream),
+		eventStreams:           make(map[string]*EventStream),
 		exportJobs:             make(map[string]*ExportJob),
 		importJobs:             make(map[string]*ImportJob),
 		inAppTemplates:         make(map[string]*InAppTemplate),
@@ -391,7 +391,7 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 	// Track template version history.
 	versionKey := templateName + "/EMAIL"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
-		{TemplateName: templateName, TemplateType: "EMAIL", TemplateVersion: "1"},
+		{TemplateName: templateName, TemplateType: ChannelTypeEmail, TemplateVersion: "1"},
 	}
 
 	return cloneEmailTemplate(t), nil
@@ -424,7 +424,7 @@ func (b *InMemoryBackend) CreateInAppTemplate(
 	// Track template version history.
 	versionKey := templateName + "/INAPP"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
-		{TemplateName: templateName, TemplateType: "INAPP", TemplateVersion: "1"},
+		{TemplateName: templateName, TemplateType: templateTypeINAPP, TemplateVersion: "1"},
 	}
 
 	return cloneInAppTemplate(t), nil
@@ -457,7 +457,7 @@ func (b *InMemoryBackend) CreatePushTemplate(
 	// Track template version history.
 	versionKey := templateName + "/PUSH"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
-		{TemplateName: templateName, TemplateType: "PUSH", TemplateVersion: "1"},
+		{TemplateName: templateName, TemplateType: templateTypePUSH, TemplateVersion: "1"},
 	}
 
 	return clonePushTemplate(t), nil
@@ -490,7 +490,7 @@ func (b *InMemoryBackend) CreateSmsTemplate(
 	// Track template version history.
 	versionKey := templateName + "/SMS"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
-		{TemplateName: templateName, TemplateType: "SMS", TemplateVersion: "1"},
+		{TemplateName: templateName, TemplateType: ChannelTypeSMS, TemplateVersion: "1"},
 	}
 
 	return cloneSmsTemplate(t), nil

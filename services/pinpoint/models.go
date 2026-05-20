@@ -326,20 +326,6 @@ type appSettingsResponse struct {
 	LastModifiedDate string         `json:"LastModifiedDate,omitempty"`
 }
 
-// newAppSettingsResponse builds an ApplicationSettingsResource response with
-// empty (non-nil) nested objects for CampaignHook, Limits, and QuietTime.
-// The Terraform provider's flatten helpers dereference these pointers directly
-// and panic if they are nil, so we must always return non-nil empty structs.
-func newAppSettingsResponse(appID string) appSettingsResponse {
-	return appSettingsResponse{
-		ApplicationID:    appID,
-		LastModifiedDate: nowRFC3339(),
-		CampaignHook:     map[string]any{},
-		Limits:           map[string]any{},
-		QuietTime:        map[string]any{},
-	}
-}
-
 // nowRFC3339 returns the current UTC time formatted as RFC 3339.
 func nowRFC3339() string {
 	return time.Now().UTC().Format(time.RFC3339)
