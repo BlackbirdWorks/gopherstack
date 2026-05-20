@@ -285,6 +285,22 @@ type InMemoryBackend struct {
 	kbByName                   map[string]string                         // kbName → kbID
 	dataSources                map[string]*DataSource                    // kbID/dsID → ds
 	ingestionJobs              map[string]*IngestionJob                  // kbID/dsID/jobID → job
+	// Agents batch-3 additions
+	flows                  map[string]*Flow                        // flowID → flow
+	flowsByName            map[string]string                       // flowName → flowID
+	flowAliases            map[string]*FlowAlias                   // flowAliasKey(flowID, aliasID) → alias
+	flowVersions           map[string]map[string]*FlowVersion      // flowID → version → flowVersion
+	flowVersionCounters    map[string]int                          // flowID → next version number
+	prompts                map[string]*Prompt                      // promptID → prompt
+	promptsByName          map[string]string                       // promptName → promptID
+	promptVersions         map[string]map[string]*PromptVersion    // promptID → version → promptVersion
+	promptVersionCounters  map[string]int                          // promptID → next version number
+	agentVersions          map[string]map[string]*AgentVersion     // agentID → version → agentVersion
+	agentVersionCounters   map[string]int                          // agentID → next version number
+	agentCollaborators     map[string]map[string]*AgentCollaborator // agentID → collabID → collaborator
+	kbDocuments            map[string]*KnowledgeBaseDocument       // kbDocKey → document
+	agentTags              map[string]map[string]string            // ARN → tagKey → tagValue
+	agentMemory            map[string][]any                        // agentID/sessionID → memory entries
 	mu                         *lockmetrics.RWMutex
 	accountID                  string
 	region                     string
@@ -311,6 +327,11 @@ type InMemoryBackend struct {
 	kbCounter                  int
 	dataSourceCounter          int
 	ingestionJobCounter        int
+	// Batch-3 counters
+	flowCounter         int
+	flowAliasCounter    int
+	promptCounter       int
+	agentCollabCounter  int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend pre-seeded with foundation models.
@@ -357,6 +378,21 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		kbByName:                    make(map[string]string),
 		dataSources:                 make(map[string]*DataSource),
 		ingestionJobs:               make(map[string]*IngestionJob),
+		flows:                       make(map[string]*Flow),
+		flowsByName:                 make(map[string]string),
+		flowAliases:                 make(map[string]*FlowAlias),
+		flowVersions:                make(map[string]map[string]*FlowVersion),
+		flowVersionCounters:         make(map[string]int),
+		prompts:                     make(map[string]*Prompt),
+		promptsByName:               make(map[string]string),
+		promptVersions:              make(map[string]map[string]*PromptVersion),
+		promptVersionCounters:       make(map[string]int),
+		agentVersions:               make(map[string]map[string]*AgentVersion),
+		agentVersionCounters:        make(map[string]int),
+		agentCollaborators:          make(map[string]map[string]*AgentCollaborator),
+		kbDocuments:                 make(map[string]*KnowledgeBaseDocument),
+		agentTags:                   make(map[string]map[string]string),
+		agentMemory:                 make(map[string][]any),
 		accountID:                   accountID,
 		region:                      region,
 		mu:                          lockmetrics.New("bedrock"),
@@ -420,6 +456,25 @@ func (b *InMemoryBackend) Reset() {
 	b.kbCounter = 0
 	b.dataSourceCounter = 0
 	b.ingestionJobCounter = 0
+	b.flows = make(map[string]*Flow)
+	b.flowsByName = make(map[string]string)
+	b.flowAliases = make(map[string]*FlowAlias)
+	b.flowVersions = make(map[string]map[string]*FlowVersion)
+	b.flowVersionCounters = make(map[string]int)
+	b.prompts = make(map[string]*Prompt)
+	b.promptsByName = make(map[string]string)
+	b.promptVersions = make(map[string]map[string]*PromptVersion)
+	b.promptVersionCounters = make(map[string]int)
+	b.agentVersions = make(map[string]map[string]*AgentVersion)
+	b.agentVersionCounters = make(map[string]int)
+	b.agentCollaborators = make(map[string]map[string]*AgentCollaborator)
+	b.kbDocuments = make(map[string]*KnowledgeBaseDocument)
+	b.agentTags = make(map[string]map[string]string)
+	b.agentMemory = make(map[string][]any)
+	b.flowCounter = 0
+	b.flowAliasCounter = 0
+	b.promptCounter = 0
+	b.agentCollabCounter = 0
 	b.guardrailCounter = 0
 	b.guardrailVersionCounter = 0
 	b.provisionedCounter = 0
