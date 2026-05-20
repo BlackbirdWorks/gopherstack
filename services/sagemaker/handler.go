@@ -68,7 +68,7 @@ func (h *Handler) Reset() {
 //
 //nolint:funlen
 func (h *Handler) GetSupportedOperations() []string {
-	core := []string{ //nolint:prealloc // literal initialization, not append loop
+	core := []string{
 		"AddAssociation",
 		"AddTags",
 		"AssociateTrialComponent",
@@ -176,7 +176,81 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateTrialComponent",
 	}
 
-	return append(core, stubOpsSupported()...)
+	batch2 := batch2OpsSupported()
+
+	combined := make([]string, 0, len(core)+len(batch2)+len(stubOpsSupported()))
+	combined = append(combined, core...)
+	combined = append(combined, batch2...)
+
+	return append(combined, stubOpsSupported()...)
+}
+
+// batch2OpsSupported returns the 50 real stateful operations implemented in batch 2.
+func batch2OpsSupported() []string {
+	return []string{
+		// ModelPackage CRUD
+		"CreateModelPackage",
+		"DescribeModelPackage",
+		"DeleteModelPackage",
+		"ListModelPackages",
+		// ModelPackageGroup CRUD
+		"CreateModelPackageGroup",
+		"DescribeModelPackageGroup",
+		"DeleteModelPackageGroup",
+		"ListModelPackageGroups",
+		// AutoMLJob
+		"CreateAutoMLJob",
+		"CreateAutoMLJobV2",
+		"DescribeAutoMLJob",
+		"DescribeAutoMLJobV2",
+		"StopAutoMLJob",
+		"ListAutoMLJobs",
+		// CodeRepository
+		"CreateCodeRepository",
+		"DescribeCodeRepository",
+		"UpdateCodeRepository",
+		"DeleteCodeRepository",
+		"ListCodeRepositories",
+		// Project
+		"CreateProject",
+		"DescribeProject",
+		"DeleteProject",
+		"ListProjects",
+		// Space
+		"CreateSpace",
+		"DescribeSpace",
+		"DeleteSpace",
+		"ListSpaces",
+		// Image
+		"CreateImage",
+		"DescribeImage",
+		"DeleteImage",
+		"ListImages",
+		// ImageVersion
+		"CreateImageVersion",
+		"DescribeImageVersion",
+		"DeleteImageVersion",
+		"ListImageVersions",
+		// CompilationJob
+		"CreateCompilationJob",
+		"DescribeCompilationJob",
+		"DeleteCompilationJob",
+		"StopCompilationJob",
+		"ListCompilationJobs",
+		// MonitoringSchedule
+		"CreateMonitoringSchedule",
+		"DescribeMonitoringSchedule",
+		"DeleteMonitoringSchedule",
+		opStopMonitoringSchedule,
+		"StartMonitoringSchedule",
+		"UpdateMonitoringSchedule",
+		"ListMonitoringSchedules",
+		// Workteam
+		"CreateWorkteam",
+		"DescribeWorkteam",
+		"DeleteWorkteam",
+		"ListWorkteams",
+	}
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -320,6 +394,10 @@ func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([
 	}
 
 	if r, ok, err := h.dispatchStatefulOps(ctx, op, body); ok {
+		return r, err
+	}
+
+	if r, ok, err := h.dispatchBatch2Ops(ctx, op, body); ok {
 		return r, err
 	}
 
