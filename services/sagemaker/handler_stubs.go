@@ -89,78 +89,49 @@ const (
 //nolint:funlen
 func stubOpsSupported() []string {
 	return []string{
-		"CreateAppImageConfig",
 		"CreateArtifact",
 		"CreateCluster",
 		"CreateClusterSchedulerConfig",
 		"CreateComputeQuota",
 		"CreateContext",
-		"CreateDataQualityJobDefinition",
 		"CreateDeviceFleet",
 		"CreateEdgeDeploymentPlan",
 		"CreateEdgeDeploymentStage",
 		"CreateEdgePackagingJob",
-		"CreateFlowDefinition",
 		"CreateHub",
 		"CreateHubContentPresignedUrls",
 		"CreateHubContentReference",
-		"CreateHumanTaskUi",
 		"CreateInferenceComponent",
-		"CreateInferenceExperiment",
 		"CreateInferenceRecommendationsJob",
 		"CreateLabelingJob",
 		"CreateMlflowApp",
-		"CreateMlflowTrackingServer",
-		"CreateModelBiasJobDefinition",
-		"CreateModelCard",
 		"CreateModelCardExportJob",
-		"CreateModelExplainabilityJobDefinition",
-		"CreateModelQualityJobDefinition",
-		"CreateOptimizationJob",
-		"CreatePartnerApp",
 		"CreatePartnerAppPresignedUrl",
 		"CreatePresignedDomainUrl",
 		"CreatePresignedMlflowAppUrl",
 		"CreatePresignedMlflowTrackingServerUrl",
-		"CreateStudioLifecycleConfig",
-		"CreateTrainingPlan",
-		"CreateWorkforce",
 		"DeleteAction",
 		"DeleteAlgorithm",
-		"DeleteAppImageConfig",
 		"DeleteArtifact",
 		"DeleteAssociation",
 		"DeleteCluster",
 		"DeleteClusterSchedulerConfig",
 		"DeleteComputeQuota",
 		"DeleteContext",
-		"DeleteDataQualityJobDefinition",
 		"DeleteDeviceFleet",
 		"DeleteEdgeDeploymentPlan",
 		"DeleteEdgeDeploymentStage",
-		"DeleteFlowDefinition",
 		"DeleteHub",
 		"DeleteHubContent",
 		"DeleteHubContentReference",
-		"DeleteHumanTaskUi",
 		"DeleteInferenceComponent",
-		"DeleteInferenceExperiment",
 		"DeleteMlflowApp",
-		"DeleteMlflowTrackingServer",
-		"DeleteModelBiasJobDefinition",
-		"DeleteModelCard",
-		"DeleteModelExplainabilityJobDefinition",
 		"DeleteModelPackageGroupPolicy",
-		"DeleteModelQualityJobDefinition",
-		"DeleteOptimizationJob",
-		"DeletePartnerApp",
 		"DeleteProcessingJob",
-		"DeleteStudioLifecycleConfig",
 		"DeleteWorkforce",
 		"DeregisterDevices",
 		"DescribeAction",
 		"DescribeAlgorithm",
-		"DescribeAppImageConfig",
 		"DescribeArtifact",
 		"DescribeCluster",
 		"DescribeClusterEvent",
@@ -168,37 +139,23 @@ func stubOpsSupported() []string {
 		"DescribeClusterSchedulerConfig",
 		"DescribeComputeQuota",
 		"DescribeContext",
-		"DescribeDataQualityJobDefinition",
 		"DescribeDevice",
 		"DescribeDeviceFleet",
 		"DescribeEdgeDeploymentPlan",
 		"DescribeEdgePackagingJob",
 		"DescribeFeatureMetadata",
-		"DescribeFlowDefinition",
 		"DescribeHub",
 		"DescribeHubContent",
-		"DescribeHumanTaskUi",
 		"DescribeInferenceComponent",
-		"DescribeInferenceExperiment",
 		"DescribeInferenceRecommendationsJob",
 		"DescribeLabelingJob",
 		"DescribeLineageGroup",
 		"DescribeMlflowApp",
-		"DescribeMlflowTrackingServer",
-		"DescribeModelBiasJobDefinition",
-		"DescribeModelCard",
 		"DescribeModelCardExportJob",
-		"DescribeModelExplainabilityJobDefinition",
-		"DescribeModelQualityJobDefinition",
-		"DescribeOptimizationJob",
-		"DescribePartnerApp",
 		"DescribePipelineDefinitionForExecution",
 		"DescribeReservedCapacity",
-		"DescribeStudioLifecycleConfig",
 		"DescribeSubscribedWorkteam",
-		"DescribeTrainingPlan",
 		"DescribeTrainingPlanExtensionHistory",
-		"DescribeWorkforce",
 		"DetachClusterNodeVolume",
 		"DisableSagemakerServicecatalogPortfolio",
 		"DisassociateTrialComponent",
@@ -274,17 +231,12 @@ func stubOpsSupported() []string {
 		"SearchTrainingPlanOfferings",
 		"StartEdgeDeploymentStage",
 		"StartInferenceExperiment",
-		"StartMlflowTrackingServer",
 		"StartSession",
 		"StopEdgeDeploymentStage",
 		"StopEdgePackagingJob",
-		"StopInferenceExperiment",
 		"StopInferenceRecommendationsJob",
 		"StopLabelingJob",
-		"StopMlflowTrackingServer",
-		"StopOptimizationJob",
 		"UpdateAction",
-		"UpdateAppImageConfig",
 		"UpdateArtifact",
 		"UpdateCluster",
 		"UpdateClusterSchedulerConfig",
@@ -304,7 +256,6 @@ func stubOpsSupported() []string {
 		"UpdateInferenceExperiment",
 		"UpdateMlflowApp",
 		"UpdateMlflowTrackingServer",
-		"UpdateModelCard",
 		"UpdateModelPackage",
 		"UpdateMonitoringAlert",
 		"UpdatePartnerApp",
@@ -313,7 +264,6 @@ func stubOpsSupported() []string {
 		"UpdateProject",
 		"UpdateSpace",
 		"UpdateUserProfile",
-		"UpdateWorkforce",
 		"UpdateWorkteam",
 	}
 }
@@ -332,9 +282,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateApp":
 		return mustMarshal(m{keyAppArn: ""}), true
 
-	case "CreateAppImageConfig":
-		return mustMarshal(m{keyAppImageConfigArn: ""}), true
-
 	case "CreateArtifact":
 		return mustMarshal(m{keyArtifactArn: ""}), true
 
@@ -349,12 +296,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "CreateContext":
 		return mustMarshal(m{keyContextArn: ""}), true
-
-	case "CreateDataQualityJobDefinition",
-		"CreateModelBiasJobDefinition",
-		"CreateModelExplainabilityJobDefinition",
-		"CreateModelQualityJobDefinition":
-		return mustMarshal(m{keyJobDefinitionArn: ""}), true
 
 	case "CreateDeviceFleet":
 		return mustMarshal(m{}), true
@@ -374,9 +315,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateFeatureGroup":
 		return mustMarshal(m{keyFeatureGroupArn: ""}), true
 
-	case "CreateFlowDefinition":
-		return mustMarshal(m{keyFlowDefinitionArn: ""}), true
-
 	case "CreateHub":
 		return mustMarshal(m{keyHubArn: ""}), true
 
@@ -386,14 +324,8 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateHubContentReference":
 		return mustMarshal(m{keyHubArn: "", keyHubContentArn: ""}), true
 
-	case "CreateHumanTaskUi":
-		return mustMarshal(m{keyHumanTaskUIArn: ""}), true
-
 	case "CreateInferenceComponent":
 		return mustMarshal(m{keyInferenceComponentArn: ""}), true
-
-	case "CreateInferenceExperiment":
-		return mustMarshal(m{keyInferenceExperimentArn: ""}), true
 
 	case "CreateInferenceRecommendationsJob":
 		return mustMarshal(m{"JobArn": ""}), true
@@ -401,20 +333,11 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateLabelingJob":
 		return mustMarshal(m{keyLabelingJobArn: ""}), true
 
-	case "CreateMlflowApp", "CreatePartnerApp":
+	case "CreateMlflowApp":
 		return mustMarshal(m{keyGenericArn: ""}), true
-
-	case "CreateMlflowTrackingServer":
-		return mustMarshal(m{keyTrackingServerArn: ""}), true
-
-	case "CreateModelCard":
-		return mustMarshal(m{keyModelCardArn: ""}), true
 
 	case "CreateModelCardExportJob":
 		return mustMarshal(m{keyModelCardExportJobArn: ""}), true
-
-	case "CreateOptimizationJob":
-		return mustMarshal(m{keyOptimizationJobArn: ""}), true
 
 	case "CreatePartnerAppPresignedUrl",
 		"CreatePresignedDomainUrl",
@@ -425,12 +348,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreatePipeline":
 		return mustMarshal(m{keyPipelineArn: ""}), true
 
-	case "CreateStudioLifecycleConfig":
-		return mustMarshal(m{keyStudioLifecycleConfigArn: ""}), true
-
-	case "CreateTrainingPlan":
-		return mustMarshal(m{keyTrainingPlanArn: ""}), true
-
 	case "CreateTrial":
 		return mustMarshal(m{keyTrialArn: ""}), true
 
@@ -440,52 +357,36 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateUserProfile":
 		return mustMarshal(m{keyUserProfileArn: ""}), true
 
-	case "CreateWorkforce":
-		return mustMarshal(m{keyWorkforceArn: ""}), true
-
 	// -----------------------------------------------------------------------
 	// Delete / stop / misc — return empty object
 	// -----------------------------------------------------------------------
 	case "DeleteAction",
 		"DeleteAlgorithm",
 		"DeleteApp",
-		"DeleteAppImageConfig",
 		"DeleteArtifact",
 		"DeleteAssociation",
 		"DeleteCluster",
 		"DeleteClusterSchedulerConfig",
 		"DeleteComputeQuota",
 		"DeleteContext",
-		"DeleteDataQualityJobDefinition",
 		"DeleteDeviceFleet",
 		"DeleteDomain",
 		"DeleteEdgeDeploymentPlan",
 		"DeleteEdgeDeploymentStage",
 		"DeleteExperiment",
 		"DeleteFeatureGroup",
-		"DeleteFlowDefinition",
 		"DeleteHub",
 		"DeleteHubContent",
 		"DeleteHubContentReference",
-		"DeleteHumanTaskUi",
 		"DeleteInferenceComponent",
-		"DeleteInferenceExperiment",
 		"DeleteMlflowApp",
-		"DeleteMlflowTrackingServer",
-		"DeleteModelBiasJobDefinition",
-		"DeleteModelCard",
-		"DeleteModelExplainabilityJobDefinition",
 		"DeleteModelPackageGroupPolicy",
-		"DeleteModelQualityJobDefinition",
-		"DeleteOptimizationJob",
-		"DeletePartnerApp",
 		"DeletePipeline",
 		"DeleteProcessingJob",
-		"DeleteStudioLifecycleConfig",
+		"DeleteWorkforce",
 		"DeleteTrial",
 		"DeleteTrialComponent",
 		"DeleteUserProfile",
-		"DeleteWorkforce",
 		"DeregisterDevices",
 		"DetachClusterNodeVolume",
 		"DisableSagemakerServicecatalogPortfolio",
@@ -497,15 +398,11 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"RegisterDevices",
 		"RenderUiTemplate",
 		"StartEdgeDeploymentStage",
-		"StartMlflowTrackingServer",
 		"StartSession",
 		"StopEdgeDeploymentStage",
 		"StopEdgePackagingJob",
-		"StopInferenceExperiment",
 		"StopInferenceRecommendationsJob",
 		"StopLabelingJob",
-		"StopMlflowTrackingServer",
-		"StopOptimizationJob",
 		"UpdateClusterSoftware",
 		"UpdateDeviceFleet",
 		"UpdateDevices",
@@ -530,9 +427,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 			keyAppArn: "", "AppType": "", "AppName": "", keyStatus: statusInService,
 		}), true
 
-	case "DescribeAppImageConfig":
-		return mustMarshal(m{keyAppImageConfigArn: "", "AppImageConfigName": ""}), true
-
 	case "DescribeArtifact":
 		return mustMarshal(m{keyArtifactArn: "", "ArtifactType": ""}), true
 
@@ -555,12 +449,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "DescribeContext":
 		return mustMarshal(m{keyContextArn: "", "ContextType": ""}), true
-
-	case "DescribeDataQualityJobDefinition",
-		"DescribeModelBiasJobDefinition",
-		"DescribeModelExplainabilityJobDefinition",
-		"DescribeModelQualityJobDefinition":
-		return mustMarshal(m{keyJobDefinitionArn: "", keyJobDefinitionName: ""}), true
 
 	case "DescribeDevice":
 		return mustMarshal(m{"DeviceName": "", keyDeviceFleetName: ""}), true
@@ -599,11 +487,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 			keyFeatureGroupArn: "", keyFeatureGroupName: "", "FeatureName": "", "FeatureType": "",
 		}), true
 
-	case "DescribeFlowDefinition":
-		return mustMarshal(m{
-			keyFlowDefinitionArn: "", "FlowDefinitionName": "", "FlowDefinitionStatus": statusActive,
-		}), true
-
 	case "DescribeHub":
 		return mustMarshal(m{keyHubArn: "", "HubName": "", "HubStatus": statusInService}), true
 
@@ -612,18 +495,10 @@ func stubResponseFor(op string) ([]byte, bool) {
 			keyHubContentArn: "", "HubContentName": "", "HubContentStatus": "Available",
 		}), true
 
-	case "DescribeHumanTaskUi":
-		return mustMarshal(m{
-			keyHumanTaskUIArn: "", "HumanTaskUiName": "", "HumanTaskUiStatus": statusActive,
-		}), true
-
 	case "DescribeInferenceComponent":
 		return mustMarshal(m{
 			keyInferenceComponentArn: "", "InferenceComponentName": "", "InferenceComponentStatus": statusInService,
 		}), true
-
-	case "DescribeInferenceExperiment":
-		return mustMarshal(m{keyGenericArn: "", "Name": "", keyStatus: "Running"}), true
 
 	case "DescribeInferenceRecommendationsJob":
 		return mustMarshal(m{"JobArn": "", "JobName": "", keyStatus: statusCompletedUpper}), true
@@ -639,28 +514,10 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "DescribeMlflowApp":
 		return mustMarshal(m{keyGenericArn: "", keyStatus: statusInService}), true
 
-	case "DescribeMlflowTrackingServer":
-		return mustMarshal(m{
-			keyTrackingServerArn: "", "TrackingServerName": "", "TrackingServerStatus": statusCreated,
-		}), true
-
-	case "DescribeModelCard":
-		return mustMarshal(m{
-			keyModelCardArn: "", "ModelCardName": "", keyModelCardStatus: "Draft", keyModelCardVersion: 1,
-		}), true
-
 	case "DescribeModelCardExportJob":
 		return mustMarshal(m{
 			keyModelCardExportJobArn: "", "ModelCardExportJobName": "", keyStatus: statusCompleted,
 		}), true
-
-	case "DescribeOptimizationJob":
-		return mustMarshal(m{
-			keyOptimizationJobArn: "", "OptimizationJobName": "", "OptimizationJobStatus": statusCompletedUpper,
-		}), true
-
-	case "DescribePartnerApp":
-		return mustMarshal(m{keyGenericArn: "", keyStatus: "Available"}), true
 
 	case "DescribePipeline":
 		return mustMarshal(
@@ -678,16 +535,8 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "DescribeReservedCapacity":
 		return mustMarshal(m{keyReservedCapacityArn: "", keyStatus: statusActive}), true
 
-	case "DescribeStudioLifecycleConfig":
-		return mustMarshal(m{
-			keyStudioLifecycleConfigArn: "", "StudioLifecycleConfigName": "",
-		}), true
-
 	case "DescribeSubscribedWorkteam":
 		return mustMarshal(m{"SubscribedWorkteam": m{keyWorkteamArn: ""}}), true
-
-	case "DescribeTrainingPlan":
-		return mustMarshal(m{keyTrainingPlanArn: "", keyStatus: statusActive}), true
 
 	case "DescribeTrainingPlanExtensionHistory":
 		return mustMarshal(m{keyTrainingPlanArn: "", "Extensions": []any{}}), true
@@ -702,9 +551,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		return mustMarshal(
 			m{keyUserProfileArn: "", "UserProfileName": "", keyStatus: statusInService},
 		), true
-
-	case "DescribeWorkforce":
-		return mustMarshal(m{"Workforce": m{keyWorkforceArn: "", "WorkforceName": ""}}), true
 
 	// -----------------------------------------------------------------------
 	// Get ops
@@ -925,9 +771,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "UpdateAction":
 		return mustMarshal(m{keyActionArn: ""}), true
 
-	case "UpdateAppImageConfig":
-		return mustMarshal(m{keyAppImageConfigArn: ""}), true
-
 	case "UpdateArtifact":
 		return mustMarshal(m{keyArtifactArn: ""}), true
 
@@ -967,9 +810,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "UpdateMlflowTrackingServer":
 		return mustMarshal(m{keyTrackingServerArn: ""}), true
 
-	case "UpdateModelCard":
-		return mustMarshal(m{keyModelCardArn: ""}), true
-
 	case "UpdateModelPackage":
 		return mustMarshal(m{keyModelPackageArn: ""}), true
 
@@ -990,9 +830,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "UpdateUserProfile":
 		return mustMarshal(m{keyUserProfileArn: ""}), true
-
-	case "UpdateWorkforce":
-		return mustMarshal(m{"Workforce": m{keyWorkforceArn: ""}}), true
 
 	case "UpdateWorkteam":
 		return mustMarshal(m{"Workteam": m{keyWorkteamArn: ""}}), true
