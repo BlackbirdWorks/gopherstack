@@ -86,16 +86,17 @@ func generateID() string {
 
 // Distribution represents a CloudFront distribution.
 type Distribution struct {
-	Tags            map[string]string `json:"tags,omitempty"`
-	ID              string            `json:"id"`
-	ARN             string            `json:"arn"`
-	DomainName      string            `json:"domainName"`
-	Status          string            `json:"status"`
-	ETag            string            `json:"eTag"`
-	CallerReference string            `json:"callerReference"`
-	Comment         string            `json:"comment,omitempty"`
-	RawConfig       []byte            `json:"rawConfig,omitempty"` // raw DistributionConfig XML from request
-	Enabled         bool              `json:"enabled"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	ID               string            `json:"id"`
+	ARN              string            `json:"arn"`
+	DomainName       string            `json:"domainName"`
+	Status           string            `json:"status"`
+	ETag             string            `json:"eTag"`
+	CallerReference  string            `json:"callerReference"`
+	Comment          string            `json:"comment,omitempty"`
+	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
+	RawConfig        []byte            `json:"rawConfig,omitempty"`
+	Enabled          bool              `json:"enabled"`
 }
 
 // OriginAccessIdentity represents a CloudFront Origin Access Identity.
@@ -311,9 +312,13 @@ type InMemoryBackend struct {
 	distributionOriginRequestPolicies   map[string]string                  // distribution ID → ORP ID
 	distributionResponseHeadersPolicies map[string]string                  // distribution ID → RHP ID
 	distributionRealtimeLogConfigs      map[string]string                  // distribution ID → RLC ARN
-	mu                                  *lockmetrics.RWMutex
-	accountID                           string
-	region                              string
+	// Batch 2 additions.
+	distributionTenants         map[string]*DistributionTenant // key: tenant ID
+	distributionTenantsByDomain map[string]string              // key: domain → tenant ID
+	tenantInvalidations         map[string][]*Invalidation     // key: tenantID
+	mu                          *lockmetrics.RWMutex
+	accountID                   string
+	region                      string
 }
 
 // NewInMemoryBackend creates a new in-memory CloudFront backend.
@@ -363,6 +368,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		distributionOriginRequestPolicies:   make(map[string]string),
 		distributionResponseHeadersPolicies: make(map[string]string),
 		distributionRealtimeLogConfigs:      make(map[string]string),
+		distributionTenants:                 make(map[string]*DistributionTenant),
+		distributionTenantsByDomain:         make(map[string]string),
+		tenantInvalidations:                 make(map[string][]*Invalidation),
 		mu:                                  lockmetrics.New("cloudfront"),
 		accountID:                           accountID,
 		region:                              region,
@@ -418,6 +426,9 @@ func (b *InMemoryBackend) Reset() {
 	b.distributionOriginRequestPolicies = make(map[string]string)
 	b.distributionResponseHeadersPolicies = make(map[string]string)
 	b.distributionRealtimeLogConfigs = make(map[string]string)
+	b.distributionTenants = make(map[string]*DistributionTenant)
+	b.distributionTenantsByDomain = make(map[string]string)
+	b.tenantInvalidations = make(map[string][]*Invalidation)
 }
 
 // Region returns the AWS region this backend is configured for.
