@@ -19,7 +19,10 @@ import (
 type StubOutput struct{}
 
 // CreateResourceDataSyncInput is the request for CreateResourceDataSync.
-type CreateResourceDataSyncInput struct{}
+type CreateResourceDataSyncInput struct{
+	SyncName string `json:"SyncName"`
+	SyncType string `json:"SyncType,omitempty"`
+}
 
 // DeleteActivationInput is the request for DeleteActivation.
 type DeleteActivationInput struct {
@@ -49,13 +52,20 @@ type DeleteOpsMetadataInput struct {
 }
 
 // DeleteResourceDataSyncInput is the request for DeleteResourceDataSync.
-type DeleteResourceDataSyncInput struct{}
+type DeleteResourceDataSyncInput struct{
+	SyncName string `json:"SyncName"`
+}
 
 // DeleteResourcePolicyInput is the request for DeleteResourcePolicy.
-type DeleteResourcePolicyInput struct{}
+type DeleteResourcePolicyInput struct{
+	ResourceARN string `json:"ResourceArn"`
+	PolicyID    string `json:"PolicyId"`
+}
 
 // DeregisterManagedInstanceInput is the request for DeregisterManagedInstance.
-type DeregisterManagedInstanceInput struct{}
+type DeregisterManagedInstanceInput struct{
+	InstanceID string `json:"InstanceId"`
+}
 
 // DeregisterPatchBaselineForPatchGroupInput is the request for DeregisterPatchBaselineForPatchGroup.
 type DeregisterPatchBaselineForPatchGroupInput struct {
@@ -96,13 +106,18 @@ type DescribeAssociationOutput struct {
 }
 
 // DescribeAssociationExecutionTargetsInput is the request for DescribeAssociationExecutionTargets.
-type DescribeAssociationExecutionTargetsInput struct{}
+type DescribeAssociationExecutionTargetsInput struct{
+	AssociationID string `json:"AssociationId"`
+	ExecutionID   string `json:"ExecutionId,omitempty"`
+}
 
 // DescribeAssociationExecutionTargetsOutput is the response for DescribeAssociationExecutionTargets.
 type DescribeAssociationExecutionTargetsOutput struct{}
 
 // DescribeAssociationExecutionsInput is the request for DescribeAssociationExecutions.
-type DescribeAssociationExecutionsInput struct{}
+type DescribeAssociationExecutionsInput struct{
+	AssociationID string `json:"AssociationId"`
+}
 
 // DescribeAssociationExecutionsOutput is the response for DescribeAssociationExecutions.
 type DescribeAssociationExecutionsOutput struct{}
@@ -114,7 +129,9 @@ type DescribeAutomationExecutionsInput struct{}
 type DescribeAutomationExecutionsOutput struct{}
 
 // DescribeAutomationStepExecutionsInput is the request for DescribeAutomationStepExecutions.
-type DescribeAutomationStepExecutionsInput struct{}
+type DescribeAutomationStepExecutionsInput struct{
+	AutomationExecutionID string `json:"AutomationExecutionId"`
+}
 
 // DescribeAutomationStepExecutionsOutput is the response for DescribeAutomationStepExecutions.
 type DescribeAutomationStepExecutionsOutput struct{}
@@ -126,13 +143,17 @@ type DescribeAvailablePatchesInput struct{}
 type DescribeAvailablePatchesOutput struct{}
 
 // DescribeEffectiveInstanceAssociationsInput is the request for DescribeEffectiveInstanceAssociations.
-type DescribeEffectiveInstanceAssociationsInput struct{}
+type DescribeEffectiveInstanceAssociationsInput struct{
+	InstanceID string `json:"InstanceId"`
+}
 
 // DescribeEffectiveInstanceAssociationsOutput is the response for DescribeEffectiveInstanceAssociations.
 type DescribeEffectiveInstanceAssociationsOutput struct{}
 
 // DescribeInstanceAssociationsStatusInput is the request for DescribeInstanceAssociationsStatus.
-type DescribeInstanceAssociationsStatusInput struct{}
+type DescribeInstanceAssociationsStatusInput struct{
+	InstanceID string `json:"InstanceId"`
+}
 
 // DescribeInstanceAssociationsStatusOutput is the response for DescribeInstanceAssociationsStatus.
 type DescribeInstanceAssociationsStatusOutput struct{}
@@ -168,25 +189,34 @@ type DescribeInstancePropertiesInput struct{}
 type DescribeInstancePropertiesOutput struct{}
 
 // DescribeMaintenanceWindowExecutionTaskInvocationsInput is the request payload.
-type DescribeMaintenanceWindowExecutionTaskInvocationsInput struct{}
+type DescribeMaintenanceWindowExecutionTaskInvocationsInput struct{
+	WindowExecutionID string `json:"WindowExecutionId"`
+	TaskID            string `json:"TaskId,omitempty"`
+}
 
 // DescribeMaintenanceWindowExecutionTaskInvocationsOutput is the response payload.
 type DescribeMaintenanceWindowExecutionTaskInvocationsOutput struct{}
 
 // DescribeMaintenanceWindowExecutionTasksInput is the request payload.
-type DescribeMaintenanceWindowExecutionTasksInput struct{}
+type DescribeMaintenanceWindowExecutionTasksInput struct{
+	WindowExecutionID string `json:"WindowExecutionId"`
+}
 
 // DescribeMaintenanceWindowExecutionTasksOutput is the response payload.
 type DescribeMaintenanceWindowExecutionTasksOutput struct{}
 
 // DescribeMaintenanceWindowExecutionsInput is the request payload.
-type DescribeMaintenanceWindowExecutionsInput struct{}
+type DescribeMaintenanceWindowExecutionsInput struct{
+	WindowID string `json:"WindowId"`
+}
 
 // DescribeMaintenanceWindowExecutionsOutput is the response payload.
 type DescribeMaintenanceWindowExecutionsOutput struct{}
 
 // DescribeMaintenanceWindowScheduleInput is the request payload.
-type DescribeMaintenanceWindowScheduleInput struct{}
+type DescribeMaintenanceWindowScheduleInput struct{
+	WindowID string `json:"WindowId,omitempty"`
+}
 
 // DescribeMaintenanceWindowScheduleOutput is the response payload.
 type DescribeMaintenanceWindowScheduleOutput struct{}
@@ -276,7 +306,9 @@ type PatchBaselineIdentity struct {
 }
 
 // DescribeSessionsInput is the request payload.
-type DescribeSessionsInput struct{}
+type DescribeSessionsInput struct{
+	State string `json:"State,omitempty"`
+}
 
 // DescribeSessionsOutput is the response payload.
 type DescribeSessionsOutput struct{}
@@ -288,7 +320,9 @@ type GetAccessTokenInput struct{}
 type GetAccessTokenOutput struct{}
 
 // GetAutomationExecutionInput is the request payload.
-type GetAutomationExecutionInput struct{}
+type GetAutomationExecutionInput struct{
+	AutomationExecutionID string `json:"AutomationExecutionId"`
+}
 
 // GetAutomationExecutionOutput is the response payload.
 type GetAutomationExecutionOutput struct{}
@@ -300,13 +334,17 @@ type GetCalendarStateInput struct{}
 type GetCalendarStateOutput struct{}
 
 // GetConnectionStatusInput is the request payload.
-type GetConnectionStatusInput struct{}
+type GetConnectionStatusInput struct{
+	Target string `json:"Target"`
+}
 
 // GetConnectionStatusOutput is the response payload.
 type GetConnectionStatusOutput struct{}
 
 // GetExecutionPreviewInput is the request payload.
-type GetExecutionPreviewInput struct{}
+type GetExecutionPreviewInput struct{
+	ExecutionPreviewID string `json:"ExecutionPreviewId"`
+}
 
 // GetExecutionPreviewOutput is the response payload.
 type GetExecutionPreviewOutput struct{}
@@ -322,19 +360,29 @@ type GetMaintenanceWindowOutput struct {
 }
 
 // GetMaintenanceWindowExecutionInput is the request payload.
-type GetMaintenanceWindowExecutionInput struct{}
+type GetMaintenanceWindowExecutionInput struct{
+	WindowID          string `json:"WindowId"`
+	WindowExecutionID string `json:"WindowExecutionId"`
+}
 
 // GetMaintenanceWindowExecutionOutput is the response payload.
 type GetMaintenanceWindowExecutionOutput struct{}
 
 // GetMaintenanceWindowExecutionTaskInput is the request payload.
-type GetMaintenanceWindowExecutionTaskInput struct{}
+type GetMaintenanceWindowExecutionTaskInput struct{
+	WindowExecutionID string `json:"WindowExecutionId"`
+	TaskExecutionID   string `json:"TaskExecutionId"`
+}
 
 // GetMaintenanceWindowExecutionTaskOutput is the response payload.
 type GetMaintenanceWindowExecutionTaskOutput struct{}
 
 // GetMaintenanceWindowExecutionTaskInvocationInput is the request payload.
-type GetMaintenanceWindowExecutionTaskInvocationInput struct{}
+type GetMaintenanceWindowExecutionTaskInvocationInput struct{
+	WindowExecutionID string `json:"WindowExecutionId"`
+	TaskExecutionID   string `json:"TaskExecutionId"`
+	InvocationID      string `json:"InvocationId"`
+}
 
 // GetMaintenanceWindowExecutionTaskInvocationOutput is the response payload.
 type GetMaintenanceWindowExecutionTaskInvocationOutput struct{}
@@ -376,25 +424,34 @@ type GetPatchBaselineOutput struct {
 }
 
 // GetResourcePoliciesInput is the request payload.
-type GetResourcePoliciesInput struct{}
+type GetResourcePoliciesInput struct{
+	ResourceARN string `json:"ResourceArn"`
+}
 
 // GetResourcePoliciesOutput is the response payload.
 type GetResourcePoliciesOutput struct{}
 
 // GetServiceSettingInput is the request payload.
-type GetServiceSettingInput struct{}
+type GetServiceSettingInput struct{
+	SettingID string `json:"SettingId"`
+}
 
 // GetServiceSettingOutput is the response payload.
 type GetServiceSettingOutput struct{}
 
 // LabelParameterVersionInput is the request payload.
-type LabelParameterVersionInput struct{}
+type LabelParameterVersionInput struct{
+	Name    string   `json:"Name"`
+	Labels  []string `json:"Labels"`
+}
 
 // LabelParameterVersionOutput is the response payload.
 type LabelParameterVersionOutput struct{}
 
 // ListAssociationVersionsInput is the request payload.
-type ListAssociationVersionsInput struct{}
+type ListAssociationVersionsInput struct{
+	AssociationID string `json:"AssociationId"`
+}
 
 // ListAssociationVersionsOutput is the response payload.
 type ListAssociationVersionsOutput struct{}
@@ -432,7 +489,10 @@ type ListResourceDataSyncInput struct{}
 type ListResourceDataSyncOutput struct{}
 
 // PutResourcePolicyInput is the request payload.
-type PutResourcePolicyInput struct{}
+type PutResourcePolicyInput struct{
+	ResourceARN string `json:"ResourceArn"`
+	Policy      string `json:"Policy"`
+}
 
 // PutResourcePolicyOutput is the response payload.
 type PutResourcePolicyOutput struct{}
@@ -486,19 +546,26 @@ type RegisterTaskWithMaintenanceWindowOutput struct {
 }
 
 // ResetServiceSettingInput is the request payload.
-type ResetServiceSettingInput struct{}
+type ResetServiceSettingInput struct{
+	SettingID string `json:"SettingId"`
+}
 
 // ResetServiceSettingOutput is the response payload.
 type ResetServiceSettingOutput struct{}
 
 // ResumeSessionInput is the request payload.
-type ResumeSessionInput struct{}
+type ResumeSessionInput struct{
+	SessionID string `json:"SessionId"`
+}
 
 // ResumeSessionOutput is the response payload.
 type ResumeSessionOutput struct{}
 
 // SendAutomationSignalInput is the request payload.
-type SendAutomationSignalInput struct{}
+type SendAutomationSignalInput struct{
+	AutomationExecutionID string `json:"AutomationExecutionId"`
+	SignalType            string `json:"SignalType,omitempty"`
+}
 
 // StartAccessRequestInput is the request payload.
 type StartAccessRequestInput struct{}
@@ -507,22 +574,31 @@ type StartAccessRequestInput struct{}
 type StartAccessRequestOutput struct{}
 
 // StartAssociationsOnceInput is the request payload.
-type StartAssociationsOnceInput struct{}
+type StartAssociationsOnceInput struct{
+	AssociationIds []string `json:"AssociationIds"`
+}
 
 // StartAutomationExecutionInput is the request payload.
-type StartAutomationExecutionInput struct{}
+type StartAutomationExecutionInput struct{
+	DocumentName    string `json:"DocumentName"`
+	DocumentVersion string `json:"DocumentVersion,omitempty"`
+}
 
 // StartAutomationExecutionOutput is the response payload.
 type StartAutomationExecutionOutput struct{}
 
 // StartChangeRequestExecutionInput is the request payload.
-type StartChangeRequestExecutionInput struct{}
+type StartChangeRequestExecutionInput struct{
+	DocumentName string `json:"DocumentName"`
+}
 
 // StartChangeRequestExecutionOutput is the response payload.
 type StartChangeRequestExecutionOutput struct{}
 
 // StartExecutionPreviewInput is the request payload.
-type StartExecutionPreviewInput struct{}
+type StartExecutionPreviewInput struct{
+	DocumentName string `json:"DocumentName,omitempty"`
+}
 
 // StartExecutionPreviewOutput is the response payload.
 type StartExecutionPreviewOutput struct{}
@@ -542,7 +618,9 @@ type StartSessionOutput struct {
 }
 
 // StopAutomationExecutionInput is the request payload.
-type StopAutomationExecutionInput struct{}
+type StopAutomationExecutionInput struct{
+	AutomationExecutionID string `json:"AutomationExecutionId"`
+}
 
 // TerminateSessionInput is the request payload.
 type TerminateSessionInput struct {
@@ -555,7 +633,10 @@ type TerminateSessionOutput struct {
 }
 
 // UnlabelParameterVersionInput is the request payload.
-type UnlabelParameterVersionInput struct{}
+type UnlabelParameterVersionInput struct{
+	Name   string   `json:"Name"`
+	Labels []string `json:"Labels"`
+}
 
 // UnlabelParameterVersionOutput is the response payload.
 type UnlabelParameterVersionOutput struct{}
@@ -575,10 +656,16 @@ type UpdateAssociationOutput struct {
 }
 
 // UpdateAssociationStatusInput is the request payload.
-type UpdateAssociationStatusInput struct{}
+type UpdateAssociationStatusInput struct{
+	InstanceID        string                 `json:"InstanceId"`
+	Name              string                 `json:"Name"`
+	AssociationStatus AssociationStatusValue  `json:"AssociationStatus"`
+}
 
 // UpdateAssociationStatusOutput is the response payload.
-type UpdateAssociationStatusOutput struct{}
+type UpdateAssociationStatusOutput struct{
+	AssociationDescription Association `json:"AssociationDescription"`
+}
 
 // UpdateMaintenanceWindowInput is the request payload for UpdateMaintenanceWindow.
 type UpdateMaintenanceWindowInput struct {
@@ -597,7 +684,10 @@ type UpdateMaintenanceWindowOutput struct {
 }
 
 // UpdateManagedInstanceRoleInput is the request payload.
-type UpdateManagedInstanceRoleInput struct{}
+type UpdateManagedInstanceRoleInput struct{
+	InstanceID string `json:"InstanceId"`
+	IamRole    string `json:"IamRole"`
+}
 
 // UpdateOpsItemInput is the request payload for UpdateOpsItem.
 type UpdateOpsItemInput struct {
@@ -635,16 +725,14 @@ type UpdatePatchBaselineOutput struct {
 }
 
 // UpdateResourceDataSyncInput is the request payload.
-type UpdateResourceDataSyncInput struct{}
+type UpdateResourceDataSyncInput struct{
+	SyncName string `json:"SyncName"`
+}
 
 // UpdateServiceSettingInput is the request payload.
-type UpdateServiceSettingInput struct{}
-
-// --- Stub backend methods ---
-
-// CreateResourceDataSync is a stub implementation.
-func (b *InMemoryBackend) CreateResourceDataSync(_ *CreateResourceDataSyncInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
+type UpdateServiceSettingInput struct{
+	SettingID    string `json:"SettingId"`
+	SettingValue string `json:"SettingValue"`
 }
 
 // DeleteActivation removes a stored activation by ID.
@@ -673,21 +761,6 @@ func (b *InMemoryBackend) DeleteAssociation(input *DeleteAssociationInput) (*Stu
 
 	delete(b.associations, input.AssociationID)
 
-	return &StubOutput{}, nil
-}
-
-// DeleteResourceDataSync is a stub implementation.
-func (b *InMemoryBackend) DeleteResourceDataSync(_ *DeleteResourceDataSyncInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
-}
-
-// DeleteResourcePolicy is a stub implementation.
-func (b *InMemoryBackend) DeleteResourcePolicy(_ *DeleteResourcePolicyInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
-}
-
-// DeregisterManagedInstance is a stub implementation.
-func (b *InMemoryBackend) DeregisterManagedInstance(_ *DeregisterManagedInstanceInput) (*StubOutput, error) {
 	return &StubOutput{}, nil
 }
 
@@ -763,67 +836,11 @@ func (b *InMemoryBackend) DescribeAssociation(input *DescribeAssociationInput) (
 	return nil, ErrAssociationNotFound
 }
 
-// DescribeAssociationExecutionTargets is a stub implementation.
-func (b *InMemoryBackend) DescribeAssociationExecutionTargets(
-	_ *DescribeAssociationExecutionTargetsInput,
-) (*DescribeAssociationExecutionTargetsOutput, error) {
-	return &DescribeAssociationExecutionTargetsOutput{}, nil
-}
-
-// DescribeAssociationExecutions is a stub implementation.
-func (b *InMemoryBackend) DescribeAssociationExecutions(
-	_ *DescribeAssociationExecutionsInput,
-) (*DescribeAssociationExecutionsOutput, error) {
-	return &DescribeAssociationExecutionsOutput{}, nil
-}
-
-// DescribeAutomationExecutions is a stub implementation.
-func (b *InMemoryBackend) DescribeAutomationExecutions(
-	_ *DescribeAutomationExecutionsInput,
-) (*DescribeAutomationExecutionsOutput, error) {
-	return &DescribeAutomationExecutionsOutput{}, nil
-}
-
-// DescribeAutomationStepExecutions is a stub implementation.
-func (b *InMemoryBackend) DescribeAutomationStepExecutions(
-	_ *DescribeAutomationStepExecutionsInput,
-) (*DescribeAutomationStepExecutionsOutput, error) {
-	return &DescribeAutomationStepExecutionsOutput{}, nil
-}
-
 // DescribeAvailablePatches is a stub implementation.
 func (b *InMemoryBackend) DescribeAvailablePatches(
 	_ *DescribeAvailablePatchesInput,
 ) (*DescribeAvailablePatchesOutput, error) {
 	return &DescribeAvailablePatchesOutput{}, nil
-}
-
-// DescribeEffectiveInstanceAssociations is a stub implementation.
-func (b *InMemoryBackend) DescribeEffectiveInstanceAssociations(
-	_ *DescribeEffectiveInstanceAssociationsInput,
-) (*DescribeEffectiveInstanceAssociationsOutput, error) {
-	return &DescribeEffectiveInstanceAssociationsOutput{}, nil
-}
-
-// DescribeInstanceAssociationsStatus is a stub implementation.
-func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
-	_ *DescribeInstanceAssociationsStatusInput,
-) (*DescribeInstanceAssociationsStatusOutput, error) {
-	return &DescribeInstanceAssociationsStatusOutput{}, nil
-}
-
-// DescribeInstanceInformation is a stub implementation.
-func (b *InMemoryBackend) DescribeInstanceInformation(
-	_ *DescribeInstanceInformationInput,
-) (*DescribeInstanceInformationOutput, error) {
-	return &DescribeInstanceInformationOutput{}, nil
-}
-
-// DescribeInstancePatchStates is a stub implementation.
-func (b *InMemoryBackend) DescribeInstancePatchStates(
-	_ *DescribeInstancePatchStatesInput,
-) (*DescribeInstancePatchStatesOutput, error) {
-	return &DescribeInstancePatchStatesOutput{}, nil
 }
 
 // DescribeInstancePatchStatesForPatchGroup is a stub implementation.
@@ -845,34 +862,6 @@ func (b *InMemoryBackend) DescribeInstanceProperties(
 	_ *DescribeInstancePropertiesInput,
 ) (*DescribeInstancePropertiesOutput, error) {
 	return &DescribeInstancePropertiesOutput{}, nil
-}
-
-// DescribeMaintenanceWindowExecutionTaskInvocations is a stub implementation.
-func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTaskInvocations(
-	_ *DescribeMaintenanceWindowExecutionTaskInvocationsInput,
-) (*DescribeMaintenanceWindowExecutionTaskInvocationsOutput, error) {
-	return &DescribeMaintenanceWindowExecutionTaskInvocationsOutput{}, nil
-}
-
-// DescribeMaintenanceWindowExecutionTasks is a stub implementation.
-func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTasks(
-	_ *DescribeMaintenanceWindowExecutionTasksInput,
-) (*DescribeMaintenanceWindowExecutionTasksOutput, error) {
-	return &DescribeMaintenanceWindowExecutionTasksOutput{}, nil
-}
-
-// DescribeMaintenanceWindowExecutions is a stub implementation.
-func (b *InMemoryBackend) DescribeMaintenanceWindowExecutions(
-	_ *DescribeMaintenanceWindowExecutionsInput,
-) (*DescribeMaintenanceWindowExecutionsOutput, error) {
-	return &DescribeMaintenanceWindowExecutionsOutput{}, nil
-}
-
-// DescribeMaintenanceWindowSchedule is a stub implementation.
-func (b *InMemoryBackend) DescribeMaintenanceWindowSchedule(
-	_ *DescribeMaintenanceWindowScheduleInput,
-) (*DescribeMaintenanceWindowScheduleOutput, error) {
-	return &DescribeMaintenanceWindowScheduleOutput{}, nil
 }
 
 // DescribeMaintenanceWindowTargets lists targets registered with a maintenance window.
@@ -1057,38 +1046,6 @@ func (b *InMemoryBackend) DescribePatchBaselines(
 	}, nil
 }
 
-// DescribeSessions is a stub implementation.
-func (b *InMemoryBackend) DescribeSessions(_ *DescribeSessionsInput) (*DescribeSessionsOutput, error) {
-	return &DescribeSessionsOutput{}, nil
-}
-
-// GetAccessToken is a stub implementation.
-func (b *InMemoryBackend) GetAccessToken(_ *GetAccessTokenInput) (*GetAccessTokenOutput, error) {
-	return &GetAccessTokenOutput{}, nil
-}
-
-// GetAutomationExecution is a stub implementation.
-func (b *InMemoryBackend) GetAutomationExecution(
-	_ *GetAutomationExecutionInput,
-) (*GetAutomationExecutionOutput, error) {
-	return &GetAutomationExecutionOutput{}, nil
-}
-
-// GetCalendarState is a stub implementation.
-func (b *InMemoryBackend) GetCalendarState(_ *GetCalendarStateInput) (*GetCalendarStateOutput, error) {
-	return &GetCalendarStateOutput{}, nil
-}
-
-// GetConnectionStatus is a stub implementation.
-func (b *InMemoryBackend) GetConnectionStatus(_ *GetConnectionStatusInput) (*GetConnectionStatusOutput, error) {
-	return &GetConnectionStatusOutput{}, nil
-}
-
-// GetExecutionPreview is a stub implementation.
-func (b *InMemoryBackend) GetExecutionPreview(_ *GetExecutionPreviewInput) (*GetExecutionPreviewOutput, error) {
-	return &GetExecutionPreviewOutput{}, nil
-}
-
 // GetMaintenanceWindow retrieves a maintenance window by ID.
 func (b *InMemoryBackend) GetMaintenanceWindow(input *GetMaintenanceWindowInput) (*GetMaintenanceWindowOutput, error) {
 	b.mu.RLock("GetMaintenanceWindow")
@@ -1100,27 +1057,6 @@ func (b *InMemoryBackend) GetMaintenanceWindow(input *GetMaintenanceWindowInput)
 	}
 
 	return &GetMaintenanceWindowOutput{MaintenanceWindow: mw}, nil
-}
-
-// GetMaintenanceWindowExecution is a stub implementation.
-func (b *InMemoryBackend) GetMaintenanceWindowExecution(
-	_ *GetMaintenanceWindowExecutionInput,
-) (*GetMaintenanceWindowExecutionOutput, error) {
-	return &GetMaintenanceWindowExecutionOutput{}, nil
-}
-
-// GetMaintenanceWindowExecutionTask is a stub implementation.
-func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(
-	_ *GetMaintenanceWindowExecutionTaskInput,
-) (*GetMaintenanceWindowExecutionTaskOutput, error) {
-	return &GetMaintenanceWindowExecutionTaskOutput{}, nil
-}
-
-// GetMaintenanceWindowExecutionTaskInvocation is a stub implementation.
-func (b *InMemoryBackend) GetMaintenanceWindowExecutionTaskInvocation(
-	_ *GetMaintenanceWindowExecutionTaskInvocationInput,
-) (*GetMaintenanceWindowExecutionTaskInvocationOutput, error) {
-	return &GetMaintenanceWindowExecutionTaskInvocationOutput{}, nil
 }
 
 // GetOpsItem retrieves an OpsItem by ID.
@@ -1149,11 +1085,6 @@ func (b *InMemoryBackend) GetOpsMetadata(input *GetOpsMetadataInput) (*GetOpsMet
 	return &GetOpsMetadataOutput{OpsMetadata: meta}, nil
 }
 
-// GetOpsSummary is a stub implementation.
-func (b *InMemoryBackend) GetOpsSummary(_ *GetOpsSummaryInput) (*GetOpsSummaryOutput, error) {
-	return &GetOpsSummaryOutput{}, nil
-}
-
 // GetPatchBaseline retrieves a patch baseline by ID.
 func (b *InMemoryBackend) GetPatchBaseline(input *GetPatchBaselineInput) (*GetPatchBaselineOutput, error) {
 	b.mu.RLock("GetPatchBaseline")
@@ -1167,28 +1098,6 @@ func (b *InMemoryBackend) GetPatchBaseline(input *GetPatchBaselineInput) (*GetPa
 	return &GetPatchBaselineOutput{PatchBaseline: bl}, nil
 }
 
-// GetResourcePolicies is a stub implementation.
-func (b *InMemoryBackend) GetResourcePolicies(_ *GetResourcePoliciesInput) (*GetResourcePoliciesOutput, error) {
-	return &GetResourcePoliciesOutput{}, nil
-}
-
-// GetServiceSetting is a stub implementation.
-func (b *InMemoryBackend) GetServiceSetting(_ *GetServiceSettingInput) (*GetServiceSettingOutput, error) {
-	return &GetServiceSettingOutput{}, nil
-}
-
-// LabelParameterVersion is a stub implementation.
-func (b *InMemoryBackend) LabelParameterVersion(_ *LabelParameterVersionInput) (*LabelParameterVersionOutput, error) {
-	return &LabelParameterVersionOutput{}, nil
-}
-
-// ListAssociationVersions is a stub implementation.
-func (b *InMemoryBackend) ListAssociationVersions(
-	_ *ListAssociationVersionsInput,
-) (*ListAssociationVersionsOutput, error) {
-	return &ListAssociationVersionsOutput{}, nil
-}
-
 // ListAssociations lists all stored associations.
 func (b *InMemoryBackend) ListAssociations(_ *ListAssociationsInput) (*ListAssociationsOutput, error) {
 	b.mu.RLock("ListAssociations")
@@ -1200,31 +1109,6 @@ func (b *InMemoryBackend) ListAssociations(_ *ListAssociationsInput) (*ListAssoc
 	}
 
 	return &ListAssociationsOutput{Associations: list}, nil
-}
-
-// ListNodes is a stub implementation.
-func (b *InMemoryBackend) ListNodes(_ *ListNodesInput) (*ListNodesOutput, error) {
-	return &ListNodesOutput{}, nil
-}
-
-// ListNodesSummary is a stub implementation.
-func (b *InMemoryBackend) ListNodesSummary(_ *ListNodesSummaryInput) (*ListNodesSummaryOutput, error) {
-	return &ListNodesSummaryOutput{}, nil
-}
-
-// ListOpsMetadata is a stub implementation.
-func (b *InMemoryBackend) ListOpsMetadata(_ *ListOpsMetadataInput) (*ListOpsMetadataOutput, error) {
-	return &ListOpsMetadataOutput{}, nil
-}
-
-// ListResourceDataSync is a stub implementation.
-func (b *InMemoryBackend) ListResourceDataSync(_ *ListResourceDataSyncInput) (*ListResourceDataSyncOutput, error) {
-	return &ListResourceDataSyncOutput{}, nil
-}
-
-// PutResourcePolicy is a stub implementation.
-func (b *InMemoryBackend) PutResourcePolicy(_ *PutResourcePolicyInput) (*PutResourcePolicyOutput, error) {
-	return &PutResourcePolicyOutput{}, nil
 }
 
 // RegisterPatchBaselineForPatchGroup associates a baseline with a patch group.
@@ -1300,50 +1184,6 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 	return &RegisterTaskWithMaintenanceWindowOutput{WindowTaskID: taskID}, nil
 }
 
-// ResetServiceSetting is a stub implementation.
-func (b *InMemoryBackend) ResetServiceSetting(_ *ResetServiceSettingInput) (*ResetServiceSettingOutput, error) {
-	return &ResetServiceSettingOutput{}, nil
-}
-
-// ResumeSession is a stub implementation.
-func (b *InMemoryBackend) ResumeSession(_ *ResumeSessionInput) (*ResumeSessionOutput, error) {
-	return &ResumeSessionOutput{}, nil
-}
-
-// SendAutomationSignal is a stub implementation.
-func (b *InMemoryBackend) SendAutomationSignal(_ *SendAutomationSignalInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
-}
-
-// StartAccessRequest is a stub implementation.
-func (b *InMemoryBackend) StartAccessRequest(_ *StartAccessRequestInput) (*StartAccessRequestOutput, error) {
-	return &StartAccessRequestOutput{}, nil
-}
-
-// StartAssociationsOnce is a stub implementation.
-func (b *InMemoryBackend) StartAssociationsOnce(_ *StartAssociationsOnceInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
-}
-
-// StartAutomationExecution is a stub implementation.
-func (b *InMemoryBackend) StartAutomationExecution(
-	_ *StartAutomationExecutionInput,
-) (*StartAutomationExecutionOutput, error) {
-	return &StartAutomationExecutionOutput{}, nil
-}
-
-// StartChangeRequestExecution is a stub implementation.
-func (b *InMemoryBackend) StartChangeRequestExecution(
-	_ *StartChangeRequestExecutionInput,
-) (*StartChangeRequestExecutionOutput, error) {
-	return &StartChangeRequestExecutionOutput{}, nil
-}
-
-// StartExecutionPreview is a stub implementation.
-func (b *InMemoryBackend) StartExecutionPreview(_ *StartExecutionPreviewInput) (*StartExecutionPreviewOutput, error) {
-	return &StartExecutionPreviewOutput{}, nil
-}
-
 // StartSession creates a new SSM Session Manager session.
 func (b *InMemoryBackend) StartSession(input *StartSessionInput) (*StartSessionOutput, error) {
 	b.mu.Lock("StartSession")
@@ -1369,11 +1209,6 @@ func (b *InMemoryBackend) StartSession(input *StartSessionInput) (*StartSessionO
 	}, nil
 }
 
-// StopAutomationExecution is a stub implementation.
-func (b *InMemoryBackend) StopAutomationExecution(_ *StopAutomationExecutionInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
-}
-
 // TerminateSession terminates an active SSM session.
 func (b *InMemoryBackend) TerminateSession(input *TerminateSessionInput) (*TerminateSessionOutput, error) {
 	b.mu.Lock("TerminateSession")
@@ -1388,13 +1223,6 @@ func (b *InMemoryBackend) TerminateSession(input *TerminateSessionInput) (*Termi
 	b.sessions[input.SessionID] = sess
 
 	return &TerminateSessionOutput{SessionID: input.SessionID}, nil
-}
-
-// UnlabelParameterVersion is a stub implementation.
-func (b *InMemoryBackend) UnlabelParameterVersion(
-	_ *UnlabelParameterVersionInput,
-) (*UnlabelParameterVersionOutput, error) {
-	return &UnlabelParameterVersionOutput{}, nil
 }
 
 // UpdateAssociation updates an existing association.
@@ -1427,13 +1255,6 @@ func (b *InMemoryBackend) UpdateAssociation(input *UpdateAssociationInput) (*Upd
 	b.associations[input.AssociationID] = assoc
 
 	return &UpdateAssociationOutput{AssociationDescription: assoc}, nil
-}
-
-// UpdateAssociationStatus is a stub implementation.
-func (b *InMemoryBackend) UpdateAssociationStatus(
-	_ *UpdateAssociationStatusInput,
-) (*UpdateAssociationStatusOutput, error) {
-	return &UpdateAssociationStatusOutput{}, nil
 }
 
 // UpdateMaintenanceWindow updates a maintenance window.
@@ -1476,11 +1297,6 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 	b.maintenanceWindows[input.WindowID] = mw
 
 	return &UpdateMaintenanceWindowOutput{MaintenanceWindow: mw}, nil
-}
-
-// UpdateManagedInstanceRole is a stub implementation.
-func (b *InMemoryBackend) UpdateManagedInstanceRole(_ *UpdateManagedInstanceRoleInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
 }
 
 // UpdateOpsItem updates an OpsItem.
@@ -1573,16 +1389,6 @@ func (b *InMemoryBackend) UpdatePatchBaseline(input *UpdatePatchBaselineInput) (
 	b.patchBaselines[input.BaselineID] = bl
 
 	return &UpdatePatchBaselineOutput{PatchBaseline: bl}, nil
-}
-
-// UpdateResourceDataSync is a stub implementation.
-func (b *InMemoryBackend) UpdateResourceDataSync(_ *UpdateResourceDataSyncInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
-}
-
-// UpdateServiceSetting is a stub implementation.
-func (b *InMemoryBackend) UpdateServiceSetting(_ *UpdateServiceSettingInput) (*StubOutput, error) {
-	return &StubOutput{}, nil
 }
 
 // timeNow is a variable so tests can override it.

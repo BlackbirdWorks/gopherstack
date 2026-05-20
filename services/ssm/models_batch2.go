@@ -2,6 +2,12 @@ package ssm
 
 import "time"
 
+// AssociationStatusValue is the status payload in UpdateAssociationStatus.
+type AssociationStatusValue struct {
+	Name             string `json:"Name"`
+	ExecutionSummary string `json:"ExecutionSummary,omitempty"`
+}
+
 // --- ResourceDataSync ---
 
 // ResourceDataSync represents a resource data sync configuration.
@@ -354,4 +360,56 @@ type GetAccessTokenOutputFull struct {
 // StartAccessRequestOutputFull extends the empty stub.
 type StartAccessRequestOutputFull struct {
 	AccessRequestID string `json:"AccessRequestId"`
+}
+
+// ResumeSessionOutputFull extends the empty stub.
+type ResumeSessionOutputFull struct {
+	SessionID  string `json:"SessionId"`
+	StreamURL  string `json:"StreamUrl"`
+	TokenValue string `json:"TokenValue"`
+}
+
+// ResetServiceSettingOutputFull extends the empty stub.
+type ResetServiceSettingOutputFull struct {
+	ServiceSetting *ServiceSetting `json:"ServiceSetting,omitempty"`
+}
+
+// PutResourcePolicyOutputFull extends the empty stub.
+type PutResourcePolicyOutputFull struct {
+	PolicyID   string `json:"PolicyId"`
+	PolicyHash string `json:"PolicyHash"`
+}
+
+// LabelParameterVersionOutputFull extends the empty stub.
+type LabelParameterVersionOutputFull struct {
+	InvalidLabels []string `json:"InvalidLabels"`
+	AddedLabels   []string `json:"AddedLabels"`
+}
+
+// UnlabelParameterVersionOutputFull extends the empty stub.
+type UnlabelParameterVersionOutputFull struct {
+	InvalidLabels []string `json:"InvalidLabels"`
+	RemovedLabels []string `json:"RemovedLabels"`
+}
+
+// UpdateAssociationStatusOutputFull extends the empty stub.
+type UpdateAssociationStatusOutputFull struct {
+	AssociationDescription Association `json:"AssociationDescription"`
+}
+
+// GetMaintenanceWindowExecutionOutputFull extends the empty stub.
+type GetMaintenanceWindowExecutionOutputFull struct {
+	WindowID          string `json:"WindowId"`
+	WindowExecutionID string `json:"WindowExecutionId"`
+	Status            string `json:"Status"`
+}
+
+// GetMaintenanceWindowExecutionTaskOutputFull extends the empty stub.
+type GetMaintenanceWindowExecutionTaskOutputFull struct {
+	Status string `json:"Status"`
+}
+
+// GetMaintenanceWindowExecutionTaskInvocationOutputFull extends the empty stub.
+type GetMaintenanceWindowExecutionTaskInvocationOutputFull struct {
+	Status string `json:"Status"`
 }
