@@ -8,6 +8,8 @@ type StorageBackend interface {
 	GetApp(appID string) (*App, error)
 	DeleteApp(appID string) (*App, error)
 	GetApps() ([]*App, error)
+	GetApplicationSettings(appID string) (*storedAppSettings, error)
+	UpdateApplicationSettings(appID string, settings *storedAppSettings) (*storedAppSettings, error)
 
 	// Tag operations
 	TagResource(resourceARN string, tags map[string]string) error
