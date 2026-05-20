@@ -221,10 +221,10 @@ func (h *Handler) dispatchBatch2Ops(
 
 func (h *Handler) handleCreateModelPackage(body []byte) ([]byte, error) {
 	var req struct {
+		Tags                    map[string]string `json:"Tags"`
 		ModelPackageName        string            `json:"ModelPackageName"`
 		ModelPackageGroupName   string            `json:"ModelPackageGroupName"`
 		ModelPackageDescription string            `json:"ModelPackageDescription"`
-		Tags                    map[string]string `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -316,9 +316,9 @@ func (h *Handler) handleListModelPackages(body []byte) ([]byte, error) {
 
 func (h *Handler) handleCreateModelPackageGroup(body []byte) ([]byte, error) {
 	var req struct {
+		Tags                         map[string]string `json:"Tags"`
 		ModelPackageGroupName        string            `json:"ModelPackageGroupName"`
 		ModelPackageGroupDescription string            `json:"ModelPackageGroupDescription"`
-		Tags                         map[string]string `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -409,9 +409,9 @@ func (h *Handler) handleListModelPackageGroups(body []byte) ([]byte, error) {
 
 func (h *Handler) handleCreateAutoMLJob(body []byte) ([]byte, error) {
 	var req struct {
+		Tags          map[string]string `json:"Tags"`
 		AutoMLJobName string            `json:"AutoMLJobName"`
 		RoleArn       string            `json:"RoleArn"`
-		Tags          map[string]string `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -500,9 +500,9 @@ func (h *Handler) handleListAutoMLJobs(body []byte) ([]byte, error) {
 
 func (h *Handler) handleCreateCodeRepository(body []byte) ([]byte, error) {
 	var req struct {
-		CodeRepositoryName string            `json:"CodeRepositoryName"`
 		GitConfig          map[string]string `json:"GitConfig"`
 		Tags               map[string]string `json:"Tags"`
+		CodeRepositoryName string            `json:"CodeRepositoryName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -544,8 +544,8 @@ func (h *Handler) handleDescribeCodeRepository(body []byte) ([]byte, error) {
 
 func (h *Handler) handleUpdateCodeRepository(body []byte) ([]byte, error) {
 	var req struct {
-		CodeRepositoryName string            `json:"CodeRepositoryName"`
 		GitConfig          map[string]string `json:"GitConfig"`
+		CodeRepositoryName string            `json:"CodeRepositoryName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -613,9 +613,9 @@ func (h *Handler) handleListCodeRepositories(body []byte) ([]byte, error) {
 
 func (h *Handler) handleCreateProject(body []byte) ([]byte, error) {
 	var req struct {
+		Tags               map[string]string `json:"Tags"`
 		ProjectName        string            `json:"ProjectName"`
 		ProjectDescription string            `json:"ProjectDescription"`
-		Tags               map[string]string `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -708,9 +708,9 @@ func (h *Handler) handleListProjects(body []byte) ([]byte, error) {
 
 func (h *Handler) handleCreateSpace(body []byte) ([]byte, error) {
 	var req struct {
+		Tags      map[string]string `json:"Tags"`
 		DomainID  string            `json:"DomainId"`
 		SpaceName string            `json:"SpaceName"`
-		Tags      map[string]string `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -816,10 +816,10 @@ func (h *Handler) handleListSpaces(body []byte) ([]byte, error) {
 
 func (h *Handler) handleCreateImage(body []byte) ([]byte, error) {
 	var req struct {
+		Tags        map[string]string `json:"Tags"`
 		ImageName   string            `json:"ImageName"`
 		Description string            `json:"Description"`
 		RoleArn     string            `json:"RoleArn"`
-		Tags        map[string]string `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1006,9 +1006,9 @@ func (h *Handler) handleListImageVersions(body []byte) ([]byte, error) {
 
 func (h *Handler) handleCreateCompilationJob(body []byte) ([]byte, error) {
 	var req struct {
+		Tags               map[string]string `json:"Tags"`
 		CompilationJobName string            `json:"CompilationJobName"`
 		RoleArn            string            `json:"RoleArn"`
-		Tags               map[string]string `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1114,8 +1114,8 @@ func (h *Handler) handleListCompilationJobs(body []byte) ([]byte, error) {
 
 func (h *Handler) handleCreateMonitoringSchedule(body []byte) ([]byte, error) {
 	var req struct {
-		MonitoringScheduleName string            `json:"MonitoringScheduleName"`
 		Tags                   map[string]string `json:"Tags"`
+		MonitoringScheduleName string            `json:"MonitoringScheduleName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1258,9 +1258,9 @@ func (h *Handler) handleListMonitoringSchedules(body []byte) ([]byte, error) {
 
 func (h *Handler) handleCreateWorkteam(body []byte) ([]byte, error) {
 	var req struct {
+		Tags         map[string]string `json:"Tags"`
 		WorkteamName string            `json:"WorkteamName"`
 		Description  string            `json:"Description"`
-		Tags         map[string]string `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {

@@ -118,8 +118,6 @@ func (b *InMemoryBackend) DeleteModelPackageGroup(name string) error {
 }
 
 // ListModelPackageGroups returns all model package groups, sorted by name.
-//
-//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListModelPackageGroups(nextToken string) ([]*ModelPackageGroup, string) {
 	b.mu.RLock("ListModelPackageGroups")
 	defer b.mu.RUnlock()
@@ -357,8 +355,6 @@ func (b *InMemoryBackend) StopAutoMLJob(name string) error {
 }
 
 // ListAutoMLJobs returns all AutoML jobs sorted by name.
-//
-//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListAutoMLJobs(nextToken string) ([]*AutoMLJob, string) {
 	b.mu.RLock("ListAutoMLJobs")
 	defer b.mu.RUnlock()
@@ -501,8 +497,6 @@ func (b *InMemoryBackend) DeleteCodeRepository(name string) error {
 }
 
 // ListCodeRepositories returns all code repositories sorted by name.
-//
-//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListCodeRepositories(nextToken string) ([]*CodeRepository, string) {
 	b.mu.RLock("ListCodeRepositories")
 	defer b.mu.RUnlock()
@@ -622,8 +616,6 @@ func (b *InMemoryBackend) DeleteProject(name string) error {
 }
 
 // ListProjects returns all projects sorted by name.
-//
-//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListProjects(nextToken string) ([]*Project, string) {
 	b.mu.RLock("ListProjects")
 	defer b.mu.RUnlock()
@@ -874,8 +866,6 @@ func (b *InMemoryBackend) DeleteImage(name string) error {
 }
 
 // ListImages returns all images sorted by name.
-//
-//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListImages(nextToken string) ([]*SMImage, string) {
 	b.mu.RLock("ListImages")
 	defer b.mu.RUnlock()
@@ -1150,8 +1140,6 @@ func (b *InMemoryBackend) StopCompilationJob(name string) error {
 }
 
 // ListCompilationJobs returns all compilation jobs sorted by name.
-//
-//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListCompilationJobs(nextToken string) ([]*CompilationJob, string) {
 	b.mu.RLock("ListCompilationJobs")
 	defer b.mu.RUnlock()
@@ -1317,8 +1305,6 @@ func (b *InMemoryBackend) UpdateMonitoringSchedule(name string) (*MonitoringSche
 }
 
 // ListMonitoringSchedules returns all monitoring schedules sorted by name.
-//
-//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListMonitoringSchedules(nextToken string) ([]*MonitoringSchedule, string) {
 	b.mu.RLock("ListMonitoringSchedules")
 	defer b.mu.RUnlock()
@@ -1437,8 +1423,6 @@ func (b *InMemoryBackend) DeleteWorkteam(name string) error {
 }
 
 // ListWorkteams returns all workteams sorted by name.
-//
-//nolint:dupl // List pagination pattern is identical by design; type-safe generics not available
 func (b *InMemoryBackend) ListWorkteams(nextToken string) ([]*Workteam, string) {
 	b.mu.RLock("ListWorkteams")
 	defer b.mu.RUnlock()

@@ -68,7 +68,7 @@ func (h *Handler) Reset() {
 //
 //nolint:funlen
 func (h *Handler) GetSupportedOperations() []string {
-	core := []string{ //nolint:prealloc // literal initialization, not append loop
+	core := []string{
 		"AddAssociation",
 		"AddTags",
 		"AssociateTrialComponent",
