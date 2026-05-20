@@ -411,6 +411,17 @@ type InMemoryBackend struct {
 	algorithms                 map[string]*Algorithm                       // key: algorithmName
 	clusters                   map[string]*Cluster                         // key: clusterName
 	modelPackages              map[string]*ModelPackage                    // key: modelPackageArn
+	modelPackageGroups         map[string]*ModelPackageGroup               // key: groupName
+	autoMLJobs                 map[string]*AutoMLJob                       // key: jobName
+	codeRepositories           map[string]*CodeRepository                  // key: name
+	projects                   map[string]*Project                         // key: projectName
+	spaces                     map[string]*Space                           // key: domainID+"/"+spaceName
+	smImages                   map[string]*SMImage                         // key: imageName
+	imageVersions              map[string]map[int]*ImageVersion            // imageName → version → ImageVersion
+	imageVersionCounts         map[string]int                              // imageName → latest version number
+	compilationJobs            map[string]*CompilationJob                  // key: jobName
+	monitoringSchedules        map[string]*MonitoringSchedule              // key: scheduleName
+	workteams                  map[string]*Workteam                        // key: workteamName
 	modelARNIndex              map[string]string                           // ARN → model name
 	endpointConfigARNIndex     map[string]string                           // ARN → endpoint config name
 	endpointARNIndex           map[string]string                           // ARN → endpoint name
@@ -460,6 +471,17 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		algorithms:                 make(map[string]*Algorithm),
 		clusters:                   make(map[string]*Cluster),
 		modelPackages:              make(map[string]*ModelPackage),
+		modelPackageGroups:         make(map[string]*ModelPackageGroup),
+		autoMLJobs:                 make(map[string]*AutoMLJob),
+		codeRepositories:           make(map[string]*CodeRepository),
+		projects:                   make(map[string]*Project),
+		spaces:                     make(map[string]*Space),
+		smImages:                   make(map[string]*SMImage),
+		imageVersions:              make(map[string]map[int]*ImageVersion),
+		imageVersionCounts:         make(map[string]int),
+		compilationJobs:            make(map[string]*CompilationJob),
+		monitoringSchedules:        make(map[string]*MonitoringSchedule),
+		workteams:                  make(map[string]*Workteam),
 		modelARNIndex:              make(map[string]string),
 		endpointConfigARNIndex:     make(map[string]string),
 		endpointARNIndex:           make(map[string]string),
@@ -519,6 +541,17 @@ func (b *InMemoryBackend) Reset() {
 	b.algorithms = make(map[string]*Algorithm)
 	b.clusters = make(map[string]*Cluster)
 	b.modelPackages = make(map[string]*ModelPackage)
+	b.modelPackageGroups = make(map[string]*ModelPackageGroup)
+	b.autoMLJobs = make(map[string]*AutoMLJob)
+	b.codeRepositories = make(map[string]*CodeRepository)
+	b.projects = make(map[string]*Project)
+	b.spaces = make(map[string]*Space)
+	b.smImages = make(map[string]*SMImage)
+	b.imageVersions = make(map[string]map[int]*ImageVersion)
+	b.imageVersionCounts = make(map[string]int)
+	b.compilationJobs = make(map[string]*CompilationJob)
+	b.monitoringSchedules = make(map[string]*MonitoringSchedule)
+	b.workteams = make(map[string]*Workteam)
 	b.modelARNIndex = make(map[string]string)
 	b.endpointConfigARNIndex = make(map[string]string)
 	b.endpointARNIndex = make(map[string]string)

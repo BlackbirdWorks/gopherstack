@@ -91,12 +91,8 @@ func stubOpsSupported() []string {
 	return []string{
 		"CreateAppImageConfig",
 		"CreateArtifact",
-		"CreateAutoMLJob",
-		"CreateAutoMLJobV2",
 		"CreateCluster",
 		"CreateClusterSchedulerConfig",
-		"CreateCodeRepository",
-		"CreateCompilationJob",
 		"CreateComputeQuota",
 		"CreateContext",
 		"CreateDataQualityJobDefinition",
@@ -109,8 +105,6 @@ func stubOpsSupported() []string {
 		"CreateHubContentPresignedUrls",
 		"CreateHubContentReference",
 		"CreateHumanTaskUi",
-		"CreateImage",
-		"CreateImageVersion",
 		"CreateInferenceComponent",
 		"CreateInferenceExperiment",
 		"CreateInferenceRecommendationsJob",
@@ -121,22 +115,16 @@ func stubOpsSupported() []string {
 		"CreateModelCard",
 		"CreateModelCardExportJob",
 		"CreateModelExplainabilityJobDefinition",
-		"CreateModelPackage",
-		"CreateModelPackageGroup",
 		"CreateModelQualityJobDefinition",
-		"CreateMonitoringSchedule",
 		"CreateOptimizationJob",
 		"CreatePartnerApp",
 		"CreatePartnerAppPresignedUrl",
 		"CreatePresignedDomainUrl",
 		"CreatePresignedMlflowAppUrl",
 		"CreatePresignedMlflowTrackingServerUrl",
-		"CreateProject",
-		"CreateSpace",
 		"CreateStudioLifecycleConfig",
 		"CreateTrainingPlan",
 		"CreateWorkforce",
-		"CreateWorkteam",
 		"DeleteAction",
 		"DeleteAlgorithm",
 		"DeleteAppImageConfig",
@@ -144,8 +132,6 @@ func stubOpsSupported() []string {
 		"DeleteAssociation",
 		"DeleteCluster",
 		"DeleteClusterSchedulerConfig",
-		"DeleteCodeRepository",
-		"DeleteCompilationJob",
 		"DeleteComputeQuota",
 		"DeleteContext",
 		"DeleteDataQualityJobDefinition",
@@ -157,8 +143,6 @@ func stubOpsSupported() []string {
 		"DeleteHubContent",
 		"DeleteHubContentReference",
 		"DeleteHumanTaskUi",
-		"DeleteImage",
-		"DeleteImageVersion",
 		"DeleteInferenceComponent",
 		"DeleteInferenceExperiment",
 		"DeleteMlflowApp",
@@ -166,32 +150,22 @@ func stubOpsSupported() []string {
 		"DeleteModelBiasJobDefinition",
 		"DeleteModelCard",
 		"DeleteModelExplainabilityJobDefinition",
-		"DeleteModelPackage",
-		"DeleteModelPackageGroup",
 		"DeleteModelPackageGroupPolicy",
 		"DeleteModelQualityJobDefinition",
-		"DeleteMonitoringSchedule",
 		"DeleteOptimizationJob",
 		"DeletePartnerApp",
 		"DeleteProcessingJob",
-		"DeleteProject",
-		"DeleteSpace",
 		"DeleteStudioLifecycleConfig",
 		"DeleteWorkforce",
-		"DeleteWorkteam",
 		"DeregisterDevices",
 		"DescribeAction",
 		"DescribeAlgorithm",
 		"DescribeAppImageConfig",
 		"DescribeArtifact",
-		"DescribeAutoMLJob",
-		"DescribeAutoMLJobV2",
 		"DescribeCluster",
 		"DescribeClusterEvent",
 		"DescribeClusterNode",
 		"DescribeClusterSchedulerConfig",
-		"DescribeCodeRepository",
-		"DescribeCompilationJob",
 		"DescribeComputeQuota",
 		"DescribeContext",
 		"DescribeDataQualityJobDefinition",
@@ -204,8 +178,6 @@ func stubOpsSupported() []string {
 		"DescribeHub",
 		"DescribeHubContent",
 		"DescribeHumanTaskUi",
-		"DescribeImage",
-		"DescribeImageVersion",
 		"DescribeInferenceComponent",
 		"DescribeInferenceExperiment",
 		"DescribeInferenceRecommendationsJob",
@@ -217,22 +189,16 @@ func stubOpsSupported() []string {
 		"DescribeModelCard",
 		"DescribeModelCardExportJob",
 		"DescribeModelExplainabilityJobDefinition",
-		"DescribeModelPackage",
-		"DescribeModelPackageGroup",
 		"DescribeModelQualityJobDefinition",
-		"DescribeMonitoringSchedule",
 		"DescribeOptimizationJob",
 		"DescribePartnerApp",
 		"DescribePipelineDefinitionForExecution",
-		"DescribeProject",
 		"DescribeReservedCapacity",
-		"DescribeSpace",
 		"DescribeStudioLifecycleConfig",
 		"DescribeSubscribedWorkteam",
 		"DescribeTrainingPlan",
 		"DescribeTrainingPlanExtensionHistory",
 		"DescribeWorkforce",
-		"DescribeWorkteam",
 		"DetachClusterNodeVolume",
 		"DisableSagemakerServicecatalogPortfolio",
 		"DisassociateTrialComponent",
@@ -251,14 +217,11 @@ func stubOpsSupported() []string {
 		"ListAppImageConfigs",
 		"ListArtifacts",
 		"ListAssociations",
-		"ListAutoMLJobs",
 		"ListCandidatesForAutoMLJob",
 		"ListClusterEvents",
 		"ListClusterNodes",
 		"ListClusterSchedulerConfigs",
 		"ListClusters",
-		"ListCodeRepositories",
-		"ListCompilationJobs",
 		"ListComputeQuotas",
 		"ListContexts",
 		"ListDataQualityJobDefinitions",
@@ -271,8 +234,6 @@ func stubOpsSupported() []string {
 		"ListHubContents",
 		"ListHubs",
 		"ListHumanTaskUis",
-		"ListImageVersions",
-		"ListImages",
 		"ListInferenceComponents",
 		"ListInferenceExperiments",
 		"ListInferenceRecommendationsJobSteps",
@@ -288,20 +249,15 @@ func stubOpsSupported() []string {
 		"ListModelCards",
 		"ListModelExplainabilityJobDefinitions",
 		"ListModelMetadata",
-		"ListModelPackageGroups",
-		"ListModelPackages",
 		"ListModelQualityJobDefinitions",
 		"ListMonitoringAlertHistory",
 		"ListMonitoringAlerts",
 		"ListMonitoringExecutions",
-		"ListMonitoringSchedules",
 		"ListOptimizationJobs",
 		"ListPartnerApps",
 		// ListPipelineParametersForExecution — real implementation in handler_accuracy2.go
 		"ListPipelineVersions",
-		"ListProjects",
 		"ListResourceCatalogs",
-		"ListSpaces",
 		"ListStageDevices",
 		"ListStudioLifecycleConfigs",
 		"ListSubscribedWorkteams",
@@ -310,7 +266,6 @@ func stubOpsSupported() []string {
 		"ListTrialComponents",
 		"ListUltraServersByReservedCapacity",
 		"ListWorkforces",
-		"ListWorkteams",
 		"PutModelPackageGroupPolicy",
 		"QueryLineage",
 		"RegisterDevices",
@@ -320,17 +275,13 @@ func stubOpsSupported() []string {
 		"StartEdgeDeploymentStage",
 		"StartInferenceExperiment",
 		"StartMlflowTrackingServer",
-		"StartMonitoringSchedule",
 		"StartSession",
-		"StopAutoMLJob",
-		"StopCompilationJob",
 		"StopEdgeDeploymentStage",
 		"StopEdgePackagingJob",
 		"StopInferenceExperiment",
 		"StopInferenceRecommendationsJob",
 		"StopLabelingJob",
 		"StopMlflowTrackingServer",
-		"StopMonitoringSchedule",
 		"StopOptimizationJob",
 		"UpdateAction",
 		"UpdateAppImageConfig",
@@ -338,7 +289,6 @@ func stubOpsSupported() []string {
 		"UpdateCluster",
 		"UpdateClusterSchedulerConfig",
 		"UpdateClusterSoftware",
-		"UpdateCodeRepository",
 		"UpdateComputeQuota",
 		"UpdateContext",
 		"UpdateDeviceFleet",
@@ -357,7 +307,6 @@ func stubOpsSupported() []string {
 		"UpdateModelCard",
 		"UpdateModelPackage",
 		"UpdateMonitoringAlert",
-		"UpdateMonitoringSchedule",
 		"UpdatePartnerApp",
 		"UpdatePipelineExecution",
 		"UpdatePipelineVersion",
@@ -389,20 +338,11 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateArtifact":
 		return mustMarshal(m{keyArtifactArn: ""}), true
 
-	case "CreateAutoMLJob", "CreateAutoMLJobV2":
-		return mustMarshal(m{keyAutoMLJobArn: ""}), true
-
 	case "CreateCluster":
 		return mustMarshal(m{keyClusterArn: ""}), true
 
 	case "CreateClusterSchedulerConfig":
 		return mustMarshal(m{keyClusterSchedulerConfigArn: ""}), true
-
-	case "CreateCodeRepository":
-		return mustMarshal(m{keyCodeRepositoryArn: ""}), true
-
-	case "CreateCompilationJob":
-		return mustMarshal(m{keyCompilationJobArn: ""}), true
 
 	case "CreateComputeQuota":
 		return mustMarshal(m{keyComputeQuotaArn: ""}), true
@@ -449,12 +389,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateHumanTaskUi":
 		return mustMarshal(m{keyHumanTaskUIArn: ""}), true
 
-	case "CreateImage":
-		return mustMarshal(m{keyImageArn: ""}), true
-
-	case "CreateImageVersion":
-		return mustMarshal(m{keyImageVersionArn: ""}), true
-
 	case "CreateInferenceComponent":
 		return mustMarshal(m{keyInferenceComponentArn: ""}), true
 
@@ -479,15 +413,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateModelCardExportJob":
 		return mustMarshal(m{keyModelCardExportJobArn: ""}), true
 
-	case "CreateModelPackage":
-		return mustMarshal(m{keyModelPackageArn: ""}), true
-
-	case "CreateModelPackageGroup":
-		return mustMarshal(m{keyModelPackageGroupArn: ""}), true
-
-	case "CreateMonitoringSchedule":
-		return mustMarshal(m{keyMonitoringScheduleArn: ""}), true
-
 	case "CreateOptimizationJob":
 		return mustMarshal(m{keyOptimizationJobArn: ""}), true
 
@@ -499,12 +424,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "CreatePipeline":
 		return mustMarshal(m{keyPipelineArn: ""}), true
-
-	case "CreateProject":
-		return mustMarshal(m{keyProjectArn: "", "ProjectId": ""}), true
-
-	case "CreateSpace":
-		return mustMarshal(m{keySpaceArn: ""}), true
 
 	case "CreateStudioLifecycleConfig":
 		return mustMarshal(m{keyStudioLifecycleConfigArn: ""}), true
@@ -524,9 +443,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateWorkforce":
 		return mustMarshal(m{keyWorkforceArn: ""}), true
 
-	case "CreateWorkteam":
-		return mustMarshal(m{keyWorkteamArn: ""}), true
-
 	// -----------------------------------------------------------------------
 	// Delete / stop / misc — return empty object
 	// -----------------------------------------------------------------------
@@ -538,8 +454,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DeleteAssociation",
 		"DeleteCluster",
 		"DeleteClusterSchedulerConfig",
-		"DeleteCodeRepository",
-		"DeleteCompilationJob",
 		"DeleteComputeQuota",
 		"DeleteContext",
 		"DeleteDataQualityJobDefinition",
@@ -554,8 +468,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DeleteHubContent",
 		"DeleteHubContentReference",
 		"DeleteHumanTaskUi",
-		"DeleteImage",
-		"DeleteImageVersion",
 		"DeleteInferenceComponent",
 		"DeleteInferenceExperiment",
 		"DeleteMlflowApp",
@@ -563,23 +475,17 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DeleteModelBiasJobDefinition",
 		"DeleteModelCard",
 		"DeleteModelExplainabilityJobDefinition",
-		"DeleteModelPackage",
-		"DeleteModelPackageGroup",
 		"DeleteModelPackageGroupPolicy",
 		"DeleteModelQualityJobDefinition",
-		"DeleteMonitoringSchedule",
 		"DeleteOptimizationJob",
 		"DeletePartnerApp",
 		"DeletePipeline",
 		"DeleteProcessingJob",
-		"DeleteProject",
-		"DeleteSpace",
 		"DeleteStudioLifecycleConfig",
 		"DeleteTrial",
 		"DeleteTrialComponent",
 		"DeleteUserProfile",
 		"DeleteWorkforce",
-		"DeleteWorkteam",
 		"DeregisterDevices",
 		"DetachClusterNodeVolume",
 		"DisableSagemakerServicecatalogPortfolio",
@@ -592,10 +498,7 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"RenderUiTemplate",
 		"StartEdgeDeploymentStage",
 		"StartMlflowTrackingServer",
-		"StartMonitoringSchedule",
 		"StartSession",
-		"StopAutoMLJob",
-		"StopCompilationJob",
 		"StopEdgeDeploymentStage",
 		"StopEdgePackagingJob",
 		"StopInferenceExperiment",
@@ -634,11 +537,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "DescribeArtifact":
 		return mustMarshal(m{keyArtifactArn: "", "ArtifactType": ""}), true
 
-	case "DescribeAutoMLJob", "DescribeAutoMLJobV2":
-		return mustMarshal(m{
-			keyAutoMLJobArn: "", "AutoMLJobName": "", "AutoMLJobStatus": statusCompleted,
-		}), true
-
 	case "DescribeCluster":
 		return mustMarshal(m{
 			keyClusterArn: "", "ClusterStatus": statusInService, "InstanceGroups": []any{},
@@ -652,14 +550,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "DescribeClusterSchedulerConfig":
 		return mustMarshal(m{keyClusterSchedulerConfigArn: "", keyStatus: "Creating"}), true
-
-	case "DescribeCodeRepository":
-		return mustMarshal(m{keyCodeRepositoryArn: "", "CodeRepositoryName": ""}), true
-
-	case "DescribeCompilationJob":
-		return mustMarshal(m{
-			keyCompilationJobArn: "", "CompilationJobName": "", "CompilationJobStatus": statusCompletedUpper,
-		}), true
 
 	case "DescribeComputeQuota":
 		return mustMarshal(m{keyComputeQuotaArn: "", keyStatus: statusCreated}), true
@@ -728,14 +618,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 			keyHumanTaskUIArn: "", "HumanTaskUiName": "", "HumanTaskUiStatus": statusActive,
 		}), true
 
-	case "DescribeImage":
-		return mustMarshal(m{keyImageArn: "", "ImageName": "", "ImageStatus": "CREATED"}), true
-
-	case "DescribeImageVersion":
-		return mustMarshal(m{
-			keyImageVersionArn: "", keyImageArn: "", "ImageVersionStatus": "CREATED", "Version": 0,
-		}), true
-
 	case "DescribeInferenceComponent":
 		return mustMarshal(m{
 			keyInferenceComponentArn: "", "InferenceComponentName": "", "InferenceComponentStatus": statusInService,
@@ -773,26 +655,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 			keyModelCardExportJobArn: "", "ModelCardExportJobName": "", keyStatus: statusCompleted,
 		}), true
 
-	case "DescribeModelPackage":
-		return mustMarshal(m{
-			keyModelPackageArn:     "",
-			"ModelPackageName":     "",
-			keyModelPackageStatus:  statusCompleted,
-			keyModelApprovalStatus: statusPendingManualApproval,
-		}), true
-
-	case "DescribeModelPackageGroup":
-		return mustMarshal(m{
-			keyModelPackageGroupArn: "", "ModelPackageGroupName": "", "ModelPackageGroupStatus": statusCompleted,
-		}), true
-
-	case "DescribeMonitoringSchedule":
-		return mustMarshal(m{
-			keyMonitoringScheduleArn:    "",
-			keyMonitoringScheduleName:   "",
-			keyMonitoringScheduleStatus: "Scheduled",
-		}), true
-
 	case "DescribeOptimizationJob":
 		return mustMarshal(m{
 			keyOptimizationJobArn: "", "OptimizationJobName": "", "OptimizationJobStatus": statusCompletedUpper,
@@ -814,16 +676,8 @@ func stubResponseFor(op string) ([]byte, bool) {
 			keyPipelineExecutionArn: "", keyPipelineExecutionStatus: pipelineStatusSucceeded,
 		}), true
 
-	case "DescribeProject":
-		return mustMarshal(m{
-			keyProjectArn: "", "ProjectId": "", "ProjectName": "", "ProjectStatus": "CreateCompleted",
-		}), true
-
 	case "DescribeReservedCapacity":
 		return mustMarshal(m{keyReservedCapacityArn: "", keyStatus: statusActive}), true
-
-	case "DescribeSpace":
-		return mustMarshal(m{keySpaceArn: "", "SpaceName": "", keyStatus: statusInService}), true
 
 	case "DescribeStudioLifecycleConfig":
 		return mustMarshal(m{
@@ -852,9 +706,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "DescribeWorkforce":
 		return mustMarshal(m{"Workforce": m{keyWorkforceArn: "", "WorkforceName": ""}}), true
-
-	case "DescribeWorkteam":
-		return mustMarshal(m{"Workteam": m{keyWorkteamArn: "", "WorkteamName": ""}}), true
 
 	// -----------------------------------------------------------------------
 	// Get ops
@@ -901,9 +752,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListAssociations":
 		return mustMarshal(m{"AssociationSummaries": []any{}}), true
 
-	case "ListAutoMLJobs":
-		return mustMarshal(m{"AutoMLJobSummaries": []any{}}), true
-
 	case "ListCandidatesForAutoMLJob":
 		return mustMarshal(m{"Candidates": []any{}}), true
 
@@ -918,12 +766,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListClusters":
 		return mustMarshal(m{"ClusterSummaries": []any{}}), true
-
-	case "ListCodeRepositories":
-		return mustMarshal(m{"CodeRepositorySummaryList": []any{}}), true
-
-	case "ListCompilationJobs":
-		return mustMarshal(m{"CompilationJobSummaries": []any{}}), true
 
 	case "ListComputeQuotas":
 		return mustMarshal(m{"ComputeQuotaSummaries": []any{}}), true
@@ -970,12 +812,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListHumanTaskUis":
 		return mustMarshal(m{"HumanTaskUiSummaries": []any{}}), true
 
-	case "ListImageVersions":
-		return mustMarshal(m{"ImageVersions": []any{}}), true
-
-	case "ListImages":
-		return mustMarshal(m{"Images": []any{}}), true
-
 	case "ListInferenceComponents":
 		return mustMarshal(m{"InferenceComponents": []any{}}), true
 
@@ -1009,12 +845,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListModelMetadata":
 		return mustMarshal(m{"ModelMetadataSummaries": []any{}}), true
 
-	case "ListModelPackageGroups":
-		return mustMarshal(m{"ModelPackageGroupSummaryList": []any{}}), true
-
-	case "ListModelPackages":
-		return mustMarshal(m{"ModelPackageSummaryList": []any{}}), true
-
 	case "ListMonitoringAlertHistory":
 		return mustMarshal(m{"MonitoringAlertHistory": []any{}}), true
 
@@ -1023,9 +853,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListMonitoringExecutions":
 		return mustMarshal(m{"MonitoringExecutionSummaries": []any{}}), true
-
-	case "ListMonitoringSchedules":
-		return mustMarshal(m{"MonitoringScheduleSummaries": []any{}}), true
 
 	case "ListOptimizationJobs":
 		return mustMarshal(m{"OptimizationJobSummaries": []any{}}), true
@@ -1042,14 +869,8 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListPipelines":
 		return mustMarshal(m{"PipelineSummaries": []any{}}), true
 
-	case "ListProjects":
-		return mustMarshal(m{"ProjectSummaryList": []any{}}), true
-
 	case "ListResourceCatalogs":
 		return mustMarshal(m{"ResourceCatalogs": []any{}}), true
-
-	case "ListSpaces":
-		return mustMarshal(m{"Spaces": []any{}}), true
 
 	case "ListStageDevices":
 		return mustMarshal(m{"DeviceDeploymentSummaries": []any{}}), true
@@ -1080,9 +901,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListWorkforces":
 		return mustMarshal(m{"Workforces": []any{}}), true
-
-	case "ListWorkteams":
-		return mustMarshal(m{"Workteams": []any{}}), true
 
 	// -----------------------------------------------------------------------
 	// Action / query / pipeline ops
@@ -1120,9 +938,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "UpdateClusterSchedulerConfig":
 		return mustMarshal(m{keyClusterSchedulerConfigArn: ""}), true
 
-	case "UpdateCodeRepository":
-		return mustMarshal(m{keyCodeRepositoryArn: ""}), true
-
 	case "UpdateComputeQuota":
 		return mustMarshal(m{keyComputeQuotaArn: ""}), true
 
@@ -1137,12 +952,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "UpdateHubContent", "UpdateHubContentReference":
 		return mustMarshal(m{keyHubArn: "", keyHubContentArn: ""}), true
-
-	case "UpdateImage":
-		return mustMarshal(m{keyImageArn: ""}), true
-
-	case "UpdateImageVersion":
-		return mustMarshal(m{keyImageVersionArn: ""}), true
 
 	case "UpdateInferenceComponent":
 		return mustMarshal(m{keyInferenceComponentArn: ""}), true
@@ -1167,9 +976,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "UpdateMonitoringAlert":
 		return mustMarshal(m{keyMonitoringScheduleArn: "", keyMonitoringAlertName: ""}), true
-
-	case "UpdateMonitoringSchedule":
-		return mustMarshal(m{keyMonitoringScheduleArn: ""}), true
 
 	case "UpdatePipeline", "UpdatePipelineVersion":
 		return mustMarshal(m{keyPipelineArn: ""}), true
