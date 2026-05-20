@@ -22,6 +22,7 @@ type Campaign struct {
 	CreationDate     string            `json:"CreationDate,omitempty"`
 	LastModifiedDate string            `json:"LastModifiedDate,omitempty"`
 	SegmentVersion   int               `json:"SegmentVersion,omitempty"`
+	Version          int               `json:"Version,omitempty"`
 }
 
 // EmailTemplate represents a Pinpoint email template.
@@ -106,6 +107,7 @@ type Segment struct {
 	Name          string            `json:"Name"`
 	CreationDate  string            `json:"CreationDate,omitempty"`
 	SegmentType   string            `json:"SegmentType"`
+	Version       int               `json:"Version,omitempty"`
 }
 
 // SmsTemplate represents a Pinpoint SMS template.
@@ -322,20 +324,6 @@ type appSettingsResponse struct {
 	QuietTime        map[string]any `json:"QuietTime"`
 	ApplicationID    string         `json:"ApplicationId"`
 	LastModifiedDate string         `json:"LastModifiedDate,omitempty"`
-}
-
-// newAppSettingsResponse builds an ApplicationSettingsResource response with
-// empty (non-nil) nested objects for CampaignHook, Limits, and QuietTime.
-// The Terraform provider's flatten helpers dereference these pointers directly
-// and panic if they are nil, so we must always return non-nil empty structs.
-func newAppSettingsResponse(appID string) appSettingsResponse {
-	return appSettingsResponse{
-		ApplicationID:    appID,
-		LastModifiedDate: nowRFC3339(),
-		CampaignHook:     map[string]any{},
-		Limits:           map[string]any{},
-		QuietTime:        map[string]any{},
-	}
 }
 
 // nowRFC3339 returns the current UTC time formatted as RFC 3339.
@@ -715,4 +703,10 @@ type segmentVersionsResponse struct {
 type messageBodyResponse struct {
 	Message string `json:"Message"`
 	ARN     string `json:"Arn,omitempty"`
+}
+
+// storedPinpointEvent is a single persisted event from PutEvents.
+type storedPinpointEvent struct {
+	EventType string `json:"EventType"`
+	Timestamp string `json:"Timestamp"`
 }
