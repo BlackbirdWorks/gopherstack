@@ -348,10 +348,10 @@ type StorageBackend interface {
 	ModifyIntegration(name string) error
 
 	// GlueIdentityCenter operations.
-	CreateIdentityCenterConfiguration(instanceARN string) error
-	GetIdentityCenterConfiguration() (*IdentityCenterConfig, error)
-	UpdateIdentityCenterConfiguration(instanceARN string) error
-	DeleteIdentityCenterConfiguration() error
+	CreateGlueIdentityCenterConfiguration(instanceARN string) error
+	GetGlueIdentityCenterConfiguration() (*IdentityCenterConfig, error)
+	UpdateGlueIdentityCenterConfiguration(instanceARN string) error
+	DeleteGlueIdentityCenterConfiguration() error
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

@@ -560,7 +560,9 @@ func (b *InMemoryBackend) GetColumnStatisticsTaskRuns() []*ColumnStatisticsTaskR
 // --- MaterializedViewRefreshRun ---
 
 // StartMaterializedViewRefreshTaskRun starts a refresh run.
-func (b *InMemoryBackend) StartMaterializedViewRefreshTaskRun(dbName, tableName string) (*MaterializedViewRefreshRun, error) {
+func (b *InMemoryBackend) StartMaterializedViewRefreshTaskRun(
+	dbName, tableName string,
+) (*MaterializedViewRefreshRun, error) {
 	b.mu.Lock("StartMaterializedViewRefreshTaskRun")
 	defer b.mu.Unlock()
 
@@ -684,9 +686,9 @@ func (b *InMemoryBackend) ModifyIntegration(name string) error {
 
 // --- GlueIdentityCenter CRUD ---
 
-// CreateIdentityCenterConfiguration creates the configuration.
-func (b *InMemoryBackend) CreateIdentityCenterConfiguration(instanceARN string) error {
-	b.mu.Lock("CreateIdentityCenterConfiguration")
+// CreateGlueIdentityCenterConfiguration creates the configuration.
+func (b *InMemoryBackend) CreateGlueIdentityCenterConfiguration(instanceARN string) error {
+	b.mu.Lock("CreateGlueIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 
 	b.glueIdentityCenterConfig = &IdentityCenterConfig{
@@ -697,9 +699,9 @@ func (b *InMemoryBackend) CreateIdentityCenterConfiguration(instanceARN string) 
 	return nil
 }
 
-// GetIdentityCenterConfiguration returns the configuration.
-func (b *InMemoryBackend) GetIdentityCenterConfiguration() (*IdentityCenterConfig, error) {
-	b.mu.RLock("GetIdentityCenterConfiguration")
+// GetGlueIdentityCenterConfiguration returns the configuration.
+func (b *InMemoryBackend) GetGlueIdentityCenterConfiguration() (*IdentityCenterConfig, error) {
+	b.mu.RLock("GetGlueIdentityCenterConfiguration")
 	defer b.mu.RUnlock()
 
 	if b.glueIdentityCenterConfig == nil {
@@ -711,9 +713,9 @@ func (b *InMemoryBackend) GetIdentityCenterConfiguration() (*IdentityCenterConfi
 	return &cp, nil
 }
 
-// UpdateIdentityCenterConfiguration updates the configuration.
-func (b *InMemoryBackend) UpdateIdentityCenterConfiguration(instanceARN string) error {
-	b.mu.Lock("UpdateIdentityCenterConfiguration")
+// UpdateGlueIdentityCenterConfiguration updates the configuration.
+func (b *InMemoryBackend) UpdateGlueIdentityCenterConfiguration(instanceARN string) error {
+	b.mu.Lock("UpdateGlueIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 
 	if b.glueIdentityCenterConfig == nil {
@@ -725,9 +727,9 @@ func (b *InMemoryBackend) UpdateIdentityCenterConfiguration(instanceARN string) 
 	return nil
 }
 
-// DeleteIdentityCenterConfiguration removes the configuration.
-func (b *InMemoryBackend) DeleteIdentityCenterConfiguration() error {
-	b.mu.Lock("DeleteIdentityCenterConfiguration")
+// DeleteGlueIdentityCenterConfiguration removes the configuration.
+func (b *InMemoryBackend) DeleteGlueIdentityCenterConfiguration() error {
+	b.mu.Lock("DeleteGlueIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 
 	b.glueIdentityCenterConfig = nil
