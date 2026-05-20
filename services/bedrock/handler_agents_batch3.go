@@ -41,12 +41,25 @@ const (
 
 // routeMatcherBatch3 returns true if the path matches any batch-3 routes.
 // Called from the updated RouteMatcher.
+// Note: /tags/ paths are only claimed when the ARN belongs to a bedrock-agent resource
+// (arn:aws:bedrock-agent:…). Other services (FIS, etc.) own their own /tags/ routes.
 func routeMatcherBatch3(path string) bool {
-	return strings.HasPrefix(path, "/flows") ||
-		path == flowsPath ||
-		strings.HasPrefix(path, "/prompts") ||
-		path == promptsPath ||
-		strings.HasPrefix(path, "/tags/")
+	if strings.HasPrefix(path, "/flows") || path == flowsPath {
+		return true
+	}
+	if strings.HasPrefix(path, "/prompts") || path == promptsPath {
+		return true
+	}
+	if rest, ok := strings.CutPrefix(path, "/tags/"); ok {
+		return isBedrockAgentArn(rest)
+	}
+
+	return false
+}
+
+// isBedrockAgentArn reports whether arn is a bedrock-agent-owned ARN.
+func isBedrockAgentArn(arn string) bool {
+	return strings.Contains(arn, ":bedrock-agent:")
 }
 
 // ---------------------------------------------------------------------------
