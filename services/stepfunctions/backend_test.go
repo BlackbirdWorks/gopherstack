@@ -18,6 +18,13 @@ const passDefinition = `{
 }
 }`
 
+const waitDefinition = `{
+"StartAt": "W",
+"States": {
+"W": {"Type": "Wait", "Seconds": 3600, "End": true}
+}
+}`
+
 const failDefinition = `{
 "StartAt": "F",
 "States": {
@@ -603,11 +610,17 @@ func TestStopExecution(t *testing.T) {
 
 			arn := tt.executionArn
 			if tt.createExec {
-				sm, err := b.CreateStateMachine("stop-sm", passDefinition, "arn:role", "STANDARD")
+				sm, err := b.CreateStateMachine("stop-sm", waitDefinition, "arn:role", "STANDARD")
 				require.NoError(t, err)
 				exec, err := b.StartExecution(sm.StateMachineArn, "exec-stop", "")
 				require.NoError(t, err)
 				arn = exec.ExecutionArn
+				// Wait for execution to enter RUNNING before stopping it.
+				require.Eventually(t, func() bool {
+					desc, descErr := b.DescribeExecution(arn)
+
+					return descErr == nil && desc.Status == "RUNNING"
+				}, 5*time.Second, 10*time.Millisecond)
 			}
 
 			err := b.StopExecution(arn, tt.stopError, tt.stopCause)

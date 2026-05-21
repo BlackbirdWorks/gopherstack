@@ -264,7 +264,7 @@ func (s *stubBackend) StartImageScan(_ string, _ ecr.ImageIdentifier) (*ecr.Imag
 	return &ecr.ImageScanStartResult{}, nil
 }
 
-func (s *stubBackend) ListImages(_ string) ([]ecr.ImageIdentifier, error) {
+func (s *stubBackend) ListImages(_, _ string) ([]ecr.ImageIdentifier, error) {
 	return []ecr.ImageIdentifier{}, nil
 }
 

@@ -70,3 +70,36 @@ func (b *InMemoryBackend) LayerUploadCount() int {
 
 	return len(b.layerUploads)
 }
+
+// TagIndexCount returns the total number of tag→digest entries across all repos.
+func (b *InMemoryBackend) TagIndexCount() int {
+	b.mu.RLock("TagIndexCount")
+	defer b.mu.RUnlock()
+
+	total := 0
+	for _, idx := range b.tagIndex {
+		total += len(idx)
+	}
+
+	return total
+}
+
+// RepoTagCount returns the number of tag→digest entries for a specific repository.
+func (b *InMemoryBackend) RepoTagCount(repositoryName string) int {
+	b.mu.RLock("RepoTagCount")
+	defer b.mu.RUnlock()
+
+	return len(b.tagIndex[repositoryName])
+}
+
+// TagDigest returns the digest a tag resolves to, or "" if not found.
+func (b *InMemoryBackend) TagDigest(repositoryName, tag string) string {
+	b.mu.RLock("TagDigest")
+	defer b.mu.RUnlock()
+
+	if idx, ok := b.tagIndex[repositoryName]; ok {
+		return idx[tag]
+	}
+
+	return ""
+}
