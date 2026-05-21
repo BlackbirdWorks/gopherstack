@@ -33,6 +33,13 @@ type backendSnapshot struct {
 	ProxyTargets              map[string][]DBProxyTarget                    `json:"proxyTargets"`
 	ProxyEndpoints            map[string]*DBProxyEndpoint                   `json:"proxyEndpoints"`
 	InstanceReadyAt           map[string]time.Time                          `json:"instanceReadyAt"`
+	CustomEngineVersions      map[string]*CustomDBEngineVersion             `json:"customEngineVersions"`
+	AutomatedBackups          map[string]*DBInstanceAutomatedBackup         `json:"automatedBackups"`
+	ShardGroups               map[string]*DBShardGroup                      `json:"shardGroups"`
+	Integrations              map[string]*Integration                       `json:"integrations"`
+	TenantDatabases           map[string]*TenantDatabase                    `json:"tenantDatabases"`
+	ClusterAutomatedBackups   map[string]*DBClusterAutomatedBackup          `json:"clusterAutomatedBackups"`
+	SnapshotTenantDatabases   map[string][]*DBSnapshotTenantDatabase        `json:"snapshotTenantDatabases"`
 	AccountID                 string                                        `json:"accountID"`
 	Region                    string                                        `json:"region"`
 }
@@ -72,6 +79,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		InstanceReadyAt:           b.instanceReadyAt,
 		AccountID:                 b.accountID,
 		Region:                    b.region,
+		CustomEngineVersions:      b.customEngineVersions,
+		AutomatedBackups:          b.automatedBackups,
+		ShardGroups:               b.shardGroups,
+		Integrations:              b.integrations,
+		TenantDatabases:           b.tenantDatabases,
+		ClusterAutomatedBackups:   b.clusterAutomatedBackups,
+		SnapshotTenantDatabases:   b.snapshotTenantDatabases,
 	}
 
 	data, err := json.Marshal(snap)
@@ -126,6 +140,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.instanceReadyAt = snap.InstanceReadyAt
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.customEngineVersions = snap.CustomEngineVersions
+	b.automatedBackups = snap.AutomatedBackups
+	b.shardGroups = snap.ShardGroups
+	b.integrations = snap.Integrations
+	b.tenantDatabases = snap.TenantDatabases
+	b.clusterAutomatedBackups = snap.ClusterAutomatedBackups
+	b.snapshotTenantDatabases = snap.SnapshotTenantDatabases
 	// FIS fault state is transient — clear it on restore so stale faults are not retained.
 	b.fisFailoverFaults = make(map[string]time.Time)
 
@@ -137,6 +158,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 func ensureNonNilMaps(snap *backendSnapshot) {
 	ensureNonNilCoreMaps(snap)
 	ensureNonNilExtendedMaps(snap)
+	ensureNonNilBatch1Maps(snap)
 }
 
 // ensureNonNilCoreMaps initialises the core resource maps (instances, snapshots, subnet groups, tags,
@@ -249,6 +271,39 @@ func ensureNonNilExtendedMaps(snap *backendSnapshot) {
 
 	if snap.ProxyEndpoints == nil {
 		snap.ProxyEndpoints = make(map[string]*DBProxyEndpoint)
+	}
+}
+
+// ensureNonNilBatch1Maps initialises the batch-1 resource maps added in the first
+// stateful-ops batch (custom engine versions, shard groups, integrations, tenant
+// databases, cluster/instance automated backups, and snapshot tenant databases).
+func ensureNonNilBatch1Maps(snap *backendSnapshot) {
+	if snap.CustomEngineVersions == nil {
+		snap.CustomEngineVersions = make(map[string]*CustomDBEngineVersion)
+	}
+
+	if snap.AutomatedBackups == nil {
+		snap.AutomatedBackups = make(map[string]*DBInstanceAutomatedBackup)
+	}
+
+	if snap.ShardGroups == nil {
+		snap.ShardGroups = make(map[string]*DBShardGroup)
+	}
+
+	if snap.Integrations == nil {
+		snap.Integrations = make(map[string]*Integration)
+	}
+
+	if snap.TenantDatabases == nil {
+		snap.TenantDatabases = make(map[string]*TenantDatabase)
+	}
+
+	if snap.ClusterAutomatedBackups == nil {
+		snap.ClusterAutomatedBackups = make(map[string]*DBClusterAutomatedBackup)
+	}
+
+	if snap.SnapshotTenantDatabases == nil {
+		snap.SnapshotTenantDatabases = make(map[string][]*DBSnapshotTenantDatabase)
 	}
 }
 
