@@ -31,15 +31,34 @@ type Tag struct {
 	Value string `json:"value"`
 }
 
+// ManagedScaling configures managed scaling for an ASG-backed capacity provider.
+type ManagedScaling struct {
+	Status                    string `json:"status,omitempty"`
+	TargetCapacityPercent     int    `json:"targetCapacityPercent,omitempty"`
+	MinimumScalingStepSize    int    `json:"minimumScalingStepSize,omitempty"`
+	MaximumScalingStepSize    int    `json:"maximumScalingStepSize,omitempty"`
+	InstanceWarmupPeriod      int    `json:"instanceWarmupPeriod,omitempty"`
+	TargetCapacityUtilization int    `json:"targetCapacityUtilization,omitempty"`
+}
+
+// AutoScalingGroupProvider configures an ASG-backed capacity provider.
+type AutoScalingGroupProvider struct {
+	AutoScalingGroupArn          string          `json:"autoScalingGroupArn"`
+	ManagedScaling               *ManagedScaling `json:"managedScaling,omitempty"`
+	ManagedTerminationProtection string          `json:"managedTerminationProtection,omitempty"`
+	ManagedDraining              string          `json:"managedDraining,omitempty"`
+}
+
 // CapacityProvider represents an ECS capacity provider.
 type CapacityProvider struct {
-	CreatedAt           time.Time `json:"createdAt"`
-	CapacityProviderArn string    `json:"capacityProviderArn"`
-	Name                string    `json:"name"`
-	Status              string    `json:"status"`
-	UpdateStatus        string    `json:"updateStatus,omitempty"`
-	UpdateStatusReason  string    `json:"updateStatusReason,omitempty"`
-	Tags                []Tag     `json:"tags,omitempty"`
+	CreatedAt                time.Time                 `json:"createdAt"`
+	CapacityProviderArn      string                    `json:"capacityProviderArn"`
+	Name                     string                    `json:"name"`
+	Status                   string                    `json:"status"`
+	UpdateStatus             string                    `json:"updateStatus,omitempty"`
+	UpdateStatusReason       string                    `json:"updateStatusReason,omitempty"`
+	AutoScalingGroupProvider *AutoScalingGroupProvider `json:"autoScalingGroupProvider,omitempty"`
+	Tags                     []Tag                     `json:"tags,omitempty"`
 }
 
 // AccountSetting represents an ECS account setting for a principal.
@@ -89,8 +108,9 @@ type Failure struct {
 
 // CreateCapacityProviderInput holds input for CreateCapacityProvider.
 type CreateCapacityProviderInput struct {
-	Name string
-	Tags []Tag
+	Name                     string
+	AutoScalingGroupProvider *AutoScalingGroupProvider
+	Tags                     []Tag
 }
 
 // CreateExpressGatewayServiceInput holds input for CreateExpressGatewayService.
@@ -184,9 +204,10 @@ func (b *InMemoryBackend) CreateCapacityProvider(input CreateCapacityProviderInp
 		CapacityProviderArn: fmt.Sprintf(
 			"arn:aws:ecs:%s:%s:capacity-provider/%s", b.region, b.accountID, input.Name,
 		),
-		Name:   input.Name,
-		Status: statusActive,
-		Tags:   copyTags(input.Tags),
+		Name:                     input.Name,
+		Status:                   statusActive,
+		AutoScalingGroupProvider: input.AutoScalingGroupProvider,
+		Tags:                     copyTags(input.Tags),
 	}
 
 	b.capacityProviders[input.Name] = cp

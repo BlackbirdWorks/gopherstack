@@ -404,7 +404,8 @@ func errorCode(err error) string {
 // ----- Cluster handlers -----
 
 type createClusterInput struct {
-	ClusterName string `json:"clusterName"`
+	ClusterName string               `json:"clusterName"`
+	Settings    []clusterSettingView `json:"settings,omitempty"`
 }
 
 type createClusterOutput struct {
@@ -412,7 +413,15 @@ type createClusterOutput struct {
 }
 
 func (h *Handler) handleCreateCluster(_ context.Context, in *createClusterInput) (*createClusterOutput, error) {
-	cluster, err := h.Backend.CreateCluster(CreateClusterInput{ClusterName: in.ClusterName})
+	settings := make([]ClusterSetting, 0, len(in.Settings))
+	for _, s := range in.Settings {
+		settings = append(settings, ClusterSetting(s))
+	}
+
+	cluster, err := h.Backend.CreateCluster(CreateClusterInput{
+		ClusterName: in.ClusterName,
+		Settings:    settings,
+	})
 	if err != nil {
 		return nil, err
 	}

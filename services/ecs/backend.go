@@ -185,7 +185,8 @@ type Task struct {
 
 // CreateClusterInput holds input for CreateCluster.
 type CreateClusterInput struct {
-	ClusterName string `json:"clusterName"`
+	ClusterName string
+	Settings    []ClusterSetting
 }
 
 // RegisterTaskDefinitionInput holds input for RegisterTaskDefinition.
@@ -419,6 +420,7 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 		ClusterArn:  fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, name),
 		ClusterName: name,
 		Status:      statusActive,
+		Settings:    input.Settings,
 	}
 	b.clusters[name] = cluster
 	b.services[name] = make(map[string]*Service)
