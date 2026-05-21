@@ -433,15 +433,22 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 	fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+input.FunctionName)
 
 	m := &EventSourceMapping{
-		UUID:                 id,
-		EventSourceARN:       input.EventSourceARN,
-		FunctionARN:          fnARN,
-		State:                state,
-		BatchSize:            batchSize,
-		StartingPosition:     startingPosition,
-		LastProcessingResult: "No records processed",
-		LastModified:         time.Now(),
-		FilterCriteria:       input.FilterCriteria,
+		UUID:                            id,
+		EventSourceARN:                  input.EventSourceARN,
+		FunctionARN:                     fnARN,
+		State:                           state,
+		BatchSize:                       batchSize,
+		StartingPosition:                startingPosition,
+		LastProcessingResult:            "No records processed",
+		LastModified:                    time.Now(),
+		FilterCriteria:                  input.FilterCriteria,
+		DestinationConfig:               input.DestinationConfig,
+		MaximumBatchingWindowInSeconds:  input.MaximumBatchingWindowInSeconds,
+		TumblingWindowInSeconds:         input.TumblingWindowInSeconds,
+		MaximumRecordAgeInSeconds:       input.MaximumRecordAgeInSeconds,
+		MaximumRetryAttempts:            input.MaximumRetryAttempts,
+		ParallelizationFactor:           input.ParallelizationFactor,
+		BisectBatchOnFunctionError:      input.BisectBatchOnFunctionError,
 	}
 
 	b.eventSourceMappings[id] = m
@@ -3927,6 +3934,34 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 
 	if input.FilterCriteria != nil {
 		esm.FilterCriteria = input.FilterCriteria
+	}
+
+	if input.DestinationConfig != nil {
+		esm.DestinationConfig = input.DestinationConfig
+	}
+
+	if input.MaximumBatchingWindowInSeconds > 0 {
+		esm.MaximumBatchingWindowInSeconds = input.MaximumBatchingWindowInSeconds
+	}
+
+	if input.TumblingWindowInSeconds > 0 {
+		esm.TumblingWindowInSeconds = input.TumblingWindowInSeconds
+	}
+
+	if input.MaximumRecordAgeInSeconds > 0 {
+		esm.MaximumRecordAgeInSeconds = input.MaximumRecordAgeInSeconds
+	}
+
+	if input.MaximumRetryAttempts > 0 {
+		esm.MaximumRetryAttempts = input.MaximumRetryAttempts
+	}
+
+	if input.ParallelizationFactor > 0 {
+		esm.ParallelizationFactor = input.ParallelizationFactor
+	}
+
+	if input.BisectBatchOnFunctionError != nil {
+		esm.BisectBatchOnFunctionError = *input.BisectBatchOnFunctionError
 	}
 
 	esm.LastModified = time.Now()

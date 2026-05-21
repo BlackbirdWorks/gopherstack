@@ -21,6 +21,8 @@ const (
 	FunctionStatePending FunctionState = "Pending"
 	// FunctionStateFailed means the function failed to deploy.
 	FunctionStateFailed FunctionState = "Failed"
+	// FunctionStateInactive means the function has been idle and its execution environment has been reclaimed.
+	FunctionStateInactive FunctionState = "Inactive"
 )
 
 // LastUpdateStatus represents the status of the last update to a Lambda function.
@@ -134,6 +136,7 @@ type FunctionConfiguration struct {
 	MemorySize      int               `json:"MemorySize"`
 	Timeout         int               `json:"Timeout"`
 	CodeSize        int64             `json:"CodeSize"`
+	SnapStart       *SnapStartResponse `json:"SnapStart,omitempty"`
 }
 
 // EnvironmentConfig holds Lambda function environment variables.
@@ -162,7 +165,9 @@ type CreateFunctionInput struct {
 	MemorySize int      `json:"MemorySize"`
 	Timeout    int      `json:"Timeout"`
 	// Publish, when true, creates the function and immediately publishes version 1.
-	Publish bool `json:"Publish,omitempty"`
+	Publish   bool       `json:"Publish,omitempty"`
+	SnapStart *SnapStart `json:"SnapStart,omitempty"`
+	Architectures []string `json:"Architectures,omitempty"`
 }
 
 // ImageConfig holds optional image command/entrypoint overrides.
@@ -196,6 +201,7 @@ type UpdateFunctionConfigurationInput struct {
 	Layers            []string                `json:"Layers,omitempty"`
 	MemorySize        int                     `json:"MemorySize,omitempty"`
 	Timeout           int                     `json:"Timeout,omitempty"`
+	SnapStart         *SnapStart              `json:"SnapStart,omitempty"`
 }
 
 // GetFunctionOutput is the response for GetFunction.
@@ -716,4 +722,16 @@ type FunctionScalingConfig struct {
 // PutFunctionScalingConfigInput is the request body for PutFunctionScalingConfig.
 type PutFunctionScalingConfigInput struct {
 	MaximumConcurrency *int `json:"MaximumConcurrency,omitempty"`
+}
+
+// SnapStart holds the SnapStart configuration for a Lambda function.
+// ApplyOn can be "PublishedVersions" or "None".
+type SnapStart struct {
+	ApplyOn string `json:"ApplyOn"`
+}
+
+// SnapStartResponse is the SnapStart field returned in GetFunction/GetFunctionConfiguration.
+type SnapStartResponse struct {
+	ApplyOn           string `json:"ApplyOn"`
+	OptimizationStatus string `json:"OptimizationStatus"`
 }

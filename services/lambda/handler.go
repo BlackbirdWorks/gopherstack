@@ -1442,6 +1442,11 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 
 	applyImageConfig(fn, &input)
 	applyZipDigest(fn)
+	applySnapStart(fn, input.SnapStart)
+
+	if len(input.Architectures) > 0 {
+		fn.Architectures = input.Architectures
+	}
 
 	if createErr := h.Backend.CreateFunction(fn); createErr != nil {
 		if errors.Is(createErr, ErrFunctionAlreadyExists) {
@@ -1637,6 +1642,28 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 	return c.JSON(http.StatusOK, fn)
 }
 
+// applySnapStart sets the SnapStart field on fn based on the input.
+func applySnapStart(fn *FunctionConfiguration, s *SnapStart) {
+	if s == nil {
+		return
+	}
+
+	applyOn := s.ApplyOn
+	if applyOn == "" {
+		applyOn = "None"
+	}
+
+	optimizationStatus := "Off"
+	if applyOn == "PublishedVersions" {
+		optimizationStatus = "On"
+	}
+
+	fn.SnapStart = &SnapStartResponse{
+		ApplyOn:            applyOn,
+		OptimizationStatus: optimizationStatus,
+	}
+}
+
 // applyFunctionConfigurationUpdate applies non-zero fields from input onto fn.
 func applyFunctionConfigurationUpdate(fn *FunctionConfiguration, input *UpdateFunctionConfigurationInput) {
 	if input.Description != "" {
@@ -1689,6 +1716,10 @@ func applyFunctionConfigurationUpdate(fn *FunctionConfiguration, input *UpdateFu
 
 	if input.EphemeralStorage != nil {
 		fn.EphemeralStorage = input.EphemeralStorage
+	}
+
+	if input.SnapStart != nil {
+		applySnapStart(fn, input.SnapStart)
 	}
 }
 
