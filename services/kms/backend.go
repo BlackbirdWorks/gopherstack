@@ -58,6 +58,12 @@ var (
 	ErrValidation = errors.New("ValidationException")
 	// ErrExpiredKeyMaterial is returned when a key's imported material has passed its ValidTo date.
 	ErrExpiredKeyMaterial = errors.New("ExpiredImportTokenException")
+	// ErrInvalidGrantToken is returned when a grant token is expired or malformed.
+	ErrInvalidGrantToken = errors.New("InvalidGrantTokenException")
+	// ErrLimitExceeded is returned when a service limit is exceeded (e.g. grants per key).
+	ErrLimitExceeded = errors.New("LimitExceededException")
+	// ErrInvalidAlgorithm is returned when an algorithm is not valid for the key spec.
+	ErrInvalidAlgorithm = errors.New("InvalidAlgorithmException")
 )
 
 const (
