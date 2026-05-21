@@ -5,12 +5,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 )
-
-// jsonUnmarshal is an alias for json.Unmarshal to keep the call site readable.
-var jsonUnmarshal = json.Unmarshal
 
 const (
 	notifTypeBounce    = "Bounce"
@@ -77,9 +75,7 @@ func (b *InMemoryBackend) GetIdentityPolicies(identity string, policyNames []str
 	out := make(map[string]string)
 
 	if len(policyNames) == 0 {
-		for k, v := range all {
-			out[k] = v
-		}
+		maps.Copy(out, all)
 
 		return out, nil
 	}
@@ -519,7 +515,7 @@ func (b *InMemoryBackend) TestRenderTemplate(templateName, templateData string) 
 
 	if strings.TrimSpace(templateData) != "" {
 		raw := map[string]any{}
-		if jerr := jsonUnmarshal([]byte(templateData), &raw); jerr == nil {
+		if jerr := json.Unmarshal([]byte(templateData), &raw); jerr == nil {
 			for k, v := range raw {
 				vars[k] = fmt.Sprintf("%v", v)
 			}

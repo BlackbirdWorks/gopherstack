@@ -8,18 +8,18 @@ import (
 )
 
 type backendSnapshot struct {
-	Identities             map[string]*IdentityRecord                  `json:"identities"`
-	Templates              map[string]EmailTemplate                    `json:"templates"`
-	ConfigSets             map[string]*ConfigurationSet                `json:"configSets"`
-	ReceiptRuleSets        map[string]*ReceiptRuleSet                  `json:"receiptRuleSets"`
-	ReceiptFilters         map[string]*ReceiptFilter                   `json:"receiptFilters"`
-	EventDestinations      map[string]map[string]*EventDestination     `json:"eventDestinations"`
-	TrackingOptions        map[string]*TrackingOptions                 `json:"trackingOptions"`
-	CustomVerifTemplates   map[string]*CustomVerificationEmailTemplate `json:"customVerifTemplates"`
-	Policies               map[string]map[string]string                `json:"policies,omitempty"`
-	ActiveRuleSet          string                                      `json:"activeRuleSet,omitempty"`
-	Emails                 []Email                                     `json:"emails"`
-	AccountSendingEnabled  bool                                        `json:"accountSendingEnabled"`
+	Identities            map[string]*IdentityRecord                  `json:"identities"`
+	Templates             map[string]EmailTemplate                    `json:"templates"`
+	ConfigSets            map[string]*ConfigurationSet                `json:"configSets"`
+	ReceiptRuleSets       map[string]*ReceiptRuleSet                  `json:"receiptRuleSets"`
+	ReceiptFilters        map[string]*ReceiptFilter                   `json:"receiptFilters"`
+	EventDestinations     map[string]map[string]*EventDestination     `json:"eventDestinations"`
+	TrackingOptions       map[string]*TrackingOptions                 `json:"trackingOptions"`
+	CustomVerifTemplates  map[string]*CustomVerificationEmailTemplate `json:"customVerifTemplates"`
+	Policies              map[string]map[string]string                `json:"policies,omitempty"`
+	ActiveRuleSet         string                                      `json:"activeRuleSet,omitempty"`
+	Emails                []Email                                     `json:"emails"`
+	AccountSendingEnabled bool                                        `json:"accountSendingEnabled"`
 }
 
 // Snapshot serialises the backend state to JSON.

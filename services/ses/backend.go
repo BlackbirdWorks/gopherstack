@@ -246,22 +246,22 @@ type CustomVerificationEmailTemplate struct {
 // InMemoryBackend is an in-memory store for SES emails, verified identities,
 // email templates, and configuration sets.
 type InMemoryBackend struct {
-	identities             map[string]*IdentityRecord
-	emailsByID             map[string]Email
-	templates              map[string]EmailTemplate
-	configSets             map[string]*ConfigurationSet
-	receiptRuleSets        map[string]*ReceiptRuleSet
-	receiptFilters         map[string]*ReceiptFilter
-	eventDestinations      map[string]map[string]*EventDestination
-	trackingOptions        map[string]*TrackingOptions
-	customVerifTemplates   map[string]*CustomVerificationEmailTemplate
-	policies               map[string]map[string]string // identity → policyName → policyDocument
-	activeRuleSet          string
-	mu                     *lockmetrics.RWMutex
-	emails                 []Email
-	emailTTL               time.Duration
-	configuredEmailTTL     time.Duration
-	accountSendingEnabled  bool
+	identities            map[string]*IdentityRecord
+	emailsByID            map[string]Email
+	templates             map[string]EmailTemplate
+	configSets            map[string]*ConfigurationSet
+	receiptRuleSets       map[string]*ReceiptRuleSet
+	receiptFilters        map[string]*ReceiptFilter
+	eventDestinations     map[string]map[string]*EventDestination
+	trackingOptions       map[string]*TrackingOptions
+	customVerifTemplates  map[string]*CustomVerificationEmailTemplate
+	policies              map[string]map[string]string // identity → policyName → policyDocument
+	activeRuleSet         string
+	mu                    *lockmetrics.RWMutex
+	emails                []Email
+	emailTTL              time.Duration
+	configuredEmailTTL    time.Duration
+	accountSendingEnabled bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the default email TTL.
