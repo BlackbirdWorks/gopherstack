@@ -138,9 +138,9 @@ type NestedStackCreator interface {
 
 // ResourceCreator creates and deletes cloud resources.
 type ResourceCreator struct {
-	backends          *ServiceBackends
+	backends           *ServiceBackends
 	nestedStackCreator NestedStackCreator
-	createHook        func(resourceType string) error // used by tests to inject creation errors
+	createHook         func(resourceType string) error // used by tests to inject creation errors
 }
 
 // NewResourceCreator returns a ResourceCreator backed by the given services.

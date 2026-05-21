@@ -54,7 +54,12 @@ type StackOptions struct {
 
 type StorageBackend interface {
 	CreateStack(ctx context.Context, name, templateBody string, params []Parameter, opts StackOptions) (*Stack, error)
-	UpdateStack(ctx context.Context, nameOrID, templateBody string, params []Parameter, opts StackOptions) (*Stack, error)
+	UpdateStack(
+		ctx context.Context,
+		nameOrID, templateBody string,
+		params []Parameter,
+		opts StackOptions,
+	) (*Stack, error)
 	DeleteStack(ctx context.Context, nameOrID string) error
 	DescribeStack(nameOrID string) (*Stack, error)
 	ListStacks(statusFilter []string, nextToken string) (page.Page[StackSummary], error)
@@ -291,7 +296,15 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 	}
 
 	stack.StackStatus = statusDeleteInProgress
-	b.addEvent(stack.StackID, stack.StackName, stack.StackName, stack.StackID, cfnStackType, statusDeleteInProgress, reasonUserInitiated)
+	b.addEvent(
+		stack.StackID,
+		stack.StackName,
+		stack.StackName,
+		stack.StackID,
+		cfnStackType,
+		statusDeleteInProgress,
+		reasonUserInitiated,
+	)
 
 	for logicalID, res := range b.resources[stack.StackID] {
 		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "")
@@ -418,7 +431,8 @@ func (b *InMemoryBackend) createStackLocked(
 	}
 
 	// OnFailure=DELETE: remove the stack entirely when creation fails.
-	if opts.OnFailure == "DELETE" && (stack.StackStatus == statusCreateFailed || stack.StackStatus == statusRollbackComplete) {
+	if opts.OnFailure == "DELETE" &&
+		(stack.StackStatus == statusCreateFailed || stack.StackStatus == statusRollbackComplete) {
 		stack.StackStatus = statusDeleteInProgress
 		b.addEvent(arn, name, name, arn, cfnStackType, statusDeleteInProgress, "")
 		now2 := time.Now()

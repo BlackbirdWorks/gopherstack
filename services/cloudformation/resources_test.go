@@ -678,7 +678,13 @@ func TestBackend_CreateStack_RealResources(t *testing.T) {
 			creator := cloudformation.NewResourceCreator(backends)
 			backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
 
-			stack, err := backend.CreateStack(t.Context(), tt.stackName, tt.template, nil, cloudformation.StackOptions{})
+			stack, err := backend.CreateStack(
+				t.Context(),
+				tt.stackName,
+				tt.template,
+				nil,
+				cloudformation.StackOptions{},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, stack.StackStatus)
 

@@ -430,7 +430,13 @@ func TestBackend_CreateStack_DynamicRefs_SSM(t *testing.T) {
 			cfnBackend, ssmBackend, _ := newBackendWithSSMAndSM(t)
 			tt.setupSSM(ssmBackend)
 
-			stack, err := cfnBackend.CreateStack(t.Context(), "test-stack", tt.template, nil, cloudformation.StackOptions{})
+			stack, err := cfnBackend.CreateStack(
+				t.Context(),
+				"test-stack",
+				tt.template,
+				nil,
+				cloudformation.StackOptions{},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, stack.StackStatus)
 
@@ -498,7 +504,13 @@ func TestBackend_CreateStack_DynamicRefs_SecretsManager(t *testing.T) {
 			cfnBackend, _, smBackend := newBackendWithSSMAndSM(t)
 			tt.setupSM(smBackend)
 
-			stack, err := cfnBackend.CreateStack(t.Context(), "test-stack", tt.template, nil, cloudformation.StackOptions{})
+			stack, err := cfnBackend.CreateStack(
+				t.Context(),
+				"test-stack",
+				tt.template,
+				nil,
+				cloudformation.StackOptions{},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, stack.StackStatus)
 

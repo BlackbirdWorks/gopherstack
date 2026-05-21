@@ -157,7 +157,11 @@ func TestCreateStack_RollbackConfigurationStored(t *testing.T) {
 	require.NotNil(t, stack.RollbackConfiguration)
 	assert.Equal(t, 10, stack.RollbackConfiguration.MonitoringTimeInMinutes)
 	assert.Len(t, stack.RollbackConfiguration.RollbackTriggers, 1)
-	assert.Equal(t, "arn:aws:cloudwatch:us-east-1:123:alarm/MyAlarm", stack.RollbackConfiguration.RollbackTriggers[0].ARN)
+	assert.Equal(
+		t,
+		"arn:aws:cloudwatch:us-east-1:123:alarm/MyAlarm",
+		stack.RollbackConfiguration.RollbackTriggers[0].ARN,
+	)
 }
 
 // ---- OnFailure=DELETE behavior --------------------------------------------------

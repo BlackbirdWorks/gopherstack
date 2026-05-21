@@ -252,19 +252,27 @@ func (h *Handler) handleGetTemplateSummary(form url.Values, c *echo.Context) err
 	}
 
 	type paramXML struct {
-		ParameterKey  string `xml:"ParameterKey"`
-		ParameterType string `xml:"ParameterType,omitempty"`
-		DefaultValue  string `xml:"DefaultValue,omitempty"`
-		Description   string `xml:"Description,omitempty"`
+		ParameterKey          string   `xml:"ParameterKey"`
+		ParameterType         string   `xml:"ParameterType,omitempty"`
+		DefaultValue          string   `xml:"DefaultValue,omitempty"`
+		Description           string   `xml:"Description,omitempty"`
+		AllowedValues         []string `xml:"AllowedValues>member,omitempty"`
+		ConstraintDescription string   `xml:"ConstraintDescription,omitempty"`
+		AllowedPattern        string   `xml:"AllowedPattern,omitempty"`
+		NoEcho                bool     `xml:"NoEcho,omitempty"`
 	}
 
 	params := make([]paramXML, 0, len(summary.Parameters))
 	for _, p := range summary.Parameters {
 		params = append(params, paramXML{
-			ParameterKey:  p.ParameterKey,
-			ParameterType: p.ParameterType,
-			DefaultValue:  p.DefaultValue,
-			Description:   p.Description,
+			ParameterKey:          p.ParameterKey,
+			ParameterType:         p.ParameterType,
+			DefaultValue:          p.DefaultValue,
+			Description:           p.Description,
+			AllowedValues:         p.AllowedValues,
+			ConstraintDescription: p.ConstraintDescription,
+			AllowedPattern:        p.AllowedPattern,
+			NoEcho:                p.NoEcho,
 		})
 	}
 

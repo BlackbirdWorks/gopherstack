@@ -268,7 +268,7 @@ func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(stackSetName string)
 		return nil, ErrStackSetNotFound
 	}
 	seen := make(map[string]bool)
-	var accounts []string
+	accounts := make([]string, 0)
 	for _, inst := range b.stackInstances[stackSetName] {
 		if !seen[inst.Account] {
 			seen[inst.Account] = true

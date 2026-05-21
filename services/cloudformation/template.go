@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -13,6 +14,9 @@ import (
 
 // ErrEmptyTemplate is returned when a template body is empty.
 var ErrEmptyTemplate = errors.New("template body is empty")
+
+// ErrParameterValidation is returned when a parameter value fails AllowedValues validation.
+var ErrParameterValidation = errors.New("parameter validation failed")
 
 // splitSep is the internal separator used by Fn::Split to encode a list as a string.
 // A null byte cannot appear in CloudFormation string values, making it unambiguous.
@@ -183,19 +187,12 @@ func ValidateParameters(tmpl *Template, resolved map[string]string) error {
 		if !ok {
 			continue
 		}
-		allowed := false
-		for _, av := range param.AllowedValues {
-			if av == val {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
+		if !slices.Contains(param.AllowedValues, val) {
 			msg := param.ConstraintDescription
 			if msg == "" {
 				msg = fmt.Sprintf("Parameter %s must be one of %v", name, param.AllowedValues)
 			}
-			return fmt.Errorf("parameter validation failed: %s", msg)
+			return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
 		}
 	}
 	return nil

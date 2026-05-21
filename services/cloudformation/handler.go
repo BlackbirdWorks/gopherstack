@@ -632,15 +632,43 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 
 	type stackXML struct {
-		StackID           string      `xml:"StackId"`
-		StackName         string      `xml:"StackName"`
-		Description       string      `xml:"Description,omitempty"`
-		StackStatus       string      `xml:"StackStatus"`
-		StackStatusReason string      `xml:"StackStatusReason,omitempty"`
-		CreationTime      string      `xml:"CreationTime"`
-		Parameters        []Parameter `xml:"Parameters>member,omitempty"`
-		Outputs           []Output    `xml:"Outputs>member,omitempty"`
-		Tags              []Tag       `xml:"Tags>member,omitempty"`
+		RollbackConfiguration       *RollbackConfiguration `xml:"RollbackConfiguration,omitempty"`
+		StackID                     string                 `xml:"StackId"`
+		StackName                   string                 `xml:"StackName"`
+		Description                 string                 `xml:"Description,omitempty"`
+		StackStatus                 string                 `xml:"StackStatus"`
+		StackStatusReason           string                 `xml:"StackStatusReason,omitempty"`
+		CreationTime                string                 `xml:"CreationTime"`
+		RoleARN                     string                 `xml:"RoleARN,omitempty"`
+		Parameters                  []Parameter            `xml:"Parameters>member,omitempty"`
+		Outputs                     []Output               `xml:"Outputs>member,omitempty"`
+		Tags                        []Tag                  `xml:"Tags>member,omitempty"`
+		Capabilities                []string               `xml:"Capabilities>member,omitempty"`
+		NotificationARNs            []string               `xml:"NotificationARNs>member,omitempty"`
+		EnableTerminationProtection bool                   `xml:"EnableTerminationProtection"`
+		DisableRollback             bool                   `xml:"DisableRollback,omitempty"`
+		TimeoutInMinutes            int                    `xml:"TimeoutInMinutes,omitempty"`
+	}
+
+	toXML := func(s *Stack) stackXML {
+		return stackXML{
+			StackID:                     s.StackID,
+			StackName:                   s.StackName,
+			Description:                 s.Description,
+			StackStatus:                 s.StackStatus,
+			StackStatusReason:           s.StackStatusReason,
+			CreationTime:                s.CreationTime.Format("2006-01-02T15:04:05Z"),
+			Parameters:                  s.Parameters,
+			Outputs:                     s.Outputs,
+			Tags:                        s.Tags,
+			Capabilities:                s.Capabilities,
+			NotificationARNs:            s.NotificationARNs,
+			EnableTerminationProtection: s.EnableTerminationProtection,
+			DisableRollback:             s.DisableRollback,
+			TimeoutInMinutes:            s.TimeoutInMinutes,
+			RoleARN:                     s.RoleARN,
+			RollbackConfiguration:       s.RollbackConfiguration,
+		}
 	}
 
 	var stacks []stackXML
@@ -650,31 +678,11 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 		if err != nil {
 			return h.xmlError(c, "ValidationError", err.Error())
 		}
-		stacks = append(stacks, stackXML{
-			StackID:           s.StackID,
-			StackName:         s.StackName,
-			Description:       s.Description,
-			StackStatus:       s.StackStatus,
-			StackStatusReason: s.StackStatusReason,
-			CreationTime:      s.CreationTime.Format("2006-01-02T15:04:05Z"),
-			Parameters:        s.Parameters,
-			Outputs:           s.Outputs,
-			Tags:              s.Tags,
-		})
+		stacks = append(stacks, toXML(s))
 	} else {
 		all := h.Backend.ListAll()
 		for _, s := range all {
-			stacks = append(stacks, stackXML{
-				StackID:           s.StackID,
-				StackName:         s.StackName,
-				Description:       s.Description,
-				StackStatus:       s.StackStatus,
-				StackStatusReason: s.StackStatusReason,
-				CreationTime:      s.CreationTime.Format("2006-01-02T15:04:05Z"),
-				Parameters:        s.Parameters,
-				Outputs:           s.Outputs,
-				Tags:              s.Tags,
-			})
+			stacks = append(stacks, toXML(s))
 		}
 	}
 
