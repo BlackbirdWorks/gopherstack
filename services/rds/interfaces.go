@@ -18,7 +18,11 @@ type StorageBackend interface {
 	) (*DBInstance, error)
 	DeleteDBInstance(id string) (*DBInstance, error)
 	DescribeDBInstances(id string) ([]DBInstance, error)
-	ModifyDBInstance(id, instanceClass string, allocatedStorage int, opts DBInstanceOptions) (*DBInstance, error)
+	ModifyDBInstance(
+		id, instanceClass string,
+		allocatedStorage int,
+		opts DBInstanceOptions,
+	) (*DBInstance, error)
 	StartDBInstance(id string) (*DBInstance, error)
 	StopDBInstance(id string) (*DBInstance, error)
 	RebootDBInstance(id string) (*DBInstance, error)
@@ -31,8 +35,14 @@ type StorageBackend interface {
 	CreateDBSnapshot(snapshotID, instanceID string) (*DBSnapshot, error)
 	DescribeDBSnapshots(snapshotID string) ([]DBSnapshot, error)
 	DeleteDBSnapshot(snapshotID string) (*DBSnapshot, error)
-	CopyDBSnapshot(sourceSnapshotID, targetSnapshotID string, opts CopyDBSnapshotOptions) (*DBSnapshot, error)
-	RestoreDBInstanceFromDBSnapshot(id, snapshotID string, opts DBInstanceOptions) (*DBInstance, error)
+	CopyDBSnapshot(
+		sourceSnapshotID, targetSnapshotID string,
+		opts CopyDBSnapshotOptions,
+	) (*DBSnapshot, error)
+	RestoreDBInstanceFromDBSnapshot(
+		id, snapshotID string,
+		opts DBInstanceOptions,
+	) (*DBInstance, error)
 	RestoreDBInstanceToPointInTime(id, sourceID string, opts DBInstanceOptions) (*DBInstance, error)
 
 	// DB subnet group operations
@@ -47,14 +57,22 @@ type StorageBackend interface {
 	ModifyDBParameterGroup(name string, params []DBParameter) (*DBParameterGroup, error)
 	DescribeDBParameters(groupName string) ([]DBParameter, error)
 	ResetDBParameterGroup(name string, resetAll bool, params []string) (*DBParameterGroup, error)
-	CopyDBParameterGroup(sourceGroupName, targetGroupName, targetDescription string) (*DBParameterGroup, error)
+	CopyDBParameterGroup(
+		sourceGroupName, targetGroupName, targetDescription string,
+	) (*DBParameterGroup, error)
 
 	// Option group operations
 	CreateOptionGroup(name, engine, majorVersion, description string) (*OptionGroup, error)
 	DescribeOptionGroups(name string) ([]OptionGroup, error)
 	DeleteOptionGroup(name string) error
-	ModifyOptionGroup(name string, optionsToAdd []OptionGroupOption, optionsToRemove []string) (*OptionGroup, error)
-	CopyOptionGroup(sourceGroupName, targetGroupName, targetDescription string) (*OptionGroup, error)
+	ModifyOptionGroup(
+		name string,
+		optionsToAdd []OptionGroupOption,
+		optionsToRemove []string,
+	) (*OptionGroup, error)
+	CopyOptionGroup(
+		sourceGroupName, targetGroupName, targetDescription string,
+	) (*OptionGroup, error)
 
 	// DB cluster operations
 	CreateDBCluster(
@@ -74,7 +92,9 @@ type StorageBackend interface {
 	// DB cluster parameter group operations
 	CreateDBClusterParameterGroup(name, family, description string) (*DBParameterGroup, error)
 	DescribeDBClusterParameterGroups(name string) ([]DBParameterGroup, error)
-	CopyDBClusterParameterGroup(sourceGroupName, targetGroupName, targetDescription string) (*DBParameterGroup, error)
+	CopyDBClusterParameterGroup(
+		sourceGroupName, targetGroupName, targetDescription string,
+	) (*DBParameterGroup, error)
 
 	// DB cluster snapshot operations
 	CreateDBClusterSnapshot(snapshotID, clusterID string) (*DBClusterSnapshot, error)
@@ -94,7 +114,10 @@ type StorageBackend interface {
 	) (*GlobalCluster, error)
 	DescribeGlobalClusters(id string) ([]GlobalCluster, error)
 	DeleteGlobalCluster(id string) (*GlobalCluster, error)
-	ModifyGlobalCluster(id, newID, engineVersion string, deletionProtection *bool) (*GlobalCluster, error)
+	ModifyGlobalCluster(
+		id, newID, engineVersion string,
+		deletionProtection *bool,
+	) (*GlobalCluster, error)
 
 	// Export task operations
 	StartExportTask(taskID, sourceARN, s3Bucket string) (*ExportTask, error)
@@ -108,9 +131,13 @@ type StorageBackend interface {
 
 	// Engine and instance metadata
 	DescribeDBEngineVersions(engine, engineVersion string) []DBEngineVersion
-	CreateCustomDBEngineVersion(engine, engineVersion, description string) (*CustomDBEngineVersion, error)
+	CreateCustomDBEngineVersion(
+		engine, engineVersion, description string,
+	) (*CustomDBEngineVersion, error)
 	DeleteCustomDBEngineVersion(engine, engineVersion string) (*CustomDBEngineVersion, error)
-	ModifyCustomDBEngineVersion(engine, engineVersion, description, status string) (*CustomDBEngineVersion, error)
+	ModifyCustomDBEngineVersion(
+		engine, engineVersion, description, status string,
+	) (*CustomDBEngineVersion, error)
 	DescribeOrderableDBInstanceOptions(engine, engineVersion string) []OrderableDBInstanceOption
 	DescribeDBLogFiles(instanceID string) ([]DBLogFile, error)
 	DownloadDBLogFilePortion(instanceID, logFileName string) (string, error)
@@ -122,8 +149,12 @@ type StorageBackend interface {
 	RemoveRoleFromDBInstance(instanceID, roleARN string) error
 
 	// Event subscription operations
-	AddSourceIdentifierToSubscription(subscriptionName, sourceIdentifier string) (*EventSubscription, error)
-	RemoveSourceIdentifierFromSubscription(subscriptionName, sourceIdentifier string) (*EventSubscription, error)
+	AddSourceIdentifierToSubscription(
+		subscriptionName, sourceIdentifier string,
+	) (*EventSubscription, error)
+	RemoveSourceIdentifierFromSubscription(
+		subscriptionName, sourceIdentifier string,
+	) (*EventSubscription, error)
 
 	// Maintenance operations
 	ApplyPendingMaintenanceAction(resourceID, applyAction string) (string, error)
@@ -139,7 +170,9 @@ type StorageBackend interface {
 	// Global cluster membership operations
 	RemoveFromGlobalCluster(globalClusterID, dbClusterARN string) (*GlobalCluster, error)
 	FailoverGlobalCluster(globalClusterID, targetDBClusterIdentifier string) (*GlobalCluster, error)
-	SwitchoverGlobalCluster(globalClusterID, targetDBClusterIdentifier string) (*GlobalCluster, error)
+	SwitchoverGlobalCluster(
+		globalClusterID, targetDBClusterIdentifier string,
+	) (*GlobalCluster, error)
 
 	// Read replica promotion operations
 	SwitchoverReadReplica(instanceID string) (*DBInstance, error)
@@ -162,7 +195,9 @@ type StorageBackend interface {
 		snapshotID, attributeName string,
 		valuesToAdd, valuesToRemove []string,
 	) (*DBSnapshotAttributesResult, error)
-	DescribeDBClusterSnapshotAttributes(snapshotID string) (*DBClusterSnapshotAttributesResult, error)
+	DescribeDBClusterSnapshotAttributes(
+		snapshotID string,
+	) (*DBClusterSnapshotAttributesResult, error)
 	ModifyDBClusterSnapshotAttribute(
 		snapshotID, attributeName string,
 		valuesToAdd, valuesToRemove []string,
@@ -188,23 +223,36 @@ type StorageBackend interface {
 		dbInstanceCount int,
 	) (*ReservedDBInstance, error)
 	DescribeReservedDBInstances(reservedDBInstanceID, dbInstanceClass string) []ReservedDBInstance
-	DescribeReservedDBInstancesOfferings(offeringID, dbInstanceClass string) []ReservedDBInstancesOffering
+	DescribeReservedDBInstancesOfferings(
+		offeringID, dbInstanceClass string,
+	) []ReservedDBInstancesOffering
 
 	// DB Proxy operations
 	CreateDBProxy(name, engineFamily, roleARN string, auth []UserAuthConfig) (*DBProxy, error)
 	DeleteDBProxy(name string) (*DBProxy, error)
 	DescribeDBProxies(name string) ([]DBProxy, error)
-	ModifyDBProxy(name string, requireTLS *bool, idleClientTimeout *int, auth []UserAuthConfig) (*DBProxy, error)
+	ModifyDBProxy(
+		name string,
+		requireTLS *bool,
+		idleClientTimeout *int,
+		auth []UserAuthConfig,
+	) (*DBProxy, error)
 
 	// DB Proxy target operations
 	RegisterDBProxyTargets(
 		proxyName, targetGroupName string,
 		dbInstanceIDs, dbClusterIDs []string,
 	) ([]DBProxyTarget, error)
-	DeregisterDBProxyTargets(proxyName, targetGroupName string, dbInstanceIDs, dbClusterIDs []string) error
+	DeregisterDBProxyTargets(
+		proxyName, targetGroupName string,
+		dbInstanceIDs, dbClusterIDs []string,
+	) error
 	DescribeDBProxyTargets(proxyName, targetGroupName string) ([]DBProxyTarget, error)
 	DescribeDBProxyTargetGroups(proxyName, targetGroupName string) ([]DBProxyTargetGroup, error)
-	ModifyDBProxyTargetGroup(proxyName, targetGroupName string, cfg ConnectionPoolConfig) (*DBProxyTargetGroup, error)
+	ModifyDBProxyTargetGroup(
+		proxyName, targetGroupName string,
+		cfg ConnectionPoolConfig,
+	) (*DBProxyTargetGroup, error)
 
 	// DB Proxy endpoint operations
 	CreateDBProxyEndpoint(
@@ -219,6 +267,47 @@ type StorageBackend interface {
 	StartActivityStream(clusterID, kmsKeyID, mode string) (*DBCluster, error)
 	StopActivityStream(clusterID string) (*DBCluster, error)
 	ModifyActivityStream(clusterID string, auditPolicy string) (*DBCluster, error)
+
+	// DB Shard Group operations
+	CreateDBShardGroup(
+		id, clusterID string,
+		maxACU, minACU float64,
+		computeRedundancy int,
+		publiclyAccessible bool,
+	) (*DBShardGroup, error)
+	DeleteDBShardGroup(id string) (*DBShardGroup, error)
+	DescribeDBShardGroups(id string) ([]DBShardGroup, error)
+	ModifyDBShardGroup(id string, maxACU float64, computeRedundancy int) (*DBShardGroup, error)
+	RebootDBShardGroup(id string) (*DBShardGroup, error)
+
+	// Integration operations
+	CreateIntegration(name, sourceARN, targetARN, kmsKeyID string) (*Integration, error)
+	DeleteIntegration(identifier string) (*Integration, error)
+	DescribeIntegrations(identifier string) ([]Integration, error)
+	ModifyIntegration(identifier string) (*Integration, error)
+
+	// Tenant Database operations
+	CreateTenantDatabase(instanceID, tenantDBName, masterUsername string) (*TenantDatabase, error)
+	DeleteTenantDatabase(instanceID, tenantDBName string) (*TenantDatabase, error)
+	DescribeTenantDatabases(instanceID, tenantDBName string) ([]TenantDatabase, error)
+	ModifyTenantDatabase(instanceID, tenantDBName string) (*TenantDatabase, error)
+
+	// DB Cluster Automated Backup operations
+	DeleteDBClusterAutomatedBackup(resourceID string) (*DBClusterAutomatedBackup, error)
+	DescribeDBClusterAutomatedBackups(clusterID string) []DBClusterAutomatedBackup
+
+	// DB Instance Automated Backup enhanced operations
+	DeleteDBInstanceAutomatedBackup(resourceID string) (*DBInstanceAutomatedBackup, error)
+	StartDBInstanceAutomatedBackupsReplication(
+		sourceInstanceARN string,
+		backupRetentionPeriod int,
+	) (*DBInstanceAutomatedBackup, error)
+	StopDBInstanceAutomatedBackupsReplication(
+		sourceInstanceARN string,
+	) (*DBInstanceAutomatedBackup, error)
+
+	// DB Snapshot Tenant Database operations
+	DescribeDBSnapshotTenantDatabases(snapshotID, instanceID string) []DBSnapshotTenantDatabase
 }
 
 // Ensure InMemoryBackend satisfies the StorageBackend interface at compile time.

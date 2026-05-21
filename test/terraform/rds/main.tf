@@ -121,6 +121,26 @@ resource "aws_rds_blue_green_deployment" "main" {
 }
 
 # ---------------------------------------------------------------------------
+# Aurora Limitless DB shard group (batch-1)
+# ---------------------------------------------------------------------------
+
+resource "aws_rds_shard_group" "main" {
+  db_shard_group_identifier = "rds-tf-shard-group"
+  db_cluster_identifier     = aws_rds_cluster.aurora.id
+  max_acu                   = 64
+}
+
+# ---------------------------------------------------------------------------
+# RDS Integration (zero-ETL to Redshift, batch-1)
+# ---------------------------------------------------------------------------
+
+resource "aws_rds_integration" "main" {
+  integration_name = "rds-tf-integration"
+  source_arn       = aws_rds_cluster.aurora.arn
+  target_arn       = "arn:aws:redshift:us-east-1:000000000000:namespace:rds-tf-redshift-ns"
+}
+
+# ---------------------------------------------------------------------------
 # Outputs
 # ---------------------------------------------------------------------------
 
@@ -134,4 +154,12 @@ output "proxy_endpoint" {
 
 output "blue_green_deployment_id" {
   value = aws_rds_blue_green_deployment.main.id
+}
+
+output "shard_group_id" {
+  value = aws_rds_shard_group.main.id
+}
+
+output "integration_arn" {
+  value = aws_rds_integration.main.arn
 }

@@ -78,6 +78,26 @@ var (
 	ErrBlueGreenDeploymentAlreadyExists = errors.New("BlueGreenDeploymentAlreadyExists")
 	// ErrNoServerlessV2Config is a sentinel indicating no ServerlessV2ScalingConfiguration was provided.
 	ErrNoServerlessV2Config = errors.New("noServerlessV2Config")
+
+	// ErrDBShardGroupNotFound is returned when a DB shard group does not exist.
+	ErrDBShardGroupNotFound = errors.New("DBShardGroupNotFound")
+	// ErrDBShardGroupAlreadyExists is returned when a DB shard group already exists.
+	ErrDBShardGroupAlreadyExists = errors.New("DBShardGroupAlreadyExists")
+
+	// ErrIntegrationNotFound is returned when an integration does not exist.
+	ErrIntegrationNotFound = errors.New("IntegrationNotFound")
+	// ErrIntegrationAlreadyExists is returned when an integration already exists.
+	ErrIntegrationAlreadyExists = errors.New("IntegrationAlreadyExists")
+
+	// ErrTenantDatabaseNotFound is returned when a tenant database does not exist.
+	ErrTenantDatabaseNotFound = errors.New("TenantDatabaseNotFound")
+	// ErrTenantDatabaseAlreadyExists is returned when a tenant database already exists.
+	ErrTenantDatabaseAlreadyExists = errors.New("TenantDatabaseAlreadyExists")
+
+	// ErrDBClusterAutomatedBackupNotFound is returned when a cluster automated backup does not exist.
+	ErrDBClusterAutomatedBackupNotFound = errors.New("DBClusterAutomatedBackupNotFound")
+	// ErrDBInstanceAutomatedBackupNotFound is returned when an instance automated backup does not exist.
+	ErrDBInstanceAutomatedBackupNotFound = errors.New("DBInstanceAutomatedBackupNotFound")
 )
 
 const (
@@ -514,6 +534,60 @@ type DNSRegistrar interface {
 	Deregister(hostname string)
 }
 
+// DBShardGroup represents an Aurora Limitless DB shard group.
+type DBShardGroup struct {
+	DBShardGroupIdentifier string  `json:"dbShardGroupIdentifier"`
+	DBClusterIdentifier    string  `json:"dbClusterIdentifier"`
+	Status                 string  `json:"status"`
+	MaxACU                 float64 `json:"maxACU,omitempty"`
+	MinACU                 float64 `json:"minACU,omitempty"`
+	ComputeRedundancy      int     `json:"computeRedundancy,omitempty"`
+	PubliclyAccessible     bool    `json:"publiclyAccessible,omitempty"`
+}
+
+// Integration represents an RDS zero-ETL integration to Amazon Redshift.
+type Integration struct {
+	CreatedAt       time.Time `json:"createdAt"`
+	IntegrationArn  string    `json:"integrationArn"`
+	IntegrationName string    `json:"integrationName"`
+	SourceArn       string    `json:"sourceArn"`
+	TargetArn       string    `json:"targetArn"`
+	KmsKeyID        string    `json:"kmsKeyId,omitempty"`
+	Status          string    `json:"status"`
+}
+
+// TenantDatabase represents a tenant database within a multi-tenant RDS instance.
+type TenantDatabase struct {
+	CreatedAt            time.Time `json:"createdAt"`
+	DBInstanceIdentifier string    `json:"dbInstanceIdentifier"`
+	TenantDBName         string    `json:"tenantDBName"`
+	MasterUsername       string    `json:"masterUsername"`
+	TenantDatabaseARN    string    `json:"tenantDatabaseArn"`
+	DbiResourceID        string    `json:"dbiResourceId"`
+	Status               string    `json:"status"`
+}
+
+// DBClusterAutomatedBackup represents an automated backup record for an RDS cluster.
+type DBClusterAutomatedBackup struct {
+	DBClusterIdentifier   string `json:"dbClusterIdentifier"`
+	DBClusterResourceID   string `json:"dbClusterResourceId"`
+	Engine                string `json:"engine"`
+	EngineVersion         string `json:"engineVersion"`
+	Region                string `json:"region"`
+	Status                string `json:"status"`
+	BackupRetentionPeriod int    `json:"backupRetentionPeriod"`
+	StorageEncrypted      bool   `json:"storageEncrypted"`
+}
+
+// DBSnapshotTenantDatabase represents a tenant database within a DB snapshot.
+type DBSnapshotTenantDatabase struct {
+	DBSnapshotIdentifier string `json:"dbSnapshotIdentifier"`
+	DBInstanceIdentifier string `json:"dbInstanceIdentifier"`
+	TenantDatabaseName   string `json:"tenantDatabaseName"`
+	Engine               string `json:"engine"`
+	Status               string `json:"status"`
+}
+
 // DBInstanceAutomatedBackup represents an automated backup record for an RDS instance.
 type DBInstanceAutomatedBackup struct {
 	DBInstanceIdentifier  string `json:"dbInstanceIdentifier"`
@@ -621,6 +695,11 @@ type InMemoryBackend struct {
 	customEngineVersions      map[string]*CustomDBEngineVersion
 	fisFailoverFaults         map[string]time.Time
 	automatedBackups          map[string]*DBInstanceAutomatedBackup
+	shardGroups               map[string]*DBShardGroup
+	integrations              map[string]*Integration
+	tenantDatabases           map[string]*TenantDatabase
+	clusterAutomatedBackups   map[string]*DBClusterAutomatedBackup
+	snapshotTenantDatabases   map[string][]*DBSnapshotTenantDatabase
 	stopCh                    chan struct{}
 	accountID                 string
 	region                    string
@@ -660,6 +739,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		proxyEndpoints:            make(map[string]*DBProxyEndpoint),
 		automatedBackups:          make(map[string]*DBInstanceAutomatedBackup),
 		customEngineVersions:      make(map[string]*CustomDBEngineVersion),
+		shardGroups:               make(map[string]*DBShardGroup),
+		integrations:              make(map[string]*Integration),
+		tenantDatabases:           make(map[string]*TenantDatabase),
+		clusterAutomatedBackups:   make(map[string]*DBClusterAutomatedBackup),
+		snapshotTenantDatabases:   make(map[string][]*DBSnapshotTenantDatabase),
 		stopCh:                    make(chan struct{}),
 		accountID:                 accountID,
 		region:                    region,
@@ -717,6 +801,11 @@ func (b *InMemoryBackend) Reset() {
 	b.proxyEndpoints = make(map[string]*DBProxyEndpoint)
 	b.automatedBackups = make(map[string]*DBInstanceAutomatedBackup)
 	b.customEngineVersions = make(map[string]*CustomDBEngineVersion)
+	b.shardGroups = make(map[string]*DBShardGroup)
+	b.integrations = make(map[string]*Integration)
+	b.tenantDatabases = make(map[string]*TenantDatabase)
+	b.clusterAutomatedBackups = make(map[string]*DBClusterAutomatedBackup)
+	b.snapshotTenantDatabases = make(map[string][]*DBSnapshotTenantDatabase)
 }
 
 // SetDNSRegistrar wires a DNS server so RDS instance hostnames are auto-registered.
