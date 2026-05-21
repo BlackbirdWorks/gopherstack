@@ -8,11 +8,14 @@ package ecs_test
 // TaskDefinition revisions + deregister, PrimaryTaskSet, tags, concurrent safety.
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1985,13 +1988,20 @@ func TestBatch2_Concurrent_CreateServices(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 
-			resp := doECSRequest(t, h, "CreateService", map[string]any{
+			body, _ := json.Marshal(map[string]any{
 				"cluster":        "concurrent-cluster",
 				"serviceName":    "concurrent-svc-" + string(rune('a'+idx)),
 				"taskDefinition": "concurrent-task",
 				"desiredCount":   1,
 			})
-			results[idx] = resp.Code
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+			req.Header.Set("X-Amz-Target", "AmazonEC2ContainerServiceV20141113.CreateService")
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			_ = h.Handler()(c)
+			results[idx] = rec.Code
 		}(i)
 	}
 
@@ -2018,11 +2028,18 @@ func TestBatch2_Concurrent_RegisterContainerInstances(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 
-			resp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
+			body, _ := json.Marshal(map[string]any{
 				"cluster":       "concurrent-ci-cluster",
 				"ec2InstanceId": "i-concurrent-" + string(rune('a'+idx)),
 			})
-			results[idx] = resp.Code
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+			req.Header.Set("X-Amz-Target", "AmazonEC2ContainerServiceV20141113.RegisterContainerInstance")
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			_ = h.Handler()(c)
+			results[idx] = rec.Code
 		}(i)
 	}
 
