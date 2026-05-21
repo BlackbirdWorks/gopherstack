@@ -33,6 +33,8 @@ type Subscription struct {
 	CreationTimestamp   time.Time `json:"creationTimestamp"`
 	parsedFilterPolicy  parsedFilterPolicy
 	RedrivePolicy       string `json:"redrivePolicy,omitempty"`
+	DeliveryPolicy      string `json:"deliveryPolicy,omitempty"`
+	ReplayPolicy        string `json:"replayPolicy,omitempty"`
 	Endpoint            string `json:"endpoint"`
 	Owner               string `json:"owner"`
 	TopicArn            string `json:"topicArn"`

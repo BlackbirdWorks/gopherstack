@@ -1536,3 +1536,297 @@ func TestNotificationEnvelopeFields(t *testing.T) {
 		t.Fatal("HTTP delivery did not arrive")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Subscription DeliveryPolicy attribute (Issue: per-subscription delivery)
+// ---------------------------------------------------------------------------
+
+// TestSubscriptionDeliveryPolicyRoundTrips verifies that a subscription-level
+// DeliveryPolicy can be set and retrieved via Get/SetSubscriptionAttributes.
+func TestSubscriptionDeliveryPolicyRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("delivery-policy-topic", nil)
+	require.NoError(t, err)
+
+	sub, err := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:dp-q", "")
+	require.NoError(t, err)
+
+	policy := `{"healthyRetryPolicy":{"numRetries":5,"minDelayTarget":10,"maxDelayTarget":30}}`
+	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "DeliveryPolicy", policy)
+	require.NoError(t, err)
+
+	attrs, err := b.GetSubscriptionAttributes(sub.SubscriptionArn)
+	require.NoError(t, err)
+	assert.Equal(t, policy, attrs["DeliveryPolicy"])
+}
+
+// TestSubscriptionDeliveryPolicyClear verifies clearing DeliveryPolicy by
+// setting it to empty string removes it from the attribute map.
+func TestSubscriptionDeliveryPolicyClear(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("dp-clear-topic", nil)
+	require.NoError(t, err)
+
+	sub, err := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:dp-clear-q", "")
+	require.NoError(t, err)
+
+	policy := `{"healthyRetryPolicy":{"numRetries":3}}`
+	require.NoError(t, b.SetSubscriptionAttributes(sub.SubscriptionArn, "DeliveryPolicy", policy))
+	require.NoError(t, b.SetSubscriptionAttributes(sub.SubscriptionArn, "DeliveryPolicy", ""))
+
+	attrs, err := b.GetSubscriptionAttributes(sub.SubscriptionArn)
+	require.NoError(t, err)
+	assert.Empty(t, attrs["DeliveryPolicy"])
+}
+
+// ---------------------------------------------------------------------------
+// Subscription ReplayPolicy attribute (Issue: archive replay)
+// ---------------------------------------------------------------------------
+
+// TestSubscriptionReplayPolicyRoundTrips verifies that a subscription-level
+// ReplayPolicy can be set and retrieved.
+func TestSubscriptionReplayPolicyRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("replay-policy-topic", nil)
+	require.NoError(t, err)
+
+	sub, err := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:rp-q", "")
+	require.NoError(t, err)
+
+	policy := `{"replayFromTimestamp":"2024-01-01T00:00:00Z"}`
+	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "ReplayPolicy", policy)
+	require.NoError(t, err)
+
+	attrs, err := b.GetSubscriptionAttributes(sub.SubscriptionArn)
+	require.NoError(t, err)
+	assert.Equal(t, policy, attrs["ReplayPolicy"])
+}
+
+// TestSubscriptionReplayPolicyClear verifies clearing ReplayPolicy removes it.
+func TestSubscriptionReplayPolicyClear(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("rp-clear-topic", nil)
+	require.NoError(t, err)
+
+	sub, err := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:rp-clear-q", "")
+	require.NoError(t, err)
+
+	policy := `{"replayFromTimestamp":"2024-06-01T00:00:00Z"}`
+	require.NoError(t, b.SetSubscriptionAttributes(sub.SubscriptionArn, "ReplayPolicy", policy))
+	require.NoError(t, b.SetSubscriptionAttributes(sub.SubscriptionArn, "ReplayPolicy", ""))
+
+	attrs, err := b.GetSubscriptionAttributes(sub.SubscriptionArn)
+	require.NoError(t, err)
+	assert.Empty(t, attrs["ReplayPolicy"])
+}
+
+// TestSubscriptionDeliveryAndReplayPolicyCoexist verifies both attributes can
+// be set independently and retrieved together.
+func TestSubscriptionDeliveryAndReplayPolicyCoexist(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("coexist-topic", nil)
+	require.NoError(t, err)
+
+	sub, err := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:coexist-q", "")
+	require.NoError(t, err)
+
+	dp := `{"healthyRetryPolicy":{"numRetries":2}}`
+	rp := `{"replayFromTimestamp":"2025-01-01T00:00:00Z"}`
+
+	require.NoError(t, b.SetSubscriptionAttributes(sub.SubscriptionArn, "DeliveryPolicy", dp))
+	require.NoError(t, b.SetSubscriptionAttributes(sub.SubscriptionArn, "ReplayPolicy", rp))
+
+	attrs, err := b.GetSubscriptionAttributes(sub.SubscriptionArn)
+	require.NoError(t, err)
+	assert.Equal(t, dp, attrs["DeliveryPolicy"])
+	assert.Equal(t, rp, attrs["ReplayPolicy"])
+}
+
+// ---------------------------------------------------------------------------
+// ListSubscriptionsByTopic pagination
+// ---------------------------------------------------------------------------
+
+// TestListSubscriptionsByTopicPagination verifies that ListSubscriptionsByTopic
+// correctly paginates when a topic has more than 100 subscriptions.
+func TestListSubscriptionsByTopicPagination(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("paginate-by-topic", nil)
+	require.NoError(t, err)
+
+	for i := range 115 {
+		_, subErr := b.Subscribe(tp.TopicArn, "sqs",
+			fmt.Sprintf("arn:aws:sqs:us-east-1:000000000000:pbt-q%d", i), "")
+		require.NoError(t, subErr)
+	}
+
+	page1, tok1, err := b.ListSubscriptionsByTopic(tp.TopicArn, "")
+	require.NoError(t, err)
+	assert.Len(t, page1, 100)
+	assert.NotEmpty(t, tok1)
+
+	page2, tok2, err := b.ListSubscriptionsByTopic(tp.TopicArn, tok1)
+	require.NoError(t, err)
+	assert.Len(t, page2, 15)
+	assert.Empty(t, tok2)
+
+	seen := make(map[string]bool, 115)
+	for _, s := range append(page1, page2...) {
+		assert.False(t, seen[s.SubscriptionArn], "duplicate subscription in pages")
+		seen[s.SubscriptionArn] = true
+	}
+	assert.Len(t, seen, 115)
+}
+
+// TestListSubscriptionsByTopicInvalidToken verifies that ListSubscriptionsByTopic
+// returns ErrInvalidParameter for a malformed token.
+func TestListSubscriptionsByTopicInvalidToken(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("invalid-token-topic", nil)
+	require.NoError(t, err)
+
+	_, _, err = b.ListSubscriptionsByTopic(tp.TopicArn, "!!!not-base64!!!")
+	require.ErrorIs(t, err, sns.ErrInvalidParameter)
+}
+
+// ---------------------------------------------------------------------------
+// FIFO MessageGroupId + MessageDeduplicationId ordering
+// ---------------------------------------------------------------------------
+
+// TestFIFOMessageGroupIDRequired verifies that publishing to a FIFO topic
+// without MessageGroupId returns the appropriate error.
+func TestFIFOMessageGroupIDRequired(t *testing.T) {
+	t.Parallel()
+
+	h, b := newA1679Handler(t)
+	tp, err := b.CreateTopic("ordering-topic.fifo", map[string]string{"FifoTopic": "true"})
+	require.NoError(t, err)
+
+	rec := doSNSRequest(t, h, url.Values{
+		"Action":   {"Publish"},
+		"TopicArn": {tp.TopicArn},
+		"Message":  {"hello"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MessageGroupId")
+}
+
+// TestFIFOMessageDeduplicationIDRequired verifies that FIFO topics without
+// ContentBasedDeduplication require an explicit MessageDeduplicationId.
+func TestFIFOMessageDeduplicationIDRequired(t *testing.T) {
+	t.Parallel()
+
+	h, b := newA1679Handler(t)
+	tp, err := b.CreateTopic("dedup-required-topic.fifo", map[string]string{"FifoTopic": "true"})
+	require.NoError(t, err)
+
+	rec := doSNSRequest(t, h, url.Values{
+		"Action":         {"Publish"},
+		"TopicArn":       {tp.TopicArn},
+		"Message":        {"hello"},
+		"MessageGroupId": {"g1"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MessageDeduplicationId")
+}
+
+// TestFIFOContentBasedDeduplicationForbidsExplicitDedupID verifies that
+// providing a MessageDeduplicationId when ContentBasedDeduplication is
+// enabled returns an error, matching AWS behaviour.
+func TestFIFOContentBasedDeduplicationForbidsExplicitDedupID(t *testing.T) {
+	t.Parallel()
+
+	h, b := newA1679Handler(t)
+	tp, err := b.CreateTopic("cbd-topic.fifo", map[string]string{
+		"FifoTopic":                 "true",
+		"ContentBasedDeduplication": "true",
+	})
+	require.NoError(t, err)
+
+	rec := doSNSRequest(t, h, url.Values{
+		"Action":                 {"Publish"},
+		"TopicArn":               {tp.TopicArn},
+		"Message":                {"hello"},
+		"MessageGroupId":         {"g1"},
+		"MessageDeduplicationId": {"explicit-id"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MessageDeduplicationId")
+}
+
+// ---------------------------------------------------------------------------
+// Subscription all-attributes round-trip via handler
+// ---------------------------------------------------------------------------
+
+// TestSubscriptionDeliveryPolicyViaHandler verifies DeliveryPolicy flows
+// through the HTTP handler (SetSubscriptionAttributes / GetSubscriptionAttributes).
+func TestSubscriptionDeliveryPolicyViaHandler(t *testing.T) {
+	t.Parallel()
+
+	h, b := newA1679Handler(t)
+	tp, err := b.CreateTopic("handler-dp-topic", nil)
+	require.NoError(t, err)
+
+	sub, err := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:handler-dp-q", "")
+	require.NoError(t, err)
+
+	policy := `{"healthyRetryPolicy":{"numRetries":5,"minDelayTarget":5,"maxDelayTarget":60}}`
+	rec := doSNSRequest(t, h, url.Values{
+		"Action":          {"SetSubscriptionAttributes"},
+		"SubscriptionArn": {sub.SubscriptionArn},
+		"AttributeName":   {"DeliveryPolicy"},
+		"AttributeValue":  {policy},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doSNSRequest(t, h, url.Values{
+		"Action":          {"GetSubscriptionAttributes"},
+		"SubscriptionArn": {sub.SubscriptionArn},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), "DeliveryPolicy")
+	assert.Contains(t, rec2.Body.String(), "numRetries")
+}
+
+// TestSubscriptionReplayPolicyViaHandler verifies ReplayPolicy flows
+// through the HTTP handler.
+func TestSubscriptionReplayPolicyViaHandler(t *testing.T) {
+	t.Parallel()
+
+	h, b := newA1679Handler(t)
+	tp, err := b.CreateTopic("handler-rp-topic", nil)
+	require.NoError(t, err)
+
+	sub, err := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:handler-rp-q", "")
+	require.NoError(t, err)
+
+	policy := `{"replayFromTimestamp":"2025-03-01T00:00:00Z"}`
+	rec := doSNSRequest(t, h, url.Values{
+		"Action":          {"SetSubscriptionAttributes"},
+		"SubscriptionArn": {sub.SubscriptionArn},
+		"AttributeName":   {"ReplayPolicy"},
+		"AttributeValue":  {policy},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doSNSRequest(t, h, url.Values{
+		"Action":          {"GetSubscriptionAttributes"},
+		"SubscriptionArn": {sub.SubscriptionArn},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), "ReplayPolicy")
+	assert.Contains(t, rec2.Body.String(), "replayFromTimestamp")
+}
