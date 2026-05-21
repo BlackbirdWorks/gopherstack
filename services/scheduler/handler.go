@@ -108,20 +108,17 @@ type scheduleTargetSageMakerPipelineParameters struct {
 type scheduleTargetEcsParameters struct {
 	TaskDefinitionArn    string `json:"TaskDefinitionArn,omitempty"`
 	LaunchType           string `json:"LaunchType,omitempty"`
-	TaskCount            int    `json:"TaskCount,omitempty"`
 	PlatformVersion      string `json:"PlatformVersion,omitempty"`
 	Group                string `json:"Group,omitempty"`
 	PropagateTags        string `json:"PropagateTags,omitempty"`
 	ReferenceId          string `json:"ReferenceId,omitempty"`
+	TaskCount            int    `json:"TaskCount,omitempty"`
 	EnableECSManagedTags bool   `json:"EnableECSManagedTags,omitempty"`
 	EnableExecuteCommand bool   `json:"EnableExecuteCommand,omitempty"`
 }
 
 // scheduleTarget holds the ARN, IAM role, and optional custom input for a schedule target.
 type scheduleTarget struct {
-	Arn                         string                                     `json:"Arn"`
-	RoleArn                     string                                     `json:"RoleArn"`
-	Input                       string                                     `json:"Input,omitempty"`
 	RetryPolicy                 *scheduleTargetRetryPolicy                 `json:"RetryPolicy,omitempty"`
 	DeadLetterConfig            *scheduleTargetDeadLetterConfig            `json:"DeadLetterConfig,omitempty"`
 	InputTransformer            *scheduleTargetInputTransformer            `json:"InputTransformer,omitempty"`
@@ -130,6 +127,9 @@ type scheduleTarget struct {
 	SqsParameters               *scheduleTargetSqsParameters               `json:"SqsParameters,omitempty"`
 	SageMakerPipelineParameters *scheduleTargetSageMakerPipelineParameters `json:"SageMakerPipelineParameters,omitempty"`
 	EcsParameters               *scheduleTargetEcsParameters               `json:"EcsParameters,omitempty"`
+	Arn                         string                                     `json:"Arn"`
+	RoleArn                     string                                     `json:"RoleArn"`
+	Input                       string                                     `json:"Input,omitempty"`
 }
 
 // scheduleFlexibleTimeWindow holds the flexible time window configuration for a schedule.
@@ -802,9 +802,6 @@ func targetToOutput(t Target) scheduleTargetOutput {
 }
 
 type scheduleTargetOutput struct {
-	Arn                         string                                     `json:"Arn"`
-	RoleArn                     string                                     `json:"RoleArn"`
-	Input                       string                                     `json:"Input,omitempty"`
 	RetryPolicy                 *scheduleTargetRetryPolicy                 `json:"RetryPolicy,omitempty"`
 	DeadLetterConfig            *scheduleTargetDeadLetterConfig            `json:"DeadLetterConfig,omitempty"`
 	InputTransformer            *scheduleTargetInputTransformer            `json:"InputTransformer,omitempty"`
@@ -813,6 +810,9 @@ type scheduleTargetOutput struct {
 	SqsParameters               *scheduleTargetSqsParameters               `json:"SqsParameters,omitempty"`
 	SageMakerPipelineParameters *scheduleTargetSageMakerPipelineParameters `json:"SageMakerPipelineParameters,omitempty"`
 	EcsParameters               *scheduleTargetEcsParameters               `json:"EcsParameters,omitempty"`
+	Arn                         string                                     `json:"Arn"`
+	RoleArn                     string                                     `json:"RoleArn"`
+	Input                       string                                     `json:"Input,omitempty"`
 }
 
 type flexibleTimeWindowOutput struct {

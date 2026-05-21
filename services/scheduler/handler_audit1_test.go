@@ -97,7 +97,10 @@ func TestAudit1_NameValidation_ValidChars(t *testing.T) {
 		rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
 			"Name":               name,
 			"ScheduleExpression": "rate(1 hour)",
-			"Target":             map[string]any{"Arn": "arn:aws:sqs:us-east-1:0:q", "RoleArn": "arn:aws:iam::0:role/r"},
+			"Target": map[string]any{
+				"Arn":     "arn:aws:sqs:us-east-1:0:q",
+				"RoleArn": "arn:aws:iam::0:role/r",
+			},
 			"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
 		})
 		assert.Equal(t, http.StatusOK, rec.Code, "valid name %q should be accepted", name)
@@ -896,7 +899,11 @@ type mockKinesisRecordPutter struct {
 	mu    sync.Mutex
 }
 
-func (m *mockKinesisRecordPutter) PutSchedulerRecord(_ context.Context, streamARN, partitionKey string, _ []byte) error {
+func (m *mockKinesisRecordPutter) PutSchedulerRecord(
+	_ context.Context,
+	streamARN, partitionKey string,
+	_ []byte,
+) error {
 	m.mu.Lock()
 	m.calls = append(m.calls, struct{ streamARN, partitionKey string }{streamARN, partitionKey})
 	m.mu.Unlock()
@@ -941,7 +948,11 @@ type mockSageMakerPipelineStarter struct {
 	mu    sync.Mutex
 }
 
-func (m *mockSageMakerPipelineStarter) StartPipelineExecution(_ context.Context, pipelineARN string, _ map[string]string) error {
+func (m *mockSageMakerPipelineStarter) StartPipelineExecution(
+	_ context.Context,
+	pipelineARN string,
+	_ map[string]string,
+) error {
 	m.mu.Lock()
 	m.calls = append(m.calls, pipelineARN)
 	m.mu.Unlock()
@@ -985,13 +996,19 @@ func TestAudit1_Runner_SageMakerTarget_Invoked(t *testing.T) {
 }
 
 type mockECSTaskRunner struct {
-	calls []struct{ taskDefARN, launchType string; taskCount int }
-	mu    sync.Mutex
+	calls []struct {
+		taskDefARN, launchType string
+		taskCount              int
+	}
+	mu sync.Mutex
 }
 
 func (m *mockECSTaskRunner) RunSchedulerTask(_ context.Context, taskDefARN, launchType string, taskCount int) error {
 	m.mu.Lock()
-	m.calls = append(m.calls, struct{ taskDefARN, launchType string; taskCount int }{taskDefARN, launchType, taskCount})
+	m.calls = append(m.calls, struct {
+		taskDefARN, launchType string
+		taskCount              int
+	}{taskDefARN, launchType, taskCount})
 	m.mu.Unlock()
 
 	return nil

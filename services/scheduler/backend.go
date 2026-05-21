@@ -127,21 +127,16 @@ type SageMakerPipelineParameters struct {
 type EcsParameters struct {
 	TaskDefinitionArn    string `json:"taskDefinitionArn"`
 	LaunchType           string `json:"launchType,omitempty"`
-	TaskCount            int    `json:"taskCount,omitempty"`
 	PlatformVersion      string `json:"platformVersion,omitempty"`
 	Group                string `json:"group,omitempty"`
 	PropagateTags        string `json:"propagateTags,omitempty"`
 	ReferenceId          string `json:"referenceId,omitempty"`
+	TaskCount            int    `json:"taskCount,omitempty"`
 	EnableECSManagedTags bool   `json:"enableECSManagedTags,omitempty"`
 	EnableExecuteCommand bool   `json:"enableExecuteCommand,omitempty"`
 }
 
 type Target struct {
-	// Input is an optional custom event payload sent to the target instead of the default
-	// scheduler event. When empty the runner constructs a default EventBridge Scheduler event.
-	Input                       string                       `json:"input,omitempty"`
-	ARN                         string                       `json:"arn"`
-	RoleARN                     string                       `json:"roleARN"`
 	RetryPolicy                 *RetryPolicy                 `json:"retryPolicy,omitempty"`
 	DeadLetterConfig            *DeadLetterConfig            `json:"deadLetterConfig,omitempty"`
 	InputTransformer            *InputTransformer            `json:"inputTransformer,omitempty"`
@@ -150,6 +145,11 @@ type Target struct {
 	SqsParameters               *SqsParameters               `json:"sqsParameters,omitempty"`
 	SageMakerPipelineParameters *SageMakerPipelineParameters `json:"sageMakerPipelineParameters,omitempty"`
 	EcsParameters               *EcsParameters               `json:"ecsParameters,omitempty"`
+	// Input is an optional custom event payload sent to the target instead of the default
+	// scheduler event. When empty the runner constructs a default EventBridge Scheduler event.
+	Input   string `json:"input,omitempty"`
+	ARN     string `json:"arn"`
+	RoleARN string `json:"roleARN"`
 }
 
 // Schedule represents an EventBridge Scheduler schedule.
@@ -339,7 +339,10 @@ func (b *InMemoryBackend) GetSchedule(name, groupName string) (*Schedule, error)
 // ListSchedules returns schedules optionally filtered by group name, name prefix, and state.
 // When maxResults > 0 and nextToken is non-empty it resumes after the token (last seen name).
 // Returns the page of schedules and the next continuation token (empty when no more results).
-func (b *InMemoryBackend) ListSchedules(groupName, namePrefix, state, nextToken string, maxResults int) ([]*Schedule, string) {
+func (b *InMemoryBackend) ListSchedules(
+	groupName, namePrefix, state, nextToken string,
+	maxResults int,
+) ([]*Schedule, string) {
 	b.mu.RLock("ListSchedules")
 	defer b.mu.RUnlock()
 

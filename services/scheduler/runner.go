@@ -79,16 +79,16 @@ type StepFunctionsStarter interface {
 
 // Runner evaluates schedule expressions and invokes targets when due.
 type Runner struct {
-	backend    StorageBackend
-	lambda     LambdaInvoker
-	sqs        SQSSender
-	sqsFIFO    SQSFIFOSender
-	sns        SNSPublisher
-	sfn        StepFunctionsStarter
-	eventBus   EventBusPutter
-	kinesis    KinesisRecordPutter
-	sageMaker  SageMakerPipelineStarter
-	ecsRunner  ECSTaskRunner
+	backend     StorageBackend
+	lambda      LambdaInvoker
+	sqs         SQSSender
+	sqsFIFO     SQSFIFOSender
+	sns         SNSPublisher
+	sfn         StepFunctionsStarter
+	eventBus    EventBusPutter
+	kinesis     KinesisRecordPutter
+	sageMaker   SageMakerPipelineStarter
+	ecsRunner   ECSTaskRunner
 	lastFiredAt map[string]time.Time
 	// cronCache caches parsed cron fields keyed by expression string to avoid re-parsing on every poll.
 	cronCache map[string]*cronFields
@@ -313,7 +313,16 @@ func (r *Runner) invokeTarget(ctx context.Context, s *Schedule, _ time.Time) {
 			return
 		}
 
-		log.WarnContext(ctx, "scheduler: target invocation failed", "schedule", s.Name, "attempt", attempt, "error", invokeErr)
+		log.WarnContext(
+			ctx,
+			"scheduler: target invocation failed",
+			"schedule",
+			s.Name,
+			"attempt",
+			attempt,
+			"error",
+			invokeErr,
+		)
 	}
 
 	// All retries exhausted.
@@ -394,7 +403,16 @@ func (r *Runner) sendToDLQ(ctx context.Context, s *Schedule, payload []byte, log
 	}
 
 	if err := r.sqs.SendMessageToQueue(ctx, s.Target.DeadLetterConfig.Arn, string(payload)); err != nil {
-		log.WarnContext(ctx, "scheduler: DLQ send failed", "dlq", s.Target.DeadLetterConfig.Arn, "schedule", s.Name, "error", err)
+		log.WarnContext(
+			ctx,
+			"scheduler: DLQ send failed",
+			"dlq",
+			s.Target.DeadLetterConfig.Arn,
+			"schedule",
+			s.Name,
+			"error",
+			err,
+		)
 	} else {
 		log.DebugContext(ctx, "scheduler: sent to DLQ", "dlq", s.Target.DeadLetterConfig.Arn, "schedule", s.Name)
 	}
@@ -466,7 +484,16 @@ func (r *Runner) invokeLambdaTarget(ctx context.Context, s *Schedule, payload []
 	}
 
 	if _, _, err := r.lambda.InvokeFunction(ctx, fnName, "Event", payload); err != nil {
-		log.WarnContext(ctx, "scheduler: Lambda invocation failed", "function", fnName, "schedule", s.Name, "error", err)
+		log.WarnContext(
+			ctx,
+			"scheduler: Lambda invocation failed",
+			"function",
+			fnName,
+			"schedule",
+			s.Name,
+			"error",
+			err,
+		)
 
 		return err
 	}
@@ -489,7 +516,16 @@ func (r *Runner) invokeSQSTarget(ctx context.Context, s *Schedule, payload []byt
 			string(payload),
 			s.Target.SqsParameters.MessageGroupId,
 		); err != nil {
-			log.WarnContext(ctx, "scheduler: SQS FIFO send failed", "queue", s.Target.ARN, "schedule", s.Name, "error", err)
+			log.WarnContext(
+				ctx,
+				"scheduler: SQS FIFO send failed",
+				"queue",
+				s.Target.ARN,
+				"schedule",
+				s.Name,
+				"error",
+				err,
+			)
 
 			return err
 		}
@@ -532,12 +568,28 @@ func (r *Runner) invokeSFNTarget(ctx context.Context, s *Schedule, payload []byt
 	}
 
 	if err := r.sfn.StartExecution(s.Target.ARN, "", string(payload)); err != nil {
-		log.WarnContext(ctx, "scheduler: StepFunctions start failed", "stateMachine", s.Target.ARN, "schedule", s.Name, "error", err)
+		log.WarnContext(
+			ctx,
+			"scheduler: StepFunctions start failed",
+			"stateMachine",
+			s.Target.ARN,
+			"schedule",
+			s.Name,
+			"error",
+			err,
+		)
 
 		return err
 	}
 
-	log.DebugContext(ctx, "scheduler: started StepFunctions execution", "stateMachine", s.Target.ARN, "schedule", s.Name)
+	log.DebugContext(
+		ctx,
+		"scheduler: started StepFunctions execution",
+		"stateMachine",
+		s.Target.ARN,
+		"schedule",
+		s.Name,
+	)
 
 	return nil
 }
@@ -557,7 +609,16 @@ func (r *Runner) invokeEventBusTarget(ctx context.Context, s *Schedule, payload 
 	}
 
 	if err := r.eventBus.PutSchedulerEvent(ctx, s.Target.ARN, source, detailType, string(payload)); err != nil {
-		log.WarnContext(ctx, "scheduler: EventBridge PutEvents failed", "bus", s.Target.ARN, "schedule", s.Name, "error", err)
+		log.WarnContext(
+			ctx,
+			"scheduler: EventBridge PutEvents failed",
+			"bus",
+			s.Target.ARN,
+			"schedule",
+			s.Name,
+			"error",
+			err,
+		)
 
 		return err
 	}
@@ -580,7 +641,16 @@ func (r *Runner) invokeKinesisTarget(ctx context.Context, s *Schedule, payload [
 	}
 
 	if err := r.kinesis.PutSchedulerRecord(ctx, s.Target.ARN, partitionKey, payload); err != nil {
-		log.WarnContext(ctx, "scheduler: Kinesis PutRecord failed", "stream", s.Target.ARN, "schedule", s.Name, "error", err)
+		log.WarnContext(
+			ctx,
+			"scheduler: Kinesis PutRecord failed",
+			"stream",
+			s.Target.ARN,
+			"schedule",
+			s.Name,
+			"error",
+			err,
+		)
 
 		return err
 	}
@@ -592,7 +662,14 @@ func (r *Runner) invokeKinesisTarget(ctx context.Context, s *Schedule, payload [
 
 func (r *Runner) invokeSageMakerTarget(ctx context.Context, s *Schedule, log loggerIface) error {
 	if r.sageMaker == nil {
-		log.DebugContext(ctx, "scheduler: SageMaker pipeline target (no invoker)", "pipeline", s.Target.ARN, "schedule", s.Name)
+		log.DebugContext(
+			ctx,
+			"scheduler: SageMaker pipeline target (no invoker)",
+			"pipeline",
+			s.Target.ARN,
+			"schedule",
+			s.Name,
+		)
 
 		return nil
 	}
@@ -606,7 +683,16 @@ func (r *Runner) invokeSageMakerTarget(ctx context.Context, s *Schedule, log log
 	}
 
 	if err := r.sageMaker.StartPipelineExecution(ctx, s.Target.ARN, params); err != nil {
-		log.WarnContext(ctx, "scheduler: SageMaker StartPipelineExecution failed", "pipeline", s.Target.ARN, "schedule", s.Name, "error", err)
+		log.WarnContext(
+			ctx,
+			"scheduler: SageMaker StartPipelineExecution failed",
+			"pipeline",
+			s.Target.ARN,
+			"schedule",
+			s.Name,
+			"error",
+			err,
+		)
 
 		return err
 	}
