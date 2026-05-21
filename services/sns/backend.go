@@ -937,6 +937,12 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 		return ErrSubscriptionNotFound
 	}
 
+	return applySubscriptionAttr(sub, attrName, attrValue, parsedPolicy)
+}
+
+// applySubscriptionAttr mutates sub with the given attribute value.
+// Extracted to keep SetSubscriptionAttributes under the cyclomatic complexity budget.
+func applySubscriptionAttr(sub *Subscription, attrName, attrValue string, parsedPolicy parsedFilterPolicy) error {
 	switch attrName {
 	case attrRawMessageDelivery:
 		sub.RawMessageDelivery = strings.EqualFold(attrValue, "true")
@@ -952,17 +958,24 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 	case attrSubscriptionRoleArn:
 		sub.SubscriptionRoleArn = attrValue
 	case attrFilterPolicyScope:
-		if attrValue != "MessageBody" && attrValue != "MessageAttributes" {
-			return fmt.Errorf(
-				"%w: FilterPolicyScope must be MessageBody or MessageAttributes",
-				ErrInvalidParameter,
-			)
-		}
-
-		sub.FilterPolicyScope = attrValue
+		return applyFilterPolicyScope(sub, attrValue)
 	default:
 		return ErrInvalidParameter
 	}
+
+	return nil
+}
+
+// applyFilterPolicyScope validates and sets the FilterPolicyScope field.
+func applyFilterPolicyScope(sub *Subscription, attrValue string) error {
+	if attrValue != "MessageBody" && attrValue != "MessageAttributes" {
+		return fmt.Errorf(
+			"%w: FilterPolicyScope must be MessageBody or MessageAttributes",
+			ErrInvalidParameter,
+		)
+	}
+
+	sub.FilterPolicyScope = attrValue
 
 	return nil
 }
