@@ -2483,8 +2483,16 @@ func (b *InMemoryBackend) ImportKeyMaterial(input *ImportKeyMaterialInput) error
 
 	// Store expiration model and ValidTo for metadata and janitor enforcement.
 	expModel := input.ExpirationModel
+
+	// Infer default expiration model from context when not explicitly set:
+	// - if ValidTo is set but ExpirationModel is absent, default to KEY_MATERIAL_EXPIRES
+	// - if both are absent, default to KEY_MATERIAL_DOES_NOT_EXPIRE
 	if expModel == "" {
-		expModel = expirationModelNoExpiry
+		if input.ValidTo > 0 {
+			expModel = expirationModelExpires
+		} else {
+			expModel = expirationModelNoExpiry
+		}
 	}
 
 	// KEY_MATERIAL_EXPIRES requires a ValidTo timestamp.
@@ -2504,7 +2512,6 @@ func (b *InMemoryBackend) ImportKeyMaterial(input *ImportKeyMaterialInput) error
 	}
 
 	if input.ValidTo > 0 {
-		expModel = expirationModelExpires
 		key.ValidTo = input.ValidTo
 	} else {
 		key.ValidTo = 0
