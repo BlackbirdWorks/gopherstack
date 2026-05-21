@@ -12,7 +12,7 @@ type StorageBackend interface {
 		opts ...ScheduleOption,
 	) (*Schedule, error)
 	GetSchedule(name, groupName string) (*Schedule, error)
-	ListSchedules(groupName, namePrefix, state string) []*Schedule
+	ListSchedules(groupName, namePrefix, state, nextToken string, maxResults int) ([]*Schedule, string)
 	DeleteSchedule(name, groupName string) error
 	UpdateSchedule(
 		name, groupName, expr, description, timezone string,
@@ -26,7 +26,7 @@ type StorageBackend interface {
 	CreateScheduleGroup(name, description string, initialTags map[string]string) (*ScheduleGroup, error)
 	GetScheduleGroup(name string) (*ScheduleGroup, error)
 	DeleteScheduleGroup(name string) error
-	ListScheduleGroups(namePrefix string) []*ScheduleGroup
+	ListScheduleGroups(namePrefix, nextToken string, maxResults int) ([]*ScheduleGroup, string)
 
 	// Tag operations
 	TagResource(resourceARN string, kv map[string]string) error

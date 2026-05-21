@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -59,19 +60,96 @@ const (
 	flexibleTimeWindowModeOff = "OFF"
 	// flexibleTimeWindowModeFlexible means a flexible time window is applied.
 	flexibleTimeWindowModeFlexible = "FLEXIBLE"
+
+	// Name validation limits.
+	scheduleNameMaxLen = 64
+	// RetryPolicy field limits per AWS spec.
+	retryPolicyMinEventAge = 60
+	retryPolicyMaxEventAge = 86400
+	retryPolicyMaxAttempts = 185
 )
+
+// validNameRE matches valid schedule/group names: 1-64 chars, [0-9a-zA-Z-_.].
+var validNameRE = regexp.MustCompile(`^[0-9a-zA-Z\-_.]+$`)
 
 type FlexibleTimeWindow struct {
 	Mode                   string `json:"mode"`
 	MaximumWindowInMinutes int    `json:"maximumWindowInMinutes,omitempty"`
 }
 
+// RetryPolicy configures retry behaviour for a schedule target.
+// MaximumEventAgeInSeconds: 60-86400 (default 86400).
+// MaximumRetryAttempts: 0-185 (default 185).
+type RetryPolicy struct {
+	MaximumEventAgeInSeconds int `json:"maximumEventAgeInSeconds"`
+	MaximumRetryAttempts     int `json:"maximumRetryAttempts"`
+}
+
+// DeadLetterConfig holds the ARN of an SQS queue used as a dead-letter queue.
+type DeadLetterConfig struct {
+	Arn string `json:"arn"`
+}
+
+// InputTransformer maps input path expressions to a template string.
+type InputTransformer struct {
+	InputPathsMap map[string]string `json:"inputPathsMap,omitempty"`
+	InputTemplate string            `json:"inputTemplate"`
+}
+
+// EventBridgeParameters holds parameters for EventBridge bus targets.
+type EventBridgeParameters struct {
+	DetailType string `json:"detailType"`
+	Source     string `json:"source"`
+}
+
+// KinesisParameters holds parameters for Kinesis stream targets.
+type KinesisParameters struct {
+	PartitionKey string `json:"partitionKey"`
+}
+
+// SqsParameters holds parameters for SQS targets.
+type SqsParameters struct {
+	MessageGroupId string `json:"messageGroupId,omitempty"`
+}
+
+// SageMakerPipelineParameter is a name/value pair for SageMaker pipeline execution.
+type SageMakerPipelineParameter struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// SageMakerPipelineParameters holds parameters for SageMaker pipeline targets.
+type SageMakerPipelineParameters struct {
+	PipelineParameterList []SageMakerPipelineParameter `json:"pipelineParameterList,omitempty"`
+}
+
+// EcsParameters holds parameters for ECS task targets.
+type EcsParameters struct {
+	TaskDefinitionArn    string `json:"taskDefinitionArn"`
+	LaunchType           string `json:"launchType,omitempty"`
+	TaskCount            int    `json:"taskCount,omitempty"`
+	PlatformVersion      string `json:"platformVersion,omitempty"`
+	Group                string `json:"group,omitempty"`
+	PropagateTags        string `json:"propagateTags,omitempty"`
+	ReferenceId          string `json:"referenceId,omitempty"`
+	EnableECSManagedTags bool   `json:"enableECSManagedTags,omitempty"`
+	EnableExecuteCommand bool   `json:"enableExecuteCommand,omitempty"`
+}
+
 type Target struct {
 	// Input is an optional custom event payload sent to the target instead of the default
 	// scheduler event. When empty the runner constructs a default EventBridge Scheduler event.
-	Input   string `json:"input,omitempty"`
-	ARN     string `json:"arn"`
-	RoleARN string `json:"roleARN"`
+	Input                       string                       `json:"input,omitempty"`
+	ARN                         string                       `json:"arn"`
+	RoleARN                     string                       `json:"roleARN"`
+	RetryPolicy                 *RetryPolicy                 `json:"retryPolicy,omitempty"`
+	DeadLetterConfig            *DeadLetterConfig            `json:"deadLetterConfig,omitempty"`
+	InputTransformer            *InputTransformer            `json:"inputTransformer,omitempty"`
+	EventBridgeParameters       *EventBridgeParameters       `json:"eventBridgeParameters,omitempty"`
+	KinesisParameters           *KinesisParameters           `json:"kinesisParameters,omitempty"`
+	SqsParameters               *SqsParameters               `json:"sqsParameters,omitempty"`
+	SageMakerPipelineParameters *SageMakerPipelineParameters `json:"sageMakerPipelineParameters,omitempty"`
+	EcsParameters               *EcsParameters               `json:"ecsParameters,omitempty"`
 }
 
 // Schedule represents an EventBridge Scheduler schedule.
@@ -168,8 +246,8 @@ func (b *InMemoryBackend) CreateSchedule(
 	ftw FlexibleTimeWindow,
 	opts ...ScheduleOption,
 ) (*Schedule, error) {
-	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	if err := validateName(name); err != nil {
+		return nil, err
 	}
 
 	if expr == "" {
@@ -193,6 +271,10 @@ func (b *InMemoryBackend) CreateSchedule(
 	}
 
 	if err := validateFlexibleTimeWindowMode(ftw.Mode); err != nil {
+		return nil, err
+	}
+
+	if err := validateTarget(target); err != nil {
 		return nil, err
 	}
 
@@ -255,7 +337,9 @@ func (b *InMemoryBackend) GetSchedule(name, groupName string) (*Schedule, error)
 }
 
 // ListSchedules returns schedules optionally filtered by group name, name prefix, and state.
-func (b *InMemoryBackend) ListSchedules(groupName, namePrefix, state string) []*Schedule {
+// When maxResults > 0 and nextToken is non-empty it resumes after the token (last seen name).
+// Returns the page of schedules and the next continuation token (empty when no more results).
+func (b *InMemoryBackend) ListSchedules(groupName, namePrefix, state, nextToken string, maxResults int) ([]*Schedule, string) {
 	b.mu.RLock("ListSchedules")
 	defer b.mu.RUnlock()
 
@@ -279,7 +363,7 @@ func (b *InMemoryBackend) ListSchedules(groupName, namePrefix, state string) []*
 
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 
-	return list
+	return paginate(list, func(s *Schedule) string { return s.GroupName + "/" + s.Name }, nextToken, maxResults)
 }
 
 // DeleteSchedule removes a schedule by name and group.
@@ -323,6 +407,10 @@ func (b *InMemoryBackend) UpdateSchedule(
 		if err := validateFlexibleTimeWindowMode(ftw.Mode); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := validateTarget(target); err != nil {
+		return nil, err
 	}
 
 	if groupName == "" {
@@ -431,8 +519,8 @@ func (b *InMemoryBackend) CreateScheduleGroup(
 	name, description string,
 	initialTags map[string]string,
 ) (*ScheduleGroup, error) {
-	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	if err := validateGroupName(name); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateScheduleGroup")
@@ -508,7 +596,9 @@ func (b *InMemoryBackend) DeleteScheduleGroup(name string) error {
 }
 
 // ListScheduleGroups returns schedule groups optionally filtered by name prefix.
-func (b *InMemoryBackend) ListScheduleGroups(namePrefix string) []*ScheduleGroup {
+// When maxResults > 0 and nextToken is non-empty it resumes after the token (last seen name).
+// Returns the page of groups and the next continuation token (empty when no more results).
+func (b *InMemoryBackend) ListScheduleGroups(namePrefix, nextToken string, maxResults int) ([]*ScheduleGroup, string) {
 	b.mu.RLock("ListScheduleGroups")
 	defer b.mu.RUnlock()
 
@@ -524,7 +614,34 @@ func (b *InMemoryBackend) ListScheduleGroups(namePrefix string) []*ScheduleGroup
 
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 
-	return list
+	return paginate(list, func(g *ScheduleGroup) string { return g.Name }, nextToken, maxResults)
+}
+
+// paginate slices a sorted list by maxResults starting after nextToken.
+// keyFn extracts the opaque token key from each element.
+// Returns the page and the continuation token (empty when no more results).
+func paginate[T any](list []T, keyFn func(T) string, nextToken string, maxResults int) ([]T, string) {
+	if nextToken != "" {
+		start := 0
+
+		for i, item := range list {
+			if keyFn(item) == nextToken {
+				start = i + 1
+
+				break
+			}
+		}
+
+		list = list[start:]
+	}
+
+	if maxResults <= 0 || maxResults >= len(list) {
+		return list, ""
+	}
+
+	page := list[:maxResults]
+
+	return page, keyFn(page[len(page)-1])
 }
 
 // AddScheduleInternal inserts a schedule directly for testing purposes.
@@ -614,4 +731,93 @@ func validateFlexibleTimeWindowMode(mode string) error {
 	default:
 		return fmt.Errorf("%w: FlexibleTimeWindow.Mode must be OFF or FLEXIBLE, got %q", ErrValidation, mode)
 	}
+}
+
+// validateName checks that name is non-empty, matches [0-9a-zA-Z-_.], and is at most 64 chars.
+func validateName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	if len(name) > scheduleNameMaxLen {
+		return fmt.Errorf("%w: Name must be 1-64 characters, got %d", ErrValidation, len(name))
+	}
+
+	if !validNameRE.MatchString(name) {
+		return fmt.Errorf("%w: Name must match [0-9a-zA-Z-_.], got %q", ErrValidation, name)
+	}
+
+	return nil
+}
+
+// validateGroupName validates a schedule group name, also rejecting "default" as a creation target.
+func validateGroupName(name string) error {
+	if err := validateName(name); err != nil {
+		return err
+	}
+
+	if name == defaultGroupName {
+		return fmt.Errorf("%w: cannot create a group named %q (reserved)", ErrValidation, defaultGroupName)
+	}
+
+	return nil
+}
+
+// validateRetryPolicy validates RetryPolicy field ranges.
+func validateRetryPolicy(rp *RetryPolicy) error {
+	if rp == nil {
+		return nil
+	}
+
+	if rp.MaximumEventAgeInSeconds != 0 &&
+		(rp.MaximumEventAgeInSeconds < retryPolicyMinEventAge || rp.MaximumEventAgeInSeconds > retryPolicyMaxEventAge) {
+		return fmt.Errorf(
+			"%w: RetryPolicy.MaximumEventAgeInSeconds must be 60-86400, got %d",
+			ErrValidation,
+			rp.MaximumEventAgeInSeconds,
+		)
+	}
+
+	if rp.MaximumRetryAttempts < 0 || rp.MaximumRetryAttempts > retryPolicyMaxAttempts {
+		return fmt.Errorf(
+			"%w: RetryPolicy.MaximumRetryAttempts must be 0-185, got %d",
+			ErrValidation,
+			rp.MaximumRetryAttempts,
+		)
+	}
+
+	return nil
+}
+
+// validateTarget validates target-specific parameter constraints.
+func validateTarget(target Target) error {
+	if err := validateRetryPolicy(target.RetryPolicy); err != nil {
+		return err
+	}
+
+	if target.DeadLetterConfig != nil && target.DeadLetterConfig.Arn != "" {
+		if !strings.HasPrefix(target.DeadLetterConfig.Arn, "arn:aws:sqs:") {
+			return fmt.Errorf("%w: DeadLetterConfig.Arn must be an SQS ARN (arn:aws:sqs:...)", ErrValidation)
+		}
+	}
+
+	if target.KinesisParameters != nil && target.KinesisParameters.PartitionKey == "" {
+		return fmt.Errorf("%w: KinesisParameters.PartitionKey is required for Kinesis targets", ErrValidation)
+	}
+
+	if target.EventBridgeParameters != nil {
+		if target.EventBridgeParameters.DetailType == "" {
+			return fmt.Errorf("%w: EventBridgeParameters.DetailType is required", ErrValidation)
+		}
+
+		if target.EventBridgeParameters.Source == "" {
+			return fmt.Errorf("%w: EventBridgeParameters.Source is required", ErrValidation)
+		}
+	}
+
+	if target.EcsParameters != nil && target.EcsParameters.TaskDefinitionArn == "" {
+		return fmt.Errorf("%w: EcsParameters.TaskDefinitionArn is required", ErrValidation)
+	}
+
+	return nil
 }

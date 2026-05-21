@@ -60,12 +60,76 @@ type scheduleNameInput struct {
 	GroupName string `json:"GroupName"`
 }
 
+// scheduleTargetRetryPolicy mirrors RetryPolicy for handler input/output.
+type scheduleTargetRetryPolicy struct {
+	MaximumEventAgeInSeconds int `json:"MaximumEventAgeInSeconds,omitempty"`
+	MaximumRetryAttempts     int `json:"MaximumRetryAttempts,omitempty"`
+}
+
+// scheduleTargetDeadLetterConfig mirrors DeadLetterConfig for handler input/output.
+type scheduleTargetDeadLetterConfig struct {
+	Arn string `json:"Arn,omitempty"`
+}
+
+// scheduleTargetInputTransformer mirrors InputTransformer for handler input/output.
+type scheduleTargetInputTransformer struct {
+	InputPathsMap map[string]string `json:"InputPathsMap,omitempty"`
+	InputTemplate string            `json:"InputTemplate,omitempty"`
+}
+
+// scheduleTargetEventBridgeParameters mirrors EventBridgeParameters for handler input/output.
+type scheduleTargetEventBridgeParameters struct {
+	DetailType string `json:"DetailType,omitempty"`
+	Source     string `json:"Source,omitempty"`
+}
+
+// scheduleTargetKinesisParameters mirrors KinesisParameters for handler input/output.
+type scheduleTargetKinesisParameters struct {
+	PartitionKey string `json:"PartitionKey,omitempty"`
+}
+
+// scheduleTargetSqsParameters mirrors SqsParameters for handler input/output.
+type scheduleTargetSqsParameters struct {
+	MessageGroupId string `json:"MessageGroupId,omitempty"`
+}
+
+// scheduleTargetSageMakerPipelineParam mirrors a pipeline parameter name/value.
+type scheduleTargetSageMakerPipelineParam struct {
+	Name  string `json:"Name"`
+	Value string `json:"Value"`
+}
+
+// scheduleTargetSageMakerPipelineParameters mirrors SageMakerPipelineParameters for handler.
+type scheduleTargetSageMakerPipelineParameters struct {
+	PipelineParameterList []scheduleTargetSageMakerPipelineParam `json:"PipelineParameterList,omitempty"`
+}
+
+// scheduleTargetEcsParameters mirrors EcsParameters for handler input/output.
+type scheduleTargetEcsParameters struct {
+	TaskDefinitionArn    string `json:"TaskDefinitionArn,omitempty"`
+	LaunchType           string `json:"LaunchType,omitempty"`
+	TaskCount            int    `json:"TaskCount,omitempty"`
+	PlatformVersion      string `json:"PlatformVersion,omitempty"`
+	Group                string `json:"Group,omitempty"`
+	PropagateTags        string `json:"PropagateTags,omitempty"`
+	ReferenceId          string `json:"ReferenceId,omitempty"`
+	EnableECSManagedTags bool   `json:"EnableECSManagedTags,omitempty"`
+	EnableExecuteCommand bool   `json:"EnableExecuteCommand,omitempty"`
+}
+
 // scheduleTarget holds the ARN, IAM role, and optional custom input for a schedule target.
 type scheduleTarget struct {
-	Arn     string `json:"Arn"`
-	RoleArn string `json:"RoleArn"`
-	// Input is an optional custom event payload sent to the target instead of the default event.
-	Input string `json:"Input,omitempty"`
+	Arn                         string                                     `json:"Arn"`
+	RoleArn                     string                                     `json:"RoleArn"`
+	Input                       string                                     `json:"Input,omitempty"`
+	RetryPolicy                 *scheduleTargetRetryPolicy                 `json:"RetryPolicy,omitempty"`
+	DeadLetterConfig            *scheduleTargetDeadLetterConfig            `json:"DeadLetterConfig,omitempty"`
+	InputTransformer            *scheduleTargetInputTransformer            `json:"InputTransformer,omitempty"`
+	EventBridgeParameters       *scheduleTargetEventBridgeParameters       `json:"EventBridgeParameters,omitempty"`
+	KinesisParameters           *scheduleTargetKinesisParameters           `json:"KinesisParameters,omitempty"`
+	SqsParameters               *scheduleTargetSqsParameters               `json:"SqsParameters,omitempty"`
+	SageMakerPipelineParameters *scheduleTargetSageMakerPipelineParameters `json:"SageMakerPipelineParameters,omitempty"`
+	EcsParameters               *scheduleTargetEcsParameters               `json:"EcsParameters,omitempty"`
 }
 
 // scheduleFlexibleTimeWindow holds the flexible time window configuration for a schedule.
@@ -588,7 +652,7 @@ func (h *Handler) handleCreateSchedule(_ context.Context, in *scheduleInput) (*c
 		in.ScheduleExpression,
 		in.Description,
 		in.ScheduleExpressionTimezone,
-		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn, Input: in.Target.Input},
+		targetFromInput(in.Target),
 		state,
 		FlexibleTimeWindow{
 			Mode:                   in.FlexibleTimeWindow.Mode,
@@ -603,11 +667,152 @@ func (h *Handler) handleCreateSchedule(_ context.Context, in *scheduleInput) (*c
 	return &createScheduleOutput{ScheduleArn: s.ARN}, nil
 }
 
+// targetFromInput converts a handler scheduleTarget into the backend Target type.
+func targetFromInput(in scheduleTarget) Target {
+	t := Target{
+		ARN:     in.Arn,
+		RoleARN: in.RoleArn,
+		Input:   in.Input,
+	}
+
+	if in.RetryPolicy != nil {
+		t.RetryPolicy = &RetryPolicy{
+			MaximumEventAgeInSeconds: in.RetryPolicy.MaximumEventAgeInSeconds,
+			MaximumRetryAttempts:     in.RetryPolicy.MaximumRetryAttempts,
+		}
+	}
+
+	if in.DeadLetterConfig != nil {
+		t.DeadLetterConfig = &DeadLetterConfig{Arn: in.DeadLetterConfig.Arn}
+	}
+
+	if in.InputTransformer != nil {
+		t.InputTransformer = &InputTransformer{
+			InputPathsMap: in.InputTransformer.InputPathsMap,
+			InputTemplate: in.InputTransformer.InputTemplate,
+		}
+	}
+
+	if in.EventBridgeParameters != nil {
+		t.EventBridgeParameters = &EventBridgeParameters{
+			DetailType: in.EventBridgeParameters.DetailType,
+			Source:     in.EventBridgeParameters.Source,
+		}
+	}
+
+	if in.KinesisParameters != nil {
+		t.KinesisParameters = &KinesisParameters{PartitionKey: in.KinesisParameters.PartitionKey}
+	}
+
+	if in.SqsParameters != nil {
+		t.SqsParameters = &SqsParameters{MessageGroupId: in.SqsParameters.MessageGroupId}
+	}
+
+	if in.SageMakerPipelineParameters != nil {
+		params := make([]SageMakerPipelineParameter, len(in.SageMakerPipelineParameters.PipelineParameterList))
+		for i, p := range in.SageMakerPipelineParameters.PipelineParameterList {
+			params[i] = SageMakerPipelineParameter{Name: p.Name, Value: p.Value}
+		}
+
+		t.SageMakerPipelineParameters = &SageMakerPipelineParameters{PipelineParameterList: params}
+	}
+
+	if in.EcsParameters != nil {
+		t.EcsParameters = &EcsParameters{
+			TaskDefinitionArn:    in.EcsParameters.TaskDefinitionArn,
+			LaunchType:           in.EcsParameters.LaunchType,
+			TaskCount:            in.EcsParameters.TaskCount,
+			PlatformVersion:      in.EcsParameters.PlatformVersion,
+			Group:                in.EcsParameters.Group,
+			PropagateTags:        in.EcsParameters.PropagateTags,
+			ReferenceId:          in.EcsParameters.ReferenceId,
+			EnableECSManagedTags: in.EcsParameters.EnableECSManagedTags,
+			EnableExecuteCommand: in.EcsParameters.EnableExecuteCommand,
+		}
+	}
+
+	return t
+}
+
+// targetToOutput converts a backend Target into the handler output type.
+func targetToOutput(t Target) scheduleTargetOutput {
+	out := scheduleTargetOutput{
+		Arn:     t.ARN,
+		RoleArn: t.RoleARN,
+		Input:   t.Input,
+	}
+
+	if t.RetryPolicy != nil {
+		out.RetryPolicy = &scheduleTargetRetryPolicy{
+			MaximumEventAgeInSeconds: t.RetryPolicy.MaximumEventAgeInSeconds,
+			MaximumRetryAttempts:     t.RetryPolicy.MaximumRetryAttempts,
+		}
+	}
+
+	if t.DeadLetterConfig != nil {
+		out.DeadLetterConfig = &scheduleTargetDeadLetterConfig{Arn: t.DeadLetterConfig.Arn}
+	}
+
+	if t.InputTransformer != nil {
+		out.InputTransformer = &scheduleTargetInputTransformer{
+			InputPathsMap: t.InputTransformer.InputPathsMap,
+			InputTemplate: t.InputTransformer.InputTemplate,
+		}
+	}
+
+	if t.EventBridgeParameters != nil {
+		out.EventBridgeParameters = &scheduleTargetEventBridgeParameters{
+			DetailType: t.EventBridgeParameters.DetailType,
+			Source:     t.EventBridgeParameters.Source,
+		}
+	}
+
+	if t.KinesisParameters != nil {
+		out.KinesisParameters = &scheduleTargetKinesisParameters{PartitionKey: t.KinesisParameters.PartitionKey}
+	}
+
+	if t.SqsParameters != nil {
+		out.SqsParameters = &scheduleTargetSqsParameters{MessageGroupId: t.SqsParameters.MessageGroupId}
+	}
+
+	if t.SageMakerPipelineParameters != nil {
+		params := make([]scheduleTargetSageMakerPipelineParam, len(t.SageMakerPipelineParameters.PipelineParameterList))
+		for i, p := range t.SageMakerPipelineParameters.PipelineParameterList {
+			params[i] = scheduleTargetSageMakerPipelineParam{Name: p.Name, Value: p.Value}
+		}
+
+		out.SageMakerPipelineParameters = &scheduleTargetSageMakerPipelineParameters{PipelineParameterList: params}
+	}
+
+	if t.EcsParameters != nil {
+		out.EcsParameters = &scheduleTargetEcsParameters{
+			TaskDefinitionArn:    t.EcsParameters.TaskDefinitionArn,
+			LaunchType:           t.EcsParameters.LaunchType,
+			TaskCount:            t.EcsParameters.TaskCount,
+			PlatformVersion:      t.EcsParameters.PlatformVersion,
+			Group:                t.EcsParameters.Group,
+			PropagateTags:        t.EcsParameters.PropagateTags,
+			ReferenceId:          t.EcsParameters.ReferenceId,
+			EnableECSManagedTags: t.EcsParameters.EnableECSManagedTags,
+			EnableExecuteCommand: t.EcsParameters.EnableExecuteCommand,
+		}
+	}
+
+	return out
+}
+
 type scheduleTargetOutput struct {
-	Arn     string `json:"Arn"`
-	RoleArn string `json:"RoleArn"`
-	// Input is echoed back when a custom payload was set on the target.
-	Input string `json:"Input,omitempty"`
+	Arn                         string                                     `json:"Arn"`
+	RoleArn                     string                                     `json:"RoleArn"`
+	Input                       string                                     `json:"Input,omitempty"`
+	RetryPolicy                 *scheduleTargetRetryPolicy                 `json:"RetryPolicy,omitempty"`
+	DeadLetterConfig            *scheduleTargetDeadLetterConfig            `json:"DeadLetterConfig,omitempty"`
+	InputTransformer            *scheduleTargetInputTransformer            `json:"InputTransformer,omitempty"`
+	EventBridgeParameters       *scheduleTargetEventBridgeParameters       `json:"EventBridgeParameters,omitempty"`
+	KinesisParameters           *scheduleTargetKinesisParameters           `json:"KinesisParameters,omitempty"`
+	SqsParameters               *scheduleTargetSqsParameters               `json:"SqsParameters,omitempty"`
+	SageMakerPipelineParameters *scheduleTargetSageMakerPipelineParameters `json:"SageMakerPipelineParameters,omitempty"`
+	EcsParameters               *scheduleTargetEcsParameters               `json:"EcsParameters,omitempty"`
 }
 
 type flexibleTimeWindowOutput struct {
@@ -658,11 +863,7 @@ func (h *Handler) handleGetSchedule(_ context.Context, in *scheduleNameInput) (*
 		CreationDate:               float64(s.CreationDate.Unix()),
 		LastModificationDate:       float64(s.LastModificationDate.Unix()),
 		Tags:                       tagMap,
-		Target: scheduleTargetOutput{
-			Arn:     s.Target.ARN,
-			RoleArn: s.Target.RoleARN,
-			Input:   s.Target.Input,
-		},
+		Target:                     targetToOutput(s.Target),
 		FlexibleTimeWindow: flexibleTimeWindowOutput{
 			Mode:                   s.FlexibleTimeWindow.Mode,
 			MaximumWindowInMinutes: s.FlexibleTimeWindow.MaximumWindowInMinutes,
@@ -706,7 +907,8 @@ type listSchedulesOutput struct {
 }
 
 func (h *Handler) handleListSchedules(_ context.Context, in *listSchedulesInput) (*listSchedulesOutput, error) {
-	schedules := h.Backend.ListSchedules(in.GroupName, in.NamePrefix, in.State)
+	maxResults := parseMaxResults(in.MaxResults)
+	schedules, nextToken := h.Backend.ListSchedules(in.GroupName, in.NamePrefix, in.State, in.NextToken, maxResults)
 	items := make([]scheduleSummary, 0, len(schedules))
 
 	for _, s := range schedules {
@@ -721,7 +923,7 @@ func (h *Handler) handleListSchedules(_ context.Context, in *listSchedulesInput)
 		})
 	}
 
-	return &listSchedulesOutput{Schedules: items}, nil
+	return &listSchedulesOutput{Schedules: items, NextToken: nextToken}, nil
 }
 
 type deleteScheduleOutput struct{}
@@ -762,7 +964,7 @@ func (h *Handler) handleUpdateSchedule(_ context.Context, in *scheduleInput) (*u
 		in.ScheduleExpression,
 		in.Description,
 		in.ScheduleExpressionTimezone,
-		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn, Input: in.Target.Input},
+		targetFromInput(in.Target),
 		in.State,
 		FlexibleTimeWindow{
 			Mode:                   in.FlexibleTimeWindow.Mode,
@@ -928,7 +1130,8 @@ func (h *Handler) handleListScheduleGroups(
 	_ context.Context,
 	in *listScheduleGroupsInput,
 ) (*listScheduleGroupsOutput, error) {
-	groups := h.Backend.ListScheduleGroups(in.NamePrefix)
+	maxResults := parseMaxResults(in.MaxResults)
+	groups, nextToken := h.Backend.ListScheduleGroups(in.NamePrefix, in.NextToken, maxResults)
 	items := make([]scheduleGroupSummary, 0, len(groups))
 
 	for _, g := range groups {
