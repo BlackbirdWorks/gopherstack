@@ -3,6 +3,7 @@ package sqs
 import (
 	"context"
 	"crypto/md5" //nolint:gosec // MD5 used for SQS wire protocol compatibility, not security
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -354,6 +355,15 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 func computeMD5(body string) string {
 	//nolint:gosec // MD5 required by SQS wire protocol
 	hash := md5.Sum([]byte(body))
+
+	return hex.EncodeToString(hash[:])
+}
+
+// computeSHA256 returns the hex-encoded SHA-256 hash of the given string.
+// AWS SQS uses SHA-256 (not MD5) when generating the MessageDeduplicationId
+// for content-based deduplication on FIFO queues.
+func computeSHA256(body string) string {
+	hash := sha256.Sum256([]byte(body))
 
 	return hex.EncodeToString(hash[:])
 }
@@ -938,7 +948,7 @@ type fifoPreflight struct {
 // throughput limiting, and content-based deduplication.
 //
 // Caller must already hold b.mu (write).
-func preflightFIFOSend(q *Queue, input *SendMessageInput, md5Body string, now time.Time) fifoPreflight {
+func preflightFIFOSend(q *Queue, input *SendMessageInput, md5Body, sha256Body string, now time.Time) fifoPreflight {
 	if err := validateFIFOParams(input, q); err != nil {
 		return fifoPreflight{Err: err, Handled: true}
 	}
@@ -954,6 +964,7 @@ func preflightFIFOSend(q *Queue, input *SendMessageInput, md5Body string, now ti
 		input.MessageGroupID,
 		input.MessageDeduplicationID,
 		md5Body,
+		sha256Body,
 		q.Attributes[attrContentBasedDeduplication],
 		now,
 	); dup {
@@ -978,6 +989,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	}
 
 	md5Body := computeMD5(input.MessageBody)
+	sha256Body := computeSHA256(input.MessageBody)
 	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
 	msgID := uuid.New().String()
 
@@ -1000,7 +1012,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	now := time.Now()
 
 	if q.IsFIFO {
-		if pre := preflightFIFOSend(q, input, md5Body, now); pre.Handled {
+		if pre := preflightFIFOSend(q, input, md5Body, sha256Body, now); pre.Handled {
 			return pre.Output, pre.Err
 		}
 	}
@@ -1041,7 +1053,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 		storeDedup(
 			q, input.MessageGroupID, input.MessageDeduplicationID,
-			md5Body, q.Attributes[attrContentBasedDeduplication], msgID, now,
+			sha256Body, q.Attributes[attrContentBasedDeduplication], msgID, now,
 		)
 	}
 
@@ -1098,14 +1110,28 @@ func isValidDataTypeBase(base string) bool {
 	return base == "String" || base == "Number" || base == "Binary"
 }
 
+// maxMessageAttributeCount is the AWS maximum number of user-defined message
+// attributes per message. System attributes (MessageSystemAttributes) are separate.
+const maxMessageAttributeCount = 10
+
 // validateMessageAttributes checks that each message attribute has a recognised
 // DataType and that the correct value field is populated.
 // AWS rules:
+//   - At most 10 user-defined message attributes per message
+//   - Attribute names must not start with reserved prefixes "AWS." or "Amazon." (case-insensitive)
 //   - DataType must be "String", "Number", "Binary", or "<base>.<custom-suffix>"
 //   - String/Number attributes must supply StringValue
 //   - Binary attributes must supply BinaryValue
 func validateMessageAttributes(attrs map[string]MessageAttributeValue) error {
-	for _, attr := range attrs {
+	if len(attrs) > maxMessageAttributeCount {
+		return ErrInvalidMessageAttributeValue
+	}
+
+	for name, attr := range attrs {
+		if isReservedMessageAttributeName(name) {
+			return ErrInvalidMessageAttributeValue
+		}
+
 		base, _, _ := strings.Cut(attr.DataType, ".")
 		if !isValidDataTypeBase(base) {
 			return ErrInvalidMessageAttributeValue
@@ -1123,6 +1149,15 @@ func validateMessageAttributes(attrs map[string]MessageAttributeValue) error {
 	}
 
 	return nil
+}
+
+// isReservedMessageAttributeName reports whether name starts with a reserved prefix.
+// AWS SQS rejects user-defined message attribute names that start with "AWS." or
+// "Amazon." (case-insensitive). These namespaces are reserved for system use.
+func isReservedMessageAttributeName(name string) bool {
+	lower := strings.ToLower(name)
+
+	return strings.HasPrefix(lower, "aws.") || strings.HasPrefix(lower, "amazon.")
 }
 
 // validateFIFOParams validates FIFO-specific parameters for a SendMessage request.
@@ -1178,14 +1213,17 @@ func dedupKey(q *Queue, groupID, effectiveID string) string {
 
 // checkDedup checks for a duplicate FIFO message and returns the original output if found.
 // now is the reference time used for window expiry comparison.
+// md5Body is the MD5 hash of the body (for the wire-protocol MD5OfBody response field).
+// bodyHash is the SHA-256 hash of the message body, used as the dedup key when
+// ContentBasedDeduplication is enabled (AWS spec uses SHA-256, not MD5).
 func checkDedup(
 	q *Queue,
-	groupID, dedupID, md5Body, contentBasedDedup string,
+	groupID, dedupID, md5Body, bodyHash, contentBasedDedup string,
 	now time.Time,
 ) (*SendMessageOutput, bool) {
 	effectiveID := dedupID
 	if effectiveID == "" && contentBasedDedup == attrValTrue {
-		effectiveID = md5Body
+		effectiveID = bodyHash
 	}
 
 	if effectiveID == "" {
@@ -1222,10 +1260,12 @@ const maxDedupEntriesPerQueue = 100_000
 
 // storeDedup records a deduplication entry for a FIFO message. When the dedup
 // map is at capacity, the entries closest to expiry are evicted first.
-func storeDedup(q *Queue, groupID, dedupID, md5Body, contentBasedDedup, msgID string, now time.Time) {
+// bodyHash is the SHA-256 hash of the message body, used when ContentBasedDeduplication
+// is enabled (AWS spec uses SHA-256, not MD5, for content-based dedup IDs).
+func storeDedup(q *Queue, groupID, dedupID, bodyHash, contentBasedDedup, msgID string, now time.Time) {
 	effectiveID := dedupID
 	if effectiveID == "" && contentBasedDedup == attrValTrue {
-		effectiveID = md5Body
+		effectiveID = bodyHash
 	}
 
 	if effectiveID == "" {
@@ -2293,6 +2333,90 @@ func (b *InMemoryBackend) Reset() {
 	b.moveTasks = make(map[string]*moveTaskState)
 }
 
+// iamPolicyDocument represents the IAM resource policy document stored in the
+// queue's Policy attribute. AWS SQS serializes AddPermission calls into a JSON
+// policy document of this shape.
+type iamPolicyDocument struct {
+	Version   string             `json:"Version"`
+	Statement []iamPolicyStatement `json:"Statement"`
+}
+
+// iamPolicyStatement is a single Allow statement within a queue's resource policy.
+type iamPolicyStatement struct {
+	Principal map[string][]string `json:"Principal"`
+	Resource  string              `json:"Resource"`
+	Sid       string              `json:"Sid"`
+	Effect    string              `json:"Effect"`
+	Action    []string            `json:"Action"`
+}
+
+// buildQueueIAMPolicy rebuilds the IAM resource policy JSON for q from its
+// current Permissions map and stores it in q.Attributes[attrPolicy].
+// Must be called with b.mu held (write).
+func buildQueueIAMPolicy(q *Queue) {
+	if len(q.Permissions) == 0 {
+		delete(q.Attributes, attrPolicy)
+
+		return
+	}
+
+	queueARN := q.Attributes[attrQueueArn]
+
+	// Iterate in sorted label order so the output is deterministic.
+	labels := make([]string, 0, len(q.Permissions))
+	for label := range q.Permissions {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+
+	stmts := make([]iamPolicyStatement, 0, len(labels))
+	for _, label := range labels {
+		entry := q.Permissions[label]
+
+		actions := make([]string, 0, len(entry.Actions))
+		for _, a := range entry.Actions {
+			if strings.HasPrefix(a, "sqs:") {
+				actions = append(actions, a)
+			} else if a == "*" {
+				actions = append(actions, "sqs:*")
+			} else {
+				actions = append(actions, "sqs:"+a)
+			}
+		}
+
+		principals := make([]string, 0, len(entry.AWSAccountIDs))
+		for _, id := range entry.AWSAccountIDs {
+			if id == "*" {
+				principals = append(principals, "*")
+			} else {
+				principals = append(principals, "arn:aws:iam::"+id+":root")
+			}
+		}
+
+		stmts = append(stmts, iamPolicyStatement{
+			Sid:    label,
+			Effect: "Allow",
+			Principal: map[string][]string{
+				"AWS": principals,
+			},
+			Action:   actions,
+			Resource: queueARN,
+		})
+	}
+
+	doc := iamPolicyDocument{
+		Version:   "2012-10-17",
+		Statement: stmts,
+	}
+
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		return
+	}
+
+	q.Attributes[attrPolicy] = string(raw)
+}
+
 // AddPermission adds a permission statement to the specified queue.
 func (b *InMemoryBackend) AddPermission(input *AddPermissionInput) error {
 	if input.Label == "" {
@@ -2322,6 +2446,8 @@ func (b *InMemoryBackend) AddPermission(input *AddPermissionInput) error {
 		Actions:       slices.Clone(input.Actions),
 	}
 
+	buildQueueIAMPolicy(q)
+
 	return nil
 }
 
@@ -2338,6 +2464,8 @@ func (b *InMemoryBackend) RemovePermission(input *RemovePermissionInput) error {
 	}
 
 	delete(q.Permissions, input.Label)
+
+	buildQueueIAMPolicy(q)
 
 	return nil
 }
