@@ -41,19 +41,101 @@ type Tag struct {
 	Value string `json:"value"`
 }
 
+// GuardrailContentFilter defines a single content filter rule within a guardrail.
+type GuardrailContentFilter struct {
+	Type           string `json:"type"`
+	InputStrength  string `json:"inputStrength"`
+	OutputStrength string `json:"outputStrength"`
+}
+
+// GuardrailContentPolicyConfig configures content filtering for a guardrail.
+type GuardrailContentPolicyConfig struct {
+	FiltersConfig []GuardrailContentFilter `json:"filtersConfig"`
+}
+
+// GuardrailTopic defines a topic that the guardrail denies.
+type GuardrailTopic struct {
+	Name       string   `json:"name"`
+	Definition string   `json:"definition"`
+	Examples   []string `json:"examples,omitempty"`
+	Type       string   `json:"type"`
+}
+
+// GuardrailTopicPolicyConfig configures topic-level denial policies.
+type GuardrailTopicPolicyConfig struct {
+	TopicsConfig []GuardrailTopic `json:"topicsConfig"`
+}
+
+// GuardrailManagedWordList references a managed word list by type.
+type GuardrailManagedWordList struct {
+	Type string `json:"type"`
+}
+
+// GuardrailWordConfig defines a single custom word to block.
+type GuardrailWordConfig struct {
+	Text string `json:"text"`
+}
+
+// GuardrailWordPolicyConfig configures word-level blocking for a guardrail.
+type GuardrailWordPolicyConfig struct {
+	WordsConfig            []GuardrailWordConfig      `json:"wordsConfig,omitempty"`
+	ManagedWordListsConfig []GuardrailManagedWordList `json:"managedWordListsConfig,omitempty"`
+}
+
+// GuardrailPIIEntity describes a PII entity type and the action to take.
+type GuardrailPIIEntity struct {
+	Type   string `json:"type"`
+	Action string `json:"action"`
+}
+
+// GuardrailRegexConfig defines a custom regex-based filter.
+type GuardrailRegexConfig struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Pattern     string `json:"pattern"`
+	Action      string `json:"action"`
+}
+
+// GuardrailSensitiveInformationPolicyConfig configures PII and regex-based filters.
+type GuardrailSensitiveInformationPolicyConfig struct {
+	PiiEntitiesConfig []GuardrailPIIEntity   `json:"piiEntitiesConfig,omitempty"`
+	RegexesConfig     []GuardrailRegexConfig `json:"regexesConfig,omitempty"`
+}
+
+// GuardrailContextualGroundingFilter is a single contextual grounding rule.
+type GuardrailContextualGroundingFilter struct {
+	Type      string  `json:"type"`
+	Threshold float64 `json:"threshold"`
+}
+
+// GuardrailContextualGroundingPolicyConfig configures contextual grounding checks.
+type GuardrailContextualGroundingPolicyConfig struct {
+	FiltersConfig []GuardrailContextualGroundingFilter `json:"filtersConfig"`
+}
+
+// GuardrailPolicies groups all optional policy configurations for a guardrail.
+type GuardrailPolicies struct {
+	ContentPolicy              *GuardrailContentPolicyConfig              `json:"contentPolicyConfig,omitempty"`
+	TopicPolicy                *GuardrailTopicPolicyConfig                `json:"topicPolicyConfig,omitempty"`
+	WordPolicy                 *GuardrailWordPolicyConfig                 `json:"wordPolicyConfig,omitempty"`
+	SensitiveInformationPolicy *GuardrailSensitiveInformationPolicyConfig `json:"sensitiveInformationPolicyConfig,omitempty"`
+	ContextualGroundingPolicy  *GuardrailContextualGroundingPolicyConfig  `json:"contextualGroundingPolicyConfig,omitempty"`
+}
+
 // Guardrail represents an Amazon Bedrock guardrail.
 type Guardrail struct {
-	CreatedAt               time.Time `json:"createdAt"`
-	UpdatedAt               time.Time `json:"updatedAt"`
-	GuardrailID             string    `json:"guardrailId"`
-	GuardrailArn            string    `json:"guardrailArn"`
-	Name                    string    `json:"name"`
-	Description             string    `json:"description,omitempty"`
-	Status                  string    `json:"status"`
-	Version                 string    `json:"version"`
-	BlockedInputMessaging   string    `json:"blockedInputMessaging,omitempty"`
-	BlockedOutputsMessaging string    `json:"blockedOutputsMessaging,omitempty"`
-	Tags                    []Tag     `json:"tags,omitempty"`
+	CreatedAt               time.Time          `json:"createdAt"`
+	UpdatedAt               time.Time          `json:"updatedAt"`
+	GuardrailID             string             `json:"guardrailId"`
+	GuardrailArn            string             `json:"guardrailArn"`
+	Name                    string             `json:"name"`
+	Description             string             `json:"description,omitempty"`
+	Status                  string             `json:"status"`
+	Version                 string             `json:"version"`
+	BlockedInputMessaging   string             `json:"blockedInputMessaging,omitempty"`
+	BlockedOutputsMessaging string             `json:"blockedOutputsMessaging,omitempty"`
+	Tags                    []Tag              `json:"tags,omitempty"`
+	Policies                *GuardrailPolicies `json:"policies,omitempty"`
 	// versionCounter tracks the next version number for this specific guardrail.
 	versionCounter int
 }
@@ -88,22 +170,74 @@ type ProvisionedModelThroughput struct {
 
 // FoundationModelSummary represents a foundation model.
 type FoundationModelSummary struct {
-	ModelArn         string   `json:"modelArn"`
-	ModelID          string   `json:"modelId"`
-	ModelName        string   `json:"modelName"`
-	ProviderName     string   `json:"providerName"`
-	InputModalities  []string `json:"inputModalities,omitempty"`
-	OutputModalities []string `json:"outputModalities,omitempty"`
+	ModelArn                   string   `json:"modelArn"`
+	ModelID                    string   `json:"modelId"`
+	ModelName                  string   `json:"modelName"`
+	ProviderName               string   `json:"providerName"`
+	InputModalities            []string `json:"inputModalities,omitempty"`
+	OutputModalities           []string `json:"outputModalities,omitempty"`
+	InferenceTypesSupported    []string `json:"inferenceTypesSupported,omitempty"`
+	CustomizationsSupported    []string `json:"customizationsSupported,omitempty"`
+	ResponseStreamingSupported bool     `json:"responseStreamingSupported"`
+}
+
+// EvaluationModelConfig specifies the evaluator model for an evaluation job.
+type EvaluationModelConfig struct {
+	ModelIdentifier string `json:"modelIdentifier"`
+}
+
+// EvaluationDatasetLocation specifies where the evaluation dataset is stored.
+type EvaluationDatasetLocation struct {
+	S3URI string `json:"s3Uri,omitempty"`
+}
+
+// EvaluationDataset references an evaluation dataset.
+type EvaluationDataset struct {
+	Name     string                     `json:"name,omitempty"`
+	Location *EvaluationDatasetLocation `json:"datasetLocation,omitempty"`
+}
+
+// EvaluationMetricConfig configures a single metric for evaluation.
+type EvaluationMetricConfig struct {
+	MetricName string `json:"metricName"`
+}
+
+// EvaluationTaskConfig configures a single evaluation task.
+type EvaluationTaskConfig struct {
+	TaskType         string                   `json:"taskType"`
+	Dataset          *EvaluationDataset       `json:"dataset,omitempty"`
+	MetricNames      []EvaluationMetricConfig `json:"metricNames,omitempty"`
+}
+
+// EvaluationInferenceModelConfig points to a model for generating responses.
+type EvaluationInferenceModelConfig struct {
+	ModelIdentifier string `json:"modelIdentifier"`
+}
+
+// EvaluationRAGConfig holds RAG-specific inference configuration.
+type EvaluationRAGConfig struct {
+	KnowledgeBaseID string `json:"knowledgeBaseId,omitempty"`
+}
+
+// EvaluationInferenceConfig holds inference-side configuration (model or RAG).
+type EvaluationInferenceConfig struct {
+	Models []EvaluationInferenceModelConfig `json:"models,omitempty"`
+	RAG    *EvaluationRAGConfig             `json:"ragConfig,omitempty"`
 }
 
 // EvaluationJob represents a model evaluation job.
 type EvaluationJob struct {
-	CreationTime     time.Time `json:"creationTime"`
-	LastModifiedTime time.Time `json:"lastModifiedTime"`
-	JobArn           string    `json:"jobArn"`
-	JobName          string    `json:"jobName"`
-	Status           string    `json:"status"`
-	Tags             []Tag     `json:"tags,omitempty"`
+	CreationTime     time.Time                  `json:"creationTime"`
+	LastModifiedTime time.Time                  `json:"lastModifiedTime"`
+	JobArn           string                     `json:"jobArn"`
+	JobName          string                     `json:"jobName"`
+	JobDescription   string                     `json:"jobDescription,omitempty"`
+	RoleArn          string                     `json:"roleArn,omitempty"`
+	Status           string                     `json:"status"`
+	Tags             []Tag                      `json:"tags,omitempty"`
+	EvaluatorConfig  *EvaluationModelConfig     `json:"evaluatorConfig,omitempty"`
+	InferenceConfig  *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
+	EvaluationConfig []EvaluationTaskConfig     `json:"evaluationConfig,omitempty"`
 }
 
 // AutomatedReasoningPolicy represents an Automated Reasoning policy.
@@ -605,10 +739,12 @@ func (b *InMemoryBackend) newCustomModelDeployID() string {
 	return fmt.Sprintf("cmd-%07d", b.customModelDeployCounter)
 }
 
-// CreateGuardrail creates a new guardrail.
+// CreateGuardrail creates a new guardrail. The optional policies argument configures
+// content, topic, word, sensitive-information, and contextual-grounding policies.
 func (b *InMemoryBackend) CreateGuardrail(
 	name, description, blockedInput, blockedOutput string,
 	tags []Tag,
+	policies ...*GuardrailPolicies,
 ) (*Guardrail, error) {
 	b.mu.Lock("CreateGuardrail")
 	defer b.mu.Unlock()
@@ -628,6 +764,11 @@ func (b *InMemoryBackend) CreateGuardrail(
 	tagsCopy := make([]Tag, len(tags))
 	copy(tagsCopy, tags)
 
+	var pol *GuardrailPolicies
+	if len(policies) > 0 {
+		pol = copyGuardrailPolicies(policies[0])
+	}
+
 	g := &Guardrail{
 		GuardrailID:             id,
 		GuardrailArn:            guardrailARN,
@@ -638,6 +779,7 @@ func (b *InMemoryBackend) CreateGuardrail(
 		BlockedInputMessaging:   blockedInput,
 		BlockedOutputsMessaging: blockedOutput,
 		Tags:                    tagsCopy,
+		Policies:                pol,
 		CreatedAt:               now,
 		UpdatedAt:               now,
 	}
@@ -659,6 +801,7 @@ func (b *InMemoryBackend) GetGuardrail(idOrARN string) (*Guardrail, error) {
 
 	cp := *g
 	cp.Tags = copyTags(g.Tags)
+	cp.Policies = copyGuardrailPolicies(g.Policies)
 
 	return &cp, nil
 }
@@ -710,11 +853,13 @@ func (b *InMemoryBackend) hasPublishedVersions(guardrailID string) bool {
 	return false
 }
 
-// UpdateGuardrail updates a guardrail's name, description and messaging.
+// UpdateGuardrail updates a guardrail's name, description, messaging, and policies.
 // Mutations are rejected when the guardrail has published (numbered) versions,
 // as AWS rejects updates to guardrails that have been versioned.
+// The optional policies argument replaces all existing policy configs when provided.
 func (b *InMemoryBackend) UpdateGuardrail(
 	idOrARN, name, description, blockedInput, blockedOutput string,
+	policies ...*GuardrailPolicies,
 ) (*Guardrail, error) {
 	b.mu.Lock("UpdateGuardrail")
 	defer b.mu.Unlock()
@@ -753,6 +898,10 @@ func (b *InMemoryBackend) UpdateGuardrail(
 
 	if blockedOutput != "" {
 		g.BlockedOutputsMessaging = blockedOutput
+	}
+
+	if len(policies) > 0 {
+		g.Policies = copyGuardrailPolicies(policies[0])
 	}
 
 	g.UpdatedAt = time.Now().UTC()
@@ -982,6 +1131,55 @@ func (b *InMemoryBackend) findPMTByIDOrARN(idOrARN string) (*ProvisionedModelThr
 	return nil, false
 }
 
+// copyGuardrailPolicies returns a deep copy of a GuardrailPolicies struct, or nil if src is nil.
+func copyGuardrailPolicies(src *GuardrailPolicies) *GuardrailPolicies {
+	if src == nil {
+		return nil
+	}
+
+	dst := &GuardrailPolicies{}
+
+	if src.ContentPolicy != nil {
+		filters := make([]GuardrailContentFilter, len(src.ContentPolicy.FiltersConfig))
+		copy(filters, src.ContentPolicy.FiltersConfig)
+		dst.ContentPolicy = &GuardrailContentPolicyConfig{FiltersConfig: filters}
+	}
+
+	if src.TopicPolicy != nil {
+		topics := make([]GuardrailTopic, len(src.TopicPolicy.TopicsConfig))
+		for i, t := range src.TopicPolicy.TopicsConfig {
+			tc := t
+			if len(t.Examples) > 0 {
+				tc.Examples = append([]string(nil), t.Examples...)
+			}
+			topics[i] = tc
+		}
+		dst.TopicPolicy = &GuardrailTopicPolicyConfig{TopicsConfig: topics}
+	}
+
+	if src.WordPolicy != nil {
+		wp := &GuardrailWordPolicyConfig{}
+		wp.WordsConfig = append([]GuardrailWordConfig(nil), src.WordPolicy.WordsConfig...)
+		wp.ManagedWordListsConfig = append([]GuardrailManagedWordList(nil), src.WordPolicy.ManagedWordListsConfig...)
+		dst.WordPolicy = wp
+	}
+
+	if src.SensitiveInformationPolicy != nil {
+		sip := &GuardrailSensitiveInformationPolicyConfig{}
+		sip.PiiEntitiesConfig = append([]GuardrailPIIEntity(nil), src.SensitiveInformationPolicy.PiiEntitiesConfig...)
+		sip.RegexesConfig = append([]GuardrailRegexConfig(nil), src.SensitiveInformationPolicy.RegexesConfig...)
+		dst.SensitiveInformationPolicy = sip
+	}
+
+	if src.ContextualGroundingPolicy != nil {
+		filters := make([]GuardrailContextualGroundingFilter, len(src.ContextualGroundingPolicy.FiltersConfig))
+		copy(filters, src.ContextualGroundingPolicy.FiltersConfig)
+		dst.ContextualGroundingPolicy = &GuardrailContextualGroundingPolicyConfig{FiltersConfig: filters}
+	}
+
+	return dst
+}
+
 // copyTags returns a new slice with a deep copy of tags.
 func copyTags(src []Tag) []Tag {
 	if len(src) == 0 {
@@ -1168,8 +1366,19 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) ([]Tag, bool) {
 
 // --- EvaluationJob methods ---
 
+// CreateEvaluationJobInput holds all parameters for CreateEvaluationJob.
+type CreateEvaluationJobInput struct {
+	JobName         string
+	JobDescription  string
+	RoleArn         string
+	Tags            []Tag
+	EvaluatorConfig *EvaluationModelConfig
+	InferenceConfig *EvaluationInferenceConfig
+	EvalConfig      []EvaluationTaskConfig
+}
+
 // CreateEvaluationJob creates a new evaluation job.
-func (b *InMemoryBackend) CreateEvaluationJob(name string, tags []Tag) (*EvaluationJob, error) {
+func (b *InMemoryBackend) CreateEvaluationJob(name string, tags []Tag, opts ...*CreateEvaluationJobInput) (*EvaluationJob, error) {
 	b.mu.Lock("CreateEvaluationJob")
 	defer b.mu.Unlock()
 
@@ -1193,6 +1402,16 @@ func (b *InMemoryBackend) CreateEvaluationJob(name string, tags []Tag) (*Evaluat
 		LastModifiedTime: now,
 		Tags:             copyTags(tags),
 	}
+
+	if len(opts) > 0 && opts[0] != nil {
+		opt := opts[0]
+		job.JobDescription = opt.JobDescription
+		job.RoleArn = opt.RoleArn
+		job.EvaluatorConfig = opt.EvaluatorConfig
+		job.InferenceConfig = opt.InferenceConfig
+		job.EvaluationConfig = opt.EvalConfig
+	}
+
 	b.evaluationJobs[jobARN] = job
 	b.evaluationJobsByName[name] = jobARN
 	cp := *job
@@ -1200,6 +1419,7 @@ func (b *InMemoryBackend) CreateEvaluationJob(name string, tags []Tag) (*Evaluat
 
 	return &cp, nil
 }
+
 
 // BatchDeleteEvaluationJobError describes a single job deletion failure.
 type BatchDeleteEvaluationJobError struct {
