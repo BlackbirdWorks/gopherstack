@@ -1815,6 +1815,7 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 		MultiAZ:                 vals.Get("MultiAZ") == formTrue,
 		CopyTagsToSnapshot:      vals.Get("CopyTagsToSnapshot") == formTrue,
 		DeletionProtection:      vals.Get("DeletionProtection") == formTrue,
+		DeletionProtectionSet:   vals.Get("DeletionProtection") != "",
 		StorageEncrypted:        storageEncryptedRaw == formTrue,
 		StorageEncryptedChanged: storageEncryptedRaw != "",
 	}

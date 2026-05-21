@@ -660,6 +660,7 @@ type DBClusterOptions struct {
 	StorageEncryptedChanged      bool
 	CopyTagsToSnapshot           bool
 	DeletionProtection           bool
+	DeletionProtectionSet        bool
 }
 
 // InMemoryBackend is the in-memory store for RDS resources.
@@ -2147,8 +2148,10 @@ func (b *InMemoryBackend) ModifyDBCluster(id, paramGroupName string, opts DBClus
 	if opts.CopyTagsToSnapshot {
 		cluster.CopyTagsToSnapshot = opts.CopyTagsToSnapshot
 	}
-	if opts.DeletionProtection {
+	if opts.DeletionProtectionSet {
 		cluster.DeletionProtection = opts.DeletionProtection
+	} else if opts.DeletionProtection {
+		cluster.DeletionProtection = true
 	}
 	if len(opts.EnabledCloudwatchLogsExports) > 0 {
 		cluster.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
