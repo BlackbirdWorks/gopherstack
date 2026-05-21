@@ -92,7 +92,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *scheduler.InMemoryBackend, _ string) {
 				t.Helper()
 
-				schedules := b.ListSchedules("", "", "")
+				schedules, _ := b.ListSchedules("", "", "", "", 0)
 				assert.Empty(t, schedules)
 			},
 		},
@@ -152,7 +152,7 @@ func TestSchedulerHandler_Persistence(t *testing.T) {
 	freshH := scheduler.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
-	schedules := fresh.ListSchedules("", "", "")
+	schedules, _ := fresh.ListSchedules("", "", "", "", 0)
 	assert.Len(t, schedules, 1)
 }
 

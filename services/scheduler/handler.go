@@ -1150,7 +1150,27 @@ func (h *Handler) handleListScheduleGroups(
 		})
 	}
 
-	return &listScheduleGroupsOutput{ScheduleGroups: items}, nil
+	return &listScheduleGroupsOutput{ScheduleGroups: items, NextToken: nextToken}, nil
+}
+
+// parseMaxResults converts the MaxResults string field to an integer.
+// Returns 0 when the field is empty or non-numeric.
+func parseMaxResults(s string) int {
+	if s == "" {
+		return 0
+	}
+
+	n := 0
+
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+
+		n = n*10 + int(c-'0')
+	}
+
+	return n
 }
 
 // nanosPerSecond is the number of nanoseconds in a second.

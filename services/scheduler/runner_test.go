@@ -447,34 +447,39 @@ func TestScheduler_Runner_CronRangeAndStep(t *testing.T) {
 	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:range-fn"
 
 	tests := []struct {
-		matchAt   time.Time
-		noMatchAt time.Time
-		name      string
-		cronExpr  string
+		matchAt      time.Time
+		noMatchAt    time.Time
+		name         string
+		scheduleName string
+		cronExpr     string
 	}{
 		{
-			name:      "range in minutes",
-			cronExpr:  "cron(0-5 * * * ? *)",
-			matchAt:   time.Date(2024, 1, 15, 10, 3, 0, 0, time.UTC),
-			noMatchAt: time.Date(2024, 1, 15, 10, 7, 0, 0, time.UTC),
+			name:         "range in minutes",
+			scheduleName: "range-in-minutes",
+			cronExpr:     "cron(0-5 * * * ? *)",
+			matchAt:      time.Date(2024, 1, 15, 10, 3, 0, 0, time.UTC),
+			noMatchAt:    time.Date(2024, 1, 15, 10, 7, 0, 0, time.UTC),
 		},
 		{
-			name:      "step in minutes",
-			cronExpr:  "cron(*/15 * * * ? *)",
-			matchAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-			noMatchAt: time.Date(2024, 1, 15, 10, 31, 0, 0, time.UTC),
+			name:         "step in minutes",
+			scheduleName: "step-in-minutes",
+			cronExpr:     "cron(*/15 * * * ? *)",
+			matchAt:      time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
+			noMatchAt:    time.Date(2024, 1, 15, 10, 31, 0, 0, time.UTC),
 		},
 		{
-			name:      "month name alias",
-			cronExpr:  "cron(0 0 1 JAN ? *)",
-			matchAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			noMatchAt: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC),
+			name:         "month name alias",
+			scheduleName: "month-name-alias",
+			cronExpr:     "cron(0 0 1 JAN ? *)",
+			matchAt:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			noMatchAt:    time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC),
 		},
 		{
-			name:      "day-of-week name alias MON",
-			cronExpr:  "cron(0 9 ? * MON *)",
-			matchAt:   time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC), // 2024-01-15 is a Monday
-			noMatchAt: time.Date(2024, 1, 16, 9, 0, 0, 0, time.UTC), // Tuesday
+			name:         "day-of-week name alias MON",
+			scheduleName: "dow-alias-MON",
+			cronExpr:     "cron(0 9 ? * MON *)",
+			matchAt:      time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC), // 2024-01-15 is a Monday
+			noMatchAt:    time.Date(2024, 1, 16, 9, 0, 0, 0, time.UTC), // Tuesday
 		},
 	}
 
@@ -484,7 +489,7 @@ func TestScheduler_Runner_CronRangeAndStep(t *testing.T) {
 
 			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := backend.CreateSchedule(
-				tt.name,
+				tt.scheduleName,
 				"",
 				tt.cronExpr,
 				"",
