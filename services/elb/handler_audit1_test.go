@@ -51,11 +51,11 @@ func TestAudit1_AccessLog_Enable(t *testing.T) {
 		"Action":           {"ModifyLoadBalancerAttributes"},
 		"Version":          {"2012-06-01"},
 		"LoadBalancerName": {"al-enable-lb"},
-		"LoadBalancerAttributes.ConnectionSettings.IdleTimeout":  {"60"},
-		"LoadBalancerAttributes.AccessLog.Enabled":               {"true"},
-		"LoadBalancerAttributes.AccessLog.S3BucketName":          {"my-elb-logs"},
-		"LoadBalancerAttributes.AccessLog.S3BucketPrefix":        {"logs/"},
-		"LoadBalancerAttributes.AccessLog.EmitInterval":          {"60"},
+		"LoadBalancerAttributes.ConnectionSettings.IdleTimeout": {"60"},
+		"LoadBalancerAttributes.AccessLog.Enabled":              {"true"},
+		"LoadBalancerAttributes.AccessLog.S3BucketName":         {"my-elb-logs"},
+		"LoadBalancerAttributes.AccessLog.S3BucketPrefix":       {"logs/"},
+		"LoadBalancerAttributes.AccessLog.EmitInterval":         {"60"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -405,8 +405,8 @@ func TestAudit1_CrossZoneLoadBalancing_Toggle(t *testing.T) {
 				"Action":           {"ModifyLoadBalancerAttributes"},
 				"Version":          {"2012-06-01"},
 				"LoadBalancerName": {"czlb-lb"},
-				"LoadBalancerAttributes.ConnectionSettings.IdleTimeout":        {"60"},
-				"LoadBalancerAttributes.CrossZoneLoadBalancing.Enabled":        {tt.enabled},
+				"LoadBalancerAttributes.ConnectionSettings.IdleTimeout": {"60"},
+				"LoadBalancerAttributes.CrossZoneLoadBalancing.Enabled": {tt.enabled},
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -449,8 +449,8 @@ func TestAudit1_CrossZoneLoadBalancing_SnapshotRestore(t *testing.T) {
 		"Action":           {"ModifyLoadBalancerAttributes"},
 		"Version":          {"2012-06-01"},
 		"LoadBalancerName": {"czlb-snap-lb"},
-		"LoadBalancerAttributes.ConnectionSettings.IdleTimeout":    {"60"},
-		"LoadBalancerAttributes.CrossZoneLoadBalancing.Enabled":    {"true"},
+		"LoadBalancerAttributes.ConnectionSettings.IdleTimeout": {"60"},
+		"LoadBalancerAttributes.CrossZoneLoadBalancing.Enabled": {"true"},
 	})
 
 	snap := b.Snapshot()
@@ -474,9 +474,9 @@ func TestAudit1_ConnectionDraining_Enable(t *testing.T) {
 		"Action":           {"ModifyLoadBalancerAttributes"},
 		"Version":          {"2012-06-01"},
 		"LoadBalancerName": {"cd-enable-lb"},
-		"LoadBalancerAttributes.ConnectionSettings.IdleTimeout":  {"60"},
-		"LoadBalancerAttributes.ConnectionDraining.Enabled":      {"true"},
-		"LoadBalancerAttributes.ConnectionDraining.Timeout":      {"300"},
+		"LoadBalancerAttributes.ConnectionSettings.IdleTimeout": {"60"},
+		"LoadBalancerAttributes.ConnectionDraining.Enabled":     {"true"},
+		"LoadBalancerAttributes.ConnectionDraining.Timeout":     {"300"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -655,8 +655,8 @@ func TestAudit1_SourceSecurityGroup_AlwaysPresent(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup  func(t *testing.T, h *elb.Handler) string
-		name   string
+		setup func(t *testing.T, h *elb.Handler) string
+		name  string
 	}{
 		{
 			name: "classic_lb",
@@ -671,6 +671,7 @@ func TestAudit1_SourceSecurityGroup_AlwaysPresent(t *testing.T) {
 					"Listeners.member.1.LoadBalancerPort": {"80"},
 					"Listeners.member.1.InstancePort":     {"8080"},
 				})
+
 				return "ssg-classic-lb"
 			},
 		},
@@ -687,6 +688,7 @@ func TestAudit1_SourceSecurityGroup_AlwaysPresent(t *testing.T) {
 					"Listeners.member.1.LoadBalancerPort": {"80"},
 					"Listeners.member.1.InstancePort":     {"8080"},
 				})
+
 				return "ssg-vpc-lb"
 			},
 		},
@@ -704,6 +706,7 @@ func TestAudit1_SourceSecurityGroup_AlwaysPresent(t *testing.T) {
 					"Listeners.member.1.LoadBalancerPort": {"80"},
 					"Listeners.member.1.InstancePort":     {"8080"},
 				})
+
 				return "ssg-internal-lb"
 			},
 		},
@@ -968,7 +971,7 @@ func TestAudit1_DescribeLoadBalancers_MultipleNames(t *testing.T) {
 	var resp struct {
 		XMLName xml.Name `xml:"DescribeLoadBalancersResponse"`
 		Result  struct {
-		LoadBalancerDescriptions struct {
+			LoadBalancerDescriptions struct {
 				Members []struct {
 					LoadBalancerName string `xml:"LoadBalancerName"`
 				} `xml:"member"`
@@ -1080,7 +1083,9 @@ func TestAudit1_AvailabilityZones_EnableDisableCycle(t *testing.T) {
 		XMLName xml.Name `xml:"EnableAvailabilityZonesForLoadBalancerResponse"`
 		Result  struct {
 			AvailabilityZones struct {
-				Members []struct{ Value string `xml:",chardata"` } `xml:"member"`
+				Members []struct {
+					Value string `xml:",chardata"`
+				} `xml:"member"`
 			} `xml:"AvailabilityZones"`
 		} `xml:"EnableAvailabilityZonesForLoadBalancerResult"`
 	}
@@ -1100,7 +1105,9 @@ func TestAudit1_AvailabilityZones_EnableDisableCycle(t *testing.T) {
 		XMLName xml.Name `xml:"DisableAvailabilityZonesForLoadBalancerResponse"`
 		Result  struct {
 			AvailabilityZones struct {
-				Members []struct{ Value string `xml:",chardata"` } `xml:"member"`
+				Members []struct {
+					Value string `xml:",chardata"`
+				} `xml:"member"`
 			} `xml:"AvailabilityZones"`
 		} `xml:"DisableAvailabilityZonesForLoadBalancerResult"`
 	}
@@ -1143,7 +1150,9 @@ func TestAudit1_AvailabilityZones_EnableReturnsSorted(t *testing.T) {
 		XMLName xml.Name `xml:"EnableAvailabilityZonesForLoadBalancerResponse"`
 		Result  struct {
 			AvailabilityZones struct {
-				Members []struct{ Value string `xml:",chardata"` } `xml:"member"`
+				Members []struct {
+					Value string `xml:",chardata"`
+				} `xml:"member"`
 			} `xml:"AvailabilityZones"`
 		} `xml:"EnableAvailabilityZonesForLoadBalancerResult"`
 	}
@@ -1173,11 +1182,11 @@ func TestAudit1_SecurityGroups_ApplyReplaces(t *testing.T) {
 	})
 
 	rec := doELB(t, h, url.Values{
-		"Action":                    {"ApplySecurityGroupsToLoadBalancer"},
-		"Version":                   {"2012-06-01"},
-		"LoadBalancerName":          {"sg-replace-lb"},
-		"SecurityGroups.member.1":   {"sg-new1"},
-		"SecurityGroups.member.2":   {"sg-new2"},
+		"Action":                  {"ApplySecurityGroupsToLoadBalancer"},
+		"Version":                 {"2012-06-01"},
+		"LoadBalancerName":        {"sg-replace-lb"},
+		"SecurityGroups.member.1": {"sg-new1"},
+		"SecurityGroups.member.2": {"sg-new2"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1185,7 +1194,9 @@ func TestAudit1_SecurityGroups_ApplyReplaces(t *testing.T) {
 		XMLName xml.Name `xml:"ApplySecurityGroupsToLoadBalancerResponse"`
 		Result  struct {
 			SecurityGroups struct {
-				Members []struct{ Value string `xml:",chardata"` } `xml:"member"`
+				Members []struct {
+					Value string `xml:",chardata"`
+				} `xml:"member"`
 			} `xml:"SecurityGroups"`
 		} `xml:"ApplySecurityGroupsToLoadBalancerResult"`
 	}
@@ -1226,7 +1237,9 @@ func TestAudit1_SecurityGroups_ApplyEmpty(t *testing.T) {
 		XMLName xml.Name `xml:"ApplySecurityGroupsToLoadBalancerResponse"`
 		Result  struct {
 			SecurityGroups struct {
-				Members []struct{ Value string `xml:",chardata"` } `xml:"member"`
+				Members []struct {
+					Value string `xml:",chardata"`
+				} `xml:"member"`
 			} `xml:"SecurityGroups"`
 		} `xml:"ApplySecurityGroupsToLoadBalancerResult"`
 	}
@@ -1294,10 +1307,10 @@ func TestAudit1_Listener_DeleteAndRecreate(t *testing.T) {
 
 	// Delete port 443 listener.
 	doELB(t, h, url.Values{
-		"Action":                          {"DeleteLoadBalancerListeners"},
-		"Version":                         {"2012-06-01"},
-		"LoadBalancerName":                {"list-del-lb"},
-		"LoadBalancerPorts.member.1":      {"443"},
+		"Action":                     {"DeleteLoadBalancerListeners"},
+		"Version":                    {"2012-06-01"},
+		"LoadBalancerName":           {"list-del-lb"},
+		"LoadBalancerPorts.member.1": {"443"},
 	})
 
 	// Recreate port 443 — should succeed (no duplicate).
@@ -1373,12 +1386,12 @@ func TestAudit1_HealthCheck_Configure(t *testing.T) {
 			mustCreateLB(t, h, "hc-lb")
 
 			rec := doELB(t, h, url.Values{
-				"Action":                      {"ConfigureHealthCheck"},
-				"Version":                     {"2012-06-01"},
-				"LoadBalancerName":            {"hc-lb"},
-				"HealthCheck.Target":          {tt.target},
-				"HealthCheck.Interval":        {"30"},
-				"HealthCheck.Timeout":         {"5"},
+				"Action":                         {"ConfigureHealthCheck"},
+				"Version":                        {"2012-06-01"},
+				"LoadBalancerName":               {"hc-lb"},
+				"HealthCheck.Target":             {tt.target},
+				"HealthCheck.Interval":           {"30"},
+				"HealthCheck.Timeout":            {"5"},
 				"HealthCheck.UnhealthyThreshold": {"2"},
 				"HealthCheck.HealthyThreshold":   {"3"},
 			})
@@ -1668,10 +1681,10 @@ func TestAudit1_LBCookieStickiness_NoExpiry(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := doELB(t, h, url.Values{
-		"Action":                  {"DescribeLoadBalancerPolicies"},
-		"Version":                 {"2012-06-01"},
-		"LoadBalancerName":        {"lb-cookie-lb"},
-		"PolicyNames.member.1":    {"lb-pol"},
+		"Action":               {"DescribeLoadBalancerPolicies"},
+		"Version":              {"2012-06-01"},
+		"LoadBalancerName":     {"lb-cookie-lb"},
+		"PolicyNames.member.1": {"lb-pol"},
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -1757,9 +1770,9 @@ func TestAudit1_PolicyTypes_FilterByName(t *testing.T) {
 
 	h := newTestHandler()
 	rec := doELB(t, h, url.Values{
-		"Action":                    {"DescribeLoadBalancerPolicyTypes"},
-		"Version":                   {"2012-06-01"},
-		"PolicyTypeNames.member.1":  {"SSLNegotiationPolicyType"},
+		"Action":                   {"DescribeLoadBalancerPolicyTypes"},
+		"Version":                  {"2012-06-01"},
+		"PolicyTypeNames.member.1": {"SSLNegotiationPolicyType"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1799,21 +1812,21 @@ func TestAudit1_SSLCipherPolicy_CreateAndDescribe(t *testing.T) {
 	mustCreateLB(t, h, "ssl-cipher-lb")
 
 	rec := doELB(t, h, url.Values{
-		"Action":                                     {"CreateLoadBalancerPolicy"},
-		"Version":                                    {"2012-06-01"},
-		"LoadBalancerName":                           {"ssl-cipher-lb"},
-		"PolicyName":                                 {"my-ssl-pol"},
-		"PolicyTypeName":                             {"SSLNegotiationPolicyType"},
-		"PolicyAttributes.member.1.AttributeName":    {"Protocol-TLSv1.2"},
-		"PolicyAttributes.member.1.AttributeValue":   {"true"},
+		"Action":           {"CreateLoadBalancerPolicy"},
+		"Version":          {"2012-06-01"},
+		"LoadBalancerName": {"ssl-cipher-lb"},
+		"PolicyName":       {"my-ssl-pol"},
+		"PolicyTypeName":   {"SSLNegotiationPolicyType"},
+		"PolicyAttributes.member.1.AttributeName":  {"Protocol-TLSv1.2"},
+		"PolicyAttributes.member.1.AttributeValue": {"true"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := doELB(t, h, url.Values{
-		"Action":                  {"DescribeLoadBalancerPolicies"},
-		"Version":                 {"2012-06-01"},
-		"LoadBalancerName":        {"ssl-cipher-lb"},
-		"PolicyNames.member.1":    {"my-ssl-pol"},
+		"Action":               {"DescribeLoadBalancerPolicies"},
+		"Version":              {"2012-06-01"},
+		"LoadBalancerName":     {"ssl-cipher-lb"},
+		"PolicyNames.member.1": {"my-ssl-pol"},
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -2170,10 +2183,10 @@ func TestAudit1_DescribePolicies_FilterByPolicyName(t *testing.T) {
 	}
 
 	rec := doELB(t, h, url.Values{
-		"Action":                  {"DescribeLoadBalancerPolicies"},
-		"Version":                 {"2012-06-01"},
-		"LoadBalancerName":        {"filter-pol-lb"},
-		"PolicyNames.member.1":    {"pol-b"},
+		"Action":               {"DescribeLoadBalancerPolicies"},
+		"Version":              {"2012-06-01"},
+		"LoadBalancerName":     {"filter-pol-lb"},
+		"PolicyNames.member.1": {"pol-b"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -2363,7 +2376,9 @@ func TestAudit1_Subnets_AttachDetachCycle(t *testing.T) {
 		XMLName xml.Name `xml:"DetachLoadBalancerFromSubnetsResponse"`
 		Result  struct {
 			Subnets struct {
-				Members []struct{ Value string `xml:",chardata"` } `xml:"member"`
+				Members []struct {
+					Value string `xml:",chardata"`
+				} `xml:"member"`
 			} `xml:"Subnets"`
 		} `xml:"DetachLoadBalancerFromSubnetsResult"`
 	}
@@ -2399,7 +2414,9 @@ func TestAudit1_Subnets_AttachIdempotent(t *testing.T) {
 		XMLName xml.Name `xml:"AttachLoadBalancerToSubnetsResponse"`
 		Result  struct {
 			Subnets struct {
-				Members []struct{ Value string `xml:",chardata"` } `xml:"member"`
+				Members []struct {
+					Value string `xml:",chardata"`
+				} `xml:"member"`
 			} `xml:"Subnets"`
 		} `xml:"AttachLoadBalancerToSubnetsResult"`
 	}
@@ -2435,7 +2452,9 @@ func TestAudit1_RegisterInstances_Idempotent(t *testing.T) {
 		XMLName xml.Name `xml:"RegisterInstancesWithLoadBalancerResponse"`
 		Result  struct {
 			Instances struct {
-				Members []struct{ InstanceID string `xml:"InstanceId"` } `xml:"member"`
+				Members []struct {
+					InstanceID string `xml:"InstanceId"`
+				} `xml:"member"`
 			} `xml:"Instances"`
 		} `xml:"RegisterInstancesWithLoadBalancerResult"`
 	}

@@ -71,6 +71,8 @@ const (
 	defaultConnectionDrainingTimeout int32 = 300
 	// defaultIdleTimeout is the default idle connection timeout in seconds.
 	defaultIdleTimeout int32 = 60
+	// defaultAccessLogEmitInterval is the default access log emit interval in minutes.
+	defaultAccessLogEmitInterval int32 = 60
 	// canonicalHostedZoneID is the real AWS Classic ELB hosted zone ID (us-east-1).
 	// In production AWS uses per-region values; for a local emulator one constant suffices.
 	canonicalHostedZoneID = "Z35SXDOTRQ7X7K"
@@ -119,7 +121,7 @@ func defaultLBAttributes() LoadBalancerAttributes {
 		ConnectionDrainingTimeout: defaultConnectionDrainingTimeout,
 		IdleTimeout:               defaultIdleTimeout,
 		DesyncMitigationMode:      "defensive",
-		AccessLog:                 AccessLog{Enabled: false, EmitInterval: 60},
+		AccessLog:                 AccessLog{Enabled: false, EmitInterval: defaultAccessLogEmitInterval},
 	}
 }
 
@@ -732,9 +734,7 @@ func (b *InMemoryBackend) CreateLoadBalancerListeners(name string, listeners []L
 		seen[l.LoadBalancerPort] = true
 	}
 
-	for _, l := range listeners {
-		lb.Listeners = append(lb.Listeners, l)
-	}
+	lb.Listeners = append(lb.Listeners, listeners...)
 
 	return nil
 }

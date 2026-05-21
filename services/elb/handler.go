@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	elbVersion = "2012-06-01"
-	elbXMLNS   = "http://elasticloadbalancing.amazonaws.com/doc/2012-06-01/"
+	elbVersion  = "2012-06-01"
+	elbXMLNS    = "http://elasticloadbalancing.amazonaws.com/doc/2012-06-01/"
+	boolStrTrue = "true"
 )
 
 // Handler is the Echo HTTP handler for Classic ELB operations.
@@ -1443,11 +1444,11 @@ func parseLoadBalancerAttributes(vals url.Values) LoadBalancerAttributes {
 	attrs := defaultLBAttributes()
 
 	if v := vals.Get("LoadBalancerAttributes.CrossZoneLoadBalancing.Enabled"); v != "" {
-		attrs.CrossZoneLoadBalancing = v == "true"
+		attrs.CrossZoneLoadBalancing = v == boolStrTrue
 	}
 
 	if v := vals.Get("LoadBalancerAttributes.ConnectionDraining.Enabled"); v != "" {
-		attrs.ConnectionDraining = v == "true"
+		attrs.ConnectionDraining = v == boolStrTrue
 	}
 
 	if v := vals.Get("LoadBalancerAttributes.ConnectionDraining.Timeout"); v != "" {
@@ -1479,7 +1480,7 @@ func parseLoadBalancerAttributes(vals url.Values) LoadBalancerAttributes {
 
 	// Parse AccessLog attributes.
 	if v := vals.Get("LoadBalancerAttributes.AccessLog.Enabled"); v != "" {
-		attrs.AccessLog.Enabled = v == "true"
+		attrs.AccessLog.Enabled = v == boolStrTrue
 	}
 
 	if v := vals.Get("LoadBalancerAttributes.AccessLog.S3BucketName"); v != "" {
