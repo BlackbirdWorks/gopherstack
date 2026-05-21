@@ -995,11 +995,15 @@ func TestAudit_ListSecrets_Pagination(t *testing.T) {
 	assert.Len(t, page2.SecretList, 3)
 
 	// Collect all pages
-	all := append(page1.SecretList, page2.SecretList...)
+	all := make([]sm.SecretListEntry, 0, 10)
+	all = append(all, page1.SecretList...)
+	all = append(all, page2.SecretList...)
 	token := page2.NextToken
 	for token != "" {
-		page, err := b.ListSecrets(&sm.ListSecretsInput{MaxResults: &mr, NextToken: token})
-		require.NoError(t, err)
+		var pageErr error
+		var page *sm.ListSecretsOutput
+		page, pageErr = b.ListSecrets(&sm.ListSecretsInput{MaxResults: &mr, NextToken: token})
+		require.NoError(t, pageErr)
 		all = append(all, page.SecretList...)
 		token = page.NextToken
 	}
@@ -1676,7 +1680,7 @@ func TestAudit_ResourcePolicy_PutGetDelete(t *testing.T) {
 	// Get
 	out, err := b.GetResourcePolicy(&sm.GetResourcePolicyInput{SecretID: "policy-secret"})
 	require.NoError(t, err)
-	assert.Equal(t, validPolicy, out.ResourcePolicy)
+	assert.JSONEq(t, validPolicy, out.ResourcePolicy)
 
 	// Delete
 	_, err = b.DeleteResourcePolicy(&sm.DeleteResourcePolicyInput{SecretID: "policy-secret"})
@@ -1895,8 +1899,8 @@ func TestAudit_Replication_StopReplication(t *testing.T) {
 
 	b := sm.NewInMemoryBackend()
 	_, err := b.CreateSecret(&sm.CreateSecretInput{
-		Name:         "rep-stop",
-		SecretString: "v",
+		Name:              "rep-stop",
+		SecretString:      "v",
 		AddReplicaRegions: []sm.ReplicaRegion{{Region: "ca-central-1"}},
 	})
 	require.NoError(t, err)
@@ -1915,7 +1919,7 @@ func TestAudit_Replication_UpdatedAfterPutSecretValue(t *testing.T) {
 	b := sm.NewInMemoryBackend()
 	// Create without value but with replica
 	_, err := b.CreateSecret(&sm.CreateSecretInput{
-		Name: "rep-update",
+		Name:              "rep-update",
 		AddReplicaRegions: []sm.ReplicaRegion{{Region: "sa-east-1"}},
 	})
 	require.NoError(t, err)
@@ -2433,7 +2437,7 @@ func TestAudit_Concurrent_CreateAndRead(t *testing.T) {
 
 	out, err := b.ListSecrets(&sm.ListSecretsInput{})
 	require.NoError(t, err)
-	assert.Equal(t, workers, len(out.SecretList))
+	assert.Len(t, out.SecretList, workers)
 }
 
 func TestAudit_Concurrent_PutSecretValue(t *testing.T) {

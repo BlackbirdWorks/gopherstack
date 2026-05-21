@@ -192,17 +192,17 @@ func validateSecretName(name string) error {
 	return nil
 }
 
-// validateMaxResults returns an error when MaxResults is outside [1, max].
-func validateMaxResults(n *int64, max int64) error {
+// validateMaxResults returns an error when MaxResults is outside [1, limit].
+func validateMaxResults(n *int64, limit int64) error {
 	if n == nil {
 		return nil
 	}
 
-	if *n < 1 || *n > max {
+	if *n < 1 || *n > limit {
 		return fmt.Errorf(
 			"%w: MaxResults must be between 1 and %d",
 			ErrInvalidParameter,
-			max,
+			limit,
 		)
 	}
 

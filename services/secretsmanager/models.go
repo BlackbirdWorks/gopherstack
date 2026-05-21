@@ -183,19 +183,19 @@ type DeleteSecretOutput struct {
 
 // SecretListEntry is a brief secret descriptor used in ListSecrets.
 type SecretListEntry struct {
-	DeletedDate           *float64            `json:"DeletedDate,omitempty"`
-	LastChangedDate       *float64            `json:"LastChangedDate,omitempty"`
-	LastAccessedDate      *float64            `json:"LastAccessedDate,omitempty"`
-	LastRotatedDate       *float64            `json:"LastRotatedDate,omitempty"`
-	CreatedDate           *float64            `json:"CreatedDate,omitempty"`
-	Tags                  *tags.Tags          `json:"Tags,omitempty"`
+	DeletedDate            *float64            `json:"DeletedDate,omitempty"`
+	LastChangedDate        *float64            `json:"LastChangedDate,omitempty"`
+	LastAccessedDate       *float64            `json:"LastAccessedDate,omitempty"`
+	LastRotatedDate        *float64            `json:"LastRotatedDate,omitempty"`
+	CreatedDate            *float64            `json:"CreatedDate,omitempty"`
+	Tags                   *tags.Tags          `json:"Tags,omitempty"`
 	SecretVersionsToStages map[string][]string `json:"SecretVersionsToStages,omitempty"`
-	ARN                   string              `json:"ARN"`
-	Name                  string              `json:"Name"`
-	Description           string              `json:"Description,omitempty"`
-	KmsKeyID              string              `json:"KmsKeyId,omitempty"`
-	RotationLambdaARN     string              `json:"RotationLambdaARN,omitempty"`
-	RotationEnabled       bool                `json:"RotationEnabled,omitempty"`
+	ARN                    string              `json:"ARN"`
+	Name                   string              `json:"Name"`
+	Description            string              `json:"Description,omitempty"`
+	KmsKeyID               string              `json:"KmsKeyId,omitempty"`
+	RotationLambdaARN      string              `json:"RotationLambdaARN,omitempty"`
+	RotationEnabled        bool                `json:"RotationEnabled,omitempty"`
 }
 
 // ListSecretsInput is the request payload for ListSecrets.
