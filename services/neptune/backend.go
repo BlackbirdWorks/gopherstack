@@ -128,18 +128,40 @@ type DBCluster struct {
 
 // DBInstance represents an Amazon Neptune DB instance.
 type DBInstance struct {
-	DBInstanceIdentifier       string `json:"DBInstanceIdentifier"`
-	DBInstanceArn              string `json:"DBInstanceArn"`
-	DBClusterIdentifier        string `json:"DBClusterIdentifier"`
-	DBInstanceClass            string `json:"DBInstanceClass"`
-	Engine                     string `json:"Engine"`
-	EngineVersion              string `json:"EngineVersion"`
-	DBInstanceStatus           string `json:"DBInstanceStatus"`
-	Endpoint                   string `json:"Endpoint"`
-	PreferredMaintenanceWindow string `json:"PreferredMaintenanceWindow"`
-	Port                       int    `json:"Port"`
-	StorageEncrypted           bool   `json:"StorageEncrypted"`
-	AutoMinorVersionUpgrade    bool   `json:"AutoMinorVersionUpgrade"`
+	DBInstanceIdentifier            string `json:"DBInstanceIdentifier"`
+	DBInstanceArn                   string `json:"DBInstanceArn"`
+	DBClusterIdentifier             string `json:"DBClusterIdentifier"`
+	DBInstanceClass                 string `json:"DBInstanceClass"`
+	Engine                          string `json:"Engine"`
+	EngineVersion                   string `json:"EngineVersion"`
+	DBInstanceStatus                string `json:"DBInstanceStatus"`
+	Endpoint                        string `json:"Endpoint"`
+	DBParameterGroupName            string `json:"DBParameterGroupName"`
+	PreferredMaintenanceWindow      string `json:"PreferredMaintenanceWindow"`
+	PreferredBackupWindow           string `json:"PreferredBackupWindow"`
+	AvailabilityZone                string `json:"AvailabilityZone"`
+	Port                            int    `json:"Port"`
+	PromotionTier                   int    `json:"PromotionTier"`
+	StorageEncrypted                bool   `json:"StorageEncrypted"`
+	AutoMinorVersionUpgrade         bool   `json:"AutoMinorVersionUpgrade"`
+	CopyTagsToSnapshot              bool   `json:"CopyTagsToSnapshot"`
+	EnableIAMDatabaseAuthentication bool   `json:"EnableIAMDatabaseAuthentication"`
+}
+
+// DBInstanceModifyOptions holds optional fields for ModifyDBInstance.
+type DBInstanceModifyOptions struct {
+	DBParameterGroupName            string
+	PreferredMaintenanceWindow      string
+	PreferredBackupWindow           string
+	AvailabilityZone                string
+	AutoMinorVersionUpgrade         bool
+	AutoMinorVersionUpgradeSet      bool
+	CopyTagsToSnapshot              bool
+	CopyTagsToSnapshotSet           bool
+	EnableIAMDatabaseAuthentication bool
+	IamAuthSet                      bool
+	PromotionTier                   int
+	PromotionTierSet                bool
 }
 
 // DBSubnetGroup represents a Neptune DB subnet group.
