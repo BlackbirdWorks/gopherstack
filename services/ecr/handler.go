@@ -820,6 +820,8 @@ func (h *Handler) handleBatchGetImage(
 type describeImagesInput struct {
 	RepositoryName string            `json:"repositoryName"`
 	ImageIDs       []ImageIdentifier `json:"imageIds,omitempty"`
+	NextToken      string            `json:"nextToken,omitempty"`
+	MaxResults     int               `json:"maxResults,omitempty"`
 }
 
 type imageDetailView struct {
@@ -835,12 +837,17 @@ type imageDetailView struct {
 
 type describeImagesOutput struct {
 	ImageDetails []imageDetailView `json:"imageDetails"`
+	NextToken    string            `json:"nextToken,omitempty"`
 }
 
 func toImageDetailView(img Image) imageDetailView {
-	tags := []string{}
-	if img.ImageID.ImageTag != "" {
-		tags = append(tags, img.ImageID.ImageTag)
+	// Prefer multi-tag list from DescribeImages annotation; fall back to single tag.
+	tags := img.Tags
+	if len(tags) == 0 && img.ImageID.ImageTag != "" {
+		tags = []string{img.ImageID.ImageTag}
+	}
+	if tags == nil {
+		tags = []string{}
 	}
 
 	var pushedAt float64
@@ -869,19 +876,42 @@ func (h *Handler) handleDescribeImages(
 		return nil, err
 	}
 
+	// Apply nextToken cursor when paginating without specific imageIds.
+	if in.NextToken != "" && len(in.ImageIDs) == 0 {
+		start := 0
+		for i, img := range imgs {
+			if img.ImageDigest == in.NextToken {
+				start = i
+				break
+			}
+		}
+		imgs = imgs[start:]
+	}
+
+	var nextToken string
+	if in.MaxResults > 0 && len(in.ImageIDs) == 0 && len(imgs) > in.MaxResults {
+		nextToken = imgs[in.MaxResults].ImageDigest
+		imgs = imgs[:in.MaxResults]
+	}
+
 	details := make([]imageDetailView, 0, len(imgs))
 	for _, img := range imgs {
 		details = append(details, toImageDetailView(img))
 	}
 
-	return &describeImagesOutput{ImageDetails: details}, nil
+	return &describeImagesOutput{ImageDetails: details, NextToken: nextToken}, nil
+}
+
+type listImagesFilter struct {
+	TagStatus string `json:"tagStatus,omitempty"`
 }
 
 type listImagesInput struct {
-	RepositoryName string `json:"repositoryName"`
-	RegistryID     string `json:"registryId,omitempty"`
-	NextToken      string `json:"nextToken,omitempty"`
-	MaxResults     int    `json:"maxResults,omitempty"`
+	RepositoryName string          `json:"repositoryName"`
+	RegistryID     string          `json:"registryId,omitempty"`
+	NextToken      string          `json:"nextToken,omitempty"`
+	MaxResults     int             `json:"maxResults,omitempty"`
+	Filter         *listImagesFilter `json:"filter,omitempty"`
 }
 
 type listImagesOutput struct {
@@ -890,16 +920,22 @@ type listImagesOutput struct {
 }
 
 func (h *Handler) handleListImages(_ context.Context, in *listImagesInput) (*listImagesOutput, error) {
-	imageIDs, err := h.Backend.ListImages(in.RepositoryName)
+	tagStatusFilter := ""
+	if in.Filter != nil {
+		tagStatusFilter = in.Filter.TagStatus
+	}
+
+	imageIDs, err := h.Backend.ListImages(in.RepositoryName, tagStatusFilter)
 	if err != nil {
 		return nil, err
 	}
 
-	// Apply nextToken cursor: skip to the element whose digest matches.
+	// Apply nextToken cursor: skip to the element whose digest+tag matches.
 	if in.NextToken != "" {
 		start := 0
 		for i, id := range imageIDs {
-			if id.ImageDigest == in.NextToken {
+			key := id.ImageDigest + ":" + id.ImageTag
+			if key == in.NextToken {
 				start = i
 
 				break
@@ -912,7 +948,8 @@ func (h *Handler) handleListImages(_ context.Context, in *listImagesInput) (*lis
 	// Apply maxResults page limit.
 	var nextToken string
 	if in.MaxResults > 0 && len(imageIDs) > in.MaxResults {
-		nextToken = imageIDs[in.MaxResults].ImageDigest
+		next := imageIDs[in.MaxResults]
+		nextToken = next.ImageDigest + ":" + next.ImageTag
 		imageIDs = imageIDs[:in.MaxResults]
 	}
 

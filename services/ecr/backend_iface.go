@@ -159,7 +159,8 @@ type Backend interface {
 	StartImageScan(repositoryName string, imageID ImageIdentifier) (*ImageScanStartResult, error)
 
 	// ListImages lists image identifiers for a repository.
-	ListImages(repositoryName string) ([]ImageIdentifier, error)
+	// tagStatusFilter can be "TAGGED", "UNTAGGED", or "" / "ANY" for all images.
+	ListImages(repositoryName, tagStatusFilter string) ([]ImageIdentifier, error)
 
 	// ListImageReferrers lists image referrers for a subject image.
 	ListImageReferrers(repositoryName string, subject ImageIdentifier) ([]ImageReferrer, error)

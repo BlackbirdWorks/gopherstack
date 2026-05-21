@@ -81,6 +81,9 @@ type Image struct {
 	RegistryID             string          `json:"registryId"`
 	StorageClass           string          `json:"storageClass,omitempty"`
 	ImageSizeInBytes       int64           `json:"imageSizeInBytes,omitempty"`
+	// Tags holds all tags for this image, populated by DescribeImages for multi-tag support.
+	// Not part of the AWS API response directly; used via imageDetailView.ImageTags.
+	Tags []string `json:"-"`
 }
 
 // LayerAvailability represents the availability of an image layer.
@@ -692,19 +695,40 @@ func (b *InMemoryBackend) DescribeImages(repositoryName string, imageIDs []Image
 	}
 
 	repoImages := b.images[repositoryName]
+	repoTagIdx := b.tagIndex[repositoryName]
+
+	// Build digest → []tag reverse map for multi-tag annotation.
+	digestTags := make(map[string][]string)
+	if repoTagIdx != nil {
+		for tag, digest := range repoTagIdx {
+			digestTags[digest] = append(digestTags[digest], tag)
+		}
+	}
+
+	annotate := func(img Image) Image {
+		tags := digestTags[img.ImageDigest]
+		if len(tags) == 0 && img.ImageID.ImageTag != "" {
+			tags = []string{img.ImageID.ImageTag}
+		}
+		// Sort for stable output.
+		sort.Strings(tags)
+		img.Tags = tags
+		return img
+	}
+
 	out := make([]Image, 0, len(repoImages))
 	if len(imageIDs) == 0 {
 		for _, img := range repoImages {
-			out = append(out, *img)
+			out = append(out, annotate(*img))
 		}
 	} else {
 		for _, id := range imageIDs {
-			img, ok := findImageLocked(repoImages, b.tagIndex[repositoryName], id)
+			img, ok := findImageLocked(repoImages, repoTagIdx, id)
 			if !ok {
 				return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
 			}
 
-			out = append(out, *img)
+			out = append(out, annotate(*img))
 		}
 	}
 
@@ -1474,7 +1498,8 @@ func (b *InMemoryBackend) StartImageScan(
 }
 
 // ListImages lists image identifiers for a repository.
-func (b *InMemoryBackend) ListImages(repositoryName string) ([]ImageIdentifier, error) {
+// tagStatusFilter controls which images to return: "TAGGED", "UNTAGGED", or "ANY" (default).
+func (b *InMemoryBackend) ListImages(repositoryName, tagStatusFilter string) ([]ImageIdentifier, error) {
 	b.mu.RLock("ListImages")
 	defer b.mu.RUnlock()
 
@@ -1482,9 +1507,45 @@ func (b *InMemoryBackend) ListImages(repositoryName string) ([]ImageIdentifier, 
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
+	repoTagIdx := b.tagIndex[repositoryName]
+
+	// Build a reverse map: digest → []tag from tagIndex.
+	digestTags := make(map[string][]string)
+	if repoTagIdx != nil {
+		for tag, digest := range repoTagIdx {
+			digestTags[digest] = append(digestTags[digest], tag)
+		}
+	}
+
 	out := make([]ImageIdentifier, 0, len(b.images[repositoryName]))
 	for _, img := range b.images[repositoryName] {
-		out = append(out, img.ImageID)
+		tags := digestTags[img.ImageDigest]
+		if len(tags) == 0 && img.ImageID.ImageTag != "" {
+			// Legacy: tag stored on image directly (before tagIndex).
+			tags = []string{img.ImageID.ImageTag}
+		}
+
+		isTagged := len(tags) > 0
+
+		switch tagStatusFilter {
+		case "TAGGED":
+			if !isTagged {
+				continue
+			}
+		case "UNTAGGED":
+			if isTagged {
+				continue
+			}
+		}
+
+		if isTagged {
+			// Emit one identifier per tag (matching AWS ListImages behaviour).
+			for _, tag := range tags {
+				out = append(out, ImageIdentifier{ImageDigest: img.ImageDigest, ImageTag: tag})
+			}
+		} else {
+			out = append(out, ImageIdentifier{ImageDigest: img.ImageDigest})
+		}
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -1978,6 +2039,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.repos = make(map[string]*Repository)
 	b.images = make(map[string]map[string]*Image)
+	b.tagIndex = make(map[string]map[string]string)
 	b.pullThroughCacheRules = make(map[string]*PullThroughCacheRule)
 	b.repositoryCreationTemplates = make(map[string]*RepositoryCreationTemplate)
 	b.lifecyclePolicies = make(map[string]string)
