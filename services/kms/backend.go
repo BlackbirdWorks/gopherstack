@@ -58,6 +58,12 @@ var (
 	ErrValidation = errors.New("ValidationException")
 	// ErrExpiredKeyMaterial is returned when a key's imported material has passed its ValidTo date.
 	ErrExpiredKeyMaterial = errors.New("ExpiredImportTokenException")
+	// ErrInvalidGrantToken is returned when a grant token is expired or malformed.
+	ErrInvalidGrantToken = errors.New("InvalidGrantTokenException")
+	// ErrLimitExceeded is returned when a service limit is exceeded (e.g. grants per key).
+	ErrLimitExceeded = errors.New("LimitExceededException")
+	// ErrInvalidAlgorithm is returned when an algorithm is not valid for the key spec.
+	ErrInvalidAlgorithm = errors.New("InvalidAlgorithmException")
 )
 
 const (
@@ -133,6 +139,10 @@ const (
 	expirationModelNoExpiry = "KEY_MATERIAL_DOES_NOT_EXPIRE"
 	// defaultKeyPolicyName is the only policy name supported by AWS KMS.
 	defaultKeyPolicyName = "default"
+	// maxGrantsPerKey is the AWS KMS default service limit for grants per key.
+	maxGrantsPerKey = 50000
+	// grantTokenTTL is the lifetime of a grant token per AWS KMS (approximately 5 minutes).
+	grantTokenTTL = 5 * time.Minute
 )
 
 // isValidGrantOperation reports whether op is a grant operation permitted by AWS KMS.
@@ -1885,8 +1895,6 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 		return nil, ErrKeyNotFound
 	}
 
-	// Limit grants per key to prevent OOM/abuse (AWS default is 500).
-	const maxGrantsPerKey = 500
 	grantCount := 0
 	for _, g := range b.grants {
 		if g.KeyID == keyID {
@@ -1894,9 +1902,10 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 		}
 	}
 	if grantCount >= maxGrantsPerKey {
-		return nil, fmt.Errorf("%w: grant limit of %d exceeded for key %q", ErrValidation, maxGrantsPerKey, keyID)
+		return nil, fmt.Errorf("%w: grant limit of %d exceeded for key %q", ErrLimitExceeded, maxGrantsPerKey, keyID)
 	}
 
+	now := time.Now()
 	grantID := uuid.New().String()
 	grantToken := uuid.New().String()
 	grant := &Grant{
@@ -1907,8 +1916,9 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 		Operations:        input.Operations,
 		Name:              input.Name,
 		GrantToken:        grantToken,
+		TokenIssuedAt:     now,
 		Constraints:       input.Constraints,
-		CreationDate:      UnixTimeFloat(time.Now()),
+		CreationDate:      UnixTimeFloat(now),
 	}
 	b.grants[grantID] = grant
 
@@ -1967,7 +1977,12 @@ func (b *InMemoryBackend) validateGrantTokenConstraints(grantTokens []string, en
 
 	grant := b.findGrantByToken(grantTokens)
 	if grant == nil {
-		return nil
+		return fmt.Errorf("%w: grant token not found", ErrInvalidGrantToken)
+	}
+
+	// AWS grant tokens are valid for approximately 5 minutes after issuance.
+	if !grant.TokenIssuedAt.IsZero() && time.Since(grant.TokenIssuedAt) > grantTokenTTL {
+		return fmt.Errorf("%w: grant token has expired", ErrInvalidGrantToken)
 	}
 
 	if !grantConstraintsSatisfied(grant.Constraints, encCtx) {
@@ -2993,6 +3008,10 @@ func (b *InMemoryBackend) GenerateMac(input *GenerateMacInput) (*GenerateMacOutp
 		)
 	}
 
+	if algErr := validateMacAlgorithm(input.MacAlgorithm, key.KeySpec); algErr != nil {
+		return nil, algErr
+	}
+
 	km, err := b.requireKeyMaterial(key.KeyID)
 	if err != nil {
 		return nil, err
@@ -3058,6 +3077,10 @@ func (b *InMemoryBackend) VerifyMac(input *VerifyMacInput) (*VerifyMacOutput, er
 			"%w: key %q must have KeyUsage=%s for VerifyMac",
 			ErrInvalidKeyUsage, key.KeyID, KeyUsageGenerateMac,
 		)
+	}
+
+	if algErr := validateMacAlgorithm(input.MacAlgorithm, key.KeySpec); algErr != nil {
+		return nil, algErr
 	}
 
 	km, err := b.requireKeyMaterial(key.KeyID)

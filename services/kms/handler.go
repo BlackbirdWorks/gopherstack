@@ -996,43 +996,49 @@ func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, bo
 }
 
 // handleError writes a structured error response for a KMS operation failure.
+const (
+	awsErrNotFound          = "NotFoundException"
+	awsErrValidation        = "ValidationException"
+	awsErrInvalidCiphertext = "InvalidCiphertextException"
+)
+
+// kmsErrorEntry maps a sentinel error to its AWS error type string.
+type kmsErrorEntry struct {
+	sentinel error
+	awsType  string
+}
+
+// kmsErrorTable returns the ordered error-to-AWS-type mapping for KMS error classification.
+// Defined as a function to satisfy gochecknoglobals.
+func kmsErrorTable() []kmsErrorEntry {
+	return []kmsErrorEntry{
+		{ErrKeyNotFound, awsErrNotFound},
+		{ErrAliasNotFound, awsErrNotFound},
+		{ErrGrantNotFound, awsErrNotFound},
+		{ErrCustomKeyStoreNotFound, "CustomKeyStoreNotFoundException"},
+		{ErrKeyDisabled, "DisabledException"},
+		{ErrKeyInvalidState, "KMSInvalidStateException"},
+		{ErrInvalidKeyUsage, "InvalidKeyUsageException"},
+		{ErrAliasAlreadyExists, "AlreadyExistsException"},
+		{ErrCustomKeyStoreAlreadyExists, "CustomKeyStoreNameInUseException"},
+		{ErrInvalidCiphertext, awsErrInvalidCiphertext},
+		{ErrCiphertextTooShort, awsErrInvalidCiphertext},
+		{ErrInvalidSignature, "KMSInvalidSignatureException"},
+		{ErrUnsupportedOrigin, "UnsupportedOperationException"},
+		{ErrValidation, awsErrValidation},
+		{ErrInvalidDataKeySize, awsErrValidation},
+		{ErrInvalidGrantToken, "InvalidGrantTokenException"},
+		{ErrLimitExceeded, "LimitExceededException"},
+		{ErrInvalidAlgorithm, "InvalidAlgorithmException"},
+		{ErrUnknownOperation, "UnknownOperationException"},
+	}
+}
+
 func (h *Handler) handleError(ctx context.Context, c *echo.Context, action string, reqErr error) error {
 	log := logger.Load(ctx)
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
 
-	var errorType string
-
-	statusCode := http.StatusBadRequest
-
-	switch {
-	case errors.Is(reqErr, ErrKeyNotFound), errors.Is(reqErr, ErrAliasNotFound), errors.Is(reqErr, ErrGrantNotFound):
-		errorType = "NotFoundException"
-	case errors.Is(reqErr, ErrCustomKeyStoreNotFound):
-		errorType = "CustomKeyStoreNotFoundException"
-	case errors.Is(reqErr, ErrKeyDisabled):
-		errorType = "DisabledException"
-	case errors.Is(reqErr, ErrKeyInvalidState):
-		errorType = "KMSInvalidStateException"
-	case errors.Is(reqErr, ErrInvalidKeyUsage):
-		errorType = "InvalidKeyUsageException"
-	case errors.Is(reqErr, ErrAliasAlreadyExists):
-		errorType = "AlreadyExistsException"
-	case errors.Is(reqErr, ErrCustomKeyStoreAlreadyExists):
-		errorType = "CustomKeyStoreNameInUseException"
-	case errors.Is(reqErr, ErrInvalidCiphertext), errors.Is(reqErr, ErrCiphertextTooShort):
-		errorType = "InvalidCiphertextException"
-	case errors.Is(reqErr, ErrInvalidSignature):
-		errorType = "KMSInvalidSignatureException"
-	case errors.Is(reqErr, ErrUnsupportedOrigin):
-		errorType = "UnsupportedOperationException"
-	case errors.Is(reqErr, ErrValidation), errors.Is(reqErr, ErrInvalidDataKeySize):
-		errorType = "ValidationException"
-	case errors.Is(reqErr, ErrUnknownOperation):
-		errorType = "UnknownOperationException"
-	default:
-		errorType = "InternalServiceError"
-		statusCode = http.StatusInternalServerError
-	}
+	errorType, statusCode := classifyKMSError(reqErr)
 
 	if statusCode == http.StatusInternalServerError {
 		log.ErrorContext(ctx, "KMS internal error", "error", reqErr, "action", action)
@@ -1046,6 +1052,17 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	})
 
 	return c.JSONBlob(statusCode, payload)
+}
+
+// classifyKMSError returns the AWS error type string and HTTP status code for reqErr.
+func classifyKMSError(reqErr error) (string, int) {
+	for _, m := range kmsErrorTable() {
+		if errors.Is(reqErr, m.sentinel) {
+			return m.awsType, http.StatusBadRequest
+		}
+	}
+
+	return "InternalServiceError", http.StatusInternalServerError
 }
 
 // TaggedKeyInfo contains a KMS key's ARN and tag snapshot.

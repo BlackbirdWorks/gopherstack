@@ -800,6 +800,19 @@ func validateGenerateDataKeyInput(input *GenerateDataKeyInput) error {
 	return validateEncryptionContextSize(input.EncryptionContext)
 }
 
+// validateMacAlgorithm returns an error if macAlgorithm is not supported by the given keySpec.
+func validateMacAlgorithm(macAlgorithm, keySpec string) error {
+	supported := defaultMacAlgorithms(keySpec)
+	if slices.Contains(supported, macAlgorithm) {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: MAC algorithm %q is not supported for key spec %q; supported: %v",
+		ErrInvalidAlgorithm, macAlgorithm, keySpec, supported,
+	)
+}
+
 // validateReEncryptInput enforces non-empty destination key and encryption context size limits.
 func validateReEncryptInput(input *ReEncryptInput) error {
 	if strings.TrimSpace(input.DestinationKeyID) == "" {
