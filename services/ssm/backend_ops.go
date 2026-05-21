@@ -458,6 +458,11 @@ func (b *InMemoryBackend) RegisterDefaultPatchBaseline(
 
 	b.patchGroupToBaseline["default"] = input.BaselineID
 
+	// Also store per-OS key when the baseline has a known OperatingSystem.
+	if bl, ok := b.patchBaselines[input.BaselineID]; ok && bl.OperatingSystem != "" {
+		b.patchGroupToBaseline["default-"+bl.OperatingSystem] = input.BaselineID
+	}
+
 	return &RegisterDefaultPatchBaselineOutput{BaselineID: input.BaselineID}, nil
 }
 

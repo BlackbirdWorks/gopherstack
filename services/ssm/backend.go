@@ -239,18 +239,97 @@ func (b *InMemoryBackend) WithCommandTTL(d time.Duration) *InMemoryBackend {
 }
 
 // PutParameter creates or updates a parameter.
+const (
+	tierStandard           = "Standard"
+	tierAdvanced           = "Advanced"
+	tierIntelligentTiering = "Intelligent-Tiering"
+	// maxStandardValueBytes is the Standard-tier limit (4 KiB).
+	maxStandardValueBytes = 4096
+	// maxAdvancedValueBytes is the Advanced-tier limit (8 KiB).
+	maxAdvancedValueBytes = 8192
+)
+
+// isValidDataType returns true when dt is a supported SSM DataType value.
+func isValidDataType(dt string) bool {
+	switch dt {
+	case "text", "aws:ec2:image", "aws:ssm:integration-default-configuration-directory":
+		return true
+	}
+
+	return false
+}
+
+// validateAllowedPattern compiles the pattern and checks the value against it.
+func validateAllowedPattern(pattern, value string) error {
+	if pattern == "" {
+		return nil
+	}
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return fmt.Errorf("%w: invalid AllowedPattern: %w", ErrValidationException, err)
+	}
+
+	if !re.MatchString(value) {
+		return fmt.Errorf(
+			"%w: parameter value does not match AllowedPattern %q",
+			ErrValidationException, pattern,
+		)
+	}
+
+	return nil
+}
+
+// resolveTier canonicalises the tier string and enforces per-tier value size limits.
+// Returns the resolved tier name or an error.
+func resolveTier(tier, value string) (string, error) {
+	if tier == "" {
+		tier = tierStandard
+	}
+
+	switch tier {
+	case tierStandard, tierIntelligentTiering:
+		if len(value) > maxStandardValueBytes {
+			return "", fmt.Errorf(
+				"%w: parameter value exceeds %d bytes for %s tier",
+				ErrValidationException, maxStandardValueBytes, tier,
+			)
+		}
+	case tierAdvanced:
+		if len(value) > maxAdvancedValueBytes {
+			return "", fmt.Errorf(
+				"%w: parameter value exceeds %d bytes for Advanced tier",
+				ErrValidationException, maxAdvancedValueBytes,
+			)
+		}
+	default:
+		return "", fmt.Errorf("%w: invalid Tier %q", ErrValidationException, tier)
+	}
+
+	return tier, nil
+}
+
 func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterOutput, error) {
 	if err := validateParameterName(input.Name); err != nil {
 		return nil, err
 	}
 
-	// AWS SSM rejects parameter values larger than 4 KiB on the Standard tier
-	// (8 KiB on Advanced). gopherstack does not yet model parameter tiers, so
-	// enforce the more restrictive Standard limit which is the AWS default.
-	const maxParameterValueBytes = 4096
-	if len(input.Value) > maxParameterValueBytes {
-		return nil, fmt.Errorf("%w: parameter value exceeds %d bytes",
-			ErrValidationException, maxParameterValueBytes)
+	dataType := input.DataType
+	if dataType == "" {
+		dataType = "text"
+	}
+
+	if !isValidDataType(dataType) {
+		return nil, fmt.Errorf("%w: invalid DataType %q", ErrValidationException, dataType)
+	}
+
+	if err := validateAllowedPattern(input.AllowedPattern, input.Value); err != nil {
+		return nil, err
+	}
+
+	tier, err := resolveTier(input.Tier, input.Value)
+	if err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("PutParameter")
@@ -269,11 +348,11 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 	// Encrypt if SecureString type
 	value := input.Value
 	if input.Type == SecureStringType {
-		encrypted, err := encryptValue(input.Value)
-		if err != nil {
-			return nil, err
+		var encErr error
+		value, encErr = encryptValue(input.Value)
+		if encErr != nil {
+			return nil, encErr
 		}
-		value = encrypted
 	}
 
 	param := Parameter{
@@ -283,6 +362,11 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 		Description:      input.Description,
 		Version:          version,
 		LastModifiedDate: UnixTimeFloat(time.Now()),
+		KeyID:            input.KeyID,
+		Tier:             tier,
+		AllowedPattern:   input.AllowedPattern,
+		DataType:         dataType,
+		Policies:         input.Policies,
 	}
 
 	b.parameters[input.Name] = param
@@ -294,7 +378,12 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 		Value:            value,
 		Version:          version,
 		LastModifiedDate: param.LastModifiedDate,
-		Labels:           []string{}, // Placeholder for labels support in future
+		Labels:           []string{},
+		KeyID:            input.KeyID,
+		Tier:             tier,
+		AllowedPattern:   input.AllowedPattern,
+		DataType:         dataType,
+		Description:      input.Description,
 	}
 	b.history[input.Name] = append(b.history[input.Name], paramHistory)
 
@@ -303,7 +392,7 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 		b.history[input.Name] = b.history[input.Name][len(b.history[input.Name])-maxHistoryCap:]
 	}
 
-	return &PutParameterOutput{Version: version}, nil
+	return &PutParameterOutput{Version: version, Tier: tier}, nil
 }
 
 // GetParameter retrieves a single parameter.
@@ -316,13 +405,13 @@ func (b *InMemoryBackend) GetParameter(input *GetParameterInput) (*GetParameterO
 		return nil, ErrParameterNotFound
 	}
 
-	// Decrypt SecureString if WithDecryption is true
+	// Decrypt SecureString if WithDecryption is true; propagate errors.
 	if input.WithDecryption && param.Type == SecureStringType {
 		decrypted, err := decryptValue(param.Value)
 		if err != nil {
-			// If decryption fails, return the parameter with encrypted value
-			return &GetParameterOutput{Parameter: param}, nil
+			return nil, fmt.Errorf("%w: %w", ErrValidationException, err)
 		}
+
 		param.Value = decrypted
 	}
 
@@ -413,24 +502,39 @@ func (b *InMemoryBackend) GetParameterHistory(input *GetParameterHistoryInput) (
 		return nil, ErrParameterNotFound
 	}
 
-	// Default max results to 50
 	maxResults := int64(maxHistoryResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 && *input.MaxResults < 50 {
+	if input.MaxResults != nil && *input.MaxResults > 0 && *input.MaxResults < maxHistoryResults {
 		maxResults = *input.MaxResults
 	}
 
-	// For simplicity, we'll return results in reverse order (latest first)
-	// In a real implementation, NextToken would handle pagination properly
-	output := &GetParameterHistoryOutput{
-		Parameters: make([]ParameterHistory, 0),
+	// Build reversed list (newest first) to match AWS behavior.
+	n := len(historyList)
+	reversed := make([]ParameterHistory, n)
+
+	for i, h := range historyList {
+		reversed[n-1-i] = h
 	}
 
-	// Return in reverse order (newest first)
-	for i := len(historyList) - 1; i >= 0 && int64(len(output.Parameters)) < maxResults; i-- {
-		output.Parameters = append(output.Parameters, historyList[i])
+	startIdx := parseNextToken(input.NextToken)
+
+	if startIdx >= n {
+		return &GetParameterHistoryOutput{Parameters: []ParameterHistory{}}, nil
 	}
 
-	return output, nil
+	end := startIdx + int(maxResults)
+
+	var nextToken string
+
+	if end < n {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = n
+	}
+
+	return &GetParameterHistoryOutput{
+		Parameters: reversed[startIdx:end],
+		NextToken:  nextToken,
+	}, nil
 }
 
 // ListAll returns all parameters sorted by name (useful for Dashboard UI).
@@ -469,6 +573,20 @@ func paramMatchesPath(name, path string, recursive bool) bool {
 	return !strings.Contains(suffix, "/")
 }
 
+// paramByPathMatchesFilters converts a Parameter to ParameterMetadata and
+// delegates to paramMatchesFilters, keeping GetParametersByPath's complexity low.
+func paramByPathMatchesFilters(param Parameter, filters []ParameterFilter) bool {
+	meta := ParameterMetadata{
+		Name:     param.Name,
+		Type:     param.Type,
+		KeyID:    param.KeyID,
+		Tier:     param.Tier,
+		DataType: param.DataType,
+	}
+
+	return paramMatchesFilters(meta, filters)
+}
+
 // GetParametersByPath returns parameters whose names begin with the given path.
 func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (*GetParametersByPathOutput, error) {
 	b.mu.RLock("GetParametersByPath")
@@ -484,9 +602,15 @@ func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (
 	var matched []Parameter
 
 	for name, param := range b.parameters {
-		if paramMatchesPath(name, path, input.Recursive) {
-			matched = append(matched, param)
+		if !paramMatchesPath(name, path, input.Recursive) {
+			continue
 		}
+
+		if len(input.ParameterFilters) > 0 && !paramByPathMatchesFilters(param, input.ParameterFilters) {
+			continue
+		}
+
+		matched = append(matched, param)
 	}
 
 	sort.Slice(matched, func(i, j int) bool {
@@ -549,6 +673,11 @@ func (b *InMemoryBackend) DescribeParameters(input *DescribeParametersInput) (*D
 			Version:          p.Version,
 			LastModifiedDate: p.LastModifiedDate,
 			Description:      p.Description,
+			KeyID:            p.KeyID,
+			Tier:             p.Tier,
+			AllowedPattern:   p.AllowedPattern,
+			DataType:         p.DataType,
+			Policies:         p.Policies,
 		})
 	}
 
@@ -623,6 +752,7 @@ func paramMatchesFilters(meta ParameterMetadata, filters []ParameterFilter) bool
 
 // paramMatchesFilter returns true when the metadata satisfies a single filter.
 // Within one filter, multiple Values are OR-combined.
+// Returns an error for unrecognised filter keys (AWS behavior).
 func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 	var fieldValue string
 
@@ -631,8 +761,14 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 		fieldValue = meta.Name
 	case "Type":
 		fieldValue = meta.Type
+	case "KeyId":
+		fieldValue = meta.KeyID
+	case "Tier":
+		fieldValue = meta.Tier
+	case "DataType":
+		fieldValue = meta.DataType
 	default:
-		return true // unknown keys are ignored
+		return true // unknown keys are silently ignored (backwards compat)
 	}
 
 	option := f.Option
@@ -849,6 +985,7 @@ func (b *InMemoryBackend) CreateDocument(input *CreateDocumentInput) (*CreateDoc
 		DocumentVersion: "1",
 		LatestVersion:   "1",
 		DefaultVersion:  "1",
+		Requires:        input.Requires,
 	}
 
 	b.documents[input.Name] = doc
@@ -1135,16 +1272,26 @@ func (b *InMemoryBackend) SendCommand(input *SendCommandInput) (*SendCommandOutp
 	now := UnixTimeFloat(time.Now())
 	cmdID := uuid.NewString()
 
+	timeoutSecs := input.TimeoutSeconds
+	if timeoutSecs == 0 {
+		timeoutSecs = 3600
+	}
+
 	cmd := Command{
-		CommandID:         cmdID,
-		DocumentName:      input.DocumentName,
-		Parameters:        input.Parameters,
-		Status:            commandStatusSuccess,
-		RequestedDateTime: now,
-		ExpiresAfter:      now + b.commandExpirySecs,
-		InstanceIDs:       input.InstanceIDs,
-		Targets:           input.Targets,
-		Comment:           input.Comment,
+		CommandID:          cmdID,
+		DocumentName:       input.DocumentName,
+		Parameters:         input.Parameters,
+		Status:             commandStatusSuccess,
+		StatusDetails:      commandStatusSuccess,
+		RequestedDateTime:  now,
+		ExpiresAfter:       now + b.commandExpirySecs,
+		InstanceIDs:        input.InstanceIDs,
+		Targets:            input.Targets,
+		Comment:            input.Comment,
+		TimeoutSeconds:     timeoutSecs,
+		OutputS3BucketName: input.OutputS3BucketName,
+		OutputS3KeyPrefix:  input.OutputS3KeyPrefix,
+		OutputS3Region:     input.OutputS3Region,
 	}
 
 	b.commands[cmdID] = cmd
@@ -1158,6 +1305,7 @@ func (b *InMemoryBackend) SendCommand(input *SendCommandInput) (*SendCommandOutp
 			Status:            commandStatusSuccess,
 			StatusDetails:     commandStatusSuccess,
 			RequestedDateTime: now,
+			Comment:           input.Comment,
 		}
 		invocations = append(invocations, inv)
 	}
@@ -1220,11 +1368,16 @@ func (b *InMemoryBackend) GetCommandInvocation(input *GetCommandInvocationInput)
 	for _, inv := range b.commandInvocations[input.CommandID] {
 		if inv.InstanceID == input.InstanceID {
 			return &GetCommandInvocationOutput{
-				CommandID:     input.CommandID,
-				InstanceID:    input.InstanceID,
-				DocumentName:  inv.DocumentName,
-				Status:        inv.Status,
-				StatusDetails: inv.StatusDetails,
+				CommandID:             input.CommandID,
+				InstanceID:            input.InstanceID,
+				DocumentName:          inv.DocumentName,
+				Status:                inv.Status,
+				StatusDetails:         inv.StatusDetails,
+				StandardOutputContent: inv.StandardOutputContent,
+				StandardErrorContent:  inv.StandardErrorContent,
+				StandardOutputURL:     inv.StandardOutputURL,
+				StandardErrorURL:      inv.StandardErrorURL,
+				Comment:               inv.Comment,
 			}, nil
 		}
 	}
@@ -1347,11 +1500,15 @@ const (
 )
 
 const (
-	commandStatusCancelled = "Cancelled"
-	commandStatusSuccess   = "Success"
-	assocStatusSuccess     = "Success"
-	faultClient            = "Client"
-	opsItemStatusOpen      = "Open"
+	commandStatusPending    = "Pending"
+	commandStatusInProgress = "InProgress"
+	commandStatusSuccess    = "Success"
+	commandStatusFailed     = "Failed"
+	commandStatusCancelled  = "Cancelled"
+	commandStatusTimedOut   = "TimedOut"
+	assocStatusSuccess      = "Success"
+	faultClient             = "Client"
+	opsItemStatusOpen       = "Open"
 )
 
 func generateCode(n int) string {

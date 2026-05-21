@@ -2,6 +2,7 @@ package ssm
 
 import (
 	"maps"
+	"slices"
 	"strconv"
 	"time"
 
@@ -264,10 +265,18 @@ type MaintenanceWindowIdentity struct {
 	Enabled     bool   `json:"Enabled"`
 }
 
+// OpsItemFilter is a filter for DescribeOpsItems.
+type OpsItemFilter struct {
+	Key      string   `json:"Key"`
+	Operator string   `json:"Operator,omitempty"`
+	Values   []string `json:"Values"`
+}
+
 // DescribeOpsItemsInput is the request payload for DescribeOpsItems.
 type DescribeOpsItemsInput struct {
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults     *int64          `json:"MaxResults,omitempty"`
+	NextToken      string          `json:"NextToken,omitempty"`
+	OpsItemFilters []OpsItemFilter `json:"OpsItemFilters,omitempty"`
 }
 
 // DescribeOpsItemsOutput is the response payload for DescribeOpsItems.
@@ -605,9 +614,13 @@ type StartExecutionPreviewOutput struct{}
 
 // StartSessionInput is the request payload.
 type StartSessionInput struct {
-	Target       string `json:"Target"`
-	DocumentName string `json:"DocumentName,omitempty"`
-	Reason       string `json:"Reason,omitempty"`
+	Target                  string `json:"Target"`
+	DocumentName            string `json:"DocumentName,omitempty"`
+	Reason                  string `json:"Reason,omitempty"`
+	OutputS3BucketName      string `json:"OutputS3BucketName,omitempty"`
+	OutputS3KeyPrefix       string `json:"OutputS3KeyPrefix,omitempty"`
+	CloudWatchLogGroupName  string `json:"CloudWatchLogGroupName,omitempty"`
+	CloudWatchOutputEnabled bool   `json:"CloudWatchOutputEnabled,omitempty"`
 }
 
 // StartSessionOutput is the response payload.
@@ -955,6 +968,30 @@ func (b *InMemoryBackend) DescribeMaintenanceWindows(
 	}, nil
 }
 
+// opsItemMatchesFilters returns true when the item satisfies all provided filters.
+func opsItemMatchesFilters(item OpsItem, filters []OpsItemFilter) bool {
+	for _, f := range filters {
+		var fieldValue string
+
+		switch f.Key {
+		case "Status":
+			fieldValue = item.Status
+		case "Title":
+			fieldValue = item.Title
+		case "Source":
+			fieldValue = item.Source
+		default:
+			continue
+		}
+
+		if !slices.Contains(f.Values, fieldValue) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // DescribeOpsItems lists OpsItems.
 func (b *InMemoryBackend) DescribeOpsItems(input *DescribeOpsItemsInput) (*DescribeOpsItemsOutput, error) {
 	b.mu.RLock("DescribeOpsItems")
@@ -962,6 +999,10 @@ func (b *InMemoryBackend) DescribeOpsItems(input *DescribeOpsItemsInput) (*Descr
 
 	all := make([]OpsItemSummary, 0, len(b.opsItems))
 	for _, item := range b.opsItems {
+		if !opsItemMatchesFilters(item, input.OpsItemFilters) {
+			continue
+		}
+
 		all = append(all, OpsItemSummary{
 			OpsItemID:   item.OpsItemID,
 			Title:       item.Title,
@@ -1192,12 +1233,23 @@ func (b *InMemoryBackend) StartSession(input *StartSessionInput) (*StartSessionO
 	sessionID := sessionIDPrefix + uuid.NewString()
 
 	sess := Session{
-		SessionID:  sessionID,
-		Target:     input.Target,
-		Status:     sessionStatusConnected,
-		StartDate:  UnixTimeFloat(timeNow()),
-		StreamURL:  "wss://gopherstack-ssm-session/" + sessionID,
-		TokenValue: uuid.NewString(),
+		SessionID:               sessionID,
+		Target:                  input.Target,
+		Status:                  sessionStatusConnected,
+		StartDate:               UnixTimeFloat(timeNow()),
+		StreamURL:               "wss://gopherstack-ssm-session/" + sessionID,
+		TokenValue:              uuid.NewString(),
+		DocumentName:            input.DocumentName,
+		Reason:                  input.Reason,
+		CloudWatchOutputEnabled: input.CloudWatchOutputEnabled,
+		CloudWatchLogGroupName:  input.CloudWatchLogGroupName,
+	}
+
+	if input.OutputS3BucketName != "" {
+		sess.OutputURL = &SessionOutputS3{
+			S3BucketName: input.OutputS3BucketName,
+			S3KeyPrefix:  input.OutputS3KeyPrefix,
+		}
 	}
 
 	b.sessions[sessionID] = sess
@@ -1220,6 +1272,7 @@ func (b *InMemoryBackend) TerminateSession(input *TerminateSessionInput) (*Termi
 	}
 
 	sess.Status = sessionStatusTerminated
+	sess.EndDate = UnixTimeFloat(timeNow())
 	b.sessions[input.SessionID] = sess
 
 	return &TerminateSessionOutput{SessionID: input.SessionID}, nil

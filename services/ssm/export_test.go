@@ -208,3 +208,11 @@ func (b *InMemoryBackend) GetPatchBaselineInternal(id string) PatchBaseline {
 
 	return b.patchBaselines[id]
 }
+
+// ForceInsertParameter injects a parameter directly into the backend, bypassing
+// all validation. Used to test error-handling paths (e.g., corrupted ciphertext).
+func (b *InMemoryBackend) ForceInsertParameter(p Parameter) {
+	b.mu.Lock("ForceInsertParameter")
+	defer b.mu.Unlock()
+	b.parameters[p.Name] = p
+}
