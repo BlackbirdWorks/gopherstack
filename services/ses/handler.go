@@ -735,7 +735,7 @@ func (h *Handler) handleSendTemplatedEmail(vals url.Values, reqID string) (any, 
 func (h *Handler) handleGetAccountSendingEnabled(reqID string) any {
 	return &getAccountSendingEnabledResponse{
 		Xmlns:     sesXMLNS,
-		Result:    getAccountSendingEnabledResult{Enabled: true},
+		Result:    getAccountSendingEnabledResult{Enabled: h.Backend.GetAccountSendingEnabled()},
 		RequestID: reqID,
 	}
 }

@@ -246,37 +246,41 @@ type CustomVerificationEmailTemplate struct {
 // InMemoryBackend is an in-memory store for SES emails, verified identities,
 // email templates, and configuration sets.
 type InMemoryBackend struct {
-	identities           map[string]*IdentityRecord
-	emailsByID           map[string]Email
-	templates            map[string]EmailTemplate
-	configSets           map[string]*ConfigurationSet
-	receiptRuleSets      map[string]*ReceiptRuleSet
-	receiptFilters       map[string]*ReceiptFilter
-	eventDestinations    map[string]map[string]*EventDestination
-	trackingOptions      map[string]*TrackingOptions
-	customVerifTemplates map[string]*CustomVerificationEmailTemplate
-	activeRuleSet        string
-	mu                   *lockmetrics.RWMutex
-	emails               []Email
-	emailTTL             time.Duration
-	configuredEmailTTL   time.Duration
+	identities             map[string]*IdentityRecord
+	emailsByID             map[string]Email
+	templates              map[string]EmailTemplate
+	configSets             map[string]*ConfigurationSet
+	receiptRuleSets        map[string]*ReceiptRuleSet
+	receiptFilters         map[string]*ReceiptFilter
+	eventDestinations      map[string]map[string]*EventDestination
+	trackingOptions        map[string]*TrackingOptions
+	customVerifTemplates   map[string]*CustomVerificationEmailTemplate
+	policies               map[string]map[string]string // identity → policyName → policyDocument
+	activeRuleSet          string
+	mu                     *lockmetrics.RWMutex
+	emails                 []Email
+	emailTTL               time.Duration
+	configuredEmailTTL     time.Duration
+	accountSendingEnabled  bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the default email TTL.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		identities:           make(map[string]*IdentityRecord),
-		emailsByID:           make(map[string]Email),
-		templates:            make(map[string]EmailTemplate),
-		configSets:           make(map[string]*ConfigurationSet),
-		receiptRuleSets:      make(map[string]*ReceiptRuleSet),
-		receiptFilters:       make(map[string]*ReceiptFilter),
-		eventDestinations:    make(map[string]map[string]*EventDestination),
-		trackingOptions:      make(map[string]*TrackingOptions),
-		customVerifTemplates: make(map[string]*CustomVerificationEmailTemplate),
-		emailTTL:             defaultEmailTTL,
-		configuredEmailTTL:   defaultEmailTTL,
-		mu:                   lockmetrics.New("ses"),
+		identities:            make(map[string]*IdentityRecord),
+		emailsByID:            make(map[string]Email),
+		templates:             make(map[string]EmailTemplate),
+		configSets:            make(map[string]*ConfigurationSet),
+		receiptRuleSets:       make(map[string]*ReceiptRuleSet),
+		receiptFilters:        make(map[string]*ReceiptFilter),
+		eventDestinations:     make(map[string]map[string]*EventDestination),
+		trackingOptions:       make(map[string]*TrackingOptions),
+		customVerifTemplates:  make(map[string]*CustomVerificationEmailTemplate),
+		policies:              make(map[string]map[string]string),
+		emailTTL:              defaultEmailTTL,
+		configuredEmailTTL:    defaultEmailTTL,
+		accountSendingEnabled: true,
+		mu:                    lockmetrics.New("ses"),
 	}
 }
 
@@ -308,7 +312,9 @@ func (b *InMemoryBackend) Reset() {
 	b.eventDestinations = make(map[string]map[string]*EventDestination)
 	b.trackingOptions = make(map[string]*TrackingOptions)
 	b.customVerifTemplates = make(map[string]*CustomVerificationEmailTemplate)
+	b.policies = make(map[string]map[string]string)
 	b.activeRuleSet = ""
+	b.accountSendingEnabled = true
 	b.emailTTL = b.configuredEmailTTL
 }
 

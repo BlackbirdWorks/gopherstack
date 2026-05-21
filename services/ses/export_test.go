@@ -191,3 +191,24 @@ func (b *InMemoryBackend) BackdateEmailForTest(i int, ts time.Time) {
 	b.emails[i].Timestamp = ts
 	b.emailsByID[b.emails[i].MessageID] = b.emails[i]
 }
+
+// PolicyCount returns the total number of stored identity policies across all identities.
+func (b *InMemoryBackend) PolicyCount() int {
+	b.mu.RLock("PolicyCount")
+	defer b.mu.RUnlock()
+
+	total := 0
+	for _, m := range b.policies {
+		total += len(m)
+	}
+
+	return total
+}
+
+// AccountSendingEnabled returns the current account-level sending enabled flag.
+func (b *InMemoryBackend) AccountSendingEnabledState() bool {
+	b.mu.RLock("AccountSendingEnabledState")
+	defer b.mu.RUnlock()
+
+	return b.accountSendingEnabled
+}

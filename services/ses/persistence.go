@@ -8,16 +8,18 @@ import (
 )
 
 type backendSnapshot struct {
-	Identities           map[string]*IdentityRecord                  `json:"identities"`
-	Templates            map[string]EmailTemplate                    `json:"templates"`
-	ConfigSets           map[string]*ConfigurationSet                `json:"configSets"`
-	ReceiptRuleSets      map[string]*ReceiptRuleSet                  `json:"receiptRuleSets"`
-	ReceiptFilters       map[string]*ReceiptFilter                   `json:"receiptFilters"`
-	EventDestinations    map[string]map[string]*EventDestination     `json:"eventDestinations"`
-	TrackingOptions      map[string]*TrackingOptions                 `json:"trackingOptions"`
-	CustomVerifTemplates map[string]*CustomVerificationEmailTemplate `json:"customVerifTemplates"`
-	ActiveRuleSet        string                                      `json:"activeRuleSet,omitempty"`
-	Emails               []Email                                     `json:"emails"`
+	Identities             map[string]*IdentityRecord                  `json:"identities"`
+	Templates              map[string]EmailTemplate                    `json:"templates"`
+	ConfigSets             map[string]*ConfigurationSet                `json:"configSets"`
+	ReceiptRuleSets        map[string]*ReceiptRuleSet                  `json:"receiptRuleSets"`
+	ReceiptFilters         map[string]*ReceiptFilter                   `json:"receiptFilters"`
+	EventDestinations      map[string]map[string]*EventDestination     `json:"eventDestinations"`
+	TrackingOptions        map[string]*TrackingOptions                 `json:"trackingOptions"`
+	CustomVerifTemplates   map[string]*CustomVerificationEmailTemplate `json:"customVerifTemplates"`
+	Policies               map[string]map[string]string                `json:"policies,omitempty"`
+	ActiveRuleSet          string                                      `json:"activeRuleSet,omitempty"`
+	Emails                 []Email                                     `json:"emails"`
+	AccountSendingEnabled  bool                                        `json:"accountSendingEnabled"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -78,17 +80,26 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		custTmpls[k] = &tc
 	}
 
+	pols := make(map[string]map[string]string, len(b.policies))
+	for identity, polMap := range b.policies {
+		pm := make(map[string]string, len(polMap))
+		maps.Copy(pm, polMap)
+		pols[identity] = pm
+	}
+
 	snap := backendSnapshot{
-		Identities:           ids,
-		Emails:               emails,
-		Templates:            tmpls,
-		ConfigSets:           cfgs,
-		ReceiptRuleSets:      ruleSets,
-		ReceiptFilters:       filters,
-		EventDestinations:    evtDests,
-		TrackingOptions:      trackOpts,
-		CustomVerifTemplates: custTmpls,
-		ActiveRuleSet:        b.activeRuleSet,
+		Identities:            ids,
+		Emails:                emails,
+		Templates:             tmpls,
+		ConfigSets:            cfgs,
+		ReceiptRuleSets:       ruleSets,
+		ReceiptFilters:        filters,
+		EventDestinations:     evtDests,
+		TrackingOptions:       trackOpts,
+		CustomVerifTemplates:  custTmpls,
+		Policies:              pols,
+		ActiveRuleSet:         b.activeRuleSet,
+		AccountSendingEnabled: b.accountSendingEnabled,
 	}
 
 	data, err := json.Marshal(snap)
@@ -123,7 +134,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.eventDestinations = snap.EventDestinations
 	b.trackingOptions = snap.TrackingOptions
 	b.customVerifTemplates = snap.CustomVerifTemplates
+	b.policies = snap.Policies
 	b.activeRuleSet = snap.ActiveRuleSet
+	b.accountSendingEnabled = snap.AccountSendingEnabled
 
 	// Drop emails outside the current TTL window and cap to maxRetainedEmails
 	// so that memory is bounded immediately after restore.
@@ -190,5 +203,8 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	}
 	if snap.CustomVerifTemplates == nil {
 		snap.CustomVerifTemplates = make(map[string]*CustomVerificationEmailTemplate)
+	}
+	if snap.Policies == nil {
+		snap.Policies = make(map[string]map[string]string)
 	}
 }
