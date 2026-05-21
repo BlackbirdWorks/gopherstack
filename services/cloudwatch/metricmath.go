@@ -89,11 +89,15 @@ func evalExpression(q MetricDataQuery, resolved map[string]MetricDataResult) Met
 		return result
 	}
 
-	if evalSumMetricsExpr(upper, resolved, &result) {
+	if evalMetricsAggExpr(upper, resolved, &result) {
 		return result
 	}
 
 	if evalAvgExpr(upper, expr, resolved, &result) {
+		return result
+	}
+
+	if evalRateExpr(upper, resolved, &result) {
 		return result
 	}
 
@@ -147,22 +151,84 @@ func evalFillExpr(upper string, resolved map[string]MetricDataResult, result *Me
 	return true
 }
 
-// evalSumMetricsExpr handles SUM(METRICS()) expressions.
-func evalSumMetricsExpr(upper string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
-	if upper != "SUM(METRICS())" {
-		return false
-	}
-
-	result.Timestamps, result.Values = applyAggregation(resolved, func(vals []float64) float64 {
-		var s float64
-		for _, v := range vals {
-			s += v
+// evalMetricsAggExpr handles SUM/AVG/MIN/MAX/STDDEV(METRICS()) expressions.
+func evalMetricsAggExpr(upper string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
+	for _, fn := range []string{"SUM", "AVG", "MIN", "MAX", "STDDEV"} {
+		if upper != fn+"(METRICS())" {
+			continue
 		}
+		switch fn {
+		case "SUM":
+			result.Timestamps, result.Values = applyAggregation(resolved, func(vals []float64) float64 {
+				var s float64
+				for _, v := range vals {
+					s += v
+				}
+				return s
+			})
+		case "AVG":
+			result.Timestamps, result.Values = applyAggregation(resolved, func(vals []float64) float64 {
+				if len(vals) == 0 {
+					return 0
+				}
+				var s float64
+				for _, v := range vals {
+					s += v
+				}
+				return s / float64(len(vals))
+			})
+		case "MIN":
+			result.Timestamps, result.Values = applyAggregation(resolved, func(vals []float64) float64 {
+				if len(vals) == 0 {
+					return 0
+				}
+				m := vals[0]
+				for _, v := range vals[1:] {
+					if v < m {
+						m = v
+					}
+				}
+				return m
+			})
+		case "MAX":
+			result.Timestamps, result.Values = applyAggregation(resolved, func(vals []float64) float64 {
+				if len(vals) == 0 {
+					return 0
+				}
+				m := vals[0]
+				for _, v := range vals[1:] {
+					if v > m {
+						m = v
+					}
+				}
+				return m
+			})
+		case "STDDEV":
+			result.Timestamps, result.Values = applyAggregation(resolved, func(vals []float64) float64 {
+				if len(vals) < 2 {
+					return 0
+				}
+				var sum float64
+				for _, v := range vals {
+					sum += v
+				}
+				mean := sum / float64(len(vals))
+				var variance float64
+				for _, v := range vals {
+					d := v - mean
+					variance += d * d
+				}
+				return math.Sqrt(variance / float64(len(vals)))
+			})
+		}
+		return true
+	}
+	return false
+}
 
-		return s
-	})
-
-	return true
+// evalSumMetricsExpr handles SUM(METRICS()) expressions (kept for backward compat).
+func evalSumMetricsExpr(upper string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
+	return evalMetricsAggExpr(upper, resolved, result)
 }
 
 // evalAvgExpr handles AVG(id) expressions.
@@ -272,43 +338,86 @@ func applyAggregation(resolved map[string]MetricDataResult, agg func([]float64) 
 	return times, vals
 }
 
-// reBinary matches "id OP id" binary expressions.
-var reBinary = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*)\s*([+\-*/])\s*([a-zA-Z][a-zA-Z0-9_]*)$`)
+// reBinaryIdId matches "id OP id" binary expressions.
+var reBinaryIdId = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*)\s*([+\-*/])\s*([a-zA-Z][a-zA-Z0-9_]*)$`)
 
-// evalBinaryExpr evaluates element-wise binary expressions like "m1 + m2".
+// reBinaryIdConst matches "id OP number" binary expressions.
+var reBinaryIdConst = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*)\s*([+\-*/])\s*([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)$`)
+
+// reBinaryConstId matches "number OP id" binary expressions.
+var reBinaryConstId = regexp.MustCompile(`^([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\s*([+\-*/])\s*([a-zA-Z][a-zA-Z0-9_]*)$`)
+
+// reBinary is the legacy alias kept for backward compat.
+var reBinary = reBinaryIdId
+
+// evalBinaryExpr evaluates element-wise binary expressions like "m1 + m2",
+// "m1 * 2", "100 / m1", or "2 * m1".
 func evalBinaryExpr(expr string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
-	m := reBinary.FindStringSubmatch(expr)
-	if m == nil {
-		return false
-	}
-
-	leftID, opChar, rightID := m[1], m[2][0], m[3]
-	left, ok1 := resolved[leftID]
-	right, ok2 := resolved[rightID]
-
-	if !ok1 || !ok2 {
-		return false
-	}
-
-	lts := buildTimeSeries(left)
-	rts := buildTimeSeries(right)
-	keys := mergedKeys(lts, rts)
-	out := make(metricTimeSeries, len(keys))
-
-	for _, k := range keys {
-		lv, lok := lts[k]
-		rv, rok := rts[k]
-
-		if !lok || !rok {
-			continue
+	// id OP id
+	if m := reBinaryIdId.FindStringSubmatch(expr); m != nil {
+		leftID, opChar, rightID := m[1], m[2][0], m[3]
+		left, ok1 := resolved[leftID]
+		right, ok2 := resolved[rightID]
+		if !ok1 || !ok2 {
+			return false
 		}
-
-		out[k] = applyBinaryOp(opChar, lv, rv)
+		lts := buildTimeSeries(left)
+		rts := buildTimeSeries(right)
+		keys := mergedKeys(lts, rts)
+		out := make(metricTimeSeries, len(keys))
+		for _, k := range keys {
+			lv, lok := lts[k]
+			rv, rok := rts[k]
+			if !lok || !rok {
+				continue
+			}
+			out[k] = applyBinaryOp(opChar, lv, rv)
+		}
+		result.Timestamps, result.Values = timeSeriesResult(out)
+		return true
 	}
 
-	result.Timestamps, result.Values = timeSeriesResult(out)
+	// id OP constant
+	if m := reBinaryIdConst.FindStringSubmatch(expr); m != nil {
+		id, opChar := m[1], m[2][0]
+		constVal, err := strconv.ParseFloat(m[3], 64)
+		if err != nil {
+			return false
+		}
+		base, ok := resolved[id]
+		if !ok {
+			return false
+		}
+		ts := buildTimeSeries(base)
+		out := make(metricTimeSeries, len(ts))
+		for k, v := range ts {
+			out[k] = applyBinaryOp(opChar, v, constVal)
+		}
+		result.Timestamps, result.Values = timeSeriesResult(out)
+		return true
+	}
 
-	return true
+	// constant OP id
+	if m := reBinaryConstId.FindStringSubmatch(expr); m != nil {
+		constVal, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			return false
+		}
+		opChar, id := m[2][0], m[3]
+		base, ok := resolved[id]
+		if !ok {
+			return false
+		}
+		ts := buildTimeSeries(base)
+		out := make(metricTimeSeries, len(ts))
+		for k, v := range ts {
+			out[k] = applyBinaryOp(opChar, constVal, v)
+		}
+		result.Timestamps, result.Values = timeSeriesResult(out)
+		return true
+	}
+
+	return false
 }
 
 // applyBinaryOp computes lv OP rv for a single arithmetic operator.
@@ -365,6 +474,38 @@ func computePercentiles(sortedVals []float64, stats []string) map[string]float64
 	}
 
 	return out
+}
+
+// evalRateExpr handles RATE(id) expressions — per-second rate of change between consecutive points.
+func evalRateExpr(upper string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
+	arg := matchSingleArgFunc("RATE", upper)
+	if arg == "" {
+		return false
+	}
+
+	base, ok := resolved[arg]
+	if !ok || len(base.Timestamps) < 2 {
+		return true
+	}
+
+	n := len(base.Timestamps)
+	times := make([]time.Time, 0, n-1)
+	vals := make([]float64, 0, n-1)
+
+	for i := 1; i < n; i++ {
+		dt := base.Timestamps[i].Sub(base.Timestamps[i-1]).Seconds()
+		if dt <= 0 {
+			continue
+		}
+		dv := base.Values[i] - base.Values[i-1]
+		times = append(times, base.Timestamps[i])
+		vals = append(vals, dv/dt)
+	}
+
+	result.Timestamps = times
+	result.Values = vals
+
+	return true
 }
 
 // collectRawBuckets groups raw metric values into period-aligned buckets.

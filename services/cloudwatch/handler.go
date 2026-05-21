@@ -660,6 +660,8 @@ func parseMetricDataFromForm(form url.Values) []MetricDatum {
 			sum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Sum"), 64)
 			minimum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Minimum"), 64)
 			maximum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Maximum"), 64)
+			// Check if caller also supplied a Value (mutual exclusion with StatisticSet).
+			rawValue := form.Get(prefix + "Value")
 			data = append(data, MetricDatum{
 				MetricName:        name,
 				Unit:              unit,
@@ -670,6 +672,10 @@ func parseMetricDataFromForm(form url.Values) []MetricDatum {
 				Max:               maximum,
 				Dimensions:        dims,
 				StorageResolution: int32(storageRes),
+				// Mark as StatisticSet so the backend can enforce mutual exclusion.
+				HasStatisticSet: true,
+				// Preserve the Value if caller sent both; validateMetricDatum rejects it.
+				Value: func() float64 { v, _ := strconv.ParseFloat(rawValue, 64); return v }(),
 			})
 
 			continue
@@ -877,18 +883,23 @@ func (h *Handler) handleGetMetricStatistics(form url.Values, c *echo.Context) er
 }
 
 func buildGetMetricStatisticsResponse(metricName string, dps []Datapoint) any {
+	type extStatXML struct {
+		Key   string  `xml:"Name"`
+		Value float64 `xml:"Value"`
+	}
 	type dpXML struct {
-		Average     *float64 `xml:"Average,omitempty"`
-		Sum         *float64 `xml:"Sum,omitempty"`
-		Minimum     *float64 `xml:"Minimum,omitempty"`
-		Maximum     *float64 `xml:"Maximum,omitempty"`
-		SampleCount *float64 `xml:"SampleCount,omitempty"`
-		Timestamp   string   `xml:"Timestamp"`
-		Unit        string   `xml:"Unit,omitempty"`
+		Average            *float64     `xml:"Average,omitempty"`
+		Sum                *float64     `xml:"Sum,omitempty"`
+		Minimum            *float64     `xml:"Minimum,omitempty"`
+		Maximum            *float64     `xml:"Maximum,omitempty"`
+		SampleCount        *float64     `xml:"SampleCount,omitempty"`
+		ExtendedStatistics []extStatXML `xml:"ExtendedStatistics>member,omitempty"`
+		Timestamp          string       `xml:"Timestamp"`
+		Unit               string       `xml:"Unit,omitempty"`
 	}
 	members := make([]dpXML, 0, len(dps))
 	for _, dp := range dps {
-		members = append(members, dpXML{
+		d := dpXML{
 			Timestamp:   dp.Timestamp.UTC().Format(time.RFC3339),
 			Unit:        dp.Unit,
 			Average:     dp.Average,
@@ -896,7 +907,11 @@ func buildGetMetricStatisticsResponse(metricName string, dps []Datapoint) any {
 			Minimum:     dp.Minimum,
 			Maximum:     dp.Maximum,
 			SampleCount: dp.SampleCount,
-		})
+		}
+		for k, v := range dp.ExtendedStatistics {
+			d.ExtendedStatistics = append(d.ExtendedStatistics, extStatXML{Key: k, Value: v})
+		}
+		members = append(members, d)
 	}
 	type result struct {
 		Label      string  `xml:"Label"`
