@@ -2173,7 +2173,7 @@ func TestAudit_Replay_CancelNonRunningFails(t *testing.T) {
 		State:          "ACTIVE",
 	})
 
-	replay, err := b.StartReplay(eventbridge.StartReplayInput{
+	_, err := b.StartReplay(eventbridge.StartReplayInput{
 		ReplayName:     "my-replay",
 		EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/arc",
 		EventStartTime: time.Now().Add(-time.Hour),
@@ -2181,15 +2181,16 @@ func TestAudit_Replay_CancelNonRunningFails(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Must be STARTING to cancel; wait until it transitions or cancel immediately.
-	if replay.State == "STARTING" {
-		_, err = b.CancelReplay("my-replay")
-		require.NoError(t, err)
+	// Wait for the background goroutine to finish the replay.
+	require.Eventually(t, func() bool {
+		r, descErr := b.DescribeReplay("my-replay")
 
-		described, descErr := b.DescribeReplay("my-replay")
-		require.NoError(t, descErr)
-		assert.Equal(t, "CANCELLING", described.State)
-	}
+		return descErr == nil && r.State == "COMPLETED"
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// Cancelling a COMPLETED replay must fail.
+	_, err = b.CancelReplay("my-replay")
+	require.ErrorIs(t, err, eventbridge.ErrInvalidState)
 }
 
 func TestAudit_Replay_DuplicateNameFails(t *testing.T) {
