@@ -166,6 +166,12 @@ func addonToJSON(a *Addon) map[string]any {
 		"addonVersion": a.AddonVersion,
 	}
 
+	if a.Tags != nil {
+		m["tags"] = a.Tags.Clone()
+	} else {
+		m["tags"] = map[string]string{}
+	}
+
 	if a.ServiceAccountRoleARN != "" {
 		m["serviceAccountRoleArn"] = a.ServiceAccountRoleARN
 	}
@@ -408,7 +414,7 @@ func (h *Handler) handleListFargateProfiles(c *echo.Context, clusterName string)
 }
 
 func fargateProfileToJSON(p *FargateProfile) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyClusterName:        p.ClusterName,
 		"fargateProfileName":  p.FargateProfileName,
 		"fargateProfileArn":   p.ARN,
@@ -417,6 +423,13 @@ func fargateProfileToJSON(p *FargateProfile) map[string]any {
 		"selectors":           p.Selectors,
 		keyCreatedAt:          p.CreatedAt.Unix(),
 	}
+	if p.Tags != nil {
+		m["tags"] = p.Tags.Clone()
+	} else {
+		m["tags"] = map[string]string{}
+	}
+
+	return m
 }
 
 // --- Pod Identity ops ---
@@ -497,7 +510,7 @@ func (h *Handler) handleUpdatePodIdentityAssociation(c *echo.Context, clusterNam
 }
 
 func podIdentityToJSON(a *PodIdentityAssociation) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyClusterName:   a.ClusterName,
 		"associationId":  a.AssociationID,
 		"associationArn": a.ARN,
@@ -506,6 +519,13 @@ func podIdentityToJSON(a *PodIdentityAssociation) map[string]any {
 		"roleArn":        a.RoleARN,
 		keyCreatedAt:     a.CreatedAt.Unix(),
 	}
+	if a.Tags != nil {
+		m["tags"] = a.Tags.Clone()
+	} else {
+		m["tags"] = map[string]string{}
+	}
+
+	return m
 }
 
 // --- Access ops ---
@@ -536,14 +556,7 @@ func (h *Handler) handleDescribeAccessEntry(c *echo.Context, clusterName, princi
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"accessEntry": map[string]any{
-			keyClusterName:   entry.ClusterName,
-			keyPrincipalArn:  entry.PrincipalARN,
-			"accessEntryArn": entry.ARN,
-			keyType:          entry.Type,
-			"username":       entry.Username,
-			keyCreatedAt:     entry.CreatedAt.Unix(),
-		},
+		"accessEntry": accessEntryToJSON(entry),
 	})
 }
 
@@ -576,14 +589,7 @@ func (h *Handler) handleUpdateAccessEntry(c *echo.Context, clusterName, principa
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"accessEntry": map[string]any{
-			keyClusterName:   entry.ClusterName,
-			keyPrincipalArn:  entry.PrincipalARN,
-			"accessEntryArn": entry.ARN,
-			keyType:          entry.Type,
-			"username":       entry.Username,
-			keyCreatedAt:     entry.CreatedAt.Unix(),
-		},
+		"accessEntry": accessEntryToJSON(entry),
 	})
 }
 
@@ -840,8 +846,15 @@ type updateClusterConfigLogging struct {
 	} `json:"clusterLogging"`
 }
 
+type updateClusterConfigVpcConfig struct {
+	EndpointPublicAccess  *bool    `json:"endpointPublicAccess"`
+	EndpointPrivateAccess *bool    `json:"endpointPrivateAccess"`
+	PublicAccessCidrs     []string `json:"publicAccessCidrs"`
+}
+
 type updateClusterConfigBody struct {
-	Logging *updateClusterConfigLogging `json:"logging"`
+	Logging            *updateClusterConfigLogging   `json:"logging"`
+	ResourcesVpcConfig *updateClusterConfigVpcConfig `json:"resourcesVpcConfig"`
 }
 
 func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string, body []byte) error {
@@ -864,6 +877,19 @@ func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string,
 	update, err := h.Backend.UpdateClusterConfig(clusterName, logEntries)
 	if err != nil {
 		return h.handleError(c, err)
+	}
+
+	if in.ResourcesVpcConfig != nil {
+		vpcUpd := VpcEndpointUpdate{
+			EndpointPublicAccess:  in.ResourcesVpcConfig.EndpointPublicAccess,
+			EndpointPrivateAccess: in.ResourcesVpcConfig.EndpointPrivateAccess,
+			PublicAccessCIDRs:     in.ResourcesVpcConfig.PublicAccessCidrs,
+		}
+		vpcUpdate, vpcErr := h.Backend.UpdateClusterVpcEndpoint(clusterName, vpcUpd)
+		if vpcErr != nil {
+			return h.handleError(c, vpcErr)
+		}
+		update.Params = append(update.Params, vpcUpdate.Params...)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -984,12 +1010,22 @@ func (h *Handler) handleDescribeClusterVersions(c *echo.Context) error {
 }
 
 func updateToJSON(u *Update) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"id":           u.ID,
 		keyStatusField: u.Status,
 		keyType:        u.Type,
 		keyCreatedAt:   float64(u.CreatedAt.Unix()),
+		"params":       u.Params,
+		"errors":       u.Errors,
 	}
+	if u.Params == nil {
+		m["params"] = []UpdateParam{}
+	}
+	if u.Errors == nil {
+		m["errors"] = []UpdateError{}
+	}
+
+	return m
 }
 
 // --- Node group version update routing ---

@@ -28,6 +28,7 @@ const (
 	keyPolicyArn      = "policyArn"
 	keySubscription   = "subscription"
 	keyFargateProfile = "fargateProfile"
+	keyTags           = "tags"
 )
 
 const (
@@ -118,8 +119,6 @@ const (
 	opDescribeFargateProfile          = "DescribeFargateProfile"
 	opDescribeIdentityProviderConfig  = "DescribeIdentityProviderConfig"
 )
-
-const statusDeleting = "DELETING"
 
 const (
 	eksMatchPriority = service.PriorityPathVersioned
@@ -915,6 +914,25 @@ func errResp(code, msg string) map[string]string {
 	return map[string]string{"code": code, "message": msg}
 }
 
+// clusterVpcConfigJSON converts a VpcConfig to a JSON-serializable map.
+func clusterVpcConfigJSON(v *VpcConfig) map[string]any {
+	vpc := map[string]any{
+		"subnetIds":             v.SubnetIDs,
+		"securityGroupIds":      v.SecurityGroupIDs,
+		"endpointPrivateAccess": v.EndpointPrivateAccess,
+		"endpointPublicAccess":  v.EndpointPublicAccess,
+		"publicAccessCidrs":     v.PublicAccessCIDRs,
+	}
+	if v.ClusterSecurityGroupID != "" {
+		vpc["clusterSecurityGroupId"] = v.ClusterSecurityGroupID
+	}
+	if v.VpcID != "" {
+		vpc["vpcId"] = v.VpcID
+	}
+
+	return vpc
+}
+
 // clusterToJSON converts a Cluster to a JSON-serializable map.
 func clusterToJSON(c *Cluster) map[string]any {
 	m := map[string]any{
@@ -924,6 +942,7 @@ func clusterToJSON(c *Cluster) map[string]any {
 		keyVersion:        c.Version,
 		keyCreatedAt:      c.CreatedAt.Unix(),
 		"platformVersion": c.PlatformVersion,
+		keyTags:           clusterTagsMap(c),
 	}
 	if c.Endpoint != "" {
 		m["endpoint"] = c.Endpoint
@@ -940,13 +959,7 @@ func clusterToJSON(c *Cluster) map[string]any {
 	}
 
 	if c.VpcConfig != nil {
-		m["resourcesVpcConfig"] = map[string]any{
-			"subnetIds":             c.VpcConfig.SubnetIDs,
-			"securityGroupIds":      c.VpcConfig.SecurityGroupIDs,
-			"endpointPrivateAccess": c.VpcConfig.EndpointPrivateAccess,
-			"endpointPublicAccess":  c.VpcConfig.EndpointPublicAccess,
-			"publicAccessCidrs":     c.VpcConfig.PublicAccessCIDRs,
-		}
+		m["resourcesVpcConfig"] = clusterVpcConfigJSON(c.VpcConfig)
 	}
 
 	if c.KubernetesNetworkConfig != nil {
@@ -976,7 +989,20 @@ func clusterToJSON(c *Cluster) map[string]any {
 		m["logging"] = map[string]any{"clusterLogging": entries}
 	}
 
+	if len(c.EncryptionConfig) > 0 {
+		m["encryptionConfig"] = c.EncryptionConfig
+	}
+
 	return m
+}
+
+// clusterTagsMap returns the cluster tags as a plain map, or an empty map if unset.
+func clusterTagsMap(c *Cluster) map[string]string {
+	if c.Tags == nil {
+		return map[string]string{}
+	}
+
+	return c.Tags.Clone()
 }
 
 // nodegroupToJSON converts a Nodegroup to a JSON-serializable map.
@@ -1042,6 +1068,11 @@ func appendNodegroupOptionalFields(ng *Nodegroup, m map[string]any) {
 	}
 	if ng.Resources != nil && len(ng.Resources.AutoScalingGroups) > 0 {
 		m["resources"] = nodegroupResourcesToJSON(ng.Resources)
+	}
+	if ng.Tags != nil {
+		m[keyTags] = ng.Tags.Clone()
+	} else {
+		m[keyTags] = map[string]string{}
 	}
 }
 
@@ -1348,7 +1379,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"tags": t,
+		keyTags: t,
 	})
 }
 
@@ -1405,6 +1436,24 @@ type createAccessEntryBody struct {
 	Username     string            `json:"username"`
 }
 
+func accessEntryToJSON(entry *AccessEntry) map[string]any {
+	m := map[string]any{
+		keyClusterName:    entry.ClusterName,
+		keyPrincipalArn:   entry.PrincipalARN,
+		keyAccessEntryArn: entry.ARN,
+		keyType:           entry.Type,
+		keyUsername:       entry.Username,
+		keyCreatedAt:      entry.CreatedAt.Unix(),
+	}
+	if entry.Tags != nil {
+		m[keyTags] = entry.Tags.Clone()
+	} else {
+		m[keyTags] = map[string]string{}
+	}
+
+	return m
+}
+
 func (h *Handler) handleCreateAccessEntry(c *echo.Context, clusterName string, body []byte) error {
 	var in createAccessEntryBody
 	if err := json.Unmarshal(body, &in); err != nil {
@@ -1421,14 +1470,7 @@ func (h *Handler) handleCreateAccessEntry(c *echo.Context, clusterName string, b
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyAccessEntry: map[string]any{
-			keyClusterName:    entry.ClusterName,
-			keyPrincipalArn:   entry.PrincipalARN,
-			keyAccessEntryArn: entry.ARN,
-			keyType:           entry.Type,
-			keyUsername:       entry.Username,
-			keyCreatedAt:      entry.CreatedAt.Unix(),
-		},
+		keyAccessEntry: accessEntryToJSON(entry),
 	})
 }
 
@@ -1563,7 +1605,7 @@ func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, cluster
 			keyType:        opAssociateIdentityProviderConfig,
 			keyClusterName: clusterName,
 		},
-		"tags": cfg.Tags.Clone(),
+		keyTags: cfg.Tags.Clone(),
 	})
 }
 
@@ -1703,15 +1745,7 @@ func (h *Handler) handleCreateFargateProfile(c *echo.Context, clusterName string
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyFargateProfile: map[string]any{
-			keyClusterName:        profile.ClusterName,
-			"fargateProfileName":  profile.FargateProfileName,
-			"fargateProfileArn":   profile.ARN,
-			"podExecutionRoleArn": profile.PodExecutionRoleARN,
-			keyStatusField:        profile.Status,
-			"selectors":           profile.Selectors,
-			keyCreatedAt:          profile.CreatedAt.Unix(),
-		},
+		keyFargateProfile: fargateProfileToJSON(profile),
 	})
 }
 
@@ -1748,14 +1782,6 @@ func (h *Handler) handleCreatePodIdentityAssociation(c *echo.Context, clusterNam
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyAssociation: map[string]any{
-			keyClusterName:   assoc.ClusterName,
-			"associationId":  assoc.AssociationID,
-			"associationArn": assoc.ARN,
-			"namespace":      assoc.Namespace,
-			"serviceAccount": assoc.ServiceAccount,
-			"roleArn":        assoc.RoleARN,
-			keyCreatedAt:     assoc.CreatedAt.Unix(),
-		},
+		keyAssociation: podIdentityToJSON(assoc),
 	})
 }

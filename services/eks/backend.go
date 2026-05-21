@@ -33,11 +33,13 @@ var (
 
 // VpcConfig captures the cluster VPC configuration returned by AWS.
 type VpcConfig struct {
-	SubnetIDs             []string `json:"subnetIds,omitempty"`
-	SecurityGroupIDs      []string `json:"securityGroupIds,omitempty"`
-	PublicAccessCIDRs     []string `json:"publicAccessCidrs,omitempty"`
-	EndpointPrivateAccess bool     `json:"endpointPrivateAccess"`
-	EndpointPublicAccess  bool     `json:"endpointPublicAccess"`
+	ClusterSecurityGroupID string   `json:"clusterSecurityGroupId,omitempty"`
+	VpcID                  string   `json:"vpcId,omitempty"`
+	SubnetIDs              []string `json:"subnetIds,omitempty"`
+	SecurityGroupIDs       []string `json:"securityGroupIds,omitempty"`
+	PublicAccessCIDRs      []string `json:"publicAccessCidrs,omitempty"`
+	EndpointPrivateAccess  bool     `json:"endpointPrivateAccess"`
+	EndpointPublicAccess   bool     `json:"endpointPublicAccess"`
 }
 
 // KubernetesNetworkConfig captures cluster networking parameters.
@@ -62,17 +64,20 @@ type Cluster struct {
 	Tags                    *tags.Tags               `json:"tags,omitempty"`
 	VpcConfig               *VpcConfig               `json:"resourcesVpcConfig,omitempty"`
 	KubernetesNetworkConfig *KubernetesNetworkConfig `json:"kubernetesNetworkConfig,omitempty"`
-	Name                    string                   `json:"name"`
-	ARN                     string                   `json:"arn"`
-	Endpoint                string                   `json:"endpoint,omitempty"`
-	OIDCIssuer              string                   `json:"oidcIssuer,omitempty"`
-	Version                 string                   `json:"version"`
-	Status                  string                   `json:"status"`
-	RoleARN                 string                   `json:"roleArn,omitempty"`
-	AccountID               string                   `json:"accountId"`
-	Region                  string                   `json:"region"`
-	PlatformVersion         string                   `json:"platformVersion,omitempty"`
-	ClusterLogging          []ClusterLogEntry        `json:"clusterLogging,omitempty"`
+	// EncryptionConfig holds the current cluster encryption config, kept in sync
+	// with b.encryptionConfigs. Populated by AssociateEncryptionConfig.
+	EncryptionConfig []EncryptionConfig `json:"encryptionConfig,omitempty"`
+	Name             string             `json:"name"`
+	ARN              string             `json:"arn"`
+	Endpoint         string             `json:"endpoint,omitempty"`
+	OIDCIssuer       string             `json:"oidcIssuer,omitempty"`
+	Version          string             `json:"version"`
+	Status           string             `json:"status"`
+	RoleARN          string             `json:"roleArn,omitempty"`
+	AccountID        string             `json:"accountId"`
+	Region           string             `json:"region"`
+	PlatformVersion  string             `json:"platformVersion,omitempty"`
+	ClusterLogging   []ClusterLogEntry  `json:"clusterLogging,omitempty"`
 }
 
 // NodegroupTaint represents a Kubernetes taint applied to managed nodes.
@@ -307,6 +312,12 @@ func (b *InMemoryBackend) CreateCluster(
 		cp.SubnetIDs = cloneStrings(vpcConfig.SubnetIDs)
 		cp.SecurityGroupIDs = cloneStrings(vpcConfig.SecurityGroupIDs)
 		cp.PublicAccessCIDRs = cloneStrings(vpcConfig.PublicAccessCIDRs)
+		if cp.ClusterSecurityGroupID == "" {
+			cp.ClusterSecurityGroupID = "sg-" + stableID(name)
+		}
+		if cp.VpcID == "" {
+			cp.VpcID = "vpc-" + stableID(name)
+		}
 		vpcCopy = &cp
 	}
 
@@ -409,7 +420,8 @@ func (b *InMemoryBackend) closeIDPAndPodTagsForCluster(clusterName string) {
 	delete(b.podIdentityAssociations, clusterName)
 }
 
-// DeleteCluster deletes a cluster by name.
+// DeleteCluster deletes a cluster by name. For test convenience this fake cascades
+// and removes nodegroups as well (real AWS requires manual nodegroup deletion first).
 func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
@@ -418,7 +430,9 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, name)
 	}
+
 	cp := *c
+	cp.Status = statusDeleting
 
 	// Collect nodegroups for cleanup before removal.
 	ngs := b.nodegroups[name]
@@ -601,6 +615,7 @@ func (b *InMemoryBackend) DeleteNodegroup(clusterName, nodegroupName string) (*N
 		return nil, fmt.Errorf("%w: nodegroup %s not found in cluster %s", ErrNotFound, nodegroupName, clusterName)
 	}
 	cp := deepCopyNodegroup(ng)
+	cp.Status = statusDeleting
 	delete(b.nodegroups[clusterName], nodegroupName)
 
 	if ng.Tags != nil {
