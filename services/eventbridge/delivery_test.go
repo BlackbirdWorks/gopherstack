@@ -751,7 +751,7 @@ func TestDelivery_UnsupportedARN(t *testing.T) {
 		{
 			name: "unsupported_arn_logs_warning_no_panic",
 			targets: []eventbridge.Target{
-				{ID: "t1", Arn: "arn:aws:firehose:us-east-1:000000000000:deliverystream/my-stream"},
+				{ID: "t1", Arn: "arn:aws:states:us-east-1:000000000000:stateMachine/my-sfn"},
 			},
 			events: []eventbridge.EventEntry{
 				{Source: "warn.test.service", DetailType: "Evt", Detail: `{}`},

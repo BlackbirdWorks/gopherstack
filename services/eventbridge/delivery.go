@@ -33,11 +33,29 @@ type SNSPublisher interface {
 	PublishToTopic(ctx context.Context, topicARN, message string) error
 }
 
+// KinesisFirehosePublisher can put records to a Kinesis Data Firehose delivery stream.
+type KinesisFirehosePublisher interface {
+	PutRecord(ctx context.Context, deliveryStreamARN, data string) error
+}
+
+// KinesisStreamPublisher can put records to a Kinesis Data Stream.
+type KinesisStreamPublisher interface {
+	PutRecord(ctx context.Context, streamARN, partitionKey, data string) error
+}
+
+// ECSTaskRunner can run an ECS task.
+type ECSTaskRunner interface {
+	RunTask(ctx context.Context, clusterARN string, payload []byte) error
+}
+
 // DeliveryTargets holds optional service references for event fan-out.
 type DeliveryTargets struct {
-	Lambda LambdaInvoker
-	SQS    SQSSender
-	SNS    SNSPublisher
+	Lambda          LambdaInvoker
+	SQS             SQSSender
+	SNS             SNSPublisher
+	KinesisFirehose KinesisFirehosePublisher
+	KinesisStream   KinesisStreamPublisher
+	ECS             ECSTaskRunner
 }
 
 // deliverEvents fan-outs events to matching rule targets.
@@ -330,44 +348,104 @@ func buildEventEnvelope(entry EventEntry) string {
 // Returns true if delivery failed (triggering retry/DLQ).
 func deliverToTarget(ctx context.Context, target *Target, envelope map[string]any, dt DeliveryTargets) bool {
 	targetARN := target.Arn
-	log := logger.Load(ctx)
-
 	payload := buildPayload(target, envelope)
 
 	switch {
 	case isLambdaARN(targetARN):
-		if dt.Lambda == nil {
-			return false
-		}
-		_, _, err := dt.Lambda.InvokeFunction(ctx, targetARN, "Event", []byte(payload))
-		if err != nil {
-			log.WarnContext(ctx, "EventBridge failed to invoke Lambda target", "arn", targetARN, "error", err)
-
-			return true
-		}
-
+		return deliverToLambda(ctx, dt.Lambda, targetARN, payload)
 	case isSQSARN(targetARN):
-		if dt.SQS == nil {
-			return false
-		}
-		if err := dt.SQS.SendMessageToQueue(ctx, targetARN, payload); err != nil {
-			log.WarnContext(ctx, "EventBridge failed to deliver to SQS target", "arn", targetARN, "error", err)
-
-			return true
-		}
-
+		return deliverToSQS(ctx, dt.SQS, targetARN, payload)
 	case isSNSARN(targetARN):
-		if dt.SNS == nil {
-			return false
-		}
-		if err := dt.SNS.PublishToTopic(ctx, targetARN, payload); err != nil {
-			log.WarnContext(ctx, "EventBridge failed to publish to SNS target", "arn", targetARN, "error", err)
-
-			return true
-		}
-
+		return deliverToSNS(ctx, dt.SNS, targetARN, payload)
+	case isKinesisFirehoseARN(targetARN):
+		return deliverToKinesisFirehose(ctx, dt.KinesisFirehose, targetARN, payload)
+	case isKinesisStreamARN(targetARN):
+		return deliverToKinesisStream(ctx, dt.KinesisStream, targetARN, payload)
+	case isECSARN(targetARN):
+		return deliverToECS(ctx, dt.ECS, targetARN, payload)
 	default:
-		log.WarnContext(ctx, "EventBridge: unsupported target ARN type", "arn", targetARN)
+		logger.Load(ctx).WarnContext(ctx, "EventBridge: unsupported target ARN type", "arn", targetARN)
+	}
+
+	return false
+}
+
+func deliverToLambda(ctx context.Context, svc LambdaInvoker, arn, payload string) bool {
+	if svc == nil {
+		return false
+	}
+	if _, _, err := svc.InvokeFunction(ctx, arn, "Event", []byte(payload)); err != nil {
+		logger.Load(ctx).WarnContext(ctx, "EventBridge failed to invoke Lambda target", "arn", arn, "error", err)
+
+		return true
+	}
+
+	return false
+}
+
+func deliverToSQS(ctx context.Context, svc SQSSender, arn, payload string) bool {
+	if svc == nil {
+		return false
+	}
+	if err := svc.SendMessageToQueue(ctx, arn, payload); err != nil {
+		logger.Load(ctx).WarnContext(ctx, "EventBridge failed to deliver to SQS target", "arn", arn, "error", err)
+
+		return true
+	}
+
+	return false
+}
+
+func deliverToSNS(ctx context.Context, svc SNSPublisher, arn, payload string) bool {
+	if svc == nil {
+		return false
+	}
+	if err := svc.PublishToTopic(ctx, arn, payload); err != nil {
+		logger.Load(ctx).WarnContext(ctx, "EventBridge failed to publish to SNS target", "arn", arn, "error", err)
+
+		return true
+	}
+
+	return false
+}
+
+func deliverToKinesisFirehose(ctx context.Context, svc KinesisFirehosePublisher, arn, payload string) bool {
+	if svc == nil {
+		return false
+	}
+	if err := svc.PutRecord(ctx, arn, payload); err != nil {
+		logger.Load(ctx).WarnContext(ctx, "EventBridge failed to put record to Kinesis Firehose",
+			"arn", arn, "error", err)
+
+		return true
+	}
+
+	return false
+}
+
+func deliverToKinesisStream(ctx context.Context, svc KinesisStreamPublisher, arn, payload string) bool {
+	if svc == nil {
+		return false
+	}
+	partitionKey := uuid.New().String()
+	if err := svc.PutRecord(ctx, arn, partitionKey, payload); err != nil {
+		logger.Load(ctx).WarnContext(ctx, "EventBridge failed to put record to Kinesis Data Stream",
+			"arn", arn, "error", err)
+
+		return true
+	}
+
+	return false
+}
+
+func deliverToECS(ctx context.Context, svc ECSTaskRunner, arn, payload string) bool {
+	if svc == nil {
+		return false
+	}
+	if err := svc.RunTask(ctx, arn, []byte(payload)); err != nil {
+		logger.Load(ctx).WarnContext(ctx, "EventBridge failed to run ECS task", "arn", arn, "error", err)
+
+		return true
 	}
 
 	return false
@@ -527,4 +605,19 @@ func isSQSARN(arn string) bool {
 // isSNSARN returns true if the ARN identifies an SNS topic.
 func isSNSARN(arn string) bool {
 	return strings.Contains(arn, ":sns:") || strings.HasPrefix(arn, "arn:aws:sns:")
+}
+
+// isKinesisFirehoseARN returns true if the ARN identifies a Kinesis Data Firehose delivery stream.
+func isKinesisFirehoseARN(arn string) bool {
+	return strings.Contains(arn, ":firehose:")
+}
+
+// isKinesisStreamARN returns true if the ARN identifies a Kinesis Data Stream.
+func isKinesisStreamARN(arn string) bool {
+	return strings.Contains(arn, ":kinesis:") && strings.Contains(arn, ":stream/")
+}
+
+// isECSARN returns true if the ARN identifies an ECS cluster or task.
+func isECSARN(arn string) bool {
+	return strings.Contains(arn, ":ecs:")
 }
