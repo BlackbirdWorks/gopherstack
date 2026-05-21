@@ -120,17 +120,17 @@ func TestAccuracy_DescribeInstances_Pagination(t *testing.T) {
 	h.AccountID = "123456789012"
 	h.Region = "us-east-1"
 
-	// Create 5 instances.
-	for range 5 {
+	// Create 10 instances.
+	for range 10 {
 		_, err := b.RunInstances("ami-123", "t3.micro", "", 1)
 		require.NoError(t, err)
 	}
 
-	// First page: max 2 results.
+	// First page: max 5 results (minimum allowed by AWS).
 	vals := url.Values{
 		"Action":     {"DescribeInstances"},
 		"Version":    {"2016-11-15"},
-		"MaxResults": {"2"},
+		"MaxResults": {"5"},
 	}
 
 	resp1, err := dispatchHandler(h, vals)
@@ -144,7 +144,7 @@ func TestAccuracy_DescribeInstances_Pagination(t *testing.T) {
 	vals2 := url.Values{
 		"Action":     {"DescribeInstances"},
 		"Version":    {"2016-11-15"},
-		"MaxResults": {"2"},
+		"MaxResults": {"5"},
 		"NextToken":  {token},
 	}
 
