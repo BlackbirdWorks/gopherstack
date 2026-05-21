@@ -23,7 +23,10 @@ const (
 	pgFamilyNeptune12              = "neptune1.2"
 	pgFamilyNeptune13              = "neptune1.3"
 	sourceTypeNotification         = "notification"
+	formTrue                       = "true"
 )
+
+var errNoServerlessV2Config = errors.New("noServerlessV2Config")
 
 const (
 	neptuneVersion = "2014-10-31"
@@ -419,7 +422,23 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 			port = p
 		}
 	}
-	cluster, err := h.Backend.CreateDBCluster(id, paramGroupName, port)
+	sv2, sv2Err := parseServerlessV2ScalingConfig(vals)
+	if sv2Err != nil && !errors.Is(sv2Err, errNoServerlessV2Config) {
+		return nil, sv2Err
+	}
+	opts := DBClusterCreateOptions{
+		EngineVersion:                   vals.Get("EngineVersion"),
+		EngineMode:                      vals.Get("EngineMode"),
+		KmsKeyID:                        vals.Get("KmsKeyId"),
+		PreferredBackupWindow:           vals.Get("PreferredBackupWindow"),
+		PreferredMaintenanceWindow:      vals.Get("PreferredMaintenanceWindow"),
+		EnableIAMDatabaseAuthentication: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		ManageMasterUserPassword:        vals.Get("ManageMasterUserPassword") == formTrue,
+		StorageEncrypted:                vals.Get("StorageEncrypted") == formTrue,
+		DeletionProtection:              vals.Get("DeletionProtection") == formTrue,
+		ServerlessV2ScalingConfig:       sv2,
+	}
+	cluster, err := h.Backend.CreateDBCluster(id, paramGroupName, port, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -473,7 +492,24 @@ func (h *Handler) handleDeleteDBCluster(vals url.Values) (any, error) {
 func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
-	cluster, err := h.Backend.ModifyDBCluster(id, paramGroupName)
+	sv2, sv2Err := parseServerlessV2ScalingConfig(vals)
+	if sv2Err != nil && !errors.Is(sv2Err, errNoServerlessV2Config) {
+		return nil, sv2Err
+	}
+	rawIam := vals.Get("EnableIAMDatabaseAuthentication")
+	rawDel := vals.Get("DeletionProtection")
+	opts := DBClusterModifyOptions{
+		EngineVersion:                   vals.Get("EngineVersion"),
+		PreferredBackupWindow:           vals.Get("PreferredBackupWindow"),
+		PreferredMaintenanceWindow:      vals.Get("PreferredMaintenanceWindow"),
+		EnableIAMDatabaseAuthentication: rawIam == formTrue,
+		IamAuthSet:                      rawIam != "",
+		ManageMasterUserPassword:        vals.Get("ManageMasterUserPassword") == formTrue,
+		DeletionProtection:              rawDel == formTrue,
+		DeletionProtectionSet:           rawDel != "",
+		ServerlessV2ScalingConfig:       sv2,
+	}
+	cluster, err := h.Backend.ModifyDBCluster(id, paramGroupName, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1574,6 +1610,33 @@ func marshalXML(v any) ([]byte, error) {
 	return append([]byte(xml.Header), raw...), nil
 }
 
+// parseServerlessV2ScalingConfig parses ServerlessV2ScalingConfiguration from form values.
+// Returns nil, errNoServerlessV2Config when neither field is present.
+func parseServerlessV2ScalingConfig(vals url.Values) (*ServerlessV2ScalingConfiguration, error) {
+	rawMin := vals.Get("ServerlessV2ScalingConfiguration.MinCapacity")
+	rawMax := vals.Get("ServerlessV2ScalingConfiguration.MaxCapacity")
+	if rawMin == "" && rawMax == "" {
+		return nil, errNoServerlessV2Config
+	}
+	cfg := &ServerlessV2ScalingConfiguration{}
+	if rawMin != "" {
+		v, err := strconv.ParseFloat(rawMin, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid ServerlessV2ScalingConfiguration.MinCapacity %q", ErrInvalidParameter, rawMin)
+		}
+		cfg.MinCapacity = v
+	}
+	if rawMax != "" {
+		v, err := strconv.ParseFloat(rawMax, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid ServerlessV2ScalingConfiguration.MaxCapacity %q", ErrInvalidParameter, rawMax)
+		}
+		cfg.MaxCapacity = v
+	}
+
+	return cfg, nil
+}
+
 func parseSubnetIDMembers(vals url.Values) []string {
 	var ids []string
 	for i := 1; ; i++ {
@@ -1612,23 +1675,42 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	for _, m := range c.DBClusterMembers {
 		memberItems = append(memberItems, xmlDBClusterMember(m))
 	}
-
-	return xmlDBCluster{
-		DBClusterIdentifier:         c.DBClusterIdentifier,
-		DBClusterArn:                c.DBClusterArn,
-		Engine:                      c.Engine,
-		EngineVersion:               c.EngineVersion,
-		Status:                      c.Status,
-		DBClusterParameterGroupName: c.DBClusterParameterGroupName,
-		DBSubnetGroupName:           c.DBSubnetGroupName,
-		Endpoint:                    c.Endpoint,
-		ReaderEndpoint:              c.ReaderEndpoint,
-		Port:                        c.Port,
-		StorageEncrypted:            c.StorageEncrypted,
-		MultiAZ:                     c.MultiAZ,
-		BackupRetentionPeriod:       c.BackupRetentionPeriod,
-		DBClusterMembers:            xmlDBClusterMemberList{Members: memberItems},
+	x := xmlDBCluster{
+		DBClusterIdentifier:             c.DBClusterIdentifier,
+		DBClusterArn:                    c.DBClusterArn,
+		Engine:                          c.Engine,
+		EngineVersion:                   c.EngineVersion,
+		EngineMode:                      c.EngineMode,
+		Status:                          c.Status,
+		DBClusterParameterGroupName:     c.DBClusterParameterGroupName,
+		DBSubnetGroupName:               c.DBSubnetGroupName,
+		Endpoint:                        c.Endpoint,
+		ReaderEndpoint:                  c.ReaderEndpoint,
+		Port:                            c.Port,
+		StorageEncrypted:                c.StorageEncrypted,
+		MultiAZ:                         c.MultiAZ,
+		BackupRetentionPeriod:           c.BackupRetentionPeriod,
+		EnableIAMDatabaseAuthentication: c.EnableIAMDatabaseAuthentication,
+		DeletionProtection:              c.DeletionProtection,
+		PreferredBackupWindow:           c.PreferredBackupWindow,
+		PreferredMaintenanceWindow:      c.PreferredMaintenanceWindow,
+		KmsKeyID:                        c.KmsKeyID,
+		DBClusterMembers:                xmlDBClusterMemberList{Members: memberItems},
 	}
+	if c.ServerlessV2ScalingConfig != nil {
+		x.ServerlessV2ScalingConfiguration = &xmlServerlessV2ScalingConfiguration{
+			MinCapacity: c.ServerlessV2ScalingConfig.MinCapacity,
+			MaxCapacity: c.ServerlessV2ScalingConfig.MaxCapacity,
+		}
+	}
+	if c.MasterUserManagedSecret != nil {
+		x.MasterUserManagedSecret = &xmlMasterUserManagedSecret{
+			SecretARN:    c.MasterUserManagedSecret.SecretARN,
+			SecretStatus: c.MasterUserManagedSecret.SecretStatus,
+		}
+	}
+
+	return x
 }
 
 func toXMLInstance(inst *DBInstance) xmlDBInstance {
@@ -1761,21 +1843,39 @@ type xmlDBClusterMemberList struct {
 	Members []xmlDBClusterMember `xml:"DBClusterMember"`
 }
 
+type xmlServerlessV2ScalingConfiguration struct {
+	MinCapacity float64 `xml:"MinCapacity"`
+	MaxCapacity float64 `xml:"MaxCapacity"`
+}
+
+type xmlMasterUserManagedSecret struct {
+	SecretARN    string `xml:"SecretArn,omitempty"`
+	SecretStatus string `xml:"SecretStatus,omitempty"`
+}
+
 type xmlDBCluster struct {
-	DBClusterIdentifier         string                 `xml:"DBClusterIdentifier"`
-	DBClusterArn                string                 `xml:"DBClusterArn,omitempty"`
-	Engine                      string                 `xml:"Engine"`
-	EngineVersion               string                 `xml:"EngineVersion,omitempty"`
-	Status                      string                 `xml:"Status"`
-	DBClusterParameterGroupName string                 `xml:"DBClusterParameterGroup,omitempty"`
-	DBSubnetGroupName           string                 `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
-	Endpoint                    string                 `xml:"Endpoint,omitempty"`
-	ReaderEndpoint              string                 `xml:"ReaderEndpoint,omitempty"`
-	DBClusterMembers            xmlDBClusterMemberList `xml:"DBClusterMembers"`
-	Port                        int                    `xml:"Port"`
-	StorageEncrypted            bool                   `xml:"StorageEncrypted"`
-	MultiAZ                     bool                   `xml:"MultiAZ"`
-	BackupRetentionPeriod       int                    `xml:"BackupRetentionPeriod"`
+	ServerlessV2ScalingConfiguration *xmlServerlessV2ScalingConfiguration `xml:"ServerlessV2ScalingConfiguration,omitempty"`
+	MasterUserManagedSecret          *xmlMasterUserManagedSecret           `xml:"MasterUserManagedSecret,omitempty"`
+	DBClusterIdentifier              string                                `xml:"DBClusterIdentifier"`
+	DBClusterArn                     string                                `xml:"DBClusterArn,omitempty"`
+	Engine                           string                                `xml:"Engine"`
+	EngineVersion                    string                                `xml:"EngineVersion,omitempty"`
+	EngineMode                       string                                `xml:"EngineMode,omitempty"`
+	Status                           string                                `xml:"Status"`
+	DBClusterParameterGroupName      string                                `xml:"DBClusterParameterGroup,omitempty"`
+	DBSubnetGroupName                string                                `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
+	Endpoint                         string                                `xml:"Endpoint,omitempty"`
+	ReaderEndpoint                   string                                `xml:"ReaderEndpoint,omitempty"`
+	PreferredBackupWindow            string                                `xml:"PreferredBackupWindow,omitempty"`
+	PreferredMaintenanceWindow       string                                `xml:"PreferredMaintenanceWindow,omitempty"`
+	KmsKeyID                         string                                `xml:"KmsKeyId,omitempty"`
+	DBClusterMembers                 xmlDBClusterMemberList                `xml:"DBClusterMembers"`
+	Port                             int                                   `xml:"Port"`
+	BackupRetentionPeriod            int                                   `xml:"BackupRetentionPeriod"`
+	EnableIAMDatabaseAuthentication  bool                                  `xml:"IAMDatabaseAuthenticationEnabled"`
+	StorageEncrypted                 bool                                  `xml:"StorageEncrypted"`
+	MultiAZ                          bool                                  `xml:"MultiAZ"`
+	DeletionProtection               bool                                  `xml:"DeletionProtection"`
 }
 
 type xmlDBClusterList struct {
