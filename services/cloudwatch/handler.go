@@ -662,6 +662,8 @@ func parseMetricDataFromForm(form url.Values) []MetricDatum {
 			maximum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Maximum"), 64)
 			// Check if caller also supplied a Value (mutual exclusion with StatisticSet).
 			rawValue := form.Get(prefix + "Value")
+			// Preserve the Value if caller sent both; validateMetricDatum rejects it.
+			rawVal, _ := strconv.ParseFloat(rawValue, 64)
 			data = append(data, MetricDatum{
 				MetricName:        name,
 				Unit:              unit,
@@ -674,8 +676,7 @@ func parseMetricDataFromForm(form url.Values) []MetricDatum {
 				StorageResolution: int32(storageRes),
 				// Mark as StatisticSet so the backend can enforce mutual exclusion.
 				HasStatisticSet: true,
-				// Preserve the Value if caller sent both; validateMetricDatum rejects it.
-				Value: func() float64 { v, _ := strconv.ParseFloat(rawValue, 64); return v }(),
+				Value:           rawVal,
 			})
 
 			continue
@@ -893,9 +894,9 @@ func buildGetMetricStatisticsResponse(metricName string, dps []Datapoint) any {
 		Minimum            *float64     `xml:"Minimum,omitempty"`
 		Maximum            *float64     `xml:"Maximum,omitempty"`
 		SampleCount        *float64     `xml:"SampleCount,omitempty"`
-		ExtendedStatistics []extStatXML `xml:"ExtendedStatistics>member,omitempty"`
 		Timestamp          string       `xml:"Timestamp"`
 		Unit               string       `xml:"Unit,omitempty"`
+		ExtendedStatistics []extStatXML `xml:"ExtendedStatistics>member,omitempty"`
 	}
 	members := make([]dpXML, 0, len(dps))
 	for _, dp := range dps {

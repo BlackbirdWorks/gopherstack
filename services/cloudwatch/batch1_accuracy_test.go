@@ -171,7 +171,15 @@ func TestBackend_GetMetricStatistics_p99_HigherThanMedian(t *testing.T) {
 	vals := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 100}
 	for i, v := range vals {
 		_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
-			{MetricName: "M", Value: v, Count: 1, Sum: v, Min: v, Max: v, Timestamp: base.Add(time.Duration(i) * time.Second)},
+			{
+				MetricName: "M",
+				Value:      v,
+				Count:      1,
+				Sum:        v,
+				Min:        v,
+				Max:        v,
+				Timestamp:  base.Add(time.Duration(i) * time.Second),
+			},
 		})
 		require.NoError(t, err)
 	}
@@ -401,9 +409,21 @@ func TestBackend_GetMetricData_MinMetrics(t *testing.T) {
 	}
 
 	queries := []cloudwatch.MetricDataQuery{
-		{ID: "m1", ReturnData: false, MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M5", Stat: "Sum", Period: 60}},
-		{ID: "m2", ReturnData: false, MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M15", Stat: "Sum", Period: 60}},
-		{ID: "m3", ReturnData: false, MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M25", Stat: "Sum", Period: 60}},
+		{
+			ID:         "m1",
+			ReturnData: false,
+			MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M5", Stat: "Sum", Period: 60},
+		},
+		{
+			ID:         "m2",
+			ReturnData: false,
+			MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M15", Stat: "Sum", Period: 60},
+		},
+		{
+			ID:         "m3",
+			ReturnData: false,
+			MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M25", Stat: "Sum", Period: 60},
+		},
 		{ID: "mn", Expression: "MIN(METRICS())", ReturnData: true},
 	}
 
@@ -430,9 +450,21 @@ func TestBackend_GetMetricData_MaxMetrics(t *testing.T) {
 	}
 
 	queries := []cloudwatch.MetricDataQuery{
-		{ID: "m1", ReturnData: false, MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M5", Stat: "Sum", Period: 60}},
-		{ID: "m2", ReturnData: false, MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M15", Stat: "Sum", Period: 60}},
-		{ID: "m3", ReturnData: false, MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M99", Stat: "Sum", Period: 60}},
+		{
+			ID:         "m1",
+			ReturnData: false,
+			MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M5", Stat: "Sum", Period: 60},
+		},
+		{
+			ID:         "m2",
+			ReturnData: false,
+			MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M15", Stat: "Sum", Period: 60},
+		},
+		{
+			ID:         "m3",
+			ReturnData: false,
+			MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M99", Stat: "Sum", Period: 60},
+		},
 		{ID: "mx", Expression: "MAX(METRICS())", ReturnData: true},
 	}
 
@@ -459,9 +491,21 @@ func TestBackend_GetMetricData_StddevMetrics(t *testing.T) {
 	}
 
 	queries := []cloudwatch.MetricDataQuery{
-		{ID: "m1", ReturnData: false, MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M10", Stat: "Sum", Period: 60}},
-		{ID: "m2", ReturnData: false, MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M20", Stat: "Sum", Period: 60}},
-		{ID: "m3", ReturnData: false, MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M30", Stat: "Sum", Period: 60}},
+		{
+			ID:         "m1",
+			ReturnData: false,
+			MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M10", Stat: "Sum", Period: 60},
+		},
+		{
+			ID:         "m2",
+			ReturnData: false,
+			MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M20", Stat: "Sum", Period: 60},
+		},
+		{
+			ID:         "m3",
+			ReturnData: false,
+			MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M30", Stat: "Sum", Period: 60},
+		},
 		{ID: "sd", Expression: "STDDEV(METRICS())", ReturnData: true},
 	}
 
@@ -686,7 +730,7 @@ func TestBackend_SetAlarmState_ToAlarm_RecordsHistory(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = b.SetAlarmState(nil, "cpu-alarm", "ALARM", "CPU exceeded 80%") //nolint:staticcheck
+	err = b.SetAlarmState(t.Context(), "cpu-alarm", "ALARM", "CPU exceeded 80%")
 	require.NoError(t, err)
 
 	hist, err := b.DescribeAlarmHistory("cpu-alarm", "", "", "", time.Time{}, time.Time{}, 0)
@@ -712,7 +756,7 @@ func TestBackend_SetAlarmState_Reason_Stored(t *testing.T) {
 		ComparisonOperator: "GreaterThanThreshold", Threshold: 50, EvaluationPeriods: 1,
 	}))
 
-	require.NoError(t, b.SetAlarmState(nil, "a1", "ALARM", "Threshold breach detected")) //nolint:staticcheck
+	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "Threshold breach detected"))
 
 	alarms, _, err := b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
 	require.NoError(t, err)
@@ -736,13 +780,13 @@ func TestBackend_SetAlarmState_StateTransitions(t *testing.T) {
 	assert.Equal(t, "INSUFFICIENT_DATA", alarms.Data[0].StateValue)
 
 	// Transition to ALARM.
-	require.NoError(t, b.SetAlarmState(nil, "a1", "ALARM", "breach")) //nolint:staticcheck
+	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "breach"))
 	alarms, _, err = b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "ALARM", alarms.Data[0].StateValue)
 
 	// Transition to OK.
-	require.NoError(t, b.SetAlarmState(nil, "a1", "OK", "resolved")) //nolint:staticcheck
+	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "OK", "resolved"))
 	alarms, _, err = b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "OK", alarms.Data[0].StateValue)
@@ -752,7 +796,7 @@ func TestBackend_SetAlarmState_NotFound_Error(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatch.NewInMemoryBackend()
-	err := b.SetAlarmState(nil, "nonexistent", "ALARM", "reason") //nolint:staticcheck
+	err := b.SetAlarmState(t.Context(), "nonexistent", "ALARM", "reason")
 	assert.Error(t, err)
 }
 
@@ -787,11 +831,11 @@ func TestBackend_PutMetricAlarm_DatapointsToAlarmExceedsEvalPeriods(t *testing.T
 
 	b := cloudwatch.NewInMemoryBackend()
 	err := b.PutMetricAlarm(&cloudwatch.MetricAlarm{
-		AlarmName:         "bad",
-		Namespace:         "NS",
-		MetricName:        "M",
-		EvaluationPeriods: 3,
-		DatapointsToAlarm: 5, // > EvaluationPeriods
+		AlarmName:          "bad",
+		Namespace:          "NS",
+		MetricName:         "M",
+		EvaluationPeriods:  3,
+		DatapointsToAlarm:  5, // > EvaluationPeriods
 		ComparisonOperator: "GreaterThanThreshold",
 		Threshold:          80,
 	})
@@ -916,7 +960,7 @@ func TestHandler_Dashboard_PutGetListDelete(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "myboard")
 
 	rec = postForm(t, h, url.Values{
-		"Action":                    []string{"DeleteDashboards"},
+		"Action":                  []string{"DeleteDashboards"},
 		"DashboardNames.member.1": []string{"myboard"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)
@@ -982,8 +1026,8 @@ func TestHandler_Tags_CRUD(t *testing.T) {
 
 	// Remove one tag.
 	rec = postForm(t, h, url.Values{
-		"Action":          []string{"UntagResource"},
-		"ResourceARN":     []string{arn},
+		"Action":           []string{"UntagResource"},
+		"ResourceARN":      []string{arn},
 		"TagKeys.member.1": []string{"team"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)
@@ -1088,33 +1132,33 @@ func TestHandler_InsightRule_Lifecycle(t *testing.T) {
 	h := newCWHandler()
 
 	rec := postForm(t, h, url.Values{
-		"Action":           []string{"PutInsightRule"},
-		"RuleName":         []string{"rule1"},
-		"RuleDefinition":   []string{`{"Schema":1}`},
-		"RuleState":        []string{"ENABLED"},
+		"Action":         []string{"PutInsightRule"},
+		"RuleName":       []string{"rule1"},
+		"RuleDefinition": []string{`{"Schema":1}`},
+		"RuleState":      []string{"ENABLED"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)
 
 	rec = postForm(t, h, url.Values{
-		"Action":           []string{"DescribeInsightRules"},
+		"Action": []string{"DescribeInsightRules"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)
 	assert.Contains(t, rec.Body.String(), "rule1")
 
 	rec = postForm(t, h, url.Values{
-		"Action":           []string{"DisableInsightRules"},
+		"Action":             []string{"DisableInsightRules"},
 		"RuleNames.member.1": []string{"rule1"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)
 
 	rec = postForm(t, h, url.Values{
-		"Action":           []string{"EnableInsightRules"},
+		"Action":             []string{"EnableInsightRules"},
 		"RuleNames.member.1": []string{"rule1"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)
 
 	rec = postForm(t, h, url.Values{
-		"Action":           []string{"DeleteInsightRules"},
+		"Action":             []string{"DeleteInsightRules"},
 		"RuleNames.member.1": []string{"rule1"},
 	}.Encode())
 	assert.Equal(t, 200, rec.Code)
@@ -1185,9 +1229,9 @@ func TestBackend_MetricStream_CRUD(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 
 	require.NoError(t, b.PutMetricStream(&cloudwatch.MetricStream{
-		Name:        "stream1",
-		FirehoseArn: "arn:aws:firehose:us-east-1:123:deliverystream/ds",
-		RoleArn:     "arn:aws:iam::123:role/r",
+		Name:         "stream1",
+		FirehoseArn:  "arn:aws:firehose:us-east-1:123:deliverystream/ds",
+		RoleArn:      "arn:aws:iam::123:role/r",
 		OutputFormat: "json",
 	}))
 
@@ -1210,8 +1254,8 @@ func TestBackend_MetricStream_StartStop(t *testing.T) {
 
 	b := cloudwatch.NewInMemoryBackend()
 	require.NoError(t, b.PutMetricStream(&cloudwatch.MetricStream{
-		Name:        "s",
-		FirehoseArn: "arn",
+		Name:         "s",
+		FirehoseArn:  "arn",
 		OutputFormat: "json",
 	}))
 
@@ -1266,7 +1310,7 @@ func TestBackend_CompositeAlarm_EvaluatesOnCreate(t *testing.T) {
 		AlarmName: "child", Namespace: "NS", MetricName: "M",
 		ComparisonOperator: "GreaterThanThreshold", Threshold: 50, EvaluationPeriods: 1,
 	}))
-	require.NoError(t, b.SetAlarmState(nil, "child", "ALARM", "test")) //nolint:staticcheck
+	require.NoError(t, b.SetAlarmState(t.Context(), "child", "ALARM", "test"))
 
 	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
 		AlarmName: "composite",
@@ -1299,7 +1343,7 @@ func TestBackend_CompositeAlarm_UpdatesOnChildChange(t *testing.T) {
 	initialState := compPages.Data[0].StateValue
 
 	// Trigger child alarm.
-	require.NoError(t, b.SetAlarmState(nil, "child", "ALARM", "trigger")) //nolint:staticcheck
+	require.NoError(t, b.SetAlarmState(t.Context(), "child", "ALARM", "trigger"))
 
 	_, compPages, _ = b.DescribeAlarms([]string{"composite"}, nil, "", "", "", 0)
 	require.Len(t, compPages.Data, 1)
@@ -1344,7 +1388,7 @@ func TestBackend_DescribeAlarms_ByState(t *testing.T) {
 		AlarmName: "a2", Namespace: "NS", MetricName: "M",
 		ComparisonOperator: "GreaterThanThreshold", Threshold: 80, EvaluationPeriods: 1,
 	}))
-	require.NoError(t, b.SetAlarmState(nil, "a1", "ALARM", "test")) //nolint:staticcheck
+	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "test"))
 
 	p, _, err := b.DescribeAlarms(nil, nil, "", "ALARM", "", 0)
 	require.NoError(t, err)
@@ -1381,7 +1425,7 @@ func TestBackend_DescribeAlarmHistory_FilterByType(t *testing.T) {
 		AlarmName: "a1", Namespace: "NS", MetricName: "M",
 		ComparisonOperator: "GreaterThanThreshold", Threshold: 80, EvaluationPeriods: 1,
 	}))
-	require.NoError(t, b.SetAlarmState(nil, "a1", "ALARM", "breach")) //nolint:staticcheck
+	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "breach"))
 
 	hist, err := b.DescribeAlarmHistory("a1", "", "StateUpdate", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
@@ -1461,7 +1505,7 @@ func TestBackend_SweepExpiredMetrics_RemovesOldPoints(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 
 	// Put a point 20 days ago (beyond retention).
-	old := time.Now().UTC().AddDate(0, 0, -(cloudwatch.CwMetricRetentionDays+1))
+	old := time.Now().UTC().AddDate(0, 0, -(cloudwatch.CwMetricRetentionDays + 1))
 	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "Old", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: old},
 	})
@@ -1496,8 +1540,8 @@ func TestBackend_MetricFilter_CRUD(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 
 	require.NoError(t, b.PutMetricFilter(&cloudwatch.MetricFilter{
-		FilterName:   "f1",
-		LogGroupName: "/app/logs",
+		FilterName:    "f1",
+		LogGroupName:  "/app/logs",
 		FilterPattern: "[level=ERROR]",
 		MetricTransformations: []cloudwatch.MetricTransformation{
 			{MetricName: "Errors", MetricNamespace: "App", MetricValue: "1"},
@@ -1521,9 +1565,9 @@ func TestHandler_MetricFilter_FullCycle(t *testing.T) {
 	h := newCWHandler()
 
 	rec := postForm(t, h, url.Values{
-		"Action":       []string{"PutMetricFilter"},
-		"FilterName":   []string{"f1"},
-		"LogGroupName": []string{"/app/logs"},
+		"Action":        []string{"PutMetricFilter"},
+		"FilterName":    []string{"f1"},
+		"LogGroupName":  []string{"/app/logs"},
 		"FilterPattern": []string{"[ERROR]"},
 		"MetricTransformations.member.1.MetricName":      []string{"ErrCount"},
 		"MetricTransformations.member.1.MetricNamespace": []string{"App"},
@@ -1549,8 +1593,8 @@ func TestBackend_AlarmMuteRule_CRUD(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 
 	require.NoError(t, b.PutAlarmMuteRule(&cloudwatch.AlarmMuteRule{
-		MuteName:   "mute1",
-		AlarmNames: []string{"alarm1", "alarm2"},
+		MuteName:     "mute1",
+		AlarmNames:   []string{"alarm1", "alarm2"},
 		MuteDuration: 3600,
 	}))
 
@@ -1613,8 +1657,16 @@ func TestBackend_GetMetricData_MultipleStatQueries(t *testing.T) {
 	require.NoError(t, err)
 
 	queries := []cloudwatch.MetricDataQuery{
-		{ID: "cpu", ReturnData: true, MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "CPU", Stat: "Average", Period: 60}},
-		{ID: "mem", ReturnData: true, MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "Mem", Stat: "Average", Period: 60}},
+		{
+			ID:         "cpu",
+			ReturnData: true,
+			MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "CPU", Stat: "Average", Period: 60},
+		},
+		{
+			ID:         "mem",
+			ReturnData: true,
+			MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "Mem", Stat: "Average", Period: 60},
+		},
 	}
 
 	results, err := b.GetMetricDataWithOptions(queries, ts.Add(-time.Minute), ts.Add(time.Minute), "")
@@ -1666,7 +1718,11 @@ func TestBackend_GetMetricData_ReturnDataFalse_SuppressesResult(t *testing.T) {
 	require.NoError(t, err)
 
 	queries := []cloudwatch.MetricDataQuery{
-		{ID: "m1", ReturnData: true, MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M", Stat: "Sum", Period: 60}},
+		{
+			ID:         "m1",
+			ReturnData: true,
+			MetricStat: cloudwatch.MetricStat{Namespace: "NS", MetricName: "M", Stat: "Sum", Period: 60},
+		},
 		{ID: "helper", Expression: "m1 * 2", ReturnData: false},
 	}
 
@@ -1809,5 +1865,6 @@ func resultsByID(results []cloudwatch.MetricDataResult) map[string]cloudwatch.Me
 	for _, r := range results {
 		m[r.ID] = r
 	}
+
 	return m
 }
