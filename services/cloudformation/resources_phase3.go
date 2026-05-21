@@ -16,6 +16,7 @@ import (
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
+	"github.com/blackbirdworks/gopherstack/services/neptune"
 	"github.com/blackbirdworks/gopherstack/services/pipes"
 )
 
@@ -853,7 +854,7 @@ func (rc *ResourceCreator) createNeptuneCluster(
 
 	paramGroupName := strProp(props, "DBClusterParameterGroupName", params, physicalIDs)
 
-	cluster, err := rc.backends.Neptune.Backend.CreateDBCluster(id, paramGroupName, 0)
+	cluster, err := rc.backends.Neptune.Backend.CreateDBCluster(id, paramGroupName, 0, neptune.DBClusterCreateOptions{})
 	if err != nil {
 		return "", fmt.Errorf("create Neptune cluster %s: %w", id, err)
 	}
@@ -890,7 +891,9 @@ func (rc *ResourceCreator) createNeptuneInstance(
 	clusterID := strProp(props, "DBClusterIdentifier", params, physicalIDs)
 	instanceClass := strProp(props, "DBInstanceClass", params, physicalIDs)
 
-	instance, err := rc.backends.Neptune.Backend.CreateDBInstance(id, clusterID, instanceClass)
+	instance, err := rc.backends.Neptune.Backend.CreateDBInstance(
+		id, clusterID, instanceClass, neptune.DBInstanceCreateOptions{},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Neptune instance %s: %w", id, err)
 	}
