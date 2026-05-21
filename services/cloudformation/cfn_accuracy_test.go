@@ -257,8 +257,9 @@ func TestCreateStack_AllowedValues_InvalidValue_Rejected(t *testing.T) {
 		[]cloudformation.Parameter{{ParameterKey: "Env", ParameterValue: "qa"}},
 		cloudformation.StackOptions{},
 	)
-	require.NoError(t, err) // CreateStack returns (stack, nil) even on logical failure
-	assert.Equal(t, "CREATE_FAILED", stack.StackStatus)
+	require.NoError(t, err)
+	// AWS rolls back to ROLLBACK_COMPLETE on parameter validation failure.
+	assert.Equal(t, "ROLLBACK_COMPLETE", stack.StackStatus)
 	assert.Contains(t, stack.StackStatusReason, "parameter validation failed")
 }
 
@@ -285,7 +286,7 @@ func TestCreateStack_AllowedValues_ConstraintDescription_InError(t *testing.T) {
 		cloudformation.StackOptions{},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "CREATE_FAILED", stack.StackStatus)
+	assert.Equal(t, "ROLLBACK_COMPLETE", stack.StackStatus)
 	assert.Contains(t, stack.StackStatusReason, "must be dev or prod")
 }
 
@@ -341,7 +342,7 @@ func TestUpdateStack_AllowedValues_InvalidValue_Rejected(t *testing.T) {
 		cloudformation.StackOptions{},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "UPDATE_FAILED", updated.StackStatus)
+	assert.Equal(t, "UPDATE_ROLLBACK_COMPLETE", updated.StackStatus)
 }
 
 // ---- GetTemplateSummary: AllowedValues and NoEcho surfaced ---------------------
@@ -471,8 +472,10 @@ func TestDeleteStack_NestedStack_DeletesChild(t *testing.T) {
 	err = b.DeleteStack(t.Context(), "parent-del")
 	require.NoError(t, err)
 
-	_, err = b.DescribeStack("ChildStack")
-	require.ErrorIs(t, err, cloudformation.ErrStackNotFound)
+	// Child transitions to DELETE_COMPLETE (not removed from index).
+	child, err := b.DescribeStack("ChildStack")
+	require.NoError(t, err)
+	assert.Equal(t, "DELETE_COMPLETE", child.StackStatus)
 }
 
 // ---- Stack lifecycle state machine completeness --------------------------------

@@ -1120,7 +1120,8 @@ func TestBackend_UpdateStack_InvalidTemplate(t *testing.T) {
 					}
 				}
 			}`,
-			wantStatus: "UPDATE_FAILED",
+			// AWS rolls back to UPDATE_ROLLBACK_COMPLETE on pre-flight import validation failure.
+			wantStatus: "UPDATE_ROLLBACK_COMPLETE",
 		},
 	}
 

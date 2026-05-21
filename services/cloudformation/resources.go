@@ -171,6 +171,11 @@ func (rc *ResourceCreator) Create(
 		}
 	}
 
+	// Handle nested stacks regardless of whether service backends are configured.
+	if resourceType == cfnStackType {
+		return rc.createNestedStack(ctx, logicalID, props, params)
+	}
+
 	if rc.backends == nil {
 		return logicalID + "-" + uuid.New().String()[:8], nil
 	}
@@ -217,10 +222,6 @@ func (rc *ResourceCreator) createCoreResource(
 		return id, true, err
 	case resTypeSecret:
 		id, err := rc.createSecretsManagerSecret(ctx, logicalID, props, params, physicalIDs)
-
-		return id, true, err
-	case cfnStackType:
-		id, err := rc.createNestedStack(ctx, logicalID, props, params)
 
 		return id, true, err
 	default:
@@ -888,7 +889,19 @@ func (rc *ResourceCreator) Delete(
 	resourceType, physicalID string,
 	_ map[string]any,
 ) error {
-	if rc == nil || rc.backends == nil {
+	if rc == nil {
+		return nil
+	}
+
+	// Handle nested stack deletion regardless of service backends.
+	if resourceType == cfnStackType {
+		if rc.nestedStackCreator != nil {
+			return rc.nestedStackCreator.DeleteNestedStack(ctx, physicalID)
+		}
+		return nil
+	}
+
+	if rc.backends == nil {
 		return nil
 	}
 
@@ -916,11 +929,6 @@ func (rc *ResourceCreator) deleteCoreResource(ctx context.Context, resourceType,
 		return true, rc.deleteKMSKey(ctx, physicalID)
 	case resTypeSecret:
 		return true, rc.deleteSecretsManagerSecret(ctx, physicalID)
-	case cfnStackType:
-		if rc.nestedStackCreator != nil {
-			return true, rc.nestedStackCreator.DeleteNestedStack(ctx, physicalID)
-		}
-		return true, nil
 	default:
 		return false, nil
 	}

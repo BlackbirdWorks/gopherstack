@@ -589,7 +589,8 @@ func TestBackend_UnresolvedImportFails(t *testing.T) {
 	// Try to create a stack that imports a non-existent export.
 	stack, err := b.CreateStack(t.Context(), "importer-stack", importTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, "CREATE_FAILED", stack.StackStatus)
+	// AWS rolls back to ROLLBACK_COMPLETE when pre-flight import validation fails.
+	assert.Equal(t, "ROLLBACK_COMPLETE", stack.StackStatus)
 	assert.Contains(t, stack.StackStatusReason, "shared-bucket")
 }
 
