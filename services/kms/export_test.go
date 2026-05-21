@@ -81,3 +81,26 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 
 	return h.janitor.TaskTimeout
 }
+
+// ScheduleJanitorExpiry pushes an expiry entry into the janitor's heap for testing.
+func (j *Janitor) ScheduleJanitorExpiry(keyID string, fireAt float64, isDeletion bool) {
+	kind := expiryKindMaterial
+	if isDeletion {
+		kind = expiryKindDeletion
+	}
+
+	j.scheduleExpiry(keyID, fireAt, kind)
+}
+
+// GrantTokenTTL exposes grantTokenTTL for testing.
+const GrantTokenTTL = grantTokenTTL
+
+// SetGrantTokenIssuedAt directly sets a grant's TokenIssuedAt for expiry testing.
+func (b *InMemoryBackend) SetGrantTokenIssuedAt(grantID string, t time.Time) {
+	b.mu.Lock("SetGrantTokenIssuedAt")
+	defer b.mu.Unlock()
+
+	if g, ok := b.grants[grantID]; ok {
+		g.TokenIssuedAt = t
+	}
+}

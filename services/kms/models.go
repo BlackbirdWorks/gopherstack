@@ -404,6 +404,8 @@ type Grant struct {
 	RetiringPrincipal string `json:"RetiringPrincipal,omitempty"`
 	// GrantToken is a token that can be used to identify this grant.
 	GrantToken string `json:"GrantToken"`
+	// TokenIssuedAt records when the grant token was issued, enabling expiry checks.
+	TokenIssuedAt time.Time `json:"TokenIssuedAt"`
 	// Name is an optional name for the grant.
 	Name string `json:"Name,omitempty"`
 	// Operations is the list of cryptographic operations the grantee can perform.
