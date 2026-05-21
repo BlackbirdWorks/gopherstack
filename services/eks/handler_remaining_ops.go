@@ -851,8 +851,8 @@ type updateClusterConfigVpcConfig struct {
 }
 
 type updateClusterConfigBody struct {
-	Logging              *updateClusterConfigLogging    `json:"logging"`
-	ResourcesVpcConfig   *updateClusterConfigVpcConfig  `json:"resourcesVpcConfig"`
+	Logging            *updateClusterConfigLogging   `json:"logging"`
+	ResourcesVpcConfig *updateClusterConfigVpcConfig `json:"resourcesVpcConfig"`
 }
 
 func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string, body []byte) error {

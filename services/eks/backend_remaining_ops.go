@@ -1086,11 +1086,17 @@ func (b *InMemoryBackend) UpdateClusterVpcEndpoint(clusterName string, upd VpcEn
 	var params []UpdateParam
 	if upd.EndpointPublicAccess != nil {
 		c.VpcConfig.EndpointPublicAccess = *upd.EndpointPublicAccess
-		params = append(params, UpdateParam{Type: "EndpointPublicAccess", Value: fmt.Sprintf("%v", *upd.EndpointPublicAccess)})
+		params = append(
+			params,
+			UpdateParam{Type: "EndpointPublicAccess", Value: fmt.Sprintf("%v", *upd.EndpointPublicAccess)},
+		)
 	}
 	if upd.EndpointPrivateAccess != nil {
 		c.VpcConfig.EndpointPrivateAccess = *upd.EndpointPrivateAccess
-		params = append(params, UpdateParam{Type: "EndpointPrivateAccess", Value: fmt.Sprintf("%v", *upd.EndpointPrivateAccess)})
+		params = append(
+			params,
+			UpdateParam{Type: "EndpointPrivateAccess", Value: fmt.Sprintf("%v", *upd.EndpointPrivateAccess)},
+		)
 	}
 	if upd.PublicAccessCIDRs != nil {
 		c.VpcConfig.PublicAccessCIDRs = cloneStrings(upd.PublicAccessCIDRs)

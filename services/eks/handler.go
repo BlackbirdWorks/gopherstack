@@ -1736,15 +1736,7 @@ func (h *Handler) handleCreateFargateProfile(c *echo.Context, clusterName string
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyFargateProfile: map[string]any{
-			keyClusterName:        profile.ClusterName,
-			"fargateProfileName":  profile.FargateProfileName,
-			"fargateProfileArn":   profile.ARN,
-			"podExecutionRoleArn": profile.PodExecutionRoleARN,
-			keyStatusField:        profile.Status,
-			"selectors":           profile.Selectors,
-			keyCreatedAt:          profile.CreatedAt.Unix(),
-		},
+		keyFargateProfile: fargateProfileToJSON(profile),
 	})
 }
 
@@ -1781,14 +1773,6 @@ func (h *Handler) handleCreatePodIdentityAssociation(c *echo.Context, clusterNam
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyAssociation: map[string]any{
-			keyClusterName:   assoc.ClusterName,
-			"associationId":  assoc.AssociationID,
-			"associationArn": assoc.ARN,
-			"namespace":      assoc.Namespace,
-			"serviceAccount": assoc.ServiceAccount,
-			"roleArn":        assoc.RoleARN,
-			keyCreatedAt:     assoc.CreatedAt.Unix(),
-		},
+		keyAssociation: podIdentityToJSON(assoc),
 	})
 }
