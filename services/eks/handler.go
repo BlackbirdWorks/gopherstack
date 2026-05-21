@@ -119,8 +119,6 @@ const (
 	opDescribeIdentityProviderConfig  = "DescribeIdentityProviderConfig"
 )
 
-const statusDeleting = "DELETING"
-
 const (
 	eksMatchPriority = service.PriorityPathVersioned
 
@@ -924,6 +922,7 @@ func clusterToJSON(c *Cluster) map[string]any {
 		keyVersion:        c.Version,
 		keyCreatedAt:      c.CreatedAt.Unix(),
 		"platformVersion": c.PlatformVersion,
+		"tags":            clusterTagsMap(c),
 	}
 	if c.Endpoint != "" {
 		m["endpoint"] = c.Endpoint
@@ -940,13 +939,20 @@ func clusterToJSON(c *Cluster) map[string]any {
 	}
 
 	if c.VpcConfig != nil {
-		m["resourcesVpcConfig"] = map[string]any{
+		vpc := map[string]any{
 			"subnetIds":             c.VpcConfig.SubnetIDs,
 			"securityGroupIds":      c.VpcConfig.SecurityGroupIDs,
 			"endpointPrivateAccess": c.VpcConfig.EndpointPrivateAccess,
 			"endpointPublicAccess":  c.VpcConfig.EndpointPublicAccess,
 			"publicAccessCidrs":     c.VpcConfig.PublicAccessCIDRs,
 		}
+		if c.VpcConfig.ClusterSecurityGroupId != "" {
+			vpc["clusterSecurityGroupId"] = c.VpcConfig.ClusterSecurityGroupId
+		}
+		if c.VpcConfig.VpcId != "" {
+			vpc["vpcId"] = c.VpcConfig.VpcId
+		}
+		m["resourcesVpcConfig"] = vpc
 	}
 
 	if c.KubernetesNetworkConfig != nil {
@@ -976,7 +982,19 @@ func clusterToJSON(c *Cluster) map[string]any {
 		m["logging"] = map[string]any{"clusterLogging": entries}
 	}
 
+	if len(c.EncryptionConfig) > 0 {
+		m["encryptionConfig"] = c.EncryptionConfig
+	}
+
 	return m
+}
+
+// clusterTagsMap returns the cluster tags as a plain map, or an empty map if unset.
+func clusterTagsMap(c *Cluster) map[string]string {
+	if c.Tags == nil {
+		return map[string]string{}
+	}
+	return c.Tags.Clone()
 }
 
 // nodegroupToJSON converts a Nodegroup to a JSON-serializable map.
@@ -1042,6 +1060,11 @@ func appendNodegroupOptionalFields(ng *Nodegroup, m map[string]any) {
 	}
 	if ng.Resources != nil && len(ng.Resources.AutoScalingGroups) > 0 {
 		m["resources"] = nodegroupResourcesToJSON(ng.Resources)
+	}
+	if ng.Tags != nil {
+		m["tags"] = ng.Tags.Clone()
+	} else {
+		m["tags"] = map[string]string{}
 	}
 }
 
@@ -1405,6 +1428,23 @@ type createAccessEntryBody struct {
 	Username     string            `json:"username"`
 }
 
+func accessEntryToJSON(entry *AccessEntry) map[string]any {
+	m := map[string]any{
+		keyClusterName:    entry.ClusterName,
+		keyPrincipalArn:   entry.PrincipalARN,
+		keyAccessEntryArn: entry.ARN,
+		keyType:           entry.Type,
+		keyUsername:       entry.Username,
+		keyCreatedAt:      entry.CreatedAt.Unix(),
+	}
+	if entry.Tags != nil {
+		m["tags"] = entry.Tags.Clone()
+	} else {
+		m["tags"] = map[string]string{}
+	}
+	return m
+}
+
 func (h *Handler) handleCreateAccessEntry(c *echo.Context, clusterName string, body []byte) error {
 	var in createAccessEntryBody
 	if err := json.Unmarshal(body, &in); err != nil {
@@ -1421,14 +1461,7 @@ func (h *Handler) handleCreateAccessEntry(c *echo.Context, clusterName string, b
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyAccessEntry: map[string]any{
-			keyClusterName:    entry.ClusterName,
-			keyPrincipalArn:   entry.PrincipalARN,
-			keyAccessEntryArn: entry.ARN,
-			keyType:           entry.Type,
-			keyUsername:       entry.Username,
-			keyCreatedAt:      entry.CreatedAt.Unix(),
-		},
+		keyAccessEntry: accessEntryToJSON(entry),
 	})
 }
 

@@ -33,11 +33,13 @@ var (
 
 // VpcConfig captures the cluster VPC configuration returned by AWS.
 type VpcConfig struct {
-	SubnetIDs             []string `json:"subnetIds,omitempty"`
-	SecurityGroupIDs      []string `json:"securityGroupIds,omitempty"`
-	PublicAccessCIDRs     []string `json:"publicAccessCidrs,omitempty"`
-	EndpointPrivateAccess bool     `json:"endpointPrivateAccess"`
-	EndpointPublicAccess  bool     `json:"endpointPublicAccess"`
+	SubnetIDs              []string `json:"subnetIds,omitempty"`
+	SecurityGroupIDs       []string `json:"securityGroupIds,omitempty"`
+	PublicAccessCIDRs      []string `json:"publicAccessCidrs,omitempty"`
+	ClusterSecurityGroupId string   `json:"clusterSecurityGroupId,omitempty"`
+	VpcId                  string   `json:"vpcId,omitempty"`
+	EndpointPrivateAccess  bool     `json:"endpointPrivateAccess"`
+	EndpointPublicAccess   bool     `json:"endpointPublicAccess"`
 }
 
 // KubernetesNetworkConfig captures cluster networking parameters.
@@ -62,6 +64,9 @@ type Cluster struct {
 	Tags                    *tags.Tags               `json:"tags,omitempty"`
 	VpcConfig               *VpcConfig               `json:"resourcesVpcConfig,omitempty"`
 	KubernetesNetworkConfig *KubernetesNetworkConfig `json:"kubernetesNetworkConfig,omitempty"`
+	// EncryptionConfig holds the current cluster encryption config, kept in sync
+	// with b.encryptionConfigs. Populated by AssociateEncryptionConfig.
+	EncryptionConfig        []EncryptionConfig       `json:"encryptionConfig,omitempty"`
 	Name                    string                   `json:"name"`
 	ARN                     string                   `json:"arn"`
 	Endpoint                string                   `json:"endpoint,omitempty"`
@@ -307,6 +312,12 @@ func (b *InMemoryBackend) CreateCluster(
 		cp.SubnetIDs = cloneStrings(vpcConfig.SubnetIDs)
 		cp.SecurityGroupIDs = cloneStrings(vpcConfig.SecurityGroupIDs)
 		cp.PublicAccessCIDRs = cloneStrings(vpcConfig.PublicAccessCIDRs)
+		if cp.ClusterSecurityGroupId == "" {
+			cp.ClusterSecurityGroupId = "sg-" + stableID(name)
+		}
+		if cp.VpcId == "" {
+			cp.VpcId = "vpc-" + stableID(name)
+		}
 		vpcCopy = &cp
 	}
 

@@ -279,6 +279,7 @@ func (b *InMemoryBackend) AssociateEncryptionConfig(
 	stored := make([]EncryptionConfig, len(configs))
 	copy(stored, configs)
 	b.encryptionConfigs[clusterName] = stored
+	b.clusters[clusterName].EncryptionConfig = stored
 
 	result := make([]EncryptionConfig, len(stored))
 	copy(result, stored)

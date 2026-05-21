@@ -28,7 +28,11 @@ const (
 )
 
 const (
-	statusPassing = "PASSING"
+	statusPassing  = "PASSING"
+	statusCreating = "CREATING"
+	statusFailed   = "FAILED"
+	statusDegraded = "DEGRADED"
+	statusDeleting = "DELETING"
 )
 
 // Insight represents an EKS cluster insight.
@@ -52,13 +56,28 @@ type InsightsRefresh struct {
 	Status      string    `json:"status"`
 }
 
+// UpdateParam represents a single parameter changed by an EKS update operation.
+type UpdateParam struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
+// UpdateError represents an error encountered during an EKS update.
+type UpdateError struct {
+	ErrorCode    string   `json:"errorCode"`
+	ErrorMessage string   `json:"errorMessage"`
+	ResourceIDs  []string `json:"resourceIds,omitempty"`
+}
+
 // Update represents an EKS update record.
 type Update struct {
-	CreatedAt   time.Time `json:"createdAt"`
-	ID          string    `json:"id"`
-	ClusterName string    `json:"clusterName"`
-	Status      string    `json:"status"`
-	Type        string    `json:"type"`
+	CreatedAt   time.Time     `json:"createdAt"`
+	Params      []UpdateParam `json:"params,omitempty"`
+	Errors      []UpdateError `json:"errors,omitempty"`
+	ID          string        `json:"id"`
+	ClusterName string        `json:"clusterName"`
+	Status      string        `json:"status"`
+	Type        string        `json:"type"`
 }
 
 // --- Addon CRUD ---
@@ -1040,6 +1059,54 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, logEntries []C
 	}, nil
 }
 
+// VpcEndpointUpdate carries optional VPC endpoint access changes for UpdateClusterVpcEndpoint.
+type VpcEndpointUpdate struct {
+	EndpointPublicAccess  *bool
+	EndpointPrivateAccess *bool
+	PublicAccessCIDRs     []string
+}
+
+// UpdateClusterVpcEndpoint updates the VPC endpoint access settings on a cluster.
+// Fields with nil pointer values are left unchanged.
+func (b *InMemoryBackend) UpdateClusterVpcEndpoint(clusterName string, upd VpcEndpointUpdate) (*Update, error) {
+	b.mu.Lock("UpdateClusterVpcEndpoint")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[clusterName]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	if c.VpcConfig == nil {
+		c.VpcConfig = &VpcConfig{
+			EndpointPublicAccess: true,
+		}
+	}
+
+	var params []UpdateParam
+	if upd.EndpointPublicAccess != nil {
+		c.VpcConfig.EndpointPublicAccess = *upd.EndpointPublicAccess
+		params = append(params, UpdateParam{Type: "EndpointPublicAccess", Value: fmt.Sprintf("%v", *upd.EndpointPublicAccess)})
+	}
+	if upd.EndpointPrivateAccess != nil {
+		c.VpcConfig.EndpointPrivateAccess = *upd.EndpointPrivateAccess
+		params = append(params, UpdateParam{Type: "EndpointPrivateAccess", Value: fmt.Sprintf("%v", *upd.EndpointPrivateAccess)})
+	}
+	if upd.PublicAccessCIDRs != nil {
+		c.VpcConfig.PublicAccessCIDRs = cloneStrings(upd.PublicAccessCIDRs)
+		params = append(params, UpdateParam{Type: "PublicAccessCidrs", Value: fmt.Sprintf("%v", upd.PublicAccessCIDRs)})
+	}
+
+	return &Update{
+		ID:          stableID(clusterName + "/vpc-update/" + time.Now().String()),
+		ClusterName: clusterName,
+		Status:      "Successful",
+		Type:        "EndpointAccessUpdate",
+		Params:      params,
+		CreatedAt:   time.Now().UTC(),
+	}, nil
+}
+
 // mergeClusterLogEntries applies logEntries on top of existing, enabling or disabling
 // individual log types, and returns the merged structured result.
 func mergeClusterLogEntries(existing []ClusterLogEntry, updates []ClusterLogEntry) []ClusterLogEntry {
@@ -1096,6 +1163,7 @@ func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Up
 		ClusterName: clusterName,
 		Status:      "Successful",
 		Type:        typeVersionUpdate,
+		Params:      []UpdateParam{{Type: "Version", Value: version}},
 		CreatedAt:   time.Now().UTC(),
 	}, nil
 }
@@ -1125,6 +1193,7 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 		ClusterName: clusterName,
 		Status:      statusInProgress,
 		Type:        typeVersionUpdate,
+		Params:      []UpdateParam{{Type: "Version", Value: version}},
 		CreatedAt:   time.Now().UTC(),
 	}, nil
 }
