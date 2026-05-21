@@ -38,8 +38,7 @@ func TestExpand_CreateTopic_DuplicateReturnsError(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.CreateTopic("dup-name-topic", nil)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sns.ErrTopicAlreadyExists)
+	require.ErrorIs(t, err, sns.ErrTopicAlreadyExists)
 
 	// ARN from first creation is stable.
 	assert.Contains(t, t1.TopicArn, "dup-name-topic")
@@ -324,10 +323,10 @@ func TestExpand_FIFOTopic_Publish_RequiresDedupID_ViaHandler(t *testing.T) {
 
 	// FIFO without CBD requires MessageDeduplicationId — enforced at handler.
 	vals := url.Values{
-		"Action":           {"Publish"},
-		"TopicArn":         {topicArn},
-		"Message":          {"hello"},
-		"MessageGroupId":   {"group1"},
+		"Action":         {"Publish"},
+		"TopicArn":       {topicArn},
+		"Message":        {"hello"},
+		"MessageGroupId": {"group1"},
 		// No MessageDeduplicationId — should fail.
 	}
 
@@ -870,9 +869,9 @@ func TestExpand_PublishBatch_SingleEntry(t *testing.T) {
 	topicArn := mustCreateTopicViaHandler(t, h, "batch-single-topic")
 
 	vals := url.Values{
-		"Action":                           {"PublishBatch"},
-		"TopicArn":                         {topicArn},
-		"PublishBatchRequestEntries.member.1.Id":      {"msg1"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {topicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"msg1"},
 		"PublishBatchRequestEntries.member.1.Message": {"hello"},
 	}
 
@@ -907,9 +906,9 @@ func TestExpand_PublishBatch_TopicNotFound(t *testing.T) {
 	h, _ := newA1679Handler(t)
 
 	vals := url.Values{
-		"Action":                           {"PublishBatch"},
-		"TopicArn":                         {"arn:aws:sns:us-east-1:000000000000:ghost"},
-		"PublishBatchRequestEntries.member.1.Id":      {"msg1"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {"arn:aws:sns:us-east-1:000000000000:ghost"},
+		"PublishBatchRequestEntries.member.1.Id": {"msg1"},
 		"PublishBatchRequestEntries.member.1.Message": {"hello"},
 	}
 
