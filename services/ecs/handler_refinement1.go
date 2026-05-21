@@ -54,9 +54,10 @@ func (h *Handler) handleUpdateCluster(
 // ----- UpdateCapacityProvider -----
 
 type updateCapacityProviderInput struct {
-	Name   string `json:"name"`
-	Status string `json:"status,omitempty"`
-	Tags   []Tag  `json:"tags,omitempty"`
+	Name                     string                         `json:"name"`
+	Status                   string                         `json:"status,omitempty"`
+	AutoScalingGroupProvider *autoScalingGroupProviderInput `json:"autoScalingGroupProvider,omitempty"`
+	Tags                     []Tag                          `json:"tags,omitempty"`
 }
 
 type updateCapacityProviderOutput struct {
@@ -68,9 +69,10 @@ func (h *Handler) handleUpdateCapacityProvider(
 	in *updateCapacityProviderInput,
 ) (*updateCapacityProviderOutput, error) {
 	cp, err := h.Backend.UpdateCapacityProvider(UpdateCapacityProviderInput{
-		Name:   in.Name,
-		Status: in.Status,
-		Tags:   in.Tags,
+		Name:                     in.Name,
+		Status:                   in.Status,
+		AutoScalingGroupProvider: toAutoScalingGroupProvider(in.AutoScalingGroupProvider),
+		Tags:                     in.Tags,
 	})
 	if err != nil {
 		return nil, err

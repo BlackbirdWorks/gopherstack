@@ -20,9 +20,10 @@ type UpdateClusterInput struct {
 
 // UpdateCapacityProviderInput holds input for UpdateCapacityProvider.
 type UpdateCapacityProviderInput struct {
-	Name   string
-	Status string
-	Tags   []Tag
+	Name                     string
+	Status                   string
+	AutoScalingGroupProvider *AutoScalingGroupProvider
+	Tags                     []Tag
 }
 
 // StartTaskInput holds input for StartTask (place a task on a specific container instance).
@@ -86,6 +87,10 @@ func (b *InMemoryBackend) UpdateCapacityProvider(input UpdateCapacityProviderInp
 
 	if input.Status != "" {
 		cp.Status = input.Status
+	}
+
+	if input.AutoScalingGroupProvider != nil {
+		cp.AutoScalingGroupProvider = input.AutoScalingGroupProvider
 	}
 
 	if input.Tags != nil {

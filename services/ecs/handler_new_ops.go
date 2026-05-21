@@ -9,33 +9,93 @@ import (
 
 // ----- Capacity provider view types -----
 
+type managedScalingView struct {
+	Status                    string `json:"status,omitempty"`
+	TargetCapacityPercent     int    `json:"targetCapacityPercent,omitempty"`
+	MinimumScalingStepSize    int    `json:"minimumScalingStepSize,omitempty"`
+	MaximumScalingStepSize    int    `json:"maximumScalingStepSize,omitempty"`
+	InstanceWarmupPeriod      int    `json:"instanceWarmupPeriod,omitempty"`
+	TargetCapacityUtilization int    `json:"targetCapacityUtilization,omitempty"`
+}
+
+type autoScalingGroupProviderView struct {
+	AutoScalingGroupArn          string              `json:"autoScalingGroupArn"`
+	ManagedScaling               *managedScalingView `json:"managedScaling,omitempty"`
+	ManagedTerminationProtection string              `json:"managedTerminationProtection,omitempty"`
+	ManagedDraining              string              `json:"managedDraining,omitempty"`
+}
+
 type capacityProviderView struct {
-	CapacityProviderArn string  `json:"capacityProviderArn"`
-	Name                string  `json:"name"`
-	Status              string  `json:"status"`
-	UpdateStatus        string  `json:"updateStatus,omitempty"`
-	UpdateStatusReason  string  `json:"updateStatusReason,omitempty"`
-	Tags                []Tag   `json:"tags,omitempty"`
-	CreatedAt           float64 `json:"createdAt"`
+	CapacityProviderArn      string                        `json:"capacityProviderArn"`
+	Name                     string                        `json:"name"`
+	Status                   string                        `json:"status"`
+	UpdateStatus             string                        `json:"updateStatus,omitempty"`
+	UpdateStatusReason       string                        `json:"updateStatusReason,omitempty"`
+	AutoScalingGroupProvider *autoScalingGroupProviderView `json:"autoScalingGroupProvider,omitempty"`
+	Tags                     []Tag                         `json:"tags,omitempty"`
+	CreatedAt                float64                       `json:"createdAt"`
+}
+
+func toAutoScalingGroupProviderView(asg *AutoScalingGroupProvider) *autoScalingGroupProviderView {
+	if asg == nil {
+		return nil
+	}
+
+	v := &autoScalingGroupProviderView{
+		AutoScalingGroupArn:          asg.AutoScalingGroupArn,
+		ManagedTerminationProtection: asg.ManagedTerminationProtection,
+		ManagedDraining:              asg.ManagedDraining,
+	}
+
+	if asg.ManagedScaling != nil {
+		v.ManagedScaling = &managedScalingView{
+			Status:                    asg.ManagedScaling.Status,
+			TargetCapacityPercent:     asg.ManagedScaling.TargetCapacityPercent,
+			MinimumScalingStepSize:    asg.ManagedScaling.MinimumScalingStepSize,
+			MaximumScalingStepSize:    asg.ManagedScaling.MaximumScalingStepSize,
+			InstanceWarmupPeriod:      asg.ManagedScaling.InstanceWarmupPeriod,
+			TargetCapacityUtilization: asg.ManagedScaling.TargetCapacityUtilization,
+		}
+	}
+
+	return v
 }
 
 func toCapacityProviderView(cp CapacityProvider) capacityProviderView {
 	return capacityProviderView{
-		CapacityProviderArn: cp.CapacityProviderArn,
-		Name:                cp.Name,
-		Status:              cp.Status,
-		UpdateStatus:        cp.UpdateStatus,
-		UpdateStatusReason:  cp.UpdateStatusReason,
-		Tags:                cp.Tags,
-		CreatedAt:           float64(cp.CreatedAt.Unix()),
+		CapacityProviderArn:      cp.CapacityProviderArn,
+		Name:                     cp.Name,
+		Status:                   cp.Status,
+		UpdateStatus:             cp.UpdateStatus,
+		UpdateStatusReason:       cp.UpdateStatusReason,
+		AutoScalingGroupProvider: toAutoScalingGroupProviderView(cp.AutoScalingGroupProvider),
+		Tags:                     cp.Tags,
+		CreatedAt:                float64(cp.CreatedAt.Unix()),
 	}
 }
 
 // ----- Handler: CreateCapacityProvider -----
 
+type managedScalingInput struct {
+	Status                    string `json:"status,omitempty"`
+	TargetCapacityPercent     int    `json:"targetCapacityPercent,omitempty"`
+	MinimumScalingStepSize    int    `json:"minimumScalingStepSize,omitempty"`
+	MaximumScalingStepSize    int    `json:"maximumScalingStepSize,omitempty"`
+	InstanceWarmupPeriod      int    `json:"instanceWarmupPeriod,omitempty"`
+	TargetCapacityUtilization int    `json:"targetCapacityUtilization,omitempty"`
+}
+
+type autoScalingGroupProviderInput struct {
+	AutoScalingGroupArn          string               `json:"autoScalingGroupArn"`
+	ManagedScaling               *managedScalingInput `json:"managedScaling,omitempty"`
+	ManagedTerminationProtection string               `json:"managedTerminationProtection,omitempty"`
+	ManagedDraining              string               `json:"managedDraining,omitempty"`
+}
+
 type createCapacityProviderInput struct {
-	Name string     `json:"name"`
-	Tags []tagInput `json:"tags,omitempty"`
+	Name                     string                         `json:"name"`
+	AutoScalingGroupProvider *autoScalingGroupProviderInput `json:"autoScalingGroupProvider,omitempty"`
+	Tags                     []tagInput                     `json:"tags,omitempty"`
 }
 
 type tagInput struct {
@@ -45,6 +105,31 @@ type tagInput struct {
 
 type createCapacityProviderOutput struct {
 	CapacityProvider capacityProviderView `json:"capacityProvider"`
+}
+
+func toAutoScalingGroupProvider(in *autoScalingGroupProviderInput) *AutoScalingGroupProvider {
+	if in == nil {
+		return nil
+	}
+
+	asg := &AutoScalingGroupProvider{
+		AutoScalingGroupArn:          in.AutoScalingGroupArn,
+		ManagedTerminationProtection: in.ManagedTerminationProtection,
+		ManagedDraining:              in.ManagedDraining,
+	}
+
+	if in.ManagedScaling != nil {
+		asg.ManagedScaling = &ManagedScaling{
+			Status:                    in.ManagedScaling.Status,
+			TargetCapacityPercent:     in.ManagedScaling.TargetCapacityPercent,
+			MinimumScalingStepSize:    in.ManagedScaling.MinimumScalingStepSize,
+			MaximumScalingStepSize:    in.ManagedScaling.MaximumScalingStepSize,
+			InstanceWarmupPeriod:      in.ManagedScaling.InstanceWarmupPeriod,
+			TargetCapacityUtilization: in.ManagedScaling.TargetCapacityUtilization,
+		}
+	}
+
+	return asg
 }
 
 func (h *Handler) handleCreateCapacityProvider(
@@ -57,8 +142,9 @@ func (h *Handler) handleCreateCapacityProvider(
 	}
 
 	cp, err := h.Backend.CreateCapacityProvider(CreateCapacityProviderInput{
-		Name: in.Name,
-		Tags: tags,
+		Name:                     in.Name,
+		AutoScalingGroupProvider: toAutoScalingGroupProvider(in.AutoScalingGroupProvider),
+		Tags:                     tags,
 	})
 	if err != nil {
 		return nil, err
