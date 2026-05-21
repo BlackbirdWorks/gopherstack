@@ -24,6 +24,7 @@ import (
 func newBatch2Handler(t *testing.T) *ecs.Handler {
 	t.Helper()
 	backend := ecs.NewInMemoryBackend("000000000000", "us-east-1", ecs.NewNoopRunner())
+
 	return ecs.NewHandler(backend)
 }
 
@@ -83,9 +84,9 @@ func TestBatch2_TaskSet_ExternalController_CreateDescribeDelete(t *testing.T) {
 
 	// Delete task set
 	deleteResp := doECSRequest(t, h, "DeleteTaskSet", map[string]any{
-		"cluster":  "ts-cluster",
-		"service":  "ts-svc",
-		"taskSet":  taskSetArn,
+		"cluster": "ts-cluster",
+		"service": "ts-svc",
+		"taskSet": taskSetArn,
 	})
 	require.Equal(t, http.StatusOK, deleteResp.Code)
 }
@@ -130,7 +131,7 @@ func TestBatch2_TaskSet_UpdateScale(t *testing.T) {
 	var updateOut map[string]any
 	require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &updateOut))
 	updatedScale := updateOut["taskSet"].(map[string]any)["scale"].(map[string]any)
-	assert.Equal(t, float64(100), updatedScale["value"])
+	assert.InDelta(t, float64(100), updatedScale["value"], 0.001)
 }
 
 func TestBatch2_TaskSet_UpdateServicePrimaryTaskSet(t *testing.T) {
@@ -327,10 +328,10 @@ func TestBatch2_CapacityProvider_ASGBacked_Roundtrip(t *testing.T) {
 
 	ms := asg["managedScaling"].(map[string]any)
 	assert.Equal(t, "ENABLED", ms["status"])
-	assert.Equal(t, float64(100), ms["targetCapacityPercent"])
-	assert.Equal(t, float64(1), ms["minimumScalingStepSize"])
-	assert.Equal(t, float64(10), ms["maximumScalingStepSize"])
-	assert.Equal(t, float64(300), ms["instanceWarmupPeriod"])
+	assert.InDelta(t, float64(100), ms["targetCapacityPercent"], 0.001)
+	assert.InDelta(t, float64(1), ms["minimumScalingStepSize"], 0.001)
+	assert.InDelta(t, float64(10), ms["maximumScalingStepSize"], 0.001)
+	assert.InDelta(t, float64(300), ms["instanceWarmupPeriod"], 0.001)
 }
 
 func TestBatch2_CapacityProvider_ASGBacked_NoManagedScaling(t *testing.T) {
@@ -416,7 +417,7 @@ func TestBatch2_CapacityProvider_Update_ManagedScaling(t *testing.T) {
 	cp := out["capacityProvider"].(map[string]any)
 	asg := cp["autoScalingGroupProvider"].(map[string]any)
 	ms := asg["managedScaling"].(map[string]any)
-	assert.Equal(t, float64(90), ms["targetCapacityPercent"])
+	assert.InDelta(t, float64(90), ms["targetCapacityPercent"], 0.001)
 }
 
 func TestBatch2_CapacityProvider_DeleteByARN(t *testing.T) {
@@ -491,11 +492,11 @@ func TestBatch2_Service_CapacityProviderStrategy_Roundtrip(t *testing.T) {
 	}
 
 	fargate := stratMap["FARGATE"].(map[string]any)
-	assert.Equal(t, float64(1), fargate["weight"])
-	assert.Equal(t, float64(1), fargate["base"])
+	assert.InDelta(t, float64(1), fargate["weight"], 0.001)
+	assert.InDelta(t, float64(1), fargate["base"], 0.001)
 
 	fargateSpot := stratMap["FARGATE_SPOT"].(map[string]any)
-	assert.Equal(t, float64(4), fargateSpot["weight"])
+	assert.InDelta(t, float64(4), fargateSpot["weight"], 0.001)
 }
 
 func TestBatch2_Service_CapacityProviderStrategy_UpdateService(t *testing.T) {
@@ -602,8 +603,8 @@ func TestBatch2_Service_CircuitBreaker_Roundtrip(t *testing.T) {
 	cb := dc["deploymentCircuitBreaker"].(map[string]any)
 	assert.Equal(t, true, cb["enable"])
 	assert.Equal(t, true, cb["rollback"])
-	assert.Equal(t, float64(50), dc["minimumHealthyPercent"])
-	assert.Equal(t, float64(200), dc["maximumPercent"])
+	assert.InDelta(t, float64(50), dc["minimumHealthyPercent"], 0.001)
+	assert.InDelta(t, float64(200), dc["maximumPercent"], 0.001)
 }
 
 func TestBatch2_Service_CircuitBreaker_EnabledNoRollback(t *testing.T) {
@@ -704,8 +705,8 @@ func TestBatch2_Service_DeploymentConfig_Defaults(t *testing.T) {
 	svc := out["service"].(map[string]any)
 	dc := svc["deploymentConfiguration"].(map[string]any)
 	// AWS defaults: minimumHealthyPercent=100, maximumPercent=200
-	assert.Equal(t, float64(100), dc["minimumHealthyPercent"])
-	assert.Equal(t, float64(200), dc["maximumPercent"])
+	assert.InDelta(t, float64(100), dc["minimumHealthyPercent"], 0.001)
+	assert.InDelta(t, float64(200), dc["maximumPercent"], 0.001)
 }
 
 // ================================================================
@@ -761,7 +762,7 @@ func TestBatch2_ServiceConnect_Roundtrip(t *testing.T) {
 	require.Len(t, aliases, 1)
 	alias := aliases[0].(map[string]any)
 	assert.Equal(t, "my-service.local", alias["dnsName"])
-	assert.Equal(t, float64(80), alias["port"])
+	assert.InDelta(t, float64(80), alias["port"], 0.001)
 }
 
 func TestBatch2_ServiceConnect_Disabled(t *testing.T) {
@@ -867,7 +868,7 @@ func TestBatch2_ServiceDiscovery_CloudMap_Roundtrip(t *testing.T) {
 	reg := registries[0].(map[string]any)
 	assert.Equal(t, "arn:aws:servicediscovery:us-east-1:000000000000:service/srv-xxxx", reg["registryArn"])
 	assert.Equal(t, "app", reg["containerName"])
-	assert.Equal(t, float64(8080), reg["containerPort"])
+	assert.InDelta(t, float64(8080), reg["containerPort"], 0.001)
 }
 
 func TestBatch2_ServiceDiscovery_MultipleRegistries(t *testing.T) {

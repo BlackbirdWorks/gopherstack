@@ -43,10 +43,10 @@ type ManagedScaling struct {
 
 // AutoScalingGroupProvider configures an ASG-backed capacity provider.
 type AutoScalingGroupProvider struct {
-	AutoScalingGroupArn      string          `json:"autoScalingGroupArn"`
-	ManagedScaling           *ManagedScaling `json:"managedScaling,omitempty"`
-	ManagedTerminationProtection string      `json:"managedTerminationProtection,omitempty"`
-	ManagedDraining          string          `json:"managedDraining,omitempty"`
+	AutoScalingGroupArn          string          `json:"autoScalingGroupArn"`
+	ManagedScaling               *ManagedScaling `json:"managedScaling,omitempty"`
+	ManagedTerminationProtection string          `json:"managedTerminationProtection,omitempty"`
+	ManagedDraining              string          `json:"managedDraining,omitempty"`
 }
 
 // CapacityProvider represents an ECS capacity provider.
