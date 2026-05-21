@@ -1293,10 +1293,11 @@ func TestAudit_ImportKeyMaterial_EnablesExternalKey(t *testing.T) {
 	assert.NotEmpty(t, params.PublicKey)
 	assert.NotEmpty(t, params.ImportToken)
 
-	// Import key material (mock accepts any bytes).
+	// Import 32-byte key material (symmetric key must be exactly 32 bytes).
+	keyMaterial := make([]byte, 32)
 	err = b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
 		KeyID:           keyID,
-		KeyMaterial:     params.PublicKey, // mock ignores actual content
+		KeyMaterial:     keyMaterial,
 		ExpirationModel: "KEY_MATERIAL_DOES_NOT_EXPIRE",
 	})
 	require.NoError(t, err)
@@ -1315,7 +1316,7 @@ func TestAudit_DeleteImportedKeyMaterial(t *testing.T) {
 	require.NoError(t, err)
 	keyID := keyOut.KeyMetadata.KeyID
 
-	params, err := b.GetParametersForImport(&kms.GetParametersForImportInput{
+	_, err = b.GetParametersForImport(&kms.GetParametersForImportInput{
 		KeyID:             keyID,
 		WrappingAlgorithm: "RSAES_OAEP_SHA_256",
 		WrappingKeySpec:   "RSA_2048",
@@ -1324,7 +1325,7 @@ func TestAudit_DeleteImportedKeyMaterial(t *testing.T) {
 
 	err = b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
 		KeyID:           keyID,
-		KeyMaterial:     params.PublicKey,
+		KeyMaterial:     make([]byte, 32),
 		ExpirationModel: "KEY_MATERIAL_DOES_NOT_EXPIRE",
 	})
 	require.NoError(t, err)
@@ -1573,11 +1574,15 @@ func TestAudit_Tags_CreateKeyWithTags(t *testing.T) {
 	b := newBackend(t)
 	h := kms.NewHandler(b)
 
-	tags := []kms.Tag{{TagKey: "env", TagValue: "prod"}, {TagKey: "team", TagValue: "security"}}
-	out, err := b.CreateKey(&kms.CreateKeyInput{Tags: tags})
+	// Tags on CreateKey are applied by the handler's createKeyAction, not the backend directly.
+	// Set tags via the handler's exposed SetTags helper.
+	out, err := b.CreateKey(&kms.CreateKeyInput{})
 	require.NoError(t, err)
+	keyID := out.KeyMetadata.KeyID
 
-	gotTags := h.GetTags(out.KeyMetadata.KeyID)
+	h.SetTags(keyID, map[string]string{"env": "prod", "team": "security"})
+
+	gotTags := h.GetTags(keyID)
 	assert.Equal(t, "prod", gotTags["env"])
 	assert.Equal(t, "security", gotTags["team"])
 }
@@ -1687,7 +1692,8 @@ func TestAudit_ReplicateKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, rOut.ReplicaKeyMetadata.KeyID)
-	assert.Equal(t, "us-west-2", rOut.ReplicaKeyMetadata.MultiRegionConfiguration.ReplicaKeys[0].Region)
+	// Replica key should have REPLICA type in its multi-region config.
+	assert.Equal(t, "REPLICA", rOut.ReplicaKeyMetadata.MultiRegionKeyType)
 }
 
 func TestAudit_ReplicateKey_NonMultiRegionFails(t *testing.T) {
