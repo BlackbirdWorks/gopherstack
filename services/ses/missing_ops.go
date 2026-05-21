@@ -3,7 +3,9 @@ package ses
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 )
@@ -14,10 +16,10 @@ const (
 	notifTypeDelivery  = "Delivery"
 )
 
-// ---- identity policy operations (no-op stubs) ----
+// ---- identity policy operations ----
 
-// PutIdentityPolicy is a no-op stub: gopherstack does not enforce IAM sending policies.
-func (b *InMemoryBackend) PutIdentityPolicy(identity, policyName, _ string) error {
+// PutIdentityPolicy stores a sending authorization policy for an identity.
+func (b *InMemoryBackend) PutIdentityPolicy(identity, policyName, policy string) error {
 	if strings.TrimSpace(identity) == "" {
 		return fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
 	}
@@ -26,10 +28,20 @@ func (b *InMemoryBackend) PutIdentityPolicy(identity, policyName, _ string) erro
 		return fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
 	}
 
+	b.mu.Lock("PutIdentityPolicy")
+	defer b.mu.Unlock()
+
+	if b.policies[identity] == nil {
+		b.policies[identity] = make(map[string]string)
+	}
+
+	b.policies[identity][policyName] = policy
+
 	return nil
 }
 
-// DeleteIdentityPolicy is a no-op stub.
+// DeleteIdentityPolicy removes a sending authorization policy from an identity.
+// Deleting a non-existent policy is idempotent.
 func (b *InMemoryBackend) DeleteIdentityPolicy(identity, policyName string) error {
 	if strings.TrimSpace(identity) == "" {
 		return fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
@@ -39,25 +51,66 @@ func (b *InMemoryBackend) DeleteIdentityPolicy(identity, policyName string) erro
 		return fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
 	}
 
+	b.mu.Lock("DeleteIdentityPolicy")
+	defer b.mu.Unlock()
+
+	if m := b.policies[identity]; m != nil {
+		delete(m, policyName)
+	}
+
 	return nil
 }
 
-// GetIdentityPolicies is a no-op stub; returns empty policies.
-func (b *InMemoryBackend) GetIdentityPolicies(identity string, _ []string) (map[string]string, error) {
+// GetIdentityPolicies returns the policy documents for the given identity filtered by name.
+// An empty policyNames list returns all policies for the identity.
+func (b *InMemoryBackend) GetIdentityPolicies(identity string, policyNames []string) (map[string]string, error) {
 	if strings.TrimSpace(identity) == "" {
 		return nil, fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
 	}
 
-	return map[string]string{}, nil
+	b.mu.RLock("GetIdentityPolicies")
+	defer b.mu.RUnlock()
+
+	all := b.policies[identity]
+	out := make(map[string]string)
+
+	if len(policyNames) == 0 {
+		maps.Copy(out, all)
+
+		return out, nil
+	}
+
+	for _, name := range policyNames {
+		if v, ok := all[name]; ok {
+			out[name] = v
+		}
+	}
+
+	return out, nil
 }
 
-// ListIdentityPolicies is a no-op stub; returns empty list.
+// ListIdentityPolicies returns the names of sending authorization policies for an identity.
 func (b *InMemoryBackend) ListIdentityPolicies(identity string) ([]string, error) {
 	if strings.TrimSpace(identity) == "" {
 		return nil, fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
 	}
 
-	return []string{}, nil
+	b.mu.RLock("ListIdentityPolicies")
+	defer b.mu.RUnlock()
+
+	m := b.policies[identity]
+	if len(m) == 0 {
+		return []string{}, nil
+	}
+
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names, nil
 }
 
 // ---- identity attribute operations ----
@@ -375,10 +428,23 @@ func (b *InMemoryBackend) ListVerifiedEmailAddresses() []string {
 	return out
 }
 
-// ---- account-level controls (stubs) ----
+// ---- account-level controls ----
 
-// UpdateAccountSendingEnabled is a no-op stub (sending is always enabled).
-func (b *InMemoryBackend) UpdateAccountSendingEnabled(_ bool) {}
+// UpdateAccountSendingEnabled persists the account-level sending enabled flag.
+func (b *InMemoryBackend) UpdateAccountSendingEnabled(enabled bool) {
+	b.mu.Lock("UpdateAccountSendingEnabled")
+	defer b.mu.Unlock()
+
+	b.accountSendingEnabled = enabled
+}
+
+// GetAccountSendingEnabled returns the account-level sending enabled flag.
+func (b *InMemoryBackend) GetAccountSendingEnabled() bool {
+	b.mu.RLock("GetAccountSendingEnabled")
+	defer b.mu.RUnlock()
+
+	return b.accountSendingEnabled
+}
 
 // ---- send operations (stubs) ----
 
@@ -437,14 +503,42 @@ func (b *InMemoryBackend) SendCustomVerificationEmail(email, templateName string
 	return "custom-verif-" + email, nil
 }
 
-// TestRenderTemplate is a stub that returns the template subject unchanged.
-func (b *InMemoryBackend) TestRenderTemplate(templateName, _ string) (string, error) {
+// TestRenderTemplate renders the named template with the given JSON template data.
+// Variable substitution uses {{key}} syntax matching AWS SES Handlebars-style templating.
+func (b *InMemoryBackend) TestRenderTemplate(templateName, templateData string) (string, error) {
 	tmpl, err := b.GetTemplate(templateName)
 	if err != nil {
 		return "", err
 	}
 
-	return tmpl.SubjectPart, nil
+	vars := map[string]string{}
+
+	if strings.TrimSpace(templateData) != "" {
+		raw := map[string]any{}
+		if jerr := json.Unmarshal([]byte(templateData), &raw); jerr == nil {
+			for k, v := range raw {
+				vars[k] = fmt.Sprintf("%v", v)
+			}
+		}
+	}
+
+	parts := []string{tmpl.SubjectPart, tmpl.TextPart, tmpl.HTMLPart}
+	rendered := make([]string, len(parts))
+
+	for i, p := range parts {
+		rendered[i] = renderTemplateVars(p, vars)
+	}
+
+	return strings.Join(rendered, "\n---\n"), nil
+}
+
+// renderTemplateVars replaces {{key}} placeholders with values from vars.
+func renderTemplateVars(s string, vars map[string]string) string {
+	for k, v := range vars {
+		s = strings.ReplaceAll(s, "{{"+k+"}}", v)
+	}
+
+	return s
 }
 
 // UpdateCustomVerificationEmailTemplate updates an existing custom verification email template.

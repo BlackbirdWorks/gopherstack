@@ -76,6 +76,7 @@ type StorageBackend interface {
 	ListVerifiedEmailAddresses() []string
 	// Account-level
 	UpdateAccountSendingEnabled(enabled bool)
+	GetAccountSendingEnabled() bool
 	// Send ops
 	SendBounce(originalMsgID string) (string, error)
 	SendBulkTemplatedEmail(source, templateName string, destinations []BulkEmailDestination) ([]string, error)
