@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -13,6 +14,9 @@ import (
 
 // ErrEmptyTemplate is returned when a template body is empty.
 var ErrEmptyTemplate = errors.New("template body is empty")
+
+// ErrParameterValidation is returned when a parameter value fails AllowedValues validation.
+var ErrParameterValidation = errors.New("parameter validation failed")
 
 // splitSep is the internal separator used by Fn::Split to encode a list as a string.
 // A null byte cannot appear in CloudFormation string values, making it unambiguous.
@@ -31,9 +35,13 @@ type Template struct {
 
 // TemplateParameter represents a CloudFormation template parameter.
 type TemplateParameter struct {
-	Type        string `json:"Type"        yaml:"Type"`
-	Default     any    `json:"Default"     yaml:"Default"`
-	Description string `json:"Description" yaml:"Description"`
+	Default               any      `json:"Default"               yaml:"Default"`
+	Type                  string   `json:"Type"                  yaml:"Type"`
+	Description           string   `json:"Description"           yaml:"Description"`
+	AllowedPattern        string   `json:"AllowedPattern"        yaml:"AllowedPattern"`
+	ConstraintDescription string   `json:"ConstraintDescription" yaml:"ConstraintDescription"`
+	AllowedValues         []string `json:"AllowedValues"         yaml:"AllowedValues"`
+	NoEcho                bool     `json:"NoEcho"                yaml:"NoEcho"`
 }
 
 // TemplateResource represents a CloudFormation template resource.
@@ -93,6 +101,7 @@ func parseDependsOn(v any) []string {
 
 	switch d := v.(type) {
 	case string:
+
 		return []string{d}
 	case []any:
 		out := make([]string, 0, len(d))
@@ -104,6 +113,7 @@ func parseDependsOn(v any) []string {
 
 		return out
 	default:
+
 		return nil
 	}
 }
@@ -159,6 +169,37 @@ func ResolveParameters(tmpl *Template, overrides []Parameter) map[string]string 
 	}
 
 	return resolved
+}
+
+// ValidateParameters checks parameter values against AllowedValues constraints.
+// Returns an error if any parameter value is not in its AllowedValues list.
+func ValidateParameters(tmpl *Template, resolved map[string]string) error {
+	names := make([]string, 0, len(tmpl.Parameters))
+	for name := range tmpl.Parameters {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		param := tmpl.Parameters[name]
+		if len(param.AllowedValues) == 0 {
+			continue
+		}
+		val, ok := resolved[name]
+		if !ok {
+			continue
+		}
+		if !slices.Contains(param.AllowedValues, val) {
+			msg := param.ConstraintDescription
+			if msg == "" {
+				msg = fmt.Sprintf("Parameter %s must be one of %v", name, param.AllowedValues)
+			}
+
+			return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+		}
+	}
+
+	return nil
 }
 
 // resolveCtx holds all context needed to resolve a CloudFormation value.
@@ -264,6 +305,7 @@ func evalOrExpr(args []any, params, physicalIDs map[string]string, conditions ma
 func resolveScalar(v any, params, physicalIDs map[string]string) string {
 	switch val := v.(type) {
 	case string:
+
 		return val
 	case map[string]any:
 		if ref, ok := val["Ref"].(string); ok {
@@ -298,6 +340,7 @@ func resolveValueCtx(v any, ctx resolveCtx) string {
 
 	switch val := v.(type) {
 	case string:
+
 		return val
 	case bool:
 		if val {
@@ -306,10 +349,13 @@ func resolveValueCtx(v any, ctx resolveCtx) string {
 
 		return "false"
 	case int, int64, float64:
+
 		return fmt.Sprintf("%v", val)
 	case map[string]any:
+
 		return resolveMapIntrinsic(val, ctx)
 	default:
+
 		return fmt.Sprintf("%v", val)
 	}
 }
@@ -457,8 +503,10 @@ func resolveSelect(args []any, ctx resolveCtx) string {
 func extractSelectIndex(v any) int {
 	switch idx := v.(type) {
 	case int:
+
 		return idx
 	case float64:
+
 		return int(idx)
 	case string:
 		var i int

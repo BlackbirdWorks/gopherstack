@@ -172,10 +172,14 @@ func (b *InMemoryBackend) GetTemplateSummary(templateBody, stackName string) (*T
 		}
 
 		params = append(params, ParameterDeclaration{
-			ParameterKey:  key,
-			ParameterType: pd.Type,
-			DefaultValue:  defaultVal,
-			Description:   pd.Description,
+			ParameterKey:          key,
+			ParameterType:         pd.Type,
+			DefaultValue:          defaultVal,
+			Description:           pd.Description,
+			AllowedValues:         pd.AllowedValues,
+			ConstraintDescription: pd.ConstraintDescription,
+			AllowedPattern:        pd.AllowedPattern,
+			NoEcho:                pd.NoEcho,
 		})
 	}
 

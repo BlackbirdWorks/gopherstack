@@ -11,6 +11,8 @@ import (
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
 // TestCloudFormationDashboard verifies the CloudFormation dashboard UI renders stacks.
@@ -22,7 +24,7 @@ func TestCloudFormationDashboard(t *testing.T) {
 		"e2e-test-stack",
 		`{"AWSTemplateFormatVersion":"2010-09-09","Resources":{}}`,
 		nil,
-		nil,
+		cloudformation.StackOptions{},
 	)
 	require.NoError(t, err)
 

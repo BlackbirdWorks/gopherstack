@@ -39,7 +39,7 @@ func TestBackend_DetectStackDrift(t *testing.T) {
 
 			b := newBackend()
 			if tt.setup {
-				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -100,7 +100,7 @@ func TestBackend_DescribeStackDriftDetectionStatus(t *testing.T) {
 
 			b := newBackend()
 			if tt.stackName != "" {
-				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -159,7 +159,7 @@ func TestBackend_DetectStackResourceDrift(t *testing.T) {
 
 			b := newBackend()
 			if tt.setup {
-				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -210,7 +210,7 @@ func TestBackend_DescribeStackResourceDrifts(t *testing.T) {
 
 			b := newBackend()
 			if tt.setup {
-				_, err := b.CreateStack(t.Context(), tt.stackName, tt.template, nil, nil)
+				_, err := b.CreateStack(t.Context(), tt.stackName, tt.template, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -278,7 +278,7 @@ func TestBackend_StackPolicy(t *testing.T) {
 
 			b := newBackend()
 			if tt.setup {
-				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -368,7 +368,7 @@ func TestBackend_GetTemplateSummary(t *testing.T) {
 
 			b := newBackend()
 			if tt.setupStack {
-				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -452,7 +452,7 @@ func TestBackend_ContinueUpdateRollback(t *testing.T) {
 			b := newBackend()
 
 			if tt.setup {
-				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -518,7 +518,7 @@ func TestBackend_CancelUpdateStack(t *testing.T) {
 
 			b := newBackend()
 			if tt.setup {
-				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), tt.stackName, simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -1045,7 +1045,7 @@ func TestPersistence_SnapshotRestoreWithExtState(t *testing.T) {
 
 	b := newBackend()
 
-	_, err := b.CreateStack(t.Context(), "my-stack", simpleTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "my-stack", simpleTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 
 	err = b.SetStackPolicy("my-stack", policy)
@@ -1076,7 +1076,7 @@ func TestHandler_Snapshot_Restore_Delegation(t *testing.T) {
 	h := newHandler()
 
 	_, err := h.Backend.(*cloudformation.InMemoryBackend).CreateStack(
-		t.Context(), "snap-stack", simpleTemplate, nil, nil,
+		t.Context(), "snap-stack", simpleTemplate, nil, cloudformation.StackOptions{},
 	)
 	require.NoError(t, err)
 
@@ -1120,7 +1120,8 @@ func TestBackend_UpdateStack_InvalidTemplate(t *testing.T) {
 					}
 				}
 			}`,
-			wantStatus: "UPDATE_FAILED",
+			// AWS rolls back to UPDATE_ROLLBACK_COMPLETE on pre-flight import validation failure.
+			wantStatus: "UPDATE_ROLLBACK_COMPLETE",
 		},
 	}
 
@@ -1129,10 +1130,10 @@ func TestBackend_UpdateStack_InvalidTemplate(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			_, err := b.CreateStack(t.Context(), "upd-stack", simpleTemplate, nil, nil)
+			_, err := b.CreateStack(t.Context(), "upd-stack", simpleTemplate, nil, cloudformation.StackOptions{})
 			require.NoError(t, err)
 
-			updated, err := b.UpdateStack(t.Context(), "upd-stack", tt.updateBody, nil)
+			updated, err := b.UpdateStack(t.Context(), "upd-stack", tt.updateBody, nil, cloudformation.StackOptions{})
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, updated.StackStatus)
 		})
@@ -1240,7 +1241,7 @@ func TestBackend_TemplateConditions_AndOr(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			stack, err := b.CreateStack(t.Context(), tt.name, tt.template, nil, nil)
+			stack, err := b.CreateStack(t.Context(), tt.name, tt.template, nil, cloudformation.StackOptions{})
 			require.NoError(t, err)
 			require.NotNil(t, stack)
 
@@ -1263,7 +1264,7 @@ func TestBackend_ResolveStackByID(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	stack, err := b.CreateStack(t.Context(), "my-stack", simpleTemplate, nil, nil)
+	stack, err := b.CreateStack(t.Context(), "my-stack", simpleTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 
 	// Look up by StackID (ARN) rather than name
@@ -1338,10 +1339,10 @@ func TestBackend_ListImports_WithArrayProperty(t *testing.T) {
 
 	b := newBackend()
 
-	_, err := b.CreateStack(t.Context(), "exporter", exporterTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "exporter", exporterTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 
-	_, err = b.CreateStack(t.Context(), "importer", importerTemplate, nil, nil)
+	_, err = b.CreateStack(t.Context(), "importer", importerTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 
 	imports, err := b.ListImports("shared-bucket", "")

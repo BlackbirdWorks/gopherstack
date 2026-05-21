@@ -295,11 +295,17 @@ func TestBackend_CreateStack(t *testing.T) {
 
 			b := newBackend()
 			if tt.setupDup {
-				_, err := b.CreateStack(t.Context(), tt.stackName, tt.template, nil, nil)
+				_, err := b.CreateStack(t.Context(), tt.stackName, tt.template, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
-			stack, err := b.CreateStack(t.Context(), tt.stackName, tt.template, tt.params, tt.tags)
+			stack, err := b.CreateStack(
+				t.Context(),
+				tt.stackName,
+				tt.template,
+				tt.params,
+				cloudformation.StackOptions{Tags: tt.tags},
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -351,7 +357,7 @@ func TestBackend_DescribeStack(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateStack(t.Context(), "desc-stack", simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), "desc-stack", simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			},
 			stackName: "desc-stack",
@@ -420,7 +426,7 @@ func TestBackend_UpdateStack(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateStack(t.Context(), "upd-stack", simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), "upd-stack", simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			},
 			stackName:      "upd-stack",
@@ -437,7 +443,13 @@ func TestBackend_UpdateStack(t *testing.T) {
 			name: "rollback_on_creation_failure",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateStack(t.Context(), "rollback-stack", rollbackOriginal, nil, nil)
+				_, err := b.CreateStack(
+					t.Context(),
+					"rollback-stack",
+					rollbackOriginal,
+					nil,
+					cloudformation.StackOptions{},
+				)
 				require.NoError(t, err)
 				// Inject a hook that fails when creating the new SQS queue.
 				b.GetCreator().InjectCreateHook(func(resourceType string) error {
@@ -458,7 +470,13 @@ func TestBackend_UpdateStack(t *testing.T) {
 			name: "stale_resources_deleted",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateStack(t.Context(), "stale-stack", withBucketAndQueue, nil, nil)
+				_, err := b.CreateStack(
+					t.Context(),
+					"stale-stack",
+					withBucketAndQueue,
+					nil,
+					cloudformation.StackOptions{},
+				)
 				require.NoError(t, err)
 			},
 			stackName:       "stale-stack",
@@ -478,7 +496,13 @@ func TestBackend_UpdateStack(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			updated, err := b.UpdateStack(t.Context(), tt.stackName, tt.updateTemplate, nil)
+			updated, err := b.UpdateStack(
+				t.Context(),
+				tt.stackName,
+				tt.updateTemplate,
+				nil,
+				cloudformation.StackOptions{},
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -526,7 +550,7 @@ func TestBackend_DeleteStack(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateStack(t.Context(), "del-stack", simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), "del-stack", simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			},
 			stackName:  "del-stack",
@@ -578,7 +602,13 @@ func TestBackend_DeleteStack_CleansInternalMaps(t *testing.T) {
 			name: "cleans_resources",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) string {
 				t.Helper()
-				stack, err := b.CreateStack(t.Context(), "clean-stack", simpleTemplate, nil, nil)
+				stack, err := b.CreateStack(
+					t.Context(),
+					"clean-stack",
+					simpleTemplate,
+					nil,
+					cloudformation.StackOptions{},
+				)
 				require.NoError(t, err)
 
 				return stack.StackID
@@ -588,7 +618,13 @@ func TestBackend_DeleteStack_CleansInternalMaps(t *testing.T) {
 			name: "cleans_changeset_map",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) string {
 				t.Helper()
-				stack, err := b.CreateStack(t.Context(), "clean-cs-stack", simpleTemplate, nil, nil)
+				stack, err := b.CreateStack(
+					t.Context(),
+					"clean-cs-stack",
+					simpleTemplate,
+					nil,
+					cloudformation.StackOptions{},
+				)
 				require.NoError(t, err)
 				_, err = b.CreateChangeSet(t.Context(), "clean-cs-stack", "cs1", simpleTemplate, "", nil)
 				require.NoError(t, err)
@@ -600,7 +636,13 @@ func TestBackend_DeleteStack_CleansInternalMaps(t *testing.T) {
 			name: "cleans_drift_detections",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) string {
 				t.Helper()
-				stack, err := b.CreateStack(t.Context(), "clean-drift-stack", simpleTemplate, nil, nil)
+				stack, err := b.CreateStack(
+					t.Context(),
+					"clean-drift-stack",
+					simpleTemplate,
+					nil,
+					cloudformation.StackOptions{},
+				)
 				require.NoError(t, err)
 				_, err = b.DetectStackDrift("clean-drift-stack")
 				require.NoError(t, err)
@@ -678,7 +720,7 @@ func TestBackend_CreateStack_RollbackOnProvisioningFailure(t *testing.T) {
 				return nil
 			})
 
-			stack, err := b.CreateStack(t.Context(), "fail-stack", tt.template, nil, nil)
+			stack, err := b.CreateStack(t.Context(), "fail-stack", tt.template, nil, cloudformation.StackOptions{})
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, stack.StackStatus)
 			assert.Equal(t, tt.wantResourceCount, b.ResourceCountForStack(stack.StackID))
@@ -716,9 +758,9 @@ func TestBackend_ListStacks(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			_, err := b.CreateStack(t.Context(), "list-s1", simpleTemplate, nil, nil)
+			_, err := b.CreateStack(t.Context(), "list-s1", simpleTemplate, nil, cloudformation.StackOptions{})
 			require.NoError(t, err)
-			_, err = b.CreateStack(t.Context(), "list-s2", simpleTemplate, nil, nil)
+			_, err = b.CreateStack(t.Context(), "list-s2", simpleTemplate, nil, cloudformation.StackOptions{})
 			require.NoError(t, err)
 
 			result, err := b.ListStacks(tt.filter, "")
@@ -744,7 +786,7 @@ func TestBackend_DescribeStackEvents(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateStack(t.Context(), "evt-stack", simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), "evt-stack", simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			},
 			stackName: "evt-stack",
@@ -795,7 +837,7 @@ func TestBackend_GetTemplate(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateStack(t.Context(), "tmpl-stack", simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), "tmpl-stack", simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			},
 			stackName: "tmpl-stack",
@@ -855,7 +897,7 @@ func TestBackend_ListAll(t *testing.T) {
 			b := newBackend()
 			for i := range tt.count {
 				name := "stack-" + string(rune('a'+i))
-				_, err := b.CreateStack(t.Context(), name, simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), name, simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -883,7 +925,7 @@ func TestBackend_ChangeSet(t *testing.T) {
 			name: "create_describe_delete_workflow",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateStack(t.Context(), "cs-stack", simpleTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), "cs-stack", simpleTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			},
 			stackName: "cs-stack",
@@ -967,7 +1009,13 @@ func TestBackend_ExecuteChangeSet(t *testing.T) {
 			name: "existing_stack",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateStack(t.Context(), "existing-stack", simpleTemplate, nil, nil)
+				_, err := b.CreateStack(
+					t.Context(),
+					"existing-stack",
+					simpleTemplate,
+					nil,
+					cloudformation.StackOptions{},
+				)
 				require.NoError(t, err)
 				_, err = b.CreateChangeSet(t.Context(), "existing-stack", "upd-cs", simpleTemplate, "", nil)
 				require.NoError(t, err)

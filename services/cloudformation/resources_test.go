@@ -678,7 +678,13 @@ func TestBackend_CreateStack_RealResources(t *testing.T) {
 			creator := cloudformation.NewResourceCreator(backends)
 			backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
 
-			stack, err := backend.CreateStack(t.Context(), tt.stackName, tt.template, nil, nil)
+			stack, err := backend.CreateStack(
+				t.Context(),
+				tt.stackName,
+				tt.template,
+				nil,
+				cloudformation.StackOptions{},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, stack.StackStatus)
 
@@ -739,10 +745,10 @@ func TestBackend_UpdateStack_WithNewResource(t *testing.T) {
 			creator := cloudformation.NewResourceCreator(backends)
 			backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
 
-			_, err := backend.CreateStack(t.Context(), tt.stackName, tt.tmpl1, nil, nil)
+			_, err := backend.CreateStack(t.Context(), tt.stackName, tt.tmpl1, nil, cloudformation.StackOptions{})
 			require.NoError(t, err)
 
-			updated, err := backend.UpdateStack(t.Context(), tt.stackName, tt.tmpl2, nil)
+			updated, err := backend.UpdateStack(t.Context(), tt.stackName, tt.tmpl2, nil, cloudformation.StackOptions{})
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, updated.StackStatus)
 		})

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -361,20 +362,28 @@ func (h *Handler) handleDescribeType(form url.Values, c *echo.Context) error {
 func (h *Handler) dispatchStackOps(action string, form url.Values, c *echo.Context) (bool, error) {
 	switch action {
 	case "CreateStack":
+
 		return true, h.handleCreateStack(form, c)
 	case "UpdateStack":
+
 		return true, h.handleUpdateStack(form, c)
 	case "DeleteStack":
+
 		return true, h.handleDeleteStack(form, c)
 	case "DescribeStacks":
+
 		return true, h.handleDescribeStacks(form, c)
 	case "ListStacks":
+
 		return true, h.handleListStacks(form, c)
 	case "DescribeStackEvents":
+
 		return true, h.handleDescribeStackEvents(form, c)
 	case "GetTemplate":
+
 		return true, h.handleGetTemplate(form, c)
 	default:
+
 		return false, nil
 	}
 }
@@ -382,16 +391,22 @@ func (h *Handler) dispatchStackOps(action string, form url.Values, c *echo.Conte
 func (h *Handler) dispatchResourceOps(action string, form url.Values, c *echo.Context) (bool, error) {
 	switch action {
 	case "DescribeStackResource":
+
 		return true, h.handleDescribeStackResource(form, c)
 	case "ListStackResources":
+
 		return true, h.handleListStackResources(form, c)
 	case "DescribeStackResources":
+
 		return true, h.handleDescribeStackResources(form, c)
 	case "ListExports":
+
 		return true, h.handleListExports(form, c)
 	case "ListImports":
+
 		return true, h.handleListImports(form, c)
 	default:
+
 		return false, nil
 	}
 }
@@ -399,16 +414,22 @@ func (h *Handler) dispatchResourceOps(action string, form url.Values, c *echo.Co
 func (h *Handler) dispatchChangeSetOps(action string, form url.Values, c *echo.Context) (bool, error) {
 	switch action {
 	case "CreateChangeSet":
+
 		return true, h.handleCreateChangeSet(form, c)
 	case "DescribeChangeSet":
+
 		return true, h.handleDescribeChangeSet(form, c)
 	case "ExecuteChangeSet":
+
 		return true, h.handleExecuteChangeSet(form, c)
 	case "DeleteChangeSet":
+
 		return true, h.handleDeleteChangeSet(form, c)
 	case "ListChangeSets":
+
 		return true, h.handleListChangeSets(form, c)
 	default:
+
 		return false, nil
 	}
 }
@@ -482,16 +503,79 @@ func parseTags(form url.Values) []Tag {
 	}
 }
 
+func parseCapabilities(form url.Values) []string {
+	var caps []string
+	for i := 1; ; i++ {
+		v := form.Get(fmt.Sprintf("Capabilities.member.%d", i))
+		if v == "" {
+			return caps
+		}
+		caps = append(caps, v)
+	}
+}
+
+func parseNotificationARNs(form url.Values) []string {
+	var arns []string
+	for i := 1; ; i++ {
+		v := form.Get(fmt.Sprintf("NotificationARNs.member.%d", i))
+		if v == "" {
+			return arns
+		}
+		arns = append(arns, v)
+	}
+}
+
+func parseRollbackConfiguration(form url.Values) *RollbackConfiguration {
+	monStr := form.Get("RollbackConfiguration.MonitoringTimeInMinutes")
+	var triggers []RollbackTrigger
+	for i := 1; ; i++ {
+		arn := form.Get(fmt.Sprintf("RollbackConfiguration.RollbackTriggers.member.%d.Arn", i))
+		if arn == "" {
+			break
+		}
+		triggers = append(triggers, RollbackTrigger{
+			ARN:  arn,
+			Type: form.Get(fmt.Sprintf("RollbackConfiguration.RollbackTriggers.member.%d.Type", i)),
+		})
+	}
+	if monStr == "" && len(triggers) == 0 {
+		return nil
+	}
+	mon, _ := strconv.Atoi(monStr)
+
+	return &RollbackConfiguration{
+		MonitoringTimeInMinutes: mon,
+		RollbackTriggers:        triggers,
+	}
+}
+
+func parseStackOptions(form url.Values) StackOptions {
+	timeoutStr := form.Get("TimeoutInMinutes")
+	timeout, _ := strconv.Atoi(timeoutStr)
+	disableRollback := strings.EqualFold(form.Get("DisableRollback"), "true")
+
+	return StackOptions{
+		Tags:                  parseTags(form),
+		Capabilities:          parseCapabilities(form),
+		NotificationARNs:      parseNotificationARNs(form),
+		RoleARN:               form.Get("RoleARN"),
+		OnFailure:             form.Get("OnFailure"),
+		TimeoutInMinutes:      timeout,
+		DisableRollback:       disableRollback,
+		RollbackConfiguration: parseRollbackConfiguration(form),
+	}
+}
+
 func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
-	templateBody := form.Get("TemplateBody")
-	params := parseParams(form)
-	tags := parseTags(form)
-
-	stack, err := h.Backend.CreateStack(c.Request().Context(), stackName, templateBody, params, tags)
+	stack, err := h.Backend.CreateStack(
+		c.Request().Context(),
+		stackName, form.Get("TemplateBody"),
+		parseParams(form), parseStackOptions(form),
+	)
 	if err != nil {
 		return h.xmlError(c, "AlreadyExistsException", err.Error())
 	}
@@ -518,10 +602,11 @@ func (h *Handler) handleUpdateStack(form url.Values, c *echo.Context) error {
 	if stackName == "" {
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
-	templateBody := form.Get("TemplateBody")
-	params := parseParams(form)
-
-	stack, err := h.Backend.UpdateStack(c.Request().Context(), stackName, templateBody, params)
+	stack, err := h.Backend.UpdateStack(
+		c.Request().Context(),
+		stackName, form.Get("TemplateBody"),
+		parseParams(form), parseStackOptions(form),
+	)
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
@@ -566,15 +651,43 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 
 	type stackXML struct {
-		StackID           string      `xml:"StackId"`
-		StackName         string      `xml:"StackName"`
-		Description       string      `xml:"Description,omitempty"`
-		StackStatus       string      `xml:"StackStatus"`
-		StackStatusReason string      `xml:"StackStatusReason,omitempty"`
-		CreationTime      string      `xml:"CreationTime"`
-		Parameters        []Parameter `xml:"Parameters>member,omitempty"`
-		Outputs           []Output    `xml:"Outputs>member,omitempty"`
-		Tags              []Tag       `xml:"Tags>member,omitempty"`
+		RollbackConfiguration       *RollbackConfiguration `xml:"RollbackConfiguration,omitempty"`
+		StackID                     string                 `xml:"StackId"`
+		StackName                   string                 `xml:"StackName"`
+		Description                 string                 `xml:"Description,omitempty"`
+		StackStatus                 string                 `xml:"StackStatus"`
+		StackStatusReason           string                 `xml:"StackStatusReason,omitempty"`
+		CreationTime                string                 `xml:"CreationTime"`
+		RoleARN                     string                 `xml:"RoleARN,omitempty"`
+		Parameters                  []Parameter            `xml:"Parameters>member,omitempty"`
+		Outputs                     []Output               `xml:"Outputs>member,omitempty"`
+		Tags                        []Tag                  `xml:"Tags>member,omitempty"`
+		Capabilities                []string               `xml:"Capabilities>member,omitempty"`
+		NotificationARNs            []string               `xml:"NotificationARNs>member,omitempty"`
+		EnableTerminationProtection bool                   `xml:"EnableTerminationProtection"`
+		DisableRollback             bool                   `xml:"DisableRollback,omitempty"`
+		TimeoutInMinutes            int                    `xml:"TimeoutInMinutes,omitempty"`
+	}
+
+	toXML := func(s *Stack) stackXML {
+		return stackXML{
+			StackID:                     s.StackID,
+			StackName:                   s.StackName,
+			Description:                 s.Description,
+			StackStatus:                 s.StackStatus,
+			StackStatusReason:           s.StackStatusReason,
+			CreationTime:                s.CreationTime.Format("2006-01-02T15:04:05Z"),
+			Parameters:                  s.Parameters,
+			Outputs:                     s.Outputs,
+			Tags:                        s.Tags,
+			Capabilities:                s.Capabilities,
+			NotificationARNs:            s.NotificationARNs,
+			EnableTerminationProtection: s.EnableTerminationProtection,
+			DisableRollback:             s.DisableRollback,
+			TimeoutInMinutes:            s.TimeoutInMinutes,
+			RoleARN:                     s.RoleARN,
+			RollbackConfiguration:       s.RollbackConfiguration,
+		}
 	}
 
 	var stacks []stackXML
@@ -584,31 +697,11 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 		if err != nil {
 			return h.xmlError(c, "ValidationError", err.Error())
 		}
-		stacks = append(stacks, stackXML{
-			StackID:           s.StackID,
-			StackName:         s.StackName,
-			Description:       s.Description,
-			StackStatus:       s.StackStatus,
-			StackStatusReason: s.StackStatusReason,
-			CreationTime:      s.CreationTime.Format("2006-01-02T15:04:05Z"),
-			Parameters:        s.Parameters,
-			Outputs:           s.Outputs,
-			Tags:              s.Tags,
-		})
+		stacks = append(stacks, toXML(s))
 	} else {
 		all := h.Backend.ListAll()
 		for _, s := range all {
-			stacks = append(stacks, stackXML{
-				StackID:           s.StackID,
-				StackName:         s.StackName,
-				Description:       s.Description,
-				StackStatus:       s.StackStatus,
-				StackStatusReason: s.StackStatusReason,
-				CreationTime:      s.CreationTime.Format("2006-01-02T15:04:05Z"),
-				Parameters:        s.Parameters,
-				Outputs:           s.Outputs,
-				Tags:              s.Tags,
-			})
+			stacks = append(stacks, toXML(s))
 		}
 	}
 
