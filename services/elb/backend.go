@@ -42,6 +42,8 @@ var (
 	ErrListenerNotFound = awserr.New("ListenerNotFound", awserr.ErrNotFound)
 	// ErrInvalidInstance is returned when a specified instance is not registered with the LB.
 	ErrInvalidInstance = awserr.New("InvalidInstance", awserr.ErrInvalidParameter)
+	// ErrDuplicateListener is returned when a listener already exists on the requested port.
+	ErrDuplicateListener = awserr.New("DuplicateListener", awserr.ErrAlreadyExists)
 
 	// lbNameRe matches valid Classic ELB names: 1-32 chars, alphanumeric + hyphens,
 	// must start and end with alphanumeric.
@@ -69,6 +71,8 @@ const (
 	defaultConnectionDrainingTimeout int32 = 300
 	// defaultIdleTimeout is the default idle connection timeout in seconds.
 	defaultIdleTimeout int32 = 60
+	// defaultAccessLogEmitInterval is the default access log emit interval in minutes.
+	defaultAccessLogEmitInterval int32 = 60
 	// canonicalHostedZoneID is the real AWS Classic ELB hosted zone ID (us-east-1).
 	// In production AWS uses per-region values; for a local emulator one constant suffices.
 	canonicalHostedZoneID = "Z35SXDOTRQ7X7K"
@@ -90,13 +94,22 @@ type BackendServerDescription struct {
 	InstancePort int32    `json:"instancePort"`
 }
 
+// AccessLog holds access-log configuration for a Classic ELB.
+type AccessLog struct {
+	S3BucketName   string `json:"s3BucketName"`
+	S3BucketPrefix string `json:"s3BucketPrefix"`
+	EmitInterval   int32  `json:"emitInterval"`
+	Enabled        bool   `json:"enabled"`
+}
+
 // LoadBalancerAttributes holds tunable attributes for a Classic ELB.
 type LoadBalancerAttributes struct {
-	DesyncMitigationMode      string `json:"desyncMitigationMode"`
-	ConnectionDrainingTimeout int32  `json:"connectionDrainingTimeout"`
-	IdleTimeout               int32  `json:"idleTimeout"`
-	CrossZoneLoadBalancing    bool   `json:"crossZoneLoadBalancing"`
-	ConnectionDraining        bool   `json:"connectionDraining"`
+	DesyncMitigationMode      string    `json:"desyncMitigationMode"`
+	AccessLog                 AccessLog `json:"accessLog"`
+	ConnectionDrainingTimeout int32     `json:"connectionDrainingTimeout"`
+	IdleTimeout               int32     `json:"idleTimeout"`
+	CrossZoneLoadBalancing    bool      `json:"crossZoneLoadBalancing"`
+	ConnectionDraining        bool      `json:"connectionDraining"`
 }
 
 // defaultLBAttributes returns the default LoadBalancerAttributes used at
@@ -108,6 +121,7 @@ func defaultLBAttributes() LoadBalancerAttributes {
 		ConnectionDrainingTimeout: defaultConnectionDrainingTimeout,
 		IdleTimeout:               defaultIdleTimeout,
 		DesyncMitigationMode:      "defensive",
+		AccessLog:                 AccessLog{Enabled: false, EmitInterval: defaultAccessLogEmitInterval},
 	}
 }
 
@@ -697,6 +711,8 @@ func (b *InMemoryBackend) RemoveTags(names []string, keys []string) error {
 }
 
 // CreateLoadBalancerListeners adds listeners to an existing load balancer.
+// Idempotent: if a listener on the same port already exists with identical settings,
+// it is a no-op. Returns DuplicateListener if the port is in use with different settings.
 func (b *InMemoryBackend) CreateLoadBalancerListeners(name string, listeners []Listener) error {
 	b.mu.Lock("CreateLoadBalancerListeners")
 	defer b.mu.Unlock()
@@ -706,15 +722,38 @@ func (b *InMemoryBackend) CreateLoadBalancerListeners(name string, listeners []L
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
-	existing := make(map[int32]bool, len(lb.Listeners))
-	for _, l := range lb.Listeners {
-		existing[l.LoadBalancerPort] = true
+	existing := make(map[int32]*Listener, len(lb.Listeners))
+	for i := range lb.Listeners {
+		existing[lb.Listeners[i].LoadBalancerPort] = &lb.Listeners[i]
+	}
+
+	// Validate all incoming listeners: port conflict with different config = DuplicateListener.
+	seen := make(map[int32]bool, len(listeners))
+	for _, l := range listeners {
+		ex, portTaken := existing[l.LoadBalancerPort]
+		if portTaken {
+			if ex.Protocol != l.Protocol || ex.InstancePort != l.InstancePort ||
+				ex.InstanceProtocol != l.InstanceProtocol {
+				return fmt.Errorf(
+					"%w: conflicting listener on port %d",
+					ErrDuplicateListener,
+					l.LoadBalancerPort,
+				)
+			}
+			// Exact match: idempotent no-op.
+			continue
+		}
+
+		if seen[l.LoadBalancerPort] {
+			return fmt.Errorf("%w: duplicate port %d in request", ErrDuplicateListener, l.LoadBalancerPort)
+		}
+
+		seen[l.LoadBalancerPort] = true
 	}
 
 	for _, l := range listeners {
-		if !existing[l.LoadBalancerPort] {
+		if _, alreadyExists := existing[l.LoadBalancerPort]; !alreadyExists {
 			lb.Listeners = append(lb.Listeners, l)
-			existing[l.LoadBalancerPort] = true
 		}
 	}
 
