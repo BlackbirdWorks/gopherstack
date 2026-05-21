@@ -111,12 +111,12 @@ func TestBatch1_CreateLB_SubnetMappings_ReturnsSubnetId(t *testing.T) {
 
 	h := newBatch1Handler()
 	rec := doELBv2(t, h, url.Values{
-		"Action":                              {"CreateLoadBalancer"},
-		"Version":                             {"2015-12-01"},
-		"Name":                                {"lb-subnet-map"},
-		"Type":                                {"application"},
-		"SubnetMappings.member.1.SubnetId":    {"subnet-aaa111"},
-		"SubnetMappings.member.2.SubnetId":    {"subnet-bbb222"},
+		"Action":                           {"CreateLoadBalancer"},
+		"Version":                          {"2015-12-01"},
+		"Name":                             {"lb-subnet-map"},
+		"Type":                             {"application"},
+		"SubnetMappings.member.1.SubnetId": {"subnet-aaa111"},
+		"SubnetMappings.member.2.SubnetId": {"subnet-bbb222"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -309,8 +309,8 @@ func TestBatch1_DescribeLBs_FilterByArn(t *testing.T) {
 	b1CreateLB(t, h, "filter-arn-lb2")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                  {"DescribeLoadBalancers"},
-		"Version":                 {"2015-12-01"},
+		"Action":                    {"DescribeLoadBalancers"},
+		"Version":                   {"2015-12-01"},
 		"LoadBalancerArns.member.1": {arn1},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -337,8 +337,8 @@ func TestBatch1_DescribeLBs_FilterByName(t *testing.T) {
 	b1CreateLB(t, h, "name-filter-lb-b")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":          {"DescribeLoadBalancers"},
-		"Version":         {"2015-12-01"},
+		"Action":         {"DescribeLoadBalancers"},
+		"Version":        {"2015-12-01"},
 		"Names.member.1": {"name-filter-lb-a"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -362,9 +362,11 @@ func TestBatch1_DescribeLBs_ArnNotFound(t *testing.T) {
 
 	h := newBatch1Handler()
 	rec := doELBv2(t, h, url.Values{
-		"Action":                    {"DescribeLoadBalancers"},
-		"Version":                   {"2015-12-01"},
-		"LoadBalancerArns.member.1": {"arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/not-exist/000"},
+		"Action":  {"DescribeLoadBalancers"},
+		"Version": {"2015-12-01"},
+		"LoadBalancerArns.member.1": {
+			"arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/not-exist/000",
+		},
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -412,11 +414,11 @@ func TestBatch1_ModifyLBAttrs_ALBIdleTimeout(t *testing.T) {
 	lbArn := b1CreateLB(t, h, "alb-idle-timeout")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                              {"ModifyLoadBalancerAttributes"},
-		"Version":                             {"2015-12-01"},
-		"LoadBalancerArn":                     {lbArn},
-		"Attributes.member.1.Key":             {"idle_timeout.timeout_seconds"},
-		"Attributes.member.1.Value":           {"120"},
+		"Action":                    {"ModifyLoadBalancerAttributes"},
+		"Version":                   {"2015-12-01"},
+		"LoadBalancerArn":           {lbArn},
+		"Attributes.member.1.Key":   {"idle_timeout.timeout_seconds"},
+		"Attributes.member.1.Value": {"120"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -497,11 +499,11 @@ func TestBatch1_SetSecurityGroups_ALB(t *testing.T) {
 	lbArn := b1CreateLB(t, h, "sg-alb-batch1")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                   {"SetSecurityGroups"},
-		"Version":                  {"2015-12-01"},
-		"LoadBalancerArn":          {lbArn},
-		"SecurityGroups.member.1":  {"sg-11111111"},
-		"SecurityGroups.member.2":  {"sg-22222222"},
+		"Action":                  {"SetSecurityGroups"},
+		"Version":                 {"2015-12-01"},
+		"LoadBalancerArn":         {lbArn},
+		"SecurityGroups.member.1": {"sg-11111111"},
+		"SecurityGroups.member.2": {"sg-22222222"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "sg-11111111")
@@ -701,12 +703,12 @@ func TestBatch1_CreateTG_DefaultHealthCheck(t *testing.T) {
 		Result struct {
 			TargetGroups struct {
 				Members []struct {
-					HealthCheckEnabled             bool   `xml:"HealthCheckEnabled"`
-					HealthCheckProtocol            string `xml:"HealthCheckProtocol"`
-					HealthCheckIntervalSeconds     int32  `xml:"HealthCheckIntervalSeconds"`
-					HealthCheckTimeoutSeconds      int32  `xml:"HealthCheckTimeoutSeconds"`
-					HealthyThresholdCount          int32  `xml:"HealthyThresholdCount"`
-					UnhealthyThresholdCount        int32  `xml:"UnhealthyThresholdCount"`
+					HealthCheckProtocol        string `xml:"HealthCheckProtocol"`
+					HealthCheckIntervalSeconds int32  `xml:"HealthCheckIntervalSeconds"`
+					HealthCheckTimeoutSeconds  int32  `xml:"HealthCheckTimeoutSeconds"`
+					HealthyThresholdCount      int32  `xml:"HealthyThresholdCount"`
+					UnhealthyThresholdCount    int32  `xml:"UnhealthyThresholdCount"`
+					HealthCheckEnabled         bool   `xml:"HealthCheckEnabled"`
 				} `xml:"member"`
 			} `xml:"TargetGroups"`
 		} `xml:"CreateTargetGroupResult"`
@@ -859,10 +861,10 @@ func TestBatch1_RegisterTargets_InitialHealthState(t *testing.T) {
 	tgArn := b1CreateTG(t, h, "hc-initial-tg")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":              {"RegisterTargets"},
-		"Version":             {"2015-12-01"},
-		"TargetGroupArn":      {tgArn},
-		"Targets.member.1.Id": {"i-00000001"},
+		"Action":                {"RegisterTargets"},
+		"Version":               {"2015-12-01"},
+		"TargetGroupArn":        {tgArn},
+		"Targets.member.1.Id":   {"i-00000001"},
 		"Targets.member.1.Port": {"80"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1175,14 +1177,14 @@ func TestBatch1_CreateListener_HTTPS_WithCert(t *testing.T) {
 	tgArn := b1CreateTG(t, h, "listener-https-cert-tg")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                                    {"CreateListener"},
-		"Version":                                   {"2015-12-01"},
-		"LoadBalancerArn":                           {lbArn},
-		"Protocol":                                  {"HTTPS"},
-		"Port":                                      {"443"},
-		"DefaultActions.member.1.Type":              {"forward"},
-		"DefaultActions.member.1.TargetGroupArn":    {tgArn},
-		"Certificates.member.1.CertificateArn":      {"arn:aws:acm:us-east-1:000000000000:certificate/aaa"},
+		"Action":                                 {"CreateListener"},
+		"Version":                                {"2015-12-01"},
+		"LoadBalancerArn":                        {lbArn},
+		"Protocol":                               {"HTTPS"},
+		"Port":                                   {"443"},
+		"DefaultActions.member.1.Type":           {"forward"},
+		"DefaultActions.member.1.TargetGroupArn": {tgArn},
+		"Certificates.member.1.CertificateArn":   {"arn:aws:acm:us-east-1:000000000000:certificate/aaa"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "HTTPS")
@@ -1354,16 +1356,16 @@ func TestBatch1_MutualAuth_OnListener(t *testing.T) {
 	tsArn := tsResp.Result.TrustStores.Members[0].TrustStoreArn
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                                        {"CreateListener"},
-		"Version":                                       {"2015-12-01"},
-		"LoadBalancerArn":                               {lbArn},
-		"Protocol":                                      {"HTTPS"},
-		"Port":                                          {"443"},
-		"DefaultActions.member.1.Type":                  {"forward"},
-		"DefaultActions.member.1.TargetGroupArn":        {tgArn},
-		"Certificates.member.1.CertificateArn":          {"arn:aws:acm:us-east-1:000000000000:certificate/ccc"},
-		"MutualAuthentication.Mode":                     {"verify"},
-		"MutualAuthentication.TrustStoreArn":            {tsArn},
+		"Action":                                 {"CreateListener"},
+		"Version":                                {"2015-12-01"},
+		"LoadBalancerArn":                        {lbArn},
+		"Protocol":                               {"HTTPS"},
+		"Port":                                   {"443"},
+		"DefaultActions.member.1.Type":           {"forward"},
+		"DefaultActions.member.1.TargetGroupArn": {tgArn},
+		"Certificates.member.1.CertificateArn":   {"arn:aws:acm:us-east-1:000000000000:certificate/ccc"},
+		"MutualAuthentication.Mode":              {"verify"},
+		"MutualAuthentication.TrustStoreArn":     {tsArn},
 		"MutualAuthentication.IgnoreClientCertificateExpiry": {"false"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1383,14 +1385,14 @@ func TestBatch1_CreateRule_PathPattern(t *testing.T) {
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                                              {"CreateRule"},
-		"Version":                                             {"2015-12-01"},
-		"ListenerArn":                                         {lArn},
-		"Priority":                                            {"10"},
-		"Conditions.member.1.Field":                           {"path-pattern"},
+		"Action":                    {"CreateRule"},
+		"Version":                   {"2015-12-01"},
+		"ListenerArn":               {lArn},
+		"Priority":                  {"10"},
+		"Conditions.member.1.Field": {"path-pattern"},
 		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/api/*"},
-		"Actions.member.1.Type":                               {"forward"},
-		"Actions.member.1.TargetGroupArn":                     {tgArn},
+		"Actions.member.1.Type":                                 {"forward"},
+		"Actions.member.1.TargetGroupArn":                       {tgArn},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "/api/*")
@@ -1405,14 +1407,14 @@ func TestBatch1_CreateRule_HostHeader(t *testing.T) {
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                                              {"CreateRule"},
-		"Version":                                             {"2015-12-01"},
-		"ListenerArn":                                         {lArn},
-		"Priority":                                            {"20"},
-		"Conditions.member.1.Field":                           {"host-header"},
+		"Action":                    {"CreateRule"},
+		"Version":                   {"2015-12-01"},
+		"ListenerArn":               {lArn},
+		"Priority":                  {"20"},
+		"Conditions.member.1.Field": {"host-header"},
 		"Conditions.member.1.HostHeaderConfig.Values.member.1": {"api.example.com"},
-		"Actions.member.1.Type":                               {"forward"},
-		"Actions.member.1.TargetGroupArn":                     {tgArn},
+		"Actions.member.1.Type":                                {"forward"},
+		"Actions.member.1.TargetGroupArn":                      {tgArn},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "api.example.com")
@@ -1427,16 +1429,16 @@ func TestBatch1_CreateRule_RedirectAction(t *testing.T) {
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                                              {"CreateRule"},
-		"Version":                                             {"2015-12-01"},
-		"ListenerArn":                                         {lArn},
-		"Priority":                                            {"30"},
-		"Conditions.member.1.Field":                           {"path-pattern"},
+		"Action":                    {"CreateRule"},
+		"Version":                   {"2015-12-01"},
+		"ListenerArn":               {lArn},
+		"Priority":                  {"30"},
+		"Conditions.member.1.Field": {"path-pattern"},
 		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/old/*"},
-		"Actions.member.1.Type":                               {"redirect"},
-		"Actions.member.1.RedirectConfig.StatusCode":          {"HTTP_301"},
-		"Actions.member.1.RedirectConfig.Protocol":            {"HTTPS"},
-		"Actions.member.1.RedirectConfig.Port":                {"443"},
+		"Actions.member.1.Type":                                 {"redirect"},
+		"Actions.member.1.RedirectConfig.StatusCode":            {"HTTP_301"},
+		"Actions.member.1.RedirectConfig.Protocol":              {"HTTPS"},
+		"Actions.member.1.RedirectConfig.Port":                  {"443"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
@@ -1453,16 +1455,16 @@ func TestBatch1_CreateRule_FixedResponse(t *testing.T) {
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                                              {"CreateRule"},
-		"Version":                                             {"2015-12-01"},
-		"ListenerArn":                                         {lArn},
-		"Priority":                                            {"40"},
-		"Conditions.member.1.Field":                           {"path-pattern"},
+		"Action":                    {"CreateRule"},
+		"Version":                   {"2015-12-01"},
+		"ListenerArn":               {lArn},
+		"Priority":                  {"40"},
+		"Conditions.member.1.Field": {"path-pattern"},
 		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/health"},
-		"Actions.member.1.Type":                               {"fixed-response"},
-		"Actions.member.1.FixedResponseConfig.StatusCode":     {"200"},
-		"Actions.member.1.FixedResponseConfig.ContentType":    {"application/json"},
-		"Actions.member.1.FixedResponseConfig.MessageBody":    {`{"status":"ok"}`},
+		"Actions.member.1.Type":                                 {"fixed-response"},
+		"Actions.member.1.FixedResponseConfig.StatusCode":       {"200"},
+		"Actions.member.1.FixedResponseConfig.ContentType":      {"application/json"},
+		"Actions.member.1.FixedResponseConfig.MessageBody":      {`{"status":"ok"}`},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
@@ -1479,20 +1481,22 @@ func TestBatch1_CreateRule_AuthenticateCognito(t *testing.T) {
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                                                              {"CreateRule"},
-		"Version":                                                             {"2015-12-01"},
-		"ListenerArn":                                                         {lArn},
-		"Priority":                                                            {"50"},
-		"Conditions.member.1.Field":                                              {"path-pattern"},
-		"Conditions.member.1.PathPatternConfig.Values.member.1":                {"/secure/*"},
-		"Actions.member.1.Type":                                               {"authenticate-cognito"},
-		"Actions.member.1.Order":                                              {"1"},
-		"Actions.member.1.AuthenticateCognitoConfig.UserPoolArn":              {"arn:aws:cognito-idp:us-east-1:000:userpool/us-east-1_abc"},
-		"Actions.member.1.AuthenticateCognitoConfig.UserPoolClientId":         {"clientid123"},
-		"Actions.member.1.AuthenticateCognitoConfig.UserPoolDomain":           {"my-pool.auth.us-east-1.amazoncognito.com"},
-		"Actions.member.2.Type":                                               {"forward"},
-		"Actions.member.2.Order":                                              {"2"},
-		"Actions.member.2.TargetGroupArn":                                     {tgArn},
+		"Action":                    {"CreateRule"},
+		"Version":                   {"2015-12-01"},
+		"ListenerArn":               {lArn},
+		"Priority":                  {"50"},
+		"Conditions.member.1.Field": {"path-pattern"},
+		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/secure/*"},
+		"Actions.member.1.Type":                                 {"authenticate-cognito"},
+		"Actions.member.1.Order":                                {"1"},
+		"Actions.member.1.AuthenticateCognitoConfig.UserPoolArn": {
+			"arn:aws:cognito-idp:us-east-1:000:userpool/us-east-1_abc",
+		},
+		"Actions.member.1.AuthenticateCognitoConfig.UserPoolClientId": {"clientid123"},
+		"Actions.member.1.AuthenticateCognitoConfig.UserPoolDomain":   {"my-pool.auth.us-east-1.amazoncognito.com"},
+		"Actions.member.2.Type":           {"forward"},
+		"Actions.member.2.Order":          {"2"},
+		"Actions.member.2.TargetGroupArn": {tgArn},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "authenticate-cognito")
@@ -1507,23 +1511,23 @@ func TestBatch1_CreateRule_AuthenticateOIDC(t *testing.T) {
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                                                    {"CreateRule"},
-		"Version":                                                   {"2015-12-01"},
-		"ListenerArn":                                               {lArn},
-		"Priority":                                                  {"60"},
-		"Conditions.member.1.Field":                                              {"path-pattern"},
-		"Conditions.member.1.PathPatternConfig.Values.member.1":                {"/oidc/*"},
-		"Actions.member.1.Type":                                     {"authenticate-oidc"},
-		"Actions.member.1.Order":                                    {"1"},
-		"Actions.member.1.AuthenticateOidcConfig.Issuer":            {"https://idp.example.com"},
+		"Action":                    {"CreateRule"},
+		"Version":                   {"2015-12-01"},
+		"ListenerArn":               {lArn},
+		"Priority":                  {"60"},
+		"Conditions.member.1.Field": {"path-pattern"},
+		"Conditions.member.1.PathPatternConfig.Values.member.1":         {"/oidc/*"},
+		"Actions.member.1.Type":                                         {"authenticate-oidc"},
+		"Actions.member.1.Order":                                        {"1"},
+		"Actions.member.1.AuthenticateOidcConfig.Issuer":                {"https://idp.example.com"},
 		"Actions.member.1.AuthenticateOidcConfig.AuthorizationEndpoint": {"https://idp.example.com/auth"},
-		"Actions.member.1.AuthenticateOidcConfig.TokenEndpoint":     {"https://idp.example.com/token"},
-		"Actions.member.1.AuthenticateOidcConfig.UserInfoEndpoint":  {"https://idp.example.com/userinfo"},
-		"Actions.member.1.AuthenticateOidcConfig.ClientId":          {"client-abc"},
-		"Actions.member.1.AuthenticateOidcConfig.ClientSecret":      {"secret-xyz"},
-		"Actions.member.2.Type":                                     {"forward"},
-		"Actions.member.2.Order":                                    {"2"},
-		"Actions.member.2.TargetGroupArn":                           {tgArn},
+		"Actions.member.1.AuthenticateOidcConfig.TokenEndpoint":         {"https://idp.example.com/token"},
+		"Actions.member.1.AuthenticateOidcConfig.UserInfoEndpoint":      {"https://idp.example.com/userinfo"},
+		"Actions.member.1.AuthenticateOidcConfig.ClientId":              {"client-abc"},
+		"Actions.member.1.AuthenticateOidcConfig.ClientSecret":          {"secret-xyz"},
+		"Actions.member.2.Type":                                         {"forward"},
+		"Actions.member.2.Order":                                        {"2"},
+		"Actions.member.2.TargetGroupArn":                               {tgArn},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "authenticate-oidc")
@@ -1539,14 +1543,14 @@ func TestBatch1_DescribeRules_SortedByPriority(t *testing.T) {
 
 	for _, prio := range []string{"30", "10", "20"} {
 		doELBv2(t, h, url.Values{
-			"Action":                              {"CreateRule"},
-			"Version":                             {"2015-12-01"},
-			"ListenerArn":                         {lArn},
-			"Priority":                            {prio},
-			"Conditions.member.1.Field":           {"path-pattern"},
+			"Action":                    {"CreateRule"},
+			"Version":                   {"2015-12-01"},
+			"ListenerArn":               {lArn},
+			"Priority":                  {prio},
+			"Conditions.member.1.Field": {"path-pattern"},
 			"Conditions.member.1.PathPatternConfig.Values.member.1": {"/p" + prio + "/*"},
-			"Actions.member.1.Type":               {"forward"},
-			"Actions.member.1.TargetGroupArn":     {tgArn},
+			"Actions.member.1.Type":                                 {"forward"},
+			"Actions.member.1.TargetGroupArn":                       {tgArn},
 		})
 	}
 
@@ -1588,14 +1592,14 @@ func TestBatch1_DeleteRule_Success(t *testing.T) {
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
 
 	createRec := doELBv2(t, h, url.Values{
-		"Action":                              {"CreateRule"},
-		"Version":                             {"2015-12-01"},
-		"ListenerArn":                         {lArn},
-		"Priority":                            {"100"},
-		"Conditions.member.1.Field":           {"path-pattern"},
+		"Action":                    {"CreateRule"},
+		"Version":                   {"2015-12-01"},
+		"ListenerArn":               {lArn},
+		"Priority":                  {"100"},
+		"Conditions.member.1.Field": {"path-pattern"},
 		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/delete/*"},
-		"Actions.member.1.Type":               {"forward"},
-		"Actions.member.1.TargetGroupArn":     {tgArn},
+		"Actions.member.1.Type":                                 {"forward"},
+		"Actions.member.1.TargetGroupArn":                       {tgArn},
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -1630,14 +1634,14 @@ func TestBatch1_SetRulePriorities(t *testing.T) {
 	var ruleArns []string
 	for _, prio := range []string{"1", "2"} {
 		r := doELBv2(t, h, url.Values{
-			"Action":                              {"CreateRule"},
-			"Version":                             {"2015-12-01"},
-			"ListenerArn":                         {lArn},
-			"Priority":                            {prio},
-			"Conditions.member.1.Field":           {"path-pattern"},
+			"Action":                    {"CreateRule"},
+			"Version":                   {"2015-12-01"},
+			"ListenerArn":               {lArn},
+			"Priority":                  {prio},
+			"Conditions.member.1.Field": {"path-pattern"},
 			"Conditions.member.1.PathPatternConfig.Values.member.1": {"/p" + prio},
-			"Actions.member.1.Type":               {"forward"},
-			"Actions.member.1.TargetGroupArn":     {tgArn},
+			"Actions.member.1.Type":                                 {"forward"},
+			"Actions.member.1.TargetGroupArn":                       {tgArn},
 		})
 		require.Equal(t, http.StatusOK, r.Code)
 		var rr struct {
@@ -1655,11 +1659,11 @@ func TestBatch1_SetRulePriorities(t *testing.T) {
 
 	// Swap priorities
 	rec := doELBv2(t, h, url.Values{
-		"Action":                         {"SetRulePriorities"},
-		"Version":                        {"2015-12-01"},
-		"RulePriorities.member.1.RuleArn": {ruleArns[0]},
+		"Action":                           {"SetRulePriorities"},
+		"Version":                          {"2015-12-01"},
+		"RulePriorities.member.1.RuleArn":  {ruleArns[0]},
 		"RulePriorities.member.1.Priority": {"2"},
-		"RulePriorities.member.2.RuleArn": {ruleArns[1]},
+		"RulePriorities.member.2.RuleArn":  {ruleArns[1]},
 		"RulePriorities.member.2.Priority": {"1"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -1674,13 +1678,13 @@ func TestBatch1_AddTags_LB(t *testing.T) {
 	lbArn := b1CreateLB(t, h, "tag-lb")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                   {"AddTags"},
-		"Version":                  {"2015-12-01"},
-		"ResourceArns.member.1":    {lbArn},
-		"Tags.member.1.Key":        {"env"},
-		"Tags.member.1.Value":      {"prod"},
-		"Tags.member.2.Key":        {"team"},
-		"Tags.member.2.Value":      {"platform"},
+		"Action":                {"AddTags"},
+		"Version":               {"2015-12-01"},
+		"ResourceArns.member.1": {lbArn},
+		"Tags.member.1.Key":     {"env"},
+		"Tags.member.1.Value":   {"prod"},
+		"Tags.member.2.Key":     {"team"},
+		"Tags.member.2.Value":   {"platform"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1808,9 +1812,9 @@ func TestBatch1_DescribeSSLPolicies_Filter(t *testing.T) {
 
 	h := newBatch1Handler()
 	rec := doELBv2(t, h, url.Values{
-		"Action":           {"DescribeSSLPolicies"},
-		"Version":          {"2015-12-01"},
-		"Names.member.1":   {"ELBSecurityPolicy-2016-08"},
+		"Action":         {"DescribeSSLPolicies"},
+		"Version":        {"2015-12-01"},
+		"Names.member.1": {"ELBSecurityPolicy-2016-08"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1906,11 +1910,11 @@ func TestBatch1_TrustStore_Revocations(t *testing.T) {
 
 	// Add revocations
 	addRec := doELBv2(t, h, url.Values{
-		"Action":                                {"AddTrustStoreRevocations"},
-		"Version":                               {"2015-12-01"},
-		"TrustStoreArn":                         {tsArn},
-		"RevocationContents.member.1.S3Bucket":  {"my-bucket"},
-		"RevocationContents.member.1.S3Key":     {"revocations.crl"},
+		"Action":                               {"AddTrustStoreRevocations"},
+		"Version":                              {"2015-12-01"},
+		"TrustStoreArn":                        {tsArn},
+		"RevocationContents.member.1.S3Bucket": {"my-bucket"},
+		"RevocationContents.member.1.S3Key":    {"revocations.crl"},
 		"RevocationContents.member.1.RevocationType": {"CRL"},
 	})
 	assert.Equal(t, http.StatusOK, addRec.Code)
@@ -1935,9 +1939,9 @@ func TestBatch1_ListenerCertificates_AddAndDescribe(t *testing.T) {
 	lArn := b1CreateListener(t, h, lbArn, tgArn) // HTTP, no cert needed
 
 	addRec := doELBv2(t, h, url.Values{
-		"Action":                              {"AddListenerCertificates"},
-		"Version":                             {"2015-12-01"},
-		"ListenerArn":                         {lArn},
+		"Action":                               {"AddListenerCertificates"},
+		"Version":                              {"2015-12-01"},
+		"ListenerArn":                          {lArn},
 		"Certificates.member.1.CertificateArn": {"arn:aws:acm:us-east-1:000000000000:certificate/extra1"},
 	})
 	assert.Equal(t, http.StatusOK, addRec.Code)
@@ -1961,16 +1965,16 @@ func TestBatch1_ListenerCertificates_Remove(t *testing.T) {
 
 	certArn := "arn:aws:acm:us-east-1:000000000000:certificate/to-remove"
 	doELBv2(t, h, url.Values{
-		"Action":                              {"AddListenerCertificates"},
-		"Version":                             {"2015-12-01"},
-		"ListenerArn":                         {lArn},
+		"Action":                               {"AddListenerCertificates"},
+		"Version":                              {"2015-12-01"},
+		"ListenerArn":                          {lArn},
 		"Certificates.member.1.CertificateArn": {certArn},
 	})
 
 	rmRec := doELBv2(t, h, url.Values{
-		"Action":                              {"RemoveListenerCertificates"},
-		"Version":                             {"2015-12-01"},
-		"ListenerArn":                         {lArn},
+		"Action":                               {"RemoveListenerCertificates"},
+		"Version":                              {"2015-12-01"},
+		"ListenerArn":                          {lArn},
 		"Certificates.member.1.CertificateArn": {certArn},
 	})
 	assert.Equal(t, http.StatusOK, rmRec.Code)
@@ -2013,9 +2017,9 @@ func TestBatch1_ModifyCapacityReservation(t *testing.T) {
 	lbArn := b1CreateLB(t, h, "mod-cap-res-lb")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                    {"ModifyCapacityReservation"},
-		"Version":                   {"2015-12-01"},
-		"LoadBalancerArn":           {lbArn},
+		"Action":          {"ModifyCapacityReservation"},
+		"Version":         {"2015-12-01"},
+		"LoadBalancerArn": {lbArn},
 		"MinimumLoadBalancerCapacity.CapacityUnits": {"100"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -2178,7 +2182,7 @@ func TestBatch1_DescribeLBs_Pagination(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch1Handler()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		b1CreateLB(t, h, "pag-lb-"+string(rune('a'+i)))
 	}
 
@@ -2206,7 +2210,7 @@ func TestBatch1_DescribeTGs_Pagination(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch1Handler()
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		b1CreateTG(t, h, "pag-tg-"+string(rune('a'+i)))
 	}
 
@@ -2328,14 +2332,14 @@ func TestBatch1_CreateRule_InvalidPriority_Zero(t *testing.T) {
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                              {"CreateRule"},
-		"Version":                             {"2015-12-01"},
-		"ListenerArn":                         {lArn},
-		"Priority":                            {"0"},
-		"Conditions.member.1.Field":           {"path-pattern"},
+		"Action":                    {"CreateRule"},
+		"Version":                   {"2015-12-01"},
+		"ListenerArn":               {lArn},
+		"Priority":                  {"0"},
+		"Conditions.member.1.Field": {"path-pattern"},
 		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/foo"},
-		"Actions.member.1.Type":               {"forward"},
-		"Actions.member.1.TargetGroupArn":     {tgArn},
+		"Actions.member.1.Type":                                 {"forward"},
+		"Actions.member.1.TargetGroupArn":                       {tgArn},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -2445,10 +2449,10 @@ func TestBatch1_RemoveTrustStoreRevocations(t *testing.T) {
 	tsArn := tsResp.Result.TrustStores.Members[0].TrustStoreArn
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                        {"RemoveTrustStoreRevocations"},
-		"Version":                       {"2015-12-01"},
-		"TrustStoreArn":                 {tsArn},
-		"RevocationIds.member.1":        {"1"},
+		"Action":                 {"RemoveTrustStoreRevocations"},
+		"Version":                {"2015-12-01"},
+		"TrustStoreArn":          {tsArn},
+		"RevocationIds.member.1": {"1"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -2497,12 +2501,12 @@ func TestBatch1_ForwardWeightedTGs(t *testing.T) {
 	tgArn2 := b1CreateTG(t, h, "weighted-tg2")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":          {"CreateListener"},
-		"Version":         {"2015-12-01"},
-		"LoadBalancerArn": {lbArn},
-		"Protocol":        {"HTTP"},
-		"Port":            {"80"},
-		"DefaultActions.member.1.Type":                                              {"forward"},
+		"Action":                       {"CreateListener"},
+		"Version":                      {"2015-12-01"},
+		"LoadBalancerArn":              {lbArn},
+		"Protocol":                     {"HTTP"},
+		"Port":                         {"80"},
+		"DefaultActions.member.1.Type": {"forward"},
 		"DefaultActions.member.1.ForwardConfig.TargetGroups.member.1.TargetGroupArn": {tgArn1},
 		"DefaultActions.member.1.ForwardConfig.TargetGroups.member.1.Weight":         {"80"},
 		"DefaultActions.member.1.ForwardConfig.TargetGroups.member.2.TargetGroupArn": {tgArn2},
@@ -2525,14 +2529,14 @@ func TestBatch1_ModifyRule_ChangeConditions(t *testing.T) {
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
 
 	cRec := doELBv2(t, h, url.Values{
-		"Action":                              {"CreateRule"},
-		"Version":                             {"2015-12-01"},
-		"ListenerArn":                         {lArn},
-		"Priority":                            {"200"},
-		"Conditions.member.1.Field":           {"path-pattern"},
+		"Action":                    {"CreateRule"},
+		"Version":                   {"2015-12-01"},
+		"ListenerArn":               {lArn},
+		"Priority":                  {"200"},
+		"Conditions.member.1.Field": {"path-pattern"},
 		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/old"},
-		"Actions.member.1.Type":               {"forward"},
-		"Actions.member.1.TargetGroupArn":     {tgArn},
+		"Actions.member.1.Type":                                 {"forward"},
+		"Actions.member.1.TargetGroupArn":                       {tgArn},
 	})
 	require.Equal(t, http.StatusOK, cRec.Code)
 
@@ -2549,13 +2553,13 @@ func TestBatch1_ModifyRule_ChangeConditions(t *testing.T) {
 	ruleArn := cResp.Result.Rules.Members[0].RuleArn
 
 	mRec := doELBv2(t, h, url.Values{
-		"Action":                              {"ModifyRule"},
-		"Version":                             {"2015-12-01"},
-		"RuleArn":                             {ruleArn},
-		"Conditions.member.1.Field":           {"path-pattern"},
+		"Action":                    {"ModifyRule"},
+		"Version":                   {"2015-12-01"},
+		"RuleArn":                   {ruleArn},
+		"Conditions.member.1.Field": {"path-pattern"},
 		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/new"},
-		"Actions.member.1.Type":               {"forward"},
-		"Actions.member.1.TargetGroupArn":     {tgArn},
+		"Actions.member.1.Type":                                 {"forward"},
+		"Actions.member.1.TargetGroupArn":                       {tgArn},
 	})
 	require.Equal(t, http.StatusOK, mRec.Code)
 	assert.Contains(t, mRec.Body.String(), "/new")
