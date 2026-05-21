@@ -891,7 +891,7 @@ func (rc *ResourceCreator) createNeptuneInstance(
 	clusterID := strProp(props, "DBClusterIdentifier", params, physicalIDs)
 	instanceClass := strProp(props, "DBInstanceClass", params, physicalIDs)
 
-	instance, err := rc.backends.Neptune.Backend.CreateDBInstance(id, clusterID, instanceClass)
+	instance, err := rc.backends.Neptune.Backend.CreateDBInstance(id, clusterID, instanceClass, neptune.DBInstanceCreateOptions{})
 	if err != nil {
 		return "", fmt.Errorf("create Neptune instance %s: %w", id, err)
 	}

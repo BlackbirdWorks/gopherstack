@@ -148,6 +148,19 @@ type DBInstance struct {
 	EnableIAMDatabaseAuthentication bool   `json:"EnableIAMDatabaseAuthentication"`
 }
 
+// DBInstanceCreateOptions holds optional fields for CreateDBInstance.
+type DBInstanceCreateOptions struct {
+	DBParameterGroupName            string
+	PreferredMaintenanceWindow      string
+	PreferredBackupWindow           string
+	AvailabilityZone                string
+	AutoMinorVersionUpgrade         bool
+	CopyTagsToSnapshot              bool
+	EnableIAMDatabaseAuthentication bool
+	PromotionTier                   int
+	StorageEncrypted                bool
+}
+
 // DBInstanceModifyOptions holds optional fields for ModifyDBInstance.
 type DBInstanceModifyOptions struct {
 	DBParameterGroupName            string
@@ -513,7 +526,7 @@ func (b *InMemoryBackend) FailoverDBCluster(id string) (*DBCluster, error) {
 }
 
 // CreateDBInstance creates a new Neptune DB instance.
-func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass string) (*DBInstance, error) {
+func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass string, opts DBInstanceCreateOptions) (*DBInstance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
 	}
@@ -530,6 +543,10 @@ func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass string) 
 	if instanceClass == "" {
 		instanceClass = defaultInstanceClass
 	}
+	maintenanceWindow := defaultMaintenanceWindow
+	if opts.PreferredMaintenanceWindow != "" {
+		maintenanceWindow = opts.PreferredMaintenanceWindow
+	}
 	endpoint := fmt.Sprintf("%s.neptune.%s.amazonaws.com", id, b.region)
 	engineVersion := defaultEngineVersion
 	if clusterID != "" {
@@ -538,17 +555,27 @@ func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass string) 
 		}
 	}
 	inst := &DBInstance{
-		DBInstanceIdentifier:       id,
-		DBInstanceArn:              b.instanceARN(id),
-		DBClusterIdentifier:        clusterID,
-		DBInstanceClass:            instanceClass,
-		Engine:                     neptuneEngine,
-		EngineVersion:              engineVersion,
-		DBInstanceStatus:           clusterStatusAvailable,
-		Endpoint:                   endpoint,
-		Port:                       defaultNeptunePort,
-		AutoMinorVersionUpgrade:    true,
-		PreferredMaintenanceWindow: defaultMaintenanceWindow,
+		DBInstanceIdentifier:            id,
+		DBInstanceArn:                   b.instanceARN(id),
+		DBClusterIdentifier:             clusterID,
+		DBInstanceClass:                 instanceClass,
+		Engine:                          neptuneEngine,
+		EngineVersion:                   engineVersion,
+		DBInstanceStatus:                clusterStatusAvailable,
+		Endpoint:                        endpoint,
+		Port:                            defaultNeptunePort,
+		AutoMinorVersionUpgrade:         true,
+		PreferredMaintenanceWindow:      maintenanceWindow,
+		DBParameterGroupName:            opts.DBParameterGroupName,
+		PreferredBackupWindow:           opts.PreferredBackupWindow,
+		AvailabilityZone:                opts.AvailabilityZone,
+		CopyTagsToSnapshot:              opts.CopyTagsToSnapshot,
+		EnableIAMDatabaseAuthentication: opts.EnableIAMDatabaseAuthentication,
+		PromotionTier:                   opts.PromotionTier,
+		StorageEncrypted:                opts.StorageEncrypted,
+	}
+	if opts.AutoMinorVersionUpgrade {
+		inst.AutoMinorVersionUpgrade = opts.AutoMinorVersionUpgrade
 	}
 	b.instances[id] = inst
 	if clusterID != "" {
@@ -613,7 +640,7 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 }
 
 // ModifyDBInstance modifies a Neptune DB instance.
-func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string) (*DBInstance, error) {
+func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string, opts DBInstanceModifyOptions) (*DBInstance, error) {
 	b.mu.Lock("ModifyDBInstance")
 	defer b.mu.Unlock()
 	inst, exists := b.instances[id]
@@ -622,6 +649,27 @@ func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string) (*DBInstanc
 	}
 	if instanceClass != "" {
 		inst.DBInstanceClass = instanceClass
+	}
+	if opts.DBParameterGroupName != "" {
+		inst.DBParameterGroupName = opts.DBParameterGroupName
+	}
+	if opts.PreferredMaintenanceWindow != "" {
+		inst.PreferredMaintenanceWindow = opts.PreferredMaintenanceWindow
+	}
+	if opts.PreferredBackupWindow != "" {
+		inst.PreferredBackupWindow = opts.PreferredBackupWindow
+	}
+	if opts.AutoMinorVersionUpgradeSet {
+		inst.AutoMinorVersionUpgrade = opts.AutoMinorVersionUpgrade
+	}
+	if opts.CopyTagsToSnapshotSet {
+		inst.CopyTagsToSnapshot = opts.CopyTagsToSnapshot
+	}
+	if opts.IamAuthSet {
+		inst.EnableIAMDatabaseAuthentication = opts.EnableIAMDatabaseAuthentication
+	}
+	if opts.PromotionTierSet {
+		inst.PromotionTier = opts.PromotionTier
 	}
 	cp := *inst
 

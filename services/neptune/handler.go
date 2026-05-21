@@ -563,9 +563,30 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
 	instanceClass := vals.Get("DBInstanceClass")
-	inst, err := h.Backend.CreateDBInstance(id, clusterID, instanceClass)
+	promotionTier := 0
+	if pt := vals.Get("PromotionTier"); pt != "" {
+		if v, err := strconv.Atoi(pt); err == nil {
+			promotionTier = v
+		}
+	}
+	opts := DBInstanceCreateOptions{
+		DBParameterGroupName:            vals.Get("DBParameterGroupName"),
+		PreferredMaintenanceWindow:      vals.Get("PreferredMaintenanceWindow"),
+		PreferredBackupWindow:           vals.Get("PreferredBackupWindow"),
+		AvailabilityZone:                vals.Get("AvailabilityZone"),
+		AutoMinorVersionUpgrade:         vals.Get("AutoMinorVersionUpgrade") == formTrue,
+		CopyTagsToSnapshot:              vals.Get("CopyTagsToSnapshot") == formTrue,
+		EnableIAMDatabaseAuthentication: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		StorageEncrypted:                vals.Get("StorageEncrypted") == formTrue,
+		PromotionTier:                   promotionTier,
+	}
+	inst, err := h.Backend.CreateDBInstance(id, clusterID, instanceClass, opts)
 	if err != nil {
 		return nil, err
+	}
+	tags := parseTagEntries(vals)
+	if len(tags) > 0 {
+		h.Backend.AddTagsToResource(inst.DBInstanceArn, tags)
 	}
 
 	return &createDBInstanceResponse{
@@ -613,7 +634,31 @@ func (h *Handler) handleDeleteDBInstance(vals url.Values) (any, error) {
 func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	instanceClass := vals.Get("DBInstanceClass")
-	inst, err := h.Backend.ModifyDBInstance(id, instanceClass)
+	rawAuto := vals.Get("AutoMinorVersionUpgrade")
+	rawCopy := vals.Get("CopyTagsToSnapshot")
+	rawIam := vals.Get("EnableIAMDatabaseAuthentication")
+	promotionTier := 0
+	promotionTierSet := false
+	if pt := vals.Get("PromotionTier"); pt != "" {
+		if v, err := strconv.Atoi(pt); err == nil {
+			promotionTier = v
+			promotionTierSet = true
+		}
+	}
+	opts := DBInstanceModifyOptions{
+		DBParameterGroupName:            vals.Get("DBParameterGroupName"),
+		PreferredMaintenanceWindow:      vals.Get("PreferredMaintenanceWindow"),
+		PreferredBackupWindow:           vals.Get("PreferredBackupWindow"),
+		AutoMinorVersionUpgrade:         rawAuto == formTrue,
+		AutoMinorVersionUpgradeSet:      rawAuto != "",
+		CopyTagsToSnapshot:              rawCopy == formTrue,
+		CopyTagsToSnapshotSet:           rawCopy != "",
+		EnableIAMDatabaseAuthentication: rawIam == formTrue,
+		IamAuthSet:                      rawIam != "",
+		PromotionTier:                   promotionTier,
+		PromotionTierSet:                promotionTierSet,
+	}
+	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1715,18 +1760,24 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 
 func toXMLInstance(inst *DBInstance) xmlDBInstance {
 	return xmlDBInstance{
-		DBInstanceIdentifier:       inst.DBInstanceIdentifier,
-		DBInstanceArn:              inst.DBInstanceArn,
-		DBClusterIdentifier:        inst.DBClusterIdentifier,
-		DBInstanceClass:            inst.DBInstanceClass,
-		Engine:                     inst.Engine,
-		EngineVersion:              inst.EngineVersion,
-		DBInstanceStatus:           inst.DBInstanceStatus,
-		Endpoint:                   inst.Endpoint,
-		Port:                       inst.Port,
-		StorageEncrypted:           inst.StorageEncrypted,
-		AutoMinorVersionUpgrade:    inst.AutoMinorVersionUpgrade,
-		PreferredMaintenanceWindow: inst.PreferredMaintenanceWindow,
+		DBInstanceIdentifier:            inst.DBInstanceIdentifier,
+		DBInstanceArn:                   inst.DBInstanceArn,
+		DBClusterIdentifier:             inst.DBClusterIdentifier,
+		DBInstanceClass:                 inst.DBInstanceClass,
+		Engine:                          inst.Engine,
+		EngineVersion:                   inst.EngineVersion,
+		DBInstanceStatus:                inst.DBInstanceStatus,
+		Endpoint:                        inst.Endpoint,
+		Port:                            inst.Port,
+		StorageEncrypted:                inst.StorageEncrypted,
+		AutoMinorVersionUpgrade:         inst.AutoMinorVersionUpgrade,
+		PreferredMaintenanceWindow:      inst.PreferredMaintenanceWindow,
+		PreferredBackupWindow:           inst.PreferredBackupWindow,
+		AvailabilityZone:                inst.AvailabilityZone,
+		DBParameterGroupName:            inst.DBParameterGroupName,
+		CopyTagsToSnapshot:              inst.CopyTagsToSnapshot,
+		EnableIAMDatabaseAuthentication: inst.EnableIAMDatabaseAuthentication,
+		PromotionTier:                   inst.PromotionTier,
 	}
 }
 
@@ -1930,18 +1981,24 @@ type failoverDBClusterResponse struct {
 }
 
 type xmlDBInstance struct {
-	DBInstanceIdentifier       string `xml:"DBInstanceIdentifier"`
-	DBInstanceArn              string `xml:"DBInstanceArn,omitempty"`
-	DBClusterIdentifier        string `xml:"DBClusterIdentifier,omitempty"`
-	DBInstanceClass            string `xml:"DBInstanceClass"`
-	Engine                     string `xml:"Engine"`
-	EngineVersion              string `xml:"EngineVersion,omitempty"`
-	DBInstanceStatus           string `xml:"DBInstanceStatus"`
-	Endpoint                   string `xml:"Endpoint>Address,omitempty"`
-	PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow,omitempty"`
-	Port                       int    `xml:"Endpoint>Port"`
-	StorageEncrypted           bool   `xml:"StorageEncrypted"`
-	AutoMinorVersionUpgrade    bool   `xml:"AutoMinorVersionUpgrade"`
+	DBInstanceIdentifier            string `xml:"DBInstanceIdentifier"`
+	DBInstanceArn                   string `xml:"DBInstanceArn,omitempty"`
+	DBClusterIdentifier             string `xml:"DBClusterIdentifier,omitempty"`
+	DBInstanceClass                 string `xml:"DBInstanceClass"`
+	Engine                          string `xml:"Engine"`
+	EngineVersion                   string `xml:"EngineVersion,omitempty"`
+	DBInstanceStatus                string `xml:"DBInstanceStatus"`
+	Endpoint                        string `xml:"Endpoint>Address,omitempty"`
+	DBParameterGroupName            string `xml:"DBParameterGroups>DBParameterGroup>DBParameterGroupName,omitempty"`
+	PreferredMaintenanceWindow      string `xml:"PreferredMaintenanceWindow,omitempty"`
+	PreferredBackupWindow           string `xml:"PreferredBackupWindow,omitempty"`
+	AvailabilityZone                string `xml:"AvailabilityZone,omitempty"`
+	Port                            int    `xml:"Endpoint>Port"`
+	PromotionTier                   int    `xml:"PromotionTier,omitempty"`
+	StorageEncrypted                bool   `xml:"StorageEncrypted"`
+	AutoMinorVersionUpgrade         bool   `xml:"AutoMinorVersionUpgrade"`
+	CopyTagsToSnapshot              bool   `xml:"CopyTagsToSnapshot"`
+	EnableIAMDatabaseAuthentication bool   `xml:"IAMDatabaseAuthenticationEnabled"`
 }
 
 type xmlDBInstanceList struct {

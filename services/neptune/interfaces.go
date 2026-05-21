@@ -13,10 +13,10 @@ type StorageBackend interface {
 	FailoverDBCluster(id string) (*DBCluster, error)
 
 	// Instance operations
-	CreateDBInstance(id, clusterID, instanceClass string) (*DBInstance, error)
+	CreateDBInstance(id, clusterID, instanceClass string, opts DBInstanceCreateOptions) (*DBInstance, error)
 	DescribeDBInstances(id string) ([]DBInstance, error)
 	DeleteDBInstance(id string) (*DBInstance, error)
-	ModifyDBInstance(id, instanceClass string) (*DBInstance, error)
+	ModifyDBInstance(id, instanceClass string, opts DBInstanceModifyOptions) (*DBInstance, error)
 	RebootDBInstance(id string) (*DBInstance, error)
 
 	// Subnet group operations
