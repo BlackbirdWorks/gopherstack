@@ -600,6 +600,29 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 		}
 	}
 
+	// Parse UserGroupIds.
+	for i := 1; ; i++ {
+		id := form.Get(fmt.Sprintf("UserGroupIds.member.%d", i))
+		if id == "" {
+			break
+		}
+		opts.UserGroupIDs = append(opts.UserGroupIDs, id)
+	}
+
+	// Parse Tags.
+	tags := make(map[string]string)
+	for i := 1; ; i++ {
+		key := form.Get(fmt.Sprintf("Tags.Tag.%d.Key", i))
+		if key == "" {
+			break
+		}
+		val := form.Get(fmt.Sprintf("Tags.Tag.%d.Value", i))
+		tags[key] = val
+	}
+	if len(tags) > 0 {
+		opts.Tags = tags
+	}
+
 	return opts
 }
 
@@ -661,29 +684,73 @@ func (h *Handler) deleteReplicationGroup(c *echo.Context, form url.Values) error
 	})
 }
 
+// nodeGroupNodeXML is the XML for a single node within a node group.
+type nodeGroupNodeXML struct {
+	CacheClusterID            string        `xml:"CacheClusterId,omitempty"`
+	CacheNodeID               string        `xml:"CacheNodeId,omitempty"`
+	CurrentRole               string        `xml:"CurrentRole,omitempty"`
+	PreferredAvailabilityZone string        `xml:"PreferredAvailabilityZone,omitempty"`
+	ReadEndpoint              cacheEndpoint `xml:"ReadEndpoint,omitempty"`
+}
+
+// nodeGroupXML is the XML representation of a shard / node group.
+type nodeGroupXML struct {
+	NodeGroupID     string             `xml:"NodeGroupId"`
+	Status          string             `xml:"Status"`
+	Slots           string             `xml:"Slots,omitempty"`
+	NodeGroupMembers nodeGroupMembersXML `xml:"NodeGroupMembers"`
+}
+
+type nodeGroupMembersXML struct {
+	NodeGroupMember []nodeGroupNodeXML `xml:"NodeGroupMember"`
+}
+
+type nodeGroupsListXML struct {
+	NodeGroup []nodeGroupXML `xml:"NodeGroup"`
+}
+
+// rgPendingModifiedXML is the XML for pending replication group changes.
+type rgPendingModifiedXML struct {
+	NumCacheNodes           *int32 `xml:"NumCacheNodes,omitempty"`
+	CacheNodeType           string `xml:"CacheNodeType,omitempty"`
+	EngineVersion           string `xml:"EngineVersion,omitempty"`
+	AuthTokenStatus         string `xml:"AuthTokenStatus,omitempty"`
+	AutomaticFailoverStatus string `xml:"AutomaticFailoverStatus,omitempty"`
+}
+
+// rgUserGroupIdsXML holds UserGroupId list in the XML response.
+type rgUserGroupIdsXML struct {
+	UserGroupId []string `xml:"member"`
+}
+
 // replicationGroupXML is the XML representation of a single replication group.
 type replicationGroupXML struct {
-	ReplicationGroupID         string `xml:"ReplicationGroupId"`
-	Description                string `xml:"Description"`
-	Status                     string `xml:"Status"`
-	ARN                        string `xml:"ARN"`
-	CacheParameterGroupName    string `xml:"CacheParameterGroupName,omitempty"`
-	AutomaticFailover          string `xml:"AutomaticFailover,omitempty"`
-	MultiAZ                    string `xml:"MultiAZ,omitempty"`
-	CacheNodeType              string `xml:"CacheNodeType,omitempty"`
-	SnapshotWindow             string `xml:"SnapshotWindow,omitempty"`
-	PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow,omitempty"`
-	EngineVersion              string `xml:"EngineVersion,omitempty"`
-	CreatedAt                  string `xml:"CreatingDate,omitempty"`
-	KmsKeyID                   string `xml:"KmsKeyId,omitempty"`
-	NotificationTopicArn       string `xml:"NotificationTopicArn,omitempty"`
-	TransitEncryptionMode      string `xml:"TransitEncryptionMode,omitempty"`
-	DataTiering                string `xml:"DataTiering,omitempty"`
-	SnapshotRetentionLimit     int    `xml:"SnapshotRetentionLimit,omitempty"`
-	ClusterEnabled             bool   `xml:"ClusterEnabled,omitempty"`
-	AuthTokenEnabled           bool   `xml:"AuthTokenEnabled,omitempty"`
-	AtRestEncryptionEnabled    bool   `xml:"AtRestEncryptionEnabled,omitempty"`
-	TransitEncryptionEnabled   bool   `xml:"TransitEncryptionEnabled,omitempty"`
+	PendingModifiedValues      *rgPendingModifiedXML `xml:"PendingModifiedValues,omitempty"`
+	NodeGroups                 *nodeGroupsListXML    `xml:"NodeGroups,omitempty"`
+	UserGroupIds               *rgUserGroupIdsXML    `xml:"UserGroupIds,omitempty"`
+	ReplicationGroupID         string                `xml:"ReplicationGroupId"`
+	Description                string                `xml:"Description"`
+	Status                     string                `xml:"Status"`
+	ARN                        string                `xml:"ARN"`
+	Engine                     string                `xml:"Engine,omitempty"`
+	CacheParameterGroupName    string                `xml:"CacheParameterGroupName,omitempty"`
+	AutomaticFailover          string                `xml:"AutomaticFailover,omitempty"`
+	MultiAZ                    string                `xml:"MultiAZ,omitempty"`
+	CacheNodeType              string                `xml:"CacheNodeType,omitempty"`
+	SnapshotWindow             string                `xml:"SnapshotWindow,omitempty"`
+	PreferredMaintenanceWindow string                `xml:"PreferredMaintenanceWindow,omitempty"`
+	EngineVersion              string                `xml:"EngineVersion,omitempty"`
+	CreatedAt                  string                `xml:"CreatingDate,omitempty"`
+	KmsKeyID                   string                `xml:"KmsKeyId,omitempty"`
+	NotificationTopicArn       string                `xml:"NotificationTopicArn,omitempty"`
+	TransitEncryptionMode      string                `xml:"TransitEncryptionMode,omitempty"`
+	DataTiering                string                `xml:"DataTiering,omitempty"`
+	SnapshotRetentionLimit     int                   `xml:"SnapshotRetentionLimit,omitempty"`
+	NumCacheClusters           int                   `xml:"NumCacheClusters,omitempty"`
+	ClusterEnabled             bool                  `xml:"ClusterEnabled,omitempty"`
+	AuthTokenEnabled           bool                  `xml:"AuthTokenEnabled,omitempty"`
+	AtRestEncryptionEnabled    bool                  `xml:"AtRestEncryptionEnabled,omitempty"`
+	TransitEncryptionEnabled   bool                  `xml:"TransitEncryptionEnabled,omitempty"`
 }
 
 // dataTieringStatus converts a bool to the AWS DataTieringStatus string.
@@ -693,6 +760,62 @@ func dataTieringStatus(enabled bool) string {
 	}
 
 	return ""
+}
+
+// nodeGroupsToXML converts backend NodeGroups to XML.
+func nodeGroupsToXML(ngs []NodeGroup) *nodeGroupsListXML {
+	if len(ngs) == 0 {
+		return nil
+	}
+
+	xmlNGs := make([]nodeGroupXML, 0, len(ngs))
+	for _, ng := range ngs {
+		members := make([]nodeGroupNodeXML, 0)
+		if ng.PrimaryNode != nil {
+			members = append(members, nodeGroupNodeXML{
+				CacheClusterID:            ng.PrimaryNode.CacheClusterID,
+				CacheNodeID:               ng.PrimaryNode.CacheNodeID,
+				CurrentRole:               "primary",
+				PreferredAvailabilityZone: ng.PrimaryNode.PreferredAvailabilityZone,
+			})
+		}
+		for _, r := range ng.Replicas {
+			members = append(members, nodeGroupNodeXML{
+				CacheClusterID:            r.CacheClusterID,
+				CacheNodeID:               r.CacheNodeID,
+				CurrentRole:               "replica",
+				PreferredAvailabilityZone: r.PreferredAvailabilityZone,
+			})
+		}
+		xmlNGs = append(xmlNGs, nodeGroupXML{
+			NodeGroupID:      ng.NodeGroupID,
+			Status:           ng.Status,
+			Slots:            ng.Slots,
+			NodeGroupMembers: nodeGroupMembersXML{NodeGroupMember: members},
+		})
+	}
+
+	return &nodeGroupsListXML{NodeGroup: xmlNGs}
+}
+
+// pendingToXML converts RGPendingModifiedValues to XML.
+func pendingToXML(p *RGPendingModifiedValues) *rgPendingModifiedXML {
+	if p == nil {
+		return nil
+	}
+
+	x := &rgPendingModifiedXML{
+		CacheNodeType:           p.CacheNodeType,
+		EngineVersion:           p.EngineVersion,
+		AuthTokenStatus:         p.AuthTokenStatus,
+		AutomaticFailoverStatus: p.AutomaticFailoverStatus,
+	}
+	if p.ReplicaCount != nil {
+		rc := *p.ReplicaCount
+		x.NumCacheNodes = &rc
+	}
+
+	return x
 }
 
 // rgToXML converts a ReplicationGroup to its XML representation.
@@ -707,11 +830,22 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 		autoFailover = statusDisabled
 	}
 
+	numCacheClusters := int(rg.ReplicaCount) + 1
+	if numCacheClusters <= 1 && !rg.ClusterModeEnabled {
+		numCacheClusters = 1
+	}
+
+	var userGroupIds *rgUserGroupIdsXML
+	if len(rg.UserGroupIds) > 0 {
+		userGroupIds = &rgUserGroupIdsXML{UserGroupId: rg.UserGroupIds}
+	}
+
 	return replicationGroupXML{
 		ReplicationGroupID:         rg.ReplicationGroupID,
 		Description:                rg.Description,
 		Status:                     rg.Status,
 		ARN:                        rg.ARN,
+		Engine:                     rg.Engine,
 		CacheParameterGroupName:    rg.CacheParameterGroupName,
 		AutomaticFailover:          autoFailover,
 		MultiAZ:                    multiAZ,
@@ -724,11 +858,15 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 		NotificationTopicArn:       rg.NotificationTopicArn,
 		TransitEncryptionMode:      rg.TransitEncryptionMode,
 		SnapshotRetentionLimit:     rg.SnapshotRetentionLimit,
+		NumCacheClusters:           numCacheClusters,
 		ClusterEnabled:             rg.ClusterModeEnabled,
 		AuthTokenEnabled:           rg.AuthTokenEnabled,
 		AtRestEncryptionEnabled:    rg.AtRestEncryptionEnabled,
 		TransitEncryptionEnabled:   rg.TransitEncryptionEnabled,
 		DataTiering:                dataTieringStatus(rg.DataTieringEnabled),
+		NodeGroups:                 nodeGroupsToXML(rg.NodeGroups),
+		PendingModifiedValues:      pendingToXML(rg.PendingModifiedValues),
+		UserGroupIds:               userGroupIds,
 	}
 }
 
@@ -918,6 +1056,22 @@ func parseModifyReplicationGroupOpts(form url.Values) ReplicationGroupModifyOpts
 			rc := int32(n)
 			opts.ReplicaCount = &rc
 		}
+	}
+
+	// Parse UserGroupIds to add/remove.
+	for i := 1; ; i++ {
+		id := form.Get(fmt.Sprintf("UserGroupIdsToAdd.member.%d", i))
+		if id == "" {
+			break
+		}
+		opts.UserGroupIdsToAdd = append(opts.UserGroupIdsToAdd, id)
+	}
+	for i := 1; ; i++ {
+		id := form.Get(fmt.Sprintf("UserGroupIdsToRemove.member.%d", i))
+		if id == "" {
+			break
+		}
+		opts.UserGroupIdsToRemove = append(opts.UserGroupIdsToRemove, id)
 	}
 
 	return opts

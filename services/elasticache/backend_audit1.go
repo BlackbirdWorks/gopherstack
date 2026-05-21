@@ -137,6 +137,7 @@ type ReplicationGroupCreateOpts struct {
 	EngineVersion             string
 	CacheNodeType             string
 	UserGroupIDs              []string
+	Tags                      map[string]string
 	NumNodeGroups             int32
 	ReplicasPerNodeGroup      int32
 	SnapshotRetentionLimit    int
@@ -166,6 +167,8 @@ type ReplicationGroupModifyOpts struct {
 	NotificationTopicArn      string
 	TransitEncryptionMode     string
 	LogDeliveryConfigurations []LogDeliveryConfig
+	UserGroupIdsToAdd         []string
+	UserGroupIdsToRemove      []string
 	ApplyImmediately          bool
 }
 
@@ -356,6 +359,16 @@ func (b *InMemoryBackend) buildReplicationGroupFromCreateOpts(opts ReplicationGr
 		rg.ReplicaCount = opts.ReplicasPerNodeGroup
 	}
 
+	if len(opts.UserGroupIDs) > 0 {
+		rg.UserGroupIds = opts.UserGroupIDs
+	}
+
+	if len(opts.Tags) > 0 {
+		for k, v := range opts.Tags {
+			rg.Tags.Set(k, v)
+		}
+	}
+
 	return rg
 }
 
@@ -451,6 +464,7 @@ func (b *InMemoryBackend) applyModifyOptsLocked(rg *ReplicationGroup, opts Repli
 		rg.ReplicaCount = *opts.ReplicaCount
 	}
 
+	applyUserGroupIdsModify(rg, opts.UserGroupIdsToAdd, opts.UserGroupIdsToRemove)
 	applyAuthTokenModify(rg, opts.AuthToken, opts.AuthTokenUpdateStrategy)
 	applyTransitEncryptionModify(rg, opts.TransitEncryptionMode)
 	applyPendingChanges(rg, opts)
@@ -466,6 +480,38 @@ func applyAutoFailoverModify(rg *ReplicationGroup, enabled *bool) {
 	} else {
 		rg.AutomaticFailover = statusDisabled
 	}
+}
+
+// applyUserGroupIdsModify adds/removes user group IDs on a replication group (gap #15).
+func applyUserGroupIdsModify(rg *ReplicationGroup, toAdd, toRemove []string) {
+	if len(toAdd) == 0 && len(toRemove) == 0 {
+		return
+	}
+
+	removeSet := make(map[string]bool, len(toRemove))
+	for _, id := range toRemove {
+		removeSet[id] = true
+	}
+
+	filtered := rg.UserGroupIds[:0:0]
+	for _, id := range rg.UserGroupIds {
+		if !removeSet[id] {
+			filtered = append(filtered, id)
+		}
+	}
+
+	addSet := make(map[string]bool)
+	for _, id := range filtered {
+		addSet[id] = true
+	}
+
+	for _, id := range toAdd {
+		if !addSet[id] {
+			filtered = append(filtered, id)
+		}
+	}
+
+	rg.UserGroupIds = filtered
 }
 
 // applyAuthTokenModify handles auth token rotation strategies (gap #4).
