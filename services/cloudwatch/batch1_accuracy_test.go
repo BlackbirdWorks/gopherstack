@@ -582,7 +582,8 @@ func TestHandler_PutMetricData_StatisticSetOnly_Accepted(t *testing.T) {
 			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
 	)
 	assert.Equal(t, 200, rec.Code)
-	assert.NotContains(t, rec.Body.String(), "UnprocessedMetricData")
+	// Unprocessed entries have <ErrorCode>; absence means all data was accepted.
+	assert.NotContains(t, rec.Body.String(), "<ErrorCode>")
 }
 
 func TestHandler_PutMetricData_StatisticSetAndValue_Rejected(t *testing.T) {
