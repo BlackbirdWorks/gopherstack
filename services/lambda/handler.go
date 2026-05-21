@@ -1091,12 +1091,19 @@ func (h *Handler) handleESMRoute(c *echo.Context, path, method string) error {
 }
 
 type handleCreateESMInput struct {
-	Enabled          *bool           `json:"Enabled"`
-	FilterCriteria   *FilterCriteria `json:"FilterCriteria"`
-	EventSourceARN   string          `json:"EventSourceArn"`
-	FunctionName     string          `json:"FunctionName"`
-	StartingPosition string          `json:"StartingPosition"`
-	BatchSize        int             `json:"BatchSize"`
+	Enabled                        *bool                 `json:"Enabled"`
+	FilterCriteria                 *FilterCriteria       `json:"FilterCriteria"`
+	DestinationConfig              *ESMDestinationConfig `json:"DestinationConfig"`
+	EventSourceARN                 string                `json:"EventSourceArn"`
+	FunctionName                   string                `json:"FunctionName"`
+	StartingPosition               string                `json:"StartingPosition"`
+	BatchSize                      int                   `json:"BatchSize"`
+	MaximumBatchingWindowInSeconds int                   `json:"MaximumBatchingWindowInSeconds"`
+	TumblingWindowInSeconds        int                   `json:"TumblingWindowInSeconds"`
+	MaximumRecordAgeInSeconds      int                   `json:"MaximumRecordAgeInSeconds"`
+	MaximumRetryAttempts           int                   `json:"MaximumRetryAttempts"`
+	ParallelizationFactor          int                   `json:"ParallelizationFactor"`
+	BisectBatchOnFunctionError     bool                  `json:"BisectBatchOnFunctionError"`
 }
 
 // handleCreateESM handles POST /2015-03-31/event-source-mappings/.
@@ -1116,12 +1123,19 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 		enabled := req.Enabled == nil || *req.Enabled // default enabled=true
 
 		m, err := lambdaBk.CreateEventSourceMapping(&CreateEventSourceMappingInput{
-			EventSourceARN:   req.EventSourceARN,
-			FunctionName:     req.FunctionName,
-			StartingPosition: req.StartingPosition,
-			BatchSize:        req.BatchSize,
-			Enabled:          enabled,
-			FilterCriteria:   req.FilterCriteria,
+			EventSourceARN:                 req.EventSourceARN,
+			FunctionName:                   req.FunctionName,
+			StartingPosition:               req.StartingPosition,
+			BatchSize:                      req.BatchSize,
+			Enabled:                        enabled,
+			FilterCriteria:                 req.FilterCriteria,
+			DestinationConfig:              req.DestinationConfig,
+			MaximumBatchingWindowInSeconds: req.MaximumBatchingWindowInSeconds,
+			TumblingWindowInSeconds:        req.TumblingWindowInSeconds,
+			MaximumRecordAgeInSeconds:      req.MaximumRecordAgeInSeconds,
+			MaximumRetryAttempts:           req.MaximumRetryAttempts,
+			ParallelizationFactor:          req.ParallelizationFactor,
+			BisectBatchOnFunctionError:     req.BisectBatchOnFunctionError,
 		})
 		if err != nil {
 			return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -1180,9 +1194,16 @@ func (h *Handler) handleDeleteESM(c *echo.Context, id string) error {
 
 // handleUpdateESMInput is the request body for UpdateEventSourceMapping.
 type handleUpdateESMInput struct {
-	Enabled        *bool           `json:"Enabled"`
-	FilterCriteria *FilterCriteria `json:"FilterCriteria"`
-	BatchSize      int             `json:"BatchSize"`
+	Enabled                        *bool                 `json:"Enabled"`
+	FilterCriteria                 *FilterCriteria       `json:"FilterCriteria"`
+	DestinationConfig              *ESMDestinationConfig `json:"DestinationConfig"`
+	BisectBatchOnFunctionError     *bool                 `json:"BisectBatchOnFunctionError"`
+	BatchSize                      int                   `json:"BatchSize"`
+	MaximumBatchingWindowInSeconds int                   `json:"MaximumBatchingWindowInSeconds"`
+	TumblingWindowInSeconds        int                   `json:"TumblingWindowInSeconds"`
+	MaximumRecordAgeInSeconds      int                   `json:"MaximumRecordAgeInSeconds"`
+	MaximumRetryAttempts           int                   `json:"MaximumRetryAttempts"`
+	ParallelizationFactor          int                   `json:"ParallelizationFactor"`
 }
 
 // handleUpdateESM handles PUT /2015-03-31/event-source-mappings/{UUID}.
@@ -1203,9 +1224,16 @@ func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
 	}
 
 	m, err := lambdaBk.UpdateEventSourceMapping(id, &UpdateEventSourceMappingInput{
-		Enabled:        req.Enabled,
-		BatchSize:      req.BatchSize,
-		FilterCriteria: req.FilterCriteria,
+		Enabled:                        req.Enabled,
+		BatchSize:                      req.BatchSize,
+		FilterCriteria:                 req.FilterCriteria,
+		DestinationConfig:              req.DestinationConfig,
+		MaximumBatchingWindowInSeconds: req.MaximumBatchingWindowInSeconds,
+		TumblingWindowInSeconds:        req.TumblingWindowInSeconds,
+		MaximumRecordAgeInSeconds:      req.MaximumRecordAgeInSeconds,
+		MaximumRetryAttempts:           req.MaximumRetryAttempts,
+		ParallelizationFactor:          req.ParallelizationFactor,
+		BisectBatchOnFunctionError:     req.BisectBatchOnFunctionError,
 	})
 	if err != nil {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "event source mapping not found")
@@ -1442,6 +1470,11 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 
 	applyImageConfig(fn, &input)
 	applyZipDigest(fn)
+	applySnapStart(fn, input.SnapStart)
+
+	if len(input.Architectures) > 0 {
+		fn.Architectures = input.Architectures
+	}
 
 	if createErr := h.Backend.CreateFunction(fn); createErr != nil {
 		if errors.Is(createErr, ErrFunctionAlreadyExists) {
@@ -1637,6 +1670,28 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 	return c.JSON(http.StatusOK, fn)
 }
 
+// applySnapStart sets the SnapStart field on fn based on the input.
+func applySnapStart(fn *FunctionConfiguration, s *SnapStart) {
+	if s == nil {
+		return
+	}
+
+	applyOn := s.ApplyOn
+	if applyOn == "" {
+		applyOn = "None"
+	}
+
+	optimizationStatus := "Off"
+	if applyOn == "PublishedVersions" {
+		optimizationStatus = "On"
+	}
+
+	fn.SnapStart = &SnapStartResponse{
+		ApplyOn:            applyOn,
+		OptimizationStatus: optimizationStatus,
+	}
+}
+
 // applyFunctionConfigurationUpdate applies non-zero fields from input onto fn.
 func applyFunctionConfigurationUpdate(fn *FunctionConfiguration, input *UpdateFunctionConfigurationInput) {
 	if input.Description != "" {
@@ -1689,6 +1744,10 @@ func applyFunctionConfigurationUpdate(fn *FunctionConfiguration, input *UpdateFu
 
 	if input.EphemeralStorage != nil {
 		fn.EphemeralStorage = input.EphemeralStorage
+	}
+
+	if input.SnapStart != nil {
+		applySnapStart(fn, input.SnapStart)
 	}
 }
 
