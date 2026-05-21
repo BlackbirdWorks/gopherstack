@@ -309,18 +309,21 @@ func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
-	azs := parseMembers(vals, "AvailabilityZones.member")
+	subnets := parseMembers(vals, "Subnets.member")
 	sgs := parseMembers(vals, "SecurityGroups.member")
 	tagKVs := parseTagKVs(vals)
 
+	subnetMappings := parseSubnetMappings(vals)
+
 	lb, err := h.Backend.CreateLoadBalancer(CreateLoadBalancerInput{
-		Name:              name,
-		Scheme:            vals.Get("Scheme"),
-		Type:              vals.Get("Type"),
-		IPAddressType:     vals.Get("IpAddressType"),
-		AvailabilityZones: azs,
-		SecurityGroups:    sgs,
-		Tags:              tagKVs,
+		Name:           name,
+		Scheme:         vals.Get("Scheme"),
+		Type:           vals.Get("Type"),
+		IPAddressType:  vals.Get("IpAddressType"),
+		Subnets:        subnets,
+		SubnetMappings: subnetMappings,
+		SecurityGroups: sgs,
+		Tags:           tagKVs,
 	})
 	if err != nil {
 		return nil, err
@@ -482,32 +485,27 @@ func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
-	// Accept both Subnets.member.N (subnet IDs) and SubnetMappings.member.N.SubnetId.
-	azs := parseMembers(vals, "Subnets.member")
-	if len(azs) == 0 {
-		for i := 1; ; i++ {
-			subnetID := vals.Get(fmt.Sprintf("SubnetMappings.member.%d.SubnetId", i))
-			if subnetID == "" {
-				break
-			}
-
-			azs = append(azs, subnetID)
+	// Prefer SubnetMappings; fall back to plain Subnets.member list.
+	mappings := parseSubnetMappings(vals)
+	if len(mappings) == 0 {
+		for _, s := range parseMembers(vals, "Subnets.member") {
+			mappings = append(mappings, SubnetMapping{SubnetId: s})
 		}
 	}
 
-	lb, err := h.Backend.SetSubnets(lbArn, azs)
+	lb, err := h.Backend.SetSubnets(lbArn, mappings)
 	if err != nil {
 		return nil, err
 	}
 
-	azMembers := make([]xmlStringValue, 0, len(lb.AvailabilityZones))
+	azMembers := make([]xmlAZMapping, 0, len(lb.AvailabilityZones))
 	for _, az := range lb.AvailabilityZones {
-		azMembers = append(azMembers, xmlStringValue{Value: az})
+		azMembers = append(azMembers, xmlAZMapping{ZoneName: az.ZoneName, SubnetID: az.SubnetId})
 	}
 
 	return &setSubnetsResponse{
 		Xmlns:            elbv2XMLNS,
-		Result:           setSubnetsResult{AvailabilityZones: xmlStringList{Members: azMembers}},
+		Result:           setSubnetsResult{AvailabilityZones: xmlAZMappingList{Members: azMembers}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-subnets"},
 	}, nil
 }
@@ -858,9 +856,10 @@ func (h *Handler) handleDescribeTargetHealth(vals url.Values) (any, error) {
 	members := make([]xmlTargetHealthDescription, 0, len(targets))
 	for _, t := range targets {
 		members = append(members, xmlTargetHealthDescription{
-			Target: xmlTargetDescription(t.Target),
+			Target: xmlTargetDescription{ID: t.Target.ID, Port: t.Target.Port},
 			TargetHealth: xmlTargetHealth{
-				State: t.HealthState,
+				State:  t.HealthState,
+				Reason: t.HealthReason,
 			},
 		})
 	}
@@ -2256,6 +2255,27 @@ func parseTagKeys(vals url.Values, prefix string) []string {
 }
 
 // parseTargets extracts target descriptions from Targets.member.N.Id/Port form values.
+// parseSubnetMappings extracts SubnetMappings.member.N.* from form values.
+func parseSubnetMappings(vals url.Values) []SubnetMapping {
+	var out []SubnetMapping
+
+	for i := 1; ; i++ {
+		subnetID := vals.Get(fmt.Sprintf("SubnetMappings.member.%d.SubnetId", i))
+		if subnetID == "" {
+			break
+		}
+
+		out = append(out, SubnetMapping{
+			SubnetId:           subnetID,
+			AllocationId:       vals.Get(fmt.Sprintf("SubnetMappings.member.%d.AllocationId", i)),
+			PrivateIPv4Address: vals.Get(fmt.Sprintf("SubnetMappings.member.%d.PrivateIPv4Address", i)),
+			IPv6Address:        vals.Get(fmt.Sprintf("SubnetMappings.member.%d.IPv6Address", i)),
+		})
+	}
+
+	return out
+}
+
 func parseTargets(vals url.Values, prefix string) []Target {
 	result := make([]Target, 0)
 
@@ -2517,7 +2537,7 @@ func parseQueryStringPairAt(vals url.Values, prefix string, condIdx, pairIdx int
 func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancer {
 	azs := make([]xmlAZMapping, 0, len(lb.AvailabilityZones))
 	for _, az := range lb.AvailabilityZones {
-		azs = append(azs, xmlAZMapping{ZoneName: az, SubnetID: ""})
+		azs = append(azs, xmlAZMapping{ZoneName: az.ZoneName, SubnetID: az.SubnetId})
 	}
 
 	sgs := make([]xmlStringValue, 0, len(lb.SecurityGroups))
@@ -2894,7 +2914,7 @@ type setSecurityGroupsResponse struct {
 }
 
 type setSubnetsResult struct {
-	AvailabilityZones xmlStringList `xml:"AvailabilityZones"`
+	AvailabilityZones xmlAZMappingList `xml:"AvailabilityZones"`
 }
 
 type setSubnetsResponse struct {
