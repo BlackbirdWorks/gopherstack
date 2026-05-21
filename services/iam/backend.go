@@ -343,8 +343,9 @@ type InMemoryBackend struct {
 	roleInlinePolicies   map[string]map[string]string
 	groupInlinePolicies  map[string]map[string]string
 	rolePolicies         map[string][]string
-	policyVersions       map[string][]StoredPolicyVersion
-	deletedV1Policies    map[string]bool // tracks policies where v1 has been explicitly deleted
+	policyVersions         map[string][]StoredPolicyVersion
+	policyVersionCounters  map[string]int  // monotonic counter per policy ARN, never resets on delete
+	deletedV1Policies      map[string]bool // tracks policies where v1 has been explicitly deleted
 	serviceSpecificCreds map[string]ServiceSpecificCredential
 	virtualMFADevices    map[string]VirtualMFADevice
 	signingCertificates  map[string]SigningCertificate // certID → SigningCertificate
@@ -390,8 +391,9 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		groupInlinePolicies:  make(map[string]map[string]string),
 		policyAttachments:    make(map[string]policyAttachmentRefs),
 		accountAliases:       nil,
-		policyVersions:       make(map[string][]StoredPolicyVersion),
-		deletedV1Policies:    make(map[string]bool),
+		policyVersions:         make(map[string][]StoredPolicyVersion),
+		policyVersionCounters:  make(map[string]int),
+		deletedV1Policies:      make(map[string]bool),
 		serviceSpecificCreds: make(map[string]ServiceSpecificCredential),
 		virtualMFADevices:    make(map[string]VirtualMFADevice),
 		signingCertificates:  make(map[string]SigningCertificate),
@@ -1097,6 +1099,22 @@ func (b *InMemoryBackend) CreateAccessKey(userName string) (*AccessKey, error) {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	// AWS allows at most 2 access keys per user.
+	const maxAccessKeysPerUser = 2
+	var existingCount int
+	for _, ak := range b.accessKeys {
+		if ak.UserName == userName {
+			existingCount++
+		}
+	}
+
+	if existingCount >= maxAccessKeysPerUser {
+		return nil, fmt.Errorf(
+			"%w: user %q already has %d access keys (maximum %d)",
+			ErrLimitExceeded, userName, existingCount, maxAccessKeysPerUser,
+		)
+	}
+
 	secret, err := newSecretAccessKey()
 	if err != nil {
 		return nil, fmt.Errorf("creating access key: %w", err)
@@ -1343,16 +1361,43 @@ func sortedUsers(m map[string]User) []User {
 	return users
 }
 
-// newID generates a short unique identifier with the given prefix.
-func newID(prefix string) string {
-	id := uuid.New().String()
+// idAlphabet is the set of characters used in AWS IAM entity IDs:
+// uppercase letters A–Z and digits 0–9 (no lowercase, no dashes).
+const idAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-	return prefix + id[:16]
+// randomAlphanumString returns a cryptographically random uppercase
+// alphanumeric string of length n using idAlphabet.
+func randomAlphanumString(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		// Fall back to UUID-derived string on entropy failure (should never happen).
+		id := uuid.New().String()
+		id = strings.ToUpper(strings.ReplaceAll(id, "-", ""))
+		if len(id) >= n {
+			return id[:n]
+		}
+
+		return id
+	}
+
+	result := make([]byte, n)
+	for i, raw := range b {
+		result[i] = idAlphabet[int(raw)%len(idAlphabet)]
+	}
+
+	return string(result)
 }
 
-// newAccessKeyID generates a 20-character access key ID.
+// newID generates a short unique identifier with the given prefix.
+// The suffix is 16 uppercase alphanumeric characters matching AWS IAM ID format.
+func newID(prefix string) string {
+	return prefix + randomAlphanumString(16)
+}
+
+// newAccessKeyID generates a 20-character access key ID matching AWS format:
+// "AKIA" followed by 16 uppercase alphanumeric characters.
 func newAccessKeyID() string {
-	return "AKIA" + uuid.New().String()[:16]
+	return "AKIA" + randomAlphanumString(16)
 }
 
 // secretKeyBytes is the number of random bytes to generate for a secret access key.
@@ -2210,6 +2255,7 @@ func (b *InMemoryBackend) Reset() {
 	b.groupInlinePolicies = make(map[string]map[string]string)
 	b.accountAliases = nil
 	b.policyVersions = make(map[string][]StoredPolicyVersion)
+	b.policyVersionCounters = make(map[string]int)
 	b.serviceSpecificCreds = make(map[string]ServiceSpecificCredential)
 	b.virtualMFADevices = make(map[string]VirtualMFADevice)
 	b.signingCertificates = make(map[string]SigningCertificate)

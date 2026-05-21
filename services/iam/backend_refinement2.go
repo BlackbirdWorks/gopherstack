@@ -201,15 +201,42 @@ func (b *InMemoryBackend) GetCredentialReport() string {
 
 			rotated := ak.CreateDate.UTC().Format(time.RFC3339)
 
-			return []string{active, rotated, notApplicable, notApplicable, notApplicable}
+			lastUsedDate := notApplicable
+			lastUsedRegion := notApplicable
+			lastUsedService := notApplicable
+			if ak.LastUsedDate != nil {
+				lastUsedDate = ak.LastUsedDate.UTC().Format(time.RFC3339)
+				if ak.LastUsedRegion != "" {
+					lastUsedRegion = ak.LastUsedRegion
+				}
+				if ak.LastUsedServiceName != "" {
+					lastUsedService = ak.LastUsedServiceName
+				}
+			}
+
+			return []string{active, rotated, lastUsedDate, lastUsedRegion, lastUsedService}
 		}
+
+		// Determine whether the user has any active MFA device.
+		c := b.comp()
+		c.mu.Lock()
+		mfaActive := falseStr
+		for serial, owner := range c.mfaUserLinks {
+			if owner == u.UserName {
+				if dev, ok := b.virtualMFADevices[serial]; ok && dev.Status == MFAStatusEnabled {
+					mfaActive = trueStr
+					break
+				}
+			}
+		}
+		c.mu.Unlock()
 
 		// 22 CSV columns per row (8 fixed + 5 per key × 2 + 4 cert fields).
 		const csvCols = 22
 		row := make([]string, 0, csvCols)
 		row = append(row, u.UserName, u.Arn, createdAt,
 			passwordEnabled, noInfo, notApplicable, notApplicable,
-			falseStr) // mfa_active: not tracked until EnableMFADevice is implemented
+			mfaActive)
 		row = append(row, keyFields(0)...)
 		row = append(row, keyFields(1)...)
 		row = append(row, falseStr, notApplicable, falseStr, notApplicable)

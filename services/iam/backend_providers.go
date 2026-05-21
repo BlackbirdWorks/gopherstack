@@ -222,12 +222,19 @@ func (b *InMemoryBackend) CreateLoginProfile(
 		return nil, fmt.Errorf("%w: password must not be empty", ErrInvalidPassword)
 	}
 
+	// Check resource existence before password policy so callers receive
+	// the correct entity error (NoSuchEntity / EntityAlreadyExists) even if
+	// the password also violates policy.
 	if _, exists := b.users[userName]; !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
 	if _, exists := b.loginProfiles[userName]; exists {
 		return nil, fmt.Errorf("%w: login profile for user %q already exists", ErrLoginProfileAlreadyExists, userName)
+	}
+
+	if err := validatePasswordAgainstPolicy(password, b.passwordPolicy); err != nil {
+		return nil, err
 	}
 
 	lp := LoginProfile{
@@ -241,7 +248,6 @@ func (b *InMemoryBackend) CreateLoginProfile(
 }
 
 // UpdateLoginProfile updates the console login profile for an IAM user.
-// The password is validated but not stored; this is an in-memory mock.
 func (b *InMemoryBackend) UpdateLoginProfile(
 	userName, password string, passwordResetRequired bool,
 ) error {
@@ -255,6 +261,10 @@ func (b *InMemoryBackend) UpdateLoginProfile(
 	lp, exists := b.loginProfiles[userName]
 	if !exists {
 		return fmt.Errorf("%w: login profile for user %q not found", ErrLoginProfileNotFound, userName)
+	}
+
+	if err := validatePasswordAgainstPolicy(password, b.passwordPolicy); err != nil {
+		return err
 	}
 
 	lp.PasswordResetRequired = passwordResetRequired

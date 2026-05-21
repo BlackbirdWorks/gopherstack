@@ -55,19 +55,26 @@ func (b *InMemoryBackend) CreatePolicyVersion(
 
 	versions := b.policyVersions[policyArn]
 
-	// AWS allows at most 5 versions per policy.
+	// AWS allows at most 5 versions per policy (v1 is the original, so
+	// the stored extra versions list can hold at most 4 additional versions).
+	// Count v1 unless it was explicitly deleted.
+	totalVersions := len(versions)
+	if !b.deletedV1Policies[policyArn] {
+		totalVersions++
+	}
+
 	const maxPolicyVersions = 5
-	if len(versions) >= maxPolicyVersions {
+	if totalVersions >= maxPolicyVersions {
 		return nil, fmt.Errorf(
 			"%w: policy %q already has %d versions; delete one before creating another",
-			ErrDeleteConflict, policyArn, maxPolicyVersions,
+			ErrLimitExceeded, policyArn, maxPolicyVersions,
 		)
 	}
 
-	// v1 is the original; new versions start at v2.
-	const firstNewVersionOffset = 2
-	nextVersionNum := len(versions) + firstNewVersionOffset
-	versionID := fmt.Sprintf("v%d", nextVersionNum)
+	// Use a monotonic counter to generate version IDs that never collide,
+	// even after intermediate versions are deleted.
+	b.policyVersionCounters[policyArn]++
+	versionID := fmt.Sprintf("v%d", b.policyVersionCounters[policyArn]+1)
 
 	newVersion := StoredPolicyVersion{
 		VersionID:        versionID,
@@ -303,12 +310,57 @@ func (b *InMemoryBackend) AssociateDelegationRequest(delegationID, policyArn str
 
 // ---- Change Password ----
 
-// ChangePassword changes the IAM user password (mock: validates that the new password is not empty).
-// In real AWS, this operates on the currently authenticated user; in this mock, any non-empty
-// new password is accepted.
+// ChangePassword changes the IAM user password, validating against the account password policy.
+// In real AWS, this operates on the currently authenticated user.
 func (b *InMemoryBackend) ChangePassword(newPassword string) error {
 	if newPassword == "" {
 		return fmt.Errorf("%w: new password must not be empty", ErrInvalidPassword)
+	}
+
+	b.mu.RLock("ChangePassword")
+	policy := b.passwordPolicy
+	b.mu.RUnlock()
+
+	if err := validatePasswordAgainstPolicy(newPassword, policy); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validatePasswordAgainstPolicy checks that password satisfies the given PasswordPolicy.
+// If policy is nil, the default policy is used. Returns ErrInvalidPassword on violation.
+func validatePasswordAgainstPolicy(password string, policy *PasswordPolicy) error {
+	if policy == nil {
+		policy = defaultPasswordPolicy()
+	}
+
+	minLen := int(policy.MinimumPasswordLength)
+	if minLen == 0 {
+		minLen = defaultMinPasswordLength
+	}
+
+	if len(password) < minLen {
+		return fmt.Errorf(
+			"%w: password must be at least %d characters long",
+			ErrInvalidPassword, minLen,
+		)
+	}
+
+	if policy.RequireUppercaseCharacters && !strings.ContainsAny(password, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+		return fmt.Errorf("%w: password must contain at least one uppercase letter", ErrInvalidPassword)
+	}
+
+	if policy.RequireLowercaseCharacters && !strings.ContainsAny(password, "abcdefghijklmnopqrstuvwxyz") {
+		return fmt.Errorf("%w: password must contain at least one lowercase letter", ErrInvalidPassword)
+	}
+
+	if policy.RequireNumbers && !strings.ContainsAny(password, "0123456789") {
+		return fmt.Errorf("%w: password must contain at least one digit", ErrInvalidPassword)
+	}
+
+	if policy.RequireSymbols && !strings.ContainsAny(password, `!@#$%^&*()_+-=[]{}|;':",./<>?`) {
+		return fmt.Errorf("%w: password must contain at least one symbol", ErrInvalidPassword)
 	}
 
 	return nil
