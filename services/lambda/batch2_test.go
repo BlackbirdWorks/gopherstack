@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -47,7 +48,7 @@ func TestBatch2_PublishVersion_Increments(t *testing.T) {
 
 		var v lambda.FunctionVersion
 		require.NoError(t, json.NewDecoder(rec.Body).Decode(&v))
-		assert.Equal(t, fmt.Sprintf("%d", i), v.Version)
+		assert.Equal(t, strconv.Itoa(i), v.Version)
 	}
 }
 
@@ -442,9 +443,10 @@ func TestBatch2_UpdateConfig_FileSystem(t *testing.T) {
 	h, _ := newInMemoryHandler(t)
 	createFunctionForTest(t, h, "fs-fn")
 
+	fsCfgBody := `{"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:000000000000:access-point/fsap-abc",` +
+		`"LocalMountPath":"/mnt/data"}]}`
 	updRec := callInMemoryHandler(t, h, http.MethodPut,
-		"/2015-03-31/functions/fs-fn/configuration",
-		`{"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:000000000000:access-point/fsap-abc","LocalMountPath":"/mnt/data"}]}`)
+		"/2015-03-31/functions/fs-fn/configuration", fsCfgBody)
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var fn lambda.FunctionConfiguration
@@ -886,7 +888,7 @@ func TestBatch2_ESM_BatchWindow(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.Equal(t, float64(60), out["MaximumBatchingWindowInSeconds"])
+	assert.InDelta(t, float64(60), out["MaximumBatchingWindowInSeconds"], 0)
 }
 
 func TestBatch2_ESM_TumblingWindow(t *testing.T) {
@@ -906,7 +908,7 @@ func TestBatch2_ESM_TumblingWindow(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.Equal(t, float64(300), out["TumblingWindowInSeconds"])
+	assert.InDelta(t, float64(300), out["TumblingWindowInSeconds"], 0)
 }
 
 func TestBatch2_ESM_FilterCriteria(t *testing.T) {
@@ -968,7 +970,7 @@ func TestBatch2_ESM_MaximumRecordAge(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.Equal(t, float64(3600), out["MaximumRecordAgeInSeconds"])
+	assert.InDelta(t, float64(3600), out["MaximumRecordAgeInSeconds"], 0)
 }
 
 func TestBatch2_ESM_ParallelizationFactor(t *testing.T) {
@@ -988,7 +990,7 @@ func TestBatch2_ESM_ParallelizationFactor(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.Equal(t, float64(5), out["ParallelizationFactor"])
+	assert.InDelta(t, float64(5), out["ParallelizationFactor"], 0)
 }
 
 func TestBatch2_ESM_DestinationConfig(t *testing.T) {
@@ -1039,7 +1041,7 @@ func TestBatch2_ESM_UpdateBatchWindow(t *testing.T) {
 
 	var updated map[string]any
 	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&updated))
-	assert.Equal(t, float64(30), updated["MaximumBatchingWindowInSeconds"])
+	assert.InDelta(t, float64(30), updated["MaximumBatchingWindowInSeconds"], 0)
 }
 
 func TestBatch2_ESM_SQS_FullOptions(t *testing.T) {
@@ -1061,8 +1063,8 @@ func TestBatch2_ESM_SQS_FullOptions(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.Equal(t, float64(10), out["BatchSize"])
-	assert.Equal(t, float64(5), out["MaximumBatchingWindowInSeconds"])
+	assert.InDelta(t, float64(10), out["BatchSize"], 0)
+	assert.InDelta(t, float64(5), out["MaximumBatchingWindowInSeconds"], 0)
 	assert.NotNil(t, out["FilterCriteria"])
 	assert.NotNil(t, out["DestinationConfig"])
 	assert.Equal(t, "Enabled", out["State"])
@@ -1087,9 +1089,9 @@ func TestBatch2_ESM_DDB_FullOptions(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.Equal(t, float64(50), out["BatchSize"])
+	assert.InDelta(t, float64(50), out["BatchSize"], 0)
 	assert.Equal(t, true, out["BisectBatchOnFunctionError"])
-	assert.Equal(t, float64(3), out["MaximumRetryAttempts"])
+	assert.InDelta(t, float64(3), out["MaximumRetryAttempts"], 0)
 }
 
 func TestBatch2_ESM_Kinesis_AllWindowOptions(t *testing.T) {
@@ -1115,12 +1117,12 @@ func TestBatch2_ESM_Kinesis_AllWindowOptions(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.Equal(t, float64(200), out["BatchSize"])
-	assert.Equal(t, float64(120), out["MaximumBatchingWindowInSeconds"])
-	assert.Equal(t, float64(60), out["TumblingWindowInSeconds"])
-	assert.Equal(t, float64(7200), out["MaximumRecordAgeInSeconds"])
-	assert.Equal(t, float64(5), out["MaximumRetryAttempts"])
-	assert.Equal(t, float64(3), out["ParallelizationFactor"])
+	assert.InDelta(t, float64(200), out["BatchSize"], 0)
+	assert.InDelta(t, float64(120), out["MaximumBatchingWindowInSeconds"], 0)
+	assert.InDelta(t, float64(60), out["TumblingWindowInSeconds"], 0)
+	assert.InDelta(t, float64(7200), out["MaximumRecordAgeInSeconds"], 0)
+	assert.InDelta(t, float64(5), out["MaximumRetryAttempts"], 0)
+	assert.InDelta(t, float64(3), out["ParallelizationFactor"], 0)
 	assert.Equal(t, true, out["BisectBatchOnFunctionError"])
 }
 
@@ -1729,7 +1731,7 @@ func TestBatch2_FunctionState_InactiveConstant(t *testing.T) {
 	t.Parallel()
 
 	// Verify the constant exists and has the correct value
-	assert.Equal(t, lambda.FunctionState("Inactive"), lambda.FunctionStateInactive)
+	assert.Equal(t, lambda.FunctionStateInactive, lambda.FunctionState("Inactive"))
 }
 
 func TestBatch2_FunctionState_ListedFunctionsHaveState(t *testing.T) {

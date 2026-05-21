@@ -1197,13 +1197,13 @@ type handleUpdateESMInput struct {
 	Enabled                        *bool                 `json:"Enabled"`
 	FilterCriteria                 *FilterCriteria       `json:"FilterCriteria"`
 	DestinationConfig              *ESMDestinationConfig `json:"DestinationConfig"`
+	BisectBatchOnFunctionError     *bool                 `json:"BisectBatchOnFunctionError"`
 	BatchSize                      int                   `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds int                   `json:"MaximumBatchingWindowInSeconds"`
 	TumblingWindowInSeconds        int                   `json:"TumblingWindowInSeconds"`
 	MaximumRecordAgeInSeconds      int                   `json:"MaximumRecordAgeInSeconds"`
 	MaximumRetryAttempts           int                   `json:"MaximumRetryAttempts"`
 	ParallelizationFactor          int                   `json:"ParallelizationFactor"`
-	BisectBatchOnFunctionError     *bool                 `json:"BisectBatchOnFunctionError"`
 }
 
 // handleUpdateESM handles PUT /2015-03-31/event-source-mappings/{UUID}.

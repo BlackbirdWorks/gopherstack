@@ -104,39 +104,39 @@ type FunctionConfiguration struct {
 	ReservedConcurrentExecutions *int                    `json:"ReservedConcurrentExecutions,omitempty"`
 	VpcConfig                    *VpcConfig              `json:"VpcConfig,omitempty"`
 	TracingConfig                *TracingConfig          `json:"TracingConfig,omitempty"`
-	FileSystemConfigs            []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
 	DeadLetterConfig             *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
 	ImageConfig                  *ImageConfig            `json:"ImageConfig,omitempty"`
+	Tags                         map[string]string       `json:"Tags,omitempty"`
+	SnapStart                    *SnapStartResponse      `json:"SnapStart,omitempty"`
 	ImageURI                     string                  `json:"ImageUri,omitempty"`
 	LastUpdateStatus             LastUpdateStatus        `json:"LastUpdateStatus"`
 	LastUpdateStatusReason       string                  `json:"LastUpdateStatusReason,omitempty"`
 	// MasterArn is the ARN of the owner function for Lambda@Edge replicas.
 	// When set, GetFunctionConfiguration returns this field to signal the function is an edge replica.
-	MasterArn       string            `json:"MasterArn,omitempty"`
-	PackageType     string            `json:"PackageType"`
-	StateReason     string            `json:"StateReason,omitempty"`
-	StateReasonCode string            `json:"StateReasonCode,omitempty"`
-	Role            string            `json:"Role"`
-	LastModified    string            `json:"LastModified"`
-	Runtime         string            `json:"Runtime,omitempty"`
-	RevisionID      string            `json:"RevisionId"`
-	Description     string            `json:"Description"`
-	FunctionArn     string            `json:"FunctionArn"`
-	State           FunctionState     `json:"State"`
-	FunctionName    string            `json:"FunctionName"`
-	CodeSha256      string            `json:"CodeSha256,omitempty"`
-	S3BucketCode    string            `json:"-"`
-	S3KeyCode       string            `json:"-"`
-	Handler         string            `json:"Handler,omitempty"`
-	Version         string            `json:"Version,omitempty"`
-	Tags            map[string]string `json:"Tags,omitempty"`
-	ZipData         []byte            `json:"-"`
-	Layers          []*FunctionLayer  `json:"Layers,omitempty"`
-	Architectures   []string          `json:"Architectures,omitempty"`
-	MemorySize      int               `json:"MemorySize"`
-	Timeout         int               `json:"Timeout"`
-	CodeSize        int64             `json:"CodeSize"`
-	SnapStart       *SnapStartResponse `json:"SnapStart,omitempty"`
+	MasterArn         string              `json:"MasterArn,omitempty"`
+	PackageType       string              `json:"PackageType"`
+	StateReason       string              `json:"StateReason,omitempty"`
+	StateReasonCode   string              `json:"StateReasonCode,omitempty"`
+	Role              string              `json:"Role"`
+	LastModified      string              `json:"LastModified"`
+	Runtime           string              `json:"Runtime,omitempty"`
+	RevisionID        string              `json:"RevisionId"`
+	Description       string              `json:"Description"`
+	FunctionArn       string              `json:"FunctionArn"`
+	State             FunctionState       `json:"State"`
+	FunctionName      string              `json:"FunctionName"`
+	CodeSha256        string              `json:"CodeSha256,omitempty"`
+	S3BucketCode      string              `json:"-"`
+	S3KeyCode         string              `json:"-"`
+	Handler           string              `json:"Handler,omitempty"`
+	Version           string              `json:"Version,omitempty"`
+	FileSystemConfigs []*FileSystemConfig `json:"FileSystemConfigs,omitempty"`
+	ZipData           []byte              `json:"-"`
+	Layers            []*FunctionLayer    `json:"Layers,omitempty"`
+	Architectures     []string            `json:"Architectures,omitempty"`
+	MemorySize        int                 `json:"MemorySize"`
+	Timeout           int                 `json:"Timeout"`
+	CodeSize          int64               `json:"CodeSize"`
 }
 
 // EnvironmentConfig holds Lambda function environment variables.
@@ -150,24 +150,24 @@ type CreateFunctionInput struct {
 	ImageConfig       *ImageConfig            `json:"ImageConfig,omitempty"`
 	VpcConfig         *VpcConfig              `json:"VpcConfig,omitempty"`
 	TracingConfig     *TracingConfig          `json:"TracingConfig,omitempty"`
-	FileSystemConfigs []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
 	DeadLetterConfig  *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
 	EphemeralStorage  *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
 	Code              *FunctionCode           `json:"Code"`
+	SnapStart         *SnapStart              `json:"SnapStart,omitempty"`
 	FunctionName      string                  `json:"FunctionName"`
 	Description       string                  `json:"Description"`
 	PackageType       string                  `json:"PackageType"`
 	Runtime           string                  `json:"Runtime,omitempty"`
 	Handler           string                  `json:"Handler,omitempty"`
 	Role              string                  `json:"Role"`
+	FileSystemConfigs []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
 	// Layers is a list of layer ARN strings supplied by the client.
-	Layers     []string `json:"Layers,omitempty"`
-	MemorySize int      `json:"MemorySize"`
-	Timeout    int      `json:"Timeout"`
-	// Publish, when true, creates the function and immediately publishes version 1.
-	Publish   bool       `json:"Publish,omitempty"`
-	SnapStart *SnapStart `json:"SnapStart,omitempty"`
+	Layers        []string `json:"Layers,omitempty"`
 	Architectures []string `json:"Architectures,omitempty"`
+	MemorySize    int      `json:"MemorySize"`
+	Timeout       int      `json:"Timeout"`
+	// Publish, when true, creates the function and immediately publishes version 1.
+	Publish bool `json:"Publish,omitempty"`
 }
 
 // ImageConfig holds optional image command/entrypoint overrides.
@@ -191,17 +191,17 @@ type UpdateFunctionConfigurationInput struct {
 	Environment       *EnvironmentConfig      `json:"Environment,omitempty"`
 	VpcConfig         *VpcConfig              `json:"VpcConfig,omitempty"`
 	TracingConfig     *TracingConfig          `json:"TracingConfig,omitempty"`
-	FileSystemConfigs []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
 	DeadLetterConfig  *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
 	EphemeralStorage  *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
+	SnapStart         *SnapStart              `json:"SnapStart,omitempty"`
 	Description       string                  `json:"Description,omitempty"`
 	Runtime           string                  `json:"Runtime,omitempty"`
 	Handler           string                  `json:"Handler,omitempty"`
 	Role              string                  `json:"Role,omitempty"`
+	FileSystemConfigs []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
 	Layers            []string                `json:"Layers,omitempty"`
 	MemorySize        int                     `json:"MemorySize,omitempty"`
 	Timeout           int                     `json:"Timeout,omitempty"`
-	SnapStart         *SnapStart              `json:"SnapStart,omitempty"`
 }
 
 // GetFunctionOutput is the response for GetFunction.
@@ -732,6 +732,6 @@ type SnapStart struct {
 
 // SnapStartResponse is the SnapStart field returned in GetFunction/GetFunctionConfiguration.
 type SnapStartResponse struct {
-	ApplyOn           string `json:"ApplyOn"`
+	ApplyOn            string `json:"ApplyOn"`
 	OptimizationStatus string `json:"OptimizationStatus"`
 }
