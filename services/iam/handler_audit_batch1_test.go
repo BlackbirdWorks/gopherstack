@@ -357,7 +357,7 @@ func TestHandler_AccessKey_RotationCycle(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &createResp))
 	keyID := createResp.CreateAccessKeyResult.AccessKey.AccessKeyID
 	assert.True(t, strings.HasPrefix(keyID, "AKIA"))
-	assert.Equal(t, 20, len(keyID))
+	assert.Len(t, keyID, 20)
 	assert.Equal(t, "Active", createResp.CreateAccessKeyResult.AccessKey.Status)
 
 	// Deactivate via UpdateAccessKey.
@@ -435,7 +435,7 @@ func TestHandler_AccessKey_IDFormat(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	keyID := resp.CreateAccessKeyResult.AccessKey.AccessKeyID
 
-	assert.Equal(t, 20, len(keyID), "access key ID must be 20 chars")
+	assert.Len(t, keyID, 20, "access key ID must be 20 chars")
 	assert.True(t, strings.HasPrefix(keyID, "AKIA"), "must start with AKIA")
 	assert.NotContains(t, keyID, "-", "must not contain dashes")
 	for _, ch := range keyID {
@@ -964,7 +964,9 @@ func TestHandler_UpdateAssumeRolePolicy(t *testing.T) {
 	doc := `{"Version":"2012-10-17","Statement":[]}`
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 
-	newDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+	newDoc := `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},` +
+		`"Action":"sts:AssumeRole"}]}`
 	req := iamRequest("UpdateAssumeRolePolicy", map[string]string{
 		"RoleName":       "MyRole",
 		"PolicyDocument": newDoc,

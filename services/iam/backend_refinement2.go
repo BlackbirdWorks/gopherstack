@@ -2,6 +2,7 @@ package iam
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -139,7 +140,6 @@ func (b *InMemoryBackend) accessKeyCountLocked() (int, int) {
 	return total, active
 }
 
-// GetCredentialReport generates a realistic base64-encoded CSV credential report.
 // credReportConsts holds string literals used in credential report CSV rows.
 const (
 	credNoInfo  = "no_information"
@@ -194,6 +194,7 @@ func credUserMFAActive(userName string, links map[string]string, devices map[str
 	return credFalse
 }
 
+// GetCredentialReport generates a realistic base64-encoded CSV credential report.
 // Each user row reflects actual login-profile and access-key state.
 func (b *InMemoryBackend) GetCredentialReport() string {
 	b.mu.RLock("GetCredentialReport")
@@ -216,10 +217,7 @@ func (b *InMemoryBackend) GetCredentialReport() string {
 
 	c := b.comp()
 	c.mu.Lock()
-	mfaLinks := make(map[string]string, len(c.mfaUserLinks))
-	for k, v := range c.mfaUserLinks {
-		mfaLinks[k] = v
-	}
+	mfaLinks := maps.Clone(c.mfaUserLinks)
 	c.mu.Unlock()
 
 	for _, u := range users {

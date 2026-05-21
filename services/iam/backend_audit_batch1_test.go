@@ -380,7 +380,7 @@ func TestPasswordPolicy_ChangePassword_Numbers(t *testing.T) {
 
 	err := b.ChangePassword("NoDigits!")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, iam.ErrInvalidPassword, "no digit must fail")
+	require.ErrorIs(t, err, iam.ErrInvalidPassword, "no digit must fail")
 
 	err = b.ChangePassword("HasDigit1")
 	require.NoError(t, err, "password with digit must succeed")
@@ -397,7 +397,7 @@ func TestPasswordPolicy_ChangePassword_Symbols(t *testing.T) {
 
 	err := b.ChangePassword("NoSymbol1")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, iam.ErrInvalidPassword, "no symbol must fail")
+	require.ErrorIs(t, err, iam.ErrInvalidPassword, "no symbol must fail")
 
 	err = b.ChangePassword("HasSymbl!")
 	require.NoError(t, err, "password with symbol must succeed")
@@ -415,7 +415,7 @@ func TestPasswordPolicy_CreateLoginProfile_MinLength(t *testing.T) {
 
 	_, err := b.CreateLoginProfile("alice", "short", false)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, iam.ErrInvalidPassword)
+	require.ErrorIs(t, err, iam.ErrInvalidPassword)
 
 	_, err = b.CreateLoginProfile("alice", "longenough1", false)
 	require.NoError(t, err)
@@ -438,12 +438,12 @@ func TestPasswordPolicy_UpdateLoginProfile_Enforced(t *testing.T) {
 	// Password below minimum.
 	err = b.UpdateLoginProfile("alice", "Short1A", false)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, iam.ErrInvalidPassword)
+	require.ErrorIs(t, err, iam.ErrInvalidPassword)
 
 	// Password missing uppercase.
 	err = b.UpdateLoginProfile("alice", "alllower123", false)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, iam.ErrInvalidPassword)
+	require.ErrorIs(t, err, iam.ErrInvalidPassword)
 
 	// Valid password.
 	err = b.UpdateLoginProfile("alice", "GoodPassword123", false)
@@ -565,8 +565,7 @@ func TestCredentialReport_PasswordEnabled_Reflected(t *testing.T) {
 	require.NoError(t, err)
 
 	report2 := b.GetCredentialReport()
-	lines2 := strings.Split(report2, "\n")
-	for _, line := range lines2 {
+	for line := range strings.SplitSeq(report2, "\n") {
 		if strings.HasPrefix(line, "alice,") {
 			aliceRow = line
 		}
@@ -1095,7 +1094,9 @@ func TestUpdateAssumeRolePolicy_Valid(t *testing.T) {
 	doc := `{"Version":"2012-10-17","Statement":[]}`
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 
-	newDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+	newDoc := `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},` +
+		`"Action":"sts:AssumeRole"}]}`
 	require.NoError(t, b.UpdateAssumeRolePolicy("MyRole", newDoc))
 
 	r, err := b.GetRole("MyRole")

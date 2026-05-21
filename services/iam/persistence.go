@@ -247,7 +247,7 @@ const decimalBase = 10
 // parseVersionNum extracts the integer suffix from a "vN" version ID string.
 // Returns 0 if the ID does not match the "v<digits>" pattern.
 func parseVersionNum(id string) int {
-	if len(id) < 2 || id[0] != 'v' { //nolint:mnd // prefix length
+	if len(id) < 2 || id[0] != 'v' {
 		return 0
 	}
 
