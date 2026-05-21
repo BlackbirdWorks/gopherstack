@@ -12,8 +12,10 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +39,7 @@ func b2createQueue(t *testing.T, b *sqs.InMemoryBackend, name string) string {
 	t.Helper()
 	out, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: name, Endpoint: "localhost"})
 	require.NoError(t, err)
+
 	return out.QueueURL
 }
 
@@ -46,15 +49,14 @@ func b2createFIFOQueue(t *testing.T, b *sqs.InMemoryBackend, name string, extraA
 		name += ".fifo"
 	}
 	attrs := map[string]string{}
-	for k, v := range extraAttrs {
-		attrs[k] = v
-	}
+	maps.Copy(attrs, extraAttrs)
 	out, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName:  name,
 		Endpoint:   "localhost",
 		Attributes: attrs,
 	})
 	require.NoError(t, err)
+
 	return out.QueueURL
 }
 
@@ -62,6 +64,7 @@ func b2send(t *testing.T, b *sqs.InMemoryBackend, qURL, body string) *sqs.SendMe
 	t.Helper()
 	out, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: body})
 	require.NoError(t, err)
+
 	return out
 }
 
@@ -74,20 +77,22 @@ func b2sendFIFO(t *testing.T, b *sqs.InMemoryBackend, qURL, body, groupID, dedup
 		MessageDeduplicationID: dedupID,
 	})
 	require.NoError(t, err)
+
 	return out
 }
 
 // b2receive receives up to max messages using the queue's default visibility timeout.
 // Passing VisibilityTimeout=-1 tells the backend to use the queue's configured value.
-func b2receive(t *testing.T, b *sqs.InMemoryBackend, qURL string, max int) []*sqs.Message {
+func b2receive(t *testing.T, b *sqs.InMemoryBackend, qURL string, maxMsgs int) []*sqs.Message {
 	t.Helper()
 	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
 		QueueURL:            qURL,
-		MaxNumberOfMessages: max,
+		MaxNumberOfMessages: maxMsgs,
 		VisibilityTimeout:   -1,
 		AttributeNames:      []string{"All"},
 	})
 	require.NoError(t, err)
+
 	return out.Messages
 }
 
@@ -103,11 +108,13 @@ func b2getAttrs(t *testing.T, b *sqs.InMemoryBackend, qURL string, names ...stri
 		AttributeNames: names,
 	})
 	require.NoError(t, err)
+
 	return out.Attributes
 }
 
 func sha256hex(s string) string {
 	h := sha256.Sum256([]byte(s))
+
 	return hex.EncodeToString(h[:])
 }
 
@@ -178,8 +185,7 @@ func TestBatch2_QueueName_Validation(t *testing.T) {
 		{"invalid!queue", true},
 	}
 	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name+"_valid="+fmt.Sprint(!tc.wantErr), func(t *testing.T) {
+		t.Run(tc.name+"_valid="+strconv.FormatBool(!tc.wantErr), func(t *testing.T) {
 			t.Parallel()
 			_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: tc.name, Endpoint: "localhost"})
 			if tc.wantErr {
@@ -240,7 +246,7 @@ func TestBatch2_ListQueues_Pagination(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend()
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		b2createQueue(t, b, fmt.Sprintf("page-queue-%02d", i))
 	}
 
@@ -256,7 +262,9 @@ func TestBatch2_ListQueues_Pagination(t *testing.T) {
 	assert.NotEmpty(t, out2.QueueURLs)
 
 	// No overlap
-	all := append(out1.QueueURLs, out2.QueueURLs...)
+	all := make([]string, 0, len(out1.QueueURLs)+len(out2.QueueURLs))
+	all = append(all, out1.QueueURLs...)
+	all = append(all, out2.QueueURLs...)
 	seen := map[string]bool{}
 	for _, u := range all {
 		assert.False(t, seen[u], "duplicate URL: %s", u)
@@ -362,7 +370,7 @@ func TestBatch2_ReceiveMessage_IncrementsReceiveCount(t *testing.T) {
 		})
 		require.NoError(t, err2)
 		require.Len(t, msgs.Messages, 1)
-		assert.Equal(t, fmt.Sprintf("%d", i), msgs.Messages[0].Attributes["ApproximateReceiveCount"])
+		assert.Equal(t, strconv.Itoa(i), msgs.Messages[0].Attributes["ApproximateReceiveCount"])
 	}
 }
 
@@ -371,7 +379,7 @@ func TestBatch2_ReceiveMessage_MaxNumberOfMessages_Max10(t *testing.T) {
 	b := b2newBackend()
 
 	qURL := b2createQueue(t, b, "max10")
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		b2send(t, b, qURL, fmt.Sprintf("msg-%d", i))
 	}
 
@@ -539,7 +547,7 @@ func TestBatch2_DeleteMessageBatch_Success(t *testing.T) {
 	b := b2newBackend()
 
 	qURL := b2createQueue(t, b, "batch-del")
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		b2send(t, b, qURL, fmt.Sprintf("msg-%d", i))
 	}
 
@@ -736,7 +744,14 @@ func TestBatch2_ApproxCounts_EmptyQueue(t *testing.T) {
 	b := b2newBackend()
 
 	qURL := b2createQueue(t, b, "approx-empty")
-	attrs := b2getAttrs(t, b, qURL, "ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "ApproximateNumberOfMessagesDelayed")
+	attrs := b2getAttrs(
+		t,
+		b,
+		qURL,
+		"ApproximateNumberOfMessages",
+		"ApproximateNumberOfMessagesNotVisible",
+		"ApproximateNumberOfMessagesDelayed",
+	)
 	assert.Equal(t, "0", attrs["ApproximateNumberOfMessages"])
 	assert.Equal(t, "0", attrs["ApproximateNumberOfMessagesNotVisible"])
 	assert.Equal(t, "0", attrs["ApproximateNumberOfMessagesDelayed"])
@@ -1040,6 +1055,7 @@ func TestBatch2_ContentBasedDeduplication_UseSHA256(t *testing.T) {
 }
 
 func TestBatch2_ContentBasedDeduplication_SHA256KeyFormat(t *testing.T) {
+	t.Parallel()
 	// Verify the SHA-256 used is consistent with standard hex-encoded SHA-256
 	body := "test message for sha256"
 	expected := sha256hex(body)
@@ -1166,7 +1182,7 @@ func TestBatch2_RedrivePolicy_MovesToDLQAfterMaxReceiveCount(t *testing.T) {
 	b2send(t, b, srcURL.QueueURL, "will-go-to-dlq")
 
 	// Receive 3 times (exceeds maxReceiveCount=2 → moves to DLQ on 3rd)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		msgs, recvErr := b.ReceiveMessage(&sqs.ReceiveMessageInput{
 			QueueURL:            srcURL.QueueURL,
 			MaxNumberOfMessages: 1,
@@ -1228,6 +1244,7 @@ func TestBatch2_ListDeadLetterSourceQueues(t *testing.T) {
 
 	makeRedriveAttr := func(arn string, count int) string {
 		v, _ := json.Marshal(map[string]any{"deadLetterTargetArn": arn, "maxReceiveCount": count})
+
 		return string(v)
 	}
 
@@ -1403,7 +1420,6 @@ func TestBatch2_MessageRetentionPeriod_Validation(t *testing.T) {
 		{"0", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run("secs="+tc.seconds, func(t *testing.T) {
 			t.Parallel()
 			_, err := b.CreateQueue(&sqs.CreateQueueInput{
@@ -1518,7 +1534,6 @@ func TestBatch2_SSE_KmsDataKeyReuseRange_Validated(t *testing.T) {
 		{"86401", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run("secs="+tc.secs, func(t *testing.T) {
 			t.Parallel()
 			_, err := b.CreateQueue(&sqs.CreateQueueInput{
@@ -1891,7 +1906,7 @@ func TestBatch2_PurgeQueue_RemovesAllMessages(t *testing.T) {
 	b := b2newBackend()
 
 	qURL := b2createQueue(t, b, "purge-all")
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		b2send(t, b, qURL, fmt.Sprintf("msg-%d", i))
 	}
 
@@ -2053,7 +2068,7 @@ func TestBatch2_MessageAttributes_MaxTen(t *testing.T) {
 
 	// Exactly 10 — allowed
 	attrs10 := make(map[string]sqs.MessageAttributeValue, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		attrs10[fmt.Sprintf("attr%d", i)] = sqs.MessageAttributeValue{
 			DataType:    "String",
 			StringValue: "v",
@@ -2068,7 +2083,7 @@ func TestBatch2_MessageAttributes_MaxTen(t *testing.T) {
 
 	// 11 — rejected
 	attrs11 := make(map[string]sqs.MessageAttributeValue, 11)
-	for i := 0; i < 11; i++ {
+	for i := range 11 {
 		attrs11[fmt.Sprintf("attr%d", i)] = sqs.MessageAttributeValue{
 			DataType:    "String",
 			StringValue: "v",
@@ -2096,7 +2111,6 @@ func TestBatch2_MessageAttributes_ReservedNames_Rejected(t *testing.T) {
 	}
 
 	for _, name := range reserved {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -2106,7 +2120,13 @@ func TestBatch2_MessageAttributes_ReservedNames_Rejected(t *testing.T) {
 					name: {DataType: "String", StringValue: "v"},
 				},
 			})
-			require.ErrorIs(t, err, sqs.ErrInvalidMessageAttributeValue, "expected rejection for reserved name: %s", name)
+			require.ErrorIs(
+				t,
+				err,
+				sqs.ErrInvalidMessageAttributeValue,
+				"expected rejection for reserved name: %s",
+				name,
+			)
 		})
 	}
 }
@@ -2119,7 +2139,6 @@ func TestBatch2_MessageAttributes_ValidCustomNames(t *testing.T) {
 
 	valid := []string{"MyAttr", "my-attr", "my.attr.subtype", "MyAttr123"}
 	for _, name := range valid {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -2249,17 +2268,19 @@ func TestBatch2_QueueAttr_VisibilityTimeout_Range(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend()
 
-	cases := []struct{ v string; ok bool }{
+	cases := []struct {
+		v  string
+		ok bool
+	}{
 		{"0", true}, {"43200", true}, {"30", true},
 		{"-1", false}, {"43201", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run("vt="+tc.v, func(t *testing.T) {
 			t.Parallel()
 			_, err := b.CreateQueue(&sqs.CreateQueueInput{
-				QueueName: "vtr-" + tc.v,
-				Endpoint:  "localhost",
+				QueueName:  "vtr-" + tc.v,
+				Endpoint:   "localhost",
 				Attributes: map[string]string{"VisibilityTimeout": tc.v},
 			})
 			if tc.ok {
@@ -2275,17 +2296,19 @@ func TestBatch2_QueueAttr_DelaySeconds_Range(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend()
 
-	cases := []struct{ v string; ok bool }{
+	cases := []struct {
+		v  string
+		ok bool
+	}{
 		{"0", true}, {"900", true},
 		{"-1", false}, {"901", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run("ds="+tc.v, func(t *testing.T) {
 			t.Parallel()
 			_, err := b.CreateQueue(&sqs.CreateQueueInput{
-				QueueName: "dsr-" + tc.v,
-				Endpoint:  "localhost",
+				QueueName:  "dsr-" + tc.v,
+				Endpoint:   "localhost",
 				Attributes: map[string]string{"DelaySeconds": tc.v},
 			})
 			if tc.ok {
@@ -2301,17 +2324,19 @@ func TestBatch2_QueueAttr_ReceiveWaitSeconds_Range(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend()
 
-	cases := []struct{ v string; ok bool }{
+	cases := []struct {
+		v  string
+		ok bool
+	}{
 		{"0", true}, {"20", true},
 		{"-1", false}, {"21", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run("rws="+tc.v, func(t *testing.T) {
 			t.Parallel()
 			_, err := b.CreateQueue(&sqs.CreateQueueInput{
-				QueueName: "rwsr-" + tc.v,
-				Endpoint:  "localhost",
+				QueueName:  "rwsr-" + tc.v,
+				Endpoint:   "localhost",
 				Attributes: map[string]string{"ReceiveMessageWaitTimeSeconds": tc.v},
 			})
 			if tc.ok {
@@ -2327,17 +2352,19 @@ func TestBatch2_QueueAttr_MaxMessageSize_Range(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend()
 
-	cases := []struct{ v string; ok bool }{
+	cases := []struct {
+		v  string
+		ok bool
+	}{
 		{"1024", true}, {"262144", true}, {"65536", true},
 		{"1023", false}, {"262145", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run("mms="+tc.v, func(t *testing.T) {
 			t.Parallel()
 			_, err := b.CreateQueue(&sqs.CreateQueueInput{
-				QueueName: "mmsr-" + tc.v,
-				Endpoint:  "localhost",
+				QueueName:  "mmsr-" + tc.v,
+				Endpoint:   "localhost",
 				Attributes: map[string]string{"MaximumMessageSize": tc.v},
 			})
 			if tc.ok {
@@ -2485,7 +2512,7 @@ func TestBatch2_InFlight_StandardLimit(t *testing.T) {
 	require.NoError(t, err)
 
 	// Send a batch and receive them all — verify in-flight tracking
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		b2send(t, b, qURL.QueueURL, fmt.Sprintf("m%d", i))
 	}
 
@@ -2588,6 +2615,7 @@ func newQueryVals(action string, params map[string]string) url.Values {
 	for k, val := range params {
 		v.Set(k, val)
 	}
+
 	return v
 }
 
@@ -2610,7 +2638,7 @@ func extractQueueURLFromXML(t *testing.T, body string) string {
 		return r.QueueURL
 	}
 	// Fallback: look for URL in body
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		if strings.Contains(line, "localhost") && strings.Contains(line, "/000000000000/") {
 			start := strings.Index(line, "http://")
 			if start >= 0 {
@@ -2618,11 +2646,13 @@ func extractQueueURLFromXML(t *testing.T, body string) string {
 				if end > 0 {
 					return line[start : start+end]
 				}
+
 				return line[start:]
 			}
 		}
 	}
 	t.Fatal("could not extract queue URL from XML: " + body)
+
 	return ""
 }
 
@@ -2631,5 +2661,6 @@ func extractReceiptHandleFromXML(t *testing.T, body string) string {
 	var r receiveMessageResult
 	require.NoError(t, xml.Unmarshal([]byte(body), &r), "parse ReceiveMessage XML")
 	require.NotEmpty(t, r.Messages, "expected at least one message in ReceiveMessage response")
+
 	return r.Messages[0].ReceiptHandle
 }

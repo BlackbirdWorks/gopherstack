@@ -2337,7 +2337,7 @@ func (b *InMemoryBackend) Reset() {
 // queue's Policy attribute. AWS SQS serializes AddPermission calls into a JSON
 // policy document of this shape.
 type iamPolicyDocument struct {
-	Version   string             `json:"Version"`
+	Version   string               `json:"Version"`
 	Statement []iamPolicyStatement `json:"Statement"`
 }
 
@@ -2375,11 +2375,12 @@ func buildQueueIAMPolicy(q *Queue) {
 
 		actions := make([]string, 0, len(entry.Actions))
 		for _, a := range entry.Actions {
-			if strings.HasPrefix(a, "sqs:") {
+			switch {
+			case strings.HasPrefix(a, "sqs:"):
 				actions = append(actions, a)
-			} else if a == "*" {
+			case a == "*":
 				actions = append(actions, "sqs:*")
-			} else {
+			default:
 				actions = append(actions, "sqs:"+a)
 			}
 		}
