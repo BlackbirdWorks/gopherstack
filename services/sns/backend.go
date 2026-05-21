@@ -84,6 +84,8 @@ const (
 	attrFilterPolicy        = "FilterPolicy"
 	attrRawMessageDelivery  = "RawMessageDelivery"
 	attrRedrivePolicy       = "RedrivePolicy"
+	attrDeliveryPolicy      = "DeliveryPolicy"
+	attrReplayPolicy        = "ReplayPolicy"
 	attrSubscriptionRoleArn = "SubscriptionRoleArn"
 	attrFilterPolicyScope   = "FilterPolicyScope"
 
@@ -886,6 +888,14 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 		attrs[attrRedrivePolicy] = sub.RedrivePolicy
 	}
 
+	if sub.DeliveryPolicy != "" {
+		attrs[attrDeliveryPolicy] = sub.DeliveryPolicy
+	}
+
+	if sub.ReplayPolicy != "" {
+		attrs[attrReplayPolicy] = sub.ReplayPolicy
+	}
+
 	if sub.SubscriptionRoleArn != "" {
 		attrs[attrSubscriptionRoleArn] = sub.SubscriptionRoleArn
 	}
@@ -935,6 +945,10 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 		sub.parsedFilterPolicy = parsedPolicy
 	case attrRedrivePolicy:
 		sub.RedrivePolicy = attrValue
+	case attrDeliveryPolicy:
+		sub.DeliveryPolicy = attrValue
+	case attrReplayPolicy:
+		sub.ReplayPolicy = attrValue
 	case attrSubscriptionRoleArn:
 		sub.SubscriptionRoleArn = attrValue
 	case attrFilterPolicyScope:
