@@ -819,8 +819,8 @@ func (h *Handler) handleBatchGetImage(
 
 type describeImagesInput struct {
 	RepositoryName string            `json:"repositoryName"`
-	ImageIDs       []ImageIdentifier `json:"imageIds,omitempty"`
 	NextToken      string            `json:"nextToken,omitempty"`
+	ImageIDs       []ImageIdentifier `json:"imageIds,omitempty"`
 	MaxResults     int               `json:"maxResults,omitempty"`
 }
 
@@ -836,8 +836,8 @@ type imageDetailView struct {
 }
 
 type describeImagesOutput struct {
-	ImageDetails []imageDetailView `json:"imageDetails"`
 	NextToken    string            `json:"nextToken,omitempty"`
+	ImageDetails []imageDetailView `json:"imageDetails"`
 }
 
 func toImageDetailView(img Image) imageDetailView {
@@ -907,11 +907,11 @@ type listImagesFilter struct {
 }
 
 type listImagesInput struct {
-	RepositoryName string          `json:"repositoryName"`
-	RegistryID     string          `json:"registryId,omitempty"`
-	NextToken      string          `json:"nextToken,omitempty"`
-	MaxResults     int             `json:"maxResults,omitempty"`
 	Filter         *listImagesFilter `json:"filter,omitempty"`
+	RepositoryName string            `json:"repositoryName"`
+	RegistryID     string            `json:"registryId,omitempty"`
+	NextToken      string            `json:"nextToken,omitempty"`
+	MaxResults     int               `json:"maxResults,omitempty"`
 }
 
 type listImagesOutput struct {

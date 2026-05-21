@@ -80,10 +80,8 @@ type Image struct {
 	RepositoryName         string          `json:"repositoryName"`
 	RegistryID             string          `json:"registryId"`
 	StorageClass           string          `json:"storageClass,omitempty"`
+	Tags                   []string        `json:"-"`
 	ImageSizeInBytes       int64           `json:"imageSizeInBytes,omitempty"`
-	// Tags holds all tags for this image, populated by DescribeImages for multi-tag support.
-	// Not part of the AWS API response directly; used via imageDetailView.ImageTags.
-	Tags []string `json:"-"`
 }
 
 // LayerAvailability represents the availability of an image layer.
@@ -364,8 +362,8 @@ var _ Backend = (*InMemoryBackend)(nil)
 // InMemoryBackend stores ECR repository state in memory.
 type InMemoryBackend struct {
 	repos                       map[string]*Repository
-	images                      map[string]map[string]*Image  // repoName → digest → image
-	tagIndex                    map[string]map[string]string  // repoName → tag → digest
+	images                      map[string]map[string]*Image // repoName → digest → image
+	tagIndex                    map[string]map[string]string // repoName → tag → digest
 	pullThroughCacheRules       map[string]*PullThroughCacheRule
 	repositoryCreationTemplates map[string]*RepositoryCreationTemplate
 	lifecyclePolicies           map[string]string

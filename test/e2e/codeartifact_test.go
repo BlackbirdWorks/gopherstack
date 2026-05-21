@@ -44,6 +44,12 @@ func TestCodeArtifactDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Wait for the domain list to be fetched and rendered before reading content.
+	err = page.Locator("text=e2e-test-domain").First().WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "e2e-test-domain")
