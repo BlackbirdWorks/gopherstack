@@ -189,13 +189,30 @@ func (h *Handler) handleGetEvaluationJob(c *echo.Context, jobARN string) error {
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyJobArn:           job.JobArn,
 		keyJobName:          job.JobName,
 		keyStatus:           job.Status,
 		keyCreationTime:     job.CreationTime.Format(time.RFC3339),
 		keyLastModifiedTime: job.LastModifiedTime.Format(time.RFC3339),
-	})
+	}
+	if job.JobDescription != "" {
+		resp["jobDescription"] = job.JobDescription
+	}
+	if job.RoleArn != "" {
+		resp["roleArn"] = job.RoleArn
+	}
+	if job.EvaluatorConfig != nil {
+		resp["evaluatorConfig"] = job.EvaluatorConfig
+	}
+	if job.InferenceConfig != nil {
+		resp["inferenceConfig"] = job.InferenceConfig
+	}
+	if len(job.EvaluationConfig) > 0 {
+		resp["evaluationConfig"] = job.EvaluationConfig
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListEvaluationJobs(c *echo.Context) error {

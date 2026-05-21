@@ -1174,11 +1174,12 @@ func decodePath(s string) string {
 // --- Guardrail handlers ---
 
 type createGuardrailInput struct {
-	Name                    string `json:"name"`
-	Description             string `json:"description"`
-	BlockedInputMessaging   string `json:"blockedInputMessaging"`
-	BlockedOutputsMessaging string `json:"blockedOutputsMessaging"`
-	Tags                    []Tag  `json:"tags"`
+	Name                    string             `json:"name"`
+	Description             string             `json:"description"`
+	BlockedInputMessaging   string             `json:"blockedInputMessaging"`
+	BlockedOutputsMessaging string             `json:"blockedOutputsMessaging"`
+	Tags                    []Tag              `json:"tags"`
+	Policies                *GuardrailPolicies `json:"policies,omitempty"`
 }
 
 type createGuardrailOutput struct {
@@ -1198,7 +1199,7 @@ func (h *Handler) handleCreateGuardrail(c *echo.Context, body []byte) error {
 	}
 
 	g, opErr := h.Backend.CreateGuardrail(
-		in.Name, in.Description, in.BlockedInputMessaging, in.BlockedOutputsMessaging, in.Tags,
+		in.Name, in.Description, in.BlockedInputMessaging, in.BlockedOutputsMessaging, in.Tags, in.Policies,
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -1213,17 +1214,18 @@ func (h *Handler) handleCreateGuardrail(c *echo.Context, body []byte) error {
 }
 
 type guardrailDetailOutput struct {
-	CreatedAt               isoTime `json:"createdAt"`
-	UpdatedAt               isoTime `json:"updatedAt"`
-	GuardrailID             string  `json:"guardrailId"`
-	GuardrailArn            string  `json:"guardrailArn"`
-	Name                    string  `json:"name"`
-	Description             string  `json:"description"`
-	Status                  string  `json:"status"`
-	Version                 string  `json:"version"`
-	BlockedInputMessaging   string  `json:"blockedInputMessaging"`
-	BlockedOutputsMessaging string  `json:"blockedOutputsMessaging"`
-	Tags                    []Tag   `json:"tags,omitempty"`
+	CreatedAt               isoTime            `json:"createdAt"`
+	UpdatedAt               isoTime            `json:"updatedAt"`
+	GuardrailID             string             `json:"guardrailId"`
+	GuardrailArn            string             `json:"guardrailArn"`
+	Name                    string             `json:"name"`
+	Description             string             `json:"description"`
+	Status                  string             `json:"status"`
+	Version                 string             `json:"version"`
+	BlockedInputMessaging   string             `json:"blockedInputMessaging"`
+	BlockedOutputsMessaging string             `json:"blockedOutputsMessaging"`
+	Tags                    []Tag              `json:"tags,omitempty"`
+	Policies                *GuardrailPolicies `json:"policies,omitempty"`
 }
 
 func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
@@ -1242,6 +1244,7 @@ func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
 		BlockedInputMessaging:   g.BlockedInputMessaging,
 		BlockedOutputsMessaging: g.BlockedOutputsMessaging,
 		Tags:                    g.Tags,
+		Policies:                g.Policies,
 		CreatedAt:               isoTime{g.CreatedAt},
 		UpdatedAt:               isoTime{g.UpdatedAt},
 	})
@@ -1292,10 +1295,11 @@ func (h *Handler) handleListGuardrails(c *echo.Context) error {
 }
 
 type updateGuardrailInput struct {
-	Name                    string `json:"name"`
-	Description             string `json:"description"`
-	BlockedInputMessaging   string `json:"blockedInputMessaging"`
-	BlockedOutputsMessaging string `json:"blockedOutputsMessaging"`
+	Name                    string             `json:"name"`
+	Description             string             `json:"description"`
+	BlockedInputMessaging   string             `json:"blockedInputMessaging"`
+	BlockedOutputsMessaging string             `json:"blockedOutputsMessaging"`
+	Policies                *GuardrailPolicies `json:"policies,omitempty"`
 }
 
 type updateGuardrailOutput struct {
@@ -1320,6 +1324,7 @@ func (h *Handler) handleUpdateGuardrail(c *echo.Context, id string, body []byte)
 		in.Description,
 		in.BlockedInputMessaging,
 		in.BlockedOutputsMessaging,
+		in.Policies,
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -1344,12 +1349,15 @@ func (h *Handler) handleDeleteGuardrail(c *echo.Context, id string) error {
 // --- Foundation model handlers ---
 
 type foundationModelSummaryOutput struct {
-	ModelArn         string   `json:"modelArn"`
-	ModelID          string   `json:"modelId"`
-	ModelName        string   `json:"modelName"`
-	ProviderName     string   `json:"providerName"`
-	InputModalities  []string `json:"inputModalities,omitempty"`
-	OutputModalities []string `json:"outputModalities,omitempty"`
+	ModelArn                   string   `json:"modelArn"`
+	ModelID                    string   `json:"modelId"`
+	ModelName                  string   `json:"modelName"`
+	ProviderName               string   `json:"providerName"`
+	InputModalities            []string `json:"inputModalities,omitempty"`
+	OutputModalities           []string `json:"outputModalities,omitempty"`
+	InferenceTypesSupported    []string `json:"inferenceTypesSupported,omitempty"`
+	CustomizationsSupported    []string `json:"customizationsSupported,omitempty"`
+	ResponseStreamingSupported bool     `json:"responseStreamingSupported"`
 }
 
 type listFoundationModelsOutput struct {
@@ -1364,12 +1372,15 @@ func (h *Handler) handleListFoundationModels(c *echo.Context) error {
 
 	for _, m := range models {
 		summaries = append(summaries, foundationModelSummaryOutput{
-			ModelArn:         m.ModelArn,
-			ModelID:          m.ModelID,
-			ModelName:        m.ModelName,
-			ProviderName:     m.ProviderName,
-			InputModalities:  m.InputModalities,
-			OutputModalities: m.OutputModalities,
+			ModelArn:                   m.ModelArn,
+			ModelID:                    m.ModelID,
+			ModelName:                  m.ModelName,
+			ProviderName:               m.ProviderName,
+			InputModalities:            m.InputModalities,
+			OutputModalities:           m.OutputModalities,
+			InferenceTypesSupported:    m.InferenceTypesSupported,
+			CustomizationsSupported:    m.CustomizationsSupported,
+			ResponseStreamingSupported: m.ResponseStreamingSupported,
 		})
 	}
 
@@ -1391,12 +1402,15 @@ func (h *Handler) handleGetFoundationModel(c *echo.Context, modelID string) erro
 
 	return c.JSON(http.StatusOK, getFoundationModelOutput{
 		ModelDetails: foundationModelSummaryOutput{
-			ModelArn:         m.ModelArn,
-			ModelID:          m.ModelID,
-			ModelName:        m.ModelName,
-			ProviderName:     m.ProviderName,
-			InputModalities:  m.InputModalities,
-			OutputModalities: m.OutputModalities,
+			ModelArn:                   m.ModelArn,
+			ModelID:                    m.ModelID,
+			ModelName:                  m.ModelName,
+			ProviderName:               m.ProviderName,
+			InputModalities:            m.InputModalities,
+			OutputModalities:           m.OutputModalities,
+			InferenceTypesSupported:    m.InferenceTypesSupported,
+			CustomizationsSupported:    m.CustomizationsSupported,
+			ResponseStreamingSupported: m.ResponseStreamingSupported,
 		},
 	})
 }
@@ -1612,8 +1626,13 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 // --- EvaluationJob handlers ---
 
 type createEvaluationJobInput struct {
-	JobName string `json:"jobName"`
-	Tags    []Tag  `json:"tags,omitempty"`
+	JobName         string                     `json:"jobName"`
+	JobDescription  string                     `json:"jobDescription,omitempty"`
+	RoleArn         string                     `json:"roleArn,omitempty"`
+	Tags            []Tag                      `json:"tags,omitempty"`
+	EvaluatorConfig *EvaluationModelConfig     `json:"evaluatorConfig,omitempty"`
+	InferenceConfig *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
+	EvalConfig      []EvaluationTaskConfig     `json:"evaluationConfig,omitempty"`
 }
 
 type createEvaluationJobOutput struct {
@@ -1629,7 +1648,15 @@ func (h *Handler) handleCreateEvaluationJob(c *echo.Context, body []byte) error 
 		)
 	}
 
-	job, opErr := h.Backend.CreateEvaluationJob(in.JobName, in.Tags)
+	opts := &CreateEvaluationJobInput{
+		JobDescription:  in.JobDescription,
+		RoleArn:         in.RoleArn,
+		EvaluatorConfig: in.EvaluatorConfig,
+		InferenceConfig: in.InferenceConfig,
+		EvalConfig:      in.EvalConfig,
+	}
+
+	job, opErr := h.Backend.CreateEvaluationJob(in.JobName, in.Tags, opts)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}

@@ -640,44 +640,59 @@ func (b *InMemoryBackend) seedFoundationModels() {
 
 	b.foundationModels = []*FoundationModelSummary{
 		{
-			ModelID:          "amazon.titan-text-express-v1",
-			ModelName:        "Titan Text G1 - Express",
-			ProviderName:     "Amazon",
-			ModelArn:         prefix + "amazon.titan-text-express-v1",
-			InputModalities:  []string{textTypeText},
-			OutputModalities: []string{textTypeText},
+			ModelID:                    "amazon.titan-text-express-v1",
+			ModelName:                  "Titan Text G1 - Express",
+			ProviderName:               "Amazon",
+			ModelArn:                   prefix + "amazon.titan-text-express-v1",
+			InputModalities:            []string{textTypeText},
+			OutputModalities:           []string{textTypeText},
+			InferenceTypesSupported:    []string{"ON_DEMAND", "PROVISIONED"},
+			CustomizationsSupported:    []string{"FINE_TUNING"},
+			ResponseStreamingSupported: true,
 		},
 		{
-			ModelID:          "amazon.titan-embed-text-v1",
-			ModelName:        "Titan Embeddings G1 - Text",
-			ProviderName:     "Amazon",
-			ModelArn:         prefix + "amazon.titan-embed-text-v1",
-			InputModalities:  []string{textTypeText},
-			OutputModalities: []string{"EMBEDDING"},
+			ModelID:                    "amazon.titan-embed-text-v1",
+			ModelName:                  "Titan Embeddings G1 - Text",
+			ProviderName:               "Amazon",
+			ModelArn:                   prefix + "amazon.titan-embed-text-v1",
+			InputModalities:            []string{textTypeText},
+			OutputModalities:           []string{"EMBEDDING"},
+			InferenceTypesSupported:    []string{"ON_DEMAND"},
+			CustomizationsSupported:    []string{},
+			ResponseStreamingSupported: false,
 		},
 		{
-			ModelID:          "anthropic.claude-v2",
-			ModelName:        "Claude",
-			ProviderName:     "Anthropic",
-			ModelArn:         prefix + "anthropic.claude-v2",
-			InputModalities:  []string{textTypeText},
-			OutputModalities: []string{textTypeText},
+			ModelID:                    "anthropic.claude-v2",
+			ModelName:                  "Claude",
+			ProviderName:               "Anthropic",
+			ModelArn:                   prefix + "anthropic.claude-v2",
+			InputModalities:            []string{textTypeText},
+			OutputModalities:           []string{textTypeText},
+			InferenceTypesSupported:    []string{"ON_DEMAND", "PROVISIONED"},
+			CustomizationsSupported:    []string{},
+			ResponseStreamingSupported: true,
 		},
 		{
-			ModelID:          "anthropic.claude-3-sonnet-20240229-v1:0",
-			ModelName:        "Claude 3 Sonnet",
-			ProviderName:     "Anthropic",
-			ModelArn:         prefix + "anthropic.claude-3-sonnet-20240229-v1:0",
-			InputModalities:  []string{textTypeText, "IMAGE"},
-			OutputModalities: []string{textTypeText},
+			ModelID:                    "anthropic.claude-3-sonnet-20240229-v1:0",
+			ModelName:                  "Claude 3 Sonnet",
+			ProviderName:               "Anthropic",
+			ModelArn:                   prefix + "anthropic.claude-3-sonnet-20240229-v1:0",
+			InputModalities:            []string{textTypeText, "IMAGE"},
+			OutputModalities:           []string{textTypeText},
+			InferenceTypesSupported:    []string{"ON_DEMAND", "PROVISIONED"},
+			CustomizationsSupported:    []string{},
+			ResponseStreamingSupported: true,
 		},
 		{
-			ModelID:          "meta.llama3-8b-instruct-v1:0",
-			ModelName:        "Llama 3 8B Instruct",
-			ProviderName:     "Meta",
-			ModelArn:         prefix + "meta.llama3-8b-instruct-v1:0",
-			InputModalities:  []string{textTypeText},
-			OutputModalities: []string{textTypeText},
+			ModelID:                    "meta.llama3-8b-instruct-v1:0",
+			ModelName:                  "Llama 3 8B Instruct",
+			ProviderName:               "Meta",
+			ModelArn:                   prefix + "meta.llama3-8b-instruct-v1:0",
+			InputModalities:            []string{textTypeText},
+			OutputModalities:           []string{textTypeText},
+			InferenceTypesSupported:    []string{"ON_DEMAND"},
+			CustomizationsSupported:    []string{"FINE_TUNING"},
+			ResponseStreamingSupported: true,
 		},
 	}
 }
@@ -787,6 +802,8 @@ func (b *InMemoryBackend) CreateGuardrail(
 	b.guardrailsByName[name] = id
 	b.guardrailsByARN[guardrailARN] = id
 	cp := *g
+	cp.Tags = copyTags(g.Tags)
+	cp.Policies = copyGuardrailPolicies(g.Policies)
 
 	return &cp, nil
 }
