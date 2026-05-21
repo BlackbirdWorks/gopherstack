@@ -723,15 +723,17 @@ func (b *InMemoryBackend) CreateLoadBalancerListeners(name string, listeners []L
 		existing[l.LoadBalancerPort] = true
 	}
 
+	// Validate all incoming listeners for duplicates (both against existing and within request).
+	seen := make(map[int32]bool, len(listeners))
 	for _, l := range listeners {
-		if existing[l.LoadBalancerPort] {
+		if existing[l.LoadBalancerPort] || seen[l.LoadBalancerPort] {
 			return fmt.Errorf("%w: a listener already exists on port %d", ErrDuplicateListener, l.LoadBalancerPort)
 		}
+		seen[l.LoadBalancerPort] = true
 	}
 
 	for _, l := range listeners {
 		lb.Listeners = append(lb.Listeners, l)
-		existing[l.LoadBalancerPort] = true
 	}
 
 	return nil
