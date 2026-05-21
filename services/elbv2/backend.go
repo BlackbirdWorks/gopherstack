@@ -57,22 +57,36 @@ type LoadBalancerState struct {
 	Description string `json:"description"`
 }
 
+// AvailabilityZone holds the zone name and subnet ID for an LB availability zone mapping.
+type AvailabilityZone struct {
+	ZoneName string `json:"zoneName"`
+	SubnetID string `json:"subnetId,omitempty"`
+}
+
+// SubnetMapping holds subnet configuration for CreateLoadBalancer and SetSubnets.
+type SubnetMapping struct {
+	SubnetID           string
+	AllocationID       string
+	PrivateIPv4Address string
+	IPv6Address        string
+}
+
 // LoadBalancer represents an ELBv2 load balancer.
 type LoadBalancer struct {
-	CreatedTime           time.Time         `json:"createdTime"`
-	State                 LoadBalancerState `json:"state"`
-	Tags                  *tags.Tags        `json:"tags,omitempty"`
-	Attributes            map[string]string `json:"attributes,omitempty"`
-	LoadBalancerArn       string            `json:"loadBalancerArn"`
-	LoadBalancerName      string            `json:"loadBalancerName"`
-	DNSName               string            `json:"dnsName"`
-	CanonicalHostedZoneID string            `json:"canonicalHostedZoneId"`
-	VpcID                 string            `json:"vpcId"`
-	Scheme                string            `json:"scheme"`
-	Type                  string            `json:"type"`
-	IPAddressType         string            `json:"ipAddressType"`
-	AvailabilityZones     []string          `json:"availabilityZones"`
-	SecurityGroups        []string          `json:"securityGroups"`
+	CreatedTime           time.Time          `json:"createdTime"`
+	State                 LoadBalancerState  `json:"state"`
+	Tags                  *tags.Tags         `json:"tags,omitempty"`
+	Attributes            map[string]string  `json:"attributes,omitempty"`
+	LoadBalancerArn       string             `json:"loadBalancerArn"`
+	LoadBalancerName      string             `json:"loadBalancerName"`
+	DNSName               string             `json:"dnsName"`
+	CanonicalHostedZoneID string             `json:"canonicalHostedZoneId"`
+	VpcID                 string             `json:"vpcId"`
+	Scheme                string             `json:"scheme"`
+	Type                  string             `json:"type"`
+	IPAddressType         string             `json:"ipAddressType"`
+	AvailabilityZones     []AvailabilityZone `json:"availabilityZones"`
+	SecurityGroups        []string           `json:"securityGroups"`
 }
 
 // TargetGroup represents an ELBv2 target group.
@@ -102,8 +116,10 @@ type TargetGroup struct {
 
 // Target represents a registered target in a target group.
 type Target struct {
-	ID   string `json:"id"`
-	Port int32  `json:"port"`
+	ID           string `json:"id"`
+	HealthState  string `json:"healthState,omitempty"`
+	HealthReason string `json:"healthReason,omitempty"`
+	Port         int32  `json:"port"`
 }
 
 // TargetHealthDescription describes the health state of a registered target.
@@ -269,7 +285,7 @@ type StorageBackend interface {
 	DeleteLoadBalancer(lbArn string) error
 	ModifyLoadBalancerAttributes(lbArn string, attrs map[string]string) (*LoadBalancer, error)
 	SetSecurityGroups(lbArn string, sgs []string) (*LoadBalancer, error)
-	SetSubnets(lbArn string, azs []string) (*LoadBalancer, error)
+	SetSubnets(lbArn string, mappings []SubnetMapping) (*LoadBalancer, error)
 	SetIPAddressType(lbArn string, ipType string) (*LoadBalancer, error)
 	CreateTargetGroup(input CreateTargetGroupInput) (*TargetGroup, error)
 	DescribeTargetGroups(arns []string, names []string, lbArn string) ([]TargetGroup, error)
@@ -312,13 +328,14 @@ type StorageBackend interface {
 
 // CreateLoadBalancerInput holds the parameters for creating a load balancer.
 type CreateLoadBalancerInput struct {
-	Name              string
-	Scheme            string
-	Type              string
-	IPAddressType     string
-	AvailabilityZones []string
-	SecurityGroups    []string
-	Tags              []tags.KV
+	Name           string
+	Scheme         string
+	Type           string
+	IPAddressType  string
+	Subnets        []string        // plain subnet IDs (Subnets.member.N)
+	SubnetMappings []SubnetMapping // rich subnet mappings (SubnetMappings.member.N)
+	SecurityGroups []string
+	Tags           []tags.KV
 }
 
 // CreateTargetGroupInput holds the parameters for creating a target group.
@@ -587,6 +604,31 @@ func (b *InMemoryBackend) trustStoreARN(id string) string {
 	return arn.Build("elasticloadbalancing", b.region, b.accountID, "truststore/"+id)
 }
 
+// subnetMappingsToAZs converts SubnetMapping slices into AvailabilityZone structs.
+// When only plain subnet IDs are given (no rich mappings), each is wrapped in a SubnetMapping first.
+// Zone names are synthesised from the region + index since we have no real VPC service.
+func subnetMappingsToAZs(region string, mappings []SubnetMapping) []AvailabilityZone {
+	azLetters := "abcdef"
+	azs := make([]AvailabilityZone, 0, len(mappings))
+
+	for i, m := range mappings {
+		zoneName := region + string(azLetters[i%len(azLetters)])
+		azs = append(azs, AvailabilityZone{ZoneName: zoneName, SubnetID: m.SubnetID})
+	}
+
+	return azs
+}
+
+// subnetsToMappings converts plain subnet ID strings into SubnetMapping values.
+func subnetsToMappings(subnets []string) []SubnetMapping {
+	out := make([]SubnetMapping, len(subnets))
+	for i, s := range subnets {
+		out[i] = SubnetMapping{SubnetID: s}
+	}
+
+	return out
+}
+
 // CreateLoadBalancer creates a new load balancer.
 func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*LoadBalancer, error) {
 	b.mu.Lock("CreateLoadBalancer")
@@ -648,6 +690,13 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		defaultAttrs = albDefaultAttributes()
 	}
 
+	mappings := input.SubnetMappings
+	if len(mappings) == 0 {
+		mappings = subnetsToMappings(input.Subnets)
+	}
+
+	azs := subnetMappingsToAZs(b.region, mappings)
+
 	lb := &LoadBalancer{
 		LoadBalancerArn:       lbArn,
 		LoadBalancerName:      input.Name,
@@ -658,7 +707,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		Type:                  lbType,
 		IPAddressType:         ipType,
 		VpcID:                 "vpc-00000000",
-		AvailabilityZones:     input.AvailabilityZones,
+		AvailabilityZones:     azs,
 		SecurityGroups:        input.SecurityGroups,
 		State: LoadBalancerState{
 			Code:        "active",
@@ -849,7 +898,7 @@ func (b *InMemoryBackend) SetSecurityGroups(lbArn string, sgs []string) (*LoadBa
 }
 
 // SetSubnets updates the availability zones / subnets associated with a load balancer.
-func (b *InMemoryBackend) SetSubnets(lbArn string, azs []string) (*LoadBalancer, error) {
+func (b *InMemoryBackend) SetSubnets(lbArn string, mappings []SubnetMapping) (*LoadBalancer, error) {
 	b.mu.Lock("SetSubnets")
 	defer b.mu.Unlock()
 
@@ -858,7 +907,7 @@ func (b *InMemoryBackend) SetSubnets(lbArn string, azs []string) (*LoadBalancer,
 		return nil, ErrLoadBalancerNotFound
 	}
 
-	lb.AvailabilityZones = azs
+	lb.AvailabilityZones = subnetMappingsToAZs(b.region, mappings)
 	cp := *lb
 
 	return &cp, nil
@@ -1320,6 +1369,11 @@ func (b *InMemoryBackend) RegisterTargets(tgArn string, targets []Target) error 
 	for _, t := range targets {
 		key := t.ID + ":" + strconv.Itoa(int(t.Port))
 		if !existing[key] {
+			if t.HealthState == "" {
+				t.HealthState = "initial"
+				t.HealthReason = "Elb.InitialHealthChecking"
+			}
+
 			tg.Targets = append(tg.Targets, t)
 			existing[key] = true
 		}
@@ -1368,13 +1422,42 @@ func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]TargetHealthDesc
 
 	result := make([]TargetHealthDescription, len(tg.Targets))
 	for i, t := range tg.Targets {
+		state := t.HealthState
+		if state == "" {
+			state = "healthy"
+		}
+
 		result[i] = TargetHealthDescription{
-			Target:      t,
-			HealthState: "healthy",
+			Target:       t,
+			HealthState:  state,
+			HealthReason: t.HealthReason,
 		}
 	}
 
 	return result, nil
+}
+
+// SetTargetHealthState overrides the health state for a specific target in a target group.
+// Used in tests to simulate health state transitions.
+func (b *InMemoryBackend) SetTargetHealthState(tgArn, targetID string, port int32, state, reason string) error {
+	b.mu.Lock("SetTargetHealthState")
+	defer b.mu.Unlock()
+
+	tg, ok := b.targetGroups[tgArn]
+	if !ok {
+		return ErrTargetGroupNotFound
+	}
+
+	for i, t := range tg.Targets {
+		if t.ID == targetID && t.Port == port {
+			tg.Targets[i].HealthState = state
+			tg.Targets[i].HealthReason = reason
+
+			return nil
+		}
+	}
+
+	return ErrTargetGroupNotFound
 }
 
 const (
