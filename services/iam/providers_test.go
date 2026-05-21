@@ -267,9 +267,9 @@ func TestInMemoryBackend_LoginProfile(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
 		_, _ = b.CreateUser("alice", "/", "")
-		_, err := b.CreateLoginProfile("alice", "Pass1", false)
+		_, err := b.CreateLoginProfile("alice", "Password1!", false)
 		require.NoError(t, err)
-		_, err = b.CreateLoginProfile("alice", "Pass2", false)
+		_, err = b.CreateLoginProfile("alice", "Password2!", false)
 		require.ErrorIs(t, err, iam.ErrLoginProfileAlreadyExists)
 	})
 
@@ -284,10 +284,10 @@ func TestInMemoryBackend_LoginProfile(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
 		_, _ = b.CreateUser("alice", "/", "")
-		_, err := b.CreateLoginProfile("alice", "Pass1", false)
+		_, err := b.CreateLoginProfile("alice", "Password1!", false)
 		require.NoError(t, err)
 
-		err = b.UpdateLoginProfile("alice", "NewPass", true)
+		err = b.UpdateLoginProfile("alice", "NewPassword1!", true)
 		require.NoError(t, err)
 
 		got, err := b.GetLoginProfile("alice")
@@ -298,7 +298,7 @@ func TestInMemoryBackend_LoginProfile(t *testing.T) {
 	t.Run("UpdateLoginProfile_NotFound", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		err := b.UpdateLoginProfile("nobody", "Pass", false)
+		err := b.UpdateLoginProfile("nobody", "Password1!", false)
 		require.ErrorIs(t, err, iam.ErrLoginProfileNotFound)
 	})
 
@@ -306,7 +306,7 @@ func TestInMemoryBackend_LoginProfile(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
 		_, _ = b.CreateUser("alice", "/", "")
-		_, err := b.CreateLoginProfile("alice", "Pass1", false)
+		_, err := b.CreateLoginProfile("alice", "Password1!", false)
 		require.NoError(t, err)
 
 		err = b.DeleteLoginProfile("alice")
@@ -772,7 +772,7 @@ func TestIAMHandler_LoginProfile(t *testing.T) {
 			params: map[string]string{"UserName": "alice"},
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("alice", "/", "")
-				_, _ = b.CreateLoginProfile("alice", "Pass", false)
+				_, _ = b.CreateLoginProfile("alice", "Password1", false)
 			},
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -785,10 +785,10 @@ func TestIAMHandler_LoginProfile(t *testing.T) {
 		{
 			name:   "UpdateLoginProfile",
 			action: "UpdateLoginProfile",
-			params: map[string]string{"UserName": "alice", "Password": "NewPass"},
+			params: map[string]string{"UserName": "alice", "Password": "NewPassword1"},
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("alice", "/", "")
-				_, _ = b.CreateLoginProfile("alice", "OldPass", false)
+				_, _ = b.CreateLoginProfile("alice", "OldPassword1", false)
 			},
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -804,7 +804,7 @@ func TestIAMHandler_LoginProfile(t *testing.T) {
 			params: map[string]string{"UserName": "alice"},
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("alice", "/", "")
-				_, _ = b.CreateLoginProfile("alice", "Pass", false)
+				_, _ = b.CreateLoginProfile("alice", "Password1", false)
 			},
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -859,7 +859,7 @@ func TestIAMHandler_LoginProfile_Errors(t *testing.T) {
 			params: map[string]string{"UserName": "alice", "Password": "Pass"},
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("alice", "/", "")
-				_, _ = b.CreateLoginProfile("alice", "Pass", false)
+				_, _ = b.CreateLoginProfile("alice", "Password1", false)
 			},
 			wantCode:   "EntityAlreadyExists",
 			wantStatus: http.StatusBadRequest,

@@ -1230,7 +1230,15 @@ func (b *InMemoryBackend) AddRoleToInstanceProfile(instanceProfileName, roleName
 	}
 
 	if slices.Contains(ip.Roles, roleName) {
-		return nil // already attached
+		return nil // already attached (idempotent)
+	}
+
+	// AWS instance profiles can contain exactly one role.
+	if len(ip.Roles) >= 1 {
+		return fmt.Errorf(
+			"%w: instance profile %q already has a role; an instance profile can contain only one role",
+			ErrLimitExceeded, instanceProfileName,
+		)
 	}
 
 	ip.Roles = append(ip.Roles, roleName)

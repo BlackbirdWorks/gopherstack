@@ -22,8 +22,9 @@ type backendSnapshot struct {
 	RoleInlinePolicies   map[string]map[string]string         `json:"roleInlinePolicies"`
 	GroupInlinePolicies  map[string]map[string]string         `json:"groupInlinePolicies"`
 	DelegationRequests   map[string]DelegationRequest         `json:"delegationRequests"`
-	PolicyVersions       map[string][]StoredPolicyVersion     `json:"policyVersions"`
-	ServiceSpecificCreds map[string]ServiceSpecificCredential `json:"serviceSpecificCreds"`
+	PolicyVersions         map[string][]StoredPolicyVersion     `json:"policyVersions"`
+	PolicyVersionCounters  map[string]int                       `json:"policyVersionCounters"`
+	ServiceSpecificCreds   map[string]ServiceSpecificCredential `json:"serviceSpecificCreds"`
 	VirtualMFADevices    map[string]VirtualMFADevice          `json:"virtualMFADevices"`
 	AccountID            string                               `json:"accountID"`
 	AccountAliases       []string                             `json:"accountAliases"`
@@ -53,8 +54,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		RoleInlinePolicies:   b.roleInlinePolicies,
 		GroupInlinePolicies:  b.groupInlinePolicies,
 		AccountAliases:       b.accountAliases,
-		PolicyVersions:       b.policyVersions,
-		ServiceSpecificCreds: b.serviceSpecificCreds,
+		PolicyVersions:         b.policyVersions,
+		PolicyVersionCounters:  b.policyVersionCounters,
+		ServiceSpecificCreds:   b.serviceSpecificCreds,
 		VirtualMFADevices:    b.virtualMFADevices,
 		DelegationRequests:   b.delegationRequests,
 		AccountID:            b.accountID,
@@ -100,6 +102,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.groupInlinePolicies = snap.GroupInlinePolicies
 	b.accountAliases = snap.AccountAliases
 	b.policyVersions = snap.PolicyVersions
+	b.policyVersionCounters = snap.PolicyVersionCounters
 	b.serviceSpecificCreds = snap.ServiceSpecificCreds
 	b.virtualMFADevices = snap.VirtualMFADevices
 	b.delegationRequests = snap.DelegationRequests
@@ -203,6 +206,31 @@ func normalizeSnapshotNewOps(snap *backendSnapshot) {
 
 	if snap.DelegationRequests == nil {
 		snap.DelegationRequests = make(map[string]DelegationRequest)
+	}
+
+	if snap.PolicyVersionCounters == nil {
+		// Rebuild counters from stored versions so restored backends continue
+		// numbering correctly after intermediate versions have been deleted.
+		snap.PolicyVersionCounters = make(map[string]int)
+		for policyArn, versions := range snap.PolicyVersions {
+			maxNum := 1 // v1 is always implicit
+			for _, v := range versions {
+				n := 0
+				// Parse numeric suffix from vN.
+				if len(v.VersionID) > 1 && v.VersionID[0] == 'v' {
+					for _, ch := range v.VersionID[1:] {
+						if ch >= '0' && ch <= '9' {
+							n = n*10 + int(ch-'0')
+						}
+					}
+				}
+				if n > maxNum {
+					maxNum = n
+				}
+			}
+			// counter = maxNum - 1 so that counter++ produces maxNum+1 as next version
+			snap.PolicyVersionCounters[policyArn] = maxNum - 1
+		}
 	}
 }
 
