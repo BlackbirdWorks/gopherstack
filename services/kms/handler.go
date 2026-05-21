@@ -1027,6 +1027,12 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "UnsupportedOperationException"
 	case errors.Is(reqErr, ErrValidation), errors.Is(reqErr, ErrInvalidDataKeySize):
 		errorType = "ValidationException"
+	case errors.Is(reqErr, ErrInvalidGrantToken):
+		errorType = "InvalidGrantTokenException"
+	case errors.Is(reqErr, ErrLimitExceeded):
+		errorType = "LimitExceededException"
+	case errors.Is(reqErr, ErrInvalidAlgorithm):
+		errorType = "InvalidAlgorithmException"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"
 	default:

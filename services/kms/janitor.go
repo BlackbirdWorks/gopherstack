@@ -35,10 +35,10 @@ type expiryHeap []*expiryEntry
 
 func (h *expiryHeap) Len() int           { return len(*h) }
 func (h *expiryHeap) Less(i, j int) bool { return (*h)[i].fireAt < (*h)[j].fireAt }
-func (h expiryHeap) Swap(i, j int) {
-	h[i], h[j] = h[j], h[i]
-	h[i].heapIdx = i
-	h[j].heapIdx = j
+func (h *expiryHeap) Swap(i, j int) {
+	(*h)[i], (*h)[j] = (*h)[j], (*h)[i]
+	(*h)[i].heapIdx = i
+	(*h)[j].heapIdx = j
 }
 func (h *expiryHeap) Push(x any) {
 	e, ok := x.(*expiryEntry)
@@ -63,14 +63,14 @@ func (h *expiryHeap) Pop() any {
 // Janitor is the KMS background worker that permanently deletes keys past their
 // scheduled deletion date and purges the associated key material.
 type Janitor struct {
-	Backend  *InMemoryBackend
+	Backend *InMemoryBackend
+	// heap is the priority queue of pending expiry events.
+	heap     expiryHeap
 	Interval time.Duration
 	// TaskTimeout bounds each individual janitor task. When non-zero, each task
 	// runs with a child context that expires after this duration, preventing a
 	// stalled operation from blocking the janitor loop indefinitely.
 	TaskTimeout time.Duration
-	// heap is the priority queue of pending expiry events.
-	heap expiryHeap
 }
 
 // NewJanitor creates a new KMS Janitor for the given backend.

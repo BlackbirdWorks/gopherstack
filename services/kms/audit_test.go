@@ -49,6 +49,7 @@ func mustCreateRSAKey(t *testing.T, b *kms.InMemoryBackend) string {
 		KeyUsage: kms.KeyUsageSignVerify,
 	})
 	require.NoError(t, err)
+
 	return out.KeyMetadata.KeyID
 }
 
@@ -59,6 +60,7 @@ func mustCreateECKey(t *testing.T, b *kms.InMemoryBackend, spec string) string {
 		KeyUsage: kms.KeyUsageSignVerify,
 	})
 	require.NoError(t, err)
+
 	return out.KeyMetadata.KeyID
 }
 
@@ -334,6 +336,7 @@ func TestAudit_Sign_CorrectAlgorithmsForRSA(t *testing.T) {
 
 	for _, algo := range algos {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			sOut, err := b.Sign(&kms.SignInput{
 				KeyID:            keyID,
 				Message:          msg,
@@ -411,6 +414,7 @@ func TestAudit_GenerateMac_CorrectAlgorithm_AllSpecs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.spec, func(t *testing.T) {
+			t.Parallel()
 			b := newBackend(t)
 			keyID := mustCreateHMACKey(t, b, tc.spec)
 			msg := []byte("mac test message")
@@ -846,6 +850,7 @@ func TestAudit_CreateKey_AllSpecs(t *testing.T) {
 
 	for _, tc := range specs {
 		t.Run(tc.spec, func(t *testing.T) {
+			t.Parallel()
 			out, err := b.CreateKey(&kms.CreateKeyInput{KeySpec: tc.spec, KeyUsage: tc.usage})
 			require.NoError(t, err)
 			assert.NotEmpty(t, out.KeyMetadata.KeyID)
@@ -1800,6 +1805,7 @@ func TestAudit_Concurrent_EncryptDecrypt(t *testing.T) {
 			enc, e := b.Encrypt(&kms.EncryptInput{KeyID: keyID, Plaintext: pt})
 			if e != nil {
 				errs <- e
+
 				return
 			}
 			_, e = b.Decrypt(&kms.DecryptInput{CiphertextBlob: enc.CiphertextBlob})
@@ -1888,4 +1894,9 @@ func TestAudit_Errors_LimitExceeded_GrantToken(t *testing.T) {
 
 // ── helper ────────────────────────────────────────────────────────────────
 
-func ptr[T any](v T) *T { return &v }
+func ptr[T any](v T) *T {
+	p := new(T)
+	*p = v
+
+	return p
+}
