@@ -489,7 +489,7 @@ func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
 	mappings := parseSubnetMappings(vals)
 	if len(mappings) == 0 {
 		for _, s := range parseMembers(vals, "Subnets.member") {
-			mappings = append(mappings, SubnetMapping{SubnetId: s})
+			mappings = append(mappings, SubnetMapping{SubnetID: s})
 		}
 	}
 
@@ -500,7 +500,7 @@ func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
 
 	azMembers := make([]xmlAZMapping, 0, len(lb.AvailabilityZones))
 	for _, az := range lb.AvailabilityZones {
-		azMembers = append(azMembers, xmlAZMapping{ZoneName: az.ZoneName, SubnetID: az.SubnetId})
+		azMembers = append(azMembers, xmlAZMapping{ZoneName: az.ZoneName, SubnetID: az.SubnetID})
 	}
 
 	return &setSubnetsResponse{
@@ -2266,8 +2266,8 @@ func parseSubnetMappings(vals url.Values) []SubnetMapping {
 		}
 
 		out = append(out, SubnetMapping{
-			SubnetId:           subnetID,
-			AllocationId:       vals.Get(fmt.Sprintf("SubnetMappings.member.%d.AllocationId", i)),
+			SubnetID:           subnetID,
+			AllocationID:       vals.Get(fmt.Sprintf("SubnetMappings.member.%d.AllocationId", i)),
 			PrivateIPv4Address: vals.Get(fmt.Sprintf("SubnetMappings.member.%d.PrivateIPv4Address", i)),
 			IPv6Address:        vals.Get(fmt.Sprintf("SubnetMappings.member.%d.IPv6Address", i)),
 		})
@@ -2537,7 +2537,7 @@ func parseQueryStringPairAt(vals url.Values, prefix string, condIdx, pairIdx int
 func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancer {
 	azs := make([]xmlAZMapping, 0, len(lb.AvailabilityZones))
 	for _, az := range lb.AvailabilityZones {
-		azs = append(azs, xmlAZMapping{ZoneName: az.ZoneName, SubnetID: az.SubnetId})
+		azs = append(azs, xmlAZMapping{ZoneName: az.ZoneName, SubnetID: az.SubnetID})
 	}
 
 	sgs := make([]xmlStringValue, 0, len(lb.SecurityGroups))

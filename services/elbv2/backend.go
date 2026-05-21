@@ -60,13 +60,13 @@ type LoadBalancerState struct {
 // AvailabilityZone holds the zone name and subnet ID for an LB availability zone mapping.
 type AvailabilityZone struct {
 	ZoneName string `json:"zoneName"`
-	SubnetId string `json:"subnetId,omitempty"`
+	SubnetID string `json:"subnetId,omitempty"`
 }
 
 // SubnetMapping holds subnet configuration for CreateLoadBalancer and SetSubnets.
 type SubnetMapping struct {
-	SubnetId           string
-	AllocationId       string
+	SubnetID           string
+	AllocationID       string
 	PrivateIPv4Address string
 	IPv6Address        string
 }
@@ -613,7 +613,7 @@ func subnetMappingsToAZs(region string, mappings []SubnetMapping) []Availability
 
 	for i, m := range mappings {
 		zoneName := region + string(azLetters[i%len(azLetters)])
-		azs = append(azs, AvailabilityZone{ZoneName: zoneName, SubnetId: m.SubnetId})
+		azs = append(azs, AvailabilityZone{ZoneName: zoneName, SubnetID: m.SubnetID})
 	}
 
 	return azs
@@ -623,7 +623,7 @@ func subnetMappingsToAZs(region string, mappings []SubnetMapping) []Availability
 func subnetsToMappings(subnets []string) []SubnetMapping {
 	out := make([]SubnetMapping, len(subnets))
 	for i, s := range subnets {
-		out[i] = SubnetMapping{SubnetId: s}
+		out[i] = SubnetMapping{SubnetID: s}
 	}
 
 	return out

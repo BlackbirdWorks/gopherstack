@@ -2,6 +2,7 @@ package elbv2_test
 
 import (
 	"encoding/xml"
+	"maps"
 	"net/http"
 	"net/url"
 	"testing"
@@ -33,9 +34,7 @@ func b1CreateLB(t *testing.T, h *elbv2.Handler, name string, extra ...url.Values
 		"Type":    {"application"},
 	}
 	if len(extra) > 0 {
-		for k, v := range extra[0] {
-			vals[k] = v
-		}
+		maps.Copy(vals, extra[0])
 	}
 	rec := doELBv2(t, h, vals)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -50,6 +49,7 @@ func b1CreateLB(t *testing.T, h *elbv2.Handler, name string, extra ...url.Values
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp.Result.LoadBalancers.Members, 1)
+
 	return resp.Result.LoadBalancers.Members[0].LoadBalancerArn
 }
 
@@ -75,6 +75,7 @@ func b1CreateTG(t *testing.T, h *elbv2.Handler, name string) string {
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp.Result.TargetGroups.Members, 1)
+
 	return resp.Result.TargetGroups.Members[0].TargetGroupArn
 }
 
@@ -101,6 +102,7 @@ func b1CreateListener(t *testing.T, h *elbv2.Handler, lbArn, tgArn string) strin
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp.Result.Listeners.Members, 1)
+
 	return resp.Result.Listeners.Members[0].ListenerArn
 }
 
@@ -1631,7 +1633,7 @@ func TestBatch1_SetRulePriorities(t *testing.T) {
 	tgArn := b1CreateTG(t, h, "set-prio-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
 
-	var ruleArns []string
+	ruleArns := make([]string, 0, 2)
 	for _, prio := range []string{"1", "2"} {
 		r := doELBv2(t, h, url.Values{
 			"Action":                    {"CreateRule"},
