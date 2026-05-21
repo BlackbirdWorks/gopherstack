@@ -4,10 +4,10 @@ package neptune
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
 	// Cluster operations
-	CreateDBCluster(id, paramGroupName string, port int) (*DBCluster, error)
+	CreateDBCluster(id, paramGroupName string, port int, opts DBClusterCreateOptions) (*DBCluster, error)
 	DescribeDBClusters(id string) ([]DBCluster, error)
 	DeleteDBCluster(id string) (*DBCluster, error)
-	ModifyDBCluster(id, paramGroupName string) (*DBCluster, error)
+	ModifyDBCluster(id, paramGroupName string, opts DBClusterModifyOptions) (*DBCluster, error)
 	StopDBCluster(id string) (*DBCluster, error)
 	StartDBCluster(id string) (*DBCluster, error)
 	FailoverDBCluster(id string) (*DBCluster, error)
