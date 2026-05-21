@@ -4,7 +4,6 @@ package kms_test
 // Covers all 11 items from issue #1680 plus comprehensive op coverage.
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -20,6 +19,7 @@ import (
 
 func newBackend(t *testing.T) *kms.InMemoryBackend {
 	t.Helper()
+
 	return kms.NewInMemoryBackend()
 }
 
@@ -27,6 +27,7 @@ func mustCreateSymKey(t *testing.T, b *kms.InMemoryBackend) string {
 	t.Helper()
 	out, err := b.CreateKey(&kms.CreateKeyInput{})
 	require.NoError(t, err)
+
 	return out.KeyMetadata.KeyID
 }
 
@@ -37,6 +38,7 @@ func mustCreateHMACKey(t *testing.T, b *kms.InMemoryBackend, spec string) string
 		KeyUsage: kms.KeyUsageGenerateMac,
 	})
 	require.NoError(t, err)
+
 	return out.KeyMetadata.KeyID
 }
 
@@ -858,7 +860,7 @@ func TestAudit_DescribeKey_NotFound(t *testing.T) {
 	b := newBackend(t)
 	_, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: "nonexistent-key-id"})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, kms.ErrKeyNotFound))
+	assert.ErrorIs(t, err, kms.ErrKeyNotFound)
 }
 
 func TestAudit_ListKeys_Pagination(t *testing.T) {
@@ -890,7 +892,7 @@ func TestAudit_DisableKey_PreventsEncrypt(t *testing.T) {
 
 	_, err := b.Encrypt(&kms.EncryptInput{KeyID: keyID, Plaintext: []byte("x")})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, kms.ErrKeyDisabled))
+	assert.ErrorIs(t, err, kms.ErrKeyDisabled)
 }
 
 func TestAudit_EnableKey_RestoresEncrypt(t *testing.T) {
@@ -950,7 +952,7 @@ func TestAudit_Alias_DuplicateCreateFails(t *testing.T) {
 	require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{AliasName: alias, TargetKeyID: keyID}))
 	err := b.CreateAlias(&kms.CreateAliasInput{AliasName: alias, TargetKeyID: keyID})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, kms.ErrAliasAlreadyExists))
+	assert.ErrorIs(t, err, kms.ErrAliasAlreadyExists)
 }
 
 func TestAudit_Alias_DeleteNonexistentFails(t *testing.T) {
@@ -1209,7 +1211,7 @@ func TestAudit_Encrypt_WrongKeyUsage(t *testing.T) {
 
 	_, err := b.Encrypt(&kms.EncryptInput{KeyID: keyID, Plaintext: []byte("x")})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, kms.ErrInvalidKeyUsage))
+	assert.ErrorIs(t, err, kms.ErrInvalidKeyUsage)
 }
 
 // ── Key rotation ───────────────────────────────────────────────────────────
@@ -1488,9 +1490,9 @@ func TestAudit_DeriveSharedSecret_ECDH(t *testing.T) {
 	require.NoError(t, err)
 
 	out, err := b.DeriveSharedSecret(&kms.DeriveSharedSecretInput{
-		KeyID:             k1Out.KeyMetadata.KeyID,
+		KeyID:                 k1Out.KeyMetadata.KeyID,
 		KeyAgreementAlgorithm: "ECDH",
-		PublicKey:         pubOut.PublicKey,
+		PublicKey:             pubOut.PublicKey,
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.SharedSecret)
@@ -1504,7 +1506,7 @@ func TestAudit_GenerateDataKeyPair_RSA(t *testing.T) {
 	keyID := mustCreateSymKey(t, b)
 
 	out, err := b.GenerateDataKeyPair(&kms.GenerateDataKeyPairInput{
-		KeyID:   keyID,
+		KeyID:       keyID,
 		KeyPairSpec: "RSA_2048",
 	})
 	require.NoError(t, err)
@@ -1836,7 +1838,7 @@ func TestAudit_Errors_KeyNotFound_Sentinel(t *testing.T) {
 
 	_, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: "bad"})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, kms.ErrKeyNotFound))
+	assert.ErrorIs(t, err, kms.ErrKeyNotFound)
 }
 
 func TestAudit_Errors_AliasNotFound_Sentinel(t *testing.T) {
@@ -1845,7 +1847,7 @@ func TestAudit_Errors_AliasNotFound_Sentinel(t *testing.T) {
 
 	err := b.DeleteAlias(&kms.DeleteAliasInput{AliasName: "alias/ghost"})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, kms.ErrAliasNotFound))
+	assert.ErrorIs(t, err, kms.ErrAliasNotFound)
 }
 
 func TestAudit_Errors_KeyDisabled_Sentinel(t *testing.T) {
@@ -1855,7 +1857,7 @@ func TestAudit_Errors_KeyDisabled_Sentinel(t *testing.T) {
 	require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: keyID}))
 
 	_, err := b.Encrypt(&kms.EncryptInput{KeyID: keyID, Plaintext: []byte("x")})
-	assert.True(t, errors.Is(err, kms.ErrKeyDisabled))
+	assert.ErrorIs(t, err, kms.ErrKeyDisabled)
 }
 
 func TestAudit_Errors_InvalidKeyUsage_Sentinel(t *testing.T) {
@@ -1864,7 +1866,7 @@ func TestAudit_Errors_InvalidKeyUsage_Sentinel(t *testing.T) {
 	keyID := mustCreateRSAKey(t, b)
 
 	_, err := b.Encrypt(&kms.EncryptInput{KeyID: keyID, Plaintext: []byte("x")})
-	assert.True(t, errors.Is(err, kms.ErrInvalidKeyUsage))
+	assert.ErrorIs(t, err, kms.ErrInvalidKeyUsage)
 }
 
 func TestAudit_Errors_LimitExceeded_GrantToken(t *testing.T) {
@@ -1881,7 +1883,7 @@ func TestAudit_Errors_LimitExceeded_GrantToken(t *testing.T) {
 		GrantTokens:    []string{"bogus-token"},
 	})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, kms.ErrInvalidGrantToken))
+	assert.ErrorIs(t, err, kms.ErrInvalidGrantToken)
 }
 
 // ── helper ────────────────────────────────────────────────────────────────

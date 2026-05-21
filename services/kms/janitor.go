@@ -17,10 +17,10 @@ const (
 
 // expiryEntry is a heap entry tracking when a key's deletion or material expiry fires.
 type expiryEntry struct {
-	keyID    string
-	fireAt   float64 // Unix seconds
-	expKind  expiryKind
-	heapIdx  int
+	keyID   string
+	fireAt  float64 // Unix seconds
+	expKind expiryKind
+	heapIdx int
 }
 
 type expiryKind int
@@ -33,15 +33,19 @@ const (
 // expiryHeap implements heap.Interface for min-heap ordering by fireAt.
 type expiryHeap []*expiryEntry
 
-func (h expiryHeap) Len() int            { return len(h) }
-func (h expiryHeap) Less(i, j int) bool { return h[i].fireAt < h[j].fireAt }
+func (h *expiryHeap) Len() int           { return len(*h) }
+func (h *expiryHeap) Less(i, j int) bool { return (*h)[i].fireAt < (*h)[j].fireAt }
 func (h expiryHeap) Swap(i, j int) {
 	h[i], h[j] = h[j], h[i]
 	h[i].heapIdx = i
 	h[j].heapIdx = j
 }
 func (h *expiryHeap) Push(x any) {
-	e := x.(*expiryEntry)
+	e, ok := x.(*expiryEntry)
+	if !ok {
+		return
+	}
+
 	e.heapIdx = len(*h)
 	*h = append(*h, e)
 }
@@ -52,6 +56,7 @@ func (h *expiryHeap) Pop() any {
 	old[n-1] = nil
 	*h = old[:n-1]
 	e.heapIdx = -1
+
 	return e
 }
 
@@ -159,7 +164,12 @@ func (j *Janitor) sweepFromHeap(now float64) (int, int) {
 	var purged, expired int
 
 	for len(j.heap) > 0 && j.heap[0].fireAt <= now {
-		e := heap.Pop(&j.heap).(*expiryEntry)
+		raw := heap.Pop(&j.heap)
+		e, ok := raw.(*expiryEntry)
+		if !ok {
+			continue
+		}
+
 		key, ok := j.Backend.keys[e.keyID]
 		if !ok {
 			continue // already purged
