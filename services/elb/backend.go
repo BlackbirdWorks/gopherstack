@@ -711,6 +711,8 @@ func (b *InMemoryBackend) RemoveTags(names []string, keys []string) error {
 }
 
 // CreateLoadBalancerListeners adds listeners to an existing load balancer.
+// Idempotent: if a listener on the same port already exists with identical settings,
+// it is a no-op. Returns DuplicateListener if the port is in use with different settings.
 func (b *InMemoryBackend) CreateLoadBalancerListeners(name string, listeners []Listener) error {
 	b.mu.Lock("CreateLoadBalancerListeners")
 	defer b.mu.Unlock()
@@ -720,21 +722,40 @@ func (b *InMemoryBackend) CreateLoadBalancerListeners(name string, listeners []L
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
-	existing := make(map[int32]bool, len(lb.Listeners))
-	for _, l := range lb.Listeners {
-		existing[l.LoadBalancerPort] = true
+	existing := make(map[int32]*Listener, len(lb.Listeners))
+	for i := range lb.Listeners {
+		existing[lb.Listeners[i].LoadBalancerPort] = &lb.Listeners[i]
 	}
 
-	// Validate all incoming listeners for duplicates (both against existing and within request).
+	// Validate all incoming listeners: port conflict with different config = DuplicateListener.
 	seen := make(map[int32]bool, len(listeners))
 	for _, l := range listeners {
-		if existing[l.LoadBalancerPort] || seen[l.LoadBalancerPort] {
-			return fmt.Errorf("%w: a listener already exists on port %d", ErrDuplicateListener, l.LoadBalancerPort)
+		ex, portTaken := existing[l.LoadBalancerPort]
+		if portTaken {
+			if ex.Protocol != l.Protocol || ex.InstancePort != l.InstancePort ||
+				ex.InstanceProtocol != l.InstanceProtocol {
+				return fmt.Errorf(
+					"%w: conflicting listener on port %d",
+					ErrDuplicateListener,
+					l.LoadBalancerPort,
+				)
+			}
+			// Exact match: idempotent no-op.
+			continue
 		}
+
+		if seen[l.LoadBalancerPort] {
+			return fmt.Errorf("%w: duplicate port %d in request", ErrDuplicateListener, l.LoadBalancerPort)
+		}
+
 		seen[l.LoadBalancerPort] = true
 	}
 
-	lb.Listeners = append(lb.Listeners, listeners...)
+	for _, l := range listeners {
+		if _, alreadyExists := existing[l.LoadBalancerPort]; !alreadyExists {
+			lb.Listeners = append(lb.Listeners, l)
+		}
+	}
 
 	return nil
 }

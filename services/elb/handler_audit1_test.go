@@ -300,18 +300,37 @@ func TestAudit1_DuplicateListener_CreateListeners(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name: "same_port_as_existing_returns_conflict",
+			// Same port + same settings = idempotent (AWS behavior: CreateLoadBalancerListeners
+			// is a no-op when listener already exists with identical config).
+			name: "same_port_same_config_idempotent",
 			setup: func(t *testing.T, h *elb.Handler) {
 				t.Helper()
-				mustCreateLB(t, h, "dup-list-lb")
+				mustCreateLB(t, h, "dup-idem-lb")
 			},
 			vals: url.Values{
 				"Action":                              {"CreateLoadBalancerListeners"},
 				"Version":                             {"2012-06-01"},
-				"LoadBalancerName":                    {"dup-list-lb"},
+				"LoadBalancerName":                    {"dup-idem-lb"},
 				"Listeners.member.1.Protocol":         {"HTTP"},
 				"Listeners.member.1.LoadBalancerPort": {"80"},
 				"Listeners.member.1.InstancePort":     {"8080"},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			// Same port + DIFFERENT instance port = DuplicateListener error.
+			name: "same_port_different_config_conflict",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "dup-conflict-lb")
+			},
+			vals: url.Values{
+				"Action":                              {"CreateLoadBalancerListeners"},
+				"Version":                             {"2012-06-01"},
+				"LoadBalancerName":                    {"dup-conflict-lb"},
+				"Listeners.member.1.Protocol":         {"HTTP"},
+				"Listeners.member.1.LoadBalancerPort": {"80"},
+				"Listeners.member.1.InstancePort":     {"9090"},
 			},
 			wantStatus: http.StatusConflict,
 			wantCode:   "DuplicateListener",
@@ -333,6 +352,7 @@ func TestAudit1_DuplicateListener_CreateListeners(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			// Two listeners on the same port in a single request = DuplicateListener.
 			name: "duplicate_within_same_request",
 			setup: func(t *testing.T, h *elb.Handler) {
 				t.Helper()
@@ -345,9 +365,9 @@ func TestAudit1_DuplicateListener_CreateListeners(t *testing.T) {
 				"Listeners.member.1.Protocol":         {"HTTP"},
 				"Listeners.member.1.LoadBalancerPort": {"8080"},
 				"Listeners.member.1.InstancePort":     {"8080"},
-				"Listeners.member.2.Protocol":         {"HTTP"},
+				"Listeners.member.2.Protocol":         {"TCP"},
 				"Listeners.member.2.LoadBalancerPort": {"8080"},
-				"Listeners.member.2.InstancePort":     {"8080"},
+				"Listeners.member.2.InstancePort":     {"8888"},
 			},
 			wantStatus: http.StatusConflict,
 			wantCode:   "DuplicateListener",
