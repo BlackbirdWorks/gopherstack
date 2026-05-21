@@ -325,15 +325,15 @@ func TestBackend_UserGroupIds_AddRemove(t *testing.T) {
 		UserGroupIDs: []string{"ug1"},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, rg.UserGroupIds, "ug1")
+	assert.Contains(t, rg.UserGroupIDs, "ug1")
 
 	// Modify: remove ug1.
 	rg2, err := b.ModifyReplicationGroupFull("ug-backend-rg", elasticache.ReplicationGroupModifyOpts{
-		UserGroupIdsToRemove: []string{"ug1"},
+		UserGroupIDsToRemove: []string{"ug1"},
 		ApplyImmediately:     true,
 	})
 	require.NoError(t, err)
-	assert.NotContains(t, rg2.UserGroupIds, "ug1")
+	assert.NotContains(t, rg2.UserGroupIDs, "ug1")
 }
 
 // ----------------------------------------
@@ -778,7 +778,7 @@ func TestBackend_Persistence_UserGroupIds(t *testing.T) {
 	page, err := b2.DescribeReplicationGroups("persist-ug-rg", "", 0)
 	require.NoError(t, err)
 	require.Len(t, page.Data, 1)
-	assert.Contains(t, page.Data[0].UserGroupIds, "persist-ug")
+	assert.Contains(t, page.Data[0].UserGroupIDs, "persist-ug")
 }
 
 // ----------------------------------------

@@ -206,8 +206,8 @@ func TestBackend_ResetParameterGroup_Specific(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.ModifyParameterGroup("reset-spec-pg", map[string]string{
-		"maxmemory-policy":  "allkeys-lru",
-		"activerehashing":   "yes",
+		"maxmemory-policy": "allkeys-lru",
+		"activerehashing":  "yes",
 	})
 	require.NoError(t, err)
 

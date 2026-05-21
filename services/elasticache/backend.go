@@ -174,7 +174,7 @@ type ReplicationGroup struct {
 	TransitEncryptionMode      string                   `json:"transitEncryptionMode,omitempty"`
 	NodeGroups                 []NodeGroup              `json:"nodeGroups,omitempty"`
 	LogDeliveryConfigurations  []LogDeliveryConfig      `json:"logDeliveryConfigurations,omitempty"`
-	UserGroupIds               []string                 `json:"userGroupIds,omitempty"`
+	UserGroupIDs               []string                 `json:"userGroupIds,omitempty"`
 	SnapshotRetentionLimit     int                      `json:"snapshotRetentionLimit,omitempty"`
 	ReplicaCount               int32                    `json:"replicaCount,omitempty"`
 	ClusterModeEnabled         bool                     `json:"clusterModeEnabled,omitempty"`

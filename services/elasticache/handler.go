@@ -701,9 +701,9 @@ type nodeGroupNodeXML struct {
 
 // nodeGroupXML is the XML representation of a shard / node group.
 type nodeGroupXML struct {
-	NodeGroupID     string             `xml:"NodeGroupId"`
-	Status          string             `xml:"Status"`
-	Slots           string             `xml:"Slots,omitempty"`
+	NodeGroupID      string              `xml:"NodeGroupId"`
+	Status           string              `xml:"Status"`
+	Slots            string              `xml:"Slots,omitempty"`
 	NodeGroupMembers nodeGroupMembersXML `xml:"NodeGroupMembers"`
 }
 
@@ -724,16 +724,16 @@ type rgPendingModifiedXML struct {
 	AutomaticFailoverStatus string `xml:"AutomaticFailoverStatus,omitempty"`
 }
 
-// rgUserGroupIdsXML holds UserGroupId list in the XML response.
-type rgUserGroupIdsXML struct {
-	UserGroupId []string `xml:"member"`
+// rgUserGroupIDsXML holds UserGroupId list in the XML response.
+type rgUserGroupIDsXML struct {
+	UserGroupID []string `xml:"member"`
 }
 
 // replicationGroupXML is the XML representation of a single replication group.
 type replicationGroupXML struct {
 	PendingModifiedValues      *rgPendingModifiedXML `xml:"PendingModifiedValues,omitempty"`
 	NodeGroups                 *nodeGroupsListXML    `xml:"NodeGroups,omitempty"`
-	UserGroupIds               *rgUserGroupIdsXML    `xml:"UserGroupIds,omitempty"`
+	UserGroupIDs               *rgUserGroupIDsXML    `xml:"UserGroupIds,omitempty"`
 	ReplicationGroupID         string                `xml:"ReplicationGroupId"`
 	Description                string                `xml:"Description"`
 	Status                     string                `xml:"Status"`
@@ -841,9 +841,9 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 		numCacheClusters = 1
 	}
 
-	var userGroupIds *rgUserGroupIdsXML
-	if len(rg.UserGroupIds) > 0 {
-		userGroupIds = &rgUserGroupIdsXML{UserGroupId: rg.UserGroupIds}
+	var userGroupIDs *rgUserGroupIDsXML
+	if len(rg.UserGroupIDs) > 0 {
+		userGroupIDs = &rgUserGroupIDsXML{UserGroupID: rg.UserGroupIDs}
 	}
 
 	return replicationGroupXML{
@@ -872,7 +872,7 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 		DataTiering:                dataTieringStatus(rg.DataTieringEnabled),
 		NodeGroups:                 nodeGroupsToXML(rg.NodeGroups),
 		PendingModifiedValues:      pendingToXML(rg.PendingModifiedValues),
-		UserGroupIds:               userGroupIds,
+		UserGroupIDs:               userGroupIDs,
 	}
 }
 
@@ -1070,14 +1070,14 @@ func parseModifyReplicationGroupOpts(form url.Values) ReplicationGroupModifyOpts
 		if id == "" {
 			break
 		}
-		opts.UserGroupIdsToAdd = append(opts.UserGroupIdsToAdd, id)
+		opts.UserGroupIDsToAdd = append(opts.UserGroupIDsToAdd, id)
 	}
 	for i := 1; ; i++ {
 		id := form.Get(fmt.Sprintf("UserGroupIdsToRemove.member.%d", i))
 		if id == "" {
 			break
 		}
-		opts.UserGroupIdsToRemove = append(opts.UserGroupIdsToRemove, id)
+		opts.UserGroupIDsToRemove = append(opts.UserGroupIDsToRemove, id)
 	}
 
 	return opts

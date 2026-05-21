@@ -123,24 +123,24 @@ type LogDeliveryConfig struct {
 
 // ReplicationGroupCreateOpts carries all fields for full replication-group creation.
 type ReplicationGroupCreateOpts struct {
-	LogDeliveryConfigurations []LogDeliveryConfig
+	Tags                      map[string]string
+	Engine                    string
+	EngineVersion             string
 	ID                        string
 	Description               string
 	ParameterGroupName        string
 	MaintenanceWindow         string
-	SnapshotWindow            string
+	TransitEncryptionMode     string
 	AuthToken                 string
 	KmsKeyID                  string
 	NotificationTopicArn      string
-	TransitEncryptionMode     string
-	Engine                    string
-	EngineVersion             string
 	CacheNodeType             string
+	SnapshotWindow            string
 	UserGroupIDs              []string
-	Tags                      map[string]string
-	NumNodeGroups             int32
-	ReplicasPerNodeGroup      int32
+	LogDeliveryConfigurations []LogDeliveryConfig
 	SnapshotRetentionLimit    int
+	ReplicasPerNodeGroup      int32
+	NumNodeGroups             int32
 	ClusterModeEnabled        bool
 	AuthTokenEnabled          bool
 	AtRestEncryptionEnabled   bool
@@ -167,8 +167,8 @@ type ReplicationGroupModifyOpts struct {
 	NotificationTopicArn      string
 	TransitEncryptionMode     string
 	LogDeliveryConfigurations []LogDeliveryConfig
-	UserGroupIdsToAdd         []string
-	UserGroupIdsToRemove      []string
+	UserGroupIDsToAdd         []string
+	UserGroupIDsToRemove      []string
 	ApplyImmediately          bool
 }
 
@@ -360,7 +360,7 @@ func (b *InMemoryBackend) buildReplicationGroupFromCreateOpts(opts ReplicationGr
 	}
 
 	if len(opts.UserGroupIDs) > 0 {
-		rg.UserGroupIds = opts.UserGroupIDs
+		rg.UserGroupIDs = opts.UserGroupIDs
 	}
 
 	if len(opts.Tags) > 0 {
@@ -464,7 +464,7 @@ func (b *InMemoryBackend) applyModifyOptsLocked(rg *ReplicationGroup, opts Repli
 		rg.ReplicaCount = *opts.ReplicaCount
 	}
 
-	applyUserGroupIdsModify(rg, opts.UserGroupIdsToAdd, opts.UserGroupIdsToRemove)
+	applyUserGroupIDsModify(rg, opts.UserGroupIDsToAdd, opts.UserGroupIDsToRemove)
 	applyAuthTokenModify(rg, opts.AuthToken, opts.AuthTokenUpdateStrategy)
 	applyTransitEncryptionModify(rg, opts.TransitEncryptionMode)
 	applyPendingChanges(rg, opts)
@@ -482,8 +482,8 @@ func applyAutoFailoverModify(rg *ReplicationGroup, enabled *bool) {
 	}
 }
 
-// applyUserGroupIdsModify adds/removes user group IDs on a replication group (gap #15).
-func applyUserGroupIdsModify(rg *ReplicationGroup, toAdd, toRemove []string) {
+// applyUserGroupIDsModify adds/removes user group IDs on a replication group (gap #15).
+func applyUserGroupIDsModify(rg *ReplicationGroup, toAdd, toRemove []string) {
 	if len(toAdd) == 0 && len(toRemove) == 0 {
 		return
 	}
@@ -493,8 +493,8 @@ func applyUserGroupIdsModify(rg *ReplicationGroup, toAdd, toRemove []string) {
 		removeSet[id] = true
 	}
 
-	filtered := rg.UserGroupIds[:0:0]
-	for _, id := range rg.UserGroupIds {
+	filtered := rg.UserGroupIDs[:0:0]
+	for _, id := range rg.UserGroupIDs {
 		if !removeSet[id] {
 			filtered = append(filtered, id)
 		}
@@ -511,7 +511,7 @@ func applyUserGroupIdsModify(rg *ReplicationGroup, toAdd, toRemove []string) {
 		}
 	}
 
-	rg.UserGroupIds = filtered
+	rg.UserGroupIDs = filtered
 }
 
 // applyAuthTokenModify handles auth token rotation strategies (gap #4).
