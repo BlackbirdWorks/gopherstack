@@ -3,6 +3,7 @@ package eks
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -28,11 +29,12 @@ const (
 )
 
 const (
-	statusPassing  = "PASSING"
-	statusCreating = "CREATING"
-	statusFailed   = "FAILED"
-	statusDegraded = "DEGRADED"
-	statusDeleting = "DELETING"
+	statusPassing    = "PASSING"
+	statusCreating   = "CREATING"
+	statusFailed     = "FAILED"
+	statusDegraded   = "DEGRADED"
+	statusDeleting   = "DELETING"
+	statusSuccessful = "Successful"
 )
 
 // Insight represents an EKS cluster insight.
@@ -72,12 +74,12 @@ type UpdateError struct {
 // Update represents an EKS update record.
 type Update struct {
 	CreatedAt   time.Time     `json:"createdAt"`
-	Params      []UpdateParam `json:"params,omitempty"`
-	Errors      []UpdateError `json:"errors,omitempty"`
 	ID          string        `json:"id"`
 	ClusterName string        `json:"clusterName"`
 	Status      string        `json:"status"`
 	Type        string        `json:"type"`
+	Params      []UpdateParam `json:"params,omitempty"`
+	Errors      []UpdateError `json:"errors,omitempty"`
 }
 
 // --- Addon CRUD ---
@@ -1088,14 +1090,14 @@ func (b *InMemoryBackend) UpdateClusterVpcEndpoint(clusterName string, upd VpcEn
 		c.VpcConfig.EndpointPublicAccess = *upd.EndpointPublicAccess
 		params = append(
 			params,
-			UpdateParam{Type: "EndpointPublicAccess", Value: fmt.Sprintf("%v", *upd.EndpointPublicAccess)},
+			UpdateParam{Type: "EndpointPublicAccess", Value: strconv.FormatBool(*upd.EndpointPublicAccess)},
 		)
 	}
 	if upd.EndpointPrivateAccess != nil {
 		c.VpcConfig.EndpointPrivateAccess = *upd.EndpointPrivateAccess
 		params = append(
 			params,
-			UpdateParam{Type: "EndpointPrivateAccess", Value: fmt.Sprintf("%v", *upd.EndpointPrivateAccess)},
+			UpdateParam{Type: "EndpointPrivateAccess", Value: strconv.FormatBool(*upd.EndpointPrivateAccess)},
 		)
 	}
 	if upd.PublicAccessCIDRs != nil {
@@ -1106,7 +1108,7 @@ func (b *InMemoryBackend) UpdateClusterVpcEndpoint(clusterName string, upd VpcEn
 	return &Update{
 		ID:          stableID(clusterName + "/vpc-update/" + time.Now().String()),
 		ClusterName: clusterName,
-		Status:      "Successful",
+		Status:      statusSuccessful,
 		Type:        "EndpointAccessUpdate",
 		Params:      params,
 		CreatedAt:   time.Now().UTC(),
@@ -1167,7 +1169,7 @@ func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Up
 	return &Update{
 		ID:          stableID(clusterName + "/version-update/" + time.Now().String()),
 		ClusterName: clusterName,
-		Status:      "Successful",
+		Status:      statusSuccessful,
 		Type:        typeVersionUpdate,
 		Params:      []UpdateParam{{Type: "Version", Value: version}},
 		CreatedAt:   time.Now().UTC(),
@@ -1216,7 +1218,7 @@ func (b *InMemoryBackend) DescribeUpdate(clusterName, updateID string) (*Update,
 	return &Update{
 		ID:          updateID,
 		ClusterName: clusterName,
-		Status:      "Successful",
+		Status:      statusSuccessful,
 		Type:        typeVersionUpdate,
 		CreatedAt:   time.Now().UTC(),
 	}, nil

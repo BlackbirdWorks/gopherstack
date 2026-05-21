@@ -28,6 +28,7 @@ const (
 	keyPolicyArn      = "policyArn"
 	keySubscription   = "subscription"
 	keyFargateProfile = "fargateProfile"
+	keyTags           = "tags"
 )
 
 const (
@@ -913,6 +914,25 @@ func errResp(code, msg string) map[string]string {
 	return map[string]string{"code": code, "message": msg}
 }
 
+// clusterVpcConfigJSON converts a VpcConfig to a JSON-serializable map.
+func clusterVpcConfigJSON(v *VpcConfig) map[string]any {
+	vpc := map[string]any{
+		"subnetIds":             v.SubnetIDs,
+		"securityGroupIds":      v.SecurityGroupIDs,
+		"endpointPrivateAccess": v.EndpointPrivateAccess,
+		"endpointPublicAccess":  v.EndpointPublicAccess,
+		"publicAccessCidrs":     v.PublicAccessCIDRs,
+	}
+	if v.ClusterSecurityGroupID != "" {
+		vpc["clusterSecurityGroupId"] = v.ClusterSecurityGroupID
+	}
+	if v.VpcID != "" {
+		vpc["vpcId"] = v.VpcID
+	}
+
+	return vpc
+}
+
 // clusterToJSON converts a Cluster to a JSON-serializable map.
 func clusterToJSON(c *Cluster) map[string]any {
 	m := map[string]any{
@@ -922,7 +942,7 @@ func clusterToJSON(c *Cluster) map[string]any {
 		keyVersion:        c.Version,
 		keyCreatedAt:      c.CreatedAt.Unix(),
 		"platformVersion": c.PlatformVersion,
-		"tags":            clusterTagsMap(c),
+		keyTags:           clusterTagsMap(c),
 	}
 	if c.Endpoint != "" {
 		m["endpoint"] = c.Endpoint
@@ -939,20 +959,7 @@ func clusterToJSON(c *Cluster) map[string]any {
 	}
 
 	if c.VpcConfig != nil {
-		vpc := map[string]any{
-			"subnetIds":             c.VpcConfig.SubnetIDs,
-			"securityGroupIds":      c.VpcConfig.SecurityGroupIDs,
-			"endpointPrivateAccess": c.VpcConfig.EndpointPrivateAccess,
-			"endpointPublicAccess":  c.VpcConfig.EndpointPublicAccess,
-			"publicAccessCidrs":     c.VpcConfig.PublicAccessCIDRs,
-		}
-		if c.VpcConfig.ClusterSecurityGroupId != "" {
-			vpc["clusterSecurityGroupId"] = c.VpcConfig.ClusterSecurityGroupId
-		}
-		if c.VpcConfig.VpcId != "" {
-			vpc["vpcId"] = c.VpcConfig.VpcId
-		}
-		m["resourcesVpcConfig"] = vpc
+		m["resourcesVpcConfig"] = clusterVpcConfigJSON(c.VpcConfig)
 	}
 
 	if c.KubernetesNetworkConfig != nil {
@@ -994,6 +1001,7 @@ func clusterTagsMap(c *Cluster) map[string]string {
 	if c.Tags == nil {
 		return map[string]string{}
 	}
+
 	return c.Tags.Clone()
 }
 
@@ -1062,9 +1070,9 @@ func appendNodegroupOptionalFields(ng *Nodegroup, m map[string]any) {
 		m["resources"] = nodegroupResourcesToJSON(ng.Resources)
 	}
 	if ng.Tags != nil {
-		m["tags"] = ng.Tags.Clone()
+		m[keyTags] = ng.Tags.Clone()
 	} else {
-		m["tags"] = map[string]string{}
+		m[keyTags] = map[string]string{}
 	}
 }
 
@@ -1371,7 +1379,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"tags": t,
+		keyTags: t,
 	})
 }
 
@@ -1438,10 +1446,11 @@ func accessEntryToJSON(entry *AccessEntry) map[string]any {
 		keyCreatedAt:      entry.CreatedAt.Unix(),
 	}
 	if entry.Tags != nil {
-		m["tags"] = entry.Tags.Clone()
+		m[keyTags] = entry.Tags.Clone()
 	} else {
-		m["tags"] = map[string]string{}
+		m[keyTags] = map[string]string{}
 	}
+
 	return m
 }
 
@@ -1596,7 +1605,7 @@ func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, cluster
 			keyType:        opAssociateIdentityProviderConfig,
 			keyClusterName: clusterName,
 		},
-		"tags": cfg.Tags.Clone(),
+		keyTags: cfg.Tags.Clone(),
 	})
 }
 

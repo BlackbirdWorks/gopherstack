@@ -33,13 +33,13 @@ var (
 
 // VpcConfig captures the cluster VPC configuration returned by AWS.
 type VpcConfig struct {
+	ClusterSecurityGroupID string   `json:"clusterSecurityGroupId,omitempty"`
+	VpcID                  string   `json:"vpcId,omitempty"`
 	SubnetIDs              []string `json:"subnetIds,omitempty"`
 	SecurityGroupIDs       []string `json:"securityGroupIds,omitempty"`
 	PublicAccessCIDRs      []string `json:"publicAccessCidrs,omitempty"`
 	EndpointPrivateAccess  bool     `json:"endpointPrivateAccess"`
 	EndpointPublicAccess   bool     `json:"endpointPublicAccess"`
-	ClusterSecurityGroupId string   `json:"clusterSecurityGroupId,omitempty"`
-	VpcId                  string   `json:"vpcId,omitempty"`
 }
 
 // KubernetesNetworkConfig captures cluster networking parameters.
@@ -312,11 +312,11 @@ func (b *InMemoryBackend) CreateCluster(
 		cp.SubnetIDs = cloneStrings(vpcConfig.SubnetIDs)
 		cp.SecurityGroupIDs = cloneStrings(vpcConfig.SecurityGroupIDs)
 		cp.PublicAccessCIDRs = cloneStrings(vpcConfig.PublicAccessCIDRs)
-		if cp.ClusterSecurityGroupId == "" {
-			cp.ClusterSecurityGroupId = "sg-" + stableID(name)
+		if cp.ClusterSecurityGroupID == "" {
+			cp.ClusterSecurityGroupID = "sg-" + stableID(name)
 		}
-		if cp.VpcId == "" {
-			cp.VpcId = "vpc-" + stableID(name)
+		if cp.VpcID == "" {
+			cp.VpcID = "vpc-" + stableID(name)
 		}
 		vpcCopy = &cp
 	}

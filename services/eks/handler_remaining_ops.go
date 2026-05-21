@@ -428,6 +428,7 @@ func fargateProfileToJSON(p *FargateProfile) map[string]any {
 	} else {
 		m["tags"] = map[string]string{}
 	}
+
 	return m
 }
 
@@ -523,6 +524,7 @@ func podIdentityToJSON(a *PodIdentityAssociation) map[string]any {
 	} else {
 		m["tags"] = map[string]string{}
 	}
+
 	return m
 }
 
@@ -1022,6 +1024,7 @@ func updateToJSON(u *Update) map[string]any {
 	if u.Errors == nil {
 		m["errors"] = []UpdateError{}
 	}
+
 	return m
 }
 

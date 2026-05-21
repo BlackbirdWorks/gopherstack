@@ -29,12 +29,14 @@ import (
 
 func newB1Backend(t *testing.T) *eks.InMemoryBackend {
 	t.Helper()
+
 	return eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
 }
 
 func newB1Handler(t *testing.T) (*eks.Handler, *eks.InMemoryBackend) {
 	t.Helper()
 	b := newB1Backend(t)
+
 	return eks.NewHandler(b), b
 }
 
@@ -46,6 +48,7 @@ func mustCreateCluster(t *testing.T, b *eks.InMemoryBackend, name string) *eks.C
 		EndpointPublicAccess: true,
 	}, nil, nil)
 	require.NoError(t, err)
+
 	return c
 }
 
@@ -53,14 +56,16 @@ func mustCreateClusterNoVpc(t *testing.T, b *eks.InMemoryBackend, name string) *
 	t.Helper()
 	c, err := b.CreateCluster(name, "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
+
 	return c
 }
 
-func mustCreateNodegroup(t *testing.T, b *eks.InMemoryBackend, cluster, name string) *eks.Nodegroup {
+func mustCreateNodegroup(t *testing.T, b *eks.InMemoryBackend, cluster string) *eks.Nodegroup {
 	t.Helper()
-	ng, err := b.CreateNodegroup(cluster, name, "arn:aws:iam::123456789012:role/ng",
+	ng, err := b.CreateNodegroup(cluster, "ng1", "arn:aws:iam::123456789012:role/ng",
 		"", "", "", "", []string{"subnet-aaa"}, 1, 1, 3, eks.NodegroupInput{}, nil)
 	require.NoError(t, err)
+
 	return ng
 }
 
@@ -69,6 +74,7 @@ func b1ParseCluster(t *testing.T, rec *httptest.ResponseRecorder) map[string]any
 	m := parseResp(t, rec)
 	cluster, ok := m["cluster"].(map[string]any)
 	require.True(t, ok, "response must have 'cluster' key")
+
 	return cluster
 }
 
@@ -77,6 +83,7 @@ func b1ParseNodegroup(t *testing.T, rec *httptest.ResponseRecorder) map[string]a
 	m := parseResp(t, rec)
 	ng, ok := m["nodegroup"].(map[string]any)
 	require.True(t, ok, "response must have 'nodegroup' key")
+
 	return ng
 }
 
@@ -251,7 +258,7 @@ func TestBatch1_EncryptionConfig_Replace_Reflected_In_Describe(t *testing.T) {
 // Gap 3: VpcConfig clusterSecurityGroupId + vpcId
 // ---------------------------------------------------------------------------
 
-func TestBatch1_VpcConfig_ClusterSecurityGroupId_Present(t *testing.T) {
+func TestBatch1_VpcConfig_ClusterSecurityGroupID_Present(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newB1Handler(t)
@@ -292,7 +299,7 @@ func TestBatch1_VpcConfig_VpcId_Present(t *testing.T) {
 		"vpcId must start with 'vpc-', got: %s", vpcID)
 }
 
-func TestBatch1_VpcConfig_ClusterSecurityGroupId_Stable_Per_Cluster(t *testing.T) {
+func TestBatch1_VpcConfig_ClusterSecurityGroupID_Stable_Per_Cluster(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newB1Handler(t)
@@ -669,7 +676,7 @@ func TestBatch1_Update_Params_NodegroupVersion(t *testing.T) {
 
 	b := newB1Backend(t)
 	mustCreateCluster(t, b, "ng-upd-cluster")
-	mustCreateNodegroup(t, b, "ng-upd-cluster", "ng1")
+	mustCreateNodegroup(t, b, "ng-upd-cluster")
 
 	upd, err := b.UpdateNodegroupVersion("ng-upd-cluster", "ng1", "1.33")
 	require.NoError(t, err)
@@ -812,7 +819,7 @@ func TestBatch1_Nodegroup_Status_ACTIVE_On_Create(t *testing.T) {
 
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "ng-status-cluster")
-	ng := mustCreateNodegroup(t, b, "ng-status-cluster", "ng1")
+	ng := mustCreateNodegroup(t, b, "ng-status-cluster")
 	assert.Equal(t, "ACTIVE", ng.Status, "CreateNodegroup must return ACTIVE status")
 }
 
@@ -821,7 +828,7 @@ func TestBatch1_Nodegroup_Status_DELETING_On_Delete(t *testing.T) {
 
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "ng-del-cluster")
-	mustCreateNodegroup(t, b, "ng-del-cluster", "ng1")
+	mustCreateNodegroup(t, b, "ng-del-cluster")
 
 	deleted, err := b.DeleteNodegroup("ng-del-cluster", "ng1")
 	require.NoError(t, err)
@@ -847,7 +854,7 @@ func TestBatch1_FargateProfile_Status_DELETING_On_Delete(t *testing.T) {
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "fp-del-cluster")
 
-	b.CreateFargateProfile("fp-del-cluster", "fp1", //nolint:errcheck
+	_, _ = b.CreateFargateProfile("fp-del-cluster", "fp1",
 		"arn:aws:iam::123:role/fargate",
 		[]eks.FargateProfileSelector{{Namespace: "default"}}, nil)
 
@@ -872,7 +879,7 @@ func TestBatch1_Addon_Status_DELETING_On_Delete(t *testing.T) {
 
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "addon-del-cluster")
-	b.CreateAddon("addon-del-cluster", "coredns", "", "", "", "", nil) //nolint:errcheck
+	_, _ = b.CreateAddon("addon-del-cluster", "coredns", "", "", "", "", nil)
 
 	deleted, err := b.DeleteAddon("addon-del-cluster", "coredns")
 	require.NoError(t, err)
@@ -899,7 +906,7 @@ func TestBatch1_Nodegroup_ARN_Format(t *testing.T) {
 
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "arn-ng-cluster")
-	ng := mustCreateNodegroup(t, b, "arn-ng-cluster", "ng1")
+	ng := mustCreateNodegroup(t, b, "arn-ng-cluster")
 
 	assert.Contains(t, ng.ARN, "arn:aws:eks:")
 	assert.Contains(t, ng.ARN, ":nodegroup/")
@@ -1139,7 +1146,7 @@ func TestBatch1_OIDC_List(t *testing.T) {
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "oidc-list-cluster")
 
-	b.AssociateIdentityProviderConfig("oidc-list-cluster", "oidc", "client-a", //nolint:errcheck
+	_, _ = b.AssociateIdentityProviderConfig("oidc-list-cluster", "oidc", "client-a",
 		map[string]string{"clientId": "client-a"}, nil)
 
 	configs, err := b.ListIdentityProviderConfigs("oidc-list-cluster")
@@ -1154,7 +1161,7 @@ func TestBatch1_OIDC_Disassociate(t *testing.T) {
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "oidc-del-cluster")
 
-	b.AssociateIdentityProviderConfig("oidc-del-cluster", "oidc", "client-b", //nolint:errcheck
+	_, _ = b.AssociateIdentityProviderConfig("oidc-del-cluster", "oidc", "client-b",
 		map[string]string{"clientId": "client-b"}, nil)
 
 	err := b.DisassociateIdentityProviderConfig("oidc-del-cluster", "client-b")
@@ -1195,7 +1202,7 @@ func TestBatch1_RBAC_AssociatePolicy(t *testing.T) {
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "rbac-policy-cluster")
 
-	b.CreateAccessEntry("rbac-policy-cluster", "arn:aws:iam::123:role/R1", "STANDARD", "", nil) //nolint:errcheck
+	_, _ = b.CreateAccessEntry("rbac-policy-cluster", "arn:aws:iam::123:role/R1", "STANDARD", "", nil)
 
 	scope := map[string]any{"type": "cluster"}
 	assoc, err := b.AssociateAccessPolicy(
@@ -1227,9 +1234,9 @@ func TestBatch1_RBAC_DisassociatePolicy(t *testing.T) {
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "rbac-dis-cluster")
 
-	b.CreateAccessEntry("rbac-dis-cluster", "arn:aws:iam::123:role/R2", "STANDARD", "", nil) //nolint:errcheck
+	_, _ = b.CreateAccessEntry("rbac-dis-cluster", "arn:aws:iam::123:role/R2", "STANDARD", "", nil)
 	policyARN := "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-	b.AssociateAccessPolicy("rbac-dis-cluster", "arn:aws:iam::123:role/R2", policyARN, //nolint:errcheck
+	_, _ = b.AssociateAccessPolicy("rbac-dis-cluster", "arn:aws:iam::123:role/R2", policyARN,
 		map[string]any{"type": "cluster"})
 
 	err := b.DisassociateAccessPolicy("rbac-dis-cluster", "arn:aws:iam::123:role/R2", policyARN)
@@ -1281,8 +1288,8 @@ func TestBatch1_PodIdentity_List(t *testing.T) {
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "pi-list-cluster")
 
-	b.CreatePodIdentityAssociation("pi-list-cluster", "ns1", "sa1", "arn:aws:iam::123:role/r1", nil) //nolint:errcheck
-	b.CreatePodIdentityAssociation("pi-list-cluster", "ns2", "sa2", "arn:aws:iam::123:role/r2", nil) //nolint:errcheck
+	_, _ = b.CreatePodIdentityAssociation("pi-list-cluster", "ns1", "sa1", "arn:aws:iam::123:role/r1", nil)
+	_, _ = b.CreatePodIdentityAssociation("pi-list-cluster", "ns2", "sa2", "arn:aws:iam::123:role/r2", nil)
 
 	assocs, err := b.ListPodIdentityAssociations("pi-list-cluster")
 	require.NoError(t, err)
@@ -1313,9 +1320,9 @@ func TestBatch1_Nodegroup_ScalingConfig_RoundTrip(t *testing.T) {
 
 	ng := b1ParseNodegroup(t, rec)
 	scaling := ng["scalingConfig"].(map[string]any)
-	assert.Equal(t, float64(3), scaling["desiredSize"])
-	assert.Equal(t, float64(1), scaling["minSize"])
-	assert.Equal(t, float64(10), scaling["maxSize"])
+	assert.InDelta(t, float64(3), scaling["desiredSize"], 0)
+	assert.InDelta(t, float64(1), scaling["minSize"], 0)
+	assert.InDelta(t, float64(10), scaling["maxSize"], 0)
 }
 
 func TestBatch1_Nodegroup_UpdateScalingConfig(t *testing.T) {
@@ -1340,9 +1347,9 @@ func TestBatch1_Nodegroup_UpdateScalingConfig(t *testing.T) {
 	rec2 := doREST(t, h, http.MethodGet, "/clusters/ng-upd-scale-cluster/node-groups/ng-to-scale", nil)
 	ng := b1ParseNodegroup(t, rec2)
 	scaling := ng["scalingConfig"].(map[string]any)
-	assert.Equal(t, float64(4), scaling["desiredSize"])
-	assert.Equal(t, float64(2), scaling["minSize"])
-	assert.Equal(t, float64(8), scaling["maxSize"])
+	assert.InDelta(t, float64(4), scaling["desiredSize"], 0)
+	assert.InDelta(t, float64(2), scaling["minSize"], 0)
+	assert.InDelta(t, float64(8), scaling["maxSize"], 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -1407,7 +1414,7 @@ func TestBatch1_DeleteCluster_Cascades_Nodegroup_Cleanup(t *testing.T) {
 
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "del-cascade-cluster2")
-	mustCreateNodegroup(t, b, "del-cascade-cluster2", "ng1")
+	mustCreateNodegroup(t, b, "del-cascade-cluster2")
 
 	_, err := b.DeleteCluster("del-cascade-cluster2")
 	require.NoError(t, err)
@@ -1509,7 +1516,7 @@ func TestBatch1_UpdateNodegroupVersion_Status_InProgress(t *testing.T) {
 
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "ng-inprog-cluster")
-	mustCreateNodegroup(t, b, "ng-inprog-cluster", "ng1")
+	mustCreateNodegroup(t, b, "ng-inprog-cluster")
 
 	upd, err := b.UpdateNodegroupVersion("ng-inprog-cluster", "ng1", "1.33")
 	require.NoError(t, err)
