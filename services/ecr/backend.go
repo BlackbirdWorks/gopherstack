@@ -361,7 +361,8 @@ var _ Backend = (*InMemoryBackend)(nil)
 // InMemoryBackend stores ECR repository state in memory.
 type InMemoryBackend struct {
 	repos                       map[string]*Repository
-	images                      map[string]map[string]*Image
+	images                      map[string]map[string]*Image  // repoName → digest → image
+	tagIndex                    map[string]map[string]string  // repoName → tag → digest
 	pullThroughCacheRules       map[string]*PullThroughCacheRule
 	repositoryCreationTemplates map[string]*RepositoryCreationTemplate
 	lifecyclePolicies           map[string]string
@@ -388,6 +389,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 	return &InMemoryBackend{
 		repos:                       make(map[string]*Repository),
 		images:                      make(map[string]map[string]*Image),
+		tagIndex:                    make(map[string]map[string]string),
 		pullThroughCacheRules:       make(map[string]*PullThroughCacheRule),
 		repositoryCreationTemplates: make(map[string]*RepositoryCreationTemplate),
 		lifecyclePolicies:           make(map[string]string),
@@ -517,6 +519,7 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 
 	delete(b.repos, name)
 	delete(b.images, name)
+	delete(b.tagIndex, name)
 	delete(b.uploadedLayers, name)
 	delete(b.lifecyclePolicies, name)
 	delete(b.lifecyclePolicyPreviews, name)
@@ -572,6 +575,9 @@ func (b *InMemoryBackend) BatchCheckLayerAvailability(
 }
 
 // BatchDeleteImage deletes the specified images from a repository.
+// When deleting by digest, all associated tags are removed and the image is deleted.
+// When deleting by tag, only that tag binding is removed; the image remains accessible
+// by digest (it becomes untagged if it had no other tags).
 func (b *InMemoryBackend) BatchDeleteImage(
 	repositoryName string,
 	imageIDs []ImageIdentifier,
@@ -583,23 +589,48 @@ func (b *InMemoryBackend) BatchDeleteImage(
 	failures := make([]ImageFailure, 0, len(imageIDs))
 
 	repoImages := b.images[repositoryName]
+	repoTags := b.tagIndex[repositoryName]
+
 	for _, id := range imageIDs {
 		found := false
 
 		if id.ImageDigest != "" {
 			if _, ok := repoImages[id.ImageDigest]; ok {
+				// Remove all tag bindings for this digest.
+				if repoTags != nil {
+					for tag, d := range repoTags {
+						if d == id.ImageDigest {
+							delete(repoTags, tag)
+						}
+					}
+				}
 				delete(repoImages, id.ImageDigest)
 				deleted = append(deleted, id)
 				found = true
 			}
 		} else if id.ImageTag != "" {
-			for digest, img := range repoImages {
-				if img.ImageID.ImageTag == id.ImageTag {
-					delete(repoImages, digest)
+			// Look up digest via tag index.
+			if repoTags != nil {
+				if digest, ok := repoTags[id.ImageTag]; ok {
+					// Remove tag binding only; keep image accessible by digest.
+					delete(repoTags, id.ImageTag)
+					if img, exists := repoImages[digest]; exists {
+						img.ImageID.ImageTag = ""
+					}
 					deleted = append(deleted, id)
 					found = true
-
-					break
+				}
+			}
+			// Fallback: linear scan for images stored with pre-tagIndex tag.
+			if !found {
+				for digest, img := range repoImages {
+					if img.ImageID.ImageTag == id.ImageTag {
+						img.ImageID.ImageTag = ""
+						_ = digest
+						deleted = append(deleted, id)
+						found = true
+						break
+					}
 				}
 			}
 		}
@@ -628,26 +659,18 @@ func (b *InMemoryBackend) BatchGetImage(
 	failures := make([]ImageFailure, 0, len(imageIDs))
 
 	repoImages := b.images[repositoryName]
+	repoTagIdx := b.tagIndex[repositoryName]
+
 	for _, id := range imageIDs {
-		found := false
-
-		if id.ImageDigest != "" {
-			if img, ok := repoImages[id.ImageDigest]; ok {
-				imgs = append(imgs, *img)
-				found = true
+		img, ok := findImageLocked(repoImages, repoTagIdx, id)
+		if ok {
+			cp := *img
+			// Preserve requested tag in imageId for the response.
+			if id.ImageTag != "" {
+				cp.ImageID.ImageTag = id.ImageTag
 			}
-		} else if id.ImageTag != "" {
-			for _, img := range repoImages {
-				if img.ImageID.ImageTag == id.ImageTag {
-					imgs = append(imgs, *img)
-					found = true
-
-					break
-				}
-			}
-		}
-
-		if !found {
+			imgs = append(imgs, cp)
+		} else {
 			failures = append(failures, ImageFailure{
 				ImageID:       id,
 				FailureCode:   "ImageNotFound",
@@ -676,7 +699,7 @@ func (b *InMemoryBackend) DescribeImages(repositoryName string, imageIDs []Image
 		}
 	} else {
 		for _, id := range imageIDs {
-			img, ok := findImageLocked(repoImages, id)
+			img, ok := findImageLocked(repoImages, b.tagIndex[repositoryName], id)
 			if !ok {
 				return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
 			}
@@ -1373,7 +1396,7 @@ func (b *InMemoryBackend) DescribeImageSigningStatus(
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	if _, ok := findImageLocked(b.images[repositoryName], imageID); !ok {
+	if _, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID); !ok {
 		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
 	}
 
@@ -1398,7 +1421,7 @@ func (b *InMemoryBackend) DescribeImageScanFindings(
 	b.mu.RLock("DescribeImageScanFindings")
 	defer b.mu.RUnlock()
 
-	img, ok := findImageLocked(b.images[repositoryName], imageID)
+	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
 		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
 	}
@@ -1429,7 +1452,7 @@ func (b *InMemoryBackend) StartImageScan(
 	b.mu.Lock("StartImageScan")
 	defer b.mu.Unlock()
 
-	img, ok := findImageLocked(b.images[repositoryName], imageID)
+	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
 		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
 	}
@@ -1484,7 +1507,7 @@ func (b *InMemoryBackend) ListImageReferrers(repositoryName string, subject Imag
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	if _, ok := findImageLocked(b.images[repositoryName], subject); !ok && subject.ImageDigest != "" {
+	if _, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], subject); !ok && subject.ImageDigest != "" {
 		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
 	}
 
@@ -1492,8 +1515,11 @@ func (b *InMemoryBackend) ListImageReferrers(repositoryName string, subject Imag
 }
 
 // PutImage creates or replaces an image manifest.
+// Digest is computed from the manifest content only (not the tag), matching AWS behaviour.
 // When the repository imageTagMutability is IMMUTABLE, attempts to retag an
 // existing image (same tag, different digest) are rejected with ErrImageTagAlreadyExists.
+// When pushing to a MUTABLE repo with a tag that already exists on a different digest,
+// the tag is moved to the new digest (the old image becomes untagged).
 func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, error) {
 	b.mu.Lock("PutImage")
 	defer b.mu.Unlock()
@@ -1503,19 +1529,36 @@ func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, 
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	// Compute digest before mutability check.
+	// Compute digest from manifest only (not tag), matching AWS ECR behaviour.
 	if image.ImageDigest == "" {
-		sum := sha256.Sum256([]byte(image.ImageManifest + image.ImageID.ImageTag))
+		sum := sha256.Sum256([]byte(image.ImageManifest))
 		image.ImageDigest = "sha256:" + hex.EncodeToString(sum[:])
 	}
 
+	tag := image.ImageID.ImageTag
+
+	// Ensure per-repo tagIndex exists.
+	if b.tagIndex[repositoryName] == nil {
+		b.tagIndex[repositoryName] = make(map[string]string)
+	}
+	repoTags := b.tagIndex[repositoryName]
+
 	// IMMUTABLE enforcement: reject retagging to a different digest.
-	if repo.ImageTagMutability == "IMMUTABLE" && image.ImageID.ImageTag != "" {
-		for _, existing := range b.images[repositoryName] {
-			if existing.ImageID.ImageTag == image.ImageID.ImageTag &&
-				existing.ImageDigest != image.ImageDigest {
-				return nil, fmt.Errorf("%w: tag %s already exists in immutable repository %s",
-					ErrImageTagAlreadyExists, image.ImageID.ImageTag, repositoryName)
+	if repo.ImageTagMutability == "IMMUTABLE" && tag != "" {
+		if existingDigest, has := repoTags[tag]; has && existingDigest != image.ImageDigest {
+			return nil, fmt.Errorf("%w: tag %s already exists in immutable repository %s",
+				ErrImageTagAlreadyExists, tag, repositoryName)
+		}
+	}
+
+	// If tag already points to a different digest, untag the old image.
+	if tag != "" {
+		if oldDigest, has := repoTags[tag]; has && oldDigest != image.ImageDigest {
+			if oldImg, exists := b.images[repositoryName][oldDigest]; exists {
+				// Remove the tag from the old image so it becomes untagged.
+				if oldImg.ImageID.ImageTag == tag {
+					oldImg.ImageID.ImageTag = ""
+				}
 			}
 		}
 	}
@@ -1546,6 +1589,11 @@ func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, 
 
 	stored := image
 	b.images[repositoryName][image.ImageDigest] = &stored
+
+	// Update tag index.
+	if tag != "" {
+		repoTags[tag] = image.ImageDigest
+	}
 
 	ret := stored
 
@@ -1607,7 +1655,7 @@ func (b *InMemoryBackend) DescribeImageReplicationStatus(
 	b.mu.RLock("DescribeImageReplicationStatus")
 	defer b.mu.RUnlock()
 
-	img, ok := findImageLocked(b.images[repositoryName], imageID)
+	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
 		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
 	}
@@ -1628,7 +1676,7 @@ func (b *InMemoryBackend) UpdateImageStorageClass(
 	b.mu.Lock("UpdateImageStorageClass")
 	defer b.mu.Unlock()
 
-	img, ok := findImageLocked(b.images[repositoryName], imageID)
+	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
 		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
 	}
@@ -1799,7 +1847,9 @@ func sortedTagKeys(tags map[string]string) []string {
 	return keys
 }
 
-func findImageLocked(images map[string]*Image, id ImageIdentifier) (*Image, bool) {
+// findImageLocked looks up an image by digest or tag.
+// tagIdx is the per-repository tag→digest index; it may be nil for older callers.
+func findImageLocked(images map[string]*Image, tagIdx map[string]string, id ImageIdentifier) (*Image, bool) {
 	if id.ImageDigest != "" {
 		img, ok := images[id.ImageDigest]
 
@@ -1807,6 +1857,15 @@ func findImageLocked(images map[string]*Image, id ImageIdentifier) (*Image, bool
 	}
 
 	if id.ImageTag != "" {
+		// Fast path via tag index.
+		if tagIdx != nil {
+			if digest, ok := tagIdx[id.ImageTag]; ok {
+				img, exists := images[digest]
+
+				return img, exists
+			}
+		}
+		// Fallback: linear scan for images without tag index entry.
 		for _, img := range images {
 			if img.ImageID.ImageTag == id.ImageTag {
 				return img, true
