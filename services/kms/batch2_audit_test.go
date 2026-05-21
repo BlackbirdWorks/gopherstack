@@ -183,7 +183,7 @@ func TestBatch2_ReplicateKey_PrimaryShowsReplica_InDescribeKey(t *testing.T) {
 	require.NotNil(t, desc.KeyMetadata.MultiRegionConfiguration)
 	assert.Equal(t, "PRIMARY", desc.KeyMetadata.MultiRegionConfiguration.MultiRegionKeyType)
 
-	replicaARNs := make([]string, 0)
+	replicaARNs := make([]string, 0, len(desc.KeyMetadata.MultiRegionConfiguration.ReplicaKeys))
 	for _, r := range desc.KeyMetadata.MultiRegionConfiguration.ReplicaKeys {
 		replicaARNs = append(replicaARNs, r.Arn)
 	}
@@ -638,12 +638,12 @@ func TestBatch2_ImportKeyMaterial_NoExpiryModel_RejectsValidTo(t *testing.T) {
 	keyID := b2mustCreateExternalKey(t, b)
 
 	mat := make([]byte, 32)
-	futureTs := float64(time.Now().Add(24 * time.Hour).UnixNano()) / 1e9
+	futureTS := float64(time.Now().Add(24*time.Hour).UnixNano()) / 1e9
 	err := b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
 		KeyID:           keyID,
 		KeyMaterial:     mat,
 		ExpirationModel: "KEY_MATERIAL_DOES_NOT_EXPIRE",
-		ValidTo:         futureTs,
+		ValidTo:         futureTS,
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ValidationException")
@@ -655,11 +655,11 @@ func TestBatch2_ImportKeyMaterial_WithValidTo_ExpiresModel(t *testing.T) {
 	keyID := b2mustCreateExternalKey(t, b)
 
 	mat := make([]byte, 32)
-	futureTs := float64(time.Now().Add(24 * time.Hour).UnixNano()) / 1e9
+	futureTS := float64(time.Now().Add(24*time.Hour).UnixNano()) / 1e9
 	require.NoError(t, b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
 		KeyID:       keyID,
 		KeyMaterial: mat,
-		ValidTo:     futureTs,
+		ValidTo:     futureTS,
 	}))
 
 	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
@@ -678,7 +678,7 @@ func TestBatch2_ImportKeyMaterial_NoValidTo_NoExpiryModel(t *testing.T) {
 	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, "KEY_MATERIAL_DOES_NOT_EXPIRE", desc.KeyMetadata.ExpirationModel)
-	assert.Equal(t, float64(0), desc.KeyMetadata.ValidTo)
+	assert.InDelta(t, float64(0), desc.KeyMetadata.ValidTo, 0)
 }
 
 func TestBatch2_ImportKeyMaterial_ReImport_ReplacesExisting(t *testing.T) {
@@ -721,7 +721,7 @@ func TestBatch2_ImportKeyMaterial_ExpiredMaterial_BlocksEncrypt(t *testing.T) {
 	keyID := b2mustCreateExternalKey(t, b)
 
 	// Import with past ValidTo (already expired)
-	pastTs := float64(time.Now().Add(-1 * time.Hour).UnixNano()) / 1e9
+	pastTS := float64(time.Now().Add(-1*time.Hour).UnixNano()) / 1e9
 
 	// Import must succeed (we allow setting past ValidTo for testing)
 	mat := make([]byte, 32)
@@ -738,7 +738,7 @@ func TestBatch2_ImportKeyMaterial_ExpiredMaterial_BlocksEncrypt(t *testing.T) {
 	require.NoError(t, b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
 		KeyID:       keyID,
 		KeyMaterial: mat,
-		ValidTo:     pastTs,
+		ValidTo:     pastTS,
 	}))
 
 	// Encrypt should fail because the material is past its ValidTo
@@ -866,7 +866,6 @@ func TestBatch2_GetParametersForImport_ValidWrappingAlgorithms(t *testing.T) {
 	}
 
 	for _, algo := range algorithms {
-		algo := algo
 		t.Run(algo, func(t *testing.T) {
 			t.Parallel()
 			keyID := b2mustCreateExternalKey(t, b)
@@ -886,7 +885,6 @@ func TestBatch2_GetParametersForImport_ValidWrappingKeySpecs(t *testing.T) {
 
 	specs := []string{"RSA_2048", "RSA_3072", "RSA_4096"}
 	for _, spec := range specs {
-		spec := spec
 		t.Run(spec, func(t *testing.T) {
 			t.Parallel()
 			keyID := b2mustCreateExternalKey(t, b)
@@ -1083,9 +1081,9 @@ func TestBatch2_Rotation_ListKeyRotations_Pagination(t *testing.T) {
 	keyID := out.KeyMetadata.KeyID
 
 	// Perform multiple on-demand rotations
-	for i := 0; i < 5; i++ {
-		_, err := b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: keyID})
-		require.NoError(t, err)
+	for range 5 {
+		_, rotErr := b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: keyID})
+		require.NoError(t, rotErr)
 	}
 
 	limit := int32(2)
@@ -1387,7 +1385,7 @@ func TestBatch2_UpdateKeyDescription_EmptyDescriptionAllowed(t *testing.T) {
 
 	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
-	assert.Equal(t, "", desc.KeyMetadata.Description)
+	assert.Empty(t, desc.KeyMetadata.Description)
 }
 
 func TestBatch2_UpdateKeyDescription_MaxLength_Accepted(t *testing.T) {
@@ -1472,8 +1470,14 @@ func TestBatch2_ListAliases_NoFilter_ReturnsAll(t *testing.T) {
 	out1, _ := b.CreateKey(&kms.CreateKeyInput{})
 	out2, _ := b.CreateKey(&kms.CreateKeyInput{})
 
-	require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/one", TargetKeyID: out1.KeyMetadata.KeyID}))
-	require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/two", TargetKeyID: out2.KeyMetadata.KeyID}))
+	require.NoError(
+		t,
+		b.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/one", TargetKeyID: out1.KeyMetadata.KeyID}),
+	)
+	require.NoError(
+		t,
+		b.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/two", TargetKeyID: out2.KeyMetadata.KeyID}),
+	)
 
 	aliases, err := b.ListAliases(&kms.ListAliasesInput{})
 	require.NoError(t, err)
@@ -1503,7 +1507,7 @@ func TestBatch2_ListAliases_Pagination(t *testing.T) {
 	out, _ := b.CreateKey(&kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		name := fmt.Sprintf("alias/pagtest-%d", i)
 		require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{AliasName: name, TargetKeyID: keyID}))
 	}
@@ -1789,7 +1793,10 @@ func TestBatch2_TagResource_AndListResourceTags_Roundtrip(t *testing.T) {
 	out, _ := b.CreateKey(&kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	body := fmt.Sprintf(`{"KeyId":"%s","Tags":[{"TagKey":"env","TagValue":"prod"},{"TagKey":"team","TagValue":"platform"}]}`, keyID)
+	body := fmt.Sprintf(
+		`{"KeyId":"%s","Tags":[{"TagKey":"env","TagValue":"prod"},{"TagKey":"team","TagValue":"platform"}]}`,
+		keyID,
+	)
 	rec := b2postKMSOp(t, h, "TagResource", body)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -1815,7 +1822,10 @@ func TestBatch2_UntagResource_RemovesSpecifiedTags(t *testing.T) {
 	out, _ := b.CreateKey(&kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	tagBody := fmt.Sprintf(`{"KeyId":"%s","Tags":[{"TagKey":"env","TagValue":"prod"},{"TagKey":"owner","TagValue":"alice"}]}`, keyID)
+	tagBody := fmt.Sprintf(
+		`{"KeyId":"%s","Tags":[{"TagKey":"env","TagValue":"prod"},{"TagKey":"owner","TagValue":"alice"}]}`,
+		keyID,
+	)
 	b2postKMSOp(t, h, "TagResource", tagBody)
 
 	untagBody := fmt.Sprintf(`{"KeyId":"%s","TagKeys":["owner"]}`, keyID)
@@ -1861,7 +1871,7 @@ func TestBatch2_TagResource_MaxTagsLimit_Enforced(t *testing.T) {
 
 	// Add 50 tags (the max)
 	tags := make([]string, 0, 50)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		tags = append(tags, fmt.Sprintf(`{"TagKey":"key-%d","TagValue":"val"}`, i))
 	}
 	firstBody := fmt.Sprintf(`{"KeyId":"%s","Tags":[%s]}`, keyID, strings.Join(tags, ","))
@@ -1884,7 +1894,7 @@ func TestBatch2_ListResourceTags_Pagination(t *testing.T) {
 
 	// Add 10 tags
 	tags := make([]string, 0, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		tags = append(tags, fmt.Sprintf(`{"TagKey":"t-%d","TagValue":"v"}`, i))
 	}
 	addBody := fmt.Sprintf(`{"KeyId":"%s","Tags":[%s]}`, keyID, strings.Join(tags, ","))
@@ -1896,8 +1906,8 @@ func TestBatch2_ListResourceTags_Pagination(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		Tags      []interface{} `json:"Tags"`
-		Truncated bool          `json:"Truncated"`
+		Tags      []any `json:"Tags"`
+		Truncated bool  `json:"Truncated"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Len(t, resp.Tags, 3)
@@ -2136,7 +2146,7 @@ func TestBatch2_Handler_EnableKeyRotation_ViaHTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	var status struct {
-		KeyRotationEnabled  bool  `json:"KeyRotationEnabled"`
+		KeyRotationEnabled   bool  `json:"KeyRotationEnabled"`
 		RotationPeriodInDays int32 `json:"RotationPeriodInDays"`
 	}
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &status))
@@ -2152,7 +2162,11 @@ func TestBatch2_Handler_CreateGrant_WithRetiringPrincipal_ViaHTTP(t *testing.T) 
 	out, _ := b.CreateKey(&kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	body := fmt.Sprintf(`{"KeyId":"%s","GranteePrincipal":"arn:aws:iam::123456789012:role/grantee","RetiringPrincipal":"arn:aws:iam::123456789012:role/retiree","Operations":["Encrypt"]}`, keyID)
+	body := fmt.Sprintf(
+		`{"KeyId":"%s","GranteePrincipal":"arn:aws:iam::123456789012:role/grantee",`+
+			`"RetiringPrincipal":"arn:aws:iam::123456789012:role/retiree","Operations":["Encrypt"]}`,
+		keyID,
+	)
 	rec := b2postKMSOp(t, h, "CreateGrant", body)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -2232,7 +2246,7 @@ func TestBatch2_ListKeys_Pagination_MultiplePages(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_, err := b.CreateKey(&kms.CreateKeyInput{})
 		require.NoError(t, err)
 	}
@@ -2305,7 +2319,6 @@ func TestBatch2_GenerateDataKeyPair_AllSpecs(t *testing.T) {
 
 	specs := []string{"RSA_2048", "RSA_3072", "RSA_4096", "ECC_NIST_P256", "ECC_NIST_P384", "ECC_NIST_P521"}
 	for _, spec := range specs {
-		spec := spec
 		t.Run(spec, func(t *testing.T) {
 			t.Parallel()
 			pairOut, err := b.GenerateDataKeyPair(&kms.GenerateDataKeyPairInput{
@@ -2376,7 +2389,7 @@ func TestBatch2_Concurrent_CreateGrant_And_ListGrants(t *testing.T) {
 	const workers = 5
 	errCh := make(chan error, workers*2)
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		go func(n int) {
 			_, err := b.CreateGrant(&kms.CreateGrantInput{
 				KeyID:            keyID,
@@ -2391,9 +2404,9 @@ func TestBatch2_Concurrent_CreateGrant_And_ListGrants(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < workers*2; i++ {
+	for range workers * 2 {
 		err := <-errCh
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	}
 }
 
@@ -2406,7 +2419,6 @@ func TestBatch2_Concurrent_ReplicateKey(t *testing.T) {
 
 	errCh := make(chan error, len(regions))
 	for _, region := range regions {
-		region := region
 		go func() {
 			_, err := b.ReplicateKey(&kms.ReplicateKeyInput{
 				KeyID:         primaryID,
@@ -2418,7 +2430,7 @@ func TestBatch2_Concurrent_ReplicateKey(t *testing.T) {
 
 	for range regions {
 		err := <-errCh
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	}
 
 	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: primaryID})
@@ -2463,4 +2475,3 @@ func encodeBase64(data []byte) string {
 
 	return string(encoded)
 }
-
