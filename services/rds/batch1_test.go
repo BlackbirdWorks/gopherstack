@@ -1,7 +1,9 @@
 package rds_test
 
 import (
+	"fmt"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -976,4 +978,210 @@ func TestHandler_TenantDatabase_DuplicateError(t *testing.T) {
 			"&DBInstanceIdentifier=db-1&TenantDBName=tdup&MasterUsername=admin")
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "TenantDatabaseAlreadyExists")
+}
+
+// ---- Concurrent access tests ----
+
+func TestDBShardGroup_ConcurrentReadWrite(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend(t)
+
+	for i := range 5 {
+		_, err := b.CreateDBShardGroup(fmt.Sprintf("sg-%d", i), "cluster-1", 64, 0, 0, false)
+		require.NoError(t, err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 30)
+
+	for range 10 {
+		wg.Go(func() {
+			if _, err := b.DescribeDBShardGroups(""); err != nil {
+				errs <- err
+			}
+		})
+	}
+
+	for i := range 10 {
+		wg.Go(func() {
+			if _, err := b.CreateDBShardGroup(
+				fmt.Sprintf("sg-concurrent-%d", i), "cluster-1", 32, 0, 0, false,
+			); err != nil {
+				errs <- err
+			}
+		})
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+}
+
+func TestIntegration_ConcurrentReadWrite(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend(t)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 20)
+
+	for i := range 10 {
+		wg.Go(func() {
+			if _, err := b.CreateIntegration(fmt.Sprintf("intg-conc-%d", i), "src", "tgt", ""); err != nil {
+				errs <- err
+			}
+		})
+	}
+
+	for range 10 {
+		wg.Go(func() {
+			if _, err := b.DescribeIntegrations(""); err != nil {
+				errs <- err
+			}
+		})
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+}
+
+func TestTenantDatabase_ConcurrentReadWrite(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend(t)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 20)
+
+	for i := range 10 {
+		wg.Go(func() {
+			if _, err := b.CreateTenantDatabase(fmt.Sprintf("db-%d", i), "tenantdb", "admin"); err != nil {
+				errs <- err
+			}
+		})
+	}
+
+	for range 10 {
+		wg.Go(func() {
+			if _, err := b.DescribeTenantDatabases("", ""); err != nil {
+				errs <- err
+			}
+		})
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+}
+
+// ---- Pagination tests ----
+
+func TestHandler_DescribeDBShardGroups_Pagination(t *testing.T) {
+	t.Parallel()
+	h := newRDSHandler()
+
+	// Create 5 shard groups
+	for i := range 5 {
+		rec := postRDSForm(t, h, fmt.Sprintf(
+			"Action=CreateDBShardGroup&Version=2014-10-31"+
+				"&DBShardGroupIdentifier=sg-%02d&DBClusterIdentifier=cluster-1&MaxACU=64", i,
+		))
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	// Paginate with MaxRecords=2
+	rec := postRDSForm(t, h, "Action=DescribeDBShardGroups&Version=2014-10-31&MaxRecords=2")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "Marker")
+}
+
+func TestHandler_DescribeIntegrations_Pagination(t *testing.T) {
+	t.Parallel()
+	h := newRDSHandler()
+
+	for i := range 5 {
+		rec := postRDSForm(t, h, fmt.Sprintf(
+			"Action=CreateIntegration&Version=2014-10-31"+
+				"&IntegrationName=intg-%02d&SourceArn=src&TargetArn=tgt", i,
+		))
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := postRDSForm(t, h, "Action=DescribeIntegrations&Version=2014-10-31&MaxRecords=2")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Marker")
+}
+
+func TestHandler_DescribeTenantDatabases_Pagination(t *testing.T) {
+	t.Parallel()
+	h := newRDSHandler()
+
+	for i := range 5 {
+		rec := postRDSForm(t, h, fmt.Sprintf(
+			"Action=CreateTenantDatabase&Version=2014-10-31"+
+				"&DBInstanceIdentifier=db-1&TenantDBName=t%02d&MasterUsername=admin", i,
+		))
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := postRDSForm(t, h, "Action=DescribeTenantDatabases&Version=2014-10-31&MaxRecords=2")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Marker")
+}
+
+// ---- ARN and resource ID format tests ----
+
+func TestCreateIntegration_ARNFormat(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend(t)
+
+	intg, err := b.CreateIntegration("my-intg", "src", "tgt", "")
+	require.NoError(t, err)
+	assert.Contains(t, intg.IntegrationArn, "arn:aws:rds:")
+	assert.Contains(t, intg.IntegrationArn, ":integration:")
+	assert.Contains(t, intg.IntegrationArn, "my-intg")
+}
+
+func TestCreateTenantDatabase_ARNFormat(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend(t)
+
+	tdb, err := b.CreateTenantDatabase("db-1", "tdb-1", "admin")
+	require.NoError(t, err)
+	assert.Contains(t, tdb.TenantDatabaseARN, "arn:aws:rds:")
+	assert.Contains(t, tdb.TenantDatabaseARN, ":tenant-database:")
+	assert.NotEmpty(t, tdb.DbiResourceID)
+}
+
+func TestCreateDBClusterAutomatedBackup_ResourceID(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend(t)
+
+	_, err := b.CreateDBCluster("cluster-1", "aurora-mysql", "admin", "db", "", 3306, nil, rds.DBClusterOptions{})
+	require.NoError(t, err)
+	backup := b.CreateDBClusterAutomatedBackup("cluster-1")
+	require.NotNil(t, backup)
+	assert.NotEmpty(t, backup.DBClusterResourceID)
+	assert.Equal(t, "cluster-1", backup.DBClusterIdentifier)
+}
+
+func TestCreateDBShardGroup_Fields(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend(t)
+
+	sg, err := b.CreateDBShardGroup("sg-fields", "cluster-1", 128.5, 16.0, 2, true)
+	require.NoError(t, err)
+	assert.InEpsilon(t, 128.5, sg.MaxACU, 0.001)
+	assert.InEpsilon(t, 16.0, sg.MinACU, 0.001)
+	assert.Equal(t, 2, sg.ComputeRedundancy)
+	assert.True(t, sg.PubliclyAccessible)
 }

@@ -216,6 +216,7 @@ type deleteDBShardGroupResponse struct {
 type describeDBShardGroupsResponse struct {
 	XMLName       xml.Name            `xml:"DescribeDBShardGroupsResponse"`
 	Xmlns         string              `xml:"xmlns,attr"`
+	Marker        string              `xml:"DescribeDBShardGroupsResult>Marker,omitempty"`
 	DBShardGroups xmlDBShardGroupList `xml:"DescribeDBShardGroupsResult>DBShardGroups"`
 }
 
@@ -258,6 +259,7 @@ type deleteIntegrationResponse struct {
 type describeIntegrationsResponse struct {
 	XMLName      xml.Name           `xml:"DescribeIntegrationsResponse"`
 	Xmlns        string             `xml:"xmlns,attr"`
+	Marker       string             `xml:"DescribeIntegrationsResult>Marker,omitempty"`
 	Integrations xmlIntegrationList `xml:"DescribeIntegrationsResult>Integrations"`
 }
 
@@ -292,6 +294,7 @@ type deleteTenantDatabaseResponse struct {
 type describeTenantDatabasesResponse struct {
 	XMLName         xml.Name              `xml:"DescribeTenantDatabasesResponse"`
 	Xmlns           string                `xml:"xmlns,attr"`
+	Marker          string                `xml:"DescribeTenantDatabasesResult>Marker,omitempty"`
 	TenantDatabases xmlTenantDatabaseList `xml:"DescribeTenantDatabasesResult>TenantDatabases"`
 }
 
@@ -482,17 +485,25 @@ func (h *Handler) handleDescribeDBShardGroups(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	members := make([]xmlDBShardGroup, 0, len(groups))
-	for _, sg := range groups {
-		members = append(members, xmlDBShardGroup{
-			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
-			DBClusterIdentifier:    sg.DBClusterIdentifier,
-			Status:                 sg.Status,
-		})
+	members, marker, err := paginateDescribe(vals, groups,
+		func(a, b DBShardGroup) bool {
+			return a.DBShardGroupIdentifier < b.DBShardGroupIdentifier
+		},
+		func(sg DBShardGroup) xmlDBShardGroup {
+			return xmlDBShardGroup{
+				DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
+				DBClusterIdentifier:    sg.DBClusterIdentifier,
+				Status:                 sg.Status,
+			}
+		},
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBShardGroupsResponse{
 		Xmlns:         rdsXMLNS,
+		Marker:        marker,
 		DBShardGroups: xmlDBShardGroupList{Members: members},
 	}, nil
 }
@@ -583,19 +594,25 @@ func (h *Handler) handleDescribeIntegrations(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	members := make([]xmlIntegration, 0, len(integrations))
-	for _, intg := range integrations {
-		members = append(members, xmlIntegration{
-			IntegrationName: intg.IntegrationName,
-			IntegrationArn:  intg.IntegrationArn,
-			SourceArn:       intg.SourceArn,
-			TargetArn:       intg.TargetArn,
-			Status:          intg.Status,
-		})
+	members, marker, err := paginateDescribe(vals, integrations,
+		func(a, b Integration) bool { return a.IntegrationName < b.IntegrationName },
+		func(intg Integration) xmlIntegration {
+			return xmlIntegration{
+				IntegrationName: intg.IntegrationName,
+				IntegrationArn:  intg.IntegrationArn,
+				SourceArn:       intg.SourceArn,
+				TargetArn:       intg.TargetArn,
+				Status:          intg.Status,
+			}
+		},
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeIntegrationsResponse{
 		Xmlns:        rdsXMLNS,
+		Marker:       marker,
 		Integrations: xmlIntegrationList{Members: members},
 	}, nil
 }
@@ -666,17 +683,28 @@ func (h *Handler) handleDescribeTenantDatabases(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	members := make([]xmlTenantDatabase, 0, len(tdbs))
-	for _, tdb := range tdbs {
-		members = append(members, xmlTenantDatabase{
-			TenantDatabaseName:   tdb.TenantDBName,
-			DBInstanceIdentifier: tdb.DBInstanceIdentifier,
-			Status:               tdb.Status,
-		})
+	members, marker, err := paginateDescribe(vals, tdbs,
+		func(a, b TenantDatabase) bool {
+			ka := a.DBInstanceIdentifier + "/" + a.TenantDBName
+			kb := b.DBInstanceIdentifier + "/" + b.TenantDBName
+
+			return ka < kb
+		},
+		func(tdb TenantDatabase) xmlTenantDatabase {
+			return xmlTenantDatabase{
+				TenantDatabaseName:   tdb.TenantDBName,
+				DBInstanceIdentifier: tdb.DBInstanceIdentifier,
+				Status:               tdb.Status,
+			}
+		},
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeTenantDatabasesResponse{
 		Xmlns:           rdsXMLNS,
+		Marker:          marker,
 		TenantDatabases: xmlTenantDatabaseList{Members: members},
 	}, nil
 }
