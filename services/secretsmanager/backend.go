@@ -80,6 +80,12 @@ const (
 	maxVersionsPerSecret = 100
 	// maxSecretValueBytes is the maximum allowed size of a secret value in bytes (64 KB).
 	maxSecretValueBytes = 65536
+	// maxTagsPerSecret is the maximum number of tags allowed per secret.
+	maxTagsPerSecret = 50
+	// maxResultsListSecrets is the maximum allowed MaxResults for ListSecrets/ListSecretVersionIds.
+	maxResultsListSecrets = 100
+	// maxResultsBatchGet is the maximum allowed MaxResults for BatchGetSecretValue.
+	maxResultsBatchGet = 20
 	// rotationSchedulerInterval controls the background schedule evaluation cadence.
 	rotationSchedulerInterval = time.Second
 	// hoursPerDay is the number of hours in a day, used for day-granularity truncation.
@@ -154,7 +160,8 @@ func (b *InMemoryBackend) buildARNWithRegion(region, name, suffix string) string
 	return arn.Build("secretsmanager", region, b.accountID, "secret:"+name+"-"+suffix)
 }
 
-// validateSecretName returns an error when the name is empty, too long, or contains invalid chars.
+// validateSecretName returns an error when the name is empty, too long, contains invalid chars,
+// or starts with the "aws/" prefix reserved for AWS managed secrets.
 func validateSecretName(name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: secret name must not be empty", ErrInvalidSecretName)
@@ -175,6 +182,43 @@ func validateSecretName(name string) error {
 		)
 	}
 
+	if strings.HasPrefix(name, "aws/") {
+		return fmt.Errorf(
+			"%w: secret name must not start with \"aws/\" (reserved for AWS managed secrets)",
+			ErrInvalidSecretName,
+		)
+	}
+
+	return nil
+}
+
+// validateMaxResults returns an error when MaxResults is outside [1, max].
+func validateMaxResults(n *int64, max int64) error {
+	if n == nil {
+		return nil
+	}
+
+	if *n < 1 || *n > max {
+		return fmt.Errorf(
+			"%w: MaxResults must be between 1 and %d",
+			ErrInvalidParameter,
+			max,
+		)
+	}
+
+	return nil
+}
+
+// validateTagCount returns an error when the total number of tags would exceed the AWS limit.
+func validateTagCount(existing int, adding int) error {
+	if existing+adding > maxTagsPerSecret {
+		return fmt.Errorf(
+			"%w: maximum of %d tags per secret exceeded",
+			ErrInvalidParameter,
+			maxTagsPerSecret,
+		)
+	}
+
 	return nil
 }
 
@@ -185,6 +229,10 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 	}
 
 	if err := validateSecretSize(input.SecretString, input.SecretBinary); err != nil {
+		return nil, err
+	}
+
+	if err := validateTagCount(0, len(input.Tags)); err != nil {
 		return nil, err
 	}
 
@@ -345,6 +393,13 @@ func (b *InMemoryBackend) findVersion(secret *Secret, versionID, versionStage st
 
 // PutSecretValue adds a new version to an existing secret.
 func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecretValueOutput, error) {
+	if input.SecretString == "" && len(input.SecretBinary) == 0 {
+		return nil, fmt.Errorf(
+			"%w: you must provide either SecretString or SecretBinary",
+			ErrInvalidParameter,
+		)
+	}
+
 	if err := validateSecretSize(input.SecretString, input.SecretBinary); err != nil {
 		return nil, err
 	}
@@ -560,6 +615,10 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 
 // ListSecrets returns a paginated list of secrets.
 func (b *InMemoryBackend) ListSecrets(input *ListSecretsInput) (*ListSecretsOutput, error) {
+	if err := validateMaxResults(input.MaxResults, maxResultsListSecrets); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("ListSecrets")
 	defer b.mu.RUnlock()
 
@@ -698,6 +757,10 @@ func secretHasTagValue(s *Secret, values []string) bool {
 
 // ListSecretVersionIDs returns the list of versions for a secret with optional pagination.
 func (b *InMemoryBackend) ListSecretVersionIDs(input *ListSecretVersionIDsInput) (*ListSecretVersionIDsOutput, error) {
+	if err := validateMaxResults(input.MaxResults, maxResultsListSecrets); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("ListSecretVersionIDs")
 	defer b.mu.RUnlock()
 
@@ -972,19 +1035,33 @@ func (b *InMemoryBackend) ListAll() []SecretListEntry {
 
 // secretToListEntry converts a Secret to a SecretListEntry.
 func secretToListEntry(s *Secret) SecretListEntry {
+	var versionStages map[string][]string
+	if len(s.Versions) > 0 {
+		versionStages = make(map[string][]string, len(s.Versions))
+		for id, v := range s.Versions {
+			if len(v.StagingLabels) > 0 {
+				versionStages[id] = append([]string(nil), v.StagingLabels...)
+			}
+		}
+		if len(versionStages) == 0 {
+			versionStages = nil
+		}
+	}
+
 	return SecretListEntry{
-		ARN:               s.ARN,
-		Name:              s.Name,
-		Description:       s.Description,
-		KmsKeyID:          s.KmsKeyID,
-		RotationLambdaARN: s.RotationLambdaARN,
-		RotationEnabled:   s.RotationEnabled,
-		DeletedDate:       s.DeletedDate,
-		LastChangedDate:   s.LastChangedDate,
-		LastAccessedDate:  s.LastAccessedDate,
-		LastRotatedDate:   s.LastRotatedDate,
-		CreatedDate:       s.CreatedDate,
-		Tags:              s.Tags,
+		ARN:                    s.ARN,
+		Name:                   s.Name,
+		Description:            s.Description,
+		KmsKeyID:               s.KmsKeyID,
+		RotationLambdaARN:      s.RotationLambdaARN,
+		RotationEnabled:        s.RotationEnabled,
+		DeletedDate:            s.DeletedDate,
+		LastChangedDate:        s.LastChangedDate,
+		LastAccessedDate:       s.LastAccessedDate,
+		LastRotatedDate:        s.LastRotatedDate,
+		CreatedDate:            s.CreatedDate,
+		Tags:                   s.Tags,
+		SecretVersionsToStages: versionStages,
 	}
 }
 
@@ -1020,6 +1097,16 @@ func (b *InMemoryBackend) TagResource(input *TagResourceInput) error {
 	if secret.DeletedDate != nil {
 		return ErrSecretDeleted
 	}
+
+	existingCount := 0
+	if secret.Tags != nil {
+		existingCount = len(secret.Tags.Clone())
+	}
+	// Count net new keys (keys not already present don't increase the total).
+	if err := validateTagCount(existingCount, len(input.Tags)); err != nil {
+		return err
+	}
+
 	if secret.Tags == nil {
 		secret.Tags = tags.New(id + ".tags")
 	}
@@ -1501,6 +1588,13 @@ func (b *InMemoryBackend) UntagSecretByARN(secretARN string, tagKeys []string) e
 
 // BatchGetSecretValue retrieves the values of multiple secrets in a single call.
 func (b *InMemoryBackend) BatchGetSecretValue(input *BatchGetSecretValueInput) (*BatchGetSecretValueOutput, error) {
+	if input.MaxResults != nil {
+		mr := int64(*input.MaxResults)
+		if err := validateMaxResults(&mr, maxResultsBatchGet); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.RLock("BatchGetSecretValue")
 	defer b.mu.RUnlock()
 
