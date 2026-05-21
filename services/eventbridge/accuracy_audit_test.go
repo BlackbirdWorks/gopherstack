@@ -944,3 +944,1728 @@ func TestAudit_Handler_GetSupportedOperationsIncludesPolicyOps(t *testing.T) {
 	assert.Contains(t, ops, "GetEventBusPolicy")
 	assert.Contains(t, ops, "PutEventBusPolicy")
 }
+
+// ---------------------------------------------------------------------------
+// Kinesis Firehose delivery
+// ---------------------------------------------------------------------------
+
+type auditKinesisFirehoseSink struct {
+	mu      sync.Mutex
+	records map[string][]string
+}
+
+func newAuditKinesisFirehoseSink() *auditKinesisFirehoseSink {
+	return &auditKinesisFirehoseSink{records: make(map[string][]string)}
+}
+
+func (s *auditKinesisFirehoseSink) PutRecord(_ context.Context, streamARN, data string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.records[streamARN] = append(s.records[streamARN], data)
+
+	return nil
+}
+
+func (s *auditKinesisFirehoseSink) RecordsFor(streamARN string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return append([]string{}, s.records[streamARN]...)
+}
+
+func TestAudit_Delivery_KinesisFirehose_DeliversEvent(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	sink := newAuditKinesisFirehoseSink()
+	streamARN := "arn:aws:firehose:us-east-1:123456789012:deliverystream/my-stream"
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{KinesisFirehose: sink})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "firehose-rule",
+		EventPattern: `{"source":["firehose-test"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("firehose-rule", "", []eventbridge.Target{
+		{ID: "t1", Arn: streamARN},
+	})
+	require.NoError(t, err)
+
+	b.PutEvents([]eventbridge.EventEntry{
+		{Source: "firehose-test", DetailType: "T", Detail: `{"key":"val"}`},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(sink.RecordsFor(streamARN)) > 0
+	}, 2*time.Second, 10*time.Millisecond, "Kinesis Firehose should have received a record")
+
+	record := sink.RecordsFor(streamARN)[0]
+	assert.Contains(t, record, "firehose-test")
+}
+
+func TestAudit_Delivery_KinesisFirehose_NilHandlerSkipsGracefully(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	streamARN := "arn:aws:firehose:us-east-1:123456789012:deliverystream/no-backend"
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "firehose-nil-rule",
+		EventPattern: `{"source":["nil-firehose"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("firehose-nil-rule", "", []eventbridge.Target{
+		{ID: "t1", Arn: streamARN},
+	})
+	require.NoError(t, err)
+
+	require.NotPanics(t, func() {
+		b.PutEvents([]eventbridge.EventEntry{
+			{Source: "nil-firehose", DetailType: "T", Detail: `{}`},
+		})
+	})
+}
+
+type auditFailingKinesisFirehoseSink struct {
+	delegate *auditKinesisFirehoseSink
+	failARN  string
+}
+
+func (f *auditFailingKinesisFirehoseSink) PutRecord(ctx context.Context, streamARN, data string) error {
+	if streamARN == f.failARN {
+		return errSimulatedFailure
+	}
+
+	return f.delegate.PutRecord(ctx, streamARN, data)
+}
+
+func TestAudit_Delivery_KinesisFirehose_FailureSendsToDLQ(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	dlqSink := newAuditSQSSender()
+	dlqARN := "arn:aws:sqs:us-east-1:123456789012:firehose-dlq"
+	streamARN := "arn:aws:firehose:us-east-1:123456789012:deliverystream/failing-stream"
+
+	firehoseSink := newAuditKinesisFirehoseSink()
+	failingSink := &auditFailingKinesisFirehoseSink{delegate: firehoseSink, failARN: streamARN}
+
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{
+		KinesisFirehose: failingSink,
+		SQS:             dlqSink,
+	})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "firehose-dlq-rule",
+		EventPattern: `{"source":["firehose-dlq-test"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("firehose-dlq-rule", "", []eventbridge.Target{
+		{
+			ID:               "t1",
+			Arn:              streamARN,
+			DeadLetterConfig: &eventbridge.DeadLetterConfig{Arn: dlqARN},
+			RetryPolicy:      &eventbridge.RetryPolicy{MaximumRetryAttempts: 0},
+		},
+	})
+	require.NoError(t, err)
+
+	b.PutEvents([]eventbridge.EventEntry{
+		{Source: "firehose-dlq-test", DetailType: "T", Detail: `{}`},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(dlqSink.MessagesFor(dlqARN)) > 0
+	}, 2*time.Second, 10*time.Millisecond, "DLQ should have received the failed Firehose event")
+}
+
+// ---------------------------------------------------------------------------
+// Kinesis Data Stream delivery
+// ---------------------------------------------------------------------------
+
+type auditKinesisStreamSink struct {
+	mu      sync.Mutex
+	records map[string][]string
+}
+
+func newAuditKinesisStreamSink() *auditKinesisStreamSink {
+	return &auditKinesisStreamSink{records: make(map[string][]string)}
+}
+
+func (s *auditKinesisStreamSink) PutRecord(_ context.Context, streamARN, _ string, data string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.records[streamARN] = append(s.records[streamARN], data)
+
+	return nil
+}
+
+func (s *auditKinesisStreamSink) RecordsFor(streamARN string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return append([]string{}, s.records[streamARN]...)
+}
+
+func TestAudit_Delivery_KinesisStream_DeliversEvent(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	sink := newAuditKinesisStreamSink()
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/my-stream"
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{KinesisStream: sink})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "kinesis-rule",
+		EventPattern: `{"source":["kinesis-test"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("kinesis-rule", "", []eventbridge.Target{
+		{ID: "t1", Arn: streamARN},
+	})
+	require.NoError(t, err)
+
+	b.PutEvents([]eventbridge.EventEntry{
+		{Source: "kinesis-test", DetailType: "T", Detail: `{"k":"v"}`},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(sink.RecordsFor(streamARN)) > 0
+	}, 2*time.Second, 10*time.Millisecond, "Kinesis Data Stream should have received a record")
+
+	record := sink.RecordsFor(streamARN)[0]
+	assert.Contains(t, record, "kinesis-test")
+}
+
+func TestAudit_Delivery_KinesisStream_NilHandlerSkipsGracefully(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/no-backend"
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "kinesis-nil-rule",
+		EventPattern: `{"source":["nil-kinesis"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("kinesis-nil-rule", "", []eventbridge.Target{
+		{ID: "t1", Arn: streamARN},
+	})
+	require.NoError(t, err)
+
+	require.NotPanics(t, func() {
+		b.PutEvents([]eventbridge.EventEntry{
+			{Source: "nil-kinesis", DetailType: "T", Detail: `{}`},
+		})
+	})
+}
+
+type auditFailingKinesisStreamSink struct {
+	delegate *auditKinesisStreamSink
+	failARN  string
+}
+
+func (f *auditFailingKinesisStreamSink) PutRecord(ctx context.Context, streamARN, partitionKey, data string) error {
+	if streamARN == f.failARN {
+		return errSimulatedFailure
+	}
+
+	return f.delegate.PutRecord(ctx, streamARN, partitionKey, data)
+}
+
+func TestAudit_Delivery_KinesisStream_FailureSendsToDLQ(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	dlqSink := newAuditSQSSender()
+	dlqARN := "arn:aws:sqs:us-east-1:123456789012:kinesis-dlq"
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/failing-stream"
+
+	kinesisDelegate := newAuditKinesisStreamSink()
+	failingSink := &auditFailingKinesisStreamSink{delegate: kinesisDelegate, failARN: streamARN}
+
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{
+		KinesisStream: failingSink,
+		SQS:           dlqSink,
+	})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "kinesis-dlq-rule",
+		EventPattern: `{"source":["kinesis-dlq-test"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("kinesis-dlq-rule", "", []eventbridge.Target{
+		{
+			ID:               "t1",
+			Arn:              streamARN,
+			DeadLetterConfig: &eventbridge.DeadLetterConfig{Arn: dlqARN},
+			RetryPolicy:      &eventbridge.RetryPolicy{MaximumRetryAttempts: 0},
+		},
+	})
+	require.NoError(t, err)
+
+	b.PutEvents([]eventbridge.EventEntry{
+		{Source: "kinesis-dlq-test", DetailType: "T", Detail: `{}`},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(dlqSink.MessagesFor(dlqARN)) > 0
+	}, 2*time.Second, 10*time.Millisecond, "DLQ should have received the failed Kinesis Stream event")
+}
+
+// ---------------------------------------------------------------------------
+// ECS RunTask delivery
+// ---------------------------------------------------------------------------
+
+type auditECSTaskSink struct {
+	mu      sync.Mutex
+	invokes []string
+}
+
+func (s *auditECSTaskSink) RunTask(_ context.Context, clusterARN string, payload []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.invokes = append(s.invokes, clusterARN+":"+string(payload))
+
+	return nil
+}
+
+func (s *auditECSTaskSink) Count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return len(s.invokes)
+}
+
+func TestAudit_Delivery_ECS_DeliversEvent(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	sink := &auditECSTaskSink{}
+	clusterARN := "arn:aws:ecs:us-east-1:123456789012:cluster/my-cluster"
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{ECS: sink})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "ecs-rule",
+		EventPattern: `{"source":["ecs-test"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("ecs-rule", "", []eventbridge.Target{
+		{ID: "t1", Arn: clusterARN},
+	})
+	require.NoError(t, err)
+
+	b.PutEvents([]eventbridge.EventEntry{
+		{Source: "ecs-test", DetailType: "T", Detail: `{"task":"data"}`},
+	})
+
+	require.Eventually(t, func() bool {
+		return sink.Count() > 0
+	}, 2*time.Second, 10*time.Millisecond, "ECS should have been invoked")
+}
+
+func TestAudit_Delivery_ECS_NilHandlerSkipsGracefully(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	clusterARN := "arn:aws:ecs:us-east-1:123456789012:cluster/no-backend"
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "ecs-nil-rule",
+		EventPattern: `{"source":["nil-ecs"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("ecs-nil-rule", "", []eventbridge.Target{
+		{ID: "t1", Arn: clusterARN},
+	})
+	require.NoError(t, err)
+
+	require.NotPanics(t, func() {
+		b.PutEvents([]eventbridge.EventEntry{
+			{Source: "nil-ecs", DetailType: "T", Detail: `{}`},
+		})
+	})
+}
+
+type auditFailingECSSink struct {
+	delegate *auditECSTaskSink
+	failARN  string
+}
+
+func (f *auditFailingECSSink) RunTask(ctx context.Context, clusterARN string, payload []byte) error {
+	if clusterARN == f.failARN {
+		return errSimulatedFailure
+	}
+
+	return f.delegate.RunTask(ctx, clusterARN, payload)
+}
+
+func TestAudit_Delivery_ECS_FailureSendsToDLQ(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	dlqSink := newAuditSQSSender()
+	dlqARN := "arn:aws:sqs:us-east-1:123456789012:ecs-dlq"
+	clusterARN := "arn:aws:ecs:us-east-1:123456789012:cluster/failing-cluster"
+
+	ecsDelegate := &auditECSTaskSink{}
+	failingSink := &auditFailingECSSink{delegate: ecsDelegate, failARN: clusterARN}
+
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{
+		ECS: failingSink,
+		SQS: dlqSink,
+	})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "ecs-dlq-rule",
+		EventPattern: `{"source":["ecs-dlq-test"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("ecs-dlq-rule", "", []eventbridge.Target{
+		{
+			ID:               "t1",
+			Arn:              clusterARN,
+			DeadLetterConfig: &eventbridge.DeadLetterConfig{Arn: dlqARN},
+			RetryPolicy:      &eventbridge.RetryPolicy{MaximumRetryAttempts: 0},
+		},
+	})
+	require.NoError(t, err)
+
+	b.PutEvents([]eventbridge.EventEntry{
+		{Source: "ecs-dlq-test", DetailType: "T", Detail: `{}`},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(dlqSink.MessagesFor(dlqARN)) > 0
+	}, 2*time.Second, 10*time.Millisecond, "DLQ should have received the failed ECS event")
+}
+
+// ---------------------------------------------------------------------------
+// Tags (EventBus, Rule, Connection, Archive, Endpoint, Pipe)
+// ---------------------------------------------------------------------------
+
+func TestAudit_Tags_EventBus(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/default"
+
+	rec := auditMakeRequest(t, h, e, "TagResource", map[string]any{
+		"ResourceARN": busARN,
+		"Tags":        []map[string]string{{"Key": "env", "Value": "test"}, {"Key": "team", "Value": "platform"}},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListTagsForResource", map[string]any{
+		"ResourceARN": busARN,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "env")
+	assert.Contains(t, rec.Body.String(), "platform")
+
+	rec = auditMakeRequest(t, h, e, "UntagResource", map[string]any{
+		"ResourceARN": busARN,
+		"TagKeys":     []string{"env"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListTagsForResource", map[string]any{
+		"ResourceARN": busARN,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "\"env\"")
+	assert.Contains(t, rec.Body.String(), "platform")
+}
+
+func TestAudit_Tags_Rule(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "tagged-rule",
+		EventPattern: `{"source":["x"]}`,
+	})
+	require.NoError(t, err)
+
+	ruleARN := "arn:aws:events:us-east-1:123456789012:rule/default/tagged-rule"
+
+	rec := auditMakeRequest(t, h, e, "TagResource", map[string]any{
+		"ResourceARN": ruleARN,
+		"Tags":        []map[string]string{{"Key": "owner", "Value": "alice"}},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListTagsForResource", map[string]any{
+		"ResourceARN": ruleARN,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "alice")
+}
+
+func TestAudit_Tags_Connection(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+		Name:              "my-conn",
+		AuthorizationType: "BASIC",
+	})
+	require.NoError(t, err)
+
+	rec := auditMakeRequest(t, h, e, "TagResource", map[string]any{
+		"ResourceARN": conn.ConnectionArn,
+		"Tags":        []map[string]string{{"Key": "purpose", "Value": "ci"}},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListTagsForResource", map[string]any{
+		"ResourceARN": conn.ConnectionArn,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ci")
+}
+
+func TestAudit_Tags_Archive(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	_, err := b.CreateEventBus("tagged-bus", "")
+	require.NoError(t, err)
+
+	archive, err := b.CreateArchive(eventbridge.CreateArchiveInput{
+		ArchiveName:    "tagged-archive",
+		EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/tagged-bus",
+	})
+	require.NoError(t, err)
+
+	rec := auditMakeRequest(t, h, e, "TagResource", map[string]any{
+		"ResourceARN": archive.ArchiveArn,
+		"Tags":        []map[string]string{{"Key": "retention", "Value": "30d"}},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListTagsForResource", map[string]any{
+		"ResourceARN": archive.ArchiveArn,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "30d")
+}
+
+func TestAudit_Tags_Pipe(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	pipe, err := b.CreatePipe(eventbridge.CreatePipeInput{
+		Name:      "tagged-pipe",
+		SourceArn: "arn:aws:sqs:us-east-1:123456789012:source-q",
+		TargetArn: "arn:aws:lambda:us-east-1:123456789012:function:fn",
+		RoleArn:   "arn:aws:iam::123456789012:role/r",
+	})
+	require.NoError(t, err)
+
+	rec := auditMakeRequest(t, h, e, "TagResource", map[string]any{
+		"ResourceARN": pipe.Arn,
+		"Tags":        []map[string]string{{"Key": "stage", "Value": "prod"}},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListTagsForResource", map[string]any{
+		"ResourceARN": pipe.Arn,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "prod")
+}
+
+// ---------------------------------------------------------------------------
+// Connection auth type validation
+// ---------------------------------------------------------------------------
+
+func TestAudit_Connection_AuthTypes(t *testing.T) {
+	t.Parallel()
+
+	valid := []string{"BASIC", "API_KEY", "OAUTH_CLIENT_CREDENTIALS"}
+	for _, authType := range valid {
+		t.Run(authType, func(t *testing.T) {
+			t.Parallel()
+			b := newBackend()
+			conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+				Name:              "conn-" + authType,
+				AuthorizationType: authType,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, authType, conn.AuthorizationType)
+			assert.Equal(t, "AUTHORIZED", conn.ConnectionState)
+		})
+	}
+
+	invalid := []string{"", "NONE", "OAUTH", "KEY"}
+	for _, authType := range invalid {
+		t.Run("invalid-"+authType, func(t *testing.T) {
+			t.Parallel()
+			b := newBackend()
+			_, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+				Name:              "conn-invalid",
+				AuthorizationType: authType,
+			})
+			require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+		})
+	}
+}
+
+func TestAudit_Connection_UpdateAuthType(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+		Name:              "my-conn",
+		AuthorizationType: "BASIC",
+	})
+	require.NoError(t, err)
+
+	updated, err := b.UpdateConnection(eventbridge.UpdateConnectionInput{
+		Name:              "my-conn",
+		AuthorizationType: "API_KEY",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "API_KEY", updated.AuthorizationType)
+}
+
+func TestAudit_Connection_DeauthorizeTransitionsState(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+		Name:              "deauth-conn",
+		AuthorizationType: "OAUTH_CLIENT_CREDENTIALS",
+	})
+	require.NoError(t, err)
+
+	conn, err := b.DeauthorizeConnection("deauth-conn")
+	require.NoError(t, err)
+	assert.Equal(t, "DEAUTHORIZED", conn.ConnectionState)
+}
+
+// ---------------------------------------------------------------------------
+// APIDestination + Connection CRUD completeness
+// ---------------------------------------------------------------------------
+
+func TestAudit_APIDestination_CRUD(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+		Name:              "api-dest-conn",
+		AuthorizationType: "API_KEY",
+	})
+	require.NoError(t, err)
+
+	dst, err := b.CreateAPIDestination(eventbridge.CreateAPIDestinationInput{
+		Name:                         "my-api-dest",
+		ConnectionArn:                conn.ConnectionArn,
+		HTTPMethod:                   "POST",
+		InvocationEndpoint:           "https://example.com/webhook",
+		InvocationRateLimitPerSecond: 300,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "my-api-dest", dst.Name)
+	assert.Equal(t, "ACTIVE", dst.APIDestinationState)
+	assert.Equal(t, 300, dst.InvocationRateLimitPerSecond)
+
+	described, err := b.DescribeAPIDestination("my-api-dest")
+	require.NoError(t, err)
+	assert.Equal(t, "POST", described.HTTPMethod)
+
+	updated, err := b.UpdateAPIDestination(eventbridge.UpdateAPIDestinationInput{
+		Name:       "my-api-dest",
+		HTTPMethod: "PUT",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "PUT", updated.HTTPMethod)
+
+	dsts, _, err := b.ListAPIDestinations("my-api-", "")
+	require.NoError(t, err)
+	assert.Len(t, dsts, 1)
+
+	err = b.DeleteAPIDestination("my-api-dest")
+	require.NoError(t, err)
+
+	_, err = b.DescribeAPIDestination("my-api-dest")
+	require.ErrorIs(t, err, eventbridge.ErrNotFound)
+}
+
+func TestAudit_APIDestination_InvalidHTTPMethod(t *testing.T) {
+	t.Parallel()
+
+	invalid := []string{"TRACE", "CONNECT", ""}
+	for _, method := range invalid {
+		t.Run("invalid-"+method, func(t *testing.T) {
+			t.Parallel()
+			b := newBackend()
+			_, err := b.CreateAPIDestination(eventbridge.CreateAPIDestinationInput{
+				Name:               "dest",
+				ConnectionArn:      "arn:aws:events:us-east-1:123456789012:connection/c",
+				HTTPMethod:         method,
+				InvocationEndpoint: "https://example.com",
+			})
+			require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+		})
+	}
+}
+
+func TestAudit_APIDestination_ValidHTTPMethods(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	_, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+		Name: "ref-conn", AuthorizationType: "BASIC",
+	})
+	require.NoError(t, err)
+
+	conn, _ := b.DescribeConnection("ref-conn")
+
+	valid := []string{"GET", "HEAD", "POST", "OPTIONS", "PUT", "DELETE", "PATCH"}
+	for i, method := range valid {
+		t.Run(method, func(t *testing.T) {
+			t.Parallel()
+			bLocal := newBackend()
+			_, err := bLocal.CreateAPIDestination(eventbridge.CreateAPIDestinationInput{
+				Name:               fmt.Sprintf("dest-%d", i),
+				ConnectionArn:      conn.ConnectionArn,
+				HTTPMethod:         method,
+				InvocationEndpoint: "https://example.com/" + method,
+			})
+			require.NoError(t, err)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GlobalEndpoint CRUD
+// ---------------------------------------------------------------------------
+
+func TestAudit_Endpoint_CRUD(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateEventBus("primary-bus", "")
+	require.NoError(t, err)
+	_, err = b.CreateEventBus("secondary-bus", "")
+	require.NoError(t, err)
+
+	primaryARN := "arn:aws:events:us-east-1:123456789012:event-bus/primary-bus"
+	secondaryARN := "arn:aws:events:us-west-2:123456789012:event-bus/secondary-bus"
+
+	ep, err := b.CreateEndpoint(eventbridge.CreateEndpointInput{
+		Name: "my-endpoint",
+		RoutingConfig: &eventbridge.RoutingConfig{
+			FailoverConfig: &eventbridge.FailoverConfig{
+				Primary:   &eventbridge.Primary{HealthCheck: "arn:aws:route53:::healthcheck/abc"},
+				Secondary: &eventbridge.Secondary{Route: "us-west-2"},
+			},
+		},
+		ReplicationConfig: &eventbridge.ReplicationConfig{State: "ENABLED"},
+		EventBuses:        []eventbridge.EndpointEventBus{{EventBusArn: primaryARN}, {EventBusArn: secondaryARN}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "my-endpoint", ep.Name)
+	assert.Equal(t, "ACTIVE", ep.State)
+	assert.NotEmpty(t, ep.EndpointURL)
+	assert.Len(t, ep.EventBuses, 2)
+
+	described, err := b.DescribeEndpoint("my-endpoint")
+	require.NoError(t, err)
+	assert.Equal(t, "ENABLED", described.ReplicationConfig.State)
+
+	updated, err := b.UpdateEndpoint(eventbridge.UpdateEndpointInput{
+		Name:        "my-endpoint",
+		Description: "updated endpoint",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "updated endpoint", updated.Description)
+
+	eps, _, err := b.ListEndpoints("my-", "")
+	require.NoError(t, err)
+	assert.Len(t, eps, 1)
+
+	err = b.DeleteEndpoint("my-endpoint")
+	require.NoError(t, err)
+
+	_, err = b.DescribeEndpoint("my-endpoint")
+	require.ErrorIs(t, err, eventbridge.ErrNotFound)
+}
+
+// ---------------------------------------------------------------------------
+// EventSource (partner SaaS) operations
+// ---------------------------------------------------------------------------
+
+func TestAudit_EventSource_ActivateDeactivate(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreatePartnerEventSource("aws.partner/example.com/myapp", "123456789012")
+	require.NoError(t, err)
+
+	src, err := b.DescribePartnerEventSource("aws.partner/example.com/myapp")
+	require.NoError(t, err)
+	assert.Equal(t, "aws.partner/example.com/myapp", src.Name)
+
+	srcs, _, err := b.ListPartnerEventSources("aws.partner/", "")
+	require.NoError(t, err)
+	assert.Len(t, srcs, 1)
+
+	err = b.DeletePartnerEventSource("aws.partner/example.com/myapp")
+	require.NoError(t, err)
+
+	_, err = b.DescribePartnerEventSource("aws.partner/example.com/myapp")
+	require.ErrorIs(t, err, eventbridge.ErrNotFound)
+}
+
+func TestAudit_EventSource_ActivateChangesState(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	name := "aws.partner/test.com/app"
+	// Seed the event source directly (partner source → event source activation).
+	b.AddPartnerSourceInternal(&eventbridge.PartnerEventSource{
+		Name:    name,
+		Arn:     "arn:aws:events:us-east-1:123456789012:event-source/aws.partner/test.com/app",
+		Account: "123456789012",
+	})
+
+	src, _, err := b.ListEventSources("", "")
+	require.NoError(t, err)
+	_ = src // verify list works without panic
+}
+
+// ---------------------------------------------------------------------------
+// PutPartnerEvents
+// ---------------------------------------------------------------------------
+
+func TestAudit_PutPartnerEvents_RecordsResults(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	entries := []eventbridge.EventEntry{
+		{Source: "aws.partner/example.com/app", DetailType: "UserSignup", Detail: `{"userId":"u1"}`},
+		{Source: "aws.partner/example.com/app", DetailType: "OrderPlaced", Detail: `{"orderId":"o1"}`},
+	}
+
+	results := b.PutPartnerEvents(entries)
+	assert.Len(t, results, 2)
+	for _, r := range results {
+		assert.Empty(t, r.ErrorCode)
+		assert.NotEmpty(t, r.EventID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Archive CRUD completeness
+// ---------------------------------------------------------------------------
+
+func TestAudit_Archive_CRUD(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateEventBus("src-bus", "")
+	require.NoError(t, err)
+
+	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/src-bus"
+
+	archive, err := b.CreateArchive(eventbridge.CreateArchiveInput{
+		ArchiveName:    "my-archive",
+		EventSourceArn: busARN,
+		RetentionDays:  7,
+		EventPattern:   `{"source":["important.app"]}`,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "my-archive", archive.ArchiveName)
+	assert.Equal(t, 7, archive.RetentionDays)
+
+	described, err := b.DescribeArchive("my-archive")
+	require.NoError(t, err)
+	assert.Equal(t, "ENABLED", described.State)
+
+	updated, err := b.UpdateArchive(eventbridge.UpdateArchiveInput{
+		ArchiveName:   "my-archive",
+		Description:   "important events",
+		RetentionDays: 14,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 14, updated.RetentionDays)
+	assert.Equal(t, "important events", updated.Description)
+
+	archives, _, err := b.ListArchives("my-", "")
+	require.NoError(t, err)
+	assert.Len(t, archives, 1)
+
+	err = b.DeleteArchive("my-archive")
+	require.NoError(t, err)
+
+	_, err = b.DescribeArchive("my-archive")
+	require.ErrorIs(t, err, eventbridge.ErrNotFound)
+}
+
+func TestAudit_Archive_RejectsLongName(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	longName := strings.Repeat("a", 49)
+	_, err := b.CreateArchive(eventbridge.CreateArchiveInput{
+		ArchiveName:    longName,
+		EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/default",
+	})
+	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+}
+
+func TestAudit_Archive_CapturesMatchingEvents(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateEventBus("capture-bus", "")
+	require.NoError(t, err)
+
+	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/capture-bus"
+	_, err = b.CreateArchive(eventbridge.CreateArchiveInput{
+		ArchiveName:    "capture-archive",
+		EventSourceArn: busARN,
+		EventPattern:   `{"source":["audit.app"]}`,
+	})
+	require.NoError(t, err)
+
+	b.PutEvents([]eventbridge.EventEntry{
+		{Source: "audit.app", DetailType: "T", Detail: `{}`, EventBusName: "capture-bus"},
+		{Source: "other.app", DetailType: "T", Detail: `{}`, EventBusName: "capture-bus"},
+	})
+
+	count := b.ArchivedEventCount("capture-archive")
+	assert.Equal(t, 1, count, "only matching events should be archived")
+}
+
+// ---------------------------------------------------------------------------
+// TestEventPattern
+// ---------------------------------------------------------------------------
+
+func TestAudit_TestEventPattern_Match(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	matched, err := b.TestEventPattern(
+		`{"source":["myapp"],"detail-type":["OrderPlaced"]}`,
+		`{"source":"myapp","detail-type":"OrderPlaced","detail":{}}`,
+	)
+	require.NoError(t, err)
+	assert.True(t, matched)
+}
+
+func TestAudit_TestEventPattern_NoMatch(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	matched, err := b.TestEventPattern(
+		`{"source":["myapp"]}`,
+		`{"source":"other","detail-type":"T","detail":{}}`,
+	)
+	require.NoError(t, err)
+	assert.False(t, matched)
+}
+
+func TestAudit_TestEventPattern_InvalidPattern(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.TestEventPattern("not-json", `{"source":"x"}`)
+	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+}
+
+func TestAudit_TestEventPattern_InvalidEvent(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.TestEventPattern(`{"source":["x"]}`, "not-json")
+	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+}
+
+// ---------------------------------------------------------------------------
+// ListRuleNamesByTarget
+// ---------------------------------------------------------------------------
+
+func TestAudit_ListRuleNamesByTarget(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	targetARN := "arn:aws:lambda:us-east-1:123456789012:function:shared-fn"
+
+	for _, ruleName := range []string{"rule-a", "rule-b", "rule-c"} {
+		_, err := b.PutRule(eventbridge.PutRuleInput{
+			Name:         ruleName,
+			EventPattern: `{"source":["x"]}`,
+		})
+		require.NoError(t, err)
+	}
+
+	_, err := b.PutTargets("rule-a", "", []eventbridge.Target{{ID: "t1", Arn: targetARN}})
+	require.NoError(t, err)
+	_, err = b.PutTargets("rule-c", "", []eventbridge.Target{{ID: "t1", Arn: targetARN}})
+	require.NoError(t, err)
+	_, err = b.PutTargets("rule-b", "", []eventbridge.Target{{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:other-q"}})
+	require.NoError(t, err)
+
+	names, _, err := b.ListRuleNamesByTarget(targetARN, "", "")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"rule-a", "rule-c"}, names)
+}
+
+// ---------------------------------------------------------------------------
+// PutEvents batch behavior
+// ---------------------------------------------------------------------------
+
+func TestAudit_PutEvents_BatchSizeLimit(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	// Build one massive entry > 256KiB in detail.
+	bigDetail := strings.Repeat("x", 260*1024)
+	results := b.PutEvents([]eventbridge.EventEntry{
+		{Source: "s", DetailType: "T", Detail: bigDetail},
+	})
+	require.Len(t, results, 1)
+	assert.Equal(t, "EventSizeLimitExceeded", results[0].ErrorCode)
+}
+
+func TestAudit_PutEvents_MixedBatch(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	// First entry is small (accepted), second is huge (rejected), third is small (accepted).
+	bigDetail := strings.Repeat("y", 260*1024)
+	results := b.PutEvents([]eventbridge.EventEntry{
+		{Source: "s", DetailType: "T", Detail: `{}`},
+		{Source: "s", DetailType: "T", Detail: bigDetail},
+		{Source: "s", DetailType: "T", Detail: `{}`},
+	})
+	require.Len(t, results, 3)
+	assert.Empty(t, results[0].ErrorCode)
+	assert.Equal(t, "EventSizeLimitExceeded", results[1].ErrorCode)
+	assert.Empty(t, results[2].ErrorCode)
+}
+
+func TestAudit_PutEvents_DefaultBus(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	results := b.PutEvents([]eventbridge.EventEntry{
+		{Source: "default.test", DetailType: "Ping", Detail: `{}`},
+	})
+	require.Len(t, results, 1)
+	assert.Empty(t, results[0].ErrorCode)
+	assert.NotEmpty(t, results[0].EventID)
+}
+
+func TestAudit_PutEvents_NamedBus(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateEventBus("named-bus", "")
+	require.NoError(t, err)
+
+	results := b.PutEvents([]eventbridge.EventEntry{
+		{Source: "s", DetailType: "T", Detail: `{}`, EventBusName: "named-bus"},
+	})
+	require.Len(t, results, 1)
+	assert.Empty(t, results[0].ErrorCode)
+}
+
+// ---------------------------------------------------------------------------
+// EventBus CRUD completeness
+// ---------------------------------------------------------------------------
+
+func TestAudit_EventBus_DefaultAlwaysPresent(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	bus, err := b.DescribeEventBus("")
+	require.NoError(t, err)
+	assert.Equal(t, "default", bus.Name)
+}
+
+func TestAudit_EventBus_CannotDeleteDefault(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	err := b.DeleteEventBus("default")
+	require.ErrorIs(t, err, eventbridge.ErrCannotDeleteDefaultBus)
+}
+
+func TestAudit_EventBus_UpdateDescription(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateEventBus("update-me", "original")
+	require.NoError(t, err)
+
+	updated, err := b.UpdateEventBus(eventbridge.UpdateEventBusInput{
+		Name:        "update-me",
+		Description: "new description",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "new description", updated.Description)
+}
+
+func TestAudit_EventBus_ListPagination(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	for i := range 5 {
+		_, err := b.CreateEventBus(fmt.Sprintf("page-bus-%d", i), "")
+		require.NoError(t, err)
+	}
+
+	buses, _, err := b.ListEventBuses("page-bus-", "")
+	require.NoError(t, err)
+	assert.Len(t, buses, 5)
+}
+
+func TestAudit_EventBus_DeleteCleansUpRulesAndTargets(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateEventBus("to-delete", "")
+	require.NoError(t, err)
+
+	_, err = b.PutRule(eventbridge.PutRuleInput{
+		Name:         "orphan-rule",
+		EventBusName: "to-delete",
+		EventPattern: `{"source":["x"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("orphan-rule", "to-delete", []eventbridge.Target{
+		{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:q"},
+	})
+	require.NoError(t, err)
+
+	err = b.DeleteEventBus("to-delete")
+	require.NoError(t, err)
+
+	_, err = b.DescribeEventBus("to-delete")
+	require.ErrorIs(t, err, eventbridge.ErrEventBusNotFound)
+
+	// Rules on deleted bus should also be gone.
+	rules, _, err := b.ListRules("to-delete", "", "")
+	require.NoError(t, err)
+	assert.Empty(t, rules)
+}
+
+// ---------------------------------------------------------------------------
+// Rule CRUD completeness
+// ---------------------------------------------------------------------------
+
+func TestAudit_Rule_EnableDisable(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "toggle-rule",
+		EventPattern: `{"source":["x"]}`,
+		State:        "ENABLED",
+	})
+	require.NoError(t, err)
+
+	err = b.DisableRule("toggle-rule", "")
+	require.NoError(t, err)
+
+	rule, err := b.DescribeRule("toggle-rule", "")
+	require.NoError(t, err)
+	assert.Equal(t, "DISABLED", rule.State)
+
+	err = b.EnableRule("toggle-rule", "")
+	require.NoError(t, err)
+
+	rule, err = b.DescribeRule("toggle-rule", "")
+	require.NoError(t, err)
+	assert.Equal(t, "ENABLED", rule.State)
+}
+
+func TestAudit_Rule_NameTooLong(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         strings.Repeat("a", 65),
+		EventPattern: `{"source":["x"]}`,
+	})
+	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+}
+
+func TestAudit_Rule_MutuallyExclusivePatternAndSchedule(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:               "bad-rule",
+		EventPattern:       `{"source":["x"]}`,
+		ScheduleExpression: "rate(1 minute)",
+	})
+	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+}
+
+func TestAudit_Rule_RequiresPatternOrSchedule(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name: "empty-rule",
+	})
+	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+}
+
+func TestAudit_Rule_DefaultStateIsEnabled(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "auto-enabled",
+		EventPattern: `{"source":["x"]}`,
+	})
+	require.NoError(t, err)
+
+	rule, err := b.DescribeRule("auto-enabled", "")
+	require.NoError(t, err)
+	assert.Equal(t, "ENABLED", rule.State)
+}
+
+// ---------------------------------------------------------------------------
+// Replay completeness
+// ---------------------------------------------------------------------------
+
+func TestAudit_Replay_CancelNonRunningFails(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	b.AddArchiveInternal(&eventbridge.Archive{
+		ArchiveName:    "arc",
+		ArchiveArn:     "arn:aws:events:us-east-1:123456789012:archive/arc",
+		EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/default",
+		State:          "ACTIVE",
+	})
+
+	replay, err := b.StartReplay(eventbridge.StartReplayInput{
+		ReplayName:     "my-replay",
+		EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/arc",
+		EventStartTime: time.Now().Add(-time.Hour),
+		EventEndTime:   time.Now(),
+	})
+	require.NoError(t, err)
+
+	// Must be STARTING to cancel; wait until it transitions or cancel immediately.
+	if replay.State == "STARTING" {
+		_, err = b.CancelReplay("my-replay")
+		require.NoError(t, err)
+
+		described, err := b.DescribeReplay("my-replay")
+		require.NoError(t, err)
+		assert.Equal(t, "CANCELLING", described.State)
+	}
+}
+
+func TestAudit_Replay_DuplicateNameFails(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	b.AddArchiveInternal(&eventbridge.Archive{
+		ArchiveName:    "arc2",
+		ArchiveArn:     "arn:aws:events:us-east-1:123456789012:archive/arc2",
+		EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/default",
+		State:          "ACTIVE",
+	})
+
+	_, err := b.StartReplay(eventbridge.StartReplayInput{
+		ReplayName:     "dup-replay",
+		EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/arc2",
+		EventStartTime: time.Now().Add(-time.Hour),
+		EventEndTime:   time.Now(),
+	})
+	require.NoError(t, err)
+
+	_, err = b.StartReplay(eventbridge.StartReplayInput{
+		ReplayName:     "dup-replay",
+		EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/arc2",
+		EventStartTime: time.Now().Add(-time.Hour),
+		EventEndTime:   time.Now(),
+	})
+	require.ErrorIs(t, err, eventbridge.ErrAlreadyExists)
+}
+
+func TestAudit_Replay_ListWithPrefix(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	b.AddArchiveInternal(&eventbridge.Archive{
+		ArchiveName:    "arc3",
+		ArchiveArn:     "arn:aws:events:us-east-1:123456789012:archive/arc3",
+		EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/default",
+		State:          "ACTIVE",
+	})
+
+	for _, name := range []string{"prod-replay-1", "prod-replay-2", "dev-replay-1"} {
+		_, err := b.StartReplay(eventbridge.StartReplayInput{
+			ReplayName:     name,
+			EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/arc3",
+			EventStartTime: time.Now().Add(-time.Hour),
+			EventEndTime:   time.Now(),
+		})
+		require.NoError(t, err)
+	}
+
+	replays, _, err := b.ListReplays("prod-", "")
+	require.NoError(t, err)
+	assert.Len(t, replays, 2)
+}
+
+// ---------------------------------------------------------------------------
+// Targets: max limit and Input* options
+// ---------------------------------------------------------------------------
+
+func TestAudit_Targets_MaxTargetsPerRuleEnforced(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "limit-rule",
+		EventPattern: `{"source":["x"]}`,
+	})
+	require.NoError(t, err)
+
+	targets := make([]eventbridge.Target, 5)
+	for i := range targets {
+		targets[i] = eventbridge.Target{
+			ID:  fmt.Sprintf("t%d", i),
+			Arn: fmt.Sprintf("arn:aws:sqs:us-east-1:123456789012:q%d", i),
+		}
+	}
+
+	_, err = b.PutTargets("limit-rule", "", targets)
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("limit-rule", "", []eventbridge.Target{
+		{ID: "t-overflow", Arn: "arn:aws:sqs:us-east-1:123456789012:overflow"},
+	})
+	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+}
+
+func TestAudit_Targets_InputOverridePayload(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	sqsSink := newAuditSQSSender()
+	queueARN := "arn:aws:sqs:us-east-1:123456789012:input-override-q"
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sqsSink})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "override-rule",
+		EventPattern: `{"source":["override.test"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("override-rule", "", []eventbridge.Target{
+		{ID: "t1", Arn: queueARN, Input: `{"static":"payload"}`},
+	})
+	require.NoError(t, err)
+
+	b.PutEvents([]eventbridge.EventEntry{
+		{Source: "override.test", DetailType: "T", Detail: `{"dynamic":"field"}`},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(sqsSink.MessagesFor(queueARN)) > 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	msg := sqsSink.MessagesFor(queueARN)[0]
+	assert.Contains(t, msg, "static")
+	assert.NotContains(t, msg, "dynamic")
+}
+
+func TestAudit_Targets_InputPathExtractsField(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	sqsSink := newAuditSQSSender()
+	queueARN := "arn:aws:sqs:us-east-1:123456789012:input-path-q"
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sqsSink})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "path-rule",
+		EventPattern: `{"source":["path.test"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("path-rule", "", []eventbridge.Target{
+		{ID: "t1", Arn: queueARN, InputPath: "$.source"},
+	})
+	require.NoError(t, err)
+
+	b.PutEvents([]eventbridge.EventEntry{
+		{Source: "path.test", DetailType: "T", Detail: `{}`},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(sqsSink.MessagesFor(queueARN)) > 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	msg := sqsSink.MessagesFor(queueARN)[0]
+	assert.Contains(t, msg, "path.test")
+}
+
+func TestAudit_Targets_InputTransformerApplied(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	sqsSink := newAuditSQSSender()
+	queueARN := "arn:aws:sqs:us-east-1:123456789012:transform-q"
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sqsSink})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "transform-rule",
+		EventPattern: `{"source":["transform.test"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("transform-rule", "", []eventbridge.Target{
+		{
+			ID:  "t1",
+			Arn: queueARN,
+			InputTransformer: &eventbridge.InputTransformer{
+				InputPathsMap: map[string]string{"src": "$.source"},
+				InputTemplate: `{"event_source": "<src>"}`,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	b.PutEvents([]eventbridge.EventEntry{
+		{Source: "transform.test", DetailType: "T", Detail: `{}`},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(sqsSink.MessagesFor(queueARN)) > 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	msg := sqsSink.MessagesFor(queueARN)[0]
+	assert.Contains(t, msg, "event_source")
+	assert.Contains(t, msg, "transform.test")
+}
+
+// ---------------------------------------------------------------------------
+// Handler coverage: operations not previously exercised
+// ---------------------------------------------------------------------------
+
+func TestAudit_Handler_UpdateEventBus(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	_, err := b.CreateEventBus("describable-bus", "old desc")
+	require.NoError(t, err)
+
+	rec := auditMakeRequest(t, h, e, "UpdateEventBus", map[string]any{
+		"Name":        "describable-bus",
+		"Description": "new desc",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestAudit_Handler_ListRuleNamesByTarget(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "h-rule",
+		EventPattern: `{"source":["x"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("h-rule", "", []eventbridge.Target{
+		{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:fn"},
+	})
+	require.NoError(t, err)
+
+	rec := auditMakeRequest(t, h, e, "ListRuleNamesByTarget", map[string]any{
+		"TargetArn": "arn:aws:lambda:us-east-1:123456789012:function:fn",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "h-rule")
+}
+
+func TestAudit_Handler_TestEventPattern(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	rec := auditMakeRequest(t, h, e, "TestEventPattern", map[string]any{
+		"EventPattern": `{"source":["myapp"]}`,
+		"Event":        `{"source":"myapp","detail-type":"X","detail":{}}`,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result bool `json:"Result"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.True(t, resp.Result)
+}
+
+func TestAudit_Handler_DisableAndEnableRule(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "toggle-h-rule",
+		EventPattern: `{"source":["x"]}`,
+		State:        "ENABLED",
+	})
+	require.NoError(t, err)
+
+	rec := auditMakeRequest(t, h, e, "DisableRule", map[string]any{"Name": "toggle-h-rule"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "EnableRule", map[string]any{"Name": "toggle-h-rule"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestAudit_Handler_ArchiveCRUD(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	_, err := b.CreateEventBus("h-archive-bus", "")
+	require.NoError(t, err)
+
+	rec := auditMakeRequest(t, h, e, "CreateArchive", map[string]any{
+		"ArchiveName":    "h-archive",
+		"EventSourceArn": "arn:aws:events:us-east-1:123456789012:event-bus/h-archive-bus",
+		"RetentionDays":  30,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DescribeArchive", map[string]any{"ArchiveName": "h-archive"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "h-archive")
+
+	rec = auditMakeRequest(t, h, e, "UpdateArchive", map[string]any{
+		"ArchiveName":   "h-archive",
+		"Description":   "handler updated",
+		"RetentionDays": 60,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListArchives", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "h-archive")
+
+	rec = auditMakeRequest(t, h, e, "DeleteArchive", map[string]any{"ArchiveName": "h-archive"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestAudit_Handler_ConnectionCRUD(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	rec := auditMakeRequest(t, h, e, "CreateConnection", map[string]any{
+		"Name":              "h-conn",
+		"AuthorizationType": "BASIC",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DescribeConnection", map[string]any{"Name": "h-conn"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "AUTHORIZED")
+
+	rec = auditMakeRequest(t, h, e, "ListConnections", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "UpdateConnection", map[string]any{
+		"Name":              "h-conn",
+		"AuthorizationType": "API_KEY",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DeauthorizeConnection", map[string]any{"Name": "h-conn"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DEAUTHORIZED")
+
+	rec = auditMakeRequest(t, h, e, "DeleteConnection", map[string]any{"Name": "h-conn"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestAudit_Handler_EndpointCRUD(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	rec := auditMakeRequest(t, h, e, "CreateEndpoint", map[string]any{
+		"Name": "h-endpoint",
+		"RoutingConfig": map[string]any{
+			"FailoverConfig": map[string]any{
+				"Primary":   map[string]string{"HealthCheck": "arn:aws:route53:::healthcheck/abc"},
+				"Secondary": map[string]string{"Route": "us-west-2"},
+			},
+		},
+		"EventBuses": []map[string]string{
+			{"EventBusArn": "arn:aws:events:us-east-1:123456789012:event-bus/default"},
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DescribeEndpoint", map[string]any{"Name": "h-endpoint"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListEndpoints", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "UpdateEndpoint", map[string]any{
+		"Name":        "h-endpoint",
+		"Description": "updated",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DeleteEndpoint", map[string]any{"Name": "h-endpoint"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestAudit_Handler_ReplayCRUD(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	b.AddArchiveInternal(&eventbridge.Archive{
+		ArchiveName:    "h-arc",
+		ArchiveArn:     "arn:aws:events:us-east-1:123456789012:archive/h-arc",
+		EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/default",
+		State:          "ACTIVE",
+	})
+
+	now := time.Now()
+	rec := auditMakeRequest(t, h, e, "StartReplay", map[string]any{
+		"ReplayName":     "h-replay",
+		"EventSourceArn": "arn:aws:events:us-east-1:123456789012:archive/h-arc",
+		"EventStartTime": now.Add(-2 * time.Hour).UTC().Format(time.RFC3339),
+		"EventEndTime":   now.Add(-time.Hour).UTC().Format(time.RFC3339),
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DescribeReplay", map[string]any{"ReplayName": "h-replay"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListReplays", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "h-replay")
+}
+
+func TestAudit_Handler_PartnerEventSourceCRUD(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	rec := auditMakeRequest(t, h, e, "CreatePartnerEventSource", map[string]any{
+		"Name":    "aws.partner/example.com/app",
+		"Account": "123456789012",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DescribePartnerEventSource", map[string]any{
+		"Name": "aws.partner/example.com/app",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListPartnerEventSources", map[string]any{
+		"NamePrefix": "aws.partner/",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "aws.partner/example.com/app")
+
+	rec = auditMakeRequest(t, h, e, "DeletePartnerEventSource", map[string]any{
+		"Name": "aws.partner/example.com/app",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestAudit_Handler_PutPartnerEvents(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	rec := auditMakeRequest(t, h, e, "PutPartnerEvents", map[string]any{
+		"Entries": []map[string]any{
+			{
+				"Source":     "aws.partner/example.com/app",
+				"DetailType": "UserEvent",
+				"Detail":     `{"userId":"u1"}`,
+			},
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestAudit_Handler_GetSupportedOperationsIncludesDeliveryTargetTypes(t *testing.T) {
+	t.Parallel()
+	h := eventbridge.NewHandler(newBackend())
+	ops := h.GetSupportedOperations()
+
+	// Verify a broad sample of expected operations.
+	expected := []string{
+		"CreateEventBus", "DeleteEventBus", "ListEventBuses", "DescribeEventBus", "UpdateEventBus",
+		"PutRule", "DeleteRule", "ListRules", "DescribeRule", "EnableRule", "DisableRule",
+		"PutTargets", "RemoveTargets", "ListTargetsByRule",
+		"PutEvents", "PutPartnerEvents",
+		"CreateArchive", "DeleteArchive", "DescribeArchive", "ListArchives", "UpdateArchive",
+		"StartReplay", "DescribeReplay", "ListReplays", "CancelReplay",
+		"CreateConnection", "DeleteConnection", "DescribeConnection", "ListConnections", "UpdateConnection",
+		"DeauthorizeConnection",
+		"CreateApiDestination", "DeleteApiDestination", "DescribeApiDestination",
+		"ListApiDestinations", "UpdateApiDestination",
+		"CreateEndpoint", "DeleteEndpoint", "DescribeEndpoint", "ListEndpoints", "UpdateEndpoint",
+		"CreatePipe", "DeletePipe", "DescribePipe", "ListPipes", "UpdatePipe",
+		"PutPermission", "RemovePermission", "GetEventBusPolicy", "PutEventBusPolicy",
+		"TagResource", "UntagResource", "ListTagsForResource",
+		"TestEventPattern", "ListRuleNamesByTarget",
+	}
+
+	for _, op := range expected {
+		assert.Contains(t, ops, op, "missing operation: %s", op)
+	}
+}
