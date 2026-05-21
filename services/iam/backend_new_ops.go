@@ -335,7 +335,7 @@ func validatePasswordAgainstPolicy(password string, policy *PasswordPolicy) erro
 		policy = defaultPasswordPolicy()
 	}
 
-	minLen := int(policy.MinimumPasswordLength)
+	minLen := policy.MinimumPasswordLength
 	if minLen == 0 {
 		minLen = defaultMinPasswordLength
 	}

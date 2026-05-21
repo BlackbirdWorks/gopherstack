@@ -140,16 +140,64 @@ func (b *InMemoryBackend) accessKeyCountLocked() (int, int) {
 }
 
 // GetCredentialReport generates a realistic base64-encoded CSV credential report.
+// credReportConsts holds string literals used in credential report CSV rows.
+const (
+	credNoInfo  = "no_information"
+	credFalse   = "false"
+	credTrue    = "true"
+	credCsvCols = 22 // 8 fixed + 5 per key × 2 + 4 cert fields
+)
+
+// credKeyFields returns the 5 CSV fields for one access key slot (or N/A placeholders).
+func credKeyFields(ak *AccessKey) []string {
+	if ak == nil {
+		return []string{credFalse, notApplicable, notApplicable, notApplicable, notApplicable}
+	}
+
+	active := credFalse
+	if ak.Status == accessKeyStatusActive {
+		active = credTrue
+	}
+
+	rotated := ak.CreateDate.UTC().Format(time.RFC3339)
+
+	lastUsedDate := notApplicable
+	lastUsedRegion := notApplicable
+	lastUsedService := notApplicable
+
+	if ak.LastUsedDate != nil {
+		lastUsedDate = ak.LastUsedDate.UTC().Format(time.RFC3339)
+		if ak.LastUsedRegion != "" {
+			lastUsedRegion = ak.LastUsedRegion
+		}
+
+		if ak.LastUsedServiceName != "" {
+			lastUsedService = ak.LastUsedServiceName
+		}
+	}
+
+	return []string{active, rotated, lastUsedDate, lastUsedRegion, lastUsedService}
+}
+
+// credUserMFAActive returns "true" if the user has at least one active MFA device.
+func credUserMFAActive(userName string, links map[string]string, devices map[string]VirtualMFADevice) string {
+	for serial, owner := range links {
+		if owner != userName {
+			continue
+		}
+
+		if dev, ok := devices[serial]; ok && dev.Status == MFAStatusEnabled {
+			return credTrue
+		}
+	}
+
+	return credFalse
+}
+
 // Each user row reflects actual login-profile and access-key state.
 func (b *InMemoryBackend) GetCredentialReport() string {
 	b.mu.RLock("GetCredentialReport")
 	defer b.mu.RUnlock()
-
-	const (
-		noInfo   = "no_information"
-		falseStr = "false"
-		trueStr  = "true"
-	)
 
 	users := sortedUsers(b.users)
 	const extraRows = 2
@@ -160,88 +208,64 @@ func (b *InMemoryBackend) GetCredentialReport() string {
 	rootArn := "arn:aws:iam::" + b.accountID + ":root"
 	lines = append(lines, strings.Join([]string{
 		"<root_account>", rootArn, time.Now().UTC().Format(time.RFC3339),
-		notApplicable, noInfo, notApplicable, notApplicable, falseStr,
-		falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
-		falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
-		falseStr, notApplicable, falseStr, notApplicable,
+		notApplicable, credNoInfo, notApplicable, notApplicable, credFalse,
+		credFalse, notApplicable, notApplicable, notApplicable, notApplicable,
+		credFalse, notApplicable, notApplicable, notApplicable, notApplicable,
+		credFalse, notApplicable, credFalse, notApplicable,
 	}, ","))
 
+	c := b.comp()
+	c.mu.Lock()
+	mfaLinks := make(map[string]string, len(c.mfaUserLinks))
+	for k, v := range c.mfaUserLinks {
+		mfaLinks[k] = v
+	}
+	c.mu.Unlock()
+
 	for _, u := range users {
-		createdAt := u.CreateDate.UTC().Format(time.RFC3339)
-
-		// Password / login profile.
-		_, hasLoginProfile := b.loginProfiles[u.UserName]
-		passwordEnabled := falseStr
-		if hasLoginProfile {
-			passwordEnabled = trueStr
-		}
-
-		// Collect access keys for this user (at most 2 in AWS).
-		var userKeys []AccessKey
-		for _, ak := range b.accessKeys {
-			if ak.UserName == u.UserName {
-				userKeys = append(userKeys, ak)
-			}
-		}
-
-		sort.Slice(userKeys, func(i, j int) bool {
-			return userKeys[i].CreateDate.Before(userKeys[j].CreateDate)
-		})
-
-		keyFields := func(idx int) []string {
-			if idx >= len(userKeys) {
-				return []string{falseStr, notApplicable, notApplicable, notApplicable, notApplicable}
-			}
-
-			ak := userKeys[idx]
-			active := falseStr
-			if ak.Status == accessKeyStatusActive {
-				active = trueStr
-			}
-
-			rotated := ak.CreateDate.UTC().Format(time.RFC3339)
-
-			lastUsedDate := notApplicable
-			lastUsedRegion := notApplicable
-			lastUsedService := notApplicable
-			if ak.LastUsedDate != nil {
-				lastUsedDate = ak.LastUsedDate.UTC().Format(time.RFC3339)
-				if ak.LastUsedRegion != "" {
-					lastUsedRegion = ak.LastUsedRegion
-				}
-				if ak.LastUsedServiceName != "" {
-					lastUsedService = ak.LastUsedServiceName
-				}
-			}
-
-			return []string{active, rotated, lastUsedDate, lastUsedRegion, lastUsedService}
-		}
-
-		// Determine whether the user has any active MFA device.
-		c := b.comp()
-		c.mu.Lock()
-		mfaActive := falseStr
-		for serial, owner := range c.mfaUserLinks {
-			if owner == u.UserName {
-				if dev, ok := b.virtualMFADevices[serial]; ok && dev.Status == MFAStatusEnabled {
-					mfaActive = trueStr
-					break
-				}
-			}
-		}
-		c.mu.Unlock()
-
-		// 22 CSV columns per row (8 fixed + 5 per key × 2 + 4 cert fields).
-		const csvCols = 22
-		row := make([]string, 0, csvCols)
-		row = append(row, u.UserName, u.Arn, createdAt,
-			passwordEnabled, noInfo, notApplicable, notApplicable,
-			mfaActive)
-		row = append(row, keyFields(0)...)
-		row = append(row, keyFields(1)...)
-		row = append(row, falseStr, notApplicable, falseStr, notApplicable)
-		lines = append(lines, strings.Join(row, ","))
+		lines = append(lines, b.credUserRow(u, mfaLinks))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// credUserRow builds the CSV row for a single IAM user.
+func (b *InMemoryBackend) credUserRow(u User, mfaLinks map[string]string) string {
+	createdAt := u.CreateDate.UTC().Format(time.RFC3339)
+
+	passwordEnabled := credFalse
+	if _, has := b.loginProfiles[u.UserName]; has {
+		passwordEnabled = credTrue
+	}
+
+	var userKeys []AccessKey
+	for _, ak := range b.accessKeys {
+		if ak.UserName == u.UserName {
+			userKeys = append(userKeys, ak)
+		}
+	}
+
+	sort.Slice(userKeys, func(i, j int) bool {
+		return userKeys[i].CreateDate.Before(userKeys[j].CreateDate)
+	})
+
+	keyAt := func(idx int) *AccessKey {
+		if idx < len(userKeys) {
+			return &userKeys[idx]
+		}
+
+		return nil
+	}
+
+	mfaActive := credUserMFAActive(u.UserName, mfaLinks, b.virtualMFADevices)
+
+	row := make([]string, 0, credCsvCols)
+	row = append(row, u.UserName, u.Arn, createdAt,
+		passwordEnabled, credNoInfo, notApplicable, notApplicable,
+		mfaActive)
+	row = append(row, credKeyFields(keyAt(0))...)
+	row = append(row, credKeyFields(keyAt(1))...)
+	row = append(row, credFalse, notApplicable, credFalse, notApplicable)
+
+	return strings.Join(row, ",")
 }

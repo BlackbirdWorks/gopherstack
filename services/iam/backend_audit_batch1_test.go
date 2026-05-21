@@ -27,7 +27,7 @@ func TestAccessKeyID_Format(t *testing.T) {
 	require.NoError(t, err)
 
 	// AWS access key IDs are exactly 20 characters starting with "AKIA".
-	assert.Equal(t, 20, len(ak.AccessKeyID), "access key ID must be 20 chars")
+	assert.Len(t, ak.AccessKeyID, 20, "access key ID must be 20 chars")
 	assert.True(t, strings.HasPrefix(ak.AccessKeyID, "AKIA"), "access key ID must start with AKIA")
 
 	// All characters after prefix must be uppercase alphanumeric (A–Z, 0–9).
@@ -82,7 +82,7 @@ func TestUserID_Format(t *testing.T) {
 
 	// User IDs are AIDA + 16 uppercase alphanumeric chars.
 	assert.True(t, strings.HasPrefix(u.UserID, "AIDA"), "user ID must start with AIDA")
-	assert.Equal(t, 20, len(u.UserID), "user ID must be 20 chars")
+	assert.Len(t, u.UserID, 20, "user ID must be 20 chars")
 	assert.NotContains(t, u.UserID, "-", "user ID must not contain dashes")
 
 	for _, ch := range u.UserID {
@@ -100,7 +100,7 @@ func TestRoleID_Format(t *testing.T) {
 
 	// Role IDs are AROA + 16 uppercase alphanumeric chars.
 	assert.True(t, strings.HasPrefix(r.RoleID, "AROA"), "role ID must start with AROA")
-	assert.Equal(t, 20, len(r.RoleID), "role ID must be 20 chars")
+	assert.Len(t, r.RoleID, 20, "role ID must be 20 chars")
 	assert.NotContains(t, r.RoleID, "-", "role ID must not contain dashes")
 
 	for _, ch := range r.RoleID {
@@ -118,7 +118,7 @@ func TestGroupID_Format(t *testing.T) {
 
 	// Group IDs are AGPA + 16 uppercase alphanumeric chars.
 	assert.True(t, strings.HasPrefix(g.GroupID, "AGPA"), "group ID must start with AGPA")
-	assert.Equal(t, 20, len(g.GroupID), "group ID must be 20 chars")
+	assert.Len(t, g.GroupID, 20, "group ID must be 20 chars")
 	assert.NotContains(t, g.GroupID, "-", "group ID must not contain dashes")
 
 	for _, ch := range g.GroupID {
@@ -136,7 +136,7 @@ func TestPolicyID_Format(t *testing.T) {
 
 	// Policy IDs are ANPA + 16 uppercase alphanumeric chars.
 	assert.True(t, strings.HasPrefix(p.PolicyID, "ANPA"), "policy ID must start with ANPA")
-	assert.Equal(t, 20, len(p.PolicyID), "policy ID must be 20 chars")
+	assert.Len(t, p.PolicyID, 20, "policy ID must be 20 chars")
 	assert.NotContains(t, p.PolicyID, "-", "policy ID must not contain dashes")
 
 	for _, ch := range p.PolicyID {
@@ -155,7 +155,7 @@ func TestInstanceProfileID_Format(t *testing.T) {
 	// Instance profile IDs are AIPA + 16 uppercase alphanumeric chars.
 	assert.True(t, strings.HasPrefix(ip.InstanceProfileID, "AIPA"),
 		"instance profile ID must start with AIPA")
-	assert.Equal(t, 20, len(ip.InstanceProfileID), "instance profile ID must be 20 chars")
+	assert.Len(t, ip.InstanceProfileID, 20, "instance profile ID must be 20 chars")
 	assert.NotContains(t, ip.InstanceProfileID, "-", "instance profile ID must not contain dashes")
 
 	for _, ch := range ip.InstanceProfileID {
@@ -225,7 +225,7 @@ func TestCreatePolicyVersion_LimitExceededError(t *testing.T) {
 	// 6th version must fail with LimitExceeded (not DeleteConflict).
 	_, err = b.CreatePolicyVersion(p.Arn, doc, false)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, iam.ErrLimitExceeded,
+	require.ErrorIs(t, err, iam.ErrLimitExceeded,
 		"exceeding 5 policy versions must return LimitExceeded")
 	assert.NotErrorIs(t, err, iam.ErrDeleteConflict,
 		"policy version limit must NOT return DeleteConflict")
@@ -331,7 +331,7 @@ func TestPasswordPolicy_ChangePassword_MinLength(t *testing.T) {
 
 	err := b.ChangePassword("short")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, iam.ErrInvalidPassword,
+	require.ErrorIs(t, err, iam.ErrInvalidPassword,
 		"password below minimum length must return ErrInvalidPassword")
 }
 
@@ -346,7 +346,7 @@ func TestPasswordPolicy_ChangePassword_Uppercase(t *testing.T) {
 
 	err := b.ChangePassword("alllower1")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, iam.ErrInvalidPassword, "no uppercase must fail")
+	require.ErrorIs(t, err, iam.ErrInvalidPassword, "no uppercase must fail")
 
 	err = b.ChangePassword("HasUpper1")
 	require.NoError(t, err, "password with uppercase must succeed")
@@ -363,7 +363,7 @@ func TestPasswordPolicy_ChangePassword_Lowercase(t *testing.T) {
 
 	err := b.ChangePassword("ALLUPPER1")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, iam.ErrInvalidPassword, "no lowercase must fail")
+	require.ErrorIs(t, err, iam.ErrInvalidPassword, "no lowercase must fail")
 
 	err = b.ChangePassword("haslower1")
 	require.NoError(t, err, "password with lowercase must succeed")

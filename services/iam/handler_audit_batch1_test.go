@@ -474,10 +474,10 @@ func TestHandler_VirtualMFA_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	req3 := iamRequest("EnableMFADevice", map[string]string{
-		"UserName":              "alice",
-		"SerialNumber":          dev.SerialNumber,
-		"AuthenticationCode1":   "123456",
-		"AuthenticationCode2":   "789012",
+		"UserName":            "alice",
+		"SerialNumber":        dev.SerialNumber,
+		"AuthenticationCode1": "123456",
+		"AuthenticationCode2": "789012",
 	})
 	rec3 := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req3, rec3)))
@@ -781,9 +781,9 @@ func TestHandler_OIDCProvider_CRUD(t *testing.T) {
 
 	// CreateOpenIDConnectProvider.
 	req := iamRequest("CreateOpenIDConnectProvider", map[string]string{
-		"Url":                         "https://example.com/oidc",
-		"ClientIDList.member.1":        "client1",
-		"ThumbprintList.member.1":      "abc123def456",
+		"Url":                     "https://example.com/oidc",
+		"ClientIDList.member.1":   "client1",
+		"ThumbprintList.member.1": "abc123def456",
 	})
 	rec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
@@ -1077,7 +1077,7 @@ func TestHandler_TagUser_RoundTrip(t *testing.T) {
 	_, _ = b.CreateUser("alice", "/", "")
 
 	req := iamRequest("TagUser", map[string]string{
-		"UserName":           "alice",
+		"UserName":            "alice",
 		"Tags.member.1.Key":   "env",
 		"Tags.member.1.Value": "prod",
 	})
@@ -1092,8 +1092,8 @@ func TestHandler_TagUser_RoundTrip(t *testing.T) {
 	assert.Contains(t, rec2.Body.String(), "prod")
 
 	req3 := iamRequest("UntagUser", map[string]string{
-		"UserName":              "alice",
-		"TagKeys.member.1":      "env",
+		"UserName":         "alice",
+		"TagKeys.member.1": "env",
 	})
 	rec3 := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req3, rec3)))
@@ -1111,7 +1111,7 @@ func TestHandler_TagRole_RoundTrip(t *testing.T) {
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 
 	req := iamRequest("TagRole", map[string]string{
-		"RoleName":           "MyRole",
+		"RoleName":            "MyRole",
 		"Tags.member.1.Key":   "team",
 		"Tags.member.1.Value": "platform",
 	})
