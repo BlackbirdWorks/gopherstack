@@ -42,6 +42,8 @@ var (
 	ErrListenerNotFound = awserr.New("ListenerNotFound", awserr.ErrNotFound)
 	// ErrInvalidInstance is returned when a specified instance is not registered with the LB.
 	ErrInvalidInstance = awserr.New("InvalidInstance", awserr.ErrInvalidParameter)
+	// ErrDuplicateListener is returned when a listener already exists on the requested port.
+	ErrDuplicateListener = awserr.New("DuplicateListener", awserr.ErrAlreadyExists)
 
 	// lbNameRe matches valid Classic ELB names: 1-32 chars, alphanumeric + hyphens,
 	// must start and end with alphanumeric.
@@ -90,13 +92,22 @@ type BackendServerDescription struct {
 	InstancePort int32    `json:"instancePort"`
 }
 
+// AccessLog holds access-log configuration for a Classic ELB.
+type AccessLog struct {
+	S3BucketName   string `json:"s3BucketName"`
+	S3BucketPrefix string `json:"s3BucketPrefix"`
+	EmitInterval   int32  `json:"emitInterval"`
+	Enabled        bool   `json:"enabled"`
+}
+
 // LoadBalancerAttributes holds tunable attributes for a Classic ELB.
 type LoadBalancerAttributes struct {
-	DesyncMitigationMode      string `json:"desyncMitigationMode"`
-	ConnectionDrainingTimeout int32  `json:"connectionDrainingTimeout"`
-	IdleTimeout               int32  `json:"idleTimeout"`
-	CrossZoneLoadBalancing    bool   `json:"crossZoneLoadBalancing"`
-	ConnectionDraining        bool   `json:"connectionDraining"`
+	DesyncMitigationMode      string    `json:"desyncMitigationMode"`
+	AccessLog                 AccessLog `json:"accessLog"`
+	ConnectionDrainingTimeout int32     `json:"connectionDrainingTimeout"`
+	IdleTimeout               int32     `json:"idleTimeout"`
+	CrossZoneLoadBalancing    bool      `json:"crossZoneLoadBalancing"`
+	ConnectionDraining        bool      `json:"connectionDraining"`
 }
 
 // defaultLBAttributes returns the default LoadBalancerAttributes used at
@@ -108,6 +119,7 @@ func defaultLBAttributes() LoadBalancerAttributes {
 		ConnectionDrainingTimeout: defaultConnectionDrainingTimeout,
 		IdleTimeout:               defaultIdleTimeout,
 		DesyncMitigationMode:      "defensive",
+		AccessLog:                 AccessLog{Enabled: false, EmitInterval: 60},
 	}
 }
 
@@ -712,10 +724,14 @@ func (b *InMemoryBackend) CreateLoadBalancerListeners(name string, listeners []L
 	}
 
 	for _, l := range listeners {
-		if !existing[l.LoadBalancerPort] {
-			lb.Listeners = append(lb.Listeners, l)
-			existing[l.LoadBalancerPort] = true
+		if existing[l.LoadBalancerPort] {
+			return fmt.Errorf("%w: a listener already exists on port %d", ErrDuplicateListener, l.LoadBalancerPort)
 		}
+	}
+
+	for _, l := range listeners {
+		lb.Listeners = append(lb.Listeners, l)
+		existing[l.LoadBalancerPort] = true
 	}
 
 	return nil

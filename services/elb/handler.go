@@ -671,6 +671,21 @@ func (h *Handler) handleModifyLoadBalancerAttributes(vals url.Values) (any, erro
 		)
 	}
 
+	// Validate AccessLog: enabled requires S3BucketName; EmitInterval must be 5 or 60.
+	if attrs.AccessLog.Enabled && attrs.AccessLog.S3BucketName == "" {
+		return nil, fmt.Errorf(
+			"%w: AccessLog.S3BucketName is required when AccessLog is enabled",
+			ErrInvalidParameter,
+		)
+	}
+
+	if attrs.AccessLog.EmitInterval != 0 && attrs.AccessLog.EmitInterval != 5 && attrs.AccessLog.EmitInterval != 60 {
+		return nil, fmt.Errorf(
+			"%w: AccessLog.EmitInterval must be 5 or 60 minutes",
+			ErrInvalidParameter,
+		)
+	}
+
 	result, err := h.Backend.ModifyLoadBalancerAttributes(name, attrs)
 	if err != nil {
 		return nil, err
@@ -1186,6 +1201,7 @@ func elbErrorCode(opErr error) (string, int) {
 	mappings := []errorMapping{
 		{ErrPolicyNotFound, "PolicyNotFound", http.StatusNotFound},
 		{ErrPolicyAlreadyExists, "DuplicatePolicyName", http.StatusConflict},
+		{ErrDuplicateListener, "DuplicateListener", http.StatusConflict},
 		{ErrListenerNotFound, "ListenerNotFound", http.StatusNotFound},
 		{ErrInvalidInstance, "InvalidInstance", http.StatusBadRequest},
 		{ErrLoadBalancerNotFound, "LoadBalancerNotFound", http.StatusNotFound},
@@ -1461,6 +1477,25 @@ func parseLoadBalancerAttributes(vals url.Values) LoadBalancerAttributes {
 		}
 	}
 
+	// Parse AccessLog attributes.
+	if v := vals.Get("LoadBalancerAttributes.AccessLog.Enabled"); v != "" {
+		attrs.AccessLog.Enabled = v == "true"
+	}
+
+	if v := vals.Get("LoadBalancerAttributes.AccessLog.S3BucketName"); v != "" {
+		attrs.AccessLog.S3BucketName = v
+	}
+
+	if v := vals.Get("LoadBalancerAttributes.AccessLog.S3BucketPrefix"); v != "" {
+		attrs.AccessLog.S3BucketPrefix = v
+	}
+
+	if v := vals.Get("LoadBalancerAttributes.AccessLog.EmitInterval"); v != "" {
+		if n, err := parseInt32(v); err == nil {
+			attrs.AccessLog.EmitInterval = n
+		}
+	}
+
 	return attrs
 }
 
@@ -1496,6 +1531,12 @@ func toXMLLoadBalancerAttributes(attrs *LoadBalancerAttributes) xmlLoadBalancerA
 			Timeout: attrs.ConnectionDrainingTimeout,
 		},
 		ConnectionSettings: xmlConnectionSettings{IdleTimeout: attrs.IdleTimeout},
+		AccessLog: xmlAccessLog{
+			Enabled:        attrs.AccessLog.Enabled,
+			S3BucketName:   attrs.AccessLog.S3BucketName,
+			S3BucketPrefix: attrs.AccessLog.S3BucketPrefix,
+			EmitInterval:   attrs.AccessLog.EmitInterval,
+		},
 		AdditionalAttributes: xmlAdditionalAttributeList{
 			Members: additionalAttrs,
 		},
@@ -1553,7 +1594,12 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancerDescription {
 
 	instances := toXMLInstances(lb.Instances)
 
-	d := xmlLoadBalancerDescription{
+	hc := xmlHealthCheck{}
+	if lb.HealthCheck != nil {
+		hc = toXMLHealthCheck(lb.HealthCheck)
+	}
+
+	return xmlLoadBalancerDescription{
 		LoadBalancerName:          lb.LoadBalancerName,
 		DNSName:                   lb.DNSName,
 		CanonicalHostedZoneName:   lb.CanonicalHostedZoneName,
@@ -1571,13 +1617,8 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancerDescription {
 		ListenerDescriptions:      xmlListenerDescriptionList{Members: listeners},
 		BackendServerDescriptions: xmlBackendServerDescriptionList{Members: bsds},
 		Instances:                 xmlInstanceList{Members: instances},
+		HealthCheck:               hc,
 	}
-
-	if lb.HealthCheck != nil {
-		d.HealthCheck = toXMLHealthCheck(lb.HealthCheck)
-	}
-
-	return d
 }
 
 func toXMLInstances(instances []Instance) []xmlInstance {
@@ -1866,8 +1907,16 @@ type xmlAdditionalAttributeList struct {
 	Members []xmlAdditionalAttribute `xml:"member"`
 }
 
+type xmlAccessLog struct {
+	S3BucketName   string `xml:"S3BucketName,omitempty"`
+	S3BucketPrefix string `xml:"S3BucketPrefix,omitempty"`
+	EmitInterval   int32  `xml:"EmitInterval,omitempty"`
+	Enabled        bool   `xml:"Enabled"`
+}
+
 type xmlLoadBalancerAttributes struct {
 	AdditionalAttributes   xmlAdditionalAttributeList `xml:"AdditionalAttributes"`
+	AccessLog              xmlAccessLog               `xml:"AccessLog"`
 	ConnectionDraining     xmlConnectionDraining      `xml:"ConnectionDraining"`
 	ConnectionSettings     xmlConnectionSettings      `xml:"ConnectionSettings"`
 	CrossZoneLoadBalancing xmlBoolAttribute           `xml:"CrossZoneLoadBalancing"`
