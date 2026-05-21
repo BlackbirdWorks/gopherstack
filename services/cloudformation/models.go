@@ -4,27 +4,28 @@ import "time"
 
 // Stack represents a CloudFormation stack.
 type Stack struct {
-	RollbackConfiguration       *RollbackConfiguration
-	CreationTime                time.Time
-	LastUpdatedTime             *time.Time
-	DeletionTime                *time.Time
-	StackID                     string      `xml:"StackId"                           json:"stackID"`
-	StackName                   string      `xml:"StackName"                         json:"stackName"`
-	Description                 string      `xml:"Description,omitempty"             json:"description,omitempty"`
-	StackStatus                 string      `xml:"StackStatus"                       json:"stackStatus"`
-	StackStatusReason           string      `xml:"StackStatusReason,omitempty"       json:"stackStatusReason,omitempty"`
-	RoleARN                     string      `xml:"RoleARN,omitempty"                 json:"roleARN,omitempty"`
-	TemplateBody                string      `xml:"-"                                 json:"templateBody,omitempty"`
-	ParentID                    string      `xml:"ParentId,omitempty"                json:"parentID,omitempty"`
-	RootID                      string      `xml:"RootId,omitempty"                  json:"rootID,omitempty"`
-	Parameters                  []Parameter `xml:"Parameters>member,omitempty"       json:"parameters,omitempty"`
-	Outputs                     []Output    `xml:"Outputs>member,omitempty"          json:"outputs,omitempty"`
-	Tags                        []Tag       `xml:"Tags>member,omitempty"             json:"tags,omitempty"`
-	Capabilities                []string    `xml:"Capabilities>member,omitempty"     json:"capabilities,omitempty"`
-	NotificationARNs            []string    `xml:"NotificationARNs>member,omitempty" json:"notificationARNs,omitempty"`
-	TimeoutInMinutes            int         `xml:"TimeoutInMinutes,omitempty"        json:"timeoutInMinutes,omitempty"`
-	EnableTerminationProtection bool        `xml:"EnableTerminationProtection"       json:"enableTerminationProtection"`
-	DisableRollback             bool        `xml:"DisableRollback,omitempty"         json:"disableRollback,omitempty"`
+	// RollbackConfiguration uses a long AWS-compatible JSON field name; line length accepted.
+	RollbackConfiguration       *RollbackConfiguration `xml:"RollbackConfiguration,omitempty"   json:"rollbackConfiguration,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	CreationTime                time.Time              `xml:"CreationTime"                      json:"creationTime"`
+	LastUpdatedTime             *time.Time             `xml:"LastUpdatedTime,omitempty"         json:"lastUpdatedTime,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	DeletionTime                *time.Time             `xml:"DeletionTime,omitempty"            json:"deletionTime,omitempty"`    //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	StackID                     string                 `xml:"StackId"                           json:"stackID"`
+	StackName                   string                 `xml:"StackName"                         json:"stackName"`
+	Description                 string                 `xml:"Description,omitempty"             json:"description,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	StackStatus                 string                 `xml:"StackStatus"                       json:"stackStatus"`
+	StackStatusReason           string                 `xml:"StackStatusReason,omitempty"       json:"stackStatusReason,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	RoleARN                     string                 `xml:"RoleARN,omitempty"                 json:"roleARN,omitempty"`
+	TemplateBody                string                 `xml:"-"                                 json:"templateBody,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	ParentID                    string                 `xml:"ParentId,omitempty"                json:"parentID,omitempty"`
+	RootID                      string                 `xml:"RootId,omitempty"                  json:"rootID,omitempty"`
+	Parameters                  []Parameter            `xml:"Parameters>member,omitempty"       json:"parameters,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	Outputs                     []Output               `xml:"Outputs>member,omitempty"          json:"outputs,omitempty"`
+	Tags                        []Tag                  `xml:"Tags>member,omitempty"             json:"tags,omitempty"`
+	Capabilities                []string               `xml:"Capabilities>member,omitempty"     json:"capabilities,omitempty"`      //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	NotificationARNs            []string               `xml:"NotificationARNs>member,omitempty" json:"notificationARNs,omitempty"`  //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	TimeoutInMinutes            int                    `xml:"TimeoutInMinutes,omitempty"        json:"timeoutInMinutes,omitempty"`  //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	EnableTerminationProtection bool                   `xml:"EnableTerminationProtection"       json:"enableTerminationProtection"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	DisableRollback             bool                   `xml:"DisableRollback,omitempty"         json:"disableRollback,omitempty"`   //nolint:lll // goimports struct-tag alignment exceeds line limit.
 }
 
 // RollbackConfiguration holds rollback trigger configuration for a stack.
