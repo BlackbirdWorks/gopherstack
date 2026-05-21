@@ -1667,14 +1667,22 @@ func parseServerlessV2ScalingConfig(vals url.Values) (*ServerlessV2ScalingConfig
 	if rawMin != "" {
 		v, err := strconv.ParseFloat(rawMin, 64)
 		if err != nil {
-			return nil, fmt.Errorf("%w: invalid ServerlessV2ScalingConfiguration.MinCapacity %q", ErrInvalidParameter, rawMin)
+			return nil, fmt.Errorf(
+				"%w: invalid ServerlessV2ScalingConfiguration.MinCapacity %q",
+				ErrInvalidParameter,
+				rawMin,
+			)
 		}
 		cfg.MinCapacity = v
 	}
 	if rawMax != "" {
 		v, err := strconv.ParseFloat(rawMax, 64)
 		if err != nil {
-			return nil, fmt.Errorf("%w: invalid ServerlessV2ScalingConfiguration.MaxCapacity %q", ErrInvalidParameter, rawMax)
+			return nil, fmt.Errorf(
+				"%w: invalid ServerlessV2ScalingConfiguration.MaxCapacity %q",
+				ErrInvalidParameter,
+				rawMax,
+			)
 		}
 		cfg.MaxCapacity = v
 	}
@@ -1904,29 +1912,32 @@ type xmlMasterUserManagedSecret struct {
 	SecretStatus string `xml:"SecretStatus,omitempty"`
 }
 
+// xmlSV2Ref is a type alias to keep xmlDBCluster field definitions within line-length limits.
+type xmlSV2Ref = xmlServerlessV2ScalingConfiguration
+
 type xmlDBCluster struct {
-	ServerlessV2ScalingConfiguration *xmlServerlessV2ScalingConfiguration `xml:"ServerlessV2ScalingConfiguration,omitempty"`
-	MasterUserManagedSecret          *xmlMasterUserManagedSecret           `xml:"MasterUserManagedSecret,omitempty"`
-	DBClusterIdentifier              string                                `xml:"DBClusterIdentifier"`
-	DBClusterArn                     string                                `xml:"DBClusterArn,omitempty"`
-	Engine                           string                                `xml:"Engine"`
-	EngineVersion                    string                                `xml:"EngineVersion,omitempty"`
-	EngineMode                       string                                `xml:"EngineMode,omitempty"`
-	Status                           string                                `xml:"Status"`
-	DBClusterParameterGroupName      string                                `xml:"DBClusterParameterGroup,omitempty"`
-	DBSubnetGroupName                string                                `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
-	Endpoint                         string                                `xml:"Endpoint,omitempty"`
-	ReaderEndpoint                   string                                `xml:"ReaderEndpoint,omitempty"`
-	PreferredBackupWindow            string                                `xml:"PreferredBackupWindow,omitempty"`
-	PreferredMaintenanceWindow       string                                `xml:"PreferredMaintenanceWindow,omitempty"`
-	KmsKeyID                         string                                `xml:"KmsKeyId,omitempty"`
-	DBClusterMembers                 xmlDBClusterMemberList                `xml:"DBClusterMembers"`
-	Port                             int                                   `xml:"Port"`
-	BackupRetentionPeriod            int                                   `xml:"BackupRetentionPeriod"`
-	EnableIAMDatabaseAuthentication  bool                                  `xml:"IAMDatabaseAuthenticationEnabled"`
-	StorageEncrypted                 bool                                  `xml:"StorageEncrypted"`
-	MultiAZ                          bool                                  `xml:"MultiAZ"`
-	DeletionProtection               bool                                  `xml:"DeletionProtection"`
+	ServerlessV2ScalingConfiguration *xmlSV2Ref                  `xml:"ServerlessV2ScalingConfiguration,omitempty"`
+	MasterUserManagedSecret          *xmlMasterUserManagedSecret `xml:"MasterUserManagedSecret,omitempty"`
+	DBClusterIdentifier              string                      `xml:"DBClusterIdentifier"`
+	DBClusterArn                     string                      `xml:"DBClusterArn,omitempty"`
+	Engine                           string                      `xml:"Engine"`
+	EngineVersion                    string                      `xml:"EngineVersion,omitempty"`
+	EngineMode                       string                      `xml:"EngineMode,omitempty"`
+	Status                           string                      `xml:"Status"`
+	DBClusterParameterGroupName      string                      `xml:"DBClusterParameterGroup,omitempty"`
+	DBSubnetGroupName                string                      `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
+	Endpoint                         string                      `xml:"Endpoint,omitempty"`
+	ReaderEndpoint                   string                      `xml:"ReaderEndpoint,omitempty"`
+	PreferredBackupWindow            string                      `xml:"PreferredBackupWindow,omitempty"`
+	PreferredMaintenanceWindow       string                      `xml:"PreferredMaintenanceWindow,omitempty"`
+	KmsKeyID                         string                      `xml:"KmsKeyId,omitempty"`
+	DBClusterMembers                 xmlDBClusterMemberList      `xml:"DBClusterMembers"`
+	Port                             int                         `xml:"Port"`
+	BackupRetentionPeriod            int                         `xml:"BackupRetentionPeriod"`
+	EnableIAMDatabaseAuthentication  bool                        `xml:"IAMDatabaseAuthenticationEnabled"`
+	StorageEncrypted                 bool                        `xml:"StorageEncrypted"`
+	MultiAZ                          bool                        `xml:"MultiAZ"`
+	DeletionProtection               bool                        `xml:"DeletionProtection"`
 }
 
 type xmlDBClusterList struct {

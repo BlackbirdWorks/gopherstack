@@ -18,9 +18,9 @@ func TestBatch1_CreateDBCluster_ServerlessV2ScalingConfiguration(t *testing.T) {
 
 	h := newTestHandler(t)
 	rr := doRequest(t, h, url.Values{
-		"Action":                                    {"CreateDBCluster"},
-		"Version":                                   {"2014-10-31"},
-		"DBClusterIdentifier":                       {"sv2-cluster"},
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"sv2-cluster"},
 		"ServerlessV2ScalingConfiguration.MinCapacity": {"1.0"},
 		"ServerlessV2ScalingConfiguration.MaxCapacity": {"128.0"},
 	})
@@ -39,9 +39,9 @@ func TestBatch1_ModifyDBCluster_ServerlessV2ScalingConfiguration(t *testing.T) {
 	createCluster(t, h, "sv2-mod")
 
 	rr := doRequest(t, h, url.Values{
-		"Action":                                    {"ModifyDBCluster"},
-		"Version":                                   {"2014-10-31"},
-		"DBClusterIdentifier":                       {"sv2-mod"},
+		"Action":              {"ModifyDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"sv2-mod"},
 		"ServerlessV2ScalingConfiguration.MinCapacity": {"2.5"},
 		"ServerlessV2ScalingConfiguration.MaxCapacity": {"64.0"},
 	})
@@ -57,9 +57,9 @@ func TestBatch1_DescribeDBClusters_ServerlessV2ScalingConfiguration(t *testing.T
 
 	h := newTestHandler(t)
 	doRequest(t, h, url.Values{
-		"Action":                                    {"CreateDBCluster"},
-		"Version":                                   {"2014-10-31"},
-		"DBClusterIdentifier":                       {"sv2-desc"},
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"sv2-desc"},
 		"ServerlessV2ScalingConfiguration.MinCapacity": {"0.5"},
 		"ServerlessV2ScalingConfiguration.MaxCapacity": {"16.0"},
 	})
@@ -81,9 +81,9 @@ func TestBatch1_ServerlessV2ScalingConfiguration_InvalidMin(t *testing.T) {
 
 	h := newTestHandler(t)
 	rr := doRequest(t, h, url.Values{
-		"Action":                                    {"CreateDBCluster"},
-		"Version":                                   {"2014-10-31"},
-		"DBClusterIdentifier":                       {"sv2-bad"},
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"sv2-bad"},
 		"ServerlessV2ScalingConfiguration.MinCapacity": {"not-a-number"},
 		"ServerlessV2ScalingConfiguration.MaxCapacity": {"64.0"},
 	})
@@ -96,9 +96,9 @@ func TestBatch1_ServerlessV2ScalingConfiguration_InvalidMax(t *testing.T) {
 
 	h := newTestHandler(t)
 	rr := doRequest(t, h, url.Values{
-		"Action":                                    {"CreateDBCluster"},
-		"Version":                                   {"2014-10-31"},
-		"DBClusterIdentifier":                       {"sv2-bad2"},
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"sv2-bad2"},
 		"ServerlessV2ScalingConfiguration.MinCapacity": {"1.0"},
 		"ServerlessV2ScalingConfiguration.MaxCapacity": {"not-a-number"},
 	})
@@ -439,18 +439,18 @@ func TestBatch1_NeptuneServerless_FullConfig(t *testing.T) {
 
 	h := newTestHandler(t)
 	rr := doRequest(t, h, url.Values{
-		"Action":                                    {"CreateDBCluster"},
-		"Version":                                   {"2014-10-31"},
-		"DBClusterIdentifier":                       {"nsl-full"},
-		"EngineMode":                                {"serverless"},
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"nsl-full"},
+		"EngineMode":          {"serverless"},
 		"ServerlessV2ScalingConfiguration.MinCapacity": {"2.0"},
 		"ServerlessV2ScalingConfiguration.MaxCapacity": {"128.0"},
-		"EnableIAMDatabaseAuthentication":             {"true"},
-		"ManageMasterUserPassword":                   {"true"},
-		"StorageEncrypted":                           {"true"},
-		"DeletionProtection":                         {"true"},
-		"PreferredBackupWindow":                      {"01:00-02:00"},
-		"PreferredMaintenanceWindow":                 {"sat:05:00-sat:06:00"},
+		"EnableIAMDatabaseAuthentication":              {"true"},
+		"ManageMasterUserPassword":                     {"true"},
+		"StorageEncrypted":                             {"true"},
+		"DeletionProtection":                           {"true"},
+		"PreferredBackupWindow":                        {"01:00-02:00"},
+		"PreferredMaintenanceWindow":                   {"sat:05:00-sat:06:00"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
@@ -489,8 +489,8 @@ func TestBatch1_Backend_CreateDBCluster_ServerlessV2(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, cluster.ServerlessV2ScalingConfig)
-	assert.Equal(t, 1.0, cluster.ServerlessV2ScalingConfig.MinCapacity)
-	assert.Equal(t, 64.0, cluster.ServerlessV2ScalingConfig.MaxCapacity)
+	assert.InEpsilon(t, 1.0, cluster.ServerlessV2ScalingConfig.MinCapacity, 0.001)
+	assert.InEpsilon(t, 64.0, cluster.ServerlessV2ScalingConfig.MaxCapacity, 0.001)
 	assert.Equal(t, "serverless", cluster.EngineMode)
 }
 
@@ -576,8 +576,8 @@ func TestBatch1_Backend_ModifyDBCluster_ServerlessV2(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, cluster.ServerlessV2ScalingConfig)
-	assert.Equal(t, 4.0, cluster.ServerlessV2ScalingConfig.MinCapacity)
-	assert.Equal(t, 32.0, cluster.ServerlessV2ScalingConfig.MaxCapacity)
+	assert.InEpsilon(t, 4.0, cluster.ServerlessV2ScalingConfig.MinCapacity, 0.001)
+	assert.InEpsilon(t, 32.0, cluster.ServerlessV2ScalingConfig.MaxCapacity, 0.001)
 }
 
 func TestBatch1_Backend_ModifyDBCluster_DeletionProtection(t *testing.T) {
@@ -684,8 +684,8 @@ func TestBatch1_Persistence_ServerlessV2(t *testing.T) {
 	require.Len(t, clusters, 1)
 	c := clusters[0]
 	require.NotNil(t, c.ServerlessV2ScalingConfig)
-	assert.Equal(t, 2.0, c.ServerlessV2ScalingConfig.MinCapacity)
-	assert.Equal(t, 16.0, c.ServerlessV2ScalingConfig.MaxCapacity)
+	assert.InEpsilon(t, 2.0, c.ServerlessV2ScalingConfig.MinCapacity, 0.001)
+	assert.InEpsilon(t, 16.0, c.ServerlessV2ScalingConfig.MaxCapacity, 0.001)
 	assert.Equal(t, "serverless", c.EngineMode)
 	assert.True(t, c.EnableIAMDatabaseAuthentication)
 	assert.True(t, c.DeletionProtection)

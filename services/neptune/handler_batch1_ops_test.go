@@ -67,9 +67,11 @@ func TestBatch1Ops_CreateDBInstance_Tags(t *testing.T) {
 
 	// Verify tags via list
 	rr2 := doRequest(t, h, url.Values{
-		"Action":       {"ListTagsForResource"},
-		"Version":      {"2014-10-31"},
-		"ResourceName": {rr.Body.String()[strings.Index(rr.Body.String(), "arn:"):strings.Index(rr.Body.String(), "arn:")+80]},
+		"Action":  {"ListTagsForResource"},
+		"Version": {"2014-10-31"},
+		"ResourceName": {
+			rr.Body.String()[strings.Index(rr.Body.String(), "arn:") : strings.Index(rr.Body.String(), "arn:")+80],
+		},
 	})
 	_ = rr2 // ARN extraction is complex; just verify create succeeded
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -297,15 +299,15 @@ func TestBatch1Ops_DBSubnetGroup_CreateAlreadyExists(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, url.Values{
-		"Action":            {"CreateDBSubnetGroup"},
-		"Version":           {"2014-10-31"},
-		"DBSubnetGroupName": {"dup-sg"},
+		"Action":             {"CreateDBSubnetGroup"},
+		"Version":            {"2014-10-31"},
+		"DBSubnetGroupName":  {"dup-sg"},
 		"SubnetIds.member.1": {"subnet-001"},
 	})
 	rr := doRequest(t, h, url.Values{
-		"Action":            {"CreateDBSubnetGroup"},
-		"Version":           {"2014-10-31"},
-		"DBSubnetGroupName": {"dup-sg"},
+		"Action":             {"CreateDBSubnetGroup"},
+		"Version":            {"2014-10-31"},
+		"DBSubnetGroupName":  {"dup-sg"},
 		"SubnetIds.member.1": {"subnet-001"},
 	})
 	require.Equal(t, http.StatusBadRequest, rr.Code)
@@ -317,9 +319,9 @@ func TestBatch1Ops_DBSubnetGroup_SubnetGroupStatusComplete(t *testing.T) {
 
 	h := newTestHandler(t)
 	rr := doRequest(t, h, url.Values{
-		"Action":            {"CreateDBSubnetGroup"},
-		"Version":           {"2014-10-31"},
-		"DBSubnetGroupName": {"status-sg"},
+		"Action":             {"CreateDBSubnetGroup"},
+		"Version":            {"2014-10-31"},
+		"DBSubnetGroupName":  {"status-sg"},
 		"SubnetIds.member.1": {"subnet-001"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -466,11 +468,11 @@ func TestBatch1Ops_DBClusterParameterGroup_CopyPreservesFamily(t *testing.T) {
 	})
 
 	rr := doRequest(t, h, url.Values{
-		"Action":                                      {"CopyDBClusterParameterGroup"},
-		"Version":                                     {"2014-10-31"},
-		"SourceDBClusterParameterGroupIdentifier":     {"pg-src-copy"},
-		"TargetDBClusterParameterGroupIdentifier":     {"pg-dst-copy"},
-		"TargetDBClusterParameterGroupDescription":    {"copy of source"},
+		"Action":  {"CopyDBClusterParameterGroup"},
+		"Version": {"2014-10-31"},
+		"SourceDBClusterParameterGroupIdentifier":  {"pg-src-copy"},
+		"TargetDBClusterParameterGroupIdentifier":  {"pg-dst-copy"},
+		"TargetDBClusterParameterGroupDescription": {"copy of source"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
@@ -552,10 +554,10 @@ func TestBatch1Ops_DBClusterSnapshot_CrossRegionCopy(t *testing.T) {
 	})
 
 	rr := doRequest(t, h, url.Values{
-		"Action":                              {"CopyDBClusterSnapshot"},
-		"Version":                             {"2014-10-31"},
-		"SourceDBClusterSnapshotIdentifier":   {"source-snap"},
-		"TargetDBClusterSnapshotIdentifier":   {"target-snap"},
+		"Action":                            {"CopyDBClusterSnapshot"},
+		"Version":                           {"2014-10-31"},
+		"SourceDBClusterSnapshotIdentifier": {"source-snap"},
+		"TargetDBClusterSnapshotIdentifier": {"target-snap"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
@@ -1022,9 +1024,9 @@ func TestBatch1Ops_FailoverDBCluster_WithTargetInstance(t *testing.T) {
 	createInstance(t, h, "fo-reader", "fo-target-cluster")
 
 	rr := doRequest(t, h, url.Values{
-		"Action":                 {"FailoverDBCluster"},
-		"Version":                {"2014-10-31"},
-		"DBClusterIdentifier":    {"fo-target-cluster"},
+		"Action":                     {"FailoverDBCluster"},
+		"Version":                    {"2014-10-31"},
+		"DBClusterIdentifier":        {"fo-target-cluster"},
 		"TargetDBInstanceIdentifier": {"fo-reader"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -1050,7 +1052,6 @@ func TestBatch1Ops_ModifyDBClusterEndpoint_AllTypes(t *testing.T) {
 	t.Parallel()
 
 	for _, epType := range []string{"READER", "ANY", "CUSTOM"} {
-		epType := epType
 		t.Run(epType, func(t *testing.T) {
 			t.Parallel()
 
@@ -1330,10 +1331,10 @@ func TestBatch1Ops_CopyDBParameterGroup_FieldsPreserved(t *testing.T) {
 	})
 
 	rr := doRequest(t, h, url.Values{
-		"Action":                          {"CopyDBParameterGroup"},
-		"Version":                         {"2014-10-31"},
-		"SourceDBParameterGroupIdentifier": {"src-pg"},
-		"TargetDBParameterGroupIdentifier": {"dst-pg"},
+		"Action":                            {"CopyDBParameterGroup"},
+		"Version":                           {"2014-10-31"},
+		"SourceDBParameterGroupIdentifier":  {"src-pg"},
+		"TargetDBParameterGroupIdentifier":  {"dst-pg"},
 		"TargetDBParameterGroupDescription": {"copy of source"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -1349,7 +1350,6 @@ func TestBatch1Ops_ApplyPendingMaintenanceAction_AllOptInTypes(t *testing.T) {
 	t.Parallel()
 
 	for _, optIn := range []string{"immediate", "next-maintenance", "undo-opt-in"} {
-		optIn := optIn
 		t.Run(optIn, func(t *testing.T) {
 			t.Parallel()
 
@@ -1443,10 +1443,10 @@ func TestBatch1Ops_Tags_AddListRemoveOnCluster(t *testing.T) {
 
 	// Remove tag
 	doRequest(t, h, url.Values{
-		"Action":             {"RemoveTagsFromResource"},
-		"Version":            {"2014-10-31"},
-		"ResourceName":       {clusterARN},
-		"TagKeys.member.1":   {"Owner"},
+		"Action":           {"RemoveTagsFromResource"},
+		"Version":          {"2014-10-31"},
+		"ResourceName":     {clusterARN},
+		"TagKeys.member.1": {"Owner"},
 	})
 
 	rr = doRequest(t, h, url.Values{
@@ -1560,8 +1560,8 @@ func TestBatch1Ops_DescribeEngineDefaultClusterParameters(t *testing.T) {
 
 	h := newTestHandler(t)
 	rr := doRequest(t, h, url.Values{
-		"Action":                {"DescribeEngineDefaultClusterParameters"},
-		"Version":               {"2014-10-31"},
+		"Action":                 {"DescribeEngineDefaultClusterParameters"},
+		"Version":                {"2014-10-31"},
 		"DBParameterGroupFamily": {"neptune1.3"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -1587,8 +1587,8 @@ func TestBatch1Ops_DescribeEngineDefaultParameters(t *testing.T) {
 
 	h := newTestHandler(t)
 	rr := doRequest(t, h, url.Values{
-		"Action":                {"DescribeEngineDefaultParameters"},
-		"Version":               {"2014-10-31"},
+		"Action":                 {"DescribeEngineDefaultParameters"},
+		"Version":                {"2014-10-31"},
 		"DBParameterGroupFamily": {"neptune1.2"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)

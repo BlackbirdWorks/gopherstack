@@ -63,35 +63,35 @@ type ServerlessV2ScalingConfiguration struct {
 
 // MasterUserManagedSecret holds the ARN of the Secrets Manager secret for the master user password.
 type MasterUserManagedSecret struct {
-	SecretARN string `json:"secretArn"`
+	SecretARN    string `json:"secretArn"`
 	SecretStatus string `json:"secretStatus"`
 }
 
 // DBClusterCreateOptions holds optional fields for CreateDBCluster.
 type DBClusterCreateOptions struct {
-	ServerlessV2ScalingConfig      *ServerlessV2ScalingConfiguration
-	EngineVersion                  string
-	EngineMode                     string
-	KmsKeyID                       string
-	PreferredBackupWindow          string
-	PreferredMaintenanceWindow     string
+	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration
+	EngineVersion                   string
+	EngineMode                      string
+	KmsKeyID                        string
+	PreferredBackupWindow           string
+	PreferredMaintenanceWindow      string
 	EnableIAMDatabaseAuthentication bool
-	ManageMasterUserPassword       bool
-	StorageEncrypted               bool
-	DeletionProtection             bool
+	ManageMasterUserPassword        bool
+	StorageEncrypted                bool
+	DeletionProtection              bool
 }
 
 // DBClusterModifyOptions holds optional fields for ModifyDBCluster.
 type DBClusterModifyOptions struct {
-	ServerlessV2ScalingConfig         *ServerlessV2ScalingConfiguration
-	EngineVersion                     string
-	PreferredBackupWindow             string
-	PreferredMaintenanceWindow        string
-	EnableIAMDatabaseAuthentication   bool
-	IamAuthSet                        bool
-	ManageMasterUserPassword          bool
-	DeletionProtection                bool
-	DeletionProtectionSet             bool
+	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration
+	EngineVersion                   string
+	PreferredBackupWindow           string
+	PreferredMaintenanceWindow      string
+	EnableIAMDatabaseAuthentication bool
+	IamAuthSet                      bool
+	ManageMasterUserPassword        bool
+	DeletionProtection              bool
+	DeletionProtectionSet           bool
 }
 
 // DBClusterMember represents a single DB instance member of a Neptune cluster.
@@ -154,10 +154,10 @@ type DBInstanceCreateOptions struct {
 	PreferredMaintenanceWindow      string
 	PreferredBackupWindow           string
 	AvailabilityZone                string
+	PromotionTier                   int
 	AutoMinorVersionUpgrade         bool
 	CopyTagsToSnapshot              bool
 	EnableIAMDatabaseAuthentication bool
-	PromotionTier                   int
 	StorageEncrypted                bool
 }
 
@@ -167,13 +167,13 @@ type DBInstanceModifyOptions struct {
 	PreferredMaintenanceWindow      string
 	PreferredBackupWindow           string
 	AvailabilityZone                string
+	PromotionTier                   int
 	AutoMinorVersionUpgrade         bool
 	AutoMinorVersionUpgradeSet      bool
 	CopyTagsToSnapshot              bool
 	CopyTagsToSnapshotSet           bool
 	EnableIAMDatabaseAuthentication bool
 	IamAuthSet                      bool
-	PromotionTier                   int
 	PromotionTierSet                bool
 }
 
@@ -332,7 +332,11 @@ func (b *InMemoryBackend) clusterSnapshotARN(id string) string {
 }
 
 // CreateDBCluster creates a new Neptune DB cluster.
-func (b *InMemoryBackend) CreateDBCluster(id, paramGroupName string, port int, opts DBClusterCreateOptions) (*DBCluster, error) {
+func (b *InMemoryBackend) CreateDBCluster(
+	id, paramGroupName string,
+	port int,
+	opts DBClusterCreateOptions,
+) (*DBCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -474,7 +478,12 @@ func (b *InMemoryBackend) ModifyDBCluster(id, paramGroupName string, opts DBClus
 	if opts.ManageMasterUserPassword {
 		if c.MasterUserManagedSecret == nil {
 			c.MasterUserManagedSecret = &MasterUserManagedSecret{
-				SecretARN:    fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:rds!cluster-%s", b.region, b.accountID, id),
+				SecretARN: fmt.Sprintf(
+					"arn:aws:secretsmanager:%s:%s:secret:rds!cluster-%s",
+					b.region,
+					b.accountID,
+					id,
+				),
 				SecretStatus: "active",
 			}
 		}
@@ -526,7 +535,10 @@ func (b *InMemoryBackend) FailoverDBCluster(id string) (*DBCluster, error) {
 }
 
 // CreateDBInstance creates a new Neptune DB instance.
-func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass string, opts DBInstanceCreateOptions) (*DBInstance, error) {
+func (b *InMemoryBackend) CreateDBInstance(
+	id, clusterID, instanceClass string,
+	opts DBInstanceCreateOptions,
+) (*DBInstance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
 	}
@@ -640,7 +652,10 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 }
 
 // ModifyDBInstance modifies a Neptune DB instance.
-func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string, opts DBInstanceModifyOptions) (*DBInstance, error) {
+func (b *InMemoryBackend) ModifyDBInstance(
+	id, instanceClass string,
+	opts DBInstanceModifyOptions,
+) (*DBInstance, error) {
 	b.mu.Lock("ModifyDBInstance")
 	defer b.mu.Unlock()
 	inst, exists := b.instances[id]
