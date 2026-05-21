@@ -4,33 +4,33 @@ import "time"
 
 // Stack represents a CloudFormation stack.
 type Stack struct {
-	RollbackConfiguration       *RollbackConfiguration `xml:"RollbackConfiguration,omitempty"   json:"rollbackConfiguration,omitempty"`
-	CreationTime                time.Time              `xml:"CreationTime"                      json:"creationTime"`
-	LastUpdatedTime             *time.Time             `xml:"LastUpdatedTime,omitempty"         json:"lastUpdatedTime,omitempty"`
-	DeletionTime                *time.Time             `xml:"DeletionTime,omitempty"            json:"deletionTime,omitempty"`
-	StackID                     string                 `xml:"StackId"                           json:"stackID"`
-	StackName                   string                 `xml:"StackName"                         json:"stackName"`
-	Description                 string                 `xml:"Description,omitempty"             json:"description,omitempty"`
-	StackStatus                 string                 `xml:"StackStatus"                       json:"stackStatus"`
-	StackStatusReason           string                 `xml:"StackStatusReason,omitempty"       json:"stackStatusReason,omitempty"`
-	RoleARN                     string                 `xml:"RoleARN,omitempty"                 json:"roleARN,omitempty"`
-	TemplateBody                string                 `xml:"-"                                 json:"templateBody,omitempty"`
-	Parameters                  []Parameter            `xml:"Parameters>member,omitempty"       json:"parameters,omitempty"`
-	Outputs                     []Output               `xml:"Outputs>member,omitempty"          json:"outputs,omitempty"`
-	Tags                        []Tag                  `xml:"Tags>member,omitempty"             json:"tags,omitempty"`
-	Capabilities                []string               `xml:"Capabilities>member,omitempty"     json:"capabilities,omitempty"`
-	NotificationARNs            []string               `xml:"NotificationARNs>member,omitempty" json:"notificationARNs,omitempty"`
-	TimeoutInMinutes            int                    `xml:"TimeoutInMinutes,omitempty"        json:"timeoutInMinutes,omitempty"`
-	EnableTerminationProtection bool                   `xml:"EnableTerminationProtection"       json:"enableTerminationProtection"`
-	DisableRollback             bool                   `xml:"DisableRollback,omitempty"         json:"disableRollback,omitempty"`
-	ParentID                    string                 `xml:"ParentId,omitempty"                json:"parentID,omitempty"`
-	RootID                      string                 `xml:"RootId,omitempty"                  json:"rootID,omitempty"`
+	RollbackConfiguration       *RollbackConfiguration
+	CreationTime                time.Time
+	LastUpdatedTime             *time.Time
+	DeletionTime                *time.Time
+	StackID                     string      `xml:"StackId"                           json:"stackID"`
+	StackName                   string      `xml:"StackName"                         json:"stackName"`
+	Description                 string      `xml:"Description,omitempty"             json:"description,omitempty"`
+	StackStatus                 string      `xml:"StackStatus"                       json:"stackStatus"`
+	StackStatusReason           string      `xml:"StackStatusReason,omitempty"       json:"stackStatusReason,omitempty"`
+	RoleARN                     string      `xml:"RoleARN,omitempty"                 json:"roleARN,omitempty"`
+	TemplateBody                string      `xml:"-"                                 json:"templateBody,omitempty"`
+	ParentID                    string      `xml:"ParentId,omitempty"                json:"parentID,omitempty"`
+	RootID                      string      `xml:"RootId,omitempty"                  json:"rootID,omitempty"`
+	Parameters                  []Parameter `xml:"Parameters>member,omitempty"       json:"parameters,omitempty"`
+	Outputs                     []Output    `xml:"Outputs>member,omitempty"          json:"outputs,omitempty"`
+	Tags                        []Tag       `xml:"Tags>member,omitempty"             json:"tags,omitempty"`
+	Capabilities                []string    `xml:"Capabilities>member,omitempty"     json:"capabilities,omitempty"`
+	NotificationARNs            []string    `xml:"NotificationARNs>member,omitempty" json:"notificationARNs,omitempty"`
+	TimeoutInMinutes            int         `xml:"TimeoutInMinutes,omitempty"        json:"timeoutInMinutes,omitempty"`
+	EnableTerminationProtection bool        `xml:"EnableTerminationProtection"       json:"enableTerminationProtection"`
+	DisableRollback             bool        `xml:"DisableRollback,omitempty"         json:"disableRollback,omitempty"`
 }
 
 // RollbackConfiguration holds rollback trigger configuration for a stack.
 type RollbackConfiguration struct {
 	RollbackTriggers        []RollbackTrigger `xml:"RollbackTriggers>member,omitempty" json:"rollbackTriggers,omitempty"`
-	MonitoringTimeInMinutes int               `xml:"MonitoringTimeInMinutes,omitempty" json:"monitoringTimeInMinutes,omitempty"`
+	MonitoringTimeInMinutes int               `xml:"MonitoringTimeInMinutes,omitempty" json:"monitoringTime,omitempty"`
 }
 
 // RollbackTrigger defines a CloudWatch alarm ARN used as a rollback trigger.
@@ -179,9 +179,9 @@ type ParameterDeclaration struct {
 	ParameterType         string   `xml:"ParameterType"                   json:"parameterType"`
 	DefaultValue          string   `xml:"DefaultValue,omitempty"          json:"defaultValue,omitempty"`
 	Description           string   `xml:"Description,omitempty"           json:"description,omitempty"`
-	AllowedValues         []string `xml:"AllowedValues>member,omitempty"  json:"allowedValues,omitempty"`
 	ConstraintDescription string   `xml:"ConstraintDescription,omitempty" json:"constraintDescription,omitempty"`
 	AllowedPattern        string   `xml:"AllowedPattern,omitempty"        json:"allowedPattern,omitempty"`
+	AllowedValues         []string `xml:"AllowedValues>member,omitempty"  json:"allowedValues,omitempty"`
 	NoEcho                bool     `xml:"NoEcho,omitempty"                json:"noEcho,omitempty"`
 }
 

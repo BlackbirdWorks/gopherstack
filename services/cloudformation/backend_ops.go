@@ -810,6 +810,7 @@ func (b *InMemoryBackend) UpdateTerminationProtection(nameOrID string, enable bo
 		return fmt.Errorf("%w: %s", ErrStackNotFound, nameOrID)
 	}
 	stack.EnableTerminationProtection = enable
+
 	return nil
 }
 

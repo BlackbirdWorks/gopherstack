@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -361,20 +362,28 @@ func (h *Handler) handleDescribeType(form url.Values, c *echo.Context) error {
 func (h *Handler) dispatchStackOps(action string, form url.Values, c *echo.Context) (bool, error) {
 	switch action {
 	case "CreateStack":
+
 		return true, h.handleCreateStack(form, c)
 	case "UpdateStack":
+
 		return true, h.handleUpdateStack(form, c)
 	case "DeleteStack":
+
 		return true, h.handleDeleteStack(form, c)
 	case "DescribeStacks":
+
 		return true, h.handleDescribeStacks(form, c)
 	case "ListStacks":
+
 		return true, h.handleListStacks(form, c)
 	case "DescribeStackEvents":
+
 		return true, h.handleDescribeStackEvents(form, c)
 	case "GetTemplate":
+
 		return true, h.handleGetTemplate(form, c)
 	default:
+
 		return false, nil
 	}
 }
@@ -382,16 +391,22 @@ func (h *Handler) dispatchStackOps(action string, form url.Values, c *echo.Conte
 func (h *Handler) dispatchResourceOps(action string, form url.Values, c *echo.Context) (bool, error) {
 	switch action {
 	case "DescribeStackResource":
+
 		return true, h.handleDescribeStackResource(form, c)
 	case "ListStackResources":
+
 		return true, h.handleListStackResources(form, c)
 	case "DescribeStackResources":
+
 		return true, h.handleDescribeStackResources(form, c)
 	case "ListExports":
+
 		return true, h.handleListExports(form, c)
 	case "ListImports":
+
 		return true, h.handleListImports(form, c)
 	default:
+
 		return false, nil
 	}
 }
@@ -399,16 +414,22 @@ func (h *Handler) dispatchResourceOps(action string, form url.Values, c *echo.Co
 func (h *Handler) dispatchChangeSetOps(action string, form url.Values, c *echo.Context) (bool, error) {
 	switch action {
 	case "CreateChangeSet":
+
 		return true, h.handleCreateChangeSet(form, c)
 	case "DescribeChangeSet":
+
 		return true, h.handleDescribeChangeSet(form, c)
 	case "ExecuteChangeSet":
+
 		return true, h.handleExecuteChangeSet(form, c)
 	case "DeleteChangeSet":
+
 		return true, h.handleDeleteChangeSet(form, c)
 	case "ListChangeSets":
+
 		return true, h.handleListChangeSets(form, c)
 	default:
+
 		return false, nil
 	}
 }
@@ -520,10 +541,8 @@ func parseRollbackConfiguration(form url.Values) *RollbackConfiguration {
 	if monStr == "" && len(triggers) == 0 {
 		return nil
 	}
-	mon := 0
-	if monStr != "" {
-		fmt.Sscanf(monStr, "%d", &mon) //nolint:errcheck // parse best-effort
-	}
+	mon, _ := strconv.Atoi(monStr)
+
 	return &RollbackConfiguration{
 		MonitoringTimeInMinutes: mon,
 		RollbackTriggers:        triggers,
@@ -532,11 +551,9 @@ func parseRollbackConfiguration(form url.Values) *RollbackConfiguration {
 
 func parseStackOptions(form url.Values) StackOptions {
 	timeoutStr := form.Get("TimeoutInMinutes")
-	timeout := 0
-	if timeoutStr != "" {
-		fmt.Sscanf(timeoutStr, "%d", &timeout) //nolint:errcheck // parse best-effort
-	}
+	timeout, _ := strconv.Atoi(timeoutStr)
 	disableRollback := strings.EqualFold(form.Get("DisableRollback"), "true")
+
 	return StackOptions{
 		Tags:                  parseTags(form),
 		Capabilities:          parseCapabilities(form),
@@ -554,10 +571,11 @@ func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {
 	if stackName == "" {
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
-	templateBody := form.Get("TemplateBody")
-	params := parseParams(form)
-
-	stack, err := h.Backend.CreateStack(c.Request().Context(), stackName, templateBody, params, parseStackOptions(form))
+	stack, err := h.Backend.CreateStack(
+		c.Request().Context(),
+		stackName, form.Get("TemplateBody"),
+		parseParams(form), parseStackOptions(form),
+	)
 	if err != nil {
 		return h.xmlError(c, "AlreadyExistsException", err.Error())
 	}
@@ -584,10 +602,11 @@ func (h *Handler) handleUpdateStack(form url.Values, c *echo.Context) error {
 	if stackName == "" {
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
-	templateBody := form.Get("TemplateBody")
-	params := parseParams(form)
-
-	stack, err := h.Backend.UpdateStack(c.Request().Context(), stackName, templateBody, params, parseStackOptions(form))
+	stack, err := h.Backend.UpdateStack(
+		c.Request().Context(),
+		stackName, form.Get("TemplateBody"),
+		parseParams(form), parseStackOptions(form),
+	)
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}

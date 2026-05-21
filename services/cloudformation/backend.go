@@ -39,18 +39,19 @@ var (
 	ErrPublisherNotFound         = errors.New("publisher not found")
 )
 
-// StorageBackend defines the interface for the CloudFormation in-memory backend.
-// StackOptions carries optional attributes for CreateStack / UpdateStack.
+// StackOptions carries optional attributes for CreateStack and UpdateStack.
 type StackOptions struct {
 	RollbackConfiguration *RollbackConfiguration
+	RoleARN               string
+	OnFailure             string // DELETE | ROLLBACK | DO_NOTHING
 	Capabilities          []string
 	NotificationARNs      []string
 	Tags                  []Tag
-	RoleARN               string
-	OnFailure             string // DELETE | ROLLBACK | DO_NOTHING
 	TimeoutInMinutes      int
 	DisableRollback       bool
 }
+
+// StorageBackend defines the interface for the CloudFormation in-memory backend.
 
 type StorageBackend interface {
 	CreateStack(ctx context.Context, name, templateBody string, params []Parameter, opts StackOptions) (*Stack, error)
@@ -276,6 +277,7 @@ func (b *InMemoryBackend) CreateNestedStack(
 	if err != nil {
 		return "", err
 	}
+
 	return stack.StackID, nil
 }
 
@@ -321,6 +323,7 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 	delete(b.resources, stack.StackID)
 	delete(b.changeSets, stack.StackName)
 	b.pruneDriftDetections(stack.StackID)
+
 	return nil
 }
 
@@ -372,6 +375,7 @@ func (b *InMemoryBackend) CreateStack(
 ) (*Stack, error) {
 	b.mu.Lock("CreateStack")
 	defer b.mu.Unlock()
+
 	return b.createStackLocked(ctx, name, templateBody, params, opts, "")
 }
 
@@ -476,6 +480,7 @@ func (b *InMemoryBackend) createStackFromTemplate(ctx context.Context, stack *St
 
 	if valErr := ValidateParameters(tmpl, resolvedParams); valErr != nil {
 		b.failAndRollback(stack, valErr.Error())
+
 		return
 	}
 
@@ -483,6 +488,7 @@ func (b *InMemoryBackend) createStackFromTemplate(ctx context.Context, stack *St
 	// creating any resources.
 	if impErr := validateImportValues(tmpl, resolvedParams, b.buildExportsMap()); impErr != nil {
 		b.failAndRollback(stack, impErr.Error())
+
 		return
 	}
 
@@ -764,6 +770,7 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 
 	if valErr := ValidateParameters(tmpl, resolvedParams); valErr != nil {
 		b.updateFailAndRollback(stack, valErr.Error())
+
 		return false
 	}
 
@@ -777,6 +784,7 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 	// updating any resources.
 	if impErr := validateImportValues(tmpl, resolvedParams, b.buildExportsMap()); impErr != nil {
 		b.updateFailAndRollback(stack, impErr.Error())
+
 		return false
 	}
 
@@ -936,12 +944,13 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 }
 
 // DeleteStack marks a stack as deleted and deletes its resources.
-// ErrTerminationProtectionEnabled is returned when attempting to delete a stack with termination protection.
+// ErrTerminationProtectionEnabled is returned when deleting a termination-protected stack.
 var ErrTerminationProtectionEnabled = errors.New("stack termination protection is enabled")
 
 func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) error {
 	b.mu.Lock("DeleteStack")
 	defer b.mu.Unlock()
+
 	return b.deleteStackLocked(ctx, nameOrID)
 }
 

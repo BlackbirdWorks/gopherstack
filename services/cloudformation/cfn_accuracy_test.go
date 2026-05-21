@@ -941,8 +941,7 @@ func TestEstimateTemplateCost(t *testing.T) {
 func quoteJSON(s string) string {
 	out := make([]byte, 0, len(s)+2)
 	out = append(out, '"')
-	for i := 0; i < len(s); i++ {
-		c := s[i]
+	for _, c := range []byte(s) {
 		switch c {
 		case '"':
 			out = append(out, '\\', '"')
@@ -959,5 +958,6 @@ func quoteJSON(s string) string {
 		}
 	}
 	out = append(out, '"')
+
 	return string(out)
 }

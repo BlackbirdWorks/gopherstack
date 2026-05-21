@@ -101,6 +101,7 @@ func parseDependsOn(v any) []string {
 
 	switch d := v.(type) {
 	case string:
+
 		return []string{d}
 	case []any:
 		out := make([]string, 0, len(d))
@@ -112,6 +113,7 @@ func parseDependsOn(v any) []string {
 
 		return out
 	default:
+
 		return nil
 	}
 }
@@ -192,9 +194,11 @@ func ValidateParameters(tmpl *Template, resolved map[string]string) error {
 			if msg == "" {
 				msg = fmt.Sprintf("Parameter %s must be one of %v", name, param.AllowedValues)
 			}
+
 			return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
 		}
 	}
+
 	return nil
 }
 
@@ -301,6 +305,7 @@ func evalOrExpr(args []any, params, physicalIDs map[string]string, conditions ma
 func resolveScalar(v any, params, physicalIDs map[string]string) string {
 	switch val := v.(type) {
 	case string:
+
 		return val
 	case map[string]any:
 		if ref, ok := val["Ref"].(string); ok {
@@ -335,6 +340,7 @@ func resolveValueCtx(v any, ctx resolveCtx) string {
 
 	switch val := v.(type) {
 	case string:
+
 		return val
 	case bool:
 		if val {
@@ -343,10 +349,13 @@ func resolveValueCtx(v any, ctx resolveCtx) string {
 
 		return "false"
 	case int, int64, float64:
+
 		return fmt.Sprintf("%v", val)
 	case map[string]any:
+
 		return resolveMapIntrinsic(val, ctx)
 	default:
+
 		return fmt.Sprintf("%v", val)
 	}
 }
@@ -494,8 +503,10 @@ func resolveSelect(args []any, ctx resolveCtx) string {
 func extractSelectIndex(v any) int {
 	switch idx := v.(type) {
 	case int:
+
 		return idx
 	case float64:
+
 		return int(idx)
 	case string:
 		var i int

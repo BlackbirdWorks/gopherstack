@@ -16,6 +16,7 @@ import (
 // postFormValues posts a url.Values form to the handler.
 func postFormValues(t *testing.T, h *cloudformation.Handler, values url.Values) *httpResponse {
 	t.Helper()
+
 	return postFormBody(t, h, values.Encode())
 }
 
@@ -27,6 +28,7 @@ type httpResponse struct {
 func postFormBody(t *testing.T, h *cloudformation.Handler, body string) *httpResponse {
 	t.Helper()
 	rec := postForm(t, h, body)
+
 	return &httpResponse{Body: rec.Body.String(), Status: rec.Code}
 }
 
@@ -35,11 +37,6 @@ func (r *httpResponse) mustOK(t *testing.T) {
 	assert.Equal(t, http.StatusOK, r.Status, "body: %s", r.Body)
 }
 
-func (r *httpResponse) mustError(t *testing.T, code string) {
-	t.Helper()
-	assert.NotEqual(t, http.StatusOK, r.Status, "expected error response")
-	assert.Contains(t, r.Body, code)
-}
 
 // ---- Handler: CreateStack with Capabilities -----------------------------------
 
@@ -1278,7 +1275,10 @@ func TestCreateStack_NestedStack_WithParams(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	childTemplate := `{"AWSTemplateFormatVersion":"2010-09-09","Parameters":{"QName":{"Type":"String"}},"Resources":{"Q":{"Type":"AWS::SQS::Queue"}},"Outputs":{"QueueName":{"Value":{"Ref":"QName"}}}}`
+	childTemplate := `{"AWSTemplateFormatVersion":"2010-09-09",` +
+		`"Parameters":{"QName":{"Type":"String"}},` +
+		`"Resources":{"Q":{"Type":"AWS::SQS::Queue"}},` +
+		`"Outputs":{"QueueName":{"Value":{"Ref":"QName"}}}}`
 
 	// Build parent with param passing inline.
 	parentTemplate := strings.ReplaceAll(`{
@@ -1314,7 +1314,7 @@ func TestBackend_ConcurrentCreateStack(t *testing.T) {
 	b := newBackend()
 
 	results := make(chan error, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		name := "concurrent-" + string(rune('a'+i))
 		go func(n string) {
 			_, err := b.CreateStack(t.Context(), n, simpleTemplate, nil, cloudformation.StackOptions{})
@@ -1322,7 +1322,7 @@ func TestBackend_ConcurrentCreateStack(t *testing.T) {
 		}(name)
 	}
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		err := <-results
 		assert.NoError(t, err)
 	}
