@@ -500,7 +500,7 @@ func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
 
 	azMembers := make([]xmlAZMapping, 0, len(lb.AvailabilityZones))
 	for _, az := range lb.AvailabilityZones {
-		azMembers = append(azMembers, xmlAZMapping{ZoneName: az.ZoneName, SubnetID: az.SubnetID})
+		azMembers = append(azMembers, xmlAZMapping(az))
 	}
 
 	return &setSubnetsResponse{
@@ -2537,7 +2537,7 @@ func parseQueryStringPairAt(vals url.Values, prefix string, condIdx, pairIdx int
 func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancer {
 	azs := make([]xmlAZMapping, 0, len(lb.AvailabilityZones))
 	for _, az := range lb.AvailabilityZones {
-		azs = append(azs, xmlAZMapping{ZoneName: az.ZoneName, SubnetID: az.SubnetID})
+		azs = append(azs, xmlAZMapping(az))
 	}
 
 	sgs := make([]xmlStringValue, 0, len(lb.SecurityGroups))

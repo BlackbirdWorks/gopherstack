@@ -16,6 +16,7 @@ import (
 
 func newBatch1Handler() *elbv2.Handler {
 	b := elbv2.NewInMemoryBackend("000000000000", config.DefaultRegion)
+
 	return elbv2.NewHandler(b)
 }
 
@@ -129,7 +130,7 @@ func TestBatch1_CreateLB_SubnetMappings_ReturnsSubnetId(t *testing.T) {
 					AvailabilityZones struct {
 						Members []struct {
 							ZoneName string `xml:"ZoneName"`
-							SubnetId string `xml:"SubnetId"`
+							SubnetID string `xml:"SubnetId"`
 						} `xml:"member"`
 					} `xml:"AvailabilityZones"`
 				} `xml:"member"`
@@ -140,8 +141,8 @@ func TestBatch1_CreateLB_SubnetMappings_ReturnsSubnetId(t *testing.T) {
 	require.Len(t, resp.Result.LoadBalancers.Members, 1)
 	azs := resp.Result.LoadBalancers.Members[0].AvailabilityZones.Members
 	require.Len(t, azs, 2)
-	assert.Equal(t, "subnet-aaa111", azs[0].SubnetId)
-	assert.Equal(t, "subnet-bbb222", azs[1].SubnetId)
+	assert.Equal(t, "subnet-aaa111", azs[0].SubnetID)
+	assert.Equal(t, "subnet-bbb222", azs[1].SubnetID)
 	assert.NotEmpty(t, azs[0].ZoneName)
 	assert.NotEmpty(t, azs[1].ZoneName)
 }
@@ -166,7 +167,7 @@ func TestBatch1_CreateLB_Subnets_ReturnsSubnetId(t *testing.T) {
 				Members []struct {
 					AvailabilityZones struct {
 						Members []struct {
-							SubnetId string `xml:"SubnetId"`
+							SubnetID string `xml:"SubnetId"`
 						} `xml:"member"`
 					} `xml:"AvailabilityZones"`
 				} `xml:"member"`
@@ -176,8 +177,8 @@ func TestBatch1_CreateLB_Subnets_ReturnsSubnetId(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	azs := resp.Result.LoadBalancers.Members[0].AvailabilityZones.Members
 	require.Len(t, azs, 2)
-	assert.Equal(t, "subnet-plain01", azs[0].SubnetId)
-	assert.Equal(t, "subnet-plain02", azs[1].SubnetId)
+	assert.Equal(t, "subnet-plain01", azs[0].SubnetID)
+	assert.Equal(t, "subnet-plain02", azs[1].SubnetID)
 }
 
 func TestBatch1_CreateLB_NoSubnets_EmptyAZs(t *testing.T) {
@@ -545,7 +546,7 @@ func TestBatch1_SetSubnets_SubnetMappings_ReturnsSubnetId(t *testing.T) {
 		Result struct {
 			AvailabilityZones struct {
 				Members []struct {
-					SubnetId string `xml:"SubnetId"`
+					SubnetID string `xml:"SubnetId"`
 					ZoneName string `xml:"ZoneName"`
 				} `xml:"member"`
 			} `xml:"AvailabilityZones"`
@@ -554,8 +555,8 @@ func TestBatch1_SetSubnets_SubnetMappings_ReturnsSubnetId(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	azs := resp.Result.AvailabilityZones.Members
 	require.Len(t, azs, 2)
-	assert.Equal(t, "subnet-map01", azs[0].SubnetId)
-	assert.Equal(t, "subnet-map02", azs[1].SubnetId)
+	assert.Equal(t, "subnet-map01", azs[0].SubnetID)
+	assert.Equal(t, "subnet-map02", azs[1].SubnetID)
 	assert.NotEmpty(t, azs[0].ZoneName)
 }
 
@@ -579,7 +580,7 @@ func TestBatch1_SetSubnets_PlainSubnets(t *testing.T) {
 		Result struct {
 			AvailabilityZones struct {
 				Members []struct {
-					SubnetId string `xml:"SubnetId"`
+					SubnetID string `xml:"SubnetId"`
 				} `xml:"member"`
 			} `xml:"AvailabilityZones"`
 		} `xml:"SetSubnetsResult"`
@@ -626,7 +627,7 @@ func TestBatch1_CreateTG_InstanceType(t *testing.T) {
 			TargetGroups struct {
 				Members []struct {
 					TargetType string `xml:"TargetType"`
-					VpcId      string `xml:"VpcId"`
+					VpcID      string `xml:"VpcId"`
 					Port       int32  `xml:"Port"`
 				} `xml:"member"`
 			} `xml:"TargetGroups"`
@@ -635,7 +636,7 @@ func TestBatch1_CreateTG_InstanceType(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	tg := resp.Result.TargetGroups.Members[0]
 	assert.Equal(t, "instance", tg.TargetType)
-	assert.Equal(t, "vpc-11111111", tg.VpcId)
+	assert.Equal(t, "vpc-11111111", tg.VpcID)
 	assert.Equal(t, int32(8080), tg.Port)
 }
 
@@ -1113,7 +1114,7 @@ func TestBatch1_DeregisterTargets_Success(t *testing.T) {
 		} `xml:"DescribeTargetHealthResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &resp))
-	assert.Len(t, resp.Result.TargetHealthDescriptions.Members, 0)
+	assert.Empty(t, resp.Result.TargetHealthDescriptions.Members)
 }
 
 // ---- Listener CRUD ----
