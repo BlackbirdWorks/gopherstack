@@ -458,7 +458,7 @@ func TestAudit_StartSyncExecution_Express_InputPayload(t *testing.T) {
 
 	result, err := b.StartSyncExecution(sm.StateMachineArn, "s1", `{"hello":"world"}`)
 	require.NoError(t, err)
-	assert.Equal(t, `{"hello":"world"}`, result.Input)
+	assert.JSONEq(t, `{"hello":"world"}`, result.Input)
 }
 
 // ─── StopExecution ────────────────────────────────────────────────────────────
@@ -609,7 +609,7 @@ func TestAudit_GetExecutionHistory_Pagination(t *testing.T) {
 		tok = next
 	}
 
-	assert.Equal(t, len(all), len(collected))
+	assert.Len(t, collected, len(all))
 }
 
 func TestAudit_GetExecutionHistory_EventIDsMonotonicallyIncreasing(t *testing.T) {
@@ -902,8 +902,10 @@ func TestAudit_Activity_SendTaskHeartbeat(t *testing.T) {
 	act, err := b.CreateActivity("hb-act")
 	require.NoError(t, err)
 
-	actDef := fmt.Sprintf(`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"HeartbeatSeconds":60,"End":true}}}`,
-		act.ActivityArn)
+	actDef := fmt.Sprintf(
+		`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"HeartbeatSeconds":60,"End":true}}}`,
+		act.ActivityArn,
+	)
 	sm, err := b.CreateStateMachine("hb-sm", actDef, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
