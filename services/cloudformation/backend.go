@@ -943,9 +943,10 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 	)
 }
 
-// DeleteStack marks a stack as deleted and deletes its resources.
 // ErrTerminationProtectionEnabled is returned when deleting a termination-protected stack.
 var ErrTerminationProtectionEnabled = errors.New("stack termination protection is enabled")
+
+// DeleteStack marks a stack as deleted and deletes its resources.
 
 func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) error {
 	b.mu.Lock("DeleteStack")

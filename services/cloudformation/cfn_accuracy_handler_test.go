@@ -37,7 +37,6 @@ func (r *httpResponse) mustOK(t *testing.T) {
 	assert.Equal(t, http.StatusOK, r.Status, "body: %s", r.Body)
 }
 
-
 // ---- Handler: CreateStack with Capabilities -----------------------------------
 
 func TestHandler_CreateStack_WithCapabilities(t *testing.T) {
@@ -1324,7 +1323,7 @@ func TestBackend_ConcurrentCreateStack(t *testing.T) {
 
 	for range 5 {
 		err := <-results
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	}
 
 	all := b.ListAll()

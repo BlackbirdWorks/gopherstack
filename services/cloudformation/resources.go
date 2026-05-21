@@ -252,7 +252,6 @@ func (rc *ResourceCreator) createNestedStack(
 	return rc.nestedStackCreator.CreateNestedStack(ctx, logicalID, templateURL, templateBody, nestedParams)
 }
 
-
 // resolveNestedParams extracts CloudFormation stack parameters from a resource property map,
 // resolving Ref references against the caller's parameter set.
 func resolveNestedParams(props map[string]any, params map[string]string) []Parameter {
@@ -264,6 +263,7 @@ func resolveNestedParams(props map[string]any, params map[string]string) []Param
 	for k, v := range rawParams {
 		out = append(out, Parameter{ParameterKey: k, ParameterValue: resolveParamValue(v, params)})
 	}
+
 	return out
 }
 
@@ -277,9 +277,11 @@ func resolveParamValue(v any, params map[string]string) string {
 			if resolved, found := params[refName]; found {
 				return resolved
 			}
+
 			return refName
 		}
 	}
+
 	return fmt.Sprintf("%v", v)
 }
 
