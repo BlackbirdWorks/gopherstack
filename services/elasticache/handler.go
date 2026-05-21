@@ -355,6 +355,21 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// parseFormTags extracts Tags.Tag.N.Key/Value pairs from a form.
+func parseFormTags(form url.Values) map[string]string {
+	tags := make(map[string]string)
+	for i := 1; ; i++ {
+		key := form.Get(fmt.Sprintf("Tags.Tag.%d.Key", i))
+		if key == "" {
+			break
+		}
+		val := form.Get(fmt.Sprintf("Tags.Tag.%d.Value", i))
+		tags[key] = val
+	}
+
+	return tags
+}
+
 // parsePagination extracts Marker and MaxRecords from query form values.
 func parsePagination(form url.Values) (string, int) {
 	marker := form.Get("Marker")
@@ -610,17 +625,8 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 	}
 
 	// Parse Tags.
-	tags := make(map[string]string)
-	for i := 1; ; i++ {
-		key := form.Get(fmt.Sprintf("Tags.Tag.%d.Key", i))
-		if key == "" {
-			break
-		}
-		val := form.Get(fmt.Sprintf("Tags.Tag.%d.Value", i))
-		tags[key] = val
-	}
-	if len(tags) > 0 {
-		opts.Tags = tags
+	if t := parseFormTags(form); len(t) > 0 {
+		opts.Tags = t
 	}
 
 	return opts
@@ -1127,6 +1133,10 @@ func (h *Handler) createCacheParameterGroup(c *echo.Context, form url.Values) er
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	if initialTags := parseFormTags(form); len(initialTags) > 0 {
+		_ = h.Backend.AddTagsToResource(pg.ARN, initialTags)
+	}
+
 	type result struct {
 		XMLName             xml.Name               `xml:"CreateCacheParameterGroupResponse"`
 		Xmlns               string                 `xml:"xmlns,attr"`
@@ -1397,6 +1407,10 @@ func (h *Handler) createCacheSubnetGroup(c *echo.Context, form url.Values) error
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	if initialTags := parseFormTags(form); len(initialTags) > 0 {
+		_ = h.Backend.AddTagsToResource(sg.ARN, initialTags)
 	}
 
 	type result struct {
