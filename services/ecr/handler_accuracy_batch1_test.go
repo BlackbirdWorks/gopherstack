@@ -12,7 +12,6 @@ package ecr_test
 import (
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"sort"
 	"testing"
 
@@ -30,33 +29,6 @@ func newBatch1Handler() *ecr.Handler {
 
 func newBatch1Backend() *ecr.InMemoryBackend {
 	return ecr.NewInMemoryBackend("123456789012", "us-east-1", "localhost:5000")
-}
-
-func doBatch1(t *testing.T, h *ecr.Handler, action string, body any) *testRecorder {
-	t.Helper()
-
-	rec := doAccuracy(t, h, action, body)
-
-	return &testRecorder{t: t, ResponseRecorder: rec}
-}
-
-type testRecorder struct {
-	t *testing.T
-	*httptest.ResponseRecorder
-}
-
-func (r *testRecorder) requireOK() map[string]any {
-	r.t.Helper()
-	require.Equal(r.t, http.StatusOK, r.Code, "expected 200, body: %s", r.Body.String())
-
-	return parseAccuracy(r.t, r.ResponseRecorder)
-}
-
-func (r *testRecorder) requireStatus(code int) map[string]any {
-	r.t.Helper()
-	require.Equal(r.t, code, r.Code, "expected %d, body: %s", code, r.Body.String())
-
-	return parseAccuracy(r.t, r.ResponseRecorder)
 }
 
 func mustPutManifest(t *testing.T, h *ecr.Handler, repo, tag, manifest string) string {
@@ -585,8 +557,8 @@ func TestBatch1_BatchDeleteImage_Handler_ByTag(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	out := parseAccuracy(t, rec)
-	imageIds, _ := out["imageIds"].([]any)
-	assert.Len(t, imageIds, 1)
+	imageIDs, _ := out["imageIds"].([]any)
+	assert.Len(t, imageIDs, 1)
 	failures, _ := out["failures"].([]any)
 	assert.Empty(t, failures)
 
@@ -703,9 +675,9 @@ func TestBatch1_BatchGetImage_ByTag_ReturnsImage(t *testing.T) {
 	require.Len(t, images, 1)
 
 	img := images[0].(map[string]any)
-	imageId, _ := img["imageId"].(map[string]any)
-	assert.Equal(t, "v1", imageId["imageTag"])
-	assert.NotEmpty(t, imageId["imageDigest"])
+	imageID, _ := img["imageId"].(map[string]any)
+	assert.Equal(t, "v1", imageID["imageTag"])
+	assert.NotEmpty(t, imageID["imageDigest"])
 }
 
 func TestBatch1_BatchGetImage_ByDigest_ReturnsManifest(t *testing.T) {
@@ -798,8 +770,8 @@ func TestBatch1_BatchGetImage_MultiTag_ByEitherTag(t *testing.T) {
 		require.Len(t, images, 1, "image accessible via tag %q", tag)
 
 		img := images[0].(map[string]any)
-		imgId, _ := img["imageId"].(map[string]any)
-		assert.Equal(t, tag, imgId["imageTag"],
+		imgID, _ := img["imageId"].(map[string]any)
+		assert.Equal(t, tag, imgID["imageTag"],
 			"returned imageId.imageTag must match requested tag")
 	}
 }
@@ -916,8 +888,10 @@ func TestBatch1_ManifestList_OCI_MediaType_RoundTrip(t *testing.T) {
 	mustCreateRepo(t, h, "manifest-list")
 
 	listManifest := `{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[` +
-		`{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:aaa","platform":{"os":"linux","architecture":"amd64"}},` +
-		`{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:bbb","platform":{"os":"linux","architecture":"arm64"}}` +
+		`{"mediaType":"application/vnd.oci.image.manifest.v1+json",` +
+		`"digest":"sha256:aaa","platform":{"os":"linux","architecture":"amd64"}},` +
+		`{"mediaType":"application/vnd.oci.image.manifest.v1+json",` +
+		`"digest":"sha256:bbb","platform":{"os":"linux","architecture":"arm64"}}` +
 		`]}`
 
 	rec := doAccuracy(t, h, "PutImage", map[string]any{
@@ -950,7 +924,8 @@ func TestBatch1_ManifestList_Docker_MediaType(t *testing.T) {
 	h := newBatch1Handler()
 	mustCreateRepo(t, h, "docker-list")
 
-	listManifest := `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.list.v2+json","manifests":[]}`
+	listManifest := `{"schemaVersion":2,` +
+		`"mediaType":"application/vnd.docker.distribution.manifest.list.v2+json","manifests":[]}`
 
 	rec := doAccuracy(t, h, "PutImage", map[string]any{
 		"repositoryName":         "docker-list",
@@ -1111,11 +1086,11 @@ func TestBatch1_BatchGetRepositoryScanningConfiguration_MultipleRepos(t *testing
 
 	h := newBatch1Handler()
 	doAccuracy(t, h, "CreateRepository", map[string]any{
-		"repositoryName": "scan-r1",
+		"repositoryName":             "scan-r1",
 		"imageScanningConfiguration": map[string]any{"scanOnPush": true},
 	})
 	doAccuracy(t, h, "CreateRepository", map[string]any{
-		"repositoryName": "scan-r2",
+		"repositoryName":             "scan-r2",
 		"imageScanningConfiguration": map[string]any{"scanOnPush": false},
 	})
 
@@ -1492,7 +1467,8 @@ func TestBatch1_RepositoryPolicy_SetGet_RoundTrip(t *testing.T) {
 	h := newBatch1Handler()
 	mustCreateRepo(t, h, "repo-pol")
 
-	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"ecr:GetDownloadUrlForLayer"}]}`
+	policy := `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Principal":"*","Action":"ecr:GetDownloadUrlForLayer"}]}`
 	doAccuracy(t, h, "SetRepositoryPolicy", map[string]any{
 		"repositoryName": "repo-pol",
 		"policyText":     policy,
@@ -1575,7 +1551,9 @@ func TestBatch1_LifecyclePolicy_Put_Delete_Gone(t *testing.T) {
 	h := newBatch1Handler()
 	mustCreateRepo(t, h, "lc-del")
 
-	policy := `{"rules":[{"rulePriority":1,"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}`
+	policy := `{"rules":[{"rulePriority":1,` +
+		`"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},` +
+		`"action":{"type":"expire"}}]}`
 	doAccuracy(t, h, "PutLifecyclePolicy", map[string]any{
 		"repositoryName":      "lc-del",
 		"lifecyclePolicyText": policy,
@@ -1600,7 +1578,9 @@ func TestBatch1_LifecyclePolicy_Preview_WithPolicy(t *testing.T) {
 	mustCreateRepo(t, h, "lc-preview")
 	mustPutManifest(t, h, "lc-preview", "v1", `{"schemaVersion":2,"v":1}`)
 
-	policy := `{"rules":[{"rulePriority":1,"description":"keep none","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":0},"action":{"type":"expire"}}]}`
+	policy := `{"rules":[{"rulePriority":1,"description":"keep none",` +
+		`"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":0},` +
+		`"action":{"type":"expire"}}]}`
 
 	previewRec := doAccuracy(t, h, "StartLifecyclePolicyPreview", map[string]any{
 		"repositoryName":      "lc-preview",
@@ -1624,7 +1604,9 @@ func TestBatch1_LifecyclePolicy_Preview_UsesExistingPolicy(t *testing.T) {
 	h := newBatch1Handler()
 	mustCreateRepo(t, h, "lc-use-existing")
 
-	policy := `{"rules":[{"rulePriority":1,"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}}]}`
+	policy := `{"rules":[{"rulePriority":1,` +
+		`"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},` +
+		`"action":{"type":"expire"}}]}`
 	doAccuracy(t, h, "PutLifecyclePolicy", map[string]any{
 		"repositoryName":      "lc-use-existing",
 		"lifecyclePolicyText": policy,
@@ -1956,7 +1938,9 @@ func TestBatch1_RegistryPolicy_PutGet_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch1Handler()
-	policy := `{"Version":"2012-10-17","Statement":[{"Sid":"AllowCrossAccount","Effect":"Allow","Principal":{"AWS":"arn:aws:iam::999999999999:root"},"Action":"ecr:CreateRepository"}]}`
+	policy := `{"Version":"2012-10-17","Statement":[{"Sid":"AllowCrossAccount",` +
+		`"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::999999999999:root"},` +
+		`"Action":"ecr:CreateRepository"}]}`
 
 	doAccuracy(t, h, "PutRegistryPolicy", map[string]any{"policyText": policy})
 
@@ -2097,11 +2081,12 @@ func TestBatch1_GetAuthorizationToken_Base64Format(t *testing.T) {
 	import64 := func(s string) bool {
 		import64 := true
 		for _, c := range s {
-			if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-				(c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=') {
+			if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
+				(c < '0' || c > '9') && c != '+' && c != '/' && c != '=' {
 				import64 = false
 			}
 		}
+
 		return import64
 	}
 	assert.True(t, import64(token), "authorizationToken must be valid base64")

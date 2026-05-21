@@ -575,6 +575,50 @@ func (b *InMemoryBackend) BatchCheckLayerAvailability(
 	return layers, failures, nil
 }
 
+// deleteByDigestLocked removes an image by digest, deletes all tag bindings for
+// that digest, and returns true if the image was found.
+func deleteByDigestLocked(repoImages map[string]*Image, repoTags map[string]string, digest string) bool {
+	if _, ok := repoImages[digest]; !ok {
+		return false
+	}
+
+	// Remove all tag bindings for this digest.
+	for tag, d := range repoTags {
+		if d == digest {
+			delete(repoTags, tag)
+		}
+	}
+
+	delete(repoImages, digest)
+
+	return true
+}
+
+// deleteByTagLocked removes a tag binding, clears the image's tag field if it
+// matches, and falls back to a linear scan for legacy images. Returns true if found.
+func deleteByTagLocked(repoImages map[string]*Image, repoTags map[string]string, tag string) bool {
+	if digest, ok := repoTags[tag]; ok {
+		// Remove tag binding only; keep image accessible by digest.
+		delete(repoTags, tag)
+		if img, exists := repoImages[digest]; exists {
+			img.ImageID.ImageTag = ""
+		}
+
+		return true
+	}
+
+	// Fallback: linear scan for images stored with pre-tagIndex tag.
+	for _, img := range repoImages {
+		if img.ImageID.ImageTag == tag {
+			img.ImageID.ImageTag = ""
+
+			return true
+		}
+	}
+
+	return false
+}
+
 // BatchDeleteImage deletes the specified images from a repository.
 // When deleting by digest, all associated tags are removed and the image is deleted.
 // When deleting by tag, only that tag binding is removed; the image remains accessible
@@ -593,50 +637,17 @@ func (b *InMemoryBackend) BatchDeleteImage(
 	repoTags := b.tagIndex[repositoryName]
 
 	for _, id := range imageIDs {
-		found := false
+		var found bool
 
 		if id.ImageDigest != "" {
-			if _, ok := repoImages[id.ImageDigest]; ok {
-				// Remove all tag bindings for this digest.
-				if repoTags != nil {
-					for tag, d := range repoTags {
-						if d == id.ImageDigest {
-							delete(repoTags, tag)
-						}
-					}
-				}
-				delete(repoImages, id.ImageDigest)
-				deleted = append(deleted, id)
-				found = true
-			}
+			found = deleteByDigestLocked(repoImages, repoTags, id.ImageDigest)
 		} else if id.ImageTag != "" {
-			// Look up digest via tag index.
-			if repoTags != nil {
-				if digest, ok := repoTags[id.ImageTag]; ok {
-					// Remove tag binding only; keep image accessible by digest.
-					delete(repoTags, id.ImageTag)
-					if img, exists := repoImages[digest]; exists {
-						img.ImageID.ImageTag = ""
-					}
-					deleted = append(deleted, id)
-					found = true
-				}
-			}
-			// Fallback: linear scan for images stored with pre-tagIndex tag.
-			if !found {
-				for digest, img := range repoImages {
-					if img.ImageID.ImageTag == id.ImageTag {
-						img.ImageID.ImageTag = ""
-						_ = digest
-						deleted = append(deleted, id)
-						found = true
-						break
-					}
-				}
-			}
+			found = deleteByTagLocked(repoImages, repoTags, id.ImageTag)
 		}
 
-		if !found {
+		if found {
+			deleted = append(deleted, id)
+		} else {
 			failures = append(failures, ImageFailure{
 				ImageID:       id,
 				FailureCode:   "ImageNotFound",
@@ -683,6 +694,17 @@ func (b *InMemoryBackend) BatchGetImage(
 	return imgs, failures, nil
 }
 
+// buildDigestTagsLocked builds a reverse digest→[]tag map from a tag index.
+// Ranging over a nil map is safe in Go, so no nil check is needed.
+func buildDigestTagsLocked(repoTagIdx map[string]string) map[string][]string {
+	digestTags := make(map[string][]string)
+	for tag, digest := range repoTagIdx {
+		digestTags[digest] = append(digestTags[digest], tag)
+	}
+
+	return digestTags
+}
+
 // DescribeImages returns image details for a repository.
 func (b *InMemoryBackend) DescribeImages(repositoryName string, imageIDs []ImageIdentifier) ([]Image, error) {
 	b.mu.RLock("DescribeImages")
@@ -696,12 +718,7 @@ func (b *InMemoryBackend) DescribeImages(repositoryName string, imageIDs []Image
 	repoTagIdx := b.tagIndex[repositoryName]
 
 	// Build digest → []tag reverse map for multi-tag annotation.
-	digestTags := make(map[string][]string)
-	if repoTagIdx != nil {
-		for tag, digest := range repoTagIdx {
-			digestTags[digest] = append(digestTags[digest], tag)
-		}
-	}
+	digestTags := buildDigestTagsLocked(repoTagIdx)
 
 	annotate := func(img Image) Image {
 		tags := digestTags[img.ImageDigest]
@@ -711,6 +728,7 @@ func (b *InMemoryBackend) DescribeImages(repositoryName string, imageIDs []Image
 		// Sort for stable output.
 		sort.Strings(tags)
 		img.Tags = tags
+
 		return img
 	}
 
@@ -1495,6 +1513,31 @@ func (b *InMemoryBackend) StartImageScan(
 	}, nil
 }
 
+// imageTagsLocked returns the tags for an image, falling back to the legacy
+// per-image tag field if the digest is not in the tag index.
+func imageTagsLocked(img *Image, digestTags map[string][]string) []string {
+	tags := digestTags[img.ImageDigest]
+	if len(tags) == 0 && img.ImageID.ImageTag != "" {
+		// Legacy: tag stored on image directly (before tagIndex).
+		return []string{img.ImageID.ImageTag}
+	}
+
+	return tags
+}
+
+// passesTagFilter reports whether an image with the given tagged state should be
+// included given tagStatusFilter ("TAGGED", "UNTAGGED", or anything else for all).
+func passesTagFilter(isTagged bool, tagStatusFilter string) bool {
+	switch tagStatusFilter {
+	case "TAGGED":
+		return isTagged
+	case "UNTAGGED":
+		return !isTagged
+	default:
+		return true
+	}
+}
+
 // ListImages lists image identifiers for a repository.
 // tagStatusFilter controls which images to return: "TAGGED", "UNTAGGED", or "ANY" (default).
 func (b *InMemoryBackend) ListImages(repositoryName, tagStatusFilter string) ([]ImageIdentifier, error) {
@@ -1508,32 +1551,15 @@ func (b *InMemoryBackend) ListImages(repositoryName, tagStatusFilter string) ([]
 	repoTagIdx := b.tagIndex[repositoryName]
 
 	// Build a reverse map: digest → []tag from tagIndex.
-	digestTags := make(map[string][]string)
-	if repoTagIdx != nil {
-		for tag, digest := range repoTagIdx {
-			digestTags[digest] = append(digestTags[digest], tag)
-		}
-	}
+	digestTags := buildDigestTagsLocked(repoTagIdx)
 
 	out := make([]ImageIdentifier, 0, len(b.images[repositoryName]))
 	for _, img := range b.images[repositoryName] {
-		tags := digestTags[img.ImageDigest]
-		if len(tags) == 0 && img.ImageID.ImageTag != "" {
-			// Legacy: tag stored on image directly (before tagIndex).
-			tags = []string{img.ImageID.ImageTag}
-		}
-
+		tags := imageTagsLocked(img, digestTags)
 		isTagged := len(tags) > 0
 
-		switch tagStatusFilter {
-		case "TAGGED":
-			if !isTagged {
-				continue
-			}
-		case "UNTAGGED":
-			if isTagged {
-				continue
-			}
+		if !passesTagFilter(isTagged, tagStatusFilter) {
+			continue
 		}
 
 		if isTagged {
@@ -1566,11 +1592,27 @@ func (b *InMemoryBackend) ListImageReferrers(repositoryName string, subject Imag
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	if _, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], subject); !ok && subject.ImageDigest != "" {
+	if _, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], subject); !ok &&
+		subject.ImageDigest != "" {
 		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
 	}
 
 	return []ImageReferrer{}, nil
+}
+
+// retagImageLocked moves a tag to a new digest: if the tag already maps to a
+// different digest, it clears the old image's ImageTag field so it becomes untagged.
+func retagImageLocked(repoImages map[string]*Image, repoTags map[string]string, tag, newDigest string) {
+	oldDigest, has := repoTags[tag]
+	if !has || oldDigest == newDigest {
+		return
+	}
+
+	if oldImg, exists := repoImages[oldDigest]; exists {
+		if oldImg.ImageID.ImageTag == tag {
+			oldImg.ImageID.ImageTag = ""
+		}
+	}
 }
 
 // PutImage creates or replaces an image manifest.
@@ -1579,6 +1621,30 @@ func (b *InMemoryBackend) ListImageReferrers(repositoryName string, subject Imag
 // existing image (same tag, different digest) are rejected with ErrImageTagAlreadyExists.
 // When pushing to a MUTABLE repo with a tag that already exists on a different digest,
 // the tag is moved to the new digest (the old image becomes untagged).
+// normalizeImageFields fills in any zero-valued metadata fields on an image
+// using the repository name and account ID.
+func normalizeImageFields(image *Image, repositoryName, accountID string) {
+	if image.ImageID.ImageDigest == "" {
+		image.ImageID.ImageDigest = image.ImageDigest
+	}
+
+	if image.RepositoryName == "" {
+		image.RepositoryName = repositoryName
+	}
+
+	if image.RegistryID == "" {
+		image.RegistryID = accountID
+	}
+
+	if image.ImagePushedAt.IsZero() {
+		image.ImagePushedAt = time.Now()
+	}
+
+	if image.ImageStatus == "" {
+		image.ImageStatus = imageStatusActive
+	}
+}
+
 func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, error) {
 	b.mu.Lock("PutImage")
 	defer b.mu.Unlock()
@@ -1612,35 +1678,10 @@ func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, 
 
 	// If tag already points to a different digest, untag the old image.
 	if tag != "" {
-		if oldDigest, has := repoTags[tag]; has && oldDigest != image.ImageDigest {
-			if oldImg, exists := b.images[repositoryName][oldDigest]; exists {
-				// Remove the tag from the old image so it becomes untagged.
-				if oldImg.ImageID.ImageTag == tag {
-					oldImg.ImageID.ImageTag = ""
-				}
-			}
-		}
+		retagImageLocked(b.images[repositoryName], repoTags, tag, image.ImageDigest)
 	}
 
-	if image.ImageID.ImageDigest == "" {
-		image.ImageID.ImageDigest = image.ImageDigest
-	}
-
-	if image.RepositoryName == "" {
-		image.RepositoryName = repositoryName
-	}
-
-	if image.RegistryID == "" {
-		image.RegistryID = b.accountID
-	}
-
-	if image.ImagePushedAt.IsZero() {
-		image.ImagePushedAt = time.Now()
-	}
-
-	if image.ImageStatus == "" {
-		image.ImageStatus = imageStatusActive
-	}
+	normalizeImageFields(&image, repositoryName, b.accountID)
 
 	if b.images[repositoryName] == nil {
 		b.images[repositoryName] = make(map[string]*Image)

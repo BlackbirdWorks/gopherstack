@@ -882,6 +882,7 @@ func (h *Handler) handleDescribeImages(
 		for i, img := range imgs {
 			if img.ImageDigest == in.NextToken {
 				start = i
+
 				break
 			}
 		}
