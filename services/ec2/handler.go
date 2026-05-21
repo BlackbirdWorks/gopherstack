@@ -489,14 +489,19 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	userData := vals.Get("UserData")
 	keyName := vals.Get("KeyName")
 
-	count := 1
-	if v := vals.Get("MinCount"); v != "" {
-		if _, scanErr := fmt.Sscan(v, &count); scanErr != nil {
-			count = 1
-		}
+	minCount, maxCount, err := parseRunInstancesCounts(vals)
+	if err != nil {
+		return nil, err
 	}
 
-	instances, err := h.Backend.RunInstances(imageID, instanceType, subnetID, count)
+	_ = maxCount // AWS uses MaxCount for capacity planning; mock always launches minCount
+
+	sgIDs, err := h.validateSecurityGroupIDs(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	instances, err := h.Backend.RunInstances(imageID, instanceType, subnetID, minCount)
 	if err != nil {
 		return nil, err
 	}
@@ -511,6 +516,10 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 
 		if keyName != "" {
 			inst.KeyName = keyName
+		}
+
+		if len(sgIDs) > 0 {
+			inst.SecurityGroups = sgIDs
 		}
 	}
 
@@ -543,16 +552,39 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	}, nil
 }
 
+// describeInstancesMaxResults is the maximum MaxResults for DescribeInstances.
+const describeInstancesMaxResults = 1000
+
+// describeInstancesMinResults is the minimum MaxResults for DescribeInstances.
+const describeInstancesMinResults = 5
+
 func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
-	state := vals.Get("Filter.1.Value.1")
 
-	instances := h.Backend.DescribeInstances(ids, state)
+	// Parse named EC2 filters: Filter.N.Name / Filter.N.Value.M
+	filters := parseEC2Filters(vals)
 
-	// Pagination: MaxResults / NextToken (gap 3).
+	// Fetch all instances matching the IDs (state filter applied post-fetch so
+	// that multi-value OR semantics work: e.g. state=running OR state=stopped).
+	instances := h.Backend.DescribeInstances(ids, "")
+
+	// Apply all filters post-fetch (AND across filter names, OR within values).
+	instances = applyInstanceFilters(instances, filters, h.Backend)
+
+	// Pagination: MaxResults / NextToken.
 	maxResults := 0
 	if v := vals.Get("MaxResults"); v != "" {
-		_, _ = fmt.Sscan(v, &maxResults)
+		if _, scanErr := fmt.Sscan(v, &maxResults); scanErr != nil || maxResults < 1 {
+			return nil, fmt.Errorf("%w: MaxResults must be a positive integer", ErrInvalidParameter)
+		}
+		if maxResults < describeInstancesMinResults || maxResults > describeInstancesMaxResults {
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between %d and %d",
+				ErrInvalidParameter,
+				describeInstancesMinResults,
+				describeInstancesMaxResults,
+			)
+		}
 	}
 
 	offset := 0
@@ -643,6 +675,10 @@ func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, 
 func (h *Handler) handleDescribeSecurityGroups(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "GroupId")
 	groups := h.Backend.DescribeSecurityGroups(ids)
+
+	// Apply named filters: vpc-id, group-name, group-id.
+	filters := parseEC2Filters(vals)
+	groups = applySecurityGroupFilters(groups, filters)
 
 	items := make([]sgItem, 0, len(groups))
 	for _, sg := range groups {
@@ -1308,6 +1344,11 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem
 
 	sort.Slice(tagItems, func(i, j int) bool { return tagItems[i].Key < tagItems[j].Key })
 
+	groupItems := make([]instanceGroupItem, 0, len(inst.SecurityGroups))
+	for _, sgID := range inst.SecurityGroups {
+		groupItems = append(groupItems, instanceGroupItem{GroupID: sgID})
+	}
+
 	return instanceItem{
 		InstanceID:       inst.ID,
 		ImageID:          inst.ImageID,
@@ -1320,6 +1361,7 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem
 		PublicIPAddress:  inst.PublicIPAddress,
 		PublicDNSName:    inst.PublicDNSName,
 		KeyName:          inst.KeyName,
+		GroupSet:         instanceGroupSet{Items: groupItems},
 		TagSet:           instanceTagItemSet{Items: tagItems},
 	}
 }
@@ -1379,6 +1421,15 @@ type stateItem struct {
 	Code int    `xml:"code"`
 }
 
+type instanceGroupItem struct {
+	GroupID   string `xml:"groupId"`
+	GroupName string `xml:"groupName"`
+}
+
+type instanceGroupSet struct {
+	Items []instanceGroupItem `xml:"item"`
+}
+
 type instanceItem struct {
 	LaunchTime       string             `xml:"launchTime"`
 	InstanceID       string             `xml:"instanceId"`
@@ -1391,6 +1442,7 @@ type instanceItem struct {
 	PublicDNSName    string             `xml:"dnsName,omitempty"`
 	KeyName          string             `xml:"keyName,omitempty"`
 	StateItem        stateItem          `xml:"instanceState"`
+	GroupSet         instanceGroupSet   `xml:"groupSet"`
 	TagSet           instanceTagItemSet `xml:"tagSet"`
 }
 

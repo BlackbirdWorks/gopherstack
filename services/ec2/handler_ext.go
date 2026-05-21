@@ -899,12 +899,24 @@ func (h *Handler) handleAllocateAddress(_ url.Values, reqID string) (any, error)
 func (h *Handler) handleAssociateAddress(vals url.Values, reqID string) (any, error) {
 	allocationID := vals.Get("AllocationId")
 	instanceID := vals.Get("InstanceId")
+	networkInterfaceID := vals.Get("NetworkInterfaceId")
 
-	if allocationID == "" || instanceID == "" {
-		return nil, fmt.Errorf("%w: AllocationId and InstanceId are required", ErrInvalidParameter)
+	if allocationID == "" {
+		return nil, fmt.Errorf("%w: AllocationId is required", ErrInvalidParameter)
 	}
 
-	assocID, err := h.Backend.AssociateAddress(allocationID, instanceID)
+	// Accept either InstanceId or NetworkInterfaceId as the association target.
+	// Real AWS also allows association via NetworkInterfaceId (e.g. for non-instance ENIs).
+	targetID := instanceID
+	if targetID == "" {
+		targetID = networkInterfaceID
+	}
+
+	if targetID == "" {
+		return nil, fmt.Errorf("%w: InstanceId or NetworkInterfaceId is required", ErrInvalidParameter)
+	}
+
+	assocID, err := h.Backend.AssociateAddress(allocationID, targetID)
 	if err != nil {
 		return nil, err
 	}
