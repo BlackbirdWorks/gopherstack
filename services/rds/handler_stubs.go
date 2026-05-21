@@ -9,26 +9,34 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 )
 
-const (
-	// shardGroupStatusAvailable is the status for an available DB shard group.
-	shardGroupStatusAvailable = instanceStatusAvailable
-	// shardGroupStatusDeleting is the status for a deleting DB shard group.
-	shardGroupStatusDeleting = instanceStatusDeleting
-	// shardGroupStatusRebooting is the status for a rebooting DB shard group.
-	shardGroupStatusRebooting = "rebooting"
-	// integrationStatusDeleting is the status for a deleting integration.
-	integrationStatusDeleting = instanceStatusDeleting
-	// tenantStatusAvailable is the status for an available tenant database.
-	tenantStatusAvailable = instanceStatusAvailable
-	// tenantStatusDeleting is the status for a deleting tenant database.
-	tenantStatusDeleting = instanceStatusDeleting
-	// backupStatusDeleted is the status for a deleted automated backup.
-	backupStatusDeleted = "deleted"
-	// backupStatusReplicating is the status for a replicating automated backup.
-	backupStatusReplicating = "replicating"
-)
+// parseFloat parses a string as float64, returning 0 on error.
+func parseFloat(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+
+	return v
+}
+
+// parseInt parses a string as int, returning 0 on error.
+func parseInt(s string) int {
+	if s == "" {
+		return 0
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+
+	return v
+}
 
 // errRDSStubNotHandled is a sentinel used internally to signal that a dispatch
 // helper did not recognise the action. It is never returned to callers.
@@ -429,13 +437,22 @@ func (h *Handler) handleModifyCustomDBEngineVersion(vals url.Values) (any, error
 func (h *Handler) handleCreateDBShardGroup(vals url.Values) (any, error) {
 	id := vals.Get("DBShardGroupIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
+	maxACU := parseFloat(vals.Get("MaxACU"))
+	minACU := parseFloat(vals.Get("MinACU"))
+	computeRedundancy := parseInt(vals.Get("ComputeRedundancy"))
+	publiclyAccessible := vals.Get("PubliclyAccessible") == "true"
+
+	sg, err := h.Backend.CreateDBShardGroup(id, clusterID, maxACU, minACU, computeRedundancy, publiclyAccessible)
+	if err != nil {
+		return nil, err
+	}
 
 	return &createDBShardGroupResponse{
 		Xmlns: rdsXMLNS,
 		DBShardGroup: xmlDBShardGroup{
-			DBShardGroupIdentifier: id,
-			DBClusterIdentifier:    clusterID,
-			Status:                 shardGroupStatusAvailable,
+			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
+			DBClusterIdentifier:    sg.DBClusterIdentifier,
+			Status:                 sg.Status,
 		},
 	}, nil
 }
@@ -443,30 +460,59 @@ func (h *Handler) handleCreateDBShardGroup(vals url.Values) (any, error) {
 func (h *Handler) handleDeleteDBShardGroup(vals url.Values) (any, error) {
 	id := vals.Get("DBShardGroupIdentifier")
 
+	sg, err := h.Backend.DeleteDBShardGroup(id)
+	if err != nil {
+		return nil, err
+	}
+
 	return &deleteDBShardGroupResponse{
 		Xmlns: rdsXMLNS,
 		DBShardGroup: xmlDBShardGroup{
-			DBShardGroupIdentifier: id,
-			Status:                 shardGroupStatusDeleting,
+			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
+			Status:                 sg.Status,
 		},
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBShardGroups(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeDBShardGroups(vals url.Values) (any, error) {
+	id := vals.Get("DBShardGroupIdentifier")
+
+	groups, err := h.Backend.DescribeDBShardGroups(id)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlDBShardGroup, 0, len(groups))
+	for _, sg := range groups {
+		members = append(members, xmlDBShardGroup{
+			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
+			DBClusterIdentifier:    sg.DBClusterIdentifier,
+			Status:                 sg.Status,
+		})
+	}
+
 	return &describeDBShardGroupsResponse{
 		Xmlns:         rdsXMLNS,
-		DBShardGroups: xmlDBShardGroupList{Members: []xmlDBShardGroup{}},
+		DBShardGroups: xmlDBShardGroupList{Members: members},
 	}, nil
 }
 
 func (h *Handler) handleModifyDBShardGroup(vals url.Values) (any, error) {
 	id := vals.Get("DBShardGroupIdentifier")
+	maxACU := parseFloat(vals.Get("MaxACU"))
+	computeRedundancy := parseInt(vals.Get("ComputeRedundancy"))
+
+	sg, err := h.Backend.ModifyDBShardGroup(id, maxACU, computeRedundancy)
+	if err != nil {
+		return nil, err
+	}
 
 	return &modifyDBShardGroupResponse{
 		Xmlns: rdsXMLNS,
 		DBShardGroup: xmlDBShardGroup{
-			DBShardGroupIdentifier: id,
-			Status:                 shardGroupStatusAvailable,
+			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
+			DBClusterIdentifier:    sg.DBClusterIdentifier,
+			Status:                 sg.Status,
 		},
 	}, nil
 }
@@ -474,130 +520,240 @@ func (h *Handler) handleModifyDBShardGroup(vals url.Values) (any, error) {
 func (h *Handler) handleRebootDBShardGroup(vals url.Values) (any, error) {
 	id := vals.Get("DBShardGroupIdentifier")
 
+	sg, err := h.Backend.RebootDBShardGroup(id)
+	if err != nil {
+		return nil, err
+	}
+
 	return &rebootDBShardGroupResponse{
 		Xmlns: rdsXMLNS,
 		DBShardGroup: xmlDBShardGroup{
-			DBShardGroupIdentifier: id,
-			Status:                 shardGroupStatusRebooting,
+			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
+			Status:                 sg.Status,
 		},
 	}, nil
 }
 
 func (h *Handler) handleCreateIntegration(vals url.Values) (any, error) {
 	name := vals.Get("IntegrationName")
+	sourceARN := vals.Get("SourceArn")
+	targetARN := vals.Get("TargetArn")
+	kmsKeyID := vals.Get("KMSKeyId")
+
+	intg, err := h.Backend.CreateIntegration(name, sourceARN, targetARN, kmsKeyID)
+	if err != nil {
+		return nil, err
+	}
 
 	return &createIntegrationResponse{
 		Xmlns: rdsXMLNS,
 		Integration: xmlIntegration{
-			IntegrationName: name,
-			Status:          subscriptionStatusActive,
+			IntegrationName: intg.IntegrationName,
+			IntegrationArn:  intg.IntegrationArn,
+			SourceArn:       intg.SourceArn,
+			TargetArn:       intg.TargetArn,
+			Status:          intg.Status,
 		},
 	}, nil
 }
 
 func (h *Handler) handleDeleteIntegration(vals url.Values) (any, error) {
-	name := vals.Get("IntegrationName")
+	identifier := vals.Get("IntegrationIdentifier")
+
+	intg, err := h.Backend.DeleteIntegration(identifier)
+	if err != nil {
+		return nil, err
+	}
 
 	return &deleteIntegrationResponse{
 		Xmlns: rdsXMLNS,
 		Integration: xmlIntegration{
-			IntegrationName: name,
-			Status:          integrationStatusDeleting,
+			IntegrationName: intg.IntegrationName,
+			IntegrationArn:  intg.IntegrationArn,
+			Status:          intg.Status,
 		},
 	}, nil
 }
 
-func (h *Handler) handleDescribeIntegrations(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeIntegrations(vals url.Values) (any, error) {
+	identifier := vals.Get("IntegrationIdentifier")
+
+	integrations, err := h.Backend.DescribeIntegrations(identifier)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlIntegration, 0, len(integrations))
+	for _, intg := range integrations {
+		members = append(members, xmlIntegration{
+			IntegrationName: intg.IntegrationName,
+			IntegrationArn:  intg.IntegrationArn,
+			SourceArn:       intg.SourceArn,
+			TargetArn:       intg.TargetArn,
+			Status:          intg.Status,
+		})
+	}
+
 	return &describeIntegrationsResponse{
 		Xmlns:        rdsXMLNS,
-		Integrations: xmlIntegrationList{Members: []xmlIntegration{}},
+		Integrations: xmlIntegrationList{Members: members},
 	}, nil
 }
 
 func (h *Handler) handleModifyIntegration(vals url.Values) (any, error) {
-	name := vals.Get("IntegrationName")
+	identifier := vals.Get("IntegrationIdentifier")
+
+	intg, err := h.Backend.ModifyIntegration(identifier)
+	if err != nil {
+		return nil, err
+	}
 
 	return &modifyIntegrationResponse{
 		Xmlns: rdsXMLNS,
 		Integration: xmlIntegration{
-			IntegrationName: name,
-			Status:          subscriptionStatusActive,
+			IntegrationName: intg.IntegrationName,
+			IntegrationArn:  intg.IntegrationArn,
+			Status:          intg.Status,
 		},
 	}, nil
 }
 
 func (h *Handler) handleCreateTenantDatabase(vals url.Values) (any, error) {
-	name := vals.Get("TenantDatabaseName")
 	instanceID := vals.Get("DBInstanceIdentifier")
+	tenantDBName := vals.Get("TenantDBName")
+	masterUsername := vals.Get("MasterUsername")
+
+	tdb, err := h.Backend.CreateTenantDatabase(instanceID, tenantDBName, masterUsername)
+	if err != nil {
+		return nil, err
+	}
 
 	return &createTenantDatabaseResponse{
 		Xmlns: rdsXMLNS,
 		TenantDatabase: xmlTenantDatabase{
-			TenantDatabaseName:   name,
-			DBInstanceIdentifier: instanceID,
-			Status:               tenantStatusAvailable,
+			TenantDatabaseName:   tdb.TenantDBName,
+			DBInstanceIdentifier: tdb.DBInstanceIdentifier,
+			Status:               tdb.Status,
 		},
 	}, nil
 }
 
 func (h *Handler) handleDeleteTenantDatabase(vals url.Values) (any, error) {
-	name := vals.Get("TenantDatabaseName")
+	instanceID := vals.Get("DBInstanceIdentifier")
+	tenantDBName := vals.Get("TenantDBName")
+
+	tdb, err := h.Backend.DeleteTenantDatabase(instanceID, tenantDBName)
+	if err != nil {
+		return nil, err
+	}
 
 	return &deleteTenantDatabaseResponse{
 		Xmlns: rdsXMLNS,
 		TenantDatabase: xmlTenantDatabase{
-			TenantDatabaseName: name,
-			Status:             tenantStatusDeleting,
+			TenantDatabaseName:   tdb.TenantDBName,
+			DBInstanceIdentifier: tdb.DBInstanceIdentifier,
+			Status:               tdb.Status,
 		},
 	}, nil
 }
 
-func (h *Handler) handleDescribeTenantDatabases(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeTenantDatabases(vals url.Values) (any, error) {
+	instanceID := vals.Get("DBInstanceIdentifier")
+	tenantDBName := vals.Get("TenantDBName")
+
+	tdbs, err := h.Backend.DescribeTenantDatabases(instanceID, tenantDBName)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlTenantDatabase, 0, len(tdbs))
+	for _, tdb := range tdbs {
+		members = append(members, xmlTenantDatabase{
+			TenantDatabaseName:   tdb.TenantDBName,
+			DBInstanceIdentifier: tdb.DBInstanceIdentifier,
+			Status:               tdb.Status,
+		})
+	}
+
 	return &describeTenantDatabasesResponse{
 		Xmlns:           rdsXMLNS,
-		TenantDatabases: xmlTenantDatabaseList{Members: []xmlTenantDatabase{}},
+		TenantDatabases: xmlTenantDatabaseList{Members: members},
 	}, nil
 }
 
 func (h *Handler) handleModifyTenantDatabase(vals url.Values) (any, error) {
-	name := vals.Get("TenantDatabaseName")
+	instanceID := vals.Get("DBInstanceIdentifier")
+	tenantDBName := vals.Get("TenantDBName")
+
+	tdb, err := h.Backend.ModifyTenantDatabase(instanceID, tenantDBName)
+	if err != nil {
+		return nil, err
+	}
 
 	return &modifyTenantDatabaseResponse{
 		Xmlns: rdsXMLNS,
 		TenantDatabase: xmlTenantDatabase{
-			TenantDatabaseName: name,
-			Status:             tenantStatusAvailable,
+			TenantDatabaseName:   tdb.TenantDBName,
+			DBInstanceIdentifier: tdb.DBInstanceIdentifier,
+			Status:               tdb.Status,
 		},
 	}, nil
 }
 
 func (h *Handler) handleDeleteDBClusterAutomatedBackup(vals url.Values) (any, error) {
-	clusterID := vals.Get("DBClusterIdentifier")
+	resourceID := vals.Get("DbClusterResourceId")
+	if resourceID == "" {
+		resourceID = vals.Get("DBClusterIdentifier")
+	}
+
+	backup, err := h.Backend.DeleteDBClusterAutomatedBackup(resourceID)
+	if err != nil {
+		return nil, err
+	}
 
 	return &deleteDBClusterAutomatedBackupResponse{
 		Xmlns: rdsXMLNS,
 		DBClusterAutomatedBackup: xmlDBClusterAutomatedBackup{
-			DBClusterIdentifier: clusterID,
-			Status:              backupStatusDeleted,
+			DBClusterIdentifier: backup.DBClusterIdentifier,
+			Status:              backup.Status,
 		},
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBClusterAutomatedBackups(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeDBClusterAutomatedBackups(vals url.Values) (any, error) {
+	clusterID := vals.Get("DBClusterIdentifier")
+	backups := h.Backend.DescribeDBClusterAutomatedBackups(clusterID)
+
+	members := make([]xmlDBClusterAutomatedBackup, 0, len(backups))
+	for _, b := range backups {
+		members = append(members, xmlDBClusterAutomatedBackup{
+			DBClusterIdentifier: b.DBClusterIdentifier,
+			Status:              b.Status,
+		})
+	}
+
 	return &describeDBClusterAutomatedBackupsResponse{
 		Xmlns:                     rdsXMLNS,
-		DBClusterAutomatedBackups: xmlDBClusterAutomatedBackupList{Members: []xmlDBClusterAutomatedBackup{}},
+		DBClusterAutomatedBackups: xmlDBClusterAutomatedBackupList{Members: members},
 	}, nil
 }
 
 func (h *Handler) handleDeleteDBInstanceAutomatedBackup(vals url.Values) (any, error) {
-	instanceID := vals.Get("DBInstanceIdentifier")
+	resourceID := vals.Get("DbiResourceId")
+	if resourceID == "" {
+		resourceID = vals.Get("DBInstanceIdentifier")
+	}
+
+	backup, err := h.Backend.DeleteDBInstanceAutomatedBackup(resourceID)
+	if err != nil {
+		return nil, err
+	}
 
 	return &deleteDBInstanceAutomatedBackupResponse{
 		Xmlns: rdsXMLNS,
 		DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
-			DBInstanceIdentifier: instanceID,
-			Status:               backupStatusDeleted,
+			DBInstanceIdentifier: backup.DBInstanceIdentifier,
+			Status:               backup.Status,
 		},
 	}, nil
 }
@@ -620,33 +776,57 @@ func (h *Handler) handleDescribeDBInstanceAutomatedBackups(vals url.Values) (any
 }
 
 func (h *Handler) handleStartDBInstanceAutomatedBackupsReplication(vals url.Values) (any, error) {
-	instanceID := vals.Get("SourceDBInstanceArn")
+	sourceARN := vals.Get("SourceDBInstanceArn")
+	retentionPeriod := parseInt(vals.Get("BackupRetentionPeriod"))
+
+	backup, err := h.Backend.StartDBInstanceAutomatedBackupsReplication(sourceARN, retentionPeriod)
+	if err != nil {
+		return nil, err
+	}
 
 	return &startDBInstanceAutomatedBackupsReplicationResponse{
 		Xmlns: rdsXMLNS,
 		DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
-			DBInstanceIdentifier: instanceID,
-			Status:               backupStatusReplicating,
+			DBInstanceIdentifier: backup.DBInstanceIdentifier,
+			Status:               backup.Status,
 		},
 	}, nil
 }
 
 func (h *Handler) handleStopDBInstanceAutomatedBackupsReplication(vals url.Values) (any, error) {
-	instanceID := vals.Get("SourceDBInstanceArn")
+	sourceARN := vals.Get("SourceDBInstanceArn")
+
+	backup, err := h.Backend.StopDBInstanceAutomatedBackupsReplication(sourceARN)
+	if err != nil {
+		return nil, err
+	}
 
 	return &stopDBInstanceAutomatedBackupsReplicationResponse{
 		Xmlns: rdsXMLNS,
 		DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
-			DBInstanceIdentifier: instanceID,
-			Status:               instanceStatusStopped,
+			DBInstanceIdentifier: backup.DBInstanceIdentifier,
+			Status:               backup.Status,
 		},
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBSnapshotTenantDatabases(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeDBSnapshotTenantDatabases(vals url.Values) (any, error) {
+	snapshotID := vals.Get("DBSnapshotIdentifier")
+	instanceID := vals.Get("DBInstanceIdentifier")
+
+	entries := h.Backend.DescribeDBSnapshotTenantDatabases(snapshotID, instanceID)
+
+	members := make([]xmlDBSnapshotTenantDatabase, 0, len(entries))
+	for _, e := range entries {
+		members = append(members, xmlDBSnapshotTenantDatabase{
+			DBSnapshotIdentifier: e.DBSnapshotIdentifier,
+			TenantDatabaseName:   e.TenantDatabaseName,
+		})
+	}
+
 	return &describeDBSnapshotTenantDatabasesResponse{
 		Xmlns:                     rdsXMLNS,
-		DBSnapshotTenantDatabases: xmlDBSnapshotTenantDatabaseList{Members: []xmlDBSnapshotTenantDatabase{}},
+		DBSnapshotTenantDatabases: xmlDBSnapshotTenantDatabaseList{Members: members},
 	}, nil
 }
 

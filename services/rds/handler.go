@@ -1098,6 +1098,14 @@ func rdsErrorCode(opErr error) string {
 		{ErrDBSecurityGroupAlreadyExists, "DBSecurityGroupAlreadyExists"},
 		{ErrBlueGreenDeploymentNotFound, "BlueGreenDeploymentNotFound"},
 		{ErrBlueGreenDeploymentAlreadyExists, "BlueGreenDeploymentAlreadyExists"},
+		{ErrDBShardGroupNotFound, "DBShardGroupNotFound"},
+		{ErrDBShardGroupAlreadyExists, "DBShardGroupAlreadyExists"},
+		{ErrIntegrationNotFound, "IntegrationNotFound"},
+		{ErrIntegrationAlreadyExists, "IntegrationAlreadyExists"},
+		{ErrTenantDatabaseNotFound, "TenantDatabaseNotFound"},
+		{ErrTenantDatabaseAlreadyExists, "TenantDatabaseAlreadyExists"},
+		{ErrDBClusterAutomatedBackupNotFound, "DBClusterAutomatedBackupNotFound"},
+		{ErrDBInstanceAutomatedBackupNotFound, "DBInstanceAutomatedBackupNotFound"},
 	}
 
 	for _, m := range mappings {
