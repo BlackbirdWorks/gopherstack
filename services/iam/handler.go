@@ -1555,6 +1555,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		code = "EntityAlreadyExists"
 	case errors.Is(reqErr, ErrDeleteConflict):
 		code = "DeleteConflict"
+	case errors.Is(reqErr, ErrLimitExceeded):
+		code = "LimitExceeded"
 	case errors.Is(reqErr, ErrMalformedPolicyDocument):
 		code = "MalformedPolicyDocument"
 	case errors.Is(reqErr, ErrInvalidAction):
