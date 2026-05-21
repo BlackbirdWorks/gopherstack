@@ -291,12 +291,18 @@ func TestServerStartup_WithInitScript(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
-	// Give init scripts time to run before checking for the marker.
-	time.Sleep(400 * time.Millisecond)
-
-	// Verify the init script wrote the marker file.
-	data, readErr := os.ReadFile(marker)
-	require.NoError(t, readErr, "init script should have created the marker file")
+	// Poll for the marker file instead of a fixed sleep to avoid timing flakes.
+	deadline := time.Now().Add(5 * time.Second)
+	var data []byte
+	for time.Now().Before(deadline) {
+		var readErr error
+		data, readErr = os.ReadFile(marker)
+		if readErr == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	require.NotNil(t, data, "init script should have created the marker file within 5s")
 	assert.Contains(t, string(data), "ran")
 
 	cancel()

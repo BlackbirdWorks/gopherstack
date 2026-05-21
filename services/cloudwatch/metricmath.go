@@ -89,11 +89,15 @@ func evalExpression(q MetricDataQuery, resolved map[string]MetricDataResult) Met
 		return result
 	}
 
-	if evalSumMetricsExpr(upper, resolved, &result) {
+	if evalMetricsAggExpr(upper, resolved, &result) {
 		return result
 	}
 
 	if evalAvgExpr(upper, expr, resolved, &result) {
+		return result
+	}
+
+	if evalRateExpr(upper, resolved, &result) {
 		return result
 	}
 
@@ -147,22 +151,108 @@ func evalFillExpr(upper string, resolved map[string]MetricDataResult, result *Me
 	return true
 }
 
-// evalSumMetricsExpr handles SUM(METRICS()) expressions.
-func evalSumMetricsExpr(upper string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
-	if upper != "SUM(METRICS())" {
-		return false
+// minStddevSampleCount is the minimum sample count for stddev computation.
+const minStddevSampleCount = 2
+
+// aggSum returns the sum of vals.
+func aggSum(vals []float64) float64 {
+	var s float64
+	for _, v := range vals {
+		s += v
 	}
 
-	result.Timestamps, result.Values = applyAggregation(resolved, func(vals []float64) float64 {
-		var s float64
-		for _, v := range vals {
-			s += v
+	return s
+}
+
+// aggAvg returns the average of vals.
+func aggAvg(vals []float64) float64 {
+	if len(vals) == 0 {
+		return 0
+	}
+
+	return aggSum(vals) / float64(len(vals))
+}
+
+// aggMin returns the minimum of vals.
+func aggMin(vals []float64) float64 {
+	if len(vals) == 0 {
+		return 0
+	}
+	m := vals[0]
+	for _, v := range vals[1:] {
+		if v < m {
+			m = v
 		}
+	}
 
-		return s
-	})
+	return m
+}
 
-	return true
+// aggMax returns the maximum of vals.
+func aggMax(vals []float64) float64 {
+	if len(vals) == 0 {
+		return 0
+	}
+	m := vals[0]
+	for _, v := range vals[1:] {
+		if v > m {
+			m = v
+		}
+	}
+
+	return m
+}
+
+// aggStddev returns the population standard deviation of vals.
+func aggStddev(vals []float64) float64 {
+	if len(vals) < minStddevSampleCount {
+		return 0
+	}
+	mean := aggAvg(vals)
+	var variance float64
+	for _, v := range vals {
+		d := v - mean
+		variance += d * d
+	}
+
+	return math.Sqrt(variance / float64(len(vals)))
+}
+
+// metricsAggFn returns the aggregation function for the given METRICS() function name.
+// Returns nil when fn is not recognised.
+func metricsAggFn(fn string) func([]float64) float64 {
+	switch fn {
+	case "SUM":
+		return aggSum
+	case "AVG":
+		return aggAvg
+	case "MIN":
+		return aggMin
+	case "MAX":
+		return aggMax
+	case "STDDEV":
+		return aggStddev
+	}
+
+	return nil
+}
+
+// evalMetricsAggExpr handles SUM/AVG/MIN/MAX/STDDEV(METRICS()) expressions.
+func evalMetricsAggExpr(upper string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
+	for _, fn := range []string{"SUM", "AVG", "MIN", "MAX", "STDDEV"} {
+		if upper != fn+"(METRICS())" {
+			continue
+		}
+		agg := metricsAggFn(fn)
+		if agg == nil {
+			return false
+		}
+		result.Timestamps, result.Values = applyAggregation(resolved, agg)
+
+		return true
+	}
+
+	return false
 }
 
 // evalAvgExpr handles AVG(id) expressions.
@@ -272,16 +362,21 @@ func applyAggregation(resolved map[string]MetricDataResult, agg func([]float64) 
 	return times, vals
 }
 
-// reBinary matches "id OP id" binary expressions.
-var reBinary = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*)\s*([+\-*/])\s*([a-zA-Z][a-zA-Z0-9_]*)$`)
+// reBinaryIDID matches "id OP id" binary expressions.
+var reBinaryIDID = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*)\s*([+\-*/])\s*([a-zA-Z][a-zA-Z0-9_]*)$`)
 
-// evalBinaryExpr evaluates element-wise binary expressions like "m1 + m2".
-func evalBinaryExpr(expr string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
-	m := reBinary.FindStringSubmatch(expr)
-	if m == nil {
-		return false
-	}
+// reBinaryIDConst matches "id OP number" binary expressions.
+var reBinaryIDConst = regexp.MustCompile(
+	`^([a-zA-Z][a-zA-Z0-9_]*)\s*([+\-*/])\s*([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)$`,
+)
 
+// reBinaryConstID matches "number OP id" binary expressions.
+var reBinaryConstID = regexp.MustCompile(
+	`^([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\s*([+\-*/])\s*([a-zA-Z][a-zA-Z0-9_]*)$`,
+)
+
+// evalBinaryIDID evaluates "id OP id" expressions.
+func evalBinaryIDID(m []string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
 	leftID, opChar, rightID := m[1], m[2][0], m[3]
 	left, ok1 := resolved[leftID]
 	right, ok2 := resolved[rightID]
@@ -298,17 +393,86 @@ func evalBinaryExpr(expr string, resolved map[string]MetricDataResult, result *M
 	for _, k := range keys {
 		lv, lok := lts[k]
 		rv, rok := rts[k]
-
 		if !lok || !rok {
 			continue
 		}
-
 		out[k] = applyBinaryOp(opChar, lv, rv)
 	}
 
 	result.Timestamps, result.Values = timeSeriesResult(out)
 
 	return true
+}
+
+// evalBinaryIDConst evaluates "id OP constant" expressions.
+func evalBinaryIDConst(m []string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
+	id, opChar := m[1], m[2][0]
+	constVal, err := strconv.ParseFloat(m[3], 64)
+
+	if err != nil {
+		return false
+	}
+
+	base, ok := resolved[id]
+	if !ok {
+		return false
+	}
+
+	ts := buildTimeSeries(base)
+	out := make(metricTimeSeries, len(ts))
+
+	for k, v := range ts {
+		out[k] = applyBinaryOp(opChar, v, constVal)
+	}
+
+	result.Timestamps, result.Values = timeSeriesResult(out)
+
+	return true
+}
+
+// evalBinaryConstID evaluates "constant OP id" expressions.
+func evalBinaryConstID(m []string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
+	constVal, err := strconv.ParseFloat(m[1], 64)
+
+	if err != nil {
+		return false
+	}
+
+	opChar, id := m[2][0], m[3]
+	base, ok := resolved[id]
+
+	if !ok {
+		return false
+	}
+
+	ts := buildTimeSeries(base)
+	out := make(metricTimeSeries, len(ts))
+
+	for k, v := range ts {
+		out[k] = applyBinaryOp(opChar, constVal, v)
+	}
+
+	result.Timestamps, result.Values = timeSeriesResult(out)
+
+	return true
+}
+
+// evalBinaryExpr evaluates element-wise binary expressions like "m1 + m2",
+// "m1 * 2", "100 / m1", or "2 * m1".
+func evalBinaryExpr(expr string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
+	if m := reBinaryIDID.FindStringSubmatch(expr); m != nil {
+		return evalBinaryIDID(m, resolved, result)
+	}
+
+	if m := reBinaryIDConst.FindStringSubmatch(expr); m != nil {
+		return evalBinaryIDConst(m, resolved, result)
+	}
+
+	if m := reBinaryConstID.FindStringSubmatch(expr); m != nil {
+		return evalBinaryConstID(m, resolved, result)
+	}
+
+	return false
 }
 
 // applyBinaryOp computes lv OP rv for a single arithmetic operator.
@@ -365,6 +529,38 @@ func computePercentiles(sortedVals []float64, stats []string) map[string]float64
 	}
 
 	return out
+}
+
+// evalRateExpr handles RATE(id) expressions — per-second rate of change between consecutive points.
+func evalRateExpr(upper string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
+	arg := matchSingleArgFunc("RATE", upper)
+	if arg == "" {
+		return false
+	}
+
+	base, ok := resolved[arg]
+	if !ok || len(base.Timestamps) < 2 {
+		return true
+	}
+
+	n := len(base.Timestamps)
+	times := make([]time.Time, 0, n-1)
+	vals := make([]float64, 0, n-1)
+
+	for i := 1; i < n; i++ {
+		dt := base.Timestamps[i].Sub(base.Timestamps[i-1]).Seconds()
+		if dt <= 0 {
+			continue
+		}
+		dv := base.Values[i] - base.Values[i-1]
+		times = append(times, base.Timestamps[i])
+		vals = append(vals, dv/dt)
+	}
+
+	result.Timestamps = times
+	result.Values = vals
+
+	return true
 }
 
 // collectRawBuckets groups raw metric values into period-aligned buckets.

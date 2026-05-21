@@ -271,12 +271,13 @@ func metricStorageKey(metricName string, dims []Dimension) string {
 }
 
 // dimsContainAll returns true when all dimensions in filter are present with
-// matching values in stored. An empty filter always matches.
+// matching values in stored. An empty filter always matches. Stored may contain
+// additional dimensions beyond those in filter (partial/subset match).
 func dimsContainAll(stored, filter []Dimension) bool {
 	if len(filter) == 0 {
 		return true
 	}
-	if len(stored) != len(filter) {
+	if len(stored) < len(filter) {
 		return false
 	}
 	storedMap := make(map[string]string, len(stored))
