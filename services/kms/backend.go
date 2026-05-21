@@ -343,6 +343,25 @@ func decryptData(blob []byte, encCtx map[string]string, km *keyMaterial) ([]byte
 	return decryptSymmetric(blob, encCtx, km)
 }
 
+// checkKeyMaterialExpiry returns ErrExpiredKeyMaterial if the key's imported material
+// has passed its ValidTo date. Must be called with at least a read lock held.
+func (*InMemoryBackend) checkKeyMaterialExpiry(key *Key) error {
+	if key.Origin != KeyOriginExternal {
+		return nil
+	}
+
+	if key.ExpirationModel != expirationModelExpires || key.ValidTo == 0 {
+		return nil
+	}
+
+	now := float64(time.Now().UnixNano()) / nanoToSeconds
+	if now >= key.ValidTo {
+		return fmt.Errorf("%w: key %q imported material has expired", ErrExpiredKeyMaterial, key.KeyID)
+	}
+
+	return nil
+}
+
 // requireKeyMaterial returns the key material for keyID or an error if absent.
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) requireKeyMaterial(keyID string) (*keyMaterial, error) {
@@ -618,6 +637,10 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 		return nil, fmt.Errorf("%w: key %q is not usable for encryption", ErrInvalidKeyUsage, key.KeyID)
 	}
 
+	if err = b.checkKeyMaterialExpiry(key); err != nil {
+		return nil, err
+	}
+
 	km, err := b.requireKeyMaterial(key.KeyID)
 	if err != nil {
 		return nil, err
@@ -707,6 +730,10 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 
 	if key.KeyUsage != KeyUsageEncryptDecrypt {
 		return nil, fmt.Errorf("%w: key %q is not usable for decryption", ErrInvalidKeyUsage, key.KeyID)
+	}
+
+	if err := b.checkKeyMaterialExpiry(key); err != nil {
+		return nil, err
 	}
 
 	km, err := b.requireKeyMaterial(key.KeyID)
@@ -2456,12 +2483,35 @@ func (b *InMemoryBackend) ImportKeyMaterial(input *ImportKeyMaterialInput) error
 
 	// Store expiration model and ValidTo for metadata and janitor enforcement.
 	expModel := input.ExpirationModel
+
+	// Infer default expiration model from context when not explicitly set:
+	// - if ValidTo is set but ExpirationModel is absent, default to KEY_MATERIAL_EXPIRES
+	// - if both are absent, default to KEY_MATERIAL_DOES_NOT_EXPIRE
 	if expModel == "" {
-		expModel = expirationModelNoExpiry
+		if input.ValidTo > 0 {
+			expModel = expirationModelExpires
+		} else {
+			expModel = expirationModelNoExpiry
+		}
+	}
+
+	// KEY_MATERIAL_EXPIRES requires a ValidTo timestamp.
+	if expModel == expirationModelExpires && input.ValidTo == 0 {
+		return fmt.Errorf(
+			"%w: ExpirationModel=%s requires ValidTo to be set",
+			ErrValidation, expirationModelExpires,
+		)
+	}
+
+	// KEY_MATERIAL_DOES_NOT_EXPIRE must not include a ValidTo timestamp.
+	if expModel == expirationModelNoExpiry && input.ValidTo > 0 {
+		return fmt.Errorf(
+			"%w: ExpirationModel=%s must not include ValidTo",
+			ErrValidation, expirationModelNoExpiry,
+		)
 	}
 
 	if input.ValidTo > 0 {
-		expModel = expirationModelExpires
 		key.ValidTo = input.ValidTo
 	} else {
 		key.ValidTo = 0
