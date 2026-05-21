@@ -2107,14 +2107,8 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 	return &cp, nil
 }
 
-// ModifyDBCluster modifies a DB cluster.
-func (b *InMemoryBackend) ModifyDBCluster(id, paramGroupName string, opts DBClusterOptions) (*DBCluster, error) {
-	b.mu.Lock("ModifyDBCluster")
-	defer b.mu.Unlock()
-	cluster, exists := b.clusters[id]
-	if !exists {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
-	}
+// applyDBClusterOpts applies DBClusterOptions fields to a cluster in-place.
+func applyDBClusterOpts(cluster *DBCluster, paramGroupName string, opts DBClusterOptions) {
 	if paramGroupName != "" {
 		cluster.DBClusterParameterGroupName = paramGroupName
 	}
@@ -2156,7 +2150,17 @@ func (b *InMemoryBackend) ModifyDBCluster(id, paramGroupName string, opts DBClus
 	if len(opts.EnabledCloudwatchLogsExports) > 0 {
 		cluster.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
 	}
+}
 
+// ModifyDBCluster modifies a DB cluster.
+func (b *InMemoryBackend) ModifyDBCluster(id, paramGroupName string, opts DBClusterOptions) (*DBCluster, error) {
+	b.mu.Lock("ModifyDBCluster")
+	defer b.mu.Unlock()
+	cluster, exists := b.clusters[id]
+	if !exists {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
+	}
+	applyDBClusterOpts(cluster, paramGroupName, opts)
 	cp := *cluster
 
 	return &cp, nil

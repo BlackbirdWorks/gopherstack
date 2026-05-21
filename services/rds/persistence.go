@@ -33,16 +33,15 @@ type backendSnapshot struct {
 	ProxyTargets              map[string][]DBProxyTarget                    `json:"proxyTargets"`
 	ProxyEndpoints            map[string]*DBProxyEndpoint                   `json:"proxyEndpoints"`
 	InstanceReadyAt           map[string]time.Time                          `json:"instanceReadyAt"`
+	CustomEngineVersions      map[string]*CustomDBEngineVersion             `json:"customEngineVersions"`
+	AutomatedBackups          map[string]*DBInstanceAutomatedBackup         `json:"automatedBackups"`
+	ShardGroups               map[string]*DBShardGroup                      `json:"shardGroups"`
+	Integrations              map[string]*Integration                       `json:"integrations"`
+	TenantDatabases           map[string]*TenantDatabase                    `json:"tenantDatabases"`
+	ClusterAutomatedBackups   map[string]*DBClusterAutomatedBackup          `json:"clusterAutomatedBackups"`
+	SnapshotTenantDatabases   map[string][]*DBSnapshotTenantDatabase        `json:"snapshotTenantDatabases"`
 	AccountID                 string                                        `json:"accountID"`
 	Region                    string                                        `json:"region"`
-	// batch-1 types
-	CustomEngineVersions    map[string]*CustomDBEngineVersion              `json:"customEngineVersions"`
-	AutomatedBackups        map[string]*DBInstanceAutomatedBackup          `json:"automatedBackups"`
-	ShardGroups             map[string]*DBShardGroup                       `json:"shardGroups"`
-	Integrations            map[string]*Integration                        `json:"integrations"`
-	TenantDatabases         map[string]*TenantDatabase                     `json:"tenantDatabases"`
-	ClusterAutomatedBackups map[string]*DBClusterAutomatedBackup           `json:"clusterAutomatedBackups"`
-	SnapshotTenantDatabases map[string][]*DBSnapshotTenantDatabase         `json:"snapshotTenantDatabases"`
 }
 
 // Snapshot serialises the backend state to JSON.

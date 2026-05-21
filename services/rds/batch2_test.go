@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -51,7 +52,12 @@ func TestBatch2_DBParameterGroup_ResetAll(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, gotAfter, 2)
 	for _, p := range gotAfter {
-		assert.Empty(t, p.ParameterValue, "reset should clear parameter value for %s", p.ParameterName)
+		assert.Empty(
+			t,
+			p.ParameterValue,
+			"reset should clear parameter value for %s",
+			p.ParameterName,
+		)
 	}
 }
 
@@ -89,16 +95,13 @@ func TestBatch2_DBParameterGroup_NotFoundErrors(t *testing.T) {
 	b := newBatch2Backend()
 
 	_, err := b.DescribeDBParameterGroups("noexist")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, rds.ErrParameterGroupNotFound)
+	require.ErrorIs(t, err, rds.ErrParameterGroupNotFound)
 
 	err = b.DeleteDBParameterGroup("noexist")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, rds.ErrParameterGroupNotFound)
+	require.ErrorIs(t, err, rds.ErrParameterGroupNotFound)
 
 	_, err = b.ModifyDBParameterGroup("noexist", nil)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, rds.ErrParameterGroupNotFound)
+	require.ErrorIs(t, err, rds.ErrParameterGroupNotFound)
 
 	_, err = b.DescribeDBParameters("noexist")
 	require.Error(t, err)
@@ -146,11 +149,11 @@ func TestBatch2_DBParameterGroup_HTTP_CRUD(t *testing.T) {
 	h := newBatch2Handler()
 
 	rec := postRDSForm(t, h, url.Values{
-		"Action":                     {"CreateDBParameterGroup"},
-		"Version":                    {"2014-10-31"},
-		"DBParameterGroupName":       {"http-pg"},
-		"DBParameterGroupFamily":     {"postgres14"},
-		"Description":                {"http test"},
+		"Action":                 {"CreateDBParameterGroup"},
+		"Version":                {"2014-10-31"},
+		"DBParameterGroupName":   {"http-pg"},
+		"DBParameterGroupFamily": {"postgres14"},
+		"Description":            {"http test"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "http-pg")
@@ -164,9 +167,9 @@ func TestBatch2_DBParameterGroup_HTTP_CRUD(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "http-pg")
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":               {"ModifyDBParameterGroup"},
-		"Version":              {"2014-10-31"},
-		"DBParameterGroupName": {"http-pg"},
+		"Action":                                {"ModifyDBParameterGroup"},
+		"Version":                               {"2014-10-31"},
+		"DBParameterGroupName":                  {"http-pg"},
 		"Parameters.Parameter.1.ParameterName":  {"max_connections"},
 		"Parameters.Parameter.1.ParameterValue": {"300"},
 		"Parameters.Parameter.1.ApplyMethod":    {"pending-reboot"},
@@ -274,7 +277,7 @@ func TestBatch2_OptionGroup_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			b.ModifyOptionGroup("conc-og", []rds.OptionGroupOption{ //nolint:errcheck
+			_, _ = b.ModifyOptionGroup("conc-og", []rds.OptionGroupOption{
 				{OptionName: fmt.Sprintf("OPT%d", n)},
 			}, nil)
 		}(i)
@@ -417,8 +420,8 @@ func TestBatch2_ClusterPG_HTTP(t *testing.T) {
 	h := newBatch2Handler()
 
 	rec := postRDSForm(t, h, url.Values{
-		"Action":                     {"CreateDBClusterParameterGroup"},
-		"Version":                    {"2014-10-31"},
+		"Action":                      {"CreateDBClusterParameterGroup"},
+		"Version":                     {"2014-10-31"},
 		"DBClusterParameterGroupName": {"http-cpg"},
 		"DBParameterGroupFamily":      {"aurora-postgresql14"},
 		"Description":                 {"http test"},
@@ -434,9 +437,9 @@ func TestBatch2_ClusterPG_HTTP(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "http-cpg")
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":                      {"ModifyDBClusterParameterGroup"},
-		"Version":                     {"2014-10-31"},
-		"DBClusterParameterGroupName": {"http-cpg"},
+		"Action":                                {"ModifyDBClusterParameterGroup"},
+		"Version":                               {"2014-10-31"},
+		"DBClusterParameterGroupName":           {"http-cpg"},
 		"Parameters.Parameter.1.ParameterName":  {"max_connections"},
 		"Parameters.Parameter.1.ParameterValue": {"100"},
 		"Parameters.Parameter.1.ApplyMethod":    {"pending-reboot"},
@@ -476,7 +479,11 @@ func TestBatch2_SubnetGroup_Modify(t *testing.T) {
 	_, err := b.CreateDBSubnetGroup("sg1", "original", "vpc-1", []string{"subnet-a", "subnet-b"})
 	require.NoError(t, err)
 
-	updated, err := b.ModifyDBSubnetGroup("sg1", "updated description", []string{"subnet-c", "subnet-d"})
+	updated, err := b.ModifyDBSubnetGroup(
+		"sg1",
+		"updated description",
+		[]string{"subnet-c", "subnet-d"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "updated description", updated.DBSubnetGroupDescription)
 	assert.Len(t, updated.SubnetIDs, 2)
@@ -489,12 +496,10 @@ func TestBatch2_SubnetGroup_NotFound(t *testing.T) {
 	b := newBatch2Backend()
 
 	err := b.DeleteDBSubnetGroup("noexist")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, rds.ErrSubnetGroupNotFound)
+	require.ErrorIs(t, err, rds.ErrSubnetGroupNotFound)
 
 	_, err = b.DescribeDBSubnetGroups("noexist")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, rds.ErrSubnetGroupNotFound)
+	require.ErrorIs(t, err, rds.ErrSubnetGroupNotFound)
 }
 
 func TestBatch2_SubnetGroup_Duplicate(t *testing.T) {
@@ -515,19 +520,19 @@ func TestBatch2_SubnetGroup_HTTP_Modify(t *testing.T) {
 	h := newBatch2Handler()
 
 	rec := postRDSForm(t, h, url.Values{
-		"Action":                    {"CreateDBSubnetGroup"},
-		"Version":                   {"2014-10-31"},
-		"DBSubnetGroupName":         {"http-sg"},
-		"DBSubnetGroupDescription":  {"original"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"http-sg"},
+		"DBSubnetGroupDescription":     {"original"},
 		"SubnetIds.SubnetIdentifier.1": {"subnet-a"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":                    {"ModifyDBSubnetGroup"},
-		"Version":                   {"2014-10-31"},
-		"DBSubnetGroupName":         {"http-sg"},
-		"DBSubnetGroupDescription":  {"modified"},
+		"Action":                       {"ModifyDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"http-sg"},
+		"DBSubnetGroupDescription":     {"modified"},
 		"SubnetIds.SubnetIdentifier.1": {"subnet-b"},
 		"SubnetIds.SubnetIdentifier.2": {"subnet-c"},
 	}.Encode())
@@ -608,9 +613,9 @@ func TestBatch2_DBSecurityGroup_HTTP(t *testing.T) {
 	h := newBatch2Handler()
 
 	rec := postRDSForm(t, h, url.Values{
-		"Action":                  {"CreateDBSecurityGroup"},
-		"Version":                 {"2014-10-31"},
-		"DBSecurityGroupName":     {"http-legacy-sg"},
+		"Action":                     {"CreateDBSecurityGroup"},
+		"Version":                    {"2014-10-31"},
+		"DBSecurityGroupName":        {"http-legacy-sg"},
 		"DBSecurityGroupDescription": {"legacy sg for test"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -654,7 +659,16 @@ func TestBatch2_ClusterSnapshot_CRUD(t *testing.T) {
 
 	b := newBatch2Backend()
 
-	_, err := b.CreateDBCluster("cluster-a", "aurora-postgresql", "admin", "", "", 5432, nil, rds.DBClusterOptions{})
+	_, err := b.CreateDBCluster(
+		"cluster-a",
+		"aurora-postgresql",
+		"admin",
+		"",
+		"",
+		5432,
+		nil,
+		rds.DBClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	snap, err := b.CreateDBClusterSnapshot("snap-a", "cluster-a")
@@ -678,7 +692,16 @@ func TestBatch2_ClusterSnapshot_Copy(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBCluster("cluster-b", "aurora-mysql", "admin", "", "", 3306, nil, rds.DBClusterOptions{})
+	_, err := b.CreateDBCluster(
+		"cluster-b",
+		"aurora-mysql",
+		"admin",
+		"",
+		"",
+		3306,
+		nil,
+		rds.DBClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateDBClusterSnapshot("src-snap", "cluster-b")
@@ -697,7 +720,16 @@ func TestBatch2_ClusterSnapshot_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBCluster("cluster-c", "aurora-postgresql", "admin", "", "", 5432, nil, rds.DBClusterOptions{})
+	_, err := b.CreateDBCluster(
+		"cluster-c",
+		"aurora-postgresql",
+		"admin",
+		"",
+		"",
+		5432,
+		nil,
+		rds.DBClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateDBClusterSnapshot("dup-snap", "cluster-c")
@@ -732,10 +764,10 @@ func TestBatch2_ClusterSnapshot_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":                        {"CreateDBClusterSnapshot"},
-		"Version":                       {"2014-10-31"},
-		"DBClusterSnapshotIdentifier":   {"http-cluster-snap"},
-		"DBClusterIdentifier":           {"cluster-snap-test"},
+		"Action":                      {"CreateDBClusterSnapshot"},
+		"Version":                     {"2014-10-31"},
+		"DBClusterSnapshotIdentifier": {"http-cluster-snap"},
+		"DBClusterIdentifier":         {"cluster-snap-test"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "http-cluster-snap")
@@ -748,8 +780,8 @@ func TestBatch2_ClusterSnapshot_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":                        {"CopyDBClusterSnapshot"},
-		"Version":                       {"2014-10-31"},
+		"Action":                            {"CopyDBClusterSnapshot"},
+		"Version":                           {"2014-10-31"},
 		"SourceDBClusterSnapshotIdentifier": {"http-cluster-snap"},
 		"TargetDBClusterSnapshotIdentifier": {"http-cluster-snap-copy"},
 	}.Encode())
@@ -770,7 +802,13 @@ func TestBatch2_EventSubscription_CRUD(t *testing.T) {
 
 	b := newBatch2Backend()
 
-	sub, err := b.CreateEventSubscription("sub1", "arn:aws:sns:us-east-1:123:topic", "db-instance", nil, nil)
+	sub, err := b.CreateEventSubscription(
+		"sub1",
+		"arn:aws:sns:us-east-1:123:topic",
+		"db-instance",
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "sub1", sub.SubscriptionName)
 	assert.True(t, sub.Enabled)
@@ -791,7 +829,13 @@ func TestBatch2_EventSubscription_ModifyToggle(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateEventSubscription("sub2", "arn:aws:sns:us-east-1:123:topic", "db-instance", nil, nil)
+	_, err := b.CreateEventSubscription(
+		"sub2",
+		"arn:aws:sns:us-east-1:123:topic",
+		"db-instance",
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	enabled := false
@@ -807,7 +851,13 @@ func TestBatch2_EventSubscription_AddRemoveSource(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateEventSubscription("sub3", "arn:aws:sns:us-east-1:123:topic", "db-instance", nil, nil)
+	_, err := b.CreateEventSubscription(
+		"sub3",
+		"arn:aws:sns:us-east-1:123:topic",
+		"db-instance",
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	_, err = b.AddSourceIdentifierToSubscription("sub3", "db-instance-1")
@@ -919,10 +969,10 @@ func TestBatch2_BlueGreen_HTTP(t *testing.T) {
 	h := newBatch2Handler()
 
 	rec := postRDSForm(t, h, url.Values{
-		"Action":                    {"CreateBlueGreenDeployment"},
-		"Version":                   {"2014-10-31"},
-		"BlueGreenDeploymentName":   {"http-bg"},
-		"Source":                    {"arn:aws:rds:us-east-1:000:db:src"},
+		"Action":                  {"CreateBlueGreenDeployment"},
+		"Version":                 {"2014-10-31"},
+		"BlueGreenDeploymentName": {"http-bg"},
+		"Source":                  {"arn:aws:rds:us-east-1:000:db:src"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -970,7 +1020,16 @@ func TestBatch2_ProxyTargets_RegisterByInstance(t *testing.T) {
 	_, err := b.CreateDBProxy("proxy3", "POSTGRESQL", "arn:aws:iam::123:role/proxy-role", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateDBInstance("target-db", "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{})
+	_, err = b.CreateDBInstance(
+		"target-db",
+		"postgres",
+		"db.t3.micro",
+		"",
+		"admin",
+		"",
+		20,
+		rds.DBInstanceOptions{},
+	)
 	require.NoError(t, err)
 
 	targets, err := b.RegisterDBProxyTargets("proxy3", "default", []string{"target-db"}, nil)
@@ -1006,28 +1065,28 @@ func TestBatch2_ProxyTargets_HTTP(t *testing.T) {
 	h := newBatch2Handler()
 
 	rec := postRDSForm(t, h, url.Values{
-		"Action":          {"CreateDBProxy"},
-		"Version":         {"2014-10-31"},
-		"DBProxyName":     {"http-proxy"},
-		"EngineFamily":    {"POSTGRESQL"},
-		"RoleArn":         {"arn:aws:iam::000:role/rds-proxy"},
+		"Action":                   {"CreateDBProxy"},
+		"Version":                  {"2014-10-31"},
+		"DBProxyName":              {"http-proxy"},
+		"EngineFamily":             {"POSTGRESQL"},
+		"RoleArn":                  {"arn:aws:iam::000:role/rds-proxy"},
 		"Auth.member.1.AuthScheme": {"SECRETS"},
 		"Auth.member.1.IAMAuth":    {"DISABLED"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":          {"DescribeDBProxyTargetGroups"},
-		"Version":         {"2014-10-31"},
-		"DBProxyName":     {"http-proxy"},
+		"Action":      {"DescribeDBProxyTargetGroups"},
+		"Version":     {"2014-10-31"},
+		"DBProxyName": {"http-proxy"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":                    {"RegisterDBProxyTargets"},
-		"Version":                   {"2014-10-31"},
-		"DBProxyName":               {"http-proxy"},
-		"TargetGroupName":           {"default"},
+		"Action":                         {"RegisterDBProxyTargets"},
+		"Version":                        {"2014-10-31"},
+		"DBProxyName":                    {"http-proxy"},
+		"TargetGroupName":                {"default"},
 		"DBInstanceIdentifiers.member.1": {"some-db"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -1041,10 +1100,10 @@ func TestBatch2_ProxyTargets_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":                    {"DeregisterDBProxyTargets"},
-		"Version":                   {"2014-10-31"},
-		"DBProxyName":               {"http-proxy"},
-		"TargetGroupName":           {"default"},
+		"Action":                         {"DeregisterDBProxyTargets"},
+		"Version":                        {"2014-10-31"},
+		"DBProxyName":                    {"http-proxy"},
+		"TargetGroupName":                {"default"},
 		"DBInstanceIdentifiers.member.1": {"some-db"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -1059,7 +1118,16 @@ func TestBatch2_GlobalCluster_Failover(t *testing.T) {
 	_, err := b.CreateGlobalCluster("gc1", "aurora-postgresql", "14.9", false, false)
 	require.NoError(t, err)
 
-	_, err = b.CreateDBCluster("member-cluster", "aurora-postgresql", "admin", "", "", 5432, nil, rds.DBClusterOptions{})
+	_, err = b.CreateDBCluster(
+		"member-cluster",
+		"aurora-postgresql",
+		"admin",
+		"",
+		"",
+		5432,
+		nil,
+		rds.DBClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	result, err := b.FailoverGlobalCluster("gc1", "member-cluster")
@@ -1074,7 +1142,16 @@ func TestBatch2_GlobalCluster_Switchover(t *testing.T) {
 	_, err := b.CreateGlobalCluster("gc2", "aurora-mysql", "3.04.0", false, false)
 	require.NoError(t, err)
 
-	_, err = b.CreateDBCluster("sw-cluster", "aurora-mysql", "admin", "", "", 3306, nil, rds.DBClusterOptions{})
+	_, err = b.CreateDBCluster(
+		"sw-cluster",
+		"aurora-mysql",
+		"admin",
+		"",
+		"",
+		3306,
+		nil,
+		rds.DBClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	result, err := b.SwitchoverGlobalCluster("gc2", "sw-cluster")
@@ -1101,12 +1178,10 @@ func TestBatch2_GlobalCluster_NotFound(t *testing.T) {
 	b := newBatch2Backend()
 
 	_, err := b.FailoverGlobalCluster("noexist", "target")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, rds.ErrGlobalClusterNotFound)
+	require.ErrorIs(t, err, rds.ErrGlobalClusterNotFound)
 
 	_, err = b.DeleteGlobalCluster("noexist")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, rds.ErrGlobalClusterNotFound)
+	require.ErrorIs(t, err, rds.ErrGlobalClusterNotFound)
 }
 
 func TestBatch2_GlobalCluster_HTTP(t *testing.T) {
@@ -1131,9 +1206,9 @@ func TestBatch2_GlobalCluster_HTTP(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "http-gc")
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":                  {"FailoverGlobalCluster"},
-		"Version":                 {"2014-10-31"},
-		"GlobalClusterIdentifier": {"http-gc"},
+		"Action":                    {"FailoverGlobalCluster"},
+		"Version":                   {"2014-10-31"},
+		"GlobalClusterIdentifier":   {"http-gc"},
 		"TargetDbClusterIdentifier": {"target-cluster"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -1175,7 +1250,12 @@ func TestBatch2_CustomDBEV_ModifyStatus(t *testing.T) {
 	_, err := b.CreateCustomDBEngineVersion("custom-oracle-ee-cdb", "19.0.1.0", "Oracle 19c CDB")
 	require.NoError(t, err)
 
-	updated, err := b.ModifyCustomDBEngineVersion("custom-oracle-ee-cdb", "19.0.1.0", "", "inactive-except-restore")
+	updated, err := b.ModifyCustomDBEngineVersion(
+		"custom-oracle-ee-cdb",
+		"19.0.1.0",
+		"",
+		"inactive-except-restore",
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "inactive-except-restore", updated.Status)
 }
@@ -1258,7 +1338,16 @@ func TestBatch2_DBCluster_ModifyFields(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBCluster("mod-cluster", "aurora-postgresql", "admin", "", "", 5432, nil, rds.DBClusterOptions{})
+	_, err := b.CreateDBCluster(
+		"mod-cluster",
+		"aurora-postgresql",
+		"admin",
+		"",
+		"",
+		5432,
+		nil,
+		rds.DBClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	updated, err := b.ModifyDBCluster("mod-cluster", "", rds.DBClusterOptions{
@@ -1280,7 +1369,16 @@ func TestBatch2_DBCluster_FailoverUpdatesState(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBCluster("failover-cluster", "aurora-mysql", "admin", "", "", 3306, nil, rds.DBClusterOptions{})
+	_, err := b.CreateDBCluster(
+		"failover-cluster",
+		"aurora-mysql",
+		"admin",
+		"",
+		"",
+		3306,
+		nil,
+		rds.DBClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	result, err := b.FailoverDBCluster("failover-cluster", "")
@@ -1292,7 +1390,16 @@ func TestBatch2_DBCluster_RebootTransitions(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBCluster("reboot-cluster", "aurora-postgresql", "admin", "", "", 5432, nil, rds.DBClusterOptions{})
+	_, err := b.CreateDBCluster(
+		"reboot-cluster",
+		"aurora-postgresql",
+		"admin",
+		"",
+		"",
+		5432,
+		nil,
+		rds.DBClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	result, err := b.RebootDBCluster("reboot-cluster")
@@ -1339,7 +1446,13 @@ func TestBatch2_ProxyEndpoint_CRUD(t *testing.T) {
 	_, err := b.CreateDBProxy("ep-proxy", "POSTGRESQL", "arn:aws:iam::123:role/r", nil)
 	require.NoError(t, err)
 
-	ep, err := b.CreateDBProxyEndpoint("ep-proxy", "my-endpoint", "READ_ONLY", []string{"subnet-a"}, nil)
+	ep, err := b.CreateDBProxyEndpoint(
+		"ep-proxy",
+		"my-endpoint",
+		"READ_ONLY",
+		[]string{"subnet-a"},
+		nil,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "my-endpoint", ep.DBProxyEndpointName)
 
@@ -1362,7 +1475,13 @@ func TestBatch2_ProxyEndpoint_Modify(t *testing.T) {
 	_, err := b.CreateDBProxy("ep-proxy2", "MYSQL", "arn:aws:iam::123:role/r", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateDBProxyEndpoint("ep-proxy2", "mod-endpoint", "READ_ONLY", []string{"subnet-a"}, []string{"sg-1"})
+	_, err = b.CreateDBProxyEndpoint(
+		"ep-proxy2",
+		"mod-endpoint",
+		"READ_ONLY",
+		[]string{"subnet-a"},
+		[]string{"sg-1"},
+	)
 	require.NoError(t, err)
 
 	ep, err := b.ModifyDBProxyEndpoint("mod-endpoint", []string{"sg-2", "sg-3"})
@@ -1398,22 +1517,22 @@ func TestBatch2_ProxyEndpoint_HTTP(t *testing.T) {
 	h := newBatch2Handler()
 
 	rec := postRDSForm(t, h, url.Values{
-		"Action":       {"CreateDBProxy"},
-		"Version":      {"2014-10-31"},
-		"DBProxyName":  {"endpoint-proxy"},
-		"EngineFamily": {"POSTGRESQL"},
-		"RoleArn":      {"arn:aws:iam::000:role/rds-proxy"},
+		"Action":                   {"CreateDBProxy"},
+		"Version":                  {"2014-10-31"},
+		"DBProxyName":              {"endpoint-proxy"},
+		"EngineFamily":             {"POSTGRESQL"},
+		"RoleArn":                  {"arn:aws:iam::000:role/rds-proxy"},
 		"Auth.member.1.AuthScheme": {"SECRETS"},
 		"Auth.member.1.IAMAuth":    {"DISABLED"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":              {"CreateDBProxyEndpoint"},
-		"Version":             {"2014-10-31"},
-		"DBProxyName":         {"endpoint-proxy"},
-		"DBProxyEndpointName": {"http-endpoint"},
-		"TargetRole":          {"READ_ONLY"},
+		"Action":                {"CreateDBProxyEndpoint"},
+		"Version":               {"2014-10-31"},
+		"DBProxyName":           {"endpoint-proxy"},
+		"DBProxyEndpointName":   {"http-endpoint"},
+		"TargetRole":            {"READ_ONLY"},
 		"VpcSubnetIds.member.1": {"subnet-x"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -1426,9 +1545,9 @@ func TestBatch2_ProxyEndpoint_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":              {"ModifyDBProxyEndpoint"},
-		"Version":             {"2014-10-31"},
-		"DBProxyEndpointName": {"http-endpoint"},
+		"Action":                       {"ModifyDBProxyEndpoint"},
+		"Version":                      {"2014-10-31"},
+		"DBProxyEndpointName":          {"http-endpoint"},
 		"VpcSecurityGroupIds.member.1": {"sg-new"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -1447,9 +1566,18 @@ func TestBatch2_InstanceBackup_CreatedWithRetention(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBInstance("backup-db", "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{
-		BackupRetentionPeriod: 7,
-	})
+	_, err := b.CreateDBInstance(
+		"backup-db",
+		"postgres",
+		"db.t3.micro",
+		"",
+		"admin",
+		"",
+		20,
+		rds.DBInstanceOptions{
+			BackupRetentionPeriod: 7,
+		},
+	)
 	require.NoError(t, err)
 
 	backups := b.DescribeDBInstanceAutomatedBackups("backup-db")
@@ -1461,9 +1589,18 @@ func TestBatch2_InstanceBackup_NoRetentionNoBackup(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBInstance("nobackup-db", "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{
-		BackupRetentionPeriod: 0,
-	})
+	_, err := b.CreateDBInstance(
+		"nobackup-db",
+		"postgres",
+		"db.t3.micro",
+		"",
+		"admin",
+		"",
+		20,
+		rds.DBInstanceOptions{
+			BackupRetentionPeriod: 0,
+		},
+	)
 	require.NoError(t, err)
 
 	backups := b.DescribeDBInstanceAutomatedBackups("nobackup-db")
@@ -1474,9 +1611,18 @@ func TestBatch2_InstanceBackup_Delete(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBInstance("del-backup-db", "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{
-		BackupRetentionPeriod: 3,
-	})
+	_, err := b.CreateDBInstance(
+		"del-backup-db",
+		"postgres",
+		"db.t3.micro",
+		"",
+		"admin",
+		"",
+		20,
+		rds.DBInstanceOptions{
+			BackupRetentionPeriod: 3,
+		},
+	)
 	require.NoError(t, err)
 
 	backups := b.DescribeDBInstanceAutomatedBackups("del-backup-db")
@@ -1517,16 +1663,16 @@ func TestBatch2_InstanceBackup_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":             {"StartDBInstanceAutomatedBackupsReplication"},
-		"Version":            {"2014-10-31"},
-		"SourceDBInstanceArn": {"arn:aws:rds:us-west-2:123456789012:db:source-db"},
+		"Action":                {"StartDBInstanceAutomatedBackupsReplication"},
+		"Version":               {"2014-10-31"},
+		"SourceDBInstanceArn":   {"arn:aws:rds:us-west-2:123456789012:db:source-db"},
 		"BackupRetentionPeriod": {"14"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = postRDSForm(t, h, url.Values{
-		"Action":             {"StopDBInstanceAutomatedBackupsReplication"},
-		"Version":            {"2014-10-31"},
+		"Action":              {"StopDBInstanceAutomatedBackupsReplication"},
+		"Version":             {"2014-10-31"},
 		"SourceDBInstanceArn": {"arn:aws:rds:us-west-2:123456789012:db:source-db"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -1619,7 +1765,12 @@ func TestBatch2_Persistence_ShardGroupsAndIntegrations(t *testing.T) {
 	_, err = b.CreateDBShardGroup("shard-2", "cluster-1", 128.0, 4.0, 0, true)
 	require.NoError(t, err)
 
-	_, err = b.CreateIntegration("intg-1", "arn:aws:rds:us-east-1:000:db:src", "arn:aws:redshift:us-east-1:000:ns:dst", "")
+	_, err = b.CreateIntegration(
+		"intg-1",
+		"arn:aws:rds:us-east-1:000:db:src",
+		"arn:aws:redshift:us-east-1:000:ns:dst",
+		"",
+	)
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -1675,7 +1826,16 @@ func TestBatch2_Persistence_ClusterAutomatedBackups(t *testing.T) {
 	b := newBatch2Backend()
 
 	// Create a cluster first, which triggers an automated backup entry
-	_, err := b.CreateDBCluster("backup-cluster", "aurora-postgresql", "admin", "", "", 5432, nil, rds.DBClusterOptions{})
+	_, err := b.CreateDBCluster(
+		"backup-cluster",
+		"aurora-postgresql",
+		"admin",
+		"",
+		"",
+		5432,
+		nil,
+		rds.DBClusterOptions{},
+	)
 	require.NoError(t, err)
 	b.CreateDBClusterAutomatedBackup("backup-cluster")
 
@@ -1754,7 +1914,7 @@ func TestBatch2_Concurrent_DBParameterGroup(t *testing.T) {
 			defer wg.Done()
 			name := fmt.Sprintf("pg%d", n)
 			_, _ = b.ModifyDBParameterGroup(name, []rds.DBParameter{
-				{ParameterName: "max_connections", ParameterValue: fmt.Sprintf("%d", 100+n)},
+				{ParameterName: "max_connections", ParameterValue: strconv.Itoa(100 + n)},
 			})
 			_, _ = b.DescribeDBParameters(name)
 		}(i)
@@ -1766,7 +1926,16 @@ func TestBatch2_Concurrent_ClusterSnapshot(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBCluster("conc-cluster", "aurora-postgresql", "admin", "", "", 5432, nil, rds.DBClusterOptions{})
+	_, err := b.CreateDBCluster(
+		"conc-cluster",
+		"aurora-postgresql",
+		"admin",
+		"",
+		"",
+		5432,
+		nil,
+		rds.DBClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -1797,7 +1966,13 @@ func TestBatch2_Concurrent_EventSubscription(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			name := fmt.Sprintf("sub-%d", n)
-			_, _ = b.CreateEventSubscription(name, "arn:aws:sns:us-east-1:123:t", "db-instance", nil, nil)
+			_, _ = b.CreateEventSubscription(
+				name,
+				"arn:aws:sns:us-east-1:123:t",
+				"db-instance",
+				nil,
+				nil,
+			)
 			_, _ = b.DescribeEventSubscriptions(name)
 		}(i)
 	}
