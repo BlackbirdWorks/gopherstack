@@ -950,8 +950,8 @@ func TestAudit_Handler_GetSupportedOperationsIncludesPolicyOps(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 type auditKinesisFirehoseSink struct {
-	mu      sync.Mutex
 	records map[string][]string
+	mu      sync.Mutex
 }
 
 func newAuditKinesisFirehoseSink() *auditKinesisFirehoseSink {
@@ -1088,8 +1088,8 @@ func TestAudit_Delivery_KinesisFirehose_FailureSendsToDLQ(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 type auditKinesisStreamSink struct {
-	mu      sync.Mutex
 	records map[string][]string
+	mu      sync.Mutex
 }
 
 func newAuditKinesisStreamSink() *auditKinesisStreamSink {
@@ -1226,8 +1226,8 @@ func TestAudit_Delivery_KinesisStream_FailureSendsToDLQ(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 type auditECSTaskSink struct {
-	mu      sync.Mutex
 	invokes []string
+	mu      sync.Mutex
 }
 
 func (s *auditECSTaskSink) RunTask(_ context.Context, clusterARN string, payload []byte) error {
@@ -1650,13 +1650,13 @@ func TestAudit_APIDestination_ValidHTTPMethods(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			t.Parallel()
 			bLocal := newBackend()
-			_, err := bLocal.CreateAPIDestination(eventbridge.CreateAPIDestinationInput{
+			_, createErr := bLocal.CreateAPIDestination(eventbridge.CreateAPIDestinationInput{
 				Name:               fmt.Sprintf("dest-%d", i),
 				ConnectionArn:      conn.ConnectionArn,
 				HTTPMethod:         method,
 				InvocationEndpoint: "https://example.com/" + method,
 			})
-			require.NoError(t, err)
+			require.NoError(t, createErr)
 		})
 	}
 }
@@ -1929,7 +1929,9 @@ func TestAudit_ListRuleNamesByTarget(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.PutTargets("rule-c", "", []eventbridge.Target{{ID: "t1", Arn: targetARN}})
 	require.NoError(t, err)
-	_, err = b.PutTargets("rule-b", "", []eventbridge.Target{{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:other-q"}})
+	_, err = b.PutTargets("rule-b", "", []eventbridge.Target{
+		{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:other-q"},
+	})
 	require.NoError(t, err)
 
 	names, _, err := b.ListRuleNamesByTarget(targetARN, "", "")
@@ -2184,8 +2186,8 @@ func TestAudit_Replay_CancelNonRunningFails(t *testing.T) {
 		_, err = b.CancelReplay("my-replay")
 		require.NoError(t, err)
 
-		described, err := b.DescribeReplay("my-replay")
-		require.NoError(t, err)
+		described, descErr := b.DescribeReplay("my-replay")
+		require.NoError(t, descErr)
 		assert.Equal(t, "CANCELLING", described.State)
 	}
 }
