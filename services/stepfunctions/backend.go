@@ -1110,7 +1110,8 @@ func (b *InMemoryBackend) runParsedExecution(
 	})
 }
 
-// StopExecution marks an execution as ABORTED.
+// StopExecution marks a RUNNING execution as ABORTED.
+// AWS behaviour: idempotent on already-terminal executions — returns success without mutation.
 func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) error {
 	b.mu.Lock("StopExecution")
 	defer b.mu.Unlock()
@@ -1118,6 +1119,11 @@ func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) err
 	exec, exists := b.executions[executionArn]
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrExecutionDoesNotExist, executionArn)
+	}
+
+	// Already in a terminal state — no-op per AWS semantics.
+	if exec.Status != statusRunning {
+		return nil
 	}
 
 	now := float64(time.Now().Unix())
