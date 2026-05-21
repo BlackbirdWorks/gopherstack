@@ -31,9 +31,13 @@ type Template struct {
 
 // TemplateParameter represents a CloudFormation template parameter.
 type TemplateParameter struct {
-	Type        string `json:"Type"        yaml:"Type"`
-	Default     any    `json:"Default"     yaml:"Default"`
-	Description string `json:"Description" yaml:"Description"`
+	Default               any      `json:"Default"               yaml:"Default"`
+	Type                  string   `json:"Type"                  yaml:"Type"`
+	Description           string   `json:"Description"           yaml:"Description"`
+	AllowedPattern        string   `json:"AllowedPattern"        yaml:"AllowedPattern"`
+	ConstraintDescription string   `json:"ConstraintDescription" yaml:"ConstraintDescription"`
+	AllowedValues         []string `json:"AllowedValues"         yaml:"AllowedValues"`
+	NoEcho                bool     `json:"NoEcho"                yaml:"NoEcho"`
 }
 
 // TemplateResource represents a CloudFormation template resource.
@@ -159,6 +163,42 @@ func ResolveParameters(tmpl *Template, overrides []Parameter) map[string]string 
 	}
 
 	return resolved
+}
+
+// ValidateParameters checks parameter values against AllowedValues constraints.
+// Returns an error if any parameter value is not in its AllowedValues list.
+func ValidateParameters(tmpl *Template, resolved map[string]string) error {
+	names := make([]string, 0, len(tmpl.Parameters))
+	for name := range tmpl.Parameters {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		param := tmpl.Parameters[name]
+		if len(param.AllowedValues) == 0 {
+			continue
+		}
+		val, ok := resolved[name]
+		if !ok {
+			continue
+		}
+		allowed := false
+		for _, av := range param.AllowedValues {
+			if av == val {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			msg := param.ConstraintDescription
+			if msg == "" {
+				msg = fmt.Sprintf("Parameter %s must be one of %v", name, param.AllowedValues)
+			}
+			return fmt.Errorf("parameter validation failed: %s", msg)
+		}
+	}
+	return nil
 }
 
 // resolveCtx holds all context needed to resolve a CloudFormation value.

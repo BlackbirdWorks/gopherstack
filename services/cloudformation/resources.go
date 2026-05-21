@@ -130,15 +130,27 @@ type ServiceBackends struct {
 	Region    string
 }
 
+// NestedStackCreator is a callback used to create and delete nested CloudFormation stacks.
+type NestedStackCreator interface {
+	CreateNestedStack(ctx context.Context, name, templateURL, templateBody string, params []Parameter) (string, error)
+	DeleteNestedStack(ctx context.Context, stackID string) error
+}
+
 // ResourceCreator creates and deletes cloud resources.
 type ResourceCreator struct {
-	backends   *ServiceBackends
-	createHook func(resourceType string) error // used by tests to inject creation errors
+	backends          *ServiceBackends
+	nestedStackCreator NestedStackCreator
+	createHook        func(resourceType string) error // used by tests to inject creation errors
 }
 
 // NewResourceCreator returns a ResourceCreator backed by the given services.
 func NewResourceCreator(backends *ServiceBackends) *ResourceCreator {
 	return &ResourceCreator{backends: backends}
+}
+
+// WithNestedStackCreator sets the callback used to create/delete nested stacks.
+func (rc *ResourceCreator) WithNestedStackCreator(nsc NestedStackCreator) {
+	rc.nestedStackCreator = nsc
 }
 
 // Create creates a resource and returns its physical ID.
@@ -207,9 +219,54 @@ func (rc *ResourceCreator) createCoreResource(
 		id, err := rc.createSecretsManagerSecret(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
+	case cfnStackType:
+		id, err := rc.createNestedStack(ctx, logicalID, props, params)
+
+		return id, true, err
 	default:
 		return "", false, nil
 	}
+}
+
+// createNestedStack provisions a nested AWS::CloudFormation::Stack resource.
+func (rc *ResourceCreator) createNestedStack(
+	ctx context.Context,
+	logicalID string,
+	props map[string]any,
+	params map[string]string,
+) (string, error) {
+	if rc.nestedStackCreator == nil {
+		// No nested stack creator wired; return a stub physical ID.
+		return "arn:aws:cloudformation:us-east-1:000000000000:stack/" + logicalID + "/stub", nil
+	}
+
+	templateURL, _ := props["TemplateURL"].(string)
+	templateBody, _ := props["TemplateBody"].(string)
+
+	// Extract nested stack parameters from Properties.Parameters map.
+	var nestedParams []Parameter
+	if rawParams, ok := props["Parameters"].(map[string]any); ok {
+		for k, v := range rawParams {
+			strVal := ""
+			if v != nil {
+				strVal = fmt.Sprintf("%v", v)
+			}
+			// Allow Ref / resolved values to pass through.
+			if ref, isMap := v.(map[string]any); isMap {
+				if refName, ok := ref["Ref"].(string); ok {
+					if resolved, ok2 := params[refName]; ok2 {
+						strVal = resolved
+					} else {
+						strVal = refName
+					}
+				}
+			}
+			nestedParams = append(nestedParams, Parameter{ParameterKey: k, ParameterValue: strVal})
+		}
+	}
+
+	// Use logicalID as the child stack name.
+	return rc.nestedStackCreator.CreateNestedStack(ctx, logicalID, templateURL, templateBody, nestedParams)
 }
 
 // createExtendedResource handles extended AWS resource types (Lambda, EventBridge, etc.).
@@ -859,6 +916,11 @@ func (rc *ResourceCreator) deleteCoreResource(ctx context.Context, resourceType,
 		return true, rc.deleteKMSKey(ctx, physicalID)
 	case resTypeSecret:
 		return true, rc.deleteSecretsManagerSecret(ctx, physicalID)
+	case cfnStackType:
+		if rc.nestedStackCreator != nil {
+			return true, rc.nestedStackCreator.DeleteNestedStack(ctx, physicalID)
+		}
+		return true, nil
 	default:
 		return false, nil
 	}

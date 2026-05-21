@@ -260,7 +260,12 @@ func (h *Handler) handleGetTemplateSummary(form url.Values, c *echo.Context) err
 
 	params := make([]paramXML, 0, len(summary.Parameters))
 	for _, p := range summary.Parameters {
-		params = append(params, paramXML(p))
+		params = append(params, paramXML{
+			ParameterKey:  p.ParameterKey,
+			ParameterType: p.ParameterType,
+			DefaultValue:  p.DefaultValue,
+			Description:   p.Description,
+		})
 	}
 
 	type summaryResult struct {

@@ -802,14 +802,14 @@ func (b *InMemoryBackend) DescribeEvents(_ string) ([]StackEvent, error) {
 	return all, nil
 }
 
-func (b *InMemoryBackend) UpdateTerminationProtection(nameOrID string, _ bool) error {
-	b.mu.RLock("UpdateTerminationProtection")
-	defer b.mu.RUnlock()
-	_, ok := b.resolveStack(nameOrID)
+func (b *InMemoryBackend) UpdateTerminationProtection(nameOrID string, enable bool) error {
+	b.mu.Lock("UpdateTerminationProtection")
+	defer b.mu.Unlock()
+	stack, ok := b.resolveStack(nameOrID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrStackNotFound, nameOrID)
 	}
-
+	stack.EnableTerminationProtection = enable
 	return nil
 }
 

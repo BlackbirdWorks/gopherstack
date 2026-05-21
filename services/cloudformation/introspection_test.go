@@ -114,7 +114,7 @@ func TestResolveValue_FindInMap(t *testing.T) {
 	}`
 
 	b := newBackend()
-	stack, err := b.CreateStack(t.Context(), "map-test", template, nil, nil)
+	stack, err := b.CreateStack(t.Context(), "map-test", template, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, stack)
 
@@ -188,7 +188,7 @@ func TestResolveValue_ConditionsAndFnIf(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			stack, err := b.CreateStack(t.Context(), tt.name, tt.template, nil, nil)
+			stack, err := b.CreateStack(t.Context(), tt.name, tt.template, nil, cloudformation.StackOptions{})
 			require.NoError(t, err)
 			require.NotNil(t, stack)
 
@@ -244,7 +244,7 @@ func TestBackend_DescribeStackResource(t *testing.T) {
 			stackName := "test-stack-" + tt.name
 
 			if tt.stackInput != "" {
-				_, err := b.CreateStack(t.Context(), stackName, tt.stackInput, nil, nil)
+				_, err := b.CreateStack(t.Context(), stackName, tt.stackInput, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -311,7 +311,7 @@ func TestBackend_ListStackResources(t *testing.T) {
 			stackName := "res-list-" + tt.name
 
 			if tt.template != "" {
-				_, err := b.CreateStack(t.Context(), stackName, tt.template, nil, nil)
+				_, err := b.CreateStack(t.Context(), stackName, tt.template, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -370,7 +370,7 @@ func TestBackend_DescribeStackResources(t *testing.T) {
 			stackName := "desc-res-" + tt.name
 
 			if tt.template != "" {
-				_, err := b.CreateStack(t.Context(), stackName, tt.template, nil, nil)
+				_, err := b.CreateStack(t.Context(), stackName, tt.template, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -447,7 +447,7 @@ func TestBackend_ListExports(t *testing.T) {
 
 			for i, tmpl := range tt.stacks {
 				stackName := fmt.Sprintf("%s-stack-%d", tt.name, i)
-				_, err := b.CreateStack(t.Context(), stackName, tmpl, nil, nil)
+				_, err := b.CreateStack(t.Context(), stackName, tmpl, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			}
 
@@ -472,7 +472,7 @@ func TestBackend_ExportsRemovedOnDelete(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "export-stack", exportTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "export-stack", exportTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 
 	p, err := b.ListExports("")
@@ -508,7 +508,7 @@ func TestBackend_ListImports(t *testing.T) {
 			name:       "no_importers",
 			exportName: "shared-bucket",
 			setup: func(b *cloudformation.InMemoryBackend) {
-				_, err := b.CreateStack(t.Context(), "exporter", exportTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), "exporter", exportTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			},
 			wantStacks: nil,
@@ -517,9 +517,9 @@ func TestBackend_ListImports(t *testing.T) {
 			name:       "one_importer",
 			exportName: "shared-bucket",
 			setup: func(b *cloudformation.InMemoryBackend) {
-				_, err := b.CreateStack(t.Context(), "exporter", exportTemplate, nil, nil)
+				_, err := b.CreateStack(t.Context(), "exporter", exportTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
-				_, err = b.CreateStack(t.Context(), "importer", importTemplate, nil, nil)
+				_, err = b.CreateStack(t.Context(), "importer", importTemplate, nil, cloudformation.StackOptions{})
 				require.NoError(t, err)
 			},
 			wantStacks: []string{"importer"},
@@ -555,7 +555,7 @@ func TestBackend_ExportOutput_IncludesExportName(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	stack, err := b.CreateStack(t.Context(), "export-stack", exportTemplate, nil, nil)
+	stack, err := b.CreateStack(t.Context(), "export-stack", exportTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, stack)
 
@@ -570,12 +570,12 @@ func TestBackend_DuplicateExportFails(t *testing.T) {
 	b := newBackend()
 
 	// First stack creates the export.
-	stack1, err := b.CreateStack(t.Context(), "first-stack", exportTemplate, nil, nil)
+	stack1, err := b.CreateStack(t.Context(), "first-stack", exportTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", stack1.StackStatus)
 
 	// Second stack tries to create the same export name — should fail.
-	stack2, err := b.CreateStack(t.Context(), "second-stack", exportTemplate, nil, nil)
+	stack2, err := b.CreateStack(t.Context(), "second-stack", exportTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_FAILED", stack2.StackStatus)
 	assert.Contains(t, stack2.StackStatusReason, "shared-bucket")
@@ -587,7 +587,7 @@ func TestBackend_UnresolvedImportFails(t *testing.T) {
 	b := newBackend()
 
 	// Try to create a stack that imports a non-existent export.
-	stack, err := b.CreateStack(t.Context(), "importer-stack", importTemplate, nil, nil)
+	stack, err := b.CreateStack(t.Context(), "importer-stack", importTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_FAILED", stack.StackStatus)
 	assert.Contains(t, stack.StackStatusReason, "shared-bucket")

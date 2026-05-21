@@ -482,6 +482,73 @@ func parseTags(form url.Values) []Tag {
 	}
 }
 
+func parseCapabilities(form url.Values) []string {
+	var caps []string
+	for i := 1; ; i++ {
+		v := form.Get(fmt.Sprintf("Capabilities.member.%d", i))
+		if v == "" {
+			return caps
+		}
+		caps = append(caps, v)
+	}
+}
+
+func parseNotificationARNs(form url.Values) []string {
+	var arns []string
+	for i := 1; ; i++ {
+		v := form.Get(fmt.Sprintf("NotificationARNs.member.%d", i))
+		if v == "" {
+			return arns
+		}
+		arns = append(arns, v)
+	}
+}
+
+func parseRollbackConfiguration(form url.Values) *RollbackConfiguration {
+	monStr := form.Get("RollbackConfiguration.MonitoringTimeInMinutes")
+	var triggers []RollbackTrigger
+	for i := 1; ; i++ {
+		arn := form.Get(fmt.Sprintf("RollbackConfiguration.RollbackTriggers.member.%d.Arn", i))
+		if arn == "" {
+			break
+		}
+		triggers = append(triggers, RollbackTrigger{
+			ARN:  arn,
+			Type: form.Get(fmt.Sprintf("RollbackConfiguration.RollbackTriggers.member.%d.Type", i)),
+		})
+	}
+	if monStr == "" && len(triggers) == 0 {
+		return nil
+	}
+	mon := 0
+	if monStr != "" {
+		fmt.Sscanf(monStr, "%d", &mon) //nolint:errcheck // parse best-effort
+	}
+	return &RollbackConfiguration{
+		MonitoringTimeInMinutes: mon,
+		RollbackTriggers:        triggers,
+	}
+}
+
+func parseStackOptions(form url.Values) StackOptions {
+	timeoutStr := form.Get("TimeoutInMinutes")
+	timeout := 0
+	if timeoutStr != "" {
+		fmt.Sscanf(timeoutStr, "%d", &timeout) //nolint:errcheck // parse best-effort
+	}
+	disableRollback := strings.EqualFold(form.Get("DisableRollback"), "true")
+	return StackOptions{
+		Tags:                  parseTags(form),
+		Capabilities:          parseCapabilities(form),
+		NotificationARNs:      parseNotificationARNs(form),
+		RoleARN:               form.Get("RoleARN"),
+		OnFailure:             form.Get("OnFailure"),
+		TimeoutInMinutes:      timeout,
+		DisableRollback:       disableRollback,
+		RollbackConfiguration: parseRollbackConfiguration(form),
+	}
+}
+
 func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
@@ -489,9 +556,8 @@ func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {
 	}
 	templateBody := form.Get("TemplateBody")
 	params := parseParams(form)
-	tags := parseTags(form)
 
-	stack, err := h.Backend.CreateStack(c.Request().Context(), stackName, templateBody, params, tags)
+	stack, err := h.Backend.CreateStack(c.Request().Context(), stackName, templateBody, params, parseStackOptions(form))
 	if err != nil {
 		return h.xmlError(c, "AlreadyExistsException", err.Error())
 	}
@@ -521,7 +587,7 @@ func (h *Handler) handleUpdateStack(form url.Values, c *echo.Context) error {
 	templateBody := form.Get("TemplateBody")
 	params := parseParams(form)
 
-	stack, err := h.Backend.UpdateStack(c.Request().Context(), stackName, templateBody, params)
+	stack, err := h.Backend.UpdateStack(c.Request().Context(), stackName, templateBody, params, parseStackOptions(form))
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}

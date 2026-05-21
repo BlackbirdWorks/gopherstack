@@ -40,9 +40,21 @@ var (
 )
 
 // StorageBackend defines the interface for the CloudFormation in-memory backend.
+// StackOptions carries optional attributes for CreateStack / UpdateStack.
+type StackOptions struct {
+	RollbackConfiguration *RollbackConfiguration
+	Capabilities          []string
+	NotificationARNs      []string
+	Tags                  []Tag
+	RoleARN               string
+	OnFailure             string // DELETE | ROLLBACK | DO_NOTHING
+	TimeoutInMinutes      int
+	DisableRollback       bool
+}
+
 type StorageBackend interface {
-	CreateStack(ctx context.Context, name, templateBody string, params []Parameter, tags []Tag) (*Stack, error)
-	UpdateStack(ctx context.Context, nameOrID, templateBody string, params []Parameter) (*Stack, error)
+	CreateStack(ctx context.Context, name, templateBody string, params []Parameter, opts StackOptions) (*Stack, error)
+	UpdateStack(ctx context.Context, nameOrID, templateBody string, params []Parameter, opts StackOptions) (*Stack, error)
 	DeleteStack(ctx context.Context, nameOrID string) error
 	DescribeStack(nameOrID string) (*Stack, error)
 	ListStacks(statusFilter []string, nextToken string) (page.Page[StackSummary], error)
@@ -211,7 +223,7 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 		resolver = NewDynamicRefResolver(creator.backends)
 	}
 
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		stacks:             make(map[string]*Stack),
 		stackIDIndex:       make(map[string]string),
 		events:             make(map[string][]StackEvent),
@@ -239,6 +251,31 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 		region:             region,
 		mu:                 lockmetrics.New("cloudformation"),
 	}
+
+	// Wire the backend as the NestedStackCreator so nested stacks can be provisioned.
+	if creator != nil {
+		creator.WithNestedStackCreator(b)
+	}
+
+	return b
+}
+
+// CreateNestedStack implements NestedStackCreator. Creates a child stack and returns its ARN.
+func (b *InMemoryBackend) CreateNestedStack(
+	ctx context.Context,
+	name, _ /* templateURL */, templateBody string,
+	params []Parameter,
+) (string, error) {
+	stack, err := b.CreateStack(ctx, name, templateBody, params, StackOptions{})
+	if err != nil {
+		return "", err
+	}
+	return stack.StackID, nil
+}
+
+// DeleteNestedStack implements NestedStackCreator.
+func (b *InMemoryBackend) DeleteNestedStack(ctx context.Context, stackID string) error {
+	return b.DeleteStack(ctx, stackID)
 }
 
 func (b *InMemoryBackend) buildStackARN(stackName, stackID string) string {
@@ -285,7 +322,7 @@ func (b *InMemoryBackend) CreateStack(
 	ctx context.Context,
 	name, templateBody string,
 	params []Parameter,
-	tags []Tag,
+	opts StackOptions,
 ) (*Stack, error) {
 	b.mu.Lock("CreateStack")
 	defer b.mu.Unlock()
@@ -303,13 +340,19 @@ func (b *InMemoryBackend) CreateStack(
 	now := time.Now()
 
 	stack := &Stack{
-		StackID:      arn,
-		StackName:    name,
-		StackStatus:  statusCreateInProgress,
-		CreationTime: now,
-		Parameters:   params,
-		Tags:         tags,
-		TemplateBody: templateBody,
+		StackID:                 arn,
+		StackName:               name,
+		StackStatus:             statusCreateInProgress,
+		CreationTime:            now,
+		Parameters:              params,
+		Tags:                    opts.Tags,
+		TemplateBody:            templateBody,
+		Capabilities:            opts.Capabilities,
+		NotificationARNs:        opts.NotificationARNs,
+		RoleARN:                 opts.RoleARN,
+		TimeoutInMinutes:        opts.TimeoutInMinutes,
+		DisableRollback:         opts.DisableRollback,
+		RollbackConfiguration:   opts.RollbackConfiguration,
 	}
 
 	b.stacks[name] = stack
@@ -327,6 +370,20 @@ func (b *InMemoryBackend) CreateStack(
 	if stack.StackStatus != statusCreateFailed && stack.StackStatus != statusRollbackComplete {
 		stack.StackStatus = statusCreateComplete
 		b.addEvent(arn, name, name, arn, cfnStackType, statusCreateComplete, "")
+	}
+
+	// OnFailure=DELETE: remove the stack entirely when creation fails.
+	if opts.OnFailure == "DELETE" && (stack.StackStatus == statusCreateFailed || stack.StackStatus == statusRollbackComplete) {
+		stack.StackStatus = statusDeleteInProgress
+		b.addEvent(arn, name, name, arn, cfnStackType, statusDeleteInProgress, "")
+		now2 := time.Now()
+		stack.DeletionTime = &now2
+		stack.StackStatus = statusDeleteComplete
+		b.removeExports(arn)
+		delete(b.events, arn)
+		delete(b.resources, arn)
+		delete(b.changeSets, name)
+		b.pruneDriftDetections(arn)
 	}
 
 	return stack, nil
@@ -357,6 +414,14 @@ func (b *InMemoryBackend) createStackFromTemplate(ctx context.Context, stack *St
 	}
 
 	resolvedParams := ResolveParameters(tmpl, params)
+
+	if valErr := ValidateParameters(tmpl, resolvedParams); valErr != nil {
+		stack.StackStatus = statusCreateFailed
+		stack.StackStatusReason = valErr.Error()
+		b.addEvent(arn, name, name, arn, cfnStackType, statusCreateFailed, valErr.Error())
+
+		return
+	}
 
 	// Validate that all Fn::ImportValue references can be satisfied before
 	// creating any resources.
@@ -539,6 +604,7 @@ func (b *InMemoryBackend) UpdateStack(
 	ctx context.Context,
 	nameOrID, templateBody string,
 	params []Parameter,
+	opts StackOptions,
 ) (*Stack, error) {
 	b.mu.Lock("UpdateStack")
 	defer b.mu.Unlock()
@@ -557,6 +623,18 @@ func (b *InMemoryBackend) UpdateStack(
 	}
 	if params != nil {
 		stack.Parameters = params
+	}
+	if opts.RoleARN != "" {
+		stack.RoleARN = opts.RoleARN
+	}
+	if len(opts.Capabilities) > 0 {
+		stack.Capabilities = opts.Capabilities
+	}
+	if len(opts.Tags) > 0 {
+		stack.Tags = opts.Tags
+	}
+	if opts.RollbackConfiguration != nil {
+		stack.RollbackConfiguration = opts.RollbackConfiguration
 	}
 
 	b.addEvent(
@@ -606,6 +684,17 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 	}
 
 	resolvedParams := ResolveParameters(tmpl, stack.Parameters)
+
+	if valErr := ValidateParameters(tmpl, resolvedParams); valErr != nil {
+		stack.StackStatus = statusUpdateFailed
+		stack.StackStatusReason = valErr.Error()
+		b.addEvent(
+			stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+			cfnStackType, statusUpdateFailed, valErr.Error(),
+		)
+
+		return false
+	}
 
 	// Pre-populate physicalIDs from existing resources.
 	physicalIDs := make(map[string]string, len(b.resources[stack.StackID]))
@@ -782,6 +871,9 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 }
 
 // DeleteStack marks a stack as deleted and deletes its resources.
+// ErrTerminationProtectionEnabled is returned when attempting to delete a stack with termination protection.
+var ErrTerminationProtectionEnabled = errors.New("stack termination protection is enabled")
+
 func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) error {
 	b.mu.Lock("DeleteStack")
 	defer b.mu.Unlock()
@@ -789,6 +881,10 @@ func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) erro
 	stack, ok := b.resolveStack(nameOrID)
 	if !ok {
 		return ErrStackNotFound
+	}
+
+	if stack.EnableTerminationProtection {
+		return fmt.Errorf("%w: %s", ErrTerminationProtectionEnabled, stack.StackName)
 	}
 
 	stack.StackStatus = statusDeleteInProgress
@@ -994,10 +1090,10 @@ func (b *InMemoryBackend) ExecuteChangeSet(ctx context.Context, stackName, chang
 		return ErrChangeSetNotFound
 	}
 
-	_, err := b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters)
+	_, err := b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, StackOptions{})
 	if err != nil {
 		// Stack may not exist yet — create it.
-		_, err = b.CreateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, nil)
+		_, err = b.CreateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, StackOptions{})
 		if err != nil {
 			return err
 		}

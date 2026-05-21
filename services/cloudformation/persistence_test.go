@@ -25,7 +25,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 					"test-stack",
 					`{"AWSTemplateFormatVersion":"2010-09-09"}`,
 					nil,
-					nil,
+					cloudformation.StackOptions{},
 				)
 				if err != nil {
 					return ""
