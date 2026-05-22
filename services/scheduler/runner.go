@@ -42,6 +42,31 @@ type SQSSender interface {
 	SendMessageToQueue(ctx context.Context, queueARN, messageBody string) error
 }
 
+// SQSFIFOSender can send a message to a FIFO SQS queue with a MessageGroupId.
+type SQSFIFOSender interface {
+	SendMessageToFIFOQueue(ctx context.Context, queueARN, messageBody, messageGroupID string) error
+}
+
+// EventBusPutter can put events onto an EventBridge bus.
+type EventBusPutter interface {
+	PutSchedulerEvent(ctx context.Context, busARN, source, detailType, detail string) error
+}
+
+// KinesisRecordPutter can put a record onto a Kinesis stream.
+type KinesisRecordPutter interface {
+	PutSchedulerRecord(ctx context.Context, streamARN, partitionKey string, data []byte) error
+}
+
+// SageMakerPipelineStarter can start a SageMaker pipeline execution.
+type SageMakerPipelineStarter interface {
+	StartPipelineExecution(ctx context.Context, pipelineARN string, params map[string]string) error
+}
+
+// ECSTaskRunner can run an ECS task.
+type ECSTaskRunner interface {
+	RunSchedulerTask(ctx context.Context, taskDefARN, launchType string, taskCount int) error
+}
+
 // SNSPublisher can publish a message to an SNS topic by ARN.
 type SNSPublisher interface {
 	PublishToTopic(ctx context.Context, topicARN, message string) error
@@ -57,8 +82,13 @@ type Runner struct {
 	backend     StorageBackend
 	lambda      LambdaInvoker
 	sqs         SQSSender
+	sqsFIFO     SQSFIFOSender
 	sns         SNSPublisher
 	sfn         StepFunctionsStarter
+	eventBus    EventBusPutter
+	kinesis     KinesisRecordPutter
+	sageMaker   SageMakerPipelineStarter
+	ecsRunner   ECSTaskRunner
 	lastFiredAt map[string]time.Time
 	// cronCache caches parsed cron fields keyed by expression string to avoid re-parsing on every poll.
 	cronCache map[string]*cronFields
@@ -87,6 +117,21 @@ func (r *Runner) SetSNSPublisher(p SNSPublisher) { r.sns = p }
 // SetStepFunctionsStarter configures the StepFunctions starter for schedule targets.
 func (r *Runner) SetStepFunctionsStarter(s StepFunctionsStarter) { r.sfn = s }
 
+// SetSQSFIFOSender configures the FIFO SQS sender for schedule targets.
+func (r *Runner) SetSQSFIFOSender(s SQSFIFOSender) { r.sqsFIFO = s }
+
+// SetEventBusPutter configures the EventBridge bus sender for schedule targets.
+func (r *Runner) SetEventBusPutter(p EventBusPutter) { r.eventBus = p }
+
+// SetKinesisRecordPutter configures the Kinesis record putter for schedule targets.
+func (r *Runner) SetKinesisRecordPutter(k KinesisRecordPutter) { r.kinesis = k }
+
+// SetSageMakerPipelineStarter configures the SageMaker pipeline starter for schedule targets.
+func (r *Runner) SetSageMakerPipelineStarter(s SageMakerPipelineStarter) { r.sageMaker = s }
+
+// SetECSTaskRunner configures the ECS task runner for schedule targets.
+func (r *Runner) SetECSTaskRunner(e ECSTaskRunner) { r.ecsRunner = e }
+
 // Start runs the scheduler as a background goroutine.
 // It returns immediately; the goroutine stops when ctx is cancelled.
 func (r *Runner) Start(ctx context.Context) {
@@ -108,13 +153,14 @@ func (r *Runner) run(ctx context.Context) {
 }
 
 func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
-	schedules := r.backend.ListSchedules("", "", "")
+	schedules, _ := r.backend.ListSchedules("", "", "", "", 0)
 
-	activeNames := make(map[string]struct{}, len(schedules))
+	activeKeys := make(map[string]struct{}, len(schedules))
 	activeExprs := make(map[string]struct{}, len(schedules))
 
 	for _, s := range schedules {
-		activeNames[s.Name] = struct{}{}
+		key := scheduleKey(s.GroupName, s.Name)
+		activeKeys[key] = struct{}{}
 		activeExprs[strings.TrimSpace(s.ScheduleExpression)] = struct{}{}
 
 		if s.State != "ENABLED" {
@@ -123,18 +169,18 @@ func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
 
 		if r.isDue(s, now) {
 			r.mu.Lock()
-			r.lastFiredAt[s.Name] = now
+			r.lastFiredAt[key] = now
 			r.mu.Unlock()
 
-			r.invokeTarget(ctx, s)
+			r.invokeTarget(ctx, s, now)
 		}
 	}
 
 	// Sweep lastFiredAt entries for schedules that no longer exist to prevent unbounded growth.
 	r.mu.Lock()
-	for name := range r.lastFiredAt {
-		if _, ok := activeNames[name]; !ok {
-			delete(r.lastFiredAt, name)
+	for key := range r.lastFiredAt {
+		if _, ok := activeKeys[key]; !ok {
+			delete(r.lastFiredAt, key)
 		}
 	}
 	r.mu.Unlock()
@@ -154,27 +200,28 @@ func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
 // isDue reports whether the schedule s should fire at time now.
 func (r *Runner) isDue(s *Schedule, now time.Time) bool {
 	expr := strings.TrimSpace(s.ScheduleExpression)
+	key := scheduleKey(s.GroupName, s.Name)
 
 	if strings.HasPrefix(expr, "rate(") {
-		return r.isDueRate(s.Name, expr, now)
+		return r.isDueRate(key, expr, now)
 	}
 
 	if strings.HasPrefix(expr, "cron(") {
-		return r.isDueCron(s.Name, expr, now)
+		return r.isDueCron(key, expr, now)
 	}
 
 	return false
 }
 
 // isDueRate returns true when the rate interval has elapsed since the last firing.
-func (r *Runner) isDueRate(name, expr string, now time.Time) bool {
+func (r *Runner) isDueRate(key, expr string, now time.Time) bool {
 	interval, err := parseRateExpression(expr)
 	if err != nil || interval <= 0 {
 		return false
 	}
 
 	r.mu.Lock()
-	last, ok := r.lastFiredAt[name]
+	last, ok := r.lastFiredAt[key]
 	r.mu.Unlock()
 
 	if !ok {
@@ -207,7 +254,7 @@ func (r *Runner) cachedParseCron(expr string) (*cronFields, error) {
 }
 
 // isDueCron returns true when now matches all fields of the cron expression.
-func (r *Runner) isDueCron(name, expr string, now time.Time) bool {
+func (r *Runner) isDueCron(key, expr string, now time.Time) bool {
 	fields, err := r.cachedParseCron(expr)
 	if err != nil {
 		return false
@@ -219,7 +266,7 @@ func (r *Runner) isDueCron(name, expr string, now time.Time) bool {
 
 	// Prevent double-firing within the same minute.
 	r.mu.Lock()
-	last, fired := r.lastFiredAt[name]
+	last, fired := r.lastFiredAt[key]
 	r.mu.Unlock()
 
 	if fired && last.Year() == now.Year() && last.YearDay() == now.YearDay() &&
@@ -230,22 +277,166 @@ func (r *Runner) isDueCron(name, expr string, now time.Time) bool {
 	return true
 }
 
-// invokeTarget dispatches the schedule's target based on its ARN prefix.
-func (r *Runner) invokeTarget(ctx context.Context, s *Schedule) {
-	targetARN := s.Target.ARN
+// invokeTarget dispatches the schedule's target based on its ARN prefix, with retries and DLQ.
+// scheduledAt is recorded for logging; event-age deadline is measured from the first invocation attempt.
+func (r *Runner) invokeTarget(ctx context.Context, s *Schedule, _ time.Time) {
 	log := logger.Load(ctx)
+
+	maxAttempts, maxAge := retryPolicyParams(s.Target.RetryPolicy)
+	payload := targetPayload(s)
+	startedAt := time.Now()
+
+	var invokeErr error
+
+	for attempt := 0; attempt <= maxAttempts; attempt++ {
+		// Check event age deadline (only after first attempt has been made).
+		if attempt > 0 && maxAge > 0 && time.Since(startedAt) > maxAge {
+			log.WarnContext(ctx, "scheduler: event age exceeded, dropping", "schedule", s.Name, "attempt", attempt)
+			r.sendToDLQ(ctx, s, payload, log)
+
+			return
+		}
+
+		if attempt > 0 {
+			backoff := retryBackoff(attempt)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+		}
+
+		invokeErr = r.dispatchTarget(ctx, s, payload, log)
+		if invokeErr == nil {
+			r.handleActionAfterCompletion(ctx, s, log)
+
+			return
+		}
+
+		log.WarnContext(
+			ctx,
+			"scheduler: target invocation failed",
+			"schedule",
+			s.Name,
+			"attempt",
+			attempt,
+			"error",
+			invokeErr,
+		)
+	}
+
+	// All retries exhausted.
+	r.sendToDLQ(ctx, s, payload, log)
+}
+
+// retryPolicyParams extracts retry limits from the policy, applying AWS defaults when nil.
+func retryPolicyParams(rp *RetryPolicy) (int, time.Duration) {
+	const defaultMaxAttempts = 185
+	const defaultMaxAgeSecs = 86400
+
+	if rp == nil {
+		return defaultMaxAttempts, time.Duration(defaultMaxAgeSecs) * time.Second
+	}
+
+	attempts := rp.MaximumRetryAttempts
+
+	var age time.Duration
+	if rp.MaximumEventAgeInSeconds > 0 {
+		age = time.Duration(rp.MaximumEventAgeInSeconds) * time.Second
+	} else {
+		age = time.Duration(defaultMaxAgeSecs) * time.Second
+	}
+
+	return attempts, age
+}
+
+// retryBackoff returns the sleep duration for the given attempt (exponential, capped at 15s).
+func retryBackoff(attempt int) time.Duration {
+	const base = 200 * time.Millisecond
+	const maxBackoff = 15 * time.Second
+	const maxShift = 6
+
+	d := base * (1 << min(attempt-1, maxShift))
+	if d > maxBackoff {
+		return maxBackoff
+	}
+
+	return d
+}
+
+// dispatchTarget routes the payload to the correct underlying service.
+func (r *Runner) dispatchTarget(ctx context.Context, s *Schedule, payload []byte, log loggerIface) error {
+	targetARN := s.Target.ARN
 
 	switch {
 	case strings.HasPrefix(targetARN, "arn:aws:lambda:"):
-		r.invokeLambdaTarget(ctx, s, log)
+		return r.invokeLambdaTarget(ctx, s, payload, log)
 	case strings.HasPrefix(targetARN, "arn:aws:sqs:"):
-		r.invokeSQSTarget(ctx, s, log)
+		return r.invokeSQSTarget(ctx, s, payload, log)
 	case strings.HasPrefix(targetARN, "arn:aws:sns:"):
-		r.invokeSNSTarget(ctx, s, log)
+		return r.invokeSNSTarget(ctx, s, payload, log)
 	case strings.HasPrefix(targetARN, "arn:aws:states:"):
-		r.invokeSFNTarget(ctx, s, log)
+		return r.invokeSFNTarget(ctx, s, payload, log)
+	case strings.HasPrefix(targetARN, "arn:aws:events:"):
+		return r.invokeEventBusTarget(ctx, s, payload, log)
+	case strings.HasPrefix(targetARN, "arn:aws:kinesis:"):
+		return r.invokeKinesisTarget(ctx, s, payload, log)
+	case strings.HasPrefix(targetARN, "arn:aws:sagemaker:"):
+		return r.invokeSageMakerTarget(ctx, s, log)
+	case strings.HasPrefix(targetARN, "arn:aws:ecs:"):
+		return r.invokeECSTarget(ctx, s, log)
 	default:
 		log.WarnContext(ctx, "scheduler: unsupported target ARN", "target", targetARN, "schedule", s.Name)
+
+		return nil
+	}
+}
+
+// sendToDLQ sends the payload to the dead-letter SQS queue if configured.
+func (r *Runner) sendToDLQ(ctx context.Context, s *Schedule, payload []byte, log loggerIface) {
+	if s.Target.DeadLetterConfig == nil || s.Target.DeadLetterConfig.Arn == "" {
+		return
+	}
+
+	if r.sqs == nil {
+		log.WarnContext(ctx, "scheduler: DLQ configured but no SQS sender", "schedule", s.Name)
+
+		return
+	}
+
+	if err := r.sqs.SendMessageToQueue(ctx, s.Target.DeadLetterConfig.Arn, string(payload)); err != nil {
+		log.WarnContext(
+			ctx,
+			"scheduler: DLQ send failed",
+			"dlq",
+			s.Target.DeadLetterConfig.Arn,
+			"schedule",
+			s.Name,
+			"error",
+			err,
+		)
+	} else {
+		log.DebugContext(ctx, "scheduler: sent to DLQ", "dlq", s.Target.DeadLetterConfig.Arn, "schedule", s.Name)
+	}
+}
+
+// handleActionAfterCompletion fires the after-completion action when the schedule has run.
+// For one-shot at() schedules or upon explicit DELETE/NONE setting.
+func (r *Runner) handleActionAfterCompletion(ctx context.Context, s *Schedule, log loggerIface) {
+	action := s.ActionAfterCompletion
+	if action == "" {
+		return
+	}
+
+	switch strings.ToUpper(action) {
+	case "DELETE":
+		if err := r.backend.DeleteSchedule(s.Name, s.GroupName); err != nil {
+			log.WarnContext(ctx, "scheduler: ActionAfterCompletion=DELETE failed", "schedule", s.Name, "error", err)
+		} else {
+			log.DebugContext(ctx, "scheduler: deleted schedule after completion", "schedule", s.Name)
+		}
+	case "NONE":
+		// NONE is the default; no state change required.
 	}
 }
 
@@ -284,17 +475,15 @@ type loggerIface interface {
 	DebugContext(ctx context.Context, msg string, args ...any)
 }
 
-func (r *Runner) invokeLambdaTarget(ctx context.Context, s *Schedule, log loggerIface) {
+func (r *Runner) invokeLambdaTarget(ctx context.Context, s *Schedule, payload []byte, log loggerIface) error {
 	if r.lambda == nil {
-		return
+		return nil
 	}
 
 	fnName := lambdaFunctionNameFromARN(s.Target.ARN)
 	if fnName == "" {
 		fnName = s.Target.ARN
 	}
-
-	payload := targetPayload(s)
 
 	if _, _, err := r.lambda.InvokeFunction(ctx, fnName, "Event", payload); err != nil {
 		log.WarnContext(
@@ -307,47 +496,80 @@ func (r *Runner) invokeLambdaTarget(ctx context.Context, s *Schedule, log logger
 			"error",
 			err,
 		)
-	} else {
-		log.DebugContext(ctx, "scheduler: invoked Lambda", "function", fnName, "schedule", s.Name)
+
+		return err
 	}
+
+	log.DebugContext(ctx, "scheduler: invoked Lambda", "function", fnName, "schedule", s.Name)
+
+	return nil
 }
 
-func (r *Runner) invokeSQSTarget(ctx context.Context, s *Schedule, log loggerIface) {
+func (r *Runner) invokeSQSTarget(ctx context.Context, s *Schedule, payload []byte, log loggerIface) error {
 	if r.sqs == nil {
-		return
+		return nil
 	}
 
-	payload := string(targetPayload(s))
+	// FIFO queue requires MessageGroupId.
+	if s.Target.SqsParameters != nil && s.Target.SqsParameters.MessageGroupID != "" && r.sqsFIFO != nil {
+		if err := r.sqsFIFO.SendMessageToFIFOQueue(
+			ctx,
+			s.Target.ARN,
+			string(payload),
+			s.Target.SqsParameters.MessageGroupID,
+		); err != nil {
+			log.WarnContext(
+				ctx,
+				"scheduler: SQS FIFO send failed",
+				"queue",
+				s.Target.ARN,
+				"schedule",
+				s.Name,
+				"error",
+				err,
+			)
 
-	if err := r.sqs.SendMessageToQueue(ctx, s.Target.ARN, payload); err != nil {
+			return err
+		}
+
+		log.DebugContext(ctx, "scheduler: sent SQS FIFO message", "queue", s.Target.ARN, "schedule", s.Name)
+
+		return nil
+	}
+
+	if err := r.sqs.SendMessageToQueue(ctx, s.Target.ARN, string(payload)); err != nil {
 		log.WarnContext(ctx, "scheduler: SQS send failed", "queue", s.Target.ARN, "schedule", s.Name, "error", err)
-	} else {
-		log.DebugContext(ctx, "scheduler: sent SQS message", "queue", s.Target.ARN, "schedule", s.Name)
+
+		return err
 	}
+
+	log.DebugContext(ctx, "scheduler: sent SQS message", "queue", s.Target.ARN, "schedule", s.Name)
+
+	return nil
 }
 
-func (r *Runner) invokeSNSTarget(ctx context.Context, s *Schedule, log loggerIface) {
+func (r *Runner) invokeSNSTarget(ctx context.Context, s *Schedule, payload []byte, log loggerIface) error {
 	if r.sns == nil {
-		return
+		return nil
 	}
 
-	payload := string(targetPayload(s))
-
-	if err := r.sns.PublishToTopic(ctx, s.Target.ARN, payload); err != nil {
+	if err := r.sns.PublishToTopic(ctx, s.Target.ARN, string(payload)); err != nil {
 		log.WarnContext(ctx, "scheduler: SNS publish failed", "topic", s.Target.ARN, "schedule", s.Name, "error", err)
-	} else {
-		log.DebugContext(ctx, "scheduler: published SNS notification", "topic", s.Target.ARN, "schedule", s.Name)
+
+		return err
 	}
+
+	log.DebugContext(ctx, "scheduler: published SNS notification", "topic", s.Target.ARN, "schedule", s.Name)
+
+	return nil
 }
 
-func (r *Runner) invokeSFNTarget(ctx context.Context, s *Schedule, log loggerIface) {
+func (r *Runner) invokeSFNTarget(ctx context.Context, s *Schedule, payload []byte, log loggerIface) error {
 	if r.sfn == nil {
-		return
+		return nil
 	}
 
-	payload := string(targetPayload(s))
-
-	if err := r.sfn.StartExecution(s.Target.ARN, "", payload); err != nil {
+	if err := r.sfn.StartExecution(s.Target.ARN, "", string(payload)); err != nil {
 		log.WarnContext(
 			ctx,
 			"scheduler: StepFunctions start failed",
@@ -358,16 +580,164 @@ func (r *Runner) invokeSFNTarget(ctx context.Context, s *Schedule, log loggerIfa
 			"error",
 			err,
 		)
-	} else {
+
+		return err
+	}
+
+	log.DebugContext(
+		ctx,
+		"scheduler: started StepFunctions execution",
+		"stateMachine",
+		s.Target.ARN,
+		"schedule",
+		s.Name,
+	)
+
+	return nil
+}
+
+func (r *Runner) invokeEventBusTarget(ctx context.Context, s *Schedule, payload []byte, log loggerIface) error {
+	if r.eventBus == nil {
+		log.DebugContext(ctx, "scheduler: EventBridge bus target (no invoker)", "bus", s.Target.ARN, "schedule", s.Name)
+
+		return nil
+	}
+
+	var source, detailType string
+
+	if s.Target.EventBridgeParameters != nil {
+		source = s.Target.EventBridgeParameters.Source
+		detailType = s.Target.EventBridgeParameters.DetailType
+	}
+
+	if err := r.eventBus.PutSchedulerEvent(ctx, s.Target.ARN, source, detailType, string(payload)); err != nil {
+		log.WarnContext(
+			ctx,
+			"scheduler: EventBridge PutEvents failed",
+			"bus",
+			s.Target.ARN,
+			"schedule",
+			s.Name,
+			"error",
+			err,
+		)
+
+		return err
+	}
+
+	log.DebugContext(ctx, "scheduler: put EventBridge event", "bus", s.Target.ARN, "schedule", s.Name)
+
+	return nil
+}
+
+func (r *Runner) invokeKinesisTarget(ctx context.Context, s *Schedule, payload []byte, log loggerIface) error {
+	if r.kinesis == nil {
+		log.DebugContext(ctx, "scheduler: Kinesis target (no invoker)", "stream", s.Target.ARN, "schedule", s.Name)
+
+		return nil
+	}
+
+	partitionKey := ""
+	if s.Target.KinesisParameters != nil {
+		partitionKey = s.Target.KinesisParameters.PartitionKey
+	}
+
+	if err := r.kinesis.PutSchedulerRecord(ctx, s.Target.ARN, partitionKey, payload); err != nil {
+		log.WarnContext(
+			ctx,
+			"scheduler: Kinesis PutRecord failed",
+			"stream",
+			s.Target.ARN,
+			"schedule",
+			s.Name,
+			"error",
+			err,
+		)
+
+		return err
+	}
+
+	log.DebugContext(ctx, "scheduler: put Kinesis record", "stream", s.Target.ARN, "schedule", s.Name)
+
+	return nil
+}
+
+func (r *Runner) invokeSageMakerTarget(ctx context.Context, s *Schedule, log loggerIface) error {
+	if r.sageMaker == nil {
 		log.DebugContext(
 			ctx,
-			"scheduler: started StepFunctions execution",
-			"stateMachine",
+			"scheduler: SageMaker pipeline target (no invoker)",
+			"pipeline",
 			s.Target.ARN,
 			"schedule",
 			s.Name,
 		)
+
+		return nil
 	}
+
+	params := map[string]string{}
+
+	if s.Target.SageMakerPipelineParameters != nil {
+		for _, p := range s.Target.SageMakerPipelineParameters.PipelineParameterList {
+			params[p.Name] = p.Value
+		}
+	}
+
+	if err := r.sageMaker.StartPipelineExecution(ctx, s.Target.ARN, params); err != nil {
+		log.WarnContext(
+			ctx,
+			"scheduler: SageMaker StartPipelineExecution failed",
+			"pipeline",
+			s.Target.ARN,
+			"schedule",
+			s.Name,
+			"error",
+			err,
+		)
+
+		return err
+	}
+
+	log.DebugContext(ctx, "scheduler: started SageMaker pipeline", "pipeline", s.Target.ARN, "schedule", s.Name)
+
+	return nil
+}
+
+func (r *Runner) invokeECSTarget(ctx context.Context, s *Schedule, log loggerIface) error {
+	if r.ecsRunner == nil {
+		log.DebugContext(ctx, "scheduler: ECS RunTask target (no invoker)", "arn", s.Target.ARN, "schedule", s.Name)
+
+		return nil
+	}
+
+	var taskDefARN, launchType string
+
+	var taskCount int
+
+	if s.Target.EcsParameters != nil {
+		taskDefARN = s.Target.EcsParameters.TaskDefinitionArn
+		launchType = s.Target.EcsParameters.LaunchType
+		taskCount = s.Target.EcsParameters.TaskCount
+	}
+
+	if taskDefARN == "" {
+		taskDefARN = s.Target.ARN
+	}
+
+	if taskCount == 0 {
+		taskCount = 1
+	}
+
+	if err := r.ecsRunner.RunSchedulerTask(ctx, taskDefARN, launchType, taskCount); err != nil {
+		log.WarnContext(ctx, "scheduler: ECS RunTask failed", "taskDef", taskDefARN, "schedule", s.Name, "error", err)
+
+		return err
+	}
+
+	log.DebugContext(ctx, "scheduler: ran ECS task", "taskDef", taskDefARN, "schedule", s.Name)
+
+	return nil
 }
 
 // lambdaFunctionNameFromARN extracts the function name from a Lambda ARN.

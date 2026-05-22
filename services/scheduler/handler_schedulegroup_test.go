@@ -457,8 +457,9 @@ func TestSchedulerBackend_Reset(t *testing.T) {
 
 	b.Reset()
 
-	assert.Empty(t, b.ListSchedules("", "", ""))
-	groups := b.ListScheduleGroups("")
+	schedules, _ := b.ListSchedules("", "", "", "", 0)
+	assert.Empty(t, schedules)
+	groups, _ := b.ListScheduleGroups("", "", 0)
 	require.Len(t, groups, 1)
 	assert.Equal(t, "default", groups[0].Name)
 }
