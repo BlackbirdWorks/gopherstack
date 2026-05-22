@@ -215,7 +215,7 @@ func TestRefinement2_GetEncryptionConfig_DefaultIsNONE(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doXrayGETRequest(t, h, "/EncryptionConfig")
+	rec := doXrayGETRequest(t, h)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
