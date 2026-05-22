@@ -92,11 +92,6 @@ func auditDescribe(t *testing.T, h *pipes.Handler, name string) map[string]any {
 	return resp
 }
 
-func mustPipeReady(t *testing.T, b *pipes.InMemoryBackend, name string) {
-	t.Helper()
-	pipes.WaitPipeRunning(t, b, name)
-}
-
 // --- lifecycle tests ---
 
 // TestAudit_Lifecycle_Creating verifies that CreatePipe returns CREATING state initially.
@@ -180,9 +175,9 @@ func TestAudit_Lifecycle_CreatingToRunning(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Eventually(t, func() bool {
-				p, err := b.GetPipe(tt.name)
+				p, getErr := b.GetPipe(tt.name)
 
-				return err == nil && p.CurrentState == tt.wantEventualState
+				return getErr == nil && p.CurrentState == tt.wantEventualState
 			}, 500*time.Millisecond, 5*time.Millisecond)
 		})
 	}
@@ -366,12 +361,12 @@ func TestAudit_SourceParams_Kinesis(t *testing.T) {
 	tests := []struct {
 		name                  string
 		startingPosition      string
+		onPartialBatchFailure string
+		dlqArn                string
 		batchSize             int
 		maxRetryAttempts      int
 		maxRecordAgeSeconds   int
-		onPartialBatchFailure string
 		parallelizationFactor int
-		dlqArn                string
 	}{
 		{
 			name:             "at_sequence_number",
@@ -504,8 +499,8 @@ func TestAudit_SourceParams_MSK(t *testing.T) {
 		name             string
 		topicName        string
 		startingPosition string
-		batchSize        int
 		consumerGroupID  string
+		batchSize        int
 	}{
 		{
 			name:             "trim_horizon_no_group",
@@ -562,9 +557,9 @@ func TestAudit_SourceParams_SelfManagedKafka(t *testing.T) {
 	tests := []struct {
 		name                       string
 		topicName                  string
-		batchSize                  int
-		additionalBootstrapServers []string
 		consumerGroupID            string
+		additionalBootstrapServers []string
+		batchSize                  int
 	}{
 		{
 			name:      "basic_kafka",
@@ -755,11 +750,11 @@ func TestAudit_TargetParams_SQS(t *testing.T) {
 
 	tests := []struct {
 		name                   string
-		messageGroupId         string
-		messageDeduplicationId string
+		messageGroupID         string
+		messageDeduplicationID string
 	}{
-		{name: "plain_sqs", messageGroupId: "", messageDeduplicationId: ""},
-		{name: "fifo_sqs", messageGroupId: "group-1", messageDeduplicationId: "dedup-1"},
+		{name: "plain_sqs", messageGroupID: "", messageDeduplicationID: ""},
+		{name: "fifo_sqs", messageGroupID: "group-1", messageDeduplicationID: "dedup-1"},
 	}
 
 	for _, tt := range tests {
@@ -768,11 +763,11 @@ func TestAudit_TargetParams_SQS(t *testing.T) {
 
 			h := auditNewHandler(t)
 			sqsParams := map[string]any{}
-			if tt.messageGroupId != "" {
-				sqsParams["MessageGroupId"] = tt.messageGroupId
+			if tt.messageGroupID != "" {
+				sqsParams["MessageGroupId"] = tt.messageGroupID
 			}
-			if tt.messageDeduplicationId != "" {
-				sqsParams["MessageDeduplicationId"] = tt.messageDeduplicationId
+			if tt.messageDeduplicationID != "" {
+				sqsParams["MessageDeduplicationId"] = tt.messageDeduplicationID
 			}
 
 			resp := auditCreate(t, h, tt.name+"-sqs-target-pipe", map[string]any{
@@ -787,8 +782,8 @@ func TestAudit_TargetParams_SQS(t *testing.T) {
 			tp, _ := resp["TargetParameters"].(map[string]any)
 			sqsp, _ := tp["SqsQueueParameters"].(map[string]any)
 			require.NotNil(t, sqsp, "SqsQueueParameters missing")
-			if tt.messageGroupId != "" {
-				assert.Equal(t, tt.messageGroupId, sqsp["MessageGroupId"])
+			if tt.messageGroupID != "" {
+				assert.Equal(t, tt.messageGroupID, sqsp["MessageGroupId"])
 			}
 		})
 	}
@@ -880,7 +875,7 @@ func TestAudit_TargetParams_EventBridgeEventBus(t *testing.T) {
 		name       string
 		source     string
 		detailType string
-		endpointId string
+		endpointID string
 	}{
 		{
 			name:       "basic_event_bus",
@@ -891,7 +886,7 @@ func TestAudit_TargetParams_EventBridgeEventBus(t *testing.T) {
 			name:       "with_endpoint",
 			source:     "my.app",
 			detailType: "PaymentProcessed",
-			endpointId: "ep-12345",
+			endpointID: "ep-12345",
 		},
 	}
 
@@ -904,8 +899,8 @@ func TestAudit_TargetParams_EventBridgeEventBus(t *testing.T) {
 				"Source":     tt.source,
 				"DetailType": tt.detailType,
 			}
-			if tt.endpointId != "" {
-				ebParams["EndpointId"] = tt.endpointId
+			if tt.endpointID != "" {
+				ebParams["EndpointId"] = tt.endpointID
 			}
 
 			resp := auditCreate(t, h, tt.name+"-eb-target-pipe", map[string]any{
@@ -1597,8 +1592,8 @@ func TestAudit_Tags_CreateAndDescribe(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		tags map[string]string
+		name string
 	}{
 		{name: "no_tags", tags: nil},
 		{name: "single_tag", tags: map[string]string{"env": "prod"}},
@@ -1641,9 +1636,9 @@ func TestAudit_Tags_UpdateViaTagResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		newTags  map[string]string
 		wantTags map[string]string
+		name     string
 	}{
 		{
 			name:     "add_new_tag",
@@ -1721,14 +1716,12 @@ func TestAudit_Pagination_Limit(t *testing.T) {
 			}
 
 			h := pipes.NewHandler(b)
-			rec := auditDo(t, h, http.MethodGet, "/v1/pipes?Limit="+string(rune('0'+tt.limit)), nil)
 
-			// Re-do with query string
 			url := "/v1/pipes?Limit=" + string(rune('0'+tt.limit))
 			if tt.limit >= 10 {
 				url = "/v1/pipes?Limit=10"
 			}
-			rec = auditDo(t, h, http.MethodGet, url, nil)
+			rec := auditDo(t, h, http.MethodGet, url, nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
@@ -1827,13 +1820,13 @@ func TestAudit_Errors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
+		body       any
 		setup      func(t *testing.T, h *pipes.Handler)
+		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantType   string
+		wantStatus int
 	}{
 		{
 			name:   "create_duplicate_pipe_returns_409",
@@ -1990,8 +1983,8 @@ func TestAudit_BatchSize_EffectiveFromAllSources(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
 		sourceParams    *pipes.SourceParameters
+		name            string
 		wantEffectiveBS int
 	}{
 		{
@@ -2024,7 +2017,7 @@ func TestAudit_BatchSize_EffectiveFromAllSources(t *testing.T) {
 		{
 			name: "msk_batch_size",
 			sourceParams: &pipes.SourceParameters{
-				ManagedStreamingKafkaParameters: &pipes.ManagedStreamingKafkaSourceParameters{
+				ManagedStreamingKafkaParameters: &pipes.MSKSourceParameters{
 					TopicName: "t",
 					BatchSize: 33,
 				},
@@ -2276,7 +2269,7 @@ func TestAudit_ListPipes_SourceTargetPrefix(t *testing.T) {
 			}
 
 			result := b.ListPipes(pipes.ListPipesFilter{TargetPrefix: tt.targetPrefix})
-			assert.Equal(t, tt.wantCount, len(result.Pipes))
+			assert.Len(t, result.Pipes, tt.wantCount)
 		})
 	}
 }

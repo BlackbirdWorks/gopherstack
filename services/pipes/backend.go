@@ -67,47 +67,47 @@ type SQSSourceParameters struct {
 
 // KinesisStreamSourceParameters holds Kinesis-specific source configuration.
 type KinesisStreamSourceParameters struct {
-	StartingPosition               string            `json:"StartingPosition,omitempty"`
 	StartingPositionTimestamp      *time.Time        `json:"StartingPositionTimestamp,omitempty"`
+	DeadLetterConfig               *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
+	StartingPosition               string            `json:"StartingPosition,omitempty"`
+	OnPartialBatchItemFailure      string            `json:"OnPartialBatchItemFailure,omitempty"`
 	BatchSize                      int               `json:"BatchSize,omitempty"`
 	MaximumBatchingWindowInSeconds int               `json:"MaximumBatchingWindowInSeconds,omitempty"`
 	MaximumRecordAgeInSeconds      int               `json:"MaximumRecordAgeInSeconds,omitempty"`
 	MaximumRetryAttempts           int               `json:"MaximumRetryAttempts,omitempty"`
-	OnPartialBatchItemFailure      string            `json:"OnPartialBatchItemFailure,omitempty"`
 	ParallelizationFactor          int               `json:"ParallelizationFactor,omitempty"`
-	DeadLetterConfig               *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
 }
 
 // DynamoDBStreamSourceParameters holds DynamoDB stream source configuration.
 type DynamoDBStreamSourceParameters struct {
+	DeadLetterConfig               *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
 	StartingPosition               string            `json:"StartingPosition,omitempty"`
+	OnPartialBatchItemFailure      string            `json:"OnPartialBatchItemFailure,omitempty"`
 	BatchSize                      int               `json:"BatchSize,omitempty"`
 	MaximumBatchingWindowInSeconds int               `json:"MaximumBatchingWindowInSeconds,omitempty"`
 	MaximumRecordAgeInSeconds      int               `json:"MaximumRecordAgeInSeconds,omitempty"`
 	MaximumRetryAttempts           int               `json:"MaximumRetryAttempts,omitempty"`
-	OnPartialBatchItemFailure      string            `json:"OnPartialBatchItemFailure,omitempty"`
 	ParallelizationFactor          int               `json:"ParallelizationFactor,omitempty"`
-	DeadLetterConfig               *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
 }
 
-// ManagedStreamingKafkaSourceParameters holds MSK source configuration.
-type ManagedStreamingKafkaSourceParameters struct {
+// MSKSourceParameters holds MSK source configuration.
+type MSKSourceParameters struct {
 	TopicName                      string `json:"TopicName,omitempty"`
 	StartingPosition               string `json:"StartingPosition,omitempty"`
+	ConsumerGroupID                string `json:"ConsumerGroupId,omitempty"`
 	BatchSize                      int    `json:"BatchSize,omitempty"`
 	MaximumBatchingWindowInSeconds int    `json:"MaximumBatchingWindowInSeconds,omitempty"`
-	ConsumerGroupID                string `json:"ConsumerGroupId,omitempty"`
 }
 
 // SelfManagedKafkaSourceParameters holds self-managed Kafka source configuration.
 type SelfManagedKafkaSourceParameters struct {
 	TopicName                      string   `json:"TopicName,omitempty"`
 	StartingPosition               string   `json:"StartingPosition,omitempty"`
+	ConsumerGroupID                string   `json:"ConsumerGroupId,omitempty"`
+	ServerRootCaCertificate        string   `json:"ServerRootCaCertificate,omitempty"`
+	AdditionalBootstrapServers     []string `json:"AdditionalBootstrapServers,omitempty"`
 	BatchSize                      int      `json:"BatchSize,omitempty"`
 	MaximumBatchingWindowInSeconds int      `json:"MaximumBatchingWindowInSeconds,omitempty"`
-	ConsumerGroupID                string   `json:"ConsumerGroupId,omitempty"`
-	AdditionalBootstrapServers     []string `json:"AdditionalBootstrapServers,omitempty"`
-	ServerRootCaCertificate        string   `json:"ServerRootCaCertificate,omitempty"`
 }
 
 // RabbitMQBrokerSourceParameters holds RabbitMQ broker source configuration.
@@ -127,14 +127,14 @@ type ActiveMQBrokerSourceParameters struct {
 
 // SourceParameters holds source-specific configuration.
 type SourceParameters struct {
-	FilterCriteria                  *FilterCriteria                        `json:"FilterCriteria,omitempty"`
-	SqsQueueParameters              *SQSSourceParameters                   `json:"SqsQueueParameters,omitempty"`
-	KinesisStreamParameters         *KinesisStreamSourceParameters         `json:"KinesisStreamParameters,omitempty"`
-	DynamoDBStreamParameters        *DynamoDBStreamSourceParameters        `json:"DynamoDBStreamParameters,omitempty"`
-	ManagedStreamingKafkaParameters *ManagedStreamingKafkaSourceParameters `json:"ManagedStreamingKafkaParameters,omitempty"`
-	SelfManagedKafkaParameters      *SelfManagedKafkaSourceParameters      `json:"SelfManagedKafkaParameters,omitempty"`
-	RabbitMQBrokerParameters        *RabbitMQBrokerSourceParameters        `json:"RabbitMQBrokerParameters,omitempty"`
-	ActiveMQBrokerParameters        *ActiveMQBrokerSourceParameters        `json:"ActiveMQBrokerParameters,omitempty"`
+	FilterCriteria                  *FilterCriteria                   `json:"FilterCriteria,omitempty"`
+	SqsQueueParameters              *SQSSourceParameters              `json:"SqsQueueParameters,omitempty"`
+	KinesisStreamParameters         *KinesisStreamSourceParameters    `json:"KinesisStreamParameters,omitempty"`
+	DynamoDBStreamParameters        *DynamoDBStreamSourceParameters   `json:"DynamoDBStreamParameters,omitempty"`
+	ManagedStreamingKafkaParameters *MSKSourceParameters              `json:"ManagedStreamingKafkaParameters,omitempty"`
+	SelfManagedKafkaParameters      *SelfManagedKafkaSourceParameters `json:"SelfManagedKafkaParameters,omitempty"`
+	RabbitMQBrokerParameters        *RabbitMQBrokerSourceParameters   `json:"RabbitMQBrokerParameters,omitempty"`
+	ActiveMQBrokerParameters        *ActiveMQBrokerSourceParameters   `json:"ActiveMQBrokerParameters,omitempty"`
 }
 
 // LambdaFunctionParameters holds Lambda-specific target configuration.
@@ -149,8 +149,8 @@ type StepFunctionTargetParameters struct {
 
 // SQSTargetParameters holds SQS-specific target configuration.
 type SQSTargetParameters struct {
-	MessageGroupId         string `json:"MessageGroupId,omitempty"`
-	MessageDeduplicationId string `json:"MessageDeduplicationId,omitempty"`
+	MessageGroupID         string `json:"MessageGroupId,omitempty"`
+	MessageDeduplicationID string `json:"MessageDeduplicationId,omitempty"`
 }
 
 // KinesisStreamTargetParameters holds Kinesis stream target configuration.
@@ -164,22 +164,22 @@ type CloudWatchLogsTargetParameters struct {
 	Timestamp     string `json:"Timestamp,omitempty"`
 }
 
-// EventBridgeEventBusTargetParameters holds EventBridge event bus target configuration.
-type EventBridgeEventBusTargetParameters struct {
+// EBEventBusTargetParameters holds EventBridge event bus target configuration.
+type EBEventBusTargetParameters struct {
 	DetailType string   `json:"DetailType,omitempty"`
-	EndpointId string   `json:"EndpointId,omitempty"`
-	Resources  []string `json:"Resources,omitempty"`
+	EndpointID string   `json:"EndpointId,omitempty"`
 	Source     string   `json:"Source,omitempty"`
 	Time       string   `json:"Time,omitempty"`
+	Resources  []string `json:"Resources,omitempty"`
 }
 
 // RedshiftDataTargetParameters holds Redshift Data API target configuration.
 type RedshiftDataTargetParameters struct {
 	Database         string   `json:"Database,omitempty"`
-	DbUser           string   `json:"DbUser,omitempty"`
+	DBUser           string   `json:"DbUser,omitempty"`
 	SecretManagerArn string   `json:"SecretManagerArn,omitempty"`
-	Sqls             []string `json:"Sqls,omitempty"`
 	StatementName    string   `json:"StatementName,omitempty"`
+	Sqls             []string `json:"Sqls,omitempty"`
 	WithEvent        bool     `json:"WithEvent,omitempty"`
 }
 
@@ -206,33 +206,33 @@ type BatchRetryStrategy struct {
 
 // BatchJobTargetParameters holds Batch job target configuration.
 type BatchJobTargetParameters struct {
-	JobDefinition   string                `json:"JobDefinition,omitempty"`
-	JobName         string                `json:"JobName,omitempty"`
 	ArrayProperties *BatchArrayProperties `json:"ArrayProperties,omitempty"`
 	RetryStrategy   *BatchRetryStrategy   `json:"RetryStrategy,omitempty"`
 	Parameters      map[string]string     `json:"Parameters,omitempty"`
+	JobDefinition   string                `json:"JobDefinition,omitempty"`
+	JobName         string                `json:"JobName,omitempty"`
 }
 
 // ECSTaskTargetParameters holds ECS task target configuration.
 type ECSTaskTargetParameters struct {
 	TaskDefinitionArn string `json:"TaskDefinitionArn,omitempty"`
-	TaskCount         int    `json:"TaskCount,omitempty"`
 	LaunchType        string `json:"LaunchType,omitempty"`
+	TaskCount         int    `json:"TaskCount,omitempty"`
 }
 
 // TargetParameters holds target-specific configuration.
 type TargetParameters struct {
-	LambdaFunctionParameters           *LambdaFunctionParameters            `json:"LambdaFunctionParameters,omitempty"`
-	StepFunctionStateMachineParameters *StepFunctionTargetParameters        `json:"StepFunctionStateMachineParameters,omitempty"`
-	SqsQueueParameters                 *SQSTargetParameters                 `json:"SqsQueueParameters,omitempty"`
-	KinesisStreamParameters            *KinesisStreamTargetParameters       `json:"KinesisStreamParameters,omitempty"`
-	CloudWatchLogsParameters           *CloudWatchLogsTargetParameters      `json:"CloudWatchLogsParameters,omitempty"`
-	EventBridgeEventBusParameters      *EventBridgeEventBusTargetParameters `json:"EventBridgeEventBusParameters,omitempty"`
-	RedshiftDataParameters             *RedshiftDataTargetParameters        `json:"RedshiftDataParameters,omitempty"`
-	SageMakerPipelineParameters        *SageMakerPipelineTargetParameters   `json:"SageMakerPipelineParameters,omitempty"`
-	BatchJobParameters                 *BatchJobTargetParameters            `json:"BatchJobParameters,omitempty"`
-	EcsTaskParameters                  *ECSTaskTargetParameters             `json:"EcsTaskParameters,omitempty"`
-	InputTemplate                      string                               `json:"InputTemplate,omitempty"`
+	LambdaFunctionParameters      *LambdaFunctionParameters          `json:"LambdaFunctionParameters,omitempty"`
+	SFNStateMachineParameters     *StepFunctionTargetParameters      `json:"StepFunctionStateMachineParameters,omitempty"`
+	SqsQueueParameters            *SQSTargetParameters               `json:"SqsQueueParameters,omitempty"`
+	KinesisStreamParameters       *KinesisStreamTargetParameters     `json:"KinesisStreamParameters,omitempty"`
+	CloudWatchLogsParameters      *CloudWatchLogsTargetParameters    `json:"CloudWatchLogsParameters,omitempty"`
+	EventBridgeEventBusParameters *EBEventBusTargetParameters        `json:"EventBridgeEventBusParameters,omitempty"`
+	RedshiftDataParameters        *RedshiftDataTargetParameters      `json:"RedshiftDataParameters,omitempty"`
+	SageMakerPipelineParameters   *SageMakerPipelineTargetParameters `json:"SageMakerPipelineParameters,omitempty"`
+	BatchJobParameters            *BatchJobTargetParameters          `json:"BatchJobParameters,omitempty"`
+	EcsTaskParameters             *ECSTaskTargetParameters           `json:"EcsTaskParameters,omitempty"`
+	InputTemplate                 string                             `json:"InputTemplate,omitempty"`
 }
 
 // DeadLetterConfig identifies the DLQ for failed pipe events.
@@ -243,14 +243,14 @@ type DeadLetterConfig struct {
 // EnrichmentHTTPParameters holds HTTP parameters for enrichment calls.
 type EnrichmentHTTPParameters struct {
 	HeaderParameters      map[string]string `json:"HeaderParameters,omitempty"`
-	PathParameterValues   []string          `json:"PathParameterValues,omitempty"`
 	QueryStringParameters map[string]string `json:"QueryStringParameters,omitempty"`
+	PathParameterValues   []string          `json:"PathParameterValues,omitempty"`
 }
 
 // EnrichmentParameters holds enrichment-specific configuration.
 type EnrichmentParameters struct {
+	HTTPParameters *EnrichmentHTTPParameters `json:"HttpParameters,omitempty"`
 	InputTemplate  string                    `json:"InputTemplate,omitempty"`
-	HttpParameters *EnrichmentHTTPParameters `json:"HttpParameters,omitempty"`
 }
 
 // CloudwatchLogsLogDestination is a CloudWatch Logs target.
@@ -374,7 +374,9 @@ func cloneSourceParameters(src *SourceParameters) *SourceParameters {
 	}
 	if src.SelfManagedKafkaParameters != nil {
 		v := *src.SelfManagedKafkaParameters
-		v.AdditionalBootstrapServers = append([]string(nil), src.SelfManagedKafkaParameters.AdditionalBootstrapServers...)
+		v.AdditionalBootstrapServers = append(
+			[]string(nil),
+			src.SelfManagedKafkaParameters.AdditionalBootstrapServers...)
 		sp.SelfManagedKafkaParameters = &v
 	}
 	if src.RabbitMQBrokerParameters != nil {
@@ -395,9 +397,9 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 		v := *src.LambdaFunctionParameters
 		tp.LambdaFunctionParameters = &v
 	}
-	if src.StepFunctionStateMachineParameters != nil {
-		v := *src.StepFunctionStateMachineParameters
-		tp.StepFunctionStateMachineParameters = &v
+	if src.SFNStateMachineParameters != nil {
+		v := *src.SFNStateMachineParameters
+		tp.SFNStateMachineParameters = &v
 	}
 	if src.SqsQueueParameters != nil {
 		v := *src.SqsQueueParameters
@@ -423,7 +425,9 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 	}
 	if src.SageMakerPipelineParameters != nil {
 		v := *src.SageMakerPipelineParameters
-		v.PipelineParameterList = append([]SageMakerPipelineParameter(nil), src.SageMakerPipelineParameters.PipelineParameterList...)
+		v.PipelineParameterList = append(
+			[]SageMakerPipelineParameter(nil),
+			src.SageMakerPipelineParameters.PipelineParameterList...)
 		tp.SageMakerPipelineParameters = &v
 	}
 	if src.BatchJobParameters != nil {
@@ -449,12 +453,12 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 
 func cloneEnrichmentParameters(src *EnrichmentParameters) *EnrichmentParameters {
 	ep := *src
-	if src.HttpParameters != nil {
-		hp := *src.HttpParameters
-		hp.HeaderParameters = maps.Clone(src.HttpParameters.HeaderParameters)
-		hp.PathParameterValues = append([]string(nil), src.HttpParameters.PathParameterValues...)
-		hp.QueryStringParameters = maps.Clone(src.HttpParameters.QueryStringParameters)
-		ep.HttpParameters = &hp
+	if src.HTTPParameters != nil {
+		hp := *src.HTTPParameters
+		hp.HeaderParameters = maps.Clone(src.HTTPParameters.HeaderParameters)
+		hp.PathParameterValues = append([]string(nil), src.HTTPParameters.PathParameterValues...)
+		hp.QueryStringParameters = maps.Clone(src.HTTPParameters.QueryStringParameters)
+		ep.HTTPParameters = &hp
 	}
 
 	return &ep
