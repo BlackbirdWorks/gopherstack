@@ -793,7 +793,7 @@ func TestBatch1_ConfigAssoc_CreateBroker_WithConfiguration(t *testing.T) {
 	current, ok := configurations["current"].(map[string]any)
 	require.True(t, ok, "configurations.current must be set")
 	assert.Equal(t, configID, current["id"])
-	assert.Equal(t, float64(1), current["revision"])
+	assert.InEpsilon(t, float64(1), current["revision"], 0.01)
 }
 
 func TestBatch1_ConfigAssoc_UpdateBroker_SetsCurrentConfig(t *testing.T) {
@@ -1240,8 +1240,8 @@ func TestBatch1_ConfigRevision_OldestRevisionData_Pruned(t *testing.T) {
 	}
 
 	_, _, err = b.DescribeConfigurationRevision(cfg.ID, 1)
-	assert.Error(t, err, "revision 1 must be pruned after 55 updates")
-	assert.ErrorIs(t, err, mq.ErrNotFound)
+	require.Error(t, err, "revision 1 must be pruned after 55 updates")
+	require.ErrorIs(t, err, mq.ErrNotFound)
 }
 
 // ── ActionsRequired ───────────────────────────────────────────────────────────

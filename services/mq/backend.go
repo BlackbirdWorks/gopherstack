@@ -697,7 +697,10 @@ func (b *InMemoryBackend) UpdateBroker(
 	autoMinorVersionUpgrade *bool,
 	securityGroups []string,
 ) (*Broker, error) {
-	return b.UpdateBrokerWithOptions(brokerID, engineVersion, hostInstanceType, autoMinorVersionUpgrade, securityGroups, nil)
+	return b.UpdateBrokerWithOptions(
+		brokerID, engineVersion, hostInstanceType,
+		autoMinorVersionUpgrade, securityGroups, nil,
+	)
 }
 
 // UpdateBrokerWithOptions updates mutable broker fields including optional extended fields.
@@ -715,6 +718,19 @@ func (b *InMemoryBackend) UpdateBrokerWithOptions(
 		return nil, fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
 	}
 
+	applyBrokerCoreFields(br, engineVersion, hostInstanceType, autoMinorVersionUpgrade, securityGroups)
+	applyUpdateBrokerOptions(br, opts)
+
+	return b.copyBroker(br), nil
+}
+
+// applyBrokerCoreFields applies the non-optional update fields to a broker.
+func applyBrokerCoreFields(
+	br *Broker,
+	engineVersion, hostInstanceType string,
+	autoMinorVersionUpgrade *bool,
+	securityGroups []string,
+) {
 	if engineVersion != "" {
 		br.EngineVersion = engineVersion
 	}
@@ -730,44 +746,47 @@ func (b *InMemoryBackend) UpdateBrokerWithOptions(
 	if securityGroups != nil {
 		br.SecurityGroups = securityGroups
 	}
+}
 
-	if opts != nil {
-		if opts.AuthenticationStrategy != "" {
-			br.AuthenticationStrategy = opts.AuthenticationStrategy
-		}
+// applyUpdateBrokerOptions applies optional update fields to a broker.
+func applyUpdateBrokerOptions(br *Broker, opts *UpdateBrokerOptions) {
+	if opts == nil {
+		return
+	}
 
-		if opts.Logs != nil {
-			br.Logs = opts.Logs
-			br.LogsSummary = &LogsSummary{
-				General:         opts.Logs.General,
-				Audit:           opts.Logs.Audit,
-				GeneralLogGroup: logGroupName(br.BrokerID, "general"),
-				AuditLogGroup:   logGroupName(br.BrokerID, "audit"),
-			}
-		}
+	if opts.AuthenticationStrategy != "" {
+		br.AuthenticationStrategy = opts.AuthenticationStrategy
+	}
 
-		if opts.LdapServerMetadata != nil {
-			br.LdapServerMetadata = opts.LdapServerMetadata
-		}
-
-		if opts.MaintenanceWindowStartTime != nil {
-			br.MaintenanceWindowStartTime = opts.MaintenanceWindowStartTime
-		}
-
-		if opts.Configuration != nil {
-			if br.Configurations == nil {
-				br.Configurations = &Configurations{}
-			}
-
-			br.Configurations.Current = opts.Configuration
-		}
-
-		if opts.DataReplicationMode != "" {
-			br.DataReplicationMode = opts.DataReplicationMode
+	if opts.Logs != nil {
+		br.Logs = opts.Logs
+		br.LogsSummary = &LogsSummary{
+			General:         opts.Logs.General,
+			Audit:           opts.Logs.Audit,
+			GeneralLogGroup: logGroupName(br.BrokerID, "general"),
+			AuditLogGroup:   logGroupName(br.BrokerID, "audit"),
 		}
 	}
 
-	return b.copyBroker(br), nil
+	if opts.LdapServerMetadata != nil {
+		br.LdapServerMetadata = opts.LdapServerMetadata
+	}
+
+	if opts.MaintenanceWindowStartTime != nil {
+		br.MaintenanceWindowStartTime = opts.MaintenanceWindowStartTime
+	}
+
+	if opts.Configuration != nil {
+		if br.Configurations == nil {
+			br.Configurations = &Configurations{}
+		}
+
+		br.Configurations.Current = opts.Configuration
+	}
+
+	if opts.DataReplicationMode != "" {
+		br.DataReplicationMode = opts.DataReplicationMode
+	}
 }
 
 // lookupBroker finds a broker by ID or by name; caller must hold a lock.
