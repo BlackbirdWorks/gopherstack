@@ -43,48 +43,48 @@ func TestAudit_PutTraceSegments_ParsesSegmentFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		seg       string
+		name       string
+		seg        string
 		wantParsed bool
 	}{
 		{
-			name:      "minimal segment with trace_id and id",
-			seg:       `{"trace_id":"1-audit-001","id":"seg1","name":"svc","start_time":1700000000.0}`,
+			name:       "minimal segment with trace_id and id",
+			seg:        `{"trace_id":"1-audit-001","id":"seg1","name":"svc","start_time":1700000000.0}`,
 			wantParsed: true,
 		},
 		{
-			name:      "segment with fault flag",
-			seg:       `{"trace_id":"1-audit-002","id":"seg2","name":"svc","start_time":1700000001.0,"fault":true}`,
+			name:       "segment with fault flag",
+			seg:        `{"trace_id":"1-audit-002","id":"seg2","name":"svc","start_time":1700000001.0,"fault":true}`,
 			wantParsed: true,
 		},
 		{
-			name:      "segment with error and throttle flags",
-			seg:       `{"trace_id":"1-audit-003","id":"seg3","name":"svc","start_time":1700000002.0,"error":true,"throttle":true}`,
+			name:       "segment with error and throttle flags",
+			seg:        `{"trace_id":"1-audit-003","id":"seg3","name":"svc","start_time":1700000002.0,"error":true,"throttle":true}`,
 			wantParsed: true,
 		},
 		{
-			name:      "segment with http request and response",
-			seg:       `{"trace_id":"1-audit-004","id":"seg4","name":"svc","start_time":1700000003.0,"http":{"request":{"method":"GET","url":"https://example.com/api"},"response":{"status":200}}}`,
+			name:       "segment with http request and response",
+			seg:        `{"trace_id":"1-audit-004","id":"seg4","name":"svc","start_time":1700000003.0,"http":{"request":{"method":"GET","url":"https://example.com/api"},"response":{"status":200}}}`,
 			wantParsed: true,
 		},
 		{
-			name:      "segment with annotations",
-			seg:       `{"trace_id":"1-audit-005","id":"seg5","name":"svc","start_time":1700000004.0,"annotations":{"user":"alice","tier":"free"}}`,
+			name:       "segment with annotations",
+			seg:        `{"trace_id":"1-audit-005","id":"seg5","name":"svc","start_time":1700000004.0,"annotations":{"user":"alice","tier":"free"}}`,
 			wantParsed: true,
 		},
 		{
-			name:      "segment with parent_id (subsegment)",
-			seg:       `{"trace_id":"1-audit-006","id":"seg6","parent_id":"root1","name":"child","start_time":1700000005.0}`,
+			name:       "segment with parent_id (subsegment)",
+			seg:        `{"trace_id":"1-audit-006","id":"seg6","parent_id":"root1","name":"child","start_time":1700000005.0}`,
 			wantParsed: true,
 		},
 		{
-			name:      "malformed JSON rejected",
-			seg:       `{not valid json`,
+			name:       "malformed JSON rejected",
+			seg:        `{not valid json`,
 			wantParsed: false,
 		},
 		{
-			name:      "missing trace_id rejected",
-			seg:       `{"id":"seg8","name":"svc","start_time":1700000007.0}`,
+			name:       "missing trace_id rejected",
+			seg:        `{"id":"seg8","name":"svc","start_time":1700000007.0}`,
 			wantParsed: false,
 		},
 	}
@@ -119,8 +119,16 @@ func TestAudit_PutTraceSegments_IndexesSegmentsForDownstreamAPIs(t *testing.T) {
 	now := float64(time.Now().Unix())
 
 	segs := []string{
-		fmt.Sprintf(`{"trace_id":"1-idx-001","id":"root","name":"frontend","start_time":%f,"end_time":%f}`, now-3, now-2),
-		fmt.Sprintf(`{"trace_id":"1-idx-001","id":"child","parent_id":"root","name":"backend","start_time":%f,"end_time":%f}`, now-2, now-1),
+		fmt.Sprintf(
+			`{"trace_id":"1-idx-001","id":"root","name":"frontend","start_time":%f,"end_time":%f}`,
+			now-3,
+			now-2,
+		),
+		fmt.Sprintf(
+			`{"trace_id":"1-idx-001","id":"child","parent_id":"root","name":"backend","start_time":%f,"end_time":%f}`,
+			now-2,
+			now-1,
+		),
 	}
 
 	putRec := doXrayRequest(t, h, "/TraceSegments", map[string]any{"TraceSegmentDocuments": segs})
@@ -242,7 +250,12 @@ func TestAudit_GetTraceSummaries_BooleanFlagFields(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			putRec := doXrayRequest(t, h, "/TraceSegments", map[string]any{"TraceSegmentDocuments": []string{tt.segJSON}})
+			putRec := doXrayRequest(
+				t,
+				h,
+				"/TraceSegments",
+				map[string]any{"TraceSegmentDocuments": []string{tt.segJSON}},
+			)
 			require.Equal(t, http.StatusOK, putRec.Code)
 
 			sumRec := doXrayRequest(t, h, "/TraceSummaries", map[string]any{})
@@ -303,7 +316,12 @@ func TestAudit_GetTraceSummaries_HTTPFieldsPopulated(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			putRec := doXrayRequest(t, h, "/TraceSegments", map[string]any{"TraceSegmentDocuments": []string{tt.segJSON}})
+			putRec := doXrayRequest(
+				t,
+				h,
+				"/TraceSegments",
+				map[string]any{"TraceSegmentDocuments": []string{tt.segJSON}},
+			)
 			require.Equal(t, http.StatusOK, putRec.Code)
 
 			sumRec := doXrayRequest(t, h, "/TraceSummaries", map[string]any{})
@@ -332,8 +350,14 @@ func TestAudit_GetTraceSummaries_ServiceIDsFromSegments(t *testing.T) {
 	now := float64(time.Now().Unix())
 
 	segs := []string{
-		fmt.Sprintf(`{"trace_id":"1-svcid-001","id":"r1","name":"frontend","origin":"AWS::EC2","start_time":%f}`, now-3),
-		fmt.Sprintf(`{"trace_id":"1-svcid-001","id":"c1","parent_id":"r1","name":"backend","origin":"AWS::Lambda","start_time":%f}`, now-2),
+		fmt.Sprintf(
+			`{"trace_id":"1-svcid-001","id":"r1","name":"frontend","origin":"AWS::EC2","start_time":%f}`,
+			now-3,
+		),
+		fmt.Sprintf(
+			`{"trace_id":"1-svcid-001","id":"c1","parent_id":"r1","name":"backend","origin":"AWS::Lambda","start_time":%f}`,
+			now-2,
+		),
 	}
 
 	putRec := doXrayRequest(t, h, "/TraceSegments", map[string]any{"TraceSegmentDocuments": segs})
@@ -362,7 +386,10 @@ func TestAudit_GetTraceSummaries_EntryPointFromRootSegment(t *testing.T) {
 
 	segs := []string{
 		fmt.Sprintf(`{"trace_id":"1-entry-001","id":"root","name":"my-service","start_time":%f}`, now-1),
-		fmt.Sprintf(`{"trace_id":"1-entry-001","id":"child","parent_id":"root","name":"downstream","start_time":%f}`, now-0.5),
+		fmt.Sprintf(
+			`{"trace_id":"1-entry-001","id":"child","parent_id":"root","name":"downstream","start_time":%f}`,
+			now-0.5,
+		),
 	}
 
 	putRec := doXrayRequest(t, h, "/TraceSegments", map[string]any{"TraceSegmentDocuments": segs})
@@ -388,7 +415,10 @@ func TestAudit_GetTraceSummaries_IsPartialWithoutRootSegment(t *testing.T) {
 	now := float64(time.Now().Unix())
 
 	// Only a child segment (has parent_id), so trace is partial.
-	seg := fmt.Sprintf(`{"trace_id":"1-partial-001","id":"child","parent_id":"missing-root","name":"svc","start_time":%f}`, now-1)
+	seg := fmt.Sprintf(
+		`{"trace_id":"1-partial-001","id":"child","parent_id":"missing-root","name":"svc","start_time":%f}`,
+		now-1,
+	)
 	putRec := doXrayRequest(t, h, "/TraceSegments", map[string]any{"TraceSegmentDocuments": []string{seg}})
 	require.Equal(t, http.StatusOK, putRec.Code)
 
@@ -472,9 +502,15 @@ func TestAudit_GetTraceSummaries_FilterExpressions(t *testing.T) {
 	segs := []string{
 		fmt.Sprintf(`{"trace_id":"1-flt-fault","id":"s1","name":"svc","start_time":%f,"fault":true}`, now-5),
 		fmt.Sprintf(`{"trace_id":"1-flt-err","id":"s2","name":"svc","start_time":%f,"error":true}`, now-4),
-		fmt.Sprintf(`{"trace_id":"1-flt-throttle","id":"s3","name":"svc","start_time":%f,"error":true,"throttle":true}`, now-3),
+		fmt.Sprintf(
+			`{"trace_id":"1-flt-throttle","id":"s3","name":"svc","start_time":%f,"error":true,"throttle":true}`,
+			now-3,
+		),
 		fmt.Sprintf(`{"trace_id":"1-flt-ok","id":"s4","name":"svc","start_time":%f}`, now-2),
-		fmt.Sprintf(`{"trace_id":"1-flt-http","id":"s5","name":"svc","start_time":%f,"http":{"request":{"method":"GET","url":"https://x.com"},"response":{"status":500}}}`, now-1),
+		fmt.Sprintf(
+			`{"trace_id":"1-flt-http","id":"s5","name":"svc","start_time":%f,"http":{"request":{"method":"GET","url":"https://x.com"},"response":{"status":500}}}`,
+			now-1,
+		),
 	}
 
 	tests := []struct {
@@ -560,8 +596,14 @@ func TestAudit_GetTraceSummaries_AnnotationFilter(t *testing.T) {
 	now := float64(time.Now().Unix())
 
 	segs := []string{
-		fmt.Sprintf(`{"trace_id":"1-ann-001","id":"s1","name":"svc","start_time":%f,"annotations":{"env":"prod"}}`, now-2),
-		fmt.Sprintf(`{"trace_id":"1-ann-002","id":"s2","name":"svc","start_time":%f,"annotations":{"env":"staging"}}`, now-1),
+		fmt.Sprintf(
+			`{"trace_id":"1-ann-001","id":"s1","name":"svc","start_time":%f,"annotations":{"env":"prod"}}`,
+			now-2,
+		),
+		fmt.Sprintf(
+			`{"trace_id":"1-ann-002","id":"s2","name":"svc","start_time":%f,"annotations":{"env":"staging"}}`,
+			now-1,
+		),
 	}
 
 	putRec := doXrayRequest(t, h, "/TraceSegments", map[string]any{"TraceSegmentDocuments": segs})
@@ -711,7 +753,11 @@ func TestAudit_GetServiceGraph_NodesAfterSegments(t *testing.T) {
 
 	segs := []string{
 		fmt.Sprintf(`{"trace_id":"1-sg-001","id":"r1","name":"web","start_time":%f,"end_time":%f}`, now-5, now-4),
-		fmt.Sprintf(`{"trace_id":"1-sg-001","id":"c1","parent_id":"r1","name":"api","start_time":%f,"end_time":%f}`, now-4, now-3),
+		fmt.Sprintf(
+			`{"trace_id":"1-sg-001","id":"c1","parent_id":"r1","name":"api","start_time":%f,"end_time":%f}`,
+			now-4,
+			now-3,
+		),
 	}
 
 	putRec := doXrayRequest(t, h, "/TraceSegments", map[string]any{"TraceSegmentDocuments": segs})
@@ -734,7 +780,11 @@ func TestAudit_GetServiceGraph_NodeFields(t *testing.T) {
 	h := newTestHandler(t)
 	now := float64(time.Now().Unix())
 
-	seg := fmt.Sprintf(`{"trace_id":"1-sgf-001","id":"r1","name":"frontend","origin":"AWS::ECS","start_time":%f,"end_time":%f}`, now-2, now-1)
+	seg := fmt.Sprintf(
+		`{"trace_id":"1-sgf-001","id":"r1","name":"frontend","origin":"AWS::ECS","start_time":%f,"end_time":%f}`,
+		now-2,
+		now-1,
+	)
 	putRec := doXrayRequest(t, h, "/TraceSegments", map[string]any{"TraceSegmentDocuments": []string{seg}})
 	require.Equal(t, http.StatusOK, putRec.Code)
 
@@ -876,7 +926,11 @@ func TestAudit_GetTimeSeriesServiceStatistics_BucketedStatsAfterSegments(t *test
 
 	segs := []string{
 		fmt.Sprintf(`{"trace_id":"1-ts-001","id":"s1","name":"svc","start_time":%f,"end_time":%f}`, now-30, now-29),
-		fmt.Sprintf(`{"trace_id":"1-ts-002","id":"s2","name":"svc","start_time":%f,"end_time":%f,"fault":true}`, now-10, now-9),
+		fmt.Sprintf(
+			`{"trace_id":"1-ts-002","id":"s2","name":"svc","start_time":%f,"end_time":%f,"fault":true}`,
+			now-10,
+			now-9,
+		),
 	}
 
 	putRec := doXrayRequest(t, h, "/TraceSegments", map[string]any{"TraceSegmentDocuments": segs})
@@ -976,9 +1030,9 @@ func TestAudit_GetInsight_FieldsReturned(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		insight    xray.Insight
-		name       string
-		wantState  string
+		insight     xray.Insight
+		name        string
+		wantState   string
 		wantSummary string
 	}{
 		{
@@ -1054,7 +1108,9 @@ func TestAudit_GetInsightEvents_ReturnsEventsForInsight(t *testing.T) {
 	h, b := newTestHandlerWithBackend(t)
 	b.AddInsightInternal(xray.Insight{InsightID: "i-evt-001", State: "ACTIVE", StartTime: time.Now()})
 	b.AddInsightEventInternal(xray.InsightEvent{InsightID: "i-evt-001", Summary: "Spike began", EventTime: time.Now()})
-	b.AddInsightEventInternal(xray.InsightEvent{InsightID: "i-evt-001", Summary: "Spike worsened", EventTime: time.Now()})
+	b.AddInsightEventInternal(
+		xray.InsightEvent{InsightID: "i-evt-001", Summary: "Spike worsened", EventTime: time.Now()},
+	)
 
 	rec := doXrayRequest(t, h, "/GetInsightEvents", map[string]any{"InsightId": "i-evt-001"})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1141,7 +1197,11 @@ func TestAudit_GetInsightSummaries_StatesValidation(t *testing.T) {
 		{name: "CLOSED only", states: []any{"CLOSED"}, wantStatus: http.StatusOK, wantCount: 1},
 		{name: "ACTIVE and CLOSED", states: []any{"ACTIVE", "CLOSED"}, wantStatus: http.StatusOK, wantCount: 2},
 		{name: "unknown state rejected", states: []any{"BOGUS"}, wantStatus: http.StatusBadRequest, wantCount: 0},
-		{name: "mixed valid and invalid rejected", states: []any{"ACTIVE", "INVALID"}, wantStatus: http.StatusBadRequest},
+		{
+			name:       "mixed valid and invalid rejected",
+			states:     []any{"ACTIVE", "INVALID"},
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1368,9 +1428,9 @@ func TestAudit_UpdateSamplingRule_ZeroValues(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		update       map[string]any
-		wantFixRate  float64
+		name          string
+		update        map[string]any
+		wantFixRate   float64
 		wantReservoir float64
 	}{
 		{
@@ -1392,7 +1452,9 @@ func TestAudit_UpdateSamplingRule_ZeroValues(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandlerWithBackend(t)
-			b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "zero-test", FixedRate: 0.5, ReservoirSize: 10, Priority: 100})
+			b.AddSamplingRuleInternal(
+				xray.SamplingRule{RuleName: "zero-test", FixedRate: 0.5, ReservoirSize: 10, Priority: 100},
+			)
 
 			rec := doXrayRequest(t, h, "/UpdateSamplingRule", map[string]any{"SamplingRuleUpdate": tt.update})
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -1473,10 +1535,10 @@ func TestAudit_GetSamplingTargets_UnprocessedForUnknownRules(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		docs             []map[string]any
-		wantTargets      int
-		wantUnprocessed  int
+		name            string
+		docs            []map[string]any
+		wantTargets     int
+		wantUnprocessed int
 	}{
 		{
 			name: "known rule returns target",
@@ -1515,7 +1577,9 @@ func TestAudit_GetSamplingTargets_UnprocessedForUnknownRules(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandlerWithBackend(t)
-			b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "known-rule", FixedRate: 0.05, ReservoirSize: 5, Priority: 1})
+			b.AddSamplingRuleInternal(
+				xray.SamplingRule{RuleName: "known-rule", FixedRate: 0.05, ReservoirSize: 5, Priority: 1},
+			)
 
 			rec := doXrayRequest(t, h, "/GetSamplingTargets", map[string]any{
 				"SamplingStatisticsDocuments": tt.docs,
@@ -1938,28 +2002,28 @@ func TestAudit_Groups_NotificationsEnabledRequiresInsightsEnabled(t *testing.T) 
 	t.Parallel()
 
 	tests := []struct {
-		name               string
-		insightsEnabled    bool
+		name                 string
+		insightsEnabled      bool
 		notificationsEnabled bool
-		wantStatus         int
+		wantStatus           int
 	}{
 		{
-			name:               "insights enabled, notifications enabled allowed",
-			insightsEnabled:    true,
+			name:                 "insights enabled, notifications enabled allowed",
+			insightsEnabled:      true,
 			notificationsEnabled: true,
-			wantStatus:         http.StatusOK,
+			wantStatus:           http.StatusOK,
 		},
 		{
-			name:               "insights disabled, notifications disabled allowed",
-			insightsEnabled:    false,
+			name:                 "insights disabled, notifications disabled allowed",
+			insightsEnabled:      false,
 			notificationsEnabled: false,
-			wantStatus:         http.StatusOK,
+			wantStatus:           http.StatusOK,
 		},
 		{
-			name:               "insights disabled, notifications enabled rejected",
-			insightsEnabled:    false,
+			name:                 "insights disabled, notifications enabled rejected",
+			insightsEnabled:      false,
 			notificationsEnabled: true,
-			wantStatus:         http.StatusBadRequest,
+			wantStatus:           http.StatusBadRequest,
 		},
 	}
 
