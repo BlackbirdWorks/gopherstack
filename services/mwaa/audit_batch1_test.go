@@ -1087,6 +1087,7 @@ func TestAudit_EndpointManagement_ValidationAndPersistence(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -1506,6 +1507,7 @@ func TestAudit_PublishMetrics_DatumFields(t *testing.T) {
 			name: "metric_with_value_and_unit",
 			datums: func() []mwaa.ExportedMetricDatum {
 				v := 42.5
+
 				return []mwaa.ExportedMetricDatum{{MetricName: "WorkerCount", Value: &v, Unit: "Count"}}
 			}(),
 		},
@@ -1514,6 +1516,7 @@ func TestAudit_PublishMetrics_DatumFields(t *testing.T) {
 			datums: func() []mwaa.ExportedMetricDatum {
 				max, min, sum := 10.0, 1.0, 55.0
 				sampleCount := int32(10)
+
 				return []mwaa.ExportedMetricDatum{{
 					MetricName: "TaskDuration",
 					StatisticValues: &mwaa.StatisticSet{

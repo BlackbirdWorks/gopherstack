@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -83,8 +82,8 @@ func validEnvironmentClasses() map[string]struct{} {
 	}
 }
 
-// validLogLevels returns the set of valid Airflow log level values, initialised once.
-var validLogLevels = sync.OnceValue(func() map[string]struct{} {
+// validLogLevels returns the set of valid Airflow log level values.
+func validLogLevels() map[string]struct{} {
 	return map[string]struct{}{
 		"CRITICAL": {},
 		"ERROR":    {},
@@ -92,7 +91,7 @@ var validLogLevels = sync.OnceValue(func() map[string]struct{} {
 		"INFO":     {},
 		"DEBUG":    {},
 	}
-})
+}
 
 // validAirflowVersions returns the set of supported Airflow versions.
 func validAirflowVersions() map[string]struct{} {
