@@ -27,6 +27,11 @@ type backendSnapshot struct {
 }
 
 func (s *backendSnapshot) ensureNonNilMaps() {
+	s.ensureCoreMaps()
+	s.ensureExtendedMaps()
+}
+
+func (s *backendSnapshot) ensureCoreMaps() {
 	if s.Clusters == nil {
 		s.Clusters = make(map[string]*Cluster)
 	}
@@ -51,6 +56,9 @@ func (s *backendSnapshot) ensureNonNilMaps() {
 	if s.ActiveResizes == nil {
 		s.ActiveResizes = make(map[string]*ResizeProgress)
 	}
+}
+
+func (s *backendSnapshot) ensureExtendedMaps() {
 	if s.ParameterGroups == nil {
 		s.ParameterGroups = make(map[string]*ClusterParameterGroup)
 	}

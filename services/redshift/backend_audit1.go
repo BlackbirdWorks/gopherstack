@@ -25,9 +25,11 @@ func (b *InMemoryBackend) CreateHsmClientCertificate(
 		return nil, fmt.Errorf("%w: certificate %s already exists", ErrHsmClientCertAlreadyExists, id)
 	}
 
+	pubKey := "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA" + id +
+		"\n-----END PUBLIC KEY-----"
 	cert := &HsmClientCertificate{
 		HsmClientCertificateIdentifier: id,
-		HsmClientCertificatePublicKey:  "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA" + id + "\n-----END PUBLIC KEY-----",
+		HsmClientCertificatePublicKey:  pubKey,
 		Tags:                           tagMap,
 	}
 	b.hsmClientCerts[id] = cert
@@ -84,7 +86,7 @@ func (b *InMemoryBackend) DescribeHsmClientCertificates(id string) ([]HsmClientC
 
 // CreateHsmConfiguration creates a new HSM configuration.
 func (b *InMemoryBackend) CreateHsmConfiguration(
-	id, description, hsmIpAddress, hsmPartitionName string,
+	id, description, hsmIPAddress, hsmPartitionName string,
 	tagMap map[string]string,
 ) (*HsmConfiguration, error) {
 	if id == "" {
@@ -101,7 +103,7 @@ func (b *InMemoryBackend) CreateHsmConfiguration(
 	cfg := &HsmConfiguration{
 		HsmConfigurationIdentifier: id,
 		Description:                description,
-		HsmIpAddress:               hsmIpAddress,
+		HsmIPAddress:               hsmIPAddress,
 		HsmPartitionName:           hsmPartitionName,
 		Tags:                       tagMap,
 	}
@@ -265,7 +267,7 @@ func (b *InMemoryBackend) ModifyScheduledAction(
 
 // CreateTableRestoreStatus creates a table restore status entry.
 func (b *InMemoryBackend) CreateTableRestoreStatus(
-	clusterID, snapshotID, sourceDatabaseName, sourceTableName, targetDatabaseName, targetTableName string,
+	clusterID, _ /*snapshotID*/, sourceDatabaseName, sourceTableName, targetDatabaseName, targetTableName string,
 ) (*TableRestoreStatus, error) {
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)

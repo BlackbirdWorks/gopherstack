@@ -44,14 +44,14 @@ var (
 	ErrAuthProfileNotFound            = errors.New("AuthenticationProfileNotFound")
 	ErrAuthProfileAlreadyExists       = errors.New("AuthenticationProfileAlreadyExists")
 	ErrResourcePolicyNotFound         = errors.New("ResourcePolicyNotFound")
-	ErrSnapshotCopyAlreadyEnabled      = errors.New("SnapshotCopyAlreadyEnabled")
-	ErrSnapshotCopyNotEnabled          = errors.New("CopyToRegionDisabled")
-	ErrHsmClientCertNotFound           = errors.New("HsmClientCertificateNotFound")
-	ErrHsmClientCertAlreadyExists      = errors.New("HsmClientCertificateAlreadyExists")
-	ErrHsmConfigNotFound               = errors.New("HsmConfigurationNotFound")
-	ErrHsmConfigAlreadyExists          = errors.New("HsmConfigurationAlreadyExists")
-	ErrScheduledActionNotFound         = errors.New("ScheduledActionNotFound")
-	ErrScheduledActionAlreadyExists    = errors.New("ScheduledActionAlreadyExists")
+	ErrSnapshotCopyAlreadyEnabled     = errors.New("SnapshotCopyAlreadyEnabled")
+	ErrSnapshotCopyNotEnabled         = errors.New("CopyToRegionDisabled")
+	ErrHsmClientCertNotFound          = errors.New("HsmClientCertificateNotFound")
+	ErrHsmClientCertAlreadyExists     = errors.New("HsmClientCertificateAlreadyExists")
+	ErrHsmConfigNotFound              = errors.New("HsmConfigurationNotFound")
+	ErrHsmConfigAlreadyExists         = errors.New("HsmConfigurationAlreadyExists")
+	ErrScheduledActionNotFound        = errors.New("ScheduledActionNotFound")
+	ErrScheduledActionAlreadyExists   = errors.New("ScheduledActionAlreadyExists")
 )
 
 // Named status constants for cluster and resource states.
@@ -257,7 +257,7 @@ type HsmConfiguration struct {
 	Tags                       map[string]string `json:"tags"`
 	HsmConfigurationIdentifier string            `json:"hsmConfigurationIdentifier"`
 	Description                string            `json:"description"`
-	HsmIpAddress               string            `json:"hsmIpAddress"`
+	HsmIPAddress               string            `json:"hsmIpAddress"`
 	HsmPartitionName           string            `json:"hsmPartitionName"`
 }
 

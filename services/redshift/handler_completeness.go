@@ -307,7 +307,7 @@ func (h *Handler) handleCreateHsmConfiguration(vals url.Values) (any, error) {
 		Result: hsmConfigurationXML{
 			HsmConfigurationIdentifier: cfg.HsmConfigurationIdentifier,
 			Description:                cfg.Description,
-			HsmIPAddress:               cfg.HsmIpAddress,
+			HsmIPAddress:               cfg.HsmIPAddress,
 			HsmPartitionName:           cfg.HsmPartitionName,
 		},
 	}, nil
@@ -348,7 +348,7 @@ func (h *Handler) handleDescribeHsmConfigurations(vals url.Values) (any, error) 
 		members = append(members, hsmConfigurationXML{
 			HsmConfigurationIdentifier: c.HsmConfigurationIdentifier,
 			Description:                c.Description,
-			HsmIPAddress:               c.HsmIpAddress,
+			HsmIPAddress:               c.HsmIPAddress,
 			HsmPartitionName:           c.HsmPartitionName,
 		})
 	}
