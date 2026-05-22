@@ -22,7 +22,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			setup: func(b *route53resolver.InMemoryBackend) string {
 				ep, err := b.CreateResolverEndpoint("test-ep", "INBOUND", "vpc-12345", []route53resolver.IPAddress{
 					{SubnetID: "subnet-1", IP: "10.0.0.1"},
-				}, []string{"sg-12345"}, "IPV4")
+				}, []string{"sg-12345"}, "IPV4", nil, "", "", "")
 				if err != nil {
 					return ""
 				}

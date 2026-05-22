@@ -20,10 +20,17 @@ import (
 func newTestHandler(t *testing.T) *route53resolver.Handler {
 	t.Helper()
 
-	return route53resolver.NewHandler(route53resolver.NewInMemoryBackend("000000000000", "us-east-1"))
+	return route53resolver.NewHandler(
+		route53resolver.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 }
 
-func doRequest(t *testing.T, h *route53resolver.Handler, action string, body any) *httptest.ResponseRecorder {
+func doRequest(
+	t *testing.T,
+	h *route53resolver.Handler,
+	action string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyBytes []byte
@@ -50,7 +57,11 @@ func doRequest(t *testing.T, h *route53resolver.Handler, action string, body any
 }
 
 // doInvalidJSONRequest sends a request with invalid JSON body to test parse errors.
-func doInvalidJSONRequest(t *testing.T, h *route53resolver.Handler, action string) *httptest.ResponseRecorder {
+func doInvalidJSONRequest(
+	t *testing.T,
+	h *route53resolver.Handler,
+	action string,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	e := echo.New()
@@ -246,7 +257,12 @@ func TestListResolverEndpoints(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, "CreateResolverEndpoint", map[string]any{"Name": "ep1", "Direction": "INBOUND"})
-	doRequest(t, h, "CreateResolverEndpoint", map[string]any{"Name": "ep2", "Direction": "OUTBOUND"})
+	doRequest(
+		t,
+		h,
+		"CreateResolverEndpoint",
+		map[string]any{"Name": "ep2", "Direction": "OUTBOUND"},
+	)
 
 	rec := doRequest(t, h, "ListResolverEndpoints", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -289,6 +305,7 @@ func TestCreateResolverRule(t *testing.T) {
 		"Name":       "my-rule",
 		"DomainName": "example.com",
 		"RuleType":   "FORWARD",
+		"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -307,8 +324,23 @@ func TestListResolverRules(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateResolverRule", map[string]any{"Name": "r1", "DomainName": "a.com", "RuleType": "FORWARD"})
-	doRequest(t, h, "CreateResolverRule", map[string]any{"Name": "r2", "DomainName": "b.com", "RuleType": "SYSTEM"})
+	doRequest(
+		t,
+		h,
+		"CreateResolverRule",
+		map[string]any{
+			"Name":       "r1",
+			"DomainName": "a.com",
+			"RuleType":   "FORWARD",
+			"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
+		},
+	)
+	doRequest(
+		t,
+		h,
+		"CreateResolverRule",
+		map[string]any{"Name": "r2", "DomainName": "b.com", "RuleType": "SYSTEM"},
+	)
 
 	rec := doRequest(t, h, "ListResolverRules", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -328,6 +360,7 @@ func TestDeleteResolverRule(t *testing.T) {
 		"Name":       "rule-to-delete",
 		"DomainName": "test.com",
 		"RuleType":   "FORWARD",
+		"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
 	})
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
@@ -348,6 +381,7 @@ func TestGetResolverRule(t *testing.T) {
 		"Name":       "get-rule",
 		"DomainName": "get.example.com",
 		"RuleType":   "FORWARD",
+		"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
 	})
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
@@ -427,9 +461,21 @@ func TestHandlerInvalidJSON(t *testing.T) {
 		action   string
 		wantCode int
 	}{
-		{name: "CreateResolverEndpoint", action: "CreateResolverEndpoint", wantCode: http.StatusBadRequest},
-		{name: "DeleteResolverEndpoint", action: "DeleteResolverEndpoint", wantCode: http.StatusBadRequest},
-		{name: "GetResolverEndpoint", action: "GetResolverEndpoint", wantCode: http.StatusBadRequest},
+		{
+			name:     "CreateResolverEndpoint",
+			action:   "CreateResolverEndpoint",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DeleteResolverEndpoint",
+			action:   "DeleteResolverEndpoint",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "GetResolverEndpoint",
+			action:   "GetResolverEndpoint",
+			wantCode: http.StatusBadRequest,
+		},
 		{name: "CreateResolverRule", action: "CreateResolverRule", wantCode: http.StatusBadRequest},
 		{name: "GetResolverRule", action: "GetResolverRule", wantCode: http.StatusBadRequest},
 		{name: "DeleteResolverRule", action: "DeleteResolverRule", wantCode: http.StatusBadRequest},
