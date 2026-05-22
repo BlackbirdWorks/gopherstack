@@ -88,6 +88,30 @@ func EventSubscriptionCount(b *InMemoryBackend) int {
 	return len(b.eventSubscriptions)
 }
 
+// HsmClientCertCount returns the number of HSM client certificates in the backend.
+func HsmClientCertCount(b *InMemoryBackend) int {
+	b.mu.RLock("HsmClientCertCount")
+	defer b.mu.RUnlock()
+
+	return len(b.hsmClientCerts)
+}
+
+// HsmConfigCount returns the number of HSM configurations in the backend.
+func HsmConfigCount(b *InMemoryBackend) int {
+	b.mu.RLock("HsmConfigCount")
+	defer b.mu.RUnlock()
+
+	return len(b.hsmConfigs)
+}
+
+// ScheduledActionCount returns the number of scheduled actions in the backend.
+func ScheduledActionCount(b *InMemoryBackend) int {
+	b.mu.RLock("ScheduledActionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.scheduledActions)
+}
+
 // HandlerOpsLen returns the number of operations registered in the handler.
 func HandlerOpsLen(h *Handler) int {
 	return len(h.ops)

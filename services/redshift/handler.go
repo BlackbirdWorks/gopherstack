@@ -571,6 +571,12 @@ func resolveErrCode(opErr error) (string, int) {
 		{ErrResourcePolicyNotFound, "ResourcePolicyNotFound"},
 		{ErrSnapshotCopyAlreadyEnabled, "SnapshotCopyAlreadyEnabled"},
 		{ErrSnapshotCopyNotEnabled, "CopyToRegionDisabled"},
+		{ErrHsmClientCertNotFound, "HsmClientCertificateNotFound"},
+		{ErrHsmClientCertAlreadyExists, "HsmClientCertificateAlreadyExists"},
+		{ErrHsmConfigNotFound, "HsmConfigurationNotFound"},
+		{ErrHsmConfigAlreadyExists, "HsmConfigurationAlreadyExists"},
+		{ErrScheduledActionNotFound, "ScheduledActionNotFound"},
+		{ErrScheduledActionAlreadyExists, "ScheduledActionAlreadyExists"},
 	}
 
 	for _, entry := range table {

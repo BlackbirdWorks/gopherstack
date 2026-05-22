@@ -186,6 +186,27 @@ type StorageBackend interface {
 	GetClusterCredentialsWithIAM(clusterID, dbName string) (*ClusterCredentials, error)
 	FailoverPrimaryCompute(clusterID string) (*Cluster, error)
 	DescribeTableRestoreStatus(clusterID string) ([]TableRestoreStatus, error)
+	CreateTableRestoreStatus(
+		clusterID, snapshotID, sourceDatabaseName, sourceTableName, targetDatabaseName, targetTableName string,
+	) (*TableRestoreStatus, error)
+
+	// HSM client certificate operations
+	CreateHsmClientCertificate(id string, tags map[string]string) (*HsmClientCertificate, error)
+	DeleteHsmClientCertificate(id string) error
+	DescribeHsmClientCertificates(id string) ([]HsmClientCertificate, error)
+
+	// HSM configuration operations
+	CreateHsmConfiguration(
+		id, description, hsmIPAddress, hsmPartitionName string, tags map[string]string,
+	) (*HsmConfiguration, error)
+	DeleteHsmConfiguration(id string) error
+	DescribeHsmConfigurations(id string) ([]HsmConfiguration, error)
+
+	// Scheduled action operations (regular Redshift)
+	CreateScheduledAction(name, schedule, iamRole, description, targetAction string) (*ScheduledAction, error)
+	DeleteScheduledAction(name string) error
+	DescribeScheduledActions(name string) ([]ScheduledAction, error)
+	ModifyScheduledAction(name, schedule, iamRole, description string) (*ScheduledAction, error)
 
 	// Lifecycle
 	Reset()
