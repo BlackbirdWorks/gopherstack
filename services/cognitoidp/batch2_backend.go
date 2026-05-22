@@ -116,7 +116,7 @@ type AccountTakeoverActions struct {
 
 // NotifyEmailType holds an email template for notifications.
 type NotifyEmailType struct {
-	HtmlBody string `json:"HtmlBody,omitempty"`
+	HTMLBody string `json:"HtmlBody,omitempty"`
 	Subject  string `json:"Subject,omitempty"`
 	TextBody string `json:"TextBody,omitempty"`
 }
@@ -204,7 +204,7 @@ func (b *InMemoryBackend) GetUserPoolMfaConfigFull(userPoolID string) (*UserPool
 // and stores it for later validation via VerifyUserAttributeWithCode.
 func (b *InMemoryBackend) GetUserAttributeVerificationCode(
 	accessToken, attributeName string,
-) (code, deliveryDest, deliveryMedium string, err error) {
+) (string, string, string, error) {
 	b.mu.Lock("GetUserAttributeVerificationCode")
 	defer b.mu.Unlock()
 
@@ -220,7 +220,7 @@ func (b *InMemoryBackend) GetUserAttributeVerificationCode(
 		return "", "", "", fmt.Errorf("%w: attribute %q is not verifiable", ErrInvalidParameter, attributeName)
 	}
 
-	code = randomAlphanumeric(attrVerificationCodeLen)
+	code := randomAlphanumeric(attrVerificationCodeLen)
 	key := user.UserPoolID + ":" + user.Username + ":" + attributeName
 
 	b.attrVerificationCodes[key] = &attrVerificationEntry{
@@ -236,6 +236,7 @@ func (b *InMemoryBackend) GetUserAttributeVerificationCode(
 		}
 		// Mask email: show first 2 chars + *** + domain.
 		dest = maskEmail(dest)
+
 		return code, dest, "EMAIL", nil
 	}
 
@@ -299,6 +300,7 @@ func maskEmail(email string) string {
 	for i, c := range email {
 		if c == '@' {
 			at = i
+
 			break
 		}
 	}
@@ -393,7 +395,7 @@ func (b *InMemoryBackend) SetUICustomizationFull(poolID, clientID, css, imageURL
 	}
 
 	existing.CSS = css
-	existing.ImageUrl = imageURL
+	existing.ImageURL = imageURL
 	existing.LastModifiedAt = now
 
 	cp := *existing

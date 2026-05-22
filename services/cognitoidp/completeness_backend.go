@@ -3,6 +3,7 @@ package cognitoidp
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 )
@@ -50,7 +51,7 @@ type UICustomization struct {
 	UserPoolID     string
 	ClientID       string
 	CSS            string
-	ImageUrl       string
+	ImageURL       string
 }
 
 // ManagedLoginBranding stores managed login branding for a pool client.
@@ -157,13 +158,11 @@ func (b *InMemoryBackend) GetIdentityProviderByIdentifier(userPoolID, identifier
 			return &cp, nil
 		}
 
-		for _, idpID := range idp.IdpIdentifiers {
-			if idpID == identifier {
-				cp := *idp
-				cp.ProviderDetails = maps.Clone(idp.ProviderDetails)
+		if slices.Contains(idp.IdpIdentifiers, identifier) {
+			cp := *idp
+			cp.ProviderDetails = maps.Clone(idp.ProviderDetails)
 
-				return &cp, nil
-			}
+			return &cp, nil
 		}
 	}
 

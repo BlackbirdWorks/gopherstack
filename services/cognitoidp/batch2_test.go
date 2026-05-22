@@ -246,20 +246,20 @@ func TestBatch2_UICustomization_SetGet_WithImageUrl(t *testing.T) {
 
 	var setOut struct {
 		UICustomization *struct {
-			UserPoolId       string  `json:"UserPoolId"`
-			ClientId         string  `json:"ClientId"`
+			UserPoolID       string  `json:"UserPoolId"`
+			ClientID         string  `json:"ClientId"`
 			CSS              string  `json:"CSS"`
-			ImageUrl         string  `json:"ImageUrl"`
+			ImageURL         string  `json:"ImageUrl"`
 			CreationDate     float64 `json:"CreationDate"`
 			LastModifiedDate float64 `json:"LastModifiedDate"`
 		} `json:"UICustomization"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut))
 	require.NotNil(t, setOut.UICustomization)
-	assert.Equal(t, poolID, setOut.UICustomization.UserPoolId)
-	assert.Equal(t, clientID, setOut.UICustomization.ClientId)
+	assert.Equal(t, poolID, setOut.UICustomization.UserPoolID)
+	assert.Equal(t, clientID, setOut.UICustomization.ClientID)
 	assert.Equal(t, ".banner { background: blue; }", setOut.UICustomization.CSS)
-	assert.Equal(t, "https://example.com/logo.png", setOut.UICustomization.ImageUrl)
+	assert.Equal(t, "https://example.com/logo.png", setOut.UICustomization.ImageURL)
 	assert.Greater(t, setOut.UICustomization.CreationDate, float64(0))
 	assert.Greater(t, setOut.UICustomization.LastModifiedDate, float64(0))
 
@@ -273,14 +273,14 @@ func TestBatch2_UICustomization_SetGet_WithImageUrl(t *testing.T) {
 	var getOut struct {
 		UICustomization *struct {
 			CSS              string  `json:"CSS"`
-			ImageUrl         string  `json:"ImageUrl"`
+			ImageURL         string  `json:"ImageUrl"`
 			LastModifiedDate float64 `json:"LastModifiedDate"`
 		} `json:"UICustomization"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
 	require.NotNil(t, getOut.UICustomization)
 	assert.Equal(t, ".banner { background: blue; }", getOut.UICustomization.CSS)
-	assert.Equal(t, "https://example.com/logo.png", getOut.UICustomization.ImageUrl)
+	assert.Equal(t, "https://example.com/logo.png", getOut.UICustomization.ImageURL)
 	assert.Greater(t, getOut.UICustomization.LastModifiedDate, float64(0))
 }
 
@@ -297,7 +297,7 @@ func TestBatch2_UICustomization_Get_Empty(t *testing.T) {
 
 	var out struct {
 		UICustomization *struct {
-			UserPoolId string `json:"UserPoolId"`
+			UserPoolID string `json:"UserPoolId"`
 			CSS        string `json:"CSS"`
 		} `json:"UICustomization"`
 	}
@@ -340,14 +340,14 @@ func TestBatch2_UICustomization_Backend_Direct(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, ".body { color: red; }", ui.CSS)
-	assert.Equal(t, "https://img.example.com/logo.png", ui.ImageUrl)
+	assert.Equal(t, "https://img.example.com/logo.png", ui.ImageURL)
 	assert.False(t, ui.CreatedAt.IsZero())
 	assert.False(t, ui.LastModifiedAt.IsZero())
 
 	got, err := b.GetUICustomizationFull(pool.ID, client.ClientID)
 	require.NoError(t, err)
 	assert.Equal(t, ui.CSS, got.CSS)
-	assert.Equal(t, ui.ImageUrl, got.ImageUrl)
+	assert.Equal(t, ui.ImageURL, got.ImageURL)
 }
 
 // ---------------------------------------------------------------------------

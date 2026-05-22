@@ -217,7 +217,7 @@ type uiCustomizationJSON struct {
 	UserPoolID       string  `json:"UserPoolId"`
 	ClientID         string  `json:"ClientId,omitempty"`
 	CSS              string  `json:"CSS,omitempty"`
-	ImageUrl         string  `json:"ImageUrl,omitempty"`
+	ImageURL         string  `json:"ImageUrl,omitempty"`
 	CreationDate     float64 `json:"CreationDate,omitempty"`
 	LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 }
@@ -264,7 +264,7 @@ func toUICustomizationJSON(ui *UICustomization) *uiCustomizationJSON {
 		UserPoolID: ui.UserPoolID,
 		ClientID:   ui.ClientID,
 		CSS:        ui.CSS,
-		ImageUrl:   ui.ImageUrl,
+		ImageURL:   ui.ImageURL,
 	}
 
 	if !ui.CreatedAt.IsZero() {
@@ -608,7 +608,7 @@ type accountTakeoverActionsJSON struct {
 }
 
 type notifyEmailTypeJSON struct {
-	HtmlBody string `json:"HtmlBody,omitempty"`
+	HTMLBody string `json:"HtmlBody,omitempty"`
 	Subject  string `json:"Subject,omitempty"`
 	TextBody string `json:"TextBody,omitempty"`
 }
@@ -816,7 +816,7 @@ func toNotifyConfigJSON(n *NotifyConfigurationType) *notifyConfigJSON {
 
 	if n.BlockEmail != nil {
 		out.BlockEmail = &notifyEmailTypeJSON{
-			HtmlBody: n.BlockEmail.HtmlBody,
+			HTMLBody: n.BlockEmail.HTMLBody,
 			Subject:  n.BlockEmail.Subject,
 			TextBody: n.BlockEmail.TextBody,
 		}
@@ -824,7 +824,7 @@ func toNotifyConfigJSON(n *NotifyConfigurationType) *notifyConfigJSON {
 
 	if n.MfaEmail != nil {
 		out.MfaEmail = &notifyEmailTypeJSON{
-			HtmlBody: n.MfaEmail.HtmlBody,
+			HTMLBody: n.MfaEmail.HTMLBody,
 			Subject:  n.MfaEmail.Subject,
 			TextBody: n.MfaEmail.TextBody,
 		}
@@ -832,7 +832,7 @@ func toNotifyConfigJSON(n *NotifyConfigurationType) *notifyConfigJSON {
 
 	if n.NoActionEmail != nil {
 		out.NoActionEmail = &notifyEmailTypeJSON{
-			HtmlBody: n.NoActionEmail.HtmlBody,
+			HTMLBody: n.NoActionEmail.HTMLBody,
 			Subject:  n.NoActionEmail.Subject,
 			TextBody: n.NoActionEmail.TextBody,
 		}
@@ -850,7 +850,7 @@ func fromNotifyConfigJSON(in *notifyConfigJSON) *NotifyConfigurationType {
 
 	if in.BlockEmail != nil {
 		out.BlockEmail = &NotifyEmailType{
-			HtmlBody: in.BlockEmail.HtmlBody,
+			HTMLBody: in.BlockEmail.HTMLBody,
 			Subject:  in.BlockEmail.Subject,
 			TextBody: in.BlockEmail.TextBody,
 		}
@@ -858,7 +858,7 @@ func fromNotifyConfigJSON(in *notifyConfigJSON) *NotifyConfigurationType {
 
 	if in.MfaEmail != nil {
 		out.MfaEmail = &NotifyEmailType{
-			HtmlBody: in.MfaEmail.HtmlBody,
+			HTMLBody: in.MfaEmail.HTMLBody,
 			Subject:  in.MfaEmail.Subject,
 			TextBody: in.MfaEmail.TextBody,
 		}
@@ -866,7 +866,7 @@ func fromNotifyConfigJSON(in *notifyConfigJSON) *NotifyConfigurationType {
 
 	if in.NoActionEmail != nil {
 		out.NoActionEmail = &NotifyEmailType{
-			HtmlBody: in.NoActionEmail.HtmlBody,
+			HTMLBody: in.NoActionEmail.HTMLBody,
 			Subject:  in.NoActionEmail.Subject,
 			TextBody: in.NoActionEmail.TextBody,
 		}
