@@ -87,3 +87,16 @@ func (b *InMemoryBackend) UserPoolID(clientID string) string {
 
 	return ""
 }
+
+// GetAttrVerificationCodeForTest returns the pending verification code for a user attribute. For testing only.
+func (b *InMemoryBackend) GetAttrVerificationCodeForTest(poolID, username, attrName string) string {
+	b.mu.RLock("GetAttrVerificationCodeForTest")
+	defer b.mu.RUnlock()
+
+	key := poolID + ":" + username + ":" + attrName
+	if entry, ok := b.attrVerificationCodes[key]; ok {
+		return entry.Code
+	}
+
+	return ""
+}

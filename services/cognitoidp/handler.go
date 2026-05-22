@@ -366,6 +366,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	}
 	maps.Copy(table, h.completenessDispatchTable())
 	maps.Copy(table, h.accuracyDispatchTable())
+	maps.Copy(table, h.batch2DispatchTable())
 
 	return table
 }
@@ -509,7 +510,7 @@ type userPoolData struct {
 
 func mfaConfigOrDefault(s string) string {
 	if s == "" {
-		return "OFF"
+		return mfaConfigOFF
 	}
 
 	return s
@@ -693,7 +694,7 @@ func (h *Handler) handleGetUserPoolMfaConfig(
 
 	mfa := pool.MfaConfiguration
 	if mfa == "" {
-		mfa = "OFF"
+		mfa = mfaConfigOFF
 	}
 
 	return &getUserPoolMfaConfigOutput{MfaConfiguration: mfa}, nil

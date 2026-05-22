@@ -3,6 +3,7 @@ package cognitoidp
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 )
@@ -13,12 +14,14 @@ import (
 
 // IdentityProvider represents a federated identity provider attached to a user pool.
 type IdentityProvider struct {
-	ProviderDetails map[string]string
-	CreatedAt       time.Time
-	LastModifiedAt  time.Time
-	UserPoolID      string
-	ProviderName    string
-	ProviderType    string
+	ProviderDetails  map[string]string
+	AttributeMapping map[string]string
+	CreatedAt        time.Time
+	LastModifiedAt   time.Time
+	UserPoolID       string
+	ProviderName     string
+	ProviderType     string
+	IdpIdentifiers   []string
 }
 
 // UserPoolDomain holds the custom domain configuration for a user pool.
@@ -26,6 +29,7 @@ type UserPoolDomain struct {
 	Domain                 string
 	UserPoolID             string
 	CloudFrontDistribution string
+	CertificateArn         string
 	Status                 string
 }
 
@@ -42,9 +46,12 @@ type LogDeliveryConfig struct {
 
 // UICustomization stores hosted-UI CSS and logo settings for a pool or client.
 type UICustomization struct {
-	UserPoolID string
-	ClientID   string
-	CSS        string
+	CreatedAt      time.Time
+	LastModifiedAt time.Time
+	UserPoolID     string
+	ClientID       string
+	CSS            string
+	ImageURL       string
 }
 
 // ManagedLoginBranding stores managed login branding for a pool client.
@@ -145,6 +152,13 @@ func (b *InMemoryBackend) GetIdentityProviderByIdentifier(userPoolID, identifier
 
 	for _, idp := range b.identityProviders[userPoolID] {
 		if idp.ProviderName == identifier {
+			cp := *idp
+			cp.ProviderDetails = maps.Clone(idp.ProviderDetails)
+
+			return &cp, nil
+		}
+
+		if slices.Contains(idp.IdpIdentifiers, identifier) {
 			cp := *idp
 			cp.ProviderDetails = maps.Clone(idp.ProviderDetails)
 

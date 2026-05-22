@@ -124,6 +124,7 @@ type Group struct {
 	GroupName   string    `json:"groupName"`
 	UserPoolID  string    `json:"userPoolId"`
 	Description string    `json:"description,omitempty"`
+	RoleArn     string    `json:"roleArn,omitempty"`
 	Precedence  int32     `json:"precedence"`
 }
 
@@ -173,9 +174,15 @@ type InMemoryBackend struct {
 	terms map[string]*Terms
 	// userImportJobs maps poolID → jobID → UserImportJob
 	userImportJobs map[string]map[string]*UserImportJob
-	accountID      string
-	region         string
-	endpoint       string
+	// poolMfaConfigs maps poolID → full MFA config (SMS/TOTP/Email sub-configs)
+	poolMfaConfigs map[string]*UserPoolMfaFullConfig
+	// attrVerificationCodes maps poolID+":"+username+":"+attrName → pending verification entry
+	attrVerificationCodes map[string]*attrVerificationEntry
+	// typedRiskConfigurations maps poolID+":"+clientID → typed risk configuration
+	typedRiskConfigurations map[string]*TypedRiskConfiguration
+	accountID               string
+	region                  string
+	endpoint                string
 }
 
 // refreshTokenEntry holds the pool/user context for a refresh token.
@@ -219,33 +226,36 @@ const totpCodeLen = 6
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:                    lockmetrics.New("cognitoidp"),
-		pools:                 make(map[string]*UserPool),
-		poolsByName:           make(map[string]*UserPool),
-		clients:               make(map[string]*UserPoolClient),
-		clientsByPool:         make(map[string]map[string]*UserPoolClient),
-		users:                 make(map[string]map[string]*User),
-		usersBySub:            make(map[string]string),
-		refreshTokens:         make(map[string]*refreshTokenEntry),
-		refreshTokensByClient: make(map[string]map[string]struct{}),
-		refreshTokensByUser:   make(map[string]map[string]struct{}),
-		mfaSessions:           make(map[string]*mfaSessionEntry),
-		groups:                make(map[string]map[string]*Group),
-		groupMembers:          make(map[string]map[string]map[string]struct{}),
-		resourceServers:       make(map[string]map[string]*ResourceServer),
-		tokenRevokedBefore:    make(map[string]time.Time),
-		identityProviders:     make(map[string]map[string]*IdentityProvider),
-		domains:               make(map[string]*UserPoolDomain),
-		resourceTags:          make(map[string]map[string]string),
-		riskConfigurations:    make(map[string]*RiskConfiguration),
-		logDeliveryConfigs:    make(map[string]*LogDeliveryConfig),
-		uiCustomizations:      make(map[string]*UICustomization),
-		managedLoginBrandings: make(map[string]map[string]*ManagedLoginBranding),
-		terms:                 make(map[string]*Terms),
-		userImportJobs:        make(map[string]map[string]*UserImportJob),
-		accountID:             accountID,
-		region:                region,
-		endpoint:              endpoint,
+		mu:                      lockmetrics.New("cognitoidp"),
+		pools:                   make(map[string]*UserPool),
+		poolsByName:             make(map[string]*UserPool),
+		clients:                 make(map[string]*UserPoolClient),
+		clientsByPool:           make(map[string]map[string]*UserPoolClient),
+		users:                   make(map[string]map[string]*User),
+		usersBySub:              make(map[string]string),
+		refreshTokens:           make(map[string]*refreshTokenEntry),
+		refreshTokensByClient:   make(map[string]map[string]struct{}),
+		refreshTokensByUser:     make(map[string]map[string]struct{}),
+		mfaSessions:             make(map[string]*mfaSessionEntry),
+		groups:                  make(map[string]map[string]*Group),
+		groupMembers:            make(map[string]map[string]map[string]struct{}),
+		resourceServers:         make(map[string]map[string]*ResourceServer),
+		tokenRevokedBefore:      make(map[string]time.Time),
+		identityProviders:       make(map[string]map[string]*IdentityProvider),
+		domains:                 make(map[string]*UserPoolDomain),
+		resourceTags:            make(map[string]map[string]string),
+		riskConfigurations:      make(map[string]*RiskConfiguration),
+		logDeliveryConfigs:      make(map[string]*LogDeliveryConfig),
+		uiCustomizations:        make(map[string]*UICustomization),
+		managedLoginBrandings:   make(map[string]map[string]*ManagedLoginBranding),
+		terms:                   make(map[string]*Terms),
+		userImportJobs:          make(map[string]map[string]*UserImportJob),
+		poolMfaConfigs:          make(map[string]*UserPoolMfaFullConfig),
+		attrVerificationCodes:   make(map[string]*attrVerificationEntry),
+		typedRiskConfigurations: make(map[string]*TypedRiskConfiguration),
+		accountID:               accountID,
+		region:                  region,
+		endpoint:                endpoint,
 	}
 }
 
@@ -1879,7 +1889,7 @@ func (b *InMemoryBackend) VerifyUserAttribute(accessToken, attributeName, _ stri
 
 	// Attribute name validation: must be a known verifiable attribute.
 	switch attributeName {
-	case attrEmail, "phone_number":
+	case attrEmail, attrPhoneNumber:
 		// valid
 	default:
 		return fmt.Errorf("%w: attribute %q is not verifiable", ErrInvalidUserPoolConfig, attributeName)
