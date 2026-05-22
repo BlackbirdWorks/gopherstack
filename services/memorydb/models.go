@@ -317,10 +317,10 @@ type clusterObject struct {
 
 // shardObject represents a single shard in a MemoryDB cluster.
 type shardObject struct {
-	Nodes         []nodeObject `json:"Nodes,omitempty"`
 	Name          string       `json:"Name,omitempty"`
 	Status        string       `json:"Status,omitempty"`
 	Slots         string       `json:"Slots,omitempty"`
+	Nodes         []nodeObject `json:"Nodes,omitempty"`
 	NumberOfNodes int32        `json:"NumberOfNodes,omitempty"`
 }
 
@@ -870,9 +870,9 @@ type updateMultiRegionClusterResponse struct {
 type describeServiceUpdatesRequest struct {
 	MaxResults        *int32   `json:"MaxResults,omitempty"`
 	ServiceUpdateName string   `json:"ServiceUpdateName,omitempty"`
+	NextToken         string   `json:"NextToken,omitempty"`
 	ClusterNames      []string `json:"ClusterNames,omitempty"`
 	Status            []string `json:"Status,omitempty"`
-	NextToken         string   `json:"NextToken,omitempty"`
 }
 
 type serviceUpdateObject struct {

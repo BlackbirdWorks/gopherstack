@@ -339,7 +339,7 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 		ServiceUpdateName:   "memorydb-20240601-redis-security",
 		ReleaseDate:         "2024-06-01",
 		Description:         "Security update for Redis 7.x clusters",
-		Status:              "available",
+		Status:              clusterStatusAvailable,
 		Type:                "security-update",
 		AutoUpdateStartDate: "2024-07-01",
 	}
@@ -347,7 +347,7 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 		ServiceUpdateName:   "memorydb-20240801-engine-update",
 		ReleaseDate:         "2024-08-01",
 		Description:         "Engine update with performance improvements",
-		Status:              "available",
+		Status:              clusterStatusAvailable,
 		Type:                "engine-update",
 		AutoUpdateStartDate: "2024-09-01",
 	}
@@ -390,7 +390,7 @@ func (b *InMemoryBackend) Reset() {
 		ServiceUpdateName:   "memorydb-20240601-redis-security",
 		ReleaseDate:         "2024-06-01",
 		Description:         "Security update for Redis 7.x clusters",
-		Status:              "available",
+		Status:              clusterStatusAvailable,
 		Type:                "security-update",
 		AutoUpdateStartDate: "2024-07-01",
 	}
@@ -398,7 +398,7 @@ func (b *InMemoryBackend) Reset() {
 		ServiceUpdateName:   "memorydb-20240801-engine-update",
 		ReleaseDate:         "2024-08-01",
 		Description:         "Engine update with performance improvements",
-		Status:              "available",
+		Status:              clusterStatusAvailable,
 		Type:                "engine-update",
 		AutoUpdateStartDate: "2024-09-01",
 	}
@@ -559,6 +559,18 @@ func (b *InMemoryBackend) seedAutomatedSnapshotLocked(region, accountID string, 
 	b.arnToResource[autoARN] = resourceRef{Kind: resourceKindSnapshot, Name: autoName}
 }
 
+// applyClusterNetworkDefaults sets NetworkType and IpDiscovery defaults.
+func applyClusterNetworkDefaults(c *Cluster, req *createClusterRequest) {
+	c.NetworkType = req.NetworkType
+	if c.NetworkType == "" {
+		c.NetworkType = "ipv4"
+	}
+	c.IpDiscovery = req.IpDiscovery
+	if c.IpDiscovery == "" {
+		c.IpDiscovery = "ipv4"
+	}
+}
+
 // CreateCluster creates a new MemoryDB cluster.
 func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClusterRequest) (*Cluster, error) {
 	b.mu.Lock()
@@ -630,14 +642,7 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		c.DataTiering = "false"
 	}
 
-	c.NetworkType = req.NetworkType
-	if c.NetworkType == "" {
-		c.NetworkType = "ipv4"
-	}
-	c.IpDiscovery = req.IpDiscovery
-	if c.IpDiscovery == "" {
-		c.IpDiscovery = "ipv4"
-	}
+	applyClusterNetworkDefaults(c, req)
 
 	if req.SnapshotRetentionLimit != nil {
 		c.SnapshotRetentionLimit = *req.SnapshotRetentionLimit
@@ -1704,21 +1709,21 @@ func defaultEngineVersions() []*EngineVersion {
 			Description:          "Valkey 7.2",
 		},
 		{
-			Engine:               "redis",
+			Engine:               engineRedis,
 			EngineVersion:        "7.1",
 			EnginePatchVersion:   "7.1.0",
 			ParameterGroupFamily: "memorydb_redis7",
 			Description:          "Redis 7.1",
 		},
 		{
-			Engine:               "redis",
+			Engine:               engineRedis,
 			EngineVersion:        "7.0",
 			EnginePatchVersion:   "7.0.7",
 			ParameterGroupFamily: "memorydb_redis7",
 			Description:          "Redis 7.0",
 		},
 		{
-			Engine:               "redis",
+			Engine:               engineRedis,
 			EngineVersion:        "6.2",
 			EnginePatchVersion:   "6.2.6",
 			ParameterGroupFamily: "memorydb_redis6",
@@ -2303,17 +2308,8 @@ func (b *InMemoryBackend) DescribeServiceUpdates(req *describeServiceUpdatesRequ
 		if req.ServiceUpdateName != "" && su.ServiceUpdateName != req.ServiceUpdateName {
 			continue
 		}
-		if len(req.Status) > 0 {
-			found := false
-			for _, s := range req.Status {
-				if su.Status == s {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
+		if len(req.Status) > 0 && !slices.Contains(req.Status, su.Status) {
+			continue
 		}
 		cp := *su
 		result = append(result, &cp)

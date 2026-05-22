@@ -162,9 +162,9 @@ func TestAudit_DescribeEngineVersions_IncludesValkey(t *testing.T) {
 
 	tests := []struct {
 		body         map[string]any
-		wantEngines  []string
 		name         string
 		wantMinCount int
+		wantEngines  []string
 	}{
 		{
 			name:         "all versions includes valkey and redis",
@@ -716,7 +716,7 @@ func TestAudit_DescribeClusters_ShowShardDetails(t *testing.T) {
 		},
 		{
 			name:          "show shards false omits shards",
-			showShards:    boolPtr(false),
+			showShards:    new(bool),
 			wantHasShards: false,
 		},
 		{
