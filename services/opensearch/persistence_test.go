@@ -23,9 +23,13 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *opensearch.InMemoryBackend) string {
-				domain, err := b.CreateDomain("test-domain", "OpenSearch_2.3", opensearch.ClusterConfig{
-					InstanceType:  "t3.small.search",
-					InstanceCount: 1,
+				domain, err := b.CreateDomain(opensearch.CreateDomainInput{
+					Name:          "test-domain",
+					EngineVersion: "OpenSearch_2.3",
+					ClusterConfig: opensearch.ClusterConfig{
+						InstanceType:  "t3.small.search",
+						InstanceCount: 1,
+					},
 				})
 				if err != nil {
 					return ""
@@ -87,7 +91,7 @@ func TestOpenSearchHandler_Persistence(t *testing.T) {
 	h := opensearch.NewHandler(backend)
 
 	// Create a domain in the backend
-	_, err := backend.CreateDomain("snap-domain", "OpenSearch_2.11", opensearch.ClusterConfig{})
+	_, err := backend.CreateDomain(opensearch.CreateDomainInput{Name: "snap-domain", EngineVersion: "OpenSearch_2.11"})
 	require.NoError(t, err)
 
 	snap := h.Snapshot()

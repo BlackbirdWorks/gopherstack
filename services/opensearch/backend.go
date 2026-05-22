@@ -247,26 +247,153 @@ type DNSRegistrar interface {
 
 // ClusterConfig represents the cluster configuration for an OpenSearch domain.
 type ClusterConfig struct {
-	InstanceType  string `json:"instanceType"`
-	InstanceCount int    `json:"instanceCount"`
+	ZoneAwarenessConfig       *ZoneAwarenessConfig `json:"zoneAwarenessConfig,omitempty"`
+	InstanceType              string               `json:"instanceType"`
+	DedicatedMasterType       string               `json:"dedicatedMasterType,omitempty"`
+	WarmType                  string               `json:"warmType,omitempty"`
+	InstanceCount             int                  `json:"instanceCount"`
+	DedicatedMasterCount      int                  `json:"dedicatedMasterCount,omitempty"`
+	WarmCount                 int                  `json:"warmCount,omitempty"`
+	DedicatedMasterEnabled    bool                 `json:"dedicatedMasterEnabled,omitempty"`
+	ZoneAwarenessEnabled      bool                 `json:"zoneAwarenessEnabled,omitempty"`
+	WarmEnabled               bool                 `json:"warmEnabled,omitempty"`
+	ColdStorageEnabled        bool                 `json:"coldStorageEnabled,omitempty"`
+	MultiAZWithStandbyEnabled bool                 `json:"multiAZWithStandbyEnabled,omitempty"`
+}
+
+// ZoneAwarenessConfig holds zone awareness settings.
+type ZoneAwarenessConfig struct {
+	AvailabilityZoneCount int `json:"availabilityZoneCount"`
+}
+
+// EBSOptions represents EBS volume settings for an OpenSearch domain.
+type EBSOptions struct {
+	VolumeType string `json:"volumeType,omitempty"`
+	KMSKeyID   string `json:"kmsKeyId,omitempty"`
+	VolumeSize int    `json:"volumeSize,omitempty"`
+	IOPS       int    `json:"iops,omitempty"`
+	Throughput int    `json:"throughput,omitempty"`
+	EBSEnabled bool   `json:"ebsEnabled"`
+}
+
+// SnapshotOptions holds automated snapshot settings.
+type SnapshotOptions struct {
+	AutomatedSnapshotStartHour int `json:"automatedSnapshotStartHour"`
+}
+
+// EncryptionAtRestOptions holds encryption at rest settings.
+type EncryptionAtRestOptions struct {
+	KMSKeyID string `json:"kmsKeyId,omitempty"`
+	Enabled  bool   `json:"enabled"`
+}
+
+// NodeToNodeEncryptionOptions holds node-to-node encryption settings.
+type NodeToNodeEncryptionOptions struct {
+	Enabled bool `json:"enabled"`
+}
+
+// DomainEndpointOptions holds HTTPS and custom endpoint settings.
+type DomainEndpointOptions struct {
+	CustomEndpointCertificateArn string `json:"customEndpointCertificateArn,omitempty"`
+	CustomEndpoint               string `json:"customEndpoint,omitempty"`
+	TLSSecurityPolicy            string `json:"tlsSecurityPolicy,omitempty"`
+	EnforceHTTPS                 bool   `json:"enforceHTTPS,omitempty"`
+	CustomEndpointEnabled        bool   `json:"customEndpointEnabled,omitempty"`
+}
+
+// SAMLOptionsInput holds SAML configuration for AdvancedSecurityOptions.
+type SAMLOptionsInput struct {
+	IDPEntityID           string `json:"idpEntityId,omitempty"`
+	IDPMetadataContent    string `json:"idpMetadataContent,omitempty"`
+	RolesKey              string `json:"rolesKey,omitempty"`
+	SubjectKey            string `json:"subjectKey,omitempty"`
+	SessionTimeoutMinutes int    `json:"sessionTimeoutMinutes,omitempty"`
+	Enabled               bool   `json:"enabled,omitempty"`
+}
+
+// AdvancedSecurityOptions holds fine-grained access control settings.
+type AdvancedSecurityOptions struct {
+	SAMLOptions                 *SAMLOptionsInput `json:"samlOptions,omitempty"`
+	AnonymousAuthEnabled        bool              `json:"anonymousAuthEnabled,omitempty"`
+	Enabled                     bool              `json:"enabled"`
+	InternalUserDatabaseEnabled bool              `json:"internalUserDatabaseEnabled,omitempty"`
+}
+
+// VPCOptions holds VPC configuration for an OpenSearch domain.
+type VPCOptions struct {
+	VPCID            string   `json:"vpcId,omitempty"`
+	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
+	SubnetIDs        []string `json:"subnetIds,omitempty"`
+}
+
+// CognitoOptions holds Cognito configuration for Kibana authentication.
+type CognitoOptions struct {
+	IdentityPoolID string `json:"identityPoolId,omitempty"`
+	RoleARN        string `json:"roleArn,omitempty"`
+	UserPoolID     string `json:"userPoolId,omitempty"`
+	Enabled        bool   `json:"enabled"`
+}
+
+// LogPublishingOption holds a single log type publishing configuration.
+type LogPublishingOption struct {
+	CloudWatchLogsLogGroupARN string `json:"cloudWatchLogsLogGroupArn,omitempty"`
+	Enabled                   bool   `json:"enabled"`
 }
 
 // Domain represents an OpenSearch domain.
 type Domain struct {
-	Tags          *tags.Tags    `json:"tags,omitempty"`
-	Name          string        `json:"name"`
-	ARN           string        `json:"arn"`
-	EngineVersion string        `json:"engineVersion"`
-	Endpoint      string        `json:"endpoint"`
-	Status        string        `json:"status"`
-	LastChangeID  string        `json:"lastChangeID,omitempty"`
-	ClusterConfig ClusterConfig `json:"clusterConfig"`
+	EBSOptions                  *EBSOptions                     `json:"ebsOptions,omitempty"`
+	SnapshotOptions             *SnapshotOptions                `json:"snapshotOptions,omitempty"`
+	EncryptionAtRestOptions     *EncryptionAtRestOptions        `json:"encryptionAtRestOptions,omitempty"`
+	NodeToNodeEncryptionOptions *NodeToNodeEncryptionOptions    `json:"nodeToNodeEncryptionOptions,omitempty"`
+	DomainEndpointOptions       *DomainEndpointOptions          `json:"domainEndpointOptions,omitempty"`
+	AdvancedSecurityOptions     *AdvancedSecurityOptions        `json:"advancedSecurityOptions,omitempty"`
+	VPCOptions                  *VPCOptions                     `json:"vpcOptions,omitempty"`
+	CognitoOptions              *CognitoOptions                 `json:"cognitoOptions,omitempty"`
+	LogPublishingOptions        map[string]*LogPublishingOption `json:"logPublishingOptions,omitempty"`
+	Tags                        *tags.Tags                      `json:"tags,omitempty"`
+	AccessPolicies              string                          `json:"accessPolicies,omitempty"`
+	Name                        string                          `json:"name"`
+	ARN                         string                          `json:"arn"`
+	EngineVersion               string                          `json:"engineVersion"`
+	Endpoint                    string                          `json:"endpoint"`
+	Status                      string                          `json:"status"`
+	LastChangeID                string                          `json:"lastChangeID,omitempty"`
+	ClusterConfig               ClusterConfig                   `json:"clusterConfig"`
+}
+
+// CreateDomainInput holds all options for creating a new OpenSearch domain.
+type CreateDomainInput struct {
+	EBSOptions                  *EBSOptions
+	SnapshotOptions             *SnapshotOptions
+	EncryptionAtRestOptions     *EncryptionAtRestOptions
+	NodeToNodeEncryptionOptions *NodeToNodeEncryptionOptions
+	DomainEndpointOptions       *DomainEndpointOptions
+	AdvancedSecurityOptions     *AdvancedSecurityOptions
+	VPCOptions                  *VPCOptions
+	CognitoOptions              *CognitoOptions
+	LogPublishingOptions        map[string]*LogPublishingOption
+	Tags                        map[string]string
+	Name                        string
+	EngineVersion               string
+	AccessPolicies              string
+	ClusterConfig               ClusterConfig
 }
 
 // UpdateDomainConfigInput holds mutable fields for UpdateDomainConfig.
 type UpdateDomainConfigInput struct {
-	ClusterConfig *ClusterConfig `json:"ClusterConfig"`
-	EngineVersion string         `json:"EngineVersion"`
+	EBSOptions                  *EBSOptions
+	SnapshotOptions             *SnapshotOptions
+	EncryptionAtRestOptions     *EncryptionAtRestOptions
+	NodeToNodeEncryptionOptions *NodeToNodeEncryptionOptions
+	DomainEndpointOptions       *DomainEndpointOptions
+	AdvancedSecurityOptions     *AdvancedSecurityOptions
+	VPCOptions                  *VPCOptions
+	CognitoOptions              *CognitoOptions
+	LogPublishingOptions        map[string]*LogPublishingOption
+	ClusterConfig               *ClusterConfig
+	AccessPolicies              string
+	EngineVersion               string
 }
 
 // AppSetting is a key-value pair for default application settings.
@@ -352,44 +479,59 @@ func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
 }
 
 // CreateDomain creates a new OpenSearch domain.
-func (b *InMemoryBackend) CreateDomain(name, engineVersion string, clusterConfig ClusterConfig) (*Domain, error) {
-	if name == "" {
+func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error) {
+	if input.Name == "" {
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("CreateDomain")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domains[name]; exists {
-		return nil, fmt.Errorf("%w: domain %s already exists", ErrDomainAlreadyExists, name)
+	if _, exists := b.domains[input.Name]; exists {
+		return nil, fmt.Errorf("%w: domain %s already exists", ErrDomainAlreadyExists, input.Name)
 	}
 
-	if engineVersion == "" {
-		engineVersion = defaultEngineVersion
+	if input.EngineVersion == "" {
+		input.EngineVersion = defaultEngineVersion
 	}
 
-	domainARN := arn.Build("es", b.region, b.accountID, "domain/"+name)
-	endpoint := fmt.Sprintf("search-%s-%s.%s.es.amazonaws.com", name, b.accountID, b.region)
+	domainARN := arn.Build("es", b.region, b.accountID, "domain/"+input.Name)
+	endpoint := fmt.Sprintf("search-%s-%s.%s.es.amazonaws.com", input.Name, b.accountID, b.region)
 
-	if clusterConfig.InstanceCount == 0 {
-		clusterConfig.InstanceCount = 1
+	if input.ClusterConfig.InstanceCount == 0 {
+		input.ClusterConfig.InstanceCount = 1
 	}
 
-	if clusterConfig.InstanceType == "" {
-		clusterConfig.InstanceType = instanceTypeT3Small
+	if input.ClusterConfig.InstanceType == "" {
+		input.ClusterConfig.InstanceType = instanceTypeT3Small
 	}
 
 	d := &Domain{
-		Name:          name,
-		ARN:           domainARN,
-		EngineVersion: engineVersion,
-		Endpoint:      endpoint,
-		Status:        "Active",
-		ClusterConfig: clusterConfig,
-		Tags:          tags.New("opensearch." + name + ".tags"),
+		Name:                        input.Name,
+		ARN:                         domainARN,
+		EngineVersion:               input.EngineVersion,
+		Endpoint:                    endpoint,
+		Status:                      "Active",
+		ClusterConfig:               input.ClusterConfig,
+		Tags:                        tags.New("opensearch." + input.Name + ".tags"),
+		EBSOptions:                  input.EBSOptions,
+		SnapshotOptions:             input.SnapshotOptions,
+		EncryptionAtRestOptions:     input.EncryptionAtRestOptions,
+		NodeToNodeEncryptionOptions: input.NodeToNodeEncryptionOptions,
+		DomainEndpointOptions:       input.DomainEndpointOptions,
+		AdvancedSecurityOptions:     input.AdvancedSecurityOptions,
+		VPCOptions:                  input.VPCOptions,
+		CognitoOptions:              input.CognitoOptions,
+		LogPublishingOptions:        input.LogPublishingOptions,
+		AccessPolicies:              input.AccessPolicies,
 	}
-	b.domains[name] = d
-	b.arnIndex[domainARN] = name
+
+	if len(input.Tags) > 0 {
+		d.Tags.Merge(input.Tags)
+	}
+
+	b.domains[input.Name] = d
+	b.arnIndex[domainARN] = input.Name
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)
@@ -1863,6 +2005,46 @@ func (b *InMemoryBackend) UpdateDomainConfig(name string, input UpdateDomainConf
 
 	if input.EngineVersion != "" {
 		d.EngineVersion = input.EngineVersion
+	}
+
+	if input.EBSOptions != nil {
+		d.EBSOptions = input.EBSOptions
+	}
+
+	if input.SnapshotOptions != nil {
+		d.SnapshotOptions = input.SnapshotOptions
+	}
+
+	if input.EncryptionAtRestOptions != nil {
+		d.EncryptionAtRestOptions = input.EncryptionAtRestOptions
+	}
+
+	if input.NodeToNodeEncryptionOptions != nil {
+		d.NodeToNodeEncryptionOptions = input.NodeToNodeEncryptionOptions
+	}
+
+	if input.DomainEndpointOptions != nil {
+		d.DomainEndpointOptions = input.DomainEndpointOptions
+	}
+
+	if input.AdvancedSecurityOptions != nil {
+		d.AdvancedSecurityOptions = input.AdvancedSecurityOptions
+	}
+
+	if input.VPCOptions != nil {
+		d.VPCOptions = input.VPCOptions
+	}
+
+	if input.CognitoOptions != nil {
+		d.CognitoOptions = input.CognitoOptions
+	}
+
+	if input.LogPublishingOptions != nil {
+		d.LogPublishingOptions = input.LogPublishingOptions
+	}
+
+	if input.AccessPolicies != "" {
+		d.AccessPolicies = input.AccessPolicies
 	}
 
 	changeID := fmt.Sprintf("change-%s-%d", name, time.Now().UnixNano())

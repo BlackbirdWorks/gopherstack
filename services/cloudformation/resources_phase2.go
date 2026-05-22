@@ -764,7 +764,11 @@ func (rc *ResourceCreator) createOpenSearchDomain(
 		}
 	}
 
-	domain, err := rc.backends.OpenSearch.Backend.CreateDomain(name, engineVersion, clusterConfig)
+	domain, err := rc.backends.OpenSearch.Backend.CreateDomain(opensearchbackend.CreateDomainInput{
+		Name:          name,
+		EngineVersion: engineVersion,
+		ClusterConfig: clusterConfig,
+	})
 	if err != nil {
 		return "", fmt.Errorf("create OpenSearch domain %s: %w", name, err)
 	}

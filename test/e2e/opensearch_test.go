@@ -17,7 +17,10 @@ import (
 func TestOpenSearchDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.OpenSearchHandler.Backend.CreateDomain("test-domain", "OpenSearch_2.11", opensearchbackend.ClusterConfig{})
+	_, err := stack.OpenSearchHandler.Backend.CreateDomain(opensearchbackend.CreateDomainInput{
+		Name:          "test-domain",
+		EngineVersion: "OpenSearch_2.11",
+	})
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)

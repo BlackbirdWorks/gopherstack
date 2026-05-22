@@ -381,46 +381,44 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 // domainClusterConfig holds the cluster configuration request parameters for a domain.
 type domainClusterConfig struct {
-	InstanceType  string `json:"InstanceType"`
-	InstanceCount int    `json:"InstanceCount"`
+	ZoneAwarenessConfig       *zoneAwarenessConfigJSON `json:"ZoneAwarenessConfig,omitempty"`
+	InstanceType              string                   `json:"InstanceType"`
+	DedicatedMasterType       string                   `json:"DedicatedMasterType,omitempty"`
+	WarmType                  string                   `json:"WarmType,omitempty"`
+	InstanceCount             int                      `json:"InstanceCount"`
+	DedicatedMasterCount      int                      `json:"DedicatedMasterCount,omitempty"`
+	WarmCount                 int                      `json:"WarmCount,omitempty"`
+	DedicatedMasterEnabled    bool                     `json:"DedicatedMasterEnabled,omitempty"`
+	ZoneAwarenessEnabled      bool                     `json:"ZoneAwarenessEnabled,omitempty"`
+	WarmEnabled               bool                     `json:"WarmEnabled,omitempty"`
+	ColdStorageEnabled        bool                     `json:"ColdStorageEnabled,omitempty"`
+	MultiAZWithStandbyEnabled bool                     `json:"MultiAZWithStandbyEnabled,omitempty"`
 }
 
-// domainJSON is the JSON request body for CreateDomain.
-type domainJSON struct {
-	ClusterConfig *domainClusterConfig `json:"ClusterConfig"`
-	DomainName    string               `json:"DomainName"`
-	EngineVersion string               `json:"EngineVersion"`
-}
-
-// domainStatusJSON is the JSON response for domain operations.
-type domainStatusJSON struct {
-	DomainName                  string                      `json:"DomainName"`
-	ARN                         string                      `json:"ARN"`
-	EngineVersion               string                      `json:"EngineVersion"`
-	Endpoint                    string                      `json:"Endpoint"`
-	DomainProcessingStatus      string                      `json:"DomainProcessingStatus"`
-	ClusterConfig               clusterConfigJSON           `json:"ClusterConfig"`
-	EBSOptions                  ebsOptionsJSON              `json:"EBSOptions"`
-	CognitoOptions              cognitoOptionsJSON          `json:"CognitoOptions"`
-	EncryptionAtRestOptions     encryptAtRestOptionsJSON    `json:"EncryptionAtRestOptions"`
-	NodeToNodeEncryptionOptions nodeToNodeEncryptJSON       `json:"NodeToNodeEncryptionOptions"`
-	AdvancedSecurityOptions     advancedSecurityOptionsJSON `json:"AdvancedSecurityOptions"`
-	Processing                  bool                        `json:"Processing"`
+// zoneAwarenessConfigJSON holds zone awareness config in JSON.
+type zoneAwarenessConfigJSON struct {
+	AvailabilityZoneCount int `json:"AvailabilityZoneCount"`
 }
 
 // ebsOptionsJSON is the JSON representation of EBS options.
 type ebsOptionsJSON struct {
-	EBSEnabled bool `json:"EBSEnabled"`
+	VolumeType string `json:"VolumeType,omitempty"`
+	KMSKeyID   string `json:"KMSKeyId,omitempty"`
+	VolumeSize int    `json:"VolumeSize,omitempty"`
+	IOPS       int    `json:"Iops,omitempty"`
+	Throughput int    `json:"Throughput,omitempty"`
+	EBSEnabled bool   `json:"EBSEnabled"`
 }
 
-// cognitoOptionsJSON is the JSON representation of Cognito options.
-type cognitoOptionsJSON struct {
-	Enabled bool `json:"Enabled"`
+// snapshotOptionsJSON is the JSON representation of snapshot options.
+type snapshotOptionsJSON struct {
+	AutomatedSnapshotStartHour int `json:"AutomatedSnapshotStartHour"`
 }
 
 // encryptAtRestOptionsJSON is the JSON representation of encryption at rest options.
 type encryptAtRestOptionsJSON struct {
-	Enabled bool `json:"Enabled"`
+	KMSKeyID string `json:"KMSKeyId,omitempty"`
+	Enabled  bool   `json:"Enabled"`
 }
 
 // nodeToNodeEncryptJSON is the JSON representation of node-to-node encryption options.
@@ -428,16 +426,107 @@ type nodeToNodeEncryptJSON struct {
 	Enabled bool `json:"Enabled"`
 }
 
+// domainEndpointOptionsJSON is the JSON representation of domain endpoint options.
+type domainEndpointOptionsJSON struct {
+	CustomEndpointCertificateArn string `json:"CustomEndpointCertificateArn,omitempty"`
+	CustomEndpoint               string `json:"CustomEndpoint,omitempty"`
+	TLSSecurityPolicy            string `json:"TLSSecurityPolicy,omitempty"`
+	EnforceHTTPS                 bool   `json:"EnforceHTTPS"`
+	CustomEndpointEnabled        bool   `json:"CustomEndpointEnabled"`
+}
+
+// samlOptionsJSON is the JSON representation of SAML options.
+type samlOptionsJSON struct {
+	IDPEntityID           string `json:"Idp,omitempty"`
+	IDPMetadataContent    string `json:"MasterBackendRole,omitempty"`
+	RolesKey              string `json:"RolesKey,omitempty"`
+	SubjectKey            string `json:"SubjectKey,omitempty"`
+	SessionTimeoutMinutes int    `json:"SessionTimeoutMinutes,omitempty"`
+	Enabled               bool   `json:"Enabled"`
+}
+
 // advancedSecurityOptionsJSON is the JSON representation of advanced security options.
 type advancedSecurityOptionsJSON struct {
-	Enabled                     bool `json:"Enabled"`
-	InternalUserDatabaseEnabled bool `json:"InternalUserDatabaseEnabled"`
+	SAMLOptions                 *samlOptionsJSON `json:"SAMLOptions,omitempty"`
+	AnonymousAuthEnabled        bool             `json:"AnonymousAuthEnabled"`
+	Enabled                     bool             `json:"Enabled"`
+	InternalUserDatabaseEnabled bool             `json:"InternalUserDatabaseEnabled"`
+}
+
+// vpcOptionsJSON is the JSON representation of VPC options.
+type vpcOptionsJSON struct {
+	VPCID            string   `json:"VPCId,omitempty"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds,omitempty"`
+	SubnetIDs        []string `json:"SubnetIds,omitempty"`
+}
+
+// cognitoOptionsJSON is the JSON representation of Cognito options.
+type cognitoOptionsJSON struct {
+	IdentityPoolID string `json:"IdentityPoolId,omitempty"`
+	RoleARN        string `json:"RoleArn,omitempty"`
+	UserPoolID     string `json:"UserPoolId,omitempty"`
+	Enabled        bool   `json:"Enabled"`
+}
+
+// logPublishingOptionJSON is the JSON representation of a log publishing option.
+type logPublishingOptionJSON struct {
+	CloudWatchLogsLogGroupARN string `json:"CloudWatchLogsLogGroupArn,omitempty"`
+	Enabled                   bool   `json:"Enabled"`
+}
+
+// domainJSON is the JSON request body for CreateDomain.
+type domainJSON struct {
+	ClusterConfig               *domainClusterConfig                `json:"ClusterConfig,omitempty"`
+	EBSOptions                  *ebsOptionsJSON                     `json:"EBSOptions,omitempty"`
+	SnapshotOptions             *snapshotOptionsJSON                `json:"SnapshotOptions,omitempty"`
+	EncryptionAtRestOptions     *encryptAtRestOptionsJSON           `json:"EncryptionAtRestOptions,omitempty"`
+	NodeToNodeEncryptionOptions *nodeToNodeEncryptJSON              `json:"NodeToNodeEncryptionOptions,omitempty"`
+	DomainEndpointOptions       *domainEndpointOptionsJSON          `json:"DomainEndpointOptions,omitempty"`
+	AdvancedSecurityOptions     *advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions,omitempty"`
+	VPCOptions                  *vpcOptionsJSON                     `json:"VPCOptions,omitempty"`
+	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
+	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
+	Tags                        map[string]string                   `json:"TagList,omitempty"`
+	DomainName                  string                              `json:"DomainName"`
+	EngineVersion               string                              `json:"EngineVersion"`
+	AccessPolicies              string                              `json:"AccessPolicies,omitempty"`
+}
+
+// domainStatusJSON is the JSON response for domain operations.
+type domainStatusJSON struct {
+	EBSOptions                  *ebsOptionsJSON                     `json:"EBSOptions,omitempty"`
+	SnapshotOptions             *snapshotOptionsJSON                `json:"SnapshotOptions,omitempty"`
+	EncryptionAtRestOptions     *encryptAtRestOptionsJSON           `json:"EncryptionAtRestOptions,omitempty"`
+	NodeToNodeEncryptionOptions *nodeToNodeEncryptJSON              `json:"NodeToNodeEncryptionOptions,omitempty"`
+	DomainEndpointOptions       *domainEndpointOptionsJSON          `json:"DomainEndpointOptions,omitempty"`
+	AdvancedSecurityOptions     *advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions,omitempty"`
+	VPCOptions                  *vpcOptionsJSON                     `json:"VPCOptions,omitempty"`
+	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
+	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
+	DomainName                  string                              `json:"DomainName"`
+	ARN                         string                              `json:"ARN"`
+	EngineVersion               string                              `json:"EngineVersion"`
+	Endpoint                    string                              `json:"Endpoint"`
+	DomainProcessingStatus      string                              `json:"DomainProcessingStatus"`
+	AccessPolicies              string                              `json:"AccessPolicies,omitempty"`
+	ClusterConfig               clusterConfigJSON                   `json:"ClusterConfig"`
+	Processing                  bool                                `json:"Processing"`
 }
 
 // clusterConfigJSON is the JSON representation of cluster config.
 type clusterConfigJSON struct {
-	InstanceType  string `json:"InstanceType"`
-	InstanceCount int    `json:"InstanceCount"`
+	ZoneAwarenessConfig       *zoneAwarenessConfigJSON `json:"ZoneAwarenessConfig,omitempty"`
+	InstanceType              string                   `json:"InstanceType"`
+	DedicatedMasterType       string                   `json:"DedicatedMasterType,omitempty"`
+	WarmType                  string                   `json:"WarmType,omitempty"`
+	InstanceCount             int                      `json:"InstanceCount"`
+	DedicatedMasterCount      int                      `json:"DedicatedMasterCount,omitempty"`
+	WarmCount                 int                      `json:"WarmCount,omitempty"`
+	DedicatedMasterEnabled    bool                     `json:"DedicatedMasterEnabled"`
+	ZoneAwarenessEnabled      bool                     `json:"ZoneAwarenessEnabled"`
+	WarmEnabled               bool                     `json:"WarmEnabled"`
+	ColdStorageEnabled        bool                     `json:"ColdStorageEnabled"`
+	MultiAZWithStandbyEnabled bool                     `json:"MultiAZWithStandbyEnabled"`
 }
 
 // domainStatusWrapJSON wraps the domain status in a DomainStatus key.
@@ -613,10 +702,12 @@ func (h *Handler) dispatchDomainPutRoutes(w http.ResponseWriter, r *http.Request
 	}
 
 	body, _ := httputils.ReadBody(r)
-	var input UpdateDomainConfigInput
+	var req domainJSON
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &input)
+		_ = json.Unmarshal(body, &req)
 	}
+
+	input := applyReqToUpdateInput(&req)
 
 	domain, err := h.Backend.UpdateDomainConfig(name, input)
 	if err != nil {
@@ -629,11 +720,7 @@ func (h *Handler) dispatchDomainPutRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cfg := map[string]any{
-		"Options":     domain.EngineVersion,
-		jsonKeyStatus: map[string]any{"State": domainStatusActive},
-	}
-	h.writeJSON(r, w, map[string]any{"DomainConfig": map[string]any{"EngineVersion": cfg}})
+	h.writeJSON(r, w, map[string]any{"DomainConfig": toDomainConfigJSON(domain)})
 }
 
 // dispatchDomainGetRoutes handles GET requests under a domain path.
@@ -695,6 +782,139 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return h.Handle
 }
 
+// parseClusterConfigFromReq converts a JSON cluster config to backend ClusterConfig.
+func parseClusterConfigFromReq(cc *domainClusterConfig) ClusterConfig {
+	if cc == nil {
+		return ClusterConfig{}
+	}
+	cfg := ClusterConfig{
+		InstanceType:              cc.InstanceType,
+		InstanceCount:             cc.InstanceCount,
+		DedicatedMasterEnabled:    cc.DedicatedMasterEnabled,
+		DedicatedMasterType:       cc.DedicatedMasterType,
+		DedicatedMasterCount:      cc.DedicatedMasterCount,
+		ZoneAwarenessEnabled:      cc.ZoneAwarenessEnabled,
+		WarmEnabled:               cc.WarmEnabled,
+		WarmType:                  cc.WarmType,
+		WarmCount:                 cc.WarmCount,
+		ColdStorageEnabled:        cc.ColdStorageEnabled,
+		MultiAZWithStandbyEnabled: cc.MultiAZWithStandbyEnabled,
+	}
+	if cc.ZoneAwarenessConfig != nil {
+		cfg.ZoneAwarenessConfig = &ZoneAwarenessConfig{
+			AvailabilityZoneCount: cc.ZoneAwarenessConfig.AvailabilityZoneCount,
+		}
+	}
+
+	return cfg
+}
+
+// parseAdvancedSecurityOptsFromReq converts JSON advanced security options to backend type.
+func parseAdvancedSecurityOptsFromReq(aso *advancedSecurityOptionsJSON) *AdvancedSecurityOptions {
+	if aso == nil {
+		return nil
+	}
+	out := &AdvancedSecurityOptions{
+		Enabled:                     aso.Enabled,
+		InternalUserDatabaseEnabled: aso.InternalUserDatabaseEnabled,
+		AnonymousAuthEnabled:        aso.AnonymousAuthEnabled,
+	}
+	if aso.SAMLOptions != nil {
+		out.SAMLOptions = &SAMLOptionsInput{
+			Enabled:               aso.SAMLOptions.Enabled,
+			IDPEntityID:           aso.SAMLOptions.IDPEntityID,
+			IDPMetadataContent:    aso.SAMLOptions.IDPMetadataContent,
+			RolesKey:              aso.SAMLOptions.RolesKey,
+			SubjectKey:            aso.SAMLOptions.SubjectKey,
+			SessionTimeoutMinutes: aso.SAMLOptions.SessionTimeoutMinutes,
+		}
+	}
+
+	return out
+}
+
+// parseLogPublishingOptsFromReq converts JSON log publishing options to backend type.
+func parseLogPublishingOptsFromReq(opts map[string]*logPublishingOptionJSON) map[string]*LogPublishingOption {
+	if len(opts) == 0 {
+		return nil
+	}
+	out := make(map[string]*LogPublishingOption, len(opts))
+	for k, v := range opts {
+		out[k] = &LogPublishingOption{
+			Enabled:                   v.Enabled,
+			CloudWatchLogsLogGroupARN: v.CloudWatchLogsLogGroupARN,
+		}
+	}
+
+	return out
+}
+
+// applyReqToUpdateInput maps parsed domainJSON fields onto an UpdateDomainConfigInput.
+func applyReqToUpdateInput(req *domainJSON) UpdateDomainConfigInput {
+	input := UpdateDomainConfigInput{
+		EngineVersion:  req.EngineVersion,
+		AccessPolicies: req.AccessPolicies,
+	}
+	if req.ClusterConfig != nil {
+		cc := parseClusterConfigFromReq(req.ClusterConfig)
+		input.ClusterConfig = &cc
+	}
+	if req.EBSOptions != nil {
+		input.EBSOptions = &EBSOptions{
+			EBSEnabled: req.EBSOptions.EBSEnabled,
+			VolumeType: req.EBSOptions.VolumeType,
+			VolumeSize: req.EBSOptions.VolumeSize,
+			IOPS:       req.EBSOptions.IOPS,
+			Throughput: req.EBSOptions.Throughput,
+			KMSKeyID:   req.EBSOptions.KMSKeyID,
+		}
+	}
+	if req.SnapshotOptions != nil {
+		input.SnapshotOptions = &SnapshotOptions{
+			AutomatedSnapshotStartHour: req.SnapshotOptions.AutomatedSnapshotStartHour,
+		}
+	}
+	if req.EncryptionAtRestOptions != nil {
+		input.EncryptionAtRestOptions = &EncryptionAtRestOptions{
+			Enabled:  req.EncryptionAtRestOptions.Enabled,
+			KMSKeyID: req.EncryptionAtRestOptions.KMSKeyID,
+		}
+	}
+	if req.NodeToNodeEncryptionOptions != nil {
+		input.NodeToNodeEncryptionOptions = &NodeToNodeEncryptionOptions{
+			Enabled: req.NodeToNodeEncryptionOptions.Enabled,
+		}
+	}
+	if req.DomainEndpointOptions != nil {
+		input.DomainEndpointOptions = &DomainEndpointOptions{
+			EnforceHTTPS:                 req.DomainEndpointOptions.EnforceHTTPS,
+			TLSSecurityPolicy:            req.DomainEndpointOptions.TLSSecurityPolicy,
+			CustomEndpointEnabled:        req.DomainEndpointOptions.CustomEndpointEnabled,
+			CustomEndpoint:               req.DomainEndpointOptions.CustomEndpoint,
+			CustomEndpointCertificateArn: req.DomainEndpointOptions.CustomEndpointCertificateArn,
+		}
+	}
+	input.AdvancedSecurityOptions = parseAdvancedSecurityOptsFromReq(req.AdvancedSecurityOptions)
+	if req.VPCOptions != nil {
+		input.VPCOptions = &VPCOptions{
+			VPCID:            req.VPCOptions.VPCID,
+			SubnetIDs:        req.VPCOptions.SubnetIDs,
+			SecurityGroupIDs: req.VPCOptions.SecurityGroupIDs,
+		}
+	}
+	if req.CognitoOptions != nil {
+		input.CognitoOptions = &CognitoOptions{
+			Enabled:        req.CognitoOptions.Enabled,
+			UserPoolID:     req.CognitoOptions.UserPoolID,
+			IdentityPoolID: req.CognitoOptions.IdentityPoolID,
+			RoleARN:        req.CognitoOptions.RoleARN,
+		}
+	}
+	input.LogPublishingOptions = parseLogPublishingOptsFromReq(req.LogPublishingOptions)
+
+	return input
+}
+
 func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 	body, err := httputils.ReadBody(r)
 	if err != nil {
@@ -716,13 +936,25 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cfg ClusterConfig
-	if req.ClusterConfig != nil {
-		cfg.InstanceType = req.ClusterConfig.InstanceType
-		cfg.InstanceCount = req.ClusterConfig.InstanceCount
+	upd := applyReqToUpdateInput(&req)
+	input := CreateDomainInput{
+		Name:                        req.DomainName,
+		EngineVersion:               upd.EngineVersion,
+		AccessPolicies:              upd.AccessPolicies,
+		Tags:                        req.Tags,
+		ClusterConfig:               parseClusterConfigFromReq(req.ClusterConfig),
+		EBSOptions:                  upd.EBSOptions,
+		SnapshotOptions:             upd.SnapshotOptions,
+		EncryptionAtRestOptions:     upd.EncryptionAtRestOptions,
+		NodeToNodeEncryptionOptions: upd.NodeToNodeEncryptionOptions,
+		DomainEndpointOptions:       upd.DomainEndpointOptions,
+		AdvancedSecurityOptions:     upd.AdvancedSecurityOptions,
+		VPCOptions:                  upd.VPCOptions,
+		CognitoOptions:              upd.CognitoOptions,
+		LogPublishingOptions:        upd.LogPublishingOptions,
 	}
 
-	domain, err := h.Backend.CreateDomain(req.DomainName, req.EngineVersion, cfg)
+	domain, err := h.Backend.CreateDomain(input)
 	if err != nil {
 		if errors.Is(err, ErrDomainAlreadyExists) {
 			h.writeError(r, w, http.StatusConflict, "ResourceAlreadyExistsException", err.Error())
@@ -892,28 +1124,198 @@ func (h *Handler) handleDissociatePackages(w http.ResponseWriter, r *http.Reques
 	h.writeJSON(r, w, map[string]any{"DomainPackageDetailsList": outList})
 }
 
-func toDomainStatusJSON(d *Domain) domainStatusJSON {
-	return domainStatusJSON{
-		DomainName:                  d.Name,
-		ARN:                         d.ARN,
-		EngineVersion:               d.EngineVersion,
-		Endpoint:                    d.Endpoint,
-		Processing:                  false,
-		DomainProcessingStatus:      domainStatusActive,
-		EBSOptions:                  ebsOptionsJSON{EBSEnabled: false},
-		CognitoOptions:              cognitoOptionsJSON{Enabled: false},
-		EncryptionAtRestOptions:     encryptAtRestOptionsJSON{Enabled: false},
-		NodeToNodeEncryptionOptions: nodeToNodeEncryptJSON{Enabled: false},
-		AdvancedSecurityOptions:     advancedSecurityOptionsJSON{Enabled: false},
-		ClusterConfig: clusterConfigJSON{
-			InstanceType:  d.ClusterConfig.InstanceType,
-			InstanceCount: d.ClusterConfig.InstanceCount,
-		},
+func toClusterConfigJSON(cc ClusterConfig) clusterConfigJSON {
+	out := clusterConfigJSON{
+		InstanceType:              cc.InstanceType,
+		InstanceCount:             cc.InstanceCount,
+		DedicatedMasterEnabled:    cc.DedicatedMasterEnabled,
+		DedicatedMasterType:       cc.DedicatedMasterType,
+		DedicatedMasterCount:      cc.DedicatedMasterCount,
+		ZoneAwarenessEnabled:      cc.ZoneAwarenessEnabled,
+		WarmEnabled:               cc.WarmEnabled,
+		WarmType:                  cc.WarmType,
+		WarmCount:                 cc.WarmCount,
+		ColdStorageEnabled:        cc.ColdStorageEnabled,
+		MultiAZWithStandbyEnabled: cc.MultiAZWithStandbyEnabled,
 	}
+	if cc.ZoneAwarenessConfig != nil {
+		out.ZoneAwarenessConfig = &zoneAwarenessConfigJSON{
+			AvailabilityZoneCount: cc.ZoneAwarenessConfig.AvailabilityZoneCount,
+		}
+	}
+
+	return out
+}
+
+func toAdvancedSecurityOptionsJSON(aso *AdvancedSecurityOptions) *advancedSecurityOptionsJSON {
+	if aso == nil {
+		return &advancedSecurityOptionsJSON{}
+	}
+	out := &advancedSecurityOptionsJSON{
+		Enabled:                     aso.Enabled,
+		InternalUserDatabaseEnabled: aso.InternalUserDatabaseEnabled,
+		AnonymousAuthEnabled:        aso.AnonymousAuthEnabled,
+	}
+	if aso.SAMLOptions != nil {
+		out.SAMLOptions = &samlOptionsJSON{
+			Enabled:               aso.SAMLOptions.Enabled,
+			IDPEntityID:           aso.SAMLOptions.IDPEntityID,
+			IDPMetadataContent:    aso.SAMLOptions.IDPMetadataContent,
+			RolesKey:              aso.SAMLOptions.RolesKey,
+			SubjectKey:            aso.SAMLOptions.SubjectKey,
+			SessionTimeoutMinutes: aso.SAMLOptions.SessionTimeoutMinutes,
+		}
+	}
+
+	return out
+}
+
+func toLogPublishingOptionsJSON(opts map[string]*LogPublishingOption) map[string]*logPublishingOptionJSON {
+	if len(opts) == 0 {
+		return nil
+	}
+	out := make(map[string]*logPublishingOptionJSON, len(opts))
+	for k, v := range opts {
+		out[k] = &logPublishingOptionJSON{
+			Enabled:                   v.Enabled,
+			CloudWatchLogsLogGroupARN: v.CloudWatchLogsLogGroupARN,
+		}
+	}
+
+	return out
+}
+
+func toDomainStatusJSON(d *Domain) domainStatusJSON {
+	out := domainStatusJSON{
+		DomainName:             d.Name,
+		ARN:                    d.ARN,
+		EngineVersion:          d.EngineVersion,
+		Endpoint:               d.Endpoint,
+		Processing:             false,
+		DomainProcessingStatus: domainStatusActive,
+		AccessPolicies:         d.AccessPolicies,
+		ClusterConfig:          toClusterConfigJSON(d.ClusterConfig),
+		// Always emit these fields so providers see a consistent response shape.
+		EBSOptions:                  &ebsOptionsJSON{},
+		EncryptionAtRestOptions:     &encryptAtRestOptionsJSON{},
+		NodeToNodeEncryptionOptions: &nodeToNodeEncryptJSON{},
+		CognitoOptions:              &cognitoOptionsJSON{},
+		AdvancedSecurityOptions:     toAdvancedSecurityOptionsJSON(nil),
+	}
+	applyDomainOptionalFields(d, &out)
+
+	return out
+}
+
+func applyDomainOptionalFields(d *Domain, out *domainStatusJSON) {
+	if d.EBSOptions != nil {
+		out.EBSOptions = &ebsOptionsJSON{
+			EBSEnabled: d.EBSOptions.EBSEnabled,
+			VolumeType: d.EBSOptions.VolumeType,
+			VolumeSize: d.EBSOptions.VolumeSize,
+			IOPS:       d.EBSOptions.IOPS,
+			Throughput: d.EBSOptions.Throughput,
+			KMSKeyID:   d.EBSOptions.KMSKeyID,
+		}
+	}
+	if d.SnapshotOptions != nil {
+		out.SnapshotOptions = &snapshotOptionsJSON{
+			AutomatedSnapshotStartHour: d.SnapshotOptions.AutomatedSnapshotStartHour,
+		}
+	}
+	if d.EncryptionAtRestOptions != nil {
+		out.EncryptionAtRestOptions = &encryptAtRestOptionsJSON{
+			Enabled:  d.EncryptionAtRestOptions.Enabled,
+			KMSKeyID: d.EncryptionAtRestOptions.KMSKeyID,
+		}
+	}
+	if d.NodeToNodeEncryptionOptions != nil {
+		out.NodeToNodeEncryptionOptions = &nodeToNodeEncryptJSON{Enabled: d.NodeToNodeEncryptionOptions.Enabled}
+	}
+	if d.DomainEndpointOptions != nil {
+		out.DomainEndpointOptions = &domainEndpointOptionsJSON{
+			EnforceHTTPS:                 d.DomainEndpointOptions.EnforceHTTPS,
+			TLSSecurityPolicy:            d.DomainEndpointOptions.TLSSecurityPolicy,
+			CustomEndpointEnabled:        d.DomainEndpointOptions.CustomEndpointEnabled,
+			CustomEndpoint:               d.DomainEndpointOptions.CustomEndpoint,
+			CustomEndpointCertificateArn: d.DomainEndpointOptions.CustomEndpointCertificateArn,
+		}
+	}
+	if d.AdvancedSecurityOptions != nil {
+		out.AdvancedSecurityOptions = toAdvancedSecurityOptionsJSON(d.AdvancedSecurityOptions)
+	}
+	if d.VPCOptions != nil {
+		out.VPCOptions = &vpcOptionsJSON{
+			VPCID:            d.VPCOptions.VPCID,
+			SubnetIDs:        d.VPCOptions.SubnetIDs,
+			SecurityGroupIDs: d.VPCOptions.SecurityGroupIDs,
+		}
+	}
+	if d.CognitoOptions != nil {
+		out.CognitoOptions = &cognitoOptionsJSON{
+			Enabled:        d.CognitoOptions.Enabled,
+			UserPoolID:     d.CognitoOptions.UserPoolID,
+			IdentityPoolID: d.CognitoOptions.IdentityPoolID,
+			RoleARN:        d.CognitoOptions.RoleARN,
+		}
+	}
+	out.LogPublishingOptions = toLogPublishingOptionsJSON(d.LogPublishingOptions)
 }
 
 type errorResponseJSON struct {
 	Message string `json:"message"`
+}
+
+// toDomainConfigJSON builds the DescribeDomainConfig / UpdateDomainConfig response body.
+func toDomainConfigJSON(d *Domain) domainConfigFields {
+	active := opensearchConfigStatus{State: domainStatusActive}
+	st := toDomainStatusJSON(d)
+
+	cfg := domainConfigFields{
+		EngineVersion:   opensearchConfigValue{Options: d.EngineVersion, Status: active},
+		ClusterConfig:   opensearchConfigValue{Options: st.ClusterConfig, Status: active},
+		EBSOptions:      opensearchConfigValue{Options: map[string]any{}, Status: active},
+		AccessPolicies:  opensearchConfigValue{Options: d.AccessPolicies, Status: active},
+		AdvancedOptions: opensearchConfigValue{Options: map[string]any{}, Status: active},
+	}
+
+	if st.EBSOptions != nil {
+		cfg.EBSOptions = opensearchConfigValue{Options: st.EBSOptions, Status: active}
+	}
+
+	if st.SnapshotOptions != nil {
+		cfg.SnapshotOptions = opensearchConfigValue{Options: st.SnapshotOptions, Status: active}
+	}
+
+	if st.EncryptionAtRestOptions != nil {
+		cfg.EncryptionAtRestOptions = opensearchConfigValue{Options: st.EncryptionAtRestOptions, Status: active}
+	}
+
+	if st.NodeToNodeEncryptionOptions != nil {
+		cfg.NodeToNodeEncryptionOptions = opensearchConfigValue{Options: st.NodeToNodeEncryptionOptions, Status: active}
+	}
+
+	if st.DomainEndpointOptions != nil {
+		cfg.DomainEndpointOptions = opensearchConfigValue{Options: st.DomainEndpointOptions, Status: active}
+	}
+
+	if st.AdvancedSecurityOptions != nil {
+		cfg.AdvancedSecurityOptions = opensearchConfigValue{Options: st.AdvancedSecurityOptions, Status: active}
+	}
+
+	if st.VPCOptions != nil {
+		cfg.VPCOptions = opensearchConfigValue{Options: st.VPCOptions, Status: active}
+	}
+
+	if st.CognitoOptions != nil {
+		cfg.CognitoOptions = opensearchConfigValue{Options: st.CognitoOptions, Status: active}
+	}
+
+	if len(st.LogPublishingOptions) > 0 {
+		cfg.LogPublishingOptions = opensearchConfigValue{Options: st.LogPublishingOptions, Status: active}
+	}
+
+	return cfg
 }
 
 func (h *Handler) writeError(r *http.Request, w http.ResponseWriter, status int, code, message string) {
@@ -942,15 +1344,19 @@ type opensearchConfigValue struct {
 
 // domainConfigFields holds the per-feature configuration values for a domain.
 type domainConfigFields struct {
-	EngineVersion   opensearchConfigValue `json:"EngineVersion"`
-	ClusterConfig   opensearchConfigValue `json:"ClusterConfig"`
-	EBSOptions      opensearchConfigValue `json:"EBSOptions"`
-	AccessPolicies  opensearchConfigValue `json:"AccessPolicies"`
-	AdvancedOptions opensearchConfigValue `json:"AdvancedOptions"`
-}
-
-type describeDomainConfigOutput struct {
-	DomainConfig domainConfigFields `json:"DomainConfig"`
+	EngineVersion               opensearchConfigValue `json:"EngineVersion"`
+	ClusterConfig               opensearchConfigValue `json:"ClusterConfig"`
+	EBSOptions                  opensearchConfigValue `json:"EBSOptions"`
+	AccessPolicies              opensearchConfigValue `json:"AccessPolicies"`
+	AdvancedOptions             opensearchConfigValue `json:"AdvancedOptions"`
+	SnapshotOptions             opensearchConfigValue `json:"SnapshotOptions"`
+	EncryptionAtRestOptions     opensearchConfigValue `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryptionOptions opensearchConfigValue `json:"NodeToNodeEncryptionOptions"`
+	DomainEndpointOptions       opensearchConfigValue `json:"DomainEndpointOptions"`
+	AdvancedSecurityOptions     opensearchConfigValue `json:"AdvancedSecurityOptions"`
+	VPCOptions                  opensearchConfigValue `json:"VPCOptions"`
+	CognitoOptions              opensearchConfigValue `json:"CognitoOptions"`
+	LogPublishingOptions        opensearchConfigValue `json:"LogPublishingOptions"`
 }
 
 func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
@@ -1055,20 +1461,7 @@ func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	activeStatus := opensearchConfigStatus{State: domainStatusActive}
-	out := describeDomainConfigOutput{}
-	out.DomainConfig.EngineVersion = opensearchConfigValue{Options: domain.EngineVersion, Status: activeStatus}
-	out.DomainConfig.ClusterConfig = opensearchConfigValue{
-		Options: map[string]any{
-			jsonKeyInstanceType: domain.ClusterConfig.InstanceType,
-			"InstanceCount":     domain.ClusterConfig.InstanceCount,
-		},
-		Status: activeStatus,
-	}
-	out.DomainConfig.EBSOptions = opensearchConfigValue{Options: map[string]any{}, Status: activeStatus}
-	out.DomainConfig.AccessPolicies = opensearchConfigValue{Options: "", Status: activeStatus}
-	out.DomainConfig.AdvancedOptions = opensearchConfigValue{Options: map[string]any{}, Status: activeStatus}
-	h.writeJSON(r, w, &out)
+	h.writeJSON(r, w, map[string]any{"DomainConfig": toDomainConfigJSON(domain)})
 }
 
 // handleDomainSubRoutes handles POST requests under /2021-01-01/opensearch/domain/{name}/...

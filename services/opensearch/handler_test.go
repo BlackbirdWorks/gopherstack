@@ -673,7 +673,7 @@ func TestOpenSearchBackend_DNSRegistrar(t *testing.T) {
 			b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
 			b.SetDNSRegistrar(registrar)
 
-			domain, err := b.CreateDomain(tt.domainName, "", opensearch.ClusterConfig{})
+			domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: tt.domainName})
 			require.NoError(t, err)
 
 			if tt.deleteAfter {
@@ -1536,7 +1536,7 @@ func TestOpenSearchHandler_Persistence_NewOps(t *testing.T) {
 	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
 
 	// Set up state with new ops
-	_, err := b.CreateDomain("snap-domain", "OpenSearch_2.11", opensearch.ClusterConfig{})
+	_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "snap-domain", EngineVersion: "OpenSearch_2.11"})
 	require.NoError(t, err)
 
 	_, err = b.AcceptInboundConnection("conn-abc")
@@ -1637,7 +1637,7 @@ func TestOpenSearchBackend_AddDataSource_MissingName(t *testing.T) {
 
 	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateDomain("my-domain", "", opensearch.ClusterConfig{})
+	_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "my-domain"})
 	require.NoError(t, err)
 
 	_, err = b.AddDataSource("my-domain", "", "desc", "S3GLUE")

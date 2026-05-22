@@ -4,7 +4,7 @@ package opensearch
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
 	// Domain operations
-	CreateDomain(name, engineVersion string, clusterConfig ClusterConfig) (*Domain, error)
+	CreateDomain(input CreateDomainInput) (*Domain, error)
 	DeleteDomain(name string) (*Domain, error)
 	DescribeDomain(name string) (*Domain, error)
 	DescribeDomains(names []string) ([]*Domain, error)
