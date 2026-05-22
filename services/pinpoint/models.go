@@ -78,26 +78,26 @@ type InAppTemplate struct {
 
 // Journey represents a Pinpoint journey.
 type Journey struct {
-	Tags             map[string]string      `json:"tags,omitempty"`
-	Activities       map[string]map[string]any `json:"Activities,omitempty"`
-	StartCondition   map[string]any         `json:"StartCondition,omitempty"`
-	Schedule         map[string]any         `json:"Schedule,omitempty"`
-	Limits           map[string]any         `json:"Limits,omitempty"`
-	QuietTime        map[string]any         `json:"QuietTime,omitempty"`
-	OpenHours        map[string]any         `json:"OpenHours,omitempty"`
-	ClosedDays       map[string]any         `json:"ClosedDays,omitempty"`
-	ApplicationID    string                 `json:"ApplicationId"`
-	ARN              string                 `json:"Arn,omitempty"`
-	ID               string                 `json:"Id"`
-	Name             string                 `json:"Name"`
-	StartActivity    string                 `json:"StartActivity,omitempty"`
-	RefreshFrequency string                 `json:"RefreshFrequency,omitempty"`
-	CreationDate     string                 `json:"CreationDate,omitempty"`
-	LastModifiedDate string                 `json:"LastModifiedDate,omitempty"`
-	State            string                 `json:"State"`
-	LocalTime        bool                   `json:"LocalTime,omitempty"`
-	WaitForQuietTime bool                   `json:"WaitForQuietTime,omitempty"`
-	RefreshOnSegmentUpdate bool             `json:"RefreshOnSegmentUpdate,omitempty"`
+	Tags                   map[string]string         `json:"tags,omitempty"`
+	Activities             map[string]map[string]any `json:"Activities,omitempty"`
+	StartCondition         map[string]any            `json:"StartCondition,omitempty"`
+	Schedule               map[string]any            `json:"Schedule,omitempty"`
+	Limits                 map[string]any            `json:"Limits,omitempty"`
+	QuietTime              map[string]any            `json:"QuietTime,omitempty"`
+	OpenHours              map[string]any            `json:"OpenHours,omitempty"`
+	ClosedDays             map[string]any            `json:"ClosedDays,omitempty"`
+	ApplicationID          string                    `json:"ApplicationId"`
+	ARN                    string                    `json:"Arn,omitempty"`
+	ID                     string                    `json:"Id"`
+	Name                   string                    `json:"Name"`
+	StartActivity          string                    `json:"StartActivity,omitempty"`
+	RefreshFrequency       string                    `json:"RefreshFrequency,omitempty"`
+	CreationDate           string                    `json:"CreationDate,omitempty"`
+	LastModifiedDate       string                    `json:"LastModifiedDate,omitempty"`
+	State                  string                    `json:"State"`
+	LocalTime              bool                      `json:"LocalTime,omitempty"`
+	WaitForQuietTime       bool                      `json:"WaitForQuietTime,omitempty"`
+	RefreshOnSegmentUpdate bool                      `json:"RefreshOnSegmentUpdate,omitempty"`
 }
 
 // PushTemplate represents a Pinpoint push notification template.
@@ -204,20 +204,20 @@ type createInAppTemplateRequest struct {
 
 // createJourneyRequest is the request body for CreateJourney.
 type createJourneyRequest struct {
-	Tags             map[string]string         `json:"tags,omitempty"`
-	Activities       map[string]map[string]any `json:"Activities,omitempty"`
-	StartCondition   map[string]any            `json:"StartCondition,omitempty"`
-	Schedule         map[string]any            `json:"Schedule,omitempty"`
-	Limits           map[string]any            `json:"Limits,omitempty"`
-	QuietTime        map[string]any            `json:"QuietTime,omitempty"`
-	OpenHours        map[string]any            `json:"OpenHours,omitempty"`
-	ClosedDays       map[string]any            `json:"ClosedDays,omitempty"`
-	Name             string                    `json:"Name"`
-	StartActivity    string                    `json:"StartActivity,omitempty"`
-	RefreshFrequency string                    `json:"RefreshFrequency,omitempty"`
-	LocalTime        bool                      `json:"LocalTime,omitempty"`
-	WaitForQuietTime bool                      `json:"WaitForQuietTime,omitempty"`
-	RefreshOnSegmentUpdate bool                `json:"RefreshOnSegmentUpdate,omitempty"`
+	Tags                   map[string]string         `json:"tags,omitempty"`
+	Activities             map[string]map[string]any `json:"Activities,omitempty"`
+	StartCondition         map[string]any            `json:"StartCondition,omitempty"`
+	Schedule               map[string]any            `json:"Schedule,omitempty"`
+	Limits                 map[string]any            `json:"Limits,omitempty"`
+	QuietTime              map[string]any            `json:"QuietTime,omitempty"`
+	OpenHours              map[string]any            `json:"OpenHours,omitempty"`
+	ClosedDays             map[string]any            `json:"ClosedDays,omitempty"`
+	Name                   string                    `json:"Name"`
+	StartActivity          string                    `json:"StartActivity,omitempty"`
+	RefreshFrequency       string                    `json:"RefreshFrequency,omitempty"`
+	LocalTime              bool                      `json:"LocalTime,omitempty"`
+	WaitForQuietTime       bool                      `json:"WaitForQuietTime,omitempty"`
+	RefreshOnSegmentUpdate bool                      `json:"RefreshOnSegmentUpdate,omitempty"`
 }
 
 // createPushTemplateRequest is the request body for CreatePushTemplate.
@@ -269,17 +269,17 @@ type campaignResponse struct {
 	Limits                      map[string]any    `json:"Limits,omitempty"`
 	TemplateConfiguration       map[string]any    `json:"TemplateConfiguration,omitempty"`
 	CustomDeliveryConfiguration map[string]any    `json:"CustomDeliveryConfiguration,omitempty"`
-	ApplicationID               string            `json:"ApplicationId"`
-	ARN                         string            `json:"Arn,omitempty"`
-	ID                          string            `json:"Id"`
 	Name                        string            `json:"Name"`
+	CreationDate                string            `json:"CreationDate,omitempty"`
+	ID                          string            `json:"Id"`
+	ApplicationID               string            `json:"ApplicationId"`
 	SegmentID                   string            `json:"SegmentId,omitempty"`
 	TreatmentDescription        string            `json:"TreatmentDescription,omitempty"`
 	TreatmentName               string            `json:"TreatmentName,omitempty"`
-	CreationDate                string            `json:"CreationDate,omitempty"`
+	ARN                         string            `json:"Arn,omitempty"`
 	LastModifiedDate            string            `json:"LastModifiedDate,omitempty"`
-	AdditionalTreatments        []map[string]any  `json:"AdditionalTreatments,omitempty"`
 	State                       campaignState     `json:"State"`
+	AdditionalTreatments        []map[string]any  `json:"AdditionalTreatments,omitempty"`
 	Version                     int               `json:"Version,omitempty"`
 	SegmentVersion              int               `json:"SegmentVersion,omitempty"`
 	Priority                    int               `json:"Priority,omitempty"`
@@ -321,26 +321,26 @@ type importJobResponse struct {
 
 // journeyResponse is the JSON wire format of JourneyResponse.
 type journeyResponse struct {
-	Tags             map[string]string         `json:"tags,omitempty"`
-	Activities       map[string]map[string]any `json:"Activities,omitempty"`
-	StartCondition   map[string]any            `json:"StartCondition,omitempty"`
-	Schedule         map[string]any            `json:"Schedule,omitempty"`
-	Limits           map[string]any            `json:"Limits,omitempty"`
-	QuietTime        map[string]any            `json:"QuietTime,omitempty"`
-	OpenHours        map[string]any            `json:"OpenHours,omitempty"`
-	ClosedDays       map[string]any            `json:"ClosedDays,omitempty"`
-	ApplicationID    string                    `json:"ApplicationId"`
-	ARN              string                    `json:"Arn,omitempty"`
-	ID               string                    `json:"Id"`
-	Name             string                    `json:"Name"`
-	StartActivity    string                    `json:"StartActivity,omitempty"`
-	RefreshFrequency string                    `json:"RefreshFrequency,omitempty"`
-	State            string                    `json:"State"`
-	CreationDate     string                    `json:"CreationDate,omitempty"`
-	LastModifiedDate string                    `json:"LastModifiedDate,omitempty"`
-	LocalTime        bool                      `json:"LocalTime,omitempty"`
-	WaitForQuietTime bool                      `json:"WaitForQuietTime,omitempty"`
-	RefreshOnSegmentUpdate bool                `json:"RefreshOnSegmentUpdate,omitempty"`
+	Tags                   map[string]string         `json:"tags,omitempty"`
+	Activities             map[string]map[string]any `json:"Activities,omitempty"`
+	StartCondition         map[string]any            `json:"StartCondition,omitempty"`
+	Schedule               map[string]any            `json:"Schedule,omitempty"`
+	Limits                 map[string]any            `json:"Limits,omitempty"`
+	QuietTime              map[string]any            `json:"QuietTime,omitempty"`
+	OpenHours              map[string]any            `json:"OpenHours,omitempty"`
+	ClosedDays             map[string]any            `json:"ClosedDays,omitempty"`
+	ApplicationID          string                    `json:"ApplicationId"`
+	ARN                    string                    `json:"Arn,omitempty"`
+	ID                     string                    `json:"Id"`
+	Name                   string                    `json:"Name"`
+	StartActivity          string                    `json:"StartActivity,omitempty"`
+	RefreshFrequency       string                    `json:"RefreshFrequency,omitempty"`
+	State                  string                    `json:"State"`
+	CreationDate           string                    `json:"CreationDate,omitempty"`
+	LastModifiedDate       string                    `json:"LastModifiedDate,omitempty"`
+	LocalTime              bool                      `json:"LocalTime,omitempty"`
+	WaitForQuietTime       bool                      `json:"WaitForQuietTime,omitempty"`
+	RefreshOnSegmentUpdate bool                      `json:"RefreshOnSegmentUpdate,omitempty"`
 }
 
 // recommenderConfigResponse is the JSON wire format of RecommenderConfigurationResponse.
@@ -454,20 +454,20 @@ type updateSegmentRequest struct {
 
 // updateJourneyRequest is the request body for UpdateJourney.
 type updateJourneyRequest struct {
-	Tags             map[string]string         `json:"tags,omitempty"`
-	Activities       map[string]map[string]any `json:"Activities,omitempty"`
-	StartCondition   map[string]any            `json:"StartCondition,omitempty"`
-	Schedule         map[string]any            `json:"Schedule,omitempty"`
-	Limits           map[string]any            `json:"Limits,omitempty"`
-	QuietTime        map[string]any            `json:"QuietTime,omitempty"`
-	OpenHours        map[string]any            `json:"OpenHours,omitempty"`
-	ClosedDays       map[string]any            `json:"ClosedDays,omitempty"`
-	Name             string                    `json:"Name,omitempty"`
-	StartActivity    string                    `json:"StartActivity,omitempty"`
-	RefreshFrequency string                    `json:"RefreshFrequency,omitempty"`
-	LocalTime        bool                      `json:"LocalTime,omitempty"`
-	WaitForQuietTime bool                      `json:"WaitForQuietTime,omitempty"`
-	RefreshOnSegmentUpdate bool                `json:"RefreshOnSegmentUpdate,omitempty"`
+	Tags                   map[string]string         `json:"tags,omitempty"`
+	Activities             map[string]map[string]any `json:"Activities,omitempty"`
+	StartCondition         map[string]any            `json:"StartCondition,omitempty"`
+	Schedule               map[string]any            `json:"Schedule,omitempty"`
+	Limits                 map[string]any            `json:"Limits,omitempty"`
+	QuietTime              map[string]any            `json:"QuietTime,omitempty"`
+	OpenHours              map[string]any            `json:"OpenHours,omitempty"`
+	ClosedDays             map[string]any            `json:"ClosedDays,omitempty"`
+	Name                   string                    `json:"Name,omitempty"`
+	StartActivity          string                    `json:"StartActivity,omitempty"`
+	RefreshFrequency       string                    `json:"RefreshFrequency,omitempty"`
+	LocalTime              bool                      `json:"LocalTime,omitempty"`
+	WaitForQuietTime       bool                      `json:"WaitForQuietTime,omitempty"`
+	RefreshOnSegmentUpdate bool                      `json:"RefreshOnSegmentUpdate,omitempty"`
 }
 
 // updateJourneyStateRequest is the request body for UpdateJourneyState.
@@ -477,17 +477,17 @@ type updateJourneyStateRequest struct {
 
 // updateEndpointRequest is the request body for UpdateEndpoint.
 type updateEndpointRequest struct {
-	User          endpointUser         `json:"User"`
-	Attributes    map[string][]string  `json:"Attributes,omitempty"`
-	Metrics       map[string]float64   `json:"Metrics,omitempty"`
-	Demographic   map[string]any       `json:"Demographic,omitempty"`
-	Location      map[string]any       `json:"Location,omitempty"`
-	ChannelType   string               `json:"ChannelType,omitempty"`
-	Address       string               `json:"Address,omitempty"`
-	EffectiveDate string               `json:"EffectiveDate,omitempty"`
+	User           endpointUser        `json:"User"`
+	Attributes     map[string][]string `json:"Attributes,omitempty"`
+	Metrics        map[string]float64  `json:"Metrics,omitempty"`
+	Demographic    map[string]any      `json:"Demographic,omitempty"`
+	Location       map[string]any      `json:"Location,omitempty"`
+	ChannelType    string              `json:"ChannelType,omitempty"`
+	Address        string              `json:"Address,omitempty"`
+	EffectiveDate  string              `json:"EffectiveDate,omitempty"`
 	EndpointStatus string              `json:"EndpointStatus,omitempty"`
-	OptOut        string               `json:"OptOut,omitempty"`
-	RequestId     string               `json:"RequestId,omitempty"`
+	OptOut         string              `json:"OptOut,omitempty"`
+	RequestID      string              `json:"RequestId,omitempty"`
 }
 
 // endpointUser is a sub-object in updateEndpointRequest.
@@ -514,22 +514,22 @@ type updateChannelRequest struct {
 
 // updateGCMChannelRequest is the request body for UpdateGcmChannel.
 type updateGCMChannelRequest struct {
-	ApiKey                    string `json:"ApiKey,omitempty"`
-	ServiceJson               string `json:"ServiceJson,omitempty"`
+	APIKey                      string `json:"ApiKey,omitempty"`
+	ServiceJSON                 string `json:"ServiceJson,omitempty"`
 	DefaultAuthenticationMethod string `json:"DefaultAuthenticationMethod,omitempty"`
-	Enabled                   bool   `json:"Enabled"`
+	Enabled                     bool   `json:"Enabled"`
 }
 
 // updateAPNSChannelRequest is the request body for UpdateApnsChannel (and sandbox/voip variants).
 type updateAPNSChannelRequest struct {
-	BundleId             string `json:"BundleId,omitempty"`
-	Certificate          string `json:"Certificate,omitempty"`
-	DefaultAuthMethod    string `json:"DefaultAuthMethod,omitempty"`
-	PrivateKey           string `json:"PrivateKey,omitempty"`
-	TeamId               string `json:"TeamId,omitempty"`
-	TokenKey             string `json:"TokenKey,omitempty"`
-	TokenKeyId           string `json:"TokenKeyId,omitempty"`
-	Enabled              bool   `json:"Enabled"`
+	BundleID          string `json:"BundleId,omitempty"`
+	Certificate       string `json:"Certificate,omitempty"`
+	DefaultAuthMethod string `json:"DefaultAuthMethod,omitempty"`
+	PrivateKey        string `json:"PrivateKey,omitempty"`
+	TeamID            string `json:"TeamId,omitempty"`
+	TokenKey          string `json:"TokenKey,omitempty"`
+	TokenKeyID        string `json:"TokenKeyId,omitempty"`
+	Enabled           bool   `json:"Enabled"`
 }
 
 // updateEmailChannelRequest is the request body for UpdateEmailChannel.
@@ -543,21 +543,21 @@ type updateEmailChannelRequest struct {
 
 // updateSMSChannelRequest is the request body for UpdateSmsChannel.
 type updateSMSChannelRequest struct {
-	SenderId  string `json:"SenderId,omitempty"`
+	SenderID  string `json:"SenderId,omitempty"`
 	ShortCode string `json:"ShortCode,omitempty"`
 	Enabled   bool   `json:"Enabled"`
 }
 
 // updateADMChannelRequest is the request body for UpdateAdmChannel.
 type updateADMChannelRequest struct {
-	ClientId     string `json:"ClientId,omitempty"`
+	ClientID     string `json:"ClientId,omitempty"`
 	ClientSecret string `json:"ClientSecret,omitempty"`
 	Enabled      bool   `json:"Enabled"`
 }
 
 // updateBaiduChannelRequest is the request body for UpdateBaiduChannel.
 type updateBaiduChannelRequest struct {
-	ApiKey    string `json:"ApiKey,omitempty"`
+	APIKey    string `json:"ApiKey,omitempty"`
 	SecretKey string `json:"SecretKey,omitempty"`
 	Enabled   bool   `json:"Enabled"`
 }
@@ -636,18 +636,18 @@ type templateVersionItem struct {
 
 // channelResponse is the JSON wire format of a channel response.
 type channelResponse struct {
-	ExtraFields   map[string]any `json:"-"`
-	ApplicationID string         `json:"ApplicationId"`
-	ChannelType   string         `json:"ChannelType"`
-	Platform      string         `json:"Platform,omitempty"`
-	CreationDate  string         `json:"CreationDate,omitempty"`
-	LastModifiedDate string      `json:"LastModifiedDate,omitempty"`
-	Version       int            `json:"Version,omitempty"`
-	MessagesPerSecond int        `json:"MessagesPerSecond,omitempty"`
-	Enabled       bool           `json:"Enabled"`
-	IsArchived    bool           `json:"IsArchived"`
-	HasCredential bool           `json:"HasCredential,omitempty"`
-	HasTokenKey   bool           `json:"HasTokenKey,omitempty"`
+	ExtraFields       map[string]any `json:"-"`
+	ApplicationID     string         `json:"ApplicationId"`
+	ChannelType       string         `json:"ChannelType"`
+	Platform          string         `json:"Platform,omitempty"`
+	CreationDate      string         `json:"CreationDate,omitempty"`
+	LastModifiedDate  string         `json:"LastModifiedDate,omitempty"`
+	Version           int            `json:"Version,omitempty"`
+	MessagesPerSecond int            `json:"MessagesPerSecond,omitempty"`
+	Enabled           bool           `json:"Enabled"`
+	IsArchived        bool           `json:"IsArchived"`
+	HasCredential     bool           `json:"HasCredential,omitempty"`
+	HasTokenKey       bool           `json:"HasTokenKey,omitempty"`
 }
 
 // channelsResponse is the JSON wire format of GetChannels response.
@@ -663,21 +663,21 @@ type endpointUserResponse struct {
 
 // endpointResponse is the JSON wire format of an endpoint.
 type endpointResponse struct {
-	Attributes     map[string][]string `json:"Attributes,omitempty"`
-	Metrics        map[string]float64  `json:"Metrics,omitempty"`
-	Demographic    map[string]any      `json:"Demographic,omitempty"`
-	Location       map[string]any      `json:"Location,omitempty"`
-	User           endpointUserResponse `json:"User,omitempty"`
-	ApplicationID  string              `json:"ApplicationId"`
-	ID             string              `json:"Id"`
-	CohortId       string              `json:"CohortId,omitempty"`
-	ChannelType    string              `json:"ChannelType,omitempty"`
-	Address        string              `json:"Address,omitempty"`
-	EffectiveDate  string              `json:"EffectiveDate,omitempty"`
-	CreationDate   string              `json:"CreationDate,omitempty"`
-	EndpointStatus string              `json:"EndpointStatus,omitempty"`
-	OptOut         string              `json:"OptOut,omitempty"`
-	RequestId      string              `json:"RequestId,omitempty"`
+	Attributes     map[string][]string  `json:"Attributes,omitempty"`
+	Metrics        map[string]float64   `json:"Metrics,omitempty"`
+	Demographic    map[string]any       `json:"Demographic,omitempty"`
+	Location       map[string]any       `json:"Location,omitempty"`
+	User           endpointUserResponse `json:"User"`
+	ApplicationID  string               `json:"ApplicationId"`
+	ID             string               `json:"Id"`
+	CohortID       string               `json:"CohortId,omitempty"`
+	ChannelType    string               `json:"ChannelType,omitempty"`
+	Address        string               `json:"Address,omitempty"`
+	EffectiveDate  string               `json:"EffectiveDate,omitempty"`
+	CreationDate   string               `json:"CreationDate,omitempty"`
+	EndpointStatus string               `json:"EndpointStatus,omitempty"`
+	OptOut         string               `json:"OptOut,omitempty"`
+	RequestID      string               `json:"RequestId,omitempty"`
 }
 
 // endpointsResponse is the JSON wire format of EndpointsResponse.

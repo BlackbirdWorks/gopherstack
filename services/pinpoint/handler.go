@@ -41,7 +41,7 @@ const (
 	campaignStatusScheduled = "SCHEDULED"
 	campaignStatusPaused    = "PAUSED"
 	campaignStatusCompleted = "COMPLETED"
-	unknownOperation       = "Unknown"
+	unknownOperation        = "Unknown"
 
 	// sub-path segment constants used throughout dispatch helpers.
 	subPathJobsExport       = "jobs/export"

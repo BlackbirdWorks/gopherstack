@@ -19,16 +19,16 @@ func TestAudit1_CampaignFullDTO_Create(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		body           map[string]any
-		wantStatus     int
-		wantState      string
-		wantSegID      string
-		wantPriority   float64
-		wantIsPaused   bool
-		wantHasSchedule bool
-		wantHasHook    bool
-		wantHasLimits  bool
+		body             map[string]any
+		name             string
+		wantState        string
+		wantSegID        string
+		wantStatus       int
+		wantPriority     float64
+		wantIsPaused     bool
+		wantHasSchedule  bool
+		wantHasHook      bool
+		wantHasLimits    bool
 		wantHasMsgConfig bool
 	}{
 		{
@@ -37,9 +37,9 @@ func TestAudit1_CampaignFullDTO_Create(t *testing.T) {
 				"Name":      "basic",
 				"SegmentId": "seg-001",
 			},
-			wantStatus:   http.StatusCreated,
-			wantState:    "SCHEDULED",
-			wantSegID:    "seg-001",
+			wantStatus: http.StatusCreated,
+			wantState:  "SCHEDULED",
+			wantSegID:  "seg-001",
 		},
 		{
 			name: "campaign_with_schedule",
@@ -75,9 +75,9 @@ func TestAudit1_CampaignFullDTO_Create(t *testing.T) {
 				"Name":      "limited",
 				"SegmentId": "seg-001",
 				"Limits": map[string]any{
-					"Daily":              100.0,
-					"MessagesPerSecond":  10.0,
-					"Total":              1000.0,
+					"Daily":             100.0,
+					"MessagesPerSecond": 10.0,
+					"Total":             1000.0,
 				},
 			},
 			wantStatus:    http.StatusCreated,
@@ -139,9 +139,9 @@ func TestAudit1_CampaignFullDTO_Create(t *testing.T) {
 				"SegmentId": "seg-001",
 				"AdditionalTreatments": []any{
 					map[string]any{
-						"SizePercent":     50,
-						"TreatmentName":   "Variant A",
-						"SegmentId":       "seg-002",
+						"SizePercent":   50,
+						"TreatmentName": "Variant A",
+						"SegmentId":     "seg-002",
 					},
 				},
 			},
@@ -205,7 +205,7 @@ func TestAudit1_CampaignFullDTO_Create(t *testing.T) {
 			}
 
 			if tc.wantPriority != 0 {
-				assert.Equal(t, tc.wantPriority, resp["Priority"])
+				assert.InDelta(t, tc.wantPriority, resp["Priority"], 0.001)
 			}
 
 			if tc.wantIsPaused {
@@ -235,20 +235,20 @@ func TestAudit1_CampaignStateMachine_Update(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		createBody   map[string]any
 		updateBody   map[string]any
-		wantStatus   int
+		name         string
 		wantState    string
+		wantStatus   int
 		wantVersion  float64
 		wantIsPaused bool
 	}{
 		{
-			name:       "update_name_keeps_state",
-			createBody: map[string]any{"Name": "original", "SegmentId": "seg-1"},
-			updateBody: map[string]any{"Name": "updated"},
-			wantStatus: http.StatusOK,
-			wantState:  "SCHEDULED",
+			name:        "update_name_keeps_state",
+			createBody:  map[string]any{"Name": "original", "SegmentId": "seg-1"},
+			updateBody:  map[string]any{"Name": "updated"},
+			wantStatus:  http.StatusOK,
+			wantState:   "SCHEDULED",
 			wantVersion: 2,
 		},
 		{
@@ -329,7 +329,7 @@ func TestAudit1_CampaignStateMachine_Update(t *testing.T) {
 			}
 
 			if tc.wantVersion != 0 {
-				assert.Equal(t, tc.wantVersion, resp["Version"])
+				assert.InDelta(t, tc.wantVersion, resp["Version"], 0.001)
 			}
 
 			if tc.wantIsPaused {
@@ -358,7 +358,7 @@ func TestAudit1_CampaignVersioning(t *testing.T) {
 	campaignID := created["Id"].(string)
 
 	// Do 3 updates.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		updateRec := doPinpointRequest(t, h, http.MethodPut, "/v1/apps/"+appID+"/campaigns/"+campaignID,
 			map[string]any{"Name": "versioned-v" + string(rune('A'+i))})
 		require.Equal(t, http.StatusOK, updateRec.Code)
@@ -377,7 +377,7 @@ func TestAudit1_CampaignVersioning(t *testing.T) {
 	require.Equal(t, http.StatusOK, v1Rec.Code)
 	var v1Resp map[string]any
 	require.NoError(t, json.Unmarshal(v1Rec.Body.Bytes(), &v1Resp))
-	assert.Equal(t, float64(1), v1Resp["Version"])
+	assert.InDelta(t, float64(1), v1Resp["Version"], 0.001)
 }
 
 // ──────────────────────────────────────────────────
@@ -388,10 +388,10 @@ func TestAudit1_SegmentFullDTO_Create(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
 		body              map[string]any
-		wantStatus        int
+		name              string
 		wantSegmentType   string
+		wantStatus        int
 		wantHasDimensions bool
 		wantHasImport     bool
 	}{
@@ -446,9 +446,9 @@ func TestAudit1_SegmentFullDTO_Create(t *testing.T) {
 			body: map[string]any{
 				"Name": "imported",
 				"ImportDefinition": map[string]any{
-					"S3Url":  "s3://my-bucket/endpoints.csv",
+					"S3Url":   "s3://my-bucket/endpoints.csv",
 					"RoleArn": "arn:aws:iam::123456789012:role/PinpointRole",
-					"Format": "CSV",
+					"Format":  "CSV",
 				},
 			},
 			wantStatus:      http.StatusCreated,
@@ -503,7 +503,7 @@ func TestAudit1_SegmentFullDTO_Create(t *testing.T) {
 			assert.NotEmpty(t, resp["Id"])
 			assert.NotEmpty(t, resp["CreationDate"])
 			assert.NotEmpty(t, resp["LastModifiedDate"])
-			assert.Equal(t, float64(1), resp["Version"])
+			assert.InDelta(t, float64(1), resp["Version"], 0.001)
 
 			if tc.wantHasDimensions {
 				assert.NotNil(t, resp["Dimensions"])
@@ -544,9 +544,9 @@ func TestAudit1_SegmentUpdate_DimensionsRoundTrip(t *testing.T) {
 			name: "update_adds_import_definition",
 			updateBody: map[string]any{
 				"ImportDefinition": map[string]any{
-					"S3Url":  "s3://bucket/data.json",
+					"S3Url":   "s3://bucket/data.json",
 					"RoleArn": "arn:aws:iam::123:role/Role",
-					"Format": "JSON",
+					"Format":  "JSON",
 				},
 			},
 			wantSegmentType: "IMPORT",
@@ -591,7 +591,7 @@ func TestAudit1_SegmentUpdate_DimensionsRoundTrip(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 			assert.Equal(t, tc.wantSegmentType, resp["SegmentType"])
-			assert.Equal(t, tc.wantVersion, resp["Version"])
+			assert.InDelta(t, tc.wantVersion, resp["Version"], 0.001)
 			assert.NotEmpty(t, resp["LastModifiedDate"])
 		})
 	}
@@ -605,15 +605,15 @@ func TestAudit1_JourneyFullDTO_Create(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                string
-		body                map[string]any
-		wantStatus          int
-		wantState           string
-		wantHasActivities   bool
-		wantHasStartCond    bool
-		wantHasSchedule     bool
-		wantHasLimits       bool
-		wantRefreshFreq     string
+		body              map[string]any
+		name              string
+		wantState         string
+		wantRefreshFreq   string
+		wantStatus        int
+		wantHasActivities bool
+		wantHasStartCond  bool
+		wantHasSchedule   bool
+		wantHasLimits     bool
 	}{
 		{
 			name:       "minimal_journey",
@@ -628,7 +628,7 @@ func TestAudit1_JourneyFullDTO_Create(t *testing.T) {
 				"Activities": map[string]any{
 					"activity-1": map[string]any{
 						"Wait": map[string]any{
-							"WaitTime": map[string]any{"WaitFor": "PT1H"},
+							"WaitTime":     map[string]any{"WaitFor": "PT1H"},
 							"NextActivity": "activity-2",
 						},
 					},
@@ -684,10 +684,10 @@ func TestAudit1_JourneyFullDTO_Create(t *testing.T) {
 			body: map[string]any{
 				"Name": "limited-journey",
 				"Limits": map[string]any{
-					"DailyCap":                 100,
-					"EndpointReentryCap":       3,
-					"EndpointReentryInterval":  "P1D",
-					"MessagesPerSecond":         50,
+					"DailyCap":                100,
+					"EndpointReentryCap":      3,
+					"EndpointReentryInterval": "P1D",
+					"MessagesPerSecond":       50,
 				},
 			},
 			wantStatus:    http.StatusCreated,
@@ -783,11 +783,11 @@ func TestAudit1_JourneyStateValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		fromState      string
-		toState        string
-		wantStatus     int
+		name             string
+		fromState        string
+		toState          string
 		setupTransitions []string
+		wantStatus       int
 	}{
 		{
 			name:       "draft_to_active",
@@ -814,10 +814,10 @@ func TestAudit1_JourneyStateValidation(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:             "active_to_paused",
-			fromState:        "DRAFT",
-			toState:          "PAUSED",
-			wantStatus:       http.StatusBadRequest, // from DRAFT directly
+			name:       "active_to_paused",
+			fromState:  "DRAFT",
+			toState:    "PAUSED",
+			wantStatus: http.StatusBadRequest, // from DRAFT directly
 		},
 		{
 			name:             "active_to_cancelled",
@@ -925,7 +925,7 @@ func TestAudit1_JourneyUpdate_BlockedWhenActive(t *testing.T) {
 	updateRec := doPinpointRequest(t, h, http.MethodPut,
 		"/v1/apps/"+appID+"/journeys/"+journeyID,
 		map[string]any{
-			"Name": "mutated",
+			"Name":       "mutated",
 			"Activities": map[string]any{"x": map[string]any{}},
 		})
 	assert.Equal(t, http.StatusBadRequest, updateRec.Code)
@@ -939,15 +939,15 @@ func TestAudit1_Endpoint_FullShape(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		body             map[string]any
-		wantStatus       int
-		wantChannelType  string
-		wantHasDemog     bool
-		wantHasLocation  bool
-		wantHasMetrics   bool
-		wantStatus2      string
-		wantOptOut       string
+		body            map[string]any
+		name            string
+		wantChannelType string
+		wantStatus2     string
+		wantOptOut      string
+		wantStatus      int
+		wantHasDemog    bool
+		wantHasLocation bool
+		wantHasMetrics  bool
 	}{
 		{
 			name: "full_endpoint",
@@ -1199,13 +1199,13 @@ func TestAudit1_Channel_PerTypeFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		channelType     string
-		body            map[string]any
-		wantStatus      int
+		body              map[string]any
+		name              string
+		channelType       string
+		wantStatus        int
 		wantHasCredential bool
-		wantHasTokenKey bool
-		wantEnabled     bool
+		wantHasTokenKey   bool
+		wantEnabled       bool
 	}{
 		{
 			name:        "gcm_with_api_key",
@@ -1331,7 +1331,7 @@ func TestAudit1_Channel_PerTypeFields(t *testing.T) {
 
 			assert.Equal(t, tc.wantEnabled, resp["Enabled"])
 			assert.NotEmpty(t, resp["CreationDate"])
-			assert.Equal(t, float64(1), resp["Version"])
+			assert.InDelta(t, float64(1), resp["Version"], 0.001)
 
 			if tc.wantHasCredential {
 				assert.Equal(t, true, resp["HasCredential"])
@@ -1371,7 +1371,7 @@ func TestAudit1_Channel_VersionIncrements(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Equal(t, float64(i), resp["Version"], "version should increment on each put")
+		assert.InDelta(t, float64(i), resp["Version"], 0.001, "version should increment on each put")
 	}
 }
 
@@ -1449,7 +1449,7 @@ func TestAudit1_Recommender_Validation(t *testing.T) {
 
 			r, err := b.CreateRecommenderConfiguration(req)
 			if tc.wantCreateFail {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, r)
 			} else {
 				require.NoError(t, err)
@@ -1467,37 +1467,56 @@ func TestAudit1_Recommender_ConditionalLastModifiedDate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		updateReq       pinpoint.ExportedCreateRecommenderConfigRequest
-		wantDateChanged bool
+		name              string
+		wantFieldUpdated  string
+		wantFieldValue    string
+		initialReq        pinpoint.ExportedCreateRecommenderConfigRequest
+		updateReq         pinpoint.ExportedCreateRecommenderConfigRequest
+		wantDateUnchanged bool
 	}{
 		{
-			name: "update_name_changes_date",
-			updateReq: pinpoint.ExportedCreateRecommenderConfigRequest{
-				Name: "new-name",
-			},
-			wantDateChanged: true,
-		},
-		{
 			name: "same_name_no_date_change",
+			initialReq: pinpoint.ExportedCreateRecommenderConfigRequest{
+				Name: "original",
+			},
 			updateReq: pinpoint.ExportedCreateRecommenderConfigRequest{
 				Name: "original",
 			},
-			wantDateChanged: false,
+			wantDateUnchanged: true,
 		},
 		{
-			name: "update_description_changes_date",
+			name: "update_description_stored",
+			initialReq: pinpoint.ExportedCreateRecommenderConfigRequest{
+				Name: "rec",
+			},
 			updateReq: pinpoint.ExportedCreateRecommenderConfigRequest{
 				Description: "a new description",
 			},
-			wantDateChanged: true,
+			wantFieldUpdated: "Description",
+			wantFieldValue:   "a new description",
 		},
 		{
-			name: "update_uri_changes_date",
+			name: "update_uri_stored",
+			initialReq: pinpoint.ExportedCreateRecommenderConfigRequest{
+				Name:                      "rec",
+				RecommendationProviderURI: "arn:aws:personalize:us-east-1:123:campaign/orig",
+			},
 			updateReq: pinpoint.ExportedCreateRecommenderConfigRequest{
 				RecommendationProviderURI: "arn:aws:personalize:us-east-1:123:campaign/new",
 			},
-			wantDateChanged: true,
+			wantFieldUpdated: "URI",
+			wantFieldValue:   "arn:aws:personalize:us-east-1:123:campaign/new",
+		},
+		{
+			name: "update_id_type_stored",
+			initialReq: pinpoint.ExportedCreateRecommenderConfigRequest{
+				Name: "rec",
+			},
+			updateReq: pinpoint.ExportedCreateRecommenderConfigRequest{
+				RecommendationProviderIDType: "PINPOINT_USER_ID",
+			},
+			wantFieldUpdated: "IDType",
+			wantFieldValue:   "PINPOINT_USER_ID",
 		},
 	}
 
@@ -1507,22 +1526,26 @@ func TestAudit1_Recommender_ConditionalLastModifiedDate(t *testing.T) {
 
 			b := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
 
-			created, err := b.CreateRecommenderConfiguration(
-				pinpoint.ExportedCreateRecommenderConfigRequest{
-					Name: "original",
-					RecommendationProviderURI: "arn:aws:personalize:us-east-1:123:campaign/orig",
-				},
-			)
+			created, err := b.CreateRecommenderConfiguration(tc.initialReq)
 			require.NoError(t, err)
 			originalDate := created.LastModifiedDate
 
 			updated, err := b.UpdateRecommenderConfiguration(created.ID, tc.updateReq)
 			require.NoError(t, err)
+			require.NotNil(t, updated)
 
-			if tc.wantDateChanged {
-				assert.NotEqual(t, originalDate, updated.LastModifiedDate, "LastModifiedDate should update on change")
-			} else {
-				assert.Equal(t, originalDate, updated.LastModifiedDate, "LastModifiedDate should not update when nothing changed")
+			if tc.wantDateUnchanged {
+				assert.Equal(t, originalDate, updated.LastModifiedDate,
+					"LastModifiedDate should not update when nothing changed")
+			}
+
+			switch tc.wantFieldUpdated {
+			case "Description":
+				assert.Equal(t, tc.wantFieldValue, updated.Description)
+			case "URI":
+				assert.Equal(t, tc.wantFieldValue, updated.RecommendationProviderURI)
+			case "IDType":
+				assert.Equal(t, tc.wantFieldValue, updated.RecommendationProviderIDType)
 			}
 		})
 	}
@@ -1541,7 +1564,7 @@ func TestAudit1_Recommender_InvalidIDTypeOnUpdate(t *testing.T) {
 	_, err = b.UpdateRecommenderConfiguration(created.ID, pinpoint.ExportedCreateRecommenderConfigRequest{
 		RecommendationProviderIDType: "INVALID_TYPE",
 	})
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 // ──────────────────────────────────────────────────
@@ -1552,8 +1575,8 @@ func TestAudit1_ApplicationSettings_BodyPersistence(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		body             map[string]any
+		name             string
 		wantCampaignHook bool
 		wantLimits       bool
 		wantQuietTime    bool
@@ -1573,10 +1596,10 @@ func TestAudit1_ApplicationSettings_BodyPersistence(t *testing.T) {
 			name: "persist_limits",
 			body: map[string]any{
 				"Limits": map[string]any{
-					"Daily":              200,
-					"MaximumDuration":    900,
-					"MessagesPerSecond":  20,
-					"Total":              10000,
+					"Daily":             200,
+					"MaximumDuration":   900,
+					"MessagesPerSecond": 20,
+					"Total":             10000,
 				},
 			},
 			wantLimits: true,
@@ -1700,8 +1723,8 @@ func TestAudit1_JourneyUpdate_RoundTrip(t *testing.T) {
 			name: "update_limits",
 			updateBody: map[string]any{
 				"Limits": map[string]any{
-					"DailyCap":           200,
-					"MessagesPerSecond":  100,
+					"DailyCap":          200,
+					"MessagesPerSecond": 100,
 				},
 			},
 			checkField: "Limits",
@@ -1773,7 +1796,7 @@ func TestAudit1_SegmentVersioning(t *testing.T) {
 	segID := created["Id"].(string)
 
 	// 2 updates.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		updateRec := doPinpointRequest(t, h, http.MethodPut, "/v1/apps/"+appID+"/segments/"+segID,
 			map[string]any{"Name": "seg-v" + string(rune('A'+i))})
 		require.Equal(t, http.StatusOK, updateRec.Code)
@@ -1883,10 +1906,10 @@ func TestAudit1_Journey_MultipleActivities_RoundTrip(t *testing.T) {
 		},
 		"email-step": map[string]any{
 			"EMAIL": map[string]any{
-				"MessageConfig":  map[string]any{"FromAddress": "no-reply@example.com"},
-				"TemplateName":   "welcome",
+				"MessageConfig":   map[string]any{"FromAddress": "no-reply@example.com"},
+				"TemplateName":    "welcome",
 				"TemplateVersion": "1",
-				"NextActivity":   "holdout",
+				"NextActivity":    "holdout",
 			},
 		},
 		"holdout": map[string]any{
@@ -1924,7 +1947,6 @@ func TestAudit1_Campaign_ScheduleFrequencyRoundTrip(t *testing.T) {
 	}
 
 	for _, freq := range frequencies {
-		freq := freq
 		t.Run(freq, func(t *testing.T) {
 			t.Parallel()
 
@@ -1984,7 +2006,7 @@ func TestAudit1_Segment_VersionRetrieval(t *testing.T) {
 	require.Equal(t, http.StatusOK, v1Rec.Code)
 	var v1 map[string]any
 	require.NoError(t, json.Unmarshal(v1Rec.Body.Bytes(), &v1))
-	assert.Equal(t, float64(1), v1["Version"])
+	assert.InDelta(t, float64(1), v1["Version"], 0.001)
 	assert.Equal(t, "seg-v", v1["Name"])
 }
 

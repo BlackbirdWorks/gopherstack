@@ -20,16 +20,16 @@ import (
 // toChannelResponse converts a Channel to its wire format.
 func toChannelResponse(ch *Channel) channelResponse {
 	return channelResponse{
-		ApplicationID:    ch.ApplicationID,
-		ChannelType:      ch.ChannelType,
-		Platform:         ch.Platform,
-		Enabled:          ch.Enabled,
-		IsArchived:       ch.IsArchived,
-		HasCredential:    ch.HasCredential,
-		HasTokenKey:      ch.HasTokenKey,
-		Version:          ch.Version,
-		CreationDate:     ch.CreationDate,
-		LastModifiedDate: ch.LastModifiedDate,
+		ApplicationID:     ch.ApplicationID,
+		ChannelType:       ch.ChannelType,
+		Platform:          ch.Platform,
+		Enabled:           ch.Enabled,
+		IsArchived:        ch.IsArchived,
+		HasCredential:     ch.HasCredential,
+		HasTokenKey:       ch.HasTokenKey,
+		Version:           ch.Version,
+		CreationDate:      ch.CreationDate,
+		LastModifiedDate:  ch.LastModifiedDate,
 		MessagesPerSecond: ch.MessagesPerSecond,
 	}
 }
@@ -54,107 +54,95 @@ func (h *Handler) handleGetChannels(c *echo.Context, appID string) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
+func parseGCMChannelExtra(body []byte) (bool, map[string]any) {
+	var req updateGCMChannelRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return false, nil
+	}
+
+	extra := map[string]any{"DefaultAuthenticationMethod": req.DefaultAuthenticationMethod}
+
+	if req.APIKey != "" {
+		extra["ApiKey"] = req.APIKey
+	}
+
+	if req.ServiceJSON != "" {
+		extra["ServiceJson"] = req.ServiceJSON
+	}
+
+	return req.Enabled, extra
+}
+
+func parseAPNSChannelExtra(body []byte) (bool, map[string]any) {
+	var req updateAPNSChannelRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return false, nil
+	}
+
+	extra := map[string]any{"DefaultAuthMethod": req.DefaultAuthMethod}
+
+	for k, v := range map[string]string{
+		"BundleId": req.BundleID, "Certificate": req.Certificate,
+		"TeamId": req.TeamID, "TokenKey": req.TokenKey, "TokenKeyId": req.TokenKeyID,
+	} {
+		if v != "" {
+			extra[k] = v
+		}
+	}
+
+	return req.Enabled, extra
+}
+
+func parseEmailChannelExtra(body []byte) (bool, map[string]any) {
+	var req updateEmailChannelRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return false, nil
+	}
+
+	extra := map[string]any{}
+
+	for k, v := range map[string]string{
+		"FromAddress": req.FromAddress, "Identity": req.Identity,
+		"RoleArn": req.RoleArn, "ConfigurationSet": req.ConfigurationSet,
+	} {
+		if v != "" {
+			extra[k] = v
+		}
+	}
+
+	return req.Enabled, extra
+}
+
+func parseSMSChannelExtra(body []byte) (bool, map[string]any) {
+	var req updateSMSChannelRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return false, nil
+	}
+
+	extra := map[string]any{}
+
+	if req.SenderID != "" {
+		extra["SenderId"] = req.SenderID
+	}
+
+	if req.ShortCode != "" {
+		extra["ShortCode"] = req.ShortCode
+	}
+
+	return req.Enabled, extra
+}
+
 // parseChannelExtra extracts per-channel extra fields from the request body.
 func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
-	ct := strings.ToLower(channelType)
-
-	switch ct {
+	switch strings.ToLower(channelType) {
 	case "gcm":
-		var req updateGCMChannelRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return false, nil
-		}
-
-		extra := map[string]any{
-			"DefaultAuthenticationMethod": req.DefaultAuthenticationMethod,
-		}
-
-		if req.ApiKey != "" {
-			extra["ApiKey"] = req.ApiKey
-		}
-
-		if req.ServiceJson != "" {
-			extra["ServiceJson"] = req.ServiceJson
-		}
-
-		return req.Enabled, extra
-
+		return parseGCMChannelExtra(body)
 	case "apns", "apns_sandbox", "apns_voip", "apns_voip_sandbox":
-		var req updateAPNSChannelRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return false, nil
-		}
-
-		extra := map[string]any{
-			"DefaultAuthMethod": req.DefaultAuthMethod,
-		}
-
-		if req.BundleId != "" {
-			extra["BundleId"] = req.BundleId
-		}
-
-		if req.Certificate != "" {
-			extra["Certificate"] = req.Certificate
-		}
-
-		if req.TeamId != "" {
-			extra["TeamId"] = req.TeamId
-		}
-
-		if req.TokenKey != "" {
-			extra["TokenKey"] = req.TokenKey
-		}
-
-		if req.TokenKeyId != "" {
-			extra["TokenKeyId"] = req.TokenKeyId
-		}
-
-		return req.Enabled, extra
-
+		return parseAPNSChannelExtra(body)
 	case "email":
-		var req updateEmailChannelRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return false, nil
-		}
-
-		extra := map[string]any{}
-
-		if req.FromAddress != "" {
-			extra["FromAddress"] = req.FromAddress
-		}
-
-		if req.Identity != "" {
-			extra["Identity"] = req.Identity
-		}
-
-		if req.RoleArn != "" {
-			extra["RoleArn"] = req.RoleArn
-		}
-
-		if req.ConfigurationSet != "" {
-			extra["ConfigurationSet"] = req.ConfigurationSet
-		}
-
-		return req.Enabled, extra
-
+		return parseEmailChannelExtra(body)
 	case "sms":
-		var req updateSMSChannelRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return false, nil
-		}
-
-		extra := map[string]any{}
-
-		if req.SenderId != "" {
-			extra["SenderId"] = req.SenderId
-		}
-
-		if req.ShortCode != "" {
-			extra["ShortCode"] = req.ShortCode
-		}
-
-		return req.Enabled, extra
-
+		return parseSMSChannelExtra(body)
 	case "adm":
 		var req updateADMChannelRequest
 		if err := json.Unmarshal(body, &req); err != nil {
@@ -163,12 +151,11 @@ func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
 
 		extra := map[string]any{}
 
-		if req.ClientId != "" {
-			extra["ClientId"] = req.ClientId
+		if req.ClientID != "" {
+			extra["ClientId"] = req.ClientID
 		}
 
 		return req.Enabled, extra
-
 	case "baidu":
 		var req updateBaiduChannelRequest
 		if err := json.Unmarshal(body, &req); err != nil {
@@ -177,12 +164,11 @@ func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
 
 		extra := map[string]any{}
 
-		if req.ApiKey != "" {
-			extra["ApiKey"] = req.ApiKey
+		if req.APIKey != "" {
+			extra["ApiKey"] = req.APIKey
 		}
 
 		return req.Enabled, extra
-
 	default:
 		var req updateChannelRequest
 		if err := json.Unmarshal(body, &req); err != nil {
@@ -1022,7 +1008,7 @@ func toEndpointResponse(e *Endpoint) endpointResponse {
 		CreationDate:   e.CreationDate,
 		EndpointStatus: e.EndpointStatus,
 		OptOut:         e.OptOut,
-		RequestId:      e.RequestId,
+		RequestID:      e.RequestID,
 		Attributes:     e.Attributes,
 		Metrics:        e.Metrics,
 		Demographic:    e.Demographic,

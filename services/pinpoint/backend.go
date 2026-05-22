@@ -20,7 +20,10 @@ var (
 	// ErrAlreadyExists is returned when a resource with the same key already exists.
 	ErrAlreadyExists = awserr.New("ConflictException: resource already exists", awserr.ErrConflict)
 	// ErrJourneyActive is returned when attempting to modify an ACTIVE journey's activities.
-	ErrJourneyActive = awserr.New("BadRequestException: journey is ACTIVE and cannot be modified", awserr.ErrInvalidParameter)
+	ErrJourneyActive = awserr.New(
+		"BadRequestException: journey is ACTIVE and cannot be modified",
+		awserr.ErrInvalidParameter,
+	)
 )
 
 const (
@@ -661,7 +664,7 @@ func (b *InMemoryBackend) CreateRecommenderConfiguration(
 	b.mu.Lock("CreateRecommenderConfiguration")
 	defer b.mu.Unlock()
 
-	if req.RecommendationProviderIDType != "" && !validRecommenderIDTypes[req.RecommendationProviderIDType] {
+	if !isValidRecommenderIDType(req.RecommendationProviderIDType) {
 		return nil, ErrValidation
 	}
 
@@ -863,10 +866,7 @@ func nonNilStringSliceMapCopy(m map[string][]string) map[string][]string {
 // nonNilFloat64MapCopy returns a copy of a map[string]float64; never returns nil.
 func nonNilFloat64MapCopy(m map[string]float64) map[string]float64 {
 	cp := make(map[string]float64, len(m))
-
-	for k, v := range m {
-		cp[k] = v
-	}
+	maps.Copy(cp, m)
 
 	return cp
 }
