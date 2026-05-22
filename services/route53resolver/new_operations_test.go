@@ -216,6 +216,7 @@ func TestDeleteResolverEndpoint_CascadeDeletesRules(t *testing.T) {
 					"DomainName":         "example.com.",
 					"RuleType":           "FORWARD",
 					"ResolverEndpointId": epID,
+					"TargetIps":          []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
 				})
 				require.Equal(t, http.StatusOK, ruleRec.Code)
 			}
@@ -289,6 +290,7 @@ func TestCreateResolverRule_EndpointValidation(t *testing.T) {
 				"DomainName":         "example.com.",
 				"RuleType":           "FORWARD",
 				"ResolverEndpointId": endpointID,
+				"TargetIps":          []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
 			})
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})

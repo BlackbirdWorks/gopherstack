@@ -11,17 +11,19 @@ type StorageBackend interface {
 		ips []IPAddress,
 		securityGroupIDs []string,
 		resolverEndpointType string,
+		protocols []string,
+		outpostArn, preferredInstanceType, creatorRequestID string,
 	) (*ResolverEndpoint, error)
 	GetResolverEndpoint(id string) (*ResolverEndpoint, error)
 	ListResolverEndpoints() []*ResolverEndpoint
 	DeleteResolverEndpoint(id string) error
 	ListResolverEndpointIPAddresses(endpointID string) ([]IPAddress, error)
-	AssociateResolverEndpointIPAddress(endpointID, subnetID, ip string) (*ResolverEndpoint, error)
-	UpdateResolverEndpoint(id, name string) (*ResolverEndpoint, error)
+	AssociateResolverEndpointIPAddress(endpointID, subnetID, ip, ipv6 string) (*ResolverEndpoint, error)
+	UpdateResolverEndpoint(id, name, resolverEndpointType string, protocols []string) (*ResolverEndpoint, error)
 	DisassociateResolverEndpointIPAddress(endpointID, ipID string) (*ResolverEndpoint, error)
 
 	// Rule operations
-	CreateResolverRule(name, domainName, ruleType, endpointID string, targetIps []TargetIP) (*ResolverRule, error)
+	CreateResolverRule(name, domainName, ruleType, endpointID, creatorRequestID string, targetIps []TargetIP) (*ResolverRule, error)
 	GetResolverRule(id string) (*ResolverRule, error)
 	ListResolverRules() []*ResolverRule
 	DeleteResolverRule(id string) error
@@ -41,13 +43,13 @@ type StorageBackend interface {
 	GetFirewallRuleGroupPolicy(arn string) string
 	PutFirewallRuleGroupPolicy(arn, policy string) error
 	AssociateFirewallRuleGroup(
-		firewallRuleGroupID, vpcID, name, creatorRequestID string,
+		firewallRuleGroupID, vpcID, name, creatorRequestID, mutationProtection string,
 		priority int32,
 	) (*FirewallRuleGroupAssociation, error)
 	GetFirewallRuleGroupAssociation(id string) (*FirewallRuleGroupAssociation, error)
 	ListFirewallRuleGroupAssociations(vpcID, firewallRuleGroupID string) []*FirewallRuleGroupAssociation
 	DisassociateFirewallRuleGroup(id string) (*FirewallRuleGroupAssociation, error)
-	UpdateFirewallRuleGroupAssociation(id, name string, priority int32) (*FirewallRuleGroupAssociation, error)
+	UpdateFirewallRuleGroupAssociation(id, name, mutationProtection string, priority int32) (*FirewallRuleGroupAssociation, error)
 
 	// Firewall domain list operations
 	CreateFirewallDomainList(name, creatorRequestID string) (*FirewallDomainList, error)
@@ -59,13 +61,9 @@ type StorageBackend interface {
 	ImportFirewallDomains(id, operation, domainFileURL string) (*FirewallDomainList, error)
 
 	// Firewall rule operations
-	CreateFirewallRule(
-		firewallRuleGroupID, name, action, creatorRequestID string,
-		priority int32,
-		firewallDomainListID string,
-	) (*FirewallRule, error)
+	CreateFirewallRule(p CreateFirewallRuleParams) (*FirewallRule, error)
 	DeleteFirewallRule(id string) (*FirewallRule, error)
-	UpdateFirewallRule(id, name, action, blockResponse string, priority int32) (*FirewallRule, error)
+	UpdateFirewallRule(p UpdateFirewallRuleParams) (*FirewallRule, error)
 	ListFirewallRules(firewallRuleGroupID string) []*FirewallRule
 
 	// Firewall config operations

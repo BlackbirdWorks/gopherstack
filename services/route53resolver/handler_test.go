@@ -289,6 +289,7 @@ func TestCreateResolverRule(t *testing.T) {
 		"Name":       "my-rule",
 		"DomainName": "example.com",
 		"RuleType":   "FORWARD",
+		"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -307,7 +308,7 @@ func TestListResolverRules(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateResolverRule", map[string]any{"Name": "r1", "DomainName": "a.com", "RuleType": "FORWARD"})
+	doRequest(t, h, "CreateResolverRule", map[string]any{"Name": "r1", "DomainName": "a.com", "RuleType": "FORWARD", "TargetIps": []map[string]any{{"Ip": "10.0.0.1", "Port": 53}}})
 	doRequest(t, h, "CreateResolverRule", map[string]any{"Name": "r2", "DomainName": "b.com", "RuleType": "SYSTEM"})
 
 	rec := doRequest(t, h, "ListResolverRules", nil)
@@ -328,6 +329,7 @@ func TestDeleteResolverRule(t *testing.T) {
 		"Name":       "rule-to-delete",
 		"DomainName": "test.com",
 		"RuleType":   "FORWARD",
+		"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
 	})
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
@@ -348,6 +350,7 @@ func TestGetResolverRule(t *testing.T) {
 		"Name":       "get-rule",
 		"DomainName": "get.example.com",
 		"RuleType":   "FORWARD",
+		"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
 	})
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))

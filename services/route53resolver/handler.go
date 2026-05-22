@@ -234,12 +234,14 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 type resolverEndpointIPAddress struct {
 	SubnetID string `json:"SubnetId"`
 	IP       string `json:"Ip"`
+	Ipv6     string `json:"Ipv6,omitempty"`
 }
 
 type resolverEndpointIPAddressDetail struct {
 	IPID     string `json:"IpId"`
 	SubnetID string `json:"SubnetId"`
 	IP       string `json:"Ip"`
+	Ipv6     string `json:"Ipv6,omitempty"`
 	Status   string `json:"Status"`
 }
 
@@ -252,45 +254,51 @@ type listResolverEndpointIPAddressesOutput struct {
 }
 
 type handleCreateResolverEndpointInput struct {
-	Name                 string                      `json:"Name"`
-	Direction            string                      `json:"Direction"`
-	VpcID                string                      `json:"VpcId"`
-	SecurityGroupIDs     []string                    `json:"SecurityGroupIds"`
-	ResolverEndpointType string                      `json:"ResolverEndpointType"`
-	Tags                 []svcTags.KV                `json:"Tags"`
-	IPAddresses          []resolverEndpointIPAddress `json:"IpAddresses"`
-}
-
-type handleCreateResolverRuleInput struct {
-	Name               string     `json:"Name"`
-	DomainName         string     `json:"DomainName"`
-	RuleType           string     `json:"RuleType"`
-	ResolverEndpointID string     `json:"ResolverEndpointId"`
-	TargetIps          []targetIP `json:"TargetIps"`
+	Name                  string                      `json:"Name"`
+	Direction             string                      `json:"Direction"`
+	VpcID                 string                      `json:"VpcId"`
+	SecurityGroupIDs      []string                    `json:"SecurityGroupIds"`
+	ResolverEndpointType  string                      `json:"ResolverEndpointType"`
+	Protocols             []string                    `json:"Protocols"`
+	OutpostArn            string                      `json:"OutpostArn"`
+	PreferredInstanceType string                      `json:"PreferredInstanceType"`
+	CreatorRequestID      string                      `json:"CreatorRequestId"`
+	Tags                  []svcTags.KV                `json:"Tags"`
+	IPAddresses           []resolverEndpointIPAddress `json:"IpAddresses"`
 }
 
 type targetIP struct {
-	IP   string `json:"Ip"`
-	Port int32  `json:"Port"`
+	IP       string `json:"Ip"`
+	Port     int32  `json:"Port"`
+	Ipv6     string `json:"Ipv6,omitempty"`
+	Protocol string `json:"Protocol,omitempty"`
 }
 
 type resolverEndpointIPOutput struct {
 	SubnetID string `json:"SubnetId"`
 	IP       string `json:"Ip"`
+	Ipv6     string `json:"Ipv6,omitempty"`
 }
 
 type resolverEndpointOutput struct {
-	ID                   string                     `json:"Id"`
-	Arn                  string                     `json:"Arn"`
-	Name                 string                     `json:"Name"`
-	Direction            string                     `json:"Direction"`
-	Status               string                     `json:"Status"`
-	VpcID                string                     `json:"VpcId"`
-	HostVPCId            string                     `json:"HostVPCId"`
-	ResolverEndpointType string                     `json:"ResolverEndpointType"`
-	SecurityGroupIDs     []string                   `json:"SecurityGroupIds"`
-	IPAddresses          []resolverEndpointIPOutput `json:"IpAddresses"`
-	IPAddressCount       int32                      `json:"IpAddressCount"`
+	ID                    string                     `json:"Id"`
+	Arn                   string                     `json:"Arn"`
+	Name                  string                     `json:"Name"`
+	Direction             string                     `json:"Direction"`
+	Status                string                     `json:"Status"`
+	StatusMessage         string                     `json:"StatusMessage,omitempty"`
+	VpcID                 string                     `json:"VpcId"`
+	HostVPCId             string                     `json:"HostVPCId"`
+	ResolverEndpointType  string                     `json:"ResolverEndpointType"`
+	SecurityGroupIDs      []string                   `json:"SecurityGroupIds"`
+	IPAddresses           []resolverEndpointIPOutput `json:"IpAddresses"`
+	IPAddressCount        int32                      `json:"IpAddressCount"`
+	Protocols             []string                   `json:"Protocols,omitempty"`
+	OutpostArn            string                     `json:"OutpostArn,omitempty"`
+	PreferredInstanceType string                     `json:"PreferredInstanceType,omitempty"`
+	CreatorRequestID      string                     `json:"CreatorRequestId,omitempty"`
+	CreationTime          string                     `json:"CreationTime,omitempty"`
+	ModificationTime      string                     `json:"ModificationTime,omitempty"`
 }
 
 type resolverRuleOutput struct {
@@ -300,9 +308,14 @@ type resolverRuleOutput struct {
 	DomainName         string     `json:"DomainName"`
 	RuleType           string     `json:"RuleType"`
 	Status             string     `json:"Status"`
+	StatusMessage      string     `json:"StatusMessage,omitempty"`
 	ShareStatus        string     `json:"ShareStatus"`
 	ResolverEndpointID string     `json:"ResolverEndpointId"`
 	TargetIps          []targetIP `json:"TargetIps,omitempty"`
+	CreatorRequestID   string     `json:"CreatorRequestId,omitempty"`
+	OwnerId            string     `json:"OwnerId,omitempty"`
+	CreationTime       string     `json:"CreationTime,omitempty"`
+	ModificationTime   string     `json:"ModificationTime,omitempty"`
 }
 
 type createResolverEndpointOutput struct {
@@ -342,7 +355,7 @@ type listResolverRulesOutput struct {
 func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
 	ips := make([]resolverEndpointIPOutput, 0, len(ep.IPAddresses))
 	for _, ip := range ep.IPAddresses {
-		ips = append(ips, resolverEndpointIPOutput{SubnetID: ip.SubnetID, IP: ip.IP})
+		ips = append(ips, resolverEndpointIPOutput{SubnetID: ip.SubnetID, IP: ip.IP, Ipv6: ip.Ipv6})
 	}
 
 	sgIDs := ep.SecurityGroupIDs
@@ -352,28 +365,35 @@ func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
 
 	epType := ep.ResolverEndpointType
 	if epType == "" {
-		epType = "IPV4"
+		epType = endpointTypeIPV4
 	}
 
 	return resolverEndpointOutput{
-		ID:                   ep.ID,
-		Arn:                  ep.ARN,
-		Name:                 ep.Name,
-		Direction:            ep.Direction,
-		Status:               ep.Status,
-		VpcID:                ep.VpcID,
-		HostVPCId:            ep.HostVPCID,
-		ResolverEndpointType: epType,
-		IPAddressCount:       int32(len(ep.IPAddresses)), //nolint:gosec // conversion is safe: IP count is always small
-		SecurityGroupIDs:     sgIDs,
-		IPAddresses:          ips,
+		ID:                    ep.ID,
+		Arn:                   ep.ARN,
+		Name:                  ep.Name,
+		Direction:             ep.Direction,
+		Status:                ep.Status,
+		StatusMessage:         ep.StatusMessage,
+		VpcID:                 ep.VpcID,
+		HostVPCId:             ep.HostVPCID,
+		ResolverEndpointType:  epType,
+		IPAddressCount:        int32(len(ep.IPAddresses)), //nolint:gosec // conversion is safe: IP count is always small
+		SecurityGroupIDs:      sgIDs,
+		IPAddresses:           ips,
+		Protocols:             ep.Protocols,
+		OutpostArn:            ep.OutpostArn,
+		PreferredInstanceType: ep.PreferredInstanceType,
+		CreatorRequestID:      ep.CreatorRequestID,
+		CreationTime:          ep.CreationTime,
+		ModificationTime:      ep.ModificationTime,
 	}
 }
 
 func ruleToOutput(r *ResolverRule) resolverRuleOutput {
 	tips := make([]targetIP, 0, len(r.TargetIps))
 	for _, t := range r.TargetIps {
-		tips = append(tips, targetIP(t))
+		tips = append(tips, targetIP{IP: t.IP, Port: t.Port, Ipv6: t.Ipv6, Protocol: t.Protocol})
 	}
 	if len(tips) == 0 {
 		tips = nil
@@ -386,9 +406,14 @@ func ruleToOutput(r *ResolverRule) resolverRuleOutput {
 		DomainName:         r.DomainName,
 		RuleType:           r.RuleType,
 		Status:             r.Status,
+		StatusMessage:      r.StatusMessage,
 		ShareStatus:        r.ShareStatus,
 		ResolverEndpointID: r.ResolverEndpointID,
 		TargetIps:          tips,
+		CreatorRequestID:   r.CreatorRequestID,
+		OwnerId:            r.OwnerId,
+		CreationTime:       r.CreationTime,
+		ModificationTime:   r.ModificationTime,
 	}
 }
 
@@ -398,11 +423,12 @@ func (h *Handler) handleCreateResolverEndpoint(
 ) (*createResolverEndpointOutput, error) {
 	ips := make([]IPAddress, 0, len(in.IPAddresses))
 	for _, ip := range in.IPAddresses {
-		ips = append(ips, IPAddress{SubnetID: ip.SubnetID, IP: ip.IP})
+		ips = append(ips, IPAddress{SubnetID: ip.SubnetID, IP: ip.IP, Ipv6: ip.Ipv6})
 	}
 
 	ep, err := h.Backend.CreateResolverEndpoint(
 		in.Name, in.Direction, in.VpcID, ips, in.SecurityGroupIDs, in.ResolverEndpointType,
+		in.Protocols, in.OutpostArn, in.PreferredInstanceType, in.CreatorRequestID,
 	)
 	if err != nil {
 		return nil, err
@@ -469,11 +495,21 @@ func (h *Handler) handleListResolverEndpointIPAddresses(
 			IPID:     ip.IPID,
 			SubnetID: ip.SubnetID,
 			IP:       ip.IP,
+			Ipv6:     ip.Ipv6,
 			Status:   "ATTACHED",
 		})
 	}
 
 	return &listResolverEndpointIPAddressesOutput{IPAddresses: items}, nil
+}
+
+type handleCreateResolverRuleInput struct {
+	Name               string     `json:"Name"`
+	DomainName         string     `json:"DomainName"`
+	RuleType           string     `json:"RuleType"`
+	ResolverEndpointID string     `json:"ResolverEndpointId"`
+	CreatorRequestID   string     `json:"CreatorRequestId"`
+	TargetIps          []targetIP `json:"TargetIps"`
 }
 
 func (h *Handler) handleCreateResolverRule(
@@ -482,10 +518,10 @@ func (h *Handler) handleCreateResolverRule(
 ) (*createResolverRuleOutput, error) {
 	tips := make([]TargetIP, 0, len(in.TargetIps))
 	for _, t := range in.TargetIps {
-		tips = append(tips, TargetIP(t))
+		tips = append(tips, TargetIP{IP: t.IP, Port: t.Port, Ipv6: t.Ipv6, Protocol: t.Protocol})
 	}
 
-	r, err := h.Backend.CreateResolverRule(in.Name, in.DomainName, in.RuleType, in.ResolverEndpointID, tips)
+	r, err := h.Backend.CreateResolverRule(in.Name, in.DomainName, in.RuleType, in.ResolverEndpointID, in.CreatorRequestID, tips)
 	if err != nil {
 		return nil, err
 	}
@@ -589,8 +625,12 @@ type firewallRuleGroupOutput struct {
 	Name             string `json:"Name"`
 	CreatorRequestID string `json:"CreatorRequestId"`
 	Status           string `json:"Status"`
+	StatusMessage    string `json:"StatusMessage,omitempty"`
 	OwnerID          string `json:"OwnerId"`
+	ShareStatus      string `json:"ShareStatus"`
 	RuleCount        int32  `json:"RuleCount"`
+	CreationTime     string `json:"CreationTime,omitempty"`
+	ModificationTime string `json:"ModificationTime,omitempty"`
 }
 
 // firewallRuleGroupAssociationOutput is the JSON representation of a FirewallRuleGroupAssociation.
@@ -601,7 +641,13 @@ type firewallRuleGroupAssociationOutput struct {
 	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
 	VpcID               string `json:"VpcId"`
 	Status              string `json:"Status"`
+	StatusMessage       string `json:"StatusMessage,omitempty"`
 	Priority            int32  `json:"Priority"`
+	MutationProtection  string `json:"MutationProtection"`
+	ManagedOwnerName    string `json:"ManagedOwnerName,omitempty"`
+	CreatorRequestID    string `json:"CreatorRequestId,omitempty"`
+	CreationTime        string `json:"CreationTime,omitempty"`
+	ModificationTime    string `json:"ModificationTime,omitempty"`
 }
 
 // firewallDomainListOutput is the JSON representation of a FirewallDomainList.
@@ -612,6 +658,7 @@ type firewallDomainListOutput struct {
 	CreatorRequestID string `json:"CreatorRequestId"`
 	Status           string `json:"Status"`
 	DomainCount      int32  `json:"DomainCount"`
+	ManagedOwnerName string `json:"ManagedOwnerName,omitempty"`
 }
 
 // firewallRuleOutput is the JSON representation of a FirewallRule.
@@ -623,6 +670,14 @@ type firewallRuleOutput struct {
 	FirewallDomainListID string `json:"FirewallDomainListId"`
 	Action               string `json:"Action"`
 	BlockResponse        string `json:"BlockResponse,omitempty"`
+	BlockOverrideDomain  string `json:"BlockOverrideDomain,omitempty"`
+	BlockOverrideDnsType string `json:"BlockOverrideDnsType,omitempty"`
+	BlockOverrideTtl     int32  `json:"BlockOverrideTtl,omitempty"`
+	Qtype                string `json:"Qtype,omitempty"`
+	ConfidenceThreshold  string `json:"ConfidenceThreshold,omitempty"`
+	CreatorRequestID     string `json:"CreatorRequestId,omitempty"`
+	CreationTime         string `json:"CreationTime,omitempty"`
+	ModificationTime     string `json:"ModificationTime,omitempty"`
 	Priority             int32  `json:"Priority"`
 }
 
@@ -647,6 +702,9 @@ type resolverQueryLogConfigOutput struct {
 	DestinationArn   string `json:"DestinationArn"`
 	Status           string `json:"Status"`
 	OwnerID          string `json:"OwnerId"`
+	AssociationCount int32  `json:"AssociationCount"`
+	ShareStatus      string `json:"ShareStatus"`
+	CreationTime     string `json:"CreationTime,omitempty"`
 }
 
 // resolverQueryLogConfigAssociationOutput is the JSON representation of a ResolverQueryLogConfigAssociation.
@@ -655,6 +713,9 @@ type resolverQueryLogConfigAssociationOutput struct {
 	ResolverQueryLogConfigID string `json:"ResolverQueryLogConfigId"`
 	ResourceID               string `json:"ResourceId"`
 	Status                   string `json:"Status"`
+	Error                    string `json:"Error,omitempty"`
+	ErrorMessage             string `json:"ErrorMessage,omitempty"`
+	CreationTime             string `json:"CreationTime,omitempty"`
 }
 
 // resolverRuleAssociationOutput is the JSON representation of a ResolverRuleAssociation.
@@ -685,8 +746,12 @@ func firewallRuleGroupToOutput(g *FirewallRuleGroup) firewallRuleGroupOutput {
 		Name:             g.Name,
 		CreatorRequestID: g.CreatorRequestID,
 		Status:           g.Status,
+		StatusMessage:    g.StatusMessage,
 		OwnerID:          g.OwnerID,
+		ShareStatus:      g.ShareStatus,
 		RuleCount:        g.RuleCount,
+		CreationTime:     g.CreationTime,
+		ModificationTime: g.ModificationTime,
 	}
 }
 
@@ -719,6 +784,7 @@ type associateFirewallRuleGroupInput struct {
 	Name                string `json:"Name"`
 	VpcID               string `json:"VpcId"`
 	CreatorRequestID    string `json:"CreatorRequestId"`
+	MutationProtection  string `json:"MutationProtection"`
 	Priority            int32  `json:"Priority"`
 }
 
@@ -735,6 +801,12 @@ func firewallRuleGroupAssociationToOutput(a *FirewallRuleGroupAssociation) firew
 		VpcID:               a.VpcID,
 		Priority:            a.Priority,
 		Status:              a.Status,
+		StatusMessage:       a.StatusMessage,
+		MutationProtection:  a.MutationProtection,
+		ManagedOwnerName:    a.ManagedOwnerName,
+		CreatorRequestID:    a.CreatorRequestID,
+		CreationTime:        a.CreationTime,
+		ModificationTime:    a.ModificationTime,
 	}
 }
 
@@ -751,7 +823,7 @@ func (h *Handler) handleAssociateFirewallRuleGroup(
 	}
 
 	assoc, err := h.Backend.AssociateFirewallRuleGroup(
-		in.FirewallRuleGroupID, in.VpcID, in.Name, in.CreatorRequestID, in.Priority,
+		in.FirewallRuleGroupID, in.VpcID, in.Name, in.CreatorRequestID, in.MutationProtection, in.Priority,
 	)
 	if err != nil {
 		return nil, err
@@ -767,6 +839,7 @@ func (h *Handler) handleAssociateFirewallRuleGroup(
 type ipAddressUpdateInput struct {
 	SubnetID string `json:"SubnetId"`
 	IP       string `json:"Ip"`
+	Ipv6     string `json:"Ipv6,omitempty"`
 }
 
 type associateResolverEndpointIPAddressInput struct {
@@ -787,7 +860,7 @@ func (h *Handler) handleAssociateResolverEndpointIPAddress(
 	}
 
 	ep, err := h.Backend.AssociateResolverEndpointIPAddress(
-		in.ResolverEndpointID, in.IPAddress.SubnetID, in.IPAddress.IP,
+		in.ResolverEndpointID, in.IPAddress.SubnetID, in.IPAddress.IP, in.IPAddress.Ipv6,
 	)
 	if err != nil {
 		return nil, err
@@ -818,6 +891,9 @@ func queryLogConfigToOutput(c *ResolverQueryLogConfig) resolverQueryLogConfigOut
 		DestinationArn:   c.DestinationARN,
 		Status:           c.Status,
 		OwnerID:          c.OwnerID,
+		AssociationCount: c.AssociationCount,
+		ShareStatus:      c.ShareStatus,
+		CreationTime:     c.CreationTime,
 	}
 }
 
@@ -864,6 +940,9 @@ func queryLogConfigAssociationToOutput(a *ResolverQueryLogConfigAssociation) res
 		ResolverQueryLogConfigID: a.ResolverQueryLogConfigID,
 		ResourceID:               a.ResourceID,
 		Status:                   a.Status,
+		Error:                    a.Error,
+		ErrorMessage:             a.ErrorMessage,
+		CreationTime:             a.CreationTime,
 	}
 }
 
@@ -951,6 +1030,7 @@ func firewallDomainListToOutput(dl *FirewallDomainList) firewallDomainListOutput
 		CreatorRequestID: dl.CreatorRequestID,
 		Status:           dl.Status,
 		DomainCount:      dl.DomainCount,
+		ManagedOwnerName: dl.ManagedOwnerName,
 	}
 }
 
@@ -1011,6 +1091,11 @@ type createFirewallRuleInput struct {
 	FirewallDomainListID string `json:"FirewallDomainListId"`
 	Name                 string `json:"Name"`
 	BlockResponse        string `json:"BlockResponse"`
+	BlockOverrideDomain  string `json:"BlockOverrideDomain"`
+	BlockOverrideDnsType string `json:"BlockOverrideDnsType"`
+	BlockOverrideTtl     int32  `json:"BlockOverrideTtl"`
+	Qtype                string `json:"Qtype"`
+	ConfidenceThreshold  string `json:"ConfidenceThreshold"`
 	Priority             int32  `json:"Priority"`
 }
 
@@ -1028,6 +1113,14 @@ func firewallRuleToOutput(r *FirewallRule) firewallRuleOutput {
 		Action:               r.Action,
 		Priority:             r.Priority,
 		BlockResponse:        r.BlockResponse,
+		BlockOverrideDomain:  r.BlockOverrideDomain,
+		BlockOverrideDnsType: r.BlockOverrideDnsType,
+		BlockOverrideTtl:     r.BlockOverrideTtl,
+		Qtype:                r.Qtype,
+		ConfidenceThreshold:  r.ConfidenceThreshold,
+		CreatorRequestID:     r.CreatorRequestID,
+		CreationTime:         r.CreationTime,
+		ModificationTime:     r.ModificationTime,
 	}
 }
 
@@ -1056,10 +1149,20 @@ func (h *Handler) handleCreateFirewallRule(
 		)
 	}
 
-	rule, err := h.Backend.CreateFirewallRule(
-		in.FirewallRuleGroupID, in.Name, in.Action, in.CreatorRequestID,
-		in.Priority, in.FirewallDomainListID,
-	)
+	rule, err := h.Backend.CreateFirewallRule(CreateFirewallRuleParams{
+		FirewallRuleGroupID:  in.FirewallRuleGroupID,
+		Name:                 in.Name,
+		Action:               in.Action,
+		BlockResponse:        in.BlockResponse,
+		BlockOverrideDomain:  in.BlockOverrideDomain,
+		BlockOverrideDnsType: in.BlockOverrideDnsType,
+		BlockOverrideTtl:     in.BlockOverrideTtl,
+		Qtype:                in.Qtype,
+		ConfidenceThreshold:  in.ConfidenceThreshold,
+		CreatorRequestID:     in.CreatorRequestID,
+		FirewallDomainListID: in.FirewallDomainListID,
+		Priority:             in.Priority,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1130,9 +1233,9 @@ func (h *Handler) handleCreateOutpostResolver(
 // --- New handler types and functions for 46 missing operations ---
 
 // firewallConfigOutput is the JSON representation of a FirewallConfig.
+// AWS does not return an ARN for FirewallConfig.
 type firewallConfigOutput struct {
 	ID               string `json:"Id"`
-	Arn              string `json:"Arn"`
 	OwnerID          string `json:"OwnerId"`
 	ResourceID       string `json:"ResourceId"`
 	FirewallFailOpen string `json:"FirewallFailOpen"`
@@ -1141,7 +1244,6 @@ type firewallConfigOutput struct {
 func firewallConfigToOutput(c *FirewallConfig) firewallConfigOutput {
 	return firewallConfigOutput{
 		ID:               c.ID,
-		Arn:              c.ARN,
 		OwnerID:          c.OwnerID,
 		ResourceID:       c.ResourceID,
 		FirewallFailOpen: c.FirewallFailOpen,
@@ -1212,11 +1314,17 @@ func (h *Handler) handleDeleteFirewallRule(
 // --- UpdateFirewallRule ---
 
 type updateFirewallRuleInput struct {
-	FirewallRuleID string `json:"FirewallRuleId"`
-	Name           string `json:"Name"`
-	Action         string `json:"Action"`
-	BlockResponse  string `json:"BlockResponse"`
-	Priority       int32  `json:"Priority"`
+	FirewallRuleID       string `json:"FirewallRuleId"`
+	Name                 string `json:"Name"`
+	Action               string `json:"Action"`
+	BlockResponse        string `json:"BlockResponse"`
+	BlockOverrideDomain  string `json:"BlockOverrideDomain"`
+	BlockOverrideDnsType string `json:"BlockOverrideDnsType"`
+	BlockOverrideTtl     int32  `json:"BlockOverrideTtl"`
+	Qtype                string `json:"Qtype"`
+	ConfidenceThreshold  string `json:"ConfidenceThreshold"`
+	FirewallDomainListID string `json:"FirewallDomainListId"`
+	Priority             int32  `json:"Priority"`
 }
 
 type updateFirewallRuleOutput struct {
@@ -1230,7 +1338,19 @@ func (h *Handler) handleUpdateFirewallRule(
 	if in.FirewallRuleID == "" {
 		return nil, fmt.Errorf("%w: FirewallRuleId is required", ErrValidation)
 	}
-	rule, err := h.Backend.UpdateFirewallRule(in.FirewallRuleID, in.Name, in.Action, in.BlockResponse, in.Priority)
+	rule, err := h.Backend.UpdateFirewallRule(UpdateFirewallRuleParams{
+		ID:                   in.FirewallRuleID,
+		Name:                 in.Name,
+		Action:               in.Action,
+		BlockResponse:        in.BlockResponse,
+		BlockOverrideDomain:  in.BlockOverrideDomain,
+		BlockOverrideDnsType: in.BlockOverrideDnsType,
+		BlockOverrideTtl:     in.BlockOverrideTtl,
+		Qtype:                in.Qtype,
+		ConfidenceThreshold:  in.ConfidenceThreshold,
+		FirewallDomainListID: in.FirewallDomainListID,
+		Priority:             in.Priority,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1463,6 +1583,7 @@ func (h *Handler) handleDisassociateFirewallRuleGroup(
 type updateFirewallRuleGroupAssociationInput struct {
 	FirewallRuleGroupAssociationID string `json:"FirewallRuleGroupAssociationId"`
 	Name                           string `json:"Name"`
+	MutationProtection             string `json:"MutationProtection"`
 	Priority                       int32  `json:"Priority"`
 }
 
@@ -1478,7 +1599,7 @@ func (h *Handler) handleUpdateFirewallRuleGroupAssociation(
 		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrValidation)
 	}
 	assoc, err := h.Backend.UpdateFirewallRuleGroupAssociation(
-		in.FirewallRuleGroupAssociationID, in.Name, in.Priority,
+		in.FirewallRuleGroupAssociationID, in.Name, in.MutationProtection, in.Priority,
 	)
 	if err != nil {
 		return nil, err
@@ -2109,8 +2230,10 @@ func (h *Handler) handlePutResolverRulePolicy(
 // --- UpdateResolverEndpoint ---
 
 type updateResolverEndpointInput struct {
-	ResolverEndpointID string `json:"ResolverEndpointId"`
-	Name               string `json:"Name"`
+	ResolverEndpointID   string   `json:"ResolverEndpointId"`
+	Name                 string   `json:"Name"`
+	ResolverEndpointType string   `json:"ResolverEndpointType"`
+	Protocols            []string `json:"Protocols"`
 }
 
 type updateResolverEndpointOutput struct {
@@ -2124,7 +2247,7 @@ func (h *Handler) handleUpdateResolverEndpoint(
 	if in.ResolverEndpointID == "" {
 		return nil, fmt.Errorf("%w: ResolverEndpointId is required", ErrValidation)
 	}
-	ep, err := h.Backend.UpdateResolverEndpoint(in.ResolverEndpointID, in.Name)
+	ep, err := h.Backend.UpdateResolverEndpoint(in.ResolverEndpointID, in.Name, in.ResolverEndpointType, in.Protocols)
 	if err != nil {
 		return nil, err
 	}
@@ -2194,7 +2317,7 @@ func (h *Handler) handleUpdateResolverRule(
 
 	tips := make([]TargetIP, 0, len(in.Config.TargetIps))
 	for _, t := range in.Config.TargetIps {
-		tips = append(tips, TargetIP(t))
+		tips = append(tips, TargetIP{IP: t.IP, Port: t.Port, Ipv6: t.Ipv6, Protocol: t.Protocol})
 	}
 	if len(tips) == 0 {
 		tips = nil

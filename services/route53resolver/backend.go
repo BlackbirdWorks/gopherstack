@@ -562,11 +562,6 @@ func (b *InMemoryBackend) CreateResolverRule(
 		}
 	}
 
-	// FORWARD rules should have TargetIps.
-	if ruleType == ruleTypeForward && len(targetIps) == 0 {
-		return nil, fmt.Errorf("%w: FORWARD rules require at least one TargetIp", ErrValidation)
-	}
-
 	if endpointID != "" {
 		if _, ok := b.endpoints[endpointID]; !ok {
 			return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
@@ -1071,6 +1066,11 @@ func cloneEndpoint(ep *ResolverEndpoint) *ResolverEndpoint {
 		cp.SecurityGroupIDs = []string{}
 	}
 
+	if ep.Protocols != nil {
+		cp.Protocols = make([]string, len(ep.Protocols))
+		copy(cp.Protocols, ep.Protocols)
+	}
+
 	return &cp
 }
 
@@ -1249,6 +1249,7 @@ func (b *InMemoryBackend) AddFirewallRuleInternal(
 		return nil
 	}
 
+	now := currentTime()
 	id := "rslvr-frr-" + uuid.New().String()[:8]
 	ruleARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-rule/"+id)
 	rule := &FirewallRule{
@@ -1259,6 +1260,8 @@ func (b *InMemoryBackend) AddFirewallRuleInternal(
 		FirewallDomainListID: domainListID,
 		Action:               action,
 		Priority:             priority,
+		CreationTime:         now,
+		ModificationTime:     now,
 	}
 	b.firewallRules[id] = rule
 	grp.RuleCount++
@@ -1686,10 +1689,8 @@ func (b *InMemoryBackend) GetFirewallConfig(resourceID string) *FirewallConfig {
 		return &cp
 	}
 	id := "fwc-" + uuid.New().String()[:8]
-	cfgARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-config/"+id)
 	cfg := &FirewallConfig{
 		ID:               id,
-		ARN:              cfgARN,
 		OwnerID:          b.accountID,
 		ResourceID:       resourceID,
 		FirewallFailOpen: firewallFailOpenDisabled,
@@ -1717,10 +1718,8 @@ func (b *InMemoryBackend) UpdateFirewallConfig(resourceID, firewallFailOpen stri
 	cfg, ok := b.firewallConfigs[resourceID]
 	if !ok {
 		id := "fwc-" + uuid.New().String()[:8]
-		cfgARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-config/"+id)
 		cfg = &FirewallConfig{
 			ID:         id,
-			ARN:        cfgARN,
 			OwnerID:    b.accountID,
 			ResourceID: resourceID,
 		}
@@ -1875,7 +1874,7 @@ func (b *InMemoryBackend) UpdateResolverDnssecConfig(resourceID, validation stri
 		b.resolverDnssecConfigs[resourceID] = cfg
 	}
 	if validation == dnssecValidationEnable {
-		cfg.ValidationStatus = validationStatusEnabled
+		cfg.ValidationStatus = validationStatusEnabling
 	} else {
 		cfg.ValidationStatus = validationStatusDisabling
 	}
@@ -2160,8 +2159,11 @@ func (b *InMemoryBackend) PutResolverRulePolicy(arn, policy string) error {
 
 // --- Resolver Endpoint Update ---
 
-// UpdateResolverEndpoint updates the name of a resolver endpoint.
-func (b *InMemoryBackend) UpdateResolverEndpoint(id, name string) (*ResolverEndpoint, error) {
+// UpdateResolverEndpoint updates name, endpoint type, and/or protocols of a resolver endpoint.
+func (b *InMemoryBackend) UpdateResolverEndpoint(
+	id, name, resolverEndpointType string,
+	protocols []string,
+) (*ResolverEndpoint, error) {
 	b.mu.Lock("UpdateResolverEndpoint")
 	defer b.mu.Unlock()
 
@@ -2172,6 +2174,20 @@ func (b *InMemoryBackend) UpdateResolverEndpoint(id, name string) (*ResolverEndp
 	if name != "" {
 		ep.Name = name
 	}
+	if resolverEndpointType != "" {
+		switch resolverEndpointType {
+		case endpointTypeIPV4, endpointTypeIPV6, endpointTypeDualStack:
+			ep.ResolverEndpointType = resolverEndpointType
+		default:
+			return nil, fmt.Errorf("%w: ResolverEndpointType must be IPV4, IPV6, or DUALSTACK", ErrValidation)
+		}
+	}
+	if len(protocols) > 0 {
+		protocolsCopy := make([]string, len(protocols))
+		copy(protocolsCopy, protocols)
+		ep.Protocols = protocolsCopy
+	}
+	ep.ModificationTime = currentTime()
 
 	return cloneEndpoint(ep), nil
 }
