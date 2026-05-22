@@ -1690,6 +1690,18 @@ func (b *InMemoryBackend) UpdateDataSource(apiID, name string, ds *DataSource) (
 		existing.HTTPConfig = ds.HTTPConfig
 	}
 
+	if ds.OpenSearchConfig != nil {
+		existing.OpenSearchConfig = ds.OpenSearchConfig
+	}
+
+	if ds.EventBridgeConfig != nil {
+		existing.EventBridgeConfig = ds.EventBridgeConfig
+	}
+
+	if ds.RelationalDatabaseConfig != nil {
+		existing.RelationalDatabaseConfig = ds.RelationalDatabaseConfig
+	}
+
 	cp := *existing
 
 	return &cp, nil
@@ -1727,6 +1739,18 @@ func (b *InMemoryBackend) UpdateResolver(apiID, typeName string, r *Resolver) (*
 
 	if len(r.PipelineConfig) > 0 {
 		existing.PipelineConfig = r.PipelineConfig
+	}
+
+	if r.CachingConfig != nil {
+		existing.CachingConfig = r.CachingConfig
+	}
+
+	if r.SyncConfig != nil {
+		existing.SyncConfig = r.SyncConfig
+	}
+
+	if r.MaxBatchSize != 0 {
+		existing.MaxBatchSize = r.MaxBatchSize
 	}
 
 	cp := *existing
