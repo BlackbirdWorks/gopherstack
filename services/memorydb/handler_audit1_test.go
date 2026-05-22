@@ -392,9 +392,9 @@ func TestAudit_AutoMinorVersionUpgrade(t *testing.T) {
 		{
 			name: "auto minor version upgrade explicit false",
 			body: map[string]any{
-				"ClusterName":            "test-cluster",
-				"NodeType":               "db.r6g.large",
-				"ACLName":                "open-access",
+				"ClusterName":             "test-cluster",
+				"NodeType":                "db.r6g.large",
+				"ACLName":                 "open-access",
 				"AutoMinorVersionUpgrade": false,
 			},
 			wantAMV: false,
@@ -402,9 +402,9 @@ func TestAudit_AutoMinorVersionUpgrade(t *testing.T) {
 		{
 			name: "auto minor version upgrade explicit true",
 			body: map[string]any{
-				"ClusterName":            "test-cluster",
-				"NodeType":               "db.r6g.large",
-				"ACLName":                "open-access",
+				"ClusterName":             "test-cluster",
+				"NodeType":                "db.r6g.large",
+				"ACLName":                 "open-access",
 				"AutoMinorVersionUpgrade": true,
 			},
 			wantAMV: true,
@@ -429,15 +429,15 @@ func TestAudit_UpdateCluster_AutoMinorVersionUpgrade(t *testing.T) {
 
 	// Create cluster with AMV=true.
 	createClusterObj(t, h, map[string]any{
-		"ClusterName":            "test-cluster",
-		"NodeType":               "db.r6g.large",
-		"ACLName":                "open-access",
+		"ClusterName":             "test-cluster",
+		"NodeType":                "db.r6g.large",
+		"ACLName":                 "open-access",
 		"AutoMinorVersionUpgrade": true,
 	})
 
 	// Update to AMV=false.
 	rec := doRequest(t, h, "UpdateCluster", map[string]any{
-		"ClusterName":            "test-cluster",
+		"ClusterName":             "test-cluster",
 		"AutoMinorVersionUpgrade": false,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1211,10 +1211,10 @@ func TestAudit_DescribeSnapshots_SourceFilter(t *testing.T) {
 	})
 
 	tests := []struct {
-		name             string
 		body             map[string]any
-		wantMinCount     int
+		name             string
 		wantSnapshotType string
+		wantMinCount     int
 	}{
 		{
 			name:         "no filter returns all",
@@ -1268,13 +1268,13 @@ func TestAudit_CreateCluster_RestoreFromSnapshot(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		wantStatus       int
+		name              string
 		wantEngineVersion string
+		wantStatus        int
 	}{
 		{
-			name:             "restore from snapshot uses snapshot config",
-			wantStatus:       http.StatusOK,
+			name:              "restore from snapshot uses snapshot config",
+			wantStatus:        http.StatusOK,
 			wantEngineVersion: "7.1",
 		},
 	}
@@ -1338,10 +1338,10 @@ func TestAudit_CopySnapshot_TargetBucket(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		body           map[string]any
-		wantStatus     int
-		wantNewSnap    bool
+		body        map[string]any
+		name        string
+		wantStatus  int
+		wantNewSnap bool
 	}{
 		{
 			name: "target bucket copies to S3 without creating new snapshot",
@@ -1403,10 +1403,10 @@ func TestAudit_FailoverShard(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
-		setup      bool
+		name       string
 		wantStatus int
+		setup      bool
 	}{
 		{
 			name: "failover with shard name succeeds",
@@ -1514,10 +1514,10 @@ func TestAudit_SnapshotCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		op         string
 		setup      func(*memorydb.Handler)
 		body       map[string]any
+		name       string
+		op         string
 		wantStatus int
 	}{
 		{
@@ -1626,10 +1626,10 @@ func TestAudit_SubnetGroupCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		op         string
 		setup      func(*memorydb.Handler)
 		body       map[string]any
+		name       string
+		op         string
 		wantStatus int
 	}{
 		{
@@ -1700,10 +1700,10 @@ func TestAudit_ParameterGroupCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		op         string
 		setup      func(*memorydb.Handler)
 		body       map[string]any
+		name       string
+		op         string
 		wantStatus int
 	}{
 		{
@@ -1795,10 +1795,10 @@ func TestAudit_ACL_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		op         string
 		setup      func(*memorydb.Handler)
 		body       map[string]any
+		name       string
+		op         string
 		wantStatus int
 	}{
 		{
@@ -1883,10 +1883,10 @@ func TestAudit_UserCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		op         string
 		setup      func(*memorydb.Handler)
 		body       map[string]any
+		name       string
+		op         string
 		wantStatus int
 	}{
 		{
@@ -1973,10 +1973,10 @@ func TestAudit_MultiRegionCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		op         string
 		setup      func(*memorydb.Handler)
 		body       map[string]any
+		name       string
+		op         string
 		wantStatus int
 	}{
 		{
@@ -1984,9 +1984,9 @@ func TestAudit_MultiRegionCluster(t *testing.T) {
 			op:   "CreateMultiRegionCluster",
 			body: map[string]any{
 				"MultiRegionClusterNameSuffix": "my-cluster",
-				"NodeType":                    "db.r6g.large",
-				"Engine":                      "redis",
-				"EngineVersion":               "7.0",
+				"NodeType":                     "db.r6g.large",
+				"Engine":                       "redis",
+				"EngineVersion":                "7.0",
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -2002,7 +2002,7 @@ func TestAudit_MultiRegionCluster(t *testing.T) {
 			setup: func(h *memorydb.Handler) {
 				doRequest(t, h, "CreateMultiRegionCluster", map[string]any{
 					"MultiRegionClusterNameSuffix": "my-cluster",
-					"NodeType":                    "db.r6g.large",
+					"NodeType":                     "db.r6g.large",
 				})
 			},
 			body:       map[string]any{},
@@ -2014,7 +2014,7 @@ func TestAudit_MultiRegionCluster(t *testing.T) {
 			setup: func(h *memorydb.Handler) {
 				doRequest(t, h, "CreateMultiRegionCluster", map[string]any{
 					"MultiRegionClusterNameSuffix": "my-cluster",
-					"NodeType":                    "db.r6g.large",
+					"NodeType":                     "db.r6g.large",
 				})
 			},
 			body:       map[string]any{"MultiRegionClusterName": "virv-my-cluster"},
@@ -2043,10 +2043,10 @@ func TestAudit_Tags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(*memorydb.Handler) string
-		wantStatus int
 		wantTags   map[string]string
+		name       string
+		wantStatus int
 	}{
 		{
 			name: "list tags on cluster",
@@ -2115,8 +2115,8 @@ func TestAudit_ClusterEndpoint(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
 		body           map[string]any
+		name           string
 		wantAddrSuffix string
 		wantPort       float64
 	}{
@@ -2164,8 +2164,8 @@ func TestAudit_DescribeReservedNodesOfferings_DurationFilter(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		body         map[string]any
+		name         string
 		wantMinCount int
 		wantDuration int
 	}{
@@ -2229,10 +2229,10 @@ func TestAudit_ReservedNodes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		op         string
 		setup      func(*memorydb.Handler)
 		body       map[string]any
+		name       string
+		op         string
 		wantStatus int
 	}{
 		{
@@ -2279,9 +2279,9 @@ func TestAudit_ListAllowedNodeTypeUpdates(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(*memorydb.Handler)
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -2369,12 +2369,12 @@ func TestAudit_BatchUpdateCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		setup             func(*memorydb.Handler)
-		body              map[string]any
-		wantStatus        int
-		wantProcessed     int
-		wantUnprocessed   int
+		setup           func(*memorydb.Handler)
+		body            map[string]any
+		name            string
+		wantStatus      int
+		wantProcessed   int
+		wantUnprocessed int
 	}{
 		{
 			name: "all clusters found",
@@ -2395,7 +2395,7 @@ func TestAudit_BatchUpdateCluster(t *testing.T) {
 			wantUnprocessed: 0,
 		},
 		{
-			name:  "some clusters not found",
+			name: "some clusters not found",
 			setup: func(h *memorydb.Handler) {
 				createCluster(t, h, map[string]any{
 					"ClusterName": "cluster-a",
@@ -2447,8 +2447,8 @@ func TestAudit_DeleteCluster_WithFinalSnapshot(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 		wantSnaps  bool
 	}{
@@ -2499,12 +2499,12 @@ func TestAudit_Pagination(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		op         string
-		setup      func(*memorydb.Handler)
-		body       map[string]any
-		wantCount  int
-		wantToken  bool
+		setup     func(*memorydb.Handler)
+		body      map[string]any
+		name      string
+		op        string
+		wantCount int
+		wantToken bool
 	}{
 		{
 			name: "describe clusters pagination",

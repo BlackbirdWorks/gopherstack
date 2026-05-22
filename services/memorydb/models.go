@@ -335,7 +335,7 @@ type nodeObject struct {
 
 // pendingUpdatesObject represents pending changes to a cluster.
 type pendingUpdatesObject struct {
-	ACLs           *pendingACLsUpdate    `json:"ACLs,omitempty"`
+	ACLs           *pendingACLsUpdate     `json:"ACLs,omitempty"`
 	ServiceUpdates []pendingServiceUpdate `json:"ServiceUpdates,omitempty"`
 }
 
