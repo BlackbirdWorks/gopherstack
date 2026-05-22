@@ -26,6 +26,12 @@ type StorageBackend interface {
 		autoMinorVersionUpgrade *bool,
 		securityGroups []string,
 	) (*Broker, error)
+	UpdateBrokerWithOptions(
+		brokerID, engineVersion, hostInstanceType string,
+		autoMinorVersionUpgrade *bool,
+		securityGroups []string,
+		opts *UpdateBrokerOptions,
+	) (*Broker, error)
 	DeleteBroker(brokerID string) (*Broker, error)
 	RebootBroker(brokerID string) error
 	Promote(brokerID, mode string) (*Broker, error)

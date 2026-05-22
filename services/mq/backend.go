@@ -680,11 +680,32 @@ func promoteRebootingToRunning(br *Broker) {
 	}
 }
 
-// UpdateBroker updates mutable broker fields.
+// UpdateBrokerOptions carries optional fields for UpdateBrokerWithOptions.
+// Zero values are ignored and treated as "not specified".
+type UpdateBrokerOptions struct {
+	Logs                       *Logs
+	LdapServerMetadata         *LdapServerMetadata
+	MaintenanceWindowStartTime *WeeklyStartTime
+	Configuration              *ConfigurationID
+	AuthenticationStrategy     string
+	DataReplicationMode        string
+}
+
+// UpdateBroker updates mutable broker fields (compatibility wrapper).
 func (b *InMemoryBackend) UpdateBroker(
 	brokerID, engineVersion, hostInstanceType string,
 	autoMinorVersionUpgrade *bool,
 	securityGroups []string,
+) (*Broker, error) {
+	return b.UpdateBrokerWithOptions(brokerID, engineVersion, hostInstanceType, autoMinorVersionUpgrade, securityGroups, nil)
+}
+
+// UpdateBrokerWithOptions updates mutable broker fields including optional extended fields.
+func (b *InMemoryBackend) UpdateBrokerWithOptions(
+	brokerID, engineVersion, hostInstanceType string,
+	autoMinorVersionUpgrade *bool,
+	securityGroups []string,
+	opts *UpdateBrokerOptions,
 ) (*Broker, error) {
 	b.mu.Lock("UpdateBroker")
 	defer b.mu.Unlock()
@@ -708,6 +729,42 @@ func (b *InMemoryBackend) UpdateBroker(
 
 	if securityGroups != nil {
 		br.SecurityGroups = securityGroups
+	}
+
+	if opts != nil {
+		if opts.AuthenticationStrategy != "" {
+			br.AuthenticationStrategy = opts.AuthenticationStrategy
+		}
+
+		if opts.Logs != nil {
+			br.Logs = opts.Logs
+			br.LogsSummary = &LogsSummary{
+				General:         opts.Logs.General,
+				Audit:           opts.Logs.Audit,
+				GeneralLogGroup: logGroupName(br.BrokerID, "general"),
+				AuditLogGroup:   logGroupName(br.BrokerID, "audit"),
+			}
+		}
+
+		if opts.LdapServerMetadata != nil {
+			br.LdapServerMetadata = opts.LdapServerMetadata
+		}
+
+		if opts.MaintenanceWindowStartTime != nil {
+			br.MaintenanceWindowStartTime = opts.MaintenanceWindowStartTime
+		}
+
+		if opts.Configuration != nil {
+			if br.Configurations == nil {
+				br.Configurations = &Configurations{}
+			}
+
+			br.Configurations.Current = opts.Configuration
+		}
+
+		if opts.DataReplicationMode != "" {
+			br.DataReplicationMode = opts.DataReplicationMode
+		}
 	}
 
 	return b.copyBroker(br), nil
