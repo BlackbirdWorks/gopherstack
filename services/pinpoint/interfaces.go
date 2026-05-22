@@ -114,7 +114,7 @@ type StorageBackend interface {
 
 	// Channel operations
 	GetChannel(appID, channelType string) *Channel
-	UpsertChannel(appID, channelType string, enabled bool) *Channel
+	UpsertChannel(appID, channelType string, enabled bool, extra map[string]any) *Channel
 	DeleteChannel(appID, channelType string) *Channel
 	GetAllChannels(appID string) map[string]*Channel
 

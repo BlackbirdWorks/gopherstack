@@ -19,6 +19,19 @@ var (
 	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 	// ErrAlreadyExists is returned when a resource with the same key already exists.
 	ErrAlreadyExists = awserr.New("ConflictException: resource already exists", awserr.ErrConflict)
+	// ErrJourneyActive is returned when attempting to modify an ACTIVE journey's activities.
+	ErrJourneyActive = awserr.New(
+		"BadRequestException: journey is ACTIVE and cannot be modified",
+		awserr.ErrInvalidParameter,
+	)
+)
+
+const (
+	journeyStateActive    = "ACTIVE"
+	journeyStatePaused    = "PAUSED"
+	journeyStateCancelled = "CANCELLED"
+	journeyStateCompleted = "COMPLETED"
+	journeyStateClosed    = "CLOSED"
 )
 
 // tagHolder is implemented by all resource types that carry tags and an ARN,
@@ -331,16 +344,39 @@ func (b *InMemoryBackend) CreateCampaign(
 	campaignARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s/campaigns/%s", appID, id))
 	now := nowRFC3339()
 
+	status := campaignStatusScheduled
+	if req.IsPaused {
+		status = campaignStatusPaused
+	}
+
 	c := &Campaign{
-		ApplicationID:    appID,
-		ARN:              campaignARN,
-		ID:               id,
-		Name:             req.Name,
-		SegmentID:        req.SegmentID,
-		SegmentVersion:   req.SegmentVersion,
-		Tags:             nonNilTagsCopy(req.Tags),
-		CreationDate:     now,
-		LastModifiedDate: now,
+		ApplicationID:               appID,
+		ARN:                         campaignARN,
+		ID:                          id,
+		Name:                        req.Name,
+		SegmentID:                   req.SegmentID,
+		SegmentVersion:              req.SegmentVersion,
+		Tags:                        nonNilTagsCopy(req.Tags),
+		MessageConfiguration:        cloneAnyMap(req.MessageConfiguration),
+		Schedule:                    cloneAnyMap(req.Schedule),
+		Hook:                        cloneAnyMap(req.Hook),
+		Limits:                      cloneAnyMap(req.Limits),
+		TemplateConfiguration:       cloneAnyMap(req.TemplateConfiguration),
+		CustomDeliveryConfiguration: cloneAnyMap(req.CustomDeliveryConfiguration),
+		TreatmentDescription:        req.TreatmentDescription,
+		TreatmentName:               req.TreatmentName,
+		Priority:                    req.Priority,
+		IsPaused:                    req.IsPaused,
+		Status:                      status,
+		CreationDate:                now,
+		LastModifiedDate:            now,
+	}
+
+	if req.AdditionalTreatments != nil {
+		c.AdditionalTreatments = make([]map[string]any, len(req.AdditionalTreatments))
+		for i, t := range req.AdditionalTreatments {
+			c.AdditionalTreatments[i] = cloneAnyMap(t)
+		}
 	}
 
 	c.Version = 1
@@ -583,14 +619,32 @@ func (b *InMemoryBackend) CreateJourney(region, accountID, appID string, req cre
 	now := nowRFC3339()
 
 	j := &Journey{
-		ApplicationID:    appID,
-		ARN:              journeyARN,
-		ID:               id,
-		Name:             req.Name,
-		State:            journeyStateDraft,
-		Tags:             nonNilTagsCopy(req.Tags),
-		CreationDate:     now,
-		LastModifiedDate: now,
+		ApplicationID:          appID,
+		ARN:                    journeyARN,
+		ID:                     id,
+		Name:                   req.Name,
+		State:                  journeyStateDraft,
+		Tags:                   nonNilTagsCopy(req.Tags),
+		StartActivity:          req.StartActivity,
+		RefreshFrequency:       req.RefreshFrequency,
+		LocalTime:              req.LocalTime,
+		WaitForQuietTime:       req.WaitForQuietTime,
+		RefreshOnSegmentUpdate: req.RefreshOnSegmentUpdate,
+		StartCondition:         cloneAnyMap(req.StartCondition),
+		Schedule:               cloneAnyMap(req.Schedule),
+		Limits:                 cloneAnyMap(req.Limits),
+		QuietTime:              cloneAnyMap(req.QuietTime),
+		OpenHours:              cloneAnyMap(req.OpenHours),
+		ClosedDays:             cloneAnyMap(req.ClosedDays),
+		CreationDate:           now,
+		LastModifiedDate:       now,
+	}
+
+	if req.Activities != nil {
+		j.Activities = make(map[string]map[string]any, len(req.Activities))
+		for k, v := range req.Activities {
+			j.Activities[k] = cloneAnyMap(v)
+		}
 	}
 
 	b.journeys[id] = j
@@ -609,6 +663,10 @@ func (b *InMemoryBackend) CreateRecommenderConfiguration(
 ) (*RecommenderConfiguration, error) {
 	b.mu.Lock("CreateRecommenderConfiguration")
 	defer b.mu.Unlock()
+
+	if !isValidRecommenderIDType(req.RecommendationProviderIDType) {
+		return nil, ErrValidation
+	}
 
 	id := uuid.NewString()
 	now := nowRFC3339()
@@ -650,14 +708,25 @@ func (b *InMemoryBackend) CreateSegment(region, accountID, appID string, req cre
 	id := uuid.NewString()
 	segmentARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s/segments/%s", appID, id))
 
+	now2 := nowRFC3339()
+	segType := segmentTypeDimensional
+
+	if len(req.ImportDefinition) > 0 {
+		segType = segmentTypeImport
+	}
+
 	s := &Segment{
-		ApplicationID: appID,
-		ARN:           segmentARN,
-		ID:            id,
-		Name:          req.Name,
-		SegmentType:   segmentTypeDimensional,
-		Tags:          nonNilTagsCopy(req.Tags),
-		CreationDate:  nowRFC3339(),
+		ApplicationID:    appID,
+		ARN:              segmentARN,
+		ID:               id,
+		Name:             req.Name,
+		SegmentType:      segType,
+		Tags:             nonNilTagsCopy(req.Tags),
+		Dimensions:       cloneAnyMap(req.Dimensions),
+		SegmentGroups:    cloneAnyMap(req.SegmentGroups),
+		ImportDefinition: cloneAnyMap(req.ImportDefinition),
+		CreationDate:     now2,
+		LastModifiedDate: now2,
 	}
 
 	s.Version = 1
@@ -685,6 +754,19 @@ func cloneApp(a *App) *App {
 func cloneCampaign(c *Campaign) *Campaign {
 	cp := *c
 	cp.Tags = nonNilTagsCopy(c.Tags)
+	cp.MessageConfiguration = cloneAnyMap(c.MessageConfiguration)
+	cp.Schedule = cloneAnyMap(c.Schedule)
+	cp.Hook = cloneAnyMap(c.Hook)
+	cp.Limits = cloneAnyMap(c.Limits)
+	cp.TemplateConfiguration = cloneAnyMap(c.TemplateConfiguration)
+	cp.CustomDeliveryConfiguration = cloneAnyMap(c.CustomDeliveryConfiguration)
+
+	if c.AdditionalTreatments != nil {
+		cp.AdditionalTreatments = make([]map[string]any, len(c.AdditionalTreatments))
+		for i, t := range c.AdditionalTreatments {
+			cp.AdditionalTreatments[i] = cloneAnyMap(t)
+		}
+	}
 
 	return &cp
 }
@@ -720,6 +802,19 @@ func cloneSmsTemplate(t *SmsTemplate) *SmsTemplate {
 func cloneJourney(j *Journey) *Journey {
 	cp := *j
 	cp.Tags = nonNilTagsCopy(j.Tags)
+	cp.StartCondition = cloneAnyMap(j.StartCondition)
+	cp.Schedule = cloneAnyMap(j.Schedule)
+	cp.Limits = cloneAnyMap(j.Limits)
+	cp.QuietTime = cloneAnyMap(j.QuietTime)
+	cp.OpenHours = cloneAnyMap(j.OpenHours)
+	cp.ClosedDays = cloneAnyMap(j.ClosedDays)
+
+	if j.Activities != nil {
+		cp.Activities = make(map[string]map[string]any, len(j.Activities))
+		for k, v := range j.Activities {
+			cp.Activities[k] = cloneAnyMap(v)
+		}
+	}
 
 	return &cp
 }
@@ -727,6 +822,9 @@ func cloneJourney(j *Journey) *Journey {
 func cloneSegment(s *Segment) *Segment {
 	cp := *s
 	cp.Tags = nonNilTagsCopy(s.Tags)
+	cp.Dimensions = cloneAnyMap(s.Dimensions)
+	cp.SegmentGroups = cloneAnyMap(s.SegmentGroups)
+	cp.ImportDefinition = cloneAnyMap(s.ImportDefinition)
 
 	return &cp
 }
@@ -746,6 +844,31 @@ func nonNilTagsCopy(tags map[string]string) map[string]string {
 // nonNilAttrsCopy returns a copy of the given attribute map; never returns nil.
 func nonNilAttrsCopy(attrs map[string]string) map[string]string {
 	return nonNilTagsCopy(attrs)
+}
+
+// nonNilStringSliceMapCopy returns a copy of a map[string][]string; never returns nil.
+func nonNilStringSliceMapCopy(m map[string][]string) map[string][]string {
+	cp := make(map[string][]string, len(m))
+
+	for k, v := range m {
+		if v == nil {
+			cp[k] = []string{}
+		} else {
+			dst := make([]string, len(v))
+			copy(dst, v)
+			cp[k] = dst
+		}
+	}
+
+	return cp
+}
+
+// nonNilFloat64MapCopy returns a copy of a map[string]float64; never returns nil.
+func nonNilFloat64MapCopy(m map[string]float64) map[string]float64 {
+	cp := make(map[string]float64, len(m))
+	maps.Copy(cp, m)
+
+	return cp
 }
 
 // ──────────────────────────────────────────────────

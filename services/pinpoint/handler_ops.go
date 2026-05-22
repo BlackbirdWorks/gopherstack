@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
@@ -16,16 +17,27 @@ import (
 // Channel handlers
 // ──────────────────────────────────────────────────
 
+// toChannelResponse converts a Channel to its wire format.
+func toChannelResponse(ch *Channel) channelResponse {
+	return channelResponse{
+		ApplicationID:     ch.ApplicationID,
+		ChannelType:       ch.ChannelType,
+		Platform:          ch.Platform,
+		Enabled:           ch.Enabled,
+		IsArchived:        ch.IsArchived,
+		HasCredential:     ch.HasCredential,
+		HasTokenKey:       ch.HasTokenKey,
+		Version:           ch.Version,
+		CreationDate:      ch.CreationDate,
+		LastModifiedDate:  ch.LastModifiedDate,
+		MessagesPerSecond: ch.MessagesPerSecond,
+	}
+}
+
 // handleGetChannel handles GET /v1/apps/{appId}/channels/{channelType}.
 func (h *Handler) handleGetChannel(c *echo.Context, appID, channelType string) error {
 	ch := h.Backend.GetChannel(appID, channelType)
-	resp := channelResponse{
-		ApplicationID: ch.ApplicationID,
-		ChannelType:   ch.ChannelType,
-		Enabled:       ch.Enabled,
-		IsArchived:    ch.IsArchived,
-	}
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toChannelResponse(ch))
 
 	return nil
 }
@@ -36,15 +48,135 @@ func (h *Handler) handleGetChannels(c *echo.Context, appID string) error {
 	resp := channelsResponse{Channels: make(map[string]channelResponse)}
 
 	for _, ch := range channels {
-		resp.Channels[ch.ChannelType] = channelResponse{
-			ApplicationID: ch.ApplicationID,
-			ChannelType:   ch.ChannelType,
-			Enabled:       ch.Enabled,
-			IsArchived:    ch.IsArchived,
-		}
+		resp.Channels[ch.ChannelType] = toChannelResponse(ch)
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+func parseGCMChannelExtra(body []byte) (bool, map[string]any) {
+	var req updateGCMChannelRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return false, nil
+	}
+
+	extra := map[string]any{"DefaultAuthenticationMethod": req.DefaultAuthenticationMethod}
+
+	if req.APIKey != "" {
+		extra["ApiKey"] = req.APIKey
+	}
+
+	if req.ServiceJSON != "" {
+		extra["ServiceJson"] = req.ServiceJSON
+	}
+
+	return req.Enabled, extra
+}
+
+func parseAPNSChannelExtra(body []byte) (bool, map[string]any) {
+	var req updateAPNSChannelRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return false, nil
+	}
+
+	extra := map[string]any{"DefaultAuthMethod": req.DefaultAuthMethod}
+
+	for k, v := range map[string]string{
+		"BundleId": req.BundleID, "Certificate": req.Certificate,
+		"TeamId": req.TeamID, "TokenKey": req.TokenKey, "TokenKeyId": req.TokenKeyID,
+	} {
+		if v != "" {
+			extra[k] = v
+		}
+	}
+
+	return req.Enabled, extra
+}
+
+func parseEmailChannelExtra(body []byte) (bool, map[string]any) {
+	var req updateEmailChannelRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return false, nil
+	}
+
+	extra := map[string]any{}
+
+	for k, v := range map[string]string{
+		"FromAddress": req.FromAddress, "Identity": req.Identity,
+		"RoleArn": req.RoleArn, "ConfigurationSet": req.ConfigurationSet,
+	} {
+		if v != "" {
+			extra[k] = v
+		}
+	}
+
+	return req.Enabled, extra
+}
+
+func parseSMSChannelExtra(body []byte) (bool, map[string]any) {
+	var req updateSMSChannelRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return false, nil
+	}
+
+	extra := map[string]any{}
+
+	if req.SenderID != "" {
+		extra["SenderId"] = req.SenderID
+	}
+
+	if req.ShortCode != "" {
+		extra["ShortCode"] = req.ShortCode
+	}
+
+	return req.Enabled, extra
+}
+
+// parseChannelExtra extracts per-channel extra fields from the request body.
+func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
+	switch strings.ToLower(channelType) {
+	case "gcm":
+		return parseGCMChannelExtra(body)
+	case "apns", "apns_sandbox", "apns_voip", "apns_voip_sandbox":
+		return parseAPNSChannelExtra(body)
+	case "email":
+		return parseEmailChannelExtra(body)
+	case "sms":
+		return parseSMSChannelExtra(body)
+	case "adm":
+		var req updateADMChannelRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return false, nil
+		}
+
+		extra := map[string]any{}
+
+		if req.ClientID != "" {
+			extra["ClientId"] = req.ClientID
+		}
+
+		return req.Enabled, extra
+	case "baidu":
+		var req updateBaiduChannelRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return false, nil
+		}
+
+		extra := map[string]any{}
+
+		if req.APIKey != "" {
+			extra["ApiKey"] = req.APIKey
+		}
+
+		return req.Enabled, extra
+	default:
+		var req updateChannelRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return false, nil
+		}
+
+		return req.Enabled, nil
+	}
 }
 
 // handleUpdateChannel handles PUT /v1/apps/{appId}/channels/{channelType}.
@@ -54,18 +186,9 @@ func (h *Handler) handleUpdateChannel(c *echo.Context, appID, channelType string
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
 	}
 
-	var req updateChannelRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
-	}
-
-	ch := h.Backend.UpsertChannel(appID, channelType, req.Enabled)
-	resp := channelResponse{
-		ApplicationID: ch.ApplicationID,
-		ChannelType:   ch.ChannelType,
-		Enabled:       ch.Enabled,
-	}
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+	enabled, extra := parseChannelExtra(channelType, body)
+	ch := h.Backend.UpsertChannel(appID, channelType, enabled, extra)
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toChannelResponse(ch))
 
 	return nil
 }
@@ -73,12 +196,7 @@ func (h *Handler) handleUpdateChannel(c *echo.Context, appID, channelType string
 // handleDeleteChannel handles DELETE /v1/apps/{appId}/channels/{channelType}.
 func (h *Handler) handleDeleteChannel(c *echo.Context, appID, channelType string) error {
 	ch := h.Backend.DeleteChannel(appID, channelType)
-	resp := channelResponse{
-		ApplicationID: ch.ApplicationID,
-		ChannelType:   ch.ChannelType,
-		Enabled:       ch.Enabled,
-	}
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toChannelResponse(ch))
 
 	return nil
 }
@@ -456,6 +574,10 @@ func (h *Handler) handleUpdateJourney(c *echo.Context, appID, journeyID string) 
 
 	journey, backendErr := h.Backend.UpdateJourney(appID, journeyID, req)
 	if backendErr != nil {
+		if errors.Is(backendErr, awserr.ErrInvalidParameter) {
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", backendErr.Error())
+		}
+
 		return writeNotFoundOrInternal(c, backendErr)
 	}
 
@@ -480,6 +602,10 @@ func (h *Handler) handleUpdateJourneyState(c *echo.Context, appID, journeyID str
 	if backendErr != nil {
 		if errors.Is(backendErr, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", backendErr.Error())
+		}
+
+		if errors.Is(backendErr, awserr.ErrInvalidParameter) {
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", backendErr.Error())
 		}
 
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
@@ -871,6 +997,29 @@ func (h *Handler) handleUpdateTemplateActiveVersion(c *echo.Context, templateNam
 // Endpoint handlers
 // ──────────────────────────────────────────────────
 
+// toEndpointResponse converts an Endpoint to its wire format.
+func toEndpointResponse(e *Endpoint) endpointResponse {
+	return endpointResponse{
+		ApplicationID:  e.ApplicationID,
+		ID:             e.ID,
+		ChannelType:    e.ChannelType,
+		Address:        e.Address,
+		EffectiveDate:  e.EffectiveDate,
+		CreationDate:   e.CreationDate,
+		EndpointStatus: e.EndpointStatus,
+		OptOut:         e.OptOut,
+		RequestID:      e.RequestID,
+		Attributes:     e.Attributes,
+		Metrics:        e.Metrics,
+		Demographic:    e.Demographic,
+		Location:       e.Location,
+		User: endpointUserResponse{
+			UserID:         e.UserID,
+			UserAttributes: e.UserAttributes,
+		},
+	}
+}
+
 // handleGetEndpoint handles GET /v1/apps/{appId}/endpoints/{endpointId}.
 func (h *Handler) handleGetEndpoint(c *echo.Context, appID, endpointID string) error {
 	e, err := h.Backend.GetEndpoint(appID, endpointID)
@@ -882,12 +1031,7 @@ func (h *Handler) handleGetEndpoint(c *echo.Context, appID, endpointID string) e
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, endpointResponse{
-		ApplicationID: e.ApplicationID,
-		ID:            e.ID,
-		ChannelType:   e.ChannelType,
-		Address:       e.Address,
-	})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toEndpointResponse(e))
 
 	return nil
 }
@@ -909,12 +1053,7 @@ func (h *Handler) handleUpdateEndpoint(c *echo.Context, appID, endpointID string
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusAccepted, endpointResponse{
-		ApplicationID: e.ApplicationID,
-		ID:            e.ID,
-		ChannelType:   e.ChannelType,
-		Address:       e.Address,
-	})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusAccepted, toEndpointResponse(e))
 
 	return nil
 }
@@ -930,10 +1069,7 @@ func (h *Handler) handleDeleteEndpoint(c *echo.Context, appID, endpointID string
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, endpointResponse{
-		ApplicationID: e.ApplicationID,
-		ID:            e.ID,
-	})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toEndpointResponse(e))
 
 	return nil
 }
@@ -948,12 +1084,7 @@ func (h *Handler) handleGetUserEndpoints(c *echo.Context, appID, userID string) 
 	items := make([]endpointResponse, 0, len(endpoints))
 
 	for _, e := range endpoints {
-		items = append(items, endpointResponse{
-			ApplicationID: e.ApplicationID,
-			ID:            e.ID,
-			ChannelType:   e.ChannelType,
-			Address:       e.Address,
-		})
+		items = append(items, toEndpointResponse(e))
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, endpointsResponse{Item: items})
@@ -1421,42 +1552,76 @@ func writeNotFoundOrInternal(c *echo.Context, err error) error {
 // ──────────────────────────────────────────────────
 
 func toCampaignResponse(c *Campaign) campaignResponse {
+	status := c.Status
+	if status == "" {
+		status = campaignStatusScheduled
+	}
+
 	return campaignResponse{
-		ApplicationID:    c.ApplicationID,
-		ARN:              c.ARN,
-		ID:               c.ID,
-		Name:             c.Name,
-		SegmentID:        c.SegmentID,
-		SegmentVersion:   c.SegmentVersion,
-		Tags:             c.Tags,
-		CreationDate:     c.CreationDate,
-		LastModifiedDate: c.LastModifiedDate,
-		State:            campaignState{CampaignStatus: campaignStatus},
+		ApplicationID:               c.ApplicationID,
+		ARN:                         c.ARN,
+		ID:                          c.ID,
+		Name:                        c.Name,
+		SegmentID:                   c.SegmentID,
+		SegmentVersion:              c.SegmentVersion,
+		Tags:                        c.Tags,
+		MessageConfiguration:        c.MessageConfiguration,
+		Schedule:                    c.Schedule,
+		Hook:                        c.Hook,
+		Limits:                      c.Limits,
+		TemplateConfiguration:       c.TemplateConfiguration,
+		CustomDeliveryConfiguration: c.CustomDeliveryConfiguration,
+		TreatmentDescription:        c.TreatmentDescription,
+		TreatmentName:               c.TreatmentName,
+		AdditionalTreatments:        c.AdditionalTreatments,
+		Priority:                    c.Priority,
+		IsPaused:                    c.IsPaused,
+		Version:                     c.Version,
+		CreationDate:                c.CreationDate,
+		LastModifiedDate:            c.LastModifiedDate,
+		State:                       campaignState{CampaignStatus: status},
 	}
 }
 
 func toSegmentResponse(s *Segment) segmentResponse {
 	return segmentResponse{
-		ApplicationID: s.ApplicationID,
-		ARN:           s.ARN,
-		ID:            s.ID,
-		Name:          s.Name,
-		SegmentType:   s.SegmentType,
-		Tags:          s.Tags,
-		CreationDate:  s.CreationDate,
+		ApplicationID:    s.ApplicationID,
+		ARN:              s.ARN,
+		ID:               s.ID,
+		Name:             s.Name,
+		SegmentType:      s.SegmentType,
+		Tags:             s.Tags,
+		Dimensions:       s.Dimensions,
+		SegmentGroups:    s.SegmentGroups,
+		ImportDefinition: s.ImportDefinition,
+		CreationDate:     s.CreationDate,
+		LastModifiedDate: s.LastModifiedDate,
+		Version:          s.Version,
 	}
 }
 
 func toJourneyResponse(j *Journey) journeyResponse {
 	return journeyResponse{
-		ApplicationID:    j.ApplicationID,
-		ARN:              j.ARN,
-		ID:               j.ID,
-		Name:             j.Name,
-		State:            j.State,
-		Tags:             j.Tags,
-		CreationDate:     j.CreationDate,
-		LastModifiedDate: j.LastModifiedDate,
+		ApplicationID:          j.ApplicationID,
+		ARN:                    j.ARN,
+		ID:                     j.ID,
+		Name:                   j.Name,
+		State:                  j.State,
+		Tags:                   j.Tags,
+		Activities:             j.Activities,
+		StartCondition:         j.StartCondition,
+		Schedule:               j.Schedule,
+		Limits:                 j.Limits,
+		QuietTime:              j.QuietTime,
+		OpenHours:              j.OpenHours,
+		ClosedDays:             j.ClosedDays,
+		StartActivity:          j.StartActivity,
+		RefreshFrequency:       j.RefreshFrequency,
+		LocalTime:              j.LocalTime,
+		WaitForQuietTime:       j.WaitForQuietTime,
+		RefreshOnSegmentUpdate: j.RefreshOnSegmentUpdate,
+		CreationDate:           j.CreationDate,
+		LastModifiedDate:       j.LastModifiedDate,
 	}
 }
 
