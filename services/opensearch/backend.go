@@ -247,18 +247,18 @@ type DNSRegistrar interface {
 
 // ClusterConfig represents the cluster configuration for an OpenSearch domain.
 type ClusterConfig struct {
-	ZoneAwarenessConfig        *ZoneAwarenessConfig `json:"zoneAwarenessConfig,omitempty"`
-	InstanceType               string               `json:"instanceType"`
-	DedicatedMasterType        string               `json:"dedicatedMasterType,omitempty"`
-	WarmType                   string               `json:"warmType,omitempty"`
-	InstanceCount              int                  `json:"instanceCount"`
-	DedicatedMasterCount       int                  `json:"dedicatedMasterCount,omitempty"`
-	WarmCount                  int                  `json:"warmCount,omitempty"`
-	DedicatedMasterEnabled     bool                 `json:"dedicatedMasterEnabled,omitempty"`
-	ZoneAwarenessEnabled       bool                 `json:"zoneAwarenessEnabled,omitempty"`
-	WarmEnabled                bool                 `json:"warmEnabled,omitempty"`
-	ColdStorageEnabled         bool                 `json:"coldStorageEnabled,omitempty"`
-	MultiAZWithStandbyEnabled  bool                 `json:"multiAZWithStandbyEnabled,omitempty"`
+	ZoneAwarenessConfig       *ZoneAwarenessConfig `json:"zoneAwarenessConfig,omitempty"`
+	InstanceType              string               `json:"instanceType"`
+	DedicatedMasterType       string               `json:"dedicatedMasterType,omitempty"`
+	WarmType                  string               `json:"warmType,omitempty"`
+	InstanceCount             int                  `json:"instanceCount"`
+	DedicatedMasterCount      int                  `json:"dedicatedMasterCount,omitempty"`
+	WarmCount                 int                  `json:"warmCount,omitempty"`
+	DedicatedMasterEnabled    bool                 `json:"dedicatedMasterEnabled,omitempty"`
+	ZoneAwarenessEnabled      bool                 `json:"zoneAwarenessEnabled,omitempty"`
+	WarmEnabled               bool                 `json:"warmEnabled,omitempty"`
+	ColdStorageEnabled        bool                 `json:"coldStorageEnabled,omitempty"`
+	MultiAZWithStandbyEnabled bool                 `json:"multiAZWithStandbyEnabled,omitempty"`
 }
 
 // ZoneAwarenessConfig holds zone awareness settings.
@@ -303,12 +303,12 @@ type DomainEndpointOptions struct {
 
 // SAMLOptionsInput holds SAML configuration for AdvancedSecurityOptions.
 type SAMLOptionsInput struct {
-	IDPEntityID        string `json:"idpEntityId,omitempty"`
-	IDPMetadataContent string `json:"idpMetadataContent,omitempty"`
-	RolesKey           string `json:"rolesKey,omitempty"`
-	SubjectKey         string `json:"subjectKey,omitempty"`
-	SessionTimeoutMinutes int `json:"sessionTimeoutMinutes,omitempty"`
-	Enabled            bool   `json:"enabled,omitempty"`
+	IDPEntityID           string `json:"idpEntityId,omitempty"`
+	IDPMetadataContent    string `json:"idpMetadataContent,omitempty"`
+	RolesKey              string `json:"rolesKey,omitempty"`
+	SubjectKey            string `json:"subjectKey,omitempty"`
+	SessionTimeoutMinutes int    `json:"sessionTimeoutMinutes,omitempty"`
+	Enabled               bool   `json:"enabled,omitempty"`
 }
 
 // AdvancedSecurityOptions holds fine-grained access control settings.
@@ -321,9 +321,9 @@ type AdvancedSecurityOptions struct {
 
 // VPCOptions holds VPC configuration for an OpenSearch domain.
 type VPCOptions struct {
+	VPCID            string   `json:"vpcId,omitempty"`
 	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
 	SubnetIDs        []string `json:"subnetIds,omitempty"`
-	VPCID            string   `json:"vpcId,omitempty"`
 }
 
 // CognitoOptions holds Cognito configuration for Kibana authentication.
@@ -342,24 +342,24 @@ type LogPublishingOption struct {
 
 // Domain represents an OpenSearch domain.
 type Domain struct {
-	EBSOptions                  *EBSOptions                  `json:"ebsOptions,omitempty"`
-	SnapshotOptions             *SnapshotOptions             `json:"snapshotOptions,omitempty"`
-	EncryptionAtRestOptions     *EncryptionAtRestOptions     `json:"encryptionAtRestOptions,omitempty"`
-	NodeToNodeEncryptionOptions *NodeToNodeEncryptionOptions `json:"nodeToNodeEncryptionOptions,omitempty"`
-	DomainEndpointOptions       *DomainEndpointOptions       `json:"domainEndpointOptions,omitempty"`
-	AdvancedSecurityOptions     *AdvancedSecurityOptions     `json:"advancedSecurityOptions,omitempty"`
-	VPCOptions                  *VPCOptions                  `json:"vpcOptions,omitempty"`
-	CognitoOptions              *CognitoOptions              `json:"cognitoOptions,omitempty"`
+	EBSOptions                  *EBSOptions                     `json:"ebsOptions,omitempty"`
+	SnapshotOptions             *SnapshotOptions                `json:"snapshotOptions,omitempty"`
+	EncryptionAtRestOptions     *EncryptionAtRestOptions        `json:"encryptionAtRestOptions,omitempty"`
+	NodeToNodeEncryptionOptions *NodeToNodeEncryptionOptions    `json:"nodeToNodeEncryptionOptions,omitempty"`
+	DomainEndpointOptions       *DomainEndpointOptions          `json:"domainEndpointOptions,omitempty"`
+	AdvancedSecurityOptions     *AdvancedSecurityOptions        `json:"advancedSecurityOptions,omitempty"`
+	VPCOptions                  *VPCOptions                     `json:"vpcOptions,omitempty"`
+	CognitoOptions              *CognitoOptions                 `json:"cognitoOptions,omitempty"`
 	LogPublishingOptions        map[string]*LogPublishingOption `json:"logPublishingOptions,omitempty"`
-	Tags                        *tags.Tags                   `json:"tags,omitempty"`
-	AccessPolicies              string                       `json:"accessPolicies,omitempty"`
-	Name                        string                       `json:"name"`
-	ARN                         string                       `json:"arn"`
-	EngineVersion               string                       `json:"engineVersion"`
-	Endpoint                    string                       `json:"endpoint"`
-	Status                      string                       `json:"status"`
-	LastChangeID                string                       `json:"lastChangeID,omitempty"`
-	ClusterConfig               ClusterConfig                `json:"clusterConfig"`
+	Tags                        *tags.Tags                      `json:"tags,omitempty"`
+	AccessPolicies              string                          `json:"accessPolicies,omitempty"`
+	Name                        string                          `json:"name"`
+	ARN                         string                          `json:"arn"`
+	EngineVersion               string                          `json:"engineVersion"`
+	Endpoint                    string                          `json:"endpoint"`
+	Status                      string                          `json:"status"`
+	LastChangeID                string                          `json:"lastChangeID,omitempty"`
+	ClusterConfig               ClusterConfig                   `json:"clusterConfig"`
 }
 
 // CreateDomainInput holds all options for creating a new OpenSearch domain.

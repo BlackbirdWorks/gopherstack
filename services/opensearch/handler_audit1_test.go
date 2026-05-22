@@ -15,9 +15,9 @@ func TestAudit1_CreateDomain_FullClusterConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
 		clusterConfig map[string]any
 		wantCC        map[string]any
+		name          string
 	}{
 		{
 			name: "dedicated_master_enabled",
@@ -118,9 +118,9 @@ func TestAudit1_CreateDomain_EBSOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		ebsOptions map[string]any
 		wantEBS    map[string]any
+		name       string
 	}{
 		{
 			name: "ebs_enabled_gp3",
@@ -196,9 +196,9 @@ func TestAudit1_CreateDomain_EncryptionOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
 		body              map[string]any
 		wantEncryptFields map[string]any
+		name              string
 		wantN2NEnabled    bool
 	}{
 		{
@@ -254,16 +254,16 @@ func TestAudit1_CreateDomain_EncryptionOptions(t *testing.T) {
 			require.True(t, ok)
 
 			if len(tt.wantEncryptFields) > 0 {
-				enc, ok := status["EncryptionAtRestOptions"].(map[string]any)
-				require.True(t, ok, "EncryptionAtRestOptions should be present")
+				enc, encOk := status["EncryptionAtRestOptions"].(map[string]any)
+				require.True(t, encOk, "EncryptionAtRestOptions should be present")
 				for k, v := range tt.wantEncryptFields {
 					assert.Equal(t, v, enc[k], "EncryptionAtRestOptions.%s", k)
 				}
 			}
 
 			if tt.wantN2NEnabled {
-				n2n, ok := status["NodeToNodeEncryptionOptions"].(map[string]any)
-				require.True(t, ok, "NodeToNodeEncryptionOptions should be present")
+				n2n, n2nOk := status["NodeToNodeEncryptionOptions"].(map[string]any)
+				require.True(t, n2nOk, "NodeToNodeEncryptionOptions should be present")
 				assert.Equal(t, true, n2n["Enabled"])
 			}
 		})
@@ -275,9 +275,9 @@ func TestAudit1_CreateDomain_DomainEndpointOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		options  map[string]any
-		wantDEO  map[string]any
+		options map[string]any
+		wantDEO map[string]any
+		name    string
 	}{
 		{
 			name: "enforce_https",
@@ -337,9 +337,9 @@ func TestAudit1_CreateDomain_AdvancedSecurityOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		options map[string]any
 		wantASO map[string]any
+		name    string
 	}{
 		{
 			name: "internal_userdb_enabled",
@@ -419,9 +419,9 @@ func TestAudit1_CreateDomain_VPCOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		vpcOptions map[string]any
 		wantVPC    map[string]any
+		name       string
 	}{
 		{
 			name: "single_subnet_sg",
@@ -478,9 +478,9 @@ func TestAudit1_CreateDomain_CognitoOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		cognitoOpts   map[string]any
-		wantCognito   map[string]any
+		cognitoOpts map[string]any
+		wantCognito map[string]any
+		name        string
 	}{
 		{
 			name: "cognito_enabled",
@@ -546,8 +546,8 @@ func TestAudit1_CreateDomain_LogPublishingOptions(t *testing.T) {
 	}
 
 	tests := []struct {
-		name              string
 		logPublishingOpts map[string]any
+		name              string
 		wantLogTypes      []string
 	}{
 		{
@@ -703,9 +703,9 @@ func TestAudit1_UpdateDomainConfig_AllOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		updateBody map[string]any
 		verify     func(t *testing.T, status map[string]any)
+		name       string
 	}{
 		{
 			name: "update_ebs_options",
@@ -933,9 +933,9 @@ func TestAudit1_DescribeDomainConfig_FullConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		createBody   map[string]any
-		wantKeys     []string
+		createBody map[string]any
+		name       string
+		wantKeys   []string
 	}{
 		{
 			name: "with_ebs_options",
@@ -952,11 +952,14 @@ func TestAudit1_DescribeDomainConfig_FullConfig(t *testing.T) {
 		{
 			name: "with_encryption",
 			createBody: map[string]any{
-				"DomainName": "cfg-enc",
-				"EncryptionAtRestOptions": map[string]any{"Enabled": true},
+				"DomainName":                  "cfg-enc",
+				"EncryptionAtRestOptions":     map[string]any{"Enabled": true},
 				"NodeToNodeEncryptionOptions": map[string]any{"Enabled": true},
 			},
-			wantKeys: []string{"EngineVersion", "ClusterConfig", "EncryptionAtRestOptions", "NodeToNodeEncryptionOptions"},
+			wantKeys: []string{
+				"EngineVersion", "ClusterConfig",
+				"EncryptionAtRestOptions", "NodeToNodeEncryptionOptions",
+			},
 		},
 		{
 			name: "with_advanced_security",
