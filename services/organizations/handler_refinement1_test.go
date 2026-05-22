@@ -802,7 +802,7 @@ func TestRefinement1_CreatePolicy_InvalidType(t *testing.T) {
 	}
 }
 
-// TestRefinement1_CreatePolicy_ValidTypes verifies all 4 valid policy types are accepted.
+// TestRefinement1_CreatePolicy_ValidTypes verifies all 6 valid policy types are accepted.
 func TestRefinement1_CreatePolicy_ValidTypes(t *testing.T) {
 	t.Parallel()
 
@@ -811,6 +811,8 @@ func TestRefinement1_CreatePolicy_ValidTypes(t *testing.T) {
 		"TAG_POLICY",
 		"BACKUP_POLICY",
 		"AISERVICES_OPT_OUT_POLICY",
+		"CHATBOT_POLICY",
+		"DECLARATIVE_POLICY_EC2",
 	}
 
 	for _, pt := range validTypes {

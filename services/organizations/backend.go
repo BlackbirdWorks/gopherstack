@@ -16,6 +16,13 @@ import (
 const (
 	targetTypeOU      = "ORGANIZATIONAL_UNIT"
 	targetTypeAccount = "ACCOUNT"
+
+	handshakeActionInvite         = "INVITE"
+	handshakeActionEnableFeatures = "ENABLE_ALL_FEATURES"
+	handshakeActionApproveAll     = "APPROVE_ALL_FEATURES"
+	handshakeResourceOrg          = "ORGANIZATION"
+	handshakeResourceMasterEmail  = "MASTER_EMAIL"
+	handshakeResourceNotes        = "NOTES"
 )
 
 // Sentinel errors.
@@ -156,6 +163,8 @@ func validPolicyTypes() []string {
 		"TAG_POLICY",
 		"BACKUP_POLICY",
 		"AISERVICES_OPT_OUT_POLICY",
+		"CHATBOT_POLICY",
+		"DECLARATIVE_POLICY_EC2",
 	}
 }
 
@@ -1430,6 +1439,7 @@ func (b *InMemoryBackend) ListDelegatedAdministrators(
 // -- Handshake operations --
 
 // AcceptHandshake accepts an OPEN handshake.
+// For INVITE handshakes, the invited account is added to the organization.
 func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error) {
 	b.mu.Lock("AcceptHandshake")
 	defer b.mu.Unlock()
@@ -1444,6 +1454,30 @@ func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error
 	}
 
 	h.State = handshakeStateAccepted
+
+	if h.Action == handshakeActionInvite && b.org != nil {
+		for _, r := range h.Resources {
+			if r.Type == targetTypeAccount {
+				acctID := r.Value
+				if _, exists := b.accounts[acctID]; !exists {
+					now := time.Now()
+					acct := &Account{
+						ID:           acctID,
+						ARN:          b.accountARN(b.org.ID, acctID),
+						Name:         acctID,
+						Email:        acctID + "@invited.example.com",
+						Status:       accountStatusActive,
+						JoinedMethod: joinedMethodInvited,
+						JoinedAt:     now,
+					}
+					b.accounts[acctID] = acct
+					b.accountParent[acctID] = b.root.ID
+				}
+
+				break
+			}
+		}
+	}
 
 	return copyHandshake(h), nil
 }
@@ -1753,6 +1787,39 @@ func (b *InMemoryBackend) EnsureOrgExists() error {
 	return nil
 }
 
+// EnableAllFeatures creates an ENABLE_ALL_FEATURES handshake and returns it.
+// Real AWS sends this handshake to all member accounts to approve the feature upgrade.
+func (b *InMemoryBackend) EnableAllFeatures() (*Handshake, error) {
+	b.mu.Lock("EnableAllFeatures")
+	defer b.mu.Unlock()
+
+	if b.org == nil {
+		return nil, ErrOrgNotFound
+	}
+
+	now := time.Now()
+	id := newHandshakeID()
+	h := &Handshake{
+		ID:                  id,
+		ARN:                 b.handshakeARN(b.org.ID, id),
+		Action:              handshakeActionEnableFeatures,
+		State:               handshakeStateOpen,
+		RequestedTimestamp:  now,
+		ExpirationTimestamp: now.Add(handshakeExpirationDuration),
+		Parties: []HandshakeParty{
+			{ID: b.org.MasterAccountID, Type: "ACCOUNT"},
+		},
+		Resources: []HandshakeResource{
+			{Type: handshakeResourceOrg, Value: b.org.ID},
+			{Type: handshakeResourceMasterEmail, Value: b.org.MasterAccountEmail},
+		},
+	}
+
+	b.handshakes[id] = h
+
+	return copyHandshake(h), nil
+}
+
 // Ensure errors are used somewhere to satisfy linter.
 var _ = errors.Is(ErrOrgNotFound, awserr.ErrNotFound)
 
@@ -1803,7 +1870,7 @@ func (b *InMemoryBackend) InviteAccountToOrganization(
 	h := &Handshake{
 		ID:                  id,
 		ARN:                 b.handshakeARN(b.org.ID, id),
-		Action:              "INVITE",
+		Action:              handshakeActionInvite,
 		State:               handshakeStateOpen,
 		RequestedTimestamp:  now,
 		ExpirationTimestamp: now.Add(handshakeExpirationDuration),
@@ -1813,13 +1880,13 @@ func (b *InMemoryBackend) InviteAccountToOrganization(
 		},
 		Resources: []HandshakeResource{
 			{Type: targetTypeAccount, Value: target.ID},
-			{Type: "ORGANIZATION", Value: b.org.ID},
-			{Type: "MASTER_EMAIL", Value: b.org.MasterAccountEmail},
+			{Type: handshakeResourceOrg, Value: b.org.ID},
+			{Type: handshakeResourceMasterEmail, Value: b.org.MasterAccountEmail},
 		},
 	}
 
 	if notes != "" {
-		h.Resources = append(h.Resources, HandshakeResource{Type: "NOTES", Value: notes})
+		h.Resources = append(h.Resources, HandshakeResource{Type: handshakeResourceNotes, Value: notes})
 	}
 
 	b.handshakes[id] = h
@@ -1840,7 +1907,8 @@ func (b *InMemoryBackend) LeaveOrganization() error {
 }
 
 // ListHandshakesForAccount returns all handshakes visible to the calling account.
-func (b *InMemoryBackend) ListHandshakesForAccount() ([]*Handshake, error) {
+// actionTypeFilter optionally restricts results to handshakes with the given Action value.
+func (b *InMemoryBackend) ListHandshakesForAccount(actionTypeFilter string) ([]*Handshake, error) {
 	b.mu.RLock("ListHandshakesForAccount")
 	defer b.mu.RUnlock()
 
@@ -1849,8 +1917,11 @@ func (b *InMemoryBackend) ListHandshakesForAccount() ([]*Handshake, error) {
 	}
 
 	out := make([]*Handshake, 0, len(b.handshakes))
+
 	for _, h := range b.handshakes {
-		out = append(out, copyHandshake(h))
+		if actionTypeFilter == "" || h.Action == actionTypeFilter {
+			out = append(out, copyHandshake(h))
+		}
 	}
 
 	slices.SortFunc(out, func(a, b *Handshake) int { return cmp.Compare(a.ID, b.ID) })
@@ -1859,7 +1930,8 @@ func (b *InMemoryBackend) ListHandshakesForAccount() ([]*Handshake, error) {
 }
 
 // ListHandshakesForOrganization returns all handshakes for the organization.
-func (b *InMemoryBackend) ListHandshakesForOrganization() ([]*Handshake, error) {
+// actionTypeFilter optionally restricts results to handshakes with the given Action value.
+func (b *InMemoryBackend) ListHandshakesForOrganization(actionTypeFilter string) ([]*Handshake, error) {
 	b.mu.RLock("ListHandshakesForOrganization")
 	defer b.mu.RUnlock()
 
@@ -1868,8 +1940,11 @@ func (b *InMemoryBackend) ListHandshakesForOrganization() ([]*Handshake, error) 
 	}
 
 	out := make([]*Handshake, 0, len(b.handshakes))
+
 	for _, h := range b.handshakes {
-		out = append(out, copyHandshake(h))
+		if actionTypeFilter == "" || h.Action == actionTypeFilter {
+			out = append(out, copyHandshake(h))
+		}
 	}
 
 	slices.SortFunc(out, func(a, b *Handshake) int { return cmp.Compare(a.ID, b.ID) })
@@ -1979,7 +2054,7 @@ func (b *InMemoryBackend) ListInboundResponsibilityTransfers() ([]*Handshake, er
 	var out []*Handshake
 
 	for _, h := range b.handshakes {
-		if h.Action == "APPROVE_ALL_FEATURES" ||
+		if h.Action == handshakeActionApproveAll ||
 			h.Action == "ADD_ORGANIZATIONS_SERVICE_LINKED_ROLE" {
 			out = append(out, copyHandshake(h))
 		}
@@ -2002,7 +2077,7 @@ func (b *InMemoryBackend) ListOutboundResponsibilityTransfers() ([]*Handshake, e
 	var out []*Handshake
 
 	for _, h := range b.handshakes {
-		if h.Action == "INVITE" {
+		if h.Action == handshakeActionInvite {
 			out = append(out, copyHandshake(h))
 		}
 	}
@@ -2080,7 +2155,7 @@ func (b *InMemoryBackend) InviteOrganizationToTransferResponsibility(
 	h := &Handshake{
 		ID:                  id,
 		ARN:                 b.handshakeARN(b.org.ID, id),
-		Action:              "APPROVE_ALL_FEATURES",
+		Action:              handshakeActionApproveAll,
 		State:               handshakeStateOpen,
 		RequestedTimestamp:  now,
 		ExpirationTimestamp: now.Add(handshakeExpirationDuration),
@@ -2089,12 +2164,12 @@ func (b *InMemoryBackend) InviteOrganizationToTransferResponsibility(
 			{ID: target.ID, Type: target.Type},
 		},
 		Resources: []HandshakeResource{
-			{Type: "ORGANIZATION", Value: b.org.ID},
+			{Type: handshakeResourceOrg, Value: b.org.ID},
 		},
 	}
 
 	if notes != "" {
-		h.Resources = append(h.Resources, HandshakeResource{Type: "NOTES", Value: notes})
+		h.Resources = append(h.Resources, HandshakeResource{Type: handshakeResourceNotes, Value: notes})
 	}
 
 	b.handshakes[id] = h
