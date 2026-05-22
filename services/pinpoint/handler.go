@@ -31,12 +31,16 @@ const (
 	pinpointDefaultPageSize = 500
 
 	templateSubPathParts   = 2
-	campaignStatus         = "ACTIVE"
 	journeyStateDraft      = "DRAFT"
 	jobStatusCreated       = "CREATED"
 	exportJobType          = "EXPORT"
 	importJobType          = "IMPORT"
 	segmentTypeDimensional = "DIMENSIONAL"
+	segmentTypeImport      = "IMPORT"
+
+	campaignStatusScheduled = "SCHEDULED"
+	campaignStatusPaused    = "PAUSED"
+	campaignStatusCompleted = "COMPLETED"
 	unknownOperation       = "Unknown"
 
 	// sub-path segment constants used throughout dispatch helpers.
@@ -1481,20 +1485,7 @@ func (h *Handler) handleCreateCampaign(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
-	resp := campaignResponse{
-		ApplicationID:    campaign.ApplicationID,
-		ARN:              campaign.ARN,
-		ID:               campaign.ID,
-		Name:             campaign.Name,
-		SegmentID:        campaign.SegmentID,
-		SegmentVersion:   campaign.SegmentVersion,
-		Tags:             campaign.Tags,
-		CreationDate:     campaign.CreationDate,
-		LastModifiedDate: campaign.LastModifiedDate,
-		State:            campaignState{CampaignStatus: campaignStatus},
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, resp)
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, toCampaignResponse(campaign))
 
 	return nil
 }

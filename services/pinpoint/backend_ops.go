@@ -63,11 +63,18 @@ const (
 
 // Channel represents a generic Pinpoint channel response.
 type Channel struct {
-	Attributes    map[string]string `json:"Attributes,omitempty"`
-	ApplicationID string            `json:"ApplicationId"`
-	ChannelType   string            `json:"ChannelType"`
-	Enabled       bool              `json:"Enabled"`
-	IsArchived    bool              `json:"IsArchived"`
+	ExtraData     map[string]any `json:"ExtraData,omitempty"`
+	ApplicationID string         `json:"ApplicationId"`
+	ChannelType   string         `json:"ChannelType"`
+	Platform      string         `json:"Platform,omitempty"`
+	CreationDate  string         `json:"CreationDate,omitempty"`
+	LastModifiedDate string      `json:"LastModifiedDate,omitempty"`
+	Version       int            `json:"Version,omitempty"`
+	MessagesPerSecond int        `json:"MessagesPerSecond,omitempty"`
+	Enabled       bool           `json:"Enabled"`
+	IsArchived    bool           `json:"IsArchived"`
+	HasCredential bool           `json:"HasCredential,omitempty"`
+	HasTokenKey   bool           `json:"HasTokenKey,omitempty"`
 }
 
 // VoiceTemplate represents a Pinpoint voice template.
@@ -81,13 +88,21 @@ type VoiceTemplate struct {
 
 // Endpoint represents a Pinpoint endpoint.
 type Endpoint struct {
-	ApplicationID string            `json:"ApplicationId"`
-	ID            string            `json:"Id"`
-	ChannelType   string            `json:"ChannelType,omitempty"`
-	Address       string            `json:"Address,omitempty"`
-	UserID        string            `json:"UserId,omitempty"`
-	Attributes    map[string]string `json:"Attributes,omitempty"`
-	CreationDate  string            `json:"CreationDate,omitempty"`
+	Attributes     map[string][]string `json:"Attributes,omitempty"`
+	UserAttributes map[string][]string `json:"UserAttributes,omitempty"`
+	Metrics        map[string]float64  `json:"Metrics,omitempty"`
+	Demographic    map[string]any      `json:"Demographic,omitempty"`
+	Location       map[string]any      `json:"Location,omitempty"`
+	ApplicationID  string              `json:"ApplicationId"`
+	ID             string              `json:"Id"`
+	ChannelType    string              `json:"ChannelType,omitempty"`
+	Address        string              `json:"Address,omitempty"`
+	UserID         string              `json:"UserId,omitempty"`
+	EffectiveDate  string              `json:"EffectiveDate,omitempty"`
+	CreationDate   string              `json:"CreationDate,omitempty"`
+	EndpointStatus string              `json:"EndpointStatus,omitempty"`
+	OptOut         string              `json:"OptOut,omitempty"`
+	RequestId      string              `json:"RequestId,omitempty"`
 }
 
 // EventStream represents a Pinpoint event stream.

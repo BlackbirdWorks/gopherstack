@@ -1421,29 +1421,51 @@ func writeNotFoundOrInternal(c *echo.Context, err error) error {
 // ──────────────────────────────────────────────────
 
 func toCampaignResponse(c *Campaign) campaignResponse {
+	status := c.Status
+	if status == "" {
+		status = campaignStatusScheduled
+	}
+
 	return campaignResponse{
-		ApplicationID:    c.ApplicationID,
-		ARN:              c.ARN,
-		ID:               c.ID,
-		Name:             c.Name,
-		SegmentID:        c.SegmentID,
-		SegmentVersion:   c.SegmentVersion,
-		Tags:             c.Tags,
-		CreationDate:     c.CreationDate,
-		LastModifiedDate: c.LastModifiedDate,
-		State:            campaignState{CampaignStatus: campaignStatus},
+		ApplicationID:               c.ApplicationID,
+		ARN:                         c.ARN,
+		ID:                          c.ID,
+		Name:                        c.Name,
+		SegmentID:                   c.SegmentID,
+		SegmentVersion:              c.SegmentVersion,
+		Tags:                        c.Tags,
+		MessageConfiguration:        c.MessageConfiguration,
+		Schedule:                    c.Schedule,
+		Hook:                        c.Hook,
+		Limits:                      c.Limits,
+		TemplateConfiguration:       c.TemplateConfiguration,
+		CustomDeliveryConfiguration: c.CustomDeliveryConfiguration,
+		TreatmentDescription:        c.TreatmentDescription,
+		TreatmentName:               c.TreatmentName,
+		AdditionalTreatments:        c.AdditionalTreatments,
+		Priority:                    c.Priority,
+		IsPaused:                    c.IsPaused,
+		Version:                     c.Version,
+		CreationDate:                c.CreationDate,
+		LastModifiedDate:            c.LastModifiedDate,
+		State:                       campaignState{CampaignStatus: status},
 	}
 }
 
 func toSegmentResponse(s *Segment) segmentResponse {
 	return segmentResponse{
-		ApplicationID: s.ApplicationID,
-		ARN:           s.ARN,
-		ID:            s.ID,
-		Name:          s.Name,
-		SegmentType:   s.SegmentType,
-		Tags:          s.Tags,
-		CreationDate:  s.CreationDate,
+		ApplicationID:    s.ApplicationID,
+		ARN:              s.ARN,
+		ID:               s.ID,
+		Name:             s.Name,
+		SegmentType:      s.SegmentType,
+		Tags:             s.Tags,
+		Dimensions:       s.Dimensions,
+		SegmentGroups:    s.SegmentGroups,
+		ImportDefinition: s.ImportDefinition,
+		CreationDate:     s.CreationDate,
+		LastModifiedDate: s.LastModifiedDate,
+		Version:          s.Version,
 	}
 }
 
