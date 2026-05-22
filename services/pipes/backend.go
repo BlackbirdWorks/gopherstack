@@ -398,28 +398,28 @@ type LogConfiguration struct {
 
 // Pipe represents an EventBridge Pipe.
 type Pipe struct {
-	SourceParameters       *SourceParameters       `json:"sourceParameters,omitempty"`
-	TargetParameters       *TargetParameters       `json:"targetParameters,omitempty"`
-	DeadLetterConfig       *DeadLetterConfig       `json:"deadLetterConfig,omitempty"`
-	LogConfiguration       *LogConfiguration       `json:"logConfiguration,omitempty"`
-	EnrichmentParameters   *EnrichmentParameters   `json:"enrichmentParameters,omitempty"`
+	SourceParameters        *SourceParameters        `json:"sourceParameters,omitempty"`
+	TargetParameters        *TargetParameters        `json:"targetParameters,omitempty"`
+	DeadLetterConfig        *DeadLetterConfig        `json:"deadLetterConfig,omitempty"`
+	LogConfiguration        *LogConfiguration        `json:"logConfiguration,omitempty"`
+	EnrichmentParameters    *EnrichmentParameters    `json:"enrichmentParameters,omitempty"`
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"runtimeMetricsStreaming,omitempty"`
-	LastModifiedTime       time.Time               `json:"lastModifiedTime"`
-	CreationTime           time.Time               `json:"creationTime"`
-	Tags                   map[string]string       `json:"tags,omitempty"`
-	Description            string                  `json:"description,omitempty"`
-	Enrichment             string                  `json:"enrichment,omitempty"`
-	KmsKeyIdentifier       string                  `json:"kmsKeyIdentifier,omitempty"`
-	Source                 string                  `json:"source"`
-	Target                 string                  `json:"target"`
-	RoleARN                string                  `json:"roleArn"`
-	StateReason            string                  `json:"stateReason,omitempty"`
-	DesiredState           string                  `json:"desiredState"`
-	CurrentState           string                  `json:"currentState"`
-	AccountID              string                  `json:"accountID"`
-	Region                 string                  `json:"region"`
-	ARN                    string                  `json:"arn"`
-	Name                   string                  `json:"name"`
+	LastModifiedTime        time.Time                `json:"lastModifiedTime"`
+	CreationTime            time.Time                `json:"creationTime"`
+	Tags                    map[string]string        `json:"tags,omitempty"`
+	Description             string                   `json:"description,omitempty"`
+	Enrichment              string                   `json:"enrichment,omitempty"`
+	KmsKeyIdentifier        string                   `json:"kmsKeyIdentifier,omitempty"`
+	Source                  string                   `json:"source"`
+	Target                  string                   `json:"target"`
+	RoleARN                 string                   `json:"roleArn"`
+	StateReason             string                   `json:"stateReason,omitempty"`
+	DesiredState            string                   `json:"desiredState"`
+	CurrentState            string                   `json:"currentState"`
+	AccountID               string                   `json:"accountID"`
+	Region                  string                   `json:"region"`
+	ARN                     string                   `json:"arn"`
+	Name                    string                   `json:"name"`
 }
 
 func sourceBatchSize(sp *SourceParameters) int {
@@ -703,21 +703,21 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 // CreatePipeInput holds the full set of fields for pipe creation.
 type CreatePipeInput struct {
-	Tags                   map[string]string
-	SourceParameters       *SourceParameters
-	TargetParameters       *TargetParameters
-	DeadLetterConfig       *DeadLetterConfig
-	LogConfiguration       *LogConfiguration
-	EnrichmentParameters   *EnrichmentParameters
+	Tags                    map[string]string
+	SourceParameters        *SourceParameters
+	TargetParameters        *TargetParameters
+	DeadLetterConfig        *DeadLetterConfig
+	LogConfiguration        *LogConfiguration
+	EnrichmentParameters    *EnrichmentParameters
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming
-	Name                   string
-	RoleARN                string
-	Source                 string
-	Target                 string
-	Description            string
-	Enrichment             string
-	KmsKeyIdentifier       string
-	DesiredState           string
+	Name                    string
+	RoleARN                 string
+	Source                  string
+	Target                  string
+	Description             string
+	Enrichment              string
+	KmsKeyIdentifier        string
+	DesiredState            string
 }
 
 func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
@@ -769,7 +769,7 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 		DeadLetterConfig:        in.DeadLetterConfig,
 		LogConfiguration:        in.LogConfiguration,
 		EnrichmentParameters:    in.EnrichmentParameters,
-		RuntimeMetricsStreaming:  in.RuntimeMetricsStreaming,
+		RuntimeMetricsStreaming: in.RuntimeMetricsStreaming,
 	}
 	b.pipes[in.Name] = p
 	b.pipeARNIndex[pipeARN] = in.Name
@@ -934,18 +934,18 @@ func matchesFilter(p *Pipe, f ListPipesFilter) bool {
 
 // UpdatePipeInput holds the fields that can be updated on an existing pipe.
 type UpdatePipeInput struct {
-	SourceParameters       *SourceParameters
-	TargetParameters       *TargetParameters
-	DeadLetterConfig       *DeadLetterConfig
-	LogConfiguration       *LogConfiguration
-	EnrichmentParameters   *EnrichmentParameters
+	SourceParameters        *SourceParameters
+	TargetParameters        *TargetParameters
+	DeadLetterConfig        *DeadLetterConfig
+	LogConfiguration        *LogConfiguration
+	EnrichmentParameters    *EnrichmentParameters
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming
-	RoleARN                string
-	Target                 string
-	Description            string
-	Enrichment             string
-	KmsKeyIdentifier       string
-	DesiredState           string
+	RoleARN                 string
+	Target                  string
+	Description             string
+	Enrichment              string
+	KmsKeyIdentifier        string
+	DesiredState            string
 }
 
 func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, error) {

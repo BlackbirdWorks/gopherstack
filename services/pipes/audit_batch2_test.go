@@ -280,8 +280,8 @@ func TestAudit2_ECS_CapacityProviderStrategy(t *testing.T) {
 				"Target": b2ECSTarget,
 				"TargetParameters": map[string]any{
 					"EcsTaskParameters": map[string]any{
-						"TaskDefinitionArn":         "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
-						"CapacityProviderStrategy":  tt.providers,
+						"TaskDefinitionArn":        "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
+						"CapacityProviderStrategy": tt.providers,
 					},
 				},
 			}
@@ -627,11 +627,11 @@ func TestAudit2_ECS_FullParams(t *testing.T) {
 				Target: b2ECSTarget,
 				TargetParameters: &pipes.TargetParameters{
 					EcsTaskParameters: &pipes.ECSTaskTargetParameters{
-						TaskDefinitionArn: "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
-						LaunchType:        "FARGATE",
-						Group:             tt.wantGroup,
-						PlatformVersion:   "1.4.0",
-						TaskCount:         2,
+						TaskDefinitionArn:    "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
+						LaunchType:           "FARGATE",
+						Group:                tt.wantGroup,
+						PlatformVersion:      "1.4.0",
+						TaskCount:            2,
 						EnableECSManagedTags: true,
 						EnableExecuteCommand: true,
 						NetworkConfiguration: &pipes.NetworkConfiguration{
@@ -830,9 +830,9 @@ func TestAudit2_Batch_ArrayProperties(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		size    float64
-		wantSz  float64
+		name   string
+		size   float64
+		wantSz float64
 	}{
 		{name: "size_2", size: 2, wantSz: 2},
 		{name: "size_100", size: 100, wantSz: 100},
@@ -926,8 +926,8 @@ func TestAudit2_Batch_FullParams(t *testing.T) {
 				Target: "arn:aws:batch:us-east-1:123456789012:job-queue/q",
 				TargetParameters: &pipes.TargetParameters{
 					BatchJobParameters: &pipes.BatchJobTargetParameters{
-						JobDefinition: "arn:aws:batch:us-east-1:123456789012:job-definition/jd:1",
-						JobName:       tt.jobName,
+						JobDefinition:   "arn:aws:batch:us-east-1:123456789012:job-definition/jd:1",
+						JobName:         tt.jobName,
 						ArrayProperties: &pipes.BatchArrayProperties{Size: 5},
 						RetryStrategy:   &pipes.BatchRetryStrategy{Attempts: 3},
 						Parameters:      map[string]string{"k1": "v1", "k2": "v2"},
@@ -1104,10 +1104,10 @@ func TestAudit2_Redshift_Params(t *testing.T) {
 		withEvent        bool
 	}{
 		{
-			name:      "basic_query",
-			database:  "mydb",
-			dbUser:    "admin",
-			sqls:      []any{"SELECT 1"},
+			name:     "basic_query",
+			database: "mydb",
+			dbUser:   "admin",
+			sqls:     []any{"SELECT 1"},
 		},
 		{
 			name:             "with_secret",
@@ -1194,10 +1194,10 @@ func TestAudit2_SageMaker_Params(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		paramList  []map[string]any
-		wantLen    int
-		wantFirst  string
+		name      string
+		paramList []map[string]any
+		wantLen   int
+		wantFirst string
 	}{
 		{
 			name:      "single_param",
@@ -1262,9 +1262,9 @@ func TestAudit2_SelfManagedKafka_Credentials(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		credKey    string
-		credValue  string
+		name      string
+		credKey   string
+		credValue string
 	}{
 		{
 			name:      "basic_auth",
@@ -1575,9 +1575,9 @@ func TestAudit2_ActiveMQ_Credentials(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		basicAuth  string
-		queueName  string
+		name      string
+		basicAuth string
+		queueName string
 	}{
 		{
 			name:      "basic_auth_cred",
@@ -1625,9 +1625,9 @@ func TestAudit2_ActiveMQ_BatchingParams(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		batchSize         float64
-		batchWindowSecs   float64
+		name            string
+		batchSize       float64
+		batchWindowSecs float64
 	}{
 		{name: "batch_10", batchSize: 10, batchWindowSecs: 0},
 		{name: "batch_100_window_5", batchSize: 100, batchWindowSecs: 5},
@@ -1822,7 +1822,7 @@ func TestAudit2_FilterCriteria_MultiplePatterns(t *testing.T) {
 				Source: b2SQSSource,
 				Target: b2LambdaTarget,
 				SourceParameters: &pipes.SourceParameters{
-					FilterCriteria: &pipes.FilterCriteria{Filters: filters},
+					FilterCriteria:     &pipes.FilterCriteria{Filters: filters},
 					SqsQueueParameters: &pipes.SQSSourceParameters{BatchSize: 10},
 				},
 			})
@@ -2305,10 +2305,10 @@ func TestAudit2_Update_ECSParams(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		initialGroup     string
-		updatedGroup     string
-		updatedLaunch    string
+		name          string
+		initialGroup  string
+		updatedGroup  string
+		updatedLaunch string
 	}{
 		{
 			name:          "update_ecs_group",
