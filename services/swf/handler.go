@@ -1527,9 +1527,43 @@ func (h *Handler) handleRespondActivityTaskFailed(
 
 // --- RespondDecisionTaskCompleted ---
 
+type completeWorkflowDecisionAttrs struct {
+	Result string `json:"result,omitempty"`
+}
+
+type failWorkflowDecisionAttrs struct {
+	Reason  string `json:"reason,omitempty"`
+	Details string `json:"details,omitempty"`
+}
+
+type cancelWorkflowDecisionAttrs struct {
+	Details string `json:"details,omitempty"`
+}
+
+type scheduleActivityDecisionAttrs struct {
+	ActivityType           activityTypeRef `json:"activityType"`
+	ActivityID             string          `json:"activityId"`
+	Input                  string          `json:"input,omitempty"`
+	TaskList               *taskListRef    `json:"taskList,omitempty"`
+	ScheduleToCloseTimeout string          `json:"scheduleToCloseTimeout,omitempty"`
+	ScheduleToStartTimeout string          `json:"scheduleToStartTimeout,omitempty"`
+	StartToCloseTimeout    string          `json:"startToCloseTimeout,omitempty"`
+	HeartbeatTimeout       string          `json:"heartbeatTimeout,omitempty"`
+}
+
+//nolint:lll // AWS API field names exceed 120 chars; cannot shorten JSON tags
+type decisionInput struct {
+	CompleteWorkflowExecutionDecisionAttributes *completeWorkflowDecisionAttrs `json:"completeWorkflowExecutionDecisionAttributes,omitempty"`
+	FailWorkflowExecutionDecisionAttributes     *failWorkflowDecisionAttrs     `json:"failWorkflowExecutionDecisionAttributes,omitempty"`
+	CancelWorkflowExecutionDecisionAttributes   *cancelWorkflowDecisionAttrs   `json:"cancelWorkflowExecutionDecisionAttributes,omitempty"`
+	ScheduleActivityTaskDecisionAttributes      *scheduleActivityDecisionAttrs `json:"scheduleActivityTaskDecisionAttributes,omitempty"`
+	DecisionType                                string                         `json:"decisionType"`
+}
+
 type handleRespondDecisionTaskCompletedInput struct {
-	TaskToken        string `json:"taskToken"`
-	ExecutionContext string `json:"executionContext,omitempty"`
+	TaskToken        string          `json:"taskToken"`
+	ExecutionContext string          `json:"executionContext,omitempty"`
+	Decisions        []decisionInput `json:"decisions,omitempty"`
 }
 
 type respondDecisionTaskCompletedOutput struct{}
@@ -1538,7 +1572,48 @@ func (h *Handler) handleRespondDecisionTaskCompleted(
 	_ context.Context,
 	in *handleRespondDecisionTaskCompletedInput,
 ) (*respondDecisionTaskCompletedOutput, error) {
-	if err := h.Backend.RespondDecisionTaskCompleted(in.TaskToken, in.ExecutionContext); err != nil {
+	decisions := make([]Decision, 0, len(in.Decisions))
+	for _, d := range in.Decisions {
+		dec := Decision{DecisionType: d.DecisionType}
+		if d.CompleteWorkflowExecutionDecisionAttributes != nil {
+			dec.CompleteWorkflowExecutionAttrs = &CompleteWorkflowExecutionDecisionAttrs{
+				Result: d.CompleteWorkflowExecutionDecisionAttributes.Result,
+			}
+		}
+		if d.FailWorkflowExecutionDecisionAttributes != nil {
+			dec.FailWorkflowExecutionAttrs = &FailWorkflowExecutionDecisionAttrs{
+				Reason:  d.FailWorkflowExecutionDecisionAttributes.Reason,
+				Details: d.FailWorkflowExecutionDecisionAttributes.Details,
+			}
+		}
+		if d.CancelWorkflowExecutionDecisionAttributes != nil {
+			dec.CancelWorkflowExecutionAttrs = &CancelWorkflowExecutionDecisionAttrs{
+				Details: d.CancelWorkflowExecutionDecisionAttributes.Details,
+			}
+		}
+		if d.ScheduleActivityTaskDecisionAttributes != nil {
+			sa := d.ScheduleActivityTaskDecisionAttributes
+			taskList := ""
+			if sa.TaskList != nil {
+				taskList = sa.TaskList.Name
+			}
+			dec.ScheduleActivityTaskAttrs = &ScheduleActivityTaskDecisionAttrs{
+				ActivityType: ActivityTaskActivityType{
+					Name:    sa.ActivityType.Name,
+					Version: sa.ActivityType.Version,
+				},
+				ActivityID:             sa.ActivityID,
+				Input:                  sa.Input,
+				TaskList:               taskList,
+				ScheduleToCloseTimeout: sa.ScheduleToCloseTimeout,
+				ScheduleToStartTimeout: sa.ScheduleToStartTimeout,
+				StartToCloseTimeout:    sa.StartToCloseTimeout,
+				HeartbeatTimeout:       sa.HeartbeatTimeout,
+			}
+		}
+		decisions = append(decisions, dec)
+	}
+	if err := h.Backend.RespondDecisionTaskCompleted(in.TaskToken, in.ExecutionContext, decisions); err != nil {
 		return nil, err
 	}
 

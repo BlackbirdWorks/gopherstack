@@ -54,7 +54,7 @@ type StorageBackend interface {
 	RespondActivityTaskCanceled(taskToken, details string) error
 	RespondActivityTaskCompleted(taskToken, result string) error
 	RespondActivityTaskFailed(taskToken, reason, details string) error
-	RespondDecisionTaskCompleted(taskToken, executionContext string) error
+	RespondDecisionTaskCompleted(taskToken, executionContext string, decisions []Decision) error
 
 	// Resource tagging
 	ListTagsForResource(resourceARN string) (map[string]string, error)
