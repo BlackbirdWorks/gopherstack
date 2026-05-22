@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -31,7 +32,7 @@ func newAuditHandler(t *testing.T) *scheduler.Handler {
 }
 
 // createBaseSchedule sends a CreateSchedule request and requires 200 OK.
-func createBaseSchedule(t *testing.T, h *scheduler.Handler, name string, extra map[string]any) {
+func createBaseSchedule(t *testing.T, h *scheduler.Handler, name string) {
 	t.Helper()
 
 	body := map[string]any{
@@ -42,10 +43,6 @@ func createBaseSchedule(t *testing.T, h *scheduler.Handler, name string, extra m
 			"RoleArn": "arn:aws:iam::000000000000:role/r",
 		},
 		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	}
-
-	for k, v := range extra {
-		body[k] = v
 	}
 
 	rec := doSchedulerRequest(t, h, "CreateSchedule", body)
@@ -73,11 +70,11 @@ func TestAudit1_NameValidation_TooLong(t *testing.T) {
 	t.Parallel()
 
 	h := newAuditHandler(t)
-	longName := "a"
-
-	for i := 0; i < 64; i++ {
-		longName += "a"
+	var sb strings.Builder
+	for range 65 {
+		sb.WriteByte('a')
 	}
+	longName := sb.String()
 
 	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
 		"Name":               longName,
@@ -630,7 +627,7 @@ func TestAudit1_ListSchedules_MaxResults_Pagination(t *testing.T) {
 	h := newAuditHandler(t)
 
 	for _, name := range []string{"sched-a", "sched-b", "sched-c", "sched-d", "sched-e"} {
-		createBaseSchedule(t, h, name, nil)
+		createBaseSchedule(t, h, name)
 	}
 
 	// Get first page of 2.
@@ -692,7 +689,7 @@ func TestAudit1_ListSchedules_NoToken_ReturnsAll(t *testing.T) {
 	h := newAuditHandler(t)
 
 	for _, name := range []string{"all-a", "all-b", "all-c"} {
-		createBaseSchedule(t, h, name, nil)
+		createBaseSchedule(t, h, name)
 	}
 
 	rec := doSchedulerRequest(t, h, "ListSchedules", map[string]any{})
@@ -751,7 +748,7 @@ func TestAudit1_UpdateSchedule_RetryPolicy_Persisted(t *testing.T) {
 	t.Parallel()
 
 	h := newAuditHandler(t)
-	createBaseSchedule(t, h, "retry-update", nil)
+	createBaseSchedule(t, h, "retry-update")
 
 	rec := doSchedulerRequest(t, h, "UpdateSchedule", map[string]any{
 		"Name":               "retry-update",
@@ -1036,15 +1033,15 @@ func TestAudit1_Runner_ECSTarget_Invoked(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	runner_ := &mockECSTaskRunner{}
+	ecsRunner := &mockECSTaskRunner{}
 	runner := scheduler.NewRunner(backend)
-	runner.SetECSTaskRunner(runner_)
+	runner.SetECSTaskRunner(ecsRunner)
 
 	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
 
-	runner_.mu.Lock()
-	calls := runner_.calls
-	runner_.mu.Unlock()
+	ecsRunner.mu.Lock()
+	calls := ecsRunner.calls
+	ecsRunner.mu.Unlock()
 
 	require.Len(t, calls, 1)
 	assert.Equal(t, taskDefARN, calls[0].taskDefARN)
@@ -1055,7 +1052,6 @@ func TestAudit1_Runner_ECSTarget_Invoked(t *testing.T) {
 // --- Runner DLQ dispatch after retries exhausted ---
 
 type mockFailingLambda struct {
-	mu  sync.Mutex
 	err error
 }
 
@@ -1064,8 +1060,8 @@ func (m *mockFailingLambda) InvokeFunction(_ context.Context, _, _ string, _ []b
 }
 
 type mockDLQSender struct {
-	mu   sync.Mutex
 	arns []string
+	mu   sync.Mutex
 }
 
 func (m *mockDLQSender) SendMessageToQueue(_ context.Context, queueARN, _ string) error {
@@ -1123,7 +1119,7 @@ func TestAudit1_REST_ListSchedules_MaxResults_QueryParam(t *testing.T) {
 	h := newAuditHandler(t)
 
 	for _, name := range []string{"r-a", "r-b", "r-c"} {
-		createBaseSchedule(t, h, name, nil)
+		createBaseSchedule(t, h, name)
 	}
 
 	rec := doRESTRequest(t, h, http.MethodGet, "/schedules", nil, map[string]string{

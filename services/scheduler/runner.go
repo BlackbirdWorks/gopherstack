@@ -330,7 +330,7 @@ func (r *Runner) invokeTarget(ctx context.Context, s *Schedule, _ time.Time) {
 }
 
 // retryPolicyParams extracts retry limits from the policy, applying AWS defaults when nil.
-func retryPolicyParams(rp *RetryPolicy) (maxAttempts int, maxAge time.Duration) {
+func retryPolicyParams(rp *RetryPolicy) (int, time.Duration) {
 	const defaultMaxAttempts = 185
 	const defaultMaxAgeSecs = 86400
 
@@ -338,25 +338,27 @@ func retryPolicyParams(rp *RetryPolicy) (maxAttempts int, maxAge time.Duration) 
 		return defaultMaxAttempts, time.Duration(defaultMaxAgeSecs) * time.Second
 	}
 
-	maxAttempts = rp.MaximumRetryAttempts
+	attempts := rp.MaximumRetryAttempts
 
+	var age time.Duration
 	if rp.MaximumEventAgeInSeconds > 0 {
-		maxAge = time.Duration(rp.MaximumEventAgeInSeconds) * time.Second
+		age = time.Duration(rp.MaximumEventAgeInSeconds) * time.Second
 	} else {
-		maxAge = time.Duration(defaultMaxAgeSecs) * time.Second
+		age = time.Duration(defaultMaxAgeSecs) * time.Second
 	}
 
-	return maxAttempts, maxAge
+	return attempts, age
 }
 
 // retryBackoff returns the sleep duration for the given attempt (exponential, capped at 15s).
 func retryBackoff(attempt int) time.Duration {
 	const base = 200 * time.Millisecond
-	const cap = 15 * time.Second
+	const maxBackoff = 15 * time.Second
+	const maxShift = 6
 
-	d := base * (1 << min(attempt-1, 6))
-	if d > cap {
-		return cap
+	d := base * (1 << min(attempt-1, maxShift))
+	if d > maxBackoff {
+		return maxBackoff
 	}
 
 	return d
@@ -509,12 +511,12 @@ func (r *Runner) invokeSQSTarget(ctx context.Context, s *Schedule, payload []byt
 	}
 
 	// FIFO queue requires MessageGroupId.
-	if s.Target.SqsParameters != nil && s.Target.SqsParameters.MessageGroupId != "" && r.sqsFIFO != nil {
+	if s.Target.SqsParameters != nil && s.Target.SqsParameters.MessageGroupID != "" && r.sqsFIFO != nil {
 		if err := r.sqsFIFO.SendMessageToFIFOQueue(
 			ctx,
 			s.Target.ARN,
 			string(payload),
-			s.Target.SqsParameters.MessageGroupId,
+			s.Target.SqsParameters.MessageGroupID,
 		); err != nil {
 			log.WarnContext(
 				ctx,

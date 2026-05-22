@@ -90,7 +90,7 @@ type scheduleTargetKinesisParameters struct {
 
 // scheduleTargetSqsParameters mirrors SqsParameters for handler input/output.
 type scheduleTargetSqsParameters struct {
-	MessageGroupId string `json:"MessageGroupId,omitempty"`
+	MessageGroupID string `json:"MessageGroupId,omitempty"`
 }
 
 // scheduleTargetSageMakerPipelineParam mirrors a pipeline parameter name/value.
@@ -111,7 +111,7 @@ type scheduleTargetEcsParameters struct {
 	PlatformVersion      string `json:"PlatformVersion,omitempty"`
 	Group                string `json:"Group,omitempty"`
 	PropagateTags        string `json:"PropagateTags,omitempty"`
-	ReferenceId          string `json:"ReferenceId,omitempty"`
+	ReferenceID          string `json:"ReferenceId,omitempty"`
 	TaskCount            int    `json:"TaskCount,omitempty"`
 	EnableECSManagedTags bool   `json:"EnableECSManagedTags,omitempty"`
 	EnableExecuteCommand bool   `json:"EnableExecuteCommand,omitempty"`
@@ -705,13 +705,13 @@ func targetFromInput(in scheduleTarget) Target {
 	}
 
 	if in.SqsParameters != nil {
-		t.SqsParameters = &SqsParameters{MessageGroupId: in.SqsParameters.MessageGroupId}
+		t.SqsParameters = &SqsParameters{MessageGroupID: in.SqsParameters.MessageGroupID}
 	}
 
 	if in.SageMakerPipelineParameters != nil {
 		params := make([]SageMakerPipelineParameter, len(in.SageMakerPipelineParameters.PipelineParameterList))
 		for i, p := range in.SageMakerPipelineParameters.PipelineParameterList {
-			params[i] = SageMakerPipelineParameter{Name: p.Name, Value: p.Value}
+			params[i] = SageMakerPipelineParameter(p)
 		}
 
 		t.SageMakerPipelineParameters = &SageMakerPipelineParameters{PipelineParameterList: params}
@@ -725,7 +725,7 @@ func targetFromInput(in scheduleTarget) Target {
 			PlatformVersion:      in.EcsParameters.PlatformVersion,
 			Group:                in.EcsParameters.Group,
 			PropagateTags:        in.EcsParameters.PropagateTags,
-			ReferenceId:          in.EcsParameters.ReferenceId,
+			ReferenceID:          in.EcsParameters.ReferenceID,
 			EnableECSManagedTags: in.EcsParameters.EnableECSManagedTags,
 			EnableExecuteCommand: in.EcsParameters.EnableExecuteCommand,
 		}
@@ -772,13 +772,13 @@ func targetToOutput(t Target) scheduleTargetOutput {
 	}
 
 	if t.SqsParameters != nil {
-		out.SqsParameters = &scheduleTargetSqsParameters{MessageGroupId: t.SqsParameters.MessageGroupId}
+		out.SqsParameters = &scheduleTargetSqsParameters{MessageGroupID: t.SqsParameters.MessageGroupID}
 	}
 
 	if t.SageMakerPipelineParameters != nil {
 		params := make([]scheduleTargetSageMakerPipelineParam, len(t.SageMakerPipelineParameters.PipelineParameterList))
 		for i, p := range t.SageMakerPipelineParameters.PipelineParameterList {
-			params[i] = scheduleTargetSageMakerPipelineParam{Name: p.Name, Value: p.Value}
+			params[i] = scheduleTargetSageMakerPipelineParam(p)
 		}
 
 		out.SageMakerPipelineParameters = &scheduleTargetSageMakerPipelineParameters{PipelineParameterList: params}
@@ -792,7 +792,7 @@ func targetToOutput(t Target) scheduleTargetOutput {
 			PlatformVersion:      t.EcsParameters.PlatformVersion,
 			Group:                t.EcsParameters.Group,
 			PropagateTags:        t.EcsParameters.PropagateTags,
-			ReferenceId:          t.EcsParameters.ReferenceId,
+			ReferenceID:          t.EcsParameters.ReferenceID,
 			EnableECSManagedTags: t.EcsParameters.EnableECSManagedTags,
 			EnableExecuteCommand: t.EcsParameters.EnableExecuteCommand,
 		}
@@ -1153,6 +1153,9 @@ func (h *Handler) handleListScheduleGroups(
 	return &listScheduleGroupsOutput{ScheduleGroups: items, NextToken: nextToken}, nil
 }
 
+// decimalBase is the base for decimal integer parsing.
+const decimalBase = 10
+
 // parseMaxResults converts the MaxResults string field to an integer.
 // Returns 0 when the field is empty or non-numeric.
 func parseMaxResults(s string) int {
@@ -1167,7 +1170,7 @@ func parseMaxResults(s string) int {
 			return 0
 		}
 
-		n = n*10 + int(c-'0')
+		n = n*decimalBase + int(c-'0')
 	}
 
 	return n

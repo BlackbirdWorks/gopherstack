@@ -109,7 +109,7 @@ type KinesisParameters struct {
 
 // SqsParameters holds parameters for SQS targets.
 type SqsParameters struct {
-	MessageGroupId string `json:"messageGroupId,omitempty"`
+	MessageGroupID string `json:"messageGroupId,omitempty"`
 }
 
 // SageMakerPipelineParameter is a name/value pair for SageMaker pipeline execution.
@@ -130,7 +130,7 @@ type EcsParameters struct {
 	PlatformVersion      string `json:"platformVersion,omitempty"`
 	Group                string `json:"group,omitempty"`
 	PropagateTags        string `json:"propagateTags,omitempty"`
-	ReferenceId          string `json:"referenceId,omitempty"`
+	ReferenceID          string `json:"referenceId,omitempty"`
 	TaskCount            int    `json:"taskCount,omitempty"`
 	EnableECSManagedTags bool   `json:"enableECSManagedTags,omitempty"`
 	EnableExecuteCommand bool   `json:"enableExecuteCommand,omitempty"`
