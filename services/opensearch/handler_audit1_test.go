@@ -570,6 +570,7 @@ func TestAudit1_CreateDomain_LogPublishingOptions(t *testing.T) {
 						"CloudWatchLogsLogGroupArn": "arn:aws:logs:us-east-1:123456789012:log-group:/aws/opensearch/" + lt,
 					}
 				}
+
 				return opts
 			})(),
 			wantLogTypes: allLogTypes,
@@ -644,10 +645,17 @@ func TestAudit1_CreateDomain_SnapshotOptions(t *testing.T) {
 			require.True(t, ok)
 			snapOpts, ok := status["SnapshotOptions"].(map[string]any)
 			require.True(t, ok, "SnapshotOptions should be present")
-			assert.Equal(t, float64(tt.automatedSnapshotStartHour), snapOpts["AutomatedSnapshotStartHour"])
+			assert.InDelta(t, float64(tt.automatedSnapshotStartHour), snapOpts["AutomatedSnapshotStartHour"], 0)
 		})
 	}
 }
+
+// IAM policy strings used in access policy tests. Defined as const to stay within line-length limits.
+const (
+	policyAllowAll     = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"es:*","Resource":"*"}]}`                                                      //nolint:lll // raw JSON string literal cannot be split
+	policyIPBased      = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"es:ESHttp*","Condition":{"IpAddress":{"aws:SourceIp":["203.0.113.0/24"]}}}]}` //nolint:lll // raw JSON string literal cannot be split
+	policyRootAllowAll = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"es:*","Resource":"*"}]}`                         //nolint:lll // raw JSON string literal cannot be split
+)
 
 // TestAudit1_CreateDomain_AccessPolicies verifies the access policies JSON field.
 func TestAudit1_CreateDomain_AccessPolicies(t *testing.T) {
@@ -665,13 +673,13 @@ func TestAudit1_CreateDomain_AccessPolicies(t *testing.T) {
 		},
 		{
 			name:           "allow_all_policy",
-			accessPolicies: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"es:*","Resource":"*"}]}`,
-			wantPolicies:   `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"es:*","Resource":"*"}]}`,
+			accessPolicies: policyAllowAll,
+			wantPolicies:   policyAllowAll,
 		},
 		{
 			name:           "ip_based_policy",
-			accessPolicies: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"es:ESHttp*","Condition":{"IpAddress":{"aws:SourceIp":["203.0.113.0/24"]}}}]}`,
-			wantPolicies:   `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"es:ESHttp*","Condition":{"IpAddress":{"aws:SourceIp":["203.0.113.0/24"]}}}]}`,
+			accessPolicies: policyIPBased,
+			wantPolicies:   policyIPBased,
 		},
 	}
 
@@ -869,7 +877,7 @@ func TestAudit1_UpdateDomainConfig_AllOptions(t *testing.T) {
 		{
 			name: "update_access_policies",
 			updateBody: map[string]any{
-				"AccessPolicies": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"es:*","Resource":"*"}]}`,
+				"AccessPolicies": policyRootAllowAll,
 			},
 			verify: func(t *testing.T, status map[string]any) {
 				t.Helper()
@@ -901,7 +909,7 @@ func TestAudit1_UpdateDomainConfig_AllOptions(t *testing.T) {
 				require.True(t, ok)
 				assert.Equal(t, true, opts["DedicatedMasterEnabled"])
 				assert.Equal(t, "m6g.large.search", opts["DedicatedMasterType"])
-				assert.Equal(t, float64(3), opts["DedicatedMasterCount"])
+				assert.InDelta(t, float64(3), opts["DedicatedMasterCount"], 0)
 			},
 		},
 	}

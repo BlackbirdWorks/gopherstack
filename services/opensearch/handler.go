@@ -805,6 +805,7 @@ func parseClusterConfigFromReq(cc *domainClusterConfig) ClusterConfig {
 			AvailabilityZoneCount: cc.ZoneAwarenessConfig.AvailabilityZoneCount,
 		}
 	}
+
 	return cfg
 }
 
@@ -828,6 +829,7 @@ func parseAdvancedSecurityOptsFromReq(aso *advancedSecurityOptionsJSON) *Advance
 			SessionTimeoutMinutes: aso.SAMLOptions.SessionTimeoutMinutes,
 		}
 	}
+
 	return out
 }
 
@@ -843,6 +845,7 @@ func parseLogPublishingOptsFromReq(opts map[string]*logPublishingOptionJSON) map
 			CloudWatchLogsLogGroupARN: v.CloudWatchLogsLogGroupARN,
 		}
 	}
+
 	return out
 }
 
@@ -908,6 +911,7 @@ func applyReqToUpdateInput(req *domainJSON) UpdateDomainConfigInput {
 		}
 	}
 	input.LogPublishingOptions = parseLogPublishingOptsFromReq(req.LogPublishingOptions)
+
 	return input
 }
 
@@ -1139,6 +1143,7 @@ func toClusterConfigJSON(cc ClusterConfig) clusterConfigJSON {
 			AvailabilityZoneCount: cc.ZoneAwarenessConfig.AvailabilityZoneCount,
 		}
 	}
+
 	return out
 }
 
@@ -1161,6 +1166,7 @@ func toAdvancedSecurityOptionsJSON(aso *AdvancedSecurityOptions) *advancedSecuri
 			SessionTimeoutMinutes: aso.SAMLOptions.SessionTimeoutMinutes,
 		}
 	}
+
 	return out
 }
 
@@ -1175,6 +1181,7 @@ func toLogPublishingOptionsJSON(opts map[string]*LogPublishingOption) map[string
 			CloudWatchLogsLogGroupARN: v.CloudWatchLogsLogGroupARN,
 		}
 	}
+
 	return out
 }
 
@@ -1196,6 +1203,7 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 		AdvancedSecurityOptions:     toAdvancedSecurityOptionsJSON(nil),
 	}
 	applyDomainOptionalFields(d, &out)
+
 	return out
 }
 
@@ -1341,18 +1349,14 @@ type domainConfigFields struct {
 	EBSOptions                  opensearchConfigValue `json:"EBSOptions"`
 	AccessPolicies              opensearchConfigValue `json:"AccessPolicies"`
 	AdvancedOptions             opensearchConfigValue `json:"AdvancedOptions"`
-	SnapshotOptions             opensearchConfigValue `json:"SnapshotOptions,omitempty"`
-	EncryptionAtRestOptions     opensearchConfigValue `json:"EncryptionAtRestOptions,omitempty"`
-	NodeToNodeEncryptionOptions opensearchConfigValue `json:"NodeToNodeEncryptionOptions,omitempty"`
-	DomainEndpointOptions       opensearchConfigValue `json:"DomainEndpointOptions,omitempty"`
-	AdvancedSecurityOptions     opensearchConfigValue `json:"AdvancedSecurityOptions,omitempty"`
-	VPCOptions                  opensearchConfigValue `json:"VPCOptions,omitempty"`
-	CognitoOptions              opensearchConfigValue `json:"CognitoOptions,omitempty"`
-	LogPublishingOptions        opensearchConfigValue `json:"LogPublishingOptions,omitempty"`
-}
-
-type describeDomainConfigOutput struct {
-	DomainConfig domainConfigFields `json:"DomainConfig"`
+	SnapshotOptions             opensearchConfigValue `json:"SnapshotOptions"`
+	EncryptionAtRestOptions     opensearchConfigValue `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryptionOptions opensearchConfigValue `json:"NodeToNodeEncryptionOptions"`
+	DomainEndpointOptions       opensearchConfigValue `json:"DomainEndpointOptions"`
+	AdvancedSecurityOptions     opensearchConfigValue `json:"AdvancedSecurityOptions"`
+	VPCOptions                  opensearchConfigValue `json:"VPCOptions"`
+	CognitoOptions              opensearchConfigValue `json:"CognitoOptions"`
+	LogPublishingOptions        opensearchConfigValue `json:"LogPublishingOptions"`
 }
 
 func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
