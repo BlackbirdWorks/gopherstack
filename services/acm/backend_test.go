@@ -482,7 +482,7 @@ func TestACMBackend_ExportCertificate(t *testing.T) {
 
 			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
 			certARN := tt.setup(t, b)
-			cert, err := b.ExportCertificate(certARN)
+			cert, err := b.ExportCertificate(certARN, nil)
 
 			if tt.wantErr != nil {
 				require.Error(t, err)
@@ -606,6 +606,361 @@ func TestACMBackend_CertificateBodyIsPEM(t *testing.T) {
 
 	assert.True(t, strings.HasPrefix(cert.CertificateBody, "-----BEGIN CERTIFICATE-----"))
 	assert.True(t, strings.HasPrefix(cert.PrivateKey, "-----BEGIN EC PRIVATE KEY-----"))
+}
+
+// TestACMBackend_StatusLifecycle verifies the full certificate status lifecycle transitions.
+func TestACMBackend_StatusLifecycle(t *testing.T) {
+	t.Parallel()
+
+	certPEM, keyPEM := generateTestCert(t)
+
+	tests := []struct {
+		setup      func(t *testing.T, b *acm.InMemoryBackend) string
+		transition func(t *testing.T, b *acm.InMemoryBackend, certARN string) error
+		wantErr    error
+		name       string
+		wantStatus string
+	}{
+		{
+			name: "issued_to_expired",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("expire-me.example.com", "", "", "", "", nil)
+				require.NoError(t, err)
+
+				return cert.ARN
+			},
+			transition: func(_ *testing.T, b *acm.InMemoryBackend, certARN string) error {
+				return b.ExpireCertificate(certARN)
+			},
+			wantStatus: "EXPIRED",
+		},
+		{
+			name: "issued_to_inactive",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.ImportCertificate(certPEM, keyPEM, "", "")
+				require.NoError(t, err)
+
+				return cert.ARN
+			},
+			transition: func(_ *testing.T, b *acm.InMemoryBackend, certARN string) error {
+				return b.InactivateCertificate(certARN)
+			},
+			wantStatus: "INACTIVE",
+		},
+		{
+			name: "pending_to_validation_timed_out",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("timeout.example.com", "", "DNS", "", "", nil)
+				require.NoError(t, err)
+				require.Equal(t, "PENDING_VALIDATION", cert.Status)
+
+				return cert.ARN
+			},
+			transition: func(_ *testing.T, b *acm.InMemoryBackend, certARN string) error {
+				return b.TimeoutPendingValidation(certARN)
+			},
+			wantStatus: "VALIDATION_TIMED_OUT",
+		},
+		{
+			name: "pending_to_failed",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("fail-me.example.com", "", "EMAIL", "", "", nil)
+				require.NoError(t, err)
+				require.Equal(t, "PENDING_VALIDATION", cert.Status)
+
+				return cert.ARN
+			},
+			transition: func(_ *testing.T, b *acm.InMemoryBackend, certARN string) error {
+				return b.FailCertificate(certARN, "NO_AVAILABLE_CONTACTS")
+			},
+			wantStatus: "FAILED",
+		},
+		{
+			name: "expire_not_found",
+			setup: func(_ *testing.T, _ *acm.InMemoryBackend) string {
+				return "arn:aws:acm:us-east-1:000000000000:certificate/nonexistent"
+			},
+			transition: func(_ *testing.T, b *acm.InMemoryBackend, certARN string) error {
+				return b.ExpireCertificate(certARN)
+			},
+			wantErr: acm.ErrCertNotFound,
+		},
+		{
+			name: "expire_wrong_status",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("already-revoked.example.com", "", "", "", "", nil)
+				require.NoError(t, err)
+				require.NoError(t, b.RevokeCertificate(cert.ARN, "UNSPECIFIED"))
+
+				return cert.ARN
+			},
+			transition: func(_ *testing.T, b *acm.InMemoryBackend, certARN string) error {
+				return b.ExpireCertificate(certARN)
+			},
+			wantErr: acm.ErrInvalidParameter,
+		},
+		{
+			name: "timeout_already_issued",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("already-issued.example.com", "", "", "", "", nil)
+				require.NoError(t, err)
+				require.Equal(t, "ISSUED", cert.Status)
+
+				return cert.ARN
+			},
+			transition: func(_ *testing.T, b *acm.InMemoryBackend, certARN string) error {
+				return b.TimeoutPendingValidation(certARN)
+			},
+			wantErr: acm.ErrInvalidParameter,
+		},
+		{
+			name: "fail_already_issued",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("already-issued2.example.com", "", "", "", "", nil)
+				require.NoError(t, err)
+
+				return cert.ARN
+			},
+			transition: func(_ *testing.T, b *acm.InMemoryBackend, certARN string) error {
+				return b.FailCertificate(certARN, "DOMAIN_NOT_ALLOWED")
+			},
+			wantErr: acm.ErrInvalidParameter,
+		},
+		{
+			name: "inactivate_not_found",
+			setup: func(_ *testing.T, _ *acm.InMemoryBackend) string {
+				return "arn:aws:acm:us-east-1:000000000000:certificate/ghost"
+			},
+			transition: func(_ *testing.T, b *acm.InMemoryBackend, certARN string) error {
+				return b.InactivateCertificate(certARN)
+			},
+			wantErr: acm.ErrCertNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			certARN := tt.setup(t, b)
+			err := tt.transition(t, b, certARN)
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			cert, descErr := b.DescribeCertificate(certARN)
+			require.NoError(t, descErr)
+			assert.Equal(t, tt.wantStatus, cert.Status)
+		})
+	}
+}
+
+// TestACMBackend_FailCertificate_FailureReason verifies FailureReason is persisted.
+func TestACMBackend_FailCertificate_FailureReason(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		reason string
+		name   string
+	}{
+		{name: "no_available_contacts", reason: "NO_AVAILABLE_CONTACTS"},
+		{name: "domain_not_allowed", reason: "DOMAIN_NOT_ALLOWED"},
+		{name: "invalid_public_domain", reason: "INVALID_PUBLIC_DOMAIN"},
+		{name: "caa_error", reason: "CAA_ERROR"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			cert, err := b.RequestCertificate("fail.example.com", "", "EMAIL", "", "", nil)
+			require.NoError(t, err)
+
+			require.NoError(t, b.FailCertificate(cert.ARN, tt.reason))
+
+			described, descErr := b.DescribeCertificate(cert.ARN)
+			require.NoError(t, descErr)
+			assert.Equal(t, "FAILED", described.Status)
+			assert.Equal(t, tt.reason, described.FailureReason)
+		})
+	}
+}
+
+// TestACMBackend_ExportCertificate_Passphrase verifies passphrase encryption in ExportCertificate.
+func TestACMBackend_ExportCertificate_Passphrase(t *testing.T) {
+	t.Parallel()
+
+	certPEM, keyPEM := generateTestCert(t)
+
+	tests := []struct {
+		name             string
+		wantKeyHeader    string
+		passphrase       []byte
+		wantKeyEncrypted bool
+	}{
+		{
+			name:             "no_passphrase_returns_plain",
+			passphrase:       nil,
+			wantKeyHeader:    "-----BEGIN EC PRIVATE KEY-----",
+			wantKeyEncrypted: false,
+		},
+		{
+			name:             "with_passphrase_returns_encrypted",
+			passphrase:       []byte("s3cr3t"),
+			wantKeyHeader:    "-----BEGIN ENCRYPTED PRIVATE KEY-----",
+			wantKeyEncrypted: true,
+		},
+		{
+			name:             "empty_passphrase_returns_plain",
+			passphrase:       []byte{},
+			wantKeyHeader:    "-----BEGIN EC PRIVATE KEY-----",
+			wantKeyEncrypted: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			imported, err := b.ImportCertificate(certPEM, keyPEM, "", "")
+			require.NoError(t, err)
+
+			exported, exportErr := b.ExportCertificate(imported.ARN, tt.passphrase)
+			require.NoError(t, exportErr)
+
+			assert.True(t, strings.HasPrefix(exported.PrivateKey, tt.wantKeyHeader),
+				"PrivateKey should start with %q, got: %.50s", tt.wantKeyHeader, exported.PrivateKey)
+			assert.NotEmpty(t, exported.CertificateBody)
+			assert.NotEmpty(t, exported.CertificateChain)
+		})
+	}
+}
+
+// TestACMBackend_ListCertificates_KeyUsageFilter verifies Includes.KeyUsage filtering.
+func TestACMBackend_ListCertificates_KeyUsageFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		filterKeyUsage []string
+		wantCount      int
+		wantNonEmpty   bool
+	}{
+		{
+			name:           "filter_digital_signature_matches",
+			filterKeyUsage: []string{"DIGITAL_SIGNATURE"},
+			wantNonEmpty:   true,
+		},
+		{
+			name:           "filter_nonexistent_usage_no_match",
+			filterKeyUsage: []string{"KEY_ENCIPHERMENT"},
+			wantCount:      0,
+		},
+		{
+			name:           "no_filter_returns_all",
+			filterKeyUsage: nil,
+			wantNonEmpty:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := b.RequestCertificate("ku.example.com", "", "", "", "", nil)
+			require.NoError(t, err)
+
+			result := b.ListCertificates(acm.ListCertificatesParams{KeyUsage: tt.filterKeyUsage})
+
+			if tt.wantNonEmpty {
+				assert.NotEmpty(t, result.Data)
+			} else {
+				assert.Len(t, result.Data, tt.wantCount)
+			}
+		})
+	}
+}
+
+// TestACMBackend_ListCertificates_ExtendedKeyUsageFilter verifies Includes.ExtendedKeyUsage filtering.
+func TestACMBackend_ListCertificates_ExtendedKeyUsageFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		filterExtKeyUsage []string
+		wantCount         int
+		wantNonEmpty      bool
+	}{
+		{
+			name:              "filter_tls_server_auth_matches",
+			filterExtKeyUsage: []string{"TLS_WEB_SERVER_AUTHENTICATION"},
+			wantNonEmpty:      true,
+		},
+		{
+			name:              "filter_code_signing_no_match",
+			filterExtKeyUsage: []string{"CODE_SIGNING"},
+			wantCount:         0,
+		},
+		{
+			name:              "no_filter_returns_all",
+			filterExtKeyUsage: nil,
+			wantNonEmpty:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := b.RequestCertificate("eku.example.com", "", "", "", "", nil)
+			require.NoError(t, err)
+
+			result := b.ListCertificates(acm.ListCertificatesParams{ExtendedKeyUsage: tt.filterExtKeyUsage})
+
+			if tt.wantNonEmpty {
+				assert.NotEmpty(t, result.Data)
+			} else {
+				assert.Len(t, result.Data, tt.wantCount)
+			}
+		})
+	}
+}
+
+// TestACMBackend_ImportCertificate_KeyUsageParsed verifies that imported certs have key usages parsed.
+func TestACMBackend_ImportCertificate_KeyUsageParsed(t *testing.T) {
+	t.Parallel()
+
+	certPEM, keyPEM := generateTestCert(t)
+
+	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+	cert, err := b.ImportCertificate(certPEM, keyPEM, "", "")
+	require.NoError(t, err)
+
+	described, descErr := b.DescribeCertificate(cert.ARN)
+	require.NoError(t, descErr)
+
+	assert.NotEmpty(t, described.KeyUsage, "imported cert should have key usages parsed from X.509")
+	assert.Contains(t, described.KeyUsage, "DIGITAL_SIGNATURE")
+	assert.NotEmpty(t, described.ExtendedKeyUsage, "imported cert should have extended key usages parsed")
+	assert.Contains(t, described.ExtendedKeyUsage, "TLS_WEB_SERVER_AUTHENTICATION")
 }
 
 // TestACMBackend_ValidityAndEligibility verifies that NotBefore, NotAfter, and
