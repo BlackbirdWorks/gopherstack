@@ -1689,11 +1689,41 @@ func (b *InMemoryBackend) DeleteSnapshot(name string) (*Snapshot, error) {
 // defaultEngineVersions returns the built-in list of supported engine versions.
 func defaultEngineVersions() []*EngineVersion {
 	return []*EngineVersion{
-		{Engine: "valkey", EngineVersion: "8.0", EnginePatchVersion: "8.0.1", ParameterGroupFamily: "memorydb_valkey8", Description: "Valkey 8.0"},
-		{Engine: "valkey", EngineVersion: "7.2", EnginePatchVersion: "7.2.4", ParameterGroupFamily: "memorydb_valkey7", Description: "Valkey 7.2"},
-		{Engine: "redis", EngineVersion: "7.1", EnginePatchVersion: "7.1.0", ParameterGroupFamily: "memorydb_redis7", Description: "Redis 7.1"},
-		{Engine: "redis", EngineVersion: "7.0", EnginePatchVersion: "7.0.7", ParameterGroupFamily: "memorydb_redis7", Description: "Redis 7.0"},
-		{Engine: "redis", EngineVersion: "6.2", EnginePatchVersion: "6.2.6", ParameterGroupFamily: "memorydb_redis6", Description: "Redis 6.2"},
+		{
+			Engine:               "valkey",
+			EngineVersion:        "8.0",
+			EnginePatchVersion:   "8.0.1",
+			ParameterGroupFamily: "memorydb_valkey8",
+			Description:          "Valkey 8.0",
+		},
+		{
+			Engine:               "valkey",
+			EngineVersion:        "7.2",
+			EnginePatchVersion:   "7.2.4",
+			ParameterGroupFamily: "memorydb_valkey7",
+			Description:          "Valkey 7.2",
+		},
+		{
+			Engine:               "redis",
+			EngineVersion:        "7.1",
+			EnginePatchVersion:   "7.1.0",
+			ParameterGroupFamily: "memorydb_redis7",
+			Description:          "Redis 7.1",
+		},
+		{
+			Engine:               "redis",
+			EngineVersion:        "7.0",
+			EnginePatchVersion:   "7.0.7",
+			ParameterGroupFamily: "memorydb_redis7",
+			Description:          "Redis 7.0",
+		},
+		{
+			Engine:               "redis",
+			EngineVersion:        "6.2",
+			EnginePatchVersion:   "6.2.6",
+			ParameterGroupFamily: "memorydb_redis6",
+			Description:          "Redis 6.2",
+		},
 	}
 }
 

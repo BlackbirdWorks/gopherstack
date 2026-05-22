@@ -58,13 +58,22 @@ func TestAudit_Engine_DefaultsToRedis(t *testing.T) {
 		wantEngine string
 	}{
 		{
-			name:       "omit engine defaults to redis",
-			body:       map[string]any{"ClusterName": "test-cluster", "NodeType": "db.r6g.large", "ACLName": "open-access"},
+			name: "omit engine defaults to redis",
+			body: map[string]any{
+				"ClusterName": "test-cluster",
+				"NodeType":    "db.r6g.large",
+				"ACLName":     "open-access",
+			},
 			wantEngine: "redis",
 		},
 		{
-			name:       "explicit redis engine",
-			body:       map[string]any{"ClusterName": "test-cluster", "NodeType": "db.r6g.large", "ACLName": "open-access", "Engine": "redis"},
+			name: "explicit redis engine",
+			body: map[string]any{
+				"ClusterName": "test-cluster",
+				"NodeType":    "db.r6g.large",
+				"ACLName":     "open-access",
+				"Engine":      "redis",
+			},
 			wantEngine: "redis",
 		},
 	}
@@ -1722,7 +1731,12 @@ func TestAudit_ParameterGroupCRUD(t *testing.T) {
 			name: "describe parameter groups",
 			op:   "DescribeParameterGroups",
 			setup: func(h *memorydb.Handler) {
-				doRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "my-pg", "Family": "memorydb_redis7"})
+				doRequest(
+					t,
+					h,
+					"CreateParameterGroup",
+					map[string]any{"ParameterGroupName": "my-pg", "Family": "memorydb_redis7"},
+				)
 			},
 			body:       map[string]any{},
 			wantStatus: http.StatusOK,
@@ -1731,7 +1745,12 @@ func TestAudit_ParameterGroupCRUD(t *testing.T) {
 			name: "update parameter group",
 			op:   "UpdateParameterGroup",
 			setup: func(h *memorydb.Handler) {
-				doRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "my-pg", "Family": "memorydb_redis7"})
+				doRequest(
+					t,
+					h,
+					"CreateParameterGroup",
+					map[string]any{"ParameterGroupName": "my-pg", "Family": "memorydb_redis7"},
+				)
 			},
 			body: map[string]any{
 				"ParameterGroupName": "my-pg",
@@ -1745,7 +1764,12 @@ func TestAudit_ParameterGroupCRUD(t *testing.T) {
 			name: "reset parameter group",
 			op:   "ResetParameterGroup",
 			setup: func(h *memorydb.Handler) {
-				doRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "my-pg", "Family": "memorydb_redis7"})
+				doRequest(
+					t,
+					h,
+					"CreateParameterGroup",
+					map[string]any{"ParameterGroupName": "my-pg", "Family": "memorydb_redis7"},
+				)
 			},
 			body:       map[string]any{"ParameterGroupName": "my-pg"},
 			wantStatus: http.StatusOK,
@@ -1754,10 +1778,17 @@ func TestAudit_ParameterGroupCRUD(t *testing.T) {
 			name: "describe parameters",
 			op:   "DescribeParameters",
 			setup: func(h *memorydb.Handler) {
-				doRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "my-pg", "Family": "memorydb_redis7"})
+				doRequest(
+					t,
+					h,
+					"CreateParameterGroup",
+					map[string]any{"ParameterGroupName": "my-pg", "Family": "memorydb_redis7"},
+				)
 				doRequest(t, h, "UpdateParameterGroup", map[string]any{
-					"ParameterGroupName":  "my-pg",
-					"ParameterNameValues": []map[string]any{{"ParameterName": "maxmemory-policy", "ParameterValue": "allkeys-lru"}},
+					"ParameterGroupName": "my-pg",
+					"ParameterNameValues": []map[string]any{
+						{"ParameterName": "maxmemory-policy", "ParameterValue": "allkeys-lru"},
+					},
 				})
 			},
 			body:       map[string]any{"ParameterGroupName": "my-pg"},
@@ -1767,7 +1798,12 @@ func TestAudit_ParameterGroupCRUD(t *testing.T) {
 			name: "delete parameter group",
 			op:   "DeleteParameterGroup",
 			setup: func(h *memorydb.Handler) {
-				doRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "my-pg", "Family": "memorydb_redis7"})
+				doRequest(
+					t,
+					h,
+					"CreateParameterGroup",
+					map[string]any{"ParameterGroupName": "my-pg", "Family": "memorydb_redis7"},
+				)
 			},
 			body:       map[string]any{"ParameterGroupName": "my-pg"},
 			wantStatus: http.StatusOK,

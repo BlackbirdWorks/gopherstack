@@ -962,7 +962,12 @@ func (h *Handler) handleDescribeSnapshots(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	snapshots, nextToken := paginateItems(snapshots, req.NextToken, req.MaxResults, func(s *Snapshot) string { return s.Name })
+	snapshots, nextToken := paginateItems(
+		snapshots,
+		req.NextToken,
+		req.MaxResults,
+		func(s *Snapshot) string { return s.Name },
+	)
 
 	objs := make([]snapshotObject, 0, len(snapshots))
 
@@ -1314,7 +1319,12 @@ func (h *Handler) handleDescribeServiceUpdates(c *echo.Context, body []byte) err
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
-	updates, nextToken := paginateItems(updates, req.NextToken, req.MaxResults, func(su *ServiceUpdate) string { return su.ServiceUpdateName })
+	updates, nextToken := paginateItems(
+		updates,
+		req.NextToken,
+		req.MaxResults,
+		func(su *ServiceUpdate) string { return su.ServiceUpdateName },
+	)
 	objs := make([]serviceUpdateObject, 0, len(updates))
 	for _, su := range updates {
 		objs = append(objs, serviceUpdateObject{
