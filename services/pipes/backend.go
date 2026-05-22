@@ -17,13 +17,18 @@ import (
 const (
 	stateRunning      = "RUNNING"
 	stateStopped      = "STOPPED"
+	stateCreating     = "CREATING"
+	stateUpdating     = "UPDATING"
+	stateDeleting     = "DELETING"
 	stateStarting     = "STARTING"
 	stateStopping     = "STOPPING"
 	stateCreateFailed = "CREATE_FAILED"
 	stateUpdateFailed = "UPDATE_FAILED"
 	stateDeleteFailed = "DELETE_FAILED"
+	stateStartFailed  = "START_FAILED"
+	stateStopFailed   = "STOP_FAILED"
 
-	// stateTransitionDelay is the simulated delay for STARTING/STOPPING transitions.
+	// stateTransitionDelay is the simulated delay for async state transitions.
 	stateTransitionDelay = 10 * time.Millisecond
 
 	maxPipeNameLen  = 64
@@ -60,10 +65,76 @@ type SQSSourceParameters struct {
 	MaximumBatchingWindowInSeconds int `json:"MaximumBatchingWindowInSeconds,omitempty"`
 }
 
+// KinesisStreamSourceParameters holds Kinesis-specific source configuration.
+type KinesisStreamSourceParameters struct {
+	StartingPosition               string            `json:"StartingPosition,omitempty"`
+	StartingPositionTimestamp      *time.Time        `json:"StartingPositionTimestamp,omitempty"`
+	BatchSize                      int               `json:"BatchSize,omitempty"`
+	MaximumBatchingWindowInSeconds int               `json:"MaximumBatchingWindowInSeconds,omitempty"`
+	MaximumRecordAgeInSeconds      int               `json:"MaximumRecordAgeInSeconds,omitempty"`
+	MaximumRetryAttempts           int               `json:"MaximumRetryAttempts,omitempty"`
+	OnPartialBatchItemFailure      string            `json:"OnPartialBatchItemFailure,omitempty"`
+	ParallelizationFactor          int               `json:"ParallelizationFactor,omitempty"`
+	DeadLetterConfig               *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
+}
+
+// DynamoDBStreamSourceParameters holds DynamoDB stream source configuration.
+type DynamoDBStreamSourceParameters struct {
+	StartingPosition               string            `json:"StartingPosition,omitempty"`
+	BatchSize                      int               `json:"BatchSize,omitempty"`
+	MaximumBatchingWindowInSeconds int               `json:"MaximumBatchingWindowInSeconds,omitempty"`
+	MaximumRecordAgeInSeconds      int               `json:"MaximumRecordAgeInSeconds,omitempty"`
+	MaximumRetryAttempts           int               `json:"MaximumRetryAttempts,omitempty"`
+	OnPartialBatchItemFailure      string            `json:"OnPartialBatchItemFailure,omitempty"`
+	ParallelizationFactor          int               `json:"ParallelizationFactor,omitempty"`
+	DeadLetterConfig               *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
+}
+
+// ManagedStreamingKafkaSourceParameters holds MSK source configuration.
+type ManagedStreamingKafkaSourceParameters struct {
+	TopicName                      string `json:"TopicName,omitempty"`
+	StartingPosition               string `json:"StartingPosition,omitempty"`
+	BatchSize                      int    `json:"BatchSize,omitempty"`
+	MaximumBatchingWindowInSeconds int    `json:"MaximumBatchingWindowInSeconds,omitempty"`
+	ConsumerGroupID                string `json:"ConsumerGroupId,omitempty"`
+}
+
+// SelfManagedKafkaSourceParameters holds self-managed Kafka source configuration.
+type SelfManagedKafkaSourceParameters struct {
+	TopicName                      string   `json:"TopicName,omitempty"`
+	StartingPosition               string   `json:"StartingPosition,omitempty"`
+	BatchSize                      int      `json:"BatchSize,omitempty"`
+	MaximumBatchingWindowInSeconds int      `json:"MaximumBatchingWindowInSeconds,omitempty"`
+	ConsumerGroupID                string   `json:"ConsumerGroupId,omitempty"`
+	AdditionalBootstrapServers     []string `json:"AdditionalBootstrapServers,omitempty"`
+	ServerRootCaCertificate        string   `json:"ServerRootCaCertificate,omitempty"`
+}
+
+// RabbitMQBrokerSourceParameters holds RabbitMQ broker source configuration.
+type RabbitMQBrokerSourceParameters struct {
+	QueueName                      string `json:"QueueName,omitempty"`
+	VirtualHost                    string `json:"VirtualHost,omitempty"`
+	BatchSize                      int    `json:"BatchSize,omitempty"`
+	MaximumBatchingWindowInSeconds int    `json:"MaximumBatchingWindowInSeconds,omitempty"`
+}
+
+// ActiveMQBrokerSourceParameters holds ActiveMQ broker source configuration.
+type ActiveMQBrokerSourceParameters struct {
+	QueueName                      string `json:"QueueName,omitempty"`
+	BatchSize                      int    `json:"BatchSize,omitempty"`
+	MaximumBatchingWindowInSeconds int    `json:"MaximumBatchingWindowInSeconds,omitempty"`
+}
+
 // SourceParameters holds source-specific configuration.
 type SourceParameters struct {
-	FilterCriteria     *FilterCriteria      `json:"FilterCriteria,omitempty"`
-	SqsQueueParameters *SQSSourceParameters `json:"SqsQueueParameters,omitempty"`
+	FilterCriteria                  *FilterCriteria                        `json:"FilterCriteria,omitempty"`
+	SqsQueueParameters              *SQSSourceParameters                   `json:"SqsQueueParameters,omitempty"`
+	KinesisStreamParameters         *KinesisStreamSourceParameters         `json:"KinesisStreamParameters,omitempty"`
+	DynamoDBStreamParameters        *DynamoDBStreamSourceParameters        `json:"DynamoDBStreamParameters,omitempty"`
+	ManagedStreamingKafkaParameters *ManagedStreamingKafkaSourceParameters `json:"ManagedStreamingKafkaParameters,omitempty"`
+	SelfManagedKafkaParameters      *SelfManagedKafkaSourceParameters      `json:"SelfManagedKafkaParameters,omitempty"`
+	RabbitMQBrokerParameters        *RabbitMQBrokerSourceParameters        `json:"RabbitMQBrokerParameters,omitempty"`
+	ActiveMQBrokerParameters        *ActiveMQBrokerSourceParameters        `json:"ActiveMQBrokerParameters,omitempty"`
 }
 
 // LambdaFunctionParameters holds Lambda-specific target configuration.
@@ -71,10 +142,97 @@ type LambdaFunctionParameters struct {
 	InvocationType string `json:"InvocationType,omitempty"`
 }
 
+// StepFunctionTargetParameters holds Step Functions target configuration.
+type StepFunctionTargetParameters struct {
+	InvocationType string `json:"InvocationType,omitempty"`
+}
+
+// SQSTargetParameters holds SQS-specific target configuration.
+type SQSTargetParameters struct {
+	MessageGroupId         string `json:"MessageGroupId,omitempty"`
+	MessageDeduplicationId string `json:"MessageDeduplicationId,omitempty"`
+}
+
+// KinesisStreamTargetParameters holds Kinesis stream target configuration.
+type KinesisStreamTargetParameters struct {
+	PartitionKey string `json:"PartitionKey,omitempty"`
+}
+
+// CloudWatchLogsTargetParameters holds CloudWatch Logs target configuration.
+type CloudWatchLogsTargetParameters struct {
+	LogStreamName string `json:"LogStreamName,omitempty"`
+	Timestamp     string `json:"Timestamp,omitempty"`
+}
+
+// EventBridgeEventBusTargetParameters holds EventBridge event bus target configuration.
+type EventBridgeEventBusTargetParameters struct {
+	DetailType string   `json:"DetailType,omitempty"`
+	EndpointId string   `json:"EndpointId,omitempty"`
+	Resources  []string `json:"Resources,omitempty"`
+	Source     string   `json:"Source,omitempty"`
+	Time       string   `json:"Time,omitempty"`
+}
+
+// RedshiftDataTargetParameters holds Redshift Data API target configuration.
+type RedshiftDataTargetParameters struct {
+	Database         string   `json:"Database,omitempty"`
+	DbUser           string   `json:"DbUser,omitempty"`
+	SecretManagerArn string   `json:"SecretManagerArn,omitempty"`
+	Sqls             []string `json:"Sqls,omitempty"`
+	StatementName    string   `json:"StatementName,omitempty"`
+	WithEvent        bool     `json:"WithEvent,omitempty"`
+}
+
+// SageMakerPipelineParameter is a name/value pair for a SageMaker pipeline.
+type SageMakerPipelineParameter struct {
+	Name  string `json:"Name,omitempty"`
+	Value string `json:"Value,omitempty"`
+}
+
+// SageMakerPipelineTargetParameters holds SageMaker pipeline target configuration.
+type SageMakerPipelineTargetParameters struct {
+	PipelineParameterList []SageMakerPipelineParameter `json:"PipelineParameterList,omitempty"`
+}
+
+// BatchArrayProperties holds Batch array job properties.
+type BatchArrayProperties struct {
+	Size int `json:"Size,omitempty"`
+}
+
+// BatchRetryStrategy holds Batch retry configuration.
+type BatchRetryStrategy struct {
+	Attempts int `json:"Attempts,omitempty"`
+}
+
+// BatchJobTargetParameters holds Batch job target configuration.
+type BatchJobTargetParameters struct {
+	JobDefinition   string               `json:"JobDefinition,omitempty"`
+	JobName         string               `json:"JobName,omitempty"`
+	ArrayProperties *BatchArrayProperties `json:"ArrayProperties,omitempty"`
+	RetryStrategy   *BatchRetryStrategy  `json:"RetryStrategy,omitempty"`
+	Parameters      map[string]string    `json:"Parameters,omitempty"`
+}
+
+// ECSTaskTargetParameters holds ECS task target configuration.
+type ECSTaskTargetParameters struct {
+	TaskDefinitionArn string `json:"TaskDefinitionArn,omitempty"`
+	TaskCount         int    `json:"TaskCount,omitempty"`
+	LaunchType        string `json:"LaunchType,omitempty"`
+}
+
 // TargetParameters holds target-specific configuration.
 type TargetParameters struct {
-	LambdaFunctionParameters *LambdaFunctionParameters `json:"LambdaFunctionParameters,omitempty"`
-	InputTemplate            string                    `json:"InputTemplate,omitempty"`
+	LambdaFunctionParameters           *LambdaFunctionParameters            `json:"LambdaFunctionParameters,omitempty"`
+	StepFunctionStateMachineParameters *StepFunctionTargetParameters        `json:"StepFunctionStateMachineParameters,omitempty"`
+	SqsQueueParameters                 *SQSTargetParameters                 `json:"SqsQueueParameters,omitempty"`
+	KinesisStreamParameters            *KinesisStreamTargetParameters       `json:"KinesisStreamParameters,omitempty"`
+	CloudWatchLogsParameters           *CloudWatchLogsTargetParameters      `json:"CloudWatchLogsParameters,omitempty"`
+	EventBridgeEventBusParameters      *EventBridgeEventBusTargetParameters `json:"EventBridgeEventBusParameters,omitempty"`
+	RedshiftDataParameters             *RedshiftDataTargetParameters        `json:"RedshiftDataParameters,omitempty"`
+	SageMakerPipelineParameters        *SageMakerPipelineTargetParameters   `json:"SageMakerPipelineParameters,omitempty"`
+	BatchJobParameters                 *BatchJobTargetParameters            `json:"BatchJobParameters,omitempty"`
+	EcsTaskParameters                  *ECSTaskTargetParameters             `json:"EcsTaskParameters,omitempty"`
+	InputTemplate                      string                               `json:"InputTemplate,omitempty"`
 }
 
 // DeadLetterConfig identifies the DLQ for failed pipe events.
@@ -82,14 +240,42 @@ type DeadLetterConfig struct {
 	Arn string `json:"Arn,omitempty"`
 }
 
+// EnrichmentHTTPParameters holds HTTP parameters for enrichment calls.
+type EnrichmentHTTPParameters struct {
+	HeaderParameters      map[string]string `json:"HeaderParameters,omitempty"`
+	PathParameterValues   []string          `json:"PathParameterValues,omitempty"`
+	QueryStringParameters map[string]string `json:"QueryStringParameters,omitempty"`
+}
+
+// EnrichmentParameters holds enrichment-specific configuration.
+type EnrichmentParameters struct {
+	InputTemplate  string                    `json:"InputTemplate,omitempty"`
+	HttpParameters *EnrichmentHTTPParameters `json:"HttpParameters,omitempty"`
+}
+
 // CloudwatchLogsLogDestination is a CloudWatch Logs target.
 type CloudwatchLogsLogDestination struct {
 	LogGroupArn string `json:"LogGroupArn,omitempty"`
 }
 
+// FirehoseLogDestination is a Firehose delivery stream log target.
+type FirehoseLogDestination struct {
+	DeliveryStreamArn string `json:"DeliveryStreamArn,omitempty"`
+}
+
+// S3LogDestination is an S3 bucket log target.
+type S3LogDestination struct {
+	BucketName   string `json:"BucketName,omitempty"`
+	BucketOwner  string `json:"BucketOwner,omitempty"`
+	Prefix       string `json:"Prefix,omitempty"`
+	OutputFormat string `json:"OutputFormat,omitempty"`
+}
+
 // LogDestination wraps possible log destination types.
 type LogDestination struct {
 	CloudwatchLogsLogDestination *CloudwatchLogsLogDestination `json:"CloudwatchLogsLogDestination,omitempty"`
+	FirehoseLogDestination       *FirehoseLogDestination       `json:"FirehoseLogDestination,omitempty"`
+	S3LogDestination             *S3LogDestination             `json:"S3LogDestination,omitempty"`
 }
 
 // LogConfiguration controls pipe execution logging.
@@ -101,32 +287,52 @@ type LogConfiguration struct {
 
 // Pipe represents an EventBridge Pipe.
 type Pipe struct {
-	SourceParameters *SourceParameters `json:"sourceParameters,omitempty"`
-	TargetParameters *TargetParameters `json:"targetParameters,omitempty"`
-	DeadLetterConfig *DeadLetterConfig `json:"deadLetterConfig,omitempty"`
-	LogConfiguration *LogConfiguration `json:"logConfiguration,omitempty"`
-	LastModifiedTime time.Time         `json:"lastModifiedTime"`
-	CreationTime     time.Time         `json:"creationTime"`
-	Tags             map[string]string `json:"tags,omitempty"`
-	Description      string            `json:"description,omitempty"`
-	Enrichment       string            `json:"enrichment,omitempty"`
-	Source           string            `json:"source"`
-	Target           string            `json:"target"`
-	RoleARN          string            `json:"roleArn"`
-	StateReason      string            `json:"stateReason,omitempty"`
-	DesiredState     string            `json:"desiredState"`
-	CurrentState     string            `json:"currentState"`
-	AccountID        string            `json:"accountID"`
-	Region           string            `json:"region"`
-	ARN              string            `json:"arn"`
-	Name             string            `json:"name"`
+	SourceParameters     *SourceParameters     `json:"sourceParameters,omitempty"`
+	TargetParameters     *TargetParameters     `json:"targetParameters,omitempty"`
+	DeadLetterConfig     *DeadLetterConfig     `json:"deadLetterConfig,omitempty"`
+	LogConfiguration     *LogConfiguration     `json:"logConfiguration,omitempty"`
+	EnrichmentParameters *EnrichmentParameters `json:"enrichmentParameters,omitempty"`
+	LastModifiedTime     time.Time             `json:"lastModifiedTime"`
+	CreationTime         time.Time             `json:"creationTime"`
+	Tags                 map[string]string     `json:"tags,omitempty"`
+	Description          string                `json:"description,omitempty"`
+	Enrichment           string                `json:"enrichment,omitempty"`
+	KmsKeyIdentifier     string                `json:"kmsKeyIdentifier,omitempty"`
+	Source               string                `json:"source"`
+	Target               string                `json:"target"`
+	RoleARN              string                `json:"roleArn"`
+	StateReason          string                `json:"stateReason,omitempty"`
+	DesiredState         string                `json:"desiredState"`
+	CurrentState         string                `json:"currentState"`
+	AccountID            string                `json:"accountID"`
+	Region               string                `json:"region"`
+	ARN                  string                `json:"arn"`
+	Name                 string                `json:"name"`
 }
 
 func (p *Pipe) effectiveBatchSize() int {
-	if p.SourceParameters != nil &&
-		p.SourceParameters.SqsQueueParameters != nil &&
-		p.SourceParameters.SqsQueueParameters.BatchSize > 0 {
-		return p.SourceParameters.SqsQueueParameters.BatchSize
+	if sp := p.SourceParameters; sp != nil {
+		if sp.SqsQueueParameters != nil && sp.SqsQueueParameters.BatchSize > 0 {
+			return sp.SqsQueueParameters.BatchSize
+		}
+		if sp.KinesisStreamParameters != nil && sp.KinesisStreamParameters.BatchSize > 0 {
+			return sp.KinesisStreamParameters.BatchSize
+		}
+		if sp.DynamoDBStreamParameters != nil && sp.DynamoDBStreamParameters.BatchSize > 0 {
+			return sp.DynamoDBStreamParameters.BatchSize
+		}
+		if sp.ManagedStreamingKafkaParameters != nil && sp.ManagedStreamingKafkaParameters.BatchSize > 0 {
+			return sp.ManagedStreamingKafkaParameters.BatchSize
+		}
+		if sp.SelfManagedKafkaParameters != nil && sp.SelfManagedKafkaParameters.BatchSize > 0 {
+			return sp.SelfManagedKafkaParameters.BatchSize
+		}
+		if sp.RabbitMQBrokerParameters != nil && sp.RabbitMQBrokerParameters.BatchSize > 0 {
+			return sp.RabbitMQBrokerParameters.BatchSize
+		}
+		if sp.ActiveMQBrokerParameters != nil && sp.ActiveMQBrokerParameters.BatchSize > 0 {
+			return sp.ActiveMQBrokerParameters.BatchSize
+		}
 	}
 
 	return pipeDefaultBatchSize
@@ -143,22 +349,114 @@ func clonePipe(p *Pipe) *Pipe {
 			sp.FilterCriteria = &fc
 		}
 		if p.SourceParameters.SqsQueueParameters != nil {
-			sqsp := *p.SourceParameters.SqsQueueParameters
-			sp.SqsQueueParameters = &sqsp
+			v := *p.SourceParameters.SqsQueueParameters
+			sp.SqsQueueParameters = &v
+		}
+		if p.SourceParameters.KinesisStreamParameters != nil {
+			v := *p.SourceParameters.KinesisStreamParameters
+			if v.DeadLetterConfig != nil {
+				dlc := *v.DeadLetterConfig
+				v.DeadLetterConfig = &dlc
+			}
+			sp.KinesisStreamParameters = &v
+		}
+		if p.SourceParameters.DynamoDBStreamParameters != nil {
+			v := *p.SourceParameters.DynamoDBStreamParameters
+			if v.DeadLetterConfig != nil {
+				dlc := *v.DeadLetterConfig
+				v.DeadLetterConfig = &dlc
+			}
+			sp.DynamoDBStreamParameters = &v
+		}
+		if p.SourceParameters.ManagedStreamingKafkaParameters != nil {
+			v := *p.SourceParameters.ManagedStreamingKafkaParameters
+			sp.ManagedStreamingKafkaParameters = &v
+		}
+		if p.SourceParameters.SelfManagedKafkaParameters != nil {
+			v := *p.SourceParameters.SelfManagedKafkaParameters
+			v.AdditionalBootstrapServers = append([]string(nil), p.SourceParameters.SelfManagedKafkaParameters.AdditionalBootstrapServers...)
+			sp.SelfManagedKafkaParameters = &v
+		}
+		if p.SourceParameters.RabbitMQBrokerParameters != nil {
+			v := *p.SourceParameters.RabbitMQBrokerParameters
+			sp.RabbitMQBrokerParameters = &v
+		}
+		if p.SourceParameters.ActiveMQBrokerParameters != nil {
+			v := *p.SourceParameters.ActiveMQBrokerParameters
+			sp.ActiveMQBrokerParameters = &v
 		}
 		cp.SourceParameters = &sp
 	}
 	if p.TargetParameters != nil {
 		tp := *p.TargetParameters
 		if p.TargetParameters.LambdaFunctionParameters != nil {
-			lfp := *p.TargetParameters.LambdaFunctionParameters
-			tp.LambdaFunctionParameters = &lfp
+			v := *p.TargetParameters.LambdaFunctionParameters
+			tp.LambdaFunctionParameters = &v
+		}
+		if p.TargetParameters.StepFunctionStateMachineParameters != nil {
+			v := *p.TargetParameters.StepFunctionStateMachineParameters
+			tp.StepFunctionStateMachineParameters = &v
+		}
+		if p.TargetParameters.SqsQueueParameters != nil {
+			v := *p.TargetParameters.SqsQueueParameters
+			tp.SqsQueueParameters = &v
+		}
+		if p.TargetParameters.KinesisStreamParameters != nil {
+			v := *p.TargetParameters.KinesisStreamParameters
+			tp.KinesisStreamParameters = &v
+		}
+		if p.TargetParameters.CloudWatchLogsParameters != nil {
+			v := *p.TargetParameters.CloudWatchLogsParameters
+			tp.CloudWatchLogsParameters = &v
+		}
+		if p.TargetParameters.EventBridgeEventBusParameters != nil {
+			v := *p.TargetParameters.EventBridgeEventBusParameters
+			v.Resources = append([]string(nil), p.TargetParameters.EventBridgeEventBusParameters.Resources...)
+			tp.EventBridgeEventBusParameters = &v
+		}
+		if p.TargetParameters.RedshiftDataParameters != nil {
+			v := *p.TargetParameters.RedshiftDataParameters
+			v.Sqls = append([]string(nil), p.TargetParameters.RedshiftDataParameters.Sqls...)
+			tp.RedshiftDataParameters = &v
+		}
+		if p.TargetParameters.SageMakerPipelineParameters != nil {
+			v := *p.TargetParameters.SageMakerPipelineParameters
+			v.PipelineParameterList = append([]SageMakerPipelineParameter(nil), p.TargetParameters.SageMakerPipelineParameters.PipelineParameterList...)
+			tp.SageMakerPipelineParameters = &v
+		}
+		if p.TargetParameters.BatchJobParameters != nil {
+			v := *p.TargetParameters.BatchJobParameters
+			if v.ArrayProperties != nil {
+				ap := *v.ArrayProperties
+				v.ArrayProperties = &ap
+			}
+			if v.RetryStrategy != nil {
+				rs := *v.RetryStrategy
+				v.RetryStrategy = &rs
+			}
+			v.Parameters = maps.Clone(p.TargetParameters.BatchJobParameters.Parameters)
+			tp.BatchJobParameters = &v
+		}
+		if p.TargetParameters.EcsTaskParameters != nil {
+			v := *p.TargetParameters.EcsTaskParameters
+			tp.EcsTaskParameters = &v
 		}
 		cp.TargetParameters = &tp
 	}
 	if p.DeadLetterConfig != nil {
 		dlc := *p.DeadLetterConfig
 		cp.DeadLetterConfig = &dlc
+	}
+	if p.EnrichmentParameters != nil {
+		ep := *p.EnrichmentParameters
+		if p.EnrichmentParameters.HttpParameters != nil {
+			hp := *p.EnrichmentParameters.HttpParameters
+			hp.HeaderParameters = maps.Clone(p.EnrichmentParameters.HttpParameters.HeaderParameters)
+			hp.PathParameterValues = append([]string(nil), p.EnrichmentParameters.HttpParameters.PathParameterValues...)
+			hp.QueryStringParameters = maps.Clone(p.EnrichmentParameters.HttpParameters.QueryStringParameters)
+			ep.HttpParameters = &hp
+		}
+		cp.EnrichmentParameters = &ep
 	}
 	if p.LogConfiguration != nil {
 		lc := *p.LogConfiguration
@@ -210,18 +508,20 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 // CreatePipeInput holds the full set of fields for pipe creation.
 type CreatePipeInput struct {
-	Tags             map[string]string
-	SourceParameters *SourceParameters
-	TargetParameters *TargetParameters
-	DeadLetterConfig *DeadLetterConfig
-	LogConfiguration *LogConfiguration
-	Name             string
-	RoleARN          string
-	Source           string
-	Target           string
-	Description      string
-	Enrichment       string
-	DesiredState     string
+	Tags                 map[string]string
+	SourceParameters     *SourceParameters
+	TargetParameters     *TargetParameters
+	DeadLetterConfig     *DeadLetterConfig
+	LogConfiguration     *LogConfiguration
+	EnrichmentParameters *EnrichmentParameters
+	Name                 string
+	RoleARN              string
+	Source               string
+	Target               string
+	Description          string
+	Enrichment           string
+	KmsKeyIdentifier     string
+	DesiredState         string
 }
 
 func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
@@ -263,17 +563,39 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 	p := &Pipe{
 		Name: in.Name, ARN: pipeARN, RoleARN: in.RoleARN,
 		Source: in.Source, Target: in.Target, Description: in.Description,
-		Enrichment: in.Enrichment, DesiredState: in.DesiredState, CurrentState: in.DesiredState,
+		Enrichment: in.Enrichment, KmsKeyIdentifier: in.KmsKeyIdentifier,
+		DesiredState: in.DesiredState, CurrentState: stateCreating,
 		AccountID: b.accountID, Region: b.region,
 		CreationTime: now, LastModifiedTime: now,
-		Tags:             mergeTags(nil, in.Tags),
-		SourceParameters: in.SourceParameters, TargetParameters: in.TargetParameters,
-		DeadLetterConfig: in.DeadLetterConfig, LogConfiguration: in.LogConfiguration,
+		Tags:                 mergeTags(nil, in.Tags),
+		SourceParameters:     in.SourceParameters,
+		TargetParameters:     in.TargetParameters,
+		DeadLetterConfig:     in.DeadLetterConfig,
+		LogConfiguration:     in.LogConfiguration,
+		EnrichmentParameters: in.EnrichmentParameters,
 	}
 	b.pipes[in.Name] = p
 	b.pipeARNIndex[pipeARN] = in.Name
 
-	return clonePipe(p), nil
+	cp := clonePipe(p)
+	go b.completeCreateTransition(in.Name, in.DesiredState)
+
+	return cp, nil
+}
+
+// completeCreateTransition moves a pipe from CREATING to its desired state after a brief delay.
+func (b *InMemoryBackend) completeCreateTransition(name, desiredState string) {
+	time.Sleep(stateTransitionDelay)
+	b.mu.Lock("completeCreateTransition")
+	defer b.mu.Unlock()
+	p, ok := b.pipes[name]
+	if !ok {
+		return
+	}
+	if p.CurrentState == stateCreating {
+		p.CurrentState = desiredState
+		p.LastModifiedTime = time.Now()
+	}
 }
 
 func (b *InMemoryBackend) GetPipe(name string) (*Pipe, error) {
@@ -415,15 +737,17 @@ func matchesFilter(p *Pipe, f ListPipesFilter) bool {
 
 // UpdatePipeInput holds the fields that can be updated on an existing pipe.
 type UpdatePipeInput struct {
-	SourceParameters *SourceParameters
-	TargetParameters *TargetParameters
-	DeadLetterConfig *DeadLetterConfig
-	LogConfiguration *LogConfiguration
-	RoleARN          string
-	Target           string
-	Description      string
-	Enrichment       string
-	DesiredState     string
+	SourceParameters     *SourceParameters
+	TargetParameters     *TargetParameters
+	DeadLetterConfig     *DeadLetterConfig
+	LogConfiguration     *LogConfiguration
+	EnrichmentParameters *EnrichmentParameters
+	RoleARN              string
+	Target               string
+	Description          string
+	Enrichment           string
+	KmsKeyIdentifier     string
+	DesiredState         string
 }
 
 func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, error) {
@@ -448,6 +772,9 @@ func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, er
 	if in.Enrichment != "" {
 		p.Enrichment = in.Enrichment
 	}
+	if in.KmsKeyIdentifier != "" {
+		p.KmsKeyIdentifier = in.KmsKeyIdentifier
+	}
 	p.Description = in.Description
 	if in.SourceParameters != nil {
 		p.SourceParameters = in.SourceParameters
@@ -461,22 +788,67 @@ func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, er
 	if in.LogConfiguration != nil {
 		p.LogConfiguration = in.LogConfiguration
 	}
-	p.LastModifiedTime = time.Now()
+	if in.EnrichmentParameters != nil {
+		p.EnrichmentParameters = in.EnrichmentParameters
+	}
 
-	return clonePipe(p), nil
+	prevDesiredState := p.DesiredState
+	if in.DesiredState != "" {
+		prevDesiredState = in.DesiredState
+	}
+	p.CurrentState = stateUpdating
+	p.LastModifiedTime = time.Now()
+	cp := clonePipe(p)
+
+	go b.completeUpdateTransition(name, prevDesiredState)
+
+	return cp, nil
 }
 
-func (b *InMemoryBackend) DeletePipe(name string) error {
+// completeUpdateTransition moves a pipe from UPDATING to its desired state after a brief delay.
+func (b *InMemoryBackend) completeUpdateTransition(name, desiredState string) {
+	time.Sleep(stateTransitionDelay)
+	b.mu.Lock("completeUpdateTransition")
+	defer b.mu.Unlock()
+	p, ok := b.pipes[name]
+	if !ok {
+		return
+	}
+	if p.CurrentState == stateUpdating {
+		p.CurrentState = desiredState
+		p.LastModifiedTime = time.Now()
+	}
+}
+
+func (b *InMemoryBackend) DeletePipe(name string) (*Pipe, error) {
 	b.mu.Lock("DeletePipe")
 	defer b.mu.Unlock()
 	p, ok := b.pipes[name]
 	if !ok {
-		return fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
+		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
-	delete(b.pipeARNIndex, p.ARN)
-	delete(b.pipes, name)
+	p.CurrentState = stateDeleting
+	p.LastModifiedTime = time.Now()
+	cp := clonePipe(p)
 
-	return nil
+	go b.completeDeleteTransition(name)
+
+	return cp, nil
+}
+
+// completeDeleteTransition removes the pipe after it has been marked DELETING.
+func (b *InMemoryBackend) completeDeleteTransition(name string) {
+	time.Sleep(stateTransitionDelay)
+	b.mu.Lock("completeDeleteTransition")
+	defer b.mu.Unlock()
+	p, ok := b.pipes[name]
+	if !ok {
+		return
+	}
+	if p.CurrentState == stateDeleting {
+		delete(b.pipeARNIndex, p.ARN)
+		delete(b.pipes, name)
+	}
 }
 
 func (b *InMemoryBackend) StartPipe(name string) (*Pipe, error) {
