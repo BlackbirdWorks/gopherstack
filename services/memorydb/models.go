@@ -317,11 +317,11 @@ type clusterObject struct {
 
 // shardObject represents a single shard in a MemoryDB cluster.
 type shardObject struct {
+	Nodes         []nodeObject `json:"Nodes,omitempty"`
 	Name          string       `json:"Name,omitempty"`
 	Status        string       `json:"Status,omitempty"`
 	Slots         string       `json:"Slots,omitempty"`
 	NumberOfNodes int32        `json:"NumberOfNodes,omitempty"`
-	Nodes         []nodeObject `json:"Nodes,omitempty"`
 }
 
 // nodeObject represents a node within a shard.
@@ -330,7 +330,7 @@ type nodeObject struct {
 	Name             string          `json:"Name,omitempty"`
 	Status           string          `json:"Status,omitempty"`
 	AvailabilityZone string          `json:"AvailabilityZone,omitempty"`
-	CreateTime       string          `json:"CreateTime,omitempty"`
+	CreateTime       float64         `json:"CreateTime,omitempty"`
 }
 
 // pendingUpdatesObject represents pending changes to a cluster.
@@ -942,8 +942,8 @@ type describeReservedNodesOfferingsRequest struct {
 	ReservedNodesOfferingID string `json:"ReservedNodesOfferingId,omitempty"`
 	NodeType                string `json:"NodeType,omitempty"`
 	OfferingType            string `json:"OfferingType,omitempty"`
-	NextToken               string `json:"NextToken,omitempty"`
 	Duration                string `json:"Duration,omitempty"`
+	NextToken               string `json:"NextToken,omitempty"`
 }
 
 type describeReservedNodesOfferingsResponse struct {

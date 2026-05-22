@@ -19,6 +19,24 @@ const (
 )
 
 const (
+	// Engine type constants.
+	engineRedis  = "redis"
+	engineValkey = "valkey"
+	// defaultValkeyEngineVersion is the default version for new valkey clusters.
+	defaultValkeyEngineVersion = "7.2"
+	// authTypeIAM is the IAM authentication type.
+	authTypeIAM = "iam"
+	// authTypePassword is the password authentication type.
+	authTypePassword = "password"
+	// authTypeNoPasswordRequired is the no-password authentication type.
+	authTypeNoPasswordRequired = "no-password-required"
+	// authTypeNoPassword is the alias for no-password-required.
+	authTypeNoPassword = "no-password"
+	// snapshotSourceAutomated is the source type for automated snapshots.
+	snapshotSourceAutomated = "automated"
+)
+
+const (
 	// openAccessACL is the default ACL name that allows all connections.
 	openAccessACL = "open-access"
 	// defaultEngineVersion is the default Redis version for new clusters.
@@ -449,16 +467,16 @@ func resolveClusterDefaults(req *createClusterRequest) (clusterDefaults, error) 
 	}
 
 	if d.engine == "" {
-		d.engine = "redis"
+		d.engine = engineRedis
 	}
 
-	if d.engine != "redis" && d.engine != "valkey" {
+	if d.engine != engineRedis && d.engine != engineValkey {
 		return d, fmt.Errorf("engine %q is not supported (must be redis or valkey): %w", d.engine, ErrValidation)
 	}
 
 	if d.engineVersion == "" {
-		if d.engine == "valkey" {
-			d.engineVersion = "7.2"
+		if d.engine == engineValkey {
+			d.engineVersion = defaultValkeyEngineVersion
 		} else {
 			d.engineVersion = defaultEngineVersion
 		}
@@ -495,6 +513,52 @@ func resolveClusterDefaults(req *createClusterRequest) (clusterDefaults, error) 
 	return d, nil
 }
 
+// applySnapshotRestoreConfig overrides cluster defaults from a source snapshot config.
+func applySnapshotRestoreConfig(d *clusterDefaults, snap *Snapshot) {
+	if snap.ClusterConfiguration.EngineVersion != "" {
+		d.engineVersion = snap.ClusterConfiguration.EngineVersion
+	}
+
+	if snap.ClusterConfiguration.NodeType != "" {
+		d.nodeType = snap.ClusterConfiguration.NodeType
+	}
+
+	if snap.ClusterConfiguration.NumShards > 0 {
+		d.numShards = snap.ClusterConfiguration.NumShards
+	}
+
+	if snap.ClusterConfiguration.Port > 0 {
+		d.port = snap.ClusterConfiguration.Port
+	}
+}
+
+// seedAutomatedSnapshotLocked creates an automated snapshot for a new cluster if retention is configured.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) seedAutomatedSnapshotLocked(region, accountID string, c *Cluster) {
+	autoName := "automatic." + c.Name + "-" + time.Now().UTC().Format("20060102150405")
+	autoARN := arn.Build("memorydb", region, accountID, "snapshot/"+autoName)
+	autoSnap := &Snapshot{
+		Name:         autoName,
+		ARN:          autoARN,
+		ClusterName:  c.Name,
+		Status:       snapshotStatusAvailable,
+		SnapshotType: snapshotSourceAutomated,
+		Source:       snapshotSourceAutomated,
+		Tags:         make(map[string]string),
+		CreatedAt:    time.Now(),
+		ClusterConfiguration: snapshotClusterConfig{
+			Name:          c.Name,
+			NodeType:      c.NodeType,
+			EngineVersion: c.EngineVersion,
+			Description:   c.Description,
+			Port:          c.Port,
+			NumShards:     c.NumShards,
+		},
+	}
+	b.snapshots[autoName] = autoSnap
+	b.arnToResource[autoARN] = resourceRef{Kind: resourceKindSnapshot, Name: autoName}
+}
+
 // CreateCluster creates a new MemoryDB cluster.
 func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClusterRequest) (*Cluster, error) {
 	b.mu.Lock()
@@ -529,18 +593,7 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 	}
 
 	if restoreSnap != nil {
-		if restoreSnap.ClusterConfiguration.EngineVersion != "" {
-			d.engineVersion = restoreSnap.ClusterConfiguration.EngineVersion
-		}
-		if restoreSnap.ClusterConfiguration.NodeType != "" {
-			d.nodeType = restoreSnap.ClusterConfiguration.NodeType
-		}
-		if restoreSnap.ClusterConfiguration.NumShards > 0 {
-			d.numShards = restoreSnap.ClusterConfiguration.NumShards
-		}
-		if restoreSnap.ClusterConfiguration.Port > 0 {
-			d.port = restoreSnap.ClusterConfiguration.Port
-		}
+		applySnapshotRestoreConfig(&d, restoreSnap)
 	}
 
 	clusterARN := arn.Build("memorydb", region, accountID, "cluster/"+req.ClusterName)
@@ -605,34 +658,13 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 	b.appendEventLocked(&Event{
 		Date:       time.Now(),
 		SourceName: req.ClusterName,
-		SourceType: "cluster",
+		SourceType: resourceKindCluster,
 		Message:    "Cluster " + req.ClusterName + " created",
 	})
 
 	// Seed automated snapshot when retention limit > 0.
 	if c.SnapshotRetentionLimit > 0 {
-		autoName := "automatic." + req.ClusterName + "-" + time.Now().UTC().Format("20060102150405")
-		autoARN := arn.Build("memorydb", region, accountID, "snapshot/"+autoName)
-		autoSnap := &Snapshot{
-			Name:         autoName,
-			ARN:          autoARN,
-			ClusterName:  req.ClusterName,
-			Status:       snapshotStatusAvailable,
-			SnapshotType: "automated",
-			Source:       "automated",
-			Tags:         make(map[string]string),
-			CreatedAt:    time.Now(),
-			ClusterConfiguration: snapshotClusterConfig{
-				Name:          c.Name,
-				NodeType:      c.NodeType,
-				EngineVersion: c.EngineVersion,
-				Description:   c.Description,
-				Port:          c.Port,
-				NumShards:     c.NumShards,
-			},
-		}
-		b.snapshots[autoName] = autoSnap
-		b.arnToResource[autoARN] = resourceRef{Kind: resourceKindSnapshot, Name: autoName}
+		b.seedAutomatedSnapshotLocked(region, accountID, c)
 	}
 
 	return cloneCluster(c), nil
@@ -681,7 +713,7 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 	b.appendEventLocked(&Event{
 		Date:       time.Now(),
 		SourceName: name,
-		SourceType: "cluster",
+		SourceType: resourceKindCluster,
 		Message:    "Cluster " + name + " deleted",
 	})
 
@@ -729,16 +761,8 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 	return cloneCluster(c), nil
 }
 
-// UpdateCluster modifies an existing cluster.
-func (b *InMemoryBackend) UpdateCluster(req *updateClusterRequest) (*Cluster, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	c, ok := b.clusters[req.ClusterName]
-	if !ok {
-		return nil, ErrClusterNotFound
-	}
-
+// applyClusterStringUpdates applies non-nil string field updates from req to c.
+func applyClusterStringUpdates(c *Cluster, req *updateClusterRequest) {
 	if req.Description != "" {
 		c.Description = req.Description
 	}
@@ -767,6 +791,27 @@ func (b *InMemoryBackend) UpdateCluster(req *updateClusterRequest) (*Cluster, er
 		c.SnsTopicArn = req.SnsTopicArn
 	}
 
+	if req.NetworkType != "" {
+		c.NetworkType = req.NetworkType
+	}
+
+	if req.IpDiscovery != "" {
+		c.IpDiscovery = req.IpDiscovery
+	}
+}
+
+// UpdateCluster modifies an existing cluster.
+func (b *InMemoryBackend) UpdateCluster(req *updateClusterRequest) (*Cluster, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[req.ClusterName]
+	if !ok {
+		return nil, ErrClusterNotFound
+	}
+
+	applyClusterStringUpdates(c, req)
+
 	if req.SnapshotRetentionLimit != nil {
 		c.SnapshotRetentionLimit = *req.SnapshotRetentionLimit
 	}
@@ -783,18 +828,10 @@ func (b *InMemoryBackend) UpdateCluster(req *updateClusterRequest) (*Cluster, er
 		c.AutoMinorVersionUpgrade = *req.AutoMinorVersionUpgrade
 	}
 
-	if req.NetworkType != "" {
-		c.NetworkType = req.NetworkType
-	}
-
-	if req.IpDiscovery != "" {
-		c.IpDiscovery = req.IpDiscovery
-	}
-
 	b.appendEventLocked(&Event{
 		Date:       time.Now(),
 		SourceName: req.ClusterName,
-		SourceType: "cluster",
+		SourceType: resourceKindCluster,
 		Message:    "Cluster " + req.ClusterName + " modified",
 	})
 
@@ -838,7 +875,7 @@ func (b *InMemoryBackend) CreateACL(region, accountID string, req *createACLRequ
 	b.appendEventLocked(&Event{
 		Date:       time.Now(),
 		SourceName: req.ACLName,
-		SourceType: "acl",
+		SourceType: resourceKindACL,
 		Message:    "ACL " + req.ACLName + " created",
 	})
 
@@ -898,7 +935,7 @@ func (b *InMemoryBackend) DeleteACL(name string) (*ACL, error) {
 	b.appendEventLocked(&Event{
 		Date:       time.Now(),
 		SourceName: name,
-		SourceType: "acl",
+		SourceType: resourceKindACL,
 		Message:    "ACL " + name + " deleted",
 	})
 
@@ -957,7 +994,7 @@ func (b *InMemoryBackend) UpdateACL(req *updateACLRequest) (*ACL, error) {
 	b.appendEventLocked(&Event{
 		Date:       time.Now(),
 		SourceName: req.ACLName,
-		SourceType: "acl",
+		SourceType: resourceKindACL,
 		Message:    "ACL " + req.ACLName + " modified",
 	})
 
@@ -1080,16 +1117,19 @@ func (b *InMemoryBackend) CreateUser(region, accountID string, req *createUserRe
 
 	authType := strings.ToLower(req.AuthenticationMode.Type)
 	if authType == "" {
-		authType = "no-password-required"
+		authType = authTypeNoPasswordRequired
 	}
 	// Normalize legacy alias.
-	if authType == "no-password" {
-		authType = "no-password-required"
+	if authType == authTypeNoPassword {
+		authType = authTypeNoPasswordRequired
 	}
-	if authType != "password" && authType != "iam" && authType != "no-password-required" {
-		return nil, fmt.Errorf("AuthenticationMode.Type must be password, iam, or no-password-required: %w", ErrValidation)
+	if authType != authTypePassword && authType != authTypeIAM && authType != authTypeNoPasswordRequired {
+		return nil, fmt.Errorf(
+			"AuthenticationMode.Type must be password, iam, or no-password-required: %w",
+			ErrValidation,
+		)
 	}
-	if authType == "iam" && len(req.AuthenticationMode.Passwords) > 0 {
+	if authType == authTypeIAM && len(req.AuthenticationMode.Passwords) > 0 {
 		return nil, fmt.Errorf("passwords cannot be set when AuthenticationMode.Type is iam: %w", ErrValidation)
 	}
 
@@ -1523,7 +1563,7 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 	b.appendEventLocked(&Event{
 		Date:       time.Now(),
 		SourceName: req.SnapshotName,
-		SourceType: "snapshot",
+		SourceType: resourceKindSnapshot,
 		Message:    "Snapshot " + req.SnapshotName + " created for cluster " + req.ClusterName,
 	})
 
@@ -1637,7 +1677,7 @@ func (b *InMemoryBackend) DeleteSnapshot(name string) (*Snapshot, error) {
 	b.appendEventLocked(&Event{
 		Date:       time.Now(),
 		SourceName: name,
-		SourceType: "snapshot",
+		SourceType: resourceKindSnapshot,
 		Message:    "Snapshot " + name + " deleted",
 	})
 
@@ -1777,7 +1817,7 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 
 	engine := req.Engine
 	if engine == "" {
-		engine = "redis"
+		engine = engineRedis
 	}
 
 	mrc := &MultiRegionCluster{
@@ -1954,7 +1994,7 @@ func (b *InMemoryBackend) FailoverShard(clusterName, shardName string) (*Cluster
 	b.appendEventLocked(&Event{
 		Date:       time.Now(),
 		SourceName: clusterName,
-		SourceType: "cluster",
+		SourceType: resourceKindCluster,
 		Message:    msg,
 	})
 

@@ -53,8 +53,8 @@ func TestAudit_Engine_DefaultsToRedis(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantEngine string
 	}{
 		{
@@ -84,11 +84,11 @@ func TestAudit_Engine_Valkey(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		body          map[string]any
-		wantEngine    string
-		wantVersion   string
-		wantStatus    int
+		body        map[string]any
+		name        string
+		wantEngine  string
+		wantVersion string
+		wantStatus  int
 	}{
 		{
 			name: "valkey engine defaults to 7.2",
@@ -152,9 +152,9 @@ func TestAudit_DescribeEngineVersions_IncludesValkey(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		body         map[string]any
 		wantEngines  []string
+		name         string
 		wantMinCount int
 	}{
 		{
@@ -231,9 +231,9 @@ func TestAudit_DescribeEngineVersions_ValkeySupportedVersions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		version     string
-		wantStatus  int
+		name       string
+		version    string
+		wantStatus int
 	}{
 		{name: "valkey 7.2 supported", version: "7.2", wantStatus: http.StatusOK},
 		{name: "valkey 8.0 supported", version: "8.0", wantStatus: http.StatusOK},
@@ -262,8 +262,8 @@ func TestAudit_DataTiering(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
 		body            map[string]any
+		name            string
 		wantDataTiering string
 	}{
 		{
@@ -328,8 +328,8 @@ func TestAudit_NetworkType_IPv6(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
 		body            map[string]any
+		name            string
 		wantNetworkType string
 		wantIpDiscovery string
 	}{
@@ -376,8 +376,8 @@ func TestAudit_AutoMinorVersionUpgrade(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		body    map[string]any
+		name    string
 		wantAMV bool
 	}{
 		{
@@ -454,8 +454,8 @@ func TestAudit_ClusterLifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -543,9 +543,9 @@ func TestAudit_ClusterCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       map[string]any
 		name       string
 		op         string
-		body       map[string]any
 		wantStatus int
 	}{
 		{
@@ -597,8 +597,8 @@ func TestAudit_ShardConfiguration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		body         map[string]any
+		name         string
 		wantShards   float64
 		wantReplicas float64
 	}{
@@ -642,8 +642,8 @@ func TestAudit_UpdateCluster_ShardConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		updateBody   map[string]any
+		name         string
 		wantShards   float64
 		wantReplicas float64
 	}{
@@ -696,9 +696,9 @@ func TestAudit_DescribeClusters_ShowShardDetails(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		showShards     *bool
-		wantHasShards  bool
+		showShards    *bool
+		name          string
+		wantHasShards bool
 	}{
 		{
 			name:          "show shards omitted includes shards by default",
@@ -804,12 +804,12 @@ func TestAudit_ShardNodes(t *testing.T) {
 			clusters := resp["Clusters"].([]any)
 			cl := clusters[0].(map[string]any)
 
-			shards, ok := cl["Shards"].([]any)
-			require.True(t, ok && len(shards) > 0)
+			shards, shardsOk := cl["Shards"].([]any)
+			require.True(t, shardsOk && len(shards) > 0)
 
 			shard := shards[0].(map[string]any)
-			nodes, ok := shard["Nodes"].([]any)
-			require.True(t, ok)
+			nodes, nodesOk := shard["Nodes"].([]any)
+			require.True(t, nodesOk)
 			assert.Len(t, nodes, tt.wantNodesPerShard)
 
 			for _, n := range nodes {
@@ -817,8 +817,8 @@ func TestAudit_ShardNodes(t *testing.T) {
 				assert.NotEmpty(t, node["Name"])
 				assert.NotEmpty(t, node["Status"])
 				assert.NotEmpty(t, node["AvailabilityZone"])
-				endpoint, ok := node["Endpoint"].(map[string]any)
-				assert.True(t, ok)
+				endpoint, endpointOk := node["Endpoint"].(map[string]any)
+				assert.True(t, endpointOk)
 				assert.NotEmpty(t, endpoint["Address"])
 			}
 		})
@@ -831,8 +831,8 @@ func TestAudit_Events_AutoPopulated(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		ops        func(*memorydb.Handler)
+		name       string
 		wantSrc    string
 		wantType   string
 		wantMinMsg string
@@ -929,9 +929,9 @@ func TestAudit_DescribeEvents_Duration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(*memorydb.Handler)
 		body         map[string]any
+		name         string
 		wantMinCount int
 	}{
 		{
@@ -984,10 +984,10 @@ func TestAudit_DescribeServiceUpdates_SeededFixtures(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		body         map[string]any
-		wantMinCount int
+		name         string
 		wantType     string
+		wantMinCount int
 	}{
 		{
 			name:         "returns seeded service updates",
@@ -1059,8 +1059,8 @@ func TestAudit_CreateUser_IamAuth(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{

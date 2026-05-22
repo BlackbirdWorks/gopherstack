@@ -915,7 +915,12 @@ func (h *Handler) handleCopySnapshot(c *echo.Context, body []byte) error {
 	}
 
 	if req.TargetSnapshotName == "" && req.TargetBucket == "" {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "TargetSnapshotName or TargetBucket is required")
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"TargetSnapshotName or TargetBucket is required",
+		)
 	}
 
 	s, err := h.Backend.CopySnapshot(h.DefaultRegion, h.AccountID, &req)
@@ -1570,7 +1575,7 @@ func buildShards(clusterName string, numShards, numReplicas, port int32) []shard
 				Name:             nodeName,
 				Status:           clusterStatusAvailable,
 				AvailabilityZone: zones[ni%len(zones)],
-				CreateTime:       time.Now().UTC().Format(time.RFC3339),
+				CreateTime:       float64(time.Now().Unix()),
 				Endpoint: &endpointObject{
 					Address: nodeName + ".memorydb.us-east-1.amazonaws.com",
 					Port:    port,
