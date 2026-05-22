@@ -19,6 +19,16 @@ var (
 	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 	// ErrAlreadyExists is returned when a resource with the same key already exists.
 	ErrAlreadyExists = awserr.New("ConflictException: resource already exists", awserr.ErrConflict)
+	// ErrJourneyActive is returned when attempting to modify an ACTIVE journey's activities.
+	ErrJourneyActive = awserr.New("BadRequestException: journey is ACTIVE and cannot be modified", awserr.ErrInvalidParameter)
+)
+
+const (
+	journeyStateActive    = "ACTIVE"
+	journeyStatePaused    = "PAUSED"
+	journeyStateCancelled = "CANCELLED"
+	journeyStateCompleted = "COMPLETED"
+	journeyStateClosed    = "CLOSED"
 )
 
 // tagHolder is implemented by all resource types that carry tags and an ARN,
@@ -650,6 +660,10 @@ func (b *InMemoryBackend) CreateRecommenderConfiguration(
 ) (*RecommenderConfiguration, error) {
 	b.mu.Lock("CreateRecommenderConfiguration")
 	defer b.mu.Unlock()
+
+	if req.RecommendationProviderIDType != "" && !validRecommenderIDTypes[req.RecommendationProviderIDType] {
+		return nil, ErrValidation
+	}
 
 	id := uuid.NewString()
 	now := nowRFC3339()

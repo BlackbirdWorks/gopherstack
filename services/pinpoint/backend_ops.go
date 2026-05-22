@@ -346,6 +346,61 @@ func (b *InMemoryBackend) UpdateCampaign(appID, campaignID string, req updateCam
 		c.SegmentID = req.SegmentID
 	}
 
+	if req.SegmentVersion != 0 {
+		c.SegmentVersion = req.SegmentVersion
+	}
+
+	if len(req.MessageConfiguration) > 0 {
+		c.MessageConfiguration = cloneAnyMap(req.MessageConfiguration)
+	}
+
+	if len(req.Schedule) > 0 {
+		c.Schedule = cloneAnyMap(req.Schedule)
+	}
+
+	if len(req.Hook) > 0 {
+		c.Hook = cloneAnyMap(req.Hook)
+	}
+
+	if len(req.Limits) > 0 {
+		c.Limits = cloneAnyMap(req.Limits)
+	}
+
+	if len(req.TemplateConfiguration) > 0 {
+		c.TemplateConfiguration = cloneAnyMap(req.TemplateConfiguration)
+	}
+
+	if len(req.CustomDeliveryConfiguration) > 0 {
+		c.CustomDeliveryConfiguration = cloneAnyMap(req.CustomDeliveryConfiguration)
+	}
+
+	if req.TreatmentDescription != "" {
+		c.TreatmentDescription = req.TreatmentDescription
+	}
+
+	if req.TreatmentName != "" {
+		c.TreatmentName = req.TreatmentName
+	}
+
+	if req.Priority != 0 {
+		c.Priority = req.Priority
+	}
+
+	c.IsPaused = req.IsPaused
+
+	if req.IsPaused {
+		c.Status = campaignStatusPaused
+	} else if c.Status == campaignStatusPaused {
+		c.Status = campaignStatusScheduled
+	}
+
+	if req.AdditionalTreatments != nil {
+		c.AdditionalTreatments = make([]map[string]any, len(req.AdditionalTreatments))
+		for i, t := range req.AdditionalTreatments {
+			c.AdditionalTreatments[i] = cloneAnyMap(t)
+		}
+	}
+
 	c.LastModifiedDate = nowRFC3339()
 	c.Version++
 
@@ -427,6 +482,20 @@ func (b *InMemoryBackend) UpdateSegment(appID, segmentID string, req updateSegme
 		s.Name = req.Name
 	}
 
+	if len(req.Dimensions) > 0 {
+		s.Dimensions = cloneAnyMap(req.Dimensions)
+	}
+
+	if len(req.SegmentGroups) > 0 {
+		s.SegmentGroups = cloneAnyMap(req.SegmentGroups)
+	}
+
+	if len(req.ImportDefinition) > 0 {
+		s.ImportDefinition = cloneAnyMap(req.ImportDefinition)
+		s.SegmentType = segmentTypeImport
+	}
+
+	s.LastModifiedDate = nowRFC3339()
 	s.Version++
 
 	// Track segment version history.
@@ -503,13 +572,69 @@ func (b *InMemoryBackend) UpdateJourney(appID, journeyID string, req updateJourn
 		return nil, ErrAppNotFound
 	}
 
+	if j.State == journeyStateActive {
+		return nil, ErrJourneyActive
+	}
+
 	if req.Name != "" {
 		j.Name = req.Name
 	}
 
+	if req.StartActivity != "" {
+		j.StartActivity = req.StartActivity
+	}
+
+	if req.RefreshFrequency != "" {
+		j.RefreshFrequency = req.RefreshFrequency
+	}
+
+	if len(req.Activities) > 0 {
+		j.Activities = make(map[string]map[string]any, len(req.Activities))
+		for k, v := range req.Activities {
+			j.Activities[k] = cloneAnyMap(v)
+		}
+	}
+
+	if len(req.StartCondition) > 0 {
+		j.StartCondition = cloneAnyMap(req.StartCondition)
+	}
+
+	if len(req.Schedule) > 0 {
+		j.Schedule = cloneAnyMap(req.Schedule)
+	}
+
+	if len(req.Limits) > 0 {
+		j.Limits = cloneAnyMap(req.Limits)
+	}
+
+	if len(req.QuietTime) > 0 {
+		j.QuietTime = cloneAnyMap(req.QuietTime)
+	}
+
+	if len(req.OpenHours) > 0 {
+		j.OpenHours = cloneAnyMap(req.OpenHours)
+	}
+
+	if len(req.ClosedDays) > 0 {
+		j.ClosedDays = cloneAnyMap(req.ClosedDays)
+	}
+
+	j.LocalTime = req.LocalTime
+	j.WaitForQuietTime = req.WaitForQuietTime
+	j.RefreshOnSegmentUpdate = req.RefreshOnSegmentUpdate
 	j.LastModifiedDate = nowRFC3339()
 
 	return cloneJourney(j), nil
+}
+
+// journeyStateTransitions maps each state to the set of valid target states.
+var journeyStateTransitions = map[string][]string{
+	journeyStateDraft:     {journeyStateActive, journeyStateCancelled},
+	journeyStateActive:    {journeyStatePaused, journeyStateCancelled, journeyStateCompleted},
+	journeyStatePaused:    {journeyStateActive, journeyStateCancelled},
+	journeyStateCancelled: {},
+	journeyStateCompleted: {},
+	journeyStateClosed:    {},
 }
 
 // UpdateJourneyState updates the state of a Pinpoint journey.
@@ -522,11 +647,29 @@ func (b *InMemoryBackend) UpdateJourneyState(appID, journeyID, state string) (*J
 		return nil, ErrAppNotFound
 	}
 
+	allowed, exists := journeyStateTransitions[j.State]
+	if !exists {
+		return nil, ErrValidation
+	}
+
+	validTarget := false
+
+	for _, s := range allowed {
+		if s == state {
+			validTarget = true
+
+			break
+		}
+	}
+
+	if !validTarget {
+		return nil, ErrValidation
+	}
+
 	j.State = state
 	j.LastModifiedDate = nowRFC3339()
 
-	// When activating, create a journey run record.
-	if state == "ACTIVE" {
+	if state == journeyStateActive {
 		runKey := appID + "/" + journeyID
 		b.journeyRuns[runKey] = append(b.journeyRuns[runKey], &journeyRun{
 			RunID:         uuid.NewString(),
@@ -781,10 +924,7 @@ func (b *InMemoryBackend) GetEndpoint(appID, endpointID string) (*Endpoint, erro
 		return nil, ErrAppNotFound
 	}
 
-	cp := *e
-	cp.Attributes = nonNilAttrsCopy(e.Attributes)
-
-	return &cp, nil
+	return cloneEndpoint(e), nil
 }
 
 // UpdateEndpoint creates or updates a Pinpoint endpoint.
@@ -816,10 +956,43 @@ func (b *InMemoryBackend) UpdateEndpoint(appID, endpointID string, req updateEnd
 		e.UserID = req.User.UserID
 	}
 
-	cp := *e
-	cp.Attributes = nonNilAttrsCopy(e.Attributes)
+	if len(req.User.UserAttributes) > 0 {
+		e.UserAttributes = nonNilStringSliceMapCopy(req.User.UserAttributes)
+	}
 
-	return &cp, nil
+	if len(req.Attributes) > 0 {
+		e.Attributes = nonNilStringSliceMapCopy(req.Attributes)
+	}
+
+	if len(req.Metrics) > 0 {
+		e.Metrics = nonNilFloat64MapCopy(req.Metrics)
+	}
+
+	if len(req.Demographic) > 0 {
+		e.Demographic = cloneAnyMap(req.Demographic)
+	}
+
+	if len(req.Location) > 0 {
+		e.Location = cloneAnyMap(req.Location)
+	}
+
+	if req.EndpointStatus != "" {
+		e.EndpointStatus = req.EndpointStatus
+	}
+
+	if req.OptOut != "" {
+		e.OptOut = req.OptOut
+	}
+
+	if req.EffectiveDate != "" {
+		e.EffectiveDate = req.EffectiveDate
+	}
+
+	if req.RequestId != "" {
+		e.RequestId = req.RequestId
+	}
+
+	return cloneEndpoint(e), nil
 }
 
 // DeleteEndpoint deletes a Pinpoint endpoint.
@@ -836,10 +1009,7 @@ func (b *InMemoryBackend) DeleteEndpoint(appID, endpointID string) (*Endpoint, e
 
 	delete(b.endpoints, key)
 
-	cp := *e
-	cp.Attributes = nonNilAttrsCopy(e.Attributes)
-
-	return &cp, nil
+	return cloneEndpoint(e), nil
 }
 
 // GetUserEndpoints retrieves all endpoints for a user in an application.
@@ -851,9 +1021,7 @@ func (b *InMemoryBackend) GetUserEndpoints(appID, userID string) ([]*Endpoint, e
 
 	for _, e := range b.endpoints {
 		if e.ApplicationID == appID && e.UserID == userID {
-			cp := *e
-			cp.Attributes = nonNilAttrsCopy(e.Attributes)
-			endpoints = append(endpoints, &cp)
+			endpoints = append(endpoints, cloneEndpoint(e))
 		}
 	}
 
@@ -899,9 +1067,49 @@ func (b *InMemoryBackend) UpdateEndpointsBatch(appID string, endpoints map[strin
 		if req.Address != "" {
 			e.Address = req.Address
 		}
+
+		if req.User.UserID != "" {
+			e.UserID = req.User.UserID
+		}
+
+		if len(req.Attributes) > 0 {
+			e.Attributes = nonNilStringSliceMapCopy(req.Attributes)
+		}
+
+		if len(req.Metrics) > 0 {
+			e.Metrics = nonNilFloat64MapCopy(req.Metrics)
+		}
+
+		if len(req.Demographic) > 0 {
+			e.Demographic = cloneAnyMap(req.Demographic)
+		}
+
+		if len(req.Location) > 0 {
+			e.Location = cloneAnyMap(req.Location)
+		}
+
+		if req.EndpointStatus != "" {
+			e.EndpointStatus = req.EndpointStatus
+		}
+
+		if req.OptOut != "" {
+			e.OptOut = req.OptOut
+		}
 	}
 
 	return nil
+}
+
+// cloneEndpoint returns a deep copy of an Endpoint.
+func cloneEndpoint(e *Endpoint) *Endpoint {
+	cp := *e
+	cp.Attributes = nonNilStringSliceMapCopy(e.Attributes)
+	cp.UserAttributes = nonNilStringSliceMapCopy(e.UserAttributes)
+	cp.Metrics = nonNilFloat64MapCopy(e.Metrics)
+	cp.Demographic = cloneAnyMap(e.Demographic)
+	cp.Location = cloneAnyMap(e.Location)
+
+	return &cp
 }
 
 // ──────────────────────────────────────────────────
@@ -971,6 +1179,7 @@ func (b *InMemoryBackend) GetChannel(appID, channelType string) *Channel {
 	key := appID + "/" + channelType
 	if ch, ok := b.channels[key]; ok {
 		cp := *ch
+		cp.ExtraData = cloneAnyMap(ch.ExtraData)
 
 		return &cp
 	}
@@ -978,26 +1187,82 @@ func (b *InMemoryBackend) GetChannel(appID, channelType string) *Channel {
 	return &Channel{
 		ApplicationID: appID,
 		ChannelType:   channelType,
+		Platform:      strings.ToUpper(channelType),
 		Enabled:       false,
 		IsArchived:    false,
 	}
 }
 
-// UpsertChannel creates or updates a channel for an app.
-func (b *InMemoryBackend) UpsertChannel(appID, channelType string, enabled bool) *Channel {
+// UpsertChannel creates or updates a channel for an app with type-specific data.
+func (b *InMemoryBackend) UpsertChannel(appID, channelType string, enabled bool, extra map[string]any) *Channel {
 	b.mu.Lock("UpsertChannel")
 	defer b.mu.Unlock()
 
 	key := appID + "/" + channelType
+
+	existing := b.channels[key]
+
+	now := nowRFC3339()
+	version := 1
+
+	if existing != nil {
+		version = existing.Version + 1
+	}
+
+	platform := strings.ToUpper(channelType)
+
+	hasCredential := false
+	hasTokenKey := false
+
+	if extra != nil {
+		if v, ok := extra["ApiKey"].(string); ok && v != "" {
+			hasCredential = true
+		}
+
+		if v, ok := extra["BundleId"].(string); ok && v != "" {
+			hasCredential = true
+		}
+
+		if v, ok := extra["Certificate"].(string); ok && v != "" {
+			hasCredential = true
+		}
+
+		if v, ok := extra["ClientId"].(string); ok && v != "" {
+			hasCredential = true
+		}
+
+		if v, ok := extra["FromAddress"].(string); ok && v != "" {
+			hasCredential = true
+		}
+
+		if v, ok := extra["TokenKey"].(string); ok && v != "" {
+			hasTokenKey = true
+		}
+	}
+
+	creationDate := now
+
+	if existing != nil && existing.CreationDate != "" {
+		creationDate = existing.CreationDate
+	}
+
 	ch := &Channel{
-		ApplicationID: appID,
-		ChannelType:   channelType,
-		Enabled:       enabled,
+		ApplicationID:    appID,
+		ChannelType:      channelType,
+		Platform:         platform,
+		Enabled:          enabled,
+		HasCredential:    hasCredential,
+		HasTokenKey:      hasTokenKey,
+		Version:          version,
+		CreationDate:     creationDate,
+		LastModifiedDate: now,
+		ExtraData:        cloneAnyMap(extra),
 	}
 
 	b.channels[key] = ch
 
 	cp := *ch
+	cp.ExtraData = cloneAnyMap(ch.ExtraData)
 
 	return &cp
 }
@@ -1017,6 +1282,7 @@ func (b *InMemoryBackend) DeleteChannel(appID, channelType string) *Channel {
 	delete(b.channels, key)
 
 	cp := *ch
+	cp.ExtraData = cloneAnyMap(ch.ExtraData)
 
 	return &cp
 }
@@ -1031,6 +1297,7 @@ func (b *InMemoryBackend) GetAllChannels(appID string) map[string]*Channel {
 	for key, ch := range b.channels {
 		if ch.ApplicationID == appID {
 			cp := *ch
+			cp.ExtraData = cloneAnyMap(ch.ExtraData)
 			result[key] = &cp
 		}
 	}
@@ -1078,6 +1345,13 @@ func (b *InMemoryBackend) GetRecommenderConfigurations() ([]*RecommenderConfigur
 	return results, nil
 }
 
+// validRecommenderIDTypes are the accepted values for RecommendationProviderIdType.
+var validRecommenderIDTypes = map[string]bool{
+	"PINPOINT_ENDPOINT_ID": true,
+	"PINPOINT_USER_ID":     true,
+	"":                     true,
+}
+
 // UpdateRecommenderConfiguration updates an existing recommender.
 func (b *InMemoryBackend) UpdateRecommenderConfiguration(
 	recommenderID string,
@@ -1091,15 +1365,60 @@ func (b *InMemoryBackend) UpdateRecommenderConfiguration(
 		return nil, ErrAppNotFound
 	}
 
-	if req.Name != "" {
+	if req.RecommendationProviderIDType != "" && !validRecommenderIDTypes[req.RecommendationProviderIDType] {
+		return nil, ErrValidation
+	}
+
+	changed := false
+
+	if req.Name != "" && req.Name != r.Name {
 		r.Name = req.Name
+		changed = true
 	}
 
-	if req.Description != "" {
+	if req.Description != "" && req.Description != r.Description {
 		r.Description = req.Description
+		changed = true
 	}
 
-	r.LastModifiedDate = nowRFC3339()
+	if req.RecommendationProviderIDType != "" && req.RecommendationProviderIDType != r.RecommendationProviderIDType {
+		r.RecommendationProviderIDType = req.RecommendationProviderIDType
+		changed = true
+	}
+
+	if req.RecommendationProviderRoleArn != "" && req.RecommendationProviderRoleArn != r.RecommendationProviderRoleARN {
+		r.RecommendationProviderRoleARN = req.RecommendationProviderRoleArn
+		changed = true
+	}
+
+	if req.RecommendationProviderURI != "" && req.RecommendationProviderURI != r.RecommendationProviderURI {
+		r.RecommendationProviderURI = req.RecommendationProviderURI
+		changed = true
+	}
+
+	if req.RecommendationsPerMessage != 0 && req.RecommendationsPerMessage != r.RecommendationsPerMessage {
+		r.RecommendationsPerMessage = req.RecommendationsPerMessage
+		changed = true
+	}
+
+	if len(req.Attributes) > 0 {
+		newAttrs := nonNilAttrsCopy(req.Attributes)
+		for k, v := range newAttrs {
+			if r.Attributes[k] != v {
+				changed = true
+
+				break
+			}
+		}
+
+		if changed {
+			r.Attributes = newAttrs
+		}
+	}
+
+	if changed {
+		r.LastModifiedDate = nowRFC3339()
+	}
 
 	cp := *r
 	cp.Attributes = nonNilAttrsCopy(r.Attributes)

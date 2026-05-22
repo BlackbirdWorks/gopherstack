@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
@@ -16,16 +17,27 @@ import (
 // Channel handlers
 // ──────────────────────────────────────────────────
 
+// toChannelResponse converts a Channel to its wire format.
+func toChannelResponse(ch *Channel) channelResponse {
+	return channelResponse{
+		ApplicationID:    ch.ApplicationID,
+		ChannelType:      ch.ChannelType,
+		Platform:         ch.Platform,
+		Enabled:          ch.Enabled,
+		IsArchived:       ch.IsArchived,
+		HasCredential:    ch.HasCredential,
+		HasTokenKey:      ch.HasTokenKey,
+		Version:          ch.Version,
+		CreationDate:     ch.CreationDate,
+		LastModifiedDate: ch.LastModifiedDate,
+		MessagesPerSecond: ch.MessagesPerSecond,
+	}
+}
+
 // handleGetChannel handles GET /v1/apps/{appId}/channels/{channelType}.
 func (h *Handler) handleGetChannel(c *echo.Context, appID, channelType string) error {
 	ch := h.Backend.GetChannel(appID, channelType)
-	resp := channelResponse{
-		ApplicationID: ch.ApplicationID,
-		ChannelType:   ch.ChannelType,
-		Enabled:       ch.Enabled,
-		IsArchived:    ch.IsArchived,
-	}
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toChannelResponse(ch))
 
 	return nil
 }
@@ -36,15 +48,149 @@ func (h *Handler) handleGetChannels(c *echo.Context, appID string) error {
 	resp := channelsResponse{Channels: make(map[string]channelResponse)}
 
 	for _, ch := range channels {
-		resp.Channels[ch.ChannelType] = channelResponse{
-			ApplicationID: ch.ApplicationID,
-			ChannelType:   ch.ChannelType,
-			Enabled:       ch.Enabled,
-			IsArchived:    ch.IsArchived,
-		}
+		resp.Channels[ch.ChannelType] = toChannelResponse(ch)
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// parseChannelExtra extracts per-channel extra fields from the request body.
+func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
+	ct := strings.ToLower(channelType)
+
+	switch ct {
+	case "gcm":
+		var req updateGCMChannelRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return false, nil
+		}
+
+		extra := map[string]any{
+			"DefaultAuthenticationMethod": req.DefaultAuthenticationMethod,
+		}
+
+		if req.ApiKey != "" {
+			extra["ApiKey"] = req.ApiKey
+		}
+
+		if req.ServiceJson != "" {
+			extra["ServiceJson"] = req.ServiceJson
+		}
+
+		return req.Enabled, extra
+
+	case "apns", "apns_sandbox", "apns_voip", "apns_voip_sandbox":
+		var req updateAPNSChannelRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return false, nil
+		}
+
+		extra := map[string]any{
+			"DefaultAuthMethod": req.DefaultAuthMethod,
+		}
+
+		if req.BundleId != "" {
+			extra["BundleId"] = req.BundleId
+		}
+
+		if req.Certificate != "" {
+			extra["Certificate"] = req.Certificate
+		}
+
+		if req.TeamId != "" {
+			extra["TeamId"] = req.TeamId
+		}
+
+		if req.TokenKey != "" {
+			extra["TokenKey"] = req.TokenKey
+		}
+
+		if req.TokenKeyId != "" {
+			extra["TokenKeyId"] = req.TokenKeyId
+		}
+
+		return req.Enabled, extra
+
+	case "email":
+		var req updateEmailChannelRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return false, nil
+		}
+
+		extra := map[string]any{}
+
+		if req.FromAddress != "" {
+			extra["FromAddress"] = req.FromAddress
+		}
+
+		if req.Identity != "" {
+			extra["Identity"] = req.Identity
+		}
+
+		if req.RoleArn != "" {
+			extra["RoleArn"] = req.RoleArn
+		}
+
+		if req.ConfigurationSet != "" {
+			extra["ConfigurationSet"] = req.ConfigurationSet
+		}
+
+		return req.Enabled, extra
+
+	case "sms":
+		var req updateSMSChannelRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return false, nil
+		}
+
+		extra := map[string]any{}
+
+		if req.SenderId != "" {
+			extra["SenderId"] = req.SenderId
+		}
+
+		if req.ShortCode != "" {
+			extra["ShortCode"] = req.ShortCode
+		}
+
+		return req.Enabled, extra
+
+	case "adm":
+		var req updateADMChannelRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return false, nil
+		}
+
+		extra := map[string]any{}
+
+		if req.ClientId != "" {
+			extra["ClientId"] = req.ClientId
+		}
+
+		return req.Enabled, extra
+
+	case "baidu":
+		var req updateBaiduChannelRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return false, nil
+		}
+
+		extra := map[string]any{}
+
+		if req.ApiKey != "" {
+			extra["ApiKey"] = req.ApiKey
+		}
+
+		return req.Enabled, extra
+
+	default:
+		var req updateChannelRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return false, nil
+		}
+
+		return req.Enabled, nil
+	}
 }
 
 // handleUpdateChannel handles PUT /v1/apps/{appId}/channels/{channelType}.
@@ -54,18 +200,9 @@ func (h *Handler) handleUpdateChannel(c *echo.Context, appID, channelType string
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
 	}
 
-	var req updateChannelRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
-	}
-
-	ch := h.Backend.UpsertChannel(appID, channelType, req.Enabled)
-	resp := channelResponse{
-		ApplicationID: ch.ApplicationID,
-		ChannelType:   ch.ChannelType,
-		Enabled:       ch.Enabled,
-	}
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+	enabled, extra := parseChannelExtra(channelType, body)
+	ch := h.Backend.UpsertChannel(appID, channelType, enabled, extra)
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toChannelResponse(ch))
 
 	return nil
 }
@@ -73,12 +210,7 @@ func (h *Handler) handleUpdateChannel(c *echo.Context, appID, channelType string
 // handleDeleteChannel handles DELETE /v1/apps/{appId}/channels/{channelType}.
 func (h *Handler) handleDeleteChannel(c *echo.Context, appID, channelType string) error {
 	ch := h.Backend.DeleteChannel(appID, channelType)
-	resp := channelResponse{
-		ApplicationID: ch.ApplicationID,
-		ChannelType:   ch.ChannelType,
-		Enabled:       ch.Enabled,
-	}
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toChannelResponse(ch))
 
 	return nil
 }
@@ -871,6 +1003,29 @@ func (h *Handler) handleUpdateTemplateActiveVersion(c *echo.Context, templateNam
 // Endpoint handlers
 // ──────────────────────────────────────────────────
 
+// toEndpointResponse converts an Endpoint to its wire format.
+func toEndpointResponse(e *Endpoint) endpointResponse {
+	return endpointResponse{
+		ApplicationID:  e.ApplicationID,
+		ID:             e.ID,
+		ChannelType:    e.ChannelType,
+		Address:        e.Address,
+		EffectiveDate:  e.EffectiveDate,
+		CreationDate:   e.CreationDate,
+		EndpointStatus: e.EndpointStatus,
+		OptOut:         e.OptOut,
+		RequestId:      e.RequestId,
+		Attributes:     e.Attributes,
+		Metrics:        e.Metrics,
+		Demographic:    e.Demographic,
+		Location:       e.Location,
+		User: endpointUserResponse{
+			UserID:         e.UserID,
+			UserAttributes: e.UserAttributes,
+		},
+	}
+}
+
 // handleGetEndpoint handles GET /v1/apps/{appId}/endpoints/{endpointId}.
 func (h *Handler) handleGetEndpoint(c *echo.Context, appID, endpointID string) error {
 	e, err := h.Backend.GetEndpoint(appID, endpointID)
@@ -882,12 +1037,7 @@ func (h *Handler) handleGetEndpoint(c *echo.Context, appID, endpointID string) e
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, endpointResponse{
-		ApplicationID: e.ApplicationID,
-		ID:            e.ID,
-		ChannelType:   e.ChannelType,
-		Address:       e.Address,
-	})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toEndpointResponse(e))
 
 	return nil
 }
@@ -909,12 +1059,7 @@ func (h *Handler) handleUpdateEndpoint(c *echo.Context, appID, endpointID string
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusAccepted, endpointResponse{
-		ApplicationID: e.ApplicationID,
-		ID:            e.ID,
-		ChannelType:   e.ChannelType,
-		Address:       e.Address,
-	})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusAccepted, toEndpointResponse(e))
 
 	return nil
 }
@@ -930,10 +1075,7 @@ func (h *Handler) handleDeleteEndpoint(c *echo.Context, appID, endpointID string
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, endpointResponse{
-		ApplicationID: e.ApplicationID,
-		ID:            e.ID,
-	})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toEndpointResponse(e))
 
 	return nil
 }
@@ -948,12 +1090,7 @@ func (h *Handler) handleGetUserEndpoints(c *echo.Context, appID, userID string) 
 	items := make([]endpointResponse, 0, len(endpoints))
 
 	for _, e := range endpoints {
-		items = append(items, endpointResponse{
-			ApplicationID: e.ApplicationID,
-			ID:            e.ID,
-			ChannelType:   e.ChannelType,
-			Address:       e.Address,
-		})
+		items = append(items, toEndpointResponse(e))
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, endpointsResponse{Item: items})
@@ -1471,14 +1608,26 @@ func toSegmentResponse(s *Segment) segmentResponse {
 
 func toJourneyResponse(j *Journey) journeyResponse {
 	return journeyResponse{
-		ApplicationID:    j.ApplicationID,
-		ARN:              j.ARN,
-		ID:               j.ID,
-		Name:             j.Name,
-		State:            j.State,
-		Tags:             j.Tags,
-		CreationDate:     j.CreationDate,
-		LastModifiedDate: j.LastModifiedDate,
+		ApplicationID:          j.ApplicationID,
+		ARN:                    j.ARN,
+		ID:                     j.ID,
+		Name:                   j.Name,
+		State:                  j.State,
+		Tags:                   j.Tags,
+		Activities:             j.Activities,
+		StartCondition:         j.StartCondition,
+		Schedule:               j.Schedule,
+		Limits:                 j.Limits,
+		QuietTime:              j.QuietTime,
+		OpenHours:              j.OpenHours,
+		ClosedDays:             j.ClosedDays,
+		StartActivity:          j.StartActivity,
+		RefreshFrequency:       j.RefreshFrequency,
+		LocalTime:              j.LocalTime,
+		WaitForQuietTime:       j.WaitForQuietTime,
+		RefreshOnSegmentUpdate: j.RefreshOnSegmentUpdate,
+		CreationDate:           j.CreationDate,
+		LastModifiedDate:       j.LastModifiedDate,
 	}
 }
 
