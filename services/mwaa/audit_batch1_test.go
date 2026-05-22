@@ -100,7 +100,7 @@ func TestAudit_LoggingConfig_AllFiveModules_Create(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fetch (second call to get AVAILABLE, first would be CREATING)
-	b.GetEnvironment("all-modules-env") //nolint:errcheck // consume CREATING
+	b.GetEnvironment("all-modules-env")
 	got, err := b.GetEnvironment("all-modules-env")
 	require.NoError(t, err)
 	require.NotNil(t, got.LoggingConfiguration)
@@ -288,7 +288,7 @@ func TestAudit_LoggingConfig_Persisted_AfterCreate(t *testing.T) {
 	require.NoError(t, err)
 
 	// consume CREATING state
-	b.GetEnvironment("log-persist-env") //nolint:errcheck
+	b.GetEnvironment("log-persist-env")
 	env, err := b.GetEnvironment("log-persist-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.LoggingConfiguration)
@@ -313,7 +313,7 @@ func TestAudit_LoggingConfig_Persisted_AfterUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	// consume UPDATING state
-	b.GetEnvironment("log-upd-persist") //nolint:errcheck
+	b.GetEnvironment("log-upd-persist")
 	env, err := b.GetEnvironment("log-upd-persist")
 	require.NoError(t, err)
 	require.NotNil(t, env.LoggingConfiguration)
@@ -353,7 +353,7 @@ func TestAudit_Lifecycle_SecondGetReturnsAvailable(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "lc-second-get-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("lc-second-get-env") //nolint:errcheck // consume CREATING
+	b.GetEnvironment("lc-second-get-env")
 
 	second, err := b.GetEnvironment("lc-second-get-env")
 	require.NoError(t, err)
@@ -367,7 +367,7 @@ func TestAudit_Lifecycle_MultipleGetsStayAvailable(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "lc-multi-get-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("lc-multi-get-env") //nolint:errcheck // consume CREATING
+	b.GetEnvironment("lc-multi-get-env")
 
 	for range 5 {
 		env, err2 := b.GetEnvironment("lc-multi-get-env")
@@ -659,7 +659,7 @@ func TestAudit_S3Paths_Update_PluginsPathVersionPairPersisted(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("s3-persist-env") //nolint:errcheck // consume CREATING→AVAILABLE... actually UPDATING→AVAILABLE
+	b.GetEnvironment("s3-persist-env")
 	env, err := b.GetEnvironment("s3-persist-env")
 	require.NoError(t, err)
 	assert.Equal(t, "plugins.zip", env.PluginsS3Path)
@@ -679,7 +679,7 @@ func TestAudit_S3Paths_Update_RequirementsPathVersionPairPersisted(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("req-s3-persist") //nolint:errcheck
+	b.GetEnvironment("req-s3-persist")
 	env, err := b.GetEnvironment("req-s3-persist")
 	require.NoError(t, err)
 	assert.Equal(t, "requirements.txt", env.RequirementsS3Path)
@@ -699,7 +699,7 @@ func TestAudit_S3Paths_Update_StartupScriptPathVersionPairPersisted(t *testing.T
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("startup-s3-persist") //nolint:errcheck
+	b.GetEnvironment("startup-s3-persist")
 	env, err := b.GetEnvironment("startup-s3-persist")
 	require.NoError(t, err)
 	assert.Equal(t, "startup.sh", env.StartupScriptS3Path)
@@ -826,7 +826,7 @@ func TestAudit_NetworkConfig_UpdatePersisted(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("nc-persist-env") //nolint:errcheck
+	b.GetEnvironment("nc-persist-env")
 	env, err := b.GetEnvironment("nc-persist-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.NetworkConfiguration)
@@ -869,7 +869,7 @@ func TestAudit_AirflowConfig_CreateWithOptions(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "acfg-env", req)
 	require.NoError(t, err)
 
-	b.GetEnvironment("acfg-env") //nolint:errcheck
+	b.GetEnvironment("acfg-env")
 	env, err := b.GetEnvironment("acfg-env")
 	require.NoError(t, err)
 	assert.Equal(t, "32", env.AirflowConfigurationOptions["core.parallelism"])
@@ -895,7 +895,7 @@ func TestAudit_AirflowConfig_UpdateReplaces_NotMerges(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("acfg-replace-env") //nolint:errcheck
+	b.GetEnvironment("acfg-replace-env")
 	env, err := b.GetEnvironment("acfg-replace-env")
 	require.NoError(t, err)
 	// old.key should be gone — update replaces, not merges
@@ -920,7 +920,7 @@ func TestAudit_AirflowConfig_UpdateNilOptions_DoesNotClear(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("acfg-nil-upd") //nolint:errcheck
+	b.GetEnvironment("acfg-nil-upd")
 	env, err := b.GetEnvironment("acfg-nil-upd")
 	require.NoError(t, err)
 	assert.Equal(t, "16", env.AirflowConfigurationOptions["core.parallelism"])
@@ -943,7 +943,7 @@ func TestAudit_AirflowConfig_EmptyMapClears(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("acfg-clear-env") //nolint:errcheck
+	b.GetEnvironment("acfg-clear-env")
 	env, err := b.GetEnvironment("acfg-clear-env")
 	require.NoError(t, err)
 	assert.Empty(t, env.AirflowConfigurationOptions)
@@ -962,7 +962,7 @@ func TestAudit_AirflowConfig_CeleryExecutorOption(t *testing.T) {
 	require.NoError(t, err)
 	_ = env
 
-	b.GetEnvironment("celery-env") //nolint:errcheck
+	b.GetEnvironment("celery-env")
 	got, err := b.GetEnvironment("celery-env")
 	require.NoError(t, err)
 	assert.Equal(t, "CeleryExecutor", got.AirflowConfigurationOptions["core.executor"])
@@ -981,7 +981,7 @@ func TestAudit_AirflowConfig_LocalExecutorOption(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "local-exec-env", req)
 	require.NoError(t, err)
 
-	b.GetEnvironment("local-exec-env") //nolint:errcheck
+	b.GetEnvironment("local-exec-env")
 	env, err := b.GetEnvironment("local-exec-env")
 	require.NoError(t, err)
 	assert.Equal(t, "LocalExecutor", env.AirflowConfigurationOptions["core.executor"])
@@ -1037,7 +1037,7 @@ func TestAudit_KmsKey_PersisteddInGetEnvironment(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "kms-persist-env", req)
 	require.NoError(t, err)
 
-	b.GetEnvironment("kms-persist-env") //nolint:errcheck
+	b.GetEnvironment("kms-persist-env")
 	env, err := b.GetEnvironment("kms-persist-env")
 	require.NoError(t, err)
 	assert.Equal(t, kmsARN, env.KmsKey)
@@ -1107,7 +1107,7 @@ func TestAudit_EndpointManagement_CustomerPersistedInGet(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "em-customer-env", req)
 	require.NoError(t, err)
 
-	b.GetEnvironment("em-customer-env") //nolint:errcheck
+	b.GetEnvironment("em-customer-env")
 	env, err := b.GetEnvironment("em-customer-env")
 	require.NoError(t, err)
 	assert.Equal(t, "CUSTOMER", env.EndpointManagement)
@@ -1196,7 +1196,7 @@ func TestAudit_WeeklyMaintenance_UpdatePersisted(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("wmw-persist-env") //nolint:errcheck
+	b.GetEnvironment("wmw-persist-env")
 	env, err := b.GetEnvironment("wmw-persist-env")
 	require.NoError(t, err)
 	assert.Equal(t, "WED:02:00", env.WeeklyMaintenanceWindowStart)
@@ -1277,7 +1277,7 @@ func TestAudit_Workers_Update_OnlyMaxSet_KeepsExistingMin(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("wk-only-max-env") //nolint:errcheck
+	b.GetEnvironment("wk-only-max-env")
 	env, err := b.GetEnvironment("wk-only-max-env")
 	require.NoError(t, err)
 	assert.Equal(t, int32(15), env.MaxWorkers)
@@ -1514,13 +1514,13 @@ func TestAudit_PublishMetrics_DatumFields(t *testing.T) {
 		{
 			name: "metric_with_statistic_set",
 			datums: func() []mwaa.ExportedMetricDatum {
-				max, min, sum := 10.0, 1.0, 55.0
+				maxV, minV, sum := 10.0, 1.0, 55.0
 				sampleCount := int32(10)
 
 				return []mwaa.ExportedMetricDatum{{
 					MetricName: "TaskDuration",
 					StatisticValues: &mwaa.StatisticSet{
-						Maximum: &max, Minimum: &min, Sum: &sum, SampleCount: &sampleCount,
+						Maximum: &maxV, Minimum: &minV, Sum: &sum, SampleCount: &sampleCount,
 					},
 				}}
 			}(),
@@ -1539,6 +1539,7 @@ func TestAudit_PublishMetrics_DatumFields(t *testing.T) {
 			name: "metric_with_timestamp",
 			datums: func() []mwaa.ExportedMetricDatum {
 				ts := float64(1700000000)
+
 				return []mwaa.ExportedMetricDatum{{MetricName: "DagRunCount", Timestamp: &ts}}
 			}(),
 		},
@@ -1550,6 +1551,7 @@ func TestAudit_PublishMetrics_DatumFields(t *testing.T) {
 			name: "multiple_metrics",
 			datums: func() []mwaa.ExportedMetricDatum {
 				v1, v2 := 1.0, 2.0
+
 				return []mwaa.ExportedMetricDatum{
 					{MetricName: "M1", Value: &v1},
 					{MetricName: "M2", Value: &v2, Unit: "Percent"},
@@ -1684,6 +1686,7 @@ func TestAudit_InvokeRestApi_Variations(t *testing.T) {
 			resp, err := b.InvokeRestAPI("restapi-env", tt.req)
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -1765,7 +1768,7 @@ func TestAudit_Tags_AtCreate_PersistedInGet(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "tagged-env", req)
 	require.NoError(t, err)
 
-	b.GetEnvironment("tagged-env") //nolint:errcheck
+	b.GetEnvironment("tagged-env")
 	env, err := b.GetEnvironment("tagged-env")
 	require.NoError(t, err)
 	assert.Equal(t, "production", env.Tags["env"])
@@ -1789,7 +1792,7 @@ func TestAudit_Tags_Update_DoesNotTouchExistingTags(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("tags-upd-env") //nolint:errcheck
+	b.GetEnvironment("tags-upd-env")
 	env, err := b.GetEnvironment("tags-upd-env")
 	require.NoError(t, err)
 	assert.Equal(t, "this", env.Tags["keep"])
@@ -1815,7 +1818,7 @@ func TestAudit_Tags_NotLeakedBetweenEnvironments(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fetch B — should not have A's extra tag.
-	b.GetEnvironment("tag-leak-b") //nolint:errcheck
+	b.GetEnvironment("tag-leak-b")
 	gotB, err := b.GetEnvironment("tag-leak-b")
 	require.NoError(t, err)
 	assert.NotContains(t, gotB.Tags, "extra")
@@ -1859,7 +1862,7 @@ func TestAudit_DerivedFields_CeleryExecutorQueue(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "derived-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("derived-env") //nolint:errcheck
+	b.GetEnvironment("derived-env")
 	env, err := b.GetEnvironment("derived-env")
 	require.NoError(t, err)
 
@@ -1879,7 +1882,7 @@ func TestAudit_DerivedFields_ServiceRoleArn(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "sra-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("sra-env") //nolint:errcheck
+	b.GetEnvironment("sra-env")
 	env, err := b.GetEnvironment("sra-env")
 	require.NoError(t, err)
 
@@ -1899,7 +1902,7 @@ func TestAudit_DerivedFields_WebserverURL(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "ws-url-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("ws-url-env") //nolint:errcheck
+	b.GetEnvironment("ws-url-env")
 	env, err := b.GetEnvironment("ws-url-env")
 	require.NoError(t, err)
 
@@ -1918,7 +1921,7 @@ func TestAudit_DerivedFields_VpcEndpointServices(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "vpc-svc-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("vpc-svc-env") //nolint:errcheck
+	b.GetEnvironment("vpc-svc-env")
 	env, err := b.GetEnvironment("vpc-svc-env")
 	require.NoError(t, err)
 
@@ -1938,8 +1941,8 @@ func TestAudit_DerivedFields_DifferentForDifferentEnvs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Consume CREATING for both
-	b.GetEnvironment("diff-derived-a") //nolint:errcheck
-	b.GetEnvironment("diff-derived-b") //nolint:errcheck
+	b.GetEnvironment("diff-derived-a")
+	b.GetEnvironment("diff-derived-b")
 
 	envA, err := b.GetEnvironment("diff-derived-a")
 	require.NoError(t, err)
@@ -1965,7 +1968,7 @@ func TestAudit_DagS3Path_CreateAndGet(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "dag-path-env", req)
 	require.NoError(t, err)
 
-	b.GetEnvironment("dag-path-env") //nolint:errcheck
+	b.GetEnvironment("dag-path-env")
 	env, err := b.GetEnvironment("dag-path-env")
 	require.NoError(t, err)
 	assert.Equal(t, "custom/dags/", env.DagS3Path)
@@ -1983,7 +1986,7 @@ func TestAudit_DagS3Path_Update_Persisted(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("dag-upd-env") //nolint:errcheck
+	b.GetEnvironment("dag-upd-env")
 	env, err := b.GetEnvironment("dag-upd-env")
 	require.NoError(t, err)
 	assert.Equal(t, "new/dags/path/", env.DagS3Path)
@@ -2048,7 +2051,7 @@ func TestAudit_Update_ExecutionRoleArnAndSourceBucketArn(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("role-upd-env") //nolint:errcheck
+	b.GetEnvironment("role-upd-env")
 	env, err := b.GetEnvironment("role-upd-env")
 	require.NoError(t, err)
 	assert.Equal(t, newRole, env.ExecutionRoleArn)
@@ -2071,7 +2074,7 @@ func TestAudit_LastUpdate_PopulatedAfterUpdate(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("lu-check-env") //nolint:errcheck
+	b.GetEnvironment("lu-check-env")
 	env, err := b.GetEnvironment("lu-check-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.LastUpdate)
@@ -2087,7 +2090,7 @@ func TestAudit_LastUpdate_NilBeforeFirstUpdate(t *testing.T) {
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "lu-nil-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("lu-nil-env") //nolint:errcheck
+	b.GetEnvironment("lu-nil-env")
 	env, err := b.GetEnvironment("lu-nil-env")
 	require.NoError(t, err)
 	assert.Nil(t, env.LastUpdate)
@@ -2204,7 +2207,7 @@ func TestAudit_Snapshot_WithLoggingConfig(t *testing.T) {
 	b2 := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	require.NoError(t, b2.Restore(snap))
 
-	b2.GetEnvironment("snap-log-env") //nolint:errcheck
+	b2.GetEnvironment("snap-log-env")
 	env, err := b2.GetEnvironment("snap-log-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.LoggingConfiguration)
@@ -2229,7 +2232,7 @@ func TestAudit_Snapshot_WithNetworkConfig(t *testing.T) {
 	b2 := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	require.NoError(t, b2.Restore(snap))
 
-	b2.GetEnvironment("snap-nc-env") //nolint:errcheck
+	b2.GetEnvironment("snap-nc-env")
 	env, err := b2.GetEnvironment("snap-nc-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.NetworkConfiguration)
