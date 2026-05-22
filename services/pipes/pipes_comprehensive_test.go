@@ -115,14 +115,16 @@ func TestPipeSourceFiltering(t *testing.T) {
 				}
 			}
 
+			pipeName := "filter-pipe-" + tt.name
 			_, err := b.CreatePipe(pipes.CreatePipeInput{
-				Name:             "filter-pipe-" + tt.name,
+				Name:             pipeName,
 				Source:           "arn:aws:sqs:us-east-1:000000000000:queue",
 				Target:           "arn:aws:lambda:us-east-1:000000000000:function:fn",
 				DesiredState:     "RUNNING",
 				SourceParameters: sourceParams,
 			})
 			require.NoError(t, err)
+			pipes.WaitPipeRunning(t, b, pipeName)
 
 			pipes.PollAllPipesOnce(context.Background(), r)
 
@@ -192,6 +194,7 @@ func TestPipeEnrichmentTracking(t *testing.T) {
 				DesiredState: "RUNNING",
 			})
 			require.NoError(t, err)
+			pipes.WaitPipeRunning(t, b, pipeName)
 
 			pipes.PollAllPipesOnce(context.Background(), r)
 
