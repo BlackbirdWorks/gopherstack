@@ -665,6 +665,23 @@ type describeEffectivePolicyResponse struct {
 	EffectivePolicy effectivePolicyObject `json:"EffectivePolicy"`
 }
 
+// -- EnableAllFeatures --
+
+type enableAllFeaturesResponse struct {
+	Handshake handshakeObject `json:"Handshake"`
+}
+
+// -- ListHandshakes filter --
+
+type handshakeFilter struct {
+	ActionType string `json:"ActionType,omitempty"`
+}
+
+type listHandshakesFilterRequest struct {
+	Filter    handshakeFilter `json:"Filter,omitempty"`
+	NextToken string          `json:"NextToken,omitempty"`
+}
+
 // -- InviteAccountToOrganization --
 
 type inviteAccountToOrganizationRequest struct {
