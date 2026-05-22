@@ -370,8 +370,8 @@ func TestAudit_Lifecycle_MultipleGetsStayAvailable(t *testing.T) {
 	b.GetEnvironment("lc-multi-get-env") //nolint:errcheck // consume CREATING
 
 	for range 5 {
-		env, err := b.GetEnvironment("lc-multi-get-env")
-		require.NoError(t, err)
+		env, err2 := b.GetEnvironment("lc-multi-get-env")
+		require.NoError(t, err2)
 		assert.Equal(t, "AVAILABLE", env.Status)
 	}
 }
@@ -494,8 +494,8 @@ func TestAudit_S3Paths_AllThreePairs_CreateValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		mutate  func(r *mwaa.ExportedCreateEnvironmentRequest)
+		name    string
 		wantErr bool
 	}{
 		{
@@ -580,8 +580,8 @@ func TestAudit_S3Paths_AllThreePairs_UpdateValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		mutate  func(r *mwaa.ExportedUpdateEnvironmentRequest)
+		name    string
 		wantErr bool
 	}{
 		{
@@ -861,9 +861,9 @@ func TestAudit_AirflowConfig_CreateWithOptions(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
 	req.AirflowConfigurationOptions = map[string]string{
-		"core.parallelism":         "32",
-		"scheduler.dag_bag_size":   "100",
-		"webserver.expose_config":  "true",
+		"core.parallelism":        "32",
+		"scheduler.dag_bag_size":  "100",
+		"webserver.expose_config": "true",
 	}
 
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "acfg-env", req)
@@ -1064,8 +1064,8 @@ func TestAudit_EndpointManagement_ValidationAndPersistence(t *testing.T) {
 	tests := []struct {
 		name       string
 		mgmt       string
-		wantErr    bool
 		wantResult string
+		wantErr    bool
 	}{
 		{name: "service_ok", mgmt: "SERVICE", wantErr: false, wantResult: "SERVICE"},
 		{name: "customer_ok", mgmt: "CUSTOMER", wantErr: false, wantResult: "CUSTOMER"},

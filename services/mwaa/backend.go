@@ -82,13 +82,15 @@ func validEnvironmentClasses() map[string]struct{} {
 	}
 }
 
-// validLogLevels is the set of valid Airflow log level values.
-var validLogLevels = map[string]struct{}{
-	"CRITICAL": {},
-	"ERROR":    {},
-	"WARNING":  {},
-	"INFO":     {},
-	"DEBUG":    {},
+// validLogLevels returns the set of valid Airflow log level values.
+func validLogLevels() map[string]struct{} {
+	return map[string]struct{}{
+		"CRITICAL": {},
+		"ERROR":    {},
+		"WARNING":  {},
+		"INFO":     {},
+		"DEBUG":    {},
+	}
 }
 
 // validAirflowVersions returns the set of supported Airflow versions.
@@ -126,7 +128,7 @@ func validateModuleLogging(field string, mlc *ModuleLoggingConfiguration) error 
 		return nil
 	}
 
-	if _, ok := validLogLevels[mlc.LogLevel]; !ok {
+	if _, ok := validLogLevels()[mlc.LogLevel]; !ok {
 		return fmt.Errorf(
 			"%w: %s.LogLevel must be one of CRITICAL/ERROR/WARNING/INFO/DEBUG, got %q",
 			ErrInvalidParameter, field, mlc.LogLevel,
@@ -143,16 +145,16 @@ func validateLoggingConfiguration(lc *LoggingConfiguration) error {
 	}
 
 	type moduleEntry struct {
-		name string
 		mlc  *ModuleLoggingConfiguration
+		name string
 	}
 
 	modules := []moduleEntry{
-		{"DagProcessingLogs", lc.DagProcessingLogs},
-		{"SchedulerLogs", lc.SchedulerLogs},
-		{"TaskLogs", lc.TaskLogs},
-		{"WebserverLogs", lc.WebserverLogs},
-		{"WorkerLogs", lc.WorkerLogs},
+		{lc.DagProcessingLogs, "DagProcessingLogs"},
+		{lc.SchedulerLogs, "SchedulerLogs"},
+		{lc.TaskLogs, "TaskLogs"},
+		{lc.WebserverLogs, "WebserverLogs"},
+		{lc.WorkerLogs, "WorkerLogs"},
 	}
 
 	for _, m := range modules {
@@ -457,7 +459,11 @@ func validateWeeklyMaintenanceWindowStart(value string) error {
 		"MON": {}, "TUE": {}, "WED": {}, "THU": {}, "FRI": {}, "SAT": {}, "SUN": {},
 	}
 	if _, ok := days[parts[0]]; !ok {
-		return fmt.Errorf("%w: WeeklyMaintenanceWindowStart day must be MON-SUN (uppercase), got %q", ErrInvalidParameter, parts[0])
+		return fmt.Errorf(
+			"%w: WeeklyMaintenanceWindowStart day must be MON-SUN (uppercase), got %q",
+			ErrInvalidParameter,
+			parts[0],
+		)
 	}
 
 	hh, err := strconv.Atoi(parts[1])
