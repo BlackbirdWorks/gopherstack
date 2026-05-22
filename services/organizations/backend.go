@@ -16,6 +16,13 @@ import (
 const (
 	targetTypeOU      = "ORGANIZATIONAL_UNIT"
 	targetTypeAccount = "ACCOUNT"
+
+	handshakeActionInvite         = "INVITE"
+	handshakeActionEnableFeatures = "ENABLE_ALL_FEATURES"
+	handshakeActionApproveAll     = "APPROVE_ALL_FEATURES"
+	handshakeResourceOrg          = "ORGANIZATION"
+	handshakeResourceMasterEmail  = "MASTER_EMAIL"
+	handshakeResourceNotes        = "NOTES"
 )
 
 // Sentinel errors.
@@ -1448,7 +1455,7 @@ func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error
 
 	h.State = handshakeStateAccepted
 
-	if h.Action == "INVITE" && b.org != nil {
+	if h.Action == handshakeActionInvite && b.org != nil {
 		for _, r := range h.Resources {
 			if r.Type == targetTypeAccount {
 				acctID := r.Value
@@ -1466,6 +1473,7 @@ func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error
 					b.accounts[acctID] = acct
 					b.accountParent[acctID] = b.root.ID
 				}
+
 				break
 			}
 		}
@@ -1794,7 +1802,7 @@ func (b *InMemoryBackend) EnableAllFeatures() (*Handshake, error) {
 	h := &Handshake{
 		ID:                  id,
 		ARN:                 b.handshakeARN(b.org.ID, id),
-		Action:              "ENABLE_ALL_FEATURES",
+		Action:              handshakeActionEnableFeatures,
 		State:               handshakeStateOpen,
 		RequestedTimestamp:  now,
 		ExpirationTimestamp: now.Add(handshakeExpirationDuration),
@@ -1802,8 +1810,8 @@ func (b *InMemoryBackend) EnableAllFeatures() (*Handshake, error) {
 			{ID: b.org.MasterAccountID, Type: "ACCOUNT"},
 		},
 		Resources: []HandshakeResource{
-			{Type: "ORGANIZATION", Value: b.org.ID},
-			{Type: "MASTER_EMAIL", Value: b.org.MasterAccountEmail},
+			{Type: handshakeResourceOrg, Value: b.org.ID},
+			{Type: handshakeResourceMasterEmail, Value: b.org.MasterAccountEmail},
 		},
 	}
 
@@ -1862,7 +1870,7 @@ func (b *InMemoryBackend) InviteAccountToOrganization(
 	h := &Handshake{
 		ID:                  id,
 		ARN:                 b.handshakeARN(b.org.ID, id),
-		Action:              "INVITE",
+		Action:              handshakeActionInvite,
 		State:               handshakeStateOpen,
 		RequestedTimestamp:  now,
 		ExpirationTimestamp: now.Add(handshakeExpirationDuration),
@@ -1872,13 +1880,13 @@ func (b *InMemoryBackend) InviteAccountToOrganization(
 		},
 		Resources: []HandshakeResource{
 			{Type: targetTypeAccount, Value: target.ID},
-			{Type: "ORGANIZATION", Value: b.org.ID},
-			{Type: "MASTER_EMAIL", Value: b.org.MasterAccountEmail},
+			{Type: handshakeResourceOrg, Value: b.org.ID},
+			{Type: handshakeResourceMasterEmail, Value: b.org.MasterAccountEmail},
 		},
 	}
 
 	if notes != "" {
-		h.Resources = append(h.Resources, HandshakeResource{Type: "NOTES", Value: notes})
+		h.Resources = append(h.Resources, HandshakeResource{Type: handshakeResourceNotes, Value: notes})
 	}
 
 	b.handshakes[id] = h
@@ -2046,7 +2054,7 @@ func (b *InMemoryBackend) ListInboundResponsibilityTransfers() ([]*Handshake, er
 	var out []*Handshake
 
 	for _, h := range b.handshakes {
-		if h.Action == "APPROVE_ALL_FEATURES" ||
+		if h.Action == handshakeActionApproveAll ||
 			h.Action == "ADD_ORGANIZATIONS_SERVICE_LINKED_ROLE" {
 			out = append(out, copyHandshake(h))
 		}
@@ -2069,7 +2077,7 @@ func (b *InMemoryBackend) ListOutboundResponsibilityTransfers() ([]*Handshake, e
 	var out []*Handshake
 
 	for _, h := range b.handshakes {
-		if h.Action == "INVITE" {
+		if h.Action == handshakeActionInvite {
 			out = append(out, copyHandshake(h))
 		}
 	}
@@ -2147,7 +2155,7 @@ func (b *InMemoryBackend) InviteOrganizationToTransferResponsibility(
 	h := &Handshake{
 		ID:                  id,
 		ARN:                 b.handshakeARN(b.org.ID, id),
-		Action:              "APPROVE_ALL_FEATURES",
+		Action:              handshakeActionApproveAll,
 		State:               handshakeStateOpen,
 		RequestedTimestamp:  now,
 		ExpirationTimestamp: now.Add(handshakeExpirationDuration),
@@ -2156,12 +2164,12 @@ func (b *InMemoryBackend) InviteOrganizationToTransferResponsibility(
 			{ID: target.ID, Type: target.Type},
 		},
 		Resources: []HandshakeResource{
-			{Type: "ORGANIZATION", Value: b.org.ID},
+			{Type: handshakeResourceOrg, Value: b.org.ID},
 		},
 	}
 
 	if notes != "" {
-		h.Resources = append(h.Resources, HandshakeResource{Type: "NOTES", Value: notes})
+		h.Resources = append(h.Resources, HandshakeResource{Type: handshakeResourceNotes, Value: notes})
 	}
 
 	b.handshakes[id] = h

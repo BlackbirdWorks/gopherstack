@@ -261,14 +261,18 @@ func TestAudit1b_InviteHandshake_DuplicateAcceptFails(t *testing.T) {
 				switch op {
 				case "accept":
 					_, e := b.AcceptHandshake(hsID)
+
 					return e
 				case "decline":
 					_, e := b.DeclineHandshake(hsID)
+
 					return e
 				case "cancel":
 					_, e := b.CancelHandshake(hsID)
+
 					return e
 				}
+
 				return nil
 			}
 
@@ -334,6 +338,7 @@ func TestAudit1b_MoveAccount_Scenarios(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -372,28 +377,30 @@ func TestAudit1b_CloseAccount_Scenarios(t *testing.T) {
 			require.NoError(t, err)
 
 			var targetID string
-			if tt.isMgmt {
+			switch {
+			case tt.isMgmt:
 				targetID = org.MasterAccountID
-			} else if tt.notFound {
+			case tt.notFound:
 				targetID = "000000000000"
-			} else {
-				status, err := b.CreateAccount("close-me", "close@example.com", nil)
-				require.NoError(t, err)
-				targetID = status.AccountID
+			default:
+				createStatus, createErr := b.CreateAccount("close-me", "close@example.com", nil)
+				require.NoError(t, createErr)
+				targetID = createStatus.AccountID
 			}
 
 			err = b.CloseAccount(targetID)
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
 			require.NoError(t, err)
 
 			if tt.wantSusp {
-				acct, err := b.DescribeAccount(targetID)
-				require.NoError(t, err)
+				acct, descErr := b.DescribeAccount(targetID)
+				require.NoError(t, descErr)
 				assert.Equal(t, "SUSPENDED", acct.Status)
 			}
 		})
@@ -437,8 +444,8 @@ func TestAudit1b_RemoveAccount_CleansDelegatedAdmins(t *testing.T) {
 			require.NoError(t, b.RemoveAccountFromOrganization(accountID))
 
 			for _, svc := range tt.services {
-				admins, err := b.ListDelegatedAdministrators(svc)
-				require.NoError(t, err)
+				admins, listErr := b.ListDelegatedAdministrators(svc)
+				require.NoError(t, listErr)
 				for _, a := range admins {
 					assert.NotEqual(t, accountID, a.AccountID,
 						"removed account must not appear as delegated admin for %s", svc)
@@ -486,8 +493,8 @@ func TestAudit1b_OU_Hierarchy(t *testing.T) {
 				_, err = b.CreateOrganizationalUnit(rootOUs[0].ID, "child-ou", nil)
 				require.NoError(t, err)
 
-				childOUs, err := b.ListOrganizationalUnitsForParent(rootOUs[0].ID)
-				require.NoError(t, err)
+				childOUs, childErr := b.ListOrganizationalUnitsForParent(rootOUs[0].ID)
+				require.NoError(t, childErr)
 				assert.Len(t, childOUs, 1)
 			}
 		})
@@ -519,18 +526,19 @@ func TestAudit1b_OU_DeleteConstraints(t *testing.T) {
 
 			switch tt.kind {
 			case "with_account":
-				status, err := b.CreateAccount("child-account", "child@example.com", nil)
-				require.NoError(t, err)
-				require.NoError(t, b.MoveAccount(status.AccountID, rootID, ou.ID))
+				acctStatus, acctErr := b.CreateAccount("child-account", "child@example.com", nil)
+				require.NoError(t, acctErr)
+				require.NoError(t, b.MoveAccount(acctStatus.AccountID, rootID, ou.ID))
 			case "with_child_ou":
-				_, err := b.CreateOrganizationalUnit(ou.ID, "child-ou", nil)
-				require.NoError(t, err)
+				_, childOUErr := b.CreateOrganizationalUnit(ou.ID, "child-ou", nil)
+				require.NoError(t, childOUErr)
 			}
 
 			err = b.DeleteOrganizationalUnit(ou.ID)
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -628,22 +636,22 @@ func TestAudit1b_OU_ListParents(t *testing.T) {
 
 			switch tt.childKind {
 			case "account_in_root":
-				s, err := b.CreateAccount("a", "a@example.com", nil)
-				require.NoError(t, err)
-				childID = s.AccountID
+				s1, err1 := b.CreateAccount("a", "a@example.com", nil)
+				require.NoError(t, err1)
+				childID = s1.AccountID
 			case "account_in_ou":
-				s, err := b.CreateAccount("a", "a@example.com", nil)
-				require.NoError(t, err)
-				require.NoError(t, b.MoveAccount(s.AccountID, rootID, ou.ID))
-				childID = s.AccountID
+				s2, err2 := b.CreateAccount("a", "a@example.com", nil)
+				require.NoError(t, err2)
+				require.NoError(t, b.MoveAccount(s2.AccountID, rootID, ou.ID))
+				childID = s2.AccountID
 			case "ou_in_root":
-				child, err := b.CreateOrganizationalUnit(rootID, "child-ou", nil)
-				require.NoError(t, err)
-				childID = child.ID
+				childOU1, childOU1Err := b.CreateOrganizationalUnit(rootID, "child-ou", nil)
+				require.NoError(t, childOU1Err)
+				childID = childOU1.ID
 			case "ou_in_ou":
-				child, err := b.CreateOrganizationalUnit(ou.ID, "nested-ou", nil)
-				require.NoError(t, err)
-				childID = child.ID
+				childOU2, childOU2Err := b.CreateOrganizationalUnit(ou.ID, "nested-ou", nil)
+				require.NoError(t, childOU2Err)
+				childID = childOU2.ID
 			}
 
 			parents, err := b.ListParents(childID)
@@ -688,12 +696,12 @@ func TestAudit1b_AttachPolicy_Targets(t *testing.T) {
 			case "root":
 				targetID = rootID
 			case "ou":
-				ou, err := b.CreateOrganizationalUnit(rootID, "policy-target-ou", nil)
-				require.NoError(t, err)
+				ou, ouErr := b.CreateOrganizationalUnit(rootID, "policy-target-ou", nil)
+				require.NoError(t, ouErr)
 				targetID = ou.ID
 			case "account":
-				s, err := b.CreateAccount("policy-target", "pt@example.com", nil)
-				require.NoError(t, err)
+				s, acctErr := b.CreateAccount("policy-target", "pt@example.com", nil)
+				require.NoError(t, acctErr)
 				targetID = s.AccountID
 			}
 
@@ -817,6 +825,7 @@ func TestAudit1b_DetachPolicy_Scenarios(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -878,9 +887,9 @@ func TestAudit1b_ServiceAccess_MultiService(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		services []string
 		disable  string
 		wantLeft int
+		services []string
 	}{
 		{
 			name:     "enable_one",
@@ -974,37 +983,19 @@ func TestAudit1b_ServiceAccess_SortedOutput(t *testing.T) {
 func TestAudit1b_ServiceAccess_Handler(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		op         string
-		body       map[string]any
-		wantStatus int
-		wantInList bool
-	}{
-		{
-			name:       "enable_service",
-			op:         "EnableAWSServiceAccess",
-			body:       map[string]any{"ServicePrincipal": "cloudtrail.amazonaws.com"},
-			wantStatus: http.StatusOK,
-			wantInList: true,
-		},
-		{
-			name:       "disable_service",
-			op:         "DisableAWSServiceAccess",
-			body:       map[string]any{"ServicePrincipal": "cloudtrail.amazonaws.com"},
-			wantStatus: http.StatusOK,
-			wantInList: false,
-		},
-	}
-
 	h, _ := newHandlerWithOrg(t)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rec := doRequest(t, h, tt.op, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
+	// enable_service
+	t.Run("enable_service", func(t *testing.T) {
+		rec := doRequest(t, h, "EnableAWSServiceAccess", map[string]any{"ServicePrincipal": "cloudtrail.amazonaws.com"})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	// disable_service (depends on enable above)
+	t.Run("disable_service", func(t *testing.T) {
+		rec := doRequest(t, h, "DisableAWSServiceAccess", map[string]any{"ServicePrincipal": "cloudtrail.amazonaws.com"})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
 
 	listRec := doRequest(t, h, "ListAWSServiceAccessForOrganization", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
@@ -1026,9 +1017,9 @@ func TestAudit1b_DelegatedAdmin_MultiService(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		services []string
 		filter   string
 		wantLen  int
+		services []string
 	}{
 		{
 			name:     "single_service",
@@ -1083,9 +1074,9 @@ func TestAudit1b_DelegatedAdmin_ListServices(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		registerSvcs []string
 		wantSvcCount int
 		wantSorted   bool
+		registerSvcs []string
 	}{
 		{
 			name:         "no_delegations",
@@ -1145,8 +1136,8 @@ func TestAudit1b_DelegatedAdmin_ErrorCases(t *testing.T) {
 		op        string // "register", "deregister"
 		accountID string
 		service   string
-		setup     func(b *organizations.InMemoryBackend, accountID string)
 		wantErr   bool
+		setup     func(b *organizations.InMemoryBackend, accountID string)
 	}{
 		{
 			name:      "register_unknown_account",
@@ -1255,8 +1246,8 @@ func TestAudit1b_ResourcePolicy_Lifecycle(t *testing.T) {
 			}
 
 			if tt.replace != "" {
-				rp2, err := b.PutResourcePolicy(tt.replace)
-				require.NoError(t, err)
+				rp2, replaceErr := b.PutResourcePolicy(tt.replace)
+				require.NoError(t, replaceErr)
 				assert.Equal(t, tt.replace, rp2.Content)
 				assert.Equal(t, rp.ID, rp2.ID, "ID should be stable after replacement")
 			}
@@ -1333,9 +1324,9 @@ func TestAudit1b_ResourcePolicy_Handler(t *testing.T) {
 	tests := []struct {
 		name       string
 		op         string
-		body       map[string]any
 		wantStatus int
 		needRP     bool
+		body       map[string]any
 	}{
 		{
 			name:       "put_resource_policy",
@@ -1399,8 +1390,8 @@ func TestAudit1b_Handler_PolicyErrors(t *testing.T) {
 	tests := []struct {
 		name       string
 		op         string
-		body       map[string]any
 		wantStatus int
+		body       map[string]any
 	}{
 		{
 			name:       "create_policy_missing_name",
@@ -1453,8 +1444,8 @@ func TestAudit1b_Handler_OUErrors(t *testing.T) {
 	tests := []struct {
 		name       string
 		op         string
-		body       map[string]any
 		wantStatus int
+		body       map[string]any
 	}{
 		{
 			name:       "create_ou_missing_name",
@@ -1495,8 +1486,8 @@ func TestAudit1b_Handler_AccountErrors(t *testing.T) {
 	tests := []struct {
 		name       string
 		op         string
-		body       map[string]any
 		wantStatus int
+		body       map[string]any
 	}{
 		{
 			name:       "describe_account_not_found",
@@ -1547,8 +1538,8 @@ func TestAudit1b_Handler_HandshakeErrors(t *testing.T) {
 	tests := []struct {
 		name       string
 		op         string
-		body       map[string]any
 		wantStatus int
+		body       map[string]any
 	}{
 		{
 			name:       "accept_not_found",

@@ -678,7 +678,7 @@ type handshakeFilter struct {
 }
 
 type listHandshakesFilterRequest struct {
-	Filter    handshakeFilter `json:"Filter,omitempty"`
+	Filter    handshakeFilter `json:"Filter"`
 	NextToken string          `json:"NextToken,omitempty"`
 }
 

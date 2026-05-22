@@ -25,7 +25,6 @@ func TestAudit1_PolicyTypes(t *testing.T) {
 	}
 
 	for _, pt := range policyTypes {
-
 		t.Run(pt, func(t *testing.T) {
 			t.Parallel()
 
@@ -83,10 +82,10 @@ func TestAudit1_EnableAllFeatures(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		wantStatus int
-		createOrg  bool
 		wantAction string
 		wantState  string
+		wantStatus int
+		createOrg  bool
 	}{
 		{
 			name:       "returns_handshake",
@@ -134,9 +133,9 @@ func TestAudit1_EnableAllFeatures_Backend(t *testing.T) {
 
 	tests := []struct {
 		name      string
+		wantState string
 		hasOrg    bool
 		wantErr   bool
-		wantState string
 	}{
 		{name: "creates_handshake", hasOrg: true, wantState: "OPEN"},
 		{name: "no_org", hasOrg: false, wantErr: true},
@@ -157,6 +156,7 @@ func TestAudit1_EnableAllFeatures_Backend(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -179,8 +179,8 @@ func TestAudit1_AcceptHandshake_InviteAddsAccount(t *testing.T) {
 	tests := []struct {
 		name             string
 		targetID         string
-		preExisting      bool
 		wantAccountInOrg bool
+		preExisting      bool
 	}{
 		{
 			name:             "new_account_added",
@@ -224,8 +224,8 @@ func TestAudit1_AcceptHandshake_InviteAddsAccount(t *testing.T) {
 			assert.Equal(t, "ACCEPTED", accepted.State)
 
 			if tt.wantAccountInOrg {
-				acct, err := b.DescribeAccount(tt.targetID)
-				require.NoError(t, err)
+				acct, descErr := b.DescribeAccount(tt.targetID)
+				require.NoError(t, descErr)
 				assert.Equal(t, tt.targetID, acct.ID)
 			}
 		})
@@ -304,6 +304,7 @@ func TestAudit1_AcceptHandshake_StateTransitions(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, transErr)
+
 				return
 			}
 
@@ -381,9 +382,9 @@ func TestAudit1_HandshakeFilter_Handler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body      map[string]any
 		name      string
 		op        string
-		body      map[string]any
 		wantCount int
 	}{
 		{
@@ -456,7 +457,6 @@ func TestAudit1_DescribeEffectivePolicy_AllPolicyTypes(t *testing.T) {
 	}
 
 	for _, pt := range policyTypes {
-
 		t.Run(pt, func(t *testing.T) {
 			t.Parallel()
 
@@ -493,7 +493,6 @@ func TestAudit1_ListAccountsWithInvalidEffectivePolicy_AllTypes(t *testing.T) {
 	}
 
 	for _, pt := range policyTypes {
-
 		t.Run(pt, func(t *testing.T) {
 			t.Parallel()
 
@@ -520,7 +519,6 @@ func TestAudit1_ListEffectivePolicyValidationErrors_AllTypes(t *testing.T) {
 	}
 
 	for _, pt := range policyTypes {
-
 		t.Run(pt, func(t *testing.T) {
 			t.Parallel()
 
