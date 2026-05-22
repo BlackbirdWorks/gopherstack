@@ -217,11 +217,17 @@ type createHsmClientCertificateResponse struct {
 }
 
 func (h *Handler) handleCreateHsmClientCertificate(vals url.Values) (any, error) {
+	id := vals.Get("HsmClientCertificateIdentifier")
+	cert, err := h.Backend.CreateHsmClientCertificate(id, nil)
+	if err != nil {
+		return nil, err
+	}
+
 	return &createHsmClientCertificateResponse{
 		Xmlns: redshiftXMLNS,
 		Result: hsmClientCertificateXML{
-			HsmClientCertificateIdentifier: vals.Get("HsmClientCertificateIdentifier"),
-			HsmClientCertificatePublicKey:  "stub-public-key",
+			HsmClientCertificateIdentifier: cert.HsmClientCertificateIdentifier,
+			HsmClientCertificatePublicKey:  cert.HsmClientCertificatePublicKey,
 		},
 	}, nil
 }
@@ -231,7 +237,12 @@ type deleteHsmClientCertificateResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-func (h *Handler) handleDeleteHsmClientCertificate(_ url.Values) (any, error) {
+func (h *Handler) handleDeleteHsmClientCertificate(vals url.Values) (any, error) {
+	id := vals.Get("HsmClientCertificateIdentifier")
+	if err := h.Backend.DeleteHsmClientCertificate(id); err != nil {
+		return nil, err
+	}
+
 	return &deleteHsmClientCertificateResponse{Xmlns: redshiftXMLNS}, nil
 }
 
@@ -243,8 +254,26 @@ type describeHsmClientCertificatesResponse struct {
 	} `xml:"DescribeHsmClientCertificatesResult"`
 }
 
-func (h *Handler) handleDescribeHsmClientCertificates(_ url.Values) (any, error) {
-	return &describeHsmClientCertificatesResponse{Xmlns: redshiftXMLNS}, nil
+func (h *Handler) handleDescribeHsmClientCertificates(vals url.Values) (any, error) {
+	id := vals.Get("HsmClientCertificateIdentifier")
+	certs, err := h.Backend.DescribeHsmClientCertificates(id)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]hsmClientCertificateXML, 0, len(certs))
+
+	for _, c := range certs {
+		members = append(members, hsmClientCertificateXML{
+			HsmClientCertificateIdentifier: c.HsmClientCertificateIdentifier,
+			HsmClientCertificatePublicKey:  c.HsmClientCertificatePublicKey,
+		})
+	}
+
+	resp := &describeHsmClientCertificatesResponse{Xmlns: redshiftXMLNS}
+	resp.Result.HsmClientCertificates = members
+
+	return resp, nil
 }
 
 type hsmConfigurationXML struct {
@@ -261,13 +290,25 @@ type createHsmConfigurationResponse struct {
 }
 
 func (h *Handler) handleCreateHsmConfiguration(vals url.Values) (any, error) {
+	id := vals.Get("HsmConfigurationIdentifier")
+	cfg, err := h.Backend.CreateHsmConfiguration(
+		id,
+		vals.Get("Description"),
+		vals.Get("HsmIPAddress"),
+		vals.Get("HsmPartitionName"),
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &createHsmConfigurationResponse{
 		Xmlns: redshiftXMLNS,
 		Result: hsmConfigurationXML{
-			HsmConfigurationIdentifier: vals.Get("HsmConfigurationIdentifier"),
-			Description:                vals.Get("Description"),
-			HsmIPAddress:               vals.Get("HsmIPAddress"),
-			HsmPartitionName:           vals.Get("HsmPartitionName"),
+			HsmConfigurationIdentifier: cfg.HsmConfigurationIdentifier,
+			Description:                cfg.Description,
+			HsmIPAddress:               cfg.HsmIpAddress,
+			HsmPartitionName:           cfg.HsmPartitionName,
 		},
 	}, nil
 }
@@ -277,7 +318,12 @@ type deleteHsmConfigurationResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-func (h *Handler) handleDeleteHsmConfiguration(_ url.Values) (any, error) {
+func (h *Handler) handleDeleteHsmConfiguration(vals url.Values) (any, error) {
+	id := vals.Get("HsmConfigurationIdentifier")
+	if err := h.Backend.DeleteHsmConfiguration(id); err != nil {
+		return nil, err
+	}
+
 	return &deleteHsmConfigurationResponse{Xmlns: redshiftXMLNS}, nil
 }
 
@@ -289,8 +335,28 @@ type describeHsmConfigurationsResponse struct {
 	} `xml:"DescribeHsmConfigurationsResult"`
 }
 
-func (h *Handler) handleDescribeHsmConfigurations(_ url.Values) (any, error) {
-	return &describeHsmConfigurationsResponse{Xmlns: redshiftXMLNS}, nil
+func (h *Handler) handleDescribeHsmConfigurations(vals url.Values) (any, error) {
+	id := vals.Get("HsmConfigurationIdentifier")
+	cfgs, err := h.Backend.DescribeHsmConfigurations(id)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]hsmConfigurationXML, 0, len(cfgs))
+
+	for _, c := range cfgs {
+		members = append(members, hsmConfigurationXML{
+			HsmConfigurationIdentifier: c.HsmConfigurationIdentifier,
+			Description:                c.Description,
+			HsmIPAddress:               c.HsmIpAddress,
+			HsmPartitionName:           c.HsmPartitionName,
+		})
+	}
+
+	resp := &describeHsmConfigurationsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.HsmConfigurations = members
+
+	return resp, nil
 }
 
 // ----- Integrations -----
@@ -433,9 +499,11 @@ func (h *Handler) handleModifyRedshiftIdcApplication(vals url.Values) (any, erro
 // ----- Scheduled Actions -----
 
 type scheduledActionXML struct {
-	ScheduledActionName string `xml:"ScheduledActionName"`
-	Schedule            string `xml:"Schedule"`
-	State               string `xml:"State"`
+	ScheduledActionName        string `xml:"ScheduledActionName"`
+	Schedule                   string `xml:"Schedule"`
+	IamRole                    string `xml:"IamRole,omitempty"`
+	ScheduledActionDescription string `xml:"ScheduledActionDescription,omitempty"`
+	State                      string `xml:"State"`
 }
 
 type createScheduledActionResponse struct {
@@ -444,14 +512,31 @@ type createScheduledActionResponse struct {
 	Result  scheduledActionXML `xml:"CreateScheduledActionResult"`
 }
 
+func scheduledActionToXML(a *ScheduledAction) scheduledActionXML {
+	return scheduledActionXML{
+		ScheduledActionName:        a.ScheduledActionName,
+		Schedule:                   a.Schedule,
+		IamRole:                    a.IamRole,
+		ScheduledActionDescription: a.ScheduledActionDescription,
+		State:                      a.State,
+	}
+}
+
 func (h *Handler) handleCreateScheduledAction(vals url.Values) (any, error) {
+	action, err := h.Backend.CreateScheduledAction(
+		vals.Get("ScheduledActionName"),
+		vals.Get("Schedule"),
+		vals.Get("IamRole"),
+		vals.Get("ScheduledActionDescription"),
+		vals.Get("TargetAction"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &createScheduledActionResponse{
-		Xmlns: redshiftXMLNS,
-		Result: scheduledActionXML{
-			ScheduledActionName: vals.Get("ScheduledActionName"),
-			Schedule:            vals.Get("Schedule"),
-			State:               "ACTIVE",
-		},
+		Xmlns:  redshiftXMLNS,
+		Result: scheduledActionToXML(action),
 	}, nil
 }
 
@@ -460,7 +545,12 @@ type deleteScheduledActionResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-func (h *Handler) handleDeleteScheduledAction(_ url.Values) (any, error) {
+func (h *Handler) handleDeleteScheduledAction(vals url.Values) (any, error) {
+	name := vals.Get("ScheduledActionName")
+	if err := h.Backend.DeleteScheduledAction(name); err != nil {
+		return nil, err
+	}
+
 	return &deleteScheduledActionResponse{Xmlns: redshiftXMLNS}, nil
 }
 
@@ -472,8 +562,23 @@ type describeScheduledActionsResponse struct {
 	} `xml:"DescribeScheduledActionsResult"`
 }
 
-func (h *Handler) handleDescribeScheduledActions(_ url.Values) (any, error) {
-	return &describeScheduledActionsResponse{Xmlns: redshiftXMLNS}, nil
+func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
+	name := vals.Get("ScheduledActionName")
+	actions, err := h.Backend.DescribeScheduledActions(name)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]scheduledActionXML, 0, len(actions))
+
+	for i := range actions {
+		members = append(members, scheduledActionToXML(&actions[i]))
+	}
+
+	resp := &describeScheduledActionsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.ScheduledActions = members
+
+	return resp, nil
 }
 
 type modifyScheduledActionResponse struct {
@@ -483,13 +588,19 @@ type modifyScheduledActionResponse struct {
 }
 
 func (h *Handler) handleModifyScheduledAction(vals url.Values) (any, error) {
+	action, err := h.Backend.ModifyScheduledAction(
+		vals.Get("ScheduledActionName"),
+		vals.Get("Schedule"),
+		vals.Get("IamRole"),
+		vals.Get("ScheduledActionDescription"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &modifyScheduledActionResponse{
-		Xmlns: redshiftXMLNS,
-		Result: scheduledActionXML{
-			ScheduledActionName: vals.Get("ScheduledActionName"),
-			Schedule:            vals.Get("Schedule"),
-			State:               "ACTIVE",
-		},
+		Xmlns:  redshiftXMLNS,
+		Result: scheduledActionToXML(action),
 	}, nil
 }
 
@@ -663,10 +774,22 @@ type restoreTableFromClusterSnapshotResponse struct {
 	} `xml:"RestoreTableFromClusterSnapshotResult"`
 }
 
-func (h *Handler) handleRestoreTableFromClusterSnapshot(_ url.Values) (any, error) {
+func (h *Handler) handleRestoreTableFromClusterSnapshot(vals url.Values) (any, error) {
+	tr, err := h.Backend.CreateTableRestoreStatus(
+		vals.Get("ClusterIdentifier"),
+		vals.Get("SnapshotIdentifier"),
+		vals.Get("SourceDatabaseName"),
+		vals.Get("SourceTableName"),
+		vals.Get("TargetDatabaseName"),
+		vals.Get("NewTableName"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := &restoreTableFromClusterSnapshotResponse{Xmlns: redshiftXMLNS}
-	resp.Result.TableRestoreStatus.TableRestoreRequestID = "stub-restore-id"
-	resp.Result.TableRestoreStatus.Status = "IN_PROGRESS"
+	resp.Result.TableRestoreStatus.TableRestoreRequestID = tr.TableRestoreRequestID
+	resp.Result.TableRestoreStatus.Status = tr.Status
 
 	return resp, nil
 }

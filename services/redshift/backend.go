@@ -44,8 +44,14 @@ var (
 	ErrAuthProfileNotFound            = errors.New("AuthenticationProfileNotFound")
 	ErrAuthProfileAlreadyExists       = errors.New("AuthenticationProfileAlreadyExists")
 	ErrResourcePolicyNotFound         = errors.New("ResourcePolicyNotFound")
-	ErrSnapshotCopyAlreadyEnabled     = errors.New("SnapshotCopyAlreadyEnabled")
-	ErrSnapshotCopyNotEnabled         = errors.New("CopyToRegionDisabled")
+	ErrSnapshotCopyAlreadyEnabled      = errors.New("SnapshotCopyAlreadyEnabled")
+	ErrSnapshotCopyNotEnabled          = errors.New("CopyToRegionDisabled")
+	ErrHsmClientCertNotFound           = errors.New("HsmClientCertificateNotFound")
+	ErrHsmClientCertAlreadyExists      = errors.New("HsmClientCertificateAlreadyExists")
+	ErrHsmConfigNotFound               = errors.New("HsmConfigurationNotFound")
+	ErrHsmConfigAlreadyExists          = errors.New("HsmConfigurationAlreadyExists")
+	ErrScheduledActionNotFound         = errors.New("ScheduledActionNotFound")
+	ErrScheduledActionAlreadyExists    = errors.New("ScheduledActionAlreadyExists")
 )
 
 // Named status constants for cluster and resource states.
@@ -239,6 +245,32 @@ type TableRestoreStatus struct {
 	TargetTableName       string    `json:"targetTableName"`
 }
 
+// HsmClientCertificate represents a Redshift HSM client certificate.
+type HsmClientCertificate struct {
+	Tags                           map[string]string `json:"tags"`
+	HsmClientCertificateIdentifier string            `json:"hsmClientCertificateIdentifier"`
+	HsmClientCertificatePublicKey  string            `json:"hsmClientCertificatePublicKey"`
+}
+
+// HsmConfiguration represents a Redshift HSM configuration.
+type HsmConfiguration struct {
+	Tags                       map[string]string `json:"tags"`
+	HsmConfigurationIdentifier string            `json:"hsmConfigurationIdentifier"`
+	Description                string            `json:"description"`
+	HsmIpAddress               string            `json:"hsmIpAddress"`
+	HsmPartitionName           string            `json:"hsmPartitionName"`
+}
+
+// ScheduledAction represents a Redshift scheduled action.
+type ScheduledAction struct {
+	ScheduledActionName        string `json:"scheduledActionName"`
+	Schedule                   string `json:"schedule"`
+	IamRole                    string `json:"iamRole"`
+	ScheduledActionDescription string `json:"scheduledActionDescription"`
+	State                      string `json:"state"`
+	TargetAction               string `json:"targetAction"`
+}
+
 // SnapshotCopyConfig holds the cross-region snapshot copy configuration for a cluster.
 type SnapshotCopyConfig struct {
 	DestinationRegion     string `json:"destinationRegion"`
@@ -286,6 +318,9 @@ type InMemoryBackend struct {
 	resourcePolicies    map[string]*ResourcePolicy
 	tableRestores       map[string]*TableRestoreStatus
 	snapshotCopyConfigs map[string]*SnapshotCopyConfig
+	hsmClientCerts      map[string]*HsmClientCertificate
+	hsmConfigs          map[string]*HsmConfiguration
+	scheduledActions    map[string]*ScheduledAction
 	// Serverless resources
 	slNamespaces       map[string]*Namespace
 	slWorkgroups       map[string]*Workgroup
@@ -320,6 +355,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		resourcePolicies:    make(map[string]*ResourcePolicy),
 		tableRestores:       make(map[string]*TableRestoreStatus),
 		snapshotCopyConfigs: make(map[string]*SnapshotCopyConfig),
+		hsmClientCerts:      make(map[string]*HsmClientCertificate),
+		hsmConfigs:          make(map[string]*HsmConfiguration),
+		scheduledActions:    make(map[string]*ScheduledAction),
 		slNamespaces:        make(map[string]*Namespace),
 		slWorkgroups:        make(map[string]*Workgroup),
 		slSnapshots:         make(map[string]*ServerlessSnapshot),
@@ -360,6 +398,9 @@ func (b *InMemoryBackend) Reset() {
 	b.resourcePolicies = make(map[string]*ResourcePolicy)
 	b.tableRestores = make(map[string]*TableRestoreStatus)
 	b.snapshotCopyConfigs = make(map[string]*SnapshotCopyConfig)
+	b.hsmClientCerts = make(map[string]*HsmClientCertificate)
+	b.hsmConfigs = make(map[string]*HsmConfiguration)
+	b.scheduledActions = make(map[string]*ScheduledAction)
 	b.slNamespaces = make(map[string]*Namespace)
 	b.slWorkgroups = make(map[string]*Workgroup)
 	b.slSnapshots = make(map[string]*ServerlessSnapshot)

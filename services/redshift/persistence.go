@@ -19,6 +19,9 @@ type backendSnapshot struct {
 	LoggingStatuses    map[string]*LoggingStatus         `json:"loggingStatuses"`
 	EventSubscriptions map[string]*EventSubscription     `json:"eventSubscriptions"`
 	Events             map[string]*Event                 `json:"events"`
+	HsmClientCerts     map[string]*HsmClientCertificate  `json:"hsmClientCerts"`
+	HsmConfigs         map[string]*HsmConfiguration      `json:"hsmConfigs"`
+	ScheduledActions   map[string]*ScheduledAction       `json:"scheduledActions"`
 	AccountID          string                            `json:"accountID"`
 	Region             string                            `json:"region"`
 }
@@ -63,6 +66,15 @@ func (s *backendSnapshot) ensureNonNilMaps() {
 	if s.Events == nil {
 		s.Events = make(map[string]*Event)
 	}
+	if s.HsmClientCerts == nil {
+		s.HsmClientCerts = make(map[string]*HsmClientCertificate)
+	}
+	if s.HsmConfigs == nil {
+		s.HsmConfigs = make(map[string]*HsmConfiguration)
+	}
+	if s.ScheduledActions == nil {
+		s.ScheduledActions = make(map[string]*ScheduledAction)
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -78,6 +90,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		DataShares:         b.dataShares,
 		SecurityGroups:     b.securityGroups,
 		Snapshots:          b.snapshots,
+		HsmClientCerts:     b.hsmClientCerts,
+		HsmConfigs:         b.hsmConfigs,
+		ScheduledActions:   b.scheduledActions,
 		EndpointAuths:      b.endpointAuths,
 		ActiveResizes:      b.activeResizes,
 		ParameterGroups:    b.parameterGroups,
@@ -126,6 +141,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.loggingStatuses = snap.LoggingStatuses
 	b.eventSubscriptions = snap.EventSubscriptions
 	b.events = snap.Events
+	b.hsmClientCerts = snap.HsmClientCerts
+	b.hsmConfigs = snap.HsmConfigs
+	b.scheduledActions = snap.ScheduledActions
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
