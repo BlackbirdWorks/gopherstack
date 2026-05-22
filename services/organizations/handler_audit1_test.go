@@ -25,7 +25,6 @@ func TestAudit1_PolicyTypes(t *testing.T) {
 	}
 
 	for _, pt := range policyTypes {
-		pt := pt
 
 		t.Run(pt, func(t *testing.T) {
 			t.Parallel()
@@ -178,9 +177,9 @@ func TestAudit1_AcceptHandshake_InviteAddsAccount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		targetID        string
-		preExisting     bool
+		name             string
+		targetID         string
+		preExisting      bool
 		wantAccountInOrg bool
 	}{
 		{
@@ -319,9 +318,9 @@ func TestAudit1_HandshakeFilter_ForAccount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		filter      string
-		wantCount   int
+		name      string
+		filter    string
+		wantCount int
 	}{
 		{name: "no_filter_returns_all", filter: "", wantCount: 2},
 		{name: "filter_invite", filter: "INVITE", wantCount: 1},
@@ -457,7 +456,6 @@ func TestAudit1_DescribeEffectivePolicy_AllPolicyTypes(t *testing.T) {
 	}
 
 	for _, pt := range policyTypes {
-		pt := pt
 
 		t.Run(pt, func(t *testing.T) {
 			t.Parallel()
@@ -495,7 +493,6 @@ func TestAudit1_ListAccountsWithInvalidEffectivePolicy_AllTypes(t *testing.T) {
 	}
 
 	for _, pt := range policyTypes {
-		pt := pt
 
 		t.Run(pt, func(t *testing.T) {
 			t.Parallel()
@@ -523,7 +520,6 @@ func TestAudit1_ListEffectivePolicyValidationErrors_AllTypes(t *testing.T) {
 	}
 
 	for _, pt := range policyTypes {
-		pt := pt
 
 		t.Run(pt, func(t *testing.T) {
 			t.Parallel()

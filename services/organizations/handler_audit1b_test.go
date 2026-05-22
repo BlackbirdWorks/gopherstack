@@ -234,9 +234,9 @@ func TestAudit1b_InviteHandshake_DuplicateAcceptFails(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		firstOp    string
-		secondOp   string
+		name     string
+		firstOp  string
+		secondOp string
 	}{
 		{name: "accept_then_accept", firstOp: "accept", secondOp: "accept"},
 		{name: "accept_then_cancel", firstOp: "accept", secondOp: "cancel"},
@@ -352,11 +352,11 @@ func TestAudit1b_CloseAccount_Scenarios(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		isMgmt    bool
-		notFound  bool
-		wantErr   bool
-		wantSusp  bool
+		name     string
+		isMgmt   bool
+		notFound bool
+		wantErr  bool
+		wantSusp bool
 	}{
 		{name: "closes_member_account", wantSusp: true},
 		{name: "management_account_fails", isMgmt: true, wantErr: true},
@@ -605,9 +605,9 @@ func TestAudit1b_OU_ListParents(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		childKind  string // "account_in_root", "account_in_ou", "ou_in_root", "ou_in_ou"
-		wantType   string
+		name      string
+		childKind string // "account_in_root", "account_in_ou", "ou_in_root", "ou_in_ou"
+		wantType  string
 	}{
 		{name: "account_in_root", childKind: "account_in_root", wantType: "ROOT"},
 		{name: "account_in_ou", childKind: "account_in_ou", wantType: "ORGANIZATIONAL_UNIT"},
@@ -724,9 +724,9 @@ func TestAudit1b_AttachPolicy_Limits(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		attachCount  int
-		wantLastErr  bool
+		name        string
+		attachCount int
+		wantLastErr bool
 	}{
 		{name: "exactly_at_limit", attachCount: 5, wantLastErr: false},
 		{name: "exceeds_limit", attachCount: 6, wantLastErr: true},
@@ -835,9 +835,9 @@ func TestAudit1b_ListPoliciesForTarget_Filter(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		filter     string
-		wantCount  int
+		name      string
+		filter    string
+		wantCount int
 	}{
 		{name: "filter_scp", filter: "SERVICE_CONTROL_POLICY", wantCount: 2},
 		{name: "filter_tag", filter: "TAG_POLICY", wantCount: 1},
@@ -1082,10 +1082,10 @@ func TestAudit1b_DelegatedAdmin_ListServices(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		registerSvcs  []string
-		wantSvcCount  int
-		wantSorted    bool
+		name         string
+		registerSvcs []string
+		wantSvcCount int
+		wantSorted   bool
 	}{
 		{
 			name:         "no_delegations",
@@ -1505,9 +1505,13 @@ func TestAudit1b_Handler_AccountErrors(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "move_account_not_found",
-			op:         "MoveAccount",
-			body:       map[string]any{"AccountId": "999999999999", "SourceParentId": "r-root", "DestinationParentId": "r-root"},
+			name: "move_account_not_found",
+			op:   "MoveAccount",
+			body: map[string]any{
+				"AccountId":           "999999999999",
+				"SourceParentId":      "r-root",
+				"DestinationParentId": "r-root",
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
