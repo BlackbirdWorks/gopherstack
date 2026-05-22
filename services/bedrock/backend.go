@@ -15,6 +15,17 @@ const (
 	textTypeText = "TEXT"
 )
 
+// Inference type constants mirroring the AWS Bedrock API values.
+const (
+	inferenceTypeOnDemand    = "ON_DEMAND"
+	inferenceTypeProvisioned = "PROVISIONED"
+)
+
+// Customization type constants mirroring the AWS Bedrock API values.
+const (
+	customizationTypeFineTuning = "FINE_TUNING"
+)
+
 const bedrockDefaultPageSize = 100
 
 // Resource lifecycle status constants.
@@ -57,8 +68,8 @@ type GuardrailContentPolicyConfig struct {
 type GuardrailTopic struct {
 	Name       string   `json:"name"`
 	Definition string   `json:"definition"`
-	Examples   []string `json:"examples,omitempty"`
 	Type       string   `json:"type"`
+	Examples   []string `json:"examples,omitempty"`
 }
 
 // GuardrailTopicPolicyConfig configures topic-level denial policies.
@@ -118,14 +129,15 @@ type GuardrailPolicies struct {
 	ContentPolicy              *GuardrailContentPolicyConfig              `json:"contentPolicyConfig,omitempty"`
 	TopicPolicy                *GuardrailTopicPolicyConfig                `json:"topicPolicyConfig,omitempty"`
 	WordPolicy                 *GuardrailWordPolicyConfig                 `json:"wordPolicyConfig,omitempty"`
-	SensitiveInformationPolicy *GuardrailSensitiveInformationPolicyConfig `json:"sensitiveInformationPolicyConfig,omitempty"`
-	ContextualGroundingPolicy  *GuardrailContextualGroundingPolicyConfig  `json:"contextualGroundingPolicyConfig,omitempty"`
+	SensitiveInformationPolicy *GuardrailSensitiveInformationPolicyConfig `json:"sensitiveInformationPolicyConfig,omitempty"` //nolint:lll // AWS API field name is long.
+	ContextualGroundingPolicy  *GuardrailContextualGroundingPolicyConfig  `json:"contextualGroundingPolicyConfig,omitempty"`  //nolint:lll // AWS API field name is long.
 }
 
 // Guardrail represents an Amazon Bedrock guardrail.
 type Guardrail struct {
 	CreatedAt               time.Time          `json:"createdAt"`
 	UpdatedAt               time.Time          `json:"updatedAt"`
+	Policies                *GuardrailPolicies `json:"policies,omitempty"`
 	GuardrailID             string             `json:"guardrailId"`
 	GuardrailArn            string             `json:"guardrailArn"`
 	Name                    string             `json:"name"`
@@ -135,7 +147,6 @@ type Guardrail struct {
 	BlockedInputMessaging   string             `json:"blockedInputMessaging,omitempty"`
 	BlockedOutputsMessaging string             `json:"blockedOutputsMessaging,omitempty"`
 	Tags                    []Tag              `json:"tags,omitempty"`
-	Policies                *GuardrailPolicies `json:"policies,omitempty"`
 	// versionCounter tracks the next version number for this specific guardrail.
 	versionCounter int
 }
@@ -193,8 +204,8 @@ type EvaluationDatasetLocation struct {
 
 // EvaluationDataset references an evaluation dataset.
 type EvaluationDataset struct {
-	Name     string                     `json:"name,omitempty"`
 	Location *EvaluationDatasetLocation `json:"datasetLocation,omitempty"`
+	Name     string                     `json:"name,omitempty"`
 }
 
 // EvaluationMetricConfig configures a single metric for evaluation.
@@ -204,9 +215,9 @@ type EvaluationMetricConfig struct {
 
 // EvaluationTaskConfig configures a single evaluation task.
 type EvaluationTaskConfig struct {
-	TaskType         string                   `json:"taskType"`
-	Dataset          *EvaluationDataset       `json:"dataset,omitempty"`
-	MetricNames      []EvaluationMetricConfig `json:"metricNames,omitempty"`
+	TaskType    string                   `json:"taskType"`
+	Dataset     *EvaluationDataset       `json:"dataset,omitempty"`
+	MetricNames []EvaluationMetricConfig `json:"metricNames,omitempty"`
 }
 
 // EvaluationInferenceModelConfig points to a model for generating responses.
@@ -221,8 +232,8 @@ type EvaluationRAGConfig struct {
 
 // EvaluationInferenceConfig holds inference-side configuration (model or RAG).
 type EvaluationInferenceConfig struct {
-	Models []EvaluationInferenceModelConfig `json:"models,omitempty"`
 	RAG    *EvaluationRAGConfig             `json:"ragConfig,omitempty"`
+	Models []EvaluationInferenceModelConfig `json:"models,omitempty"`
 }
 
 // EvaluationJob represents a model evaluation job.
@@ -646,8 +657,8 @@ func (b *InMemoryBackend) seedFoundationModels() {
 			ModelArn:                   prefix + "amazon.titan-text-express-v1",
 			InputModalities:            []string{textTypeText},
 			OutputModalities:           []string{textTypeText},
-			InferenceTypesSupported:    []string{"ON_DEMAND", "PROVISIONED"},
-			CustomizationsSupported:    []string{"FINE_TUNING"},
+			InferenceTypesSupported:    []string{inferenceTypeOnDemand, inferenceTypeProvisioned},
+			CustomizationsSupported:    []string{customizationTypeFineTuning},
 			ResponseStreamingSupported: true,
 		},
 		{
@@ -657,7 +668,7 @@ func (b *InMemoryBackend) seedFoundationModels() {
 			ModelArn:                   prefix + "amazon.titan-embed-text-v1",
 			InputModalities:            []string{textTypeText},
 			OutputModalities:           []string{"EMBEDDING"},
-			InferenceTypesSupported:    []string{"ON_DEMAND"},
+			InferenceTypesSupported:    []string{inferenceTypeOnDemand},
 			CustomizationsSupported:    []string{},
 			ResponseStreamingSupported: false,
 		},
@@ -668,7 +679,7 @@ func (b *InMemoryBackend) seedFoundationModels() {
 			ModelArn:                   prefix + "anthropic.claude-v2",
 			InputModalities:            []string{textTypeText},
 			OutputModalities:           []string{textTypeText},
-			InferenceTypesSupported:    []string{"ON_DEMAND", "PROVISIONED"},
+			InferenceTypesSupported:    []string{inferenceTypeOnDemand, inferenceTypeProvisioned},
 			CustomizationsSupported:    []string{},
 			ResponseStreamingSupported: true,
 		},
@@ -679,7 +690,7 @@ func (b *InMemoryBackend) seedFoundationModels() {
 			ModelArn:                   prefix + "anthropic.claude-3-sonnet-20240229-v1:0",
 			InputModalities:            []string{textTypeText, "IMAGE"},
 			OutputModalities:           []string{textTypeText},
-			InferenceTypesSupported:    []string{"ON_DEMAND", "PROVISIONED"},
+			InferenceTypesSupported:    []string{inferenceTypeOnDemand, inferenceTypeProvisioned},
 			CustomizationsSupported:    []string{},
 			ResponseStreamingSupported: true,
 		},
@@ -690,8 +701,8 @@ func (b *InMemoryBackend) seedFoundationModels() {
 			ModelArn:                   prefix + "meta.llama3-8b-instruct-v1:0",
 			InputModalities:            []string{textTypeText},
 			OutputModalities:           []string{textTypeText},
-			InferenceTypesSupported:    []string{"ON_DEMAND"},
-			CustomizationsSupported:    []string{"FINE_TUNING"},
+			InferenceTypesSupported:    []string{inferenceTypeOnDemand},
+			CustomizationsSupported:    []string{customizationTypeFineTuning},
 			ResponseStreamingSupported: true,
 		},
 	}
@@ -826,7 +837,9 @@ func (b *InMemoryBackend) GetGuardrail(idOrARN string) (*Guardrail, error) {
 // ListGuardrails returns guardrails with optional pagination.
 // If guardrailIdentifier is non-empty, results are filtered to guardrails whose
 // ID, ARN, or name equals the identifier (case-sensitive).
-func (b *InMemoryBackend) ListGuardrails(nextToken, guardrailIdentifier string) ([]*GuardrailSummary, string) {
+func (b *InMemoryBackend) ListGuardrails(
+	nextToken, guardrailIdentifier string,
+) ([]*GuardrailSummary, string) {
 	b.mu.RLock("ListGuardrails")
 	defer b.mu.RUnlock()
 
@@ -960,7 +973,9 @@ func (b *InMemoryBackend) findGuardrailByIDOrARN(idOrARN string) (*Guardrail, bo
 }
 
 // ListFoundationModels returns seeded foundation models with optional pagination.
-func (b *InMemoryBackend) ListFoundationModels(nextToken string) ([]*FoundationModelSummary, string) {
+func (b *InMemoryBackend) ListFoundationModels(
+	nextToken string,
+) ([]*FoundationModelSummary, string) {
 	b.mu.RLock("ListFoundationModels")
 	defer b.mu.RUnlock()
 
@@ -1005,7 +1020,11 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 	}
 
 	if _, exists := b.pmtsByName[name]; exists {
-		return nil, fmt.Errorf("%w: provisioned model throughput %s already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: provisioned model throughput %s already exists",
+			ErrAlreadyExists,
+			name,
+		)
 	}
 
 	id := b.newProvisionedID()
@@ -1036,13 +1055,20 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 
 	return &cp, nil
 }
-func (b *InMemoryBackend) GetProvisionedModelThroughput(idOrARN string) (*ProvisionedModelThroughput, error) {
+
+func (b *InMemoryBackend) GetProvisionedModelThroughput(
+	idOrARN string,
+) (*ProvisionedModelThroughput, error) {
 	b.mu.RLock("GetProvisionedModelThroughput")
 	defer b.mu.RUnlock()
 
 	pmt, ok := b.findPMTByIDOrARN(idOrARN)
 	if !ok {
-		return nil, fmt.Errorf("%w: provisioned model throughput %s not found", ErrNotFound, idOrARN)
+		return nil, fmt.Errorf(
+			"%w: provisioned model throughput %s not found",
+			ErrNotFound,
+			idOrARN,
+		)
 	}
 
 	cp := *pmt
@@ -1051,7 +1077,9 @@ func (b *InMemoryBackend) GetProvisionedModelThroughput(idOrARN string) (*Provis
 }
 
 // ListProvisionedModelThroughputs returns provisioned model throughputs with optional pagination.
-func (b *InMemoryBackend) ListProvisionedModelThroughputs(nextToken string) ([]*ProvisionedModelThroughput, string) {
+func (b *InMemoryBackend) ListProvisionedModelThroughputs(
+	nextToken string,
+) ([]*ProvisionedModelThroughput, string) {
 	b.mu.RLock("ListProvisionedModelThroughputs")
 	defer b.mu.RUnlock()
 
@@ -1062,7 +1090,10 @@ func (b *InMemoryBackend) ListProvisionedModelThroughputs(nextToken string) ([]*
 		list = append(list, &cp)
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].ProvisionedModelArn < list[j].ProvisionedModelArn })
+	sort.Slice(
+		list,
+		func(i, j int) bool { return list[i].ProvisionedModelArn < list[j].ProvisionedModelArn },
+	)
 
 	return paginateBedrockSlice(list, nextToken)
 }
@@ -1077,7 +1108,11 @@ func (b *InMemoryBackend) UpdateProvisionedModelThroughput(
 
 	pmt, ok := b.findPMTByIDOrARN(idOrARN)
 	if !ok {
-		return nil, fmt.Errorf("%w: provisioned model throughput %s not found", ErrNotFound, idOrARN)
+		return nil, fmt.Errorf(
+			"%w: provisioned model throughput %s not found",
+			ErrNotFound,
+			idOrARN,
+		)
 	}
 
 	if modelID != "" {
@@ -1177,21 +1212,32 @@ func copyGuardrailPolicies(src *GuardrailPolicies) *GuardrailPolicies {
 	if src.WordPolicy != nil {
 		wp := &GuardrailWordPolicyConfig{}
 		wp.WordsConfig = append([]GuardrailWordConfig(nil), src.WordPolicy.WordsConfig...)
-		wp.ManagedWordListsConfig = append([]GuardrailManagedWordList(nil), src.WordPolicy.ManagedWordListsConfig...)
+		wp.ManagedWordListsConfig = append(
+			[]GuardrailManagedWordList(nil),
+			src.WordPolicy.ManagedWordListsConfig...)
 		dst.WordPolicy = wp
 	}
 
 	if src.SensitiveInformationPolicy != nil {
 		sip := &GuardrailSensitiveInformationPolicyConfig{}
-		sip.PiiEntitiesConfig = append([]GuardrailPIIEntity(nil), src.SensitiveInformationPolicy.PiiEntitiesConfig...)
-		sip.RegexesConfig = append([]GuardrailRegexConfig(nil), src.SensitiveInformationPolicy.RegexesConfig...)
+		sip.PiiEntitiesConfig = append(
+			[]GuardrailPIIEntity(nil),
+			src.SensitiveInformationPolicy.PiiEntitiesConfig...)
+		sip.RegexesConfig = append(
+			[]GuardrailRegexConfig(nil),
+			src.SensitiveInformationPolicy.RegexesConfig...)
 		dst.SensitiveInformationPolicy = sip
 	}
 
 	if src.ContextualGroundingPolicy != nil {
-		filters := make([]GuardrailContextualGroundingFilter, len(src.ContextualGroundingPolicy.FiltersConfig))
+		filters := make(
+			[]GuardrailContextualGroundingFilter,
+			len(src.ContextualGroundingPolicy.FiltersConfig),
+		)
 		copy(filters, src.ContextualGroundingPolicy.FiltersConfig)
-		dst.ContextualGroundingPolicy = &GuardrailContextualGroundingPolicyConfig{FiltersConfig: filters}
+		dst.ContextualGroundingPolicy = &GuardrailContextualGroundingPolicyConfig{
+			FiltersConfig: filters,
+		}
 	}
 
 	return dst
@@ -1395,7 +1441,11 @@ type CreateEvaluationJobInput struct {
 }
 
 // CreateEvaluationJob creates a new evaluation job.
-func (b *InMemoryBackend) CreateEvaluationJob(name string, tags []Tag, opts ...*CreateEvaluationJobInput) (*EvaluationJob, error) {
+func (b *InMemoryBackend) CreateEvaluationJob(
+	name string,
+	tags []Tag,
+	opts ...*CreateEvaluationJobInput,
+) (*EvaluationJob, error) {
 	b.mu.Lock("CreateEvaluationJob")
 	defer b.mu.Unlock()
 
@@ -1436,7 +1486,6 @@ func (b *InMemoryBackend) CreateEvaluationJob(name string, tags []Tag, opts ...*
 
 	return &cp, nil
 }
-
 
 // BatchDeleteEvaluationJobError describes a single job deletion failure.
 type BatchDeleteEvaluationJobError struct {
@@ -1512,7 +1561,11 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(
 	}
 
 	if _, exists := b.arpByName[name]; exists {
-		return nil, fmt.Errorf("%w: automated reasoning policy %s already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: automated reasoning policy %s already exists",
+			ErrAlreadyExists,
+			name,
+		)
 	}
 
 	id := b.newARPID()
@@ -1537,7 +1590,9 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(
 }
 
 // CancelAutomatedReasoningPolicyBuildWorkflow cancels a running build workflow.
-func (b *InMemoryBackend) CancelAutomatedReasoningPolicyBuildWorkflow(policyARN, workflowID string) error {
+func (b *InMemoryBackend) CancelAutomatedReasoningPolicyBuildWorkflow(
+	policyARN, workflowID string,
+) error {
 	b.mu.Lock("CancelAutomatedReasoningPolicyBuildWorkflow")
 	defer b.mu.Unlock()
 
@@ -1551,7 +1606,12 @@ func (b *InMemoryBackend) CancelAutomatedReasoningPolicyBuildWorkflow(policyARN,
 	}
 
 	if wf.PolicyArn != policyARN {
-		return fmt.Errorf("%w: build workflow %s does not belong to policy %s", ErrNotFound, workflowID, policyARN)
+		return fmt.Errorf(
+			"%w: build workflow %s does not belong to policy %s",
+			ErrNotFound,
+			workflowID,
+			policyARN,
+		)
 	}
 
 	wf.Status = "Cancelled"
@@ -1567,7 +1627,11 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyTestCase(
 	defer b.mu.Unlock()
 
 	if _, ok := b.automatedReasoningPolicies[policyARN]; !ok {
-		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
+		return nil, fmt.Errorf(
+			"%w: automated reasoning policy %s not found",
+			ErrNotFound,
+			policyARN,
+		)
 	}
 
 	id := b.newARPTestCaseID()
@@ -1590,7 +1654,11 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyVersion(
 
 	policy, ok := b.automatedReasoningPolicies[policyARN]
 	if !ok {
-		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
+		return nil, fmt.Errorf(
+			"%w: automated reasoning policy %s not found",
+			ErrNotFound,
+			policyARN,
+		)
 	}
 
 	// Use per-policy version counter for realistic monotonic versioning.
@@ -1662,7 +1730,11 @@ func (b *InMemoryBackend) CreateCustomModelDeployment(
 	}
 
 	if _, exists := b.customModelDeployByName[deploymentName]; exists {
-		return nil, fmt.Errorf("%w: custom model deployment %s already exists", ErrAlreadyExists, deploymentName)
+		return nil, fmt.Errorf(
+			"%w: custom model deployment %s already exists",
+			ErrAlreadyExists,
+			deploymentName,
+		)
 	}
 
 	id := b.newCustomModelDeployID()
@@ -1689,7 +1761,9 @@ func (b *InMemoryBackend) CreateCustomModelDeployment(
 // --- FoundationModelAgreement methods ---
 
 // CreateFoundationModelAgreement creates a foundation model access agreement.
-func (b *InMemoryBackend) CreateFoundationModelAgreement(modelID string) (*FoundationModelAgreement, error) {
+func (b *InMemoryBackend) CreateFoundationModelAgreement(
+	modelID string,
+) (*FoundationModelAgreement, error) {
 	b.mu.Lock("CreateFoundationModelAgreement")
 	defer b.mu.Unlock()
 
@@ -1865,7 +1939,9 @@ func (b *InMemoryBackend) GetModelCustomizationJob(idOrARN string) (*ModelCustom
 }
 
 // ListModelCustomizationJobs returns all customization jobs with optional pagination.
-func (b *InMemoryBackend) ListModelCustomizationJobs(nextToken string) ([]*ModelCustomizationJob, string) {
+func (b *InMemoryBackend) ListModelCustomizationJobs(
+	nextToken string,
+) ([]*ModelCustomizationJob, string) {
 	b.mu.RLock("ListModelCustomizationJobs")
 	defer b.mu.RUnlock()
 
@@ -1927,7 +2003,10 @@ func (b *InMemoryBackend) AdvanceCustomizationJobStatuses(minAge time.Duration) 
 // CreateModelCopyJob creates a new model copy job.
 //
 //nolint:dupl // Identical structure to CreateModelImportJob; different types.
-func (b *InMemoryBackend) CreateModelCopyJob(sourceModelARN string, tags []Tag) (*ModelCopyJob, error) {
+func (b *InMemoryBackend) CreateModelCopyJob(
+	sourceModelARN string,
+	tags []Tag,
+) (*ModelCopyJob, error) {
 	if sourceModelARN == "" {
 		return nil, fmt.Errorf("%w: sourceModelArn is required", ErrValidation)
 	}
@@ -1987,7 +2066,10 @@ func (b *InMemoryBackend) ListModelCopyJobs() []*ModelCopyJob {
 		list = append(list, &cp)
 	}
 
-	sort.Slice(list, func(i, k int) bool { return list[i].CreationTime.Before(list[k].CreationTime) })
+	sort.Slice(
+		list,
+		func(i, k int) bool { return list[i].CreationTime.Before(list[k].CreationTime) },
+	)
 
 	return list
 }
@@ -1997,7 +2079,10 @@ func (b *InMemoryBackend) ListModelCopyJobs() []*ModelCopyJob {
 // CreateModelImportJob creates a new model import job.
 //
 //nolint:dupl // Identical structure to CreateModelCopyJob; different types.
-func (b *InMemoryBackend) CreateModelImportJob(jobName string, tags []Tag) (*ModelImportJob, error) {
+func (b *InMemoryBackend) CreateModelImportJob(
+	jobName string,
+	tags []Tag,
+) (*ModelImportJob, error) {
 	if jobName == "" {
 		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
 	}
@@ -2057,7 +2142,10 @@ func (b *InMemoryBackend) ListModelImportJobs() []*ModelImportJob {
 		list = append(list, &cp)
 	}
 
-	sort.Slice(list, func(i, k int) bool { return list[i].CreationTime.Before(list[k].CreationTime) })
+	sort.Slice(
+		list,
+		func(i, k int) bool { return list[i].CreationTime.Before(list[k].CreationTime) },
+	)
 
 	return list
 }
@@ -2229,7 +2317,11 @@ func (b *InMemoryBackend) CreateMarketplaceModelEndpoint(
 	}
 
 	if _, exists := b.marketplaceEndpointsByName[endpointName]; exists {
-		return nil, fmt.Errorf("%w: marketplace endpoint %s already exists", ErrAlreadyExists, endpointName)
+		return nil, fmt.Errorf(
+			"%w: marketplace endpoint %s already exists",
+			ErrAlreadyExists,
+			endpointName,
+		)
 	}
 
 	id := b.newMarketplaceEndpointID()
@@ -2268,7 +2360,9 @@ func (b *InMemoryBackend) findMarketplaceEndpointARN(idOrARN string) (string, bo
 }
 
 // GetMarketplaceModelEndpoint returns a marketplace endpoint by ARN or name.
-func (b *InMemoryBackend) GetMarketplaceModelEndpoint(idOrARN string) (*MarketplaceModelEndpoint, error) {
+func (b *InMemoryBackend) GetMarketplaceModelEndpoint(
+	idOrARN string,
+) (*MarketplaceModelEndpoint, error) {
 	b.mu.RLock("GetMarketplaceModelEndpoint")
 	defer b.mu.RUnlock()
 
@@ -2285,7 +2379,9 @@ func (b *InMemoryBackend) GetMarketplaceModelEndpoint(idOrARN string) (*Marketpl
 }
 
 // ListMarketplaceModelEndpoints returns all marketplace endpoints with optional pagination.
-func (b *InMemoryBackend) ListMarketplaceModelEndpoints(nextToken string) ([]*MarketplaceModelEndpoint, string) {
+func (b *InMemoryBackend) ListMarketplaceModelEndpoints(
+	nextToken string,
+) ([]*MarketplaceModelEndpoint, string) {
 	b.mu.RLock("ListMarketplaceModelEndpoints")
 	defer b.mu.RUnlock()
 
@@ -2320,7 +2416,9 @@ func (b *InMemoryBackend) DeleteMarketplaceModelEndpoint(idOrARN string) error {
 }
 
 // UpdateMarketplaceModelEndpoint updates a marketplace endpoint status.
-func (b *InMemoryBackend) UpdateMarketplaceModelEndpoint(idOrARN string) (*MarketplaceModelEndpoint, error) {
+func (b *InMemoryBackend) UpdateMarketplaceModelEndpoint(
+	idOrARN string,
+) (*MarketplaceModelEndpoint, error) {
 	b.mu.Lock("UpdateMarketplaceModelEndpoint")
 	defer b.mu.Unlock()
 
@@ -2384,7 +2482,9 @@ func (b *InMemoryBackend) GetModelInvocationLoggingConfiguration() *ModelInvocat
 }
 
 // PutModelInvocationLoggingConfiguration sets the logging configuration.
-func (b *InMemoryBackend) PutModelInvocationLoggingConfiguration(cfg *ModelInvocationLoggingConfiguration) {
+func (b *InMemoryBackend) PutModelInvocationLoggingConfiguration(
+	cfg *ModelInvocationLoggingConfiguration,
+) {
 	b.mu.Lock("PutModelInvocationLoggingConfiguration")
 	defer b.mu.Unlock()
 
@@ -2404,7 +2504,9 @@ func (b *InMemoryBackend) DeleteModelInvocationLoggingConfiguration() {
 
 // CreateGuardrailVersion creates a new numbered version snapshot of a guardrail.
 // Each guardrail maintains its own monotonically increasing version counter.
-func (b *InMemoryBackend) CreateGuardrailVersion(idOrARN, description string) (*GuardrailVersion, error) {
+func (b *InMemoryBackend) CreateGuardrailVersion(
+	idOrARN, description string,
+) (*GuardrailVersion, error) {
 	b.mu.Lock("CreateGuardrailVersion")
 	defer b.mu.Unlock()
 

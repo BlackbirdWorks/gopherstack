@@ -83,7 +83,13 @@ func TestBatch1_GetFoundationModel_Claude3Sonnet_ImageInputModality(t *testing.T
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodGet, "/foundation-models/anthropic.claude-3-sonnet-20240229-v1:0", nil)
+	rec := doRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/foundation-models/anthropic.claude-3-sonnet-20240229-v1:0",
+		nil,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
@@ -426,7 +432,12 @@ func TestBatch1_Guardrail_ContextualGroundingPolicy_RoundTrip(t *testing.T) {
 
 	fetched, err := b.GetGuardrail(g.GuardrailID)
 	require.NoError(t, err)
-	assert.InDelta(t, 0.5, fetched.Policies.ContextualGroundingPolicy.FiltersConfig[1].Threshold, 0.001)
+	assert.InDelta(
+		t,
+		0.5,
+		fetched.Policies.ContextualGroundingPolicy.FiltersConfig[1].Threshold,
+		0.001,
+	)
 }
 
 func TestBatch1_Guardrail_ContextualGroundingPolicy_ViaHTTP(t *testing.T) {
@@ -494,7 +505,14 @@ func TestBatch1_Guardrail_AllPolicies_Combined(t *testing.T) {
 		},
 	}
 
-	g, err := b.CreateGuardrail("all-policies-guard", "combined test", "blocked-in", "blocked-out", nil, policies)
+	g, err := b.CreateGuardrail(
+		"all-policies-guard",
+		"combined test",
+		"blocked-in",
+		"blocked-out",
+		nil,
+		policies,
+	)
 	require.NoError(t, err)
 	assert.NotNil(t, g.Policies.ContentPolicy)
 	assert.NotNil(t, g.Policies.TopicPolicy)
@@ -837,7 +855,12 @@ func TestBatch1_Guardrail_CopySemantics_Isolation(t *testing.T) {
 
 	g2, err := b.GetGuardrail(g1.GuardrailID)
 	require.NoError(t, err)
-	assert.Equal(t, "HIGH", g2.Policies.ContentPolicy.FiltersConfig[0].InputStrength, "stored copy should not be mutated")
+	assert.Equal(
+		t,
+		"HIGH",
+		g2.Policies.ContentPolicy.FiltersConfig[0].InputStrength,
+		"stored copy should not be mutated",
+	)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -860,8 +883,8 @@ func TestBatch1_FoundationModel_ResponseStreamingSupported_Bool(t *testing.T) {
 	require.NoError(t, err)
 
 	var typed struct {
-		ResponseStreamingSupported bool     `json:"responseStreamingSupported"`
 		InferenceTypesSupported    []string `json:"inferenceTypesSupported"`
+		ResponseStreamingSupported bool     `json:"responseStreamingSupported"`
 	}
 	require.NoError(t, json.Unmarshal(rawBytes, &typed))
 	assert.True(t, typed.ResponseStreamingSupported)

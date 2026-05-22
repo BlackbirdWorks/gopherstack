@@ -638,12 +638,18 @@ type createModelCopyJobInput struct {
 func (h *Handler) handleCreateModelCopyJob(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+		return c.JSON(
+			http.StatusInternalServerError,
+			errorResponse("InternalFailure", "internal server error"),
+		)
 	}
 
 	in, parseErr := parseBody[createModelCopyJobInput](body)
 	if parseErr != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	job, opErr := h.Backend.CreateModelCopyJob(in.SourceModelArn, in.Tags)
@@ -704,12 +710,18 @@ type createModelImportJobInput struct {
 func (h *Handler) handleCreateModelImportJob(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+		return c.JSON(
+			http.StatusInternalServerError,
+			errorResponse("InternalFailure", "internal server error"),
+		)
 	}
 
 	in, parseErr := parseBody[createModelImportJobInput](body)
 	if parseErr != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	job, opErr := h.Backend.CreateModelImportJob(in.JobName, in.Tags)
@@ -1073,7 +1085,11 @@ func (h *Handler) routeARPTestCaseItem(c *echo.Context, path, method string) (bo
 	return false, nil
 }
 
-func (h *Handler) routeARPVersionAnnotation(c *echo.Context, path, method string, body []byte) (bool, error) {
+func (h *Handler) routeARPVersionAnnotation(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
 	switch {
 	case isARPVersionsPath(path) && method == http.MethodPost:
 		return true, h.handleCreateAutomatedReasoningPolicyVersion(c, path, body)
@@ -1090,7 +1106,11 @@ func (h *Handler) routeARPVersionAnnotation(c *echo.Context, path, method string
 	return false, nil
 }
 
-func (h *Handler) routeARPSingleItem(c *echo.Context, path, method string, body []byte) (bool, error) {
+func (h *Handler) routeARPSingleItem(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
 	if !strings.HasPrefix(path, automatedReasoningPrefix+"/") {
 		return false, nil
 	}
@@ -1174,12 +1194,12 @@ func decodePath(s string) string {
 // --- Guardrail handlers ---
 
 type createGuardrailInput struct {
+	Policies                *GuardrailPolicies `json:"policies,omitempty"`
 	Name                    string             `json:"name"`
 	Description             string             `json:"description"`
 	BlockedInputMessaging   string             `json:"blockedInputMessaging"`
 	BlockedOutputsMessaging string             `json:"blockedOutputsMessaging"`
 	Tags                    []Tag              `json:"tags"`
-	Policies                *GuardrailPolicies `json:"policies,omitempty"`
 }
 
 type createGuardrailOutput struct {
@@ -1199,7 +1219,12 @@ func (h *Handler) handleCreateGuardrail(c *echo.Context, body []byte) error {
 	}
 
 	g, opErr := h.Backend.CreateGuardrail(
-		in.Name, in.Description, in.BlockedInputMessaging, in.BlockedOutputsMessaging, in.Tags, in.Policies,
+		in.Name,
+		in.Description,
+		in.BlockedInputMessaging,
+		in.BlockedOutputsMessaging,
+		in.Tags,
+		in.Policies,
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -1216,6 +1241,7 @@ func (h *Handler) handleCreateGuardrail(c *echo.Context, body []byte) error {
 type guardrailDetailOutput struct {
 	CreatedAt               isoTime            `json:"createdAt"`
 	UpdatedAt               isoTime            `json:"updatedAt"`
+	Policies                *GuardrailPolicies `json:"policies,omitempty"`
 	GuardrailID             string             `json:"guardrailId"`
 	GuardrailArn            string             `json:"guardrailArn"`
 	Name                    string             `json:"name"`
@@ -1225,7 +1251,6 @@ type guardrailDetailOutput struct {
 	BlockedInputMessaging   string             `json:"blockedInputMessaging"`
 	BlockedOutputsMessaging string             `json:"blockedOutputsMessaging"`
 	Tags                    []Tag              `json:"tags,omitempty"`
-	Policies                *GuardrailPolicies `json:"policies,omitempty"`
 }
 
 func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
@@ -1295,11 +1320,11 @@ func (h *Handler) handleListGuardrails(c *echo.Context) error {
 }
 
 type updateGuardrailInput struct {
+	Policies                *GuardrailPolicies `json:"policies,omitempty"`
 	Name                    string             `json:"name"`
 	Description             string             `json:"description"`
 	BlockedInputMessaging   string             `json:"blockedInputMessaging"`
 	BlockedOutputsMessaging string             `json:"blockedOutputsMessaging"`
-	Policies                *GuardrailPolicies `json:"policies,omitempty"`
 }
 
 type updateGuardrailOutput struct {
