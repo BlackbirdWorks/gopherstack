@@ -214,6 +214,7 @@ func TestBatch3_Trigger_BatchGetAndList(t *testing.T) {
 	doGlueRequest(t, h, "CreateTrigger", map[string]any{"Name": "tr-b", "Type": "SCHEDULED"})
 
 	t.Run("batch-get", func(t *testing.T) {
+		t.Parallel()
 		rec := doGlueRequest(t, h, "BatchGetTriggers", map[string]any{
 			"TriggerNames": []string{"tr-a", "tr-b", "no-such"},
 		})
@@ -227,6 +228,7 @@ func TestBatch3_Trigger_BatchGetAndList(t *testing.T) {
 	})
 
 	t.Run("get-triggers", func(t *testing.T) {
+		t.Parallel()
 		rec := doGlueRequest(t, h, "GetTriggers", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 		assert.Contains(t, rec.Body.String(), "tr-a")
@@ -234,6 +236,7 @@ func TestBatch3_Trigger_BatchGetAndList(t *testing.T) {
 	})
 
 	t.Run("list-triggers", func(t *testing.T) {
+		t.Parallel()
 		rec := doGlueRequest(t, h, "ListTriggers", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 		assert.Contains(t, rec.Body.String(), "tr-a")
@@ -376,6 +379,7 @@ func TestBatch3_Workflow_RunLifecycle(t *testing.T) {
 	doGlueRequest(t, h, "CreateWorkflow", map[string]any{"Name": "wf-run"})
 
 	t.Run("start-run", func(t *testing.T) {
+		t.Parallel()
 		rec := doGlueRequest(t, h, "StartWorkflowRun", map[string]any{"Name": "wf-run"})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var out map[string]any
@@ -384,6 +388,7 @@ func TestBatch3_Workflow_RunLifecycle(t *testing.T) {
 	})
 
 	t.Run("start-run-missing-workflow", func(t *testing.T) {
+		t.Parallel()
 		rec := doGlueRequest(t, h, "StartWorkflowRun", map[string]any{"Name": "no-wf"})
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
@@ -402,58 +407,47 @@ func TestBatch3_Workflow_GetRunAndProperties(t *testing.T) {
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
 	runID := startOut["RunId"].(string)
 
-	t.Run("get-workflow-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "GetWorkflowRun", map[string]any{"Name": "wf-props", "RunId": runID})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		run := out["Run"].(map[string]any)
-		assert.Equal(t, runID, run["WorkflowRunId"])
-	})
+	getRunRec := doGlueRequest(t, h, "GetWorkflowRun", map[string]any{"Name": "wf-props", "RunId": runID})
+	require.Equal(t, http.StatusOK, getRunRec.Code)
+	var getRunOut map[string]any
+	require.NoError(t, json.Unmarshal(getRunRec.Body.Bytes(), &getRunOut))
+	run := getRunOut["Run"].(map[string]any)
+	assert.Equal(t, runID, run["WorkflowRunId"])
 
-	t.Run("get-workflow-runs", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "GetWorkflowRuns", map[string]any{"Name": "wf-props"})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		runs := out["Runs"].([]any)
-		assert.Len(t, runs, 1)
-	})
+	getRunsRec := doGlueRequest(t, h, "GetWorkflowRuns", map[string]any{"Name": "wf-props"})
+	require.Equal(t, http.StatusOK, getRunsRec.Code)
+	var getRunsOut map[string]any
+	require.NoError(t, json.Unmarshal(getRunsRec.Body.Bytes(), &getRunsOut))
+	runs := getRunsOut["Runs"].([]any)
+	assert.Len(t, runs, 1)
 
-	t.Run("put-workflow-run-properties", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "PutWorkflowRunProperties", map[string]any{
-			"Name":          "wf-props",
-			"RunId":         runID,
-			"RunProperties": map[string]any{"key1": "val1", "key2": "val2"},
-		})
-		assert.Equal(t, http.StatusOK, rec.Code)
+	putPropsRec := doGlueRequest(t, h, "PutWorkflowRunProperties", map[string]any{
+		"Name":          "wf-props",
+		"RunId":         runID,
+		"RunProperties": map[string]any{"key1": "val1", "key2": "val2"},
 	})
+	assert.Equal(t, http.StatusOK, putPropsRec.Code)
 
-	t.Run("get-workflow-run-properties", func(t *testing.T) {
-		doGlueRequest(t, h, "PutWorkflowRunProperties", map[string]any{
-			"Name":          "wf-props",
-			"RunId":         runID,
-			"RunProperties": map[string]any{"env": "staging"},
-		})
-
-		rec := doGlueRequest(t, h, "GetWorkflowRunProperties", map[string]any{
-			"Name":  "wf-props",
-			"RunId": runID,
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		props := out["RunProperties"].(map[string]any)
-		assert.Equal(t, "staging", props["env"])
+	doGlueRequest(t, h, "PutWorkflowRunProperties", map[string]any{
+		"Name":          "wf-props",
+		"RunId":         runID,
+		"RunProperties": map[string]any{"env": "staging"},
 	})
-
-	t.Run("stop-workflow-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "StopWorkflowRun", map[string]any{
-			"Name":  "wf-props",
-			"RunId": runID,
-		})
-		assert.Equal(t, http.StatusOK, rec.Code)
+	getPropsRec := doGlueRequest(t, h, "GetWorkflowRunProperties", map[string]any{
+		"Name":  "wf-props",
+		"RunId": runID,
 	})
+	require.Equal(t, http.StatusOK, getPropsRec.Code)
+	var getPropsOut map[string]any
+	require.NoError(t, json.Unmarshal(getPropsRec.Body.Bytes(), &getPropsOut))
+	props := getPropsOut["RunProperties"].(map[string]any)
+	assert.Equal(t, "staging", props["env"])
+
+	stopRunRec := doGlueRequest(t, h, "StopWorkflowRun", map[string]any{
+		"Name":  "wf-props",
+		"RunId": runID,
+	})
+	assert.Equal(t, http.StatusOK, stopRunRec.Code)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -573,39 +567,46 @@ func TestBatch3_MLTransform_TaskRunStubs(t *testing.T) {
 	h := newTestHandler(t)
 
 	t.Run("get-ml-task-run", func(t *testing.T) {
+		t.Parallel()
 		rec := doGlueRequest(t, h, "GetMLTaskRun", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 		assert.Contains(t, rec.Body.String(), "SUCCEEDED")
 	})
 
 	t.Run("get-ml-task-runs", func(t *testing.T) {
+		t.Parallel()
 		rec := doGlueRequest(t, h, "GetMLTaskRuns", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 		assert.Contains(t, rec.Body.String(), "TaskRuns")
 	})
 
 	t.Run("start-export-labels-task-run", func(t *testing.T) {
+		t.Parallel()
 		rec := doGlueRequest(t, h, "StartExportLabelsTaskRun", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 		assert.Contains(t, rec.Body.String(), "TaskRunId")
 	})
 
 	t.Run("start-import-labels-task-run", func(t *testing.T) {
+		t.Parallel()
 		rec := doGlueRequest(t, h, "StartImportLabelsTaskRun", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 	})
 
 	t.Run("start-ml-evaluation-task-run", func(t *testing.T) {
+		t.Parallel()
 		rec := doGlueRequest(t, h, "StartMLEvaluationTaskRun", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 	})
 
 	t.Run("start-ml-labeling-set-generation-task-run", func(t *testing.T) {
+		t.Parallel()
 		rec := doGlueRequest(t, h, "StartMLLabelingSetGenerationTaskRun", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 	})
 
 	t.Run("cancel-ml-task-run", func(t *testing.T) {
+		t.Parallel()
 		rec := doGlueRequest(t, h, "CancelMLTaskRun", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 	})
@@ -773,20 +774,16 @@ func TestBatch3_DataQuality_EvaluationRun_GetAndCancel(t *testing.T) {
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
 	runID := startOut["RunId"].(string)
 
-	t.Run("get-eval-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "GetDataQualityRulesetEvaluationRun", map[string]any{"RunId": runID})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		run, ok := out["DataQualityEvaluationRun"].(map[string]any)
-		require.True(t, ok, "expected DataQualityEvaluationRun field in response")
-		assert.Equal(t, "RUNNING", run["Status"])
-	})
+	getEvalRec := doGlueRequest(t, h, "GetDataQualityRulesetEvaluationRun", map[string]any{"RunId": runID})
+	require.Equal(t, http.StatusOK, getEvalRec.Code)
+	var getEvalOut map[string]any
+	require.NoError(t, json.Unmarshal(getEvalRec.Body.Bytes(), &getEvalOut))
+	evalRun, ok := getEvalOut["DataQualityEvaluationRun"].(map[string]any)
+	require.True(t, ok, "expected DataQualityEvaluationRun field in response")
+	assert.Equal(t, "RUNNING", evalRun["Status"])
 
-	t.Run("cancel-eval-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "CancelDataQualityRulesetEvaluationRun", map[string]any{"RunId": runID})
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
+	cancelEvalRec := doGlueRequest(t, h, "CancelDataQualityRulesetEvaluationRun", map[string]any{"RunId": runID})
+	assert.Equal(t, http.StatusOK, cancelEvalRec.Code)
 }
 
 func TestBatch3_DataQuality_RuleRecommendationRun(t *testing.T) {
@@ -794,13 +791,11 @@ func TestBatch3_DataQuality_RuleRecommendationRun(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	t.Run("start-recommendation-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "StartDataQualityRuleRecommendationRun", map[string]any{
-			"DataSource": map[string]any{"GlueTable": map[string]any{"DatabaseName": "db", "TableName": "t"}},
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), "RunId")
+	startRec1 := doGlueRequest(t, h, "StartDataQualityRuleRecommendationRun", map[string]any{
+		"DataSource": map[string]any{"GlueTable": map[string]any{"DatabaseName": "db", "TableName": "t"}},
 	})
+	require.Equal(t, http.StatusOK, startRec1.Code)
+	assert.Contains(t, startRec1.Body.String(), "RunId")
 
 	startRec := doGlueRequest(t, h, "StartDataQualityRuleRecommendationRun", map[string]any{})
 	require.Equal(t, http.StatusOK, startRec.Code)
@@ -808,24 +803,18 @@ func TestBatch3_DataQuality_RuleRecommendationRun(t *testing.T) {
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
 	runID := startOut["RunId"].(string)
 
-	t.Run("get-recommendation-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "GetDataQualityRuleRecommendationRun", map[string]any{"RunId": runID})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		assert.NotEmpty(t, out["RunId"])
-	})
+	getRecommendRec := doGlueRequest(t, h, "GetDataQualityRuleRecommendationRun", map[string]any{"RunId": runID})
+	require.Equal(t, http.StatusOK, getRecommendRec.Code)
+	var getRecommendOut map[string]any
+	require.NoError(t, json.Unmarshal(getRecommendRec.Body.Bytes(), &getRecommendOut))
+	assert.NotEmpty(t, getRecommendOut["RunId"])
 
-	t.Run("list-recommendation-runs", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "ListDataQualityRuleRecommendationRuns", map[string]any{})
-		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), "Runs")
-	})
+	listRecommendRec := doGlueRequest(t, h, "ListDataQualityRuleRecommendationRuns", map[string]any{})
+	require.Equal(t, http.StatusOK, listRecommendRec.Code)
+	assert.Contains(t, listRecommendRec.Body.String(), "Runs")
 
-	t.Run("cancel-recommendation-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "CancelDataQualityRuleRecommendationRun", map[string]any{"RunId": runID})
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
+	cancelRecommendRec := doGlueRequest(t, h, "CancelDataQualityRuleRecommendationRun", map[string]any{"RunId": runID})
+	assert.Equal(t, http.StatusOK, cancelRecommendRec.Code)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1013,46 +1002,38 @@ func TestBatch3_SchemaRegistry_SchemaVersion_CRUD(t *testing.T) {
 
 	avroDefinition := `{"type":"record","name":"Test","fields":[{"name":"id","type":"int"}]}`
 
-	t.Run("register-schema-version", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "RegisterSchemaVersion", map[string]any{
-			"SchemaId":         map[string]any{"RegistryName": "svr", "SchemaName": "sv-schema"},
-			"SchemaDefinition": avroDefinition,
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		assert.NotEmpty(t, out["SchemaVersionId"])
+	registerRec := doGlueRequest(t, h, "RegisterSchemaVersion", map[string]any{
+		"SchemaId":         map[string]any{"RegistryName": "svr", "SchemaName": "sv-schema"},
+		"SchemaDefinition": avroDefinition,
 	})
+	require.Equal(t, http.StatusOK, registerRec.Code)
+	var registerOut map[string]any
+	require.NoError(t, json.Unmarshal(registerRec.Body.Bytes(), &registerOut))
+	assert.NotEmpty(t, registerOut["SchemaVersionId"])
 
-	t.Run("get-schema-version", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "GetSchemaVersion", map[string]any{
-			"SchemaId":            map[string]any{"RegistryName": "svr", "SchemaName": "sv-schema"},
-			"SchemaVersionNumber": map[string]any{"VersionNumber": 1},
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		assert.EqualValues(t, 1, out["VersionNumber"])
+	getSchemaVersionRec := doGlueRequest(t, h, "GetSchemaVersion", map[string]any{
+		"SchemaId":            map[string]any{"RegistryName": "svr", "SchemaName": "sv-schema"},
+		"SchemaVersionNumber": map[string]any{"VersionNumber": 1},
 	})
+	require.Equal(t, http.StatusOK, getSchemaVersionRec.Code)
+	var getSchemaVersionOut map[string]any
+	require.NoError(t, json.Unmarshal(getSchemaVersionRec.Body.Bytes(), &getSchemaVersionOut))
+	assert.EqualValues(t, 1, getSchemaVersionOut["VersionNumber"])
 
-	t.Run("list-schema-versions", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "ListSchemaVersions", map[string]any{
-			"SchemaId": map[string]any{"RegistryName": "svr", "SchemaName": "sv-schema"},
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), "SchemaVersions")
+	listSchemaVersionsRec := doGlueRequest(t, h, "ListSchemaVersions", map[string]any{
+		"SchemaId": map[string]any{"RegistryName": "svr", "SchemaName": "sv-schema"},
 	})
+	require.Equal(t, http.StatusOK, listSchemaVersionsRec.Code)
+	assert.Contains(t, listSchemaVersionsRec.Body.String(), "SchemaVersions")
 
-	t.Run("check-schema-version-validity", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "CheckSchemaVersionValidity", map[string]any{
-			"DataFormat":       "AVRO",
-			"SchemaDefinition": avroDefinition,
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		assert.True(t, out["Valid"].(bool))
+	checkValidityRec := doGlueRequest(t, h, "CheckSchemaVersionValidity", map[string]any{
+		"DataFormat":       "AVRO",
+		"SchemaDefinition": avroDefinition,
 	})
+	require.Equal(t, http.StatusOK, checkValidityRec.Code)
+	var checkValidityOut map[string]any
+	require.NoError(t, json.Unmarshal(checkValidityRec.Body.Bytes(), &checkValidityOut))
+	assert.True(t, checkValidityOut["Valid"].(bool))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1233,38 +1214,31 @@ func TestBatch3_Blueprint_Run_Lifecycle(t *testing.T) {
 	h := newTestHandler(t)
 	doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": "bp-run"})
 
-	t.Run("start-blueprint-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{"BlueprintName": "bp-run"})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		assert.NotEmpty(t, out["RunId"])
-	})
+	startBpRec1 := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{"BlueprintName": "bp-run"})
+	require.Equal(t, http.StatusOK, startBpRec1.Code)
+	var startBpOut1 map[string]any
+	require.NoError(t, json.Unmarshal(startBpRec1.Body.Bytes(), &startBpOut1))
+	assert.NotEmpty(t, startBpOut1["RunId"])
 
-	// Start a run and retrieve it.
 	startRec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{"BlueprintName": "bp-run"})
 	require.Equal(t, http.StatusOK, startRec.Code)
 	var startOut map[string]any
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
 	runID := startOut["RunId"].(string)
 
-	t.Run("get-blueprint-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "GetBlueprintRun", map[string]any{
-			"BlueprintName": "bp-run",
-			"RunId":         runID,
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), runID)
+	getBpRunRec := doGlueRequest(t, h, "GetBlueprintRun", map[string]any{
+		"BlueprintName": "bp-run",
+		"RunId":         runID,
 	})
+	require.Equal(t, http.StatusOK, getBpRunRec.Code)
+	assert.Contains(t, getBpRunRec.Body.String(), runID)
 
-	t.Run("get-blueprint-runs", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "GetBlueprintRuns", map[string]any{"BlueprintName": "bp-run"})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		runs := out["Runs"].([]any)
-		assert.GreaterOrEqual(t, len(runs), 1)
-	})
+	getBpRunsRec := doGlueRequest(t, h, "GetBlueprintRuns", map[string]any{"BlueprintName": "bp-run"})
+	require.Equal(t, http.StatusOK, getBpRunsRec.Code)
+	var getBpRunsOut map[string]any
+	require.NoError(t, json.Unmarshal(getBpRunsRec.Body.Bytes(), &getBpRunsOut))
+	bpRuns := getBpRunsOut["Runs"].([]any)
+	assert.GreaterOrEqual(t, len(bpRuns), 1)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1490,83 +1464,71 @@ func TestBatch3_ColumnStatisticsTaskSettings(t *testing.T) {
 		"TableInput":   map[string]any{"Name": "csttbl"},
 	})
 
-	t.Run("create-col-stats-task-settings", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "CreateColumnStatisticsTaskSettings", map[string]any{
-			"DatabaseName":   "cstdb",
-			"TableName":      "csttbl",
-			"RoleArn":        "arn:aws:iam::123456789012:role/GlueRole",
-			"ColumnNameList": []string{"col1", "col2"},
-		})
-		assert.Equal(t, http.StatusOK, rec.Code)
+	createCSTRec := doGlueRequest(t, h, "CreateColumnStatisticsTaskSettings", map[string]any{
+		"DatabaseName":   "cstdb",
+		"TableName":      "csttbl",
+		"RoleArn":        "arn:aws:iam::123456789012:role/GlueRole",
+		"ColumnNameList": []string{"col1", "col2"},
 	})
+	assert.Equal(t, http.StatusOK, createCSTRec.Code)
 
-	t.Run("get-col-stats-task-settings", func(t *testing.T) {
-		doGlueRequest(t, h, "CreateColumnStatisticsTaskSettings", map[string]any{
-			"DatabaseName": "cstdb",
-			"TableName":    "csttbl",
-			"RoleArn":      "arn:aws:iam::123456789012:role/GlueRole",
-		})
-		rec := doGlueRequest(t, h, "GetColumnStatisticsTaskSettings", map[string]any{
-			"DatabaseName": "cstdb",
-			"TableName":    "csttbl",
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), "ColumnStatisticsTaskSettings")
+	doGlueRequest(t, h, "CreateColumnStatisticsTaskSettings", map[string]any{
+		"DatabaseName": "cstdb",
+		"TableName":    "csttbl",
+		"RoleArn":      "arn:aws:iam::123456789012:role/GlueRole",
 	})
-
-	t.Run("start-col-stats-task-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
-			"DatabaseName": "cstdb",
-			"TableName":    "csttbl",
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		assert.NotEmpty(t, out["ColumnStatisticsTaskRunId"])
+	getCSTRec := doGlueRequest(t, h, "GetColumnStatisticsTaskSettings", map[string]any{
+		"DatabaseName": "cstdb",
+		"TableName":    "csttbl",
 	})
+	require.Equal(t, http.StatusOK, getCSTRec.Code)
+	assert.Contains(t, getCSTRec.Body.String(), "ColumnStatisticsTaskSettings")
 
-	t.Run("list-col-stats-task-runs", func(t *testing.T) {
-		doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
-			"DatabaseName": "cstdb",
-			"TableName":    "csttbl",
-		})
-		rec := doGlueRequest(t, h, "ListColumnStatisticsTaskRuns", map[string]any{})
-		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), "ColumnStatisticsTaskRunIds")
+	startCSTRec := doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
+		"DatabaseName": "cstdb",
+		"TableName":    "csttbl",
 	})
+	require.Equal(t, http.StatusOK, startCSTRec.Code)
+	var startCSTOut map[string]any
+	require.NoError(t, json.Unmarshal(startCSTRec.Body.Bytes(), &startCSTOut))
+	assert.NotEmpty(t, startCSTOut["ColumnStatisticsTaskRunId"])
 
-	t.Run("get-and-stop-col-stats-task-run", func(t *testing.T) {
-		startRec := doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
-			"DatabaseName": "cstdb",
-			"TableName":    "csttbl",
-		})
-		require.Equal(t, http.StatusOK, startRec.Code)
-		var startOut map[string]any
-		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
-		runID := startOut["ColumnStatisticsTaskRunId"].(string)
-
-		getRec := doGlueRequest(t, h, "GetColumnStatisticsTaskRun", map[string]any{
-			"ColumnStatisticsTaskRunId": runID,
-		})
-		require.Equal(t, http.StatusOK, getRec.Code)
-
-		stopRec := doGlueRequest(t, h, "StopColumnStatisticsTaskRun", map[string]any{
-			"ColumnStatisticsTaskRunId": runID,
-		})
-		assert.Equal(t, http.StatusOK, stopRec.Code)
+	doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
+		"DatabaseName": "cstdb",
+		"TableName":    "csttbl",
 	})
+	listCSTRec := doGlueRequest(t, h, "ListColumnStatisticsTaskRuns", map[string]any{})
+	require.Equal(t, http.StatusOK, listCSTRec.Code)
+	assert.Contains(t, listCSTRec.Body.String(), "ColumnStatisticsTaskRunIds")
 
-	t.Run("delete-col-stats-task-settings", func(t *testing.T) {
-		doGlueRequest(t, h, "CreateColumnStatisticsTaskSettings", map[string]any{
-			"DatabaseName": "cstdb",
-			"TableName":    "csttbl",
-		})
-		rec := doGlueRequest(t, h, "DeleteColumnStatisticsTaskSettings", map[string]any{
-			"DatabaseName": "cstdb",
-			"TableName":    "csttbl",
-		})
-		assert.Equal(t, http.StatusOK, rec.Code)
+	startCSTRec2 := doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
+		"DatabaseName": "cstdb",
+		"TableName":    "csttbl",
 	})
+	require.Equal(t, http.StatusOK, startCSTRec2.Code)
+	var startCSTOut2 map[string]any
+	require.NoError(t, json.Unmarshal(startCSTRec2.Body.Bytes(), &startCSTOut2))
+	cstRunID := startCSTOut2["ColumnStatisticsTaskRunId"].(string)
+
+	getCSTRunRec := doGlueRequest(t, h, "GetColumnStatisticsTaskRun", map[string]any{
+		"ColumnStatisticsTaskRunId": cstRunID,
+	})
+	require.Equal(t, http.StatusOK, getCSTRunRec.Code)
+
+	stopCSTRec := doGlueRequest(t, h, "StopColumnStatisticsTaskRun", map[string]any{
+		"ColumnStatisticsTaskRunId": cstRunID,
+	})
+	assert.Equal(t, http.StatusOK, stopCSTRec.Code)
+
+	doGlueRequest(t, h, "CreateColumnStatisticsTaskSettings", map[string]any{
+		"DatabaseName": "cstdb",
+		"TableName":    "csttbl",
+	})
+	deleteCSTRec := doGlueRequest(t, h, "DeleteColumnStatisticsTaskSettings", map[string]any{
+		"DatabaseName": "cstdb",
+		"TableName":    "csttbl",
+	})
+	assert.Equal(t, http.StatusOK, deleteCSTRec.Code)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1751,45 +1713,20 @@ func TestBatch3_Crawler_Schedule(t *testing.T) {
 		"Role": "arn:aws:iam::123:role/R",
 	})
 
-	tests := []struct {
-		body     map[string]any
-		name     string
-		op       string
-		wantCode int
-	}{
-		{
-			name: "update-schedule",
-			op:   "UpdateCrawlerSchedule",
-			body: map[string]any{"CrawlerName": "cr-sched", "Schedule": "cron(0 0 * * ? *)"},
-		},
-		{
-			name: "start-schedule",
-			op:   "StartCrawlerSchedule",
-			body: map[string]any{"CrawlerName": "cr-sched"},
-		},
-		{
-			name: "stop-schedule",
-			op:   "StopCrawlerSchedule",
-			body: map[string]any{"CrawlerName": "cr-sched"},
-		},
-		{
-			name:     "get-crawler-metrics",
-			op:       "GetCrawlerMetrics",
-			body:     map[string]any{"CrawlerNameList": []string{"cr-sched"}},
-			wantCode: http.StatusOK,
-		},
-	}
+	updateSchedRec := doGlueRequest(t, h, "UpdateCrawlerSchedule", map[string]any{
+		"CrawlerName": "cr-sched",
+		"Schedule":    "cron(0 0 * * ? *)",
+	})
+	assert.Equal(t, http.StatusOK, updateSchedRec.Code)
 
-	for _, tt := range tests {
-		wantCode := tt.wantCode
-		if wantCode == 0 {
-			wantCode = http.StatusOK
-		}
-		t.Run(tt.name, func(t *testing.T) {
-			rec := doGlueRequest(t, h, tt.op, tt.body)
-			assert.Equal(t, wantCode, rec.Code)
-		})
-	}
+	startSchedRec := doGlueRequest(t, h, "StartCrawlerSchedule", map[string]any{"CrawlerName": "cr-sched"})
+	assert.Equal(t, http.StatusOK, startSchedRec.Code)
+
+	stopSchedRec := doGlueRequest(t, h, "StopCrawlerSchedule", map[string]any{"CrawlerName": "cr-sched"})
+	assert.Equal(t, http.StatusOK, stopSchedRec.Code)
+
+	metricsRec := doGlueRequest(t, h, "GetCrawlerMetrics", map[string]any{"CrawlerNameList": []string{"cr-sched"}})
+	assert.Equal(t, http.StatusOK, metricsRec.Code)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1887,28 +1824,34 @@ func TestBatch3_Classifier_CRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-
 			t.Run("create", func(t *testing.T) {
-				rec := doGlueRequest(t, h, "CreateClassifier", tt.createBody)
+				t.Parallel()
+				h2 := newTestHandler(t)
+				rec := doGlueRequest(t, h2, "CreateClassifier", tt.createBody)
 				assert.Equal(t, tt.wantCode, rec.Code)
 			})
 
 			t.Run("get", func(t *testing.T) {
-				doGlueRequest(t, h, "CreateClassifier", tt.createBody)
-				rec := doGlueRequest(t, h, "GetClassifier", map[string]any{"Name": tt.getName})
+				t.Parallel()
+				h2 := newTestHandler(t)
+				doGlueRequest(t, h2, "CreateClassifier", tt.createBody)
+				rec := doGlueRequest(t, h2, "GetClassifier", map[string]any{"Name": tt.getName})
 				assert.Equal(t, tt.wantCode, rec.Code)
 			})
 
 			t.Run("update", func(t *testing.T) {
-				doGlueRequest(t, h, "CreateClassifier", tt.createBody)
-				rec := doGlueRequest(t, h, "UpdateClassifier", tt.updateBody)
+				t.Parallel()
+				h2 := newTestHandler(t)
+				doGlueRequest(t, h2, "CreateClassifier", tt.createBody)
+				rec := doGlueRequest(t, h2, "UpdateClassifier", tt.updateBody)
 				assert.Equal(t, tt.wantCode, rec.Code)
 			})
 
 			t.Run("delete", func(t *testing.T) {
-				doGlueRequest(t, h, "CreateClassifier", tt.createBody)
-				rec := doGlueRequest(t, h, "DeleteClassifier", map[string]any{"Name": tt.getName})
+				t.Parallel()
+				h2 := newTestHandler(t)
+				doGlueRequest(t, h2, "CreateClassifier", tt.createBody)
+				rec := doGlueRequest(t, h2, "DeleteClassifier", map[string]any{"Name": tt.getName})
 				assert.Equal(t, tt.wantCode, rec.Code)
 			})
 		})
@@ -2310,13 +2253,11 @@ func TestBatch3_MaterializedViewRefreshTaskRun(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	t.Run("start-refresh-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "StartMaterializedViewRefreshTaskRun", map[string]any{})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		assert.NotEmpty(t, out["RunId"])
-	})
+	startRefreshRec1 := doGlueRequest(t, h, "StartMaterializedViewRefreshTaskRun", map[string]any{})
+	require.Equal(t, http.StatusOK, startRefreshRec1.Code)
+	var startRefreshOut1 map[string]any
+	require.NoError(t, json.Unmarshal(startRefreshRec1.Body.Bytes(), &startRefreshOut1))
+	assert.NotEmpty(t, startRefreshOut1["RunId"])
 
 	startRec := doGlueRequest(t, h, "StartMaterializedViewRefreshTaskRun", map[string]any{})
 	require.Equal(t, http.StatusOK, startRec.Code)
@@ -2324,21 +2265,15 @@ func TestBatch3_MaterializedViewRefreshTaskRun(t *testing.T) {
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
 	runID := startOut["RunId"].(string)
 
-	t.Run("get-refresh-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "GetMaterializedViewRefreshTaskRun", map[string]any{})
-		require.Equal(t, http.StatusOK, rec.Code)
-	})
+	getRefreshRec := doGlueRequest(t, h, "GetMaterializedViewRefreshTaskRun", map[string]any{})
+	require.Equal(t, http.StatusOK, getRefreshRec.Code)
 
-	t.Run("list-refresh-runs", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "ListMaterializedViewRefreshTaskRuns", map[string]any{})
-		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), "Runs")
-	})
+	listRefreshRec := doGlueRequest(t, h, "ListMaterializedViewRefreshTaskRuns", map[string]any{})
+	require.Equal(t, http.StatusOK, listRefreshRec.Code)
+	assert.Contains(t, listRefreshRec.Body.String(), "Runs")
 
-	t.Run("stop-refresh-run", func(t *testing.T) {
-		rec := doGlueRequest(t, h, "StopMaterializedViewRefreshTaskRun", map[string]any{"RunId": runID})
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
+	stopRefreshRec := doGlueRequest(t, h, "StopMaterializedViewRefreshTaskRun", map[string]any{"RunId": runID})
+	assert.Equal(t, http.StatusOK, stopRefreshRec.Code)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
