@@ -456,8 +456,8 @@ func validateWeeklyMaintenanceWindowStart(value string) error {
 	days := map[string]struct{}{
 		"MON": {}, "TUE": {}, "WED": {}, "THU": {}, "FRI": {}, "SAT": {}, "SUN": {},
 	}
-	if _, ok := days[strings.ToUpper(parts[0])]; !ok {
-		return fmt.Errorf("%w: WeeklyMaintenanceWindowStart day must be MON-SUN, got %q", ErrInvalidParameter, parts[0])
+	if _, ok := days[parts[0]]; !ok {
+		return fmt.Errorf("%w: WeeklyMaintenanceWindowStart day must be MON-SUN (uppercase), got %q", ErrInvalidParameter, parts[0])
 	}
 
 	hh, err := strconv.Atoi(parts[1])
