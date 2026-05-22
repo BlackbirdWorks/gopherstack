@@ -888,8 +888,8 @@ func TestAudit1b_ServiceAccess_MultiService(t *testing.T) {
 	tests := []struct {
 		name     string
 		disable  string
-		wantLeft int
 		services []string
+		wantLeft int
 	}{
 		{
 			name:     "enable_one",
@@ -980,22 +980,19 @@ func TestAudit1b_ServiceAccess_SortedOutput(t *testing.T) {
 }
 
 // TestAudit1b_ServiceAccess_Handler tests the HTTP handler for service access operations.
+// TestAudit1b_ServiceAccess_Handler tests enable → disable → list as a sequential flow.
 func TestAudit1b_ServiceAccess_Handler(t *testing.T) {
 	t.Parallel()
 
+	const svc = "cloudtrail.amazonaws.com"
+
 	h, _ := newHandlerWithOrg(t)
 
-	// enable_service
-	t.Run("enable_service", func(t *testing.T) {
-		rec := doRequest(t, h, "EnableAWSServiceAccess", map[string]any{"ServicePrincipal": "cloudtrail.amazonaws.com"})
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
+	enableRec := doRequest(t, h, "EnableAWSServiceAccess", map[string]any{"ServicePrincipal": svc})
+	require.Equal(t, http.StatusOK, enableRec.Code)
 
-	// disable_service (depends on enable above)
-	t.Run("disable_service", func(t *testing.T) {
-		rec := doRequest(t, h, "DisableAWSServiceAccess", map[string]any{"ServicePrincipal": "cloudtrail.amazonaws.com"})
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
+	disableRec := doRequest(t, h, "DisableAWSServiceAccess", map[string]any{"ServicePrincipal": svc})
+	require.Equal(t, http.StatusOK, disableRec.Code)
 
 	listRec := doRequest(t, h, "ListAWSServiceAccessForOrganization", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
@@ -1018,8 +1015,8 @@ func TestAudit1b_DelegatedAdmin_MultiService(t *testing.T) {
 	tests := []struct {
 		name     string
 		filter   string
-		wantLen  int
 		services []string
+		wantLen  int
 	}{
 		{
 			name:     "single_service",
@@ -1074,9 +1071,9 @@ func TestAudit1b_DelegatedAdmin_ListServices(t *testing.T) {
 
 	tests := []struct {
 		name         string
+		registerSvcs []string
 		wantSvcCount int
 		wantSorted   bool
-		registerSvcs []string
 	}{
 		{
 			name:         "no_delegations",
@@ -1132,12 +1129,12 @@ func TestAudit1b_DelegatedAdmin_ErrorCases(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup     func(b *organizations.InMemoryBackend, accountID string)
 		name      string
 		op        string // "register", "deregister"
 		accountID string
 		service   string
 		wantErr   bool
-		setup     func(b *organizations.InMemoryBackend, accountID string)
 	}{
 		{
 			name:      "register_unknown_account",
@@ -1322,11 +1319,11 @@ func TestAudit1b_ResourcePolicy_Handler(t *testing.T) {
 	const content = `{"Version":"2012-10-17","Statement":[]}`
 
 	tests := []struct {
+		body       map[string]any
 		name       string
 		op         string
 		wantStatus int
 		needRP     bool
-		body       map[string]any
 	}{
 		{
 			name:       "put_resource_policy",
@@ -1388,10 +1385,10 @@ func TestAudit1b_Handler_PolicyErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       map[string]any
 		name       string
 		op         string
 		wantStatus int
-		body       map[string]any
 	}{
 		{
 			name:       "create_policy_missing_name",
@@ -1442,10 +1439,10 @@ func TestAudit1b_Handler_OUErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       map[string]any
 		name       string
 		op         string
 		wantStatus int
-		body       map[string]any
 	}{
 		{
 			name:       "create_ou_missing_name",
@@ -1484,10 +1481,10 @@ func TestAudit1b_Handler_AccountErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       map[string]any
 		name       string
 		op         string
 		wantStatus int
-		body       map[string]any
 	}{
 		{
 			name:       "describe_account_not_found",
@@ -1536,10 +1533,10 @@ func TestAudit1b_Handler_HandshakeErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       map[string]any
 		name       string
 		op         string
 		wantStatus int
-		body       map[string]any
 	}{
 		{
 			name:       "accept_not_found",
