@@ -1230,6 +1230,7 @@ func (rc *ResourceCreator) deletePipesPipe(arn string) error {
 	name := resourceNameFromARN(arn)
 
 	_, err := rc.backends.Pipes.Backend.DeletePipe(name)
+
 	return err
 }
 
