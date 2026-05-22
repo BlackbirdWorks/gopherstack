@@ -150,18 +150,18 @@ func TestAudit_Lifecycle_CreatingToRunning(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		desiredState     string
+		name              string
+		desiredState      string
 		wantEventualState string
 	}{
 		{
-			name:             "running_desired_transitions_to_running",
-			desiredState:     "RUNNING",
+			name:              "running_desired_transitions_to_running",
+			desiredState:      "RUNNING",
 			wantEventualState: "RUNNING",
 		},
 		{
-			name:             "stopped_desired_transitions_to_stopped",
-			desiredState:     "STOPPED",
+			name:              "stopped_desired_transitions_to_stopped",
+			desiredState:      "STOPPED",
 			wantEventualState: "STOPPED",
 		},
 	}
@@ -364,14 +364,14 @@ func TestAudit_SourceParams_Kinesis(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                    string
-		startingPosition        string
-		batchSize               int
-		maxRetryAttempts        int
-		maxRecordAgeSeconds     int
-		onPartialBatchFailure   string
-		parallelizationFactor   int
-		dlqArn                  string
+		name                  string
+		startingPosition      string
+		batchSize             int
+		maxRetryAttempts      int
+		maxRecordAgeSeconds   int
+		onPartialBatchFailure string
+		parallelizationFactor int
+		dlqArn                string
 	}{
 		{
 			name:             "at_sequence_number",
@@ -877,10 +877,10 @@ func TestAudit_TargetParams_EventBridgeEventBus(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		source      string
-		detailType  string
-		endpointId  string
+		name       string
+		source     string
+		detailType string
+		endpointId string
 	}{
 		{
 			name:       "basic_event_bus",
@@ -1100,22 +1100,22 @@ func TestAudit_TargetParams_ECS(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
+		name              string
 		taskDefinitionArn string
-		launchType       string
-		taskCount        int
+		launchType        string
+		taskCount         int
 	}{
 		{
-			name:             "fargate_task",
+			name:              "fargate_task",
 			taskDefinitionArn: "arn:aws:ecs:us-west-2:123456789012:task-definition/my-task:1",
-			launchType:       "FARGATE",
-			taskCount:        1,
+			launchType:        "FARGATE",
+			taskCount:         1,
 		},
 		{
-			name:             "ec2_task_multi",
+			name:              "ec2_task_multi",
 			taskDefinitionArn: "arn:aws:ecs:us-west-2:123456789012:task-definition/batch-task:2",
-			launchType:       "EC2",
-			taskCount:        5,
+			launchType:        "EC2",
+			taskCount:         5,
 		},
 	}
 
@@ -1235,13 +1235,13 @@ func TestAudit_LogConfiguration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                 string
-		logLevel             string
+		name                  string
+		logLevel              string
 		cloudwatchLogGroupArn string
-		firehoseStreamArn    string
-		s3BucketName         string
-		s3Prefix             string
-		includeExecutionData []string
+		firehoseStreamArn     string
+		s3BucketName          string
+		s3Prefix              string
+		includeExecutionData  []string
 	}{
 		{
 			name:                  "cloudwatch_logs",
@@ -1836,10 +1836,13 @@ func TestAudit_Errors(t *testing.T) {
 		wantType   string
 	}{
 		{
-			name:       "create_duplicate_pipe_returns_409",
-			method:     http.MethodPost,
-			path:       "/v1/pipes/dup-pipe",
-			body:       map[string]any{"Source": "arn:aws:sqs:us-west-2:123456789012:q", "Target": "arn:aws:lambda:us-west-2:123456789012:function:fn"},
+			name:   "create_duplicate_pipe_returns_409",
+			method: http.MethodPost,
+			path:   "/v1/pipes/dup-pipe",
+			body: map[string]any{
+				"Source": "arn:aws:sqs:us-west-2:123456789012:q",
+				"Target": "arn:aws:lambda:us-west-2:123456789012:function:fn",
+			},
 			wantStatus: http.StatusConflict,
 			wantType:   "ConflictException",
 			setup: func(t *testing.T, h *pipes.Handler) {
@@ -1938,9 +1941,9 @@ func TestAudit_MarkPipeFailed(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		failState   string
-		failReason  string
+		name       string
+		failState  string
+		failReason string
 	}{
 		{
 			name:       "create_failed",
@@ -1987,9 +1990,9 @@ func TestAudit_BatchSize_EffectiveFromAllSources(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		sourceParams     *pipes.SourceParameters
-		wantEffectiveBS  int
+		name            string
+		sourceParams    *pipes.SourceParameters
+		wantEffectiveBS int
 	}{
 		{
 			name: "sqs_batch_size",
@@ -2093,9 +2096,9 @@ func TestAudit_EnrichmentParameters_Update(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		initialTemplate   string
-		updatedTemplate   string
+		name            string
+		initialTemplate string
+		updatedTemplate string
 	}{
 		{
 			name:            "add_enrichment_params",

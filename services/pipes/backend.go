@@ -206,11 +206,11 @@ type BatchRetryStrategy struct {
 
 // BatchJobTargetParameters holds Batch job target configuration.
 type BatchJobTargetParameters struct {
-	JobDefinition   string               `json:"JobDefinition,omitempty"`
-	JobName         string               `json:"JobName,omitempty"`
+	JobDefinition   string                `json:"JobDefinition,omitempty"`
+	JobName         string                `json:"JobName,omitempty"`
 	ArrayProperties *BatchArrayProperties `json:"ArrayProperties,omitempty"`
-	RetryStrategy   *BatchRetryStrategy  `json:"RetryStrategy,omitempty"`
-	Parameters      map[string]string    `json:"Parameters,omitempty"`
+	RetryStrategy   *BatchRetryStrategy   `json:"RetryStrategy,omitempty"`
+	Parameters      map[string]string     `json:"Parameters,omitempty"`
 }
 
 // ECSTaskTargetParameters holds ECS task target configuration.
@@ -310,153 +310,171 @@ type Pipe struct {
 	Name                 string                `json:"name"`
 }
 
+func sourceBatchSize(sp *SourceParameters) int {
+	switch {
+	case sp.SqsQueueParameters != nil && sp.SqsQueueParameters.BatchSize > 0:
+		return sp.SqsQueueParameters.BatchSize
+	case sp.KinesisStreamParameters != nil && sp.KinesisStreamParameters.BatchSize > 0:
+		return sp.KinesisStreamParameters.BatchSize
+	case sp.DynamoDBStreamParameters != nil && sp.DynamoDBStreamParameters.BatchSize > 0:
+		return sp.DynamoDBStreamParameters.BatchSize
+	case sp.ManagedStreamingKafkaParameters != nil && sp.ManagedStreamingKafkaParameters.BatchSize > 0:
+		return sp.ManagedStreamingKafkaParameters.BatchSize
+	case sp.SelfManagedKafkaParameters != nil && sp.SelfManagedKafkaParameters.BatchSize > 0:
+		return sp.SelfManagedKafkaParameters.BatchSize
+	case sp.RabbitMQBrokerParameters != nil && sp.RabbitMQBrokerParameters.BatchSize > 0:
+		return sp.RabbitMQBrokerParameters.BatchSize
+	case sp.ActiveMQBrokerParameters != nil && sp.ActiveMQBrokerParameters.BatchSize > 0:
+		return sp.ActiveMQBrokerParameters.BatchSize
+	}
+
+	return 0
+}
+
 func (p *Pipe) effectiveBatchSize() int {
-	if sp := p.SourceParameters; sp != nil {
-		if sp.SqsQueueParameters != nil && sp.SqsQueueParameters.BatchSize > 0 {
-			return sp.SqsQueueParameters.BatchSize
-		}
-		if sp.KinesisStreamParameters != nil && sp.KinesisStreamParameters.BatchSize > 0 {
-			return sp.KinesisStreamParameters.BatchSize
-		}
-		if sp.DynamoDBStreamParameters != nil && sp.DynamoDBStreamParameters.BatchSize > 0 {
-			return sp.DynamoDBStreamParameters.BatchSize
-		}
-		if sp.ManagedStreamingKafkaParameters != nil && sp.ManagedStreamingKafkaParameters.BatchSize > 0 {
-			return sp.ManagedStreamingKafkaParameters.BatchSize
-		}
-		if sp.SelfManagedKafkaParameters != nil && sp.SelfManagedKafkaParameters.BatchSize > 0 {
-			return sp.SelfManagedKafkaParameters.BatchSize
-		}
-		if sp.RabbitMQBrokerParameters != nil && sp.RabbitMQBrokerParameters.BatchSize > 0 {
-			return sp.RabbitMQBrokerParameters.BatchSize
-		}
-		if sp.ActiveMQBrokerParameters != nil && sp.ActiveMQBrokerParameters.BatchSize > 0 {
-			return sp.ActiveMQBrokerParameters.BatchSize
+	if p.SourceParameters != nil {
+		if bs := sourceBatchSize(p.SourceParameters); bs > 0 {
+			return bs
 		}
 	}
 
 	return pipeDefaultBatchSize
 }
 
+func cloneSourceParameters(src *SourceParameters) *SourceParameters {
+	sp := *src
+	if src.FilterCriteria != nil {
+		fc := *src.FilterCriteria
+		fc.Filters = append([]Filter(nil), src.FilterCriteria.Filters...)
+		sp.FilterCriteria = &fc
+	}
+	if src.SqsQueueParameters != nil {
+		v := *src.SqsQueueParameters
+		sp.SqsQueueParameters = &v
+	}
+	if src.KinesisStreamParameters != nil {
+		v := *src.KinesisStreamParameters
+		if v.DeadLetterConfig != nil {
+			dlc := *v.DeadLetterConfig
+			v.DeadLetterConfig = &dlc
+		}
+		sp.KinesisStreamParameters = &v
+	}
+	if src.DynamoDBStreamParameters != nil {
+		v := *src.DynamoDBStreamParameters
+		if v.DeadLetterConfig != nil {
+			dlc := *v.DeadLetterConfig
+			v.DeadLetterConfig = &dlc
+		}
+		sp.DynamoDBStreamParameters = &v
+	}
+	if src.ManagedStreamingKafkaParameters != nil {
+		v := *src.ManagedStreamingKafkaParameters
+		sp.ManagedStreamingKafkaParameters = &v
+	}
+	if src.SelfManagedKafkaParameters != nil {
+		v := *src.SelfManagedKafkaParameters
+		v.AdditionalBootstrapServers = append([]string(nil), src.SelfManagedKafkaParameters.AdditionalBootstrapServers...)
+		sp.SelfManagedKafkaParameters = &v
+	}
+	if src.RabbitMQBrokerParameters != nil {
+		v := *src.RabbitMQBrokerParameters
+		sp.RabbitMQBrokerParameters = &v
+	}
+	if src.ActiveMQBrokerParameters != nil {
+		v := *src.ActiveMQBrokerParameters
+		sp.ActiveMQBrokerParameters = &v
+	}
+
+	return &sp
+}
+
+func cloneTargetParameters(src *TargetParameters) *TargetParameters {
+	tp := *src
+	if src.LambdaFunctionParameters != nil {
+		v := *src.LambdaFunctionParameters
+		tp.LambdaFunctionParameters = &v
+	}
+	if src.StepFunctionStateMachineParameters != nil {
+		v := *src.StepFunctionStateMachineParameters
+		tp.StepFunctionStateMachineParameters = &v
+	}
+	if src.SqsQueueParameters != nil {
+		v := *src.SqsQueueParameters
+		tp.SqsQueueParameters = &v
+	}
+	if src.KinesisStreamParameters != nil {
+		v := *src.KinesisStreamParameters
+		tp.KinesisStreamParameters = &v
+	}
+	if src.CloudWatchLogsParameters != nil {
+		v := *src.CloudWatchLogsParameters
+		tp.CloudWatchLogsParameters = &v
+	}
+	if src.EventBridgeEventBusParameters != nil {
+		v := *src.EventBridgeEventBusParameters
+		v.Resources = append([]string(nil), src.EventBridgeEventBusParameters.Resources...)
+		tp.EventBridgeEventBusParameters = &v
+	}
+	if src.RedshiftDataParameters != nil {
+		v := *src.RedshiftDataParameters
+		v.Sqls = append([]string(nil), src.RedshiftDataParameters.Sqls...)
+		tp.RedshiftDataParameters = &v
+	}
+	if src.SageMakerPipelineParameters != nil {
+		v := *src.SageMakerPipelineParameters
+		v.PipelineParameterList = append([]SageMakerPipelineParameter(nil), src.SageMakerPipelineParameters.PipelineParameterList...)
+		tp.SageMakerPipelineParameters = &v
+	}
+	if src.BatchJobParameters != nil {
+		v := *src.BatchJobParameters
+		if v.ArrayProperties != nil {
+			ap := *v.ArrayProperties
+			v.ArrayProperties = &ap
+		}
+		if v.RetryStrategy != nil {
+			rs := *v.RetryStrategy
+			v.RetryStrategy = &rs
+		}
+		v.Parameters = maps.Clone(src.BatchJobParameters.Parameters)
+		tp.BatchJobParameters = &v
+	}
+	if src.EcsTaskParameters != nil {
+		v := *src.EcsTaskParameters
+		tp.EcsTaskParameters = &v
+	}
+
+	return &tp
+}
+
+func cloneEnrichmentParameters(src *EnrichmentParameters) *EnrichmentParameters {
+	ep := *src
+	if src.HttpParameters != nil {
+		hp := *src.HttpParameters
+		hp.HeaderParameters = maps.Clone(src.HttpParameters.HeaderParameters)
+		hp.PathParameterValues = append([]string(nil), src.HttpParameters.PathParameterValues...)
+		hp.QueryStringParameters = maps.Clone(src.HttpParameters.QueryStringParameters)
+		ep.HttpParameters = &hp
+	}
+
+	return &ep
+}
+
 func clonePipe(p *Pipe) *Pipe {
 	cp := *p
 	cp.Tags = maps.Clone(p.Tags)
 	if p.SourceParameters != nil {
-		sp := *p.SourceParameters
-		if p.SourceParameters.FilterCriteria != nil {
-			fc := *p.SourceParameters.FilterCriteria
-			fc.Filters = append([]Filter(nil), p.SourceParameters.FilterCriteria.Filters...)
-			sp.FilterCriteria = &fc
-		}
-		if p.SourceParameters.SqsQueueParameters != nil {
-			v := *p.SourceParameters.SqsQueueParameters
-			sp.SqsQueueParameters = &v
-		}
-		if p.SourceParameters.KinesisStreamParameters != nil {
-			v := *p.SourceParameters.KinesisStreamParameters
-			if v.DeadLetterConfig != nil {
-				dlc := *v.DeadLetterConfig
-				v.DeadLetterConfig = &dlc
-			}
-			sp.KinesisStreamParameters = &v
-		}
-		if p.SourceParameters.DynamoDBStreamParameters != nil {
-			v := *p.SourceParameters.DynamoDBStreamParameters
-			if v.DeadLetterConfig != nil {
-				dlc := *v.DeadLetterConfig
-				v.DeadLetterConfig = &dlc
-			}
-			sp.DynamoDBStreamParameters = &v
-		}
-		if p.SourceParameters.ManagedStreamingKafkaParameters != nil {
-			v := *p.SourceParameters.ManagedStreamingKafkaParameters
-			sp.ManagedStreamingKafkaParameters = &v
-		}
-		if p.SourceParameters.SelfManagedKafkaParameters != nil {
-			v := *p.SourceParameters.SelfManagedKafkaParameters
-			v.AdditionalBootstrapServers = append([]string(nil), p.SourceParameters.SelfManagedKafkaParameters.AdditionalBootstrapServers...)
-			sp.SelfManagedKafkaParameters = &v
-		}
-		if p.SourceParameters.RabbitMQBrokerParameters != nil {
-			v := *p.SourceParameters.RabbitMQBrokerParameters
-			sp.RabbitMQBrokerParameters = &v
-		}
-		if p.SourceParameters.ActiveMQBrokerParameters != nil {
-			v := *p.SourceParameters.ActiveMQBrokerParameters
-			sp.ActiveMQBrokerParameters = &v
-		}
-		cp.SourceParameters = &sp
+		cp.SourceParameters = cloneSourceParameters(p.SourceParameters)
 	}
 	if p.TargetParameters != nil {
-		tp := *p.TargetParameters
-		if p.TargetParameters.LambdaFunctionParameters != nil {
-			v := *p.TargetParameters.LambdaFunctionParameters
-			tp.LambdaFunctionParameters = &v
-		}
-		if p.TargetParameters.StepFunctionStateMachineParameters != nil {
-			v := *p.TargetParameters.StepFunctionStateMachineParameters
-			tp.StepFunctionStateMachineParameters = &v
-		}
-		if p.TargetParameters.SqsQueueParameters != nil {
-			v := *p.TargetParameters.SqsQueueParameters
-			tp.SqsQueueParameters = &v
-		}
-		if p.TargetParameters.KinesisStreamParameters != nil {
-			v := *p.TargetParameters.KinesisStreamParameters
-			tp.KinesisStreamParameters = &v
-		}
-		if p.TargetParameters.CloudWatchLogsParameters != nil {
-			v := *p.TargetParameters.CloudWatchLogsParameters
-			tp.CloudWatchLogsParameters = &v
-		}
-		if p.TargetParameters.EventBridgeEventBusParameters != nil {
-			v := *p.TargetParameters.EventBridgeEventBusParameters
-			v.Resources = append([]string(nil), p.TargetParameters.EventBridgeEventBusParameters.Resources...)
-			tp.EventBridgeEventBusParameters = &v
-		}
-		if p.TargetParameters.RedshiftDataParameters != nil {
-			v := *p.TargetParameters.RedshiftDataParameters
-			v.Sqls = append([]string(nil), p.TargetParameters.RedshiftDataParameters.Sqls...)
-			tp.RedshiftDataParameters = &v
-		}
-		if p.TargetParameters.SageMakerPipelineParameters != nil {
-			v := *p.TargetParameters.SageMakerPipelineParameters
-			v.PipelineParameterList = append([]SageMakerPipelineParameter(nil), p.TargetParameters.SageMakerPipelineParameters.PipelineParameterList...)
-			tp.SageMakerPipelineParameters = &v
-		}
-		if p.TargetParameters.BatchJobParameters != nil {
-			v := *p.TargetParameters.BatchJobParameters
-			if v.ArrayProperties != nil {
-				ap := *v.ArrayProperties
-				v.ArrayProperties = &ap
-			}
-			if v.RetryStrategy != nil {
-				rs := *v.RetryStrategy
-				v.RetryStrategy = &rs
-			}
-			v.Parameters = maps.Clone(p.TargetParameters.BatchJobParameters.Parameters)
-			tp.BatchJobParameters = &v
-		}
-		if p.TargetParameters.EcsTaskParameters != nil {
-			v := *p.TargetParameters.EcsTaskParameters
-			tp.EcsTaskParameters = &v
-		}
-		cp.TargetParameters = &tp
+		cp.TargetParameters = cloneTargetParameters(p.TargetParameters)
 	}
 	if p.DeadLetterConfig != nil {
 		dlc := *p.DeadLetterConfig
 		cp.DeadLetterConfig = &dlc
 	}
 	if p.EnrichmentParameters != nil {
-		ep := *p.EnrichmentParameters
-		if p.EnrichmentParameters.HttpParameters != nil {
-			hp := *p.EnrichmentParameters.HttpParameters
-			hp.HeaderParameters = maps.Clone(p.EnrichmentParameters.HttpParameters.HeaderParameters)
-			hp.PathParameterValues = append([]string(nil), p.EnrichmentParameters.HttpParameters.PathParameterValues...)
-			hp.QueryStringParameters = maps.Clone(p.EnrichmentParameters.HttpParameters.QueryStringParameters)
-			ep.HttpParameters = &hp
-		}
-		cp.EnrichmentParameters = &ep
+		cp.EnrichmentParameters = cloneEnrichmentParameters(p.EnrichmentParameters)
 	}
 	if p.LogConfiguration != nil {
 		lc := *p.LogConfiguration
