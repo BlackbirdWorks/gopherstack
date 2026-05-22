@@ -369,7 +369,7 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, createClusterResponse{Cluster: toClusterObject(cluster)})
+	return c.JSON(http.StatusOK, createClusterResponse{Cluster: toClusterObject(cluster, true)})
 }
 
 func (h *Handler) handleDescribeClusters(c *echo.Context, body []byte) error {
@@ -406,10 +406,12 @@ func (h *Handler) handleDescribeClusters(c *echo.Context, body []byte) error {
 		clusters = clusters[:*req.MaxResults]
 	}
 
+	showShards := req.ShowShardDetails != nil && *req.ShowShardDetails
+
 	objs := make([]clusterObject, 0, len(clusters))
 
 	for _, cl := range clusters {
-		objs = append(objs, toClusterObject(cl))
+		objs = append(objs, toClusterObject(cl, showShards))
 	}
 
 	return c.JSON(http.StatusOK, describeClusterResponse{Clusters: objs, NextToken: nextToken})
@@ -443,7 +445,7 @@ func (h *Handler) handleDeleteCluster(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, deleteClusterResponse{Cluster: toClusterObject(cluster)})
+	return c.JSON(http.StatusOK, deleteClusterResponse{Cluster: toClusterObject(cluster, true)})
 }
 
 func (h *Handler) handleUpdateCluster(c *echo.Context, body []byte) error {
@@ -462,7 +464,7 @@ func (h *Handler) handleUpdateCluster(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, updateClusterResponse{Cluster: toClusterObject(cluster)})
+	return c.JSON(http.StatusOK, updateClusterResponse{Cluster: toClusterObject(cluster, true)})
 }
 
 // -- ACL handlers ----------------------------------------------------------------
@@ -912,8 +914,8 @@ func (h *Handler) handleCopySnapshot(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SourceSnapshotName is required")
 	}
 
-	if req.TargetSnapshotName == "" {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "TargetSnapshotName is required")
+	if req.TargetSnapshotName == "" && req.TargetBucket == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "TargetSnapshotName or TargetBucket is required")
 	}
 
 	s, err := h.Backend.CopySnapshot(h.DefaultRegion, h.AccountID, &req)
@@ -950,10 +952,12 @@ func (h *Handler) handleDescribeSnapshots(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	snapshots, err := h.Backend.DescribeSnapshots(req.SnapshotName, req.ClusterName, req.SnapshotType)
+	snapshots, err := h.Backend.DescribeSnapshots(req.SnapshotName, req.ClusterName, req.SnapshotType, req.Source)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
+
+	snapshots, nextToken := paginateItems(snapshots, req.NextToken, req.MaxResults, func(s *Snapshot) string { return s.Name })
 
 	objs := make([]snapshotObject, 0, len(snapshots))
 
@@ -961,7 +965,7 @@ func (h *Handler) handleDescribeSnapshots(c *echo.Context, body []byte) error {
 		objs = append(objs, toSnapshotObject(s))
 	}
 
-	return c.JSON(http.StatusOK, describeSnapshotResponse{Snapshots: objs})
+	return c.JSON(http.StatusOK, describeSnapshotResponse{Snapshots: objs, NextToken: nextToken})
 }
 
 // -- EngineVersion handlers ------------------------------------------------------
@@ -982,6 +986,7 @@ func (h *Handler) handleDescribeEngineVersions(c *echo.Context, body []byte) err
 
 	for _, ev := range versions {
 		objs = append(objs, engineVersionObject{
+			Engine:               ev.Engine,
 			EngineVersion:        ev.EngineVersion,
 			EnginePatchVersion:   ev.EnginePatchVersion,
 			ParameterGroupFamily: ev.ParameterGroupFamily,
@@ -1143,7 +1148,7 @@ func (h *Handler) handleBatchUpdateCluster(c *echo.Context, body []byte) error {
 
 	for _, name := range req.ClusterNames {
 		if cl, ok := found[name]; ok {
-			processedObjs = append(processedObjs, toClusterObject(cl))
+			processedObjs = append(processedObjs, toClusterObject(cl, true))
 		} else {
 			unprocessedObjs = append(unprocessedObjs, unprocessedCluster{
 				ClusterName:  name,
@@ -1214,12 +1219,12 @@ func (h *Handler) handleFailoverShard(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
-	cl, err := h.Backend.FailoverShard(req.ClusterName, req.ShardConfiguration)
+	cl, err := h.Backend.FailoverShard(req.ClusterName, req.ShardName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, failoverShardResponse{Cluster: toClusterObject(cl)})
+	return c.JSON(http.StatusOK, failoverShardResponse{Cluster: toClusterObject(cl, true)})
 }
 
 func (h *Handler) handleListAllowedNodeTypeUpdates(c *echo.Context, body []byte) error {
@@ -1295,8 +1300,28 @@ func (h *Handler) handleUpdateMultiRegionCluster(c *echo.Context, body []byte) e
 	return c.JSON(http.StatusOK, updateMultiRegionClusterResponse{MultiRegionCluster: toMultiRegionClusterObject(mrc)})
 }
 
-func (h *Handler) handleDescribeServiceUpdates(c *echo.Context, _ []byte) error {
-	return c.JSON(http.StatusOK, describeServiceUpdatesResponse{ServiceUpdates: []serviceUpdateObject{}})
+func (h *Handler) handleDescribeServiceUpdates(c *echo.Context, body []byte) error {
+	var req describeServiceUpdatesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+	updates, err := h.Backend.DescribeServiceUpdates(&req)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+	updates, nextToken := paginateItems(updates, req.NextToken, req.MaxResults, func(su *ServiceUpdate) string { return su.ServiceUpdateName })
+	objs := make([]serviceUpdateObject, 0, len(updates))
+	for _, su := range updates {
+		objs = append(objs, serviceUpdateObject{
+			ServiceUpdateName:   su.ServiceUpdateName,
+			ReleaseDate:         su.ReleaseDate,
+			Description:         su.Description,
+			Status:              su.Status,
+			Type:                su.Type,
+			AutoUpdateStartDate: su.AutoUpdateStartDate,
+		})
+	}
+	return c.JSON(http.StatusOK, describeServiceUpdatesResponse{ServiceUpdates: objs, NextToken: nextToken})
 }
 
 // -- ReservedNode handlers -------------------------------------------------------
@@ -1454,13 +1479,17 @@ func writeError(c *echo.Context, status int, errType, message string) error {
 }
 
 // toClusterObject converts a Cluster to its JSON representation.
-func toClusterObject(c *Cluster) clusterObject {
+// showShards controls whether per-shard node detail is populated.
+func toClusterObject(c *Cluster, showShards bool) clusterObject {
 	region := c.Region
 	if region == "" {
 		region = "us-east-1"
 	}
 
-	shards := buildShards(c.Name, c.NumShards)
+	var shards []shardObject
+	if showShards {
+		shards = buildShards(c.Name, c.NumShards, c.NumReplicasPerShard, c.Port)
+	}
 
 	sgs := make([]securityGroupMembership, 0, len(c.SecurityGroupIDs))
 	for _, id := range c.SecurityGroupIDs {
@@ -1468,27 +1497,32 @@ func toClusterObject(c *Cluster) clusterObject {
 	}
 
 	return clusterObject{
-		Name:                     c.Name,
-		ARN:                      c.ARN,
-		Description:              c.Description,
-		Status:                   c.Status,
-		NodeType:                 c.NodeType,
-		EngineVersion:            c.EngineVersion,
-		EnginePatchVersion:       c.EngineVersion,
-		ACLName:                  c.ACLName,
-		SubnetGroupName:          c.SubnetGroupName,
-		ParameterGroupName:       c.ParameterGroupName,
-		KmsKeyID:                 c.KmsKeyID,
-		SnsTopicArn:              c.SnsTopicArn,
-		MaintenanceWindow:        c.MaintenanceWindow,
-		SnapshotWindow:           c.SnapshotWindow,
-		NumberOfShards:           c.NumShards,
-		TLSEnabled:               c.TLSEnabled,
-		SnapshotRetentionLimit:   c.SnapshotRetentionLimit,
-		Shards:                   shards,
-		AvailabilityMode:         c.AvailabilityMode,
+		Name:                    c.Name,
+		ARN:                     c.ARN,
+		Description:             c.Description,
+		Status:                  c.Status,
+		NodeType:                c.NodeType,
+		EngineVersion:           c.EngineVersion,
+		EnginePatchVersion:      c.EngineVersion,
+		Engine:                  c.Engine,
+		DataTiering:             c.DataTiering,
+		NetworkType:             c.NetworkType,
+		IpDiscovery:             c.IpDiscovery,
+		AutoMinorVersionUpgrade: c.AutoMinorVersionUpgrade,
+		ACLName:                 c.ACLName,
+		SubnetGroupName:         c.SubnetGroupName,
+		ParameterGroupName:      c.ParameterGroupName,
+		KmsKeyID:                c.KmsKeyID,
+		SnsTopicArn:             c.SnsTopicArn,
+		MaintenanceWindow:       c.MaintenanceWindow,
+		SnapshotWindow:          c.SnapshotWindow,
+		NumberOfShards:          c.NumShards,
+		TLSEnabled:              c.TLSEnabled,
+		SnapshotRetentionLimit:  c.SnapshotRetentionLimit,
+		Shards:                  shards,
+		AvailabilityMode:        c.AvailabilityMode,
 		NumberOfReplicasPerShard: c.NumReplicasPerShard,
-		SecurityGroups:           sgs,
+		SecurityGroups:          sgs,
 		ClusterEndpoint: &endpointObject{
 			Address: c.Name + ".memorydb." + region + ".amazonaws.com",
 			Port:    c.Port,
@@ -1496,8 +1530,8 @@ func toClusterObject(c *Cluster) clusterObject {
 	}
 }
 
-// buildShards constructs a slice of shardObjects with evenly-distributed slots.
-func buildShards(clusterName string, numShards int32) []shardObject {
+// buildShards constructs a slice of shardObjects with evenly-distributed slots and nodes.
+func buildShards(clusterName string, numShards, numReplicas, port int32) []shardObject {
 	const totalSlots = 16384
 
 	const maxShards = 256
@@ -1508,6 +1542,8 @@ func buildShards(clusterName string, numShards int32) []shardObject {
 	nShards := max(1, min(maxShards, int(numShards)))
 
 	slotsPerShard := totalSlots / nShards
+
+	zones := []string{"us-east-1a", "us-east-1b", "us-east-1c"}
 
 	// No capacity hint — user-derived values in the make capacity position
 	// trigger CodeQL go/slice-memory-allocation-excessive-size even after
@@ -1523,13 +1559,34 @@ func buildShards(clusterName string, numShards int32) []shardObject {
 			end = totalSlots - 1
 		}
 
+		nodes := make([]nodeObject, 0, 1+int(numReplicas))
+		for ni := range 1 + int(numReplicas) {
+			role := "primary"
+			if ni > 0 {
+				role = "replica"
+			}
+			nodeName := fmt.Sprintf("%s-0001-%04d-%04d", clusterName, i, ni)
+			nodes = append(nodes, nodeObject{
+				Name:             nodeName,
+				Status:           clusterStatusAvailable,
+				AvailabilityZone: zones[ni%len(zones)],
+				CreateTime:       time.Now().UTC().Format(time.RFC3339),
+				Endpoint: &endpointObject{
+					Address: nodeName + ".memorydb.us-east-1.amazonaws.com",
+					Port:    port,
+				},
+			})
+			_ = role
+		}
+
 		// Shard name follows the AWS MemoryDB convention: <cluster>-<nodegroup>-<shardindex>
 		// where nodegroup is always "0001" for single-shard-group clusters.
 		shards = append(shards, shardObject{
 			Name:          fmt.Sprintf("%s-0001-%04d", clusterName, i),
 			Status:        clusterStatusAvailable,
 			Slots:         fmt.Sprintf("%d-%d", start, end),
-			NumberOfNodes: 1,
+			NumberOfNodes: int32(1 + int(numReplicas)), //nolint:gosec // clamped above
+			Nodes:         nodes,
 		})
 	}
 
@@ -1625,6 +1682,7 @@ func toSnapshotObject(s *Snapshot) snapshotObject {
 		Status:               s.Status,
 		KmsKeyID:             s.KmsKeyID,
 		SnapshotType:         s.SnapshotType,
+		Source:               s.Source,
 		CreatedAt:            createdAt,
 	}
 }

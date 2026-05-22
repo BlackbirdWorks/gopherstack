@@ -198,7 +198,7 @@ type StorageBackend interface {
 
 	// Snapshot operations
 	CreateSnapshot(region, accountID string, req *createSnapshotRequest) (*Snapshot, error)
-	DescribeSnapshots(name, clusterName, snapshotType string) ([]*Snapshot, error)
+	DescribeSnapshots(name, clusterName, snapshotType, source string) ([]*Snapshot, error)
 	CopySnapshot(region, accountID string, req *copySnapshotRequest) (*Snapshot, error)
 	DeleteSnapshot(name string) (*Snapshot, error)
 
@@ -245,6 +245,9 @@ type StorageBackend interface {
 	// MultiRegionParameters operations
 	DescribeMultiRegionParameters(parameterGroupName string) (map[string]string, error)
 
+	// ServiceUpdates operations
+	DescribeServiceUpdates(req *describeServiceUpdatesRequest) ([]*ServiceUpdate, error)
+
 	// Lifecycle
 	Reset()
 	Snapshot() []byte
@@ -262,6 +265,7 @@ type InMemoryBackend struct {
 	clusters                   map[string]*Cluster
 	multiRegionParameterGroups map[string]*MultiRegionParameterGroup
 	reservedNodes              map[string]*ReservedNode
+	serviceUpdates             map[string]*ServiceUpdate
 	arnToResource              map[string]resourceRef
 	accountID                  string
 	region                     string
@@ -292,6 +296,7 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 		multiRegionClusters:        make(map[string]*MultiRegionCluster),
 		multiRegionParameterGroups: make(map[string]*MultiRegionParameterGroup),
 		reservedNodes:              make(map[string]*ReservedNode),
+		serviceUpdates:             make(map[string]*ServiceUpdate),
 		events:                     []*Event{},
 		arnToResource:              make(map[string]resourceRef),
 		accountID:                  accountID,
@@ -311,6 +316,24 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 	}
 	b.arnToResource[openAccessARN] = resourceRef{Kind: resourceKindACL, Name: openAccessACL}
 
+	// Seed service update fixtures.
+	b.serviceUpdates["memorydb-20240601-redis-security"] = &ServiceUpdate{
+		ServiceUpdateName:   "memorydb-20240601-redis-security",
+		ReleaseDate:         "2024-06-01",
+		Description:         "Security update for Redis 7.x clusters",
+		Status:              "available",
+		Type:                "security-update",
+		AutoUpdateStartDate: "2024-07-01",
+	}
+	b.serviceUpdates["memorydb-20240801-engine-update"] = &ServiceUpdate{
+		ServiceUpdateName:   "memorydb-20240801-engine-update",
+		ReleaseDate:         "2024-08-01",
+		Description:         "Engine update with performance improvements",
+		Status:              "available",
+		Type:                "engine-update",
+		AutoUpdateStartDate: "2024-09-01",
+	}
+
 	return b
 }
 
@@ -328,6 +351,7 @@ func (b *InMemoryBackend) Reset() {
 	b.multiRegionClusters = make(map[string]*MultiRegionCluster)
 	b.multiRegionParameterGroups = make(map[string]*MultiRegionParameterGroup)
 	b.reservedNodes = make(map[string]*ReservedNode)
+	b.serviceUpdates = make(map[string]*ServiceUpdate)
 	b.events = []*Event{}
 	b.arnToResource = make(map[string]resourceRef)
 
@@ -342,12 +366,31 @@ func (b *InMemoryBackend) Reset() {
 		Tags:      make(map[string]string),
 	}
 	b.arnToResource[openAccessARN] = resourceRef{Kind: resourceKindACL, Name: openAccessACL}
+
+	// Re-seed service update fixtures.
+	b.serviceUpdates["memorydb-20240601-redis-security"] = &ServiceUpdate{
+		ServiceUpdateName:   "memorydb-20240601-redis-security",
+		ReleaseDate:         "2024-06-01",
+		Description:         "Security update for Redis 7.x clusters",
+		Status:              "available",
+		Type:                "security-update",
+		AutoUpdateStartDate: "2024-07-01",
+	}
+	b.serviceUpdates["memorydb-20240801-engine-update"] = &ServiceUpdate{
+		ServiceUpdateName:   "memorydb-20240801-engine-update",
+		ReleaseDate:         "2024-08-01",
+		Description:         "Engine update with performance improvements",
+		Status:              "available",
+		Type:                "engine-update",
+		AutoUpdateStartDate: "2024-09-01",
+	}
 }
 
 // -- Cluster operations ----------------------------------------------------------
 
 // clusterDefaults holds resolved default values for a new cluster.
 type clusterDefaults struct {
+	engine        string
 	engineVersion string
 	nodeType      string
 	port          int32
@@ -359,7 +402,7 @@ type clusterDefaults struct {
 // isSupportedEngineVersion reports whether v is a supported MemoryDB engine version.
 func isSupportedEngineVersion(v string) bool {
 	switch v {
-	case "6.2", "7.0", "7.1", "7.2":
+	case "6.2", "7.0", "7.1", "7.2", "8.0":
 		return true
 	default:
 		return false
@@ -396,6 +439,7 @@ func (b *InMemoryBackend) validateCreateClusterRefs(req *createClusterRequest) (
 // resolveClusterDefaults fills in default values for optional cluster fields.
 func resolveClusterDefaults(req *createClusterRequest) (clusterDefaults, error) {
 	d := clusterDefaults{
+		engine:        req.Engine,
 		engineVersion: req.EngineVersion,
 		nodeType:      req.NodeType,
 		port:          defaultPort,
@@ -404,8 +448,20 @@ func resolveClusterDefaults(req *createClusterRequest) (clusterDefaults, error) 
 		tlsEnabled:    true,
 	}
 
+	if d.engine == "" {
+		d.engine = "redis"
+	}
+
+	if d.engine != "redis" && d.engine != "valkey" {
+		return d, fmt.Errorf("engine %q is not supported (must be redis or valkey): %w", d.engine, ErrValidation)
+	}
+
 	if d.engineVersion == "" {
-		d.engineVersion = defaultEngineVersion
+		if d.engine == "valkey" {
+			d.engineVersion = "7.2"
+		} else {
+			d.engineVersion = defaultEngineVersion
+		}
 	}
 
 	if !isSupportedEngineVersion(d.engineVersion) {
@@ -457,9 +513,34 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		return nil, err
 	}
 
+	// If restoring from snapshot, look it up and use its config.
+	var restoreSnap *Snapshot
+	if req.SnapshotName != "" {
+		s, ok := b.snapshots[req.SnapshotName]
+		if !ok {
+			return nil, fmt.Errorf("snapshot %q not found: %w", req.SnapshotName, ErrSnapshotNotFound)
+		}
+		restoreSnap = s
+	}
+
 	d, err := resolveClusterDefaults(req)
 	if err != nil {
 		return nil, err
+	}
+
+	if restoreSnap != nil {
+		if restoreSnap.ClusterConfiguration.EngineVersion != "" {
+			d.engineVersion = restoreSnap.ClusterConfiguration.EngineVersion
+		}
+		if restoreSnap.ClusterConfiguration.NodeType != "" {
+			d.nodeType = restoreSnap.ClusterConfiguration.NodeType
+		}
+		if restoreSnap.ClusterConfiguration.NumShards > 0 {
+			d.numShards = restoreSnap.ClusterConfiguration.NumShards
+		}
+		if restoreSnap.ClusterConfiguration.Port > 0 {
+			d.port = restoreSnap.ClusterConfiguration.Port
+		}
 	}
 
 	clusterARN := arn.Build("memorydb", region, accountID, "cluster/"+req.ClusterName)
@@ -470,6 +551,7 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		Description:         req.Description,
 		NodeType:            d.nodeType,
 		EngineVersion:       d.engineVersion,
+		Engine:              d.engine,
 		ACLName:             aclName,
 		SubnetGroupName:     req.SubnetGroupName,
 		ParameterGroupName:  req.ParameterGroupName,
@@ -486,6 +568,22 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		CreatedAt:           time.Now(),
 		Region:              region,
 		SecurityGroupIDs:    req.SecurityGroupIDs,
+		AutoMinorVersionUpgrade: req.AutoMinorVersionUpgrade == nil || *req.AutoMinorVersionUpgrade,
+	}
+
+	if req.DataTiering != nil && *req.DataTiering {
+		c.DataTiering = "true"
+	} else {
+		c.DataTiering = "false"
+	}
+
+	c.NetworkType = req.NetworkType
+	if c.NetworkType == "" {
+		c.NetworkType = "ipv4"
+	}
+	c.IpDiscovery = req.IpDiscovery
+	if c.IpDiscovery == "" {
+		c.IpDiscovery = "ipv4"
 	}
 
 	if req.SnapshotRetentionLimit != nil {
@@ -502,6 +600,40 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 
 	b.clusters[req.ClusterName] = c
 	b.arnToResource[clusterARN] = resourceRef{Kind: resourceKindCluster, Name: req.ClusterName}
+
+	// Emit cluster created event.
+	b.appendEventLocked(&Event{
+		Date:       time.Now(),
+		SourceName: req.ClusterName,
+		SourceType: "cluster",
+		Message:    "Cluster " + req.ClusterName + " created",
+	})
+
+	// Seed automated snapshot when retention limit > 0.
+	if c.SnapshotRetentionLimit > 0 {
+		autoName := "automatic." + req.ClusterName + "-" + time.Now().UTC().Format("20060102150405")
+		autoARN := arn.Build("memorydb", region, accountID, "snapshot/"+autoName)
+		autoSnap := &Snapshot{
+			Name:         autoName,
+			ARN:          autoARN,
+			ClusterName:  req.ClusterName,
+			Status:       snapshotStatusAvailable,
+			SnapshotType: "automated",
+			Source:       "automated",
+			Tags:         make(map[string]string),
+			CreatedAt:    time.Now(),
+			ClusterConfiguration: snapshotClusterConfig{
+				Name:          c.Name,
+				NodeType:      c.NodeType,
+				EngineVersion: c.EngineVersion,
+				Description:   c.Description,
+				Port:          c.Port,
+				NumShards:     c.NumShards,
+			},
+		}
+		b.snapshots[autoName] = autoSnap
+		b.arnToResource[autoARN] = resourceRef{Kind: resourceKindSnapshot, Name: autoName}
+	}
 
 	return cloneCluster(c), nil
 }
@@ -545,6 +677,13 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 
 	delete(b.clusters, name)
 	delete(b.arnToResource, c.ARN)
+
+	b.appendEventLocked(&Event{
+		Date:       time.Now(),
+		SourceName: name,
+		SourceType: "cluster",
+		Message:    "Cluster " + name + " deleted",
+	})
 
 	return cloneCluster(c), nil
 }
@@ -640,6 +779,25 @@ func (b *InMemoryBackend) UpdateCluster(req *updateClusterRequest) (*Cluster, er
 		c.NumShards = *req.ShardConfiguration.ShardCount
 	}
 
+	if req.AutoMinorVersionUpgrade != nil {
+		c.AutoMinorVersionUpgrade = *req.AutoMinorVersionUpgrade
+	}
+
+	if req.NetworkType != "" {
+		c.NetworkType = req.NetworkType
+	}
+
+	if req.IpDiscovery != "" {
+		c.IpDiscovery = req.IpDiscovery
+	}
+
+	b.appendEventLocked(&Event{
+		Date:       time.Now(),
+		SourceName: req.ClusterName,
+		SourceType: "cluster",
+		Message:    "Cluster " + req.ClusterName + " modified",
+	})
+
 	return cloneCluster(c), nil
 }
 
@@ -676,6 +834,13 @@ func (b *InMemoryBackend) CreateACL(region, accountID string, req *createACLRequ
 
 	b.acls[req.ACLName] = a
 	b.arnToResource[aclARN] = resourceRef{Kind: resourceKindACL, Name: req.ACLName}
+
+	b.appendEventLocked(&Event{
+		Date:       time.Now(),
+		SourceName: req.ACLName,
+		SourceType: "acl",
+		Message:    "ACL " + req.ACLName + " created",
+	})
 
 	return cloneACL(a), nil
 }
@@ -730,6 +895,13 @@ func (b *InMemoryBackend) DeleteACL(name string) (*ACL, error) {
 	delete(b.acls, name)
 	delete(b.arnToResource, a.ARN)
 
+	b.appendEventLocked(&Event{
+		Date:       time.Now(),
+		SourceName: name,
+		SourceType: "acl",
+		Message:    "ACL " + name + " deleted",
+	})
+
 	return a, nil
 }
 
@@ -781,6 +953,13 @@ func (b *InMemoryBackend) UpdateACL(req *updateACLRequest) (*ACL, error) {
 
 		a.UserNames = filtered
 	}
+
+	b.appendEventLocked(&Event{
+		Date:       time.Now(),
+		SourceName: req.ACLName,
+		SourceType: "acl",
+		Message:    "ACL " + req.ACLName + " modified",
+	})
 
 	return cloneACL(a), nil
 }
@@ -899,6 +1078,21 @@ func (b *InMemoryBackend) CreateUser(region, accountID string, req *createUserRe
 		return nil, ErrUserAlreadyExists
 	}
 
+	authType := strings.ToLower(req.AuthenticationMode.Type)
+	if authType == "" {
+		authType = "no-password-required"
+	}
+	// Normalize legacy alias.
+	if authType == "no-password" {
+		authType = "no-password-required"
+	}
+	if authType != "password" && authType != "iam" && authType != "no-password-required" {
+		return nil, fmt.Errorf("AuthenticationMode.Type must be password, iam, or no-password-required: %w", ErrValidation)
+	}
+	if authType == "iam" && len(req.AuthenticationMode.Passwords) > 0 {
+		return nil, fmt.Errorf("passwords cannot be set when AuthenticationMode.Type is iam: %w", ErrValidation)
+	}
+
 	userARN := arn.Build("memorydb", region, accountID, "user/"+req.UserName)
 
 	u := &User{
@@ -906,7 +1100,7 @@ func (b *InMemoryBackend) CreateUser(region, accountID string, req *createUserRe
 		ARN:          userARN,
 		AccessString: req.AccessString,
 		Status:       userStatusActive,
-		AuthType:     req.AuthenticationMode.Type,
+		AuthType:     authType,
 		Passwords:    req.AuthenticationMode.Passwords,
 		Tags:         tagsFromSlice(req.Tags),
 		CreatedAt:    time.Now(),
@@ -914,6 +1108,13 @@ func (b *InMemoryBackend) CreateUser(region, accountID string, req *createUserRe
 
 	b.users[req.UserName] = u
 	b.arnToResource[userARN] = resourceRef{Kind: resourceKindUser, Name: req.UserName}
+
+	b.appendEventLocked(&Event{
+		Date:       time.Now(),
+		SourceName: req.UserName,
+		SourceType: "user",
+		Message:    "User " + req.UserName + " created",
+	})
 
 	return cloneUser(u), nil
 }
@@ -1303,6 +1504,7 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 		Status:       snapshotStatusAvailable,
 		KmsKeyID:     req.KmsKeyID,
 		SnapshotType: snapshotSourceManual,
+		Source:       snapshotSourceManual,
 		Tags:         tagsFromSlice(req.Tags),
 		CreatedAt:    time.Now(),
 		ClusterConfiguration: snapshotClusterConfig{
@@ -1318,11 +1520,18 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 	b.snapshots[req.SnapshotName] = s
 	b.arnToResource[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: req.SnapshotName}
 
+	b.appendEventLocked(&Event{
+		Date:       time.Now(),
+		SourceName: req.SnapshotName,
+		SourceType: "snapshot",
+		Message:    "Snapshot " + req.SnapshotName + " created for cluster " + req.ClusterName,
+	})
+
 	return s, nil
 }
 
-// DescribeSnapshots returns snapshots, optionally filtered by name, cluster name, or snapshot type.
-func (b *InMemoryBackend) DescribeSnapshots(name, clusterName, snapshotType string) ([]*Snapshot, error) {
+// DescribeSnapshots returns snapshots, optionally filtered by name, cluster name, snapshot type, or source.
+func (b *InMemoryBackend) DescribeSnapshots(name, clusterName, snapshotType, source string) ([]*Snapshot, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1346,6 +1555,10 @@ func (b *InMemoryBackend) DescribeSnapshots(name, clusterName, snapshotType stri
 			continue
 		}
 
+		if source != "" && s.Source != source {
+			continue
+		}
+
 		result = append(result, cloneSnapshot(s))
 	}
 
@@ -1364,6 +1577,11 @@ func (b *InMemoryBackend) CopySnapshot(region, accountID string, req *copySnapsh
 	src, ok := b.snapshots[req.SourceSnapshotName]
 	if !ok {
 		return nil, ErrSnapshotNotFound
+	}
+
+	// When TargetBucket is set, we're exporting to S3 — just return the source snapshot.
+	if req.TargetBucket != "" {
+		return cloneSnapshot(src), nil
 	}
 
 	if _, exists := b.snapshots[req.TargetSnapshotName]; exists {
@@ -1416,6 +1634,13 @@ func (b *InMemoryBackend) DeleteSnapshot(name string) (*Snapshot, error) {
 	delete(b.snapshots, name)
 	delete(b.arnToResource, s.ARN)
 
+	b.appendEventLocked(&Event{
+		Date:       time.Now(),
+		SourceName: name,
+		SourceType: "snapshot",
+		Message:    "Snapshot " + name + " deleted",
+	})
+
 	return s, nil
 }
 
@@ -1424,24 +1649,11 @@ func (b *InMemoryBackend) DeleteSnapshot(name string) (*Snapshot, error) {
 // defaultEngineVersions returns the built-in list of supported engine versions.
 func defaultEngineVersions() []*EngineVersion {
 	return []*EngineVersion{
-		{
-			EngineVersion:        "7.1",
-			EnginePatchVersion:   "7.1.0",
-			ParameterGroupFamily: "memorydb_redis7",
-			Description:          "Redis 7.1",
-		},
-		{
-			EngineVersion:        "7.0",
-			EnginePatchVersion:   "7.0.7",
-			ParameterGroupFamily: "memorydb_redis7",
-			Description:          "Redis 7.0",
-		},
-		{
-			EngineVersion:        "6.2",
-			EnginePatchVersion:   "6.2.6",
-			ParameterGroupFamily: "memorydb_redis6",
-			Description:          "Redis 6.2",
-		},
+		{Engine: "valkey", EngineVersion: "8.0", EnginePatchVersion: "8.0.1", ParameterGroupFamily: "memorydb_valkey8", Description: "Valkey 8.0"},
+		{Engine: "valkey", EngineVersion: "7.2", EnginePatchVersion: "7.2.4", ParameterGroupFamily: "memorydb_valkey7", Description: "Valkey 7.2"},
+		{Engine: "redis", EngineVersion: "7.1", EnginePatchVersion: "7.1.0", ParameterGroupFamily: "memorydb_redis7", Description: "Redis 7.1"},
+		{Engine: "redis", EngineVersion: "7.0", EnginePatchVersion: "7.0.7", ParameterGroupFamily: "memorydb_redis7", Description: "Redis 7.0"},
+		{Engine: "redis", EngineVersion: "6.2", EnginePatchVersion: "6.2.6", ParameterGroupFamily: "memorydb_redis6", Description: "Redis 6.2"},
 	}
 }
 
@@ -1459,7 +1671,12 @@ func (b *InMemoryBackend) DescribeEngineVersions(req *describeEngineVersionsRequ
 			continue
 		}
 
-		result = append(result, ev)
+		if req.Engine != "" && ev.Engine != req.Engine {
+			continue
+		}
+
+		cp := *ev
+		result = append(result, &cp)
 	}
 
 	if req.DefaultOnly && len(result) > 0 {
@@ -1494,6 +1711,15 @@ func (b *InMemoryBackend) DescribeEvents(req *describeEventsRequest) ([]*Event, 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	var startTime *time.Time
+	if req.StartTime != nil {
+		startTime = req.StartTime
+	} else if req.Duration != nil {
+		t := time.Now().Add(-time.Duration(*req.Duration) * time.Minute)
+		startTime = &t
+	}
+	// if neither is set, startTime stays nil → no time filter applied
+
 	result := make([]*Event, 0, len(b.events))
 
 	for _, ev := range b.events {
@@ -1505,7 +1731,7 @@ func (b *InMemoryBackend) DescribeEvents(req *describeEventsRequest) ([]*Event, 
 			continue
 		}
 
-		if req.StartTime != nil && ev.Date.Before(*req.StartTime) {
+		if startTime != nil && ev.Date.Before(*startTime) {
 			continue
 		}
 
@@ -1513,10 +1739,16 @@ func (b *InMemoryBackend) DescribeEvents(req *describeEventsRequest) ([]*Event, 
 			continue
 		}
 
-		result = append(result, ev)
+		result = append(result, cloneEvent(ev))
 	}
 
 	return result, nil
+}
+
+// cloneEvent returns a shallow copy of an Event.
+func cloneEvent(e *Event) *Event {
+	cp := *e
+	return &cp
 }
 
 // -- MultiRegionCluster operations ----------------------------------------------
@@ -1705,14 +1937,26 @@ func (b *InMemoryBackend) ResetParameterGroup(name string) (*ParameterGroup, err
 // -- Shard operations -----------------------------------------------------------
 
 // FailoverShard simulates a shard failover for a cluster, returning the cluster state.
-func (b *InMemoryBackend) FailoverShard(clusterName, _ string) (*Cluster, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+func (b *InMemoryBackend) FailoverShard(clusterName, shardName string) (*Cluster, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	c, ok := b.clusters[clusterName]
 	if !ok {
 		return nil, ErrClusterNotFound
 	}
+
+	msg := "Failover initiated"
+	if shardName != "" {
+		msg = "Failover initiated for shard " + shardName
+	}
+
+	b.appendEventLocked(&Event{
+		Date:       time.Now(),
+		SourceName: clusterName,
+		SourceType: "cluster",
+		Message:    msg,
+	})
 
 	return cloneCluster(c), nil
 }
@@ -1869,10 +2113,29 @@ func (b *InMemoryBackend) DescribeReservedNodesOfferings(
 			continue
 		}
 
+		if req.Duration != "" {
+			dSec := parseDurationToSeconds(req.Duration)
+			if dSec > 0 && o.Duration != dSec {
+				continue
+			}
+		}
+
 		result = append(result, o)
 	}
 
 	return result, nil
+}
+
+// parseDurationToSeconds converts a duration string to seconds for reserved node filtering.
+func parseDurationToSeconds(d string) int32 {
+	switch d {
+	case "1", "31536000":
+		return reservedDuration1Year
+	case "3", "94608000":
+		return reservedDuration3Years
+	default:
+		return 0
+	}
 }
 
 // PurchaseReservedNodesOffering creates a new reserved node from an offering.
@@ -1957,6 +2220,40 @@ func (b *InMemoryBackend) DescribeMultiRegionParameters(parameterGroupName strin
 	}
 
 	return maps.Clone(mrpg.Parameters), nil
+}
+
+// DescribeServiceUpdates returns service updates, optionally filtered.
+func (b *InMemoryBackend) DescribeServiceUpdates(req *describeServiceUpdatesRequest) ([]*ServiceUpdate, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]*ServiceUpdate, 0, len(b.serviceUpdates))
+
+	for _, su := range b.serviceUpdates {
+		if req.ServiceUpdateName != "" && su.ServiceUpdateName != req.ServiceUpdateName {
+			continue
+		}
+		if len(req.Status) > 0 {
+			found := false
+			for _, s := range req.Status {
+				if su.Status == s {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+		cp := *su
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ServiceUpdateName < result[j].ServiceUpdateName
+	})
+
+	return result, nil
 }
 
 // tagsFromSlice converts []tagEntry to map[string]string.
