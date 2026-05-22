@@ -847,7 +847,18 @@ func (rc *ResourceCreator) createRoute53ResolverEndpoint(
 		direction = "INBOUND"
 	}
 
-	ep, err := rc.backends.Route53Resolver.Backend.CreateResolverEndpoint(name, direction, "", nil, nil, "", nil, "", "", "")
+	ep, err := rc.backends.Route53Resolver.Backend.CreateResolverEndpoint(
+		name,
+		direction,
+		"",
+		nil,
+		nil,
+		"",
+		nil,
+		"",
+		"",
+		"",
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Route53Resolver endpoint %s: %w", name, err)
 	}
