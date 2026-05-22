@@ -124,6 +124,7 @@ type Group struct {
 	GroupName   string    `json:"groupName"`
 	UserPoolID  string    `json:"userPoolId"`
 	Description string    `json:"description,omitempty"`
+	RoleArn     string    `json:"roleArn,omitempty"`
 	Precedence  int32     `json:"precedence"`
 }
 
@@ -173,9 +174,15 @@ type InMemoryBackend struct {
 	terms map[string]*Terms
 	// userImportJobs maps poolID → jobID → UserImportJob
 	userImportJobs map[string]map[string]*UserImportJob
-	accountID      string
-	region         string
-	endpoint       string
+	// poolMfaConfigs maps poolID → full MFA config (SMS/TOTP/Email sub-configs)
+	poolMfaConfigs map[string]*UserPoolMfaFullConfig
+	// attrVerificationCodes maps poolID+":"+username+":"+attrName → pending verification entry
+	attrVerificationCodes map[string]*attrVerificationEntry
+	// typedRiskConfigurations maps poolID+":"+clientID → typed risk configuration
+	typedRiskConfigurations map[string]*TypedRiskConfiguration
+	accountID               string
+	region                  string
+	endpoint                string
 }
 
 // refreshTokenEntry holds the pool/user context for a refresh token.
@@ -240,12 +247,15 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		riskConfigurations:    make(map[string]*RiskConfiguration),
 		logDeliveryConfigs:    make(map[string]*LogDeliveryConfig),
 		uiCustomizations:      make(map[string]*UICustomization),
-		managedLoginBrandings: make(map[string]map[string]*ManagedLoginBranding),
-		terms:                 make(map[string]*Terms),
-		userImportJobs:        make(map[string]map[string]*UserImportJob),
-		accountID:             accountID,
-		region:                region,
-		endpoint:              endpoint,
+		managedLoginBrandings:   make(map[string]map[string]*ManagedLoginBranding),
+		terms:                   make(map[string]*Terms),
+		userImportJobs:          make(map[string]map[string]*UserImportJob),
+		poolMfaConfigs:          make(map[string]*UserPoolMfaFullConfig),
+		attrVerificationCodes:   make(map[string]*attrVerificationEntry),
+		typedRiskConfigurations: make(map[string]*TypedRiskConfiguration),
+		accountID:               accountID,
+		region:                  region,
+		endpoint:                endpoint,
 	}
 }
 

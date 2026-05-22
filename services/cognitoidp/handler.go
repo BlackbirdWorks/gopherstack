@@ -366,6 +366,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	}
 	maps.Copy(table, h.completenessDispatchTable())
 	maps.Copy(table, h.accuracyDispatchTable())
+	maps.Copy(table, h.batch2DispatchTable())
 
 	return table
 }

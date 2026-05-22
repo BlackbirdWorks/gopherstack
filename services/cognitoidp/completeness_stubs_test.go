@@ -5,6 +5,7 @@ package cognitoidp_test
 // with an empty JSON response body. One request per stub is sufficient for coverage.
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -36,7 +37,6 @@ func TestCompleteness_StubOperations(t *testing.T) {
 		"ForgetDevice",
 		"GetCSVHeader",
 		"GetDevice",
-		"GetUserAttributeVerificationCode",
 		"GetUserAuthFactors",
 		"ListDevices",
 		"ListTagsForResource",
@@ -426,38 +426,66 @@ func TestHandler_DeleteUserAttributes(t *testing.T) {
 func TestHandler_VerifyUserAttribute(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		wantCode int
-	}{
-		{name: "success", wantCode: http.StatusOK},
-		{name: "bad_token", wantCode: http.StatusBadRequest},
-	}
+	t.Run("bad_token", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			_, clientID := setupHandlerPoolAndClient(t, h, "verify-attr-pool")
-
-			var accessToken string
-
-			if tt.name == "success" {
-				signUpAndConfirmViaHandler(t, h, clientID, "verify-attr-user")
-				accessToken = loginViaHandler(t, h, clientID, "verify-attr-user")
-			} else {
-				accessToken = "bad-token"
-			}
-
-			rec := doCognitoRequest(t, h, "VerifyUserAttribute", map[string]any{
-				"AccessToken":   accessToken,
-				"AttributeName": "email",
-				"Code":          "123456",
-			})
-			assert.Equal(t, tt.wantCode, rec.Code)
+		h := newTestHandler(t)
+		rec := doCognitoRequest(t, h, "VerifyUserAttribute", map[string]any{
+			"AccessToken":   "bad-token",
+			"AttributeName": "email",
+			"Code":          "123456",
 		})
-	}
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("success_with_real_code", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		poolID, clientID := setupHandlerPoolAndClient(t, h, "verify-attr-pool2")
+
+		// Sign up with email so GetUserAttributeVerificationCode works.
+		rec := doCognitoRequest(t, h, "SignUp", map[string]any{
+			"ClientId": clientID,
+			"Username": "verify-attr-user2",
+			"Password": "Pass1234!",
+			"UserAttributes": []map[string]string{
+				{"Name": "email", "Value": "verify@example.com"},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var signUpResp struct {
+			CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails"`
+			UserConfirmed       bool              `json:"UserConfirmed"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signUpResp))
+
+		if !signUpResp.UserConfirmed {
+			confirmRec := doCognitoRequest(t, h, "ConfirmSignUp", map[string]any{
+				"ClientId":         clientID,
+				"Username":         "verify-attr-user2",
+				"ConfirmationCode": signUpResp.CodeDeliveryDetails["ConfirmationCode"],
+			})
+			require.Equal(t, http.StatusOK, confirmRec.Code)
+		}
+
+		accessToken := loginViaHandler(t, h, clientID, "verify-attr-user2")
+
+		// Generate and store a verification code.
+		_, _, _, err := h.Backend.GetUserAttributeVerificationCode(accessToken, "email")
+		require.NoError(t, err)
+
+		code := h.Backend.GetAttrVerificationCodeForTest(poolID, "verify-attr-user2", "email")
+		require.NotEmpty(t, code)
+
+		rec = doCognitoRequest(t, h, "VerifyUserAttribute", map[string]any{
+			"AccessToken":   accessToken,
+			"AttributeName": "email",
+			"Code":          code,
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
 }
 
 // TestBackend_ListUsers covers the backend ListUsers function.
