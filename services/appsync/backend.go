@@ -61,7 +61,13 @@ type StorageBackend interface {
 		tagMap map[string]string,
 	) (*GraphqlAPI, error)
 	GetGraphqlAPI(apiID string) (*GraphqlAPI, error)
-	UpdateGraphqlAPI(apiID, name string, authType AuthenticationType, xrayEnabled *bool, visibility string, additionalAuthProviders []AdditionalAuthenticationProvider) (*GraphqlAPI, error)
+	UpdateGraphqlAPI(
+		apiID, name string,
+		authType AuthenticationType,
+		xrayEnabled *bool,
+		visibility string,
+		additionalAuthProviders []AdditionalAuthenticationProvider,
+	) (*GraphqlAPI, error)
 	ListGraphqlAPIs(apiType string) ([]*GraphqlAPI, error)
 	DeleteGraphqlAPI(apiID string) error
 	StartSchemaCreation(apiID, sdl string) (*Schema, error)
@@ -410,8 +416,8 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 	}
 
 	if visibility == "" {
-		visibility = "GLOBAL"
-	} else if visibility != "GLOBAL" && visibility != "PRIVATE" {
+		visibility = VisibilityGlobal
+	} else if visibility != VisibilityGlobal && visibility != VisibilityPrivate {
 		return nil, fmt.Errorf("%w: invalid visibility %q, must be GLOBAL or PRIVATE", ErrValidation, visibility)
 	}
 
@@ -487,7 +493,7 @@ func (b *InMemoryBackend) UpdateGraphqlAPI(
 		return nil, fmt.Errorf("%w: invalid authenticationType %q", ErrValidation, authType)
 	}
 
-	if visibility != "" && visibility != "GLOBAL" && visibility != "PRIVATE" {
+	if visibility != "" && visibility != VisibilityGlobal && visibility != VisibilityPrivate {
 		return nil, fmt.Errorf("%w: invalid visibility %q, must be GLOBAL or PRIVATE", ErrValidation, visibility)
 	}
 

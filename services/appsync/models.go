@@ -22,6 +22,12 @@ const (
 	AuthTypeLambda AuthenticationType = "AWS_LAMBDA"
 )
 
+// GraphqlAPIVisibility values for the Visibility field on a GraphQL API.
+const (
+	VisibilityGlobal  = "GLOBAL"
+	VisibilityPrivate = "PRIVATE"
+)
+
 // DataSourceType represents the type of a data source.
 type DataSourceType string
 
@@ -49,8 +55,8 @@ type LambdaDataSourceConfig struct {
 
 // DeltaSyncConfig holds the Delta Sync configuration for a versioned DynamoDB data source.
 type DeltaSyncConfig struct {
-	BaseTableTTL       int64  `json:"baseTableTTL,omitempty"`
 	DeltaSyncTableName string `json:"deltaSyncTableName,omitempty"`
+	BaseTableTTL       int64  `json:"baseTableTTL,omitempty"`
 	DeltaSyncTableTTL  int64  `json:"deltaSyncTableTTL,omitempty"`
 }
 
@@ -81,17 +87,17 @@ type EventBridgeDataSourceConfig struct {
 
 // RelationalDatabaseDataSourceConfig holds config for a relational database data source.
 type RelationalDatabaseDataSourceConfig struct {
-	RelationalDatabaseSourceType string                  `json:"relationalDatabaseSourceType,omitempty"`
-	RDSHTTPEndpointConfig        *RDSHTTPEndpointConfig  `json:"rdsHttpEndpointConfig,omitempty"`
+	RDSHTTPEndpointConfig        *RDSHTTPEndpointConfig `json:"rdsHttpEndpointConfig,omitempty"`
+	RelationalDatabaseSourceType string                 `json:"relationalDatabaseSourceType,omitempty"`
 }
 
 // RDSHTTPEndpointConfig holds the RDS HTTP endpoint configuration.
 type RDSHTTPEndpointConfig struct {
-	DatabaseName          string `json:"databaseName,omitempty"`
-	DBClusterIdentifier   string `json:"dbClusterIdentifier,omitempty"`
-	AWSRegion             string `json:"awsRegion,omitempty"`
-	Schema                string `json:"schema,omitempty"`
-	AWSSecretStoreARN     string `json:"awsSecretStoreArn,omitempty"`
+	DatabaseName        string `json:"databaseName,omitempty"`
+	DBClusterIdentifier string `json:"dbClusterIdentifier,omitempty"`
+	AWSRegion           string `json:"awsRegion,omitempty"`
+	Schema              string `json:"schema,omitempty"`
+	AWSSecretStoreARN   string `json:"awsSecretStoreArn,omitempty"`
 }
 
 // DataSource represents an AppSync data source.
@@ -147,10 +153,10 @@ type Resolver struct {
 
 // OpenIDConnectConfig holds the OpenID Connect configuration for an API.
 type OpenIDConnectConfig struct {
-	Issuer                 string `json:"issuer"`
-	ClientID               string `json:"clientId,omitempty"`
-	IatTTL                 int64  `json:"iatTTL,omitempty"`
-	AuthTTL                int64  `json:"authTTL,omitempty"`
+	Issuer   string `json:"issuer"`
+	ClientID string `json:"clientId,omitempty"`
+	IatTTL   int64  `json:"iatTTL,omitempty"`
+	AuthTTL  int64  `json:"authTTL,omitempty"`
 }
 
 // CognitoUserPoolConfig holds the Amazon Cognito user pool configuration for an API.
@@ -162,35 +168,35 @@ type CognitoUserPoolConfig struct {
 
 // LambdaAuthorizerConfig holds the Lambda authorizer configuration for an API.
 type LambdaAuthorizerConfig struct {
-	AuthorizerURI                 string `json:"authorizerUri"`
-	AuthorizerResultTTLInSeconds  int32  `json:"authorizerResultTtlInSeconds,omitempty"`
-	IdentityValidationExpression  string `json:"identityValidationExpression,omitempty"`
+	AuthorizerURI                string `json:"authorizerUri"`
+	IdentityValidationExpression string `json:"identityValidationExpression,omitempty"`
+	AuthorizerResultTTLInSeconds int32  `json:"authorizerResultTtlInSeconds,omitempty"`
 }
 
 // AdditionalAuthenticationProvider holds an additional authentication configuration.
 type AdditionalAuthenticationProvider struct {
-	AuthenticationType     AuthenticationType      `json:"authenticationType"`
 	LambdaAuthorizerConfig *LambdaAuthorizerConfig `json:"lambdaAuthorizerConfig,omitempty"`
 	OpenIDConnectConfig    *OpenIDConnectConfig    `json:"openIDConnectConfig,omitempty"`
 	UserPoolConfig         *CognitoUserPoolConfig  `json:"userPoolConfig,omitempty"`
+	AuthenticationType     AuthenticationType      `json:"authenticationType"`
 }
 
 // GraphqlAPI represents an AppSync GraphQL API.
 type GraphqlAPI struct {
-	URIs                                map[string]string                   `json:"uris"`
-	Tags                                *tags.Tags                          `json:"tags,omitempty"`
-	EnvironmentVariables                map[string]string                   `json:"environmentVariables,omitempty"`
-	AdditionalAuthenticationProviders   []AdditionalAuthenticationProvider  `json:"additionalAuthenticationProviders,omitempty"`
-	Name                                string                              `json:"name"`
-	APIID                               string                              `json:"apiId"`
-	ARN                                 string                              `json:"arn"`
-	AuthenticationType                  AuthenticationType                  `json:"authenticationType"`
-	Visibility                          string                              `json:"visibility,omitempty"`
-	Region                              string                              `json:"region"`
-	APIType                             string                              `json:"apiType,omitempty"`
-	CreatedAt                           int64                               `json:"createdAt,omitempty"`
-	UpdatedAt                           int64                               `json:"updatedAt,omitempty"`
-	XrayEnabled                         bool                                `json:"xrayEnabled,omitempty"`
+	URIs                              map[string]string                  `json:"uris"`
+	Tags                              *tags.Tags                         `json:"tags,omitempty"`
+	EnvironmentVariables              map[string]string                  `json:"environmentVariables,omitempty"`
+	Name                              string                             `json:"name"`
+	APIID                             string                             `json:"apiId"`
+	ARN                               string                             `json:"arn"`
+	AuthenticationType                AuthenticationType                 `json:"authenticationType"`
+	Visibility                        string                             `json:"visibility,omitempty"`
+	Region                            string                             `json:"region"`
+	APIType                           string                             `json:"apiType,omitempty"`
+	AdditionalAuthenticationProviders []AdditionalAuthenticationProvider `json:"additionalAuthenticationProviders,omitempty"` //nolint:lll // AWS field name is long
+	CreatedAt                         int64                              `json:"createdAt,omitempty"`
+	UpdatedAt                         int64                              `json:"updatedAt,omitempty"`
+	XrayEnabled                       bool                               `json:"xrayEnabled,omitempty"`
 }
 
 // SchemaStatus represents the schema creation status.

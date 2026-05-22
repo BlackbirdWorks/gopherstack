@@ -23,6 +23,8 @@ func TestAppSyncDashboard(t *testing.T) {
 		appsync.AuthTypeAPIKey,
 		false,
 		"",
+		"",
+		nil,
 		nil,
 	)
 	require.NoError(t, err)

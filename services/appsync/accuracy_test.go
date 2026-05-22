@@ -115,7 +115,8 @@ func TestUpdateGraphqlAPI_VisibilityRoundTrip(t *testing.T) {
 			updated, err := b.UpdateGraphqlAPI(api.APIID, "", "", nil, tt.visibility, nil)
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, appsync.ErrValidation)
+				require.ErrorIs(t, err, appsync.ErrValidation)
+
 				return
 			}
 			require.NoError(t, err)
@@ -204,10 +205,12 @@ func TestCreateGraphqlAPI_AdditionalAuthProviders_RoundTrip(t *testing.T) {
 
 			got, err := b.GetGraphqlAPI(api.APIID)
 			require.NoError(t, err)
-			assert.Equal(t, len(tt.providers), len(got.AdditionalAuthenticationProviders))
+			assert.Len(t, got.AdditionalAuthenticationProviders, len(tt.providers))
 
 			if len(tt.providers) > 0 {
-				assert.Equal(t, tt.providers[0].AuthenticationType, got.AdditionalAuthenticationProviders[0].AuthenticationType)
+				wantAuthType := tt.providers[0].AuthenticationType
+				gotAuthType := got.AdditionalAuthenticationProviders[0].AuthenticationType
+				assert.Equal(t, wantAuthType, gotAuthType)
 			}
 		})
 	}
@@ -236,7 +239,10 @@ func TestUpdateGraphqlAPI_AdditionalAuthProviders(t *testing.T) {
 				{AuthenticationType: appsync.AuthTypeIAM},
 			},
 			updateProvs: []appsync.AdditionalAuthenticationProvider{
-				{AuthenticationType: appsync.AuthTypeOIDC, OpenIDConnectConfig: &appsync.OpenIDConnectConfig{Issuer: "https://example.com"}},
+				{
+					AuthenticationType:  appsync.AuthTypeOIDC,
+					OpenIDConnectConfig: &appsync.OpenIDConnectConfig{Issuer: "https://example.com"},
+				},
 				{AuthenticationType: appsync.AuthTypeIAM},
 			},
 			wantCount: 2,
@@ -261,7 +267,7 @@ func TestUpdateGraphqlAPI_AdditionalAuthProviders(t *testing.T) {
 
 			updated, err := b.UpdateGraphqlAPI(api.APIID, "", "", nil, "", tt.updateProvs)
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantCount, len(updated.AdditionalAuthenticationProviders))
+			assert.Len(t, updated.AdditionalAuthenticationProviders, tt.wantCount)
 		})
 	}
 }
@@ -272,10 +278,10 @@ func TestCreateDataSource_EventBridge(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		ds          appsync.DataSource
-		wantErr     bool
 		wantErrType error
+		ds          appsync.DataSource
+		name        string
+		wantErr     bool
 	}{
 		{
 			name: "valid_eventbridge",
@@ -308,8 +314,9 @@ func TestCreateDataSource_EventBridge(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrType != nil {
-					assert.ErrorIs(t, err, tt.wantErrType)
+					require.ErrorIs(t, err, tt.wantErrType)
 				}
+
 				return
 			}
 			require.NoError(t, err)
@@ -392,6 +399,7 @@ func TestCreateDataSource_RelationalDatabase(t *testing.T) {
 			created, err := b.CreateDataSource(api.APIID, &tt.ds)
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 			require.NoError(t, err)
@@ -470,8 +478,8 @@ func TestCreateDataSource_DynamoDB_DeltaSyncConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		cfg     *appsync.DeltaSyncConfig
+		name    string
 		wantNil bool
 	}{
 		{
@@ -560,8 +568,8 @@ func TestCreateResolver_CachingConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		cfg     *appsync.CachingConfig
+		name    string
 		wantNil bool
 	}{
 		{
@@ -656,8 +664,8 @@ func TestCreateResolver_SyncConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		cfg     *appsync.SyncConfig
+		name    string
 		wantNil bool
 	}{
 		{
@@ -1136,7 +1144,7 @@ func TestListGraphqlAPIs_VisibilityPreserved(t *testing.T) {
 
 	apis, err := b.ListGraphqlAPIs("")
 	require.NoError(t, err)
-	require.Equal(t, 2, len(apis))
+	require.Len(t, apis, 2)
 
 	visByName := make(map[string]string)
 	for _, a := range apis {
@@ -1279,8 +1287,9 @@ func TestCreateGraphqlAPI_LambdaAuthorizerConfig_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got.AdditionalAuthenticationProviders, 1)
 	require.NotNil(t, got.AdditionalAuthenticationProviders[0].LambdaAuthorizerConfig)
-	assert.Equal(t, authURI, got.AdditionalAuthenticationProviders[0].LambdaAuthorizerConfig.AuthorizerURI)
-	assert.Equal(t, int32(300), got.AdditionalAuthenticationProviders[0].LambdaAuthorizerConfig.AuthorizerResultTTLInSeconds)
+	gotLambdaCfg := got.AdditionalAuthenticationProviders[0].LambdaAuthorizerConfig
+	assert.Equal(t, authURI, gotLambdaCfg.AuthorizerURI)
+	assert.Equal(t, int32(300), gotLambdaCfg.AuthorizerResultTTLInSeconds)
 }
 
 // ---- OpenIDConnectConfig round-trip in AdditionalAuth ----
@@ -1488,7 +1497,7 @@ func TestCreateAPIKey_ExpiryDefaulted_WhenZero(t *testing.T) {
 	// expires=0 → backend assigns default expiry (365 days from now).
 	key, err := b.CreateAPIKey(api.APIID, "test key", 0)
 	require.NoError(t, err)
-	assert.Greater(t, key.Expires, int64(0), "expiry should be defaulted to a future timestamp")
+	assert.Positive(t, key.Expires, "expiry should be defaulted to a future timestamp")
 }
 
 func TestCreateAPIKey_ExpiryClampedToMax(t *testing.T) {
@@ -1501,7 +1510,7 @@ func TestCreateAPIKey_ExpiryClampedToMax(t *testing.T) {
 	// expires far in the future → clamped to max (365 days).
 	key, err := b.CreateAPIKey(api.APIID, "test key", 9999999999)
 	require.NoError(t, err)
-	assert.Greater(t, key.Expires, int64(0), "expiry should be clamped to max")
+	assert.Positive(t, key.Expires, "expiry should be clamped to max")
 }
 
 func TestUpdateAPIKey_ExpiryRoundTrip(t *testing.T) {
@@ -1530,8 +1539,8 @@ func TestTagResource_GraphqlAPI_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	err = b.TagResource(api.APIID, map[string]string{
-		"env":   "prod",
-		"team":  "platform",
+		"env":  "prod",
+		"team": "platform",
 	})
 	require.NoError(t, err)
 
@@ -1574,7 +1583,7 @@ func TestGetPutGraphqlAPIEnvironmentVariables_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	envVars := map[string]string{
-		"DB_HOST": "localhost",
+		"DB_HOST":   "localhost",
 		"LOG_LEVEL": "debug",
 	}
 
@@ -1619,7 +1628,12 @@ func TestDomainName_AssociateAPI_RoundTrip(t *testing.T) {
 	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	require.NoError(t, err)
 
-	domain, err := b.CreateDomainName("example.com", "arn:aws:acm:us-east-1:000000000000:certificate/abc", "test domain", nil)
+	domain, err := b.CreateDomainName(
+		"example.com",
+		"arn:aws:acm:us-east-1:000000000000:certificate/abc",
+		"test domain",
+		nil,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "example.com", domain.DomainName)
 
@@ -1672,7 +1686,8 @@ func TestType_CRUD_AllFormats(t *testing.T) {
 			require.NoError(t, err)
 			assert.GreaterOrEqual(t, len(types), 1)
 
-			updated, err := b.UpdateType(api.APIID, tt.typeName, "type User { id: ID! name: String email: String }", tt.format)
+			newDef := "type User { id: ID! name: String email: String }"
+			updated, err := b.UpdateType(api.APIID, tt.typeName, newDef, tt.format)
 			require.NoError(t, err)
 			assert.Equal(t, tt.typeName, updated.Name)
 
