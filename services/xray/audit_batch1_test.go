@@ -58,20 +58,21 @@ func TestAudit_PutTraceSegments_ParsesSegmentFields(t *testing.T) {
 			wantParsed: true,
 		},
 		{
-			name:       "segment with error and throttle flags",
+			name: "segment with error and throttle flags",
 			seg: `{"trace_id":"1-audit-003","id":"seg3","name":"svc","start_time":1700000002.0,` +
 				`"error":true,"throttle":true}`,
 			wantParsed: true,
 		},
 		{
-			name:       "segment with http request and response",
+			name: "segment with http request and response",
 			seg: `{"trace_id":"1-audit-004","id":"seg4","name":"svc","start_time":1700000003.0,` +
 				`"http":{"request":{"method":"GET","url":"https://example.com/api"},"response":{"status":200}}}`,
 			wantParsed: true,
 		},
 		{
-			name:       "segment with annotations",
-			seg:        `{"trace_id":"1-audit-005","id":"seg5","name":"svc","start_time":1700000004.0,"annotations":{"user":"alice","tier":"free"}}`,
+			name: "segment with annotations",
+			seg: `{"trace_id":"1-audit-005","id":"seg5","name":"svc",` +
+				`"start_time":1700000004.0,"annotations":{"user":"alice","tier":"free"}}`,
 			wantParsed: true,
 		},
 		{
@@ -240,8 +241,9 @@ func TestAudit_GetTraceSummaries_BooleanFlagFields(t *testing.T) {
 			wantError: true,
 		},
 		{
-			name:         "throttle flag (error+throttle)",
-			segJSON:      `{"trace_id":"1-flags-004","id":"s1","name":"svc","start_time":1700000003.0,"error":true,"throttle":true}`,
+			name: "throttle flag (error+throttle)",
+			segJSON: `{"trace_id":"1-flags-004","id":"s1","name":"svc",` +
+				`"start_time":1700000003.0,"error":true,"throttle":true}`,
 			wantError:    true,
 			wantThrottle: true,
 		},
@@ -510,15 +512,16 @@ func TestAudit_GetTraceSummaries_FilterExpressions(t *testing.T) {
 		),
 		fmt.Sprintf(`{"trace_id":"1-flt-ok","id":"s4","name":"svc","start_time":%f}`, now-2),
 		fmt.Sprintf(
-			`{"trace_id":"1-flt-http","id":"s5","name":"svc","start_time":%f,"http":{"request":{"method":"GET","url":"https://x.com"},"response":{"status":500}}}`,
+			`{"trace_id":"1-flt-http","id":"s5","name":"svc","start_time":%f,`+
+				`"http":{"request":{"method":"GET","url":"https://x.com"},"response":{"status":500}}}`,
 			now-1,
 		),
 	}
 
 	tests := []struct {
-		wantTraces []string
 		name       string
 		filter     string
+		wantTraces []string
 		wantCount  int
 	}{
 		{name: "no filter returns all", filter: "", wantCount: 5},
@@ -1386,6 +1389,7 @@ func TestAudit_SamplingRule_DefaultRulePresentAtStart(t *testing.T) {
 		rule, _ := rec["SamplingRule"].(map[string]any)
 		if rule["RuleName"] == "Default" {
 			foundDefault = true
+
 			break
 		}
 	}
@@ -1431,9 +1435,9 @@ func TestAudit_UpdateSamplingRule_ZeroValues(t *testing.T) {
 
 	tests := []struct {
 		update        map[string]any
+		name          string
 		wantFixRate   float64
 		wantReservoir float64
-		name          string
 	}{
 		{
 			name:          "set FixedRate to 0.0",
@@ -1735,7 +1739,7 @@ func TestAudit_EncryptionConfig_UpdatingThenActiveStatus(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "UPDATING", enc["Status"], "PUT must return UPDATING for KMS")
 
-	getRec := doXrayGETRequest(t, h, "/EncryptionConfig")
+	getRec := doXrayGETRequest(t, h)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any

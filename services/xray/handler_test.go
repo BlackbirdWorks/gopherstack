@@ -801,8 +801,10 @@ func TestXRay_Handler_Reset(t *testing.T) {
 	}
 }
 
-func doXrayGETRequest(t *testing.T, h *xray.Handler, path string) *httptest.ResponseRecorder {
+func doXrayGETRequest(t *testing.T, h *xray.Handler) *httptest.ResponseRecorder {
 	t.Helper()
+
+	const path = "/EncryptionConfig"
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -838,7 +840,7 @@ func TestHandler_GetEncryptionConfig(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doXrayGETRequest(t, h, "/EncryptionConfig")
+			rec := doXrayGETRequest(t, h)
 
 			assert.Equal(t, tt.wantCode, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.wantContain)
