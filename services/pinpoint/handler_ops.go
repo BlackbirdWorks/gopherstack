@@ -588,6 +588,10 @@ func (h *Handler) handleUpdateJourney(c *echo.Context, appID, journeyID string) 
 
 	journey, backendErr := h.Backend.UpdateJourney(appID, journeyID, req)
 	if backendErr != nil {
+		if errors.Is(backendErr, awserr.ErrInvalidParameter) {
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", backendErr.Error())
+		}
+
 		return writeNotFoundOrInternal(c, backendErr)
 	}
 
@@ -612,6 +616,10 @@ func (h *Handler) handleUpdateJourneyState(c *echo.Context, appID, journeyID str
 	if backendErr != nil {
 		if errors.Is(backendErr, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", backendErr.Error())
+		}
+
+		if errors.Is(backendErr, awserr.ErrInvalidParameter) {
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", backendErr.Error())
 		}
 
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())

@@ -1641,16 +1641,7 @@ func (h *Handler) handleCreateJourney(c *echo.Context, appID string) error {
 			return nil, err
 		}
 
-		return journeyResponse{
-			ApplicationID:    journey.ApplicationID,
-			ARN:              journey.ARN,
-			ID:               journey.ID,
-			Name:             journey.Name,
-			State:            journey.State,
-			Tags:             journey.Tags,
-			CreationDate:     journey.CreationDate,
-			LastModifiedDate: journey.LastModifiedDate,
-		}, nil
+		return toJourneyResponse(journey), nil
 	})
 }
 
@@ -1992,14 +1983,6 @@ func (h *Handler) handleCreateSegment(c *echo.Context, appID string) error {
 			return nil, err
 		}
 
-		return segmentResponse{
-			ApplicationID: segment.ApplicationID,
-			ARN:           segment.ARN,
-			ID:            segment.ID,
-			Name:          segment.Name,
-			SegmentType:   segment.SegmentType,
-			Tags:          segment.Tags,
-			CreationDate:  segment.CreationDate,
-		}, nil
+		return toSegmentResponse(segment), nil
 	})
 }
