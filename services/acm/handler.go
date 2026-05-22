@@ -2,6 +2,7 @@ package acm
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -643,6 +644,8 @@ func (h *Handler) jsonListCertificates(body []byte) (any, error) {
 
 	if input.Includes != nil {
 		params.KeyTypes = input.Includes.KeyTypes
+		params.KeyUsage = input.Includes.KeyUsage
+		params.ExtendedKeyUsage = input.Includes.ExtendedKeyUsage
 	}
 
 	p := h.Backend.ListCertificates(params)
@@ -776,7 +779,21 @@ func (h *Handler) jsonExportCertificate(body []byte) (any, error) {
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
-	cert, err := h.Backend.ExportCertificate(input.CertificateArn)
+
+	if input.Passphrase == "" {
+		return nil, fmt.Errorf("%w: Passphrase is required for ExportCertificate", ErrInvalidParameter)
+	}
+
+	passphrase, decErr := base64.StdEncoding.DecodeString(input.Passphrase)
+	if decErr != nil {
+		// Try raw (unpadded) base64.
+		passphrase, decErr = base64.RawStdEncoding.DecodeString(input.Passphrase)
+		if decErr != nil {
+			return nil, fmt.Errorf("%w: Passphrase must be base64-encoded", ErrInvalidParameter)
+		}
+	}
+
+	cert, err := h.Backend.ExportCertificate(input.CertificateArn, passphrase)
 	if err != nil {
 		return nil, err
 	}

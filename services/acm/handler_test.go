@@ -1575,3 +1575,367 @@ func TestACMHandler_WildcardCertificate_Accepted(t *testing.T) {
 	rec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"*.example.com"}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+// TestACMHandler_ExportCertificate_PassphraseRequired verifies that Passphrase is required.
+func TestACMHandler_ExportCertificate_PassphraseRequired(t *testing.T) {
+	t.Parallel()
+
+	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+	src, err := b.RequestCertificate("export-pass.example.com", "", "", "", "", nil)
+	require.NoError(t, err)
+
+	importedCert, err := b.ImportCertificate(src.CertificateBody, src.PrivateKey, "", "")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "missing_passphrase_rejected",
+			body: func() string {
+				b2, _ := json.Marshal(map[string]string{"CertificateArn": importedCert.ARN})
+
+				return string(b2)
+			}(),
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"ValidationException", "Passphrase"},
+		},
+		{
+			name: "with_passphrase_success_encrypted_key",
+			body: func() string {
+				b2, _ := json.Marshal(map[string]string{
+					"CertificateArn": importedCert.ARN,
+					"Passphrase":     "dGVzdC1wYXNz", // base64("test-pass")
+				})
+
+				return string(b2)
+			}(),
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ENCRYPTED PRIVATE KEY"},
+		},
+		{
+			name: "invalid_base64_passphrase",
+			body: func() string {
+				b2, _ := json.Marshal(map[string]string{
+					"CertificateArn": importedCert.ARN,
+					"Passphrase":     "not-valid-base64!!!",
+				})
+
+				return string(b2)
+			}(),
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"ValidationException"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := acm.NewHandler(b)
+			rec := postACMJSON(t, h, "ExportCertificate", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+// TestACMHandler_ListCertificates_IncludesFilters verifies KeyUsage and ExtendedKeyUsage filtering.
+func TestACMHandler_ListCertificates_IncludesFilters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		listBody     string
+		wantNonEmpty bool
+		wantCode     int
+	}{
+		{
+			name:         "filter_digital_signature_matches",
+			listBody:     `{"Includes":{"keyUsage":["DIGITAL_SIGNATURE"]}}`,
+			wantCode:     http.StatusOK,
+			wantNonEmpty: true,
+		},
+		{
+			name:         "filter_nonexistent_key_usage_empty",
+			listBody:     `{"Includes":{"keyUsage":["KEY_ENCIPHERMENT"]}}`,
+			wantCode:     http.StatusOK,
+			wantNonEmpty: false,
+		},
+		{
+			name:         "filter_tls_server_auth_matches",
+			listBody:     `{"Includes":{"extendedKeyUsage":["TLS_WEB_SERVER_AUTHENTICATION"]}}`,
+			wantCode:     http.StatusOK,
+			wantNonEmpty: true,
+		},
+		{
+			name:         "filter_code_signing_empty",
+			listBody:     `{"Includes":{"extendedKeyUsage":["CODE_SIGNING"]}}`,
+			wantCode:     http.StatusOK,
+			wantNonEmpty: false,
+		},
+		{
+			name:         "filter_combined_key_type_and_usage",
+			listBody:     `{"Includes":{"keyTypes":["EC_prime256v1"],"keyUsage":["DIGITAL_SIGNATURE"]}}`,
+			wantCode:     http.StatusOK,
+			wantNonEmpty: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newACMHandler()
+			// Create one cert that will have DIGITAL_SIGNATURE + TLS_WEB_SERVER_AUTHENTICATION
+			rec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"includes-filter.example.com"}`)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			listRec := postACMJSON(t, h, "ListCertificates", tt.listBody)
+			assert.Equal(t, tt.wantCode, listRec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				var out struct {
+					CertificateSummaryList []struct{} `json:"CertificateSummaryList"`
+				}
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+				if tt.wantNonEmpty {
+					assert.NotEmpty(t, out.CertificateSummaryList)
+				} else {
+					assert.Empty(t, out.CertificateSummaryList)
+				}
+			}
+		})
+	}
+}
+
+// TestACMHandler_StatusLifecycle_DescribeReflectsNewStatus verifies that lifecycle status
+// transitions are visible via DescribeCertificate through the full HTTP stack.
+func TestACMHandler_StatusLifecycle_DescribeReflectsNewStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupCert  func(t *testing.T, b *acm.InMemoryBackend) string
+		transition func(t *testing.T, b *acm.InMemoryBackend, certARN string)
+		name       string
+		wantStatus string
+	}{
+		{
+			name: "issued_to_expired",
+			setupCert: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("lifecycle-expire.example.com", "", "", "", "", nil)
+				require.NoError(t, err)
+
+				return cert.ARN
+			},
+			transition: func(t *testing.T, b *acm.InMemoryBackend, certARN string) {
+				t.Helper()
+				require.NoError(t, b.ExpireCertificate(certARN))
+			},
+			wantStatus: "EXPIRED",
+		},
+		{
+			name: "issued_to_inactive",
+			setupCert: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("lifecycle-inactive.example.com", "", "", "", "", nil)
+				require.NoError(t, err)
+
+				return cert.ARN
+			},
+			transition: func(t *testing.T, b *acm.InMemoryBackend, certARN string) {
+				t.Helper()
+				require.NoError(t, b.InactivateCertificate(certARN))
+			},
+			wantStatus: "INACTIVE",
+		},
+		{
+			name: "pending_to_validation_timed_out",
+			setupCert: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("lifecycle-timeout.example.com", "", "DNS", "", "", nil)
+				require.NoError(t, err)
+				require.Equal(t, "PENDING_VALIDATION", cert.Status)
+
+				return cert.ARN
+			},
+			transition: func(t *testing.T, b *acm.InMemoryBackend, certARN string) {
+				t.Helper()
+				require.NoError(t, b.TimeoutPendingValidation(certARN))
+			},
+			wantStatus: "VALIDATION_TIMED_OUT",
+		},
+		{
+			name: "pending_to_failed",
+			setupCert: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("lifecycle-fail.example.com", "", "EMAIL", "", "", nil)
+				require.NoError(t, err)
+				require.Equal(t, "PENDING_VALIDATION", cert.Status)
+
+				return cert.ARN
+			},
+			transition: func(t *testing.T, b *acm.InMemoryBackend, certARN string) {
+				t.Helper()
+				require.NoError(t, b.FailCertificate(certARN, "NO_AVAILABLE_CONTACTS"))
+			},
+			wantStatus: "FAILED",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			h := acm.NewHandler(b)
+
+			certARN := tt.setupCert(t, b)
+			tt.transition(t, b, certARN)
+
+			descBody, _ := json.Marshal(map[string]string{"CertificateArn": certARN})
+			descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
+			require.Equal(t, http.StatusOK, descRec.Code)
+
+			var descOut struct {
+				Certificate struct {
+					Status        string `json:"Status"`
+					FailureReason string `json:"FailureReason,omitempty"`
+				} `json:"Certificate"`
+			}
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			assert.Equal(t, tt.wantStatus, descOut.Certificate.Status)
+		})
+	}
+}
+
+// TestACMHandler_ListCertificates_StatusFilter_AllStatuses verifies filtering across all lifecycle statuses.
+func TestACMHandler_ListCertificates_StatusFilter_AllStatuses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupAndTransition func(t *testing.T, b *acm.InMemoryBackend) string
+		name               string
+		filterStatus       string
+		wantCount          int
+	}{
+		{
+			name: "filter_expired_status",
+			setupAndTransition: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("expired-list.example.com", "", "", "", "", nil)
+				require.NoError(t, err)
+				require.NoError(t, b.ExpireCertificate(cert.ARN))
+
+				return cert.ARN
+			},
+			filterStatus: "EXPIRED",
+			wantCount:    1,
+		},
+		{
+			name: "filter_inactive_status",
+			setupAndTransition: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("inactive-list.example.com", "", "", "", "", nil)
+				require.NoError(t, err)
+				require.NoError(t, b.InactivateCertificate(cert.ARN))
+
+				return cert.ARN
+			},
+			filterStatus: "INACTIVE",
+			wantCount:    1,
+		},
+		{
+			name: "filter_timed_out_status",
+			setupAndTransition: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("timeout-list.example.com", "", "DNS", "", "", nil)
+				require.NoError(t, err)
+				require.NoError(t, b.TimeoutPendingValidation(cert.ARN))
+
+				return cert.ARN
+			},
+			filterStatus: "VALIDATION_TIMED_OUT",
+			wantCount:    1,
+		},
+		{
+			name: "filter_failed_status",
+			setupAndTransition: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("failed-list.example.com", "", "EMAIL", "", "", nil)
+				require.NoError(t, err)
+				require.NoError(t, b.FailCertificate(cert.ARN, "CAA_ERROR"))
+
+				return cert.ARN
+			},
+			filterStatus: "FAILED",
+			wantCount:    1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			h := acm.NewHandler(b)
+
+			tt.setupAndTransition(t, b)
+
+			filterBody, _ := json.Marshal(map[string][]string{
+				"CertificateStatuses": {tt.filterStatus},
+			})
+			rec := postACMJSON(t, h, "ListCertificates", string(filterBody))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				CertificateSummaryList []struct {
+					Status string `json:"Status"`
+				} `json:"CertificateSummaryList"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out.CertificateSummaryList, tt.wantCount)
+
+			if tt.wantCount > 0 {
+				assert.Equal(t, tt.filterStatus, out.CertificateSummaryList[0].Status)
+			}
+		})
+	}
+}
+
+// TestACMHandler_ExportCertificate_CertificateChainAlwaysPresent verifies chain is always returned.
+func TestACMHandler_ExportCertificate_CertificateChainAlwaysPresent(t *testing.T) {
+	t.Parallel()
+
+	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+	src, err := b.RequestCertificate("chain-test.example.com", "", "", "", "", nil)
+	require.NoError(t, err)
+
+	// Import without chain
+	imported, err := b.ImportCertificate(src.CertificateBody, src.PrivateKey, "", "")
+	require.NoError(t, err)
+
+	h := acm.NewHandler(b)
+	exportBody, _ := json.Marshal(map[string]string{
+		"CertificateArn": imported.ARN,
+		"Passphrase":     "dGVzdA==", // base64("test")
+	})
+	rec := postACMJSON(t, h, "ExportCertificate", string(exportBody))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		CertificateChain string `json:"CertificateChain"`
+		Certificate      string `json:"Certificate"`
+		PrivateKey       string `json:"PrivateKey"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.NotEmpty(t, out.CertificateChain, "CertificateChain should always be present on export")
+	assert.NotEmpty(t, out.Certificate)
+	assert.NotEmpty(t, out.PrivateKey)
+}
