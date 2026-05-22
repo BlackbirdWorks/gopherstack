@@ -60,6 +60,9 @@ const (
 
 	retentionNone     = "NONE"
 	attrDetails       = "details"
+	attrInput         = "input"
+	attrReason        = "reason"
+	attrName          = "name"
 	attrScheduledEvID = "scheduledEventId"
 	attrStartedEvID   = "startedEventId"
 )
@@ -300,27 +303,27 @@ type ScheduleActivityTaskDecisionAttrs struct {
 
 // Decision represents a single decision returned by a decider.
 type Decision struct {
-	DecisionType                   string
 	CompleteWorkflowExecutionAttrs *CompleteWorkflowExecutionDecisionAttrs
 	FailWorkflowExecutionAttrs     *FailWorkflowExecutionDecisionAttrs
 	CancelWorkflowExecutionAttrs   *CancelWorkflowExecutionDecisionAttrs
 	ScheduleActivityTaskAttrs      *ScheduleActivityTaskDecisionAttrs
+	DecisionType                   string
 }
 
 // InMemoryBackend is the in-memory store for SWF resources.
 type InMemoryBackend struct {
-	domains              map[string]*Domain
-	workflows            map[string]*WorkflowType              // key: domain+":"+name+":"+version
-	activities           map[string]*ActivityType              // key: domain+":"+name+":"+version
-	executions           map[string]*WorkflowExecution         // key: domain+":"+workflowID
-	history              map[string][]HistoryEvent             // key: domain+":"+workflowID
-	activityQueues       map[string][]*ActivityTask            // key: domain+":"+taskList
-	decisionQueues       map[string][]*DecisionTask            // key: domain+":"+taskList
-	activeActivityTasks  map[string]*activeActivityTaskRecord  // key: taskToken
-	activeDecisionTasks  map[string]*activeDecisionTaskRecord  // key: taskToken
-	tags                 map[string]map[string]string          // key: resourceARN
-	mu                   *lockmetrics.RWMutex
-	executionOrder       []string // FIFO order of execution keys for eviction
+	domains             map[string]*Domain
+	workflows           map[string]*WorkflowType             // key: domain+":"+name+":"+version
+	activities          map[string]*ActivityType             // key: domain+":"+name+":"+version
+	executions          map[string]*WorkflowExecution        // key: domain+":"+workflowID
+	history             map[string][]HistoryEvent            // key: domain+":"+workflowID
+	activityQueues      map[string][]*ActivityTask           // key: domain+":"+taskList
+	decisionQueues      map[string][]*DecisionTask           // key: domain+":"+taskList
+	activeActivityTasks map[string]*activeActivityTaskRecord // key: taskToken
+	activeDecisionTasks map[string]*activeDecisionTaskRecord // key: taskToken
+	tags                map[string]map[string]string         // key: resourceARN
+	mu                  *lockmetrics.RWMutex
+	executionOrder      []string // FIFO order of execution keys for eviction
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -1143,11 +1146,11 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 	attrKey := eventAttrKey("WorkflowExecutionStarted")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			"input":       input.Input,
+			attrInput:     input.Input,
 			"childPolicy": childPolicy,
-			"taskList":    map[string]any{"name": taskList},
+			"taskList":    map[string]any{attrName: taskList},
 			"workflowType": map[string]any{
-				"name":    input.WorkflowTypeName,
+				attrName:  input.WorkflowTypeName,
 				"version": input.WorkflowTypeVersion,
 			},
 			"executionStartToCloseTimeout": execTimeout,
@@ -1195,7 +1198,7 @@ func (b *InMemoryBackend) TerminateWorkflowExecution(
 	attrKey := eventAttrKey("WorkflowExecutionTerminated")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			"reason":      reason,
+			attrReason:    reason,
 			attrDetails:   details,
 			"cause":       "OPERATOR_INITIATED",
 			"childPolicy": exec.ChildPolicy,
@@ -1626,8 +1629,8 @@ func (b *InMemoryBackend) RespondActivityTaskFailed(taskToken, reason, details s
 	attrKey := eventAttrKey("ActivityTaskFailed")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			"reason":          reason,
-			"details":         details,
+			attrReason:        reason,
+			attrDetails:       details,
 			attrScheduledEvID: rec.ScheduledEventID,
 			attrStartedEvID:   rec.StartedEventID,
 		},
@@ -1638,21 +1641,126 @@ func (b *InMemoryBackend) RespondActivityTaskFailed(taskToken, reason, details s
 	return nil
 }
 
-// RespondDecisionTaskCompleted processes a completed decision task.
-// executionContext is stored on the workflow execution.
-func (b *InMemoryBackend) RespondDecisionTaskCompleted(taskToken, executionContext string) error {
+// RespondDecisionTaskCompleted processes a completed decision task and applies decisions.
+func (b *InMemoryBackend) RespondDecisionTaskCompleted(
+	taskToken, executionContext string,
+	decisions []Decision,
+) error {
 	b.mu.Lock("RespondDecisionTaskCompleted")
 	defer b.mu.Unlock()
 
-	// Update the execution context if a workflow has this taskToken's workflow.
-	// (Full decision processing requires matching tokens to executions — tracked in future work.)
-	_ = taskToken
+	rec, ok := b.activeDecisionTasks[taskToken]
+	if !ok {
+		return fmt.Errorf("%w: decision task token %s not found", ErrNotFound, taskToken)
+	}
+	delete(b.activeDecisionTasks, taskToken)
 
-	// Store executionContext if we can find the execution. Without full token
-	// tracking we apply it best-effort — this will be wired properly with decision tracking.
-	_ = executionContext
+	key := rec.Domain + ":" + rec.WorkflowID
+	exec, ok := b.executions[key]
+	if !ok {
+		return nil
+	}
+
+	if executionContext != "" {
+		exec.LatestExecutionContext = executionContext
+	}
+
+	b.appendHistoryEventLocked(rec.Domain, rec.WorkflowID, "DecisionTaskCompleted", map[string]any{
+		eventAttrKey("DecisionTaskCompleted"): map[string]any{
+			"executionContext": executionContext,
+		},
+	})
+
+	for _, d := range decisions {
+		b.processDecisionLocked(rec.Domain, rec.WorkflowID, exec, d)
+	}
 
 	return nil
+}
+
+// processDecisionLocked applies a single decision to an execution.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) processDecisionLocked(domain, workflowID string, exec *WorkflowExecution, d Decision) {
+	now := float64(time.Now().UnixMilli()) / milliDivisor
+
+	switch d.DecisionType {
+	case "CompleteWorkflowExecution":
+		result := ""
+		if d.CompleteWorkflowExecutionAttrs != nil {
+			result = d.CompleteWorkflowExecutionAttrs.Result
+		}
+		exec.Status = statusCompleted
+		exec.CloseStatus = statusCompleted
+		exec.CloseTimestamp = now
+		b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionCompleted", map[string]any{
+			eventAttrKey("WorkflowExecutionCompleted"): map[string]any{"result": result},
+		})
+
+	case "FailWorkflowExecution":
+		reason, details := "", ""
+		if d.FailWorkflowExecutionAttrs != nil {
+			reason = d.FailWorkflowExecutionAttrs.Reason
+			details = d.FailWorkflowExecutionAttrs.Details
+		}
+		exec.Status = statusFailed
+		exec.CloseStatus = statusFailed
+		exec.CloseTimestamp = now
+		b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionFailed", map[string]any{
+			eventAttrKey("WorkflowExecutionFailed"): map[string]any{
+				attrReason: reason, attrDetails: details,
+			},
+		})
+
+	case "CancelWorkflowExecution":
+		details := ""
+		if d.CancelWorkflowExecutionAttrs != nil {
+			details = d.CancelWorkflowExecutionAttrs.Details
+		}
+		exec.Status = statusCanceled
+		exec.CloseStatus = statusCanceled
+		exec.CloseTimestamp = now
+		b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionCanceled", map[string]any{
+			eventAttrKey("WorkflowExecutionCanceled"): map[string]any{attrDetails: details},
+		})
+
+	case "ContinueAsNewWorkflowExecution":
+		exec.Status = statusContinuedAsNew
+		exec.CloseStatus = statusContinuedAsNew
+		exec.CloseTimestamp = now
+		b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionContinuedAsNew", map[string]any{
+			eventAttrKey("WorkflowExecutionContinuedAsNew"): map[string]any{},
+		})
+
+	case "ScheduleActivityTask":
+		if d.ScheduleActivityTaskAttrs == nil {
+			return
+		}
+		attrs := d.ScheduleActivityTaskAttrs
+		taskList := attrs.TaskList
+		if taskList == "" {
+			taskList = exec.TaskList
+		}
+		scheduledEventID := b.appendHistoryEventLocked(domain, workflowID, "ActivityTaskScheduled", map[string]any{
+			eventAttrKey("ActivityTaskScheduled"): map[string]any{
+				"activityType": map[string]any{
+					attrName:  attrs.ActivityType.Name,
+					"version": attrs.ActivityType.Version,
+				},
+				"activityId": attrs.ActivityID,
+				attrInput:    attrs.Input,
+				"taskList":   map[string]any{attrName: taskList},
+			},
+		})
+		qkey := domain + ":" + taskList
+		b.activityQueues[qkey] = append(b.activityQueues[qkey], &ActivityTask{
+			ActivityID:       attrs.ActivityID,
+			ActivityType:     attrs.ActivityType,
+			Input:            attrs.Input,
+			WorkflowID:       workflowID,
+			RunID:            exec.RunID,
+			ScheduledEventID: scheduledEventID,
+		})
+	}
 }
 
 // enqueueDecisionTaskLocked adds a decision task for the execution's task list.
