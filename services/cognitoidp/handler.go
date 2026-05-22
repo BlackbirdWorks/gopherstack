@@ -510,7 +510,7 @@ type userPoolData struct {
 
 func mfaConfigOrDefault(s string) string {
 	if s == "" {
-		return "OFF"
+		return mfaConfigOFF
 	}
 
 	return s
@@ -694,7 +694,7 @@ func (h *Handler) handleGetUserPoolMfaConfig(
 
 	mfa := pool.MfaConfiguration
 	if mfa == "" {
-		mfa = "OFF"
+		mfa = mfaConfigOFF
 	}
 
 	return &getUserPoolMfaConfigOutput{MfaConfiguration: mfa}, nil

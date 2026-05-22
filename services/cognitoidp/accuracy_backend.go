@@ -378,7 +378,7 @@ func (b *InMemoryBackend) SignUpWithValidation(
 
 	for _, attr := range pool.AutoVerifiedAttributes {
 		if _, hasAttr := attrs[attr]; hasAttr {
-			attrs[attr+"_verified"] = "true"
+			attrs[attr+"_verified"] = attrVerifiedTrue
 			autoConfirmed = true
 		}
 	}

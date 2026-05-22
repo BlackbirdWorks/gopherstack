@@ -2,12 +2,19 @@ package cognitoidp
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// defaultTempPasswordSuffix is appended to ensure temp password meets basic complexity.
+const defaultTempPasswordSuffix = "Aa1!"
+
+// defaultTempPasswordPrefixLen is the length of the random prefix in generated temp passwords.
+const defaultTempPasswordPrefixLen = 12
 
 // ---------------------------------------------------------------------------
 // MFA Configuration Types
@@ -22,8 +29,8 @@ type SmsConfiguration struct {
 
 // SmsMfaConfiguration holds SMS MFA settings for a user pool.
 type SmsMfaConfiguration struct {
-	SmsAuthenticationMessage string            `json:"SmsAuthenticationMessage,omitempty"`
 	SmsConfiguration         *SmsConfiguration `json:"SmsConfiguration,omitempty"`
+	SmsAuthenticationMessage string            `json:"SmsAuthenticationMessage,omitempty"`
 }
 
 // SoftwareTokenMfaConfiguration holds TOTP MFA settings for a user pool.
@@ -39,10 +46,10 @@ type EmailMfaConfiguration struct {
 
 // UserPoolMfaFullConfig holds the complete MFA configuration for a pool.
 type UserPoolMfaFullConfig struct {
-	MfaConfiguration       string
-	SmsMfaConfiguration    *SmsMfaConfiguration
-	SoftwareTokenMfa       *SoftwareTokenMfaConfiguration
-	EmailMfaConfiguration  *EmailMfaConfiguration
+	SmsMfaConfiguration   *SmsMfaConfiguration
+	SoftwareTokenMfa      *SoftwareTokenMfaConfiguration
+	EmailMfaConfiguration *EmailMfaConfiguration
+	MfaConfiguration      string
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +68,24 @@ const attrVerificationTTL = 24 * time.Hour
 // attrVerificationCodeLen is the length of attribute verification codes.
 const attrVerificationCodeLen = 6
 
+// mfaConfigOFF is the default MFA configuration value when none is set.
+const mfaConfigOFF = "OFF"
+
+// attrPhoneNumber is the standard Cognito phone_number attribute name.
+const attrPhoneNumber = "phone_number"
+
+// attrVerifiedTrue is the string value for a verified attribute.
+const attrVerifiedTrue = "true"
+
+// maskEmailPrefixLen is the number of chars shown unmasked in an email prefix.
+const maskEmailPrefixLen = 2
+
+// maskPhoneVisibleSuffix is the number of phone digits shown unmasked at the end.
+const maskPhoneVisibleSuffix = 4
+
+// cloudFrontDistIDLen is the length of the random part in generated CloudFront distribution IDs.
+const cloudFrontDistIDLen = 13
+
 // ---------------------------------------------------------------------------
 // Typed Risk Configuration
 // ---------------------------------------------------------------------------
@@ -72,14 +97,14 @@ type CompromisedCredentialsActions struct {
 
 // CompromisedCredentialsRiskConfig holds the compromised credentials risk configuration.
 type CompromisedCredentialsRiskConfig struct {
-	EventFilter []string                       `json:"EventFilter,omitempty"`
 	Actions     *CompromisedCredentialsActions `json:"Actions,omitempty"`
+	EventFilter []string                       `json:"EventFilter,omitempty"`
 }
 
 // AccountTakeoverActionType defines an action for a specific risk level.
 type AccountTakeoverActionType struct {
+	EventAction string `json:"EventAction"`
 	Notify      bool   `json:"Notify"`
-	EventAction string `json:"EventAction"` // "BLOCK"|"MFA_IF_CONFIGURED"|"MFA_REQUIRED"|"NO_ACTION"
 }
 
 // AccountTakeoverActions defines actions per risk level.
@@ -98,27 +123,27 @@ type NotifyEmailType struct {
 
 // NotifyConfigurationType holds notification settings for account takeover.
 type NotifyConfigurationType struct {
-	From          string           `json:"From,omitempty"`
-	ReplyTo       string           `json:"ReplyTo,omitempty"`
-	SourceArn     string           `json:"SourceArn,omitempty"`
 	BlockEmail    *NotifyEmailType `json:"BlockEmail,omitempty"`
 	MfaEmail      *NotifyEmailType `json:"MfaEmail,omitempty"`
 	NoActionEmail *NotifyEmailType `json:"NoActionEmail,omitempty"`
+	From          string           `json:"From,omitempty"`
+	ReplyTo       string           `json:"ReplyTo,omitempty"`
+	SourceArn     string           `json:"SourceArn,omitempty"`
 }
 
 // AccountTakeoverRiskConfig holds account takeover risk configuration.
 type AccountTakeoverRiskConfig struct {
-	Actions              *AccountTakeoverActions  `json:"Actions,omitempty"`
-	NotifyConfiguration  *NotifyConfigurationType `json:"NotifyConfiguration,omitempty"`
+	Actions             *AccountTakeoverActions  `json:"Actions,omitempty"`
+	NotifyConfiguration *NotifyConfigurationType `json:"NotifyConfiguration,omitempty"`
 }
 
 // TypedRiskConfiguration holds fully typed risk config fields.
 type TypedRiskConfiguration struct {
-	UserPoolID                            string
-	ClientID                              string
-	CompromisedCredentialsRiskConfig      *CompromisedCredentialsRiskConfig
-	AccountTakeoverRiskConfig             *AccountTakeoverRiskConfig
-	RiskExceptionConfiguration            map[string]any
+	CompromisedCredentialsRiskConfig *CompromisedCredentialsRiskConfig
+	AccountTakeoverRiskConfig        *AccountTakeoverRiskConfig
+	RiskExceptionConfiguration       map[string]any
+	UserPoolID                       string
+	ClientID                         string
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +185,7 @@ func (b *InMemoryBackend) GetUserPoolMfaConfigFull(userPoolID string) (*UserPool
 	if !ok {
 		mfaVal := pool.MfaConfiguration
 		if mfaVal == "" {
-			mfaVal = "OFF"
+			mfaVal = mfaConfigOFF
 		}
 
 		return &UserPoolMfaFullConfig{MfaConfiguration: mfaVal}, nil
@@ -189,7 +214,7 @@ func (b *InMemoryBackend) GetUserAttributeVerificationCode(
 	}
 
 	switch attributeName {
-	case attrEmail, "phone_number":
+	case attrEmail, attrPhoneNumber:
 		// valid verifiable attributes
 	default:
 		return "", "", "", fmt.Errorf("%w: attribute %q is not verifiable", ErrInvalidParameter, attributeName)
@@ -215,7 +240,7 @@ func (b *InMemoryBackend) GetUserAttributeVerificationCode(
 	}
 
 	// phone_number
-	dest := user.Attributes["phone_number"]
+	dest := user.Attributes[attrPhoneNumber]
 	if dest == "" {
 		dest = "+*******1234"
 	}
@@ -237,7 +262,7 @@ func (b *InMemoryBackend) VerifyUserAttributeWithCode(accessToken, attributeName
 	}
 
 	switch attributeName {
-	case attrEmail, "phone_number":
+	case attrEmail, attrPhoneNumber:
 	default:
 		return fmt.Errorf("%w: attribute %q is not verifiable", ErrInvalidParameter, attributeName)
 	}
@@ -262,7 +287,7 @@ func (b *InMemoryBackend) VerifyUserAttributeWithCode(accessToken, attributeName
 	delete(b.attrVerificationCodes, key)
 
 	// Mark attribute as verified.
-	user.Attributes[attributeName+"_verified"] = "true"
+	user.Attributes[attributeName+"_verified"] = attrVerifiedTrue
 	user.UpdatedAt = time.Now()
 
 	return nil
@@ -285,20 +310,20 @@ func maskEmail(email string) string {
 	prefix := email[:at]
 	domain := email[at:]
 
-	if len(prefix) <= 2 {
+	if len(prefix) <= maskEmailPrefixLen {
 		return prefix + "***" + domain
 	}
 
-	return prefix[:2] + "***" + domain
+	return prefix[:maskEmailPrefixLen] + "***" + domain
 }
 
 // maskPhone masks most of a phone number for privacy.
 func maskPhone(phone string) string {
-	if len(phone) <= 4 {
+	if len(phone) <= maskPhoneVisibleSuffix {
 		return "+*******"
 	}
 
-	return "+*******" + phone[len(phone)-4:]
+	return "+*******" + phone[len(phone)-maskPhoneVisibleSuffix:]
 }
 
 // ---------------------------------------------------------------------------
@@ -427,14 +452,10 @@ func (b *InMemoryBackend) CreateIdentityProviderFull(
 	now := time.Now()
 
 	details := make(map[string]string, len(providerDetails))
-	for k, v := range providerDetails {
-		details[k] = v
-	}
+	maps.Copy(details, providerDetails)
 
 	attrMap := make(map[string]string, len(attributeMapping))
-	for k, v := range attributeMapping {
-		attrMap[k] = v
-	}
+	maps.Copy(attrMap, attributeMapping)
 
 	ids := make([]string, len(idpIdentifiers))
 	copy(ids, idpIdentifiers)
@@ -478,9 +499,7 @@ func (b *InMemoryBackend) UpdateIdentityProviderFull(
 	}
 
 	if providerDetails != nil {
-		for k, v := range providerDetails {
-			idp.ProviderDetails[k] = v
-		}
+		maps.Copy(idp.ProviderDetails, providerDetails)
 	}
 
 	if attributeMapping != nil {
@@ -488,9 +507,7 @@ func (b *InMemoryBackend) UpdateIdentityProviderFull(
 			idp.AttributeMapping = make(map[string]string)
 		}
 
-		for k, v := range attributeMapping {
-			idp.AttributeMapping[k] = v
-		}
+		maps.Copy(idp.AttributeMapping, attributeMapping)
 	}
 
 	if idpIdentifiers != nil {
@@ -526,7 +543,7 @@ func (b *InMemoryBackend) CreateUserPoolDomainFull(userPoolID, domain, certifica
 	cfDomain := domain + ".auth." + b.region + ".amazoncognito.com"
 	if certificateArn != "" {
 		// Custom domain: generate a CloudFront distribution domain.
-		cfDomain = "d" + randomAlphanumeric(13) + ".cloudfront.net"
+		cfDomain = "d" + randomAlphanumeric(cloudFrontDistIDLen) + ".cloudfront.net"
 	}
 
 	d := &UserPoolDomain{
@@ -559,7 +576,7 @@ func (b *InMemoryBackend) UpdateUserPoolDomainFull(userPoolID, domain, certifica
 
 	if certificateArn != "" {
 		d.CertificateArn = certificateArn
-		d.CloudFrontDistribution = "d" + randomAlphanumeric(13) + ".cloudfront.net"
+		d.CloudFrontDistribution = "d" + randomAlphanumeric(cloudFrontDistIDLen) + ".cloudfront.net"
 	}
 
 	return d.CloudFrontDistribution, nil
@@ -570,7 +587,10 @@ func (b *InMemoryBackend) UpdateUserPoolDomainFull(userPoolID, domain, certifica
 // ---------------------------------------------------------------------------
 
 // CreateGroupFull creates a group with a RoleArn.
-func (b *InMemoryBackend) CreateGroupFull(userPoolID, groupName, description, roleArn string, precedence int32) (*Group, error) {
+func (b *InMemoryBackend) CreateGroupFull(
+	userPoolID, groupName, description, roleArn string,
+	precedence int32,
+) (*Group, error) {
 	b.mu.Lock("CreateGroupFull")
 	defer b.mu.Unlock()
 
@@ -609,7 +629,10 @@ func (b *InMemoryBackend) CreateGroupFull(userPoolID, groupName, description, ro
 }
 
 // UpdateGroupFull updates group with description, roleArn, and precedence.
-func (b *InMemoryBackend) UpdateGroupFull(userPoolID, groupName, description, roleArn string, precedence int32) (*Group, error) {
+func (b *InMemoryBackend) UpdateGroupFull(
+	userPoolID, groupName, description, roleArn string,
+	precedence int32,
+) (*Group, error) {
 	b.mu.Lock("UpdateGroupFull")
 	defer b.mu.Unlock()
 
@@ -666,7 +689,11 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 		if messageAction == "RESEND" {
 			// Re-send temp password to existing FORCE_CHANGE_PASSWORD user.
 			if existing.Status != UserStatusForceChangePassword {
-				return nil, fmt.Errorf("%w: user %q is not in FORCE_CHANGE_PASSWORD state", ErrInvalidParameter, username)
+				return nil, fmt.Errorf(
+					"%w: user %q is not in FORCE_CHANGE_PASSWORD state",
+					ErrInvalidParameter,
+					username,
+				)
 			}
 
 			cp := *existing
@@ -683,7 +710,7 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 		}
 	} else {
 		// Generate a temporary password.
-		tempPassword = randomAlphanumeric(12) + "Aa1!"
+		tempPassword = randomAlphanumeric(defaultTempPasswordPrefixLen) + defaultTempPasswordSuffix
 	}
 
 	importHash, err := bcryptHashPassword(tempPassword)
@@ -692,9 +719,7 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 	}
 
 	attrs := make(map[string]string, len(userAttributes))
-	for k, v := range userAttributes {
-		attrs[k] = v
-	}
+	maps.Copy(attrs, userAttributes)
 
 	if messageAction != "SUPPRESS" && tempPassword != "" {
 		attrs["custom:temporaryPassword"] = tempPassword
@@ -703,7 +728,7 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 	// Auto-verify attributes configured on the pool.
 	for _, attr := range pool.AutoVerifiedAttributes {
 		if _, hasAttr := attrs[attr]; hasAttr {
-			attrs[attr+"_verified"] = "true"
+			attrs[attr+"_verified"] = attrVerifiedTrue
 		}
 	}
 
@@ -825,7 +850,11 @@ func (b *InMemoryBackend) ListGroupsPage(userPoolID string, limit int, nextToken
 }
 
 // ListUsersInGroupPage returns a page of users in a group with optional NextToken pagination.
-func (b *InMemoryBackend) ListUsersInGroupPage(userPoolID, groupName string, limit int, nextToken string) ([]*User, string, error) {
+func (b *InMemoryBackend) ListUsersInGroupPage(
+	userPoolID, groupName string,
+	limit int,
+	nextToken string,
+) ([]*User, string, error) {
 	b.mu.RLock("ListUsersInGroupPage")
 	defer b.mu.RUnlock()
 

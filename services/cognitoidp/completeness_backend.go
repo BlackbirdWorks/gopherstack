@@ -156,6 +156,15 @@ func (b *InMemoryBackend) GetIdentityProviderByIdentifier(userPoolID, identifier
 
 			return &cp, nil
 		}
+
+		for _, idpID := range idp.IdpIdentifiers {
+			if idpID == identifier {
+				cp := *idp
+				cp.ProviderDetails = maps.Clone(idp.ProviderDetails)
+
+				return &cp, nil
+			}
+		}
 	}
 
 	return nil, fmt.Errorf("%w: identity provider with identifier %q not found in pool %q",

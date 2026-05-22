@@ -12,28 +12,28 @@ import (
 // batch2DispatchTable returns dispatch entries that override the base table.
 func (h *Handler) batch2DispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		opGetUserPoolMfaConfig:         wrapAccuracy(h.handleGetUserPoolMfaConfigFull),
-		opSetUserPoolMfaConfig:         wrapAccuracy(h.handleSetUserPoolMfaConfigFull),
-		opGetUICustomization:           wrapAccuracy(h.handleGetUICustomizationFull),
-		opSetUICustomization:           wrapAccuracy(h.handleSetUICustomizationFull),
-		opGetUserAttributeVerifCode:    wrapAccuracy(h.handleGetUserAttributeVerificationCodeFull),
-		opVerifyUserAttribute:          wrapAccuracy(h.handleVerifyUserAttributeFull),
-		opCreateIdentityProvider:       wrapAccuracy(h.handleCreateIdentityProviderFull),
-		opUpdateIdentityProvider:       wrapAccuracy(h.handleUpdateIdentityProviderFull),
-		opDescribeIdentityProvider:     wrapAccuracy(h.handleDescribeIdentityProviderFull),
-		opGetIdentityProviderByIdent:   wrapAccuracy(h.handleGetIdentityProviderByIdentifierFull),
-		opListIdentityProviders:        wrapAccuracy(h.handleListIdentityProvidersFull),
-		opCreateUserPoolDomain:         wrapAccuracy(h.handleCreateUserPoolDomainFull),
-		opUpdateUserPoolDomain:         wrapAccuracy(h.handleUpdateUserPoolDomainFull),
-		opDescribeRiskConfiguration:    wrapAccuracy(h.handleDescribeRiskConfigurationFull),
-		opSetRiskConfiguration:         wrapAccuracy(h.handleSetRiskConfigurationFull),
-		opAdminCreateUser:              wrapAccuracy(h.handleAdminCreateUserFull),
-		opAdminSetUserPassword:         wrapAccuracy(h.handleAdminSetUserPasswordFull),
-		opCreateGroup:                  wrapAccuracy(h.handleCreateGroupFull),
-		opUpdateGroup:                  wrapAccuracy(h.handleUpdateGroupFull),
-		opGetGroup:                     wrapAccuracy(h.handleGetGroupFull),
-		opListGroups:                   wrapAccuracy(h.handleListGroupsFull),
-		opListUsersInGroup:             wrapAccuracy(h.handleListUsersInGroupFull),
+		opGetUserPoolMfaConfig:       wrapAccuracy(h.handleGetUserPoolMfaConfigFull),
+		opSetUserPoolMfaConfig:       wrapAccuracy(h.handleSetUserPoolMfaConfigFull),
+		opGetUICustomization:         wrapAccuracy(h.handleGetUICustomizationFull),
+		opSetUICustomization:         wrapAccuracy(h.handleSetUICustomizationFull),
+		opGetUserAttributeVerifCode:  wrapAccuracy(h.handleGetUserAttributeVerificationCodeFull),
+		opVerifyUserAttribute:        wrapAccuracy(h.handleVerifyUserAttributeFull),
+		opCreateIdentityProvider:     wrapAccuracy(h.handleCreateIdentityProviderFull),
+		opUpdateIdentityProvider:     wrapAccuracy(h.handleUpdateIdentityProviderFull),
+		opDescribeIdentityProvider:   wrapAccuracy(h.handleDescribeIdentityProviderFull),
+		opGetIdentityProviderByIdent: wrapAccuracy(h.handleGetIdentityProviderByIdentifierFull),
+		opListIdentityProviders:      wrapAccuracy(h.handleListIdentityProvidersFull),
+		opCreateUserPoolDomain:       wrapAccuracy(h.handleCreateUserPoolDomainFull),
+		opUpdateUserPoolDomain:       wrapAccuracy(h.handleUpdateUserPoolDomainFull),
+		opDescribeRiskConfiguration:  wrapAccuracy(h.handleDescribeRiskConfigurationFull),
+		opSetRiskConfiguration:       wrapAccuracy(h.handleSetRiskConfigurationFull),
+		opAdminCreateUser:            wrapAccuracy(h.handleAdminCreateUserFull),
+		opAdminSetUserPassword:       wrapAccuracy(h.handleAdminSetUserPasswordFull),
+		opCreateGroup:                wrapAccuracy(h.handleCreateGroupFull),
+		opUpdateGroup:                wrapAccuracy(h.handleUpdateGroupFull),
+		opGetGroup:                   wrapAccuracy(h.handleGetGroupFull),
+		opListGroups:                 wrapAccuracy(h.handleListGroupsFull),
+		opListUsersInGroup:           wrapAccuracy(h.handleListUsersInGroupFull),
 	}
 }
 
@@ -68,8 +68,8 @@ const (
 // ---------------------------------------------------------------------------
 
 type smsMfaConfigJSON struct {
-	SmsAuthenticationMessage string            `json:"SmsAuthenticationMessage,omitempty"`
-	SmsConfiguration         *smsConfigJSON    `json:"SmsConfiguration,omitempty"`
+	SmsConfiguration         *smsConfigJSON `json:"SmsConfiguration,omitempty"`
+	SmsAuthenticationMessage string         `json:"SmsAuthenticationMessage,omitempty"`
 }
 
 type smsConfigJSON struct {
@@ -92,10 +92,10 @@ type getUserPoolMfaConfigFullInput struct {
 }
 
 type getUserPoolMfaConfigFullOutput struct {
-	MfaConfiguration            string                      `json:"MfaConfiguration"`
-	SmsMfaConfiguration         *smsMfaConfigJSON           `json:"SmsMfaConfiguration,omitempty"`
+	SmsMfaConfiguration           *smsMfaConfigJSON           `json:"SmsMfaConfiguration,omitempty"`
 	SoftwareTokenMfaConfiguration *softwareTokenMfaConfigJSON `json:"SoftwareTokenMfaConfiguration,omitempty"`
-	EmailMfaConfiguration       *emailMfaConfigJSON         `json:"EmailMfaConfiguration,omitempty"`
+	EmailMfaConfiguration         *emailMfaConfigJSON         `json:"EmailMfaConfiguration,omitempty"`
+	MfaConfiguration              string                      `json:"MfaConfiguration"`
 }
 
 func (h *Handler) handleGetUserPoolMfaConfigFull(
@@ -109,7 +109,7 @@ func (h *Handler) handleGetUserPoolMfaConfigFull(
 
 	out := &getUserPoolMfaConfigFullOutput{MfaConfiguration: cfg.MfaConfiguration}
 	if out.MfaConfiguration == "" {
-		out.MfaConfiguration = "OFF"
+		out.MfaConfiguration = mfaConfigOFF
 	}
 
 	if cfg.SmsMfaConfiguration != nil {
@@ -141,18 +141,18 @@ func (h *Handler) handleGetUserPoolMfaConfigFull(
 }
 
 type setUserPoolMfaConfigFullInput struct {
-	UserPoolID                    string                      `json:"UserPoolId"`
-	MfaConfiguration              string                      `json:"MfaConfiguration"`
 	SmsMfaConfiguration           *smsMfaConfigJSON           `json:"SmsMfaConfiguration,omitempty"`
 	SoftwareTokenMfaConfiguration *softwareTokenMfaConfigJSON `json:"SoftwareTokenMfaConfiguration,omitempty"`
 	EmailMfaConfiguration         *emailMfaConfigJSON         `json:"EmailMfaConfiguration,omitempty"`
+	UserPoolID                    string                      `json:"UserPoolId"`
+	MfaConfiguration              string                      `json:"MfaConfiguration"`
 }
 
 type setUserPoolMfaConfigFullOutput struct {
-	MfaConfiguration              string                      `json:"MfaConfiguration"`
 	SmsMfaConfiguration           *smsMfaConfigJSON           `json:"SmsMfaConfiguration,omitempty"`
 	SoftwareTokenMfaConfiguration *softwareTokenMfaConfigJSON `json:"SoftwareTokenMfaConfiguration,omitempty"`
 	EmailMfaConfiguration         *emailMfaConfigJSON         `json:"EmailMfaConfiguration,omitempty"`
+	MfaConfiguration              string                      `json:"MfaConfiguration"`
 }
 
 func (h *Handler) handleSetUserPoolMfaConfigFull(
@@ -453,13 +453,13 @@ func (h *Handler) handleGetIdentityProviderByIdentifierFull(
 
 type listIdentityProvidersFullInput struct {
 	UserPoolID string `json:"UserPoolId"`
-	MaxResults int    `json:"MaxResults,omitempty"`
 	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listIdentityProvidersFullOutput struct {
-	Providers []identityProviderSummaryJSON `json:"Providers"`
 	NextToken string                        `json:"NextToken,omitempty"`
+	Providers []identityProviderSummaryJSON `json:"Providers"`
 }
 
 type identityProviderSummaryJSON struct {
@@ -530,9 +530,9 @@ type customDomainConfigJSON struct {
 }
 
 type createUserPoolDomainFullInput struct {
+	CustomDomainConfig *customDomainConfigJSON `json:"CustomDomainConfig,omitempty"`
 	UserPoolID         string                  `json:"UserPoolId"`
 	Domain             string                  `json:"Domain"`
-	CustomDomainConfig *customDomainConfigJSON `json:"CustomDomainConfig,omitempty"`
 }
 
 type createUserPoolDomainFullOutput struct {
@@ -557,9 +557,9 @@ func (h *Handler) handleCreateUserPoolDomainFull(
 }
 
 type updateUserPoolDomainFullInput struct {
+	CustomDomainConfig *customDomainConfigJSON `json:"CustomDomainConfig,omitempty"`
 	UserPoolID         string                  `json:"UserPoolId"`
 	Domain             string                  `json:"Domain"`
-	CustomDomainConfig *customDomainConfigJSON `json:"CustomDomainConfig,omitempty"`
 }
 
 type updateUserPoolDomainFullOutput struct {
@@ -592,13 +592,13 @@ type compromisedCredActionsJSON struct {
 }
 
 type compromisedCredRiskConfigJSON struct {
-	EventFilter []string                    `json:"EventFilter,omitempty"`
 	Actions     *compromisedCredActionsJSON `json:"Actions,omitempty"`
+	EventFilter []string                    `json:"EventFilter,omitempty"`
 }
 
 type accountTakeoverActionTypeJSON struct {
-	Notify      bool   `json:"Notify"`
 	EventAction string `json:"EventAction"`
+	Notify      bool   `json:"Notify"`
 }
 
 type accountTakeoverActionsJSON struct {
@@ -614,12 +614,12 @@ type notifyEmailTypeJSON struct {
 }
 
 type notifyConfigJSON struct {
-	From          string               `json:"From,omitempty"`
-	ReplyTo       string               `json:"ReplyTo,omitempty"`
-	SourceArn     string               `json:"SourceArn,omitempty"`
 	BlockEmail    *notifyEmailTypeJSON `json:"BlockEmail,omitempty"`
 	MfaEmail      *notifyEmailTypeJSON `json:"MfaEmail,omitempty"`
 	NoActionEmail *notifyEmailTypeJSON `json:"NoActionEmail,omitempty"`
+	From          string               `json:"From,omitempty"`
+	ReplyTo       string               `json:"ReplyTo,omitempty"`
+	SourceArn     string               `json:"SourceArn,omitempty"`
 }
 
 type accountTakeoverRiskConfigJSON struct {
@@ -628,8 +628,8 @@ type accountTakeoverRiskConfigJSON struct {
 }
 
 type riskExceptionConfigJSON struct {
-	BlockedIPRangeList  []string `json:"BlockedIPRangeList,omitempty"`
-	SkippedIPRangeList  []string `json:"SkippedIPRangeList,omitempty"`
+	BlockedIPRangeList []string `json:"BlockedIPRangeList,omitempty"`
+	SkippedIPRangeList []string `json:"SkippedIPRangeList,omitempty"`
 }
 
 type describeRiskConfigFullInput struct {
@@ -638,11 +638,11 @@ type describeRiskConfigFullInput struct {
 }
 
 type riskConfigurationJSON struct {
-	UserPoolID                            string                         `json:"UserPoolId,omitempty"`
-	ClientID                              string                         `json:"ClientId,omitempty"`
-	CompromisedCredentialsRiskConfiguration *compromisedCredRiskConfigJSON `json:"CompromisedCredentialsRiskConfiguration,omitempty"`
-	AccountTakeoverRiskConfiguration      *accountTakeoverRiskConfigJSON `json:"AccountTakeoverRiskConfiguration,omitempty"`
-	RiskExceptionConfiguration            *riskExceptionConfigJSON       `json:"RiskExceptionConfiguration,omitempty"`
+	CompromisedCredentialsRiskConfiguration *compromisedCredRiskConfigJSON `json:"CompromisedCredentialsRiskConfiguration,omitempty"` //nolint:lll // AWS field name
+	AccountTakeoverRiskConfiguration        *accountTakeoverRiskConfigJSON `json:"AccountTakeoverRiskConfiguration,omitempty"`        //nolint:lll // AWS field name
+	RiskExceptionConfiguration              *riskExceptionConfigJSON       `json:"RiskExceptionConfiguration,omitempty"`
+	UserPoolID                              string                         `json:"UserPoolId,omitempty"`
+	ClientID                                string                         `json:"ClientId,omitempty"`
 }
 
 type describeRiskConfigFullOutput struct {
@@ -662,11 +662,11 @@ func (h *Handler) handleDescribeRiskConfigurationFull(
 }
 
 type setRiskConfigFullInput struct {
-	UserPoolID                            string                         `json:"UserPoolId"`
-	ClientID                              string                         `json:"ClientId,omitempty"`
-	CompromisedCredentialsRiskConfiguration *compromisedCredRiskConfigJSON `json:"CompromisedCredentialsRiskConfiguration,omitempty"`
-	AccountTakeoverRiskConfiguration      *accountTakeoverRiskConfigJSON `json:"AccountTakeoverRiskConfiguration,omitempty"`
-	RiskExceptionConfiguration            *riskExceptionConfigJSON       `json:"RiskExceptionConfiguration,omitempty"`
+	CompromisedCredentialsRiskConfiguration *compromisedCredRiskConfigJSON `json:"CompromisedCredentialsRiskConfiguration,omitempty"` //nolint:lll // AWS field name
+	AccountTakeoverRiskConfiguration        *accountTakeoverRiskConfigJSON `json:"AccountTakeoverRiskConfiguration,omitempty"`        //nolint:lll // AWS field name
+	RiskExceptionConfiguration              *riskExceptionConfigJSON       `json:"RiskExceptionConfiguration,omitempty"`
+	UserPoolID                              string                         `json:"UserPoolId"`
+	ClientID                                string                         `json:"ClientId,omitempty"`
 }
 
 type setRiskConfigFullOutput struct {
@@ -767,11 +767,17 @@ func toAccountTakeoverActionsJSON(a *AccountTakeoverActions) *accountTakeoverAct
 	}
 
 	if a.MediumAction != nil {
-		out.MediumAction = &accountTakeoverActionTypeJSON{Notify: a.MediumAction.Notify, EventAction: a.MediumAction.EventAction}
+		out.MediumAction = &accountTakeoverActionTypeJSON{
+			Notify:      a.MediumAction.Notify,
+			EventAction: a.MediumAction.EventAction,
+		}
 	}
 
 	if a.HighAction != nil {
-		out.HighAction = &accountTakeoverActionTypeJSON{Notify: a.HighAction.Notify, EventAction: a.HighAction.EventAction}
+		out.HighAction = &accountTakeoverActionTypeJSON{
+			Notify:      a.HighAction.Notify,
+			EventAction: a.HighAction.EventAction,
+		}
 	}
 
 	return out
@@ -785,11 +791,17 @@ func fromAccountTakeoverActionsJSON(in *accountTakeoverActionsJSON) *AccountTake
 	}
 
 	if in.MediumAction != nil {
-		out.MediumAction = &AccountTakeoverActionType{Notify: in.MediumAction.Notify, EventAction: in.MediumAction.EventAction}
+		out.MediumAction = &AccountTakeoverActionType{
+			Notify:      in.MediumAction.Notify,
+			EventAction: in.MediumAction.EventAction,
+		}
 	}
 
 	if in.HighAction != nil {
-		out.HighAction = &AccountTakeoverActionType{Notify: in.HighAction.Notify, EventAction: in.HighAction.EventAction}
+		out.HighAction = &AccountTakeoverActionType{
+			Notify:      in.HighAction.Notify,
+			EventAction: in.HighAction.EventAction,
+		}
 	}
 
 	return out
@@ -803,15 +815,27 @@ func toNotifyConfigJSON(n *NotifyConfigurationType) *notifyConfigJSON {
 	}
 
 	if n.BlockEmail != nil {
-		out.BlockEmail = &notifyEmailTypeJSON{HtmlBody: n.BlockEmail.HtmlBody, Subject: n.BlockEmail.Subject, TextBody: n.BlockEmail.TextBody}
+		out.BlockEmail = &notifyEmailTypeJSON{
+			HtmlBody: n.BlockEmail.HtmlBody,
+			Subject:  n.BlockEmail.Subject,
+			TextBody: n.BlockEmail.TextBody,
+		}
 	}
 
 	if n.MfaEmail != nil {
-		out.MfaEmail = &notifyEmailTypeJSON{HtmlBody: n.MfaEmail.HtmlBody, Subject: n.MfaEmail.Subject, TextBody: n.MfaEmail.TextBody}
+		out.MfaEmail = &notifyEmailTypeJSON{
+			HtmlBody: n.MfaEmail.HtmlBody,
+			Subject:  n.MfaEmail.Subject,
+			TextBody: n.MfaEmail.TextBody,
+		}
 	}
 
 	if n.NoActionEmail != nil {
-		out.NoActionEmail = &notifyEmailTypeJSON{HtmlBody: n.NoActionEmail.HtmlBody, Subject: n.NoActionEmail.Subject, TextBody: n.NoActionEmail.TextBody}
+		out.NoActionEmail = &notifyEmailTypeJSON{
+			HtmlBody: n.NoActionEmail.HtmlBody,
+			Subject:  n.NoActionEmail.Subject,
+			TextBody: n.NoActionEmail.TextBody,
+		}
 	}
 
 	return out
@@ -825,15 +849,27 @@ func fromNotifyConfigJSON(in *notifyConfigJSON) *NotifyConfigurationType {
 	}
 
 	if in.BlockEmail != nil {
-		out.BlockEmail = &NotifyEmailType{HtmlBody: in.BlockEmail.HtmlBody, Subject: in.BlockEmail.Subject, TextBody: in.BlockEmail.TextBody}
+		out.BlockEmail = &NotifyEmailType{
+			HtmlBody: in.BlockEmail.HtmlBody,
+			Subject:  in.BlockEmail.Subject,
+			TextBody: in.BlockEmail.TextBody,
+		}
 	}
 
 	if in.MfaEmail != nil {
-		out.MfaEmail = &NotifyEmailType{HtmlBody: in.MfaEmail.HtmlBody, Subject: in.MfaEmail.Subject, TextBody: in.MfaEmail.TextBody}
+		out.MfaEmail = &NotifyEmailType{
+			HtmlBody: in.MfaEmail.HtmlBody,
+			Subject:  in.MfaEmail.Subject,
+			TextBody: in.MfaEmail.TextBody,
+		}
 	}
 
 	if in.NoActionEmail != nil {
-		out.NoActionEmail = &NotifyEmailType{HtmlBody: in.NoActionEmail.HtmlBody, Subject: in.NoActionEmail.Subject, TextBody: in.NoActionEmail.TextBody}
+		out.NoActionEmail = &NotifyEmailType{
+			HtmlBody: in.NoActionEmail.HtmlBody,
+			Subject:  in.NoActionEmail.Subject,
+			TextBody: in.NoActionEmail.TextBody,
+		}
 	}
 
 	return out
@@ -1007,13 +1043,13 @@ func (h *Handler) handleGetGroupFull(
 
 type listGroupsFullInput struct {
 	UserPoolID string `json:"UserPoolId"`
-	Limit      int    `json:"Limit,omitempty"`
 	NextToken  string `json:"NextToken,omitempty"`
+	Limit      int    `json:"Limit,omitempty"`
 }
 
 type listGroupsFullOutput struct {
-	Groups    []*groupFullSummary `json:"Groups"`
 	NextToken string              `json:"NextToken,omitempty"`
+	Groups    []*groupFullSummary `json:"Groups"`
 }
 
 func (h *Handler) handleListGroupsFull(
@@ -1037,13 +1073,13 @@ func (h *Handler) handleListGroupsFull(
 type listUsersInGroupFullInput struct {
 	UserPoolID string `json:"UserPoolId"`
 	GroupName  string `json:"GroupName"`
-	Limit      int    `json:"Limit,omitempty"`
 	NextToken  string `json:"NextToken,omitempty"`
+	Limit      int    `json:"Limit,omitempty"`
 }
 
 type listUsersInGroupFullOutput struct {
-	Users     []adminUserJSON `json:"Users"`
 	NextToken string          `json:"NextToken,omitempty"`
+	Users     []adminUserJSON `json:"Users"`
 }
 
 func (h *Handler) handleListUsersInGroupFull(
