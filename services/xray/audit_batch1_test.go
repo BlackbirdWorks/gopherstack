@@ -59,12 +59,14 @@ func TestAudit_PutTraceSegments_ParsesSegmentFields(t *testing.T) {
 		},
 		{
 			name:       "segment with error and throttle flags",
-			seg:        `{"trace_id":"1-audit-003","id":"seg3","name":"svc","start_time":1700000002.0,"error":true,"throttle":true}`,
+			seg: `{"trace_id":"1-audit-003","id":"seg3","name":"svc","start_time":1700000002.0,` +
+				`"error":true,"throttle":true}`,
 			wantParsed: true,
 		},
 		{
 			name:       "segment with http request and response",
-			seg:        `{"trace_id":"1-audit-004","id":"seg4","name":"svc","start_time":1700000003.0,"http":{"request":{"method":"GET","url":"https://example.com/api"},"response":{"status":200}}}`,
+			seg: `{"trace_id":"1-audit-004","id":"seg4","name":"svc","start_time":1700000003.0,` +
+				`"http":{"request":{"method":"GET","url":"https://example.com/api"},"response":{"status":200}}}`,
 			wantParsed: true,
 		},
 		{
@@ -514,10 +516,10 @@ func TestAudit_GetTraceSummaries_FilterExpressions(t *testing.T) {
 	}
 
 	tests := []struct {
+		wantTraces []string
 		name       string
 		filter     string
 		wantCount  int
-		wantTraces []string
 	}{
 		{name: "no filter returns all", filter: "", wantCount: 5},
 		{name: "fault filter", filter: "fault", wantCount: 1, wantTraces: []string{"1-flt-fault"}},
@@ -807,8 +809,8 @@ func TestAudit_GetServiceGraph_RequiresStartAndEndTime(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -1428,10 +1430,10 @@ func TestAudit_UpdateSamplingRule_ZeroValues(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
 		update        map[string]any
 		wantFixRate   float64
 		wantReservoir float64
+		name          string
 	}{
 		{
 			name:          "set FixedRate to 0.0",
@@ -1656,7 +1658,7 @@ func TestAudit_GetSamplingStatisticSummaries_AccumulatesAcrossCalls(t *testing.T
 	h, b := newTestHandlerWithBackend(t)
 	b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "accum-rule", FixedRate: 0.05, ReservoirSize: 5, Priority: 1})
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		putRec := doXrayRequest(t, h, "/GetSamplingTargets", map[string]any{
 			"SamplingStatisticsDocuments": []map[string]any{
 				{"RuleName": "accum-rule", "ClientId": "c-1", "RequestCount": 100, "SampledCount": 5, "BorrowCount": 0},
@@ -2194,8 +2196,8 @@ func TestAudit_Tags_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		tags map[string]string
+		name string
 	}{
 		{
 			name: "single tag",
@@ -2396,10 +2398,10 @@ func TestAudit_RetrievedTracesGraph_CompleteForUnknownToken(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
 		body            map[string]any
-		wantStatus      int
+		name            string
 		wantRetrievalSt string
+		wantStatus      int
 	}{
 		{
 			name:            "unknown token returns COMPLETE",
