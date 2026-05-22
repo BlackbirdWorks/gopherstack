@@ -59,6 +59,101 @@ type Filter struct {
 	Pattern string `json:"Pattern,omitempty"`
 }
 
+// AwsVpcConfiguration is the VPC network configuration for ECS tasks.
+type AwsVpcConfiguration struct {
+	AssignPublicIP string   `json:"AssignPublicIp,omitempty"`
+	Subnets        []string `json:"Subnets,omitempty"`
+	SecurityGroups []string `json:"SecurityGroups,omitempty"`
+}
+
+// NetworkConfiguration wraps VPC configuration for ECS task targets.
+type NetworkConfiguration struct {
+	AwsvpcConfiguration *AwsVpcConfiguration `json:"AwsvpcConfiguration,omitempty"`
+}
+
+// CapacityProviderStrategyItem is a single entry in an ECS capacity provider strategy.
+type CapacityProviderStrategyItem struct {
+	CapacityProvider string `json:"CapacityProvider,omitempty"`
+	Weight           int    `json:"Weight,omitempty"`
+	Base             int    `json:"Base,omitempty"`
+}
+
+// PlacementConstraint is a constraint for ECS task placement.
+type PlacementConstraint struct {
+	Expression string `json:"Expression,omitempty"`
+	Type       string `json:"Type,omitempty"`
+}
+
+// PlacementStrategy is a placement strategy rule for ECS tasks.
+type PlacementStrategy struct {
+	Field string `json:"Field,omitempty"`
+	Type  string `json:"Type,omitempty"`
+}
+
+// EcsTaskOverride holds override values for an ECS task execution.
+type EcsTaskOverride struct {
+	TaskRoleArn      string `json:"TaskRoleArn,omitempty"`
+	ExecutionRoleArn string `json:"ExecutionRoleArn,omitempty"`
+	CPU              string `json:"Cpu,omitempty"`
+	Memory           string `json:"Memory,omitempty"`
+}
+
+// BatchJobDependency represents a dependency between Batch jobs.
+type BatchJobDependency struct {
+	JobID string `json:"JobId,omitempty"`
+	Type  string `json:"Type,omitempty"`
+}
+
+// BatchContainerOverrides holds container override values for a Batch job.
+type BatchContainerOverrides struct {
+	Environment  map[string]string `json:"Environment,omitempty"`
+	InstanceType string            `json:"InstanceType,omitempty"`
+	Command      []string          `json:"Command,omitempty"`
+}
+
+// SelfManagedKafkaAccessCredentials holds authentication credentials for self-managed Kafka.
+// Exactly one field is populated (models an AWS union type).
+type SelfManagedKafkaAccessCredentials struct {
+	BasicAuth                string `json:"BasicAuth,omitempty"`
+	ClientCertificateTLSAuth string `json:"ClientCertificateTlsAuth,omitempty"`
+	SaslScram256Auth         string `json:"SaslScram256Auth,omitempty"`
+	SaslScram512Auth         string `json:"SaslScram512Auth,omitempty"`
+}
+
+// SelfManagedKafkaVpc holds VPC configuration for self-managed Kafka connectivity.
+type SelfManagedKafkaVpc struct {
+	SecurityGroup []string `json:"SecurityGroup,omitempty"`
+	Subnets       []string `json:"Subnets,omitempty"`
+}
+
+// MSKAccessCredentials holds authentication credentials for MSK sources.
+// Exactly one field is populated (models an AWS union type).
+type MSKAccessCredentials struct {
+	ClientCertificateTLSAuth string `json:"ClientCertificateTlsAuth,omitempty"`
+	SaslScram512Auth         string `json:"SaslScram512Auth,omitempty"`
+}
+
+// MQBrokerCredentials holds credentials for ActiveMQ or RabbitMQ broker sources.
+type MQBrokerCredentials struct {
+	BasicAuth string `json:"BasicAuth,omitempty"`
+}
+
+// CloudWatchMetricsDestination configures a CloudWatch metrics destination.
+type CloudWatchMetricsDestination struct {
+	Namespace string `json:"Namespace,omitempty"`
+}
+
+// MetricsDestination wraps the destination for pipe runtime metrics.
+type MetricsDestination struct {
+	CloudwatchMetrics *CloudWatchMetricsDestination `json:"CloudwatchMetrics,omitempty"`
+}
+
+// RuntimeMetricsStreaming configures runtime metrics streaming for a pipe.
+type RuntimeMetricsStreaming struct {
+	MetricsDestination *MetricsDestination `json:"MetricsDestination,omitempty"`
+	Level              string              `json:"Level,omitempty"`
+}
+
 // SQSSourceParameters holds SQS-specific source configuration.
 type SQSSourceParameters struct {
 	BatchSize                      int `json:"BatchSize,omitempty"`
@@ -92,37 +187,42 @@ type DynamoDBStreamSourceParameters struct {
 
 // MSKSourceParameters holds MSK source configuration.
 type MSKSourceParameters struct {
-	TopicName                      string `json:"TopicName,omitempty"`
-	StartingPosition               string `json:"StartingPosition,omitempty"`
-	ConsumerGroupID                string `json:"ConsumerGroupId,omitempty"`
-	BatchSize                      int    `json:"BatchSize,omitempty"`
-	MaximumBatchingWindowInSeconds int    `json:"MaximumBatchingWindowInSeconds,omitempty"`
+	Credentials                    *MSKAccessCredentials `json:"Credentials,omitempty"`
+	TopicName                      string                `json:"TopicName,omitempty"`
+	StartingPosition               string                `json:"StartingPosition,omitempty"`
+	ConsumerGroupID                string                `json:"ConsumerGroupId,omitempty"`
+	BatchSize                      int                   `json:"BatchSize,omitempty"`
+	MaximumBatchingWindowInSeconds int                   `json:"MaximumBatchingWindowInSeconds,omitempty"`
 }
 
 // SelfManagedKafkaSourceParameters holds self-managed Kafka source configuration.
 type SelfManagedKafkaSourceParameters struct {
-	TopicName                      string   `json:"TopicName,omitempty"`
-	StartingPosition               string   `json:"StartingPosition,omitempty"`
-	ConsumerGroupID                string   `json:"ConsumerGroupId,omitempty"`
-	ServerRootCaCertificate        string   `json:"ServerRootCaCertificate,omitempty"`
-	AdditionalBootstrapServers     []string `json:"AdditionalBootstrapServers,omitempty"`
-	BatchSize                      int      `json:"BatchSize,omitempty"`
-	MaximumBatchingWindowInSeconds int      `json:"MaximumBatchingWindowInSeconds,omitempty"`
+	Credentials                    *SelfManagedKafkaAccessCredentials `json:"Credentials,omitempty"`
+	Vpc                            *SelfManagedKafkaVpc               `json:"Vpc,omitempty"`
+	TopicName                      string                             `json:"TopicName,omitempty"`
+	StartingPosition               string                             `json:"StartingPosition,omitempty"`
+	ConsumerGroupID                string                             `json:"ConsumerGroupId,omitempty"`
+	ServerRootCaCertificate        string                             `json:"ServerRootCaCertificate,omitempty"`
+	AdditionalBootstrapServers     []string                           `json:"AdditionalBootstrapServers,omitempty"`
+	BatchSize                      int                                `json:"BatchSize,omitempty"`
+	MaximumBatchingWindowInSeconds int                                `json:"MaximumBatchingWindowInSeconds,omitempty"`
 }
 
 // RabbitMQBrokerSourceParameters holds RabbitMQ broker source configuration.
 type RabbitMQBrokerSourceParameters struct {
-	QueueName                      string `json:"QueueName,omitempty"`
-	VirtualHost                    string `json:"VirtualHost,omitempty"`
-	BatchSize                      int    `json:"BatchSize,omitempty"`
-	MaximumBatchingWindowInSeconds int    `json:"MaximumBatchingWindowInSeconds,omitempty"`
+	Credentials                    *MQBrokerCredentials `json:"Credentials,omitempty"`
+	QueueName                      string               `json:"QueueName,omitempty"`
+	VirtualHost                    string               `json:"VirtualHost,omitempty"`
+	BatchSize                      int                  `json:"BatchSize,omitempty"`
+	MaximumBatchingWindowInSeconds int                  `json:"MaximumBatchingWindowInSeconds,omitempty"`
 }
 
 // ActiveMQBrokerSourceParameters holds ActiveMQ broker source configuration.
 type ActiveMQBrokerSourceParameters struct {
-	QueueName                      string `json:"QueueName,omitempty"`
-	BatchSize                      int    `json:"BatchSize,omitempty"`
-	MaximumBatchingWindowInSeconds int    `json:"MaximumBatchingWindowInSeconds,omitempty"`
+	Credentials                    *MQBrokerCredentials `json:"Credentials,omitempty"`
+	QueueName                      string               `json:"QueueName,omitempty"`
+	BatchSize                      int                  `json:"BatchSize,omitempty"`
+	MaximumBatchingWindowInSeconds int                  `json:"MaximumBatchingWindowInSeconds,omitempty"`
 }
 
 // SourceParameters holds source-specific configuration.
@@ -206,18 +306,29 @@ type BatchRetryStrategy struct {
 
 // BatchJobTargetParameters holds Batch job target configuration.
 type BatchJobTargetParameters struct {
-	ArrayProperties *BatchArrayProperties `json:"ArrayProperties,omitempty"`
-	RetryStrategy   *BatchRetryStrategy   `json:"RetryStrategy,omitempty"`
-	Parameters      map[string]string     `json:"Parameters,omitempty"`
-	JobDefinition   string                `json:"JobDefinition,omitempty"`
-	JobName         string                `json:"JobName,omitempty"`
+	ArrayProperties    *BatchArrayProperties    `json:"ArrayProperties,omitempty"`
+	RetryStrategy      *BatchRetryStrategy      `json:"RetryStrategy,omitempty"`
+	ContainerOverrides *BatchContainerOverrides `json:"ContainerOverrides,omitempty"`
+	Parameters         map[string]string        `json:"Parameters,omitempty"`
+	JobDefinition      string                   `json:"JobDefinition,omitempty"`
+	JobName            string                   `json:"JobName,omitempty"`
+	DependsOn          []BatchJobDependency     `json:"DependsOn,omitempty"`
 }
 
 // ECSTaskTargetParameters holds ECS task target configuration.
 type ECSTaskTargetParameters struct {
-	TaskDefinitionArn string `json:"TaskDefinitionArn,omitempty"`
-	LaunchType        string `json:"LaunchType,omitempty"`
-	TaskCount         int    `json:"TaskCount,omitempty"`
+	NetworkConfiguration     *NetworkConfiguration          `json:"NetworkConfiguration,omitempty"`
+	Overrides                *EcsTaskOverride               `json:"Overrides,omitempty"`
+	TaskDefinitionArn        string                         `json:"TaskDefinitionArn,omitempty"`
+	LaunchType               string                         `json:"LaunchType,omitempty"`
+	Group                    string                         `json:"Group,omitempty"`
+	PlatformVersion          string                         `json:"PlatformVersion,omitempty"`
+	CapacityProviderStrategy []CapacityProviderStrategyItem `json:"CapacityProviderStrategy,omitempty"`
+	PlacementConstraints     []PlacementConstraint          `json:"PlacementConstraints,omitempty"`
+	PlacementStrategy        []PlacementStrategy            `json:"PlacementStrategy,omitempty"`
+	TaskCount                int                            `json:"TaskCount,omitempty"`
+	EnableECSManagedTags     bool                           `json:"EnableECSManagedTags,omitempty"`
+	EnableExecuteCommand     bool                           `json:"EnableExecuteCommand,omitempty"`
 }
 
 // TargetParameters holds target-specific configuration.
@@ -287,27 +398,28 @@ type LogConfiguration struct {
 
 // Pipe represents an EventBridge Pipe.
 type Pipe struct {
-	SourceParameters     *SourceParameters     `json:"sourceParameters,omitempty"`
-	TargetParameters     *TargetParameters     `json:"targetParameters,omitempty"`
-	DeadLetterConfig     *DeadLetterConfig     `json:"deadLetterConfig,omitempty"`
-	LogConfiguration     *LogConfiguration     `json:"logConfiguration,omitempty"`
-	EnrichmentParameters *EnrichmentParameters `json:"enrichmentParameters,omitempty"`
-	LastModifiedTime     time.Time             `json:"lastModifiedTime"`
-	CreationTime         time.Time             `json:"creationTime"`
-	Tags                 map[string]string     `json:"tags,omitempty"`
-	Description          string                `json:"description,omitempty"`
-	Enrichment           string                `json:"enrichment,omitempty"`
-	KmsKeyIdentifier     string                `json:"kmsKeyIdentifier,omitempty"`
-	Source               string                `json:"source"`
-	Target               string                `json:"target"`
-	RoleARN              string                `json:"roleArn"`
-	StateReason          string                `json:"stateReason,omitempty"`
-	DesiredState         string                `json:"desiredState"`
-	CurrentState         string                `json:"currentState"`
-	AccountID            string                `json:"accountID"`
-	Region               string                `json:"region"`
-	ARN                  string                `json:"arn"`
-	Name                 string                `json:"name"`
+	SourceParameters        *SourceParameters        `json:"sourceParameters,omitempty"`
+	TargetParameters        *TargetParameters        `json:"targetParameters,omitempty"`
+	DeadLetterConfig        *DeadLetterConfig        `json:"deadLetterConfig,omitempty"`
+	LogConfiguration        *LogConfiguration        `json:"logConfiguration,omitempty"`
+	EnrichmentParameters    *EnrichmentParameters    `json:"enrichmentParameters,omitempty"`
+	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"runtimeMetricsStreaming,omitempty"`
+	LastModifiedTime        time.Time                `json:"lastModifiedTime"`
+	CreationTime            time.Time                `json:"creationTime"`
+	Tags                    map[string]string        `json:"tags,omitempty"`
+	Description             string                   `json:"description,omitempty"`
+	Enrichment              string                   `json:"enrichment,omitempty"`
+	KmsKeyIdentifier        string                   `json:"kmsKeyIdentifier,omitempty"`
+	Source                  string                   `json:"source"`
+	Target                  string                   `json:"target"`
+	RoleARN                 string                   `json:"roleArn"`
+	StateReason             string                   `json:"stateReason,omitempty"`
+	DesiredState            string                   `json:"desiredState"`
+	CurrentState            string                   `json:"currentState"`
+	AccountID               string                   `json:"accountID"`
+	Region                  string                   `json:"region"`
+	ARN                     string                   `json:"arn"`
+	Name                    string                   `json:"name"`
 }
 
 func sourceBatchSize(sp *SourceParameters) int {
@@ -341,6 +453,78 @@ func (p *Pipe) effectiveBatchSize() int {
 	return pipeDefaultBatchSize
 }
 
+func cloneDeadLetterConfig(src *DeadLetterConfig) *DeadLetterConfig {
+	if src == nil {
+		return nil
+	}
+	v := *src
+
+	return &v
+}
+
+func cloneSelfManagedKafkaVpc(src *SelfManagedKafkaVpc) *SelfManagedKafkaVpc {
+	if src == nil {
+		return nil
+	}
+	vpc := *src
+	vpc.SecurityGroup = append([]string(nil), src.SecurityGroup...)
+	vpc.Subnets = append([]string(nil), src.Subnets...)
+
+	return &vpc
+}
+
+func cloneAwsVpcConfiguration(src *AwsVpcConfiguration) *AwsVpcConfiguration {
+	if src == nil {
+		return nil
+	}
+	vpc := *src
+	vpc.Subnets = append([]string(nil), src.Subnets...)
+	vpc.SecurityGroups = append([]string(nil), src.SecurityGroups...)
+
+	return &vpc
+}
+
+func cloneBatchJobParameters(src *BatchJobTargetParameters) *BatchJobTargetParameters {
+	v := *src
+	if v.ArrayProperties != nil {
+		ap := *v.ArrayProperties
+		v.ArrayProperties = &ap
+	}
+	if v.RetryStrategy != nil {
+		rs := *v.RetryStrategy
+		v.RetryStrategy = &rs
+	}
+	if v.ContainerOverrides != nil {
+		co := *v.ContainerOverrides
+		co.Command = append([]string(nil), v.ContainerOverrides.Command...)
+		co.Environment = maps.Clone(v.ContainerOverrides.Environment)
+		v.ContainerOverrides = &co
+	}
+	v.DependsOn = append([]BatchJobDependency(nil), src.DependsOn...)
+	v.Parameters = maps.Clone(src.Parameters)
+
+	return &v
+}
+
+func cloneECSTaskParameters(src *ECSTaskTargetParameters) *ECSTaskTargetParameters {
+	v := *src
+	if v.NetworkConfiguration != nil {
+		nc := *v.NetworkConfiguration
+		nc.AwsvpcConfiguration = cloneAwsVpcConfiguration(v.NetworkConfiguration.AwsvpcConfiguration)
+		v.NetworkConfiguration = &nc
+	}
+	if v.Overrides != nil {
+		ov := *v.Overrides
+		v.Overrides = &ov
+	}
+	v.CapacityProviderStrategy = append(
+		[]CapacityProviderStrategyItem(nil), src.CapacityProviderStrategy...)
+	v.PlacementConstraints = append([]PlacementConstraint(nil), src.PlacementConstraints...)
+	v.PlacementStrategy = append([]PlacementStrategy(nil), src.PlacementStrategy...)
+
+	return &v
+}
+
 func cloneSourceParameters(src *SourceParameters) *SourceParameters {
 	sp := *src
 	if src.FilterCriteria != nil {
@@ -354,37 +538,47 @@ func cloneSourceParameters(src *SourceParameters) *SourceParameters {
 	}
 	if src.KinesisStreamParameters != nil {
 		v := *src.KinesisStreamParameters
-		if v.DeadLetterConfig != nil {
-			dlc := *v.DeadLetterConfig
-			v.DeadLetterConfig = &dlc
-		}
+		v.DeadLetterConfig = cloneDeadLetterConfig(v.DeadLetterConfig)
 		sp.KinesisStreamParameters = &v
 	}
 	if src.DynamoDBStreamParameters != nil {
 		v := *src.DynamoDBStreamParameters
-		if v.DeadLetterConfig != nil {
-			dlc := *v.DeadLetterConfig
-			v.DeadLetterConfig = &dlc
-		}
+		v.DeadLetterConfig = cloneDeadLetterConfig(v.DeadLetterConfig)
 		sp.DynamoDBStreamParameters = &v
 	}
 	if src.ManagedStreamingKafkaParameters != nil {
 		v := *src.ManagedStreamingKafkaParameters
+		if v.Credentials != nil {
+			c := *v.Credentials
+			v.Credentials = &c
+		}
 		sp.ManagedStreamingKafkaParameters = &v
 	}
 	if src.SelfManagedKafkaParameters != nil {
 		v := *src.SelfManagedKafkaParameters
 		v.AdditionalBootstrapServers = append(
-			[]string(nil),
-			src.SelfManagedKafkaParameters.AdditionalBootstrapServers...)
+			[]string(nil), src.SelfManagedKafkaParameters.AdditionalBootstrapServers...)
+		if v.Credentials != nil {
+			c := *v.Credentials
+			v.Credentials = &c
+		}
+		v.Vpc = cloneSelfManagedKafkaVpc(v.Vpc)
 		sp.SelfManagedKafkaParameters = &v
 	}
 	if src.RabbitMQBrokerParameters != nil {
 		v := *src.RabbitMQBrokerParameters
+		if v.Credentials != nil {
+			c := *v.Credentials
+			v.Credentials = &c
+		}
 		sp.RabbitMQBrokerParameters = &v
 	}
 	if src.ActiveMQBrokerParameters != nil {
 		v := *src.ActiveMQBrokerParameters
+		if v.Credentials != nil {
+			c := *v.Credentials
+			v.Credentials = &c
+		}
 		sp.ActiveMQBrokerParameters = &v
 	}
 
@@ -431,21 +625,10 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 		tp.SageMakerPipelineParameters = &v
 	}
 	if src.BatchJobParameters != nil {
-		v := *src.BatchJobParameters
-		if v.ArrayProperties != nil {
-			ap := *v.ArrayProperties
-			v.ArrayProperties = &ap
-		}
-		if v.RetryStrategy != nil {
-			rs := *v.RetryStrategy
-			v.RetryStrategy = &rs
-		}
-		v.Parameters = maps.Clone(src.BatchJobParameters.Parameters)
-		tp.BatchJobParameters = &v
+		tp.BatchJobParameters = cloneBatchJobParameters(src.BatchJobParameters)
 	}
 	if src.EcsTaskParameters != nil {
-		v := *src.EcsTaskParameters
-		tp.EcsTaskParameters = &v
+		tp.EcsTaskParameters = cloneECSTaskParameters(src.EcsTaskParameters)
 	}
 
 	return &tp
@@ -485,6 +668,18 @@ func clonePipe(p *Pipe) *Pipe {
 		lc.Destinations = append([]LogDestination(nil), p.LogConfiguration.Destinations...)
 		lc.IncludeExecutionData = append([]string(nil), p.LogConfiguration.IncludeExecutionData...)
 		cp.LogConfiguration = &lc
+	}
+	if p.RuntimeMetricsStreaming != nil {
+		rms := *p.RuntimeMetricsStreaming
+		if rms.MetricsDestination != nil {
+			md := *rms.MetricsDestination
+			if md.CloudwatchMetrics != nil {
+				cw := *md.CloudwatchMetrics
+				md.CloudwatchMetrics = &cw
+			}
+			rms.MetricsDestination = &md
+		}
+		cp.RuntimeMetricsStreaming = &rms
 	}
 
 	return &cp
@@ -530,20 +725,21 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 // CreatePipeInput holds the full set of fields for pipe creation.
 type CreatePipeInput struct {
-	Tags                 map[string]string
-	SourceParameters     *SourceParameters
-	TargetParameters     *TargetParameters
-	DeadLetterConfig     *DeadLetterConfig
-	LogConfiguration     *LogConfiguration
-	EnrichmentParameters *EnrichmentParameters
-	Name                 string
-	RoleARN              string
-	Source               string
-	Target               string
-	Description          string
-	Enrichment           string
-	KmsKeyIdentifier     string
-	DesiredState         string
+	Tags                    map[string]string
+	SourceParameters        *SourceParameters
+	TargetParameters        *TargetParameters
+	DeadLetterConfig        *DeadLetterConfig
+	LogConfiguration        *LogConfiguration
+	EnrichmentParameters    *EnrichmentParameters
+	RuntimeMetricsStreaming *RuntimeMetricsStreaming
+	Name                    string
+	RoleARN                 string
+	Source                  string
+	Target                  string
+	Description             string
+	Enrichment              string
+	KmsKeyIdentifier        string
+	DesiredState            string
 }
 
 func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
@@ -589,12 +785,13 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 		DesiredState: in.DesiredState, CurrentState: stateCreating,
 		AccountID: b.accountID, Region: b.region,
 		CreationTime: now, LastModifiedTime: now,
-		Tags:                 mergeTags(nil, in.Tags),
-		SourceParameters:     in.SourceParameters,
-		TargetParameters:     in.TargetParameters,
-		DeadLetterConfig:     in.DeadLetterConfig,
-		LogConfiguration:     in.LogConfiguration,
-		EnrichmentParameters: in.EnrichmentParameters,
+		Tags:                    mergeTags(nil, in.Tags),
+		SourceParameters:        in.SourceParameters,
+		TargetParameters:        in.TargetParameters,
+		DeadLetterConfig:        in.DeadLetterConfig,
+		LogConfiguration:        in.LogConfiguration,
+		EnrichmentParameters:    in.EnrichmentParameters,
+		RuntimeMetricsStreaming: in.RuntimeMetricsStreaming,
 	}
 	b.pipes[in.Name] = p
 	b.pipeARNIndex[pipeARN] = in.Name
@@ -759,17 +956,18 @@ func matchesFilter(p *Pipe, f ListPipesFilter) bool {
 
 // UpdatePipeInput holds the fields that can be updated on an existing pipe.
 type UpdatePipeInput struct {
-	SourceParameters     *SourceParameters
-	TargetParameters     *TargetParameters
-	DeadLetterConfig     *DeadLetterConfig
-	LogConfiguration     *LogConfiguration
-	EnrichmentParameters *EnrichmentParameters
-	RoleARN              string
-	Target               string
-	Description          string
-	Enrichment           string
-	KmsKeyIdentifier     string
-	DesiredState         string
+	SourceParameters        *SourceParameters
+	TargetParameters        *TargetParameters
+	DeadLetterConfig        *DeadLetterConfig
+	LogConfiguration        *LogConfiguration
+	EnrichmentParameters    *EnrichmentParameters
+	RuntimeMetricsStreaming *RuntimeMetricsStreaming
+	RoleARN                 string
+	Target                  string
+	Description             string
+	Enrichment              string
+	KmsKeyIdentifier        string
+	DesiredState            string
 }
 
 func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, error) {
@@ -812,6 +1010,9 @@ func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, er
 	}
 	if in.EnrichmentParameters != nil {
 		p.EnrichmentParameters = in.EnrichmentParameters
+	}
+	if in.RuntimeMetricsStreaming != nil {
+		p.RuntimeMetricsStreaming = in.RuntimeMetricsStreaming
 	}
 
 	prevDesiredState := p.DesiredState
