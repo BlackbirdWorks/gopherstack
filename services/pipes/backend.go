@@ -858,8 +858,8 @@ func (b *InMemoryBackend) StartPipe(name string) (*Pipe, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
-	if p.DesiredState == stateRunning && p.CurrentState == stateRunning {
-		return nil, fmt.Errorf("%w: pipe %s is already in RUNNING state", ErrValidation, name)
+	if p.DesiredState == stateRunning {
+		return nil, fmt.Errorf("%w: pipe %s already has desired state RUNNING", ErrValidation, name)
 	}
 	p.DesiredState = stateRunning
 	// Transition through STARTING → RUNNING to simulate AWS behavior.
@@ -896,8 +896,8 @@ func (b *InMemoryBackend) StopPipe(name string) (*Pipe, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
-	if p.DesiredState == stateStopped && p.CurrentState == stateStopped {
-		return nil, fmt.Errorf("%w: pipe %s is already in STOPPED state", ErrValidation, name)
+	if p.DesiredState == stateStopped {
+		return nil, fmt.Errorf("%w: pipe %s already has desired state STOPPED", ErrValidation, name)
 	}
 	p.DesiredState = stateStopped
 	// Transition through STOPPING → STOPPED to simulate AWS behavior.
