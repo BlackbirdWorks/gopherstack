@@ -263,19 +263,64 @@ type activeActivityTaskRecord struct {
 	StartedEventID   int64
 }
 
+// activeDecisionTaskRecord tracks a decision task token dispatched to a poller.
+type activeDecisionTaskRecord struct {
+	Domain     string
+	WorkflowID string
+	RunID      string
+}
+
+// CompleteWorkflowExecutionDecisionAttrs holds attributes for CompleteWorkflowExecution.
+type CompleteWorkflowExecutionDecisionAttrs struct {
+	Result string
+}
+
+// FailWorkflowExecutionDecisionAttrs holds attributes for FailWorkflowExecution.
+type FailWorkflowExecutionDecisionAttrs struct {
+	Reason  string
+	Details string
+}
+
+// CancelWorkflowExecutionDecisionAttrs holds attributes for CancelWorkflowExecution.
+type CancelWorkflowExecutionDecisionAttrs struct {
+	Details string
+}
+
+// ScheduleActivityTaskDecisionAttrs holds attributes for ScheduleActivityTask.
+type ScheduleActivityTaskDecisionAttrs struct {
+	ActivityType           ActivityTaskActivityType
+	ActivityID             string
+	Input                  string
+	TaskList               string
+	ScheduleToCloseTimeout string
+	ScheduleToStartTimeout string
+	StartToCloseTimeout    string
+	HeartbeatTimeout       string
+}
+
+// Decision represents a single decision returned by a decider.
+type Decision struct {
+	DecisionType                   string
+	CompleteWorkflowExecutionAttrs *CompleteWorkflowExecutionDecisionAttrs
+	FailWorkflowExecutionAttrs     *FailWorkflowExecutionDecisionAttrs
+	CancelWorkflowExecutionAttrs   *CancelWorkflowExecutionDecisionAttrs
+	ScheduleActivityTaskAttrs      *ScheduleActivityTaskDecisionAttrs
+}
+
 // InMemoryBackend is the in-memory store for SWF resources.
 type InMemoryBackend struct {
-	domains             map[string]*Domain
-	workflows           map[string]*WorkflowType             // key: domain+":"+name+":"+version
-	activities          map[string]*ActivityType             // key: domain+":"+name+":"+version
-	executions          map[string]*WorkflowExecution        // key: domain+":"+workflowID
-	history             map[string][]HistoryEvent            // key: domain+":"+workflowID
-	activityQueues      map[string][]*ActivityTask           // key: domain+":"+taskList
-	decisionQueues      map[string][]*DecisionTask           // key: domain+":"+taskList
-	activeActivityTasks map[string]*activeActivityTaskRecord // key: taskToken
-	tags                map[string]map[string]string         // key: resourceARN
-	mu                  *lockmetrics.RWMutex
-	executionOrder      []string // FIFO order of execution keys for eviction
+	domains              map[string]*Domain
+	workflows            map[string]*WorkflowType              // key: domain+":"+name+":"+version
+	activities           map[string]*ActivityType              // key: domain+":"+name+":"+version
+	executions           map[string]*WorkflowExecution         // key: domain+":"+workflowID
+	history              map[string][]HistoryEvent             // key: domain+":"+workflowID
+	activityQueues       map[string][]*ActivityTask            // key: domain+":"+taskList
+	decisionQueues       map[string][]*DecisionTask            // key: domain+":"+taskList
+	activeActivityTasks  map[string]*activeActivityTaskRecord  // key: taskToken
+	activeDecisionTasks  map[string]*activeDecisionTaskRecord  // key: taskToken
+	tags                 map[string]map[string]string          // key: resourceARN
+	mu                   *lockmetrics.RWMutex
+	executionOrder       []string // FIFO order of execution keys for eviction
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -289,6 +334,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		activityQueues:      make(map[string][]*ActivityTask),
 		decisionQueues:      make(map[string][]*DecisionTask),
 		activeActivityTasks: make(map[string]*activeActivityTaskRecord),
+		activeDecisionTasks: make(map[string]*activeDecisionTaskRecord),
 		tags:                make(map[string]map[string]string),
 		mu:                  lockmetrics.New("swf"),
 	}
@@ -307,6 +353,7 @@ func (b *InMemoryBackend) Reset() {
 	b.activityQueues = make(map[string][]*ActivityTask)
 	b.decisionQueues = make(map[string][]*DecisionTask)
 	b.activeActivityTasks = make(map[string]*activeActivityTaskRecord)
+	b.activeDecisionTasks = make(map[string]*activeDecisionTaskRecord)
 	b.tags = make(map[string]map[string]string)
 	b.executionOrder = nil
 }
@@ -1425,6 +1472,12 @@ func (b *InMemoryBackend) PollForDecisionTask(
 	task := *queue[0]
 	b.decisionQueues[key] = queue[1:]
 	task.TaskToken = uuid.New().String()
+
+	b.activeDecisionTasks[task.TaskToken] = &activeDecisionTaskRecord{
+		Domain:     domain,
+		WorkflowID: task.WorkflowID,
+		RunID:      task.RunID,
+	}
 
 	histEvents := b.history[domain+":"+task.WorkflowID]
 	if len(histEvents) > 0 {
