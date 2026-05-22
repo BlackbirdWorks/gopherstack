@@ -61,9 +61,9 @@ type Filter struct {
 
 // AwsVpcConfiguration is the VPC network configuration for ECS tasks.
 type AwsVpcConfiguration struct {
+	AssignPublicIP string   `json:"AssignPublicIp,omitempty"`
 	Subnets        []string `json:"Subnets,omitempty"`
 	SecurityGroups []string `json:"SecurityGroups,omitempty"`
-	AssignPublicIp string   `json:"AssignPublicIp,omitempty"`
 }
 
 // NetworkConfiguration wraps VPC configuration for ECS task targets.
@@ -94,28 +94,28 @@ type PlacementStrategy struct {
 type EcsTaskOverride struct {
 	TaskRoleArn      string `json:"TaskRoleArn,omitempty"`
 	ExecutionRoleArn string `json:"ExecutionRoleArn,omitempty"`
-	Cpu              string `json:"Cpu,omitempty"`
+	CPU              string `json:"Cpu,omitempty"`
 	Memory           string `json:"Memory,omitempty"`
 }
 
 // BatchJobDependency represents a dependency between Batch jobs.
 type BatchJobDependency struct {
-	JobId string `json:"JobId,omitempty"`
+	JobID string `json:"JobId,omitempty"`
 	Type  string `json:"Type,omitempty"`
 }
 
 // BatchContainerOverrides holds container override values for a Batch job.
 type BatchContainerOverrides struct {
-	Command      []string          `json:"Command,omitempty"`
 	Environment  map[string]string `json:"Environment,omitempty"`
 	InstanceType string            `json:"InstanceType,omitempty"`
+	Command      []string          `json:"Command,omitempty"`
 }
 
 // SelfManagedKafkaAccessCredentials holds authentication credentials for self-managed Kafka.
 // Exactly one field is populated (models an AWS union type).
 type SelfManagedKafkaAccessCredentials struct {
 	BasicAuth                string `json:"BasicAuth,omitempty"`
-	ClientCertificateTlsAuth string `json:"ClientCertificateTlsAuth,omitempty"`
+	ClientCertificateTLSAuth string `json:"ClientCertificateTlsAuth,omitempty"`
 	SaslScram256Auth         string `json:"SaslScram256Auth,omitempty"`
 	SaslScram512Auth         string `json:"SaslScram512Auth,omitempty"`
 }
@@ -129,7 +129,7 @@ type SelfManagedKafkaVpc struct {
 // MSKAccessCredentials holds authentication credentials for MSK sources.
 // Exactly one field is populated (models an AWS union type).
 type MSKAccessCredentials struct {
-	ClientCertificateTlsAuth string `json:"ClientCertificateTlsAuth,omitempty"`
+	ClientCertificateTLSAuth string `json:"ClientCertificateTlsAuth,omitempty"`
 	SaslScram512Auth         string `json:"SaslScram512Auth,omitempty"`
 }
 
@@ -309,26 +309,26 @@ type BatchJobTargetParameters struct {
 	ArrayProperties    *BatchArrayProperties    `json:"ArrayProperties,omitempty"`
 	RetryStrategy      *BatchRetryStrategy      `json:"RetryStrategy,omitempty"`
 	ContainerOverrides *BatchContainerOverrides `json:"ContainerOverrides,omitempty"`
-	DependsOn          []BatchJobDependency     `json:"DependsOn,omitempty"`
 	Parameters         map[string]string        `json:"Parameters,omitempty"`
 	JobDefinition      string                   `json:"JobDefinition,omitempty"`
 	JobName            string                   `json:"JobName,omitempty"`
+	DependsOn          []BatchJobDependency     `json:"DependsOn,omitempty"`
 }
 
 // ECSTaskTargetParameters holds ECS task target configuration.
 type ECSTaskTargetParameters struct {
 	NetworkConfiguration     *NetworkConfiguration          `json:"NetworkConfiguration,omitempty"`
 	Overrides                *EcsTaskOverride               `json:"Overrides,omitempty"`
-	CapacityProviderStrategy []CapacityProviderStrategyItem `json:"CapacityProviderStrategy,omitempty"`
-	PlacementConstraints     []PlacementConstraint          `json:"PlacementConstraints,omitempty"`
-	PlacementStrategy        []PlacementStrategy            `json:"PlacementStrategy,omitempty"`
 	TaskDefinitionArn        string                         `json:"TaskDefinitionArn,omitempty"`
 	LaunchType               string                         `json:"LaunchType,omitempty"`
 	Group                    string                         `json:"Group,omitempty"`
 	PlatformVersion          string                         `json:"PlatformVersion,omitempty"`
+	CapacityProviderStrategy []CapacityProviderStrategyItem `json:"CapacityProviderStrategy,omitempty"`
+	PlacementConstraints     []PlacementConstraint          `json:"PlacementConstraints,omitempty"`
+	PlacementStrategy        []PlacementStrategy            `json:"PlacementStrategy,omitempty"`
+	TaskCount                int                            `json:"TaskCount,omitempty"`
 	EnableECSManagedTags     bool                           `json:"EnableECSManagedTags,omitempty"`
 	EnableExecuteCommand     bool                           `json:"EnableExecuteCommand,omitempty"`
-	TaskCount                int                            `json:"TaskCount,omitempty"`
 }
 
 // TargetParameters holds target-specific configuration.
@@ -453,6 +453,78 @@ func (p *Pipe) effectiveBatchSize() int {
 	return pipeDefaultBatchSize
 }
 
+func cloneDeadLetterConfig(src *DeadLetterConfig) *DeadLetterConfig {
+	if src == nil {
+		return nil
+	}
+	v := *src
+
+	return &v
+}
+
+func cloneSelfManagedKafkaVpc(src *SelfManagedKafkaVpc) *SelfManagedKafkaVpc {
+	if src == nil {
+		return nil
+	}
+	vpc := *src
+	vpc.SecurityGroup = append([]string(nil), src.SecurityGroup...)
+	vpc.Subnets = append([]string(nil), src.Subnets...)
+
+	return &vpc
+}
+
+func cloneAwsVpcConfiguration(src *AwsVpcConfiguration) *AwsVpcConfiguration {
+	if src == nil {
+		return nil
+	}
+	vpc := *src
+	vpc.Subnets = append([]string(nil), src.Subnets...)
+	vpc.SecurityGroups = append([]string(nil), src.SecurityGroups...)
+
+	return &vpc
+}
+
+func cloneBatchJobParameters(src *BatchJobTargetParameters) *BatchJobTargetParameters {
+	v := *src
+	if v.ArrayProperties != nil {
+		ap := *v.ArrayProperties
+		v.ArrayProperties = &ap
+	}
+	if v.RetryStrategy != nil {
+		rs := *v.RetryStrategy
+		v.RetryStrategy = &rs
+	}
+	if v.ContainerOverrides != nil {
+		co := *v.ContainerOverrides
+		co.Command = append([]string(nil), v.ContainerOverrides.Command...)
+		co.Environment = maps.Clone(v.ContainerOverrides.Environment)
+		v.ContainerOverrides = &co
+	}
+	v.DependsOn = append([]BatchJobDependency(nil), src.DependsOn...)
+	v.Parameters = maps.Clone(src.Parameters)
+
+	return &v
+}
+
+func cloneECSTaskParameters(src *ECSTaskTargetParameters) *ECSTaskTargetParameters {
+	v := *src
+	if v.NetworkConfiguration != nil {
+		nc := *v.NetworkConfiguration
+		nc.AwsvpcConfiguration = cloneAwsVpcConfiguration(v.NetworkConfiguration.AwsvpcConfiguration)
+		v.NetworkConfiguration = &nc
+	}
+	if v.Overrides != nil {
+		ov := *v.Overrides
+		v.Overrides = &ov
+	}
+	v.CapacityProviderStrategy = append(
+		[]CapacityProviderStrategyItem(nil), src.CapacityProviderStrategy...)
+	v.PlacementConstraints = append([]PlacementConstraint(nil), src.PlacementConstraints...)
+	v.PlacementStrategy = append([]PlacementStrategy(nil), src.PlacementStrategy...)
+
+	return &v
+}
+
 func cloneSourceParameters(src *SourceParameters) *SourceParameters {
 	sp := *src
 	if src.FilterCriteria != nil {
@@ -466,18 +538,12 @@ func cloneSourceParameters(src *SourceParameters) *SourceParameters {
 	}
 	if src.KinesisStreamParameters != nil {
 		v := *src.KinesisStreamParameters
-		if v.DeadLetterConfig != nil {
-			dlc := *v.DeadLetterConfig
-			v.DeadLetterConfig = &dlc
-		}
+		v.DeadLetterConfig = cloneDeadLetterConfig(v.DeadLetterConfig)
 		sp.KinesisStreamParameters = &v
 	}
 	if src.DynamoDBStreamParameters != nil {
 		v := *src.DynamoDBStreamParameters
-		if v.DeadLetterConfig != nil {
-			dlc := *v.DeadLetterConfig
-			v.DeadLetterConfig = &dlc
-		}
+		v.DeadLetterConfig = cloneDeadLetterConfig(v.DeadLetterConfig)
 		sp.DynamoDBStreamParameters = &v
 	}
 	if src.ManagedStreamingKafkaParameters != nil {
@@ -491,18 +557,12 @@ func cloneSourceParameters(src *SourceParameters) *SourceParameters {
 	if src.SelfManagedKafkaParameters != nil {
 		v := *src.SelfManagedKafkaParameters
 		v.AdditionalBootstrapServers = append(
-			[]string(nil),
-			src.SelfManagedKafkaParameters.AdditionalBootstrapServers...)
+			[]string(nil), src.SelfManagedKafkaParameters.AdditionalBootstrapServers...)
 		if v.Credentials != nil {
 			c := *v.Credentials
 			v.Credentials = &c
 		}
-		if v.Vpc != nil {
-			vpc := *v.Vpc
-			vpc.SecurityGroup = append([]string(nil), v.Vpc.SecurityGroup...)
-			vpc.Subnets = append([]string(nil), v.Vpc.Subnets...)
-			v.Vpc = &vpc
-		}
+		v.Vpc = cloneSelfManagedKafkaVpc(v.Vpc)
 		sp.SelfManagedKafkaParameters = &v
 	}
 	if src.RabbitMQBrokerParameters != nil {
@@ -565,48 +625,10 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 		tp.SageMakerPipelineParameters = &v
 	}
 	if src.BatchJobParameters != nil {
-		v := *src.BatchJobParameters
-		if v.ArrayProperties != nil {
-			ap := *v.ArrayProperties
-			v.ArrayProperties = &ap
-		}
-		if v.RetryStrategy != nil {
-			rs := *v.RetryStrategy
-			v.RetryStrategy = &rs
-		}
-		if v.ContainerOverrides != nil {
-			co := *v.ContainerOverrides
-			co.Command = append([]string(nil), v.ContainerOverrides.Command...)
-			co.Environment = maps.Clone(v.ContainerOverrides.Environment)
-			v.ContainerOverrides = &co
-		}
-		v.DependsOn = append([]BatchJobDependency(nil), src.BatchJobParameters.DependsOn...)
-		v.Parameters = maps.Clone(src.BatchJobParameters.Parameters)
-		tp.BatchJobParameters = &v
+		tp.BatchJobParameters = cloneBatchJobParameters(src.BatchJobParameters)
 	}
 	if src.EcsTaskParameters != nil {
-		v := *src.EcsTaskParameters
-		if v.NetworkConfiguration != nil {
-			nc := *v.NetworkConfiguration
-			if nc.AwsvpcConfiguration != nil {
-				vpc := *nc.AwsvpcConfiguration
-				vpc.Subnets = append([]string(nil), nc.AwsvpcConfiguration.Subnets...)
-				vpc.SecurityGroups = append([]string(nil), nc.AwsvpcConfiguration.SecurityGroups...)
-				nc.AwsvpcConfiguration = &vpc
-			}
-			v.NetworkConfiguration = &nc
-		}
-		if v.Overrides != nil {
-			ov := *v.Overrides
-			v.Overrides = &ov
-		}
-		v.CapacityProviderStrategy = append(
-			[]CapacityProviderStrategyItem(nil), src.EcsTaskParameters.CapacityProviderStrategy...)
-		v.PlacementConstraints = append(
-			[]PlacementConstraint(nil), src.EcsTaskParameters.PlacementConstraints...)
-		v.PlacementStrategy = append(
-			[]PlacementStrategy(nil), src.EcsTaskParameters.PlacementStrategy...)
-		tp.EcsTaskParameters = &v
+		tp.EcsTaskParameters = cloneECSTaskParameters(src.EcsTaskParameters)
 	}
 
 	return &tp

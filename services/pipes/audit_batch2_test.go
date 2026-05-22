@@ -43,6 +43,7 @@ func b2Backend() *pipes.InMemoryBackend {
 
 func b2Handler(t *testing.T) *pipes.Handler {
 	t.Helper()
+
 	return pipes.NewHandler(b2Backend())
 }
 
@@ -62,6 +63,7 @@ func b2Do(t *testing.T, h *pipes.Handler, method, path string, body any) *httpte
 	c := e.NewContext(req, rec)
 	c.SetRequest(req)
 	require.NoError(t, h.Handler()(c))
+
 	return rec
 }
 
@@ -71,6 +73,7 @@ func b2Create(t *testing.T, h *pipes.Handler, name string, body map[string]any) 
 	require.Equal(t, http.StatusOK, rec.Code, "create pipe %q: %s", name, rec.Body.String())
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 	return resp
 }
 
@@ -80,6 +83,7 @@ func b2Describe(t *testing.T, h *pipes.Handler, name string) map[string]any {
 	require.Equal(t, http.StatusOK, rec.Code, "describe pipe %q: %s", name, rec.Body.String())
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 	return resp
 }
 
@@ -89,6 +93,7 @@ func b2Update(t *testing.T, h *pipes.Handler, name string, body map[string]any) 
 	require.Equal(t, http.StatusOK, rec.Code, "update pipe %q: %s", name, rec.Body.String())
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 	return resp
 }
 
@@ -109,6 +114,7 @@ func nestedString(t *testing.T, m map[string]any, keys ...string) string {
 			require.True(t, ok, "key %q missing in %v", k, cur)
 			s, ok := v.(string)
 			require.True(t, ok, "key %q is not string: %T", k, v)
+
 			return s
 		}
 		sub, ok := cur[k]
@@ -116,6 +122,7 @@ func nestedString(t *testing.T, m map[string]any, keys ...string) string {
 		cur, ok = sub.(map[string]any)
 		require.True(t, ok, "intermediate key %q is not object: %T", k, sub)
 	}
+
 	return ""
 }
 
@@ -129,6 +136,7 @@ func nestedFloat(t *testing.T, m map[string]any, keys ...string) float64 {
 			require.True(t, ok, "key %q missing", k)
 			f, ok := v.(float64)
 			require.True(t, ok, "key %q is not float64: %T", k, v)
+
 			return f
 		}
 		sub, ok := cur[k]
@@ -136,27 +144,8 @@ func nestedFloat(t *testing.T, m map[string]any, keys ...string) float64 {
 		cur, ok = sub.(map[string]any)
 		require.True(t, ok, "intermediate key %q not object: %T", k, sub)
 	}
-	return 0
-}
 
-// nestedBool extracts a bool from nested map[string]any.
-func nestedBool(t *testing.T, m map[string]any, keys ...string) bool {
-	t.Helper()
-	cur := m
-	for i, k := range keys {
-		if i == len(keys)-1 {
-			v, ok := cur[k]
-			require.True(t, ok, "key %q missing", k)
-			b, ok := v.(bool)
-			require.True(t, ok, "key %q is not bool: %T", k, v)
-			return b
-		}
-		sub, ok := cur[k]
-		require.True(t, ok, "intermediate key %q missing", k)
-		cur, ok = sub.(map[string]any)
-		require.True(t, ok, "intermediate key %q not object: %T", k, sub)
-	}
-	return false
+	return 0
 }
 
 // --- ECS RunTaskParameters tests ---
@@ -167,27 +156,27 @@ func TestAudit2_ECS_NetworkConfiguration(t *testing.T) {
 
 	tests := []struct {
 		name           string
+		assignPublicIP string
 		subnets        []any
 		securityGroups []any
-		assignPublicIp string
 	}{
 		{
 			name:           "fargate_with_public_ip",
 			subnets:        []any{"subnet-aaa", "subnet-bbb"},
 			securityGroups: []any{"sg-111", "sg-222"},
-			assignPublicIp: "ENABLED",
+			assignPublicIP: "ENABLED",
 		},
 		{
 			name:           "ec2_no_public_ip",
 			subnets:        []any{"subnet-ccc"},
 			securityGroups: []any{"sg-333"},
-			assignPublicIp: "DISABLED",
+			assignPublicIP: "DISABLED",
 		},
 		{
 			name:           "single_subnet_no_sg",
 			subnets:        []any{"subnet-ddd"},
 			securityGroups: nil,
-			assignPublicIp: "",
+			assignPublicIP: "",
 		},
 	}
 
@@ -207,7 +196,7 @@ func TestAudit2_ECS_NetworkConfiguration(t *testing.T) {
 							"AwsvpcConfiguration": map[string]any{
 								"Subnets":        tt.subnets,
 								"SecurityGroups": tt.securityGroups,
-								"AssignPublicIp": tt.assignPublicIp,
+								"AssignPublicIp": tt.assignPublicIP,
 							},
 						},
 					},
@@ -225,13 +214,13 @@ func TestAudit2_ECS_NetworkConfiguration(t *testing.T) {
 			require.True(t, ok, "AwsvpcConfiguration missing")
 
 			if len(tt.subnets) > 0 {
-				got, ok := vpc["Subnets"].([]any)
-				require.True(t, ok, "Subnets should be array")
-				assert.Equal(t, len(tt.subnets), len(got))
+				got, subnetOK := vpc["Subnets"].([]any)
+				require.True(t, subnetOK, "Subnets should be array")
+				assert.Len(t, got, len(tt.subnets))
 				assert.Equal(t, tt.subnets[0], got[0])
 			}
-			if tt.assignPublicIp != "" {
-				assert.Equal(t, tt.assignPublicIp, vpc["AssignPublicIp"])
+			if tt.assignPublicIP != "" {
+				assert.Equal(t, tt.assignPublicIP, vpc["AssignPublicIp"])
 			}
 		})
 	}
@@ -291,7 +280,7 @@ func TestAudit2_ECS_CapacityProviderStrategy(t *testing.T) {
 			ecs := tp["EcsTaskParameters"].(map[string]any)
 			cps, ok := ecs["CapacityProviderStrategy"].([]any)
 			require.True(t, ok, "CapacityProviderStrategy should be array")
-			assert.Equal(t, tt.wantLen, len(cps))
+			assert.Len(t, cps, tt.wantLen)
 
 			first := cps[0].(map[string]any)
 			assert.Equal(t, tt.providers[0]["CapacityProvider"], first["CapacityProvider"])
@@ -353,7 +342,7 @@ func TestAudit2_ECS_PlacementConstraints(t *testing.T) {
 			ecs := tp["EcsTaskParameters"].(map[string]any)
 			pc, ok := ecs["PlacementConstraints"].([]any)
 			require.True(t, ok, "PlacementConstraints should be array")
-			assert.Equal(t, tt.wantLen, len(pc))
+			assert.Len(t, pc, tt.wantLen)
 
 			first := pc[0].(map[string]any)
 			assert.Equal(t, tt.constraints[0]["Type"], first["Type"])
@@ -367,10 +356,10 @@ func TestAudit2_ECS_PlacementStrategy(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		strategy  []map[string]any
-		wantLen   int
 		wantType  string
 		wantField string
+		strategy  []map[string]any
+		wantLen   int
 	}{
 		{
 			name:      "spread_by_az",
@@ -417,7 +406,7 @@ func TestAudit2_ECS_PlacementStrategy(t *testing.T) {
 			ecs := tp["EcsTaskParameters"].(map[string]any)
 			ps, ok := ecs["PlacementStrategy"].([]any)
 			require.True(t, ok, "PlacementStrategy should be array")
-			assert.Equal(t, tt.wantLen, len(ps))
+			assert.Len(t, ps, tt.wantLen)
 
 			first := ps[0].(map[string]any)
 			assert.Equal(t, tt.wantType, first["Type"])
@@ -598,7 +587,7 @@ func TestAudit2_ECS_ExtraFields(t *testing.T) {
 				assert.Equal(t, true, ecs["EnableExecuteCommand"])
 			}
 			if tt.taskCount > 0 {
-				assert.Equal(t, tt.taskCount, ecs["TaskCount"])
+				assert.InEpsilon(t, tt.taskCount, ecs["TaskCount"], 0.01)
 			}
 		})
 	}
@@ -638,7 +627,7 @@ func TestAudit2_ECS_FullParams(t *testing.T) {
 							AwsvpcConfiguration: &pipes.AwsVpcConfiguration{
 								Subnets:        []string{"subnet-aaa", "subnet-bbb"},
 								SecurityGroups: []string{"sg-111"},
-								AssignPublicIp: "ENABLED",
+								AssignPublicIP: "ENABLED",
 							},
 						},
 						CapacityProviderStrategy: []pipes.CapacityProviderStrategyItem{
@@ -653,7 +642,7 @@ func TestAudit2_ECS_FullParams(t *testing.T) {
 						},
 						Overrides: &pipes.EcsTaskOverride{
 							TaskRoleArn: "arn:aws:iam::123456789012:role/task-role",
-							Cpu:         "512",
+							CPU:         "512",
 							Memory:      "1024",
 						},
 					},
@@ -671,7 +660,7 @@ func TestAudit2_ECS_FullParams(t *testing.T) {
 			assert.True(t, ecs.EnableECSManagedTags)
 			assert.True(t, ecs.EnableExecuteCommand)
 			require.NotNil(t, ecs.NetworkConfiguration)
-			assert.Equal(t, "ENABLED", ecs.NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp)
+			assert.Equal(t, "ENABLED", ecs.NetworkConfiguration.AwsvpcConfiguration.AssignPublicIP)
 			assert.Len(t, ecs.CapacityProviderStrategy, 2)
 			assert.Equal(t, "FARGATE_SPOT", ecs.CapacityProviderStrategy[1].CapacityProvider)
 			assert.Len(t, ecs.PlacementConstraints, 1)
@@ -679,7 +668,7 @@ func TestAudit2_ECS_FullParams(t *testing.T) {
 			assert.Len(t, ecs.PlacementStrategy, 1)
 			assert.Equal(t, "spread", ecs.PlacementStrategy[0].Type)
 			require.NotNil(t, ecs.Overrides)
-			assert.Equal(t, "512", ecs.Overrides.Cpu)
+			assert.Equal(t, "512", ecs.Overrides.CPU)
 		})
 	}
 }
@@ -692,9 +681,9 @@ func TestAudit2_Batch_DependsOn(t *testing.T) {
 
 	tests := []struct {
 		name      string
+		wantType  string
 		dependsOn []map[string]any
 		wantLen   int
-		wantType  string
 	}{
 		{
 			name:      "sequential_dependency",
@@ -741,7 +730,7 @@ func TestAudit2_Batch_DependsOn(t *testing.T) {
 			batch := tp["BatchJobParameters"].(map[string]any)
 			deps, ok := batch["DependsOn"].([]any)
 			require.True(t, ok, "DependsOn should be array")
-			assert.Equal(t, tt.wantLen, len(deps))
+			assert.Len(t, deps, tt.wantLen)
 
 			first := deps[0].(map[string]any)
 			assert.Equal(t, tt.wantType, first["Type"])
@@ -754,10 +743,10 @@ func TestAudit2_Batch_ContainerOverrides(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		command      []any
 		environment  map[string]any
+		name         string
 		instanceType string
+		command      []any
 	}{
 		{
 			name:    "command_override",
@@ -817,9 +806,9 @@ func TestAudit2_Batch_ContainerOverrides(t *testing.T) {
 				assert.Equal(t, tt.instanceType, got["InstanceType"])
 			}
 			if tt.command != nil {
-				cmd, ok := got["Command"].([]any)
-				require.True(t, ok)
-				assert.Equal(t, len(tt.command), len(cmd))
+				cmd, cmdOK := got["Command"].([]any)
+				require.True(t, cmdOK)
+				assert.Len(t, cmd, len(tt.command))
 			}
 		})
 	}
@@ -859,7 +848,7 @@ func TestAudit2_Batch_ArrayProperties(t *testing.T) {
 
 			sz := nestedFloat(t, resp,
 				"TargetParameters", "BatchJobParameters", "ArrayProperties", "Size")
-			assert.Equal(t, tt.wantSz, sz)
+			assert.InEpsilon(t, tt.wantSz, sz, 0.01)
 		})
 	}
 }
@@ -898,7 +887,7 @@ func TestAudit2_Batch_RetryStrategy(t *testing.T) {
 
 			got := nestedFloat(t, resp,
 				"TargetParameters", "BatchJobParameters", "RetryStrategy", "Attempts")
-			assert.Equal(t, tt.wantAttempts, got)
+			assert.InEpsilon(t, tt.wantAttempts, got, 0.01)
 		})
 	}
 }
@@ -932,7 +921,7 @@ func TestAudit2_Batch_FullParams(t *testing.T) {
 						RetryStrategy:   &pipes.BatchRetryStrategy{Attempts: 3},
 						Parameters:      map[string]string{"k1": "v1", "k2": "v2"},
 						DependsOn: []pipes.BatchJobDependency{
-							{JobId: "job-parent", Type: "SEQUENTIAL"},
+							{JobID: "job-parent", Type: "SEQUENTIAL"},
 						},
 						ContainerOverrides: &pipes.BatchContainerOverrides{
 							Command:      []string{"bash", "-c", "echo hi"},
@@ -954,7 +943,7 @@ func TestAudit2_Batch_FullParams(t *testing.T) {
 			assert.Equal(t, "v1", batch.Parameters["k1"])
 			require.Len(t, batch.DependsOn, 1)
 			assert.Equal(t, "SEQUENTIAL", batch.DependsOn[0].Type)
-			assert.Equal(t, "job-parent", batch.DependsOn[0].JobId)
+			assert.Equal(t, "job-parent", batch.DependsOn[0].JobID)
 			require.NotNil(t, batch.ContainerOverrides)
 			assert.Equal(t, "m5.large", batch.ContainerOverrides.InstanceType)
 			assert.Equal(t, []string{"bash", "-c", "echo hi"}, batch.ContainerOverrides.Command)
@@ -1080,9 +1069,9 @@ func TestAudit2_EventBridge_Params(t *testing.T) {
 				assert.Equal(t, tt.endpointID, eb["EndpointId"])
 			}
 			if tt.resources != nil {
-				res, ok := eb["Resources"].([]any)
-				require.True(t, ok)
-				assert.Equal(t, len(tt.resources), len(res))
+				res, resOK := eb["Resources"].([]any)
+				require.True(t, resOK)
+				assert.Len(t, res, len(tt.resources))
 			}
 		})
 	}
@@ -1169,7 +1158,7 @@ func TestAudit2_Redshift_Params(t *testing.T) {
 			assert.Equal(t, tt.database, rd["Database"])
 			sqls, ok := rd["Sqls"].([]any)
 			require.True(t, ok)
-			assert.Equal(t, len(tt.sqls), len(sqls))
+			assert.Len(t, sqls, len(tt.sqls))
 
 			if tt.dbUser != "" {
 				assert.Equal(t, tt.dbUser, rd["DbUser"])
@@ -1195,9 +1184,9 @@ func TestAudit2_SageMaker_Params(t *testing.T) {
 
 	tests := []struct {
 		name      string
+		wantFirst string
 		paramList []map[string]any
 		wantLen   int
-		wantFirst string
 	}{
 		{
 			name:      "single_param",
@@ -1247,7 +1236,7 @@ func TestAudit2_SageMaker_Params(t *testing.T) {
 			require.True(t, ok, "SageMakerPipelineParameters missing")
 			pl, ok := sm["PipelineParameterList"].([]any)
 			require.True(t, ok)
-			assert.Equal(t, tt.wantLen, len(pl))
+			assert.Len(t, pl, tt.wantLen)
 
 			first := pl[0].(map[string]any)
 			assert.Equal(t, tt.wantFirst, first["Name"])
@@ -1369,7 +1358,7 @@ func TestAudit2_SelfManagedKafka_Vpc(t *testing.T) {
 			require.True(t, ok, "Vpc should be object")
 			subnets, ok := vpc["Subnets"].([]any)
 			require.True(t, ok)
-			assert.Equal(t, len(tt.subnets), len(subnets))
+			assert.Len(t, subnets, len(tt.subnets))
 		})
 	}
 }
@@ -1457,7 +1446,7 @@ func TestAudit2_SelfManagedKafka_BootstrapServers(t *testing.T) {
 			smk := sp["SelfManagedKafkaParameters"].(map[string]any)
 			servers, ok := smk["AdditionalBootstrapServers"].([]any)
 			require.True(t, ok)
-			assert.Equal(t, tt.wantLen, len(servers))
+			assert.Len(t, servers, tt.wantLen)
 			assert.Equal(t, tt.servers[0], servers[0])
 		})
 	}
@@ -1660,7 +1649,7 @@ func TestAudit2_ActiveMQ_BatchingParams(t *testing.T) {
 
 			sp := resp["SourceParameters"].(map[string]any)
 			amq := sp["ActiveMQBrokerParameters"].(map[string]any)
-			assert.Equal(t, tt.batchSize, amq["BatchSize"])
+			assert.InEpsilon(t, tt.batchSize, amq["BatchSize"], 0.01)
 		})
 	}
 }
@@ -1770,8 +1759,8 @@ func TestAudit2_FilterCriteria_MultiplePatterns(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		patterns  []string
 		msgBody   string
+		patterns  []string
 		wantMatch bool
 	}{
 		{
@@ -1867,8 +1856,8 @@ func (m *mockSQSFilter) DeletePipeMessages(_ string, _ []string) error {
 }
 
 type mockLambdaFilter struct {
-	called  bool
 	payload []byte
+	called  bool
 }
 
 func (m *mockLambdaFilter) InvokeFunction(
@@ -1879,6 +1868,7 @@ func (m *mockLambdaFilter) InvokeFunction(
 ) ([]byte, int, error) {
 	m.called = true
 	m.payload = payload
+
 	return nil, 200, nil
 }
 
@@ -2082,7 +2072,7 @@ func TestAudit2_Clone_BatchDependsOnIsolation(t *testing.T) {
 						JobDefinition: "jd",
 						JobName:       "job",
 						DependsOn: []pipes.BatchJobDependency{
-							{JobId: "original-job", Type: "SEQUENTIAL"},
+							{JobID: "original-job", Type: "SEQUENTIAL"},
 						},
 						ContainerOverrides: &pipes.BatchContainerOverrides{
 							Command:     []string{"echo", "hi"},
@@ -2096,14 +2086,14 @@ func TestAudit2_Clone_BatchDependsOnIsolation(t *testing.T) {
 			p1, err := b.GetPipe(tt.name)
 			require.NoError(t, err)
 
-			p1.TargetParameters.BatchJobParameters.DependsOn[0].JobId = "mutated"
+			p1.TargetParameters.BatchJobParameters.DependsOn[0].JobID = "mutated"
 			p1.TargetParameters.BatchJobParameters.ContainerOverrides.Command[0] = "mutated"
 			p1.TargetParameters.BatchJobParameters.ContainerOverrides.Environment["K"] = "mutated"
 
 			p2, err := b.GetPipe(tt.name)
 			require.NoError(t, err)
 			assert.Equal(t, "original-job",
-				p2.TargetParameters.BatchJobParameters.DependsOn[0].JobId)
+				p2.TargetParameters.BatchJobParameters.DependsOn[0].JobID)
 			assert.Equal(t, "echo",
 				p2.TargetParameters.BatchJobParameters.ContainerOverrides.Command[0])
 			assert.Equal(t, "V",
@@ -2419,7 +2409,7 @@ func TestAudit2_Update_BatchDependsOn(t *testing.T) {
 			batch := tp["BatchJobParameters"].(map[string]any)
 			deps, ok := batch["DependsOn"].([]any)
 			require.True(t, ok)
-			assert.Equal(t, tt.wantLen, len(deps))
+			assert.Len(t, deps, tt.wantLen)
 		})
 	}
 }
@@ -2748,6 +2738,7 @@ func TestAudit2_Lifecycle_StartStop(t *testing.T) {
 
 			require.Eventually(t, func() bool {
 				p, e := b.GetPipe(tt.name)
+
 				return e == nil && p.CurrentState == "STOPPED"
 			}, 500e6, 5e6)
 
@@ -2757,6 +2748,7 @@ func TestAudit2_Lifecycle_StartStop(t *testing.T) {
 
 			require.Eventually(t, func() bool {
 				p, e := b.GetPipe(tt.name)
+
 				return e == nil && p.CurrentState == "RUNNING"
 			}, 500e6, 5e6)
 
@@ -2795,7 +2787,7 @@ func TestAudit2_Lifecycle_Delete(t *testing.T) {
 						JobDefinition: "jd",
 						JobName:       "job",
 						DependsOn: []pipes.BatchJobDependency{
-							{JobId: "parent-job", Type: "SEQUENTIAL"},
+							{JobID: "parent-job", Type: "SEQUENTIAL"},
 						},
 					},
 				},
@@ -2806,10 +2798,11 @@ func TestAudit2_Lifecycle_Delete(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "DELETING", deleted.CurrentState)
 			assert.Equal(t, "parent-job",
-				deleted.TargetParameters.BatchJobParameters.DependsOn[0].JobId)
+				deleted.TargetParameters.BatchJobParameters.DependsOn[0].JobID)
 
 			require.Eventually(t, func() bool {
 				_, e := b.GetPipe(tt.name)
+
 				return e != nil
 			}, 500e6, 5e6)
 		})
