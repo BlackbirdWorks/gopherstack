@@ -38,6 +38,8 @@ const (
 	DataSourceTypeRelational DataSourceType = "RELATIONAL_DATABASE"
 	// DataSourceTypeOpenSearch queries an OpenSearch domain.
 	DataSourceTypeOpenSearch DataSourceType = "AMAZON_OPENSEARCH_SERVICE"
+	// DataSourceTypeEventBridge sends events to an Amazon EventBridge bus.
+	DataSourceTypeEventBridge DataSourceType = "AMAZON_EVENTBRIDGE"
 )
 
 // LambdaDataSourceConfig holds the configuration for a Lambda data source.
@@ -45,12 +47,20 @@ type LambdaDataSourceConfig struct {
 	LambdaFunctionARN string `json:"lambdaFunctionArn"`
 }
 
+// DeltaSyncConfig holds the Delta Sync configuration for a versioned DynamoDB data source.
+type DeltaSyncConfig struct {
+	BaseTableTTL       int64  `json:"baseTableTTL,omitempty"`
+	DeltaSyncTableName string `json:"deltaSyncTableName,omitempty"`
+	DeltaSyncTableTTL  int64  `json:"deltaSyncTableTTL,omitempty"`
+}
+
 // DynamoDBDataSourceConfig holds the configuration for a DynamoDB data source.
 type DynamoDBDataSourceConfig struct {
-	TableName            string `json:"tableName"`
-	AWSRegion            string `json:"awsRegion"`
-	UseCallerCredentials bool   `json:"useCallerCredentials"`
-	Versioned            bool   `json:"versioned"`
+	DeltaSyncConfig      *DeltaSyncConfig `json:"deltaSyncConfig,omitempty"`
+	TableName            string           `json:"tableName"`
+	AWSRegion            string           `json:"awsRegion"`
+	UseCallerCredentials bool             `json:"useCallerCredentials"`
+	Versioned            bool             `json:"versioned"`
 }
 
 // HTTPDataSourceConfig holds the configuration for an HTTP endpoint data source.
@@ -58,47 +68,129 @@ type HTTPDataSourceConfig struct {
 	Endpoint string `json:"endpoint"`
 }
 
+// OpenSearchServiceDataSourceConfig holds config for an OpenSearch data source.
+type OpenSearchServiceDataSourceConfig struct {
+	Endpoint  string `json:"endpoint"`
+	AWSRegion string `json:"awsRegion"`
+}
+
+// EventBridgeDataSourceConfig holds the configuration for an EventBridge data source.
+type EventBridgeDataSourceConfig struct {
+	EventBusARN string `json:"eventBusArn"`
+}
+
+// RelationalDatabaseDataSourceConfig holds config for a relational database data source.
+type RelationalDatabaseDataSourceConfig struct {
+	RelationalDatabaseSourceType string                  `json:"relationalDatabaseSourceType,omitempty"`
+	RDSHTTPEndpointConfig        *RDSHTTPEndpointConfig  `json:"rdsHttpEndpointConfig,omitempty"`
+}
+
+// RDSHTTPEndpointConfig holds the RDS HTTP endpoint configuration.
+type RDSHTTPEndpointConfig struct {
+	DatabaseName          string `json:"databaseName,omitempty"`
+	DBClusterIdentifier   string `json:"dbClusterIdentifier,omitempty"`
+	AWSRegion             string `json:"awsRegion,omitempty"`
+	Schema                string `json:"schema,omitempty"`
+	AWSSecretStoreARN     string `json:"awsSecretStoreArn,omitempty"`
+}
+
 // DataSource represents an AppSync data source.
 type DataSource struct {
-	Tags           *tags.Tags                `json:"tags,omitempty"`
-	LambdaConfig   *LambdaDataSourceConfig   `json:"lambdaConfig,omitempty"`
-	DynamoDBConfig *DynamoDBDataSourceConfig `json:"dynamodbConfig,omitempty"`
-	HTTPConfig     *HTTPDataSourceConfig     `json:"httpConfig,omitempty"`
-	DataSourceARN  string                    `json:"dataSourceArn"`
-	Name           string                    `json:"name"`
-	Description    string                    `json:"description,omitempty"`
-	ServiceRoleARN string                    `json:"serviceRoleArn,omitempty"`
-	APIID          string                    `json:"apiId"`
-	Type           DataSourceType            `json:"type"`
+	Tags                     *tags.Tags                          `json:"tags,omitempty"`
+	LambdaConfig             *LambdaDataSourceConfig             `json:"lambdaConfig,omitempty"`
+	DynamoDBConfig           *DynamoDBDataSourceConfig           `json:"dynamodbConfig,omitempty"`
+	HTTPConfig               *HTTPDataSourceConfig               `json:"httpConfig,omitempty"`
+	OpenSearchConfig         *OpenSearchServiceDataSourceConfig  `json:"openSearchServiceConfig,omitempty"`
+	EventBridgeConfig        *EventBridgeDataSourceConfig        `json:"eventBridgeConfig,omitempty"`
+	RelationalDatabaseConfig *RelationalDatabaseDataSourceConfig `json:"relationalDatabaseConfig,omitempty"`
+	DataSourceARN            string                              `json:"dataSourceArn"`
+	Name                     string                              `json:"name"`
+	Description              string                              `json:"description,omitempty"`
+	ServiceRoleARN           string                              `json:"serviceRoleArn,omitempty"`
+	APIID                    string                              `json:"apiId"`
+	Type                     DataSourceType                      `json:"type"`
+}
+
+// CachingConfig holds the caching configuration for a resolver.
+type CachingConfig struct {
+	CachingKeys []string `json:"cachingKeys,omitempty"`
+	TTL         int64    `json:"ttl"`
+}
+
+// LambdaConflictHandlerConfig holds config for Lambda conflict resolution.
+type LambdaConflictHandlerConfig struct {
+	LambdaConflictHandlerARN string `json:"lambdaConflictHandlerArn,omitempty"`
+}
+
+// SyncConfig holds the conflict detection/resolution configuration for a resolver.
+type SyncConfig struct {
+	LambdaConflictHandlerConfig *LambdaConflictHandlerConfig `json:"lambdaConflictHandlerConfig,omitempty"`
+	ConflictDetection           string                       `json:"conflictDetection,omitempty"`
+	ConflictHandler             string                       `json:"conflictHandler,omitempty"`
 }
 
 // Resolver represents an AppSync resolver.
 type Resolver struct {
-	RequestMappingTemplate  string   `json:"requestMappingTemplate,omitempty"`
-	ResponseMappingTemplate string   `json:"responseMappingTemplate,omitempty"`
-	DataSourceName          string   `json:"dataSourceName,omitempty"`
-	ResolverARN             string   `json:"resolverArn"`
-	TypeName                string   `json:"typeName"`
-	FieldName               string   `json:"fieldName"`
-	APIID                   string   `json:"apiId"`
-	Kind                    string   `json:"kind,omitempty"`
-	PipelineConfig          []string `json:"pipelineConfig,omitempty"` // function IDs for PIPELINE resolvers
+	CachingConfig           *CachingConfig `json:"cachingConfig,omitempty"`
+	SyncConfig              *SyncConfig    `json:"syncConfig,omitempty"`
+	RequestMappingTemplate  string         `json:"requestMappingTemplate,omitempty"`
+	ResponseMappingTemplate string         `json:"responseMappingTemplate,omitempty"`
+	DataSourceName          string         `json:"dataSourceName,omitempty"`
+	ResolverARN             string         `json:"resolverArn"`
+	TypeName                string         `json:"typeName"`
+	FieldName               string         `json:"fieldName"`
+	APIID                   string         `json:"apiId"`
+	Kind                    string         `json:"kind,omitempty"`
+	PipelineConfig          []string       `json:"pipelineConfig,omitempty"` // function IDs for PIPELINE resolvers
+	MaxBatchSize            int32          `json:"maxBatchSize,omitempty"`
+}
+
+// OpenIDConnectConfig holds the OpenID Connect configuration for an API.
+type OpenIDConnectConfig struct {
+	Issuer                 string `json:"issuer"`
+	ClientID               string `json:"clientId,omitempty"`
+	IatTTL                 int64  `json:"iatTTL,omitempty"`
+	AuthTTL                int64  `json:"authTTL,omitempty"`
+}
+
+// CognitoUserPoolConfig holds the Amazon Cognito user pool configuration for an API.
+type CognitoUserPoolConfig struct {
+	UserPoolID  string `json:"userPoolId"`
+	AWSRegion   string `json:"awsRegion"`
+	AppIDClient string `json:"appIdClientRegex,omitempty"`
+}
+
+// LambdaAuthorizerConfig holds the Lambda authorizer configuration for an API.
+type LambdaAuthorizerConfig struct {
+	AuthorizerURI                 string `json:"authorizerUri"`
+	AuthorizerResultTTLInSeconds  int32  `json:"authorizerResultTtlInSeconds,omitempty"`
+	IdentityValidationExpression  string `json:"identityValidationExpression,omitempty"`
+}
+
+// AdditionalAuthenticationProvider holds an additional authentication configuration.
+type AdditionalAuthenticationProvider struct {
+	AuthenticationType     AuthenticationType      `json:"authenticationType"`
+	LambdaAuthorizerConfig *LambdaAuthorizerConfig `json:"lambdaAuthorizerConfig,omitempty"`
+	OpenIDConnectConfig    *OpenIDConnectConfig    `json:"openIDConnectConfig,omitempty"`
+	UserPoolConfig         *CognitoUserPoolConfig  `json:"userPoolConfig,omitempty"`
 }
 
 // GraphqlAPI represents an AppSync GraphQL API.
 type GraphqlAPI struct {
-	URIs                 map[string]string  `json:"uris"`
-	Tags                 *tags.Tags         `json:"tags,omitempty"`
-	EnvironmentVariables map[string]string  `json:"environmentVariables,omitempty"`
-	Name                 string             `json:"name"`
-	APIID                string             `json:"apiId"`
-	ARN                  string             `json:"arn"`
-	AuthenticationType   AuthenticationType `json:"authenticationType"`
-	Region               string             `json:"region"`
-	APIType              string             `json:"apiType,omitempty"`
-	CreatedAt            int64              `json:"createdAt,omitempty"`
-	UpdatedAt            int64              `json:"updatedAt,omitempty"`
-	XrayEnabled          bool               `json:"xrayEnabled,omitempty"`
+	URIs                                map[string]string                   `json:"uris"`
+	Tags                                *tags.Tags                          `json:"tags,omitempty"`
+	EnvironmentVariables                map[string]string                   `json:"environmentVariables,omitempty"`
+	AdditionalAuthenticationProviders   []AdditionalAuthenticationProvider  `json:"additionalAuthenticationProviders,omitempty"`
+	Name                                string                              `json:"name"`
+	APIID                               string                              `json:"apiId"`
+	ARN                                 string                              `json:"arn"`
+	AuthenticationType                  AuthenticationType                  `json:"authenticationType"`
+	Visibility                          string                              `json:"visibility,omitempty"`
+	Region                              string                              `json:"region"`
+	APIType                             string                              `json:"apiType,omitempty"`
+	CreatedAt                           int64                               `json:"createdAt,omitempty"`
+	UpdatedAt                           int64                               `json:"updatedAt,omitempty"`
+	XrayEnabled                         bool                                `json:"xrayEnabled,omitempty"`
 }
 
 // SchemaStatus represents the schema creation status.

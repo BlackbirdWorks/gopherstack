@@ -818,11 +818,13 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 	}
 
 	var input struct {
-		Tags               map[string]string `json:"tags"`
-		Name               string            `json:"name"`
-		AuthenticationType string            `json:"authenticationType"`
-		APIType            string            `json:"apiType"`
-		XrayEnabled        bool              `json:"xrayEnabled"`
+		Tags                              map[string]string                   `json:"tags"`
+		AdditionalAuthenticationProviders []AdditionalAuthenticationProvider  `json:"additionalAuthenticationProviders"`
+		Name                              string                              `json:"name"`
+		AuthenticationType                string                              `json:"authenticationType"`
+		APIType                           string                              `json:"apiType"`
+		Visibility                        string                              `json:"visibility"`
+		XrayEnabled                       bool                                `json:"xrayEnabled"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
@@ -838,7 +840,7 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 		authType = AuthTypeAPIKey
 	}
 
-	api, createErr := h.Backend.CreateGraphqlAPI(input.Name, authType, input.XrayEnabled, input.APIType, input.Tags)
+	api, createErr := h.Backend.CreateGraphqlAPI(input.Name, authType, input.XrayEnabled, input.APIType, input.Visibility, input.AdditionalAuthenticationProviders, input.Tags)
 	if createErr != nil {
 		return h.handleError(ctx, c, "CreateGraphqlApi", createErr)
 	}
@@ -1817,9 +1819,11 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 	}
 
 	var input struct {
-		XrayEnabled        *bool  `json:"xrayEnabled"`
-		Name               string `json:"name"`
-		AuthenticationType string `json:"authenticationType"`
+		AdditionalAuthenticationProviders []AdditionalAuthenticationProvider `json:"additionalAuthenticationProviders"`
+		XrayEnabled                       *bool                              `json:"xrayEnabled"`
+		Name                              string                             `json:"name"`
+		AuthenticationType                string                             `json:"authenticationType"`
+		Visibility                        string                             `json:"visibility"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
@@ -1831,6 +1835,8 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 		input.Name,
 		AuthenticationType(input.AuthenticationType),
 		input.XrayEnabled,
+		input.Visibility,
+		input.AdditionalAuthenticationProviders,
 	)
 	if updateErr != nil {
 		return h.handleError(ctx, c, "UpdateGraphqlApi", updateErr)
