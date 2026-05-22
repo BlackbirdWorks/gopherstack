@@ -18,16 +18,27 @@ type StorageBackend interface {
 	ListResolverEndpoints() []*ResolverEndpoint
 	DeleteResolverEndpoint(id string) error
 	ListResolverEndpointIPAddresses(endpointID string) ([]IPAddress, error)
-	AssociateResolverEndpointIPAddress(endpointID, subnetID, ip, ipv6 string) (*ResolverEndpoint, error)
-	UpdateResolverEndpoint(id, name, resolverEndpointType string, protocols []string) (*ResolverEndpoint, error)
+	AssociateResolverEndpointIPAddress(
+		endpointID, subnetID, ip, ipv6 string,
+	) (*ResolverEndpoint, error)
+	UpdateResolverEndpoint(
+		id, name, resolverEndpointType string,
+		protocols []string,
+	) (*ResolverEndpoint, error)
 	DisassociateResolverEndpointIPAddress(endpointID, ipID string) (*ResolverEndpoint, error)
 
 	// Rule operations
-	CreateResolverRule(name, domainName, ruleType, endpointID, creatorRequestID string, targetIps []TargetIP) (*ResolverRule, error)
+	CreateResolverRule(
+		name, domainName, ruleType, endpointID, creatorRequestID string,
+		targetIps []TargetIP,
+	) (*ResolverRule, error)
 	GetResolverRule(id string) (*ResolverRule, error)
 	ListResolverRules() []*ResolverRule
 	DeleteResolverRule(id string) error
-	UpdateResolverRule(id, name, resolverEndpointID string, targetIps []TargetIP) (*ResolverRule, error)
+	UpdateResolverRule(
+		id, name, resolverEndpointID string,
+		targetIps []TargetIP,
+	) (*ResolverRule, error)
 	AssociateResolverRule(resolverRuleID, vpcID, name string) (*ResolverRuleAssociation, error)
 	GetResolverRuleAssociation(id string) (*ResolverRuleAssociation, error)
 	DisassociateResolverRule(id string) (*ResolverRuleAssociation, error)
@@ -47,9 +58,14 @@ type StorageBackend interface {
 		priority int32,
 	) (*FirewallRuleGroupAssociation, error)
 	GetFirewallRuleGroupAssociation(id string) (*FirewallRuleGroupAssociation, error)
-	ListFirewallRuleGroupAssociations(vpcID, firewallRuleGroupID string) []*FirewallRuleGroupAssociation
+	ListFirewallRuleGroupAssociations(
+		vpcID, firewallRuleGroupID string,
+	) []*FirewallRuleGroupAssociation
 	DisassociateFirewallRuleGroup(id string) (*FirewallRuleGroupAssociation, error)
-	UpdateFirewallRuleGroupAssociation(id, name, mutationProtection string, priority int32) (*FirewallRuleGroupAssociation, error)
+	UpdateFirewallRuleGroupAssociation(
+		id, name, mutationProtection string,
+		priority int32,
+	) (*FirewallRuleGroupAssociation, error)
 
 	// Firewall domain list operations
 	CreateFirewallDomainList(name, creatorRequestID string) (*FirewallDomainList, error)
@@ -79,14 +95,21 @@ type StorageBackend interface {
 	GetOutpostResolver(id string) (*OutpostResolver, error)
 	ListOutpostResolvers() []*OutpostResolver
 	DeleteOutpostResolver(id string) (*OutpostResolver, error)
-	UpdateOutpostResolver(id, name, preferredInstanceType string, instanceCount int32) (*OutpostResolver, error)
+	UpdateOutpostResolver(
+		id, name, preferredInstanceType string,
+		instanceCount int32,
+	) (*OutpostResolver, error)
 
 	// Query log config operations
-	CreateResolverQueryLogConfig(name, creatorRequestID, destinationARN string) (*ResolverQueryLogConfig, error)
+	CreateResolverQueryLogConfig(
+		name, creatorRequestID, destinationARN string,
+	) (*ResolverQueryLogConfig, error)
 	GetResolverQueryLogConfig(id string) (*ResolverQueryLogConfig, error)
 	ListResolverQueryLogConfigs() []*ResolverQueryLogConfig
 	DeleteResolverQueryLogConfig(id string) (*ResolverQueryLogConfig, error)
-	AssociateResolverQueryLogConfig(queryLogConfigID, resourceID string) (*ResolverQueryLogConfigAssociation, error)
+	AssociateResolverQueryLogConfig(
+		queryLogConfigID, resourceID string,
+	) (*ResolverQueryLogConfigAssociation, error)
 	GetResolverQueryLogConfigAssociation(id string) (*ResolverQueryLogConfigAssociation, error)
 	DisassociateResolverQueryLogConfig(id string) (*ResolverQueryLogConfigAssociation, error)
 	ListResolverQueryLogConfigAssociations() []*ResolverQueryLogConfigAssociation

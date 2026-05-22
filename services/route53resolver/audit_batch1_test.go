@@ -18,7 +18,7 @@ import (
 func TestAudit_ResolverEndpoint_IPv6IPAddress(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
 		body     map[string]any
 		wantCode int
@@ -86,7 +86,7 @@ func TestAudit_ResolverEndpoint_IPv6IPAddress(t *testing.T) {
 func TestAudit_ResolverEndpoint_Protocols(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name          string
 		body          map[string]any
 		wantCode      int
@@ -146,7 +146,7 @@ func TestAudit_ResolverEndpoint_Protocols(t *testing.T) {
 func TestAudit_ResolverEndpoint_OutpostFields(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
 		body     map[string]any
 		wantCode int
@@ -267,43 +267,43 @@ func TestAudit_ResolverEndpoint_TypeValidation(t *testing.T) {
 func TestAudit_UpdateResolverEndpoint_Extended(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name       string
 		updateBody map[string]any
 		wantCode   int
 		checkFn    func(t *testing.T, ep map[string]any)
 	}{
 		{
-			name:     "update_name",
+			name:       "update_name",
 			updateBody: map[string]any{"Name": "updated-name"},
-			wantCode: http.StatusOK,
+			wantCode:   http.StatusOK,
 			checkFn: func(t *testing.T, ep map[string]any) {
 				t.Helper()
 				assert.Equal(t, "updated-name", ep["Name"])
 			},
 		},
 		{
-			name:     "update_protocols",
+			name:       "update_protocols",
 			updateBody: map[string]any{"Protocols": []string{"DoH"}},
-			wantCode: http.StatusOK,
+			wantCode:   http.StatusOK,
 			checkFn: func(t *testing.T, ep map[string]any) {
 				t.Helper()
 				assert.Equal(t, []any{"DoH"}, ep["Protocols"])
 			},
 		},
 		{
-			name:     "update_endpoint_type",
+			name:       "update_endpoint_type",
 			updateBody: map[string]any{"ResolverEndpointType": "IPV6"},
-			wantCode: http.StatusOK,
+			wantCode:   http.StatusOK,
 			checkFn: func(t *testing.T, ep map[string]any) {
 				t.Helper()
 				assert.Equal(t, "IPV6", ep["ResolverEndpointType"])
 			},
 		},
 		{
-			name:     "invalid_type_rejected",
+			name:       "invalid_type_rejected",
 			updateBody: map[string]any{"ResolverEndpointType": "BOGUS"},
-			wantCode: http.StatusBadRequest,
+			wantCode:   http.StatusBadRequest,
 		},
 	}
 
@@ -341,7 +341,7 @@ func TestAudit_UpdateResolverEndpoint_Extended(t *testing.T) {
 func TestAudit_AssociateResolverEndpointIpAddress_IPv6(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
 		ipBody   map[string]any
 		wantCode int
@@ -425,7 +425,7 @@ func TestAudit_AssociateResolverEndpointIpAddress_IPv6(t *testing.T) {
 func TestAudit_ResolverRule_TargetIpWithIPv6AndProtocol(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
 		targetIP map[string]any
 		wantCode int
@@ -463,7 +463,7 @@ func TestAudit_ResolverRule_TargetIpWithIPv6AndProtocol(t *testing.T) {
 	}
 }
 
-// --- Issue 10: ResolverRule CreatorRequestId, OwnerId, timestamps ---
+// --- Issue 10: ResolverRule CreatorRequestId, OwnerID, timestamps ---
 
 func TestAudit_ResolverRule_CreatorAndTimestamps(t *testing.T) {
 	t.Parallel()
@@ -483,7 +483,7 @@ func TestAudit_ResolverRule_CreatorAndTimestamps(t *testing.T) {
 	rule := resp["ResolverRule"].(map[string]any)
 
 	assert.Equal(t, "req-rule-001", rule["CreatorRequestId"])
-	assert.NotEmpty(t, rule["OwnerId"])
+	assert.NotEmpty(t, rule["OwnerID"])
 	assert.NotEmpty(t, rule["CreationTime"])
 	assert.NotEmpty(t, rule["ModificationTime"])
 }
@@ -493,7 +493,7 @@ func TestAudit_ResolverRule_CreatorAndTimestamps(t *testing.T) {
 func TestAudit_ResolverRule_TypeEnforcement(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
 		body     map[string]any
 		wantCode int
@@ -586,7 +586,7 @@ func TestAudit_ResolverQueryLogConfig_AssociationCount(t *testing.T) {
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 	cfg := createResp["ResolverQueryLogConfig"].(map[string]any)
 	cfgID := cfg["Id"].(string)
-	assert.Equal(t, float64(0), cfg["AssociationCount"])
+	assert.EqualValues(t, 0, cfg["AssociationCount"])
 	assert.Equal(t, "NOT_SHARED", cfg["ShareStatus"])
 	assert.NotEmpty(t, cfg["CreationTime"])
 
@@ -604,13 +604,18 @@ func TestAudit_ResolverQueryLogConfig_AssociationCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, assocRec.Code)
 
 	// Get config and verify count.
-	getRec := doRequest(t, h, "GetResolverQueryLogConfig", map[string]any{"ResolverQueryLogConfigId": cfgID})
+	getRec := doRequest(
+		t,
+		h,
+		"GetResolverQueryLogConfig",
+		map[string]any{"ResolverQueryLogConfigId": cfgID},
+	)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
 	cfg = getResp["ResolverQueryLogConfig"].(map[string]any)
-	assert.Equal(t, float64(2), cfg["AssociationCount"])
+	assert.EqualValues(t, 2, cfg["AssociationCount"])
 }
 
 // --- Issue 15: DestinationArn validation ---
@@ -677,12 +682,12 @@ func TestAudit_ResolverQueryLogConfig_DestinationArnValidation(t *testing.T) {
 func TestAudit_ResolverDnssecConfig_StatusValues(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name             string
-		action           string
-		validation       string
-		wantCode         int
-		wantStatus       string
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
+		name       string
+		action     string
+		validation string
+		wantCode   int
+		wantStatus string
 	}{
 		{
 			name:       "get_default_disabled",
@@ -722,7 +727,12 @@ func TestAudit_ResolverDnssecConfig_StatusValues(t *testing.T) {
 			var rec *httptest.ResponseRecorder
 			switch tt.action {
 			case "get":
-				rec = doRequest(t, h, "GetResolverDnssecConfig", map[string]any{"ResourceId": vpcID})
+				rec = doRequest(
+					t,
+					h,
+					"GetResolverDnssecConfig",
+					map[string]any{"ResourceId": vpcID},
+				)
 			case "enable", "disable", "invalid":
 				rec = doRequest(t, h, "UpdateResolverDnssecConfig", map[string]any{
 					"ResourceId": vpcID,
@@ -759,7 +769,7 @@ func TestAudit_FirewallConfig_NoArn(t *testing.T) {
 	_, hasArn := cfg["Arn"]
 	assert.False(t, hasArn, "FirewallConfig should not have an Arn field")
 	assert.NotEmpty(t, cfg["Id"])
-	assert.NotEmpty(t, cfg["OwnerId"])
+	assert.NotEmpty(t, cfg["OwnerID"])
 	assert.NotEmpty(t, cfg["ResourceId"])
 }
 
@@ -788,7 +798,7 @@ func TestAudit_FirewallDomainList_ManagedOwnerName(t *testing.T) {
 func TestAudit_FirewallRule_BlockOverrideFields(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
 		body     func(groupID, dlID string) map[string]any
 		wantCode int
@@ -800,10 +810,10 @@ func TestAudit_FirewallRule_BlockOverrideFields(t *testing.T) {
 				return map[string]any{
 					"FirewallRuleGroupId":  groupID,
 					"FirewallDomainListId": dlID,
-					"Priority":            100,
-					"Action":              "BLOCK",
-					"BlockResponse":       "NODATA",
-					"Name":                "block-nodata",
+					"Priority":             100,
+					"Action":               "BLOCK",
+					"BlockResponse":        "NODATA",
+					"Name":                 "block-nodata",
 				}
 			},
 			wantCode: http.StatusOK,
@@ -819,13 +829,13 @@ func TestAudit_FirewallRule_BlockOverrideFields(t *testing.T) {
 				return map[string]any{
 					"FirewallRuleGroupId":  groupID,
 					"FirewallDomainListId": dlID,
-					"Priority":            200,
-					"Action":              "BLOCK",
-					"BlockResponse":       "OVERRIDE",
-					"BlockOverrideDomain": "safe.example.com",
-					"BlockOverrideDnsType": "CNAME",
-					"BlockOverrideTtl":    300,
-					"Name":                "block-override",
+					"Priority":             200,
+					"Action":               "BLOCK",
+					"BlockResponse":        "OVERRIDE",
+					"BlockOverrideDomain":  "safe.example.com",
+					"BlockOverrideDNSType": "CNAME",
+					"BlockOverrideTTL":     300,
+					"Name":                 "block-override",
 				}
 			},
 			wantCode: http.StatusOK,
@@ -833,8 +843,8 @@ func TestAudit_FirewallRule_BlockOverrideFields(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, "OVERRIDE", rule["BlockResponse"])
 				assert.Equal(t, "safe.example.com", rule["BlockOverrideDomain"])
-				assert.Equal(t, "CNAME", rule["BlockOverrideDnsType"])
-				assert.Equal(t, float64(300), rule["BlockOverrideTtl"])
+				assert.Equal(t, "CNAME", rule["BlockOverrideDNSType"])
+				assert.EqualValues(t, 300, rule["BlockOverrideTTL"])
 			},
 		},
 		{
@@ -843,10 +853,10 @@ func TestAudit_FirewallRule_BlockOverrideFields(t *testing.T) {
 				return map[string]any{
 					"FirewallRuleGroupId":  groupID,
 					"FirewallDomainListId": dlID,
-					"Priority":            300,
-					"Action":              "BLOCK",
-					"BlockResponse":       "OVERRIDE",
-					"Name":                "block-override-missing",
+					"Priority":             300,
+					"Action":               "BLOCK",
+					"BlockResponse":        "OVERRIDE",
+					"Name":                 "block-override-missing",
 				}
 			},
 			wantCode: http.StatusBadRequest,
@@ -857,9 +867,9 @@ func TestAudit_FirewallRule_BlockOverrideFields(t *testing.T) {
 				return map[string]any{
 					"FirewallRuleGroupId":  groupID,
 					"FirewallDomainListId": dlID,
-					"Priority":            400,
-					"Action":              "ALLOW",
-					"Name":                "allow-rule",
+					"Priority":             400,
+					"Action":               "ALLOW",
+					"Name":                 "allow-rule",
 				}
 			},
 			wantCode: http.StatusOK,
@@ -874,11 +884,11 @@ func TestAudit_FirewallRule_BlockOverrideFields(t *testing.T) {
 				return map[string]any{
 					"FirewallRuleGroupId":  groupID,
 					"FirewallDomainListId": dlID,
-					"Priority":            500,
-					"Action":              "BLOCK",
-					"BlockResponse":       "NODATA",
-					"Qtype":               "A",
-					"Name":                "qtype-rule",
+					"Priority":             500,
+					"Action":               "BLOCK",
+					"BlockResponse":        "NODATA",
+					"Qtype":                "A",
+					"Name":                 "qtype-rule",
 				}
 			},
 			wantCode: http.StatusOK,
@@ -895,13 +905,23 @@ func TestAudit_FirewallRule_BlockOverrideFields(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "override-test-grp"})
+			grpRec := doRequest(
+				t,
+				h,
+				"CreateFirewallRuleGroup",
+				map[string]any{"Name": "override-test-grp"},
+			)
 			require.Equal(t, http.StatusOK, grpRec.Code)
 			var grpResp map[string]any
 			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
 			groupID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
-			dlRec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "override-test-dl"})
+			dlRec := doRequest(
+				t,
+				h,
+				"CreateFirewallDomainList",
+				map[string]any{"Name": "override-test-dl"},
+			)
 			require.Equal(t, http.StatusOK, dlRec.Code)
 			var dlResp map[string]any
 			require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp))
@@ -951,10 +971,10 @@ func TestAudit_UpdateFirewallRule_ExtendedFields(t *testing.T) {
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 	ruleID := createResp["FirewallRule"].(map[string]any)["Id"].(string)
 
-	tests := []struct {
-		name     string
-		update   map[string]any
-		checkFn  func(t *testing.T, rule map[string]any)
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
+		name    string
+		update  map[string]any
+		checkFn func(t *testing.T, rule map[string]any)
 	}{
 		{
 			name: "update_action_and_block_response",
@@ -986,7 +1006,12 @@ func TestAudit_UpdateFirewallRule_ExtendedFields(t *testing.T) {
 
 			h2 := newTestHandler(t)
 			// Re-setup: need same group/dl/rule in fresh handler.
-			grpRec2 := doRequest(t, h2, "CreateFirewallRuleGroup", map[string]any{"Name": "upd-grp"})
+			grpRec2 := doRequest(
+				t,
+				h2,
+				"CreateFirewallRuleGroup",
+				map[string]any{"Name": "upd-grp"},
+			)
 			require.Equal(t, http.StatusOK, grpRec2.Code)
 			var grpR2 map[string]any
 			require.NoError(t, json.Unmarshal(grpRec2.Body.Bytes(), &grpR2))
@@ -1086,7 +1111,12 @@ func TestAudit_FirewallRuleGroupAssociation_MutationProtection(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "mut-prot-grp"})
+			grpRec := doRequest(
+				t,
+				h,
+				"CreateFirewallRuleGroup",
+				map[string]any{"Name": "mut-prot-grp"},
+			)
 			require.Equal(t, http.StatusOK, grpRec.Code)
 			var grpResp map[string]any
 			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
@@ -1140,7 +1170,12 @@ func TestAudit_UpdateFirewallRuleGroupAssociation_MutationProtection(t *testing.
 
 			h := newTestHandler(t)
 
-			grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "upd-mp-grp"})
+			grpRec := doRequest(
+				t,
+				h,
+				"CreateFirewallRuleGroup",
+				map[string]any{"Name": "upd-mp-grp"},
+			)
 			require.Equal(t, http.StatusOK, grpRec.Code)
 			var grpResp map[string]any
 			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
@@ -1206,13 +1241,18 @@ func TestAudit_ResolverQueryLogConfig_AssociationCountDecrement(t *testing.T) {
 	})
 
 	// Count should be 0.
-	getRec := doRequest(t, h, "GetResolverQueryLogConfig", map[string]any{"ResolverQueryLogConfigId": cfgID})
+	getRec := doRequest(
+		t,
+		h,
+		"GetResolverQueryLogConfig",
+		map[string]any{"ResolverQueryLogConfigId": cfgID},
+	)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
 	cfg := getResp["ResolverQueryLogConfig"].(map[string]any)
-	assert.Equal(t, float64(0), cfg["AssociationCount"])
+	assert.EqualValues(t, 0, cfg["AssociationCount"])
 }
 
 // --- QueryLogConfigAssociation Error/ErrorMessage fields ---
@@ -1322,9 +1362,9 @@ func TestAudit_Backend_CreateEndpointTypeEnum(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		epType   string
-		wantErr  bool
+		name    string
+		epType  string
+		wantErr bool
 	}{
 		{name: "ipv4", epType: "IPV4", wantErr: false},
 		{name: "ipv6", epType: "IPV6", wantErr: false},
@@ -1338,7 +1378,18 @@ func TestAudit_Backend_CreateEndpointTypeEnum(t *testing.T) {
 			t.Parallel()
 
 			b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
-			_, err := b.CreateResolverEndpoint("ep", "INBOUND", "vpc-1", nil, nil, tt.epType, nil, "", "", "")
+			_, err := b.CreateResolverEndpoint(
+				"ep",
+				"INBOUND",
+				"vpc-1",
+				nil,
+				nil,
+				tt.epType,
+				nil,
+				"",
+				"",
+				"",
+			)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -1361,7 +1412,7 @@ func TestAudit_Backend_RuleTypeEnforcement(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name: "system_no_ep_no_tips_ok",
+			name:     "system_no_ep_no_tips_ok",
 			ruleType: "SYSTEM",
 			wantErr:  false,
 		},
@@ -1390,7 +1441,14 @@ func TestAudit_Backend_RuleTypeEnforcement(t *testing.T) {
 			t.Parallel()
 
 			b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
-			_, err := b.CreateResolverRule("r1", "example.com", tt.ruleType, tt.epID, "", tt.targetIps)
+			_, err := b.CreateResolverRule(
+				"r1",
+				"example.com",
+				tt.ruleType,
+				tt.epID,
+				"",
+				tt.targetIps,
+			)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -1411,9 +1469,21 @@ func TestAudit_Backend_QueryLogDestinationValidation(t *testing.T) {
 		wantErr        bool
 	}{
 		{name: "s3_valid", destinationArn: "arn:aws:s3:::my-bucket", wantErr: false},
-		{name: "cloudwatch_valid", destinationArn: "arn:aws:logs:us-east-1:000000000000:log-group:/test", wantErr: false},
-		{name: "firehose_valid", destinationArn: "arn:aws:firehose:us-east-1:000000000000:deliverystream/s", wantErr: false},
-		{name: "ec2_invalid", destinationArn: "arn:aws:ec2:us-east-1:000000000000:instance/i-abc", wantErr: true},
+		{
+			name:           "cloudwatch_valid",
+			destinationArn: "arn:aws:logs:us-east-1:000000000000:log-group:/test",
+			wantErr:        false,
+		},
+		{
+			name:           "firehose_valid",
+			destinationArn: "arn:aws:firehose:us-east-1:000000000000:deliverystream/s",
+			wantErr:        false,
+		},
+		{
+			name:           "ec2_invalid",
+			destinationArn: "arn:aws:ec2:us-east-1:000000000000:instance/i-abc",
+			wantErr:        true,
+		},
 		{name: "empty_invalid", destinationArn: "", wantErr: true},
 	}
 
@@ -1508,7 +1578,18 @@ func TestAudit_Backend_EndpointTimestampsRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
-	ep, err := b.CreateResolverEndpoint("ep-ts", "INBOUND", "vpc-1", nil, nil, "IPV4", nil, "", "", "req-ts-1")
+	ep, err := b.CreateResolverEndpoint(
+		"ep-ts",
+		"INBOUND",
+		"vpc-1",
+		nil,
+		nil,
+		"IPV4",
+		nil,
+		"",
+		"",
+		"req-ts-1",
+	)
 	require.NoError(t, err)
 	require.NotEmpty(t, ep.CreationTime)
 	require.NotEmpty(t, ep.ModificationTime)
@@ -1540,8 +1621,8 @@ func TestAudit_Backend_FirewallRuleBlockOverrideRoundTrip(t *testing.T) {
 		Action:               "BLOCK",
 		BlockResponse:        "OVERRIDE",
 		BlockOverrideDomain:  "safe.example.com",
-		BlockOverrideDnsType: "CNAME",
-		BlockOverrideTtl:     600,
+		BlockOverrideDNSType: "CNAME",
+		BlockOverrideTTL:     600,
 		Priority:             100,
 	})
 	require.NoError(t, err)
@@ -1553,8 +1634,8 @@ func TestAudit_Backend_FirewallRuleBlockOverrideRoundTrip(t *testing.T) {
 	rules := b2.ListFirewallRules(grp.ID)
 	require.Len(t, rules, 1)
 	assert.Equal(t, rule.BlockOverrideDomain, rules[0].BlockOverrideDomain)
-	assert.Equal(t, rule.BlockOverrideDnsType, rules[0].BlockOverrideDnsType)
-	assert.Equal(t, rule.BlockOverrideTtl, rules[0].BlockOverrideTtl)
+	assert.Equal(t, rule.BlockOverrideDNSType, rules[0].BlockOverrideDNSType)
+	assert.Equal(t, rule.BlockOverrideTTL, rules[0].BlockOverrideTTL)
 }
 
 // TestAudit_FullCRUDLifecycle verifies complete lifecycle across all major resources.
@@ -1585,7 +1666,10 @@ func TestAudit_FullCRUDLifecycle(t *testing.T) {
 		"RuleType":           "FORWARD",
 		"ResolverEndpointId": epID,
 		"CreatorRequestId":   "req-rule-lifecycle",
-		"TargetIps":          []map[string]any{{"Ip": "10.0.0.1", "Port": 53}, {"Ip": "10.0.0.2", "Port": 53}},
+		"TargetIps": []map[string]any{
+			{"Ip": "10.0.0.1", "Port": 53},
+			{"Ip": "10.0.0.2", "Port": 53},
+		},
 	})
 	require.Equal(t, http.StatusOK, ruleRec.Code)
 	var ruleResp map[string]any
@@ -1593,7 +1677,7 @@ func TestAudit_FullCRUDLifecycle(t *testing.T) {
 	rule := ruleResp["ResolverRule"].(map[string]any)
 	ruleID := rule["Id"].(string)
 	assert.Equal(t, "req-rule-lifecycle", rule["CreatorRequestId"])
-	assert.NotEmpty(t, rule["OwnerId"])
+	assert.NotEmpty(t, rule["OwnerID"])
 
 	// 3. Query log config.
 	qlcRec := doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
@@ -1605,18 +1689,23 @@ func TestAudit_FullCRUDLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(qlcRec.Body.Bytes(), &qlcResp))
 	qlc := qlcResp["ResolverQueryLogConfig"].(map[string]any)
 	qlcID := qlc["Id"].(string)
-	assert.Equal(t, float64(0), qlc["AssociationCount"])
+	assert.EqualValues(t, 0, qlc["AssociationCount"])
 
 	// 4. Query log association increments count.
 	doRequest(t, h, "AssociateResolverQueryLogConfig", map[string]any{
 		"ResolverQueryLogConfigId": qlcID,
 		"ResourceId":               "vpc-lifecycle",
 	})
-	getRec := doRequest(t, h, "GetResolverQueryLogConfig", map[string]any{"ResolverQueryLogConfigId": qlcID})
+	getRec := doRequest(
+		t,
+		h,
+		"GetResolverQueryLogConfig",
+		map[string]any{"ResolverQueryLogConfigId": qlcID},
+	)
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
-	assert.Equal(t, float64(1), getResp["ResolverQueryLogConfig"].(map[string]any)["AssociationCount"])
+	assert.EqualValues(t, 1, getResp["ResolverQueryLogConfig"].(map[string]any)["AssociationCount"])
 
 	// 5. Firewall rule group with timestamps.
 	frgRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{
@@ -1662,13 +1751,23 @@ func TestAudit_FirewallRule_BlockResponseStoredOnCreate(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "br-test-grp"})
+			grpRec := doRequest(
+				t,
+				h,
+				"CreateFirewallRuleGroup",
+				map[string]any{"Name": "br-test-grp"},
+			)
 			require.Equal(t, http.StatusOK, grpRec.Code)
 			var grpResp map[string]any
 			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
 			groupID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
-			dlRec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "br-test-dl"})
+			dlRec := doRequest(
+				t,
+				h,
+				"CreateFirewallDomainList",
+				map[string]any{"Name": "br-test-dl"},
+			)
 			require.Equal(t, http.StatusOK, dlRec.Code)
 			var dlResp map[string]any
 			require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp))
