@@ -484,6 +484,9 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrConflict):
 		status = http.StatusConflict
 		errType = "ConflictException"
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		status = http.StatusBadRequest
+		errType = "BadRequestException"
 	case errors.Is(err, errInvalidRequest):
 		status = http.StatusBadRequest
 		errType = "BadRequestException"
@@ -649,6 +652,14 @@ func (h *Handler) handlePutTableBucketMaintenanceConfiguration(
 	var req putTableBucketMaintenanceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if maintenanceType != maintenanceTypeIcebergUnreferencedFileRemoval {
+		return nil, fmt.Errorf("%w: unsupported table bucket maintenance type %q", errInvalidRequest, maintenanceType)
+	}
+
+	if req.Value == nil {
+		return nil, fmt.Errorf("%w: value is required", errInvalidRequest)
 	}
 
 	if err := h.Backend.PutTableBucketMaintenanceConfiguration(bucketARN, maintenanceType, req.Value); err != nil {
@@ -1338,7 +1349,12 @@ func (h *Handler) handleRenameTable(ctx context.Context, r *http.Request, body [
 		newName = *req.NewName
 	}
 
-	if err := h.Backend.RenameTable(bucketARN, splitNamespace(nsName), name, newNs, newName); err != nil {
+	versionToken := ""
+	if req.VersionToken != nil {
+		versionToken = *req.VersionToken
+	}
+
+	if err := h.Backend.RenameTable(bucketARN, splitNamespace(nsName), name, newNs, newName, versionToken); err != nil {
 		return nil, err
 	}
 
@@ -1367,6 +1383,10 @@ func (h *Handler) handleUpdateTableMetadataLocation(ctx context.Context, r *http
 	var req updateTableMetadataLocationRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.MetadataLocation == "" || req.VersionToken == "" {
+		return nil, fmt.Errorf("%w: metadataLocation and versionToken are required", errInvalidRequest)
 	}
 
 	table, err := h.Backend.UpdateTableMetadataLocation(
@@ -1450,6 +1470,14 @@ func (h *Handler) handlePutTableMaintenanceConfiguration(
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if !validTableMaintenanceType(maintenanceType) {
+		return nil, fmt.Errorf("%w: unsupported table maintenance type %q", errInvalidRequest, maintenanceType)
+	}
+
+	if req.Value == nil {
+		return nil, fmt.Errorf("%w: value is required", errInvalidRequest)
+	}
+
 	if err := h.Backend.PutTableMaintenanceConfiguration(
 		bucketARN,
 		splitNamespace(nsName),
@@ -1464,6 +1492,11 @@ func (h *Handler) handlePutTableMaintenanceConfiguration(
 	log.InfoContext(ctx, "s3tables: put table maintenance configuration", keyName, name, "type", maintenanceType)
 
 	return nil, nil
+}
+
+func validTableMaintenanceType(maintenanceType string) bool {
+	return maintenanceType == maintenanceTypeIcebergCompaction ||
+		maintenanceType == maintenanceTypeIcebergSnapshotManagement
 }
 
 func (h *Handler) handleGetTablePolicy(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {

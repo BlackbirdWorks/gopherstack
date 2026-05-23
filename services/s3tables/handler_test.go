@@ -105,6 +105,19 @@ func createTableHelper(t *testing.T, h *s3tables.Handler, bucketARN, namespace, 
 	return tableARN
 }
 
+func getTableHelper(t *testing.T, h *s3tables.Handler, bucketARN, namespace, name string) map[string]any {
+	t.Helper()
+
+	query := url.Values{}
+	query.Set("tableBucketARN", bucketARN)
+	query.Set("namespace", namespace)
+	query.Set("name", name)
+	rec := doS3TablesRequest(t, h, http.MethodGet, "/get-table?"+query.Encode(), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	return parseResponse(t, rec)
+}
+
 func TestHandler_Name(t *testing.T) {
 	t.Parallel()
 
@@ -607,14 +620,30 @@ func TestHandler_Table_Rename(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       map[string]any
-		name       string
-		wantStatus int
+		body          map[string]any
+		name          string
+		createTable   bool
+		useStaleToken bool
+		wantStatus    int
 	}{
 		{
-			name:       "rename_table",
-			body:       map[string]any{"newName": "renamed-table"},
-			wantStatus: http.StatusNoContent,
+			name:        "rename_table",
+			body:        map[string]any{"newName": "renamed-table"},
+			createTable: true,
+			wantStatus:  http.StatusNoContent,
+		},
+		{
+			name:          "reject_stale_version_token",
+			body:          map[string]any{"newName": "renamed-table"},
+			createTable:   true,
+			useStaleToken: true,
+			wantStatus:    http.StatusConflict,
+		},
+		{
+			name:        "reject_missing_destination_namespace",
+			body:        map[string]any{"newNamespaceName": "missing-ns"},
+			createTable: true,
+			wantStatus:  http.StatusNotFound,
 		},
 		{
 			name:       "rename_table_not_found",
@@ -633,10 +662,16 @@ func TestHandler_Table_Rename(t *testing.T) {
 			createNamespaceHelper(t, h, bucketARN, []string{"rename-ns"})
 
 			tableName := "orig-table"
-			if tt.name == "rename_table" {
+			if tt.createTable {
 				_ = createTableHelper(t, h, bucketARN, "rename-ns", tableName)
+				table := getTableHelper(t, h, bucketARN, "rename-ns", tableName)
+				tt.body["versionToken"] = table["versionToken"]
 			} else {
 				tableName = "not-exist"
+			}
+
+			if tt.useStaleToken {
+				tt.body["versionToken"] = "stale-version-token"
 			}
 
 			path := "/tables/" + encodedARN + "/rename-ns/" + tableName + "/rename"
@@ -650,19 +685,35 @@ func TestHandler_Table_UpdateMetadataLocation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       map[string]any
-		name       string
-		wantStatus int
+		name             string
+		metadataLocation string
+		useStaleToken    bool
+		createTable      bool
+		wantStatus       int
 	}{
 		{
-			name:       "update_metadata_location",
-			body:       map[string]any{"metadataLocation": "s3://bucket/path/metadata.json", "versionToken": "v1"},
-			wantStatus: http.StatusOK,
+			name:             "update_metadata_location",
+			metadataLocation: "s3://meta-bucket-update_metadata_location/meta-ns/meta-table/v1.metadata.json",
+			createTable:      true,
+			wantStatus:       http.StatusOK,
 		},
 		{
-			name:       "table_not_found",
-			body:       map[string]any{"metadataLocation": "s3://bucket/path/metadata.json", "versionToken": "v1"},
-			wantStatus: http.StatusNotFound,
+			name:             "reject_location_outside_warehouse",
+			metadataLocation: "s3://other-bucket/meta-ns/meta-table/v1.metadata.json",
+			createTable:      true,
+			wantStatus:       http.StatusBadRequest,
+		},
+		{
+			name:             "reject_stale_version_token",
+			metadataLocation: "s3://meta-bucket-reject_stale_version_token/meta-ns/meta-table/v1.metadata.json.gz",
+			useStaleToken:    true,
+			createTable:      true,
+			wantStatus:       http.StatusConflict,
+		},
+		{
+			name:             "table_not_found",
+			metadataLocation: "s3://meta-bucket-table_not_found/meta-ns/not-exist/v1.metadata.json",
+			wantStatus:       http.StatusNotFound,
 		},
 	}
 
@@ -676,14 +727,24 @@ func TestHandler_Table_UpdateMetadataLocation(t *testing.T) {
 			createNamespaceHelper(t, h, bucketARN, []string{"meta-ns"})
 
 			tableName := "meta-table"
-			if tt.name == "update_metadata_location" {
+			versionToken := "missing-table-token"
+			if tt.createTable {
 				_ = createTableHelper(t, h, bucketARN, "meta-ns", tableName)
+				table := getTableHelper(t, h, bucketARN, "meta-ns", tableName)
+				versionToken = table["versionToken"].(string)
 			} else {
 				tableName = "not-exist"
 			}
 
+			if tt.useStaleToken {
+				versionToken = "stale-version-token"
+			}
+
 			path := "/tables/" + encodedARN + "/meta-ns/" + tableName + "/metadata-location"
-			rec := doS3TablesRequest(t, h, http.MethodPut, path, tt.body)
+			rec := doS3TablesRequest(t, h, http.MethodPut, path, map[string]any{
+				"metadataLocation": tt.metadataLocation,
+				"versionToken":     versionToken,
+			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -765,19 +826,60 @@ func TestHandler_MaintenanceConfiguration(t *testing.T) {
 			wantStatus: http.StatusNoContent,
 		},
 		{
+			name:     "reject_bucket_compaction_type",
+			method:   http.MethodPut,
+			pathType: "bucket_put_compaction",
+			body: map[string]any{
+				"value": map[string]any{"status": "enabled"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "reject_missing_bucket_value",
+			method:     http.MethodPut,
+			pathType:   "bucket_put",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
 			name:       "get_table_maintenance",
 			method:     http.MethodGet,
 			pathType:   "table_get",
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:     "put_table_maintenance",
+			name:     "put_table_compaction",
 			method:   http.MethodPut,
-			pathType: "table_put",
+			pathType: "table_put_compaction",
 			body: map[string]any{
 				"value": map[string]any{"status": "enabled"},
 			},
 			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:     "put_table_snapshot_management",
+			method:   http.MethodPut,
+			pathType: "table_put_snapshot",
+			body: map[string]any{
+				"value": map[string]any{"status": "enabled"},
+			},
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:     "reject_unreferenced_file_removal_for_table",
+			method:   http.MethodPut,
+			pathType: "table_put_unreferenced",
+			body: map[string]any{
+				"value": map[string]any{"status": "enabled"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "reject_missing_table_value",
+			method:     http.MethodPut,
+			pathType:   "table_put_compaction",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -798,10 +900,16 @@ func TestHandler_MaintenanceConfiguration(t *testing.T) {
 				path = "/buckets/" + encodedARN + "/maintenance"
 			case "bucket_put":
 				path = "/buckets/" + encodedARN + "/maintenance/icebergUnreferencedFileRemoval"
+			case "bucket_put_compaction":
+				path = "/buckets/" + encodedARN + "/maintenance/icebergCompaction"
 			case "table_get":
 				path = "/tables/" + encodedARN + "/maint-ns/maint-table/maintenance"
-			case "table_put":
+			case "table_put_compaction":
 				path = "/tables/" + encodedARN + "/maint-ns/maint-table/maintenance/icebergCompaction"
+			case "table_put_snapshot":
+				path = "/tables/" + encodedARN + "/maint-ns/maint-table/maintenance/icebergSnapshotManagement"
+			case "table_put_unreferenced":
+				path = "/tables/" + encodedARN + "/maint-ns/maint-table/maintenance/icebergUnreferencedFileRemoval"
 			}
 
 			rec := doS3TablesRequest(t, h, tt.method, path, tt.body)
