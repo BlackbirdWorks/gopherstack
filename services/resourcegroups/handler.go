@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -354,16 +355,16 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 type handleCreateGroupInput struct {
+	Name          string                   `json:"Name"`
+	Description   string                   `json:"Description"`
 	Tags          *tags.Tags               `json:"Tags"`
 	ResourceQuery *ResourceQuery           `json:"ResourceQuery"`
 	Configuration []GroupConfigurationItem `json:"Configuration"`
-	Name          string                   `json:"Name"`
-	Description   string                   `json:"Description"`
 }
 
 type groupConfigurationBody struct {
-	Configuration []GroupConfigurationItem `json:"Configuration,omitempty"`
 	Status        string                   `json:"Status,omitempty"`
+	Configuration []GroupConfigurationItem `json:"Configuration,omitempty"`
 }
 
 type createGroupOutput struct {
@@ -414,13 +415,13 @@ type listGroupsGroupOutput struct {
 	GroupArn    string `json:"GroupArn"`
 	Name        string `json:"Name"`
 	Description string `json:"Description,omitempty"`
-	OwnerId     string `json:"OwnerId,omitempty"`
+	OwnerID     string `json:"OwnerId,omitempty"`
 	DisplayName string `json:"DisplayName,omitempty"`
 	Criticality int    `json:"Criticality,omitempty"`
 }
 
 type listGroupsOutput struct {
-	Groups           []listGroupsGroupOutput    `json:"Groups"`
+	Groups           []listGroupsGroupOutput     `json:"Groups"`
 	GroupIdentifiers []listGroupIdentifierOutput `json:"GroupIdentifiers"`
 }
 
@@ -439,7 +440,7 @@ func (h *Handler) handleListGroups(_ context.Context, in *listGroupsInput) (*lis
 			GroupArn:    group.ARN,
 			Name:        group.Name,
 			Description: group.Description,
-			OwnerId:     group.OwnerId,
+			OwnerID:     group.OwnerID,
 			DisplayName: group.DisplayName,
 			Criticality: group.Criticality,
 		})
@@ -453,7 +454,7 @@ type getGroupBody struct {
 	GroupArn       string            `json:"GroupArn"`
 	Name           string            `json:"Name"`
 	Description    string            `json:"Description,omitempty"`
-	OwnerId        string            `json:"OwnerId,omitempty"`
+	OwnerID        string            `json:"OwnerId,omitempty"`
 	DisplayName    string            `json:"DisplayName,omitempty"`
 	Criticality    int               `json:"Criticality,omitempty"`
 }
@@ -472,7 +473,7 @@ func (h *Handler) handleGetGroup(_ context.Context, in *groupNameInput) (*getGro
 		GroupArn:       g.ARN,
 		Name:           g.Name,
 		Description:    g.Description,
-		OwnerId:        g.OwnerId,
+		OwnerID:        g.OwnerID,
 		DisplayName:    g.DisplayName,
 		Criticality:    g.Criticality,
 		ApplicationTag: g.ApplicationTag,
@@ -575,7 +576,7 @@ func (h *Handler) handleUpdateGroup(_ context.Context, in *updateGroupInput) (*u
 		GroupArn:    g.ARN,
 		Name:        g.Name,
 		Description: g.Description,
-		OwnerId:     g.OwnerId,
+		OwnerID:     g.OwnerID,
 		DisplayName: g.DisplayName,
 		Criticality: g.Criticality,
 	}}, nil
@@ -619,7 +620,83 @@ func (h *Handler) handleUpdateGroupQuery(
 	}}, nil
 }
 
-// handleResourceTags routes GET/PUT/PATCH /resources/{Arn}/tags to the
+// handleTagRequest handles PUT /resources/{Arn}/tags (Tag operation).
+func (h *Handler) handleTagRequest(c *echo.Context, log *slog.Logger, resourceARN string) error {
+	ctx := c.Request().Context()
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		log.ErrorContext(ctx, "failed to read Tag request body", "error", err)
+
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	var in tagResourceInput
+
+	if err = json.Unmarshal(body, &in); err != nil {
+		return h.handleError(ctx, c, "Tag", errInvalidRequest)
+	}
+
+	tagMap, err := h.Backend.AddTagsByARN(resourceARN, in.Tags)
+	if err != nil {
+		return h.handleError(ctx, c, "Tag", err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyArn: resourceARN,
+		"Tags": tagMap,
+	})
+}
+
+// handleUntagRequest handles DELETE /resources/{Arn}/tags (Untag operation).
+// Keys may come from query params or request body.
+func (h *Handler) handleUntagRequest(c *echo.Context, log *slog.Logger, resourceARN string) error {
+	ctx := c.Request().Context()
+
+	keys, err := h.extractUntagKeys(c, log)
+	if err != nil {
+		return err
+	}
+
+	if err = h.Backend.RemoveTagsByARN(resourceARN, keys); err != nil {
+		return h.handleError(ctx, c, "Untag", err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyArn: resourceARN,
+		"Keys": keys,
+	})
+}
+
+// extractUntagKeys parses tag keys from query params or body for the Untag operation.
+func (h *Handler) extractUntagKeys(c *echo.Context, log *slog.Logger) ([]string, error) {
+	ctx := c.Request().Context()
+
+	keysParam := c.Request().URL.Query().Get("keys")
+	if keysParam != "" {
+		return strings.Split(keysParam, ","), nil
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		log.ErrorContext(ctx, "failed to read Untag request body", "error", err)
+
+		return nil, c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	if len(body) == 0 {
+		return nil, nil
+	}
+
+	var in untagResourceInput
+	if err = json.Unmarshal(body, &in); err != nil {
+		return nil, h.handleError(ctx, c, "Untag", errInvalidRequest)
+	}
+
+	return in.Keys, nil
+}
+
+// handleResourceTags routes GET/PUT/DELETE/PATCH /resources/{Arn}/tags to the
 // GetTags, Tag, and Untag operations respectively.
 func (h *Handler) handleResourceTags(c *echo.Context) error {
 	ctx := c.Request().Context()
@@ -639,63 +716,10 @@ func (h *Handler) handleResourceTags(c *echo.Context) error {
 		})
 
 	case http.MethodPut:
-		body, err := httputils.ReadBody(c.Request())
-		if err != nil {
-			log.ErrorContext(ctx, "failed to read Tag request body", "error", err)
-
-			return c.String(http.StatusInternalServerError, "internal server error")
-		}
-
-		var in tagResourceInput
-
-		if err = json.Unmarshal(body, &in); err != nil {
-			return h.handleError(ctx, c, "Tag", errInvalidRequest)
-		}
-
-		tagMap, err := h.Backend.AddTagsByARN(resourceARN, in.Tags)
-		if err != nil {
-			return h.handleError(ctx, c, "Tag", err)
-		}
-
-		return c.JSON(http.StatusOK, map[string]any{
-			keyArn: resourceARN,
-			"Tags": tagMap,
-		})
+		return h.handleTagRequest(c, log, resourceARN)
 
 	case http.MethodDelete:
-		// AWS uses DELETE /resources/{Arn}/tags; keys may come from query params or body.
-		var keys []string
-
-		keysParam := c.Request().URL.Query().Get("keys")
-		if keysParam != "" {
-			keys = strings.Split(keysParam, ",")
-		} else {
-			body, err := httputils.ReadBody(c.Request())
-			if err != nil {
-				log.ErrorContext(ctx, "failed to read Untag request body", "error", err)
-
-				return c.String(http.StatusInternalServerError, "internal server error")
-			}
-
-			if len(body) > 0 {
-				var in untagResourceInput
-
-				if err = json.Unmarshal(body, &in); err != nil {
-					return h.handleError(ctx, c, "Untag", errInvalidRequest)
-				}
-
-				keys = in.Keys
-			}
-		}
-
-		if err := h.Backend.RemoveTagsByARN(resourceARN, keys); err != nil {
-			return h.handleError(ctx, c, "Untag", err)
-		}
-
-		return c.JSON(http.StatusOK, map[string]any{
-			keyArn: resourceARN,
-			"Keys": keys,
-		})
+		return h.handleUntagRequest(c, log, resourceARN)
 
 	case http.MethodPatch:
 		// PATCH kept as compat alias for existing tests; AWS uses DELETE.

@@ -57,18 +57,24 @@ func TestAudit1_ResourceQueryValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		query    map[string]any
+		name     string
 		wantCode int
 	}{
 		{
-			name:     "valid_tag_filters",
-			query:    map[string]any{"Type": "TAG_FILTERS_1_0", "Query": `{"ResourceTypeFilters":[],"TagFilters":[]}`},
+			name: "valid_tag_filters",
+			query: map[string]any{
+				"Type":  "TAG_FILTERS_1_0",
+				"Query": `{"ResourceTypeFilters":[],"TagFilters":[]}`,
+			},
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "valid_cloudformation",
-			query:    map[string]any{"Type": "CLOUDFORMATION_STACK_1_0", "Query": `{"StackIdentifier":"arn:aws:cloudformation:us-east-1:123:stack/s/id"}`},
+			name: "valid_cloudformation",
+			query: map[string]any{
+				"Type":  "CLOUDFORMATION_STACK_1_0",
+				"Query": `{"StackIdentifier":"arn:aws:cloudformation:us-east-1:123:stack/s/id"}`,
+			},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -112,9 +118,9 @@ func TestAudit1_CreateGroupWithConfiguration(t *testing.T) {
 
 	tests := []struct {
 		name        string
+		wantCfgType string
 		config      []map[string]any
 		wantCode    int
-		wantCfgType string
 	}{
 		{
 			name: "valid_generic_type",
@@ -185,7 +191,12 @@ func TestAudit1_CreateGroupWithConfiguration(t *testing.T) {
 
 			if tt.wantCfgType != "" {
 				// Verify configuration was stored atomically: GetGroupConfiguration returns it.
-				rec2 := doResourceGroupsRequest(t, h, "GetGroupConfiguration", map[string]any{"Group": "cfg-" + tt.name})
+				rec2 := doResourceGroupsRequest(
+					t,
+					h,
+					"GetGroupConfiguration",
+					map[string]any{"Group": "cfg-" + tt.name},
+				)
 				require.Equal(t, http.StatusOK, rec2.Code)
 				assert.Contains(t, rec2.Body.String(), tt.wantCfgType)
 			}
@@ -200,9 +211,9 @@ func TestAudit1_ConfigurationTypeValidation(t *testing.T) {
 
 	tests := []struct {
 		name      string
+		wantInMsg string
 		config    []map[string]any
 		wantCode  int
-		wantInMsg string
 	}{
 		{
 			name:     "valid_generic_no_params",
@@ -215,7 +226,10 @@ func TestAudit1_ConfigurationTypeValidation(t *testing.T) {
 				{
 					"Type": "AWS::ResourceGroups::Generic",
 					"Parameters": []map[string]any{
-						{"Name": "allowed-resource-types", "Values": []string{"AWS::EC2::Instance"}},
+						{
+							"Name":   "allowed-resource-types",
+							"Values": []string{"AWS::EC2::Instance"},
+						},
 					},
 				},
 			},
@@ -327,11 +341,11 @@ func TestAudit1_UpdateGroupCriticalityDisplayName(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
 		update      map[string]any
-		wantCode    int
+		name        string
 		wantInBody  string
 		wantNotBody string
+		wantCode    int
 	}{
 		{
 			name:       "update_description_only",
@@ -447,15 +461,20 @@ func TestAudit1_ListGroupsFilters(t *testing.T) {
 	})
 
 	tests := []struct {
-		name          string
-		filters       []map[string]any
-		wantContains  []string
-		wantExcludes  []string
+		name         string
+		filters      []map[string]any
+		wantContains []string
+		wantExcludes []string
 	}{
 		{
-			name:         "no_filter_returns_all",
-			filters:      nil,
-			wantContains: []string{"host-mgmt-group", "capacity-pool-group", "query-group", "generic-group"},
+			name:    "no_filter_returns_all",
+			filters: nil,
+			wantContains: []string{
+				"host-mgmt-group",
+				"capacity-pool-group",
+				"query-group",
+				"generic-group",
+			},
 		},
 		{
 			name: "filter_by_configuration_type_host_management",
@@ -468,7 +487,10 @@ func TestAudit1_ListGroupsFilters(t *testing.T) {
 		{
 			name: "filter_by_configuration_type_capacity_pool",
 			filters: []map[string]any{
-				{"Name": "configuration-type", "Values": []string{"AWS::EC2::CapacityReservationPool"}},
+				{
+					"Name":   "configuration-type",
+					"Values": []string{"AWS::EC2::CapacityReservationPool"},
+				},
 			},
 			wantContains: []string{"capacity-pool-group"},
 			wantExcludes: []string{"host-mgmt-group", "query-group"},
@@ -494,7 +516,12 @@ func TestAudit1_ListGroupsFilters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rec := doResourceGroupsRequest(t, h, "ListGroups", map[string]any{"Filters": tt.filters})
+			rec := doResourceGroupsRequest(
+				t,
+				h,
+				"ListGroups",
+				map[string]any{"Filters": tt.filters},
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			body := rec.Body.String()
@@ -514,8 +541,8 @@ func TestAudit1_ReservedTagNamespace(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		tags     map[string]string
+		name     string
 		wantCode int
 	}{
 		{
@@ -591,12 +618,23 @@ func TestAudit1_CancelTagSyncTaskState(t *testing.T) {
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
 	taskARN := startOut["TaskArn"].(string)
 
-	cancelRec := doResourceGroupsRequest(t, h, "CancelTagSyncTask", map[string]any{"TaskArn": taskARN})
+	cancelRec := doResourceGroupsRequest(
+		t,
+		h,
+		"CancelTagSyncTask",
+		map[string]any{"TaskArn": taskARN},
+	)
 	assert.Equal(t, http.StatusOK, cancelRec.Code)
 
 	// Task must still be visible after cancellation (not deleted).
 	getRec := doResourceGroupsRequest(t, h, "GetTagSyncTask", map[string]any{"TaskArn": taskARN})
-	assert.Equal(t, http.StatusOK, getRec.Code, "cancelled task must still be retrievable: %s", getRec.Body.String())
+	assert.Equal(
+		t,
+		http.StatusOK,
+		getRec.Code,
+		"cancelled task must still be retrievable: %s",
+		getRec.Body.String(),
+	)
 	assert.Contains(t, getRec.Body.String(), "CANCELLED")
 
 	// Must also appear in ListTagSyncTasks.
@@ -673,7 +711,13 @@ func TestAudit1_UngroupResourcesFailures(t *testing.T) {
 			succeeded, _ := out["Succeeded"].([]any)
 			failed, _ := out["Failed"].([]any)
 
-			assert.Len(t, succeeded, len(tt.wantSucceeded), "succeeded count mismatch: %s", rec.Body.String())
+			assert.Len(
+				t,
+				succeeded,
+				len(tt.wantSucceeded),
+				"succeeded count mismatch: %s",
+				rec.Body.String(),
+			)
 			assert.Len(t, failed, tt.wantFailCount, "failed count mismatch: %s", rec.Body.String())
 
 			for _, s := range tt.wantSucceeded {
@@ -761,8 +805,8 @@ func TestAudit1_UpdateGroupQueryValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		query    map[string]any
+		name     string
 		wantCode int
 	}{
 		{
@@ -842,7 +886,10 @@ func TestAudit1_GroupingStatusOnUngroup(t *testing.T) {
 	_, _ = b.CreateGroup("status-group", "", nil, nil, nil)
 	_, _ = b.GroupResources("status-group", []string{"arn:aws:s3:::b1"})
 
-	result, err := b.UngroupResources("status-group", []string{"arn:aws:s3:::b1", "arn:aws:s3:::nonmember"})
+	result, err := b.UngroupResources(
+		"status-group",
+		[]string{"arn:aws:s3:::b1", "arn:aws:s3:::nonmember"},
+	)
 	require.NoError(t, err)
 
 	assert.Len(t, result.Succeeded, 1)
@@ -856,9 +903,10 @@ func TestAudit1_GroupingStatusOnUngroup(t *testing.T) {
 	var successCount, failCount int
 	for _, s := range statuses {
 		if s.Action == "UNGROUP" {
-			if s.Status == "SUCCESS" {
+			switch s.Status {
+			case "SUCCESS":
 				successCount++
-			} else if s.Status == "FAILED" {
+			case "FAILED":
 				failCount++
 			}
 		}

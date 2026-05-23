@@ -117,7 +117,8 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			name:      "success",
 			groupName: "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
-				_, _ = b.CreateGroup("my-group", "desc", nil, tags.FromMap("test.rg", map[string]string{"env": "test"}), nil)
+				tgs := tags.FromMap("test.rg", map[string]string{"env": "test"})
+				_, _ = b.CreateGroup("my-group", "desc", nil, tgs, nil)
 			},
 			wantTag: "test",
 		},
@@ -187,7 +188,13 @@ func TestResourceGroupsGetTagsByARN(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *resourcegroups.InMemoryBackend) string {
-				g, _ := b.CreateGroup("my-group", "", nil, tags.FromMap("test.rg", map[string]string{"env": "prod"}), nil)
+				g, _ := b.CreateGroup(
+					"my-group",
+					"",
+					nil,
+					tags.FromMap("test.rg", map[string]string{"env": "prod"}),
+					nil,
+				)
 
 				return g.ARN
 			},
@@ -247,7 +254,13 @@ func TestResourceGroupsAddTagsByARN(t *testing.T) {
 			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 			var groupARN string
 			if tt.wantErr == nil {
-				g, _ := b.CreateGroup("my-group", "", nil, tags.FromMap("test.rg", map[string]string{"env": "prod"}), nil)
+				g, _ := b.CreateGroup(
+					"my-group",
+					"",
+					nil,
+					tags.FromMap("test.rg", map[string]string{"env": "prod"}),
+					nil,
+				)
 				groupARN = g.ARN
 			} else {
 				groupARN = "arn:aws:resource-groups:us-east-1:000000000000:group/nonexistent"
@@ -290,7 +303,13 @@ func TestResourceGroupsRemoveTagsByARN(t *testing.T) {
 			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 			var groupARN string
 			if tt.wantErr == nil {
-				g, _ := b.CreateGroup("my-group", "", nil, tags.FromMap("test.rg", map[string]string{"env": "prod"}), nil)
+				g, _ := b.CreateGroup(
+					"my-group",
+					"",
+					nil,
+					tags.FromMap("test.rg", map[string]string{"env": "prod"}),
+					nil,
+				)
 				groupARN = g.ARN
 			} else {
 				groupARN = "arn:aws:resource-groups:us-east-1:000000000000:group/nonexistent"
