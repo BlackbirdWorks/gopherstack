@@ -2,6 +2,11 @@ package ram
 
 import "time"
 
+// BuiltInPermissionCount is the number of AWS-managed permissions seeded at construction.
+//
+//nolint:gochecknoglobals // test-only helper that exposes the internal count
+var BuiltInPermissionCount = len(awsBuiltInPermissions)
+
 // ResourceShareCount returns the number of resource shares in the backend (including deleted).
 func ResourceShareCount(b *InMemoryBackend) int {
 	b.mu.RLock("ResourceShareCount")
