@@ -1411,72 +1411,88 @@ func (h *Handler) handleCreateTemplate(c *echo.Context, templateName, templateTy
 func (h *Handler) createTemplateByType(body []byte, region, templateName, templateType string) (string, error) {
 	switch templateType {
 	case templateTypeEmail:
-		var req createEmailTemplateRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return "", errInvalidRequestBody
-		}
-
-		t, err := h.Backend.CreateEmailTemplate(region, h.AccountID, templateName, req)
-		if err != nil {
-			return "", err
-		}
-
-		return t.ARN, nil
-
+		return h.createEmailTemplateARN(body, region, templateName)
 	case templateTypeInApp:
-		var req createInAppTemplateRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return "", errInvalidRequestBody
-		}
-
-		t, err := h.Backend.CreateInAppTemplate(region, h.AccountID, templateName, req)
-		if err != nil {
-			return "", err
-		}
-
-		return t.ARN, nil
-
+		return h.createInAppTemplateARN(body, region, templateName)
 	case templateTypePush:
-		var req createPushTemplateRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return "", errInvalidRequestBody
-		}
-
-		t, err := h.Backend.CreatePushTemplate(region, h.AccountID, templateName, req)
-		if err != nil {
-			return "", err
-		}
-
-		return t.ARN, nil
-
+		return h.createPushTemplateARN(body, region, templateName)
 	case templateTypeSMS:
-		var req createSmsTemplateRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return "", errInvalidRequestBody
-		}
-
-		t, err := h.Backend.CreateSmsTemplate(region, h.AccountID, templateName, req)
-		if err != nil {
-			return "", err
-		}
-
-		return t.ARN, nil
-
+		return h.createSMSTemplateARN(body, region, templateName)
 	case templateTypeVoice:
-		var req createVoiceTemplateRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return "", errInvalidRequestBody
-		}
-
-		t, err := h.Backend.CreateVoiceTemplate(region, h.AccountID, templateName, req)
-		if err != nil {
-			return "", err
-		}
-
-		return t.ARN, nil
+		return h.createVoiceTemplateARN(body, region, templateName)
 	}
 
 	return "", fmt.Errorf("%w: %s", errUnsupportedTemplateType, templateType)
+}
+
+func (h *Handler) createEmailTemplateARN(body []byte, region, templateName string) (string, error) {
+	var req createEmailTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", errInvalidRequestBody
+	}
+
+	t, err := h.Backend.CreateEmailTemplate(region, h.AccountID, templateName, req)
+	if err != nil {
+		return "", err
+	}
+
+	return t.ARN, nil
+}
+
+func (h *Handler) createInAppTemplateARN(body []byte, region, templateName string) (string, error) {
+	var req createInAppTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", errInvalidRequestBody
+	}
+
+	t, err := h.Backend.CreateInAppTemplate(region, h.AccountID, templateName, req)
+	if err != nil {
+		return "", err
+	}
+
+	return t.ARN, nil
+}
+
+func (h *Handler) createPushTemplateARN(body []byte, region, templateName string) (string, error) {
+	var req createPushTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", errInvalidRequestBody
+	}
+
+	t, err := h.Backend.CreatePushTemplate(region, h.AccountID, templateName, req)
+	if err != nil {
+		return "", err
+	}
+
+	return t.ARN, nil
+}
+
+func (h *Handler) createSMSTemplateARN(body []byte, region, templateName string) (string, error) {
+	var req createSmsTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", errInvalidRequestBody
+	}
+
+	t, err := h.Backend.CreateSmsTemplate(region, h.AccountID, templateName, req)
+	if err != nil {
+		return "", err
+	}
+
+	return t.ARN, nil
+}
+
+func (h *Handler) createVoiceTemplateARN(body []byte, region, templateName string) (string, error) {
+	var req createVoiceTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", errInvalidRequestBody
+	}
+
+	t, err := h.Backend.CreateVoiceTemplate(region, h.AccountID, templateName, req)
+	if err != nil {
+		return "", err
+	}
+
+	return t.ARN, nil
 }
 func (h *Handler) handleCreateCampaign(c *echo.Context, appID string) error {
 	body, err := httputils.ReadBody(c.Request())

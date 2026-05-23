@@ -467,9 +467,9 @@ func TestAudit2_SegmentJobsDeeper(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantPath func(appID, segID string) string
 		name     string
 		jobType  string
-		wantPath func(appID, segID string) string
 	}{
 		{
 			name:    "segment_export_jobs",
@@ -733,6 +733,7 @@ func TestAudit2_Campaign_StateMachine(t *testing.T) {
 				state, _ := createResp["State"].(map[string]any)
 				require.NotNil(t, state)
 				assert.Equal(t, tc.wantState, state["CampaignStatus"])
+
 				return
 			}
 
@@ -805,9 +806,9 @@ func TestAudit2_Journey_StateMachine(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		transitions []string
 		name        string
 		wantFinal   string
+		transitions []string
 		wantErr     bool
 	}{
 		{
@@ -1737,8 +1738,8 @@ func TestAudit2_Backend_Recommender_DirectAPI(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		req    pinpoint.ExportedCreateRecommenderConfigRequest
 		name   string
+		req    pinpoint.ExportedCreateRecommenderConfigRequest
 		wantID bool
 	}{
 		{
@@ -1856,8 +1857,8 @@ func TestAudit2_Campaign_GetActivities(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		campaignBody map[string]any
+		name         string
 	}{
 		{
 			name:         "activities_for_basic_campaign",
@@ -1927,6 +1928,7 @@ func TestAudit2_ListTemplates_VoiceListed(t *testing.T) {
 		m := item.(map[string]any)
 		if m["TemplateType"] == "VOICE" {
 			found = true
+
 			break
 		}
 	}
@@ -1955,6 +1957,7 @@ func TestAudit2_ListTemplates_EmailListed(t *testing.T) {
 		m := item.(map[string]any)
 		if m["TemplateType"] == "EMAIL" {
 			found = true
+
 			break
 		}
 	}
@@ -1983,6 +1986,7 @@ func TestAudit2_ListTemplates_SMSListed(t *testing.T) {
 		m := item.(map[string]any)
 		if m["TemplateType"] == "SMS" {
 			found = true
+
 			break
 		}
 	}
