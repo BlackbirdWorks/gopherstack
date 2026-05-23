@@ -150,19 +150,23 @@ var (
 // lowercase letters, numbers, and hyphens, and starts with a letter.
 func validateResourceName(name string, resourceType string) error {
 	if len(name) == 0 {
+
 		return fmt.Errorf("%s name cannot be empty: %w", resourceType, ErrValidation)
 	}
 
 	if len(name) > maxResourceNameLen {
+
 		return fmt.Errorf("%s name %q exceeds %d characters: %w", resourceType, name, maxResourceNameLen, ErrValidation)
 	}
 
 	if name[0] < 'a' || name[0] > 'z' {
+
 		return fmt.Errorf("%s name %q must start with a lowercase letter: %w", resourceType, name, ErrValidation)
 	}
 
 	for _, ch := range name {
 		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
+
 			return fmt.Errorf(
 				"%s name %q contains invalid character %q (only lowercase alphanumeric and hyphens allowed): %w",
 				resourceType, name, ch, ErrValidation,
@@ -299,6 +303,7 @@ type resourceRef struct {
 // NewInMemoryBackend creates a new MemoryDB in-memory backend.
 // It pre-seeds the "open-access" ACL which is required by most clusters.
 func NewInMemoryBackend() *InMemoryBackend {
+
 	return newInMemoryBackendWithDefaults("us-east-1", "000000000000")
 }
 
@@ -421,8 +426,10 @@ type clusterDefaults struct {
 func isSupportedEngineVersion(v string) bool {
 	switch v {
 	case "6.2", "7.0", "7.1", "7.2", "8.0":
+
 		return true
 	default:
+
 		return false
 	}
 }
@@ -436,17 +443,20 @@ func (b *InMemoryBackend) validateCreateClusterRefs(req *createClusterRequest) (
 	}
 
 	if _, ok := b.acls[aclName]; !ok {
+
 		return "", fmt.Errorf("ACL %q not found: %w", aclName, ErrACLNotFound)
 	}
 
 	if req.SubnetGroupName != "" {
 		if _, ok := b.subnetGroups[req.SubnetGroupName]; !ok {
+
 			return "", fmt.Errorf("subnet group %q not found: %w", req.SubnetGroupName, ErrSubnetGroupNotFound)
 		}
 	}
 
 	if req.ParameterGroupName != "" {
 		if _, ok := b.parameterGroups[req.ParameterGroupName]; !ok {
+
 			return "", fmt.Errorf("parameter group %q not found: %w", req.ParameterGroupName, ErrParameterGroupNotFound)
 		}
 	}
@@ -471,6 +481,7 @@ func resolveClusterDefaults(req *createClusterRequest) (clusterDefaults, error) 
 	}
 
 	if d.engine != engineRedis && d.engine != engineValkey {
+
 		return d, fmt.Errorf("engine %q is not supported (must be redis or valkey): %w", d.engine, ErrValidation)
 	}
 
@@ -483,6 +494,7 @@ func resolveClusterDefaults(req *createClusterRequest) (clusterDefaults, error) 
 	}
 
 	if !isSupportedEngineVersion(d.engineVersion) {
+
 		return d, fmt.Errorf("engine version %q is not supported: %w", d.engineVersion, ErrValidation)
 	}
 
@@ -491,6 +503,7 @@ func resolveClusterDefaults(req *createClusterRequest) (clusterDefaults, error) 
 	}
 
 	if !strings.HasPrefix(d.nodeType, "db.") {
+
 		return d, fmt.Errorf("node type %q is invalid: must begin with 'db.': %w", d.nodeType, ErrValidation)
 	}
 
@@ -577,15 +590,18 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 	defer b.mu.Unlock()
 
 	if err := validateResourceName(req.ClusterName, "cluster"); err != nil {
+
 		return nil, err
 	}
 
 	if _, exists := b.clusters[req.ClusterName]; exists {
+
 		return nil, ErrClusterAlreadyExists
 	}
 
 	aclName, err := b.validateCreateClusterRefs(req)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -594,6 +610,7 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 	if req.SnapshotName != "" {
 		s, ok := b.snapshots[req.SnapshotName]
 		if !ok {
+
 			return nil, fmt.Errorf("snapshot %q not found: %w", req.SnapshotName, ErrSnapshotNotFound)
 		}
 		restoreSnap = s
@@ -601,6 +618,7 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 
 	d, err := resolveClusterDefaults(req)
 	if err != nil {
+
 		return nil, err
 	}
 
@@ -683,6 +701,7 @@ func (b *InMemoryBackend) DescribeClusters(name string) ([]*Cluster, error) {
 	if name != "" {
 		c, ok := b.clusters[name]
 		if !ok {
+
 			return nil, ErrClusterNotFound
 		}
 
@@ -696,6 +715,7 @@ func (b *InMemoryBackend) DescribeClusters(name string) ([]*Cluster, error) {
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+
 		return result[i].Name < result[j].Name
 	})
 
@@ -709,6 +729,7 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 
 	c, ok := b.clusters[name]
 	if !ok {
+
 		return nil, ErrClusterNotFound
 	}
 
@@ -734,6 +755,7 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 
 	c, ok := b.clusters[clusterName]
 	if !ok {
+
 		return nil, ErrClusterNotFound
 	}
 
@@ -812,6 +834,7 @@ func (b *InMemoryBackend) UpdateCluster(req *updateClusterRequest) (*Cluster, er
 
 	c, ok := b.clusters[req.ClusterName]
 	if !ok {
+
 		return nil, ErrClusterNotFound
 	}
 
@@ -851,10 +874,12 @@ func (b *InMemoryBackend) CreateACL(region, accountID string, req *createACLRequ
 	defer b.mu.Unlock()
 
 	if err := validateResourceName(req.ACLName, "ACL"); err != nil {
+
 		return nil, err
 	}
 
 	if _, exists := b.acls[req.ACLName]; exists {
+
 		return nil, ErrACLAlreadyExists
 	}
 
@@ -895,6 +920,7 @@ func (b *InMemoryBackend) DescribeACLs(name string) ([]*ACL, error) {
 	if name != "" {
 		a, ok := b.acls[name]
 		if !ok {
+
 			return nil, ErrACLNotFound
 		}
 
@@ -908,6 +934,7 @@ func (b *InMemoryBackend) DescribeACLs(name string) ([]*ACL, error) {
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+
 		return result[i].Name < result[j].Name
 	})
 
@@ -921,15 +948,18 @@ func (b *InMemoryBackend) DeleteACL(name string) (*ACL, error) {
 
 	a, ok := b.acls[name]
 	if !ok {
+
 		return nil, ErrACLNotFound
 	}
 
 	if name == openAccessACL {
+
 		return nil, fmt.Errorf("cannot delete system ACL %q: %w", name, ErrValidation)
 	}
 
 	for _, c := range b.clusters {
 		if c.ACLName == name {
+
 			return nil, fmt.Errorf("ACL %q is associated with cluster %q: %w", name, c.Name, ErrACLInUse)
 		}
 	}
@@ -954,6 +984,7 @@ func (b *InMemoryBackend) UpdateACL(req *updateACLRequest) (*ACL, error) {
 
 	a, ok := b.acls[req.ACLName]
 	if !ok {
+
 		return nil, ErrACLNotFound
 	}
 
@@ -966,6 +997,7 @@ func (b *InMemoryBackend) UpdateACL(req *updateACLRequest) (*ACL, error) {
 
 	for _, u := range req.UserNamesToAdd {
 		if _, exists := b.users[u]; !exists {
+
 			return nil, fmt.Errorf("user %q not found: %w", u, ErrUserNotFound)
 		}
 	}
@@ -1017,10 +1049,12 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 	defer b.mu.Unlock()
 
 	if err := validateResourceName(req.SubnetGroupName, "subnet group"); err != nil {
+
 		return nil, err
 	}
 
 	if _, exists := b.subnetGroups[req.SubnetGroupName]; exists {
+
 		return nil, ErrSubnetGroupAlreadyExists
 	}
 
@@ -1049,6 +1083,7 @@ func (b *InMemoryBackend) DescribeSubnetGroups(name string) ([]*SubnetGroup, err
 	if name != "" {
 		sg, ok := b.subnetGroups[name]
 		if !ok {
+
 			return nil, ErrSubnetGroupNotFound
 		}
 
@@ -1062,6 +1097,7 @@ func (b *InMemoryBackend) DescribeSubnetGroups(name string) ([]*SubnetGroup, err
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+
 		return result[i].Name < result[j].Name
 	})
 
@@ -1075,6 +1111,7 @@ func (b *InMemoryBackend) DeleteSubnetGroup(name string) (*SubnetGroup, error) {
 
 	sg, ok := b.subnetGroups[name]
 	if !ok {
+
 		return nil, ErrSubnetGroupNotFound
 	}
 
@@ -1091,6 +1128,7 @@ func (b *InMemoryBackend) UpdateSubnetGroup(req *updateSubnetGroupRequest) (*Sub
 
 	sg, ok := b.subnetGroups[req.SubnetGroupName]
 	if !ok {
+
 		return nil, ErrSubnetGroupNotFound
 	}
 
@@ -1113,10 +1151,12 @@ func (b *InMemoryBackend) CreateUser(region, accountID string, req *createUserRe
 	defer b.mu.Unlock()
 
 	if err := validateResourceName(req.UserName, "user"); err != nil {
+
 		return nil, err
 	}
 
 	if _, exists := b.users[req.UserName]; exists {
+
 		return nil, ErrUserAlreadyExists
 	}
 
@@ -1129,12 +1169,14 @@ func (b *InMemoryBackend) CreateUser(region, accountID string, req *createUserRe
 		authType = authTypeNoPasswordRequired
 	}
 	if authType != authTypePassword && authType != authTypeIAM && authType != authTypeNoPasswordRequired {
+
 		return nil, fmt.Errorf(
 			"AuthenticationMode.Type must be password, iam, or no-password-required: %w",
 			ErrValidation,
 		)
 	}
 	if authType == authTypeIAM && len(req.AuthenticationMode.Passwords) > 0 {
+
 		return nil, fmt.Errorf("passwords cannot be set when AuthenticationMode.Type is iam: %w", ErrValidation)
 	}
 
@@ -1172,6 +1214,7 @@ func (b *InMemoryBackend) DescribeUsers(name string) ([]*User, error) {
 	if name != "" {
 		u, ok := b.users[name]
 		if !ok {
+
 			return nil, ErrUserNotFound
 		}
 
@@ -1185,6 +1228,7 @@ func (b *InMemoryBackend) DescribeUsers(name string) ([]*User, error) {
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+
 		return result[i].Name < result[j].Name
 	})
 
@@ -1198,11 +1242,13 @@ func (b *InMemoryBackend) DeleteUser(name string) (*User, error) {
 
 	u, ok := b.users[name]
 	if !ok {
+
 		return nil, ErrUserNotFound
 	}
 
 	for _, a := range b.acls {
 		if slices.Contains(a.UserNames, name) {
+
 			return nil, fmt.Errorf("user %q is a member of ACL %q: %w", name, a.Name, ErrUserInUse)
 		}
 	}
@@ -1220,6 +1266,7 @@ func (b *InMemoryBackend) UpdateUser(req *updateUserRequest) (*User, error) {
 
 	u, ok := b.users[req.UserName]
 	if !ok {
+
 		return nil, ErrUserNotFound
 	}
 
@@ -1251,14 +1298,17 @@ func (b *InMemoryBackend) CreateParameterGroup(
 	defer b.mu.Unlock()
 
 	if req.Family == "" {
+
 		return nil, fmt.Errorf("family is required: %w", ErrValidation)
 	}
 
 	if err := validateResourceName(req.ParameterGroupName, "parameter group"); err != nil {
+
 		return nil, err
 	}
 
 	if _, exists := b.parameterGroups[req.ParameterGroupName]; exists {
+
 		return nil, ErrParameterGroupAlreadyExists
 	}
 
@@ -1288,6 +1338,7 @@ func (b *InMemoryBackend) DescribeParameterGroups(name string) ([]*ParameterGrou
 	if name != "" {
 		pg, ok := b.parameterGroups[name]
 		if !ok {
+
 			return nil, ErrParameterGroupNotFound
 		}
 
@@ -1301,6 +1352,7 @@ func (b *InMemoryBackend) DescribeParameterGroups(name string) ([]*ParameterGrou
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+
 		return result[i].Name < result[j].Name
 	})
 
@@ -1314,6 +1366,7 @@ func (b *InMemoryBackend) DeleteParameterGroup(name string) (*ParameterGroup, er
 
 	pg, ok := b.parameterGroups[name]
 	if !ok {
+
 		return nil, ErrParameterGroupNotFound
 	}
 
@@ -1330,6 +1383,7 @@ func (b *InMemoryBackend) UpdateParameterGroup(req *updateParameterGroupRequest)
 
 	pg, ok := b.parameterGroups[req.ParameterGroupName]
 	if !ok {
+
 		return nil, ErrParameterGroupNotFound
 	}
 
@@ -1349,6 +1403,7 @@ func (b *InMemoryBackend) ListTags(resourceArn string) (map[string]string, error
 
 	ref, ok := b.arnToResource[resourceArn]
 	if !ok {
+
 		return nil, awserr.New("ResourceNotFoundFault: resource not found", awserr.ErrNotFound)
 	}
 
@@ -1364,6 +1419,7 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 
 	ref, ok := b.arnToResource[resourceArn]
 	if !ok {
+
 		return awserr.New("ResourceNotFoundFault: resource not found", awserr.ErrNotFound)
 	}
 
@@ -1379,6 +1435,7 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 	}
 
 	if newTotal > maxTagsPerResource {
+
 		return fmt.Errorf(
 			"tag limit exceeded: a resource may have at most %d tags: %w",
 			maxTagsPerResource,
@@ -1398,6 +1455,7 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 
 	ref, ok := b.arnToResource[resourceArn]
 	if !ok {
+
 		return awserr.New("ResourceNotFoundFault: resource not found", awserr.ErrNotFound)
 	}
 
@@ -1483,6 +1541,7 @@ func (b *InMemoryBackend) applyTags(ref resourceRef, tags map[string]string) {
 func (b *InMemoryBackend) removeTags(ref resourceRef, tagKeys []string) {
 	m := b.tagsMapForRef(ref)
 	if m == nil {
+
 		return
 	}
 
@@ -1496,26 +1555,32 @@ func (b *InMemoryBackend) tagsMapForRef(ref resourceRef) map[string]string {
 	switch ref.Kind {
 	case resourceKindCluster:
 		if c, ok := b.clusters[ref.Name]; ok {
+
 			return c.Tags
 		}
 	case resourceKindACL:
 		if a, ok := b.acls[ref.Name]; ok {
+
 			return a.Tags
 		}
 	case resourceKindSubnetGroup:
 		if sg, ok := b.subnetGroups[ref.Name]; ok {
+
 			return sg.Tags
 		}
 	case resourceKindUser:
 		if u, ok := b.users[ref.Name]; ok {
+
 			return u.Tags
 		}
 	case resourceKindParameterGroup:
 		if pg, ok := b.parameterGroups[ref.Name]; ok {
+
 			return pg.Tags
 		}
 	case resourceKindSnapshot:
 		if s, ok := b.snapshots[ref.Name]; ok {
+
 			return s.Tags
 		}
 	}
@@ -1533,10 +1598,12 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 	// Validate the source cluster exists.
 	c, ok := b.clusters[req.ClusterName]
 	if !ok {
+
 		return nil, ErrClusterNotFound
 	}
 
 	if _, exists := b.snapshots[req.SnapshotName]; exists {
+
 		return nil, ErrSnapshotAlreadyExists
 	}
 
@@ -1583,6 +1650,7 @@ func (b *InMemoryBackend) DescribeSnapshots(name, clusterName, snapshotType, sou
 	if name != "" {
 		s, ok := b.snapshots[name]
 		if !ok {
+
 			return nil, ErrSnapshotNotFound
 		}
 
@@ -1608,6 +1676,7 @@ func (b *InMemoryBackend) DescribeSnapshots(name, clusterName, snapshotType, sou
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+
 		return result[i].Name < result[j].Name
 	})
 
@@ -1621,15 +1690,18 @@ func (b *InMemoryBackend) CopySnapshot(region, accountID string, req *copySnapsh
 
 	src, ok := b.snapshots[req.SourceSnapshotName]
 	if !ok {
+
 		return nil, ErrSnapshotNotFound
 	}
 
 	// When TargetBucket is set, we're exporting to S3 — just return the source snapshot.
 	if req.TargetBucket != "" {
+
 		return cloneSnapshot(src), nil
 	}
 
 	if _, exists := b.snapshots[req.TargetSnapshotName]; exists {
+
 		return nil, ErrSnapshotAlreadyExists
 	}
 
@@ -1673,6 +1745,7 @@ func (b *InMemoryBackend) DeleteSnapshot(name string) (*Snapshot, error) {
 
 	s, ok := b.snapshots[name]
 	if !ok {
+
 		return nil, ErrSnapshotNotFound
 	}
 
@@ -1693,6 +1766,7 @@ func (b *InMemoryBackend) DeleteSnapshot(name string) (*Snapshot, error) {
 
 // defaultEngineVersions returns the built-in list of supported engine versions.
 func defaultEngineVersions() []*EngineVersion {
+
 	return []*EngineVersion{
 		{
 			Engine:               "valkey",
@@ -1823,6 +1897,7 @@ func (b *InMemoryBackend) DescribeEvents(req *describeEventsRequest) ([]*Event, 
 // cloneEvent returns a shallow copy of an Event.
 func cloneEvent(e *Event) *Event {
 	cp := *e
+
 	return &cp
 }
 
@@ -1840,6 +1915,7 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 	fullName := "virv-" + req.MultiRegionClusterNameSuffix
 
 	if _, exists := b.multiRegionClusters[fullName]; exists {
+
 		return nil, ErrMultiRegionClusterAlreadyExists
 	}
 
@@ -1881,6 +1957,7 @@ func (b *InMemoryBackend) DeleteMultiRegionCluster(name string) (*MultiRegionClu
 
 	mrc, ok := b.multiRegionClusters[name]
 	if !ok {
+
 		return nil, ErrMultiRegionClusterNotFound
 	}
 
@@ -1898,6 +1975,7 @@ func (b *InMemoryBackend) DescribeMultiRegionClusters(name string) ([]*MultiRegi
 	if name != "" {
 		mrc, ok := b.multiRegionClusters[name]
 		if !ok {
+
 			return nil, ErrMultiRegionClusterNotFound
 		}
 
@@ -1911,6 +1989,7 @@ func (b *InMemoryBackend) DescribeMultiRegionClusters(name string) ([]*MultiRegi
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+
 		return result[i].MultiRegionClusterName < result[j].MultiRegionClusterName
 	})
 
@@ -1924,6 +2003,7 @@ func (b *InMemoryBackend) UpdateMultiRegionCluster(req *updateMultiRegionCluster
 
 	mrc, ok := b.multiRegionClusters[req.MultiRegionClusterName]
 	if !ok {
+
 		return nil, ErrMultiRegionClusterNotFound
 	}
 
@@ -1956,6 +2036,7 @@ func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(name string) ([]*Mu
 	if name != "" {
 		mrpg, ok := b.multiRegionParameterGroups[name]
 		if !ok {
+
 			return nil, ErrMultiRegionParameterGroupNotFound
 		}
 
@@ -1969,6 +2050,7 @@ func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(name string) ([]*Mu
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+
 		return result[i].Name < result[j].Name
 	})
 
@@ -1983,11 +2065,13 @@ func (b *InMemoryBackend) DescribeParameters(parameterGroupName string) (map[str
 	defer b.mu.RUnlock()
 
 	if parameterGroupName == "" {
+
 		return nil, fmt.Errorf("parameter group name is required: %w", ErrValidation)
 	}
 
 	pg, ok := b.parameterGroups[parameterGroupName]
 	if !ok {
+
 		return nil, ErrParameterGroupNotFound
 	}
 
@@ -2001,6 +2085,7 @@ func (b *InMemoryBackend) ResetParameterGroup(name string) (*ParameterGroup, err
 
 	pg, ok := b.parameterGroups[name]
 	if !ok {
+
 		return nil, ErrParameterGroupNotFound
 	}
 
@@ -2018,6 +2103,7 @@ func (b *InMemoryBackend) FailoverShard(clusterName, shardName string) (*Cluster
 
 	c, ok := b.clusters[clusterName]
 	if !ok {
+
 		return nil, ErrClusterNotFound
 	}
 
@@ -2040,6 +2126,7 @@ func (b *InMemoryBackend) FailoverShard(clusterName, shardName string) (*Cluster
 
 // allowedNodeTypes returns the set of node types available for upgrade/downgrade.
 func allowedNodeTypes() []string {
+
 	return []string{
 		defaultNodeType,
 		"db.r6g.xlarge",
@@ -2057,6 +2144,7 @@ func (b *InMemoryBackend) ListAllowedNodeTypeUpdates(clusterName string) ([]stri
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters[clusterName]; !ok {
+
 		return nil, ErrClusterNotFound
 	}
 
@@ -2069,6 +2157,7 @@ func (b *InMemoryBackend) ListAllowedMultiRegionClusterUpdates(clusterName strin
 	defer b.mu.RUnlock()
 
 	if _, ok := b.multiRegionClusters[clusterName]; !ok {
+
 		return nil, ErrMultiRegionClusterNotFound
 	}
 
@@ -2097,6 +2186,7 @@ func (b *InMemoryBackend) BatchUpdateCluster(clusterNames []string) map[string]*
 
 // defaultReservedNodesOfferings returns the built-in reserved node offerings.
 func defaultReservedNodesOfferings() []*ReservedNodesOffering {
+
 	return []*ReservedNodesOffering{
 		{
 			ReservedNodesOfferingID: "aaa00000-1111-2222-3333-444444444444",
@@ -2158,6 +2248,7 @@ func (b *InMemoryBackend) DescribeReservedNodes(req *describeReservedNodesReques
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+
 		return result[i].ReservedNodeID < result[j].ReservedNodeID
 	})
 
@@ -2205,10 +2296,13 @@ func (b *InMemoryBackend) DescribeReservedNodesOfferings(
 func parseDurationToSeconds(d string) int32 {
 	switch d {
 	case "1", "31536000":
+
 		return reservedDuration1Year
 	case "3", "94608000":
+
 		return reservedDuration3Years
 	default:
+
 		return 0
 	}
 }
@@ -2222,6 +2316,7 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(
 	defer b.mu.Unlock()
 
 	if req.ReservedNodesOfferingID == "" {
+
 		return nil, fmt.Errorf("ReservedNodesOfferingId is required: %w", ErrValidation)
 	}
 
@@ -2237,6 +2332,7 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(
 	}
 
 	if offering == nil {
+
 		return nil, fmt.Errorf("reserved nodes offering not found: %w", ErrValidation)
 	}
 
@@ -2246,6 +2342,7 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(
 	}
 
 	if _, exists := b.reservedNodes[reservationID]; exists {
+
 		return nil, fmt.Errorf("reserved node %q already exists: %w", reservationID, ErrReservationAlreadyExists)
 	}
 
@@ -2286,11 +2383,13 @@ func (b *InMemoryBackend) DescribeMultiRegionParameters(parameterGroupName strin
 	defer b.mu.RUnlock()
 
 	if parameterGroupName == "" {
+
 		return nil, fmt.Errorf("parameter group name is required: %w", ErrValidation)
 	}
 
 	mrpg, ok := b.multiRegionParameterGroups[parameterGroupName]
 	if !ok {
+
 		return nil, ErrMultiRegionParameterGroupNotFound
 	}
 
@@ -2316,6 +2415,7 @@ func (b *InMemoryBackend) DescribeServiceUpdates(req *describeServiceUpdatesRequ
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+
 		return result[i].ServiceUpdateName < result[j].ServiceUpdateName
 	})
 
@@ -2342,6 +2442,7 @@ func tagsToSlice(tags map[string]string) []tagEntry {
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+
 		return result[i].Key < result[j].Key
 	})
 
@@ -2360,6 +2461,7 @@ func (b *InMemoryBackend) ListClusters() []*Cluster {
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+
 		return result[i].Name < result[j].Name
 	})
 
@@ -2369,6 +2471,7 @@ func (b *InMemoryBackend) ListClusters() []*Cluster {
 // Purge removes all MemoryDB resources created before the cutoff time.
 func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	if ctx.Err() != nil {
+
 		return
 	}
 
@@ -2413,6 +2516,7 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 
 	// Truncate events older than cutoff.
 	if ctx.Err() != nil {
+
 		return
 	}
 
@@ -2440,6 +2544,7 @@ func purgeMemoryDBMap[V any](
 ) {
 	for k, v := range m {
 		if ctx.Err() != nil {
+
 			return
 		}
 		if getTime(v).Before(cutoff) {
@@ -2460,6 +2565,7 @@ func purgeMemoryDBMapFiltered[V any](
 ) {
 	for k, v := range m {
 		if ctx.Err() != nil {
+
 			return
 		}
 		if skip(k, v) {
@@ -2477,6 +2583,7 @@ func purgeMemoryDBMapFiltered[V any](
 // cloneCluster returns a shallow copy of the cluster with a separate tags map.
 func cloneCluster(c *Cluster) *Cluster {
 	if c == nil {
+
 		return nil
 	}
 
@@ -2490,6 +2597,7 @@ func cloneCluster(c *Cluster) *Cluster {
 // cloneACL returns a shallow copy of the ACL with separate tag and user slices.
 func cloneACL(a *ACL) *ACL {
 	if a == nil {
+
 		return nil
 	}
 
@@ -2503,6 +2611,7 @@ func cloneACL(a *ACL) *ACL {
 // cloneSubnetGroup returns a shallow copy of the subnet group with separate slices.
 func cloneSubnetGroup(sg *SubnetGroup) *SubnetGroup {
 	if sg == nil {
+
 		return nil
 	}
 
@@ -2516,6 +2625,7 @@ func cloneSubnetGroup(sg *SubnetGroup) *SubnetGroup {
 // cloneUser returns a shallow copy of the user with separate tag and password slices.
 func cloneUser(u *User) *User {
 	if u == nil {
+
 		return nil
 	}
 
@@ -2529,6 +2639,7 @@ func cloneUser(u *User) *User {
 // cloneParameterGroup returns a shallow copy of the parameter group with separate maps.
 func cloneParameterGroup(pg *ParameterGroup) *ParameterGroup {
 	if pg == nil {
+
 		return nil
 	}
 
@@ -2542,6 +2653,7 @@ func cloneParameterGroup(pg *ParameterGroup) *ParameterGroup {
 // cloneSnapshot returns a shallow copy of the snapshot with a separate tags map.
 func cloneSnapshot(s *Snapshot) *Snapshot {
 	if s == nil {
+
 		return nil
 	}
 
@@ -2554,6 +2666,7 @@ func cloneSnapshot(s *Snapshot) *Snapshot {
 // cloneMultiRegionCluster returns a shallow copy of the multi-region cluster with separate tags.
 func cloneMultiRegionCluster(mrc *MultiRegionCluster) *MultiRegionCluster {
 	if mrc == nil {
+
 		return nil
 	}
 
@@ -2566,6 +2679,7 @@ func cloneMultiRegionCluster(mrc *MultiRegionCluster) *MultiRegionCluster {
 // cloneMultiRegionParameterGroup returns a shallow copy with separate tags.
 func cloneMultiRegionParameterGroup(mrpg *MultiRegionParameterGroup) *MultiRegionParameterGroup {
 	if mrpg == nil {
+
 		return nil
 	}
 

@@ -34,6 +34,7 @@ type Handler struct {
 
 // NewHandler creates a new MemoryDB handler.
 func NewHandler(backend StorageBackend) *Handler {
+
 	return &Handler{Backend: backend}
 }
 
@@ -47,6 +48,7 @@ func (h *Handler) Reset() {
 
 // GetSupportedOperations returns the list of supported MemoryDB operations.
 func (h *Handler) GetSupportedOperations() []string {
+
 	return []string{
 		"BatchUpdateCluster",
 		"CopySnapshot",
@@ -107,10 +109,12 @@ func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 
 // RouteMatcher returns a function that matches MemoryDB JSON 1.1 API requests.
 func (h *Handler) RouteMatcher() service.Matcher {
+
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
 
 		if strings.HasPrefix(target, memorydbTargetPrefix) {
+
 			return true
 		}
 
@@ -126,6 +130,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	target := c.Request().Header.Get("X-Amz-Target")
 
 	if !strings.HasPrefix(target, memorydbTargetPrefix) {
+
 		return "Unknown"
 	}
 
@@ -136,11 +141,13 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
+
 		return ""
 	}
 
 	var data map[string]any
 	if uerr := json.Unmarshal(body, &data); uerr != nil {
+
 		return ""
 	}
 
@@ -153,6 +160,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	for _, key := range resourceKeys {
 		if v, ok := data[key]; ok {
 			if s, isStr := v.(string); isStr {
+
 				return s
 			}
 		}
@@ -163,6 +171,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 // Handler returns the Echo handler function for MemoryDB requests.
 func (h *Handler) Handler() echo.HandlerFunc {
+
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
@@ -170,6 +179,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		target := c.Request().Header.Get("X-Amz-Target")
 
 		if !strings.HasPrefix(target, memorydbTargetPrefix) {
+
 			return writeError(
 				c,
 				http.StatusBadRequest,
@@ -196,10 +206,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 // dispatch routes to the appropriate handler based on the operation name.
 func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 	if handled, result := h.dispatchCoreOps(c, op, body); handled {
+
 		return result
 	}
 
 	if handled, result := h.dispatchNewOps(c, op, body); handled {
+
 		return result
 	}
 
@@ -238,6 +250,7 @@ var memorydbCoreOps = map[string]func(*Handler, *echo.Context, []byte) error{
 // dispatchCoreOps handles the original core operations.
 func (h *Handler) dispatchCoreOps(c *echo.Context, op string, body []byte) (bool, error) {
 	if fn, ok := memorydbCoreOps[op]; ok {
+
 		return true, fn(h, c, body)
 	}
 
@@ -247,10 +260,12 @@ func (h *Handler) dispatchCoreOps(c *echo.Context, op string, body []byte) (bool
 // dispatchNewOps handles the new operations added in this release.
 func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool, error) {
 	if ok, err := h.dispatchSnapshotAndEngineOps(c, op, body); ok {
+
 		return true, err
 	}
 
 	if ok, err := h.dispatchMultiRegionOps(c, op, body); ok {
+
 		return true, err
 	}
 
@@ -353,19 +368,23 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 	var req createClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ClusterName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
 	if req.NodeType == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "NodeType is required")
 	}
 
 	cluster, err := h.Backend.CreateCluster(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -376,11 +395,13 @@ func (h *Handler) handleDescribeClusters(c *echo.Context, body []byte) error {
 	var req describeClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	clusters, err := h.Backend.DescribeClusters(req.ClusterName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -421,10 +442,12 @@ func (h *Handler) handleDeleteCluster(c *echo.Context, body []byte) error {
 	var req deleteClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ClusterName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
@@ -442,6 +465,7 @@ func (h *Handler) handleDeleteCluster(c *echo.Context, body []byte) error {
 	}
 
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -452,15 +476,18 @@ func (h *Handler) handleUpdateCluster(c *echo.Context, body []byte) error {
 	var req updateClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ClusterName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
 	cluster, err := h.Backend.UpdateCluster(&req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -473,15 +500,18 @@ func (h *Handler) handleCreateACL(c *echo.Context, body []byte) error {
 	var req createACLRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ACLName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ACLName is required")
 	}
 
 	acl, err := h.Backend.CreateACL(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -492,11 +522,13 @@ func (h *Handler) handleDescribeACLs(c *echo.Context, body []byte) error {
 	var req describeACLRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	acls, err := h.Backend.DescribeACLs(req.ACLName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -519,15 +551,18 @@ func (h *Handler) handleDeleteACL(c *echo.Context, body []byte) error {
 	var req deleteACLRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ACLName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ACLName is required")
 	}
 
 	acl, err := h.Backend.DeleteACL(req.ACLName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -538,15 +573,18 @@ func (h *Handler) handleUpdateACL(c *echo.Context, body []byte) error {
 	var req updateACLRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ACLName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ACLName is required")
 	}
 
 	acl, err := h.Backend.UpdateACL(&req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -562,15 +600,18 @@ func (h *Handler) handleCreateSubnetGroup(c *echo.Context, body []byte) error {
 	var req createSubnetGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.SubnetGroupName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SubnetGroupName is required")
 	}
 
 	sg, err := h.Backend.CreateSubnetGroup(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -581,11 +622,13 @@ func (h *Handler) handleDescribeSubnetGroups(c *echo.Context, body []byte) error
 	var req describeSubnetGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	sgs, err := h.Backend.DescribeSubnetGroups(req.SubnetGroupName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -604,15 +647,18 @@ func (h *Handler) handleDeleteSubnetGroup(c *echo.Context, body []byte) error {
 	var req deleteSubnetGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.SubnetGroupName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SubnetGroupName is required")
 	}
 
 	sg, err := h.Backend.DeleteSubnetGroup(req.SubnetGroupName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -623,15 +669,18 @@ func (h *Handler) handleUpdateSubnetGroup(c *echo.Context, body []byte) error {
 	var req updateSubnetGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.SubnetGroupName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SubnetGroupName is required")
 	}
 
 	sg, err := h.Backend.UpdateSubnetGroup(&req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -644,15 +693,18 @@ func (h *Handler) handleCreateUser(c *echo.Context, body []byte) error {
 	var req createUserRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.UserName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "UserName is required")
 	}
 
 	user, err := h.Backend.CreateUser(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -663,11 +715,13 @@ func (h *Handler) handleDescribeUsers(c *echo.Context, body []byte) error {
 	var req describeUserRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	users, err := h.Backend.DescribeUsers(req.UserName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -686,15 +740,18 @@ func (h *Handler) handleDeleteUser(c *echo.Context, body []byte) error {
 	var req deleteUserRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.UserName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "UserName is required")
 	}
 
 	user, err := h.Backend.DeleteUser(req.UserName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -705,15 +762,18 @@ func (h *Handler) handleUpdateUser(c *echo.Context, body []byte) error {
 	var req updateUserRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.UserName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "UserName is required")
 	}
 
 	user, err := h.Backend.UpdateUser(&req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -726,15 +786,18 @@ func (h *Handler) handleCreateParameterGroup(c *echo.Context, body []byte) error
 	var req createParameterGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ParameterGroupName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ParameterGroupName is required")
 	}
 
 	pg, err := h.Backend.CreateParameterGroup(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -745,11 +808,13 @@ func (h *Handler) handleDescribeParameterGroups(c *echo.Context, body []byte) er
 	var req describeParameterGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	pgs, err := h.Backend.DescribeParameterGroups(req.ParameterGroupName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -773,15 +838,18 @@ func (h *Handler) handleDeleteParameterGroup(c *echo.Context, body []byte) error
 	var req deleteParameterGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ParameterGroupName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ParameterGroupName is required")
 	}
 
 	pg, err := h.Backend.DeleteParameterGroup(req.ParameterGroupName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -792,15 +860,18 @@ func (h *Handler) handleUpdateParameterGroup(c *echo.Context, body []byte) error
 	var req updateParameterGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ParameterGroupName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ParameterGroupName is required")
 	}
 
 	pg, err := h.Backend.UpdateParameterGroup(&req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -813,15 +884,18 @@ func (h *Handler) handleListTags(c *echo.Context, body []byte) error {
 	var req listTagsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ResourceArn == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ResourceArn is required")
 	}
 
 	tags, err := h.Backend.ListTags(req.ResourceArn)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -832,22 +906,26 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	var req tagResourceRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ResourceArn == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ResourceArn is required")
 	}
 
 	tags := tagsFromSlice(req.Tags)
 
 	if err := h.Backend.TagResource(req.ResourceArn, tags); err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
 	// Return the resulting tag list (AWS behaviour).
 	result, err := h.Backend.ListTags(req.ResourceArn)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -858,20 +936,24 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 	var req untagResourceRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ResourceArn == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ResourceArn is required")
 	}
 
 	if err := h.Backend.UntagResource(req.ResourceArn, req.TagKeys); err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
 	// Return the remaining tag list (AWS behaviour).
 	result, err := h.Backend.ListTags(req.ResourceArn)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -884,19 +966,23 @@ func (h *Handler) handleCreateSnapshot(c *echo.Context, body []byte) error {
 	var req createSnapshotRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.SnapshotName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SnapshotName is required")
 	}
 
 	if req.ClusterName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
 	s, err := h.Backend.CreateSnapshot(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -907,14 +993,17 @@ func (h *Handler) handleCopySnapshot(c *echo.Context, body []byte) error {
 	var req copySnapshotRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.SourceSnapshotName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SourceSnapshotName is required")
 	}
 
 	if req.TargetSnapshotName == "" && req.TargetBucket == "" {
+
 		return writeError(
 			c,
 			http.StatusBadRequest,
@@ -925,6 +1014,7 @@ func (h *Handler) handleCopySnapshot(c *echo.Context, body []byte) error {
 
 	s, err := h.Backend.CopySnapshot(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -935,15 +1025,18 @@ func (h *Handler) handleDeleteSnapshot(c *echo.Context, body []byte) error {
 	var req deleteSnapshotRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.SnapshotName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SnapshotName is required")
 	}
 
 	s, err := h.Backend.DeleteSnapshot(req.SnapshotName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -954,11 +1047,13 @@ func (h *Handler) handleDescribeSnapshots(c *echo.Context, body []byte) error {
 	var req describeSnapshotRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	snapshots, err := h.Backend.DescribeSnapshots(req.SnapshotName, req.ClusterName, req.SnapshotType, req.Source)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -984,11 +1079,13 @@ func (h *Handler) handleDescribeEngineVersions(c *echo.Context, body []byte) err
 	var req describeEngineVersionsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	versions, err := h.Backend.DescribeEngineVersions(&req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1013,11 +1110,13 @@ func (h *Handler) handleDescribeEvents(c *echo.Context, body []byte) error {
 	var req describeEventsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	events, err := h.Backend.DescribeEvents(&req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1041,10 +1140,12 @@ func (h *Handler) handleCreateMultiRegionCluster(c *echo.Context, body []byte) e
 	var req createMultiRegionClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.MultiRegionClusterNameSuffix == "" {
+
 		return writeError(
 			c,
 			http.StatusBadRequest,
@@ -1054,11 +1155,13 @@ func (h *Handler) handleCreateMultiRegionCluster(c *echo.Context, body []byte) e
 	}
 
 	if req.NodeType == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "NodeType is required")
 	}
 
 	mrc, err := h.Backend.CreateMultiRegionCluster(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1069,10 +1172,12 @@ func (h *Handler) handleDeleteMultiRegionCluster(c *echo.Context, body []byte) e
 	var req deleteMultiRegionClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.MultiRegionClusterName == "" {
+
 		return writeError(
 			c,
 			http.StatusBadRequest,
@@ -1083,6 +1188,7 @@ func (h *Handler) handleDeleteMultiRegionCluster(c *echo.Context, body []byte) e
 
 	mrc, err := h.Backend.DeleteMultiRegionCluster(req.MultiRegionClusterName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1093,11 +1199,13 @@ func (h *Handler) handleDescribeMultiRegionClusters(c *echo.Context, body []byte
 	var req describeMultiRegionClustersRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	mrcs, err := h.Backend.DescribeMultiRegionClusters(req.MultiRegionClusterName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1116,11 +1224,13 @@ func (h *Handler) handleDescribeMultiRegionParameterGroups(c *echo.Context, body
 	var req describeMultiRegionParameterGroupsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	mrpgs, err := h.Backend.DescribeMultiRegionParameterGroups(req.ParameterGroupName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1144,10 +1254,12 @@ func (h *Handler) handleBatchUpdateCluster(c *echo.Context, body []byte) error {
 	var req batchUpdateClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if len(req.ClusterNames) == 0 {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterNames is required")
 	}
 
@@ -1180,11 +1292,13 @@ func (h *Handler) handleDescribeParameters(c *echo.Context, body []byte) error {
 	var req describeParametersRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	params, err := h.Backend.DescribeParameters(req.ParameterGroupName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1207,11 +1321,13 @@ func (h *Handler) handleResetParameterGroup(c *echo.Context, body []byte) error 
 	var req resetParameterGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	pg, err := h.Backend.ResetParameterGroup(req.ParameterGroupName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1222,15 +1338,18 @@ func (h *Handler) handleFailoverShard(c *echo.Context, body []byte) error {
 	var req failoverShardRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ClusterName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
 	cl, err := h.Backend.FailoverShard(req.ClusterName, req.ShardName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1241,15 +1360,18 @@ func (h *Handler) handleListAllowedNodeTypeUpdates(c *echo.Context, body []byte)
 	var req listAllowedNodeTypeUpdatesRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ClusterName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
 	nodeTypes, err := h.Backend.ListAllowedNodeTypeUpdates(req.ClusterName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1263,10 +1385,12 @@ func (h *Handler) handleListAllowedMultiRegionClusterUpdates(c *echo.Context, bo
 	var req listAllowedMultiRegionClusterUpdatesRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.MultiRegionClusterName == "" {
+
 		return writeError(
 			c,
 			http.StatusBadRequest,
@@ -1277,6 +1401,7 @@ func (h *Handler) handleListAllowedMultiRegionClusterUpdates(c *echo.Context, bo
 
 	nodeTypes, err := h.Backend.ListAllowedMultiRegionClusterUpdates(req.MultiRegionClusterName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1290,10 +1415,12 @@ func (h *Handler) handleUpdateMultiRegionCluster(c *echo.Context, body []byte) e
 	var req updateMultiRegionClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.MultiRegionClusterName == "" {
+
 		return writeError(
 			c,
 			http.StatusBadRequest,
@@ -1304,6 +1431,7 @@ func (h *Handler) handleUpdateMultiRegionCluster(c *echo.Context, body []byte) e
 
 	mrc, err := h.Backend.UpdateMultiRegionCluster(&req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1313,10 +1441,12 @@ func (h *Handler) handleUpdateMultiRegionCluster(c *echo.Context, body []byte) e
 func (h *Handler) handleDescribeServiceUpdates(c *echo.Context, body []byte) error {
 	var req describeServiceUpdatesRequest
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 	updates, err := h.Backend.DescribeServiceUpdates(&req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 	updates, nextToken := paginateItems(
@@ -1336,6 +1466,7 @@ func (h *Handler) handleDescribeServiceUpdates(c *echo.Context, body []byte) err
 			AutoUpdateStartDate: su.AutoUpdateStartDate,
 		})
 	}
+
 	return c.JSON(http.StatusOK, describeServiceUpdatesResponse{ServiceUpdates: objs, NextToken: nextToken})
 }
 
@@ -1345,11 +1476,13 @@ func (h *Handler) handleDescribeReservedNodes(c *echo.Context, body []byte) erro
 	var req describeReservedNodesRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	nodes, err := h.Backend.DescribeReservedNodes(&req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1360,11 +1493,13 @@ func (h *Handler) handleDescribeReservedNodesOfferings(c *echo.Context, body []b
 	var req describeReservedNodesOfferingsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	offerings, err := h.Backend.DescribeReservedNodesOfferings(&req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1378,10 +1513,12 @@ func (h *Handler) handlePurchaseReservedNodesOffering(c *echo.Context, body []by
 	var req purchaseReservedNodesOfferingRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ReservedNodesOfferingID == "" {
+
 		return writeError(
 			c,
 			http.StatusBadRequest,
@@ -1392,6 +1529,7 @@ func (h *Handler) handlePurchaseReservedNodesOffering(c *echo.Context, body []by
 
 	rn, err := h.Backend.PurchaseReservedNodesOffering(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1404,15 +1542,18 @@ func (h *Handler) handleDescribeMultiRegionParameters(c *echo.Context, body []by
 	var req describeMultiRegionParametersRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
+
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ParameterGroupName == "" {
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ParameterGroupName is required")
 	}
 
 	params, err := h.Backend.DescribeMultiRegionParameters(req.ParameterGroupName)
 	if err != nil {
+
 		return h.writeBackendError(c, err)
 	}
 
@@ -1460,6 +1601,7 @@ func paginateItems[T any](items []T, token string, maxResults *int32, getName fu
 func findStartIndex[T any](items []T, token string, getName func(T) string) int {
 	for i, item := range items {
 		if getName(item) == token {
+
 			return i + 1
 		}
 	}
@@ -1490,6 +1632,7 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 
 // writeError writes a JSON error response using the standard AWS JSON 1.1 envelope.
 func writeError(c *echo.Context, status int, errType, message string) error {
+
 	return c.JSON(status, errorResponse{Type: errType, Message: message})
 }
 
@@ -1624,6 +1767,7 @@ func clustersForACL(clusters []*Cluster, aclName string) []string {
 // toACLObject converts an ACL to its JSON representation.
 // clusterNames is the list of cluster names that reference this ACL.
 func toACLObject(a *ACL, clusterNames []string) aclObject {
+
 	return aclObject{
 		Name:      a.Name,
 		ARN:       a.ARN,
@@ -1669,6 +1813,7 @@ func toUserObject(u *User) userObject {
 
 // toParameterGroupObject converts a ParameterGroup to its JSON representation.
 func toParameterGroupObject(pg *ParameterGroup) parameterGroupObject {
+
 	return parameterGroupObject{
 		Name:        pg.Name,
 		ARN:         pg.ARN,
@@ -1704,6 +1849,7 @@ func toSnapshotObject(s *Snapshot) snapshotObject {
 
 // toMultiRegionClusterObject converts a MultiRegionCluster to its JSON representation.
 func toMultiRegionClusterObject(mrc *MultiRegionCluster) multiRegionClusterObject {
+
 	return multiRegionClusterObject{
 		MultiRegionClusterName:        mrc.MultiRegionClusterName,
 		ARN:                           mrc.ARN,
