@@ -44,10 +44,11 @@ type tagHolder interface {
 
 // storedAppSettings holds the persisted application-level settings.
 type storedAppSettings struct {
-	CampaignHook      map[string]any `json:"CampaignHook"`
-	Limits            map[string]any `json:"Limits"`
-	QuietTime         map[string]any `json:"QuietTime"`
-	CloudWatchMetrics bool           `json:"CloudWatchMetrics"`
+	CampaignHook        map[string]any `json:"CampaignHook"`
+	Limits              map[string]any `json:"Limits"`
+	QuietTime           map[string]any `json:"QuietTime"`
+	CloudWatchMetrics   bool           `json:"CloudWatchMetrics"`
+	EventTaggingEnabled bool           `json:"EventTaggingEnabled"`
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.

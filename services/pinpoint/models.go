@@ -402,11 +402,13 @@ type tagResourceRequest struct {
 // CampaignHook, Limits, and QuietTime must be non-nil empty objects so the
 // Terraform provider's flatten helpers do not dereference nil pointers.
 type appSettingsResponse struct {
-	CampaignHook     map[string]any `json:"CampaignHook"`
-	Limits           map[string]any `json:"Limits"`
-	QuietTime        map[string]any `json:"QuietTime"`
-	ApplicationID    string         `json:"ApplicationId"`
-	LastModifiedDate string         `json:"LastModifiedDate,omitempty"`
+	CampaignHook             map[string]any `json:"CampaignHook"`
+	Limits                   map[string]any `json:"Limits"`
+	QuietTime                map[string]any `json:"QuietTime"`
+	ApplicationID            string         `json:"ApplicationId"`
+	LastModifiedDate         string         `json:"LastModifiedDate,omitempty"`
+	CloudWatchMetricsEnabled bool           `json:"CloudWatchMetricsEnabled"`
+	EventTaggingEnabled      bool           `json:"EventTaggingEnabled"`
 }
 
 // nowRFC3339 returns the current UTC time formatted as RFC 3339.

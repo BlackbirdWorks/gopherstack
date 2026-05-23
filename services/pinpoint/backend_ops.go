@@ -2041,10 +2041,11 @@ func (b *InMemoryBackend) UpdateApplicationSettings(
 	}
 
 	stored := &storedAppSettings{
-		CampaignHook:      cloneAnyMap(settings.CampaignHook),
-		Limits:            cloneAnyMap(settings.Limits),
-		QuietTime:         cloneAnyMap(settings.QuietTime),
-		CloudWatchMetrics: settings.CloudWatchMetrics,
+		CampaignHook:        cloneAnyMap(settings.CampaignHook),
+		Limits:              cloneAnyMap(settings.Limits),
+		QuietTime:           cloneAnyMap(settings.QuietTime),
+		CloudWatchMetrics:   settings.CloudWatchMetrics,
+		EventTaggingEnabled: settings.EventTaggingEnabled,
 	}
 
 	b.appSettings[appID] = stored
