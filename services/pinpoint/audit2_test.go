@@ -122,14 +122,24 @@ func TestAudit2_ApplicationSettings_EventTagging(t *testing.T) {
 
 			var putResp map[string]any
 			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
-			assert.Equal(t, tc.wantFlag, putResp["EventTaggingEnabled"], "PUT response should include EventTaggingEnabled")
+			assert.Equal(
+				t,
+				tc.wantFlag,
+				putResp["EventTaggingEnabled"],
+				"PUT response should include EventTaggingEnabled",
+			)
 
 			getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/settings", nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
 			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
-			assert.Equal(t, tc.wantFlag, getResp["EventTaggingEnabled"], "GET response should persist EventTaggingEnabled")
+			assert.Equal(
+				t,
+				tc.wantFlag,
+				getResp["EventTaggingEnabled"],
+				"GET response should persist EventTaggingEnabled",
+			)
 		})
 	}
 }
@@ -142,10 +152,10 @@ func TestAudit2_ApplicationSettings_Limits(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		limits    map[string]any
-		checkKey  string
-		name      string
-		checkVal  float64
+		limits   map[string]any
+		checkKey string
+		name     string
+		checkVal float64
 	}{
 		{
 			name:     "daily_limit",
@@ -674,7 +684,7 @@ func TestAudit2_Campaign_StateMachine(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name: "update_segment_keeps_scheduled",
+			name:       "update_segment_keeps_scheduled",
 			createBody: map[string]any{"Name": "c5", "SegmentId": "seg-1"},
 			updateBody: map[string]any{
 				"SegmentId":      "seg-2",
@@ -1263,15 +1273,15 @@ func TestAudit2_RecommenderConfiguration_FullCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		createBody          map[string]any
-		updateBody          map[string]any
-		name                string
-		wantName            string
-		wantProviderURI     string
-		wantIDType          string
-		wantRPM             float64
-		wantHasDescription  bool
-		wantHasAttributes   bool
+		createBody         map[string]any
+		updateBody         map[string]any
+		name               string
+		wantName           string
+		wantProviderURI    string
+		wantIDType         string
+		wantRPM            float64
+		wantHasDescription bool
+		wantHasAttributes  bool
 	}{
 		{
 			name: "basic_recommender",
@@ -1289,10 +1299,10 @@ func TestAudit2_RecommenderConfiguration_FullCRUD(t *testing.T) {
 		{
 			name: "recommender_with_id_type",
 			createBody: map[string]any{
-				"Name":                            "typed-rec",
-				"RecommendationProviderUri":       "arn:aws:personalize:us-east-1:123:campaign/cam3",
-				"RecommendationProviderRoleArn":   "arn:aws:iam::123:role/Role",
-				"RecommendationProviderIdType":    "PINPOINT_USER_ID",
+				"Name":                          "typed-rec",
+				"RecommendationProviderUri":     "arn:aws:personalize:us-east-1:123:campaign/cam3",
+				"RecommendationProviderRoleArn": "arn:aws:iam::123:role/Role",
+				"RecommendationProviderIdType":  "PINPOINT_USER_ID",
 			},
 			updateBody: map[string]any{
 				"RecommendationProviderIdType": "PINPOINT_ENDPOINT_ID",
@@ -1472,13 +1482,13 @@ func TestAudit2_OTP_SendAndVerify(t *testing.T) {
 			name: "send_otp_accepted",
 			otpBody: map[string]any{
 				"SendOTPMessageRequestParameters": map[string]any{
-					"Channel":            "SMS",
+					"Channel":             "SMS",
 					"DestinationIdentity": "+15555550100",
 					"OriginationIdentity": "+15555550199",
-					"ReferenceID":        "ref-001",
-					"BrandName":          "MyApp",
-					"CodeLength":         6,
-					"ValidityPeriod":     5,
+					"ReferenceID":         "ref-001",
+					"BrandName":           "MyApp",
+					"CodeLength":          6,
+					"ValidityPeriod":      5,
 				},
 			},
 			wantSend: http.StatusOK,
@@ -1487,12 +1497,12 @@ func TestAudit2_OTP_SendAndVerify(t *testing.T) {
 			name: "send_otp_email_channel",
 			otpBody: map[string]any{
 				"SendOTPMessageRequestParameters": map[string]any{
-					"Channel":            "EMAIL",
+					"Channel":             "EMAIL",
 					"DestinationIdentity": "user@example.com",
 					"OriginationIdentity": "noreply@example.com",
-					"ReferenceID":        "ref-002",
-					"BrandName":          "MyService",
-					"CodeLength":         8,
+					"ReferenceID":         "ref-002",
+					"BrandName":           "MyService",
+					"CodeLength":          8,
 				},
 			},
 			wantSend: http.StatusOK,
@@ -1501,19 +1511,19 @@ func TestAudit2_OTP_SendAndVerify(t *testing.T) {
 			name: "verify_otp",
 			otpBody: map[string]any{
 				"SendOTPMessageRequestParameters": map[string]any{
-					"Channel":            "SMS",
+					"Channel":             "SMS",
 					"DestinationIdentity": "+15555550101",
 					"OriginationIdentity": "+15555550199",
-					"ReferenceID":        "ref-003",
-					"BrandName":          "MyApp",
-					"CodeLength":         6,
+					"ReferenceID":         "ref-003",
+					"BrandName":           "MyApp",
+					"CodeLength":          6,
 				},
 			},
 			verifyBody: map[string]any{
 				"VerifyOTPMessageRequestParameters": map[string]any{
 					"DestinationIdentity": "+15555550101",
-					"ReferenceID":        "ref-003",
-					"Otp":                "123456",
+					"ReferenceID":         "ref-003",
+					"Otp":                 "123456",
 				},
 			},
 			wantSend:   http.StatusOK,
@@ -2005,9 +2015,9 @@ func TestAudit2_Recommender_InvalidIDType(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		idType     string
-		name       string
-		wantErr    bool
+		idType  string
+		name    string
+		wantErr bool
 	}{
 		{name: "valid_user_id_type", idType: "PINPOINT_USER_ID", wantErr: false},
 		{name: "valid_endpoint_id_type", idType: "PINPOINT_ENDPOINT_ID", wantErr: false},
@@ -2171,9 +2181,9 @@ func TestAudit2_Journey_RunsAfterActivation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		activate   bool
-		wantRuns   int
+		name     string
+		activate bool
+		wantRuns int
 	}{
 		{
 			name:     "no_runs_before_activation",
@@ -2230,10 +2240,10 @@ func TestAudit2_ApplicationSettings_FullRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body    map[string]any
-		name    string
-		wantCW  bool
-		wantET  bool
+		body   map[string]any
+		name   string
+		wantCW bool
+		wantET bool
 	}{
 		{
 			name: "both_enabled",
