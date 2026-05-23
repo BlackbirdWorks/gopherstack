@@ -770,12 +770,15 @@ func toResourceShareObject(rs *ResourceShare) resourceShareObject {
 	return obj
 }
 
+// arnPartCount is the number of colon-separated components in an AWS ARN.
+const arnPartCount = 6
+
 // resourceTypeFromARN derives the AWS resource type string (e.g. "ec2:Subnet") from an ARN.
 // Returns "UNKNOWN" if the ARN cannot be parsed or the service is unrecognised.
 func resourceTypeFromARN(resourceARN string) string {
 	// ARN format: arn:partition:service:region:account-id:resource-type/resource-id
-	parts := strings.SplitN(resourceARN, ":", 6)
-	if len(parts) < 6 || parts[0] != "arn" {
+	parts := strings.SplitN(resourceARN, ":", arnPartCount)
+	if len(parts) < arnPartCount || parts[0] != "arn" {
 		return "UNKNOWN"
 	}
 
@@ -789,12 +792,12 @@ func resourceTypeFromARN(resourceARN string) string {
 
 	// Map known resource types to their canonical RAM type strings.
 	typeMap := map[string]string{
-		"subnet":               "ec2:Subnet",
-		"vpc":                  "ec2:VPC",
-		"transit-gateway":      "ec2:TransitGateway",
-		"prefix-list":          "ec2:PrefixList",
-		"resolver-rule":        "route53resolver:ResolverRule",
-		"license-configuration": "license-manager:LicenseConfiguration",
+		"subnet":                resourceTypeEC2Subnet,
+		"vpc":                   resourceTypeEC2VPC,
+		"transit-gateway":       resourceTypeEC2TransitGateway,
+		"prefix-list":           resourceTypeEC2PrefixList,
+		"resolver-rule":         resourceTypeRoute53Resolver,
+		"license-configuration": resourceTypeLicenseManager,
 	}
 
 	key := strings.ToLower(resType)
@@ -802,12 +805,13 @@ func resourceTypeFromARN(resourceARN string) string {
 		return mapped
 	}
 
-	if resType != "" {
-		upper := strings.ToUpper(resType[:1]) + resType[1:]
-		return service + ":" + upper
+	if resType == "" {
+		return "UNKNOWN"
 	}
 
-	return "UNKNOWN"
+	upper := strings.ToUpper(resType[:1]) + resType[1:]
+
+	return service + ":" + upper
 }
 
 // associationObject is the JSON representation of a ResourceShareAssociation.

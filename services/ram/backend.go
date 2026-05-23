@@ -43,19 +43,17 @@ const (
 	resourceOwnerOtherAccounts = "OTHER-ACCOUNTS"
 	// resourceRegionScopeRegional indicates a resource is region-scoped.
 	resourceRegionScopeRegional = "REGIONAL"
-	// resourceRegionScopeGlobal indicates a resource is globally scoped.
-	resourceRegionScopeGlobal = "GLOBAL"
 	// accountIDLen is the number of digits in an AWS account ID.
 	accountIDLen = 12
 
 	// Resource type strings shared between backend and built-in permission seeds.
-	resourceTypeEC2Subnet          = "ec2:Subnet"
-	resourceTypeEC2VPC             = "ec2:VPC"
-	resourceTypeEC2TransitGateway  = "ec2:TransitGateway"
-	resourceTypeEC2PrefixList      = "ec2:PrefixList"
-	resourceTypeS3Bucket           = "s3:Bucket"
-	resourceTypeRoute53Resolver    = "route53resolver:ResolverRule"
-	resourceTypeLicenseManager     = "license-manager:LicenseConfiguration"
+	resourceTypeEC2Subnet         = "ec2:Subnet"
+	resourceTypeEC2VPC            = "ec2:VPC"
+	resourceTypeEC2TransitGateway = "ec2:TransitGateway"
+	resourceTypeEC2PrefixList     = "ec2:PrefixList"
+	resourceTypeS3Bucket          = "s3:Bucket"
+	resourceTypeRoute53Resolver   = "route53resolver:ResolverRule"
+	resourceTypeLicenseManager    = "license-manager:LicenseConfiguration"
 )
 
 var (
@@ -155,49 +153,49 @@ type builtInPermDef struct {
 	policy              string
 }
 
-//nolint:gochecknoglobals // read-only table of AWS-managed permissions initialized once
+//nolint:gochecknoglobals,lll // read-only table initialized once; JSON policy strings must remain intact
 var awsBuiltInPermissions = []builtInPermDef{
 	{
 		name:                "AWSRAMDefaultPermissionEC2Subnet",
-		resourceType:        "ec2:Subnet",
+		resourceType:        resourceTypeEC2Subnet,
 		resourceRegionScope: resourceRegionScopeRegional,
-		policy:              `{"Effect":"Allow","Action":["ec2:CreateTags","ec2:Describe*","ec2:*NetworkInterface*","ec2:*Route*","ec2:*SubnetCidrBlock*"],"Resource":"*"}`,
+		policy:              `{"Effect":"Allow","Action":["ec2:CreateTags","ec2:Describe*","ec2:*NetworkInterface*","ec2:*Route*","ec2:*SubnetCidrBlock*"],"Resource":"*"}`, //nolint:lll // JSON policy must be on one line
 	},
 	{
 		name:                "AWSRAMDefaultPermissionEC2VPC",
-		resourceType:        "ec2:VPC",
+		resourceType:        resourceTypeEC2VPC,
 		resourceRegionScope: resourceRegionScopeRegional,
-		policy:              `{"Effect":"Allow","Action":["ec2:CreateTags","ec2:Describe*","ec2:*Vpc*","ec2:*SecurityGroup*","ec2:*Dhcp*"],"Resource":"*"}`,
+		policy:              `{"Effect":"Allow","Action":["ec2:CreateTags","ec2:Describe*","ec2:*Vpc*","ec2:*SecurityGroup*","ec2:*Dhcp*"],"Resource":"*"}`, //nolint:lll // JSON policy must be on one line
 	},
 	{
 		name:                "AWSRAMDefaultPermissionEC2TransitGateway",
-		resourceType:        "ec2:TransitGateway",
+		resourceType:        resourceTypeEC2TransitGateway,
 		resourceRegionScope: resourceRegionScopeRegional,
 		policy:              `{"Effect":"Allow","Action":["ec2:CreateTags","ec2:Describe*","ec2:*TransitGateway*"],"Resource":"*"}`,
 	},
 	{
 		name:                "AWSRAMDefaultPermissionEC2PrefixList",
-		resourceType:        "ec2:PrefixList",
+		resourceType:        resourceTypeEC2PrefixList,
 		resourceRegionScope: resourceRegionScopeRegional,
-		policy:              `{"Effect":"Allow","Action":["ec2:CreateTags","ec2:Describe*","ec2:*ManagedPrefixList*","ec2:GetManagedPrefixListEntries"],"Resource":"*"}`,
+		policy:              `{"Effect":"Allow","Action":["ec2:CreateTags","ec2:Describe*","ec2:*ManagedPrefixList*","ec2:GetManagedPrefixListEntries"],"Resource":"*"}`, //nolint:lll // JSON policy must be on one line
 	},
 	{
 		name:                "AWSRAMDefaultPermissionS3Bucket",
-		resourceType:        "s3:Bucket",
+		resourceType:        resourceTypeS3Bucket,
 		resourceRegionScope: resourceRegionScopeRegional,
-		policy:              `{"Effect":"Allow","Action":["s3:ListBucket","s3:GetObject","s3:GetBucketLocation","s3:GetBucketAcl"],"Resource":"*"}`,
+		policy:              `{"Effect":"Allow","Action":["s3:ListBucket","s3:GetObject","s3:GetBucketLocation","s3:GetBucketAcl"],"Resource":"*"}`, //nolint:lll // JSON policy must be on one line
 	},
 	{
 		name:                "AWSRAMDefaultPermissionRoute53ResolverResolverRule",
-		resourceType:        "route53resolver:ResolverRule",
+		resourceType:        resourceTypeRoute53Resolver,
 		resourceRegionScope: resourceRegionScopeRegional,
-		policy:              `{"Effect":"Allow","Action":["route53resolver:ListResolverRules","route53resolver:GetResolverRule","route53resolver:*ResolverRuleAssociation*"],"Resource":"*"}`,
+		policy:              `{"Effect":"Allow","Action":["route53resolver:ListResolverRules","route53resolver:GetResolverRule","route53resolver:*ResolverRuleAssociation*"],"Resource":"*"}`, //nolint:lll // JSON policy must be on one line
 	},
 	{
 		name:                "AWSRAMDefaultPermissionLicenseManagerLicenseConfiguration",
-		resourceType:        "license-manager:LicenseConfiguration",
+		resourceType:        resourceTypeLicenseManager,
 		resourceRegionScope: resourceRegionScopeRegional,
-		policy:              `{"Effect":"Allow","Action":["license-manager:ListAssociationsForLicenseConfiguration","license-manager:GetLicenseConfiguration","license-manager:ListLicenseConfigurations","license-manager:CheckInLicense","license-manager:CheckoutLicense"],"Resource":"*"}`,
+		policy:              `{"Effect":"Allow","Action":["license-manager:ListAssociationsForLicenseConfiguration","license-manager:GetLicenseConfiguration","license-manager:ListLicenseConfigurations","license-manager:CheckInLicense","license-manager:CheckoutLicense"],"Resource":"*"}`, //nolint:lll // JSON policy must be on one line
 	},
 }
 
@@ -392,60 +390,71 @@ func (b *InMemoryBackend) ListResourceShares(resourceOwner, status string) []*Re
 	b.mu.RLock("ListResourceShares")
 	defer b.mu.RUnlock()
 
-	list := make([]*ResourceShare, 0, len(b.resourceShares))
+	var list []*ResourceShare
 
 	switch resourceOwner {
 	case resourceOwnerSelf, "":
-		for _, rs := range b.resourceShares {
-			if rs.Status == statusDeleted {
-				continue
-			}
-
-			if rs.OwningAccountID != b.accountID {
-				continue
-			}
-
-			if status != "" && rs.Status != status {
-				continue
-			}
-
-			list = append(list, cloneResourceShare(rs))
-		}
-
+		list = b.listOwnedShares(status)
 	case resourceOwnerOtherAccounts:
-		// Build a set of share ARNs where this account appears as a PRINCIPAL.
-		principalShares := make(map[string]struct{})
-
-		for _, a := range b.associations {
-			if a.AssociationType == associationTypePrincipal &&
-				a.Status == associationStatusAssociated &&
-				a.AssociatedEntity == b.accountID {
-				principalShares[a.ResourceShareARN] = struct{}{}
-			}
-		}
-
-		for _, rs := range b.resourceShares {
-			if rs.Status == statusDeleted {
-				continue
-			}
-
-			if rs.OwningAccountID == b.accountID {
-				continue // owned by this account, not "other"
-			}
-
-			if _, ok := principalShares[rs.ARN]; !ok {
-				continue
-			}
-
-			if status != "" && rs.Status != status {
-				continue
-			}
-
-			list = append(list, cloneResourceShare(rs))
-		}
+		list = b.listSharedWithMe(status)
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// listOwnedShares returns non-deleted shares owned by this account, filtered by status.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) listOwnedShares(status string) []*ResourceShare {
+	list := make([]*ResourceShare, 0, len(b.resourceShares))
+
+	for _, rs := range b.resourceShares {
+		if rs.Status == statusDeleted || rs.OwningAccountID != b.accountID {
+			continue
+		}
+
+		if status != "" && rs.Status != status {
+			continue
+		}
+
+		list = append(list, cloneResourceShare(rs))
+	}
+
+	return list
+}
+
+// listSharedWithMe returns non-deleted shares owned by other accounts where this
+// account appears as an active PRINCIPAL association. Caller must hold at least a read lock.
+func (b *InMemoryBackend) listSharedWithMe(status string) []*ResourceShare {
+	// Build a set of share ARNs where this account is an active PRINCIPAL.
+	principalShares := make(map[string]struct{})
+
+	for _, a := range b.associations {
+		if a.AssociationType == associationTypePrincipal &&
+			a.Status == associationStatusAssociated &&
+			a.AssociatedEntity == b.accountID {
+			principalShares[a.ResourceShareARN] = struct{}{}
+		}
+	}
+
+	list := make([]*ResourceShare, 0)
+
+	for _, rs := range b.resourceShares {
+		if rs.Status == statusDeleted || rs.OwningAccountID == b.accountID {
+			continue
+		}
+
+		if _, ok := principalShares[rs.ARN]; !ok {
+			continue
+		}
+
+		if status != "" && rs.Status != status {
+			continue
+		}
+
+		list = append(list, cloneResourceShare(rs))
+	}
 
 	return list
 }

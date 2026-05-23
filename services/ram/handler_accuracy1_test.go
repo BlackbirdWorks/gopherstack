@@ -66,7 +66,7 @@ func TestRAM_Accuracy_BuiltInPermissions_Count(t *testing.T) {
 		Permissions []json.RawMessage `json:"permissions"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, ram.BuiltInPermissionCount, len(resp.Permissions))
+	assert.Len(t, resp.Permissions, ram.BuiltInPermissionCount)
 }
 
 func TestRAM_Accuracy_ListPermissions_TypeFilter(t *testing.T) {
@@ -111,7 +111,7 @@ func TestRAM_Accuracy_ListPermissions_TypeFilter(t *testing.T) {
 				Permissions []json.RawMessage `json:"permissions"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Equal(t, tt.wantCount, len(resp.Permissions))
+			assert.Len(t, resp.Permissions, tt.wantCount)
 		})
 	}
 }
@@ -169,7 +169,7 @@ func TestRAM_Accuracy_ListPermissions_TypeFilter_WithCustom(t *testing.T) {
 				Permissions []json.RawMessage `json:"permissions"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Equal(t, tt.wantCount, len(resp.Permissions))
+			assert.Len(t, resp.Permissions, tt.wantCount)
 		})
 	}
 }
@@ -183,8 +183,8 @@ func TestRAM_Accuracy_BuiltInPermission_PermissionType(t *testing.T) {
 		name               string
 		permName           string
 		wantPermissionType string
-		wantIsDefault      bool
 		wantScope          string
+		wantIsDefault      bool
 	}{
 		{
 			name:               "EC2 Subnet built-in",
@@ -224,8 +224,8 @@ func TestRAM_Accuracy_BuiltInPermission_PermissionType(t *testing.T) {
 			var resp struct {
 				Permission struct {
 					PermissionType        string `json:"permissionType"`
-					IsResourceTypeDefault bool   `json:"isResourceTypeDefault"`
 					ResourceRegionScope   string `json:"resourceRegionScope"`
+					IsResourceTypeDefault bool   `json:"isResourceTypeDefault"`
 				} `json:"permission"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -468,21 +468,21 @@ func TestRAM_Accuracy_ResourceRegionScope_OnPermissions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		permARN       string
-		wantScope     string
+		name           string
+		permARN        string
+		wantScope      string
 		wantAWSManaged bool
 	}{
 		{
-			name:          "built-in EC2 subnet permission has REGIONAL scope",
-			permARN:       "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet",
-			wantScope:     "REGIONAL",
+			name:           "built-in EC2 subnet permission has REGIONAL scope",
+			permARN:        "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet",
+			wantScope:      "REGIONAL",
 			wantAWSManaged: true,
 		},
 		{
-			name:          "built-in S3 bucket permission has REGIONAL scope",
-			permARN:       "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionS3Bucket",
-			wantScope:     "REGIONAL",
+			name:           "built-in S3 bucket permission has REGIONAL scope",
+			permARN:        "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionS3Bucket",
+			wantScope:      "REGIONAL",
 			wantAWSManaged: true,
 		},
 	}
@@ -543,10 +543,10 @@ func TestRAM_Accuracy_GetResourceShares_OtherAccounts(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		setup        func(*testing.T, *ram.Handler)
+		name          string
+		setup         func(*testing.T, *ram.Handler)
 		resourceOwner string
-		wantCount    int
+		wantCount     int
 	}{
 		{
 			name: "SELF returns owned shares",
@@ -556,7 +556,7 @@ func TestRAM_Accuracy_GetResourceShares_OtherAccounts(t *testing.T) {
 				require.NoError(t, err)
 			},
 			resourceOwner: "SELF",
-			wantCount:    1,
+			wantCount:     1,
 		},
 		{
 			name: "OTHER-ACCOUNTS returns empty for single-account mock",
@@ -566,13 +566,13 @@ func TestRAM_Accuracy_GetResourceShares_OtherAccounts(t *testing.T) {
 				require.NoError(t, err)
 			},
 			resourceOwner: "OTHER-ACCOUNTS",
-			wantCount:    0,
+			wantCount:     0,
 		},
 		{
 			name:          "OTHER-ACCOUNTS empty when no shares exist",
 			setup:         func(_ *testing.T, _ *ram.Handler) {},
 			resourceOwner: "OTHER-ACCOUNTS",
-			wantCount:    0,
+			wantCount:     0,
 		},
 	}
 
@@ -603,13 +603,13 @@ func TestRAM_Accuracy_IsResourceTypeDefault(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		permARN   string
+		name        string
+		permARN     string
 		wantDefault bool
 	}{
 		{
-			name:      "built-in is resource-type default",
-			permARN:   "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet",
+			name:        "built-in is resource-type default",
+			permARN:     "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet",
 			wantDefault: true,
 		},
 	}
@@ -705,7 +705,7 @@ func TestRAM_Accuracy_Reset_ReSeedsBuiltIns(t *testing.T) {
 				Permissions []json.RawMessage `json:"permissions"`
 			}
 			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &awsResp))
-			assert.Equal(t, ram.BuiltInPermissionCount, len(awsResp.Permissions),
+			assert.Len(t, awsResp.Permissions, ram.BuiltInPermissionCount,
 				"built-in permissions re-seeded after reset")
 		})
 	}
@@ -1043,9 +1043,9 @@ func TestRAM_Accuracy_AllowExternalPrincipals_Default(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
+		name          string
 		allowExternal bool
-		wantExternal bool
+		wantExternal  bool
 	}{
 		{
 			name:          "allow external principals true",
@@ -1087,9 +1087,9 @@ func TestRAM_Accuracy_CreateResourceShare_WithPrincipalsAndResources(t *testing.
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		principals   []string
-		resourceArns []string
+		name           string
+		principals     []string
+		resourceArns   []string
 		wantPrincipals int
 		wantResources  int
 	}{
@@ -1310,11 +1310,11 @@ func TestRAM_Accuracy_GetResourceShareAssociations_Filters(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
+		name            string
 		associationType string
 		setupPrincipals []string
 		setupResources  []string
-		wantCount      int
+		wantCount       int
 	}{
 		{
 			name:            "PRINCIPAL type returns only principals",
@@ -1327,8 +1327,11 @@ func TestRAM_Accuracy_GetResourceShareAssociations_Filters(t *testing.T) {
 			name:            "RESOURCE type returns only resources",
 			associationType: "RESOURCE",
 			setupPrincipals: []string{"111111111111"},
-			setupResources:  []string{"arn:aws:ec2:us-east-1:123456789012:subnet/sub-1", "arn:aws:ec2:us-east-1:123456789012:subnet/sub-2"},
-			wantCount:       2,
+			setupResources: []string{
+				"arn:aws:ec2:us-east-1:123456789012:subnet/sub-1",
+				"arn:aws:ec2:us-east-1:123456789012:subnet/sub-2",
+			},
+			wantCount: 2,
 		},
 		{
 			name:            "no type filter returns all",
@@ -1449,8 +1452,8 @@ func TestRAM_Accuracy_PromotePermissionCreatedFromPolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(*testing.T, *ram.Handler) string
+		name       string
 		wantStatus int
 	}{
 		{
@@ -1514,7 +1517,13 @@ func TestRAM_Accuracy_GetResourceShareInvitations_Status(t *testing.T) {
 				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("inv-acc-share", true, nil, nil, nil)
 				require.NoError(t, err)
-				inv := ram.CreateInvitation(h.Backend.(*ram.InMemoryBackend), rs.ARN, "inv-acc-share", "111111111111", "222222222222")
+				inv := ram.CreateInvitation(
+					h.Backend.(*ram.InMemoryBackend),
+					rs.ARN,
+					"inv-acc-share",
+					"111111111111",
+					"222222222222",
+				)
 
 				return inv.InvitationARN
 			},
@@ -1526,7 +1535,13 @@ func TestRAM_Accuracy_GetResourceShareInvitations_Status(t *testing.T) {
 				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("inv-acc2-share", true, nil, nil, nil)
 				require.NoError(t, err)
-				inv := ram.CreateInvitation(h.Backend.(*ram.InMemoryBackend), rs.ARN, "inv-acc2-share", "111111111111", "222222222222")
+				inv := ram.CreateInvitation(
+					h.Backend.(*ram.InMemoryBackend),
+					rs.ARN,
+					"inv-acc2-share",
+					"111111111111",
+					"222222222222",
+				)
 				_, err = h.Backend.AcceptResourceShareInvitation(inv.InvitationARN)
 				require.NoError(t, err)
 
@@ -1540,7 +1555,13 @@ func TestRAM_Accuracy_GetResourceShareInvitations_Status(t *testing.T) {
 				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("inv-rej-share", true, nil, nil, nil)
 				require.NoError(t, err)
-				inv := ram.CreateInvitation(h.Backend.(*ram.InMemoryBackend), rs.ARN, "inv-rej-share", "111111111111", "222222222222")
+				inv := ram.CreateInvitation(
+					h.Backend.(*ram.InMemoryBackend),
+					rs.ARN,
+					"inv-rej-share",
+					"111111111111",
+					"222222222222",
+				)
 				_, err = h.Backend.RejectResourceShareInvitation(inv.InvitationARN)
 				require.NoError(t, err)
 
@@ -1580,8 +1601,8 @@ func TestRAM_Accuracy_SetDefaultPermissionVersion(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(*testing.T, *ram.Handler) (string, int32)
+		name       string
 		wantStatus int
 	}{
 		{
@@ -1653,8 +1674,11 @@ func TestRAM_Accuracy_ListPendingInvitationResources(t *testing.T) {
 			wantStatus:    http.StatusOK,
 		},
 		{
-			name:          "invitation with multiple resources",
-			resourceArns:  []string{"arn:aws:ec2:us-east-1:123456789012:subnet/sub-1", "arn:aws:ec2:us-east-1:123456789012:subnet/sub-2"},
+			name: "invitation with multiple resources",
+			resourceArns: []string{
+				"arn:aws:ec2:us-east-1:123456789012:subnet/sub-1",
+				"arn:aws:ec2:us-east-1:123456789012:subnet/sub-2",
+			},
 			wantResources: 2,
 			wantStatus:    http.StatusOK,
 		},
@@ -1676,7 +1700,8 @@ func TestRAM_Accuracy_ListPendingInvitationResources(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			if tt.wantStatus == http.StatusBadRequest && tt.resourceArns == nil && tt.name == "nonexistent invitation returns error" {
+			if tt.wantStatus == http.StatusBadRequest && tt.resourceArns == nil &&
+				tt.name == "nonexistent invitation returns error" {
 				rec := doRAMRequest(t, h, "/listpendinginvitationresources", map[string]any{
 					"resourceShareInvitationArn": "arn:aws:ram:us-east-1:000000000000:resource-share-invitation/nonexistent",
 				})
