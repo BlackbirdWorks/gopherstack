@@ -35,10 +35,25 @@ const (
 	invitationStatusRejected = "REJECTED"
 	// permissionTypeCustomer is the customer managed permission type.
 	permissionTypeCustomer = "CUSTOMER_MANAGED"
+	// permissionTypeAWSManaged is the AWS-managed permission type.
+	permissionTypeAWSManaged = "AWS_MANAGED"
 	// resourceOwnerSelf is the owner filter for resources owned by the calling account.
 	resourceOwnerSelf = "SELF"
+	// resourceOwnerOtherAccounts is the owner filter for resources shared by other accounts.
+	resourceOwnerOtherAccounts = "OTHER-ACCOUNTS"
+	// resourceRegionScopeRegional indicates a resource is region-scoped.
+	resourceRegionScopeRegional = "REGIONAL"
 	// accountIDLen is the number of digits in an AWS account ID.
 	accountIDLen = 12
+
+	// Resource type strings shared between backend and built-in permission seeds.
+	resourceTypeEC2Subnet         = "ec2:Subnet"
+	resourceTypeEC2VPC            = "ec2:VPC"
+	resourceTypeEC2TransitGateway = "ec2:TransitGateway"
+	resourceTypeEC2PrefixList     = "ec2:PrefixList"
+	resourceTypeS3Bucket          = "s3:Bucket"
+	resourceTypeRoute53Resolver   = "route53resolver:ResolverRule"
+	resourceTypeLicenseManager    = "license-manager:LicenseConfiguration"
 )
 
 var (
@@ -62,6 +77,8 @@ var (
 	)
 	// ErrPermissionVersionNotFound is returned when a permission version does not exist.
 	ErrPermissionVersionNotFound = awserr.New("InvalidParameterException", awserr.ErrNotFound)
+	// ErrOperationNotPermitted is returned when an operation is not permitted on an AWS-managed resource.
+	ErrOperationNotPermitted = awserr.New("OperationNotPermittedException", awserr.ErrConflict)
 )
 
 // ResourceShare represents an AWS RAM resource share.
@@ -97,18 +114,21 @@ type PermissionVersion struct {
 	Version         int32     `json:"version"`
 }
 
-// Permission represents a customer-managed RAM permission.
+// Permission represents a managed RAM permission (AWS-managed or customer-managed).
 type Permission struct {
-	CreationTime    time.Time                    `json:"creationTime"`
-	LastUpdatedTime time.Time                    `json:"lastUpdatedTime"`
-	Tags            map[string]string            `json:"tags,omitempty"`
-	Versions        map[int32]*PermissionVersion `json:"versions"`
-	ARN             string                       `json:"arn"`
-	Name            string                       `json:"name"`
-	ResourceType    string                       `json:"resourceType"`
-	LatestVersion   int32                        `json:"latestVersion"`
-	DefaultVersion  int32                        `json:"defaultVersion"`
-	Deleted         bool                         `json:"deleted"`
+	CreationTime          time.Time                    `json:"creationTime"`
+	LastUpdatedTime       time.Time                    `json:"lastUpdatedTime"`
+	Tags                  map[string]string            `json:"tags,omitempty"`
+	Versions              map[int32]*PermissionVersion `json:"versions"`
+	ARN                   string                       `json:"arn"`
+	Name                  string                       `json:"name"`
+	ResourceType          string                       `json:"resourceType"`
+	PermissionType        string                       `json:"permissionType"`
+	ResourceRegionScope   string                       `json:"resourceRegionScope"`
+	LatestVersion         int32                        `json:"latestVersion"`
+	DefaultVersion        int32                        `json:"defaultVersion"`
+	IsResourceTypeDefault bool                         `json:"isResourceTypeDefault"`
+	Deleted               bool                         `json:"deleted"`
 }
 
 // clonePermission returns a deep copy of p.
@@ -123,6 +143,66 @@ func clonePermission(p *Permission) *Permission {
 	}
 
 	return &cp
+}
+
+// builtInPermDef defines a built-in AWS-managed RAM permission.
+type builtInPermDef struct {
+	name                string
+	resourceType        string
+	resourceRegionScope string
+	policy              string
+}
+
+//nolint:gochecknoglobals,lll // read-only table initialized once; JSON policy strings must remain intact
+var awsBuiltInPermissions = []builtInPermDef{
+	{
+		name:                "AWSRAMDefaultPermissionEC2Subnet",
+		resourceType:        resourceTypeEC2Subnet,
+		resourceRegionScope: resourceRegionScopeRegional,
+		policy:              `{"Effect":"Allow","Action":["ec2:CreateTags","ec2:Describe*","ec2:*NetworkInterface*","ec2:*Route*","ec2:*SubnetCidrBlock*"],"Resource":"*"}`, //nolint:lll // JSON policy must be on one line
+	},
+	{
+		name:                "AWSRAMDefaultPermissionEC2VPC",
+		resourceType:        resourceTypeEC2VPC,
+		resourceRegionScope: resourceRegionScopeRegional,
+		policy:              `{"Effect":"Allow","Action":["ec2:CreateTags","ec2:Describe*","ec2:*Vpc*","ec2:*SecurityGroup*","ec2:*Dhcp*"],"Resource":"*"}`, //nolint:lll // JSON policy must be on one line
+	},
+	{
+		name:                "AWSRAMDefaultPermissionEC2TransitGateway",
+		resourceType:        resourceTypeEC2TransitGateway,
+		resourceRegionScope: resourceRegionScopeRegional,
+		policy:              `{"Effect":"Allow","Action":["ec2:CreateTags","ec2:Describe*","ec2:*TransitGateway*"],"Resource":"*"}`,
+	},
+	{
+		name:                "AWSRAMDefaultPermissionEC2PrefixList",
+		resourceType:        resourceTypeEC2PrefixList,
+		resourceRegionScope: resourceRegionScopeRegional,
+		policy:              `{"Effect":"Allow","Action":["ec2:CreateTags","ec2:Describe*","ec2:*ManagedPrefixList*","ec2:GetManagedPrefixListEntries"],"Resource":"*"}`, //nolint:lll // JSON policy must be on one line
+	},
+	{
+		name:                "AWSRAMDefaultPermissionS3Bucket",
+		resourceType:        resourceTypeS3Bucket,
+		resourceRegionScope: resourceRegionScopeRegional,
+		policy:              `{"Effect":"Allow","Action":["s3:ListBucket","s3:GetObject","s3:GetBucketLocation","s3:GetBucketAcl"],"Resource":"*"}`, //nolint:lll // JSON policy must be on one line
+	},
+	{
+		name:                "AWSRAMDefaultPermissionRoute53ResolverResolverRule",
+		resourceType:        resourceTypeRoute53Resolver,
+		resourceRegionScope: resourceRegionScopeRegional,
+		policy:              `{"Effect":"Allow","Action":["route53resolver:ListResolverRules","route53resolver:GetResolverRule","route53resolver:*ResolverRuleAssociation*"],"Resource":"*"}`, //nolint:lll // JSON policy must be on one line
+	},
+	{
+		name:                "AWSRAMDefaultPermissionLicenseManagerLicenseConfiguration",
+		resourceType:        resourceTypeLicenseManager,
+		resourceRegionScope: resourceRegionScopeRegional,
+		policy:              `{"Effect":"Allow","Action":["license-manager:ListAssociationsForLicenseConfiguration","license-manager:GetLicenseConfiguration","license-manager:ListLicenseConfigurations","license-manager:CheckInLicense","license-manager:CheckoutLicense"],"Resource":"*"}`, //nolint:lll // JSON policy must be on one line
+	},
+}
+
+// awsManagedPermARN builds the ARN for an AWS-managed permission.
+// AWS-managed permissions use an empty account and region component.
+func awsManagedPermARN(name string) string {
+	return "arn:aws:ram::aws:permission/" + name
 }
 
 // ResourceShareInvitation represents an invitation to access a resource share.
@@ -171,9 +251,9 @@ type InMemoryBackend struct {
 	associations     []*ResourceShareAssociation
 }
 
-// NewInMemoryBackend creates a new in-memory RAM backend.
+// NewInMemoryBackend creates a new in-memory RAM backend seeded with AWS-managed permissions.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		resourceShares:   make(map[string]*ResourceShare),
 		associations:     make([]*ResourceShareAssociation, 0),
 		permissions:      make(map[string]*Permission),
@@ -182,6 +262,40 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:        accountID,
 		region:           region,
 		mu:               lockmetrics.New("ram"),
+	}
+	b.seedBuiltInPermissions()
+
+	return b
+}
+
+// seedBuiltInPermissions populates the backend with AWS-managed default permissions.
+// Called at construction and after Reset so built-in permissions are always available.
+func (b *InMemoryBackend) seedBuiltInPermissions() {
+	now := time.Now()
+
+	for _, def := range awsBuiltInPermissions {
+		permARN := awsManagedPermARN(def.name)
+		pv := &PermissionVersion{
+			Version:         1,
+			PolicyTemplate:  def.policy,
+			CreationTime:    now,
+			LastUpdatedTime: now,
+		}
+		p := &Permission{
+			ARN:                   permARN,
+			Name:                  def.name,
+			ResourceType:          def.resourceType,
+			PermissionType:        permissionTypeAWSManaged,
+			ResourceRegionScope:   def.resourceRegionScope,
+			Tags:                  make(map[string]string),
+			CreationTime:          now,
+			LastUpdatedTime:       now,
+			DefaultVersion:        1,
+			LatestVersion:         1,
+			IsResourceTypeDefault: true,
+			Versions:              map[int32]*PermissionVersion{1: pv},
+		}
+		b.permissions[permARN] = p
 	}
 }
 
@@ -267,29 +381,80 @@ func (b *InMemoryBackend) GetResourceShare(shareARN string) (*ResourceShare, err
 }
 
 // ListResourceShares returns resource shares matching the given owner and optional status filter.
-// resourceOwner should be "SELF" or "OTHER-ACCOUNTS". For the mock, "SELF" returns all owned shares
-// that are not deleted. Pass status="" to return all, or e.g. "ACTIVE" to filter.
+// resourceOwner must be "SELF" or "OTHER-ACCOUNTS".
+//   - "SELF": shares owned by this account (not deleted, optionally filtered by status).
+//   - "OTHER-ACCOUNTS": shares owned by another account where this account is a PRINCIPAL.
+//
+// Pass status="" to return all matching shares, or e.g. "ACTIVE" to filter by status.
 func (b *InMemoryBackend) ListResourceShares(resourceOwner, status string) []*ResourceShare {
 	b.mu.RLock("ListResourceShares")
 	defer b.mu.RUnlock()
 
-	list := make([]*ResourceShare, 0, len(b.resourceShares))
+	var list []*ResourceShare
 
-	for _, rs := range b.resourceShares {
-		if rs.Status == statusDeleted {
-			continue
-		}
-
-		if resourceOwner == resourceOwnerSelf || resourceOwner == "" {
-			if status != "" && rs.Status != status {
-				continue
-			}
-
-			list = append(list, cloneResourceShare(rs))
-		}
+	switch resourceOwner {
+	case resourceOwnerSelf, "":
+		list = b.listOwnedShares(status)
+	case resourceOwnerOtherAccounts:
+		list = b.listSharedWithMe(status)
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// listOwnedShares returns non-deleted shares owned by this account, filtered by status.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) listOwnedShares(status string) []*ResourceShare {
+	list := make([]*ResourceShare, 0, len(b.resourceShares))
+
+	for _, rs := range b.resourceShares {
+		if rs.Status == statusDeleted || rs.OwningAccountID != b.accountID {
+			continue
+		}
+
+		if status != "" && rs.Status != status {
+			continue
+		}
+
+		list = append(list, cloneResourceShare(rs))
+	}
+
+	return list
+}
+
+// listSharedWithMe returns non-deleted shares owned by other accounts where this
+// account appears as an active PRINCIPAL association. Caller must hold at least a read lock.
+func (b *InMemoryBackend) listSharedWithMe(status string) []*ResourceShare {
+	// Build a set of share ARNs where this account is an active PRINCIPAL.
+	principalShares := make(map[string]struct{})
+
+	for _, a := range b.associations {
+		if a.AssociationType == associationTypePrincipal &&
+			a.Status == associationStatusAssociated &&
+			a.AssociatedEntity == b.accountID {
+			principalShares[a.ResourceShareARN] = struct{}{}
+		}
+	}
+
+	list := make([]*ResourceShare, 0)
+
+	for _, rs := range b.resourceShares {
+		if rs.Status == statusDeleted || rs.OwningAccountID == b.accountID {
+			continue
+		}
+
+		if _, ok := principalShares[rs.ARN]; !ok {
+			continue
+		}
+
+		if status != "" && rs.Status != status {
+			continue
+		}
+
+		list = append(list, cloneResourceShare(rs))
+	}
 
 	return list
 }
@@ -583,8 +748,8 @@ func mergeTags(existing, incoming map[string]string) map[string]string {
 	return result
 }
 
-// Reset clears all in-memory state from the backend. It is used by the
-// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+// Reset clears all in-memory state from the backend and re-seeds built-in permissions.
+// It is used by the POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
@@ -594,6 +759,7 @@ func (b *InMemoryBackend) Reset() {
 	b.permissions = make(map[string]*Permission)
 	b.sharePermissions = make(map[string]map[string]int32)
 	b.invitations = make(map[string]*ResourceShareInvitation)
+	b.seedBuiltInPermissions()
 }
 
 // AddResourceShareInternal inserts a resource share directly, bypassing validation.
@@ -659,15 +825,17 @@ func (b *InMemoryBackend) CreatePermission(
 		LastUpdatedTime: now,
 	}
 	p := &Permission{
-		ARN:             permARN,
-		Name:            name,
-		ResourceType:    resourceType,
-		Tags:            mergeTags(nil, tags),
-		CreationTime:    now,
-		LastUpdatedTime: now,
-		DefaultVersion:  version,
-		LatestVersion:   version,
-		Versions:        map[int32]*PermissionVersion{version: pv},
+		ARN:                 permARN,
+		Name:                name,
+		ResourceType:        resourceType,
+		PermissionType:      permissionTypeCustomer,
+		ResourceRegionScope: resourceRegionScopeRegional,
+		Tags:                mergeTags(nil, tags),
+		CreationTime:        now,
+		LastUpdatedTime:     now,
+		DefaultVersion:      version,
+		LatestVersion:       version,
+		Versions:            map[int32]*PermissionVersion{version: pv},
 	}
 	b.permissions[permARN] = p
 
@@ -701,6 +869,7 @@ func (b *InMemoryBackend) CreatePermissionVersion(
 }
 
 // DeletePermission soft-deletes a customer-managed RAM permission and removes it from all shares.
+// AWS-managed permissions cannot be deleted.
 func (b *InMemoryBackend) DeletePermission(permissionARN string) error {
 	b.mu.Lock("DeletePermission")
 	defer b.mu.Unlock()
@@ -708,6 +877,14 @@ func (b *InMemoryBackend) DeletePermission(permissionARN string) error {
 	p, ok := b.permissions[permissionARN]
 	if !ok || p.Deleted {
 		return fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
+	}
+
+	if p.PermissionType == permissionTypeAWSManaged {
+		return fmt.Errorf(
+			"%w: cannot delete AWS-managed permission %s",
+			ErrOperationNotPermitted,
+			permissionARN,
+		)
 	}
 
 	p.Deleted = true

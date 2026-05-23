@@ -50,7 +50,8 @@ func TestRefinement1_ExportCounts(t *testing.T) {
 	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
 
 	assert.Equal(t, 0, ram.ResourceShareCount(b))
-	assert.Equal(t, 0, ram.PermissionCount(b))
+	// Built-in AWS-managed permissions are seeded at construction.
+	assert.Equal(t, ram.BuiltInPermissionCount, ram.PermissionCount(b))
 	assert.Equal(t, 0, ram.InvitationCount(b))
 	assert.Equal(t, 0, ram.AssociationCount(b))
 	assert.Equal(t, 0, ram.SharePermissionCount(b))
@@ -65,7 +66,7 @@ func TestRefinement1_ExportCounts(t *testing.T) {
 		b,
 		ram.NewTestPermission("arn:aws:ram:us-east-1:000000000000:permission/p1", "perm-1", "ec2:Subnet"),
 	)
-	assert.Equal(t, 1, ram.PermissionCount(b))
+	assert.Equal(t, ram.BuiltInPermissionCount+1, ram.PermissionCount(b))
 
 	ram.AddInvitationInternal(b, ram.NewTestInvitation(
 		"arn:aws:ram:us-east-1:000000000000:resource-share-invitation/inv1",
@@ -435,7 +436,8 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, b2.Restore(data))
 
 	assert.Equal(t, 1, ram.ResourceShareCount(b2))
-	assert.Equal(t, 1, ram.PermissionCount(b2))
+	// Snapshot includes built-ins + 1 customer-managed permission.
+	assert.Equal(t, ram.BuiltInPermissionCount+1, ram.PermissionCount(b2))
 	assert.Equal(t, 1, ram.InvitationCount(b2))
 }
 
@@ -552,7 +554,7 @@ func TestRefinement1_CreateResourceShare_NameRequired(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestRefinement1_Reset_ClearsAll verifies that Reset removes all state.
+// TestRefinement1_Reset_ClearsAll verifies that Reset removes user state and re-seeds built-ins.
 func TestRefinement1_Reset_ClearsAll(t *testing.T) {
 	t.Parallel()
 
@@ -567,7 +569,8 @@ func TestRefinement1_Reset_ClearsAll(t *testing.T) {
 	b.Reset()
 
 	assert.Equal(t, 0, ram.ResourceShareCount(b))
-	assert.Equal(t, 0, ram.PermissionCount(b))
+	// Built-in permissions are re-seeded after reset.
+	assert.Equal(t, ram.BuiltInPermissionCount, ram.PermissionCount(b))
 	assert.Equal(t, 0, ram.InvitationCount(b))
 	assert.Equal(t, 0, ram.AssociationCount(b))
 }
@@ -589,7 +592,8 @@ func TestRefinement1_AddPermissionInternal(t *testing.T) {
 	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
 	p := ram.NewTestPermission("arn:aws:ram:us-east-1:000000000000:permission/seed-perm", "seed-perm", "ec2:Subnet")
 	ram.AddPermissionInternal(b, p)
-	assert.Equal(t, 1, ram.PermissionCount(b))
+	// Built-ins + the one just added.
+	assert.Equal(t, ram.BuiltInPermissionCount+1, ram.PermissionCount(b))
 }
 
 // TestRefinement1_GetPermission_VersionSpecific verifies fetching a specific version.

@@ -670,6 +670,13 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrOperationNotPermitted):
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField:    "OperationNotPermittedException",
+			keyMessageField: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "MalformedQueryStringException",
@@ -763,6 +770,50 @@ func toResourceShareObject(rs *ResourceShare) resourceShareObject {
 	return obj
 }
 
+// arnPartCount is the number of colon-separated components in an AWS ARN.
+const arnPartCount = 6
+
+// resourceTypeFromARN derives the AWS resource type string (e.g. "ec2:Subnet") from an ARN.
+// Returns "UNKNOWN" if the ARN cannot be parsed or the service is unrecognised.
+func resourceTypeFromARN(resourceARN string) string {
+	// ARN format: arn:partition:service:region:account-id:resource-type/resource-id
+	parts := strings.SplitN(resourceARN, ":", arnPartCount)
+	if len(parts) < arnPartCount || parts[0] != "arn" {
+		return "UNKNOWN"
+	}
+
+	service := parts[2]
+	resourcePart := parts[5]
+
+	resType := resourcePart
+	if idx := strings.IndexAny(resourcePart, "/:"); idx >= 0 {
+		resType = resourcePart[:idx]
+	}
+
+	// Map known resource types to their canonical RAM type strings.
+	typeMap := map[string]string{
+		"subnet":                resourceTypeEC2Subnet,
+		"vpc":                   resourceTypeEC2VPC,
+		"transit-gateway":       resourceTypeEC2TransitGateway,
+		"prefix-list":           resourceTypeEC2PrefixList,
+		"resolver-rule":         resourceTypeRoute53Resolver,
+		"license-configuration": resourceTypeLicenseManager,
+	}
+
+	key := strings.ToLower(resType)
+	if mapped, ok := typeMap[key]; ok {
+		return mapped
+	}
+
+	if resType == "" {
+		return "UNKNOWN"
+	}
+
+	upper := strings.ToUpper(resType[:1]) + resType[1:]
+
+	return service + ":" + upper
+}
+
 // associationObject is the JSON representation of a ResourceShareAssociation.
 type associationObject struct {
 	ResourceShareArn  string  `json:"resourceShareArn"`
@@ -793,6 +844,7 @@ type createResourceShareRequest struct {
 	Tags                    []tagObject `json:"tags"`
 	Principals              []string    `json:"principals"`
 	ResourceArns            []string    `json:"resourceArns"`
+	PermissionArns          []string    `json:"permissionArns"`
 	AllowExternalPrincipals bool        `json:"allowExternalPrincipals"`
 }
 
@@ -819,6 +871,13 @@ func (h *Handler) handleCreateResourceShare(_ context.Context, body []byte) ([]b
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// Associate any explicitly requested permissions with the new share.
+	for _, permARN := range req.PermissionArns {
+		if assocErr := h.Backend.AssociateResourceSharePermission(rs.ARN, permARN, false, nil); assocErr != nil {
+			return nil, assocErr
+		}
 	}
 
 	return json.Marshal(createResourceShareResponse{
@@ -1196,6 +1255,7 @@ type permissionSummaryObject struct {
 	PermissionType        string      `json:"permissionType"`
 	FeatureSet            string      `json:"featureSet"`
 	Version               string      `json:"version"`
+	ResourceRegionScope   string      `json:"resourceRegionScope,omitempty"`
 	Tags                  []tagObject `json:"tags,omitempty"`
 	CreationTime          float64     `json:"creationTime"`
 	LastUpdatedTime       float64     `json:"lastUpdatedTime"`
@@ -1212,6 +1272,7 @@ type permissionDetailObject struct {
 	FeatureSet            string      `json:"featureSet"`
 	Version               string      `json:"version"`
 	Permission            string      `json:"permission,omitempty"`
+	ResourceRegionScope   string      `json:"resourceRegionScope,omitempty"`
 	Tags                  []tagObject `json:"tags,omitempty"`
 	CreationTime          float64     `json:"creationTime"`
 	LastUpdatedTime       float64     `json:"lastUpdatedTime"`
@@ -1220,16 +1281,23 @@ type permissionDetailObject struct {
 }
 
 func toPermissionSummaryObject(p *Permission) permissionSummaryObject {
+	permType := p.PermissionType
+	if permType == "" {
+		permType = permissionTypeCustomer
+	}
+
 	obj := permissionSummaryObject{
-		Arn:             p.ARN,
-		Name:            p.Name,
-		ResourceType:    p.ResourceType,
-		PermissionType:  permissionTypeCustomer,
-		FeatureSet:      permStandard,
-		CreationTime:    epochSeconds(p.CreationTime),
-		LastUpdatedTime: epochSeconds(p.LastUpdatedTime),
-		Version:         strconv.Itoa(int(p.DefaultVersion)),
-		DefaultVersion:  true,
+		Arn:                   p.ARN,
+		Name:                  p.Name,
+		ResourceType:          p.ResourceType,
+		PermissionType:        permType,
+		FeatureSet:            permStandard,
+		CreationTime:          epochSeconds(p.CreationTime),
+		LastUpdatedTime:       epochSeconds(p.LastUpdatedTime),
+		Version:               strconv.Itoa(int(p.DefaultVersion)),
+		DefaultVersion:        true,
+		IsResourceTypeDefault: p.IsResourceTypeDefault,
+		ResourceRegionScope:   p.ResourceRegionScope,
 	}
 
 	if len(p.Tags) > 0 {
@@ -1240,17 +1308,24 @@ func toPermissionSummaryObject(p *Permission) permissionSummaryObject {
 }
 
 func toPermissionDetailObject(p *Permission, pv *PermissionVersion) permissionDetailObject {
+	permType := p.PermissionType
+	if permType == "" {
+		permType = permissionTypeCustomer
+	}
+
 	obj := permissionDetailObject{
-		Arn:             p.ARN,
-		Name:            p.Name,
-		ResourceType:    p.ResourceType,
-		PermissionType:  permissionTypeCustomer,
-		FeatureSet:      permStandard,
-		CreationTime:    epochSeconds(p.CreationTime),
-		LastUpdatedTime: epochSeconds(p.LastUpdatedTime),
-		Version:         strconv.Itoa(int(pv.Version)),
-		DefaultVersion:  pv.Version == p.DefaultVersion,
-		Permission:      pv.PolicyTemplate,
+		Arn:                   p.ARN,
+		Name:                  p.Name,
+		ResourceType:          p.ResourceType,
+		PermissionType:        permType,
+		FeatureSet:            permStandard,
+		CreationTime:          epochSeconds(p.CreationTime),
+		LastUpdatedTime:       epochSeconds(p.LastUpdatedTime),
+		Version:               strconv.Itoa(int(pv.Version)),
+		DefaultVersion:        pv.Version == p.DefaultVersion,
+		IsResourceTypeDefault: p.IsResourceTypeDefault,
+		ResourceRegionScope:   p.ResourceRegionScope,
+		Permission:            pv.PolicyTemplate,
 	}
 
 	if len(p.Tags) > 0 {
@@ -1821,6 +1896,10 @@ func (h *Handler) handleListPermissions(_ context.Context, body []byte) ([]byte,
 	objs := make([]permissionSummaryObject, 0, len(perms))
 
 	for _, p := range perms {
+		if req.PermissionType != "" && p.PermissionType != req.PermissionType {
+			continue
+		}
+
 		objs = append(objs, toPermissionSummaryObject(p))
 	}
 
@@ -1910,22 +1989,27 @@ func (h *Handler) handleListPermissionAssociations(_ context.Context, body []byt
 // --- ListResources ---
 
 type resourceObject struct {
-	Arn              string  `json:"arn"`
-	ResourceShareArn string  `json:"resourceShareArn"`
-	Type             string  `json:"type"`
-	Status           string  `json:"status"`
-	CreationTime     float64 `json:"creationTime"`
-	LastUpdatedTime  float64 `json:"lastUpdatedTime"`
+	Arn                 string  `json:"arn"`
+	ResourceShareArn    string  `json:"resourceShareArn"`
+	Type                string  `json:"type"`
+	Status              string  `json:"status"`
+	ResourceRegionScope string  `json:"resourceRegionScope"`
+	CreationTime        float64 `json:"creationTime"`
+	LastUpdatedTime     float64 `json:"lastUpdatedTime"`
 }
 
 func toResourceObject(a *ResourceShareAssociation) resourceObject {
+	resType := resourceTypeFromARN(a.AssociatedEntity)
+	scope := "REGIONAL"
+
 	return resourceObject{
-		Arn:              a.AssociatedEntity,
-		ResourceShareArn: a.ResourceShareARN,
-		Type:             "UNKNOWN",
-		Status:           a.Status,
-		CreationTime:     epochSeconds(a.CreationTime),
-		LastUpdatedTime:  epochSeconds(a.LastUpdatedTime),
+		Arn:                 a.AssociatedEntity,
+		ResourceShareArn:    a.ResourceShareARN,
+		Type:                resType,
+		Status:              a.Status,
+		ResourceRegionScope: scope,
+		CreationTime:        epochSeconds(a.CreationTime),
+		LastUpdatedTime:     epochSeconds(a.LastUpdatedTime),
 	}
 }
 
