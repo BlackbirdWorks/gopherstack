@@ -1149,11 +1149,13 @@ func (h *Handler) handleGetApplicationSettings(c *echo.Context, appID string) er
 	}
 
 	resp := appSettingsResponse{
-		ApplicationID:    appID,
-		LastModifiedDate: nowRFC3339(),
-		CampaignHook:     settings.CampaignHook,
-		Limits:           settings.Limits,
-		QuietTime:        settings.QuietTime,
+		ApplicationID:            appID,
+		LastModifiedDate:         nowRFC3339(),
+		CampaignHook:             settings.CampaignHook,
+		Limits:                   settings.Limits,
+		QuietTime:                settings.QuietTime,
+		CloudWatchMetricsEnabled: settings.CloudWatchMetrics,
+		EventTaggingEnabled:      settings.EventTaggingEnabled,
 	}
 
 	if resp.CampaignHook == nil {
@@ -1181,10 +1183,11 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 	}
 
 	var incoming struct {
-		CampaignHook      map[string]any `json:"CampaignHook"`
-		Limits            map[string]any `json:"Limits"`
-		QuietTime         map[string]any `json:"QuietTime"`
-		CloudWatchMetrics bool           `json:"CloudWatchMetricsEnabled"`
+		CampaignHook        map[string]any `json:"CampaignHook"`
+		Limits              map[string]any `json:"Limits"`
+		QuietTime           map[string]any `json:"QuietTime"`
+		CloudWatchMetrics   bool           `json:"CloudWatchMetricsEnabled"`
+		EventTaggingEnabled bool           `json:"EventTaggingEnabled"`
 	}
 
 	if len(body) > 0 {
@@ -1194,10 +1197,11 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 	}
 
 	settingsToStore := &storedAppSettings{
-		CampaignHook:      incoming.CampaignHook,
-		Limits:            incoming.Limits,
-		QuietTime:         incoming.QuietTime,
-		CloudWatchMetrics: incoming.CloudWatchMetrics,
+		CampaignHook:        incoming.CampaignHook,
+		Limits:              incoming.Limits,
+		QuietTime:           incoming.QuietTime,
+		CloudWatchMetrics:   incoming.CloudWatchMetrics,
+		EventTaggingEnabled: incoming.EventTaggingEnabled,
 	}
 
 	settings, updateErr := h.Backend.UpdateApplicationSettings(appID, settingsToStore)
@@ -1210,11 +1214,13 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 	}
 
 	resp := appSettingsResponse{
-		ApplicationID:    appID,
-		LastModifiedDate: nowRFC3339(),
-		CampaignHook:     settings.CampaignHook,
-		Limits:           settings.Limits,
-		QuietTime:        settings.QuietTime,
+		ApplicationID:            appID,
+		LastModifiedDate:         nowRFC3339(),
+		CampaignHook:             settings.CampaignHook,
+		Limits:                   settings.Limits,
+		QuietTime:                settings.QuietTime,
+		CloudWatchMetricsEnabled: settings.CloudWatchMetrics,
+		EventTaggingEnabled:      settings.EventTaggingEnabled,
 	}
 
 	if resp.CampaignHook == nil {
@@ -1405,59 +1411,88 @@ func (h *Handler) handleCreateTemplate(c *echo.Context, templateName, templateTy
 func (h *Handler) createTemplateByType(body []byte, region, templateName, templateType string) (string, error) {
 	switch templateType {
 	case templateTypeEmail:
-		var req createEmailTemplateRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return "", errInvalidRequestBody
-		}
-
-		t, err := h.Backend.CreateEmailTemplate(region, h.AccountID, templateName, req)
-		if err != nil {
-			return "", err
-		}
-
-		return t.ARN, nil
-
+		return h.createEmailTemplateARN(body, region, templateName)
 	case templateTypeInApp:
-		var req createInAppTemplateRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return "", errInvalidRequestBody
-		}
-
-		t, err := h.Backend.CreateInAppTemplate(region, h.AccountID, templateName, req)
-		if err != nil {
-			return "", err
-		}
-
-		return t.ARN, nil
-
+		return h.createInAppTemplateARN(body, region, templateName)
 	case templateTypePush:
-		var req createPushTemplateRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return "", errInvalidRequestBody
-		}
-
-		t, err := h.Backend.CreatePushTemplate(region, h.AccountID, templateName, req)
-		if err != nil {
-			return "", err
-		}
-
-		return t.ARN, nil
-
+		return h.createPushTemplateARN(body, region, templateName)
 	case templateTypeSMS:
-		var req createSmsTemplateRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return "", errInvalidRequestBody
-		}
-
-		t, err := h.Backend.CreateSmsTemplate(region, h.AccountID, templateName, req)
-		if err != nil {
-			return "", err
-		}
-
-		return t.ARN, nil
+		return h.createSMSTemplateARN(body, region, templateName)
+	case templateTypeVoice:
+		return h.createVoiceTemplateARN(body, region, templateName)
 	}
 
 	return "", fmt.Errorf("%w: %s", errUnsupportedTemplateType, templateType)
+}
+
+func (h *Handler) createEmailTemplateARN(body []byte, region, templateName string) (string, error) {
+	var req createEmailTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", errInvalidRequestBody
+	}
+
+	t, err := h.Backend.CreateEmailTemplate(region, h.AccountID, templateName, req)
+	if err != nil {
+		return "", err
+	}
+
+	return t.ARN, nil
+}
+
+func (h *Handler) createInAppTemplateARN(body []byte, region, templateName string) (string, error) {
+	var req createInAppTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", errInvalidRequestBody
+	}
+
+	t, err := h.Backend.CreateInAppTemplate(region, h.AccountID, templateName, req)
+	if err != nil {
+		return "", err
+	}
+
+	return t.ARN, nil
+}
+
+func (h *Handler) createPushTemplateARN(body []byte, region, templateName string) (string, error) {
+	var req createPushTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", errInvalidRequestBody
+	}
+
+	t, err := h.Backend.CreatePushTemplate(region, h.AccountID, templateName, req)
+	if err != nil {
+		return "", err
+	}
+
+	return t.ARN, nil
+}
+
+func (h *Handler) createSMSTemplateARN(body []byte, region, templateName string) (string, error) {
+	var req createSmsTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", errInvalidRequestBody
+	}
+
+	t, err := h.Backend.CreateSmsTemplate(region, h.AccountID, templateName, req)
+	if err != nil {
+		return "", err
+	}
+
+	return t.ARN, nil
+}
+
+func (h *Handler) createVoiceTemplateARN(body []byte, region, templateName string) (string, error) {
+	var req createVoiceTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", errInvalidRequestBody
+	}
+
+	t, err := h.Backend.CreateVoiceTemplate(region, h.AccountID, templateName, req)
+	if err != nil {
+		return "", err
+	}
+
+	return t.ARN, nil
 }
 func (h *Handler) handleCreateCampaign(c *echo.Context, appID string) error {
 	body, err := httputils.ReadBody(c.Request())
