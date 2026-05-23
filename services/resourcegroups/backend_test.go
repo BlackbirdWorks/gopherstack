@@ -30,7 +30,7 @@ func TestResourceGroupsCreateGroup(t *testing.T) {
 			name:      "already_exists",
 			groupName: "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
-				_, _ = b.CreateGroup("my-group", "", nil, nil)
+				_, _ = b.CreateGroup("my-group", "", nil, nil, nil)
 			},
 			wantErr: resourcegroups.ErrAlreadyExists,
 		},
@@ -43,7 +43,7 @@ func TestResourceGroupsCreateGroup(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			g, err := b.CreateGroup(tt.groupName, tt.description, nil, tt.tags)
+			g, err := b.CreateGroup(tt.groupName, tt.description, nil, tt.tags, nil)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -71,7 +71,7 @@ func TestResourceGroupsDeleteGroup(t *testing.T) {
 			name:      "success",
 			groupName: "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
-				_, _ = b.CreateGroup("my-group", "", nil, nil)
+				_, _ = b.CreateGroup("my-group", "", nil, nil, nil)
 			},
 		},
 		{
@@ -96,7 +96,7 @@ func TestResourceGroupsDeleteGroup(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			groups := b.ListGroups()
+			groups := b.ListGroups(nil)
 			assert.Empty(t, groups)
 		})
 	}
@@ -117,7 +117,7 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			name:      "success",
 			groupName: "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
-				_, _ = b.CreateGroup("my-group", "desc", nil, tags.FromMap("test.rg", map[string]string{"env": "test"}))
+				_, _ = b.CreateGroup("my-group", "desc", nil, tags.FromMap("test.rg", map[string]string{"env": "test"}), nil)
 			},
 			wantTag: "test",
 		},
@@ -131,7 +131,7 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			groupName: "arn:aws:resource-groups:us-east-1:000000000000:group/my-group",
 			wantName:  "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
-				_, _ = b.CreateGroup("my-group", "desc", nil, nil)
+				_, _ = b.CreateGroup("my-group", "desc", nil, nil, nil)
 			},
 		},
 	}
@@ -168,10 +168,10 @@ func TestResourceGroupsListGroups(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateGroup("group-a", "", nil, nil)
-	_, _ = b.CreateGroup("group-b", "", nil, nil)
+	_, _ = b.CreateGroup("group-a", "", nil, nil, nil)
+	_, _ = b.CreateGroup("group-b", "", nil, nil, nil)
 
-	groups := b.ListGroups()
+	groups := b.ListGroups(nil)
 	assert.Len(t, groups, 2)
 }
 
@@ -187,7 +187,7 @@ func TestResourceGroupsGetTagsByARN(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *resourcegroups.InMemoryBackend) string {
-				g, _ := b.CreateGroup("my-group", "", nil, tags.FromMap("test.rg", map[string]string{"env": "prod"}))
+				g, _ := b.CreateGroup("my-group", "", nil, tags.FromMap("test.rg", map[string]string{"env": "prod"}), nil)
 
 				return g.ARN
 			},
@@ -247,7 +247,7 @@ func TestResourceGroupsAddTagsByARN(t *testing.T) {
 			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 			var groupARN string
 			if tt.wantErr == nil {
-				g, _ := b.CreateGroup("my-group", "", nil, tags.FromMap("test.rg", map[string]string{"env": "prod"}))
+				g, _ := b.CreateGroup("my-group", "", nil, tags.FromMap("test.rg", map[string]string{"env": "prod"}), nil)
 				groupARN = g.ARN
 			} else {
 				groupARN = "arn:aws:resource-groups:us-east-1:000000000000:group/nonexistent"
@@ -290,7 +290,7 @@ func TestResourceGroupsRemoveTagsByARN(t *testing.T) {
 			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 			var groupARN string
 			if tt.wantErr == nil {
-				g, _ := b.CreateGroup("my-group", "", nil, tags.FromMap("test.rg", map[string]string{"env": "prod"}))
+				g, _ := b.CreateGroup("my-group", "", nil, tags.FromMap("test.rg", map[string]string{"env": "prod"}), nil)
 				groupARN = g.ARN
 			} else {
 				groupARN = "arn:aws:resource-groups:us-east-1:000000000000:group/nonexistent"
@@ -316,7 +316,7 @@ func TestResourceGroupsSnapshotRestore(t *testing.T) {
 	_, err := b.CreateGroup("snap-group", "desc", &resourcegroups.ResourceQuery{
 		Type:  "TAG_FILTERS_1_0",
 		Query: `{}`,
-	}, tags.FromMap("test.rg", map[string]string{"env": "test"}))
+	}, tags.FromMap("test.rg", map[string]string{"env": "test"}), nil)
 	require.NoError(t, err)
 
 	snap := b.Snapshot()

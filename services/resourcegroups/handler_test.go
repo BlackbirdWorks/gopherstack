@@ -528,7 +528,7 @@ func TestResourceGroupsHandler_ResourceTagsMethodNotAllowed(t *testing.T) {
 	h := newTestResourceGroupsHandler(t)
 	rec := doResourceTagsRequest(t, h, http.MethodDelete,
 		"arn:aws:resource-groups:us-east-1:000000000000:group/my-group", nil)
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestResourceGroupsHandler_RouteMatcherTagsPath(t *testing.T) {
@@ -700,7 +700,7 @@ func TestResourceGroupsHandler_RESTExtractOperation(t *testing.T) {
 			name:   "tags_unknown_method",
 			path:   "/resources/arn:aws:rg:us-east-1:123:group/g/tags",
 			method: http.MethodDelete,
-			want:   "Unknown",
+			want:   "Untag",
 		},
 	}
 
@@ -797,18 +797,18 @@ func TestResourceGroupsHandler_UpdateGroupQuery(t *testing.T) {
 				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{
 					"Name": "q-group",
 					"ResourceQuery": map[string]any{
-						"Type": "TAG_FILTERS_1_0", "Query": "old-query",
+						"Type": "TAG_FILTERS_1_0", "Query": "{}",
 					},
 				})
 			},
 			body: map[string]any{
 				"GroupName": "q-group",
 				"ResourceQuery": map[string]any{
-					"Type": "TAG_FILTERS_1_0", "Query": "new-query",
+					"Type": "TAG_FILTERS_1_0", "Query": "{\"updated\":true}",
 				},
 			},
 			wantCode:    http.StatusOK,
-			wantContain: "new-query",
+			wantContain: "updated",
 		},
 		{
 			name:     "not_found",

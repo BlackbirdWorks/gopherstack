@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -61,6 +62,8 @@ const (
 	groupNameMaxLen = 300
 	groupDescMaxLen = 512
 )
+
+const configParamAllowedResourceTypes = "allowed-resource-types"
 
 // groupNameRe matches valid Resource Groups group names (AWS rule).
 var groupNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.−\-]+$`) //nolint:gocritic
@@ -357,13 +360,36 @@ func resolveGroupName(nameOrARN string) string {
 // CreateGroup creates a new resource group.
 // The Tags field in the returned Group points to a fresh Tags copy; it is
 // safe to read but callers should not pass it back to mutation methods.
+// configuration is optional; when non-nil it is stored atomically with the group.
 func (b *InMemoryBackend) CreateGroup(
 	name, description string,
 	resourceQuery *ResourceQuery,
 	inputTags *tags.Tags,
+	configuration []GroupConfigurationItem,
 ) (*Group, error) {
-	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	if err := validateGroupName(name); err != nil {
+		return nil, err
+	}
+
+	if err := validateDescription(description); err != nil {
+		return nil, err
+	}
+
+	if err := validateResourceQuery(resourceQuery); err != nil {
+		return nil, err
+	}
+
+	if len(configuration) > 0 {
+		if err := validateConfiguration(configuration); err != nil {
+			return nil, err
+		}
+	}
+
+	if inputTags != nil {
+		tagMap := inputTags.Clone()
+		if err := validateTagKeys(tagMap); err != nil {
+			return nil, err
+		}
 	}
 
 	b.mu.Lock("CreateGroup")
@@ -384,9 +410,20 @@ func (b *InMemoryBackend) CreateGroup(
 		backendTags = tags.FromMap("rg."+name+".tags", inputTags.Clone())
 	}
 
-	g := &Group{Name: name, ARN: groupARN, Description: description, Tags: backendTags, ResourceQuery: resourceQuery}
+	g := &Group{
+		Name:          name,
+		ARN:           groupARN,
+		Description:   description,
+		Tags:          backendTags,
+		ResourceQuery: resourceQuery,
+		OwnerId:       b.accountID,
+	}
 	b.groups[name] = g
 	b.arnIndex[groupARN] = name
+
+	if len(configuration) > 0 {
+		b.groupConfigurations[name] = cloneConfigItems(configuration)
+	}
 
 	cp := *g
 
@@ -410,8 +447,18 @@ func (b *InMemoryBackend) GetGroup(nameOrARN string) (*Group, error) {
 	return &cp, nil
 }
 
-// UpdateGroup updates the description of a resource group identified by name or ARN.
-func (b *InMemoryBackend) UpdateGroup(nameOrARN, description string) (*Group, error) {
+// UpdateGroup updates the description, display name, and criticality of a resource group.
+// Pass an empty displayName to leave it unchanged. Pass criticality=0 to leave it unchanged.
+// Criticality must be 1-5 if non-zero.
+func (b *InMemoryBackend) UpdateGroup(nameOrARN, description, displayName string, criticality int) (*Group, error) {
+	if err := validateDescription(description); err != nil {
+		return nil, err
+	}
+
+	if criticality != 0 && (criticality < 1 || criticality > 5) {
+		return nil, fmt.Errorf("%w: Criticality must be between 1 and 5", ErrValidation)
+	}
+
 	b.mu.Lock("UpdateGroup")
 	defer b.mu.Unlock()
 
@@ -423,6 +470,15 @@ func (b *InMemoryBackend) UpdateGroup(nameOrARN, description string) (*Group, er
 	}
 
 	g.Description = description
+
+	if displayName != "" {
+		g.DisplayName = displayName
+	}
+
+	if criticality != 0 {
+		g.Criticality = criticality
+	}
+
 	cp := *g
 
 	return &cp, nil
@@ -430,6 +486,10 @@ func (b *InMemoryBackend) UpdateGroup(nameOrARN, description string) (*Group, er
 
 // UpdateGroupQuery updates the resource query of a resource group identified by name or ARN.
 func (b *InMemoryBackend) UpdateGroupQuery(nameOrARN string, query *ResourceQuery) (*Group, error) {
+	if err := validateResourceQuery(query); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateGroupQuery")
 	defer b.mu.Unlock()
 
@@ -479,14 +539,21 @@ func (b *InMemoryBackend) DeleteGroup(nameOrARN string) error {
 	return nil
 }
 
-// ListGroups returns all resource groups sorted by name.
-func (b *InMemoryBackend) ListGroups() []Group {
+// ListGroups returns all resource groups sorted by name, optionally filtered.
+// Supported filter names: "configuration-type" (match by GroupConfigurationItem.Type)
+// and "resource-type" (match by allowed-resource-types parameter value).
+// An empty filters slice returns all groups.
+func (b *InMemoryBackend) ListGroups(filters []ListGroupsFilter) []Group {
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
 	out := make([]Group, 0, len(b.groups))
 
 	for _, g := range b.groups {
+		if !b.groupMatchesFilters(g.Name, filters) {
+			continue
+		}
+
 		cp := *g
 		cp.Tags = nil
 		out = append(out, cp)
@@ -495,6 +562,66 @@ func (b *InMemoryBackend) ListGroups() []Group {
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
 	return out
+}
+
+// groupMatchesFilters returns true when a group satisfies all provided filter criteria.
+// Must be called under an active read lock.
+func (b *InMemoryBackend) groupMatchesFilters(name string, filters []ListGroupsFilter) bool {
+	if len(filters) == 0 {
+		return true
+	}
+
+	configs := b.groupConfigurations[name]
+
+	for _, f := range filters {
+		switch f.Name {
+		case listGroupsFilterConfigurationType:
+			if !configMatchesTypeFilter(configs, f.Values) {
+				return false
+			}
+		case listGroupsFilterResourceType:
+			if !configMatchesResourceTypeFilter(configs, f.Values) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// configMatchesTypeFilter returns true if any configuration item has a Type matching one of values.
+func configMatchesTypeFilter(configs []GroupConfigurationItem, values []string) bool {
+	for _, item := range configs {
+		for _, v := range values {
+			if item.Type == v {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// configMatchesResourceTypeFilter returns true if any configuration item has an
+// allowed-resource-types parameter containing one of values.
+func configMatchesResourceTypeFilter(configs []GroupConfigurationItem, values []string) bool {
+	for _, item := range configs {
+		for _, param := range item.Parameters {
+			if param.Name != "allowed-resource-types" {
+				continue
+			}
+
+			for _, pv := range param.Values {
+				for _, v := range values {
+					if pv == v {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 // GetTagsByARN returns the tags for the resource group identified by ARN.
@@ -511,8 +638,12 @@ func (b *InMemoryBackend) GetTagsByARN(resourceARN string) (map[string]string, e
 }
 
 // AddTagsByARN merges newTags into the resource group identified by ARN and
-// returns the resulting tag set.
+// returns the resulting tag set. Rejects reserved aws: tag key prefixes.
 func (b *InMemoryBackend) AddTagsByARN(resourceARN string, newTags map[string]string) (map[string]string, error) {
+	if err := validateTagKeys(newTags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("AddTagsByARN")
 	defer b.mu.Unlock()
 
@@ -581,7 +712,12 @@ func (b *InMemoryBackend) UpdateAccountSettings(desiredStatus string) error {
 }
 
 // PutGroupConfiguration stores a deep copy of items for the named group.
+// It validates each item's Type and Parameters against the known allow-list.
 func (b *InMemoryBackend) PutGroupConfiguration(nameOrARN string, items []GroupConfigurationItem) error {
+	if err := validateConfiguration(items); err != nil {
+		return err
+	}
+
 	b.mu.Lock("PutGroupConfiguration")
 	defer b.mu.Unlock()
 
@@ -675,15 +811,33 @@ func (b *InMemoryBackend) GroupResources(nameOrARN string, resourceARNs []string
 	return succeeded, nil
 }
 
+// UngroupResourcesResult holds the result of an UngroupResources call.
+type UngroupResourcesResult struct {
+	Succeeded []string
+	Failed    []GroupingFailedItem
+}
+
+// GroupingFailedItem describes a resource that could not be grouped or ungrouped.
+type GroupingFailedItem struct {
+	ResourceArn  string `json:"ResourceArn"`
+	ErrorCode    string `json:"ErrorCode"`
+	ErrorMessage string `json:"ErrorMessage"`
+}
+
 // UngroupResources removes a list of resource ARNs from a group.
-// ARNs that are not currently in the group are silently ignored.
-func (b *InMemoryBackend) UngroupResources(nameOrARN string, resourceARNs []string) ([]string, error) {
+// ARNs that are not currently in the group are returned in Failed[].
+func (b *InMemoryBackend) UngroupResources(nameOrARN string, resourceARNs []string) (*UngroupResourcesResult, error) {
 	b.mu.Lock("UngroupResources")
 	defer b.mu.Unlock()
 
 	name := resolveGroupName(nameOrARN)
 	if _, ok := b.groups[name]; !ok {
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	existing := make(map[string]struct{}, len(b.groupResources[name]))
+	for _, a := range b.groupResources[name] {
+		existing[a] = struct{}{}
 	}
 
 	remove := make(map[string]struct{}, len(resourceARNs))
@@ -701,19 +855,38 @@ func (b *InMemoryBackend) UngroupResources(nameOrARN string, resourceARNs []stri
 	b.groupResources[name] = kept
 
 	now := time.Now().UTC()
-	succeeded := make([]string, 0, len(resourceARNs))
-
-	for _, a := range resourceARNs {
-		succeeded = append(succeeded, a)
-		b.groupingStatuses[name] = append(b.groupingStatuses[name], GroupingStatusItem{
-			ResourceArn: a,
-			Action:      groupingActionUngroup,
-			Status:      groupingStatusSuccess,
-			UpdatedAt:   now,
-		})
+	result := &UngroupResourcesResult{
+		Succeeded: make([]string, 0),
+		Failed:    make([]GroupingFailedItem, 0),
 	}
 
-	return succeeded, nil
+	for _, a := range resourceARNs {
+		if _, wasMember := existing[a]; wasMember {
+			result.Succeeded = append(result.Succeeded, a)
+			b.groupingStatuses[name] = append(b.groupingStatuses[name], GroupingStatusItem{
+				ResourceArn: a,
+				Action:      groupingActionUngroup,
+				Status:      groupingStatusSuccess,
+				UpdatedAt:   now,
+			})
+		} else {
+			result.Failed = append(result.Failed, GroupingFailedItem{
+				ResourceArn:  a,
+				ErrorCode:    groupingErrResourceNotFound,
+				ErrorMessage: fmt.Sprintf("resource %s is not a member of group %s", a, name),
+			})
+			b.groupingStatuses[name] = append(b.groupingStatuses[name], GroupingStatusItem{
+				ResourceArn:  a,
+				Action:       groupingActionUngroup,
+				Status:       groupingStatusFailed,
+				ErrorCode:    groupingErrResourceNotFound,
+				ErrorMessage: fmt.Sprintf("resource %s is not a member of group %s", a, name),
+				UpdatedAt:    now,
+			})
+		}
+	}
+
+	return result, nil
 }
 
 // ListGroupResources returns all resource ARNs associated with a group.
@@ -815,16 +988,19 @@ func (b *InMemoryBackend) StartTagSyncTask(
 	return &cp, nil
 }
 
-// CancelTagSyncTask cancels and removes a tag-sync task by ARN.
+// CancelTagSyncTask transitions a tag-sync task to CANCELLED status.
+// The task remains visible via GetTagSyncTask and ListTagSyncTasks until
+// the tagSyncTaskTTL eviction window expires (issue #22 accuracy fix).
 func (b *InMemoryBackend) CancelTagSyncTask(taskARN string) error {
 	b.mu.Lock("CancelTagSyncTask")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tagSyncTasks[taskARN]; !ok {
+	task, ok := b.tagSyncTasks[taskARN]
+	if !ok {
 		return fmt.Errorf("%w: task %s not found", ErrTagSyncTaskNotFound, taskARN)
 	}
 
-	delete(b.tagSyncTasks, taskARN)
+	task.Status = tagSyncTaskStatusCancelled
 
 	return nil
 }
