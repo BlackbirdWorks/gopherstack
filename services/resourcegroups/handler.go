@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -241,7 +242,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 			return "GetTags"
 		case http.MethodPut:
 			return "Tag"
-		case http.MethodPatch:
+		case http.MethodPatch, http.MethodDelete:
 			return "Untag"
 		}
 	}
@@ -354,28 +355,40 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 type handleCreateGroupInput struct {
-	Tags          *tags.Tags     `json:"Tags"`
-	ResourceQuery *ResourceQuery `json:"ResourceQuery"`
-	Name          string         `json:"Name"`
-	Description   string         `json:"Description"`
+	Name          string                   `json:"Name"`
+	Description   string                   `json:"Description"`
+	Tags          *tags.Tags               `json:"Tags"`
+	ResourceQuery *ResourceQuery           `json:"ResourceQuery"`
+	Configuration []GroupConfigurationItem `json:"Configuration"`
+}
+
+type groupConfigurationBody struct {
+	Status        string                   `json:"Status,omitempty"`
+	Configuration []GroupConfigurationItem `json:"Configuration,omitempty"`
 }
 
 type createGroupOutput struct {
-	Group         *Group         `json:"Group"`
-	ResourceQuery *ResourceQuery `json:"ResourceQuery,omitempty"`
+	Group              *Group                  `json:"Group"`
+	ResourceQuery      *ResourceQuery          `json:"ResourceQuery,omitempty"`
+	GroupConfiguration *groupConfigurationBody `json:"GroupConfiguration,omitempty"`
 }
 
 func (h *Handler) handleCreateGroup(_ context.Context, in *handleCreateGroupInput) (*createGroupOutput, error) {
-	if in.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
-	}
-
-	g, err := h.Backend.CreateGroup(in.Name, in.Description, in.ResourceQuery, in.Tags)
+	g, err := h.Backend.CreateGroup(in.Name, in.Description, in.ResourceQuery, in.Tags, in.Configuration)
 	if err != nil {
 		return nil, err
 	}
 
-	return &createGroupOutput{Group: g, ResourceQuery: g.ResourceQuery}, nil
+	out := &createGroupOutput{Group: g, ResourceQuery: g.ResourceQuery}
+
+	if len(in.Configuration) > 0 {
+		out.GroupConfiguration = &groupConfigurationBody{
+			Configuration: in.Configuration,
+			Status:        "UPDATE_COMPLETE",
+		}
+	}
+
+	return out, nil
 }
 
 type deleteGroupOutput struct{}
@@ -388,34 +401,66 @@ func (h *Handler) handleDeleteGroup(_ context.Context, in *groupNameInput) (*del
 	return &deleteGroupOutput{}, nil
 }
 
-type listGroupsInput struct{}
+type listGroupsInput struct {
+	Filters []ListGroupsFilter `json:"Filters"`
+}
 
 type listGroupIdentifierOutput struct {
 	GroupName   string `json:"GroupName"`
 	GroupArn    string `json:"GroupArn"`
-	Description string `json:"Description"`
+	Description string `json:"Description,omitempty"`
+}
+
+type listGroupsGroupOutput struct {
+	GroupArn    string `json:"GroupArn"`
+	Name        string `json:"Name"`
+	Description string `json:"Description,omitempty"`
+	OwnerID     string `json:"OwnerId,omitempty"`
+	DisplayName string `json:"DisplayName,omitempty"`
+	Criticality int    `json:"Criticality,omitempty"`
 }
 
 type listGroupsOutput struct {
+	Groups           []listGroupsGroupOutput     `json:"Groups"`
 	GroupIdentifiers []listGroupIdentifierOutput `json:"GroupIdentifiers"`
 }
 
-func (h *Handler) handleListGroups(_ context.Context, _ *listGroupsInput) (*listGroupsOutput, error) {
-	groups := h.Backend.ListGroups()
+func (h *Handler) handleListGroups(_ context.Context, in *listGroupsInput) (*listGroupsOutput, error) {
+	groups := h.Backend.ListGroups(in.Filters)
 	identifiers := make([]listGroupIdentifierOutput, 0, len(groups))
+	groupsList := make([]listGroupsGroupOutput, 0, len(groups))
+
 	for _, group := range groups {
 		identifiers = append(identifiers, listGroupIdentifierOutput{
 			GroupName:   group.Name,
 			GroupArn:    group.ARN,
 			Description: group.Description,
 		})
+		groupsList = append(groupsList, listGroupsGroupOutput{
+			GroupArn:    group.ARN,
+			Name:        group.Name,
+			Description: group.Description,
+			OwnerID:     group.OwnerID,
+			DisplayName: group.DisplayName,
+			Criticality: group.Criticality,
+		})
 	}
 
-	return &listGroupsOutput{GroupIdentifiers: identifiers}, nil
+	return &listGroupsOutput{Groups: groupsList, GroupIdentifiers: identifiers}, nil
+}
+
+type getGroupBody struct {
+	ApplicationTag map[string]string `json:"ApplicationTag,omitempty"`
+	GroupArn       string            `json:"GroupArn"`
+	Name           string            `json:"Name"`
+	Description    string            `json:"Description,omitempty"`
+	OwnerID        string            `json:"OwnerId,omitempty"`
+	DisplayName    string            `json:"DisplayName,omitempty"`
+	Criticality    int               `json:"Criticality,omitempty"`
 }
 
 type getGroupOutput struct {
-	Group *Group `json:"Group"`
+	Group *getGroupBody `json:"Group"`
 }
 
 func (h *Handler) handleGetGroup(_ context.Context, in *groupNameInput) (*getGroupOutput, error) {
@@ -424,7 +469,15 @@ func (h *Handler) handleGetGroup(_ context.Context, in *groupNameInput) (*getGro
 		return nil, err
 	}
 
-	return &getGroupOutput{Group: g}, nil
+	return &getGroupOutput{Group: &getGroupBody{
+		GroupArn:       g.ARN,
+		Name:           g.Name,
+		Description:    g.Description,
+		OwnerID:        g.OwnerID,
+		DisplayName:    g.DisplayName,
+		Criticality:    g.Criticality,
+		ApplicationTag: g.ApplicationTag,
+	}}, nil
 }
 
 type getGroupQueryOutput struct {
@@ -492,6 +545,8 @@ type updateGroupInput struct {
 	Group       string `json:"Group"`
 	GroupName   string `json:"GroupName"`
 	Description string `json:"Description"`
+	DisplayName string `json:"DisplayName"`
+	Criticality int    `json:"Criticality"`
 }
 
 func (g *updateGroupInput) resolvedName() string {
@@ -503,7 +558,7 @@ func (g *updateGroupInput) resolvedName() string {
 }
 
 type updateGroupOutput struct {
-	Group *Group `json:"Group"`
+	Group *getGroupBody `json:"Group"`
 }
 
 func (h *Handler) handleUpdateGroup(_ context.Context, in *updateGroupInput) (*updateGroupOutput, error) {
@@ -512,12 +567,19 @@ func (h *Handler) handleUpdateGroup(_ context.Context, in *updateGroupInput) (*u
 		return nil, fmt.Errorf("%w: Group or GroupName is required", ErrValidation)
 	}
 
-	g, err := h.Backend.UpdateGroup(name, in.Description)
+	g, err := h.Backend.UpdateGroup(name, in.Description, in.DisplayName, in.Criticality)
 	if err != nil {
 		return nil, err
 	}
 
-	return &updateGroupOutput{Group: g}, nil
+	return &updateGroupOutput{Group: &getGroupBody{
+		GroupArn:    g.ARN,
+		Name:        g.Name,
+		Description: g.Description,
+		OwnerID:     g.OwnerID,
+		DisplayName: g.DisplayName,
+		Criticality: g.Criticality,
+	}}, nil
 }
 
 type updateGroupQueryInput struct {
@@ -558,7 +620,83 @@ func (h *Handler) handleUpdateGroupQuery(
 	}}, nil
 }
 
-// handleResourceTags routes GET/PUT/PATCH /resources/{Arn}/tags to the
+// handleTagRequest handles PUT /resources/{Arn}/tags (Tag operation).
+func (h *Handler) handleTagRequest(c *echo.Context, log *slog.Logger, resourceARN string) error {
+	ctx := c.Request().Context()
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		log.ErrorContext(ctx, "failed to read Tag request body", "error", err)
+
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	var in tagResourceInput
+
+	if err = json.Unmarshal(body, &in); err != nil {
+		return h.handleError(ctx, c, "Tag", errInvalidRequest)
+	}
+
+	tagMap, err := h.Backend.AddTagsByARN(resourceARN, in.Tags)
+	if err != nil {
+		return h.handleError(ctx, c, "Tag", err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyArn: resourceARN,
+		"Tags": tagMap,
+	})
+}
+
+// handleUntagRequest handles DELETE /resources/{Arn}/tags (Untag operation).
+// Keys may come from query params or request body.
+func (h *Handler) handleUntagRequest(c *echo.Context, log *slog.Logger, resourceARN string) error {
+	ctx := c.Request().Context()
+
+	keys, err := h.extractUntagKeys(c, log)
+	if err != nil {
+		return err
+	}
+
+	if err = h.Backend.RemoveTagsByARN(resourceARN, keys); err != nil {
+		return h.handleError(ctx, c, "Untag", err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyArn: resourceARN,
+		"Keys": keys,
+	})
+}
+
+// extractUntagKeys parses tag keys from query params or body for the Untag operation.
+func (h *Handler) extractUntagKeys(c *echo.Context, log *slog.Logger) ([]string, error) {
+	ctx := c.Request().Context()
+
+	keysParam := c.Request().URL.Query().Get("keys")
+	if keysParam != "" {
+		return strings.Split(keysParam, ","), nil
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		log.ErrorContext(ctx, "failed to read Untag request body", "error", err)
+
+		return nil, c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	if len(body) == 0 {
+		return nil, nil
+	}
+
+	var in untagResourceInput
+	if err = json.Unmarshal(body, &in); err != nil {
+		return nil, h.handleError(ctx, c, "Untag", errInvalidRequest)
+	}
+
+	return in.Keys, nil
+}
+
+// handleResourceTags routes GET/PUT/DELETE/PATCH /resources/{Arn}/tags to the
 // GetTags, Tag, and Untag operations respectively.
 func (h *Handler) handleResourceTags(c *echo.Context) error {
 	ctx := c.Request().Context()
@@ -578,30 +716,13 @@ func (h *Handler) handleResourceTags(c *echo.Context) error {
 		})
 
 	case http.MethodPut:
-		body, err := httputils.ReadBody(c.Request())
-		if err != nil {
-			log.ErrorContext(ctx, "failed to read Tag request body", "error", err)
+		return h.handleTagRequest(c, log, resourceARN)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
-		}
-
-		var in tagResourceInput
-
-		if err = json.Unmarshal(body, &in); err != nil {
-			return h.handleError(ctx, c, "Tag", errInvalidRequest)
-		}
-
-		tagMap, err := h.Backend.AddTagsByARN(resourceARN, in.Tags)
-		if err != nil {
-			return h.handleError(ctx, c, "Tag", err)
-		}
-
-		return c.JSON(http.StatusOK, map[string]any{
-			keyArn: resourceARN,
-			"Tags": tagMap,
-		})
+	case http.MethodDelete:
+		return h.handleUntagRequest(c, log, resourceARN)
 
 	case http.MethodPatch:
+		// PATCH kept as compat alias for existing tests; AWS uses DELETE.
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read Untag request body", "error", err)
@@ -932,9 +1053,9 @@ type ungroupResourcesInput struct {
 }
 
 type ungroupResourcesOutput struct {
-	Failed    []map[string]string `json:"Failed,omitempty"`
-	Pending   []map[string]string `json:"Pending,omitempty"`
-	Succeeded []string            `json:"Succeeded"`
+	Failed    []GroupingFailedItem `json:"Failed,omitempty"`
+	Pending   []GroupingFailedItem `json:"Pending,omitempty"`
+	Succeeded []string             `json:"Succeeded"`
 }
 
 func (h *Handler) handleUngroupResources(
@@ -945,15 +1066,15 @@ func (h *Handler) handleUngroupResources(
 		return nil, fmt.Errorf("%w: Group is required", ErrValidation)
 	}
 
-	succeeded, err := h.Backend.UngroupResources(in.Group, in.ResourceArns)
+	result, err := h.Backend.UngroupResources(in.Group, in.ResourceArns)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ungroupResourcesOutput{
-		Succeeded: succeeded,
-		Failed:    []map[string]string{},
-		Pending:   []map[string]string{},
+		Succeeded: result.Succeeded,
+		Failed:    result.Failed,
+		Pending:   []GroupingFailedItem{},
 	}, nil
 }
 

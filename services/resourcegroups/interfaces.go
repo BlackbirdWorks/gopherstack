@@ -10,12 +10,13 @@ type StorageBackend interface {
 		name, description string,
 		resourceQuery *ResourceQuery,
 		inputTags *tags.Tags,
+		configuration []GroupConfigurationItem,
 	) (*Group, error)
 	GetGroup(nameOrARN string) (*Group, error)
-	UpdateGroup(nameOrARN, description string) (*Group, error)
+	UpdateGroup(nameOrARN, description, displayName string, criticality int) (*Group, error)
 	UpdateGroupQuery(nameOrARN string, query *ResourceQuery) (*Group, error)
 	DeleteGroup(nameOrARN string) error
-	ListGroups() []Group
+	ListGroups(filters []ListGroupsFilter) []Group
 
 	// Tag operations on group resources.
 	GetTagsByARN(resourceARN string) (map[string]string, error)
@@ -32,7 +33,7 @@ type StorageBackend interface {
 
 	// Resource grouping.
 	GroupResources(nameOrARN string, resourceARNs []string) ([]string, error)
-	UngroupResources(nameOrARN string, resourceARNs []string) ([]string, error)
+	UngroupResources(nameOrARN string, resourceARNs []string) (*UngroupResourcesResult, error)
 	ListGroupResources(nameOrARN string) ([]ResourceIdentifier, error)
 	ListGroupingStatuses(nameOrARN string) ([]GroupingStatusItem, error)
 	SearchResources(q *ResourceQuery) ([]ResourceIdentifier, error)

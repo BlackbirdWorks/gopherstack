@@ -23,7 +23,7 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				groups := b.ListGroups()
+				groups := b.ListGroups(nil)
 				assert.Empty(t, groups)
 			},
 		},
@@ -37,13 +37,14 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 					"test description",
 					&resourcegroups.ResourceQuery{Type: "TAG_FILTERS_1_0", Query: "{}"},
 					nil,
+					nil,
 				)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				groups := b.ListGroups()
+				groups := b.ListGroups(nil)
 				require.Len(t, groups, 1)
 				assert.Equal(t, "my-group", groups[0].Name)
 				assert.Equal(t, "test description", groups[0].Description)
@@ -59,13 +60,13 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			setup: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				_, err := b.CreateGroup("indexed-group", "desc", nil, nil)
+				_, err := b.CreateGroup("indexed-group", "desc", nil, nil, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				groups := b.ListGroups()
+				groups := b.ListGroups(nil)
 				require.Len(t, groups, 1)
 
 				// ARN-based tag lookup validates ARN index was rebuilt.
@@ -79,7 +80,7 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			setup: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				g, err := b.CreateGroup("tagged-group", "", nil, nil)
+				g, err := b.CreateGroup("tagged-group", "", nil, nil, nil)
 				require.NoError(t, err)
 
 				_, err = b.AddTagsByARN(g.ARN, map[string]string{"owner": "alice"})
@@ -88,7 +89,7 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				groups := b.ListGroups()
+				groups := b.ListGroups(nil)
 				require.Len(t, groups, 1)
 
 				tagMap, err := b.GetTagsByARN(groups[0].ARN)
