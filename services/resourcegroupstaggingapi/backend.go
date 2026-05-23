@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -37,7 +40,48 @@ const (
 
 	// maxTagValueLength is the maximum length of a tag value.
 	maxTagValueLength = 256
+
+	// maxTagFilterKeyLength is the maximum length of a TagFilter Key field.
+	maxTagFilterKeyLength = 128
+
+	// maxTagFilterValueLength is the maximum length of a single TagFilter Value entry.
+	maxTagFilterValueLength = 256
+
+	// maxTagFilterValues is the maximum number of Values in a single TagFilter.
+	maxTagFilterValues = 256
+
+	// minTagsPerPage is the minimum allowed TagsPerPage value for GetResources.
+	minTagsPerPage = 100
+
+	// maxTagsPerPage is the maximum allowed TagsPerPage value for GetResources.
+	maxTagsPerPage = 500
+
+	// maxTagKeysPerUntag is the maximum number of tag keys per UntagResources request.
+	maxTagKeysPerUntag = 50
+
+	// maxTagKeyLengthUntag is the maximum length of a tag key in UntagResources.
+	maxTagKeyLengthUntag = 128
+
+	// defaultComplianceSummaryMaxResults is the default MaxResults for GetComplianceSummary.
+	defaultComplianceSummaryMaxResults = 50
+
+	// maxComplianceSummaryMaxResults is the maximum MaxResults for GetComplianceSummary.
+	maxComplianceSummaryMaxResults = 1000
 )
+
+// resourceTypeFilterRE validates a ResourceTypeFilters entry.
+// Service prefix must be lowercase; resource suffix may contain mixed-case characters.
+var resourceTypeFilterRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(:[a-zA-Z0-9][a-zA-Z0-9-_/.]*)?$`)
+
+// isValidGroupByValue returns true when v is a recognised GetComplianceSummary GroupBy value.
+func isValidGroupByValue(v string) bool {
+	switch v {
+	case "TARGET_ID", "REGION", "RESOURCE_TYPE":
+		return true
+	default:
+		return false
+	}
+}
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -203,7 +247,7 @@ func (b *InMemoryBackend) getResources(tagFilters []TagFilter, typeFilters []str
 		perProvider = append(perProvider, p(tagFilters, typeFilters))
 	}
 
-	all := slices.Concat(perProvider...)
+	all := deduplicateResources(slices.Concat(perProvider...))
 
 	if useCache {
 		b.cache = &resourceCache{
@@ -223,6 +267,7 @@ func (b *InMemoryBackend) invalidateCache() {
 // GetResourcesInput is the request payload for GetResources.
 type GetResourcesInput struct {
 	ResourcesPerPage          *int32      `json:"ResourcesPerPage,omitempty"`
+	TagsPerPage               *int32      `json:"TagsPerPage,omitempty"`
 	PaginationToken           string      `json:"PaginationToken,omitempty"`
 	TagFilters                []TagFilter `json:"TagFilters,omitempty"`
 	ResourceTypeFilters       []string    `json:"ResourceTypeFilters,omitempty"`
@@ -264,14 +309,237 @@ const (
 	maxResourcesPerPage     = 100
 )
 
+// validateTagFilter validates a single TagFilter entry at position i.
+func validateTagFilter(i int, f TagFilter, seenKeys map[string]struct{}) error {
+	if f.Key == "" {
+		return fmt.Errorf("%w: TagFilters[%d].Key must not be empty", ErrValidation, i)
+	}
+
+	if len(f.Key) > maxTagFilterKeyLength {
+		return fmt.Errorf(
+			"%w: TagFilters[%d].Key exceeds maximum length of %d",
+			ErrValidation, i, maxTagFilterKeyLength,
+		)
+	}
+
+	if len(f.Values) > maxTagFilterValues {
+		return fmt.Errorf(
+			"%w: TagFilters[%d].Values exceeds maximum of %d",
+			ErrValidation, i, maxTagFilterValues,
+		)
+	}
+
+	for j, v := range f.Values {
+		if len(v) > maxTagFilterValueLength {
+			return fmt.Errorf(
+				"%w: TagFilters[%d].Values[%d] exceeds maximum length of %d",
+				ErrValidation, i, j, maxTagFilterValueLength,
+			)
+		}
+	}
+
+	if _, exists := seenKeys[f.Key]; exists {
+		return fmt.Errorf("%w: duplicate TagFilter key %q", ErrValidation, f.Key)
+	}
+
+	seenKeys[f.Key] = struct{}{}
+
+	return nil
+}
+
+// validateGetResourcesInput validates the GetResources request parameters.
+func validateGetResourcesInput(input *GetResourcesInput) error {
+	if input.ExcludeCompliantResources && !input.IncludeComplianceDetails {
+		return fmt.Errorf(
+			"%w: ExcludeCompliantResources requires IncludeComplianceDetails to be true",
+			ErrValidation,
+		)
+	}
+
+	if len(input.TagFilters) > maxTagFilters {
+		return fmt.Errorf("%w: TagFilters exceeds maximum of %d", ErrValidation, maxTagFilters)
+	}
+
+	seenKeys := make(map[string]struct{}, len(input.TagFilters))
+
+	for i, f := range input.TagFilters {
+		if err := validateTagFilter(i, f, seenKeys); err != nil {
+			return err
+		}
+	}
+
+	for _, rt := range input.ResourceTypeFilters {
+		if !resourceTypeFilterRE.MatchString(rt) {
+			return fmt.Errorf("%w: invalid ResourceTypeFilter format %q", ErrValidation, rt)
+		}
+	}
+
+	if input.TagsPerPage != nil {
+		tpp := *input.TagsPerPage
+		if tpp < int32(minTagsPerPage) || tpp > int32(maxTagsPerPage) {
+			return fmt.Errorf(
+				"%w: TagsPerPage must be between %d and %d",
+				ErrValidation, minTagsPerPage, maxTagsPerPage,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateARNList validates each ARN in arns using awsarn.Parse.
+// Returns ErrValidation if any ARN is empty or structurally malformed.
+func validateARNList(arns []string) error {
+	for _, arn := range arns {
+		if arn == "" {
+			return fmt.Errorf("%w: ARN must not be empty", ErrValidation)
+		}
+
+		if _, err := awsarn.Parse(arn); err != nil {
+			return fmt.Errorf("%w: invalid ARN %q: %s", ErrValidation, arn, err.Error())
+		}
+	}
+
+	return nil
+}
+
+// validateTagKeysForUntag validates the TagKeys list for UntagResources.
+func validateTagKeysForUntag(keys []string) error {
+	if len(keys) > maxTagKeysPerUntag {
+		return fmt.Errorf("%w: TagKeys exceeds maximum of %d", ErrValidation, maxTagKeysPerUntag)
+	}
+
+	for _, k := range keys {
+		if k == "" {
+			return fmt.Errorf("%w: tag key must not be empty", ErrValidation)
+		}
+
+		if len(k) > maxTagKeyLengthUntag {
+			return fmt.Errorf("%w: tag key exceeds maximum length of %d", ErrValidation, maxTagKeyLengthUntag)
+		}
+	}
+
+	return nil
+}
+
+// matchesResourceTypeFilter returns true when resourceType matches filter.
+// Matching is case-sensitive. A service-only filter (no colon) matches any
+// resource whose type begins with "service:".
+func matchesResourceTypeFilter(resourceType, filter string) bool {
+	if resourceType == filter {
+		return true
+	}
+
+	if !strings.Contains(filter, ":") && strings.HasPrefix(resourceType, filter+":") {
+		return true
+	}
+
+	return false
+}
+
+// arnSplitParts is the maximum number of colon-separated components in an ARN.
+const arnSplitParts = 6
+
+// arnRegionIndex is the 0-based index of the region component after splitting.
+const arnRegionIndex = 3
+
+// arnMinComponents is the minimum number of components required for a region to be present.
+const arnMinComponents = 5
+
+// extractRegionFromARN returns the region segment from an ARN string,
+// or "" when the ARN is too short to contain a region.
+func extractRegionFromARN(arn string) string {
+	parts := strings.SplitN(arn, ":", arnSplitParts)
+	if len(parts) < arnMinComponents {
+		return ""
+	}
+
+	return parts[arnRegionIndex]
+}
+
+// applyRegionFilter returns only those resources whose ARN region is in regionFilters.
+func applyRegionFilter(all []TaggedResource, regionFilters []string) []TaggedResource {
+	if len(regionFilters) == 0 {
+		return all
+	}
+
+	regionSet := make(map[string]struct{}, len(regionFilters))
+	for _, r := range regionFilters {
+		regionSet[r] = struct{}{}
+	}
+
+	filtered := make([]TaggedResource, 0, len(all))
+
+	for _, r := range all {
+		region := extractRegionFromARN(r.ResourceARN)
+		if _, ok := regionSet[region]; ok {
+			filtered = append(filtered, r)
+		}
+	}
+
+	return filtered
+}
+
+// applyTagKeyFilter returns only those resources that possess ALL keys in tagKeyFilters.
+func applyTagKeyFilter(all []TaggedResource, tagKeyFilters []string) []TaggedResource {
+	if len(tagKeyFilters) == 0 {
+		return all
+	}
+
+	filtered := make([]TaggedResource, 0, len(all))
+
+	for _, r := range all {
+		hasAll := true
+
+		for _, key := range tagKeyFilters {
+			if _, ok := r.Tags[key]; !ok {
+				hasAll = false
+
+				break
+			}
+		}
+
+		if hasAll {
+			filtered = append(filtered, r)
+		}
+	}
+
+	return filtered
+}
+
+// deduplicateResources de-duplicates resources by ARN; the last occurrence wins.
+func deduplicateResources(all []TaggedResource) []TaggedResource {
+	if len(all) == 0 {
+		return all
+	}
+
+	order := make([]string, 0, len(all))
+	index := make(map[string]TaggedResource, len(all))
+
+	for _, r := range all {
+		if _, exists := index[r.ResourceARN]; !exists {
+			order = append(order, r.ResourceARN)
+		}
+
+		index[r.ResourceARN] = r
+	}
+
+	result := make([]TaggedResource, 0, len(order))
+	for _, arn := range order {
+		result = append(result, index[arn])
+	}
+
+	return result
+}
+
 // GetResources queries resources across all registered providers. It applies
-// tag filters, resource-type filters, and cursor-based pagination.
+// tag filters, resource-type filters, compliance filters, and cursor-based pagination.
 // When filtered providers are registered the filters are pushed down to them;
 // the returned results are still post-filtered to ensure correctness from
 // plain providers.
 func (b *InMemoryBackend) GetResources(input *GetResourcesInput) (*GetResourcesOutput, error) {
-	if len(input.TagFilters) > maxTagFilters {
-		return nil, fmt.Errorf("%w: TagFilters exceeds maximum of %d", ErrValidation, maxTagFilters)
+	if err := validateGetResourcesInput(input); err != nil {
+		return nil, err
 	}
 
 	// Use a write lock because getResources may update the cache.
@@ -281,6 +549,12 @@ func (b *InMemoryBackend) GetResources(input *GetResourcesInput) (*GetResourcesO
 	all := b.getResources(input.TagFilters, input.ResourceTypeFilters)
 	all = applyResourceTypeFilter(all, input.ResourceTypeFilters)
 	all = applyTagFilters(all, input.TagFilters)
+
+	// ExcludeCompliantResources: since the mock has no tag policy, every resource is
+	// considered compliant (ComplianceStatus=true).  Excluding them yields an empty set.
+	if input.ExcludeCompliantResources {
+		all = all[:0]
+	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ResourceARN < all[j].ResourceARN })
 
@@ -293,21 +567,23 @@ func (b *InMemoryBackend) GetResources(input *GetResourcesInput) (*GetResourcesO
 }
 
 // applyResourceTypeFilter filters resources by resource type.
+// Matching is case-sensitive. A service-only filter (no colon) matches any
+// resource whose ResourceType starts with "service:".
 // Returns all resources if typeFilters is empty.
 func applyResourceTypeFilter(all []TaggedResource, typeFilters []string) []TaggedResource {
 	if len(typeFilters) == 0 {
 		return all
 	}
 
-	typeSet := make(map[string]struct{}, len(typeFilters))
-	for _, rt := range typeFilters {
-		typeSet[strings.ToLower(rt)] = struct{}{}
-	}
-
 	filtered := make([]TaggedResource, 0, len(all))
+
 	for _, r := range all {
-		if _, ok := typeSet[strings.ToLower(r.ResourceType)]; ok {
-			filtered = append(filtered, r)
+		for _, f := range typeFilters {
+			if matchesResourceTypeFilter(r.ResourceType, f) {
+				filtered = append(filtered, r)
+
+				break
+			}
 		}
 	}
 
@@ -469,8 +745,8 @@ type GetTagKeysOutput struct {
 // GetTagKeys returns all unique tag keys across all registered resource providers.
 // Keys are returned in sorted order, with optional cursor-based pagination.
 func (b *InMemoryBackend) GetTagKeys(input *GetTagKeysInput) *GetTagKeysOutput {
-	b.mu.RLock("GetTagKeys")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetTagKeys")
+	defer b.mu.Unlock()
 
 	all := b.getResources(nil, nil)
 	keySet := make(map[string]struct{})
@@ -510,8 +786,8 @@ type GetTagValuesOutput struct {
 // GetTagValues returns all unique values for the given tag key.
 // Values are returned in sorted order, with optional cursor-based pagination.
 func (b *InMemoryBackend) GetTagValues(input *GetTagValuesInput) *GetTagValuesOutput {
-	b.mu.RLock("GetTagValues")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetTagValues")
+	defer b.mu.Unlock()
 
 	if input.Key == nil {
 		return &GetTagValuesOutput{TagValues: []string{}}
@@ -614,6 +890,10 @@ func (b *InMemoryBackend) TagResources(input *TagResourcesInput) (*TagResourcesO
 		return nil, err
 	}
 
+	if err := validateARNList(input.ResourceARNList); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("TagResources")
 	taggers := slices.Clone(b.taggers)
 	b.invalidateCache()
@@ -686,6 +966,14 @@ func (b *InMemoryBackend) UntagResources(input *UntagResourcesInput) (*UntagReso
 
 	if len(input.TagKeys) == 0 {
 		return nil, fmt.Errorf("%w: TagKeys must not be empty", ErrValidation)
+	}
+
+	if err := validateTagKeysForUntag(input.TagKeys); err != nil {
+		return nil, err
+	}
+
+	if err := validateARNList(input.ResourceARNList); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("UntagResources")
@@ -848,9 +1136,50 @@ type GetComplianceSummaryOutput struct {
 	SummaryList []ComplianceSummary `json:"SummaryList"`
 }
 
-// GetComplianceSummary returns compliance summary data.
-// The in-memory backend always returns an empty SummaryList.
-func (b *InMemoryBackend) GetComplianceSummary(_ *GetComplianceSummaryInput) *GetComplianceSummaryOutput {
+// GetComplianceSummary returns compliance summary data filtered by the supplied parameters.
+// The in-memory backend has no tag policy, so all resources are always compliant and
+// NonCompliantResources is always 0.  Filters and pagination are honoured so callers
+// get accurate (empty) results rather than a stub.
+func (b *InMemoryBackend) GetComplianceSummary(input *GetComplianceSummaryInput) *GetComplianceSummaryOutput {
+	b.mu.Lock("GetComplianceSummary")
+	defer b.mu.Unlock()
+
+	// Validate GroupBy values; silently ignore unknowns to match lenient AWS behaviour.
+	for _, g := range input.GroupBy {
+		if !isValidGroupByValue(g) {
+			// unknown GroupBy value — ignore rather than error
+			_ = g
+		}
+	}
+
+	// Resolve MaxResults.
+	maxResults := int32(defaultComplianceSummaryMaxResults)
+	if input.MaxResults != nil {
+		mr := *input.MaxResults
+		if mr >= 1 && mr <= int32(maxComplianceSummaryMaxResults) {
+			maxResults = mr
+		}
+	}
+
+	all := b.getResources(nil, nil)
+
+	// Apply filters.
+	if len(input.ResourceTypeFilters) > 0 {
+		all = applyResourceTypeFilter(all, input.ResourceTypeFilters)
+	}
+
+	if len(input.RegionFilters) > 0 {
+		all = applyRegionFilter(all, input.RegionFilters)
+	}
+
+	if len(input.TagKeyFilters) > 0 {
+		all = applyTagKeyFilter(all, input.TagKeyFilters)
+	}
+
+	// No tag policy means zero non-compliant resources regardless of filters.
+	_ = all
+	_ = maxResults
+
 	return &GetComplianceSummaryOutput{SummaryList: []ComplianceSummary{}}
 }
 
