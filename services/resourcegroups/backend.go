@@ -1,7 +1,9 @@
 package resourcegroups
 
 import (
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -32,9 +34,16 @@ const (
 	groupingStatusFailed  = "FAILED"
 )
 
+// GroupingStatus error codes for failed grouping operations.
+const (
+	groupingErrInvalidARN           = "INVALID_ARN"
+	groupingErrResourceNotFound     = "RESOURCE_NOT_FOUND"
+)
+
 // TagSyncTask status constants.
 const (
-	tagSyncTaskStatusActive = "ACTIVE"
+	tagSyncTaskStatusActive    = "ACTIVE"
+	tagSyncTaskStatusCancelled = "CANCELLED"
 )
 
 // tagSyncTaskTTL is the maximum age of a completed or cancelled tag-sync task
@@ -47,6 +56,42 @@ const (
 	accountLifecycleEventsInactive = "INACTIVE"
 )
 
+// groupNameMaxLen and groupDescMaxLen match AWS limits.
+const (
+	groupNameMaxLen = 300
+	groupDescMaxLen = 512
+)
+
+// groupNameRe matches valid Resource Groups group names (AWS rule).
+var groupNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.−\-]+$`) //nolint:gocritic
+
+// groupNameReservedPrefixes lists prefixes that AWS does not allow for group names.
+var groupNameReservedPrefixes = []string{"aws", "AWS"} //nolint:gochecknoglobals
+
+// validResourceQueryTypes lists the only two supported query types.
+var validResourceQueryTypes = map[string]bool{ //nolint:gochecknoglobals
+	"TAG_FILTERS_1_0":          true,
+	"CLOUDFORMATION_STACK_1_0": true,
+}
+
+// ListGroupsFilterName constants for ListGroups Filters field.
+const (
+	listGroupsFilterConfigurationType = "configuration-type"
+	listGroupsFilterResourceType      = "resource-type"
+)
+
+// validConfigTypes maps each recognized configuration Type to its allowed
+// parameter names.  An empty slice means the type takes no parameters.
+var validConfigTypes = map[string][]string{ //nolint:gochecknoglobals
+	"AWS::EC2::HostManagement":                   {"allowed-resource-types", "any-of-allowed-resource-types", "deletion-protection"},
+	"AWS::EC2::CapacityReservationPool":          {},
+	"AWS::ResourceGroups::Generic":               {"allowed-resource-types", "any-of-allowed-resource-types"},
+	"AWS::AppRegistry::Application":              {"allowed-resource-types"},
+	"AWS::NetworkFirewall::RuleGroup":             {"allowed-resource-types"},
+	"AWS::Route53Resolver::FirewallRuleGroup":     {"allowed-resource-types"},
+	"AWS::ServiceCatalogAppRegistry::Application": {"allowed-resource-types"},
+}
+
 // ResourceQuery represents a tag-based resource query for a group.
 type ResourceQuery struct {
 	Type  string `json:"Type"`
@@ -56,11 +101,137 @@ type ResourceQuery struct {
 // Group represents a Resource Group.
 // Field names use PascalCase JSON tags to match what the AWS SDK expects in responses.
 type Group struct {
-	Tags          *tags.Tags     `json:"Tags,omitempty"`
-	ResourceQuery *ResourceQuery `json:"ResourceQuery,omitempty"`
-	Name          string         `json:"Name"`
-	ARN           string         `json:"GroupArn"`
-	Description   string         `json:"Description"`
+	Tags           *tags.Tags        `json:"Tags,omitempty"`
+	ResourceQuery  *ResourceQuery    `json:"ResourceQuery,omitempty"`
+	ApplicationTag map[string]string `json:"ApplicationTag,omitempty"`
+	Name           string            `json:"Name"`
+	ARN            string            `json:"GroupArn"`
+	Description    string            `json:"Description,omitempty"`
+	OwnerId        string            `json:"OwnerId,omitempty"`
+	DisplayName    string            `json:"DisplayName,omitempty"`
+	Criticality    int               `json:"Criticality,omitempty"`
+}
+
+// ListGroupsFilter holds a single filter for the ListGroups operation.
+type ListGroupsFilter struct {
+	Name   string   `json:"Name"`
+	Values []string `json:"Values"`
+}
+
+// validateGroupName validates that a group name conforms to AWS naming rules.
+func validateGroupName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	if len(name) > groupNameMaxLen {
+		return fmt.Errorf("%w: Name must be at most %d characters", ErrValidation, groupNameMaxLen)
+	}
+
+	if !groupNameRe.MatchString(name) {
+		return fmt.Errorf("%w: Name must match pattern [a-zA-Z0-9_.−-]+", ErrValidation)
+	}
+
+	nameLower := strings.ToLower(name)
+	for _, prefix := range groupNameReservedPrefixes {
+		if strings.HasPrefix(nameLower, strings.ToLower(prefix)) {
+			return fmt.Errorf("%w: Name must not start with reserved prefix %q", ErrValidation, prefix)
+		}
+	}
+
+	return nil
+}
+
+// validateDescription validates that a description conforms to AWS length rules.
+func validateDescription(desc string) error {
+	if len(desc) > groupDescMaxLen {
+		return fmt.Errorf("%w: Description must be at most %d characters", ErrValidation, groupDescMaxLen)
+	}
+
+	return nil
+}
+
+// validateResourceQuery validates that a ResourceQuery is well-formed.
+func validateResourceQuery(q *ResourceQuery) error {
+	if q == nil {
+		return nil
+	}
+
+	if !validResourceQueryTypes[q.Type] {
+		return fmt.Errorf(
+			"%w: ResourceQuery.Type must be TAG_FILTERS_1_0 or CLOUDFORMATION_STACK_1_0, got %q",
+			ErrValidation,
+			q.Type,
+		)
+	}
+
+	if q.Query == "" {
+		return fmt.Errorf("%w: ResourceQuery.Query must be a non-empty JSON string", ErrValidation)
+	}
+
+	var raw json.RawMessage
+	if err := json.Unmarshal([]byte(q.Query), &raw); err != nil {
+		return fmt.Errorf("%w: ResourceQuery.Query is not valid JSON: %s", ErrValidation, err.Error())
+	}
+
+	return nil
+}
+
+// validateConfiguration validates each GroupConfigurationItem against the allow-list.
+func validateConfiguration(items []GroupConfigurationItem) error {
+	for _, item := range items {
+		allowedParams, ok := validConfigTypes[item.Type]
+		if !ok {
+			return fmt.Errorf(
+				"%w: unsupported configuration type %q; must be one of AWS::EC2::HostManagement, "+
+					"AWS::EC2::CapacityReservationPool, AWS::ResourceGroups::Generic, "+
+					"AWS::AppRegistry::Application, etc.",
+				ErrValidation,
+				item.Type,
+			)
+		}
+
+		if len(allowedParams) == 0 && len(item.Parameters) > 0 {
+			return fmt.Errorf(
+				"%w: configuration type %q does not accept any parameters",
+				ErrValidation,
+				item.Type,
+			)
+		}
+
+		allowed := make(map[string]bool, len(allowedParams))
+		for _, p := range allowedParams {
+			allowed[p] = true
+		}
+
+		for _, param := range item.Parameters {
+			if !allowed[param.Name] {
+				return fmt.Errorf(
+					"%w: parameter %q is not valid for configuration type %q",
+					ErrValidation,
+					param.Name,
+					item.Type,
+				)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateTagKeys validates that no reserved aws: prefix tag keys are present.
+func validateTagKeys(tagMap map[string]string) error {
+	for k := range tagMap {
+		if strings.HasPrefix(strings.ToLower(k), "aws:") {
+			return fmt.Errorf(
+				"%w: tag key %q uses the reserved prefix \"aws:\"; these keys are managed by AWS",
+				ErrValidation,
+				k,
+			)
+		}
+	}
+
+	return nil
 }
 
 // GroupConfigurationParameter is a key-value parameter for a group configuration item.
