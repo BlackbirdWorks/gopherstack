@@ -29,6 +29,7 @@ func TestRoute53ResolverDashboard(t *testing.T) {
 		}},
 		[]string{"sg-12345"},
 		"IPV4",
+		nil, "", "", "",
 	)
 	require.NoError(t, err)
 
@@ -130,6 +131,7 @@ func TestRoute53ResolverDashboard_CreateAndDelete(t *testing.T) {
 		}},
 		[]string{"sg-12345"},
 		"IPV4",
+		nil, "", "", "",
 	)
 	require.NoError(t, err)
 

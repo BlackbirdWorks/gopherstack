@@ -56,76 +56,120 @@ func NewHandler(backend StorageBackend) *Handler {
 	return h
 }
 
-func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc { //nolint:funlen
 	return map[string]service.JSONOpFunc{
-		"AssociateFirewallRuleGroup":             service.WrapOp(h.handleAssociateFirewallRuleGroup),
-		"AssociateResolverEndpointIpAddress":     service.WrapOp(h.handleAssociateResolverEndpointIPAddress),
-		"AssociateResolverQueryLogConfig":        service.WrapOp(h.handleAssociateResolverQueryLogConfig),
-		"AssociateResolverRule":                  service.WrapOp(h.handleAssociateResolverRule),
-		"CreateFirewallDomainList":               service.WrapOp(h.handleCreateFirewallDomainList),
-		"CreateFirewallRule":                     service.WrapOp(h.handleCreateFirewallRule),
-		"CreateFirewallRuleGroup":                service.WrapOp(h.handleCreateFirewallRuleGroup),
-		"CreateOutpostResolver":                  service.WrapOp(h.handleCreateOutpostResolver),
-		"CreateResolverEndpoint":                 service.WrapOp(h.handleCreateResolverEndpoint),
-		"CreateResolverQueryLogConfig":           service.WrapOp(h.handleCreateResolverQueryLogConfig),
-		"CreateResolverRule":                     service.WrapOp(h.handleCreateResolverRule),
-		"DeleteFirewallDomainList":               service.WrapOp(h.handleDeleteFirewallDomainList),
-		"DeleteFirewallRule":                     service.WrapOp(h.handleDeleteFirewallRule),
-		"DeleteFirewallRuleGroup":                service.WrapOp(h.handleDeleteFirewallRuleGroup),
-		"DeleteOutpostResolver":                  service.WrapOp(h.handleDeleteOutpostResolver),
-		"DeleteResolverEndpoint":                 service.WrapOp(h.handleDeleteResolverEndpoint),
-		"DeleteResolverQueryLogConfig":           service.WrapOp(h.handleDeleteResolverQueryLogConfig),
-		"DeleteResolverRule":                     service.WrapOp(h.handleDeleteResolverRule),
-		"DisassociateFirewallRuleGroup":          service.WrapOp(h.handleDisassociateFirewallRuleGroup),
-		"DisassociateResolverEndpointIpAddress":  service.WrapOp(h.handleDisassociateResolverEndpointIPAddress),
-		"DisassociateResolverQueryLogConfig":     service.WrapOp(h.handleDisassociateResolverQueryLogConfig),
-		"DisassociateResolverRule":               service.WrapOp(h.handleDisassociateResolverRule),
-		"GetFirewallConfig":                      service.WrapOp(h.handleGetFirewallConfig),
-		"GetFirewallDomainList":                  service.WrapOp(h.handleGetFirewallDomainList),
-		"GetFirewallRuleGroup":                   service.WrapOp(h.handleGetFirewallRuleGroup),
-		"GetFirewallRuleGroupAssociation":        service.WrapOp(h.handleGetFirewallRuleGroupAssociation),
-		"GetFirewallRuleGroupPolicy":             service.WrapOp(h.handleGetFirewallRuleGroupPolicy),
-		"GetOutpostResolver":                     service.WrapOp(h.handleGetOutpostResolver),
-		"GetResolverConfig":                      service.WrapOp(h.handleGetResolverConfig),
-		"GetResolverDnssecConfig":                service.WrapOp(h.handleGetResolverDnssecConfig),
-		"GetResolverEndpoint":                    service.WrapOp(h.handleGetResolverEndpoint),
-		"GetResolverQueryLogConfig":              service.WrapOp(h.handleGetResolverQueryLogConfig),
-		"GetResolverQueryLogConfigAssociation":   service.WrapOp(h.handleGetResolverQueryLogConfigAssociation),
-		"GetResolverQueryLogConfigPolicy":        service.WrapOp(h.handleGetResolverQueryLogConfigPolicy),
-		"GetResolverRule":                        service.WrapOp(h.handleGetResolverRule),
-		"GetResolverRuleAssociation":             service.WrapOp(h.handleGetResolverRuleAssociation),
-		"GetResolverRulePolicy":                  service.WrapOp(h.handleGetResolverRulePolicy),
-		"ImportFirewallDomains":                  service.WrapOp(h.handleImportFirewallDomains),
-		"ListFirewallConfigs":                    service.WrapOp(h.handleListFirewallConfigs),
-		"ListFirewallDomainLists":                service.WrapOp(h.handleListFirewallDomainLists),
-		"ListFirewallDomains":                    service.WrapOp(h.handleListFirewallDomains),
-		"ListFirewallRuleGroupAssociations":      service.WrapOp(h.handleListFirewallRuleGroupAssociations),
-		"ListFirewallRuleGroups":                 service.WrapOp(h.handleListFirewallRuleGroups),
-		"ListFirewallRules":                      service.WrapOp(h.handleListFirewallRules),
-		"ListOutpostResolvers":                   service.WrapOp(h.handleListOutpostResolvers),
-		"ListResolverConfigs":                    service.WrapOp(h.handleListResolverConfigs),
-		"ListResolverDnssecConfigs":              service.WrapOp(h.handleListResolverDnssecConfigs),
-		"ListResolverEndpointIpAddresses":        service.WrapOp(h.handleListResolverEndpointIPAddresses),
-		"ListResolverEndpoints":                  service.WrapOp(h.handleListResolverEndpoints),
-		"ListResolverQueryLogConfigAssociations": service.WrapOp(h.handleListResolverQueryLogConfigAssociations),
-		"ListResolverQueryLogConfigs":            service.WrapOp(h.handleListResolverQueryLogConfigs),
-		"ListResolverRuleAssociations":           service.WrapOp(h.handleListResolverRuleAssociations),
-		"ListResolverRules":                      service.WrapOp(h.handleListResolverRules),
-		"ListTagsForResource":                    service.WrapOp(h.handleListTagsForResource),
-		"PutFirewallRuleGroupPolicy":             service.WrapOp(h.handlePutFirewallRuleGroupPolicy),
-		"PutResolverQueryLogConfigPolicy":        service.WrapOp(h.handlePutResolverQueryLogConfigPolicy),
-		"PutResolverRulePolicy":                  service.WrapOp(h.handlePutResolverRulePolicy),
-		"TagResource":                            service.WrapOp(h.handleTagResource),
-		"UntagResource":                          service.WrapOp(h.handleUntagResource),
-		"UpdateFirewallConfig":                   service.WrapOp(h.handleUpdateFirewallConfig),
-		"UpdateFirewallDomains":                  service.WrapOp(h.handleUpdateFirewallDomains),
-		"UpdateFirewallRule":                     service.WrapOp(h.handleUpdateFirewallRule),
-		"UpdateFirewallRuleGroupAssociation":     service.WrapOp(h.handleUpdateFirewallRuleGroupAssociation),
-		"UpdateOutpostResolver":                  service.WrapOp(h.handleUpdateOutpostResolver),
-		"UpdateResolverConfig":                   service.WrapOp(h.handleUpdateResolverConfig),
-		"UpdateResolverDnssecConfig":             service.WrapOp(h.handleUpdateResolverDnssecConfig),
-		"UpdateResolverEndpoint":                 service.WrapOp(h.handleUpdateResolverEndpoint),
-		"UpdateResolverRule":                     service.WrapOp(h.handleUpdateResolverRule),
+		"AssociateFirewallRuleGroup": service.WrapOp(
+			h.handleAssociateFirewallRuleGroup,
+		),
+		"AssociateResolverEndpointIpAddress": service.WrapOp(
+			h.handleAssociateResolverEndpointIPAddress,
+		),
+		"AssociateResolverQueryLogConfig": service.WrapOp(
+			h.handleAssociateResolverQueryLogConfig,
+		),
+		"AssociateResolverRule":    service.WrapOp(h.handleAssociateResolverRule),
+		"CreateFirewallDomainList": service.WrapOp(h.handleCreateFirewallDomainList),
+		"CreateFirewallRule":       service.WrapOp(h.handleCreateFirewallRule),
+		"CreateFirewallRuleGroup":  service.WrapOp(h.handleCreateFirewallRuleGroup),
+		"CreateOutpostResolver":    service.WrapOp(h.handleCreateOutpostResolver),
+		"CreateResolverEndpoint":   service.WrapOp(h.handleCreateResolverEndpoint),
+		"CreateResolverQueryLogConfig": service.WrapOp(
+			h.handleCreateResolverQueryLogConfig,
+		),
+		"CreateResolverRule":       service.WrapOp(h.handleCreateResolverRule),
+		"DeleteFirewallDomainList": service.WrapOp(h.handleDeleteFirewallDomainList),
+		"DeleteFirewallRule":       service.WrapOp(h.handleDeleteFirewallRule),
+		"DeleteFirewallRuleGroup":  service.WrapOp(h.handleDeleteFirewallRuleGroup),
+		"DeleteOutpostResolver":    service.WrapOp(h.handleDeleteOutpostResolver),
+		"DeleteResolverEndpoint":   service.WrapOp(h.handleDeleteResolverEndpoint),
+		"DeleteResolverQueryLogConfig": service.WrapOp(
+			h.handleDeleteResolverQueryLogConfig,
+		),
+		"DeleteResolverRule": service.WrapOp(h.handleDeleteResolverRule),
+		"DisassociateFirewallRuleGroup": service.WrapOp(
+			h.handleDisassociateFirewallRuleGroup,
+		),
+		"DisassociateResolverEndpointIpAddress": service.WrapOp(
+			h.handleDisassociateResolverEndpointIPAddress,
+		),
+		"DisassociateResolverQueryLogConfig": service.WrapOp(
+			h.handleDisassociateResolverQueryLogConfig,
+		),
+		"DisassociateResolverRule": service.WrapOp(h.handleDisassociateResolverRule),
+		"GetFirewallConfig":        service.WrapOp(h.handleGetFirewallConfig),
+		"GetFirewallDomainList":    service.WrapOp(h.handleGetFirewallDomainList),
+		"GetFirewallRuleGroup":     service.WrapOp(h.handleGetFirewallRuleGroup),
+		"GetFirewallRuleGroupAssociation": service.WrapOp(
+			h.handleGetFirewallRuleGroupAssociation,
+		),
+		"GetFirewallRuleGroupPolicy": service.WrapOp(
+			h.handleGetFirewallRuleGroupPolicy,
+		),
+		"GetOutpostResolver":        service.WrapOp(h.handleGetOutpostResolver),
+		"GetResolverConfig":         service.WrapOp(h.handleGetResolverConfig),
+		"GetResolverDnssecConfig":   service.WrapOp(h.handleGetResolverDnssecConfig),
+		"GetResolverEndpoint":       service.WrapOp(h.handleGetResolverEndpoint),
+		"GetResolverQueryLogConfig": service.WrapOp(h.handleGetResolverQueryLogConfig),
+		"GetResolverQueryLogConfigAssociation": service.WrapOp(
+			h.handleGetResolverQueryLogConfigAssociation,
+		),
+		"GetResolverQueryLogConfigPolicy": service.WrapOp(
+			h.handleGetResolverQueryLogConfigPolicy,
+		),
+		"GetResolverRule": service.WrapOp(h.handleGetResolverRule),
+		"GetResolverRuleAssociation": service.WrapOp(
+			h.handleGetResolverRuleAssociation,
+		),
+		"GetResolverRulePolicy":   service.WrapOp(h.handleGetResolverRulePolicy),
+		"ImportFirewallDomains":   service.WrapOp(h.handleImportFirewallDomains),
+		"ListFirewallConfigs":     service.WrapOp(h.handleListFirewallConfigs),
+		"ListFirewallDomainLists": service.WrapOp(h.handleListFirewallDomainLists),
+		"ListFirewallDomains":     service.WrapOp(h.handleListFirewallDomains),
+		"ListFirewallRuleGroupAssociations": service.WrapOp(
+			h.handleListFirewallRuleGroupAssociations,
+		),
+		"ListFirewallRuleGroups":    service.WrapOp(h.handleListFirewallRuleGroups),
+		"ListFirewallRules":         service.WrapOp(h.handleListFirewallRules),
+		"ListOutpostResolvers":      service.WrapOp(h.handleListOutpostResolvers),
+		"ListResolverConfigs":       service.WrapOp(h.handleListResolverConfigs),
+		"ListResolverDnssecConfigs": service.WrapOp(h.handleListResolverDnssecConfigs),
+		"ListResolverEndpointIpAddresses": service.WrapOp(
+			h.handleListResolverEndpointIPAddresses,
+		),
+		"ListResolverEndpoints": service.WrapOp(h.handleListResolverEndpoints),
+		"ListResolverQueryLogConfigAssociations": service.WrapOp(
+			h.handleListResolverQueryLogConfigAssociations,
+		),
+		"ListResolverQueryLogConfigs": service.WrapOp(
+			h.handleListResolverQueryLogConfigs,
+		),
+		"ListResolverRuleAssociations": service.WrapOp(
+			h.handleListResolverRuleAssociations,
+		),
+		"ListResolverRules":   service.WrapOp(h.handleListResolverRules),
+		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
+		"PutFirewallRuleGroupPolicy": service.WrapOp(
+			h.handlePutFirewallRuleGroupPolicy,
+		),
+		"PutResolverQueryLogConfigPolicy": service.WrapOp(
+			h.handlePutResolverQueryLogConfigPolicy,
+		),
+		"PutResolverRulePolicy": service.WrapOp(h.handlePutResolverRulePolicy),
+		"TagResource":           service.WrapOp(h.handleTagResource),
+		"UntagResource":         service.WrapOp(h.handleUntagResource),
+		"UpdateFirewallConfig":  service.WrapOp(h.handleUpdateFirewallConfig),
+		"UpdateFirewallDomains": service.WrapOp(h.handleUpdateFirewallDomains),
+		"UpdateFirewallRule":    service.WrapOp(h.handleUpdateFirewallRule),
+		"UpdateFirewallRuleGroupAssociation": service.WrapOp(
+			h.handleUpdateFirewallRuleGroupAssociation,
+		),
+		"UpdateOutpostResolver": service.WrapOp(h.handleUpdateOutpostResolver),
+		"UpdateResolverConfig":  service.WrapOp(h.handleUpdateResolverConfig),
+		"UpdateResolverDnssecConfig": service.WrapOp(
+			h.handleUpdateResolverDnssecConfig,
+		),
+		"UpdateResolverEndpoint": service.WrapOp(h.handleUpdateResolverEndpoint),
+		"UpdateResolverRule":     service.WrapOp(h.handleUpdateResolverRule),
 	}
 }
 
@@ -226,7 +270,10 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 }
 
@@ -234,12 +281,14 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 type resolverEndpointIPAddress struct {
 	SubnetID string `json:"SubnetId"`
 	IP       string `json:"Ip"`
+	Ipv6     string `json:"Ipv6,omitempty"`
 }
 
 type resolverEndpointIPAddressDetail struct {
 	IPID     string `json:"IpId"`
 	SubnetID string `json:"SubnetId"`
 	IP       string `json:"Ip"`
+	Ipv6     string `json:"Ipv6,omitempty"`
 	Status   string `json:"Status"`
 }
 
@@ -252,45 +301,51 @@ type listResolverEndpointIPAddressesOutput struct {
 }
 
 type handleCreateResolverEndpointInput struct {
-	Name                 string                      `json:"Name"`
-	Direction            string                      `json:"Direction"`
-	VpcID                string                      `json:"VpcId"`
-	SecurityGroupIDs     []string                    `json:"SecurityGroupIds"`
-	ResolverEndpointType string                      `json:"ResolverEndpointType"`
-	Tags                 []svcTags.KV                `json:"Tags"`
-	IPAddresses          []resolverEndpointIPAddress `json:"IpAddresses"`
-}
-
-type handleCreateResolverRuleInput struct {
-	Name               string     `json:"Name"`
-	DomainName         string     `json:"DomainName"`
-	RuleType           string     `json:"RuleType"`
-	ResolverEndpointID string     `json:"ResolverEndpointId"`
-	TargetIps          []targetIP `json:"TargetIps"`
+	Name                  string                      `json:"Name"`
+	Direction             string                      `json:"Direction"`
+	VpcID                 string                      `json:"VpcId"`
+	SecurityGroupIDs      []string                    `json:"SecurityGroupIds"`
+	ResolverEndpointType  string                      `json:"ResolverEndpointType"`
+	Protocols             []string                    `json:"Protocols"`
+	OutpostArn            string                      `json:"OutpostArn"`
+	PreferredInstanceType string                      `json:"PreferredInstanceType"`
+	CreatorRequestID      string                      `json:"CreatorRequestId"`
+	Tags                  []svcTags.KV                `json:"Tags"`
+	IPAddresses           []resolverEndpointIPAddress `json:"IpAddresses"`
 }
 
 type targetIP struct {
-	IP   string `json:"Ip"`
-	Port int32  `json:"Port"`
+	IP       string `json:"Ip"`
+	Ipv6     string `json:"Ipv6,omitempty"`
+	Protocol string `json:"Protocol,omitempty"`
+	Port     int32  `json:"Port"`
 }
 
 type resolverEndpointIPOutput struct {
 	SubnetID string `json:"SubnetId"`
 	IP       string `json:"Ip"`
+	Ipv6     string `json:"Ipv6,omitempty"`
 }
 
 type resolverEndpointOutput struct {
-	ID                   string                     `json:"Id"`
-	Arn                  string                     `json:"Arn"`
-	Name                 string                     `json:"Name"`
-	Direction            string                     `json:"Direction"`
-	Status               string                     `json:"Status"`
-	VpcID                string                     `json:"VpcId"`
-	HostVPCId            string                     `json:"HostVPCId"`
-	ResolverEndpointType string                     `json:"ResolverEndpointType"`
-	SecurityGroupIDs     []string                   `json:"SecurityGroupIds"`
-	IPAddresses          []resolverEndpointIPOutput `json:"IpAddresses"`
-	IPAddressCount       int32                      `json:"IpAddressCount"`
+	ID                    string                     `json:"Id"`
+	Arn                   string                     `json:"Arn"`
+	Name                  string                     `json:"Name"`
+	Direction             string                     `json:"Direction"`
+	Status                string                     `json:"Status"`
+	StatusMessage         string                     `json:"StatusMessage,omitempty"`
+	VpcID                 string                     `json:"VpcId"`
+	HostVPCId             string                     `json:"HostVPCId"`
+	ResolverEndpointType  string                     `json:"ResolverEndpointType"`
+	OutpostArn            string                     `json:"OutpostArn,omitempty"`
+	PreferredInstanceType string                     `json:"PreferredInstanceType,omitempty"`
+	CreatorRequestID      string                     `json:"CreatorRequestId,omitempty"`
+	CreationTime          string                     `json:"CreationTime,omitempty"`
+	ModificationTime      string                     `json:"ModificationTime,omitempty"`
+	SecurityGroupIDs      []string                   `json:"SecurityGroupIds"`
+	IPAddresses           []resolverEndpointIPOutput `json:"IpAddresses"`
+	Protocols             []string                   `json:"Protocols,omitempty"`
+	IPAddressCount        int32                      `json:"IpAddressCount"`
 }
 
 type resolverRuleOutput struct {
@@ -300,8 +355,13 @@ type resolverRuleOutput struct {
 	DomainName         string     `json:"DomainName"`
 	RuleType           string     `json:"RuleType"`
 	Status             string     `json:"Status"`
+	StatusMessage      string     `json:"StatusMessage,omitempty"`
 	ShareStatus        string     `json:"ShareStatus"`
 	ResolverEndpointID string     `json:"ResolverEndpointId"`
+	CreatorRequestID   string     `json:"CreatorRequestId,omitempty"`
+	OwnerID            string     `json:"OwnerID,omitempty"`
+	CreationTime       string     `json:"CreationTime,omitempty"`
+	ModificationTime   string     `json:"ModificationTime,omitempty"`
 	TargetIps          []targetIP `json:"TargetIps,omitempty"`
 }
 
@@ -342,7 +402,7 @@ type listResolverRulesOutput struct {
 func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
 	ips := make([]resolverEndpointIPOutput, 0, len(ep.IPAddresses))
 	for _, ip := range ep.IPAddresses {
-		ips = append(ips, resolverEndpointIPOutput{SubnetID: ip.SubnetID, IP: ip.IP})
+		ips = append(ips, resolverEndpointIPOutput{SubnetID: ip.SubnetID, IP: ip.IP, Ipv6: ip.Ipv6})
 	}
 
 	sgIDs := ep.SecurityGroupIDs
@@ -352,28 +412,41 @@ func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
 
 	epType := ep.ResolverEndpointType
 	if epType == "" {
-		epType = "IPV4"
+		epType = endpointTypeIPV4
 	}
 
+	//nolint:gosec // conversion is safe: IP count is always small
+	ipCount := int32(len(ep.IPAddresses))
+
 	return resolverEndpointOutput{
-		ID:                   ep.ID,
-		Arn:                  ep.ARN,
-		Name:                 ep.Name,
-		Direction:            ep.Direction,
-		Status:               ep.Status,
-		VpcID:                ep.VpcID,
-		HostVPCId:            ep.HostVPCID,
-		ResolverEndpointType: epType,
-		IPAddressCount:       int32(len(ep.IPAddresses)), //nolint:gosec // conversion is safe: IP count is always small
-		SecurityGroupIDs:     sgIDs,
-		IPAddresses:          ips,
+		ID:                    ep.ID,
+		Arn:                   ep.ARN,
+		Name:                  ep.Name,
+		Direction:             ep.Direction,
+		Status:                ep.Status,
+		StatusMessage:         ep.StatusMessage,
+		VpcID:                 ep.VpcID,
+		HostVPCId:             ep.HostVPCID,
+		ResolverEndpointType:  epType,
+		IPAddressCount:        ipCount,
+		SecurityGroupIDs:      sgIDs,
+		IPAddresses:           ips,
+		Protocols:             ep.Protocols,
+		OutpostArn:            ep.OutpostArn,
+		PreferredInstanceType: ep.PreferredInstanceType,
+		CreatorRequestID:      ep.CreatorRequestID,
+		CreationTime:          ep.CreationTime,
+		ModificationTime:      ep.ModificationTime,
 	}
 }
 
 func ruleToOutput(r *ResolverRule) resolverRuleOutput {
 	tips := make([]targetIP, 0, len(r.TargetIps))
 	for _, t := range r.TargetIps {
-		tips = append(tips, targetIP(t))
+		tips = append(
+			tips,
+			targetIP(t),
+		)
 	}
 	if len(tips) == 0 {
 		tips = nil
@@ -386,9 +459,14 @@ func ruleToOutput(r *ResolverRule) resolverRuleOutput {
 		DomainName:         r.DomainName,
 		RuleType:           r.RuleType,
 		Status:             r.Status,
+		StatusMessage:      r.StatusMessage,
 		ShareStatus:        r.ShareStatus,
 		ResolverEndpointID: r.ResolverEndpointID,
 		TargetIps:          tips,
+		CreatorRequestID:   r.CreatorRequestID,
+		OwnerID:            r.OwnerID,
+		CreationTime:       r.CreationTime,
+		ModificationTime:   r.ModificationTime,
 	}
 }
 
@@ -398,11 +476,12 @@ func (h *Handler) handleCreateResolverEndpoint(
 ) (*createResolverEndpointOutput, error) {
 	ips := make([]IPAddress, 0, len(in.IPAddresses))
 	for _, ip := range in.IPAddresses {
-		ips = append(ips, IPAddress{SubnetID: ip.SubnetID, IP: ip.IP})
+		ips = append(ips, IPAddress{SubnetID: ip.SubnetID, IP: ip.IP, Ipv6: ip.Ipv6})
 	}
 
 	ep, err := h.Backend.CreateResolverEndpoint(
 		in.Name, in.Direction, in.VpcID, ips, in.SecurityGroupIDs, in.ResolverEndpointType,
+		in.Protocols, in.OutpostArn, in.PreferredInstanceType, in.CreatorRequestID,
 	)
 	if err != nil {
 		return nil, err
@@ -469,11 +548,21 @@ func (h *Handler) handleListResolverEndpointIPAddresses(
 			IPID:     ip.IPID,
 			SubnetID: ip.SubnetID,
 			IP:       ip.IP,
+			Ipv6:     ip.Ipv6,
 			Status:   "ATTACHED",
 		})
 	}
 
 	return &listResolverEndpointIPAddressesOutput{IPAddresses: items}, nil
+}
+
+type handleCreateResolverRuleInput struct {
+	Name               string     `json:"Name"`
+	DomainName         string     `json:"DomainName"`
+	RuleType           string     `json:"RuleType"`
+	ResolverEndpointID string     `json:"ResolverEndpointId"`
+	CreatorRequestID   string     `json:"CreatorRequestId"`
+	TargetIps          []targetIP `json:"TargetIps"`
 }
 
 func (h *Handler) handleCreateResolverRule(
@@ -482,10 +571,20 @@ func (h *Handler) handleCreateResolverRule(
 ) (*createResolverRuleOutput, error) {
 	tips := make([]TargetIP, 0, len(in.TargetIps))
 	for _, t := range in.TargetIps {
-		tips = append(tips, TargetIP(t))
+		tips = append(
+			tips,
+			TargetIP(t),
+		)
 	}
 
-	r, err := h.Backend.CreateResolverRule(in.Name, in.DomainName, in.RuleType, in.ResolverEndpointID, tips)
+	r, err := h.Backend.CreateResolverRule(
+		in.Name,
+		in.DomainName,
+		in.RuleType,
+		in.ResolverEndpointID,
+		in.CreatorRequestID,
+		tips,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -493,7 +592,10 @@ func (h *Handler) handleCreateResolverRule(
 	return &createResolverRuleOutput{ResolverRule: ruleToOutput(r)}, nil
 }
 
-func (h *Handler) handleGetResolverRule(_ context.Context, in *resolverRuleIDInput) (*getResolverRuleOutput, error) {
+func (h *Handler) handleGetResolverRule(
+	_ context.Context,
+	in *resolverRuleIDInput,
+) (*getResolverRuleOutput, error) {
 	r, err := h.Backend.GetResolverRule(in.ResolverRuleID)
 	if err != nil {
 		return nil, err
@@ -589,7 +691,11 @@ type firewallRuleGroupOutput struct {
 	Name             string `json:"Name"`
 	CreatorRequestID string `json:"CreatorRequestId"`
 	Status           string `json:"Status"`
-	OwnerID          string `json:"OwnerId"`
+	StatusMessage    string `json:"StatusMessage,omitempty"`
+	OwnerID          string `json:"OwnerID"`
+	ShareStatus      string `json:"ShareStatus"`
+	CreationTime     string `json:"CreationTime,omitempty"`
+	ModificationTime string `json:"ModificationTime,omitempty"`
 	RuleCount        int32  `json:"RuleCount"`
 }
 
@@ -601,6 +707,12 @@ type firewallRuleGroupAssociationOutput struct {
 	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
 	VpcID               string `json:"VpcId"`
 	Status              string `json:"Status"`
+	StatusMessage       string `json:"StatusMessage,omitempty"`
+	MutationProtection  string `json:"MutationProtection"`
+	ManagedOwnerName    string `json:"ManagedOwnerName,omitempty"`
+	CreatorRequestID    string `json:"CreatorRequestId,omitempty"`
+	CreationTime        string `json:"CreationTime,omitempty"`
+	ModificationTime    string `json:"ModificationTime,omitempty"`
 	Priority            int32  `json:"Priority"`
 }
 
@@ -611,6 +723,7 @@ type firewallDomainListOutput struct {
 	Name             string `json:"Name"`
 	CreatorRequestID string `json:"CreatorRequestId"`
 	Status           string `json:"Status"`
+	ManagedOwnerName string `json:"ManagedOwnerName,omitempty"`
 	DomainCount      int32  `json:"DomainCount"`
 }
 
@@ -623,6 +736,14 @@ type firewallRuleOutput struct {
 	FirewallDomainListID string `json:"FirewallDomainListId"`
 	Action               string `json:"Action"`
 	BlockResponse        string `json:"BlockResponse,omitempty"`
+	BlockOverrideDomain  string `json:"BlockOverrideDomain,omitempty"`
+	BlockOverrideDNSType string `json:"BlockOverrideDNSType,omitempty"`
+	Qtype                string `json:"Qtype,omitempty"`
+	ConfidenceThreshold  string `json:"ConfidenceThreshold,omitempty"`
+	CreatorRequestID     string `json:"CreatorRequestId,omitempty"`
+	CreationTime         string `json:"CreationTime,omitempty"`
+	ModificationTime     string `json:"ModificationTime,omitempty"`
+	BlockOverrideTTL     int32  `json:"BlockOverrideTTL,omitempty"`
 	Priority             int32  `json:"Priority"`
 }
 
@@ -646,7 +767,10 @@ type resolverQueryLogConfigOutput struct {
 	CreatorRequestID string `json:"CreatorRequestId"`
 	DestinationArn   string `json:"DestinationArn"`
 	Status           string `json:"Status"`
-	OwnerID          string `json:"OwnerId"`
+	OwnerID          string `json:"OwnerID"`
+	ShareStatus      string `json:"ShareStatus"`
+	CreationTime     string `json:"CreationTime,omitempty"`
+	AssociationCount int32  `json:"AssociationCount"`
 }
 
 // resolverQueryLogConfigAssociationOutput is the JSON representation of a ResolverQueryLogConfigAssociation.
@@ -655,6 +779,9 @@ type resolverQueryLogConfigAssociationOutput struct {
 	ResolverQueryLogConfigID string `json:"ResolverQueryLogConfigId"`
 	ResourceID               string `json:"ResourceId"`
 	Status                   string `json:"Status"`
+	Error                    string `json:"Error,omitempty"`
+	ErrorMessage             string `json:"ErrorMessage,omitempty"`
+	CreationTime             string `json:"CreationTime,omitempty"`
 }
 
 // resolverRuleAssociationOutput is the JSON representation of a ResolverRuleAssociation.
@@ -685,8 +812,12 @@ func firewallRuleGroupToOutput(g *FirewallRuleGroup) firewallRuleGroupOutput {
 		Name:             g.Name,
 		CreatorRequestID: g.CreatorRequestID,
 		Status:           g.Status,
+		StatusMessage:    g.StatusMessage,
 		OwnerID:          g.OwnerID,
+		ShareStatus:      g.ShareStatus,
 		RuleCount:        g.RuleCount,
+		CreationTime:     g.CreationTime,
+		ModificationTime: g.ModificationTime,
 	}
 }
 
@@ -719,6 +850,7 @@ type associateFirewallRuleGroupInput struct {
 	Name                string `json:"Name"`
 	VpcID               string `json:"VpcId"`
 	CreatorRequestID    string `json:"CreatorRequestId"`
+	MutationProtection  string `json:"MutationProtection"`
 	Priority            int32  `json:"Priority"`
 }
 
@@ -726,7 +858,9 @@ type associateFirewallRuleGroupOutput struct {
 	FirewallRuleGroupAssociation firewallRuleGroupAssociationOutput `json:"FirewallRuleGroupAssociation"`
 }
 
-func firewallRuleGroupAssociationToOutput(a *FirewallRuleGroupAssociation) firewallRuleGroupAssociationOutput {
+func firewallRuleGroupAssociationToOutput(
+	a *FirewallRuleGroupAssociation,
+) firewallRuleGroupAssociationOutput {
 	return firewallRuleGroupAssociationOutput{
 		ID:                  a.ID,
 		Arn:                 a.ARN,
@@ -735,6 +869,12 @@ func firewallRuleGroupAssociationToOutput(a *FirewallRuleGroupAssociation) firew
 		VpcID:               a.VpcID,
 		Priority:            a.Priority,
 		Status:              a.Status,
+		StatusMessage:       a.StatusMessage,
+		MutationProtection:  a.MutationProtection,
+		ManagedOwnerName:    a.ManagedOwnerName,
+		CreatorRequestID:    a.CreatorRequestID,
+		CreationTime:        a.CreationTime,
+		ModificationTime:    a.ModificationTime,
 	}
 }
 
@@ -751,7 +891,12 @@ func (h *Handler) handleAssociateFirewallRuleGroup(
 	}
 
 	assoc, err := h.Backend.AssociateFirewallRuleGroup(
-		in.FirewallRuleGroupID, in.VpcID, in.Name, in.CreatorRequestID, in.Priority,
+		in.FirewallRuleGroupID,
+		in.VpcID,
+		in.Name,
+		in.CreatorRequestID,
+		in.MutationProtection,
+		in.Priority,
 	)
 	if err != nil {
 		return nil, err
@@ -767,6 +912,7 @@ func (h *Handler) handleAssociateFirewallRuleGroup(
 type ipAddressUpdateInput struct {
 	SubnetID string `json:"SubnetId"`
 	IP       string `json:"Ip"`
+	Ipv6     string `json:"Ipv6,omitempty"`
 }
 
 type associateResolverEndpointIPAddressInput struct {
@@ -787,7 +933,7 @@ func (h *Handler) handleAssociateResolverEndpointIPAddress(
 	}
 
 	ep, err := h.Backend.AssociateResolverEndpointIPAddress(
-		in.ResolverEndpointID, in.IPAddress.SubnetID, in.IPAddress.IP,
+		in.ResolverEndpointID, in.IPAddress.SubnetID, in.IPAddress.IP, in.IPAddress.Ipv6,
 	)
 	if err != nil {
 		return nil, err
@@ -818,6 +964,9 @@ func queryLogConfigToOutput(c *ResolverQueryLogConfig) resolverQueryLogConfigOut
 		DestinationArn:   c.DestinationARN,
 		Status:           c.Status,
 		OwnerID:          c.OwnerID,
+		AssociationCount: c.AssociationCount,
+		ShareStatus:      c.ShareStatus,
+		CreationTime:     c.CreationTime,
 	}
 }
 
@@ -833,7 +982,11 @@ func (h *Handler) handleCreateResolverQueryLogConfig(
 		return nil, fmt.Errorf("%w: DestinationArn is required", ErrValidation)
 	}
 
-	cfg, err := h.Backend.CreateResolverQueryLogConfig(in.Name, in.CreatorRequestID, in.DestinationArn)
+	cfg, err := h.Backend.CreateResolverQueryLogConfig(
+		in.Name,
+		in.CreatorRequestID,
+		in.DestinationArn,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -844,7 +997,9 @@ func (h *Handler) handleCreateResolverQueryLogConfig(
 		}
 	}
 
-	return &createResolverQueryLogConfigOutput{ResolverQueryLogConfig: queryLogConfigToOutput(cfg)}, nil
+	return &createResolverQueryLogConfigOutput{
+		ResolverQueryLogConfig: queryLogConfigToOutput(cfg),
+	}, nil
 }
 
 // --- AssociateResolverQueryLogConfig ---
@@ -858,12 +1013,17 @@ type associateResolverQueryLogConfigOutput struct {
 	ResolverQueryLogConfigAssociation resolverQueryLogConfigAssociationOutput `json:"ResolverQueryLogConfigAssociation"`
 }
 
-func queryLogConfigAssociationToOutput(a *ResolverQueryLogConfigAssociation) resolverQueryLogConfigAssociationOutput {
+func queryLogConfigAssociationToOutput(
+	a *ResolverQueryLogConfigAssociation,
+) resolverQueryLogConfigAssociationOutput {
 	return resolverQueryLogConfigAssociationOutput{
 		ID:                       a.ID,
 		ResolverQueryLogConfigID: a.ResolverQueryLogConfigID,
 		ResourceID:               a.ResourceID,
 		Status:                   a.Status,
+		Error:                    a.Error,
+		ErrorMessage:             a.ErrorMessage,
+		CreationTime:             a.CreationTime,
 	}
 }
 
@@ -879,7 +1039,10 @@ func (h *Handler) handleAssociateResolverQueryLogConfig(
 		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
 	}
 
-	assoc, err := h.Backend.AssociateResolverQueryLogConfig(in.ResolverQueryLogConfigID, in.ResourceID)
+	assoc, err := h.Backend.AssociateResolverQueryLogConfig(
+		in.ResolverQueryLogConfigID,
+		in.ResourceID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -928,7 +1091,9 @@ func (h *Handler) handleAssociateResolverRule(
 		return nil, err
 	}
 
-	return &associateResolverRuleOutput{ResolverRuleAssociation: ruleAssociationToOutput(assoc)}, nil
+	return &associateResolverRuleOutput{
+		ResolverRuleAssociation: ruleAssociationToOutput(assoc),
+	}, nil
 }
 
 // --- CreateFirewallDomainList ---
@@ -951,6 +1116,7 @@ func firewallDomainListToOutput(dl *FirewallDomainList) firewallDomainListOutput
 		CreatorRequestID: dl.CreatorRequestID,
 		Status:           dl.Status,
 		DomainCount:      dl.DomainCount,
+		ManagedOwnerName: dl.ManagedOwnerName,
 	}
 }
 
@@ -1011,6 +1177,11 @@ type createFirewallRuleInput struct {
 	FirewallDomainListID string `json:"FirewallDomainListId"`
 	Name                 string `json:"Name"`
 	BlockResponse        string `json:"BlockResponse"`
+	BlockOverrideDomain  string `json:"BlockOverrideDomain"`
+	BlockOverrideDNSType string `json:"BlockOverrideDNSType"`
+	Qtype                string `json:"Qtype"`
+	ConfidenceThreshold  string `json:"ConfidenceThreshold"`
+	BlockOverrideTTL     int32  `json:"BlockOverrideTTL"`
 	Priority             int32  `json:"Priority"`
 }
 
@@ -1028,6 +1199,14 @@ func firewallRuleToOutput(r *FirewallRule) firewallRuleOutput {
 		Action:               r.Action,
 		Priority:             r.Priority,
 		BlockResponse:        r.BlockResponse,
+		BlockOverrideDomain:  r.BlockOverrideDomain,
+		BlockOverrideDNSType: r.BlockOverrideDNSType,
+		BlockOverrideTTL:     r.BlockOverrideTTL,
+		Qtype:                r.Qtype,
+		ConfidenceThreshold:  r.ConfidenceThreshold,
+		CreatorRequestID:     r.CreatorRequestID,
+		CreationTime:         r.CreationTime,
+		ModificationTime:     r.ModificationTime,
 	}
 }
 
@@ -1056,10 +1235,20 @@ func (h *Handler) handleCreateFirewallRule(
 		)
 	}
 
-	rule, err := h.Backend.CreateFirewallRule(
-		in.FirewallRuleGroupID, in.Name, in.Action, in.CreatorRequestID,
-		in.Priority, in.FirewallDomainListID,
-	)
+	rule, err := h.Backend.CreateFirewallRule(CreateFirewallRuleParams{
+		FirewallRuleGroupID:  in.FirewallRuleGroupID,
+		Name:                 in.Name,
+		Action:               in.Action,
+		BlockResponse:        in.BlockResponse,
+		BlockOverrideDomain:  in.BlockOverrideDomain,
+		BlockOverrideDNSType: in.BlockOverrideDNSType,
+		BlockOverrideTTL:     in.BlockOverrideTTL,
+		Qtype:                in.Qtype,
+		ConfidenceThreshold:  in.ConfidenceThreshold,
+		CreatorRequestID:     in.CreatorRequestID,
+		FirewallDomainListID: in.FirewallDomainListID,
+		Priority:             in.Priority,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1130,10 +1319,10 @@ func (h *Handler) handleCreateOutpostResolver(
 // --- New handler types and functions for 46 missing operations ---
 
 // firewallConfigOutput is the JSON representation of a FirewallConfig.
+// AWS does not return an ARN for FirewallConfig.
 type firewallConfigOutput struct {
 	ID               string `json:"Id"`
-	Arn              string `json:"Arn"`
-	OwnerID          string `json:"OwnerId"`
+	OwnerID          string `json:"OwnerID"`
 	ResourceID       string `json:"ResourceId"`
 	FirewallFailOpen string `json:"FirewallFailOpen"`
 }
@@ -1141,7 +1330,6 @@ type firewallConfigOutput struct {
 func firewallConfigToOutput(c *FirewallConfig) firewallConfigOutput {
 	return firewallConfigOutput{
 		ID:               c.ID,
-		Arn:              c.ARN,
 		OwnerID:          c.OwnerID,
 		ResourceID:       c.ResourceID,
 		FirewallFailOpen: c.FirewallFailOpen,
@@ -1152,7 +1340,7 @@ func firewallConfigToOutput(c *FirewallConfig) firewallConfigOutput {
 type resolverConfigOutput struct {
 	ID                 string `json:"Id"`
 	Arn                string `json:"Arn"`
-	OwnerID            string `json:"OwnerId"`
+	OwnerID            string `json:"OwnerID"`
 	ResourceID         string `json:"ResourceId"`
 	AutodefinedReverse string `json:"AutodefinedReverse"`
 }
@@ -1170,7 +1358,7 @@ func resolverConfigToOutput(c *ResolverConfig) resolverConfigOutput {
 // resolverDnssecConfigOutput is the JSON representation of a ResolverDnssecConfig.
 type resolverDnssecConfigOutput struct {
 	ID               string `json:"Id"`
-	OwnerID          string `json:"OwnerId"`
+	OwnerID          string `json:"OwnerID"`
 	ResourceID       string `json:"ResourceId"`
 	ValidationStatus string `json:"ValidationStatus"`
 }
@@ -1212,11 +1400,17 @@ func (h *Handler) handleDeleteFirewallRule(
 // --- UpdateFirewallRule ---
 
 type updateFirewallRuleInput struct {
-	FirewallRuleID string `json:"FirewallRuleId"`
-	Name           string `json:"Name"`
-	Action         string `json:"Action"`
-	BlockResponse  string `json:"BlockResponse"`
-	Priority       int32  `json:"Priority"`
+	FirewallRuleID       string `json:"FirewallRuleId"`
+	Name                 string `json:"Name"`
+	Action               string `json:"Action"`
+	BlockResponse        string `json:"BlockResponse"`
+	BlockOverrideDomain  string `json:"BlockOverrideDomain"`
+	BlockOverrideDNSType string `json:"BlockOverrideDNSType"`
+	Qtype                string `json:"Qtype"`
+	ConfidenceThreshold  string `json:"ConfidenceThreshold"`
+	FirewallDomainListID string `json:"FirewallDomainListId"`
+	BlockOverrideTTL     int32  `json:"BlockOverrideTTL"`
+	Priority             int32  `json:"Priority"`
 }
 
 type updateFirewallRuleOutput struct {
@@ -1230,7 +1424,19 @@ func (h *Handler) handleUpdateFirewallRule(
 	if in.FirewallRuleID == "" {
 		return nil, fmt.Errorf("%w: FirewallRuleId is required", ErrValidation)
 	}
-	rule, err := h.Backend.UpdateFirewallRule(in.FirewallRuleID, in.Name, in.Action, in.BlockResponse, in.Priority)
+	rule, err := h.Backend.UpdateFirewallRule(UpdateFirewallRuleParams{
+		ID:                   in.FirewallRuleID,
+		Name:                 in.Name,
+		Action:               in.Action,
+		BlockResponse:        in.BlockResponse,
+		BlockOverrideDomain:  in.BlockOverrideDomain,
+		BlockOverrideDNSType: in.BlockOverrideDNSType,
+		BlockOverrideTTL:     in.BlockOverrideTTL,
+		Qtype:                in.Qtype,
+		ConfidenceThreshold:  in.ConfidenceThreshold,
+		FirewallDomainListID: in.FirewallDomainListID,
+		Priority:             in.Priority,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1463,6 +1669,7 @@ func (h *Handler) handleDisassociateFirewallRuleGroup(
 type updateFirewallRuleGroupAssociationInput struct {
 	FirewallRuleGroupAssociationID string `json:"FirewallRuleGroupAssociationId"`
 	Name                           string `json:"Name"`
+	MutationProtection             string `json:"MutationProtection"`
 	Priority                       int32  `json:"Priority"`
 }
 
@@ -1478,7 +1685,7 @@ func (h *Handler) handleUpdateFirewallRuleGroupAssociation(
 		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrValidation)
 	}
 	assoc, err := h.Backend.UpdateFirewallRuleGroupAssociation(
-		in.FirewallRuleGroupAssociationID, in.Name, in.Priority,
+		in.FirewallRuleGroupAssociationID, in.Name, in.MutationProtection, in.Priority,
 	)
 	if err != nil {
 		return nil, err
@@ -1616,7 +1823,11 @@ func (h *Handler) handleImportFirewallDomains(
 	if in.Operation == "" {
 		return nil, fmt.Errorf("%w: Operation is required", ErrValidation)
 	}
-	dl, err := h.Backend.ImportFirewallDomains(in.FirewallDomainListID, in.Operation, in.DomainFileURL)
+	dl, err := h.Backend.ImportFirewallDomains(
+		in.FirewallDomainListID,
+		in.Operation,
+		in.DomainFileURL,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1784,7 +1995,12 @@ func (h *Handler) handleUpdateOutpostResolver(
 	if in.ID == "" {
 		return nil, fmt.Errorf("%w: Id is required", ErrValidation)
 	}
-	r, err := h.Backend.UpdateOutpostResolver(in.ID, in.Name, in.PreferredInstanceType, in.InstanceCount)
+	r, err := h.Backend.UpdateOutpostResolver(
+		in.ID,
+		in.Name,
+		in.PreferredInstanceType,
+		in.InstanceCount,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1814,7 +2030,9 @@ func (h *Handler) handleDeleteResolverQueryLogConfig(
 		return nil, err
 	}
 
-	return &deleteResolverQueryLogConfigOutput{ResolverQueryLogConfig: queryLogConfigToOutput(cfg)}, nil
+	return &deleteResolverQueryLogConfigOutput{
+		ResolverQueryLogConfig: queryLogConfigToOutput(cfg),
+	}, nil
 }
 
 // --- GetResolverQueryLogConfig ---
@@ -1839,7 +2057,9 @@ func (h *Handler) handleGetResolverQueryLogConfig(
 		return nil, err
 	}
 
-	return &getResolverQueryLogConfigOutput{ResolverQueryLogConfig: queryLogConfigToOutput(cfg)}, nil
+	return &getResolverQueryLogConfigOutput{
+		ResolverQueryLogConfig: queryLogConfigToOutput(cfg),
+	}, nil
 }
 
 // --- ListResolverQueryLogConfigs ---
@@ -1881,7 +2101,9 @@ func (h *Handler) handleGetResolverQueryLogConfigAssociation(
 	if in.ResolverQueryLogConfigAssociationID == "" {
 		return nil, fmt.Errorf("%w: ResolverQueryLogConfigAssociationId is required", ErrValidation)
 	}
-	assoc, err := h.Backend.GetResolverQueryLogConfigAssociation(in.ResolverQueryLogConfigAssociationID)
+	assoc, err := h.Backend.GetResolverQueryLogConfigAssociation(
+		in.ResolverQueryLogConfigAssociationID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1908,7 +2130,9 @@ func (h *Handler) handleDisassociateResolverQueryLogConfig(
 	if in.ResolverQueryLogConfigAssociationID == "" {
 		return nil, fmt.Errorf("%w: ResolverQueryLogConfigAssociationId is required", ErrValidation)
 	}
-	assoc, err := h.Backend.DisassociateResolverQueryLogConfig(in.ResolverQueryLogConfigAssociationID)
+	assoc, err := h.Backend.DisassociateResolverQueryLogConfig(
+		in.ResolverQueryLogConfigAssociationID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1938,7 +2162,9 @@ func (h *Handler) handleListResolverQueryLogConfigAssociations(
 		items = append(items, queryLogConfigAssociationToOutput(a))
 	}
 
-	return &listResolverQueryLogConfigAssociationsOutput{ResolverQueryLogConfigAssociations: items}, nil
+	return &listResolverQueryLogConfigAssociationsOutput{
+		ResolverQueryLogConfigAssociations: items,
+	}, nil
 }
 
 // --- GetResolverQueryLogConfigPolicy ---
@@ -2010,7 +2236,9 @@ func (h *Handler) handleGetResolverRuleAssociation(
 		return nil, err
 	}
 
-	return &getResolverRuleAssociationOutput{ResolverRuleAssociation: ruleAssociationToOutput(assoc)}, nil
+	return &getResolverRuleAssociationOutput{
+		ResolverRuleAssociation: ruleAssociationToOutput(assoc),
+	}, nil
 }
 
 // --- DisassociateResolverRule ---
@@ -2035,7 +2263,9 @@ func (h *Handler) handleDisassociateResolverRule(
 		return nil, err
 	}
 
-	return &disassociateResolverRuleOutput{ResolverRuleAssociation: ruleAssociationToOutput(assoc)}, nil
+	return &disassociateResolverRuleOutput{
+		ResolverRuleAssociation: ruleAssociationToOutput(assoc),
+	}, nil
 }
 
 // --- ListResolverRuleAssociations ---
@@ -2109,8 +2339,10 @@ func (h *Handler) handlePutResolverRulePolicy(
 // --- UpdateResolverEndpoint ---
 
 type updateResolverEndpointInput struct {
-	ResolverEndpointID string `json:"ResolverEndpointId"`
-	Name               string `json:"Name"`
+	ResolverEndpointID   string   `json:"ResolverEndpointId"`
+	Name                 string   `json:"Name"`
+	ResolverEndpointType string   `json:"ResolverEndpointType"`
+	Protocols            []string `json:"Protocols"`
 }
 
 type updateResolverEndpointOutput struct {
@@ -2124,7 +2356,12 @@ func (h *Handler) handleUpdateResolverEndpoint(
 	if in.ResolverEndpointID == "" {
 		return nil, fmt.Errorf("%w: ResolverEndpointId is required", ErrValidation)
 	}
-	ep, err := h.Backend.UpdateResolverEndpoint(in.ResolverEndpointID, in.Name)
+	ep, err := h.Backend.UpdateResolverEndpoint(
+		in.ResolverEndpointID,
+		in.Name,
+		in.ResolverEndpointType,
+		in.Protocols,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2159,7 +2396,10 @@ func (h *Handler) handleDisassociateResolverEndpointIPAddress(
 	if in.IPAddress.IPID == "" {
 		return nil, fmt.Errorf("%w: IpAddress.IpId is required", ErrValidation)
 	}
-	ep, err := h.Backend.DisassociateResolverEndpointIPAddress(in.ResolverEndpointID, in.IPAddress.IPID)
+	ep, err := h.Backend.DisassociateResolverEndpointIPAddress(
+		in.ResolverEndpointID,
+		in.IPAddress.IPID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2194,13 +2434,21 @@ func (h *Handler) handleUpdateResolverRule(
 
 	tips := make([]TargetIP, 0, len(in.Config.TargetIps))
 	for _, t := range in.Config.TargetIps {
-		tips = append(tips, TargetIP(t))
+		tips = append(
+			tips,
+			TargetIP(t),
+		)
 	}
 	if len(tips) == 0 {
 		tips = nil
 	}
 
-	r, err := h.Backend.UpdateResolverRule(in.ResolverRuleID, in.Config.Name, in.Config.ResolverEndpointID, tips)
+	r, err := h.Backend.UpdateResolverRule(
+		in.ResolverRuleID,
+		in.Config.Name,
+		in.Config.ResolverEndpointID,
+		tips,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2296,7 +2544,9 @@ func (h *Handler) handleGetResolverDnssecConfig(
 	}
 	cfg := h.Backend.GetResolverDnssecConfig(in.ResourceID)
 
-	return &getResolverDnssecConfigOutput{ResolverDNSSECConfig: resolverDnssecConfigToOutput(cfg)}, nil
+	return &getResolverDnssecConfigOutput{
+		ResolverDNSSECConfig: resolverDnssecConfigToOutput(cfg),
+	}, nil
 }
 
 // --- UpdateResolverDnssecConfig ---
@@ -2322,7 +2572,9 @@ func (h *Handler) handleUpdateResolverDnssecConfig(
 		return nil, err
 	}
 
-	return &updateResolverDnssecConfigOutput{ResolverDNSSECConfig: resolverDnssecConfigToOutput(cfg)}, nil
+	return &updateResolverDnssecConfigOutput{
+		ResolverDNSSECConfig: resolverDnssecConfigToOutput(cfg),
+	}, nil
 }
 
 // --- ListResolverDnssecConfigs ---

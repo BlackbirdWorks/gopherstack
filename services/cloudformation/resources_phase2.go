@@ -847,7 +847,18 @@ func (rc *ResourceCreator) createRoute53ResolverEndpoint(
 		direction = "INBOUND"
 	}
 
-	ep, err := rc.backends.Route53Resolver.Backend.CreateResolverEndpoint(name, direction, "", nil, nil, "")
+	ep, err := rc.backends.Route53Resolver.Backend.CreateResolverEndpoint(
+		name,
+		direction,
+		"",
+		nil,
+		nil,
+		"",
+		nil,
+		"",
+		"",
+		"",
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Route53Resolver endpoint %s: %w", name, err)
 	}
@@ -885,7 +896,7 @@ func (rc *ResourceCreator) createRoute53ResolverRule(
 
 	endpointID := strProp(props, "ResolverEndpointId", params, physicalIDs)
 
-	rule, err := rc.backends.Route53Resolver.Backend.CreateResolverRule(name, domainName, ruleType, endpointID, nil)
+	rule, err := rc.backends.Route53Resolver.Backend.CreateResolverRule(name, domainName, ruleType, endpointID, "", nil)
 	if err != nil {
 		return "", fmt.Errorf("create Route53Resolver rule %s: %w", name, err)
 	}
@@ -961,7 +972,7 @@ func (rc *ResourceCreator) createAppSyncGraphQLAPI(
 		authType = appsyncbackend.AuthTypeAPIKey
 	}
 
-	api, err := imb.CreateGraphqlAPI(name, authType, false, "", nil)
+	api, err := imb.CreateGraphqlAPI(name, authType, false, "", "", nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("create AppSync GraphQL API %s: %w", name, err)
 	}

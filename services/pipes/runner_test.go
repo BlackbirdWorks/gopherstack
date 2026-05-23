@@ -91,6 +91,10 @@ func createTestPipe(t *testing.T, backend *pipes.InMemoryBackend, name, source, 
 
 	_, err := backend.CreatePipeSimple(name, "arn:aws:iam::000000000000:role/r", source, target, "", state, nil)
 	require.NoError(t, err)
+
+	if state == "RUNNING" {
+		pipes.WaitPipeRunning(t, backend, name)
+	}
 }
 
 // --- tests ---
@@ -284,6 +288,7 @@ func TestPipesRunner_FilterCriteria(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	pipes.WaitPipeRunning(t, backend, "filter-pipe")
 
 	sqsReader := &mockSQSReader{
 		messages: []*pipes.SQSMessage{
@@ -331,6 +336,7 @@ func TestPipesRunner_ConfigurableBatchSize(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	pipes.WaitPipeRunning(t, backend, "batch-pipe")
 
 	sqsReader := &mockSQSReader{}
 	runner := pipes.NewRunner(backend)
@@ -357,6 +363,7 @@ func TestPipesRunner_InputTemplate(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	pipes.WaitPipeRunning(t, backend, "template-pipe")
 
 	sqsReader := &mockSQSReader{
 		messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "hello"}},

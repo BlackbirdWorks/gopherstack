@@ -31,17 +31,21 @@ var (
 )
 
 const (
-	validationMethodDNS     = "DNS"
-	validationMethodEMAIL   = "EMAIL"
-	statusPendingValidation = "PENDING_VALIDATION"
-	statusIssued            = "ISSUED"
-	statusRevoked           = "REVOKED"
-	validationStatusSuccess = "SUCCESS"
-	validationTokenLen      = 8
-	autoValidateDelayMS     = 100
-	randByteDivisor         = 2
-	certTypeImported        = "IMPORTED"
-	certValidityDuration    = 365 * 24 * time.Hour
+	validationMethodDNS      = "DNS"
+	validationMethodEMAIL    = "EMAIL"
+	statusPendingValidation  = "PENDING_VALIDATION"
+	statusIssued             = "ISSUED"
+	statusRevoked            = "REVOKED"
+	statusInactive           = "INACTIVE"
+	statusExpired            = "EXPIRED"
+	statusValidationTimedOut = "VALIDATION_TIMED_OUT"
+	statusFailed             = "FAILED"
+	validationStatusSuccess  = "SUCCESS"
+	validationTokenLen       = 8
+	autoValidateDelayMS      = 100
+	randByteDivisor          = 2
+	certTypeImported         = "IMPORTED"
+	certValidityDuration     = 365 * 24 * time.Hour
 
 	defaultDaysBeforeExpiry = int32(45)
 
@@ -509,6 +513,8 @@ func (b *InMemoryBackend) ImportCertificate(
 		existing.SignatureAlgorithm = meta.signatureAlgorithm
 		existing.ImportedAt = &now
 		existing.Status = statusIssued
+		existing.KeyUsage = meta.keyUsage
+		existing.ExtendedKeyUsage = meta.extKeyUsage
 
 		cp := copyCert(existing)
 
@@ -536,6 +542,8 @@ func (b *InMemoryBackend) ImportCertificate(
 		ImportedAt:         &now,
 		NotBefore:          notBefore,
 		NotAfter:           notAfter,
+		KeyUsage:           meta.keyUsage,
+		ExtendedKeyUsage:   meta.extKeyUsage,
 	}
 	b.certs[certARN] = cert
 
@@ -628,7 +636,8 @@ const fakeCertChain = "-----BEGIN CERTIFICATE-----\n" +
 // an IMPORTED or PRIVATE certificate. Returns ErrNotEligible for AMAZON_ISSUED certificates.
 // When the stored certificate has no associated chain, a fake chain (intermediate + root)
 // is returned in PEM format to simulate AWS ACM behaviour.
-func (b *InMemoryBackend) ExportCertificate(certARN string) (*Certificate, error) {
+// If passphrase is non-nil and non-empty, the private key is returned encrypted using AES-256.
+func (b *InMemoryBackend) ExportCertificate(certARN string, passphrase []byte) (*Certificate, error) {
 	b.mu.RLock("ExportCertificate")
 	defer b.mu.RUnlock()
 
@@ -646,6 +655,15 @@ func (b *InMemoryBackend) ExportCertificate(certARN string) (*Certificate, error
 	// Always return a certificate chain; use a fake chain when none was supplied.
 	if cp.CertificateChain == "" {
 		cp.CertificateChain = fakeCertChain
+	}
+
+	if len(passphrase) > 0 {
+		encKey, encErr := encryptPrivateKeyPEM(cp.PrivateKey, passphrase)
+		if encErr != nil {
+			return nil, fmt.Errorf("export: %w", encErr)
+		}
+
+		cp.PrivateKey = encKey
 	}
 
 	return &cp, nil
@@ -681,12 +699,75 @@ func (b *InMemoryBackend) DescribeCertificate(arn string) (*Certificate, error) 
 
 // ListCertificatesParams holds all filter and sorting options for ListCertificates.
 type ListCertificatesParams struct {
-	NextToken    string
-	SortBy       string
-	SortOrder    string
-	StatusFilter []string
-	KeyTypes     []string
-	MaxItems     int
+	NextToken        string
+	SortBy           string
+	SortOrder        string
+	StatusFilter     []string
+	KeyTypes         []string
+	KeyUsage         []string
+	ExtendedKeyUsage []string
+	MaxItems         int
+}
+
+// listCertFilters holds compiled filter sets for ListCertificates.
+type listCertFilters struct {
+	statusSet      map[string]struct{}
+	keyTypeSet     map[string]struct{}
+	keyUsageSet    map[string]struct{}
+	extKeyUsageSet map[string]struct{}
+}
+
+// buildListCertFilters compiles the filter sets from ListCertificatesParams.
+func buildListCertFilters(p ListCertificatesParams) listCertFilters {
+	f := listCertFilters{
+		statusSet:      make(map[string]struct{}, len(p.StatusFilter)),
+		keyTypeSet:     make(map[string]struct{}, len(p.KeyTypes)),
+		keyUsageSet:    make(map[string]struct{}, len(p.KeyUsage)),
+		extKeyUsageSet: make(map[string]struct{}, len(p.ExtendedKeyUsage)),
+	}
+
+	for _, s := range p.StatusFilter {
+		f.statusSet[s] = struct{}{}
+	}
+
+	for _, k := range p.KeyTypes {
+		f.keyTypeSet[k] = struct{}{}
+	}
+
+	for _, ku := range p.KeyUsage {
+		f.keyUsageSet[ku] = struct{}{}
+	}
+
+	for _, eku := range p.ExtendedKeyUsage {
+		f.extKeyUsageSet[eku] = struct{}{}
+	}
+
+	return f
+}
+
+// matches returns true if the certificate satisfies all filters.
+func (f listCertFilters) matches(c *Certificate) bool {
+	if len(f.statusSet) > 0 {
+		if _, ok := f.statusSet[c.Status]; !ok {
+			return false
+		}
+	}
+
+	if len(f.keyTypeSet) > 0 {
+		if _, ok := f.keyTypeSet[c.KeyAlgorithm]; !ok {
+			return false
+		}
+	}
+
+	if len(f.keyUsageSet) > 0 && !matchesAny(c.KeyUsage, f.keyUsageSet) {
+		return false
+	}
+
+	if len(f.extKeyUsageSet) > 0 && !matchesAny(c.ExtendedKeyUsage, f.extKeyUsageSet) {
+		return false
+	}
+
+	return true
 }
 
 // ListCertificates returns a paginated list of certificates, with optional
@@ -695,32 +776,13 @@ func (b *InMemoryBackend) ListCertificates(p ListCertificatesParams) page.Page[C
 	b.mu.RLock("ListCertificates")
 	defer b.mu.RUnlock()
 
-	statusSet := make(map[string]struct{}, len(p.StatusFilter))
-	for _, s := range p.StatusFilter {
-		statusSet[s] = struct{}{}
-	}
-
-	keyTypeSet := make(map[string]struct{}, len(p.KeyTypes))
-	for _, k := range p.KeyTypes {
-		keyTypeSet[k] = struct{}{}
-	}
-
+	filters := buildListCertFilters(p)
 	certs := make([]Certificate, 0, len(b.certs))
 
 	for _, c := range b.certs {
-		if len(statusSet) > 0 {
-			if _, ok := statusSet[c.Status]; !ok {
-				continue
-			}
+		if filters.matches(c) {
+			certs = append(certs, copyCert(c))
 		}
-
-		if len(keyTypeSet) > 0 {
-			if _, ok := keyTypeSet[c.KeyAlgorithm]; !ok {
-				continue
-			}
-		}
-
-		certs = append(certs, copyCert(c))
 	}
 
 	descending := strings.EqualFold(p.SortOrder, "DESCENDING")
@@ -749,6 +811,17 @@ func (b *InMemoryBackend) ListCertificates(p ListCertificatesParams) page.Page[C
 }
 
 const acmDefaultMaxItems = 100
+
+// matchesAny returns true if any element of values is in the set.
+func matchesAny(values []string, set map[string]struct{}) bool {
+	for _, v := range values {
+		if _, ok := set[v]; ok {
+			return true
+		}
+	}
+
+	return false
+}
 
 // CertExists reports whether a certificate with the given ARN exists in the backend.
 // This is used by the handler to validate tag operations.
@@ -902,6 +975,8 @@ type certMetadata struct {
 	subject            string
 	issuer             string
 	signatureAlgorithm string
+	keyUsage           []string
+	extKeyUsage        []string
 }
 
 // generateSelfSignedCert generates a self-signed ECDSA P-256 certificate for
@@ -987,9 +1062,98 @@ func extractCertMetadataFull(certPEM string) (string, certMetadata, time.Time, t
 		subject:            cert.Subject.String(),
 		issuer:             cert.Issuer.String(),
 		signatureAlgorithm: cert.SignatureAlgorithm.String(),
+		keyUsage:           x509KeyUsageToAWS(cert.KeyUsage),
+		extKeyUsage:        x509ExtKeyUsageToAWS(cert.ExtKeyUsage),
 	}
 
 	return domainName, meta, cert.NotBefore.UTC(), cert.NotAfter.UTC(), nil
+}
+
+// x509KeyUsageToAWS converts x509.KeyUsage bitmask to a slice of AWS key usage strings.
+func x509KeyUsageToAWS(ku x509.KeyUsage) []string {
+	mapping := []struct {
+		name string
+		bit  x509.KeyUsage
+	}{
+		{"DIGITAL_SIGNATURE", x509.KeyUsageDigitalSignature},
+		{"NON_REPUDIATION", x509.KeyUsageContentCommitment},
+		{"KEY_ENCIPHERMENT", x509.KeyUsageKeyEncipherment},
+		{"DATA_ENCIPHERMENT", x509.KeyUsageDataEncipherment},
+		{"KEY_AGREEMENT", x509.KeyUsageKeyAgreement},
+		{"CERTIFICATE_SIGNING", x509.KeyUsageCertSign},
+		{"CRL_SIGNING", x509.KeyUsageCRLSign},
+		{"ENCIPHER_ONLY", x509.KeyUsageEncipherOnly},
+		{"DECIPHER_ONLY", x509.KeyUsageDecipherOnly},
+	}
+
+	var result []string
+	for _, m := range mapping {
+		if ku&m.bit != 0 {
+			result = append(result, m.name)
+		}
+	}
+
+	return result
+}
+
+// x509ExtKeyUsageToAWS converts a slice of x509.ExtKeyUsage to AWS extended key usage strings.
+func x509ExtKeyUsageToAWS(ekus []x509.ExtKeyUsage) []string {
+	var result []string
+
+	for _, eku := range ekus {
+		switch eku {
+		case x509.ExtKeyUsageAny:
+			result = append(result, "ANY")
+		case x509.ExtKeyUsageServerAuth:
+			result = append(result, "TLS_WEB_SERVER_AUTHENTICATION")
+		case x509.ExtKeyUsageClientAuth:
+			result = append(result, "TLS_WEB_CLIENT_AUTHENTICATION")
+		case x509.ExtKeyUsageCodeSigning:
+			result = append(result, "CODE_SIGNING")
+		case x509.ExtKeyUsageEmailProtection:
+			result = append(result, "EMAIL_PROTECTION")
+		case x509.ExtKeyUsageIPSECEndSystem:
+			result = append(result, "IPSEC_END_SYSTEM")
+		case x509.ExtKeyUsageIPSECTunnel:
+			result = append(result, "IPSEC_TUNNEL")
+		case x509.ExtKeyUsageIPSECUser:
+			result = append(result, "IPSEC_USER")
+		case x509.ExtKeyUsageTimeStamping:
+			result = append(result, "TIME_STAMPING")
+		case x509.ExtKeyUsageOCSPSigning:
+			result = append(result, "OCSP_SIGNING")
+		case x509.ExtKeyUsageMicrosoftServerGatedCrypto,
+			x509.ExtKeyUsageNetscapeServerGatedCrypto,
+			x509.ExtKeyUsageMicrosoftCommercialCodeSigning,
+			x509.ExtKeyUsageMicrosoftKernelCodeSigning:
+			result = append(result, "CUSTOM")
+		}
+	}
+
+	return result
+}
+
+// encryptPrivateKeyPEM encrypts a PEM-encoded private key with the given passphrase,
+// returning a PEM block with type "ENCRYPTED PRIVATE KEY".
+func encryptPrivateKeyPEM(privateKeyPEM string, passphrase []byte) (string, error) {
+	block, _ := pem.Decode([]byte(privateKeyPEM))
+	if block == nil {
+		return "", errInvalidPEM
+	}
+
+	//nolint:staticcheck // EncryptPEMBlock is deprecated but functional for ACM passphrase simulation
+	encBlock, err := x509.EncryptPEMBlock(
+		cryptorand.Reader,
+		"ENCRYPTED PRIVATE KEY",
+		block.Bytes,
+		passphrase,
+		x509.PEMCipherAES256,
+	)
+	if err != nil {
+		return "", fmt.Errorf("encrypt private key: %w", err)
+	}
+
+	return string(pem.EncodeToMemory(encBlock)), nil
 }
 
 // Reset clears all certificate state and stops any pending auto-validate timers.
@@ -1198,6 +1362,110 @@ func (b *InMemoryBackend) UpdateCertificateOptions(certARN, transparencyLoggingP
 	}
 
 	cert.CertificateTransparencyLoggingPref = transparencyLoggingPref
+
+	return nil
+}
+
+// ExpireCertificate transitions an ISSUED certificate to EXPIRED status.
+// Returns ErrCertNotFound if no such certificate exists, ErrInvalidParameter if the
+// certificate is not in ISSUED status.
+func (b *InMemoryBackend) ExpireCertificate(certARN string) error {
+	b.mu.Lock("ExpireCertificate")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs[certARN]
+	if !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if cert.Status != statusIssued {
+		return fmt.Errorf("%w: only ISSUED certificates can be expired, got %s", ErrInvalidParameter, cert.Status)
+	}
+
+	cert.Status = statusExpired
+
+	return nil
+}
+
+// InactivateCertificate transitions an ISSUED certificate to INACTIVE status.
+// Returns ErrCertNotFound if no such certificate exists, ErrInvalidParameter if the
+// certificate is not in ISSUED status.
+func (b *InMemoryBackend) InactivateCertificate(certARN string) error {
+	b.mu.Lock("InactivateCertificate")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs[certARN]
+	if !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if cert.Status != statusIssued {
+		return fmt.Errorf("%w: only ISSUED certificates can be inactivated, got %s", ErrInvalidParameter, cert.Status)
+	}
+
+	cert.Status = statusInactive
+
+	return nil
+}
+
+// TimeoutPendingValidation transitions a PENDING_VALIDATION certificate to VALIDATION_TIMED_OUT.
+// Returns ErrCertNotFound if no such certificate exists, ErrInvalidParameter if the
+// certificate is not in PENDING_VALIDATION status.
+func (b *InMemoryBackend) TimeoutPendingValidation(certARN string) error {
+	b.mu.Lock("TimeoutPendingValidation")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs[certARN]
+	if !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if cert.Status != statusPendingValidation {
+		return fmt.Errorf(
+			"%w: only PENDING_VALIDATION certificates can time out, got %s",
+			ErrInvalidParameter, cert.Status,
+		)
+	}
+
+	// Stop any pending auto-validate timer.
+	if t, exists := b.timers[certARN]; exists {
+		t.Stop()
+		delete(b.timers, certARN)
+	}
+
+	cert.Status = statusValidationTimedOut
+
+	return nil
+}
+
+// FailCertificate transitions a PENDING_VALIDATION certificate to FAILED status with
+// the given failure reason.
+// Returns ErrCertNotFound if no such certificate exists, ErrInvalidParameter if the
+// certificate is not in PENDING_VALIDATION status.
+func (b *InMemoryBackend) FailCertificate(certARN, reason string) error {
+	b.mu.Lock("FailCertificate")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs[certARN]
+	if !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if cert.Status != statusPendingValidation {
+		return fmt.Errorf(
+			"%w: only PENDING_VALIDATION certificates can be failed, got %s",
+			ErrInvalidParameter, cert.Status,
+		)
+	}
+
+	// Stop any pending auto-validate timer.
+	if t, exists := b.timers[certARN]; exists {
+		t.Stop()
+		delete(b.timers, certARN)
+	}
+
+	cert.Status = statusFailed
+	cert.FailureReason = reason
 
 	return nil
 }

@@ -370,70 +370,82 @@ func epochSeconds(t time.Time) float64 {
 }
 
 type createPipeRequest struct {
-	Tags             map[string]string `json:"Tags"`
-	SourceParameters *SourceParameters `json:"SourceParameters"`
-	TargetParameters *TargetParameters `json:"TargetParameters"`
-	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig"`
-	LogConfiguration *LogConfiguration `json:"LogConfiguration"`
-	RoleArn          string            `json:"RoleArn"`
-	Source           string            `json:"Source"`
-	Target           string            `json:"Target"`
-	Description      string            `json:"Description"`
-	Enrichment       string            `json:"Enrichment"`
-	DesiredState     string            `json:"DesiredState"`
+	Tags                    map[string]string        `json:"Tags"`
+	SourceParameters        *SourceParameters        `json:"SourceParameters"`
+	TargetParameters        *TargetParameters        `json:"TargetParameters"`
+	DeadLetterConfig        *DeadLetterConfig        `json:"DeadLetterConfig"`
+	LogConfiguration        *LogConfiguration        `json:"LogConfiguration"`
+	EnrichmentParameters    *EnrichmentParameters    `json:"EnrichmentParameters"`
+	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"RuntimeMetricsStreaming"`
+	RoleArn                 string                   `json:"RoleArn"`
+	Source                  string                   `json:"Source"`
+	Target                  string                   `json:"Target"`
+	Description             string                   `json:"Description"`
+	Enrichment              string                   `json:"Enrichment"`
+	KmsKeyIdentifier        string                   `json:"KmsKeyIdentifier"`
+	DesiredState            string                   `json:"DesiredState"`
 }
 
 type updatePipeRequest struct {
-	SourceParameters *SourceParameters `json:"SourceParameters"`
-	TargetParameters *TargetParameters `json:"TargetParameters"`
-	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig"`
-	LogConfiguration *LogConfiguration `json:"LogConfiguration"`
-	RoleArn          string            `json:"RoleArn"`
-	Target           string            `json:"Target"`
-	Description      string            `json:"Description"`
-	Enrichment       string            `json:"Enrichment"`
-	DesiredState     string            `json:"DesiredState"`
+	SourceParameters        *SourceParameters        `json:"SourceParameters"`
+	TargetParameters        *TargetParameters        `json:"TargetParameters"`
+	DeadLetterConfig        *DeadLetterConfig        `json:"DeadLetterConfig"`
+	LogConfiguration        *LogConfiguration        `json:"LogConfiguration"`
+	EnrichmentParameters    *EnrichmentParameters    `json:"EnrichmentParameters"`
+	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"RuntimeMetricsStreaming"`
+	RoleArn                 string                   `json:"RoleArn"`
+	Target                  string                   `json:"Target"`
+	Description             string                   `json:"Description"`
+	Enrichment              string                   `json:"Enrichment"`
+	KmsKeyIdentifier        string                   `json:"KmsKeyIdentifier"`
+	DesiredState            string                   `json:"DesiredState"`
 }
 
 type pipeResponse struct {
-	SourceParameters *SourceParameters `json:"SourceParameters,omitempty"`
-	TargetParameters *TargetParameters `json:"TargetParameters,omitempty"`
-	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
-	LogConfiguration *LogConfiguration `json:"LogConfiguration,omitempty"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	Arn              string            `json:"Arn"`
-	Name             string            `json:"Name"`
-	RoleArn          string            `json:"RoleArn"`
-	Source           string            `json:"Source"`
-	Target           string            `json:"Target"`
-	Description      string            `json:"Description,omitempty"`
-	Enrichment       string            `json:"Enrichment,omitempty"`
-	DesiredState     string            `json:"DesiredState"`
-	CurrentState     string            `json:"CurrentState"`
-	StateReason      string            `json:"StateReason,omitempty"`
-	CreationTime     float64           `json:"CreationTime"`
-	LastModifiedTime float64           `json:"LastModifiedTime"`
+	SourceParameters        *SourceParameters        `json:"SourceParameters,omitempty"`
+	TargetParameters        *TargetParameters        `json:"TargetParameters,omitempty"`
+	DeadLetterConfig        *DeadLetterConfig        `json:"DeadLetterConfig,omitempty"`
+	LogConfiguration        *LogConfiguration        `json:"LogConfiguration,omitempty"`
+	EnrichmentParameters    *EnrichmentParameters    `json:"EnrichmentParameters,omitempty"`
+	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"RuntimeMetricsStreaming,omitempty"`
+	Tags                    map[string]string        `json:"Tags,omitempty"`
+	Arn                     string                   `json:"Arn"`
+	Name                    string                   `json:"Name"`
+	RoleArn                 string                   `json:"RoleArn"`
+	Source                  string                   `json:"Source"`
+	Target                  string                   `json:"Target"`
+	Description             string                   `json:"Description,omitempty"`
+	Enrichment              string                   `json:"Enrichment,omitempty"`
+	KmsKeyIdentifier        string                   `json:"KmsKeyIdentifier,omitempty"`
+	DesiredState            string                   `json:"DesiredState"`
+	CurrentState            string                   `json:"CurrentState"`
+	StateReason             string                   `json:"StateReason,omitempty"`
+	CreationTime            float64                  `json:"CreationTime"`
+	LastModifiedTime        float64                  `json:"LastModifiedTime"`
 }
 
 func toPipeResponse(p *Pipe) pipeResponse {
 	return pipeResponse{
-		Arn:              p.ARN,
-		Name:             p.Name,
-		RoleArn:          p.RoleARN,
-		Source:           p.Source,
-		Target:           p.Target,
-		Description:      p.Description,
-		Enrichment:       p.Enrichment,
-		DesiredState:     p.DesiredState,
-		CurrentState:     p.CurrentState,
-		StateReason:      p.StateReason,
-		CreationTime:     epochSeconds(p.CreationTime),
-		LastModifiedTime: epochSeconds(p.LastModifiedTime),
-		Tags:             p.Tags,
-		SourceParameters: p.SourceParameters,
-		TargetParameters: p.TargetParameters,
-		DeadLetterConfig: p.DeadLetterConfig,
-		LogConfiguration: p.LogConfiguration,
+		Arn:                     p.ARN,
+		Name:                    p.Name,
+		RoleArn:                 p.RoleARN,
+		Source:                  p.Source,
+		Target:                  p.Target,
+		Description:             p.Description,
+		Enrichment:              p.Enrichment,
+		KmsKeyIdentifier:        p.KmsKeyIdentifier,
+		DesiredState:            p.DesiredState,
+		CurrentState:            p.CurrentState,
+		StateReason:             p.StateReason,
+		CreationTime:            epochSeconds(p.CreationTime),
+		LastModifiedTime:        epochSeconds(p.LastModifiedTime),
+		Tags:                    p.Tags,
+		SourceParameters:        p.SourceParameters,
+		TargetParameters:        p.TargetParameters,
+		DeadLetterConfig:        p.DeadLetterConfig,
+		LogConfiguration:        p.LogConfiguration,
+		EnrichmentParameters:    p.EnrichmentParameters,
+		RuntimeMetricsStreaming: p.RuntimeMetricsStreaming,
 	}
 }
 
@@ -449,18 +461,21 @@ func (h *Handler) handleCreatePipe(_ context.Context, path string, body []byte) 
 	}
 
 	p, err := h.Backend.CreatePipe(CreatePipeInput{
-		Name:             name,
-		RoleARN:          req.RoleArn,
-		Source:           req.Source,
-		Target:           req.Target,
-		Description:      req.Description,
-		Enrichment:       req.Enrichment,
-		DesiredState:     req.DesiredState,
-		Tags:             req.Tags,
-		SourceParameters: req.SourceParameters,
-		TargetParameters: req.TargetParameters,
-		DeadLetterConfig: req.DeadLetterConfig,
-		LogConfiguration: req.LogConfiguration,
+		Name:                    name,
+		RoleARN:                 req.RoleArn,
+		Source:                  req.Source,
+		Target:                  req.Target,
+		Description:             req.Description,
+		Enrichment:              req.Enrichment,
+		KmsKeyIdentifier:        req.KmsKeyIdentifier,
+		DesiredState:            req.DesiredState,
+		Tags:                    req.Tags,
+		SourceParameters:        req.SourceParameters,
+		TargetParameters:        req.TargetParameters,
+		DeadLetterConfig:        req.DeadLetterConfig,
+		LogConfiguration:        req.LogConfiguration,
+		EnrichmentParameters:    req.EnrichmentParameters,
+		RuntimeMetricsStreaming: req.RuntimeMetricsStreaming,
 	})
 	if err != nil {
 		return nil, err
@@ -547,11 +562,12 @@ func (h *Handler) handleDeletePipe(_ context.Context, path string) ([]byte, erro
 		return nil, fmt.Errorf("%w: missing pipe name in path", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeletePipe(name); err != nil {
+	p, err := h.Backend.DeletePipe(name)
+	if err != nil {
 		return nil, err
 	}
 
-	return nil, nil
+	return json.Marshal(toPipeResponse(p))
 }
 
 func (h *Handler) handleUpdatePipe(_ context.Context, path string, body []byte) ([]byte, error) {
@@ -566,15 +582,18 @@ func (h *Handler) handleUpdatePipe(_ context.Context, path string, body []byte) 
 	}
 
 	p, err := h.Backend.UpdatePipe(name, UpdatePipeInput{
-		RoleARN:          req.RoleArn,
-		Target:           req.Target,
-		Description:      req.Description,
-		Enrichment:       req.Enrichment,
-		DesiredState:     req.DesiredState,
-		SourceParameters: req.SourceParameters,
-		TargetParameters: req.TargetParameters,
-		DeadLetterConfig: req.DeadLetterConfig,
-		LogConfiguration: req.LogConfiguration,
+		RoleARN:                 req.RoleArn,
+		Target:                  req.Target,
+		Description:             req.Description,
+		Enrichment:              req.Enrichment,
+		KmsKeyIdentifier:        req.KmsKeyIdentifier,
+		DesiredState:            req.DesiredState,
+		SourceParameters:        req.SourceParameters,
+		TargetParameters:        req.TargetParameters,
+		DeadLetterConfig:        req.DeadLetterConfig,
+		LogConfiguration:        req.LogConfiguration,
+		EnrichmentParameters:    req.EnrichmentParameters,
+		RuntimeMetricsStreaming: req.RuntimeMetricsStreaming,
 	})
 	if err != nil {
 		return nil, err

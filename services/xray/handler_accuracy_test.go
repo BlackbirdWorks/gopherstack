@@ -486,7 +486,7 @@ func TestAccuracy_Encryption_UpdatingStatusAfterPut(t *testing.T) {
 	assert.Equal(t, "UPDATING", enc["Status"], "status should be UPDATING immediately after PUT")
 
 	// GET should advance to ACTIVE.
-	getRec := doXrayGETRequest(t, h, "/EncryptionConfig")
+	getRec := doXrayGETRequest(t, h)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any

@@ -371,6 +371,7 @@ func TestAssociateResolverRule(t *testing.T) {
 				t.Helper()
 				rec := doRequest(t, h, "CreateResolverRule", map[string]any{
 					"Name": "my-rule", "DomainName": "example.com", "RuleType": "FORWARD",
+					"TargetIps": []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any

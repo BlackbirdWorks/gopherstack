@@ -590,10 +590,16 @@ type brokerSummary struct {
 }
 
 type updateBrokerInput struct {
-	AutoMinorVersionUpgrade *bool    `json:"autoMinorVersionUpgrade"`
-	EngineVersion           string   `json:"engineVersion"`
-	HostInstanceType        string   `json:"hostInstanceType"`
-	SecurityGroups          []string `json:"securityGroups"`
+	LdapServerMetadata         *LdapServerMetadata `json:"ldapServerMetadata,omitempty"`
+	MaintenanceWindowStartTime *WeeklyStartTime    `json:"maintenanceWindowStartTime,omitempty"`
+	Logs                       *Logs               `json:"logs,omitempty"`
+	Configuration              *ConfigurationID    `json:"configuration,omitempty"`
+	AutoMinorVersionUpgrade    *bool               `json:"autoMinorVersionUpgrade"`
+	AuthenticationStrategy     string              `json:"authenticationStrategy"`
+	EngineVersion              string              `json:"engineVersion"`
+	HostInstanceType           string              `json:"hostInstanceType"`
+	DataReplicationMode        string              `json:"dataReplicationMode"`
+	SecurityGroups             []string            `json:"securityGroups"`
 }
 
 // updateBrokerResponse matches the AWS MQ UpdateBroker response shape.
@@ -621,12 +627,20 @@ func (h *Handler) handleUpdateBroker(c *echo.Context, brokerID string, body []by
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	br, err := h.Backend.UpdateBroker(
+	br, err := h.Backend.UpdateBrokerWithOptions(
 		brokerID,
 		in.EngineVersion,
 		in.HostInstanceType,
 		in.AutoMinorVersionUpgrade,
 		in.SecurityGroups,
+		&UpdateBrokerOptions{
+			AuthenticationStrategy:     in.AuthenticationStrategy,
+			Logs:                       in.Logs,
+			LdapServerMetadata:         in.LdapServerMetadata,
+			MaintenanceWindowStartTime: in.MaintenanceWindowStartTime,
+			Configuration:              in.Configuration,
+			DataReplicationMode:        in.DataReplicationMode,
+		},
 	)
 	if err != nil {
 		return h.writeError(c, err)

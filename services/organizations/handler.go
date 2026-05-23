@@ -371,11 +371,12 @@ func (h *Handler) handleDeleteOrganization(c *echo.Context, _ []byte) error {
 }
 
 func (h *Handler) handleEnableAllFeatures(c *echo.Context, _ []byte) error {
-	if err := h.Backend.EnsureOrgExists(); err != nil {
+	hs, err := h.Backend.EnableAllFeatures()
+	if err != nil {
 		return h.handleBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, struct{}{})
+	return c.JSON(http.StatusOK, enableAllFeaturesResponse{Handshake: toHandshakeObject(hs)})
 }
 
 // ----------------------------------------
@@ -1308,8 +1309,15 @@ func (h *Handler) handleLeaveOrganization(c *echo.Context, _ []byte) error {
 	return c.JSON(http.StatusOK, struct{}{})
 }
 
-func (h *Handler) handleListHandshakesForAccount(c *echo.Context, _ []byte) error {
-	handshakes, err := h.Backend.ListHandshakesForAccount()
+func (h *Handler) handleListHandshakesForAccount(c *echo.Context, body []byte) error {
+	var req listHandshakesFilterRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+		}
+	}
+
+	handshakes, err := h.Backend.ListHandshakesForAccount(req.Filter.ActionType)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -1322,8 +1330,15 @@ func (h *Handler) handleListHandshakesForAccount(c *echo.Context, _ []byte) erro
 	return c.JSON(http.StatusOK, listHandshakesForAccountResponse{Handshakes: objs})
 }
 
-func (h *Handler) handleListHandshakesForOrganization(c *echo.Context, _ []byte) error {
-	handshakes, err := h.Backend.ListHandshakesForOrganization()
+func (h *Handler) handleListHandshakesForOrganization(c *echo.Context, body []byte) error {
+	var req listHandshakesFilterRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+		}
+	}
+
+	handshakes, err := h.Backend.ListHandshakesForOrganization(req.Filter.ActionType)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}

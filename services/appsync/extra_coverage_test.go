@@ -50,7 +50,7 @@ func TestInMemoryBackend_ExecuteGraphQL_NamedOperation(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "NoneDS",
@@ -71,7 +71,7 @@ func TestInMemoryBackend_ExecuteGraphQL_OperationNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
 
 	_, err := b.ExecuteGraphQL(t.Context(), api.APIID,
@@ -83,7 +83,7 @@ func TestInMemoryBackend_ExecuteGraphQL_Subscription(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `
 		type Query { dummy: String }
 		type Subscription { onEvent: String }
@@ -136,7 +136,7 @@ func TestInMemoryBackend_ExecuteGraphQL_DynamoDBResolver_GetItem(t *testing.T) {
 	ddb := &mockDynamoDB{}
 	b.SetDynamoDBBackend(ddb)
 
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { getItem(id: String): String }`)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "DDBDataSource",
@@ -166,7 +166,7 @@ func TestInMemoryBackend_ExecuteGraphQL_DynamoDBResolver_NoTemplate(t *testing.T
 	ddb := &mockDynamoDB{}
 	b.SetDynamoDBBackend(ddb)
 
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { getItem(id: String): String }`)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name:           "DDBDataSource",
@@ -192,7 +192,7 @@ func TestInMemoryBackend_ExecuteGraphQL_DynamoDBResolver_UnsupportedOperation(t 
 	ddb := &mockDynamoDB{}
 	b.SetDynamoDBBackend(ddb)
 
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { getItem(id: String): String }`)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name:           "DDBDataSource",
@@ -216,7 +216,7 @@ func TestInMemoryBackend_ExecuteGraphQL_DynamoDBResolver_NilConfig(t *testing.T)
 	ddb := &mockDynamoDB{}
 	b.SetDynamoDBBackend(ddb)
 
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { getItem(id: String): String }`)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "DDBDataSource",
@@ -238,7 +238,7 @@ func TestInMemoryBackend_ExecuteGraphQL_DynamoDBResolver_NilBackend(t *testing.T
 	b := newTestBackend()
 	// Do NOT set DynamoDB backend.
 
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { getItem(id: String): String }`)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name:           "DDBDataSource",
@@ -260,7 +260,7 @@ func TestInMemoryBackend_ExecuteGraphQL_LambdaResolver_NilInvoker(t *testing.T) 
 	b := newTestBackend()
 	// Do NOT set lambda invoker.
 
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "LambdaDS",
@@ -285,7 +285,7 @@ func TestInMemoryBackend_ExecuteGraphQL_LambdaResolver_NilLambdaConfig(t *testin
 	mock := &mockLambdaInvoker{}
 	b.SetLambdaInvoker(mock)
 
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "LambdaDS",
@@ -305,7 +305,7 @@ func TestInMemoryBackend_ExecuteGraphQL_NilResolver(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
 
 	// No resolvers defined at all — field should return nil.
@@ -318,7 +318,7 @@ func TestInMemoryBackend_ExecuteGraphQL_MissingDataSource(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
 	// Create resolver but NOT the data source.
 	_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
@@ -336,7 +336,7 @@ func TestHandler_StartSchemaCreation_Base64Encoded(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 
 	sdl := `type Query { hello: String }`
 	encoded := base64.StdEncoding.EncodeToString([]byte(sdl))
@@ -352,7 +352,7 @@ func TestHandler_HandleError_InternalError(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 
 	// Schema with unsupported data source causes InternalFailure.
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
@@ -374,7 +374,7 @@ func TestHandler_GraphQL_NoSchema(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 	// No schema uploaded.
 
 	body := map[string]any{"query": `query { hello }`}
@@ -386,7 +386,7 @@ func TestHandler_Types_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 
 	// PUT on resolver should return method not allowed.
 	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/types/Query/resolvers", nil)
@@ -397,7 +397,7 @@ func TestHandler_Types_ResolverMethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 
 	// CONNECT on individual resolver should return method not allowed (PUT is now UpdateResolver).
 	rec := doRequest(t, h, http.MethodConnect, "/v1/apis/"+api.APIID+"/types/Query/resolvers/getItem", nil)
@@ -408,7 +408,7 @@ func TestHandler_DataSource_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
 
 	// PATCH on named datasource should return method not allowed (PUT is UpdateDataSource).
 	rec := doRequest(t, h, http.MethodPatch, "/v1/apis/"+api.APIID+"/datasources/myds", nil)

@@ -82,6 +82,17 @@ func validEnvironmentClasses() map[string]struct{} {
 	}
 }
 
+// validLogLevels returns the set of valid Airflow log level values.
+func validLogLevels() map[string]struct{} {
+	return map[string]struct{}{
+		"CRITICAL": {},
+		"ERROR":    {},
+		"WARNING":  {},
+		"INFO":     {},
+		"DEBUG":    {},
+	}
+}
+
 // validAirflowVersions returns the set of supported Airflow versions.
 func validAirflowVersions() map[string]struct{} {
 	return map[string]struct{}{
@@ -105,6 +116,54 @@ func isLetter(r rune) bool {
 // isValidEnvNameChar reports whether r is a valid non-first character for an MWAA environment name.
 func isValidEnvNameChar(r rune) bool {
 	return isLetter(r) || (r >= '0' && r <= '9') || r == '-' || r == '_'
+}
+
+// validateModuleLogging validates a single module logging configuration.
+func validateModuleLogging(field string, mlc *ModuleLoggingConfiguration) error {
+	if mlc == nil {
+		return nil
+	}
+
+	if mlc.LogLevel == "" {
+		return nil
+	}
+
+	if _, ok := validLogLevels()[mlc.LogLevel]; !ok {
+		return fmt.Errorf(
+			"%w: %s.LogLevel must be one of CRITICAL/ERROR/WARNING/INFO/DEBUG, got %q",
+			ErrInvalidParameter, field, mlc.LogLevel,
+		)
+	}
+
+	return nil
+}
+
+// validateLoggingConfiguration validates the logging configuration for all five Airflow modules.
+func validateLoggingConfiguration(lc *LoggingConfiguration) error {
+	if lc == nil {
+		return nil
+	}
+
+	type moduleEntry struct {
+		mlc  *ModuleLoggingConfiguration
+		name string
+	}
+
+	modules := []moduleEntry{
+		{lc.DagProcessingLogs, "DagProcessingLogs"},
+		{lc.SchedulerLogs, "SchedulerLogs"},
+		{lc.TaskLogs, "TaskLogs"},
+		{lc.WebserverLogs, "WebserverLogs"},
+		{lc.WorkerLogs, "WorkerLogs"},
+	}
+
+	for _, m := range modules {
+		if err := validateModuleLogging(m.name, m.mlc); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // validateEnvironmentName enforces AWS MWAA naming rules for environment names:
@@ -254,6 +313,10 @@ func validateCreateRequest(req *createEnvironmentRequest) error {
 		return fmt.Errorf("%w: cannot specify more than %d tags", ErrInvalidParameter, maxTagsPerResource)
 	}
 
+	if err := validateLoggingConfiguration(req.LoggingConfiguration); err != nil {
+		return err
+	}
+
 	return validateCreateSizing(req)
 }
 
@@ -395,8 +458,12 @@ func validateWeeklyMaintenanceWindowStart(value string) error {
 	days := map[string]struct{}{
 		"MON": {}, "TUE": {}, "WED": {}, "THU": {}, "FRI": {}, "SAT": {}, "SUN": {},
 	}
-	if _, ok := days[strings.ToUpper(parts[0])]; !ok {
-		return fmt.Errorf("%w: WeeklyMaintenanceWindowStart day must be MON-SUN, got %q", ErrInvalidParameter, parts[0])
+	if _, ok := days[parts[0]]; !ok {
+		return fmt.Errorf(
+			"%w: WeeklyMaintenanceWindowStart day must be MON-SUN (uppercase), got %q",
+			ErrInvalidParameter,
+			parts[0],
+		)
 	}
 
 	hh, err := strconv.Atoi(parts[1])
@@ -599,7 +666,7 @@ func buildEnvironment(
 	return &Environment{
 		Name:                         name,
 		ARN:                          envARN,
-		Status:                       envStatusAvailable,
+		Status:                       envStatusCreating,
 		DagS3Path:                    req.DagS3Path,
 		ExecutionRoleArn:             req.ExecutionRoleArn,
 		SourceBucketArn:              req.SourceBucketArn,
@@ -655,16 +722,16 @@ func (b *InMemoryBackend) GetEnvironment(name string) (*Environment, error) {
 	return cp, nil
 }
 
-// promoteTransientStatus advances mock-only transient lifecycle states (UPDATING,
-// CREATING_SNAPSHOT, UPDATE_ROLLING_BACK, PENDING) back to AVAILABLE so callers
-// can observe the transition once and then see the steady state.
+// promoteTransientStatus advances mock-only transient lifecycle states (CREATING,
+// UPDATING, CREATING_SNAPSHOT, UPDATE_ROLLING_BACK, PENDING) back to AVAILABLE
+// so callers can observe the transition once and then see the steady state.
 func promoteTransientStatus(env *Environment) {
 	if env == nil {
 		return
 	}
 
 	switch env.Status {
-	case envStatusUpdating, envStatusCreatingSnapshot, envStatusUpdateRollback, envStatusPending:
+	case envStatusCreating, envStatusUpdating, envStatusCreatingSnapshot, envStatusUpdateRollback, envStatusPending:
 		env.Status = envStatusAvailable
 	}
 }
@@ -828,6 +895,10 @@ func validateUpdateRequest(req *updateEnvironmentRequest) error {
 	}
 
 	if err := validateUpdateEnums(req); err != nil {
+		return err
+	}
+
+	if err := validateLoggingConfiguration(req.LoggingConfiguration); err != nil {
 		return err
 	}
 

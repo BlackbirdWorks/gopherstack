@@ -56,10 +56,18 @@ type StorageBackend interface {
 		authType AuthenticationType,
 		xrayEnabled bool,
 		apiType string,
+		visibility string,
+		additionalAuthProviders []AdditionalAuthenticationProvider,
 		tagMap map[string]string,
 	) (*GraphqlAPI, error)
 	GetGraphqlAPI(apiID string) (*GraphqlAPI, error)
-	UpdateGraphqlAPI(apiID, name string, authType AuthenticationType, xrayEnabled *bool) (*GraphqlAPI, error)
+	UpdateGraphqlAPI(
+		apiID, name string,
+		authType AuthenticationType,
+		xrayEnabled *bool,
+		visibility string,
+		additionalAuthProviders []AdditionalAuthenticationProvider,
+	) (*GraphqlAPI, error)
 	ListGraphqlAPIs(apiType string) ([]*GraphqlAPI, error)
 	DeleteGraphqlAPI(apiID string) error
 	StartSchemaCreation(apiID, sdl string) (*Schema, error)
@@ -233,7 +241,8 @@ func isValidAuthType(a AuthenticationType) bool {
 func isValidDataSourceType(t DataSourceType) bool {
 	switch t {
 	case DataSourceTypeNone, DataSourceTypeLambda, DataSourceTypeDynamoDB,
-		DataSourceTypeHTTP, DataSourceTypeOpenSearch, DataSourceTypeRelational:
+		DataSourceTypeHTTP, DataSourceTypeOpenSearch, DataSourceTypeRelational,
+		DataSourceTypeEventBridge:
 		return true
 	default:
 		return false
@@ -385,6 +394,8 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 	authType AuthenticationType,
 	xrayEnabled bool,
 	apiType string,
+	visibility string,
+	additionalAuthProviders []AdditionalAuthenticationProvider,
 	tagMap map[string]string,
 ) (*GraphqlAPI, error) {
 	b.mu.Lock("CreateGraphqlApi")
@@ -404,6 +415,12 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 		return nil, fmt.Errorf("%w: invalid apiType %q, must be GRAPHQL or MERGED", ErrValidation, apiType)
 	}
 
+	if visibility == "" {
+		visibility = VisibilityGlobal
+	} else if visibility != VisibilityGlobal && visibility != VisibilityPrivate {
+		return nil, fmt.Errorf("%w: invalid visibility %q, must be GLOBAL or PRIVATE", ErrValidation, visibility)
+	}
+
 	apiID := randomAPIID()
 	apiARN := arn.Build("appsync", b.region, b.accountID, "apis/"+apiID)
 
@@ -412,15 +429,17 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 	now := time.Now().Unix()
 
 	api := &GraphqlAPI{
-		APIID:              apiID,
-		ARN:                apiARN,
-		Name:               name,
-		AuthenticationType: authType,
-		Region:             b.region,
-		XrayEnabled:        xrayEnabled,
-		APIType:            apiType,
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		APIID:                             apiID,
+		ARN:                               apiARN,
+		Name:                              name,
+		AuthenticationType:                authType,
+		Visibility:                        visibility,
+		AdditionalAuthenticationProviders: additionalAuthProviders,
+		Region:                            b.region,
+		XrayEnabled:                       xrayEnabled,
+		APIType:                           apiType,
+		CreatedAt:                         now,
+		UpdatedAt:                         now,
 		URIs: map[string]string{
 			apiTypeGraphQL: graphqlEndpoint,
 			"REALTIME":     graphqlEndpoint,
@@ -459,6 +478,8 @@ func (b *InMemoryBackend) UpdateGraphqlAPI(
 	apiID, name string,
 	authType AuthenticationType,
 	xrayEnabled *bool,
+	visibility string,
+	additionalAuthProviders []AdditionalAuthenticationProvider,
 ) (*GraphqlAPI, error) {
 	b.mu.Lock("UpdateGraphqlApi")
 	defer b.mu.Unlock()
@@ -472,6 +493,10 @@ func (b *InMemoryBackend) UpdateGraphqlAPI(
 		return nil, fmt.Errorf("%w: invalid authenticationType %q", ErrValidation, authType)
 	}
 
+	if visibility != "" && visibility != VisibilityGlobal && visibility != VisibilityPrivate {
+		return nil, fmt.Errorf("%w: invalid visibility %q, must be GLOBAL or PRIVATE", ErrValidation, visibility)
+	}
+
 	if name != "" {
 		api.Name = name
 	}
@@ -482,6 +507,14 @@ func (b *InMemoryBackend) UpdateGraphqlAPI(
 
 	if xrayEnabled != nil {
 		api.XrayEnabled = *xrayEnabled
+	}
+
+	if visibility != "" {
+		api.Visibility = visibility
+	}
+
+	if additionalAuthProviders != nil {
+		api.AdditionalAuthenticationProviders = additionalAuthProviders
 	}
 
 	api.UpdatedAt = time.Now().Unix()
@@ -1663,6 +1696,18 @@ func (b *InMemoryBackend) UpdateDataSource(apiID, name string, ds *DataSource) (
 		existing.HTTPConfig = ds.HTTPConfig
 	}
 
+	if ds.OpenSearchConfig != nil {
+		existing.OpenSearchConfig = ds.OpenSearchConfig
+	}
+
+	if ds.EventBridgeConfig != nil {
+		existing.EventBridgeConfig = ds.EventBridgeConfig
+	}
+
+	if ds.RelationalDatabaseConfig != nil {
+		existing.RelationalDatabaseConfig = ds.RelationalDatabaseConfig
+	}
+
 	cp := *existing
 
 	return &cp, nil
@@ -1700,6 +1745,18 @@ func (b *InMemoryBackend) UpdateResolver(apiID, typeName string, r *Resolver) (*
 
 	if len(r.PipelineConfig) > 0 {
 		existing.PipelineConfig = r.PipelineConfig
+	}
+
+	if r.CachingConfig != nil {
+		existing.CachingConfig = r.CachingConfig
+	}
+
+	if r.SyncConfig != nil {
+		existing.SyncConfig = r.SyncConfig
+	}
+
+	if r.MaxBatchSize != 0 {
+		existing.MaxBatchSize = r.MaxBatchSize
 	}
 
 	cp := *existing

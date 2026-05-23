@@ -3,6 +3,8 @@ package route53resolver
 import (
 	"fmt"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -12,6 +14,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+func currentTime() string {
+	return time.Now().UTC().Format(time.RFC3339)
+}
 
 const (
 	shareStatusNotShared = "NOT_SHARED"
@@ -61,9 +67,21 @@ const (
 	dnssecValidationEnable  = "ENABLE"
 	dnssecValidationDisable = "DISABLE"
 
-	validationStatusEnabled     = "ENABLED"
-	validationStatusNotChecking = "NOT_CHECKING"
-	validationStatusDisabling   = "DISABLING"
+	validationStatusEnabled   = "ENABLED"
+	validationStatusEnabling  = "ENABLING"
+	validationStatusDisabled  = "DISABLED"
+	validationStatusDisabling = "DISABLING"
+
+	mutationProtectionEnabled  = "ENABLED"
+	mutationProtectionDisabled = "DISABLED"
+
+	endpointTypeIPV4      = "IPV4"
+	endpointTypeIPV6      = "IPV6"
+	endpointTypeDualStack = "DUALSTACK"
+
+	blockResponseNODATA   = "NODATA"
+	blockResponseNXDOMAIN = "NXDOMAIN"
+	blockResponseOVERRIDE = "OVERRIDE"
 )
 
 // Exported constants for use in demo seeding.
@@ -78,22 +96,30 @@ type IPAddress struct {
 	IPID     string `json:"ipID"`
 	SubnetID string `json:"subnetID"`
 	IP       string `json:"ip"`
+	Ipv6     string `json:"ipv6,omitempty"`
 }
 
 type ResolverEndpoint struct {
-	ID                   string       `json:"id"`
-	ARN                  string       `json:"arn"`
-	Direction            string       `json:"direction"`
-	Name                 string       `json:"name"`
-	Status               string       `json:"status"`
-	VpcID                string       `json:"vpcID"`
-	HostVPCID            string       `json:"hostVpcId"`
-	AccountID            string       `json:"accountID"`
-	Region               string       `json:"region"`
-	ResolverEndpointType string       `json:"resolverEndpointType"`
-	SecurityGroupIDs     []string     `json:"securityGroupIds"`
-	IPAddresses          []IPAddress  `json:"ipAddresses"`
-	Tags                 []svcTags.KV `json:"tags,omitempty"`
+	ID                    string       `json:"id"`
+	ARN                   string       `json:"arn"`
+	Direction             string       `json:"direction"`
+	Name                  string       `json:"name"`
+	Status                string       `json:"status"`
+	StatusMessage         string       `json:"statusMessage,omitempty"`
+	VpcID                 string       `json:"vpcID"`
+	HostVPCID             string       `json:"hostVpcId"`
+	AccountID             string       `json:"accountID"`
+	Region                string       `json:"region"`
+	ResolverEndpointType  string       `json:"resolverEndpointType"`
+	OutpostArn            string       `json:"outpostArn,omitempty"`
+	PreferredInstanceType string       `json:"preferredInstanceType,omitempty"`
+	CreatorRequestID      string       `json:"creatorRequestId,omitempty"`
+	CreationTime          string       `json:"creationTime,omitempty"`
+	ModificationTime      string       `json:"modificationTime,omitempty"`
+	SecurityGroupIDs      []string     `json:"securityGroupIds"`
+	IPAddresses           []IPAddress  `json:"ipAddresses"`
+	Tags                  []svcTags.KV `json:"tags,omitempty"`
+	Protocols             []string     `json:"protocols,omitempty"`
 }
 
 type ResolverRule struct {
@@ -103,17 +129,24 @@ type ResolverRule struct {
 	DomainName         string     `json:"domainName"`
 	RuleType           string     `json:"ruleType"`
 	Status             string     `json:"status"`
+	StatusMessage      string     `json:"statusMessage,omitempty"`
 	ShareStatus        string     `json:"shareStatus"`
 	ResolverEndpointID string     `json:"resolverEndpointID"`
 	AccountID          string     `json:"accountID"`
 	Region             string     `json:"region"`
+	CreatorRequestID   string     `json:"creatorRequestId,omitempty"`
+	OwnerID            string     `json:"ownerId,omitempty"`
+	CreationTime       string     `json:"creationTime,omitempty"`
+	ModificationTime   string     `json:"modificationTime,omitempty"`
 	TargetIps          []TargetIP `json:"targetIps,omitempty"`
 }
 
 // TargetIP represents a forwarding target IP for a resolver rule.
 type TargetIP struct {
-	IP   string `json:"ip"`
-	Port int32  `json:"port"`
+	IP       string `json:"ip"`
+	Ipv6     string `json:"ipv6,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	Port     int32  `json:"port"`
 }
 
 // FirewallRuleGroup represents a DNS Firewall rule group.
@@ -123,7 +156,11 @@ type FirewallRuleGroup struct {
 	Name             string       `json:"name"`
 	CreatorRequestID string       `json:"creatorRequestId"`
 	Status           string       `json:"status"`
+	StatusMessage    string       `json:"statusMessage,omitempty"`
 	OwnerID          string       `json:"ownerId"`
+	ShareStatus      string       `json:"shareStatus"`
+	CreationTime     string       `json:"creationTime,omitempty"`
+	ModificationTime string       `json:"modificationTime,omitempty"`
 	Tags             []svcTags.KV `json:"tags,omitempty"`
 	RuleCount        int32        `json:"ruleCount"`
 }
@@ -136,6 +173,12 @@ type FirewallRuleGroupAssociation struct {
 	FirewallRuleGroupID string `json:"firewallRuleGroupId"`
 	VpcID               string `json:"vpcId"`
 	Status              string `json:"status"`
+	StatusMessage       string `json:"statusMessage,omitempty"`
+	MutationProtection  string `json:"mutationProtection"`
+	ManagedOwnerName    string `json:"managedOwnerName,omitempty"`
+	CreatorRequestID    string `json:"creatorRequestId,omitempty"`
+	CreationTime        string `json:"creationTime,omitempty"`
+	ModificationTime    string `json:"modificationTime,omitempty"`
 	Priority            int32  `json:"priority"`
 }
 
@@ -146,6 +189,7 @@ type FirewallDomainList struct {
 	Name             string       `json:"name"`
 	CreatorRequestID string       `json:"creatorRequestId"`
 	Status           string       `json:"status"`
+	ManagedOwnerName string       `json:"managedOwnerName,omitempty"`
 	Tags             []svcTags.KV `json:"tags,omitempty"`
 	Domains          []string     `json:"domains,omitempty"`
 	DomainCount      int32        `json:"domainCount"`
@@ -159,7 +203,15 @@ type FirewallRule struct {
 	FirewallRuleGroupID  string `json:"firewallRuleGroupId"`
 	FirewallDomainListID string `json:"firewallDomainListId"`
 	Action               string `json:"action"`
-	BlockResponse        string `json:"blockResponse"`
+	BlockResponse        string `json:"blockResponse,omitempty"`
+	BlockOverrideDomain  string `json:"blockOverrideDomain,omitempty"`
+	BlockOverrideDNSType string `json:"blockOverrideDnsType,omitempty"`
+	Qtype                string `json:"qtype,omitempty"`
+	ConfidenceThreshold  string `json:"confidenceThreshold,omitempty"`
+	CreatorRequestID     string `json:"creatorRequestId,omitempty"`
+	CreationTime         string `json:"creationTime,omitempty"`
+	ModificationTime     string `json:"modificationTime,omitempty"`
+	BlockOverrideTTL     int32  `json:"blockOverrideTtl,omitempty"`
 	Priority             int32  `json:"priority"`
 }
 
@@ -185,7 +237,10 @@ type ResolverQueryLogConfig struct {
 	DestinationARN   string       `json:"destinationArn"`
 	Status           string       `json:"status"`
 	OwnerID          string       `json:"ownerId"`
+	ShareStatus      string       `json:"shareStatus"`
+	CreationTime     string       `json:"creationTime,omitempty"`
 	Tags             []svcTags.KV `json:"tags,omitempty"`
+	AssociationCount int32        `json:"associationCount"`
 }
 
 // ResolverQueryLogConfigAssociation represents an association between a VPC and a query log config.
@@ -194,6 +249,9 @@ type ResolverQueryLogConfigAssociation struct {
 	ResolverQueryLogConfigID string `json:"resolverQueryLogConfigId"`
 	ResourceID               string `json:"resourceId"`
 	Status                   string `json:"status"`
+	Error                    string `json:"error,omitempty"`
+	ErrorMessage             string `json:"errorMessage,omitempty"`
+	CreationTime             string `json:"creationTime,omitempty"`
 }
 
 // ResolverRuleAssociation represents an association between a Resolver rule and a VPC.
@@ -208,7 +266,6 @@ type ResolverRuleAssociation struct {
 // FirewallConfig represents the DNS Firewall configuration for a VPC.
 type FirewallConfig struct {
 	ID               string `json:"id"`
-	ARN              string `json:"arn"`
 	OwnerID          string `json:"ownerId"`
 	ResourceID       string `json:"resourceId"`
 	FirewallFailOpen string `json:"firewallFailOpen"`
@@ -316,6 +373,8 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 	ips []IPAddress,
 	securityGroupIDs []string,
 	resolverEndpointType string,
+	protocols []string,
+	outpostArn, preferredInstanceType, creatorRequestID string,
 ) (*ResolverEndpoint, error) {
 	b.mu.Lock("CreateResolverEndpoint")
 	defer b.mu.Unlock()
@@ -325,11 +384,29 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 	}
 
 	if direction != directionInbound && direction != directionOutbound {
-		return nil, fmt.Errorf("%w: Direction must be %s or %s", ErrValidation, directionInbound, directionOutbound)
+		return nil, fmt.Errorf(
+			"%w: Direction must be %s or %s",
+			ErrValidation,
+			directionInbound,
+			directionOutbound,
+		)
 	}
 
 	if resolverEndpointType == "" {
-		resolverEndpointType = "IPV4"
+		resolverEndpointType = endpointTypeIPV4
+	}
+	switch resolverEndpointType {
+	case endpointTypeIPV4, endpointTypeIPV6, endpointTypeDualStack:
+		// valid
+	default:
+		return nil, fmt.Errorf(
+			"%w: ResolverEndpointType must be IPV4, IPV6, or DUALSTACK",
+			ErrValidation,
+		)
+	}
+
+	if len(protocols) == 0 {
+		protocols = []string{"Do53"}
 	}
 
 	dirPrefix := direction
@@ -350,19 +427,29 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 	sgCopy := make([]string, len(securityGroupIDs))
 	copy(sgCopy, securityGroupIDs)
 
+	protocolsCopy := make([]string, len(protocols))
+	copy(protocolsCopy, protocols)
+
+	now := currentTime()
 	ep := &ResolverEndpoint{
-		ID:                   id,
-		ARN:                  epARN,
-		Name:                 name,
-		Direction:            direction,
-		Status:               statusOperational,
-		VpcID:                vpcID,
-		HostVPCID:            vpcID,
-		IPAddresses:          ipsCopy,
-		SecurityGroupIDs:     sgCopy,
-		ResolverEndpointType: resolverEndpointType,
-		AccountID:            b.accountID,
-		Region:               b.region,
+		ID:                    id,
+		ARN:                   epARN,
+		Name:                  name,
+		Direction:             direction,
+		Status:                statusOperational,
+		VpcID:                 vpcID,
+		HostVPCID:             vpcID,
+		IPAddresses:           ipsCopy,
+		SecurityGroupIDs:      sgCopy,
+		ResolverEndpointType:  resolverEndpointType,
+		AccountID:             b.accountID,
+		Region:                b.region,
+		Protocols:             protocolsCopy,
+		OutpostArn:            outpostArn,
+		PreferredInstanceType: preferredInstanceType,
+		CreatorRequestID:      creatorRequestID,
+		CreationTime:          now,
+		ModificationTime:      now,
 	}
 	b.endpoints[id] = ep
 
@@ -446,7 +533,7 @@ func (b *InMemoryBackend) DeleteResolverEndpoint(id string) error {
 }
 
 func (b *InMemoryBackend) CreateResolverRule(
-	name, domainName, ruleType, endpointID string,
+	name, domainName, ruleType, endpointID, creatorRequestID string,
 	targetIps []TargetIP,
 ) (*ResolverRule, error) {
 	b.mu.Lock("CreateResolverRule")
@@ -473,6 +560,22 @@ func (b *InMemoryBackend) CreateResolverRule(
 		)
 	}
 
+	// SYSTEM and RECURSIVE rules must not have TargetIps or ResolverEndpointId.
+	if ruleType == ruleTypeSystem || ruleType == ruleTypeRecursive {
+		if endpointID != "" {
+			return nil, fmt.Errorf(
+				"%w: SYSTEM/RECURSIVE rules must not have a ResolverEndpointId",
+				ErrValidation,
+			)
+		}
+		if len(targetIps) > 0 {
+			return nil, fmt.Errorf(
+				"%w: SYSTEM/RECURSIVE rules must not have TargetIps",
+				ErrValidation,
+			)
+		}
+	}
+
 	if endpointID != "" {
 		if _, ok := b.endpoints[endpointID]; !ok {
 			return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
@@ -485,6 +588,7 @@ func (b *InMemoryBackend) CreateResolverRule(
 		copy(tipsCopy, targetIps)
 	}
 
+	now := currentTime()
 	id := "rslvr-rr-" + uuid.New().String()[:8]
 	ruleARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-rule/"+id)
 	r := &ResolverRule{
@@ -499,6 +603,10 @@ func (b *InMemoryBackend) CreateResolverRule(
 		AccountID:          b.accountID,
 		Region:             b.region,
 		TargetIps:          tipsCopy,
+		CreatorRequestID:   creatorRequestID,
+		OwnerID:            b.accountID,
+		CreationTime:       now,
+		ModificationTime:   now,
 	}
 	b.rules[id] = r
 	cp := cloneRule(r)
@@ -616,10 +724,13 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) []svcTags.KV {
 }
 
 // CreateFirewallRuleGroup creates a new DNS Firewall rule group.
-func (b *InMemoryBackend) CreateFirewallRuleGroup(name, creatorRequestID string) (*FirewallRuleGroup, error) {
+func (b *InMemoryBackend) CreateFirewallRuleGroup(
+	name, creatorRequestID string,
+) (*FirewallRuleGroup, error) {
 	b.mu.Lock("CreateFirewallRuleGroup")
 	defer b.mu.Unlock()
 
+	now := currentTime()
 	id := "rslvr-frg-" + uuid.New().String()[:8]
 	groupARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-rule-group/"+id)
 	g := &FirewallRuleGroup{
@@ -629,6 +740,9 @@ func (b *InMemoryBackend) CreateFirewallRuleGroup(name, creatorRequestID string)
 		CreatorRequestID: creatorRequestID,
 		Status:           statusComplete,
 		OwnerID:          b.accountID,
+		ShareStatus:      shareStatusNotShared,
+		CreationTime:     now,
+		ModificationTime: now,
 	}
 	b.firewallRuleGroups[id] = g
 	cp := *g
@@ -638,18 +752,32 @@ func (b *InMemoryBackend) CreateFirewallRuleGroup(name, creatorRequestID string)
 
 // AssociateFirewallRuleGroup associates a FirewallRuleGroup with a VPC.
 func (b *InMemoryBackend) AssociateFirewallRuleGroup(
-	firewallRuleGroupID, vpcID, name, _ string,
+	firewallRuleGroupID, vpcID, name, creatorRequestID, mutationProtection string,
 	priority int32,
 ) (*FirewallRuleGroupAssociation, error) {
 	b.mu.Lock("AssociateFirewallRuleGroup")
 	defer b.mu.Unlock()
 
 	if _, ok := b.firewallRuleGroups[firewallRuleGroupID]; !ok {
-		return nil, fmt.Errorf("%w: firewall rule group %s not found", ErrNotFound, firewallRuleGroupID)
+		return nil, fmt.Errorf(
+			"%w: firewall rule group %s not found",
+			ErrNotFound,
+			firewallRuleGroupID,
+		)
 	}
 
+	if mutationProtection == "" {
+		mutationProtection = mutationProtectionDisabled
+	}
+
+	now := currentTime()
 	id := "rslvr-frgassoc-" + uuid.New().String()[:8]
-	assocARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-rule-group-association/"+id)
+	assocARN := arn.Build(
+		"route53resolver",
+		b.region,
+		b.accountID,
+		"firewall-rule-group-association/"+id,
+	)
 	assoc := &FirewallRuleGroupAssociation{
 		ID:                  id,
 		ARN:                 assocARN,
@@ -658,6 +786,10 @@ func (b *InMemoryBackend) AssociateFirewallRuleGroup(
 		VpcID:               vpcID,
 		Priority:            priority,
 		Status:              statusComplete,
+		MutationProtection:  mutationProtection,
+		CreatorRequestID:    creatorRequestID,
+		CreationTime:        now,
+		ModificationTime:    now,
 	}
 	b.firewallRuleGroupAssociations[id] = assoc
 	cp := *assoc
@@ -667,7 +799,7 @@ func (b *InMemoryBackend) AssociateFirewallRuleGroup(
 
 // AssociateResolverEndpointIPAddress adds an IP address to a resolver endpoint.
 func (b *InMemoryBackend) AssociateResolverEndpointIPAddress(
-	endpointID, subnetID, ip string,
+	endpointID, subnetID, ip, ipv6 string,
 ) (*ResolverEndpoint, error) {
 	b.mu.Lock("AssociateResolverEndpointIPAddress")
 	defer b.mu.Unlock()
@@ -681,8 +813,10 @@ func (b *InMemoryBackend) AssociateResolverEndpointIPAddress(
 		IPID:     "rni-" + uuid.New().String()[:8],
 		SubnetID: subnetID,
 		IP:       ip,
+		Ipv6:     ipv6,
 	}
 	ep.IPAddresses = append(ep.IPAddresses, newIP)
+	ep.ModificationTime = currentTime()
 
 	return cloneEndpoint(ep), nil
 }
@@ -694,8 +828,21 @@ func (b *InMemoryBackend) CreateResolverQueryLogConfig(
 	b.mu.Lock("CreateResolverQueryLogConfig")
 	defer b.mu.Unlock()
 
+	if !isValidQueryLogDestination(destinationARN) {
+		return nil, fmt.Errorf(
+			"%w: DestinationArn must be an S3 bucket, CloudWatch Logs log group, or Kinesis Firehose stream ARN",
+			ErrValidation,
+		)
+	}
+
+	now := currentTime()
 	id := "rqlc-" + uuid.New().String()[:8]
-	configARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-query-log-config/"+id)
+	configARN := arn.Build(
+		"route53resolver",
+		b.region,
+		b.accountID,
+		"resolver-query-log-config/"+id,
+	)
 	cfg := &ResolverQueryLogConfig{
 		ID:               id,
 		ARN:              configARN,
@@ -704,11 +851,23 @@ func (b *InMemoryBackend) CreateResolverQueryLogConfig(
 		DestinationARN:   destinationARN,
 		Status:           statusCreated,
 		OwnerID:          b.accountID,
+		ShareStatus:      shareStatusNotShared,
+		CreationTime:     now,
 	}
 	b.queryLogConfigs[id] = cfg
 	cp := *cfg
 
 	return &cp, nil
+}
+
+func isValidQueryLogDestination(destinationARN string) bool {
+	for _, prefix := range []string{"arn:aws:s3:::", "arn:aws:logs:", "arn:aws:firehose:"} {
+		if strings.HasPrefix(destinationARN, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // AssociateResolverQueryLogConfig associates a VPC with a query log config.
@@ -719,24 +878,38 @@ func (b *InMemoryBackend) AssociateResolverQueryLogConfig(
 	defer b.mu.Unlock()
 
 	if _, ok := b.queryLogConfigs[queryLogConfigID]; !ok {
-		return nil, fmt.Errorf("%w: resolver query log config %s not found", ErrNotFound, queryLogConfigID)
+		return nil, fmt.Errorf(
+			"%w: resolver query log config %s not found",
+			ErrNotFound,
+			queryLogConfigID,
+		)
 	}
 
+	now := currentTime()
 	id := "rqlca-" + uuid.New().String()[:8]
 	assoc := &ResolverQueryLogConfigAssociation{
 		ID:                       id,
 		ResolverQueryLogConfigID: queryLogConfigID,
 		ResourceID:               resourceID,
 		Status:                   statusActive,
+		CreationTime:             now,
 	}
 	b.queryLogConfigAssociations[id] = assoc
+
+	// Increment AssociationCount on the config.
+	if cfg, ok := b.queryLogConfigs[queryLogConfigID]; ok {
+		cfg.AssociationCount++
+	}
+
 	cp := *assoc
 
 	return &cp, nil
 }
 
 // AssociateResolverRule associates a resolver rule with a VPC.
-func (b *InMemoryBackend) AssociateResolverRule(resolverRuleID, vpcID, name string) (*ResolverRuleAssociation, error) {
+func (b *InMemoryBackend) AssociateResolverRule(
+	resolverRuleID, vpcID, name string,
+) (*ResolverRuleAssociation, error) {
 	b.mu.Lock("AssociateResolverRule")
 	defer b.mu.Unlock()
 
@@ -759,7 +932,9 @@ func (b *InMemoryBackend) AssociateResolverRule(resolverRuleID, vpcID, name stri
 }
 
 // CreateFirewallDomainList creates a new DNS Firewall domain list.
-func (b *InMemoryBackend) CreateFirewallDomainList(name, creatorRequestID string) (*FirewallDomainList, error) {
+func (b *InMemoryBackend) CreateFirewallDomainList(
+	name, creatorRequestID string,
+) (*FirewallDomainList, error) {
 	b.mu.Lock("CreateFirewallDomainList")
 	defer b.mu.Unlock()
 
@@ -794,53 +969,101 @@ func (b *InMemoryBackend) DeleteFirewallDomainList(id string) (*FirewallDomainLi
 	return cp, nil
 }
 
+// CreateFirewallRuleParams holds all parameters for creating a firewall rule.
+type CreateFirewallRuleParams struct {
+	FirewallRuleGroupID  string
+	Name                 string
+	Action               string
+	BlockResponse        string
+	BlockOverrideDomain  string
+	BlockOverrideDNSType string
+	Qtype                string
+	ConfidenceThreshold  string
+	CreatorRequestID     string
+	FirewallDomainListID string
+	BlockOverrideTTL     int32
+	Priority             int32
+}
+
 // CreateFirewallRule creates a new rule in a DNS Firewall rule group.
-func (b *InMemoryBackend) CreateFirewallRule(
-	firewallRuleGroupID, name, action, _ string,
-	priority int32,
-	firewallDomainListID string,
-) (*FirewallRule, error) {
+func (b *InMemoryBackend) CreateFirewallRule(p CreateFirewallRuleParams) (*FirewallRule, error) {
 	b.mu.Lock("CreateFirewallRule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.firewallRuleGroups[firewallRuleGroupID]; !ok {
-		return nil, fmt.Errorf("%w: firewall rule group %s not found", ErrNotFound, firewallRuleGroupID)
+	if _, ok := b.firewallRuleGroups[p.FirewallRuleGroupID]; !ok {
+		return nil, fmt.Errorf(
+			"%w: firewall rule group %s not found",
+			ErrNotFound,
+			p.FirewallRuleGroupID,
+		)
+	}
+
+	// Validate BLOCK+OVERRIDE requires BlockOverrideDomain and BlockOverrideDNSType.
+	if p.Action == firewallActionBlock && p.BlockResponse == blockResponseOVERRIDE {
+		if p.BlockOverrideDomain == "" {
+			return nil, fmt.Errorf(
+				"%w: BlockOverrideDomain is required when BlockResponse is OVERRIDE",
+				ErrValidation,
+			)
+		}
+		if p.BlockOverrideDNSType == "" {
+			return nil, fmt.Errorf(
+				"%w: BlockOverrideDNSType is required when BlockResponse is OVERRIDE",
+				ErrValidation,
+			)
+		}
 	}
 
 	// Auto-assign priority if not provided.
-	if priority == 0 {
+	if p.Priority == 0 {
 		maxPriority := int32(0)
 		for _, existing := range b.firewallRules {
-			if existing.FirewallRuleGroupID == firewallRuleGroupID && existing.Priority > maxPriority {
+			if existing.FirewallRuleGroupID == p.FirewallRuleGroupID &&
+				existing.Priority > maxPriority {
 				maxPriority = existing.Priority
 			}
 		}
-		priority = maxPriority + firewallPriorityAutoIncrement
+		p.Priority = maxPriority + firewallPriorityAutoIncrement
 	}
 
 	// Validate priority uniqueness within the rule group.
 	for _, existing := range b.firewallRules {
-		if existing.FirewallRuleGroupID == firewallRuleGroupID && existing.Priority == priority {
-			return nil, fmt.Errorf("%w: a firewall rule with priority %d already exists in group %s",
-				ErrValidation, priority, firewallRuleGroupID)
+		if existing.FirewallRuleGroupID == p.FirewallRuleGroupID &&
+			existing.Priority == p.Priority {
+			return nil, fmt.Errorf(
+				"%w: a firewall rule with priority %d already exists in group %s",
+				ErrValidation,
+				p.Priority,
+				p.FirewallRuleGroupID,
+			)
 		}
 	}
 
+	now := currentTime()
 	id := "rslvr-frr-" + uuid.New().String()[:8]
 	ruleARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-rule/"+id)
 	rule := &FirewallRule{
 		ID:                   id,
 		ARN:                  ruleARN,
-		Name:                 name,
-		FirewallRuleGroupID:  firewallRuleGroupID,
-		FirewallDomainListID: firewallDomainListID,
-		Action:               action,
-		Priority:             priority,
+		Name:                 p.Name,
+		FirewallRuleGroupID:  p.FirewallRuleGroupID,
+		FirewallDomainListID: p.FirewallDomainListID,
+		Action:               p.Action,
+		BlockResponse:        p.BlockResponse,
+		BlockOverrideDomain:  p.BlockOverrideDomain,
+		BlockOverrideDNSType: p.BlockOverrideDNSType,
+		BlockOverrideTTL:     p.BlockOverrideTTL,
+		Qtype:                p.Qtype,
+		ConfidenceThreshold:  p.ConfidenceThreshold,
+		CreatorRequestID:     p.CreatorRequestID,
+		CreationTime:         now,
+		ModificationTime:     now,
+		Priority:             p.Priority,
 	}
 	b.firewallRules[id] = rule
 
 	// Increment rule count on the group.
-	b.firewallRuleGroups[firewallRuleGroupID].RuleCount++
+	b.firewallRuleGroups[p.FirewallRuleGroupID].RuleCount++
 
 	cp := *rule
 
@@ -888,6 +1111,11 @@ func cloneEndpoint(ep *ResolverEndpoint) *ResolverEndpoint {
 		copy(cp.SecurityGroupIDs, ep.SecurityGroupIDs)
 	} else {
 		cp.SecurityGroupIDs = []string{}
+	}
+
+	if ep.Protocols != nil {
+		cp.Protocols = make([]string, len(ep.Protocols))
+		copy(cp.Protocols, ep.Protocols)
 	}
 
 	return &cp
@@ -1011,12 +1239,19 @@ func (b *InMemoryBackend) AddOutpostResolverInternal(name, outpostARN string) *O
 }
 
 // AddQueryLogConfigInternal adds a query log config directly to the backend (test seed helper).
-func (b *InMemoryBackend) AddQueryLogConfigInternal(name, destinationARN string) *ResolverQueryLogConfig {
+func (b *InMemoryBackend) AddQueryLogConfigInternal(
+	name, destinationARN string,
+) *ResolverQueryLogConfig {
 	b.mu.Lock("AddQueryLogConfigInternal")
 	defer b.mu.Unlock()
 
 	id := "rqlc-" + uuid.New().String()[:8]
-	configARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-query-log-config/"+id)
+	configARN := arn.Build(
+		"route53resolver",
+		b.region,
+		b.accountID,
+		"resolver-query-log-config/"+id,
+	)
 	cfg := &ResolverQueryLogConfig{
 		ID:             id,
 		ARN:            configARN,
@@ -1032,7 +1267,9 @@ func (b *InMemoryBackend) AddQueryLogConfigInternal(name, destinationARN string)
 }
 
 // AddRuleInternalWithEndpoint adds a resolver rule with an endpoint ID directly to the backend (demo seed helper).
-func (b *InMemoryBackend) AddRuleInternalWithEndpoint(name, domainName, ruleType, endpointID string) *ResolverRule {
+func (b *InMemoryBackend) AddRuleInternalWithEndpoint(
+	name, domainName, ruleType, endpointID string,
+) *ResolverRule {
 	b.mu.Lock("AddRuleInternalWithEndpoint")
 	defer b.mu.Unlock()
 
@@ -1068,6 +1305,7 @@ func (b *InMemoryBackend) AddFirewallRuleInternal(
 		return nil
 	}
 
+	now := currentTime()
 	id := "rslvr-frr-" + uuid.New().String()[:8]
 	ruleARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-rule/"+id)
 	rule := &FirewallRule{
@@ -1078,6 +1316,8 @@ func (b *InMemoryBackend) AddFirewallRuleInternal(
 		FirewallDomainListID: domainListID,
 		Action:               action,
 		Priority:             priority,
+		CreationTime:         now,
+		ModificationTime:     now,
 	}
 	b.firewallRules[id] = rule
 	grp.RuleCount++
@@ -1106,30 +1346,61 @@ func (b *InMemoryBackend) DeleteFirewallRule(id string) (*FirewallRule, error) {
 	return &cp, nil
 }
 
+// UpdateFirewallRuleParams holds all updatable fields for a firewall rule.
+type UpdateFirewallRuleParams struct {
+	ID                   string
+	Name                 string
+	Action               string
+	BlockResponse        string
+	BlockOverrideDomain  string
+	BlockOverrideDNSType string
+	Qtype                string
+	ConfidenceThreshold  string
+	FirewallDomainListID string
+	BlockOverrideTTL     int32
+	Priority             int32
+}
+
 // UpdateFirewallRule updates an existing firewall rule.
-func (b *InMemoryBackend) UpdateFirewallRule(
-	id, name, action, blockResponse string,
-	priority int32,
-) (*FirewallRule, error) {
+func (b *InMemoryBackend) UpdateFirewallRule(p UpdateFirewallRuleParams) (*FirewallRule, error) {
 	b.mu.Lock("UpdateFirewallRule")
 	defer b.mu.Unlock()
 
-	rule, ok := b.firewallRules[id]
+	rule, ok := b.firewallRules[p.ID]
 	if !ok {
-		return nil, fmt.Errorf("%w: firewall rule %s not found", ErrNotFound, id)
+		return nil, fmt.Errorf("%w: firewall rule %s not found", ErrNotFound, p.ID)
 	}
-	if name != "" {
-		rule.Name = name
+	if p.Name != "" {
+		rule.Name = p.Name
 	}
-	if action != "" {
-		rule.Action = action
+	if p.Action != "" {
+		rule.Action = p.Action
 	}
-	if blockResponse != "" {
-		rule.BlockResponse = blockResponse
+	if p.BlockResponse != "" {
+		rule.BlockResponse = p.BlockResponse
 	}
-	if priority != 0 {
-		rule.Priority = priority
+	if p.BlockOverrideDomain != "" {
+		rule.BlockOverrideDomain = p.BlockOverrideDomain
 	}
+	if p.BlockOverrideDNSType != "" {
+		rule.BlockOverrideDNSType = p.BlockOverrideDNSType
+	}
+	if p.BlockOverrideTTL != 0 {
+		rule.BlockOverrideTTL = p.BlockOverrideTTL
+	}
+	if p.Qtype != "" {
+		rule.Qtype = p.Qtype
+	}
+	if p.ConfidenceThreshold != "" {
+		rule.ConfidenceThreshold = p.ConfidenceThreshold
+	}
+	if p.FirewallDomainListID != "" {
+		rule.FirewallDomainListID = p.FirewallDomainListID
+	}
+	if p.Priority != 0 {
+		rule.Priority = p.Priority
+	}
+	rule.ModificationTime = currentTime()
 	cp := *rule
 
 	return &cp, nil
@@ -1236,7 +1507,9 @@ func (b *InMemoryBackend) PutFirewallRuleGroupPolicy(arn, policy string) error {
 // --- Firewall Rule Group Association operations ---
 
 // GetFirewallRuleGroupAssociation retrieves an association by ID.
-func (b *InMemoryBackend) GetFirewallRuleGroupAssociation(id string) (*FirewallRuleGroupAssociation, error) {
+func (b *InMemoryBackend) GetFirewallRuleGroupAssociation(
+	id string,
+) (*FirewallRuleGroupAssociation, error) {
 	b.mu.RLock("GetFirewallRuleGroupAssociation")
 	defer b.mu.RUnlock()
 
@@ -1273,7 +1546,9 @@ func (b *InMemoryBackend) ListFirewallRuleGroupAssociations(
 }
 
 // DisassociateFirewallRuleGroup removes a firewall rule group association.
-func (b *InMemoryBackend) DisassociateFirewallRuleGroup(id string) (*FirewallRuleGroupAssociation, error) {
+func (b *InMemoryBackend) DisassociateFirewallRuleGroup(
+	id string,
+) (*FirewallRuleGroupAssociation, error) {
 	b.mu.Lock("DisassociateFirewallRuleGroup")
 	defer b.mu.Unlock()
 
@@ -1281,15 +1556,23 @@ func (b *InMemoryBackend) DisassociateFirewallRuleGroup(id string) (*FirewallRul
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall rule group association %s not found", ErrNotFound, id)
 	}
+
+	if assoc.MutationProtection == mutationProtectionEnabled {
+		return nil, fmt.Errorf(
+			"%w: cannot disassociate: MutationProtection is ENABLED",
+			ErrValidation,
+		)
+	}
+
 	cp := *assoc
 	delete(b.firewallRuleGroupAssociations, id)
 
 	return &cp, nil
 }
 
-// UpdateFirewallRuleGroupAssociation updates name or priority of an association.
+// UpdateFirewallRuleGroupAssociation updates name, priority, or mutation protection of an association.
 func (b *InMemoryBackend) UpdateFirewallRuleGroupAssociation(
-	id, name string,
+	id, name, mutationProtection string,
 	priority int32,
 ) (*FirewallRuleGroupAssociation, error) {
 	b.mu.Lock("UpdateFirewallRuleGroupAssociation")
@@ -1305,6 +1588,17 @@ func (b *InMemoryBackend) UpdateFirewallRuleGroupAssociation(
 	if priority != 0 {
 		assoc.Priority = priority
 	}
+	if mutationProtection != "" {
+		if mutationProtection != mutationProtectionEnabled &&
+			mutationProtection != mutationProtectionDisabled {
+			return nil, fmt.Errorf(
+				"%w: MutationProtection must be ENABLED or DISABLED",
+				ErrValidation,
+			)
+		}
+		assoc.MutationProtection = mutationProtection
+	}
+	assoc.ModificationTime = currentTime()
 	cp := *assoc
 
 	return &cp, nil
@@ -1356,7 +1650,10 @@ func (b *InMemoryBackend) ListFirewallDomains(id string) ([]string, error) {
 }
 
 // UpdateFirewallDomains replaces, adds, or removes domains in a domain list.
-func (b *InMemoryBackend) UpdateFirewallDomains(id, operation string, domains []string) (*FirewallDomainList, error) {
+func (b *InMemoryBackend) UpdateFirewallDomains(
+	id, operation string,
+	domains []string,
+) (*FirewallDomainList, error) {
 	b.mu.Lock("UpdateFirewallDomains")
 	defer b.mu.Unlock()
 
@@ -1407,7 +1704,9 @@ func (b *InMemoryBackend) UpdateFirewallDomains(id, operation string, domains []
 }
 
 // ImportFirewallDomains simulates importing domains from a URL into a domain list.
-func (b *InMemoryBackend) ImportFirewallDomains(id, operation, domainFileURL string) (*FirewallDomainList, error) {
+func (b *InMemoryBackend) ImportFirewallDomains(
+	id, operation, domainFileURL string,
+) (*FirewallDomainList, error) {
 	b.mu.Lock("ImportFirewallDomains")
 	defer b.mu.Unlock()
 
@@ -1462,10 +1761,8 @@ func (b *InMemoryBackend) GetFirewallConfig(resourceID string) *FirewallConfig {
 		return &cp
 	}
 	id := "fwc-" + uuid.New().String()[:8]
-	cfgARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-config/"+id)
 	cfg := &FirewallConfig{
 		ID:               id,
-		ARN:              cfgARN,
 		OwnerID:          b.accountID,
 		ResourceID:       resourceID,
 		FirewallFailOpen: firewallFailOpenDisabled,
@@ -1477,7 +1774,9 @@ func (b *InMemoryBackend) GetFirewallConfig(resourceID string) *FirewallConfig {
 }
 
 // UpdateFirewallConfig updates the firewall fail-open setting for a resource.
-func (b *InMemoryBackend) UpdateFirewallConfig(resourceID, firewallFailOpen string) (*FirewallConfig, error) {
+func (b *InMemoryBackend) UpdateFirewallConfig(
+	resourceID, firewallFailOpen string,
+) (*FirewallConfig, error) {
 	b.mu.Lock("UpdateFirewallConfig")
 	defer b.mu.Unlock()
 
@@ -1493,10 +1792,8 @@ func (b *InMemoryBackend) UpdateFirewallConfig(resourceID, firewallFailOpen stri
 	cfg, ok := b.firewallConfigs[resourceID]
 	if !ok {
 		id := "fwc-" + uuid.New().String()[:8]
-		cfgARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-config/"+id)
 		cfg = &FirewallConfig{
 			ID:         id,
-			ARN:        cfgARN,
 			OwnerID:    b.accountID,
 			ResourceID: resourceID,
 		}
@@ -1551,11 +1848,14 @@ func (b *InMemoryBackend) GetResolverConfig(resourceID string) *ResolverConfig {
 }
 
 // UpdateResolverConfig updates the AutodefinedReverse setting for a resource.
-func (b *InMemoryBackend) UpdateResolverConfig(resourceID, autodefinedReverse string) (*ResolverConfig, error) {
+func (b *InMemoryBackend) UpdateResolverConfig(
+	resourceID, autodefinedReverse string,
+) (*ResolverConfig, error) {
 	b.mu.Lock("UpdateResolverConfig")
 	defer b.mu.Unlock()
 
-	if autodefinedReverse != autodefinedReverseEnabled && autodefinedReverse != autodefinedReverseDisabled {
+	if autodefinedReverse != autodefinedReverseEnabled &&
+		autodefinedReverse != autodefinedReverseDisabled {
 		return nil, fmt.Errorf(
 			"%w: AutodefinedReverse must be %s or %s",
 			ErrValidation,
@@ -1618,7 +1918,7 @@ func (b *InMemoryBackend) GetResolverDnssecConfig(resourceID string) *ResolverDn
 		ID:               id,
 		OwnerID:          b.accountID,
 		ResourceID:       resourceID,
-		ValidationStatus: validationStatusNotChecking,
+		ValidationStatus: validationStatusDisabled,
 	}
 	b.resolverDnssecConfigs[resourceID] = cfg
 	cp := *cfg
@@ -1627,7 +1927,9 @@ func (b *InMemoryBackend) GetResolverDnssecConfig(resourceID string) *ResolverDn
 }
 
 // UpdateResolverDnssecConfig updates DNSSEC validation for a resource.
-func (b *InMemoryBackend) UpdateResolverDnssecConfig(resourceID, validation string) (*ResolverDnssecConfig, error) {
+func (b *InMemoryBackend) UpdateResolverDnssecConfig(
+	resourceID, validation string,
+) (*ResolverDnssecConfig, error) {
 	b.mu.Lock("UpdateResolverDnssecConfig")
 	defer b.mu.Unlock()
 
@@ -1651,7 +1953,7 @@ func (b *InMemoryBackend) UpdateResolverDnssecConfig(resourceID, validation stri
 		b.resolverDnssecConfigs[resourceID] = cfg
 	}
 	if validation == dnssecValidationEnable {
-		cfg.ValidationStatus = validationStatusEnabled
+		cfg.ValidationStatus = validationStatusEnabling
 	} else {
 		cfg.ValidationStatus = validationStatusDisabling
 	}
@@ -1804,13 +2106,19 @@ func (b *InMemoryBackend) ListResolverQueryLogConfigs() []*ResolverQueryLogConfi
 }
 
 // GetResolverQueryLogConfigAssociation retrieves an association by ID.
-func (b *InMemoryBackend) GetResolverQueryLogConfigAssociation(id string) (*ResolverQueryLogConfigAssociation, error) {
+func (b *InMemoryBackend) GetResolverQueryLogConfigAssociation(
+	id string,
+) (*ResolverQueryLogConfigAssociation, error) {
 	b.mu.RLock("GetResolverQueryLogConfigAssociation")
 	defer b.mu.RUnlock()
 
 	assoc, ok := b.queryLogConfigAssociations[id]
 	if !ok {
-		return nil, fmt.Errorf("%w: resolver query log config association %s not found", ErrNotFound, id)
+		return nil, fmt.Errorf(
+			"%w: resolver query log config association %s not found",
+			ErrNotFound,
+			id,
+		)
 	}
 	cp := *assoc
 
@@ -1818,16 +2126,28 @@ func (b *InMemoryBackend) GetResolverQueryLogConfigAssociation(id string) (*Reso
 }
 
 // DisassociateResolverQueryLogConfig removes a query log config association.
-func (b *InMemoryBackend) DisassociateResolverQueryLogConfig(id string) (*ResolverQueryLogConfigAssociation, error) {
+func (b *InMemoryBackend) DisassociateResolverQueryLogConfig(
+	id string,
+) (*ResolverQueryLogConfigAssociation, error) {
 	b.mu.Lock("DisassociateResolverQueryLogConfig")
 	defer b.mu.Unlock()
 
 	assoc, ok := b.queryLogConfigAssociations[id]
 	if !ok {
-		return nil, fmt.Errorf("%w: resolver query log config association %s not found", ErrNotFound, id)
+		return nil, fmt.Errorf(
+			"%w: resolver query log config association %s not found",
+			ErrNotFound,
+			id,
+		)
 	}
 	cp := *assoc
 	delete(b.queryLogConfigAssociations, id)
+
+	// Decrement AssociationCount on the config.
+	if cfg := b.queryLogConfigs[assoc.ResolverQueryLogConfigID]; cfg != nil &&
+		cfg.AssociationCount > 0 {
+		cfg.AssociationCount--
+	}
 
 	return &cp, nil
 }
@@ -1931,8 +2251,11 @@ func (b *InMemoryBackend) PutResolverRulePolicy(arn, policy string) error {
 
 // --- Resolver Endpoint Update ---
 
-// UpdateResolverEndpoint updates the name of a resolver endpoint.
-func (b *InMemoryBackend) UpdateResolverEndpoint(id, name string) (*ResolverEndpoint, error) {
+// UpdateResolverEndpoint updates name, endpoint type, and/or protocols of a resolver endpoint.
+func (b *InMemoryBackend) UpdateResolverEndpoint(
+	id, name, resolverEndpointType string,
+	protocols []string,
+) (*ResolverEndpoint, error) {
 	b.mu.Lock("UpdateResolverEndpoint")
 	defer b.mu.Unlock()
 
@@ -1943,12 +2266,31 @@ func (b *InMemoryBackend) UpdateResolverEndpoint(id, name string) (*ResolverEndp
 	if name != "" {
 		ep.Name = name
 	}
+	if resolverEndpointType != "" {
+		switch resolverEndpointType {
+		case endpointTypeIPV4, endpointTypeIPV6, endpointTypeDualStack:
+			ep.ResolverEndpointType = resolverEndpointType
+		default:
+			return nil, fmt.Errorf(
+				"%w: ResolverEndpointType must be IPV4, IPV6, or DUALSTACK",
+				ErrValidation,
+			)
+		}
+	}
+	if len(protocols) > 0 {
+		protocolsCopy := make([]string, len(protocols))
+		copy(protocolsCopy, protocols)
+		ep.Protocols = protocolsCopy
+	}
+	ep.ModificationTime = currentTime()
 
 	return cloneEndpoint(ep), nil
 }
 
 // DisassociateResolverEndpointIPAddress removes an IP address from a resolver endpoint.
-func (b *InMemoryBackend) DisassociateResolverEndpointIPAddress(endpointID, ipID string) (*ResolverEndpoint, error) {
+func (b *InMemoryBackend) DisassociateResolverEndpointIPAddress(
+	endpointID, ipID string,
+) (*ResolverEndpoint, error) {
 	b.mu.Lock("DisassociateResolverEndpointIPAddress")
 	defer b.mu.Unlock()
 
@@ -1968,7 +2310,12 @@ func (b *InMemoryBackend) DisassociateResolverEndpointIPAddress(endpointID, ipID
 		newIPs = append(newIPs, ip)
 	}
 	if !found {
-		return nil, fmt.Errorf("%w: IP address %s not found on endpoint %s", ErrNotFound, ipID, endpointID)
+		return nil, fmt.Errorf(
+			"%w: IP address %s not found on endpoint %s",
+			ErrNotFound,
+			ipID,
+			endpointID,
+		)
 	}
 	ep.IPAddresses = newIPs
 
