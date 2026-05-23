@@ -328,18 +328,29 @@ func (h *Handler) handleCreateClassifier(
 }
 
 // createColumnStatisticsTaskSettingsInput holds input for CreateColumnStatisticsTaskSettings.
-type createColumnStatisticsTaskSettingsInput struct{}
+type createColumnStatisticsTaskSettingsInput struct {
+	DatabaseName   string   `json:"DatabaseName"`
+	TableName      string   `json:"TableName"`
+	RoleArn        string   `json:"RoleArn,omitempty"`
+	ColumnNameList []string `json:"ColumnNameList,omitempty"`
+}
 
 func (h *Handler) handleCreateColumnStatisticsTaskSettings(
 	_ context.Context,
-	_ *createColumnStatisticsTaskSettingsInput,
+	in *createColumnStatisticsTaskSettingsInput,
 ) (*emptyOutput, error) {
+	_, _ = h.Backend.CreateColumnStatisticsTaskSettings(
+		in.DatabaseName, in.TableName, in.RoleArn, in.ColumnNameList,
+	)
+
 	return &emptyOutput{}, nil
 }
 
 // createCustomEntityTypeInput holds input for CreateCustomEntityType.
 type createCustomEntityTypeInput struct {
-	Name string `json:"Name"`
+	Name         string   `json:"Name"`
+	RegexString  string   `json:"RegexString,omitempty"`
+	ContextWords []string `json:"ContextWords,omitempty"`
 }
 
 // createCustomEntityTypeOutput holds the result for CreateCustomEntityType.
@@ -351,7 +362,7 @@ func (h *Handler) handleCreateCustomEntityType(
 	_ context.Context,
 	in *createCustomEntityTypeInput,
 ) (*createCustomEntityTypeOutput, error) {
-	_, _ = h.Backend.CreateCustomEntityType(in.Name, "", nil)
+	_, _ = h.Backend.CreateCustomEntityType(in.Name, in.RegexString, in.ContextWords)
 
 	return &createCustomEntityTypeOutput{Name: in.Name}, nil
 }
@@ -875,12 +886,17 @@ func (h *Handler) handleDeleteColumnStatisticsForTable(
 }
 
 // deleteColumnStatisticsTaskSettingsInput holds input for DeleteColumnStatisticsTaskSettings.
-type deleteColumnStatisticsTaskSettingsInput struct{}
+type deleteColumnStatisticsTaskSettingsInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+}
 
 func (h *Handler) handleDeleteColumnStatisticsTaskSettings(
 	_ context.Context,
-	_ *deleteColumnStatisticsTaskSettingsInput,
+	in *deleteColumnStatisticsTaskSettingsInput,
 ) (*emptyOutput, error) {
+	_ = h.Backend.DeleteColumnStatisticsTaskSettings(in.DatabaseName, in.TableName)
+
 	return &emptyOutput{}, nil
 }
 
@@ -1557,7 +1573,9 @@ func (h *Handler) handleGetColumnStatisticsForTable(
 }
 
 // getColumnStatisticsTaskRunInput holds input for GetColumnStatisticsTaskRun.
-type getColumnStatisticsTaskRunInput struct{}
+type getColumnStatisticsTaskRunInput struct {
+	ColumnStatisticsTaskRunID string `json:"ColumnStatisticsTaskRunId"`
+}
 
 // getColumnStatisticsTaskRunOutput holds the result for GetColumnStatisticsTaskRun.
 type getColumnStatisticsTaskRunOutput struct {
@@ -1566,8 +1584,15 @@ type getColumnStatisticsTaskRunOutput struct {
 
 func (h *Handler) handleGetColumnStatisticsTaskRun(
 	_ context.Context,
-	_ *getColumnStatisticsTaskRunInput,
+	in *getColumnStatisticsTaskRunInput,
 ) (*getColumnStatisticsTaskRunOutput, error) {
+	if in.ColumnStatisticsTaskRunID != "" {
+		run, err := h.Backend.GetColumnStatisticsTaskRun(in.ColumnStatisticsTaskRunID)
+		if err == nil {
+			return &getColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRun: run}, nil
+		}
+	}
+
 	runs := h.Backend.GetColumnStatisticsTaskRuns()
 	if len(runs) == 0 {
 		return &getColumnStatisticsTaskRunOutput{}, nil
@@ -1598,7 +1623,10 @@ func (h *Handler) handleGetColumnStatisticsTaskRuns(
 }
 
 // getColumnStatisticsTaskSettingsInput holds input for GetColumnStatisticsTaskSettings.
-type getColumnStatisticsTaskSettingsInput struct{}
+type getColumnStatisticsTaskSettingsInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+}
 
 // getColumnStatisticsTaskSettingsOutput holds the result for GetColumnStatisticsTaskSettings.
 type getColumnStatisticsTaskSettingsOutput struct {
@@ -1607,9 +1635,9 @@ type getColumnStatisticsTaskSettingsOutput struct {
 
 func (h *Handler) handleGetColumnStatisticsTaskSettings(
 	_ context.Context,
-	_ *getColumnStatisticsTaskSettingsInput,
+	in *getColumnStatisticsTaskSettingsInput,
 ) (*getColumnStatisticsTaskSettingsOutput, error) {
-	s, _ := h.Backend.GetColumnStatisticsTaskSettings("", "")
+	s, _ := h.Backend.GetColumnStatisticsTaskSettings(in.DatabaseName, in.TableName)
 
 	return &getColumnStatisticsTaskSettingsOutput{ColumnStatisticsTaskSettings: s}, nil
 }
@@ -2643,7 +2671,10 @@ func (h *Handler) handleGetWorkflowRun(
 }
 
 // getWorkflowRunPropertiesInput holds input for GetWorkflowRunProperties.
-type getWorkflowRunPropertiesInput struct{}
+type getWorkflowRunPropertiesInput struct {
+	Name  string `json:"Name"`
+	RunID string `json:"RunId"`
+}
 
 // getWorkflowRunPropertiesOutput holds the result for GetWorkflowRunProperties.
 type getWorkflowRunPropertiesOutput struct {
@@ -2652,8 +2683,15 @@ type getWorkflowRunPropertiesOutput struct {
 
 func (h *Handler) handleGetWorkflowRunProperties(
 	_ context.Context,
-	_ *getWorkflowRunPropertiesInput,
+	in *getWorkflowRunPropertiesInput,
 ) (*getWorkflowRunPropertiesOutput, error) {
+	if in.Name != "" && in.RunID != "" {
+		run, err := h.Backend.GetWorkflowRun(in.Name, in.RunID)
+		if err == nil && run.Properties != nil {
+			return &getWorkflowRunPropertiesOutput{RunProperties: run.Properties}, nil
+		}
+	}
+
 	return &getWorkflowRunPropertiesOutput{RunProperties: map[string]string{}}, nil
 }
 
@@ -3414,7 +3452,10 @@ func (h *Handler) handleStartBlueprintRun(
 }
 
 // startColumnStatisticsTaskRunInput holds input for StartColumnStatisticsTaskRun.
-type startColumnStatisticsTaskRunInput struct{}
+type startColumnStatisticsTaskRunInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+}
 
 // startColumnStatisticsTaskRunOutput holds the result for StartColumnStatisticsTaskRun.
 type startColumnStatisticsTaskRunOutput struct {
@@ -3423,9 +3464,9 @@ type startColumnStatisticsTaskRunOutput struct {
 
 func (h *Handler) handleStartColumnStatisticsTaskRun(
 	_ context.Context,
-	_ *startColumnStatisticsTaskRunInput,
+	in *startColumnStatisticsTaskRunInput,
 ) (*startColumnStatisticsTaskRunOutput, error) {
-	run, err := h.Backend.StartColumnStatisticsTaskRun("", "")
+	run, err := h.Backend.StartColumnStatisticsTaskRun(in.DatabaseName, in.TableName)
 	if err != nil {
 		return nil, err
 	}
@@ -3587,13 +3628,17 @@ func (h *Handler) handleStartWorkflowRun(
 }
 
 // stopColumnStatisticsTaskRunInput holds input for StopColumnStatisticsTaskRun.
-type stopColumnStatisticsTaskRunInput struct{}
+type stopColumnStatisticsTaskRunInput struct {
+	ColumnStatisticsTaskRunID string `json:"ColumnStatisticsTaskRunId"`
+}
 
 func (h *Handler) handleStopColumnStatisticsTaskRun(
 	_ context.Context,
-	_ *stopColumnStatisticsTaskRunInput,
+	in *stopColumnStatisticsTaskRunInput,
 ) (*emptyOutput, error) {
-	// No-op - nothing to stop if no run ID is provided.
+	if in.ColumnStatisticsTaskRunID != "" {
+		_ = h.Backend.StopColumnStatisticsTaskRun(in.ColumnStatisticsTaskRunID)
+	}
 
 	return &emptyOutput{}, nil
 }
@@ -3609,13 +3654,17 @@ func (h *Handler) handleStopColumnStatisticsTaskRunSchedule(
 }
 
 // stopMaterializedViewRefreshTaskRunInput holds input for StopMaterializedViewRefreshTaskRun.
-type stopMaterializedViewRefreshTaskRunInput struct{}
+type stopMaterializedViewRefreshTaskRunInput struct {
+	RunID string `json:"RunId"`
+}
 
 func (h *Handler) handleStopMaterializedViewRefreshTaskRun(
 	_ context.Context,
-	_ *stopMaterializedViewRefreshTaskRunInput,
+	in *stopMaterializedViewRefreshTaskRunInput,
 ) (*emptyOutput, error) {
-	// No-op - nothing to stop if no run ID is provided.
+	if in.RunID != "" {
+		_ = h.Backend.StopMaterializedViewRefreshTaskRun(in.RunID)
+	}
 
 	return &emptyOutput{}, nil
 }
