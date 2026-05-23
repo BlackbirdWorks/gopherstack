@@ -31,7 +31,6 @@ func createClusterObj(t *testing.T, h *memorydb.Handler, body map[string]any) ma
 	resp := createCluster(t, h, body)
 	cl, ok := resp["Cluster"].(map[string]any)
 	require.True(t, ok, "response has no Cluster field")
-
 	return cl
 }
 
@@ -925,7 +924,6 @@ func TestAudit_Events_AutoPopulated(t *testing.T) {
 				ev := e.(map[string]any)
 				if strings.Contains(strings.ToLower(ev["Message"].(string)), tt.wantMinMsg) {
 					found = true
-
 					break
 				}
 			}
@@ -1513,7 +1511,6 @@ func TestAudit_FailoverShard_EmitsEvent(t *testing.T) {
 		ev := e.(map[string]any)
 		if strings.Contains(ev["Message"].(string), "Failover") {
 			found = true
-
 			break
 		}
 	}
@@ -2096,7 +2093,6 @@ func TestAudit_Tags(t *testing.T) {
 					"ACLName":     "open-access",
 					"Tags":        []map[string]any{{"Key": "env", "Value": "prod"}},
 				})
-
 				return cl["ARN"].(string)
 			},
 			wantStatus: http.StatusOK,
@@ -2115,7 +2111,6 @@ func TestAudit_Tags(t *testing.T) {
 					"ResourceArn": arn,
 					"Tags":        []map[string]any{{"Key": "team", "Value": "backend"}},
 				})
-
 				return arn
 			},
 			wantStatus: http.StatusOK,
@@ -2595,7 +2590,6 @@ func TestAudit_Pagination(t *testing.T) {
 			for _, key := range []string{"Clusters", "ACLs", "Users", "Snapshots", "ParameterGroups", "SubnetGroups"} {
 				if v, ok := resp[key].([]any); ok {
 					items = v
-
 					break
 				}
 			}
@@ -2641,6 +2635,5 @@ func TestAudit_DescribeSnapshots_Pagination(t *testing.T) {
 // -- helper -------------------------------------------------------------------
 
 func boolPtr(b bool) *bool {
-
 	return &b
 }
