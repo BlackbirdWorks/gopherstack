@@ -1461,6 +1461,19 @@ func (h *Handler) createTemplateByType(body []byte, region, templateName, templa
 		}
 
 		return t.ARN, nil
+
+	case templateTypeVoice:
+		var req createVoiceTemplateRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return "", errInvalidRequestBody
+		}
+
+		t, err := h.Backend.CreateVoiceTemplate(region, h.AccountID, templateName, req)
+		if err != nil {
+			return "", err
+		}
+
+		return t.ARN, nil
 	}
 
 	return "", fmt.Errorf("%w: %s", errUnsupportedTemplateType, templateType)
