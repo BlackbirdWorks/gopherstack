@@ -1828,6 +1828,7 @@ func (b *InMemoryBackend) DescribeEvents(req *describeEventsRequest) ([]*Event, 
 // cloneEvent returns a shallow copy of an Event.
 func cloneEvent(e *Event) *Event {
 	cp := *e
+
 	return &cp
 }
 

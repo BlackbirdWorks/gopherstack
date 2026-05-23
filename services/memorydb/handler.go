@@ -1336,6 +1336,7 @@ func (h *Handler) handleDescribeServiceUpdates(c *echo.Context, body []byte) err
 			AutoUpdateStartDate: su.AutoUpdateStartDate,
 		})
 	}
+
 	return c.JSON(http.StatusOK, describeServiceUpdatesResponse{ServiceUpdates: objs, NextToken: nextToken})
 }
 

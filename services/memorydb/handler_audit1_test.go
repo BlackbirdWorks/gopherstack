@@ -31,20 +31,16 @@ func createClusterObj(t *testing.T, h *memorydb.Handler, body map[string]any) ma
 	resp := createCluster(t, h, body)
 	cl, ok := resp["Cluster"].(map[string]any)
 	require.True(t, ok, "response has no Cluster field")
+
 	return cl
 }
 
 // helper: create a snapshot and return the parsed response body.
-func createSnapshot(t *testing.T, h *memorydb.Handler, body map[string]any) map[string]any {
+func createSnapshot(t *testing.T, h *memorydb.Handler, body map[string]any) {
 	t.Helper()
 
 	rec := doRequest(t, h, "CreateSnapshot", body)
 	require.Equal(t, http.StatusOK, rec.Code, "create snapshot failed: %s", rec.Body)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	return resp
 }
 
 // -- Engine field (Gap 2) -------------------------------------------------------
@@ -163,8 +159,8 @@ func TestAudit_DescribeEngineVersions_IncludesValkey(t *testing.T) {
 	tests := []struct {
 		body         map[string]any
 		name         string
-		wantMinCount int
 		wantEngines  []string
+		wantMinCount int
 	}{
 		{
 			name:         "all versions includes valkey and redis",
@@ -330,7 +326,7 @@ func TestAudit_NetworkType_DefaultsToIPv4(t *testing.T) {
 	})
 
 	assert.Equal(t, "ipv4", cl["NetworkType"])
-	assert.Equal(t, "ipv4", cl["IpDiscovery"])
+	assert.Equal(t, "ipv4", cl["IPDiscovery"])
 }
 
 func TestAudit_NetworkType_IPv6(t *testing.T) {
@@ -349,7 +345,7 @@ func TestAudit_NetworkType_IPv6(t *testing.T) {
 				"NodeType":    "db.r6g.large",
 				"ACLName":     "open-access",
 				"NetworkType": "ipv6",
-				"IpDiscovery": "ipv6",
+				"IPDiscovery": "ipv6",
 			},
 			wantNetworkType: "ipv6",
 			wantIPDiscovery: "ipv6",
@@ -374,7 +370,7 @@ func TestAudit_NetworkType_IPv6(t *testing.T) {
 			h := newTestHandler(t)
 			cl := createClusterObj(t, h, tt.body)
 			assert.Equal(t, tt.wantNetworkType, cl["NetworkType"])
-			assert.Equal(t, tt.wantIPDiscovery, cl["IpDiscovery"])
+			assert.Equal(t, tt.wantIPDiscovery, cl["IPDiscovery"])
 		})
 	}
 }
@@ -641,8 +637,8 @@ func TestAudit_ShardConfiguration(t *testing.T) {
 
 			h := newTestHandler(t)
 			cl := createClusterObj(t, h, tt.body)
-			assert.Equal(t, tt.wantShards, cl["NumberOfShards"])
-			assert.Equal(t, tt.wantReplicas, cl["NumberOfReplicasPerShard"])
+			assert.InDelta(t, tt.wantShards, cl["NumberOfShards"], 0)
+			assert.InDelta(t, tt.wantReplicas, cl["NumberOfReplicasPerShard"], 0)
 		})
 	}
 }
@@ -693,8 +689,8 @@ func TestAudit_UpdateCluster_ShardConfig(t *testing.T) {
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			cl := resp["Cluster"].(map[string]any)
-			assert.Equal(t, tt.wantShards, cl["NumberOfShards"])
-			assert.Equal(t, tt.wantReplicas, cl["NumberOfReplicasPerShard"])
+			assert.InDelta(t, tt.wantShards, cl["NumberOfShards"], 0)
+			assert.InDelta(t, tt.wantReplicas, cl["NumberOfReplicasPerShard"], 0)
 		})
 	}
 }
@@ -927,6 +923,7 @@ func TestAudit_Events_AutoPopulated(t *testing.T) {
 				ev := e.(map[string]any)
 				if strings.Contains(strings.ToLower(ev["Message"].(string)), tt.wantMinMsg) {
 					found = true
+
 					break
 				}
 			}
@@ -1514,6 +1511,7 @@ func TestAudit_FailoverShard_EmitsEvent(t *testing.T) {
 		ev := e.(map[string]any)
 		if strings.Contains(ev["Message"].(string), "Failover") {
 			found = true
+
 			break
 		}
 	}
@@ -2096,6 +2094,7 @@ func TestAudit_Tags(t *testing.T) {
 					"ACLName":     "open-access",
 					"Tags":        []map[string]any{{"Key": "env", "Value": "prod"}},
 				})
+
 				return cl["ARN"].(string)
 			},
 			wantStatus: http.StatusOK,
@@ -2114,6 +2113,7 @@ func TestAudit_Tags(t *testing.T) {
 					"ResourceArn": arn,
 					"Tags":        []map[string]any{{"Key": "team", "Value": "backend"}},
 				})
+
 				return arn
 			},
 			wantStatus: http.StatusOK,
@@ -2192,7 +2192,7 @@ func TestAudit_ClusterEndpoint(t *testing.T) {
 			endpoint, ok := cl["ClusterEndpoint"].(map[string]any)
 			require.True(t, ok)
 			assert.True(t, strings.HasSuffix(endpoint["Address"].(string), tt.wantAddrSuffix))
-			assert.Equal(t, tt.wantPort, endpoint["Port"])
+			assert.InDelta(t, tt.wantPort, endpoint["Port"], 0)
 		})
 	}
 }
@@ -2593,6 +2593,7 @@ func TestAudit_Pagination(t *testing.T) {
 			for _, key := range []string{"Clusters", "ACLs", "Users", "Snapshots", "ParameterGroups", "SubnetGroups"} {
 				if v, ok := resp[key].([]any); ok {
 					items = v
+
 					break
 				}
 			}
