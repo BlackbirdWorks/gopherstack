@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,18 +51,20 @@ type ParameterDefinition struct {
 
 // Application represents an AWS Serverless Application Repository application.
 type Application struct {
-	CreationTime    time.Time `json:"creationTime"`
-	ApplicationID   string    `json:"applicationId"`
-	Name            string    `json:"name"`
-	Description     string    `json:"description,omitempty"`
-	Author          string    `json:"author,omitempty"`
-	HomePageURL     string    `json:"homePageUrl,omitempty"`
-	LicenseURL      string    `json:"licenseUrl,omitempty"`
-	ReadmeURL       string    `json:"readmeUrl,omitempty"`
-	SpdxLicenseID   string    `json:"spdxLicenseId,omitempty"`
-	SourceCodeURL   string    `json:"sourceCodeUrl,omitempty"`
-	SemanticVersion string    `json:"semanticVersion,omitempty"`
-	Labels          []string  `json:"labels,omitempty"`
+	CreationTime      time.Time `json:"creationTime"`
+	LicenseURL        string    `json:"licenseUrl,omitempty"`
+	Name              string    `json:"name"`
+	Description       string    `json:"description,omitempty"`
+	Author            string    `json:"author,omitempty"`
+	HomePageURL       string    `json:"homePageUrl,omitempty"`
+	ApplicationID     string    `json:"applicationId"`
+	ReadmeURL         string    `json:"readmeUrl,omitempty"`
+	SpdxLicenseID     string    `json:"spdxLicenseId,omitempty"`
+	SourceCodeURL     string    `json:"sourceCodeUrl,omitempty"`
+	SemanticVersion   string    `json:"semanticVersion,omitempty"`
+	VerifiedAuthorURL string    `json:"verifiedAuthorUrl,omitempty"`
+	Labels            []string  `json:"labels,omitempty"`
+	IsVerifiedAuthor  bool      `json:"isVerifiedAuthor"`
 }
 
 // ApplicationVersion represents a version of a Serverless Application Repository application.
@@ -90,10 +93,12 @@ type CloudFormationTemplate struct {
 
 // CloudFormationChangeSet represents a CloudFormation change set for an application.
 type CloudFormationChangeSet struct {
-	ApplicationID   string `json:"applicationId"`
-	ChangeSetID     string `json:"changeSetId"`
-	SemanticVersion string `json:"semanticVersion,omitempty"`
-	StackID         string `json:"stackId"`
+	ApplicationID   string   `json:"applicationId"`
+	ChangeSetID     string   `json:"changeSetId"`
+	SemanticVersion string   `json:"semanticVersion,omitempty"`
+	StackID         string   `json:"stackId"`
+	Capabilities    []string `json:"capabilities,omitempty"`
+	Tags            []Tag    `json:"tags,omitempty"`
 }
 
 // ApplicationPolicyStatement represents a policy statement for an application.
@@ -110,6 +115,25 @@ type ApplicationDependency struct {
 	SemanticVersion string `json:"semanticVersion"`
 }
 
+// Tag represents a CloudFormation tag passed while deploying an application.
+type Tag struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// CreateApplicationVersionOptions contains optional AWS SAR version inputs.
+type CreateApplicationVersionOptions struct {
+	SourceCodeURL        string
+	SourceCodeArchiveURL string
+	TemplateURL          string
+}
+
+// CreateCloudFormationChangeSetOptions contains optional deployment metadata.
+type CreateCloudFormationChangeSetOptions struct {
+	Capabilities []string
+	Tags         []Tag
+}
+
 // cloneApplication returns a deep copy of a, including its Labels slice.
 func cloneApplication(a *Application) *Application {
 	cp := *a
@@ -123,6 +147,22 @@ func cloneVersion(v *ApplicationVersion) *ApplicationVersion {
 	cp := *v
 	cp.RequiredCapabilities = cloneStringSlice(v.RequiredCapabilities)
 	cp.ParameterDefinitions = cloneParameterDefinitions(v.ParameterDefinitions)
+
+	return &cp
+}
+
+func cloneTags(tags []Tag) []Tag {
+	if tags == nil {
+		return nil
+	}
+
+	return append([]Tag(nil), tags...)
+}
+
+func cloneChangeSet(cs *CloudFormationChangeSet) *CloudFormationChangeSet {
+	cp := *cs
+	cp.Capabilities = cloneStringSlice(cs.Capabilities)
+	cp.Tags = cloneTags(cs.Tags)
 
 	return &cp
 }
@@ -204,22 +244,25 @@ type InMemoryBackend struct {
 	cfChangeSets map[string]map[string]*CloudFormationChangeSet
 	// appPolicies maps appName -> []*ApplicationPolicyStatement
 	appPolicies map[string][]*ApplicationPolicyStatement
-	mu          *lockmetrics.RWMutex
-	accountID   string
-	region      string
+	// appDependencies maps appName -> semanticVersion -> dependencies.
+	appDependencies map[string]map[string][]*ApplicationDependency
+	mu              *lockmetrics.RWMutex
+	accountID       string
+	region          string
 }
 
 // NewInMemoryBackend creates a new in-memory Serverless Application Repository backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		applications: make(map[string]*Application),
-		appVersions:  make(map[string]map[string]*ApplicationVersion),
-		cfTemplates:  make(map[string]map[string]*CloudFormationTemplate),
-		cfChangeSets: make(map[string]map[string]*CloudFormationChangeSet),
-		appPolicies:  make(map[string][]*ApplicationPolicyStatement),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("serverlessrepo"),
+		applications:    make(map[string]*Application),
+		appVersions:     make(map[string]map[string]*ApplicationVersion),
+		cfTemplates:     make(map[string]map[string]*CloudFormationTemplate),
+		cfChangeSets:    make(map[string]map[string]*CloudFormationChangeSet),
+		appPolicies:     make(map[string][]*ApplicationPolicyStatement),
+		appDependencies: make(map[string]map[string][]*ApplicationDependency),
+		accountID:       accountID,
+		region:          region,
+		mu:              lockmetrics.New("serverlessrepo"),
 	}
 }
 
@@ -233,6 +276,7 @@ func (b *InMemoryBackend) Reset() {
 	b.cfTemplates = make(map[string]map[string]*CloudFormationTemplate)
 	b.cfChangeSets = make(map[string]map[string]*CloudFormationChangeSet)
 	b.appPolicies = make(map[string][]*ApplicationPolicyStatement)
+	b.appDependencies = make(map[string]map[string][]*ApplicationDependency)
 }
 
 // AccountID returns the AWS account ID this backend is configured for.
@@ -343,6 +387,21 @@ func (b *InMemoryBackend) CreateApplication(
 	return cloneApplication(a), nil
 }
 
+// SetApplicationReadmeURL stores readme metadata supplied during application creation.
+func (b *InMemoryBackend) SetApplicationReadmeURL(name, readmeURL string) (*Application, error) {
+	b.mu.Lock("SetApplicationReadmeURL")
+	defer b.mu.Unlock()
+
+	a, ok := b.applications[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, name)
+	}
+
+	a.ReadmeURL = readmeURL
+
+	return cloneApplication(a), nil
+}
+
 // GetApplication returns an application by name.
 func (b *InMemoryBackend) GetApplication(name string) (*Application, error) {
 	b.mu.RLock("GetApplication")
@@ -405,6 +464,21 @@ func (b *InMemoryBackend) UpdateApplication(
 	return cloneApplication(a), nil
 }
 
+// UpdateApplicationLabels replaces labels supplied by UpdateApplication.
+func (b *InMemoryBackend) UpdateApplicationLabels(name string, labels []string) (*Application, error) {
+	b.mu.Lock("UpdateApplicationLabels")
+	defer b.mu.Unlock()
+
+	a, ok := b.applications[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, name)
+	}
+
+	a.Labels = nonNilStringSlice(cloneStringSlice(labels))
+
+	return cloneApplication(a), nil
+}
+
 // DeleteApplication deletes an application by name.
 func (b *InMemoryBackend) DeleteApplication(name string) error {
 	b.mu.Lock("DeleteApplication")
@@ -419,6 +493,7 @@ func (b *InMemoryBackend) DeleteApplication(name string) error {
 	delete(b.cfTemplates, name)
 	delete(b.cfChangeSets, name)
 	delete(b.appPolicies, name)
+	delete(b.appDependencies, name)
 
 	return nil
 }
@@ -430,6 +505,18 @@ func (b *InMemoryBackend) CreateApplicationVersion(
 	sourceCodeURL string,
 	templateURL string,
 ) (*ApplicationVersion, error) {
+	return b.CreateApplicationVersionWithOptions(appName, semanticVersion, CreateApplicationVersionOptions{
+		SourceCodeURL: sourceCodeURL,
+		TemplateURL:   templateURL,
+	})
+}
+
+// CreateApplicationVersionWithOptions creates a version including optional archive metadata.
+func (b *InMemoryBackend) CreateApplicationVersionWithOptions(
+	appName string,
+	semanticVersion string,
+	opts CreateApplicationVersionOptions,
+) (*ApplicationVersion, error) {
 	b.mu.Lock("CreateApplicationVersion")
 	defer b.mu.Unlock()
 
@@ -438,8 +525,11 @@ func (b *InMemoryBackend) CreateApplicationVersion(
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
-	if sourceCodeURL == "" && templateURL == "" {
-		return nil, fmt.Errorf("%w: at least one of sourceCodeUrl or templateUrl is required", ErrValidation)
+	if opts.SourceCodeURL == "" && opts.SourceCodeArchiveURL == "" && opts.TemplateURL == "" {
+		return nil, fmt.Errorf(
+			"%w: at least one of sourceCodeUrl, sourceCodeArchiveUrl or templateUrl is required",
+			ErrValidation,
+		)
 	}
 
 	if _, exists := b.appVersions[appName]; !exists {
@@ -456,8 +546,8 @@ func (b *InMemoryBackend) CreateApplicationVersion(
 	}
 
 	// Generate a synthetic template URL when the caller provides only a sourceCodeURL.
-	resolvedTemplateURL := templateURL
-	if resolvedTemplateURL == "" && sourceCodeURL != "" {
+	resolvedTemplateURL := opts.TemplateURL
+	if resolvedTemplateURL == "" && (opts.SourceCodeURL != "" || opts.SourceCodeArchiveURL != "") {
 		resolvedTemplateURL = fmt.Sprintf(
 			"https://s3.amazonaws.com/serverlessrepo-templates/%s/%s.template",
 			appName,
@@ -468,7 +558,8 @@ func (b *InMemoryBackend) CreateApplicationVersion(
 	v := &ApplicationVersion{
 		ApplicationID:        app.ApplicationID,
 		SemanticVersion:      semanticVersion,
-		SourceCodeURL:        sourceCodeURL,
+		SourceCodeURL:        opts.SourceCodeURL,
+		SourceCodeArchiveURL: opts.SourceCodeArchiveURL,
 		TemplateURL:          resolvedTemplateURL,
 		CreationTime:         time.Now(),
 		ParameterDefinitions: []ParameterDefinition{},
@@ -610,12 +701,35 @@ func (b *InMemoryBackend) CreateCloudFormationChangeSet(
 	changeSetName string,
 	semanticVersion string,
 ) (*CloudFormationChangeSet, error) {
+	return b.CreateCloudFormationChangeSetWithOptions(
+		appName,
+		stackName,
+		changeSetName,
+		semanticVersion,
+		CreateCloudFormationChangeSetOptions{},
+	)
+}
+
+// CreateCloudFormationChangeSetWithOptions creates a deployment change set with request metadata.
+func (b *InMemoryBackend) CreateCloudFormationChangeSetWithOptions(
+	appName string,
+	stackName string,
+	changeSetName string,
+	semanticVersion string,
+	opts CreateCloudFormationChangeSetOptions,
+) (*CloudFormationChangeSet, error) {
 	b.mu.Lock("CreateCloudFormationChangeSet")
 	defer b.mu.Unlock()
 
 	app, ok := b.applications[appName]
 	if !ok {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
+	}
+
+	for _, capability := range opts.Capabilities {
+		if !isValidCapability(capability) {
+			return nil, fmt.Errorf("%w: unsupported capability %q", ErrValidation, capability)
+		}
 	}
 
 	if _, exists := b.cfChangeSets[appName]; !exists {
@@ -647,12 +761,12 @@ func (b *InMemoryBackend) CreateCloudFormationChangeSet(
 		ChangeSetID:     changeSetID,
 		SemanticVersion: semanticVersion,
 		StackID:         stackID,
+		Capabilities:    cloneStringSlice(opts.Capabilities),
+		Tags:            cloneTags(opts.Tags),
 	}
-	// Store a copy to prevent shared-pointer mutations after return.
-	csCopy := *cs
-	b.cfChangeSets[appName][changeSetID] = &csCopy
+	b.cfChangeSets[appName][changeSetID] = cloneChangeSet(cs)
 
-	return cs, nil
+	return cloneChangeSet(cs), nil
 }
 
 // GetApplicationPolicy returns the policy statements for an application.
@@ -705,10 +819,32 @@ func (b *InMemoryBackend) PutApplicationPolicy(
 	return clonePolicyStatements(b.appPolicies[appName]), nil
 }
 
-// ListApplicationDependencies returns the nested application dependencies for an application.
-// In this in-memory implementation dependencies are derived from the application's versions list
-// (empty by default unless seeded).
-func (b *InMemoryBackend) ListApplicationDependencies(appName, _ string) ([]*ApplicationDependency, error) {
+// AddApplicationDependencyInternal seeds a nested dependency for a version.
+func (b *InMemoryBackend) AddApplicationDependencyInternal(
+	appName, semanticVersion string,
+	dependency ApplicationDependency,
+) error {
+	b.mu.Lock("AddApplicationDependencyInternal")
+	defer b.mu.Unlock()
+
+	if _, ok := b.applications[appName]; !ok {
+		return fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
+	}
+
+	if b.appDependencies[appName] == nil {
+		b.appDependencies[appName] = make(map[string][]*ApplicationDependency)
+	}
+
+	dep := dependency
+	b.appDependencies[appName][semanticVersion] = append(b.appDependencies[appName][semanticVersion], &dep)
+
+	return nil
+}
+
+// ListApplicationDependencies returns nested application dependencies for an application version.
+func (b *InMemoryBackend) ListApplicationDependencies(
+	appName, semanticVersion string,
+) ([]*ApplicationDependency, error) {
 	b.mu.RLock("ListApplicationDependencies")
 	defer b.mu.RUnlock()
 
@@ -716,7 +852,31 @@ func (b *InMemoryBackend) ListApplicationDependencies(appName, _ string) ([]*App
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
-	return []*ApplicationDependency{}, nil
+	deps := make([]*ApplicationDependency, 0)
+	b.collectDependencies(appName, semanticVersion, make(map[string]struct{}), &deps)
+
+	return deps, nil
+}
+
+func (b *InMemoryBackend) collectDependencies(
+	appName, semanticVersion string,
+	seen map[string]struct{},
+	deps *[]*ApplicationDependency,
+) {
+	for _, dependency := range b.appDependencies[appName][semanticVersion] {
+		key := dependency.ApplicationID + "@" + dependency.SemanticVersion
+		if _, ok := seen[key]; ok {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		cp := *dependency
+		*deps = append(*deps, &cp)
+
+		if separator := strings.LastIndex(dependency.ApplicationID, "/"); separator >= 0 {
+			b.collectDependencies(dependency.ApplicationID[separator+1:], dependency.SemanticVersion, seen, deps)
+		}
+	}
 }
 
 // UnshareApplication removes an application from an AWS Organization.
@@ -734,14 +894,20 @@ func (b *InMemoryBackend) UnshareApplication(appName, _ string) error {
 // validPolicyActions returns a set of AWS SAR application policy actions (case-sensitive map).
 func validPolicyActionsSet() map[string]struct{} {
 	return map[string]struct{}{
-		"deploy":                  {},
-		"Deploy":                  {},
-		"getapplication":          {},
-		"GetApplication":          {},
-		"listapplicationversions": {},
-		"ListApplicationVersions": {},
-		"searchapplications":      {},
-		"SearchApplications":      {},
+		"deploy":                     {},
+		"Deploy":                     {},
+		"getapplication":             {},
+		"GetApplication":             {},
+		"listapplicationversions":    {},
+		"ListApplicationVersions":    {},
+		"searchapplications":         {},
+		"SearchApplications":         {},
+		"searchanddeploy":            {},
+		"SearchAndDeploy":            {},
+		"unshareapplication":         {},
+		"UnshareApplication":         {},
+		"unsubscribeapplication":     {},
+		"UnSubscribeFromApplication": {},
 	}
 }
 
@@ -751,4 +917,16 @@ func isValidPolicyAction(action string) bool {
 	_, ok := validPolicyActionsSet()[action]
 
 	return ok
+}
+
+func isValidCapability(capability string) bool {
+	switch capability {
+	case "CAPABILITY_IAM",
+		"CAPABILITY_NAMED_IAM",
+		"CAPABILITY_AUTO_EXPAND",
+		"CAPABILITY_RESOURCE_POLICY":
+		return true
+	default:
+		return false
+	}
 }

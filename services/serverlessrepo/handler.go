@@ -541,15 +541,18 @@ func parseMaxItems(raw string, defaultVal int) int {
 
 // createApplicationRequest is the request body for CreateApplication.
 type createApplicationRequest struct {
-	Name            string   `json:"name"`
-	Description     string   `json:"description"`
-	Author          string   `json:"author"`
-	HomePageURL     string   `json:"homePageUrl"`
-	LicenseURL      string   `json:"licenseUrl"`
-	SpdxLicenseID   string   `json:"spdxLicenseId"`
-	SourceCodeURL   string   `json:"sourceCodeUrl"`
-	SemanticVersion string   `json:"semanticVersion"`
-	Labels          []string `json:"labels"`
+	Name                 string   `json:"name"`
+	Description          string   `json:"description"`
+	Author               string   `json:"author"`
+	HomePageURL          string   `json:"homePageUrl"`
+	LicenseURL           string   `json:"licenseUrl"`
+	ReadmeURL            string   `json:"readmeUrl"`
+	SpdxLicenseID        string   `json:"spdxLicenseId"`
+	SourceCodeURL        string   `json:"sourceCodeUrl"`
+	SourceCodeArchiveURL string   `json:"sourceCodeArchiveUrl"`
+	TemplateURL          string   `json:"templateUrl"`
+	SemanticVersion      string   `json:"semanticVersion"`
+	Labels               []string `json:"labels"`
 }
 
 // versionResponse represents the SAR Version type in API responses.
@@ -560,6 +563,7 @@ type versionResponse struct {
 	SemanticVersion      string                `json:"semanticVersion,omitempty"`
 	TemplateURL          string                `json:"templateUrl,omitempty"`
 	SourceCodeURL        string                `json:"sourceCodeUrl,omitempty"`
+	SourceCodeArchiveURL string                `json:"sourceCodeArchiveUrl,omitempty"`
 	ParameterDefinitions []ParameterDefinition `json:"parameterDefinitions"`
 	RequiredCapabilities []string              `json:"requiredCapabilities"`
 	ResourcesSupported   bool                  `json:"resourcesSupported"`
@@ -567,18 +571,20 @@ type versionResponse struct {
 
 // applicationResponse represents the API response shape for a single application.
 type applicationResponse struct {
-	Version       *versionResponse `json:"version,omitempty"`
-	CreationTime  string           `json:"creationTime"`
-	ApplicationID string           `json:"applicationId"`
-	Name          string           `json:"name"`
-	Description   string           `json:"description"`
-	Author        string           `json:"author"`
-	HomePageURL   string           `json:"homePageUrl,omitempty"`
-	LicenseURL    string           `json:"licenseUrl,omitempty"`
-	ReadmeURL     string           `json:"readmeUrl,omitempty"`
-	SpdxLicenseID string           `json:"spdxLicenseId,omitempty"`
-	SourceCodeURL string           `json:"sourceCodeUrl,omitempty"`
-	Labels        []string         `json:"labels,omitempty"`
+	Version           *versionResponse `json:"version,omitempty"`
+	HomePageURL       string           `json:"homePageUrl,omitempty"`
+	ApplicationID     string           `json:"applicationId"`
+	Name              string           `json:"name"`
+	Description       string           `json:"description"`
+	Author            string           `json:"author"`
+	CreationTime      string           `json:"creationTime"`
+	LicenseURL        string           `json:"licenseUrl,omitempty"`
+	ReadmeURL         string           `json:"readmeUrl,omitempty"`
+	SpdxLicenseID     string           `json:"spdxLicenseId,omitempty"`
+	SourceCodeURL     string           `json:"sourceCodeUrl,omitempty"`
+	VerifiedAuthorURL string           `json:"verifiedAuthorUrl,omitempty"`
+	Labels            []string         `json:"labels,omitempty"`
+	IsVerifiedAuthor  bool             `json:"isVerifiedAuthor"`
 }
 
 // applicationSummary is a summary used in list responses.
@@ -595,17 +601,19 @@ type applicationSummary struct {
 
 func toApplicationResponse(a *Application) applicationResponse {
 	resp := applicationResponse{
-		ApplicationID: a.ApplicationID,
-		Name:          a.Name,
-		Description:   a.Description,
-		Author:        a.Author,
-		SourceCodeURL: a.SourceCodeURL,
-		HomePageURL:   a.HomePageURL,
-		LicenseURL:    a.LicenseURL,
-		ReadmeURL:     a.ReadmeURL,
-		SpdxLicenseID: a.SpdxLicenseID,
-		CreationTime:  isoTimestamp(a.CreationTime),
-		Labels:        a.Labels,
+		ApplicationID:     a.ApplicationID,
+		Name:              a.Name,
+		Description:       a.Description,
+		Author:            a.Author,
+		SourceCodeURL:     a.SourceCodeURL,
+		HomePageURL:       a.HomePageURL,
+		LicenseURL:        a.LicenseURL,
+		ReadmeURL:         a.ReadmeURL,
+		SpdxLicenseID:     a.SpdxLicenseID,
+		CreationTime:      isoTimestamp(a.CreationTime),
+		IsVerifiedAuthor:  a.IsVerifiedAuthor,
+		VerifiedAuthorURL: a.VerifiedAuthorURL,
+		Labels:            a.Labels,
 	}
 
 	if a.SemanticVersion != "" {
@@ -620,6 +628,20 @@ func toApplicationResponse(a *Application) applicationResponse {
 	}
 
 	return resp
+}
+
+func toEmbeddedVersionResponse(v *ApplicationVersion) *versionResponse {
+	return &versionResponse{
+		ApplicationID:        v.ApplicationID,
+		CreationTime:         isoTimestamp(v.CreationTime),
+		SemanticVersion:      v.SemanticVersion,
+		TemplateURL:          v.TemplateURL,
+		SourceCodeURL:        v.SourceCodeURL,
+		SourceCodeArchiveURL: v.SourceCodeArchiveURL,
+		ParameterDefinitions: v.ParameterDefinitions,
+		RequiredCapabilities: v.RequiredCapabilities,
+		ResourcesSupported:   v.ResourcesSupported,
+	}
 }
 
 func (h *Handler) handleCreateApplication(ctx context.Context, body []byte) ([]byte, error) {
@@ -643,10 +665,34 @@ func (h *Handler) handleCreateApplication(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
+	if req.ReadmeURL != "" {
+		a, err = h.Backend.SetApplicationReadmeURL(a.Name, req.ReadmeURL)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "serverlessrepo: created application", "name", a.Name, "id", a.ApplicationID)
 
 	resp := toApplicationResponse(a)
+	if req.SemanticVersion != "" &&
+		(req.SourceCodeURL != "" || req.SourceCodeArchiveURL != "" || req.TemplateURL != "") {
+		v, versionErr := h.Backend.CreateApplicationVersionWithOptions(
+			a.Name,
+			req.SemanticVersion,
+			CreateApplicationVersionOptions{
+				SourceCodeURL:        req.SourceCodeURL,
+				SourceCodeArchiveURL: req.SourceCodeArchiveURL,
+				TemplateURL:          req.TemplateURL,
+			},
+		)
+		if versionErr != nil {
+			return nil, versionErr
+		}
+
+		resp.Version = toEmbeddedVersionResponse(v)
+	}
 
 	b, marshalErr := json.Marshal(resp)
 	if marshalErr != nil {
@@ -669,22 +715,21 @@ func (h *Handler) handleGetApplication(req *http.Request) ([]byte, error) {
 
 	resp := toApplicationResponse(a)
 
-	// If a specific semantic version is requested, embed its full version details.
-	if sv := req.URL.Query().Get(keySemanticVersion); sv != "" {
+	// A query parameter selects a version; otherwise GetApplication returns its current version.
+	sv := req.URL.Query().Get(keySemanticVersion)
+	explicitVersion := sv != ""
+	if sv == "" {
+		sv = a.SemanticVersion
+	}
+
+	if sv != "" {
 		v, vErr := h.Backend.GetApplicationVersion(name, sv)
 		if vErr != nil {
-			return nil, vErr
-		}
-
-		resp.Version = &versionResponse{
-			ApplicationID:        v.ApplicationID,
-			CreationTime:         isoTimestamp(v.CreationTime),
-			SemanticVersion:      v.SemanticVersion,
-			TemplateURL:          v.TemplateURL,
-			SourceCodeURL:        v.SourceCodeURL,
-			ParameterDefinitions: v.ParameterDefinitions,
-			RequiredCapabilities: v.RequiredCapabilities,
-			ResourcesSupported:   v.ResourcesSupported,
+			if explicitVersion {
+				return nil, vErr
+			}
+		} else {
+			resp.Version = toEmbeddedVersionResponse(v)
 		}
 	}
 
@@ -740,10 +785,11 @@ func (h *Handler) handleListApplications(req *http.Request) ([]byte, error) {
 
 // updateApplicationRequest is the request body for UpdateApplication.
 type updateApplicationRequest struct {
-	Description string `json:"description"`
-	Author      string `json:"author"`
-	HomePageURL string `json:"homePageUrl"`
-	ReadmeURL   string `json:"readmeUrl"`
+	Description string   `json:"description"`
+	Author      string   `json:"author"`
+	HomePageURL string   `json:"homePageUrl"`
+	ReadmeURL   string   `json:"readmeUrl"`
+	Labels      []string `json:"labels"`
 }
 
 func (h *Handler) handleUpdateApplication(ctx context.Context, req *http.Request, body []byte) ([]byte, error) {
@@ -766,6 +812,13 @@ func (h *Handler) handleUpdateApplication(ctx context.Context, req *http.Request
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if updateReq.Labels != nil {
+		a, err = h.Backend.UpdateApplicationLabels(name, updateReq.Labels)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	log := logger.Load(ctx)
@@ -818,11 +871,10 @@ func (h *Handler) handleCreateApplicationVersion(ctx context.Context, req *http.
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, jsonErr)
 	}
 
-	v, backendErr := h.Backend.CreateApplicationVersion(
+	v, backendErr := h.Backend.CreateApplicationVersionWithOptions(
 		appName,
 		semanticVersion,
-		createReq.SourceCodeURL,
-		createReq.TemplateURL,
+		CreateApplicationVersionOptions(createReq),
 	)
 	if backendErr != nil {
 		return nil, backendErr
@@ -1002,10 +1054,12 @@ func (h *Handler) handleGetCloudFormationTemplate(req *http.Request) ([]byte, er
 
 // createCFChangeSetRequest is the request body for CreateCloudFormationChangeSet.
 type createCFChangeSetRequest struct {
-	StackName       string `json:"stackName"`
-	ChangeSetName   string `json:"changeSetName"`
-	SemanticVersion string `json:"semanticVersion"`
-	TemplateID      string `json:"templateId"`
+	StackName       string   `json:"stackName"`
+	ChangeSetName   string   `json:"changeSetName"`
+	SemanticVersion string   `json:"semanticVersion"`
+	TemplateID      string   `json:"templateId"`
+	Capabilities    []string `json:"capabilities"`
+	Tags            []Tag    `json:"tags"`
 }
 
 func (h *Handler) handleCreateCloudFormationChangeSet(
@@ -1027,11 +1081,15 @@ func (h *Handler) handleCreateCloudFormationChangeSet(
 		return nil, fmt.Errorf("%w: stackName is required", errInvalidRequest)
 	}
 
-	cs, backendErr := h.Backend.CreateCloudFormationChangeSet(
+	cs, backendErr := h.Backend.CreateCloudFormationChangeSetWithOptions(
 		appName,
 		createReq.StackName,
 		createReq.ChangeSetName,
 		createReq.SemanticVersion,
+		CreateCloudFormationChangeSetOptions{
+			Capabilities: createReq.Capabilities,
+			Tags:         createReq.Tags,
+		},
 	)
 	if backendErr != nil {
 		return nil, backendErr

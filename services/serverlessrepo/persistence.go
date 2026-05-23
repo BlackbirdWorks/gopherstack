@@ -6,13 +6,14 @@ import (
 )
 
 type backendSnapshot struct {
-	Applications map[string]*Application                        `json:"applications"`
-	AppVersions  map[string]map[string]*ApplicationVersion      `json:"appVersions"`
-	CFTemplates  map[string]map[string]*CloudFormationTemplate  `json:"cfTemplates"`
-	CFChangeSets map[string]map[string]*CloudFormationChangeSet `json:"cfChangeSets"`
-	AppPolicies  map[string][]*ApplicationPolicyStatement       `json:"appPolicies"`
-	AccountID    string                                         `json:"accountID"`
-	Region       string                                         `json:"region"`
+	Applications    map[string]*Application                        `json:"applications"`
+	AppVersions     map[string]map[string]*ApplicationVersion      `json:"appVersions"`
+	CFTemplates     map[string]map[string]*CloudFormationTemplate  `json:"cfTemplates"`
+	CFChangeSets    map[string]map[string]*CloudFormationChangeSet `json:"cfChangeSets"`
+	AppPolicies     map[string][]*ApplicationPolicyStatement       `json:"appPolicies"`
+	AppDependencies map[string]map[string][]*ApplicationDependency `json:"appDependencies"`
+	AccountID       string                                         `json:"accountID"`
+	Region          string                                         `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -27,13 +28,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	snap := backendSnapshot{
-		Applications: b.applications,
-		AppVersions:  b.appVersions,
-		CFTemplates:  b.cfTemplates,
-		CFChangeSets: b.cfChangeSets,
-		AppPolicies:  appPoliciesCopy,
-		AccountID:    b.accountID,
-		Region:       b.region,
+		Applications:    b.applications,
+		AppVersions:     b.appVersions,
+		CFTemplates:     b.cfTemplates,
+		CFChangeSets:    b.cfChangeSets,
+		AppPolicies:     appPoliciesCopy,
+		AppDependencies: b.appDependencies,
+		AccountID:       b.accountID,
+		Region:          b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -62,6 +64,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.cfTemplates = snap.CFTemplates
 	b.cfChangeSets = snap.CFChangeSets
 	b.appPolicies = snap.AppPolicies
+	b.appDependencies = snap.AppDependencies
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -79,6 +82,10 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 	if snap.AppPolicies == nil {
 		snap.AppPolicies = make(map[string][]*ApplicationPolicyStatement)
+	}
+
+	if snap.AppDependencies == nil {
+		snap.AppDependencies = make(map[string]map[string][]*ApplicationDependency)
 	}
 }
 
