@@ -3,21 +3,21 @@ package support
 import (
 	"encoding/json"
 	"log/slog"
-	"time"
 )
 
 type backendSnapshot struct {
 	Cases                map[string]*Case                             `json:"cases"`
 	Communications       map[string][]Communication                   `json:"communications"`
-	AttachmentSets       map[string]time.Time                         `json:"attachmentSets"`
+	AttachmentSets       map[string]*AttachmentSet                    `json:"attachmentSets"`
 	Attachments          map[string]*Attachment                       `json:"attachments"`
 	CheckRefreshStatuses map[string]*TrustedAdvisorCheckRefreshStatus `json:"checkRefreshStatuses"`
+	NextDisplayID        uint64                                       `json:"nextDisplayId"`
 }
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot() []byte {
-	b.mu.RLock("Snapshot")
+	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
@@ -26,6 +26,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		AttachmentSets:       b.attachmentSets,
 		Attachments:          b.attachments,
 		CheckRefreshStatuses: b.checkRefreshStatuses,
+		NextDisplayID:        b.nextDisplayID,
 	}
 
 	data, err := json.Marshal(snap)
@@ -47,7 +48,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
-	b.mu.Lock("Restore")
+	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	ensureNonNilMaps(&snap)
@@ -57,6 +58,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.attachmentSets = snap.AttachmentSets
 	b.attachments = snap.Attachments
 	b.checkRefreshStatuses = snap.CheckRefreshStatuses
+	b.nextDisplayID = snap.NextDisplayID
 
 	return nil
 }
@@ -71,7 +73,7 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	}
 
 	if snap.AttachmentSets == nil {
-		snap.AttachmentSets = make(map[string]time.Time)
+		snap.AttachmentSets = make(map[string]*AttachmentSet)
 	}
 
 	if snap.Attachments == nil {

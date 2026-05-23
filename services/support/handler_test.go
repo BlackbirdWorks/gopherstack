@@ -201,7 +201,8 @@ func TestSupport_DescribeCases(t *testing.T) {
 	h := newTestSupportHandler(t)
 
 	rec1 := doSupportRequest(t, h, "CreateCase", map[string]any{
-		"subject": "Case One",
+		"subject":           "Case One",
+		"communicationBody": "Initial question",
 	})
 	require.Equal(t, http.StatusOK, rec1.Code)
 
@@ -237,7 +238,8 @@ func TestSupport_ResolveCase(t *testing.T) {
 	h := newTestSupportHandler(t)
 
 	createRec := doSupportRequest(t, h, "CreateCase", map[string]any{
-		"subject": "Resolve me",
+		"subject":           "Resolve me",
+		"communicationBody": "Please resolve this.",
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -273,7 +275,8 @@ func TestSupport_AddCommunicationToCase(t *testing.T) {
 	h := newTestSupportHandler(t)
 
 	createRec := doSupportRequest(t, h, "CreateCase", map[string]any{
-		"subject": "Comm test",
+		"subject":           "Comm test",
+		"communicationBody": "Initial message",
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -319,7 +322,8 @@ func TestSupport_DescribeCommunications(t *testing.T) {
 	h := newTestSupportHandler(t)
 
 	createRec := doSupportRequest(t, h, "CreateCase", map[string]any{
-		"subject": "Comm test",
+		"subject":           "Comm test",
+		"communicationBody": "Initial message",
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -343,7 +347,7 @@ func TestSupport_DescribeCommunications(t *testing.T) {
 			name:          "describe communications",
 			body:          map[string]any{"caseId": caseID},
 			wantCode:      http.StatusOK,
-			wantCommCount: 1,
+			wantCommCount: 2,
 		},
 		{
 			name:     "missing caseId",
@@ -401,14 +405,19 @@ func TestSupport_AddAttachmentsToSet(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "new attachment set",
-			body:     map[string]any{},
+			name: "new attachment set",
+			body: map[string]any{
+				"attachments": []any{map[string]any{"fileName": "new.txt", "data": []byte("data")}},
+			},
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "with existing set id",
-			body:     map[string]any{"attachmentSetId": "existing-set-id"},
-			wantCode: http.StatusOK,
+			name: "unknown existing set id",
+			body: map[string]any{
+				"attachmentSetId": "existing-set-id",
+				"attachments":     []any{map[string]any{"fileName": "new.txt", "data": []byte("data")}},
+			},
+			wantCode: http.StatusNotFound,
 		},
 	}
 

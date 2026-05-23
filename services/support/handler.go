@@ -11,7 +11,6 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -113,7 +112,7 @@ func (h *Handler) ChaosServiceName() string { return "support" }
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
 // ChaosRegions returns all regions this Support instance handles.
-func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
+func (h *Handler) ChaosRegions() []string { return []string{"us-east-1"} }
 
 // RouteMatcher returns a function that matches Support requests.
 func (h *Handler) RouteMatcher() service.Matcher {
@@ -137,8 +136,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 }
 
 type extractSupportResourceInput struct {
-	CaseID  string `json:"caseId"`
-	Subject string `json:"subject"`
+	CaseID       string `json:"caseId"`
+	CheckID      string `json:"checkId"`
+	AttachmentID string `json:"attachmentId"`
+	Subject      string `json:"subject"`
 }
 
 // ExtractResource extracts the case ID from the request body.
@@ -153,6 +154,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 	if req.CaseID != "" {
 		return req.CaseID
+	}
+	if req.CheckID != "" {
+		return req.CheckID
+	}
+	if req.AttachmentID != "" {
+		return req.AttachmentID
 	}
 
 	return req.Subject
@@ -222,9 +229,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
-	case errors.Is(err, ErrNotFound), errors.Is(err, ErrAttachmentNotFound):
+	case errors.Is(err, ErrNotFound), errors.Is(err, ErrAttachmentNotFound), errors.Is(err, ErrAttachmentSetNotFound):
 		return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
-	case errors.Is(err, ErrValidation), errors.Is(err, ErrAlreadyResolved),
+	case errors.Is(err, ErrValidation), errors.Is(err, ErrAttachmentSetExpired), errors.Is(err, ErrAlreadyResolved),
 		errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
@@ -234,14 +241,18 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 type caseView struct {
-	CreatedTime  string  `json:"timeCreated"`
-	ResolvedTime *string `json:"timeResolved,omitempty"`
-	CaseID       string  `json:"caseId"`
-	Subject      string  `json:"subject"`
-	Status       string  `json:"status"`
-	ServiceCode  string  `json:"serviceCode"`
-	CategoryCode string  `json:"categoryCode"`
-	SeverityCode string  `json:"severityCode"`
+	RecentCommunications *recentCaseCommunicationsView `json:"recentCommunications,omitempty"`
+	CreatedTime          string                        `json:"timeCreated"`
+	CaseID               string                        `json:"caseId"`
+	DisplayID            string                        `json:"displayId"`
+	Subject              string                        `json:"subject"`
+	Status               string                        `json:"status"`
+	ServiceCode          string                        `json:"serviceCode"`
+	CategoryCode         string                        `json:"categoryCode"`
+	SeverityCode         string                        `json:"severityCode"`
+	Language             string                        `json:"language"`
+	SubmittedBy          string                        `json:"submittedBy"`
+	CCEmails             []string                      `json:"ccEmailAddresses"`
 }
 
 type createCaseOutput struct {
@@ -249,7 +260,8 @@ type createCaseOutput struct {
 }
 
 type describeCasesOutput struct {
-	Cases []caseView `json:"cases"`
+	NextToken string     `json:"nextToken,omitempty"`
+	Cases     []caseView `json:"cases"`
 }
 
 type resolveCaseOutput struct {
@@ -258,25 +270,28 @@ type resolveCaseOutput struct {
 }
 
 type handleCreateCaseInput struct {
-	Subject           string `json:"subject"`
-	ServiceCode       string `json:"serviceCode"`
-	CategoryCode      string `json:"categoryCode"`
-	SeverityCode      string `json:"severityCode"`
-	CommunicationBody string `json:"communicationBody"`
+	Subject           string   `json:"subject"`
+	ServiceCode       string   `json:"serviceCode"`
+	CategoryCode      string   `json:"categoryCode"`
+	SeverityCode      string   `json:"severityCode"`
+	CommunicationBody string   `json:"communicationBody"`
+	AttachmentSetID   string   `json:"attachmentSetId,omitempty"`
+	Language          string   `json:"language,omitempty"`
+	IssueType         string   `json:"issueType,omitempty"`
+	CCEmails          []string `json:"ccEmailAddresses,omitempty"`
 }
 
 func (h *Handler) handleCreateCase(_ context.Context, in *handleCreateCaseInput) (*createCaseOutput, error) {
-	if in.Subject == "" {
-		return nil, fmt.Errorf("%w: subject is required", ErrValidation)
+	options := CreateCaseOptions{
+		Subject: in.Subject, ServiceCode: in.ServiceCode, CategoryCode: in.CategoryCode,
+		SeverityCode: in.SeverityCode, CommunicationBody: in.CommunicationBody,
+		AttachmentSetID: in.AttachmentSetID, Language: in.Language, IssueType: in.IssueType,
+		CCEmails: in.CCEmails,
 	}
-
-	c2, err := h.Backend.CreateCase(
-		in.Subject,
-		in.ServiceCode,
-		in.CategoryCode,
-		in.SeverityCode,
-		in.CommunicationBody,
-	)
+	if err := validateCreateCase(options); err != nil {
+		return nil, err
+	}
+	c2, err := h.Backend.CreateCaseWithOptions(options)
 	if err != nil {
 		return nil, err
 	}
@@ -285,40 +300,70 @@ func (h *Handler) handleCreateCase(_ context.Context, in *handleCreateCaseInput)
 }
 
 type handleDescribeCasesInput struct {
-	Language             string   `json:"language"`
-	NextToken            string   `json:"nextToken,omitempty"`
-	CaseIDList           []string `json:"caseIdList"`
-	MaxResults           int      `json:"maxResults,omitempty"`
-	IncludeResolvedCases bool     `json:"includeResolvedCases"`
+	IncludeCommunications *bool    `json:"includeCommunications,omitempty"`
+	Language              string   `json:"language"`
+	NextToken             string   `json:"nextToken,omitempty"`
+	DisplayID             string   `json:"displayId,omitempty"`
+	AfterTime             string   `json:"afterTime,omitempty"`
+	BeforeTime            string   `json:"beforeTime,omitempty"`
+	CaseIDList            []string `json:"caseIdList"`
+	MaxResults            int      `json:"maxResults,omitempty"`
+	IncludeResolvedCases  bool     `json:"includeResolvedCases"`
 }
 
 func (h *Handler) handleDescribeCases(
 	_ context.Context,
 	in *handleDescribeCasesInput,
 ) (*describeCasesOutput, error) {
-	cases := h.Backend.DescribeCases(in.CaseIDList, in.IncludeResolvedCases)
+	if err := validatePageSize(in.MaxResults); err != nil {
+		return nil, err
+	}
+	afterValue, err := parseFilterTime(in.AfterTime)
+	if err != nil {
+		return nil, err
+	}
+	beforeValue, err := parseFilterTime(in.BeforeTime)
+	if err != nil {
+		return nil, err
+	}
+	includeComms := in.IncludeCommunications == nil || *in.IncludeCommunications
+	after := nonZeroTimePointer(afterValue)
+	before := nonZeroTimePointer(beforeValue)
+	cases, token, err := h.Backend.DescribeCasesWithOptions(DescribeCasesOptions{
+		CaseIDs: in.CaseIDList, DisplayID: in.DisplayID, Language: in.Language,
+		IncludeResolvedCases: in.IncludeResolvedCases, IncludeCommunications: includeComms,
+		AfterTime: after, BeforeTime: before, MaxResults: in.MaxResults, NextToken: in.NextToken,
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	views := make([]caseView, 0, len(cases))
 	for _, cs := range cases {
 		v := caseView{
 			CaseID:       cs.CaseID,
+			DisplayID:    cs.DisplayID,
 			Subject:      cs.Subject,
 			Status:       cs.Status,
 			ServiceCode:  cs.ServiceCode,
 			CategoryCode: cs.CategoryCode,
 			SeverityCode: cs.SeverityCode,
+			Language:     cs.Language,
+			SubmittedBy:  cs.SubmittedBy,
+			CCEmails:     cs.CCEmails,
 			CreatedTime:  cs.CreatedTime.UTC().Format(time.RFC3339),
 		}
-
-		if cs.ResolvedTime != nil {
-			s := cs.ResolvedTime.UTC().Format(time.RFC3339)
-			v.ResolvedTime = &s
+		if includeComms {
+			comms, nextToken := h.Backend.RecentCommunications(cs.CaseID)
+			v.RecentCommunications = &recentCaseCommunicationsView{
+				Communications: communicationViews(comms),
+				NextToken:      nextToken,
+			}
 		}
-
 		views = append(views, v)
 	}
 
-	return &describeCasesOutput{Cases: views}, nil
+	return &describeCasesOutput{Cases: views, NextToken: token}, nil
 }
 
 type handleResolveCaseInput struct {
@@ -326,21 +371,25 @@ type handleResolveCaseInput struct {
 }
 
 func (h *Handler) handleResolveCase(_ context.Context, in *handleResolveCaseInput) (*resolveCaseOutput, error) {
-	cs, err := h.Backend.ResolveCase(in.CaseID)
+	if in.CaseID == "" {
+		return nil, fmt.Errorf("%w: caseId is required", ErrValidation)
+	}
+	initialStatus, cs, err := h.Backend.ResolveCaseWithStatus(in.CaseID)
 	if err != nil {
 		return nil, err
 	}
 
 	return &resolveCaseOutput{
-		InitialCaseStatus: caseStatusOpened,
+		InitialCaseStatus: initialStatus,
 		FinalCaseStatus:   cs.Status,
 	}, nil
 }
 
 type addCommunicationToCaseInput struct {
-	CaseID            string `json:"caseId"`
-	CommunicationBody string `json:"communicationBody"`
-	AttachmentSetID   string `json:"attachmentSetId,omitempty"`
+	CaseID            string   `json:"caseId"`
+	CommunicationBody string   `json:"communicationBody"`
+	AttachmentSetID   string   `json:"attachmentSetId,omitempty"`
+	CCEmails          []string `json:"ccEmailAddresses,omitempty"`
 }
 
 type addCommunicationToCaseOutput struct {
@@ -351,11 +400,14 @@ func (h *Handler) handleAddCommunicationToCase(
 	_ context.Context,
 	in *addCommunicationToCaseInput,
 ) (*addCommunicationToCaseOutput, error) {
-	if in.CaseID == "" {
-		return nil, fmt.Errorf("%w: caseId is required", ErrValidation)
+	options := AddCommunicationOptions{
+		CaseID: in.CaseID, CommunicationBody: in.CommunicationBody,
+		AttachmentSetID: in.AttachmentSetID, CCEmails: in.CCEmails,
 	}
-
-	if err := h.Backend.AddCommunicationToCase(in.CaseID, in.CommunicationBody, in.AttachmentSetID); err != nil {
+	if err := validateCommunication(options); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.AddCommunicationWithOptions(options); err != nil {
 		return nil, err
 	}
 
@@ -365,15 +417,22 @@ func (h *Handler) handleAddCommunicationToCase(
 type describeCommunicationsInput struct {
 	CaseID     string `json:"caseId"`
 	NextToken  string `json:"nextToken,omitempty"`
+	AfterTime  string `json:"afterTime,omitempty"`
+	BeforeTime string `json:"beforeTime,omitempty"`
 	MaxResults int    `json:"maxResults,omitempty"`
 }
 
 type communicationView struct {
-	CaseID          string `json:"caseId"`
-	Body            string `json:"body"`
-	SubmittedBy     string `json:"submittedBy"`
-	TimeCreated     string `json:"timeCreated"`
-	AttachmentSetID string `json:"attachmentSetId,omitempty"`
+	CaseID        string          `json:"caseId"`
+	Body          string          `json:"body"`
+	SubmittedBy   string          `json:"submittedBy"`
+	TimeCreated   string          `json:"timeCreated"`
+	AttachmentSet []AttachmentRef `json:"attachmentSet,omitempty"`
+}
+
+type recentCaseCommunicationsView struct {
+	NextToken      string              `json:"nextToken,omitempty"`
+	Communications []communicationView `json:"communications"`
 }
 
 type describeCommunicationsOutput struct {
@@ -388,24 +447,28 @@ func (h *Handler) handleDescribeCommunications(
 	if in.CaseID == "" {
 		return nil, fmt.Errorf("%w: caseId is required", ErrValidation)
 	}
-
-	comms, err := h.Backend.DescribeCommunications(in.CaseID)
+	if err := validatePageSize(in.MaxResults); err != nil {
+		return nil, err
+	}
+	afterValue, err := parseFilterTime(in.AfterTime)
+	if err != nil {
+		return nil, err
+	}
+	beforeValue, err := parseFilterTime(in.BeforeTime)
+	if err != nil {
+		return nil, err
+	}
+	after := nonZeroTimePointer(afterValue)
+	before := nonZeroTimePointer(beforeValue)
+	comms, token, err := h.Backend.DescribeCommunicationsWithOptions(DescribeCommunicationsOptions{
+		CaseID: in.CaseID, AfterTime: after, BeforeTime: before,
+		MaxResults: in.MaxResults, NextToken: in.NextToken,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	views := make([]communicationView, 0, len(comms))
-	for _, c := range comms {
-		views = append(views, communicationView{
-			CaseID:          c.CaseID,
-			Body:            c.Body,
-			SubmittedBy:     c.SubmittedBy,
-			TimeCreated:     c.TimeCreated.UTC().Format(time.RFC3339),
-			AttachmentSetID: c.AttachmentSetID,
-		})
-	}
-
-	return &describeCommunicationsOutput{Communications: views}, nil
+	return &describeCommunicationsOutput{Communications: communicationViews(comms), NextToken: token}, nil
 }
 
 type describeTrustedAdvisorChecksInput struct {
@@ -426,8 +489,11 @@ type describeTrustedAdvisorChecksOutput struct {
 
 func (h *Handler) handleDescribeTrustedAdvisorChecks(
 	_ context.Context,
-	_ *describeTrustedAdvisorChecksInput,
+	in *describeTrustedAdvisorChecksInput,
 ) (*describeTrustedAdvisorChecksOutput, error) {
+	if !validLanguage(in.Language) {
+		return nil, fmt.Errorf("%w: language is required and must be supported", ErrValidation)
+	}
 	checks := h.Backend.DescribeTrustedAdvisorChecks()
 
 	views := make([]trustedAdvisorCheckView, 0, len(checks))
@@ -439,7 +505,8 @@ func (h *Handler) handleDescribeTrustedAdvisorChecks(
 }
 
 type addAttachmentsToSetInput struct {
-	AttachmentSetID string `json:"attachmentSetId,omitempty"`
+	AttachmentSetID string       `json:"attachmentSetId,omitempty"`
+	Attachments     []Attachment `json:"attachments"`
 }
 
 type addAttachmentsToSetOutput struct {
@@ -451,7 +518,7 @@ func (h *Handler) handleAddAttachmentsToSet(
 	_ context.Context,
 	in *addAttachmentsToSetInput,
 ) (*addAttachmentsToSetOutput, error) {
-	setID, expiry, err := h.Backend.AddAttachmentsToSet(in.AttachmentSetID)
+	setID, expiry, err := h.Backend.AddAttachmentsToSetWithAttachments(in.AttachmentSetID, in.Attachments)
 	if err != nil {
 		return nil, err
 	}
@@ -518,6 +585,9 @@ func (h *Handler) handleDescribeCreateCaseOptions(
 	_ context.Context,
 	in *describeCreateCaseOptionsInput,
 ) (*describeCreateCaseOptionsOutput, error) {
+	if !validIssueType(in.IssueType) || in.ServiceCode == "" || in.CategoryCode == "" || !validLanguage(in.Language) {
+		return nil, fmt.Errorf("%w: issueType, serviceCode, categoryCode, and language are required", ErrValidation)
+	}
 	result := h.Backend.DescribeCreateCaseOptions(in.IssueType, in.ServiceCode, in.CategoryCode, in.Language)
 
 	views := make([]communicationTypeOptionsView, 0, len(result.CommunicationTypes))
@@ -555,7 +625,10 @@ func (h *Handler) handleDescribeServices(
 	_ context.Context,
 	in *describeServicesInput,
 ) (*describeServicesOutput, error) {
-	services := h.Backend.DescribeServices(in.ServiceCodeList)
+	if in.Language != "" && !validLanguage(in.Language) {
+		return nil, fmt.Errorf("%w: invalid language", ErrValidation)
+	}
+	services := h.Backend.DescribeServices(in.ServiceCodeList, in.Language)
 
 	views := make([]serviceView, 0, len(services))
 	for _, svc := range services {
@@ -591,6 +664,9 @@ func (h *Handler) handleDescribeSeverityLevels(
 	_ context.Context,
 	in *describeSeverityLevelsInput,
 ) (*describeSeverityLevelsOutput, error) {
+	if in.Language != "" && !validLanguage(in.Language) {
+		return nil, fmt.Errorf("%w: invalid language", ErrValidation)
+	}
 	levels := h.Backend.DescribeSeverityLevels(in.Language)
 
 	views := make([]severityLevelView, 0, len(levels))
@@ -621,6 +697,9 @@ func (h *Handler) handleDescribeSupportedLanguages(
 	_ context.Context,
 	in *describeSupportedLanguagesInput,
 ) (*describeSupportedLanguagesOutput, error) {
+	if !validIssueType(in.IssueType) || in.ServiceCode == "" || !validSeverity(in.SeverityLevel) {
+		return nil, fmt.Errorf("%w: issueType, serviceCode, and severityLevel are required", ErrValidation)
+	}
 	langs := h.Backend.DescribeSupportedLanguages(in.IssueType, in.ServiceCode, in.SeverityLevel)
 
 	views := make([]supportedLanguageView, 0, len(langs))
@@ -649,11 +728,16 @@ func (h *Handler) handleDescribeTrustedAdvisorCheckRefreshStatuses(
 	_ context.Context,
 	in *describeTrustedAdvisorCheckRefreshStatusesInput,
 ) (*describeTrustedAdvisorCheckRefreshStatusesOutput, error) {
+	if err := validateCheckIDs(in.CheckIDs); err != nil {
+		return nil, err
+	}
 	statuses := h.Backend.DescribeTrustedAdvisorCheckRefreshStatuses(in.CheckIDs)
 
 	views := make([]trustedAdvisorCheckRefreshStatusView, 0, len(statuses))
 	for _, s := range statuses {
-		views = append(views, trustedAdvisorCheckRefreshStatusView(s))
+		views = append(views, trustedAdvisorCheckRefreshStatusView{
+			CheckID: s.CheckID, Status: s.Status, MillisUntilNextRefreshable: s.MillisUntilNextRefreshable,
+		})
 	}
 
 	return &describeTrustedAdvisorCheckRefreshStatusesOutput{Statuses: views}, nil
@@ -680,11 +764,12 @@ type trustedAdvisorResourcesSummaryView struct {
 }
 
 type trustedAdvisorCheckResultView struct {
-	CheckID          string                             `json:"checkId"`
-	Status           string                             `json:"status"`
-	Timestamp        string                             `json:"timestamp"`
-	FlaggedResources []trustedAdvisorResourceDetailView `json:"flaggedResources"`
-	ResourcesSummary trustedAdvisorResourcesSummaryView `json:"resourcesSummary"`
+	CategorySpecificSummary *TrustedAdvisorCategorySpecificSummary `json:"categorySpecificSummary"`
+	CheckID                 string                                 `json:"checkId"`
+	Status                  string                                 `json:"status"`
+	Timestamp               string                                 `json:"timestamp"`
+	FlaggedResources        []trustedAdvisorResourceDetailView     `json:"flaggedResources"`
+	ResourcesSummary        trustedAdvisorResourcesSummaryView     `json:"resourcesSummary"`
 }
 
 type describeTrustedAdvisorCheckResultOutput struct {
@@ -697,6 +782,9 @@ func (h *Handler) handleDescribeTrustedAdvisorCheckResult(
 ) (*describeTrustedAdvisorCheckResultOutput, error) {
 	if in.CheckID == "" {
 		return nil, fmt.Errorf("%w: checkId is required", ErrValidation)
+	}
+	if !validCheckID(in.CheckID) {
+		return nil, fmt.Errorf("%w: invalid checkId", ErrValidation)
 	}
 
 	result := h.Backend.DescribeTrustedAdvisorCheckResult(in.CheckID, in.Language)
@@ -718,6 +806,7 @@ func (h *Handler) handleDescribeTrustedAdvisorCheckResult(
 				ResourcesProcessed:  result.ResourcesSummary.ResourcesProcessed,
 				ResourcesSuppressed: result.ResourcesSummary.ResourcesSuppressed,
 			},
+			CategorySpecificSummary: result.CategorySpecificSummary,
 		},
 	}, nil
 }
@@ -727,11 +816,12 @@ type describeTrustedAdvisorCheckSummariesInput struct {
 }
 
 type trustedAdvisorCheckSummaryView struct {
-	CheckID             string                             `json:"checkId"`
-	Status              string                             `json:"status"`
-	Timestamp           string                             `json:"timestamp"`
-	HasFlaggedResources bool                               `json:"hasFlaggedResources"`
-	ResourcesSummary    trustedAdvisorResourcesSummaryView `json:"resourcesSummary"`
+	CategorySpecificSummary *TrustedAdvisorCategorySpecificSummary `json:"categorySpecificSummary"`
+	CheckID                 string                                 `json:"checkId"`
+	Status                  string                                 `json:"status"`
+	Timestamp               string                                 `json:"timestamp"`
+	ResourcesSummary        trustedAdvisorResourcesSummaryView     `json:"resourcesSummary"`
+	HasFlaggedResources     bool                                   `json:"hasFlaggedResources"`
 }
 
 type describeTrustedAdvisorCheckSummariesOutput struct {
@@ -742,6 +832,9 @@ func (h *Handler) handleDescribeTrustedAdvisorCheckSummaries(
 	_ context.Context,
 	in *describeTrustedAdvisorCheckSummariesInput,
 ) (*describeTrustedAdvisorCheckSummariesOutput, error) {
+	if err := validateCheckIDs(in.CheckIDs); err != nil {
+		return nil, err
+	}
 	summaries := h.Backend.DescribeTrustedAdvisorCheckSummaries(in.CheckIDs)
 
 	views := make([]trustedAdvisorCheckSummaryView, 0, len(summaries))
@@ -757,6 +850,7 @@ func (h *Handler) handleDescribeTrustedAdvisorCheckSummaries(
 				ResourcesProcessed:  s.ResourcesSummary.ResourcesProcessed,
 				ResourcesSuppressed: s.ResourcesSummary.ResourcesSuppressed,
 			},
+			CategorySpecificSummary: s.CategorySpecificSummary,
 		})
 	}
 
@@ -778,6 +872,9 @@ func (h *Handler) handleRefreshTrustedAdvisorCheck(
 	if in.CheckID == "" {
 		return nil, fmt.Errorf("%w: checkId is required", ErrValidation)
 	}
+	if !validCheckID(in.CheckID) {
+		return nil, fmt.Errorf("%w: invalid checkId", ErrValidation)
+	}
 
 	status, err := h.Backend.RefreshTrustedAdvisorCheck(in.CheckID)
 	if err != nil {
@@ -791,4 +888,36 @@ func (h *Handler) handleRefreshTrustedAdvisorCheck(
 			MillisUntilNextRefreshable: status.MillisUntilNextRefreshable,
 		},
 	}, nil
+}
+
+func parseFilterTime(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%w: invalid timestamp", ErrValidation)
+	}
+
+	return parsed, nil
+}
+
+func nonZeroTimePointer(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+
+	return &value
+}
+
+func communicationViews(comms []Communication) []communicationView {
+	views := make([]communicationView, 0, len(comms))
+	for _, comm := range comms {
+		views = append(views, communicationView{
+			CaseID: comm.CaseID, Body: comm.Body, SubmittedBy: comm.SubmittedBy,
+			TimeCreated: comm.TimeCreated.UTC().Format(time.RFC3339), AttachmentSet: comm.AttachmentSet,
+		})
+	}
+
+	return views
 }

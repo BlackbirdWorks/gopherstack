@@ -73,7 +73,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	b := support.NewInMemoryBackend()
 	h := support.NewHandler(b)
 
-	rec := doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Test Reset"})
+	rec := doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Test Reset", "communicationBody": "Initial"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, support.CaseCount(b))
 
@@ -126,7 +126,7 @@ func TestRefinement1_DescribeCases_IncludeResolved(t *testing.T) {
 	h := newTestSupportHandler(t)
 
 	// Create and resolve a case.
-	rec := doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Resolve me"})
+	rec := doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Resolve me", "communicationBody": "Initial"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
@@ -165,7 +165,12 @@ func TestRefinement1_DescribeCases_ReturnsTimestamps(t *testing.T) {
 
 	h := newTestSupportHandler(t)
 
-	rec := doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Timestamp test"})
+	rec := doSupportRequest(
+		t,
+		h,
+		"CreateCase",
+		map[string]any{"subject": "Timestamp test", "communicationBody": "Initial"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := doSupportRequest(t, h, "DescribeCases", map[string]any{})
@@ -179,13 +184,18 @@ func TestRefinement1_DescribeCases_ReturnsTimestamps(t *testing.T) {
 	assert.NotEmpty(t, cs["timeCreated"])
 }
 
-// TestRefinement1_DescribeCases_ResolvedTimestamp verifies timeResolved is populated on resolved cases.
-func TestRefinement1_DescribeCases_ResolvedTimestamp(t *testing.T) {
+// TestRefinement1_DescribeCases_ResolvedStatus verifies resolved cases expose AWS status without internal timestamp.
+func TestRefinement1_DescribeCases_ResolvedStatus(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSupportHandler(t)
 
-	rec := doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Resolve timestamp"})
+	rec := doSupportRequest(
+		t,
+		h,
+		"CreateCase",
+		map[string]any{"subject": "Resolve timestamp", "communicationBody": "Initial"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
@@ -204,7 +214,8 @@ func TestRefinement1_DescribeCases_ResolvedTimestamp(t *testing.T) {
 	cases := resp["cases"].([]any)
 	require.Len(t, cases, 1)
 	cs := cases[0].(map[string]any)
-	assert.NotEmpty(t, cs["timeResolved"])
+	assert.Equal(t, "resolved", cs["status"])
+	assert.NotContains(t, cs, "timeResolved")
 }
 
 // TestRefinement1_AddCommunicationToCase_EmptyBody verifies empty body is rejected.
@@ -213,7 +224,12 @@ func TestRefinement1_AddCommunicationToCase_EmptyBody(t *testing.T) {
 
 	h := newTestSupportHandler(t)
 
-	rec := doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Comm body test"})
+	rec := doSupportRequest(
+		t,
+		h,
+		"CreateCase",
+		map[string]any{"subject": "Comm body test", "communicationBody": "Initial"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
@@ -233,17 +249,29 @@ func TestRefinement1_AddCommunicationToCase_AttachmentSetId(t *testing.T) {
 
 	h := newTestSupportHandler(t)
 
-	rec := doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Attach test"})
+	rec := doSupportRequest(
+		t,
+		h,
+		"CreateCase",
+		map[string]any{"subject": "Attach test", "communicationBody": "Initial"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
 	caseID := createResp["caseId"].(string)
 
+	setRec := doSupportRequest(t, h, "AddAttachmentsToSet", map[string]any{
+		"attachments": []map[string]any{{"fileName": "detail.txt", "data": []byte("details")}},
+	})
+	require.Equal(t, http.StatusOK, setRec.Code)
+	var setResp map[string]any
+	require.NoError(t, json.Unmarshal(setRec.Body.Bytes(), &setResp))
+
 	rec2 := doSupportRequest(t, h, "AddCommunicationToCase", map[string]any{
 		"caseId":            caseID,
 		"communicationBody": "See attached",
-		"attachmentSetId":   "my-set-001",
+		"attachmentSetId":   setResp["attachmentSetId"],
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -254,9 +282,9 @@ func TestRefinement1_AddCommunicationToCase_AttachmentSetId(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
 	comms := resp["communications"].([]any)
-	require.Len(t, comms, 1)
+	require.Len(t, comms, 2)
 	comm := comms[0].(map[string]any)
-	assert.Equal(t, "my-set-001", comm["attachmentSetId"])
+	assert.NotEmpty(t, comm["attachmentSet"])
 }
 
 // TestRefinement1_CommunicationView_TimeCreated verifies timeCreated in communication view.
@@ -265,7 +293,12 @@ func TestRefinement1_CommunicationView_TimeCreated(t *testing.T) {
 
 	h := newTestSupportHandler(t)
 
-	rec := doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "TimeCreated test"})
+	rec := doSupportRequest(
+		t,
+		h,
+		"CreateCase",
+		map[string]any{"subject": "TimeCreated test", "communicationBody": "Initial"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
@@ -283,7 +316,7 @@ func TestRefinement1_CommunicationView_TimeCreated(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
 	comms := resp["communications"].([]any)
-	require.Len(t, comms, 1)
+	require.Len(t, comms, 2)
 	comm := comms[0].(map[string]any)
 	assert.NotEmpty(t, comm["timeCreated"])
 }
@@ -401,7 +434,12 @@ func TestRefinement1_AlreadyResolved(t *testing.T) {
 
 	h := newTestSupportHandler(t)
 
-	rec := doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Double resolve"})
+	rec := doSupportRequest(
+		t,
+		h,
+		"CreateCase",
+		map[string]any{"subject": "Double resolve", "communicationBody": "Initial"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
@@ -450,8 +488,8 @@ func TestRefinement1_DescribeCases_Pagination(t *testing.T) {
 
 	h := newTestSupportHandler(t)
 
-	doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Page1"})
-	doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Page2"})
+	doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Page1", "communicationBody": "Initial"})
+	doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Page2", "communicationBody": "Initial"})
 
 	rec := doSupportRequest(t, h, "DescribeCases", map[string]any{
 		"maxResults": 10,
@@ -501,7 +539,12 @@ func TestRefinement1_DescribeCommunications_Pagination(t *testing.T) {
 
 	h := newTestSupportHandler(t)
 
-	rec := doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Comm pagination"})
+	rec := doSupportRequest(
+		t,
+		h,
+		"CreateCase",
+		map[string]any{"subject": "Comm pagination", "communicationBody": "Initial"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
@@ -515,7 +558,7 @@ func TestRefinement1_DescribeCommunications_Pagination(t *testing.T) {
 
 	rec2 := doSupportRequest(t, h, "DescribeCommunications", map[string]any{
 		"caseId":     caseID,
-		"maxResults": 5,
+		"maxResults": 10,
 	})
 	assert.Equal(t, http.StatusOK, rec2.Code)
 }
