@@ -8,13 +8,19 @@ type StorageBackend interface {
 		labels []string,
 		homePageURL, licenseURL, spdxLicenseID string,
 	) (*Application, error)
+	SetApplicationReadmeURL(name, readmeURL string) (*Application, error)
 	GetApplication(name string) (*Application, error)
 	ListApplications() []*Application
 	UpdateApplication(name, description, author, homePageURL, readmeURL string) (*Application, error)
+	UpdateApplicationLabels(name string, labels []string) (*Application, error)
 	DeleteApplication(name string) error
 
 	// Application version operations
 	CreateApplicationVersion(appName, semanticVersion, sourceCodeURL, templateURL string) (*ApplicationVersion, error)
+	CreateApplicationVersionWithOptions(
+		appName, semanticVersion string,
+		opts CreateApplicationVersionOptions,
+	) (*ApplicationVersion, error)
 	GetApplicationVersion(appName, semanticVersion string) (*ApplicationVersion, error)
 	ListApplicationVersions(appName string) ([]*ApplicationVersion, error)
 
@@ -25,6 +31,10 @@ type StorageBackend interface {
 	// CloudFormation change set operations
 	CreateCloudFormationChangeSet(
 		appName, stackName, changeSetName, semanticVersion string,
+	) (*CloudFormationChangeSet, error)
+	CreateCloudFormationChangeSetWithOptions(
+		appName, stackName, changeSetName, semanticVersion string,
+		opts CreateCloudFormationChangeSetOptions,
 	) (*CloudFormationChangeSet, error)
 
 	// Application policy operations
