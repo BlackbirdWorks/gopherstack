@@ -133,6 +133,7 @@ func TestGetResources_ResourceTypeFilter(t *testing.T) {
 		name        string
 		typeFilters []string
 		wantLen     int
+		wantErr     bool
 	}{
 		{
 			name:        "filter_sqs",
@@ -155,8 +156,15 @@ func TestGetResources_ResourceTypeFilter(t *testing.T) {
 			wantLen:     2,
 		},
 		{
-			name:        "case_insensitive",
+			// Matching is case-sensitive; uppercase service prefix is also invalid format.
+			name:        "uppercase_service_invalid_format",
 			typeFilters: []string{"SQS:Queue"},
+			wantErr:     true,
+		},
+		{
+			// Service-only form: matches all resources in the given service.
+			name:        "service_only_sqs",
+			typeFilters: []string{"sqs"},
 			wantLen:     1,
 		},
 	}
@@ -166,6 +174,12 @@ func TestGetResources_ResourceTypeFilter(t *testing.T) {
 			t.Parallel()
 
 			out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{ResourceTypeFilters: tt.typeFilters})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
 
 			require.NoError(t, err)
 			require.NotNil(t, out)

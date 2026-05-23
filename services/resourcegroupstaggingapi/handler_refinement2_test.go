@@ -37,8 +37,9 @@ func TestRefinement2_GetResources_ExactlyMaxTagFilters(t *testing.T) {
 	b := newBackend(t)
 	filters := make([]resourcegroupstaggingapi.TagFilter, 50)
 
+	// Keys must be unique; AWS rejects duplicate TagFilter keys.
 	for i := range filters {
-		filters[i] = resourcegroupstaggingapi.TagFilter{Key: "key"}
+		filters[i] = resourcegroupstaggingapi.TagFilter{Key: fmt.Sprintf("key%d", i)}
 	}
 
 	out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{TagFilters: filters})
