@@ -94,7 +94,7 @@ func TestSupport_DescribeCreateCaseOptions(t *testing.T) {
 		{
 			name:     "empty_body",
 			body:     map[string]any{},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -106,10 +106,12 @@ func TestSupport_DescribeCreateCaseOptions(t *testing.T) {
 			rec := doSupportRequest(t, h, "DescribeCreateCaseOptions", tt.body)
 			require.Equal(t, tt.wantCode, rec.Code)
 
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.NotEmpty(t, resp["communicationTypes"])
-			assert.Equal(t, "available", resp["languageAvailability"])
+			if tt.wantCode == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp["communicationTypes"])
+				assert.Equal(t, "available", resp["languageAvailability"])
+			}
 		})
 	}
 }
@@ -244,7 +246,7 @@ func TestSupport_DescribeSupportedLanguages(t *testing.T) {
 		{
 			name:     "empty_body",
 			body:     map[string]any{},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -256,6 +258,9 @@ func TestSupport_DescribeSupportedLanguages(t *testing.T) {
 			rec := doSupportRequest(t, h, "DescribeSupportedLanguages", tt.body)
 			require.Equal(t, tt.wantCode, rec.Code)
 
+			if tt.wantCode != http.StatusOK {
+				return
+			}
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			langs, ok := resp["supportedLanguages"].([]any)
@@ -313,7 +318,7 @@ func TestSupport_DescribeTrustedAdvisorCheckRefreshStatuses(t *testing.T) {
 		{
 			name:     "empty_check_ids",
 			body:     map[string]any{"checkIds": []string{}},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -406,8 +411,7 @@ func TestSupport_DescribeTrustedAdvisorCheckSummaries(t *testing.T) {
 		{
 			name:     "empty_list",
 			body:     map[string]any{"checkIds": []string{}},
-			wantCode: http.StatusOK,
-			wantLen:  0,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -419,11 +423,13 @@ func TestSupport_DescribeTrustedAdvisorCheckSummaries(t *testing.T) {
 			rec := doSupportRequest(t, h, "DescribeTrustedAdvisorCheckSummaries", tt.body)
 			require.Equal(t, tt.wantCode, rec.Code)
 
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			summaries, ok := resp["summaries"].([]any)
-			require.True(t, ok)
-			assert.Len(t, summaries, tt.wantLen)
+			if tt.wantCode == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				summaries, ok := resp["summaries"].([]any)
+				require.True(t, ok)
+				assert.Len(t, summaries, tt.wantLen)
+			}
 		})
 	}
 }

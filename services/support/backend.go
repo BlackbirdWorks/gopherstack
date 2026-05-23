@@ -3,12 +3,12 @@ package support
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 const (
@@ -35,6 +35,13 @@ const (
 	checkRefreshStatusProcessing = "processing"
 	checkRefreshStatusSuccess    = "success"
 
+	severityLow             = "low"
+	severityNormal          = "normal"
+	severityHigh            = "high"
+	severityUrgent          = "urgent"
+	severityCritical        = "critical"
+	japaneseGeneralGuidance = "一般的なガイダンス"
+
 	// defaultResourcesProcessed is the default count of processed resources for static check results.
 	defaultResourcesProcessed = int64(10)
 	// refreshMillisDefault is the default milliseconds until next refreshable after a refresh is enqueued.
@@ -56,22 +63,35 @@ var (
 type Case struct {
 	CreatedTime  time.Time  `json:"createdTime"`
 	ResolvedTime *time.Time `json:"resolvedTime,omitempty"`
-	CaseID       string     `json:"caseID"`
+	ServiceCode  string     `json:"serviceCode"`
+	DisplayID    string     `json:"displayId"`
 	Subject      string     `json:"subject"`
 	Status       string     `json:"status"`
-	ServiceCode  string     `json:"serviceCode"`
+	CaseID       string     `json:"caseID"`
 	CategoryCode string     `json:"categoryCode"`
 	SeverityCode string     `json:"severityCode"`
+	Language     string     `json:"language"`
+	IssueType    string     `json:"issueType"`
+	SubmittedBy  string     `json:"submittedBy"`
 	Body         string     `json:"body"`
+	CCEmails     []string   `json:"ccEmailAddresses"`
+}
+
+// AttachmentRef identifies an attachment included in a communication.
+type AttachmentRef struct {
+	AttachmentID string `json:"attachmentId"`
+	FileName     string `json:"fileName"`
 }
 
 // Communication represents a message added to a support case.
 type Communication struct {
-	TimeCreated     time.Time `json:"timeCreated"`
-	SubmittedBy     string    `json:"submittedBy"`
-	Body            string    `json:"body"`
-	CaseID          string    `json:"caseId"`
-	AttachmentSetID string    `json:"attachmentSetId,omitempty"`
+	TimeCreated     time.Time       `json:"timeCreated"`
+	SubmittedBy     string          `json:"submittedBy"`
+	Body            string          `json:"body"`
+	CaseID          string          `json:"caseId"`
+	AttachmentSetID string          `json:"attachmentSetId,omitempty"`
+	AttachmentSet   []AttachmentRef `json:"attachmentSet,omitempty"`
+	CCEmails        []string        `json:"ccEmailAddresses,omitempty"`
 }
 
 // TrustedAdvisorCheck represents a Trusted Advisor check.
@@ -88,6 +108,12 @@ type Attachment struct {
 	AttachmentID string `json:"attachmentId"`
 	FileName     string `json:"fileName"`
 	Data         []byte `json:"data"`
+}
+
+// AttachmentSet holds staged attachments until a case communication consumes them.
+type AttachmentSet struct {
+	Expiry        time.Time `json:"expiry"`
+	AttachmentIDs []string  `json:"attachmentIds"`
 }
 
 // ServiceCategory represents a category within an AWS service.
@@ -118,9 +144,11 @@ type SupportedLanguage struct {
 
 // TrustedAdvisorCheckRefreshStatus represents the refresh status for a Trusted Advisor check.
 type TrustedAdvisorCheckRefreshStatus struct {
-	CheckID                    string `json:"checkId"`
-	Status                     string `json:"status"`
-	MillisUntilNextRefreshable int64  `json:"millisUntilNextRefreshable"`
+	RefreshTime                time.Time `json:"refreshTime,omitzero"`
+	CheckID                    string    `json:"checkId"`
+	Status                     string    `json:"status"`
+	MillisUntilNextRefreshable int64     `json:"millisUntilNextRefreshable"`
+	PollCount                  int       `json:"pollCount,omitempty"`
 }
 
 // TrustedAdvisorResourcesSummary holds counts of resources examined by a Trusted Advisor check.
@@ -142,20 +170,33 @@ type TrustedAdvisorResourceDetail struct {
 
 // TrustedAdvisorCheckResult represents the full result of a Trusted Advisor check.
 type TrustedAdvisorCheckResult struct {
-	CheckID          string                         `json:"checkId"`
-	Status           string                         `json:"status"`
-	Timestamp        string                         `json:"timestamp"`
-	FlaggedResources []TrustedAdvisorResourceDetail `json:"flaggedResources"`
-	ResourcesSummary TrustedAdvisorResourcesSummary `json:"resourcesSummary"`
+	CategorySpecificSummary *TrustedAdvisorCategorySpecificSummary `json:"categorySpecificSummary"`
+	CheckID                 string                                 `json:"checkId"`
+	Status                  string                                 `json:"status"`
+	Timestamp               string                                 `json:"timestamp"`
+	FlaggedResources        []TrustedAdvisorResourceDetail         `json:"flaggedResources"`
+	ResourcesSummary        TrustedAdvisorResourcesSummary         `json:"resourcesSummary"`
+}
+
+// TrustedAdvisorCategorySpecificSummary provides cost optimization estimates.
+type TrustedAdvisorCategorySpecificSummary struct {
+	CostOptimizing TrustedAdvisorCostOptimizingSummary `json:"costOptimizing"`
+}
+
+// TrustedAdvisorCostOptimizingSummary estimates possible monthly savings.
+type TrustedAdvisorCostOptimizingSummary struct {
+	EstimatedMonthlySavings        float64 `json:"estimatedMonthlySavings"`
+	EstimatedPercentMonthlySavings float64 `json:"estimatedPercentMonthlySavings"`
 }
 
 // TrustedAdvisorCheckSummary represents a summary of a Trusted Advisor check result.
 type TrustedAdvisorCheckSummary struct {
-	CheckID             string                         `json:"checkId"`
-	Status              string                         `json:"status"`
-	Timestamp           string                         `json:"timestamp"`
-	HasFlaggedResources bool                           `json:"hasFlaggedResources"`
-	ResourcesSummary    TrustedAdvisorResourcesSummary `json:"resourcesSummary"`
+	CategorySpecificSummary *TrustedAdvisorCategorySpecificSummary `json:"categorySpecificSummary"`
+	CheckID                 string                                 `json:"checkId"`
+	Status                  string                                 `json:"status"`
+	Timestamp               string                                 `json:"timestamp"`
+	ResourcesSummary        TrustedAdvisorResourcesSummary         `json:"resourcesSummary"`
+	HasFlaggedResources     bool                                   `json:"hasFlaggedResources"`
 }
 
 // SupportedHour represents a time range when support is available.
@@ -270,10 +311,11 @@ func trustedAdvisorChecks() []TrustedAdvisorCheck {
 type InMemoryBackend struct {
 	cases                map[string]*Case
 	communications       map[string][]Communication                   // caseID -> communications
-	attachmentSets       map[string]time.Time                         // attachmentSetID -> expiryTime
+	attachmentSets       map[string]*AttachmentSet                    // attachmentSetID -> staged attachments
 	attachments          map[string]*Attachment                       // attachmentID -> Attachment
 	checkRefreshStatuses map[string]*TrustedAdvisorCheckRefreshStatus // checkID -> status
-	mu                   *lockmetrics.RWMutex
+	nextDisplayID        uint64
+	mu                   sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -281,28 +323,28 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		cases:                make(map[string]*Case),
 		communications:       make(map[string][]Communication),
-		attachmentSets:       make(map[string]time.Time),
+		attachmentSets:       make(map[string]*AttachmentSet),
 		attachments:          make(map[string]*Attachment),
 		checkRefreshStatuses: make(map[string]*TrustedAdvisorCheckRefreshStatus),
-		mu:                   lockmetrics.New("support"),
 	}
 }
 
 // Reset clears all backend state.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock("Reset")
+	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.cases = make(map[string]*Case)
 	b.communications = make(map[string][]Communication)
-	b.attachmentSets = make(map[string]time.Time)
+	b.attachmentSets = make(map[string]*AttachmentSet)
 	b.attachments = make(map[string]*Attachment)
 	b.checkRefreshStatuses = make(map[string]*TrustedAdvisorCheckRefreshStatus)
+	b.nextDisplayID = 0
 }
 
 // CreateCase creates a new support case.
 func (b *InMemoryBackend) CreateCase(subject, serviceCode, categoryCode, severityCode, body string) (*Case, error) {
-	b.mu.Lock("CreateCase")
+	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	caseID := "case-" + uuid.New().String()[:8]
@@ -329,7 +371,7 @@ func (b *InMemoryBackend) CreateCase(subject, serviceCode, categoryCode, severit
 // Fast path: when caseIDs are supplied, look them up directly in the
 // case-ID-keyed map instead of scanning every case in the backend.
 func (b *InMemoryBackend) DescribeCases(caseIDs []string, includeResolvedCases bool) []Case {
-	b.mu.RLock("DescribeCases")
+	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	if len(caseIDs) > 0 {
@@ -366,7 +408,7 @@ func (b *InMemoryBackend) DescribeCases(caseIDs []string, includeResolvedCases b
 
 // ResolveCase resolves a support case by caseId.
 func (b *InMemoryBackend) ResolveCase(caseID string) (*Case, error) {
-	b.mu.Lock("ResolveCase")
+	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	c, ok := b.cases[caseID]
@@ -389,7 +431,7 @@ func (b *InMemoryBackend) ResolveCase(caseID string) (*Case, error) {
 
 // AddCommunicationToCase adds a communication to an existing support case.
 func (b *InMemoryBackend) AddCommunicationToCase(caseID, body, attachmentSetID string) error {
-	b.mu.Lock("AddCommunicationToCase")
+	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if body == "" {
@@ -415,7 +457,7 @@ func (b *InMemoryBackend) AddCommunicationToCase(caseID, body, attachmentSetID s
 
 // DescribeCommunications returns communications for the given case.
 func (b *InMemoryBackend) DescribeCommunications(caseID string) ([]Communication, error) {
-	b.mu.RLock("DescribeCommunications")
+	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	if _, ok := b.cases[caseID]; !ok {
@@ -436,7 +478,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorChecks() []TrustedAdvisorCheck {
 
 // AddAttachmentsToSet creates a new attachment set and returns its ID.
 func (b *InMemoryBackend) AddAttachmentsToSet(attachmentSetID string) (string, time.Time, error) {
-	b.mu.Lock("AddAttachmentsToSet")
+	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if attachmentSetID == "" {
@@ -444,14 +486,14 @@ func (b *InMemoryBackend) AddAttachmentsToSet(attachmentSetID string) (string, t
 	}
 
 	expiry := time.Now().Add(time.Hour)
-	b.attachmentSets[attachmentSetID] = expiry
+	b.attachmentSets[attachmentSetID] = &AttachmentSet{Expiry: expiry}
 
 	return attachmentSetID, expiry, nil
 }
 
 // DescribeAttachment returns the attachment with the given ID.
 func (b *InMemoryBackend) DescribeAttachment(attachmentID string) (*Attachment, error) {
-	b.mu.RLock("DescribeAttachment")
+	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	a, ok := b.attachments[attachmentID]
@@ -466,7 +508,7 @@ func (b *InMemoryBackend) DescribeAttachment(attachmentID string) (*Attachment, 
 
 // AddAttachmentInternal seeds an attachment directly into the backend (for testing).
 func (b *InMemoryBackend) AddAttachmentInternal(a *Attachment) {
-	b.mu.Lock("AddAttachmentInternal")
+	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	cp := *a
@@ -480,7 +522,7 @@ func (b *InMemoryBackend) AddAttachmentInternal(a *Attachment) {
 
 // AddCaseInternal seeds a case directly into the backend (for testing).
 func (b *InMemoryBackend) AddCaseInternal(c *Case) {
-	b.mu.Lock("AddCaseInternal")
+	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	cp := *c
@@ -511,8 +553,8 @@ func (b *InMemoryBackend) DescribeCreateCaseOptions(_, _, _, _ string) *Describe
 }
 
 // DescribeServices returns AWS services, optionally filtered by service codes.
-func (b *InMemoryBackend) DescribeServices(serviceCodeList []string) []Service {
-	all := staticServices()
+func (b *InMemoryBackend) DescribeServices(serviceCodeList []string, language string) []Service {
+	all := staticServices(language)
 	if len(serviceCodeList) == 0 {
 		return all
 	}
@@ -533,13 +575,23 @@ func (b *InMemoryBackend) DescribeServices(serviceCodeList []string) []Service {
 }
 
 // DescribeSeverityLevels returns the available severity levels.
-func (b *InMemoryBackend) DescribeSeverityLevels(_ string) []SeverityLevel {
+func (b *InMemoryBackend) DescribeSeverityLevels(language string) []SeverityLevel {
+	if language == "ja" {
+		return []SeverityLevel{
+			{Code: severityLow, Name: japaneseGeneralGuidance},
+			{Code: severityNormal, Name: "システム障害"},
+			{Code: severityHigh, Name: "本番システム障害"},
+			{Code: severityUrgent, Name: "本番システム停止"},
+			{Code: severityCritical, Name: "ビジネスクリティカルシステム停止"},
+		}
+	}
+
 	return []SeverityLevel{
-		{Code: "low", Name: "General guidance"},
-		{Code: "normal", Name: "System impaired"},
-		{Code: "high", Name: "Production system impaired"},
-		{Code: "urgent", Name: "Production system down"},
-		{Code: "critical", Name: "Business-critical system down"},
+		{Code: severityLow, Name: "General guidance"},
+		{Code: severityNormal, Name: "System impaired"},
+		{Code: severityHigh, Name: "Production system impaired"},
+		{Code: severityUrgent, Name: "Production system down"},
+		{Code: severityCritical, Name: "Business-critical system down"},
 	}
 }
 
@@ -557,12 +609,22 @@ func (b *InMemoryBackend) DescribeSupportedLanguages(_, _, _ string) []Supported
 func (b *InMemoryBackend) DescribeTrustedAdvisorCheckRefreshStatuses(
 	checkIDs []string,
 ) []TrustedAdvisorCheckRefreshStatus {
-	b.mu.RLock("DescribeTrustedAdvisorCheckRefreshStatuses")
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	out := make([]TrustedAdvisorCheckRefreshStatus, 0, len(checkIDs))
 	for _, id := range checkIDs {
 		if s, ok := b.checkRefreshStatuses[id]; ok {
+			switch s.PollCount {
+			case 0:
+				s.PollCount++
+			case 1:
+				s.Status = checkRefreshStatusProcessing
+				s.PollCount++
+			default:
+				s.Status = checkRefreshStatusSuccess
+				s.MillisUntilNextRefreshable = 0
+			}
 			out = append(out, *s)
 		} else {
 			out = append(out, TrustedAdvisorCheckRefreshStatus{
@@ -578,6 +640,8 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckRefreshStatuses(
 
 // DescribeTrustedAdvisorCheckResult returns the result for the given Trusted Advisor check.
 func (b *InMemoryBackend) DescribeTrustedAdvisorCheckResult(checkID, _ string) *TrustedAdvisorCheckResult {
+	categorySummary := &TrustedAdvisorCategorySpecificSummary{}
+
 	return &TrustedAdvisorCheckResult{
 		CheckID:          checkID,
 		Status:           "ok",
@@ -589,6 +653,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckResult(checkID, _ string) *
 			ResourcesIgnored:    0,
 			ResourcesSuppressed: 0,
 		},
+		CategorySpecificSummary: categorySummary,
 	}
 }
 
@@ -609,6 +674,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckSummaries(checkIDs []string
 				ResourcesIgnored:    0,
 				ResourcesSuppressed: 0,
 			},
+			CategorySpecificSummary: &TrustedAdvisorCategorySpecificSummary{},
 		})
 	}
 
@@ -617,13 +683,19 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckSummaries(checkIDs []string
 
 // RefreshTrustedAdvisorCheck enqueues a refresh for the given Trusted Advisor check.
 func (b *InMemoryBackend) RefreshTrustedAdvisorCheck(checkID string) (*TrustedAdvisorCheckRefreshStatus, error) {
-	b.mu.Lock("RefreshTrustedAdvisorCheck")
+	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if existing, ok := b.checkRefreshStatuses[checkID]; ok && time.Since(existing.RefreshTime) < time.Hour {
+		cp := *existing
+
+		return &cp, nil
+	}
 	status := &TrustedAdvisorCheckRefreshStatus{
 		CheckID:                    checkID,
 		Status:                     checkRefreshStatusEnqueued,
 		MillisUntilNextRefreshable: refreshMillisDefault,
+		RefreshTime:                time.Now(),
 	}
 	b.checkRefreshStatuses[checkID] = status
 
@@ -633,8 +705,8 @@ func (b *InMemoryBackend) RefreshTrustedAdvisorCheck(checkID string) (*TrustedAd
 }
 
 // staticServices returns a small static list of common AWS services.
-func staticServices() []Service {
-	return []Service{
+func staticServices(language string) []Service {
+	all := []Service{
 		{
 			Code: "amazon-s3",
 			Name: "Amazon Simple Storage Service (Amazon S3)",
@@ -678,4 +750,11 @@ func staticServices() []Service {
 			},
 		},
 	}
+	if language == "ja" {
+		all[0].Name = "Amazon Simple Storage Service (Amazon S3)"
+		all[0].Categories[2].Name = japaneseGeneralGuidance
+		all[1].Categories[2].Name = japaneseGeneralGuidance
+	}
+
+	return all
 }

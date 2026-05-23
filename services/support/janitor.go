@@ -26,14 +26,14 @@ func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration
 
 // sweepExpiredResources identifies and removes expired attachment sets and any orphaned attachments.
 func (b *InMemoryBackend) sweepExpiredResources(ctx context.Context) {
-	b.mu.Lock("sweepExpiredResources")
+	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	now := time.Now()
 	expiredSets := make([]string, 0, len(b.attachmentSets))
 
-	for id, expiry := range b.attachmentSets {
-		if now.After(expiry) {
+	for id, set := range b.attachmentSets {
+		if now.After(set.Expiry) {
 			expiredSets = append(expiredSets, id)
 		}
 	}
@@ -42,28 +42,14 @@ func (b *InMemoryBackend) sweepExpiredResources(ctx context.Context) {
 		return
 	}
 
-	// Identify attachments to remove. We only remove attachments that are NOT linked
-	// to any active communication. Since communications are linked to cases,
-	// and cases are never deleted in this mock, we only prune attachments that
-	// were part of an expired attachment set and never actually used in a communication.
-
-	// Track which attachment sets are still in use by communications.
-	usedSets := make(map[string]struct{})
-	for _, comms := range b.communications {
-		for _, c := range comms {
-			if c.AttachmentSetID != "" {
-				usedSets[c.AttachmentSetID] = struct{}{}
-			}
-		}
-	}
-
 	removedCount := 0
 	for _, setID := range expiredSets {
-		// Only delete if NOT used in a communication.
-		if _, used := usedSets[setID]; !used {
-			delete(b.attachmentSets, setID)
-			removedCount++
+		set := b.attachmentSets[setID]
+		for _, attachmentID := range set.AttachmentIDs {
+			delete(b.attachments, attachmentID)
 		}
+		delete(b.attachmentSets, setID)
+		removedCount++
 	}
 
 	if removedCount > 0 {
