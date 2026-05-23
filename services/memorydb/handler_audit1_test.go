@@ -317,7 +317,7 @@ func TestAudit_DataTiering(t *testing.T) {
 	}
 }
 
-// -- NetworkType + IpDiscovery (Gap 5) ------------------------------------------
+// -- NetworkType + IPDiscovery (Gap 5) ------------------------------------------
 
 func TestAudit_NetworkType_DefaultsToIPv4(t *testing.T) {
 	t.Parallel()
@@ -340,7 +340,7 @@ func TestAudit_NetworkType_IPv6(t *testing.T) {
 		body            map[string]any
 		name            string
 		wantNetworkType string
-		wantIpDiscovery string
+		wantIPDiscovery string
 	}{
 		{
 			name: "ipv6 network type",
@@ -352,7 +352,7 @@ func TestAudit_NetworkType_IPv6(t *testing.T) {
 				"IpDiscovery": "ipv6",
 			},
 			wantNetworkType: "ipv6",
-			wantIpDiscovery: "ipv6",
+			wantIPDiscovery: "ipv6",
 		},
 		{
 			name: "dual stack network type",
@@ -363,7 +363,7 @@ func TestAudit_NetworkType_IPv6(t *testing.T) {
 				"NetworkType": "dual_stack",
 			},
 			wantNetworkType: "dual_stack",
-			wantIpDiscovery: "ipv4",
+			wantIPDiscovery: "ipv4",
 		},
 	}
 
@@ -374,7 +374,7 @@ func TestAudit_NetworkType_IPv6(t *testing.T) {
 			h := newTestHandler(t)
 			cl := createClusterObj(t, h, tt.body)
 			assert.Equal(t, tt.wantNetworkType, cl["NetworkType"])
-			assert.Equal(t, tt.wantIpDiscovery, cl["IpDiscovery"])
+			assert.Equal(t, tt.wantIPDiscovery, cl["IpDiscovery"])
 		})
 	}
 }
@@ -705,23 +705,26 @@ func TestAudit_DescribeClusters_ShowShardDetails(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		showShards    *bool
 		name          string
+		setShards     bool
+		showShards    bool
 		wantHasShards bool
 	}{
 		{
 			name:          "show shards omitted includes shards by default",
-			showShards:    nil,
+			setShards:     false,
 			wantHasShards: false,
 		},
 		{
 			name:          "show shards false omits shards",
-			showShards:    new(bool),
+			setShards:     true,
+			showShards:    false,
 			wantHasShards: false,
 		},
 		{
 			name:          "show shards true includes shards",
-			showShards:    boolPtr(true),
+			setShards:     true,
+			showShards:    true,
 			wantHasShards: true,
 		},
 	}
@@ -738,8 +741,8 @@ func TestAudit_DescribeClusters_ShowShardDetails(t *testing.T) {
 			})
 
 			body := map[string]any{"ClusterName": "test-cluster"}
-			if tt.showShards != nil {
-				body["ShowShardDetails"] = *tt.showShards
+			if tt.setShards {
+				body["ShowShardDetails"] = tt.showShards
 			}
 
 			rec := doRequest(t, h, "DescribeClusters", body)
@@ -2252,7 +2255,7 @@ func TestAudit_DescribeReservedNodesOfferings_DurationFilter(t *testing.T) {
 			if tt.wantDuration > 0 {
 				for _, o := range offerings {
 					off := o.(map[string]any)
-					assert.Equal(t, float64(tt.wantDuration), off["Duration"])
+					assert.InDelta(t, float64(tt.wantDuration), off["Duration"], 0)
 				}
 			}
 		})
@@ -2630,10 +2633,4 @@ func TestAudit_DescribeSnapshots_Pagination(t *testing.T) {
 	snaps := resp["Snapshots"].([]any)
 	assert.Len(t, snaps, 2)
 	assert.NotEmpty(t, resp["NextToken"])
-}
-
-// -- helper -------------------------------------------------------------------
-
-func boolPtr(b bool) *bool {
-	return &b
 }

@@ -1522,7 +1522,7 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 		Engine:                   c.Engine,
 		DataTiering:              c.DataTiering,
 		NetworkType:              c.NetworkType,
-		IpDiscovery:              c.IpDiscovery,
+		IPDiscovery:              c.IPDiscovery,
 		AutoMinorVersionUpgrade:  c.AutoMinorVersionUpgrade,
 		ACLName:                  c.ACLName,
 		SubnetGroupName:          c.SubnetGroupName,

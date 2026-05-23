@@ -29,7 +29,7 @@ type Cluster struct {
 	Engine                  string            `json:"engine"`
 	DataTiering             string            `json:"dataTiering"`
 	NetworkType             string            `json:"networkType"`
-	IpDiscovery             string            `json:"ipDiscovery"`
+	IPDiscovery             string            `json:"ipDiscovery"`
 	SecurityGroupIDs        []string          `json:"securityGroupIDs"`
 	NumReplicasPerShard     int32             `json:"numReplicasPerShard"`
 	SnapshotRetentionLimit  int32             `json:"snapshotRetentionLimit"`
@@ -103,7 +103,7 @@ type createClusterRequest struct {
 	EngineVersion           string     `json:"EngineVersion,omitempty"`
 	Engine                  string     `json:"Engine,omitempty"`
 	NetworkType             string     `json:"NetworkType,omitempty"`
-	IpDiscovery             string     `json:"IpDiscovery,omitempty"`
+	IPDiscovery             string     `json:"IpDiscovery,omitempty"`
 	SnapshotName            string     `json:"SnapshotName,omitempty"`
 	NodeType                string     `json:"NodeType"`
 	ClusterName             string     `json:"ClusterName"`
@@ -140,7 +140,7 @@ type updateClusterRequest struct {
 	Description             string                       `json:"Description,omitempty"`
 	ClusterName             string                       `json:"ClusterName"`
 	NetworkType             string                       `json:"NetworkType,omitempty"`
-	IpDiscovery             string                       `json:"IpDiscovery,omitempty"`
+	IPDiscovery             string                       `json:"IpDiscovery,omitempty"`
 	Tags                    []tagEntry                   `json:"Tags,omitempty"`
 }
 
@@ -304,7 +304,7 @@ type clusterObject struct {
 	Engine                   string                    `json:"Engine,omitempty"`
 	DataTiering              string                    `json:"DataTiering,omitempty"`
 	NetworkType              string                    `json:"NetworkType,omitempty"`
-	IpDiscovery              string                    `json:"IpDiscovery,omitempty"`
+	IPDiscovery              string                    `json:"IpDiscovery,omitempty"`
 	Shards                   []shardObject             `json:"Shards,omitempty"`
 	Tags                     []tagEntry                `json:"Tags,omitempty"`
 	SecurityGroups           []securityGroupMembership `json:"SecurityGroups,omitempty"`

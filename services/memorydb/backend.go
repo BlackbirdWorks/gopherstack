@@ -559,15 +559,24 @@ func (b *InMemoryBackend) seedAutomatedSnapshotLocked(region, accountID string, 
 	b.arnToResource[autoARN] = resourceRef{Kind: resourceKindSnapshot, Name: autoName}
 }
 
-// applyClusterNetworkDefaults sets NetworkType and IpDiscovery defaults.
+// resolveDataTiering converts the optional DataTiering request field to the AWS string value.
+func resolveDataTiering(req *createClusterRequest) string {
+	if req.DataTiering != nil && *req.DataTiering {
+		return "true"
+	}
+
+	return "false"
+}
+
+// applyClusterNetworkDefaults sets NetworkType and IPDiscovery defaults.
 func applyClusterNetworkDefaults(c *Cluster, req *createClusterRequest) {
 	c.NetworkType = req.NetworkType
 	if c.NetworkType == "" {
 		c.NetworkType = "ipv4"
 	}
-	c.IpDiscovery = req.IpDiscovery
-	if c.IpDiscovery == "" {
-		c.IpDiscovery = "ipv4"
+	c.IPDiscovery = req.IPDiscovery
+	if c.IPDiscovery == "" {
+		c.IPDiscovery = "ipv4"
 	}
 }
 
@@ -636,11 +645,7 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		AutoMinorVersionUpgrade: req.AutoMinorVersionUpgrade == nil || *req.AutoMinorVersionUpgrade,
 	}
 
-	if req.DataTiering != nil && *req.DataTiering {
-		c.DataTiering = "true"
-	} else {
-		c.DataTiering = "false"
-	}
+	c.DataTiering = resolveDataTiering(req)
 
 	applyClusterNetworkDefaults(c, req)
 
@@ -800,8 +805,8 @@ func applyClusterStringUpdates(c *Cluster, req *updateClusterRequest) {
 		c.NetworkType = req.NetworkType
 	}
 
-	if req.IpDiscovery != "" {
-		c.IpDiscovery = req.IpDiscovery
+	if req.IPDiscovery != "" {
+		c.IPDiscovery = req.IPDiscovery
 	}
 }
 
