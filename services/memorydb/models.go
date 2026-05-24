@@ -8,30 +8,35 @@ import (
 
 // Cluster represents an in-memory MemoryDB cluster.
 type Cluster struct {
-	CreatedAt              time.Time         `json:"createdAt"`
-	Tags                   map[string]string `json:"tags"`
-	KmsKeyID               string            `json:"kmsKeyID"`
-	SnsTopicArn            string            `json:"snsTopicArn"`
-	Description            string            `json:"description"`
-	NodeType               string            `json:"nodeType"`
-	EngineVersion          string            `json:"engineVersion"`
-	ACLName                string            `json:"aclName"`
-	SubnetGroupName        string            `json:"subnetGroupName"`
-	ParameterGroupName     string            `json:"parameterGroupName"`
-	Status                 string            `json:"status"`
-	MaintenanceWindow      string            `json:"maintenanceWindow"`
-	Name                   string            `json:"name"`
-	ARN                    string            `json:"arn"`
-	Region                 string            `json:"region"`
-	SnapshotWindow         string            `json:"snapshotWindow"`
-	Endpoint               string            `json:"endpoint"`
-	AvailabilityMode       string            `json:"availabilityMode"`
-	SecurityGroupIDs       []string          `json:"securityGroupIDs"`
-	NumReplicasPerShard    int32             `json:"numReplicasPerShard"`
-	SnapshotRetentionLimit int32             `json:"snapshotRetentionLimit"`
-	Port                   int32             `json:"port"`
-	NumShards              int32             `json:"numShards"`
-	TLSEnabled             bool              `json:"tlsEnabled"`
+	CreatedAt               time.Time         `json:"createdAt"`
+	Tags                    map[string]string `json:"tags"`
+	KmsKeyID                string            `json:"kmsKeyID"`
+	SnsTopicArn             string            `json:"snsTopicArn"`
+	Description             string            `json:"description"`
+	NodeType                string            `json:"nodeType"`
+	EngineVersion           string            `json:"engineVersion"`
+	ACLName                 string            `json:"aclName"`
+	SubnetGroupName         string            `json:"subnetGroupName"`
+	ParameterGroupName      string            `json:"parameterGroupName"`
+	Status                  string            `json:"status"`
+	MaintenanceWindow       string            `json:"maintenanceWindow"`
+	Name                    string            `json:"name"`
+	ARN                     string            `json:"arn"`
+	Region                  string            `json:"region"`
+	SnapshotWindow          string            `json:"snapshotWindow"`
+	Endpoint                string            `json:"endpoint"`
+	AvailabilityMode        string            `json:"availabilityMode"`
+	Engine                  string            `json:"engine"`
+	DataTiering             string            `json:"dataTiering"`
+	NetworkType             string            `json:"networkType"`
+	IPDiscovery             string            `json:"ipDiscovery"`
+	SecurityGroupIDs        []string          `json:"securityGroupIDs"`
+	NumReplicasPerShard     int32             `json:"numReplicasPerShard"`
+	SnapshotRetentionLimit  int32             `json:"snapshotRetentionLimit"`
+	Port                    int32             `json:"port"`
+	NumShards               int32             `json:"numShards"`
+	TLSEnabled              bool              `json:"tlsEnabled"`
+	AutoMinorVersionUpgrade bool              `json:"autoMinorVersionUpgrade"`
 }
 
 // ACL represents an in-memory MemoryDB Access Control List.
@@ -81,24 +86,31 @@ type ParameterGroup struct {
 // -- Request types ----------------------------------------------------------------
 
 type createClusterRequest struct {
-	NumShards              *int32     `json:"NumShards,omitempty"`
-	TLSEnabled             *bool      `json:"TLSEnabled,omitempty"`
-	Port                   *int32     `json:"Port,omitempty"`
-	SnapshotRetentionLimit *int32     `json:"SnapshotRetentionLimit,omitempty"`
-	NumReplicasPerShard    *int32     `json:"NumReplicasPerShard,omitempty"`
-	ParameterGroupName     string     `json:"ParameterGroupName,omitempty"`
-	Description            string     `json:"Description,omitempty"`
-	SubnetGroupName        string     `json:"SubnetGroupName,omitempty"`
-	KmsKeyID               string     `json:"KmsKeyId,omitempty"`
-	SnsTopicArn            string     `json:"SnsTopicArn,omitempty"`
-	MaintenanceWindow      string     `json:"MaintenanceWindow,omitempty"`
-	SnapshotWindow         string     `json:"SnapshotWindow,omitempty"`
-	EngineVersion          string     `json:"EngineVersion,omitempty"`
-	NodeType               string     `json:"NodeType"`
-	ClusterName            string     `json:"ClusterName"`
-	ACLName                string     `json:"ACLName"`
-	Tags                   []tagEntry `json:"Tags,omitempty"`
-	SecurityGroupIDs       []string   `json:"SecurityGroupIds,omitempty"`
+	NumShards               *int32     `json:"NumShards,omitempty"`
+	TLSEnabled              *bool      `json:"TLSEnabled,omitempty"`
+	Port                    *int32     `json:"Port,omitempty"`
+	SnapshotRetentionLimit  *int32     `json:"SnapshotRetentionLimit,omitempty"`
+	NumReplicasPerShard     *int32     `json:"NumReplicasPerShard,omitempty"`
+	DataTiering             *bool      `json:"DataTiering,omitempty"`
+	AutoMinorVersionUpgrade *bool      `json:"AutoMinorVersionUpgrade,omitempty"`
+	ParameterGroupName      string     `json:"ParameterGroupName,omitempty"`
+	Description             string     `json:"Description,omitempty"`
+	SubnetGroupName         string     `json:"SubnetGroupName,omitempty"`
+	KmsKeyID                string     `json:"KmsKeyId,omitempty"`
+	SnsTopicArn             string     `json:"SnsTopicArn,omitempty"`
+	MaintenanceWindow       string     `json:"MaintenanceWindow,omitempty"`
+	SnapshotWindow          string     `json:"SnapshotWindow,omitempty"`
+	EngineVersion           string     `json:"EngineVersion,omitempty"`
+	Engine                  string     `json:"Engine,omitempty"`
+	NetworkType             string     `json:"NetworkType,omitempty"`
+	IPDiscovery             string     `json:"IPDiscovery,omitempty"`
+	SnapshotName            string     `json:"SnapshotName,omitempty"`
+	NodeType                string     `json:"NodeType"`
+	ClusterName             string     `json:"ClusterName"`
+	ACLName                 string     `json:"ACLName"`
+	Tags                    []tagEntry `json:"Tags,omitempty"`
+	SecurityGroupIDs        []string   `json:"SecurityGroupIds,omitempty"`
+	SnapshotArns            []string   `json:"SnapshotArns,omitempty"`
 }
 
 type describeClusterRequest struct {
@@ -114,19 +126,22 @@ type deleteClusterRequest struct {
 }
 
 type updateClusterRequest struct {
-	SnapshotRetentionLimit *int32                       `json:"SnapshotRetentionLimit,omitempty"`
-	ShardConfiguration     *shardConfigurationRequest   `json:"ShardConfiguration,omitempty"`
-	ReplicaConfiguration   *replicaConfigurationRequest `json:"ReplicaConfiguration,omitempty"`
-	MaintenanceWindow      string                       `json:"MaintenanceWindow,omitempty"`
-	NodeType               string                       `json:"NodeType,omitempty"`
-	EngineVersion          string                       `json:"EngineVersion,omitempty"`
-	SnapshotWindow         string                       `json:"SnapshotWindow,omitempty"`
-	SnsTopicArn            string                       `json:"SnsTopicArn,omitempty"`
-	SnsTopicStatus         string                       `json:"SnsTopicStatus,omitempty"`
-	ACLName                string                       `json:"ACLName,omitempty"`
-	Description            string                       `json:"Description,omitempty"`
-	ClusterName            string                       `json:"ClusterName"`
-	Tags                   []tagEntry                   `json:"Tags,omitempty"`
+	SnapshotRetentionLimit  *int32                       `json:"SnapshotRetentionLimit,omitempty"`
+	ShardConfiguration      *shardConfigurationRequest   `json:"ShardConfiguration,omitempty"`
+	ReplicaConfiguration    *replicaConfigurationRequest `json:"ReplicaConfiguration,omitempty"`
+	AutoMinorVersionUpgrade *bool                        `json:"AutoMinorVersionUpgrade,omitempty"`
+	MaintenanceWindow       string                       `json:"MaintenanceWindow,omitempty"`
+	NodeType                string                       `json:"NodeType,omitempty"`
+	EngineVersion           string                       `json:"EngineVersion,omitempty"`
+	SnapshotWindow          string                       `json:"SnapshotWindow,omitempty"`
+	SnsTopicArn             string                       `json:"SnsTopicArn,omitempty"`
+	SnsTopicStatus          string                       `json:"SnsTopicStatus,omitempty"`
+	ACLName                 string                       `json:"ACLName,omitempty"`
+	Description             string                       `json:"Description,omitempty"`
+	ClusterName             string                       `json:"ClusterName"`
+	NetworkType             string                       `json:"NetworkType,omitempty"`
+	IPDiscovery             string                       `json:"IPDiscovery,omitempty"`
+	Tags                    []tagEntry                   `json:"Tags,omitempty"`
 }
 
 type replicaConfigurationRequest struct {
@@ -270,6 +285,7 @@ type securityGroupMembership struct {
 
 type clusterObject struct {
 	ClusterEndpoint          *endpointObject           `json:"ClusterEndpoint,omitempty"`
+	PendingUpdates           *pendingUpdatesObject     `json:"PendingUpdates,omitempty"`
 	SubnetGroupName          string                    `json:"SubnetGroupName,omitempty"`
 	SnsTopicArn              string                    `json:"SnsTopicArn,omitempty"`
 	Description              string                    `json:"Description,omitempty"`
@@ -285,6 +301,10 @@ type clusterObject struct {
 	ParameterGroupName       string                    `json:"ParameterGroupName,omitempty"`
 	SnapshotWindow           string                    `json:"SnapshotWindow,omitempty"`
 	AvailabilityMode         string                    `json:"AvailabilityMode,omitempty"`
+	Engine                   string                    `json:"Engine,omitempty"`
+	DataTiering              string                    `json:"DataTiering,omitempty"`
+	NetworkType              string                    `json:"NetworkType,omitempty"`
+	IPDiscovery              string                    `json:"IPDiscovery,omitempty"`
 	Shards                   []shardObject             `json:"Shards,omitempty"`
 	Tags                     []tagEntry                `json:"Tags,omitempty"`
 	SecurityGroups           []securityGroupMembership `json:"SecurityGroups,omitempty"`
@@ -292,14 +312,42 @@ type clusterObject struct {
 	SnapshotRetentionLimit   int32                     `json:"SnapshotRetentionLimit,omitempty"`
 	NumberOfReplicasPerShard int32                     `json:"NumberOfReplicasPerShard,omitempty"`
 	TLSEnabled               bool                      `json:"TLSEnabled"`
+	AutoMinorVersionUpgrade  bool                      `json:"AutoMinorVersionUpgrade"`
 }
 
 // shardObject represents a single shard in a MemoryDB cluster.
 type shardObject struct {
-	Name          string `json:"Name,omitempty"`
-	Status        string `json:"Status,omitempty"`
-	Slots         string `json:"Slots,omitempty"`
-	NumberOfNodes int32  `json:"NumberOfNodes,omitempty"`
+	Name          string       `json:"Name,omitempty"`
+	Status        string       `json:"Status,omitempty"`
+	Slots         string       `json:"Slots,omitempty"`
+	Nodes         []nodeObject `json:"Nodes,omitempty"`
+	NumberOfNodes int32        `json:"NumberOfNodes,omitempty"`
+}
+
+// nodeObject represents a node within a shard.
+type nodeObject struct {
+	Endpoint         *endpointObject `json:"Endpoint,omitempty"`
+	Name             string          `json:"Name,omitempty"`
+	Status           string          `json:"Status,omitempty"`
+	AvailabilityZone string          `json:"AvailabilityZone,omitempty"`
+	CreateTime       float64         `json:"CreateTime,omitempty"`
+}
+
+// pendingUpdatesObject represents pending changes to a cluster.
+type pendingUpdatesObject struct {
+	ACLs           *pendingACLsUpdate     `json:"ACLs,omitempty"`
+	ServiceUpdates []pendingServiceUpdate `json:"ServiceUpdates,omitempty"`
+}
+
+// pendingACLsUpdate represents a pending ACL change.
+type pendingACLsUpdate struct {
+	ACLToApply string `json:"ACLToApply,omitempty"`
+}
+
+// pendingServiceUpdate represents a pending service update.
+type pendingServiceUpdate struct {
+	ServiceUpdateName string `json:"ServiceUpdateName,omitempty"`
+	Status            string `json:"Status,omitempty"`
 }
 
 type endpointObject struct {
@@ -473,6 +521,7 @@ type Snapshot struct {
 	Status               string                `json:"status"`
 	KmsKeyID             string                `json:"kmsKeyID"`
 	SnapshotType         string                `json:"snapshotType"`
+	Source               string                `json:"source"`
 	ClusterConfiguration snapshotClusterConfig `json:"clusterConfiguration"`
 }
 
@@ -488,10 +537,21 @@ type snapshotClusterConfig struct {
 
 // EngineVersion describes a supported MemoryDB engine version.
 type EngineVersion struct {
+	Engine               string `json:"engine"`
 	EngineVersion        string `json:"engineVersion"`
 	EnginePatchVersion   string `json:"enginePatchVersion"`
 	ParameterGroupFamily string `json:"parameterGroupFamily"`
 	Description          string `json:"description"`
+}
+
+// ServiceUpdate represents an in-memory MemoryDB service update.
+type ServiceUpdate struct {
+	ServiceUpdateName   string `json:"serviceUpdateName"`
+	ReleaseDate         string `json:"releaseDate"`
+	Description         string `json:"description"`
+	Status              string `json:"status"`
+	Type                string `json:"type"`
+	AutoUpdateStartDate string `json:"autoUpdateStartDate"`
 }
 
 // Event represents a MemoryDB event.
@@ -541,6 +601,7 @@ type describeSnapshotRequest struct {
 	SnapshotName string `json:"SnapshotName,omitempty"`
 	ClusterName  string `json:"ClusterName,omitempty"`
 	SnapshotType string `json:"SnapshotType,omitempty"`
+	Source       string `json:"Source,omitempty"`
 	NextToken    string `json:"NextToken,omitempty"`
 }
 
@@ -563,6 +624,7 @@ type snapshotObject struct {
 	Status               string                 `json:"Status,omitempty"`
 	KmsKeyID             string                 `json:"KmsKeyId,omitempty"`
 	SnapshotType         string                 `json:"SnapshotType,omitempty"`
+	Source               string                 `json:"Source,omitempty"`
 	CreatedAt            string                 `json:"SnapshotCreationTime,omitempty"`
 }
 
@@ -588,11 +650,13 @@ type deleteSnapshotResponse struct {
 type describeEngineVersionsRequest struct {
 	MaxResults           *int32 `json:"MaxResults,omitempty"`
 	ParameterGroupFamily string `json:"ParameterGroupFamily,omitempty"`
+	Engine               string `json:"Engine,omitempty"`
 	NextToken            string `json:"NextToken,omitempty"`
 	DefaultOnly          bool   `json:"DefaultOnly,omitempty"`
 }
 
 type engineVersionObject struct {
+	Engine               string `json:"Engine,omitempty"`
 	EngineVersion        string `json:"EngineVersion,omitempty"`
 	EnginePatchVersion   string `json:"EnginePatchVersion,omitempty"`
 	ParameterGroupFamily string `json:"ParameterGroupFamily,omitempty"`
@@ -757,8 +821,8 @@ type resetParameterGroupResponse struct {
 // -- FailoverShard request/response types ------------------------------------
 
 type failoverShardRequest struct {
-	ClusterName        string `json:"ClusterName"`
-	ShardConfiguration string `json:"ShardConfiguration,omitempty"`
+	ClusterName string `json:"ClusterName"`
+	ShardName   string `json:"ShardName,omitempty"`
 }
 
 type failoverShardResponse struct {
@@ -802,6 +866,14 @@ type updateMultiRegionClusterResponse struct {
 }
 
 // -- DescribeServiceUpdates request/response types ---------------------------
+
+type describeServiceUpdatesRequest struct {
+	MaxResults        *int32   `json:"MaxResults,omitempty"`
+	ServiceUpdateName string   `json:"ServiceUpdateName,omitempty"`
+	NextToken         string   `json:"NextToken,omitempty"`
+	ClusterNames      []string `json:"ClusterNames,omitempty"`
+	Status            []string `json:"Status,omitempty"`
+}
 
 type serviceUpdateObject struct {
 	ServiceUpdateName   string `json:"ServiceUpdateName,omitempty"`
@@ -870,8 +942,8 @@ type describeReservedNodesOfferingsRequest struct {
 	ReservedNodesOfferingID string `json:"ReservedNodesOfferingId,omitempty"`
 	NodeType                string `json:"NodeType,omitempty"`
 	OfferingType            string `json:"OfferingType,omitempty"`
-	NextToken               string `json:"NextToken,omitempty"`
 	Duration                string `json:"Duration,omitempty"`
+	NextToken               string `json:"NextToken,omitempty"`
 }
 
 type describeReservedNodesOfferingsResponse struct {
