@@ -16,23 +16,23 @@ import (
 
 // Agent represents an Amazon Bedrock Agent.
 type Agent struct {
-	CreatedAt              time.Time         `json:"createdAt"`
-	UpdatedAt              time.Time         `json:"updatedAt"`
+	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
+	preparationDueAt       time.Time
 	Tags                   map[string]string `json:"tags,omitempty"`
 	GuardrailConfiguration map[string]any    `json:"guardrailConfiguration,omitempty"`
 	MemoryConfiguration    map[string]any    `json:"memoryConfiguration,omitempty"`
-	AgentID                string            `json:"agentId"`
-	AgentArn               string            `json:"agentArn"`
-	AgentName              string            `json:"agentName"`
 	AgentStatus            string            `json:"agentStatus"`
+	AgentName              string            `json:"agentName"`
+	AgentArn               string            `json:"agentArn"`
 	AgentVersion           string            `json:"agentVersion"`
 	AgentCollaboration     string            `json:"agentCollaboration,omitempty"`
 	Description            string            `json:"description,omitempty"`
 	FoundationModel        string            `json:"foundationModel,omitempty"`
 	Instruction            string            `json:"instruction,omitempty"`
 	RoleArn                string            `json:"agentResourceRoleArn,omitempty"`
+	AgentID                string            `json:"agentId"`
 	FailureReasons         []string          `json:"failureReasons,omitempty"`
-	preparationDueAt       time.Time
 }
 
 // AgentActionGroup represents an action group for a Bedrock Agent.
@@ -58,9 +58,9 @@ type AgentAlias struct {
 	AgentAliasArn           string                   `json:"agentAliasArn"`
 	AgentAliasName          string                   `json:"agentAliasName"`
 	AgentID                 string                   `json:"agentId"`
+	AliasStatus             string                   `json:"agentAliasStatus"`
 	RoutingConfiguration    []AgentAliasRouting      `json:"routingConfiguration"`
 	AgentAliasHistoryEvents []AgentAliasHistoryEvent `json:"agentAliasHistoryEvents,omitempty"`
-	AliasStatus             string                   `json:"agentAliasStatus"`
 }
 
 // AgentAliasRouting identifies the version receiving alias traffic.
@@ -117,12 +117,12 @@ type DataSource struct {
 type IngestionJob struct {
 	StartedAt       time.Time `json:"startedAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
-	IngestionJobID  string    `json:"ingestionJobId"`
-	KnowledgeBaseID string    `json:"knowledgeBaseId"`
-	DataSourceID    string    `json:"dataSourceId"`
-	Status          string    `json:"status"`
-	Description     string    `json:"description,omitempty"`
 	completionDueAt time.Time
+	IngestionJobID  string `json:"ingestionJobId"`
+	KnowledgeBaseID string `json:"knowledgeBaseId"`
+	DataSourceID    string `json:"dataSourceId"`
+	Status          string `json:"status"`
+	Description     string `json:"description,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -140,12 +140,12 @@ const (
 	agentStatusPreparing   = "PREPARING"
 	agentStatusNotPrepared = "NOT_PREPARED"
 	agentStatusFailed      = "FAILED"
-	kbStatusActive      = "ACTIVE"
-	dsStatusAvailable   = "AVAILABLE"
-	aliasStatusPrepared = "PREPARED"
-	actionGroupEnabled  = "ENABLED"
-	jobStatusStarting   = "STARTING"
-	jobStatusComplete   = "COMPLETE"
+	kbStatusActive         = "ACTIVE"
+	dsStatusAvailable      = "AVAILABLE"
+	aliasStatusPrepared    = "PREPARED"
+	actionGroupEnabled     = "ENABLED"
+	jobStatusStarting      = "STARTING"
+	jobStatusComplete      = "COMPLETE"
 )
 
 // ---------------------------------------------------------------------------
@@ -553,12 +553,12 @@ func (b *InMemoryBackend) CreateAgentAlias(
 	now := time.Now()
 
 	alias := &AgentAlias{
-		CreatedAt:      now,
-		UpdatedAt:      now,
-		AgentAliasID:   aliasID,
-		AgentAliasArn:  aliasArn,
-		AgentAliasName: aliasName,
-		AgentID:        agentID,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+		AgentAliasID:         aliasID,
+		AgentAliasArn:        aliasArn,
+		AgentAliasName:       aliasName,
+		AgentID:              agentID,
 		RoutingConfiguration: []AgentAliasRouting{{AgentVersion: agentVersion}},
 		AliasStatus:          aliasStatusPrepared,
 		AgentAliasHistoryEvents: []AgentAliasHistoryEvent{{
@@ -715,6 +715,30 @@ func (b *InMemoryBackend) DisassociateAgentKnowledgeBase(agentID, kbID string) e
 	delete(b.agentKBAssociations, key)
 
 	return nil
+}
+
+// UpdateAgentKnowledgeBase updates an existing association.
+func (b *InMemoryBackend) UpdateAgentKnowledgeBase(
+	agentID, kbID, description, state string,
+) (*AgentKnowledgeBaseAssociation, error) {
+	b.mu.Lock("UpdateAgentKnowledgeBase")
+	defer b.mu.Unlock()
+
+	assoc, ok := b.agentKBAssociations[agentKBKey(agentID, kbID)]
+	if !ok {
+		return nil, fmt.Errorf("%w: association not found for agent %q and kb %q", ErrNotFound, agentID, kbID)
+	}
+
+	if description != "" {
+		assoc.Description = description
+	}
+	if state != "" {
+		assoc.KBState = state
+	}
+
+	cp := *assoc
+
+	return &cp, nil
 }
 
 // GetAgentKnowledgeBase returns an agent knowledge base association.

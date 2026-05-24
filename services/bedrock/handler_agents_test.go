@@ -401,7 +401,7 @@ func TestAgentsHandler_PrepareAgent(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestAgentsHandler(t)
-	ag, err := b.CreateAgent("prepare-agent", "", "", "", nil)
+	ag, err := b.CreateAgent("prepare-agent", "amazon.titan-text-express-v1", "", "", nil)
 	require.NoError(t, err)
 
 	rec := doAgentRequest(t, h, http.MethodPost, "/agents/"+ag.AgentID+"/prepare", nil)
@@ -409,7 +409,7 @@ func TestAgentsHandler_PrepareAgent(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Equal(t, "PREPARED", out["agentStatus"])
+	assert.Equal(t, "PREPARING", out["agentStatus"])
 
 	// Prepare nonexistent.
 	rec2 := doAgentRequest(t, h, http.MethodPost, "/agents/nonexistent/prepare", nil)
@@ -1078,20 +1078,40 @@ func TestAgentsHandler_UnknownOperation(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestAgentsHandler_AgentVersionEventuallyReady(t *testing.T) {
+func TestAgentsHandler_AgentPreparationTerminalStates(t *testing.T) {
 	t.Parallel()
 
-	_, b := newTestAgentsHandler(t)
-	ag, err := b.CreateAgent("async-agent", "", "", "", nil)
-	require.NoError(t, err)
-	assert.Equal(t, "CREATING", ag.AgentStatus)
+	tests := []struct {
+		name            string
+		foundationModel string
+		wantTerminal    string
+	}{
+		{name: "prepared", foundationModel: "amazon.titan-text-express-v1", wantTerminal: "PREPARED"},
+		{name: "failed without model", wantTerminal: "FAILED"},
+	}
 
-	// Wait for async transition.
-	time.Sleep(300 * time.Millisecond)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	got, err := b.GetAgent(ag.AgentID)
-	require.NoError(t, err)
-	assert.Equal(t, "READY", got.AgentStatus)
+			_, b := newTestAgentsHandler(t)
+			ag, err := b.CreateAgent(tt.name, tt.foundationModel, "", "", nil)
+			require.NoError(t, err)
+			assert.Equal(t, "NOT_PREPARED", ag.AgentStatus)
+
+			preparing, err := b.PrepareAgent(ag.AgentID)
+			require.NoError(t, err)
+			assert.Equal(t, "PREPARING", preparing.AgentStatus)
+
+			time.Sleep(150 * time.Millisecond)
+			got, err := b.GetAgent(ag.AgentID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantTerminal, got.AgentStatus)
+			if tt.wantTerminal == "FAILED" {
+				assert.NotEmpty(t, got.FailureReasons)
+			}
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
