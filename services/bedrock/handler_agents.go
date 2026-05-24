@@ -53,6 +53,7 @@ func (h *AgentsHandler) GetSupportedOperations() []string {
 		"ListAgentAliases",
 		"UpdateAgentAlias",
 		"AssociateAgentKnowledgeBase",
+		"UpdateAgentKnowledgeBase",
 		"DisassociateAgentKnowledgeBase",
 		"GetAgentKnowledgeBase",
 		"ListAgentKnowledgeBases",
@@ -109,6 +110,7 @@ func (h *AgentsHandler) GetSupportedOperations() []string {
 		"UpdateAgentCollaborator",
 		// Knowledge base documents
 		"IngestKnowledgeBaseDocuments",
+		"GetKnowledgeBaseDocuments",
 		"DeleteKnowledgeBaseDocuments",
 		"ListKnowledgeBaseDocuments",
 		"UpdateKnowledgeBaseDocuments",
@@ -180,12 +182,13 @@ const (
 	knowledgeBasePath = "/knowledgebases"
 
 	// Response key constants.
-	respAgent            = "agent"
-	respAgentAlias       = "agentAlias"
-	respAgentActionGroup = "agentActionGroup"
-	respKnowledgeBase    = "knowledgeBase"
-	respDataSource       = "dataSource"
-	respIngestionJob     = "ingestionJob"
+	respAgent              = "agent"
+	respAgentAlias         = "agentAlias"
+	respAgentActionGroup   = "agentActionGroup"
+	respAgentKnowledgeBase = "agentKnowledgeBase"
+	respKnowledgeBase      = "knowledgeBase"
+	respDataSource         = "dataSource"
+	respIngestionJob       = "ingestionJob"
 
 	// Status constants.
 	statusDeleting = "DELETING"
@@ -231,7 +234,7 @@ func (h *AgentsHandler) ExtractOperation(c *echo.Context) string {
 	method := c.Request().Method
 
 	switch {
-	case path == agentsPath && method == http.MethodPost:
+	case path == agentsPath && (method == http.MethodPost || method == http.MethodPut):
 		return "CreateAgent"
 	case path == agentsPath && method == http.MethodGet:
 		return "ListAgents"
@@ -251,7 +254,7 @@ func (h *AgentsHandler) ExtractOperation(c *echo.Context) string {
 	case strings.Contains(path, "/agentversions/") &&
 		strings.HasSuffix(path, "/knowledgebases") && method == http.MethodPut:
 		return "AssociateAgentKnowledgeBase"
-	case path == knowledgeBasePath && method == http.MethodPost:
+	case path == knowledgeBasePath && (method == http.MethodPost || method == http.MethodPut):
 		return "CreateKnowledgeBase"
 	case path == knowledgeBasePath && method == http.MethodGet:
 		return "ListKnowledgeBases"
@@ -301,6 +304,8 @@ func (h *AgentsHandler) Handler() echo.HandlerFunc {
 
 // dispatch routes requests to the appropriate handler.
 func (h *AgentsHandler) dispatch(c *echo.Context, path, method string, body []byte) error {
+	path = strings.TrimSuffix(path, "/")
+
 	if handled, err := h.dispatchAgentRoutes(c, path, method, body); handled {
 		return err
 	}
@@ -331,7 +336,7 @@ func (h *AgentsHandler) dispatchAgentRoutes(
 	c *echo.Context, path, method string, body []byte,
 ) (bool, error) {
 	switch {
-	case path == agentsPath && method == http.MethodPost:
+	case path == agentsPath && (method == http.MethodPost || method == http.MethodPut):
 		return true, h.handleCreateAgent(c, body)
 	case path == agentsPath && method == http.MethodGet:
 		return true, h.handleListAgents(c)
@@ -377,10 +382,23 @@ func (h *AgentsHandler) dispatchAgentIDRoutes(
 	case strings.HasPrefix(suffix, "/agentversions/") &&
 		strings.Contains(suffix, "/memories"):
 		return h.dispatchMemoryRoutes(c, agentID, suffix, method)
+	case strings.HasPrefix(suffix, "/agentversions/") &&
+		strings.Contains(suffix, "/actiongroups"):
+		return h.dispatchCanonicalActionGroupRoutes(c, agentID, suffix, method, body)
 	case strings.HasPrefix(suffix, "/action-groups"):
 		return h.dispatchActionGroupRoutes(c, agentID, suffix, method, body)
+	case strings.HasPrefix(suffix, "/agentaliases"):
+		return h.dispatchAliasRoutes(
+			c,
+			agentID,
+			strings.Replace(suffix, "/agentaliases", suffixAgentAliases, 1),
+			method,
+			body,
+		)
 	case strings.HasPrefix(suffix, suffixAgentAliases):
 		return h.dispatchAliasRoutes(c, agentID, suffix, method, body)
+	case strings.HasPrefix(suffix, "/agentversions"):
+		return h.dispatchCanonicalAgentVersionRoutes(c, agentID, suffix, method)
 	case strings.HasPrefix(suffix, "/versions"):
 		return h.dispatchAgentVersionRoutes(c, agentID, suffix, method)
 	}
@@ -391,13 +409,37 @@ func (h *AgentsHandler) dispatchAgentIDRoutes(
 	)
 }
 
+func (h *AgentsHandler) dispatchCanonicalActionGroupRoutes(
+	c *echo.Context, agentID, suffix, method string, body []byte,
+) error {
+	_, rest, ok := strings.Cut(suffix, "/actiongroups")
+	if !ok {
+		return c.JSON(http.StatusNotFound, agentErrResp("UnknownOperationException", "unknown action group operation"))
+	}
+
+	switch {
+	case rest == "" && method == http.MethodPut:
+		return h.handleCreateAgentActionGroup(c, agentID, body)
+	case rest == "" && method == http.MethodGet:
+		return h.handleListAgentActionGroups(c, agentID)
+	case strings.HasPrefix(rest, "/") && method == http.MethodGet:
+		return h.handleGetAgentActionGroup(c, agentID, strings.TrimPrefix(rest, "/"))
+	case strings.HasPrefix(rest, "/") && method == http.MethodPut:
+		return h.handleUpdateAgentActionGroup(c, agentID, strings.TrimPrefix(rest, "/"), body)
+	case strings.HasPrefix(rest, "/") && method == http.MethodDelete:
+		return h.handleDeleteAgentActionGroup(c, agentID, strings.TrimPrefix(rest, "/"))
+	}
+
+	return c.JSON(http.StatusNotFound, agentErrResp("UnknownOperationException", "unknown action group operation"))
+}
+
 // dispatchKBRoutes handles /knowledgebases and /knowledgebases/{kbId}/... routes.
 // Returns (true, err) when the path was matched; (false, nil) when it was not.
 func (h *AgentsHandler) dispatchKBRoutes(
 	c *echo.Context, path, method string, body []byte,
 ) (bool, error) {
 	switch {
-	case path == knowledgeBasePath && method == http.MethodPost:
+	case path == knowledgeBasePath && (method == http.MethodPost || method == http.MethodPut):
 		return true, h.handleCreateKnowledgeBase(c, body)
 	case path == knowledgeBasePath && method == http.MethodGet:
 		return true, h.handleListKnowledgeBases(c)
@@ -439,11 +481,15 @@ func (h *AgentsHandler) dispatchKBRoutes(
 
 func (h *AgentsHandler) handleCreateAgent(c *echo.Context, body []byte) error {
 	var req struct {
-		Tags              map[string]string `json:"tags"`
-		AgentName         string            `json:"agentName"`
-		FoundationModel   string            `json:"foundationModel"`
-		Instruction       string            `json:"instruction"`
-		AgentResourceRole string            `json:"agentResourceRoleArn"`
+		Tags                   map[string]string `json:"tags"`
+		GuardrailConfiguration map[string]any    `json:"guardrailConfiguration"`
+		MemoryConfiguration    map[string]any    `json:"memoryConfiguration"`
+		AgentName              string            `json:"agentName"`
+		AgentCollaboration     string            `json:"agentCollaboration"`
+		Description            string            `json:"description"`
+		FoundationModel        string            `json:"foundationModel"`
+		Instruction            string            `json:"instruction"`
+		AgentResourceRole      string            `json:"agentResourceRoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -453,13 +499,17 @@ func (h *AgentsHandler) handleCreateAgent(c *echo.Context, body []byte) error {
 		)
 	}
 
-	ag, err := h.Backend.CreateAgent(
-		req.AgentName,
-		req.FoundationModel,
-		req.Instruction,
-		req.AgentResourceRole,
-		req.Tags,
-	)
+	ag, err := h.Backend.CreateAgentWithConfiguration(AgentConfiguration{
+		Tags:                   req.Tags,
+		GuardrailConfiguration: req.GuardrailConfiguration,
+		MemoryConfiguration:    req.MemoryConfiguration,
+		AgentName:              req.AgentName,
+		AgentCollaboration:     req.AgentCollaboration,
+		Description:            req.Description,
+		FoundationModel:        req.FoundationModel,
+		Instruction:            req.Instruction,
+		RoleArn:                req.AgentResourceRole,
+	})
 	if err != nil {
 		if errors.Is(err, ErrAlreadyExists) {
 			return c.JSON(http.StatusConflict, agentErrResp("ConflictException", err.Error()))
@@ -493,9 +543,14 @@ func (h *AgentsHandler) handleListAgents(c *echo.Context) error {
 
 func (h *AgentsHandler) handleUpdateAgent(c *echo.Context, agentID string, body []byte) error {
 	var req struct {
-		FoundationModel   string `json:"foundationModel"`
-		Instruction       string `json:"instruction"`
-		AgentResourceRole string `json:"agentResourceRoleArn"`
+		GuardrailConfiguration map[string]any `json:"guardrailConfiguration"`
+		MemoryConfiguration    map[string]any `json:"memoryConfiguration"`
+		AgentName              string         `json:"agentName"`
+		AgentCollaboration     string         `json:"agentCollaboration"`
+		Description            string         `json:"description"`
+		FoundationModel        string         `json:"foundationModel"`
+		Instruction            string         `json:"instruction"`
+		AgentResourceRole      string         `json:"agentResourceRoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -505,12 +560,16 @@ func (h *AgentsHandler) handleUpdateAgent(c *echo.Context, agentID string, body 
 		)
 	}
 
-	ag, err := h.Backend.UpdateAgent(
-		agentID,
-		req.FoundationModel,
-		req.Instruction,
-		req.AgentResourceRole,
-	)
+	ag, err := h.Backend.UpdateAgentWithConfiguration(agentID, AgentConfiguration{
+		GuardrailConfiguration: req.GuardrailConfiguration,
+		MemoryConfiguration:    req.MemoryConfiguration,
+		AgentName:              req.AgentName,
+		AgentCollaboration:     req.AgentCollaboration,
+		Description:            req.Description,
+		FoundationModel:        req.FoundationModel,
+		Instruction:            req.Instruction,
+		RoleArn:                req.AgentResourceRole,
+	})
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
@@ -607,6 +666,8 @@ func (h *AgentsHandler) handleCreateAgentActionGroup(
 ) error {
 	var req struct {
 		ActionGroupExecutor map[string]any `json:"actionGroupExecutor"`
+		APISchema           map[string]any `json:"apiSchema"`
+		FunctionSchema      map[string]any `json:"functionSchema"`
 		ActionGroupName     string         `json:"actionGroupName"`
 		Description         string         `json:"description"`
 	}
@@ -618,11 +679,13 @@ func (h *AgentsHandler) handleCreateAgentActionGroup(
 		)
 	}
 
-	ag, err := h.Backend.CreateAgentActionGroup(
+	ag, err := h.Backend.CreateAgentActionGroupWithSchemas(
 		agentID,
 		req.ActionGroupName,
 		req.Description,
 		req.ActionGroupExecutor,
+		req.APISchema,
+		req.FunctionSchema,
 	)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
@@ -661,6 +724,8 @@ func (h *AgentsHandler) handleUpdateAgentActionGroup(
 ) error {
 	var req struct {
 		ActionGroupExecutor map[string]any `json:"actionGroupExecutor"`
+		APISchema           map[string]any `json:"apiSchema"`
+		FunctionSchema      map[string]any `json:"functionSchema"`
 		ActionGroupName     string         `json:"actionGroupName"`
 		Description         string         `json:"description"`
 	}
@@ -672,11 +737,13 @@ func (h *AgentsHandler) handleUpdateAgentActionGroup(
 		)
 	}
 
-	ag, err := h.Backend.UpdateAgentActionGroup(
+	ag, err := h.Backend.UpdateAgentActionGroupWithSchemas(
 		agentID,
 		actionGroupID,
 		req.Description,
 		req.ActionGroupExecutor,
+		req.APISchema,
+		req.FunctionSchema,
 	)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
@@ -705,7 +772,7 @@ func (h *AgentsHandler) dispatchAliasRoutes(
 	agentID, suffix, method string,
 	body []byte,
 ) error {
-	if suffix == suffixAgentAliases && method == http.MethodPost {
+	if suffix == suffixAgentAliases && (method == http.MethodPost || method == http.MethodPut) {
 		return h.handleCreateAgentAlias(c, agentID, body)
 	}
 
@@ -732,8 +799,8 @@ func (h *AgentsHandler) dispatchAliasRoutes(
 
 func (h *AgentsHandler) handleCreateAgentAlias(c *echo.Context, agentID string, body []byte) error {
 	var req struct {
-		AgentAliasName string `json:"agentAliasName"`
-		AgentVersion   string `json:"routingConfiguration"`
+		AgentAliasName       string              `json:"agentAliasName"`
+		RoutingConfiguration []AgentAliasRouting `json:"routingConfiguration"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -743,7 +810,7 @@ func (h *AgentsHandler) handleCreateAgentAlias(c *echo.Context, agentID string, 
 		)
 	}
 
-	alias, err := h.Backend.CreateAgentAlias(agentID, req.AgentAliasName, req.AgentVersion)
+	alias, err := h.Backend.CreateAgentAlias(agentID, req.AgentAliasName, aliasVersion(req.RoutingConfiguration))
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
@@ -777,8 +844,8 @@ func (h *AgentsHandler) handleUpdateAgentAlias(
 	body []byte,
 ) error {
 	var req struct {
-		AgentAliasName string `json:"agentAliasName"`
-		AgentVersion   string `json:"routingConfiguration"`
+		AgentAliasName       string              `json:"agentAliasName"`
+		RoutingConfiguration []AgentAliasRouting `json:"routingConfiguration"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -788,12 +855,25 @@ func (h *AgentsHandler) handleUpdateAgentAlias(
 		)
 	}
 
-	alias, err := h.Backend.UpdateAgentAlias(agentID, aliasID, req.AgentAliasName, req.AgentVersion)
+	alias, err := h.Backend.UpdateAgentAlias(
+		agentID,
+		aliasID,
+		req.AgentAliasName,
+		aliasVersion(req.RoutingConfiguration),
+	)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{respAgentAlias: alias})
+}
+
+func aliasVersion(config []AgentAliasRouting) string {
+	if len(config) == 0 {
+		return ""
+	}
+
+	return config[0].AgentVersion
 }
 
 func (h *AgentsHandler) handleDeleteAgentAlias(c *echo.Context, agentID, aliasID string) error {
@@ -837,6 +917,8 @@ func (h *AgentsHandler) dispatchAgentKBRoutes(
 		switch method {
 		case http.MethodGet:
 			return h.handleGetAgentKB(c, agentID, kbID)
+		case http.MethodPut:
+			return h.handleUpdateAgentKB(c, agentID, kbID, body)
 		case http.MethodDelete:
 			return h.handleDisassociateAgentKB(c, agentID, kbID)
 		}
@@ -870,7 +952,7 @@ func (h *AgentsHandler) handleAssociateAgentKB(c *echo.Context, agentID string, 
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentKnowledgeBase": assoc})
+	return c.JSON(http.StatusOK, map[string]any{respAgentKnowledgeBase: assoc})
 }
 
 func (h *AgentsHandler) handleGetAgentKB(c *echo.Context, agentID, kbID string) error {
@@ -879,7 +961,27 @@ func (h *AgentsHandler) handleGetAgentKB(c *echo.Context, agentID, kbID string) 
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentKnowledgeBase": assoc})
+	return c.JSON(http.StatusOK, map[string]any{respAgentKnowledgeBase: assoc})
+}
+
+func (h *AgentsHandler) handleUpdateAgentKB(
+	c *echo.Context, agentID, kbID string, body []byte,
+) error {
+	var req struct {
+		Description        string `json:"description"`
+		KnowledgeBaseState string `json:"knowledgeBaseState"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return c.JSON(http.StatusBadRequest, agentErrResp("ValidationException", "invalid request body"))
+	}
+
+	assoc, err := h.Backend.UpdateAgentKnowledgeBase(agentID, kbID, req.Description, req.KnowledgeBaseState)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{respAgentKnowledgeBase: assoc})
 }
 
 func (h *AgentsHandler) handleListAgentKBs(c *echo.Context, agentID string) error {
@@ -1005,7 +1107,7 @@ func (h *AgentsHandler) dispatchDataSourceRoutes(
 	kbID, suffix, method string,
 	body []byte,
 ) error {
-	if suffix == "/datasources" && method == http.MethodPost {
+	if suffix == "/datasources" && (method == http.MethodPost || method == http.MethodPut) {
 		return h.handleCreateDataSource(c, kbID, body)
 	}
 
@@ -1035,6 +1137,8 @@ func (h *AgentsHandler) dispatchDataSourceRoutes(
 			return h.handleListIngestionJobs(c, kbID, dsID)
 		case strings.HasPrefix(dsSuffix, "/ingestionjobs/"):
 			return h.dispatchIngestionJobRoutes(c, kbID, dsID, dsSuffix, method)
+		case dsSuffix == "/documents/getDocuments" && method == http.MethodPost:
+			return h.handleGetKBDocuments(c, kbID, dsID, body)
 		case strings.HasPrefix(dsSuffix, "/documents"):
 			return h.dispatchDocumentOps(c, kbID, dsID, method, body)
 		}
@@ -1074,8 +1178,10 @@ func (h *AgentsHandler) dispatchIngestionJobRoutes(
 func (h *AgentsHandler) handleCreateDataSource(c *echo.Context, kbID string, body []byte) error {
 	var req struct {
 		DataSourceConfiguration map[string]any `json:"dataSourceConfiguration"`
+		VectorIngestionConfig   map[string]any `json:"vectorIngestionConfiguration"`
 		Name                    string         `json:"name"`
 		Description             string         `json:"description"`
+		DataDeletionPolicy      string         `json:"dataDeletionPolicy"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1085,11 +1191,13 @@ func (h *AgentsHandler) handleCreateDataSource(c *echo.Context, kbID string, bod
 		)
 	}
 
-	ds, err := h.Backend.CreateDataSource(
+	ds, err := h.Backend.CreateDataSourceWithConfiguration(
 		kbID,
 		req.Name,
 		req.Description,
+		req.DataDeletionPolicy,
 		req.DataSourceConfiguration,
+		req.VectorIngestionConfig,
 	)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
@@ -1124,8 +1232,11 @@ func (h *AgentsHandler) handleUpdateDataSource(
 	body []byte,
 ) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		DataSourceConfiguration map[string]any `json:"dataSourceConfiguration"`
+		VectorIngestionConfig   map[string]any `json:"vectorIngestionConfiguration"`
+		Name                    string         `json:"name"`
+		Description             string         `json:"description"`
+		DataDeletionPolicy      string         `json:"dataDeletionPolicy"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1135,7 +1246,15 @@ func (h *AgentsHandler) handleUpdateDataSource(
 		)
 	}
 
-	ds, err := h.Backend.UpdateDataSource(kbID, dsID, req.Name, req.Description)
+	ds, err := h.Backend.UpdateDataSourceWithConfiguration(
+		kbID,
+		dsID,
+		req.Name,
+		req.Description,
+		req.DataDeletionPolicy,
+		req.DataSourceConfiguration,
+		req.VectorIngestionConfig,
+	)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}

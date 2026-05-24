@@ -162,6 +162,8 @@ require (
 	github.com/moby/moby/client v0.4.0
 )
 
+require github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.54.0
+
 require (
 	github.com/cedar-policy/cedar-go v1.6.1
 	github.com/google/jsonschema-go v0.4.2 // indirect
