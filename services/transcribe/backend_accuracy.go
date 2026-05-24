@@ -105,6 +105,53 @@ const syntheticWordGap = 0.05
 // requiredChannelDefinitionCount is the exact number of channel definitions required for call analytics.
 const requiredChannelDefinitionCount = 2
 
+func validateTranscriptionJobInput(input *TranscriptionJob) error {
+	if err := validateJobName(input.JobName); err != nil {
+		return err
+	}
+
+	if !input.IdentifyLanguage && !input.IdentifyMultipleLanguages && input.LanguageCode == "" {
+		return fmt.Errorf(
+			"%w: LanguageCode is required (or set IdentifyLanguage/IdentifyMultipleLanguages)",
+			ErrValidation,
+		)
+	}
+
+	if err := validateLanguageCode(input.LanguageCode); err != nil {
+		return err
+	}
+
+	if err := validateMediaFormat(input.MediaFormat); err != nil {
+		return err
+	}
+
+	if err := validateMediaSampleRateHertz(input.MediaSampleRateHertz); err != nil {
+		return err
+	}
+
+	if err := validateSettings(input.Settings); err != nil {
+		return err
+	}
+
+	if err := validateContentRedaction(input.ContentRedaction); err != nil {
+		return err
+	}
+
+	if err := validateJobExecutionSettings(input.JobExecutionSettings); err != nil {
+		return err
+	}
+
+	if err := validateSubtitles(subtitlesInputFromOutput(input.Subtitles)); err != nil {
+		return err
+	}
+
+	if err := validateLanguageOptions(input.LanguageOptions); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // validateJobName checks that a job name matches the AWS-allowed pattern.
 func validateJobName(name string) error {
 	if name == "" {
@@ -211,6 +258,22 @@ func validateContentRedaction(cr *ContentRedaction) error {
 	if cr.RedactionOutput != "" && !slices.Contains(supportedRedactionOutputs(), cr.RedactionOutput) {
 		return fmt.Errorf("%w: ContentRedaction.RedactionOutput %q must be one of %v",
 			ErrValidation, cr.RedactionOutput, supportedRedactionOutputs())
+	}
+
+	return nil
+}
+
+// validateJobExecutionSettings enforces the role requirement for deferred jobs.
+func validateJobExecutionSettings(settings *JobExecutionSettings) error {
+	if settings == nil || !settings.AllowDeferredExecution {
+		return nil
+	}
+
+	if settings.DataAccessRoleArn == "" {
+		return fmt.Errorf(
+			"%w: JobExecutionSettings.DataAccessRoleArn is required when AllowDeferredExecution is true",
+			ErrValidation,
+		)
 	}
 
 	return nil

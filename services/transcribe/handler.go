@@ -255,6 +255,7 @@ type transcriptionJobOutput struct {
 	Tags                      map[string]string           `json:"Tags,omitempty"`
 	Settings                  *TranscriptionSettings      `json:"Settings,omitempty"`
 	ModelSettings             *ModelSettings              `json:"ModelSettings,omitempty"`
+	JobExecutionSettings      *JobExecutionSettings       `json:"JobExecutionSettings,omitempty"`
 	ContentRedaction          *ContentRedaction           `json:"ContentRedaction,omitempty"`
 	Subtitles                 *SubtitlesOutput            `json:"Subtitles,omitempty"`
 	Transcript                transcriptOutput            `json:"Transcript"`
@@ -290,6 +291,7 @@ type handleStartTranscriptionJobInput struct {
 	Subtitles                 *SubtitlesInput             `json:"Subtitles"`
 	ContentRedaction          *ContentRedaction           `json:"ContentRedaction"`
 	ModelSettings             *ModelSettings              `json:"ModelSettings"`
+	JobExecutionSettings      *JobExecutionSettings       `json:"JobExecutionSettings"`
 	Media                     Media                       `json:"Media"`
 	MediaFormat               string                      `json:"MediaFormat"`
 	OutputEncryptionKMSKeyID  string                      `json:"OutputEncryptionKMSKeyID"`
@@ -324,6 +326,7 @@ func (h *Handler) handleStartTranscriptionJob(
 		OutputEncryptionKMSKeyID:  in.OutputEncryptionKMSKeyID,
 		Settings:                  in.Settings,
 		ModelSettings:             in.ModelSettings,
+		JobExecutionSettings:      in.JobExecutionSettings,
 		ContentRedaction:          in.ContentRedaction,
 		Subtitles:                 subtitlesOut,
 		IdentifyLanguage:          in.IdentifyLanguage,
@@ -384,6 +387,7 @@ func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) tr
 		FailureReason:             job.FailureReason,
 		Settings:                  job.Settings,
 		ModelSettings:             job.ModelSettings,
+		JobExecutionSettings:      job.JobExecutionSettings,
 		ContentRedaction:          job.ContentRedaction,
 		Subtitles:                 job.Subtitles,
 		IdentifyLanguage:          job.IdentifyLanguage,
