@@ -24,18 +24,21 @@ var (
 )
 
 const (
-	statusSubmitted     = "SUBMITTED"
-	statusInProgress    = "IN_PROGRESS"
-	statusCompleted     = "COMPLETED"
-	statusFailed        = "FAILED"
-	statusStopRequested = "STOP_REQUESTED"
-	statusStopped       = "STOPPED"
-	statusTrained       = "TRAINED"
-	statusReady         = "READY"
-	statusActive        = "ACTIVE"
-	defaultLanguageCode = "en"
-	defaultScore        = 0.99
-	failedMarker        = "[fail]"
+	statusSubmitted      = "SUBMITTED"
+	statusInProgress     = "IN_PROGRESS"
+	statusCompleted      = "COMPLETED"
+	statusFailed         = "FAILED"
+	statusStopRequested  = "STOP_REQUESTED"
+	statusStopped        = "STOPPED"
+	statusTrained        = "TRAINED"
+	statusReady          = "READY"
+	statusActive         = "ACTIVE"
+	defaultLanguageCode  = "en"
+	defaultScore         = 0.99
+	failedMarker         = "[fail]"
+	resourceTypeEndpoint = "endpoint"
+	resourceTypeFlywheel = "flywheel"
+	resourceTypeDataset  = "dataset"
 )
 
 // Tag is a Comprehend resource tag.
@@ -46,52 +49,52 @@ type Tag struct {
 
 // Job represents an asynchronous document-analysis job.
 type Job struct {
-	SubmitTime              time.Time
-	EndTime                 time.Time
-	JobID                   string
-	JobArn                  string
-	JobName                 string
-	JobType                 string
-	JobStatus               string
-	LanguageCode            string
-	FailureReason           string
-	InputDataConfig         map[string]any
-	OutputDataConfig        map[string]any
-	DataAccessRoleArn       string
-	DocumentClassifierArn   string
-	EntityRecognizerArn     string
-	TargetEventTypes        []string
-	polls                   int
-	stopRequested           bool
-	shouldFail              bool
+	SubmitTime            time.Time
+	EndTime               time.Time
+	JobID                 string
+	JobArn                string
+	JobName               string
+	JobType               string
+	JobStatus             string
+	LanguageCode          string
+	FailureReason         string
+	InputDataConfig       map[string]any
+	OutputDataConfig      map[string]any
+	DataAccessRoleArn     string
+	DocumentClassifierArn string
+	EntityRecognizerArn   string
+	TargetEventTypes      []string
+	polls                 int
+	stopRequested         bool
+	shouldFail            bool
 }
 
 // Resource stores a Comprehend trainable or hosted resource.
 type Resource struct {
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	Name            string
-	Arn             string
-	Type            string
-	Status          string
-	VersionName     string
-	ModelArn        string
-	FlywheelArn     string
-	EndpointArn     string
-	DatasetArn      string
-	Configuration   map[string]any
-	FailureReason   string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	Name          string
+	Arn           string
+	Type          string
+	Status        string
+	VersionName   string
+	ModelArn      string
+	FlywheelArn   string
+	EndpointArn   string
+	DatasetArn    string
+	Configuration map[string]any
+	FailureReason string
 }
 
 // FlywheelIteration represents one model training iteration.
 type FlywheelIteration struct {
-	CreationTime      time.Time
-	EndTime           time.Time
-	FlywheelArn       string
-	FlywheelIterationID string
+	CreationTime            time.Time
+	EndTime                 time.Time
+	FlywheelArn             string
+	FlywheelIterationID     string
 	FlywheelIterationStatus string
-	Message           string
-	polls             int
+	Message                 string
+	polls                   int
 }
 
 // InMemoryBackend stores Comprehend state safely for concurrent requests.
@@ -153,10 +156,10 @@ func (b *InMemoryBackend) StartJob(jobType, name string, values map[string]any) 
 		JobName:               name,
 		JobType:               jobType,
 		JobStatus:             statusSubmitted,
-		LanguageCode:          stringValue(values, "LanguageCode", defaultLanguageCode),
+		LanguageCode:          stringValue(values, fieldLanguageCode, defaultLanguageCode),
 		DataAccessRoleArn:     stringValue(values, "DataAccessRoleArn", ""),
-		DocumentClassifierArn: stringValue(values, "DocumentClassifierArn", ""),
-		EntityRecognizerArn:   stringValue(values, "EntityRecognizerArn", ""),
+		DocumentClassifierArn: stringValue(values, fieldDocumentClassifierARN, ""),
+		EntityRecognizerArn:   stringValue(values, fieldEntityRecognizerARN, ""),
 		InputDataConfig:       mapValue(values, "InputDataConfig"),
 		OutputDataConfig:      mapValue(values, "OutputDataConfig"),
 		TargetEventTypes:      stringSliceValue(values, "TargetEventTypes"),
@@ -264,13 +267,13 @@ func (b *InMemoryBackend) CreateResource(
 		Status:        initialResourceStatus(resourceType),
 		VersionName:   versionName,
 		ModelArn:      stringValue(values, "ModelArn", ""),
-		FlywheelArn:   stringValue(values, "FlywheelArn", ""),
+		FlywheelArn:   stringValue(values, fieldFlywheelARN, ""),
 		Configuration: cloneMap(values),
 	}
 	switch resourceType {
-	case "endpoint":
+	case resourceTypeEndpoint:
 		resource.EndpointArn = resourceArn
-	case "dataset":
+	case resourceTypeDataset:
 		resource.DatasetArn = resourceArn
 	}
 	b.resources[resourceArn] = resource
@@ -341,7 +344,7 @@ func (b *InMemoryBackend) DeleteResource(resourceArn, resourceType string) error
 
 // StartFlywheelIteration creates an asynchronous flywheel iteration.
 func (b *InMemoryBackend) StartFlywheelIteration(flywheelArn string) (*FlywheelIteration, error) {
-	if _, err := b.GetResource(flywheelArn, "flywheel"); err != nil {
+	if _, err := b.GetResource(flywheelArn, resourceTypeFlywheel); err != nil {
 		return nil, err
 	}
 
@@ -369,9 +372,10 @@ func (b *InMemoryBackend) GetFlywheelIteration(id string) (*FlywheelIteration, e
 	if !ok {
 		return nil, fmt.Errorf("%w: iteration %q", ErrNotFound, id)
 	}
-	if iteration.FlywheelIterationStatus == statusSubmitted {
+	switch iteration.FlywheelIterationStatus {
+	case statusSubmitted:
 		iteration.FlywheelIterationStatus = statusInProgress
-	} else if iteration.FlywheelIterationStatus == statusInProgress {
+	case statusInProgress:
 		iteration.FlywheelIterationStatus = statusCompleted
 		iteration.EndTime = time.Now().UTC()
 	}
@@ -460,9 +464,9 @@ func (b *InMemoryBackend) resourceARN(resourceType, name, version string) string
 
 func initialResourceStatus(resourceType string) string {
 	switch resourceType {
-	case "endpoint":
+	case resourceTypeEndpoint:
 		return statusActive
-	case "flywheel", "dataset":
+	case resourceTypeFlywheel, resourceTypeDataset:
 		return statusReady
 	default:
 		return statusTrained
@@ -513,23 +517,23 @@ func cloneMap(source map[string]any) map[string]any {
 }
 
 func cloneJob(job *Job) *Job {
-	copy := *job
-	copy.InputDataConfig = cloneMap(job.InputDataConfig)
-	copy.OutputDataConfig = cloneMap(job.OutputDataConfig)
-	copy.TargetEventTypes = append([]string(nil), job.TargetEventTypes...)
+	cloned := *job
+	cloned.InputDataConfig = cloneMap(job.InputDataConfig)
+	cloned.OutputDataConfig = cloneMap(job.OutputDataConfig)
+	cloned.TargetEventTypes = append([]string(nil), job.TargetEventTypes...)
 
-	return &copy
+	return &cloned
 }
 
 func cloneResource(resource *Resource) *Resource {
-	copy := *resource
-	copy.Configuration = cloneMap(resource.Configuration)
+	cloned := *resource
+	cloned.Configuration = cloneMap(resource.Configuration)
 
-	return &copy
+	return &cloned
 }
 
 func cloneIteration(iteration *FlywheelIteration) *FlywheelIteration {
-	copy := *iteration
+	cloned := *iteration
 
-	return &copy
+	return &cloned
 }
