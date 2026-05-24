@@ -44,8 +44,6 @@ import (
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/labstack/echo/v5"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
@@ -4169,10 +4167,14 @@ func startServer(ctx context.Context, port string, e *echo.Echo) error {
 	log.InfoContext(ctx, "  S3 endpoint      ", "url", "http://localhost"+port+" (path-style)")
 	log.InfoContext(ctx, "  Dashboard        ", "url", "http://localhost"+port+"/dashboard")
 
-	h2s := &http2.Server{}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+
 	server := &http.Server{
 		Addr:              port,
-		Handler:           h2c.NewHandler(e, h2s),
+		Handler:           e,
+		Protocols:         protocols,
 		ReadTimeout:       defaultTimeout,
 		ReadHeaderTimeout: defaultReadHeaderTimeout, // Security best practice
 		// WriteTimeout intentionally 0: long-lived ConnectRPC streams
