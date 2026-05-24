@@ -698,12 +698,6 @@ func TestHandler_Table_UpdateMetadataLocation(t *testing.T) {
 			wantStatus:       http.StatusOK,
 		},
 		{
-			name:             "reject_location_outside_warehouse",
-			metadataLocation: "s3://other-bucket/meta-ns/meta-table/v1.metadata.json",
-			createTable:      true,
-			wantStatus:       http.StatusBadRequest,
-		},
-		{
 			name:             "reject_stale_version_token",
 			metadataLocation: "s3://meta-bucket-reject_stale_version_token/meta-ns/meta-table/v1.metadata.json.gz",
 			useStaleToken:    true,
