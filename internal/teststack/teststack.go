@@ -398,7 +398,6 @@ func registerServices(
 	schedulerHndlr *schedulerbackend.Handler,
 	route53resolverHndlr *route53resolverbackend.Handler,
 	transcribeHndlr *transcribebackend.Handler,
-	pollyHndlr *pollybackend.Handler,
 	supportHndlr *supportbackend.Handler,
 	cognitoIdentityHndlr *cognitoidentitybackend.Handler,
 	appSyncHndlr *appsyncbackend.Handler,
@@ -451,7 +450,6 @@ func registerServices(
 	_ = registry.Register(schedulerHndlr)
 	_ = registry.Register(route53resolverHndlr)
 	_ = registry.Register(transcribeHndlr)
-	_ = registry.Register(pollyHndlr)
 	_ = registry.Register(supportHndlr)
 	_ = registry.Register(cognitoIdentityHndlr)
 	_ = registry.Register(appSyncHndlr)
@@ -513,6 +511,7 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 
 // registerLatestServices registers the most recently added service handlers.
 func registerLatestServices(registry *service.Registry, h handlers) {
+	_ = registry.Register(h.polly)
 	_ = registry.Register(h.neptune)
 	_ = registry.Register(h.pinpoint)
 	_ = registry.Register(h.pipes)
@@ -1093,7 +1092,7 @@ func New(t *testing.T) *Stack {
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
 		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.iot, h.opensearch,
 		h.acm, h.acmpca, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
-		h.scheduler, h.route53resolver, h.transcribe, h.polly, h.support, h.cognitoIdentity,
+		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
 		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData,
 		h.amplify, h.apigwv2, h.appConfig, h.athena, h.backup,
 	)

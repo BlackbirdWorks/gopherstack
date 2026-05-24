@@ -45,7 +45,7 @@ const (
 	queryStatus                  = "Status"
 	queryNextToken               = "NextToken"
 	queryMaxResults              = "MaxResults"
-	headerRequestCharacters      = "x-amzn-RequestCharacters"
+	headerRequestCharacters      = "X-Amzn-Requestcharacters"
 	headerStreamEngine           = "X-Amzn-Engine"
 	headerStreamLanguageCode     = "X-Amzn-Languagecode"
 	headerStreamLexiconNames     = "X-Amzn-Lexiconnames"
@@ -56,6 +56,7 @@ const (
 	messageTypeHeader            = ":message-type"
 	contentTypeHeader            = ":content-type"
 	eventMessageType             = "event"
+	millisecondsPerSecond        = 1000
 )
 
 // Handler implements Amazon Polly REST JSON operations.
@@ -143,36 +144,51 @@ type route struct {
 }
 
 func parseRoute(method, path string) route {
-	switch {
-	case method == http.MethodPost && path == "/v1/speech":
-		return route{operation: opSynthesizeSpeech}
-	case method == http.MethodPost && path == "/v1/synthesisStream":
-		return route{operation: opStartSpeechSynthesisStream}
-	case method == http.MethodPost && path == "/v1/synthesisTasks":
-		return route{operation: opStartSpeechSynthesisTask}
-	case method == http.MethodGet && path == "/v1/synthesisTasks":
-		return route{operation: opListSpeechSynthesisTasks}
-	case method == http.MethodGet && strings.HasPrefix(path, "/v1/synthesisTasks/"):
-		return route{operation: opGetSpeechSynthesisTask, resource: suffix(path, "/v1/synthesisTasks/")}
-	case method == http.MethodGet && path == "/v1/voices":
-		return route{operation: opDescribeVoices}
-	case method == http.MethodGet && path == "/v1/lexicons":
-		return route{operation: opListLexicons}
-	case method == http.MethodPut && strings.HasPrefix(path, "/v1/lexicons/"):
-		return route{operation: opPutLexicon, resource: suffix(path, "/v1/lexicons/")}
-	case method == http.MethodGet && strings.HasPrefix(path, "/v1/lexicons/"):
-		return route{operation: opGetLexicon, resource: suffix(path, "/v1/lexicons/")}
-	case method == http.MethodDelete && strings.HasPrefix(path, "/v1/lexicons/"):
-		return route{operation: opDeleteLexicon, resource: suffix(path, "/v1/lexicons/")}
-	case method == http.MethodGet && strings.HasPrefix(path, "/v1/tags/"):
-		return route{operation: opListTagsForResource, resource: suffix(path, "/v1/tags/")}
-	case method == http.MethodPost && strings.HasPrefix(path, "/v1/tags/"):
-		return route{operation: opTagResource, resource: suffix(path, "/v1/tags/")}
-	case method == http.MethodDelete && strings.HasPrefix(path, "/v1/tags/"):
-		return route{operation: opUntagResource, resource: suffix(path, "/v1/tags/")}
-	default:
-		return route{operation: opUnknown}
+	exactRoutes := map[string]map[string]string{
+		"/v1/speech":          {http.MethodPost: opSynthesizeSpeech},
+		"/v1/synthesisStream": {http.MethodPost: opStartSpeechSynthesisStream},
+		"/v1/synthesisTasks": {
+			http.MethodPost: opStartSpeechSynthesisTask,
+			http.MethodGet:  opListSpeechSynthesisTasks,
+		},
+		"/v1/voices":   {http.MethodGet: opDescribeVoices},
+		"/v1/lexicons": {http.MethodGet: opListLexicons},
 	}
+	if byMethod, ok := exactRoutes[path]; ok {
+		if operation, found := byMethod[method]; found {
+			return route{operation: operation}
+		}
+	}
+
+	resourceRoutes := []struct {
+		operations map[string]string
+		prefix     string
+	}{
+		{prefix: "/v1/synthesisTasks/", operations: map[string]string{http.MethodGet: opGetSpeechSynthesisTask}},
+		{
+			prefix: "/v1/lexicons/",
+			operations: map[string]string{
+				http.MethodPut: opPutLexicon, http.MethodGet: opGetLexicon, http.MethodDelete: opDeleteLexicon,
+			},
+		},
+		{
+			prefix: "/v1/tags/",
+			operations: map[string]string{
+				http.MethodGet:    opListTagsForResource,
+				http.MethodPost:   opTagResource,
+				http.MethodDelete: opUntagResource,
+			},
+		},
+	}
+	for _, configured := range resourceRoutes {
+		if strings.HasPrefix(path, configured.prefix) {
+			if operation, ok := configured.operations[method]; ok {
+				return route{operation: operation, resource: suffix(path, configured.prefix)}
+			}
+		}
+	}
+
+	return route{operation: opUnknown}
 }
 
 func suffix(path, prefix string) string {
@@ -220,27 +236,17 @@ func (h *Handler) dispatch(c *echo.Context, r route) error {
 type synthesisInput struct {
 	Engine          string   `json:"Engine"`
 	LanguageCode    string   `json:"LanguageCode"`
-	LexiconNames    []string `json:"LexiconNames"`
 	OutputFormat    string   `json:"OutputFormat"`
 	SampleRate      string   `json:"SampleRate"`
-	SpeechMarkTypes []string `json:"SpeechMarkTypes"`
 	Text            string   `json:"Text"`
 	TextType        string   `json:"TextType"`
 	VoiceID         string   `json:"VoiceId"`
+	LexiconNames    []string `json:"LexiconNames"`
+	SpeechMarkTypes []string `json:"SpeechMarkTypes"`
 }
 
 func (in synthesisInput) options() SynthesisOptions {
-	return SynthesisOptions{
-		Engine:          in.Engine,
-		LanguageCode:    in.LanguageCode,
-		LexiconNames:    in.LexiconNames,
-		OutputFormat:    in.OutputFormat,
-		SampleRate:      in.SampleRate,
-		SpeechMarkTypes: in.SpeechMarkTypes,
-		Text:            in.Text,
-		TextType:        in.TextType,
-		VoiceID:         in.VoiceID,
-	}
+	return SynthesisOptions(in)
 }
 
 func (h *Handler) synthesizeSpeech(c *echo.Context) error {
@@ -277,7 +283,7 @@ func (h *Handler) startSpeechSynthesisStream(c *echo.Context) error {
 
 	text, textType, err := decodeStreamText(c.Request().Body)
 	if err != nil {
-		return fmt.Errorf("%w: invalid synthesis stream: %v", ErrValidation, err)
+		return fmt.Errorf("%w: invalid synthesis stream: %w", ErrValidation, err)
 	}
 	options.Text = text
 	options.TextType = textType
@@ -289,16 +295,16 @@ func (h *Handler) startSpeechSynthesisStream(c *echo.Context) error {
 
 	var stream bytes.Buffer
 	encoder := eventstream.NewEncoder()
-	if err := encodeEvent(encoder, &stream, "AudioEvent", result.Data); err != nil {
-		return err
+	if encodeErr := encodeEvent(encoder, &stream, "AudioEvent", result.Data); encodeErr != nil {
+		return encodeErr
 	}
 
 	closed, err := json.Marshal(map[string]int{"RequestCharacters": result.RequestCharacters})
 	if err != nil {
 		return err
 	}
-	if err := encodeEvent(encoder, &stream, "StreamClosedEvent", closed); err != nil {
-		return err
+	if encodeErr := encodeEvent(encoder, &stream, "StreamClosedEvent", closed); encodeErr != nil {
+		return encodeErr
 	}
 
 	return c.Blob(http.StatusOK, "application/vnd.amazon.eventstream", stream.Bytes())
@@ -307,7 +313,7 @@ func (h *Handler) startSpeechSynthesisStream(c *echo.Context) error {
 func splitHeader(values []string) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
-		for _, name := range strings.Split(value, ",") {
+		for name := range strings.SplitSeq(value, ",") {
 			if strings.TrimSpace(name) != "" {
 				out = append(out, strings.Trim(strings.TrimSpace(name), `"`))
 			}
@@ -319,7 +325,7 @@ func splitHeader(values []string) []string {
 
 func decodeStreamText(body io.Reader) (string, string, error) {
 	decoder := eventstream.NewDecoder()
-	textType := "text"
+	textType := textTypeText
 	var texts []string
 
 	for {
@@ -337,8 +343,8 @@ func decodeStreamText(body io.Reader) (string, string, error) {
 		}
 
 		var event streamTextEvent
-		if err := json.Unmarshal(message.Payload, &event); err != nil {
-			return "", "", err
+		if jsonErr := json.Unmarshal(message.Payload, &event); jsonErr != nil {
+			return "", "", jsonErr
 		}
 		texts = append(texts, event.Text)
 		if event.TextType != "" {
@@ -361,34 +367,34 @@ func encodeEvent(encoder *eventstream.Encoder, out io.Writer, eventType string, 
 }
 
 type startTaskInput struct {
-	synthesisInput
 	OutputS3BucketName string `json:"OutputS3BucketName"`
 	SNSRoleArn         string `json:"SnsRoleArn"`
 	SNSTopicArn        string `json:"SnsTopicArn"`
+	synthesisInput
 }
 
 type taskOutput struct {
-	CreationTime      float64  `json:"CreationTime"`
-	Engine            string   `json:"Engine"`
-	LanguageCode      string   `json:"LanguageCode,omitempty"`
-	LexiconNames      []string `json:"LexiconNames,omitempty"`
-	OutputFormat      string   `json:"OutputFormat"`
-	OutputURI         string   `json:"OutputUri"`
-	RequestCharacters int      `json:"RequestCharacters"`
-	SampleRate        string   `json:"SampleRate"`
 	SNSRoleArn        string   `json:"SnsRoleArn,omitempty"`
 	SNSTopicArn       string   `json:"SnsTopicArn,omitempty"`
-	SpeechMarkTypes   []string `json:"SpeechMarkTypes,omitempty"`
-	TaskID            string   `json:"TaskId"`
-	TaskStatus        string   `json:"TaskStatus"`
-	TaskStatusReason  string   `json:"TaskStatusReason,omitempty"`
-	TextType          string   `json:"TextType"`
+	LanguageCode      string   `json:"LanguageCode,omitempty"`
 	VoiceID           string   `json:"VoiceId"`
+	OutputFormat      string   `json:"OutputFormat"`
+	OutputURI         string   `json:"OutputUri"`
+	Engine            string   `json:"Engine"`
+	TextType          string   `json:"TextType"`
+	TaskStatusReason  string   `json:"TaskStatusReason,omitempty"`
+	SampleRate        string   `json:"SampleRate"`
+	TaskStatus        string   `json:"TaskStatus"`
+	TaskID            string   `json:"TaskId"`
+	SpeechMarkTypes   []string `json:"SpeechMarkTypes,omitempty"`
+	LexiconNames      []string `json:"LexiconNames,omitempty"`
+	CreationTime      float64  `json:"CreationTime"`
+	RequestCharacters int      `json:"RequestCharacters"`
 }
 
 func buildTaskOutput(task *SpeechSynthesisTask) taskOutput {
 	return taskOutput{
-		CreationTime:      float64(task.CreationTime.UnixMilli()) / 1000,
+		CreationTime:      float64(task.CreationTime.UnixMilli()) / millisecondsPerSecond,
 		Engine:            task.Options.Engine,
 		LanguageCode:      task.Options.LanguageCode,
 		LexiconNames:      task.Options.LexiconNames,
@@ -525,7 +531,7 @@ func lexiconAttributes(lexicon *Lexicon) map[string]any {
 	return map[string]any{
 		"Alphabet":     lexicon.Alphabet,
 		"LanguageCode": lexicon.LanguageCode,
-		"LastModified": float64(lexicon.LastModified.UnixMilli()) / 1000,
+		"LastModified": float64(lexicon.LastModified.UnixMilli()) / millisecondsPerSecond,
 		"LexemesCount": lexicon.LexemesCount,
 		"LexiconArn":   lexicon.ARN,
 		"Size":         lexicon.Size,
@@ -594,8 +600,8 @@ func decodeRequest(c *echo.Context, value any) error {
 	if err != nil {
 		return fmt.Errorf("%w: failed to read body", ErrValidation)
 	}
-	if err := json.Unmarshal(body, value); err != nil {
-		return fmt.Errorf("%w: invalid JSON: %v", ErrValidation, err)
+	if jsonErr := json.Unmarshal(body, value); jsonErr != nil {
+		return fmt.Errorf("%w: invalid JSON: %w", ErrValidation, jsonErr)
 	}
 
 	return nil
@@ -603,8 +609,10 @@ func decodeRequest(c *echo.Context, value any) error {
 
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
-	case errors.Is(err, ErrNotFound):
+	case errors.Is(err, ErrLexiconNotFound):
 		return writeError(c, http.StatusNotFound, "LexiconNotFoundException", err.Error())
+	case errors.Is(err, ErrTaskNotFound):
+		return writeError(c, http.StatusNotFound, "SynthesisTaskNotFoundException", err.Error())
 	case errors.Is(err, ErrValidation):
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	default:

@@ -3,9 +3,9 @@ package polly
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +21,15 @@ const (
 	defaultSampleRatePCM = "16000"
 	defaultLanguageCode  = "en-US"
 	defaultEngine        = "standard"
+	engineNeural         = "neural"
+	engineLongForm       = "long-form"
+	engineGenerative     = "generative"
+	outputFormatMP3      = "mp3"
+	outputFormatOGG      = "ogg_vorbis"
+	outputFormatPCM      = "pcm"
+	outputFormatJSON     = "json"
+	textTypeText         = "text"
+	genderFemale         = "Female"
 	taskStatusScheduled  = "scheduled"
 	taskStatusProgress   = "inProgress"
 	taskStatusCompleted  = "completed"
@@ -30,8 +39,10 @@ const (
 )
 
 var (
-	// ErrNotFound is returned when a requested Polly resource is absent.
-	ErrNotFound = errors.New("NotFoundException")
+	// ErrLexiconNotFound is returned when a requested lexicon is absent.
+	ErrLexiconNotFound = errors.New("LexiconNotFoundException")
+	// ErrTaskNotFound is returned when a requested synthesis task is absent.
+	ErrTaskNotFound = errors.New("SynthesisTaskNotFoundException")
 	// ErrValidation is returned when request parameters do not meet Polly constraints.
 	ErrValidation = errors.New("InvalidParameterValueException")
 )
@@ -69,19 +80,18 @@ type Voice struct {
 type SynthesisOptions struct {
 	Engine          string
 	LanguageCode    string
-	LexiconNames    []string
 	OutputFormat    string
 	SampleRate      string
-	SpeechMarkTypes []string
 	Text            string
 	TextType        string
 	VoiceID         string
+	LexiconNames    []string
+	SpeechMarkTypes []string
 }
 
 // SpeechSynthesisTask represents an asynchronous synthesis task.
 type SpeechSynthesisTask struct {
 	CreationTime       time.Time
-	Options            SynthesisOptions
 	TaskID             string
 	TaskStatus         string
 	TaskStatusReason   string
@@ -89,13 +99,14 @@ type SpeechSynthesisTask struct {
 	OutputS3BucketName string
 	SNSRoleArn         string
 	SNSTopicArn        string
+	Options            SynthesisOptions
 	polls              int
 }
 
 // SynthesizedSpeech is deterministic output from SynthesizeSpeech.
 type SynthesizedSpeech struct {
-	Data              []byte
 	ContentType       string
+	Data              []byte
 	RequestCharacters int
 }
 
@@ -112,9 +123,9 @@ type InMemoryBackend struct {
 	lexicons  map[string]*Lexicon
 	tasks     map[string]*SpeechSynthesisTask
 	tags      map[string]map[string]string
-	voices    []Voice
 	accountID string
 	region    string
+	voices    []Voice
 	mu        sync.RWMutex
 }
 
@@ -178,7 +189,7 @@ func (b *InMemoryBackend) GetLexicon(name string) (*Lexicon, error) {
 
 	lexicon, ok := b.lexicons[name]
 	if !ok {
-		return nil, fmt.Errorf("%w: lexicon %q", ErrNotFound, name)
+		return nil, fmt.Errorf("%w: lexicon %q", ErrLexiconNotFound, name)
 	}
 
 	return cloneLexicon(lexicon), nil
@@ -190,7 +201,7 @@ func (b *InMemoryBackend) DeleteLexicon(name string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.lexicons[name]; !ok {
-		return fmt.Errorf("%w: lexicon %q", ErrNotFound, name)
+		return fmt.Errorf("%w: lexicon %q", ErrLexiconNotFound, name)
 	}
 
 	delete(b.lexicons, name)
@@ -247,7 +258,7 @@ func (b *InMemoryBackend) SynthesizeSpeech(options SynthesisOptions) (*Synthesiz
 		return nil, err
 	}
 
-	if normal.OutputFormat == "json" {
+	if normal.OutputFormat == outputFormatJSON {
 		return &SynthesizedSpeech{
 			Data:              speechMarks(normal),
 			ContentType:       "application/x-json-stream",
@@ -255,9 +266,7 @@ func (b *InMemoryBackend) SynthesizeSpeech(options SynthesisOptions) (*Synthesiz
 		}, nil
 	}
 
-	data := []byte(
-		fmt.Sprintf("POLLY:%s:%s:%s:%s", normal.OutputFormat, normal.SampleRate, normal.VoiceID, normal.Text),
-	)
+	data := fmt.Appendf(nil, "POLLY:%s:%s:%s:%s", normal.OutputFormat, normal.SampleRate, normal.VoiceID, normal.Text)
 
 	return &SynthesizedSpeech{
 		Data:              data,
@@ -307,7 +316,7 @@ func (b *InMemoryBackend) GetSpeechSynthesisTask(taskID string) (*SpeechSynthesi
 
 	task, ok := b.tasks[taskID]
 	if !ok {
-		return nil, fmt.Errorf("%w: task %q", ErrNotFound, taskID)
+		return nil, fmt.Errorf("%w: task %q", ErrTaskNotFound, taskID)
 	}
 
 	advanceTask(task)
@@ -349,7 +358,7 @@ func (b *InMemoryBackend) ListSpeechSynthesisTasks(
 			out = append(out, cloneTask(task))
 		}
 		if len(out) == maxResults {
-			return out, fmt.Sprintf("%d", offset+len(out)), nil
+			return out, strconv.Itoa(offset + len(out)), nil
 		}
 	}
 
@@ -367,7 +376,7 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags []Tag) error {
 
 	current, ok := b.tags[resourceArn]
 	if !ok {
-		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
+		return fmt.Errorf("%w: resource %q", ErrValidation, resourceArn)
 	}
 	for _, tag := range tags {
 		current[tag.Key] = tag.Value
@@ -383,7 +392,7 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, keys []string) error
 
 	current, ok := b.tags[resourceArn]
 	if !ok {
-		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
+		return fmt.Errorf("%w: resource %q", ErrValidation, resourceArn)
 	}
 	for _, key := range keys {
 		delete(current, key)
@@ -399,7 +408,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) ([]Tag, error)
 
 	current, ok := b.tags[resourceArn]
 	if !ok {
-		return nil, fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
+		return nil, fmt.Errorf("%w: resource %q", ErrValidation, resourceArn)
 	}
 
 	keys := make([]string, 0, len(current))
@@ -454,7 +463,7 @@ func (b *InMemoryBackend) validateOptions(options SynthesisOptions) (SynthesisOp
 	}
 	for _, name := range options.LexiconNames {
 		if _, ok := b.lexicons[name]; !ok {
-			return options, fmt.Errorf("%w: lexicon %q", ErrNotFound, name)
+			return options, fmt.Errorf("%w: lexicon %q", ErrLexiconNotFound, name)
 		}
 	}
 
@@ -556,17 +565,18 @@ func defaultOptions(options SynthesisOptions) SynthesisOptions {
 		options.Engine = defaultEngine
 	}
 	if options.TextType == "" {
-		options.TextType = "text"
+		options.TextType = textTypeText
 	}
 	if options.OutputFormat == "" {
-		options.OutputFormat = "mp3"
+		options.OutputFormat = outputFormatMP3
 	}
 	if options.SampleRate == "" {
-		if options.OutputFormat == "pcm" {
+		switch {
+		case options.OutputFormat == outputFormatPCM:
 			options.SampleRate = defaultSampleRatePCM
-		} else if options.Engine != defaultEngine {
+		case options.Engine != defaultEngine:
 			options.SampleRate = "24000"
-		} else {
+		default:
 			options.SampleRate = defaultSampleRateMP3
 		}
 	}
@@ -580,10 +590,10 @@ func validateSpeechMarks(options SynthesisOptions) error {
 			return fmt.Errorf("%w: invalid SpeechMarkType %q", ErrValidation, speechMark)
 		}
 	}
-	if len(options.SpeechMarkTypes) > 0 && options.OutputFormat != "json" {
+	if len(options.SpeechMarkTypes) > 0 && options.OutputFormat != outputFormatJSON {
 		return fmt.Errorf("%w: speech marks require json OutputFormat", ErrValidation)
 	}
-	if len(options.SpeechMarkTypes) == 0 && options.OutputFormat == "json" {
+	if len(options.SpeechMarkTypes) == 0 && options.OutputFormat == outputFormatJSON {
 		return fmt.Errorf("%w: json OutputFormat requires SpeechMarkTypes", ErrValidation)
 	}
 
@@ -604,10 +614,10 @@ func validateTags(tags []Tag) error {
 
 func validSampleRate(format, rate string) bool {
 	rates := map[string][]string{
-		"mp3":        {"8000", "16000", "22050", "24000", "44100", "48000"},
-		"ogg_vorbis": {"8000", "16000", "22050", "24000", "44100", "48000"},
-		"pcm":        {"8000", "16000"},
-		"json":       {"8000", "16000", "22050", "24000"},
+		outputFormatMP3:  {"8000", "16000", "22050", "24000", "44100", "48000"},
+		outputFormatOGG:  {"8000", "16000", "22050", "24000", "44100", "48000"},
+		outputFormatPCM:  {"8000", "16000"},
+		outputFormatJSON: {"8000", "16000", "22050", "24000"},
 	}
 
 	return slices.Contains(rates[format], rate)
@@ -615,16 +625,16 @@ func validSampleRate(format, rate string) bool {
 
 func contentTypeForFormat(format string) string {
 	contentTypes := map[string]string{
-		"mp3":        "audio/mpeg",
-		"ogg_vorbis": "audio/ogg",
-		"pcm":        "audio/pcm",
+		outputFormatMP3: "audio/mpeg",
+		outputFormatOGG: "audio/ogg",
+		outputFormatPCM: "audio/pcm",
 	}
 
 	return contentTypes[format]
 }
 
 func taskExtension(format string) string {
-	if format == "ogg_vorbis" {
+	if format == outputFormatOGG {
 		return "ogg"
 	}
 
@@ -653,11 +663,15 @@ func parseToken(token string, total int) (int, error) {
 	return offset, nil
 }
 
-func validEngines() []string { return []string{"standard", "neural", "long-form", "generative"} }
+func validEngines() []string {
+	return []string{defaultEngine, engineNeural, engineLongForm, engineGenerative}
+}
 
-func validOutputFormats() []string { return []string{"mp3", "ogg_vorbis", "pcm", "json"} }
+func validOutputFormats() []string {
+	return []string{outputFormatMP3, outputFormatOGG, outputFormatPCM, outputFormatJSON}
+}
 
-func validTextTypes() []string { return []string{"text", "ssml"} }
+func validTextTypes() []string { return []string{textTypeText, "ssml"} }
 
 func validSpeechMarkTypes() []string { return []string{"sentence", "ssml", "viseme", "word"} }
 
@@ -668,37 +682,23 @@ func validTaskStatuses() []string {
 func builtInVoices() []Voice {
 	return []Voice{
 		{
-			ID: "Joanna", Name: "Joanna", Gender: "Female", LanguageCode: "en-US",
-			LanguageName: "US English", SupportedEngines: []string{"standard", "neural", "long-form", "generative"},
+			ID: "Joanna", Name: "Joanna", Gender: genderFemale, LanguageCode: "en-US",
+			LanguageName:     "US English",
+			SupportedEngines: []string{defaultEngine, engineNeural, engineLongForm, engineGenerative},
 		},
 		{
 			ID: "Matthew", Name: "Matthew", Gender: "Male", LanguageCode: "en-US",
-			LanguageName: "US English", SupportedEngines: []string{"standard", "neural", "long-form", "generative"},
+			LanguageName:     "US English",
+			SupportedEngines: []string{defaultEngine, engineNeural, engineLongForm, engineGenerative},
 		},
 		{
-			ID: "Aditi", Name: "Aditi", Gender: "Female", LanguageCode: "en-IN",
+			ID: "Aditi", Name: "Aditi", Gender: genderFemale, LanguageCode: "en-IN",
 			LanguageName: "Indian English", AdditionalLanguageCodes: []string{"hi-IN"},
-			SupportedEngines: []string{"standard"},
+			SupportedEngines: []string{defaultEngine},
 		},
 		{
-			ID: "Amy", Name: "Amy", Gender: "Female", LanguageCode: "en-GB",
-			LanguageName: "British English", SupportedEngines: []string{"standard", "neural"},
+			ID: "Amy", Name: "Amy", Gender: genderFemale, LanguageCode: "en-GB",
+			LanguageName: "British English", SupportedEngines: []string{defaultEngine, engineNeural},
 		},
 	}
-}
-
-func tagsMap(tags []Tag) map[string]string {
-	out := make(map[string]string, len(tags))
-	for _, tag := range tags {
-		out[tag.Key] = tag.Value
-	}
-
-	return out
-}
-
-func copyTags(tags map[string]string) map[string]string {
-	out := make(map[string]string, len(tags))
-	maps.Copy(out, tags)
-
-	return out
 }

@@ -27,8 +27,8 @@ func TestBackendLexiconAndTagsErrors(t *testing.T) {
 
 	backend := polly.NewInMemoryBackend()
 	tests := []struct {
-		name string
 		run  func() error
+		name string
 	}{
 		{name: "invalid_lexicon", run: func() error { return backend.PutLexicon("bad name", "xml") }},
 		{name: "missing_delete", run: func() error { return backend.DeleteLexicon("absent") }},
@@ -40,6 +40,8 @@ func TestBackendLexiconAndTagsErrors(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			assert.Error(t, test.run())
 		})
 	}

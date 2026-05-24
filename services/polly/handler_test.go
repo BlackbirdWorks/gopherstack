@@ -111,7 +111,7 @@ func TestHandlerMetadataAndRouting(t *testing.T) {
 	assert.Equal(t, "polly", handler.ChaosServiceName())
 	assert.Contains(t, handler.GetSupportedOperations(), "DescribeVoices")
 	assert.Equal(t, []string{config.DefaultRegion}, handler.ChaosRegions())
-	assert.Greater(t, handler.MatchPriority(), 0)
+	assert.Positive(t, handler.MatchPriority())
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -168,8 +168,8 @@ func TestSynthesizeSpeechFormats(t *testing.T) {
 		rate        string
 		textType    string
 		contentType string
-		marks       []string
 		bodyPart    string
+		marks       []string
 	}{
 		{name: "mp3", format: "mp3", rate: "22050", textType: "text", contentType: "audio/mpeg", bodyPart: "POLLY:mp3"},
 		{
@@ -224,7 +224,7 @@ func TestSynthesizeSpeechFormats(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, test.contentType, rec.Header().Get("Content-Type"))
-			assert.Equal(t, "11", rec.Header().Get("x-amzn-RequestCharacters"))
+			assert.Equal(t, "11", rec.Header().Get("X-Amzn-Requestcharacters"))
 			assert.Contains(t, rec.Body.String(), test.bodyPart)
 		})
 	}
@@ -234,8 +234,8 @@ func TestSynthesizeSpeechValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		body map[string]any
+		name string
 	}{
 		{
 			name: "json_requires_marks",
@@ -336,6 +336,10 @@ func TestTaskListPaginationAndValidation(t *testing.T) {
 		rec := request(t, handler, http.MethodGet, "/v1/synthesisTasks"+query, nil)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	}
+
+	missing := request(t, handler, http.MethodGet, "/v1/synthesisTasks/not-created", nil)
+	assert.Equal(t, http.StatusNotFound, missing.Code)
+	assert.Contains(t, missing.Body.String(), "SynthesisTaskNotFoundException")
 }
 
 func TestLexiconCRUD(t *testing.T) {
@@ -343,12 +347,12 @@ func TestLexiconCRUD(t *testing.T) {
 
 	handler := newHandler()
 	tests := []struct {
+		body   any
 		name   string
 		method string
 		path   string
-		body   any
-		code   int
 		find   string
+		code   int
 	}{
 		{
 			name: "put_first", method: http.MethodPut, path: "/v1/lexicons/zeta",
@@ -379,13 +383,11 @@ func TestLexiconCRUD(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			rec := request(t, handler, test.method, test.path, test.body)
-			assert.Equal(t, test.code, rec.Code)
-			if test.find != "" {
-				assert.Contains(t, rec.Body.String(), test.find)
-			}
-		})
+		rec := request(t, handler, test.method, test.path, test.body)
+		assert.Equal(t, test.code, rec.Code, test.name)
+		if test.find != "" {
+			assert.Contains(t, rec.Body.String(), test.find, test.name)
+		}
 	}
 }
 
@@ -429,9 +431,9 @@ func TestDescribeVoicesFilters(t *testing.T) {
 	tests := []struct {
 		name       string
 		query      string
-		count      int
 		contains   string
 		notContain string
+		count      int
 	}{
 		{name: "neural", query: "?Engine=neural", count: 3, notContain: "Aditi"},
 		{name: "male_english", query: "?LanguageCode=en-US&Gender=Male", count: 1, contains: "Matthew"},
@@ -487,17 +489,19 @@ func TestTaskTags(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			rec := request(t, handler, test.method, test.target, test.body)
-			require.Equal(t, http.StatusOK, rec.Code)
-			for _, find := range test.find {
-				assert.Contains(t, rec.Body.String(), find)
-			}
-			if strings.Contains(test.name, "removed") {
-				assert.NotContains(t, rec.Body.String(), `"env"`)
-			}
-		})
+		rec := request(t, handler, test.method, test.target, test.body)
+		require.Equal(t, http.StatusOK, rec.Code, test.name)
+		for _, find := range test.find {
+			assert.Contains(t, rec.Body.String(), find, test.name)
+		}
+		if strings.Contains(test.name, "removed") {
+			assert.NotContains(t, rec.Body.String(), `"env"`, test.name)
+		}
 	}
+
+	missing := request(t, handler, http.MethodGet, "/v1/tags/"+url.PathEscape("arn:missing"), nil)
+	assert.Equal(t, http.StatusBadRequest, missing.Code)
+	assert.Contains(t, missing.Body.String(), "InvalidParameterValueException")
 }
 
 func TestResetAndUnknownRoutes(t *testing.T) {
