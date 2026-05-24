@@ -104,7 +104,10 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // RouteMatcher matches versioned Polly routes.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().URL.Path, pollyPathPrefix)
+		request := c.Request()
+
+		return strings.HasPrefix(request.URL.Path, pollyPathPrefix) &&
+			parseRoute(request.Method, request.URL.Path).operation != opUnknown
 	}
 }
 

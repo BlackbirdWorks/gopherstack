@@ -104,6 +104,7 @@ func TestHandlerMetadataAndRouting(t *testing.T) {
 			resource: "123",
 			matches:  true,
 		},
+		{name: "pinpoint_route", method: http.MethodGet, path: "/v1/apps", wantOp: "Unknown", matches: false},
 		{name: "foreign", method: http.MethodGet, path: "/other", wantOp: "Unknown", matches: false},
 	}
 
