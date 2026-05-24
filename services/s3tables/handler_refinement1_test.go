@@ -499,9 +499,9 @@ func TestRefinement1_GetTableMetadataLocation(t *testing.T) {
 		{
 			name:     "table with metadata location",
 			setup:    true,
-			setMeta:  "s3://bucket/path/to/metadata.json",
+			setMeta:  "s3://meta-loc-bucket/ns1/t1/v1.metadata.json",
 			wantCode: http.StatusOK,
-			wantMeta: "s3://bucket/path/to/metadata.json",
+			wantMeta: "s3://meta-loc-bucket/ns1/t1/v1.metadata.json",
 		},
 		{
 			name:     "missing table",
@@ -521,8 +521,9 @@ func TestRefinement1_GetTableMetadataLocation(t *testing.T) {
 				tableARN := createTableHelper(t, h, bucketARN, "ns1", "t1")
 
 				if tt.setMeta != "" {
+					table := getTableHelper(t, h, bucketARN, "ns1", "t1")
 					_, err := h.Backend.UpdateTableMetadataLocation(
-						bucketARN, []string{"ns1"}, "t1", tt.setMeta, "")
+						bucketARN, []string{"ns1"}, "t1", tt.setMeta, table["versionToken"].(string))
 					require.NoError(t, err)
 				}
 
@@ -991,8 +992,8 @@ func TestRefinement1_MetadataLocationVsUpdate(t *testing.T) {
 	}{
 		{
 			name:         "update then get",
-			metaLocation: "s3://mybucket/meta.json",
-			expectInGet:  "s3://mybucket/meta.json",
+			metaLocation: "s3://ml-bucket/ns1/t1/v1.metadata.json",
+			expectInGet:  "s3://ml-bucket/ns1/t1/v1.metadata.json",
 		},
 	}
 
@@ -1004,12 +1005,13 @@ func TestRefinement1_MetadataLocationVsUpdate(t *testing.T) {
 			bucketARN := createBucketHelper(t, h, "ml-bucket")
 			createNamespaceHelper(t, h, bucketARN, []string{"ns1"})
 			createTableHelper(t, h, bucketARN, "ns1", "t1")
+			table := getTableHelper(t, h, bucketARN, "ns1", "t1")
 
 			encodedARN := url.PathEscape(bucketARN)
 
 			updateBody, err := json.Marshal(map[string]string{
 				"metadataLocation": tt.metaLocation,
-				"versionToken":     "tok1",
+				"versionToken":     table["versionToken"].(string),
 			})
 			require.NoError(t, err)
 

@@ -15,9 +15,14 @@ import (
 )
 
 const (
-	statusEnabled        = "enabled"
-	keySettings          = "settings"
-	storageClassStandard = "STANDARD"
+	statusEnabled                                 = "enabled"
+	keySettings                                   = "settings"
+	storageClassStandard                          = "STANDARD"
+	maintenanceTypeIcebergCompaction              = "icebergCompaction"
+	maintenanceTypeIcebergSnapshotManagement      = "icebergSnapshotManagement"
+	maintenanceTypeIcebergUnreferencedFileRemoval = "icebergUnreferencedFileRemoval"
+	metadataJSONSuffix                            = ".metadata.json"
+	metadataJSONGzipSuffix                        = ".metadata.json.gz"
 )
 
 var (
@@ -33,6 +38,10 @@ var (
 	ErrTableNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
 	// ErrTableAlreadyExists is returned when a Table already exists.
 	ErrTableAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrTableVersionConflict is returned when an optimistic-lock token is stale.
+	ErrTableVersionConflict = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrInvalidTableMetadataLocation is returned when an Iceberg metadata URI is invalid.
+	ErrInvalidTableMetadataLocation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 	// ErrNilAppContext is returned when a nil AppContext is passed to Init.
 	ErrNilAppContext = awserr.New("InvalidParameter", awserr.ErrInvalidParameter)
 )
@@ -330,10 +339,10 @@ func (b *InMemoryBackend) CreateTableBucket(name string) (*TableBucket, error) {
 		CreatedAt:      time.Now().UTC(),
 		StorageClass:   storageClassStandard,
 		MaintenanceConfiguration: map[string]any{
-			"icebergUnreferencedFileRemoval": map[string]any{
+			maintenanceTypeIcebergUnreferencedFileRemoval: map[string]any{
 				keyStatusField: statusEnabled,
 				keySettings: map[string]any{
-					"icebergUnreferencedFileRemoval": map[string]any{
+					maintenanceTypeIcebergUnreferencedFileRemoval: map[string]any{
 						"nonCurrentDays":   float64(1),
 						"unreferencedDays": float64(3), //nolint:mnd // AWS default: 3 days for unreferenced files
 					},
@@ -807,19 +816,19 @@ func (b *InMemoryBackend) CreateTable(tableBucketARN string, namespace []string,
 		ModifiedAt:        now,
 		OwnerAccountID:    b.accountID,
 		MaintenanceConfiguration: map[string]any{
-			"icebergCompaction": map[string]any{
+			maintenanceTypeIcebergCompaction: map[string]any{
 				keyStatusField: statusEnabled,
 				keySettings: map[string]any{
-					"icebergCompaction": map[string]any{
+					maintenanceTypeIcebergCompaction: map[string]any{
 						"targetFileSizeMB": float64(512), //nolint:mnd // AWS default: 512 MB target file size
 						"strategy":         "binpack",
 					},
 				},
 			},
-			"icebergSnapshotManagement": map[string]any{
+			maintenanceTypeIcebergSnapshotManagement: map[string]any{
 				keyStatusField: statusEnabled,
 				keySettings: map[string]any{
-					"icebergSnapshotManagement": map[string]any{
+					maintenanceTypeIcebergSnapshotManagement: map[string]any{
 						"maxSnapshotAgeHours": float64(120), //nolint:mnd // AWS default: 120 hours (5 days)
 						"minSnapshotsToKeep":  float64(1),
 					},
@@ -903,10 +912,13 @@ func (b *InMemoryBackend) ListTables(tableBucketARN, namespace string) ([]*Table
 func (b *InMemoryBackend) RenameTable(
 	tableBucketARN string,
 	namespace []string,
-	name, newNamespace, newName string,
+	name, newNamespace, newName, versionToken string,
 ) error {
 	b.muBuckets.RLock("RenameTable")
 	defer b.muBuckets.RUnlock()
+
+	b.muNamespaces.RLock("RenameTable")
+	defer b.muNamespaces.RUnlock()
 
 	b.muTables.Lock("RenameTable")
 	defer b.muTables.Unlock()
@@ -921,12 +933,20 @@ func (b *InMemoryBackend) RenameTable(
 
 	found := b.tables[oldARN]
 
+	if versionToken != "" && versionToken != found.VersionToken {
+		return fmt.Errorf("%w: stale version token for table %q", ErrTableVersionConflict, name)
+	}
+
 	if newName == "" {
 		newName = name
 	}
 
 	if newNamespace == "" {
 		newNamespace = nsStr
+	}
+
+	if _, exists := b.namespaces[namespaceKey(tableBucketARN, newNamespace)]; !exists {
+		return fmt.Errorf("%w: namespace %q not found in bucket %s", ErrNamespaceNotFound, newNamespace, tableBucketARN)
 	}
 
 	tb := b.tableBuckets[tableBucketARN]
@@ -955,7 +975,7 @@ func (b *InMemoryBackend) RenameTable(
 func (b *InMemoryBackend) UpdateTableMetadataLocation(
 	tableBucketARN string,
 	namespace []string,
-	name, metadataLocation, _ string,
+	name, metadataLocation, versionToken string,
 ) (*Table, error) {
 	b.muTables.Lock("UpdateTableMetadataLocation")
 	defer b.muTables.Unlock()
@@ -967,11 +987,32 @@ func (b *InMemoryBackend) UpdateTableMetadataLocation(
 	}
 
 	t := b.tables[tableARN]
+	if versionToken != t.VersionToken {
+		return nil, fmt.Errorf("%w: stale version token for table %q", ErrTableVersionConflict, name)
+	}
+
+	if !validMetadataLocation(t.WarehouseLocation, metadataLocation) {
+		return nil, fmt.Errorf(
+			"%w: metadata location %q is outside table warehouse or invalid",
+			ErrInvalidTableMetadataLocation,
+			metadataLocation,
+		)
+	}
+
 	t.MetadataLocation = metadataLocation
 	t.VersionToken = uuid.NewString()
 	t.ModifiedAt = time.Now().UTC()
 
 	return cloneTable(t), nil
+}
+
+func validMetadataLocation(_, metadataLocation string) bool {
+	if !strings.HasPrefix(metadataLocation, "s3://") {
+		return false
+	}
+
+	return strings.HasSuffix(metadataLocation, ".json") ||
+		strings.HasSuffix(metadataLocation, ".json.gz")
 }
 
 // GetTableMaintenanceConfiguration returns the maintenance config for a table.
