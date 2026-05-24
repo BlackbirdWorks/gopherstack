@@ -5,7 +5,6 @@ import (
 	"maps"
 	"sort"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -17,17 +16,23 @@ import (
 
 // Agent represents an Amazon Bedrock Agent.
 type Agent struct {
-	CreatedAt       time.Time         `json:"createdAt"`
-	UpdatedAt       time.Time         `json:"updatedAt"`
-	Tags            map[string]string `json:"tags,omitempty"`
-	AgentID         string            `json:"agentId"`
-	AgentArn        string            `json:"agentArn"`
-	AgentName       string            `json:"agentName"`
-	AgentStatus     string            `json:"agentStatus"`
-	AgentVersion    string            `json:"agentVersion"`
-	FoundationModel string            `json:"foundationModel,omitempty"`
-	Instruction     string            `json:"instruction,omitempty"`
-	RoleArn         string            `json:"agentResourceRoleArn,omitempty"`
+	CreatedAt              time.Time         `json:"createdAt"`
+	UpdatedAt              time.Time         `json:"updatedAt"`
+	Tags                   map[string]string `json:"tags,omitempty"`
+	GuardrailConfiguration map[string]any    `json:"guardrailConfiguration,omitempty"`
+	MemoryConfiguration    map[string]any    `json:"memoryConfiguration,omitempty"`
+	AgentID                string            `json:"agentId"`
+	AgentArn               string            `json:"agentArn"`
+	AgentName              string            `json:"agentName"`
+	AgentStatus            string            `json:"agentStatus"`
+	AgentVersion           string            `json:"agentVersion"`
+	AgentCollaboration     string            `json:"agentCollaboration,omitempty"`
+	Description            string            `json:"description,omitempty"`
+	FoundationModel        string            `json:"foundationModel,omitempty"`
+	Instruction            string            `json:"instruction,omitempty"`
+	RoleArn                string            `json:"agentResourceRoleArn,omitempty"`
+	FailureReasons         []string          `json:"failureReasons,omitempty"`
+	preparationDueAt       time.Time
 }
 
 // AgentActionGroup represents an action group for a Bedrock Agent.
@@ -35,6 +40,8 @@ type AgentActionGroup struct {
 	CreatedAt           time.Time      `json:"createdAt"`
 	UpdatedAt           time.Time      `json:"updatedAt"`
 	ActionGroupExecutor map[string]any `json:"actionGroupExecutor,omitempty"`
+	APISchema           map[string]any `json:"apiSchema,omitempty"`
+	FunctionSchema      map[string]any `json:"functionSchema,omitempty"`
 	ActionGroupID       string         `json:"actionGroupId"`
 	ActionGroupName     string         `json:"actionGroupName"`
 	AgentID             string         `json:"agentId"`
@@ -45,14 +52,27 @@ type AgentActionGroup struct {
 
 // AgentAlias represents an alias for a Bedrock Agent.
 type AgentAlias struct {
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
-	AgentAliasID   string    `json:"agentAliasId"`
-	AgentAliasArn  string    `json:"agentAliasArn"`
-	AgentAliasName string    `json:"agentAliasName"`
-	AgentID        string    `json:"agentId"`
-	AgentVersion   string    `json:"routingConfiguration,omitempty"`
-	AliasStatus    string    `json:"agentAliasStatus"`
+	CreatedAt               time.Time                `json:"createdAt"`
+	UpdatedAt               time.Time                `json:"updatedAt"`
+	AgentAliasID            string                   `json:"agentAliasId"`
+	AgentAliasArn           string                   `json:"agentAliasArn"`
+	AgentAliasName          string                   `json:"agentAliasName"`
+	AgentID                 string                   `json:"agentId"`
+	RoutingConfiguration    []AgentAliasRouting      `json:"routingConfiguration"`
+	AgentAliasHistoryEvents []AgentAliasHistoryEvent `json:"agentAliasHistoryEvents,omitempty"`
+	AliasStatus             string                   `json:"agentAliasStatus"`
+}
+
+// AgentAliasRouting identifies the version receiving alias traffic.
+type AgentAliasRouting struct {
+	AgentVersion string `json:"agentVersion"`
+}
+
+// AgentAliasHistoryEvent records an alias routing interval.
+type AgentAliasHistoryEvent struct {
+	StartDate            time.Time           `json:"startDate"`
+	EndDate              *time.Time          `json:"endDate,omitempty"`
+	RoutingConfiguration []AgentAliasRouting `json:"routingConfiguration"`
 }
 
 // AgentKnowledgeBaseAssociation represents an association between agent and knowledge base.
@@ -84,11 +104,13 @@ type DataSource struct {
 	CreatedAt               time.Time      `json:"createdAt"`
 	UpdatedAt               time.Time      `json:"updatedAt"`
 	DataSourceConfiguration map[string]any `json:"dataSourceConfiguration,omitempty"`
+	VectorIngestionConfig   map[string]any `json:"vectorIngestionConfiguration,omitempty"`
 	DataSourceID            string         `json:"dataSourceId"`
 	DataSourceStatus        string         `json:"dataSourceStatus"`
 	KnowledgeBaseID         string         `json:"knowledgeBaseId"`
 	Name                    string         `json:"name"`
 	Description             string         `json:"description,omitempty"`
+	DataDeletionPolicy      string         `json:"dataDeletionPolicy,omitempty"`
 }
 
 // IngestionJob represents a data source ingestion job.
@@ -100,6 +122,7 @@ type IngestionJob struct {
 	DataSourceID    string    `json:"dataSourceId"`
 	Status          string    `json:"status"`
 	Description     string    `json:"description,omitempty"`
+	completionDueAt time.Time
 }
 
 // ---------------------------------------------------------------------------
@@ -107,15 +130,16 @@ type IngestionJob struct {
 // ---------------------------------------------------------------------------
 
 const (
-	agentTransitionDelay   = 100 * time.Millisecond // delay for agent CREATING → READY transition
+	agentTransitionDelay   = 100 * time.Millisecond // delay for agent PREPARING → terminal state transition
 	ingestionCompleteDelay = 200 * time.Millisecond // delay for ingestion job STARTING → COMPLETE
 )
 
 const (
-	agentStatusDraft    = "DRAFT"
-	agentStatusReady    = "READY"
-	agentStatusPrepared = "PREPARED"
-	agentStatusCreating = "CREATING"
+	agentStatusDraft       = "DRAFT"
+	agentStatusPrepared    = "PREPARED"
+	agentStatusPreparing   = "PREPARING"
+	agentStatusNotPrepared = "NOT_PREPARED"
+	agentStatusFailed      = "FAILED"
 	kbStatusActive      = "ACTIVE"
 	dsStatusAvailable   = "AVAILABLE"
 	aliasStatusPrepared = "PREPARED"
@@ -146,16 +170,40 @@ func ingestionJobKey(
 // Agent CRUD
 // ---------------------------------------------------------------------------
 
+// AgentConfiguration stores optional settings accepted by agent create and update requests.
+type AgentConfiguration struct {
+	Tags                   map[string]string
+	GuardrailConfiguration map[string]any
+	MemoryConfiguration    map[string]any
+	AgentName              string
+	AgentCollaboration     string
+	Description            string
+	FoundationModel        string
+	Instruction            string
+	RoleArn                string
+}
+
 // CreateAgent creates a new Bedrock Agent.
 func (b *InMemoryBackend) CreateAgent(
 	agentName, foundationModel, instruction, roleArn string,
 	tags map[string]string,
 ) (*Agent, error) {
+	return b.CreateAgentWithConfiguration(AgentConfiguration{
+		AgentName:       agentName,
+		FoundationModel: foundationModel,
+		Instruction:     instruction,
+		RoleArn:         roleArn,
+		Tags:            tags,
+	})
+}
+
+// CreateAgentWithConfiguration creates an agent retaining extended AWS configuration.
+func (b *InMemoryBackend) CreateAgentWithConfiguration(config AgentConfiguration) (*Agent, error) {
 	b.mu.Lock("CreateAgent")
 	defer b.mu.Unlock()
 
-	if _, ok := b.agentsByName[agentName]; ok {
-		return nil, fmt.Errorf("%w: agent %q already exists", ErrAlreadyExists, agentName)
+	if _, ok := b.agentsByName[config.AgentName]; ok {
+		return nil, fmt.Errorf("%w: agent %q already exists", ErrAlreadyExists, config.AgentName)
 	}
 
 	b.agentCounter++
@@ -163,37 +211,28 @@ func (b *InMemoryBackend) CreateAgent(
 	agentArn := arn.Build("bedrock", b.region, b.accountID, "agent/"+id)
 	now := time.Now()
 
-	tagsCopy := make(map[string]string, len(tags))
-	maps.Copy(tagsCopy, tags)
+	tagsCopy := make(map[string]string, len(config.Tags))
+	maps.Copy(tagsCopy, config.Tags)
 
 	ag := &Agent{
-		CreatedAt:       now,
-		UpdatedAt:       now,
-		AgentID:         id,
-		AgentArn:        agentArn,
-		AgentName:       agentName,
-		AgentStatus:     agentStatusCreating,
-		AgentVersion:    agentStatusDraft,
-		FoundationModel: foundationModel,
-		Instruction:     instruction,
-		RoleArn:         roleArn,
-		Tags:            tagsCopy,
+		CreatedAt:              now,
+		UpdatedAt:              now,
+		AgentID:                id,
+		AgentArn:               agentArn,
+		AgentName:              config.AgentName,
+		AgentStatus:            agentStatusNotPrepared,
+		AgentVersion:           agentStatusDraft,
+		AgentCollaboration:     config.AgentCollaboration,
+		Description:            config.Description,
+		FoundationModel:        config.FoundationModel,
+		Instruction:            config.Instruction,
+		RoleArn:                config.RoleArn,
+		Tags:                   tagsCopy,
+		GuardrailConfiguration: maps.Clone(config.GuardrailConfiguration),
+		MemoryConfiguration:    maps.Clone(config.MemoryConfiguration),
 	}
 	b.agents[id] = ag
-	b.agentsByName[agentName] = id
-
-	// Transition to READY after a short delay.
-	var once sync.Once
-	go func() {
-		once.Do(func() {
-			time.Sleep(agentTransitionDelay)
-			b.mu.Lock("CreateAgent.goroutine")
-			defer b.mu.Unlock()
-			if a, exists := b.agents[id]; exists {
-				a.AgentStatus = agentStatusReady
-			}
-		})
-	}()
+	b.agentsByName[config.AgentName] = id
 
 	cp := *ag
 
@@ -202,14 +241,15 @@ func (b *InMemoryBackend) CreateAgent(
 
 // GetAgent returns a Bedrock Agent by ID.
 func (b *InMemoryBackend) GetAgent(agentID string) (*Agent, error) {
-	b.mu.RLock("GetAgent")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetAgent")
+	defer b.mu.Unlock()
 
 	ag, ok := b.agents[agentID]
 	if !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
+	b.advanceAgentStatus(ag)
 	cp := *ag
 
 	return &cp, nil
@@ -217,11 +257,12 @@ func (b *InMemoryBackend) GetAgent(agentID string) (*Agent, error) {
 
 // ListAgents returns all agents with pagination.
 func (b *InMemoryBackend) ListAgents(maxResults int, nextToken string) ([]*Agent, string) {
-	b.mu.RLock("ListAgents")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListAgents")
+	defer b.mu.Unlock()
 
 	list := make([]*Agent, 0, len(b.agents))
 	for _, ag := range b.agents {
+		b.advanceAgentStatus(ag)
 		cp := *ag
 		list = append(list, &cp)
 	}
@@ -235,6 +276,15 @@ func (b *InMemoryBackend) ListAgents(maxResults int, nextToken string) ([]*Agent
 func (b *InMemoryBackend) UpdateAgent(
 	agentID, foundationModel, instruction, roleArn string,
 ) (*Agent, error) {
+	return b.UpdateAgentWithConfiguration(agentID, AgentConfiguration{
+		FoundationModel: foundationModel,
+		Instruction:     instruction,
+		RoleArn:         roleArn,
+	})
+}
+
+// UpdateAgentWithConfiguration updates extended AWS agent configuration.
+func (b *InMemoryBackend) UpdateAgentWithConfiguration(agentID string, config AgentConfiguration) (*Agent, error) {
 	b.mu.Lock("UpdateAgent")
 	defer b.mu.Unlock()
 
@@ -243,18 +293,36 @@ func (b *InMemoryBackend) UpdateAgent(
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
-	if foundationModel != "" {
-		ag.FoundationModel = foundationModel
+	if config.AgentName != "" && config.AgentName != ag.AgentName {
+		delete(b.agentsByName, ag.AgentName)
+		ag.AgentName = config.AgentName
+		b.agentsByName[config.AgentName] = agentID
+	}
+	if config.FoundationModel != "" {
+		ag.FoundationModel = config.FoundationModel
+	}
+	if config.Instruction != "" {
+		ag.Instruction = config.Instruction
+	}
+	if config.RoleArn != "" {
+		ag.RoleArn = config.RoleArn
+	}
+	if config.Description != "" {
+		ag.Description = config.Description
+	}
+	if config.AgentCollaboration != "" {
+		ag.AgentCollaboration = config.AgentCollaboration
+	}
+	if config.GuardrailConfiguration != nil {
+		ag.GuardrailConfiguration = maps.Clone(config.GuardrailConfiguration)
+	}
+	if config.MemoryConfiguration != nil {
+		ag.MemoryConfiguration = maps.Clone(config.MemoryConfiguration)
 	}
 
-	if instruction != "" {
-		ag.Instruction = instruction
-	}
-
-	if roleArn != "" {
-		ag.RoleArn = roleArn
-	}
-
+	ag.AgentStatus = agentStatusNotPrepared
+	ag.preparationDueAt = time.Time{}
+	ag.FailureReasons = nil
 	ag.UpdatedAt = time.Now()
 	cp := *ag
 
@@ -277,7 +345,7 @@ func (b *InMemoryBackend) DeleteAgent(agentID string) error {
 	return nil
 }
 
-// PrepareAgent transitions an agent to PREPARED status.
+// PrepareAgent starts preparation; subsequent reads advance the terminal state.
 func (b *InMemoryBackend) PrepareAgent(agentID string) (*Agent, error) {
 	b.mu.Lock("PrepareAgent")
 	defer b.mu.Unlock()
@@ -287,11 +355,26 @@ func (b *InMemoryBackend) PrepareAgent(agentID string) (*Agent, error) {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
-	ag.AgentStatus = agentStatusPrepared
+	ag.AgentStatus = agentStatusPreparing
 	ag.UpdatedAt = time.Now()
+	ag.preparationDueAt = ag.UpdatedAt.Add(agentTransitionDelay)
+	ag.FailureReasons = nil
 	cp := *ag
 
 	return &cp, nil
+}
+
+func (b *InMemoryBackend) advanceAgentStatus(ag *Agent) {
+	if ag.AgentStatus != agentStatusPreparing || time.Now().Before(ag.preparationDueAt) {
+		return
+	}
+	if ag.FoundationModel == "" {
+		ag.AgentStatus = agentStatusFailed
+		ag.FailureReasons = []string{"foundationModel is required to prepare an agent"}
+	} else {
+		ag.AgentStatus = agentStatusPrepared
+	}
+	ag.UpdatedAt = time.Now()
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +385,14 @@ func (b *InMemoryBackend) PrepareAgent(agentID string) (*Agent, error) {
 func (b *InMemoryBackend) CreateAgentActionGroup(
 	agentID, actionGroupName, description string,
 	executor map[string]any,
+) (*AgentActionGroup, error) {
+	return b.CreateAgentActionGroupWithSchemas(agentID, actionGroupName, description, executor, nil, nil)
+}
+
+// CreateAgentActionGroupWithSchemas creates an action group preserving either supported schema.
+func (b *InMemoryBackend) CreateAgentActionGroupWithSchemas(
+	agentID, actionGroupName, description string,
+	executor, apiSchema, functionSchema map[string]any,
 ) (*AgentActionGroup, error) {
 	b.mu.Lock("CreateAgentActionGroup")
 	defer b.mu.Unlock()
@@ -323,7 +414,9 @@ func (b *InMemoryBackend) CreateAgentActionGroup(
 		AgentVersion:        agentStatusDraft,
 		ActionGroupState:    actionGroupEnabled,
 		Description:         description,
-		ActionGroupExecutor: executor,
+		ActionGroupExecutor: maps.Clone(executor),
+		APISchema:           maps.Clone(apiSchema),
+		FunctionSchema:      maps.Clone(functionSchema),
 	}
 	b.agentActionGroups[agentActionGroupKey(agentID, id)] = ag
 	cp := *ag
@@ -385,6 +478,14 @@ func (b *InMemoryBackend) UpdateAgentActionGroup(
 	agentID, actionGroupID, description string,
 	executor map[string]any,
 ) (*AgentActionGroup, error) {
+	return b.UpdateAgentActionGroupWithSchemas(agentID, actionGroupID, description, executor, nil, nil)
+}
+
+// UpdateAgentActionGroupWithSchemas updates an action group and any submitted schemas.
+func (b *InMemoryBackend) UpdateAgentActionGroupWithSchemas(
+	agentID, actionGroupID, description string,
+	executor, apiSchema, functionSchema map[string]any,
+) (*AgentActionGroup, error) {
 	b.mu.Lock("UpdateAgentActionGroup")
 	defer b.mu.Unlock()
 
@@ -400,7 +501,13 @@ func (b *InMemoryBackend) UpdateAgentActionGroup(
 	}
 
 	if executor != nil {
-		ag.ActionGroupExecutor = executor
+		ag.ActionGroupExecutor = maps.Clone(executor)
+	}
+	if apiSchema != nil {
+		ag.APISchema = maps.Clone(apiSchema)
+	}
+	if functionSchema != nil {
+		ag.FunctionSchema = maps.Clone(functionSchema)
 	}
 
 	ag.UpdatedAt = time.Now()
@@ -452,8 +559,12 @@ func (b *InMemoryBackend) CreateAgentAlias(
 		AgentAliasArn:  aliasArn,
 		AgentAliasName: aliasName,
 		AgentID:        agentID,
-		AgentVersion:   agentVersion,
-		AliasStatus:    aliasStatusPrepared,
+		RoutingConfiguration: []AgentAliasRouting{{AgentVersion: agentVersion}},
+		AliasStatus:          aliasStatusPrepared,
+		AgentAliasHistoryEvents: []AgentAliasHistoryEvent{{
+			StartDate:            now,
+			RoutingConfiguration: []AgentAliasRouting{{AgentVersion: agentVersion}},
+		}},
 	}
 	b.agentAliases[agentAliasKey(agentID, aliasID)] = alias
 	cp := *alias
@@ -519,7 +630,16 @@ func (b *InMemoryBackend) UpdateAgentAlias(
 	}
 
 	if agentVersion != "" {
-		alias.AgentVersion = agentVersion
+		now := time.Now()
+		if len(alias.AgentAliasHistoryEvents) > 0 {
+			last := &alias.AgentAliasHistoryEvents[len(alias.AgentAliasHistoryEvents)-1]
+			last.EndDate = &now
+		}
+		alias.RoutingConfiguration = []AgentAliasRouting{{AgentVersion: agentVersion}}
+		alias.AgentAliasHistoryEvents = append(alias.AgentAliasHistoryEvents, AgentAliasHistoryEvent{
+			StartDate:            now,
+			RoutingConfiguration: []AgentAliasRouting{{AgentVersion: agentVersion}},
+		})
 	}
 
 	alias.UpdatedAt = time.Now()
@@ -782,6 +902,14 @@ func (b *InMemoryBackend) CreateDataSource(
 	kbID, name, description string,
 	dsConfig map[string]any,
 ) (*DataSource, error) {
+	return b.CreateDataSourceWithConfiguration(kbID, name, description, "", dsConfig, nil)
+}
+
+// CreateDataSourceWithConfiguration creates a data source with vector ingestion settings.
+func (b *InMemoryBackend) CreateDataSourceWithConfiguration(
+	kbID, name, description, deletionPolicy string,
+	dsConfig, vectorConfig map[string]any,
+) (*DataSource, error) {
 	b.mu.Lock("CreateDataSource")
 	defer b.mu.Unlock()
 
@@ -801,7 +929,9 @@ func (b *InMemoryBackend) CreateDataSource(
 		KnowledgeBaseID:         kbID,
 		Name:                    name,
 		Description:             description,
-		DataSourceConfiguration: dsConfig,
+		DataDeletionPolicy:      deletionPolicy,
+		DataSourceConfiguration: maps.Clone(dsConfig),
+		VectorIngestionConfig:   maps.Clone(vectorConfig),
 	}
 	b.dataSources[kbID+"/"+id] = ds
 	cp := *ds
@@ -852,6 +982,14 @@ func (b *InMemoryBackend) ListDataSources(
 func (b *InMemoryBackend) UpdateDataSource(
 	kbID, dsID, name, description string,
 ) (*DataSource, error) {
+	return b.UpdateDataSourceWithConfiguration(kbID, dsID, name, description, "", nil, nil)
+}
+
+// UpdateDataSourceWithConfiguration updates data source ingestion and connector settings.
+func (b *InMemoryBackend) UpdateDataSourceWithConfiguration(
+	kbID, dsID, name, description, deletionPolicy string,
+	dsConfig, vectorConfig map[string]any,
+) (*DataSource, error) {
 	b.mu.Lock("UpdateDataSource")
 	defer b.mu.Unlock()
 
@@ -868,6 +1006,15 @@ func (b *InMemoryBackend) UpdateDataSource(
 
 	if description != "" {
 		ds.Description = description
+	}
+	if deletionPolicy != "" {
+		ds.DataDeletionPolicy = deletionPolicy
+	}
+	if dsConfig != nil {
+		ds.DataSourceConfiguration = maps.Clone(dsConfig)
+	}
+	if vectorConfig != nil {
+		ds.VectorIngestionConfig = maps.Clone(vectorConfig)
 	}
 
 	ds.UpdatedAt = time.Now()
@@ -924,19 +1071,7 @@ func (b *InMemoryBackend) StartIngestionJob(kbID, dsID, description string) (*In
 	}
 	b.ingestionJobs[ingestionJobKey(kbID, dsID, jobID)] = job
 
-	// Transition to COMPLETE after a short delay.
-	var once sync.Once
-	go func() {
-		once.Do(func() {
-			time.Sleep(ingestionCompleteDelay)
-			b.mu.Lock("StartIngestionJob.goroutine")
-			defer b.mu.Unlock()
-			if j, exists := b.ingestionJobs[ingestionJobKey(kbID, dsID, jobID)]; exists {
-				j.Status = jobStatusComplete
-				j.UpdatedAt = time.Now()
-			}
-		})
-	}()
+	job.completionDueAt = now.Add(ingestionCompleteDelay)
 
 	cp := *job
 
@@ -945,14 +1080,15 @@ func (b *InMemoryBackend) StartIngestionJob(kbID, dsID, description string) (*In
 
 // GetIngestionJob returns an ingestion job by ID.
 func (b *InMemoryBackend) GetIngestionJob(kbID, dsID, jobID string) (*IngestionJob, error) {
-	b.mu.RLock("GetIngestionJob")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetIngestionJob")
+	defer b.mu.Unlock()
 
 	job, ok := b.ingestionJobs[ingestionJobKey(kbID, dsID, jobID)]
 	if !ok {
 		return nil, fmt.Errorf("%w: ingestion job %q not found", ErrNotFound, jobID)
 	}
 
+	advanceIngestionJob(job)
 	cp := *job
 
 	return &cp, nil
@@ -964,14 +1100,15 @@ func (b *InMemoryBackend) ListIngestionJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*IngestionJob, string) {
-	b.mu.RLock("ListIngestionJobs")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListIngestionJobs")
+	defer b.mu.Unlock()
 
 	list := make([]*IngestionJob, 0, len(b.ingestionJobs))
 	prefix := kbID + "/" + dsID + "/"
 
 	for k, job := range b.ingestionJobs {
 		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			advanceIngestionJob(job)
 			cp := *job
 			list = append(list, &cp)
 		}
@@ -980,6 +1117,13 @@ func (b *InMemoryBackend) ListIngestionJobs(
 	sort.Slice(list, func(i, j int) bool { return list[i].IngestionJobID < list[j].IngestionJobID })
 
 	return paginate(list, maxResults, nextToken)
+}
+
+func advanceIngestionJob(job *IngestionJob) {
+	if job.Status == jobStatusStarting && !time.Now().Before(job.completionDueAt) {
+		job.Status = jobStatusComplete
+		job.UpdatedAt = time.Now()
+	}
 }
 
 // ---------------------------------------------------------------------------

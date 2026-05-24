@@ -439,11 +439,15 @@ func (h *AgentsHandler) dispatchKBRoutes(
 
 func (h *AgentsHandler) handleCreateAgent(c *echo.Context, body []byte) error {
 	var req struct {
-		Tags              map[string]string `json:"tags"`
-		AgentName         string            `json:"agentName"`
-		FoundationModel   string            `json:"foundationModel"`
-		Instruction       string            `json:"instruction"`
-		AgentResourceRole string            `json:"agentResourceRoleArn"`
+		Tags                   map[string]string `json:"tags"`
+		GuardrailConfiguration map[string]any    `json:"guardrailConfiguration"`
+		MemoryConfiguration    map[string]any    `json:"memoryConfiguration"`
+		AgentName              string            `json:"agentName"`
+		AgentCollaboration     string            `json:"agentCollaboration"`
+		Description            string            `json:"description"`
+		FoundationModel        string            `json:"foundationModel"`
+		Instruction            string            `json:"instruction"`
+		AgentResourceRole      string            `json:"agentResourceRoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -453,13 +457,17 @@ func (h *AgentsHandler) handleCreateAgent(c *echo.Context, body []byte) error {
 		)
 	}
 
-	ag, err := h.Backend.CreateAgent(
-		req.AgentName,
-		req.FoundationModel,
-		req.Instruction,
-		req.AgentResourceRole,
-		req.Tags,
-	)
+	ag, err := h.Backend.CreateAgentWithConfiguration(AgentConfiguration{
+		Tags:                   req.Tags,
+		GuardrailConfiguration: req.GuardrailConfiguration,
+		MemoryConfiguration:    req.MemoryConfiguration,
+		AgentName:              req.AgentName,
+		AgentCollaboration:     req.AgentCollaboration,
+		Description:            req.Description,
+		FoundationModel:        req.FoundationModel,
+		Instruction:            req.Instruction,
+		RoleArn:                req.AgentResourceRole,
+	})
 	if err != nil {
 		if errors.Is(err, ErrAlreadyExists) {
 			return c.JSON(http.StatusConflict, agentErrResp("ConflictException", err.Error()))
@@ -493,9 +501,14 @@ func (h *AgentsHandler) handleListAgents(c *echo.Context) error {
 
 func (h *AgentsHandler) handleUpdateAgent(c *echo.Context, agentID string, body []byte) error {
 	var req struct {
-		FoundationModel   string `json:"foundationModel"`
-		Instruction       string `json:"instruction"`
-		AgentResourceRole string `json:"agentResourceRoleArn"`
+		GuardrailConfiguration map[string]any `json:"guardrailConfiguration"`
+		MemoryConfiguration    map[string]any `json:"memoryConfiguration"`
+		AgentName              string         `json:"agentName"`
+		AgentCollaboration     string         `json:"agentCollaboration"`
+		Description            string         `json:"description"`
+		FoundationModel        string         `json:"foundationModel"`
+		Instruction            string         `json:"instruction"`
+		AgentResourceRole      string         `json:"agentResourceRoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -505,12 +518,16 @@ func (h *AgentsHandler) handleUpdateAgent(c *echo.Context, agentID string, body 
 		)
 	}
 
-	ag, err := h.Backend.UpdateAgent(
-		agentID,
-		req.FoundationModel,
-		req.Instruction,
-		req.AgentResourceRole,
-	)
+	ag, err := h.Backend.UpdateAgentWithConfiguration(agentID, AgentConfiguration{
+		GuardrailConfiguration: req.GuardrailConfiguration,
+		MemoryConfiguration:    req.MemoryConfiguration,
+		AgentName:              req.AgentName,
+		AgentCollaboration:     req.AgentCollaboration,
+		Description:            req.Description,
+		FoundationModel:        req.FoundationModel,
+		Instruction:            req.Instruction,
+		RoleArn:                req.AgentResourceRole,
+	})
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
@@ -607,6 +624,8 @@ func (h *AgentsHandler) handleCreateAgentActionGroup(
 ) error {
 	var req struct {
 		ActionGroupExecutor map[string]any `json:"actionGroupExecutor"`
+		APISchema           map[string]any `json:"apiSchema"`
+		FunctionSchema      map[string]any `json:"functionSchema"`
 		ActionGroupName     string         `json:"actionGroupName"`
 		Description         string         `json:"description"`
 	}
@@ -618,11 +637,13 @@ func (h *AgentsHandler) handleCreateAgentActionGroup(
 		)
 	}
 
-	ag, err := h.Backend.CreateAgentActionGroup(
+	ag, err := h.Backend.CreateAgentActionGroupWithSchemas(
 		agentID,
 		req.ActionGroupName,
 		req.Description,
 		req.ActionGroupExecutor,
+		req.APISchema,
+		req.FunctionSchema,
 	)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
@@ -661,6 +682,8 @@ func (h *AgentsHandler) handleUpdateAgentActionGroup(
 ) error {
 	var req struct {
 		ActionGroupExecutor map[string]any `json:"actionGroupExecutor"`
+		APISchema           map[string]any `json:"apiSchema"`
+		FunctionSchema      map[string]any `json:"functionSchema"`
 		ActionGroupName     string         `json:"actionGroupName"`
 		Description         string         `json:"description"`
 	}
@@ -672,11 +695,13 @@ func (h *AgentsHandler) handleUpdateAgentActionGroup(
 		)
 	}
 
-	ag, err := h.Backend.UpdateAgentActionGroup(
+	ag, err := h.Backend.UpdateAgentActionGroupWithSchemas(
 		agentID,
 		actionGroupID,
 		req.Description,
 		req.ActionGroupExecutor,
+		req.APISchema,
+		req.FunctionSchema,
 	)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
@@ -1074,8 +1099,10 @@ func (h *AgentsHandler) dispatchIngestionJobRoutes(
 func (h *AgentsHandler) handleCreateDataSource(c *echo.Context, kbID string, body []byte) error {
 	var req struct {
 		DataSourceConfiguration map[string]any `json:"dataSourceConfiguration"`
+		VectorIngestionConfig   map[string]any `json:"vectorIngestionConfiguration"`
 		Name                    string         `json:"name"`
 		Description             string         `json:"description"`
+		DataDeletionPolicy      string         `json:"dataDeletionPolicy"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1085,11 +1112,13 @@ func (h *AgentsHandler) handleCreateDataSource(c *echo.Context, kbID string, bod
 		)
 	}
 
-	ds, err := h.Backend.CreateDataSource(
+	ds, err := h.Backend.CreateDataSourceWithConfiguration(
 		kbID,
 		req.Name,
 		req.Description,
+		req.DataDeletionPolicy,
 		req.DataSourceConfiguration,
+		req.VectorIngestionConfig,
 	)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
@@ -1124,8 +1153,11 @@ func (h *AgentsHandler) handleUpdateDataSource(
 	body []byte,
 ) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		DataSourceConfiguration map[string]any `json:"dataSourceConfiguration"`
+		VectorIngestionConfig   map[string]any `json:"vectorIngestionConfiguration"`
+		Name                    string         `json:"name"`
+		Description             string         `json:"description"`
+		DataDeletionPolicy      string         `json:"dataDeletionPolicy"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1135,7 +1167,15 @@ func (h *AgentsHandler) handleUpdateDataSource(
 		)
 	}
 
-	ds, err := h.Backend.UpdateDataSource(kbID, dsID, req.Name, req.Description)
+	ds, err := h.Backend.UpdateDataSourceWithConfiguration(
+		kbID,
+		dsID,
+		req.Name,
+		req.Description,
+		req.DataDeletionPolicy,
+		req.DataSourceConfiguration,
+		req.VectorIngestionConfig,
+	)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
