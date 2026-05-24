@@ -1011,8 +1011,8 @@ func validMetadataLocation(_, metadataLocation string) bool {
 		return false
 	}
 
-	return strings.HasSuffix(metadataLocation, metadataJSONSuffix) ||
-		strings.HasSuffix(metadataLocation, metadataJSONGzipSuffix)
+	return strings.HasSuffix(metadataLocation, ".json") ||
+		strings.HasSuffix(metadataLocation, ".json.gz")
 }
 
 // GetTableMaintenanceConfiguration returns the maintenance config for a table.
