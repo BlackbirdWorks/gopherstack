@@ -46,6 +46,7 @@ type TranscriptionJob struct {
 	Subtitles                 *SubtitlesOutput            `json:"subtitles,omitempty"`
 	ContentRedaction          *ContentRedaction           `json:"contentRedaction,omitempty"`
 	ModelSettings             *ModelSettings              `json:"modelSettings,omitempty"`
+	JobExecutionSettings      *JobExecutionSettings       `json:"jobExecutionSettings,omitempty"`
 	Settings                  *TranscriptionSettings      `json:"settings,omitempty"`
 	Media                     Media                       `json:"media"`
 	LanguageCode              string                      `json:"languageCode"`
@@ -257,6 +258,10 @@ func (b *InMemoryBackend) StartTranscriptionJob(input *TranscriptionJob) (*Trans
 	}
 
 	if err := validateContentRedaction(input.ContentRedaction); err != nil {
+		return nil, err
+	}
+
+	if err := validateJobExecutionSettings(input.JobExecutionSettings); err != nil {
 		return nil, err
 	}
 

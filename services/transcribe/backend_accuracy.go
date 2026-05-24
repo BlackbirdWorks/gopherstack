@@ -216,6 +216,22 @@ func validateContentRedaction(cr *ContentRedaction) error {
 	return nil
 }
 
+// validateJobExecutionSettings enforces the role requirement for deferred jobs.
+func validateJobExecutionSettings(settings *JobExecutionSettings) error {
+	if settings == nil || !settings.AllowDeferredExecution {
+		return nil
+	}
+
+	if settings.DataAccessRoleArn == "" {
+		return fmt.Errorf(
+			"%w: JobExecutionSettings.DataAccessRoleArn is required when AllowDeferredExecution is true",
+			ErrValidation,
+		)
+	}
+
+	return nil
+}
+
 // validateSubtitles validates Subtitles input fields when non-nil.
 func validateSubtitles(s *SubtitlesInput) error {
 	if s == nil {

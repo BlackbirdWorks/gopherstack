@@ -462,6 +462,52 @@ func TestAccuracy_OutputBucketName_Routing(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "my-results-bucket")
 }
 
+func TestAccuracy_JobExecutionSettings_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		settings *transcribe.JobExecutionSettings
+		name     string
+		wantErr  bool
+	}{
+		{name: "unset", settings: nil},
+		{name: "role_without_deferred", settings: &transcribe.JobExecutionSettings{DataAccessRoleArn: "role"}},
+		{
+			name: "deferred_with_role",
+			settings: &transcribe.JobExecutionSettings{
+				AllowDeferredExecution: true,
+				DataAccessRoleArn:      "arn:aws:iam::123456789012:role/transcribe",
+			},
+		},
+		{
+			name:     "deferred_without_role",
+			settings: &transcribe.JobExecutionSettings{AllowDeferredExecution: true},
+			wantErr:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			job, err := transcribe.NewInMemoryBackend().StartTranscriptionJob(&transcribe.TranscriptionJob{
+				JobName:              "job-execution-" + tc.name,
+				LanguageCode:         "en-US",
+				Media:                transcribe.Media{MediaFileURI: "s3://b/f"},
+				JobExecutionSettings: tc.settings,
+			})
+			if tc.wantErr {
+				require.ErrorIs(t, err, transcribe.ErrValidation)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.settings, job.JobExecutionSettings)
+		})
+	}
+}
+
 // ── Gap #18: Vocabulary Phrases + VocabularyFileUri ──────────────────────────
 
 func TestAccuracy_CreateVocabulary_Phrases(t *testing.T) {
@@ -864,11 +910,16 @@ func TestAccuracy_HTTP_StartTranscriptionJob_FullInput(t *testing.T) {
 		"ContentRedaction": map[string]any{
 			"RedactionType": "PII",
 		},
+		"JobExecutionSettings": map[string]any{
+			"AllowDeferredExecution": true,
+			"DataAccessRoleArn":      "arn:aws:iam::123456789012:role/transcribe",
+		},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	assert.Contains(t, body, "http-full-job")
 	assert.Contains(t, body, "COMPLETED")
+	assert.Contains(t, body, "JobExecutionSettings")
 }
 
 func TestAccuracy_HTTP_StartMedicalTranscriptionJob(t *testing.T) {
