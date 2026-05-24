@@ -95,6 +95,7 @@ import (
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	pollybackend "github.com/blackbirdworks/gopherstack/services/polly"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
@@ -188,6 +189,7 @@ type Stack struct {
 	SchedulerHandler               *schedulerbackend.Handler
 	Route53ResolverHandler         *route53resolverbackend.Handler
 	TranscribeHandler              *transcribebackend.Handler
+	PollyHandler                   *pollybackend.Handler
 	SupportHandler                 *supportbackend.Handler
 	CognitoIdentityHandler         *cognitoidentitybackend.Handler
 	AppSyncHandler                 *appsyncbackend.Handler
@@ -509,6 +511,7 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 
 // registerLatestServices registers the most recently added service handlers.
 func registerLatestServices(registry *service.Registry, h handlers) {
+	_ = registry.Register(h.polly)
 	_ = registry.Register(h.neptune)
 	_ = registry.Register(h.pinpoint)
 	_ = registry.Register(h.pipes)
@@ -575,6 +578,7 @@ type handlers struct {
 	scheduler           *schedulerbackend.Handler
 	route53resolver     *route53resolverbackend.Handler
 	transcribe          *transcribebackend.Handler
+	polly               *pollybackend.Handler
 	support             *supportbackend.Handler
 	cognitoIdentity     *cognitoidentitybackend.Handler
 	appSync             *appsyncbackend.Handler
@@ -757,6 +761,9 @@ func populateExtendedHandlers(h *handlers) {
 		route53resolverbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.transcribe = transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend())
+	h.polly = pollybackend.NewHandler(
+		pollybackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.support = supportbackend.NewHandler(supportbackend.NewInMemoryBackend())
 
 	populateNewestHandlers(h)
@@ -1197,6 +1204,7 @@ func buildStack(
 		SchedulerHandler:               h.scheduler,
 		Route53ResolverHandler:         h.route53resolver,
 		TranscribeHandler:              h.transcribe,
+		PollyHandler:                   h.polly,
 		SupportHandler:                 h.support,
 		CognitoIdentityHandler:         h.cognitoIdentity,
 		AppSyncHandler:                 h.appSync,

@@ -73,7 +73,7 @@ func (h *AgentsHandler) dispatchFlowRoutes(
 	// Exact /flows
 	if path == flowsPath {
 		switch method {
-		case http.MethodPost:
+		case http.MethodPost, http.MethodPut:
 			return h.handleCreateFlow(c, body)
 		case http.MethodGet:
 			return h.handleListFlows(c)
@@ -81,7 +81,8 @@ func (h *AgentsHandler) dispatchFlowRoutes(
 	}
 
 	// /flows/validateFlowDefinition (POST)
-	if path == flowsPath+"/validateFlowDefinition" && method == http.MethodPost {
+	if (path == flowsPath+"/validateFlowDefinition" || path == flowsPath+"/validate-definition") &&
+		method == http.MethodPost {
 		return h.handleValidateFlowDefinition(c)
 	}
 
@@ -133,7 +134,7 @@ func (h *AgentsHandler) dispatchFlowAliasRoutes(
 ) error {
 	if suffix == suffixAliases {
 		switch method {
-		case http.MethodPost:
+		case http.MethodPost, http.MethodPut:
 			return h.handleCreateFlowAlias(c, flowID, body)
 		case http.MethodGet:
 			return h.handleListFlowAliases(c, flowID)
@@ -162,7 +163,7 @@ func (h *AgentsHandler) dispatchFlowVersionRoutes(
 ) error {
 	if suffix == suffixVersions {
 		switch method {
-		case http.MethodPost:
+		case http.MethodPost, http.MethodPut:
 			return h.handleCreateFlowVersion(c, flowID)
 		case http.MethodGet:
 			return h.handleListFlowVersions(c, flowID)
@@ -190,7 +191,7 @@ func (h *AgentsHandler) dispatchPromptRoutes(
 ) error {
 	if path == promptsPath {
 		switch method {
-		case http.MethodPost:
+		case http.MethodPost, http.MethodPut:
 			return h.handleCreatePrompt(c, body)
 		case http.MethodGet:
 			return h.handleListPrompts(c)
@@ -288,6 +289,31 @@ func (h *AgentsHandler) dispatchAgentVersionRoutes(
 		http.StatusNotFound,
 		agentErrResp("UnknownOperationException", "unknown agent version operation"),
 	)
+}
+
+func (h *AgentsHandler) dispatchCanonicalAgentVersionRoutes(
+	c *echo.Context, agentID, suffix, method string,
+) error {
+	if suffix == "/agentversions" && method == http.MethodGet {
+		return h.handleListAgentVersions(c, agentID)
+	}
+
+	version, ok := strings.CutPrefix(suffix, "/agentversions/")
+	if !ok {
+		return c.JSON(http.StatusNotFound, agentErrResp("UnknownOperationException", "unknown agent version operation"))
+	}
+
+	if version == agentStatusDraft && method == http.MethodPost {
+		return h.handlePrepareAgent(c, agentID)
+	}
+	if method == http.MethodGet {
+		return h.handleGetAgentVersion(c, agentID, version)
+	}
+	if method == http.MethodDelete {
+		return h.handleDeleteAgentVersion(c, agentID, version)
+	}
+
+	return c.JSON(http.StatusNotFound, agentErrResp("UnknownOperationException", "unknown agent version operation"))
 }
 
 // dispatchAgentCollabRoutes handles /agents/{agentId}/agentversions/{v}/agentcollaborators/...
@@ -950,6 +976,25 @@ func (h *AgentsHandler) handleListKBDocuments(c *echo.Context, kbID, dsID string
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *AgentsHandler) handleGetKBDocuments(
+	c *echo.Context, kbID, dsID string, body []byte,
+) error {
+	var req struct {
+		DocumentIDs []string `json:"documentIds"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return c.JSON(http.StatusBadRequest, agentErrResp("ValidationException", "invalid request body"))
+	}
+
+	docs, err := h.Backend.GetKnowledgeBaseDocuments(kbID, dsID, req.DocumentIDs)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"documentDetails": docs})
 }
 
 func (h *AgentsHandler) handleDeleteKBDocuments(

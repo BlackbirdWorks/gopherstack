@@ -141,6 +141,7 @@ import (
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	pollybackend "github.com/blackbirdworks/gopherstack/services/polly"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
@@ -2580,6 +2581,7 @@ func getServiceProviders() []service.Provider {
 		&route53resolverbackend.Provider{},
 		&rdsbackend.Provider{},
 		&transcribebackend.Provider{},
+		&pollybackend.Provider{},
 		&supportbackend.Provider{},
 		&ecrbackend.Provider{},
 		&ecsbackend.Provider{},

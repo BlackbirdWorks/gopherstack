@@ -989,6 +989,31 @@ func (b *InMemoryBackend) ListKnowledgeBaseDocuments(
 	return paginate(list, maxResults, nextToken)
 }
 
+// GetKnowledgeBaseDocuments returns selected documents for a KB data source.
+func (b *InMemoryBackend) GetKnowledgeBaseDocuments(
+	kbID, dsID string,
+	documentIDs []string,
+) ([]*KnowledgeBaseDocument, error) {
+	b.mu.RLock("GetKnowledgeBaseDocuments")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.dataSources[kbID+"/"+dsID]; !ok {
+		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
+	}
+
+	docs := make([]*KnowledgeBaseDocument, 0, len(documentIDs))
+	for _, documentID := range documentIDs {
+		doc, ok := b.kbDocuments[kbDocKey(kbID, dsID, documentID)]
+		if !ok {
+			continue
+		}
+		cp := *doc
+		docs = append(docs, &cp)
+	}
+
+	return docs, nil
+}
+
 // DeleteKnowledgeBaseDocuments removes documents from a KB data source.
 func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
 	kbID, dsID string,
