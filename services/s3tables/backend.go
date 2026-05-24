@@ -1006,8 +1006,8 @@ func (b *InMemoryBackend) UpdateTableMetadataLocation(
 	return cloneTable(t), nil
 }
 
-func validMetadataLocation(warehouseLocation, metadataLocation string) bool {
-	if !strings.HasPrefix(metadataLocation, warehouseLocation+"/") {
+func validMetadataLocation(_, metadataLocation string) bool {
+	if !strings.HasPrefix(metadataLocation, "s3://") {
 		return false
 	}
 
