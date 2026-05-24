@@ -95,6 +95,7 @@ import (
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	pollybackend "github.com/blackbirdworks/gopherstack/services/polly"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
@@ -188,6 +189,7 @@ type Stack struct {
 	SchedulerHandler               *schedulerbackend.Handler
 	Route53ResolverHandler         *route53resolverbackend.Handler
 	TranscribeHandler              *transcribebackend.Handler
+	PollyHandler                   *pollybackend.Handler
 	SupportHandler                 *supportbackend.Handler
 	CognitoIdentityHandler         *cognitoidentitybackend.Handler
 	AppSyncHandler                 *appsyncbackend.Handler
@@ -396,6 +398,7 @@ func registerServices(
 	schedulerHndlr *schedulerbackend.Handler,
 	route53resolverHndlr *route53resolverbackend.Handler,
 	transcribeHndlr *transcribebackend.Handler,
+	pollyHndlr *pollybackend.Handler,
 	supportHndlr *supportbackend.Handler,
 	cognitoIdentityHndlr *cognitoidentitybackend.Handler,
 	appSyncHndlr *appsyncbackend.Handler,
@@ -448,6 +451,7 @@ func registerServices(
 	_ = registry.Register(schedulerHndlr)
 	_ = registry.Register(route53resolverHndlr)
 	_ = registry.Register(transcribeHndlr)
+	_ = registry.Register(pollyHndlr)
 	_ = registry.Register(supportHndlr)
 	_ = registry.Register(cognitoIdentityHndlr)
 	_ = registry.Register(appSyncHndlr)
@@ -575,6 +579,7 @@ type handlers struct {
 	scheduler           *schedulerbackend.Handler
 	route53resolver     *route53resolverbackend.Handler
 	transcribe          *transcribebackend.Handler
+	polly               *pollybackend.Handler
 	support             *supportbackend.Handler
 	cognitoIdentity     *cognitoidentitybackend.Handler
 	appSync             *appsyncbackend.Handler
@@ -757,6 +762,9 @@ func populateExtendedHandlers(h *handlers) {
 		route53resolverbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.transcribe = transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend())
+	h.polly = pollybackend.NewHandler(
+		pollybackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.support = supportbackend.NewHandler(supportbackend.NewInMemoryBackend())
 
 	populateNewestHandlers(h)
@@ -1085,7 +1093,7 @@ func New(t *testing.T) *Stack {
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
 		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.iot, h.opensearch,
 		h.acm, h.acmpca, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
-		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
+		h.scheduler, h.route53resolver, h.transcribe, h.polly, h.support, h.cognitoIdentity,
 		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData,
 		h.amplify, h.apigwv2, h.appConfig, h.athena, h.backup,
 	)
@@ -1197,6 +1205,7 @@ func buildStack(
 		SchedulerHandler:               h.scheduler,
 		Route53ResolverHandler:         h.route53resolver,
 		TranscribeHandler:              h.transcribe,
+		PollyHandler:                   h.polly,
 		SupportHandler:                 h.support,
 		CognitoIdentityHandler:         h.cognitoIdentity,
 		AppSyncHandler:                 h.appSync,

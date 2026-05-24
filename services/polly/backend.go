@@ -316,7 +316,10 @@ func (b *InMemoryBackend) GetSpeechSynthesisTask(taskID string) (*SpeechSynthesi
 }
 
 // ListSpeechSynthesisTasks lists tasks and advances lifecycle consistently with AWS polling.
-func (b *InMemoryBackend) ListSpeechSynthesisTasks(status, token string) ([]*SpeechSynthesisTask, string, error) {
+func (b *InMemoryBackend) ListSpeechSynthesisTasks(
+	status, token string,
+	maxResults int,
+) ([]*SpeechSynthesisTask, string, error) {
 	if status != "" && !slices.Contains(validTaskStatuses(), status) {
 		return nil, "", fmt.Errorf("%w: invalid Status %q", ErrValidation, status)
 	}
@@ -334,6 +337,9 @@ func (b *InMemoryBackend) ListSpeechSynthesisTasks(status, token string) ([]*Spe
 	if err != nil {
 		return nil, "", err
 	}
+	if maxResults <= 0 || maxResults > maxTaskPageSize {
+		maxResults = maxTaskPageSize
+	}
 
 	out := make([]*SpeechSynthesisTask, 0, len(keys))
 	for _, key := range keys[offset:] {
@@ -342,7 +348,7 @@ func (b *InMemoryBackend) ListSpeechSynthesisTasks(status, token string) ([]*Spe
 		if status == "" || task.TaskStatus == status {
 			out = append(out, cloneTask(task))
 		}
-		if len(out) == maxTaskPageSize {
+		if len(out) == maxResults {
 			return out, fmt.Sprintf("%d", offset+len(out)), nil
 		}
 	}

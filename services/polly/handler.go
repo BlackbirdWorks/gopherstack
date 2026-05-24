@@ -44,6 +44,7 @@ const (
 	queryIncludeAdditional       = "IncludeAdditionalLanguageCodes"
 	queryStatus                  = "Status"
 	queryNextToken               = "NextToken"
+	queryMaxResults              = "MaxResults"
 	headerRequestCharacters      = "x-amzn-RequestCharacters"
 	headerStreamEngine           = "X-Amzn-Engine"
 	headerStreamLanguageCode     = "X-Amzn-Languagecode"
@@ -432,9 +433,15 @@ func (h *Handler) getTask(c *echo.Context, id string) error {
 }
 
 func (h *Handler) listTasks(c *echo.Context) error {
+	maxResults, err := maxResultsParam(c.QueryParam(queryMaxResults))
+	if err != nil {
+		return err
+	}
+
 	tasks, token, err := h.Backend.ListSpeechSynthesisTasks(
 		c.QueryParam(queryStatus),
 		c.QueryParam(queryNextToken),
+		maxResults,
 	)
 	if err != nil {
 		return err
@@ -492,12 +499,26 @@ func (h *Handler) deleteLexicon(c *echo.Context, name string) error {
 
 func (h *Handler) listLexicons(c *echo.Context) error {
 	lexicons := h.Backend.ListLexicons()
-	attributes := make([]map[string]any, 0, len(lexicons))
-	for _, lexicon := range lexicons {
+	offset, err := parseToken(c.QueryParam(queryNextToken), len(lexicons))
+	if err != nil {
+		return err
+	}
+	maxResults, err := maxResultsParam(c.QueryParam(queryMaxResults))
+	if err != nil {
+		return err
+	}
+	end := min(offset+maxResults, len(lexicons))
+	attributes := make([]map[string]any, 0, end-offset)
+	for _, lexicon := range lexicons[offset:end] {
 		attributes = append(attributes, lexiconAttributes(lexicon))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Lexicons": attributes})
+	nextToken := ""
+	if end < len(lexicons) {
+		nextToken = strconv.Itoa(end)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Lexicons": attributes, "NextToken": nextToken})
 }
 
 func lexiconAttributes(lexicon *Lexicon) map[string]any {
@@ -604,4 +625,16 @@ func defaultQueryValue(got, fallback string) string {
 	}
 
 	return got
+}
+
+func maxResultsParam(value string) (int, error) {
+	if value == "" {
+		return maxTaskPageSize, nil
+	}
+	maxResults, err := strconv.Atoi(value)
+	if err != nil || maxResults < 1 || maxResults > maxTaskPageSize {
+		return 0, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxTaskPageSize)
+	}
+
+	return maxResults, nil
 }

@@ -313,6 +313,31 @@ func TestTaskLifecycle(t *testing.T) {
 	}
 }
 
+func TestTaskListPaginationAndValidation(t *testing.T) {
+	t.Parallel()
+
+	handler := newHandler()
+	for _, text := range []string{"first", "second", "third"} {
+		startTask(t, handler, text)
+	}
+
+	first := request(t, handler, http.MethodGet, "/v1/synthesisTasks?MaxResults=2", nil)
+	require.Equal(t, http.StatusOK, first.Code)
+	firstPage := responseMap(t, first)
+	require.Len(t, firstPage["SynthesisTasks"].([]any), 2)
+	token := firstPage["NextToken"].(string)
+	require.NotEmpty(t, token)
+
+	second := request(t, handler, http.MethodGet, "/v1/synthesisTasks?MaxResults=2&NextToken="+token, nil)
+	require.Equal(t, http.StatusOK, second.Code)
+	assert.Len(t, responseMap(t, second)["SynthesisTasks"].([]any), 1)
+
+	for _, query := range []string{"?MaxResults=0", "?MaxResults=bad", "?Status=nope", "?NextToken=bad"} {
+		rec := request(t, handler, http.MethodGet, "/v1/synthesisTasks"+query, nil)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	}
+}
+
 func TestLexiconCRUD(t *testing.T) {
 	t.Parallel()
 
@@ -361,6 +386,40 @@ func TestLexiconCRUD(t *testing.T) {
 				assert.Contains(t, rec.Body.String(), test.find)
 			}
 		})
+	}
+}
+
+func TestLexiconPaginationAndSynthesisUse(t *testing.T) {
+	t.Parallel()
+
+	handler := newHandler()
+	for _, name := range []string{"bravo", "alpha", "charlie"} {
+		rec := request(t, handler, http.MethodPut, "/v1/lexicons/"+name, map[string]any{
+			"Content": `<lexicon alphabet="ipa" xml:lang="en-US"><lexeme></lexeme></lexicon>`,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	first := request(t, handler, http.MethodGet, "/v1/lexicons?MaxResults=2", nil)
+	require.Equal(t, http.StatusOK, first.Code)
+	body := responseMap(t, first)
+	lexicons := body["Lexicons"].([]any)
+	require.Len(t, lexicons, 2)
+	assert.Equal(t, "alpha", lexicons[0].(map[string]any)["Name"])
+	assert.NotEmpty(t, body["NextToken"])
+
+	for _, name := range []string{"alpha", "unknown"} {
+		rec := request(t, handler, http.MethodPost, "/v1/speech", map[string]any{
+			"LexiconNames": []string{name},
+			"OutputFormat": "mp3",
+			"Text":         "pronounce this",
+			"VoiceId":      "Joanna",
+		})
+		want := http.StatusOK
+		if name == "unknown" {
+			want = http.StatusNotFound
+		}
+		assert.Equal(t, want, rec.Code)
 	}
 }
 
