@@ -508,6 +508,51 @@ func TestAccuracy_JobExecutionSettings_Validation(t *testing.T) {
 	}
 }
 
+func TestAccuracy_DeferredTranscriptionJob_Lifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		failureReason string
+		finalStatus   string
+	}{
+		{name: "completes", finalStatus: "COMPLETED"},
+		{name: "fails", failureReason: "synthetic failure", finalStatus: "FAILED"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := transcribe.NewInMemoryBackend()
+			job, err := b.StartTranscriptionJob(&transcribe.TranscriptionJob{
+				JobName:       "deferred-" + tc.name,
+				LanguageCode:  "en-US",
+				Media:         transcribe.Media{MediaFileURI: "s3://b/f"},
+				FailureReason: tc.failureReason,
+				JobExecutionSettings: &transcribe.JobExecutionSettings{
+					AllowDeferredExecution: true,
+					DataAccessRoleArn:      "arn:aws:iam::123456789012:role/transcribe",
+				},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "QUEUED", job.JobStatus)
+
+			jobs, _ := b.ListTranscriptionJobs("QUEUED", "")
+			assert.Len(t, jobs, 1)
+
+			job, err = b.GetTranscriptionJob(job.JobName)
+			require.NoError(t, err)
+			assert.Equal(t, "IN_PROGRESS", job.JobStatus)
+
+			job, err = b.GetTranscriptionJob(job.JobName)
+			require.NoError(t, err)
+			assert.Equal(t, tc.finalStatus, job.JobStatus)
+			assert.False(t, job.CompletionTime.IsZero())
+		})
+	}
+}
+
 // ── Gap #18: Vocabulary Phrases + VocabularyFileUri ──────────────────────────
 
 func TestAccuracy_CreateVocabulary_Phrases(t *testing.T) {
@@ -918,7 +963,7 @@ func TestAccuracy_HTTP_StartTranscriptionJob_FullInput(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	assert.Contains(t, body, "http-full-job")
-	assert.Contains(t, body, "COMPLETED")
+	assert.Contains(t, body, "QUEUED")
 	assert.Contains(t, body, "JobExecutionSettings")
 }
 

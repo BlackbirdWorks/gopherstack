@@ -25,7 +25,10 @@ const (
 	transcribeDefaultPageSize = 100
 
 	// job/scribe status constants.
-	jobStatusCompleted = "COMPLETED"
+	jobStatusQueued     = "QUEUED"
+	jobStatusInProgress = "IN_PROGRESS"
+	jobStatusCompleted  = "COMPLETED"
+	jobStatusFailed     = "FAILED"
 
 	// vocabulary state constants.
 	vocabStateReady = "READY"
@@ -229,47 +232,7 @@ func (b *InMemoryBackend) ensureNonNilMaps() {
 // StartTranscriptionJob creates a new transcription job with synthetic results.
 // The input struct carries all supported fields; validation is performed before storage.
 func (b *InMemoryBackend) StartTranscriptionJob(input *TranscriptionJob) (*TranscriptionJob, error) {
-	if err := validateJobName(input.JobName); err != nil {
-		return nil, err
-	}
-
-	// LanguageCode is required unless IdentifyLanguage or IdentifyMultipleLanguages is true.
-	if !input.IdentifyLanguage && !input.IdentifyMultipleLanguages && input.LanguageCode == "" {
-		return nil, fmt.Errorf(
-			"%w: LanguageCode is required (or set IdentifyLanguage/IdentifyMultipleLanguages)",
-			ErrValidation,
-		)
-	}
-
-	if err := validateLanguageCode(input.LanguageCode); err != nil {
-		return nil, err
-	}
-
-	if err := validateMediaFormat(input.MediaFormat); err != nil {
-		return nil, err
-	}
-
-	if err := validateMediaSampleRateHertz(input.MediaSampleRateHertz); err != nil {
-		return nil, err
-	}
-
-	if err := validateSettings(input.Settings); err != nil {
-		return nil, err
-	}
-
-	if err := validateContentRedaction(input.ContentRedaction); err != nil {
-		return nil, err
-	}
-
-	if err := validateJobExecutionSettings(input.JobExecutionSettings); err != nil {
-		return nil, err
-	}
-
-	if err := validateSubtitles(subtitlesInputFromOutput(input.Subtitles)); err != nil {
-		return nil, err
-	}
-
-	if err := validateLanguageOptions(input.LanguageOptions); err != nil {
+	if err := validateTranscriptionJobInput(input); err != nil {
 		return nil, err
 	}
 
@@ -281,11 +244,23 @@ func (b *InMemoryBackend) StartTranscriptionJob(input *TranscriptionJob) (*Trans
 	}
 
 	job := buildCompletedTranscriptionJob(input)
+	if input.JobExecutionSettings != nil && input.JobExecutionSettings.AllowDeferredExecution {
+		job = buildQueuedTranscriptionJob(input)
+	}
 
 	b.jobs[input.JobName] = &job
 	cp := job
 
 	return &cp, nil
+}
+
+// buildQueuedTranscriptionJob initialises a deferred job before execution starts.
+func buildQueuedTranscriptionJob(input *TranscriptionJob) TranscriptionJob {
+	job := *input
+	job.JobStatus = jobStatusQueued
+	job.CreationTime = time.Now()
+
+	return job
 }
 
 // buildCompletedTranscriptionJob initialises a job as COMPLETED with synthetic results.
@@ -324,6 +299,27 @@ func buildCompletedTranscriptionJob(input *TranscriptionJob) TranscriptionJob {
 	return job
 }
 
+func advanceDeferredTranscriptionJob(job *TranscriptionJob) {
+	switch job.JobStatus {
+	case jobStatusQueued:
+		job.JobStatus = jobStatusInProgress
+		job.StartTime = time.Now()
+	case jobStatusInProgress:
+		job.CompletionTime = time.Now()
+		if job.FailureReason != "" {
+			job.JobStatus = jobStatusFailed
+
+			return
+		}
+
+		completed := buildCompletedTranscriptionJob(job)
+		completed.CreationTime = job.CreationTime
+		completed.StartTime = job.StartTime
+		completed.CompletionTime = time.Now()
+		*job = completed
+	}
+}
+
 // syntheticIdentifiedLanguageScore is the confidence score returned when language identification is enabled.
 const syntheticIdentifiedLanguageScore = float32(0.97)
 
@@ -351,14 +347,15 @@ func subtitlesInputFromOutput(s *SubtitlesOutput) *SubtitlesInput {
 
 // GetTranscriptionJob returns a transcription job by name.
 func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob, error) {
-	b.mu.RLock("GetTranscriptionJob")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetTranscriptionJob")
+	defer b.mu.Unlock()
 
 	job, ok := b.jobs[jobName]
 	if !ok {
 		return nil, fmt.Errorf("%w: job %s not found", ErrNotFound, jobName)
 	}
 
+	advanceDeferredTranscriptionJob(job)
 	cp := *job
 
 	return &cp, nil
