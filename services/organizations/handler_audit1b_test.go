@@ -43,7 +43,7 @@ func TestAudit1b_CreateAccount_WithTags(t *testing.T) {
 
 			b, _ := newOrgBackend(t)
 
-			status, err := b.CreateAccount("tagged-account", "tagged@example.com", tt.tags)
+			status, err := b.CreateAccount("tagged-account", "tagged@example.com", "", "", tt.tags)
 			require.NoError(t, err)
 
 			tags, err := b.ListTagsForResource(status.AccountID)
@@ -75,7 +75,7 @@ func TestAudit1b_CreateAccount_GovCloudIDFormat(t *testing.T) {
 
 			b, _ := newOrgBackend(t)
 
-			status, err := b.CreateGovCloudAccount(tt.accountName, tt.email, nil)
+			status, err := b.CreateGovCloudAccount(tt.accountName, tt.email, "", "", nil)
 			require.NoError(t, err)
 			assert.NotEmpty(t, status.GovCloudAccountID)
 			assert.Len(t, status.GovCloudAccountID, 12, "GovCloud ID must be 12 digits")
@@ -311,7 +311,7 @@ func TestAudit1b_MoveAccount_Scenarios(t *testing.T) {
 			ouNested, err := b.CreateOrganizationalUnit(ouTop.ID, "nested-ou", nil)
 			require.NoError(t, err)
 
-			status, err := b.CreateAccount("move-me", "move@example.com", nil)
+			status, err := b.CreateAccount("move-me", "move@example.com", "", "", nil)
 			require.NoError(t, err)
 			accountID := status.AccountID
 
@@ -383,7 +383,7 @@ func TestAudit1b_CloseAccount_Scenarios(t *testing.T) {
 			case tt.notFound:
 				targetID = "000000000000"
 			default:
-				createStatus, createErr := b.CreateAccount("close-me", "close@example.com", nil)
+				createStatus, createErr := b.CreateAccount("close-me", "close@example.com", "", "", nil)
 				require.NoError(t, createErr)
 				targetID = createStatus.AccountID
 			}
@@ -401,7 +401,7 @@ func TestAudit1b_CloseAccount_Scenarios(t *testing.T) {
 			if tt.wantSusp {
 				acct, descErr := b.DescribeAccount(targetID)
 				require.NoError(t, descErr)
-				assert.Equal(t, "SUSPENDED", acct.Status)
+				assert.Equal(t, "PENDING_CLOSURE", acct.Status)
 			}
 		})
 	}
@@ -433,11 +433,12 @@ func TestAudit1b_RemoveAccount_CleansDelegatedAdmins(t *testing.T) {
 
 			b, _ := newOrgBackend(t)
 
-			status, err := b.CreateAccount("delegate", "delegate@example.com", nil)
+			status, err := b.CreateAccount("delegate", "delegate@example.com", "", "", nil)
 			require.NoError(t, err)
 			accountID := status.AccountID
 
 			for _, svc := range tt.services {
+				require.NoError(t, b.EnableAWSServiceAccess(svc))
 				require.NoError(t, b.RegisterDelegatedAdministrator(accountID, svc))
 			}
 
@@ -526,7 +527,7 @@ func TestAudit1b_OU_DeleteConstraints(t *testing.T) {
 
 			switch tt.kind {
 			case "with_account":
-				acctStatus, acctErr := b.CreateAccount("child-account", "child@example.com", nil)
+				acctStatus, acctErr := b.CreateAccount("child-account", "child@example.com", "", "", nil)
 				require.NoError(t, acctErr)
 				require.NoError(t, b.MoveAccount(acctStatus.AccountID, rootID, ou.ID))
 			case "with_child_ou":
@@ -587,7 +588,7 @@ func TestAudit1b_OU_ListChildren(t *testing.T) {
 			b, rootID := newOrgBackend(t)
 
 			if tt.addAccount {
-				_, err := b.CreateAccount("child", "child@example.com", nil)
+				_, err := b.CreateAccount("child", "child@example.com", "", "", nil)
 				require.NoError(t, err)
 			}
 
@@ -636,11 +637,11 @@ func TestAudit1b_OU_ListParents(t *testing.T) {
 
 			switch tt.childKind {
 			case "account_in_root":
-				s1, err1 := b.CreateAccount("a", "a@example.com", nil)
+				s1, err1 := b.CreateAccount("a", "a@example.com", "", "", nil)
 				require.NoError(t, err1)
 				childID = s1.AccountID
 			case "account_in_ou":
-				s2, err2 := b.CreateAccount("a", "a@example.com", nil)
+				s2, err2 := b.CreateAccount("a", "a@example.com", "", "", nil)
 				require.NoError(t, err2)
 				require.NoError(t, b.MoveAccount(s2.AccountID, rootID, ou.ID))
 				childID = s2.AccountID
@@ -700,7 +701,7 @@ func TestAudit1b_AttachPolicy_Targets(t *testing.T) {
 				require.NoError(t, ouErr)
 				targetID = ou.ID
 			case "account":
-				s, acctErr := b.CreateAccount("policy-target", "pt@example.com", nil)
+				s, acctErr := b.CreateAccount("policy-target", "pt@example.com", "", "", nil)
 				require.NoError(t, acctErr)
 				targetID = s.AccountID
 			}
@@ -1051,10 +1052,11 @@ func TestAudit1b_DelegatedAdmin_MultiService(t *testing.T) {
 
 			b, _ := newOrgBackend(t)
 
-			status, err := b.CreateAccount("admin-account", "admin@example.com", nil)
+			status, err := b.CreateAccount("admin-account", "admin@example.com", "", "", nil)
 			require.NoError(t, err)
 
 			for _, svc := range tt.services {
+				require.NoError(t, b.EnableAWSServiceAccess(svc))
 				require.NoError(t, b.RegisterDelegatedAdministrator(status.AccountID, svc))
 			}
 
@@ -1103,10 +1105,11 @@ func TestAudit1b_DelegatedAdmin_ListServices(t *testing.T) {
 
 			b, _ := newOrgBackend(t)
 
-			status, err := b.CreateAccount("svc-account", "svc@example.com", nil)
+			status, err := b.CreateAccount("svc-account", "svc@example.com", "", "", nil)
 			require.NoError(t, err)
 
 			for _, svc := range tt.registerSvcs {
+				require.NoError(t, b.EnableAWSServiceAccess(svc))
 				require.NoError(t, b.RegisterDelegatedAdministrator(status.AccountID, svc))
 			}
 
@@ -1148,6 +1151,7 @@ func TestAudit1b_DelegatedAdmin_ErrorCases(t *testing.T) {
 			op:      "register",
 			service: "ssm.amazonaws.com",
 			setup: func(b *organizations.InMemoryBackend, accountID string) {
+				require.NoError(t, b.EnableAWSServiceAccess("ssm.amazonaws.com"))
 				require.NoError(t, b.RegisterDelegatedAdministrator(accountID, "ssm.amazonaws.com"))
 			},
 			wantErr: true,
@@ -1168,7 +1172,7 @@ func TestAudit1b_DelegatedAdmin_ErrorCases(t *testing.T) {
 
 			accountID := tt.accountID
 			if accountID == "" {
-				status, err := b.CreateAccount("test-acct", "test@example.com", nil)
+				status, err := b.CreateAccount("test-acct", "test@example.com", "", "", nil)
 				require.NoError(t, err)
 				accountID = status.AccountID
 			}
@@ -1180,6 +1184,8 @@ func TestAudit1b_DelegatedAdmin_ErrorCases(t *testing.T) {
 			var err error
 			switch tt.op {
 			case "register":
+				// Enable service access so the check passes (account-not-found and duplicate tests still get correct errors).
+				_ = b.EnableAWSServiceAccess(tt.service)
 				err = b.RegisterDelegatedAdministrator(accountID, tt.service)
 			case "deregister":
 				err = b.DeregisterDelegatedAdministrator(accountID, tt.service)
@@ -1607,6 +1613,7 @@ func TestAudit1b_ListCreateAccountStatus_Filter(t *testing.T) {
 				_, err := b.CreateAccount(
 					"acct-"+string(rune('a'+i)),
 					"acct"+string(rune('a'+i))+"@example.com",
+					"", "",
 					nil,
 				)
 				require.NoError(t, err)
@@ -1642,7 +1649,7 @@ func TestAudit1b_TagOperations_MultiResource(t *testing.T) {
 
 			switch tt.resourceKind {
 			case "account":
-				s, err := b.CreateAccount("tagged", "tagged@example.com", nil)
+				s, err := b.CreateAccount("tagged", "tagged@example.com", "", "", nil)
 				require.NoError(t, err)
 				resourceID = s.AccountID
 			case "ou":

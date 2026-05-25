@@ -7,25 +7,26 @@ import (
 )
 
 type backendSnapshot struct {
-	DelegatedAdmins map[string]map[string]*DelegatedAdmin `json:"delegatedAdmins"`
-	Handshakes      map[string]*Handshake                 `json:"handshakes"`
-	Org             *Organization                         `json:"org"`
-	Root            *Root                                 `json:"root"`
-	ResourcePolicy  *ResourcePolicy                       `json:"resourcePolicy,omitempty"`
-	Accounts        map[string]*Account                   `json:"accounts"`
-	OUs             map[string]*OrganizationalUnit        `json:"ous"`
-	Policies        map[string]*Policy                    `json:"policies"`
-	ServiceAccess   map[string]time.Time                  `json:"serviceAccess"`
-	CreateStatuses  map[string]*CreateAccountStatus       `json:"createStatuses"`
-	PolicyTargets   map[string][]string                   `json:"policyTargets"`
-	TargetPolicies  map[string][]string                   `json:"targetPolicies"`
-	AccountParent   map[string]string                     `json:"accountParent"`
-	OUParent        map[string]string                     `json:"ouParent"`
-	Tags            map[string]map[string]string          `json:"tags"`
-	AccountID       string                                `json:"accountID"`
-	Region          string                                `json:"region"`
-	AccountCounter  int                                   `json:"accountCounter"`
-	StatusCounter   int                                   `json:"statusCounter"`
+	DelegatedAdmins  map[string]map[string]*DelegatedAdmin `json:"delegatedAdmins"`
+	Handshakes       map[string]*Handshake                 `json:"handshakes"`
+	Org              *Organization                         `json:"org"`
+	Root             *Root                                 `json:"root"`
+	ResourcePolicy   *ResourcePolicy                       `json:"resourcePolicy,omitempty"`
+	Accounts         map[string]*Account                   `json:"accounts"`
+	OUs              map[string]*OrganizationalUnit        `json:"ous"`
+	Policies         map[string]*Policy                    `json:"policies"`
+	ServiceAccess    map[string]time.Time                  `json:"serviceAccess"`
+	CreateStatuses   map[string]*CreateAccountStatus       `json:"createStatuses"`
+	PolicyTargets    map[string][]string                   `json:"policyTargets"`
+	TargetPolicies   map[string][]string                   `json:"targetPolicies"`
+	AccountParent    map[string]string                     `json:"accountParent"`
+	OUParent         map[string]string                     `json:"ouParent"`
+	Tags             map[string]map[string]string          `json:"tags"`
+	EmailToAccountID map[string]string                     `json:"emailToAccountID"`
+	AccountID        string                                `json:"accountID"`
+	Region           string                                `json:"region"`
+	AccountCounter   int                                   `json:"accountCounter"`
+	StatusCounter    int                                   `json:"statusCounter"`
 }
 
 // ensureNonNilMaps replaces nil maps in snap with empty allocations.
@@ -77,6 +78,10 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Handshakes == nil {
 		snap.Handshakes = make(map[string]*Handshake)
 	}
+
+	if snap.EmailToAccountID == nil {
+		snap.EmailToAccountID = make(map[string]string)
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -85,25 +90,26 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Org:             b.org,
-		Root:            b.root,
-		Accounts:        b.accounts,
-		OUs:             b.ous,
-		Policies:        b.policies,
-		PolicyTargets:   b.policyTargets,
-		TargetPolicies:  b.targetPolicies,
-		AccountParent:   b.accountParent,
-		OUParent:        b.ouParent,
-		Tags:            b.tags,
-		CreateStatuses:  b.createStatuses,
-		ServiceAccess:   b.serviceAccess,
-		DelegatedAdmins: b.delegatedAdmins,
-		Handshakes:      b.handshakes,
-		ResourcePolicy:  b.resourcePolicy,
-		AccountID:       b.accountID,
-		Region:          b.region,
-		AccountCounter:  b.accountCounter,
-		StatusCounter:   b.statusCounter,
+		Org:              b.org,
+		Root:             b.root,
+		Accounts:         b.accounts,
+		OUs:              b.ous,
+		Policies:         b.policies,
+		PolicyTargets:    b.policyTargets,
+		TargetPolicies:   b.targetPolicies,
+		AccountParent:    b.accountParent,
+		OUParent:         b.ouParent,
+		Tags:             b.tags,
+		CreateStatuses:   b.createStatuses,
+		ServiceAccess:    b.serviceAccess,
+		DelegatedAdmins:  b.delegatedAdmins,
+		Handshakes:       b.handshakes,
+		EmailToAccountID: b.emailToAccountID,
+		ResourcePolicy:   b.resourcePolicy,
+		AccountID:        b.accountID,
+		Region:           b.region,
+		AccountCounter:   b.accountCounter,
+		StatusCounter:    b.statusCounter,
 	}
 
 	data, err := json.Marshal(snap)
@@ -143,6 +149,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.serviceAccess = snap.ServiceAccess
 	b.delegatedAdmins = snap.DelegatedAdmins
 	b.handshakes = snap.Handshakes
+	b.emailToAccountID = snap.EmailToAccountID
 	b.resourcePolicy = snap.ResourcePolicy
 	b.accountID = snap.AccountID
 	b.region = snap.Region
