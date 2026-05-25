@@ -61,6 +61,9 @@ type StorageBackend interface {
 	GetPartition(dbName, tableName string, values []string) (*Partition, error)
 	GetPartitions(dbName, tableName string) ([]*Partition, error)
 	UpdatePartition(dbName, tableName string, partitionValues []string, input PartitionInput) error
+	CreatePartitionIndex(dbName, tableName string, input PartitionIndex) error
+	DeletePartitionIndex(dbName, tableName, indexName string) error
+	GetPartitionIndexes(dbName, tableName string) ([]*PartitionIndex, error)
 
 	// Connection operations.
 	CreateConnection(

@@ -303,6 +303,7 @@ type InMemoryBackend struct {
 	crawlers                  map[string]*Crawler                       // key: crawlerName
 	jobs                      map[string]*Job                           // key: jobName
 	partitions                map[string]*Partition                     // key: partitionKey(db, table, values)
+	partitionIndexes          map[string]*PartitionIndex                // key: "databaseName|tableName|indexName"
 	tableVersions             map[string]*TableVersion                  // key: tableVersionKey(db, table, versionID)
 	connections               map[string]*Connection                    // key: connectionName
 	blueprints                map[string]*Blueprint                     // key: blueprintName
@@ -352,6 +353,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		crawlers:                  make(map[string]*Crawler),
 		jobs:                      make(map[string]*Job),
 		partitions:                make(map[string]*Partition),
+		partitionIndexes:          make(map[string]*PartitionIndex),
 		tableVersions:             make(map[string]*TableVersion),
 		connections:               make(map[string]*Connection),
 		blueprints:                make(map[string]*Blueprint),
@@ -403,6 +405,7 @@ func (b *InMemoryBackend) Reset() {
 	b.crawlers = make(map[string]*Crawler)
 	b.jobs = make(map[string]*Job)
 	b.partitions = make(map[string]*Partition)
+	b.partitionIndexes = make(map[string]*PartitionIndex)
 	b.tableVersions = make(map[string]*TableVersion)
 	b.connections = make(map[string]*Connection)
 	b.blueprints = make(map[string]*Blueprint)
@@ -778,6 +781,12 @@ func (b *InMemoryBackend) deleteTablePartitionsLocked(dbName, tableName string) 
 	for k := range b.partitions {
 		if strings.HasPrefix(k, prefix) {
 			delete(b.partitions, k)
+		}
+	}
+
+	for k := range b.partitionIndexes {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.partitionIndexes, k)
 		}
 	}
 

@@ -826,8 +826,8 @@ func (b *InMemoryBackend) PutResourcePolicy(policy, resourceARN string) (string,
 }
 
 type resourcePolicyEntry struct {
-	Policy string
-	Hash   string
+	Policy string `json:"Policy"`
+	Hash   string `json:"Hash"`
 }
 
 func (b *InMemoryBackend) GetResourcePolicy(resourceARN string) (string, string, error) {
