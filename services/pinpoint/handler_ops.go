@@ -1668,12 +1668,40 @@ func toImportJobResponse(j *ImportJob) importJobResponse {
 }
 
 func cloneEmailTemplateToResponse(t *EmailTemplate) map[string]any {
-	return map[string]any{
-		"Arn":          t.ARN,
-		"TemplateName": t.TemplateName,
-		"CreationDate": t.CreationDate,
-		"tags":         t.Tags,
+	resp := map[string]any{
+		"Arn":              t.ARN,
+		"TemplateName":     t.TemplateName,
+		"CreationDate":     t.CreationDate,
+		"LastModifiedDate": t.LastModifiedDate,
+		"Version":          t.Version,
+		"tags":             t.Tags,
 	}
+
+	if t.Subject != "" {
+		resp["Subject"] = t.Subject
+	}
+
+	if t.HtmlPart != "" {
+		resp["HtmlPart"] = t.HtmlPart
+	}
+
+	if t.TextPart != "" {
+		resp["TextPart"] = t.TextPart
+	}
+
+	if t.TemplateDescription != "" {
+		resp["TemplateDescription"] = t.TemplateDescription
+	}
+
+	if t.RecommenderId != "" {
+		resp["RecommenderId"] = t.RecommenderId
+	}
+
+	if len(t.DefaultSubstitutions) > 0 {
+		resp["DefaultSubstitutions"] = t.DefaultSubstitutions
+	}
+
+	return resp
 }
 
 // parseVersionParam parses a version integer from a path segment.
