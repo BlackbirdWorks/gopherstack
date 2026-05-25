@@ -22,6 +22,10 @@ const (
 	keyEBSEnabled    = "EBSEnabled"
 	keyVolumeSize    = "VolumeSize"
 	keyVolumeType    = "VolumeType"
+
+	keyCrossClusterSearchConnection = "CrossClusterSearchConnection"
+	minimumInstanceCount            = 1
+	maximumInstanceCount            = 20
 )
 
 const (
@@ -1305,12 +1309,15 @@ func toPackageJSON(p *Package) packageJSON {
 
 // associatePackageOutput is the response for AssociatePackage.
 type associatePackageOutput struct {
-	DomainPackageDetails struct {
-		PackageID   string `json:"PackageID"`
-		DomainName  string `json:"DomainName"`
-		PackageType string `json:"PackageType"`
-		State       string `json:"DomainPackageStatus"`
-	} `json:"DomainPackageDetails"`
+	DomainPackageDetails domainPackageJSON `json:"DomainPackageDetails"`
+}
+
+type domainPackageJSON struct {
+	PackageID           string `json:"PackageID"`
+	PackageName         string `json:"PackageName,omitempty"`
+	DomainName          string `json:"DomainName"`
+	PackageType         string `json:"PackageType,omitempty"`
+	DomainPackageStatus string `json:"DomainPackageStatus"`
 }
 
 // associatePackagePathParts is the expected number of path segments after /associate/.
@@ -1348,7 +1355,7 @@ func (h *Handler) handleAssociatePackage(w http.ResponseWriter, r *http.Request)
 	var out associatePackageOutput
 	out.DomainPackageDetails.PackageID = packageID
 	out.DomainPackageDetails.DomainName = domainName
-	out.DomainPackageDetails.State = "ACTIVE"
+	out.DomainPackageDetails.DomainPackageStatus = "ACTIVE"
 
 	h.writeJSON(r, w, &out)
 }
@@ -1712,129 +1719,505 @@ func (h *Handler) handleDeleteElasticsearchServiceRole(w http.ResponseWriter, _ 
 }
 
 func (h *Handler) handleStartElasticsearchServiceSoftwareUpdate(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{"ServiceSoftwareOptions": map[string]any{"UpdateStatus": "PENDING_UPDATE"}})
+	var req cancelSoftwareUpdateRequest
+	if !h.decodeRequest(w, r, &req) {
+		return
+	}
+
+	if _, err := h.Backend.StartElasticsearchServiceSoftwareUpdate(req.DomainName); err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"ServiceSoftwareOptions": map[string]any{
+		"UpdateStatus": "PENDING_UPDATE",
+		"Cancellable":  true,
+	}})
 }
 
 func (h *Handler) handleDescribeInboundCrossClusterSearchConnections(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{"CrossClusterSearchConnections": []any{}})
+	connections := h.Backend.DescribeInboundCrossClusterSearchConnections()
+	result := make([]inboundConnectionJSON, 0, len(connections))
+	for _, connection := range connections {
+		result = append(result, toInboundConnectionJSON(connection))
+	}
+
+	h.writeJSON(r, w, map[string]any{"CrossClusterSearchConnections": result})
 }
 
 func (h *Handler) handleDescribeOutboundCrossClusterSearchConnections(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{"CrossClusterSearchConnections": []any{}})
+	connections := h.Backend.DescribeOutboundCrossClusterSearchConnections()
+	result := make([]outboundConnectionJSON, 0, len(connections))
+	for _, connection := range connections {
+		result = append(result, toOutboundConnectionJSON(connection))
+	}
+
+	h.writeJSON(r, w, map[string]any{"CrossClusterSearchConnections": result})
 }
 
 func (h *Handler) handleDescribePackages(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{"PackageDetailsList": []any{}})
+	var req struct {
+		PackageIDs []string `json:"PackageIDs"`
+	}
+	if !h.decodeRequest(w, r, &req) {
+		return
+	}
+
+	packages := h.Backend.DescribePackages(req.PackageIDs)
+	result := make([]packageJSON, 0, len(packages))
+	for _, pkg := range packages {
+		result = append(result, toPackageJSON(pkg))
+	}
+
+	h.writeJSON(r, w, map[string]any{"PackageDetailsList": result})
 }
 
 func (h *Handler) handleUpdatePackage(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{"PackageDetails": map[string]any{}})
+	var req struct {
+		PackageID          string `json:"PackageID"`
+		PackageDescription string `json:"PackageDescription"`
+	}
+	if !h.decodeRequest(w, r, &req) {
+		return
+	}
+
+	pkg, err := h.Backend.UpdatePackage(req.PackageID, req.PackageDescription)
+	if err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"PackageDetails": toPackageJSON(pkg)})
 }
 
 func (h *Handler) handleDescribeVpcEndpoints(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{"VpcEndpoints": []any{}})
+	var req struct {
+		VpcEndpointIDs []string `json:"VpcEndpointIds"`
+	}
+	if !h.decodeRequest(w, r, &req) {
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		"VpcEndpoints":      toVpcEndpointsJSON(h.Backend.DescribeVpcEndpoints(req.VpcEndpointIDs)),
+		"VpcEndpointErrors": []any{},
+	})
 }
 
 func (h *Handler) handleUpdateVpcEndpoint(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{"VpcEndpoint": map[string]any{}})
+	var req struct {
+		VpcOptions    map[string]string `json:"VpcOptions"`
+		VpcEndpointID string            `json:"VpcEndpointId"`
+	}
+	if !h.decodeRequest(w, r, &req) {
+		return
+	}
+
+	endpoint, err := h.Backend.UpdateVpcEndpoint(req.VpcEndpointID, req.VpcOptions)
+	if err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"VpcEndpoint": toVpcEndpointJSON(endpoint)})
 }
 
 func (h *Handler) handleListVpcEndpoints(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{"VpcEndpointSummaryList": []any{}})
+	h.writeJSON(r, w, map[string]any{
+		"VpcEndpointSummaryList": toVpcEndpointsJSON(h.Backend.ListVpcEndpoints()),
+	})
 }
 
 func (h *Handler) handleGetCompatibleElasticsearchVersions(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{"CompatibleElasticsearchVersions": []any{}})
+	h.writeJSON(r, w, map[string]any{"CompatibleElasticsearchVersions": []any{
+		map[string]any{
+			"SourceVersion": elasticsearchVersion68,
+			"TargetVersions": []string{
+				elasticsearchVersion71,
+				defaultElasticsearchVersion,
+			},
+		},
+		map[string]any{
+			"SourceVersion":  elasticsearchVersion71,
+			"TargetVersions": []string{defaultElasticsearchVersion},
+		},
+	}})
 }
 
 func (h *Handler) handleListElasticsearchVersions(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{"ElasticsearchVersions": []string{"7.10", "7.1", "6.8"}})
+	h.writeJSON(r, w, map[string]any{
+		"ElasticsearchVersions": []string{defaultElasticsearchVersion, elasticsearchVersion71, elasticsearchVersion68},
+	})
 }
 
 func (h *Handler) handleDeleteInboundCrossClusterSearchConnection(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	id := strings.TrimPrefix(r.URL.Path, elasticsearchCCSInbound+"/")
+	connection, err := h.Backend.DeleteInboundCrossClusterSearchConnection(id)
+	if err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{keyCrossClusterSearchConnection: toInboundConnectionJSON(connection)})
 }
 
 func (h *Handler) handleDeleteOutboundCrossClusterSearchConnection(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	id := strings.TrimPrefix(r.URL.Path, elasticsearchCCSOutbound+"/")
+	connection, err := h.Backend.DeleteOutboundCrossClusterSearchConnection(id)
+	if err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{keyCrossClusterSearchConnection: toOutboundConnectionJSON(connection)})
 }
 
 func (h *Handler) handleDeleteVpcEndpoint(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	id := strings.TrimPrefix(r.URL.Path, elasticsearchVpcEndpoints+"/")
+	endpoint, err := h.Backend.DeleteVpcEndpoint(id)
+	if err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"VpcEndpointSummary": toVpcEndpointJSON(endpoint)})
 }
 
 func (h *Handler) handleDescribeReservedElasticsearchInstanceOfferings(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	offerings := h.Backend.DescribeReservedElasticsearchInstanceOfferings()
+	result := make([]map[string]any, 0, len(offerings))
+	for _, offering := range offerings {
+		result = append(result, map[string]any{
+			"ReservedElasticsearchInstanceOfferingId": offering.OfferingID,
+			"ElasticsearchInstanceType":               offering.InstanceType,
+			"PaymentOption":                           offering.PaymentOption,
+			"CurrencyCode":                            offering.Currency,
+			"FixedPrice":                              offering.FixedPrice,
+			"UsagePrice":                              offering.UsagePrice,
+			"Duration":                                offering.Duration,
+		})
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		"ReservedElasticsearchInstanceOfferings": result,
+	})
 }
 
 func (h *Handler) handleDescribeReservedElasticsearchInstances(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	instances := h.Backend.DescribeReservedElasticsearchInstances()
+	result := make([]map[string]any, 0, len(instances))
+	for _, instance := range instances {
+		result = append(result, map[string]any{
+			"ReservedElasticsearchInstanceId":         instance.ReservationID,
+			"ReservationName":                         instance.ReservationName,
+			"ReservedElasticsearchInstanceOfferingId": instance.OfferingID,
+			"ElasticsearchInstanceType":               instance.InstanceType,
+			"State":                                   instance.State,
+			"ElasticsearchInstanceCount":              instance.Count,
+		})
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		"ReservedElasticsearchInstances": result,
+	})
 }
 
 func (h *Handler) handleDissociatePackage(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	rest := strings.TrimPrefix(r.URL.Path, elasticsearchPackages+"/dissociate/")
+	parts := strings.SplitN(rest, "/", associatePackagePathParts)
+	if len(parts) != associatePackagePathParts {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid package dissociation path")
+
+		return
+	}
+
+	if err := h.Backend.DissociatePackage(parts[0], parts[1]); err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"DomainPackageDetails": map[string]any{
+		"PackageID":           parts[0],
+		"DomainName":          parts[1],
+		"DomainPackageStatus": "DISSOCIATED",
+	}})
 }
 
 func (h *Handler) handleGetPackageVersionHistory(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	id := pathID(r.URL.Path, elasticsearchPackages+"/", "/history")
+	packages, err := h.Backend.GetPackageVersionHistory(id)
+	if err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	history := make([]packageJSON, 0, len(packages))
+	for _, pkg := range packages {
+		history = append(history, toPackageJSON(pkg))
+	}
+
+	h.writeJSON(r, w, map[string]any{"PackageVersionHistoryList": history})
 }
 
 func (h *Handler) handlePurchaseReservedElasticsearchInstanceOffering(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	var req struct {
+		OfferingID      string `json:"ReservedElasticsearchInstanceOfferingId"`
+		ReservationName string `json:"ReservationName"`
+		InstanceCount   int    `json:"InstanceCount"`
+	}
+	if !h.decodeRequest(w, r, &req) {
+		return
+	}
+
+	instance, err := h.Backend.PurchaseReservedElasticsearchInstanceOffering(
+		req.OfferingID,
+		req.ReservationName,
+		req.InstanceCount,
+	)
+	if err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		"ReservedElasticsearchInstanceId": instance.ReservationID,
+		"ReservationName":                 instance.ReservationName,
+	})
 }
 
 func (h *Handler) handleRejectInboundCrossClusterSearchConnection(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	id := pathID(r.URL.Path, elasticsearchCCSInbound+"/", "/reject")
+	connection, err := h.Backend.RejectInboundCrossClusterSearchConnection(id)
+	if err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{keyCrossClusterSearchConnection: toInboundConnectionJSON(connection)})
 }
 
 func (h *Handler) handleUpgradeElasticsearchDomain(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	var req struct {
+		DomainName       string `json:"DomainName"`
+		TargetVersion    string `json:"TargetVersion"`
+		PerformCheckOnly bool   `json:"PerformCheckOnly"`
+	}
+	if !h.decodeRequest(w, r, &req) {
+		return
+	}
+
+	if !req.PerformCheckOnly {
+		if _, err := h.Backend.UpgradeElasticsearchDomain(req.DomainName, req.TargetVersion); err != nil {
+			h.writeOperationError(r, w, err)
+
+			return
+		}
+	} else if _, err := h.Backend.DescribeDomain(req.DomainName); err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, req)
 }
 
 func (h *Handler) handleDeletePackage(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	id := strings.TrimPrefix(r.URL.Path, elasticsearchPackages+"/")
+	pkg, err := h.Backend.DeletePackage(id)
+	if err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"PackageDetails": toPackageJSON(pkg)})
 }
 
-func (h *Handler) handleDescribeDomainAutoTunes(w http.ResponseWriter, r *http.Request, _ string) {
-	h.writeJSON(r, w, map[string]any{})
+func (h *Handler) handleDescribeDomainAutoTunes(w http.ResponseWriter, r *http.Request, domainName string) {
+	if err := h.Backend.DescribeDomainAutoTunes(domainName); err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"AutoTunes": []any{}})
 }
 
-func (h *Handler) handleDescribeDomainChangeProgress(w http.ResponseWriter, r *http.Request, _ string) {
-	h.writeJSON(r, w, map[string]any{})
+func (h *Handler) handleDescribeDomainChangeProgress(w http.ResponseWriter, r *http.Request, domainName string) {
+	if err := h.Backend.DescribeDomainChangeProgress(domainName); err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"ChangeProgressStatus": map[string]any{"Status": "COMPLETED"}})
 }
 
 func (h *Handler) handleDescribeElasticsearchInstanceTypeLimits(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	h.writeJSON(r, w, map[string]any{"LimitsByRole": map[string]any{
+		"data": map[string]any{"InstanceLimits": map[string]any{"InstanceCountLimits": map[string]any{
+			"MinimumInstanceCount": minimumInstanceCount,
+			"MaximumInstanceCount": maximumInstanceCount,
+		}}},
+	}})
 }
 
 func (h *Handler) handleGetUpgradeHistory(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	domainName := pathID(r.URL.Path, elasticsearchUpgradeDomain+"/", "/history")
+	if err := h.Backend.GetUpgradeHistory(domainName); err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"UpgradeHistories": []any{}})
 }
 
 func (h *Handler) handleGetUpgradeStatus(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	domainName := pathID(r.URL.Path, elasticsearchUpgradeDomain+"/", "/status")
+	if err := h.Backend.GetUpgradeStatus(domainName); err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"UpgradeStep": "UPGRADE", "StepStatus": "SUCCEEDED"})
 }
 
 func (h *Handler) handleListDomainsForPackage(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	id := pathID(r.URL.Path, elasticsearchPackages+"/", "/domains")
+	domains, err := h.Backend.ListDomainsForPackage(id)
+	if err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	result := make([]domainPackageJSON, 0, len(domains))
+	for _, domainName := range domains {
+		result = append(result, domainPackageJSON{
+			PackageID: id, DomainName: domainName, DomainPackageStatus: statusActive,
+		})
+	}
+
+	h.writeJSON(r, w, map[string]any{"DomainPackageDetailsList": result})
 }
 
 func (h *Handler) handleListElasticsearchInstanceTypes(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{})
+	h.writeJSON(r, w, map[string]any{"ElasticsearchInstanceTypes": []string{
+		defaultInstanceType,
+		largeInstanceType,
+	}})
 }
 
 func (h *Handler) handleListPackagesForDomain(w http.ResponseWriter, r *http.Request) {
+	domainName := pathID(r.URL.Path, elasticsearchDomainPackages+"/", "/packages")
+	packages := h.Backend.ListPackagesForDomain(domainName)
+	result := make([]domainPackageJSON, 0, len(packages))
+	for _, pkg := range packages {
+		result = append(result, domainPackageJSON{
+			PackageID:           pkg.ID,
+			PackageName:         pkg.Name,
+			PackageType:         pkg.PackageType,
+			DomainName:          domainName,
+			DomainPackageStatus: statusActive,
+		})
+	}
+
+	h.writeJSON(r, w, map[string]any{"DomainPackageDetailsList": result})
+}
+
+func (h *Handler) handleListVpcEndpointAccess(w http.ResponseWriter, r *http.Request, domainName string) {
+	accounts, err := h.Backend.ListVpcEndpointAccess(domainName)
+	if err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
+	principals := make([]authorizedPrincipalJSON, 0, len(accounts))
+	for _, account := range accounts {
+		principals = append(principals, authorizedPrincipalJSON{PrincipalType: "AWS_ACCOUNT", Principal: account})
+	}
+
+	h.writeJSON(r, w, map[string]any{"AuthorizedPrincipalList": principals})
+}
+
+func (h *Handler) handleListVpcEndpointsForDomain(w http.ResponseWriter, r *http.Request, domainName string) {
+	h.writeJSON(r, w, map[string]any{
+		"VpcEndpointSummaryList": toVpcEndpointsJSON(h.Backend.ListVpcEndpointsForDomain(domainName)),
+	})
+}
+
+func (h *Handler) handleRevokeVpcEndpointAccess(w http.ResponseWriter, r *http.Request, domainName string) {
+	var req authorizeVpcEndpointAccessRequest
+	if !h.decodeRequest(w, r, &req) {
+		return
+	}
+
+	if err := h.Backend.RevokeVpcEndpointAccess(domainName, req.Account); err != nil {
+		h.writeOperationError(r, w, err)
+
+		return
+	}
+
 	h.writeJSON(r, w, map[string]any{})
 }
 
-func (h *Handler) handleListVpcEndpointAccess(w http.ResponseWriter, r *http.Request, _ string) {
-	h.writeJSON(r, w, map[string]any{})
+func (h *Handler) decodeRequest(w http.ResponseWriter, r *http.Request, out any) bool {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return false
+	}
+
+	if len(body) == 0 {
+		return true
+	}
+
+	if err = json.Unmarshal(body, out); err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+
+		return false
+	}
+
+	return true
 }
 
-func (h *Handler) handleListVpcEndpointsForDomain(w http.ResponseWriter, r *http.Request, _ string) {
-	h.writeJSON(r, w, map[string]any{"VpcEndpoints": []any{}})
+func (h *Handler) writeOperationError(r *http.Request, w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrDomainNotFound) || errors.Is(err, ErrPackageNotFound) ||
+		errors.Is(err, ErrVpcEndpointNotFound) || errors.Is(err, ErrConnectionNotFound) {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+		return
+	}
+
+	h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
 }
 
-func (h *Handler) handleRevokeVpcEndpointAccess(w http.ResponseWriter, r *http.Request, _ string) {
-	h.writeJSON(r, w, map[string]any{})
+func toVpcEndpointsJSON(endpoints []*VpcEndpoint) []vpcEndpointJSON {
+	result := make([]vpcEndpointJSON, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		result = append(result, toVpcEndpointJSON(endpoint))
+	}
+
+	return result
+}
+
+func pathID(path, prefix, suffix string) string {
+	id := strings.TrimPrefix(path, prefix)
+	id, _ = strings.CutSuffix(id, suffix)
+
+	return id
 }
