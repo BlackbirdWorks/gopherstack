@@ -399,38 +399,52 @@ func (h *Handler) handleListAccounts(c *echo.Context, _ []byte) error {
 	return c.JSON(http.StatusOK, listAccountsResponse{Accounts: objs})
 }
 
+// validateCreateAccountInput validates and normalises the common fields shared by
+// CreateAccount and CreateGovCloudAccount requests.
+func (h *Handler) validateCreateAccountInput(
+	c *echo.Context,
+	accountName, email, roleName, iamAccess string,
+) (string, string, error) {
+	if accountName == "" {
+		return "", "", h.writeError(c, http.StatusBadRequest, "InvalidInputException", "AccountName is required")
+	}
+
+	if email == "" {
+		return "", "", h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Email is required")
+	}
+
+	// Default RoleName.
+	if roleName == "" {
+		roleName = "OrganizationAccountAccessRole"
+	}
+
+	// Validate IamUserAccessToBilling.
+	if iamAccess == "" {
+		iamAccess = iamAccessAllow
+	}
+	if iamAccess != iamAccessAllow && iamAccess != "DENY" {
+		return "", "", h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInputException",
+			"IamUserAccessToBilling must be ALLOW or DENY",
+		)
+	}
+
+	return roleName, iamAccess, nil
+}
+
 func (h *Handler) handleCreateAccount(c *echo.Context, body []byte) error {
 	var req createAccountRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	if req.AccountName == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "AccountName is required")
-	}
-
-	if req.Email == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Email is required")
-	}
-
-	// Default RoleName.
-	roleName := req.RoleName
-	if roleName == "" {
-		roleName = "OrganizationAccountAccessRole"
-	}
-
-	// Validate IamUserAccessToBilling.
-	iamAccess := req.IamUserAccessToBilling
-	if iamAccess == "" {
-		iamAccess = iamAccessAllow
-	}
-	if iamAccess != iamAccessAllow && iamAccess != "DENY" {
-		return h.writeError(
-			c,
-			http.StatusBadRequest,
-			"InvalidInputException",
-			"IamUserAccessToBilling must be ALLOW or DENY",
-		)
+	roleName, iamAccess, err := h.validateCreateAccountInput(
+		c, req.AccountName, req.Email, req.RoleName, req.IamUserAccessToBilling,
+	)
+	if err != nil {
+		return err
 	}
 
 	status, err := h.Backend.CreateAccount(req.AccountName, req.Email, roleName, iamAccess, req.Tags)
@@ -1184,32 +1198,11 @@ func (h *Handler) handleCreateGovCloudAccount(c *echo.Context, body []byte) erro
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	if req.AccountName == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "AccountName is required")
-	}
-
-	if req.Email == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Email is required")
-	}
-
-	// Default RoleName.
-	roleName := req.RoleName
-	if roleName == "" {
-		roleName = "OrganizationAccountAccessRole"
-	}
-
-	// Validate IamUserAccessToBilling.
-	iamAccess := req.IamUserAccessToBilling
-	if iamAccess == "" {
-		iamAccess = iamAccessAllow
-	}
-	if iamAccess != iamAccessAllow && iamAccess != "DENY" {
-		return h.writeError(
-			c,
-			http.StatusBadRequest,
-			"InvalidInputException",
-			"IamUserAccessToBilling must be ALLOW or DENY",
-		)
+	roleName, iamAccess, err := h.validateCreateAccountInput(
+		c, req.AccountName, req.Email, req.RoleName, req.IamUserAccessToBilling,
+	)
+	if err != nil {
+		return err
 	}
 
 	status, err := h.Backend.CreateGovCloudAccount(req.AccountName, req.Email, roleName, iamAccess, req.Tags)
