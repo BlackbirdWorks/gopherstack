@@ -186,7 +186,13 @@ func parseRoute(method, path string) route {
 	for _, configured := range resourceRoutes {
 		if strings.HasPrefix(path, configured.prefix) {
 			if operation, ok := configured.operations[method]; ok {
-				return route{operation: operation, resource: suffix(path, configured.prefix)}
+				resource := suffix(path, configured.prefix)
+				// /v1/tags/{arn} is shared across many services; restrict to Polly ARNs.
+				if configured.prefix == "/v1/tags/" && !strings.Contains(resource, ":polly:") {
+					continue
+				}
+
+				return route{operation: operation, resource: resource}
 			}
 		}
 	}
