@@ -3,6 +3,7 @@ package redshiftdata
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +23,8 @@ const (
 	maxStatementHistory = 1000
 	// resultFormatCSV is the CSV result format returned by GetStatementResultV2.
 	resultFormatCSV = "CSV"
+	// resultFormatJSON is the default result format returned by GetStatementResult.
+	resultFormatJSON = "JSON"
 	// maxListStatementsResults is the maximum number of statements AWS allows per ListStatements page.
 	maxListStatementsResults = 100
 	// defaultListStatementsResults is the default page size for ListStatements when MaxResults is 0.
@@ -76,6 +79,7 @@ type Statement struct {
 	DBUser            string             `json:"dbUser"`
 	SecretARN         string             `json:"secretARN"`
 	StatementName     string             `json:"statementName"`
+	ResultFormat      string             `json:"resultFormat"`
 	Status            string             `json:"status"`
 	Error             string             `json:"error"`
 	QueryStrings      []string           `json:"queryStrings"`
@@ -101,6 +105,17 @@ type InMemoryBackend struct {
 	ringBuf  [maxStatementHistory]string
 	ringLen  int // number of entries currently filled
 	ringHead int // index of the oldest entry when ringLen == maxStatementHistory
+}
+
+// ListStatementsFilter controls statement filtering and pagination.
+type ListStatementsFilter struct {
+	ClusterIdentifier string
+	WorkgroupName     string
+	Database          string
+	StatementName     string
+	Status            string
+	NextToken         string
+	MaxResults        int
 }
 
 // NewInMemoryBackend creates a new in-memory Redshift Data backend.
@@ -156,7 +171,7 @@ func (b *InMemoryBackend) addStatement(stmt *Statement) {
 // ExecuteStatement creates and immediately completes a SQL statement.
 func (b *InMemoryBackend) ExecuteStatement(
 	sql, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
-	withEvent bool,
+	withEvent bool, resultFormat string,
 ) (*Statement, error) {
 	if sql == "" {
 		return nil, fmt.Errorf("%w: Sql is required", ErrValidation)
@@ -164,6 +179,11 @@ func (b *InMemoryBackend) ExecuteStatement(
 
 	if database == "" {
 		return nil, fmt.Errorf("%w: Database is required", ErrValidation)
+	}
+
+	resultFormat, err := requestedResultFormat(resultFormat)
+	if err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("ExecuteStatement")
@@ -179,6 +199,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 		DBUser:            dbUser,
 		SecretARN:         secretARN,
 		StatementName:     statementName,
+		ResultFormat:      resultFormat,
 		Status:            statusFinished,
 		HasResultSet:      true,
 		IsBatchStatement:  false,
@@ -200,7 +221,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 // BatchExecuteStatement creates and immediately completes a batch SQL statement.
 func (b *InMemoryBackend) BatchExecuteStatement(
 	sqls []string, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
-	withEvent bool,
+	withEvent bool, resultFormat string,
 ) (*Statement, error) {
 	if len(sqls) == 0 {
 		return nil, fmt.Errorf("%w: Sqls is required", ErrValidation)
@@ -208,6 +229,11 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 
 	if database == "" {
 		return nil, fmt.Errorf("%w: Database is required", ErrValidation)
+	}
+
+	resultFormat, err := requestedResultFormat(resultFormat)
+	if err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("BatchExecuteStatement")
@@ -240,6 +266,7 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		DBUser:            dbUser,
 		SecretARN:         secretARN,
 		StatementName:     statementName,
+		ResultFormat:      resultFormat,
 		Status:            statusFinished,
 		HasResultSet:      false,
 		IsBatchStatement:  true,
@@ -288,33 +315,33 @@ func (b *InMemoryBackend) CancelStatement(id string) error {
 	return nil
 }
 
-// ListStatements returns statements sorted by creation time (newest first),
-// optionally filtered by status, cluster identifier, workgroup name, or role level.
-// maxResults limits the page size (0 = default of 100; max 100).
+// ListStatements returns statements sorted by creation time (newest first).
+// An omitted Status matches AWS by returning only finished statements.
 // Returns the page slice and a next-token string (non-empty when more pages exist).
-func (b *InMemoryBackend) ListStatements(
-	clusterIdentifier, workgroupName, statusFilter, roleLevel string,
-	maxResults int,
-) ([]*Statement, string) {
+func (b *InMemoryBackend) ListStatements(filter ListStatementsFilter) ([]*Statement, string, error) {
 	b.mu.RLock("ListStatements")
 	defer b.mu.RUnlock()
 
 	result := make([]*Statement, 0, len(b.statements))
 
 	for _, stmt := range b.statements {
-		if clusterIdentifier != "" && stmt.ClusterIdentifier != clusterIdentifier {
+		if filter.ClusterIdentifier != "" && stmt.ClusterIdentifier != filter.ClusterIdentifier {
 			continue
 		}
 
-		if workgroupName != "" && stmt.WorkgroupName != workgroupName {
+		if filter.WorkgroupName != "" && stmt.WorkgroupName != filter.WorkgroupName {
 			continue
 		}
 
-		if statusFilter != "" && stmt.Status != statusFilter {
+		if filter.Database != "" && stmt.Database != filter.Database {
 			continue
 		}
 
-		if roleLevel == "CALLER" && stmt.DBUser == "" {
+		if filter.StatementName != "" && !strings.HasPrefix(stmt.StatementName, filter.StatementName) {
+			continue
+		}
+
+		if !matchesStatementStatus(stmt.Status, filter.Status) {
 			continue
 		}
 
@@ -322,21 +349,75 @@ func (b *InMemoryBackend) ListStatements(
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].ID > result[j].ID
+		}
+
 		return result[i].CreatedAt.After(result[j].CreatedAt)
 	})
 
-	limit := maxResults
+	start, err := statementPageStart(result, filter.NextToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	result = result[start:]
+
+	limit := filter.MaxResults
 	if limit <= 0 {
 		limit = defaultListStatementsResults
 	}
 
 	if len(result) <= limit {
-		return result, ""
+		return result, "", nil
 	}
 
 	// Return the first page and a synthetic next-token (the ID of the first item
 	// on the next page), matching the real AWS behaviour.
-	return result[:limit], result[limit].ID
+	return result[:limit], result[limit].ID, nil
+}
+
+func requestedResultFormat(format string) (string, error) {
+	if format == "" {
+		return resultFormatJSON, nil
+	}
+
+	switch format {
+	case resultFormatJSON, resultFormatCSV:
+		return format, nil
+	default:
+		return "", fmt.Errorf("%w: ResultFormat must be JSON or CSV", ErrValidation)
+	}
+}
+
+func statementResultFormat(stmt *Statement) string {
+	if stmt.ResultFormat == "" {
+		return resultFormatJSON
+	}
+
+	return stmt.ResultFormat
+}
+
+func matchesStatementStatus(actual, requested string) bool {
+	if requested == "" {
+		return actual == statusFinished
+	}
+
+	return requested == "ALL" || actual == requested
+}
+
+func statementPageStart(statements []*Statement, nextToken string) (int, error) {
+	if nextToken == "" {
+		return 0, nil
+	}
+
+	for i, stmt := range statements {
+		if stmt.ID == nextToken {
+			return i, nil
+		}
+	}
+
+	return 0, fmt.Errorf("%w: invalid NextToken", ErrValidation)
 }
 
 // EvictExpiredStatements removes terminal statements whose UpdatedAt is older
