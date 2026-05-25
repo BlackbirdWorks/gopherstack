@@ -1157,6 +1157,13 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		Name                   string    `json:"Name"`
 		Description            string    `json:"Description"`
 		Tags                   []tagView `json:"Tags"`
+		PortalOptions          struct {
+			Visibility    string `json:"Visibility"`
+			SignInOptions struct {
+				Origin         string `json:"Origin"`
+				ApplicationURL string `json:"ApplicationUrl"`
+			} `json:"SignInOptions"`
+		} `json:"PortalOptions"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -1173,12 +1180,21 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		tags[t.Key] = t.Value
 	}
 
+	portalOptions := &PortalOptions{
+		Visibility: req.PortalOptions.Visibility,
+		SignInOptions: SignInOptions{
+			Origin:         req.PortalOptions.SignInOptions.Origin,
+			ApplicationURL: req.PortalOptions.SignInOptions.ApplicationURL,
+		},
+	}
+
 	app, err := h.Backend.CreateApplication(
 		req.InstanceArn,
 		req.ApplicationProviderArn,
 		req.Name,
 		req.Description,
 		tags,
+		portalOptions,
 	)
 	if err != nil {
 		if errors.Is(err, ErrApplicationAlreadyExists) {
@@ -1558,7 +1574,10 @@ func (h *Handler) handleListApplicationAuthenticationMethods(c *echo.Context, bo
 
 	out := make([]map[string]any, 0, len(methods))
 	for _, method := range methods {
-		out = append(out, map[string]any{"AuthenticationMethodType": method})
+		out = append(out, map[string]any{
+			"AuthenticationMethodType": method.AuthMethodType,
+			"AuthenticationMethod":     method.Body,
+		})
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -1581,7 +1600,10 @@ func (h *Handler) handleListApplicationGrants(c *echo.Context, body []byte) erro
 
 	out := make([]map[string]any, 0, len(grants))
 	for _, grant := range grants {
-		out = append(out, map[string]any{"GrantType": grant})
+		out = append(out, map[string]any{
+			"GrantType": grant.GrantType,
+			"Grant":     grant.Grant,
+		})
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -1669,9 +1691,10 @@ func (h *Handler) handlePutApplicationAssignmentConfiguration(c *echo.Context, b
 
 func (h *Handler) handlePutApplicationAuthenticationMethod(c *echo.Context, body []byte) error {
 	var req struct {
-		ApplicationArn     string `json:"ApplicationArn"`
-		AuthMethodType     string `json:"AuthenticationMethodType"`
-		AuthenticationType string `json:"AuthenticationType"`
+		ApplicationArn       string          `json:"ApplicationArn"`
+		AuthMethodType       string          `json:"AuthenticationMethodType"`
+		AuthenticationType   string          `json:"AuthenticationType"`
+		AuthenticationMethod json.RawMessage `json:"AuthenticationMethod"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -1680,7 +1703,7 @@ func (h *Handler) handlePutApplicationAuthenticationMethod(c *echo.Context, body
 	if methodType == "" {
 		methodType = req.AuthenticationType
 	}
-	if err := h.Backend.PutApplicationAuthenticationMethod(req.ApplicationArn, methodType); err != nil {
+	if err := h.Backend.PutApplicationAuthenticationMethod(req.ApplicationArn, methodType, req.AuthenticationMethod); err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
@@ -1689,13 +1712,14 @@ func (h *Handler) handlePutApplicationAuthenticationMethod(c *echo.Context, body
 
 func (h *Handler) handlePutApplicationGrant(c *echo.Context, body []byte) error {
 	var req struct {
-		ApplicationArn string `json:"ApplicationArn"`
-		GrantType      string `json:"GrantType"`
+		ApplicationArn string          `json:"ApplicationArn"`
+		GrantType      string          `json:"GrantType"`
+		Grant          json.RawMessage `json:"Grant"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
-	if err := h.Backend.PutApplicationGrant(req.ApplicationArn, req.GrantType); err != nil {
+	if err := h.Backend.PutApplicationGrant(req.ApplicationArn, req.GrantType, req.Grant); err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
@@ -1723,12 +1747,27 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, body []byte) error {
 		Name           string `json:"Name"`
 		Description    string `json:"Description"`
 		Status         string `json:"Status"`
+		PortalOptions  struct {
+			Visibility    string `json:"Visibility"`
+			SignInOptions struct {
+				Origin         string `json:"Origin"`
+				ApplicationURL string `json:"ApplicationUrl"`
+			} `json:"SignInOptions"`
+		} `json:"PortalOptions"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	app, err := h.Backend.UpdateApplication(req.ApplicationArn, req.Name, req.Description, req.Status)
+	portalOptions := &PortalOptions{
+		Visibility: req.PortalOptions.Visibility,
+		SignInOptions: SignInOptions{
+			Origin:         req.PortalOptions.SignInOptions.Origin,
+			ApplicationURL: req.PortalOptions.SignInOptions.ApplicationURL,
+		},
+	}
+
+	app, err := h.Backend.UpdateApplication(req.ApplicationArn, req.Name, req.Description, req.Status, portalOptions)
 	if err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
@@ -1928,7 +1967,8 @@ func (h *Handler) handleDescribeInstanceAccessControlAttributeConfiguration(c *e
 		"InstanceAccessControlAttributeConfiguration": map[string]any{
 			"AccessControlAttributes": attrs,
 		},
-		keyStatus: "ENABLED",
+		keyStatus:       cfg.Status,
+		"StatusReason":  cfg.StatusReason,
 	})
 }
 
@@ -1937,17 +1977,31 @@ func (h *Handler) handlePutPermissionsBoundaryToPermissionSet(c *echo.Context, b
 		InstanceArn         string `json:"InstanceArn"`
 		PermissionSetArn    string `json:"PermissionSetArn"`
 		PermissionsBoundary struct {
-			ManagedPolicyArn string `json:"ManagedPolicyArn"`
+			ManagedPolicyArn                string `json:"ManagedPolicyArn"`
+			CustomerManagedPolicyReference  *struct {
+				Name string `json:"Name"`
+				Path string `json:"Path"`
+			} `json:"CustomerManagedPolicyReference"`
 		} `json:"PermissionsBoundary"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	boundary := &PermissionsBoundary{
+		ManagedPolicyArn: req.PermissionsBoundary.ManagedPolicyArn,
+	}
+	if req.PermissionsBoundary.CustomerManagedPolicyReference != nil {
+		boundary.CustomerManagedPolicyReference = &CustomerManagedPolicyReference{
+			Name: req.PermissionsBoundary.CustomerManagedPolicyReference.Name,
+			Path: req.PermissionsBoundary.CustomerManagedPolicyReference.Path,
+		}
+	}
+
 	if err := h.Backend.PutPermissionsBoundaryToPermissionSet(
 		req.InstanceArn,
 		req.PermissionSetArn,
-		req.PermissionsBoundary.ManagedPolicyArn,
+		boundary,
 	); err != nil {
 		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
@@ -1964,26 +2018,38 @@ func (h *Handler) handleGetPermissionsBoundaryForPermissionSet(c *echo.Context, 
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	boundaryArn, err := h.Backend.GetPermissionsBoundaryForPermissionSet(req.InstanceArn, req.PermissionSetArn)
+	boundary, err := h.Backend.GetPermissionsBoundaryForPermissionSet(req.InstanceArn, req.PermissionSetArn)
 	if err != nil {
 		return handleBackendError(c, err, "permissions boundary not found")
 	}
 
+	bView := map[string]any{}
+	if boundary.ManagedPolicyArn != "" {
+		bView["ManagedPolicyArn"] = boundary.ManagedPolicyArn
+	}
+	if boundary.CustomerManagedPolicyReference != nil {
+		bView["CustomerManagedPolicyReference"] = map[string]any{
+			"Name": boundary.CustomerManagedPolicyReference.Name,
+			"Path": boundary.CustomerManagedPolicyReference.Path,
+		}
+	}
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"PermissionsBoundary": map[string]any{
-			"ManagedPolicyArn": boundaryArn,
-		},
+		"PermissionsBoundary": bView,
 	})
 }
 
 func (h *Handler) handleListAccountAssignmentCreationStatus(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
+		Filter      struct {
+			Status string `json:"Status"`
+		} `json:"Filter"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
-	statuses := h.Backend.ListAccountAssignmentCreationStatus(req.InstanceArn)
+	statuses := h.Backend.ListAccountAssignmentCreationStatus(req.InstanceArn, req.Filter.Status)
 
 	out := make([]provisioningStatusView, 0, len(statuses))
 	for _, status := range statuses {
@@ -1999,11 +2065,14 @@ func (h *Handler) handleListAccountAssignmentCreationStatus(c *echo.Context, bod
 func (h *Handler) handleListAccountAssignmentDeletionStatus(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
+		Filter      struct {
+			Status string `json:"Status"`
+		} `json:"Filter"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
-	statuses := h.Backend.ListAccountAssignmentDeletionStatus(req.InstanceArn)
+	statuses := h.Backend.ListAccountAssignmentDeletionStatus(req.InstanceArn, req.Filter.Status)
 
 	out := make([]provisioningStatusView, 0, len(statuses))
 	for _, status := range statuses {
@@ -2019,11 +2088,14 @@ func (h *Handler) handleListAccountAssignmentDeletionStatus(c *echo.Context, bod
 func (h *Handler) handleListPermissionSetProvisioningStatus(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
+		Filter      struct {
+			Status string `json:"Status"`
+		} `json:"Filter"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
-	statuses := h.Backend.ListPermissionSetProvisioningStatus(req.InstanceArn)
+	statuses := h.Backend.ListPermissionSetProvisioningStatus(req.InstanceArn, req.Filter.Status)
 
 	out := make([]provisioningStatusView, 0, len(statuses))
 	for _, status := range statuses {
@@ -2368,14 +2440,15 @@ func (h *Handler) handleGetApplicationAuthenticationMethod(c *echo.Context, body
 		return writeError(c, http.StatusBadRequest, "ValidationException", "AuthenticationMethodType is required")
 	}
 
-	authMethod, err := h.Backend.GetApplicationAuthenticationMethod(req.ApplicationArn, req.AuthenticationMethodType)
+	authMethodBody, err := h.Backend.GetApplicationAuthenticationMethod(req.ApplicationArn, req.AuthenticationMethodType)
 	if err != nil {
 		return handleBackendError(c, err, "authentication method not found: "+req.AuthenticationMethodType)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"AuthenticationMethod": map[string]any{
-			"AuthenticationMethodType": authMethod,
+			"AuthenticationMethodType": req.AuthenticationMethodType,
+			"AuthenticationMethod":     authMethodBody,
 		},
 	})
 }
@@ -2395,14 +2468,15 @@ func (h *Handler) handleGetApplicationGrant(c *echo.Context, body []byte) error 
 		return writeError(c, http.StatusBadRequest, "ValidationException", "GrantType is required")
 	}
 
-	grantType, err := h.Backend.GetApplicationGrant(req.ApplicationArn, req.GrantType)
+	grantBody, err := h.Backend.GetApplicationGrant(req.ApplicationArn, req.GrantType)
 	if err != nil {
 		return handleBackendError(c, err, "grant not found: "+req.GrantType)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"Grant": map[string]any{
-			"GrantType": grantType,
+			"GrantType": req.GrantType,
+			"Grant":     grantBody,
 		},
 	})
 }

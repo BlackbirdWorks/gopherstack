@@ -506,6 +506,7 @@ func (b *InMemoryBackend) DeleteInstance(instanceArn string) error {
 		return ErrInstanceNotFound
 	}
 	inst.Status = instanceStatusDeleteInProgress
+	b.cascadeDeleteInstance(instanceArn)
 
 	return nil
 }
@@ -559,6 +560,12 @@ func (b *InMemoryBackend) CreatePermissionSet(
 
 	if err := validateSessionDuration(sessionDuration); err != nil {
 		return nil, err
+	}
+
+	if len(tags) > 0 {
+		if err := validateTags(tags); err != nil {
+			return nil, err
+		}
 	}
 
 	for _, ps := range b.permissionSets {
@@ -1116,7 +1123,7 @@ func validateTags(tags map[string]string) error {
 		if len(v) > maxTagValueLen {
 			return fmt.Errorf("%w: tag value exceeds maximum length of %d", awserr.ErrInvalidParameter, maxTagValueLen)
 		}
-		if strings.HasPrefix(k, "aws:") {
+		if strings.HasPrefix(strings.ToLower(k), "aws:") {
 			return fmt.Errorf("%w: tag keys with prefix 'aws:' are reserved", awserr.ErrInvalidParameter)
 		}
 	}
@@ -1238,11 +1245,10 @@ func validateTrustedTokenIssuerType(issuerType string) error {
 	return nil
 }
 
-// validateOIDCJWTConfig validates OIDC JWT trusted token issuer configuration.
+// validateOIDCJWTConfig validates OIDC JWT trusted token issuer configuration when provided.
 func validateOIDCJWTConfig(cfg *OidcJwtConfiguration) error {
 	if cfg == nil {
-		return fmt.Errorf("%w: OidcJwtConfiguration is required when TrustedTokenIssuerType is OIDC_JWT",
-			awserr.ErrInvalidParameter)
+		return nil
 	}
 	if cfg.IssuerURL == "" {
 		return fmt.Errorf("%w: OidcJwtConfiguration.IssuerUrl is required", awserr.ErrInvalidParameter)
@@ -1953,6 +1959,9 @@ func (b *InMemoryBackend) PutApplicationAuthenticationMethod(applicationArn, aut
 	if b.applicationAuthMethods[applicationArn] == nil {
 		b.applicationAuthMethods[applicationArn] = make(map[string]json.RawMessage)
 	}
+	if len(body) == 0 {
+		body = json.RawMessage("null")
+	}
 	b.applicationAuthMethods[applicationArn][authMethodType] = body
 
 	return nil
@@ -2029,6 +2038,9 @@ func (b *InMemoryBackend) PutApplicationGrant(applicationArn, grantType string, 
 	}
 	if b.applicationGrants[applicationArn] == nil {
 		b.applicationGrants[applicationArn] = make(map[string]json.RawMessage)
+	}
+	if len(body) == 0 {
+		body = json.RawMessage("null")
 	}
 	b.applicationGrants[applicationArn][grantType] = body
 
@@ -2264,12 +2276,23 @@ func (b *InMemoryBackend) ListApplicationProviders() []*ApplicationProvider {
 }
 
 // DescribeApplicationProvider returns details for an application provider.
+// Account-scoped custom provider ARNs (arn:aws:sso::<accountId>:applicationProvider/custom)
+// are resolved to the AWS-managed custom provider entry.
 func (b *InMemoryBackend) DescribeApplicationProvider(
 	applicationProviderArn string,
 ) (*ApplicationProvider, error) {
 	if p, ok := awsProvidersByARN[applicationProviderArn]; ok {
 		cp := *p
 		return &cp, nil
+	}
+	// Account-scoped ARN: try matching by provider path suffix.
+	if idx := strings.LastIndex(applicationProviderArn, ":applicationProvider/"); idx >= 0 {
+		suffix := applicationProviderArn[idx+len(":applicationProvider/"):]
+		canonicalArn := "arn:aws:sso::aws:applicationProvider/" + suffix
+		if p, ok := awsProvidersByARN[canonicalArn]; ok {
+			cp := *p
+			return &cp, nil
+		}
 	}
 
 	return nil, ErrRequestNotFound
