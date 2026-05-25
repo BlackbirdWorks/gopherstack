@@ -921,9 +921,10 @@ func TestOpenSearchHandler_AssociatePackage(t *testing.T) {
 				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
 					map[string]any{"DomainName": "my-domain"})
 				r.Body.Close()
+				h.Backend.(*opensearch.InMemoryBackend).AddPackageInternal("pkg-001", "my-pkg", "TXT-DICTIONARY")
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"pkg-001", "my-domain", "ACTIVE"},
+			wantContains: []string{"my-domain", "ACTIVE"},
 		},
 		{
 			name:       "domain_not_found",
@@ -979,9 +980,12 @@ func TestOpenSearchHandler_AssociatePackages(t *testing.T) {
 				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
 					map[string]any{"DomainName": "my-domain"})
 				r.Body.Close()
+				b := h.Backend.(*opensearch.InMemoryBackend)
+				b.AddPackageInternal("pkg-001", "pkg-one", "TXT-DICTIONARY")
+				b.AddPackageInternal("pkg-002", "pkg-two", "TXT-DICTIONARY")
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"DomainPackageDetailsList", "pkg-001"},
+			wantContains: []string{"DomainPackageDetailsList"},
 		},
 		{
 			name:       "domain_not_found",

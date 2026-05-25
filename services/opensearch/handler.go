@@ -2192,7 +2192,7 @@ type domainPackageDetailsJSON struct {
 func (h *Handler) handleAssociatePackage(w http.ResponseWriter, r *http.Request, packageID, domainName string) {
 	details, err := h.Backend.AssociatePackage(packageID, domainName)
 	if err != nil {
-		if errors.Is(err, ErrDomainNotFound) {
+		if errors.Is(err, ErrDomainNotFound) || errors.Is(err, ErrPackageNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 		} else {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
