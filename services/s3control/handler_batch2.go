@@ -12,7 +12,7 @@ import (
 
 type replicationConfigurationXML struct {
 	XMLName xml.Name `xml:"ReplicationConfiguration"`
-	Rules   string   `xml:"Rules,omitempty"`
+	Inner   string   `xml:",innerxml"`
 }
 
 type getReplicationResultXML struct {
@@ -33,13 +33,13 @@ func (h *Handler) handleGetBucketReplication(c *echo.Context) error {
 	}
 
 	return writeXML(c, getReplicationResultXML{
-		ReplicationConfiguration: replicationConfigurationXML{Rules: cfg},
+		ReplicationConfiguration: replicationConfigurationXML{Inner: cfg},
 	})
 }
 
 type putReplicationRequestXML struct {
 	XMLName xml.Name `xml:"ReplicationConfiguration"`
-	Rules   string   `xml:"Rules,omitempty"`
+	Inner   string   `xml:",innerxml"`
 }
 
 func (h *Handler) handlePutBucketReplication(c *echo.Context) error {
@@ -54,7 +54,7 @@ func (h *Handler) handlePutBucketReplication(c *echo.Context) error {
 		return c.String(http.StatusBadRequest, "invalid request body")
 	}
 
-	if err := h.Backend.PutBucketReplication(accountID, bucketName, body.Rules); err != nil {
+	if err := h.Backend.PutBucketReplication(accountID, bucketName, body.Inner); err != nil {
 		return handleBackendError(c, err)
 	}
 
@@ -127,7 +127,7 @@ func (h *Handler) handleGetStorageLensConfiguration(c *echo.Context) error {
 }
 
 type putStorageLensConfigRequestXML struct {
-	XMLName xml.Name `xml:"PutStorageLensConfigurationRequest"`
+	XMLName xml.Name `xml:"StorageLensConfiguration"`
 	Config  string   `xml:"Config,omitempty"`
 }
 
