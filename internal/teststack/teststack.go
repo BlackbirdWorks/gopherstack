@@ -960,6 +960,9 @@ func populateLatestHandlers(h *handlers) {
 }
 
 func populateLatestMLHandlers(h *handlers) {
+	h.forecast = forecastbackend.NewHandler(
+		forecastbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.sagemaker = sagemakerbackend.NewHandler(
 		sagemakerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -1283,6 +1286,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.RAMHandler = h.ram
 	s.RDSDataHandler = h.rdsdata
 	s.RedshiftDataHandler = h.redshiftdata
+	s.ForecastHandler = h.forecast
 	s.SageMakerHandler = h.sagemaker
 	s.SageMakerRuntimeHandler = h.sagemakerRuntime
 	s.ServiceDiscoveryHandler = h.servicediscovery
