@@ -55,6 +55,11 @@ type Runner struct {
 	sqsReader SQSReader
 	lambda    PipeLambdaInvoker
 	sfn       PipeStepFunctionsStarter
+	sns       PipeSNSPublisher
+	sqsSender PipeSQSSender
+	kinesis   PipeKinesisPutter
+	eventBus  PipeEventBridgePutter
+	cwLogs    PipeCloudWatchLogsPutter
 	backend   *InMemoryBackend
 	sem       chan struct{}
 	done      chan struct{}
@@ -71,9 +76,14 @@ func NewRunner(backend *InMemoryBackend) *Runner {
 	}
 }
 
-func (r *Runner) SetSQSReader(s SQSReader)                           { r.sqsReader = s }
-func (r *Runner) SetLambdaInvoker(l PipeLambdaInvoker)               { r.lambda = l }
-func (r *Runner) SetStepFunctionsStarter(s PipeStepFunctionsStarter) { r.sfn = s }
+func (r *Runner) SetSQSReader(s SQSReader)                               { r.sqsReader = s }
+func (r *Runner) SetLambdaInvoker(l PipeLambdaInvoker)                   { r.lambda = l }
+func (r *Runner) SetStepFunctionsStarter(s PipeStepFunctionsStarter)     { r.sfn = s }
+func (r *Runner) SetSNSPublisher(s PipeSNSPublisher)                     { r.sns = s }
+func (r *Runner) SetSQSSender(s PipeSQSSender)                           { r.sqsSender = s }
+func (r *Runner) SetKinesisPutter(k PipeKinesisPutter)                   { r.kinesis = k }
+func (r *Runner) SetEventBridgePutter(e PipeEventBridgePutter)           { r.eventBus = e }
+func (r *Runner) SetCloudWatchLogsPutter(c PipeCloudWatchLogsPutter)     { r.cwLogs = c }
 
 func (r *Runner) Start(ctx context.Context) {
 	r.doneMu.Lock()
@@ -178,14 +188,30 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 		return
 	}
 
-	// Track enrichment invocation if enrichment is configured.
-	if p.Enrichment != "" {
-		r.backend.RecordEnrichmentCall(p.Name)
-		logger.Load(ctx).DebugContext(ctx, "pipes: enrichment configured (tracked)",
-			"pipe", p.Name, "enrichment", p.Enrichment, "messages", len(msgs))
+	payload, err := json.Marshal(sqsPipeEvent{Records: buildSQSRecords(p, msgs)})
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "pipes: failed to marshal SQS records", "pipe", p.Name, "error", err)
+
+		return
 	}
 
-	receiptHandles, invokeErr := r.invokeTarget(ctx, p, msgs)
+	// Invoke enrichment if configured. Enriched payload replaces the default one.
+	if p.Enrichment != "" {
+		r.backend.RecordEnrichmentCall(p.Name)
+
+		enriched, enrichErr := r.invokeEnrichment(ctx, p, payload)
+		if enrichErr != nil {
+			logger.Load(ctx).WarnContext(ctx, "pipes: enrichment invocation failed",
+				"pipe", p.Name, "enrichment", p.Enrichment, "error", enrichErr)
+
+			return
+		}
+		if enriched != nil {
+			payload = enriched
+		}
+	}
+
+	receiptHandles, invokeErr := r.invokeTargetWithPayload(ctx, p, msgs, payload)
 	if invokeErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "pipes: target invocation failed",
 			"pipe", p.Name, "target", p.Target, "error", invokeErr)
@@ -197,6 +223,45 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 		logger.Load(ctx).WarnContext(ctx, "pipes: failed to delete SQS messages",
 			"pipe", p.Name, "source", p.Source, "error", delErr)
 	}
+}
+
+// invokeEnrichment calls the enrichment endpoint and returns the enriched payload.
+func (r *Runner) invokeEnrichment(ctx context.Context, p *Pipe, payload []byte) ([]byte, error) {
+	enrichARN := p.Enrichment
+
+	switch {
+	case strings.HasPrefix(enrichARN, "arn:aws:lambda:"):
+		if r.lambda == nil {
+			return nil, nil
+		}
+
+		invocationType := "RequestResponse"
+		if p.EnrichmentParameters != nil && p.EnrichmentParameters.InputTemplate != "" {
+			payload = []byte(p.EnrichmentParameters.InputTemplate)
+		}
+
+		result, _, err := r.lambda.InvokeFunction(ctx, lambdaFunctionNameFromPipeARN(enrichARN), invocationType, payload)
+		if err != nil {
+			return nil, err
+		}
+
+		return result, nil
+
+	case strings.HasPrefix(enrichARN, "arn:aws:states:"):
+		if r.sfn == nil {
+			return nil, nil
+		}
+
+		input := string(payload)
+		if p.EnrichmentParameters != nil && p.EnrichmentParameters.InputTemplate != "" {
+			input = p.EnrichmentParameters.InputTemplate
+		}
+
+		return nil, r.sfn.StartExecution(enrichARN, "", input)
+	}
+
+	// Enrichment ARN type not supported by this runner; skip silently.
+	return nil, nil
 }
 
 func (r *Runner) applyFilters(p *Pipe, msgs []*SQSMessage) []*SQSMessage {
@@ -217,17 +282,12 @@ func (r *Runner) applyFilters(p *Pipe, msgs []*SQSMessage) []*SQSMessage {
 	return out
 }
 
-func matchesAnyFilter(m *SQSMessage, filters []Filter) bool {
-	for _, f := range filters {
-		if f.Pattern == "" || strings.Contains(m.Body, f.Pattern) {
-			return true
-		}
-	}
 
-	return false
-}
-
-func (r *Runner) invokeTarget(ctx context.Context, p *Pipe, msgs []*SQSMessage) ([]string, error) {
+// invokeTargetWithPayload dispatches the pre-marshalled payload to the pipe's target.
+// It returns receipt handles on success so the caller can delete the source messages.
+func (r *Runner) invokeTargetWithPayload(
+	ctx context.Context, p *Pipe, msgs []*SQSMessage, payload []byte,
+) ([]string, error) {
 	receiptHandles := make([]string, len(msgs))
 	for i, m := range msgs {
 		receiptHandles[i] = m.ReceiptHandle
@@ -235,9 +295,19 @@ func (r *Runner) invokeTarget(ctx context.Context, p *Pipe, msgs []*SQSMessage) 
 
 	switch {
 	case strings.HasPrefix(p.Target, "arn:aws:lambda:"):
-		return receiptHandles, r.invokeLambdaTarget(ctx, p, msgs)
+		return receiptHandles, r.invokeLambdaTarget(ctx, p, payload)
 	case strings.HasPrefix(p.Target, "arn:aws:states:"):
-		return receiptHandles, r.invokeSFNTarget(ctx, p, msgs)
+		return receiptHandles, r.invokeSFNTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:sns:"):
+		return receiptHandles, r.invokeSNSTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:sqs:"):
+		return receiptHandles, r.invokeSQSTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:kinesis:"):
+		return receiptHandles, r.invokeKinesisTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:events:"):
+		return receiptHandles, r.invokeEventBridgeTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:logs:"):
+		return receiptHandles, r.invokeCloudWatchLogsTarget(ctx, p, payload)
 	}
 
 	return nil, fmt.Errorf("%w %q for pipe %q", ErrUnsupportedPipeTarget, p.Target, p.Name)
@@ -277,63 +347,154 @@ func buildSQSRecords(p *Pipe, msgs []*SQSMessage) []sqsPipeRecord {
 	return records
 }
 
-func (r *Runner) invokeLambdaTarget(ctx context.Context, p *Pipe, msgs []*SQSMessage) error {
+// applyInputTemplate returns the InputTemplate payload if configured, otherwise the
+// pre-built default payload. This implements the Pipes TargetParameters.InputTemplate contract.
+func applyInputTemplate(p *Pipe, defaultPayload []byte) []byte {
+	if p.TargetParameters != nil && p.TargetParameters.InputTemplate != "" {
+		return []byte(p.TargetParameters.InputTemplate)
+	}
+
+	return defaultPayload
+}
+
+func (r *Runner) invokeLambdaTarget(ctx context.Context, p *Pipe, payload []byte) error {
 	if r.lambda == nil {
 		return nil
 	}
 
+	// Map Pipes InvocationType to Lambda InvocationType.
+	// Pipes: FIRE_AND_FORGET → Lambda: Event
+	// Pipes: REQUEST_RESPONSE → Lambda: RequestResponse
+	// Default (empty) → Event (async, matches AWS default behavior)
 	invocationType := "Event"
-	if p.TargetParameters != nil &&
-		p.TargetParameters.LambdaFunctionParameters != nil &&
-		p.TargetParameters.LambdaFunctionParameters.InvocationType != "" {
-		invocationType = p.TargetParameters.LambdaFunctionParameters.InvocationType
-	}
-
-	var payload []byte
-	var err error
-
-	if p.TargetParameters != nil && p.TargetParameters.InputTemplate != "" {
-		payload = []byte(p.TargetParameters.InputTemplate)
-	} else {
-		payload, err = json.Marshal(sqsPipeEvent{Records: buildSQSRecords(p, msgs)})
-		if err != nil {
-			return err
+	if p.TargetParameters != nil && p.TargetParameters.LambdaFunctionParameters != nil {
+		it := p.TargetParameters.LambdaFunctionParameters.InvocationType
+		if mapped, ok := lambdaPipesInvocationType[it]; ok {
+			invocationType = mapped
+		} else if it != "" {
+			invocationType = it
 		}
 	}
+
+	payload = applyInputTemplate(p, payload)
 
 	fnName := lambdaFunctionNameFromPipeARN(p.Target)
 	if fnName == "" {
 		fnName = p.Target
 	}
 
-	_, _, err = r.lambda.InvokeFunction(ctx, fnName, invocationType, payload)
+	_, _, err := r.lambda.InvokeFunction(ctx, fnName, invocationType, payload)
 	if err == nil {
 		logger.Load(ctx).DebugContext(ctx, "pipes: invoked Lambda",
-			"pipe", p.Name, "function", fnName, "messages", len(msgs))
+			"pipe", p.Name, "function", fnName)
 	}
 
 	return err
 }
 
-func (r *Runner) invokeSFNTarget(_ context.Context, p *Pipe, msgs []*SQSMessage) error {
+func (r *Runner) invokeSFNTarget(_ context.Context, p *Pipe, payload []byte) error {
 	if r.sfn == nil {
 		return nil
 	}
 
-	var inputStr string
+	payload = applyInputTemplate(p, payload)
+	invocationType := "FIRE_AND_FORGET"
 
-	if p.TargetParameters != nil && p.TargetParameters.InputTemplate != "" {
-		inputStr = p.TargetParameters.InputTemplate
-	} else {
-		payload, err := json.Marshal(sqsPipeEvent{Records: buildSQSRecords(p, msgs)})
-		if err != nil {
-			return err
+	if p.TargetParameters != nil && p.TargetParameters.SFNStateMachineParameters != nil {
+		it := p.TargetParameters.SFNStateMachineParameters.InvocationType
+		if mapped, ok := sfnPipesInvocationType[it]; ok {
+			invocationType = mapped
+		} else if it != "" {
+			invocationType = it
 		}
-
-		inputStr = string(payload)
 	}
 
-	return r.sfn.StartExecution(p.Target, "", inputStr)
+	_ = invocationType // passed to StartExecution when API supports it
+
+	return r.sfn.StartExecution(p.Target, "", string(payload))
+}
+
+func (r *Runner) invokeSNSTarget(ctx context.Context, p *Pipe, payload []byte) error {
+	if r.sns == nil {
+		return nil
+	}
+
+	payload = applyInputTemplate(p, payload)
+
+	return r.sns.PublishMessage(ctx, p.Target, string(payload))
+}
+
+func (r *Runner) invokeSQSTarget(ctx context.Context, p *Pipe, payload []byte) error {
+	if r.sqsSender == nil {
+		return nil
+	}
+
+	payload = applyInputTemplate(p, payload)
+	var groupID, dedupID string
+
+	if p.TargetParameters != nil && p.TargetParameters.SqsQueueParameters != nil {
+		groupID = p.TargetParameters.SqsQueueParameters.MessageGroupID
+		dedupID = p.TargetParameters.SqsQueueParameters.MessageDeduplicationID
+	}
+
+	return r.sqsSender.SendMessage(ctx, p.Target, string(payload), groupID, dedupID)
+}
+
+func (r *Runner) invokeKinesisTarget(ctx context.Context, p *Pipe, payload []byte) error {
+	if r.kinesis == nil {
+		return nil
+	}
+
+	payload = applyInputTemplate(p, payload)
+	partitionKey := "default"
+
+	if p.TargetParameters != nil && p.TargetParameters.KinesisStreamParameters != nil &&
+		p.TargetParameters.KinesisStreamParameters.PartitionKey != "" {
+		partitionKey = p.TargetParameters.KinesisStreamParameters.PartitionKey
+	}
+
+	return r.kinesis.PutRecord(ctx, p.Target, partitionKey, payload)
+}
+
+func (r *Runner) invokeEventBridgeTarget(ctx context.Context, p *Pipe, payload []byte) error {
+	if r.eventBus == nil {
+		return nil
+	}
+
+	payload = applyInputTemplate(p, payload)
+	evt := map[string]any{
+		"Source":     "aws.pipes",
+		"Detail":     string(payload),
+		"DetailType": "Pipe Event",
+	}
+
+	if p.TargetParameters != nil && p.TargetParameters.EventBridgeEventBusParameters != nil {
+		ebp := p.TargetParameters.EventBridgeEventBusParameters
+		if ebp.Source != "" {
+			evt["Source"] = ebp.Source
+		}
+		if ebp.DetailType != "" {
+			evt["DetailType"] = ebp.DetailType
+		}
+	}
+
+	return r.eventBus.PutEvents(ctx, p.Target, []map[string]any{evt})
+}
+
+func (r *Runner) invokeCloudWatchLogsTarget(ctx context.Context, p *Pipe, payload []byte) error {
+	if r.cwLogs == nil {
+		return nil
+	}
+
+	payload = applyInputTemplate(p, payload)
+	logGroupARN := p.Target
+	logStreamName := ""
+
+	if p.TargetParameters != nil && p.TargetParameters.CloudWatchLogsParameters != nil {
+		logStreamName = p.TargetParameters.CloudWatchLogsParameters.LogStreamName
+	}
+
+	return r.cwLogs.PutLogEvents(ctx, logGroupARN, logStreamName, []string{string(payload)})
 }
 
 func lambdaFunctionNameFromPipeARN(arn string) string {
