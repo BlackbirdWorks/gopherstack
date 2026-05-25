@@ -499,13 +499,17 @@ func (h *Handler) handleCreatePartition(
 }
 
 // createPartitionIndexInput holds input for CreatePartitionIndex.
-type createPartitionIndexInput struct{}
+type createPartitionIndexInput struct {
+	DatabaseName   string         `json:"DatabaseName"`
+	TableName      string         `json:"TableName"`
+	PartitionIndex PartitionIndex `json:"PartitionIndex"`
+}
 
 func (h *Handler) handleCreatePartitionIndex(
 	_ context.Context,
-	_ *createPartitionIndexInput,
+	in *createPartitionIndexInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.CreatePartitionIndex(in.DatabaseName, in.TableName, in.PartitionIndex)
 }
 
 // createRegistryInput holds input for CreateRegistry.
@@ -1041,13 +1045,17 @@ func (h *Handler) handleDeletePartition(
 }
 
 // deletePartitionIndexInput holds input for DeletePartitionIndex.
-type deletePartitionIndexInput struct{}
+type deletePartitionIndexInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+	IndexName    string `json:"IndexName"`
+}
 
 func (h *Handler) handleDeletePartitionIndex(
 	_ context.Context,
-	_ *deletePartitionIndexInput,
+	in *deletePartitionIndexInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeletePartitionIndex(in.DatabaseName, in.TableName, in.IndexName)
 }
 
 // deleteRegistryInput holds input for DeleteRegistry.
@@ -2045,18 +2053,26 @@ func (h *Handler) handleGetPartition(
 }
 
 // getPartitionIndexesInput holds input for GetPartitionIndexes.
-type getPartitionIndexesInput struct{}
+type getPartitionIndexesInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+}
 
 // getPartitionIndexesOutput holds the result for GetPartitionIndexes.
 type getPartitionIndexesOutput struct {
-	PartitionIndexDescriptorList []any `json:"PartitionIndexDescriptorList"`
+	PartitionIndexDescriptorList []*PartitionIndex `json:"PartitionIndexDescriptorList"`
 }
 
 func (h *Handler) handleGetPartitionIndexes(
 	_ context.Context,
-	_ *getPartitionIndexesInput,
+	in *getPartitionIndexesInput,
 ) (*getPartitionIndexesOutput, error) {
-	return &getPartitionIndexesOutput{PartitionIndexDescriptorList: []any{}}, nil
+	indexes, err := h.Backend.GetPartitionIndexes(in.DatabaseName, in.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getPartitionIndexesOutput{PartitionIndexDescriptorList: indexes}, nil
 }
 
 // getPartitionsInput holds input for GetPartitions.
