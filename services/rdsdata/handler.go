@@ -52,7 +52,6 @@ type Handler struct {
 }
 
 // NewHandler creates a new RDS Data handler.
-// NewHandler creates a new RDS Data handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend:   backend,
@@ -233,18 +232,33 @@ type executeStatementResponse struct {
 	NumberOfRecordsUpdated int64            `json:"numberOfRecordsUpdated"`
 }
 
+type requiredField struct {
+	name  string
+	value string
+}
+
+func validateRequiredFields(fields ...requiredField) error {
+	for _, field := range fields {
+		if field.value == "" {
+			return fmt.Errorf("%w: missing %s", errInvalidRequest, field.name)
+		}
+	}
+
+	return nil
+}
+
 func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte, error) {
 	var req executeStatementRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.ResourceArn == "" {
-		return nil, fmt.Errorf("%w: missing resourceArn", errInvalidRequest)
-	}
-
-	if req.SQL == "" {
-		return nil, fmt.Errorf("%w: missing sql", errInvalidRequest)
+	if err := validateRequiredFields(
+		requiredField{name: "resourceArn", value: req.ResourceArn},
+		requiredField{name: "secretArn", value: req.SecretArn},
+		requiredField{name: "sql", value: req.SQL},
+	); err != nil {
+		return nil, err
 	}
 
 	records, columns, updated, err := h.Backend.ExecuteStatement(req.ResourceArn, req.SQL, req.TransactionID)
@@ -282,12 +296,12 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.ResourceArn == "" {
-		return nil, fmt.Errorf("%w: missing resourceArn", errInvalidRequest)
-	}
-
-	if req.SQL == "" {
-		return nil, fmt.Errorf("%w: missing sql", errInvalidRequest)
+	if err := validateRequiredFields(
+		requiredField{name: "resourceArn", value: req.ResourceArn},
+		requiredField{name: "secretArn", value: req.SecretArn},
+		requiredField{name: "sql", value: req.SQL},
+	); err != nil {
+		return nil, err
 	}
 
 	results, err := h.Backend.BatchExecuteStatement(req.ResourceArn, req.SQL, req.TransactionID, req.ParameterSets)
@@ -315,8 +329,11 @@ func (h *Handler) handleBeginTransaction(_ context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.ResourceArn == "" {
-		return nil, fmt.Errorf("%w: missing resourceArn", errInvalidRequest)
+	if err := validateRequiredFields(
+		requiredField{name: "resourceArn", value: req.ResourceArn},
+		requiredField{name: "secretArn", value: req.SecretArn},
+	); err != nil {
+		return nil, err
 	}
 
 	txID, err := h.Backend.BeginTransaction(req.ResourceArn)
@@ -343,8 +360,12 @@ func (h *Handler) handleCommitTransaction(_ context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.TransactionID == "" {
-		return nil, fmt.Errorf("%w: missing transactionId", errInvalidRequest)
+	if err := validateRequiredFields(
+		requiredField{name: "resourceArn", value: req.ResourceArn},
+		requiredField{name: "secretArn", value: req.SecretArn},
+		requiredField{name: "transactionId", value: req.TransactionID},
+	); err != nil {
+		return nil, err
 	}
 
 	status, err := h.Backend.CommitTransaction(req.TransactionID)
@@ -371,8 +392,12 @@ func (h *Handler) handleRollbackTransaction(_ context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.TransactionID == "" {
-		return nil, fmt.Errorf("%w: missing transactionId", errInvalidRequest)
+	if err := validateRequiredFields(
+		requiredField{name: "resourceArn", value: req.ResourceArn},
+		requiredField{name: "secretArn", value: req.SecretArn},
+		requiredField{name: "transactionId", value: req.TransactionID},
+	); err != nil {
+		return nil, err
 	}
 
 	status, err := h.Backend.RollbackTransaction(req.TransactionID)
@@ -401,12 +426,12 @@ func (h *Handler) handleExecuteSQL(_ context.Context, body []byte) ([]byte, erro
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.DBClusterOrInstanceArn == "" {
-		return nil, fmt.Errorf("%w: missing dbClusterOrInstanceArn", errInvalidRequest)
-	}
-
-	if req.SQLStatements == "" {
-		return nil, fmt.Errorf("%w: missing sqlStatements", errInvalidRequest)
+	if err := validateRequiredFields(
+		requiredField{name: "dbClusterOrInstanceArn", value: req.DBClusterOrInstanceArn},
+		requiredField{name: "awsSecretStoreArn", value: req.AwsSecretStoreArn},
+		requiredField{name: "sqlStatements", value: req.SQLStatements},
+	); err != nil {
+		return nil, err
 	}
 
 	results, err := h.Backend.ExecuteSQL(req.DBClusterOrInstanceArn, req.SQLStatements)

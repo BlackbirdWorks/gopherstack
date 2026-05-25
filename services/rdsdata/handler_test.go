@@ -273,6 +273,7 @@ func TestHandler_ExecuteStatement(t *testing.T) {
 			name: "missing_sql",
 			body: map[string]any{
 				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -347,6 +348,7 @@ func TestHandler_BatchExecuteStatement(t *testing.T) {
 			name: "missing_sql_batch",
 			body: map[string]any{
 				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -488,6 +490,8 @@ func TestHandler_CommitTransaction(t *testing.T) {
 				txID := beginResp["transactionId"].(string)
 
 				rec = doRDSDataRequest(t, h, "/CommitTransaction", map[string]any{
+					"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+					"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 					"transactionId": txID,
 				})
 			case tt.bodyRaw != nil:
@@ -559,6 +563,8 @@ func TestHandler_RollbackTransaction(t *testing.T) {
 				txID := beginResp["transactionId"].(string)
 
 				rec = doRDSDataRequest(t, h, "/RollbackTransaction", map[string]any{
+					"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+					"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 					"transactionId": txID,
 				})
 			case tt.bodyRaw != nil:

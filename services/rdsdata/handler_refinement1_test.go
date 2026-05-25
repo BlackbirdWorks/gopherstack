@@ -316,6 +316,8 @@ func TestRefinement1_Transaction_Lifecycle(t *testing.T) {
 
 	// Commit
 	commitRec := doRDSDataRequest(t, h, "/CommitTransaction", map[string]any{
+		"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+		"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 		"transactionId": txID,
 	})
 	require.Equal(t, http.StatusOK, commitRec.Code)
@@ -343,6 +345,8 @@ func TestRefinement1_Transaction_RollbackLifecycle(t *testing.T) {
 	txID := beginResp["transactionId"].(string)
 
 	rollbackRec := doRDSDataRequest(t, h, "/RollbackTransaction", map[string]any{
+		"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+		"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 		"transactionId": txID,
 	})
 	require.Equal(t, http.StatusOK, rollbackRec.Code)
@@ -358,6 +362,8 @@ func TestRefinement1_TransactionNotFound_ErrorShape(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRDSDataRequest(t, h, "/CommitTransaction", map[string]any{
+		"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+		"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 		"transactionId": "txn-nonexistent",
 	})
 
@@ -504,8 +510,7 @@ func TestRefinement1_ListTransactions_Empty(t *testing.T) {
 	assert.Empty(t, txns)
 }
 
-// TestRefinement1_ExecuteSQL_MissingSecretArn verifies missing awsSecretStoreArn is still accepted
-// (it is optional in the AWS spec for ExecuteSql).
+// TestRefinement1_ExecuteSQL_MissingSecretArn verifies generated SDK required fields are enforced.
 func TestRefinement1_ExecuteSQL_MissingSecretArn(t *testing.T) {
 	t.Parallel()
 
@@ -514,7 +519,7 @@ func TestRefinement1_ExecuteSQL_MissingSecretArn(t *testing.T) {
 		"dbClusterOrInstanceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
 		"sqlStatements":          "SELECT 1",
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestRefinement1_BatchExecuteStatement_MultipleParamSets verifies multiple result sets.
@@ -596,12 +601,16 @@ func TestRefinement1_CommitAfterRollback_Fails(t *testing.T) {
 
 	// Rollback first
 	rollbackRec := doRDSDataRequest(t, h, "/RollbackTransaction", map[string]any{
+		"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+		"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 		"transactionId": txID,
 	})
 	require.Equal(t, http.StatusOK, rollbackRec.Code)
 
 	// Now commit should fail
 	commitRec := doRDSDataRequest(t, h, "/CommitTransaction", map[string]any{
+		"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+		"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 		"transactionId": txID,
 	})
 	assert.Equal(t, http.StatusBadRequest, commitRec.Code)
