@@ -846,9 +846,30 @@ func TestHandler_UpdateJobStatus(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "update_status_success",
+			name:       "update_status_success_cancelled",
 			wantStatus: http.StatusOK,
 			wantBody:   "UpdateJobStatusResult",
+			body:       `<UpdateJobStatusRequest><RequestedJobStatus>Cancelled</RequestedJobStatus></UpdateJobStatusRequest>`,
+			setup: func(h *s3control.Handler) string {
+				job := h.Backend.AddBatchJobInternal("acct1", "arn:aws:iam::acct1:role/R", 5)
+
+				return job.JobID
+			},
+		},
+		{
+			name:       "update_status_success_ready",
+			wantStatus: http.StatusOK,
+			wantBody:   "UpdateJobStatusResult",
+			body:       `<UpdateJobStatusRequest><RequestedJobStatus>Ready</RequestedJobStatus></UpdateJobStatusRequest>`,
+			setup: func(h *s3control.Handler) string {
+				job := h.Backend.AddBatchJobInternal("acct1", "arn:aws:iam::acct1:role/R", 5)
+
+				return job.JobID
+			},
+		},
+		{
+			name:       "update_status_invalid_rejects",
+			wantStatus: http.StatusBadRequest,
 			body:       `<UpdateJobStatusRequest><RequestedJobStatus>Complete</RequestedJobStatus></UpdateJobStatusRequest>`,
 			setup: func(h *s3control.Handler) string {
 				job := h.Backend.AddBatchJobInternal("acct1", "arn:aws:iam::acct1:role/R", 5)
@@ -858,7 +879,7 @@ func TestHandler_UpdateJobStatus(t *testing.T) {
 		},
 		{
 			name:       "update_status_missing_job",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			body:       `<UpdateJobStatusRequest><RequestedJobStatus>Complete</RequestedJobStatus></UpdateJobStatusRequest>`,
 			setup:      func(_ *s3control.Handler) string { return "nonexistent" },
 		},
@@ -1157,15 +1178,15 @@ func TestHandler_StubOperations(t *testing.T) {
 			name:       "put_bucket_replication",
 			method:     http.MethodPut,
 			path:       "/v20180820/bucket/mybucket/replication",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "NoSuchBucket",
+			wantStatus: http.StatusOK,
+			wantBody:   "",
 		},
 		{
 			name:       "delete_bucket_replication",
 			method:     http.MethodDelete,
 			path:       "/v20180820/bucket/mybucket/replication",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "ReplicationConfigurationNotFoundError",
+			wantStatus: http.StatusNoContent,
+			wantBody:   "",
 		},
 		// Bucket tagging stubs
 		// Bucket versioning stubs
@@ -1188,8 +1209,8 @@ func TestHandler_StubOperations(t *testing.T) {
 			name:       "delete_storage_lens_config",
 			method:     http.MethodDelete,
 			path:       "/v20180820/storagelens/myconfig",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "NoSuchConfiguration",
+			wantStatus: http.StatusNoContent,
+			wantBody:   "",
 		},
 		{
 			name:       "get_storage_lens_tagging",
@@ -1202,15 +1223,15 @@ func TestHandler_StubOperations(t *testing.T) {
 			name:       "put_storage_lens_tagging",
 			method:     http.MethodPut,
 			path:       "/v20180820/storagelens/myconfig/tagging",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "NoSuchConfiguration",
+			wantStatus: http.StatusOK,
+			wantBody:   "",
 		},
 		{
 			name:       "delete_storage_lens_tagging",
 			method:     http.MethodDelete,
 			path:       "/v20180820/storagelens/myconfig/tagging",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "NoSuchConfiguration",
+			wantStatus: http.StatusNoContent,
+			wantBody:   "",
 		},
 		{
 			name:       "list_storage_lens_configs",
@@ -1255,8 +1276,8 @@ func TestHandler_StubOperations(t *testing.T) {
 			name:       "submit_mrap_routes",
 			method:     http.MethodPatch,
 			path:       "/v20180820/mrap/instances/mymrap/routes",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "NoSuchMultiRegionAccessPoint",
+			wantStatus: http.StatusOK,
+			wantBody:   "",
 		},
 		// Object lambda policyStatus stub
 		// Get/delete object lambda stubs

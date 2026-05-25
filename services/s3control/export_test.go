@@ -84,3 +84,27 @@ func StorageLensGroupCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// AccessPointPABCount returns the number of per-AP public access block configs stored.
+func AccessPointPABCount(b *InMemoryBackend) int {
+	b.mu.RLock("AccessPointPABCount")
+	defer b.mu.RUnlock()
+
+	return len(b.accessPointPABs)
+}
+
+// MRAPCount returns the number of stored MRAP instances.
+func MRAPCount(b *InMemoryBackend) int {
+	b.mu.RLock("MRAPCount")
+	defer b.mu.RUnlock()
+
+	return len(b.mraps)
+}
+
+// StorageLensConfigCount returns the number of stored Storage Lens configurations.
+func StorageLensConfigCount(b *InMemoryBackend) int {
+	b.mu.RLock("StorageLensConfigCount")
+	defer b.mu.RUnlock()
+
+	return len(b.storageLensConfigs)
+}

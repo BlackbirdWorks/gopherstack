@@ -24,7 +24,9 @@ type backendSnapshot struct {
 	StorageLensConfigs    map[string]string            `json:"storageLensConfigs"`
 	StorageLensConfigTags map[string]TagSet            `json:"storageLensConfigTags"`
 	ResourceTags          map[string]map[string]string `json:"resourceTags"`
-	NextID                int64                        `json:"nextID"`
+	// batch3 additions
+	AccessPointPABs map[string]*PublicAccessBlock `json:"accessPointPABs"`
+	NextID          int64                         `json:"nextID"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -50,6 +52,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		StorageLensConfigs:       cloneMapStr(b.storageLensConfigs),
 		StorageLensConfigTags:    cloneMapTagSet(b.storageLensConfigTags),
 		ResourceTags:             cloneMapResourceTags(b.resourceTags),
+		AccessPointPABs:          cloneMapPAB(b.accessPointPABs),
 		NextID:                   b.nextID,
 	}
 
@@ -273,6 +276,10 @@ func ensureNonNilMapsBatch2(snap *backendSnapshot) {
 	if snap.ResourceTags == nil {
 		snap.ResourceTags = make(map[string]map[string]string)
 	}
+
+	if snap.AccessPointPABs == nil {
+		snap.AccessPointPABs = make(map[string]*PublicAccessBlock)
+	}
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -305,6 +312,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.storageLensConfigs = snap.StorageLensConfigs
 	b.storageLensConfigTags = snap.StorageLensConfigTags
 	b.resourceTags = snap.ResourceTags
+	b.accessPointPABs = snap.AccessPointPABs
 	b.nextID = snap.NextID
 
 	return nil

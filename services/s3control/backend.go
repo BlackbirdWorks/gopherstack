@@ -90,11 +90,15 @@ type AccessGrantsLocation struct {
 
 // AccessPoint represents an S3 access point.
 type AccessPoint struct {
-	AccountID      string `json:"accountID"`
-	Name           string `json:"name"`
-	Bucket         string `json:"bucket"`
-	AccessPointArn string `json:"accessPointArn"`
-	Alias          string `json:"alias"`
+	AccountID       string `json:"accountID"`
+	Name            string `json:"name"`
+	Bucket          string `json:"bucket"`
+	AccessPointArn  string `json:"accessPointArn"`
+	Alias           string `json:"alias"`
+	VpcID           string `json:"vpcID,omitempty"`
+	BucketAccountID string `json:"bucketAccountID,omitempty"`
+	NetworkOrigin   string `json:"networkOrigin"`
+	CreationDate    string `json:"creationDate,omitempty"`
 }
 
 // ObjectLambdaAccessPoint represents an S3 Object Lambda access point.
@@ -114,12 +118,20 @@ type OutpostsBucket struct {
 
 // BatchJob represents an S3 Batch Operations job.
 type BatchJob struct {
-	AccountID string `json:"accountID"`
-	JobID     string `json:"jobID"`
-	JobArn    string `json:"jobArn"`
-	RoleArn   string `json:"roleArn"`
-	Status    string `json:"status"`
-	Priority  int32  `json:"priority"`
+	Description          string `json:"description,omitempty"`
+	TerminationDate      string `json:"terminationDate,omitempty"`
+	JobArn               string `json:"jobArn"`
+	RoleArn              string `json:"roleArn"`
+	Status               string `json:"status"`
+	StatusUpdateReason   string `json:"statusUpdateReason,omitempty"`
+	Operation            string `json:"operation,omitempty"`
+	AccountID            string `json:"accountID"`
+	JobID                string `json:"jobID"`
+	Report               string `json:"report,omitempty"`
+	Manifest             string `json:"manifest,omitempty"`
+	CreationTime         string `json:"creationTime,omitempty"`
+	Priority             int32  `json:"priority"`
+	ConfirmationRequired bool   `json:"confirmationRequired,omitempty"`
 }
 
 // MultiRegionAccessPointRequest represents an MRAP async request.
@@ -131,11 +143,13 @@ type MultiRegionAccessPointRequest struct {
 
 // MultiRegionAccessPoint represents a stored MRAP instance.
 type MultiRegionAccessPoint struct {
-	AccountID string `json:"accountID"`
-	Name      string `json:"name"`
-	Alias     string `json:"alias"`
-	Status    string `json:"status"`
-	Policy    string `json:"policy,omitempty"`
+	AccountID string   `json:"accountID"`
+	Name      string   `json:"name"`
+	Alias     string   `json:"alias"`
+	Status    string   `json:"status"`
+	Policy    string   `json:"policy,omitempty"`
+	CreatedAt string   `json:"createdAt,omitempty"`
+	Regions   []string `json:"regions,omitempty"`
 }
 
 // StorageLensGroup represents an S3 Storage Lens group.
@@ -143,6 +157,8 @@ type StorageLensGroup struct {
 	AccountID           string `json:"accountID"`
 	Name                string `json:"name"`
 	StorageLensGroupArn string `json:"storageLensGroupArn"`
+	Filter              string `json:"filter,omitempty"`
+	CreatedAt           string `json:"createdAt,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for S3 Control resources.
@@ -177,9 +193,11 @@ type InMemoryBackend struct {
 	storageLensConfigs    map[string]string            // accountID:configName → config XML
 	storageLensConfigTags map[string]TagSet            // accountID:configName → tags
 	resourceTags          map[string]map[string]string // ARN → tag key → tag value
-	accountID             string
-	region                string
-	nextID                int64
+	// batch3 additions
+	accessPointPABs map[string]*PublicAccessBlock // accountID:apName → per-AP public access block
+	accountID       string
+	region          string
+	nextID          int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default config values.
@@ -217,6 +235,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		storageLensConfigs:           make(map[string]string),
 		storageLensConfigTags:        make(map[string]TagSet),
 		resourceTags:                 make(map[string]map[string]string),
+		accessPointPABs:              make(map[string]*PublicAccessBlock),
 		mu:                           lockmetrics.New("s3control"),
 		accountID:                    accountID,
 		region:                       region,
@@ -261,6 +280,7 @@ func (b *InMemoryBackend) Reset() {
 	b.storageLensConfigs = make(map[string]string)
 	b.storageLensConfigTags = make(map[string]TagSet)
 	b.resourceTags = make(map[string]map[string]string)
+	b.accessPointPABs = make(map[string]*PublicAccessBlock)
 	b.nextID = 0
 }
 
@@ -442,12 +462,39 @@ func (b *InMemoryBackend) CreateAccessPoint(accountID, name, bucket string) *Acc
 		Bucket:         bucket,
 		AccessPointArn: arn,
 		Alias:          alias,
+		NetworkOrigin:  "Internet",
+		CreationDate:   nowRFC3339(),
 	}
 	b.accessPoints[accountID+":"+name] = ap
 
 	cp := *ap
 
 	return &cp
+}
+
+// SetAccessPointVpcConfig sets VPC configuration fields on an existing access point.
+// NetworkOrigin is set to "VPC" when vpcID is non-empty, else "Internet".
+// Alias is cleared for VPC access points (AWS does not emit an alias for VPC APs).
+func (b *InMemoryBackend) SetAccessPointVpcConfig(accountID, name, vpcID, bucketAccountID string) error {
+	b.mu.Lock("SetAccessPointVpcConfig")
+	defer b.mu.Unlock()
+
+	ap, ok := b.accessPoints[accountID+":"+name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	ap.VpcID = vpcID
+	ap.BucketAccountID = bucketAccountID
+
+	if vpcID != "" {
+		ap.NetworkOrigin = "VPC"
+		ap.Alias = ""
+	} else {
+		ap.NetworkOrigin = "Internet"
+	}
+
+	return nil
 }
 
 // GetAccessPoint retrieves an S3 access point by name.
@@ -600,18 +647,41 @@ func (b *InMemoryBackend) CreateJob(accountID, roleArn string, priority int32) (
 	arn := fmt.Sprintf(arnFmtJob, b.region, accountID, id)
 
 	job := &BatchJob{
-		AccountID: accountID,
-		JobID:     id,
-		JobArn:    arn,
-		RoleArn:   roleArn,
-		Priority:  priority,
-		Status:    jobStatusNew,
+		AccountID:    accountID,
+		JobID:        id,
+		JobArn:       arn,
+		RoleArn:      roleArn,
+		Priority:     priority,
+		Status:       jobStatusNew,
+		CreationTime: nowRFC3339(),
 	}
 	b.batchJobs[accountID+":"+id] = job
 
 	cp := *job
 
 	return &cp, nil
+}
+
+// UpdateJobDetails persists the extended fields from a CreateJob request to an existing job.
+func (b *InMemoryBackend) UpdateJobDetails(
+	accountID, jobID, description, manifest, operation, report string,
+	confirmationRequired bool,
+) error {
+	b.mu.Lock("UpdateJobDetails")
+	defer b.mu.Unlock()
+
+	job, ok := b.batchJobs[accountID+":"+jobID]
+	if !ok {
+		return ErrNotFound
+	}
+
+	job.Description = description
+	job.Manifest = manifest
+	job.Operation = operation
+	job.Report = report
+	job.ConfirmationRequired = confirmationRequired
+
+	return nil
 }
 
 // CreateMultiRegionAccessPoint creates an async MRAP request and stores the MRAP instance.
@@ -638,12 +708,30 @@ func (b *InMemoryBackend) CreateMultiRegionAccessPoint(
 		Name:      name,
 		Alias:     alias,
 		Status:    "READY",
+		CreatedAt: nowRFC3339(),
 	}
 	b.mraps[accountID+":"+name] = mrap
 
 	cp := *req
 
 	return &cp
+}
+
+// SetMRAPRegions stores the bucket-region list for an MRAP.
+func (b *InMemoryBackend) SetMRAPRegions(accountID, name string, regions []string) error {
+	b.mu.Lock("SetMRAPRegions")
+	defer b.mu.Unlock()
+
+	mrap, ok := b.mraps[accountID+":"+name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	cp := make([]string, len(regions))
+	copy(cp, regions)
+	mrap.Regions = cp
+
+	return nil
 }
 
 // GetJob retrieves a batch job by ID.
@@ -786,12 +874,28 @@ func (b *InMemoryBackend) CreateStorageLensGroup(accountID, name string) *Storag
 		AccountID:           accountID,
 		Name:                name,
 		StorageLensGroupArn: arn,
+		CreatedAt:           nowRFC3339(),
 	}
 	b.storageLensGroups[accountID+":"+name] = grp
 
 	cp := *grp
 
 	return &cp
+}
+
+// UpdateStorageLensGroupFilter stores the filter XML for an existing Storage Lens group.
+func (b *InMemoryBackend) UpdateStorageLensGroupFilter(accountID, name, filter string) error {
+	b.mu.Lock("UpdateStorageLensGroupFilter")
+	defer b.mu.Unlock()
+
+	grp, ok := b.storageLensGroups[accountID+":"+name]
+	if !ok {
+		return errStorageLensGroupNotFound
+	}
+
+	grp.Filter = filter
+
+	return nil
 }
 
 // nowRFC3339 returns the current UTC time formatted as RFC3339.

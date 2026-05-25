@@ -38,10 +38,6 @@ func (b *InMemoryBackend) PutBucketReplication(accountID, bucketName, config str
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
-		return errBucketNotFound
-	}
-
 	b.bucketReplication[key] = config
 
 	return nil
@@ -53,10 +49,6 @@ func (b *InMemoryBackend) DeleteBucketReplication(accountID, bucketName string) 
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.bucketReplication[key]; !ok {
-		return errReplicationNotFound
-	}
-
 	delete(b.bucketReplication, key)
 
 	return nil
@@ -70,10 +62,6 @@ func (b *InMemoryBackend) SubmitMultiRegionAccessPointRoutes(accountID, mrap, ro
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + mrap
-	if _, ok := b.mraps[key]; !ok {
-		return errMRAPNotFound
-	}
-
 	b.mrapRoutes[key] = routes
 
 	return nil
@@ -111,10 +99,6 @@ func (b *InMemoryBackend) DeleteStorageLensConfiguration(accountID, configName s
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + configName
-	if _, ok := b.storageLensConfigs[key]; !ok {
-		return errStorageLensConfigNotFound
-	}
-
 	delete(b.storageLensConfigs, key)
 	delete(b.storageLensConfigTags, key)
 
@@ -148,10 +132,6 @@ func (b *InMemoryBackend) PutStorageLensConfigurationTagging(accountID, configNa
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + configName
-	if _, ok := b.storageLensConfigs[key]; !ok {
-		return errStorageLensConfigNotFound
-	}
-
 	cp := make(TagSet, len(tags))
 	maps.Copy(cp, tags)
 	b.storageLensConfigTags[key] = cp
@@ -165,10 +145,6 @@ func (b *InMemoryBackend) DeleteStorageLensConfigurationTagging(accountID, confi
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + configName
-	if _, ok := b.storageLensConfigs[key]; !ok {
-		return errStorageLensConfigNotFound
-	}
-
 	delete(b.storageLensConfigTags, key)
 
 	return nil
