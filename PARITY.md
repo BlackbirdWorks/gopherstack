@@ -12,12 +12,7 @@ Audit performed against gopherstack `services/*` handlers vs the AWS SDK v2 surf
 
 ## SDK ops missing from gopherstack handlers (new upstream surface)
 
-6. **EMR Serverless `GetResourceDashboard`** — interactive Spark UI not implemented.
-7. **EMR Serverless `StartSession`** — interactive sessions API not implemented.
-8. **EMR Serverless `GetSession`** — sessions API not implemented.
-9. **EMR Serverless `GetSessionEndpoint`** — sessions API not implemented.
-10. **EMR Serverless `ListSessions`** — sessions API not implemented.
-11. **EMR Serverless `TerminateSession`** — sessions API not implemented.
+EMR Serverless interactive session and resource-dashboard operations are now implemented.
 
 ## Behavioural parity gaps verified by reading handler/backend
 

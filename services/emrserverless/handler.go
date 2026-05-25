@@ -26,6 +26,9 @@ const (
 	keyCreatedAt     = "createdAt"
 	keyUpdatedAt     = "updatedAt"
 	keyTags          = "tags"
+	keyReleaseLabel  = "releaseLabel"
+	keyStateDetails  = "stateDetails"
+	keySessionID     = "sessionId"
 )
 
 const (
@@ -42,6 +45,12 @@ const (
 	opCancelJobRun          = "CancelJobRun"
 	opGetDashboardForJobRun = "GetDashboardForJobRun"
 	opListJobRunAttempts    = "ListJobRunAttempts"
+	opGetResourceDashboard  = "GetResourceDashboard"
+	opStartSession          = "StartSession"
+	opGetSession            = "GetSession"
+	opListSessions          = "ListSessions"
+	opTerminateSession      = "TerminateSession"
+	opGetSessionEndpoint    = "GetSessionEndpoint"
 	opListTagsForResource   = "ListTagsForResource"
 	opTagResource           = "TagResource"
 	opUntagResource         = "UntagResource"
@@ -53,6 +62,7 @@ const (
 	emrServerlessService = "emr-serverless"
 	emrMatchPriority     = 87
 	pathJobRuns          = "jobruns"
+	pathSessions         = "sessions"
 )
 
 // Handler is the Echo HTTP handler for EMR Serverless operations (REST-JSON protocol).
@@ -87,6 +97,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCancelJobRun,
 		opGetDashboardForJobRun,
 		opListJobRunAttempts,
+		opGetResourceDashboard,
+		opStartSession,
+		opGetSession,
+		opListSessions,
+		opTerminateSession,
+		opGetSessionEndpoint,
 		opListTagsForResource,
 		opTagResource,
 		opUntagResource,
@@ -136,6 +152,7 @@ const (
 type emrRoute struct {
 	applicationID string
 	jobRunID      string
+	sessionID     string
 	resourceARN   string
 	operation     string
 }
@@ -228,6 +245,10 @@ func parseAppSubRoute(method, appID, sub string) emrRoute {
 		if method == http.MethodPost {
 			return emrRoute{operation: opStopApplication, applicationID: appID}
 		}
+	case "dashboard":
+		if method == http.MethodGet {
+			return emrRoute{operation: opGetResourceDashboard, applicationID: appID}
+		}
 	case pathJobRuns:
 		switch method {
 		case http.MethodPost:
@@ -237,12 +258,32 @@ func parseAppSubRoute(method, appID, sub string) emrRoute {
 
 			return emrRoute{operation: opListJobRuns, applicationID: appID}
 		}
+	case pathSessions:
+		switch method {
+		case http.MethodPost:
+
+			return emrRoute{operation: opStartSession, applicationID: appID}
+		case http.MethodGet:
+
+			return emrRoute{operation: opListSessions, applicationID: appID}
+		}
 	}
 
 	return emrRoute{operation: opUnknown}
 }
 
 func parseJobRunRoute(method, appID, sub, jobRunID string) emrRoute {
+	if sub == pathSessions {
+		switch method {
+		case http.MethodGet:
+
+			return emrRoute{operation: opGetSession, applicationID: appID, sessionID: jobRunID}
+		case http.MethodDelete:
+
+			return emrRoute{operation: opTerminateSession, applicationID: appID, sessionID: jobRunID}
+		}
+	}
+
 	if sub != pathJobRuns {
 		return emrRoute{operation: opUnknown}
 	}
@@ -260,6 +301,10 @@ func parseJobRunRoute(method, appID, sub, jobRunID string) emrRoute {
 }
 
 func parseJobRunSubRoute(method, appID, sub, jobRunID, action string) emrRoute {
+	if sub == pathSessions && action == "endpoint" && method == http.MethodGet {
+		return emrRoute{operation: opGetSessionEndpoint, applicationID: appID, sessionID: jobRunID}
+	}
+
 	if sub != pathJobRuns {
 		return emrRoute{operation: opUnknown}
 	}
@@ -297,6 +342,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 	if route.jobRunID != "" {
 		return route.applicationID + "/" + route.jobRunID
+	}
+
+	if route.sessionID != "" {
+		return route.applicationID + "/" + route.sessionID
 	}
 
 	return route.applicationID
@@ -370,6 +419,24 @@ var emrDispatchTable = map[string]emrDispatchFn{
 	opListJobRunAttempts: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
 		return h.handleListJobRunAttempts(c, r.applicationID, r.jobRunID)
 	},
+	opGetResourceDashboard: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleGetResourceDashboard(c, r.applicationID)
+	},
+	opStartSession: func(h *Handler, c *echo.Context, r emrRoute, body []byte) error {
+		return h.handleStartSession(c, r.applicationID, body)
+	},
+	opGetSession: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleGetSession(c, r.applicationID, r.sessionID)
+	},
+	opListSessions: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleListSessions(c, r.applicationID)
+	},
+	opTerminateSession: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleTerminateSession(c, r.applicationID, r.sessionID)
+	},
+	opGetSessionEndpoint: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleGetSessionEndpoint(c, r.applicationID, r.sessionID)
+	},
 	opListTagsForResource: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
 		return h.handleListTagsForResource(c, r.resourceARN)
 	},
@@ -430,7 +497,7 @@ func applicationToMap(app *Application) map[string]any {
 		keyArn:           app.Arn,
 		keyName:          app.Name,
 		"type":           app.Type,
-		"releaseLabel":   app.ReleaseLabel,
+		keyReleaseLabel:  app.ReleaseLabel,
 		keyState:         app.State,
 		keyCreatedAt:     epochSeconds(app.CreatedAt),
 		keyUpdatedAt:     epochSeconds(app.UpdatedAt),
@@ -450,7 +517,7 @@ func jobRunToMap(jr *JobRun) map[string]any {
 		keyArn:             jr.Arn,
 		keyName:            jr.Name,
 		keyState:           jr.State,
-		"stateDetails":     jr.StateDetails,
+		keyStateDetails:    jr.StateDetails,
 		"mode":             jr.Mode,
 		"executionRoleArn": jr.ExecutionRoleArn,
 		keyCreatedAt:       epochSeconds(jr.CreatedAt),
