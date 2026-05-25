@@ -247,8 +247,8 @@ func TestHandler_RequiredFields(t *testing.T) {
 
 	tests := []struct {
 		name string
-		path string
 		body map[string]any
+		path string
 	}{
 		{
 			name: "execute_statement_secret_arn",

@@ -15,7 +15,9 @@ import (
 )
 
 const (
-	keyMessageField = "message"
+	keyMessageField     = "message"
+	keyResourceARNField = "resourceArn"
+	keySecretARNField   = "secretArn"
 )
 
 const (
@@ -254,8 +256,8 @@ func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte
 	}
 
 	if err := validateRequiredFields(
-		requiredField{name: "resourceArn", value: req.ResourceArn},
-		requiredField{name: "secretArn", value: req.SecretArn},
+		requiredField{name: keyResourceARNField, value: req.ResourceArn},
+		requiredField{name: keySecretARNField, value: req.SecretArn},
 		requiredField{name: "sql", value: req.SQL},
 	); err != nil {
 		return nil, err
@@ -297,8 +299,8 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 	}
 
 	if err := validateRequiredFields(
-		requiredField{name: "resourceArn", value: req.ResourceArn},
-		requiredField{name: "secretArn", value: req.SecretArn},
+		requiredField{name: keyResourceARNField, value: req.ResourceArn},
+		requiredField{name: keySecretARNField, value: req.SecretArn},
 		requiredField{name: "sql", value: req.SQL},
 	); err != nil {
 		return nil, err
@@ -330,8 +332,8 @@ func (h *Handler) handleBeginTransaction(_ context.Context, body []byte) ([]byte
 	}
 
 	if err := validateRequiredFields(
-		requiredField{name: "resourceArn", value: req.ResourceArn},
-		requiredField{name: "secretArn", value: req.SecretArn},
+		requiredField{name: keyResourceARNField, value: req.ResourceArn},
+		requiredField{name: keySecretARNField, value: req.SecretArn},
 	); err != nil {
 		return nil, err
 	}
@@ -361,8 +363,8 @@ func (h *Handler) handleCommitTransaction(_ context.Context, body []byte) ([]byt
 	}
 
 	if err := validateRequiredFields(
-		requiredField{name: "resourceArn", value: req.ResourceArn},
-		requiredField{name: "secretArn", value: req.SecretArn},
+		requiredField{name: keyResourceARNField, value: req.ResourceArn},
+		requiredField{name: keySecretARNField, value: req.SecretArn},
 		requiredField{name: "transactionId", value: req.TransactionID},
 	); err != nil {
 		return nil, err
@@ -393,8 +395,8 @@ func (h *Handler) handleRollbackTransaction(_ context.Context, body []byte) ([]b
 	}
 
 	if err := validateRequiredFields(
-		requiredField{name: "resourceArn", value: req.ResourceArn},
-		requiredField{name: "secretArn", value: req.SecretArn},
+		requiredField{name: keyResourceARNField, value: req.ResourceArn},
+		requiredField{name: keySecretARNField, value: req.SecretArn},
 		requiredField{name: "transactionId", value: req.TransactionID},
 	); err != nil {
 		return nil, err
