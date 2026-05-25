@@ -141,7 +141,7 @@ type StorageBackend interface {
 	// ---- batch3 ----
 
 	// AccessPoint VPC configuration
-	SetAccessPointVpcConfig(accountID, name, vpcID, bucketAccountId string) error
+	SetAccessPointVpcConfig(accountID, name, vpcID, bucketAccountID string) error
 
 	// AccessPoint per-AP public access block
 	GetAccessPointPublicAccessBlock(accountID, name string) (*PublicAccessBlock, error)

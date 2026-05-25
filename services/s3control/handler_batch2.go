@@ -271,10 +271,10 @@ type slgFilterWrapXML struct {
 }
 
 type storageLensGroupItemXML struct {
+	Filter              *slgFilterWrapXML `xml:"Filter,omitempty"`
 	Name                string            `xml:"Name"`
 	StorageLensGroupArn string            `xml:"StorageLensGroupArn,omitempty"`
 	CreatedAt           string            `xml:"CreatedAt,omitempty"`
-	Filter              *slgFilterWrapXML `xml:"Filter,omitempty"`
 }
 
 // buildSLGItem converts a StorageLensGroup backend struct to the XML response item.
@@ -293,8 +293,8 @@ func buildSLGItem(grp *StorageLensGroup) storageLensGroupItemXML {
 }
 
 type getStorageLensGroupResultXML struct {
-	XMLName          xml.Name                `xml:"GetStorageLensGroupResult"`
 	StorageLensGroup storageLensGroupItemXML `xml:"StorageLensGroup"`
+	XMLName          xml.Name                `xml:"GetStorageLensGroupResult"`
 }
 
 func (h *Handler) handleGetStorageLensGroup(c *echo.Context) error {

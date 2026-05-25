@@ -58,7 +58,6 @@ func TestBatch2_BucketReplication(t *testing.T) {
 		getRec := doS3Request(t, h, http.MethodGet, replicationPath, "")
 		assert.Equal(t, http.StatusNotFound, getRec.Code)
 	})
-
 }
 
 // ---- MRAP Routes ----
@@ -85,7 +84,6 @@ func TestBatch2_SubmitMRAPRoutes(t *testing.T) {
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
 	})
-
 }
 
 // ---- Storage Lens Configuration ----
@@ -211,7 +209,6 @@ func TestBatch2_StorageLensConfigurationTagging(t *testing.T) {
 		// Tags removed; response should not contain our tag
 		assert.NotContains(t, getRec.Body.String(), ">k<")
 	})
-
 }
 
 // ---- Storage Lens Groups ----

@@ -67,16 +67,20 @@ func (b *InMemoryBackend) DeleteAccessPointPublicAccessBlock(accountID, name str
 
 // ---- Job status validation ----
 
-// validJobStatusTransitions maps a current status to the set of allowed RequestedJobStatus values.
+// validJobRequestedStatuses returns the set of allowed RequestedJobStatus values.
 // AWS only allows transitioning to "Cancelled" or "Ready" via UpdateJobStatus.
-var validJobRequestedStatuses = map[string]bool{
-	"Cancelled": true,
-	"Ready":     true,
+func validJobRequestedStatuses() map[string]bool {
+	return map[string]bool{
+		"Cancelled": true,
+		"Ready":     true,
+	}
 }
 
 // UpdateJobStatusValidated changes the status of a batch job after validating the requested transition.
-func (b *InMemoryBackend) UpdateJobStatusValidated(accountID, jobID, requestedStatus, statusUpdateReason string) (*BatchJob, error) {
-	if !validJobRequestedStatuses[requestedStatus] {
+func (b *InMemoryBackend) UpdateJobStatusValidated(
+	accountID, jobID, requestedStatus, statusUpdateReason string,
+) (*BatchJob, error) {
+	if !validJobRequestedStatuses()[requestedStatus] {
 		return nil, fmt.Errorf(
 			"requestedJobStatus must be Cancelled or Ready, got %q: %w",
 			requestedStatus,

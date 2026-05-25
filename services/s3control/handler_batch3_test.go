@@ -67,8 +67,8 @@ func TestBatch3_AccessPointPublicAccessBlock_MissingAP(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(b *s3control.InMemoryBackend) error
+		name string
 	}{
 		{
 			name: "get_pab_missing_ap",
@@ -110,12 +110,12 @@ func TestBatch3_Handler_AccessPointPublicAccessBlock(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(h *s3control.Handler)
 		name       string
 		method     string
 		body       string
-		wantStatus int
 		wantBody   string
-		setup      func(h *s3control.Handler)
+		wantStatus int
 	}{
 		{
 			name:   "put_pab",
@@ -134,9 +134,13 @@ func TestBatch3_Handler_AccessPointPublicAccessBlock(t *testing.T) {
 			},
 		},
 		{
-			name:       "put_pab_missing_ap",
-			method:     http.MethodPut,
-			body:       `<PutAccessPointPublicAccessBlockRequest><PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration></PutAccessPointPublicAccessBlockRequest>`,
+			name:   "put_pab_missing_ap",
+			method: http.MethodPut,
+			body: `<PutAccessPointPublicAccessBlockRequest>` +
+				`<PublicAccessBlockConfiguration>` +
+				`<BlockPublicAcls>true</BlockPublicAcls>` +
+				`</PublicAccessBlockConfiguration>` +
+				`</PutAccessPointPublicAccessBlockRequest>`,
 			wantStatus: http.StatusNotFound,
 			setup:      func(_ *s3control.Handler) {},
 		},
@@ -203,24 +207,24 @@ func TestBatch3_AccessPoint_VpcConfig_SetAndGet(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		vpcID          string
-		bucketAccountId string
-		wantOrigin     string
-		wantAlias      bool
+		name            string
+		vpcID           string
+		bucketAccountID string
+		wantOrigin      string
+		wantAlias       bool
 	}{
 		{
-			name:        "vpc_access_point",
-			vpcID:       "vpc-abc123",
-			wantOrigin:  "VPC",
-			wantAlias:   false,
+			name:       "vpc_access_point",
+			vpcID:      "vpc-abc123",
+			wantOrigin: "VPC",
+			wantAlias:  false,
 		},
 		{
-			name:           "internet_with_bucket_account",
-			vpcID:          "",
-			bucketAccountId: "111122223333",
-			wantOrigin:     "Internet",
-			wantAlias:      true,
+			name:            "internet_with_bucket_account",
+			vpcID:           "",
+			bucketAccountID: "111122223333",
+			wantOrigin:      "Internet",
+			wantAlias:       true,
 		},
 	}
 
@@ -231,14 +235,14 @@ func TestBatch3_AccessPoint_VpcConfig_SetAndGet(t *testing.T) {
 			b := s3control.NewInMemoryBackend()
 			b.CreateAccessPoint("000000000000", "my-ap", "my-bucket")
 
-			err := b.SetAccessPointVpcConfig("000000000000", "my-ap", tt.vpcID, tt.bucketAccountId)
+			err := b.SetAccessPointVpcConfig("000000000000", "my-ap", tt.vpcID, tt.bucketAccountID)
 			require.NoError(t, err)
 
 			ap, err := b.GetAccessPoint("000000000000", "my-ap")
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantOrigin, ap.NetworkOrigin)
 			assert.Equal(t, tt.vpcID, ap.VpcID)
-			assert.Equal(t, tt.bucketAccountId, ap.BucketAccountId)
+			assert.Equal(t, tt.bucketAccountID, ap.BucketAccountID)
 
 			if tt.wantAlias {
 				assert.NotEmpty(t, ap.Alias)
@@ -330,7 +334,7 @@ func TestBatch3_Handler_CreateAccessPoint_WithVpc(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "vpc-xyz789", ap.VpcID)
 	assert.Equal(t, "VPC", ap.NetworkOrigin)
-	assert.Equal(t, "111122223333", ap.BucketAccountId)
+	assert.Equal(t, "111122223333", ap.BucketAccountID)
 	assert.Empty(t, ap.Alias) // VPC APs have no alias
 }
 
@@ -393,8 +397,8 @@ func TestBatch3_Handler_CreateJob_ExtendedFields(t *testing.T) {
 	tests := []struct {
 		name            string
 		body            string
-		wantStatus      int
 		wantDescription string
+		wantStatus      int
 		wantManifest    bool
 	}{
 		{

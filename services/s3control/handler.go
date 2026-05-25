@@ -77,119 +77,78 @@ func (h *Handler) Name() string { return "S3Control" }
 
 // GetSupportedOperations returns the list of supported S3 Control operations.
 func (h *Handler) GetSupportedOperations() []string {
+	ops := supportedAccessGrantOps()
+	ops = append(ops, supportedAccessPointAndBucketOps()...)
+	ops = append(ops, supportedJobMRAPStorageLensOps()...)
+
+	return ops
+}
+
+func supportedAccessGrantOps() []string {
 	return []string{
 		// Public access block
-		"DeletePublicAccessBlock",
-		"GetPublicAccessBlock",
-		"PutPublicAccessBlock",
+		"DeletePublicAccessBlock", "GetPublicAccessBlock", "PutPublicAccessBlock",
 		// Access Grants Instance
-		"AssociateAccessGrantsIdentityCenter",
-		"CreateAccessGrantsInstance",
-		"DeleteAccessGrantsInstance",
-		"DeleteAccessGrantsInstanceResourcePolicy",
-		"DissociateAccessGrantsIdentityCenter",
-		"GetAccessGrantsInstance",
-		"GetAccessGrantsInstanceForPrefix",
-		"GetAccessGrantsInstanceResourcePolicy",
-		"ListAccessGrantsInstances",
-		"PutAccessGrantsInstanceResourcePolicy",
+		"AssociateAccessGrantsIdentityCenter", "CreateAccessGrantsInstance",
+		"DeleteAccessGrantsInstance", "DeleteAccessGrantsInstanceResourcePolicy",
+		"DissociateAccessGrantsIdentityCenter", "GetAccessGrantsInstance",
+		"GetAccessGrantsInstanceForPrefix", "GetAccessGrantsInstanceResourcePolicy",
+		"ListAccessGrantsInstances", "PutAccessGrantsInstanceResourcePolicy",
 		// Access Grants
-		"CreateAccessGrant",
-		"DeleteAccessGrant",
-		"GetAccessGrant",
-		"GetDataAccess",
-		"ListAccessGrants",
-		"ListCallerAccessGrants",
+		"CreateAccessGrant", "DeleteAccessGrant", "GetAccessGrant",
+		"GetDataAccess", "ListAccessGrants", "ListCallerAccessGrants",
 		// Access Grants Locations
-		"CreateAccessGrantsLocation",
-		"DeleteAccessGrantsLocation",
-		"GetAccessGrantsLocation",
-		"ListAccessGrantsLocations",
-		"UpdateAccessGrantsLocation",
+		"CreateAccessGrantsLocation", "DeleteAccessGrantsLocation",
+		"GetAccessGrantsLocation", "ListAccessGrantsLocations", "UpdateAccessGrantsLocation",
+	}
+}
+
+func supportedAccessPointAndBucketOps() []string {
+	return []string{
 		// Access Points
-		"CreateAccessPoint",
-		"DeleteAccessPoint",
-		"GetAccessPoint",
-		"GetAccessPointPolicy",
-		"GetAccessPointPolicyStatus",
-		"GetAccessPointPublicAccessBlock",
-		"GetAccessPointScope",
-		"ListAccessPoints",
-		"ListAccessPointsForDirectoryBuckets",
-		"PutAccessPointPolicy",
-		"PutAccessPointPublicAccessBlock",
-		"PutAccessPointScope",
-		"DeleteAccessPointPolicy",
-		"DeleteAccessPointPublicAccessBlock",
-		"DeleteAccessPointScope",
+		"CreateAccessPoint", "DeleteAccessPoint", "GetAccessPoint",
+		"GetAccessPointPolicy", "GetAccessPointPolicyStatus",
+		"GetAccessPointPublicAccessBlock", "GetAccessPointScope",
+		"ListAccessPoints", "ListAccessPointsForDirectoryBuckets",
+		"PutAccessPointPolicy", "PutAccessPointPublicAccessBlock", "PutAccessPointScope",
+		"DeleteAccessPointPolicy", "DeleteAccessPointPublicAccessBlock", "DeleteAccessPointScope",
 		// Object Lambda Access Points
-		"CreateAccessPointForObjectLambda",
-		"DeleteAccessPointForObjectLambda",
-		"DeleteAccessPointPolicyForObjectLambda",
-		"GetAccessPointConfigurationForObjectLambda",
-		"GetAccessPointForObjectLambda",
-		"GetAccessPointPolicyForObjectLambda",
-		"GetAccessPointPolicyStatusForObjectLambda",
-		"ListAccessPointsForObjectLambda",
-		"PutAccessPointConfigurationForObjectLambda",
-		"PutAccessPointPolicyForObjectLambda",
+		"CreateAccessPointForObjectLambda", "DeleteAccessPointForObjectLambda",
+		"DeleteAccessPointPolicyForObjectLambda", "GetAccessPointConfigurationForObjectLambda",
+		"GetAccessPointForObjectLambda", "GetAccessPointPolicyForObjectLambda",
+		"GetAccessPointPolicyStatusForObjectLambda", "ListAccessPointsForObjectLambda",
+		"PutAccessPointConfigurationForObjectLambda", "PutAccessPointPolicyForObjectLambda",
 		// Outposts Buckets
-		"CreateBucket",
-		"DeleteBucket",
-		"DeleteBucketLifecycleConfiguration",
-		"DeleteBucketPolicy",
-		"DeleteBucketReplication",
-		"DeleteBucketTagging",
-		"GetBucket",
-		"GetBucketLifecycleConfiguration",
-		"GetBucketPolicy",
-		"GetBucketReplication",
-		"GetBucketTagging",
-		"GetBucketVersioning",
-		"ListRegionalBuckets",
-		"PutBucketLifecycleConfiguration",
-		"PutBucketPolicy",
-		"PutBucketReplication",
-		"PutBucketTagging",
-		"PutBucketVersioning",
+		"CreateBucket", "DeleteBucket", "DeleteBucketLifecycleConfiguration",
+		"DeleteBucketPolicy", "DeleteBucketReplication", "DeleteBucketTagging",
+		"GetBucket", "GetBucketLifecycleConfiguration", "GetBucketPolicy",
+		"GetBucketReplication", "GetBucketTagging", "GetBucketVersioning",
+		"ListRegionalBuckets", "PutBucketLifecycleConfiguration", "PutBucketPolicy",
+		"PutBucketReplication", "PutBucketTagging", "PutBucketVersioning",
+	}
+}
+
+func supportedJobMRAPStorageLensOps() []string {
+	return []string{
 		// Batch Jobs
-		"CreateJob",
-		"DeleteJobTagging",
-		"DescribeJob",
-		"GetJobTagging",
-		"ListJobs",
-		"PutJobTagging",
-		"UpdateJobPriority",
-		"UpdateJobStatus",
+		"CreateJob", "DeleteJobTagging", "DescribeJob", "GetJobTagging",
+		"ListJobs", "PutJobTagging", "UpdateJobPriority", "UpdateJobStatus",
 		// MRAP
-		"CreateMultiRegionAccessPoint",
-		"DeleteMultiRegionAccessPoint",
-		"DescribeMultiRegionAccessPointOperation",
-		"GetMultiRegionAccessPoint",
-		"GetMultiRegionAccessPointPolicy",
-		"GetMultiRegionAccessPointPolicyStatus",
-		"GetMultiRegionAccessPointRoutes",
-		"ListMultiRegionAccessPoints",
-		"PutMultiRegionAccessPointPolicy",
-		"SubmitMultiRegionAccessPointRoutes",
+		"CreateMultiRegionAccessPoint", "DeleteMultiRegionAccessPoint",
+		"DescribeMultiRegionAccessPointOperation", "GetMultiRegionAccessPoint",
+		"GetMultiRegionAccessPointPolicy", "GetMultiRegionAccessPointPolicyStatus",
+		"GetMultiRegionAccessPointRoutes", "ListMultiRegionAccessPoints",
+		"PutMultiRegionAccessPointPolicy", "SubmitMultiRegionAccessPointRoutes",
 		// Storage Lens
-		"DeleteStorageLensConfiguration",
-		"DeleteStorageLensConfigurationTagging",
-		"GetStorageLensConfiguration",
-		"GetStorageLensConfigurationTagging",
-		"ListStorageLensConfigurations",
-		"PutStorageLensConfiguration",
+		"DeleteStorageLensConfiguration", "DeleteStorageLensConfigurationTagging",
+		"GetStorageLensConfiguration", "GetStorageLensConfigurationTagging",
+		"ListStorageLensConfigurations", "PutStorageLensConfiguration",
 		"PutStorageLensConfigurationTagging",
 		// Storage Lens Groups
-		"CreateStorageLensGroup",
-		"DeleteStorageLensGroup",
-		"GetStorageLensGroup",
-		"ListStorageLensGroups",
-		"UpdateStorageLensGroup",
+		"CreateStorageLensGroup", "DeleteStorageLensGroup", "GetStorageLensGroup",
+		"ListStorageLensGroups", "UpdateStorageLensGroup",
 		// Resource Tags
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
+		"ListTagsForResource", "TagResource", "UntagResource",
 	}
 }
 
@@ -966,26 +925,58 @@ func (h *Handler) dispatchAccessPointBasicOps(c *echo.Context, path, method stri
 
 // dispatchAccessPointSubResourceOps handles access point policy, status, scope, and PAB dispatch.
 func (h *Handler) dispatchAccessPointSubResourceOps(c *echo.Context, path, method string) (bool, error) {
-	switch {
-	case isPrefixSuffix(pathAccessPointPrefix, path, "/policy") && method == http.MethodGet:
-		return true, h.handleGetAccessPointPolicy(c)
-	case isPrefixSuffix(pathAccessPointPrefix, path, "/policy") && method == http.MethodPut:
-		return true, h.handlePutAccessPointPolicy(c)
-	case isPrefixSuffix(pathAccessPointPrefix, path, "/policy") && method == http.MethodDelete:
-		return true, h.handleDeleteAccessPointPolicy(c)
-	case isPrefixSuffix(pathAccessPointPrefix, path, "/policyStatus") && method == http.MethodGet:
+	if isPrefixSuffix(pathAccessPointPrefix, path, "/policy") {
+		return h.dispatchAccessPointPolicyMethod(c, method)
+	}
+
+	if isPrefixSuffix(pathAccessPointPrefix, path, "/policyStatus") && method == http.MethodGet {
 		return true, h.handleGetAccessPointPolicyStatus(c)
-	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodGet:
+	}
+
+	if isPrefixSuffix(pathAccessPointPrefix, path, "/scope") {
+		return h.dispatchAccessPointScopeMethod(c, method)
+	}
+
+	if isPrefixSuffix(pathAccessPointPrefix, path, "/publicAccessBlock") {
+		return h.dispatchAccessPointPABMethod(c, method)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchAccessPointPolicyMethod(c *echo.Context, method string) (bool, error) {
+	switch method {
+	case http.MethodGet:
+		return true, h.handleGetAccessPointPolicy(c)
+	case http.MethodPut:
+		return true, h.handlePutAccessPointPolicy(c)
+	case http.MethodDelete:
+		return true, h.handleDeleteAccessPointPolicy(c)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchAccessPointScopeMethod(c *echo.Context, method string) (bool, error) {
+	switch method {
+	case http.MethodGet:
 		return true, h.handleGetAccessPointScope(c)
-	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodPut:
+	case http.MethodPut:
 		return true, h.handlePutAccessPointScope(c)
-	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodDelete:
+	case http.MethodDelete:
 		return true, h.handleDeleteAccessPointScope(c)
-	case isPrefixSuffix(pathAccessPointPrefix, path, "/publicAccessBlock") && method == http.MethodGet:
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchAccessPointPABMethod(c *echo.Context, method string) (bool, error) {
+	switch method {
+	case http.MethodGet:
 		return true, h.handleGetAccessPointPublicAccessBlock(c)
-	case isPrefixSuffix(pathAccessPointPrefix, path, "/publicAccessBlock") && method == http.MethodPut:
+	case http.MethodPut:
 		return true, h.handlePutAccessPointPublicAccessBlock(c)
-	case isPrefixSuffix(pathAccessPointPrefix, path, "/publicAccessBlock") && method == http.MethodDelete:
+	case http.MethodDelete:
 		return true, h.handleDeleteAccessPointPublicAccessBlock(c)
 	}
 
@@ -1626,7 +1617,7 @@ func (h *Handler) handleCreateAccessGrantsLocation(c *echo.Context) error {
 // --- CreateAccessPoint handler ---
 
 type apVpcConfigurationXML struct {
-	VpcId string `xml:"VpcId"`
+	VpcID string `xml:"VpcId"`
 }
 
 type apPublicAccessBlockXML struct {
@@ -1637,10 +1628,10 @@ type apPublicAccessBlockXML struct {
 }
 
 type createAccessPointRequestXML struct {
-	XMLName                    xml.Name               `xml:"CreateAccessPointRequest"`
-	Bucket                     string                 `xml:"Bucket"`
-	BucketAccountId            string                 `xml:"BucketAccountId"`
-	VpcConfiguration           apVpcConfigurationXML  `xml:"VpcConfiguration"`
+	XMLName                        xml.Name               `xml:"CreateAccessPointRequest"`
+	Bucket                         string                 `xml:"Bucket"`
+	BucketAccountID                string                 `xml:"BucketAccountId"`
+	VpcConfiguration               apVpcConfigurationXML  `xml:"VpcConfiguration"`
 	PublicAccessBlockConfiguration apPublicAccessBlockXML `xml:"PublicAccessBlockConfiguration"`
 }
 
@@ -1662,11 +1653,11 @@ func (h *Handler) handleCreateAccessPoint(c *echo.Context) error {
 	ap := h.Backend.CreateAccessPoint(accountID, name, body.Bucket)
 
 	// Persist VPC config and bucket account ID when provided.
-	if body.VpcConfiguration.VpcId != "" || body.BucketAccountId != "" {
+	if body.VpcConfiguration.VpcID != "" || body.BucketAccountID != "" {
 		if err := h.Backend.SetAccessPointVpcConfig(
 			accountID, name,
-			body.VpcConfiguration.VpcId,
-			body.BucketAccountId,
+			body.VpcConfiguration.VpcID,
+			body.BucketAccountID,
 		); err != nil {
 			return handleBackendError(c, err)
 		}
@@ -1741,15 +1732,15 @@ type createJobXMLCapture struct {
 }
 
 type createJobRequestXML struct {
-	XMLName              xml.Name             `xml:"CreateJobRequest"`
-	ClientRequestToken   string               `xml:"ClientRequestToken"`
-	Description          string               `xml:"Description"`
-	RoleArn              string               `xml:"RoleArn"`
-	Priority             int32                `xml:"Priority"`
-	ConfirmationRequired bool                 `xml:"ConfirmationRequired"`
-	Manifest             createJobXMLCapture  `xml:"Manifest"`
-	Operation            createJobXMLCapture  `xml:"Operation"`
-	Report               createJobXMLCapture  `xml:"Report"`
+	XMLName              xml.Name            `xml:"CreateJobRequest"`
+	ClientRequestToken   string              `xml:"ClientRequestToken"`
+	Description          string              `xml:"Description"`
+	RoleArn              string              `xml:"RoleArn"`
+	Manifest             createJobXMLCapture `xml:"Manifest"`
+	Operation            createJobXMLCapture `xml:"Operation"`
+	Report               createJobXMLCapture `xml:"Report"`
+	Priority             int32               `xml:"Priority"`
+	ConfirmationRequired bool                `xml:"ConfirmationRequired"`
 }
 
 type createJobResponseXML struct {
@@ -1795,7 +1786,7 @@ type createMRAPRegionXML struct {
 }
 
 type createMRAPDetailsXML struct {
-	Name    string               `xml:"Name"`
+	Name    string                `xml:"Name"`
 	Regions []createMRAPRegionXML `xml:"Regions>Region"`
 }
 
@@ -1837,19 +1828,19 @@ func (h *Handler) handleCreateMultiRegionAccessPoint(c *echo.Context) error {
 // --- GetAccessPoint handler ---
 
 type getAccessPointVpcConfigXML struct {
-	VpcId string `xml:"VpcId"`
+	VpcID string `xml:"VpcId"`
 }
 
 type getAccessPointResponseXML struct {
-	XMLName          xml.Name                `xml:"GetAccessPointResult"`
-	Name             string                  `xml:"Name"`
-	Bucket           string                  `xml:"Bucket"`
-	NetworkOrigin    string                  `xml:"NetworkOrigin"`
-	AccessPointArn   string                  `xml:"AccessPointArn,omitempty"`
-	Alias            string                  `xml:"Alias,omitempty"`
-	BucketAccountId  string                  `xml:"BucketAccountId,omitempty"`
+	XMLName          xml.Name                    `xml:"GetAccessPointResult"`
+	Name             string                      `xml:"Name"`
+	Bucket           string                      `xml:"Bucket"`
+	NetworkOrigin    string                      `xml:"NetworkOrigin"`
+	AccessPointArn   string                      `xml:"AccessPointArn,omitempty"`
+	Alias            string                      `xml:"Alias,omitempty"`
+	BucketAccountID  string                      `xml:"BucketAccountId,omitempty"`
 	VpcConfiguration *getAccessPointVpcConfigXML `xml:"VpcConfiguration,omitempty"`
-	CreationDate     string                  `xml:"CreationDate,omitempty"`
+	CreationDate     string                      `xml:"CreationDate,omitempty"`
 }
 
 func (h *Handler) handleGetAccessPoint(c *echo.Context) error {
@@ -1867,12 +1858,12 @@ func (h *Handler) handleGetAccessPoint(c *echo.Context) error {
 		NetworkOrigin:   ap.NetworkOrigin,
 		AccessPointArn:  ap.AccessPointArn,
 		Alias:           ap.Alias,
-		BucketAccountId: ap.BucketAccountId,
+		BucketAccountID: ap.BucketAccountID,
 		CreationDate:    ap.CreationDate,
 	}
 
 	if ap.VpcID != "" {
-		resp.VpcConfiguration = &getAccessPointVpcConfigXML{VpcId: ap.VpcID}
+		resp.VpcConfiguration = &getAccessPointVpcConfigXML{VpcID: ap.VpcID}
 	}
 
 	return writeXML(c, resp)
@@ -1892,17 +1883,17 @@ func (h *Handler) handleDeleteAccessPoint(c *echo.Context) error {
 // --- ListAccessPoints handler ---
 
 type listAccessPointVpcConfigXML struct {
-	VpcId string `xml:"VpcId"`
+	VpcID string `xml:"VpcId"`
 }
 
 type listAccessPointItemXML struct {
-	Name             string                 `xml:"Name"`
-	Bucket           string                 `xml:"Bucket"`
-	NetworkOrigin    string                 `xml:"NetworkOrigin"`
-	AccessPointArn   string                 `xml:"AccessPointArn,omitempty"`
-	Alias            string                 `xml:"Alias,omitempty"`
-	BucketAccountId  string                 `xml:"BucketAccountId,omitempty"`
 	VpcConfiguration *listAccessPointVpcConfigXML `xml:"VpcConfiguration,omitempty"`
+	Name             string                       `xml:"Name"`
+	Bucket           string                       `xml:"Bucket"`
+	NetworkOrigin    string                       `xml:"NetworkOrigin"`
+	AccessPointArn   string                       `xml:"AccessPointArn,omitempty"`
+	Alias            string                       `xml:"Alias,omitempty"`
+	BucketAccountID  string                       `xml:"BucketAccountId,omitempty"`
 }
 
 type listAccessPointsResponseXML struct {
@@ -1923,10 +1914,10 @@ func (h *Handler) handleListAccessPoints(c *echo.Context) error {
 			NetworkOrigin:   ap.NetworkOrigin,
 			AccessPointArn:  ap.AccessPointArn,
 			Alias:           ap.Alias,
-			BucketAccountId: ap.BucketAccountId,
+			BucketAccountID: ap.BucketAccountID,
 		}
 		if ap.VpcID != "" {
-			item.VpcConfiguration = &listAccessPointVpcConfigXML{VpcId: ap.VpcID}
+			item.VpcConfiguration = &listAccessPointVpcConfigXML{VpcID: ap.VpcID}
 		}
 		items = append(items, item)
 	}
@@ -2005,19 +1996,19 @@ type describeJobInnerXML struct {
 }
 
 type describeJobDescriptorXML struct {
-	JobArn               string               `xml:"JobArn"`
-	JobID                string               `xml:"JobId"`
-	RoleArn              string               `xml:"RoleArn"`
-	Status               string               `xml:"Status"`
-	Priority             int32                `xml:"Priority"`
+	Manifest             *describeJobInnerXML `xml:"Manifest,omitempty"`
+	Report               *describeJobInnerXML `xml:"Report,omitempty"`
+	Operation            *describeJobInnerXML `xml:"Operation,omitempty"`
+	StatusUpdateReason   string               `xml:"StatusUpdateReason,omitempty"`
 	Description          string               `xml:"Description,omitempty"`
-	ConfirmationRequired bool                 `xml:"ConfirmationRequired,omitempty"`
 	CreationTime         string               `xml:"CreationTime,omitempty"`
 	TerminationDate      string               `xml:"TerminationDate,omitempty"`
-	StatusUpdateReason   string               `xml:"StatusUpdateReason,omitempty"`
-	Manifest             *describeJobInnerXML `xml:"Manifest,omitempty"`
-	Operation            *describeJobInnerXML `xml:"Operation,omitempty"`
-	Report               *describeJobInnerXML `xml:"Report,omitempty"`
+	JobArn               string               `xml:"JobArn"`
+	Status               string               `xml:"Status"`
+	RoleArn              string               `xml:"RoleArn"`
+	JobID                string               `xml:"JobId"`
+	Priority             int32                `xml:"Priority"`
+	ConfirmationRequired bool                 `xml:"ConfirmationRequired,omitempty"`
 }
 
 type describeJobResponseXML struct {
@@ -2123,9 +2114,9 @@ func (h *Handler) handleUpdateJobPriority(c *echo.Context) error {
 }
 
 type updateJobStatusRequestXML struct {
-	XMLName              xml.Name `xml:"UpdateJobStatusRequest"`
-	RequestedJobStatus   string   `xml:"RequestedJobStatus"`
-	StatusUpdateReason   string   `xml:"StatusUpdateReason"`
+	XMLName            xml.Name `xml:"UpdateJobStatusRequest"`
+	RequestedJobStatus string   `xml:"RequestedJobStatus"`
+	StatusUpdateReason string   `xml:"StatusUpdateReason"`
 }
 
 type updateJobStatusResponseXML struct {
@@ -2300,8 +2291,8 @@ func (h *Handler) handlePutMultiRegionAccessPointPolicy(c *echo.Context) error {
 // --- CreateStorageLensGroup handler ---
 
 type createStorageLensGroupStorageLensGroupXML struct {
-	Name   string                `xml:"Name"`
-	Filter createJobXMLCapture   `xml:"Filter"`
+	Name   string              `xml:"Name"`
+	Filter createJobXMLCapture `xml:"Filter"`
 }
 
 type createStorageLensGroupRequestXML struct {

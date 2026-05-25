@@ -316,8 +316,10 @@ func TestBatch4_StorageLensConfigTagging_PutViaHTTP(t *testing.T) {
 		{
 			name:       "valid_tags",
 			configName: "my-cfg",
-			body:       `<PutStorageLensConfigurationTaggingRequest><Tags><Tag><Key>k1</Key><Value>v1</Value></Tag></Tags></PutStorageLensConfigurationTaggingRequest>`,
-			wantCode:   http.StatusOK,
+			body: `<PutStorageLensConfigurationTaggingRequest>` +
+				`<Tags><Tag><Key>k1</Key><Value>v1</Value></Tag></Tags>` +
+				`</PutStorageLensConfigurationTaggingRequest>`,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:       "empty_tags",
@@ -415,7 +417,9 @@ func TestBatch4_SubmitMRAPRoutes(t *testing.T) {
 			b := s3control.NewInMemoryBackend()
 			h := s3control.NewHandler(b)
 
-			body := `<SubmitMultiRegionAccessPointRoutesRequest><Routes>` + tt.routes + `</Routes></SubmitMultiRegionAccessPointRoutesRequest>`
+			body := `<SubmitMultiRegionAccessPointRoutesRequest>` +
+				`<Routes>` + tt.routes + `</Routes>` +
+				`</SubmitMultiRegionAccessPointRoutesRequest>`
 			rec := doS3ControlNewOpRequest(t, h, http.MethodPatch,
 				"/v20180820/mrap/instances/"+tt.mrap+"/routes", "000000000000", body)
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -429,9 +433,9 @@ func TestBatch4_ResourceTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		tags    map[string]string
 		name    string
 		arn     string
-		tags    map[string]string
 		wantLen int
 	}{
 		{
@@ -479,8 +483,8 @@ func TestBatch4_TagResource_PutViaHTTP(t *testing.T) {
 		name     string
 		arn      string
 		body     string
-		wantCode int
 		wantKeys []string
+		wantCode int
 	}{
 		{
 			name: "tag_resource",
@@ -527,31 +531,31 @@ func TestBatch4_UntagResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		arn       string
 		initialTags map[string]string
-		removeKeys []string
-		wantCode  int
-		wantGone  []string
-		wantStay  []string
+		name        string
+		arn         string
+		removeKeys  []string
+		wantGone    []string
+		wantStay    []string
+		wantCode    int
 	}{
 		{
-			name: "remove_one_tag",
-			arn:  "arn:aws:s3:us-east-1:000000000000:storagelensgroup/grp1",
+			name:        "remove_one_tag",
+			arn:         "arn:aws:s3:us-east-1:000000000000:storagelensgroup/grp1",
 			initialTags: map[string]string{"Env": "prod", "Owner": "alice"},
-			removeKeys: []string{"Env"},
-			wantCode:  http.StatusNoContent,
-			wantGone:  []string{"Env"},
-			wantStay:  []string{"Owner"},
+			removeKeys:  []string{"Env"},
+			wantCode:    http.StatusNoContent,
+			wantGone:    []string{"Env"},
+			wantStay:    []string{"Owner"},
 		},
 		{
-			name: "remove_all_tags",
-			arn:  "arn:aws:s3:us-east-1:000000000000:storagelensgroup/grp2",
+			name:        "remove_all_tags",
+			arn:         "arn:aws:s3:us-east-1:000000000000:storagelensgroup/grp2",
 			initialTags: map[string]string{"k1": "v1", "k2": "v2"},
-			removeKeys: []string{"k1", "k2"},
-			wantCode:  http.StatusNoContent,
-			wantGone:  []string{"k1", "k2"},
-			wantStay:  nil,
+			removeKeys:  []string{"k1", "k2"},
+			wantCode:    http.StatusNoContent,
+			wantGone:    []string{"k1", "k2"},
+			wantStay:    nil,
 		},
 	}
 
@@ -746,8 +750,10 @@ func TestBatch4_StorageLensGroup_UpdateFilter(t *testing.T) {
 		{
 			name:      "update_with_filter",
 			groupName: "my-grp",
-			body:      `<StorageLensGroup><Name>my-grp</Name><Filter><MatchAnyPrefix><Prefix>data/</Prefix></MatchAnyPrefix></Filter></StorageLensGroup>`,
-			wantCode:  http.StatusOK,
+			body: `<StorageLensGroup><Name>my-grp</Name>` +
+				`<Filter><MatchAnyPrefix><Prefix>data/</Prefix></MatchAnyPrefix></Filter>` +
+				`</StorageLensGroup>`,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:      "update_no_filter",

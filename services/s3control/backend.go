@@ -96,7 +96,7 @@ type AccessPoint struct {
 	AccessPointArn  string `json:"accessPointArn"`
 	Alias           string `json:"alias"`
 	VpcID           string `json:"vpcID,omitempty"`
-	BucketAccountId string `json:"bucketAccountID,omitempty"`
+	BucketAccountID string `json:"bucketAccountID,omitempty"`
 	NetworkOrigin   string `json:"networkOrigin"`
 	CreationDate    string `json:"creationDate,omitempty"`
 }
@@ -118,20 +118,20 @@ type OutpostsBucket struct {
 
 // BatchJob represents an S3 Batch Operations job.
 type BatchJob struct {
-	AccountID            string `json:"accountID"`
-	JobID                string `json:"jobID"`
+	Description          string `json:"description,omitempty"`
+	TerminationDate      string `json:"terminationDate,omitempty"`
 	JobArn               string `json:"jobArn"`
 	RoleArn              string `json:"roleArn"`
 	Status               string `json:"status"`
-	Priority             int32  `json:"priority"`
-	Description          string `json:"description,omitempty"`
-	Manifest             string `json:"manifest,omitempty"`
-	Operation            string `json:"operation,omitempty"`
-	Report               string `json:"report,omitempty"`
-	ConfirmationRequired bool   `json:"confirmationRequired,omitempty"`
-	CreationTime         string `json:"creationTime,omitempty"`
-	TerminationDate      string `json:"terminationDate,omitempty"`
 	StatusUpdateReason   string `json:"statusUpdateReason,omitempty"`
+	Operation            string `json:"operation,omitempty"`
+	AccountID            string `json:"accountID"`
+	JobID                string `json:"jobID"`
+	Report               string `json:"report,omitempty"`
+	Manifest             string `json:"manifest,omitempty"`
+	CreationTime         string `json:"creationTime,omitempty"`
+	Priority             int32  `json:"priority"`
+	ConfirmationRequired bool   `json:"confirmationRequired,omitempty"`
 }
 
 // MultiRegionAccessPointRequest represents an MRAP async request.
@@ -148,8 +148,8 @@ type MultiRegionAccessPoint struct {
 	Alias     string   `json:"alias"`
 	Status    string   `json:"status"`
 	Policy    string   `json:"policy,omitempty"`
-	Regions   []string `json:"regions,omitempty"`
 	CreatedAt string   `json:"createdAt,omitempty"`
+	Regions   []string `json:"regions,omitempty"`
 }
 
 // StorageLensGroup represents an S3 Storage Lens group.
@@ -475,7 +475,7 @@ func (b *InMemoryBackend) CreateAccessPoint(accountID, name, bucket string) *Acc
 // SetAccessPointVpcConfig sets VPC configuration fields on an existing access point.
 // NetworkOrigin is set to "VPC" when vpcID is non-empty, else "Internet".
 // Alias is cleared for VPC access points (AWS does not emit an alias for VPC APs).
-func (b *InMemoryBackend) SetAccessPointVpcConfig(accountID, name, vpcID, bucketAccountId string) error {
+func (b *InMemoryBackend) SetAccessPointVpcConfig(accountID, name, vpcID, bucketAccountID string) error {
 	b.mu.Lock("SetAccessPointVpcConfig")
 	defer b.mu.Unlock()
 
@@ -485,7 +485,7 @@ func (b *InMemoryBackend) SetAccessPointVpcConfig(accountID, name, vpcID, bucket
 	}
 
 	ap.VpcID = vpcID
-	ap.BucketAccountId = bucketAccountId
+	ap.BucketAccountID = bucketAccountID
 
 	if vpcID != "" {
 		ap.NetworkOrigin = "VPC"
