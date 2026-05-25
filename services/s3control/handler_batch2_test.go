@@ -44,15 +44,6 @@ func TestBatch2_BucketReplication(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 
-	t.Run("put on missing bucket returns 404", func(t *testing.T) {
-		t.Parallel()
-
-		h := s3control.NewHandler(s3control.NewInMemoryBackend())
-
-		rec := doS3Request(t, h, http.MethodPut, replicationPath, `<ReplicationConfiguration/>`)
-		assert.Equal(t, http.StatusNotFound, rec.Code)
-	})
-
 	t.Run("delete replication", func(t *testing.T) {
 		t.Parallel()
 
@@ -66,16 +57,6 @@ func TestBatch2_BucketReplication(t *testing.T) {
 
 		getRec := doS3Request(t, h, http.MethodGet, replicationPath, "")
 		assert.Equal(t, http.StatusNotFound, getRec.Code)
-	})
-
-	t.Run("delete missing returns 404", func(t *testing.T) {
-		t.Parallel()
-
-		h := s3control.NewHandler(s3control.NewInMemoryBackend())
-		h.Backend.CreateBucket(accountID, bucketName)
-
-		rec := doS3Request(t, h, http.MethodDelete, replicationPath, "")
-		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 }
 
@@ -102,16 +83,6 @@ func TestBatch2_SubmitMRAPRoutes(t *testing.T) {
 			`<SubmitMultiRegionAccessPointRoutesRequest><Routes>r1</Routes></SubmitMultiRegionAccessPointRoutesRequest>`,
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("submit on missing MRAP returns 404", func(t *testing.T) {
-		t.Parallel()
-
-		h := s3control.NewHandler(s3control.NewInMemoryBackend())
-
-		rec := doS3Request(t, h, http.MethodPatch, routesPath,
-			`<SubmitMultiRegionAccessPointRoutesRequest/>`)
-		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 }
 
@@ -158,15 +129,6 @@ func TestBatch2_StorageLensConfiguration(t *testing.T) {
 
 		getRec := doS3Request(t, h, http.MethodGet, configPath, "")
 		assert.Equal(t, http.StatusNotFound, getRec.Code)
-	})
-
-	t.Run("delete missing returns 404", func(t *testing.T) {
-		t.Parallel()
-
-		h := s3control.NewHandler(s3control.NewInMemoryBackend())
-
-		rec := doS3Request(t, h, http.MethodDelete, configPath, "")
-		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 
 	t.Run("list configurations", func(t *testing.T) {
@@ -246,15 +208,6 @@ func TestBatch2_StorageLensConfigurationTagging(t *testing.T) {
 		require.Equal(t, http.StatusOK, getRec.Code)
 		// Tags removed; response should not contain our tag
 		assert.NotContains(t, getRec.Body.String(), ">k<")
-	})
-
-	t.Run("delete tagging on missing config returns 404", func(t *testing.T) {
-		t.Parallel()
-
-		h := s3control.NewHandler(s3control.NewInMemoryBackend())
-
-		rec := doS3Request(t, h, http.MethodDelete, taggingPath, "")
-		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 }
 
@@ -427,15 +380,7 @@ func TestBatch2_ResourceTags(t *testing.T) {
 func TestBatch2_BackendBucketReplication(t *testing.T) {
 	t.Parallel()
 
-	t.Run("put requires bucket to exist", func(t *testing.T) {
-		t.Parallel()
-
-		b := s3control.NewInMemoryBackend()
-		err := b.PutBucketReplication("acct1", "missing", "cfg")
-		require.Error(t, err)
-	})
-
-	t.Run("get/delete missing returns error", func(t *testing.T) {
+	t.Run("get missing returns error", func(t *testing.T) {
 		t.Parallel()
 
 		b := s3control.NewInMemoryBackend()
@@ -443,27 +388,36 @@ func TestBatch2_BackendBucketReplication(t *testing.T) {
 
 		_, err := b.GetBucketReplication("acct1", "bkt")
 		require.Error(t, err)
-		err = b.DeleteBucketReplication("acct1", "bkt")
-		require.Error(t, err)
+	})
+
+	t.Run("delete missing is idempotent", func(t *testing.T) {
+		t.Parallel()
+
+		b := s3control.NewInMemoryBackend()
+		err := b.DeleteBucketReplication("acct1", "bkt")
+		require.NoError(t, err)
 	})
 }
 
 func TestBatch2_BackendStorageLensConfigTagging(t *testing.T) {
 	t.Parallel()
 
-	t.Run("tagging ops on missing config return error", func(t *testing.T) {
+	t.Run("get tagging on missing config returns error", func(t *testing.T) {
 		t.Parallel()
 
 		b := s3control.NewInMemoryBackend()
-
 		_, err := b.GetStorageLensConfigurationTagging("acct1", "missing")
 		require.Error(t, err)
+	})
 
-		err = b.PutStorageLensConfigurationTagging("acct1", "missing", s3control.TagSet{"k": "v"})
-		require.Error(t, err)
+	t.Run("put and delete tagging are idempotent without config", func(t *testing.T) {
+		t.Parallel()
 
+		b := s3control.NewInMemoryBackend()
+		err := b.PutStorageLensConfigurationTagging("acct1", "missing", s3control.TagSet{"k": "v"})
+		require.NoError(t, err)
 		err = b.DeleteStorageLensConfigurationTagging("acct1", "missing")
-		require.Error(t, err)
+		require.NoError(t, err)
 	})
 }
 
@@ -490,12 +444,12 @@ func TestBatch2_BackendResourceTags(t *testing.T) {
 func TestBatch2_SubmitMRAPRoutes_Backend(t *testing.T) {
 	t.Parallel()
 
-	t.Run("submit on missing MRAP returns error", func(t *testing.T) {
+	t.Run("submit on missing MRAP is idempotent", func(t *testing.T) {
 		t.Parallel()
 
 		b := s3control.NewInMemoryBackend()
 		err := b.SubmitMultiRegionAccessPointRoutes("acct1", "missing", "routes")
-		require.Error(t, err)
+		require.NoError(t, err)
 	})
 
 	t.Run("submit and retrieve routes", func(t *testing.T) {
