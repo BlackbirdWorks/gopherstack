@@ -111,11 +111,14 @@ type InMemoryBackend struct {
 	applications    map[string]*Application
 	applicationARNs map[string]string    // application ARN → applicationID
 	jobRunARNs      map[string][2]string // job run ARN → {applicationID, jobRunID}
+	sessionARNs     map[string][2]string // session ARN → {applicationID, sessionID}
 	// jobRuns maps applicationID -> jobRunID -> JobRun.
-	jobRuns   map[string]map[string]*JobRun
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	jobRuns       map[string]map[string]*JobRun
+	sessions      map[string]map[string]*Session
+	sessionTokens map[string]map[string]string
+	mu            *lockmetrics.RWMutex
+	accountID     string
+	region        string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -124,7 +127,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		applications:    make(map[string]*Application),
 		applicationARNs: make(map[string]string),
 		jobRunARNs:      make(map[string][2]string),
+		sessionARNs:     make(map[string][2]string),
 		jobRuns:         make(map[string]map[string]*JobRun),
+		sessions:        make(map[string]map[string]*Session),
+		sessionTokens:   make(map[string]map[string]string),
 		accountID:       accountID,
 		region:          region,
 		mu:              lockmetrics.New("emrserverless"),
@@ -139,7 +145,10 @@ func (b *InMemoryBackend) Reset() {
 	b.applications = make(map[string]*Application)
 	b.applicationARNs = make(map[string]string)
 	b.jobRunARNs = make(map[string][2]string)
+	b.sessionARNs = make(map[string][2]string)
 	b.jobRuns = make(map[string]map[string]*JobRun)
+	b.sessions = make(map[string]map[string]*Session)
+	b.sessionTokens = make(map[string]map[string]string)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -167,6 +176,11 @@ func (b *InMemoryBackend) applicationARN(applicationID string) string {
 func (b *InMemoryBackend) jobRunARN(applicationID, jobRunID string) string {
 	return arn.Build("emr-serverless", b.region, b.accountID,
 		fmt.Sprintf("/applications/%s/jobruns/%s", applicationID, jobRunID))
+}
+
+func (b *InMemoryBackend) sessionARN(applicationID, sessionID string) string {
+	return arn.Build("emr-serverless", b.region, b.accountID,
+		fmt.Sprintf("/applications/%s/sessions/%s", applicationID, sessionID))
 }
 
 // CreateApplication creates a new EMR Serverless application.
@@ -307,9 +321,14 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 	for _, jr := range b.jobRuns[id] {
 		delete(b.jobRunARNs, jr.Arn)
 	}
+	for _, session := range b.sessions[id] {
+		delete(b.sessionARNs, session.Arn)
+	}
 
 	delete(b.applications, id)
 	delete(b.jobRuns, id)
+	delete(b.sessions, id)
+	delete(b.sessionTokens, id)
 
 	return nil
 }
@@ -570,6 +589,19 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, 
 		}
 
 		return jr.Tags, true
+	}
+
+	if key, ok := b.sessionARNs[resourceARN]; ok {
+		sessions, sessionsOK := b.sessions[key[0]]
+		if !sessionsOK {
+			return nil, false
+		}
+		session, sessionOK := sessions[key[1]]
+		if !sessionOK {
+			return nil, false
+		}
+
+		return session.Tags, true
 	}
 
 	return nil, false

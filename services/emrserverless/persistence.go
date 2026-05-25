@@ -6,15 +6,23 @@ import (
 )
 
 type backendSnapshot struct {
-	Applications    map[string]*Application       `json:"applications"`
-	ApplicationARNs map[string]string             `json:"applicationARNs"`
-	JobRunARNs      map[string][2]string          `json:"jobRunARNs"`
-	JobRuns         map[string]map[string]*JobRun `json:"jobRuns"`
-	AccountID       string                        `json:"accountID"`
-	Region          string                        `json:"region"`
+	Applications    map[string]*Application        `json:"applications"`
+	ApplicationARNs map[string]string              `json:"applicationARNs"`
+	JobRunARNs      map[string][2]string           `json:"jobRunARNs"`
+	JobRuns         map[string]map[string]*JobRun  `json:"jobRuns"`
+	SessionARNs     map[string][2]string           `json:"sessionARNs"`
+	Sessions        map[string]map[string]*Session `json:"sessions"`
+	SessionTokens   map[string]map[string]string   `json:"sessionTokens"`
+	AccountID       string                         `json:"accountID"`
+	Region          string                         `json:"region"`
 }
 
 func (s *backendSnapshot) ensureNonNil() {
+	s.ensureMaps()
+	s.ensureResourceTags()
+}
+
+func (s *backendSnapshot) ensureMaps() {
 	if s.Applications == nil {
 		s.Applications = make(map[string]*Application)
 	}
@@ -31,12 +39,26 @@ func (s *backendSnapshot) ensureNonNil() {
 		s.JobRuns = make(map[string]map[string]*JobRun)
 	}
 
+	if s.SessionARNs == nil {
+		s.SessionARNs = make(map[string][2]string)
+	}
+
+	if s.Sessions == nil {
+		s.Sessions = make(map[string]map[string]*Session)
+	}
+
+	if s.SessionTokens == nil {
+		s.SessionTokens = make(map[string]map[string]string)
+	}
+
 	for appID, runs := range s.JobRuns {
 		if runs == nil {
 			s.JobRuns[appID] = make(map[string]*JobRun)
 		}
 	}
+}
 
+func (s *backendSnapshot) ensureResourceTags() {
 	for _, app := range s.Applications {
 		if app.Tags == nil {
 			app.Tags = make(map[string]string)
@@ -47,6 +69,14 @@ func (s *backendSnapshot) ensureNonNil() {
 		for _, jr := range runs {
 			if jr.Tags == nil {
 				jr.Tags = make(map[string]string)
+			}
+		}
+	}
+
+	for _, sessions := range s.Sessions {
+		for _, session := range sessions {
+			if session.Tags == nil {
+				session.Tags = make(map[string]string)
 			}
 		}
 	}
@@ -62,6 +92,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ApplicationARNs: b.applicationARNs,
 		JobRunARNs:      b.jobRunARNs,
 		JobRuns:         b.jobRuns,
+		SessionARNs:     b.sessionARNs,
+		Sessions:        b.sessions,
+		SessionTokens:   b.sessionTokens,
 		AccountID:       b.accountID,
 		Region:          b.region,
 	}
@@ -93,6 +126,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.applicationARNs = snap.ApplicationARNs
 	b.jobRunARNs = snap.JobRunARNs
 	b.jobRuns = snap.JobRuns
+	b.sessionARNs = snap.SessionARNs
+	b.sessions = snap.Sessions
+	b.sessionTokens = snap.SessionTokens
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

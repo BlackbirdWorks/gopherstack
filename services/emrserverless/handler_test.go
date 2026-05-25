@@ -1358,12 +1358,14 @@ func TestHandler_ServiceMeta(t *testing.T) {
 	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
 
 	ops := h.GetSupportedOperations()
-	assert.Len(t, ops, 16)
+	assert.Len(t, ops, 22)
 	assert.Contains(t, ops, "CreateApplication")
 	assert.Contains(t, ops, "CancelJobRun")
 	assert.Contains(t, ops, "UntagResource")
 	assert.Contains(t, ops, "GetDashboardForJobRun")
 	assert.Contains(t, ops, "ListJobRunAttempts")
+	assert.Contains(t, ops, "StartSession")
+	assert.Contains(t, ops, "GetResourceDashboard")
 
 	chaosOps := h.ChaosOperations()
 	assert.Equal(t, ops, chaosOps)
