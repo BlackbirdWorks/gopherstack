@@ -2,10 +2,12 @@ package sagemakerruntime
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"hash/crc32"
 	"math"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -24,6 +26,20 @@ const (
 	sagemakerRuntimeService       = "sagemaker-runtime"
 	sagemakerRuntimePathPrefix    = "/endpoints/"
 	sagemakerRuntimeMatchPriority = service.PriorityPathVersioned
+	defaultContentType            = "application/octet-stream"
+	defaultVariant                = "AllTraffic"
+	newSessionRequest             = "NEW_SESSION"
+	syncResponseBody              = "mock response from Gopherstack"
+	streamResponseBody            = "mock streaming response from Gopherstack"
+	headerCustomAttributes        = "X-Amzn-Sagemaker-Custom-Attributes"
+	headerNewSessionID            = "X-Amzn-Sagemaker-New-Session-Id"
+	headerSessionID               = "X-Amzn-Sagemaker-Session-Id"
+	headerInferenceID             = "X-Amzn-Sagemaker-Inference-Id"
+	headerOutputLocation          = "X-Amzn-Sagemaker-Outputlocation"
+	headerAsyncAccept             = "X-Amzn-Sagemaker-Accept"
+	headerStreamContentType       = "X-Amzn-Sagemaker-Content-Type"
+	headerTargetVariant           = "X-Amzn-Sagemaker-Target-Variant"
+	headerInvokedVariant          = "X-Amzn-Invoked-Production-Variant"
 )
 
 // Event stream frame constants (AWS binary event stream protocol).
@@ -135,14 +151,14 @@ func (h *Handler) handleInvokeEndpoint(
 	endpointName string,
 	body []byte,
 ) error {
-	out := []byte(`{"Body":"mock response from Gopherstack"}`)
+	out := []byte(syncResponseBody)
 
 	h.Backend.RecordInvocation(opInvokeEndpoint, endpointName, string(body), string(out))
 
-	c.Response().Header().Set("Content-Type", "application/json")
-	c.Response().Header().Set("X-Amzn-Invoked-Production-Variant", "AllTraffic")
+	setCommonResponseHeaders(c, c.Request().Header.Get("Accept"))
+	setSessionResponseHeader(c, h.Backend, endpointName)
 
-	return c.JSONBlob(http.StatusOK, out)
+	return c.Blob(http.StatusOK, responseContentType(c.Request().Header.Get("Accept")), out)
 }
 
 // handleInvokeEndpointAsync handles POST /endpoints/{EndpointName}/async-invocations.
@@ -151,11 +167,16 @@ func (h *Handler) handleInvokeEndpointAsync(
 	endpointName string,
 	body []byte,
 ) error {
-	out := []byte(`{"InferenceId":"mock-inference-id","OutputLocation":"s3://mock-bucket/output"}`)
+	async := h.Backend.RecordAsyncInvocation(endpointName, c.Request().Header.Get(headerInferenceID), string(body))
+	out, err := json.Marshal(map[string]string{"InferenceId": async.InferenceID})
+	if err != nil {
+		return err
+	}
 
 	h.Backend.RecordInvocation(opInvokeEndpointAsync, endpointName, string(body), string(out))
 
 	c.Response().Header().Set("Content-Type", "application/json")
+	c.Response().Header().Set(headerOutputLocation, async.OutputLocation)
 
 	return c.JSONBlob(http.StatusAccepted, out)
 }
@@ -167,7 +188,7 @@ func (h *Handler) handleInvokeEndpointWithResponseStream(
 	endpointName string,
 	body []byte,
 ) error {
-	out := []byte(`{"Body":"mock streaming response from Gopherstack"}`)
+	out := []byte(streamResponseBody)
 
 	h.Backend.RecordInvocation(opInvokeEndpointWithResponseStream, endpointName, string(body), string(out))
 
@@ -178,10 +199,55 @@ func (h *Handler) handleInvokeEndpointWithResponseStream(
 	}, out)
 
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
+	c.Response().Header().Set(headerStreamContentType, responseContentType(c.Request().Header.Get(headerAsyncAccept)))
+	setForwardedHeader(c, headerCustomAttributes)
+	setVariantResponseHeader(c)
+	h.Backend.TouchSession(c.Request().Header.Get(headerSessionID))
 	c.Response().WriteHeader(http.StatusOK)
 	_, _ = c.Response().Write(frame)
 
 	return nil
+}
+
+func setCommonResponseHeaders(c *echo.Context, accept string) {
+	c.Response().Header().Set("Content-Type", responseContentType(accept))
+	setForwardedHeader(c, headerCustomAttributes)
+	setVariantResponseHeader(c)
+}
+
+func setSessionResponseHeader(c *echo.Context, backend *InMemoryBackend, endpointName string) {
+	sessionID := c.Request().Header.Get(headerSessionID)
+	if sessionID != newSessionRequest {
+		backend.TouchSession(sessionID)
+
+		return
+	}
+
+	session := backend.StartSession(endpointName)
+	c.Response().Header().Set(headerNewSessionID, session.ID+"; Expires="+session.ExpiresAt.Format(time.RFC3339))
+}
+
+func setForwardedHeader(c *echo.Context, header string) {
+	if value := c.Request().Header.Get(header); value != "" {
+		c.Response().Header().Set(header, value)
+	}
+}
+
+func setVariantResponseHeader(c *echo.Context) {
+	variant := c.Request().Header.Get(headerTargetVariant)
+	if variant == "" {
+		variant = defaultVariant
+	}
+
+	c.Response().Header().Set(headerInvokedVariant, variant)
+}
+
+func responseContentType(accept string) string {
+	if accept != "" {
+		return accept
+	}
+
+	return defaultContentType
 }
 
 // extractEndpointName extracts the endpoint name from the URL path.

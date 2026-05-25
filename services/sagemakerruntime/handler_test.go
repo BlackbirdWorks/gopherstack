@@ -8,6 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	sagemakerruntimesdk "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,6 +34,18 @@ func doRequest(
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
+	return doRequestWithHeaders(t, h, method, path, body, nil)
+}
+
+func doRequestWithHeaders(
+	t *testing.T,
+	h *sagemakerruntime.Handler,
+	method, path string,
+	body any,
+	headers map[string]string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
 	var bodyBytes []byte
 
 	if body != nil {
@@ -41,6 +57,9 @@ func doRequest(
 	e := echo.New()
 	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
 
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -49,6 +68,28 @@ func doRequest(
 	require.NoError(t, err)
 
 	return rec
+}
+
+func newTestSDKClient(t *testing.T, h *sagemakerruntime.Handler) *sagemakerruntimesdk.Client {
+	t.Helper()
+
+	e := echo.New()
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(h))
+	e.Use(service.NewServiceRouter(registry).RouteHandler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
+		awscfg.WithRegion("us-east-1"),
+		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
+	)
+	require.NoError(t, err)
+
+	return sagemakerruntimesdk.NewFromConfig(cfg, func(o *sagemakerruntimesdk.Options) {
+		o.BaseEndpoint = aws.String(srv.URL)
+	})
 }
 
 // --- Handler metadata tests ---
@@ -104,22 +145,34 @@ func TestHandler_InvokeEndpoint(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body         any
-		name         string
-		endpointName string
-		wantCode     int
+		body            any
+		headers         map[string]string
+		name            string
+		endpointName    string
+		wantContentType string
+		wantVariant     string
+		wantSession     bool
 	}{
 		{
-			name:         "basic_invocation",
-			endpointName: "my-endpoint",
-			body:         map[string]any{"data": "test input"},
-			wantCode:     http.StatusOK,
+			name:            "default_opaque_response",
+			endpointName:    "my-endpoint",
+			body:            map[string]any{"data": "test input"},
+			wantContentType: "application/octet-stream",
+			wantVariant:     "AllTraffic",
 		},
 		{
-			name:         "empty_body",
-			endpointName: "my-endpoint",
+			name:         "bound_headers_and_new_session",
+			endpointName: "session-endpoint",
 			body:         nil,
-			wantCode:     http.StatusOK,
+			headers: map[string]string{
+				"Accept":                             "application/json",
+				"X-Amzn-Sagemaker-Custom-Attributes": "trace=123",
+				"X-Amzn-Sagemaker-Session-Id":        "NEW_SESSION",
+				"X-Amzn-Sagemaker-Target-Variant":    "blue",
+			},
+			wantContentType: "application/json",
+			wantVariant:     "blue",
+			wantSession:     true,
 		},
 	}
 
@@ -128,11 +181,18 @@ func TestHandler_InvokeEndpoint(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/endpoints/"+tt.endpointName+"/invocations", tt.body)
+			rec := doRequestWithHeaders(
+				t, h, http.MethodPost, "/endpoints/"+tt.endpointName+"/invocations", tt.body, tt.headers,
+			)
 
-			assert.Equal(t, tt.wantCode, rec.Code)
-			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
-			assert.Equal(t, "AllTraffic", rec.Header().Get("X-Amzn-Invoked-Production-Variant"))
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, tt.wantContentType, rec.Header().Get("Content-Type"))
+			assert.Equal(t, tt.wantVariant, rec.Header().Get("X-Amzn-Invoked-Production-Variant"))
+			assert.Equal(t, "mock response from Gopherstack", rec.Body.String())
+			assert.Equal(t, tt.headers["X-Amzn-Sagemaker-Custom-Attributes"],
+				rec.Header().Get("X-Amzn-Sagemaker-Custom-Attributes"))
+			assert.Equal(t, tt.wantSession, rec.Header().Get("X-Amzn-Sagemaker-New-Session-Id") != "")
+			assert.Len(t, h.Backend.ListSessions(), boolToInt(tt.wantSession))
 
 			invocations := h.Backend.ListInvocations()
 			require.Len(t, invocations, 1)
@@ -142,26 +202,57 @@ func TestHandler_InvokeEndpoint(t *testing.T) {
 	}
 }
 
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+
+	return 0
+}
+
 // --- InvokeEndpointAsync tests ---
 
 func TestHandler_InvokeEndpointAsync(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/endpoints/my-endpoint/async-invocations",
-		map[string]any{"data": "async input"})
+	tests := []struct {
+		name            string
+		headers         map[string]string
+		wantInferenceID string
+	}{
+		{name: "generated_inference_id"},
+		{
+			name:            "client_inference_id_is_preserved",
+			headers:         map[string]string{"X-Amzn-Sagemaker-Inference-Id": "request-42"},
+			wantInferenceID: "request-42",
+		},
+	}
 
-	assert.Equal(t, http.StatusAccepted, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Contains(t, out, "InferenceId")
-	assert.Contains(t, out, "OutputLocation")
+			h := newTestHandler(t)
+			rec := doRequestWithHeaders(t, h, http.MethodPost, "/endpoints/my-endpoint/async-invocations",
+				map[string]any{"data": "async input"}, tt.headers)
 
-	invocations := h.Backend.ListInvocations()
-	require.Len(t, invocations, 1)
-	assert.Equal(t, "InvokeEndpointAsync", invocations[0].Operation)
-	assert.Equal(t, "my-endpoint", invocations[0].EndpointName)
+			assert.Equal(t, http.StatusAccepted, rec.Code)
+
+			var out map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.NotEmpty(t, out["InferenceId"])
+			assert.NotContains(t, out, "OutputLocation")
+			if tt.wantInferenceID != "" {
+				assert.Equal(t, tt.wantInferenceID, out["InferenceId"])
+			}
+			assert.Contains(t, rec.Header().Get("X-Amzn-Sagemaker-Outputlocation"), out["InferenceId"])
+
+			async := h.Backend.ListAsyncInvocations()
+			require.Len(t, async, 1)
+			assert.Equal(t, out["InferenceId"], async[0].InferenceID)
+			assert.Equal(t, rec.Header().Get("X-Amzn-Sagemaker-Outputlocation"), async[0].OutputLocation)
+		})
+	}
 }
 
 // --- InvokeEndpointWithResponseStream tests ---
@@ -169,22 +260,94 @@ func TestHandler_InvokeEndpointAsync(t *testing.T) {
 func TestHandler_InvokeEndpointWithResponseStream(t *testing.T) {
 	t.Parallel()
 
+	tests := []struct {
+		name            string
+		headers         map[string]string
+		wantContentType string
+		wantVariant     string
+	}{
+		{name: "defaults", wantContentType: "application/octet-stream", wantVariant: "AllTraffic"},
+		{
+			name: "sdk_bound_response_headers",
+			headers: map[string]string{
+				"X-Amzn-Sagemaker-Accept":            "application/json",
+				"X-Amzn-Sagemaker-Custom-Attributes": "trace=stream",
+				"X-Amzn-Sagemaker-Target-Variant":    "green",
+			},
+			wantContentType: "application/json",
+			wantVariant:     "green",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequestWithHeaders(t, h, http.MethodPost,
+				"/endpoints/my-endpoint/invocations-response-stream",
+				map[string]any{"data": "stream input"}, tt.headers)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "application/vnd.amazon.eventstream", rec.Header().Get("Content-Type"))
+			assert.Equal(t, tt.wantContentType, rec.Header().Get("X-Amzn-Sagemaker-Content-Type"))
+			assert.Equal(t, tt.wantVariant, rec.Header().Get("X-Amzn-Invoked-Production-Variant"))
+			assert.Equal(t, tt.headers["X-Amzn-Sagemaker-Custom-Attributes"],
+				rec.Header().Get("X-Amzn-Sagemaker-Custom-Attributes"))
+			assert.Greater(t, len(rec.Body.Bytes()), 12, "response should contain event stream prelude")
+
+			invocations := h.Backend.ListInvocations()
+			require.Len(t, invocations, 1)
+			assert.Equal(t, "InvokeEndpointWithResponseStream", invocations[0].Operation)
+		})
+	}
+}
+
+func TestSDKResponseBindings(t *testing.T) {
+	t.Parallel()
+
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost,
-		"/endpoints/my-endpoint/invocations-response-stream",
-		map[string]any{"data": "stream input"})
+	client := newTestSDKClient(t, h)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "application/vnd.amazon.eventstream", rec.Header().Get("Content-Type"))
+	syncOut, err := client.InvokeEndpoint(t.Context(), &sagemakerruntimesdk.InvokeEndpointInput{
+		EndpointName:     aws.String("sdk-sync"),
+		Body:             []byte("input"),
+		Accept:           aws.String("text/plain"),
+		CustomAttributes: aws.String("trace=sdk"),
+		SessionId:        aws.String("NEW_SESSION"),
+		TargetVariant:    aws.String("blue"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []byte("mock response from Gopherstack"), syncOut.Body)
+	assert.Equal(t, "text/plain", aws.ToString(syncOut.ContentType))
+	assert.Equal(t, "trace=sdk", aws.ToString(syncOut.CustomAttributes))
+	assert.Equal(t, "blue", aws.ToString(syncOut.InvokedProductionVariant))
+	assert.NotEmpty(t, aws.ToString(syncOut.NewSessionId))
 
-	// Verify the response is a valid AWS event stream frame (at least minimum length).
-	body := rec.Body.Bytes()
-	assert.Greater(t, len(body), 12, "response should contain at least a prelude")
+	asyncOut, err := client.InvokeEndpointAsync(t.Context(), &sagemakerruntimesdk.InvokeEndpointAsyncInput{
+		EndpointName:  aws.String("sdk-async"),
+		InputLocation: aws.String("s3://input/request"),
+		InferenceId:   aws.String("sdk-inference"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "sdk-inference", aws.ToString(asyncOut.InferenceId))
+	assert.Contains(t, aws.ToString(asyncOut.OutputLocation), "sdk-inference")
 
-	invocations := h.Backend.ListInvocations()
-	require.Len(t, invocations, 1)
-	assert.Equal(t, "InvokeEndpointWithResponseStream", invocations[0].Operation)
-	assert.Equal(t, "my-endpoint", invocations[0].EndpointName)
+	streamOut, err := client.InvokeEndpointWithResponseStream(
+		t.Context(),
+		&sagemakerruntimesdk.InvokeEndpointWithResponseStreamInput{
+			EndpointName:     aws.String("sdk-stream"),
+			Body:             []byte("input"),
+			Accept:           aws.String("application/json"),
+			CustomAttributes: aws.String("trace=stream"),
+			TargetVariant:    aws.String("green"),
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "application/json", aws.ToString(streamOut.ContentType))
+	assert.Equal(t, "trace=stream", aws.ToString(streamOut.CustomAttributes))
+	assert.Equal(t, "green", aws.ToString(streamOut.InvokedProductionVariant))
+	require.NoError(t, streamOut.GetStream().Close())
 }
 
 // --- Error path tests ---
@@ -478,6 +641,10 @@ func TestBackend_PersistenceSnapshotRestore(t *testing.T) {
 			for i := range tt.setupInvCount {
 				b.RecordInvocation("InvokeEndpoint", "ep", fmt.Sprintf(`{"seq":%d}`, i), `{}`)
 			}
+			if tt.setupInvCount > 0 {
+				b.StartSession("ep")
+				b.RecordAsyncInvocation("ep", "persisted-id", "input")
+			}
 
 			snap := b.Snapshot()
 			require.NotNil(t, snap)
@@ -488,6 +655,8 @@ func TestBackend_PersistenceSnapshotRestore(t *testing.T) {
 
 			restored := b2.ListInvocations()
 			assert.Len(t, restored, tt.setupInvCount)
+			assert.Len(t, b2.ListSessions(), boolToInt(tt.setupInvCount > 0))
+			assert.Len(t, b2.ListAsyncInvocations(), boolToInt(tt.setupInvCount > 0))
 
 			// Snapshot isolation: adding more invocations to b2 should not affect snap.
 			b2.RecordInvocation("InvokeEndpoint", "ep", `{"seq":99}`, `{}`)
