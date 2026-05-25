@@ -91,6 +91,7 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
@@ -283,6 +284,7 @@ type CLI struct {
 	codePipelineHandler           service.Registerable
 	codeConnectionsHandler        service.Registerable
 	codeDeployHandler             service.Registerable
+	comprehendHandler             service.Registerable
 	dmsHandler                    service.Registerable
 	codeStarConnectionsHandler    service.Registerable
 	dynamodbStreamsHandler        service.Registerable
@@ -2325,6 +2327,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.shieldHandler = byName["Shield"]
 	cli.ssoadminHandler = byName["SsoAdmin"]
 	cli.textractHandler = byName["Textract"]
+	cli.comprehendHandler = byName["Comprehend"]
 	cli.timestreamwriteHandler = byName["TimestreamWrite"]
 	cli.timestreamqueryHandler = byName["TimestreamQuery"]
 	cli.transferHandler = byName["Transfer"]
@@ -2673,6 +2676,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&shieldbackend.Provider{},
 		&ssoadminbackend.Provider{},
 		&textractbackend.Provider{},
+		&comprehendbackend.Provider{},
 		&timestreamwritebackend.Provider{},
 		&timestreamquerybackend.Provider{},
 		&transferbackend.Provider{},

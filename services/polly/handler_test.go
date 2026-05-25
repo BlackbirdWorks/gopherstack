@@ -500,7 +500,13 @@ func TestTaskTags(t *testing.T) {
 		}
 	}
 
-	missing := request(t, handler, http.MethodGet, "/v1/tags/"+url.PathEscape("arn:missing"), nil)
+	missing := request(
+		t,
+		handler,
+		http.MethodGet,
+		"/v1/tags/"+url.PathEscape("arn:aws:polly:us-east-1:000000000000:missing"),
+		nil,
+	)
 	assert.Equal(t, http.StatusBadRequest, missing.Code)
 	assert.Contains(t, missing.Body.String(), "InvalidParameterValueException")
 }
