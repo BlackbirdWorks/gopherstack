@@ -5,7 +5,10 @@ import (
 )
 
 type backendSnapshot struct {
-	Invocations []*Invocation `json:"invocations"`
+	Sessions         map[string]*Session         `json:"sessions"`
+	AsyncInvocations map[string]*AsyncInvocation `json:"asyncInvocations"`
+	Invocations      []*Invocation               `json:"invocations"`
+	NextID           uint64                      `json:"nextId"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -20,7 +23,22 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		invCopy[i] = &cp
 	}
 
-	snap := backendSnapshot{Invocations: invCopy}
+	sessionCopy := make(map[string]*Session, len(b.sessions))
+	for id, session := range b.sessions {
+		sessionCopy[id] = cloneSession(session)
+	}
+
+	asyncCopy := make(map[string]*AsyncInvocation, len(b.asyncInvocations))
+	for id, invocation := range b.asyncInvocations {
+		asyncCopy[id] = cloneAsyncInvocation(invocation)
+	}
+
+	snap := backendSnapshot{
+		Invocations:      invCopy,
+		Sessions:         sessionCopy,
+		AsyncInvocations: asyncCopy,
+		NextID:           b.nextID,
+	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -45,8 +63,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.Invocations == nil {
 		snap.Invocations = make([]*Invocation, 0)
 	}
+	if snap.Sessions == nil {
+		snap.Sessions = make(map[string]*Session)
+	}
+	if snap.AsyncInvocations == nil {
+		snap.AsyncInvocations = make(map[string]*AsyncInvocation)
+	}
 
 	b.invocations = snap.Invocations
+	b.sessions = snap.Sessions
+	b.asyncInvocations = snap.AsyncInvocations
+	b.nextID = snap.NextID
 
 	return nil
 }
