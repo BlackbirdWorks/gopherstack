@@ -24,11 +24,11 @@ func TestAudit2_DescribeOrganization_AvailablePolicyTypes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		enableTypes   []string
-		wantEnabled   []string
-		wantDisabled  []string
-		wantTotalLen  int
+		name         string
+		enableTypes  []string
+		wantEnabled  []string
+		wantDisabled []string
+		wantTotalLen int
 	}{
 		{
 			name:         "all_disabled_initially",
@@ -331,10 +331,10 @@ func TestAudit2_CreateAccount_IamUserAccessToBilling(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		iamAccess      string
-		wantStatus     int
-		wantIamAccess  string
+		name          string
+		iamAccess     string
+		wantIamAccess string
+		wantStatus    int
 	}{
 		{name: "default_allow", iamAccess: "", wantStatus: http.StatusOK, wantIamAccess: "ALLOW"},
 		{name: "explicit_allow", iamAccess: "ALLOW", wantStatus: http.StatusOK, wantIamAccess: "ALLOW"},
@@ -410,9 +410,9 @@ func TestAudit2_CloseAccount_DoubleCloseRejected(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		setupStatus  string // "PENDING_CLOSURE" or "SUSPENDED" (via direct internal method)
-		wantErr      bool
+		name        string
+		setupStatus string // "PENDING_CLOSURE" or "SUSPENDED" (via direct internal method)
+		wantErr     bool
 	}{
 		{name: "double_pending_closure", setupStatus: "PENDING_CLOSURE", wantErr: true},
 		{name: "suspended_also_rejected", setupStatus: "SUSPENDED", wantErr: true},
@@ -429,11 +429,12 @@ func TestAudit2_CloseAccount_DoubleCloseRejected(t *testing.T) {
 			require.NoError(t, err)
 			accountID := status.AccountID
 
-			if tt.setupStatus == "PENDING_CLOSURE" {
+			switch tt.setupStatus {
+			case "PENDING_CLOSURE":
 				// Close once to get to PENDING_CLOSURE.
 				err = b.CloseAccount(accountID)
 				require.NoError(t, err)
-			} else if tt.setupStatus == "SUSPENDED" {
+			case "SUSPENDED":
 				// Seed a SUSPENDED account directly.
 				b.AddAccountInternal(&organizations.Account{
 					ID:     "999999999999",
@@ -543,9 +544,9 @@ func TestAudit2_OU_NameUniqueness(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		setup   func(b *organizations.InMemoryBackend, rootID string)
 		create  func(b *organizations.InMemoryBackend, rootID string) error
+		name    string
 		wantErr bool
 	}{
 		{
@@ -558,6 +559,7 @@ func TestAudit2_OU_NameUniqueness(t *testing.T) {
 			},
 			create: func(b *organizations.InMemoryBackend, rootID string) error {
 				_, err := b.CreateOrganizationalUnit(rootID, "Engineering", nil)
+
 				return err
 			},
 			wantErr: true,
@@ -571,6 +573,7 @@ func TestAudit2_OU_NameUniqueness(t *testing.T) {
 					return err
 				}
 				_, err = b.CreateOrganizationalUnit(rootID, "Engineering", nil)
+
 				return err
 			},
 			wantErr: false,
@@ -593,6 +596,7 @@ func TestAudit2_OU_NameUniqueness(t *testing.T) {
 					return err
 				}
 				_, err = b.CreateOrganizationalUnit(ou.ID, "Shared", nil)
+
 				return err
 			},
 			wantErr: false,
@@ -622,8 +626,8 @@ func TestAudit2_UpdateOU_NameUniqueness(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		wantErr bool
 		rename  string
+		wantErr bool
 	}{
 		{
 			name:    "rename_to_sibling_name_rejected",
@@ -797,9 +801,9 @@ func TestAudit2_HandshakeExpiration(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		expired     bool
 		wantState   string
 		checkMethod string
+		expired     bool
 	}{
 		{
 			name:        "describe_transitions_expired",
@@ -887,8 +891,8 @@ func TestAudit2_AttachPolicy_TargetValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		targetFn func(b *organizations.InMemoryBackend, rootID string) string
+		name     string
 		wantErr  bool
 	}{
 		{
@@ -905,6 +909,7 @@ func TestAudit2_AttachPolicy_TargetValidation(t *testing.T) {
 				if err != nil {
 					panic(err)
 				}
+
 				return ou.ID
 			},
 			wantErr: false,
@@ -916,6 +921,7 @@ func TestAudit2_AttachPolicy_TargetValidation(t *testing.T) {
 				if err != nil {
 					panic(err)
 				}
+
 				return s.AccountID
 			},
 			wantErr: false,
@@ -967,8 +973,8 @@ func TestAudit2_TagResource_ExistenceValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		resourceFn func(b *organizations.InMemoryBackend, rootID string) string
+		name       string
 		wantErr    bool
 	}{
 		{
@@ -985,6 +991,7 @@ func TestAudit2_TagResource_ExistenceValidation(t *testing.T) {
 				if err != nil {
 					panic(err)
 				}
+
 				return s.AccountID
 			},
 			wantErr: false,
@@ -996,6 +1003,7 @@ func TestAudit2_TagResource_ExistenceValidation(t *testing.T) {
 				if err != nil {
 					panic(err)
 				}
+
 				return ou.ID
 			},
 			wantErr: false,
@@ -1007,6 +1015,7 @@ func TestAudit2_TagResource_ExistenceValidation(t *testing.T) {
 				if err != nil {
 					panic(err)
 				}
+
 				return p.PolicySummary.ID
 			},
 			wantErr: false,
@@ -1063,11 +1072,11 @@ func TestAudit2_RegisterDelegatedAdmin_ServiceAccessCheck(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		enableService    bool
-		servicePrincipal string
+		name              string
+		servicePrincipal  string
+		enableService     bool
 		useManagementAcct bool
-		wantErr          bool
+		wantErr           bool
 	}{
 		{
 			name:             "service_access_not_enabled_fails",
@@ -1348,8 +1357,8 @@ func TestAudit2_InviteAccount_ViaHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		target     map[string]any
+		name       string
 		wantStatus int
 	}{
 		{

@@ -16,13 +16,13 @@ func epochSeconds(t time.Time) float64 {
 
 // Organization represents an AWS organization.
 type Organization struct {
-	AvailablePolicyTypes []PolicyTypeSummary `json:"availablePolicyTypes,omitempty"`
 	ID                   string              `json:"id"`
 	ARN                  string              `json:"arn"`
 	FeatureSet           string              `json:"featureSet"`
 	MasterAccountID      string              `json:"masterAccountID"`
 	MasterAccountARN     string              `json:"masterAccountARN"`
 	MasterAccountEmail   string              `json:"masterAccountEmail"`
+	AvailablePolicyTypes []PolicyTypeSummary `json:"availablePolicyTypes,omitempty"`
 }
 
 // Account represents an AWS account in an organization.
@@ -179,13 +179,13 @@ type createOrganizationRequest struct {
 }
 
 type organizationObject struct {
-	AvailablePolicyTypes []policyTypeObject `json:"AvailablePolicyTypes,omitempty"`
 	ID                   string             `json:"Id"`
 	ARN                  string             `json:"Arn"`
 	FeatureSet           string             `json:"FeatureSet"`
 	MasterAccountID      string             `json:"MasterAccountId"`
 	MasterAccountARN     string             `json:"MasterAccountArn"`
 	MasterAccountEmail   string             `json:"MasterAccountEmail"`
+	AvailablePolicyTypes []policyTypeObject `json:"AvailablePolicyTypes,omitempty"`
 }
 
 type createOrganizationResponse struct {
@@ -229,9 +229,9 @@ type accountObject struct {
 	Email                  string  `json:"Email"`
 	Status                 string  `json:"Status"`
 	JoinedMethod           string  `json:"JoinedMethod"`
-	JoinedAt               float64 `json:"JoinedTimestamp"`
 	RoleName               string  `json:"RoleName,omitempty"`
 	IamUserAccessToBilling string  `json:"IamUserAccessToBilling,omitempty"`
+	JoinedAt               float64 `json:"JoinedTimestamp"`
 }
 
 type describeAccountResponse struct {

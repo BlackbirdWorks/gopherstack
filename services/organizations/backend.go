@@ -24,6 +24,12 @@ const (
 	handshakeResourceOrg          = "ORGANIZATION"
 	handshakeResourceMasterEmail  = "MASTER_EMAIL"
 	handshakeResourceNotes        = "NOTES"
+
+	// maxOUDepth is the maximum depth for organizational units (root=0, OUs=1-5).
+	maxOUDepth = 5
+
+	// accountIDLength is the expected length of an AWS account ID.
+	accountIDLength = 12
 )
 
 // Sentinel errors.
@@ -853,8 +859,8 @@ func (b *InMemoryBackend) CreateOrganizationalUnit(
 
 	// Depth limit: root is depth 0, OUs are depth 1-5; creating at depth 6 is rejected.
 	// parentID is the parent; the new OU's depth = ouDepthLocked(parentID) + 1.
-	// If the parent's depth is already 5, the new OU would be at depth 6, which is invalid.
-	if b.ouDepthLocked(parentID) >= 5 {
+	// If the parent's depth is already maxOUDepth, the new OU would be at depth 6, which is invalid.
+	if b.ouDepthLocked(parentID) >= maxOUDepth {
 		return nil, ErrOUDepthLimitExceeded
 	}
 
@@ -2047,7 +2053,7 @@ func (b *InMemoryBackend) EnableAllFeatures() (*Handshake, error) {
 		RequestedTimestamp:  now,
 		ExpirationTimestamp: now.Add(handshakeExpirationDuration),
 		Parties: []HandshakeParty{
-			{ID: b.org.MasterAccountID, Type: "ACCOUNT"},
+			{ID: b.org.MasterAccountID, Type: targetTypeAccount},
 		},
 		Resources: []HandshakeResource{
 			{Type: handshakeResourceOrg, Value: b.org.ID},
@@ -2108,8 +2114,8 @@ func (b *InMemoryBackend) InviteAccountToOrganization(
 
 	// Validate target party.
 	switch target.Type {
-	case "ACCOUNT":
-		if len(target.ID) != 12 {
+	case targetTypeAccount:
+		if len(target.ID) != accountIDLength {
 			return nil, ErrInvalidInput
 		}
 	case "EMAIL":
@@ -2421,7 +2427,7 @@ func (b *InMemoryBackend) InviteOrganizationToTransferResponsibility(
 		RequestedTimestamp:  now,
 		ExpirationTimestamp: now.Add(handshakeExpirationDuration),
 		Parties: []HandshakeParty{
-			{ID: b.org.MasterAccountID, Type: "ACCOUNT"},
+			{ID: b.org.MasterAccountID, Type: targetTypeAccount},
 			{ID: target.ID, Type: target.Type},
 		},
 		Resources: []HandshakeResource{

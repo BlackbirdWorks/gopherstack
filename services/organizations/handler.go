@@ -17,6 +17,8 @@ import (
 const (
 	orgService      = "organizations"
 	orgTargetPrefix = "AWSOrganizationsV20161128."
+
+	iamAccessAllow = "ALLOW"
 )
 
 // Handler is the HTTP handler for the AWS Organizations JSON 1.1 API.
@@ -420,10 +422,15 @@ func (h *Handler) handleCreateAccount(c *echo.Context, body []byte) error {
 	// Validate IamUserAccessToBilling.
 	iamAccess := req.IamUserAccessToBilling
 	if iamAccess == "" {
-		iamAccess = "ALLOW"
+		iamAccess = iamAccessAllow
 	}
-	if iamAccess != "ALLOW" && iamAccess != "DENY" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "IamUserAccessToBilling must be ALLOW or DENY")
+	if iamAccess != iamAccessAllow && iamAccess != "DENY" {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInputException",
+			"IamUserAccessToBilling must be ALLOW or DENY",
+		)
 	}
 
 	status, err := h.Backend.CreateAccount(req.AccountName, req.Email, roleName, iamAccess, req.Tags)
@@ -1194,10 +1201,15 @@ func (h *Handler) handleCreateGovCloudAccount(c *echo.Context, body []byte) erro
 	// Validate IamUserAccessToBilling.
 	iamAccess := req.IamUserAccessToBilling
 	if iamAccess == "" {
-		iamAccess = "ALLOW"
+		iamAccess = iamAccessAllow
 	}
-	if iamAccess != "ALLOW" && iamAccess != "DENY" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "IamUserAccessToBilling must be ALLOW or DENY")
+	if iamAccess != iamAccessAllow && iamAccess != "DENY" {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInputException",
+			"IamUserAccessToBilling must be ALLOW or DENY",
+		)
 	}
 
 	status, err := h.Backend.CreateGovCloudAccount(req.AccountName, req.Email, roleName, iamAccess, req.Tags)

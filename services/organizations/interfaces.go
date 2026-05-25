@@ -11,7 +11,10 @@ type StorageBackend interface {
 
 	// Account operations
 	CreateAccount(name, email, roleName, iamUserAccessToBilling string, tags []Tag) (*CreateAccountStatus, error)
-	CreateGovCloudAccount(name, email, roleName, iamUserAccessToBilling string, tags []Tag) (*CreateAccountStatus, error)
+	CreateGovCloudAccount(
+		name, email, roleName, iamUserAccessToBilling string,
+		tags []Tag,
+	) (*CreateAccountStatus, error)
 	DescribeCreateAccountStatus(requestID string) (*CreateAccountStatus, error)
 	DescribeAccount(accountID string) (*Account, error)
 	ListAccounts() ([]*Account, error)
