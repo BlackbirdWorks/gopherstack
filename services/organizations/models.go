@@ -16,23 +16,26 @@ func epochSeconds(t time.Time) float64 {
 
 // Organization represents an AWS organization.
 type Organization struct {
-	ID                 string `json:"id"`
-	ARN                string `json:"arn"`
-	FeatureSet         string `json:"featureSet"`
-	MasterAccountID    string `json:"masterAccountID"`
-	MasterAccountARN   string `json:"masterAccountARN"`
-	MasterAccountEmail string `json:"masterAccountEmail"`
+	AvailablePolicyTypes []PolicyTypeSummary `json:"availablePolicyTypes,omitempty"`
+	ID                   string              `json:"id"`
+	ARN                  string              `json:"arn"`
+	FeatureSet           string              `json:"featureSet"`
+	MasterAccountID      string              `json:"masterAccountID"`
+	MasterAccountARN     string              `json:"masterAccountARN"`
+	MasterAccountEmail   string              `json:"masterAccountEmail"`
 }
 
 // Account represents an AWS account in an organization.
 type Account struct {
-	JoinedAt     time.Time `json:"joinedAt"`
-	ID           string    `json:"id"`
-	ARN          string    `json:"arn"`
-	Name         string    `json:"name"`
-	Email        string    `json:"email"`
-	Status       string    `json:"status"`
-	JoinedMethod string    `json:"joinedMethod"`
+	JoinedAt               time.Time `json:"joinedAt"`
+	ID                     string    `json:"id"`
+	ARN                    string    `json:"arn"`
+	Name                   string    `json:"name"`
+	Email                  string    `json:"email"`
+	Status                 string    `json:"status"`
+	JoinedMethod           string    `json:"joinedMethod"`
+	RoleName               string    `json:"roleName,omitempty"`
+	IamUserAccessToBilling string    `json:"iamUserAccessToBilling,omitempty"`
 }
 
 // Root represents the root container in an organization.
@@ -176,12 +179,13 @@ type createOrganizationRequest struct {
 }
 
 type organizationObject struct {
-	ID                 string `json:"Id"`
-	ARN                string `json:"Arn"`
-	FeatureSet         string `json:"FeatureSet"`
-	MasterAccountID    string `json:"MasterAccountId"`
-	MasterAccountARN   string `json:"MasterAccountArn"`
-	MasterAccountEmail string `json:"MasterAccountEmail"`
+	AvailablePolicyTypes []policyTypeObject `json:"AvailablePolicyTypes,omitempty"`
+	ID                   string             `json:"Id"`
+	ARN                  string             `json:"Arn"`
+	FeatureSet           string             `json:"FeatureSet"`
+	MasterAccountID      string             `json:"MasterAccountId"`
+	MasterAccountARN     string             `json:"MasterAccountArn"`
+	MasterAccountEmail   string             `json:"MasterAccountEmail"`
 }
 
 type createOrganizationResponse struct {
@@ -219,13 +223,15 @@ type describeAccountRequest struct {
 }
 
 type accountObject struct {
-	ID           string  `json:"Id"`
-	ARN          string  `json:"Arn"`
-	Name         string  `json:"Name"`
-	Email        string  `json:"Email"`
-	Status       string  `json:"Status"`
-	JoinedMethod string  `json:"JoinedMethod"`
-	JoinedAt     float64 `json:"JoinedTimestamp"`
+	ID                     string  `json:"Id"`
+	ARN                    string  `json:"Arn"`
+	Name                   string  `json:"Name"`
+	Email                  string  `json:"Email"`
+	Status                 string  `json:"Status"`
+	JoinedMethod           string  `json:"JoinedMethod"`
+	JoinedAt               float64 `json:"JoinedTimestamp"`
+	RoleName               string  `json:"RoleName,omitempty"`
+	IamUserAccessToBilling string  `json:"IamUserAccessToBilling,omitempty"`
 }
 
 type describeAccountResponse struct {

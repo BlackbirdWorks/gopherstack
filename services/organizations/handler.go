@@ -411,7 +411,22 @@ func (h *Handler) handleCreateAccount(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Email is required")
 	}
 
-	status, err := h.Backend.CreateAccount(req.AccountName, req.Email, req.Tags)
+	// Default RoleName.
+	roleName := req.RoleName
+	if roleName == "" {
+		roleName = "OrganizationAccountAccessRole"
+	}
+
+	// Validate IamUserAccessToBilling.
+	iamAccess := req.IamUserAccessToBilling
+	if iamAccess == "" {
+		iamAccess = "ALLOW"
+	}
+	if iamAccess != "ALLOW" && iamAccess != "DENY" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "IamUserAccessToBilling must be ALLOW or DENY")
+	}
+
+	status, err := h.Backend.CreateAccount(req.AccountName, req.Email, roleName, iamAccess, req.Tags)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -986,25 +1001,36 @@ func extractErrorType(err error) string {
 // ----------------------------------------
 
 func toOrganizationObject(org *Organization) organizationObject {
+	var pts []policyTypeObject
+	if len(org.AvailablePolicyTypes) > 0 {
+		pts = make([]policyTypeObject, 0, len(org.AvailablePolicyTypes))
+		for _, pt := range org.AvailablePolicyTypes {
+			pts = append(pts, policyTypeObject(pt))
+		}
+	}
+
 	return organizationObject{
-		ID:                 org.ID,
-		ARN:                org.ARN,
-		FeatureSet:         org.FeatureSet,
-		MasterAccountID:    org.MasterAccountID,
-		MasterAccountARN:   org.MasterAccountARN,
-		MasterAccountEmail: org.MasterAccountEmail,
+		AvailablePolicyTypes: pts,
+		ID:                   org.ID,
+		ARN:                  org.ARN,
+		FeatureSet:           org.FeatureSet,
+		MasterAccountID:      org.MasterAccountID,
+		MasterAccountARN:     org.MasterAccountARN,
+		MasterAccountEmail:   org.MasterAccountEmail,
 	}
 }
 
 func toAccountObject(a *Account) accountObject {
 	return accountObject{
-		ID:           a.ID,
-		ARN:          a.ARN,
-		Name:         a.Name,
-		Email:        a.Email,
-		Status:       a.Status,
-		JoinedMethod: a.JoinedMethod,
-		JoinedAt:     epochSeconds(a.JoinedAt),
+		ID:                     a.ID,
+		ARN:                    a.ARN,
+		Name:                   a.Name,
+		Email:                  a.Email,
+		Status:                 a.Status,
+		JoinedMethod:           a.JoinedMethod,
+		JoinedAt:               epochSeconds(a.JoinedAt),
+		RoleName:               a.RoleName,
+		IamUserAccessToBilling: a.IamUserAccessToBilling,
 	}
 }
 
@@ -1159,7 +1185,22 @@ func (h *Handler) handleCreateGovCloudAccount(c *echo.Context, body []byte) erro
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Email is required")
 	}
 
-	status, err := h.Backend.CreateGovCloudAccount(req.AccountName, req.Email, req.Tags)
+	// Default RoleName.
+	roleName := req.RoleName
+	if roleName == "" {
+		roleName = "OrganizationAccountAccessRole"
+	}
+
+	// Validate IamUserAccessToBilling.
+	iamAccess := req.IamUserAccessToBilling
+	if iamAccess == "" {
+		iamAccess = "ALLOW"
+	}
+	if iamAccess != "ALLOW" && iamAccess != "DENY" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "IamUserAccessToBilling must be ALLOW or DENY")
+	}
+
+	status, err := h.Backend.CreateGovCloudAccount(req.AccountName, req.Email, roleName, iamAccess, req.Tags)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}

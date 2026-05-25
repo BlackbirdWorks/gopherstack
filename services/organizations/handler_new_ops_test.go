@@ -573,7 +573,7 @@ func TestBackend_CloseAccount(t *testing.T) {
 			accountID := tt.accountID
 
 			if accountID == "" {
-				status, err := b.CreateAccount("close-test", "close@example.com", nil)
+				status, err := b.CreateAccount("close-test", "close@example.com", "", "", nil)
 				require.NoError(t, err)
 				accountID = status.AccountID
 			}
@@ -588,10 +588,10 @@ func TestBackend_CloseAccount(t *testing.T) {
 
 			require.NoError(t, err)
 
-			// Account should now be SUSPENDED.
+			// Account should now be PENDING_CLOSURE.
 			acct, descErr := b.DescribeAccount(accountID)
 			require.NoError(t, descErr)
-			assert.Equal(t, "SUSPENDED", acct.Status)
+			assert.Equal(t, "PENDING_CLOSURE", acct.Status)
 		})
 	}
 }
@@ -632,7 +632,7 @@ func TestBackend_CreateGovCloudAccount(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			status, err := b.CreateGovCloudAccount(tt.acctName, tt.email, nil)
+			status, err := b.CreateGovCloudAccount(tt.acctName, tt.email, "", "", nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -899,7 +899,7 @@ func TestBackend_DescribeEffectivePolicy(t *testing.T) {
 
 			if tt.seedPolicy {
 				// Create an account.
-				status, acctErr := b.CreateAccount("ep-test", "ep@example.com", nil)
+				status, acctErr := b.CreateAccount("ep-test", "ep@example.com", "", "", nil)
 				require.NoError(t, acctErr)
 				targetID = status.AccountID
 

@@ -50,7 +50,7 @@ func TestBackend_DescribeCreateAccountStatus(t *testing.T) {
 			requestID := tt.requestID
 
 			if requestID == "" {
-				status, err := b.CreateAccount("test-account", "test@example.com", nil)
+				status, err := b.CreateAccount("test-account", "test@example.com", "", "", nil)
 				require.NoError(t, err)
 				requestID = status.ID
 			}
@@ -98,7 +98,7 @@ func TestBackend_RemoveAccountFromOrganization(t *testing.T) {
 			accountID := tt.accountID
 
 			if accountID == "" {
-				status, err := b.CreateAccount("test-account", "test@example.com", nil)
+				status, err := b.CreateAccount("test-account", "test@example.com", "", "", nil)
 				require.NoError(t, err)
 				accountID = status.AccountID
 			}
@@ -144,7 +144,7 @@ func TestBackend_MoveAccount(t *testing.T) {
 			require.NoError(t, err)
 
 			// Create account (placed in root by default).
-			status, err := b.CreateAccount("move-account", "move@example.com", nil)
+			status, err := b.CreateAccount("move-account", "move@example.com", "", "", nil)
 			require.NoError(t, err)
 
 			// Move account from root to OU.
@@ -188,7 +188,7 @@ func TestBackend_ListAccountsForParent(t *testing.T) {
 			b, rootID := newOrgBackend(t)
 
 			// Create an account (goes to root).
-			_, err := b.CreateAccount("child-account", "child@example.com", nil)
+			_, err := b.CreateAccount("child-account", "child@example.com", "", "", nil)
 			require.NoError(t, err)
 
 			accts, err := b.ListAccountsForParent(rootID)
@@ -228,7 +228,7 @@ func TestBackend_ListChildren(t *testing.T) {
 
 			b, rootID := newOrgBackend(t)
 
-			_, err := b.CreateAccount("child-account", "child@example.com", nil)
+			_, err := b.CreateAccount("child-account", "child@example.com", "", "", nil)
 			require.NoError(t, err)
 
 			_, err = b.CreateOrganizationalUnit(rootID, "child-ou", nil)
@@ -478,10 +478,14 @@ func TestBackend_DelegatedAdministrators(t *testing.T) {
 			b, _ := newOrgBackend(t)
 
 			// Create an account to register.
-			status, err := b.CreateAccount("delegate-account", "delegate@example.com", nil)
+			status, err := b.CreateAccount("delegate-account", "delegate@example.com", "", "", nil)
 			require.NoError(t, err)
 
 			accountID := status.AccountID
+
+			// Enable service access first (required by new validation).
+			err = b.EnableAWSServiceAccess(tt.service)
+			require.NoError(t, err)
 
 			// RegisterDelegatedAdministrator.
 			err = b.RegisterDelegatedAdministrator(accountID, tt.service)

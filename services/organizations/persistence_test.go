@@ -23,7 +23,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				_, _, err := b.CreateOrganization("ALL")
 				require.NoError(t, err)
 
-				status, err := b.CreateAccount("test-account", "test@example.com", nil)
+				status, err := b.CreateAccount("test-account", "test@example.com", "", "", nil)
 				require.NoError(t, err)
 
 				return status.AccountID
