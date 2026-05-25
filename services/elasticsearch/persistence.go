@@ -14,6 +14,8 @@ type backendSnapshot struct {
 	InboundConnections  map[string]*InboundConnection  `json:"inboundConnections"`
 	OutboundConnections map[string]*OutboundConnection `json:"outboundConnections"`
 	VpcEndpoints        map[string]*VpcEndpoint        `json:"vpcEndpoints"`
+	VpcAccess           map[string][]string            `json:"vpcAccess"`
+	ReservedInstances   map[string]*ReservedInstance   `json:"reservedInstances"`
 	AccountID           string                         `json:"accountID"`
 	Region              string                         `json:"region"`
 	NextID              int                            `json:"nextID"`
@@ -71,6 +73,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		vpcEndpoints[k] = &cp
 	}
 
+	vpcAccess := make(map[string][]string, len(b.vpcAccess))
+	for domainName, accounts := range b.vpcAccess {
+		vpcAccess[domainName] = append([]string(nil), accounts...)
+	}
+
+	reservedInstances := make(map[string]*ReservedInstance, len(b.reservedInstances))
+	for id, instance := range b.reservedInstances {
+		cp := *instance
+		reservedInstances[id] = &cp
+	}
+
 	snap := backendSnapshot{
 		Domains:             domains,
 		Packages:            packages,
@@ -79,6 +92,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		InboundConnections:  inbound,
 		OutboundConnections: outbound,
 		VpcEndpoints:        vpcEndpoints,
+		VpcAccess:           vpcAccess,
+		ReservedInstances:   reservedInstances,
 		AccountID:           b.accountID,
 		Region:              b.region,
 		NextID:              b.nextID,
@@ -138,6 +153,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.VpcEndpoints = make(map[string]*VpcEndpoint)
 	}
 
+	if snap.VpcAccess == nil {
+		snap.VpcAccess = make(map[string][]string)
+	}
+
+	if snap.ReservedInstances == nil {
+		snap.ReservedInstances = make(map[string]*ReservedInstance)
+	}
+
 	b.domains = snap.Domains
 	b.packages = snap.Packages
 	b.packagesByName = snap.PackagesByName
@@ -145,6 +168,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.inboundConnections = snap.InboundConnections
 	b.outboundConnections = snap.OutboundConnections
 	b.vpcEndpoints = snap.VpcEndpoints
+	b.vpcAccess = snap.VpcAccess
+	b.reservedInstances = snap.ReservedInstances
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.nextID = snap.NextID

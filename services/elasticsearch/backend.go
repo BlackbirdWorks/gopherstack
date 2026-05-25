@@ -6,6 +6,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -13,8 +14,14 @@ import (
 )
 
 const (
-	statusActiveCap = "Active"
-	statusActive    = "ACTIVE"
+	statusActiveCap                = "Active"
+	statusActive                   = "ACTIVE"
+	reservedDurationOneYearSeconds = 31536000
+	defaultElasticsearchVersion    = "7.10"
+	elasticsearchVersion71         = "7.1"
+	elasticsearchVersion68         = "6.8"
+	defaultInstanceType            = "t3.small.elasticsearch"
+	largeInstanceType              = "m5.large.elasticsearch"
 )
 
 // Errors returned by the Elasticsearch backend.
@@ -151,6 +158,8 @@ type InMemoryBackend struct {
 	inboundConnections  map[string]*InboundConnection
 	outboundConnections map[string]*OutboundConnection
 	vpcEndpoints        map[string]*VpcEndpoint
+	vpcAccess           map[string][]string
+	reservedInstances   map[string]*ReservedInstance
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
@@ -168,6 +177,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		inboundConnections:  make(map[string]*InboundConnection),
 		outboundConnections: make(map[string]*OutboundConnection),
 		vpcEndpoints:        make(map[string]*VpcEndpoint),
+		vpcAccess:           make(map[string][]string),
+		reservedInstances:   make(map[string]*ReservedInstance),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("elasticsearch"),
@@ -207,7 +218,7 @@ func (b *InMemoryBackend) CreateDomain(
 	}
 
 	if esVersion == "" {
-		esVersion = "7.10"
+		esVersion = defaultElasticsearchVersion
 	}
 
 	domainARN := arn.Build("es", b.region, b.accountID, "domain/"+name)
@@ -219,7 +230,7 @@ func (b *InMemoryBackend) CreateDomain(
 	}
 
 	if clusterConfig.InstanceType == "" {
-		clusterConfig.InstanceType = "t3.small.elasticsearch"
+		clusterConfig.InstanceType = defaultInstanceType
 	}
 
 	d := &Domain{
@@ -386,6 +397,8 @@ func (b *InMemoryBackend) Reset() {
 	b.inboundConnections = make(map[string]*InboundConnection)
 	b.outboundConnections = make(map[string]*OutboundConnection)
 	b.vpcEndpoints = make(map[string]*VpcEndpoint)
+	b.vpcAccess = make(map[string][]string)
+	b.reservedInstances = make(map[string]*ReservedInstance)
 	b.nextID = 0
 }
 
@@ -525,13 +538,7 @@ func (b *InMemoryBackend) CreateVpcEndpoint(domainARN string, vpcOptions map[str
 	}
 	b.vpcEndpoints[id] = endpoint
 
-	// Return a copy with its own VpcOptions map to prevent aliasing.
-	retOpts := make(map[string]string, len(optsCopy))
-	maps.Copy(retOpts, optsCopy)
-	cp := *endpoint
-	cp.VpcOptions = retOpts
-
-	return &cp, nil
+	return vpcEndpointCopy(endpoint), nil
 }
 
 // AuthorizeVpcEndpointAccess grants an account or service access to the domain's VPC endpoint.
@@ -545,6 +552,11 @@ func (b *InMemoryBackend) AuthorizeVpcEndpointAccess(domainName, account string)
 
 	if _, exists := b.domains[domainName]; !exists {
 		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	if !slices.Contains(b.vpcAccess[domainName], account) {
+		b.vpcAccess[domainName] = append(b.vpcAccess[domainName], account)
+		slices.Sort(b.vpcAccess[domainName])
 	}
 
 	return nil
@@ -834,7 +846,7 @@ func (b *InMemoryBackend) DeleteVpcEndpoint(vpcEndpointID string) (*VpcEndpoint,
 	cp := *endpoint
 	delete(b.vpcEndpoints, vpcEndpointID)
 
-	return &cp, nil
+	return vpcEndpointCopy(&cp), nil
 }
 
 // DescribeVpcEndpoints returns VPC endpoints matching the given IDs, or all endpoints if empty.
@@ -845,8 +857,7 @@ func (b *InMemoryBackend) DescribeVpcEndpoints(vpcEndpointIDs []string) []*VpcEn
 	if len(vpcEndpointIDs) == 0 {
 		result := make([]*VpcEndpoint, 0, len(b.vpcEndpoints))
 		for _, ep := range b.vpcEndpoints {
-			cp := *ep
-			result = append(result, &cp)
+			result = append(result, vpcEndpointCopy(ep))
 		}
 
 		return result
@@ -855,8 +866,7 @@ func (b *InMemoryBackend) DescribeVpcEndpoints(vpcEndpointIDs []string) []*VpcEn
 	result := make([]*VpcEndpoint, 0, len(vpcEndpointIDs))
 	for _, id := range vpcEndpointIDs {
 		if ep, exists := b.vpcEndpoints[id]; exists {
-			cp := *ep
-			result = append(result, &cp)
+			result = append(result, vpcEndpointCopy(ep))
 		}
 	}
 
@@ -872,7 +882,7 @@ func (b *InMemoryBackend) ListVpcEndpointAccess(domainName string) ([]string, er
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	return []string{}, nil
+	return slices.Clone(b.vpcAccess[domainName]), nil
 }
 
 // ListVpcEndpoints returns all VPC endpoints.
@@ -882,8 +892,7 @@ func (b *InMemoryBackend) ListVpcEndpoints() []*VpcEndpoint {
 
 	result := make([]*VpcEndpoint, 0, len(b.vpcEndpoints))
 	for _, ep := range b.vpcEndpoints {
-		cp := *ep
-		result = append(result, &cp)
+		result = append(result, vpcEndpointCopy(ep))
 	}
 
 	return result
@@ -902,8 +911,7 @@ func (b *InMemoryBackend) ListVpcEndpointsForDomain(domainName string) []*VpcEnd
 	var result []*VpcEndpoint
 	for _, ep := range b.vpcEndpoints {
 		if ep.DomainARN == d.ARN {
-			cp := *ep
-			result = append(result, &cp)
+			result = append(result, vpcEndpointCopy(ep))
 		}
 	}
 
@@ -912,14 +920,25 @@ func (b *InMemoryBackend) ListVpcEndpointsForDomain(domainName string) []*VpcEnd
 
 // RevokeVpcEndpointAccess revokes an account's access to a domain's VPC endpoint.
 func (b *InMemoryBackend) RevokeVpcEndpointAccess(domainName, account string) error {
-	b.mu.RLock("RevokeVpcEndpointAccess")
-	defer b.mu.RUnlock()
+	if account == "" {
+		return fmt.Errorf("%w: account principal is required", ErrValidation)
+	}
+
+	b.mu.Lock("RevokeVpcEndpointAccess")
+	defer b.mu.Unlock()
 
 	if _, exists := b.domains[domainName]; !exists {
 		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	_ = account
+	accounts := b.vpcAccess[domainName]
+	for i, authorized := range accounts {
+		if authorized == account {
+			b.vpcAccess[domainName] = append(accounts[:i], accounts[i+1:]...)
+
+			break
+		}
+	}
 
 	return nil
 }
@@ -938,12 +957,15 @@ func (b *InMemoryBackend) UpdateVpcEndpoint(vpcEndpointID string, vpcOptions map
 	maps.Copy(newOpts, vpcOptions)
 	endpoint.VpcOptions = newOpts
 
-	retOpts := make(map[string]string, len(newOpts))
-	maps.Copy(retOpts, newOpts)
-	cp := *endpoint
-	cp.VpcOptions = retOpts
+	return vpcEndpointCopy(endpoint), nil
+}
 
-	return &cp, nil
+func vpcEndpointCopy(endpoint *VpcEndpoint) *VpcEndpoint {
+	cp := *endpoint
+	cp.VpcOptions = maps.Clone(endpoint.VpcOptions)
+	cp.AuthorizedAccts = slices.Clone(endpoint.AuthorizedAccts)
+
+	return &cp
 }
 
 // DescribeDomainAutoTunes validates a domain exists and returns (the in-memory backend has no auto-tune state).
@@ -1026,12 +1048,30 @@ func (b *InMemoryBackend) UpgradeElasticsearchDomain(domainName, targetVersion s
 
 // DescribeReservedElasticsearchInstanceOfferings returns available reserved instance offerings.
 func (b *InMemoryBackend) DescribeReservedElasticsearchInstanceOfferings() []ReservedInstanceOffering {
-	return []ReservedInstanceOffering{}
+	return []ReservedInstanceOffering{{
+		OfferingID:    "offer-t3-small-1y",
+		InstanceType:  defaultInstanceType,
+		PaymentOption: "NO_UPFRONT",
+		Currency:      "USD",
+		Duration:      reservedDurationOneYearSeconds,
+	}}
 }
 
 // DescribeReservedElasticsearchInstances returns purchased reserved instances.
 func (b *InMemoryBackend) DescribeReservedElasticsearchInstances() []ReservedInstance {
-	return []ReservedInstance{}
+	b.mu.RLock("DescribeReservedElasticsearchInstances")
+	defer b.mu.RUnlock()
+
+	instances := make([]ReservedInstance, 0, len(b.reservedInstances))
+	for _, instance := range b.reservedInstances {
+		instances = append(instances, *instance)
+	}
+
+	slices.SortFunc(instances, func(a, c ReservedInstance) int {
+		return strings.Compare(a.ReservationID, c.ReservationID)
+	})
+
+	return instances
 }
 
 // PurchaseReservedElasticsearchInstanceOffering purchases a reserved instance offering.
@@ -1045,13 +1085,31 @@ func (b *InMemoryBackend) PurchaseReservedElasticsearchInstanceOffering(
 	b.mu.Lock("PurchaseReservedElasticsearchInstanceOffering")
 	defer b.mu.Unlock()
 
-	id := fmt.Sprintf("ri-%010d", b.nextIDLocked())
+	if count == 0 {
+		count = 1
+	}
 
-	return &ReservedInstance{
+	id := fmt.Sprintf("ri-%010d", b.nextIDLocked())
+	instance := &ReservedInstance{
 		ReservationID:   id,
 		ReservationName: name,
 		OfferingID:      offeringID,
 		Count:           count,
-		State:           "payment-pending",
-	}, nil
+		State:           statusActive,
+	}
+	for _, offering := range b.DescribeReservedElasticsearchInstanceOfferings() {
+		if offering.OfferingID == offeringID {
+			instance.InstanceType = offering.InstanceType
+			instance.FixedPrice = offering.FixedPrice
+			instance.UsagePrice = offering.UsagePrice
+			instance.Duration = offering.Duration
+
+			break
+		}
+	}
+
+	b.reservedInstances[id] = instance
+	cp := *instance
+
+	return &cp, nil
 }
