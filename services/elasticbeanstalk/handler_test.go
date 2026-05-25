@@ -1475,6 +1475,11 @@ func TestHandler_DescribeEnvironmentResources(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
+			postEBForm(
+				t,
+				h,
+				"Version=2010-12-01&Action=CreateEnvironment&ApplicationName=my-app&EnvironmentName=my-env",
+			)
 			rec := postEBForm(t, h, tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
