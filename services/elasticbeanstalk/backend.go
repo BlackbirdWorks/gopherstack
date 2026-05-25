@@ -34,6 +34,14 @@ const (
 	envHealthGreen = "Green"
 	// managedActionFinishedTime is a placeholder timestamp for managed action history.
 	managedActionFinishedTime = "2026-01-01T00:00:00Z"
+	// appVersionStatusProcessed is returned for application versions requested with processing enabled.
+	appVersionStatusProcessed = "Processed"
+	// appVersionStatusUnprocessed is returned for application versions without processing enabled.
+	appVersionStatusUnprocessed = "Unprocessed"
+	// defaultEnvironmentTierName is the AWS default web application tier.
+	defaultEnvironmentTierName = "WebServer"
+	// defaultEnvironmentTierType is the AWS default standard tier type.
+	defaultEnvironmentTierType = "Standard"
 )
 
 // Application represents an Elastic Beanstalk application.
@@ -48,43 +56,59 @@ type Application struct {
 // Environment represents an Elastic Beanstalk environment.
 type Environment struct {
 	Tags              map[string]string `json:"tags,omitempty"`
-	ApplicationName   string            `json:"applicationName"`
+	Status            string            `json:"status"`
+	Health            string            `json:"health"`
 	EnvironmentName   string            `json:"environmentName"`
 	EnvironmentID     string            `json:"environmentId"`
 	EnvironmentARN    string            `json:"environmentArn"`
 	SolutionStackName string            `json:"solutionStackName,omitempty"`
+	CustomAMI         string            `json:"customAMI,omitempty"`
+	TemplateName      string            `json:"templateName,omitempty"`
+	VersionLabel      string            `json:"versionLabel,omitempty"`
 	Description       string            `json:"description,omitempty"`
+	ApplicationName   string            `json:"applicationName"`
+	PlatformARN       string            `json:"platformArn,omitempty"`
+	TierVersion       string            `json:"tierVersion,omitempty"`
+	Tier              string            `json:"tier,omitempty"`
+	TierType          string            `json:"tierType,omitempty"`
+	TierName          string            `json:"tierName,omitempty"`
 	OperationsRole    string            `json:"operationsRole,omitempty"`
-	Status            string            `json:"status"`
-	Health            string            `json:"health"`
-	// Tier fields (improvement #1: environment tier configs)
-	Tier     string `json:"tier,omitempty"`
-	TierType string `json:"tierType,omitempty"`
-	TierName string `json:"tierName,omitempty"`
-	// CNAME (improvement #10: real CNAME swap support)
-	CNAME string `json:"cname,omitempty"`
-	// Load balancer type (improvement #14)
-	LoadBalancerType string `json:"loadBalancerType,omitempty"`
-	// VPC config (improvement #15)
-	VPCID   string `json:"vpcId,omitempty"`
-	Subnets string `json:"subnets,omitempty"`
-	// Instance profile (improvement #16)
-	InstanceProfile string `json:"instanceProfile,omitempty"`
-	// Custom AMI (improvement #5)
-	CustomAMI string `json:"customAMI,omitempty"`
+	CNAME             string            `json:"cname,omitempty"`
+	CNAMEPrefix       string            `json:"cnamePrefix,omitempty"`
+	LoadBalancerType  string            `json:"loadBalancerType,omitempty"`
+	VPCID             string            `json:"vpcId,omitempty"`
+	Subnets           string            `json:"subnets,omitempty"`
+	InstanceProfile   string            `json:"instanceProfile,omitempty"`
+	OptionSettings    []OptionSetting   `json:"optionSettings,omitempty"`
 }
 
 // ApplicationVersion represents an Elastic Beanstalk application version.
 type ApplicationVersion struct {
-	Tags                  map[string]string `json:"tags,omitempty"`
-	ApplicationName       string            `json:"applicationName"`
-	VersionLabel          string            `json:"versionLabel"`
-	ApplicationVersionARN string            `json:"applicationVersionArn"`
-	Description           string            `json:"description,omitempty"`
-	Status                string            `json:"status"`
-	// S3 source bundle (improvement #8)
-	S3Bucket string `json:"s3Bucket,omitempty"`
-	S3Key    string `json:"s3Key,omitempty"`
+	Tags                   map[string]string       `json:"tags,omitempty"`
+	SourceBuildInformation *SourceBuildInformation `json:"sourceBuildInformation,omitempty"`
+	ApplicationName        string                  `json:"applicationName"`
+	VersionLabel           string                  `json:"versionLabel"`
+	ApplicationVersionARN  string                  `json:"applicationVersionArn"`
+	Description            string                  `json:"description,omitempty"`
+	Status                 string                  `json:"status"`
+	S3Bucket               string                  `json:"s3Bucket,omitempty"`
+	S3Key                  string                  `json:"s3Key,omitempty"`
+	Process                bool                    `json:"process"`
+}
+
+// SourceBuildInformation identifies a CodeCommit source for an application version.
+type SourceBuildInformation struct {
+	SourceType       string `json:"sourceType,omitempty"`
+	SourceRepository string `json:"sourceRepository,omitempty"`
+	SourceLocation   string `json:"sourceLocation,omitempty"`
+}
+
+// OptionSetting is a configured Elastic Beanstalk environment option.
+type OptionSetting struct {
+	Namespace    string `json:"namespace"`
+	OptionName   string `json:"optionName"`
+	ResourceName string `json:"resourceName,omitempty"`
+	Value        string `json:"value,omitempty"`
 }
 
 // ConfigurationTemplate represents an Elastic Beanstalk configuration template.
@@ -152,6 +176,7 @@ func cloneApplication(app *Application) *Application {
 func cloneEnvironment(env *Environment) *Environment {
 	cp := *env
 	cp.Tags = copyTags(env.Tags)
+	cp.OptionSettings = slices.Clone(env.OptionSettings)
 
 	return &cp
 }
@@ -160,6 +185,10 @@ func cloneEnvironment(env *Environment) *Environment {
 func cloneApplicationVersion(ver *ApplicationVersion) *ApplicationVersion {
 	cp := *ver
 	cp.Tags = copyTags(ver.Tags)
+	if ver.SourceBuildInformation != nil {
+		source := *ver.SourceBuildInformation
+		cp.SourceBuildInformation = &source
+	}
 
 	return &cp
 }
@@ -351,11 +380,32 @@ func (b *InMemoryBackend) DeleteApplication(name string) error {
 type CreateEnvironmentParams struct {
 	TierType         string
 	TierName         string
+	TierVersion      string
+	CNAMEPrefix      string
+	PlatformARN      string
+	TemplateName     string
+	VersionLabel     string
+	OperationsRole   string
 	LoadBalancerType string
 	VPCID            string
 	Subnets          string
 	InstanceProfile  string
 	CustomAMI        string
+	OptionSettings   []OptionSetting
+}
+
+// UpdateEnvironmentParams holds state changes accepted by UpdateEnvironment.
+type UpdateEnvironmentParams struct {
+	SolutionStackName string
+	PlatformARN       string
+	TemplateName      string
+	VersionLabel      string
+	Description       string
+	TierType          string
+	TierName          string
+	TierVersion       string
+	OptionSettings    []OptionSetting
+	OptionsToRemove   []OptionSetting
 }
 
 // ValidateInstanceProfileARN validates that an instance profile ARN has the correct format (improvement #16).
@@ -396,29 +446,40 @@ func (b *InMemoryBackend) CreateEnvironment(
 	// Resolve tier fields (improvement #1)
 	tierName := params.TierName
 	if tierName == "" {
-		tierName = "WebServer"
+		tierName = defaultEnvironmentTierName
 	}
 
 	tierType := params.TierType
 	if tierType == "" {
-		tierType = "Standard"
+		tierType = defaultEnvironmentTierType
 	}
 
-	cname := envName + "." + b.region + ".elasticbeanstalk.com"
+	cnamePrefix := params.CNAMEPrefix
+	if cnamePrefix == "" {
+		cnamePrefix = envName
+	}
+	cname := cnamePrefix + "." + b.region + ".elasticbeanstalk.com"
 
 	env := &Environment{
+		OptionSettings:    slices.Clone(params.OptionSettings),
 		ApplicationName:   appName,
 		EnvironmentName:   envName,
 		EnvironmentID:     envID,
 		EnvironmentARN:    envARN,
 		SolutionStackName: solutionStack,
+		PlatformARN:       params.PlatformARN,
+		TemplateName:      params.TemplateName,
+		VersionLabel:      params.VersionLabel,
 		Description:       description,
+		OperationsRole:    params.OperationsRole,
 		Status:            envStatusReady,
 		Health:            envHealthGreen,
 		Tier:              tierName,
 		TierType:          tierType,
 		TierName:          tierName,
+		TierVersion:       params.TierVersion,
 		CNAME:             cname,
+		CNAMEPrefix:       cnamePrefix,
 		LoadBalancerType:  params.LoadBalancerType,
 		VPCID:             params.VPCID,
 		Subnets:           params.Subnets,
@@ -473,6 +534,17 @@ func (b *InMemoryBackend) DescribeEnvironments(appName string, envNames []string
 
 // UpdateEnvironment updates an environment's description or solution stack.
 func (b *InMemoryBackend) UpdateEnvironment(appName, envName, description, solutionStack string) (*Environment, error) {
+	return b.UpdateEnvironmentWithParams(appName, envName, UpdateEnvironmentParams{
+		Description:       description,
+		SolutionStackName: solutionStack,
+	})
+}
+
+// UpdateEnvironmentWithParams applies all mutable environment properties.
+func (b *InMemoryBackend) UpdateEnvironmentWithParams(
+	appName, envName string,
+	params UpdateEnvironmentParams,
+) (*Environment, error) {
 	b.mu.Lock("UpdateEnvironment")
 	defer b.mu.Unlock()
 
@@ -483,15 +555,76 @@ func (b *InMemoryBackend) UpdateEnvironment(appName, envName, description, solut
 		return nil, fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
 	}
 
-	if description != "" {
-		env.Description = description
+	if params.Description != "" {
+		env.Description = params.Description
 	}
 
-	if solutionStack != "" {
-		env.SolutionStackName = solutionStack
+	if params.SolutionStackName != "" {
+		env.SolutionStackName = params.SolutionStackName
+		env.PlatformARN = ""
+		env.TemplateName = ""
 	}
+
+	if params.PlatformARN != "" {
+		env.PlatformARN = params.PlatformARN
+		env.SolutionStackName = ""
+		env.TemplateName = ""
+	}
+
+	if params.TemplateName != "" {
+		env.TemplateName = params.TemplateName
+		env.SolutionStackName = ""
+		env.PlatformARN = ""
+	}
+
+	if params.VersionLabel != "" {
+		env.VersionLabel = params.VersionLabel
+	}
+
+	if params.TierName != "" {
+		env.Tier = params.TierName
+		env.TierName = params.TierName
+	}
+
+	if params.TierType != "" {
+		env.TierType = params.TierType
+	}
+
+	if params.TierVersion != "" {
+		env.TierVersion = params.TierVersion
+	}
+
+	env.OptionSettings = updateOptionSettings(env.OptionSettings, params.OptionSettings, params.OptionsToRemove)
 
 	return cloneEnvironment(env), nil
+}
+
+// updateOptionSettings applies updates and removals while preserving deterministic output ordering.
+func updateOptionSettings(current, updates, removals []OptionSetting) []OptionSetting {
+	byKey := make(map[string]OptionSetting, len(current)+len(updates))
+	for _, setting := range current {
+		byKey[optionSettingKey(setting)] = setting
+	}
+	for _, setting := range updates {
+		byKey[optionSettingKey(setting)] = setting
+	}
+	for _, setting := range removals {
+		delete(byKey, optionSettingKey(setting))
+	}
+
+	result := make([]OptionSetting, 0, len(byKey))
+	for _, setting := range byKey {
+		result = append(result, setting)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return optionSettingKey(result[i]) < optionSettingKey(result[j])
+	})
+
+	return result
+}
+
+func optionSettingKey(setting OptionSetting) string {
+	return setting.Namespace + "\x00" + setting.OptionName + "\x00" + setting.ResourceName
 }
 
 // TerminateEnvironment marks an environment as Terminated and removes it from storage.
@@ -548,12 +681,19 @@ func (b *InMemoryBackend) CloneEnvironment(srcAppName, srcEnvName, newEnvName st
 		Tier:              src.Tier,
 		TierType:          src.TierType,
 		TierName:          src.TierName,
+		TierVersion:       src.TierVersion,
 		CNAME:             cname,
+		CNAMEPrefix:       newEnvName,
 		LoadBalancerType:  src.LoadBalancerType,
 		VPCID:             src.VPCID,
 		Subnets:           src.Subnets,
 		InstanceProfile:   src.InstanceProfile,
 		CustomAMI:         src.CustomAMI,
+		OptionSettings:    slices.Clone(src.OptionSettings),
+		PlatformARN:       src.PlatformARN,
+		TemplateName:      src.TemplateName,
+		VersionLabel:      src.VersionLabel,
+		OperationsRole:    src.OperationsRole,
 		Tags:              copyTags(src.Tags),
 	}
 	b.environments[destKey] = env
@@ -568,6 +708,31 @@ func (b *InMemoryBackend) CreateApplicationVersion(
 	s3Bucket, s3Key string,
 	tags map[string]string,
 ) (*ApplicationVersion, error) {
+	return b.CreateApplicationVersionWithParams(appName, versionLabel, ApplicationVersionParams{
+		Description: description,
+		S3Bucket:    s3Bucket,
+		S3Key:       s3Key,
+		Tags:        tags,
+		Process:     true,
+	})
+}
+
+// ApplicationVersionParams holds optional CreateApplicationVersion properties.
+type ApplicationVersionParams struct {
+	SourceBuildInformation *SourceBuildInformation
+	Tags                   map[string]string
+	Description            string
+	S3Bucket               string
+	S3Key                  string
+	Process                bool
+	AutoCreateApplication  bool
+}
+
+// CreateApplicationVersionWithParams creates a new application version with source and processing state.
+func (b *InMemoryBackend) CreateApplicationVersionWithParams(
+	appName, versionLabel string,
+	params ApplicationVersionParams,
+) (*ApplicationVersion, error) {
 	b.mu.Lock("CreateApplicationVersion")
 	defer b.mu.Unlock()
 
@@ -579,15 +744,34 @@ func (b *InMemoryBackend) CreateApplicationVersion(
 	vARN := arn.Build("elasticbeanstalk", b.region, b.accountID,
 		"applicationversion/"+appName+"/"+versionLabel)
 
+	if params.AutoCreateApplication {
+		if _, ok := b.applications[appName]; !ok {
+			appARN := arn.Build("elasticbeanstalk", b.region, b.accountID, "application/"+appName)
+			b.applications[appName] = &Application{
+				ApplicationName: appName,
+				ApplicationARN:  appARN,
+				Tags:            map[string]string{},
+			}
+			b.appARNIndex[appARN] = appName
+		}
+	}
+
+	status := appVersionStatusUnprocessed
+	if params.Process {
+		status = appVersionStatusProcessed
+	}
+
 	ver := &ApplicationVersion{
-		ApplicationName:       appName,
-		VersionLabel:          versionLabel,
-		ApplicationVersionARN: vARN,
-		Description:           description,
-		Status:                "Processed",
-		S3Bucket:              s3Bucket,
-		S3Key:                 s3Key,
-		Tags:                  copyTags(tags),
+		ApplicationName:        appName,
+		VersionLabel:           versionLabel,
+		ApplicationVersionARN:  vARN,
+		Description:            params.Description,
+		Status:                 status,
+		Process:                params.Process,
+		S3Bucket:               params.S3Bucket,
+		S3Key:                  params.S3Key,
+		SourceBuildInformation: params.SourceBuildInformation,
+		Tags:                   copyTags(params.Tags),
 	}
 	b.appVersions[key] = ver
 	b.verARNIndex[ver.ApplicationVersionARN] = key

@@ -459,7 +459,11 @@ type environmentDescType struct {
 	EnvironmentName   string              `xml:"EnvironmentName"`
 	EnvironmentID     string              `xml:"EnvironmentId"`
 	EnvironmentArn    string              `xml:"EnvironmentArn"`
+	Description       string              `xml:"Description,omitempty"`
 	SolutionStackName string              `xml:"SolutionStackName"`
+	PlatformArn       string              `xml:"PlatformArn,omitempty"`
+	VersionLabel      string              `xml:"VersionLabel,omitempty"`
+	OperationsRole    string              `xml:"OperationsRole,omitempty"`
 	Status            string              `xml:"Status"`
 	Health            string              `xml:"Health"`
 	Tier              environmentTierType `xml:"Tier"`
@@ -487,18 +491,27 @@ func toEnvironmentDesc(env *Environment, region string) environmentDescType {
 		tierType = "Standard"
 	}
 
+	tierVersion := env.TierVersion
+	if tierVersion == "" {
+		tierVersion = "1.0"
+	}
+
 	return environmentDescType{
 		ApplicationName:   env.ApplicationName,
 		EnvironmentName:   env.EnvironmentName,
 		EnvironmentID:     env.EnvironmentID,
 		EnvironmentArn:    env.EnvironmentARN,
+		Description:       env.Description,
 		SolutionStackName: env.SolutionStackName,
+		PlatformArn:       env.PlatformARN,
+		VersionLabel:      env.VersionLabel,
+		OperationsRole:    env.OperationsRole,
 		Status:            env.Status,
 		Health:            env.Health,
 		Tier: environmentTierType{
 			Name:    tierName,
 			Type:    tierType,
-			Version: "1.0",
+			Version: tierVersion,
 		},
 		CNAME:       cname,
 		EndpointURL: cname,
@@ -527,10 +540,12 @@ func (h *Handler) handleCreateEnvironment(vals url.Values) (any, error) {
 	solutionStack := vals.Get("SolutionStackName")
 	description := vals.Get("Description")
 	tags := parseTagList(vals, "Tags.member")
+	optionSettings := parseOptionSettings(vals, "OptionSettings.member")
 
 	// Parse tier (improvement #1)
 	tierName := vals.Get("Tier.Name")
 	tierType := vals.Get("Tier.Type")
+	tierVersion := vals.Get("Tier.Version")
 
 	// Parse load balancer type from OptionSettings (improvement #14)
 	lbType := parseOptionSetting(vals, "aws:elasticbeanstalk:environment", "LoadBalancerType")
@@ -551,11 +566,18 @@ func (h *Handler) handleCreateEnvironment(vals url.Values) (any, error) {
 	params := CreateEnvironmentParams{
 		TierType:         tierType,
 		TierName:         tierName,
+		TierVersion:      tierVersion,
+		CNAMEPrefix:      vals.Get("CNAMEPrefix"),
+		PlatformARN:      vals.Get("PlatformArn"),
+		TemplateName:     vals.Get("TemplateName"),
+		VersionLabel:     vals.Get("VersionLabel"),
+		OperationsRole:   vals.Get("OperationsRole"),
 		LoadBalancerType: lbType,
 		VPCID:            vpcID,
 		Subnets:          subnets,
 		InstanceProfile:  instanceProfile,
 		CustomAMI:        customAMI,
+		OptionSettings:   optionSettings,
 	}
 
 	env, err := h.Backend.CreateEnvironment(appName, envName, solutionStack, description, tags, params)
@@ -615,7 +637,6 @@ func (h *Handler) handleUpdateEnvironment(vals url.Values) (any, error) {
 
 	appName := vals.Get("ApplicationName")
 	description := vals.Get("Description")
-	solutionStack := vals.Get("SolutionStackName")
 
 	// If no app name provided, search across all environments for this name.
 	if appName == "" {
@@ -633,7 +654,18 @@ func (h *Handler) handleUpdateEnvironment(vals url.Values) (any, error) {
 		// len(envs) == 0: let the backend return a not-found error below.
 	}
 
-	env, err := h.Backend.UpdateEnvironment(appName, envName, description, solutionStack)
+	env, err := h.Backend.UpdateEnvironmentWithParams(appName, envName, UpdateEnvironmentParams{
+		Description:       description,
+		SolutionStackName: vals.Get("SolutionStackName"),
+		PlatformARN:       vals.Get("PlatformArn"),
+		TemplateName:      vals.Get("TemplateName"),
+		VersionLabel:      vals.Get("VersionLabel"),
+		TierName:          vals.Get("Tier.Name"),
+		TierType:          vals.Get("Tier.Type"),
+		TierVersion:       vals.Get("Tier.Version"),
+		OptionSettings:    parseOptionSettings(vals, "OptionSettings.member"),
+		OptionsToRemove:   parseOptionSettings(vals, "OptionsToRemove.member"),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -692,21 +724,46 @@ func (h *Handler) handleTerminateEnvironment(vals url.Values) (any, error) {
 // --- Application Version operations ---
 
 type appVersionDescType struct {
-	ApplicationName       string `xml:"ApplicationName"`
-	VersionLabel          string `xml:"VersionLabel"`
-	ApplicationVersionArn string `xml:"ApplicationVersionArn"`
-	Description           string `xml:"Description,omitempty"`
-	Status                string `xml:"Status"`
+	SourceBundle           *s3LocationType             `xml:"SourceBundle,omitempty"`
+	SourceBuildInformation *sourceBuildInformationType `xml:"SourceBuildInformation,omitempty"`
+	ApplicationName        string                      `xml:"ApplicationName"`
+	VersionLabel           string                      `xml:"VersionLabel"`
+	ApplicationVersionArn  string                      `xml:"ApplicationVersionArn"`
+	Description            string                      `xml:"Description,omitempty"`
+	Status                 string                      `xml:"Status"`
+}
+
+type s3LocationType struct {
+	S3Bucket string `xml:"S3Bucket"`
+	S3Key    string `xml:"S3Key"`
+}
+
+type sourceBuildInformationType struct {
+	SourceType       string `xml:"SourceType"`
+	SourceRepository string `xml:"SourceRepository"`
+	SourceLocation   string `xml:"SourceLocation"`
 }
 
 func toAppVersionDesc(ver *ApplicationVersion) appVersionDescType {
-	return appVersionDescType{
+	desc := appVersionDescType{
 		ApplicationName:       ver.ApplicationName,
 		VersionLabel:          ver.VersionLabel,
 		ApplicationVersionArn: ver.ApplicationVersionARN,
 		Description:           ver.Description,
 		Status:                ver.Status,
 	}
+	if ver.S3Bucket != "" || ver.S3Key != "" {
+		desc.SourceBundle = &s3LocationType{S3Bucket: ver.S3Bucket, S3Key: ver.S3Key}
+	}
+	if ver.SourceBuildInformation != nil {
+		desc.SourceBuildInformation = &sourceBuildInformationType{
+			SourceType:       ver.SourceBuildInformation.SourceType,
+			SourceRepository: ver.SourceBuildInformation.SourceRepository,
+			SourceLocation:   ver.SourceBuildInformation.SourceLocation,
+		}
+	}
+
+	return desc
 }
 
 type createApplicationVersionResult struct {
@@ -739,7 +796,15 @@ func (h *Handler) handleCreateApplicationVersion(vals url.Values) (any, error) {
 	s3Bucket := vals.Get("SourceBundle.S3Bucket")
 	s3Key := vals.Get("SourceBundle.S3Key")
 
-	ver, err := h.Backend.CreateApplicationVersion(appName, versionLabel, description, s3Bucket, s3Key, tags)
+	ver, err := h.Backend.CreateApplicationVersionWithParams(appName, versionLabel, ApplicationVersionParams{
+		Description:            description,
+		S3Bucket:               s3Bucket,
+		S3Key:                  s3Key,
+		Tags:                   tags,
+		Process:                strings.EqualFold(vals.Get("Process"), "true"),
+		AutoCreateApplication:  strings.EqualFold(vals.Get("AutoCreateApplication"), "true"),
+		SourceBuildInformation: parseSourceBuildInformation(vals),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -945,17 +1010,39 @@ type describeEnvironmentResourcesResponse struct {
 	DescribeEnvironmentResourcesResult describeEnvironmentResourcesResult `xml:"DescribeEnvironmentResourcesResult"`
 }
 
-// handleDescribeEnvironmentResources returns an empty environment resources list.
-// The Terraform provider calls this after environment creation to read resource details.
 func (h *Handler) handleDescribeEnvironmentResources(vals url.Values) (any, error) {
 	envName := vals.Get("EnvironmentName")
+	envID := vals.Get("EnvironmentId")
+	if envName == "" && envID == "" {
+		return nil, fmt.Errorf("%w: EnvironmentName or EnvironmentId is required", ErrInvalidParameter)
+	}
+
+	envs := h.Backend.DescribeEnvironments("", []string{envName}, []string{envID})
+	if envName == "" {
+		envs = h.Backend.DescribeEnvironments("", nil, []string{envID})
+	} else if envID == "" {
+		envs = h.Backend.DescribeEnvironments("", []string{envName}, nil)
+	}
+	if len(envs) == 0 {
+		return nil, fmt.Errorf("%w: environment not found", ErrNotFound)
+	}
+	env := envs[0]
+	resources := environmentResourceDescType{
+		EnvironmentName:      env.EnvironmentName,
+		AutoScalingGroups:    []string{env.EnvironmentName + "-asg"},
+		Instances:            []string{"i-" + strings.TrimPrefix(env.EnvironmentID, "e-")},
+		LaunchConfigurations: []string{env.EnvironmentName + "-lc"},
+	}
+	if env.TierName == "Worker" {
+		resources.Queues = []string{"https://sqs." + h.Backend.Region() + ".amazonaws.com/" + env.EnvironmentName}
+	} else {
+		resources.LoadBalancers = []string{env.EnvironmentName + "-lb"}
+	}
 
 	return &describeEnvironmentResourcesResponse{
 		Xmlns: ebXMLNS,
 		DescribeEnvironmentResourcesResult: describeEnvironmentResourcesResult{
-			EnvironmentResources: environmentResourceDescType{
-				EnvironmentName: envName,
-			},
+			EnvironmentResources: resources,
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-describe-env-resources"},
 	}, nil
@@ -994,22 +1081,29 @@ func (h *Handler) handleDescribeConfigurationSettings(vals url.Values) (any, err
 	appName := vals.Get("ApplicationName")
 	envName := vals.Get("EnvironmentName")
 
-	solutionStack := ""
+	var env *Environment
 
 	if envName != "" {
 		envs := h.Backend.DescribeEnvironments(appName, []string{envName}, nil)
 		if len(envs) > 0 {
-			solutionStack = envs[0].SolutionStackName
+			env = envs[0]
 		}
 	}
 
 	settings := make([]configurationSettingsDescType, 0)
 
-	if envName != "" || appName != "" {
+	if env != nil {
+		optionSettings := make([]configurationOptionSettingType, 0, len(env.OptionSettings))
+		for _, setting := range env.OptionSettings {
+			optionSettings = append(optionSettings, configurationOptionSettingType{
+				Namespace: setting.Namespace, OptionName: setting.OptionName, Value: setting.Value,
+			})
+		}
 		settings = append(settings, configurationSettingsDescType{
-			ApplicationName:   appName,
-			EnvironmentName:   envName,
-			SolutionStackName: solutionStack,
+			ApplicationName:   env.ApplicationName,
+			EnvironmentName:   env.EnvironmentName,
+			SolutionStackName: env.SolutionStackName,
+			OptionSettings:    optionSettings,
 		})
 	}
 
@@ -1156,6 +1250,40 @@ func parseOptionSetting(vals url.Values, namespace, optionName string) string {
 	}
 
 	return ""
+}
+
+func parseOptionSettings(vals url.Values, prefix string) []OptionSetting {
+	settings := make([]OptionSetting, 0)
+	for i := 1; ; i++ {
+		namespace := vals.Get(fmt.Sprintf("%s.%d.Namespace", prefix, i))
+		optionName := vals.Get(fmt.Sprintf("%s.%d.OptionName", prefix, i))
+		if namespace == "" && optionName == "" {
+			break
+		}
+		settings = append(settings, OptionSetting{
+			Namespace:    namespace,
+			OptionName:   optionName,
+			ResourceName: vals.Get(fmt.Sprintf("%s.%d.ResourceName", prefix, i)),
+			Value:        vals.Get(fmt.Sprintf("%s.%d.Value", prefix, i)),
+		})
+	}
+
+	return settings
+}
+
+func parseSourceBuildInformation(vals url.Values) *SourceBuildInformation {
+	sourceType := vals.Get("SourceBuildInformation.SourceType")
+	sourceRepository := vals.Get("SourceBuildInformation.SourceRepository")
+	sourceLocation := vals.Get("SourceBuildInformation.SourceLocation")
+	if sourceType == "" && sourceRepository == "" && sourceLocation == "" {
+		return nil
+	}
+
+	return &SourceBuildInformation{
+		SourceType:       sourceType,
+		SourceRepository: sourceRepository,
+		SourceLocation:   sourceLocation,
+	}
 }
 
 // Reset clears all backend state.

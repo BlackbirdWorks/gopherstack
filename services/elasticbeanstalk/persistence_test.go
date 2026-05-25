@@ -44,6 +44,35 @@ func TestElasticBeanstalk_PersistenceSnapshotRestore(t *testing.T) {
 				assert.Equal(t, "prod", gotTags["env"])
 			},
 		},
+		{
+			name: "batch1_environment_and_version_state_preserved",
+			setup: func(b *elasticbeanstalk.InMemoryBackend) {
+				_, _ = b.CreateEnvironment("app", "env", "stack", "", nil, elasticbeanstalk.CreateEnvironmentParams{
+					VersionLabel: "v1",
+					OptionSettings: []elasticbeanstalk.OptionSetting{
+						{Namespace: "aws:ec2:vpc", OptionName: "VPCId", Value: "vpc-1"},
+					},
+				})
+				_, _ = b.CreateApplicationVersionWithParams("app", "v1", elasticbeanstalk.ApplicationVersionParams{
+					Process: true,
+					SourceBuildInformation: &elasticbeanstalk.SourceBuildInformation{
+						SourceType: "CodeCommit", SourceRepository: "repo", SourceLocation: "main",
+					},
+				})
+			},
+			verify: func(t *testing.T, b *elasticbeanstalk.InMemoryBackend) {
+				t.Helper()
+
+				envs := b.DescribeEnvironments("app", []string{"env"}, nil)
+				require.Len(t, envs, 1)
+				assert.Equal(t, "v1", envs[0].VersionLabel)
+				assert.Equal(t, "vpc-1", envs[0].OptionSettings[0].Value)
+
+				versions := b.DescribeApplicationVersions("app", []string{"v1"})
+				require.Len(t, versions, 1)
+				assert.Equal(t, "CodeCommit", versions[0].SourceBuildInformation.SourceType)
+			},
+		},
 	}
 
 	for _, tt := range tests {
