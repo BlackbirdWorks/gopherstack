@@ -70,6 +70,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
@@ -281,6 +282,8 @@ type Stack struct {
 	RAMHandler *rambackend.Handler
 	// RedshiftDataHandler provides access to the Redshift Data backend.
 	RedshiftDataHandler *redshiftdatabackend.Handler
+	// ForecastHandler provides access to the Amazon Forecast backend.
+	ForecastHandler *forecastbackend.Handler
 	// SageMakerHandler provides access to the SageMaker backend.
 	SageMakerHandler *sagemakerbackend.Handler
 	// SageMakerRuntimeHandler provides access to the SageMaker Runtime backend.
@@ -518,6 +521,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.ram)
 	_ = registry.Register(h.rdsdata)
 	_ = registry.Register(h.redshiftdata)
+	_ = registry.Register(h.forecast)
 	_ = registry.Register(h.sagemaker)
 	_ = registry.Register(h.sagemakerRuntime)
 	_ = registry.Register(h.servicediscovery)
@@ -636,6 +640,7 @@ type handlers struct {
 	ram                 *rambackend.Handler
 	rdsdata             *rdsdatabackend.Handler
 	redshiftdata        *redshiftdatabackend.Handler
+	forecast            *forecastbackend.Handler
 	sagemaker           *sagemakerbackend.Handler
 	sagemakerRuntime    *sagemakerruntimebackend.Handler
 	servicediscovery    *servicediscoverybackend.Handler
