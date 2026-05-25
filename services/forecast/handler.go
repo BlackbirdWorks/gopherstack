@@ -27,12 +27,11 @@ const (
 )
 
 type operationSpec struct {
-	kind        resourceKind
-	mode        operationMode
-	nameField   string
-	arnField    string
-	statusField string
-	listField   string
+	kind      resourceKind
+	mode      operationMode
+	nameField string
+	arnField  string
+	listField string
 }
 
 // Handler serves Amazon Forecast JSON protocol operations.
@@ -187,7 +186,7 @@ func resourceOutput(spec operationSpec, resource *Resource) map[string]any {
 	output := cloneMap(resource.Data)
 	output[spec.nameField] = resource.Name
 	output[spec.arnField] = resource.ARN
-	output[spec.statusField] = resource.Status
+	output["Status"] = resource.Status
 	output["CreationTime"] = resource.CreatedAt
 	output["LastModificationTime"] = resource.UpdatedAt
 
@@ -245,40 +244,36 @@ func forecastOperations() map[string]operationSpec {
 		kindDatasetGroup,
 		"DatasetGroupName",
 		"DatasetGroupArn",
-		"Status",
 		"DatasetGroups",
 		true,
 	)
-	addCRUD(operations, "Dataset", kindDataset, "DatasetName", "DatasetArn", "Status", "Datasets", true)
+	addCRUD(operations, "Dataset", kindDataset, "DatasetName", "DatasetArn", "Datasets", true)
 	addCRUD(
 		operations,
 		"DatasetImportJob",
 		kindDatasetImportJob,
 		"DatasetImportJobName",
 		"DatasetImportJobArn",
-		"Status",
 		"DatasetImportJobs",
 		false,
 	)
-	addCRUD(operations, "Predictor", kindPredictor, "PredictorName", "PredictorArn", "Status", "Predictors", false)
+	addCRUD(operations, "Predictor", kindPredictor, "PredictorName", "PredictorArn", "Predictors", false)
 	addCRUD(
 		operations,
 		"PredictorBacktestExportJob",
 		kindPredictorBacktestExport,
 		"PredictorBacktestExportJobName",
 		"PredictorBacktestExportJobArn",
-		"Status",
 		"PredictorBacktestExportJobs",
 		false,
 	)
-	addCRUD(operations, "Forecast", kindForecast, "ForecastName", "ForecastArn", "Status", "Forecasts", false)
+	addCRUD(operations, "Forecast", kindForecast, "ForecastName", "ForecastArn", "Forecasts", false)
 	addCRUD(
 		operations,
 		"ForecastExportJob",
 		kindForecastExport,
 		"ForecastExportJobName",
 		"ForecastExportJobArn",
-		"Status",
 		"ForecastExportJobs",
 		false,
 	)
@@ -288,7 +283,6 @@ func forecastOperations() map[string]operationSpec {
 		kindExplainabilityExport,
 		"ExplainabilityExportName",
 		"ExplainabilityExportArn",
-		"Status",
 		"ExplainabilityExports",
 		false,
 	)
@@ -298,7 +292,6 @@ func forecastOperations() map[string]operationSpec {
 		kindWhatIfAnalysis,
 		"WhatIfAnalysisName",
 		"WhatIfAnalysisArn",
-		"Status",
 		"WhatIfAnalyses",
 		false,
 	)
@@ -308,7 +301,6 @@ func forecastOperations() map[string]operationSpec {
 		kindWhatIfForecast,
 		"WhatIfForecastName",
 		"WhatIfForecastArn",
-		"Status",
 		"WhatIfForecasts",
 		false,
 	)
@@ -318,14 +310,13 @@ func forecastOperations() map[string]operationSpec {
 		kindWhatIfForecastExport,
 		"WhatIfForecastExportName",
 		"WhatIfForecastExportArn",
-		"Status",
 		"WhatIfForecastExports",
 		false,
 	)
-	addCRUD(operations, "Monitor", kindMonitor, "MonitorName", "MonitorArn", "Status", "Monitors", false)
+	addCRUD(operations, "Monitor", kindMonitor, "MonitorName", "MonitorArn", "Monitors", false)
 	operations["CreateAutoPredictor"] = operationSpec{
 		kind: kindPredictor, mode: modeCreate, nameField: "PredictorName",
-		arnField: "PredictorArn", statusField: "Status", listField: "Predictors",
+		arnField: "PredictorArn", listField: "Predictors",
 	}
 
 	return operations
@@ -337,12 +328,11 @@ func addCRUD(
 	kind resourceKind,
 	nameField string,
 	arnField string,
-	statusField string,
 	listField string,
 	update bool,
 ) {
 	spec := operationSpec{
-		kind: kind, nameField: nameField, arnField: arnField, statusField: statusField, listField: listField,
+		kind: kind, nameField: nameField, arnField: arnField, listField: listField,
 	}
 	operations["Create"+base] = withMode(spec, modeCreate)
 	operations["Describe"+base] = withMode(spec, modeDescribe)

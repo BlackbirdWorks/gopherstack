@@ -61,25 +61,25 @@ type Resource struct {
 
 // MonitorEvaluation represents one completed evaluation emitted by a predictor monitor.
 type MonitorEvaluation struct {
-	CreationTime    time.Time `json:"CreationTime"`
-	EvaluationTime  time.Time `json:"EvaluationTime"`
+	MetricResults   []any     `json:"MetricResults"`
+	PredictorEvent  any       `json:"PredictorEvent,omitempty"`
 	Message         string    `json:"Message,omitempty"`
 	MonitorArn      string    `json:"MonitorArn"`
 	MonitorName     string    `json:"MonitorName"`
 	ResourceArn     string    `json:"ResourceArn,omitempty"`
 	Status          string    `json:"Status"`
-	MetricResults   []any     `json:"MetricResults"`
-	PredictorEvent  any       `json:"PredictorEvent,omitempty"`
 	EvaluationState string    `json:"EvaluationState"`
+	CreationTime    time.Time `json:"CreationTime"`
+	EvaluationTime  time.Time `json:"EvaluationTime"`
 }
 
 // InMemoryBackend stores Amazon Forecast state with concurrency-safe transitions.
 type InMemoryBackend struct {
-	mu          sync.RWMutex
 	resources   map[resourceKind]map[string]*Resource
 	evaluations map[string][]MonitorEvaluation
 	accountID   string
 	region      string
+	mu          sync.RWMutex
 }
 
 // NewInMemoryBackend returns a stateful Amazon Forecast backend.
@@ -270,7 +270,7 @@ func cloneMap(data map[string]any) map[string]any {
 	}
 
 	var result map[string]any
-	if err := json.Unmarshal(encoded, &result); err != nil {
+	if unmarshalErr := json.Unmarshal(encoded, &result); unmarshalErr != nil {
 		return make(map[string]any)
 	}
 
