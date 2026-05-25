@@ -127,8 +127,8 @@ func (h *Handler) handleGetStorageLensConfiguration(c *echo.Context) error {
 }
 
 type putStorageLensConfigRequestXML struct {
-	XMLName xml.Name `xml:"StorageLensConfiguration"`
-	Config  string   `xml:"Config,omitempty"`
+	XMLName xml.Name
+	Config  string `xml:"Config,omitempty"`
 }
 
 func (h *Handler) handlePutStorageLensConfiguration(c *echo.Context) error {

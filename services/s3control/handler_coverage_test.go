@@ -1178,15 +1178,15 @@ func TestHandler_StubOperations(t *testing.T) {
 			name:       "put_bucket_replication",
 			method:     http.MethodPut,
 			path:       "/v20180820/bucket/mybucket/replication",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "NoSuchBucket",
+			wantStatus: http.StatusOK,
+			wantBody:   "",
 		},
 		{
 			name:       "delete_bucket_replication",
 			method:     http.MethodDelete,
 			path:       "/v20180820/bucket/mybucket/replication",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "ReplicationConfigurationNotFoundError",
+			wantStatus: http.StatusNoContent,
+			wantBody:   "",
 		},
 		// Bucket tagging stubs
 		// Bucket versioning stubs
@@ -1209,8 +1209,8 @@ func TestHandler_StubOperations(t *testing.T) {
 			name:       "delete_storage_lens_config",
 			method:     http.MethodDelete,
 			path:       "/v20180820/storagelens/myconfig",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "NoSuchConfiguration",
+			wantStatus: http.StatusNoContent,
+			wantBody:   "",
 		},
 		{
 			name:       "get_storage_lens_tagging",
@@ -1223,15 +1223,15 @@ func TestHandler_StubOperations(t *testing.T) {
 			name:       "put_storage_lens_tagging",
 			method:     http.MethodPut,
 			path:       "/v20180820/storagelens/myconfig/tagging",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "NoSuchConfiguration",
+			wantStatus: http.StatusOK,
+			wantBody:   "",
 		},
 		{
 			name:       "delete_storage_lens_tagging",
 			method:     http.MethodDelete,
 			path:       "/v20180820/storagelens/myconfig/tagging",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "NoSuchConfiguration",
+			wantStatus: http.StatusNoContent,
+			wantBody:   "",
 		},
 		{
 			name:       "list_storage_lens_configs",
@@ -1276,8 +1276,8 @@ func TestHandler_StubOperations(t *testing.T) {
 			name:       "submit_mrap_routes",
 			method:     http.MethodPatch,
 			path:       "/v20180820/mrap/instances/mymrap/routes",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "NoSuchMultiRegionAccessPoint",
+			wantStatus: http.StatusOK,
+			wantBody:   "",
 		},
 		// Object lambda policyStatus stub
 		// Get/delete object lambda stubs
