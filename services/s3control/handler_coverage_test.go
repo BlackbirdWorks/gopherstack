@@ -846,9 +846,30 @@ func TestHandler_UpdateJobStatus(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "update_status_success",
+			name:       "update_status_success_cancelled",
 			wantStatus: http.StatusOK,
 			wantBody:   "UpdateJobStatusResult",
+			body:       `<UpdateJobStatusRequest><RequestedJobStatus>Cancelled</RequestedJobStatus></UpdateJobStatusRequest>`,
+			setup: func(h *s3control.Handler) string {
+				job := h.Backend.AddBatchJobInternal("acct1", "arn:aws:iam::acct1:role/R", 5)
+
+				return job.JobID
+			},
+		},
+		{
+			name:       "update_status_success_ready",
+			wantStatus: http.StatusOK,
+			wantBody:   "UpdateJobStatusResult",
+			body:       `<UpdateJobStatusRequest><RequestedJobStatus>Ready</RequestedJobStatus></UpdateJobStatusRequest>`,
+			setup: func(h *s3control.Handler) string {
+				job := h.Backend.AddBatchJobInternal("acct1", "arn:aws:iam::acct1:role/R", 5)
+
+				return job.JobID
+			},
+		},
+		{
+			name:       "update_status_invalid_rejects",
+			wantStatus: http.StatusBadRequest,
 			body:       `<UpdateJobStatusRequest><RequestedJobStatus>Complete</RequestedJobStatus></UpdateJobStatusRequest>`,
 			setup: func(h *s3control.Handler) string {
 				job := h.Backend.AddBatchJobInternal("acct1", "arn:aws:iam::acct1:role/R", 5)
@@ -858,7 +879,7 @@ func TestHandler_UpdateJobStatus(t *testing.T) {
 		},
 		{
 			name:       "update_status_missing_job",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			body:       `<UpdateJobStatusRequest><RequestedJobStatus>Complete</RequestedJobStatus></UpdateJobStatusRequest>`,
 			setup:      func(_ *s3control.Handler) string { return "nonexistent" },
 		},

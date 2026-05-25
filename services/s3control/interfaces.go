@@ -137,6 +137,26 @@ type StorageBackend interface {
 	ListTagsForResource(arn string) map[string]string
 	TagResource(arn string, tags map[string]string)
 	UntagResource(arn string, tagKeys []string)
+
+	// ---- batch3 ----
+
+	// AccessPoint VPC configuration
+	SetAccessPointVpcConfig(accountID, name, vpcID, bucketAccountId string) error
+
+	// AccessPoint per-AP public access block
+	GetAccessPointPublicAccessBlock(accountID, name string) (*PublicAccessBlock, error)
+	PutAccessPointPublicAccessBlock(accountID, name string, cfg PublicAccessBlock) error
+	DeleteAccessPointPublicAccessBlock(accountID, name string) error
+
+	// BatchJob extended fields
+	UpdateJobDetails(accountID, jobID, description, manifest, operation, report string, confirmationRequired bool) error
+	UpdateJobStatusValidated(accountID, jobID, requestedStatus, statusUpdateReason string) (*BatchJob, error)
+
+	// MRAP regions
+	SetMRAPRegions(accountID, name string, regions []string) error
+
+	// StorageLensGroup filter
+	UpdateStorageLensGroupFilter(accountID, name, filter string) error
 }
 
 // Verify interface is satisfied at compile time.

@@ -265,9 +265,31 @@ func (h *Handler) handleListStorageLensConfigurations(c *echo.Context) error {
 
 // ---- Storage Lens Groups ----
 
+// slgFilterWrapXML captures the raw inner XML of a StorageLensGroup Filter element.
+type slgFilterWrapXML struct {
+	Raw string `xml:",innerxml"`
+}
+
 type storageLensGroupItemXML struct {
-	Name                string `xml:"Name"`
-	StorageLensGroupArn string `xml:"StorageLensGroupArn,omitempty"`
+	Name                string            `xml:"Name"`
+	StorageLensGroupArn string            `xml:"StorageLensGroupArn,omitempty"`
+	CreatedAt           string            `xml:"CreatedAt,omitempty"`
+	Filter              *slgFilterWrapXML `xml:"Filter,omitempty"`
+}
+
+// buildSLGItem converts a StorageLensGroup backend struct to the XML response item.
+func buildSLGItem(grp *StorageLensGroup) storageLensGroupItemXML {
+	item := storageLensGroupItemXML{
+		Name:                grp.Name,
+		StorageLensGroupArn: grp.StorageLensGroupArn,
+		CreatedAt:           grp.CreatedAt,
+	}
+
+	if grp.Filter != "" {
+		item.Filter = &slgFilterWrapXML{Raw: grp.Filter}
+	}
+
+	return item
 }
 
 type getStorageLensGroupResultXML struct {
@@ -285,20 +307,32 @@ func (h *Handler) handleGetStorageLensGroup(c *echo.Context) error {
 	}
 
 	return writeXML(c, getStorageLensGroupResultXML{
-		StorageLensGroup: storageLensGroupItemXML{
-			Name:                grp.Name,
-			StorageLensGroupArn: grp.StorageLensGroupArn,
-		},
+		StorageLensGroup: buildSLGItem(grp),
 	})
+}
+
+type updateStorageLensGroupRequestXML struct {
+	XMLName xml.Name         `xml:"StorageLensGroup"`
+	Name    string           `xml:"Name"`
+	Filter  slgFilterWrapXML `xml:"Filter"`
 }
 
 func (h *Handler) handleUpdateStorageLensGroup(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimPrefix(c.Request().URL.Path, pathStorageLensGroupPrefix)
 
+	var body updateStorageLensGroupRequestXML
+	if err := decodeXML(c, &body); err != nil {
+		return c.String(http.StatusBadRequest, "invalid request body")
+	}
+
 	_, err := h.Backend.UpdateStorageLensGroup(accountID, name)
 	if err != nil {
 		return handleBackendError(c, err)
+	}
+
+	if body.Filter.Raw != "" {
+		_ = h.Backend.UpdateStorageLensGroupFilter(accountID, name, body.Filter.Raw)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -327,10 +361,7 @@ func (h *Handler) handleListStorageLensGroups(c *echo.Context) error {
 	items := make([]storageLensGroupItemXML, 0, len(groups))
 
 	for _, g := range groups {
-		items = append(items, storageLensGroupItemXML{
-			Name:                g.Name,
-			StorageLensGroupArn: g.StorageLensGroupArn,
-		})
+		items = append(items, buildSLGItem(g))
 	}
 
 	return writeXML(c, listStorageLensGroupsResultXML{Groups: items})
