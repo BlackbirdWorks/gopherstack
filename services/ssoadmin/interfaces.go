@@ -1,5 +1,7 @@
 package ssoadmin
 
+import "encoding/json"
+
 // StorageBackend is the interface for SSO Admin storage operations.
 type StorageBackend interface {
 	AccountID() string
@@ -32,7 +34,8 @@ type StorageBackend interface {
 	PutInlinePolicyToPermissionSet(instanceArn, permissionSetArn, inlinePolicy string) error
 	GetInlinePolicyForPermissionSet(instanceArn, permissionSetArn string) (string, error)
 	DeleteInlinePolicyFromPermissionSet(instanceArn, permissionSetArn string) error
-	ProvisionPermissionSet(instanceArn, permissionSetArn string) (string, error)
+	// ProvisionPermissionSet provisions a permission set; targetType is AWS_ACCOUNT or ALL_PROVISIONED_ACCOUNTS.
+	ProvisionPermissionSet(instanceArn, permissionSetArn, targetType, targetID string) (string, error)
 	DescribePermissionSetProvisioningStatus(instanceArn, provisioningRequestID string) (*ProvisioningStatus, error)
 	TagResource(instanceArn, resourceARN string, tags map[string]string) error
 	UntagResource(instanceArn, resourceARN string, tagKeys []string) error
@@ -45,29 +48,40 @@ type StorageBackend interface {
 	DescribeApplication(applicationArn string) (*Application, error)
 	DescribeApplicationAssignment(applicationArn, principalID, principalType string) (*ApplicationAssignment, error)
 	DescribeApplicationProvider(applicationProviderArn string) (*ApplicationProvider, error)
-	DescribeInstanceAccessControlAttributeConfiguration(
-		instanceArn string,
-	) (*InstanceAccessControlAttributeConfiguration, error)
+	DescribeInstanceAccessControlAttributeConfiguration(instanceArn string) (*ABACConfig, error)
 	DescribeTrustedTokenIssuer(trustedTokenIssuerArn string) (*TrustedTokenIssuer, error)
-	GetPermissionsBoundaryForPermissionSet(instanceArn, permissionSetArn string) (string, error)
-	ListAccountAssignmentCreationStatus(instanceArn string) []*ProvisioningStatus
-	ListAccountAssignmentDeletionStatus(instanceArn string) []*ProvisioningStatus
+	// GetPermissionsBoundaryForPermissionSet returns the full union-type boundary.
+	GetPermissionsBoundaryForPermissionSet(instanceArn, permissionSetArn string) (*PermissionsBoundary, error)
+	// ListAccountAssignmentCreationStatus accepts an optional filterStatus ("IN_PROGRESS", "SUCCEEDED", "FAILED", "").
+	ListAccountAssignmentCreationStatus(instanceArn, filterStatus string) []*ProvisioningStatus
+	// ListAccountAssignmentDeletionStatus accepts an optional filterStatus.
+	ListAccountAssignmentDeletionStatus(instanceArn, filterStatus string) []*ProvisioningStatus
 	ListApplicationAccessScopes(applicationArn string) ([]string, error)
 	ListApplicationAssignments(applicationArn string) ([]*ApplicationAssignment, error)
-	ListApplicationAuthenticationMethods(applicationArn string) ([]string, error)
-	ListApplicationGrants(applicationArn string) ([]string, error)
+	ListApplicationAuthenticationMethods(applicationArn string) ([]AuthMethod, error)
+	ListApplicationGrants(applicationArn string) ([]ApplicationGrant, error)
 	ListApplicationProviders() []*ApplicationProvider
 	ListApplications(instanceArn string) []*Application
-	ListPermissionSetProvisioningStatus(instanceArn string) []*ProvisioningStatus
+	// ListPermissionSetProvisioningStatus accepts an optional filterStatus.
+	ListPermissionSetProvisioningStatus(instanceArn, filterStatus string) []*ProvisioningStatus
 	ListRegions(instanceArn string) ([]RegionMetadata, error)
 	ListTrustedTokenIssuers(instanceArn string) []*TrustedTokenIssuer
 	PutApplicationAccessScope(applicationArn, scope string) error
 	PutApplicationAssignmentConfiguration(applicationArn string, assignmentRequired bool) error
-	PutApplicationAuthenticationMethod(applicationArn, authMethodType string) error
-	PutApplicationGrant(applicationArn, grantType string) error
+	// PutApplicationAuthenticationMethod stores a structured auth method body; authMethodType must be IAM.
+	PutApplicationAuthenticationMethod(applicationArn, authMethodType string, body json.RawMessage) error
+	// PutApplicationGrant stores a structured grant body; grantType must be a valid AWS grant type enum value.
+	PutApplicationGrant(applicationArn, grantType string, body json.RawMessage) error
 	PutApplicationSessionConfiguration(applicationArn, sessionDuration string) error
-	PutPermissionsBoundaryToPermissionSet(instanceArn, permissionSetArn, managedPolicyArn string) error
-	UpdateApplication(applicationArn, name, description, status string) (*Application, error)
+	// PutPermissionsBoundaryToPermissionSet accepts a union boundary
+	// (ManagedPolicyArn xor CustomerManagedPolicyReference).
+	PutPermissionsBoundaryToPermissionSet(
+		instanceArn, permissionSetArn string, boundary *PermissionsBoundary,
+	) error
+	UpdateApplication(
+		applicationArn, name, description, status string,
+		portalOptions *PortalOptions,
+	) (*Application, error)
 	UpdateTrustedTokenIssuer(
 		trustedTokenIssuerArn, name, issuerType string,
 		cfg *TrustedTokenIssuerConfiguration,
@@ -75,6 +89,7 @@ type StorageBackend interface {
 	CreateApplication(
 		instanceArn, applicationProviderArn, name, description string,
 		tags map[string]string,
+		portalOptions *PortalOptions,
 	) (*Application, error)
 	CreateApplicationAssignment(applicationArn, principalID, principalType string) error
 	CreateInstanceAccessControlAttributeConfiguration(instanceArn string, attributes []AccessControlAttribute) error
@@ -92,8 +107,8 @@ type StorageBackend interface {
 	GetApplicationAssignmentConfiguration(applicationArn string) (bool, error)
 	GetApplicationSessionConfiguration(applicationArn string) (string, error)
 	GetApplicationAccessScope(applicationArn, scope string) (string, error)
-	GetApplicationAuthenticationMethod(applicationArn, authMethodType string) (string, error)
-	GetApplicationGrant(applicationArn, grantType string) (string, error)
+	GetApplicationAuthenticationMethod(applicationArn, authMethodType string) (json.RawMessage, error)
+	GetApplicationGrant(applicationArn, grantType string) (json.RawMessage, error)
 	ListCustomerManagedPolicyReferencesInPermissionSet(
 		instanceArn, permissionSetArn string,
 	) ([]CustomerManagedPolicyReference, error)

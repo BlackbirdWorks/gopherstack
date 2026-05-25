@@ -24,6 +24,8 @@ const (
 	keyApplicationArn         = "ApplicationArn"
 	keyApplication            = "Application"
 	keyApplicationProviderArn = "ApplicationProviderArn"
+	keyAuthenticationMethod   = "AuthenticationMethod"
+	keyGrant                  = "Grant"
 )
 
 const (
@@ -335,9 +337,15 @@ type permissionSetView struct {
 }
 
 type provisioningStatusView struct {
-	RequestID   string  `json:"RequestId"`
-	Status      string  `json:"Status"`
-	CreatedDate float64 `json:"CreatedDate,omitempty"`
+	RequestID        string  `json:"RequestId"`
+	Status           string  `json:"Status"`
+	FailureReason    string  `json:"FailureReason,omitempty"`
+	AccountID        string  `json:"AccountId,omitempty"`
+	PermissionSetArn string  `json:"PermissionSetArn,omitempty"`
+	TargetType       string  `json:"TargetType,omitempty"`
+	PrincipalID      string  `json:"PrincipalId,omitempty"`
+	PrincipalType    string  `json:"PrincipalType,omitempty"`
+	CreatedDate      float64 `json:"CreatedDate,omitempty"`
 }
 
 type assignmentView struct {
@@ -650,11 +658,7 @@ func (h *Handler) handleCreateAccountAssignment(c *echo.Context, body []byte) er
 	status, _ := h.Backend.DescribeAccountAssignmentCreationStatus(req.InstanceArn, requestID)
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentCreationStatus": provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		},
+		"AccountAssignmentCreationStatus": toProvisioningView(status),
 	})
 }
 
@@ -676,11 +680,7 @@ func (h *Handler) handleDescribeAccountAssignmentCreationStatus(c *echo.Context,
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentCreationStatus": provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		},
+		"AccountAssignmentCreationStatus": toProvisioningView(status),
 	})
 }
 
@@ -717,11 +717,7 @@ func (h *Handler) handleDeleteAccountAssignment(c *echo.Context, body []byte) er
 	status, _ := h.Backend.DescribeAccountAssignmentDeletionStatus(req.InstanceArn, requestID)
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentDeletionStatus": provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		},
+		"AccountAssignmentDeletionStatus": toProvisioningView(status),
 	})
 }
 
@@ -743,11 +739,7 @@ func (h *Handler) handleDescribeAccountAssignmentDeletionStatus(c *echo.Context,
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentDeletionStatus": provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		},
+		"AccountAssignmentDeletionStatus": toProvisioningView(status),
 	})
 }
 
@@ -925,8 +917,24 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 	if req.PermissionSetArn == "" {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
 	}
+	if req.TargetType == "" {
+		req.TargetType = targetTypeAllProvisionedAccounts
+	}
+	if req.TargetType != targetTypeAWSAccount && req.TargetType != targetTypeAllProvisionedAccounts {
+		return writeError(c, http.StatusBadRequest, "ValidationException",
+			"TargetType must be AWS_ACCOUNT or ALL_PROVISIONED_ACCOUNTS")
+	}
+	if req.TargetType == targetTypeAWSAccount && req.TargetID == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException",
+			"TargetId is required when TargetType is AWS_ACCOUNT")
+	}
 
-	requestID, err := h.Backend.ProvisionPermissionSet(req.InstanceArn, req.PermissionSetArn)
+	requestID, err := h.Backend.ProvisionPermissionSet(
+		req.InstanceArn,
+		req.PermissionSetArn,
+		req.TargetType,
+		req.TargetID,
+	)
 	if err != nil {
 		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
@@ -934,11 +942,7 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 	status, _ := h.Backend.DescribePermissionSetProvisioningStatus(req.InstanceArn, requestID)
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"PermissionSetProvisioningStatus": provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		},
+		"PermissionSetProvisioningStatus": toProvisioningView(status),
 	})
 }
 
@@ -960,11 +964,7 @@ func (h *Handler) handleDescribePermissionSetProvisioningStatus(c *echo.Context,
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"PermissionSetProvisioningStatus": provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		},
+		"PermissionSetProvisioningStatus": toProvisioningView(status),
 	})
 }
 
@@ -1059,6 +1059,21 @@ func handleBackendError(c *echo.Context, err error, notFoundMsg string) error {
 	}
 }
 
+// toProvisioningView converts a backend ProvisioningStatus to its JSON view.
+func toProvisioningView(s *ProvisioningStatus) provisioningStatusView {
+	return provisioningStatusView{
+		RequestID:        s.RequestID,
+		Status:           s.Status,
+		CreatedDate:      float64(s.CreatedDate.Unix()),
+		FailureReason:    s.FailureReason,
+		AccountID:        s.AccountID,
+		PermissionSetArn: s.PermissionSetArn,
+		TargetType:       s.TargetType,
+		PrincipalID:      s.PrincipalID,
+		PrincipalType:    s.PrincipalType,
+	}
+}
+
 func writeJSON(c *echo.Context, status int, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -1144,6 +1159,13 @@ func (h *Handler) handleAttachCustomerManagedPolicyReferenceToPermissionSet(c *e
 
 func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 	var req struct {
+		PortalOptions struct {
+			Visibility    string `json:"Visibility"`
+			SignInOptions struct {
+				Origin         string `json:"Origin"`
+				ApplicationURL string `json:"ApplicationUrl"`
+			} `json:"SignInOptions"`
+		} `json:"PortalOptions"`
 		InstanceArn            string    `json:"InstanceArn"`
 		ApplicationProviderArn string    `json:"ApplicationProviderArn"`
 		Name                   string    `json:"Name"`
@@ -1165,12 +1187,21 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		tags[t.Key] = t.Value
 	}
 
+	portalOptions := &PortalOptions{
+		Visibility: req.PortalOptions.Visibility,
+		SignInOptions: SignInOptions{
+			Origin:         req.PortalOptions.SignInOptions.Origin,
+			ApplicationURL: req.PortalOptions.SignInOptions.ApplicationURL,
+		},
+	}
+
 	app, err := h.Backend.CreateApplication(
 		req.InstanceArn,
 		req.ApplicationProviderArn,
 		req.Name,
 		req.Description,
 		tags,
+		portalOptions,
 	)
 	if err != nil {
 		if errors.Is(err, ErrApplicationAlreadyExists) {
@@ -1550,7 +1581,10 @@ func (h *Handler) handleListApplicationAuthenticationMethods(c *echo.Context, bo
 
 	out := make([]map[string]any, 0, len(methods))
 	for _, method := range methods {
-		out = append(out, map[string]any{"AuthenticationMethodType": method})
+		out = append(out, map[string]any{
+			"AuthenticationMethodType": method.AuthMethodType,
+			keyAuthenticationMethod:    method.Body,
+		})
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -1573,7 +1607,10 @@ func (h *Handler) handleListApplicationGrants(c *echo.Context, body []byte) erro
 
 	out := make([]map[string]any, 0, len(grants))
 	for _, grant := range grants {
-		out = append(out, map[string]any{"GrantType": grant})
+		out = append(out, map[string]any{
+			"GrantType": grant.GrantType,
+			keyGrant:    grant.Grant,
+		})
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -1661,9 +1698,10 @@ func (h *Handler) handlePutApplicationAssignmentConfiguration(c *echo.Context, b
 
 func (h *Handler) handlePutApplicationAuthenticationMethod(c *echo.Context, body []byte) error {
 	var req struct {
-		ApplicationArn     string `json:"ApplicationArn"`
-		AuthMethodType     string `json:"AuthenticationMethodType"`
-		AuthenticationType string `json:"AuthenticationType"`
+		ApplicationArn       string          `json:"ApplicationArn"`
+		AuthMethodType       string          `json:"AuthenticationMethodType"`
+		AuthenticationType   string          `json:"AuthenticationType"`
+		AuthenticationMethod json.RawMessage `json:"AuthenticationMethod"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -1672,7 +1710,9 @@ func (h *Handler) handlePutApplicationAuthenticationMethod(c *echo.Context, body
 	if methodType == "" {
 		methodType = req.AuthenticationType
 	}
-	if err := h.Backend.PutApplicationAuthenticationMethod(req.ApplicationArn, methodType); err != nil {
+	if err := h.Backend.PutApplicationAuthenticationMethod(
+		req.ApplicationArn, methodType, req.AuthenticationMethod,
+	); err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
@@ -1681,13 +1721,14 @@ func (h *Handler) handlePutApplicationAuthenticationMethod(c *echo.Context, body
 
 func (h *Handler) handlePutApplicationGrant(c *echo.Context, body []byte) error {
 	var req struct {
-		ApplicationArn string `json:"ApplicationArn"`
-		GrantType      string `json:"GrantType"`
+		ApplicationArn string          `json:"ApplicationArn"`
+		GrantType      string          `json:"GrantType"`
+		Grant          json.RawMessage `json:"Grant"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
-	if err := h.Backend.PutApplicationGrant(req.ApplicationArn, req.GrantType); err != nil {
+	if err := h.Backend.PutApplicationGrant(req.ApplicationArn, req.GrantType, req.Grant); err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
@@ -1715,12 +1756,27 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, body []byte) error {
 		Name           string `json:"Name"`
 		Description    string `json:"Description"`
 		Status         string `json:"Status"`
+		PortalOptions  struct {
+			Visibility    string `json:"Visibility"`
+			SignInOptions struct {
+				Origin         string `json:"Origin"`
+				ApplicationURL string `json:"ApplicationUrl"`
+			} `json:"SignInOptions"`
+		} `json:"PortalOptions"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	app, err := h.Backend.UpdateApplication(req.ApplicationArn, req.Name, req.Description, req.Status)
+	portalOptions := &PortalOptions{
+		Visibility: req.PortalOptions.Visibility,
+		SignInOptions: SignInOptions{
+			Origin:         req.PortalOptions.SignInOptions.Origin,
+			ApplicationURL: req.PortalOptions.SignInOptions.ApplicationURL,
+		},
+	}
+
+	app, err := h.Backend.UpdateApplication(req.ApplicationArn, req.Name, req.Description, req.Status, portalOptions)
 	if err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
@@ -1920,26 +1976,41 @@ func (h *Handler) handleDescribeInstanceAccessControlAttributeConfiguration(c *e
 		"InstanceAccessControlAttributeConfiguration": map[string]any{
 			"AccessControlAttributes": attrs,
 		},
-		keyStatus: "ENABLED",
+		keyStatus:      cfg.Status,
+		"StatusReason": cfg.StatusReason,
 	})
 }
 
 func (h *Handler) handlePutPermissionsBoundaryToPermissionSet(c *echo.Context, body []byte) error {
 	var req struct {
-		InstanceArn         string `json:"InstanceArn"`
-		PermissionSetArn    string `json:"PermissionSetArn"`
 		PermissionsBoundary struct {
+			CustomerManagedPolicyReference *struct {
+				Name string `json:"Name"`
+				Path string `json:"Path"`
+			} `json:"CustomerManagedPolicyReference"`
 			ManagedPolicyArn string `json:"ManagedPolicyArn"`
 		} `json:"PermissionsBoundary"`
+		InstanceArn      string `json:"InstanceArn"`
+		PermissionSetArn string `json:"PermissionSetArn"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	boundary := &PermissionsBoundary{
+		ManagedPolicyArn: req.PermissionsBoundary.ManagedPolicyArn,
+	}
+	if req.PermissionsBoundary.CustomerManagedPolicyReference != nil {
+		boundary.CustomerManagedPolicyReference = &CustomerManagedPolicyReference{
+			Name: req.PermissionsBoundary.CustomerManagedPolicyReference.Name,
+			Path: req.PermissionsBoundary.CustomerManagedPolicyReference.Path,
+		}
+	}
+
 	if err := h.Backend.PutPermissionsBoundaryToPermissionSet(
 		req.InstanceArn,
 		req.PermissionSetArn,
-		req.PermissionsBoundary.ManagedPolicyArn,
+		boundary,
 	); err != nil {
 		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
@@ -1956,34 +2027,42 @@ func (h *Handler) handleGetPermissionsBoundaryForPermissionSet(c *echo.Context, 
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	boundaryArn, err := h.Backend.GetPermissionsBoundaryForPermissionSet(req.InstanceArn, req.PermissionSetArn)
+	boundary, err := h.Backend.GetPermissionsBoundaryForPermissionSet(req.InstanceArn, req.PermissionSetArn)
 	if err != nil {
 		return handleBackendError(c, err, "permissions boundary not found")
 	}
 
+	bView := map[string]any{}
+	if boundary.ManagedPolicyArn != "" {
+		bView["ManagedPolicyArn"] = boundary.ManagedPolicyArn
+	}
+	if boundary.CustomerManagedPolicyReference != nil {
+		bView["CustomerManagedPolicyReference"] = map[string]any{
+			"Name": boundary.CustomerManagedPolicyReference.Name,
+			"Path": boundary.CustomerManagedPolicyReference.Path,
+		}
+	}
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"PermissionsBoundary": map[string]any{
-			"ManagedPolicyArn": boundaryArn,
-		},
+		"PermissionsBoundary": bView,
 	})
 }
 
 func (h *Handler) handleListAccountAssignmentCreationStatus(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
+		Filter      struct {
+			Status string `json:"Status"`
+		} `json:"Filter"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
-	statuses := h.Backend.ListAccountAssignmentCreationStatus(req.InstanceArn)
+	statuses := h.Backend.ListAccountAssignmentCreationStatus(req.InstanceArn, req.Filter.Status)
 
 	out := make([]provisioningStatusView, 0, len(statuses))
 	for _, status := range statuses {
-		out = append(out, provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		})
+		out = append(out, toProvisioningView(status))
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -1995,19 +2074,18 @@ func (h *Handler) handleListAccountAssignmentCreationStatus(c *echo.Context, bod
 func (h *Handler) handleListAccountAssignmentDeletionStatus(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
+		Filter      struct {
+			Status string `json:"Status"`
+		} `json:"Filter"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
-	statuses := h.Backend.ListAccountAssignmentDeletionStatus(req.InstanceArn)
+	statuses := h.Backend.ListAccountAssignmentDeletionStatus(req.InstanceArn, req.Filter.Status)
 
 	out := make([]provisioningStatusView, 0, len(statuses))
 	for _, status := range statuses {
-		out = append(out, provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		})
+		out = append(out, toProvisioningView(status))
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -2019,19 +2097,18 @@ func (h *Handler) handleListAccountAssignmentDeletionStatus(c *echo.Context, bod
 func (h *Handler) handleListPermissionSetProvisioningStatus(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
+		Filter      struct {
+			Status string `json:"Status"`
+		} `json:"Filter"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
-	statuses := h.Backend.ListPermissionSetProvisioningStatus(req.InstanceArn)
+	statuses := h.Backend.ListPermissionSetProvisioningStatus(req.InstanceArn, req.Filter.Status)
 
 	out := make([]provisioningStatusView, 0, len(statuses))
 	for _, status := range statuses {
-		out = append(out, provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		})
+		out = append(out, toProvisioningView(status))
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -2372,14 +2449,18 @@ func (h *Handler) handleGetApplicationAuthenticationMethod(c *echo.Context, body
 		return writeError(c, http.StatusBadRequest, "ValidationException", "AuthenticationMethodType is required")
 	}
 
-	authMethod, err := h.Backend.GetApplicationAuthenticationMethod(req.ApplicationArn, req.AuthenticationMethodType)
+	authMethodBody, err := h.Backend.GetApplicationAuthenticationMethod(
+		req.ApplicationArn,
+		req.AuthenticationMethodType,
+	)
 	if err != nil {
 		return handleBackendError(c, err, "authentication method not found: "+req.AuthenticationMethodType)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AuthenticationMethod": map[string]any{
-			"AuthenticationMethodType": authMethod,
+		keyAuthenticationMethod: map[string]any{
+			"AuthenticationMethodType": req.AuthenticationMethodType,
+			keyAuthenticationMethod:    authMethodBody,
 		},
 	})
 }
@@ -2399,14 +2480,15 @@ func (h *Handler) handleGetApplicationGrant(c *echo.Context, body []byte) error 
 		return writeError(c, http.StatusBadRequest, "ValidationException", "GrantType is required")
 	}
 
-	grantType, err := h.Backend.GetApplicationGrant(req.ApplicationArn, req.GrantType)
+	grantBody, err := h.Backend.GetApplicationGrant(req.ApplicationArn, req.GrantType)
 	if err != nil {
 		return handleBackendError(c, err, "grant not found: "+req.GrantType)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Grant": map[string]any{
-			"GrantType": grantType,
+		keyGrant: map[string]any{
+			"GrantType": req.GrantType,
+			keyGrant:    grantBody,
 		},
 	})
 }

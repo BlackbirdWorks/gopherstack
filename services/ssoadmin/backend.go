@@ -1,9 +1,12 @@
 package ssoadmin
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -17,6 +20,8 @@ import (
 
 const (
 	statusSucceeded   = "SUCCEEDED"
+	statusInProgress  = "IN_PROGRESS"
+	statusFailed      = "FAILED"
 	appProviderCustom = "arn:aws:sso::aws:applicationProvider/custom"
 )
 
@@ -26,12 +31,24 @@ const (
 	uuidShortLen             = 8
 
 	// Instance/application status constants.
-	instanceStatusActive = "ACTIVE"
-	appStatusEnabled     = "ENABLED"
-	appStatusDisabled    = "DISABLED"
+	instanceStatusActive           = "ACTIVE"
+	instanceStatusCreateInProgress = "CREATE_IN_PROGRESS"
+	instanceStatusDeleteInProgress = "DELETE_IN_PROGRESS"
+	appStatusEnabled               = "ENABLED"
+	appStatusDisabled              = "DISABLED"
+
+	// ABAC configuration status.
+	abacStatusEnabled            = "ENABLED"
+	abacStatusCreationInProgress = "CREATION_IN_PROGRESS"
+	abacStatusCreationFailed     = "CREATION_FAILED"
 
 	// Default session duration for new permission sets.
 	defaultSessionDuration = "PT1H"
+
+	// Session duration limits in minutes.
+	minutesPerHour    = 60
+	minSessionMinutes = 60  // 1 hour
+	maxSessionMinutes = 720 // 12 hours
 
 	// AWS tag limits.
 	maxTagsPerResource = 50
@@ -41,8 +58,25 @@ const (
 	// AWS permission set name length limit.
 	maxPermissionSetNameLen = 32
 
-	// Default TrustedTokenIssuer type (OIDC_JWT).
-	ttiDefaultType = "OIDC_JWT"
+	// CustomerManagedPolicyReference limits.
+	maxCMPRNameLen = 128
+	maxCMPRPathLen = 512
+
+	// AccessControlAttribute limits per AWS spec.
+	maxACAAttributes    = 50
+	maxACAKeyLen        = 128
+	maxACASourceItems   = 10
+	maxACASourceItemLen = 256
+
+	// TrustedTokenIssuer type — only OIDC_JWT is supported by AWS.
+	ttiTypeOIDCJWT = "OIDC_JWT"
+
+	// ttiDefaultType is kept as an alias for backward compat in seeding code.
+	ttiDefaultType = ttiTypeOIDCJWT
+
+	// OIDC JWT configuration.
+	jwksRetrievalOpenIDDiscovery = "OPEN_ID_DISCOVERY"
+	maxIssuerURLLen              = 512
 
 	// Region scope type for SSO instance regions.
 	regionScopeTypeAllRegions = "ALL_REGIONS"
@@ -51,8 +85,35 @@ const (
 	principalTypeUser  = "USER"
 	principalTypeGroup = "GROUP"
 
-	// Valid target type for account assignments.
-	targetTypeAWSAccount = "AWS_ACCOUNT"
+	// Valid target types for ProvisionPermissionSet.
+	targetTypeAWSAccount             = "AWS_ACCOUNT"
+	targetTypeAllProvisionedAccounts = "ALL_PROVISIONED_ACCOUNTS"
+
+	// Valid authentication method types.
+	authMethodTypeIAM = "IAM"
+
+	// Application portal visibility.
+	portalVisibilityEnabled  = "ENABLED"
+	portalVisibilityDisabled = "DISABLED"
+
+	// Application sign-in origin.
+	signInOriginApplication    = "APPLICATION"
+	signInOriginIdentityCenter = "IDENTITY_CENTER"
+
+	// Federation protocol constants.
+	federationProtocolSAML = "SAML"
+)
+
+// Compiled validation regexes.
+var (
+	// permissionSetNameRe matches valid permission set names per AWS spec.
+	permissionSetNameRe = regexp.MustCompile(`^[\w+=,.@-]+$`)
+
+	// cmprNameRe matches valid CustomerManagedPolicyReference names per AWS spec.
+	cmprNameRe = regexp.MustCompile(`^[\w+=,.@-]+$`)
+
+	// acaKeyRe matches valid AccessControlAttribute keys per AWS spec.
+	acaKeyRe = regexp.MustCompile(`^[\p{L}\p{Z}\p{N}_.:/=+\-@]+$`)
 )
 
 var (
@@ -116,12 +177,17 @@ type AccountAssignment struct {
 	PrincipalType    string `json:"PrincipalType"`
 }
 
-// ProvisioningStatus represents the status of an async provisioning request.
+// ProvisioningStatus represents the status of an async provisioning/assignment request.
 type ProvisioningStatus struct {
-	CreatedDate   time.Time `json:"CreatedDate"`
-	RequestID     string    `json:"RequestId"`
-	Status        string    `json:"Status"`
-	FailureReason string    `json:"FailureReason"`
+	CreatedDate      time.Time `json:"CreatedDate"`
+	RequestID        string    `json:"RequestId"`
+	Status           string    `json:"Status"`
+	FailureReason    string    `json:"FailureReason"`
+	AccountID        string    `json:"AccountId,omitempty"`
+	PermissionSetArn string    `json:"PermissionSetArn,omitempty"`
+	TargetType       string    `json:"TargetType,omitempty"`
+	PrincipalID      string    `json:"PrincipalId,omitempty"`
+	PrincipalType    string    `json:"PrincipalType,omitempty"`
 }
 
 // CustomerManagedPolicyReference references a customer-managed policy.
@@ -130,10 +196,36 @@ type CustomerManagedPolicyReference struct {
 	Path string `json:"Path"`
 }
 
+// SignInOptions holds sign-in configuration for an application's portal.
+type SignInOptions struct {
+	Origin         string `json:"Origin"`
+	ApplicationURL string `json:"ApplicationUrl"`
+}
+
+// PortalOptions holds portal configuration for an application.
+type PortalOptions struct {
+	Visibility    string        `json:"Visibility"`
+	SignInOptions SignInOptions `json:"SignInOptions"`
+}
+
+// PermissionsBoundary is a union: either ManagedPolicyArn or CustomerManagedPolicyReference.
+type PermissionsBoundary struct {
+	CustomerManagedPolicyReference *CustomerManagedPolicyReference `json:"CustomerManagedPolicyReference,omitempty"`
+	ManagedPolicyArn               string                          `json:"ManagedPolicyArn,omitempty"`
+}
+
+// ABACConfig holds ABAC configuration for an SSO instance with lifecycle status.
+type ABACConfig struct {
+	StatusReason            string                   `json:"StatusReason"`
+	Status                  string                   `json:"Status"`
+	AccessControlAttributes []AccessControlAttribute `json:"AccessControlAttributes"`
+}
+
 // Application represents an AWS SSO application.
 type Application struct {
 	CreatedDate            time.Time         `json:"CreatedDate"`
 	Tags                   map[string]string `json:"Tags"`
+	PortalOptions          *PortalOptions    `json:"PortalOptions,omitempty"`
 	ApplicationArn         string            `json:"ApplicationArn"`
 	ApplicationProviderArn string            `json:"ApplicationProviderArn"`
 	Description            string            `json:"Description"`
@@ -171,6 +263,7 @@ type ApplicationProviderDisplayData struct {
 type ApplicationProvider struct {
 	ApplicationProviderArn string                         `json:"ApplicationProviderArn"`
 	DisplayData            ApplicationProviderDisplayData `json:"DisplayData"`
+	FederationProtocol     string                         `json:"FederationProtocol,omitempty"`
 }
 
 // InstanceAccessControlAttributeConfiguration holds ABAC configuration for an instance.
@@ -222,13 +315,15 @@ type InMemoryBackend struct {
 	applications            map[string]*Application
 	applicationAssignments  map[string][]*ApplicationAssignment
 	applicationScopes       map[string][]string
-	applicationAuthMethods  map[string][]string
-	applicationGrants       map[string][]string
+	// applicationAuthMethods stores per-app authentication methods: appArn → methodType → full JSON body.
+	applicationAuthMethods map[string]map[string]json.RawMessage
+	// applicationGrants stores per-app grants: appArn → grantType → full JSON body.
+	applicationGrants       map[string]map[string]json.RawMessage
 	applicationAssignConfig map[string]bool
 	applicationSessions     map[string]string
-	instanceACAs            map[string]*InstanceAccessControlAttributeConfiguration
+	instanceACAs            map[string]*ABACConfig
 	trustedTokenIssuers     map[string]*TrustedTokenIssuer
-	permissionBoundaries    map[string]string
+	permissionBoundaries    map[string]*PermissionsBoundary
 	mu                      *lockmetrics.RWMutex
 	accountID               string
 	region                  string
@@ -271,13 +366,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		applications:            make(map[string]*Application),
 		applicationAssignments:  make(map[string][]*ApplicationAssignment),
 		applicationScopes:       make(map[string][]string),
-		applicationAuthMethods:  make(map[string][]string),
-		applicationGrants:       make(map[string][]string),
+		applicationAuthMethods:  make(map[string]map[string]json.RawMessage),
+		applicationGrants:       make(map[string]map[string]json.RawMessage),
 		applicationAssignConfig: make(map[string]bool),
 		applicationSessions:     make(map[string]string),
-		instanceACAs:            make(map[string]*InstanceAccessControlAttributeConfiguration),
+		instanceACAs:            make(map[string]*ABACConfig),
 		trustedTokenIssuers:     make(map[string]*TrustedTokenIssuer),
-		permissionBoundaries:    make(map[string]string),
+		permissionBoundaries:    make(map[string]*PermissionsBoundary),
 		mu:                      lockmetrics.New("ssoadmin"),
 		accountID:               accountID,
 		region:                  region,
@@ -307,13 +402,13 @@ func (b *InMemoryBackend) Reset() {
 	b.applications = make(map[string]*Application)
 	b.applicationAssignments = make(map[string][]*ApplicationAssignment)
 	b.applicationScopes = make(map[string][]string)
-	b.applicationAuthMethods = make(map[string][]string)
-	b.applicationGrants = make(map[string][]string)
+	b.applicationAuthMethods = make(map[string]map[string]json.RawMessage)
+	b.applicationGrants = make(map[string]map[string]json.RawMessage)
 	b.applicationAssignConfig = make(map[string]bool)
 	b.applicationSessions = make(map[string]string)
-	b.instanceACAs = make(map[string]*InstanceAccessControlAttributeConfiguration)
+	b.instanceACAs = make(map[string]*ABACConfig)
 	b.trustedTokenIssuers = make(map[string]*TrustedTokenIssuer)
-	b.permissionBoundaries = make(map[string]string)
+	b.permissionBoundaries = make(map[string]*PermissionsBoundary)
 	// Re-seed the default instance.
 	b.seedDefaultInstance()
 }
@@ -352,7 +447,7 @@ func (b *InMemoryBackend) CreateInstance(name, ownerAccountID, identityStoreID s
 		Name:            name,
 		OwnerAccountID:  ownerAccountID,
 		IdentityStoreID: identityStoreID,
-		Status:          instanceStatusActive,
+		Status:          instanceStatusCreateInProgress,
 		CreatedDate:     time.Now().UTC(),
 		Tags:            make(map[string]string),
 	}
@@ -364,13 +459,23 @@ func (b *InMemoryBackend) CreateInstance(name, ownerAccountID, identityStoreID s
 	return &cp, nil
 }
 
-// ListInstances returns all SSO instances.
+// ListInstances returns all SSO instances, pruning DELETE_IN_PROGRESS entries.
 func (b *InMemoryBackend) ListInstances() []*Instance {
-	b.mu.RLock("ListInstances")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListInstances")
+	defer b.mu.Unlock()
 
 	list := make([]*Instance, 0, len(b.instances))
-	for _, inst := range b.instances {
+	for arn, inst := range b.instances {
+		if inst.Status == instanceStatusDeleteInProgress {
+			// Prune resources then remove instance entry.
+			b.cascadeDeleteInstance(arn)
+			delete(b.instances, arn)
+
+			continue
+		}
+		if inst.Status == instanceStatusCreateInProgress {
+			inst.Status = instanceStatusActive
+		}
 		cp := *inst
 		list = append(list, &cp)
 	}
@@ -379,13 +484,17 @@ func (b *InMemoryBackend) ListInstances() []*Instance {
 }
 
 // DescribeInstance returns a specific SSO instance.
+// Lazily transitions CREATE_IN_PROGRESS → ACTIVE on first read.
 func (b *InMemoryBackend) DescribeInstance(instanceArn string) (*Instance, error) {
-	b.mu.RLock("DescribeInstance")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeInstance")
+	defer b.mu.Unlock()
 
 	inst, ok := b.instances[instanceArn]
 	if !ok {
 		return nil, ErrInstanceNotFound
+	}
+	if inst.Status == instanceStatusCreateInProgress {
+		inst.Status = instanceStatusActive
 	}
 
 	cp := *inst
@@ -395,17 +504,24 @@ func (b *InMemoryBackend) DescribeInstance(instanceArn string) (*Instance, error
 	return &cp, nil
 }
 
-// DeleteInstance removes an SSO instance and cascades to all dependent resources.
+// DeleteInstance transitions an instance to DELETE_IN_PROGRESS and cascades deletion of dependent resources.
+// The instance entry is retained briefly with DELETE_IN_PROGRESS status and pruned on next ListInstances.
 func (b *InMemoryBackend) DeleteInstance(instanceArn string) error {
 	b.mu.Lock("DeleteInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	inst, ok := b.instances[instanceArn]
+	if !ok {
 		return ErrInstanceNotFound
 	}
-	delete(b.instances, instanceArn)
+	inst.Status = instanceStatusDeleteInProgress
+	b.cascadeDeleteInstance(instanceArn)
 
-	// Cascade: remove all permission sets and their assignments for this instance.
+	return nil
+}
+
+// cascadeDeleteInstance removes all resources belonging to instanceArn. Must be called with mu held.
+func (b *InMemoryBackend) cascadeDeleteInstance(instanceArn string) {
 	for psArn, ps := range b.permissionSets {
 		if ps.InstanceArn == instanceArn {
 			key := assignmentKey(instanceArn, psArn)
@@ -415,12 +531,8 @@ func (b *InMemoryBackend) DeleteInstance(instanceArn string) error {
 			delete(b.permissionSets, psArn)
 		}
 	}
-
-	// Cascade: remove ACA configuration and region list for this instance.
 	delete(b.instanceACAs, instanceArn)
 	delete(b.instanceRegions, instanceArn)
-
-	// Cascade: remove all applications belonging to this instance.
 	for appArn, app := range b.applications {
 		if app.InstanceArn == instanceArn {
 			delete(b.applicationAssignments, appArn)
@@ -432,15 +544,11 @@ func (b *InMemoryBackend) DeleteInstance(instanceArn string) error {
 			delete(b.applications, appArn)
 		}
 	}
-
-	// Cascade: remove all trusted token issuers for this instance.
 	for ttiArn, tti := range b.trustedTokenIssuers {
 		if tti.InstanceArn == instanceArn {
 			delete(b.trustedTokenIssuers, ttiArn)
 		}
 	}
-
-	return nil
 }
 
 // CreatePermissionSet creates a new permission set within an SSO instance.
@@ -455,9 +563,18 @@ func (b *InMemoryBackend) CreatePermissionSet(
 		return nil, ErrInstanceNotFound
 	}
 
-	if len(name) > maxPermissionSetNameLen {
-		return nil, fmt.Errorf("%w: permission set name must not exceed %d characters",
-			awserr.ErrInvalidParameter, maxPermissionSetNameLen)
+	if err := validatePermissionSetName(name); err != nil {
+		return nil, err
+	}
+
+	if err := validateSessionDuration(sessionDuration); err != nil {
+		return nil, err
+	}
+
+	if len(tags) > 0 {
+		if err := validateTags(tags); err != nil {
+			return nil, err
+		}
 	}
 
 	for _, ps := range b.permissionSets {
@@ -556,6 +673,11 @@ func (b *InMemoryBackend) UpdatePermissionSet(
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
+	if sessionDuration != "" {
+		if err := validateSessionDuration(sessionDuration); err != nil {
+			return err
+		}
+	}
 	if description != "" {
 		ps.Description = description
 	}
@@ -603,9 +725,14 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 
 	requestID := uuid.NewString()
 	b.creationStatuses[requestID] = &ProvisioningStatus{
-		RequestID:   requestID,
-		Status:      statusSucceeded,
-		CreatedDate: time.Now().UTC(),
+		RequestID:        requestID,
+		Status:           statusInProgress,
+		CreatedDate:      time.Now().UTC(),
+		AccountID:        accountID,
+		PermissionSetArn: permissionSetArn,
+		PrincipalID:      principalID,
+		PrincipalType:    principalType,
+		TargetType:       targetTypeAWSAccount,
 	}
 	b.assignmentCreationIDs[idempotencyKey] = requestID
 
@@ -613,16 +740,20 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 }
 
 // DescribeAccountAssignmentCreationStatus returns the status of a creation request.
+// Lazily transitions IN_PROGRESS → SUCCEEDED on first poll.
 func (b *InMemoryBackend) DescribeAccountAssignmentCreationStatus(
 	_ string,
 	requestID string,
 ) (*ProvisioningStatus, error) {
-	b.mu.RLock("DescribeAccountAssignmentCreationStatus")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeAccountAssignmentCreationStatus")
+	defer b.mu.Unlock()
 
 	status, ok := b.creationStatuses[requestID]
 	if !ok {
 		return nil, ErrRequestNotFound
+	}
+	if status.Status == statusInProgress {
+		status.Status = statusSucceeded
 	}
 
 	cp := *status
@@ -631,12 +762,16 @@ func (b *InMemoryBackend) DescribeAccountAssignmentCreationStatus(
 }
 
 // ListAccountAssignmentCreationStatus returns creation statuses sorted by creation date descending.
-func (b *InMemoryBackend) ListAccountAssignmentCreationStatus(_ string) []*ProvisioningStatus {
+// filterStatus filters by status when non-empty.
+func (b *InMemoryBackend) ListAccountAssignmentCreationStatus(_, filterStatus string) []*ProvisioningStatus {
 	b.mu.RLock("ListAccountAssignmentCreationStatus")
 	defer b.mu.RUnlock()
 
 	result := make([]*ProvisioningStatus, 0, len(b.creationStatuses))
 	for _, status := range b.creationStatuses {
+		if filterStatus != "" && status.Status != filterStatus {
+			continue
+		}
 		cp := *status
 		result = append(result, &cp)
 	}
@@ -690,31 +825,43 @@ func (b *InMemoryBackend) DeleteAccountAssignment(
 	}
 	b.assignments[key] = remaining
 
-	// Remove the idempotency index entry for this assignment.
+	// Remove the idempotency index entry and associated creation status to prevent unbounded growth.
 	idempotencyKey := key + "|" + accountID + "|" + principalType + "|" + principalID
+	if oldRequestID, exists := b.assignmentCreationIDs[idempotencyKey]; exists {
+		delete(b.creationStatuses, oldRequestID)
+	}
 	delete(b.assignmentCreationIDs, idempotencyKey)
 
 	requestID := uuid.NewString()
 	b.deletionStatuses[requestID] = &ProvisioningStatus{
-		RequestID:   requestID,
-		Status:      statusSucceeded,
-		CreatedDate: time.Now().UTC(),
+		RequestID:        requestID,
+		Status:           statusInProgress,
+		AccountID:        accountID,
+		PermissionSetArn: permissionSetArn,
+		PrincipalID:      principalID,
+		PrincipalType:    principalType,
+		TargetType:       targetTypeAWSAccount,
+		CreatedDate:      time.Now().UTC(),
 	}
 
 	return requestID, nil
 }
 
 // DescribeAccountAssignmentDeletionStatus returns the status of a deletion request.
+// Lazily transitions IN_PROGRESS → SUCCEEDED on first poll.
 func (b *InMemoryBackend) DescribeAccountAssignmentDeletionStatus(
 	_ string,
 	requestID string,
 ) (*ProvisioningStatus, error) {
-	b.mu.RLock("DescribeAccountAssignmentDeletionStatus")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeAccountAssignmentDeletionStatus")
+	defer b.mu.Unlock()
 
 	status, ok := b.deletionStatuses[requestID]
 	if !ok {
 		return nil, ErrRequestNotFound
+	}
+	if status.Status == statusInProgress {
+		status.Status = statusSucceeded
 	}
 
 	cp := *status
@@ -723,12 +870,16 @@ func (b *InMemoryBackend) DescribeAccountAssignmentDeletionStatus(
 }
 
 // ListAccountAssignmentDeletionStatus returns deletion statuses sorted by creation date descending.
-func (b *InMemoryBackend) ListAccountAssignmentDeletionStatus(_ string) []*ProvisioningStatus {
+// filterStatus filters by status when non-empty.
+func (b *InMemoryBackend) ListAccountAssignmentDeletionStatus(_, filterStatus string) []*ProvisioningStatus {
 	b.mu.RLock("ListAccountAssignmentDeletionStatus")
 	defer b.mu.RUnlock()
 
 	result := make([]*ProvisioningStatus, 0, len(b.deletionStatuses))
 	for _, status := range b.deletionStatuses {
+		if filterStatus != "" && status.Status != filterStatus {
+			continue
+		}
 		cp := *status
 		result = append(result, &cp)
 	}
@@ -848,17 +999,38 @@ func (b *InMemoryBackend) DeleteInlinePolicyFromPermissionSet(instanceArn, permi
 }
 
 // PutPermissionsBoundaryToPermissionSet sets the permissions boundary on a permission set.
+// boundary must have exactly one of ManagedPolicyArn or CustomerManagedPolicyReference set.
 func (b *InMemoryBackend) PutPermissionsBoundaryToPermissionSet(
-	instanceArn, permissionSetArn, managedPolicyArn string,
+	instanceArn, permissionSetArn string, boundary *PermissionsBoundary,
 ) error {
 	b.mu.Lock("PutPermissionsBoundaryToPermissionSet")
 	defer b.mu.Unlock()
+
+	if boundary == nil {
+		return fmt.Errorf("%w: PermissionsBoundary is required", awserr.ErrInvalidParameter)
+	}
+	hasManaged := boundary.ManagedPolicyArn != ""
+	hasCMPR := boundary.CustomerManagedPolicyReference != nil
+	if hasManaged == hasCMPR {
+		return fmt.Errorf(
+			"%w: PermissionsBoundary must have exactly one of ManagedPolicyArn or CustomerManagedPolicyReference",
+			awserr.ErrInvalidParameter,
+		)
+	}
+	if hasCMPR {
+		if err := validateCustomerManagedPolicyReference(
+			boundary.CustomerManagedPolicyReference.Name,
+			boundary.CustomerManagedPolicyReference.Path,
+		); err != nil {
+			return err
+		}
+	}
 
 	ps, ok := b.permissionSets[permissionSetArn]
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
-	b.permissionBoundaries[permissionSetArn] = managedPolicyArn
+	b.permissionBoundaries[permissionSetArn] = boundary
 
 	return nil
 }
@@ -867,25 +1039,28 @@ func (b *InMemoryBackend) PutPermissionsBoundaryToPermissionSet(
 func (b *InMemoryBackend) GetPermissionsBoundaryForPermissionSet(
 	instanceArn,
 	permissionSetArn string,
-) (string, error) {
+) (*PermissionsBoundary, error) {
 	b.mu.RLock("GetPermissionsBoundaryForPermissionSet")
 	defer b.mu.RUnlock()
 
 	ps, ok := b.permissionSets[permissionSetArn]
 	if !ok || ps.InstanceArn != instanceArn {
-		return "", ErrPermissionSetNotFound
+		return nil, ErrPermissionSetNotFound
 	}
 
 	boundary, ok := b.permissionBoundaries[permissionSetArn]
 	if !ok {
-		return "", ErrRequestNotFound
+		return nil, ErrRequestNotFound
 	}
 
 	return boundary, nil
 }
 
-// ProvisionPermissionSet initiates provisioning of a permission set to accounts.
-func (b *InMemoryBackend) ProvisionPermissionSet(instanceArn, permissionSetArn string) (string, error) {
+// ProvisionPermissionSet initiates provisioning of a permission set.
+// targetType is AWS_ACCOUNT or ALL_PROVISIONED_ACCOUNTS; targetID is required for AWS_ACCOUNT.
+func (b *InMemoryBackend) ProvisionPermissionSet(
+	instanceArn, permissionSetArn, targetType, targetID string,
+) (string, error) {
 	b.mu.Lock("ProvisionPermissionSet")
 	defer b.mu.Unlock()
 
@@ -898,25 +1073,32 @@ func (b *InMemoryBackend) ProvisionPermissionSet(instanceArn, permissionSetArn s
 
 	requestID := uuid.NewString()
 	b.provisioningStatuses[requestID] = &ProvisioningStatus{
-		RequestID:   requestID,
-		Status:      statusSucceeded,
-		CreatedDate: time.Now().UTC(),
+		RequestID:        requestID,
+		Status:           statusInProgress,
+		CreatedDate:      time.Now().UTC(),
+		PermissionSetArn: permissionSetArn,
+		TargetType:       targetType,
+		AccountID:        targetID,
 	}
 
 	return requestID, nil
 }
 
 // DescribePermissionSetProvisioningStatus returns the status of a provisioning request.
+// Lazily transitions IN_PROGRESS → SUCCEEDED on first poll.
 func (b *InMemoryBackend) DescribePermissionSetProvisioningStatus(
 	_ string,
 	provisioningRequestID string,
 ) (*ProvisioningStatus, error) {
-	b.mu.RLock("DescribePermissionSetProvisioningStatus")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribePermissionSetProvisioningStatus")
+	defer b.mu.Unlock()
 
 	status, ok := b.provisioningStatuses[provisioningRequestID]
 	if !ok {
 		return nil, ErrRequestNotFound
+	}
+	if status.Status == statusInProgress {
+		status.Status = statusSucceeded
 	}
 
 	cp := *status
@@ -925,12 +1107,16 @@ func (b *InMemoryBackend) DescribePermissionSetProvisioningStatus(
 }
 
 // ListPermissionSetProvisioningStatus returns permission-set provisioning statuses sorted by date descending.
-func (b *InMemoryBackend) ListPermissionSetProvisioningStatus(_ string) []*ProvisioningStatus {
+// filterStatus filters by status when non-empty.
+func (b *InMemoryBackend) ListPermissionSetProvisioningStatus(_, filterStatus string) []*ProvisioningStatus {
 	b.mu.RLock("ListPermissionSetProvisioningStatus")
 	defer b.mu.RUnlock()
 
 	result := make([]*ProvisioningStatus, 0, len(b.provisioningStatuses))
 	for _, status := range b.provisioningStatuses {
+		if filterStatus != "" && status.Status != filterStatus {
+			continue
+		}
 		cp := *status
 		result = append(result, &cp)
 	}
@@ -941,7 +1127,7 @@ func (b *InMemoryBackend) ListPermissionSetProvisioningStatus(_ string) []*Provi
 	return result
 }
 
-// validateTags validates tag keys and values against AWS limits.
+// validateTags validates tag keys and values against AWS limits and character rules.
 func validateTags(tags map[string]string) error {
 	for k, v := range tags {
 		if len(k) > maxTagKeyLen {
@@ -950,6 +1136,169 @@ func validateTags(tags map[string]string) error {
 		if len(v) > maxTagValueLen {
 			return fmt.Errorf("%w: tag value exceeds maximum length of %d", awserr.ErrInvalidParameter, maxTagValueLen)
 		}
+		if strings.HasPrefix(strings.ToLower(k), "aws:") {
+			return fmt.Errorf("%w: tag keys with prefix 'aws:' are reserved", awserr.ErrInvalidParameter)
+		}
+	}
+
+	return nil
+}
+
+// validatePermissionSetName checks the name regex [\w+=,.@-]+ and length limit.
+func validatePermissionSetName(name string) error {
+	if len(name) > maxPermissionSetNameLen {
+		return fmt.Errorf("%w: permission set name must not exceed %d characters",
+			awserr.ErrInvalidParameter, maxPermissionSetNameLen)
+	}
+	if name != "" && !permissionSetNameRe.MatchString(name) {
+		return fmt.Errorf("%w: permission set name contains invalid characters (allowed: [\\w+=,.@-])",
+			awserr.ErrInvalidParameter)
+	}
+
+	return nil
+}
+
+// validateSessionDuration validates ISO8601 duration in range PT1H..PT12H.
+// Valid examples: PT1H, PT2H, PT12H, PT1H30M. Invalid: PT13H, PT30M, P1D.
+func validateSessionDuration(dur string) error {
+	if dur == "" {
+		return nil
+	}
+	if !strings.HasPrefix(dur, "PT") {
+		return fmt.Errorf("%w: SessionDuration must be an ISO8601 duration starting with PT (e.g. PT1H)",
+			awserr.ErrInvalidParameter)
+	}
+	// Parse hours and minutes from PTxHyM / PTxH / PTyM
+	rest := dur[2:]
+	var hours, minutes int
+	if h := strings.Index(rest, "H"); h >= 0 {
+		if _, err := fmt.Sscanf(rest[:h], "%d", &hours); err != nil || hours < 0 {
+			return fmt.Errorf("%w: SessionDuration has invalid hours component", awserr.ErrInvalidParameter)
+		}
+		rest = rest[h+1:]
+	}
+	if m := strings.Index(rest, "M"); m >= 0 {
+		if _, err := fmt.Sscanf(rest[:m], "%d", &minutes); err != nil || minutes < 0 {
+			return fmt.Errorf("%w: SessionDuration has invalid minutes component", awserr.ErrInvalidParameter)
+		}
+		rest = rest[m+1:]
+	}
+	if rest != "" {
+		return fmt.Errorf("%w: SessionDuration has unsupported components", awserr.ErrInvalidParameter)
+	}
+	totalMinutes := hours*minutesPerHour + minutes
+	if totalMinutes < minSessionMinutes || totalMinutes > maxSessionMinutes {
+		return fmt.Errorf("%w: SessionDuration must be between PT1H and PT12H", awserr.ErrInvalidParameter)
+	}
+
+	return nil
+}
+
+// validateCustomerManagedPolicyReference checks Name and Path per AWS spec.
+func validateCustomerManagedPolicyReference(name, path string) error {
+	if name == "" {
+		return fmt.Errorf("%w: CustomerManagedPolicyReference.Name is required", awserr.ErrInvalidParameter)
+	}
+	if len(name) > maxCMPRNameLen {
+		return fmt.Errorf("%w: CustomerManagedPolicyReference.Name exceeds maximum length of %d",
+			awserr.ErrInvalidParameter, maxCMPRNameLen)
+	}
+	if !cmprNameRe.MatchString(name) {
+		return fmt.Errorf("%w: CustomerManagedPolicyReference.Name contains invalid characters",
+			awserr.ErrInvalidParameter)
+	}
+	if path != "" {
+		if len(path) > maxCMPRPathLen {
+			return fmt.Errorf("%w: CustomerManagedPolicyReference.Path exceeds maximum length of %d",
+				awserr.ErrInvalidParameter, maxCMPRPathLen)
+		}
+		if !strings.HasPrefix(path, "/") {
+			return fmt.Errorf("%w: CustomerManagedPolicyReference.Path must begin with '/'",
+				awserr.ErrInvalidParameter)
+		}
+	}
+
+	return nil
+}
+
+// validateACAAttributes validates the AccessControlAttribute list per AWS limits.
+func validateACAAttributes(attrs []AccessControlAttribute) error {
+	if len(attrs) > maxACAAttributes {
+		return fmt.Errorf("%w: AccessControlAttributes exceeds maximum of %d",
+			awserr.ErrInvalidParameter, maxACAAttributes)
+	}
+	for _, a := range attrs {
+		if len(a.Key) > maxACAKeyLen {
+			return fmt.Errorf("%w: AccessControlAttribute key exceeds maximum length of %d",
+				awserr.ErrInvalidParameter, maxACAKeyLen)
+		}
+		if a.Key != "" && !acaKeyRe.MatchString(a.Key) {
+			return fmt.Errorf("%w: AccessControlAttribute key contains invalid characters", awserr.ErrInvalidParameter)
+		}
+		if len(a.Value.Source) > maxACASourceItems {
+			return fmt.Errorf("%w: AccessControlAttribute source list exceeds maximum of %d items",
+				awserr.ErrInvalidParameter, maxACASourceItems)
+		}
+		if len(a.Value.Source) == 0 {
+			return fmt.Errorf("%w: AccessControlAttribute source list must have at least one item",
+				awserr.ErrInvalidParameter)
+		}
+		for _, s := range a.Value.Source {
+			if len(s) > maxACASourceItemLen {
+				return fmt.Errorf("%w: AccessControlAttribute source item exceeds maximum length of %d",
+					awserr.ErrInvalidParameter, maxACASourceItemLen)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateTrustedTokenIssuerType rejects non-OIDC_JWT types.
+func validateTrustedTokenIssuerType(issuerType string) error {
+	if issuerType != "" && issuerType != ttiTypeOIDCJWT {
+		return fmt.Errorf("%w: TrustedTokenIssuerType must be OIDC_JWT", awserr.ErrInvalidParameter)
+	}
+
+	return nil
+}
+
+// validateOIDCJWTConfig validates OIDC JWT trusted token issuer configuration when provided.
+func validateOIDCJWTConfig(cfg *OidcJwtConfiguration) error {
+	if cfg == nil {
+		return nil
+	}
+	if cfg.IssuerURL == "" {
+		return fmt.Errorf("%w: OidcJwtConfiguration.IssuerUrl is required", awserr.ErrInvalidParameter)
+	}
+	if len(cfg.IssuerURL) > maxIssuerURLLen {
+		return fmt.Errorf("%w: OidcJwtConfiguration.IssuerUrl exceeds maximum length of %d",
+			awserr.ErrInvalidParameter, maxIssuerURLLen)
+	}
+	if _, err := url.ParseRequestURI(cfg.IssuerURL); err != nil {
+		return fmt.Errorf("%w: OidcJwtConfiguration.IssuerUrl must be a valid URL", awserr.ErrInvalidParameter)
+	}
+	if cfg.JwksRetrievalOption != "" && cfg.JwksRetrievalOption != jwksRetrievalOpenIDDiscovery {
+		return fmt.Errorf("%w: OidcJwtConfiguration.JwksRetrievalOption must be OPEN_ID_DISCOVERY",
+			awserr.ErrInvalidParameter)
+	}
+
+	return nil
+}
+
+// validateApplicationProviderArn validates an application provider ARN.
+// Accepts AWS-managed (arn:aws:sso::aws:applicationProvider/...) or
+// account-scoped (arn:aws:sso::{accountId}:applicationProvider/...) ARNs.
+func validateApplicationProviderArn(arn string) error {
+	if arn == "" {
+		return fmt.Errorf("%w: ApplicationProviderArn is required", awserr.ErrInvalidParameter)
+	}
+	if !strings.HasPrefix(arn, "arn:aws:sso::") {
+		return fmt.Errorf("%w: ApplicationProviderArn must be a valid SSO ARN", awserr.ErrInvalidParameter)
+	}
+	if !strings.Contains(arn, ":applicationProvider/") {
+		return fmt.Errorf("%w: ApplicationProviderArn must reference an applicationProvider resource",
+			awserr.ErrInvalidParameter)
 	}
 
 	return nil
@@ -1107,6 +1456,10 @@ func copyApplication(app *Application) *Application {
 	cp := *app
 	cp.Tags = make(map[string]string, len(app.Tags))
 	maps.Copy(cp.Tags, app.Tags)
+	if app.PortalOptions != nil {
+		po := *app.PortalOptions
+		cp.PortalOptions = &po
+	}
 
 	return &cp
 }
@@ -1262,6 +1615,10 @@ func (b *InMemoryBackend) AttachCustomerManagedPolicyReferenceToPermissionSet(
 	b.mu.Lock("AttachCustomerManagedPolicyReferenceToPermissionSet")
 	defer b.mu.Unlock()
 
+	if err := validateCustomerManagedPolicyReference(name, path); err != nil {
+		return err
+	}
+
 	ps, ok := b.permissionSets[permissionSetArn]
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
@@ -1283,9 +1640,14 @@ func (b *InMemoryBackend) AttachCustomerManagedPolicyReferenceToPermissionSet(
 func (b *InMemoryBackend) CreateApplication(
 	instanceArn, applicationProviderArn, name, description string,
 	tags map[string]string,
+	portalOptions *PortalOptions,
 ) (*Application, error) {
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
+
+	if err := validateApplicationProviderArn(applicationProviderArn); err != nil {
+		return nil, err
+	}
 
 	if _, ok := b.instances[instanceArn]; !ok {
 		return nil, ErrInstanceNotFound
@@ -1293,6 +1655,28 @@ func (b *InMemoryBackend) CreateApplication(
 	for _, app := range b.applications {
 		if app.InstanceArn == instanceArn && app.Name == name {
 			return nil, ErrApplicationAlreadyExists
+		}
+	}
+
+	if portalOptions != nil {
+		if portalOptions.Visibility != "" &&
+			portalOptions.Visibility != portalVisibilityEnabled &&
+			portalOptions.Visibility != portalVisibilityDisabled {
+			return nil, fmt.Errorf(
+				"%w: PortalOptions.Visibility must be ENABLED or DISABLED",
+				awserr.ErrInvalidParameter,
+			)
+		}
+		if portalOptions.SignInOptions.Origin != "" &&
+			portalOptions.SignInOptions.Origin != signInOriginApplication &&
+			portalOptions.SignInOptions.Origin != signInOriginIdentityCenter {
+			return nil, fmt.Errorf("%w: SignInOptions.Origin must be APPLICATION or IDENTITY_CENTER",
+				awserr.ErrInvalidParameter)
+		}
+		if portalOptions.SignInOptions.Origin == signInOriginApplication &&
+			portalOptions.SignInOptions.ApplicationURL == "" {
+			return nil, fmt.Errorf("%w: SignInOptions.ApplicationUrl is required when Origin is APPLICATION",
+				awserr.ErrInvalidParameter)
 		}
 	}
 
@@ -1308,6 +1692,7 @@ func (b *InMemoryBackend) CreateApplication(
 		Name:                   name,
 		Status:                 appStatusEnabled,
 		Tags:                   make(map[string]string),
+		PortalOptions:          portalOptions,
 	}
 	maps.Copy(app.Tags, tags)
 	b.applications[appArn] = app
@@ -1346,13 +1731,15 @@ func (b *InMemoryBackend) ListApplications(instanceArn string) []*Application {
 
 // UpdateApplication updates mutable fields on an application.
 func (b *InMemoryBackend) UpdateApplication(
-	applicationArn,
-	name,
-	description,
-	status string,
+	applicationArn, name, description, status string,
+	portalOptions *PortalOptions,
 ) (*Application, error) {
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
+
+	if status != "" && status != appStatusEnabled && status != appStatusDisabled {
+		return nil, fmt.Errorf("%w: Application Status must be ENABLED or DISABLED", awserr.ErrInvalidParameter)
+	}
 
 	app, ok := b.applications[applicationArn]
 	if !ok {
@@ -1366,6 +1753,9 @@ func (b *InMemoryBackend) UpdateApplication(
 	}
 	if status != "" {
 		app.Status = status
+	}
+	if portalOptions != nil {
+		app.PortalOptions = portalOptions
 	}
 
 	return copyApplication(app), nil
@@ -1550,6 +1940,12 @@ func (b *InMemoryBackend) ListApplicationAccessScopes(applicationArn string) ([]
 	return slices.Clone(b.applicationScopes[applicationArn]), nil
 }
 
+// AuthMethod holds a typed authentication method with its full structured body.
+type AuthMethod struct {
+	AuthMethodType string          `json:"AuthenticationMethodType"`
+	Body           json.RawMessage `json:"AuthenticationMethod"`
+}
+
 // DeleteApplicationAuthenticationMethod removes an authentication method from an application.
 func (b *InMemoryBackend) DeleteApplicationAuthenticationMethod(applicationArn, authMethodType string) error {
 	b.mu.Lock("DeleteApplicationAuthenticationMethod")
@@ -1558,64 +1954,128 @@ func (b *InMemoryBackend) DeleteApplicationAuthenticationMethod(applicationArn, 
 	if _, ok := b.applications[applicationArn]; !ok {
 		return ErrApplicationNotFound
 	}
-	all := b.applicationAuthMethods[applicationArn]
-	found := false
-	var remaining []string
-	for _, m := range all {
-		if m == authMethodType {
-			found = true
-		} else {
-			remaining = append(remaining, m)
-		}
-	}
-	if !found {
+	methods := b.applicationAuthMethods[applicationArn]
+	if methods == nil {
 		return ErrAuthMethodNotFound
 	}
-	b.applicationAuthMethods[applicationArn] = remaining
+	if _, exists := methods[authMethodType]; !exists {
+		return ErrAuthMethodNotFound
+	}
+	delete(methods, authMethodType)
 
 	return nil
 }
 
-// PutApplicationAuthenticationMethod adds an authentication method to an application.
-func (b *InMemoryBackend) PutApplicationAuthenticationMethod(applicationArn, authMethodType string) error {
+// PutApplicationAuthenticationMethod stores a typed authentication method with its body.
+// authMethodType must be IAM; body is the full AuthenticationMethod JSON object.
+func (b *InMemoryBackend) PutApplicationAuthenticationMethod(
+	applicationArn, authMethodType string,
+	body json.RawMessage,
+) error {
 	b.mu.Lock("PutApplicationAuthenticationMethod")
 	defer b.mu.Unlock()
+
+	if authMethodType != authMethodTypeIAM {
+		return fmt.Errorf("%w: AuthenticationMethodType must be IAM", awserr.ErrInvalidParameter)
+	}
 
 	if _, ok := b.applications[applicationArn]; !ok {
 		return ErrApplicationNotFound
 	}
-	if slices.Contains(b.applicationAuthMethods[applicationArn], authMethodType) {
-		return nil
+	if b.applicationAuthMethods[applicationArn] == nil {
+		b.applicationAuthMethods[applicationArn] = make(map[string]json.RawMessage)
 	}
-	b.applicationAuthMethods[applicationArn] = append(b.applicationAuthMethods[applicationArn], authMethodType)
+	if len(body) == 0 {
+		body = json.RawMessage("null")
+	}
+	b.applicationAuthMethods[applicationArn][authMethodType] = body
 
 	return nil
 }
 
-// ListApplicationAuthenticationMethods lists authentication methods on an application.
-func (b *InMemoryBackend) ListApplicationAuthenticationMethods(applicationArn string) ([]string, error) {
+// ListApplicationAuthenticationMethods lists authentication methods with their bodies.
+func (b *InMemoryBackend) ListApplicationAuthenticationMethods(applicationArn string) ([]AuthMethod, error) {
 	b.mu.RLock("ListApplicationAuthenticationMethods")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.applications[applicationArn]; !ok {
 		return nil, ErrApplicationNotFound
 	}
+	methods := b.applicationAuthMethods[applicationArn]
+	result := make([]AuthMethod, 0, len(methods))
+	for mType, body := range methods {
+		bodyCopy := make(json.RawMessage, len(body))
+		copy(bodyCopy, body)
+		result = append(result, AuthMethod{AuthMethodType: mType, Body: bodyCopy})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].AuthMethodType < result[j].AuthMethodType })
 
-	return slices.Clone(b.applicationAuthMethods[applicationArn]), nil
+	return result, nil
 }
 
-// PutApplicationGrant adds a grant to an application.
-func (b *InMemoryBackend) PutApplicationGrant(applicationArn, grantType string) error {
+// GetApplicationAuthenticationMethod returns a specific auth method body.
+func (b *InMemoryBackend) GetApplicationAuthenticationMethod(
+	applicationArn, authMethodType string,
+) (json.RawMessage, error) {
+	b.mu.RLock("GetApplicationAuthenticationMethod")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return nil, ErrApplicationNotFound
+	}
+	methods := b.applicationAuthMethods[applicationArn]
+	if methods == nil {
+		return nil, ErrAuthMethodNotFound
+	}
+	body, exists := methods[authMethodType]
+	if !exists {
+		return nil, ErrAuthMethodNotFound
+	}
+	result := make(json.RawMessage, len(body))
+	copy(result, body)
+
+	return result, nil
+}
+
+// ApplicationGrant holds a typed grant with its structured body.
+type ApplicationGrant struct {
+	GrantType string          `json:"GrantType"`
+	Grant     json.RawMessage `json:"Grant"`
+}
+
+// isValidGrantType reports whether grantType is an AWS-specified grant type enum value.
+func isValidGrantType(grantType string) bool {
+	switch grantType {
+	case "authorization_code",
+		"refresh_token",
+		"urn:ietf:params:oauth:grant-type:jwt-bearer",
+		"urn:ietf:params:oauth:grant-type:token-exchange":
+		return true
+	default:
+		return false
+	}
+}
+
+// PutApplicationGrant stores a typed grant with its full body.
+func (b *InMemoryBackend) PutApplicationGrant(applicationArn, grantType string, body json.RawMessage) error {
 	b.mu.Lock("PutApplicationGrant")
 	defer b.mu.Unlock()
+
+	if !isValidGrantType(grantType) {
+		return fmt.Errorf("%w: GrantType must be one of authorization_code, refresh_token, jwt-bearer, token-exchange",
+			awserr.ErrInvalidParameter)
+	}
 
 	if _, ok := b.applications[applicationArn]; !ok {
 		return ErrApplicationNotFound
 	}
-	if slices.Contains(b.applicationGrants[applicationArn], grantType) {
-		return nil
+	if b.applicationGrants[applicationArn] == nil {
+		b.applicationGrants[applicationArn] = make(map[string]json.RawMessage)
 	}
-	b.applicationGrants[applicationArn] = append(b.applicationGrants[applicationArn], grantType)
+	if len(body) == 0 {
+		body = json.RawMessage("null")
+	}
+	b.applicationGrants[applicationArn][grantType] = body
 
 	return nil
 }
@@ -1628,34 +2088,58 @@ func (b *InMemoryBackend) DeleteApplicationGrant(applicationArn, grantType strin
 	if _, ok := b.applications[applicationArn]; !ok {
 		return ErrApplicationNotFound
 	}
-	all := b.applicationGrants[applicationArn]
-	found := false
-	var remaining []string
-	for _, grant := range all {
-		if grant == grantType {
-			found = true
-		} else {
-			remaining = append(remaining, grant)
-		}
+	grants := b.applicationGrants[applicationArn]
+	if grants == nil {
+		return ErrGrantNotFound
 	}
-	if !found {
-		return ErrRequestNotFound
+	if _, exists := grants[grantType]; !exists {
+		return ErrGrantNotFound
 	}
-	b.applicationGrants[applicationArn] = remaining
+	delete(grants, grantType)
 
 	return nil
 }
 
-// ListApplicationGrants lists grants on an application.
-func (b *InMemoryBackend) ListApplicationGrants(applicationArn string) ([]string, error) {
+// ListApplicationGrants lists grants on an application with their bodies.
+func (b *InMemoryBackend) ListApplicationGrants(applicationArn string) ([]ApplicationGrant, error) {
 	b.mu.RLock("ListApplicationGrants")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.applications[applicationArn]; !ok {
 		return nil, ErrApplicationNotFound
 	}
+	grants := b.applicationGrants[applicationArn]
+	result := make([]ApplicationGrant, 0, len(grants))
+	for gType, body := range grants {
+		bodyCopy := make(json.RawMessage, len(body))
+		copy(bodyCopy, body)
+		result = append(result, ApplicationGrant{GrantType: gType, Grant: bodyCopy})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].GrantType < result[j].GrantType })
 
-	return slices.Clone(b.applicationGrants[applicationArn]), nil
+	return result, nil
+}
+
+// GetApplicationGrant returns a specific grant body.
+func (b *InMemoryBackend) GetApplicationGrant(applicationArn, grantType string) (json.RawMessage, error) {
+	b.mu.RLock("GetApplicationGrant")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return nil, ErrApplicationNotFound
+	}
+	grants := b.applicationGrants[applicationArn]
+	if grants == nil {
+		return nil, ErrGrantNotFound
+	}
+	body, exists := grants[grantType]
+	if !exists {
+		return nil, ErrGrantNotFound
+	}
+	result := make(json.RawMessage, len(body))
+	copy(result, body)
+
+	return result, nil
 }
 
 // PutApplicationSessionConfiguration sets session configuration on an application.
@@ -1680,14 +2164,19 @@ func (b *InMemoryBackend) CreateInstanceAccessControlAttributeConfiguration(
 	b.mu.Lock("CreateInstanceAccessControlAttributeConfiguration")
 	defer b.mu.Unlock()
 
+	if err := validateACAAttributes(attributes); err != nil {
+		return err
+	}
+
 	if _, ok := b.instances[instanceArn]; !ok {
 		return ErrInstanceNotFound
 	}
 	if _, exists := b.instanceACAs[instanceArn]; exists {
 		return ErrACAAlreadyExists
 	}
-	b.instanceACAs[instanceArn] = &InstanceAccessControlAttributeConfiguration{
+	b.instanceACAs[instanceArn] = &ABACConfig{
 		AccessControlAttributes: copyAccessControlAttributes(attributes),
+		Status:                  abacStatusCreationInProgress,
 	}
 
 	return nil
@@ -1696,9 +2185,9 @@ func (b *InMemoryBackend) CreateInstanceAccessControlAttributeConfiguration(
 // DescribeInstanceAccessControlAttributeConfiguration returns ABAC configuration for an instance.
 func (b *InMemoryBackend) DescribeInstanceAccessControlAttributeConfiguration(
 	instanceArn string,
-) (*InstanceAccessControlAttributeConfiguration, error) {
-	b.mu.RLock("DescribeInstanceAccessControlAttributeConfiguration")
-	defer b.mu.RUnlock()
+) (*ABACConfig, error) {
+	b.mu.Lock("DescribeInstanceAccessControlAttributeConfiguration")
+	defer b.mu.Unlock()
 
 	if _, ok := b.instances[instanceArn]; !ok {
 		return nil, ErrInstanceNotFound
@@ -1707,9 +2196,15 @@ func (b *InMemoryBackend) DescribeInstanceAccessControlAttributeConfiguration(
 	if !ok {
 		return nil, ErrRequestNotFound
 	}
+	// Lazily transition CREATION_IN_PROGRESS → ENABLED on first describe.
+	if cfg.Status == abacStatusCreationInProgress {
+		cfg.Status = abacStatusEnabled
+	}
 
-	return &InstanceAccessControlAttributeConfiguration{
+	return &ABACConfig{
 		AccessControlAttributes: copyAccessControlAttributes(cfg.AccessControlAttributes),
+		Status:                  cfg.Status,
+		StatusReason:            cfg.StatusReason,
 	}, nil
 }
 
@@ -1729,59 +2224,111 @@ func (b *InMemoryBackend) DeleteInstanceAccessControlAttributeConfiguration(inst
 	return nil
 }
 
-// ListApplicationProviders returns known application providers.
+// awsApplicationProviderCatalog is the static catalog of AWS-managed SSO application providers.
+//
+//nolint:gochecknoglobals // read-only constant table
+var awsApplicationProviderCatalog = []*ApplicationProvider{
+	{
+		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/custom",
+		FederationProtocol:     federationProtocolSAML,
+		DisplayData: ApplicationProviderDisplayData{
+			DisplayName: "Custom SAML 2.0 application",
+			Description: "Connect any SAML 2.0 compatible application",
+		},
+	},
+	{
+		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/salesforce",
+		FederationProtocol:     federationProtocolSAML,
+		DisplayData: ApplicationProviderDisplayData{
+			DisplayName: "Salesforce",
+			Description: "Customer relationship management platform",
+		},
+	},
+	{
+		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/jira-cloud",
+		FederationProtocol:     federationProtocolSAML,
+		DisplayData: ApplicationProviderDisplayData{
+			DisplayName: "Jira Cloud",
+			Description: "Project and issue tracking by Atlassian",
+		},
+	},
+	{
+		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/slack",
+		FederationProtocol:     federationProtocolSAML,
+		DisplayData: ApplicationProviderDisplayData{
+			DisplayName: "Slack",
+			Description: "Team messaging and collaboration",
+		},
+	},
+	{
+		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/github",
+		FederationProtocol:     federationProtocolSAML,
+		DisplayData: ApplicationProviderDisplayData{
+			DisplayName: "GitHub",
+			Description: "Code hosting and version control",
+		},
+	},
+	{
+		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/datadog",
+		FederationProtocol:     federationProtocolSAML,
+		DisplayData: ApplicationProviderDisplayData{
+			DisplayName: "Datadog",
+			Description: "Monitoring and analytics platform",
+		},
+	},
+	{
+		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/pagerduty",
+		FederationProtocol:     federationProtocolSAML,
+		DisplayData: ApplicationProviderDisplayData{
+			DisplayName: "PagerDuty",
+			Description: "Incident management platform",
+		},
+	},
+}
+
+// awsProvidersByARN provides O(1) lookup into the catalog.
+//
+//nolint:gochecknoglobals // read-only constant table, built from awsApplicationProviderCatalog
+var awsProvidersByARN = func() map[string]*ApplicationProvider {
+	m := make(map[string]*ApplicationProvider, len(awsApplicationProviderCatalog))
+	for _, p := range awsApplicationProviderCatalog {
+		m[p.ApplicationProviderArn] = p
+	}
+
+	return m
+}()
+
+// ListApplicationProviders returns the static AWS-managed provider catalog.
 func (b *InMemoryBackend) ListApplicationProviders() []*ApplicationProvider {
-	b.mu.RLock("ListApplicationProviders")
-	defer b.mu.RUnlock()
-
-	seen := map[string]struct{}{
-		appProviderCustom: {},
-	}
-	for _, app := range b.applications {
-		if app.ApplicationProviderArn == "" {
-			continue
-		}
-		seen[app.ApplicationProviderArn] = struct{}{}
-	}
-
-	result := make([]*ApplicationProvider, 0, len(seen))
-	for providerArn := range seen {
-		result = append(result, &ApplicationProvider{
-			ApplicationProviderArn: providerArn,
-			DisplayData: ApplicationProviderDisplayData{
-				DisplayName: "custom provider",
-				Description: "Custom SSO application provider",
-			},
-		})
+	result := make([]*ApplicationProvider, len(awsApplicationProviderCatalog))
+	for i, p := range awsApplicationProviderCatalog {
+		cp := *p
+		result[i] = &cp
 	}
 
 	return result
 }
 
 // DescribeApplicationProvider returns details for an application provider.
+// Account-scoped custom provider ARNs (arn:aws:sso::<accountId>:applicationProvider/custom)
+// are resolved to the AWS-managed custom provider entry.
 func (b *InMemoryBackend) DescribeApplicationProvider(
 	applicationProviderArn string,
 ) (*ApplicationProvider, error) {
-	b.mu.RLock("DescribeApplicationProvider")
-	defer b.mu.RUnlock()
+	if p, ok := awsProvidersByARN[applicationProviderArn]; ok {
+		cp := *p
 
-	// Check apps for a matching provider ARN.
-	seen := map[string]struct{}{
-		appProviderCustom: {},
+		return &cp, nil
 	}
-	for _, app := range b.applications {
-		if app.ApplicationProviderArn != "" {
-			seen[app.ApplicationProviderArn] = struct{}{}
+	// Account-scoped ARN: try matching by provider path suffix.
+	if idx := strings.LastIndex(applicationProviderArn, ":applicationProvider/"); idx >= 0 {
+		suffix := applicationProviderArn[idx+len(":applicationProvider/"):]
+		canonicalArn := "arn:aws:sso::aws:applicationProvider/" + suffix
+		if p, ok := awsProvidersByARN[canonicalArn]; ok {
+			cp := *p
+
+			return &cp, nil
 		}
-	}
-	if _, ok := seen[applicationProviderArn]; ok {
-		return &ApplicationProvider{
-			ApplicationProviderArn: applicationProviderArn,
-			DisplayData: ApplicationProviderDisplayData{
-				DisplayName: "custom provider",
-				Description: "Custom SSO application provider",
-			},
-		}, nil
 	}
 
 	return nil, ErrRequestNotFound
@@ -1795,6 +2342,21 @@ func (b *InMemoryBackend) CreateTrustedTokenIssuer(
 ) (*TrustedTokenIssuer, error) {
 	b.mu.Lock("CreateTrustedTokenIssuer")
 	defer b.mu.Unlock()
+
+	// Default to OIDC_JWT if not specified.
+	if issuerType == "" {
+		issuerType = ttiTypeOIDCJWT
+	}
+	if err := validateTrustedTokenIssuerType(issuerType); err != nil {
+		return nil, err
+	}
+	var oidcCfg *OidcJwtConfiguration
+	if cfg != nil {
+		oidcCfg = cfg.OidcJwtConfiguration
+	}
+	if err := validateOIDCJWTConfig(oidcCfg); err != nil {
+		return nil, err
+	}
 
 	if _, ok := b.instances[instanceArn]; !ok {
 		return nil, ErrInstanceNotFound
@@ -1883,6 +2445,17 @@ func (b *InMemoryBackend) UpdateTrustedTokenIssuer(
 ) (*TrustedTokenIssuer, error) {
 	b.mu.Lock("UpdateTrustedTokenIssuer")
 	defer b.mu.Unlock()
+
+	if issuerType != "" {
+		if err := validateTrustedTokenIssuerType(issuerType); err != nil {
+			return nil, err
+		}
+	}
+	if cfg != nil {
+		if err := validateOIDCJWTConfig(cfg.OidcJwtConfiguration); err != nil {
+			return nil, err
+		}
+	}
 
 	issuer, ok := b.trustedTokenIssuers[trustedTokenIssuerArn]
 	if !ok {
@@ -2028,11 +2601,21 @@ func (b *InMemoryBackend) UpdateInstanceAccessControlAttributeConfiguration(
 	b.mu.Lock("UpdateInstanceAccessControlAttributeConfiguration")
 	defer b.mu.Unlock()
 
+	if err := validateACAAttributes(attributes); err != nil {
+		return err
+	}
+
 	if _, ok := b.instances[instanceArn]; !ok {
 		return ErrInstanceNotFound
 	}
-	b.instanceACAs[instanceArn] = &InstanceAccessControlAttributeConfiguration{
+	existing := b.instanceACAs[instanceArn]
+	status := abacStatusEnabled
+	if existing != nil {
+		status = existing.Status
+	}
+	b.instanceACAs[instanceArn] = &ABACConfig{
 		AccessControlAttributes: copyAccessControlAttributes(attributes),
+		Status:                  status,
 	}
 
 	return nil
@@ -2139,35 +2722,8 @@ func (b *InMemoryBackend) GetApplicationAccessScope(applicationArn, scope string
 	return "", ErrAccessScopeNotFound
 }
 
-// GetApplicationAuthenticationMethod returns an authentication method for an application if it exists.
-func (b *InMemoryBackend) GetApplicationAuthenticationMethod(applicationArn, authMethodType string) (string, error) {
-	b.mu.RLock("GetApplicationAuthenticationMethod")
-	defer b.mu.RUnlock()
-
-	if _, ok := b.applications[applicationArn]; !ok {
-		return "", ErrApplicationNotFound
-	}
-	if slices.Contains(b.applicationAuthMethods[applicationArn], authMethodType) {
-		return authMethodType, nil
-	}
-
-	return "", ErrAuthMethodNotFound
-}
-
-// GetApplicationGrant returns a grant type for an application if it exists.
-func (b *InMemoryBackend) GetApplicationGrant(applicationArn, grantType string) (string, error) {
-	b.mu.RLock("GetApplicationGrant")
-	defer b.mu.RUnlock()
-
-	if _, ok := b.applications[applicationArn]; !ok {
-		return "", ErrApplicationNotFound
-	}
-	if slices.Contains(b.applicationGrants[applicationArn], grantType) {
-		return grantType, nil
-	}
-
-	return "", ErrGrantNotFound
-}
+// GetApplicationAuthenticationMethod and GetApplicationGrant are implemented earlier in this file
+// with json.RawMessage return types (items 20–21 of the AWS-accuracy audit).
 
 // ListAccountsForProvisionedPermissionSet returns account IDs where a permission set has assignments.
 func (b *InMemoryBackend) ListAccountsForProvisionedPermissionSet(

@@ -6,27 +6,27 @@ import (
 )
 
 type backendSnapshot struct {
-	Instances               map[string]*Instance                                    `json:"instances"`
-	PermissionSets          map[string]*PermissionSet                               `json:"permissionSets"`
-	Assignments             map[string][]*AccountAssignment                         `json:"assignments"`
-	AssignmentCreationIDs   map[string]string                                       `json:"assignmentCreationIDs"`
-	CreationStatuses        map[string]*ProvisioningStatus                          `json:"creationStatuses"`
-	DeletionStatuses        map[string]*ProvisioningStatus                          `json:"deletionStatuses"`
-	ProvisioningStatuses    map[string]*ProvisioningStatus                          `json:"provisioningStatuses"`
-	InstanceRegions         map[string][]RegionMetadata                             `json:"instanceRegions"`
-	CustomerManagedPolicies map[string][]CustomerManagedPolicyReference             `json:"customerManagedPolicies"`
-	Applications            map[string]*Application                                 `json:"applications"`
-	ApplicationAssignments  map[string][]*ApplicationAssignment                     `json:"applicationAssignments"`
-	ApplicationScopes       map[string][]string                                     `json:"applicationScopes"`
-	ApplicationAuthMethods  map[string][]string                                     `json:"applicationAuthMethods"`
-	ApplicationGrants       map[string][]string                                     `json:"applicationGrants"`
-	ApplicationAssignConfig map[string]bool                                         `json:"applicationAssignConfig"`
-	ApplicationSessions     map[string]string                                       `json:"applicationSessions"`
-	InstanceACAs            map[string]*InstanceAccessControlAttributeConfiguration `json:"instanceACAs"`
-	TrustedTokenIssuers     map[string]*TrustedTokenIssuer                          `json:"trustedTokenIssuers"`
-	PermissionBoundaries    map[string]string                                       `json:"permissionBoundaries"`
-	AccountID               string                                                  `json:"accountID"`
-	Region                  string                                                  `json:"region"`
+	Instances               map[string]*Instance                        `json:"instances"`
+	PermissionSets          map[string]*PermissionSet                   `json:"permissionSets"`
+	Assignments             map[string][]*AccountAssignment             `json:"assignments"`
+	AssignmentCreationIDs   map[string]string                           `json:"assignmentCreationIDs"`
+	CreationStatuses        map[string]*ProvisioningStatus              `json:"creationStatuses"`
+	DeletionStatuses        map[string]*ProvisioningStatus              `json:"deletionStatuses"`
+	ProvisioningStatuses    map[string]*ProvisioningStatus              `json:"provisioningStatuses"`
+	InstanceRegions         map[string][]RegionMetadata                 `json:"instanceRegions"`
+	CustomerManagedPolicies map[string][]CustomerManagedPolicyReference `json:"customerManagedPolicies"`
+	Applications            map[string]*Application                     `json:"applications"`
+	ApplicationAssignments  map[string][]*ApplicationAssignment         `json:"applicationAssignments"`
+	ApplicationScopes       map[string][]string                         `json:"applicationScopes"`
+	ApplicationAuthMethods  map[string]map[string]json.RawMessage       `json:"applicationAuthMethods"`
+	ApplicationGrants       map[string]map[string]json.RawMessage       `json:"applicationGrants"`
+	ApplicationAssignConfig map[string]bool                             `json:"applicationAssignConfig"`
+	ApplicationSessions     map[string]string                           `json:"applicationSessions"`
+	InstanceACAs            map[string]*ABACConfig                      `json:"instanceACAs"`
+	TrustedTokenIssuers     map[string]*TrustedTokenIssuer              `json:"trustedTokenIssuers"`
+	PermissionBoundaries    map[string]*PermissionsBoundary             `json:"permissionBoundaries"`
+	AccountID               string                                      `json:"accountID"`
+	Region                  string                                      `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
