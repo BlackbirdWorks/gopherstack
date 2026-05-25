@@ -17,8 +17,8 @@ func TestAudit_InstanceLazyActivation(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		describe   bool
 		wantStatus string
+		describe   bool
 	}{
 		{
 			name:       "describe triggers activation",
@@ -220,7 +220,7 @@ func TestAudit_AccountAssignmentStatusTransition(t *testing.T) {
 			reqID := resp["AccountAssignmentCreationStatus"].(map[string]any)["RequestId"].(string)
 
 			rec2 := doRequest(t, h, "DescribeAccountAssignmentCreationStatus", map[string]any{
-				"InstanceArn": instanceArn,
+				"InstanceArn":                        instanceArn,
 				"AccountAssignmentCreationRequestId": reqID,
 			})
 			require.Equal(t, http.StatusOK, rec2.Code)
@@ -279,7 +279,7 @@ func TestAudit_ListAccountAssignmentCreationStatusFilter(t *testing.T) {
 				resp := parseResponse(t, rec)
 				reqID := resp["AccountAssignmentCreationStatus"].(map[string]any)["RequestId"].(string)
 				_ = doRequest(t, h, "DescribeAccountAssignmentCreationStatus", map[string]any{
-					"InstanceArn": instanceArn,
+					"InstanceArn":                        instanceArn,
 					"AccountAssignmentCreationRequestId": reqID,
 				})
 			}
@@ -344,7 +344,7 @@ func TestAudit_ProvisionPermissionSetStatusTransition(t *testing.T) {
 			reqID := resp["PermissionSetProvisioningStatus"].(map[string]any)["RequestId"].(string)
 
 			rec2 := doRequest(t, h, "DescribePermissionSetProvisioningStatus", map[string]any{
-				"InstanceArn":              instanceArn,
+				"InstanceArn":                     instanceArn,
 				"ProvisionPermissionSetRequestId": reqID,
 			})
 			require.Equal(t, http.StatusOK, rec2.Code)
@@ -525,9 +525,9 @@ func TestAudit_ApplicationAuthMethodStructured(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		authBody       map[string]any
 		name           string
 		authMethodType string
-		authBody       map[string]any
 		wantStatus     int
 	}{
 		{
@@ -556,9 +556,9 @@ func TestAudit_ApplicationAuthMethodStructured(t *testing.T) {
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, "PutApplicationAuthenticationMethod", map[string]any{
-				"ApplicationArn":         appArn,
+				"ApplicationArn":           appArn,
 				"AuthenticationMethodType": tt.authMethodType,
-				"AuthenticationMethod":   json.RawMessage(bodyBytes),
+				"AuthenticationMethod":     json.RawMessage(bodyBytes),
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
@@ -823,10 +823,10 @@ func TestAudit_ApplicationPortalOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		visibility     string
-		signInOrigin   string
-		wantStatus     int
+		name         string
+		visibility   string
+		signInOrigin string
+		wantStatus   int
 	}{
 		{
 			name:         "application created with portal options",
@@ -915,9 +915,9 @@ func TestAudit_GetApplicationGrant(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		grantBody  map[string]any
 		name       string
 		grantType  string
-		grantBody  map[string]any
 		wantStatus int
 	}{
 		{

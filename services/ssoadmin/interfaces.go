@@ -73,9 +73,15 @@ type StorageBackend interface {
 	// PutApplicationGrant stores a structured grant body; grantType must be a valid AWS grant type enum value.
 	PutApplicationGrant(applicationArn, grantType string, body json.RawMessage) error
 	PutApplicationSessionConfiguration(applicationArn, sessionDuration string) error
-	// PutPermissionsBoundaryToPermissionSet accepts a union boundary (ManagedPolicyArn xor CustomerManagedPolicyReference).
-	PutPermissionsBoundaryToPermissionSet(instanceArn, permissionSetArn string, boundary *PermissionsBoundary) error
-	UpdateApplication(applicationArn, name, description, status string, portalOptions *PortalOptions) (*Application, error)
+	// PutPermissionsBoundaryToPermissionSet accepts a union boundary
+	// (ManagedPolicyArn xor CustomerManagedPolicyReference).
+	PutPermissionsBoundaryToPermissionSet(
+		instanceArn, permissionSetArn string, boundary *PermissionsBoundary,
+	) error
+	UpdateApplication(
+		applicationArn, name, description, status string,
+		portalOptions *PortalOptions,
+	) (*Application, error)
 	UpdateTrustedTokenIssuer(
 		trustedTokenIssuerArn, name, issuerType string,
 		cfg *TrustedTokenIssuerConfiguration,

@@ -31,11 +31,11 @@ const (
 	uuidShortLen             = 8
 
 	// Instance/application status constants.
-	instanceStatusActive             = "ACTIVE"
-	instanceStatusCreateInProgress   = "CREATE_IN_PROGRESS"
-	instanceStatusDeleteInProgress   = "DELETE_IN_PROGRESS"
-	appStatusEnabled                 = "ENABLED"
-	appStatusDisabled                = "DISABLED"
+	instanceStatusActive           = "ACTIVE"
+	instanceStatusCreateInProgress = "CREATE_IN_PROGRESS"
+	instanceStatusDeleteInProgress = "DELETE_IN_PROGRESS"
+	appStatusEnabled               = "ENABLED"
+	appStatusDisabled              = "DISABLED"
 
 	// ABAC configuration status.
 	abacStatusEnabled            = "ENABLED"
@@ -44,6 +44,11 @@ const (
 
 	// Default session duration for new permission sets.
 	defaultSessionDuration = "PT1H"
+
+	// Session duration limits in minutes.
+	minutesPerHour    = 60
+	minSessionMinutes = 60  // 1 hour
+	maxSessionMinutes = 720 // 12 hours
 
 	// AWS tag limits.
 	maxTagsPerResource = 50
@@ -81,7 +86,7 @@ const (
 	principalTypeGroup = "GROUP"
 
 	// Valid target types for ProvisionPermissionSet.
-	targetTypeAWSAccount            = "AWS_ACCOUNT"
+	targetTypeAWSAccount             = "AWS_ACCOUNT"
 	targetTypeAllProvisionedAccounts = "ALL_PROVISIONED_ACCOUNTS"
 
 	// Valid authentication method types.
@@ -94,6 +99,9 @@ const (
 	// Application sign-in origin.
 	signInOriginApplication    = "APPLICATION"
 	signInOriginIdentityCenter = "IDENTITY_CENTER"
+
+	// Federation protocol constants.
+	federationProtocolSAML = "SAML"
 )
 
 // Compiled validation regexes.
@@ -196,34 +204,34 @@ type SignInOptions struct {
 
 // PortalOptions holds portal configuration for an application.
 type PortalOptions struct {
-	Visibility   string        `json:"Visibility"`
+	Visibility    string        `json:"Visibility"`
 	SignInOptions SignInOptions `json:"SignInOptions"`
 }
 
 // PermissionsBoundary is a union: either ManagedPolicyArn or CustomerManagedPolicyReference.
 type PermissionsBoundary struct {
-	ManagedPolicyArn               string
-	CustomerManagedPolicyReference *CustomerManagedPolicyReference
+	CustomerManagedPolicyReference *CustomerManagedPolicyReference `json:"CustomerManagedPolicyReference,omitempty"`
+	ManagedPolicyArn               string                          `json:"ManagedPolicyArn,omitempty"`
 }
 
 // ABACConfig holds ABAC configuration for an SSO instance with lifecycle status.
 type ABACConfig struct {
-	AccessControlAttributes []AccessControlAttribute
-	Status                  string
-	StatusReason            string
+	StatusReason            string                   `json:"StatusReason"`
+	Status                  string                   `json:"Status"`
+	AccessControlAttributes []AccessControlAttribute `json:"AccessControlAttributes"`
 }
 
 // Application represents an AWS SSO application.
 type Application struct {
 	CreatedDate            time.Time         `json:"CreatedDate"`
 	Tags                   map[string]string `json:"Tags"`
+	PortalOptions          *PortalOptions    `json:"PortalOptions,omitempty"`
 	ApplicationArn         string            `json:"ApplicationArn"`
 	ApplicationProviderArn string            `json:"ApplicationProviderArn"`
 	Description            string            `json:"Description"`
 	InstanceArn            string            `json:"InstanceArn"`
 	Name                   string            `json:"Name"`
 	Status                 string            `json:"Status"`
-	PortalOptions          *PortalOptions    `json:"PortalOptions,omitempty"`
 }
 
 // ApplicationAssignment represents a principal assigned to an application.
@@ -308,7 +316,7 @@ type InMemoryBackend struct {
 	applicationAssignments  map[string][]*ApplicationAssignment
 	applicationScopes       map[string][]string
 	// applicationAuthMethods stores per-app authentication methods: appArn → methodType → full JSON body.
-	applicationAuthMethods  map[string]map[string]json.RawMessage
+	applicationAuthMethods map[string]map[string]json.RawMessage
 	// applicationGrants stores per-app grants: appArn → grantType → full JSON body.
 	applicationGrants       map[string]map[string]json.RawMessage
 	applicationAssignConfig map[string]bool
@@ -462,6 +470,7 @@ func (b *InMemoryBackend) ListInstances() []*Instance {
 			// Prune resources then remove instance entry.
 			b.cascadeDeleteInstance(arn)
 			delete(b.instances, arn)
+
 			continue
 		}
 		if inst.Status == instanceStatusCreateInProgress {
@@ -832,7 +841,7 @@ func (b *InMemoryBackend) DeleteAccountAssignment(
 		PrincipalID:      principalID,
 		PrincipalType:    principalType,
 		TargetType:       targetTypeAWSAccount,
-		CreatedDate: time.Now().UTC(),
+		CreatedDate:      time.Now().UTC(),
 	}
 
 	return requestID, nil
@@ -1003,8 +1012,10 @@ func (b *InMemoryBackend) PutPermissionsBoundaryToPermissionSet(
 	hasManaged := boundary.ManagedPolicyArn != ""
 	hasCMPR := boundary.CustomerManagedPolicyReference != nil
 	if hasManaged == hasCMPR {
-		return fmt.Errorf("%w: PermissionsBoundary must have exactly one of ManagedPolicyArn or CustomerManagedPolicyReference",
-			awserr.ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: PermissionsBoundary must have exactly one of ManagedPolicyArn or CustomerManagedPolicyReference",
+			awserr.ErrInvalidParameter,
+		)
 	}
 	if hasCMPR {
 		if err := validateCustomerManagedPolicyReference(
@@ -1047,7 +1058,9 @@ func (b *InMemoryBackend) GetPermissionsBoundaryForPermissionSet(
 
 // ProvisionPermissionSet initiates provisioning of a permission set.
 // targetType is AWS_ACCOUNT or ALL_PROVISIONED_ACCOUNTS; targetID is required for AWS_ACCOUNT.
-func (b *InMemoryBackend) ProvisionPermissionSet(instanceArn, permissionSetArn, targetType, targetID string) (string, error) {
+func (b *InMemoryBackend) ProvisionPermissionSet(
+	instanceArn, permissionSetArn, targetType, targetID string,
+) (string, error) {
 	b.mu.Lock("ProvisionPermissionSet")
 	defer b.mu.Unlock()
 
@@ -1141,6 +1154,7 @@ func validatePermissionSetName(name string) error {
 		return fmt.Errorf("%w: permission set name contains invalid characters (allowed: [\\w+=,.@-])",
 			awserr.ErrInvalidParameter)
 	}
+
 	return nil
 }
 
@@ -1172,10 +1186,11 @@ func validateSessionDuration(dur string) error {
 	if rest != "" {
 		return fmt.Errorf("%w: SessionDuration has unsupported components", awserr.ErrInvalidParameter)
 	}
-	totalMinutes := hours*60 + minutes
-	if totalMinutes < 60 || totalMinutes > 720 { //nolint:mnd // 60 min = 1h, 720 min = 12h
+	totalMinutes := hours*minutesPerHour + minutes
+	if totalMinutes < minSessionMinutes || totalMinutes > maxSessionMinutes {
 		return fmt.Errorf("%w: SessionDuration must be between PT1H and PT12H", awserr.ErrInvalidParameter)
 	}
+
 	return nil
 }
 
@@ -1202,6 +1217,7 @@ func validateCustomerManagedPolicyReference(name, path string) error {
 				awserr.ErrInvalidParameter)
 		}
 	}
+
 	return nil
 }
 
@@ -1234,6 +1250,7 @@ func validateACAAttributes(attrs []AccessControlAttribute) error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -1242,6 +1259,7 @@ func validateTrustedTokenIssuerType(issuerType string) error {
 	if issuerType != "" && issuerType != ttiTypeOIDCJWT {
 		return fmt.Errorf("%w: TrustedTokenIssuerType must be OIDC_JWT", awserr.ErrInvalidParameter)
 	}
+
 	return nil
 }
 
@@ -1264,6 +1282,7 @@ func validateOIDCJWTConfig(cfg *OidcJwtConfiguration) error {
 		return fmt.Errorf("%w: OidcJwtConfiguration.JwksRetrievalOption must be OPEN_ID_DISCOVERY",
 			awserr.ErrInvalidParameter)
 	}
+
 	return nil
 }
 
@@ -1281,6 +1300,7 @@ func validateApplicationProviderArn(arn string) error {
 		return fmt.Errorf("%w: ApplicationProviderArn must reference an applicationProvider resource",
 			awserr.ErrInvalidParameter)
 	}
+
 	return nil
 }
 
@@ -1642,7 +1662,10 @@ func (b *InMemoryBackend) CreateApplication(
 		if portalOptions.Visibility != "" &&
 			portalOptions.Visibility != portalVisibilityEnabled &&
 			portalOptions.Visibility != portalVisibilityDisabled {
-			return nil, fmt.Errorf("%w: PortalOptions.Visibility must be ENABLED or DISABLED", awserr.ErrInvalidParameter)
+			return nil, fmt.Errorf(
+				"%w: PortalOptions.Visibility must be ENABLED or DISABLED",
+				awserr.ErrInvalidParameter,
+			)
 		}
 		if portalOptions.SignInOptions.Origin != "" &&
 			portalOptions.SignInOptions.Origin != signInOriginApplication &&
@@ -1945,7 +1968,10 @@ func (b *InMemoryBackend) DeleteApplicationAuthenticationMethod(applicationArn, 
 
 // PutApplicationAuthenticationMethod stores a typed authentication method with its body.
 // authMethodType must be IAM; body is the full AuthenticationMethod JSON object.
-func (b *InMemoryBackend) PutApplicationAuthenticationMethod(applicationArn, authMethodType string, body json.RawMessage) error {
+func (b *InMemoryBackend) PutApplicationAuthenticationMethod(
+	applicationArn, authMethodType string,
+	body json.RawMessage,
+) error {
 	b.mu.Lock("PutApplicationAuthenticationMethod")
 	defer b.mu.Unlock()
 
@@ -1988,7 +2014,9 @@ func (b *InMemoryBackend) ListApplicationAuthenticationMethods(applicationArn st
 }
 
 // GetApplicationAuthenticationMethod returns a specific auth method body.
-func (b *InMemoryBackend) GetApplicationAuthenticationMethod(applicationArn, authMethodType string) (json.RawMessage, error) {
+func (b *InMemoryBackend) GetApplicationAuthenticationMethod(
+	applicationArn, authMethodType string,
+) (json.RawMessage, error) {
 	b.mu.RLock("GetApplicationAuthenticationMethod")
 	defer b.mu.RUnlock()
 
@@ -2015,12 +2043,17 @@ type ApplicationGrant struct {
 	Grant     json.RawMessage `json:"Grant"`
 }
 
-// validGrantTypes lists the AWS-specified grant type enum values.
-var validGrantTypes = map[string]struct{}{
-	"authorization_code": {},
-	"refresh_token":      {},
-	"urn:ietf:params:oauth:grant-type:jwt-bearer":    {},
-	"urn:ietf:params:oauth:grant-type:token-exchange": {},
+// isValidGrantType reports whether grantType is an AWS-specified grant type enum value.
+func isValidGrantType(grantType string) bool {
+	switch grantType {
+	case "authorization_code",
+		"refresh_token",
+		"urn:ietf:params:oauth:grant-type:jwt-bearer",
+		"urn:ietf:params:oauth:grant-type:token-exchange":
+		return true
+	default:
+		return false
+	}
 }
 
 // PutApplicationGrant stores a typed grant with its full body.
@@ -2028,7 +2061,7 @@ func (b *InMemoryBackend) PutApplicationGrant(applicationArn, grantType string, 
 	b.mu.Lock("PutApplicationGrant")
 	defer b.mu.Unlock()
 
-	if _, valid := validGrantTypes[grantType]; !valid {
+	if !isValidGrantType(grantType) {
 		return fmt.Errorf("%w: GrantType must be one of authorization_code, refresh_token, jwt-bearer, token-exchange",
 			awserr.ErrInvalidParameter)
 	}
@@ -2197,7 +2230,7 @@ func (b *InMemoryBackend) DeleteInstanceAccessControlAttributeConfiguration(inst
 var awsApplicationProviderCatalog = []*ApplicationProvider{
 	{
 		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/custom",
-		FederationProtocol:     "SAML",
+		FederationProtocol:     federationProtocolSAML,
 		DisplayData: ApplicationProviderDisplayData{
 			DisplayName: "Custom SAML 2.0 application",
 			Description: "Connect any SAML 2.0 compatible application",
@@ -2205,7 +2238,7 @@ var awsApplicationProviderCatalog = []*ApplicationProvider{
 	},
 	{
 		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/salesforce",
-		FederationProtocol:     "SAML",
+		FederationProtocol:     federationProtocolSAML,
 		DisplayData: ApplicationProviderDisplayData{
 			DisplayName: "Salesforce",
 			Description: "Customer relationship management platform",
@@ -2213,7 +2246,7 @@ var awsApplicationProviderCatalog = []*ApplicationProvider{
 	},
 	{
 		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/jira-cloud",
-		FederationProtocol:     "SAML",
+		FederationProtocol:     federationProtocolSAML,
 		DisplayData: ApplicationProviderDisplayData{
 			DisplayName: "Jira Cloud",
 			Description: "Project and issue tracking by Atlassian",
@@ -2221,7 +2254,7 @@ var awsApplicationProviderCatalog = []*ApplicationProvider{
 	},
 	{
 		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/slack",
-		FederationProtocol:     "SAML",
+		FederationProtocol:     federationProtocolSAML,
 		DisplayData: ApplicationProviderDisplayData{
 			DisplayName: "Slack",
 			Description: "Team messaging and collaboration",
@@ -2229,7 +2262,7 @@ var awsApplicationProviderCatalog = []*ApplicationProvider{
 	},
 	{
 		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/github",
-		FederationProtocol:     "SAML",
+		FederationProtocol:     federationProtocolSAML,
 		DisplayData: ApplicationProviderDisplayData{
 			DisplayName: "GitHub",
 			Description: "Code hosting and version control",
@@ -2237,7 +2270,7 @@ var awsApplicationProviderCatalog = []*ApplicationProvider{
 	},
 	{
 		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/datadog",
-		FederationProtocol:     "SAML",
+		FederationProtocol:     federationProtocolSAML,
 		DisplayData: ApplicationProviderDisplayData{
 			DisplayName: "Datadog",
 			Description: "Monitoring and analytics platform",
@@ -2245,7 +2278,7 @@ var awsApplicationProviderCatalog = []*ApplicationProvider{
 	},
 	{
 		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/pagerduty",
-		FederationProtocol:     "SAML",
+		FederationProtocol:     federationProtocolSAML,
 		DisplayData: ApplicationProviderDisplayData{
 			DisplayName: "PagerDuty",
 			Description: "Incident management platform",
@@ -2261,6 +2294,7 @@ var awsProvidersByARN = func() map[string]*ApplicationProvider {
 	for _, p := range awsApplicationProviderCatalog {
 		m[p.ApplicationProviderArn] = p
 	}
+
 	return m
 }()
 
@@ -2283,6 +2317,7 @@ func (b *InMemoryBackend) DescribeApplicationProvider(
 ) (*ApplicationProvider, error) {
 	if p, ok := awsProvidersByARN[applicationProviderArn]; ok {
 		cp := *p
+
 		return &cp, nil
 	}
 	// Account-scoped ARN: try matching by provider path suffix.
@@ -2291,6 +2326,7 @@ func (b *InMemoryBackend) DescribeApplicationProvider(
 		canonicalArn := "arn:aws:sso::aws:applicationProvider/" + suffix
 		if p, ok := awsProvidersByARN[canonicalArn]; ok {
 			cp := *p
+
 			return &cp, nil
 		}
 	}

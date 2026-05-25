@@ -24,6 +24,8 @@ const (
 	keyApplicationArn         = "ApplicationArn"
 	keyApplication            = "Application"
 	keyApplicationProviderArn = "ApplicationProviderArn"
+	keyAuthenticationMethod   = "AuthenticationMethod"
+	keyGrant                  = "Grant"
 )
 
 const (
@@ -337,13 +339,13 @@ type permissionSetView struct {
 type provisioningStatusView struct {
 	RequestID        string  `json:"RequestId"`
 	Status           string  `json:"Status"`
-	CreatedDate      float64 `json:"CreatedDate,omitempty"`
 	FailureReason    string  `json:"FailureReason,omitempty"`
 	AccountID        string  `json:"AccountId,omitempty"`
 	PermissionSetArn string  `json:"PermissionSetArn,omitempty"`
 	TargetType       string  `json:"TargetType,omitempty"`
 	PrincipalID      string  `json:"PrincipalId,omitempty"`
 	PrincipalType    string  `json:"PrincipalType,omitempty"`
+	CreatedDate      float64 `json:"CreatedDate,omitempty"`
 }
 
 type assignmentView struct {
@@ -927,7 +929,12 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 			"TargetId is required when TargetType is AWS_ACCOUNT")
 	}
 
-	requestID, err := h.Backend.ProvisionPermissionSet(req.InstanceArn, req.PermissionSetArn, req.TargetType, req.TargetID)
+	requestID, err := h.Backend.ProvisionPermissionSet(
+		req.InstanceArn,
+		req.PermissionSetArn,
+		req.TargetType,
+		req.TargetID,
+	)
 	if err != nil {
 		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
@@ -1152,18 +1159,18 @@ func (h *Handler) handleAttachCustomerManagedPolicyReferenceToPermissionSet(c *e
 
 func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 	var req struct {
-		InstanceArn            string    `json:"InstanceArn"`
-		ApplicationProviderArn string    `json:"ApplicationProviderArn"`
-		Name                   string    `json:"Name"`
-		Description            string    `json:"Description"`
-		Tags                   []tagView `json:"Tags"`
-		PortalOptions          struct {
+		PortalOptions struct {
 			Visibility    string `json:"Visibility"`
 			SignInOptions struct {
 				Origin         string `json:"Origin"`
 				ApplicationURL string `json:"ApplicationUrl"`
 			} `json:"SignInOptions"`
 		} `json:"PortalOptions"`
+		InstanceArn            string    `json:"InstanceArn"`
+		ApplicationProviderArn string    `json:"ApplicationProviderArn"`
+		Name                   string    `json:"Name"`
+		Description            string    `json:"Description"`
+		Tags                   []tagView `json:"Tags"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -1576,7 +1583,7 @@ func (h *Handler) handleListApplicationAuthenticationMethods(c *echo.Context, bo
 	for _, method := range methods {
 		out = append(out, map[string]any{
 			"AuthenticationMethodType": method.AuthMethodType,
-			"AuthenticationMethod":     method.Body,
+			keyAuthenticationMethod:    method.Body,
 		})
 	}
 
@@ -1602,7 +1609,7 @@ func (h *Handler) handleListApplicationGrants(c *echo.Context, body []byte) erro
 	for _, grant := range grants {
 		out = append(out, map[string]any{
 			"GrantType": grant.GrantType,
-			"Grant":     grant.Grant,
+			keyGrant:    grant.Grant,
 		})
 	}
 
@@ -1703,7 +1710,9 @@ func (h *Handler) handlePutApplicationAuthenticationMethod(c *echo.Context, body
 	if methodType == "" {
 		methodType = req.AuthenticationType
 	}
-	if err := h.Backend.PutApplicationAuthenticationMethod(req.ApplicationArn, methodType, req.AuthenticationMethod); err != nil {
+	if err := h.Backend.PutApplicationAuthenticationMethod(
+		req.ApplicationArn, methodType, req.AuthenticationMethod,
+	); err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
@@ -1967,22 +1976,22 @@ func (h *Handler) handleDescribeInstanceAccessControlAttributeConfiguration(c *e
 		"InstanceAccessControlAttributeConfiguration": map[string]any{
 			"AccessControlAttributes": attrs,
 		},
-		keyStatus:       cfg.Status,
-		"StatusReason":  cfg.StatusReason,
+		keyStatus:      cfg.Status,
+		"StatusReason": cfg.StatusReason,
 	})
 }
 
 func (h *Handler) handlePutPermissionsBoundaryToPermissionSet(c *echo.Context, body []byte) error {
 	var req struct {
-		InstanceArn         string `json:"InstanceArn"`
-		PermissionSetArn    string `json:"PermissionSetArn"`
 		PermissionsBoundary struct {
-			ManagedPolicyArn                string `json:"ManagedPolicyArn"`
-			CustomerManagedPolicyReference  *struct {
+			CustomerManagedPolicyReference *struct {
 				Name string `json:"Name"`
 				Path string `json:"Path"`
 			} `json:"CustomerManagedPolicyReference"`
+			ManagedPolicyArn string `json:"ManagedPolicyArn"`
 		} `json:"PermissionsBoundary"`
+		InstanceArn      string `json:"InstanceArn"`
+		PermissionSetArn string `json:"PermissionSetArn"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -2440,15 +2449,18 @@ func (h *Handler) handleGetApplicationAuthenticationMethod(c *echo.Context, body
 		return writeError(c, http.StatusBadRequest, "ValidationException", "AuthenticationMethodType is required")
 	}
 
-	authMethodBody, err := h.Backend.GetApplicationAuthenticationMethod(req.ApplicationArn, req.AuthenticationMethodType)
+	authMethodBody, err := h.Backend.GetApplicationAuthenticationMethod(
+		req.ApplicationArn,
+		req.AuthenticationMethodType,
+	)
 	if err != nil {
 		return handleBackendError(c, err, "authentication method not found: "+req.AuthenticationMethodType)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AuthenticationMethod": map[string]any{
+		keyAuthenticationMethod: map[string]any{
 			"AuthenticationMethodType": req.AuthenticationMethodType,
-			"AuthenticationMethod":     authMethodBody,
+			keyAuthenticationMethod:    authMethodBody,
 		},
 	})
 }
@@ -2474,9 +2486,9 @@ func (h *Handler) handleGetApplicationGrant(c *echo.Context, body []byte) error 
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Grant": map[string]any{
+		keyGrant: map[string]any{
 			"GrantType": req.GrantType,
-			"Grant":     grantBody,
+			keyGrant:    grantBody,
 		},
 	})
 }
