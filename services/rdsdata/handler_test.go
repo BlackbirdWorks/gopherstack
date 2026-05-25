@@ -237,6 +237,72 @@ func TestHandler_ExtractResource(t *testing.T) {
 	assert.Empty(t, h.ExtractResource(c))
 }
 
+func TestHandler_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	const (
+		resourceARN = "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster"
+		secretARN   = "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret"
+	)
+
+	tests := []struct {
+		name string
+		path string
+		body map[string]any
+	}{
+		{
+			name: "execute_statement_secret_arn",
+			path: "/Execute",
+			body: map[string]any{"resourceArn": resourceARN, "sql": "SELECT 1"},
+		},
+		{
+			name: "batch_execute_statement_secret_arn",
+			path: "/BatchExecute",
+			body: map[string]any{"resourceArn": resourceARN, "sql": "SELECT 1"},
+		},
+		{
+			name: "begin_transaction_secret_arn",
+			path: "/BeginTransaction",
+			body: map[string]any{"resourceArn": resourceARN},
+		},
+		{
+			name: "commit_transaction_resource_arn",
+			path: "/CommitTransaction",
+			body: map[string]any{"secretArn": secretARN, "transactionId": "txn-000001"},
+		},
+		{
+			name: "commit_transaction_secret_arn",
+			path: "/CommitTransaction",
+			body: map[string]any{"resourceArn": resourceARN, "transactionId": "txn-000001"},
+		},
+		{
+			name: "rollback_transaction_resource_arn",
+			path: "/RollbackTransaction",
+			body: map[string]any{"secretArn": secretARN, "transactionId": "txn-000001"},
+		},
+		{
+			name: "rollback_transaction_secret_arn",
+			path: "/RollbackTransaction",
+			body: map[string]any{"resourceArn": resourceARN, "transactionId": "txn-000001"},
+		},
+		{
+			name: "execute_sql_aws_secret_store_arn",
+			path: "/ExecuteSql",
+			body: map[string]any{"dbClusterOrInstanceArn": resourceARN, "sqlStatements": "SELECT 1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRDSDataRequest(t, newTestHandler(t), tt.path, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "missing")
+		})
+	}
+}
+
 func TestHandler_ExecuteStatement(t *testing.T) {
 	t.Parallel()
 
@@ -456,13 +522,18 @@ func TestHandler_CommitTransaction(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "missing_transaction_id",
-			body:       map[string]any{},
+			name: "missing_transaction_id",
+			body: map[string]any{
+				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "transaction_not_found",
 			body: map[string]any{
+				"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+				"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 				"transactionId": "txn-does-not-exist",
 			},
 			wantStatus: http.StatusBadRequest,
@@ -529,13 +600,18 @@ func TestHandler_RollbackTransaction(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "missing_transaction_id",
-			body:       map[string]any{},
+			name: "missing_transaction_id",
+			body: map[string]any{
+				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "transaction_not_found",
 			body: map[string]any{
+				"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+				"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 				"transactionId": "txn-does-not-exist",
 			},
 			wantStatus: http.StatusBadRequest,
