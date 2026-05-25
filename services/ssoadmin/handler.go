@@ -335,9 +335,15 @@ type permissionSetView struct {
 }
 
 type provisioningStatusView struct {
-	RequestID   string  `json:"RequestId"`
-	Status      string  `json:"Status"`
-	CreatedDate float64 `json:"CreatedDate,omitempty"`
+	RequestID        string  `json:"RequestId"`
+	Status           string  `json:"Status"`
+	CreatedDate      float64 `json:"CreatedDate,omitempty"`
+	FailureReason    string  `json:"FailureReason,omitempty"`
+	AccountID        string  `json:"AccountId,omitempty"`
+	PermissionSetArn string  `json:"PermissionSetArn,omitempty"`
+	TargetType       string  `json:"TargetType,omitempty"`
+	PrincipalID      string  `json:"PrincipalId,omitempty"`
+	PrincipalType    string  `json:"PrincipalType,omitempty"`
 }
 
 type assignmentView struct {
@@ -650,11 +656,7 @@ func (h *Handler) handleCreateAccountAssignment(c *echo.Context, body []byte) er
 	status, _ := h.Backend.DescribeAccountAssignmentCreationStatus(req.InstanceArn, requestID)
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentCreationStatus": provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		},
+		"AccountAssignmentCreationStatus": toProvisioningView(status),
 	})
 }
 
@@ -676,11 +678,7 @@ func (h *Handler) handleDescribeAccountAssignmentCreationStatus(c *echo.Context,
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentCreationStatus": provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		},
+		"AccountAssignmentCreationStatus": toProvisioningView(status),
 	})
 }
 
@@ -717,11 +715,7 @@ func (h *Handler) handleDeleteAccountAssignment(c *echo.Context, body []byte) er
 	status, _ := h.Backend.DescribeAccountAssignmentDeletionStatus(req.InstanceArn, requestID)
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentDeletionStatus": provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		},
+		"AccountAssignmentDeletionStatus": toProvisioningView(status),
 	})
 }
 
@@ -743,11 +737,7 @@ func (h *Handler) handleDescribeAccountAssignmentDeletionStatus(c *echo.Context,
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentDeletionStatus": provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		},
+		"AccountAssignmentDeletionStatus": toProvisioningView(status),
 	})
 }
 
@@ -925,8 +915,19 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 	if req.PermissionSetArn == "" {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
 	}
+	if req.TargetType == "" {
+		req.TargetType = targetTypeAllProvisionedAccounts
+	}
+	if req.TargetType != targetTypeAWSAccount && req.TargetType != targetTypeAllProvisionedAccounts {
+		return writeError(c, http.StatusBadRequest, "ValidationException",
+			"TargetType must be AWS_ACCOUNT or ALL_PROVISIONED_ACCOUNTS")
+	}
+	if req.TargetType == targetTypeAWSAccount && req.TargetID == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException",
+			"TargetId is required when TargetType is AWS_ACCOUNT")
+	}
 
-	requestID, err := h.Backend.ProvisionPermissionSet(req.InstanceArn, req.PermissionSetArn)
+	requestID, err := h.Backend.ProvisionPermissionSet(req.InstanceArn, req.PermissionSetArn, req.TargetType, req.TargetID)
 	if err != nil {
 		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
@@ -934,11 +935,7 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 	status, _ := h.Backend.DescribePermissionSetProvisioningStatus(req.InstanceArn, requestID)
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"PermissionSetProvisioningStatus": provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		},
+		"PermissionSetProvisioningStatus": toProvisioningView(status),
 	})
 }
 
@@ -960,11 +957,7 @@ func (h *Handler) handleDescribePermissionSetProvisioningStatus(c *echo.Context,
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"PermissionSetProvisioningStatus": provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		},
+		"PermissionSetProvisioningStatus": toProvisioningView(status),
 	})
 }
 
@@ -1056,6 +1049,21 @@ func handleBackendError(c *echo.Context, err error, notFoundMsg string) error {
 	default:
 
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+}
+
+// toProvisioningView converts a backend ProvisioningStatus to its JSON view.
+func toProvisioningView(s *ProvisioningStatus) provisioningStatusView {
+	return provisioningStatusView{
+		RequestID:        s.RequestID,
+		Status:           s.Status,
+		CreatedDate:      float64(s.CreatedDate.Unix()),
+		FailureReason:    s.FailureReason,
+		AccountID:        s.AccountID,
+		PermissionSetArn: s.PermissionSetArn,
+		TargetType:       s.TargetType,
+		PrincipalID:      s.PrincipalID,
+		PrincipalType:    s.PrincipalType,
 	}
 }
 
@@ -1979,11 +1987,7 @@ func (h *Handler) handleListAccountAssignmentCreationStatus(c *echo.Context, bod
 
 	out := make([]provisioningStatusView, 0, len(statuses))
 	for _, status := range statuses {
-		out = append(out, provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		})
+		out = append(out, toProvisioningView(status))
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -2003,11 +2007,7 @@ func (h *Handler) handleListAccountAssignmentDeletionStatus(c *echo.Context, bod
 
 	out := make([]provisioningStatusView, 0, len(statuses))
 	for _, status := range statuses {
-		out = append(out, provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		})
+		out = append(out, toProvisioningView(status))
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -2027,11 +2027,7 @@ func (h *Handler) handleListPermissionSetProvisioningStatus(c *echo.Context, bod
 
 	out := make([]provisioningStatusView, 0, len(statuses))
 	for _, status := range statuses {
-		out = append(out, provisioningStatusView{
-			RequestID:   status.RequestID,
-			Status:      status.Status,
-			CreatedDate: float64(status.CreatedDate.Unix()),
-		})
+		out = append(out, toProvisioningView(status))
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
