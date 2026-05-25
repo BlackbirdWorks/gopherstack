@@ -437,6 +437,7 @@ func TestHandler_GetStatementResultV2(t *testing.T) {
 					"Sql":               "SELECT 1",
 					"ClusterIdentifier": "my-cluster",
 					"Database":          "testdb",
+					"ResultFormat":      "CSV",
 				})
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -902,6 +903,7 @@ func TestInMemoryBackend_StatementCap_OldestEvicted(t *testing.T) {
 	for i := range redshiftdata.MaxStatementHistoryForTest {
 		stmt, err := backend.ExecuteStatement(
 			"SELECT 1", "cluster", "", "db", "", "", "", false,
+			"",
 		)
 		require.NoError(t, err)
 		if i == 0 {
@@ -916,7 +918,7 @@ func TestInMemoryBackend_StatementCap_OldestEvicted(t *testing.T) {
 	require.NoError(t, err)
 
 	// One more statement pushes the oldest out.
-	_, err = backend.ExecuteStatement("SELECT 2", "cluster", "", "db", "", "", "", false)
+	_, err = backend.ExecuteStatement("SELECT 2", "cluster", "", "db", "", "", "", false, "")
 	require.NoError(t, err)
 
 	assert.LessOrEqual(t, backend.StatementCount(), redshiftdata.MaxStatementHistoryForTest)

@@ -11,9 +11,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/redshiftdata"
 )
 
-// TestRefinement2_CancelStatement_SuccessStatusString verifies that a successful
-// CancelStatement returns {"Status": "true"} as a string value, matching real AWS behaviour.
-func TestRefinement2_CancelStatement_SuccessStatusString(t *testing.T) {
+// TestRefinement2_CancelStatement_SuccessStatusBoolean verifies AWS boolean response shape.
+func TestRefinement2_CancelStatement_SuccessStatusBoolean(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
@@ -27,10 +26,9 @@ func TestRefinement2_CancelStatement_SuccessStatusString(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	// AWS returns the string "true", not the boolean true.
-	status, ok := resp["Status"].(string)
-	require.True(t, ok, "Status should be a string")
-	assert.Equal(t, "true", status)
+	status, ok := resp["Status"].(bool)
+	require.True(t, ok, "Status should be a boolean")
+	assert.True(t, status)
 }
 
 // TestRefinement2_BatchExecuteStatement_QueryStringIsFirstSQL verifies that

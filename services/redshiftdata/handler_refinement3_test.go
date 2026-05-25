@@ -113,14 +113,14 @@ func TestRefinement3_Concurrent_AccessSafe(t *testing.T) {
 	// Concurrent writes
 	for range goroutines {
 		wg.Go(func() {
-			_, _ = b.ExecuteStatement("SELECT 1", "", "", "dev", "", "", "", false)
+			_, _ = b.ExecuteStatement("SELECT 1", "", "", "dev", "", "", "", false, "")
 		})
 	}
 
 	// Concurrent reads interleaved
 	for range goroutines {
 		wg.Go(func() {
-			stmts, _ := b.ListStatements("", "", "", "", 100)
+			stmts, _, _ := b.ListStatements(redshiftdata.ListStatementsFilter{Status: "ALL", MaxResults: 100})
 			_ = stmts
 		})
 	}
@@ -189,10 +189,10 @@ func TestRefinement3_ListStatements_WorkgroupFilter(t *testing.T) {
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 	h := redshiftdata.NewHandler(b)
 
-	_, err := b.ExecuteStatement("SELECT 1", "", "wg-a", "dev", "", "", "", false)
+	_, err := b.ExecuteStatement("SELECT 1", "", "wg-a", "dev", "", "", "", false, "")
 	require.NoError(t, err)
 
-	_, err = b.ExecuteStatement("SELECT 2", "", "wg-b", "dev", "", "", "", false)
+	_, err = b.ExecuteStatement("SELECT 2", "", "wg-b", "dev", "", "", "", false, "")
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "ListStatements", map[string]any{
@@ -216,8 +216,9 @@ func TestRefinement3_GetStatementResultV2_DemoRow(t *testing.T) {
 	h := newTestHandler(t)
 
 	execRec := doRequest(t, h, "ExecuteStatement", map[string]any{
-		"Sql":      "SELECT 1",
-		"Database": "dev",
+		"Sql":          "SELECT 1",
+		"Database":     "dev",
+		"ResultFormat": "CSV",
 	})
 	require.Equal(t, http.StatusOK, execRec.Code)
 
@@ -384,7 +385,7 @@ func TestRefinement3_EvictExpiredStatements_UpdatesRingBuffer(t *testing.T) {
 	assert.Equal(t, 1, b.StatementCount())
 
 	// The remaining statement should still be fetchable via ListStatements.
-	stmts, _ := b.ListStatements("", "", "", "", 100)
+	stmts, _, _ := b.ListStatements(redshiftdata.ListStatementsFilter{Status: "ALL", MaxResults: 100})
 	require.Len(t, stmts, 1)
 	assert.Equal(t, "STARTED", stmts[0].Status)
 }

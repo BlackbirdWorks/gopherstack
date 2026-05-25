@@ -8,21 +8,18 @@ type StorageBackend interface {
 	// Statement execution
 	ExecuteStatement(
 		sql, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
-		withEvent bool,
+		withEvent bool, resultFormat string,
 	) (*Statement, error)
 	BatchExecuteStatement(
 		sqls []string, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
-		withEvent bool,
+		withEvent bool, resultFormat string,
 	) (*Statement, error)
 
 	// Statement inspection
 	DescribeStatement(id string) (*Statement, error)
 	CancelStatement(id string) error
 	// ListStatements returns a page of statements and a next-token for pagination.
-	ListStatements(
-		clusterIdentifier, workgroupName, statusFilter, roleLevel string,
-		maxResults int,
-	) ([]*Statement, string)
+	ListStatements(filter ListStatementsFilter) ([]*Statement, string, error)
 
 	// Maintenance
 	// EvictExpiredStatements removes terminal statements older than cutoff.

@@ -48,6 +48,7 @@ const (
 	keyHasResultSet        = "HasResultSet"
 	keyUpdatedAt           = "UpdatedAt"
 	keyDuration            = "Duration"
+	keyResultFormat        = "ResultFormat"
 	valCurated             = "curated"
 	keySchemaName          = "schemaName"
 )
@@ -242,6 +243,7 @@ func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte
 		DBUser            string `json:"DbUser"`
 		SecretArn         string `json:"SecretArn"`
 		StatementName     string `json:"StatementName"`
+		ResultFormat      string `json:"ResultFormat"`
 		WithEvent         bool   `json:"WithEvent"`
 	}
 
@@ -252,7 +254,7 @@ func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte
 	stmt, err := h.Backend.ExecuteStatement(
 		req.SQL, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
-		req.WithEvent,
+		req.WithEvent, req.ResultFormat,
 	)
 	if err != nil {
 		return nil, err
@@ -277,6 +279,7 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 		DBUser            string   `json:"DbUser"`
 		SecretArn         string   `json:"SecretArn"`
 		StatementName     string   `json:"StatementName"`
+		ResultFormat      string   `json:"ResultFormat"`
 		Sqls              []string `json:"Sqls"`
 		WithEvent         bool     `json:"WithEvent"`
 	}
@@ -288,7 +291,7 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 	stmt, err := h.Backend.BatchExecuteStatement(
 		req.Sqls, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
-		req.WithEvent,
+		req.WithEvent, req.ResultFormat,
 	)
 	if err != nil {
 		return nil, err
@@ -352,6 +355,10 @@ func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]by
 		)
 	}
 
+	if stmt.ResultFormat != resultFormatJSON && stmt.ResultFormat != "" {
+		return nil, fmt.Errorf("%w: statement %s result format is not JSON", ErrValidation, req.ID)
+	}
+
 	// Return a single demo row so the UI can render a non-empty result table.
 	// NextToken is empty because the demo result set fits on one page.
 	return json.Marshal(map[string]any{
@@ -399,6 +406,10 @@ func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]
 		)
 	}
 
+	if stmt.ResultFormat != resultFormatCSV {
+		return nil, fmt.Errorf("%w: statement %s result format is not CSV", ErrValidation, req.ID)
+	}
+
 	// Return a single demo CSV record matching the V2 format.
 	// NextToken is empty because the demo result set fits on one page.
 	return json.Marshal(map[string]any{
@@ -412,9 +423,9 @@ func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]
 				keyNullable:   mockColumnNullable,
 			},
 		},
-		"TotalNumRows": int64(1),
-		"ResultFormat": resultFormatCSV,
-		keyNextToken:   "",
+		"TotalNumRows":  int64(1),
+		keyResultFormat: resultFormatCSV,
+		keyNextToken:    "",
 	})
 }
 
@@ -422,8 +433,10 @@ func (h *Handler) handleListStatements(_ context.Context, body []byte) ([]byte, 
 	var req struct {
 		ClusterIdentifier string `json:"ClusterIdentifier"`
 		WorkgroupName     string `json:"WorkgroupName"`
+		Database          string `json:"Database"`
+		StatementName     string `json:"StatementName"`
 		Status            string `json:"Status"`
-		RoleLevel         string `json:"RoleLevel"`
+		RoleLevel         *bool  `json:"RoleLevel"`
 		NextToken         string `json:"NextToken"`
 		MaxResults        int    `json:"MaxResults"`
 	}
@@ -440,9 +453,18 @@ func (h *Handler) handleListStatements(_ context.Context, body []byte) ([]byte, 
 		)
 	}
 
-	stmts, nextToken := h.Backend.ListStatements(
-		req.ClusterIdentifier, req.WorkgroupName, req.Status, req.RoleLevel, req.MaxResults,
-	)
+	stmts, nextToken, err := h.Backend.ListStatements(ListStatementsFilter{
+		ClusterIdentifier: req.ClusterIdentifier,
+		WorkgroupName:     req.WorkgroupName,
+		Database:          req.Database,
+		StatementName:     req.StatementName,
+		Status:            req.Status,
+		NextToken:         req.NextToken,
+		MaxResults:        req.MaxResults,
+	})
+	if err != nil {
+		return nil, err
+	}
 	items := make([]map[string]any, 0, len(stmts))
 
 	for _, stmt := range stmts {
@@ -477,9 +499,8 @@ func (h *Handler) handleCancelStatement(_ context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	// AWS returns {keyStatusField: "true"} as a string, not a boolean.
 	return json.Marshal(map[string]any{
-		keyStatusField: "true",
+		keyStatusField: true,
 	})
 }
 
@@ -632,6 +653,7 @@ func statementToListItem(stmt *Statement) map[string]any {
 		keyCreatedAt:       epochSeconds(stmt.CreatedAt),
 		keyUpdatedAt:       epochSeconds(stmt.UpdatedAt),
 		keyDuration:        stmt.DurationMs,
+		keyResultFormat:    statementResultFormat(stmt),
 	}
 
 	if stmt.StatementName != "" {
@@ -675,6 +697,7 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 		"ResultRows":       stmt.ResultRows,
 		"ResultSize":       stmt.ResultSize,
 		"WithEvent":        stmt.WithEvent,
+		keyResultFormat:    statementResultFormat(stmt),
 		// RedshiftQueryId is a synthetic numeric query identifier. AWS
 		// includes this in DescribeStatement for provisioned clusters;
 		// we return 0 since we have no real cluster backing.
