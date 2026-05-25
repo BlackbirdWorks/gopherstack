@@ -113,6 +113,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
@@ -2685,6 +2686,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&xraybackend.Provider{},
 		&s3tablesbackend.Provider{},
 		&databrewbackend.Provider{},
+		&forecastbackend.Provider{},
 	}
 }
 
