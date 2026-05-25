@@ -61,7 +61,8 @@ type Resource struct {
 
 // MonitorEvaluation represents one completed evaluation emitted by a predictor monitor.
 type MonitorEvaluation struct {
-	MetricResults   []any     `json:"MetricResults"`
+	CreationTime    time.Time `json:"CreationTime"`
+	EvaluationTime  time.Time `json:"EvaluationTime"`
 	PredictorEvent  any       `json:"PredictorEvent,omitempty"`
 	Message         string    `json:"Message,omitempty"`
 	MonitorArn      string    `json:"MonitorArn"`
@@ -69,8 +70,7 @@ type MonitorEvaluation struct {
 	ResourceArn     string    `json:"ResourceArn,omitempty"`
 	Status          string    `json:"Status"`
 	EvaluationState string    `json:"EvaluationState"`
-	CreationTime    time.Time `json:"CreationTime"`
-	EvaluationTime  time.Time `json:"EvaluationTime"`
+	MetricResults   []any     `json:"MetricResults"`
 }
 
 // InMemoryBackend stores Amazon Forecast state with concurrency-safe transitions.
