@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1200,7 +1201,7 @@ func (h *Handler) handleDescribeParameters(c *echo.Context, body []byte) error {
 			DataType:             "string",
 			ChangeType:           "immediate",
 			Source:               "system",
-			MinimumEngineVersion: "6.2",
+			MinimumEngineVersion: engineVersion62,
 		})
 	}
 
@@ -1507,6 +1508,7 @@ func enginePatchVersionFor(engine, engineVersion string) string {
 			return ev.EnginePatchVersion
 		}
 	}
+
 	return engineVersion
 }
 
@@ -1648,7 +1650,7 @@ func toACLObject(a *ACL, clusterNames []string) aclObject {
 		Status:               a.Status,
 		UserNames:            a.UserNames,
 		Clusters:             clusterNames,
-		MinimumEngineVersion: "6.2",
+		MinimumEngineVersion: engineVersion62,
 		PendingChanges:       &aclPendingChangesObject{UserNamesToAdd: []string{}, UserNamesToRemove: []string{}},
 	}
 }
@@ -1684,7 +1686,7 @@ func toUserObject(u *User, userGroupCount int32) userObject {
 		AccessString:         u.AccessString,
 		Status:               u.Status,
 		Authentication:       auth,
-		MinimumEngineVersion: "6.2",
+		MinimumEngineVersion: engineVersion62,
 		UserGroupCount:       userGroupCount,
 	}
 }
@@ -1693,13 +1695,11 @@ func toUserObject(u *User, userGroupCount int32) userObject {
 func countUserGroupMemberships(acls []*ACL, userName string) int32 {
 	var count int32
 	for _, a := range acls {
-		for _, u := range a.UserNames {
-			if u == userName {
-				count++
-				break
-			}
+		if slices.Contains(a.UserNames, userName) {
+			count++
 		}
 	}
+
 	return count
 }
 

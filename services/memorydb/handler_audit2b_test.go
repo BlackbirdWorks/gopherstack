@@ -30,14 +30,13 @@ func TestAudit2b_UpdateCluster_ShardBounds(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 			doCreateCluster(t, h, minimalClusterBody("shard-bounds-cluster"))
 
 			rec := doRequest(t, h, "UpdateCluster", map[string]any{
-				"ClusterName":      "shard-bounds-cluster",
+				"ClusterName": "shard-bounds-cluster",
 				"ShardConfiguration": map[string]any{
 					"ShardCount": tt.shardCount,
 				},
@@ -64,7 +63,6 @@ func TestAudit2b_UpdateCluster_ReplicaBounds(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -101,7 +99,6 @@ func TestAudit2b_UpdateCluster_WindowValidation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -109,7 +106,7 @@ func TestAudit2b_UpdateCluster_WindowValidation(t *testing.T) {
 
 			rec := doRequest(t, h, "UpdateCluster", map[string]any{
 				"ClusterName": "window-update-cluster",
-				tt.field:     tt.value,
+				tt.field:      tt.value,
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code, "body: %s", rec.Body)
 		})
@@ -160,7 +157,6 @@ func TestAudit2b_MultiRegionParameterGroups_DefaultSeeded(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -204,7 +200,6 @@ func TestAudit2b_MultiRegionParameters_DefaultNonEmpty(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -238,7 +233,6 @@ func TestAudit2b_ACL_ClusterMembership(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -285,7 +279,6 @@ func TestAudit2b_User_UserGroupCount_Accurate(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -311,7 +304,7 @@ func TestAudit2b_User_UserGroupCount_Accurate(t *testing.T) {
 			users := doDescribeUsers(t, h, "ugc-user")
 			require.Len(t, users, 1)
 			user, _ := users[0].(map[string]any)
-			assert.Equal(t, tt.wantCount, user["UserGroupCount"],
+			assert.InDelta(t, tt.wantCount, user["UserGroupCount"], 0.001,
 				"UserGroupCount should be %v for user in %d ACLs", tt.wantCount, tt.aclCount)
 		})
 	}
@@ -323,11 +316,11 @@ func TestAudit2b_DescribeServiceUpdates_Filtering(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		filterName    string
-		filterStatus  []string
-		wantMinCount  int
-		wantMaxCount  int
+		name         string
+		filterName   string
+		filterStatus []string
+		wantMinCount int
+		wantMaxCount int
 	}{
 		{
 			name:         "no filter returns all seeded updates",
@@ -361,7 +354,6 @@ func TestAudit2b_DescribeServiceUpdates_Filtering(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -392,10 +384,10 @@ func TestAudit2b_Events_SourceTypeFiltering(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setupBody      map[string]any
 		name           string
 		srcType        string
 		setupOp        string
-		setupBody      map[string]any
 		wantEventCount int
 	}{
 		{
@@ -432,7 +424,6 @@ func TestAudit2b_Events_SourceTypeFiltering(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -470,7 +461,6 @@ func TestAudit2b_Pagination_MaxResults(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -493,7 +483,7 @@ func TestAudit2b_Pagination_MaxResults(t *testing.T) {
 			pgs, _ := resp["ParameterGroups"].([]any)
 			assert.LessOrEqual(t, len(pgs), tt.maxResults)
 			if tt.maxResults >= 5 {
-				assert.Equal(t, tt.want, len(pgs))
+				assert.Len(t, pgs, tt.want)
 			}
 		})
 	}
@@ -579,11 +569,11 @@ func TestAudit2b_BatchUpdateCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		clusterNames      []string
-		existingClusters  []string
-		wantProcessed     int
-		wantUnprocessed   int
+		name             string
+		clusterNames     []string
+		existingClusters []string
+		wantProcessed    int
+		wantUnprocessed  int
 	}{
 		{
 			name:             "all clusters found",
@@ -609,7 +599,6 @@ func TestAudit2b_BatchUpdateCluster(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -656,7 +645,6 @@ func TestAudit2b_ReservedNodes_PurchaseAndDescribe(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -735,7 +723,6 @@ func TestAudit2b_Snapshot_FilterByType(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -794,16 +781,15 @@ func TestAudit2b_EngineVersion_Validation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 
 			body := map[string]any{
-				"ClusterName": "ev-test-cluster",
-				"NodeType":    "db.r6g.large",
-				"ACLName":     "open-access",
-				"Engine":      tt.engine,
+				"ClusterName":   "ev-test-cluster",
+				"NodeType":      "db.r6g.large",
+				"ACLName":       "open-access",
+				"Engine":        tt.engine,
 				"EngineVersion": tt.engineVersion,
 			}
 
@@ -830,7 +816,6 @@ func TestAudit2b_DescribeEngineVersions_Filtering(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -865,11 +850,11 @@ func TestAudit2b_TagOperations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		resource string
-		createOp string
 		createBody map[string]any
-		getARN   func(resp map[string]any) string
+		getARN     func(resp map[string]any) string
+		name       string
+		resource   string
+		createOp   string
 	}{
 		{
 			name:     "tag cluster",
@@ -883,17 +868,19 @@ func TestAudit2b_TagOperations(t *testing.T) {
 			getARN: func(r map[string]any) string {
 				cl, _ := r["Cluster"].(map[string]any)
 				arn, _ := cl["ARN"].(string)
+
 				return arn
 			},
 		},
 		{
-			name:     "tag ACL",
-			resource: "acl",
-			createOp: "CreateACL",
+			name:       "tag ACL",
+			resource:   "acl",
+			createOp:   "CreateACL",
 			createBody: map[string]any{"ACLName": "tag-test-acl"},
 			getARN: func(r map[string]any) string {
 				acl, _ := r["ACL"].(map[string]any)
 				arn, _ := acl["ARN"].(string)
+
 				return arn
 			},
 		},
@@ -909,13 +896,13 @@ func TestAudit2b_TagOperations(t *testing.T) {
 			getARN: func(r map[string]any) string {
 				u, _ := r["User"].(map[string]any)
 				arn, _ := u["ARN"].(string)
+
 				return arn
 			},
 		},
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -1000,7 +987,6 @@ func TestAudit2b_NodeType_Validation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -1025,11 +1011,11 @@ func TestAudit2b_CopySnapshot(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		targetBucket      string
-		targetName        string
-		wantCopyCreated   bool
-		wantStatus        int
+		name            string
+		targetBucket    string
+		targetName      string
+		wantCopyCreated bool
+		wantStatus      int
 	}{
 		{
 			name:            "copy without bucket creates new snapshot",
@@ -1048,7 +1034,6 @@ func TestAudit2b_CopySnapshot(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -1085,10 +1070,10 @@ func TestAudit2b_EnginePatchVersion_AllFamilies(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name               string
-		engine             string
-		engineVersion      string
-		wantPatchVersion   string
+		name             string
+		engine           string
+		engineVersion    string
+		wantPatchVersion string
 	}{
 		{"redis 6.2 patch", "redis", "6.2", "6.2.6"},
 		{"redis 7.0 patch", "redis", "7.0", "7.0.7"},
@@ -1098,7 +1083,6 @@ func TestAudit2b_EnginePatchVersion_AllFamilies(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)

@@ -18,6 +18,7 @@ func doCreateCluster(t *testing.T, h *memorydb.Handler, body map[string]any) (ma
 	rec := doRequest(t, h, "CreateCluster", body)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 	return resp, rec.Code
 }
 
@@ -32,6 +33,7 @@ func doDescribeUsers(t *testing.T, h *memorydb.Handler, userName string) []any {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	users, _ := resp["Users"].([]any)
+
 	return users
 }
 
@@ -46,6 +48,7 @@ func doDescribeACLs(t *testing.T, h *memorydb.Handler, aclName string) []any {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	acls, _ := resp["ACLs"].([]any)
+
 	return acls
 }
 
@@ -60,6 +63,7 @@ func doDescribeSnapshots(t *testing.T, h *memorydb.Handler, snapshotName string)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	snaps, _ := resp["Snapshots"].([]any)
+
 	return snaps
 }
 
@@ -74,6 +78,7 @@ func doDescribeParameterGroups(t *testing.T, h *memorydb.Handler, pgName string)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	pgs, _ := resp["ParameterGroups"].([]any)
+
 	return pgs
 }
 
@@ -84,6 +89,7 @@ func doDescribeParameters(t *testing.T, h *memorydb.Handler, pgName string) []an
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	params, _ := resp["Parameters"].([]any)
+
 	return params
 }
 
@@ -264,10 +270,10 @@ func TestAudit2_EnginePatchVersion(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name               string
-		engine             string
-		engineVersion      string
-		wantPatchVersion   string
+		name             string
+		engine           string
+		engineVersion    string
+		wantPatchVersion string
 	}{
 		{"redis 7.0 has patch version", "redis", "7.0", "7.0.7"},
 		{"redis 6.2 has patch version", "redis", "6.2", "6.2.6"},
@@ -411,8 +417,8 @@ func TestAudit2_User_UserGroupCount(t *testing.T) {
 			name: "user in no ACL has count 0",
 			setupFn: func(h *memorydb.Handler) {
 				doRequest(t, h, "CreateUser", map[string]any{
-					"UserName":     "standalone-user",
-					"AccessString": "on ~* &* +@all",
+					"UserName":           "standalone-user",
+					"AccessString":       "on ~* &* +@all",
 					"AuthenticationMode": map[string]any{"Type": "no-password-required"},
 				})
 			},
@@ -423,8 +429,8 @@ func TestAudit2_User_UserGroupCount(t *testing.T) {
 			name: "user in one ACL has count 1",
 			setupFn: func(h *memorydb.Handler) {
 				doRequest(t, h, "CreateUser", map[string]any{
-					"UserName":     "grouped-user",
-					"AccessString": "on ~* &* +@all",
+					"UserName":           "grouped-user",
+					"AccessString":       "on ~* &* +@all",
 					"AuthenticationMode": map[string]any{"Type": "no-password-required"},
 				})
 				doRequest(t, h, "CreateACL", map[string]any{
@@ -439,8 +445,8 @@ func TestAudit2_User_UserGroupCount(t *testing.T) {
 			name: "user in two ACLs has count 2",
 			setupFn: func(h *memorydb.Handler) {
 				doRequest(t, h, "CreateUser", map[string]any{
-					"UserName":     "multi-acl-user",
-					"AccessString": "on ~* &* +@all",
+					"UserName":           "multi-acl-user",
+					"AccessString":       "on ~* &* +@all",
 					"AuthenticationMode": map[string]any{"Type": "no-password-required"},
 				})
 				doRequest(t, h, "CreateACL", map[string]any{
@@ -468,7 +474,7 @@ func TestAudit2_User_UserGroupCount(t *testing.T) {
 
 			user, _ := users[0].(map[string]any)
 			groupCount, _ := user["UserGroupCount"].(float64)
-			assert.Equal(t, tt.wantGroupCount, groupCount)
+			assert.InDelta(t, tt.wantGroupCount, groupCount, 0.001)
 		})
 	}
 }
@@ -479,9 +485,9 @@ func TestAudit2_Snapshot_ClusterConfiguration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		clusterSetup   map[string]any
-		wantFields     []string
+		name         string
+		clusterSetup map[string]any
+		wantFields   []string
 	}{
 		{
 			name: "snapshot contains engine field",
@@ -555,7 +561,6 @@ func TestAudit2_DefaultParameterGroupsSeeded(t *testing.T) {
 	}
 
 	for _, eg := range expectedGroups {
-		eg := eg
 		t.Run(eg.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -599,6 +604,7 @@ func TestAudit2_DescribeParameters_NonEmpty(t *testing.T) {
 					found = true
 					val, _ := pm["Value"].(string)
 					assert.Equal(t, "noeviction", val)
+
 					break
 				}
 			}
@@ -614,11 +620,11 @@ func TestAudit2_ResetParameterGroup_AllParameters(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		allParameters bool
 		paramNames    []string
+		allParameters bool
 	}{
-		{"AllParameters=true resets all", true, nil},
-		{"empty ParameterNames resets all", false, nil},
+		{"AllParameters=true resets all", nil, true},
+		{"empty ParameterNames resets all", nil, false},
 	}
 
 	for _, tt := range tests {
@@ -682,14 +688,14 @@ func TestAudit2_ResetParameterGroup_SpecificNames(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		paramToChange  string
-		newValue       string
-		paramToReset   string
-		otherParam     string
-		otherNewValue  string
-		wantReset      string
-		wantOtherKept  string
+		name          string
+		paramToChange string
+		newValue      string
+		paramToReset  string
+		otherParam    string
+		otherNewValue string
+		wantReset     string
+		wantOtherKept string
 	}{
 		{
 			name:          "only named parameter is reset",
@@ -780,8 +786,8 @@ func TestAudit2_Events_Generated(t *testing.T) {
 			name: "CreateUser emits event",
 			setupFn: func(h *memorydb.Handler) {
 				doRequest(t, h, "CreateUser", map[string]any{
-					"UserName":     "evt-user",
-					"AccessString": "on ~* &* +@all",
+					"UserName":           "evt-user",
+					"AccessString":       "on ~* &* +@all",
 					"AuthenticationMode": map[string]any{"Type": "no-password-required"},
 				})
 			},
@@ -838,9 +844,9 @@ func TestAudit2_DescribeParameters_Metadata(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		wantField    string
-		wantValue    string
+		name      string
+		wantField string
+		wantValue string
 	}{
 		{"has ChangeType=immediate", "ChangeType", "immediate"},
 		{"has Source=system", "Source", "system"},
@@ -891,7 +897,6 @@ func TestAudit2_CreateParameterGroup_SeedsDefaults(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
@@ -912,6 +917,7 @@ func TestAudit2_CreateParameterGroup_SeedsDefaults(t *testing.T) {
 				pm, _ := p.(map[string]any)
 				if nm, _ := pm["Name"].(string); nm == "maxmemory-policy" {
 					found = true
+
 					break
 				}
 			}

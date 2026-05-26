@@ -364,13 +364,13 @@ type aclPendingChangesObject struct {
 }
 
 type aclObject struct {
+	PendingChanges       *aclPendingChangesObject `json:"PendingChanges,omitempty"`
 	ARN                  string                   `json:"ARN,omitempty"`
 	Name                 string                   `json:"Name,omitempty"`
 	Status               string                   `json:"Status,omitempty"`
+	MinimumEngineVersion string                   `json:"MinimumEngineVersion,omitempty"`
 	UserNames            []string                 `json:"UserNames,omitempty"`
 	Clusters             []string                 `json:"Clusters,omitempty"`
-	MinimumEngineVersion string                   `json:"MinimumEngineVersion,omitempty"`
-	PendingChanges       *aclPendingChangesObject `json:"PendingChanges,omitempty"`
 }
 
 type subnetGroupObject struct {
@@ -539,20 +539,20 @@ type Snapshot struct {
 
 // snapshotClusterConfig holds the cluster configuration recorded at snapshot time.
 type snapshotClusterConfig struct {
-	Name                  string `json:"Name,omitempty"`
-	NodeType              string `json:"NodeType,omitempty"`
-	EngineVersion         string `json:"EngineVersion,omitempty"`
-	Description           string `json:"Description,omitempty"`
-	Port                  int32  `json:"Port,omitempty"`
-	NumShards             int32  `json:"NumShards,omitempty"`
-	Engine                string `json:"Engine,omitempty"`
-	MaintenanceWindow     string `json:"MaintenanceWindow,omitempty"`
-	TopicArn              string `json:"TopicArn,omitempty"`
-	ParameterGroupName    string `json:"ParameterGroupName,omitempty"`
-	SubnetGroupName       string `json:"SubnetGroupName,omitempty"`
-	VpcId                 string `json:"VpcId,omitempty"`
-	SnapshotRetentionLimit int32 `json:"SnapshotRetentionLimit,omitempty"`
-	SnapshotWindow        string `json:"SnapshotWindow,omitempty"`
+	Engine                 string `json:"Engine,omitempty"`
+	VpcID                  string `json:"VpcId,omitempty"`
+	EngineVersion          string `json:"EngineVersion,omitempty"`
+	Description            string `json:"Description,omitempty"`
+	Name                   string `json:"Name,omitempty"`
+	SnapshotWindow         string `json:"SnapshotWindow,omitempty"`
+	TopicArn               string `json:"TopicArn,omitempty"`
+	MaintenanceWindow      string `json:"MaintenanceWindow,omitempty"`
+	NodeType               string `json:"NodeType,omitempty"`
+	ParameterGroupName     string `json:"ParameterGroupName,omitempty"`
+	SubnetGroupName        string `json:"SubnetGroupName,omitempty"`
+	Port                   int32  `json:"Port,omitempty"`
+	SnapshotRetentionLimit int32  `json:"SnapshotRetentionLimit,omitempty"`
+	NumShards              int32  `json:"NumShards,omitempty"`
 }
 
 // EngineVersion describes a supported MemoryDB engine version.

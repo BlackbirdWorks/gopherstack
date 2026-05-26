@@ -69,6 +69,25 @@ const (
 	reservedChargeRateLarge    = 0.14
 	reservedChargeRateXLarge   = 0.28
 
+	// splitParts is the number of parts expected when splitting window formats.
+	splitParts = 2
+
+	// Engine family constants.
+	familyRedis6  = "memorydb_redis6"
+	familyRedis7  = "memorydb_redis7"
+	familyValkey7 = "memorydb_valkey7"
+	familyValkey8 = "memorydb_valkey8"
+
+	// Supported engine version constants.
+	engineVersion62 = "6.2"
+	engineVersion70 = "7.0"
+	engineVersion71 = "7.1"
+	engineVersion72 = "7.2"
+	engineVersion80 = "8.0"
+
+	// paramValueYes is the string paramValueYes used in default parameter values.
+	paramValueYes = "yes"
+
 	// Resource kind constants for tag routing.
 	resourceKindCluster            = "cluster"
 	resourceKindACL                = "acl"
@@ -178,10 +197,11 @@ func validateMaintenanceWindow(w string) error {
 	if w == "" {
 		return nil
 	}
-	parts := strings.SplitN(w, "-", 2)
+	parts := strings.SplitN(w, "-", splitParts)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return fmt.Errorf("MaintenanceWindow must be in format ddd:hh24:mi-ddd:hh24:mi: %w", ErrValidation)
 	}
+
 	return nil
 }
 
@@ -190,10 +210,11 @@ func validateSnapshotWindow(w string) error {
 	if w == "" {
 		return nil
 	}
-	parts := strings.SplitN(w, "-", 2)
+	parts := strings.SplitN(w, "-", splitParts)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return fmt.Errorf("SnapshotWindow must be in format hh24:mi-hh24:mi: %w", ErrValidation)
 	}
+
 	return nil
 }
 
@@ -442,10 +463,10 @@ func (b *InMemoryBackend) seedDefaultParameterGroupsLocked() {
 		family string
 		desc   string
 	}{
-		{"default.memorydb-redis6", "memorydb_redis6", "Default parameter group for MemoryDB Redis 6.2"},
-		{"default.memorydb-redis7", "memorydb_redis7", "Default parameter group for MemoryDB Redis 7.x"},
-		{"default.memorydb-valkey7", "memorydb_valkey7", "Default parameter group for MemoryDB Valkey 7.x"},
-		{"default.memorydb-valkey8", "memorydb_valkey8", "Default parameter group for MemoryDB Valkey 8.x"},
+		{"default.memorydb-redis6", familyRedis6, "Default parameter group for MemoryDB Redis 6.2"},
+		{"default.memorydb-redis7", familyRedis7, "Default parameter group for MemoryDB Redis 7.x"},
+		{"default.memorydb-valkey7", familyValkey7, "Default parameter group for MemoryDB Valkey 7.x"},
+		{"default.memorydb-valkey8", familyValkey8, "Default parameter group for MemoryDB Valkey 8.x"},
 	}
 	for _, f := range families {
 		pgARN := arn.Build("memorydb", b.region, b.accountID, "parametergroup/"+f.name)
@@ -470,22 +491,22 @@ func (b *InMemoryBackend) seedDefaultParameterGroupsLocked() {
 	}{
 		{
 			"default.memorydb-redis6.multiregion",
-			"memorydb_redis6",
+			familyRedis6,
 			"Default multi-region parameter group for MemoryDB Redis 6.2",
 		},
 		{
 			"default.memorydb-redis7.multiregion",
-			"memorydb_redis7",
+			familyRedis7,
 			"Default multi-region parameter group for MemoryDB Redis 7.x",
 		},
 		{
 			"default.memorydb-valkey7.multiregion",
-			"memorydb_valkey7",
+			familyValkey7,
 			"Default multi-region parameter group for MemoryDB Valkey 7.x",
 		},
 		{
 			"default.memorydb-valkey8.multiregion",
-			"memorydb_valkey8",
+			familyValkey8,
 			"Default multi-region parameter group for MemoryDB Valkey 8.x",
 		},
 	}
@@ -520,7 +541,7 @@ type clusterDefaults struct {
 // isSupportedEngineVersion reports whether v is a supported MemoryDB engine version.
 func isSupportedEngineVersion(v string) bool {
 	switch v {
-	case "6.2", "7.0", "7.1", "7.2", "8.0":
+	case engineVersion62, engineVersion70, engineVersion71, engineVersion72, engineVersion80:
 		return true
 	default:
 		return false
@@ -566,12 +587,31 @@ func resolveClusterDefaults(req *createClusterRequest) (clusterDefaults, error) 
 		tlsEnabled:    true,
 	}
 
+	if err := resolveEngineDefaults(&d); err != nil {
+		return d, err
+	}
+
+	if err := resolveNodeDefaults(&d); err != nil {
+		return d, err
+	}
+
+	applyOptionalOverrides(&d, req)
+
+	if err := validateClusterBounds(&d); err != nil {
+		return d, err
+	}
+
+	return d, nil
+}
+
+// resolveEngineDefaults sets engine and version defaults, returning an error for unsupported values.
+func resolveEngineDefaults(d *clusterDefaults) error {
 	if d.engine == "" {
 		d.engine = engineRedis
 	}
 
 	if d.engine != engineRedis && d.engine != engineValkey {
-		return d, fmt.Errorf("engine %q is not supported (must be redis or valkey): %w", d.engine, ErrValidation)
+		return fmt.Errorf("engine %q is not supported (must be redis or valkey): %w", d.engine, ErrValidation)
 	}
 
 	if d.engineVersion == "" {
@@ -583,17 +623,27 @@ func resolveClusterDefaults(req *createClusterRequest) (clusterDefaults, error) 
 	}
 
 	if !isSupportedEngineVersion(d.engineVersion) {
-		return d, fmt.Errorf("engine version %q is not supported: %w", d.engineVersion, ErrValidation)
+		return fmt.Errorf("engine version %q is not supported: %w", d.engineVersion, ErrValidation)
 	}
 
+	return nil
+}
+
+// resolveNodeDefaults sets the node type default and validates the prefix.
+func resolveNodeDefaults(d *clusterDefaults) error {
 	if d.nodeType == "" {
 		d.nodeType = defaultNodeType
 	}
 
 	if !strings.HasPrefix(d.nodeType, "db.") {
-		return d, fmt.Errorf("node type %q is invalid: must begin with 'db.': %w", d.nodeType, ErrValidation)
+		return fmt.Errorf("node type %q is invalid: must begin with 'db.': %w", d.nodeType, ErrValidation)
 	}
 
+	return nil
+}
+
+// applyOptionalOverrides applies caller-provided overrides for port, shards, replicas, and TLS.
+func applyOptionalOverrides(d *clusterDefaults, req *createClusterRequest) {
 	if req.Port != nil {
 		d.port = *req.Port
 	}
@@ -609,16 +659,19 @@ func resolveClusterDefaults(req *createClusterRequest) (clusterDefaults, error) 
 	if req.TLSEnabled != nil {
 		d.tlsEnabled = *req.TLSEnabled
 	}
+}
 
+// validateClusterBounds checks that shard and replica counts are within allowed ranges.
+func validateClusterBounds(d *clusterDefaults) error {
 	if d.numShards < 1 || d.numShards > 500 {
-		return d, fmt.Errorf("NumShards must be between 1 and 500: %w", ErrValidation)
+		return fmt.Errorf("NumShards must be between 1 and 500: %w", ErrValidation)
 	}
 
 	if d.numReplicas < 0 || d.numReplicas > 5 {
-		return d, fmt.Errorf("NumReplicasPerShard must be between 0 and 5: %w", ErrValidation)
+		return fmt.Errorf("NumReplicasPerShard must be between 0 and 5: %w", ErrValidation)
 	}
 
-	return d, nil
+	return nil
 }
 
 // applySnapshotRestoreConfig overrides cluster defaults from a source snapshot config.
@@ -776,11 +829,11 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 	c.AvailabilityMode = availabilityMode
 	c.Endpoint = req.ClusterName + ".memorydb." + region + ".amazonaws.com"
 
-	if err := validateMaintenanceWindow(req.MaintenanceWindow); err != nil {
-		return nil, err
+	if errMW := validateMaintenanceWindow(req.MaintenanceWindow); errMW != nil {
+		return nil, errMW
 	}
-	if err := validateSnapshotWindow(req.SnapshotWindow); err != nil {
-		return nil, err
+	if errSW := validateSnapshotWindow(req.SnapshotWindow); errSW != nil {
+		return nil, errSW
 	}
 
 	b.clusters[req.ClusterName] = c
@@ -950,42 +1003,39 @@ func applyClusterStringUpdates(c *Cluster, req *updateClusterRequest) {
 	}
 }
 
-// UpdateCluster modifies an existing cluster.
-func (b *InMemoryBackend) UpdateCluster(req *updateClusterRequest) (*Cluster, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	c, ok := b.clusters[req.ClusterName]
-	if !ok {
-		return nil, ErrClusterNotFound
-	}
-
+// validateUpdateClusterRequest validates the update cluster request fields.
+func validateUpdateClusterRequest(req *updateClusterRequest) error {
 	if req.MaintenanceWindow != "" {
 		if err := validateMaintenanceWindow(req.MaintenanceWindow); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	if req.SnapshotWindow != "" {
 		if err := validateSnapshotWindow(req.SnapshotWindow); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	if req.ReplicaConfiguration != nil && req.ReplicaConfiguration.ReplicaCount != nil {
 		rc := *req.ReplicaConfiguration.ReplicaCount
 		if rc < 0 || rc > 5 {
-			return nil, fmt.Errorf("NumReplicasPerShard must be between 0 and 5: %w", ErrValidation)
+			return fmt.Errorf("NumReplicasPerShard must be between 0 and 5: %w", ErrValidation)
 		}
 	}
 
 	if req.ShardConfiguration != nil && req.ShardConfiguration.ShardCount != nil {
 		sc := *req.ShardConfiguration.ShardCount
 		if sc < 1 || sc > 500 {
-			return nil, fmt.Errorf("NumShards must be between 1 and 500: %w", ErrValidation)
+			return fmt.Errorf("NumShards must be between 1 and 500: %w", ErrValidation)
 		}
 	}
 
+	return nil
+}
+
+// applyClusterUpdates applies validated optional fields from the update request to the cluster.
+func applyClusterUpdates(c *Cluster, req *updateClusterRequest) {
 	applyClusterStringUpdates(c, req)
 
 	if req.SnapshotRetentionLimit != nil {
@@ -1003,6 +1053,23 @@ func (b *InMemoryBackend) UpdateCluster(req *updateClusterRequest) (*Cluster, er
 	if req.AutoMinorVersionUpgrade != nil {
 		c.AutoMinorVersionUpgrade = *req.AutoMinorVersionUpgrade
 	}
+}
+
+// UpdateCluster modifies an existing cluster.
+func (b *InMemoryBackend) UpdateCluster(req *updateClusterRequest) (*Cluster, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[req.ClusterName]
+	if !ok {
+		return nil, ErrClusterNotFound
+	}
+
+	if err := validateUpdateClusterRequest(req); err != nil {
+		return nil, err
+	}
+
+	applyClusterUpdates(c, req)
 
 	b.appendEventLocked(&Event{
 		Date:       time.Now(),
@@ -1872,45 +1939,46 @@ func (b *InMemoryBackend) DeleteSnapshot(name string) (*Snapshot, error) {
 // defaultParametersByFamily returns the built-in parameter defaults for each engine family.
 func defaultParametersByFamily(family string) map[string]string {
 	base := map[string]string{
-		"maxmemory-policy":               "noeviction",
-		"timeout":                        "0",
-		"tcp-keepalive":                  "300",
-		"lazyfree-lazy-eviction":         "no",
-		"lazyfree-lazy-expire":           "no",
-		"lazyfree-lazy-server-del":       "no",
-		"replica-lazy-flush":             "no",
-		"activedefrag":                   "no",
-		"active-expire-enabled":          "1",
-		"active-expire-effort":           "1",
-		"lfu-log-factor":                 "10",
-		"lfu-decay-time":                 "1",
-		"hash-max-listpack-entries":      "128",
-		"hash-max-listpack-value":        "64",
-		"list-max-listpack-size":         "-2",
-		"list-compress-depth":            "0",
-		"set-max-intset-entries":         "512",
-		"zset-max-listpack-entries":      "128",
-		"zset-max-listpack-value":        "64",
-		"activerehashing":                "yes",
-		"hz":                             "10",
-		"dynamic-hz":                     "yes",
-		"aof-rewrite-incremental-fsync":  "yes",
-		"rdb-save-incremental-fsync":     "yes",
-		"jemalloc-bg-thread":             "yes",
-		"close-on-slave-write":           "yes",
-		"repl-backlog-size":              "1048576",
-		"repl-backlog-ttl":               "3600",
-		"slowlog-log-slower-than":        "10000",
-		"slowlog-max-len":                "128",
-		"latency-monitor-threshold":      "0",
-		"tracking-table-max-keys":        "0",
-		"list-max-ziplist-size":          "-2",
-		"cluster-node-timeout":           "15000",
-		"cluster-migration-barrier":      "1",
-		"cluster-require-full-coverage":  "yes",
-		"cluster-allow-reads-when-down":  "no",
+		"maxmemory-policy":              "noeviction",
+		"timeout":                       "0",
+		"tcp-keepalive":                 "300",
+		"lazyfree-lazy-eviction":        "no",
+		"lazyfree-lazy-expire":          "no",
+		"lazyfree-lazy-server-del":      "no",
+		"replica-lazy-flush":            "no",
+		"activedefrag":                  "no",
+		"active-expire-enabled":         "1",
+		"active-expire-effort":          "1",
+		"lfu-log-factor":                "10",
+		"lfu-decay-time":                "1",
+		"hash-max-listpack-entries":     "128",
+		"hash-max-listpack-value":       "64",
+		"list-max-listpack-size":        "-2",
+		"list-compress-depth":           "0",
+		"set-max-intset-entries":        "512",
+		"zset-max-listpack-entries":     "128",
+		"zset-max-listpack-value":       "64",
+		"activerehashing":               paramValueYes,
+		"hz":                            "10",
+		"dynamic-hz":                    paramValueYes,
+		"aof-rewrite-incremental-fsync": paramValueYes,
+		"rdb-save-incremental-fsync":    paramValueYes,
+		"jemalloc-bg-thread":            paramValueYes,
+		"close-on-slave-write":          paramValueYes,
+		"repl-backlog-size":             "1048576",
+		"repl-backlog-ttl":              "3600",
+		"slowlog-log-slower-than":       "10000",
+		"slowlog-max-len":               "128",
+		"latency-monitor-threshold":     "0",
+		"tracking-table-max-keys":       "0",
+		"list-max-ziplist-size":         "-2",
+		"cluster-node-timeout":          "15000",
+		"cluster-migration-barrier":     "1",
+		"cluster-require-full-coverage": paramValueYes,
+		"cluster-allow-reads-when-down": "no",
 	}
 	_ = family // family-specific overrides could go here
+
 	return base
 }
 
@@ -1919,37 +1987,37 @@ func defaultEngineVersions() []*EngineVersion {
 	return []*EngineVersion{
 		{
 			Engine:               "valkey",
-			EngineVersion:        "8.0",
+			EngineVersion:        engineVersion80,
 			EnginePatchVersion:   "8.0.1",
-			ParameterGroupFamily: "memorydb_valkey8",
+			ParameterGroupFamily: familyValkey8,
 			Description:          "Valkey 8.0",
 		},
 		{
 			Engine:               "valkey",
-			EngineVersion:        "7.2",
+			EngineVersion:        engineVersion72,
 			EnginePatchVersion:   "7.2.4",
-			ParameterGroupFamily: "memorydb_valkey7",
+			ParameterGroupFamily: familyValkey7,
 			Description:          "Valkey 7.2",
 		},
 		{
 			Engine:               engineRedis,
-			EngineVersion:        "7.1",
+			EngineVersion:        engineVersion71,
 			EnginePatchVersion:   "7.1.0",
-			ParameterGroupFamily: "memorydb_redis7",
+			ParameterGroupFamily: familyRedis7,
 			Description:          "Redis 7.1",
 		},
 		{
 			Engine:               engineRedis,
-			EngineVersion:        "7.0",
+			EngineVersion:        engineVersion70,
 			EnginePatchVersion:   "7.0.7",
-			ParameterGroupFamily: "memorydb_redis7",
+			ParameterGroupFamily: familyRedis7,
 			Description:          "Redis 7.0",
 		},
 		{
 			Engine:               engineRedis,
-			EngineVersion:        "6.2",
+			EngineVersion:        engineVersion62,
 			EnginePatchVersion:   "6.2.6",
-			ParameterGroupFamily: "memorydb_redis6",
+			ParameterGroupFamily: familyRedis6,
 			Description:          "Redis 6.2",
 		},
 	}
@@ -2223,7 +2291,11 @@ func (b *InMemoryBackend) DescribeParameters(parameterGroupName string) (map[str
 // ResetParameterGroup resets parameters in a parameter group back to family defaults.
 // If parameterNames is non-empty and allParameters is false, only those keys are reset.
 // If allParameters is true or parameterNames is empty, all parameters are reset.
-func (b *InMemoryBackend) ResetParameterGroup(name string, parameterNames []string, allParameters bool) (*ParameterGroup, error) {
+func (b *InMemoryBackend) ResetParameterGroup(
+	name string,
+	parameterNames []string,
+	allParameters bool,
+) (*ParameterGroup, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2237,7 +2309,7 @@ func (b *InMemoryBackend) ResetParameterGroup(name string, parameterNames []stri
 	if len(parameterNames) > 0 && !allParameters {
 		// Reset only named parameters.
 		for _, pn := range parameterNames {
-			if dv, ok := defaults[pn]; ok {
+			if dv, found := defaults[pn]; found {
 				pg.Parameters[pn] = dv
 			} else {
 				delete(pg.Parameters, pn)
