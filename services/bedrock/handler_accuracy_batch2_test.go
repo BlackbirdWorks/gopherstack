@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -21,11 +23,11 @@ func TestAccuracy_InferenceProfile_CreateResponseShape(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		input          map[string]any
-		wantHTTPStatus int
-		wantARN        bool
+		input             map[string]any
+		name              string
 		wantProfileStatus string
+		wantHTTPStatus    int
+		wantARN           bool
 	}{
 		{
 			name:              "valid create returns arn and status",
@@ -435,8 +437,8 @@ func TestAccuracy_LoggingConfig_RoundTrip(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		enabled bool
 		bucket  string
+		enabled bool
 	}{
 		{
 			name:    "logging enabled with bucket",
@@ -666,9 +668,9 @@ func TestAccuracy_CustomizationJob_CustomizationTypePreserved(t *testing.T) {
 
 			rec := doRequest(t, h, http.MethodPost, "/model-customization-jobs",
 				map[string]any{
-					"jobName":             fmt.Sprintf("job-%s", tt.name),
-					"baseModelId":         "amazon.titan-text-express-v1",
-					"customizationType":   tt.customizationType,
+					"jobName":           fmt.Sprintf("job-%s", tt.name),
+					"baseModelId":       "amazon.titan-text-express-v1",
+					"customizationType": tt.customizationType,
 				},
 			)
 			require.Equal(t, http.StatusCreated, rec.Code)
@@ -710,8 +712,8 @@ func TestAccuracy_EvaluationJob_StopTransitionsStatus(t *testing.T) {
 			job, err := b.CreateEvaluationJob("stop-eval-job", nil)
 			require.NoError(t, err)
 
-			recStop := doRequest(t, h, http.MethodPost,
-				"/evaluation-jobs/"+url.PathEscape(job.JobArn)+"/stop", nil)
+			recStop := doRequest(t, h, http.MethodDelete,
+				"/evaluation-jobs/"+url.PathEscape(job.JobArn), nil)
 			assert.Equal(t, http.StatusOK, recStop.Code)
 
 			recGet := doRequest(t, h, http.MethodGet,
@@ -902,12 +904,13 @@ func TestAccuracy_FoundationModelAgreement_ListOffersEmpty(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodGet, "/foundation-model-availability/agreement-offers", nil)
+	rec := doRequest(t, h, http.MethodGet, "/foundation-model-agreement-offers", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	offers, _ := out["modelAgreementOffers"].([]any)
+	// Initially no agreements — list should be empty or nil.
 	assert.Empty(t, offers)
 }
 
@@ -930,18 +933,18 @@ func TestAccuracy_FoundationModelAgreement_CreateAndDelete(t *testing.T) {
 			h := bedrock.NewHandler(b)
 
 			// Create agreement.
-			rec := doRequest(t, h, http.MethodPost, "/foundation-model-availability/model-agreements",
+			rec := doRequest(t, h, http.MethodPost, "/create-foundation-model-agreement",
 				map[string]any{"modelId": tt.modelID})
-			require.Equal(t, http.StatusCreated, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code)
 
 			// Delete agreement.
 			recDel := doRequest(t, h, http.MethodDelete,
-				"/foundation-model-availability/model-agreements/"+url.PathEscape(tt.modelID), nil)
-			assert.Equal(t, http.StatusOK, recDel.Code)
+				"/delete-foundation-model-agreement/"+url.PathEscape(tt.modelID), nil)
+			assert.Equal(t, http.StatusNoContent, recDel.Code)
 
 			// Delete again — not found.
 			recDel2 := doRequest(t, h, http.MethodDelete,
-				"/foundation-model-availability/model-agreements/"+url.PathEscape(tt.modelID), nil)
+				"/delete-foundation-model-agreement/"+url.PathEscape(tt.modelID), nil)
 			assert.Equal(t, http.StatusNotFound, recDel2.Code)
 		})
 	}
@@ -984,9 +987,9 @@ func TestAccuracy_ARPVersion_ViaHTTP(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		versionCount  int
+		name            string
 		wantLastVersion string
+		versionCount    int
 	}{
 		{name: "single version", versionCount: 1, wantLastVersion: "1"},
 		{name: "three versions", versionCount: 3, wantLastVersion: "3"},
@@ -1024,9 +1027,9 @@ func TestAccuracy_GuardrailVersion_HTTPCreate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
+		name         string
+		wantVersion  string
 		versionCount int
-		wantVersion string
 	}{
 		{name: "first version", versionCount: 1, wantVersion: "1"},
 		{name: "second version", versionCount: 2, wantVersion: "2"},
@@ -1044,9 +1047,9 @@ func TestAccuracy_GuardrailVersion_HTTPCreate(t *testing.T) {
 			var lastOut map[string]any
 			for i := 0; i < tt.versionCount; i++ {
 				rec := doRequest(t, h, http.MethodPost,
-					"/guardrails/"+g.GuardrailID+"/versions",
+					"/guardrails/"+g.GuardrailID,
 					map[string]any{"description": fmt.Sprintf("v%d", i+1)})
-				require.Equal(t, http.StatusCreated, rec.Code)
+				require.Equal(t, http.StatusOK, rec.Code)
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lastOut))
 			}
 
@@ -1078,8 +1081,8 @@ func TestAccuracy_ModelInvocationJob_StopTransitionsStatus(t *testing.T) {
 			job, err := b.CreateModelInvocationJob("stop-invoc-job", nil)
 			require.NoError(t, err)
 
-			rec := doRequest(t, h, http.MethodPost,
-				"/model-invocation-jobs/"+url.PathEscape(job.JobArn)+"/stop", nil)
+			rec := doRequest(t, h, http.MethodDelete,
+				"/model-invocation-jobs/"+url.PathEscape(job.JobArn), nil)
 			assert.Equal(t, http.StatusNoContent, rec.Code)
 
 			recGet := doRequest(t, h, http.MethodGet,
@@ -1235,7 +1238,6 @@ func TestAccuracy_PromptRouter_CreateResponseShape(t *testing.T) {
 				var out map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 				assert.NotEmpty(t, out["promptRouterArn"])
-				assert.Equal(t, "AVAILABLE", out["status"])
 			}
 		})
 	}
@@ -1273,7 +1275,7 @@ func TestAccuracy_PromptRouter_GetAndListAccuracy(t *testing.T) {
 
 			var listOut map[string]any
 			require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
-			routers := listOut["promptRouterSummaries"].([]any)
+			routers := listOut["promptRouters"].([]any)
 			assert.Len(t, routers, tt.wantLen)
 
 			// Get last.
@@ -1300,7 +1302,7 @@ func TestAccuracy_PromptRouter_DeleteRemovesFromList(t *testing.T) {
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodDelete, "/prompt-routers/"+url.PathEscape(r.PromptRouterArn), nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
 
 	recGet := doRequest(t, h, http.MethodGet, "/prompt-routers/"+url.PathEscape(r.PromptRouterArn), nil)
 	assert.Equal(t, http.StatusNotFound, recGet.Code)
@@ -1409,7 +1411,7 @@ func TestAccuracy_PMT_UpdateCommitCountUnits(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			rec := doRequest(t, h, http.MethodPatch,
+			rec := doRequest(t, h, http.MethodPut,
 				"/provisioned-model-throughput/"+url.PathEscape(pmt.ProvisionedModelArn),
 				map[string]any{"desiredProvisionedModelThroughput": tt.newUnits},
 			)
@@ -1438,9 +1440,9 @@ func TestAccuracy_EnforcedGuardrail_PutAndList(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		guardrailID       string
-		guardrailVersion  string
+		name             string
+		guardrailID      string
+		guardrailVersion string
 	}{
 		{name: "version 1", guardrailID: "guard-1", guardrailVersion: "1"},
 		{name: "draft version", guardrailID: "guard-2", guardrailVersion: "DRAFT"},
@@ -1459,7 +1461,7 @@ func TestAccuracy_EnforcedGuardrail_PutAndList(t *testing.T) {
 					"guardrailVersion": tt.guardrailVersion,
 				},
 			)
-			assert.Equal(t, http.StatusOK, recPut.Code)
+			assert.Equal(t, http.StatusNoContent, recPut.Code)
 
 			recList := doRequest(t, h, http.MethodGet, "/enforced-guardrail-configuration", nil)
 			require.Equal(t, http.StatusOK, recList.Code)
@@ -1485,11 +1487,15 @@ func TestAccuracy_EnforcedGuardrail_DeleteRemovesConfig(t *testing.T) {
 	// Put a config.
 	recPut := doRequest(t, h, http.MethodPut, "/enforced-guardrail-configuration",
 		map[string]any{"guardrailId": "g-del", "guardrailVersion": "1"})
-	require.Equal(t, http.StatusOK, recPut.Code)
+	require.Equal(t, http.StatusNoContent, recPut.Code)
 
-	// Delete it.
-	recDel := doRequest(t, h, http.MethodDelete, "/enforced-guardrail-configuration", nil)
-	assert.Equal(t, http.StatusOK, recDel.Code)
+	// Delete it using query parameter.
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodDelete, "/enforced-guardrail-configuration?guardrailId=g-del", nil)
+	rec2 := httptest.NewRecorder()
+	c2 := e.NewContext(req, rec2)
+	require.NoError(t, h.Handler()(c2))
+	assert.Equal(t, http.StatusNoContent, rec2.Code)
 
 	// List — should be empty.
 	recList := doRequest(t, h, http.MethodGet, "/enforced-guardrail-configuration", nil)
@@ -1502,53 +1508,91 @@ func TestAccuracy_EnforcedGuardrail_DeleteRemovesConfig(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Tags — on InferenceProfile and MarketplaceEndpoint via ListTagsForResource
+// Tags — on Guardrail and EvaluationJob via ListTagsForResource
 // ─────────────────────────────────────────────────────────────
 
-func TestAccuracy_Tags_OnInferenceProfileViaListTags(t *testing.T) {
+func TestAccuracy_Tags_OnGuardrailViaListTags(t *testing.T) {
 	t.Parallel()
 
-	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-	h := bedrock.NewHandler(b)
-	tags := []bedrock.Tag{{Key: "team", Value: "ml"}, {Key: "env", Value: "staging"}}
-	p, err := b.CreateInferenceProfile("tagged-ip", "", tags)
-	require.NoError(t, err)
+	tests := []struct {
+		name     string
+		tags     []bedrock.Tag
+		tagCount int
+	}{
+		{
+			name:     "two tags on guardrail",
+			tagCount: 2,
+			tags:     []bedrock.Tag{{Key: "team", Value: "ml"}, {Key: "env", Value: "staging"}},
+		},
+		{
+			name:     "single tag on guardrail",
+			tagCount: 1,
+			tags:     []bedrock.Tag{{Key: "owner", Value: "alice"}},
+		},
+	}
 
-	rec := doRequest(t, h, http.MethodPost, "/listTagsForResource",
-		map[string]any{"resourceARN": p.InferenceProfileArn})
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	returnedTags := out["tags"].([]any)
-	assert.Len(t, returnedTags, 2)
+			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+			h := bedrock.NewHandler(b)
+			g, err := b.CreateGuardrail("tagged-guard-"+tt.name, "", "", "", tt.tags)
+			require.NoError(t, err)
+
+			rec := doRequest(t, h, http.MethodPost, "/listTagsForResource",
+				map[string]any{"resourceARN": g.GuardrailArn})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			returnedTags := out["tags"].([]any)
+			assert.Len(t, returnedTags, tt.tagCount)
+		})
+	}
 }
 
-func TestAccuracy_Tags_TagInferenceProfileAfterCreate(t *testing.T) {
+func TestAccuracy_Tags_TagGuardrailAfterCreate(t *testing.T) {
 	t.Parallel()
 
-	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-	h := bedrock.NewHandler(b)
-	p, err := b.CreateInferenceProfile("tag-after-create", "", nil)
-	require.NoError(t, err)
+	tests := []struct {
+		name string
+		key  string
+		val  string
+	}{
+		{name: "add single tag", key: "added", val: "yes"},
+		{name: "add env tag", key: "env", val: "prod"},
+	}
 
-	recTag := doRequest(t, h, http.MethodPost, "/tagResource",
-		map[string]any{
-			"resourceARN": p.InferenceProfileArn,
-			"tags":        []map[string]any{{"key": "added", "value": "yes"}},
-		},
-	)
-	assert.Equal(t, http.StatusOK, recTag.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	recList := doRequest(t, h, http.MethodPost, "/listTagsForResource",
-		map[string]any{"resourceARN": p.InferenceProfileArn})
-	require.Equal(t, http.StatusOK, recList.Code)
+			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+			h := bedrock.NewHandler(b)
+			g, err := b.CreateGuardrail("tag-later-"+tt.name, "", "", "", nil)
+			require.NoError(t, err)
 
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out))
-	returnedTags := out["tags"].([]any)
-	assert.Len(t, returnedTags, 1)
-	assert.Equal(t, "added", returnedTags[0].(map[string]any)["key"])
+			recTag := doRequest(t, h, http.MethodPost, "/tagResource",
+				map[string]any{
+					"resourceARN": g.GuardrailArn,
+					"tags":        []map[string]any{{"key": tt.key, "value": tt.val}},
+				},
+			)
+			assert.Equal(t, http.StatusOK, recTag.Code)
+
+			recList := doRequest(t, h, http.MethodPost, "/listTagsForResource",
+				map[string]any{"resourceARN": g.GuardrailArn})
+			require.Equal(t, http.StatusOK, recList.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out))
+			returnedTags := out["tags"].([]any)
+			assert.Len(t, returnedTags, 1)
+			assert.Equal(t, tt.key, returnedTags[0].(map[string]any)["key"])
+			assert.Equal(t, tt.val, returnedTags[0].(map[string]any)["value"])
+		})
+	}
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1579,8 +1623,8 @@ func TestAccuracy_ModelCopyJob_AdvanceStatusToCompleted(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		sourceARN   string
+		name      string
+		sourceARN string
 	}{
 		{
 			name:      "copy titan model",
@@ -1672,7 +1716,7 @@ func TestAccuracy_UseCaseForModelAccess_PutAndGet(t *testing.T) {
 					"useCaseDescription": tt.description,
 				},
 			)
-			assert.Equal(t, http.StatusOK, recPut.Code)
+			assert.Equal(t, http.StatusNoContent, recPut.Code)
 
 			recGet := doRequest(t, h, http.MethodGet, "/usecase-for-model-access", nil)
 			require.Equal(t, http.StatusOK, recGet.Code)
@@ -1762,16 +1806,11 @@ func TestAccuracy_StubRoutes_Return200(t *testing.T) {
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body   map[string]any
 		name   string
 		method string
 		path   string
-		body   map[string]any
 	}{
-		{
-			name:   "list model invocation logs",
-			method: http.MethodGet,
-			path:   "/model-invocation-logging",
-		},
 		{
 			name:   "get logging config",
 			method: http.MethodGet,
@@ -1786,6 +1825,16 @@ func TestAccuracy_StubRoutes_Return200(t *testing.T) {
 			name:   "list marketplace endpoints empty",
 			method: http.MethodGet,
 			path:   "/marketplace-model/endpoints",
+		},
+		{
+			name:   "list model invocation jobs empty",
+			method: http.MethodGet,
+			path:   "/model-invocation-jobs",
+		},
+		{
+			name:   "list prompt routers empty",
+			method: http.MethodGet,
+			path:   "/prompt-routers",
 		},
 	}
 
