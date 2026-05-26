@@ -1,8 +1,10 @@
 package batch
 
 import (
+	"encoding/base64"
 	"fmt"
 	"maps"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,16 +54,139 @@ const (
 	maxCENameLength        = 128
 	maxJobQueueNameLength  = 128
 	defaultPaginationLimit = 100
+
+	maxTagCount    = 50
+	maxTagKeyLen   = 128
+	maxTagValueLen = 256
 )
 
-// isValidCEType returns true if the given type is a supported compute environment type.
+// jobDefNameRegex validates AWS Batch job definition names.
+var jobDefNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
+
+// isValidCEType returns true if the given type is a valid compute environment type (MANAGED or UNMANAGED).
 func isValidCEType(t string) bool {
+	return t == "MANAGED" || t == "UNMANAGED"
+}
+
+// isValidComputeResourcesType returns true if the given type is a valid ComputeResources type.
+func isValidComputeResourcesType(t string) bool {
 	switch t {
-	case "EC2", "SPOT", "FARGATE", "FARGATE_SPOT", "MANAGED", "UNMANAGED":
+	case "EC2", "SPOT", "FARGATE", "FARGATE_SPOT":
 		return true
 	}
 
 	return false
+}
+
+// isValidAllocationStrategy returns true if the given allocation strategy is valid.
+func isValidAllocationStrategy(s string) bool {
+	switch s {
+	case "", "BEST_FIT", "BEST_FIT_PROGRESSIVE", "SPOT_CAPACITY_OPTIMIZED", "SPOT_PRICE_CAPACITY_OPTIMIZED":
+		return true
+	}
+
+	return false
+}
+
+// validateTags checks tag count and key/value length constraints.
+func validateTags(tags map[string]string) error {
+	if len(tags) > maxTagCount {
+		return fmt.Errorf("%w: too many tags: max %d, got %d", ErrValidation, maxTagCount, len(tags))
+	}
+
+	for k, v := range tags {
+		if len(k) == 0 || len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be 1-%d characters", ErrValidation, maxTagKeyLen)
+		}
+
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be 0-%d characters", ErrValidation, maxTagValueLen)
+		}
+	}
+
+	return nil
+}
+
+// decodeNextToken decodes a pagination token (base64 or plain integer) into an offset.
+func decodeNextToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	if decoded, err := base64.StdEncoding.DecodeString(token); err == nil {
+		if n, err := strconv.Atoi(string(decoded)); err == nil && n >= 0 {
+			return n
+		}
+	}
+
+	if n, err := strconv.Atoi(token); err == nil && n > 0 {
+		return n
+	}
+
+	return 0
+}
+
+// encodeNextToken encodes an offset as a base64 pagination token.
+func encodeNextToken(offset int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// --- ComputeResources sub-types ---
+
+// LaunchTemplateOverride specifies a launch template override for specific instance types.
+type LaunchTemplateOverride struct {
+	LaunchTemplateName  string   `json:"launchTemplateName,omitempty"`
+	LaunchTemplateID    string   `json:"launchTemplateId,omitempty"`
+	Version             string   `json:"version,omitempty"`
+	TargetInstanceTypes []string `json:"targetInstanceTypes,omitempty"`
+}
+
+// LaunchTemplate specifies an EC2 launch template.
+type LaunchTemplate struct {
+	LaunchTemplateName string                   `json:"launchTemplateName,omitempty"`
+	LaunchTemplateID   string                   `json:"launchTemplateId,omitempty"`
+	Version            string                   `json:"version,omitempty"`
+	Overrides          []LaunchTemplateOverride `json:"overrides,omitempty"`
+}
+
+// Ec2Configuration specifies AMI matching configuration for EC2 compute environments.
+type Ec2Configuration struct {
+	ImageType              string `json:"imageType"`
+	ImageIDOverride        string `json:"imageIdOverride,omitempty"`
+	ImageKubernetesVersion string `json:"imageKubernetesVersion,omitempty"`
+}
+
+// ComputeResources holds compute resource configuration for a managed CE.
+type ComputeResources struct {
+	Type               string             `json:"type,omitempty"`
+	AllocationStrategy string             `json:"allocationStrategy,omitempty"`
+	InstanceRole       string             `json:"instanceRole,omitempty"`
+	Ec2KeyPair         string             `json:"ec2KeyPair,omitempty"`
+	ImageID            string             `json:"imageId,omitempty"`
+	PlacementGroup     string             `json:"placementGroup,omitempty"`
+	SpotIamFleetRole   string             `json:"spotIamFleetRole,omitempty"`
+	InstanceTypes      []string           `json:"instanceTypes,omitempty"`
+	Subnets            []string           `json:"subnets,omitempty"`
+	SecurityGroupIDs   []string           `json:"securityGroupIds,omitempty"`
+	Tags               map[string]string  `json:"tags,omitempty"`
+	LaunchTemplate     *LaunchTemplate    `json:"launchTemplate,omitempty"`
+	Ec2Configuration   []Ec2Configuration `json:"ec2Configuration,omitempty"`
+	MinvCpus           int32              `json:"minvCpus,omitempty"`
+	MaxvCpus           int32              `json:"maxvCpus,omitempty"`
+	DesiredvCpus       int32              `json:"desiredvCpus,omitempty"`
+	BidPercentage      int32              `json:"bidPercentage,omitempty"`
+}
+
+// EksConfiguration specifies EKS cluster configuration for a CE.
+type EksConfiguration struct {
+	EksClusterArn       string `json:"eksClusterArn"`
+	KubernetesNamespace string `json:"kubernetesNamespace"`
+}
+
+// UpdatePolicy controls behaviour during in-place CE updates.
+type UpdatePolicy struct {
+	TerminateJobsOnUpdate      bool  `json:"terminateJobsOnUpdate,omitempty"`
+	JobExecutionTimeoutMinutes int64 `json:"jobExecutionTimeoutMinutes,omitempty"`
 }
 
 // ComputeEnvironment represents a Batch compute environment.
@@ -72,14 +197,11 @@ type ComputeEnvironment struct {
 	Type                   string            `json:"type"`
 	State                  string            `json:"state"`
 	Status                 string            `json:"status"`
+	StatusReason           string            `json:"statusReason,omitempty"`
 	ComputeEnvironmentName string            `json:"computeEnvironmentName"`
-	InstanceRole           string            `json:"instanceRole,omitempty"`
-	InstanceTypes          []string          `json:"instanceTypes,omitempty"`
-	Subnets                []string          `json:"subnets,omitempty"`
-	SecurityGroupIDs       []string          `json:"securityGroupIds,omitempty"`
-	MinvCpus               int32             `json:"minvCpus,omitempty"`
-	MaxvCpus               int32             `json:"maxvCpus,omitempty"`
-	DesiredvCpus           int32             `json:"desiredvCpus,omitempty"`
+	ComputeResources       *ComputeResources `json:"computeResources,omitempty"`
+	EksConfiguration       *EksConfiguration `json:"eksConfiguration,omitempty"`
+	UpdatePolicy           *UpdatePolicy     `json:"updatePolicy,omitempty"`
 }
 
 // ComputeEnvironmentOrder pairs a compute environment with its ordering in a job queue.
@@ -88,56 +210,367 @@ type ComputeEnvironmentOrder struct {
 	Order              int32  `json:"order"`
 }
 
-// JobQueue represents a Batch job queue.
-type JobQueue struct {
-	Tags                    map[string]string         `json:"tags,omitempty"`
-	JobQueueName            string                    `json:"jobQueueName"`
-	JobQueueArn             string                    `json:"jobQueueArn"`
-	State                   string                    `json:"state"`
-	Status                  string                    `json:"status"`
-	SchedulingPolicyArn     string                    `json:"schedulingPolicyArn,omitempty"`
-	ComputeEnvironmentOrder []ComputeEnvironmentOrder `json:"computeEnvironmentOrder,omitempty"`
-	Priority                int32                     `json:"priority"`
+// JobStateTimeLimitAction cancels jobs stuck in a given state beyond a time limit.
+type JobStateTimeLimitAction struct {
+	Reason         string `json:"reason"`
+	State          string `json:"state"`
+	Action         string `json:"action"`
+	MaxTimeSeconds int32  `json:"maxTimeSeconds"`
 }
 
-// ContainerProperties stores basic container configuration for a job definition.
+// JobQueue represents a Batch job queue.
+type JobQueue struct {
+	Tags                     map[string]string         `json:"tags,omitempty"`
+	JobQueueName             string                    `json:"jobQueueName"`
+	JobQueueArn              string                    `json:"jobQueueArn"`
+	State                    string                    `json:"state"`
+	Status                   string                    `json:"status"`
+	StatusReason             string                    `json:"statusReason,omitempty"`
+	SchedulingPolicyArn      string                    `json:"schedulingPolicyArn,omitempty"`
+	ComputeEnvironmentOrder  []ComputeEnvironmentOrder `json:"computeEnvironmentOrder,omitempty"`
+	JobStateTimeLimitActions []JobStateTimeLimitAction `json:"jobStateTimeLimitActions,omitempty"`
+	Priority                 int32                     `json:"priority"`
+}
+
+// --- ContainerProperties sub-types ---
+
+// KeyValuePair is a name/value environment variable pair.
+type KeyValuePair struct {
+	Name  string `json:"name,omitempty"`
+	Value string `json:"value,omitempty"`
+}
+
+// ResourceRequirement specifies a compute resource requirement (VCPU, MEMORY, or GPU).
+type ResourceRequirement struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
+// HostVolume specifies a host-path volume binding.
+type HostVolume struct {
+	SourcePath string `json:"sourcePath,omitempty"`
+}
+
+// Volume specifies a volume available to containers.
+type Volume struct {
+	Name string      `json:"name"`
+	Host *HostVolume `json:"host,omitempty"`
+}
+
+// MountPoint maps a volume into a container.
+type MountPoint struct {
+	ContainerPath string `json:"containerPath,omitempty"`
+	SourceVolume  string `json:"sourceVolume,omitempty"`
+	ReadOnly      bool   `json:"readOnly,omitempty"`
+}
+
+// Ulimit specifies a ulimit for a container.
+type Ulimit struct {
+	Name      string `json:"name"`
+	SoftLimit int32  `json:"softLimit"`
+	HardLimit int32  `json:"hardLimit"`
+}
+
+// LogConfiguration specifies the log driver configuration for a container.
+type LogConfiguration struct {
+	LogDriver string            `json:"logDriver"`
+	Options   map[string]string `json:"options,omitempty"`
+}
+
+// NetworkConfiguration specifies network settings for Fargate containers.
+type NetworkConfiguration struct {
+	AssignPublicIp string `json:"assignPublicIp,omitempty"`
+}
+
+// FargatePlatformConfiguration specifies the Fargate platform version.
+type FargatePlatformConfiguration struct {
+	PlatformVersion string `json:"platformVersion,omitempty"`
+}
+
+// EphemeralStorage specifies ephemeral storage capacity for Fargate tasks.
+type EphemeralStorage struct {
+	SizeInGiB int32 `json:"sizeInGiB"`
+}
+
+// RuntimePlatform specifies the OS family and CPU architecture for a job.
+type RuntimePlatform struct {
+	OperatingSystemFamily string `json:"operatingSystemFamily,omitempty"`
+	CPUArchitecture       string `json:"cpuArchitecture,omitempty"`
+}
+
+// RepositoryCredentials specifies credentials for a private container registry.
+type RepositoryCredentials struct {
+	CredentialsParameter string `json:"credentialsParameter"`
+}
+
+// Secret specifies a secret to expose to a container via environment variable.
+type Secret struct {
+	Name      string `json:"name"`
+	ValueFrom string `json:"valueFrom"`
+}
+
+// Device specifies a device to expose to a container.
+type Device struct {
+	HostPath      string   `json:"hostPath"`
+	ContainerPath string   `json:"containerPath,omitempty"`
+	Permissions   []string `json:"permissions,omitempty"`
+}
+
+// Tmpfs specifies a tmpfs mount for a container.
+type Tmpfs struct {
+	ContainerPath string   `json:"containerPath"`
+	Size          int32    `json:"size"`
+	MountOptions  []string `json:"mountOptions,omitempty"`
+}
+
+// LinuxParameters configures Linux-specific container settings.
+type LinuxParameters struct {
+	Devices            []Device `json:"devices,omitempty"`
+	Tmpfs              []Tmpfs  `json:"tmpfs,omitempty"`
+	InitProcessEnabled bool     `json:"initProcessEnabled,omitempty"`
+	SharedMemorySize   int32    `json:"sharedMemorySize,omitempty"`
+	MaxSwap            int32    `json:"maxSwap,omitempty"`
+	Swappiness         int32    `json:"swappiness,omitempty"`
+}
+
+// ContainerProperties stores container configuration for a job definition.
 type ContainerProperties struct {
-	Image      string   `json:"image,omitempty"`
-	JobRoleArn string   `json:"jobRoleArn,omitempty"`
-	Command    []string `json:"command,omitempty"`
-	Vcpus      int32    `json:"vcpus,omitempty"`
-	Memory     int32    `json:"memory,omitempty"`
+	Image                        string                        `json:"image,omitempty"`
+	JobRoleArn                   string                        `json:"jobRoleArn,omitempty"`
+	ExecutionRoleArn             string                        `json:"executionRoleArn,omitempty"`
+	User                         string                        `json:"user,omitempty"`
+	InstanceType                 string                        `json:"instanceType,omitempty"`
+	Command                      []string                      `json:"command,omitempty"`
+	Environment                  []KeyValuePair                `json:"environment,omitempty"`
+	Volumes                      []Volume                      `json:"volumes,omitempty"`
+	MountPoints                  []MountPoint                  `json:"mountPoints,omitempty"`
+	Ulimits                      []Ulimit                      `json:"ulimits,omitempty"`
+	ResourceRequirements         []ResourceRequirement         `json:"resourceRequirements,omitempty"`
+	Secrets                      []Secret                      `json:"secrets,omitempty"`
+	LinuxParameters              *LinuxParameters              `json:"linuxParameters,omitempty"`
+	LogConfiguration             *LogConfiguration             `json:"logConfiguration,omitempty"`
+	NetworkConfiguration         *NetworkConfiguration         `json:"networkConfiguration,omitempty"`
+	FargatePlatformConfiguration *FargatePlatformConfiguration `json:"fargatePlatformConfiguration,omitempty"`
+	EphemeralStorage             *EphemeralStorage             `json:"ephemeralStorage,omitempty"`
+	RuntimePlatform              *RuntimePlatform              `json:"runtimePlatform,omitempty"`
+	RepositoryCredentials        *RepositoryCredentials        `json:"repositoryCredentials,omitempty"`
+	Vcpus                        int32                         `json:"vcpus,omitempty"`
+	Memory                       int32                         `json:"memory,omitempty"`
+	ReadonlyRootFilesystem       bool                          `json:"readonlyRootFilesystem,omitempty"`
+	Privileged                   bool                          `json:"privileged,omitempty"`
+}
+
+// --- JobDefinition sub-types ---
+
+// NodeRangeProperty specifies container properties for a range of multi-node job nodes.
+type NodeRangeProperty struct {
+	TargetNodes         string               `json:"targetNodes"`
+	ContainerProperties *ContainerProperties `json:"containerProperties,omitempty"`
+}
+
+// NodeProperties specifies multi-node parallel job configuration.
+type NodeProperties struct {
+	NodeRangeProperties []NodeRangeProperty `json:"nodeRangeProperties"`
+	NumNodes            int32               `json:"numNodes"`
+	MainNode            int32               `json:"mainNode"`
+}
+
+// EksContainerEnv is a name/value env var for EKS containers.
+type EksContainerEnv struct {
+	Name  string `json:"name"`
+	Value string `json:"value,omitempty"`
+}
+
+// EksContainerResources specifies resource limits and requests for EKS containers.
+type EksContainerResources struct {
+	Limits   map[string]string `json:"limits,omitempty"`
+	Requests map[string]string `json:"requests,omitempty"`
+}
+
+// EksVolumeMount mounts a volume into an EKS container.
+type EksVolumeMount struct {
+	Name      string `json:"name"`
+	MountPath string `json:"mountPath"`
+	ReadOnly  bool   `json:"readOnly,omitempty"`
+}
+
+// EksSecurityContext specifies security settings for an EKS container.
+type EksSecurityContext struct {
+	RunAsUser                *int64 `json:"runAsUser,omitempty"`
+	RunAsGroup               *int64 `json:"runAsGroup,omitempty"`
+	Privileged               bool   `json:"privileged,omitempty"`
+	ReadOnlyRootFilesystem   bool   `json:"readOnlyRootFilesystem,omitempty"`
+	RunAsNonRoot             bool   `json:"runAsNonRoot,omitempty"`
+	AllowPrivilegeEscalation bool   `json:"allowPrivilegeEscalation,omitempty"`
+}
+
+// EksContainer specifies an EKS pod container.
+type EksContainer struct {
+	Name            string                 `json:"name"`
+	Image           string                 `json:"image"`
+	Command         []string               `json:"command,omitempty"`
+	Args            []string               `json:"args,omitempty"`
+	Env             []EksContainerEnv      `json:"env,omitempty"`
+	VolumeMounts    []EksVolumeMount       `json:"volumeMounts,omitempty"`
+	Resources       *EksContainerResources `json:"resources,omitempty"`
+	SecurityContext *EksSecurityContext    `json:"securityContext,omitempty"`
+}
+
+// EksHostPath specifies a host path volume for EKS.
+type EksHostPath struct {
+	Path string `json:"path,omitempty"`
+}
+
+// EksEmptyDir specifies an emptyDir volume for EKS.
+type EksEmptyDir struct {
+	Medium    string `json:"medium,omitempty"`
+	SizeLimit string `json:"sizeLimit,omitempty"`
+}
+
+// EksSecret specifies a Kubernetes secret volume for EKS.
+type EksSecret struct {
+	SecretName string `json:"secretName"`
+	Optional   bool   `json:"optional,omitempty"`
+}
+
+// EksVolume specifies a volume available to EKS pod containers.
+type EksVolume struct {
+	Name     string       `json:"name"`
+	HostPath *EksHostPath `json:"hostPath,omitempty"`
+	EmptyDir *EksEmptyDir `json:"emptyDir,omitempty"`
+	Secret   *EksSecret   `json:"secret,omitempty"`
+}
+
+// EksMetadata holds labels and annotations for an EKS pod.
+type EksMetadata struct {
+	Labels      map[string]string `json:"labels,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// EksPodProperties specifies the Kubernetes pod spec for an EKS job.
+type EksPodProperties struct {
+	ServiceAccountName string         `json:"serviceAccountName,omitempty"`
+	DnsPolicy          string         `json:"dnsPolicy,omitempty"`
+	Containers         []EksContainer `json:"containers,omitempty"`
+	InitContainers     []EksContainer `json:"initContainers,omitempty"`
+	Volumes            []EksVolume    `json:"volumes,omitempty"`
+	Metadata           *EksMetadata   `json:"metadata,omitempty"`
+	HostNetwork        bool           `json:"hostNetwork,omitempty"`
+}
+
+// EksProperties specifies EKS-specific job definition properties.
+type EksProperties struct {
+	PodProperties *EksPodProperties `json:"podProperties,omitempty"`
+}
+
+// ConsumableResourceProperty specifies a consumable resource requirement for a job.
+type ConsumableResourceProperty struct {
+	ConsumableResource string  `json:"consumableResource"`
+	Quantity           float64 `json:"quantity"`
 }
 
 // JobDefinition represents a Batch job definition.
 type JobDefinition struct {
-	DeregisteredAt       *time.Time           `json:"deregisteredAt,omitempty"`
-	Tags                 map[string]string    `json:"tags,omitempty"`
-	Parameters           map[string]string    `json:"parameters,omitempty"`
-	ContainerProperties  *ContainerProperties `json:"containerProperties,omitempty"`
-	JobDefinitionName    string               `json:"jobDefinitionName"`
-	JobDefinitionArn     string               `json:"jobDefinitionArn"`
-	Type                 string               `json:"type"`
-	Status               string               `json:"status"`
-	PlatformCapabilities []string             `json:"platformCapabilities,omitempty"`
-	Revision             int32                `json:"revision"`
-	TimeoutSeconds       int32                `json:"timeoutSeconds,omitempty"`
+	DeregisteredAt               *time.Time                   `json:"deregisteredAt,omitempty"`
+	Tags                         map[string]string            `json:"tags,omitempty"`
+	Parameters                   map[string]string            `json:"parameters,omitempty"`
+	ContainerProperties          *ContainerProperties         `json:"containerProperties,omitempty"`
+	NodeProperties               *NodeProperties              `json:"nodeProperties,omitempty"`
+	EksProperties                *EksProperties               `json:"eksProperties,omitempty"`
+	RuntimePlatform              *RuntimePlatform             `json:"runtimePlatform,omitempty"`
+	ConsumableResourceProperties []ConsumableResourceProperty `json:"consumableResourceProperties,omitempty"`
+	JobDefinitionName            string                       `json:"jobDefinitionName"`
+	JobDefinitionArn             string                       `json:"jobDefinitionArn"`
+	Type                         string                       `json:"type"`
+	Status                       string                       `json:"status"`
+	PlatformCapabilities         []string                     `json:"platformCapabilities,omitempty"`
+	Revision                     int32                        `json:"revision"`
+	TimeoutSeconds               int32                        `json:"timeoutSeconds,omitempty"`
+	SchedulingPriority           int32                        `json:"schedulingPriority,omitempty"`
+	PropagateTags                bool                         `json:"propagateTags,omitempty"`
+}
+
+// --- RetryStrategy ---
+
+// EvaluateOnExit specifies a conditional retry rule evaluated against exit information.
+type EvaluateOnExit struct {
+	Action         string `json:"action"`
+	OnStatusReason string `json:"onStatusReason,omitempty"`
+	OnReason       string `json:"onReason,omitempty"`
+	OnExitCode     string `json:"onExitCode,omitempty"`
+}
+
+// RetryStrategy configures automatic retry behavior for a job.
+type RetryStrategy struct {
+	EvaluateOnExit []EvaluateOnExit `json:"evaluateOnExit,omitempty"`
+	Attempts       int32            `json:"attempts,omitempty"`
+}
+
+// JobTimeout configures the maximum duration for a job attempt.
+type JobTimeout struct {
+	AttemptDurationSeconds int32 `json:"attemptDurationSeconds,omitempty"`
+}
+
+// JobDependency represents a dependency between jobs.
+type JobDependency struct {
+	JobID string `json:"jobId,omitempty"`
+	Type  string `json:"type,omitempty"`
+}
+
+// ArrayProperties specifies array job fan-out configuration.
+type ArrayProperties struct {
+	StatusSummary map[string]int32 `json:"statusSummary,omitempty"`
+	Size          int32            `json:"size,omitempty"`
+	Index         int32            `json:"index,omitempty"`
+}
+
+// ContainerOverrides overrides container properties at job submission time.
+type ContainerOverrides struct {
+	Command              []string              `json:"command,omitempty"`
+	Environment          []KeyValuePair        `json:"environment,omitempty"`
+	ResourceRequirements []ResourceRequirement `json:"resourceRequirements,omitempty"`
+	InstanceType         string                `json:"instanceType,omitempty"`
+}
+
+// JobAttemptContainer holds per-attempt container execution details.
+type JobAttemptContainer struct {
+	LogStreamName string `json:"logStreamName,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	ExitCode      int32  `json:"exitCode,omitempty"`
+}
+
+// JobAttempt holds per-attempt lifecycle and result information.
+type JobAttempt struct {
+	Container    *JobAttemptContainer `json:"container,omitempty"`
+	StartedAt    *int64               `json:"startedAt,omitempty"`
+	StoppedAt    *int64               `json:"stoppedAt,omitempty"`
+	StatusReason string               `json:"statusReason,omitempty"`
 }
 
 // Job represents a submitted Batch job.
 type Job struct {
-	StoppedAt     *int64            `json:"stoppedAt,omitempty"`
-	Tags          map[string]string `json:"tags,omitempty"`
-	Parameters    map[string]string `json:"parameters,omitempty"`
-	StartedAt     *int64            `json:"startedAt,omitempty"`
-	JobID         string            `json:"jobId"`
-	JobARN        string            `json:"jobArn"`
-	JobName       string            `json:"jobName"`
-	JobQueue      string            `json:"jobQueue"`
-	JobDefinition string            `json:"jobDefinition"`
-	Status        string            `json:"status"`
-	StatusReason  string            `json:"statusReason,omitempty"`
-	CreatedAt     int64             `json:"createdAt"`
+	StoppedAt                    *int64                       `json:"stoppedAt,omitempty"`
+	Tags                         map[string]string            `json:"tags,omitempty"`
+	Parameters                   map[string]string            `json:"parameters,omitempty"`
+	StartedAt                    *int64                       `json:"startedAt,omitempty"`
+	DependsOn                    []JobDependency              `json:"dependsOn,omitempty"`
+	RetryStrategy                *RetryStrategy               `json:"retryStrategy,omitempty"`
+	Timeout                      *JobTimeout                  `json:"timeout,omitempty"`
+	ArrayProperties              *ArrayProperties             `json:"arrayProperties,omitempty"`
+	ContainerOverrides           *ContainerOverrides          `json:"containerOverrides,omitempty"`
+	Attempts                     []JobAttempt                 `json:"attempts,omitempty"`
+	ConsumableResourceProperties []ConsumableResourceProperty `json:"consumableResourceProperties,omitempty"`
+	JobID                        string                       `json:"jobId"`
+	JobARN                       string                       `json:"jobArn"`
+	JobName                      string                       `json:"jobName"`
+	JobQueue                     string                       `json:"jobQueue"`
+	JobDefinition                string                       `json:"jobDefinition"`
+	Status                       string                       `json:"status"`
+	StatusReason                 string                       `json:"statusReason,omitempty"`
+	ShareIdentifier              string                       `json:"shareIdentifier,omitempty"`
+	CreatedAt                    int64                        `json:"createdAt"`
+	SchedulingPriorityOverride   int32                        `json:"schedulingPriorityOverride,omitempty"`
+	PropagateTags                bool                         `json:"propagateTags,omitempty"`
 }
 
 // ConsumableResource represents a Batch consumable resource.
@@ -152,11 +585,25 @@ type ConsumableResource struct {
 	InUseQuantity          int64             `json:"inUseQuantity"`
 }
 
+// ShareDistribution specifies a fair-share weight for a share identifier.
+type ShareDistribution struct {
+	ShareIdentifier string  `json:"shareIdentifier"`
+	WeightFactor    float32 `json:"weightFactor,omitempty"`
+}
+
+// FairsharePolicy configures fair-share scheduling for a scheduling policy.
+type FairsharePolicy struct {
+	ShareDistribution  []ShareDistribution `json:"shareDistribution,omitempty"`
+	ShareDecaySeconds  int32               `json:"shareDecaySeconds,omitempty"`
+	ComputeReservation int32               `json:"computeReservation,omitempty"`
+}
+
 // SchedulingPolicy represents a Batch scheduling policy.
 type SchedulingPolicy struct {
-	Tags map[string]string `json:"tags,omitempty"`
-	Arn  string            `json:"arn"`
-	Name string            `json:"name"`
+	Tags            map[string]string `json:"tags,omitempty"`
+	FairsharePolicy *FairsharePolicy  `json:"fairsharePolicy,omitempty"`
+	Arn             string            `json:"arn"`
+	Name            string            `json:"name"`
 }
 
 // ServiceEnvironment represents a Batch service environment.
@@ -200,35 +647,20 @@ type FrontOfQueueJob struct {
 	EarliestTimeAtPosition float64 `json:"earliestTimeAtPosition"`
 }
 
-// JobDependency represents a dependency between jobs.
-type JobDependency struct {
-	JobID string `json:"jobId,omitempty"`
-	Type  string `json:"type,omitempty"`
-}
-
-// RetryStrategy configures automatic retry behavior.
-type RetryStrategy struct {
-	Attempts int32 `json:"attempts,omitempty"`
-}
-
-// JobTimeout configures the timeout for a job.
-type JobTimeout struct {
-	AttemptDurationSeconds int32 `json:"attemptDurationSeconds,omitempty"`
-}
-
 // InMemoryBackend stores AWS Batch state in memory.
 type InMemoryBackend struct {
 	computeEnvironments    map[string]*ComputeEnvironment
 	jobQueues              map[string]*JobQueue
 	jobDefinitions         map[string]*JobDefinition
 	jobs                   map[string]*Job     // job ID → Job
-	jobsByQueue            map[string][]string // queue ARN/name → []jobID
+	jobsByQueue            map[string][]string // queue name → []jobID
 	jobDefRevisions        map[string]int32
 	consumableResources    map[string]*ConsumableResource
 	schedulingPolicies     map[string]*SchedulingPolicy // ARN → SchedulingPolicy
 	serviceEnvironments    map[string]*ServiceEnvironment
 	serviceJobs            map[string]*ServiceJob // serviceJobID → ServiceJob
 	schedulingPolicyByName map[string]string      // name → ARN
+	jobsByARN              map[string]string      // job ARN → job ID
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -248,6 +680,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		serviceEnvironments:    make(map[string]*ServiceEnvironment),
 		serviceJobs:            make(map[string]*ServiceJob),
 		schedulingPolicyByName: make(map[string]string),
+		jobsByARN:              make(map[string]string),
 		accountID:              accountID,
 		region:                 region,
 		mu:                     lockmetrics.New("batch"),
@@ -270,6 +703,7 @@ func (b *InMemoryBackend) Reset() {
 	b.serviceEnvironments = make(map[string]*ServiceEnvironment)
 	b.serviceJobs = make(map[string]*ServiceJob)
 	b.schedulingPolicyByName = make(map[string]string)
+	b.jobsByARN = make(map[string]string)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -307,14 +741,30 @@ func (b *InMemoryBackend) lookupJQByNameOrARN(nameOrARN string) (*JobQueue, bool
 	return nil, false
 }
 
+// lookupJobByIDOrARN returns a job by ID or ARN using the jobsByARN index for O(1) ARN lookup.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) lookupJobByIDOrARN(idOrARN string) (*Job, bool) {
+	if j, ok := b.jobs[idOrARN]; ok {
+		return j, true
+	}
+
+	if jobID, ok := b.jobsByARN[idOrARN]; ok {
+		if j, ok := b.jobs[jobID]; ok {
+			return j, true
+		}
+	}
+
+	return nil, false
+}
+
 // CreateComputeEnvironment creates a new compute environment.
 func (b *InMemoryBackend) CreateComputeEnvironment(
 	name, ceType, state string,
 	tags map[string]string,
 	serviceRole string,
-	minvCpus, maxvCpus int32,
-	instanceTypes, subnets, securityGroupIDs []string,
-	instanceRole string,
+	computeResources *ComputeResources,
+	eksConfig *EksConfiguration,
+	updatePolicy *UpdatePolicy,
 ) (*ComputeEnvironment, error) {
 	b.mu.Lock("CreateComputeEnvironment")
 	defer b.mu.Unlock()
@@ -331,7 +781,42 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 	}
 
 	if !isValidCEType(ceType) {
-		return nil, fmt.Errorf("%w: invalid compute environment type %q", ErrValidation, ceType)
+		return nil, fmt.Errorf("%w: invalid compute environment type %q (must be MANAGED or UNMANAGED)", ErrValidation, ceType)
+	}
+
+	if computeResources != nil {
+		if computeResources.Type != "" && !isValidComputeResourcesType(computeResources.Type) {
+			return nil, fmt.Errorf(
+				"%w: invalid computeResources.type %q (must be EC2, SPOT, FARGATE, or FARGATE_SPOT)",
+				ErrValidation, computeResources.Type,
+			)
+		}
+
+		if !isValidAllocationStrategy(computeResources.AllocationStrategy) {
+			return nil, fmt.Errorf(
+				"%w: invalid allocationStrategy %q",
+				ErrValidation, computeResources.AllocationStrategy,
+			)
+		}
+
+		if (computeResources.Type == "SPOT" || computeResources.Type == "FARGATE_SPOT") &&
+			computeResources.AllocationStrategy == "" {
+			return nil, fmt.Errorf(
+				"%w: allocationStrategy is required for SPOT and FARGATE_SPOT compute resources",
+				ErrValidation,
+			)
+		}
+
+		if ceType == "UNMANAGED" && (computeResources.Type == "FARGATE" || computeResources.Type == "FARGATE_SPOT") {
+			return nil, fmt.Errorf(
+				"%w: FARGATE and FARGATE_SPOT are not valid for UNMANAGED compute environments",
+				ErrValidation,
+			)
+		}
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
 	}
 
 	if _, ok := b.computeEnvironments[name]; ok {
@@ -343,6 +828,24 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
 
+	if state == "" {
+		state = stateEnabled
+	}
+
+	crCopy := cloneComputeResources(computeResources)
+
+	var eksCopy *EksConfiguration
+	if eksConfig != nil {
+		cp := *eksConfig
+		eksCopy = &cp
+	}
+
+	var upCopy *UpdatePolicy
+	if updatePolicy != nil {
+		cp := *updatePolicy
+		upCopy = &cp
+	}
+
 	ce := &ComputeEnvironment{
 		ComputeEnvironmentName: name,
 		ComputeEnvironmentArn:  ceARN,
@@ -351,12 +854,9 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 		Status:                 statusValid,
 		Tags:                   tagsCopy,
 		ServiceRole:            serviceRole,
-		MinvCpus:               minvCpus,
-		MaxvCpus:               maxvCpus,
-		InstanceTypes:          instanceTypes,
-		Subnets:                subnets,
-		SecurityGroupIDs:       securityGroupIDs,
-		InstanceRole:           instanceRole,
+		ComputeResources:       crCopy,
+		EksConfiguration:       eksCopy,
+		UpdatePolicy:           upCopy,
 	}
 	b.computeEnvironments[name] = ce
 	cp := *ce
@@ -364,39 +864,83 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 	return &cp, nil
 }
 
+// cloneComputeResources performs a shallow copy of a ComputeResources struct.
+func cloneComputeResources(cr *ComputeResources) *ComputeResources {
+	if cr == nil {
+		return nil
+	}
+
+	clone := *cr
+	if cr.Tags != nil {
+		clone.Tags = maps.Clone(cr.Tags)
+	}
+
+	if cr.Ec2Configuration != nil {
+		ec2Config := make([]Ec2Configuration, len(cr.Ec2Configuration))
+		copy(ec2Config, cr.Ec2Configuration)
+		clone.Ec2Configuration = ec2Config
+	}
+
+	return &clone
+}
+
 // DescribeComputeEnvironments returns compute environments, optionally filtered by names/ARNs.
-func (b *InMemoryBackend) DescribeComputeEnvironments(names []string) []*ComputeEnvironment {
+// When names is empty, results are paginated via maxResults/nextToken.
+func (b *InMemoryBackend) DescribeComputeEnvironments(names []string, maxResults int32, nextToken string) ([]*ComputeEnvironment, string) {
 	b.mu.RLock("DescribeComputeEnvironments")
 	defer b.mu.RUnlock()
 
-	if len(names) == 0 {
-		list := make([]*ComputeEnvironment, 0, len(b.computeEnvironments))
-		for _, ce := range b.computeEnvironments {
-			cp := *ce
-			list = append(list, &cp)
+	if len(names) > 0 {
+		list := make([]*ComputeEnvironment, 0, len(names))
+
+		for _, nameOrARN := range names {
+			if ce, ok := b.lookupCEByNameOrARN(nameOrARN); ok {
+				cp := *ce
+				list = append(list, &cp)
+			}
 		}
 
-		sort.Slice(list, func(i, j int) bool {
-			return list[i].ComputeEnvironmentName < list[j].ComputeEnvironmentName
-		})
-
-		return list
+		return list, ""
 	}
 
-	list := make([]*ComputeEnvironment, 0, len(names))
-
-	for _, nameOrARN := range names {
-		if ce, ok := b.lookupCEByNameOrARN(nameOrARN); ok {
-			cp := *ce
-			list = append(list, &cp)
-		}
+	all := make([]*ComputeEnvironment, 0, len(b.computeEnvironments))
+	for _, ce := range b.computeEnvironments {
+		cp := *ce
+		all = append(all, &cp)
 	}
 
-	return list
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].ComputeEnvironmentName < all[j].ComputeEnvironmentName
+	})
+
+	limit := maxResults
+	if limit <= 0 {
+		limit = defaultPaginationLimit
+	}
+
+	offset := decodeNextToken(nextToken)
+
+	if offset >= len(all) {
+		return []*ComputeEnvironment{}, ""
+	}
+
+	end := min(offset+int(limit), len(all))
+	page := all[offset:end]
+
+	outToken := ""
+	if end < len(all) {
+		outToken = encodeNextToken(end)
+	}
+
+	return page, outToken
 }
 
-// UpdateComputeEnvironment updates the state and/or service role of a compute environment.
-func (b *InMemoryBackend) UpdateComputeEnvironment(nameOrARN, state, serviceRole string) (*ComputeEnvironment, error) {
+// UpdateComputeEnvironment updates the state, service role, compute resources, and/or update policy.
+func (b *InMemoryBackend) UpdateComputeEnvironment(
+	nameOrARN, state, serviceRole string,
+	computeResources *ComputeResources,
+	updatePolicy *UpdatePolicy,
+) (*ComputeEnvironment, error) {
 	b.mu.Lock("UpdateComputeEnvironment")
 	defer b.mu.Unlock()
 
@@ -415,6 +959,15 @@ func (b *InMemoryBackend) UpdateComputeEnvironment(nameOrARN, state, serviceRole
 
 	if serviceRole != "" {
 		ce.ServiceRole = serviceRole
+	}
+
+	if computeResources != nil {
+		ce.ComputeResources = cloneComputeResources(computeResources)
+	}
+
+	if updatePolicy != nil {
+		up := *updatePolicy
+		ce.UpdatePolicy = &up
 	}
 
 	cp := *ce
@@ -467,6 +1020,7 @@ func (b *InMemoryBackend) CreateJobQueue(
 	ceOrder []ComputeEnvironmentOrder,
 	tags map[string]string,
 	schedulingPolicyArn string,
+	jobStateTimeLimitActions []JobStateTimeLimitAction,
 ) (*JobQueue, error) {
 	b.mu.Lock("CreateJobQueue")
 	defer b.mu.Unlock()
@@ -482,6 +1036,10 @@ func (b *InMemoryBackend) CreateJobQueue(
 		return nil, fmt.Errorf("%w: job queue %s already exists", ErrAlreadyExists, name)
 	}
 
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
 	jqARN := arn.Build("batch", b.region, b.accountID, "job-queue/"+name)
 
 	tagsCopy := make(map[string]string, len(tags))
@@ -490,15 +1048,22 @@ func (b *InMemoryBackend) CreateJobQueue(
 	orderCopy := make([]ComputeEnvironmentOrder, len(ceOrder))
 	copy(orderCopy, ceOrder)
 
+	var actionsCopy []JobStateTimeLimitAction
+	if len(jobStateTimeLimitActions) > 0 {
+		actionsCopy = make([]JobStateTimeLimitAction, len(jobStateTimeLimitActions))
+		copy(actionsCopy, jobStateTimeLimitActions)
+	}
+
 	jq := &JobQueue{
-		JobQueueName:            name,
-		JobQueueArn:             jqARN,
-		State:                   state,
-		Status:                  statusValid,
-		Priority:                priority,
-		ComputeEnvironmentOrder: orderCopy,
-		Tags:                    tagsCopy,
-		SchedulingPolicyArn:     schedulingPolicyArn,
+		JobQueueName:             name,
+		JobQueueArn:              jqARN,
+		State:                    state,
+		Status:                   statusValid,
+		Priority:                 priority,
+		ComputeEnvironmentOrder:  orderCopy,
+		Tags:                     tagsCopy,
+		SchedulingPolicyArn:      schedulingPolicyArn,
+		JobStateTimeLimitActions: actionsCopy,
 	}
 	b.jobQueues[name] = jq
 	cp := *jq
@@ -541,35 +1106,30 @@ func (b *InMemoryBackend) DescribeJobQueues(names []string, maxResults int32, ne
 		limit = defaultPaginationLimit
 	}
 
-	offset := 0
-	if nextToken != "" {
-		if n, err := strconv.Atoi(nextToken); err == nil && n > 0 {
-			offset = n
-		}
-	}
+	offset := decodeNextToken(nextToken)
 
 	if offset >= len(all) {
 		return []*JobQueue{}, ""
 	}
 
 	end := min(offset+int(limit), len(all))
-
 	page := all[offset:end]
 
 	outToken := ""
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	}
 
 	return page, outToken
 }
 
-// UpdateJobQueue updates a job queue's state, priority, and/or compute environment order.
+// UpdateJobQueue updates a job queue's state, priority, CE order, and/or time-limit actions.
 func (b *InMemoryBackend) UpdateJobQueue(
 	nameOrARN string,
 	priority *int32,
 	state string,
 	ceOrder []ComputeEnvironmentOrder,
+	jobStateTimeLimitActions []JobStateTimeLimitAction,
 ) (*JobQueue, error) {
 	b.mu.Lock("UpdateJobQueue")
 	defer b.mu.Unlock()
@@ -597,6 +1157,12 @@ func (b *InMemoryBackend) UpdateJobQueue(
 		jq.ComputeEnvironmentOrder = orderCopy
 	}
 
+	if jobStateTimeLimitActions != nil {
+		actionsCopy := make([]JobStateTimeLimitAction, len(jobStateTimeLimitActions))
+		copy(actionsCopy, jobStateTimeLimitActions)
+		jq.JobStateTimeLimitActions = actionsCopy
+	}
+
 	cp := *jq
 
 	return &cp, nil
@@ -619,8 +1185,11 @@ func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
 
 	queueName := jq.JobQueueName
 
-	// Clean up all jobs associated with this queue to prevent orphaned entries.
 	for _, jobID := range b.jobsByQueue[queueName] {
+		if j, ok2 := b.jobs[jobID]; ok2 {
+			delete(b.jobsByARN, j.JobARN)
+		}
+
 		delete(b.jobs, jobID)
 	}
 
@@ -636,11 +1205,28 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 	tags map[string]string,
 	platformCapabilities []string,
 	timeoutSeconds int32,
+	schedulingPriority int32,
 	containerProps *ContainerProperties,
+	nodeProps *NodeProperties,
+	eksProps *EksProperties,
+	runtimePlatform *RuntimePlatform,
+	consumableResourceProperties []ConsumableResourceProperty,
 	parameters map[string]string,
+	propagateTags bool,
 ) (*JobDefinition, error) {
 	b.mu.Lock("RegisterJobDefinition")
 	defer b.mu.Unlock()
+
+	if !jobDefNameRegex.MatchString(name) {
+		return nil, fmt.Errorf(
+			"%w: jobDefinitionName must match [a-zA-Z0-9_-]{1,128}",
+			ErrValidation,
+		)
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
 
 	b.jobDefRevisions[name]++
 	revision := b.jobDefRevisions[name]
@@ -650,17 +1236,29 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
 
+	var crpCopy []ConsumableResourceProperty
+	if len(consumableResourceProperties) > 0 {
+		crpCopy = make([]ConsumableResourceProperty, len(consumableResourceProperties))
+		copy(crpCopy, consumableResourceProperties)
+	}
+
 	jd := &JobDefinition{
-		JobDefinitionName:    name,
-		JobDefinitionArn:     jdARN,
-		Type:                 defType,
-		Status:               jobDefStatusActive,
-		Revision:             revision,
-		Tags:                 tagsCopy,
-		PlatformCapabilities: platformCapabilities,
-		TimeoutSeconds:       timeoutSeconds,
-		ContainerProperties:  containerProps,
-		Parameters:           maps.Clone(parameters),
+		JobDefinitionName:            name,
+		JobDefinitionArn:             jdARN,
+		Type:                         defType,
+		Status:                       jobDefStatusActive,
+		Revision:                     revision,
+		Tags:                         tagsCopy,
+		PlatformCapabilities:         platformCapabilities,
+		TimeoutSeconds:               timeoutSeconds,
+		SchedulingPriority:           schedulingPriority,
+		ContainerProperties:          containerProps,
+		NodeProperties:               nodeProps,
+		EksProperties:                eksProps,
+		RuntimePlatform:              runtimePlatform,
+		ConsumableResourceProperties: crpCopy,
+		Parameters:                   maps.Clone(parameters),
+		PropagateTags:                propagateTags,
 	}
 	b.jobDefinitions[jdARN] = jd
 	cp := *jd
@@ -669,19 +1267,22 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 }
 
 // DescribeJobDefinitions returns job definitions, optionally filtered by names/ARNs.
-func (b *InMemoryBackend) DescribeJobDefinitions(names []string, status, jobDefinitionName string) []*JobDefinition {
+// When names is empty, results are paginated via maxResults/nextToken.
+func (b *InMemoryBackend) DescribeJobDefinitions(names []string, status, jobDefinitionName string, maxResults int32, nextToken string) ([]*JobDefinition, string) {
 	b.mu.RLock("DescribeJobDefinitions")
 	defer b.mu.RUnlock()
 
 	if len(names) == 0 {
-		return b.describeAllJobDefinitions(status, jobDefinitionName)
+		return b.describeAllJobDefinitions(status, jobDefinitionName, maxResults, nextToken)
 	}
 
-	return b.describeJobDefinitionsByNames(names, status)
+	list := b.describeJobDefinitionsByNames(names, status)
+
+	return list, ""
 }
 
-func (b *InMemoryBackend) describeAllJobDefinitions(status, jobDefinitionName string) []*JobDefinition {
-	list := make([]*JobDefinition, 0, len(b.jobDefinitions))
+func (b *InMemoryBackend) describeAllJobDefinitions(status, jobDefinitionName string, maxResults int32, nextToken string) ([]*JobDefinition, string) {
+	all := make([]*JobDefinition, 0, len(b.jobDefinitions))
 
 	for _, jd := range b.jobDefinitions {
 		if status != "" && jd.Status != status {
@@ -693,14 +1294,33 @@ func (b *InMemoryBackend) describeAllJobDefinitions(status, jobDefinitionName st
 		}
 
 		cp := *jd
-		list = append(list, &cp)
+		all = append(all, &cp)
 	}
 
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].Revision > list[j].Revision
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].Revision > all[j].Revision
 	})
 
-	return list
+	limit := maxResults
+	if limit <= 0 {
+		limit = defaultPaginationLimit
+	}
+
+	offset := decodeNextToken(nextToken)
+
+	if offset >= len(all) {
+		return []*JobDefinition{}, ""
+	}
+
+	end := min(offset+int(limit), len(all))
+	page := all[offset:end]
+
+	outToken := ""
+	if end < len(all) {
+		outToken = encodeNextToken(end)
+	}
+
+	return page, outToken
 }
 
 func (b *InMemoryBackend) describeJobDefinitionsByNames(names []string, status string) []*JobDefinition {
@@ -795,6 +1415,22 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	if existing == nil {
 		b.initTagsByARN(resourceARN)
 		existing, _ = b.findTagsByARN(resourceARN)
+	}
+
+	// Validate combined tag count (new keys only).
+	newKeys := 0
+	for k := range tags {
+		if _, alreadyPresent := existing[k]; !alreadyPresent {
+			newKeys++
+		}
+	}
+
+	if len(existing)+newKeys > maxTagCount {
+		return fmt.Errorf("%w: resource would exceed max tag count of %d", ErrValidation, maxTagCount)
+	}
+
+	if err := validateTags(tags); err != nil {
+		return err
 	}
 
 	maps.Copy(existing, tags)
@@ -966,9 +1602,15 @@ func (b *InMemoryBackend) SubmitJob(
 	name, queue, jobDefinition string,
 	tags map[string]string,
 	parameters map[string]string,
-	_ []JobDependency,
-	_ *RetryStrategy,
-	_ *JobTimeout,
+	dependsOn []JobDependency,
+	retryStrategy *RetryStrategy,
+	timeout *JobTimeout,
+	arrayProperties *ArrayProperties,
+	containerOverrides *ContainerOverrides,
+	consumableResourceProperties []ConsumableResourceProperty,
+	shareIdentifier string,
+	schedulingPriorityOverride int32,
+	propagateTags bool,
 ) (*Job, error) {
 	b.mu.Lock("SubmitJob")
 	defer b.mu.Unlock()
@@ -986,28 +1628,83 @@ func (b *InMemoryBackend) SubmitJob(
 		return nil, fmt.Errorf("%w: job queue %s is %s", ErrValidation, queue, stateDisabled)
 	}
 
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
 
 	paramsCopy := maps.Clone(parameters)
+
+	var dependsOnCopy []JobDependency
+	if len(dependsOn) > 0 {
+		dependsOnCopy = make([]JobDependency, len(dependsOn))
+		copy(dependsOnCopy, dependsOn)
+	}
+
+	var retryCopy *RetryStrategy
+	if retryStrategy != nil {
+		rs := *retryStrategy
+		if len(rs.EvaluateOnExit) > 0 {
+			exitRules := make([]EvaluateOnExit, len(rs.EvaluateOnExit))
+			copy(exitRules, rs.EvaluateOnExit)
+			rs.EvaluateOnExit = exitRules
+		}
+
+		retryCopy = &rs
+	}
+
+	var timeoutCopy *JobTimeout
+	if timeout != nil {
+		tc := *timeout
+		timeoutCopy = &tc
+	}
+
+	var arrayPropsCopy *ArrayProperties
+	if arrayProperties != nil {
+		ap := *arrayProperties
+		arrayPropsCopy = &ap
+	}
+
+	var overridesCopy *ContainerOverrides
+	if containerOverrides != nil {
+		co := *containerOverrides
+		overridesCopy = &co
+	}
+
+	var crpCopy []ConsumableResourceProperty
+	if len(consumableResourceProperties) > 0 {
+		crpCopy = make([]ConsumableResourceProperty, len(consumableResourceProperties))
+		copy(crpCopy, consumableResourceProperties)
+	}
 
 	now := time.Now().UnixMilli()
 	jobID := uuid.NewString()
 	jobARN := arn.Build("batch", b.region, b.accountID, "job/"+jobID)
 
 	j := &Job{
-		JobID:   jobID,
-		JobARN:  jobARN,
-		JobName: name,
-		// Always store the canonical queue name for consistency.
-		JobQueue:      jq.JobQueueName,
-		JobDefinition: jobDefinition,
-		Status:        jobStatusSubmitted,
-		CreatedAt:     now,
-		Tags:          tagsCopy,
-		Parameters:    paramsCopy,
+		JobID:                        jobID,
+		JobARN:                       jobARN,
+		JobName:                      name,
+		JobQueue:                     jq.JobQueueName,
+		JobDefinition:                jobDefinition,
+		Status:                       jobStatusSubmitted,
+		CreatedAt:                    now,
+		Tags:                         tagsCopy,
+		Parameters:                   paramsCopy,
+		DependsOn:                    dependsOnCopy,
+		RetryStrategy:                retryCopy,
+		Timeout:                      timeoutCopy,
+		ArrayProperties:              arrayPropsCopy,
+		ContainerOverrides:           overridesCopy,
+		ConsumableResourceProperties: crpCopy,
+		ShareIdentifier:              shareIdentifier,
+		SchedulingPriorityOverride:   schedulingPriorityOverride,
+		PropagateTags:                propagateTags,
 	}
 	b.jobs[jobID] = j
+	b.jobsByARN[jobARN] = jobID
 	b.jobsByQueue[jq.JobQueueName] = append(b.jobsByQueue[jq.JobQueueName], jobID)
 
 	cp := *j
@@ -1074,12 +1771,7 @@ func (b *InMemoryBackend) ListJobs(queue, status, nextToken string, maxResults i
 		limit = defaultPaginationLimit
 	}
 
-	offset := 0
-	if nextToken != "" {
-		if n, err := strconv.Atoi(nextToken); err == nil && n > 0 {
-			offset = n
-		}
-	}
+	offset := decodeNextToken(nextToken)
 
 	var (
 		all []*Job
@@ -1104,13 +1796,13 @@ func (b *InMemoryBackend) ListJobs(queue, status, nextToken string, maxResults i
 
 	outToken := ""
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	}
 
 	return page, outToken, nil
 }
 
-// DescribeJobs returns full job details for the given job IDs.
+// DescribeJobs returns full job details for the given job IDs or ARNs.
 func (b *InMemoryBackend) DescribeJobs(jobIDs []string) []*Job {
 	b.mu.RLock("DescribeJobs")
 	defer b.mu.RUnlock()
@@ -1118,18 +1810,7 @@ func (b *InMemoryBackend) DescribeJobs(jobIDs []string) []*Job {
 	out := make([]*Job, 0, len(jobIDs))
 
 	for _, id := range jobIDs {
-		j, ok := b.jobs[id]
-		if !ok {
-			// Try ARN lookup
-			for _, jj := range b.jobs {
-				if jj.JobARN == id {
-					j = jj
-					ok = true
-
-					break
-				}
-			}
-		}
+		j, ok := b.lookupJobByIDOrARN(id)
 		if !ok {
 			continue
 		}
@@ -1143,17 +1824,18 @@ func (b *InMemoryBackend) DescribeJobs(jobIDs []string) []*Job {
 }
 
 // TerminateJob marks a job as FAILED with the given reason.
-func (b *InMemoryBackend) TerminateJob(jobID, reason string) error {
+// Valid for any non-terminal state. Accepts job ID or ARN.
+func (b *InMemoryBackend) TerminateJob(idOrARN, reason string) error {
 	b.mu.Lock("TerminateJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.jobs[jobID]
+	j, ok := b.lookupJobByIDOrARN(idOrARN)
 	if !ok {
-		return fmt.Errorf("%w: job %s not found", ErrNotFound, jobID)
+		return fmt.Errorf("%w: job %s not found", ErrNotFound, idOrARN)
 	}
 
 	if j.Status == jobStatusSucceeded || j.Status == jobStatusFailed {
-		return fmt.Errorf("%w: job %s is already in terminal state %s", ErrValidation, jobID, j.Status)
+		return fmt.Errorf("%w: job %s is already in terminal state %s", ErrValidation, idOrARN, j.Status)
 	}
 
 	now := time.Now().UnixMilli()
@@ -1165,13 +1847,14 @@ func (b *InMemoryBackend) TerminateJob(jobID, reason string) error {
 }
 
 // CancelJob cancels a job in SUBMITTED, PENDING, or RUNNABLE state.
-func (b *InMemoryBackend) CancelJob(jobID, reason string) error {
+// Accepts job ID or ARN.
+func (b *InMemoryBackend) CancelJob(idOrARN, reason string) error {
 	b.mu.Lock("CancelJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.jobs[jobID]
+	j, ok := b.lookupJobByIDOrARN(idOrARN)
 	if !ok {
-		return fmt.Errorf("%w: job %s not found", ErrNotFound, jobID)
+		return fmt.Errorf("%w: job %s not found", ErrNotFound, idOrARN)
 	}
 
 	switch j.Status {
@@ -1183,7 +1866,7 @@ func (b *InMemoryBackend) CancelJob(jobID, reason string) error {
 
 		return nil
 	default:
-		return fmt.Errorf("%w: cannot cancel job %s in %s state", ErrValidation, jobID, j.Status)
+		return fmt.Errorf("%w: cannot cancel job %s in %s state", ErrValidation, idOrARN, j.Status)
 	}
 }
 
@@ -1206,6 +1889,10 @@ func (b *InMemoryBackend) CreateConsumableResource(
 
 	if resourceType != resourceTypeReplenishable && resourceType != resourceTypeNonReplenishable {
 		return nil, fmt.Errorf("%w: invalid resource type %s", ErrValidation, resourceType)
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
 	}
 
 	crARN := arn.Build("batch", b.region, b.accountID, "consumable-resource/"+name)
@@ -1274,12 +1961,16 @@ func (b *InMemoryBackend) lookupConsumableResourceByNameOrARN(nameOrARN string) 
 }
 
 // CreateSchedulingPolicy creates a new scheduling policy.
-func (b *InMemoryBackend) CreateSchedulingPolicy(name string, tags map[string]string) (*SchedulingPolicy, error) {
+func (b *InMemoryBackend) CreateSchedulingPolicy(name string, tags map[string]string, fairsharePolicy *FairsharePolicy) (*SchedulingPolicy, error) {
 	b.mu.Lock("CreateSchedulingPolicy")
 	defer b.mu.Unlock()
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
 	}
 
 	if _, ok := b.schedulingPolicyByName[name]; ok {
@@ -1289,15 +1980,32 @@ func (b *InMemoryBackend) CreateSchedulingPolicy(name string, tags map[string]st
 	policyARN := arn.Build("batch", b.region, b.accountID, "scheduling-policy/"+name)
 
 	sp := &SchedulingPolicy{
-		Arn:  policyARN,
-		Name: name,
-		Tags: maps.Clone(tags),
+		Arn:             policyARN,
+		Name:            name,
+		Tags:            maps.Clone(tags),
+		FairsharePolicy: cloneFairsharePolicy(fairsharePolicy),
 	}
 	b.schedulingPolicies[policyARN] = sp
 	b.schedulingPolicyByName[name] = policyARN
 	cp := *sp
 
 	return &cp, nil
+}
+
+// cloneFairsharePolicy deep-copies a FairsharePolicy.
+func cloneFairsharePolicy(fp *FairsharePolicy) *FairsharePolicy {
+	if fp == nil {
+		return nil
+	}
+
+	clone := *fp
+	if len(fp.ShareDistribution) > 0 {
+		sd := make([]ShareDistribution, len(fp.ShareDistribution))
+		copy(sd, fp.ShareDistribution)
+		clone.ShareDistribution = sd
+	}
+
+	return &clone
 }
 
 // DeleteSchedulingPolicy removes a scheduling policy by ARN.
@@ -1417,6 +2125,15 @@ func (b *InMemoryBackend) UpdateConsumableResource(
 			)
 		}
 
+		if quantity > cr.AvailableQuantity {
+			return nil, fmt.Errorf(
+				"%w: cannot remove %d from available quantity %d (in-use reservations block removal)",
+				ErrValidation,
+				quantity,
+				cr.AvailableQuantity,
+			)
+		}
+
 		cr.TotalQuantity -= quantity
 		cr.AvailableQuantity -= quantity
 	default:
@@ -1531,13 +2248,18 @@ func (b *InMemoryBackend) DescribeServiceEnvironments(names []string) []*Service
 	return list
 }
 
-// UpdateSchedulingPolicy performs a no-op update on the scheduling policy (verifies existence).
-func (b *InMemoryBackend) UpdateSchedulingPolicy(policyARN string) error {
+// UpdateSchedulingPolicy updates a scheduling policy's fairshare configuration.
+func (b *InMemoryBackend) UpdateSchedulingPolicy(policyARN string, fairsharePolicy *FairsharePolicy) error {
 	b.mu.Lock("UpdateSchedulingPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.schedulingPolicies[policyARN]; !ok {
+	sp, ok := b.schedulingPolicies[policyARN]
+	if !ok {
 		return fmt.Errorf("%w: scheduling policy %s not found", ErrNotFound, policyARN)
+	}
+
+	if fairsharePolicy != nil {
+		sp.FairsharePolicy = cloneFairsharePolicy(fairsharePolicy)
 	}
 
 	return nil
@@ -1691,20 +2413,35 @@ func (b *InMemoryBackend) GetJobQueueSnapshot(jobQueue string) (*JobQueueSnapsho
 	}, nil
 }
 
-// ListJobsByConsumableResource returns all jobs (AWS returns jobs using the given consumable resource).
-func (b *InMemoryBackend) ListJobsByConsumableResource(_ string) ([]*Job, error) {
+// ListJobsByConsumableResource returns jobs that reference the named consumable resource
+// via their ConsumableResourceProperties.
+func (b *InMemoryBackend) ListJobsByConsumableResource(consumableResource string) ([]*Job, error) {
 	b.mu.RLock("ListJobsByConsumableResource")
 	defer b.mu.RUnlock()
 
-	list := make([]*Job, 0, len(b.jobs))
+	list := make([]*Job, 0)
 
 	for _, j := range b.jobs {
-		cp := *j
-		cp.Tags = maps.Clone(j.Tags)
-		list = append(list, &cp)
+		if jobReferencesConsumableResource(j, consumableResource) {
+			cp := *j
+			cp.Tags = maps.Clone(j.Tags)
+			list = append(list, &cp)
+		}
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt < list[j].CreatedAt })
 
 	return list, nil
+}
+
+// jobReferencesConsumableResource reports whether a job's ConsumableResourceProperties
+// references the named consumable resource.
+func jobReferencesConsumableResource(j *Job, consumableResource string) bool {
+	for _, crp := range j.ConsumableResourceProperties {
+		if crp.ConsumableResource == consumableResource {
+			return true
+		}
+	}
+
+	return false
 }
