@@ -760,8 +760,8 @@ func TestBackend_MultiRegionParameterGroups(t *testing.T) {
 		wantCount  int
 	}{
 		{
-			name:      "empty list",
-			wantCount: 0,
+			name:      "list returns seeded defaults",
+			wantCount: 4,
 		},
 		{
 			name:       "not found by name",

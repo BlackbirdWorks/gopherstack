@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -656,7 +657,7 @@ func (h *Handler) handleCreateUser(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, createUserResponse{User: toUserObject(user)})
+	return c.JSON(http.StatusOK, createUserResponse{User: toUserObject(user, 0)})
 }
 
 func (h *Handler) handleDescribeUsers(c *echo.Context, body []byte) error {
@@ -673,10 +674,13 @@ func (h *Handler) handleDescribeUsers(c *echo.Context, body []byte) error {
 
 	users, nextToken := paginateItems(users, req.NextToken, req.MaxResults, func(u *User) string { return u.Name })
 
+	allACLs, _ := h.Backend.DescribeACLs("")
+
 	objs := make([]userObject, 0, len(users))
 
 	for _, u := range users {
-		objs = append(objs, toUserObject(u))
+		count := countUserGroupMemberships(allACLs, u.Name)
+		objs = append(objs, toUserObject(u, count))
 	}
 
 	return c.JSON(http.StatusOK, describeUserResponse{Users: objs, NextToken: nextToken})
@@ -698,7 +702,7 @@ func (h *Handler) handleDeleteUser(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, deleteUserResponse{User: toUserObject(user)})
+	return c.JSON(http.StatusOK, deleteUserResponse{User: toUserObject(user, 0)})
 }
 
 func (h *Handler) handleUpdateUser(c *echo.Context, body []byte) error {
@@ -717,7 +721,7 @@ func (h *Handler) handleUpdateUser(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, updateUserResponse{User: toUserObject(user)})
+	return c.JSON(http.StatusOK, updateUserResponse{User: toUserObject(user, 0)})
 }
 
 // -- ParameterGroup handlers -----------------------------------------------------
@@ -1192,9 +1196,12 @@ func (h *Handler) handleDescribeParameters(c *echo.Context, body []byte) error {
 
 	for k, v := range params {
 		objs = append(objs, parameterObject{
-			Name:     k,
-			Value:    v,
-			DataType: "string",
+			Name:                 k,
+			Value:                v,
+			DataType:             "string",
+			ChangeType:           "immediate",
+			Source:               "system",
+			MinimumEngineVersion: engineVersion62,
 		})
 	}
 
@@ -1210,7 +1217,7 @@ func (h *Handler) handleResetParameterGroup(c *echo.Context, body []byte) error 
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	pg, err := h.Backend.ResetParameterGroup(req.ParameterGroupName)
+	pg, err := h.Backend.ResetParameterGroup(req.ParameterGroupName, req.ParameterNames, req.AllParameters)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1494,6 +1501,17 @@ func writeError(c *echo.Context, status int, errType, message string) error {
 	return c.JSON(status, errorResponse{Type: errType, Message: message})
 }
 
+// enginePatchVersionFor looks up the EnginePatchVersion for a given engine+version pair.
+func enginePatchVersionFor(engine, engineVersion string) string {
+	for _, ev := range defaultEngineVersions() {
+		if ev.Engine == engine && ev.EngineVersion == engineVersion {
+			return ev.EnginePatchVersion
+		}
+	}
+
+	return engineVersion
+}
+
 // toClusterObject converts a Cluster to its JSON representation.
 // showShards controls whether per-shard node detail is populated.
 func toClusterObject(c *Cluster, showShards bool) clusterObject {
@@ -1519,7 +1537,7 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 		Status:                   c.Status,
 		NodeType:                 c.NodeType,
 		EngineVersion:            c.EngineVersion,
-		EnginePatchVersion:       c.EngineVersion,
+		EnginePatchVersion:       enginePatchVersionFor(c.Engine, c.EngineVersion),
 		Engine:                   c.Engine,
 		DataTiering:              c.DataTiering,
 		NetworkType:              c.NetworkType,
@@ -1530,6 +1548,7 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 		ParameterGroupName:       c.ParameterGroupName,
 		KmsKeyID:                 c.KmsKeyID,
 		SnsTopicArn:              c.SnsTopicArn,
+		SnsTopicStatus:           c.SnsTopicStatus,
 		MaintenanceWindow:        c.MaintenanceWindow,
 		SnapshotWindow:           c.SnapshotWindow,
 		NumberOfShards:           c.NumShards,
@@ -1626,11 +1645,13 @@ func clustersForACL(clusters []*Cluster, aclName string) []string {
 // clusterNames is the list of cluster names that reference this ACL.
 func toACLObject(a *ACL, clusterNames []string) aclObject {
 	return aclObject{
-		Name:      a.Name,
-		ARN:       a.ARN,
-		Status:    a.Status,
-		UserNames: a.UserNames,
-		Clusters:  clusterNames,
+		Name:                 a.Name,
+		ARN:                  a.ARN,
+		Status:               a.Status,
+		UserNames:            a.UserNames,
+		Clusters:             clusterNames,
+		MinimumEngineVersion: engineVersion62,
+		PendingChanges:       &aclPendingChangesObject{UserNamesToAdd: []string{}, UserNamesToRemove: []string{}},
 	}
 }
 
@@ -1652,7 +1673,7 @@ func toSubnetGroupObject(sg *SubnetGroup) subnetGroupObject {
 }
 
 // toUserObject converts a User to its JSON representation.
-func toUserObject(u *User) userObject {
+func toUserObject(u *User, userGroupCount int32) userObject {
 	auth := &authenticationObject{Type: u.AuthType}
 	if u.AuthType == "password" && len(u.Passwords) > 0 {
 		count := min(len(u.Passwords), math.MaxInt32)
@@ -1660,12 +1681,26 @@ func toUserObject(u *User) userObject {
 	}
 
 	return userObject{
-		Name:           u.Name,
-		ARN:            u.ARN,
-		AccessString:   u.AccessString,
-		Status:         u.Status,
-		Authentication: auth,
+		Name:                 u.Name,
+		ARN:                  u.ARN,
+		AccessString:         u.AccessString,
+		Status:               u.Status,
+		Authentication:       auth,
+		MinimumEngineVersion: engineVersion62,
+		UserGroupCount:       userGroupCount,
 	}
+}
+
+// countUserGroupMemberships returns the number of ACLs that contain userName.
+func countUserGroupMemberships(acls []*ACL, userName string) int32 {
+	var count int32
+	for _, a := range acls {
+		if slices.Contains(a.UserNames, userName) {
+			count++
+		}
+	}
+
+	return count
 }
 
 // toParameterGroupObject converts a ParameterGroup to its JSON representation.

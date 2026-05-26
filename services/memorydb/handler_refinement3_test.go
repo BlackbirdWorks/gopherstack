@@ -332,7 +332,7 @@ func TestRefinement3_ResetParameterGroup_Backend(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	pg, err := b.ResetParameterGroup("reset-pg")
+	pg, err := b.ResetParameterGroup("reset-pg", nil, true)
 	require.NoError(t, err)
 	assert.Equal(t, "reset-pg", pg.Name)
 }

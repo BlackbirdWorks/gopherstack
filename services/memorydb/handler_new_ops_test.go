@@ -486,10 +486,10 @@ func TestHandler_DescribeMultiRegionParameterGroups(t *testing.T) {
 		wantCount  int
 	}{
 		{
-			name:       "describe all returns empty",
+			name:       "describe all returns seeded defaults",
 			body:       map[string]any{},
 			wantStatus: http.StatusOK,
-			wantCount:  0,
+			wantCount:  4,
 		},
 		{
 			name:       "describe not found",
