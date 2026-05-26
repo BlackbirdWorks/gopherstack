@@ -55,8 +55,8 @@ func TestHandler_CreateAndDescribeChannel(t *testing.T) {
 	}{
 		{
 			name:       "success",
-			channel:    "test-channel",
-			wantStatus: http.StatusCreated,
+			channel:    "test_channel",
+			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "empty_name",
@@ -76,7 +76,7 @@ func TestHandler_CreateAndDescribeChannel(t *testing.T) {
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			if tt.wantStatus == http.StatusCreated {
+			if tt.wantStatus == http.StatusOK {
 				rec2 := doRequest(t, h, http.MethodGet, "/channels/"+tt.channel, nil)
 				assert.Equal(t, http.StatusOK, rec2.Code)
 			}
@@ -113,7 +113,7 @@ func TestHandler_ListChannels(t *testing.T) {
 				rec := doRequest(t, h, http.MethodPost, "/channels", map[string]string{
 					"channelName": name,
 				})
-				require.Equal(t, http.StatusCreated, rec.Code)
+				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
 			rec := doRequest(t, h, http.MethodGet, "/channels", nil)
@@ -141,7 +141,7 @@ func TestHandler_DeleteChannel(t *testing.T) {
 	}{
 		{
 			name:        "success",
-			channelName: "to-delete",
+			channelName: "to_delete",
 			seed:        true,
 			wantStatus:  http.StatusNoContent,
 		},
@@ -163,7 +163,7 @@ func TestHandler_DeleteChannel(t *testing.T) {
 				rec := doRequest(t, h, http.MethodPost, "/channels", map[string]string{
 					"channelName": tt.channelName,
 				})
-				require.Equal(t, http.StatusCreated, rec.Code)
+				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
 			rec := doRequest(t, h, http.MethodDelete, "/channels/"+tt.channelName, nil)
@@ -182,8 +182,8 @@ func TestHandler_CreateAndDescribeDatastore(t *testing.T) {
 	}{
 		{
 			name:          "success",
-			datastoreName: "test-datastore",
-			wantStatus:    http.StatusCreated,
+			datastoreName: "test_datastore",
+			wantStatus:    http.StatusOK,
 		},
 		{
 			name:          "empty_name",
@@ -203,7 +203,7 @@ func TestHandler_CreateAndDescribeDatastore(t *testing.T) {
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			if tt.wantStatus == http.StatusCreated {
+			if tt.wantStatus == http.StatusOK {
 				rec2 := doRequest(t, h, http.MethodGet, "/datastores/"+tt.datastoreName, nil)
 				assert.Equal(t, http.StatusOK, rec2.Code)
 			}
@@ -221,8 +221,8 @@ func TestHandler_CreateAndDescribeDataset(t *testing.T) {
 	}{
 		{
 			name:        "success",
-			datasetName: "test-dataset",
-			wantStatus:  http.StatusCreated,
+			datasetName: "test_dataset",
+			wantStatus:  http.StatusOK,
 		},
 		{
 			name:        "empty_name",
@@ -255,8 +255,8 @@ func TestHandler_CreateAndDescribePipeline(t *testing.T) {
 	}{
 		{
 			name:         "success",
-			pipelineName: "test-pipeline",
-			wantStatus:   http.StatusCreated,
+			pipelineName: "test_pipeline",
+			wantStatus:   http.StatusOK,
 		},
 		{
 			name:         "empty_name",
@@ -276,7 +276,7 @@ func TestHandler_CreateAndDescribePipeline(t *testing.T) {
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			if tt.wantStatus == http.StatusCreated {
+			if tt.wantStatus == http.StatusOK {
 				rec2 := doRequest(t, h, http.MethodGet, "/pipelines/"+tt.pipelineName, nil)
 				assert.Equal(t, http.StatusOK, rec2.Code)
 			}
@@ -398,9 +398,9 @@ func TestHandler_BatchPutMessage(t *testing.T) {
 	}{
 		{
 			name:        "success_existing_channel",
-			channelSeed: "my-channel",
+			channelSeed: "my_channel",
 			messages: map[string]any{
-				"channelName": "my-channel",
+				"channelName": "my_channel",
 				"messages": []map[string]any{
 					{"messageId": "msg1", "payload": []byte("hello")},
 				},
@@ -435,7 +435,7 @@ func TestHandler_BatchPutMessage(t *testing.T) {
 
 			if tt.channelSeed != "" {
 				rec := doRequest(t, h, http.MethodPost, "/channels", map[string]string{"channelName": tt.channelSeed})
-				require.Equal(t, http.StatusCreated, rec.Code)
+				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
 			rec := doRequest(t, h, http.MethodPost, "/messages/batch", tt.messages)
@@ -462,7 +462,7 @@ func TestHandler_SampleChannelData(t *testing.T) {
 	}{
 		{
 			name:        "empty_channel",
-			channelName: "empty-channel",
+			channelName: "empty_channel",
 			seed:        true,
 			wantStatus:  http.StatusOK,
 		},
@@ -482,7 +482,7 @@ func TestHandler_SampleChannelData(t *testing.T) {
 
 			if tt.seed {
 				rec := doRequest(t, h, http.MethodPost, "/channels", map[string]string{"channelName": tt.channelName})
-				require.Equal(t, http.StatusCreated, rec.Code)
+				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
 			rec := doRequest(t, h, http.MethodGet, "/channels/"+tt.channelName+"/sample", nil)
@@ -503,7 +503,7 @@ func TestHandler_StartAndCancelPipelineReprocessing(t *testing.T) {
 	}{
 		{
 			name:         "success",
-			pipelineName: "my-pipeline",
+			pipelineName: "my_pipeline",
 			seed:         true,
 			wantStart:    http.StatusCreated,
 			wantCancel:   http.StatusNoContent,
@@ -530,7 +530,7 @@ func TestHandler_StartAndCancelPipelineReprocessing(t *testing.T) {
 					"/pipelines",
 					map[string]string{"pipelineName": tt.pipelineName},
 				)
-				require.Equal(t, http.StatusCreated, rec.Code)
+				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
 			startRec := doRequest(t, h, http.MethodPost, "/pipelines/"+tt.pipelineName+"/reprocessing", nil)
@@ -570,7 +570,7 @@ func TestHandler_DatasetContentLifecycle(t *testing.T) {
 	}{
 		{
 			name:        "full_lifecycle",
-			datasetName: "my-dataset",
+			datasetName: "my_dataset",
 			seed:        true,
 			wantCreate:  http.StatusOK,
 			wantGet:     http.StatusOK,
@@ -596,7 +596,7 @@ func TestHandler_DatasetContentLifecycle(t *testing.T) {
 
 			if tt.seed {
 				rec := doRequest(t, h, http.MethodPost, "/datasets", map[string]string{"datasetName": tt.datasetName})
-				require.Equal(t, http.StatusCreated, rec.Code)
+				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
 			createRec := doRequest(t, h, http.MethodPost, "/datasets/"+tt.datasetName+"/content", nil)
