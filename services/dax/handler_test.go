@@ -44,166 +44,450 @@ func daxRequest(t *testing.T, h *dax.Handler, target string, body any) *httptest
 	return rec
 }
 
+func validClusterBody(name string) map[string]any {
+	return map[string]any{
+		"ClusterName":       name,
+		"NodeType":          "dax.r5.large",
+		"IamRoleArn":        "arn:aws:iam::123456789012:role/DAXRole",
+		"ReplicationFactor": 1,
+	}
+}
+
 // ---- CreateCluster ----
 
 func TestHandlerCreateCluster(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
-	rec := daxRequest(t, h, "CreateCluster", map[string]any{
-		"ClusterName":       "test-cluster",
-		"NodeType":          "dax.r5.large",
-		"IamRoleArn":        "arn:aws:iam::123456789012:role/DAXRole",
-		"ReplicationFactor": 1,
-	})
 
-	assert.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		name       string
+		body       map[string]any
+		wantStatus int
+		check      func(t *testing.T, resp map[string]any)
+	}{
+		{
+			name:       "success",
+			body:       validClusterBody("test-cluster"),
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				cluster := resp["Cluster"].(map[string]any)
+				assert.Equal(t, "test-cluster", cluster["ClusterName"])
+				assert.Equal(t, "available", cluster["ClusterStatus"])
+				assert.Equal(t, dax.EncryptionTypeNone, cluster["ClusterEndpointEncryptionType"])
+			},
+		},
+		{
+			name: "with TLS encryption",
+			body: func() map[string]any {
+				b := validClusterBody("tls-cluster")
+				b["ClusterEndpointEncryptionType"] = "TLS"
+				return b
+			}(),
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				cluster := resp["Cluster"].(map[string]any)
+				assert.Equal(t, "TLS", cluster["ClusterEndpointEncryptionType"])
+			},
+		},
+		{
+			name: "invalid node type",
+			body: map[string]any{
+				"ClusterName":       "bad",
+				"NodeType":          "invalid.type",
+				"IamRoleArn":        "arn:aws:iam::123456789012:role/r",
+				"ReplicationFactor": 1,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "replication factor too high",
+			body: map[string]any{
+				"ClusterName":       "big",
+				"NodeType":          "dax.r5.large",
+				"IamRoleArn":        "arn:aws:iam::123456789012:role/r",
+				"ReplicationFactor": 11,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			rec := daxRequest(t, h, "CreateCluster", tt.body)
 
-	clusterAny := resp["Cluster"]
-	require.NotNil(t, clusterAny)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 
-	cluster := clusterAny.(map[string]any)
-	assert.Equal(t, "test-cluster", cluster["ClusterName"])
-	assert.Equal(t, "available", cluster["ClusterStatus"])
+			if tt.check != nil && rec.Code == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				tt.check(t, resp)
+			}
+		})
+	}
 }
 
 func TestHandlerCreateCluster_Duplicate(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 
-	body := map[string]any{
-		"ClusterName":       "dup-cluster",
-		"NodeType":          "dax.r5.large",
-		"IamRoleArn":        "arn:aws:iam::123456789012:role/DAXRole",
-		"ReplicationFactor": 1,
-	}
-
+	body := validClusterBody("dup-cluster")
 	rec := daxRequest(t, h, "CreateCluster", body)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := daxRequest(t, h, "CreateCluster", body)
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errResp))
+	assert.Equal(t, "ClusterAlreadyExistsFault", errResp["__type"])
 }
 
 // ---- DescribeClusters ----
 
-func TestHandlerDescribeClusters_Empty(t *testing.T) {
+func TestHandlerDescribeClusters(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
-	rec := daxRequest(t, h, "DescribeClusters", map[string]any{})
 
-	assert.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, h *dax.Handler)
+		body      map[string]any
+		wantCount int
+	}{
+		{
+			name:      "empty",
+			setup:     func(_ *testing.T, _ *dax.Handler) {},
+			body:      map[string]any{},
+			wantCount: 0,
+		},
+		{
+			name: "after create",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateCluster", validClusterBody("c1"))
+			},
+			body:      map[string]any{},
+			wantCount: 1,
+		},
+	}
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			tt.setup(t, h)
 
-	clusters := resp["Clusters"].([]any)
-	assert.Empty(t, clusters)
-}
+			rec := daxRequest(t, h, "DescribeClusters", tt.body)
+			assert.Equal(t, http.StatusOK, rec.Code)
 
-func TestHandlerDescribeClusters_AfterCreate(t *testing.T) {
-	t.Parallel()
-	h := newTestHandler()
-
-	daxRequest(t, h, "CreateCluster", map[string]any{
-		"ClusterName":       "c1",
-		"NodeType":          "dax.r5.large",
-		"IamRoleArn":        "arn:aws:iam::123456789012:role/DAXRole",
-		"ReplicationFactor": 1,
-	})
-
-	rec := daxRequest(t, h, "DescribeClusters", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	clusters := resp["Clusters"].([]any)
-	assert.Len(t, clusters, 1)
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			clusters := resp["Clusters"].([]any)
+			assert.Len(t, clusters, tt.wantCount)
+		})
+	}
 }
 
 // ---- UpdateCluster ----
 
 func TestHandlerUpdateCluster(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
-	daxRequest(t, h, "CreateCluster", map[string]any{
-		"ClusterName":       "upd-cluster",
-		"NodeType":          "dax.r5.large",
-		"IamRoleArn":        "arn:aws:iam::123456789012:role/DAXRole",
-		"ReplicationFactor": 1,
-	})
 
-	rec := daxRequest(t, h, "UpdateCluster", map[string]any{
-		"ClusterName": "upd-cluster",
-		"Description": "Updated",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *dax.Handler)
+		body       map[string]any
+		wantStatus int
+		check      func(t *testing.T, resp map[string]any)
+	}{
+		{
+			name: "update description",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateCluster", validClusterBody("upd-cluster"))
+			},
+			body: map[string]any{
+				"ClusterName": "upd-cluster",
+				"Description": "Updated",
+			},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				cluster := resp["Cluster"].(map[string]any)
+				assert.Equal(t, "Updated", cluster["Description"])
+			},
+		},
+		{
+			name: "update notification topic",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateCluster", validClusterBody("notif-cluster"))
+			},
+			body: map[string]any{
+				"ClusterName":          "notif-cluster",
+				"NotificationTopicArn": "arn:aws:sns:us-east-1:123456789012:topic",
+			},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				cluster := resp["Cluster"].(map[string]any)
+				nc := cluster["NotificationConfiguration"].(map[string]any)
+				assert.Equal(t, "arn:aws:sns:us-east-1:123456789012:topic", nc["TopicArn"])
+			},
+		},
+		{
+			name:       "not found",
+			setup:      func(_ *testing.T, _ *dax.Handler) {},
+			body:       map[string]any{"ClusterName": "no-such"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	cluster := resp["Cluster"].(map[string]any)
-	assert.Equal(t, "Updated", cluster["Description"])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			tt.setup(t, h)
+
+			rec := daxRequest(t, h, "UpdateCluster", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.check != nil && rec.Code == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				tt.check(t, resp)
+			}
+		})
+	}
 }
 
 // ---- DeleteCluster ----
 
 func TestHandlerDeleteCluster(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
-	daxRequest(t, h, "CreateCluster", map[string]any{
-		"ClusterName":       "del-cluster",
-		"NodeType":          "dax.r5.large",
-		"IamRoleArn":        "arn:aws:iam::123456789012:role/DAXRole",
-		"ReplicationFactor": 1,
-	})
 
-	rec := daxRequest(t, h, "DeleteCluster", map[string]any{
-		"ClusterName": "del-cluster",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *dax.Handler)
+		body       map[string]any
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateCluster", validClusterBody("del-cluster"))
+			},
+			body:       map[string]any{"ClusterName": "del-cluster"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not found",
+			setup:      func(_ *testing.T, _ *dax.Handler) {},
+			body:       map[string]any{"ClusterName": "no-such"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			tt.setup(t, h)
+
+			rec := daxRequest(t, h, "DeleteCluster", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
 
-func TestHandlerDeleteCluster_NotFound(t *testing.T) {
+// ---- IncreaseReplicationFactor / DecreaseReplicationFactor ----
+
+func TestHandlerReplicationFactor(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
-	rec := daxRequest(t, h, "DeleteCluster", map[string]any{
-		"ClusterName": "no-such",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	tests := []struct {
+		name       string
+		operation  string
+		setup      func(t *testing.T, h *dax.Handler)
+		body       map[string]any
+		wantStatus int
+		check      func(t *testing.T, resp map[string]any)
+	}{
+		{
+			name:      "increase 1 to 3",
+			operation: "IncreaseReplicationFactor",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateCluster", validClusterBody("grow"))
+			},
+			body:       map[string]any{"ClusterName": "grow", "NewReplicationFactor": 3},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				cluster := resp["Cluster"].(map[string]any)
+				assert.Equal(t, float64(3), cluster["TotalNodes"])
+			},
+		},
+		{
+			name:      "decrease 3 to 1",
+			operation: "DecreaseReplicationFactor",
+			setup: func(t *testing.T, h *dax.Handler) {
+				body := validClusterBody("shrink")
+				body["ReplicationFactor"] = 3
+				daxRequest(t, h, "CreateCluster", body)
+			},
+			body:       map[string]any{"ClusterName": "shrink", "NewReplicationFactor": 1},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				cluster := resp["Cluster"].(map[string]any)
+				assert.Equal(t, float64(1), cluster["TotalNodes"])
+			},
+		},
+		{
+			name:       "increase cluster not found",
+			operation:  "IncreaseReplicationFactor",
+			setup:      func(_ *testing.T, _ *dax.Handler) {},
+			body:       map[string]any{"ClusterName": "no-such", "NewReplicationFactor": 2},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			tt.setup(t, h)
+
+			rec := daxRequest(t, h, tt.operation, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.check != nil && rec.Code == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				tt.check(t, resp)
+			}
+		})
+	}
+}
+
+// ---- RebootNode ----
+
+func TestHandlerRebootNode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *dax.Handler)
+		body       map[string]any
+		wantStatus int
+		check      func(t *testing.T, resp map[string]any)
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateCluster", validClusterBody("reboot-cluster"))
+			},
+			body:       map[string]any{"ClusterName": "reboot-cluster", "NodeId": "reboot-cluster-0000"},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				cluster := resp["Cluster"].(map[string]any)
+				nodes := cluster["Nodes"].([]any)
+				require.Len(t, nodes, 1)
+				node := nodes[0].(map[string]any)
+				assert.Equal(t, dax.StatusRebooting, node["NodeStatus"])
+			},
+		},
+		{
+			name:       "cluster not found",
+			setup:      func(_ *testing.T, _ *dax.Handler) {},
+			body:       map[string]any{"ClusterName": "no-such", "NodeId": "n0"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			tt.setup(t, h)
+
+			rec := daxRequest(t, h, "RebootNode", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.check != nil && rec.Code == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				tt.check(t, resp)
+			}
+		})
+	}
 }
 
 // ---- Tags ----
 
-func TestHandlerTagResource_ListTags(t *testing.T) {
+func TestHandlerTagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *dax.Handler) string
+		tags       []map[string]string
+		wantStatus int
+	}{
+		{
+			name: "tag cluster",
+			setup: func(t *testing.T, h *dax.Handler) string {
+				rec := daxRequest(t, h, "CreateCluster", validClusterBody("tagged-cluster"))
+				var resp map[string]any
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				return resp["Cluster"].(map[string]any)["ClusterArn"].(string)
+			},
+			tags:       []map[string]string{{"Key": "env", "Value": "prod"}},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "resource not found",
+			setup: func(_ *testing.T, _ *dax.Handler) string {
+				return "arn:aws:dax:us-east-1:123456789012:cache/no-such"
+			},
+			tags:       []map[string]string{{"Key": "k", "Value": "v"}},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			arn := tt.setup(t, h)
+
+			rec := daxRequest(t, h, "TagResource", map[string]any{
+				"ResourceName": arn,
+				"Tags":         tt.tags,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandlerListTags(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 
-	// First, create a cluster to get the ARN.
-	createRec := daxRequest(t, h, "CreateCluster", map[string]any{
-		"ClusterName":       "tagged-cluster",
-		"NodeType":          "dax.r5.large",
-		"IamRoleArn":        "arn:aws:iam::123456789012:role/DAXRole",
-		"ReplicationFactor": 1,
-	})
+	createRec := daxRequest(t, h, "CreateCluster", validClusterBody("tagged-cluster"))
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 	clusterArn := createResp["Cluster"].(map[string]any)["ClusterArn"].(string)
 
-	// Tag it.
 	tagRec := daxRequest(t, h, "TagResource", map[string]any{
 		"ResourceName": clusterArn,
 		"Tags":         []map[string]string{{"Key": "env", "Value": "prod"}},
 	})
 	assert.Equal(t, http.StatusOK, tagRec.Code)
 
-	// List tags.
-	listRec := daxRequest(t, h, "ListTags", map[string]any{
-		"ResourceName": clusterArn,
-	})
+	listRec := daxRequest(t, h, "ListTags", map[string]any{"ResourceName": clusterArn})
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
@@ -214,110 +498,381 @@ func TestHandlerTagResource_ListTags(t *testing.T) {
 
 // ---- Parameter Groups ----
 
-func TestHandlerCreateParameterGroup(t *testing.T) {
+func TestHandlerParameterGroups(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
-	rec := daxRequest(t, h, "CreateParameterGroup", map[string]any{
-		"ParameterGroupName": "my-pg",
-		"Description":        "My parameter group",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	pg := resp["ParameterGroup"].(map[string]any)
-	assert.Equal(t, "my-pg", pg["ParameterGroupName"])
-}
+	tests := []struct {
+		name       string
+		operation  string
+		setup      func(t *testing.T, h *dax.Handler)
+		body       map[string]any
+		wantStatus int
+		check      func(t *testing.T, resp map[string]any)
+	}{
+		{
+			name:       "create",
+			operation:  "CreateParameterGroup",
+			setup:      func(_ *testing.T, _ *dax.Handler) {},
+			body:       map[string]any{"ParameterGroupName": "my-pg", "Description": "My parameter group"},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				pg := resp["ParameterGroup"].(map[string]any)
+				assert.Equal(t, "my-pg", pg["ParameterGroupName"])
+			},
+		},
+		{
+			name:       "describe all",
+			operation:  "DescribeParameterGroups",
+			setup:      func(_ *testing.T, _ *dax.Handler) {},
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				groups := resp["ParameterGroups"].([]any)
+				assert.NotEmpty(t, groups)
+			},
+		},
+		{
+			name:      "update",
+			operation: "UpdateParameterGroup",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "upd-pg"})
+			},
+			body: map[string]any{
+				"ParameterGroupName": "upd-pg",
+				"ParameterNameValues": []map[string]string{
+					{"ParameterName": "query-ttl-millis", "ParameterValue": "60000"},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:      "delete",
+			operation: "DeleteParameterGroup",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "pg-del"})
+			},
+			body:       map[string]any{"ParameterGroupName": "pg-del"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "describe parameters",
+			operation:  "DescribeParameters",
+			setup:      func(_ *testing.T, _ *dax.Handler) {},
+			body:       map[string]any{"ParameterGroupName": dax.DefaultParameterGroupName},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				params := resp["Parameters"].([]any)
+				assert.NotEmpty(t, params)
+			},
+		},
+		{
+			name:       "describe default parameters",
+			operation:  "DescribeDefaultParameters",
+			setup:      func(_ *testing.T, _ *dax.Handler) {},
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				params := resp["Parameters"].([]any)
+				assert.Len(t, params, 2)
+			},
+		},
+		{
+			name:      "reset parameter group",
+			operation: "ResetParameterGroup",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "reset-pg"})
+			},
+			body:       map[string]any{"ParameterGroupName": "reset-pg"},
+			wantStatus: http.StatusOK,
+		},
+	}
 
-func TestHandlerDescribeParameterGroups(t *testing.T) {
-	t.Parallel()
-	h := newTestHandler()
-	rec := daxRequest(t, h, "DescribeParameterGroups", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			tt.setup(t, h)
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	groups := resp["ParameterGroups"].([]any)
-	assert.NotEmpty(t, groups)
-}
+			rec := daxRequest(t, h, tt.operation, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 
-func TestHandlerDeleteParameterGroup(t *testing.T) {
-	t.Parallel()
-	h := newTestHandler()
-	daxRequest(t, h, "CreateParameterGroup", map[string]any{
-		"ParameterGroupName": "pg-del",
-	})
-
-	rec := daxRequest(t, h, "DeleteParameterGroup", map[string]any{
-		"ParameterGroupName": "pg-del",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+			if tt.check != nil && rec.Code == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				tt.check(t, resp)
+			}
+		})
+	}
 }
 
 // ---- Subnet Groups ----
 
-func TestHandlerCreateSubnetGroup(t *testing.T) {
+func TestHandlerSubnetGroups(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
-	rec := daxRequest(t, h, "CreateSubnetGroup", map[string]any{
-		"SubnetGroupName": "my-sg",
-		"Description":     "My subnet group",
-		"SubnetIds":       []string{"subnet-abc123"},
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	sg := resp["SubnetGroup"].(map[string]any)
-	assert.Equal(t, "my-sg", sg["SubnetGroupName"])
+	tests := []struct {
+		name       string
+		operation  string
+		setup      func(t *testing.T, h *dax.Handler)
+		body       map[string]any
+		wantStatus int
+		check      func(t *testing.T, resp map[string]any)
+	}{
+		{
+			name:      "create",
+			operation: "CreateSubnetGroup",
+			setup:     func(_ *testing.T, _ *dax.Handler) {},
+			body: map[string]any{
+				"SubnetGroupName": "my-sg",
+				"Description":     "My subnet group",
+				"SubnetIds":       []string{"subnet-abc123"},
+			},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				sg := resp["SubnetGroup"].(map[string]any)
+				assert.Equal(t, "my-sg", sg["SubnetGroupName"])
+				subnets := sg["Subnets"].([]any)
+				require.Len(t, subnets, 1)
+				subnet := subnets[0].(map[string]any)
+				assert.Equal(t, "subnet-abc123", subnet["SubnetIdentifier"])
+				az := subnet["SubnetAvailabilityZone"].(map[string]any)
+				assert.Equal(t, "us-east-1a", az["Name"])
+			},
+		},
+		{
+			name:       "describe all",
+			operation:  "DescribeSubnetGroups",
+			setup:      func(_ *testing.T, _ *dax.Handler) {},
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				groups := resp["SubnetGroups"].([]any)
+				assert.NotEmpty(t, groups)
+			},
+		},
+		{
+			name:      "update",
+			operation: "UpdateSubnetGroup",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateSubnetGroup", map[string]any{
+					"SubnetGroupName": "upd-sg",
+					"SubnetIds":       []string{"subnet-1"},
+				})
+			},
+			body: map[string]any{
+				"SubnetGroupName": "upd-sg",
+				"Description":     "Updated description",
+			},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				sg := resp["SubnetGroup"].(map[string]any)
+				assert.Equal(t, "Updated description", sg["Description"])
+			},
+		},
+		{
+			name:      "delete",
+			operation: "DeleteSubnetGroup",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateSubnetGroup", map[string]any{
+					"SubnetGroupName": "sg-del",
+					"SubnetIds":       []string{"subnet-1"},
+				})
+			},
+			body:       map[string]any{"SubnetGroupName": "sg-del"},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			tt.setup(t, h)
+
+			rec := daxRequest(t, h, tt.operation, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.check != nil && rec.Code == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				tt.check(t, resp)
+			}
+		})
+	}
 }
 
-func TestHandlerDescribeSubnetGroups(t *testing.T) {
-	t.Parallel()
-	h := newTestHandler()
-	rec := daxRequest(t, h, "DescribeSubnetGroups", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
+// ---- DescribeEvents ----
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	groups := resp["SubnetGroups"].([]any)
-	assert.NotEmpty(t, groups)
+func TestHandlerDescribeEvents(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *dax.Handler)
+		body       map[string]any
+		wantStatus int
+		check      func(t *testing.T, resp map[string]any)
+	}{
+		{
+			name: "events after create",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateCluster", validClusterBody("evt-cluster"))
+			},
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				events := resp["Events"].([]any)
+				assert.NotEmpty(t, events)
+			},
+		},
+		{
+			name:       "empty when no activity",
+			setup:      func(_ *testing.T, _ *dax.Handler) {},
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				events := resp["Events"].([]any)
+				assert.Empty(t, events)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			tt.setup(t, h)
+
+			rec := daxRequest(t, h, "DescribeEvents", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.check != nil {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				tt.check(t, resp)
+			}
+		})
+	}
 }
 
-func TestHandlerDeleteSubnetGroup(t *testing.T) {
-	t.Parallel()
-	h := newTestHandler()
-	daxRequest(t, h, "CreateSubnetGroup", map[string]any{
-		"SubnetGroupName": "sg-del",
-		"SubnetIds":       []string{"subnet-1"},
-	})
+// ---- Error mapping ----
 
-	rec := daxRequest(t, h, "DeleteSubnetGroup", map[string]any{
-		"SubnetGroupName": "sg-del",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+func TestHandlerErrorMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		operation string
+		setup     func(t *testing.T, h *dax.Handler)
+		body      map[string]any
+		wantCode  string
+	}{
+		{
+			name:      "ClusterAlreadyExistsFault",
+			operation: "CreateCluster",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateCluster", validClusterBody("dup"))
+			},
+			body:     validClusterBody("dup"),
+			wantCode: "ClusterAlreadyExistsFault",
+		},
+		{
+			name:      "ClusterNotFoundFault on delete",
+			operation: "DeleteCluster",
+			setup:     func(_ *testing.T, _ *dax.Handler) {},
+			body:      map[string]any{"ClusterName": "no-such"},
+			wantCode:  "ClusterNotFoundFault",
+		},
+		{
+			name:      "ParameterGroupNotFoundFault",
+			operation: "DescribeParameters",
+			setup:     func(_ *testing.T, _ *dax.Handler) {},
+			body:      map[string]any{"ParameterGroupName": "missing"},
+			wantCode:  "ParameterGroupNotFoundFault",
+		},
+		{
+			name:      "SubnetGroupNotFoundFault",
+			operation: "DescribeSubnetGroups",
+			setup:     func(_ *testing.T, _ *dax.Handler) {},
+			body:      map[string]any{"SubnetGroupNames": []string{"missing"}},
+			wantCode:  "SubnetGroupNotFoundFault",
+		},
+		{
+			name:      "InvalidParameterValueException for bad node type",
+			operation: "CreateCluster",
+			setup:     func(_ *testing.T, _ *dax.Handler) {},
+			body: map[string]any{
+				"ClusterName":       "x",
+				"NodeType":          "bad.type",
+				"IamRoleArn":        "arn:aws:iam::123456789012:role/r",
+				"ReplicationFactor": 1,
+			},
+			wantCode: "InvalidParameterValueException",
+		},
+		{
+			name:      "SubnetGroupAlreadyExistsFault",
+			operation: "CreateSubnetGroup",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateSubnetGroup", map[string]any{
+					"SubnetGroupName": "dup-sg",
+					"SubnetIds":       []string{"subnet-1"},
+				})
+			},
+			body: map[string]any{
+				"SubnetGroupName": "dup-sg",
+				"SubnetIds":       []string{"subnet-1"},
+			},
+			wantCode: "SubnetGroupAlreadyExistsFault",
+		},
+		{
+			name:      "ParameterGroupAlreadyExistsFault",
+			operation: "CreateParameterGroup",
+			setup: func(t *testing.T, h *dax.Handler) {
+				daxRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "dup-pg"})
+			},
+			body:     map[string]any{"ParameterGroupName": "dup-pg"},
+			wantCode: "ParameterGroupAlreadyExistsFault",
+		},
+		{
+			name:      "InvalidAction for unknown operation",
+			operation: "UnknownAction",
+			setup:     func(_ *testing.T, _ *dax.Handler) {},
+			body:      map[string]any{},
+			wantCode:  "InvalidAction",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			tt.setup(t, h)
+
+			rec := daxRequest(t, h, tt.operation, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var errResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, tt.wantCode, errResp["__type"])
+		})
+	}
 }
 
-// ---- Unknown action ----
-
-func TestHandlerUnknownAction(t *testing.T) {
-	t.Parallel()
-	h := newTestHandler()
-	rec := daxRequest(t, h, "UnknownAction", nil)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-// ---- Reset ----
+// ---- Reset / GetSupportedOperations ----
 
 func TestHandlerReset(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	daxRequest(t, h, "CreateCluster", map[string]any{
-		"ClusterName":       "r-cluster",
-		"NodeType":          "dax.r5.large",
-		"IamRoleArn":        "arn:aws:iam::123456789012:role/DAXRole",
-		"ReplicationFactor": 1,
-	})
+	daxRequest(t, h, "CreateCluster", validClusterBody("r-cluster"))
 
 	h.Reset()
 
@@ -330,18 +885,36 @@ func TestHandlerReset(t *testing.T) {
 	assert.Empty(t, clusters)
 }
 
-// ---- GetSupportedOperations ----
-
 func TestHandlerGetSupportedOperations(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	ops := h.GetSupportedOperations()
-	assert.Contains(t, ops, "CreateCluster")
-	assert.Contains(t, ops, "DescribeClusters")
-	assert.Contains(t, ops, "UpdateCluster")
-	assert.Contains(t, ops, "DeleteCluster")
-	assert.Contains(t, ops, "TagResource")
-	assert.Contains(t, ops, "ListTags")
-	assert.Contains(t, ops, "CreateParameterGroup")
-	assert.Contains(t, ops, "CreateSubnetGroup")
+
+	expected := []string{
+		"CreateCluster",
+		"DescribeClusters",
+		"UpdateCluster",
+		"DeleteCluster",
+		"IncreaseReplicationFactor",
+		"DecreaseReplicationFactor",
+		"RebootNode",
+		"TagResource",
+		"ListTags",
+		"CreateParameterGroup",
+		"DescribeParameterGroups",
+		"UpdateParameterGroup",
+		"DeleteParameterGroup",
+		"DescribeParameters",
+		"DescribeDefaultParameters",
+		"ResetParameterGroup",
+		"CreateSubnetGroup",
+		"DescribeSubnetGroups",
+		"UpdateSubnetGroup",
+		"DeleteSubnetGroup",
+		"DescribeEvents",
+	}
+
+	for _, op := range expected {
+		assert.Contains(t, ops, op)
+	}
 }
