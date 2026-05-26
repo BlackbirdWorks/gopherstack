@@ -463,14 +463,29 @@ func (b *InMemoryBackend) CreateCluster(
 	}
 
 	clusterArn := b.clusterARN(name)
+	safeInfo := BrokerNodeGroupInfo{
+		BrokerAZDistribution: brokerInfo.BrokerAZDistribution,
+		InstanceType:         brokerInfo.InstanceType,
+		ClientSubnets:        append([]string(nil), brokerInfo.ClientSubnets...),
+		SecurityGroups:       append([]string(nil), brokerInfo.SecurityGroups...),
+		ZoneIds:              append([]string(nil), brokerInfo.ZoneIds...),
+		StorageInfo:          brokerInfo.StorageInfo,
+		ConnectivityInfo:     brokerInfo.ConnectivityInfo,
+	}
+	if brokerInfo.StorageInfo != nil {
+		safeInfo.StorageInfo = cloneStorageInfo(brokerInfo.StorageInfo)
+	}
+	if brokerInfo.ConnectivityInfo != nil {
+		safeInfo.ConnectivityInfo = cloneConnectivityInfo(brokerInfo.ConnectivityInfo)
+	}
 	cluster := &Cluster{
 		ClusterArn:           clusterArn,
 		ClusterName:          name,
 		ClusterType:          ClusterTypeProvisioned,
 		KafkaVersion:         kafkaVersion,
 		NumberOfBrokerNodes:  numBrokers,
-		BrokerNodeGroupInfo:  brokerInfo,
-		ClientAuthentication: clientAuth,
+		BrokerNodeGroupInfo:  safeInfo,
+		ClientAuthentication: cloneClientAuth(clientAuth),
 		State:                ClusterStateActive,
 		CurrentVersion:       "K3AEGXETSR30VB",
 		Tags:                 nonNilTagsCopy(tags),
