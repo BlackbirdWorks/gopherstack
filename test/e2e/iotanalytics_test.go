@@ -18,7 +18,7 @@ func TestIoTAnalyticsDashboard(t *testing.T) {
 
 	_, err := stack.IoTAnalyticsHandler.Backend.CreateChannel("e2e-test-channel", map[string]string{
 		"env": "e2e",
-	})
+	}, nil, nil)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
