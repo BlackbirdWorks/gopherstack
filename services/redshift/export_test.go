@@ -112,6 +112,38 @@ func ScheduledActionCount(b *InMemoryBackend) int {
 	return len(b.scheduledActions)
 }
 
+// CustomDomainCount returns the number of custom domain associations in the backend.
+func CustomDomainCount(b *InMemoryBackend) int {
+	b.mu.RLock("CustomDomainCount")
+	defer b.mu.RUnlock()
+
+	return len(b.customDomains)
+}
+
+// EndpointAccessCount returns the number of endpoint accesses in the backend.
+func EndpointAccessCount(b *InMemoryBackend) int {
+	b.mu.RLock("EndpointAccessCount")
+	defer b.mu.RUnlock()
+
+	return len(b.endpointAccesses)
+}
+
+// IntegrationCount returns the number of integrations in the backend.
+func IntegrationCount(b *InMemoryBackend) int {
+	b.mu.RLock("IntegrationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.integrations)
+}
+
+// IdcApplicationCount returns the number of IDC applications in the backend.
+func IdcApplicationCount(b *InMemoryBackend) int {
+	b.mu.RLock("IdcApplicationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.idcApplications)
+}
+
 // HandlerOpsLen returns the number of operations registered in the handler.
 func HandlerOpsLen(h *Handler) int {
 	return len(h.ops)

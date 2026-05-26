@@ -73,12 +73,21 @@ type createCustomDomainAssociationResponse struct {
 }
 
 func (h *Handler) handleCreateCustomDomainAssociation(vals url.Values) (any, error) {
+	assoc, err := h.Backend.CreateCustomDomainAssociation(
+		vals.Get("ClusterIdentifier"),
+		vals.Get("CustomDomainName"),
+		vals.Get("CustomDomainCertificateArn"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &createCustomDomainAssociationResponse{
 		Xmlns: redshiftXMLNS,
 		Result: createCustomDomainAssociationResult{
-			ClusterIdentifier:          vals.Get("ClusterIdentifier"),
-			CustomDomainName:           vals.Get("CustomDomainName"),
-			CustomDomainCertificateArn: vals.Get("CustomDomainCertificateArn"),
+			ClusterIdentifier:          assoc.ClusterIdentifier,
+			CustomDomainName:           assoc.CustomDomainName,
+			CustomDomainCertificateArn: assoc.CustomDomainCertificateArn,
 		},
 	}, nil
 }
@@ -88,7 +97,14 @@ type deleteCustomDomainAssociationResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-func (h *Handler) handleDeleteCustomDomainAssociation(_ url.Values) (any, error) {
+func (h *Handler) handleDeleteCustomDomainAssociation(vals url.Values) (any, error) {
+	if err := h.Backend.DeleteCustomDomainAssociation(
+		vals.Get("ClusterIdentifier"),
+		vals.Get("CustomDomainName"),
+	); err != nil {
+		return nil, err
+	}
+
 	return &deleteCustomDomainAssociationResponse{Xmlns: redshiftXMLNS}, nil
 }
 
@@ -106,8 +122,29 @@ type describeCustomDomainAssociationsResponse struct {
 	} `xml:"DescribeCustomDomainAssociationsResult"`
 }
 
-func (h *Handler) handleDescribeCustomDomainAssociations(_ url.Values) (any, error) {
-	return &describeCustomDomainAssociationsResponse{Xmlns: redshiftXMLNS}, nil
+func (h *Handler) handleDescribeCustomDomainAssociations(vals url.Values) (any, error) {
+	assocs, err := h.Backend.DescribeCustomDomainAssociations(
+		vals.Get("ClusterIdentifier"),
+		vals.Get("CustomDomainName"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]customDomainAssociation, 0, len(assocs))
+
+	for _, a := range assocs {
+		members = append(members, customDomainAssociation{
+			ClusterIdentifier:          a.ClusterIdentifier,
+			CustomDomainName:           a.CustomDomainName,
+			CustomDomainCertificateArn: a.CustomDomainCertificateArn,
+		})
+	}
+
+	resp := &describeCustomDomainAssociationsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.CustomDomainAssociations = members
+
+	return resp, nil
 }
 
 type modifyCustomDomainAssociationResponse struct {
@@ -121,10 +158,19 @@ type modifyCustomDomainAssociationResponse struct {
 }
 
 func (h *Handler) handleModifyCustomDomainAssociation(vals url.Values) (any, error) {
+	assoc, err := h.Backend.ModifyCustomDomainAssociation(
+		vals.Get("ClusterIdentifier"),
+		vals.Get("CustomDomainName"),
+		vals.Get("CustomDomainCertificateArn"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := &modifyCustomDomainAssociationResponse{Xmlns: redshiftXMLNS}
-	resp.Result.ClusterIdentifier = vals.Get("ClusterIdentifier")
-	resp.Result.CustomDomainName = vals.Get("CustomDomainName")
-	resp.Result.CustomDomainCertificateArn = vals.Get("CustomDomainCertificateArn")
+	resp.Result.ClusterIdentifier = assoc.ClusterIdentifier
+	resp.Result.CustomDomainName = assoc.CustomDomainName
+	resp.Result.CustomDomainCertificateArn = assoc.CustomDomainCertificateArn
 
 	return resp, nil
 }
@@ -145,15 +191,29 @@ type createEndpointAccessResponse struct {
 	Result  endpointAccessXML `xml:"CreateEndpointAccessResult"`
 }
 
+func endpointAccessToXML(ep *EndpointAccess) endpointAccessXML {
+	return endpointAccessXML{
+		ClusterIdentifier:  ep.ClusterIdentifier,
+		EndpointName:       ep.EndpointName,
+		EndpointStatus:     ep.EndpointStatus,
+		EndpointCreateTime: ep.EndpointCreateTime,
+		Port:               ep.Port,
+	}
+}
+
 func (h *Handler) handleCreateEndpointAccess(vals url.Values) (any, error) {
+	ep, err := h.Backend.CreateEndpointAccess(
+		vals.Get("ClusterIdentifier"),
+		vals.Get("EndpointName"),
+		vals.Get("VpcId"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &createEndpointAccessResponse{
-		Xmlns: redshiftXMLNS,
-		Result: endpointAccessXML{
-			ClusterIdentifier: vals.Get("ClusterIdentifier"),
-			EndpointName:      vals.Get("EndpointName"),
-			EndpointStatus:    endpointStatusActive,
-			Port:              redshiftDefaultPort,
-		},
+		Xmlns:  redshiftXMLNS,
+		Result: endpointAccessToXML(ep),
 	}, nil
 }
 
@@ -164,13 +224,14 @@ type deleteEndpointAccessResponse struct {
 }
 
 func (h *Handler) handleDeleteEndpointAccess(vals url.Values) (any, error) {
+	ep, err := h.Backend.DeleteEndpointAccess(vals.Get("EndpointName"))
+	if err != nil {
+		return nil, err
+	}
+
 	return &deleteEndpointAccessResponse{
-		Xmlns: redshiftXMLNS,
-		Result: endpointAccessXML{
-			ClusterIdentifier: vals.Get("ClusterIdentifier"),
-			EndpointName:      vals.Get("EndpointName"),
-			EndpointStatus:    "deleting",
-		},
+		Xmlns:  redshiftXMLNS,
+		Result: endpointAccessToXML(ep),
 	}, nil
 }
 
@@ -182,8 +243,25 @@ type describeEndpointAccessResponse struct {
 	} `xml:"DescribeEndpointAccessResult"`
 }
 
-func (h *Handler) handleDescribeEndpointAccess(_ url.Values) (any, error) {
-	return &describeEndpointAccessResponse{Xmlns: redshiftXMLNS}, nil
+func (h *Handler) handleDescribeEndpointAccess(vals url.Values) (any, error) {
+	eps, err := h.Backend.DescribeEndpointAccess(
+		vals.Get("ClusterIdentifier"),
+		vals.Get("EndpointName"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]endpointAccessXML, 0, len(eps))
+
+	for i := range eps {
+		members = append(members, endpointAccessToXML(&eps[i]))
+	}
+
+	resp := &describeEndpointAccessResponse{Xmlns: redshiftXMLNS}
+	resp.Result.EndpointAccessList = members
+
+	return resp, nil
 }
 
 type modifyEndpointAccessResponse struct {
@@ -193,13 +271,17 @@ type modifyEndpointAccessResponse struct {
 }
 
 func (h *Handler) handleModifyEndpointAccess(vals url.Values) (any, error) {
+	ep, err := h.Backend.ModifyEndpointAccess(
+		vals.Get("EndpointName"),
+		vals.Get("VpcId"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &modifyEndpointAccessResponse{
-		Xmlns: redshiftXMLNS,
-		Result: endpointAccessXML{
-			ClusterIdentifier: vals.Get("ClusterIdentifier"),
-			EndpointName:      vals.Get("EndpointName"),
-			EndpointStatus:    endpointStatusActive,
-		},
+		Xmlns:  redshiftXMLNS,
+		Result: endpointAccessToXML(ep),
 	}, nil
 }
 
@@ -364,7 +446,23 @@ func (h *Handler) handleDescribeHsmConfigurations(vals url.Values) (any, error) 
 type integrationXML struct {
 	IntegrationArn  string `xml:"IntegrationArn"`
 	IntegrationName string `xml:"IntegrationName"`
+	SourceArn       string `xml:"SourceArn,omitempty"`
+	TargetArn       string `xml:"TargetArn,omitempty"`
 	Status          string `xml:"Status"`
+	Description     string `xml:"Description,omitempty"`
+	KmsKeyID        string `xml:"KmsKeyId,omitempty"`
+}
+
+func integrationToXML(ig *Integration) integrationXML {
+	return integrationXML{
+		IntegrationArn:  ig.IntegrationArn,
+		IntegrationName: ig.IntegrationName,
+		SourceArn:       ig.SourceArn,
+		TargetArn:       ig.TargetArn,
+		Status:          ig.Status,
+		Description:     ig.Description,
+		KmsKeyID:        ig.KmsKeyID,
+	}
 }
 
 type createIntegrationResponse struct {
@@ -374,23 +472,39 @@ type createIntegrationResponse struct {
 }
 
 func (h *Handler) handleCreateIntegration(vals url.Values) (any, error) {
+	ig, err := h.Backend.CreateIntegration(
+		vals.Get("IntegrationName"),
+		vals.Get("SourceArn"),
+		vals.Get("TargetArn"),
+		vals.Get("KmsKeyId"),
+		vals.Get("Description"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &createIntegrationResponse{
-		Xmlns: redshiftXMLNS,
-		Result: integrationXML{
-			IntegrationArn:  "arn:aws:redshift:us-east-1:123456789012:integration:" + vals.Get("IntegrationName"),
-			IntegrationName: vals.Get("IntegrationName"),
-			Status:          endpointStatusActive,
-		},
+		Xmlns:  redshiftXMLNS,
+		Result: integrationToXML(ig),
 	}, nil
 }
 
 type deleteIntegrationResponse struct {
-	XMLName xml.Name `xml:"DeleteIntegrationResponse"`
-	Xmlns   string   `xml:"xmlns,attr"`
+	XMLName xml.Name       `xml:"DeleteIntegrationResponse"`
+	Xmlns   string         `xml:"xmlns,attr"`
+	Result  integrationXML `xml:"DeleteIntegrationResult"`
 }
 
-func (h *Handler) handleDeleteIntegration(_ url.Values) (any, error) {
-	return &deleteIntegrationResponse{Xmlns: redshiftXMLNS}, nil
+func (h *Handler) handleDeleteIntegration(vals url.Values) (any, error) {
+	ig, err := h.Backend.DeleteIntegration(vals.Get("IntegrationArn"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteIntegrationResponse{
+		Xmlns:  redshiftXMLNS,
+		Result: integrationToXML(ig),
+	}, nil
 }
 
 type describeIntegrationsResponse struct {
@@ -401,8 +515,22 @@ type describeIntegrationsResponse struct {
 	} `xml:"DescribeIntegrationsResult"`
 }
 
-func (h *Handler) handleDescribeIntegrations(_ url.Values) (any, error) {
-	return &describeIntegrationsResponse{Xmlns: redshiftXMLNS}, nil
+func (h *Handler) handleDescribeIntegrations(vals url.Values) (any, error) {
+	igs, err := h.Backend.DescribeIntegrations(vals.Get("IntegrationArn"))
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]integrationXML, 0, len(igs))
+
+	for i := range igs {
+		members = append(members, integrationToXML(&igs[i]))
+	}
+
+	resp := &describeIntegrationsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.Integrations = members
+
+	return resp, nil
 }
 
 type describeInboundIntegrationsResponse struct {
@@ -424,13 +552,17 @@ type modifyIntegrationResponse struct {
 }
 
 func (h *Handler) handleModifyIntegration(vals url.Values) (any, error) {
+	ig, err := h.Backend.ModifyIntegration(
+		vals.Get("IntegrationArn"),
+		vals.Get("Description"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &modifyIntegrationResponse{
-		Xmlns: redshiftXMLNS,
-		Result: integrationXML{
-			IntegrationArn:  vals.Get("IntegrationArn"),
-			IntegrationName: vals.Get("IntegrationName"),
-			Status:          endpointStatusActive,
-		},
+		Xmlns:  redshiftXMLNS,
+		Result: integrationToXML(ig),
 	}, nil
 }
 
@@ -439,6 +571,19 @@ func (h *Handler) handleModifyIntegration(vals url.Values) (any, error) {
 type redshiftIdcAppXML struct {
 	RedshiftIdcApplicationArn  string `xml:"RedshiftIdcApplicationArn"`
 	RedshiftIdcApplicationName string `xml:"RedshiftIdcApplicationName"`
+	IdcInstanceArn             string `xml:"IamRoleArn,omitempty"`
+	IdcDisplayName             string `xml:"IdcDisplayName,omitempty"`
+	IamRoleArn                 string `xml:"IdcInstanceArn,omitempty"`
+}
+
+func idcAppToXML(app *RedshiftIdcApplication) redshiftIdcAppXML {
+	return redshiftIdcAppXML{
+		RedshiftIdcApplicationArn:  app.RedshiftIdcApplicationArn,
+		RedshiftIdcApplicationName: app.RedshiftIdcApplicationName,
+		IdcInstanceArn:             app.IdcInstanceArn,
+		IdcDisplayName:             app.IdcDisplayName,
+		IamRoleArn:                 app.IamRoleArn,
+	}
 }
 
 type createRedshiftIdcApplicationResponse struct {
@@ -448,14 +593,19 @@ type createRedshiftIdcApplicationResponse struct {
 }
 
 func (h *Handler) handleCreateRedshiftIdcApplication(vals url.Values) (any, error) {
+	app, err := h.Backend.CreateRedshiftIdcApplication(
+		vals.Get("RedshiftIdcApplicationName"),
+		vals.Get("IdcInstanceArn"),
+		vals.Get("IdcDisplayName"),
+		vals.Get("IamRoleArn"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &createRedshiftIdcApplicationResponse{
-		Xmlns: redshiftXMLNS,
-		Result: redshiftIdcAppXML{
-			RedshiftIdcApplicationArn: "arn:aws:redshift:us-east-1:123456789012:redshiftidcapplication:" + vals.Get(
-				"RedshiftIdcApplicationName",
-			),
-			RedshiftIdcApplicationName: vals.Get("RedshiftIdcApplicationName"),
-		},
+		Xmlns:  redshiftXMLNS,
+		Result: idcAppToXML(app),
 	}, nil
 }
 
@@ -464,7 +614,11 @@ type deleteRedshiftIdcApplicationResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-func (h *Handler) handleDeleteRedshiftIdcApplication(_ url.Values) (any, error) {
+func (h *Handler) handleDeleteRedshiftIdcApplication(vals url.Values) (any, error) {
+	if err := h.Backend.DeleteRedshiftIdcApplication(vals.Get("RedshiftIdcApplicationArn")); err != nil {
+		return nil, err
+	}
+
 	return &deleteRedshiftIdcApplicationResponse{Xmlns: redshiftXMLNS}, nil
 }
 
@@ -476,8 +630,22 @@ type describeRedshiftIdcApplicationsResponse struct {
 	} `xml:"DescribeRedshiftIdcApplicationsResult"`
 }
 
-func (h *Handler) handleDescribeRedshiftIdcApplications(_ url.Values) (any, error) {
-	return &describeRedshiftIdcApplicationsResponse{Xmlns: redshiftXMLNS}, nil
+func (h *Handler) handleDescribeRedshiftIdcApplications(vals url.Values) (any, error) {
+	apps, err := h.Backend.DescribeRedshiftIdcApplications(vals.Get("RedshiftIdcApplicationArn"))
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]redshiftIdcAppXML, 0, len(apps))
+
+	for i := range apps {
+		members = append(members, idcAppToXML(&apps[i]))
+	}
+
+	resp := &describeRedshiftIdcApplicationsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.RedshiftIdcApplications = members
+
+	return resp, nil
 }
 
 type modifyRedshiftIdcApplicationResponse struct {
@@ -487,12 +655,18 @@ type modifyRedshiftIdcApplicationResponse struct {
 }
 
 func (h *Handler) handleModifyRedshiftIdcApplication(vals url.Values) (any, error) {
+	app, err := h.Backend.ModifyRedshiftIdcApplication(
+		vals.Get("RedshiftIdcApplicationArn"),
+		vals.Get("IdcDisplayName"),
+		vals.Get("IamRoleArn"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &modifyRedshiftIdcApplicationResponse{
-		Xmlns: redshiftXMLNS,
-		Result: redshiftIdcAppXML{
-			RedshiftIdcApplicationArn:  vals.Get("RedshiftIdcApplicationArn"),
-			RedshiftIdcApplicationName: vals.Get("RedshiftIdcApplicationName"),
-		},
+		Xmlns:  redshiftXMLNS,
+		Result: idcAppToXML(app),
 	}, nil
 }
 
