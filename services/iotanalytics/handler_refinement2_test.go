@@ -174,9 +174,9 @@ func TestRefinement2_AlreadyExistsErrorType(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body map[string]any
 		name string
 		path string
-		body map[string]any
 	}{
 		{
 			name: "channel_conflict",
@@ -224,11 +224,11 @@ func TestRefinement2_Pagination(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		seedKind   string
 		seedCount  int
 		maxResults int
 		wantLen    int
 		wantToken  bool
-		seedKind   string
 	}{
 		{
 			name:       "channels_maxResults_2_of_5",
@@ -290,22 +290,30 @@ func TestRefinement2_Pagination(t *testing.T) {
 					createPath = "/channels"
 					listPath = "/channels"
 					summaryKey = "channelSummaries"
-					body = map[string]any{"channelName": strings.ReplaceAll(t.Name(), "/", "_") + "_" + string(rune('a'+i))}
+					body = map[string]any{
+						"channelName": strings.ReplaceAll(t.Name(), "/", "_") + "_" + string(rune('a'+i)),
+					}
 				case "datastore":
 					createPath = "/datastores"
 					listPath = "/datastores"
 					summaryKey = "datastoreSummaries"
-					body = map[string]any{"datastoreName": strings.ReplaceAll(t.Name(), "/", "_") + "_" + string(rune('a'+i))}
+					body = map[string]any{
+						"datastoreName": strings.ReplaceAll(t.Name(), "/", "_") + "_" + string(rune('a'+i)),
+					}
 				case "dataset":
 					createPath = "/datasets"
 					listPath = "/datasets"
 					summaryKey = "datasetSummaries"
-					body = map[string]any{"datasetName": strings.ReplaceAll(t.Name(), "/", "_") + "_" + string(rune('a'+i))}
+					body = map[string]any{
+						"datasetName": strings.ReplaceAll(t.Name(), "/", "_") + "_" + string(rune('a'+i)),
+					}
 				case "pipeline":
 					createPath = "/pipelines"
 					listPath = "/pipelines"
 					summaryKey = "pipelineSummaries"
-					body = map[string]any{"pipelineName": strings.ReplaceAll(t.Name(), "/", "_") + "_" + string(rune('a'+i))}
+					body = map[string]any{
+						"pipelineName": strings.ReplaceAll(t.Name(), "/", "_") + "_" + string(rune('a'+i)),
+					}
 				}
 
 				rec := doRequest(t, h, http.MethodPost, createPath, body)
@@ -375,8 +383,8 @@ func TestRefinement2_BatchPutMessage_Limits(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		messages    []map[string]any
 		channelSeed string
+		messages    []map[string]any
 		wantStatus  int
 	}{
 		{
@@ -431,9 +439,9 @@ func TestRefinement2_SampleChannelData_MaxMessages(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
+		name        string
 		maxMessages string
-		wantStatus int
+		wantStatus  int
 	}{
 		{
 			name:        "valid_max_10",
@@ -487,8 +495,8 @@ func TestRefinement2_StartPipelineReprocessing_TimeRange(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -541,8 +549,8 @@ func TestRefinement2_PutLoggingOptions_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -668,9 +676,9 @@ func TestRefinement2_ListTagsForResource_EmptyNotError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		kind string
-		body map[string]any
+		name   string
+		kind   string
+		body   map[string]any
 		arnKey string
 	}{
 		{
@@ -793,7 +801,7 @@ func TestRefinement2_DescribeDatastore_NewFields(t *testing.T) {
 			name:          "with_json_format",
 			datastoreName: "desc_ds2",
 			body: map[string]any{
-				"datastoreName":        "desc_ds2",
+				"datastoreName": "desc_ds2",
 				"fileFormatConfiguration": map[string]any{
 					"jsonConfiguration": map[string]any{},
 				},
@@ -928,11 +936,11 @@ func TestRefinement2_UpdateHandlers_AcceptsBody(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		createBody map[string]any
+		updateBody map[string]any
 		name       string
 		createPath string
-		createBody map[string]any
 		updatePath string
-		updateBody map[string]any
 		wantStatus int
 	}{
 		{
@@ -1037,8 +1045,8 @@ func TestRefinement2_ReprocessingSummaries_Sorted(t *testing.T) {
 
 	// Each summary should have id and status fields.
 	for _, s := range summaries {
-		summary, ok := s.(map[string]any)
-		require.True(t, ok)
+		summary, isMap := s.(map[string]any)
+		require.True(t, isMap)
 		assert.NotEmpty(t, summary["id"])
 		assert.NotEmpty(t, summary["status"])
 	}
@@ -1049,8 +1057,8 @@ func TestRefinement2_BackendDirect_RetentionPeriodValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		retention *iotanalytics.RetentionPeriod
+		name      string
 		wantErr   bool
 	}{
 		{
@@ -1096,4 +1104,3 @@ func TestRefinement2_BackendDirect_RetentionPeriodValidation(t *testing.T) {
 		})
 	}
 }
-

@@ -745,7 +745,12 @@ func (h *Handler) handleUpdateChannel(c *echo.Context, name string, body []byte)
 
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &req); err != nil {
-			return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"invalid request body: "+err.Error(),
+			)
 		}
 	}
 
@@ -780,7 +785,14 @@ func (h *Handler) handleCreateDatastore(c *echo.Context, body []byte) error {
 
 	tags := tagsToMap(req.Tags)
 
-	ds, err := h.Backend.CreateDatastore(req.DatastoreName, tags, req.DatastoreStorage, req.RetentionPeriod, req.FileFormatConfiguration, req.Partitions)
+	ds, err := h.Backend.CreateDatastore(
+		req.DatastoreName,
+		tags,
+		req.DatastoreStorage,
+		req.RetentionPeriod,
+		req.FileFormatConfiguration,
+		req.Partitions,
+	)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -855,11 +867,19 @@ func (h *Handler) handleUpdateDatastore(c *echo.Context, name string, body []byt
 
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &req); err != nil {
-			return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"invalid request body: "+err.Error(),
+			)
 		}
 	}
 
-	if err := h.Backend.UpdateDatastore(name, req.DatastoreStorage, req.RetentionPeriod, req.FileFormatConfiguration, req.Partitions); err != nil {
+	err := h.Backend.UpdateDatastore(
+		name, req.DatastoreStorage, req.RetentionPeriod, req.FileFormatConfiguration, req.Partitions,
+	)
+	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -890,7 +910,15 @@ func (h *Handler) handleCreateDataset(c *echo.Context, body []byte) error {
 
 	tags := tagsToMap(req.Tags)
 
-	ds, err := h.Backend.CreateDataset(req.DatasetName, tags, req.Actions, req.Triggers, req.ContentDeliveryRules, req.VersioningConfiguration, req.LateDataRules)
+	ds, err := h.Backend.CreateDataset(
+		req.DatasetName,
+		tags,
+		req.Actions,
+		req.Triggers,
+		req.ContentDeliveryRules,
+		req.VersioningConfiguration,
+		req.LateDataRules,
+	)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -966,11 +994,19 @@ func (h *Handler) handleUpdateDataset(c *echo.Context, name string, body []byte)
 
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &req); err != nil {
-			return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"invalid request body: "+err.Error(),
+			)
 		}
 	}
 
-	if err := h.Backend.UpdateDataset(name, req.Actions, req.Triggers, req.ContentDeliveryRules, req.VersioningConfiguration, req.LateDataRules); err != nil {
+	err := h.Backend.UpdateDataset(
+		name, req.Actions, req.Triggers, req.ContentDeliveryRules, req.VersioningConfiguration, req.LateDataRules,
+	)
+	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -1073,7 +1109,12 @@ func (h *Handler) handleUpdatePipeline(c *echo.Context, name string, body []byte
 
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &req); err != nil {
-			return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"invalid request body: "+err.Error(),
+			)
 		}
 	}
 
@@ -1099,7 +1140,12 @@ func (h *Handler) handleDeletePipeline(c *echo.Context, name string) error {
 func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	resourceARN := c.Request().URL.Query().Get("resourceArn")
 	if resourceARN == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "resourceArn query parameter is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidRequestException",
+			"resourceArn query parameter is required",
+		)
 	}
 
 	tags, err := h.Backend.ListTagsForResource(resourceARN)
@@ -1113,7 +1159,12 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	resourceARN := c.Request().URL.Query().Get("resourceArn")
 	if resourceARN == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "resourceArn query parameter is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidRequestException",
+			"resourceArn query parameter is required",
+		)
 	}
 
 	var req tagResourceRequest
@@ -1131,7 +1182,12 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 func (h *Handler) handleUntagResource(c *echo.Context) error {
 	resourceARN := c.Request().URL.Query().Get("resourceArn")
 	if resourceARN == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "resourceArn query parameter is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidRequestException",
+			"resourceArn query parameter is required",
+		)
 	}
 
 	tagKeys := c.Request().URL.Query()["tagKeys"]
@@ -1192,11 +1248,21 @@ func (h *Handler) handleBatchPutMessage(c *echo.Context, body []byte) error {
 
 	for i, msg := range req.Messages {
 		if msg.MessageID == "" {
-			return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "messageId is required for message at index "+strconv.Itoa(i))
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"messageId is required for message at index "+strconv.Itoa(i),
+			)
 		}
 
 		if len(msg.Payload) == 0 {
-			return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "payload must not be empty for message "+msg.MessageID)
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"payload must not be empty for message "+msg.MessageID,
+			)
 		}
 	}
 
@@ -1217,7 +1283,12 @@ func (h *Handler) handleStartPipelineReprocessing(c *echo.Context, pipelineName 
 
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &req); err != nil {
-			return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"invalid request body: "+err.Error(),
+			)
 		}
 	}
 
@@ -1388,4 +1459,5 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 
 	return h.writeError(c, http.StatusInternalServerError, "InternalFailureException", err.Error())
 }
+
 // ci trigger

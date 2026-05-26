@@ -114,12 +114,12 @@ type ParquetConfiguration struct {
 	SchemaDefinition *SchemaDefinition `json:"schemaDefinition,omitempty"`
 }
 
-// JsonConfiguration defines JSON file format settings (marker type).
-type JsonConfiguration struct{}
+// JSONConfiguration defines JSON file format settings (marker type).
+type JSONConfiguration struct{}
 
 // FileFormatConfiguration defines the file format for a datastore.
 type FileFormatConfiguration struct {
-	JsonConfiguration    *JsonConfiguration    `json:"jsonConfiguration,omitempty"`
+	JSONConfiguration    *JSONConfiguration    `json:"jsonConfiguration,omitempty"`
 	ParquetConfiguration *ParquetConfiguration `json:"parquetConfiguration,omitempty"`
 }
 
@@ -164,8 +164,8 @@ type PipelineChannelActivity struct {
 type PipelineLambdaActivity struct {
 	LambdaName string `json:"lambdaName"`
 	Name       string `json:"name"`
-	BatchSize  int    `json:"batchSize,omitempty"`
 	Next       string `json:"next,omitempty"`
+	BatchSize  int    `json:"batchSize,omitempty"`
 }
 
 // PipelineDatastoreActivity is the pipeline sink activity.
@@ -183,16 +183,16 @@ type PipelineAddAttributesActivity struct {
 
 // PipelineRemoveAttributesActivity removes attributes from messages.
 type PipelineRemoveAttributesActivity struct {
-	Attributes []string `json:"attributes"`
 	Name       string   `json:"name"`
 	Next       string   `json:"next,omitempty"`
+	Attributes []string `json:"attributes"`
 }
 
 // PipelineSelectAttributesActivity selects specific attributes from messages.
 type PipelineSelectAttributesActivity struct {
-	Attributes []string `json:"attributes"`
 	Name       string   `json:"name"`
 	Next       string   `json:"next,omitempty"`
+	Attributes []string `json:"attributes"`
 }
 
 // PipelineFilterActivity filters messages based on a condition.
@@ -230,16 +230,16 @@ type PipelineDeviceShadowEnrichActivity struct {
 
 // PipelineActivity is a typed pipeline activity union.
 type PipelineActivity struct {
-	Channel              *PipelineChannelActivity               `json:"channel,omitempty"`
-	Lambda               *PipelineLambdaActivity                `json:"lambda,omitempty"`
-	Datastore            *PipelineDatastoreActivity             `json:"datastore,omitempty"`
-	AddAttributes        *PipelineAddAttributesActivity         `json:"addAttributes,omitempty"`
-	RemoveAttributes     *PipelineRemoveAttributesActivity      `json:"removeAttributes,omitempty"`
-	SelectAttributes     *PipelineSelectAttributesActivity      `json:"selectAttributes,omitempty"`
-	Filter               *PipelineFilterActivity                `json:"filter,omitempty"`
-	Math                 *PipelineMathActivity                  `json:"math,omitempty"`
-	DeviceRegistryEnrich *PipelineDeviceRegistryEnrichActivity  `json:"deviceRegistryEnrich,omitempty"`
-	DeviceShadowEnrich   *PipelineDeviceShadowEnrichActivity    `json:"deviceShadowEnrich,omitempty"`
+	Channel              *PipelineChannelActivity              `json:"channel,omitempty"`
+	Lambda               *PipelineLambdaActivity               `json:"lambda,omitempty"`
+	Datastore            *PipelineDatastoreActivity            `json:"datastore,omitempty"`
+	AddAttributes        *PipelineAddAttributesActivity        `json:"addAttributes,omitempty"`
+	RemoveAttributes     *PipelineRemoveAttributesActivity     `json:"removeAttributes,omitempty"`
+	SelectAttributes     *PipelineSelectAttributesActivity     `json:"selectAttributes,omitempty"`
+	Filter               *PipelineFilterActivity               `json:"filter,omitempty"`
+	Math                 *PipelineMathActivity                 `json:"math,omitempty"`
+	DeviceRegistryEnrich *PipelineDeviceRegistryEnrichActivity `json:"deviceRegistryEnrich,omitempty"`
+	DeviceShadowEnrich   *PipelineDeviceShadowEnrichActivity   `json:"deviceShadowEnrich,omitempty"`
 }
 
 // ----------------------------------------
@@ -248,8 +248,8 @@ type PipelineActivity struct {
 
 // DeltaTime defines an offset for dataset query filters.
 type DeltaTime struct {
-	OffsetSeconds  int    `json:"offsetSeconds"`
 	TimeExpression string `json:"timeExpression"`
+	OffsetSeconds  int    `json:"offsetSeconds"`
 }
 
 // DatasetQueryFilter is a filter applied to a query action.
@@ -259,7 +259,7 @@ type DatasetQueryFilter struct {
 
 // DatasetQueryAction defines an SQL query action on a dataset.
 type DatasetQueryAction struct {
-	SqlQuery string               `json:"sqlQuery"`
+	SQLQuery string               `json:"sqlQuery"`
 	Filters  []DatasetQueryFilter `json:"filters,omitempty"`
 }
 
@@ -271,11 +271,11 @@ type ResourceConfiguration struct {
 
 // DatasetVariable is a variable passed to a container action.
 type DatasetVariable struct {
-	Name                       string   `json:"name"`
 	StringValue                *string  `json:"stringValue,omitempty"`
 	DoubleValue                *float64 `json:"doubleValue,omitempty"`
 	DatasetContentVersionValue *string  `json:"datasetContentVersionValue,omitempty"`
-	OutputFileUriValue         *string  `json:"outputFileUriValue,omitempty"`
+	OutputFileURIValue         *string  `json:"outputFileUriValue,omitempty"`
+	Name                       string   `json:"name"`
 }
 
 // DatasetContainerAction defines a container execution action on a dataset.
@@ -288,9 +288,9 @@ type DatasetContainerAction struct {
 
 // DatasetAction is an action on a dataset (query or container).
 type DatasetAction struct {
-	ActionName      string                  `json:"actionName"`
 	QueryAction     *DatasetQueryAction     `json:"queryAction,omitempty"`
 	ContainerAction *DatasetContainerAction `json:"containerAction,omitempty"`
+	ActionName      string                  `json:"actionName"`
 }
 
 // ScheduleExpression defines a cron-based schedule trigger.
@@ -323,16 +323,16 @@ type GlueConfiguration struct {
 
 // S3DestinationConfiguration delivers content to S3.
 type S3DestinationConfiguration struct {
+	GlueConfiguration *GlueConfiguration `json:"glueConfiguration,omitempty"`
 	Bucket            string             `json:"bucket"`
 	Key               string             `json:"key"`
 	RoleArn           string             `json:"roleArn"`
-	GlueConfiguration *GlueConfiguration `json:"glueConfiguration,omitempty"`
 }
 
 // ContentDeliveryDestination is the destination for a content delivery rule.
 type ContentDeliveryDestination struct {
-	IotEventsDestinationConfiguration *IotEventsDestination        `json:"iotEventsDestinationConfiguration,omitempty"`
-	S3DestinationConfiguration        *S3DestinationConfiguration  `json:"s3DestinationConfiguration,omitempty"`
+	IotEventsDestinationConfiguration *IotEventsDestination       `json:"iotEventsDestinationConfiguration,omitempty"`
+	S3DestinationConfiguration        *S3DestinationConfiguration `json:"s3DestinationConfiguration,omitempty"`
 }
 
 // ContentDeliveryRule defines where dataset content is delivered on creation.
@@ -354,13 +354,13 @@ type DeltaTimeSessionWindowConfiguration struct {
 
 // LateDataRuleConfiguration is the configuration for a late data rule.
 type LateDataRuleConfiguration struct {
-	DeltaTimeSessionWindowConfiguration *DeltaTimeSessionWindowConfiguration `json:"deltaTimeSessionWindowConfiguration,omitempty"`
+	DeltaTimeSessionWindowConfiguration *DeltaTimeSessionWindowConfiguration `json:"deltaTimeSessionWindowConfiguration,omitempty"` //nolint:lll // AWS field name
 }
 
 // LateDataRule defines conditions under which late data triggers dataset refresh.
 type LateDataRule struct {
-	RuleName          string                     `json:"ruleName,omitempty"`
 	RuleConfiguration *LateDataRuleConfiguration `json:"ruleConfiguration"`
+	RuleName          string                     `json:"ruleName,omitempty"`
 }
 
 // ----------------------------------------
@@ -397,14 +397,14 @@ type Datastore struct {
 // Dataset stores all metadata and state for a single IoT Analytics dataset.
 type Dataset struct {
 	Tags                    map[string]string        `json:"tags"`
-	Actions                 []DatasetAction          `json:"actions,omitempty"`
-	Triggers                []DatasetTrigger         `json:"triggers,omitempty"`
-	ContentDeliveryRules    []ContentDeliveryRule    `json:"contentDeliveryRules,omitempty"`
-	LateDataRules           []LateDataRule           `json:"lateDataRules,omitempty"`
 	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
 	Name                    string                   `json:"name"`
 	ARN                     string                   `json:"arn"`
 	Status                  string                   `json:"status"`
+	Actions                 []DatasetAction          `json:"actions,omitempty"`
+	Triggers                []DatasetTrigger         `json:"triggers,omitempty"`
+	ContentDeliveryRules    []ContentDeliveryRule    `json:"contentDeliveryRules,omitempty"`
+	LateDataRules           []LateDataRule           `json:"lateDataRules,omitempty"`
 	CreationTime            float64                  `json:"creationTime"`
 	LastUpdate              float64                  `json:"lastUpdate"`
 }
@@ -413,9 +413,9 @@ type Dataset struct {
 type Pipeline struct {
 	Tags          map[string]string                `json:"tags"`
 	Reprocessings map[string]*PipelineReprocessing `json:"reprocessings"`
-	Activities    []PipelineActivity               `json:"activities,omitempty"`
 	Name          string                           `json:"name"`
 	ARN           string                           `json:"arn"`
+	Activities    []PipelineActivity               `json:"activities,omitempty"`
 	CreationTime  float64                          `json:"creationTime"`
 	LastUpdate    float64                          `json:"lastUpdate"`
 }
@@ -498,10 +498,10 @@ type describeChannelResponse struct {
 type channelDetail struct {
 	Storage                *ChannelStorage  `json:"storage,omitempty"`
 	RetentionPeriod        *RetentionPeriod `json:"retentionPeriod,omitempty"`
-	Tags                   []tagDTO         `json:"tags,omitempty"`
 	Name                   string           `json:"name"`
 	ARN                    string           `json:"arn"`
 	Status                 string           `json:"status"`
+	Tags                   []tagDTO         `json:"tags,omitempty"`
 	CreationTime           float64          `json:"creationTime"`
 	LastUpdateTime         float64          `json:"lastUpdateTime,omitempty"`
 	LastMessageArrivalTime float64          `json:"lastMessageArrivalTime,omitempty"`
@@ -555,10 +555,10 @@ type datastoreDetail struct {
 	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
 	FileFormatConfiguration *FileFormatConfiguration `json:"fileFormatConfiguration,omitempty"`
 	Partitions              *DatastorePartitions     `json:"partitions,omitempty"`
-	Tags                    []tagDTO                 `json:"tags,omitempty"`
 	Name                    string                   `json:"name"`
 	ARN                     string                   `json:"arn"`
 	Status                  string                   `json:"status"`
+	Tags                    []tagDTO                 `json:"tags,omitempty"`
 	CreationTime            float64                  `json:"creationTime"`
 	LastUpdateTime          float64                  `json:"lastUpdateTime,omitempty"`
 }
@@ -610,26 +610,26 @@ type describeDatasetResponse struct {
 
 // datasetDetail is a detailed view of a dataset.
 type datasetDetail struct {
+	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
+	Name                    string                   `json:"name"`
+	ARN                     string                   `json:"arn"`
+	Status                  string                   `json:"status"`
 	Actions                 []DatasetAction          `json:"actions,omitempty"`
 	Triggers                []DatasetTrigger         `json:"triggers,omitempty"`
 	ContentDeliveryRules    []ContentDeliveryRule    `json:"contentDeliveryRules,omitempty"`
 	LateDataRules           []LateDataRule           `json:"lateDataRules,omitempty"`
-	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
 	Tags                    []tagDTO                 `json:"tags,omitempty"`
-	Name                    string                   `json:"name"`
-	ARN                     string                   `json:"arn"`
-	Status                  string                   `json:"status"`
 	CreationTime            float64                  `json:"creationTime"`
 	LastUpdateTime          float64                  `json:"lastUpdateTime,omitempty"`
 }
 
 // updateDatasetRequest is the request body for UpdateDataset.
 type updateDatasetRequest struct {
+	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
 	Actions                 []DatasetAction          `json:"actions,omitempty"`
 	Triggers                []DatasetTrigger         `json:"triggers,omitempty"`
 	ContentDeliveryRules    []ContentDeliveryRule    `json:"contentDeliveryRules,omitempty"`
 	LateDataRules           []LateDataRule           `json:"lateDataRules,omitempty"`
-	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
 }
 
 // createPipelineRequest is the request body for CreatePipeline.
@@ -655,9 +655,9 @@ type pipelineReprocessingSummary struct {
 
 // pipelineSummary is a summary of a pipeline for list operations.
 type pipelineSummary struct {
-	ReprocessingSummaries []pipelineReprocessingSummary `json:"reprocessingSummaries,omitempty"`
 	PipelineName          string                        `json:"pipelineName"`
 	PipelineARN           string                        `json:"pipelineArn,omitempty"`
+	ReprocessingSummaries []pipelineReprocessingSummary `json:"reprocessingSummaries,omitempty"`
 	CreationTime          float64                       `json:"creationTime"`
 	LastUpdateTime        float64                       `json:"lastUpdateTime,omitempty"`
 }
@@ -675,11 +675,11 @@ type describePipelineResponse struct {
 
 // pipelineDetail is a detailed view of a pipeline.
 type pipelineDetail struct {
+	Name                  string                        `json:"name"`
+	ARN                   string                        `json:"arn"`
 	Activities            []PipelineActivity            `json:"pipelineActivities,omitempty"`
 	ReprocessingSummaries []pipelineReprocessingSummary `json:"reprocessingSummaries,omitempty"`
 	Tags                  []tagDTO                      `json:"tags,omitempty"`
-	Name                  string                        `json:"name"`
-	ARN                   string                        `json:"arn"`
 	CreationTime          float64                       `json:"creationTime"`
 	LastUpdateTime        float64                       `json:"lastUpdateTime,omitempty"`
 }

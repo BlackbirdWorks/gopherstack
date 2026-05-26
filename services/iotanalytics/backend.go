@@ -14,26 +14,61 @@ import (
 )
 
 const (
-	statusActive = "ACTIVE"
+	statusActive          = "ACTIVE"
+	errCodeInvalidRequest = "InvalidRequestException"
+	maxRetentionDays      = 2147483647
 )
 
 // StorageBackend is the interface for the IoT Analytics backend.
 type StorageBackend interface {
-	CreateChannel(name string, tags map[string]string, storage *ChannelStorage, retention *RetentionPeriod) (*Channel, error)
+	CreateChannel(
+		name string,
+		tags map[string]string,
+		storage *ChannelStorage,
+		retention *RetentionPeriod,
+	) (*Channel, error)
 	DescribeChannel(name string) (*Channel, error)
 	UpdateChannel(name string, storage *ChannelStorage, retention *RetentionPeriod) error
 	DeleteChannel(name string) error
 	ListChannels() []*Channel
 
-	CreateDatastore(name string, tags map[string]string, storage *DatastoreStorage, retention *RetentionPeriod, fileFormat *FileFormatConfiguration, partitions *DatastorePartitions) (*Datastore, error)
+	CreateDatastore(
+		name string,
+		tags map[string]string,
+		storage *DatastoreStorage,
+		retention *RetentionPeriod,
+		fileFormat *FileFormatConfiguration,
+		partitions *DatastorePartitions,
+	) (*Datastore, error)
 	DescribeDatastore(name string) (*Datastore, error)
-	UpdateDatastore(name string, storage *DatastoreStorage, retention *RetentionPeriod, fileFormat *FileFormatConfiguration, partitions *DatastorePartitions) error
+	UpdateDatastore(
+		name string,
+		storage *DatastoreStorage,
+		retention *RetentionPeriod,
+		fileFormat *FileFormatConfiguration,
+		partitions *DatastorePartitions,
+	) error
 	DeleteDatastore(name string) error
 	ListDatastores() []*Datastore
 
-	CreateDataset(name string, tags map[string]string, actions []DatasetAction, triggers []DatasetTrigger, contentDeliveryRules []ContentDeliveryRule, versioningConfig *VersioningConfiguration, lateDataRules []LateDataRule) (*Dataset, error)
+	CreateDataset(
+		name string,
+		tags map[string]string,
+		actions []DatasetAction,
+		triggers []DatasetTrigger,
+		contentDeliveryRules []ContentDeliveryRule,
+		versioningConfig *VersioningConfiguration,
+		lateDataRules []LateDataRule,
+	) (*Dataset, error)
 	DescribeDataset(name string) (*Dataset, error)
-	UpdateDataset(name string, actions []DatasetAction, triggers []DatasetTrigger, contentDeliveryRules []ContentDeliveryRule, versioningConfig *VersioningConfiguration, lateDataRules []LateDataRule) error
+	UpdateDataset(
+		name string,
+		actions []DatasetAction,
+		triggers []DatasetTrigger,
+		contentDeliveryRules []ContentDeliveryRule,
+		versioningConfig *VersioningConfiguration,
+		lateDataRules []LateDataRule,
+	) error
 	DeleteDataset(name string) error
 	ListDatasets() []*Dataset
 
@@ -153,7 +188,7 @@ func validateTagValue(value string) error {
 }
 
 // isValidTagChar returns true for characters allowed in tag keys and values.
-// AWS allows: [a-zA-Z0-9_.:/=+\-@]
+// AWS allows: [a-zA-Z0-9_.:/=+\-@].
 func isValidTagChar(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) ||
 		r == '_' || r == '.' || r == ':' || r == '/' ||
@@ -189,7 +224,7 @@ func validateRetentionPeriod(rp *RetentionPeriod) error {
 		return fmt.Errorf("%w: retentionPeriod: numberOfDays must be >= 1 when unlimited is false", ErrValidation)
 	}
 
-	if rp.NumberOfDays > 2147483647 {
+	if rp.NumberOfDays > maxRetentionDays {
 		return fmt.Errorf("%w: retentionPeriod: numberOfDays must be <= 2147483647", ErrValidation)
 	}
 
@@ -362,9 +397,9 @@ func cloneFileFormatConfiguration(f *FileFormatConfiguration) *FileFormatConfigu
 
 	cp := *f
 
-	if f.JsonConfiguration != nil {
-		jc := *f.JsonConfiguration
-		cp.JsonConfiguration = &jc
+	if f.JSONConfiguration != nil {
+		jc := *f.JSONConfiguration
+		cp.JSONConfiguration = &jc
 	}
 
 	if f.ParquetConfiguration != nil {
@@ -566,7 +601,12 @@ func reprocessingSummariesSorted(reprocessings map[string]*PipelineReprocessing)
 }
 
 // CreateChannel creates a new IoT Analytics channel.
-func (b *InMemoryBackend) CreateChannel(name string, tags map[string]string, storage *ChannelStorage, retention *RetentionPeriod) (*Channel, error) {
+func (b *InMemoryBackend) CreateChannel(
+	name string,
+	tags map[string]string,
+	storage *ChannelStorage,
+	retention *RetentionPeriod,
+) (*Channel, error) {
 	if err := validateResourceName(name); err != nil {
 		return nil, err
 	}
@@ -682,7 +722,14 @@ func (b *InMemoryBackend) AddChannelInternal(name string) *Channel {
 }
 
 // CreateDatastore creates a new IoT Analytics datastore.
-func (b *InMemoryBackend) CreateDatastore(name string, tags map[string]string, storage *DatastoreStorage, retention *RetentionPeriod, fileFormat *FileFormatConfiguration, partitions *DatastorePartitions) (*Datastore, error) {
+func (b *InMemoryBackend) CreateDatastore(
+	name string,
+	tags map[string]string,
+	storage *DatastoreStorage,
+	retention *RetentionPeriod,
+	fileFormat *FileFormatConfiguration,
+	partitions *DatastorePartitions,
+) (*Datastore, error) {
 	if err := validateResourceName(name); err != nil {
 		return nil, err
 	}
@@ -734,7 +781,13 @@ func (b *InMemoryBackend) DescribeDatastore(name string) (*Datastore, error) {
 }
 
 // UpdateDatastore updates a datastore's configuration and last update time.
-func (b *InMemoryBackend) UpdateDatastore(name string, storage *DatastoreStorage, retention *RetentionPeriod, fileFormat *FileFormatConfiguration, partitions *DatastorePartitions) error {
+func (b *InMemoryBackend) UpdateDatastore(
+	name string,
+	storage *DatastoreStorage,
+	retention *RetentionPeriod,
+	fileFormat *FileFormatConfiguration,
+	partitions *DatastorePartitions,
+) error {
 	if err := validateRetentionPeriod(retention); err != nil {
 		return err
 	}
@@ -807,7 +860,15 @@ func (b *InMemoryBackend) AddDatastoreInternal(name string) *Datastore {
 }
 
 // CreateDataset creates a new IoT Analytics dataset.
-func (b *InMemoryBackend) CreateDataset(name string, tags map[string]string, actions []DatasetAction, triggers []DatasetTrigger, contentDeliveryRules []ContentDeliveryRule, versioningConfig *VersioningConfiguration, lateDataRules []LateDataRule) (*Dataset, error) {
+func (b *InMemoryBackend) CreateDataset(
+	name string,
+	tags map[string]string,
+	actions []DatasetAction,
+	triggers []DatasetTrigger,
+	contentDeliveryRules []ContentDeliveryRule,
+	versioningConfig *VersioningConfiguration,
+	lateDataRules []LateDataRule,
+) (*Dataset, error) {
 	if err := validateResourceName(name); err != nil {
 		return nil, err
 	}
@@ -856,7 +917,14 @@ func (b *InMemoryBackend) DescribeDataset(name string) (*Dataset, error) {
 }
 
 // UpdateDataset updates a dataset's actions, triggers, and configuration.
-func (b *InMemoryBackend) UpdateDataset(name string, actions []DatasetAction, triggers []DatasetTrigger, contentDeliveryRules []ContentDeliveryRule, versioningConfig *VersioningConfiguration, lateDataRules []LateDataRule) error {
+func (b *InMemoryBackend) UpdateDataset(
+	name string,
+	actions []DatasetAction,
+	triggers []DatasetTrigger,
+	contentDeliveryRules []ContentDeliveryRule,
+	versioningConfig *VersioningConfiguration,
+	lateDataRules []LateDataRule,
+) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -930,7 +998,11 @@ func (b *InMemoryBackend) AddDatasetInternal(name string) *Dataset {
 }
 
 // CreatePipeline creates a new IoT Analytics pipeline.
-func (b *InMemoryBackend) CreatePipeline(name string, tags map[string]string, activities []PipelineActivity) (*Pipeline, error) {
+func (b *InMemoryBackend) CreatePipeline(
+	name string,
+	tags map[string]string,
+	activities []PipelineActivity,
+) (*Pipeline, error) {
 	if err := validateResourceName(name); err != nil {
 		return nil, err
 	}
@@ -1171,7 +1243,7 @@ func (b *InMemoryBackend) BatchPutMessage(
 		for _, msg := range messages {
 			errs = append(errs, BatchPutMessageErrorEntry{
 				ChannelName:  channelName,
-				ErrorCode:    "InvalidRequestException",
+				ErrorCode:    errCodeInvalidRequest,
 				ErrorMessage: "batch payload exceeds 500 KB limit",
 				MessageID:    msg.MessageID,
 			})
@@ -1184,7 +1256,7 @@ func (b *InMemoryBackend) BatchPutMessage(
 		if len(msg.MessageID) > maxMessageIDLen {
 			errs = append(errs, BatchPutMessageErrorEntry{
 				ChannelName:  channelName,
-				ErrorCode:    "InvalidRequestException",
+				ErrorCode:    errCodeInvalidRequest,
 				ErrorMessage: fmt.Sprintf("messageId exceeds %d character limit", maxMessageIDLen),
 				MessageID:    msg.MessageID,
 			})
@@ -1195,7 +1267,7 @@ func (b *InMemoryBackend) BatchPutMessage(
 		if len(msg.Payload) > maxMessagePayloadBytes {
 			errs = append(errs, BatchPutMessageErrorEntry{
 				ChannelName:  channelName,
-				ErrorCode:    "InvalidRequestException",
+				ErrorCode:    errCodeInvalidRequest,
 				ErrorMessage: "message payload exceeds 128 KB limit",
 				MessageID:    msg.MessageID,
 			})
