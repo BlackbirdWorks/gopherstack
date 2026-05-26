@@ -8,16 +8,15 @@ import (
 )
 
 type backendSnapshot struct {
-	FileSystems               map[string]*FileSystem               `json:"fileSystems"`
-	MountTargets              map[string]*MountTarget              `json:"mountTargets"`
-	AccessPoints              map[string]*AccessPoint              `json:"accessPoints"`
-	LifecyclePolicies         map[string][]LifecyclePolicy         `json:"lifecyclePolicies"`
-	ReplicationConfigs        map[string]*ReplicationConfiguration `json:"replicationConfigs"`
-	BackupPolicies            map[string]string                    `json:"backupPolicies"`
-	FileSystemPolicies        map[string]string                    `json:"fileSystemPolicies"`
-	MountTargetSecurityGroups map[string][]string                  `json:"mountTargetSecurityGroups"`
-	AccountID                 string                               `json:"accountID"`
-	Region                    string                               `json:"region"`
+	FileSystems        map[string]*FileSystem               `json:"fileSystems"`
+	MountTargets       map[string]*MountTarget              `json:"mountTargets"`
+	AccessPoints       map[string]*AccessPoint              `json:"accessPoints"`
+	LifecyclePolicies  map[string][]LifecyclePolicy         `json:"lifecyclePolicies"`
+	ReplicationConfigs map[string]*ReplicationConfiguration `json:"replicationConfigs"`
+	BackupPolicies     map[string]string                    `json:"backupPolicies"`
+	FileSystemPolicies map[string]string                    `json:"fileSystemPolicies"`
+	AccountID          string                               `json:"accountID"`
+	Region             string                               `json:"region"`
 }
 
 func (s *backendSnapshot) ensureNonNil() {
@@ -42,9 +41,6 @@ func (s *backendSnapshot) ensureNonNil() {
 	if s.FileSystemPolicies == nil {
 		s.FileSystemPolicies = make(map[string]string)
 	}
-	if s.MountTargetSecurityGroups == nil {
-		s.MountTargetSecurityGroups = make(map[string][]string)
-	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -53,16 +49,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		FileSystems:               b.fileSystems,
-		MountTargets:              b.mountTargets,
-		AccessPoints:              b.accessPoints,
-		LifecyclePolicies:         b.lifecyclePolicies,
-		ReplicationConfigs:        b.replicationConfigs,
-		BackupPolicies:            b.backupPolicies,
-		FileSystemPolicies:        b.fileSystemPolicies,
-		MountTargetSecurityGroups: b.mountTargetSecurityGroups,
-		AccountID:                 b.accountID,
-		Region:                    b.region,
+		FileSystems:        b.fileSystems,
+		MountTargets:       b.mountTargets,
+		AccessPoints:       b.accessPoints,
+		LifecyclePolicies:  b.lifecyclePolicies,
+		ReplicationConfigs: b.replicationConfigs,
+		BackupPolicies:     b.backupPolicies,
+		FileSystemPolicies: b.fileSystemPolicies,
+		AccountID:          b.accountID,
+		Region:             b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -95,7 +90,6 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.replicationConfigs = snap.ReplicationConfigs
 	b.backupPolicies = snap.BackupPolicies
 	b.fileSystemPolicies = snap.FileSystemPolicies
-	b.mountTargetSecurityGroups = snap.MountTargetSecurityGroups
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -104,7 +98,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	return nil
 }
 
-// rebuildARNIndexes reconstructs all ARN-keyed maps and reinitialises nil tag registries.
+// rebuildARNIndexes reconstructs all ARN-keyed maps, client-token index, and reinitialises nil tag registries.
 func (b *InMemoryBackend) rebuildARNIndexes() {
 	b.fileSystemsByARN = make(map[string]*FileSystem, len(b.fileSystems))
 
@@ -122,12 +116,16 @@ func (b *InMemoryBackend) rebuildARNIndexes() {
 	}
 
 	b.accessPointsByARN = make(map[string]*AccessPoint, len(b.accessPoints))
+	b.accessPointsByClientToken = make(map[string]*AccessPoint)
 
 	for _, ap := range b.accessPoints {
 		if ap.Tags == nil {
 			ap.Tags = tags.New("efs.accesspoint." + ap.AccessPointID + ".tags")
 		}
 		b.accessPointsByARN[ap.AccessPointArn] = ap
+		if ap.ClientToken != "" {
+			b.accessPointsByClientToken[ap.ClientToken] = ap
+		}
 	}
 }
 
