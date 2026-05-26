@@ -68,17 +68,17 @@ func TestRefinement2_CreateServerlessCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		clName    string
 		serverless *kafka.ServerlessClusterInfo
-		wantErr   bool
+		name       string
+		clName     string
+		wantErr    bool
 	}{
 		{
 			name:   "basic_serverless",
 			clName: "srv-cluster",
 			serverless: &kafka.ServerlessClusterInfo{
 				VpcConfigs: []kafka.ServerlessVpcConfig{
-					{SubnetIds: []string{"subnet-1", "subnet-2"}, SecurityGroupIds: []string{"sg-1"}},
+					{SubnetIDs: []string{"subnet-1", "subnet-2"}, SecurityGroupIDs: []string{"sg-1"}},
 				},
 			},
 		},
@@ -90,15 +90,15 @@ func TestRefinement2_CreateServerlessCluster(t *testing.T) {
 					Sasl: &kafka.SaslSettings{Iam: &kafka.SaslIam{Enabled: true}},
 				},
 				VpcConfigs: []kafka.ServerlessVpcConfig{
-					{SubnetIds: []string{"subnet-3"}},
+					{SubnetIDs: []string{"subnet-3"}},
 				},
 			},
 		},
 		{
-			name:      "empty_name_fails",
-			clName:    "",
+			name:       "empty_name_fails",
+			clName:     "",
 			serverless: &kafka.ServerlessClusterInfo{},
-			wantErr:   true,
+			wantErr:    true,
 		},
 	}
 
@@ -144,8 +144,8 @@ func TestRefinement2_ServerlessCluster_Roundtrip(t *testing.T) {
 	srv := &kafka.ServerlessClusterInfo{
 		VpcConfigs: []kafka.ServerlessVpcConfig{
 			{
-				SubnetIds:        []string{"subnet-a", "subnet-b"},
-				SecurityGroupIds: []string{"sg-1"},
+				SubnetIDs:        []string{"subnet-a", "subnet-b"},
+				SecurityGroupIDs: []string{"sg-1"},
 			},
 		},
 		ClientAuthentication: &kafka.ServerlessClientAuthentication{
@@ -161,8 +161,8 @@ func TestRefinement2_ServerlessCluster_Roundtrip(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, described.Serverless)
 	require.Len(t, described.Serverless.VpcConfigs, 1)
-	assert.Equal(t, []string{"subnet-a", "subnet-b"}, described.Serverless.VpcConfigs[0].SubnetIds)
-	assert.Equal(t, []string{"sg-1"}, described.Serverless.VpcConfigs[0].SecurityGroupIds)
+	assert.Equal(t, []string{"subnet-a", "subnet-b"}, described.Serverless.VpcConfigs[0].SubnetIDs)
+	assert.Equal(t, []string{"sg-1"}, described.Serverless.VpcConfigs[0].SecurityGroupIDs)
 	require.NotNil(t, described.Serverless.ClientAuthentication)
 	require.NotNil(t, described.Serverless.ClientAuthentication.Sasl)
 	assert.True(t, described.Serverless.ClientAuthentication.Sasl.Iam.Enabled)
@@ -173,10 +173,10 @@ func TestRefinement2_ServerlessCluster_HTTP(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
-		wantStatus int
+		name       string
 		wantType   string
+		wantStatus int
 	}{
 		{
 			name: "serverless_ok",
@@ -255,7 +255,7 @@ func TestRefinement2_DescribeClusterV2_ServerlessArm(t *testing.T) {
 
 	srv := &kafka.ServerlessClusterInfo{
 		VpcConfigs: []kafka.ServerlessVpcConfig{
-			{SubnetIds: []string{"subnet-x"}},
+			{SubnetIDs: []string{"subnet-x"}},
 		},
 	}
 	cl, err := backend.CreateServerlessCluster("srv-v2", srv, nil)
@@ -299,8 +299,8 @@ func TestRefinement2_EncryptionInfo_Roundtrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		encIn *kafka.EncryptionInfo
+		name  string
 	}{
 		{
 			name: "tls_only",
@@ -315,7 +315,7 @@ func TestRefinement2_EncryptionInfo_Roundtrip(t *testing.T) {
 			name: "kms_key_at_rest",
 			encIn: &kafka.EncryptionInfo{
 				EncryptionAtRest: &kafka.EncryptionAtRest{
-					DataVolumeKMSKeyId: "arn:aws:kms:us-east-1:123:key/abc-123",
+					DataVolumeKMSKeyID: "arn:aws:kms:us-east-1:123:key/abc-123",
 				},
 				EncryptionInTransit: &kafka.EncryptionInTransit{
 					ClientBroker: kafka.EncryptionInTransitTLSPlaintext,
@@ -352,8 +352,8 @@ func TestRefinement2_EncryptionInfo_Roundtrip(t *testing.T) {
 			require.NotNil(t, described.EncryptionInfo)
 			if tt.encIn.EncryptionAtRest != nil {
 				require.NotNil(t, described.EncryptionInfo.EncryptionAtRest)
-				assert.Equal(t, tt.encIn.EncryptionAtRest.DataVolumeKMSKeyId,
-					described.EncryptionInfo.EncryptionAtRest.DataVolumeKMSKeyId)
+				assert.Equal(t, tt.encIn.EncryptionAtRest.DataVolumeKMSKeyID,
+					described.EncryptionInfo.EncryptionAtRest.DataVolumeKMSKeyID)
 			}
 			if tt.encIn.EncryptionInTransit != nil {
 				require.NotNil(t, described.EncryptionInfo.EncryptionInTransit)
@@ -376,7 +376,7 @@ func TestRefinement2_EncryptionInfo_InV1Response(t *testing.T) {
 	stored := kafka.GetStoredCluster(backend, cl.ClusterArn)
 	stored.EncryptionInfo = &kafka.EncryptionInfo{
 		EncryptionAtRest: &kafka.EncryptionAtRest{
-			DataVolumeKMSKeyId: "arn:aws:kms:us-east-1:123:key/abc",
+			DataVolumeKMSKeyID: "arn:aws:kms:us-east-1:123:key/abc",
 		},
 		EncryptionInTransit: &kafka.EncryptionInTransit{
 			ClientBroker: kafka.EncryptionInTransitTLS,
@@ -441,8 +441,8 @@ func TestRefinement2_OpenMonitoring_Roundtrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		om   *kafka.OpenMonitoring
+		name string
 	}{
 		{
 			name: "jmx_and_node_enabled",
@@ -509,8 +509,8 @@ func TestRefinement2_LoggingInfo_Roundtrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		li   *kafka.LoggingInfo
+		name string
 	}{
 		{
 			name: "cloudwatch_only",
@@ -668,7 +668,7 @@ func TestRefinement2_ClientAuthentication_TLS_NoAlias(t *testing.T) {
 		described.ClientAuthentication.TLS.CertificateAuthorityArnList[0])
 }
 
-// TestRefinement2_BrokerNodeGroupInfo_ZoneIds verifies ZoneIds roundtrip.
+// TestRefinement2_BrokerNodeGroupInfo_ZoneIds verifies ZoneIDs roundtrip.
 func TestRefinement2_BrokerNodeGroupInfo_ZoneIds(t *testing.T) {
 	t.Parallel()
 
@@ -676,7 +676,7 @@ func TestRefinement2_BrokerNodeGroupInfo_ZoneIds(t *testing.T) {
 	cl, err := b.CreateCluster("zone-cl", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 		InstanceType:         "kafka.m5.large",
 		ClientSubnets:        []string{"subnet-1", "subnet-2", "subnet-3"},
-		ZoneIds:              []string{"use1-az1", "use1-az2", "use1-az3"},
+		ZoneIDs:              []string{"use1-az1", "use1-az2", "use1-az3"},
 		BrokerAZDistribution: "DEFAULT",
 	}, nil, nil)
 	require.NoError(t, err)
@@ -684,7 +684,7 @@ func TestRefinement2_BrokerNodeGroupInfo_ZoneIds(t *testing.T) {
 	described, err := b.DescribeCluster(cl.ClusterArn)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"use1-az1", "use1-az2", "use1-az3"},
-		described.BrokerNodeGroupInfo.ZoneIds)
+		described.BrokerNodeGroupInfo.ZoneIDs)
 }
 
 // TestRefinement2_BrokerNodeGroupInfo_ProvisionedThroughput verifies ProvisionedThroughput roundtrip.
@@ -722,8 +722,8 @@ func TestRefinement2_BrokerNodeGroupInfo_ConnectivityInfo(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		ci   *kafka.ConnectivityInfo
+		name string
 	}{
 		{
 			name: "public_access_service_provided",
@@ -742,7 +742,7 @@ func TestRefinement2_BrokerNodeGroupInfo_ConnectivityInfo(t *testing.T) {
 			ci: &kafka.ConnectivityInfo{
 				VpcConnectivity: &kafka.VpcConnectivity{
 					ClientAuthentication: &kafka.VpcConnectivityClientAuthentication{
-						Tls: &kafka.VpcConnectivityTls{Enabled: true},
+						TLS: &kafka.VpcConnectivityTLS{Enabled: true},
 					},
 				},
 			},
@@ -797,8 +797,8 @@ func TestRefinement2_GetClusterPolicy_NotFoundException(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		setup     func(b *kafka.InMemoryBackend, clusterArn string)
+		name      string
 		wantErr   bool
 		wantFound bool
 	}{
@@ -856,8 +856,8 @@ func TestRefinement2_GetClusterPolicy_HTTP(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(h *kafka.Handler, encoded string)
+		name       string
 		wantStatus int
 	}{
 		{
@@ -1063,19 +1063,19 @@ func TestRefinement2_GetBootstrapBrokers_Variants(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		auth         *kafka.ClientAuthentication
-		connectivity *kafka.ConnectivityInfo
-		wantSCRAM    bool
-		wantIAM      bool
+		auth          *kafka.ClientAuthentication
+		connectivity  *kafka.ConnectivityInfo
+		name          string
+		wantSCRAM     bool
+		wantIAM       bool
 		wantPublicTLS bool
-		wantVpcTLS   bool
+		wantVpcTLS    bool
 	}{
 		{
-			name:         "no_auth",
-			auth:         nil,
-			wantSCRAM:    false,
-			wantIAM:      false,
+			name:          "no_auth",
+			auth:          nil,
+			wantSCRAM:     false,
+			wantIAM:       false,
 			wantPublicTLS: false,
 		},
 		{
@@ -1127,7 +1127,7 @@ func TestRefinement2_GetBootstrapBrokers_Variants(t *testing.T) {
 			connectivity: &kafka.ConnectivityInfo{
 				VpcConnectivity: &kafka.VpcConnectivity{
 					ClientAuthentication: &kafka.VpcConnectivityClientAuthentication{
-						Tls: &kafka.VpcConnectivityTls{Enabled: true},
+						TLS: &kafka.VpcConnectivityTLS{Enabled: true},
 					},
 				},
 			},
@@ -1175,7 +1175,11 @@ func TestRefinement2_GetBootstrapBrokers_Variants(t *testing.T) {
 			}
 
 			if tt.wantVpcTLS {
-				assert.NotEmpty(t, resp["bootstrapBrokerStringVpcConnectivityTls"], "VPC TLS broker string should be present")
+				assert.NotEmpty(
+					t,
+					resp["bootstrapBrokerStringVpcConnectivityTLS"],
+					"VPC TLS broker string should be present",
+				)
 			}
 		})
 	}
@@ -1357,7 +1361,7 @@ func TestRefinement2_ListClustersV2_ClusterType(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = backend.CreateServerlessCluster("srv-list", &kafka.ServerlessClusterInfo{
-		VpcConfigs: []kafka.ServerlessVpcConfig{{SubnetIds: []string{"subnet-2"}}},
+		VpcConfigs: []kafka.ServerlessVpcConfig{{SubnetIDs: []string{"subnet-2"}}},
 	}, nil)
 	require.NoError(t, err)
 
@@ -1386,7 +1390,7 @@ func TestRefinement2_ListClustersV2_ServerlessHasNoProvisionedArm(t *testing.T) 
 
 	h, backend := newTestHandlerWithBackend(t)
 	_, err := backend.CreateServerlessCluster("srv-noarm", &kafka.ServerlessClusterInfo{
-		VpcConfigs: []kafka.ServerlessVpcConfig{{SubnetIds: []string{"subnet-1"}}},
+		VpcConfigs: []kafka.ServerlessVpcConfig{{SubnetIDs: []string{"subnet-1"}}},
 	}, nil)
 	require.NoError(t, err)
 
@@ -1411,7 +1415,7 @@ func TestRefinement2_Persistence_ServerlessCluster(t *testing.T) {
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
 	srv := &kafka.ServerlessClusterInfo{
 		VpcConfigs: []kafka.ServerlessVpcConfig{
-			{SubnetIds: []string{"subnet-1"}, SecurityGroupIds: []string{"sg-1"}},
+			{SubnetIDs: []string{"subnet-1"}, SecurityGroupIDs: []string{"sg-1"}},
 		},
 	}
 	cl, err := b.CreateServerlessCluster("srv-persist", srv, map[string]string{"env": "test"})
@@ -1428,7 +1432,7 @@ func TestRefinement2_Persistence_ServerlessCluster(t *testing.T) {
 	assert.Equal(t, kafka.ClusterTypeServerless, described.ClusterType)
 	require.NotNil(t, described.Serverless)
 	require.Len(t, described.Serverless.VpcConfigs, 1)
-	assert.Equal(t, []string{"subnet-1"}, described.Serverless.VpcConfigs[0].SubnetIds)
+	assert.Equal(t, []string{"subnet-1"}, described.Serverless.VpcConfigs[0].SubnetIDs)
 }
 
 // TestRefinement2_Persistence_EncryptionInfo verifies EncryptionInfo survives snapshot/restore.
@@ -1441,7 +1445,7 @@ func TestRefinement2_Persistence_EncryptionInfo(t *testing.T) {
 	stored := kafka.GetStoredCluster(b, cl.ClusterArn)
 	stored.EncryptionInfo = &kafka.EncryptionInfo{
 		EncryptionAtRest: &kafka.EncryptionAtRest{
-			DataVolumeKMSKeyId: "arn:aws:kms:us-east-1:123:key/persist",
+			DataVolumeKMSKeyID: "arn:aws:kms:us-east-1:123:key/persist",
 		},
 		EncryptionInTransit: &kafka.EncryptionInTransit{
 			ClientBroker: kafka.EncryptionInTransitTLS,
@@ -1458,7 +1462,7 @@ func TestRefinement2_Persistence_EncryptionInfo(t *testing.T) {
 	require.NotNil(t, described.EncryptionInfo)
 	require.NotNil(t, described.EncryptionInfo.EncryptionAtRest)
 	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/persist",
-		described.EncryptionInfo.EncryptionAtRest.DataVolumeKMSKeyId)
+		described.EncryptionInfo.EncryptionAtRest.DataVolumeKMSKeyID)
 }
 
 // TestRefinement2_Persistence_ConfigurationInfo verifies ConfigurationInfo survives snapshot/restore.
@@ -1514,7 +1518,7 @@ func TestRefinement2_DeepCopy_ProvisionedThroughput(t *testing.T) {
 		described.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo.ProvisionedThroughput.VolumeThroughput)
 }
 
-// TestRefinement2_DeepCopy_ZoneIds verifies no aliasing in ZoneIds.
+// TestRefinement2_DeepCopy_ZoneIds verifies no aliasing in ZoneIDs.
 func TestRefinement2_DeepCopy_ZoneIds(t *testing.T) {
 	t.Parallel()
 
@@ -1523,17 +1527,17 @@ func TestRefinement2_DeepCopy_ZoneIds(t *testing.T) {
 	cl, err := b.CreateCluster("zone-alias", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 		InstanceType:  "kafka.m5.large",
 		ClientSubnets: []string{"subnet-1"},
-		ZoneIds:       zones,
+		ZoneIDs:       zones,
 	}, nil, nil)
 	require.NoError(t, err)
 
 	// Mutate original zones slice — should not affect stored.
 	zones[0] = "mutated"
-	cl.BrokerNodeGroupInfo.ZoneIds[0] = "also-mutated"
+	cl.BrokerNodeGroupInfo.ZoneIDs[0] = "also-mutated"
 
 	described, err := b.DescribeCluster(cl.ClusterArn)
 	require.NoError(t, err)
-	assert.Equal(t, "us-east-1a", described.BrokerNodeGroupInfo.ZoneIds[0])
+	assert.Equal(t, "us-east-1a", described.BrokerNodeGroupInfo.ZoneIDs[0])
 }
 
 // TestRefinement2_OpenMonitoring_InV2Response verifies OpenMonitoring in V2 provisioned arm.
@@ -1573,8 +1577,8 @@ func TestRefinement2_CreateCluster_AllAuthModes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		auth *kafka.ClientAuthentication
+		name string
 	}{
 		{
 			name: "no_auth",
@@ -1669,8 +1673,8 @@ func TestRefinement2_CreateCluster_V1_HTTP_AuthModes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		body map[string]any
+		name string
 	}{
 		{
 			name: "sasl_scram",

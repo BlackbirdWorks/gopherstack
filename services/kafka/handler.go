@@ -1068,21 +1068,21 @@ type listClustersV2Output struct {
 }
 
 type getBootstrapBrokersOutput struct {
-	BootstrapBrokerString                      string `json:"bootstrapBrokerString,omitempty"`
-	BootstrapBrokerStringTls                   string `json:"bootstrapBrokerStringTls,omitempty"`
-	BootstrapBrokerStringSaslScram             string `json:"bootstrapBrokerStringSaslScram,omitempty"`
-	BootstrapBrokerStringSaslIam               string `json:"bootstrapBrokerStringSaslIam,omitempty"`
-	BootstrapBrokerStringTlsPublic             string `json:"bootstrapBrokerStringTlsPublic,omitempty"`
-	BootstrapBrokerStringSaslScramPublic       string `json:"bootstrapBrokerStringSaslScramPublic,omitempty"`
-	BootstrapBrokerStringSaslIamPublic         string `json:"bootstrapBrokerStringSaslIamPublic,omitempty"`
-	BootstrapBrokerStringVpcConnectivityTls    string `json:"bootstrapBrokerStringVpcConnectivityTls,omitempty"`
-	BootstrapBrokerStringVpcConnectivityScram  string `json:"bootstrapBrokerStringVpcConnectivitySaslScram,omitempty"`
-	BootstrapBrokerStringVpcConnectivityIam    string `json:"bootstrapBrokerStringVpcConnectivitySaslIam,omitempty"`
+	BootstrapBrokerString                     string `json:"bootstrapBrokerString,omitempty"`
+	BootstrapBrokerStringTLS                  string `json:"bootstrapBrokerStringTls,omitempty"`
+	BootstrapBrokerStringSaslScram            string `json:"bootstrapBrokerStringSaslScram,omitempty"`
+	BootstrapBrokerStringSaslIam              string `json:"bootstrapBrokerStringSaslIam,omitempty"`
+	BootstrapBrokerStringTLSPublic            string `json:"bootstrapBrokerStringTlsPublic,omitempty"`
+	BootstrapBrokerStringSaslScramPublic      string `json:"bootstrapBrokerStringSaslScramPublic,omitempty"`
+	BootstrapBrokerStringSaslIamPublic        string `json:"bootstrapBrokerStringSaslIamPublic,omitempty"`
+	BootstrapBrokerStringVpcConnectivityTLS   string `json:"bootstrapBrokerStringVpcConnectivityTLS,omitempty"`
+	BootstrapBrokerStringVpcConnectivityScram string `json:"bootstrapBrokerStringVpcConnectivitySaslScram,omitempty"`
+	BootstrapBrokerStringVpcConnectivityIam   string `json:"bootstrapBrokerStringVpcConnectivitySaslIam,omitempty"`
 }
 
 type serverlessVpcConfigInput struct {
-	SubnetIds        []string `json:"subnetIds,omitempty"`
-	SecurityGroupIds []string `json:"securityGroupIds,omitempty"`
+	SubnetIDs        []string `json:"subnetIds,omitempty"`
+	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
 }
 
 type serverlessAuthInput struct {
@@ -1220,10 +1220,7 @@ func (h *Handler) handleCreateClusterV2(c *echo.Context, body []byte) error {
 			}
 		}
 		for _, vc := range srv.VpcConfigs {
-			serverlessInfo.VpcConfigs = append(serverlessInfo.VpcConfigs, ServerlessVpcConfig{
-				SubnetIds:        vc.SubnetIds,
-				SecurityGroupIds: vc.SecurityGroupIds,
-			})
+			serverlessInfo.VpcConfigs = append(serverlessInfo.VpcConfigs, ServerlessVpcConfig(vc))
 		}
 
 		cluster, err := h.Backend.CreateServerlessCluster(in.ClusterName, serverlessInfo, in.Tags)
@@ -1333,53 +1330,86 @@ func (h *Handler) handleGetBootstrapBrokers(c *echo.Context, clusterArn string) 
 func bootstrapBrokersFor(cl *Cluster) getBootstrapBrokersOutput {
 	out := getBootstrapBrokersOutput{
 		BootstrapBrokerString:    "localhost:9092",
-		BootstrapBrokerStringTls: "localhost:9094",
+		BootstrapBrokerStringTLS: "localhost:9094",
 	}
 
 	auth := cl.ClientAuthentication
-
-	if auth != nil && auth.Sasl != nil {
-		if auth.Sasl.Scram != nil && auth.Sasl.Scram.Enabled {
-			out.BootstrapBrokerStringSaslScram = "localhost:9096"
-		}
-
-		if auth.Sasl.Iam != nil && auth.Sasl.Iam.Enabled {
-			out.BootstrapBrokerStringSaslIam = "localhost:9098"
-		}
+	if auth == nil {
+		return out
 	}
 
-	// Emit public variants when public access is enabled.
-	if auth != nil && cl.BrokerNodeGroupInfo.ConnectivityInfo != nil {
-		pa := cl.BrokerNodeGroupInfo.ConnectivityInfo.PublicAccess
-		if pa != nil && pa.Type == "SERVICE_PROVIDED_EIPS" {
-			out.BootstrapBrokerStringTlsPublic = "localhost:9194"
-			if auth.Sasl != nil && auth.Sasl.Scram != nil && auth.Sasl.Scram.Enabled {
-				out.BootstrapBrokerStringSaslScramPublic = "localhost:9196"
-			}
-			if auth.Sasl != nil && auth.Sasl.Iam != nil && auth.Sasl.Iam.Enabled {
-				out.BootstrapBrokerStringSaslIamPublic = "localhost:9198"
-			}
-		}
+	addSaslBrokers(auth.Sasl, &out)
 
-		// VPC connectivity variants.
-		vc := cl.BrokerNodeGroupInfo.ConnectivityInfo.VpcConnectivity
-		if vc != nil && vc.ClientAuthentication != nil {
-			vca := vc.ClientAuthentication
-			if vca.Tls != nil && vca.Tls.Enabled {
-				out.BootstrapBrokerStringVpcConnectivityTls = "localhost:9294"
-			}
-			if vca.Sasl != nil {
-				if vca.Sasl.Scram != nil && vca.Sasl.Scram.Enabled {
-					out.BootstrapBrokerStringVpcConnectivityScram = "localhost:9296"
-				}
-				if vca.Sasl.Iam != nil && vca.Sasl.Iam.Enabled {
-					out.BootstrapBrokerStringVpcConnectivityIam = "localhost:9298"
-				}
-			}
-		}
+	ci := cl.BrokerNodeGroupInfo.ConnectivityInfo
+	if ci == nil {
+		return out
 	}
+
+	addPublicBrokers(auth, ci.PublicAccess, &out)
+	addVpcConnectivityBrokers(ci.VpcConnectivity, &out)
 
 	return out
+}
+
+// addSaslBrokers populates SASL broker endpoints when SASL authentication is configured.
+func addSaslBrokers(sasl *SaslSettings, out *getBootstrapBrokersOutput) {
+	if sasl == nil {
+		return
+	}
+
+	if sasl.Scram != nil && sasl.Scram.Enabled {
+		out.BootstrapBrokerStringSaslScram = "localhost:9096"
+	}
+
+	if sasl.Iam != nil && sasl.Iam.Enabled {
+		out.BootstrapBrokerStringSaslIam = "localhost:9098"
+	}
+}
+
+// addPublicBrokers populates public access broker endpoints when public access is enabled.
+func addPublicBrokers(auth *ClientAuthentication, pa *PublicAccess, out *getBootstrapBrokersOutput) {
+	if pa == nil || pa.Type != "SERVICE_PROVIDED_EIPS" {
+		return
+	}
+
+	out.BootstrapBrokerStringTLSPublic = "localhost:9194"
+
+	if auth.Sasl == nil {
+		return
+	}
+
+	if auth.Sasl.Scram != nil && auth.Sasl.Scram.Enabled {
+		out.BootstrapBrokerStringSaslScramPublic = "localhost:9196"
+	}
+
+	if auth.Sasl.Iam != nil && auth.Sasl.Iam.Enabled {
+		out.BootstrapBrokerStringSaslIamPublic = "localhost:9198"
+	}
+}
+
+// addVpcConnectivityBrokers populates VPC connectivity broker endpoints.
+func addVpcConnectivityBrokers(vc *VpcConnectivity, out *getBootstrapBrokersOutput) {
+	if vc == nil || vc.ClientAuthentication == nil {
+		return
+	}
+
+	vca := vc.ClientAuthentication
+
+	if vca.TLS != nil && vca.TLS.Enabled {
+		out.BootstrapBrokerStringVpcConnectivityTLS = "localhost:9294"
+	}
+
+	if vca.Sasl == nil {
+		return
+	}
+
+	if vca.Sasl.Scram != nil && vca.Sasl.Scram.Enabled {
+		out.BootstrapBrokerStringVpcConnectivityScram = "localhost:9296"
+	}
+
+	if vca.Sasl.Iam != nil && vca.Sasl.Iam.Enabled {
+		out.BootstrapBrokerStringVpcConnectivityIam = "localhost:9298"
+	}
 }
 
 // brokerSoftwareInfoFor returns a brokerSoftwareInfo for the given Kafka version,
@@ -1424,23 +1454,40 @@ func zookeeperConnectStringFor(clusterArn string) string {
 
 	// Synthesise a deterministic-looking ZK endpoint from the ARN suffix.
 	// Format: z-1.<cluster-id>.kafka.<region>.amazonaws.com:2181,...
-	parts := strings.Split(clusterArn, "/")
-	clusterID := "unknown"
-	if len(parts) >= 2 {
-		clusterID = parts[len(parts)-1]
-	}
+	clusterID, region := parseClusterIDAndRegion(clusterArn)
 
-	region := "us-east-1"
-	arnParts := strings.SplitN(clusterArn, ":", 6)
-	if len(arnParts) >= 4 {
-		region = arnParts[3]
-	}
-
-	return fmt.Sprintf("z-1.%s.kafka.%s.amazonaws.com:2181,z-2.%s.kafka.%s.amazonaws.com:2181,z-3.%s.kafka.%s.amazonaws.com:2181",
+	return fmt.Sprintf(
+		"z-1.%s.kafka.%s.amazonaws.com:2181,"+
+			"z-2.%s.kafka.%s.amazonaws.com:2181,"+
+			"z-3.%s.kafka.%s.amazonaws.com:2181",
 		clusterID, region,
 		clusterID, region,
 		clusterID, region,
 	)
+}
+
+// parseClusterIDAndRegion extracts the cluster ID and region from an ARN.
+func parseClusterIDAndRegion(clusterArn string) (string, string) {
+	const (
+		minARNSlashParts  = 2
+		arnColonFields    = 6
+		arnRegionPosition = 4
+	)
+
+	clusterID := "unknown"
+	region := "us-east-1"
+
+	parts := strings.Split(clusterArn, "/")
+	if len(parts) >= minARNSlashParts {
+		clusterID = parts[len(parts)-1]
+	}
+
+	arnParts := strings.SplitN(clusterArn, ":", arnColonFields)
+	if len(arnParts) >= arnRegionPosition {
+		region = arnParts[3]
+	}
+
+	return clusterID, region
 }
 
 // toClusterInfoV2 converts a Cluster to the V2 cluster info shape.
@@ -1528,7 +1575,7 @@ func (h *Handler) handleDescribeConfiguration(c *echo.Context, configArn string)
 		Name:          config.Name,
 		Description:   config.Description,
 		KafkaVersions: config.KafkaVersions,
-		State:         "ACTIVE",
+		State:         ClusterStateActive,
 		LatestRevision: configurationRevision{
 			Revision:    1,
 			Description: config.Description,

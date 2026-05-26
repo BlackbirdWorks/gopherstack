@@ -30,6 +30,8 @@ const (
 	VpcConnectionStateAvailable = "AVAILABLE"
 	// ClusterOperationStateUpdateComplete indicates a completed cluster operation.
 	ClusterOperationStateUpdateComplete = "UPDATE_COMPLETE"
+	// DefaultClusterVersion is the default MSK cluster version identifier.
+	DefaultClusterVersion = "K3AEGXETSR30VB"
 )
 
 const (
@@ -132,15 +134,15 @@ type VpcConnectivitySasl struct {
 	Scram *VpcConnectivitySaslScram `json:"scram,omitempty"`
 }
 
-// VpcConnectivityTls holds TLS settings for VPC connectivity.
-type VpcConnectivityTls struct {
+// VpcConnectivityTLS holds TLS settings for VPC connectivity.
+type VpcConnectivityTLS struct {
 	Enabled bool `json:"enabled"`
 }
 
 // VpcConnectivityClientAuthentication holds authentication settings for VPC connectivity.
 type VpcConnectivityClientAuthentication struct {
 	Sasl *VpcConnectivitySasl `json:"sasl,omitempty"`
-	Tls  *VpcConnectivityTls  `json:"tls,omitempty"`
+	TLS  *VpcConnectivityTLS  `json:"tls,omitempty"`
 }
 
 // VpcConnectivity holds VPC connectivity configuration.
@@ -160,7 +162,7 @@ type BrokerNodeGroupInfo struct {
 	StorageInfo          *StorageInfo      `json:"storageInfo,omitempty"`
 	BrokerAZDistribution string            `json:"brokerAZDistribution,omitempty"`
 	InstanceType         string            `json:"instanceType"`
-	ZoneIds              []string          `json:"zoneIds,omitempty"`
+	ZoneIDs              []string          `json:"zoneIds,omitempty"`
 	ClientSubnets        []string          `json:"clientSubnets"`
 	SecurityGroups       []string          `json:"securityGroups,omitempty"`
 }
@@ -207,7 +209,7 @@ type UnauthenticatedSettings struct {
 
 // EncryptionAtRest holds at-rest encryption configuration.
 type EncryptionAtRest struct {
-	DataVolumeKMSKeyId string `json:"dataVolumeKMSKeyId,omitempty"`
+	DataVolumeKMSKeyID string `json:"dataVolumeKMSKeyId,omitempty"`
 }
 
 // EncryptionInTransit holds in-transit encryption configuration.
@@ -282,8 +284,8 @@ type StateInfo struct {
 
 // ServerlessVpcConfig holds VPC configuration for a serverless cluster.
 type ServerlessVpcConfig struct {
-	SubnetIds        []string `json:"subnetIds,omitempty"`
-	SecurityGroupIds []string `json:"securityGroupIds,omitempty"`
+	SubnetIDs        []string `json:"subnetIds,omitempty"`
+	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
 }
 
 // ServerlessClientAuthentication holds authentication settings for a serverless cluster.
@@ -468,7 +470,7 @@ func (b *InMemoryBackend) CreateCluster(
 		InstanceType:         brokerInfo.InstanceType,
 		ClientSubnets:        append([]string(nil), brokerInfo.ClientSubnets...),
 		SecurityGroups:       append([]string(nil), brokerInfo.SecurityGroups...),
-		ZoneIds:              append([]string(nil), brokerInfo.ZoneIds...),
+		ZoneIDs:              append([]string(nil), brokerInfo.ZoneIDs...),
 		StorageInfo:          brokerInfo.StorageInfo,
 		ConnectivityInfo:     brokerInfo.ConnectivityInfo,
 	}
@@ -487,7 +489,7 @@ func (b *InMemoryBackend) CreateCluster(
 		BrokerNodeGroupInfo:  safeInfo,
 		ClientAuthentication: cloneClientAuth(clientAuth),
 		State:                ClusterStateActive,
-		CurrentVersion:       "K3AEGXETSR30VB",
+		CurrentVersion:       DefaultClusterVersion,
 		Tags:                 nonNilTagsCopy(tags),
 	}
 	b.clusters[clusterArn] = cluster
@@ -520,7 +522,7 @@ func (b *InMemoryBackend) CreateServerlessCluster(
 		ClusterName:    name,
 		ClusterType:    ClusterTypeServerless,
 		State:          ClusterStateActive,
-		CurrentVersion: "K3AEGXETSR30VB",
+		CurrentVersion: DefaultClusterVersion,
 		Tags:           nonNilTagsCopy(tags),
 		Serverless:     cloneServerless(serverless),
 	}
@@ -1590,15 +1592,15 @@ func (b *InMemoryBackend) ListNodes(clusterArn string) ([]*BrokerNode, error) {
 // ListKafkaVersions returns supported Kafka versions, matching current MSK availability.
 func (b *InMemoryBackend) ListKafkaVersions() []*MSKVersion {
 	return []*MSKVersion{
-		{Version: "3.8.0.kraft", Status: "ACTIVE"},
-		{Version: "3.7.x.kraft", Status: "ACTIVE"},
-		{Version: "3.6.0", Status: "ACTIVE"},
-		{Version: "3.5.1", Status: "ACTIVE"},
-		{Version: "3.4.0", Status: "ACTIVE"},
-		{Version: "3.3.2", Status: "ACTIVE"},
-		{Version: "3.3.1", Status: "ACTIVE"},
-		{Version: "2.8.2.tiered", Status: "ACTIVE"},
-		{Version: "2.8.1", Status: "ACTIVE"},
+		{Version: "3.8.0.kraft", Status: ClusterStateActive},
+		{Version: "3.7.x.kraft", Status: ClusterStateActive},
+		{Version: "3.6.0", Status: ClusterStateActive},
+		{Version: "3.5.1", Status: ClusterStateActive},
+		{Version: "3.4.0", Status: ClusterStateActive},
+		{Version: "3.3.2", Status: ClusterStateActive},
+		{Version: "3.3.1", Status: ClusterStateActive},
+		{Version: "2.8.2.tiered", Status: ClusterStateActive},
+		{Version: "2.8.1", Status: ClusterStateActive},
 		{Version: "2.8.0", Status: "DEPRECATED"},
 		{Version: "2.6.0", Status: "DEPRECATED"},
 	}
@@ -1620,19 +1622,19 @@ func (b *InMemoryBackend) GetCompatibleKafkaVersions(clusterArn string) ([]*MSKV
 
 	if isKRaft {
 		return []*MSKVersion{
-			{Version: "3.8.0.kraft", Status: "ACTIVE"},
-			{Version: "3.7.x.kraft", Status: "ACTIVE"},
+			{Version: "3.8.0.kraft", Status: ClusterStateActive},
+			{Version: "3.7.x.kraft", Status: ClusterStateActive},
 		}, nil
 	}
 
 	// ZooKeeper-based: return non-KRaft active versions higher than current.
 	// For simplicity, return a curated list of ZooKeeper-compatible upgrades.
 	return []*MSKVersion{
-		{Version: "3.6.0", Status: "ACTIVE"},
-		{Version: "3.5.1", Status: "ACTIVE"},
-		{Version: "3.4.0", Status: "ACTIVE"},
-		{Version: "3.3.2", Status: "ACTIVE"},
-		{Version: "2.8.2.tiered", Status: "ACTIVE"},
+		{Version: "3.6.0", Status: ClusterStateActive},
+		{Version: "3.5.1", Status: ClusterStateActive},
+		{Version: "3.4.0", Status: ClusterStateActive},
+		{Version: "3.3.2", Status: ClusterStateActive},
+		{Version: "2.8.2.tiered", Status: ClusterStateActive},
 	}, nil
 }
 
@@ -1730,7 +1732,7 @@ func (b *InMemoryBackend) AddClusterInternal(name, kafkaVersion string) *Cluster
 		KafkaVersion:        kafkaVersion,
 		NumberOfBrokerNodes: defaultBrokerCount,
 		State:               ClusterStateActive,
-		CurrentVersion:      "K3AEGXETSR30VB",
+		CurrentVersion:      DefaultClusterVersion,
 		Tags:                make(map[string]string),
 	}
 	b.clusters[clusterArn] = cluster
@@ -1852,24 +1854,24 @@ type ClusterOperation struct {
 // cloneCluster creates a deep copy of a cluster.
 func cloneCluster(c *Cluster) *Cluster {
 	clone := &Cluster{
-		ClusterArn:         c.ClusterArn,
-		ClusterName:        c.ClusterName,
-		ClusterType:        c.ClusterType,
-		KafkaVersion:       c.KafkaVersion,
-		State:              c.State,
-		CurrentVersion:     c.CurrentVersion,
-		ActiveOperationArn: c.ActiveOperationArn,
-		EnhancedMonitoring: c.EnhancedMonitoring,
-		StorageMode:        c.StorageMode,
-		CreationTime:       c.CreationTime,
+		ClusterArn:          c.ClusterArn,
+		ClusterName:         c.ClusterName,
+		ClusterType:         c.ClusterType,
+		KafkaVersion:        c.KafkaVersion,
+		State:               c.State,
+		CurrentVersion:      c.CurrentVersion,
+		ActiveOperationArn:  c.ActiveOperationArn,
+		EnhancedMonitoring:  c.EnhancedMonitoring,
+		StorageMode:         c.StorageMode,
+		CreationTime:        c.CreationTime,
 		NumberOfBrokerNodes: c.NumberOfBrokerNodes,
-		Tags:               nonNilTagsCopy(c.Tags),
+		Tags:                nonNilTagsCopy(c.Tags),
 		BrokerNodeGroupInfo: BrokerNodeGroupInfo{
 			BrokerAZDistribution: c.BrokerNodeGroupInfo.BrokerAZDistribution,
 			InstanceType:         c.BrokerNodeGroupInfo.InstanceType,
 			ClientSubnets:        append([]string(nil), c.BrokerNodeGroupInfo.ClientSubnets...),
 			SecurityGroups:       append([]string(nil), c.BrokerNodeGroupInfo.SecurityGroups...),
-			ZoneIds:              append([]string(nil), c.BrokerNodeGroupInfo.ZoneIds...),
+			ZoneIDs:              append([]string(nil), c.BrokerNodeGroupInfo.ZoneIDs...),
 		},
 	}
 
@@ -1932,31 +1934,47 @@ func cloneConnectivityInfo(ci *ConnectivityInfo) *ConnectivityInfo {
 	}
 
 	if ci.VpcConnectivity != nil {
-		vc := &VpcConnectivity{}
-		if ci.VpcConnectivity.ClientAuthentication != nil {
-			ca := &VpcConnectivityClientAuthentication{}
-			if ci.VpcConnectivity.ClientAuthentication.Sasl != nil {
-				sasl := &VpcConnectivitySasl{}
-				if ci.VpcConnectivity.ClientAuthentication.Sasl.Iam != nil {
-					iam := *ci.VpcConnectivity.ClientAuthentication.Sasl.Iam
-					sasl.Iam = &iam
-				}
-				if ci.VpcConnectivity.ClientAuthentication.Sasl.Scram != nil {
-					scram := *ci.VpcConnectivity.ClientAuthentication.Sasl.Scram
-					sasl.Scram = &scram
-				}
-				ca.Sasl = sasl
-			}
-			if ci.VpcConnectivity.ClientAuthentication.Tls != nil {
-				tls := *ci.VpcConnectivity.ClientAuthentication.Tls
-				ca.Tls = &tls
-			}
-			vc.ClientAuthentication = ca
-		}
-		clone.VpcConnectivity = vc
+		clone.VpcConnectivity = cloneVpcConnectivity(ci.VpcConnectivity)
 	}
 
 	return clone
+}
+
+// cloneVpcConnectivity deep-copies a VpcConnectivity.
+func cloneVpcConnectivity(src *VpcConnectivity) *VpcConnectivity {
+	vc := &VpcConnectivity{}
+
+	if src.ClientAuthentication == nil {
+		return vc
+	}
+
+	ca := &VpcConnectivityClientAuthentication{}
+	srcCA := src.ClientAuthentication
+
+	if srcCA.Sasl != nil {
+		sasl := &VpcConnectivitySasl{}
+
+		if srcCA.Sasl.Iam != nil {
+			iam := *srcCA.Sasl.Iam
+			sasl.Iam = &iam
+		}
+
+		if srcCA.Sasl.Scram != nil {
+			scram := *srcCA.Sasl.Scram
+			sasl.Scram = &scram
+		}
+
+		ca.Sasl = sasl
+	}
+
+	if srcCA.TLS != nil {
+		tls := *srcCA.TLS
+		ca.TLS = &tls
+	}
+
+	vc.ClientAuthentication = ca
+
+	return vc
 }
 
 // cloneEncryptionInfo deep-copies an EncryptionInfo.
@@ -2048,8 +2066,8 @@ func cloneServerless(s *ServerlessClusterInfo) *ServerlessClusterInfo {
 		clone.VpcConfigs = make([]ServerlessVpcConfig, len(s.VpcConfigs))
 		for i, vc := range s.VpcConfigs {
 			clone.VpcConfigs[i] = ServerlessVpcConfig{
-				SubnetIds:        append([]string(nil), vc.SubnetIds...),
-				SecurityGroupIds: append([]string(nil), vc.SecurityGroupIds...),
+				SubnetIDs:        append([]string(nil), vc.SubnetIDs...),
+				SecurityGroupIDs: append([]string(nil), vc.SecurityGroupIDs...),
 			}
 		}
 	}
