@@ -19,7 +19,19 @@ const (
 	transactionStatusActive    = "ACTIVE"
 	transactionStatusCommitted = "COMMITTED"
 	transactionStatusAborted   = "ABORTED"
+
+	randAccessKeyBytes  = 16
+	randSecretKeyBytes  = 20
+	randSessionKeyBytes = 32
 )
+
+// randomHex returns a random hex string of n bytes (2n hex chars).
+func randomHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+
+	return hex.EncodeToString(b)
+}
 
 // ErrValidation is returned when input validation fails.
 var ErrValidation = errors.New("validation error")
@@ -891,9 +903,9 @@ func (b *InMemoryBackend) AssumeDecoratedRoleWithSAML(
 	_ *int32,
 ) *SAMLCredentials {
 	return &SAMLCredentials{
-		AccessKeyID:     "ASIALAKEFORMATION0001",
-		SecretAccessKey: "syntheticSecretKey00000000000000000000000",
-		SessionToken:    "syntheticSessionToken",
+		AccessKeyID:     "ASIA" + randomHex(randAccessKeyBytes),
+		SecretAccessKey: randomHex(randSecretKeyBytes),
+		SessionToken:    randomHex(randSessionKeyBytes),
 		Expiration:      time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
 	}
 }
@@ -1743,9 +1755,9 @@ func (b *InMemoryBackend) GetEffectivePermissionsForPath(
 // GetTemporaryCredentials returns synthetic temporary AWS credentials.
 func (b *InMemoryBackend) GetTemporaryCredentials(_ *int32) *TemporaryCredentials {
 	return &TemporaryCredentials{
-		AccessKeyID:     "ASIALAKEFORMATION0002",
-		SecretAccessKey: "syntheticSecretKey00000000000000000000001",
-		SessionToken:    "syntheticSessionToken002",
+		AccessKeyID:     "ASIA" + randomHex(randAccessKeyBytes),
+		SecretAccessKey: randomHex(randSecretKeyBytes),
+		SessionToken:    randomHex(randSessionKeyBytes),
 	}
 }
 
