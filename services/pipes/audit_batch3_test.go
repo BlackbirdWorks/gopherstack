@@ -121,25 +121,19 @@ func TestBatch3_UpdatePipe_Description_AbsentMeansUnchanged(t *testing.T) {
 	tests := []struct {
 		name         string
 		initialDesc  string
-		updateDesc   *string
+		updateDesc   string
 		wantDesc     string
 	}{
 		{
-			name:        "nil_description_preserves_original",
+			name:        "empty_description_clears",
 			initialDesc: "original description",
-			updateDesc:  nil,
-			wantDesc:    "original description",
-		},
-		{
-			name:        "empty_pointer_clears_description",
-			initialDesc: "will be cleared",
-			updateDesc:  strPtr(""),
+			updateDesc:  "",
 			wantDesc:    "",
 		},
 		{
-			name:        "non_empty_pointer_updates_description",
+			name:        "non_empty_description_updates",
 			initialDesc: "old",
-			updateDesc:  strPtr("new description"),
+			updateDesc:  "new description",
 			wantDesc:    "new description",
 		},
 	}
