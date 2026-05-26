@@ -2,6 +2,17 @@ package iotdataplane
 
 import "encoding/json"
 
+// MergeStateFields exposes mergeStateFields for white-box testing.
+func MergeStateFields(base, patch map[string]json.RawMessage) map[string]json.RawMessage {
+	return mergeStateFields(base, patch)
+}
+
+// ValidateTopic exposes validateTopic for white-box testing.
+func ValidateTopic(topic string) error { return validateTopic(topic) }
+
+// ValidateShadowName exposes validateShadowName for white-box testing.
+func ValidateShadowName(name string) error { return validateShadowName(name) }
+
 // ShadowCount returns the total number of shadow entries across all things (for white-box testing).
 func ShadowCount(b *InMemoryBackend) int {
 	b.mu.RLock("ShadowCount")

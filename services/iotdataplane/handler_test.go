@@ -562,7 +562,7 @@ func TestBackend_Publish(t *testing.T) {
 				b.SetBroker(mock)
 			}
 
-			err := b.Publish(tt.topic, tt.payload, 0)
+			err := b.Publish(tt.topic, tt.payload, 0, false)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -653,7 +653,7 @@ func TestHandler_DeleteConnection(t *testing.T) {
 			b.AddConnectionInternal("client-001")
 			h := iotdataplane.NewHandler(b)
 
-			path := "/connections/" + tt.clientID
+			path := "/_admin/connections/" + tt.clientID
 			rec := doRequest(t, h, tt.method, path, nil)
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
@@ -853,7 +853,7 @@ func TestHandler_ExtractOperation_NewOps(t *testing.T) {
 		{
 			name:   "delete_connection",
 			method: http.MethodDelete,
-			path:   "/connections/client-001",
+			path:   "/_admin/connections/client-001",
 			wantOp: "DeleteConnection",
 		},
 		{
@@ -891,7 +891,7 @@ func TestHandler_RouteMatcher_NewOps(t *testing.T) {
 		path      string
 		wantMatch bool
 	}{
-		{name: "connections", path: "/connections/client-001", wantMatch: true},
+		{name: "connections", path: "/_admin/connections/client-001", wantMatch: true},
 		{name: "retained_message_by_topic", path: "/retainedMessage/sensor/temp", wantMatch: true},
 		{name: "list_retained_messages", path: "/retainedMessage", wantMatch: true},
 		{name: "unrelated", path: "/other/path", wantMatch: false},

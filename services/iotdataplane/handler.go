@@ -544,8 +544,8 @@ func parsePageSize(q interface{ Get(string) string }) int {
 }
 
 // findCursorIndex returns the start index for the given nextToken cursor in items.
-// The cursor is the value of items[i]; returns i+1 so the cursor item itself is
-// not re-emitted on the next page (fixes the off-by-one in the previous implementation).
+// nextToken holds the first item of the next page (set to items[end] at write time),
+// so the cursor item IS the first item of the new page — we start AT it (not after it).
 // Returns 0 if the cursor is not found or is empty.
 func findCursorIndex(items []string, cursor string) int {
 	if cursor == "" {
@@ -554,7 +554,7 @@ func findCursorIndex(items []string, cursor string) int {
 
 	for i, item := range items {
 		if item == cursor {
-			return i + 1 // start AFTER the cursor item
+			return i
 		}
 	}
 

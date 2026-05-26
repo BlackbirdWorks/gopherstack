@@ -202,7 +202,7 @@ func TestRefinement2_ListConnections_Empty(t *testing.T) {
 	t.Parallel()
 
 	h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
-	rec := doRequest(t, h, http.MethodGet, "/connections", nil)
+	rec := doRequest(t, h, http.MethodGet, "/_admin/connections", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -217,7 +217,7 @@ func TestRefinement2_RegisterConnection_Success(t *testing.T) {
 	b := iotdataplane.NewInMemoryBackend()
 	h := iotdataplane.NewHandler(b)
 
-	rec := doRequest(t, h, http.MethodPost, "/connections/device-001", nil)
+	rec := doRequest(t, h, http.MethodPost, "/_admin/connections/device-001", nil)
 	assert.Equal(t, http.StatusCreated, rec.Code)
 	assert.Equal(t, 1, iotdataplane.ConnectionCount(b))
 }
@@ -228,10 +228,10 @@ func TestRefinement2_RegisterConnection_DuplicateReturns409(t *testing.T) {
 	b := iotdataplane.NewInMemoryBackend()
 	h := iotdataplane.NewHandler(b)
 
-	rec := doRequest(t, h, http.MethodPost, "/connections/device-001", nil)
+	rec := doRequest(t, h, http.MethodPost, "/_admin/connections/device-001", nil)
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
-	rec = doRequest(t, h, http.MethodPost, "/connections/device-001", nil)
+	rec = doRequest(t, h, http.MethodPost, "/_admin/connections/device-001", nil)
 	assert.Equal(t, http.StatusConflict, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ResourceAlreadyExistsException")
 }
@@ -240,7 +240,7 @@ func TestRefinement2_RegisterConnection_DollarPrefixRejected(t *testing.T) {
 	t.Parallel()
 
 	h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
-	rec := doRequest(t, h, http.MethodPost, "/connections/$system", nil)
+	rec := doRequest(t, h, http.MethodPost, "/_admin/connections/$system", nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
@@ -251,10 +251,10 @@ func TestRefinement2_ListConnections_ShowsRegistered(t *testing.T) {
 	h := iotdataplane.NewHandler(b)
 
 	// Register two connections.
-	doRequest(t, h, http.MethodPost, "/connections/device-a", nil)
-	doRequest(t, h, http.MethodPost, "/connections/device-b", nil)
+	doRequest(t, h, http.MethodPost, "/_admin/connections/device-a", nil)
+	doRequest(t, h, http.MethodPost, "/_admin/connections/device-b", nil)
 
-	rec := doRequest(t, h, http.MethodGet, "/connections", nil)
+	rec := doRequest(t, h, http.MethodGet, "/_admin/connections", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -269,10 +269,10 @@ func TestRefinement2_DeleteConnection_RemovesFromList(t *testing.T) {
 	b := iotdataplane.NewInMemoryBackend()
 	h := iotdataplane.NewHandler(b)
 
-	doRequest(t, h, http.MethodPost, "/connections/device-x", nil)
+	doRequest(t, h, http.MethodPost, "/_admin/connections/device-x", nil)
 	assert.Equal(t, 1, iotdataplane.ConnectionCount(b))
 
-	doRequest(t, h, http.MethodDelete, "/connections/device-x", nil)
+	doRequest(t, h, http.MethodDelete, "/_admin/connections/device-x", nil)
 	assert.Equal(t, 0, iotdataplane.ConnectionCount(b))
 }
 
@@ -282,7 +282,7 @@ func TestRefinement2_Connections_WrongMethod(t *testing.T) {
 	h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
 
 	// PUT on /connections should return 405.
-	rec := doRequest(t, h, http.MethodPut, "/connections", nil)
+	rec := doRequest(t, h, http.MethodPut, "/_admin/connections", nil)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
 
@@ -434,8 +434,8 @@ func TestRefinement2_RouteMatcher_NewPaths(t *testing.T) {
 		body    []byte
 		matched bool
 	}{
-		{http.MethodGet, "/connections", nil, true},
-		{http.MethodPost, "/connections/device-1", nil, true}, // registers → 201
+		{http.MethodGet, "/_admin/connections", nil, true},
+		{http.MethodPost, "/_admin/connections/device-1", nil, true}, // registers → 201
 		{http.MethodGet, "/api/things/shadow/ListThingsWithShadows", nil, true},
 		{http.MethodGet, "/things/device/shadow", nil, true}, // seeded above → 200
 		{http.MethodGet, "/things/device/shadow/extra", nil, false},
