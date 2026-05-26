@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,8 +17,11 @@ import (
 func TestEFSDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.EFSHandler.Backend.CreateFileSystem("e2e-test-token", "generalPurpose", "bursting", false, map[string]string{
-		"Name": "e2e-test-fs",
+	_, err := stack.EFSHandler.Backend.CreateFileSystem(efsbackend.CreateFileSystemRequest{
+		CreationToken:   "e2e-test-token",
+		PerformanceMode: "generalPurpose",
+		ThroughputMode:  "bursting",
+		Tags:            map[string]string{"Name": "e2e-test-fs"},
 	})
 	require.NoError(t, err)
 
