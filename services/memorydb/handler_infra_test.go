@@ -217,7 +217,7 @@ func TestBackend_DescribeMultiRegionParameterGroups_WithData(t *testing.T) {
 	}{
 		{
 			name:      "all groups",
-			wantCount: 0, // no groups to seed directly in backend via public API
+			wantCount: 4, // 4 default multi-region parameter groups are seeded on startup
 		},
 	}
 

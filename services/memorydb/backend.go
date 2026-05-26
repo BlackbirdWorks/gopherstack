@@ -434,8 +434,8 @@ func (b *InMemoryBackend) Reset() {
 	b.seedDefaultParameterGroupsLocked()
 }
 
-// seedDefaultParameterGroupsLocked seeds the built-in default parameter groups.
-// Caller must hold b.mu or be in the constructor (no concurrent access yet).
+// seedDefaultParameterGroupsLocked seeds the built-in default single-region and
+// multi-region parameter groups. Caller must hold b.mu or be in the constructor.
 func (b *InMemoryBackend) seedDefaultParameterGroupsLocked() {
 	families := []struct {
 		name   string
@@ -460,6 +460,47 @@ func (b *InMemoryBackend) seedDefaultParameterGroupsLocked() {
 		}
 		b.parameterGroups[f.name] = pg
 		b.arnToResource[pgARN] = resourceRef{Kind: resourceKindParameterGroup, Name: f.name}
+	}
+
+	// Seed multi-region parameter groups (finding 25).
+	mrFamilies := []struct {
+		name   string
+		family string
+		desc   string
+	}{
+		{
+			"default.memorydb-redis6.multiregion",
+			"memorydb_redis6",
+			"Default multi-region parameter group for MemoryDB Redis 6.2",
+		},
+		{
+			"default.memorydb-redis7.multiregion",
+			"memorydb_redis7",
+			"Default multi-region parameter group for MemoryDB Redis 7.x",
+		},
+		{
+			"default.memorydb-valkey7.multiregion",
+			"memorydb_valkey7",
+			"Default multi-region parameter group for MemoryDB Valkey 7.x",
+		},
+		{
+			"default.memorydb-valkey8.multiregion",
+			"memorydb_valkey8",
+			"Default multi-region parameter group for MemoryDB Valkey 8.x",
+		},
+	}
+	for _, f := range mrFamilies {
+		mrARN := arn.Build("memorydb", b.region, b.accountID, "multiregionparametergroup/"+f.name)
+		mrpg := &MultiRegionParameterGroup{
+			Name:        f.name,
+			ARN:         mrARN,
+			Description: f.desc,
+			Family:      f.family,
+			Parameters:  defaultParametersByFamily(f.family),
+			Tags:        make(map[string]string),
+			CreatedAt:   time.Now(),
+		}
+		b.multiRegionParameterGroups[f.name] = mrpg
 	}
 }
 
@@ -856,6 +897,13 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 	delete(b.clusters, clusterName)
 	delete(b.arnToResource, c.ARN)
 
+	b.appendEventLocked(&Event{
+		Date:       time.Now(),
+		SourceName: clusterName,
+		SourceType: resourceKindCluster,
+		Message:    "Cluster " + clusterName + " deleted",
+	})
+
 	return cloneCluster(c), nil
 }
 
@@ -910,6 +958,32 @@ func (b *InMemoryBackend) UpdateCluster(req *updateClusterRequest) (*Cluster, er
 	c, ok := b.clusters[req.ClusterName]
 	if !ok {
 		return nil, ErrClusterNotFound
+	}
+
+	if req.MaintenanceWindow != "" {
+		if err := validateMaintenanceWindow(req.MaintenanceWindow); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.SnapshotWindow != "" {
+		if err := validateSnapshotWindow(req.SnapshotWindow); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.ReplicaConfiguration != nil && req.ReplicaConfiguration.ReplicaCount != nil {
+		rc := *req.ReplicaConfiguration.ReplicaCount
+		if rc < 0 || rc > 5 {
+			return nil, fmt.Errorf("NumReplicasPerShard must be between 0 and 5: %w", ErrValidation)
+		}
+	}
+
+	if req.ShardConfiguration != nil && req.ShardConfiguration.ShardCount != nil {
+		sc := *req.ShardConfiguration.ShardCount
+		if sc < 1 || sc > 500 {
+			return nil, fmt.Errorf("NumShards must be between 1 and 500: %w", ErrValidation)
+		}
 	}
 
 	applyClusterStringUpdates(c, req)
