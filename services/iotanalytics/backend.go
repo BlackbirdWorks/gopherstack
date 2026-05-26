@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 	"unicode"
@@ -13,32 +14,67 @@ import (
 )
 
 const (
-	statusActive = "ACTIVE"
+	statusActive          = "ACTIVE"
+	errCodeInvalidRequest = "InvalidRequestException"
+	maxRetentionDays      = 2147483647
 )
 
 // StorageBackend is the interface for the IoT Analytics backend.
 type StorageBackend interface {
-	CreateChannel(name string, tags map[string]string) (*Channel, error)
+	CreateChannel(
+		name string,
+		tags map[string]string,
+		storage *ChannelStorage,
+		retention *RetentionPeriod,
+	) (*Channel, error)
 	DescribeChannel(name string) (*Channel, error)
-	UpdateChannel(name string) error
+	UpdateChannel(name string, storage *ChannelStorage, retention *RetentionPeriod) error
 	DeleteChannel(name string) error
 	ListChannels() []*Channel
 
-	CreateDatastore(name string, tags map[string]string) (*Datastore, error)
+	CreateDatastore(
+		name string,
+		tags map[string]string,
+		storage *DatastoreStorage,
+		retention *RetentionPeriod,
+		fileFormat *FileFormatConfiguration,
+		partitions *DatastorePartitions,
+	) (*Datastore, error)
 	DescribeDatastore(name string) (*Datastore, error)
-	UpdateDatastore(name string) error
+	UpdateDatastore(
+		name string,
+		storage *DatastoreStorage,
+		retention *RetentionPeriod,
+		fileFormat *FileFormatConfiguration,
+		partitions *DatastorePartitions,
+	) error
 	DeleteDatastore(name string) error
 	ListDatastores() []*Datastore
 
-	CreateDataset(name string, tags map[string]string) (*Dataset, error)
+	CreateDataset(
+		name string,
+		tags map[string]string,
+		actions []DatasetAction,
+		triggers []DatasetTrigger,
+		contentDeliveryRules []ContentDeliveryRule,
+		versioningConfig *VersioningConfiguration,
+		lateDataRules []LateDataRule,
+	) (*Dataset, error)
 	DescribeDataset(name string) (*Dataset, error)
-	UpdateDataset(name string) error
+	UpdateDataset(
+		name string,
+		actions []DatasetAction,
+		triggers []DatasetTrigger,
+		contentDeliveryRules []ContentDeliveryRule,
+		versioningConfig *VersioningConfiguration,
+		lateDataRules []LateDataRule,
+	) error
 	DeleteDataset(name string) error
 	ListDatasets() []*Dataset
 
-	CreatePipeline(name string, tags map[string]string) (*Pipeline, error)
+	CreatePipeline(name string, tags map[string]string, activities []PipelineActivity) (*Pipeline, error)
 	DescribePipeline(name string) (*Pipeline, error)
-	UpdatePipeline(name string) error
+	UpdatePipeline(name string, activities []PipelineActivity) error
 	DeletePipeline(name string) error
 	ListPipelines() []*Pipeline
 
@@ -49,7 +85,7 @@ type StorageBackend interface {
 	BatchPutMessage(channelName string, messages []messageInput) ([]BatchPutMessageErrorEntry, error)
 	SampleChannelData(channelName string, maxMessages int) ([][]byte, error)
 
-	StartPipelineReprocessing(pipelineName string) (string, error)
+	StartPipelineReprocessing(pipelineName string, startTime, endTime *float64) (string, error)
 	CancelPipelineReprocessing(pipelineName, reprocessingID string) error
 
 	CreateDatasetContent(datasetName string) (*DatasetContent, error)
@@ -69,7 +105,7 @@ type StorageBackend interface {
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
 const (
-	// maxChannelMessages caps the number of messages stored per channel to prevent unbounded memory growth.
+	// maxChannelMessages caps the number of messages stored per channel.
 	maxChannelMessages = 1000
 	// maxDatasetContents caps the number of content versions stored per dataset.
 	maxDatasetContents = 100
@@ -79,18 +115,117 @@ const (
 	maxTagsPerResource = 50
 	// maxResourceNameLen is the maximum allowed length for resource names.
 	maxResourceNameLen = 128
+	// maxTagKeyLen is the maximum allowed length for a tag key.
+	maxTagKeyLen = 128
+	// maxTagValueLen is the maximum allowed length for a tag value.
+	maxTagValueLen = 256
+	// maxBatchMessages is the maximum number of messages in a BatchPutMessage call.
+	maxBatchMessages = 100
+	// maxMessagePayloadBytes is the maximum payload size per message (128 KB).
+	maxMessagePayloadBytes = 128 * 1024
+	// maxBatchPayloadBytes is the maximum total payload size per batch (500 KB).
+	maxBatchPayloadBytes = 500 * 1024
+	// maxMessageIDLen is the maximum length for a message ID.
+	maxMessageIDLen = 128
+	// maxSampleMessages is the maximum number of sample messages.
+	maxSampleMessages = 10
+	// defaultSampleMessages is the default number of sample messages.
+	defaultSampleMessages = 10
 )
 
-// validateResourceName checks that name is 1-128 characters of letters, digits, underscores, or hyphens.
+// validateResourceName checks that name is 1-128 ASCII letters, digits, or underscores.
+// AWS IoT Analytics does not allow hyphens or non-ASCII letters.
 func validateResourceName(name string) error {
 	if len(name) == 0 || len(name) > maxResourceNameLen {
 		return fmt.Errorf("%w: name must be 1-%d characters", ErrValidation, maxResourceNameLen)
 	}
 
 	for _, r := range name {
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '-' {
-			return fmt.Errorf("%w: name must contain only letters, digits, underscores, or hyphens", ErrValidation)
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+			return fmt.Errorf("%w: name must contain only ASCII letters, digits, or underscores", ErrValidation)
 		}
+
+		if r > unicode.MaxASCII {
+			return fmt.Errorf("%w: name must contain only ASCII characters", ErrValidation)
+		}
+	}
+
+	return nil
+}
+
+// validateTagKey checks tag key constraints: 1-128 chars, valid charset, no aws: prefix.
+func validateTagKey(key string) error {
+	if len(key) == 0 || len(key) > maxTagKeyLen {
+		return fmt.Errorf("%w: tag key must be 1-%d characters", ErrValidation, maxTagKeyLen)
+	}
+
+	if strings.HasPrefix(key, "aws:") {
+		return fmt.Errorf("%w: tag key must not start with 'aws:'", ErrValidation)
+	}
+
+	for _, r := range key {
+		if !isValidTagChar(r) {
+			return fmt.Errorf("%w: tag key contains invalid character %q", ErrValidation, r)
+		}
+	}
+
+	return nil
+}
+
+// validateTagValue checks tag value constraints: 0-256 chars, valid charset.
+func validateTagValue(value string) error {
+	if len(value) > maxTagValueLen {
+		return fmt.Errorf("%w: tag value must be 0-%d characters", ErrValidation, maxTagValueLen)
+	}
+
+	for _, r := range value {
+		if !isValidTagChar(r) {
+			return fmt.Errorf("%w: tag value contains invalid character %q", ErrValidation, r)
+		}
+	}
+
+	return nil
+}
+
+// isValidTagChar returns true for characters allowed in tag keys and values.
+// AWS allows: [a-zA-Z0-9_.:/=+\-@].
+func isValidTagChar(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) ||
+		r == '_' || r == '.' || r == ':' || r == '/' ||
+		r == '=' || r == '+' || r == '-' || r == '@'
+}
+
+// validateTags validates a slice of tag DTOs.
+func validateTags(tags []TagDTO) error {
+	for _, t := range tags {
+		if err := validateTagKey(t.Key); err != nil {
+			return err
+		}
+
+		if err := validateTagValue(t.Value); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateRetentionPeriod checks that retention period has exactly one of Unlimited or NumberOfDays set.
+func validateRetentionPeriod(rp *RetentionPeriod) error {
+	if rp == nil {
+		return nil
+	}
+
+	if rp.Unlimited && rp.NumberOfDays > 0 {
+		return fmt.Errorf("%w: retentionPeriod: exactly one of unlimited or numberOfDays must be set", ErrValidation)
+	}
+
+	if !rp.Unlimited && rp.NumberOfDays < 1 {
+		return fmt.Errorf("%w: retentionPeriod: numberOfDays must be >= 1 when unlimited is false", ErrValidation)
+	}
+
+	if rp.NumberOfDays > maxRetentionDays {
+		return fmt.Errorf("%w: retentionPeriod: numberOfDays must be <= 2147483647", ErrValidation)
 	}
 
 	return nil
@@ -191,11 +326,145 @@ func mapToTagsSorted(m map[string]string) []tagDTO {
 	return result
 }
 
+// cloneRetentionPeriod deep-copies a RetentionPeriod pointer.
+func cloneRetentionPeriod(rp *RetentionPeriod) *RetentionPeriod {
+	if rp == nil {
+		return nil
+	}
+
+	cp := *rp
+
+	return &cp
+}
+
+// cloneChannelStorage deep-copies a ChannelStorage pointer.
+func cloneChannelStorage(s *ChannelStorage) *ChannelStorage {
+	if s == nil {
+		return nil
+	}
+
+	cp := *s
+
+	if s.ServiceManagedS3 != nil {
+		sm := *s.ServiceManagedS3
+		cp.ServiceManagedS3 = &sm
+	}
+
+	if s.CustomerManagedS3 != nil {
+		cm := *s.CustomerManagedS3
+		cp.CustomerManagedS3 = &cm
+	}
+
+	return &cp
+}
+
+// cloneDatastoreStorage deep-copies a DatastoreStorage pointer.
+func cloneDatastoreStorage(s *DatastoreStorage) *DatastoreStorage {
+	if s == nil {
+		return nil
+	}
+
+	cp := *s
+
+	if s.ServiceManagedS3 != nil {
+		sm := *s.ServiceManagedS3
+		cp.ServiceManagedS3 = &sm
+	}
+
+	if s.CustomerManagedS3 != nil {
+		cm := *s.CustomerManagedS3
+		cp.CustomerManagedS3 = &cm
+	}
+
+	if s.IotSiteWiseMultiLayerStorage != nil {
+		sw := *s.IotSiteWiseMultiLayerStorage
+		if sw.CustomerManagedS3Storage != nil {
+			cm := *sw.CustomerManagedS3Storage
+			sw.CustomerManagedS3Storage = &cm
+		}
+
+		cp.IotSiteWiseMultiLayerStorage = &sw
+	}
+
+	return &cp
+}
+
+// cloneFileFormatConfiguration deep-copies a FileFormatConfiguration pointer.
+func cloneFileFormatConfiguration(f *FileFormatConfiguration) *FileFormatConfiguration {
+	if f == nil {
+		return nil
+	}
+
+	cp := *f
+
+	if f.JSONConfiguration != nil {
+		jc := *f.JSONConfiguration
+		cp.JSONConfiguration = &jc
+	}
+
+	if f.ParquetConfiguration != nil {
+		pc := *f.ParquetConfiguration
+
+		if f.ParquetConfiguration.SchemaDefinition != nil {
+			sd := *f.ParquetConfiguration.SchemaDefinition
+			sd.Columns = make([]ColumnSchema, len(f.ParquetConfiguration.SchemaDefinition.Columns))
+			copy(sd.Columns, f.ParquetConfiguration.SchemaDefinition.Columns)
+			pc.SchemaDefinition = &sd
+		}
+
+		cp.ParquetConfiguration = &pc
+	}
+
+	return &cp
+}
+
+// cloneDatastorePartitions deep-copies a DatastorePartitions pointer.
+func cloneDatastorePartitions(p *DatastorePartitions) *DatastorePartitions {
+	if p == nil {
+		return nil
+	}
+
+	cp := DatastorePartitions{
+		Partitions: make([]DatastorePartitionEntry, len(p.Partitions)),
+	}
+
+	for i, part := range p.Partitions {
+		entry := DatastorePartitionEntry{}
+
+		if part.AttributePartition != nil {
+			ap := *part.AttributePartition
+			entry.AttributePartition = &ap
+		}
+
+		if part.TimestampPartition != nil {
+			tp := *part.TimestampPartition
+			entry.TimestampPartition = &tp
+		}
+
+		cp.Partitions[i] = entry
+	}
+
+	return &cp
+}
+
+// cloneVersioningConfiguration deep-copies a VersioningConfiguration pointer.
+func cloneVersioningConfiguration(v *VersioningConfiguration) *VersioningConfiguration {
+	if v == nil {
+		return nil
+	}
+
+	cp := *v
+
+	return &cp
+}
+
 // cloneChannel returns a deep copy of c.
 func cloneChannel(c *Channel) *Channel {
 	cp := *c
 	cp.Tags = make(map[string]string, len(c.Tags))
 	maps.Copy(cp.Tags, c.Tags)
+	cp.Storage = cloneChannelStorage(c.Storage)
+	cp.RetentionPeriod = cloneRetentionPeriod(c.RetentionPeriod)
 
 	return &cp
 }
@@ -205,8 +474,60 @@ func cloneDatastore(d *Datastore) *Datastore {
 	cp := *d
 	cp.Tags = make(map[string]string, len(d.Tags))
 	maps.Copy(cp.Tags, d.Tags)
+	cp.Storage = cloneDatastoreStorage(d.Storage)
+	cp.RetentionPeriod = cloneRetentionPeriod(d.RetentionPeriod)
+	cp.FileFormatConfiguration = cloneFileFormatConfiguration(d.FileFormatConfiguration)
+	cp.Partitions = cloneDatastorePartitions(d.Partitions)
 
 	return &cp
+}
+
+// cloneDatasetActions deep-copies a slice of DatasetAction.
+func cloneDatasetActions(actions []DatasetAction) []DatasetAction {
+	if actions == nil {
+		return nil
+	}
+
+	cp := make([]DatasetAction, len(actions))
+	copy(cp, actions)
+
+	return cp
+}
+
+// cloneDatasetTriggers deep-copies a slice of DatasetTrigger.
+func cloneDatasetTriggers(triggers []DatasetTrigger) []DatasetTrigger {
+	if triggers == nil {
+		return nil
+	}
+
+	cp := make([]DatasetTrigger, len(triggers))
+	copy(cp, triggers)
+
+	return cp
+}
+
+// cloneContentDeliveryRules deep-copies a slice of ContentDeliveryRule.
+func cloneContentDeliveryRules(rules []ContentDeliveryRule) []ContentDeliveryRule {
+	if rules == nil {
+		return nil
+	}
+
+	cp := make([]ContentDeliveryRule, len(rules))
+	copy(cp, rules)
+
+	return cp
+}
+
+// cloneLateDataRules deep-copies a slice of LateDataRule.
+func cloneLateDataRules(rules []LateDataRule) []LateDataRule {
+	if rules == nil {
+		return nil
+	}
+
+	cp := make([]LateDataRule, len(rules))
+	copy(cp, rules)
+
+	return cp
 }
 
 // cloneDataset returns a deep copy of d.
@@ -214,8 +535,25 @@ func cloneDataset(d *Dataset) *Dataset {
 	cp := *d
 	cp.Tags = make(map[string]string, len(d.Tags))
 	maps.Copy(cp.Tags, d.Tags)
+	cp.Actions = cloneDatasetActions(d.Actions)
+	cp.Triggers = cloneDatasetTriggers(d.Triggers)
+	cp.ContentDeliveryRules = cloneContentDeliveryRules(d.ContentDeliveryRules)
+	cp.LateDataRules = cloneLateDataRules(d.LateDataRules)
+	cp.VersioningConfiguration = cloneVersioningConfiguration(d.VersioningConfiguration)
 
 	return &cp
+}
+
+// clonePipelineActivities deep-copies a slice of PipelineActivity.
+func clonePipelineActivities(activities []PipelineActivity) []PipelineActivity {
+	if activities == nil {
+		return nil
+	}
+
+	cp := make([]PipelineActivity, len(activities))
+	copy(cp, activities)
+
+	return cp
 }
 
 // clonePipeline returns a deep copy of p.
@@ -223,24 +561,57 @@ func clonePipeline(p *Pipeline) *Pipeline {
 	cp := *p
 	cp.Tags = make(map[string]string, len(p.Tags))
 	maps.Copy(cp.Tags, p.Tags)
+	cp.Activities = clonePipelineActivities(p.Activities)
 
-	if p.ReprocessingSummaries != nil {
-		cp.ReprocessingSummaries = make([]string, len(p.ReprocessingSummaries))
-		copy(cp.ReprocessingSummaries, p.ReprocessingSummaries)
-	}
-
-	cp.Reprocessings = make(map[string]*PipelineReprocessing, len(p.Reprocessings))
-	for k, v := range p.Reprocessings {
-		rpCp := *v
-		cp.Reprocessings[k] = &rpCp
+	if len(p.Reprocessings) > 0 {
+		cp.Reprocessings = make(map[string]*PipelineReprocessing, len(p.Reprocessings))
+		for k, v := range p.Reprocessings {
+			rpCp := *v
+			cp.Reprocessings[k] = &rpCp
+		}
+	} else {
+		cp.Reprocessings = make(map[string]*PipelineReprocessing)
 	}
 
 	return &cp
 }
 
+// reprocessingSummariesSorted returns reprocessing summaries sorted by creation time ascending.
+func reprocessingSummariesSorted(reprocessings map[string]*PipelineReprocessing) []pipelineReprocessingSummary {
+	if len(reprocessings) == 0 {
+		return nil
+	}
+
+	summaries := make([]pipelineReprocessingSummary, 0, len(reprocessings))
+
+	for _, rp := range reprocessings {
+		summaries = append(summaries, pipelineReprocessingSummary{
+			ID:           rp.ID,
+			Status:       rp.Status,
+			CreationTime: rp.CreationTime,
+			EndTime:      rp.EndTime,
+		})
+	}
+
+	slices.SortFunc(summaries, func(a, b pipelineReprocessingSummary) int {
+		return cmp.Compare(a.CreationTime, b.CreationTime)
+	})
+
+	return summaries
+}
+
 // CreateChannel creates a new IoT Analytics channel.
-func (b *InMemoryBackend) CreateChannel(name string, tags map[string]string) (*Channel, error) {
+func (b *InMemoryBackend) CreateChannel(
+	name string,
+	tags map[string]string,
+	storage *ChannelStorage,
+	retention *RetentionPeriod,
+) (*Channel, error) {
 	if err := validateResourceName(name); err != nil {
+		return nil, err
+	}
+
+	if err := validateRetentionPeriod(retention); err != nil {
 		return nil, err
 	}
 
@@ -254,12 +625,14 @@ func (b *InMemoryBackend) CreateChannel(name string, tags map[string]string) (*C
 	now := epochSeconds(time.Now())
 	arn := channelARN(name)
 	c := &Channel{
-		Name:         name,
-		ARN:          arn,
-		Status:       statusActive,
-		CreationTime: now,
-		LastUpdate:   now,
-		Tags:         make(map[string]string),
+		Name:            name,
+		ARN:             arn,
+		Status:          statusActive,
+		CreationTime:    now,
+		LastUpdate:      now,
+		Tags:            make(map[string]string),
+		Storage:         cloneChannelStorage(storage),
+		RetentionPeriod: cloneRetentionPeriod(retention),
 	}
 	maps.Copy(c.Tags, tags)
 	b.channels[name] = c
@@ -282,8 +655,12 @@ func (b *InMemoryBackend) DescribeChannel(name string) (*Channel, error) {
 	return cloneChannel(c), nil
 }
 
-// UpdateChannel updates a channel's last update time.
-func (b *InMemoryBackend) UpdateChannel(name string) error {
+// UpdateChannel updates a channel's storage configuration, retention period, and last update time.
+func (b *InMemoryBackend) UpdateChannel(name string, storage *ChannelStorage, retention *RetentionPeriod) error {
+	if err := validateRetentionPeriod(retention); err != nil {
+		return err
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -293,6 +670,14 @@ func (b *InMemoryBackend) UpdateChannel(name string) error {
 	}
 
 	c.LastUpdate = epochSeconds(time.Now())
+
+	if storage != nil {
+		c.Storage = cloneChannelStorage(storage)
+	}
+
+	if retention != nil {
+		c.RetentionPeriod = cloneRetentionPeriod(retention)
+	}
 
 	return nil
 }
@@ -331,14 +716,25 @@ func (b *InMemoryBackend) ListChannels() []*Channel {
 
 // AddChannelInternal seeds a channel by name (test helper).
 func (b *InMemoryBackend) AddChannelInternal(name string) *Channel {
-	c, _ := b.CreateChannel(name, nil)
+	c, _ := b.CreateChannel(name, nil, nil, nil)
 
 	return c
 }
 
 // CreateDatastore creates a new IoT Analytics datastore.
-func (b *InMemoryBackend) CreateDatastore(name string, tags map[string]string) (*Datastore, error) {
+func (b *InMemoryBackend) CreateDatastore(
+	name string,
+	tags map[string]string,
+	storage *DatastoreStorage,
+	retention *RetentionPeriod,
+	fileFormat *FileFormatConfiguration,
+	partitions *DatastorePartitions,
+) (*Datastore, error) {
 	if err := validateResourceName(name); err != nil {
+		return nil, err
+	}
+
+	if err := validateRetentionPeriod(retention); err != nil {
 		return nil, err
 	}
 
@@ -352,12 +748,16 @@ func (b *InMemoryBackend) CreateDatastore(name string, tags map[string]string) (
 	now := epochSeconds(time.Now())
 	arn := datastoreARN(name)
 	d := &Datastore{
-		Name:         name,
-		ARN:          arn,
-		Status:       statusActive,
-		CreationTime: now,
-		LastUpdate:   now,
-		Tags:         make(map[string]string),
+		Name:                    name,
+		ARN:                     arn,
+		Status:                  statusActive,
+		CreationTime:            now,
+		LastUpdate:              now,
+		Tags:                    make(map[string]string),
+		Storage:                 cloneDatastoreStorage(storage),
+		RetentionPeriod:         cloneRetentionPeriod(retention),
+		FileFormatConfiguration: cloneFileFormatConfiguration(fileFormat),
+		Partitions:              cloneDatastorePartitions(partitions),
 	}
 	maps.Copy(d.Tags, tags)
 	b.datastores[name] = d
@@ -380,8 +780,18 @@ func (b *InMemoryBackend) DescribeDatastore(name string) (*Datastore, error) {
 	return cloneDatastore(d), nil
 }
 
-// UpdateDatastore updates a datastore's last update time.
-func (b *InMemoryBackend) UpdateDatastore(name string) error {
+// UpdateDatastore updates a datastore's configuration and last update time.
+func (b *InMemoryBackend) UpdateDatastore(
+	name string,
+	storage *DatastoreStorage,
+	retention *RetentionPeriod,
+	fileFormat *FileFormatConfiguration,
+	partitions *DatastorePartitions,
+) error {
+	if err := validateRetentionPeriod(retention); err != nil {
+		return err
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -391,6 +801,22 @@ func (b *InMemoryBackend) UpdateDatastore(name string) error {
 	}
 
 	d.LastUpdate = epochSeconds(time.Now())
+
+	if storage != nil {
+		d.Storage = cloneDatastoreStorage(storage)
+	}
+
+	if retention != nil {
+		d.RetentionPeriod = cloneRetentionPeriod(retention)
+	}
+
+	if fileFormat != nil {
+		d.FileFormatConfiguration = cloneFileFormatConfiguration(fileFormat)
+	}
+
+	if partitions != nil {
+		d.Partitions = cloneDatastorePartitions(partitions)
+	}
 
 	return nil
 }
@@ -428,13 +854,21 @@ func (b *InMemoryBackend) ListDatastores() []*Datastore {
 
 // AddDatastoreInternal seeds a datastore by name (test helper).
 func (b *InMemoryBackend) AddDatastoreInternal(name string) *Datastore {
-	d, _ := b.CreateDatastore(name, nil)
+	d, _ := b.CreateDatastore(name, nil, nil, nil, nil, nil)
 
 	return d
 }
 
 // CreateDataset creates a new IoT Analytics dataset.
-func (b *InMemoryBackend) CreateDataset(name string, tags map[string]string) (*Dataset, error) {
+func (b *InMemoryBackend) CreateDataset(
+	name string,
+	tags map[string]string,
+	actions []DatasetAction,
+	triggers []DatasetTrigger,
+	contentDeliveryRules []ContentDeliveryRule,
+	versioningConfig *VersioningConfiguration,
+	lateDataRules []LateDataRule,
+) (*Dataset, error) {
 	if err := validateResourceName(name); err != nil {
 		return nil, err
 	}
@@ -449,12 +883,17 @@ func (b *InMemoryBackend) CreateDataset(name string, tags map[string]string) (*D
 	now := epochSeconds(time.Now())
 	arn := datasetARN(name)
 	d := &Dataset{
-		Name:         name,
-		ARN:          arn,
-		Status:       statusActive,
-		CreationTime: now,
-		LastUpdate:   now,
-		Tags:         make(map[string]string),
+		Name:                    name,
+		ARN:                     arn,
+		Status:                  statusActive,
+		CreationTime:            now,
+		LastUpdate:              now,
+		Tags:                    make(map[string]string),
+		Actions:                 cloneDatasetActions(actions),
+		Triggers:                cloneDatasetTriggers(triggers),
+		ContentDeliveryRules:    cloneContentDeliveryRules(contentDeliveryRules),
+		LateDataRules:           cloneLateDataRules(lateDataRules),
+		VersioningConfiguration: cloneVersioningConfiguration(versioningConfig),
 	}
 	maps.Copy(d.Tags, tags)
 	b.datasets[name] = d
@@ -477,8 +916,15 @@ func (b *InMemoryBackend) DescribeDataset(name string) (*Dataset, error) {
 	return cloneDataset(d), nil
 }
 
-// UpdateDataset updates a dataset's last update time.
-func (b *InMemoryBackend) UpdateDataset(name string) error {
+// UpdateDataset updates a dataset's actions, triggers, and configuration.
+func (b *InMemoryBackend) UpdateDataset(
+	name string,
+	actions []DatasetAction,
+	triggers []DatasetTrigger,
+	contentDeliveryRules []ContentDeliveryRule,
+	versioningConfig *VersioningConfiguration,
+	lateDataRules []LateDataRule,
+) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -488,6 +934,26 @@ func (b *InMemoryBackend) UpdateDataset(name string) error {
 	}
 
 	d.LastUpdate = epochSeconds(time.Now())
+
+	if actions != nil {
+		d.Actions = cloneDatasetActions(actions)
+	}
+
+	if triggers != nil {
+		d.Triggers = cloneDatasetTriggers(triggers)
+	}
+
+	if contentDeliveryRules != nil {
+		d.ContentDeliveryRules = cloneContentDeliveryRules(contentDeliveryRules)
+	}
+
+	if lateDataRules != nil {
+		d.LateDataRules = cloneLateDataRules(lateDataRules)
+	}
+
+	if versioningConfig != nil {
+		d.VersioningConfiguration = cloneVersioningConfiguration(versioningConfig)
+	}
 
 	return nil
 }
@@ -526,13 +992,17 @@ func (b *InMemoryBackend) ListDatasets() []*Dataset {
 
 // AddDatasetInternal seeds a dataset by name (test helper).
 func (b *InMemoryBackend) AddDatasetInternal(name string) *Dataset {
-	d, _ := b.CreateDataset(name, nil)
+	d, _ := b.CreateDataset(name, nil, nil, nil, nil, nil, nil)
 
 	return d
 }
 
 // CreatePipeline creates a new IoT Analytics pipeline.
-func (b *InMemoryBackend) CreatePipeline(name string, tags map[string]string) (*Pipeline, error) {
+func (b *InMemoryBackend) CreatePipeline(
+	name string,
+	tags map[string]string,
+	activities []PipelineActivity,
+) (*Pipeline, error) {
 	if err := validateResourceName(name); err != nil {
 		return nil, err
 	}
@@ -547,13 +1017,13 @@ func (b *InMemoryBackend) CreatePipeline(name string, tags map[string]string) (*
 	now := epochSeconds(time.Now())
 	arn := pipelineARN(name)
 	p := &Pipeline{
-		Name:                  name,
-		ARN:                   arn,
-		CreationTime:          now,
-		LastUpdate:            now,
-		Tags:                  make(map[string]string),
-		Reprocessings:         make(map[string]*PipelineReprocessing),
-		ReprocessingSummaries: []string{},
+		Name:          name,
+		ARN:           arn,
+		CreationTime:  now,
+		LastUpdate:    now,
+		Tags:          make(map[string]string),
+		Reprocessings: make(map[string]*PipelineReprocessing),
+		Activities:    clonePipelineActivities(activities),
 	}
 	maps.Copy(p.Tags, tags)
 	b.pipelines[name] = p
@@ -576,8 +1046,8 @@ func (b *InMemoryBackend) DescribePipeline(name string) (*Pipeline, error) {
 	return clonePipeline(p), nil
 }
 
-// UpdatePipeline updates a pipeline's last update time.
-func (b *InMemoryBackend) UpdatePipeline(name string) error {
+// UpdatePipeline updates a pipeline's activities and last update time.
+func (b *InMemoryBackend) UpdatePipeline(name string, activities []PipelineActivity) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -587,6 +1057,10 @@ func (b *InMemoryBackend) UpdatePipeline(name string) error {
 	}
 
 	p.LastUpdate = epochSeconds(time.Now())
+
+	if activities != nil {
+		p.Activities = clonePipelineActivities(activities)
+	}
 
 	return nil
 }
@@ -624,26 +1098,76 @@ func (b *InMemoryBackend) ListPipelines() []*Pipeline {
 
 // AddPipelineInternal seeds a pipeline by name (test helper).
 func (b *InMemoryBackend) AddPipelineInternal(name string) *Pipeline {
-	p, _ := b.CreatePipeline(name, nil)
+	p, _ := b.CreatePipeline(name, nil, nil)
 
 	return p
 }
 
+// resolveARNResource checks whether a resource ARN corresponds to an existing resource.
+// Returns true if the resource exists.
+func (b *InMemoryBackend) resolveARNResource(arn string) bool {
+	const (
+		channelPrefix   = "arn:aws:iotanalytics:us-east-1:000000000000:channel/"
+		datastorePrefix = "arn:aws:iotanalytics:us-east-1:000000000000:datastore/"
+		datasetPrefix   = "arn:aws:iotanalytics:us-east-1:000000000000:dataset/"
+		pipelinePrefix  = "arn:aws:iotanalytics:us-east-1:000000000000:pipeline/"
+	)
+
+	switch {
+	case strings.HasPrefix(arn, channelPrefix):
+		name := strings.TrimPrefix(arn, channelPrefix)
+		_, ok := b.channels[name]
+
+		return ok
+
+	case strings.HasPrefix(arn, datastorePrefix):
+		name := strings.TrimPrefix(arn, datastorePrefix)
+		_, ok := b.datastores[name]
+
+		return ok
+
+	case strings.HasPrefix(arn, datasetPrefix):
+		name := strings.TrimPrefix(arn, datasetPrefix)
+		_, ok := b.datasets[name]
+
+		return ok
+
+	case strings.HasPrefix(arn, pipelinePrefix):
+		name := strings.TrimPrefix(arn, pipelinePrefix)
+		_, ok := b.pipelines[name]
+
+		return ok
+	}
+
+	return false
+}
+
 // ListTagsForResource returns tags for a resource ARN, sorted by key.
+// Returns empty slice (not error) when the resource exists but has no tags.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]TagDTO, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	// Check the tags map first (fast path for resources with tags initialized).
 	m, ok := b.tags[resourceARN]
-	if !ok {
+	if ok {
+		return mapToTagsSorted(m), nil
+	}
+
+	// Distinguish "resource has no tag map" from "resource does not exist".
+	if !b.resolveARNResource(resourceARN) {
 		return nil, ErrResourceNotFound
 	}
 
-	return mapToTagsSorted(m), nil
+	return []TagDTO{}, nil
 }
 
 // TagResource adds or updates tags on a resource, enforcing the per-resource tag limit.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags []TagDTO) error {
+	if err := validateTags(tags); err != nil {
+		return err
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -680,15 +1204,16 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	return nil
 }
 
-// BatchPutMessage ingests messages into a channel, capping at maxChannelMessages per channel.
+// BatchPutMessage ingests messages into a channel.
+// Validates count ≤ 100, per-message payload ≤ 128 KB, messageId ≤ 128 chars, and total batch ≤ 500 KB.
 func (b *InMemoryBackend) BatchPutMessage(
 	channelName string,
 	messages []messageInput,
 ) ([]BatchPutMessageErrorEntry, error) {
+	var errs []BatchPutMessageErrorEntry
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
-
-	var errs []BatchPutMessageErrorEntry
 
 	if _, ok := b.channels[channelName]; !ok {
 		for _, msg := range messages {
@@ -707,7 +1232,49 @@ func (b *InMemoryBackend) BatchPutMessage(
 		return errs, nil
 	}
 
+	// Validate total batch payload size before processing individual messages.
+	var totalPayloadBytes int
+
 	for _, msg := range messages {
+		totalPayloadBytes += len(msg.Payload)
+	}
+
+	if totalPayloadBytes > maxBatchPayloadBytes {
+		for _, msg := range messages {
+			errs = append(errs, BatchPutMessageErrorEntry{
+				ChannelName:  channelName,
+				ErrorCode:    errCodeInvalidRequest,
+				ErrorMessage: "batch payload exceeds 500 KB limit",
+				MessageID:    msg.MessageID,
+			})
+		}
+
+		return errs, nil
+	}
+
+	for _, msg := range messages {
+		if len(msg.MessageID) > maxMessageIDLen {
+			errs = append(errs, BatchPutMessageErrorEntry{
+				ChannelName:  channelName,
+				ErrorCode:    errCodeInvalidRequest,
+				ErrorMessage: fmt.Sprintf("messageId exceeds %d character limit", maxMessageIDLen),
+				MessageID:    msg.MessageID,
+			})
+
+			continue
+		}
+
+		if len(msg.Payload) > maxMessagePayloadBytes {
+			errs = append(errs, BatchPutMessageErrorEntry{
+				ChannelName:  channelName,
+				ErrorCode:    errCodeInvalidRequest,
+				ErrorMessage: "message payload exceeds 128 KB limit",
+				MessageID:    msg.MessageID,
+			})
+
+			continue
+		}
+
 		current := b.channelMessages[channelName]
 		if len(current) < maxChannelMessages {
 			b.channelMessages[channelName] = append(current, msg.Payload)
@@ -721,6 +1288,11 @@ func (b *InMemoryBackend) BatchPutMessage(
 		}
 	}
 
+	// Update lastMessageArrivalTime on any successful ingestion.
+	if len(b.channelMessages[channelName]) > 0 {
+		b.channels[channelName].LastMessageArrivalTime = epochSeconds(time.Now())
+	}
+
 	if errs == nil {
 		errs = []BatchPutMessageErrorEntry{}
 	}
@@ -728,13 +1300,8 @@ func (b *InMemoryBackend) BatchPutMessage(
 	return errs, nil
 }
 
-const (
-	defaultSampleMessages = 10
-	maxSampleMessages     = 10
-)
-
 // SampleChannelData returns up to maxMessages sample messages from a channel.
-// If maxMessages is 0 or negative, defaults to defaultSampleMessages.
+// Returns InvalidRequestException for maxMessages <= 0 or > 10 (AWS behaviour).
 func (b *InMemoryBackend) SampleChannelData(channelName string, maxMessages int) ([][]byte, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -744,7 +1311,7 @@ func (b *InMemoryBackend) SampleChannelData(channelName string, maxMessages int)
 	}
 
 	if maxMessages <= 0 || maxMessages > maxSampleMessages {
-		maxMessages = defaultSampleMessages
+		return nil, fmt.Errorf("%w: maxMessages must be between 1 and %d", ErrValidation, maxSampleMessages)
 	}
 
 	msgs := b.channelMessages[channelName]
@@ -761,7 +1328,12 @@ func (b *InMemoryBackend) SampleChannelData(channelName string, maxMessages int)
 }
 
 // StartPipelineReprocessing creates a new reprocessing job for a pipeline.
-func (b *InMemoryBackend) StartPipelineReprocessing(pipelineName string) (string, error) {
+// Optional startTime and endTime define the message window to reprocess.
+func (b *InMemoryBackend) StartPipelineReprocessing(pipelineName string, startTime, endTime *float64) (string, error) {
+	if startTime != nil && endTime != nil && *startTime >= *endTime {
+		return "", fmt.Errorf("%w: startTime must be before endTime", ErrValidation)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -783,12 +1355,19 @@ func (b *InMemoryBackend) StartPipelineReprocessing(pipelineName string) (string
 		CreationTime: now,
 	}
 
+	if startTime != nil {
+		rp.StartTime = *startTime
+	}
+
+	if endTime != nil {
+		rp.EndTime = *endTime
+	}
+
 	if p.Reprocessings == nil {
 		p.Reprocessings = make(map[string]*PipelineReprocessing)
 	}
 
 	p.Reprocessings[id] = rp
-	p.ReprocessingSummaries = append(p.ReprocessingSummaries, id)
 
 	return id, nil
 }
@@ -935,7 +1514,16 @@ func (b *InMemoryBackend) DescribeLoggingOptions() (*LoggingOptions, error) {
 }
 
 // PutLoggingOptions sets the IoT Analytics logging options.
+// Validates: level must be "ERROR"; roleArn is required when enabled is true.
 func (b *InMemoryBackend) PutLoggingOptions(options *LoggingOptions) error {
+	if options.Level != "ERROR" {
+		return fmt.Errorf("%w: loggingOptions.level must be ERROR", ErrValidation)
+	}
+
+	if options.Enabled && options.RoleARN == "" {
+		return fmt.Errorf("%w: loggingOptions.roleArn is required when enabled is true", ErrValidation)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -946,7 +1534,7 @@ func (b *InMemoryBackend) PutLoggingOptions(options *LoggingOptions) error {
 }
 
 // RunPipelineActivity runs payloads through a pipeline activity and returns the results.
-// For the in-memory backend this is a pass-through; payloads are returned unchanged.
+// The in-memory implementation returns payloads unchanged (pass-through).
 func (b *InMemoryBackend) RunPipelineActivity(payloads [][]byte) ([][]byte, error) {
 	result := make([][]byte, len(payloads))
 	copy(result, payloads)

@@ -1,6 +1,7 @@
 package iotanalytics
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -21,19 +22,23 @@ const (
 	opCreateChannel              = "CreateChannel"
 	opCreateDataset              = "CreateDataset"
 	opCreateDatasetContent       = "CreateDatasetContent"
+	opCreateDatastore            = "CreateDatastore"
 	opCreatePipeline             = "CreatePipeline"
 	opDeleteChannel              = "DeleteChannel"
 	opDeleteDataset              = "DeleteDataset"
 	opDeleteDatasetContent       = "DeleteDatasetContent"
+	opDeleteDatastore            = "DeleteDatastore"
 	opDeletePipeline             = "DeletePipeline"
 	opDescribeChannel            = "DescribeChannel"
 	opDescribeDataset            = "DescribeDataset"
+	opDescribeDatastore          = "DescribeDatastore"
 	opDescribeLoggingOptions     = "DescribeLoggingOptions"
 	opDescribePipeline           = "DescribePipeline"
 	opGetDatasetContent          = "GetDatasetContent"
 	opListChannels               = "ListChannels"
 	opListDatasetContents        = "ListDatasetContents"
 	opListDatasets               = "ListDatasets"
+	opListDatastores             = "ListDatastores"
 	opListPipelines              = "ListPipelines"
 	opListTagsForResource        = "ListTagsForResource"
 	opPutLoggingOptions          = "PutLoggingOptions"
@@ -44,6 +49,7 @@ const (
 	opUntagResource              = "UntagResource"
 	opUpdateChannel              = "UpdateChannel"
 	opUpdateDataset              = "UpdateDataset"
+	opUpdateDatastore            = "UpdateDatastore"
 	opUpdatePipeline             = "UpdatePipeline"
 )
 
@@ -70,6 +76,10 @@ const (
 	minNameSegments = 2
 	// maxSubPathSegments limits SplitN to extract up to 3 sub-path components.
 	maxSubPathSegments = 3
+	// defaultMaxResults is the default page size for list operations.
+	defaultMaxResults = 100
+	// absoluteMaxResults is the maximum allowed page size for list operations.
+	absoluteMaxResults = 250
 )
 
 // handlerFunc is the uniform signature for all dispatch operations.
@@ -94,7 +104,6 @@ func (h *Handler) Reset() {
 	h.Backend.Reset()
 }
 
-// buildOps constructs the operation dispatch map, keyed by operation name.
 // buildChannelOps returns the channel-related entries for the dispatch map.
 func buildChannelOps(h *Handler) map[string]handlerFunc {
 	return map[string]handlerFunc{
@@ -107,8 +116,8 @@ func buildChannelOps(h *Handler) map[string]handlerFunc {
 		opDescribeChannel: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDescribeChannel(c, resource)
 		},
-		opUpdateChannel: func(c *echo.Context, resource string, _ []byte) error {
-			return h.handleUpdateChannel(c, resource)
+		opUpdateChannel: func(c *echo.Context, resource string, body []byte) error {
+			return h.handleUpdateChannel(c, resource, body)
 		},
 		opDeleteChannel: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDeleteChannel(c, resource)
@@ -122,19 +131,19 @@ func buildChannelOps(h *Handler) map[string]handlerFunc {
 // buildDatastoreOps returns the datastore-related entries for the dispatch map.
 func buildDatastoreOps(h *Handler) map[string]handlerFunc {
 	return map[string]handlerFunc{
-		"CreateDatastore": func(c *echo.Context, _ string, body []byte) error {
+		opCreateDatastore: func(c *echo.Context, _ string, body []byte) error {
 			return h.handleCreateDatastore(c, body)
 		},
-		"ListDatastores": func(c *echo.Context, _ string, _ []byte) error {
+		opListDatastores: func(c *echo.Context, _ string, _ []byte) error {
 			return h.handleListDatastores(c)
 		},
-		"DescribeDatastore": func(c *echo.Context, resource string, _ []byte) error {
+		opDescribeDatastore: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDescribeDatastore(c, resource)
 		},
-		"UpdateDatastore": func(c *echo.Context, resource string, _ []byte) error {
-			return h.handleUpdateDatastore(c, resource)
+		opUpdateDatastore: func(c *echo.Context, resource string, body []byte) error {
+			return h.handleUpdateDatastore(c, resource, body)
 		},
-		"DeleteDatastore": func(c *echo.Context, resource string, _ []byte) error {
+		opDeleteDatastore: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDeleteDatastore(c, resource)
 		},
 	}
@@ -152,8 +161,8 @@ func buildDatasetOps(h *Handler) map[string]handlerFunc {
 		opDescribeDataset: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDescribeDataset(c, resource)
 		},
-		opUpdateDataset: func(c *echo.Context, resource string, _ []byte) error {
-			return h.handleUpdateDataset(c, resource)
+		opUpdateDataset: func(c *echo.Context, resource string, body []byte) error {
+			return h.handleUpdateDataset(c, resource, body)
 		},
 		opDeleteDataset: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDeleteDataset(c, resource)
@@ -185,14 +194,14 @@ func buildPipelineOps(h *Handler) map[string]handlerFunc {
 		opDescribePipeline: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDescribePipeline(c, resource)
 		},
-		opUpdatePipeline: func(c *echo.Context, resource string, _ []byte) error {
-			return h.handleUpdatePipeline(c, resource)
+		opUpdatePipeline: func(c *echo.Context, resource string, body []byte) error {
+			return h.handleUpdatePipeline(c, resource, body)
 		},
 		opDeletePipeline: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDeletePipeline(c, resource)
 		},
-		opStartPipelineReprocessing: func(c *echo.Context, resource string, _ []byte) error {
-			return h.handleStartPipelineReprocessing(c, resource)
+		opStartPipelineReprocessing: func(c *echo.Context, resource string, body []byte) error {
+			return h.handleStartPipelineReprocessing(c, resource, body)
 		},
 		opCancelPipelineReprocessing: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleCancelPipelineReprocessing(c, resource)
@@ -232,13 +241,9 @@ func buildOps(h *Handler) map[string]handlerFunc {
 	ops := make(map[string]handlerFunc)
 
 	maps.Copy(ops, buildChannelOps(h))
-
 	maps.Copy(ops, buildDatastoreOps(h))
-
 	maps.Copy(ops, buildDatasetOps(h))
-
 	maps.Copy(ops, buildPipelineOps(h))
-
 	maps.Copy(ops, buildMiscOps(h))
 
 	return ops
@@ -255,23 +260,23 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateChannel,
 		opCreateDataset,
 		opCreateDatasetContent,
-		"CreateDatastore",
+		opCreateDatastore,
 		opCreatePipeline,
 		opDeleteChannel,
 		opDeleteDataset,
 		opDeleteDatasetContent,
-		"DeleteDatastore",
+		opDeleteDatastore,
 		opDeletePipeline,
 		opDescribeChannel,
 		opDescribeDataset,
-		"DescribeDatastore",
+		opDescribeDatastore,
 		opDescribeLoggingOptions,
 		opDescribePipeline,
 		opGetDatasetContent,
 		opListChannels,
 		opListDatasetContents,
 		opListDatasets,
-		"ListDatastores",
+		opListDatastores,
 		opListPipelines,
 		opListTagsForResource,
 		opPutLoggingOptions,
@@ -282,7 +287,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUntagResource,
 		opUpdateChannel,
 		opUpdateDataset,
-		"UpdateDatastore",
+		opUpdateDatastore,
 		opUpdatePipeline,
 	}
 }
@@ -356,7 +361,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		op, resource := parseIoTAnalyticsPath(method, path)
 		if op == "" {
-			return h.writeError(c, http.StatusNotFound, "not found")
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "not found")
 		}
 
 		body, err := httputils.ReadBody(c.Request())
@@ -366,6 +371,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeError(
 				c,
 				http.StatusInternalServerError,
+				"InternalFailureException",
 				"failed to read request body",
 			)
 		}
@@ -567,7 +573,6 @@ func parseLoggingPath(method string) (string, string) {
 func parseResourcePath(method, path, prefix, typeName, _ string) (string, string) {
 	rest := strings.TrimPrefix(path, prefix)
 
-	// /channels  or /channels/
 	if rest == "" || rest == "/" {
 		switch method {
 		case http.MethodPost:
@@ -579,7 +584,6 @@ func parseResourcePath(method, path, prefix, typeName, _ string) (string, string
 		return "", ""
 	}
 
-	// /channels/{name}
 	segs := strings.SplitN(strings.TrimPrefix(rest, "/"), "/", minNameSegments)
 	if len(segs) == 0 {
 		return "", ""
@@ -617,10 +621,37 @@ func parseTagsPath(method string) (string, string) {
 func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) error {
 	fn, ok := h.ops[op]
 	if !ok {
-		return h.writeError(c, http.StatusNotFound, "unknown operation: "+op)
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "unknown operation: "+op)
 	}
 
 	return fn(c, resource, body)
+}
+
+// parsePagination extracts and validates maxResults and nextToken from query params.
+// Returns clamped maxResults and the decoded cursor (name to start after).
+func parsePagination(c *echo.Context) (int, string) {
+	maxResults := defaultMaxResults
+
+	if s := c.Request().URL.Query().Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxResults = min(n, absoluteMaxResults)
+		}
+	}
+
+	cursor := ""
+
+	if tok := c.Request().URL.Query().Get("nextToken"); tok != "" {
+		if decoded, err := base64.StdEncoding.DecodeString(tok); err == nil {
+			cursor = string(decoded)
+		}
+	}
+
+	return maxResults, cursor
+}
+
+// encodeNextToken base64-encodes a cursor name for use as a pagination token.
+func encodeNextToken(name string) string {
+	return base64.StdEncoding.EncodeToString([]byte(name))
 }
 
 // ----------------------------------------
@@ -630,41 +661,62 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) er
 func (h *Handler) handleCreateChannel(c *echo.Context, body []byte) error {
 	var req createChannelRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	if req.ChannelName == "" {
-		return h.writeError(c, http.StatusBadRequest, "channelName is required")
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "channelName is required")
 	}
 
 	tags := tagsToMap(req.Tags)
 
-	ch, err := h.Backend.CreateChannel(req.ChannelName, tags)
+	ch, err := h.Backend.CreateChannel(req.ChannelName, tags, req.ChannelStorage, req.RetentionPeriod)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, createChannelResponse{
+	return c.JSON(http.StatusOK, createChannelResponse{
 		ChannelName: ch.Name,
 		ChannelARN:  ch.ARN,
 	})
 }
 
 func (h *Handler) handleListChannels(c *echo.Context) error {
+	maxResults, cursor := parsePagination(c)
 	channels := h.Backend.ListChannels()
+
 	summaries := make([]channelSummary, 0, len(channels))
+	var nextToken *string
+
+	count := 0
 
 	for _, ch := range channels {
+		if cursor != "" && ch.Name <= cursor {
+			continue
+		}
+
+		if count >= maxResults {
+			tok := encodeNextToken(summaries[len(summaries)-1].ChannelName)
+			nextToken = &tok
+
+			break
+		}
+
 		summaries = append(summaries, channelSummary{
-			ChannelName:    ch.Name,
-			ChannelARN:     ch.ARN,
-			Status:         ch.Status,
-			CreationTime:   ch.CreationTime,
-			LastUpdateTime: ch.LastUpdate,
+			ChannelName:            ch.Name,
+			ChannelARN:             ch.ARN,
+			Status:                 ch.Status,
+			CreationTime:           ch.CreationTime,
+			LastUpdateTime:         ch.LastUpdate,
+			LastMessageArrivalTime: ch.LastMessageArrivalTime,
 		})
+		count++
 	}
 
-	return c.JSON(http.StatusOK, listChannelsResponse{ChannelSummaries: summaries})
+	return c.JSON(http.StatusOK, listChannelsResponse{
+		ChannelSummaries: summaries,
+		NextToken:        nextToken,
+	})
 }
 
 func (h *Handler) handleDescribeChannel(c *echo.Context, name string) error {
@@ -675,18 +727,34 @@ func (h *Handler) handleDescribeChannel(c *echo.Context, name string) error {
 
 	return c.JSON(http.StatusOK, describeChannelResponse{
 		Channel: channelDetail{
-			Tags:           mapToTagsSorted(ch.Tags),
-			Name:           ch.Name,
-			ARN:            ch.ARN,
-			Status:         ch.Status,
-			CreationTime:   ch.CreationTime,
-			LastUpdateTime: ch.LastUpdate,
+			Storage:                ch.Storage,
+			RetentionPeriod:        ch.RetentionPeriod,
+			Tags:                   mapToTagsSorted(ch.Tags),
+			Name:                   ch.Name,
+			ARN:                    ch.ARN,
+			Status:                 ch.Status,
+			CreationTime:           ch.CreationTime,
+			LastUpdateTime:         ch.LastUpdate,
+			LastMessageArrivalTime: ch.LastMessageArrivalTime,
 		},
 	})
 }
 
-func (h *Handler) handleUpdateChannel(c *echo.Context, name string) error {
-	if err := h.Backend.UpdateChannel(name); err != nil {
+func (h *Handler) handleUpdateChannel(c *echo.Context, name string, body []byte) error {
+	var req updateChannelRequest
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"invalid request body: "+err.Error(),
+			)
+		}
+	}
+
+	if err := h.Backend.UpdateChannel(name, req.ChannelStorage, req.RetentionPeriod); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -708,31 +776,54 @@ func (h *Handler) handleDeleteChannel(c *echo.Context, name string) error {
 func (h *Handler) handleCreateDatastore(c *echo.Context, body []byte) error {
 	var req createDatastoreRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	if req.DatastoreName == "" {
-		return h.writeError(c, http.StatusBadRequest, "datastoreName is required")
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "datastoreName is required")
 	}
 
 	tags := tagsToMap(req.Tags)
 
-	ds, err := h.Backend.CreateDatastore(req.DatastoreName, tags)
+	ds, err := h.Backend.CreateDatastore(
+		req.DatastoreName,
+		tags,
+		req.DatastoreStorage,
+		req.RetentionPeriod,
+		req.FileFormatConfiguration,
+		req.Partitions,
+	)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, createDatastoreResponse{
+	return c.JSON(http.StatusOK, createDatastoreResponse{
 		DatastoreName: ds.Name,
 		DatastoreARN:  ds.ARN,
 	})
 }
 
 func (h *Handler) handleListDatastores(c *echo.Context) error {
+	maxResults, cursor := parsePagination(c)
 	datastores := h.Backend.ListDatastores()
+
 	summaries := make([]datastoreSummary, 0, len(datastores))
+	var nextToken *string
+
+	count := 0
 
 	for _, ds := range datastores {
+		if cursor != "" && ds.Name <= cursor {
+			continue
+		}
+
+		if count >= maxResults {
+			tok := encodeNextToken(summaries[len(summaries)-1].DatastoreName)
+			nextToken = &tok
+
+			break
+		}
+
 		summaries = append(summaries, datastoreSummary{
 			DatastoreName:  ds.Name,
 			DatastoreARN:   ds.ARN,
@@ -740,9 +831,13 @@ func (h *Handler) handleListDatastores(c *echo.Context) error {
 			CreationTime:   ds.CreationTime,
 			LastUpdateTime: ds.LastUpdate,
 		})
+		count++
 	}
 
-	return c.JSON(http.StatusOK, listDatastoresResponse{DatastoreSummaries: summaries})
+	return c.JSON(http.StatusOK, listDatastoresResponse{
+		DatastoreSummaries: summaries,
+		NextToken:          nextToken,
+	})
 }
 
 func (h *Handler) handleDescribeDatastore(c *echo.Context, name string) error {
@@ -753,18 +848,38 @@ func (h *Handler) handleDescribeDatastore(c *echo.Context, name string) error {
 
 	return c.JSON(http.StatusOK, describeDatastoreResponse{
 		Datastore: datastoreDetail{
-			Tags:           mapToTagsSorted(ds.Tags),
-			Name:           ds.Name,
-			ARN:            ds.ARN,
-			Status:         ds.Status,
-			CreationTime:   ds.CreationTime,
-			LastUpdateTime: ds.LastUpdate,
+			Storage:                 ds.Storage,
+			RetentionPeriod:         ds.RetentionPeriod,
+			FileFormatConfiguration: ds.FileFormatConfiguration,
+			Partitions:              ds.Partitions,
+			Tags:                    mapToTagsSorted(ds.Tags),
+			Name:                    ds.Name,
+			ARN:                     ds.ARN,
+			Status:                  ds.Status,
+			CreationTime:            ds.CreationTime,
+			LastUpdateTime:          ds.LastUpdate,
 		},
 	})
 }
 
-func (h *Handler) handleUpdateDatastore(c *echo.Context, name string) error {
-	if err := h.Backend.UpdateDatastore(name); err != nil {
+func (h *Handler) handleUpdateDatastore(c *echo.Context, name string, body []byte) error {
+	var req updateDatastoreRequest
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"invalid request body: "+err.Error(),
+			)
+		}
+	}
+
+	err := h.Backend.UpdateDatastore(
+		name, req.DatastoreStorage, req.RetentionPeriod, req.FileFormatConfiguration, req.Partitions,
+	)
+	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -786,31 +901,55 @@ func (h *Handler) handleDeleteDatastore(c *echo.Context, name string) error {
 func (h *Handler) handleCreateDataset(c *echo.Context, body []byte) error {
 	var req createDatasetRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	if req.DatasetName == "" {
-		return h.writeError(c, http.StatusBadRequest, "datasetName is required")
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "datasetName is required")
 	}
 
 	tags := tagsToMap(req.Tags)
 
-	ds, err := h.Backend.CreateDataset(req.DatasetName, tags)
+	ds, err := h.Backend.CreateDataset(
+		req.DatasetName,
+		tags,
+		req.Actions,
+		req.Triggers,
+		req.ContentDeliveryRules,
+		req.VersioningConfiguration,
+		req.LateDataRules,
+	)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, createDatasetResponse{
+	return c.JSON(http.StatusOK, createDatasetResponse{
 		DatasetName: ds.Name,
 		DatasetARN:  ds.ARN,
 	})
 }
 
 func (h *Handler) handleListDatasets(c *echo.Context) error {
+	maxResults, cursor := parsePagination(c)
 	datasets := h.Backend.ListDatasets()
+
 	summaries := make([]datasetSummary, 0, len(datasets))
+	var nextToken *string
+
+	count := 0
 
 	for _, ds := range datasets {
+		if cursor != "" && ds.Name <= cursor {
+			continue
+		}
+
+		if count >= maxResults {
+			tok := encodeNextToken(summaries[len(summaries)-1].DatasetName)
+			nextToken = &tok
+
+			break
+		}
+
 		summaries = append(summaries, datasetSummary{
 			DatasetName:    ds.Name,
 			DatasetARN:     ds.ARN,
@@ -818,9 +957,13 @@ func (h *Handler) handleListDatasets(c *echo.Context) error {
 			CreationTime:   ds.CreationTime,
 			LastUpdateTime: ds.LastUpdate,
 		})
+		count++
 	}
 
-	return c.JSON(http.StatusOK, listDatasetsResponse{DatasetSummaries: summaries})
+	return c.JSON(http.StatusOK, listDatasetsResponse{
+		DatasetSummaries: summaries,
+		NextToken:        nextToken,
+	})
 }
 
 func (h *Handler) handleDescribeDataset(c *echo.Context, name string) error {
@@ -831,18 +974,39 @@ func (h *Handler) handleDescribeDataset(c *echo.Context, name string) error {
 
 	return c.JSON(http.StatusOK, describeDatasetResponse{
 		Dataset: datasetDetail{
-			Tags:           mapToTagsSorted(ds.Tags),
-			Name:           ds.Name,
-			ARN:            ds.ARN,
-			Status:         ds.Status,
-			CreationTime:   ds.CreationTime,
-			LastUpdateTime: ds.LastUpdate,
+			Actions:                 ds.Actions,
+			Triggers:                ds.Triggers,
+			ContentDeliveryRules:    ds.ContentDeliveryRules,
+			LateDataRules:           ds.LateDataRules,
+			VersioningConfiguration: ds.VersioningConfiguration,
+			Tags:                    mapToTagsSorted(ds.Tags),
+			Name:                    ds.Name,
+			ARN:                     ds.ARN,
+			Status:                  ds.Status,
+			CreationTime:            ds.CreationTime,
+			LastUpdateTime:          ds.LastUpdate,
 		},
 	})
 }
 
-func (h *Handler) handleUpdateDataset(c *echo.Context, name string) error {
-	if err := h.Backend.UpdateDataset(name); err != nil {
+func (h *Handler) handleUpdateDataset(c *echo.Context, name string, body []byte) error {
+	var req updateDatasetRequest
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"invalid request body: "+err.Error(),
+			)
+		}
+	}
+
+	err := h.Backend.UpdateDataset(
+		name, req.Actions, req.Triggers, req.ContentDeliveryRules, req.VersioningConfiguration, req.LateDataRules,
+	)
+	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -864,40 +1028,61 @@ func (h *Handler) handleDeleteDataset(c *echo.Context, name string) error {
 func (h *Handler) handleCreatePipeline(c *echo.Context, body []byte) error {
 	var req createPipelineRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	if req.PipelineName == "" {
-		return h.writeError(c, http.StatusBadRequest, "pipelineName is required")
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "pipelineName is required")
 	}
 
 	tags := tagsToMap(req.Tags)
 
-	p, err := h.Backend.CreatePipeline(req.PipelineName, tags)
+	p, err := h.Backend.CreatePipeline(req.PipelineName, tags, req.PipelineActivities)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, createPipelineResponse{
+	return c.JSON(http.StatusOK, createPipelineResponse{
 		PipelineName: p.Name,
 		PipelineARN:  p.ARN,
 	})
 }
 
 func (h *Handler) handleListPipelines(c *echo.Context) error {
+	maxResults, cursor := parsePagination(c)
 	pipelines := h.Backend.ListPipelines()
+
 	summaries := make([]pipelineSummary, 0, len(pipelines))
+	var nextToken *string
+
+	count := 0
 
 	for _, p := range pipelines {
+		if cursor != "" && p.Name <= cursor {
+			continue
+		}
+
+		if count >= maxResults {
+			tok := encodeNextToken(summaries[len(summaries)-1].PipelineName)
+			nextToken = &tok
+
+			break
+		}
+
 		summaries = append(summaries, pipelineSummary{
-			PipelineName:   p.Name,
-			PipelineARN:    p.ARN,
-			CreationTime:   p.CreationTime,
-			LastUpdateTime: p.LastUpdate,
+			PipelineName:          p.Name,
+			PipelineARN:           p.ARN,
+			ReprocessingSummaries: reprocessingSummariesSorted(p.Reprocessings),
+			CreationTime:          p.CreationTime,
+			LastUpdateTime:        p.LastUpdate,
 		})
+		count++
 	}
 
-	return c.JSON(http.StatusOK, listPipelinesResponse{PipelineSummaries: summaries})
+	return c.JSON(http.StatusOK, listPipelinesResponse{
+		PipelineSummaries: summaries,
+		NextToken:         nextToken,
+	})
 }
 
 func (h *Handler) handleDescribePipeline(c *echo.Context, name string) error {
@@ -908,18 +1093,32 @@ func (h *Handler) handleDescribePipeline(c *echo.Context, name string) error {
 
 	return c.JSON(http.StatusOK, describePipelineResponse{
 		Pipeline: pipelineDetail{
+			Activities:            p.Activities,
+			ReprocessingSummaries: reprocessingSummariesSorted(p.Reprocessings),
 			Tags:                  mapToTagsSorted(p.Tags),
 			Name:                  p.Name,
 			ARN:                   p.ARN,
-			ReprocessingSummaries: p.ReprocessingSummaries,
 			CreationTime:          p.CreationTime,
 			LastUpdateTime:        p.LastUpdate,
 		},
 	})
 }
 
-func (h *Handler) handleUpdatePipeline(c *echo.Context, name string) error {
-	if err := h.Backend.UpdatePipeline(name); err != nil {
+func (h *Handler) handleUpdatePipeline(c *echo.Context, name string, body []byte) error {
+	var req updatePipelineRequest
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"invalid request body: "+err.Error(),
+			)
+		}
+	}
+
+	if err := h.Backend.UpdatePipeline(name, req.PipelineActivities); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -941,7 +1140,12 @@ func (h *Handler) handleDeletePipeline(c *echo.Context, name string) error {
 func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	resourceARN := c.Request().URL.Query().Get("resourceArn")
 	if resourceARN == "" {
-		return h.writeError(c, http.StatusBadRequest, "resourceArn query parameter is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidRequestException",
+			"resourceArn query parameter is required",
+		)
 	}
 
 	tags, err := h.Backend.ListTagsForResource(resourceARN)
@@ -955,12 +1159,17 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	resourceARN := c.Request().URL.Query().Get("resourceArn")
 	if resourceARN == "" {
-		return h.writeError(c, http.StatusBadRequest, "resourceArn query parameter is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidRequestException",
+			"resourceArn query parameter is required",
+		)
 	}
 
 	var req tagResourceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	if err := h.Backend.TagResource(resourceARN, req.Tags); err != nil {
@@ -973,12 +1182,17 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 func (h *Handler) handleUntagResource(c *echo.Context) error {
 	resourceARN := c.Request().URL.Query().Get("resourceArn")
 	if resourceARN == "" {
-		return h.writeError(c, http.StatusBadRequest, "resourceArn query parameter is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidRequestException",
+			"resourceArn query parameter is required",
+		)
 	}
 
 	tagKeys := c.Request().URL.Query()["tagKeys"]
 	if len(tagKeys) == 0 {
-		return h.writeError(c, http.StatusBadRequest, "tagKeys query parameter is required")
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "tagKeys query parameter is required")
 	}
 
 	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
@@ -993,7 +1207,7 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 // ----------------------------------------
 
 func (h *Handler) handleSampleChannelData(c *echo.Context, channelName string) error {
-	maxMessages := 0
+	maxMessages := defaultSampleMessages
 
 	if s := c.Request().URL.Query().Get("maxMessages"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil {
@@ -1016,30 +1230,45 @@ func (h *Handler) handleSampleChannelData(c *echo.Context, channelName string) e
 func (h *Handler) handleBatchPutMessage(c *echo.Context, body []byte) error {
 	var req batchPutMessageRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	if req.ChannelName == "" {
-		return h.writeError(c, http.StatusBadRequest, "channelName is required")
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "channelName is required")
 	}
 
 	if len(req.Messages) == 0 {
-		return h.writeError(c, http.StatusBadRequest, "messages must not be empty")
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "messages must not be empty")
+	}
+
+	if len(req.Messages) > maxBatchMessages {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException",
+			"messages count exceeds limit of "+strconv.Itoa(maxBatchMessages))
 	}
 
 	for i, msg := range req.Messages {
 		if msg.MessageID == "" {
-			return h.writeError(c, http.StatusBadRequest, "messageId is required for message at index "+strconv.Itoa(i))
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"messageId is required for message at index "+strconv.Itoa(i),
+			)
 		}
 
 		if len(msg.Payload) == 0 {
-			return h.writeError(c, http.StatusBadRequest, "payload must not be empty for message "+msg.MessageID)
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"payload must not be empty for message "+msg.MessageID,
+			)
 		}
 	}
 
 	errs, err := h.Backend.BatchPutMessage(req.ChannelName, req.Messages)
 	if err != nil {
-		return h.writeError(c, http.StatusInternalServerError, err.Error())
+		return h.writeError(c, http.StatusInternalServerError, "InternalFailureException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, batchPutMessageResponse{BatchPutMessageErrorEntries: errs})
@@ -1049,8 +1278,21 @@ func (h *Handler) handleBatchPutMessage(c *echo.Context, body []byte) error {
 // Pipeline reprocessing handlers
 // ----------------------------------------
 
-func (h *Handler) handleStartPipelineReprocessing(c *echo.Context, pipelineName string) error {
-	reprocessingID, err := h.Backend.StartPipelineReprocessing(pipelineName)
+func (h *Handler) handleStartPipelineReprocessing(c *echo.Context, pipelineName string, body []byte) error {
+	var req startPipelineReprocessingRequest
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"invalid request body: "+err.Error(),
+			)
+		}
+	}
+
+	reprocessingID, err := h.Backend.StartPipelineReprocessing(pipelineName, req.StartTime, req.EndTime)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1061,7 +1303,7 @@ func (h *Handler) handleStartPipelineReprocessing(c *echo.Context, pipelineName 
 func (h *Handler) handleCancelPipelineReprocessing(c *echo.Context, resource string) error {
 	parts := strings.SplitN(resource, "/", minNameSegments)
 	if len(parts) != minNameSegments {
-		return h.writeError(c, http.StatusBadRequest, "invalid resource path")
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
 	}
 
 	pipelineName := parts[0]
@@ -1155,7 +1397,7 @@ func (h *Handler) handleDescribeLoggingOptions(c *echo.Context) error {
 func (h *Handler) handlePutLoggingOptions(c *echo.Context, body []byte) error {
 	var req putLoggingOptionsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	opts := &LoggingOptions{
@@ -1165,7 +1407,7 @@ func (h *Handler) handlePutLoggingOptions(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.PutLoggingOptions(opts); err != nil {
-		return h.writeError(c, http.StatusInternalServerError, err.Error())
+		return h.writeBackendError(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1178,12 +1420,12 @@ func (h *Handler) handlePutLoggingOptions(c *echo.Context, body []byte) error {
 func (h *Handler) handleRunPipelineActivity(c *echo.Context, body []byte) error {
 	var req runPipelineActivityRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	payloads, err := h.Backend.RunPipelineActivity(req.Payloads)
 	if err != nil {
-		return h.writeError(c, http.StatusInternalServerError, err.Error())
+		return h.writeError(c, http.StatusInternalServerError, "InternalFailureException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, runPipelineActivityResponse{
@@ -1196,24 +1438,26 @@ func (h *Handler) handleRunPipelineActivity(c *echo.Context, body []byte) error 
 // Error helpers
 // ----------------------------------------
 
-// writeError writes an IoT Analytics JSON error response.
-func (h *Handler) writeError(c *echo.Context, status int, message string) error {
-	return c.JSON(status, errorResponse{Message: message})
+// writeError writes an IoT Analytics JSON error response with AWS __type field.
+func (h *Handler) writeError(c *echo.Context, status int, errType, message string) error {
+	return c.JSON(status, errorResponse{Type: errType, Message: message})
 }
 
-// writeBackendError maps a backend error to an HTTP error response.
+// writeBackendError maps a backend error to an HTTP error response with appropriate AWS error type.
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	if isNotFound(err) {
-		return h.writeError(c, http.StatusNotFound, err.Error())
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	}
 
 	if errors.Is(err, ErrAlreadyExists) {
-		return h.writeError(c, http.StatusConflict, err.Error())
+		return h.writeError(c, http.StatusConflict, "ResourceAlreadyExistsException", err.Error())
 	}
 
 	if errors.Is(err, ErrValidation) {
-		return h.writeError(c, http.StatusBadRequest, err.Error())
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", err.Error())
 	}
 
-	return h.writeError(c, http.StatusInternalServerError, err.Error())
+	return h.writeError(c, http.StatusInternalServerError, "InternalFailureException", err.Error())
 }
+
+// ci trigger

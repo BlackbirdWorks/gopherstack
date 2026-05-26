@@ -154,10 +154,10 @@ func TestRefinement1_SeedHelpers(t *testing.T) {
 		seedName string
 		kind     string
 	}{
-		{name: "channel", seedName: "my-ch", kind: "channel"},
-		{name: "datastore", seedName: "my-ds", kind: "datastore"},
-		{name: "dataset", seedName: "my-set", kind: "dataset"},
-		{name: "pipeline", seedName: "my-pipe", kind: "pipeline"},
+		{name: "channel", seedName: "my_ch", kind: "channel"},
+		{name: "datastore", seedName: "my_ds", kind: "datastore"},
+		{name: "dataset", seedName: "my_set", kind: "dataset"},
+		{name: "pipeline", seedName: "my_pipe", kind: "pipeline"},
 	}
 
 	for _, tt := range tests {
@@ -220,71 +220,71 @@ func TestRefinement1_SortedListChannels(t *testing.T) {
 	t.Parallel()
 
 	b := iotanalytics.NewInMemoryBackend()
-	b.AddChannelInternal("zz-channel")
-	b.AddChannelInternal("aa-channel")
-	b.AddChannelInternal("mm-channel")
+	b.AddChannelInternal("zz_channel")
+	b.AddChannelInternal("aa_channel")
+	b.AddChannelInternal("mm_channel")
 
 	channels := b.ListChannels()
 	require.Len(t, channels, 3)
-	assert.Equal(t, "aa-channel", channels[0].Name)
-	assert.Equal(t, "mm-channel", channels[1].Name)
-	assert.Equal(t, "zz-channel", channels[2].Name)
+	assert.Equal(t, "aa_channel", channels[0].Name)
+	assert.Equal(t, "mm_channel", channels[1].Name)
+	assert.Equal(t, "zz_channel", channels[2].Name)
 }
 
 func TestRefinement1_SortedListDatastores(t *testing.T) {
 	t.Parallel()
 
 	b := iotanalytics.NewInMemoryBackend()
-	b.AddDatastoreInternal("z-store")
-	b.AddDatastoreInternal("a-store")
-	b.AddDatastoreInternal("m-store")
+	b.AddDatastoreInternal("z_store")
+	b.AddDatastoreInternal("a_store")
+	b.AddDatastoreInternal("m_store")
 
 	stores := b.ListDatastores()
 	require.Len(t, stores, 3)
-	assert.Equal(t, "a-store", stores[0].Name)
-	assert.Equal(t, "m-store", stores[1].Name)
-	assert.Equal(t, "z-store", stores[2].Name)
+	assert.Equal(t, "a_store", stores[0].Name)
+	assert.Equal(t, "m_store", stores[1].Name)
+	assert.Equal(t, "z_store", stores[2].Name)
 }
 
 func TestRefinement1_SortedListDatasets(t *testing.T) {
 	t.Parallel()
 
 	b := iotanalytics.NewInMemoryBackend()
-	b.AddDatasetInternal("z-set")
-	b.AddDatasetInternal("a-set")
-	b.AddDatasetInternal("m-set")
+	b.AddDatasetInternal("z_set")
+	b.AddDatasetInternal("a_set")
+	b.AddDatasetInternal("m_set")
 
 	sets := b.ListDatasets()
 	require.Len(t, sets, 3)
-	assert.Equal(t, "a-set", sets[0].Name)
-	assert.Equal(t, "m-set", sets[1].Name)
-	assert.Equal(t, "z-set", sets[2].Name)
+	assert.Equal(t, "a_set", sets[0].Name)
+	assert.Equal(t, "m_set", sets[1].Name)
+	assert.Equal(t, "z_set", sets[2].Name)
 }
 
 func TestRefinement1_SortedListPipelines(t *testing.T) {
 	t.Parallel()
 
 	b := iotanalytics.NewInMemoryBackend()
-	b.AddPipelineInternal("z-pipe")
-	b.AddPipelineInternal("a-pipe")
-	b.AddPipelineInternal("m-pipe")
+	b.AddPipelineInternal("z_pipe")
+	b.AddPipelineInternal("a_pipe")
+	b.AddPipelineInternal("m_pipe")
 
 	pipes := b.ListPipelines()
 	require.Len(t, pipes, 3)
-	assert.Equal(t, "a-pipe", pipes[0].Name)
-	assert.Equal(t, "m-pipe", pipes[1].Name)
-	assert.Equal(t, "z-pipe", pipes[2].Name)
+	assert.Equal(t, "a_pipe", pipes[0].Name)
+	assert.Equal(t, "m_pipe", pipes[1].Name)
+	assert.Equal(t, "z_pipe", pipes[2].Name)
 }
 
 func TestRefinement1_SortedListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	b := iotanalytics.NewInMemoryBackend()
-	ch, err := b.CreateChannel("tagged-ch", map[string]string{
+	ch, err := b.CreateChannel("tagged_ch", map[string]string{
 		"zzz": "last",
 		"aaa": "first",
 		"mmm": "middle",
-	})
+	}, nil, nil)
 	require.NoError(t, err)
 
 	tags, err := b.ListTagsForResource(ch.ARN)
@@ -299,10 +299,10 @@ func TestRefinement1_ErrAlreadyExists_Channel(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRefinementRequest(t, h, http.MethodPost, "/channels", map[string]any{"channelName": "dup-ch"})
-	require.Equal(t, http.StatusCreated, rec.Code)
+	rec := doRefinementRequest(t, h, http.MethodPost, "/channels", map[string]any{"channelName": "dup_ch"})
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec2 := doRefinementRequest(t, h, http.MethodPost, "/channels", map[string]any{"channelName": "dup-ch"})
+	rec2 := doRefinementRequest(t, h, http.MethodPost, "/channels", map[string]any{"channelName": "dup_ch"})
 	assert.Equal(t, http.StatusConflict, rec2.Code)
 }
 
@@ -310,10 +310,10 @@ func TestRefinement1_ErrAlreadyExists_Datastore(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRefinementRequest(t, h, http.MethodPost, "/datastores", map[string]any{"datastoreName": "dup-ds"})
-	require.Equal(t, http.StatusCreated, rec.Code)
+	rec := doRefinementRequest(t, h, http.MethodPost, "/datastores", map[string]any{"datastoreName": "dup_ds"})
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec2 := doRefinementRequest(t, h, http.MethodPost, "/datastores", map[string]any{"datastoreName": "dup-ds"})
+	rec2 := doRefinementRequest(t, h, http.MethodPost, "/datastores", map[string]any{"datastoreName": "dup_ds"})
 	assert.Equal(t, http.StatusConflict, rec2.Code)
 }
 
@@ -321,10 +321,10 @@ func TestRefinement1_ErrAlreadyExists_Dataset(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRefinementRequest(t, h, http.MethodPost, "/datasets", map[string]any{"datasetName": "dup-set"})
-	require.Equal(t, http.StatusCreated, rec.Code)
+	rec := doRefinementRequest(t, h, http.MethodPost, "/datasets", map[string]any{"datasetName": "dup_set"})
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec2 := doRefinementRequest(t, h, http.MethodPost, "/datasets", map[string]any{"datasetName": "dup-set"})
+	rec2 := doRefinementRequest(t, h, http.MethodPost, "/datasets", map[string]any{"datasetName": "dup_set"})
 	assert.Equal(t, http.StatusConflict, rec2.Code)
 }
 
@@ -332,10 +332,10 @@ func TestRefinement1_ErrAlreadyExists_Pipeline(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRefinementRequest(t, h, http.MethodPost, "/pipelines", map[string]any{"pipelineName": "dup-pipe"})
-	require.Equal(t, http.StatusCreated, rec.Code)
+	rec := doRefinementRequest(t, h, http.MethodPost, "/pipelines", map[string]any{"pipelineName": "dup_pipe"})
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec2 := doRefinementRequest(t, h, http.MethodPost, "/pipelines", map[string]any{"pipelineName": "dup-pipe"})
+	rec2 := doRefinementRequest(t, h, http.MethodPost, "/pipelines", map[string]any{"pipelineName": "dup_pipe"})
 	assert.Equal(t, http.StatusConflict, rec2.Code)
 }
 
@@ -368,19 +368,19 @@ func TestRefinement1_DeepCopy_Channel(t *testing.T) {
 	t.Parallel()
 
 	b := iotanalytics.NewInMemoryBackend()
-	_, err := b.CreateChannel("immutable-ch", map[string]string{"key": "original"})
+	_, err := b.CreateChannel("immutable_ch", map[string]string{"key": "original"}, nil, nil)
 	require.NoError(t, err)
 
-	ch, err := b.DescribeChannel("immutable-ch")
+	ch, err := b.DescribeChannel("immutable_ch")
 	require.NoError(t, err)
 
 	// Mutate the returned copy; stored state should be unchanged.
 	ch.Tags["key"] = "mutated"
-	ch.Name = "mutated-name"
+	ch.Name = "mutated_name"
 
-	ch2, err := b.DescribeChannel("immutable-ch")
+	ch2, err := b.DescribeChannel("immutable_ch")
 	require.NoError(t, err)
-	assert.Equal(t, "immutable-ch", ch2.Name)
+	assert.Equal(t, "immutable_ch", ch2.Name)
 	assert.Equal(t, "original", ch2.Tags["key"])
 }
 
@@ -388,19 +388,19 @@ func TestRefinement1_DeepCopy_Pipeline(t *testing.T) {
 	t.Parallel()
 
 	b := iotanalytics.NewInMemoryBackend()
-	_, err := b.CreatePipeline("immutable-pipe", map[string]string{"env": "prod"})
+	_, err := b.CreatePipeline("immutable_pipe", map[string]string{"env": "prod"}, nil)
 	require.NoError(t, err)
 
-	p, err := b.DescribePipeline("immutable-pipe")
+	p, err := b.DescribePipeline("immutable_pipe")
 	require.NoError(t, err)
 
 	// Mutate the returned copy.
 	p.Tags["env"] = "dev"
 	p.Name = "mutated"
 
-	p2, err := b.DescribePipeline("immutable-pipe")
+	p2, err := b.DescribePipeline("immutable_pipe")
 	require.NoError(t, err)
-	assert.Equal(t, "immutable-pipe", p2.Name)
+	assert.Equal(t, "immutable_pipe", p2.Name)
 	assert.Equal(t, "prod", p2.Tags["env"])
 }
 
@@ -408,10 +408,10 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := iotanalytics.NewInMemoryBackend()
-	b.AddChannelInternal("saved-ch")
-	b.AddDatastoreInternal("saved-ds")
-	b.AddDatasetInternal("saved-set")
-	b.AddPipelineInternal("saved-pipe")
+	b.AddChannelInternal("saved_ch")
+	b.AddDatastoreInternal("saved_ds")
+	b.AddDatasetInternal("saved_set")
+	b.AddPipelineInternal("saved_pipe")
 
 	snap := b.Snapshot()
 	require.NotNil(t, snap)
@@ -426,9 +426,9 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, iotanalytics.DatasetCount(b2))
 	assert.Equal(t, 1, iotanalytics.PipelineCount(b2))
 
-	ch, err := b2.DescribeChannel("saved-ch")
+	ch, err := b2.DescribeChannel("saved_ch")
 	require.NoError(t, err)
-	assert.Equal(t, "saved-ch", ch.Name)
+	assert.Equal(t, "saved_ch", ch.Name)
 }
 
 func TestRefinement1_NonNilReprocessingSummaries(t *testing.T) {
@@ -438,7 +438,7 @@ func TestRefinement1_NonNilReprocessingSummaries(t *testing.T) {
 		name         string
 		pipelineName string
 	}{
-		{name: "new_pipeline_has_empty_slice", pipelineName: "fresh-pipe"},
+		{name: "new_pipeline_has_empty_map", pipelineName: "fresh_pipe"},
 	}
 
 	for _, tt := range tests {
@@ -446,10 +446,10 @@ func TestRefinement1_NonNilReprocessingSummaries(t *testing.T) {
 			t.Parallel()
 
 			b := iotanalytics.NewInMemoryBackend()
-			p, err := b.CreatePipeline(tt.pipelineName, nil)
+			p, err := b.CreatePipeline(tt.pipelineName, nil, nil)
 			require.NoError(t, err)
-			require.NotNil(t, p.ReprocessingSummaries)
-			assert.Empty(t, p.ReprocessingSummaries)
+			require.NotNil(t, p.Reprocessings)
+			assert.Empty(t, p.Reprocessings)
 		})
 	}
 }
@@ -500,19 +500,19 @@ func TestRefinement1_TagsInDescribeResponse(t *testing.T) {
 	}{
 		{
 			name:   "channel_with_tags",
-			path:   "/channels/tagged-ch",
+			path:   "/channels/tagged_ch",
 			create: "/channels",
 			body: map[string]any{
-				"channelName": "tagged-ch",
+				"channelName": "tagged_ch",
 				"tags":        []map[string]string{{"key": "env", "value": "prod"}},
 			},
 		},
 		{
 			name:   "pipeline_with_tags",
-			path:   "/pipelines/tagged-pipe",
+			path:   "/pipelines/tagged_pipe",
 			create: "/pipelines",
 			body: map[string]any{
-				"pipelineName": "tagged-pipe",
+				"pipelineName": "tagged_pipe",
 				"tags":         []map[string]string{{"key": "team", "value": "alpha"}},
 			},
 		},
@@ -524,7 +524,7 @@ func TestRefinement1_TagsInDescribeResponse(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doRefinementRequest(t, h, http.MethodPost, tt.create, tt.body)
-			require.Equal(t, http.StatusCreated, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code)
 
 			rec2 := doRefinementRequest(t, h, http.MethodGet, tt.path, nil)
 			require.Equal(t, http.StatusOK, rec2.Code)
@@ -543,7 +543,7 @@ func TestRefinement1_ErrAlreadyExists_BackendDirect(t *testing.T) {
 		{
 			name: "channel",
 			create: func(b *iotanalytics.InMemoryBackend) error {
-				_, err := b.CreateChannel("dup", nil)
+				_, err := b.CreateChannel("dup", nil, nil, nil)
 
 				return err
 			},
@@ -551,7 +551,7 @@ func TestRefinement1_ErrAlreadyExists_BackendDirect(t *testing.T) {
 		{
 			name: "datastore",
 			create: func(b *iotanalytics.InMemoryBackend) error {
-				_, err := b.CreateDatastore("dup", nil)
+				_, err := b.CreateDatastore("dup", nil, nil, nil, nil, nil)
 
 				return err
 			},
@@ -559,7 +559,7 @@ func TestRefinement1_ErrAlreadyExists_BackendDirect(t *testing.T) {
 		{
 			name: "dataset",
 			create: func(b *iotanalytics.InMemoryBackend) error {
-				_, err := b.CreateDataset("dup", nil)
+				_, err := b.CreateDataset("dup", nil, nil, nil, nil, nil, nil)
 
 				return err
 			},
@@ -567,7 +567,7 @@ func TestRefinement1_ErrAlreadyExists_BackendDirect(t *testing.T) {
 		{
 			name: "pipeline",
 			create: func(b *iotanalytics.InMemoryBackend) error {
-				_, err := b.CreatePipeline("dup", nil)
+				_, err := b.CreatePipeline("dup", nil, nil)
 
 				return err
 			},
