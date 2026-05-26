@@ -119,25 +119,25 @@ func TestIoTAnalyticsDashboard_CreateAndDeleteChannel(t *testing.T) {
 	err = page.Locator("button:has-text('+ Create Channel')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("input#channel-name").Fill("ui-test-channel")
+	err = page.Locator("input#channel-name").Fill("ui_test_channel")
 	require.NoError(t, err)
 
 	err = page.Locator("button[type='submit']:has-text('Create')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("td.font-medium:has-text('ui-test-channel')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("td.font-medium:has-text('ui_test_channel')").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "ui-test-channel")
+	assert.Contains(t, content, "ui_test_channel")
 
 	err = page.Locator("button:has-text('Delete')").First().Click()
 	require.NoError(t, err)
 
-	err = page.Locator("text=ui-test-channel").First().WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=ui_test_channel").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateHidden,
 		Timeout: playwright.Float(60000),
 	})
@@ -145,5 +145,5 @@ func TestIoTAnalyticsDashboard_CreateAndDeleteChannel(t *testing.T) {
 
 	content, err = page.Content()
 	require.NoError(t, err)
-	assert.NotContains(t, content, "ui-test-channel")
+	assert.NotContains(t, content, "ui_test_channel")
 }
