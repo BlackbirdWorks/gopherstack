@@ -108,3 +108,14 @@ func StorageLensConfigCount(b *InMemoryBackend) int {
 
 	return len(b.storageLensConfigs)
 }
+
+// ExtractOp calls the handler's ExtractOperation for the given method and path, for test use.
+func ExtractOp(h *Handler, method, path string) string {
+	return h.extractOperationFromMethodPath(method, path)
+}
+
+// extractOperationFromMethodPath is a test helper for extracting operations by method and path.
+func (h *Handler) extractOperationFromMethodPath(method, path string) string {
+	_ = h
+	return extractNewOpsOperation(path, method)
+}

@@ -358,25 +358,7 @@ func (h *Handler) handleListAccessGrantsLocations(c *echo.Context) error {
 }
 
 func (h *Handler) handleGetDataAccess(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
-	target := c.Request().URL.Query().Get("target")
-	permission := c.Request().URL.Query().Get("permission")
-
-	url, err := h.Backend.GetDataAccess(accountID, target, permission)
-	if err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return writeXML(c, struct {
-		XMLName     xml.Name `xml:"GetDataAccessResult"`
-		Credentials struct {
-			AccessKeyID     string `xml:"AccessKeyId"`
-			SecretAccessKey string `xml:"SecretAccessKey"`
-		} `xml:"Credentials"`
-		MatchedGrantTarget string `xml:"MatchedGrantTarget"`
-	}{
-		MatchedGrantTarget: url,
-	})
+	return h.handleGetDataAccessV2(c)
 }
 
 // ---- Access Point Scope ----

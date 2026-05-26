@@ -10,6 +10,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+var awserrAccessGrantsInstanceNotFound = awserr.New("AccessGrantsInstanceNotExistsError", awserr.ErrNotFound)
+
 const (
 	// defaultAccessGrantsInstanceID is the fixed ID for the single Access Grants instance per account.
 	defaultAccessGrantsInstanceID = "default"
@@ -143,13 +145,14 @@ type MultiRegionAccessPointRequest struct {
 
 // MultiRegionAccessPoint represents a stored MRAP instance.
 type MultiRegionAccessPoint struct {
-	AccountID string   `json:"accountID"`
-	Name      string   `json:"name"`
-	Alias     string   `json:"alias"`
-	Status    string   `json:"status"`
-	Policy    string   `json:"policy,omitempty"`
-	CreatedAt string   `json:"createdAt,omitempty"`
-	Regions   []string `json:"regions,omitempty"`
+	PublicAccessBlock *PublicAccessBlock `json:"publicAccessBlock,omitempty"`
+	AccountID         string             `json:"accountID"`
+	Name              string             `json:"name"`
+	Alias             string             `json:"alias"`
+	Status            string             `json:"status"`
+	Policy            string             `json:"policy,omitempty"`
+	CreatedAt         string             `json:"createdAt,omitempty"`
+	Regions           []string           `json:"regions,omitempty"`
 }
 
 // StorageLensGroup represents an S3 Storage Lens group.
@@ -195,9 +198,12 @@ type InMemoryBackend struct {
 	resourceTags          map[string]map[string]string // ARN → tag key → tag value
 	// batch3 additions
 	accessPointPABs map[string]*PublicAccessBlock // accountID:apName → per-AP public access block
-	accountID       string
-	region          string
-	nextID          int64
+	// audit1 additions
+	storageLensConfigMetas map[string]*StorageLensConfigMeta // accountID:configName → metadata
+	storageLensGroupTags   map[string]TagSet                 // accountID:groupName → tags
+	accountID              string
+	region                 string
+	nextID                 int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default config values.
@@ -236,6 +242,8 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		storageLensConfigTags:        make(map[string]TagSet),
 		resourceTags:                 make(map[string]map[string]string),
 		accessPointPABs:              make(map[string]*PublicAccessBlock),
+		storageLensConfigMetas:       make(map[string]*StorageLensConfigMeta),
+		storageLensGroupTags:         make(map[string]TagSet),
 		mu:                           lockmetrics.New("s3control"),
 		accountID:                    accountID,
 		region:                       region,
@@ -281,6 +289,8 @@ func (b *InMemoryBackend) Reset() {
 	b.storageLensConfigTags = make(map[string]TagSet)
 	b.resourceTags = make(map[string]map[string]string)
 	b.accessPointPABs = make(map[string]*PublicAccessBlock)
+	b.storageLensConfigMetas = make(map[string]*StorageLensConfigMeta)
+	b.storageLensGroupTags = make(map[string]TagSet)
 	b.nextID = 0
 }
 

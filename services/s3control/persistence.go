@@ -26,7 +26,10 @@ type backendSnapshot struct {
 	ResourceTags          map[string]map[string]string `json:"resourceTags"`
 	// batch3 additions
 	AccessPointPABs map[string]*PublicAccessBlock `json:"accessPointPABs"`
-	NextID          int64                         `json:"nextID"`
+	// audit1 additions
+	StorageLensConfigMetas map[string]*StorageLensConfigMeta `json:"storageLensConfigMetas"`
+	StorageLensGroupTags   map[string]TagSet                 `json:"storageLensGroupTags"`
+	NextID                 int64                             `json:"nextID"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -53,6 +56,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		StorageLensConfigTags:    cloneMapTagSet(b.storageLensConfigTags),
 		ResourceTags:             cloneMapResourceTags(b.resourceTags),
 		AccessPointPABs:          cloneMapPAB(b.accessPointPABs),
+		StorageLensConfigMetas:   cloneMapSLCMeta(b.storageLensConfigMetas),
+		StorageLensGroupTags:     cloneMapTagSet(b.storageLensGroupTags),
 		NextID:                   b.nextID,
 	}
 
@@ -183,6 +188,16 @@ func cloneMapSLG(m map[string]*StorageLensGroup) map[string]*StorageLensGroup {
 	return out
 }
 
+func cloneMapSLCMeta(m map[string]*StorageLensConfigMeta) map[string]*StorageLensConfigMeta {
+	out := make(map[string]*StorageLensConfigMeta, len(m))
+	for k, v := range m {
+		cp := *v
+		out[k] = &cp
+	}
+
+	return out
+}
+
 func cloneMapTagSet(m map[string]TagSet) map[string]TagSet {
 	out := make(map[string]TagSet, len(m))
 	for k, v := range m {
@@ -280,6 +295,14 @@ func ensureNonNilMapsBatch2(snap *backendSnapshot) {
 	if snap.AccessPointPABs == nil {
 		snap.AccessPointPABs = make(map[string]*PublicAccessBlock)
 	}
+
+	if snap.StorageLensConfigMetas == nil {
+		snap.StorageLensConfigMetas = make(map[string]*StorageLensConfigMeta)
+	}
+
+	if snap.StorageLensGroupTags == nil {
+		snap.StorageLensGroupTags = make(map[string]TagSet)
+	}
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -313,6 +336,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.storageLensConfigTags = snap.StorageLensConfigTags
 	b.resourceTags = snap.ResourceTags
 	b.accessPointPABs = snap.AccessPointPABs
+	b.storageLensConfigMetas = snap.StorageLensConfigMetas
+	b.storageLensGroupTags = snap.StorageLensGroupTags
 	b.nextID = snap.NextID
 
 	return nil
