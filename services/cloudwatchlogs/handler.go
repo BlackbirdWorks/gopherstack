@@ -24,9 +24,10 @@ import (
 var errUnknownOperation = errors.New("UnknownOperationException")
 
 type createLogGroupInput struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	LogGroupName string            `json:"logGroupName"`
-	KmsKeyID     string            `json:"kmsKeyId,omitempty"`
+	Tags          map[string]string `json:"tags,omitempty"`
+	LogGroupName  string            `json:"logGroupName"`
+	KmsKeyID      string            `json:"kmsKeyId,omitempty"`
+	LogGroupClass string            `json:"logGroupClass,omitempty"`
 }
 
 type deleteLogGroupInput struct {
@@ -61,6 +62,7 @@ type deleteLogStreamInput struct {
 type putLogEventsInput struct {
 	LogGroupName  string          `json:"logGroupName"`
 	LogStreamName string          `json:"logStreamName"`
+	SequenceToken string          `json:"sequenceToken,omitempty"`
 	LogEvents     []InputLogEvent `json:"logEvents"`
 }
 
@@ -126,6 +128,8 @@ type putSubscriptionFilterInput struct {
 	FilterName     string `json:"filterName"`
 	LogGroupName   string `json:"logGroupName"`
 	DestinationArn string `json:"destinationArn"`
+	RoleArn        string `json:"roleArn,omitempty"`
+	Distribution   string `json:"distribution,omitempty"`
 }
 
 type describeSubscriptionFiltersInput struct {
@@ -571,7 +575,8 @@ type describeLogStreamsOutput struct {
 }
 
 type putLogEventsOutput struct {
-	NextSequenceToken string `json:"nextSequenceToken"`
+	RejectedLogEventsInfo *RejectedLogEventsInfo `json:"rejectedLogEventsInfo,omitempty"`
+	NextSequenceToken     string                 `json:"nextSequenceToken"`
 }
 
 type getLogEventsOutput struct {
@@ -722,9 +727,11 @@ type updateScheduledQueryOutput struct{}
 
 // --- PutAccountPolicy ---.
 type putAccountPolicyInput struct {
-	PolicyDocument string `json:"policyDocument"`
-	PolicyName     string `json:"policyName"`
-	PolicyType     string `json:"policyType"`
+	PolicyDocument    string `json:"policyDocument"`
+	PolicyName        string `json:"policyName"`
+	PolicyType        string `json:"policyType"`
+	Scope             string `json:"scope,omitempty"`
+	SelectionCriteria string `json:"selectionCriteria,omitempty"`
 }
 
 type putAccountPolicyOutput struct {
@@ -733,11 +740,15 @@ type putAccountPolicyOutput struct {
 
 // --- DescribeAccountPolicies ---.
 type describeAccountPoliciesInput struct {
-	PolicyName string `json:"policyName"`
-	PolicyType string `json:"policyType"`
+	AccountIdentifiers []string `json:"accountIdentifiers,omitempty"`
+	PolicyName         string   `json:"policyName"`
+	PolicyType         string   `json:"policyType"`
+	NextToken          string   `json:"nextToken,omitempty"`
+	MaxResults         int      `json:"maxResults,omitempty"`
 }
 
 type describeAccountPoliciesOutput struct {
+	NextToken       string          `json:"nextToken,omitempty"`
 	AccountPolicies []AccountPolicy `json:"accountPolicies"`
 }
 
@@ -917,7 +928,7 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			if _, err := h.Backend.CreateLogGroup(input.LogGroupName); err != nil {
+			if _, err := h.Backend.CreateLogGroup(input.LogGroupName, input.LogGroupClass, input.KmsKeyID); err != nil {
 				return nil, err
 			}
 			if len(input.Tags) > 0 {
@@ -1005,12 +1016,15 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			next, err := h.Backend.PutLogEvents(input.LogGroupName, input.LogStreamName, input.LogEvents)
+			result, err := h.Backend.PutLogEvents(input.LogGroupName, input.LogStreamName, input.SequenceToken, input.LogEvents)
 			if err != nil {
 				return nil, err
 			}
 
-			return &putLogEventsOutput{NextSequenceToken: next}, nil
+			return &putLogEventsOutput{
+				NextSequenceToken:     result.NextSequenceToken,
+				RejectedLogEventsInfo: result.RejectedLogEventsInfo,
+			}, nil
 		},
 		"GetLogEvents": func(b []byte) (any, error) {
 			var input getLogEventsInput
@@ -1145,6 +1159,7 @@ func (h *Handler) subscriptionFilterActions() map[string]actionFn {
 			}
 			if err := h.Backend.PutSubscriptionFilter(
 				input.LogGroupName, input.FilterName, input.FilterPattern, input.DestinationArn,
+				input.RoleArn, input.Distribution,
 			); err != nil {
 				return nil, err
 			}
@@ -1583,7 +1598,7 @@ func (h *Handler) handlePutAccountPolicy(b []byte) (any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	policy, err := h.Backend.PutAccountPolicy(input.PolicyName, input.PolicyType, input.PolicyDocument)
+	policy, err := h.Backend.PutAccountPolicy(input.PolicyName, input.PolicyType, input.PolicyDocument, input.Scope, input.SelectionCriteria)
 	if err != nil {
 		return nil, err
 	}
@@ -1596,12 +1611,12 @@ func (h *Handler) handleDescribeAccountPolicies(b []byte) (any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	policies, err := h.Backend.DescribeAccountPolicies(input.PolicyType, input.PolicyName)
+	policies, nextToken, err := h.Backend.DescribeAccountPolicies(input.PolicyType, input.PolicyName, input.AccountIdentifiers, input.MaxResults, input.NextToken)
 	if err != nil {
 		return nil, err
 	}
 
-	return &describeAccountPoliciesOutput{AccountPolicies: policies}, nil
+	return &describeAccountPoliciesOutput{AccountPolicies: policies, NextToken: nextToken}, nil
 }
 
 func (h *Handler) handleDisassociateKmsKey(b []byte) (any, error) {
