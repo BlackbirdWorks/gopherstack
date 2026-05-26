@@ -22,41 +22,43 @@ func TestBackend_PutObject(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		path         string
-		body         []byte
-		contentType  string
-		storageClass string
-		wantErr      bool
-		errSentinel  error
+		errSentinel      error
+		name             string
+		path             string
+		contentType      string
+		storageClass     string
+		wantStorageClass string
+		body             []byte
+		wantErr          bool
 	}{
 		{
-			name:         "stores_object_successfully",
-			path:         "/video/clip.mp4",
-			body:         []byte("video content"),
-			contentType:  "video/mp4",
-			storageClass: "TEMPORAL",
+			name:             "stores_object_successfully",
+			path:             "/video/clip.mp4",
+			body:             []byte("video content"),
+			contentType:      "video/mp4",
+			storageClass:     "TEMPORAL",
+			wantStorageClass: "TEMPORAL",
 		},
 		{
-			name:         "empty_path_rejected",
-			path:         "/",
-			body:         []byte("data"),
-			wantErr:      true,
-			errSentinel:  mediastoredata.ErrInvalidPath,
+			name:        "empty_path_rejected",
+			path:        "/",
+			body:        []byte("data"),
+			wantErr:     true,
+			errSentinel: mediastoredata.ErrInvalidPath,
 		},
 		{
-			name:         "dotdot_path_rejected",
-			path:         "/a/../b",
-			body:         []byte("data"),
-			wantErr:      true,
-			errSentinel:  mediastoredata.ErrInvalidPath,
+			name:        "dotdot_path_rejected",
+			path:        "/a/../b",
+			body:        []byte("data"),
+			wantErr:     true,
+			errSentinel: mediastoredata.ErrInvalidPath,
 		},
 		{
-			name:         "path_too_long_rejected",
-			path:         "/" + strings.Repeat("a", 901),
-			body:         []byte("data"),
-			wantErr:      true,
-			errSentinel:  mediastoredata.ErrInvalidPath,
+			name:        "path_too_long_rejected",
+			path:        "/" + strings.Repeat("a", 901),
+			body:        []byte("data"),
+			wantErr:     true,
+			errSentinel: mediastoredata.ErrInvalidPath,
 		},
 		{
 			name:         "invalid_storage_class_rejected",
@@ -67,18 +69,18 @@ func TestBackend_PutObject(t *testing.T) {
 			errSentinel:  mediastoredata.ErrInvalidStorageClass,
 		},
 		{
-			name:         "standard_storage_class_rejected",
-			path:         "/valid/path.mp4",
-			body:         []byte("data"),
-			storageClass: "STANDARD",
-			wantErr:      true,
-			errSentinel:  mediastoredata.ErrInvalidStorageClass,
+			name:             "standard_storage_class_accepted",
+			path:             "/valid/path.mp4",
+			body:             []byte("data"),
+			storageClass:     "STANDARD",
+			wantStorageClass: "STANDARD",
 		},
 		{
-			name:         "empty_storage_class_defaults_to_temporal",
-			path:         "/valid/path.mp4",
-			body:         []byte("data"),
-			storageClass: "",
+			name:             "empty_storage_class_defaults_to_temporal",
+			path:             "/valid/path.mp4",
+			body:             []byte("data"),
+			storageClass:     "",
+			wantStorageClass: "TEMPORAL",
 		},
 	}
 
@@ -92,7 +94,7 @@ func TestBackend_PutObject(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errSentinel != nil {
-					assert.ErrorIs(t, err, tt.errSentinel)
+					require.ErrorIs(t, err, tt.errSentinel)
 				}
 
 				return
@@ -101,7 +103,7 @@ func TestBackend_PutObject(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotEmpty(t, obj.ETag)
 			assert.NotEmpty(t, obj.SHA256)
-			assert.Equal(t, "TEMPORAL", obj.StorageClass)
+			assert.Equal(t, tt.wantStorageClass, obj.StorageClass)
 			assert.Equal(t, int64(len(tt.body)), obj.ContentLength)
 		})
 	}
@@ -111,12 +113,12 @@ func TestBackend_GetObject(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		errSentinel error
 		name        string
 		putPath     string
 		getPath     string
 		body        []byte
 		wantErr     bool
-		errSentinel error
 	}{
 		{
 			name:    "retrieves_existing_object",
@@ -155,7 +157,7 @@ func TestBackend_GetObject(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errSentinel != nil {
-					assert.ErrorIs(t, err, tt.errSentinel)
+					require.ErrorIs(t, err, tt.errSentinel)
 				}
 
 				return
@@ -171,11 +173,11 @@ func TestBackend_DeleteObject(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		errSentinel error
 		name        string
 		path        string
 		createFirst bool
 		wantErr     bool
-		errSentinel error
 	}{
 		{
 			name:        "deletes_existing_object",
@@ -206,7 +208,7 @@ func TestBackend_DeleteObject(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errSentinel != nil {
-					assert.ErrorIs(t, err, tt.errSentinel)
+					require.ErrorIs(t, err, tt.errSentinel)
 				}
 
 				return
@@ -224,13 +226,13 @@ func TestBackend_UpdateObjectMetadata(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		errSentinel error
 		name        string
 		path        string
 		contentType string
 		cacheCtrl   string
 		createFirst bool
 		wantErr     bool
-		errSentinel error
 	}{
 		{
 			name:        "updates_content_type",
@@ -263,7 +265,7 @@ func TestBackend_UpdateObjectMetadata(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errSentinel != nil {
-					assert.ErrorIs(t, err, tt.errSentinel)
+					require.ErrorIs(t, err, tt.errSentinel)
 				}
 
 				return
@@ -310,14 +312,14 @@ func TestBackend_Stats_RunningCounters(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		ops       func(b *mediastoredata.InMemoryBackend)
-		wantCount int
+		name      string
 		wantBytes int64
+		wantCount int
 	}{
 		{
-			name: "empty_store",
-			ops:  func(_ *mediastoredata.InMemoryBackend) {},
+			name:      "empty_store",
+			ops:       func(_ *mediastoredata.InMemoryBackend) {},
 			wantCount: 0,
 			wantBytes: 0,
 		},
@@ -368,11 +370,11 @@ func TestBackend_ListItems_FolderSemantics(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantTypes  map[string]string
 		name       string
 		objects    []string
 		folderPath string
 		wantNames  []string
-		wantTypes  map[string]string
 	}{
 		{
 			name:       "direct_objects_in_root",

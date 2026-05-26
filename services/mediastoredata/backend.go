@@ -39,14 +39,15 @@ func isValidStorageClass(sc string) bool {
 
 // Object represents a stored media object.
 type Object struct {
-	LastModified  time.Time
-	ETag          string
-	SHA256        string // cached hex-encoded SHA-256 of Body
-	ContentType   string
-	CacheControl  string
-	StorageClass  string
-	Body          []byte
-	ContentLength int64
+	LastModified       time.Time
+	ETag               string
+	SHA256             string // cached hex-encoded SHA-256 of Body
+	ContentType        string
+	CacheControl       string
+	StorageClass       string
+	UploadAvailability string
+	Body               []byte
+	ContentLength      int64
 }
 
 // InMemoryBackend is the in-memory store for MediaStore Data objects.
@@ -106,7 +107,7 @@ func cloneObject(obj *Object) *Object {
 // Returns ErrInvalidPath if path is malformed or ErrInvalidStorageClass if
 // storageClass is unrecognised.
 func (b *InMemoryBackend) PutObject(
-	path string, body []byte, contentType, cacheControl, storageClass string,
+	path string, body []byte, contentType, cacheControl, storageClass, uploadAvailability string,
 ) (*Object, error) {
 	if err := ValidatePath(path); err != nil {
 		return nil, err
@@ -127,14 +128,15 @@ func (b *InMemoryBackend) PutObject(
 	stored := append([]byte(nil), body...)
 	sha := contentSHA256(stored)
 	obj := &Object{
-		Body:          stored,
-		SHA256:        sha,
-		ETag:          fmt.Sprintf(`"%s"`, sha),
-		ContentType:   contentType,
-		CacheControl:  cacheControl,
-		StorageClass:  storageClass,
-		LastModified:  time.Now().UTC(),
-		ContentLength: int64(len(stored)),
+		Body:               stored,
+		SHA256:             sha,
+		ETag:               fmt.Sprintf(`"%s"`, sha),
+		ContentType:        contentType,
+		CacheControl:       cacheControl,
+		StorageClass:       storageClass,
+		LastModified:       time.Now().UTC(),
+		ContentLength:      int64(len(stored)),
+		UploadAvailability: uploadAvailability,
 	}
 	b.objects[key] = obj
 
@@ -251,18 +253,21 @@ func (b *InMemoryBackend) ListItems(in ListItemsInput) *ListItemsOutput {
 		before, _, isNested := strings.Cut(rest, "/")
 
 		if !isNested {
-			// Direct object.
-			all = append(all, &Item{
-				Name:          rest,
-				Type:          "OBJECT",
-				ETag:          obj.ETag,
-				SHA256:        obj.SHA256,
-				ContentType:   obj.ContentType,
-				CacheControl:  obj.CacheControl,
-				StorageClass:  obj.StorageClass,
-				ContentLength: obj.ContentLength,
-				LastModified:  obj.LastModified,
-			})
+			if !seen[rest] {
+				// Direct object.
+				seen[rest] = true
+				all = append(all, &Item{
+					Name:          rest,
+					Type:          "OBJECT",
+					ETag:          obj.ETag,
+					SHA256:        obj.SHA256,
+					ContentType:   obj.ContentType,
+					CacheControl:  obj.CacheControl,
+					StorageClass:  obj.StorageClass,
+					ContentLength: obj.ContentLength,
+					LastModified:  obj.LastModified,
+				})
+			}
 		} else if !seen[before] {
 			// Folder – deduplicate.
 			seen[before] = true
