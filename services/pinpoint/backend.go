@@ -415,11 +415,20 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 
 	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/EMAIL", templateName))
 
+	now := nowRFC3339()
 	t := &EmailTemplate{
-		ARN:          templateARN,
-		TemplateName: templateName,
-		Tags:         nonNilTagsCopy(req.Tags),
-		CreationDate: nowRFC3339(),
+		ARN:                  templateARN,
+		CreationDate:         now,
+		DefaultSubstitutions: cloneAnyMap(req.DefaultSubstitutions),
+		HTMLPart:             req.HTMLPart,
+		LastModifiedDate:     now,
+		RecommenderID:        req.RecommenderID,
+		Subject:              req.Subject,
+		Tags:                 nonNilTagsCopy(req.Tags),
+		TemplateDescription:  req.TemplateDescription,
+		TemplateName:         templateName,
+		TextPart:             req.TextPart,
+		Version:              "1",
 	}
 
 	b.emailTemplates[templateName] = t
@@ -448,11 +457,17 @@ func (b *InMemoryBackend) CreateInAppTemplate(
 
 	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/INAPP", templateName))
 
+	now := nowRFC3339()
 	t := &InAppTemplate{
-		ARN:          templateARN,
-		TemplateName: templateName,
-		Tags:         nonNilTagsCopy(req.Tags),
-		CreationDate: nowRFC3339(),
+		ARN:                 templateARN,
+		Content:             cloneContentSlice(req.Content),
+		CreationDate:        now,
+		LastModifiedDate:    now,
+		Layout:              req.Layout,
+		Tags:                nonNilTagsCopy(req.Tags),
+		TemplateDescription: req.TemplateDescription,
+		TemplateName:        templateName,
+		Version:             "1",
 	}
 
 	b.inAppTemplates[templateName] = t
@@ -481,11 +496,20 @@ func (b *InMemoryBackend) CreatePushTemplate(
 
 	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/PUSH", templateName))
 
+	now := nowRFC3339()
 	t := &PushTemplate{
-		ARN:          templateARN,
-		TemplateName: templateName,
-		Tags:         nonNilTagsCopy(req.Tags),
-		CreationDate: nowRFC3339(),
+		APNS:                cloneAnyMap(req.APNS),
+		ARN:                 templateARN,
+		Body:                req.Body,
+		CreationDate:        now,
+		Default:             cloneAnyMap(req.Default),
+		GCM:                 cloneAnyMap(req.GCM),
+		LastModifiedDate:    now,
+		Tags:                nonNilTagsCopy(req.Tags),
+		TemplateDescription: req.TemplateDescription,
+		TemplateName:        templateName,
+		Title:               req.Title,
+		Version:             "1",
 	}
 
 	b.pushTemplates[templateName] = t
@@ -514,11 +538,17 @@ func (b *InMemoryBackend) CreateSmsTemplate(
 
 	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/SMS", templateName))
 
+	now := nowRFC3339()
 	t := &SmsTemplate{
-		ARN:          templateARN,
-		TemplateName: templateName,
-		Tags:         nonNilTagsCopy(req.Tags),
-		CreationDate: nowRFC3339(),
+		ARN:                 templateARN,
+		Body:                req.Body,
+		CreationDate:        now,
+		LastModifiedDate:    now,
+		SenderID:            req.SenderID,
+		Tags:                nonNilTagsCopy(req.Tags),
+		TemplateDescription: req.TemplateDescription,
+		TemplateName:        templateName,
+		Version:             "1",
 	}
 
 	b.smsTemplates[templateName] = t
@@ -775,6 +805,7 @@ func cloneCampaign(c *Campaign) *Campaign {
 func cloneEmailTemplate(t *EmailTemplate) *EmailTemplate {
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
+	cp.DefaultSubstitutions = cloneAnyMap(t.DefaultSubstitutions)
 
 	return &cp
 }
@@ -782,13 +813,30 @@ func cloneEmailTemplate(t *EmailTemplate) *EmailTemplate {
 func cloneInAppTemplate(t *InAppTemplate) *InAppTemplate {
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
+	cp.Content = cloneContentSlice(t.Content)
 
 	return &cp
+}
+
+func cloneContentSlice(src []map[string]any) []map[string]any {
+	if src == nil {
+		return nil
+	}
+
+	dst := make([]map[string]any, len(src))
+	for i, m := range src {
+		dst[i] = cloneAnyMap(m)
+	}
+
+	return dst
 }
 
 func clonePushTemplate(t *PushTemplate) *PushTemplate {
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
+	cp.Default = cloneAnyMap(t.Default)
+	cp.GCM = cloneAnyMap(t.GCM)
+	cp.APNS = cloneAnyMap(t.APNS)
 
 	return &cp
 }
