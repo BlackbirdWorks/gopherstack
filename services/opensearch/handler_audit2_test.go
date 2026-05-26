@@ -371,9 +371,9 @@ func TestAudit2_ListVersions_Pagination(t *testing.T) {
 	tests := []struct {
 		name            string
 		query           string
+		wantContains    []string
 		wantMinVersions int
 		wantNextToken   bool
-		wantContains    []string
 	}{
 		{
 			name:            "default_returns_all_versions",
@@ -427,6 +427,7 @@ func TestAudit2_ListVersions_Pagination(t *testing.T) {
 				for _, v := range versions {
 					if v.(string) == want {
 						found = true
+
 						break
 					}
 				}
@@ -667,6 +668,7 @@ func TestAudit2_Persistence_VpcEndpointsRoundTrip(t *testing.T) {
 	for _, e := range endpoints {
 		if e.VpcEndpointID == epID {
 			found = true
+
 			break
 		}
 	}
@@ -743,6 +745,7 @@ func TestAudit2_Persistence_ReservedInstancesRoundTrip(t *testing.T) {
 			found = true
 			assert.Equal(t, "my-reservation", inst.ReservationName)
 			assert.Equal(t, 3, inst.InstanceCount)
+
 			break
 		}
 	}
@@ -774,6 +777,7 @@ func TestAudit2_Persistence_OutboundConnectionsRoundTrip(t *testing.T) {
 		if c.ConnectionID == connID {
 			found = true
 			assert.Equal(t, "test-alias", c.ConnectionAlias)
+
 			break
 		}
 	}
@@ -907,7 +911,7 @@ func TestAudit2_AssociatePackage_PackageValidation(t *testing.T) {
 		},
 		{
 			name:       "error_both_not_found",
-			setup:      func(b *opensearch.InMemoryBackend) {},
+			setup:      func(_ *opensearch.InMemoryBackend) {},
 			packageID:  "pkg-none",
 			domainName: "dom-none",
 			wantErr:    true,
@@ -939,12 +943,12 @@ func TestAudit2_UpgradeDomain_HTTPHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
 		setup         func(h *opensearch.Handler)
+		name          string
 		domainName    string
 		targetVersion string
-		wantCode      int
 		wantFields    []string
+		wantCode      int
 	}{
 		{
 			name: "success",
@@ -958,7 +962,7 @@ func TestAudit2_UpgradeDomain_HTTPHandler(t *testing.T) {
 		},
 		{
 			name:          "domain_not_found",
-			setup:         func(h *opensearch.Handler) {},
+			setup:         func(_ *opensearch.Handler) {},
 			domainName:    "missing-domain",
 			targetVersion: "OpenSearch_2.17",
 			wantCode:      http.StatusNotFound,
@@ -1000,9 +1004,9 @@ func TestAudit2_UpdateDomainConfig_MutatesState(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		updateBody map[string]any
 		verifyFn   func(t *testing.T, domain map[string]any)
+		name       string
 	}{
 		{
 			name: "update_cluster_config",
@@ -1017,7 +1021,7 @@ func TestAudit2_UpdateDomainConfig_MutatesState(t *testing.T) {
 				dc := status["DomainStatus"].(map[string]any)
 				cc := dc["ClusterConfig"].(map[string]any)
 				assert.Equal(t, "m6g.large.search", cc["InstanceType"])
-				assert.Equal(t, float64(3), cc["InstanceCount"])
+				assert.InDelta(t, float64(3), cc["InstanceCount"], 0)
 			},
 		},
 		{
@@ -1035,7 +1039,7 @@ func TestAudit2_UpdateDomainConfig_MutatesState(t *testing.T) {
 				ebs := dc["EBSOptions"].(map[string]any)
 				assert.Equal(t, true, ebs["EBSEnabled"])
 				assert.Equal(t, "gp3", ebs["VolumeType"])
-				assert.Equal(t, float64(200), ebs["VolumeSize"])
+				assert.InDelta(t, float64(200), ebs["VolumeSize"], 0)
 			},
 		},
 		{
@@ -1087,8 +1091,8 @@ func TestAudit2_VpcEndpointAccess_Lifecycle(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		accounts      []string
 		revokeAccount string
+		accounts      []string
 		wantCount     int
 	}{
 		{
@@ -1142,9 +1146,9 @@ func TestAudit2_DataSources_Lifecycle(t *testing.T) {
 
 	tests := []struct {
 		name           string
+		getSourceName  string
 		addSources     []map[string]string
 		wantListCount  int
-		getSourceName  string
 		wantGetSuccess bool
 	}{
 		{
@@ -1485,4 +1489,3 @@ func TestAudit2_AssociatePackage_HTTPValidation(t *testing.T) {
 		})
 	}
 }
-

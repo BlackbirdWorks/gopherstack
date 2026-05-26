@@ -765,6 +765,10 @@ func (b *InMemoryBackend) AssociatePackage(packageID, domainName string) (*Domai
 	b.mu.Lock("AssociatePackage")
 	defer b.mu.Unlock()
 
+	if _, exists := b.packages[packageID]; !exists {
+		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
+	}
+
 	if _, exists := b.domains[domainName]; !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}

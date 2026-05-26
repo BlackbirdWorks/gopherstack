@@ -1552,6 +1552,8 @@ func TestOpenSearchHandler_Persistence_NewOps(t *testing.T) {
 	_, err = b.AddDirectQueryDataSource("my-dq", "desc", "CloudWatchLogs", []string{})
 	require.NoError(t, err)
 
+	b.AddPackageInternal("pkg-001", "test-pkg", "TXT-DICTIONARY")
+
 	_, err = b.AssociatePackage("pkg-001", "snap-domain")
 	require.NoError(t, err)
 
