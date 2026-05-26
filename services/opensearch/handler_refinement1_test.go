@@ -181,6 +181,8 @@ func TestRefinement1_DeleteDomain_Cascade(t *testing.T) {
 	_, err := b.AddDataSource("my-domain", "ds1", "desc", "S3GLUE")
 	require.NoError(t, err)
 
+	b.AddPackageInternal("pkg-001", "test-pkg", "TXT-DICTIONARY")
+
 	_, err = b.AssociatePackage("pkg-001", "my-domain")
 	require.NoError(t, err)
 
