@@ -114,7 +114,7 @@ func TestHandler_DescribeApplication(t *testing.T) {
 			name:    "describes existing application",
 			appName: "existing-app",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "existing-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "existing-app", "", "", nil)
 			},
 			input:      map[string]any{"ApplicationName": "existing-app"},
 			wantStatus: http.StatusOK,
@@ -146,22 +146,27 @@ func TestHandler_DeleteApplication(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*kinesisanalytics.InMemoryBackend)
-		input      map[string]any
+		setup      func(*kinesisanalytics.InMemoryBackend) map[string]any
 		name       string
 		wantStatus int
 	}{
 		{
 			name: "deletes existing application",
-			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "del-app", "", "", nil)
+			setup: func(b *kinesisanalytics.InMemoryBackend) map[string]any {
+				app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-app", "", "", nil)
+
+				return map[string]any{
+					"ApplicationName": "del-app",
+					"CreateTimestamp": float64(app.CreateTimestamp.Unix()),
+				}
 			},
-			input:      map[string]any{"ApplicationName": "del-app", "CreateTimestamp": 0},
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "not found for missing application",
-			input:      map[string]any{"ApplicationName": "ghost", "CreateTimestamp": 0},
+			name: "not found for missing application",
+			setup: func(_ *kinesisanalytics.InMemoryBackend) map[string]any {
+				return map[string]any{"ApplicationName": "ghost", "CreateTimestamp": float64(1234567890)}
+			},
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -171,12 +176,9 @@ func TestHandler_DeleteApplication(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandlerWithBackend(t)
+			input := tt.setup(b)
 
-			if tt.setup != nil {
-				tt.setup(b)
-			}
-
-			rec := doRequest(t, h, "DeleteApplication", tt.input)
+			rec := doRequest(t, h, "DeleteApplication", input)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -195,8 +197,8 @@ func TestHandler_ListApplications(t *testing.T) {
 		{
 			name: "lists all applications",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "app-1", "", "", nil)
-				_, _ = b.CreateApplication(testRegion, testAccountID, "app-2", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "app-1", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "app-2", "", "", nil)
 			},
 			input:      map[string]any{},
 			wantStatus: http.StatusOK,
@@ -246,7 +248,7 @@ func TestHandler_StartStopApplication(t *testing.T) {
 			name: "starts application",
 			op:   "StartApplication",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "start-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "start-app", "", "", nil)
 			},
 			input:      map[string]any{"ApplicationName": "start-app"},
 			wantStatus: http.StatusOK,
@@ -255,8 +257,8 @@ func TestHandler_StartStopApplication(t *testing.T) {
 			name: "stops application",
 			op:   "StopApplication",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "stop-app", "", "", nil)
-				_ = b.StartApplication("stop-app")
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "stop-app", "", "", nil)
+				_ = kinesisanalytics.StartAppNoConfig(b, "stop-app")
 			},
 			input:      map[string]any{"ApplicationName": "stop-app"},
 			wantStatus: http.StatusOK,
@@ -279,6 +281,11 @@ func TestHandler_StartStopApplication(t *testing.T) {
 				tt.setup(b)
 			}
 
+			// For stop operations, wait until app is RUNNING before proceeding
+			if tt.op == "StopApplication" && tt.input["ApplicationName"] != nil {
+				kinesisanalytics.WaitForStatus(t, b, tt.input["ApplicationName"].(string), "RUNNING")
+			}
+
 			rec := doRequest(t, h, tt.op, tt.input)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
@@ -297,7 +304,7 @@ func TestHandler_UpdateApplication(t *testing.T) {
 		{
 			name: "updates application",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "upd-app", "", "SELECT 1", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "upd-app", "", "SELECT 1", nil)
 			},
 			input: map[string]any{
 				"ApplicationName":             "upd-app",
@@ -314,7 +321,7 @@ func TestHandler_UpdateApplication(t *testing.T) {
 		{
 			name: "version mismatch returns error",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "ver-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ver-app", "", "", nil)
 			},
 			input: map[string]any{
 				"ApplicationName":             "ver-app",
@@ -355,7 +362,8 @@ func TestHandler_TagOperations(t *testing.T) {
 			name: "list tags returns tags",
 			op:   "ListTagsForResource",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				app, _ := b.CreateApplication(
+				app, _ := kinesisanalytics.CreateApp(
+					b,
 					testRegion,
 					testAccountID,
 					"tag-app",
@@ -372,7 +380,7 @@ func TestHandler_TagOperations(t *testing.T) {
 			name: "tag resource succeeds",
 			op:   "TagResource",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				app, _ := b.CreateApplication(testRegion, testAccountID, "tag2-app", "", "", nil)
+				app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "tag2-app", "", "", nil)
 
 				return app.ApplicationARN
 			},
@@ -383,7 +391,8 @@ func TestHandler_TagOperations(t *testing.T) {
 			name: "untag resource succeeds",
 			op:   "UntagResource",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				app, _ := b.CreateApplication(
+				app, _ := kinesisanalytics.CreateApp(
+					b,
 					testRegion,
 					testAccountID,
 					"untag-app",
@@ -638,7 +647,7 @@ func TestHandler_AddApplicationCloudWatchLoggingOption(t *testing.T) {
 		{
 			name: "adds logging option successfully",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "cwl-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "cwl-app", "", "", nil)
 			},
 			input: map[string]any{
 				"ApplicationName":             "cwl-app",
@@ -660,13 +669,17 @@ func TestHandler_AddApplicationCloudWatchLoggingOption(t *testing.T) {
 			input: map[string]any{
 				"ApplicationName":             "ghost",
 				"CurrentApplicationVersionId": 1,
+				"CloudWatchLoggingOption": map[string]any{
+					"LogStreamARN": "arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s",
+					"RoleARN":      "arn:aws:iam::000000000000:role/r",
+				},
 			},
 			wantStatus: http.StatusNotFound,
 		},
 		{
 			name: "version mismatch",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "cwl-ver-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "cwl-ver-app", "", "", nil)
 			},
 			input: map[string]any{
 				"ApplicationName":             "cwl-ver-app",
@@ -709,7 +722,7 @@ func TestHandler_AddApplicationInput(t *testing.T) {
 		{
 			name: "adds kinesis streams input",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "input-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "input-app", "", "", nil)
 			},
 			input: map[string]any{
 				"ApplicationName":             "input-app",
@@ -734,13 +747,20 @@ func TestHandler_AddApplicationInput(t *testing.T) {
 			input: map[string]any{
 				"ApplicationName":             "ghost",
 				"CurrentApplicationVersionId": 1,
+				"Input": map[string]any{
+					"NamePrefix": "SOURCE",
+					"KinesisStreamsInput": map[string]any{
+						"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/test",
+						"RoleARN":     "arn:aws:iam::000000000000:role/r",
+					},
+				},
 			},
 			wantStatus: http.StatusNotFound,
 		},
 		{
 			name: "version mismatch",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "input-ver-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "input-ver-app", "", "", nil)
 			},
 			input: map[string]any{
 				"ApplicationName":             "input-ver-app",
@@ -785,7 +805,7 @@ func TestHandler_AddApplicationInputProcessingConfiguration(t *testing.T) {
 			name:    "adds processing config to existing input",
 			appName: "proc-app",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "proc-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "proc-app", "", "", nil)
 				_ = b.AddApplicationInput("proc-app", 1, kinesisanalytics.InputDescription{NamePrefix: "PREFIX"})
 				app, _ := b.DescribeApplication("proc-app")
 
@@ -817,7 +837,7 @@ func TestHandler_AddApplicationInputProcessingConfiguration(t *testing.T) {
 		{
 			name: "input id not found",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "proc-notfound-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "proc-notfound-app", "", "", nil)
 
 				return "nonexistent-id"
 			},
@@ -863,7 +883,7 @@ func TestHandler_AddApplicationOutput(t *testing.T) {
 		{
 			name: "adds kinesis streams output",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "output-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "output-app", "", "", nil)
 			},
 			input: map[string]any{
 				"ApplicationName":             "output-app",
@@ -889,13 +909,21 @@ func TestHandler_AddApplicationOutput(t *testing.T) {
 			input: map[string]any{
 				"ApplicationName":             "ghost",
 				"CurrentApplicationVersionId": 1,
+				"Output": map[string]any{
+					"Name": "OUT",
+					"KinesisStreamsOutput": map[string]any{
+						"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/out",
+						"RoleARN":     "arn:aws:iam::000000000000:role/r",
+					},
+					"DestinationSchema": map[string]any{"RecordFormatType": "JSON"},
+				},
 			},
 			wantStatus: http.StatusNotFound,
 		},
 		{
 			name: "version mismatch",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "output-ver-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "output-ver-app", "", "", nil)
 			},
 			input: map[string]any{
 				"ApplicationName":             "output-ver-app",
@@ -938,7 +966,7 @@ func TestHandler_AddApplicationReferenceDataSource(t *testing.T) {
 		{
 			name: "adds reference data source",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "ref-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ref-app", "", "", nil)
 			},
 			input: map[string]any{
 				"ApplicationName":             "ref-app",
@@ -968,13 +996,25 @@ func TestHandler_AddApplicationReferenceDataSource(t *testing.T) {
 			input: map[string]any{
 				"ApplicationName":             "ghost",
 				"CurrentApplicationVersionId": 1,
+				"ReferenceDataSource": map[string]any{
+					"TableName": "MY_REF",
+					"S3ReferenceDataSource": map[string]any{
+						"BucketARN": "arn:aws:s3:::my-bucket",
+						"FileKey":   "data.csv",
+						"RoleARN":   "arn:aws:iam::000000000000:role/r",
+					},
+					"ReferenceSchema": map[string]any{
+						"RecordFormat":  map[string]any{"RecordFormatType": "CSV"},
+						"RecordColumns": []map[string]any{{"Name": "COL1", "SqlType": "VARCHAR(4)"}},
+					},
+				},
 			},
 			wantStatus: http.StatusNotFound,
 		},
 		{
 			name: "version mismatch",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "ref-ver-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ref-ver-app", "", "", nil)
 			},
 			input: map[string]any{
 				"ApplicationName":             "ref-ver-app",
@@ -1017,12 +1057,13 @@ func TestHandler_DeleteApplicationCloudWatchLoggingOption(t *testing.T) {
 		{
 			name: "deletes existing logging option",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "del-cwl-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-cwl-app", "", "", nil)
 				_ = b.AddApplicationCloudWatchLoggingOption(
 					"del-cwl-app",
 					1,
 					kinesisanalytics.CloudWatchLoggingOptionDesc{
 						LogStreamARN: "arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s",
+						RoleARN:      "arn:aws:iam::000000000000:role/r",
 					},
 				)
 				app, _ := b.DescribeApplication("del-cwl-app")
@@ -1049,7 +1090,7 @@ func TestHandler_DeleteApplicationCloudWatchLoggingOption(t *testing.T) {
 		{
 			name: "logging option id not found",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "del-cwl-notfound", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-cwl-notfound", "", "", nil)
 
 				return "nonexistent"
 			},
@@ -1096,7 +1137,7 @@ func TestHandler_DeleteApplicationInputProcessingConfiguration(t *testing.T) {
 			name:    "removes processing config from input",
 			appName: "del-proc-app",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "del-proc-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-proc-app", "", "", nil)
 				_ = b.AddApplicationInput("del-proc-app", 1, kinesisanalytics.InputDescription{NamePrefix: "STREAM"})
 				app, _ := b.DescribeApplication("del-proc-app")
 				inputID := app.Inputs[0].InputID
@@ -1127,7 +1168,7 @@ func TestHandler_DeleteApplicationInputProcessingConfiguration(t *testing.T) {
 		{
 			name: "input id not found",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "del-proc-notfound", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-proc-notfound", "", "", nil)
 
 				return "nonexistent"
 			},
@@ -1173,7 +1214,7 @@ func TestHandler_DeleteApplicationOutput(t *testing.T) {
 		{
 			name: "deletes existing output",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "del-out-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-out-app", "", "", nil)
 				_ = b.AddApplicationOutput("del-out-app", 1, kinesisanalytics.OutputDescription{Name: "STREAM_OUT"})
 				app, _ := b.DescribeApplication("del-out-app")
 
@@ -1199,7 +1240,7 @@ func TestHandler_DeleteApplicationOutput(t *testing.T) {
 		{
 			name: "output id not found",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "del-out-notfound", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-out-notfound", "", "", nil)
 
 				return "nonexistent"
 			},
@@ -1244,7 +1285,7 @@ func TestHandler_DeleteApplicationReferenceDataSource(t *testing.T) {
 		{
 			name: "deletes existing reference data source",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "del-ref-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-ref-app", "", "", nil)
 				_ = b.AddApplicationReferenceDataSource(
 					"del-ref-app",
 					1,
@@ -1274,7 +1315,7 @@ func TestHandler_DeleteApplicationReferenceDataSource(t *testing.T) {
 		{
 			name: "reference id not found",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "del-ref-notfound", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-ref-notfound", "", "", nil)
 
 				return "nonexistent"
 			},

@@ -28,8 +28,8 @@ func TestRefinement1_Reset(t *testing.T) {
 		{
 			name: "with applications",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "app-1", "", "", nil)
-				_, _ = b.CreateApplication(testRegion, testAccountID, "app-2", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "app-1", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "app-2", "", "", nil)
 			},
 		},
 	}
@@ -46,7 +46,7 @@ func TestRefinement1_Reset(t *testing.T) {
 			assert.Zero(t, count)
 
 			// After reset, creating an application should work (maps are reinitialized).
-			_, err := b.CreateApplication(testRegion, testAccountID, "post-reset", "", "", nil)
+			_, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "post-reset", "", "", nil)
 			require.NoError(t, err)
 		})
 	}
@@ -59,7 +59,7 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	b := newBackend()
 
 	for range 3 {
-		_, _ = b.CreateApplication(testRegion, testAccountID, "temp", "", "", nil)
+		_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "temp", "", "", nil)
 		b.Reset()
 		assert.Zero(t, kinesisanalytics.ApplicationCount(b))
 	}
@@ -70,7 +70,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandlerWithBackend(t)
-	_, _ = b.CreateApplication(testRegion, testAccountID, "reset-app", "", "", nil)
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "reset-app", "", "", nil)
 
 	h.Reset()
 
@@ -182,10 +182,10 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 	b := newBackend()
 	assert.Zero(t, kinesisanalytics.ApplicationCount(b))
 
-	_, _ = b.CreateApplication(testRegion, testAccountID, "cnt-1", "", "", nil)
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "cnt-1", "", "", nil)
 	assert.Equal(t, 1, kinesisanalytics.ApplicationCount(b))
 
-	_, _ = b.CreateApplication(testRegion, testAccountID, "cnt-2", "", "", nil)
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "cnt-2", "", "", nil)
 	assert.Equal(t, 2, kinesisanalytics.ApplicationCount(b))
 }
 
@@ -194,7 +194,7 @@ func TestRefinement1_NonNilSlices(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	app, err := b.CreateApplication(testRegion, testAccountID, "slice-app", "", "", nil)
+	app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "slice-app", "", "", nil)
 	require.NoError(t, err)
 
 	assert.NotNil(t, app.CloudWatchLoggingOptions)
@@ -208,7 +208,7 @@ func TestRefinement1_DescribeApplication_ReturnsCopy(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, _ = b.CreateApplication(testRegion, testAccountID, "copy-app", "", "", map[string]string{"k": "v"})
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "copy-app", "", "", map[string]string{"k": "v"})
 
 	app1, err := b.DescribeApplication("copy-app")
 	require.NoError(t, err)
@@ -229,7 +229,7 @@ func TestRefinement1_SortedListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandlerWithBackend(t)
-	app, _ := b.CreateApplication(testRegion, testAccountID, "sorted-tags", "", "", map[string]string{
+	app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "sorted-tags", "", "", map[string]string{
 		"z": "last",
 		"a": "first",
 		"m": "mid",
@@ -257,7 +257,7 @@ func TestRefinement1_VersionNotBumpedOnDeleteCWLNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, _ = b.CreateApplication(testRegion, testAccountID, "bump-test", "", "", nil)
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "bump-test", "", "", nil)
 
 	// Try to delete a non-existent CWL option — version 1 passed.
 	err := b.DeleteApplicationCloudWatchLoggingOption("bump-test", 1, "nonexistent-cwl-id")
@@ -274,7 +274,7 @@ func TestRefinement1_VersionNotBumpedOnDeleteOutputNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, _ = b.CreateApplication(testRegion, testAccountID, "out-bump", "", "", nil)
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "out-bump", "", "", nil)
 
 	err := b.DeleteApplicationOutput("out-bump", 1, "nonexistent-output-id")
 	require.ErrorIs(t, err, kinesisanalytics.ErrNotFound)
@@ -288,7 +288,7 @@ func TestRefinement1_VersionNotBumpedOnDeleteRefNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, _ = b.CreateApplication(testRegion, testAccountID, "ref-bump", "", "", nil)
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ref-bump", "", "", nil)
 
 	err := b.DeleteApplicationReferenceDataSource("ref-bump", 1, "nonexistent-ref-id")
 	require.ErrorIs(t, err, kinesisanalytics.ErrNotFound)
@@ -302,7 +302,7 @@ func TestRefinement1_VersionNotBumpedOnAddInputProcConfigNotFound(t *testing.T) 
 	t.Parallel()
 
 	b := newBackend()
-	_, _ = b.CreateApplication(testRegion, testAccountID, "ipc-bump", "", "", nil)
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ipc-bump", "", "", nil)
 
 	err := b.AddApplicationInputProcessingConfiguration("ipc-bump", 1, "nonexistent-input-id", nil)
 	require.ErrorIs(t, err, kinesisanalytics.ErrNotFound)
@@ -328,14 +328,15 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 		{
 			name: "with_applications",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				app, _ := b.CreateApplication(testRegion, testAccountID, "persist-1", "desc", "SELECT 1",
+				app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "persist-1", "desc", "SELECT 1",
 					map[string]string{"env": "test"})
 				// Add a sub-resource to exercise nextID persistence.
 				_ = b.AddApplicationCloudWatchLoggingOption("persist-1", app.ApplicationVersionID,
 					kinesisanalytics.CloudWatchLoggingOptionDesc{
 						LogStreamARN: "arn:aws:logs:us-east-1:000:log-group:x:log-stream:y",
+						RoleARN:      "arn:aws:iam::000000000000:role/r",
 					})
-				_, _ = b.CreateApplication(testRegion, testAccountID, "persist-2", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "persist-2", "", "", nil)
 			},
 			wantLen: 2,
 		},
@@ -364,7 +365,10 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 
 				// nextID is preserved: next allocation should not collide with existing IDs.
 				_ = b2.AddApplicationCloudWatchLoggingOption("persist-1", app.ApplicationVersionID,
-					kinesisanalytics.CloudWatchLoggingOptionDesc{LogStreamARN: "arn:new"})
+					kinesisanalytics.CloudWatchLoggingOptionDesc{
+						LogStreamARN: "arn:aws:logs:us-east-1:000000000000:log-group:g2:log-stream:s2",
+						RoleARN:      "arn:aws:iam::000000000000:role/r",
+					})
 				app2, _ := b2.DescribeApplication("persist-1")
 				// The new option must have a different ID from the restored one.
 				assert.NotEqual(t, app.CloudWatchLoggingOptions[0].CloudWatchLoggingOptionID,
@@ -392,7 +396,7 @@ func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandlerWithBackend(t)
-	_, _ = b.CreateApplication(testRegion, testAccountID, "hs-app", "", "", nil)
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "hs-app", "", "", nil)
 
 	snap := h.Snapshot()
 	require.NotNil(t, snap)
@@ -454,7 +458,7 @@ func TestRefinement1_AddCWLRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandlerWithBackend(t)
-	app, _ := b.CreateApplication(testRegion, testAccountID, "cwl-rt-app", "", "", nil)
+	app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "cwl-rt-app", "", "", nil)
 
 	rec := doRequest(t, h, "AddApplicationCloudWatchLoggingOption", map[string]any{
 		"ApplicationName":             app.ApplicationName,
@@ -482,7 +486,7 @@ func TestRefinement1_AddOutputRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandlerWithBackend(t)
-	app, _ := b.CreateApplication(testRegion, testAccountID, "out-rt-app", "", "", nil)
+	app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "out-rt-app", "", "", nil)
 
 	rec := doRequest(t, h, "AddApplicationOutput", map[string]any{
 		"ApplicationName":             app.ApplicationName,
@@ -511,7 +515,7 @@ func TestRefinement1_AddRefDataSourceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandlerWithBackend(t)
-	app, _ := b.CreateApplication(testRegion, testAccountID, "ref-rt-app", "", "", nil)
+	app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ref-rt-app", "", "", nil)
 
 	rec := doRequest(t, h, "AddApplicationReferenceDataSource", map[string]any{
 		"ApplicationName":             app.ApplicationName,
@@ -521,7 +525,11 @@ func TestRefinement1_AddRefDataSourceRoundTrip(t *testing.T) {
 			"S3ReferenceDataSource": map[string]any{
 				"BucketARN": "arn:aws:s3:::my-bucket",
 				"FileKey":   "ref.csv",
-				"RoleARN":   "arn:aws:iam::000:role/r",
+				"RoleARN":   "arn:aws:iam::000000000000:role/r",
+			},
+			"ReferenceSchema": map[string]any{
+				"RecordFormat":  map[string]any{"RecordFormatType": "CSV"},
+				"RecordColumns": []map[string]any{{"Name": "COL1", "SqlType": "VARCHAR(4)"}},
 			},
 		},
 	})
@@ -540,12 +548,13 @@ func TestRefinement1_DeleteCWLRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	app, _ := b.CreateApplication(testRegion, testAccountID, "del-cwl-app", "", "", nil)
+	app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-cwl-app", "", "", nil)
 
 	// Add a CWL option.
 	_ = b.AddApplicationCloudWatchLoggingOption(app.ApplicationName, app.ApplicationVersionID,
 		kinesisanalytics.CloudWatchLoggingOptionDesc{
 			LogStreamARN: "arn:aws:logs:us-east-1:000:log-group:g:log-stream:s",
+			RoleARN:      "arn:aws:iam::000000000000:role/r",
 		})
 
 	app2, _ := b.DescribeApplication(app.ApplicationName)
@@ -591,7 +600,7 @@ func TestRefinement1_TagResource_NotFound(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "TagResource", map[string]any{
-		"ResourceARN": "arn:aws:kinesisanalytics:us-east-1:000:application/nope",
+		"ResourceARN": "arn:aws:kinesisanalytics:us-east-1:000000000000:application/nope",
 		"Tags":        []map[string]any{{"Key": "k", "Value": "v"}},
 	})
 
@@ -604,7 +613,7 @@ func TestRefinement1_UntagResource_NotFound(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "UntagResource", map[string]any{
-		"ResourceARN": "arn:aws:kinesisanalytics:us-east-1:000:application/nope",
+		"ResourceARN": "arn:aws:kinesisanalytics:us-east-1:000000000000:application/nope",
 		"TagKeys":     []string{"k"},
 	})
 
@@ -616,12 +625,12 @@ func TestRefinement1_ListApplications_Pagination(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, _ = b.CreateApplication(testRegion, testAccountID, "page-a", "", "", nil)
-	_, _ = b.CreateApplication(testRegion, testAccountID, "page-b", "", "", nil)
-	_, _ = b.CreateApplication(testRegion, testAccountID, "page-c", "", "", nil)
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "page-a", "", "", nil)
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "page-b", "", "", nil)
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "page-c", "", "", nil)
 
 	// Request page 2 starting after "page-a".
-	apps, hasMore := b.ListApplications("page-a", 1)
+	apps, hasMore, _ := b.ListApplications("page-a", 1)
 	assert.Len(t, apps, 1)
 	assert.Equal(t, "page-b", apps[0].ApplicationName)
 	assert.True(t, hasMore)
@@ -633,7 +642,7 @@ func TestRefinement1_CreateApplication_SetsTimestamps(t *testing.T) {
 
 	b := newBackend()
 	before := time.Now()
-	app, err := b.CreateApplication(testRegion, testAccountID, "ts-app", "", "", nil)
+	app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ts-app", "", "", nil)
 	after := time.Now()
 
 	require.NoError(t, err)
@@ -648,10 +657,10 @@ func TestRefinement1_UpdateApplication_BumpsVersion(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	app, _ := b.CreateApplication(testRegion, testAccountID, "ver-bump", "", "SELECT 1", nil)
+	app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ver-bump", "", "SELECT 1", nil)
 	assert.Equal(t, int64(1), app.ApplicationVersionID)
 
-	_, err := b.UpdateApplication("ver-bump", 1, "SELECT 2")
+	_, err := kinesisanalytics.UpdateAppCode(b, "ver-bump", 1, "SELECT 2")
 	require.NoError(t, err)
 
 	app2, _ := b.DescribeApplication("ver-bump")
@@ -664,7 +673,7 @@ func TestRefinement1_ConcurrentModificationException(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandlerWithBackend(t)
-	app, _ := b.CreateApplication(testRegion, testAccountID, "conc-app", "", "", nil)
+	app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "conc-app", "", "", nil)
 
 	rec := doRequest(t, h, "UpdateApplication", map[string]any{
 		"ApplicationName":             app.ApplicationName,
@@ -684,7 +693,7 @@ func TestRefinement1_ResourceAlreadyExists_Returns400(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandlerWithBackend(t)
-	_, _ = b.CreateApplication(testRegion, testAccountID, "dup-dup", "", "", nil)
+	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "dup-dup", "", "", nil)
 
 	rec := doRequest(t, h, "CreateApplication", map[string]any{"ApplicationName": "dup-dup"})
 
@@ -700,7 +709,7 @@ func TestRefinement1_DeepCopyInput(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	app, _ := b.CreateApplication(testRegion, testAccountID, "dc-input-app", "", "", nil)
+	app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "dc-input-app", "", "", nil)
 
 	// Add input.
 	_ = b.AddApplicationInput("dc-input-app", app.ApplicationVersionID, kinesisanalytics.InputDescription{
