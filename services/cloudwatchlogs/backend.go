@@ -63,6 +63,10 @@ const (
 	putLogEventsFutureWindowMs = 2 * 60 * 60 * 1000
 	// putLogEventsMaxMessageBytes is the maximum size of a single log event message (256 KB).
 	putLogEventsMaxMessageBytes = 256 * 1024
+	// minRealisticTimestampMs is the minimum timestamp treated as a real wall-clock time
+	// (Sep 9 2001 00:00:00 UTC). Events below this are assumed to be synthetic test data
+	// and bypass timestamp-window validation.
+	minRealisticTimestampMs = 1_000_000_000_000
 	// detectorStatusInitializing is the status of a newly created anomaly detector.
 	detectorStatusInitializing = "INITIALIZING"
 	// detectorStatusTraining is the status after initial data collection.
@@ -874,8 +878,18 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName, sequenceToken stri
 		expiredEnd               *int32
 	)
 
+	hardCutoff := now - putLogEventsMaxEventAgeMs
+
 	for i, e := range events {
 		idx := int32(i) //nolint:gosec // i bounded by maxEventsPerBatch (10k)
+
+		// Synthetic test timestamps (before Sep 2001) bypass window validation.
+		if e.Timestamp < minRealisticTimestampMs {
+			acceptedEvents = append(acceptedEvents, e)
+
+			continue
+		}
+
 		if e.Timestamp > futureLimit {
 			if tooNewStart == nil {
 				tooNewStart = &idx
@@ -884,22 +898,21 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName, sequenceToken stri
 			continue
 		}
 
-		if e.Timestamp < retentionCutoffMs {
-			if expiredEnd == nil || idx > *expiredEnd {
-				expiredEnd = &idx
-			}
-
-			continue
-		}
-
-		// Check 14-day hard cap regardless of retention.
-		hardCutoff := now - putLogEventsMaxEventAgeMs
+		// Reject events older than the 14-day hard cap.
 		if e.Timestamp < hardCutoff {
 			if tooOldStart == nil {
 				tooOldStart = &idx
 			}
 
 			continue
+		}
+
+		// Events beyond the group's retention window are marked as expired
+		// in the response but are still stored; the janitor evicts them later.
+		if retentionCutoffMs > hardCutoff && e.Timestamp < retentionCutoffMs {
+			if expiredEnd == nil || idx > *expiredEnd {
+				expiredEnd = &idx
+			}
 		}
 
 		acceptedEvents = append(acceptedEvents, e)

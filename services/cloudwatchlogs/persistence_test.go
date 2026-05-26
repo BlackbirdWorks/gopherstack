@@ -20,7 +20,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) string {
-				_, err := b.CreateLogGroup("test-group")
+				_, err := b.CreateLogGroup("test-group", "", "")
 				if err != nil {
 					return ""
 				}
@@ -50,13 +50,14 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_subscription_filters",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) string {
-				_, err := b.CreateLogGroup("sub-grp")
+				_, err := b.CreateLogGroup("sub-grp", "", "")
 				if err != nil {
 					return ""
 				}
 				_ = b.PutSubscriptionFilter(
 					"sub-grp", "my-filter", "ERROR",
 					"arn:aws:lambda:us-east-1:123456789012:function:target",
+					"", "",
 				)
 
 				return "sub-grp"
@@ -104,7 +105,7 @@ func TestHandler_SnapshotRestore_PreservesTags(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	_, err := b.CreateLogGroup("tagged-group")
+	_, err := b.CreateLogGroup("tagged-group", "", "")
 	require.NoError(t, err)
 
 	h := cloudwatchlogs.NewHandler(b)
@@ -136,7 +137,7 @@ func TestHandler_SnapshotRestore_StaleTagsCleared(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	_, err := b.CreateLogGroup("g")
+	_, err := b.CreateLogGroup("g", "", "")
 	require.NoError(t, err)
 
 	// Original handler has a tag.
@@ -145,7 +146,7 @@ func TestHandler_SnapshotRestore_StaleTagsCleared(t *testing.T) {
 
 	// Snapshot a second handler that has no tags.
 	b2 := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	_, err = b2.CreateLogGroup("g")
+	_, err = b2.CreateLogGroup("g", "", "")
 	require.NoError(t, err)
 	h2 := cloudwatchlogs.NewHandler(b2)
 	snap := h2.Snapshot()
@@ -170,7 +171,7 @@ func TestInMemoryBackend_SnapshotRestore_PreservesRetention(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	_, err := b.CreateLogGroup("ret-grp")
+	_, err := b.CreateLogGroup("ret-grp", "", "")
 	require.NoError(t, err)
 	require.NoError(t, b.SetRetentionPolicy("ret-grp", func() *int32 {
 		v := int32(14)

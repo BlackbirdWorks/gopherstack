@@ -1486,7 +1486,7 @@ func TestHandler_PutSubscriptionFilter_Validation(t *testing.T) {
 	e := echo.New()
 	backend := cloudwatchlogs.NewInMemoryBackend()
 	h := cloudwatchlogs.NewHandler(backend)
-	_, _ = backend.CreateLogGroup("/grp")
+	_, _ = backend.CreateLogGroup("/grp", "", "")
 
 	tests := []struct {
 		name     string
