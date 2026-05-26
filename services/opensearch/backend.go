@@ -2358,3 +2358,25 @@ func (b *InMemoryBackend) AddDomainInternal(name, engineVersion string) {
 	}
 	b.arnIndex[domainARN] = name
 }
+
+// AddPackageInternal seeds a package directly for use in tests.
+func (b *InMemoryBackend) AddPackageInternal(packageID, packageName, packageType string) {
+	b.mu.Lock("AddPackageInternal")
+	defer b.mu.Unlock()
+
+	now := float64(time.Now().Unix())
+	b.packages[packageID] = &Package{
+		PackageID:     packageID,
+		PackageName:   packageName,
+		PackageType:   packageType,
+		PackageStatus: pkgStateActive,
+		CreatedAt:     now,
+		VersionHistory: []*PackageVersionHistory{
+			{
+				PackageVersion: "1",
+				CommitMessage:  "initial version",
+				CreatedAt:      now,
+			},
+		},
+	}
+}
