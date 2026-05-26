@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -474,6 +476,28 @@ type logPublishingOptionJSON struct {
 	Enabled                   bool   `json:"Enabled"`
 }
 
+// domainNamePattern matches valid OpenSearch domain names: starts with a lowercase letter,
+// 3–28 characters, only lowercase letters, digits, and hyphens.
+var domainNamePattern = regexp.MustCompile(`^[a-z][a-z0-9\-]{2,27}$`)
+
+// engineVersionPattern matches valid engine version strings like OpenSearch_2.11 or Elasticsearch_7.10.
+var engineVersionPattern = regexp.MustCompile(`^(OpenSearch|Elasticsearch)_\d+\.\d+$`)
+
+// validateDomainName checks that a domain name meets AWS OpenSearch naming rules.
+func validateDomainName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
+	}
+
+	if !domainNamePattern.MatchString(name) {
+		return fmt.Errorf("%w: DomainName %q is not valid. Domain names must start with a lowercase letter "+
+			"and be between 3 and 28 characters. Valid characters are a-z (lowercase only), 0-9, and - (hyphen)",
+			ErrInvalidParameter, name)
+	}
+
+	return nil
+}
+
 // domainJSON is the JSON request body for CreateDomain.
 type domainJSON struct {
 	ClusterConfig               *domainClusterConfig                `json:"ClusterConfig,omitempty"`
@@ -930,8 +954,15 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.DomainName == "" {
-		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "DomainName is required")
+	if vErr := validateDomainName(req.DomainName); vErr != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", vErr.Error())
+
+		return
+	}
+
+	if req.EngineVersion != "" && !engineVersionPattern.MatchString(req.EngineVersion) {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException",
+			fmt.Sprintf("EngineVersion %q is not valid", req.EngineVersion))
 
 		return
 	}
@@ -1005,12 +1036,17 @@ func (h *Handler) handleDeleteDomain(w http.ResponseWriter, r *http.Request, nam
 }
 
 func (h *Handler) handleListDomainNames(w http.ResponseWriter, r *http.Request) {
+	engineTypeFilter := r.URL.Query().Get("engineType")
 	names := h.Backend.ListDomainNames()
 	entries := make([]domainNameEntry, 0, len(names))
 
 	for _, name := range names {
 		d, err := h.Backend.DescribeDomain(name)
 		if err != nil {
+			continue
+		}
+
+		if engineTypeFilter != "" && !strings.HasPrefix(d.EngineVersion, engineTypeFilter+"_") {
 			continue
 		}
 
@@ -1043,16 +1079,23 @@ func (h *Handler) handleDescribeDomains(w http.ResponseWriter, r *http.Request) 
 	list := make([]map[string]any, 0, len(domains))
 
 	for _, d := range domains {
-		list = append(list, map[string]any{
+		entry := map[string]any{
 			"DomainName":    d.Name,
 			"ARN":           d.ARN,
+			"Endpoint":      d.Endpoint,
 			"Endpoints":     map[string]any{"vpc": d.Endpoint},
 			"EngineVersion": d.EngineVersion,
 			"ClusterConfig": map[string]any{
 				jsonKeyInstanceType: d.ClusterConfig.InstanceType,
 				"InstanceCount":     d.ClusterConfig.InstanceCount,
 			},
-		})
+		}
+
+		if d.EBSOptions != nil {
+			entry["EBSOptions"] = d.EBSOptions
+		}
+
+		list = append(list, entry)
 	}
 
 	h.writeJSON(r, w, map[string]any{"DomainStatusList": list})
@@ -2192,7 +2235,7 @@ type domainPackageDetailsJSON struct {
 func (h *Handler) handleAssociatePackage(w http.ResponseWriter, r *http.Request, packageID, domainName string) {
 	details, err := h.Backend.AssociatePackage(packageID, domainName)
 	if err != nil {
-		if errors.Is(err, ErrDomainNotFound) {
+		if errors.Is(err, ErrDomainNotFound) || errors.Is(err, ErrPackageNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 		} else {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
@@ -2519,12 +2562,42 @@ func (h *Handler) handleVersionsRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{
-		"Versions": []string{
-			engineVersionOpenSearch211, engineVersionOpenSearch29,
-			engineVersionOpenSearch27, "Elasticsearch_8.11",
-		},
-	})
+	versions := []string{
+		"OpenSearch_2.17", "OpenSearch_2.15", "OpenSearch_2.13",
+		engineVersionOpenSearch211, "OpenSearch_2.10",
+		engineVersionOpenSearch29, "OpenSearch_2.8",
+		engineVersionOpenSearch27, "Elasticsearch_8.11",
+		"Elasticsearch_7.10", "Elasticsearch_6.8",
+	}
+
+	// Support nextToken-based pagination offset.
+	if tok := r.URL.Query().Get("nextToken"); tok != "" {
+		for i, v := range versions {
+			if v == tok {
+				versions = versions[i:]
+
+				break
+			}
+		}
+	}
+
+	// Support maxResults limit.
+	maxResults := len(versions)
+	if mr := r.URL.Query().Get("maxResults"); mr != "" {
+		if n, err := strconv.Atoi(mr); err == nil && n > 0 && n < maxResults {
+			maxResults = n
+		}
+	}
+
+	result := map[string]any{
+		"Versions": versions[:maxResults],
+	}
+
+	if maxResults < len(versions) {
+		result["NextToken"] = versions[maxResults]
+	}
+
+	h.writeJSON(r, w, result)
 }
 
 // handleInstanceTypeLimitsRoutes handles DescribeInstanceTypeLimits requests.
@@ -2559,9 +2632,18 @@ func (h *Handler) handleInstanceTypeLimitsRoutes(w http.ResponseWriter, r *http.
 		return
 	}
 
+	dataMap := map[string]any{
+		"InstanceLimits": limits.InstanceLimits,
+		"StorageTypes":   limits.StorageTypes,
+	}
+
+	if len(limits.AdditionalLimits) > 0 {
+		dataMap["AdditionalLimits"] = limits.AdditionalLimits
+	}
+
 	h.writeJSON(r, w, map[string]any{
 		"LimitsByRole": map[string]any{
-			"data": limits,
+			"data": dataMap,
 		},
 	})
 }

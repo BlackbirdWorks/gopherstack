@@ -92,7 +92,7 @@ func TestAudit1_CreateDomain_FullClusterConfig(t *testing.T) {
 
 			h := newTestHandler()
 			body := map[string]any{
-				"DomainName":    "cc-domain-" + tt.name,
+				"DomainName":    "test-domain",
 				"ClusterConfig": tt.clusterConfig,
 			}
 			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", body)
@@ -171,7 +171,7 @@ func TestAudit1_CreateDomain_EBSOptions(t *testing.T) {
 
 			h := newTestHandler()
 			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
-				"DomainName": "ebs-" + tt.name,
+				"DomainName": "ebs-test",
 				"EBSOptions": tt.ebsOptions,
 			})
 			defer resp.Body.Close()
@@ -312,7 +312,7 @@ func TestAudit1_CreateDomain_DomainEndpointOptions(t *testing.T) {
 
 			h := newTestHandler()
 			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
-				"DomainName":            "deo-" + tt.name,
+				"DomainName":            "deo-test",
 				"DomainEndpointOptions": tt.options,
 			})
 			defer resp.Body.Close()
@@ -394,7 +394,7 @@ func TestAudit1_CreateDomain_AdvancedSecurityOptions(t *testing.T) {
 
 			h := newTestHandler()
 			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
-				"DomainName":              "aso-" + tt.name,
+				"DomainName":              "aso-test",
 				"AdvancedSecurityOptions": tt.options,
 			})
 			defer resp.Body.Close()
@@ -453,7 +453,7 @@ func TestAudit1_CreateDomain_VPCOptions(t *testing.T) {
 
 			h := newTestHandler()
 			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
-				"DomainName": "vpc-" + tt.name,
+				"DomainName": "vpc-test",
 				"VPCOptions": tt.vpcOptions,
 			})
 			defer resp.Body.Close()
@@ -514,7 +514,7 @@ func TestAudit1_CreateDomain_CognitoOptions(t *testing.T) {
 
 			h := newTestHandler()
 			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
-				"DomainName":     "cognito-" + tt.name,
+				"DomainName":     "cognito-td",
 				"CognitoOptions": tt.cognitoOpts,
 			})
 			defer resp.Body.Close()
@@ -592,7 +592,7 @@ func TestAudit1_CreateDomain_LogPublishingOptions(t *testing.T) {
 
 			h := newTestHandler()
 			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
-				"DomainName":           "logs-" + tt.name,
+				"DomainName":           "logs-test",
 				"LogPublishingOptions": tt.logPublishingOpts,
 			})
 			defer resp.Body.Close()
@@ -631,7 +631,7 @@ func TestAudit1_CreateDomain_SnapshotOptions(t *testing.T) {
 
 			h := newTestHandler()
 			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
-				"DomainName": "snap-" + tt.name,
+				"DomainName": "snap-test",
 				"SnapshotOptions": map[string]any{
 					"AutomatedSnapshotStartHour": tt.automatedSnapshotStartHour,
 				},
@@ -688,7 +688,7 @@ func TestAudit1_CreateDomain_AccessPolicies(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			body := map[string]any{"DomainName": "ap-" + tt.name}
+			body := map[string]any{"DomainName": "ap-test"}
 			if tt.accessPolicies != "" {
 				body["AccessPolicies"] = tt.accessPolicies
 			}
@@ -920,11 +920,11 @@ func TestAudit1_UpdateDomainConfig_AllOptions(t *testing.T) {
 
 			h := newTestHandler()
 			createResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
-				map[string]any{"DomainName": "upd-" + tt.name})
+				map[string]any{"DomainName": "upd-test"})
 			createResp.Body.Close()
 			require.Equal(t, http.StatusOK, createResp.StatusCode)
 
-			upResp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/domain/upd-"+tt.name+"/config",
+			upResp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/domain/upd-test/config",
 				tt.updateBody)
 			defer upResp.Body.Close()
 			require.Equal(t, http.StatusOK, upResp.StatusCode)

@@ -1474,7 +1474,7 @@ func (h *DashboardHandler) setupSubRouter() {
 		storageClass := r.FormValue("storage_class")
 
 		obj, putErr := backend.PutObject(
-			"/"+strings.TrimPrefix(objPath, "/"), body, contentType, cacheControl, storageClass,
+			"/"+strings.TrimPrefix(objPath, "/"), body, contentType, cacheControl, storageClass, "",
 		)
 		if putErr != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyError: putErr.Error()})

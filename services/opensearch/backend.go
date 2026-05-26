@@ -765,6 +765,10 @@ func (b *InMemoryBackend) AssociatePackage(packageID, domainName string) (*Domai
 	b.mu.Lock("AssociatePackage")
 	defer b.mu.Unlock()
 
+	if _, exists := b.packages[packageID]; !exists {
+		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
+	}
+
 	if _, exists := b.domains[domainName]; !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
@@ -2357,4 +2361,26 @@ func (b *InMemoryBackend) AddDomainInternal(name, engineVersion string) {
 		Tags:          tags.New("opensearch." + name + ".tags"),
 	}
 	b.arnIndex[domainARN] = name
+}
+
+// AddPackageInternal seeds a package directly for use in tests.
+func (b *InMemoryBackend) AddPackageInternal(packageID, packageName, packageType string) {
+	b.mu.Lock("AddPackageInternal")
+	defer b.mu.Unlock()
+
+	now := float64(time.Now().Unix())
+	b.packages[packageID] = &Package{
+		PackageID:     packageID,
+		PackageName:   packageName,
+		PackageType:   packageType,
+		PackageStatus: pkgStateActive,
+		CreatedAt:     now,
+		VersionHistory: []*PackageVersionHistory{
+			{
+				PackageVersion: "1",
+				CommitMessage:  "initial version",
+				CreatedAt:      now,
+			},
+		},
+	}
 }
