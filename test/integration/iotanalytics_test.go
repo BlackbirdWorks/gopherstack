@@ -38,7 +38,7 @@ func TestIntegration_IoTAnalytics_ChannelLifecycle(t *testing.T) {
 
 	ctx := t.Context()
 	client := createIoTAnalyticsClient(t)
-	channelName := "integration-channel-" + t.Name()
+	channelName := "integration_channel_" + t.Name()
 
 	createOut, err := client.CreateChannel( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.CreateChannelInput{ChannelName: aws.String(channelName)},
@@ -93,7 +93,7 @@ func TestIntegration_IoTAnalytics_DatastoreLifecycle(t *testing.T) {
 
 	ctx := t.Context()
 	client := createIoTAnalyticsClient(t)
-	datastoreName := "integration-datastore-" + t.Name()
+	datastoreName := "integration_datastore_" + t.Name()
 
 	createOut, err := client.CreateDatastore( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.CreateDatastoreInput{DatastoreName: aws.String(datastoreName)},
@@ -130,7 +130,7 @@ func TestIntegration_IoTAnalytics_PipelineLifecycle(t *testing.T) {
 
 	ctx := t.Context()
 	client := createIoTAnalyticsClient(t)
-	pipelineName := "integration-pipeline-" + t.Name()
+	pipelineName := "integration_pipeline_" + t.Name()
 
 	createOut, err := client.CreatePipeline( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.CreatePipelineInput{
@@ -138,8 +138,8 @@ func TestIntegration_IoTAnalytics_PipelineLifecycle(t *testing.T) {
 			PipelineActivities: []iotanalyticstype.PipelineActivity{
 				{
 					Channel: &iotanalyticstype.ChannelActivity{
-						Name:        aws.String("channel-activity"),
-						ChannelName: aws.String("test-channel"),
+						Name:        aws.String("channel_activity"),
+						ChannelName: aws.String("test_channel"),
 					},
 				},
 			},
@@ -184,7 +184,7 @@ func TestIntegration_IoTAnalytics_BatchPutMessage(t *testing.T) {
 
 	ctx := t.Context()
 	client := createIoTAnalyticsClient(t)
-	channelName := "integration-batchput-channel-" + t.Name()
+	channelName := "integration_batchput_channel_" + t.Name()
 
 	_, err := client.CreateChannel( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.CreateChannelInput{ChannelName: aws.String(channelName)},
@@ -219,7 +219,7 @@ func TestIntegration_IoTAnalytics_SampleChannelData(t *testing.T) {
 
 	ctx := t.Context()
 	client := createIoTAnalyticsClient(t)
-	channelName := "integration-sample-channel-" + t.Name()
+	channelName := "integration_sample_channel_" + t.Name()
 
 	_, err := client.CreateChannel( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.CreateChannelInput{ChannelName: aws.String(channelName)},
@@ -245,7 +245,7 @@ func TestIntegration_IoTAnalytics_PipelineReprocessing(t *testing.T) {
 
 	ctx := t.Context()
 	client := createIoTAnalyticsClient(t)
-	pipelineName := "integration-reprocessing-pipeline-" + t.Name()
+	pipelineName := "integration_reprocessing_pipeline_" + t.Name()
 
 	_, err := client.CreatePipeline( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.CreatePipelineInput{
@@ -253,8 +253,8 @@ func TestIntegration_IoTAnalytics_PipelineReprocessing(t *testing.T) {
 			PipelineActivities: []iotanalyticstype.PipelineActivity{
 				{
 					Channel: &iotanalyticstype.ChannelActivity{
-						Name:        aws.String("channel-activity"),
-						ChannelName: aws.String("test-channel"),
+						Name:        aws.String("channel_activity"),
+						ChannelName: aws.String("test_channel"),
 					},
 				},
 			},
@@ -290,7 +290,7 @@ func TestIntegration_IoTAnalytics_DatasetContent(t *testing.T) {
 
 	ctx := t.Context()
 	client := createIoTAnalyticsClient(t)
-	datasetName := "integration-content-dataset-" + t.Name()
+	datasetName := "integration_content_dataset_" + t.Name()
 
 	_, err := client.CreateDataset( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.CreateDatasetInput{
@@ -379,7 +379,7 @@ func TestIntegration_IoTAnalytics_RunPipelineActivity(t *testing.T) {
 			PipelineActivity: &iotanalyticstype.PipelineActivity{
 				Channel: &iotanalyticstype.ChannelActivity{
 					Name:        aws.String("ch"),
-					ChannelName: aws.String("test-channel"),
+					ChannelName: aws.String("test_channel"),
 				},
 			},
 			Payloads: [][]byte{

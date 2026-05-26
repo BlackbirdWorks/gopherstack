@@ -16,7 +16,7 @@ import (
 func TestIoTAnalyticsDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.IoTAnalyticsHandler.Backend.CreateChannel("e2e-test-channel", map[string]string{
+	_, err := stack.IoTAnalyticsHandler.Backend.CreateChannel("e2e_test_channel", map[string]string{
 		"env": "e2e",
 	}, nil, nil)
 	require.NoError(t, err)
@@ -49,7 +49,7 @@ func TestIoTAnalyticsDashboard(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "IoT Analytics")
-	assert.Contains(t, content, "e2e-test-channel")
+	assert.Contains(t, content, "e2e_test_channel")
 }
 
 // TestIoTAnalyticsDashboard_Empty verifies the IoT Analytics dashboard renders correctly with no data.
