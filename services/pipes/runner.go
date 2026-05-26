@@ -18,18 +18,26 @@ const (
 	pipeRunnerTickInterval = 1 * time.Second
 	pipeDefaultBatchSize   = 10
 	maxPipeWorkers         = 64
+
+	// Pipes invocation type constants.
+	invocationTypeFireAndForget   = "FIRE_AND_FORGET"
+	invocationTypeRequestResponse = "REQUEST_RESPONSE"
 )
 
 // lambdaPipesInvocationType maps Pipes invocation types to Lambda invocation types.
-var lambdaPipesInvocationType = map[string]string{
-	"FIRE_AND_FORGET":  "Event",
-	"REQUEST_RESPONSE": "RequestResponse",
+func lambdaPipesInvocationType() map[string]string {
+	return map[string]string{
+		invocationTypeFireAndForget:   "Event",
+		invocationTypeRequestResponse: "RequestResponse",
+	}
 }
 
 // sfnPipesInvocationType maps Pipes invocation types to Step Functions invocation types.
-var sfnPipesInvocationType = map[string]string{
-	"FIRE_AND_FORGET":  "FIRE_AND_FORGET",
-	"REQUEST_RESPONSE": "REQUEST_RESPONSE",
+func sfnPipesInvocationType() map[string]string {
+	return map[string]string{
+		invocationTypeFireAndForget:   invocationTypeFireAndForget,
+		invocationTypeRequestResponse: invocationTypeRequestResponse,
+	}
 }
 
 // SQSMessage is a single SQS message pulled by the pipe runner.
@@ -62,13 +70,13 @@ type PipeStepFunctionsStarter interface {
 	StartExecution(stateMachineARN, name, input string) error
 }
 
-// PipeSNSPublisher publishes a message to an SNS topic.
-type PipeSNSPublisher interface {
+// SNSPublisher publishes a message to an SNS topic.
+type SNSPublisher interface {
 	PublishMessage(ctx context.Context, topicARN, message string) error
 }
 
-// PipeSQSSender sends a message to an SQS queue.
-type PipeSQSSender interface {
+// SQSSender sends a message to an SQS queue.
+type SQSSender interface {
 	SendMessage(
 		ctx context.Context,
 		queueARN, body, groupID, dedupID string,
@@ -99,8 +107,8 @@ type Runner struct {
 	sqsReader SQSReader
 	lambda    PipeLambdaInvoker
 	sfn       PipeStepFunctionsStarter
-	sns       PipeSNSPublisher
-	sqsSender PipeSQSSender
+	sns       SNSPublisher
+	sqsSender SQSSender
 	kinesis   PipeKinesisPutter
 	eventBus  PipeEventBridgePutter
 	cwLogs    PipeCloudWatchLogsPutter
@@ -123,8 +131,8 @@ func NewRunner(backend *InMemoryBackend) *Runner {
 func (r *Runner) SetSQSReader(s SQSReader)                           { r.sqsReader = s }
 func (r *Runner) SetLambdaInvoker(l PipeLambdaInvoker)               { r.lambda = l }
 func (r *Runner) SetStepFunctionsStarter(s PipeStepFunctionsStarter) { r.sfn = s }
-func (r *Runner) SetSNSPublisher(s PipeSNSPublisher)                 { r.sns = s }
-func (r *Runner) SetSQSSender(s PipeSQSSender)                       { r.sqsSender = s }
+func (r *Runner) SetSNSPublisher(s SNSPublisher)                     { r.sns = s }
+func (r *Runner) SetSQSSender(s SQSSender)                           { r.sqsSender = s }
 func (r *Runner) SetKinesisPutter(k PipeKinesisPutter)               { r.kinesis = k }
 func (r *Runner) SetEventBridgePutter(e PipeEventBridgePutter)       { r.eventBus = e }
 func (r *Runner) SetCloudWatchLogsPutter(c PipeCloudWatchLogsPutter) { r.cwLogs = c }
@@ -417,7 +425,7 @@ func (r *Runner) invokeLambdaTarget(ctx context.Context, p *Pipe, payload []byte
 	invocationType := "Event"
 	if p.TargetParameters != nil && p.TargetParameters.LambdaFunctionParameters != nil {
 		it := p.TargetParameters.LambdaFunctionParameters.InvocationType
-		if mapped, ok := lambdaPipesInvocationType[it]; ok {
+		if mapped, ok := lambdaPipesInvocationType()[it]; ok {
 			invocationType = mapped
 		} else if it != "" {
 			invocationType = it
@@ -446,11 +454,11 @@ func (r *Runner) invokeSFNTarget(_ context.Context, p *Pipe, payload []byte) err
 	}
 
 	payload = applyInputTemplate(p, payload)
-	invocationType := "FIRE_AND_FORGET"
+	invocationType := invocationTypeFireAndForget
 
 	if p.TargetParameters != nil && p.TargetParameters.SFNStateMachineParameters != nil {
 		it := p.TargetParameters.SFNStateMachineParameters.InvocationType
-		if mapped, ok := sfnPipesInvocationType[it]; ok {
+		if mapped, ok := sfnPipesInvocationType()[it]; ok {
 			invocationType = mapped
 		} else if it != "" {
 			invocationType = it

@@ -223,8 +223,9 @@ func TestAudit_Lifecycle_Updating(t *testing.T) {
 			require.NoError(t, err)
 			pipes.WaitPipeRunning(t, b, pipeName)
 
+			desc := tt.description
 			updated, err := b.UpdatePipe(pipeName, pipes.UpdatePipeInput{
-				Description:  tt.description,
+				Description:  &desc,
 				DesiredState: desiredState,
 			})
 			require.NoError(t, err)
@@ -2222,8 +2223,9 @@ func TestAudit_UpdatePipe_UpdatesLastModifiedTime(t *testing.T) {
 			before, _ := b.GetPipe(tt.name + "-pipe")
 			time.Sleep(2 * time.Millisecond)
 
+			updatedDesc := "updated"
 			_, err = b.UpdatePipe(tt.name+"-pipe", pipes.UpdatePipeInput{
-				Description: "updated",
+				Description: &updatedDesc,
 			})
 			require.NoError(t, err)
 

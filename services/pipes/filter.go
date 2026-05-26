@@ -2,6 +2,7 @@ package pipes
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 )
 
@@ -141,13 +142,7 @@ func matchesRule(msgVal, rule json.RawMessage) bool {
 	if anythingButRaw, ok := ruleObj["anything-but"]; ok {
 		var excluded []string
 		if err := json.Unmarshal(anythingButRaw, &excluded); err == nil {
-			for _, ex := range excluded {
-				if msgStr == ex {
-					return false
-				}
-			}
-
-			return true
+			return !slices.Contains(excluded, msgStr)
 		}
 	}
 

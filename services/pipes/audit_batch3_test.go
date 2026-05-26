@@ -24,7 +24,6 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -92,13 +91,13 @@ func b3Describe(t *testing.T, h *pipes.Handler, name string) map[string]any {
 	return resp
 }
 
-func b3CreatePipe(t *testing.T, b *pipes.InMemoryBackend, name, source, target string) {
+func b3CreatePipe(t *testing.T, b *pipes.InMemoryBackend, name, target string) {
 	t.Helper()
 
 	_, err := b.CreatePipe(pipes.CreatePipeInput{
 		Name:         name,
 		RoleARN:      "arn:aws:iam::111122223333:role/r",
-		Source:       source,
+		Source:       b3SQSSource,
 		Target:       target,
 		DesiredState: "RUNNING",
 	})
@@ -119,10 +118,10 @@ func TestBatch3_UpdatePipe_Description_AbsentMeansUnchanged(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		initialDesc  string
-		updateDesc   string
-		wantDesc     string
+		name        string
+		initialDesc string
+		updateDesc  string
+		wantDesc    string
 	}{
 		{
 			name:        "empty_description_clears",
@@ -154,8 +153,9 @@ func TestBatch3_UpdatePipe_Description_AbsentMeansUnchanged(t *testing.T) {
 			require.NoError(t, err)
 			pipes.WaitPipeRunning(t, b, tt.name)
 
+			desc := tt.updateDesc
 			_, err = b.UpdatePipe(tt.name, pipes.UpdatePipeInput{
-				Description: tt.updateDesc,
+				Description: &desc,
 			})
 			require.NoError(t, err)
 
@@ -172,9 +172,9 @@ func TestBatch3_UpdatePipe_Description_HTTPAbsentPreserves(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		body        map[string]any
-		wantDesc    string
+		name     string
+		body     map[string]any
+		wantDesc string
 	}{
 		{
 			name:     "no_description_field_preserves",
@@ -239,9 +239,9 @@ func TestBatch3_Snapshot_PersistsEnrichmentCallCount(t *testing.T) {
 			t.Parallel()
 
 			b := b3Backend()
-			b3CreatePipe(t, b, tt.pipeName, b3SQSSource, b3LambdaTarget)
+			b3CreatePipe(t, b, tt.pipeName, b3LambdaTarget)
 
-			for i := 0; i < tt.callCount; i++ {
+			for range tt.callCount {
 				b.RecordEnrichmentCall(tt.pipeName)
 			}
 
@@ -322,9 +322,9 @@ func TestBatch3_ListPipes_LexicographicOrder(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		pipeNames    []string
-		wantOrder    []string
+		name      string
+		pipeNames []string
+		wantOrder []string
 	}{
 		{
 			name:      "alphabetic_order",
@@ -378,8 +378,8 @@ func TestBatch3_BatchSize_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		sp        *pipes.SourceParameters
+		name      string
 		wantError bool
 	}{
 		{
@@ -491,8 +491,8 @@ func TestBatch3_BatchSize_UpdateValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		sp        *pipes.SourceParameters
+		name      string
 		wantError bool
 	}{
 		{
@@ -516,7 +516,7 @@ func TestBatch3_BatchSize_UpdateValidation(t *testing.T) {
 			t.Parallel()
 
 			b := b3Backend()
-			b3CreatePipe(t, b, tt.name+"-pipe", b3SQSSource, b3LambdaTarget)
+			b3CreatePipe(t, b, tt.name+"-pipe", b3LambdaTarget)
 
 			_, err := b.UpdatePipe(tt.name+"-pipe", pipes.UpdatePipeInput{
 				SourceParameters: tt.sp,
@@ -540,8 +540,8 @@ func TestBatch3_Lambda_InvocationType_Mapping(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name               string
-		pipesInvocType     string
+		name                string
+		pipesInvocType      string
 		wantLambdaInvocType string
 	}{
 		{
@@ -617,10 +617,10 @@ func TestBatch3_Enrichment_LambdaInvocation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		enrichmentARN   string
-		enrichResponse  []byte
-		wantTargetBody  string
+		name           string
+		enrichmentARN  string
+		wantTargetBody string
+		enrichResponse []byte
 	}{
 		{
 			name:           "lambda_enrichment_replaces_payload",
@@ -632,7 +632,7 @@ func TestBatch3_Enrichment_LambdaInvocation(t *testing.T) {
 			name:           "nil_enrichment_response_uses_original",
 			enrichmentARN:  "arn:aws:lambda:eu-west-1:111122223333:function:enricher",
 			enrichResponse: nil, // nil response means use original
-			wantTargetBody: "", // will check that original Records are sent
+			wantTargetBody: "",  // will check that original Records are sent
 		},
 	}
 
@@ -720,7 +720,7 @@ func TestBatch3_Target_SNS(t *testing.T) {
 			t.Parallel()
 
 			b := b3Backend()
-			b3CreatePipe(t, b, tt.name+"-pipe", b3SQSSource, tt.targetARN)
+			b3CreatePipe(t, b, tt.name+"-pipe", tt.targetARN)
 
 			sqsReader := &b3MockSQSReader{
 				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: `{"key":"value"}`}},
@@ -750,11 +750,11 @@ func TestBatch3_Target_SQS(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		targetARN  string
-		tp         *pipes.TargetParameters
-		wantGroup  string
-		wantDedup  string
+		name      string
+		targetARN string
+		tp        *pipes.TargetParameters
+		wantGroup string
+		wantDedup string
 	}{
 		{
 			name:      "basic_sqs_send",
@@ -1136,10 +1136,10 @@ func TestBatch3_Filter_PatternOperators(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		pattern    string
-		msgBody    string
-		wantMatch  bool
+		name      string
+		pattern   string
+		msgBody   string
+		wantMatch bool
 	}{
 		{
 			name:      "prefix_operator_matches",
@@ -1315,9 +1315,9 @@ func TestBatch3_Enrichment_RecordedOnlyWhenConfigured(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		enrichment  string
-		wantCount   int64
+		name       string
+		enrichment string
+		wantCount  int64
 	}{
 		{name: "no_enrichment", enrichment: "", wantCount: 0},
 		{name: "with_enrichment", enrichment: "arn:aws:lambda:eu-west-1:111122223333:function:e", wantCount: 1},
@@ -1375,7 +1375,7 @@ func TestBatch3_UnsupportedTarget_NilInvoker(t *testing.T) {
 			t.Parallel()
 
 			b := b3Backend()
-			b3CreatePipe(t, b, tt.name+"-pipe", b3SQSSource, tt.target)
+			b3CreatePipe(t, b, tt.name+"-pipe", tt.target)
 
 			sqsReader := &b3MockSQSReader{
 				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "{}"}},
@@ -1425,7 +1425,11 @@ type b3MockLambdaInvoker struct {
 	mu              sync.Mutex
 }
 
-func (m *b3MockLambdaInvoker) InvokeFunction(_ context.Context, name, invocationType string, payload []byte) ([]byte, int, error) {
+func (m *b3MockLambdaInvoker) InvokeFunction(
+	_ context.Context,
+	name, invocationType string,
+	payload []byte,
+) ([]byte, int, error) {
 	m.mu.Lock()
 	m.calls = append(m.calls, name)
 	m.payloads = append(m.payloads, payload)
@@ -1443,7 +1447,11 @@ type b3MuxLambdaInvoker struct {
 	enrichFn string
 }
 
-func (m *b3MuxLambdaInvoker) InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error) {
+func (m *b3MuxLambdaInvoker) InvokeFunction(
+	ctx context.Context,
+	name, invocationType string,
+	payload []byte,
+) ([]byte, int, error) {
 	if name == m.enrichFn {
 		return m.enrich.InvokeFunction(ctx, name, invocationType, payload)
 	}
@@ -1524,7 +1532,11 @@ type b3MockCloudWatchLogsPutter struct {
 	mu           sync.Mutex
 }
 
-func (m *b3MockCloudWatchLogsPutter) PutLogEvents(_ context.Context, logGroupARN, streamName string, events []string) error {
+func (m *b3MockCloudWatchLogsPutter) PutLogEvents(
+	_ context.Context,
+	logGroupARN, streamName string,
+	events []string,
+) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.logGroupARNs = append(m.logGroupARNs, logGroupARN)
@@ -1534,14 +1546,7 @@ func (m *b3MockCloudWatchLogsPutter) PutLogEvents(_ context.Context, logGroupARN
 	return nil
 }
 
-// --- helpers ---
-
-func strPtr(s string) *string { return &s }
-
 // Ensure b3MockLambdaInvoker implements the interface (compile-time check).
 var _ interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
 } = (*b3MockLambdaInvoker)(nil)
-
-// Dummy use of time to avoid import errors in table tests.
-var _ = time.Second
