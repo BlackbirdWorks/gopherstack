@@ -20,6 +20,18 @@ const (
 	maxPipeWorkers         = 64
 )
 
+// lambdaPipesInvocationType maps Pipes invocation types to Lambda invocation types.
+var lambdaPipesInvocationType = map[string]string{
+	"FIRE_AND_FORGET":  "Event",
+	"REQUEST_RESPONSE": "RequestResponse",
+}
+
+// sfnPipesInvocationType maps Pipes invocation types to Step Functions invocation types.
+var sfnPipesInvocationType = map[string]string{
+	"FIRE_AND_FORGET":  "FIRE_AND_FORGET",
+	"REQUEST_RESPONSE": "REQUEST_RESPONSE",
+}
+
 // SQSMessage is a single SQS message pulled by the pipe runner.
 type SQSMessage struct {
 	Attributes    map[string]string
@@ -50,6 +62,38 @@ type PipeStepFunctionsStarter interface {
 	StartExecution(stateMachineARN, name, input string) error
 }
 
+// PipeSNSPublisher publishes a message to an SNS topic.
+type PipeSNSPublisher interface {
+	PublishMessage(ctx context.Context, topicARN, message string) error
+}
+
+// PipeSQSSender sends a message to an SQS queue.
+type PipeSQSSender interface {
+	SendMessage(
+		ctx context.Context,
+		queueARN, body, groupID, dedupID string,
+	) error
+}
+
+// PipeKinesisPutter puts a record into a Kinesis stream.
+type PipeKinesisPutter interface {
+	PutRecord(ctx context.Context, streamARN, partitionKey string, data []byte) error
+}
+
+// PipeEventBridgePutter puts events to an EventBridge event bus.
+type PipeEventBridgePutter interface {
+	PutEvents(ctx context.Context, eventBusARN string, events []map[string]any) error
+}
+
+// PipeCloudWatchLogsPutter puts log events to a CloudWatch Logs log group.
+type PipeCloudWatchLogsPutter interface {
+	PutLogEvents(
+		ctx context.Context,
+		logGroupARN, logStreamName string,
+		messages []string,
+	) error
+}
+
 // Runner polls pipe sources and forwards records to pipe targets for RUNNING pipes.
 type Runner struct {
 	sqsReader SQSReader
@@ -76,14 +120,14 @@ func NewRunner(backend *InMemoryBackend) *Runner {
 	}
 }
 
-func (r *Runner) SetSQSReader(s SQSReader)                               { r.sqsReader = s }
-func (r *Runner) SetLambdaInvoker(l PipeLambdaInvoker)                   { r.lambda = l }
-func (r *Runner) SetStepFunctionsStarter(s PipeStepFunctionsStarter)     { r.sfn = s }
-func (r *Runner) SetSNSPublisher(s PipeSNSPublisher)                     { r.sns = s }
-func (r *Runner) SetSQSSender(s PipeSQSSender)                           { r.sqsSender = s }
-func (r *Runner) SetKinesisPutter(k PipeKinesisPutter)                   { r.kinesis = k }
-func (r *Runner) SetEventBridgePutter(e PipeEventBridgePutter)           { r.eventBus = e }
-func (r *Runner) SetCloudWatchLogsPutter(c PipeCloudWatchLogsPutter)     { r.cwLogs = c }
+func (r *Runner) SetSQSReader(s SQSReader)                           { r.sqsReader = s }
+func (r *Runner) SetLambdaInvoker(l PipeLambdaInvoker)               { r.lambda = l }
+func (r *Runner) SetStepFunctionsStarter(s PipeStepFunctionsStarter) { r.sfn = s }
+func (r *Runner) SetSNSPublisher(s PipeSNSPublisher)                 { r.sns = s }
+func (r *Runner) SetSQSSender(s PipeSQSSender)                       { r.sqsSender = s }
+func (r *Runner) SetKinesisPutter(k PipeKinesisPutter)               { r.kinesis = k }
+func (r *Runner) SetEventBridgePutter(e PipeEventBridgePutter)       { r.eventBus = e }
+func (r *Runner) SetCloudWatchLogsPutter(c PipeCloudWatchLogsPutter) { r.cwLogs = c }
 
 func (r *Runner) Start(ctx context.Context) {
 	r.doneMu.Lock()
@@ -240,7 +284,12 @@ func (r *Runner) invokeEnrichment(ctx context.Context, p *Pipe, payload []byte) 
 			payload = []byte(p.EnrichmentParameters.InputTemplate)
 		}
 
-		result, _, err := r.lambda.InvokeFunction(ctx, lambdaFunctionNameFromPipeARN(enrichARN), invocationType, payload)
+		result, _, err := r.lambda.InvokeFunction(
+			ctx,
+			lambdaFunctionNameFromPipeARN(enrichARN),
+			invocationType,
+			payload,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -281,7 +330,6 @@ func (r *Runner) applyFilters(p *Pipe, msgs []*SQSMessage) []*SQSMessage {
 
 	return out
 }
-
 
 // invokeTargetWithPayload dispatches the pre-marshalled payload to the pipe's target.
 // It returns receipt handles on success so the caller can delete the source messages.
