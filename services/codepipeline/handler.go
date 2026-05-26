@@ -34,6 +34,24 @@ var (
 	errInvalidRequest = errors.New("invalid request")
 )
 
+// validArtifactStoreType returns true if t is a valid ArtifactStore type.
+func validArtifactStoreType(t string) bool { return t == "S3" }
+
+// validPipelineType returns true if t is a valid PipelineType value.
+func validPipelineType(t string) bool {
+	return t == "" || t == PipelineTypeV1 || t == PipelineTypeV2
+}
+
+// validExecutionMode returns true if m is a valid ExecutionMode value.
+func validExecutionMode(m string) bool {
+	return m == "" || m == ExecutionModeQueued || m == ExecutionModeSuperseded || m == ExecutionModeParallel
+}
+
+// validWebhookAuth returns true if a is a valid webhook Authentication value.
+func validWebhookAuth(a string) bool {
+	return a == "" || a == WebhookAuthGitHubHMAC || a == WebhookAuthIP || a == WebhookAuthUnauthenticated
+}
+
 // Handler is the Echo HTTP handler for CodePipeline operations.
 type Handler struct {
 	Backend *InMemoryBackend
@@ -260,6 +278,41 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrConflict):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ConflictException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrResourceInUse):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ResourceInUseException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrResourceNotFound):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ResourceNotFoundException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrStageNotFound):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "StageNotFoundException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrInvalidStructure):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InvalidStructureException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errUnknownAction):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "InvalidActionException",
@@ -306,6 +359,22 @@ func (h *Handler) handleCreatePipeline(
 
 	if in.Pipeline.Name == "" {
 		return nil, fmt.Errorf("%w: pipeline name is required", errInvalidRequest)
+	}
+
+	if in.Pipeline.RoleArn == "" {
+		return nil, fmt.Errorf("%w: roleArn is required", ErrInvalidStructure)
+	}
+
+	if !validPipelineType(in.Pipeline.PipelineType) {
+		return nil, fmt.Errorf("%w: invalid pipelineType %q", ErrValidation, in.Pipeline.PipelineType)
+	}
+
+	if !validExecutionMode(in.Pipeline.ExecutionMode) {
+		return nil, fmt.Errorf("%w: invalid executionMode %q", ErrValidation, in.Pipeline.ExecutionMode)
+	}
+
+	if in.Pipeline.ArtifactStore.Type != "" && !validArtifactStoreType(in.Pipeline.ArtifactStore.Type) {
+		return nil, fmt.Errorf("%w: invalid artifactStore type %q: must be S3", ErrValidation, in.Pipeline.ArtifactStore.Type)
 	}
 
 	tagMap := tagsToMap(in.Tags)
@@ -1037,6 +1106,8 @@ func (h *Handler) handleListPipelineExecutions(
 		items[i] = map[string]any{
 			"pipelineExecutionId": e.PipelineExecutionID,
 			"status":              e.Status,
+			"pipelineVersion":     e.PipelineVersion,
+			"trigger":             e.Trigger,
 		}
 	}
 
@@ -1070,7 +1141,10 @@ func (h *Handler) handleGetPipelineState(
 
 	items := make([]map[string]any, len(states))
 	for i, s := range states {
-		item := map[string]any{"stageName": s.StageName}
+		item := map[string]any{
+			"stageName":    s.StageName,
+			"actionStates": s.ActionStates,
+		}
 		if s.InboundTransitionState != nil {
 			item["inboundTransitionState"] = map[string]any{
 				"disabled": s.InboundTransitionState.Disabled,
@@ -1172,15 +1246,27 @@ type listWebhooksInput struct {
 	MaxResults int32  `json:"MaxResults"`
 }
 
-type webhookView struct {
-	Name                     string `json:"name"`
-	TargetPipeline           string `json:"targetPipeline"`
-	TargetAction             string `json:"targetAction"`
-	RegisteredWithThirdParty bool   `json:"registeredWithThirdParty"`
+// webhookDefinitionView is the AWS-spec shape for a webhook definition inside ListWebhooks.
+type webhookDefinitionView struct {
+	AuthenticationConfiguration WebhookAuthConfig `json:"authenticationConfiguration,omitempty"`
+	Filters                     []WebhookFilter   `json:"filters,omitempty"`
+	Name                        string            `json:"name"`
+	TargetPipeline              string            `json:"targetPipeline"`
+	TargetAction                string            `json:"targetAction"`
+	Authentication              string            `json:"authentication,omitempty"`
+}
+
+// webhookListEntry is the AWS-spec outer envelope returned per webhook in ListWebhooks.
+type webhookListEntry struct {
+	Definition               webhookDefinitionView `json:"definition"`
+	URL                      string                `json:"url,omitempty"`
+	ARN                      string                `json:"arn,omitempty"`
+	LastTriggered            string                `json:"lastTriggered,omitempty"`
+	RegisteredWithThirdParty bool                  `json:"registeredWithThirdParty"`
 }
 
 type listWebhooksOutput struct {
-	Webhooks []webhookView `json:"webhooks"`
+	Webhooks []webhookListEntry `json:"webhooks"`
 }
 
 func (h *Handler) handleListWebhooks(
@@ -1188,31 +1274,42 @@ func (h *Handler) handleListWebhooks(
 	_ *listWebhooksInput,
 ) (*listWebhooksOutput, error) {
 	webhooks := h.Backend.ListWebhooks()
-	views := make([]webhookView, len(webhooks))
+	entries := make([]webhookListEntry, len(webhooks))
 
 	for i, wh := range webhooks {
-		views[i] = webhookView{
-			Name:                     wh.Name,
-			TargetPipeline:           wh.TargetPipeline,
-			TargetAction:             wh.TargetAction,
+		entries[i] = webhookListEntry{
+			Definition: webhookDefinitionView{
+				Name:                        wh.Name,
+				TargetPipeline:              wh.TargetPipeline,
+				TargetAction:                wh.TargetAction,
+				Authentication:              wh.Authentication,
+				Filters:                     wh.Filters,
+				AuthenticationConfiguration: wh.AuthenticationConfiguration,
+			},
+			URL:                      wh.URL,
+			ARN:                      wh.ARN,
+			LastTriggered:            wh.LastTriggered,
 			RegisteredWithThirdParty: wh.RegisteredWithThirdParty,
 		}
 	}
 
-	return &listWebhooksOutput{Webhooks: views}, nil
+	return &listWebhooksOutput{Webhooks: entries}, nil
 }
 
 type putWebhookInput struct {
 	Webhook struct {
-		Name           string `json:"name"`
-		TargetPipeline string `json:"targetPipeline"`
-		TargetAction   string `json:"targetAction"`
+		AuthenticationConfiguration WebhookAuthConfig `json:"authenticationConfiguration,omitempty"`
+		Filters                     []WebhookFilter   `json:"filters,omitempty"`
+		Name                        string            `json:"name"`
+		TargetPipeline              string            `json:"targetPipeline"`
+		TargetAction                string            `json:"targetAction"`
+		Authentication              string            `json:"authentication,omitempty"`
 	} `json:"webhook"`
 	Tags []Tag `json:"tags"`
 }
 
 type putWebhookOutput struct {
-	Webhook webhookView `json:"webhook"`
+	Webhook webhookListEntry `json:"webhook"`
 }
 
 func (h *Handler) handlePutWebhook(
@@ -1223,16 +1320,37 @@ func (h *Handler) handlePutWebhook(
 		return nil, fmt.Errorf("%w: webhook name is required", errInvalidRequest)
 	}
 
-	wh, err := h.Backend.PutWebhook(in.Webhook.Name, in.Webhook.TargetPipeline, in.Webhook.TargetAction)
+	if in.Webhook.Authentication != "" && !validWebhookAuth(in.Webhook.Authentication) {
+		return nil, fmt.Errorf("%w: invalid authentication %q; must be %s, %s, or %s",
+			ErrValidation, in.Webhook.Authentication,
+			WebhookAuthGitHubHMAC, WebhookAuthIP, WebhookAuthUnauthenticated)
+	}
+
+	wh, err := h.Backend.PutWebhook(&Webhook{
+		Name:                        in.Webhook.Name,
+		TargetPipeline:              in.Webhook.TargetPipeline,
+		TargetAction:                in.Webhook.TargetAction,
+		Authentication:              in.Webhook.Authentication,
+		Filters:                     in.Webhook.Filters,
+		AuthenticationConfiguration: in.Webhook.AuthenticationConfiguration,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &putWebhookOutput{
-		Webhook: webhookView{
-			Name:           wh.Name,
-			TargetPipeline: wh.TargetPipeline,
-			TargetAction:   wh.TargetAction,
+		Webhook: webhookListEntry{
+			Definition: webhookDefinitionView{
+				Name:                        wh.Name,
+				TargetPipeline:              wh.TargetPipeline,
+				TargetAction:                wh.TargetAction,
+				Authentication:              wh.Authentication,
+				Filters:                     wh.Filters,
+				AuthenticationConfiguration: wh.AuthenticationConfiguration,
+			},
+			URL:                      wh.URL,
+			ARN:                      wh.ARN,
+			RegisteredWithThirdParty: wh.RegisteredWithThirdParty,
 		},
 	}, nil
 }
@@ -1510,44 +1628,96 @@ type listActionTypesOutput struct {
 
 func (h *Handler) handleListActionTypes(
 	_ context.Context,
-	_ *listActionTypesInput,
+	in *listActionTypesInput,
 ) (*listActionTypesOutput, error) {
 	types := h.Backend.ListActionTypes()
-	items := make([]map[string]any, len(types))
+	items := make([]map[string]any, 0, len(types))
 
-	for i, at := range types {
-		items[i] = map[string]any{
-			keyJobID: map[string]any{
+	for _, at := range types {
+		owner := at.Owner
+		if owner == "" {
+			owner = keyOwnerCustom
+		}
+
+		if in.ActionOwnerFilter != "" && owner != in.ActionOwnerFilter {
+			continue
+		}
+
+		item := map[string]any{
+			"id": map[string]any{
 				"category": at.Category,
-				"owner":    keyOwnerCustom,
+				"owner":    owner,
 				"provider": at.Provider,
 				"version":  at.Version,
 			},
+			"inputArtifactDetails": map[string]any{
+				"minimumCount": at.InputArtifactDetails.MinimumCount,
+				"maximumCount": at.InputArtifactDetails.MaximumCount,
+			},
+			"outputArtifactDetails": map[string]any{
+				"minimumCount": at.OutputArtifactDetails.MinimumCount,
+				"maximumCount": at.OutputArtifactDetails.MaximumCount,
+			},
 		}
+
+		if at.Settings != nil {
+			item["settings"] = at.Settings
+		}
+
+		if len(at.ConfigurationProperties) > 0 {
+			item["actionConfigurationProperties"] = at.ConfigurationProperties
+		}
+
+		items = append(items, item)
 	}
 
 	return &listActionTypesOutput{ActionTypes: items}, nil
 }
 
+type updateActionTypeInputBody struct {
+	Settings                *ActionTypeSettings           `json:"settings,omitempty"`
+	ID                      ActionTypeID                  `json:"id"`
+	ConfigurationProperties []ActionConfigurationProperty `json:"actionConfigurationProperties,omitempty"`
+	InputArtifactDetails    ArtifactDetails               `json:"inputArtifactDetails"`
+	OutputArtifactDetails   ArtifactDetails               `json:"outputArtifactDetails"`
+}
+
 type updateActionTypeInput struct {
-	ActionType struct {
-		ID struct {
-			Category string `json:"category"`
-			Owner    string `json:"owner"`
-			Provider string `json:"provider"`
-			Version  string `json:"version"`
-		} `json:"id"`
-	} `json:"actionType"`
+	ActionType updateActionTypeInputBody `json:"actionType"`
 }
 
 func (h *Handler) handleUpdateActionType(
 	_ context.Context,
 	in *updateActionTypeInput,
 ) (*emptyOut, error) {
+	id := in.ActionType.ID
+
+	if id.Category == "" {
+		return nil, fmt.Errorf("%w: actionType.id.category is required", errInvalidRequest)
+	}
+
+	if id.Provider == "" {
+		return nil, fmt.Errorf("%w: actionType.id.provider is required", errInvalidRequest)
+	}
+
+	if id.Version == "" {
+		return nil, fmt.Errorf("%w: actionType.id.version is required", errInvalidRequest)
+	}
+
+	owner := id.Owner
+	if owner == "" {
+		owner = keyOwnerCustom
+	}
+
 	cat := &CustomActionType{
-		Category: in.ActionType.ID.Category,
-		Provider: in.ActionType.ID.Provider,
-		Version:  in.ActionType.ID.Version,
+		Category:                id.Category,
+		Owner:                   owner,
+		Provider:                id.Provider,
+		Version:                 id.Version,
+		Settings:                in.ActionType.Settings,
+		ConfigurationProperties: in.ActionType.ConfigurationProperties,
+		InputArtifactDetails:    in.ActionType.InputArtifactDetails,
+		OutputArtifactDetails:   in.ActionType.OutputArtifactDetails,
 	}
 
 	if err := h.Backend.UpdateActionType(cat); err != nil {

@@ -1,6 +1,9 @@
 package codepipeline
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"maps"
+)
 
 // customActionTypeEntry is the JSON-serialisable representation of a custom action type entry.
 type customActionTypeEntry struct {
@@ -18,16 +21,24 @@ type stageTransitionEntry struct {
 	TransitionType string                `json:"transitionType"`
 }
 
+// executionEntry is the JSON-serialisable list of executions per pipeline.
+type executionEntry struct {
+	PipelineName string               `json:"pipelineName"`
+	Executions   []*PipelineExecution `json:"executions"`
+}
+
 // backendSnapshot is the JSON-serialisable snapshot of InMemoryBackend state.
 type backendSnapshot struct {
-	Pipelines         map[string]*Pipeline    `json:"pipelines"`
-	PipelineARNIndex  map[string]string       `json:"pipelineARNIndex"`
-	Jobs              map[string]*Job         `json:"jobs"`
-	Webhooks          map[string]*Webhook     `json:"webhooks"`
-	AccountID         string                  `json:"accountID"`
-	Region            string                  `json:"region"`
+	Pipelines        map[string]*Pipeline    `json:"pipelines"`
+	PipelineARNIndex map[string]string       `json:"pipelineARNIndex"`
+	Jobs             map[string]*Job         `json:"jobs"`
+	Webhooks         map[string]*Webhook     `json:"webhooks"`
+	WebhookARNIndex  map[string]string       `json:"webhookARNIndex"`
+	AccountID        string                  `json:"accountID"`
+	Region           string                  `json:"region"`
 	CustomActionTypes []customActionTypeEntry `json:"customActionTypes"`
 	StageTransitions  []stageTransitionEntry  `json:"stageTransitions"`
+	Executions        []executionEntry        `json:"executions"`
 }
 
 // ensureNonNil initialises any nil maps so callers do not need to guard after Restore.
@@ -46,6 +57,10 @@ func (s *backendSnapshot) ensureNonNil() {
 
 	if s.Webhooks == nil {
 		s.Webhooks = make(map[string]*Webhook)
+	}
+
+	if s.WebhookARNIndex == nil {
+		s.WebhookARNIndex = make(map[string]string)
 	}
 }
 
@@ -77,13 +92,40 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		})
 	}
 
+	execs := make([]executionEntry, 0, len(b.executions))
+	for pName, list := range b.executions {
+		if len(list) == 0 {
+			continue
+		}
+
+		execs = append(execs, executionEntry{PipelineName: pName, Executions: list})
+	}
+
+	// Defensive copies for snapshot: the snapshot owns the data, not the backend.
+	pipelinesCopy := make(map[string]*Pipeline, len(b.pipelines))
+	maps.Copy(pipelinesCopy, b.pipelines)
+
+	arnIndexCopy := make(map[string]string, len(b.pipelineARNIndex))
+	maps.Copy(arnIndexCopy, b.pipelineARNIndex)
+
+	webhooksCopy := make(map[string]*Webhook, len(b.webhooks))
+	maps.Copy(webhooksCopy, b.webhooks)
+
+	webhookARNCopy := make(map[string]string, len(b.webhookARNIndex))
+	maps.Copy(webhookARNCopy, b.webhookARNIndex)
+
+	jobsCopy := make(map[string]*Job, len(b.jobs))
+	maps.Copy(jobsCopy, b.jobs)
+
 	snap := backendSnapshot{
-		Pipelines:         b.pipelines,
-		PipelineARNIndex:  b.pipelineARNIndex,
+		Pipelines:         pipelinesCopy,
+		PipelineARNIndex:  arnIndexCopy,
 		CustomActionTypes: cats,
 		StageTransitions:  transitions,
-		Jobs:              b.jobs,
-		Webhooks:          b.webhooks,
+		Jobs:              jobsCopy,
+		Webhooks:          webhooksCopy,
+		WebhookARNIndex:   webhookARNCopy,
+		Executions:        execs,
 		AccountID:         b.accountID,
 		Region:            b.region,
 	}
@@ -95,6 +137,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore loads backend state from a JSON snapshot produced by Snapshot.
+// It calls Reset first to clear any in-flight goroutines and prior state.
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
@@ -121,15 +164,38 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		transitions[key] = entry.Value
 	}
 
+	executions := make(map[string][]*PipelineExecution, len(snap.Executions))
+	for _, entry := range snap.Executions {
+		executions[entry.PipelineName] = entry.Executions
+	}
+
+	// Defensive copies: the backend owns these maps independently of the snapshot.
+	pipelinesCopy := make(map[string]*Pipeline, len(snap.Pipelines))
+	maps.Copy(pipelinesCopy, snap.Pipelines)
+
+	arnIndexCopy := make(map[string]string, len(snap.PipelineARNIndex))
+	maps.Copy(arnIndexCopy, snap.PipelineARNIndex)
+
+	webhooksCopy := make(map[string]*Webhook, len(snap.Webhooks))
+	maps.Copy(webhooksCopy, snap.Webhooks)
+
+	webhookARNCopy := make(map[string]string, len(snap.WebhookARNIndex))
+	maps.Copy(webhookARNCopy, snap.WebhookARNIndex)
+
+	jobsCopy := make(map[string]*Job, len(snap.Jobs))
+	maps.Copy(jobsCopy, snap.Jobs)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.pipelines = snap.Pipelines
-	b.pipelineARNIndex = snap.PipelineARNIndex
+	b.pipelines = pipelinesCopy
+	b.pipelineARNIndex = arnIndexCopy
 	b.customActionTypes = cats
 	b.stageTransitions = transitions
-	b.jobs = snap.Jobs
-	b.webhooks = snap.Webhooks
+	b.jobs = jobsCopy
+	b.webhooks = webhooksCopy
+	b.webhookARNIndex = webhookARNCopy
+	b.executions = executions
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
