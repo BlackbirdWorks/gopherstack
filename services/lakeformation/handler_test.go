@@ -230,7 +230,7 @@ func TestHandler_ListResources(t *testing.T) {
 			h.DefaultRegion = testRegion
 
 			for _, arn := range tt.setupArns {
-				require.NoError(t, b.RegisterResource(arn, "arn:aws:iam::123:role/R", nil, nil, nil))
+				require.NoError(t, b.RegisterResource(arn, "arn:aws:iam::123:role/R"))
 			}
 
 			rec := doLFRequest(t, h, "/ListResources", tt.body)
@@ -1390,8 +1390,7 @@ func TestBackend_CreateLakeFormationIdentityCenterConfiguration_ReturnsARN(t *te
 	t.Parallel()
 
 	b := lakeformation.NewInMemoryBackend()
-	appArn, err := b.CreateLakeFormationIdentityCenterConfiguration("123456789012", "arn:aws:sso:::instance/x", nil, nil)
-	require.NoError(t, err)
+	appArn := b.CreateLakeFormationIdentityCenterConfiguration("123456789012", "arn:aws:sso:::instance/x")
 	assert.NotEmpty(t, appArn)
 	assert.Contains(t, appArn, "123456789012")
 }

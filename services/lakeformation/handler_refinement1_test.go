@@ -645,7 +645,6 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	err := b.CreateLakeFormationOptIn(
 		&lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/alice"},
 		&lakeformation.Resource{Database: &lakeformation.DatabaseResource{Name: "db1"}},
-		nil,
 	)
 	require.NoError(t, err)
 	_, err = b.CommitTransaction("tx-persist")

@@ -578,7 +578,7 @@ func TestRefinement2_ListPermissions_SortedDeterministic(t *testing.T) {
 		Permissions: []string{"SELECT"},
 	})
 
-	perms, _ := b.ListPermissions("", nil, "", nil, 0, "")
+	perms, _ := b.ListPermissions("", 0, "")
 	require.Len(t, perms, 2)
 	// alice sorts before bob
 	assert.Equal(t, "arn:aws:iam::000000000000:user/alice", perms[0].Principal.DataLakePrincipalIdentifier)
@@ -613,6 +613,6 @@ func TestRefinement2_ExportHelpers(t *testing.T) {
 	assert.Equal(t, 0, b.IdentityCenterConfigCount())
 
 	b.AddLFTagInternal("", "k", []string{"v"})
-	_, _ = b.CreateLakeFormationIdentityCenterConfiguration("123", "arn:aws:sso:::instance/ssoins-abc", nil, nil)
+	b.CreateLakeFormationIdentityCenterConfiguration("123", "arn:aws:sso:::instance/ssoins-abc")
 	assert.Equal(t, 1, b.IdentityCenterConfigCount())
 }

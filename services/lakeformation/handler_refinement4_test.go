@@ -103,8 +103,8 @@ func TestRefinement4_RegisterResource_UseServiceLinkedRole(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
 		body            map[string]any
+		name            string
 		wantStatus      int
 		wantSLRoleInARN bool
 	}{
@@ -220,8 +220,8 @@ func TestRefinement4_GrantPermissions_InvalidEnum(t *testing.T) {
 			h := lakeformation.NewHandler(b)
 
 			rec := postJSON(t, h, "/GrantPermissions", map[string]any{
-				"Principal": map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/u"},
-				"Resource":  map[string]any{"Database": map[string]any{"Name": "db"}},
+				"Principal":   map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/u"},
+				"Resource":    map[string]any{"Database": map[string]any{"Name": "db"}},
 				"Permissions": tt.permissions,
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code, "test case: %s", tt.name)
@@ -338,6 +338,7 @@ func toStringSlice(in []any) []string {
 	for i, v := range in {
 		out[i] = v.(string)
 	}
+
 	return out
 }
 
@@ -362,29 +363,29 @@ func TestRefinement4_ListPermissions_Filters(t *testing.T) {
 	})
 
 	tests := []struct {
-		name        string
 		filterBody  map[string]any
-		wantCount   int
+		name        string
 		wantPrincID string
+		wantCount   int
 	}{
 		{
-			name:      "filter by principal returns only alice's entries",
-			filterBody: map[string]any{"Principal": alice},
+			name:        "filter by principal returns only alice's entries",
+			filterBody:  map[string]any{"Principal": alice},
 			wantCount:   1,
 			wantPrincID: "arn:aws:iam::123:user/alice",
 		},
 		{
-			name:      "filter by ResourceType DATABASE returns only database entries",
+			name:       "filter by ResourceType DATABASE returns only database entries",
 			filterBody: map[string]any{"ResourceType": "DATABASE"},
 			wantCount:  1,
 		},
 		{
-			name:      "filter by ResourceType TABLE returns only table entries",
+			name:       "filter by ResourceType TABLE returns only table entries",
 			filterBody: map[string]any{"ResourceType": "TABLE"},
 			wantCount:  1,
 		},
 		{
-			name:      "no filter returns all entries",
+			name:       "no filter returns all entries",
 			filterBody: map[string]any{},
 			wantCount:  2,
 		},
@@ -455,7 +456,7 @@ func TestRefinement4_GetTemporaryGlueTableCredentials_UniquePerCall(t *testing.T
 		"TableArn": "arn:aws:glue:us-east-1:123:table/db/tbl",
 	}
 
-	var sessions []string
+	sessions := make([]string, 0, 3)
 
 	for range 3 {
 		rec := postJSON(t, h, "/GetTemporaryGlueTableCredentials", body)
@@ -663,8 +664,8 @@ func TestRefinement4_ListDataCellsFilter_RequiresTable(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -840,7 +841,7 @@ func TestRefinement4_UpdateIdentityCenter_ApplicationStatus(t *testing.T) {
 			h := lakeformation.NewHandler(b)
 
 			// First create the config
-			_, _ = b.CreateLakeFormationIdentityCenterConfiguration("123456789012", "arn:aws:sso:::instance/i", nil, nil)
+			b.CreateLakeFormationIdentityCenterConfiguration("123456789012", "arn:aws:sso:::instance/i")
 
 			rec := postJSON(t, h, "/UpdateLakeFormationIdentityCenterConfiguration", map[string]any{
 				"CatalogId":         "123456789012",
@@ -924,10 +925,10 @@ func TestRefinement4_AddLFTagsToResource_ValidatesTagValues(t *testing.T) {
 
 	tests := []struct {
 		name            string
+		wantFailureCode string
 		allowedValues   []string
 		tagValues       []any
 		wantFailures    bool
-		wantFailureCode string
 	}{
 		{
 			name:          "valid value succeeds",
@@ -1096,8 +1097,8 @@ func TestRefinement4_GrantPermissions_GrantOptionSubsetValidation(t *testing.T) 
 	h := lakeformation.NewHandler(b)
 
 	rec := postJSON(t, h, "/GrantPermissions", map[string]any{
-		"Principal": map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/u"},
-		"Resource":  map[string]any{"Database": map[string]any{"Name": "db"}},
+		"Principal":                  map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/u"},
+		"Resource":                   map[string]any{"Database": map[string]any{"Name": "db"}},
 		"Permissions":                []any{"SELECT"},
 		"PermissionsWithGrantOption": []any{"INSERT"},
 	})
