@@ -89,7 +89,11 @@ type StorageBackend interface {
 	DeleteLFTagExpression(name, catalogID string) error
 	ListLFTagExpressions(catalogID string, maxResults int, nextToken string) ([]*LFTagExpression, string)
 
-	CreateLakeFormationIdentityCenterConfiguration(catalogID, instanceArn string) string
+	CreateLakeFormationIdentityCenterConfiguration(
+		catalogID, instanceArn string,
+		externalFiltering *ExternalFilteringConfiguration,
+		shareRecipients []DataLakePrincipal,
+	) string
 	DeleteLakeFormationIdentityCenterConfiguration(catalogID string) error
 	DescribeLakeFormationIdentityCenterConfiguration(catalogID string) (*IdentityCenterConfiguration, error)
 	UpdateLakeFormationIdentityCenterConfiguration(
@@ -1027,7 +1031,11 @@ func (b *InMemoryBackend) CreateLFTagExpression(name, description, catalogID str
 
 // CreateLakeFormationIdentityCenterConfiguration creates or replaces the IAM Identity Center
 // integration for the given catalog and returns a synthetic application ARN.
-func (b *InMemoryBackend) CreateLakeFormationIdentityCenterConfiguration(catalogID, instanceArn string) string {
+func (b *InMemoryBackend) CreateLakeFormationIdentityCenterConfiguration(
+	catalogID, instanceArn string,
+	externalFiltering *ExternalFilteringConfiguration,
+	shareRecipients []DataLakePrincipal,
+) string {
 	b.mu.Lock("CreateLakeFormationIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 
@@ -1038,9 +1046,11 @@ func (b *InMemoryBackend) CreateLakeFormationIdentityCenterConfiguration(catalog
 	)
 
 	b.identityCenterConfigs[catalogID] = &IdentityCenterConfiguration{
-		CatalogID:      catalogID,
-		InstanceArn:    instanceArn,
-		ApplicationArn: appArn,
+		CatalogID:         catalogID,
+		InstanceArn:       instanceArn,
+		ApplicationArn:    appArn,
+		ExternalFiltering: externalFiltering,
+		ShareRecipients:   shareRecipients,
 	}
 
 	return appArn
@@ -1834,7 +1844,7 @@ func (b *InMemoryBackend) GetWorkUnits(queryID string) ([]WorkUnitRange, string,
 		return nil, "", awserr.New("query not found: "+queryID, awserr.ErrNotFound)
 	}
 
-	return []WorkUnitRange{}, "", nil
+	return []WorkUnitRange{{WorkUnitIDMax: 0, WorkUnitIDMin: 0, WorkUnitToken: queryID}}, "", nil
 }
 
 // GetWorkUnitResults validates that the query exists and returns successfully.

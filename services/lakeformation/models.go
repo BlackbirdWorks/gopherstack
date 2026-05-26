@@ -302,6 +302,7 @@ type IdentityCenterConfiguration struct {
 	CatalogID         string                          `json:"CatalogId,omitempty"`
 	InstanceArn       string                          `json:"InstanceArn,omitempty"`
 	ApplicationArn    string                          `json:"ApplicationArn,omitempty"`
+	ShareRecipients   []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
 }
 
 // LFOptIn associates a principal and resource for opt-in enforcement.
@@ -380,8 +381,10 @@ type createLFTagExpressionOutput struct{}
 // createLakeFormationIdentityCenterConfigurationInput is the request body for
 // CreateLakeFormationIdentityCenterConfiguration.
 type createLakeFormationIdentityCenterConfigurationInput struct {
-	CatalogID   string `json:"CatalogId,omitempty"`
-	InstanceArn string `json:"InstanceArn,omitempty"`
+	CatalogID         string                          `json:"CatalogId,omitempty"`
+	InstanceArn       string                          `json:"InstanceArn,omitempty"`
+	ExternalFiltering *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
+	ShareRecipients   []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
 }
 
 // createLakeFormationIdentityCenterConfigurationOutput is the response body for
@@ -670,6 +673,7 @@ type describeLakeFormationIdentityCenterConfigurationOutput struct {
 	CatalogID         string                          `json:"CatalogId,omitempty"`
 	InstanceArn       string                          `json:"InstanceArn,omitempty"`
 	ApplicationArn    string                          `json:"ApplicationArn,omitempty"`
+	ShareRecipients   []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
 }
 
 type extendTransactionInput struct {

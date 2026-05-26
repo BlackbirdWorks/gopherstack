@@ -442,6 +442,20 @@ func (h *Handler) handleGrantPermissions(_ context.Context, c *echo.Context, bod
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
+	// Validate PermissionsWithGrantOption is a subset of Permissions.
+	if len(in.PermissionsWithGrantOption) > 0 {
+		permSet := make(map[string]bool, len(in.Permissions))
+		for _, p := range in.Permissions {
+			permSet[p] = true
+		}
+		for _, g := range in.PermissionsWithGrantOption {
+			if !permSet[g] {
+				return h.writeError(c, http.StatusBadRequest, "InvalidInputException",
+					"PermissionsWithGrantOption must be a subset of Permissions")
+			}
+		}
+	}
+
 	entry := &PermissionEntry{
 		Principal:                  in.Principal,
 		Resource:                   in.Resource,
@@ -740,7 +754,12 @@ func (h *Handler) handleCreateLakeFormationIdentityCenterConfiguration(
 		catalogID = h.AccountID
 	}
 
-	appArn := h.Backend.CreateLakeFormationIdentityCenterConfiguration(catalogID, in.InstanceArn)
+	appArn := h.Backend.CreateLakeFormationIdentityCenterConfiguration(
+		catalogID,
+		in.InstanceArn,
+		in.ExternalFiltering,
+		in.ShareRecipients,
+	)
 
 	return c.JSON(http.StatusOK, createLakeFormationIdentityCenterConfigurationOutput{ApplicationArn: appArn})
 }
@@ -908,12 +927,16 @@ func (h *Handler) handleListDataCellsFilter(_ context.Context, c *echo.Context, 
 		}
 	}
 
-	var tableCatalogID, databaseName, tableName string
-	if in.Table != nil {
-		tableCatalogID = in.Table.CatalogID
-		databaseName = in.Table.DatabaseName
-		tableName = in.Table.Name
+	if in.Table == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Table is required")
 	}
+	if in.Table.DatabaseName == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Table.DatabaseName is required")
+	}
+
+	tableCatalogID := in.Table.CatalogID
+	databaseName := in.Table.DatabaseName
+	tableName := in.Table.Name
 
 	filters, nextToken := h.Backend.ListDataCellsFilter(
 		tableCatalogID,
@@ -1048,6 +1071,7 @@ func (h *Handler) handleDescribeLakeFormationIdentityCenterConfiguration(
 		InstanceArn:       cfg.InstanceArn,
 		ApplicationArn:    cfg.ApplicationArn,
 		ExternalFiltering: cfg.ExternalFiltering,
+		ShareRecipients:   cfg.ShareRecipients,
 	})
 }
 
