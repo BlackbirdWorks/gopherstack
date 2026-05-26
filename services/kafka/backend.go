@@ -30,6 +30,8 @@ const (
 	VpcConnectionStateAvailable = "AVAILABLE"
 	// ClusterOperationStateUpdateComplete indicates a completed cluster operation.
 	ClusterOperationStateUpdateComplete = "UPDATE_COMPLETE"
+	// DefaultClusterVersion is the default MSK cluster version identifier.
+	DefaultClusterVersion = "K3AEGXETSR30VB"
 )
 
 const (
@@ -41,6 +43,48 @@ const (
 	ClusterStateDeleting = "DELETING"
 	// ClusterStateFailed indicates a cluster in a failed state.
 	ClusterStateFailed = "FAILED"
+	// ClusterStateUpdating indicates a cluster undergoing an update.
+	ClusterStateUpdating = "UPDATING"
+	// ClusterStateRebootingBroker indicates a broker reboot in progress.
+	ClusterStateRebootingBroker = "REBOOTING_BROKER"
+	// ClusterStateMaintenance indicates a cluster in a maintenance window.
+	ClusterStateMaintenance = "MAINTENANCE"
+	// ClusterStateHealing indicates a cluster undergoing node healing.
+	ClusterStateHealing = "HEALING"
+)
+
+const (
+	// ClusterTypeProvisioned is the standard MSK cluster type.
+	ClusterTypeProvisioned = "PROVISIONED"
+	// ClusterTypeServerless is the MSK Serverless cluster type.
+	ClusterTypeServerless = "SERVERLESS"
+)
+
+const (
+	// EnhancedMonitoringDefault is the default monitoring level.
+	EnhancedMonitoringDefault = "DEFAULT"
+	// EnhancedMonitoringPerBroker enables per-broker metrics.
+	EnhancedMonitoringPerBroker = "PER_BROKER"
+	// EnhancedMonitoringPerTopicPerBroker enables per-topic-per-broker metrics.
+	EnhancedMonitoringPerTopicPerBroker = "PER_TOPIC_PER_BROKER"
+	// EnhancedMonitoringPerTopicPerPartition enables per-topic-per-partition metrics.
+	EnhancedMonitoringPerTopicPerPartition = "PER_TOPIC_PER_PARTITION"
+)
+
+const (
+	// StorageModeLocal is the standard EBS-only storage mode.
+	StorageModeLocal = "LOCAL"
+	// StorageModeTiered enables tiered storage (remote storage offload).
+	StorageModeTiered = "TIERED"
+)
+
+const (
+	// EncryptionInTransitTLS requires TLS for all client-broker traffic.
+	EncryptionInTransitTLS = "TLS"
+	// EncryptionInTransitTLSPlaintext allows both TLS and plaintext.
+	EncryptionInTransitTLSPlaintext = "TLS_PLAINTEXT"
+	// EncryptionInTransitPlaintext allows plaintext only (dev/test use).
+	EncryptionInTransitPlaintext = "PLAINTEXT"
 )
 
 const (
@@ -52,13 +96,16 @@ const (
 	defaultPartitionCount = 1
 )
 
-// BrokerNodeGroupInfo holds broker node configuration.
-type BrokerNodeGroupInfo struct {
-	StorageInfo          *StorageInfo `json:"storageInfo,omitempty"`
-	BrokerAZDistribution string       `json:"brokerAZDistribution,omitempty"`
-	InstanceType         string       `json:"instanceType"`
-	ClientSubnets        []string     `json:"clientSubnets"`
-	SecurityGroups       []string     `json:"securityGroups,omitempty"`
+// ProvisionedThroughput holds EBS provisioned throughput config.
+type ProvisionedThroughput struct {
+	VolumeThroughput int32 `json:"volumeThroughput,omitempty"`
+	Enabled          bool  `json:"enabled"`
+}
+
+// EBSStorageInfo holds EBS volume config.
+type EBSStorageInfo struct {
+	ProvisionedThroughput *ProvisionedThroughput `json:"provisionedThroughput,omitempty"`
+	VolumeSize            int32                  `json:"volumeSize,omitempty"`
 }
 
 // StorageInfo holds broker storage config.
@@ -66,9 +113,58 @@ type StorageInfo struct {
 	EbsStorageInfo *EBSStorageInfo `json:"ebsStorageInfo,omitempty"`
 }
 
-// EBSStorageInfo holds EBS volume config.
-type EBSStorageInfo struct {
-	VolumeSize int32 `json:"volumeSize,omitempty"`
+// PublicAccess holds public access configuration for broker connectivity.
+type PublicAccess struct {
+	Type string `json:"type,omitempty"`
+}
+
+// VpcConnectivitySaslIam holds IAM authentication settings for VPC connectivity.
+type VpcConnectivitySaslIam struct {
+	Enabled bool `json:"enabled"`
+}
+
+// VpcConnectivitySaslScram holds SCRAM authentication settings for VPC connectivity.
+type VpcConnectivitySaslScram struct {
+	Enabled bool `json:"enabled"`
+}
+
+// VpcConnectivitySasl holds SASL settings for VPC connectivity.
+type VpcConnectivitySasl struct {
+	Iam   *VpcConnectivitySaslIam   `json:"iam,omitempty"`
+	Scram *VpcConnectivitySaslScram `json:"scram,omitempty"`
+}
+
+// VpcConnectivityTLS holds TLS settings for VPC connectivity.
+type VpcConnectivityTLS struct {
+	Enabled bool `json:"enabled"`
+}
+
+// VpcConnectivityClientAuthentication holds authentication settings for VPC connectivity.
+type VpcConnectivityClientAuthentication struct {
+	Sasl *VpcConnectivitySasl `json:"sasl,omitempty"`
+	TLS  *VpcConnectivityTLS  `json:"tls,omitempty"`
+}
+
+// VpcConnectivity holds VPC connectivity configuration.
+type VpcConnectivity struct {
+	ClientAuthentication *VpcConnectivityClientAuthentication `json:"clientAuthentication,omitempty"`
+}
+
+// ConnectivityInfo holds broker connectivity configuration.
+type ConnectivityInfo struct {
+	PublicAccess    *PublicAccess    `json:"publicAccess,omitempty"`
+	VpcConnectivity *VpcConnectivity `json:"vpcConnectivity,omitempty"`
+}
+
+// BrokerNodeGroupInfo holds broker node configuration.
+type BrokerNodeGroupInfo struct {
+	ConnectivityInfo     *ConnectivityInfo `json:"connectivityInfo,omitempty"`
+	StorageInfo          *StorageInfo      `json:"storageInfo,omitempty"`
+	BrokerAZDistribution string            `json:"brokerAZDistribution,omitempty"`
+	InstanceType         string            `json:"instanceType"`
+	ZoneIDs              []string          `json:"zoneIds,omitempty"`
+	ClientSubnets        []string          `json:"clientSubnets"`
+	SecurityGroups       []string          `json:"securityGroups,omitempty"`
 }
 
 // ConfigurationInfo holds a cluster configuration reference.
@@ -79,8 +175,9 @@ type ConfigurationInfo struct {
 
 // ClientAuthentication holds MSK cluster authentication configuration.
 type ClientAuthentication struct {
-	Sasl *SaslSettings `json:"sasl,omitempty"`
-	TLS  *TLSSettings  `json:"tls,omitempty"`
+	Sasl            *SaslSettings            `json:"sasl,omitempty"`
+	TLS             *TLSSettings             `json:"tls,omitempty"`
+	Unauthenticated *UnauthenticatedSettings `json:"unauthenticated,omitempty"`
 }
 
 // SaslSettings holds SASL authentication settings.
@@ -101,20 +198,129 @@ type SaslIam struct {
 
 // TLSSettings holds TLS authentication settings.
 type TLSSettings struct {
+	CertificateAuthorityArnList []string `json:"certificateAuthorityArnList,omitempty"`
+	Enabled                     bool     `json:"enabled"`
+}
+
+// UnauthenticatedSettings holds unauthenticated access settings.
+type UnauthenticatedSettings struct {
 	Enabled bool `json:"enabled"`
+}
+
+// EncryptionAtRest holds at-rest encryption configuration.
+type EncryptionAtRest struct {
+	DataVolumeKMSKeyID string `json:"dataVolumeKMSKeyId,omitempty"`
+}
+
+// EncryptionInTransit holds in-transit encryption configuration.
+type EncryptionInTransit struct {
+	ClientBroker string `json:"clientBroker,omitempty"`
+	InCluster    bool   `json:"inCluster"`
+}
+
+// EncryptionInfo holds cluster encryption configuration.
+type EncryptionInfo struct {
+	EncryptionAtRest    *EncryptionAtRest    `json:"encryptionAtRest,omitempty"`
+	EncryptionInTransit *EncryptionInTransit `json:"encryptionInTransit,omitempty"`
+}
+
+// JmxExporter holds JMX exporter settings.
+type JmxExporter struct {
+	EnabledInBroker bool `json:"enabledInBroker"`
+}
+
+// NodeExporter holds Node exporter settings.
+type NodeExporter struct {
+	EnabledInBroker bool `json:"enabledInBroker"`
+}
+
+// PrometheusInfo holds Prometheus scraping configuration.
+type PrometheusInfo struct {
+	JmxExporter  *JmxExporter  `json:"jmxExporter,omitempty"`
+	NodeExporter *NodeExporter `json:"nodeExporter,omitempty"`
+}
+
+// OpenMonitoring holds open monitoring configuration.
+type OpenMonitoring struct {
+	Prometheus *PrometheusInfo `json:"prometheus,omitempty"`
+}
+
+// CloudWatchLogs holds CloudWatch log delivery settings.
+type CloudWatchLogs struct {
+	LogGroup string `json:"logGroup,omitempty"`
+	Enabled  bool   `json:"enabled"`
+}
+
+// Firehose holds Kinesis Data Firehose log delivery settings.
+type Firehose struct {
+	DeliveryStream string `json:"deliveryStream,omitempty"`
+	Enabled        bool   `json:"enabled"`
+}
+
+// S3Logs holds S3 log delivery settings.
+type S3Logs struct {
+	Bucket  string `json:"bucket,omitempty"`
+	Prefix  string `json:"prefix,omitempty"`
+	Enabled bool   `json:"enabled"`
+}
+
+// BrokerLogs holds broker log delivery destinations.
+type BrokerLogs struct {
+	CloudWatchLogs *CloudWatchLogs `json:"cloudWatchLogs,omitempty"`
+	Firehose       *Firehose       `json:"firehose,omitempty"`
+	S3             *S3Logs         `json:"s3,omitempty"`
+}
+
+// LoggingInfo holds cluster logging configuration.
+type LoggingInfo struct {
+	BrokerLogs *BrokerLogs `json:"brokerLogs,omitempty"`
+}
+
+// StateInfo holds cluster state detail for error conditions.
+type StateInfo struct {
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// ServerlessVpcConfig holds VPC configuration for a serverless cluster.
+type ServerlessVpcConfig struct {
+	SubnetIDs        []string `json:"subnetIds,omitempty"`
+	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
+}
+
+// ServerlessClientAuthentication holds authentication settings for a serverless cluster.
+type ServerlessClientAuthentication struct {
+	Sasl *SaslSettings `json:"sasl,omitempty"`
+}
+
+// ServerlessClusterInfo holds serverless-specific cluster configuration.
+type ServerlessClusterInfo struct {
+	ClientAuthentication *ServerlessClientAuthentication `json:"clientAuthentication,omitempty"`
+	VpcConfigs           []ServerlessVpcConfig           `json:"vpcConfigs,omitempty"`
 }
 
 // Cluster represents an MSK cluster.
 type Cluster struct {
-	Tags                 map[string]string     `json:"-"`
-	ClientAuthentication *ClientAuthentication `json:"clientAuthentication,omitempty"`
-	ClusterArn           string                `json:"clusterArn"`
-	ClusterName          string                `json:"clusterName"`
-	KafkaVersion         string                `json:"kafkaVersion"`
-	State                string                `json:"state"`
-	CurrentVersion       string                `json:"currentVersion"`
-	BrokerNodeGroupInfo  BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
-	NumberOfBrokerNodes  int32                 `json:"numberOfBrokerNodes"`
+	Tags                 map[string]string      `json:"-"`
+	ClientAuthentication *ClientAuthentication  `json:"clientAuthentication,omitempty"`
+	EncryptionInfo       *EncryptionInfo        `json:"encryptionInfo,omitempty"`
+	OpenMonitoring       *OpenMonitoring        `json:"openMonitoring,omitempty"`
+	LoggingInfo          *LoggingInfo           `json:"loggingInfo,omitempty"`
+	StateInfo            *StateInfo             `json:"stateInfo,omitempty"`
+	Serverless           *ServerlessClusterInfo `json:"serverless,omitempty"`
+	ConfigurationInfo    *ConfigurationInfo     `json:"configurationInfo,omitempty"`
+	ClusterArn           string                 `json:"clusterArn"`
+	ClusterName          string                 `json:"clusterName"`
+	ClusterType          string                 `json:"clusterType"`
+	KafkaVersion         string                 `json:"kafkaVersion,omitempty"`
+	State                string                 `json:"state"`
+	CurrentVersion       string                 `json:"currentVersion"`
+	ActiveOperationArn   string                 `json:"activeOperationArn,omitempty"`
+	EnhancedMonitoring   string                 `json:"enhancedMonitoring,omitempty"`
+	StorageMode          string                 `json:"storageMode,omitempty"`
+	CreationTime         string                 `json:"creationTime,omitempty"`
+	BrokerNodeGroupInfo  BrokerNodeGroupInfo    `json:"brokerNodeGroupInfo"`
+	NumberOfBrokerNodes  int32                  `json:"numberOfBrokerNodes"`
 }
 
 // Configuration represents an MSK configuration.
@@ -259,16 +465,66 @@ func (b *InMemoryBackend) CreateCluster(
 	}
 
 	clusterArn := b.clusterARN(name)
+	safeInfo := BrokerNodeGroupInfo{
+		BrokerAZDistribution: brokerInfo.BrokerAZDistribution,
+		InstanceType:         brokerInfo.InstanceType,
+		ClientSubnets:        append([]string(nil), brokerInfo.ClientSubnets...),
+		SecurityGroups:       append([]string(nil), brokerInfo.SecurityGroups...),
+		ZoneIDs:              append([]string(nil), brokerInfo.ZoneIDs...),
+		StorageInfo:          brokerInfo.StorageInfo,
+		ConnectivityInfo:     brokerInfo.ConnectivityInfo,
+	}
+	if brokerInfo.StorageInfo != nil {
+		safeInfo.StorageInfo = cloneStorageInfo(brokerInfo.StorageInfo)
+	}
+	if brokerInfo.ConnectivityInfo != nil {
+		safeInfo.ConnectivityInfo = cloneConnectivityInfo(brokerInfo.ConnectivityInfo)
+	}
 	cluster := &Cluster{
 		ClusterArn:           clusterArn,
 		ClusterName:          name,
+		ClusterType:          ClusterTypeProvisioned,
 		KafkaVersion:         kafkaVersion,
 		NumberOfBrokerNodes:  numBrokers,
-		BrokerNodeGroupInfo:  brokerInfo,
-		ClientAuthentication: clientAuth,
+		BrokerNodeGroupInfo:  safeInfo,
+		ClientAuthentication: cloneClientAuth(clientAuth),
 		State:                ClusterStateActive,
-		CurrentVersion:       "K3AEGXETSR30VB",
+		CurrentVersion:       DefaultClusterVersion,
 		Tags:                 nonNilTagsCopy(tags),
+	}
+	b.clusters[clusterArn] = cluster
+
+	return cloneCluster(cluster), nil
+}
+
+// CreateServerlessCluster creates a new MSK Serverless cluster.
+func (b *InMemoryBackend) CreateServerlessCluster(
+	name string,
+	serverless *ServerlessClusterInfo,
+	tags map[string]string,
+) (*Cluster, error) {
+	if name == "" {
+		return nil, fmt.Errorf("clusterName is required: %w", ErrValidation)
+	}
+
+	b.mu.Lock("CreateServerlessCluster")
+	defer b.mu.Unlock()
+
+	for _, c := range b.clusters {
+		if c.ClusterName == name {
+			return nil, ErrAlreadyExists
+		}
+	}
+
+	clusterArn := b.clusterARN(name)
+	cluster := &Cluster{
+		ClusterArn:     clusterArn,
+		ClusterName:    name,
+		ClusterType:    ClusterTypeServerless,
+		State:          ClusterStateActive,
+		CurrentVersion: DefaultClusterVersion,
+		Tags:           nonNilTagsCopy(tags),
+		Serverless:     cloneServerless(serverless),
 	}
 	b.clusters[clusterArn] = cluster
 
@@ -947,6 +1203,7 @@ func (b *InMemoryBackend) RejectClientVpcConnection(vpcConnectionArn string) err
 // --- Cluster policy get/put operations ---
 
 // GetClusterPolicy retrieves the policy document for a cluster.
+// Returns ErrNotFound when the cluster exists but has no policy set — matching AWS behavior.
 func (b *InMemoryBackend) GetClusterPolicy(clusterArn string) (string, error) {
 	b.mu.RLock("GetClusterPolicy")
 	defer b.mu.RUnlock()
@@ -955,7 +1212,10 @@ func (b *InMemoryBackend) GetClusterPolicy(clusterArn string) (string, error) {
 		return "", ErrNotFound
 	}
 
-	policy := b.clusterPolicies[clusterArn]
+	policy, ok := b.clusterPolicies[clusterArn]
+	if !ok {
+		return "", fmt.Errorf("no resource-based policy found for cluster %q: %w", clusterArn, ErrNotFound)
+	}
 
 	return policy, nil
 }
@@ -1165,16 +1425,21 @@ func (b *InMemoryBackend) UpdateBrokerType(
 
 // UpdateClusterConfiguration updates the configuration for a cluster.
 func (b *InMemoryBackend) UpdateClusterConfiguration(
-	clusterArn, _ string,
-	_ int64,
+	clusterArn, configArn string,
+	revision int64,
 ) (*ClusterOperation, error) {
 	b.mu.Lock("UpdateClusterConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	c, ok := b.clusters[clusterArn]
+	if !ok {
 		return nil, ErrNotFound
 	}
 
+	c.ConfigurationInfo = &ConfigurationInfo{
+		Arn:      configArn,
+		Revision: revision,
+	}
 	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CLUSTER_CONFIGURATION")
 
 	return op, nil
@@ -1324,30 +1589,52 @@ func (b *InMemoryBackend) ListNodes(clusterArn string) ([]*BrokerNode, error) {
 	return out, nil
 }
 
-// ListKafkaVersions returns a static list of supported Kafka versions.
+// ListKafkaVersions returns supported Kafka versions, matching current MSK availability.
 func (b *InMemoryBackend) ListKafkaVersions() []*MSKVersion {
 	return []*MSKVersion{
+		{Version: "3.8.0.kraft", Status: ClusterStateActive},
+		{Version: "3.7.x.kraft", Status: ClusterStateActive},
 		{Version: "3.6.0", Status: ClusterStateActive},
 		{Version: "3.5.1", Status: ClusterStateActive},
 		{Version: "3.4.0", Status: ClusterStateActive},
+		{Version: "3.3.2", Status: ClusterStateActive},
+		{Version: "3.3.1", Status: ClusterStateActive},
+		{Version: "2.8.2.tiered", Status: ClusterStateActive},
 		{Version: "2.8.1", Status: ClusterStateActive},
 		{Version: "2.8.0", Status: "DEPRECATED"},
 		{Version: "2.6.0", Status: "DEPRECATED"},
 	}
 }
 
-// GetCompatibleKafkaVersions returns Kafka versions compatible with the given source version.
+// GetCompatibleKafkaVersions returns Kafka versions compatible with the cluster's current version.
+// KRaft clusters can only target KRaft versions. ZooKeeper clusters can target ZooKeeper versions up to 3.x.
 func (b *InMemoryBackend) GetCompatibleKafkaVersions(clusterArn string) ([]*MSKVersion, error) {
 	b.mu.RLock("GetCompatibleKafkaVersions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	c, ok := b.clusters[clusterArn]
+	if !ok {
 		return nil, ErrNotFound
 	}
 
+	current := c.KafkaVersion
+	isKRaft := strings.HasSuffix(current, ".kraft")
+
+	if isKRaft {
+		return []*MSKVersion{
+			{Version: "3.8.0.kraft", Status: ClusterStateActive},
+			{Version: "3.7.x.kraft", Status: ClusterStateActive},
+		}, nil
+	}
+
+	// ZooKeeper-based: return non-KRaft active versions higher than current.
+	// For simplicity, return a curated list of ZooKeeper-compatible upgrades.
 	return []*MSKVersion{
 		{Version: "3.6.0", Status: ClusterStateActive},
 		{Version: "3.5.1", Status: ClusterStateActive},
+		{Version: "3.4.0", Status: ClusterStateActive},
+		{Version: "3.3.2", Status: ClusterStateActive},
+		{Version: "2.8.2.tiered", Status: ClusterStateActive},
 	}, nil
 }
 
@@ -1441,10 +1728,11 @@ func (b *InMemoryBackend) AddClusterInternal(name, kafkaVersion string) *Cluster
 	cluster := &Cluster{
 		ClusterArn:          clusterArn,
 		ClusterName:         name,
+		ClusterType:         ClusterTypeProvisioned,
 		KafkaVersion:        kafkaVersion,
 		NumberOfBrokerNodes: defaultBrokerCount,
 		State:               ClusterStateActive,
-		CurrentVersion:      "K3AEGXETSR30VB",
+		CurrentVersion:      DefaultClusterVersion,
 		Tags:                make(map[string]string),
 	}
 	b.clusters[clusterArn] = cluster
@@ -1568,9 +1856,14 @@ func cloneCluster(c *Cluster) *Cluster {
 	clone := &Cluster{
 		ClusterArn:          c.ClusterArn,
 		ClusterName:         c.ClusterName,
+		ClusterType:         c.ClusterType,
 		KafkaVersion:        c.KafkaVersion,
 		State:               c.State,
 		CurrentVersion:      c.CurrentVersion,
+		ActiveOperationArn:  c.ActiveOperationArn,
+		EnhancedMonitoring:  c.EnhancedMonitoring,
+		StorageMode:         c.StorageMode,
+		CreationTime:        c.CreationTime,
 		NumberOfBrokerNodes: c.NumberOfBrokerNodes,
 		Tags:                nonNilTagsCopy(c.Tags),
 		BrokerNodeGroupInfo: BrokerNodeGroupInfo{
@@ -1578,19 +1871,206 @@ func cloneCluster(c *Cluster) *Cluster {
 			InstanceType:         c.BrokerNodeGroupInfo.InstanceType,
 			ClientSubnets:        append([]string(nil), c.BrokerNodeGroupInfo.ClientSubnets...),
 			SecurityGroups:       append([]string(nil), c.BrokerNodeGroupInfo.SecurityGroups...),
+			ZoneIDs:              append([]string(nil), c.BrokerNodeGroupInfo.ZoneIDs...),
 		},
 	}
 
 	if c.BrokerNodeGroupInfo.StorageInfo != nil {
-		clone.BrokerNodeGroupInfo.StorageInfo = &StorageInfo{}
-		if c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo != nil {
-			clone.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo = &EBSStorageInfo{
-				VolumeSize: c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo.VolumeSize,
-			}
-		}
+		clone.BrokerNodeGroupInfo.StorageInfo = cloneStorageInfo(c.BrokerNodeGroupInfo.StorageInfo)
+	}
+
+	if c.BrokerNodeGroupInfo.ConnectivityInfo != nil {
+		clone.BrokerNodeGroupInfo.ConnectivityInfo = cloneConnectivityInfo(c.BrokerNodeGroupInfo.ConnectivityInfo)
 	}
 
 	clone.ClientAuthentication = cloneClientAuth(c.ClientAuthentication)
+	clone.EncryptionInfo = cloneEncryptionInfo(c.EncryptionInfo)
+	clone.OpenMonitoring = cloneOpenMonitoring(c.OpenMonitoring)
+	clone.LoggingInfo = cloneLoggingInfo(c.LoggingInfo)
+	clone.Serverless = cloneServerless(c.Serverless)
+
+	if c.StateInfo != nil {
+		si := *c.StateInfo
+		clone.StateInfo = &si
+	}
+
+	if c.ConfigurationInfo != nil {
+		ci := *c.ConfigurationInfo
+		clone.ConfigurationInfo = &ci
+	}
+
+	return clone
+}
+
+// cloneStorageInfo deep-copies a StorageInfo.
+func cloneStorageInfo(s *StorageInfo) *StorageInfo {
+	if s == nil {
+		return nil
+	}
+
+	clone := &StorageInfo{}
+	if s.EbsStorageInfo != nil {
+		ebs := &EBSStorageInfo{VolumeSize: s.EbsStorageInfo.VolumeSize}
+		if s.EbsStorageInfo.ProvisionedThroughput != nil {
+			pt := *s.EbsStorageInfo.ProvisionedThroughput
+			ebs.ProvisionedThroughput = &pt
+		}
+		clone.EbsStorageInfo = ebs
+	}
+
+	return clone
+}
+
+// cloneConnectivityInfo deep-copies a ConnectivityInfo.
+func cloneConnectivityInfo(ci *ConnectivityInfo) *ConnectivityInfo {
+	if ci == nil {
+		return nil
+	}
+
+	clone := &ConnectivityInfo{}
+	if ci.PublicAccess != nil {
+		pa := *ci.PublicAccess
+		clone.PublicAccess = &pa
+	}
+
+	if ci.VpcConnectivity != nil {
+		clone.VpcConnectivity = cloneVpcConnectivity(ci.VpcConnectivity)
+	}
+
+	return clone
+}
+
+// cloneVpcConnectivity deep-copies a VpcConnectivity.
+func cloneVpcConnectivity(src *VpcConnectivity) *VpcConnectivity {
+	vc := &VpcConnectivity{}
+
+	if src.ClientAuthentication == nil {
+		return vc
+	}
+
+	ca := &VpcConnectivityClientAuthentication{}
+	srcCA := src.ClientAuthentication
+
+	if srcCA.Sasl != nil {
+		sasl := &VpcConnectivitySasl{}
+
+		if srcCA.Sasl.Iam != nil {
+			iam := *srcCA.Sasl.Iam
+			sasl.Iam = &iam
+		}
+
+		if srcCA.Sasl.Scram != nil {
+			scram := *srcCA.Sasl.Scram
+			sasl.Scram = &scram
+		}
+
+		ca.Sasl = sasl
+	}
+
+	if srcCA.TLS != nil {
+		tls := *srcCA.TLS
+		ca.TLS = &tls
+	}
+
+	vc.ClientAuthentication = ca
+
+	return vc
+}
+
+// cloneEncryptionInfo deep-copies an EncryptionInfo.
+func cloneEncryptionInfo(ei *EncryptionInfo) *EncryptionInfo {
+	if ei == nil {
+		return nil
+	}
+
+	clone := &EncryptionInfo{}
+	if ei.EncryptionAtRest != nil {
+		ear := *ei.EncryptionAtRest
+		clone.EncryptionAtRest = &ear
+	}
+
+	if ei.EncryptionInTransit != nil {
+		eit := *ei.EncryptionInTransit
+		clone.EncryptionInTransit = &eit
+	}
+
+	return clone
+}
+
+// cloneOpenMonitoring deep-copies an OpenMonitoring.
+func cloneOpenMonitoring(om *OpenMonitoring) *OpenMonitoring {
+	if om == nil {
+		return nil
+	}
+
+	clone := &OpenMonitoring{}
+	if om.Prometheus != nil {
+		p := &PrometheusInfo{}
+		if om.Prometheus.JmxExporter != nil {
+			jmx := *om.Prometheus.JmxExporter
+			p.JmxExporter = &jmx
+		}
+		if om.Prometheus.NodeExporter != nil {
+			ne := *om.Prometheus.NodeExporter
+			p.NodeExporter = &ne
+		}
+		clone.Prometheus = p
+	}
+
+	return clone
+}
+
+// cloneLoggingInfo deep-copies a LoggingInfo.
+func cloneLoggingInfo(li *LoggingInfo) *LoggingInfo {
+	if li == nil {
+		return nil
+	}
+
+	clone := &LoggingInfo{}
+	if li.BrokerLogs != nil {
+		bl := &BrokerLogs{}
+		if li.BrokerLogs.CloudWatchLogs != nil {
+			cwl := *li.BrokerLogs.CloudWatchLogs
+			bl.CloudWatchLogs = &cwl
+		}
+		if li.BrokerLogs.Firehose != nil {
+			fh := *li.BrokerLogs.Firehose
+			bl.Firehose = &fh
+		}
+		if li.BrokerLogs.S3 != nil {
+			s3 := *li.BrokerLogs.S3
+			bl.S3 = &s3
+		}
+		clone.BrokerLogs = bl
+	}
+
+	return clone
+}
+
+// cloneServerless deep-copies a ServerlessClusterInfo.
+func cloneServerless(s *ServerlessClusterInfo) *ServerlessClusterInfo {
+	if s == nil {
+		return nil
+	}
+
+	clone := &ServerlessClusterInfo{}
+	if s.ClientAuthentication != nil {
+		ca := &ServerlessClientAuthentication{}
+		if s.ClientAuthentication.Sasl != nil {
+			ca.Sasl = cloneSasl(s.ClientAuthentication.Sasl)
+		}
+		clone.ClientAuthentication = ca
+	}
+
+	if len(s.VpcConfigs) > 0 {
+		clone.VpcConfigs = make([]ServerlessVpcConfig, len(s.VpcConfigs))
+		for i, vc := range s.VpcConfigs {
+			clone.VpcConfigs[i] = ServerlessVpcConfig{
+				SubnetIDs:        append([]string(nil), vc.SubnetIDs...),
+				SecurityGroupIDs: append([]string(nil), vc.SecurityGroupIDs...),
+			}
+		}
+	}
 
 	return clone
 }
@@ -1601,18 +2081,26 @@ func cloneClientAuth(auth *ClientAuthentication) *ClientAuthentication {
 		return nil
 	}
 
-	authCopy := *auth
+	authCopy := &ClientAuthentication{}
 
 	if auth.Sasl != nil {
 		authCopy.Sasl = cloneSasl(auth.Sasl)
 	}
 
 	if auth.TLS != nil {
-		tlsCopy := *auth.TLS
+		tlsCopy := TLSSettings{
+			Enabled:                     auth.TLS.Enabled,
+			CertificateAuthorityArnList: append([]string(nil), auth.TLS.CertificateAuthorityArnList...),
+		}
 		authCopy.TLS = &tlsCopy
 	}
 
-	return &authCopy
+	if auth.Unauthenticated != nil {
+		ua := *auth.Unauthenticated
+		authCopy.Unauthenticated = &ua
+	}
+
+	return authCopy
 }
 
 // cloneSasl deep-copies a SaslSettings value.

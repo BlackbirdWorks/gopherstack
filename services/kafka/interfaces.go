@@ -11,6 +11,7 @@ type StorageBackend interface {
 		clientAuth *ClientAuthentication,
 		tags map[string]string,
 	) (*Cluster, error)
+	CreateServerlessCluster(name string, serverless *ServerlessClusterInfo, tags map[string]string) (*Cluster, error)
 	DescribeCluster(clusterArn string) (*Cluster, error)
 	ListClusters() []*Cluster
 	DeleteCluster(clusterArn string) error

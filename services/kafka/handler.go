@@ -1010,11 +1010,18 @@ type clusterInfoV1 struct {
 	Tags                      map[string]string     `json:"tags,omitempty"`
 	CurrentBrokerSoftwareInfo *brokerSoftwareInfo   `json:"currentBrokerSoftwareInfo,omitempty"`
 	ClientAuthentication      *ClientAuthentication `json:"clientAuthentication,omitempty"`
+	EncryptionInfo            *EncryptionInfo       `json:"encryptionInfo,omitempty"`
+	OpenMonitoring            *OpenMonitoring       `json:"openMonitoring,omitempty"`
+	LoggingInfo               *LoggingInfo          `json:"loggingInfo,omitempty"`
+	StateInfo                 *StateInfo            `json:"stateInfo,omitempty"`
 	ClusterArn                string                `json:"clusterArn"`
 	ClusterName               string                `json:"clusterName"`
 	KafkaVersion              string                `json:"kafkaVersion"`
 	State                     string                `json:"state"`
 	CurrentVersion            string                `json:"currentVersion"`
+	ActiveOperationArn        string                `json:"activeOperationArn,omitempty"`
+	EnhancedMonitoring        string                `json:"enhancedMonitoring,omitempty"`
+	ZookeeperConnectString    string                `json:"zookeeperConnectString,omitempty"`
 	BrokerNodeGroupInfo       BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
 	NumberOfBrokerNodes       int32                 `json:"numberOfBrokerNodes"`
 }
@@ -1030,8 +1037,13 @@ type listClustersOutput struct {
 type provisionedClusterInfo struct {
 	CurrentBrokerSoftwareInfo *brokerSoftwareInfo   `json:"currentBrokerSoftwareInfo,omitempty"`
 	ClientAuthentication      *ClientAuthentication `json:"clientAuthentication,omitempty"`
+	EncryptionInfo            *EncryptionInfo       `json:"encryptionInfo,omitempty"`
+	OpenMonitoring            *OpenMonitoring       `json:"openMonitoring,omitempty"`
+	LoggingInfo               *LoggingInfo          `json:"loggingInfo,omitempty"`
 	KafkaVersion              string                `json:"kafkaVersion"`
 	State                     string                `json:"state"`
+	EnhancedMonitoring        string                `json:"enhancedMonitoring,omitempty"`
+	StorageMode               string                `json:"storageMode,omitempty"`
 	BrokerNodeGroupInfo       BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
 	NumberOfBrokerNodes       int32                 `json:"numberOfBrokerNodes"`
 }
@@ -1039,6 +1051,7 @@ type provisionedClusterInfo struct {
 type clusterInfoV2 struct {
 	Tags           map[string]string       `json:"tags,omitempty"`
 	Provisioned    *provisionedClusterInfo `json:"provisioned,omitempty"`
+	Serverless     *ServerlessClusterInfo  `json:"serverless,omitempty"`
 	ClusterArn     string                  `json:"clusterArn"`
 	ClusterName    string                  `json:"clusterName"`
 	ClusterType    string                  `json:"clusterType"`
@@ -1055,13 +1068,36 @@ type listClustersV2Output struct {
 }
 
 type getBootstrapBrokersOutput struct {
-	BootstrapBrokerString    string `json:"bootstrapBrokerString"`
-	BootstrapBrokerStringTLS string `json:"bootstrapBrokerStringTls"`
+	BootstrapBrokerString                     string `json:"bootstrapBrokerString,omitempty"`
+	BootstrapBrokerStringTLS                  string `json:"bootstrapBrokerStringTls,omitempty"`
+	BootstrapBrokerStringSaslScram            string `json:"bootstrapBrokerStringSaslScram,omitempty"`
+	BootstrapBrokerStringSaslIam              string `json:"bootstrapBrokerStringSaslIam,omitempty"`
+	BootstrapBrokerStringTLSPublic            string `json:"bootstrapBrokerStringTlsPublic,omitempty"`
+	BootstrapBrokerStringSaslScramPublic      string `json:"bootstrapBrokerStringSaslScramPublic,omitempty"`
+	BootstrapBrokerStringSaslIamPublic        string `json:"bootstrapBrokerStringSaslIamPublic,omitempty"`
+	BootstrapBrokerStringVpcConnectivityTLS   string `json:"bootstrapBrokerStringVpcConnectivityTLS,omitempty"`
+	BootstrapBrokerStringVpcConnectivityScram string `json:"bootstrapBrokerStringVpcConnectivitySaslScram,omitempty"`
+	BootstrapBrokerStringVpcConnectivityIam   string `json:"bootstrapBrokerStringVpcConnectivitySaslIam,omitempty"`
+}
+
+type serverlessVpcConfigInput struct {
+	SubnetIDs        []string `json:"subnetIds,omitempty"`
+	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
+}
+
+type serverlessAuthInput struct {
+	Sasl *SaslSettings `json:"sasl,omitempty"`
+}
+
+type serverlessInput struct {
+	ClientAuthentication *serverlessAuthInput       `json:"clientAuthentication,omitempty"`
+	VpcConfigs           []serverlessVpcConfigInput `json:"vpcConfigs,omitempty"`
 }
 
 type createClusterV2Input struct {
 	Tags        map[string]string `json:"tags,omitempty"`
 	Provisioned *provisionedInput `json:"provisioned,omitempty"`
+	Serverless  *serverlessInput  `json:"serverless,omitempty"`
 	ClusterName string            `json:"clusterName"`
 }
 
@@ -1166,20 +1202,51 @@ func (h *Handler) handleCreateClusterV2(c *echo.Context, body []byte) error {
 		)
 	}
 
+	if in.Provisioned != nil && in.Serverless != nil {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"only one of provisioned or serverless may be specified",
+		)
+	}
+
+	if in.Serverless != nil {
+		srv := in.Serverless
+		serverlessInfo := &ServerlessClusterInfo{}
+		if srv.ClientAuthentication != nil {
+			serverlessInfo.ClientAuthentication = &ServerlessClientAuthentication{
+				Sasl: srv.ClientAuthentication.Sasl,
+			}
+		}
+		for _, vc := range srv.VpcConfigs {
+			serverlessInfo.VpcConfigs = append(serverlessInfo.VpcConfigs, ServerlessVpcConfig(vc))
+		}
+
+		cluster, err := h.Backend.CreateServerlessCluster(in.ClusterName, serverlessInfo, in.Tags)
+		if err != nil {
+			return h.writeBackendError(c, err)
+		}
+
+		return c.JSON(http.StatusOK, createClusterV2Output{
+			ClusterArn:  cluster.ClusterArn,
+			ClusterName: cluster.ClusterName,
+			ClusterType: ClusterTypeServerless,
+		})
+	}
+
 	var brokerInfo BrokerNodeGroupInfo
 
 	var kafkaVersion string
 
 	var numBrokers int32
 
+	var clientAuth *ClientAuthentication
+
 	if in.Provisioned != nil {
 		brokerInfo = in.Provisioned.BrokerNodeGroupInfo
 		kafkaVersion = in.Provisioned.KafkaVersion
 		numBrokers = in.Provisioned.NumberOfBrokerNodes
-	}
-
-	var clientAuth *ClientAuthentication
-	if in.Provisioned != nil {
 		clientAuth = in.Provisioned.ClientAuthentication
 	}
 
@@ -1198,7 +1265,7 @@ func (h *Handler) handleCreateClusterV2(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, createClusterV2Output{
 		ClusterArn:  cluster.ClusterArn,
 		ClusterName: cluster.ClusterName,
-		ClusterType: "PROVISIONED",
+		ClusterType: ClusterTypeProvisioned,
 	})
 }
 
@@ -1251,14 +1318,98 @@ func (h *Handler) handleDeleteCluster(c *echo.Context, clusterArn string) error 
 }
 
 func (h *Handler) handleGetBootstrapBrokers(c *echo.Context, clusterArn string) error {
-	if _, err := h.Backend.DescribeCluster(clusterArn); err != nil {
+	cluster, err := h.Backend.DescribeCluster(clusterArn)
+	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, getBootstrapBrokersOutput{
+	return c.JSON(http.StatusOK, bootstrapBrokersFor(cluster))
+}
+
+// bootstrapBrokersFor builds the bootstrap broker response based on cluster auth settings.
+func bootstrapBrokersFor(cl *Cluster) getBootstrapBrokersOutput {
+	out := getBootstrapBrokersOutput{
 		BootstrapBrokerString:    "localhost:9092",
 		BootstrapBrokerStringTLS: "localhost:9094",
-	})
+	}
+
+	auth := cl.ClientAuthentication
+	if auth == nil {
+		return out
+	}
+
+	addSaslBrokers(auth.Sasl, &out)
+
+	ci := cl.BrokerNodeGroupInfo.ConnectivityInfo
+	if ci == nil {
+		return out
+	}
+
+	addPublicBrokers(auth, ci.PublicAccess, &out)
+	addVpcConnectivityBrokers(ci.VpcConnectivity, &out)
+
+	return out
+}
+
+// addSaslBrokers populates SASL broker endpoints when SASL authentication is configured.
+func addSaslBrokers(sasl *SaslSettings, out *getBootstrapBrokersOutput) {
+	if sasl == nil {
+		return
+	}
+
+	if sasl.Scram != nil && sasl.Scram.Enabled {
+		out.BootstrapBrokerStringSaslScram = "localhost:9096"
+	}
+
+	if sasl.Iam != nil && sasl.Iam.Enabled {
+		out.BootstrapBrokerStringSaslIam = "localhost:9098"
+	}
+}
+
+// addPublicBrokers populates public access broker endpoints when public access is enabled.
+func addPublicBrokers(auth *ClientAuthentication, pa *PublicAccess, out *getBootstrapBrokersOutput) {
+	if pa == nil || pa.Type != "SERVICE_PROVIDED_EIPS" {
+		return
+	}
+
+	out.BootstrapBrokerStringTLSPublic = "localhost:9194"
+
+	if auth.Sasl == nil {
+		return
+	}
+
+	if auth.Sasl.Scram != nil && auth.Sasl.Scram.Enabled {
+		out.BootstrapBrokerStringSaslScramPublic = "localhost:9196"
+	}
+
+	if auth.Sasl.Iam != nil && auth.Sasl.Iam.Enabled {
+		out.BootstrapBrokerStringSaslIamPublic = "localhost:9198"
+	}
+}
+
+// addVpcConnectivityBrokers populates VPC connectivity broker endpoints.
+func addVpcConnectivityBrokers(vc *VpcConnectivity, out *getBootstrapBrokersOutput) {
+	if vc == nil || vc.ClientAuthentication == nil {
+		return
+	}
+
+	vca := vc.ClientAuthentication
+
+	if vca.TLS != nil && vca.TLS.Enabled {
+		out.BootstrapBrokerStringVpcConnectivityTLS = "localhost:9294"
+	}
+
+	if vca.Sasl == nil {
+		return
+	}
+
+	if vca.Sasl.Scram != nil && vca.Sasl.Scram.Enabled {
+		out.BootstrapBrokerStringVpcConnectivityScram = "localhost:9296"
+	}
+
+	if vca.Sasl.Iam != nil && vca.Sasl.Iam.Enabled {
+		out.BootstrapBrokerStringVpcConnectivityIam = "localhost:9298"
+	}
 }
 
 // brokerSoftwareInfoFor returns a brokerSoftwareInfo for the given Kafka version,
@@ -1282,29 +1433,98 @@ func toClusterInfoV1(cl *Cluster) *clusterInfoV1 {
 		BrokerNodeGroupInfo:       cl.BrokerNodeGroupInfo,
 		NumberOfBrokerNodes:       cl.NumberOfBrokerNodes,
 		ClientAuthentication:      cl.ClientAuthentication,
+		EncryptionInfo:            cl.EncryptionInfo,
+		OpenMonitoring:            cl.OpenMonitoring,
+		LoggingInfo:               cl.LoggingInfo,
+		StateInfo:                 cl.StateInfo,
+		ActiveOperationArn:        cl.ActiveOperationArn,
+		EnhancedMonitoring:        cl.EnhancedMonitoring,
+		ZookeeperConnectString:    zookeeperConnectStringFor(cl.ClusterArn),
 		Tags:                      maps.Clone(cl.Tags),
 		CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
 	}
 }
 
+// zookeeperConnectStringFor synthesises a ZooKeeper connect string from the cluster ARN.
+// This mirrors the legacy ZooKeeper endpoint format used by older MSK clusters.
+func zookeeperConnectStringFor(clusterArn string) string {
+	if clusterArn == "" {
+		return ""
+	}
+
+	// Synthesise a deterministic-looking ZK endpoint from the ARN suffix.
+	// Format: z-1.<cluster-id>.kafka.<region>.amazonaws.com:2181,...
+	clusterID, region := parseClusterIDAndRegion(clusterArn)
+
+	return fmt.Sprintf(
+		"z-1.%s.kafka.%s.amazonaws.com:2181,"+
+			"z-2.%s.kafka.%s.amazonaws.com:2181,"+
+			"z-3.%s.kafka.%s.amazonaws.com:2181",
+		clusterID, region,
+		clusterID, region,
+		clusterID, region,
+	)
+}
+
+// parseClusterIDAndRegion extracts the cluster ID and region from an ARN.
+func parseClusterIDAndRegion(clusterArn string) (string, string) {
+	const (
+		minARNSlashParts  = 2
+		arnColonFields    = 6
+		arnRegionPosition = 4
+	)
+
+	clusterID := "unknown"
+	region := "us-east-1"
+
+	parts := strings.Split(clusterArn, "/")
+	if len(parts) >= minARNSlashParts {
+		clusterID = parts[len(parts)-1]
+	}
+
+	arnParts := strings.SplitN(clusterArn, ":", arnColonFields)
+	if len(arnParts) >= arnRegionPosition {
+		region = arnParts[3]
+	}
+
+	return clusterID, region
+}
+
 // toClusterInfoV2 converts a Cluster to the V2 cluster info shape.
 func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
-	return &clusterInfoV2{
+	clusterType := cl.ClusterType
+	if clusterType == "" {
+		clusterType = ClusterTypeProvisioned
+	}
+
+	info := &clusterInfoV2{
 		ClusterArn:     cl.ClusterArn,
 		ClusterName:    cl.ClusterName,
-		ClusterType:    "PROVISIONED",
+		ClusterType:    clusterType,
 		State:          cl.State,
 		CurrentVersion: cl.CurrentVersion,
 		Tags:           maps.Clone(cl.Tags),
-		Provisioned: &provisionedClusterInfo{
+	}
+
+	if clusterType == ClusterTypeServerless {
+		info.Serverless = cl.Serverless
+	} else {
+		info.Provisioned = &provisionedClusterInfo{
 			BrokerNodeGroupInfo:       cl.BrokerNodeGroupInfo,
 			KafkaVersion:              cl.KafkaVersion,
 			NumberOfBrokerNodes:       cl.NumberOfBrokerNodes,
 			State:                     cl.State,
 			ClientAuthentication:      cl.ClientAuthentication,
+			EncryptionInfo:            cl.EncryptionInfo,
+			OpenMonitoring:            cl.OpenMonitoring,
+			LoggingInfo:               cl.LoggingInfo,
+			EnhancedMonitoring:        cl.EnhancedMonitoring,
+			StorageMode:               cl.StorageMode,
 			CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
-		},
+		}
 	}
+
+	return info
 }
 
 // ----------------------------------------
@@ -1355,7 +1575,7 @@ func (h *Handler) handleDescribeConfiguration(c *echo.Context, configArn string)
 		Name:          config.Name,
 		Description:   config.Description,
 		KafkaVersions: config.KafkaVersions,
-		State:         "ACTIVE",
+		State:         ClusterStateActive,
 		LatestRevision: configurationRevision{
 			Revision:    1,
 			Description: config.Description,

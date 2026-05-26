@@ -71,3 +71,21 @@ func ScramSecretCount(b *InMemoryBackend) int {
 
 	return total
 }
+
+// HasClusterPolicy reports whether a cluster has a resource-based policy stored.
+func HasClusterPolicy(b *InMemoryBackend, clusterArn string) bool {
+	b.mu.RLock("HasClusterPolicy")
+	defer b.mu.RUnlock()
+
+	_, ok := b.clusterPolicies[clusterArn]
+
+	return ok
+}
+
+// GetStoredCluster returns the raw (unwrapped) stored cluster for inspection in tests.
+func GetStoredCluster(b *InMemoryBackend, clusterArn string) *Cluster {
+	b.mu.RLock("GetStoredCluster")
+	defer b.mu.RUnlock()
+
+	return b.clusters[clusterArn]
+}
