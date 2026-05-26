@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -56,16 +57,15 @@ const keyTimestamp = "timestamp"
 // shadowNameRe validates shadow names per AWS IoT rules: alphanumeric, colon, underscore, hyphen.
 var shadowNameRe = regexp.MustCompile(`^[a-zA-Z0-9:_-]+$`)
 
-// shadowReservedNames contains shadow names forbidden by AWS IoT rules.
-// Names that match shadow operation keywords are rejected to prevent routing ambiguity.
-var shadowReservedNames = map[string]bool{
-	"update":    true,
-	"get":       true,
-	"delete":    true,
-	"accepted":  true,
-	"rejected":  true,
-	"delta":     true,
-	"documents": true,
+// isShadowReservedName reports whether name is a reserved shadow operation keyword.
+// These are forbidden by AWS IoT rules to prevent routing ambiguity.
+func isShadowReservedName(name string) bool {
+	switch name {
+	case "update", "get", "delete", "accepted", "rejected", "delta", "documents":
+		return true
+	default:
+		return false
+	}
 }
 
 // compile-time interface check.
@@ -73,12 +73,12 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // shadowEntry holds shadow state, per-field metadata timestamps, version and update time.
 type shadowEntry struct {
-	updatedAt    time.Time
-	version      int
 	desired      map[string]json.RawMessage // nil = not set
 	reported     map[string]json.RawMessage // nil = not set
 	metaDesired  map[string]int64           // field → epoch seconds of last update
 	metaReported map[string]int64           // field → epoch seconds of last update
+	updatedAt    time.Time
+	version      int
 }
 
 // connectionEntry holds the state for a registered MQTT client connection.
@@ -178,7 +178,7 @@ func validateShadowName(name string) error {
 	}
 
 	// Reject reserved operation keywords per AWS IoT rules.
-	if shadowReservedNames[name] {
+	if isShadowReservedName(name) {
 		return fmt.Errorf("%w: shadow name %q is reserved and may not be used", ErrValidation, name)
 	}
 
@@ -205,7 +205,8 @@ func validateShadowDocument(doc []byte) error {
 
 // isJSONNull reports whether v is the JSON null literal.
 func isJSONNull(v json.RawMessage) bool {
-	var x interface{}
+	var x any
+
 	return json.Unmarshal(v, &x) == nil && x == nil
 }
 
@@ -213,9 +214,7 @@ func isJSONNull(v json.RawMessage) bool {
 // The result is a new map; base and patch are not modified.
 func mergeStateFields(base, patch map[string]json.RawMessage) map[string]json.RawMessage {
 	result := make(map[string]json.RawMessage, len(base))
-	for k, v := range base {
-		result[k] = v
-	}
+	maps.Copy(result, base)
 
 	for k, v := range patch {
 		if isJSONNull(v) {
@@ -232,9 +231,7 @@ func mergeStateFields(base, patch map[string]json.RawMessage) map[string]json.Ra
 // Null-deleted keys are removed from the returned meta map.
 func updateMetaFields(meta map[string]int64, patch map[string]json.RawMessage, ts int64) map[string]int64 {
 	result := make(map[string]int64, len(meta)+len(patch))
-	for k, v := range meta {
-		result[k] = v
-	}
+	maps.Copy(result, meta)
 
 	for k, v := range patch {
 		if isJSONNull(v) {
@@ -685,6 +682,7 @@ func (b *InMemoryBackend) StoreRetainedMessage(topic string, payload []byte, qos
 
 	if len(payload) == 0 {
 		delete(b.retainedMessages, topic)
+
 		return nil
 	}
 

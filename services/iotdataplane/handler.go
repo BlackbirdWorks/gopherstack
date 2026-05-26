@@ -36,9 +36,6 @@ const (
 	adminConnectionsPath = "/_admin/connections"
 	// adminConnectionsPathSlash is the prefix for individual connection operations.
 	adminConnectionsPathSlash = adminConnectionsPath + "/"
-	// shadowNamedSegment is the URL segment introducing named shadow paths.
-	shadowNamedSegment = "/shadow/name/"
-
 	// defaultPageSize is the default number of items returned per page (AWS default).
 	defaultPageSize = 25
 	// maxPageSize is the maximum number of items returned per page (AWS cap).
@@ -124,9 +121,9 @@ func isShadowPath(path string) bool {
 	}
 
 	// Accept /things/{name}/shadow/name/{shadowName} (path-style named shadow).
-	if idx := strings.Index(after, "/shadow/name/"); idx >= 0 {
+	if before, _, found := strings.Cut(after, "/shadow/name/"); found {
 		// thingName must be non-empty.
-		return idx > 0
+		return len(before) > 0
 	}
 
 	// Must end with exactly /shadow or /shadow?... (no other trailing segments).
@@ -240,14 +237,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // parseShadowPath extracts thingName and shadowName from shadow URL paths.
 // Supports both /things/{name}/shadow?name=... and /things/{name}/shadow/name/{shadowName}.
 // shadowName is empty for the classic (unnamed) shadow.
-func parseShadowPath(path string) (thingName, shadowName string) {
+func parseShadowPath(path string) (string, string) {
 	trimmed := strings.TrimPrefix(path, "/things/")
 
 	// Path-style named shadow: /things/{name}/shadow/name/{shadowName}
-	if idx := strings.Index(trimmed, "/shadow/name/"); idx >= 0 {
-		thingName = trimmed[:idx]
-		shadowName = trimmed[idx+len("/shadow/name/"):]
-		return thingName, shadowName
+	if before, after, ok := strings.Cut(trimmed, "/shadow/name/"); ok {
+		return before, after
 	}
 
 	// Classic or query-param named shadow: /things/{name}/shadow
@@ -353,6 +348,7 @@ func unwrapPublishPayload(body []byte, contentType string) []byte {
 // parseRetainFlag parses the ?retain= query parameter. Accepts "true", "1" (case-insensitive).
 func parseRetainFlag(retainStr string) bool {
 	v := strings.ToLower(retainStr)
+
 	return v == "true" || v == "1"
 }
 
@@ -752,4 +748,3 @@ func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, resp)
 }
-// ci trigger

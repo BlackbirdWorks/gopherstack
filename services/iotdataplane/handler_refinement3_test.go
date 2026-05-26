@@ -16,7 +16,9 @@ import (
 )
 
 // doRequestCT sends a request with a specific Content-Type header.
-func doRequestCT(t *testing.T, h *iotdataplane.Handler, method, path string, body []byte, ct string) *httptest.ResponseRecorder {
+func doRequestCT(
+	t *testing.T, h *iotdataplane.Handler, method, path string, body []byte, ct string,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var r *bytes.Reader
@@ -131,7 +133,6 @@ func TestRefinement3_ShadowName_ReservedKeywords(t *testing.T) {
 	}
 
 	for _, name := range reserved {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -177,7 +178,7 @@ func TestRefinement3_ShadowMerge_DesiredPartialUpdate(t *testing.T) {
 
 	state := resp["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
-	assert.Equal(t, float64(68), desired["temp"], "temp must be preserved after partial update")
+	assert.InDelta(t, float64(68), desired["temp"], 0, "temp must be preserved after partial update")
 	assert.Equal(t, "off", desired["fan"])
 }
 
@@ -225,8 +226,8 @@ func TestRefinement3_ShadowMerge_ReportedIndependent(t *testing.T) {
 	state := resp["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
 	reported := state["reported"].(map[string]any)
-	assert.Equal(t, float64(72), desired["target"], "desired must be unchanged")
-	assert.Equal(t, float64(72), reported["current"])
+	assert.InDelta(t, float64(72), desired["target"], 0, "desired must be unchanged")
+	assert.InDelta(t, float64(72), reported["current"], 0)
 }
 
 func TestRefinement3_ShadowMerge_VersionIncrements(t *testing.T) {
@@ -246,7 +247,7 @@ func TestRefinement3_ShadowMerge_VersionIncrements(t *testing.T) {
 
 	v1 := r1["version"].(float64)
 	v2 := r2["version"].(float64)
-	assert.Equal(t, v1+1, v2, "version must increment on each update")
+	assert.InDelta(t, v1+1, v2, 0, "version must increment on each update")
 }
 
 // ── Shadow delta (issue #6) ───────────────────────────────────────────────────
@@ -271,7 +272,7 @@ func TestRefinement3_ShadowDelta_ComputedOnGet(t *testing.T) {
 	require.True(t, hasDelta, "delta must be present when desired != reported")
 
 	deltaMap := delta.(map[string]any)
-	assert.Equal(t, float64(72), deltaMap["target"])
+	assert.InDelta(t, float64(72), deltaMap["target"], 0)
 	_, hasUnrelated := deltaMap["current"]
 	assert.False(t, hasUnrelated, "delta must not contain reported-only keys")
 }
@@ -368,7 +369,7 @@ func TestRefinement3_ShadowMetadata_UnchangedFieldTimestampPreserved(t *testing.
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp2))
 	ts2 := resp2["metadata"].(map[string]any)["desired"].(map[string]any)["a"].(map[string]any)["timestamp"].(float64)
 
-	assert.Equal(t, ts1, ts2, "timestamp for unmodified field must not change")
+	assert.InDelta(t, ts1, ts2, 0, "timestamp for unmodified field must not change")
 }
 
 // ── clientToken echo (issue #7) ──────────────────────────────────────────────
@@ -833,10 +834,10 @@ func TestRefinement3_PublishPayload_ContentTypeGate(t *testing.T) {
 	// The JSON envelope {"payload":"..."} should only be unwrapped for JSON content types,
 	// not for application/octet-stream (binary).
 	tests := []struct {
-		name        string
-		ct          string
-		body        []byte
-		wantCode    int
+		name     string
+		ct       string
+		body     []byte
+		wantCode int
 	}{
 		{
 			name:     "json_content_type_unwraps",
@@ -888,7 +889,7 @@ func TestRefinement3_ShadowVersionConflict_BodyHasCode(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	code, hasCode := resp["code"]
 	require.True(t, hasCode, "409 body must include 'code' field")
-	assert.Equal(t, float64(http.StatusConflict), code)
+	assert.InDelta(t, float64(http.StatusConflict), code, 0)
 }
 
 // ── Empty-payload × retain matrix (issue #26) ────────────────────────────────
@@ -897,11 +898,11 @@ func TestRefinement3_RetainMatrix(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		payload     []byte
-		retain      string
-		preseed     bool
-		wantCount   int
+		name      string
+		retain    string
+		payload   []byte
+		wantCount int
+		preseed   bool
 	}{
 		{
 			name:      "non_empty_retain_true_stores",
@@ -977,8 +978,8 @@ func TestRefinement3_Persistence_ShadowWithMetadata(t *testing.T) {
 	state := resp["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
 	reported := state["reported"].(map[string]any)
-	assert.Equal(t, float64(68), desired["temp"])
-	assert.Equal(t, float64(65), reported["current"])
+	assert.InDelta(t, float64(68), desired["temp"], 0)
+	assert.InDelta(t, float64(65), reported["current"], 0)
 
 	_, hasDelta := state["delta"]
 	assert.True(t, hasDelta, "delta must be recomputed after restore")
@@ -993,16 +994,16 @@ func TestRefinement3_Backend_MergeStateFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		base      string
-		patch     string
-		wantKeys  map[string]string
-		deleted   []string
+		name     string
+		base     string
+		patch    string
+		wantKeys map[string]string
+		deleted  []string
 	}{
 		{
-			name:  "add_new_key",
-			base:  `{"a":1}`,
-			patch: `{"b":2}`,
+			name:     "add_new_key",
+			base:     `{"a":1}`,
+			patch:    `{"b":2}`,
 			wantKeys: map[string]string{"a": "1", "b": "2"},
 		},
 		{
