@@ -992,6 +992,18 @@ func TestHandler_AddApplicationReferenceDataSource(t *testing.T) {
 			input: map[string]any{
 				"ApplicationName":             "ghost",
 				"CurrentApplicationVersionId": 1,
+				"ReferenceDataSource": map[string]any{
+					"TableName": "MY_REF",
+					"S3ReferenceDataSource": map[string]any{
+						"BucketARN": "arn:aws:s3:::my-bucket",
+						"FileKey":   "data.csv",
+						"RoleARN":   "arn:aws:iam::000000000000:role/r",
+					},
+					"ReferenceSchema": map[string]any{
+						"RecordFormat":  map[string]any{"RecordFormatType": "CSV"},
+						"RecordColumns": []map[string]any{{"Name": "COL1", "SqlType": "VARCHAR(4)"}},
+					},
+				},
 			},
 			wantStatus: http.StatusNotFound,
 		},
