@@ -1,6 +1,10 @@
 package cloudfront
 
 import (
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"maps"
 	"math/rand/v2"
@@ -17,7 +21,110 @@ import (
 
 const (
 	statusDeployed = "Deployed"
+
+	// maxInvalidationPaths is the AWS limit on paths per invalidation batch.
+	maxInvalidationPaths = 3000
+	// maxCachePolicyTTL is the AWS upper bound for CachePolicy MaxTTL (1 year).
+	maxCachePolicyTTL = 31536000
+	// minSamplingRate and maxSamplingRate bound RealtimeLogConfig SamplingRate.
+	minSamplingRate = 1
+	maxSamplingRate = 100
+	// minPublicKeyBits is the minimum RSA key size accepted by CloudFront.
+	minPublicKeyBits = 2048
 )
+
+// validRuntimes lists the allowed CloudFront Function runtimes.
+var validRuntimes = map[string]bool{
+	"cloudfront-js-1.0": true,
+	"cloudfront-js-2.0": true,
+}
+
+// oaiS3CanonicalUserID returns the AWS-style 64-char hex S3 canonical user ID for an OAI.
+// AWS derives this deterministically per OAI; we hash the OAI ID for a stable value.
+func oaiS3CanonicalUserID(id string) string {
+	sum := sha256.Sum256([]byte("oai-canonical:" + id))
+
+	return hex.EncodeToString(sum[:])
+}
+
+// validateRuntime returns ErrValidation when the runtime is not a known CloudFront Function runtime.
+func validateRuntime(runtime string) error {
+	if !validRuntimes[runtime] {
+		return fmt.Errorf(
+			"%w: Runtime must be one of cloudfront-js-1.0 or cloudfront-js-2.0, got %q",
+			ErrValidation, runtime,
+		)
+	}
+
+	return nil
+}
+
+// validateInvalidationPaths checks that every path starts with '/', there are no more than
+// maxInvalidationPaths, and wildcards are only used as trailing '/*' on a segment.
+func validateInvalidationPaths(paths []string) error {
+	if len(paths) > maxInvalidationPaths {
+		return fmt.Errorf(
+			"%w: too many invalidation paths: %d (max %d)",
+			ErrValidation, len(paths), maxInvalidationPaths,
+		)
+	}
+
+	for _, p := range paths {
+		if !strings.HasPrefix(p, "/") {
+			return fmt.Errorf("%w: invalidation path must start with '/': %q", ErrValidation, p)
+		}
+		// Wildcard must be the final segment and the entire segment (e.g. /foo/* is OK, /foo*bar is not).
+		if strings.Contains(p, "*") {
+			if !strings.HasSuffix(p, "/*") && p != "/*" {
+				return fmt.Errorf(
+					"%w: wildcard in invalidation path must be trailing '/*': %q",
+					ErrValidation, p,
+				)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateSamplingRate returns ErrValidation when rate is outside [1, 100].
+func validateSamplingRate(rate int64) error {
+	if rate < minSamplingRate || rate > maxSamplingRate {
+		return fmt.Errorf(
+			"%w: SamplingRate must be between %d and %d, got %d",
+			ErrValidation, minSamplingRate, maxSamplingRate, rate,
+		)
+	}
+
+	return nil
+}
+
+// validatePEMPublicKey parses encodedKey as a PEM-encoded public key and verifies
+// that RSA keys are at least minPublicKeyBits bits.
+func validatePEMPublicKey(encodedKey string) error {
+	block, _ := pem.Decode([]byte(encodedKey))
+	if block == nil {
+		return fmt.Errorf("%w: EncodedKey must be a valid PEM-encoded public key", ErrValidation)
+	}
+
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("%w: EncodedKey PEM parse failed: %v", ErrValidation, err)
+	}
+
+	// Only check bit-length for RSA keys; EC keys are accepted unconditionally.
+	if rsaPub, ok := pub.(interface{ Size() int }); ok {
+		bits := rsaPub.Size() * 8
+		if bits < minPublicKeyBits {
+			return fmt.Errorf(
+				"%w: RSA key must be at least %d bits, got %d",
+				ErrValidation, minPublicKeyBits, bits,
+			)
+		}
+	}
+
+	return nil
+}
 
 var (
 	// ErrNotFound is returned when a requested distribution does not exist.
@@ -96,6 +203,9 @@ type Distribution struct {
 	Comment          string            `json:"comment,omitempty"`
 	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
 	RawConfig        []byte            `json:"rawConfig,omitempty"`
+	PriceClass       string            `json:"priceClass,omitempty"`
+	HttpVersion      string            `json:"httpVersion,omitempty"`
+	IsIPV6Enabled    bool              `json:"isIPV6Enabled"`
 	Enabled          bool              `json:"enabled"`
 }
 
@@ -127,15 +237,43 @@ type AnycastIPList struct {
 	IPCount int32  `json:"ipCount"`
 }
 
+// CachePolicyHeadersConfig specifies which headers the policy forwards and caches.
+type CachePolicyHeadersConfig struct {
+	HeaderBehavior string   `json:"headerBehavior"` // none, whitelist
+	Headers        []string `json:"headers,omitempty"`
+}
+
+// CachePolicyCookiesConfig specifies which cookies the policy forwards and caches.
+type CachePolicyCookiesConfig struct {
+	CookieBehavior string   `json:"cookieBehavior"` // none, whitelist, allExcept, all
+	Cookies        []string `json:"cookies,omitempty"`
+}
+
+// CachePolicyQueryStringsConfig specifies which query strings the policy includes in the cache key.
+type CachePolicyQueryStringsConfig struct {
+	QueryStringBehavior string   `json:"queryStringBehavior"` // none, whitelist, allExcept, all
+	QueryStrings        []string `json:"queryStrings,omitempty"`
+}
+
+// CachePolicyParams models ParametersInCacheKeyAndForwardedToOrigin.
+type CachePolicyParams struct {
+	HeadersConfig               CachePolicyHeadersConfig      `json:"headersConfig"`
+	CookiesConfig               CachePolicyCookiesConfig      `json:"cookiesConfig"`
+	QueryStringsConfig          CachePolicyQueryStringsConfig `json:"queryStringsConfig"`
+	EnableAcceptEncodingGzip    bool                          `json:"enableAcceptEncodingGzip"`
+	EnableAcceptEncodingBrotli  bool                          `json:"enableAcceptEncodingBrotli"`
+}
+
 // CachePolicy represents a CloudFront cache policy.
 type CachePolicy struct {
-	ID         string `json:"id"`
-	ETag       string `json:"etag"`
-	Name       string `json:"name"`
-	Comment    string `json:"comment,omitempty"`
-	DefaultTTL int64  `json:"defaultTtl"`
-	MaxTTL     int64  `json:"maxTtl"`
-	MinTTL     int64  `json:"minTtl"`
+	Params     *CachePolicyParams `json:"params,omitempty"`
+	ID         string             `json:"id"`
+	ETag       string             `json:"etag"`
+	Name       string             `json:"name"`
+	Comment    string             `json:"comment,omitempty"`
+	DefaultTTL int64              `json:"defaultTtl"`
+	MaxTTL     int64              `json:"maxTtl"`
+	MinTTL     int64              `json:"minTtl"`
 }
 
 // ConnectionFunction represents a CloudFront connection function.
@@ -178,12 +316,46 @@ type OriginAccessControl struct {
 	ETag            string `json:"eTag"`
 }
 
+// RHPCorsConfig holds the CORS settings for a ResponseHeadersPolicy.
+type RHPCorsConfig struct {
+	AccessControlAllowOrigins     []string `json:"accessControlAllowOrigins,omitempty"`
+	AccessControlAllowHeaders     []string `json:"accessControlAllowHeaders,omitempty"`
+	AccessControlAllowMethods     []string `json:"accessControlAllowMethods,omitempty"`
+	AccessControlExposeHeaders    []string `json:"accessControlExposeHeaders,omitempty"`
+	AccessControlMaxAgeSec        int64    `json:"accessControlMaxAgeSec,omitempty"`
+	AccessControlAllowCredentials bool     `json:"accessControlAllowCredentials"`
+	OriginOverride                bool     `json:"originOverride"`
+}
+
+// RHPSecurityHeaders holds the security header settings for a ResponseHeadersPolicy.
+type RHPSecurityHeaders struct {
+	StrictTransportSecuritySeconds int64  `json:"strictTransportSecuritySeconds,omitempty"`
+	ContentTypeOptionsOverride     bool   `json:"contentTypeOptionsOverride"`
+	FrameOptionsValue              string `json:"frameOptionsValue,omitempty"` // DENY or SAMEORIGIN
+	ReferrerPolicy                 string `json:"referrerPolicy,omitempty"`
+	ContentSecurityPolicy          string `json:"contentSecurityPolicy,omitempty"`
+	XSSProtection                  string `json:"xssProtection,omitempty"`
+	IncludeSubdomains              bool   `json:"includeSubdomains"`
+	Preload                        bool   `json:"preload"`
+}
+
+// RHPCustomHeader is a single custom header key/value pair for a ResponseHeadersPolicy.
+type RHPCustomHeader struct {
+	Header   string `json:"header"`
+	Value    string `json:"value"`
+	Override bool   `json:"override"`
+}
+
 // ResponseHeadersPolicy represents a CloudFront Response Headers Policy.
 type ResponseHeadersPolicy struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
-	ETag    string `json:"eTag"`
+	CorsConfig         *RHPCorsConfig      `json:"corsConfig,omitempty"`
+	SecurityHeaders    *RHPSecurityHeaders `json:"securityHeaders,omitempty"`
+	CustomHeaders      []RHPCustomHeader   `json:"customHeaders,omitempty"`
+	RemoveHeaders      []string            `json:"removeHeaders,omitempty"`
+	ID                 string              `json:"id"`
+	Name               string              `json:"name"`
+	Comment            string              `json:"comment,omitempty"`
+	ETag               string              `json:"eTag"`
 }
 
 // Function represents a CloudFront Function.
@@ -192,7 +364,7 @@ type Function struct {
 	Comment      string `json:"comment,omitempty"`
 	Runtime      string `json:"runtime"`
 	FunctionCode string `json:"functionCode"`
-	Status       string `json:"status"` // UNPUBLISHED or LIVE
+	Status       string `json:"status"` // DEVELOPMENT or LIVE
 	ETag         string `json:"eTag"`
 	ARN          string `json:"arn"`
 }
