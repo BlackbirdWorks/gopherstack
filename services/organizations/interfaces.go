@@ -10,8 +10,11 @@ type StorageBackend interface {
 	EnsureOrgExists() error
 
 	// Account operations
-	CreateAccount(name, email string, tags []Tag) (*CreateAccountStatus, error)
-	CreateGovCloudAccount(name, email string, tags []Tag) (*CreateAccountStatus, error)
+	CreateAccount(name, email, roleName, iamUserAccessToBilling string, tags []Tag) (*CreateAccountStatus, error)
+	CreateGovCloudAccount(
+		name, email, roleName, iamUserAccessToBilling string,
+		tags []Tag,
+	) (*CreateAccountStatus, error)
 	DescribeCreateAccountStatus(requestID string) (*CreateAccountStatus, error)
 	DescribeAccount(accountID string) (*Account, error)
 	ListAccounts() ([]*Account, error)

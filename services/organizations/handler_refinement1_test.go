@@ -3,6 +3,7 @@ package organizations_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -171,8 +172,8 @@ func TestRefinement1_ListAccounts_Sorted(t *testing.T) {
 			b := r1NewBackend(t)
 			r1CreateOrg(t, b)
 
-			for range tt.extraAcct {
-				_, createErr := b.CreateAccount("acct", "a@example.com", nil)
+			for i := range tt.extraAcct {
+				_, createErr := b.CreateAccount("acct", fmt.Sprintf("a%d@example.com", i), "", "", nil)
 				require.NoError(t, createErr)
 			}
 
@@ -297,7 +298,7 @@ func TestRefinement1_ListTagsForResource_Sorted(t *testing.T) {
 			b := r1NewBackend(t)
 			r1CreateOrg(t, b)
 
-			status, err := b.CreateAccount("tagged-acct", "t@example.com", tt.tags)
+			status, err := b.CreateAccount("tagged-acct", "t@example.com", "", "", tt.tags)
 			require.NoError(t, err)
 
 			tags, err := b.ListTagsForResource(status.AccountID)
@@ -328,8 +329,10 @@ func TestRefinement1_ListDelegatedAdministrators_Sorted(t *testing.T) {
 			b := r1NewBackend(t)
 			r1CreateOrg(t, b)
 
-			for range 2 {
-				s, err := b.CreateAccount("da-acct", "da@example.com", nil)
+			require.NoError(t, b.EnableAWSServiceAccess("ram.amazonaws.com"))
+
+			for i := range 2 {
+				s, err := b.CreateAccount("da-acct", fmt.Sprintf("da%d@example.com", i), "", "", nil)
 				require.NoError(t, err)
 				err = b.RegisterDelegatedAdministrator(s.AccountID, "ram.amazonaws.com")
 				require.NoError(t, err)
@@ -405,8 +408,8 @@ func TestRefinement1_ListChildren_Sorted(t *testing.T) {
 			require.NoError(t, err)
 			rootID := roots[0].ID
 
-			for range tt.childCount {
-				_, childErr := b.CreateAccount("child", "c@example.com", nil)
+			for i := range tt.childCount {
+				_, childErr := b.CreateAccount("child", fmt.Sprintf("c%d@example.com", i), "", "", nil)
 				require.NoError(t, childErr)
 			}
 
@@ -443,8 +446,8 @@ func TestRefinement1_ListAccountsForParent_Sorted(t *testing.T) {
 			require.NoError(t, err)
 			rootID := roots[0].ID
 
-			for range tt.acctCount {
-				_, acctErr := b.CreateAccount("acct", "a@example.com", nil)
+			for i := range tt.acctCount {
+				_, acctErr := b.CreateAccount("acct", fmt.Sprintf("a%d@example.com", i), "", "", nil)
 				require.NoError(t, acctErr)
 			}
 
@@ -488,8 +491,8 @@ func TestRefinement1_ListTargetsForPolicy_Sorted(t *testing.T) {
 			err = b.AttachPolicy(p.PolicySummary.ID, roots[0].ID)
 			require.NoError(t, err)
 
-			for range 2 {
-				s, err2 := b.CreateAccount("t-acct", "t@example.com", nil)
+			for i := range 2 {
+				s, err2 := b.CreateAccount("t-acct", fmt.Sprintf("t%d@example.com", i), "", "", nil)
 				require.NoError(t, err2)
 				require.NoError(t, b.AttachPolicy(p.PolicySummary.ID, s.AccountID))
 			}
@@ -699,7 +702,7 @@ func TestRefinement1_Backend_Reset(t *testing.T) {
 			r1CreateOrg(t, b)
 
 			// Create some data.
-			_, err := b.CreateAccount("a", "a@x.com", nil)
+			_, err := b.CreateAccount("a", "a@x.com", "", "", nil)
 			require.NoError(t, err)
 
 			roots, err := b.ListRoots()
@@ -1047,7 +1050,7 @@ func TestRefinement1_ExportHelpers(t *testing.T) {
 			b := r1NewBackend(t)
 			r1CreateOrg(t, b)
 
-			_, err := b.CreateAccount("a", "a@x.com", nil)
+			_, err := b.CreateAccount("a", "a@x.com", "", "", nil)
 			require.NoError(t, err)
 
 			roots, err := b.ListRoots()

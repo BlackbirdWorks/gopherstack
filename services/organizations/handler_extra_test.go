@@ -730,8 +730,14 @@ func TestHandler_DelegatedAdminOperations(t *testing.T) {
 			h, _ := newHandlerWithOrg(t)
 			accountID := createAccountViaHandler(t, h, "delegate-account", "delegate@example.com")
 
+			// Enable service access first (required by RegisterDelegatedAdministrator).
+			rec := doRequest(t, h, "EnableAWSServiceAccess", map[string]any{
+				"ServicePrincipal": "ssm.amazonaws.com",
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
 			// RegisterDelegatedAdministrator.
-			rec := doRequest(t, h, "RegisterDelegatedAdministrator", map[string]any{
+			rec = doRequest(t, h, "RegisterDelegatedAdministrator", map[string]any{
 				"AccountId":        accountID,
 				"ServicePrincipal": "ssm.amazonaws.com",
 			})
