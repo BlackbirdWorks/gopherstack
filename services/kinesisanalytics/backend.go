@@ -222,13 +222,17 @@ func validateAndMergeTags(existing, incoming map[string]string) error {
 }
 
 // validateARNShape verifies that an ARN refers to a kinesisanalytics application in this backend.
+// ARN format: arn:{partition}:kinesisanalytics:{region}:{accountID}:application/{name}
 func (b *InMemoryBackend) validateARNShape(resourceARN string) error {
-	parsed, err := arn.Parse(resourceARN)
-	if err != nil || parsed.Service != "kinesisanalytics" || !strings.HasPrefix(parsed.Resource, "application/") {
+	parts := strings.SplitN(resourceARN, ":", 6)
+	if len(parts) != 6 ||
+		parts[0] != "arn" ||
+		parts[2] != "kinesisanalytics" ||
+		!strings.HasPrefix(parts[5], "application/") {
 		return fmt.Errorf("%w: ResourceARN is not a valid kinesisanalytics application ARN", ErrValidation)
 	}
 
-	if parsed.Region != b.region || parsed.AccountID != b.accountID {
+	if parts[3] != b.region || parts[4] != b.accountID {
 		return fmt.Errorf("%w: ResourceARN region/account does not match this endpoint", ErrValidation)
 	}
 

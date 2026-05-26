@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -21,6 +22,7 @@ const (
 	kinesisanalyticsTargetPrefix = "KinesisAnalytics_20150814."
 	kinesisanalyticsService      = "kinesisanalytics"
 	errInvalidArgumentException  = "InvalidArgumentException"
+	errLimitExceededException    = "LimitExceededException"
 )
 
 var (
@@ -196,36 +198,46 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
+	var code string
+	var status int
+
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusNotFound,
-			errorResponse{Type: "ResourceNotFoundException", Message: err.Error()})
+		status = http.StatusNotFound
+		code = "ResourceNotFoundException"
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return c.JSON(http.StatusBadRequest,
-			errorResponse{Type: "ResourceInUseException", Message: err.Error()})
+		status = http.StatusBadRequest
+		code = "ResourceInUseException"
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest,
-			errorResponse{Type: errInvalidArgumentException, Message: err.Error()})
+		status = http.StatusBadRequest
+		code = errInvalidArgumentException
 	case errors.Is(err, ErrConcurrentUpdate):
-		return c.JSON(http.StatusBadRequest,
-			errorResponse{Type: "ConcurrentModificationException", Message: err.Error()})
+		status = http.StatusBadRequest
+		code = "ConcurrentModificationException"
+	case errors.Is(err, awserr.ErrConflict):
+		status = http.StatusBadRequest
+		code = errLimitExceededException
 	case errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr),
 		errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest,
-			errorResponse{Type: errInvalidArgumentException, Message: err.Error()})
+		status = http.StatusBadRequest
+		code = errInvalidArgumentException
 	case errors.Is(err, errApplicationName),
 		errors.Is(err, errResourceARN),
 		errors.Is(err, errInputID),
 		errors.Is(err, errOutputID),
 		errors.Is(err, errReferenceID),
 		errors.Is(err, errCWLOptionID):
-		return c.JSON(http.StatusBadRequest,
-			errorResponse{Type: errInvalidArgumentException, Message: err.Error()})
+		status = http.StatusBadRequest
+		code = errInvalidArgumentException
 	default:
-		return c.JSON(http.StatusInternalServerError,
-			errorResponse{Type: "InternalServiceException", Message: err.Error()})
+		status = http.StatusInternalServerError
+		code = "InternalServiceException"
 	}
+
+	c.Response().Header().Set("x-amzn-ErrorType", code)
+
+	return c.JSON(status, errorResponse{Type: code, Message: err.Error()})
 }
 
 func (h *Handler) handleCreateApplication(
@@ -242,12 +254,55 @@ func (h *Handler) handleCreateApplication(
 		tags[t.Key] = t.Value
 	}
 
+	inputs := make([]InputDescription, 0, len(in.Inputs))
+
+	for i := range in.Inputs {
+		desc, err := convertInputConfig(&in.Inputs[i])
+		if err != nil {
+			return nil, err
+		}
+
+		inputs = append(inputs, desc)
+	}
+
+	outputs := make([]OutputDescription, 0, len(in.Outputs))
+
+	for i := range in.Outputs {
+		desc, err := convertOutputConfig(&in.Outputs[i])
+		if err != nil {
+			return nil, err
+		}
+
+		outputs = append(outputs, desc)
+	}
+
+	cwlOptions := make([]CloudWatchLoggingOptionDesc, 0, len(in.CloudWatchLoggingOptions))
+
+	for _, cwl := range in.CloudWatchLoggingOptions {
+		if cwl.LogStreamARN == "" {
+			return nil, fmt.Errorf("%w: CloudWatchLoggingOptions[].LogStreamARN is required", ErrValidation)
+		}
+
+		if cwl.RoleARN == "" {
+			return nil, fmt.Errorf("%w: CloudWatchLoggingOptions[].RoleARN is required", ErrValidation)
+		}
+
+		cwlOptions = append(cwlOptions, CloudWatchLoggingOptionDesc{
+			LogStreamARN: cwl.LogStreamARN,
+			RoleARN:      cwl.RoleARN,
+		})
+	}
+
 	app, err := h.Backend.CreateApplication(
 		h.DefaultRegion,
 		h.AccountID,
 		in.ApplicationName,
 		in.ApplicationDescription,
 		in.ApplicationCode,
+		in.ServiceExecutionRole,
+		inputs,
+		outputs,
+		cwlOptions,
 		tags,
 	)
 	if err != nil {
@@ -271,7 +326,13 @@ func (h *Handler) handleDeleteApplication(
 		return nil, errApplicationName
 	}
 
-	if err := h.Backend.DeleteApplication(in.ApplicationName, nil); err != nil {
+	if in.CreateTimestamp == 0 {
+		return nil, fmt.Errorf("%w: CreateTimestamp is required", ErrValidation)
+	}
+
+	ts := time.Unix(int64(in.CreateTimestamp), 0).UTC()
+
+	if err := h.Backend.DeleteApplication(in.ApplicationName, &ts); err != nil {
 		return nil, err
 	}
 
@@ -300,7 +361,11 @@ func (h *Handler) handleListApplications(
 	_ context.Context,
 	in *listApplicationsInput,
 ) (*listApplicationsOutput, error) {
-	apps, hasMore := h.Backend.ListApplications(in.ExclusiveStartApplicationName, in.Limit)
+	apps, hasMore, err := h.Backend.ListApplications(in.ExclusiveStartApplicationName, in.Limit)
+	if err != nil {
+		return nil, err
+	}
+
 	summaries := make([]applicationSummary, 0, len(apps))
 
 	for _, app := range apps {
@@ -325,7 +390,7 @@ func (h *Handler) handleStartApplication(
 		return nil, errApplicationName
 	}
 
-	if err := h.Backend.StartApplication(in.ApplicationName); err != nil {
+	if err := h.Backend.StartApplication(in.ApplicationName, in.InputConfigurations); err != nil {
 		return nil, err
 	}
 
@@ -355,15 +420,10 @@ func (h *Handler) handleUpdateApplication(
 		return nil, errApplicationName
 	}
 
-	var codeUpdate string
-	if in.ApplicationUpdate != nil {
-		codeUpdate = in.ApplicationUpdate.ApplicationCodeUpdate
-	}
-
 	if _, err := h.Backend.UpdateApplication(
 		in.ApplicationName,
 		in.CurrentApplicationVersionID,
-		codeUpdate,
+		in.ApplicationUpdate,
 	); err != nil {
 		return nil, err
 	}
@@ -438,6 +498,7 @@ func (h *Handler) handleUntagResource(
 }
 
 // toApplicationDetail converts an Application to the API detail struct.
+// Timestamps are returned as epoch seconds with sub-second precision (float64).
 func toApplicationDetail(app *Application) applicationDetail {
 	detail := applicationDetail{
 		ApplicationARN:                      app.ApplicationARN,
@@ -446,6 +507,8 @@ func toApplicationDetail(app *Application) applicationDetail {
 		ApplicationVersionID:                app.ApplicationVersionID,
 		ApplicationCode:                     app.ApplicationCode,
 		ApplicationDescription:              app.ApplicationDescription,
+		ServiceExecutionRole:                app.ServiceExecutionRole,
+		RuntimeEnvironment:                  app.RuntimeEnvironment,
 		CloudWatchLoggingOptionDescriptions: app.CloudWatchLoggingOptions,
 		InputDescriptions:                   app.Inputs,
 		OutputDescriptions:                  app.Outputs,
@@ -453,11 +516,11 @@ func toApplicationDetail(app *Application) applicationDetail {
 	}
 
 	if app.CreateTimestamp != nil {
-		detail.CreateTimestamp = float64(app.CreateTimestamp.Unix())
+		detail.CreateTimestamp = float64(app.CreateTimestamp.UnixNano()) / 1e9
 	}
 
 	if app.LastUpdateTimestamp != nil {
-		detail.LastUpdateTimestamp = float64(app.LastUpdateTimestamp.Unix())
+		detail.LastUpdateTimestamp = float64(app.LastUpdateTimestamp.UnixNano()) / 1e9
 	}
 
 	return detail
@@ -471,10 +534,21 @@ func (h *Handler) handleAddApplicationCloudWatchLoggingOption(
 		return nil, errApplicationName
 	}
 
-	var opt CloudWatchLoggingOptionDesc
-	if in.CloudWatchLoggingOption != nil {
-		opt.LogStreamARN = in.CloudWatchLoggingOption.LogStreamARN
-		opt.RoleARN = in.CloudWatchLoggingOption.RoleARN
+	if in.CloudWatchLoggingOption == nil {
+		return nil, fmt.Errorf("%w: CloudWatchLoggingOption is required", ErrValidation)
+	}
+
+	if in.CloudWatchLoggingOption.LogStreamARN == "" {
+		return nil, fmt.Errorf("%w: CloudWatchLoggingOption.LogStreamARN is required", ErrValidation)
+	}
+
+	if in.CloudWatchLoggingOption.RoleARN == "" {
+		return nil, fmt.Errorf("%w: CloudWatchLoggingOption.RoleARN is required", ErrValidation)
+	}
+
+	opt := CloudWatchLoggingOptionDesc{
+		LogStreamARN: in.CloudWatchLoggingOption.LogStreamARN,
+		RoleARN:      in.CloudWatchLoggingOption.RoleARN,
 	}
 
 	if err := h.Backend.AddApplicationCloudWatchLoggingOption(
@@ -494,23 +568,13 @@ func (h *Handler) handleAddApplicationInput(
 		return nil, errApplicationName
 	}
 
-	var desc InputDescription
-	if in.Input != nil {
-		desc.NamePrefix = in.Input.NamePrefix
+	if in.Input == nil {
+		return nil, fmt.Errorf("%w: Input is required", ErrValidation)
+	}
 
-		if in.Input.KinesisStreamsInput != nil {
-			desc.KinesisStreamsInputDescription = &KinesisStreamsInputDesc{
-				ResourceARN: in.Input.KinesisStreamsInput.ResourceARN,
-				RoleARN:     in.Input.KinesisStreamsInput.RoleARN,
-			}
-		}
-
-		if in.Input.KinesisFirehoseInput != nil {
-			desc.KinesisFirehoseInputDescription = &KinesisFirehoseInputDesc{
-				ResourceARN: in.Input.KinesisFirehoseInput.ResourceARN,
-				RoleARN:     in.Input.KinesisFirehoseInput.RoleARN,
-			}
-		}
+	desc, err := convertInputConfig(in.Input)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.AddApplicationInput(
@@ -557,36 +621,9 @@ func (h *Handler) handleAddApplicationOutput(
 		return nil, errApplicationName
 	}
 
-	var desc OutputDescription
-	if in.Output != nil {
-		desc.Name = in.Output.Name
-
-		if in.Output.KinesisStreamsOutput != nil {
-			desc.KinesisStreamsOutputDescription = &KinesisStreamsOutputDesc{
-				ResourceARN: in.Output.KinesisStreamsOutput.ResourceARN,
-				RoleARN:     in.Output.KinesisStreamsOutput.RoleARN,
-			}
-		}
-
-		if in.Output.KinesisFirehoseOutput != nil {
-			desc.KinesisFirehoseOutputDescription = &KinesisFirehoseOutputDesc{
-				ResourceARN: in.Output.KinesisFirehoseOutput.ResourceARN,
-				RoleARN:     in.Output.KinesisFirehoseOutput.RoleARN,
-			}
-		}
-
-		if in.Output.LambdaOutput != nil {
-			desc.LambdaOutputDescription = &LambdaOutputDesc{
-				ResourceARN: in.Output.LambdaOutput.ResourceARN,
-				RoleARN:     in.Output.LambdaOutput.RoleARN,
-			}
-		}
-
-		if in.Output.DestinationSchema != nil {
-			desc.DestinationSchema = &DestinationSchemaDesc{
-				RecordFormatType: in.Output.DestinationSchema.RecordFormatType,
-			}
-		}
+	desc, err := convertOutputConfig(in.Output)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.AddApplicationOutput(
@@ -606,30 +643,47 @@ func (h *Handler) handleAddApplicationReferenceDataSource(
 		return nil, errApplicationName
 	}
 
-	var ref ReferenceDataSourceDescription
-	if in.ReferenceDataSource != nil {
-		ref.TableName = in.ReferenceDataSource.TableName
-
-		if in.ReferenceDataSource.S3ReferenceDataSource != nil {
-			ref.S3ReferenceDataSourceDescription = &S3ReferenceDataSourceDesc{
-				BucketARN: in.ReferenceDataSource.S3ReferenceDataSource.BucketARN,
-				FileKey:   in.ReferenceDataSource.S3ReferenceDataSource.FileKey,
-				RoleARN:   in.ReferenceDataSource.S3ReferenceDataSource.RoleARN,
-			}
-		}
-
-		if in.ReferenceDataSource.ReferenceSchema != nil {
-			schema := &SourceSchema{
-				RecordEncoding: in.ReferenceDataSource.ReferenceSchema.RecordEncoding,
-				RecordColumns:  in.ReferenceDataSource.ReferenceSchema.RecordColumns,
-				RecordFormat: RecordFormat{
-					RecordFormatType:  in.ReferenceDataSource.ReferenceSchema.RecordFormat.RecordFormatType,
-					MappingParameters: in.ReferenceDataSource.ReferenceSchema.RecordFormat.MappingParameters,
-				},
-			}
-			ref.ReferenceSchema = schema
-		}
+	if in.ReferenceDataSource == nil {
+		return nil, fmt.Errorf("%w: ReferenceDataSource is required", ErrValidation)
 	}
+
+	rds := in.ReferenceDataSource
+
+	if rds.TableName == "" {
+		return nil, fmt.Errorf("%w: ReferenceDataSource.TableName is required", ErrValidation)
+	}
+
+	if rds.S3ReferenceDataSource == nil {
+		return nil, fmt.Errorf("%w: ReferenceDataSource.S3ReferenceDataSource is required", ErrValidation)
+	}
+
+	if rds.S3ReferenceDataSource.BucketARN == "" {
+		return nil, fmt.Errorf("%w: S3ReferenceDataSource.BucketARN is required", ErrValidation)
+	}
+
+	if rds.S3ReferenceDataSource.FileKey == "" {
+		return nil, fmt.Errorf("%w: S3ReferenceDataSource.FileKey is required", ErrValidation)
+	}
+
+	if rds.S3ReferenceDataSource.RoleARN == "" {
+		return nil, fmt.Errorf("%w: S3ReferenceDataSource.RoleARN is required", ErrValidation)
+	}
+
+	if rds.ReferenceSchema == nil {
+		return nil, fmt.Errorf("%w: ReferenceDataSource.ReferenceSchema is required", ErrValidation)
+	}
+
+	var ref ReferenceDataSourceDescription
+
+	ref.TableName = rds.TableName
+	ref.S3ReferenceDataSourceDescription = &S3ReferenceDataSourceDesc{
+		BucketARN: rds.S3ReferenceDataSource.BucketARN,
+		FileKey:   rds.S3ReferenceDataSource.FileKey,
+		RoleARN:   rds.S3ReferenceDataSource.RoleARN,
+	}
+
+	schema := convertSourceSchema(rds.ReferenceSchema)
+	ref.ReferenceSchema = &schema
 
 	if err := h.Backend.AddApplicationReferenceDataSource(
 		in.ApplicationName, in.CurrentApplicationVersionID, ref,
@@ -724,6 +778,10 @@ func (h *Handler) handleDeleteApplicationReferenceDataSource(
 	return &struct{}{}, nil
 }
 
+// handleDiscoverInputSchema returns a minimal stub schema.
+// NOTE: Full schema inference from live Kinesis/Firehose/S3 streams is out of scope;
+// no SQL engine is available and cross-service ARN sampling is not implemented.
+// The stub response matches the AWS wire shape so SDK consumers can parse without errors.
 func (h *Handler) handleDiscoverInputSchema(
 	_ context.Context,
 	_ *discoverInputSchemaInput,
