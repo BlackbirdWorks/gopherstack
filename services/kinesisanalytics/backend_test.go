@@ -49,7 +49,7 @@ func TestInMemoryBackend_CreateApplication(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			app, err := b.CreateApplication(testRegion, testAccountID, tt.appName, tt.description, tt.code, tt.tags)
+			app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, tt.appName, tt.description, tt.code, tt.tags)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -64,6 +64,7 @@ func TestInMemoryBackend_CreateApplication(t *testing.T) {
 			assert.Equal(t, int64(1), app.ApplicationVersionID)
 			assert.NotEmpty(t, app.ApplicationARN)
 			assert.NotNil(t, app.CreateTimestamp)
+			assert.Equal(t, "SQL-1_0", app.RuntimeEnvironment)
 		})
 	}
 }
@@ -72,10 +73,10 @@ func TestInMemoryBackend_CreateApplication_AlreadyExists(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateApplication(testRegion, testAccountID, "dup-app", "", "", nil)
+	_, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "dup-app", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateApplication(testRegion, testAccountID, "dup-app", "", "", nil)
+	_, err = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "dup-app", "", "", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, awserr.ErrAlreadyExists)
 }
@@ -84,7 +85,6 @@ func TestInMemoryBackend_DeleteApplication(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup   func(*kinesisanalytics.InMemoryBackend)
 		name    string
 		appName string
 		wantErr bool
@@ -92,9 +92,6 @@ func TestInMemoryBackend_DeleteApplication(t *testing.T) {
 		{
 			name:    "deletes existing application",
 			appName: "to-delete",
-			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "to-delete", "", "", nil)
-			},
 		},
 		{
 			name:    "not found when missing",
@@ -109,15 +106,18 @@ func TestInMemoryBackend_DeleteApplication(t *testing.T) {
 
 			b := newBackend()
 
-			if tt.setup != nil {
-				tt.setup(b)
+			var ts *time.Time
+
+			if tt.appName == "to-delete" {
+				app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "to-delete", "", "", nil)
+				require.NoError(t, err)
+				ts = app.CreateTimestamp
 			}
 
-			err := b.DeleteApplication(tt.appName, nil)
+			err := b.DeleteApplication(tt.appName, ts)
 
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, awserr.ErrNotFound)
 
 				return
 			}
@@ -125,6 +125,18 @@ func TestInMemoryBackend_DeleteApplication(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestInMemoryBackend_DeleteApplication_NilTimestamp(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	_, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-nil-ts", "", "", nil)
+	require.NoError(t, err)
+
+	err = b.DeleteApplication("del-nil-ts", nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, awserr.ErrInvalidParameter)
 }
 
 func TestInMemoryBackend_DescribeApplication(t *testing.T) {
@@ -141,7 +153,7 @@ func TestInMemoryBackend_DescribeApplication(t *testing.T) {
 			name:    "returns existing application",
 			appName: "my-app",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "my-app", "desc", "code", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "my-app", "desc", "code", nil)
 			},
 			want: "my-app",
 		},
@@ -191,8 +203,8 @@ func TestInMemoryBackend_ListApplications(t *testing.T) {
 		{
 			name: "lists all applications",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "app-a", "", "", nil)
-				_, _ = b.CreateApplication(testRegion, testAccountID, "app-b", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "app-a", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "app-b", "", "", nil)
 			},
 			wantCount: 2,
 		},
@@ -203,9 +215,9 @@ func TestInMemoryBackend_ListApplications(t *testing.T) {
 		{
 			name: "limit truncates results",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "l-app-a", "", "", nil)
-				_, _ = b.CreateApplication(testRegion, testAccountID, "l-app-b", "", "", nil)
-				_, _ = b.CreateApplication(testRegion, testAccountID, "l-app-c", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "l-app-a", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "l-app-b", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "l-app-c", "", "", nil)
 			},
 			limit:       2,
 			wantCount:   2,
@@ -220,46 +232,32 @@ func TestInMemoryBackend_ListApplications(t *testing.T) {
 			b := newBackend()
 			tt.setup(b)
 
-			apps, hasMore := b.ListApplications(tt.exclusiveStart, tt.limit)
+			apps, hasMore, err := b.ListApplications(tt.exclusiveStart, tt.limit)
+			require.NoError(t, err)
 			assert.Len(t, apps, tt.wantCount)
 			assert.Equal(t, tt.wantHasMore, hasMore)
 		})
 	}
 }
 
-func TestInMemoryBackend_StartStopApplication(t *testing.T) {
+func TestInMemoryBackend_StartApplication(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		op         string
-		appName    string
-		setup      func(*kinesisanalytics.InMemoryBackend)
-		wantStatus string
-		wantErr    bool
+		name    string
+		appName string
+		setup   func(*kinesisanalytics.InMemoryBackend)
+		wantErr bool
 	}{
 		{
 			name:    "start transitions to running",
-			op:      "start",
 			appName: "runnable",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "runnable", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "runnable", "", "", nil)
 			},
-			wantStatus: "RUNNING",
-		},
-		{
-			name:    "stop transitions to ready",
-			op:      "stop",
-			appName: "stoppable",
-			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "stoppable", "", "", nil)
-				_ = b.StartApplication("stoppable")
-			},
-			wantStatus: "READY",
 		},
 		{
 			name:    "start not found returns error",
-			op:      "start",
 			appName: "missing",
 			setup:   func(_ *kinesisanalytics.InMemoryBackend) {},
 			wantErr: true,
@@ -273,12 +271,7 @@ func TestInMemoryBackend_StartStopApplication(t *testing.T) {
 			b := newBackend()
 			tt.setup(b)
 
-			var err error
-			if tt.op == "start" {
-				err = b.StartApplication(tt.appName)
-			} else {
-				err = b.StopApplication(tt.appName)
-			}
+			err := kinesisanalytics.StartAppNoConfig(b, tt.appName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -287,10 +280,49 @@ func TestInMemoryBackend_StartStopApplication(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+			kinesisanalytics.WaitForStatus(t, b, tt.appName, "RUNNING")
+		})
+	}
+}
 
-			app, err := b.DescribeApplication(tt.appName)
+func TestInMemoryBackend_StopApplication(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		appName string
+		setup   func(t *testing.T, b *kinesisanalytics.InMemoryBackend)
+		wantErr bool
+	}{
+		{
+			name:    "stop transitions to ready",
+			appName: "stoppable",
+			setup: func(t *testing.T, b *kinesisanalytics.InMemoryBackend) {
+				t.Helper()
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "stoppable", "", "", nil)
+				require.NoError(t, kinesisanalytics.StartAppNoConfig(b, "stoppable"))
+				kinesisanalytics.WaitForStatus(t, b, "stoppable", "RUNNING")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			tt.setup(t, b)
+
+			err := b.StopApplication(tt.appName)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantStatus, app.ApplicationStatus)
+			kinesisanalytics.WaitForStatus(t, b, tt.appName, "READY")
 		})
 	}
 }
@@ -313,7 +345,7 @@ func TestInMemoryBackend_UpdateApplication(t *testing.T) {
 			currentVersionID: 1,
 			codeUpdate:       "SELECT 2",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "updatable", "", "SELECT 1", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "updatable", "", "SELECT 1", nil)
 			},
 			wantVersionID: 2,
 		},
@@ -322,7 +354,7 @@ func TestInMemoryBackend_UpdateApplication(t *testing.T) {
 			appName:          "ver-app",
 			currentVersionID: 99,
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "ver-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ver-app", "", "", nil)
 			},
 			wantErr: true,
 		},
@@ -335,7 +367,7 @@ func TestInMemoryBackend_UpdateApplication(t *testing.T) {
 			b := newBackend()
 			tt.setup(b)
 
-			app, err := b.UpdateApplication(tt.appName, tt.currentVersionID, tt.codeUpdate)
+			app, err := kinesisanalytics.UpdateAppCode(b, tt.appName, tt.currentVersionID, tt.codeUpdate)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -369,12 +401,8 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 		{
 			name: "list tags returns all tags",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				app, _ := b.CreateApplication(
-					testRegion,
-					testAccountID,
-					"tagged-app",
-					"",
-					"",
+				app, _ := kinesisanalytics.CreateApp(
+					b, testRegion, testAccountID, "tagged-app", "", "",
 					map[string]string{"key": "val"},
 				)
 
@@ -386,7 +414,7 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 		{
 			name: "tag resource adds tags",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				app, _ := b.CreateApplication(testRegion, testAccountID, "tag-add-app", "", "", nil)
+				app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "tag-add-app", "", "", nil)
 
 				return app.ApplicationARN
 			},
@@ -397,12 +425,8 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 		{
 			name: "untag resource removes tags",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
-				app, _ := b.CreateApplication(
-					testRegion,
-					testAccountID,
-					"untag-app",
-					"",
-					"",
+				app, _ := kinesisanalytics.CreateApp(
+					b, testRegion, testAccountID, "untag-app", "", "",
 					map[string]string{"remove": "me", "keep": "this"},
 				)
 
@@ -460,7 +484,6 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, awserr.ErrNotFound)
 			}
 		})
 	}
@@ -471,7 +494,7 @@ func TestInMemoryBackend_TimestampsSet(t *testing.T) {
 
 	b := newBackend()
 	before := time.Now().Add(-time.Second)
-	app, err := b.CreateApplication(testRegion, testAccountID, "ts-app", "", "", nil)
+	app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ts-app", "", "", nil)
 	require.NoError(t, err)
 
 	assert.NotNil(t, app.CreateTimestamp)
@@ -491,8 +514,8 @@ func TestInMemoryBackend_ListApplications_ExclusiveStart(t *testing.T) {
 		{
 			name: "exclusiveStart not found still returns all",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(testRegion, testAccountID, "exc-app-a", "", "", nil)
-				_, _ = b.CreateApplication(testRegion, testAccountID, "exc-app-b", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "exc-app-a", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "exc-app-b", "", "", nil)
 			},
 			exclusiveStart: "nonexistent",
 			wantCountMin:   0,
@@ -506,7 +529,8 @@ func TestInMemoryBackend_ListApplications_ExclusiveStart(t *testing.T) {
 			b := newBackend()
 			tt.setup(b)
 
-			apps, _ := b.ListApplications(tt.exclusiveStart, 0)
+			apps, _, err := b.ListApplications(tt.exclusiveStart, 0)
+			require.NoError(t, err)
 			assert.GreaterOrEqual(t, len(apps), tt.wantCountMin)
 		})
 	}
@@ -516,11 +540,9 @@ func TestInMemoryBackend_TagResource_InitNil(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	// Create app with no tags (nil map)
-	app, err := b.CreateApplication(testRegion, testAccountID, "nil-tag-app", "", "", nil)
+	app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "nil-tag-app", "", "", nil)
 	require.NoError(t, err)
 
-	// TagResource should init the tags map if nil
 	err = b.TagResource(app.ApplicationARN, map[string]string{"key": "val"})
 	require.NoError(t, err)
 
@@ -545,12 +567,12 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 		{
 			name: "with_applications",
 			setup: func(b *kinesisanalytics.InMemoryBackend) {
-				_, _ = b.CreateApplication(
-					testRegion, testAccountID,
+				_, _ = kinesisanalytics.CreateApp(
+					b, testRegion, testAccountID,
 					"persist-app-1", "desc", "SELECT 1",
 					map[string]string{"env": "test"},
 				)
-				_, _ = b.CreateApplication(testRegion, testAccountID, "persist-app-2", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "persist-app-2", "", "", nil)
 			},
 			wantLen: 2,
 		},
@@ -569,7 +591,8 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 			b2 := newBackend()
 			require.NoError(t, b2.Restore(snap))
 
-			apps, _ := b2.ListApplications("", 0)
+			apps, _, err := b2.ListApplications("", 0)
+			require.NoError(t, err)
 			require.Len(t, apps, tt.wantLen)
 
 			// Verify appsByARN index is rebuilt: tag operations should work via ARN.
@@ -588,10 +611,232 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 
 			// Snapshot isolation: mutating b2 should not affect original snapshot bytes.
 			if tt.wantLen > 0 {
-				_, _ = b2.CreateApplication(testRegion, testAccountID, "extra-app", "", "", nil)
+				_, _ = kinesisanalytics.CreateApp(b2, testRegion, testAccountID, "extra-app", "", "", nil)
 				snap2 := b2.Snapshot()
 				assert.NotEqual(t, snap, snap2)
 			}
 		})
 	}
+}
+
+func TestInMemoryBackend_ApplicationLimits(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		limit   int
+		wantErr bool
+	}{
+		{
+			name:    "reject limit above 50",
+			limit:   51,
+			wantErr: true,
+		},
+		{
+			name:    "reject negative limit",
+			limit:   -1,
+			wantErr: true,
+		},
+		{
+			name:  "accept limit of 50",
+			limit: 50,
+		},
+		{
+			name:  "accept limit of 0 (default)",
+			limit: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			_, _, err := b.ListApplications("", tt.limit)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, awserr.ErrInvalidParameter)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestInMemoryBackend_ARNValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		arn     string
+		wantErr bool
+	}{
+		{
+			name: "valid ARN",
+			arn:  "arn:aws:kinesisanalytics:us-east-1:000000000000:application/my-app",
+		},
+		{
+			name:    "wrong service",
+			arn:     "arn:aws:kinesis:us-east-1:000000000000:stream/my-stream",
+			wantErr: true,
+		},
+		{
+			name:    "wrong region",
+			arn:     "arn:aws:kinesisanalytics:eu-west-1:000000000000:application/my-app",
+			wantErr: true,
+		},
+		{
+			name:    "wrong account",
+			arn:     "arn:aws:kinesisanalytics:us-east-1:111111111111:application/my-app",
+			wantErr: true,
+		},
+		{
+			name:    "not an application resource",
+			arn:     "arn:aws:kinesisanalytics:us-east-1:000000000000:stream/my-app",
+			wantErr: true,
+		},
+		{
+			name:    "malformed ARN",
+			arn:     "not-an-arn",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			_, err := b.ListTagsForResource(tt.arn)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			// Valid ARN shape but no app → ErrNotFound, not ErrInvalidParameter
+			require.Error(t, err)
+			assert.ErrorIs(t, err, awserr.ErrNotFound)
+		})
+	}
+}
+
+func TestInMemoryBackend_ApplicationNameValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		appName string
+		wantErr bool
+	}{
+		{name: "valid alphanumeric", appName: "myApp123"},
+		{name: "valid with dashes", appName: "my-app"},
+		{name: "valid with underscores", appName: "my_app"},
+		{name: "valid with dots", appName: "my.app"},
+		{name: "empty name", appName: "", wantErr: true},
+		{name: "name with spaces", appName: "my app", wantErr: true},
+		{name: "name with special chars", appName: "my@app", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			_, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, tt.appName, "", "", nil)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, awserr.ErrInvalidParameter)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestInMemoryBackend_TagKeyValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tags    map[string]string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "valid tags",
+			tags: map[string]string{"env": "prod", "team": "platform"},
+		},
+		{
+			name:    "empty tag key",
+			tags:    map[string]string{"": "value"},
+			wantErr: true,
+		},
+		{
+			name:    "aws: prefixed key",
+			tags:    map[string]string{"aws:reserved": "value"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "tag-valid-app", "", "", nil)
+			require.NoError(t, err)
+
+			err = b.TagResource(app.ApplicationARN, tt.tags)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, awserr.ErrInvalidParameter)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestInMemoryBackend_CancelFuncs_Lifecycle(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	_, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "lifecycle-app", "", "", nil)
+	require.NoError(t, err)
+
+	// No goroutines before start.
+	assert.Equal(t, 0, kinesisanalytics.GetCancelFuncsLen(b))
+
+	// Start spawns a goroutine.
+	require.NoError(t, kinesisanalytics.StartAppNoConfig(b, "lifecycle-app"))
+	assert.Equal(t, 1, kinesisanalytics.GetCancelFuncsLen(b))
+
+	// After transition completes, goroutine cleans itself up.
+	kinesisanalytics.WaitForStatus(t, b, "lifecycle-app", "RUNNING")
+	assert.Equal(t, 0, kinesisanalytics.GetCancelFuncsLen(b))
+}
+
+func TestInMemoryBackend_ApplicationCount(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	assert.Equal(t, 0, kinesisanalytics.ApplicationCount(b))
+
+	_, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "count-app-1", "", "", nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, kinesisanalytics.ApplicationCount(b))
+
+	_, err = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "count-app-2", "", "", nil)
+	require.NoError(t, err)
+	assert.Equal(t, 2, kinesisanalytics.ApplicationCount(b))
 }
