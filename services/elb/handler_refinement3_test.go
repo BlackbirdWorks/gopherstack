@@ -206,15 +206,17 @@ func TestRefinement3_SSLListenerCertificate(t *testing.T) {
 			name: "ssl_listener_cert_can_be_set",
 			setup: func(t *testing.T, h *elb.Handler) {
 				t.Helper()
-				doELB(t, h, url.Values{
-					"Action":                              {"CreateLoadBalancer"},
-					"Version":                             {"2012-06-01"},
-					"LoadBalancerName":                    {"ssl-lb"},
-					"AvailabilityZones.member.1":          {"us-east-1a"},
-					"Listeners.member.1.Protocol":         {"SSL"},
-					"Listeners.member.1.LoadBalancerPort": {"443"},
-					"Listeners.member.1.InstancePort":     {"443"},
+				rec := doELB(t, h, url.Values{
+					"Action":                                        {"CreateLoadBalancer"},
+					"Version":                                       {"2012-06-01"},
+					"LoadBalancerName":                              {"ssl-lb"},
+					"AvailabilityZones.member.1":                    {"us-east-1a"},
+					"Listeners.member.1.Protocol":                   {"SSL"},
+					"Listeners.member.1.LoadBalancerPort":           {"443"},
+					"Listeners.member.1.InstancePort":               {"443"},
+					"Listeners.member.1.SSLCertificateId":           {"arn:aws:iam::123456789012:server-certificate/initial"},
 				})
+				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			checkVals: url.Values{
 				"Action":           {"SetLoadBalancerListenerSSLCertificate"},

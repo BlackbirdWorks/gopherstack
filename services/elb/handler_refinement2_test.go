@@ -598,14 +598,16 @@ func TestRefinement2_RemoveTags_RequiresAtLeastOneName(t *testing.T) {
 	}
 }
 
-// TestRefinement2_DescribePolicies_AllPoliciesWhenNoName verifies that DescribeLoadBalancerPolicies
-// with empty name returns all policies across all LBs.
+// TestRefinement2_DescribePolicies_AllPoliciesWhenNoName verifies that
+// DescribeLoadBalancerPolicies with no LoadBalancerName returns the built-in
+// sample SSL policies (AWS behaviour: customer policies are NOT included).
 func TestRefinement2_DescribePolicies_AllPoliciesWhenNoName(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
 	h := elb.NewHandler(b)
 
+	// Create some customer policies — these should NOT appear in the global result.
 	mustCreateLB(t, h, "multi-pol-lb1")
 	mustCreateLB(t, h, "multi-pol-lb2")
 
@@ -642,13 +644,19 @@ func TestRefinement2_DescribePolicies_AllPoliciesWhenNoName(t *testing.T) {
 	}
 
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Len(t, resp.Result.PolicyDescriptions.Members, 2)
 
-	names := []string{
-		resp.Result.PolicyDescriptions.Members[0].PolicyName,
-		resp.Result.PolicyDescriptions.Members[1].PolicyName,
+	// Exactly 4 built-in sample policies are returned; customer policies are excluded.
+	assert.Len(t, resp.Result.PolicyDescriptions.Members, 4)
+
+	names := make([]string, 0, 4)
+	for _, m := range resp.Result.PolicyDescriptions.Members {
+		names = append(names, m.PolicyName)
 	}
-	assert.Equal(t, []string{"pol-lb1", "pol-lb2"}, names)
+
+	assert.Contains(t, names, "ELBSample-ELBDefaultNegotiationPolicy")
+	assert.Contains(t, names, "ELBSample-OpenSSLDefaultCipherPolicy")
+	assert.Contains(t, names, "ELBSecurityPolicy-2016-08")
+	assert.Contains(t, names, "ELBSecurityPolicy-TLS-1-2-2017-01")
 }
 
 // TestRefinement2_CreateListeners_RejectsEmptyList verifies that CreateLoadBalancerListeners

@@ -456,6 +456,10 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		return nil, fmt.Errorf("%w: AvailabilityZones and Subnets are mutually exclusive", ErrInvalidConfiguration)
 	}
 
+	if len(input.AvailabilityZones) == 0 && len(input.Subnets) == 0 {
+		return nil, fmt.Errorf("%w: at least one AvailabilityZone or Subnet is required", ErrInvalidParameter)
+	}
+
 	isVPC := len(input.Subnets) > 0
 
 	suffix := dnsNameSuffix(b.accountID, input.LoadBalancerName)
