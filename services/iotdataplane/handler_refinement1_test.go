@@ -149,7 +149,7 @@ func TestRefinement1_ErrValidationMapping(t *testing.T) {
 		},
 		{
 			name:     "delete_connection_empty_client",
-			path:     "/connections/",
+			path:     "/_admin/connections/",
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -182,7 +182,7 @@ func TestRefinement1_DeleteConnection_DollarPrefixReturns400(t *testing.T) {
 	t.Parallel()
 
 	h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
-	rec := doRequest(t, h, http.MethodDelete, "/connections/$reserved", nil)
+	rec := doRequest(t, h, http.MethodDelete, "/_admin/connections/$reserved", nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "InvalidRequestException")
 }
@@ -298,7 +298,7 @@ func TestRefinement1_ListNamedShadows_SortedByBackend(t *testing.T) {
 
 // --- maxRetainedMessages cap ---
 
-func TestRefinement1_MaxRetainedMessages_CapEnforced(t *testing.T) {
+func TestRefinement1_MaxRetainedMessages_LRUEviction(t *testing.T) {
 	t.Parallel()
 
 	b := iotdataplane.NewInMemoryBackend()
@@ -311,9 +311,16 @@ func TestRefinement1_MaxRetainedMessages_CapEnforced(t *testing.T) {
 
 	assert.Equal(t, 1000, iotdataplane.RetainedMessageCount(b))
 
-	// One more new topic should fail.
-	err := b.StoreRetainedMessage("overflow/topic", []byte("y"), 0)
-	require.ErrorIs(t, err, iotdataplane.ErrValidation)
+	// Adding a new topic at cap must succeed via LRU eviction (not fail).
+	require.NoError(t, b.StoreRetainedMessage("overflow/topic", []byte("y"), 0))
+
+	// Count stays at cap — one entry was evicted to make room.
+	assert.Equal(t, 1000, iotdataplane.RetainedMessageCount(b))
+
+	// The new entry must be stored.
+	msg, err := b.GetRetainedMessage("overflow/topic")
+	require.NoError(t, err)
+	assert.Equal(t, []byte("y"), msg.Payload)
 }
 
 func TestRefinement1_MaxRetainedMessages_UpdateExistingNotCapped(t *testing.T) {

@@ -3,6 +3,7 @@ package iotdataplane
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"time"
 )
 
@@ -11,9 +12,12 @@ var ErrNoSnapshot = errors.New("backend does not support restore")
 
 // shadowEntrySnap is the serialisable form of a shadowEntry.
 type shadowEntrySnap struct {
-	UpdatedAt time.Time `json:"updatedAt"`
-	Document  []byte    `json:"document"`
-	Version   int       `json:"version"`
+	Desired      map[string]json.RawMessage `json:"desired,omitempty"`
+	Reported     map[string]json.RawMessage `json:"reported,omitempty"`
+	MetaDesired  map[string]int64           `json:"metaDesired,omitempty"`
+	MetaReported map[string]int64           `json:"metaReported,omitempty"`
+	UpdatedAt    time.Time                  `json:"updatedAt"`
+	Version      int                        `json:"version"`
 }
 
 // connectionEntrySnap is the serialisable form of a connectionEntry.
@@ -37,29 +41,73 @@ type backendSnapshot struct {
 	RetainedMessages map[string]*retainedMessageSnap        `json:"retainedMessages"`
 }
 
+// copyRawMessages returns a deep copy of a map[string]json.RawMessage.
+func copyRawMessages(src map[string]json.RawMessage) map[string]json.RawMessage {
+	if src == nil {
+		return nil
+	}
+
+	dst := make(map[string]json.RawMessage, len(src))
+	for k, v := range src {
+		cp := make(json.RawMessage, len(v))
+		copy(cp, v)
+		dst[k] = cp
+	}
+
+	return dst
+}
+
+// copyInt64Map returns a shallow copy of a map[string]int64.
+func copyInt64Map(src map[string]int64) map[string]int64 {
+	if src == nil {
+		return nil
+	}
+
+	dst := make(map[string]int64, len(src))
+	maps.Copy(dst, src)
+
+	return dst
+}
+
+// entryToSnap converts a shadowEntry to its serialisable form.
+func entryToSnap(entry *shadowEntry) *shadowEntrySnap {
+	return &shadowEntrySnap{
+		Version:      entry.version,
+		UpdatedAt:    entry.updatedAt,
+		Desired:      copyRawMessages(entry.desired),
+		Reported:     copyRawMessages(entry.reported),
+		MetaDesired:  copyInt64Map(entry.metaDesired),
+		MetaReported: copyInt64Map(entry.metaReported),
+	}
+}
+
+// snapToEntry converts a shadowEntrySnap back to its runtime form.
+func snapToEntry(es *shadowEntrySnap) *shadowEntry {
+	return &shadowEntry{
+		version:      es.Version,
+		updatedAt:    es.UpdatedAt,
+		desired:      copyRawMessages(es.Desired),
+		reported:     copyRawMessages(es.Reported),
+		metaDesired:  copyInt64Map(es.MetaDesired),
+		metaReported: copyInt64Map(es.MetaReported),
+	}
+}
+
 // Snapshot serialises backend state to JSON.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	// Build serialisable shadows map.
 	shadows := make(map[string]map[string]*shadowEntrySnap, len(b.shadows))
 	for thingName, thingShadows := range b.shadows {
 		snapShadows := make(map[string]*shadowEntrySnap, len(thingShadows))
 		for shadowName, entry := range thingShadows {
-			cp := make([]byte, len(entry.document))
-			copy(cp, entry.document)
-			snapShadows[shadowName] = &shadowEntrySnap{
-				Document:  cp,
-				Version:   entry.version,
-				UpdatedAt: entry.updatedAt,
-			}
+			snapShadows[shadowName] = entryToSnap(entry)
 		}
 
 		shadows[thingName] = snapShadows
 	}
 
-	// Build serialisable connections map.
 	connections := make(map[string]*connectionEntrySnap, len(b.connections))
 	for clientID, entry := range b.connections {
 		connections[clientID] = &connectionEntrySnap{
@@ -68,11 +116,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		}
 	}
 
-	// Build serialisable retained messages map.
 	retained := make(map[string]*retainedMessageSnap, len(b.retainedMessages))
 	for topic, msg := range b.retainedMessages {
 		cp := make([]byte, len(msg.Payload))
 		copy(cp, msg.Payload)
+
 		retained[topic] = &retainedMessageSnap{
 			Topic:            msg.Topic,
 			Payload:          cp,
@@ -106,50 +154,61 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Shadows == nil {
-		snap.Shadows = make(map[string]map[string]*shadowEntrySnap)
+	b.shadows = restoreShadows(snap.Shadows)
+	b.connections = restoreConnections(snap.Connections)
+	b.retainedMessages = restoreRetainedMessages(snap.RetainedMessages)
+
+	return nil
+}
+
+// restoreShadows rebuilds the runtime shadows map from a snapshot.
+func restoreShadows(snapShadows map[string]map[string]*shadowEntrySnap) map[string]map[string]*shadowEntry {
+	if snapShadows == nil {
+		return make(map[string]map[string]*shadowEntry)
 	}
 
-	if snap.Connections == nil {
-		snap.Connections = make(map[string]*connectionEntrySnap)
-	}
-
-	if snap.RetainedMessages == nil {
-		snap.RetainedMessages = make(map[string]*retainedMessageSnap)
-	}
-
-	// Restore shadows.
-	b.shadows = make(map[string]map[string]*shadowEntry, len(snap.Shadows))
-	for thingName, thingShadows := range snap.Shadows {
+	result := make(map[string]map[string]*shadowEntry, len(snapShadows))
+	for thingName, thingShadows := range snapShadows {
 		restored := make(map[string]*shadowEntry, len(thingShadows))
 		for shadowName, es := range thingShadows {
-			cp := make([]byte, len(es.Document))
-			copy(cp, es.Document)
-			restored[shadowName] = &shadowEntry{
-				document:  cp,
-				version:   es.Version,
-				updatedAt: es.UpdatedAt,
-			}
+			restored[shadowName] = snapToEntry(es)
 		}
 
-		b.shadows[thingName] = restored
+		result[thingName] = restored
 	}
 
-	// Restore connections.
-	b.connections = make(map[string]*connectionEntry, len(snap.Connections))
-	for clientID, entry := range snap.Connections {
-		b.connections[clientID] = &connectionEntry{
+	return result
+}
+
+// restoreConnections rebuilds the runtime connections map from a snapshot.
+func restoreConnections(snapConns map[string]*connectionEntrySnap) map[string]*connectionEntry {
+	if snapConns == nil {
+		return make(map[string]*connectionEntry)
+	}
+
+	result := make(map[string]*connectionEntry, len(snapConns))
+	for clientID, entry := range snapConns {
+		result[clientID] = &connectionEntry{
 			connectedAt: entry.ConnectedAt,
 			sourceIP:    entry.SourceIP,
 		}
 	}
 
-	// Restore retained messages.
-	b.retainedMessages = make(map[string]*RetainedMessage, len(snap.RetainedMessages))
-	for topic, rm := range snap.RetainedMessages {
+	return result
+}
+
+// restoreRetainedMessages rebuilds the runtime retained messages map from a snapshot.
+func restoreRetainedMessages(snapMsgs map[string]*retainedMessageSnap) map[string]*RetainedMessage {
+	if snapMsgs == nil {
+		return make(map[string]*RetainedMessage)
+	}
+
+	result := make(map[string]*RetainedMessage, len(snapMsgs))
+	for topic, rm := range snapMsgs {
 		cp := make([]byte, len(rm.Payload))
 		copy(cp, rm.Payload)
-		b.retainedMessages[topic] = &RetainedMessage{
+
+		result[topic] = &RetainedMessage{
 			Topic:            rm.Topic,
 			Payload:          cp,
 			Qos:              rm.Qos,
@@ -157,7 +216,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		}
 	}
 
-	return nil
+	return result
 }
 
 // Snapshot implements persistence by delegating to the backend if it supports it.
