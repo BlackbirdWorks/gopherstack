@@ -22,6 +22,7 @@ func TestMediaStoreDataDashboard(t *testing.T) {
 		"video/mp4",
 		"",
 		"",
+		"",
 	)
 
 	server := httptest.NewServer(stack.Echo)
