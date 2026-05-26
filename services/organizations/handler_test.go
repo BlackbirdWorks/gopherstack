@@ -164,7 +164,7 @@ func TestBackend_AccountLifecycle(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			status, err := b.CreateAccount(tt.accountName, tt.email, nil)
+			status, err := b.CreateAccount(tt.accountName, tt.email, "", "", nil)
 
 			if tt.wantErr {
 				require.Error(t, err)

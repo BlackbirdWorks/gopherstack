@@ -443,6 +443,64 @@ func sourceBatchSize(sp *SourceParameters) int {
 	return 0
 }
 
+const maxBatchSize = 10000
+
+// validateSourceBatchSize checks that all BatchSize fields in SourceParameters
+// are within the valid range [0, 10000]. Negative values and values above
+// 10000 are rejected with a ValidationException, matching AWS behaviour.
+// batchSizeEntry pairs a BatchSize value with its source type label.
+type batchSizeEntry struct {
+	Name string
+	Size int
+}
+
+// sourceBatchSizes collects all configured BatchSize values from SourceParameters
+// along with their source type labels.
+func sourceBatchSizes(sp *SourceParameters) []batchSizeEntry {
+	var out []batchSizeEntry
+
+	if p := sp.SqsQueueParameters; p != nil {
+		out = append(out, batchSizeEntry{"SQS", p.BatchSize})
+	}
+	if p := sp.KinesisStreamParameters; p != nil {
+		out = append(out, batchSizeEntry{"Kinesis", p.BatchSize})
+	}
+	if p := sp.DynamoDBStreamParameters; p != nil {
+		out = append(out, batchSizeEntry{"DynamoDB", p.BatchSize})
+	}
+	if p := sp.ManagedStreamingKafkaParameters; p != nil {
+		out = append(out, batchSizeEntry{"MSK", p.BatchSize})
+	}
+	if p := sp.SelfManagedKafkaParameters; p != nil {
+		out = append(out, batchSizeEntry{"SelfManagedKafka", p.BatchSize})
+	}
+	if p := sp.RabbitMQBrokerParameters; p != nil {
+		out = append(out, batchSizeEntry{"RabbitMQ", p.BatchSize})
+	}
+	if p := sp.ActiveMQBrokerParameters; p != nil {
+		out = append(out, batchSizeEntry{"ActiveMQ", p.BatchSize})
+	}
+
+	return out
+}
+
+func validateSourceBatchSize(sp *SourceParameters) error {
+	if sp == nil {
+		return nil
+	}
+
+	for _, bs := range sourceBatchSizes(sp) {
+		if bs.Size < 0 || bs.Size > maxBatchSize {
+			return fmt.Errorf(
+				"%w: %s BatchSize must be between 0 and %d, got %d",
+				ErrValidation, bs.Name, maxBatchSize, bs.Size,
+			)
+		}
+	}
+
+	return nil
+}
+
 func (p *Pipe) effectiveBatchSize() int {
 	if p.SourceParameters != nil {
 		if bs := sourceBatchSize(p.SourceParameters); bs > 0 {
@@ -758,6 +816,9 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 	if err := validateTags(in.Tags); err != nil {
 		return nil, err
 	}
+	if err := validateSourceBatchSize(in.SourceParameters); err != nil {
+		return nil, err
+	}
 
 	b.mu.Lock("CreatePipe")
 	defer b.mu.Unlock()
@@ -962,24 +1023,16 @@ type UpdatePipeInput struct {
 	LogConfiguration        *LogConfiguration
 	EnrichmentParameters    *EnrichmentParameters
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming
+	Description             *string
 	RoleARN                 string
 	Target                  string
-	Description             string
 	Enrichment              string
 	KmsKeyIdentifier        string
 	DesiredState            string
 }
 
-func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, error) {
-	if err := validateDesiredState(in.DesiredState); err != nil {
-		return nil, err
-	}
-	b.mu.Lock("UpdatePipe")
-	defer b.mu.Unlock()
-	p, ok := b.pipes[name]
-	if !ok {
-		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
-	}
+// applyUpdateFields patches the pipe with non-zero values from the update input.
+func applyUpdateFields(p *Pipe, in UpdatePipeInput) {
 	if in.RoleARN != "" {
 		p.RoleARN = in.RoleARN
 	}
@@ -995,7 +1048,9 @@ func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, er
 	if in.KmsKeyIdentifier != "" {
 		p.KmsKeyIdentifier = in.KmsKeyIdentifier
 	}
-	p.Description = in.Description
+	if in.Description != nil {
+		p.Description = *in.Description
+	}
 	if in.SourceParameters != nil {
 		p.SourceParameters = in.SourceParameters
 	}
@@ -1014,6 +1069,25 @@ func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, er
 	if in.RuntimeMetricsStreaming != nil {
 		p.RuntimeMetricsStreaming = in.RuntimeMetricsStreaming
 	}
+}
+
+func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, error) {
+	if err := validateDesiredState(in.DesiredState); err != nil {
+		return nil, err
+	}
+	if err := validateSourceBatchSize(in.SourceParameters); err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("UpdatePipe")
+	defer b.mu.Unlock()
+
+	p, ok := b.pipes[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
+	}
+
+	applyUpdateFields(p, in)
 
 	prevDesiredState := p.DesiredState
 	if in.DesiredState != "" {
@@ -1288,11 +1362,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 	type snap struct {
-		Pipes     map[string]*Pipe `json:"pipes"`
-		AccountID string           `json:"accountID"`
-		Region    string           `json:"region"`
+		Pipes               map[string]*Pipe `json:"pipes"`
+		EnrichmentCallCount map[string]int64 `json:"enrichmentCallCount,omitempty"`
+		AccountID           string           `json:"accountID"`
+		Region              string           `json:"region"`
 	}
-	s := snap{Pipes: b.pipes, AccountID: b.accountID, Region: b.region}
+	s := snap{
+		Pipes:               b.pipes,
+		AccountID:           b.accountID,
+		Region:              b.region,
+		EnrichmentCallCount: b.enrichmentCallCount,
+	}
 	data, err := json.Marshal(s)
 	if err != nil {
 		return nil
@@ -1303,9 +1383,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 func (b *InMemoryBackend) Restore(data []byte) error {
 	type snap struct {
-		Pipes     map[string]*Pipe `json:"pipes"`
-		AccountID string           `json:"accountID"`
-		Region    string           `json:"region"`
+		Pipes               map[string]*Pipe `json:"pipes"`
+		EnrichmentCallCount map[string]int64 `json:"enrichmentCallCount,omitempty"`
+		AccountID           string           `json:"accountID"`
+		Region              string           `json:"region"`
 	}
 	var s snap
 	if err := json.Unmarshal(data, &s); err != nil {
@@ -1322,6 +1403,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.pipeARNIndex = make(map[string]string, len(b.pipes))
 	for name, p := range b.pipes {
 		b.pipeARNIndex[p.ARN] = name
+	}
+	if s.EnrichmentCallCount != nil {
+		b.enrichmentCallCount = s.EnrichmentCallCount
+	} else {
+		b.enrichmentCallCount = make(map[string]int64)
 	}
 
 	return nil

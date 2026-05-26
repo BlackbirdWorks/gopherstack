@@ -17,6 +17,8 @@ import (
 const (
 	orgService      = "organizations"
 	orgTargetPrefix = "AWSOrganizationsV20161128."
+
+	iamAccessAllow = "ALLOW"
 )
 
 // Handler is the HTTP handler for the AWS Organizations JSON 1.1 API.
@@ -397,21 +399,55 @@ func (h *Handler) handleListAccounts(c *echo.Context, _ []byte) error {
 	return c.JSON(http.StatusOK, listAccountsResponse{Accounts: objs})
 }
 
+// validateCreateAccountInput validates and normalises the common fields shared by
+// CreateAccount and CreateGovCloudAccount requests.
+func (h *Handler) validateCreateAccountInput(
+	c *echo.Context,
+	accountName, email, roleName, iamAccess string,
+) (string, string, error) {
+	if accountName == "" {
+		return "", "", h.writeError(c, http.StatusBadRequest, "InvalidInputException", "AccountName is required")
+	}
+
+	if email == "" {
+		return "", "", h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Email is required")
+	}
+
+	// Default RoleName.
+	if roleName == "" {
+		roleName = "OrganizationAccountAccessRole"
+	}
+
+	// Validate IamUserAccessToBilling.
+	if iamAccess == "" {
+		iamAccess = iamAccessAllow
+	}
+	if iamAccess != iamAccessAllow && iamAccess != "DENY" {
+		return "", "", h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidInputException",
+			"IamUserAccessToBilling must be ALLOW or DENY",
+		)
+	}
+
+	return roleName, iamAccess, nil
+}
+
 func (h *Handler) handleCreateAccount(c *echo.Context, body []byte) error {
 	var req createAccountRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	if req.AccountName == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "AccountName is required")
+	roleName, iamAccess, err := h.validateCreateAccountInput(
+		c, req.AccountName, req.Email, req.RoleName, req.IamUserAccessToBilling,
+	)
+	if err != nil {
+		return err
 	}
 
-	if req.Email == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Email is required")
-	}
-
-	status, err := h.Backend.CreateAccount(req.AccountName, req.Email, req.Tags)
+	status, err := h.Backend.CreateAccount(req.AccountName, req.Email, roleName, iamAccess, req.Tags)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -986,25 +1022,36 @@ func extractErrorType(err error) string {
 // ----------------------------------------
 
 func toOrganizationObject(org *Organization) organizationObject {
+	var pts []policyTypeObject
+	if len(org.AvailablePolicyTypes) > 0 {
+		pts = make([]policyTypeObject, 0, len(org.AvailablePolicyTypes))
+		for _, pt := range org.AvailablePolicyTypes {
+			pts = append(pts, policyTypeObject(pt))
+		}
+	}
+
 	return organizationObject{
-		ID:                 org.ID,
-		ARN:                org.ARN,
-		FeatureSet:         org.FeatureSet,
-		MasterAccountID:    org.MasterAccountID,
-		MasterAccountARN:   org.MasterAccountARN,
-		MasterAccountEmail: org.MasterAccountEmail,
+		AvailablePolicyTypes: pts,
+		ID:                   org.ID,
+		ARN:                  org.ARN,
+		FeatureSet:           org.FeatureSet,
+		MasterAccountID:      org.MasterAccountID,
+		MasterAccountARN:     org.MasterAccountARN,
+		MasterAccountEmail:   org.MasterAccountEmail,
 	}
 }
 
 func toAccountObject(a *Account) accountObject {
 	return accountObject{
-		ID:           a.ID,
-		ARN:          a.ARN,
-		Name:         a.Name,
-		Email:        a.Email,
-		Status:       a.Status,
-		JoinedMethod: a.JoinedMethod,
-		JoinedAt:     epochSeconds(a.JoinedAt),
+		ID:                     a.ID,
+		ARN:                    a.ARN,
+		Name:                   a.Name,
+		Email:                  a.Email,
+		Status:                 a.Status,
+		JoinedMethod:           a.JoinedMethod,
+		JoinedAt:               epochSeconds(a.JoinedAt),
+		RoleName:               a.RoleName,
+		IamUserAccessToBilling: a.IamUserAccessToBilling,
 	}
 }
 
@@ -1151,15 +1198,14 @@ func (h *Handler) handleCreateGovCloudAccount(c *echo.Context, body []byte) erro
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	if req.AccountName == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "AccountName is required")
+	roleName, iamAccess, err := h.validateCreateAccountInput(
+		c, req.AccountName, req.Email, req.RoleName, req.IamUserAccessToBilling,
+	)
+	if err != nil {
+		return err
 	}
 
-	if req.Email == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Email is required")
-	}
-
-	status, err := h.Backend.CreateGovCloudAccount(req.AccountName, req.Email, req.Tags)
+	status, err := h.Backend.CreateGovCloudAccount(req.AccountName, req.Email, roleName, iamAccess, req.Tags)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
