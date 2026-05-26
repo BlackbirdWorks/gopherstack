@@ -155,8 +155,9 @@ func (h *Handler) handlePutObject(c *echo.Context) error {
 	contentType := r.Header.Get("Content-Type")
 	cacheControl := r.Header.Get("Cache-Control")
 	storageClass := r.Header.Get("X-Amz-Storage-Class")
+	uploadAvailability := r.Header.Get("X-Amz-Upload-Availability")
 
-	obj, putErr := h.Backend.PutObject(path, body, contentType, cacheControl, storageClass)
+	obj, putErr := h.Backend.PutObject(path, body, contentType, cacheControl, storageClass, uploadAvailability)
 	if putErr != nil {
 		return h.writeError(c, putErr)
 	}

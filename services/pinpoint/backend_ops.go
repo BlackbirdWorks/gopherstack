@@ -130,7 +130,12 @@ func (b *InMemoryBackend) CreateVoiceTemplate(
 		return nil, ErrAlreadyExists
 	}
 
-	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/VOICE", templateName))
+	templateARN := arn.Build(
+		"mobiletargeting",
+		region,
+		accountID,
+		fmt.Sprintf("templates/%s/VOICE", templateName),
+	)
 
 	t := &VoiceTemplate{
 		ARN:          templateARN,
@@ -193,11 +198,14 @@ func (b *InMemoryBackend) UpdateVoiceTemplate(
 
 	versionKey := templateName + "/VOICE"
 	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
-	b.templateVersionHistory[versionKey] = append(b.templateVersionHistory[versionKey], templateVersionItem{
-		TemplateName:    templateName,
-		TemplateType:    ChannelTypeVoice,
-		TemplateVersion: nextVersion,
-	})
+	b.templateVersionHistory[versionKey] = append(
+		b.templateVersionHistory[versionKey],
+		templateVersionItem{
+			TemplateName:    templateName,
+			TemplateType:    ChannelTypeVoice,
+			TemplateVersion: nextVersion,
+		},
+	)
 
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
@@ -391,7 +399,10 @@ func applyCampaignMapFields(c *Campaign, req updateCampaignRequest) {
 }
 
 // UpdateCampaign updates an existing Pinpoint campaign.
-func (b *InMemoryBackend) UpdateCampaign(appID, campaignID string, req updateCampaignRequest) (*Campaign, error) {
+func (b *InMemoryBackend) UpdateCampaign(
+	appID, campaignID string,
+	req updateCampaignRequest,
+) (*Campaign, error) {
 	b.mu.Lock("UpdateCampaign")
 	defer b.mu.Unlock()
 
@@ -478,7 +489,10 @@ func (b *InMemoryBackend) GetSegments(appID string) ([]*Segment, error) {
 }
 
 // UpdateSegment updates an existing Pinpoint segment.
-func (b *InMemoryBackend) UpdateSegment(appID, segmentID string, req updateSegmentRequest) (*Segment, error) {
+func (b *InMemoryBackend) UpdateSegment(
+	appID, segmentID string,
+	req updateSegmentRequest,
+) (*Segment, error) {
 	b.mu.Lock("UpdateSegment")
 	defer b.mu.Unlock()
 
@@ -572,7 +586,10 @@ func (b *InMemoryBackend) GetJourneys(appID string) ([]*Journey, error) {
 }
 
 // UpdateJourney updates an existing Pinpoint journey.
-func (b *InMemoryBackend) UpdateJourney(appID, journeyID string, req updateJourneyRequest) (*Journey, error) {
+func (b *InMemoryBackend) UpdateJourney(
+	appID, journeyID string,
+	req updateJourneyRequest,
+) (*Journey, error) {
 	b.mu.Lock("UpdateJourney")
 	defer b.mu.Unlock()
 
@@ -723,7 +740,7 @@ func (b *InMemoryBackend) GetEmailTemplate(templateName string) (*EmailTemplate,
 // UpdateEmailTemplate updates an existing email template.
 func (b *InMemoryBackend) UpdateEmailTemplate(
 	templateName string,
-	_ createEmailTemplateRequest,
+	req createEmailTemplateRequest,
 ) (*EmailTemplate, error) {
 	b.mu.Lock("UpdateEmailTemplate")
 	defer b.mu.Unlock()
@@ -735,11 +752,41 @@ func (b *InMemoryBackend) UpdateEmailTemplate(
 
 	versionKey := templateName + "/EMAIL"
 	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
-	b.templateVersionHistory[versionKey] = append(b.templateVersionHistory[versionKey], templateVersionItem{
-		TemplateName:    templateName,
-		TemplateType:    ChannelTypeEmail,
-		TemplateVersion: nextVersion,
-	})
+	b.templateVersionHistory[versionKey] = append(
+		b.templateVersionHistory[versionKey],
+		templateVersionItem{
+			TemplateName:    templateName,
+			TemplateType:    ChannelTypeEmail,
+			TemplateVersion: nextVersion,
+		},
+	)
+
+	if req.Subject != "" {
+		t.Subject = req.Subject
+	}
+
+	if req.HTMLPart != "" {
+		t.HTMLPart = req.HTMLPart
+	}
+
+	if req.TextPart != "" {
+		t.TextPart = req.TextPart
+	}
+
+	if req.TemplateDescription != "" {
+		t.TemplateDescription = req.TemplateDescription
+	}
+
+	if req.RecommenderID != "" {
+		t.RecommenderID = req.RecommenderID
+	}
+
+	if len(req.DefaultSubstitutions) > 0 {
+		t.DefaultSubstitutions = cloneAnyMap(req.DefaultSubstitutions)
+	}
+
+	t.LastModifiedDate = nowRFC3339()
+	t.Version = nextVersion
 
 	return cloneEmailTemplate(t), nil
 }
@@ -776,7 +823,7 @@ func (b *InMemoryBackend) GetInAppTemplate(templateName string) (*InAppTemplate,
 // UpdateInAppTemplate updates an existing in-app template.
 func (b *InMemoryBackend) UpdateInAppTemplate(
 	templateName string,
-	_ createInAppTemplateRequest,
+	req createInAppTemplateRequest,
 ) (*InAppTemplate, error) {
 	b.mu.Lock("UpdateInAppTemplate")
 	defer b.mu.Unlock()
@@ -788,11 +835,29 @@ func (b *InMemoryBackend) UpdateInAppTemplate(
 
 	versionKey := templateName + "/INAPP"
 	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
-	b.templateVersionHistory[versionKey] = append(b.templateVersionHistory[versionKey], templateVersionItem{
-		TemplateName:    templateName,
-		TemplateType:    templateTypeINAPP,
-		TemplateVersion: nextVersion,
-	})
+	b.templateVersionHistory[versionKey] = append(
+		b.templateVersionHistory[versionKey],
+		templateVersionItem{
+			TemplateName:    templateName,
+			TemplateType:    templateTypeINAPP,
+			TemplateVersion: nextVersion,
+		},
+	)
+
+	if len(req.Content) > 0 {
+		t.Content = cloneContentSlice(req.Content)
+	}
+
+	if req.Layout != "" {
+		t.Layout = req.Layout
+	}
+
+	if req.TemplateDescription != "" {
+		t.TemplateDescription = req.TemplateDescription
+	}
+
+	t.LastModifiedDate = nowRFC3339()
+	t.Version = nextVersion
 
 	return cloneInAppTemplate(t), nil
 }
@@ -827,7 +892,10 @@ func (b *InMemoryBackend) GetPushTemplate(templateName string) (*PushTemplate, e
 }
 
 // UpdatePushTemplate updates an existing push notification template.
-func (b *InMemoryBackend) UpdatePushTemplate(templateName string, _ createPushTemplateRequest) (*PushTemplate, error) {
+func (b *InMemoryBackend) UpdatePushTemplate(
+	templateName string,
+	req createPushTemplateRequest,
+) (*PushTemplate, error) {
 	b.mu.Lock("UpdatePushTemplate")
 	defer b.mu.Unlock()
 
@@ -838,11 +906,41 @@ func (b *InMemoryBackend) UpdatePushTemplate(templateName string, _ createPushTe
 
 	versionKey := templateName + "/PUSH"
 	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
-	b.templateVersionHistory[versionKey] = append(b.templateVersionHistory[versionKey], templateVersionItem{
-		TemplateName:    templateName,
-		TemplateType:    templateTypePUSH,
-		TemplateVersion: nextVersion,
-	})
+	b.templateVersionHistory[versionKey] = append(
+		b.templateVersionHistory[versionKey],
+		templateVersionItem{
+			TemplateName:    templateName,
+			TemplateType:    templateTypePUSH,
+			TemplateVersion: nextVersion,
+		},
+	)
+
+	if req.Body != "" {
+		t.Body = req.Body
+	}
+
+	if req.Title != "" {
+		t.Title = req.Title
+	}
+
+	if req.TemplateDescription != "" {
+		t.TemplateDescription = req.TemplateDescription
+	}
+
+	if len(req.Default) > 0 {
+		t.Default = cloneAnyMap(req.Default)
+	}
+
+	if len(req.GCM) > 0 {
+		t.GCM = cloneAnyMap(req.GCM)
+	}
+
+	if len(req.APNS) > 0 {
+		t.APNS = cloneAnyMap(req.APNS)
+	}
+
+	t.LastModifiedDate = nowRFC3339()
+	t.Version = nextVersion
 
 	return clonePushTemplate(t), nil
 }
@@ -877,7 +975,10 @@ func (b *InMemoryBackend) GetSmsTemplate(templateName string) (*SmsTemplate, err
 }
 
 // UpdateSmsTemplate updates an existing SMS template.
-func (b *InMemoryBackend) UpdateSmsTemplate(templateName string, _ createSmsTemplateRequest) (*SmsTemplate, error) {
+func (b *InMemoryBackend) UpdateSmsTemplate(
+	templateName string,
+	req createSmsTemplateRequest,
+) (*SmsTemplate, error) {
 	b.mu.Lock("UpdateSmsTemplate")
 	defer b.mu.Unlock()
 
@@ -888,11 +989,29 @@ func (b *InMemoryBackend) UpdateSmsTemplate(templateName string, _ createSmsTemp
 
 	versionKey := templateName + "/SMS"
 	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
-	b.templateVersionHistory[versionKey] = append(b.templateVersionHistory[versionKey], templateVersionItem{
-		TemplateName:    templateName,
-		TemplateType:    ChannelTypeSMS,
-		TemplateVersion: nextVersion,
-	})
+	b.templateVersionHistory[versionKey] = append(
+		b.templateVersionHistory[versionKey],
+		templateVersionItem{
+			TemplateName:    templateName,
+			TemplateType:    ChannelTypeSMS,
+			TemplateVersion: nextVersion,
+		},
+	)
+
+	if req.Body != "" {
+		t.Body = req.Body
+	}
+
+	if req.SenderID != "" {
+		t.SenderID = req.SenderID
+	}
+
+	if req.TemplateDescription != "" {
+		t.TemplateDescription = req.TemplateDescription
+	}
+
+	t.LastModifiedDate = nowRFC3339()
+	t.Version = nextVersion
 
 	return cloneSmsTemplate(t), nil
 }
@@ -933,7 +1052,10 @@ func (b *InMemoryBackend) GetEndpoint(appID, endpointID string) (*Endpoint, erro
 }
 
 // UpdateEndpoint creates or updates a Pinpoint endpoint.
-func (b *InMemoryBackend) UpdateEndpoint(appID, endpointID string, req updateEndpointRequest) (*Endpoint, error) {
+func (b *InMemoryBackend) UpdateEndpoint(
+	appID, endpointID string,
+	req updateEndpointRequest,
+) (*Endpoint, error) {
 	b.mu.Lock("UpdateEndpoint")
 	defer b.mu.Unlock()
 
@@ -1053,7 +1175,10 @@ func applyEndpointFields(e *Endpoint, req updateEndpointRequest) {
 }
 
 // UpdateEndpointsBatch updates multiple endpoints in a single call.
-func (b *InMemoryBackend) UpdateEndpointsBatch(appID string, endpoints map[string]updateEndpointRequest) error {
+func (b *InMemoryBackend) UpdateEndpointsBatch(
+	appID string,
+	endpoints map[string]updateEndpointRequest,
+) error {
 	b.mu.Lock("UpdateEndpointsBatch")
 	defer b.mu.Unlock()
 
@@ -1108,7 +1233,10 @@ func (b *InMemoryBackend) GetEventStream(appID string) (*EventStream, error) {
 }
 
 // PutEventStream creates or updates the event stream for an application.
-func (b *InMemoryBackend) PutEventStream(appID string, req putEventStreamRequest) (*EventStream, error) {
+func (b *InMemoryBackend) PutEventStream(
+	appID string,
+	req putEventStreamRequest,
+) (*EventStream, error) {
 	b.mu.Lock("PutEventStream")
 	defer b.mu.Unlock()
 
@@ -1195,7 +1323,11 @@ func channelCredentialFlags(extra map[string]any) (bool, bool) {
 }
 
 // UpsertChannel creates or updates a channel for an app with type-specific data.
-func (b *InMemoryBackend) UpsertChannel(appID, channelType string, enabled bool, extra map[string]any) *Channel {
+func (b *InMemoryBackend) UpsertChannel(
+	appID, channelType string,
+	enabled bool,
+	extra map[string]any,
+) *Channel {
 	b.mu.Lock("UpsertChannel")
 	defer b.mu.Unlock()
 
@@ -1282,7 +1414,9 @@ func (b *InMemoryBackend) GetAllChannels(appID string) map[string]*Channel {
 // ──────────────────────────────────────────────────
 
 // GetRecommenderConfiguration retrieves a recommender by ID.
-func (b *InMemoryBackend) GetRecommenderConfiguration(recommenderID string) (*RecommenderConfiguration, error) {
+func (b *InMemoryBackend) GetRecommenderConfiguration(
+	recommenderID string,
+) (*RecommenderConfiguration, error) {
 	b.mu.RLock("GetRecommenderConfiguration")
 	defer b.mu.RUnlock()
 
@@ -1336,22 +1470,26 @@ func applyRecommenderScalars(r *RecommenderConfiguration, req createRecommenderC
 		changed = true
 	}
 
-	if req.RecommendationProviderIDType != "" && req.RecommendationProviderIDType != r.RecommendationProviderIDType {
+	if req.RecommendationProviderIDType != "" &&
+		req.RecommendationProviderIDType != r.RecommendationProviderIDType {
 		r.RecommendationProviderIDType = req.RecommendationProviderIDType
 		changed = true
 	}
 
-	if req.RecommendationProviderRoleArn != "" && req.RecommendationProviderRoleArn != r.RecommendationProviderRoleARN {
+	if req.RecommendationProviderRoleArn != "" &&
+		req.RecommendationProviderRoleArn != r.RecommendationProviderRoleARN {
 		r.RecommendationProviderRoleARN = req.RecommendationProviderRoleArn
 		changed = true
 	}
 
-	if req.RecommendationProviderURI != "" && req.RecommendationProviderURI != r.RecommendationProviderURI {
+	if req.RecommendationProviderURI != "" &&
+		req.RecommendationProviderURI != r.RecommendationProviderURI {
 		r.RecommendationProviderURI = req.RecommendationProviderURI
 		changed = true
 	}
 
-	if req.RecommendationsPerMessage != 0 && req.RecommendationsPerMessage != r.RecommendationsPerMessage {
+	if req.RecommendationsPerMessage != 0 &&
+		req.RecommendationsPerMessage != r.RecommendationsPerMessage {
 		r.RecommendationsPerMessage = req.RecommendationsPerMessage
 		changed = true
 	}
@@ -1403,7 +1541,9 @@ func (b *InMemoryBackend) UpdateRecommenderConfiguration(
 }
 
 // DeleteRecommenderConfiguration deletes a recommender by ID.
-func (b *InMemoryBackend) DeleteRecommenderConfiguration(recommenderID string) (*RecommenderConfiguration, error) {
+func (b *InMemoryBackend) DeleteRecommenderConfiguration(
+	recommenderID string,
+) (*RecommenderConfiguration, error) {
 	b.mu.Lock("DeleteRecommenderConfiguration")
 	defer b.mu.Unlock()
 
@@ -1519,7 +1659,9 @@ func (b *InMemoryBackend) GetApplicationDateRangeKpi(appID, kpiName string) (*kp
 }
 
 // GetCampaignDateRangeKpi returns stub KPI data for a campaign.
-func (b *InMemoryBackend) GetCampaignDateRangeKpi(appID, campaignID, kpiName string) (*kpiResult, error) {
+func (b *InMemoryBackend) GetCampaignDateRangeKpi(
+	appID, campaignID, kpiName string,
+) (*kpiResult, error) {
 	b.mu.RLock("GetCampaignDateRangeKpi")
 	defer b.mu.RUnlock()
 
@@ -1537,7 +1679,9 @@ func (b *InMemoryBackend) GetCampaignDateRangeKpi(appID, campaignID, kpiName str
 }
 
 // GetJourneyDateRangeKpi returns stub KPI data for a journey.
-func (b *InMemoryBackend) GetJourneyDateRangeKpi(appID, journeyID, kpiName string) (*kpiResult, error) {
+func (b *InMemoryBackend) GetJourneyDateRangeKpi(
+	appID, journeyID, kpiName string,
+) (*kpiResult, error) {
 	b.mu.RLock("GetJourneyDateRangeKpi")
 	defer b.mu.RUnlock()
 
@@ -1555,7 +1699,10 @@ func (b *InMemoryBackend) GetJourneyDateRangeKpi(appID, journeyID, kpiName strin
 }
 
 // SendMessages sends messages and tracks send count.
-func (b *InMemoryBackend) SendMessages(appID string, req sendMessagesRequest) (*messageResponse, error) {
+func (b *InMemoryBackend) SendMessages(
+	appID string,
+	req sendMessagesRequest,
+) (*messageResponse, error) {
 	b.mu.Lock("SendMessages")
 	defer b.mu.Unlock()
 
@@ -1647,7 +1794,9 @@ func (b *InMemoryBackend) PutEvents(appID string, req putEventsRequest) error {
 }
 
 // PhoneNumberValidate validates a phone number and returns a cleaned E164 response.
-func (b *InMemoryBackend) PhoneNumberValidate(phoneNumber string) (*phoneNumberValidateResponse, error) {
+func (b *InMemoryBackend) PhoneNumberValidate(
+	phoneNumber string,
+) (*phoneNumberValidateResponse, error) {
 	// Normalise to E164: strip non-digit chars, prepend + if missing.
 	digits := strings.Map(func(r rune) rune {
 		if r >= '0' && r <= '9' {
@@ -1680,7 +1829,9 @@ func (b *InMemoryBackend) PhoneNumberValidate(phoneNumber string) (*phoneNumberV
 }
 
 // RemoveAttributes removes attributes from endpoints and returns the updated attributesResource.
-func (b *InMemoryBackend) RemoveAttributes(appID, attributeType string) (*attributesResource, error) {
+func (b *InMemoryBackend) RemoveAttributes(
+	appID, attributeType string,
+) (*attributesResource, error) {
 	b.mu.Lock("RemoveAttributes")
 	defer b.mu.Unlock()
 
@@ -1731,7 +1882,9 @@ func (b *InMemoryBackend) GetInAppMessages(appID, _ string) (*inAppMessagesRespo
 }
 
 // GetCampaignActivities returns campaign activities.
-func (b *InMemoryBackend) GetCampaignActivities(appID, campaignID string) (*campaignActivitiesResponse, error) {
+func (b *InMemoryBackend) GetCampaignActivities(
+	appID, campaignID string,
+) (*campaignActivitiesResponse, error) {
 	b.mu.RLock("GetCampaignActivities")
 	defer b.mu.RUnlock()
 
@@ -1868,7 +2021,10 @@ func (b *InMemoryBackend) GetJourneyRunExecutionActivityMetrics(
 }
 
 // GetCampaignVersion returns a specific campaign version.
-func (b *InMemoryBackend) GetCampaignVersion(appID, campaignID string, version int) (*Campaign, error) {
+func (b *InMemoryBackend) GetCampaignVersion(
+	appID, campaignID string,
+	version int,
+) (*Campaign, error) {
 	b.mu.RLock("GetCampaignVersion")
 	defer b.mu.RUnlock()
 
@@ -1911,7 +2067,10 @@ func (b *InMemoryBackend) GetCampaignVersions(appID, campaignID string) ([]*Camp
 }
 
 // GetSegmentVersion returns a specific segment version.
-func (b *InMemoryBackend) GetSegmentVersion(appID, segmentID string, version int) (*Segment, error) {
+func (b *InMemoryBackend) GetSegmentVersion(
+	appID, segmentID string,
+	version int,
+) (*Segment, error) {
 	b.mu.RLock("GetSegmentVersion")
 	defer b.mu.RUnlock()
 
@@ -1954,7 +2113,9 @@ func (b *InMemoryBackend) GetSegmentVersions(appID, segmentID string) ([]*Segmen
 }
 
 // ListTemplateVersions returns stored version history for a template.
-func (b *InMemoryBackend) ListTemplateVersions(templateName, templateType string) ([]*templateVersionItem, error) {
+func (b *InMemoryBackend) ListTemplateVersions(
+	templateName, templateType string,
+) ([]*templateVersionItem, error) {
 	b.mu.RLock("ListTemplateVersions")
 	defer b.mu.RUnlock()
 

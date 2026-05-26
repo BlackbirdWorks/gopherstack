@@ -942,9 +942,20 @@ func (h *Handler) handleListTemplates(c *echo.Context) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
+	prefix := c.QueryParam("prefix")
+	templateType := strings.ToUpper(c.QueryParam("template-type"))
+
 	resp := templatesListResponse{Item: make([]templateListItem, 0, len(items))}
 
 	for _, item := range items {
+		if prefix != "" && !strings.HasPrefix(item.TemplateName, prefix) {
+			continue
+		}
+
+		if templateType != "" && !strings.EqualFold(item.TemplateType, templateType) {
+			continue
+		}
+
 		resp.Item = append(resp.Item, *item)
 	}
 
@@ -1668,12 +1679,40 @@ func toImportJobResponse(j *ImportJob) importJobResponse {
 }
 
 func cloneEmailTemplateToResponse(t *EmailTemplate) map[string]any {
-	return map[string]any{
-		"Arn":          t.ARN,
-		"TemplateName": t.TemplateName,
-		"CreationDate": t.CreationDate,
-		"tags":         t.Tags,
+	resp := map[string]any{
+		"Arn":              t.ARN,
+		"TemplateName":     t.TemplateName,
+		"CreationDate":     t.CreationDate,
+		"LastModifiedDate": t.LastModifiedDate,
+		"Version":          t.Version,
+		"tags":             t.Tags,
 	}
+
+	if t.Subject != "" {
+		resp["Subject"] = t.Subject
+	}
+
+	if t.HTMLPart != "" {
+		resp["HtmlPart"] = t.HTMLPart
+	}
+
+	if t.TextPart != "" {
+		resp["TextPart"] = t.TextPart
+	}
+
+	if t.TemplateDescription != "" {
+		resp["TemplateDescription"] = t.TemplateDescription
+	}
+
+	if t.RecommenderID != "" {
+		resp["RecommenderId"] = t.RecommenderID
+	}
+
+	if len(t.DefaultSubstitutions) > 0 {
+		resp["DefaultSubstitutions"] = t.DefaultSubstitutions
+	}
+
+	return resp
 }
 
 // parseVersionParam parses a version integer from a path segment.
