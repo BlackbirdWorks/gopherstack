@@ -1361,8 +1361,8 @@ func TestBackend_AddLFTagsToResource_UpdateExisting(t *testing.T) {
 	failures := b.AddLFTagsToResource("", resource, tags)
 	assert.Empty(t, failures)
 
-	// Update same tag with new values
-	tags2 := []lakeformation.LFTagPair{{TagKey: "env", TagValues: []string{"staging"}}}
+	// Update same tag with a valid value from the allowed set
+	tags2 := []lakeformation.LFTagPair{{TagKey: "env", TagValues: []string{"prod"}}}
 	failures2 := b.AddLFTagsToResource("", resource, tags2)
 	assert.Empty(t, failures2)
 }
@@ -1390,7 +1390,13 @@ func TestBackend_CreateLakeFormationIdentityCenterConfiguration_ReturnsARN(t *te
 	t.Parallel()
 
 	b := lakeformation.NewInMemoryBackend()
-	appArn := b.CreateLakeFormationIdentityCenterConfiguration("123456789012", "arn:aws:sso:::instance/x")
+	appArn, err := b.CreateLakeFormationIdentityCenterConfiguration(
+		"123456789012",
+		"arn:aws:sso:::instance/x",
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
 	assert.NotEmpty(t, appArn)
 	assert.Contains(t, appArn, "123456789012")
 }
