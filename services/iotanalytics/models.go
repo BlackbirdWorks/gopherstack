@@ -48,45 +48,376 @@ func isNotFound(err error) bool {
 	return ok
 }
 
+// ----------------------------------------
+// Storage types
+// ----------------------------------------
+
+// ServiceManagedS3Storage indicates AWS-managed S3 storage (marker type).
+type ServiceManagedS3Storage struct{}
+
+// CustomerManagedS3ChannelStorage is customer-managed S3 for channels.
+type CustomerManagedS3ChannelStorage struct {
+	Bucket    string `json:"bucket"`
+	KeyPrefix string `json:"keyPrefix,omitempty"`
+	RoleArn   string `json:"roleArn"`
+}
+
+// ChannelStorage is the storage configuration for a channel.
+type ChannelStorage struct {
+	ServiceManagedS3  *ServiceManagedS3Storage         `json:"serviceManagedS3,omitempty"`
+	CustomerManagedS3 *CustomerManagedS3ChannelStorage `json:"customerManagedS3,omitempty"`
+}
+
+// CustomerManagedS3DatastoreStorage is customer-managed S3 for datastores.
+type CustomerManagedS3DatastoreStorage struct {
+	Bucket    string `json:"bucket"`
+	KeyPrefix string `json:"keyPrefix,omitempty"`
+	RoleArn   string `json:"roleArn"`
+}
+
+// IotSiteWiseMultiLayerStorage is IoT SiteWise multi-layer storage for datastores.
+type IotSiteWiseMultiLayerStorage struct {
+	CustomerManagedS3Storage *CustomerManagedS3DatastoreStorage `json:"customerManagedS3Storage,omitempty"`
+}
+
+// DatastoreStorage is the storage configuration for a datastore.
+type DatastoreStorage struct {
+	ServiceManagedS3             *ServiceManagedS3Storage           `json:"serviceManagedS3,omitempty"`
+	CustomerManagedS3            *CustomerManagedS3DatastoreStorage `json:"customerManagedS3,omitempty"`
+	IotSiteWiseMultiLayerStorage *IotSiteWiseMultiLayerStorage      `json:"iotSiteWiseMultiLayerStorage,omitempty"`
+}
+
+// ----------------------------------------
+// Retention and format types
+// ----------------------------------------
+
+// RetentionPeriod defines how long data is retained.
+// Exactly one of Unlimited or NumberOfDays must be set.
+type RetentionPeriod struct {
+	NumberOfDays int  `json:"numberOfDays,omitempty"`
+	Unlimited    bool `json:"unlimited,omitempty"`
+}
+
+// ColumnSchema defines a column in a Parquet schema.
+type ColumnSchema struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// SchemaDefinition defines the schema for Parquet format.
+type SchemaDefinition struct {
+	Columns []ColumnSchema `json:"columns"`
+}
+
+// ParquetConfiguration defines Parquet file format settings.
+type ParquetConfiguration struct {
+	SchemaDefinition *SchemaDefinition `json:"schemaDefinition,omitempty"`
+}
+
+// JsonConfiguration defines JSON file format settings (marker type).
+type JsonConfiguration struct{}
+
+// FileFormatConfiguration defines the file format for a datastore.
+type FileFormatConfiguration struct {
+	JsonConfiguration    *JsonConfiguration    `json:"jsonConfiguration,omitempty"`
+	ParquetConfiguration *ParquetConfiguration `json:"parquetConfiguration,omitempty"`
+}
+
+// ----------------------------------------
+// Partition types
+// ----------------------------------------
+
+// AttributePartition defines a datastore partition by message attribute.
+type AttributePartition struct {
+	AttributeName string `json:"attributeName"`
+}
+
+// TimestampPartition defines a datastore partition by timestamp attribute.
+type TimestampPartition struct {
+	AttributeName   string `json:"attributeName"`
+	TimestampFormat string `json:"timestampFormat,omitempty"`
+}
+
+// DatastorePartitionEntry is one partition definition (union).
+type DatastorePartitionEntry struct {
+	AttributePartition *AttributePartition `json:"attributePartition,omitempty"`
+	TimestampPartition *TimestampPartition `json:"timestampPartition,omitempty"`
+}
+
+// DatastorePartitions holds all partition definitions for a datastore.
+type DatastorePartitions struct {
+	Partitions []DatastorePartitionEntry `json:"partitions"`
+}
+
+// ----------------------------------------
+// Pipeline activity types
+// ----------------------------------------
+
+// PipelineChannelActivity is the pipeline channel source activity.
+type PipelineChannelActivity struct {
+	ChannelName string `json:"channelName"`
+	Name        string `json:"name"`
+	Next        string `json:"next,omitempty"`
+}
+
+// PipelineLambdaActivity invokes a Lambda function on messages.
+type PipelineLambdaActivity struct {
+	LambdaName string `json:"lambdaName"`
+	Name       string `json:"name"`
+	BatchSize  int    `json:"batchSize,omitempty"`
+	Next       string `json:"next,omitempty"`
+}
+
+// PipelineDatastoreActivity is the pipeline sink activity.
+type PipelineDatastoreActivity struct {
+	DatastoreName string `json:"datastoreName"`
+	Name          string `json:"name"`
+}
+
+// PipelineAddAttributesActivity adds attributes to messages.
+type PipelineAddAttributesActivity struct {
+	Attributes map[string]string `json:"attributes"`
+	Name       string            `json:"name"`
+	Next       string            `json:"next,omitempty"`
+}
+
+// PipelineRemoveAttributesActivity removes attributes from messages.
+type PipelineRemoveAttributesActivity struct {
+	Attributes []string `json:"attributes"`
+	Name       string   `json:"name"`
+	Next       string   `json:"next,omitempty"`
+}
+
+// PipelineSelectAttributesActivity selects specific attributes from messages.
+type PipelineSelectAttributesActivity struct {
+	Attributes []string `json:"attributes"`
+	Name       string   `json:"name"`
+	Next       string   `json:"next,omitempty"`
+}
+
+// PipelineFilterActivity filters messages based on a condition.
+type PipelineFilterActivity struct {
+	Filter string `json:"filter"`
+	Name   string `json:"name"`
+	Next   string `json:"next,omitempty"`
+}
+
+// PipelineMathActivity computes a math expression and adds result as an attribute.
+type PipelineMathActivity struct {
+	Attribute string `json:"attribute"`
+	Math      string `json:"math"`
+	Name      string `json:"name"`
+	Next      string `json:"next,omitempty"`
+}
+
+// PipelineDeviceRegistryEnrichActivity enriches messages with Device Registry data.
+type PipelineDeviceRegistryEnrichActivity struct {
+	Attribute string `json:"attribute"`
+	ThingName string `json:"thingName"`
+	RoleArn   string `json:"roleArn"`
+	Name      string `json:"name"`
+	Next      string `json:"next,omitempty"`
+}
+
+// PipelineDeviceShadowEnrichActivity enriches messages with Device Shadow data.
+type PipelineDeviceShadowEnrichActivity struct {
+	Attribute string `json:"attribute"`
+	ThingName string `json:"thingName"`
+	RoleArn   string `json:"roleArn"`
+	Name      string `json:"name"`
+	Next      string `json:"next,omitempty"`
+}
+
+// PipelineActivity is a typed pipeline activity union.
+type PipelineActivity struct {
+	Channel              *PipelineChannelActivity               `json:"channel,omitempty"`
+	Lambda               *PipelineLambdaActivity                `json:"lambda,omitempty"`
+	Datastore            *PipelineDatastoreActivity             `json:"datastore,omitempty"`
+	AddAttributes        *PipelineAddAttributesActivity         `json:"addAttributes,omitempty"`
+	RemoveAttributes     *PipelineRemoveAttributesActivity      `json:"removeAttributes,omitempty"`
+	SelectAttributes     *PipelineSelectAttributesActivity      `json:"selectAttributes,omitempty"`
+	Filter               *PipelineFilterActivity                `json:"filter,omitempty"`
+	Math                 *PipelineMathActivity                  `json:"math,omitempty"`
+	DeviceRegistryEnrich *PipelineDeviceRegistryEnrichActivity  `json:"deviceRegistryEnrich,omitempty"`
+	DeviceShadowEnrich   *PipelineDeviceShadowEnrichActivity    `json:"deviceShadowEnrich,omitempty"`
+}
+
+// ----------------------------------------
+// Dataset action and trigger types
+// ----------------------------------------
+
+// DeltaTime defines an offset for dataset query filters.
+type DeltaTime struct {
+	OffsetSeconds  int    `json:"offsetSeconds"`
+	TimeExpression string `json:"timeExpression"`
+}
+
+// DatasetQueryFilter is a filter applied to a query action.
+type DatasetQueryFilter struct {
+	DeltaTime *DeltaTime `json:"deltaTime,omitempty"`
+}
+
+// DatasetQueryAction defines an SQL query action on a dataset.
+type DatasetQueryAction struct {
+	SqlQuery string               `json:"sqlQuery"`
+	Filters  []DatasetQueryFilter `json:"filters,omitempty"`
+}
+
+// ResourceConfiguration defines compute resources for container actions.
+type ResourceConfiguration struct {
+	ComputeType    string `json:"computeType"`
+	VolumeSizeInGB int    `json:"volumeSizeInGB"`
+}
+
+// DatasetVariable is a variable passed to a container action.
+type DatasetVariable struct {
+	Name                       string   `json:"name"`
+	StringValue                *string  `json:"stringValue,omitempty"`
+	DoubleValue                *float64 `json:"doubleValue,omitempty"`
+	DatasetContentVersionValue *string  `json:"datasetContentVersionValue,omitempty"`
+	OutputFileUriValue         *string  `json:"outputFileUriValue,omitempty"`
+}
+
+// DatasetContainerAction defines a container execution action on a dataset.
+type DatasetContainerAction struct {
+	Image                 string                 `json:"image"`
+	ExecutionRoleArn      string                 `json:"executionRoleArn"`
+	ResourceConfiguration *ResourceConfiguration `json:"resourceConfiguration"`
+	Variables             []DatasetVariable      `json:"variables,omitempty"`
+}
+
+// DatasetAction is an action on a dataset (query or container).
+type DatasetAction struct {
+	ActionName      string                  `json:"actionName"`
+	QueryAction     *DatasetQueryAction     `json:"queryAction,omitempty"`
+	ContainerAction *DatasetContainerAction `json:"containerAction,omitempty"`
+}
+
+// ScheduleExpression defines a cron-based schedule trigger.
+type ScheduleExpression struct {
+	Expression string `json:"expression"`
+}
+
+// DatasetTriggerDataset triggers a dataset when another dataset produces content.
+type DatasetTriggerDataset struct {
+	Name string `json:"name"`
+}
+
+// DatasetTrigger triggers automatic dataset content creation.
+type DatasetTrigger struct {
+	Schedule *ScheduleExpression    `json:"schedule,omitempty"`
+	Dataset  *DatasetTriggerDataset `json:"dataset,omitempty"`
+}
+
+// IotEventsDestination delivers content to IoT Events.
+type IotEventsDestination struct {
+	InputName string `json:"inputName"`
+	RoleArn   string `json:"roleArn"`
+}
+
+// GlueConfiguration defines AWS Glue catalog settings for S3 delivery.
+type GlueConfiguration struct {
+	TableName    string `json:"tableName"`
+	DatabaseName string `json:"databaseName"`
+}
+
+// S3DestinationConfiguration delivers content to S3.
+type S3DestinationConfiguration struct {
+	Bucket            string             `json:"bucket"`
+	Key               string             `json:"key"`
+	RoleArn           string             `json:"roleArn"`
+	GlueConfiguration *GlueConfiguration `json:"glueConfiguration,omitempty"`
+}
+
+// ContentDeliveryDestination is the destination for a content delivery rule.
+type ContentDeliveryDestination struct {
+	IotEventsDestinationConfiguration *IotEventsDestination        `json:"iotEventsDestinationConfiguration,omitempty"`
+	S3DestinationConfiguration        *S3DestinationConfiguration  `json:"s3DestinationConfiguration,omitempty"`
+}
+
+// ContentDeliveryRule defines where dataset content is delivered on creation.
+type ContentDeliveryRule struct {
+	Destination *ContentDeliveryDestination `json:"destination"`
+	EntryName   string                      `json:"entryName,omitempty"`
+}
+
+// VersioningConfiguration controls how many content versions to retain.
+type VersioningConfiguration struct {
+	MaxVersions int  `json:"maxVersions,omitempty"`
+	Unlimited   bool `json:"unlimited,omitempty"`
+}
+
+// DeltaTimeSessionWindowConfiguration defines a session window for late data.
+type DeltaTimeSessionWindowConfiguration struct {
+	TimeoutInMinutes int `json:"timeoutInMinutes"`
+}
+
+// LateDataRuleConfiguration is the configuration for a late data rule.
+type LateDataRuleConfiguration struct {
+	DeltaTimeSessionWindowConfiguration *DeltaTimeSessionWindowConfiguration `json:"deltaTimeSessionWindowConfiguration,omitempty"`
+}
+
+// LateDataRule defines conditions under which late data triggers dataset refresh.
+type LateDataRule struct {
+	RuleName          string                     `json:"ruleName,omitempty"`
+	RuleConfiguration *LateDataRuleConfiguration `json:"ruleConfiguration"`
+}
+
+// ----------------------------------------
+// Core resource types
+// ----------------------------------------
+
 // Channel stores all metadata and state for a single IoT Analytics channel.
 type Channel struct {
-	Tags         map[string]string `json:"tags"`
-	Name         string            `json:"name"`
-	ARN          string            `json:"arn"`
-	Status       string            `json:"status"`
-	CreationTime float64           `json:"creationTime"`
-	LastUpdate   float64           `json:"lastUpdate"`
+	Tags                   map[string]string `json:"tags"`
+	Storage                *ChannelStorage   `json:"storage,omitempty"`
+	RetentionPeriod        *RetentionPeriod  `json:"retentionPeriod,omitempty"`
+	Name                   string            `json:"name"`
+	ARN                    string            `json:"arn"`
+	Status                 string            `json:"status"`
+	CreationTime           float64           `json:"creationTime"`
+	LastUpdate             float64           `json:"lastUpdate"`
+	LastMessageArrivalTime float64           `json:"lastMessageArrivalTime,omitempty"`
 }
 
 // Datastore stores all metadata and state for a single IoT Analytics datastore.
 type Datastore struct {
-	Tags         map[string]string `json:"tags"`
-	Name         string            `json:"name"`
-	ARN          string            `json:"arn"`
-	Status       string            `json:"status"`
-	CreationTime float64           `json:"creationTime"`
-	LastUpdate   float64           `json:"lastUpdate"`
+	Tags                    map[string]string        `json:"tags"`
+	Storage                 *DatastoreStorage        `json:"storage,omitempty"`
+	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
+	FileFormatConfiguration *FileFormatConfiguration `json:"fileFormatConfiguration,omitempty"`
+	Partitions              *DatastorePartitions     `json:"partitions,omitempty"`
+	Name                    string                   `json:"name"`
+	ARN                     string                   `json:"arn"`
+	Status                  string                   `json:"status"`
+	CreationTime            float64                  `json:"creationTime"`
+	LastUpdate              float64                  `json:"lastUpdate"`
 }
 
 // Dataset stores all metadata and state for a single IoT Analytics dataset.
 type Dataset struct {
-	Tags         map[string]string `json:"tags"`
-	Name         string            `json:"name"`
-	ARN          string            `json:"arn"`
-	Status       string            `json:"status"`
-	CreationTime float64           `json:"creationTime"`
-	LastUpdate   float64           `json:"lastUpdate"`
+	Tags                    map[string]string        `json:"tags"`
+	Actions                 []DatasetAction          `json:"actions,omitempty"`
+	Triggers                []DatasetTrigger         `json:"triggers,omitempty"`
+	ContentDeliveryRules    []ContentDeliveryRule    `json:"contentDeliveryRules,omitempty"`
+	LateDataRules           []LateDataRule           `json:"lateDataRules,omitempty"`
+	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
+	Name                    string                   `json:"name"`
+	ARN                     string                   `json:"arn"`
+	Status                  string                   `json:"status"`
+	CreationTime            float64                  `json:"creationTime"`
+	LastUpdate              float64                  `json:"lastUpdate"`
 }
 
 // Pipeline stores all metadata and state for a single IoT Analytics pipeline.
 type Pipeline struct {
-	Tags                  map[string]string                `json:"tags"`
-	Reprocessings         map[string]*PipelineReprocessing `json:"reprocessings"`
-	Name                  string                           `json:"name"`
-	ARN                   string                           `json:"arn"`
-	ReprocessingSummaries []string                         `json:"reprocessingSummaries"`
-	CreationTime          float64                          `json:"creationTime"`
-	LastUpdate            float64                          `json:"lastUpdate"`
+	Tags          map[string]string                `json:"tags"`
+	Reprocessings map[string]*PipelineReprocessing `json:"reprocessings"`
+	Activities    []PipelineActivity               `json:"activities,omitempty"`
+	Name          string                           `json:"name"`
+	ARN           string                           `json:"arn"`
+	CreationTime  float64                          `json:"creationTime"`
+	LastUpdate    float64                          `json:"lastUpdate"`
 }
 
 // LoggingOptions stores the IoT Analytics logging configuration.
@@ -109,7 +440,8 @@ type PipelineReprocessing struct {
 	ID           string  `json:"id"`
 	Status       string  `json:"status"`
 	CreationTime float64 `json:"creationTime"`
-	EndTime      float64 `json:"endTime"`
+	EndTime      float64 `json:"endTime,omitempty"`
+	StartTime    float64 `json:"startTime,omitempty"`
 }
 
 // ChannelMessage stores a single message ingested into a channel.
@@ -123,12 +455,16 @@ func epochSeconds(t time.Time) float64 {
 	return float64(t.Unix())
 }
 
-// DTO types for request/response serialization.
+// ----------------------------------------
+// DTO types for request/response serialization
+// ----------------------------------------
 
 // createChannelRequest is the request body for CreateChannel.
 type createChannelRequest struct {
-	ChannelName string   `json:"channelName"`
-	Tags        []tagDTO `json:"tags,omitempty"`
+	ChannelStorage  *ChannelStorage  `json:"channelStorage,omitempty"`
+	RetentionPeriod *RetentionPeriod `json:"retentionPeriod,omitempty"`
+	ChannelName     string           `json:"channelName"`
+	Tags            []tagDTO         `json:"tags,omitempty"`
 }
 
 // createChannelResponse is the response body for CreateChannel.
@@ -139,11 +475,12 @@ type createChannelResponse struct {
 
 // channelSummary is a summary of a channel for list operations.
 type channelSummary struct {
-	ChannelName    string  `json:"channelName"`
-	ChannelARN     string  `json:"channelArn,omitempty"`
-	Status         string  `json:"status"`
-	CreationTime   float64 `json:"creationTime"`
-	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
+	ChannelName            string  `json:"channelName"`
+	ChannelARN             string  `json:"channelArn,omitempty"`
+	Status                 string  `json:"status"`
+	CreationTime           float64 `json:"creationTime"`
+	LastUpdateTime         float64 `json:"lastUpdateTime,omitempty"`
+	LastMessageArrivalTime float64 `json:"lastMessageArrivalTime,omitempty"`
 }
 
 // listChannelsResponse is the response body for ListChannels.
@@ -159,18 +496,31 @@ type describeChannelResponse struct {
 
 // channelDetail is a detailed view of a channel.
 type channelDetail struct {
-	Name           string   `json:"name"`
-	ARN            string   `json:"arn"`
-	Status         string   `json:"status"`
-	Tags           []tagDTO `json:"tags,omitempty"`
-	CreationTime   float64  `json:"creationTime"`
-	LastUpdateTime float64  `json:"lastUpdateTime,omitempty"`
+	Storage                *ChannelStorage  `json:"storage,omitempty"`
+	RetentionPeriod        *RetentionPeriod `json:"retentionPeriod,omitempty"`
+	Tags                   []tagDTO         `json:"tags,omitempty"`
+	Name                   string           `json:"name"`
+	ARN                    string           `json:"arn"`
+	Status                 string           `json:"status"`
+	CreationTime           float64          `json:"creationTime"`
+	LastUpdateTime         float64          `json:"lastUpdateTime,omitempty"`
+	LastMessageArrivalTime float64          `json:"lastMessageArrivalTime,omitempty"`
+}
+
+// updateChannelRequest is the request body for UpdateChannel.
+type updateChannelRequest struct {
+	ChannelStorage  *ChannelStorage  `json:"channelStorage,omitempty"`
+	RetentionPeriod *RetentionPeriod `json:"retentionPeriod,omitempty"`
 }
 
 // createDatastoreRequest is the request body for CreateDatastore.
 type createDatastoreRequest struct {
-	DatastoreName string   `json:"datastoreName"`
-	Tags          []tagDTO `json:"tags,omitempty"`
+	DatastoreStorage        *DatastoreStorage        `json:"datastoreStorage,omitempty"`
+	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
+	FileFormatConfiguration *FileFormatConfiguration `json:"fileFormatConfiguration,omitempty"`
+	Partitions              *DatastorePartitions     `json:"partitions,omitempty"`
+	DatastoreName           string                   `json:"datastoreName"`
+	Tags                    []tagDTO                 `json:"tags,omitempty"`
 }
 
 // createDatastoreResponse is the response body for CreateDatastore.
@@ -201,19 +551,35 @@ type describeDatastoreResponse struct {
 
 // datastoreDetail is a detailed view of a datastore.
 type datastoreDetail struct {
-	Name           string   `json:"name"`
-	ARN            string   `json:"arn"`
-	Status         string   `json:"status"`
-	Tags           []tagDTO `json:"tags,omitempty"`
-	CreationTime   float64  `json:"creationTime"`
-	LastUpdateTime float64  `json:"lastUpdateTime,omitempty"`
+	Storage                 *DatastoreStorage        `json:"storage,omitempty"`
+	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
+	FileFormatConfiguration *FileFormatConfiguration `json:"fileFormatConfiguration,omitempty"`
+	Partitions              *DatastorePartitions     `json:"partitions,omitempty"`
+	Tags                    []tagDTO                 `json:"tags,omitempty"`
+	Name                    string                   `json:"name"`
+	ARN                     string                   `json:"arn"`
+	Status                  string                   `json:"status"`
+	CreationTime            float64                  `json:"creationTime"`
+	LastUpdateTime          float64                  `json:"lastUpdateTime,omitempty"`
+}
+
+// updateDatastoreRequest is the request body for UpdateDatastore.
+type updateDatastoreRequest struct {
+	DatastoreStorage        *DatastoreStorage        `json:"datastoreStorage,omitempty"`
+	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
+	FileFormatConfiguration *FileFormatConfiguration `json:"fileFormatConfiguration,omitempty"`
+	Partitions              *DatastorePartitions     `json:"partitions,omitempty"`
 }
 
 // createDatasetRequest is the request body for CreateDataset.
 type createDatasetRequest struct {
-	DatasetName string   `json:"datasetName"`
-	Actions     []any    `json:"actions,omitempty"`
-	Tags        []tagDTO `json:"tags,omitempty"`
+	Actions                 []DatasetAction          `json:"actions,omitempty"`
+	Triggers                []DatasetTrigger         `json:"triggers,omitempty"`
+	ContentDeliveryRules    []ContentDeliveryRule    `json:"contentDeliveryRules,omitempty"`
+	LateDataRules           []LateDataRule           `json:"lateDataRules,omitempty"`
+	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
+	DatasetName             string                   `json:"datasetName"`
+	Tags                    []tagDTO                 `json:"tags,omitempty"`
 }
 
 // createDatasetResponse is the response body for CreateDataset.
@@ -244,19 +610,33 @@ type describeDatasetResponse struct {
 
 // datasetDetail is a detailed view of a dataset.
 type datasetDetail struct {
-	Name           string   `json:"name"`
-	ARN            string   `json:"arn"`
-	Status         string   `json:"status"`
-	Tags           []tagDTO `json:"tags,omitempty"`
-	CreationTime   float64  `json:"creationTime"`
-	LastUpdateTime float64  `json:"lastUpdateTime,omitempty"`
+	Actions                 []DatasetAction          `json:"actions,omitempty"`
+	Triggers                []DatasetTrigger         `json:"triggers,omitempty"`
+	ContentDeliveryRules    []ContentDeliveryRule    `json:"contentDeliveryRules,omitempty"`
+	LateDataRules           []LateDataRule           `json:"lateDataRules,omitempty"`
+	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
+	Tags                    []tagDTO                 `json:"tags,omitempty"`
+	Name                    string                   `json:"name"`
+	ARN                     string                   `json:"arn"`
+	Status                  string                   `json:"status"`
+	CreationTime            float64                  `json:"creationTime"`
+	LastUpdateTime          float64                  `json:"lastUpdateTime,omitempty"`
+}
+
+// updateDatasetRequest is the request body for UpdateDataset.
+type updateDatasetRequest struct {
+	Actions                 []DatasetAction          `json:"actions,omitempty"`
+	Triggers                []DatasetTrigger         `json:"triggers,omitempty"`
+	ContentDeliveryRules    []ContentDeliveryRule    `json:"contentDeliveryRules,omitempty"`
+	LateDataRules           []LateDataRule           `json:"lateDataRules,omitempty"`
+	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
 }
 
 // createPipelineRequest is the request body for CreatePipeline.
 type createPipelineRequest struct {
-	PipelineName       string   `json:"pipelineName"`
-	PipelineActivities []any    `json:"pipelineActivities,omitempty"`
-	Tags               []tagDTO `json:"tags,omitempty"`
+	PipelineActivities []PipelineActivity `json:"pipelineActivities,omitempty"`
+	PipelineName       string             `json:"pipelineName"`
+	Tags               []tagDTO           `json:"tags,omitempty"`
 }
 
 // createPipelineResponse is the response body for CreatePipeline.
@@ -265,13 +645,21 @@ type createPipelineResponse struct {
 	PipelineARN  string `json:"pipelineArn"`
 }
 
+// pipelineReprocessingSummary is a typed reprocessing summary for list/describe responses.
+type pipelineReprocessingSummary struct {
+	ID           string  `json:"id"`
+	Status       string  `json:"status"`
+	CreationTime float64 `json:"creationTime"`
+	EndTime      float64 `json:"endTime,omitempty"`
+}
+
 // pipelineSummary is a summary of a pipeline for list operations.
 type pipelineSummary struct {
-	PipelineName          string   `json:"pipelineName"`
-	PipelineARN           string   `json:"pipelineArn,omitempty"`
-	ReprocessingSummaries []string `json:"reprocessingSummaries,omitempty"`
-	CreationTime          float64  `json:"creationTime"`
-	LastUpdateTime        float64  `json:"lastUpdateTime,omitempty"`
+	ReprocessingSummaries []pipelineReprocessingSummary `json:"reprocessingSummaries,omitempty"`
+	PipelineName          string                        `json:"pipelineName"`
+	PipelineARN           string                        `json:"pipelineArn,omitempty"`
+	CreationTime          float64                       `json:"creationTime"`
+	LastUpdateTime        float64                       `json:"lastUpdateTime,omitempty"`
 }
 
 // listPipelinesResponse is the response body for ListPipelines.
@@ -287,12 +675,18 @@ type describePipelineResponse struct {
 
 // pipelineDetail is a detailed view of a pipeline.
 type pipelineDetail struct {
-	Tags                  []tagDTO `json:"tags,omitempty"`
-	Name                  string   `json:"name"`
-	ARN                   string   `json:"arn"`
-	ReprocessingSummaries []string `json:"reprocessingSummaries,omitempty"`
-	CreationTime          float64  `json:"creationTime"`
-	LastUpdateTime        float64  `json:"lastUpdateTime,omitempty"`
+	Activities            []PipelineActivity            `json:"pipelineActivities,omitempty"`
+	ReprocessingSummaries []pipelineReprocessingSummary `json:"reprocessingSummaries,omitempty"`
+	Tags                  []tagDTO                      `json:"tags,omitempty"`
+	Name                  string                        `json:"name"`
+	ARN                   string                        `json:"arn"`
+	CreationTime          float64                       `json:"creationTime"`
+	LastUpdateTime        float64                       `json:"lastUpdateTime,omitempty"`
+}
+
+// updatePipelineRequest is the request body for UpdatePipeline.
+type updatePipelineRequest struct {
+	PipelineActivities []PipelineActivity `json:"pipelineActivities,omitempty"`
 }
 
 // TagDTO is a key-value tag for IoT Analytics resources.
@@ -314,8 +708,9 @@ type tagResourceRequest struct {
 	Tags []tagDTO `json:"tags"`
 }
 
-// errorResponse is the standard IoT Analytics error response.
+// errorResponse is the standard IoT Analytics error response with AWS __type field.
 type errorResponse struct {
+	Type    string `json:"__type"`
 	Message string `json:"message"`
 }
 
@@ -360,6 +755,18 @@ type sampleChannelDataResponse struct {
 // ----------------------------------------
 // StartPipelineReprocessing DTOs
 // ----------------------------------------
+
+// reprocessingChannelMessages specifies S3 paths of archived channel messages.
+type reprocessingChannelMessages struct {
+	S3Paths []string `json:"s3Paths,omitempty"`
+}
+
+// startPipelineReprocessingRequest is the request body for StartPipelineReprocessing.
+type startPipelineReprocessingRequest struct {
+	StartTime       *float64                     `json:"startTime,omitempty"`
+	EndTime         *float64                     `json:"endTime,omitempty"`
+	ChannelMessages *reprocessingChannelMessages `json:"channelMessages,omitempty"`
+}
 
 // startPipelineReprocessingResponse is the response for StartPipelineReprocessing.
 type startPipelineReprocessingResponse struct {
