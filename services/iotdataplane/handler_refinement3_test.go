@@ -667,14 +667,16 @@ func TestRefinement3_Pagination_ThingsOffByOneFixed(t *testing.T) {
 
 	things1 := page1["things"].([]any)
 	require.Len(t, things1, 2)
+	// Sorted alphabetically: alpha, beta, delta, epsilon, gamma.
 	assert.Equal(t, "alpha", things1[0])
 	assert.Equal(t, "beta", things1[1])
 
 	nextToken, hasNext := page1["nextToken"].(string)
 	require.True(t, hasNext)
-	assert.Equal(t, "gamma", nextToken, "nextToken is first item of next page")
+	// nextToken = "delta" (things[2] in sorted order, first item of next page).
+	assert.Equal(t, "delta", nextToken, "nextToken is first item of next page")
 
-	// Page 2: cursor=gamma → page starts at gamma.
+	// Page 2: cursor=delta → page starts at delta.
 	rec = doRequest(t, h, http.MethodGet,
 		"/api/things/shadow/ListThingsWithShadows?pageSize=2&nextToken="+nextToken, nil)
 	var page2 map[string]any
@@ -682,8 +684,8 @@ func TestRefinement3_Pagination_ThingsOffByOneFixed(t *testing.T) {
 
 	things2 := page2["things"].([]any)
 	require.Len(t, things2, 2)
-	assert.Equal(t, "gamma", things2[0])
-	assert.Equal(t, "delta", things2[1])
+	assert.Equal(t, "delta", things2[0])
+	assert.Equal(t, "epsilon", things2[1])
 }
 
 // ── qos stripped from ListRetainedMessages (issue #16) ───────────────────────
