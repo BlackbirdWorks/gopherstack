@@ -20,7 +20,7 @@ func TestInMemoryBackend_Channel(t *testing.T) {
 	}{
 		{
 			name:        "create_and_describe",
-			channelName: "my-channel",
+			channelName: "my_channel",
 		},
 		{
 			name:        "describe_not_found",
@@ -52,7 +52,7 @@ func TestInMemoryBackend_Channel(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, iotanalytics.ErrChannelNotFound, err)
 			default:
-				ch, err := b.CreateChannel(tt.channelName, map[string]string{"env": "test"})
+				ch, err := b.CreateChannel(tt.channelName, map[string]string{"env": "test"}, nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, tt.channelName, ch.Name)
 				assert.Equal(t, "ACTIVE", ch.Status)
@@ -62,7 +62,7 @@ func TestInMemoryBackend_Channel(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.channelName, got.Name)
 
-				err = b.UpdateChannel(tt.channelName)
+				err = b.UpdateChannel(tt.channelName, nil, nil)
 				require.NoError(t, err)
 
 				list := b.ListChannels()
@@ -89,7 +89,7 @@ func TestInMemoryBackend_Datastore(t *testing.T) {
 	}{
 		{
 			name:          "create_and_describe",
-			datastoreName: "my-datastore",
+			datastoreName: "my_datastore",
 		},
 		{
 			name:          "describe_not_found",
@@ -121,7 +121,7 @@ func TestInMemoryBackend_Datastore(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, iotanalytics.ErrDatastoreNotFound, err)
 			default:
-				ds, err := b.CreateDatastore(tt.datastoreName, nil)
+				ds, err := b.CreateDatastore(tt.datastoreName, nil, nil, nil, nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, tt.datastoreName, ds.Name)
 				assert.Equal(t, "ACTIVE", ds.Status)
@@ -153,7 +153,7 @@ func TestInMemoryBackend_Dataset(t *testing.T) {
 	}{
 		{
 			name:        "create_and_describe",
-			datasetName: "my-dataset",
+			datasetName: "my_dataset",
 		},
 		{
 			name:        "describe_not_found",
@@ -183,7 +183,7 @@ func TestInMemoryBackend_Dataset(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, iotanalytics.ErrDatasetNotFound, err)
 			default:
-				ds, err := b.CreateDataset(tt.datasetName, nil)
+				ds, err := b.CreateDataset(tt.datasetName, nil, nil, nil, nil, nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, tt.datasetName, ds.Name)
 
@@ -211,7 +211,7 @@ func TestInMemoryBackend_Pipeline(t *testing.T) {
 	}{
 		{
 			name:         "create_and_describe",
-			pipelineName: "my-pipeline",
+			pipelineName: "my_pipeline",
 		},
 		{
 			name:         "describe_not_found",
@@ -241,7 +241,7 @@ func TestInMemoryBackend_Pipeline(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, iotanalytics.ErrPipelineNotFound, err)
 			default:
-				p, err := b.CreatePipeline(tt.pipelineName, nil)
+				p, err := b.CreatePipeline(tt.pipelineName, nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, tt.pipelineName, p.Name)
 
@@ -252,7 +252,7 @@ func TestInMemoryBackend_Pipeline(t *testing.T) {
 				list := b.ListPipelines()
 				assert.Len(t, list, 1)
 
-				err = b.UpdatePipeline(tt.pipelineName)
+				err = b.UpdatePipeline(tt.pipelineName, nil)
 				require.NoError(t, err)
 
 				err = b.DeletePipeline(tt.pipelineName)
@@ -274,13 +274,13 @@ func TestInMemoryBackend_Tags(t *testing.T) {
 	}{
 		{
 			name:        "tag_and_list",
-			channelName: "tagged-channel",
+			channelName: "tagged_channel",
 			tags:        map[string]string{"env": "test", "team": "ops"},
 			wantCount:   2,
 		},
 		{
 			name:        "tag_and_untag",
-			channelName: "untagged-channel",
+			channelName: "untagged_channel",
 			tags:        map[string]string{"env": "test", "team": "ops"},
 			removeTags:  []string{"env"},
 			wantCount:   1,
@@ -293,7 +293,7 @@ func TestInMemoryBackend_Tags(t *testing.T) {
 
 			b := iotanalytics.NewInMemoryBackend()
 
-			ch, err := b.CreateChannel(tt.channelName, nil)
+			ch, err := b.CreateChannel(tt.channelName, nil, nil, nil)
 			require.NoError(t, err)
 
 			tagList := make([]iotanalytics.ExportedTagDTO, 0, len(tt.tags))
@@ -325,28 +325,28 @@ func TestInMemoryBackend_DatasetContentCap(t *testing.T) {
 
 	b := iotanalytics.NewInMemoryBackend()
 
-	_, err := b.CreateDataset("capped-ds", nil)
+	_, err := b.CreateDataset("capped_ds", nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Fill to exactly the cap.
 	var firstVersionID string
 	for i := range maxContents {
-		c, cerr := b.CreateDatasetContent("capped-ds")
+		c, cerr := b.CreateDatasetContent("capped_ds")
 		require.NoError(t, cerr)
 		if i == 0 {
 			firstVersionID = c.VersionID
 		}
 	}
 
-	contents, err := b.ListDatasetContents("capped-ds")
+	contents, err := b.ListDatasetContents("capped_ds")
 	require.NoError(t, err)
 	assert.Len(t, contents, maxContents, "should have exactly cap versions before exceeding")
 
 	// Add one more — oldest should be evicted.
-	newest, err := b.CreateDatasetContent("capped-ds")
+	newest, err := b.CreateDatasetContent("capped_ds")
 	require.NoError(t, err)
 
-	contents, err = b.ListDatasetContents("capped-ds")
+	contents, err = b.ListDatasetContents("capped_ds")
 	require.NoError(t, err)
 	assert.Len(t, contents, maxContents, "count must not exceed cap after overflow")
 
@@ -356,6 +356,6 @@ func TestInMemoryBackend_DatasetContentCap(t *testing.T) {
 	}
 
 	// The newest version must be present.
-	_, err = b.GetDatasetContent("capped-ds", newest.VersionID)
+	_, err = b.GetDatasetContent("capped_ds", newest.VersionID)
 	assert.NoError(t, err, "newest version must be retained")
 }
