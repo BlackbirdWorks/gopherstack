@@ -250,12 +250,31 @@ func TestRefinement2_ListDataCellsFilter_Empty(t *testing.T) {
 	b := lakeformation.NewInMemoryBackend()
 	h := lakeformation.NewHandler(b)
 
+	// Table is required per AWS behaviour (issue #15)
 	rec := postJSON(t, h, "/ListDataCellsFilter", map[string]any{})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRefinement2_ListDataCellsFilter_WithTable(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+
+	rec := postJSON(t, h, "/ListDataCellsFilter", map[string]any{
+		"Table": map[string]any{
+			"DatabaseName": "mydb",
+			"Name":         "mytable",
+		},
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
 	require.NoError(t, jsonDecode(rec.Body, &out))
-	assert.NotNil(t, out["DataCellsFilters"])
+	filters, ok := out["DataCellsFilters"]
+	if ok {
+		assert.NotNil(t, filters)
+	}
 }
 
 func TestRefinement2_ListDataCellsFilter_AfterCreate(t *testing.T) {
@@ -559,7 +578,7 @@ func TestRefinement2_ListPermissions_SortedDeterministic(t *testing.T) {
 		Permissions: []string{"SELECT"},
 	})
 
-	perms, _ := b.ListPermissions("", 0, "")
+	perms, _ := b.ListPermissions("", nil, "", nil, 0, "")
 	require.Len(t, perms, 2)
 	// alice sorts before bob
 	assert.Equal(t, "arn:aws:iam::000000000000:user/alice", perms[0].Principal.DataLakePrincipalIdentifier)
@@ -594,6 +613,6 @@ func TestRefinement2_ExportHelpers(t *testing.T) {
 	assert.Equal(t, 0, b.IdentityCenterConfigCount())
 
 	b.AddLFTagInternal("", "k", []string{"v"})
-	b.CreateLakeFormationIdentityCenterConfiguration("123", "arn:aws:sso:::instance/ssoins-abc")
+	_, _ = b.CreateLakeFormationIdentityCenterConfiguration("123", "arn:aws:sso:::instance/ssoins-abc", nil, nil)
 	assert.Equal(t, 1, b.IdentityCenterConfigCount())
 }

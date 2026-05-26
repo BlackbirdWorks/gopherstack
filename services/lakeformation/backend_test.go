@@ -101,11 +101,11 @@ func TestRegisterDeregisterDescribeResource(t *testing.T) {
 				return
 			}
 
-			err := b.RegisterResource(tt.resourceArn, tt.roleArn)
+			err := b.RegisterResource(tt.resourceArn, tt.roleArn, nil, nil, nil)
 			require.NoError(t, err)
 
 			if tt.wantErr {
-				err = b.RegisterResource(tt.resourceArn, tt.roleArn)
+				err = b.RegisterResource(tt.resourceArn, tt.roleArn, nil, nil, nil)
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "already")
 
@@ -178,7 +178,7 @@ func TestListResources(t *testing.T) {
 			b := lakeformation.NewInMemoryBackend()
 
 			for _, arn := range tt.arns {
-				require.NoError(t, b.RegisterResource(arn, "arn:aws:iam::123456789012:role/R"))
+				require.NoError(t, b.RegisterResource(arn, "arn:aws:iam::123456789012:role/R", nil, nil, nil))
 			}
 
 			resources, nextToken := b.ListResources(tt.maxResults, "")
@@ -337,12 +337,12 @@ func TestGrantRevokeListPermissions(t *testing.T) {
 
 			require.NoError(t, b.GrantPermissions(entry))
 
-			entries, _ := b.ListPermissions(tt.resourceArn, 0, "")
+			entries, _ := b.ListPermissions(tt.resourceArn, nil, "", nil, 0, "")
 			assert.Len(t, entries, tt.wantCount)
 
 			require.NoError(t, b.RevokePermissions(entry))
 
-			entries, _ = b.ListPermissions(tt.resourceArn, 0, "")
+			entries, _ = b.ListPermissions(tt.resourceArn, nil, "", nil, 0, "")
 			assert.Empty(t, entries)
 		})
 	}
@@ -458,7 +458,7 @@ func TestRevokePermissions_NoDanglingPointers(t *testing.T) {
 			// Revoke first entry.
 			require.NoError(t, b.RevokePermissions(p1))
 
-			entries, _ := b.ListPermissions("", 0, "")
+			entries, _ := b.ListPermissions("", nil, "", nil, 0, "")
 			assert.Len(t, entries, 1)
 			assert.Equal(t, "arn:aws:iam::123:user/b", entries[0].Principal.DataLakePrincipalIdentifier)
 		})
@@ -527,7 +527,7 @@ func TestPermissionMatches_EdgeCases(t *testing.T) {
 			require.NoError(t, b.GrantPermissions(entry))
 			require.NoError(t, b.RevokePermissions(entry))
 
-			entries, _ := b.ListPermissions("", 0, "")
+			entries, _ := b.ListPermissions("", nil, "", nil, 0, "")
 			assert.Len(t, entries, tt.wantRemain)
 		})
 	}
@@ -639,8 +639,8 @@ func TestPaginate_NextToken(t *testing.T) {
 
 			b := lakeformation.NewInMemoryBackend()
 
-			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-a", "arn:aws:iam::123:role/r"))
-			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-b", "arn:aws:iam::123:role/r"))
+			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-a", "arn:aws:iam::123:role/r", nil, nil, nil))
+			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-b", "arn:aws:iam::123:role/r", nil, nil, nil))
 
 			resources, token := b.ListResources(tt.maxResults, "")
 			assert.Len(t, resources, tt.wantCount)
@@ -687,11 +687,11 @@ func TestPermissionMatches_NilHandling(t *testing.T) {
 			require.NoError(t, b.GrantPermissions(entry))
 
 			// Filter by a specific ARN - should not match the catalog resource.
-			filtered, _ := b.ListPermissions("arn:aws:s3:::no-match", 0, "")
+			filtered, _ := b.ListPermissions("arn:aws:s3:::no-match", nil, "", nil, 0, "")
 			assert.Empty(t, filtered)
 
 			// Filter by empty ARN - should return the catalog entry.
-			all, _ := b.ListPermissions("", 0, "")
+			all, _ := b.ListPermissions("", nil, "", nil, 0, "")
 			assert.Len(t, all, tt.wantCount)
 		})
 	}
@@ -790,8 +790,8 @@ func TestPaginate_InvalidNextToken(t *testing.T) {
 
 			b := lakeformation.NewInMemoryBackend()
 
-			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-x", "arn:role"))
-			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-y", "arn:role"))
+			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-x", "arn:role", nil, nil, nil))
+			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-y", "arn:role", nil, nil, nil))
 
 			resources, _ := b.ListResources(0, tt.nextToken)
 			assert.Len(t, resources, tt.wantCount)
