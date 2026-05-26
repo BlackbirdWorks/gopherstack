@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -19,9 +20,95 @@ var (
 	ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrConflict)
 	ErrValidation    = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 
-	// vaultNameRe matches valid vault names: 2–50 alphanumeric-or-hyphen chars.
-	vaultNameRe = regexp.MustCompile(`^[a-zA-Z0-9\-]{2,50}$`)
+	// vaultNameRe matches valid vault names: 2–50 alphanumeric, hyphen, or underscore chars.
+	vaultNameRe = regexp.MustCompile(`^[a-zA-Z0-9_\-]{2,50}$`)
+
+	// validVaultEvents is the canonical set of AWS Backup vault notification events.
+	validVaultEvents = map[string]struct{}{
+		"BACKUP_JOB_STARTED":         {},
+		"BACKUP_JOB_COMPLETED":       {},
+		"BACKUP_JOB_SUCCESSFUL":      {},
+		"BACKUP_JOB_FAILED":          {},
+		"BACKUP_JOB_EXPIRED":         {},
+		"RESTORE_JOB_STARTED":        {},
+		"RESTORE_JOB_COMPLETED":      {},
+		"RESTORE_JOB_SUCCESSFUL":     {},
+		"RESTORE_JOB_FAILED":         {},
+		"COPY_JOB_STARTED":           {},
+		"COPY_JOB_SUCCESSFUL":        {},
+		"COPY_JOB_FAILURE":           {},
+		"RECOVERY_POINT_MODIFIED":    {},
+		"BACKUP_PLAN_CREATED":        {},
+		"BACKUP_PLAN_MODIFIED":       {},
+		"S3_BACKUP_OBJECT_FAILED":    {},
+		"S3_RESTORE_OBJECT_FAILED":   {},
+	}
 )
+
+// Lifecycle holds backup retention lifecycle settings for a rule or recovery point.
+type Lifecycle struct {
+	MoveToColdStorageAfterDays          int64 `json:"moveToColdStorageAfterDays,omitempty"`
+	DeleteAfterDays                     int64 `json:"deleteAfterDays,omitempty"`
+	OptInToArchiveForSupportedResources bool  `json:"optInToArchiveForSupportedResources,omitempty"`
+}
+
+// CalculatedLifecycle holds computed lifecycle transition timestamps for a recovery point.
+type CalculatedLifecycle struct {
+	MoveToColdStorageAt *time.Time `json:"moveToColdStorageAt,omitempty"`
+	DeleteAt            *time.Time `json:"deleteAt,omitempty"`
+}
+
+// CopyAction defines a cross-vault copy triggered by a backup rule.
+type CopyAction struct {
+	DestinationBackupVaultArn string   `json:"destinationBackupVaultArn"`
+	Lifecycle                 Lifecycle `json:"lifecycle,omitempty"`
+}
+
+// TagCondition is a single tag-based resource selection filter.
+type TagCondition struct {
+	ConditionType  string `json:"conditionType"`
+	ConditionKey   string `json:"conditionKey"`
+	ConditionValue string `json:"conditionValue"`
+}
+
+// StringCondition holds a single key/value match condition for resource selection.
+type StringCondition struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// SelectionConditions holds fine-grained string-match conditions for resource selection.
+type SelectionConditions struct {
+	StringEquals    []StringCondition `json:"stringEquals,omitempty"`
+	StringLike      []StringCondition `json:"stringLike,omitempty"`
+	StringNotEquals []StringCondition `json:"stringNotEquals,omitempty"`
+	StringNotLike   []StringCondition `json:"stringNotLike,omitempty"`
+}
+
+// AdvancedBackupSetting enables resource-type-specific backup options (e.g., Windows VSS).
+type AdvancedBackupSetting struct {
+	ResourceType  string            `json:"resourceType"`
+	BackupOptions map[string]string `json:"backupOptions,omitempty"`
+}
+
+// FrameworkControl represents a compliance control within an audit framework.
+type FrameworkControl struct {
+	ControlName            string            `json:"controlName"`
+	ControlInputParameters map[string]string `json:"controlInputParameters,omitempty"`
+	ControlScope           map[string]any    `json:"controlScope,omitempty"`
+}
+
+// ReportDeliveryChannel specifies the S3 destination and format for report output.
+type ReportDeliveryChannel struct {
+	S3BucketName string   `json:"s3BucketName"`
+	Formats      []string `json:"formats,omitempty"`
+}
+
+// ReportSetting specifies the template and frameworks driving a report plan.
+type ReportSetting struct {
+	ReportTemplate string   `json:"reportTemplate"`
+	FrameworkArns  []string `json:"frameworkArns,omitempty"`
+}
 
 // Vault represents an AWS Backup vault.
 //
@@ -43,11 +130,17 @@ type Vault struct {
 
 // Rule represents a single rule in a backup plan.
 type Rule struct {
-	RuleName                string `json:"ruleName"`
-	TargetVaultName         string `json:"targetVaultName"`
-	ScheduleExpression      string `json:"scheduleExpression,omitempty"`
-	StartWindowMinutes      int64  `json:"startWindowMinutes,omitempty"`
-	CompletionWindowMinutes int64  `json:"completionWindowMinutes,omitempty"`
+	Lifecycle                  *Lifecycle        `json:"lifecycle,omitempty"`
+	CopyActions                []CopyAction      `json:"copyActions,omitempty"`
+	RecoveryPointTags          map[string]string `json:"recoveryPointTags,omitempty"`
+	RuleName                   string            `json:"ruleName"`
+	RuleID                     string            `json:"ruleId,omitempty"`
+	TargetVaultName            string            `json:"targetVaultName"`
+	ScheduleExpression         string            `json:"scheduleExpression,omitempty"`
+	ScheduleExpressionTimezone string            `json:"scheduleExpressionTimezone,omitempty"`
+	StartWindowMinutes         int64             `json:"startWindowMinutes,omitempty"`
+	CompletionWindowMinutes    int64             `json:"completionWindowMinutes,omitempty"`
+	EnableContinuousBackup     bool              `json:"enableContinuousBackup,omitempty"`
 }
 
 // Plan represents an AWS Backup plan.
@@ -55,48 +148,66 @@ type Rule struct {
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via TagResource / CreateBackupPlan.
 type Plan struct {
-	CreationTime   time.Time  `json:"creationTime"`
-	Tags           *tags.Tags `json:"tags,omitempty"`
-	BackupPlanName string     `json:"backupPlanName"`
-	BackupPlanArn  string     `json:"backupPlanArn"`
-	BackupPlanID   string     `json:"backupPlanId"`
-	VersionID      string     `json:"versionId"`
-	AccountID      string     `json:"accountId"`
-	Region         string     `json:"region"`
-	Rules          []Rule     `json:"rules"`
+	CreationTime           time.Time               `json:"creationTime"`
+	Tags                   *tags.Tags              `json:"tags,omitempty"`
+	BackupPlanName         string                  `json:"backupPlanName"`
+	BackupPlanArn          string                  `json:"backupPlanArn"`
+	BackupPlanID           string                  `json:"backupPlanId"`
+	VersionID              string                  `json:"versionId"`
+	AccountID              string                  `json:"accountId"`
+	Region                 string                  `json:"region"`
+	Rules                  []Rule                  `json:"rules"`
+	AdvancedBackupSettings []AdvancedBackupSetting `json:"advancedBackupSettings,omitempty"`
 }
 
 // Job represents an AWS Backup job.
 type Job struct {
-	CreationTime    time.Time  `json:"creationTime"`
-	CompletionTime  *time.Time `json:"completionTime,omitempty"`
-	ResourceArn     string     `json:"resourceArn,omitempty"`
-	BackupJobID     string     `json:"backupJobId"`
-	BackupVaultName string     `json:"backupVaultName"`
-	BackupVaultArn  string     `json:"backupVaultArn"`
-	ResourceType    string     `json:"resourceType,omitempty"`
-	IAMRoleArn      string     `json:"iamRoleArn,omitempty"`
-	State           string     `json:"state"`
-	AccountID       string     `json:"accountId"`
-	Region          string     `json:"region"`
+	CreationTime              time.Time  `json:"creationTime"`
+	CompletionTime            *time.Time `json:"completionTime,omitempty"`
+	ExpectedCompletionDate    *time.Time `json:"expectedCompletionDate,omitempty"`
+	StartBy                   *time.Time `json:"startBy,omitempty"`
+	ResourceArn               string     `json:"resourceArn,omitempty"`
+	BackupJobID               string     `json:"backupJobId"`
+	BackupVaultName           string     `json:"backupVaultName"`
+	BackupVaultArn            string     `json:"backupVaultArn"`
+	ResourceType              string     `json:"resourceType,omitempty"`
+	IAMRoleArn                string     `json:"iamRoleArn,omitempty"`
+	State                     string     `json:"state"`
+	AccountID                 string     `json:"accountId"`
+	Region                    string     `json:"region"`
+	RecoveryPointArn          string     `json:"recoveryPointArn,omitempty"`
+	PercentDone               string     `json:"percentDone,omitempty"`
+	MessageCategory           string     `json:"messageCategory,omitempty"`
+	ParentJobID               string     `json:"parentJobId,omitempty"`
+	CompositeMemberIdentifier string     `json:"compositeMemberIdentifier,omitempty"`
+	BytesTransferred          int64      `json:"bytesTransferred,omitempty"`
+	BackupSizeInBytes         int64      `json:"backupSizeInBytes,omitempty"`
+	IsParent                  bool       `json:"isParent,omitempty"`
 }
 
 // Selection represents an AWS Backup selection (resources assigned to a plan).
 type Selection struct {
-	CreationTime  time.Time `json:"creationTime"`
-	SelectionName string    `json:"selectionName"`
-	SelectionID   string    `json:"selectionId"`
-	BackupPlanID  string    `json:"backupPlanId"`
-	IAMRoleArn    string    `json:"iamRoleArn,omitempty"`
+	CreationTime  time.Time           `json:"creationTime"`
+	SelectionName string              `json:"selectionName"`
+	SelectionID   string              `json:"selectionId"`
+	BackupPlanID  string              `json:"backupPlanId"`
+	IAMRoleArn    string              `json:"iamRoleArn,omitempty"`
+	Resources     []string            `json:"resources,omitempty"`
+	NotResources  []string            `json:"notResources,omitempty"`
+	ListOfTags    []TagCondition      `json:"listOfTags,omitempty"`
+	Conditions    *SelectionConditions `json:"conditions,omitempty"`
 }
 
 // Framework represents an AWS Backup audit framework.
 type Framework struct {
-	CreationTime         time.Time  `json:"creationTime"`
-	Tags                 *tags.Tags `json:"tags,omitempty"`
-	FrameworkName        string     `json:"frameworkName"`
-	FrameworkArn         string     `json:"frameworkArn"`
-	FrameworkDescription string     `json:"frameworkDescription,omitempty"`
+	CreationTime         time.Time          `json:"creationTime"`
+	Tags                 *tags.Tags         `json:"tags,omitempty"`
+	FrameworkName        string             `json:"frameworkName"`
+	FrameworkArn         string             `json:"frameworkArn"`
+	FrameworkDescription string             `json:"frameworkDescription,omitempty"`
+	FrameworkStatus      string             `json:"frameworkStatus,omitempty"`
+	DeploymentStatus     string             `json:"deploymentStatus,omitempty"`
+	FrameworkControls    []FrameworkControl `json:"frameworkControls,omitempty"`
 }
 
 // LegalHold represents an AWS Backup legal hold.
@@ -111,11 +222,13 @@ type LegalHold struct {
 
 // ReportPlan represents an AWS Backup report plan.
 type ReportPlan struct {
-	CreationTime          time.Time  `json:"creationTime"`
-	Tags                  *tags.Tags `json:"tags,omitempty"`
-	ReportPlanName        string     `json:"reportPlanName"`
-	ReportPlanArn         string     `json:"reportPlanArn"`
-	ReportPlanDescription string     `json:"reportPlanDescription,omitempty"`
+	CreationTime          time.Time              `json:"creationTime"`
+	Tags                  *tags.Tags             `json:"tags,omitempty"`
+	ReportPlanName        string                 `json:"reportPlanName"`
+	ReportPlanArn         string                 `json:"reportPlanArn"`
+	ReportPlanDescription string                 `json:"reportPlanDescription,omitempty"`
+	ReportDeliveryChannel *ReportDeliveryChannel `json:"reportDeliveryChannel,omitempty"`
+	ReportSetting         *ReportSetting         `json:"reportSetting,omitempty"`
 }
 
 // RestoreAccessVault represents an AWS Backup restore access backup vault.
@@ -146,16 +259,24 @@ type RestoreTestingSelection struct {
 
 // RecoveryPoint represents an AWS Backup recovery point.
 type RecoveryPoint struct {
-	CreationDate      time.Time  `json:"creationDate"`
-	CompletionDate    *time.Time `json:"completionDate,omitempty"`
-	RecoveryPointArn  string     `json:"recoveryPointArn"`
-	BackupVaultName   string     `json:"backupVaultName"`
-	BackupVaultArn    string     `json:"backupVaultArn"`
-	ResourceArn       string     `json:"resourceArn,omitempty"`
-	ResourceType      string     `json:"resourceType,omitempty"`
-	IAMRoleArn        string     `json:"iamRoleArn,omitempty"`
-	Status            string     `json:"status"`
-	BackupSizeInBytes int64      `json:"backupSizeInBytes,omitempty"`
+	CreationDate              time.Time            `json:"creationDate"`
+	CompletionDate            *time.Time           `json:"completionDate,omitempty"`
+	Lifecycle                 *Lifecycle           `json:"lifecycle,omitempty"`
+	CalculatedLifecycle       *CalculatedLifecycle `json:"calculatedLifecycle,omitempty"`
+	RecoveryPointArn          string               `json:"recoveryPointArn"`
+	BackupVaultName           string               `json:"backupVaultName"`
+	BackupVaultArn            string               `json:"backupVaultArn"`
+	ResourceArn               string               `json:"resourceArn,omitempty"`
+	ResourceType              string               `json:"resourceType,omitempty"`
+	IAMRoleArn                string               `json:"iamRoleArn,omitempty"`
+	Status                    string               `json:"status"`
+	StorageClass              string               `json:"storageClass,omitempty"`
+	EncryptionKeyArn          string               `json:"encryptionKeyArn,omitempty"`
+	ParentRecoveryPointArn    string               `json:"parentRecoveryPointArn,omitempty"`
+	CompositeMemberIdentifier string               `json:"compositeMemberIdentifier,omitempty"`
+	SourceBackupVaultArn      string               `json:"sourceBackupVaultArn,omitempty"`
+	BackupSizeInBytes         int64                `json:"backupSizeInBytes,omitempty"`
+	IsEncrypted               bool                 `json:"isEncrypted,omitempty"`
 }
 
 // CopyJob represents an AWS Backup copy job.
@@ -180,9 +301,10 @@ type VaultAccessPolicy struct {
 
 // VaultLockConfig holds the lock configuration for a backup vault.
 type VaultLockConfig struct {
-	MinRetentionDays  int64 `json:"minRetentionDays,omitempty"`
-	MaxRetentionDays  int64 `json:"maxRetentionDays,omitempty"`
-	ChangeableForDays int64 `json:"changeableForDays,omitempty"`
+	LockDate          *time.Time `json:"lockDate,omitempty"`
+	MinRetentionDays  int64      `json:"minRetentionDays,omitempty"`
+	MaxRetentionDays  int64      `json:"maxRetentionDays,omitempty"`
+	ChangeableForDays int64      `json:"changeableForDays,omitempty"`
 }
 
 // VaultNotificationConfig holds notification settings for a backup vault.
@@ -294,7 +416,12 @@ func (b *InMemoryBackend) CreateBackupVault(
 		)
 	}
 
-	if _, ok := b.vaults[name]; ok {
+	if existing, ok := b.vaults[name]; ok {
+		// Idempotent create: same CreatorRequestId returns existing vault.
+		if creatorRequestID != "" && existing.CreatorRequestID == creatorRequestID {
+			cp := *existing
+			return &cp, nil
+		}
 		return nil, fmt.Errorf("%w: vault %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -380,6 +507,7 @@ func (b *InMemoryBackend) DeleteBackupVault(name string) error {
 func (b *InMemoryBackend) CreateBackupPlan(
 	planName string,
 	rules []Rule,
+	advancedSettings []AdvancedBackupSetting,
 	kv map[string]string,
 ) (*Plan, error) {
 	b.mu.Lock("CreateBackupPlan")
@@ -396,15 +524,16 @@ func (b *InMemoryBackend) CreateBackupPlan(
 		t.Merge(kv)
 	}
 	p := &Plan{
-		BackupPlanName: planName,
-		BackupPlanArn:  planARN,
-		BackupPlanID:   id,
-		VersionID:      uuid.NewString(),
-		Rules:          rules,
-		AccountID:      b.accountID,
-		Region:         b.region,
-		CreationTime:   time.Now().UTC(),
-		Tags:           t,
+		BackupPlanName:         planName,
+		BackupPlanArn:          planARN,
+		BackupPlanID:           id,
+		VersionID:              uuid.NewString(),
+		Rules:                  rules,
+		AdvancedBackupSettings: advancedSettings,
+		AccountID:              b.accountID,
+		Region:                 b.region,
+		CreationTime:           time.Now().UTC(),
+		Tags:                   t,
 	}
 	b.plans[planName] = p
 	b.planARNIndex[planARN] = planName
@@ -470,7 +599,11 @@ func (b *InMemoryBackend) ListBackupPlans() []*Plan {
 }
 
 // UpdateBackupPlan updates an existing backup plan.
-func (b *InMemoryBackend) UpdateBackupPlan(idOrName string, rules []Rule) (*Plan, error) {
+func (b *InMemoryBackend) UpdateBackupPlan(
+	idOrName string,
+	rules []Rule,
+	advancedSettings []AdvancedBackupSetting,
+) (*Plan, error) {
 	b.mu.Lock("UpdateBackupPlan")
 	defer b.mu.Unlock()
 
@@ -487,6 +620,9 @@ func (b *InMemoryBackend) UpdateBackupPlan(idOrName string, rules []Rule) (*Plan
 	}
 
 	found.Rules = rules
+	if advancedSettings != nil {
+		found.AdvancedBackupSettings = advancedSettings
+	}
 	found.VersionID = uuid.NewString()
 	cp := *found
 	cp.Rules = make([]Rule, len(found.Rules))
@@ -730,6 +866,9 @@ func (b *InMemoryBackend) CancelLegalHold(legalHoldID string) error {
 // CreateBackupSelection creates a backup selection for a plan.
 func (b *InMemoryBackend) CreateBackupSelection(
 	planID, selectionName, iamRoleArn string,
+	resources, notResources []string,
+	listOfTags []TagCondition,
+	conditions *SelectionConditions,
 ) (*Selection, error) {
 	b.mu.Lock("CreateBackupSelection")
 	defer b.mu.Unlock()
@@ -759,6 +898,10 @@ func (b *InMemoryBackend) CreateBackupSelection(
 		SelectionName: selectionName,
 		BackupPlanID:  planID,
 		IAMRoleArn:    iamRoleArn,
+		Resources:     resources,
+		NotResources:  notResources,
+		ListOfTags:    listOfTags,
+		Conditions:    conditions,
 		CreationTime:  time.Now().UTC(),
 	}
 	b.selections[planID][selectionID] = sel
@@ -768,7 +911,10 @@ func (b *InMemoryBackend) CreateBackupSelection(
 }
 
 // CreateFramework creates an audit framework.
-func (b *InMemoryBackend) CreateFramework(name, description string) (*Framework, error) {
+func (b *InMemoryBackend) CreateFramework(
+	name, description string,
+	controls []FrameworkControl,
+) (*Framework, error) {
 	b.mu.Lock("CreateFramework")
 	defer b.mu.Unlock()
 
@@ -782,6 +928,9 @@ func (b *InMemoryBackend) CreateFramework(name, description string) (*Framework,
 		FrameworkName:        name,
 		FrameworkArn:         frameworkARN,
 		FrameworkDescription: description,
+		FrameworkControls:    controls,
+		FrameworkStatus:      "ACTIVE",
+		DeploymentStatus:     "COMPLETED",
 		CreationTime:         time.Now().UTC(),
 		Tags:                 t,
 	}
@@ -865,7 +1014,11 @@ func (b *InMemoryBackend) CreateLogicallyAirGappedBackupVault(
 }
 
 // CreateReportPlan creates a report plan.
-func (b *InMemoryBackend) CreateReportPlan(name, description string) (*ReportPlan, error) {
+func (b *InMemoryBackend) CreateReportPlan(
+	name, description string,
+	deliveryChannel *ReportDeliveryChannel,
+	setting *ReportSetting,
+) (*ReportPlan, error) {
 	b.mu.Lock("CreateReportPlan")
 	defer b.mu.Unlock()
 
@@ -879,6 +1032,8 @@ func (b *InMemoryBackend) CreateReportPlan(name, description string) (*ReportPla
 		ReportPlanName:        name,
 		ReportPlanArn:         planARN,
 		ReportPlanDescription: description,
+		ReportDeliveryChannel: deliveryChannel,
+		ReportSetting:         setting,
 		CreationTime:          time.Now().UTC(),
 		Tags:                  t,
 	}
@@ -1205,12 +1360,24 @@ func (b *InMemoryBackend) AddRecoveryPoint(vaultName string, rp *RecoveryPoint) 
 // --- Vault compliance methods ---
 
 // PutBackupVaultAccessPolicy sets an access policy for a vault.
+// The policy must be valid JSON representing an IAM policy document.
 func (b *InMemoryBackend) PutBackupVaultAccessPolicy(vaultName, policy string) error {
 	b.mu.Lock("PutBackupVaultAccessPolicy")
 	defer b.mu.Unlock()
 
 	if _, ok := b.vaults[vaultName]; !ok {
 		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	if policy != "" {
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(policy), &doc); err != nil {
+			return fmt.Errorf(
+				"%w: Policy must be a valid JSON document: %s",
+				ErrValidation,
+				err.Error(),
+			)
+		}
 	}
 
 	b.vaultAccessPolicies[vaultName] = &VaultAccessPolicy{Policy: policy}
@@ -1252,6 +1419,7 @@ func (b *InMemoryBackend) DeleteBackupVaultAccessPolicy(vaultName string) error 
 }
 
 // PutBackupVaultLockConfiguration sets the lock configuration for a vault.
+// If a LockDate already exists and has passed, the configuration is immutable.
 func (b *InMemoryBackend) PutBackupVaultLockConfiguration(
 	vaultName string,
 	cfg *VaultLockConfig,
@@ -1263,10 +1431,40 @@ func (b *InMemoryBackend) PutBackupVaultLockConfiguration(
 		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
 	}
 
+	if existing := b.vaultLockConfigs[vaultName]; existing != nil {
+		if existing.LockDate != nil && time.Now().UTC().After(*existing.LockDate) {
+			return fmt.Errorf(
+				"%w: vault lock configuration is immutable: LockDate %s has passed",
+				ErrValidation,
+				existing.LockDate.Format(time.RFC3339),
+			)
+		}
+	}
+
 	cp := *cfg
+	if cp.ChangeableForDays > 0 && cp.LockDate == nil {
+		lockDate := time.Now().UTC().Add(
+			time.Duration(cp.ChangeableForDays) * 24 * time.Hour,
+		)
+		cp.LockDate = &lockDate
+	}
 	b.vaultLockConfigs[vaultName] = &cp
 
 	return nil
+}
+
+// GetBackupVaultLockConfig returns the lock configuration for a vault.
+func (b *InMemoryBackend) GetBackupVaultLockConfig(vaultName string) (*VaultLockConfig, error) {
+	b.mu.RLock("GetBackupVaultLockConfig")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.vaultLockConfigs[vaultName]
+	if !ok {
+		return nil, fmt.Errorf("%w: no lock config for vault %s", ErrNotFound, vaultName)
+	}
+
+	cp := *cfg
+	return &cp, nil
 }
 
 // DeleteBackupVaultLockConfiguration deletes the lock configuration for a vault.
@@ -1284,6 +1482,7 @@ func (b *InMemoryBackend) DeleteBackupVaultLockConfiguration(vaultName string) e
 }
 
 // PutBackupVaultNotifications sets notification configuration for a vault.
+// Events are validated against the canonical AWS Backup event enum.
 func (b *InMemoryBackend) PutBackupVaultNotifications(
 	vaultName string,
 	cfg *VaultNotificationConfig,
@@ -1295,7 +1494,19 @@ func (b *InMemoryBackend) PutBackupVaultNotifications(
 		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
 	}
 
+	for _, ev := range cfg.BackupVaultEvents {
+		if _, valid := validVaultEvents[ev]; !valid {
+			return fmt.Errorf(
+				"%w: invalid BackupVaultEvent %q; must be one of the allowed event types",
+				ErrValidation,
+				ev,
+			)
+		}
+	}
+
 	cp := *cfg
+	cp.BackupVaultEvents = make([]string, len(cfg.BackupVaultEvents))
+	copy(cp.BackupVaultEvents, cfg.BackupVaultEvents)
 	b.vaultNotifications[vaultName] = &cp
 
 	return nil

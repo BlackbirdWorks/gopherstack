@@ -292,6 +292,7 @@ func TestBatch1_ExportBackupPlanTemplate(t *testing.T) {
 		"my-plan",
 		[]backup.Rule{{RuleName: "r1", TargetVaultName: "v"}},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 

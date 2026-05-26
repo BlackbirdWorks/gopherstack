@@ -668,7 +668,7 @@ func TestBackupPersistence(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 				b := backup.NewInMemoryBackend("000000000000", "us-east-1")
-				plan, err := b.CreateBackupPlan("my-plan", nil, nil)
+				plan, err := b.CreateBackupPlan("my-plan", nil, nil, nil)
 				require.NoError(t, err)
 
 				snap := b.Snapshot()
@@ -691,7 +691,7 @@ func TestBackupPersistence(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 				b := backup.NewInMemoryBackend("000000000000", "us-east-1")
-				plan, err := b.CreateBackupPlan("id-plan", nil, nil)
+				plan, err := b.CreateBackupPlan("id-plan", nil, nil, nil)
 				require.NoError(t, err)
 
 				snap := b.Snapshot()
@@ -1380,8 +1380,13 @@ func TestBackupVaultValidation(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "invalid_chars",
+			name:       "underscore_allowed",
 			vaultName:  "my_vault_under",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "invalid_chars",
+			vaultName:  "my.vault.dot",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -1729,13 +1734,13 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	_, err := original.CreateBackupVault("persist-vault", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = original.CreateFramework("persist-fw", "test framework")
+	_, err = original.CreateFramework("persist-fw", "test framework", nil)
 	require.NoError(t, err)
 
 	_, err = original.CreateLegalHold("hold title", "hold description")
 	require.NoError(t, err)
 
-	_, err = original.CreateReportPlan("persist-rp", "test report")
+	_, err = original.CreateReportPlan("persist-rp", "test report", nil, nil)
 	require.NoError(t, err)
 
 	_, err = original.CreateRestoreTestingPlan("persist-rtp", "cron(0 12 * * ? *)")
@@ -1751,10 +1756,10 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a plan and selection.
-	plan, err := original.CreateBackupPlan("persist-plan", nil, nil)
+	plan, err := original.CreateBackupPlan("persist-plan", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = original.CreateBackupSelection(plan.BackupPlanID, "selection-1", "arn:aws:iam::123456789012:role/r")
+	_, err = original.CreateBackupSelection(plan.BackupPlanID, "selection-1", "arn:aws:iam::123456789012:role/r", nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Create a restore access vault.
@@ -1779,11 +1784,11 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, "persist-vault", vault.BackupVaultName)
 
 	// Verify frameworks.
-	fw, err := restored.CreateFramework("persist-fw-2", "")
+	fw, err := restored.CreateFramework("persist-fw-2", "", nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, fw.FrameworkArn)
 	// Original framework should still conflict.
-	_, err = restored.CreateFramework("persist-fw", "")
+	_, err = restored.CreateFramework("persist-fw", "", nil)
 	require.ErrorIs(t, err, backup.ErrAlreadyExists)
 
 	// Verify legal holds are restored.
@@ -1791,7 +1796,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify report plans.
-	_, err = restored.CreateReportPlan("persist-rp", "dup")
+	_, err = restored.CreateReportPlan("persist-rp", "dup", nil, nil)
 	require.ErrorIs(t, err, backup.ErrAlreadyExists)
 
 	// Verify restore testing plans and selections.
@@ -1834,17 +1839,17 @@ func TestBackendReset(t *testing.T) {
 
 	backend := backup.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := backup.NewInMemoryBackend("123456789012", "us-east-1").CreateFramework("fw", "")
+	_, err := backup.NewInMemoryBackend("123456789012", "us-east-1").CreateFramework("fw", "", nil)
 	require.NoError(t, err)
 
 	// Populate the backend.
 	_, err = backend.CreateBackupVault("my-vault", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = backend.CreateFramework("fw", "")
+	_, err = backend.CreateFramework("fw", "", nil)
 	require.NoError(t, err)
 
-	_, err = backend.CreateReportPlan("rp", "")
+	_, err = backend.CreateReportPlan("rp", "", nil, nil)
 	require.NoError(t, err)
 
 	handler := backup.NewHandler(backend)
@@ -1855,6 +1860,6 @@ func TestBackendReset(t *testing.T) {
 	assert.Empty(t, vaults)
 
 	// Framework can be recreated.
-	_, err = backend.CreateFramework("fw", "")
+	_, err = backend.CreateFramework("fw", "", nil)
 	assert.NoError(t, err)
 }

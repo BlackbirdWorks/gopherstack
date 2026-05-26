@@ -1580,17 +1580,40 @@ func (h *Handler) handleDeleteBackupVault(c *echo.Context, name string) error {
 
 // --- Plan handlers ---
 
+type lifecycleJSON struct {
+	MoveToColdStorageAfterDays          int64 `json:"MoveToColdStorageAfterDays,omitempty"`
+	DeleteAfterDays                     int64 `json:"DeleteAfterDays,omitempty"`
+	OptInToArchiveForSupportedResources bool  `json:"OptInToArchiveForSupportedResources,omitempty"`
+}
+
+type copyActionJSON struct {
+	DestinationBackupVaultArn string        `json:"DestinationBackupVaultArn"`
+	Lifecycle                 lifecycleJSON `json:"Lifecycle,omitempty"`
+}
+
 type backupRuleJSON struct {
-	RuleName                string `json:"RuleName"`
-	TargetBackupVaultName   string `json:"TargetBackupVaultName"`
-	ScheduleExpression      string `json:"ScheduleExpression,omitempty"`
-	StartWindowMinutes      int64  `json:"StartWindowMinutes,omitempty"`
-	CompletionWindowMinutes int64  `json:"CompletionWindowMinutes,omitempty"`
+	RecoveryPointTags          map[string]string `json:"RecoveryPointTags,omitempty"`
+	Lifecycle                  *lifecycleJSON    `json:"Lifecycle,omitempty"`
+	CopyActions                []copyActionJSON  `json:"CopyActions,omitempty"`
+	RuleName                   string            `json:"RuleName"`
+	RuleId                     string            `json:"RuleId,omitempty"`
+	TargetBackupVaultName      string            `json:"TargetBackupVaultName"`
+	ScheduleExpression         string            `json:"ScheduleExpression,omitempty"`
+	ScheduleExpressionTimezone string            `json:"ScheduleExpressionTimezone,omitempty"`
+	StartWindowMinutes         int64             `json:"StartWindowMinutes,omitempty"`
+	CompletionWindowMinutes    int64             `json:"CompletionWindowMinutes,omitempty"`
+	EnableContinuousBackup     bool              `json:"EnableContinuousBackup,omitempty"`
+}
+
+type advancedBackupSettingJSON struct {
+	ResourceType  string            `json:"ResourceType"`
+	BackupOptions map[string]string `json:"BackupOptions,omitempty"`
 }
 
 type backupPlanBodyDoc struct {
-	BackupPlanName string           `json:"BackupPlanName"`
-	Rules          []backupRuleJSON `json:"Rules"`
+	BackupPlanName         string                      `json:"BackupPlanName"`
+	Rules                  []backupRuleJSON            `json:"Rules"`
+	AdvancedBackupSettings []advancedBackupSettingJSON `json:"AdvancedBackupSettings,omitempty"`
 }
 
 type createBackupPlanBody struct {
@@ -1598,15 +1621,126 @@ type createBackupPlanBody struct {
 	BackupPlan     backupPlanBodyDoc `json:"BackupPlan"`
 }
 
+func lifecycleFromJSON(lj *lifecycleJSON) *Lifecycle {
+	if lj == nil {
+		return nil
+	}
+	return &Lifecycle{
+		MoveToColdStorageAfterDays:          lj.MoveToColdStorageAfterDays,
+		DeleteAfterDays:                     lj.DeleteAfterDays,
+		OptInToArchiveForSupportedResources: lj.OptInToArchiveForSupportedResources,
+	}
+}
+
+func lifecycleToJSON(lc *Lifecycle) *lifecycleJSON {
+	if lc == nil {
+		return nil
+	}
+	return &lifecycleJSON{
+		MoveToColdStorageAfterDays:          lc.MoveToColdStorageAfterDays,
+		DeleteAfterDays:                     lc.DeleteAfterDays,
+		OptInToArchiveForSupportedResources: lc.OptInToArchiveForSupportedResources,
+	}
+}
+
+func copyActionsFromJSON(in []copyActionJSON) []CopyAction {
+	out := make([]CopyAction, 0, len(in))
+	for _, ca := range in {
+		act := CopyAction{
+			DestinationBackupVaultArn: ca.DestinationBackupVaultArn,
+		}
+		if lc := lifecycleFromJSON(&ca.Lifecycle); lc != nil {
+			act.Lifecycle = *lc
+		}
+		out = append(out, act)
+	}
+	return out
+}
+
+func copyActionsToJSON(in []CopyAction) []copyActionJSON {
+	out := make([]copyActionJSON, 0, len(in))
+	for _, ca := range in {
+		out = append(out, copyActionJSON{
+			DestinationBackupVaultArn: ca.DestinationBackupVaultArn,
+			Lifecycle: lifecycleJSON{
+				MoveToColdStorageAfterDays:          ca.Lifecycle.MoveToColdStorageAfterDays,
+				DeleteAfterDays:                     ca.Lifecycle.DeleteAfterDays,
+				OptInToArchiveForSupportedResources: ca.Lifecycle.OptInToArchiveForSupportedResources,
+			},
+		})
+	}
+	return out
+}
+
+func advancedSettingsFromJSON(in []advancedBackupSettingJSON) []AdvancedBackupSetting {
+	out := make([]AdvancedBackupSetting, 0, len(in))
+	for _, s := range in {
+		out = append(out, AdvancedBackupSetting{
+			ResourceType:  s.ResourceType,
+			BackupOptions: s.BackupOptions,
+		})
+	}
+	return out
+}
+
+func advancedSettingsToJSON(in []AdvancedBackupSetting) []advancedBackupSettingJSON {
+	out := make([]advancedBackupSettingJSON, 0, len(in))
+	for _, s := range in {
+		out = append(out, advancedBackupSettingJSON{
+			ResourceType:  s.ResourceType,
+			BackupOptions: s.BackupOptions,
+		})
+	}
+	return out
+}
+
+func tagConditionsFromJSON(in []tagConditionJSON) []TagCondition {
+	out := make([]TagCondition, 0, len(in))
+	for _, tc := range in {
+		out = append(out, TagCondition{
+			ConditionType:  tc.ConditionType,
+			ConditionKey:   tc.ConditionKey,
+			ConditionValue: tc.ConditionValue,
+		})
+	}
+	return out
+}
+
+func stringConditionsFromJSON(in []stringConditionJSON) []StringCondition {
+	out := make([]StringCondition, 0, len(in))
+	for _, sc := range in {
+		out = append(out, StringCondition{Key: sc.Key, Value: sc.Value})
+	}
+	return out
+}
+
+func selectionConditionsFromJSON(in *selectionConditionsJSON) *SelectionConditions {
+	if in == nil {
+		return nil
+	}
+	return &SelectionConditions{
+		StringEquals:    stringConditionsFromJSON(in.StringEquals),
+		StringLike:      stringConditionsFromJSON(in.StringLike),
+		StringNotEquals: stringConditionsFromJSON(in.StringNotEquals),
+		StringNotLike:   stringConditionsFromJSON(in.StringNotLike),
+	}
+}
+
 func rulesFromJSON(in []backupRuleJSON) []Rule {
 	rules := make([]Rule, 0, len(in))
 	for _, r := range in {
 		rules = append(rules, Rule{
-			RuleName:                r.RuleName,
-			TargetVaultName:         r.TargetBackupVaultName,
-			ScheduleExpression:      r.ScheduleExpression,
-			StartWindowMinutes:      r.StartWindowMinutes,
-			CompletionWindowMinutes: r.CompletionWindowMinutes,
+			RuleName:                   r.RuleName,
+			RuleID:                     r.RuleId,
+			TargetVaultName:            r.TargetBackupVaultName,
+			ScheduleExpression:         r.ScheduleExpression,
+			ScheduleExpressionTimezone: r.ScheduleExpressionTimezone,
+			StartWindowMinutes:         r.StartWindowMinutes,
+			CompletionWindowMinutes:    r.CompletionWindowMinutes,
+			EnableContinuousBackup:     r.EnableContinuousBackup,
+			Lifecycle:                  lifecycleFromJSON(r.Lifecycle),
+			CopyActions:                copyActionsFromJSON(r.CopyActions),
+			RecoveryPointTags:          r.RecoveryPointTags,
 		})
 	}
 
@@ -1616,13 +1750,24 @@ func rulesFromJSON(in []backupRuleJSON) []Rule {
 func rulesToJSON(rules []Rule) []backupRuleJSON {
 	out := make([]backupRuleJSON, 0, len(rules))
 	for _, r := range rules {
-		out = append(out, backupRuleJSON{
-			RuleName:                r.RuleName,
-			TargetBackupVaultName:   r.TargetVaultName,
-			ScheduleExpression:      r.ScheduleExpression,
-			StartWindowMinutes:      r.StartWindowMinutes,
-			CompletionWindowMinutes: r.CompletionWindowMinutes,
-		})
+		rj := backupRuleJSON{
+			RuleName:                   r.RuleName,
+			RuleId:                     r.RuleID,
+			TargetBackupVaultName:      r.TargetVaultName,
+			ScheduleExpression:         r.ScheduleExpression,
+			ScheduleExpressionTimezone: r.ScheduleExpressionTimezone,
+			StartWindowMinutes:         r.StartWindowMinutes,
+			CompletionWindowMinutes:    r.CompletionWindowMinutes,
+			EnableContinuousBackup:     r.EnableContinuousBackup,
+			RecoveryPointTags:          r.RecoveryPointTags,
+		}
+		if r.Lifecycle != nil {
+			rj.Lifecycle = lifecycleToJSON(r.Lifecycle)
+		}
+		if len(r.CopyActions) > 0 {
+			rj.CopyActions = copyActionsToJSON(r.CopyActions)
+		}
+		out = append(out, rj)
 	}
 
 	return out
@@ -1647,6 +1792,7 @@ func (h *Handler) handleCreateBackupPlan(c *echo.Context, body []byte) error {
 	p, err := h.Backend.CreateBackupPlan(
 		in.BackupPlan.BackupPlanName,
 		rulesFromJSON(in.BackupPlan.Rules),
+		advancedSettingsFromJSON(in.BackupPlan.AdvancedBackupSettings),
 		in.BackupPlanTags,
 	)
 	if err != nil {
@@ -1667,15 +1813,19 @@ func (h *Handler) handleGetBackupPlan(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
+	planDoc := map[string]any{
+		keyBackupPlanName: p.BackupPlanName,
+		keyRules:          rulesToJSON(p.Rules),
+	}
+	if len(p.AdvancedBackupSettings) > 0 {
+		planDoc["AdvancedBackupSettings"] = advancedSettingsToJSON(p.AdvancedBackupSettings)
+	}
 	resp := map[string]any{
 		keyBackupPlanArn: p.BackupPlanArn,
 		keyBackupPlanID:  p.BackupPlanID,
 		keyVersionID:     p.VersionID,
 		keyCreationDate:  epochSeconds(p.CreationTime),
-		"BackupPlan": map[string]any{
-			keyBackupPlanName: p.BackupPlanName,
-			keyRules:          rulesToJSON(p.Rules),
-		},
+		"BackupPlan":     planDoc,
 	}
 	if p.Tags != nil {
 		if t := p.Tags.Clone(); len(t) > 0 {
@@ -1715,7 +1865,11 @@ func (h *Handler) handleUpdateBackupPlan(c *echo.Context, id string, body []byte
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 	}
 
-	p, err := h.Backend.UpdateBackupPlan(id, rulesFromJSON(in.BackupPlan.Rules))
+	p, err := h.Backend.UpdateBackupPlan(
+		id,
+		rulesFromJSON(in.BackupPlan.Rules),
+		advancedSettingsFromJSON(in.BackupPlan.AdvancedBackupSettings),
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1808,6 +1962,39 @@ func (h *Handler) handleDescribeBackupJob(c *echo.Context, jobID string) error {
 	}
 	if j.IAMRoleArn != "" {
 		resp["IamRoleArn"] = j.IAMRoleArn
+	}
+	if j.RecoveryPointArn != "" {
+		resp["RecoveryPointArn"] = j.RecoveryPointArn
+	}
+	if j.PercentDone != "" {
+		resp["PercentDone"] = j.PercentDone
+	}
+	if j.MessageCategory != "" {
+		resp["MessageCategory"] = j.MessageCategory
+	}
+	if j.ParentJobID != "" {
+		resp["ParentJobId"] = j.ParentJobID
+	}
+	if j.IsParent {
+		resp["IsParent"] = j.IsParent
+	}
+	if j.CompositeMemberIdentifier != "" {
+		resp["CompositeMemberIdentifier"] = j.CompositeMemberIdentifier
+	}
+	if j.BytesTransferred > 0 {
+		resp["BytesTransferred"] = j.BytesTransferred
+	}
+	if j.BackupSizeInBytes > 0 {
+		resp["BackupSizeInBytes"] = j.BackupSizeInBytes
+	}
+	if j.CompletionTime != nil {
+		resp["CompletionDate"] = epochSeconds(*j.CompletionTime)
+	}
+	if j.ExpectedCompletionDate != nil {
+		resp["ExpectedCompletionDate"] = epochSeconds(*j.ExpectedCompletionDate)
+	}
+	if j.StartBy != nil {
+		resp["StartBy"] = epochSeconds(*j.StartBy)
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -1948,14 +2135,36 @@ func (h *Handler) handleCancelLegalHold(c *echo.Context, legalHoldID string) err
 	return c.NoContent(http.StatusOK)
 }
 
-type createBackupSelectionBody struct {
-	BackupSelection  backupSelectionDoc `json:"BackupSelection"`
-	CreatorRequestID string             `json:"CreatorRequestId,omitempty"`
+type tagConditionJSON struct {
+	ConditionType  string `json:"ConditionType"`
+	ConditionKey   string `json:"ConditionKey"`
+	ConditionValue string `json:"ConditionValue"`
+}
+
+type stringConditionJSON struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+type selectionConditionsJSON struct {
+	StringEquals    []stringConditionJSON `json:"StringEquals,omitempty"`
+	StringLike      []stringConditionJSON `json:"StringLike,omitempty"`
+	StringNotEquals []stringConditionJSON `json:"StringNotEquals,omitempty"`
+	StringNotLike   []stringConditionJSON `json:"StringNotLike,omitempty"`
 }
 
 type backupSelectionDoc struct {
-	SelectionName string `json:"SelectionName"`
-	IamRoleArn    string `json:"IamRoleArn,omitempty"`
+	SelectionName string                   `json:"SelectionName"`
+	IamRoleArn    string                   `json:"IamRoleArn,omitempty"`
+	Resources     []string                 `json:"Resources,omitempty"`
+	NotResources  []string                 `json:"NotResources,omitempty"`
+	ListOfTags    []tagConditionJSON        `json:"ListOfTags,omitempty"`
+	Conditions    *selectionConditionsJSON  `json:"Conditions,omitempty"`
+}
+
+type createBackupSelectionBody struct {
+	BackupSelection  backupSelectionDoc `json:"BackupSelection"`
+	CreatorRequestID string             `json:"CreatorRequestId,omitempty"`
 }
 
 func (h *Handler) handleCreateBackupSelection(c *echo.Context, planID string, body []byte) error {
@@ -1975,6 +2184,10 @@ func (h *Handler) handleCreateBackupSelection(c *echo.Context, planID string, bo
 		planID,
 		in.BackupSelection.SelectionName,
 		in.BackupSelection.IamRoleArn,
+		in.BackupSelection.Resources,
+		in.BackupSelection.NotResources,
+		tagConditionsFromJSON(in.BackupSelection.ListOfTags),
+		selectionConditionsFromJSON(in.BackupSelection.Conditions),
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -1987,10 +2200,17 @@ func (h *Handler) handleCreateBackupSelection(c *echo.Context, planID string, bo
 	})
 }
 
+type frameworkControlJSON struct {
+	ControlName            string            `json:"ControlName"`
+	ControlInputParameters map[string]string `json:"ControlInputParameters,omitempty"`
+	ControlScope           map[string]any    `json:"ControlScope,omitempty"`
+}
+
 type createFrameworkBody struct {
-	FrameworkName        string `json:"FrameworkName"`
-	FrameworkDescription string `json:"FrameworkDescription,omitempty"`
-	IdempotencyToken     string `json:"IdempotencyToken,omitempty"`
+	FrameworkName        string                 `json:"FrameworkName"`
+	FrameworkDescription string                 `json:"FrameworkDescription,omitempty"`
+	FrameworkControls    []frameworkControlJSON `json:"FrameworkControls,omitempty"`
+	IdempotencyToken     string                 `json:"IdempotencyToken,omitempty"`
 }
 
 func (h *Handler) handleCreateFramework(c *echo.Context, body []byte) error {
@@ -2006,7 +2226,15 @@ func (h *Handler) handleCreateFramework(c *echo.Context, body []byte) error {
 		)
 	}
 
-	f, err := h.Backend.CreateFramework(in.FrameworkName, in.FrameworkDescription)
+	controls := make([]FrameworkControl, 0, len(in.FrameworkControls))
+	for _, fc := range in.FrameworkControls {
+		controls = append(controls, FrameworkControl{
+			ControlName:            fc.ControlName,
+			ControlInputParameters: fc.ControlInputParameters,
+			ControlScope:           fc.ControlScope,
+		})
+	}
+	f, err := h.Backend.CreateFramework(in.FrameworkName, in.FrameworkDescription, controls)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -2099,10 +2327,22 @@ func (h *Handler) handleCreateLogicallyAirGappedBackupVault(
 	})
 }
 
+type reportDeliveryChannelJSON struct {
+	S3BucketName string   `json:"S3BucketName"`
+	Formats      []string `json:"Formats,omitempty"`
+}
+
+type reportSettingJSON struct {
+	ReportTemplate string   `json:"ReportTemplate"`
+	FrameworkArns  []string `json:"FrameworkArns,omitempty"`
+}
+
 type createReportPlanBody struct {
-	ReportPlanName        string `json:"ReportPlanName"`
-	ReportPlanDescription string `json:"ReportPlanDescription,omitempty"`
-	IdempotencyToken      string `json:"IdempotencyToken,omitempty"`
+	ReportPlanName           string                      `json:"ReportPlanName"`
+	ReportPlanDescription    string                      `json:"ReportPlanDescription,omitempty"`
+	ReportDeliveryChannel    *reportDeliveryChannelJSON  `json:"ReportDeliveryChannel,omitempty"`
+	ReportSetting            *reportSettingJSON           `json:"ReportSetting,omitempty"`
+	IdempotencyToken         string                      `json:"IdempotencyToken,omitempty"`
 }
 
 func (h *Handler) handleCreateReportPlan(c *echo.Context, body []byte) error {
@@ -2118,7 +2358,26 @@ func (h *Handler) handleCreateReportPlan(c *echo.Context, body []byte) error {
 		)
 	}
 
-	rp, err := h.Backend.CreateReportPlan(in.ReportPlanName, in.ReportPlanDescription)
+	var deliveryChannel *ReportDeliveryChannel
+	if in.ReportDeliveryChannel != nil {
+		deliveryChannel = &ReportDeliveryChannel{
+			S3BucketName: in.ReportDeliveryChannel.S3BucketName,
+			Formats:      in.ReportDeliveryChannel.Formats,
+		}
+	}
+	var reportSetting *ReportSetting
+	if in.ReportSetting != nil {
+		reportSetting = &ReportSetting{
+			ReportTemplate: in.ReportSetting.ReportTemplate,
+			FrameworkArns:  in.ReportSetting.FrameworkArns,
+		}
+	}
+	rp, err := h.Backend.CreateReportPlan(
+		in.ReportPlanName,
+		in.ReportPlanDescription,
+		deliveryChannel,
+		reportSetting,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -2344,6 +2603,30 @@ func (h *Handler) handleDescribeRecoveryPoint(c *echo.Context, resource string) 
 	}
 	if rp.IAMRoleArn != "" {
 		resp["IamRoleArn"] = rp.IAMRoleArn
+	}
+	if rp.StorageClass != "" {
+		resp["StorageClass"] = rp.StorageClass
+	}
+	if rp.EncryptionKeyArn != "" {
+		resp["EncryptionKeyArn"] = rp.EncryptionKeyArn
+	}
+	if rp.IsEncrypted {
+		resp["IsEncrypted"] = rp.IsEncrypted
+	}
+	if rp.SourceBackupVaultArn != "" {
+		resp["SourceBackupVaultArn"] = rp.SourceBackupVaultArn
+	}
+	if rp.ParentRecoveryPointArn != "" {
+		resp["ParentRecoveryPointArn"] = rp.ParentRecoveryPointArn
+	}
+	if rp.CompositeMemberIdentifier != "" {
+		resp["CompositeMemberIdentifier"] = rp.CompositeMemberIdentifier
+	}
+	if rp.Lifecycle != nil {
+		resp["Lifecycle"] = lifecycleToJSON(rp.Lifecycle)
+	}
+	if rp.CalculatedLifecycle != nil {
+		resp["CalculatedLifecycle"] = rp.CalculatedLifecycle
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -2641,14 +2924,35 @@ func (h *Handler) handleGetBackupSelection(c *echo.Context, resource string) err
 		return h.handleError(c, err)
 	}
 
+	selDoc := map[string]any{
+		"SelectionName": sel.SelectionName,
+		"IamRoleArn":    sel.IAMRoleArn,
+	}
+	if len(sel.Resources) > 0 {
+		selDoc["Resources"] = sel.Resources
+	}
+	if len(sel.NotResources) > 0 {
+		selDoc["NotResources"] = sel.NotResources
+	}
+	if len(sel.ListOfTags) > 0 {
+		tags := make([]map[string]any, 0, len(sel.ListOfTags))
+		for _, tc := range sel.ListOfTags {
+			tags = append(tags, map[string]any{
+				"ConditionType":  tc.ConditionType,
+				"ConditionKey":   tc.ConditionKey,
+				"ConditionValue": tc.ConditionValue,
+			})
+		}
+		selDoc["ListOfTags"] = tags
+	}
+	if sel.Conditions != nil {
+		selDoc["Conditions"] = sel.Conditions
+	}
 	return c.JSON(http.StatusOK, map[string]any{
-		keyBackupPlanID: sel.BackupPlanID,
-		keySelectionID:  sel.SelectionID,
-		keyCreationDate: epochSeconds(sel.CreationTime),
-		"BackupSelection": map[string]any{
-			"SelectionName": sel.SelectionName,
-			"IamRoleArn":    sel.IAMRoleArn,
-		},
+		keyBackupPlanID:   sel.BackupPlanID,
+		keySelectionID:    sel.SelectionID,
+		keyCreationDate:   epochSeconds(sel.CreationTime),
+		"BackupSelection": selDoc,
 	})
 }
 
@@ -2984,12 +3288,29 @@ func (h *Handler) handleDescribeFramework(c *echo.Context, name string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyFrameworkArn:        f.FrameworkArn,
 		keyFrameworkName:       f.FrameworkName,
 		"FrameworkDescription": f.FrameworkDescription,
+		"FrameworkStatus":      f.FrameworkStatus,
+		"DeploymentStatus":     f.DeploymentStatus,
 		keyCreationTime:        epochSeconds(f.CreationTime),
-	})
+	}
+	if len(f.FrameworkControls) > 0 {
+		controls := make([]map[string]any, 0, len(f.FrameworkControls))
+		for _, fc := range f.FrameworkControls {
+			c2 := map[string]any{"ControlName": fc.ControlName}
+			if len(fc.ControlInputParameters) > 0 {
+				c2["ControlInputParameters"] = fc.ControlInputParameters
+			}
+			if fc.ControlScope != nil {
+				c2["ControlScope"] = fc.ControlScope
+			}
+			controls = append(controls, c2)
+		}
+		resp["FrameworkControls"] = controls
+	}
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListFrameworks(c *echo.Context) error {
@@ -3092,14 +3413,27 @@ func (h *Handler) handleDescribeReportPlan(c *echo.Context, name string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"ReportPlan": map[string]any{
-			keyReportPlanArn:        rp.ReportPlanArn,
-			keyReportPlanName:       rp.ReportPlanName,
-			"ReportPlanDescription": rp.ReportPlanDescription,
-			keyCreationTime:         epochSeconds(rp.CreationTime),
-		},
-	})
+	rpDoc := map[string]any{
+		keyReportPlanArn:        rp.ReportPlanArn,
+		keyReportPlanName:       rp.ReportPlanName,
+		"ReportPlanDescription": rp.ReportPlanDescription,
+		keyCreationTime:         epochSeconds(rp.CreationTime),
+	}
+	if rp.ReportDeliveryChannel != nil {
+		ch := map[string]any{"S3BucketName": rp.ReportDeliveryChannel.S3BucketName}
+		if len(rp.ReportDeliveryChannel.Formats) > 0 {
+			ch["Formats"] = rp.ReportDeliveryChannel.Formats
+		}
+		rpDoc["ReportDeliveryChannel"] = ch
+	}
+	if rp.ReportSetting != nil {
+		rs := map[string]any{"ReportTemplate": rp.ReportSetting.ReportTemplate}
+		if len(rp.ReportSetting.FrameworkArns) > 0 {
+			rs["FrameworkArns"] = rp.ReportSetting.FrameworkArns
+		}
+		rpDoc["ReportSetting"] = rs
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ReportPlan": rpDoc})
 }
 
 type updateReportPlanBody struct {
