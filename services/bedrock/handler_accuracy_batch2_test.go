@@ -1005,7 +1005,7 @@ func TestAccuracy_ARPVersion_ViaHTTP(t *testing.T) {
 			require.NoError(t, err)
 
 			var lastVersion map[string]any
-			for i := 0; i < tt.versionCount; i++ {
+			for i := range tt.versionCount {
 				rec := doRequest(t, h, http.MethodPost,
 					"/automated-reasoning-policies/"+url.PathEscape(policy.PolicyArn)+"/versions",
 					map[string]any{"notes": fmt.Sprintf("version %d", i+1)})
@@ -1045,7 +1045,7 @@ func TestAccuracy_GuardrailVersion_HTTPCreate(t *testing.T) {
 			require.NoError(t, err)
 
 			var lastOut map[string]any
-			for i := 0; i < tt.versionCount; i++ {
+			for i := range tt.versionCount {
 				rec := doRequest(t, h, http.MethodPost,
 					"/guardrails/"+g.GuardrailID,
 					map[string]any{"description": fmt.Sprintf("v%d", i+1)})
