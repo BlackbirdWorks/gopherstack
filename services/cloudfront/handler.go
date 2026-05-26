@@ -919,7 +919,7 @@ func parseCFKVSDataPlanePath(method, suffix string) (string, string, string) {
 		return "", "", ""
 	}
 
-	if key, ok := strings.CutPrefix(after, "/"); ok {
+	if key, hasSlash := strings.CutPrefix(after, "/"); hasSlash {
 		if key != "" && !strings.Contains(key, "/") {
 			switch method {
 			case http.MethodGet:

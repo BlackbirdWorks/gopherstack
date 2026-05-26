@@ -671,7 +671,7 @@ func TestInvalidationPathValidation(t *testing.T) {
 			h := cloudfront.NewHandler(b)
 			rec := doReq(t, h, http.MethodPost,
 				"/2020-05-31/distribution/"+d.ID+"/invalidation",
-				tt.body, nil)
+				tt.body)
 
 			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
 		})
