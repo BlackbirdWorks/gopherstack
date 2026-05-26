@@ -1269,6 +1269,10 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error {
 	tagKeys := c.Request().URL.Query()["tagKeys"]
 
+	if len(tagKeys) == 0 {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "tagKeys parameter is required")
+	}
+
 	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", err.Error())

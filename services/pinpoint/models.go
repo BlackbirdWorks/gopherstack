@@ -39,10 +39,18 @@ type Campaign struct {
 
 // EmailTemplate represents a Pinpoint email template.
 type EmailTemplate struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	ARN          string            `json:"Arn,omitempty"`
-	TemplateName string            `json:"TemplateName"`
-	CreationDate string            `json:"CreationDate,omitempty"`
+	ARN                  string            `json:"Arn,omitempty"`
+	CreationDate         string            `json:"CreationDate,omitempty"`
+	DefaultSubstitutions map[string]any    `json:"DefaultSubstitutions,omitempty"`
+	HTMLPart             string            `json:"HtmlPart,omitempty"`
+	LastModifiedDate     string            `json:"LastModifiedDate,omitempty"`
+	RecommenderID        string            `json:"RecommenderId,omitempty"`
+	Subject              string            `json:"Subject,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	TemplateName         string            `json:"TemplateName"`
+	TextPart             string            `json:"TextPart,omitempty"`
+	Version              string            `json:"Version,omitempty"`
 }
 
 // ExportJob represents a Pinpoint export job.
@@ -70,10 +78,15 @@ type ImportJob struct {
 
 // InAppTemplate represents a Pinpoint in-app template.
 type InAppTemplate struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	ARN          string            `json:"Arn,omitempty"`
-	TemplateName string            `json:"TemplateName"`
-	CreationDate string            `json:"CreationDate,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	ARN                 string            `json:"Arn,omitempty"`
+	CreationDate        string            `json:"CreationDate,omitempty"`
+	LastModifiedDate    string            `json:"LastModifiedDate,omitempty"`
+	Layout              string            `json:"Layout,omitempty"`
+	TemplateDescription string            `json:"TemplateDescription,omitempty"`
+	TemplateName        string            `json:"TemplateName"`
+	Version             string            `json:"Version,omitempty"`
+	Content             []map[string]any  `json:"Content,omitempty"`
 }
 
 // Journey represents a Pinpoint journey.
@@ -102,10 +115,18 @@ type Journey struct {
 
 // PushTemplate represents a Pinpoint push notification template.
 type PushTemplate struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	ARN          string            `json:"Arn,omitempty"`
-	TemplateName string            `json:"TemplateName"`
-	CreationDate string            `json:"CreationDate,omitempty"`
+	APNS                map[string]any    `json:"APNS,omitempty"`
+	Default             map[string]any    `json:"Default,omitempty"`
+	GCM                 map[string]any    `json:"GCM,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	ARN                 string            `json:"Arn,omitempty"`
+	Body                string            `json:"Body,omitempty"`
+	CreationDate        string            `json:"CreationDate,omitempty"`
+	LastModifiedDate    string            `json:"LastModifiedDate,omitempty"`
+	TemplateDescription string            `json:"TemplateDescription,omitempty"`
+	TemplateName        string            `json:"TemplateName"`
+	Title               string            `json:"Title,omitempty"`
+	Version             string            `json:"Version,omitempty"`
 }
 
 // RecommenderConfiguration represents a Pinpoint recommender configuration.
@@ -140,10 +161,15 @@ type Segment struct {
 
 // SmsTemplate represents a Pinpoint SMS template.
 type SmsTemplate struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	ARN          string            `json:"Arn,omitempty"`
-	TemplateName string            `json:"TemplateName"`
-	CreationDate string            `json:"CreationDate,omitempty"`
+	ARN                 string            `json:"Arn,omitempty"`
+	Body                string            `json:"Body,omitempty"`
+	CreationDate        string            `json:"CreationDate,omitempty"`
+	LastModifiedDate    string            `json:"LastModifiedDate,omitempty"`
+	SenderID            string            `json:"SenderId,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	TemplateDescription string            `json:"TemplateDescription,omitempty"`
+	TemplateName        string            `json:"TemplateName"`
+	Version             string            `json:"Version,omitempty"`
 }
 
 // ──────────────────────────────────────────────────
@@ -177,10 +203,13 @@ type createCampaignRequest struct {
 
 // createEmailTemplateRequest is the request body for CreateEmailTemplate.
 type createEmailTemplateRequest struct {
-	Tags     map[string]string `json:"tags,omitempty"`
-	Subject  string            `json:"Subject,omitempty"`
-	HTMLPart string            `json:"HtmlPart,omitempty"`
-	TextPart string            `json:"TextPart,omitempty"`
+	DefaultSubstitutions map[string]any    `json:"DefaultSubstitutions,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	HTMLPart             string            `json:"HtmlPart,omitempty"`
+	RecommenderID        string            `json:"RecommenderId,omitempty"`
+	Subject              string            `json:"Subject,omitempty"`
+	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	TextPart             string            `json:"TextPart,omitempty"`
 }
 
 // createExportJobRequest is the request body for CreateExportJob.
@@ -199,7 +228,10 @@ type createImportJobRequest struct {
 
 // createInAppTemplateRequest is the request body for CreateInAppTemplate.
 type createInAppTemplateRequest struct {
-	Tags map[string]string `json:"tags,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	Layout              string            `json:"Layout,omitempty"`
+	TemplateDescription string            `json:"TemplateDescription,omitempty"`
+	Content             []map[string]any  `json:"Content,omitempty"`
 }
 
 // createJourneyRequest is the request body for CreateJourney.
@@ -222,7 +254,13 @@ type createJourneyRequest struct {
 
 // createPushTemplateRequest is the request body for CreatePushTemplate.
 type createPushTemplateRequest struct {
-	Tags map[string]string `json:"tags,omitempty"`
+	APNS                map[string]any    `json:"APNS,omitempty"`
+	Default             map[string]any    `json:"Default,omitempty"`
+	GCM                 map[string]any    `json:"GCM,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	Body                string            `json:"Body,omitempty"`
+	TemplateDescription string            `json:"TemplateDescription,omitempty"`
+	Title               string            `json:"Title,omitempty"`
 }
 
 // createRecommenderConfigRequest is the request body for CreateRecommenderConfiguration.
@@ -247,8 +285,10 @@ type createSegmentRequest struct {
 
 // createSmsTemplateRequest is the request body for CreateSmsTemplate.
 type createSmsTemplateRequest struct {
-	Tags map[string]string `json:"tags,omitempty"`
-	Body string            `json:"Body,omitempty"`
+	Body                string            `json:"Body,omitempty"`
+	SenderID            string            `json:"SenderId,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	TemplateDescription string            `json:"TemplateDescription,omitempty"`
 }
 
 // ──────────────────────────────────────────────────
