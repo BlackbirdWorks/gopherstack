@@ -199,7 +199,7 @@ func (b *InMemoryBackend) UpdateStorageLensGroup(accountID, name string) (*Stora
 	return &cp, nil
 }
 
-// DeleteStorageLensGroup removes a Storage Lens group.
+// DeleteStorageLensGroup removes a Storage Lens group and its tags.
 func (b *InMemoryBackend) DeleteStorageLensGroup(accountID, name string) error {
 	b.mu.Lock("DeleteStorageLensGroup")
 	defer b.mu.Unlock()
@@ -210,6 +210,7 @@ func (b *InMemoryBackend) DeleteStorageLensGroup(accountID, name string) error {
 	}
 
 	delete(b.storageLensGroups, key)
+	delete(b.storageLensGroupTags, key)
 
 	return nil
 }
