@@ -1315,7 +1315,7 @@ func TestHandler_ErrorPaths(t *testing.T) {
 		{
 			name:       "handleUntagResource_resource_not_found",
 			method:     http.MethodDelete,
-			path:       "/v1/tags/arn%3Aaws%3Amobiletargeting%3Aus-east-1%3A123456789012%3Aapps%2Fabc",
+			path:       "/v1/tags/arn%3Aaws%3Amobiletargeting%3Aus-east-1%3A123456789012%3Aapps%2Fabc?tagKeys=foo",
 			wantStatus: http.StatusNotFound,
 		},
 		{

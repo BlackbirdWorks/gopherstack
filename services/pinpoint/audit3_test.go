@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,7 +25,7 @@ func TestAudit3_EmailTemplate_BodyPersistence(t *testing.T) {
 		updateBody      map[string]any
 		name            string
 		wantSubject     string
-		wantHtmlPart    string
+		wantHTMLPart    string
 		wantTextPart    string
 		wantDescription string
 		wantRecommender string
@@ -37,7 +38,7 @@ func TestAudit3_EmailTemplate_BodyPersistence(t *testing.T) {
 				"TextPart": "Hello {{user.FirstName}}",
 			},
 			wantSubject:  "Welcome to our service",
-			wantHtmlPart: "<p>Hello {{user.FirstName}}</p>",
+			wantHTMLPart: "<p>Hello {{user.FirstName}}</p>",
 			wantTextPart: "Hello {{user.FirstName}}",
 		},
 		{
@@ -75,7 +76,7 @@ func TestAudit3_EmailTemplate_BodyPersistence(t *testing.T) {
 				"Subject": "Updated Subject",
 			},
 			wantSubject:  "Updated Subject",
-			wantHtmlPart: "<p>Original HTML</p>",
+			wantHTMLPart: "<p>Original HTML</p>",
 		},
 		{
 			name: "update_overwrites_html",
@@ -88,7 +89,7 @@ func TestAudit3_EmailTemplate_BodyPersistence(t *testing.T) {
 				"HtmlPart": "<p>New HTML</p>",
 			},
 			wantSubject:  "Subject",
-			wantHtmlPart: "<p>New HTML</p>",
+			wantHTMLPart: "<p>New HTML</p>",
 			wantTextPart: "Old text",
 		},
 	}
@@ -121,8 +122,8 @@ func TestAudit3_EmailTemplate_BodyPersistence(t *testing.T) {
 				assert.Equal(t, tc.wantSubject, resp["Subject"], "Subject")
 			}
 
-			if tc.wantHtmlPart != "" {
-				assert.Equal(t, tc.wantHtmlPart, resp["HtmlPart"], "HtmlPart")
+			if tc.wantHTMLPart != "" {
+				assert.Equal(t, tc.wantHTMLPart, resp["HtmlPart"], "HtmlPart")
 			}
 
 			if tc.wantTextPart != "" {
@@ -145,8 +146,8 @@ func TestAudit3_EmailTemplate_VersionBumpsOnUpdate(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		updates     []map[string]any
 		wantVersion string
+		updates     []map[string]any
 	}{
 		{
 			name:        "no_updates_version_one",
@@ -206,8 +207,8 @@ func TestAudit3_EmailTemplate_DefaultSubstitutions(t *testing.T) {
 	tests := []struct {
 		createSubs map[string]any
 		updateSubs map[string]any
-		name       string
 		wantSubs   map[string]any
+		name       string
 	}{
 		{
 			name: "create_with_substitutions",
@@ -287,7 +288,7 @@ func TestAudit3_SmsTemplate_BodyPersistence(t *testing.T) {
 		updateBody      map[string]any
 		name            string
 		wantBody        string
-		wantSenderId    string
+		wantSenderID    string
 		wantDescription string
 	}{
 		{
@@ -298,7 +299,7 @@ func TestAudit3_SmsTemplate_BodyPersistence(t *testing.T) {
 				"TemplateDescription": "OTP template",
 			},
 			wantBody:        "Your OTP is {{otp}}",
-			wantSenderId:    "MYAPP",
+			wantSenderID:    "MYAPP",
 			wantDescription: "OTP template",
 		},
 		{
@@ -328,7 +329,7 @@ func TestAudit3_SmsTemplate_BodyPersistence(t *testing.T) {
 				"SenderId": "NEW",
 			},
 			wantBody:     "Hello",
-			wantSenderId: "NEW",
+			wantSenderID: "NEW",
 		},
 	}
 
@@ -360,8 +361,8 @@ func TestAudit3_SmsTemplate_BodyPersistence(t *testing.T) {
 				assert.Equal(t, tc.wantBody, resp["Body"], "Body")
 			}
 
-			if tc.wantSenderId != "" {
-				assert.Equal(t, tc.wantSenderId, resp["SenderId"], "SenderId")
+			if tc.wantSenderID != "" {
+				assert.Equal(t, tc.wantSenderID, resp["SenderId"], "SenderId")
 			}
 
 			if tc.wantDescription != "" {
@@ -587,7 +588,7 @@ func TestAudit3_InAppTemplate_BodyPersistence(t *testing.T) {
 				require.True(t, ok, "Content should be an array")
 
 				if tc.wantContentLen > 0 {
-					assert.Equal(t, tc.wantContentLen, len(content), "Content length")
+					assert.Len(t, content, tc.wantContentLen, "Content length")
 				}
 			}
 		})
@@ -693,7 +694,7 @@ func TestAudit3_ListTemplates_PrefixFilter(t *testing.T) {
 			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
 
 			items, _ := resp["Item"].([]any)
-			assert.Equal(t, tc.wantCount, len(items), "Item count with prefix=%q", tc.prefix)
+			assert.Len(t, items, tc.wantCount, "Item count with prefix=%q", tc.prefix)
 		})
 	}
 }
@@ -707,8 +708,8 @@ func TestAudit3_ListTemplates_TypeFilter(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		wantTypes    []string
 		templateType string
+		wantTypes    []string
 		wantCount    int
 	}{
 		{
@@ -784,7 +785,7 @@ func TestAudit3_ListTemplates_TypeFilter(t *testing.T) {
 			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
 
 			items, _ := resp["Item"].([]any)
-			assert.Equal(t, tc.wantCount, len(items),
+			assert.Len(t, items, tc.wantCount,
 				"Item count for type filter=%q", tc.templateType)
 
 			for _, wantType := range tc.wantTypes {
@@ -873,7 +874,7 @@ func TestAudit3_ListTemplates_PrefixAndTypeFilter(t *testing.T) {
 			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
 
 			items, _ := resp["Item"].([]any)
-			assert.Equal(t, tc.wantCount, len(items),
+			assert.Len(t, items, tc.wantCount,
 				"prefix=%q type=%q", tc.prefix, tc.templateType)
 		})
 	}
@@ -941,21 +942,21 @@ func TestAudit3_UntagResource_EmptyTagKeys(t *testing.T) {
 }
 
 // pinpointEncodeARN URL-encodes an ARN for use in URL paths.
-func pinpointEncodeARN(arn string) string {
-	encoded := ""
+func pinpointEncodeARN(input string) string {
+	var b strings.Builder
 
-	for _, c := range arn {
+	for _, c := range input {
 		switch c {
 		case ':':
-			encoded += "%3A"
+			b.WriteString("%3A")
 		case '/':
-			encoded += "%2F"
+			b.WriteString("%2F")
 		default:
-			encoded += string(c)
+			b.WriteRune(c)
 		}
 	}
 
-	return encoded
+	return b.String()
 }
 
 // ──────────────────────────────────────────────────
@@ -1029,7 +1030,7 @@ func TestAudit3_TemplateVersionHistory(t *testing.T) {
 			require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &resp))
 
 			items, _ := resp["Item"].([]any)
-			assert.Equal(t, tc.wantVersions, len(items),
+			assert.Len(t, items, tc.wantVersions,
 				"version count for %s after %d updates",
 				tc.templateType, len(tc.updates))
 		})
@@ -1044,10 +1045,10 @@ func TestAudit3_Template_LastModifiedDate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		templateType string
 		createBody   map[string]any
 		updateBody   map[string]any
+		name         string
+		templateType string
 	}{
 		{
 			name:         "email_has_creation_and_modified_dates",
@@ -1122,28 +1123,32 @@ func TestAudit3_Backend_EmailTemplate_FullCRUD(t *testing.T) {
 	b := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
 
 	t.Run("create_persists_body", func(t *testing.T) {
+		t.Parallel()
+
 		req := pinpoint.ExportedCreateEmailTemplateRequest{
 			Subject:             "Backend test subject",
 			HTMLPart:            "<p>HTML content</p>",
 			TextPart:            "Text content",
 			TemplateDescription: "Test template",
-			RecommenderId:       "rec-1",
+			RecommenderID:       "rec-1",
 		}
 
 		tmpl, err := b.CreateEmailTemplate("us-east-1", "123456789012", "be-email-1", req)
 		require.NoError(t, err)
 
 		assert.Equal(t, "Backend test subject", tmpl.Subject)
-		assert.Equal(t, "<p>HTML content</p>", tmpl.HtmlPart)
+		assert.Equal(t, "<p>HTML content</p>", tmpl.HTMLPart)
 		assert.Equal(t, "Text content", tmpl.TextPart)
 		assert.Equal(t, "Test template", tmpl.TemplateDescription)
-		assert.Equal(t, "rec-1", tmpl.RecommenderId)
+		assert.Equal(t, "rec-1", tmpl.RecommenderID)
 		assert.Equal(t, "1", tmpl.Version)
 		assert.NotEmpty(t, tmpl.CreationDate)
 		assert.NotEmpty(t, tmpl.LastModifiedDate)
 	})
 
 	t.Run("update_persists_new_body", func(t *testing.T) {
+		t.Parallel()
+
 		req := pinpoint.ExportedCreateEmailTemplateRequest{
 			Subject:  "Initial subject",
 			HTMLPart: "<p>Initial</p>",
@@ -1159,7 +1164,7 @@ func TestAudit3_Backend_EmailTemplate_FullCRUD(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, "Updated subject", updated.Subject)
-		assert.Equal(t, "<p>Updated HTML</p>", updated.HtmlPart)
+		assert.Equal(t, "<p>Updated HTML</p>", updated.HTMLPart)
 		assert.Equal(t, "2", updated.Version)
 	})
 }
@@ -1170,9 +1175,11 @@ func TestAudit3_Backend_SmsTemplate_FullCRUD(t *testing.T) {
 	b := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
 
 	t.Run("create_persists_body", func(t *testing.T) {
+		t.Parallel()
+
 		req := pinpoint.ExportedCreateSmsTemplateRequest{
 			Body:                "Hello {{name}}",
-			SenderId:            "MYAPP",
+			SenderID:            "MYAPP",
 			TemplateDescription: "SMS onboarding",
 		}
 
@@ -1180,12 +1187,14 @@ func TestAudit3_Backend_SmsTemplate_FullCRUD(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, "Hello {{name}}", tmpl.Body)
-		assert.Equal(t, "MYAPP", tmpl.SenderId)
+		assert.Equal(t, "MYAPP", tmpl.SenderID)
 		assert.Equal(t, "SMS onboarding", tmpl.TemplateDescription)
 		assert.Equal(t, "1", tmpl.Version)
 	})
 
 	t.Run("update_persists_body", func(t *testing.T) {
+		t.Parallel()
+
 		_, err := b.CreateSmsTemplate("us-east-1", "123456789012", "be-sms-2",
 			pinpoint.ExportedCreateSmsTemplateRequest{Body: "Old"})
 		require.NoError(t, err)
@@ -1299,13 +1308,13 @@ func TestAudit3_ListTemplates_SortedOutput(t *testing.T) {
 			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
 
 			items, _ := resp["Item"].([]any)
-			require.Equal(t, len(tc.creates), len(items))
+			require.Len(t, items, len(tc.creates))
 
 			for j, item := range items {
 				itemMap, _ := item.(map[string]any)
 				tmplName, _ := itemMap["TemplateName"].(string)
 				expectedPrefix := tc.wantOrder[j]
-				assert.True(t, len(tmplName) > 0, "TemplateName should not be empty")
+				assert.NotEmpty(t, tmplName, "TemplateName should not be empty")
 				_ = expectedPrefix
 			}
 		})
@@ -1320,9 +1329,9 @@ func TestAudit3_Template_ARNPresent(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body         map[string]any
 		name         string
 		templateType string
-		body         map[string]any
 	}{
 		{
 			name:         "email_has_arn",
@@ -1385,10 +1394,10 @@ func TestAudit3_Template_TagsRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		templateType string
 		createBody   map[string]any
 		tags         map[string]any
+		name         string
+		templateType string
 	}{
 		{
 			name:         "email_tags_persisted",
@@ -1474,7 +1483,7 @@ func TestAudit3_ListTemplates_FieldCompleteness(t *testing.T) {
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
 
 	items, _ := resp["Item"].([]any)
-	require.Equal(t, 3, len(items))
+	require.Len(t, items, 3)
 
 	for _, item := range items {
 		itemMap, ok := item.(map[string]any)
@@ -1495,10 +1504,10 @@ func TestAudit3_UntagResource_RemovesSpecificTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
 		initialTags   map[string]any
-		removeKeys    string
 		remainingTags map[string]any
+		name          string
+		removeKeys    string
 	}{
 		{
 			name:          "remove_one_tag",
