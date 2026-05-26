@@ -376,7 +376,7 @@ func TestPublicKeyCRUD(t *testing.T) {
 					`<CallerReference>pk-ref-1</CallerReference>` +
 					`<Name>my-public-key</Name>` +
 					`<Comment>test</Comment>` +
-					`<EncodedKey>-----BEGIN PUBLIC KEY-----</EncodedKey>` +
+					`<EncodedKey>` + testRSA2048PublicKeyPEM + `</EncodedKey>` +
 					`</PublicKeyConfig>`,
 			),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
@@ -399,7 +399,7 @@ func TestPublicKeyCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreatePublicKey("pk-list-ref", "list-pk", "comment", "encoded")
+				_, err := h.Backend.CreatePublicKey("pk-list-ref", "list-pk", "comment", testRSA2048PublicKeyPEM)
 				require.NoError(t, err)
 
 				return ""
@@ -418,7 +418,7 @@ func TestPublicKeyCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				pk, err := h.Backend.CreatePublicKey("pk-get-ref", "get-pk", "comment", "encoded")
+				pk, err := h.Backend.CreatePublicKey("pk-get-ref", "get-pk", "comment", testRSA2048PublicKeyPEM)
 				require.NoError(t, err)
 
 				return "/2020-05-31/public-key/" + pk.ID
@@ -437,7 +437,7 @@ func TestPublicKeyCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				pk, err := h.Backend.CreatePublicKey("pk-get-cfg-ref", "get-pk-config", "comment", "encoded")
+				pk, err := h.Backend.CreatePublicKey("pk-get-cfg-ref", "get-pk-config", "comment", testRSA2048PublicKeyPEM)
 				require.NoError(t, err)
 
 				return "/2020-05-31/public-key/" + pk.ID + "/config"
@@ -455,7 +455,7 @@ func TestPublicKeyCRUD(t *testing.T) {
 			body:   []byte(`<PublicKeyConfig><Comment>updated comment</Comment></PublicKeyConfig>`),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				pk, err := h.Backend.CreatePublicKey("pk-upd-ref", "upd-pk", "original", "encoded")
+				pk, err := h.Backend.CreatePublicKey("pk-upd-ref", "upd-pk", "original", testRSA2048PublicKeyPEM)
 				require.NoError(t, err)
 
 				return "/2020-05-31/public-key/" + pk.ID
@@ -474,7 +474,7 @@ func TestPublicKeyCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				pk, err := h.Backend.CreatePublicKey("pk-del-ref", "del-pk", "delete me", "encoded")
+				pk, err := h.Backend.CreatePublicKey("pk-del-ref", "del-pk", "delete me", testRSA2048PublicKeyPEM)
 				require.NoError(t, err)
 
 				return "/2020-05-31/public-key/" + pk.ID
@@ -581,7 +581,9 @@ func TestKeyGroupCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				kg, err := h.Backend.CreateKeyGroup("get-key-group", "comment", []string{"pk-id-1"})
+				pk, err := h.Backend.CreatePublicKey("pk-kg-ref", "pk-for-kg", "", testRSA2048PublicKeyPEM)
+				require.NoError(t, err)
+				kg, err := h.Backend.CreateKeyGroup("get-key-group", "comment", []string{pk.ID})
 				require.NoError(t, err)
 
 				return "/2020-05-31/key-group/" + kg.ID
@@ -1716,7 +1718,7 @@ func TestBackendPublicKeyDirectly(t *testing.T) {
 			name: "create_get_list_update_delete",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				pk, err := b.CreatePublicKey("pk-be-ref", "pk-be-name", "comment", "encoded")
+				pk, err := b.CreatePublicKey("pk-be-ref", "pk-be-name", "comment", testRSA2048PublicKeyPEM)
 				require.NoError(t, err)
 				assert.NotEmpty(t, pk.ID)
 
@@ -1784,19 +1786,24 @@ func TestBackendKeyGroupDirectly(t *testing.T) {
 			name: "create_get_list_update_delete",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				kg, err := b.CreateKeyGroup("kg-name", "comment", []string{"pk-1"})
+				pk1, err := b.CreatePublicKey("kg-pk1-ref", "kg-pk1", "", testRSA2048PublicKeyPEM)
+				require.NoError(t, err)
+				pk2, err := b.CreatePublicKey("kg-pk2-ref", "kg-pk2", "", testRSA2048PublicKeyPEM)
+				require.NoError(t, err)
+
+				kg, err := b.CreateKeyGroup("kg-name", "comment", []string{pk1.ID})
 				require.NoError(t, err)
 				assert.NotEmpty(t, kg.ID)
 
 				got, err := b.GetKeyGroup(kg.ID)
 				require.NoError(t, err)
 				assert.Equal(t, "kg-name", got.Name)
-				assert.Equal(t, []string{"pk-1"}, got.Items)
+				assert.Equal(t, []string{pk1.ID}, got.Items)
 
 				list := b.ListKeyGroups()
 				assert.Len(t, list, 1)
 
-				updated, err := b.UpdateKeyGroup(kg.ID, "kg-name-new", "updated", []string{"pk-2"})
+				updated, err := b.UpdateKeyGroup(kg.ID, "kg-name-new", "updated", []string{pk2.ID})
 				require.NoError(t, err)
 				assert.Equal(t, "updated", updated.Comment)
 
@@ -2046,7 +2053,7 @@ func TestNewBackendNewResourcesPersistence(t *testing.T) {
 	fleP, err := b.CreateFieldLevelEncryptionProfile("persist-fle-profile", "comment")
 	require.NoError(t, err)
 
-	pk, err := b.CreatePublicKey("pk-persist-ref", "persist-pk", "comment", "encoded")
+	pk, err := b.CreatePublicKey("pk-persist-ref", "persist-pk", "comment", testRSA2048PublicKeyPEM)
 	require.NoError(t, err)
 
 	kg, err := b.CreateKeyGroup("persist-kg", "comment", []string{pk.ID})
@@ -2097,7 +2104,7 @@ func TestNewBackendPersistenceWithStrings(t *testing.T) {
 
 	b := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pk, err := b.CreatePublicKey("str-ref", "str-pk", "pk-comment", "encoded-key-data")
+	pk, err := b.CreatePublicKey("str-ref", "str-pk", "pk-comment", testRSA2048PublicKeyPEM)
 	require.NoError(t, err)
 
 	h := cloudfront.NewHandler(b)
@@ -2111,7 +2118,7 @@ func TestNewBackendPersistenceWithStrings(t *testing.T) {
 	restored, err := b2.GetPublicKey(pk.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "pk-comment", restored.Comment)
-	assert.Equal(t, "encoded-key-data", restored.EncodedKey)
+	assert.Equal(t, testRSA2048PublicKeyPEM, restored.EncodedKey)
 	assert.Equal(t, "str-ref", restored.CallerReference)
 }
 

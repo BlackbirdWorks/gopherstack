@@ -1361,6 +1361,9 @@ func parseCFMiscPathByDistribution(method, suffix string) (string, string) {
 type distributionConfigMinimal struct {
 	CallerReference string `xml:"CallerReference"`
 	Comment         string `xml:"Comment"`
+	PriceClass      string `xml:"PriceClass"`
+	HttpVersion     string `xml:"HttpVersion"`
+	IsIPV6Enabled   bool   `xml:"IsIPV6Enabled"`
 	Enabled         bool   `xml:"Enabled"`
 }
 
@@ -2392,6 +2395,56 @@ func (h *Handler) handleDeleteDistribution(c *echo.Context, id string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// distributionSummaryPriceClass returns the PriceClass for a distribution, falling back to
+// "PriceClass_All" when none was stored (legacy or minimal config).
+func distributionSummaryPriceClass(d *Distribution) string {
+	if d.PriceClass != "" {
+		return d.PriceClass
+	}
+
+	if len(d.RawConfig) > 0 {
+		var cfg distributionConfigMinimal
+		if err := xml.Unmarshal(d.RawConfig, &cfg); err == nil && cfg.PriceClass != "" {
+			return cfg.PriceClass
+		}
+	}
+
+	return "PriceClass_All"
+}
+
+// distributionSummaryHTTPVersion returns the HttpVersion for a distribution.
+func distributionSummaryHTTPVersion(d *Distribution) string {
+	if d.HttpVersion != "" {
+		return d.HttpVersion
+	}
+
+	if len(d.RawConfig) > 0 {
+		var cfg distributionConfigMinimal
+		if err := xml.Unmarshal(d.RawConfig, &cfg); err == nil && cfg.HttpVersion != "" {
+			return cfg.HttpVersion
+		}
+	}
+
+	return "http2"
+}
+
+// distributionSummaryIsIPV6(d) reads IsIPV6Enabled from the stored raw config when the
+// Distribution field is false (zero value is ambiguous, so raw config is authoritative).
+func distributionSummaryIsIPV6(d *Distribution) bool {
+	if d.IsIPV6Enabled {
+		return true
+	}
+
+	if len(d.RawConfig) > 0 {
+		var cfg distributionConfigMinimal
+		if err := xml.Unmarshal(d.RawConfig, &cfg); err == nil {
+			return cfg.IsIPV6Enabled
+		}
+	}
+
+	return false
+}
+
 func (h *Handler) handleListDistributions(c *echo.Context) error {
 	dists := h.Backend.ListDistributions()
 
@@ -2399,18 +2452,19 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 	for _, d := range dists {
 		aliases := h.Backend.ListAliases(d.ID)
 		s := distributionSummaryXML{
-			ID:         d.ID,
-			ARN:        d.ARN,
-			Status:     d.Status,
-			DomainName: d.DomainName,
-			Comment:    d.Comment,
-			Enabled:    d.Enabled,
+			ID:            d.ID,
+			ARN:           d.ARN,
+			Status:        d.Status,
+			DomainName:    d.DomainName,
+			Comment:       d.Comment,
+			Enabled:       d.Enabled,
+			IsIPV6Enabled: distributionSummaryIsIPV6(d),
 		}
 		s.Aliases.Quantity = len(aliases)
 		s.ViewerCertificate.CloudFrontDefaultCertificate = true
 		s.Restrictions.GeoRestriction.RestrictionType = "none"
-		s.PriceClass = "PriceClass_All"
-		s.HTTPVersion = "http2"
+		s.PriceClass = distributionSummaryPriceClass(d)
+		s.HTTPVersion = distributionSummaryHTTPVersion(d)
 		summaries = append(summaries, s)
 	}
 
@@ -2460,13 +2514,110 @@ type anycastIPListRequestXML struct {
 	IPCount int32    `xml:"IPCount"`
 }
 
+type cachePolicyHeadersConfigXML struct {
+	HeaderBehavior string   `xml:"HeaderBehavior"`
+	Headers        []string `xml:"Headers>Header"`
+}
+
+type cachePolicyCookiesConfigXML struct {
+	CookieBehavior string   `xml:"CookieBehavior"`
+	Cookies        []string `xml:"Cookies>Cookie"`
+}
+
+type cachePolicyQueryStringsConfigXML struct {
+	QueryStringBehavior string   `xml:"QueryStringBehavior"`
+	QueryStrings        []string `xml:"QueryStrings>QueryString"`
+}
+
+type cachePolicyParamsXML struct {
+	HeadersConfig      cachePolicyHeadersConfigXML      `xml:"HeadersConfig"`
+	CookiesConfig      cachePolicyCookiesConfigXML      `xml:"CookiesConfig"`
+	QueryStringsConfig cachePolicyQueryStringsConfigXML `xml:"QueryStringsConfig"`
+	EnableGzip         bool                             `xml:"EnableAcceptEncodingGzip"`
+	EnableBrotli       bool                             `xml:"EnableAcceptEncodingBrotli"`
+}
+
 type cachePolicyConfigXML struct {
-	XMLName    xml.Name `xml:"CachePolicyConfig"`
-	Name       string   `xml:"Name"`
-	Comment    string   `xml:"Comment"`
-	DefaultTTL int64    `xml:"DefaultTTL"`
-	MaxTTL     int64    `xml:"MaxTTL"`
-	MinTTL     int64    `xml:"MinTTL"`
+	XMLName    xml.Name             `xml:"CachePolicyConfig"`
+	Params     cachePolicyParamsXML `xml:"ParametersInCacheKeyAndForwardedToOrigin"`
+	Name       string               `xml:"Name"`
+	Comment    string               `xml:"Comment"`
+	DefaultTTL int64                `xml:"DefaultTTL"`
+	MaxTTL     int64                `xml:"MaxTTL"`
+	MinTTL     int64                `xml:"MinTTL"`
+}
+
+// cachePolicyParamsFromXML converts the XML params struct to the backend model.
+// Returns nil when no meaningful params were provided.
+func cachePolicyParamsFromXML(x cachePolicyParamsXML) *CachePolicyParams {
+	p := &CachePolicyParams{
+		EnableAcceptEncodingGzip:   x.EnableGzip,
+		EnableAcceptEncodingBrotli: x.EnableBrotli,
+		HeadersConfig: CachePolicyHeadersConfig{
+			HeaderBehavior: x.HeadersConfig.HeaderBehavior,
+			Headers:        x.HeadersConfig.Headers,
+		},
+		CookiesConfig: CachePolicyCookiesConfig{
+			CookieBehavior: x.CookiesConfig.CookieBehavior,
+			Cookies:        x.CookiesConfig.Cookies,
+		},
+		QueryStringsConfig: CachePolicyQueryStringsConfig{
+			QueryStringBehavior: x.QueryStringsConfig.QueryStringBehavior,
+			QueryStrings:        x.QueryStringsConfig.QueryStrings,
+		},
+	}
+	// Return nil when the params are entirely default (no config provided).
+	if p.HeadersConfig.HeaderBehavior == "" && p.CookiesConfig.CookieBehavior == "" &&
+		p.QueryStringsConfig.QueryStringBehavior == "" &&
+		!p.EnableAcceptEncodingGzip && !p.EnableAcceptEncodingBrotli {
+		return nil
+	}
+
+	return p
+}
+
+// cachePolicyResponseXML builds the full CachePolicy XML response.
+func cachePolicyResponseXML(p *CachePolicy) string {
+	var paramsXML string
+	if p.Params != nil {
+		paramsXML = fmt.Sprintf(
+			`<ParametersInCacheKeyAndForwardedToOrigin>`+
+				`<EnableAcceptEncodingGzip>%v</EnableAcceptEncodingGzip>`+
+				`<EnableAcceptEncodingBrotli>%v</EnableAcceptEncodingBrotli>`+
+				`<HeadersConfig><HeaderBehavior>%s</HeaderBehavior></HeadersConfig>`+
+				`<CookiesConfig><CookieBehavior>%s</CookieBehavior></CookiesConfig>`+
+				`<QueryStringsConfig><QueryStringBehavior>%s</QueryStringBehavior></QueryStringsConfig>`+
+				`</ParametersInCacheKeyAndForwardedToOrigin>`,
+			p.Params.EnableAcceptEncodingGzip,
+			p.Params.EnableAcceptEncodingBrotli,
+			p.Params.HeadersConfig.HeaderBehavior,
+			p.Params.CookiesConfig.CookieBehavior,
+			p.Params.QueryStringsConfig.QueryStringBehavior,
+		)
+	}
+
+	return fmt.Sprintf(
+		`<?xml version="1.0" encoding="UTF-8"?>`+
+			`<CachePolicy xmlns="%s">`+
+			`<Id>%s</Id>`+
+			`<CachePolicyConfig>`+
+			`<Name>%s</Name>`+
+			`<Comment>%s</Comment>`+
+			`<DefaultTTL>%d</DefaultTTL>`+
+			`<MaxTTL>%d</MaxTTL>`+
+			`<MinTTL>%d</MinTTL>`+
+			`%s`+
+			`</CachePolicyConfig>`+
+			`</CachePolicy>`,
+		cfNS,
+		p.ID,
+		p.Name,
+		p.Comment,
+		p.DefaultTTL,
+		p.MaxTTL,
+		p.MinTTL,
+		paramsXML,
+	)
 }
 
 type connectionFunctionRequestXML struct {
@@ -2627,42 +2778,23 @@ func (h *Handler) handleCreateCachePolicy(c *echo.Context) error {
 		}
 	}
 
+	params := cachePolicyParamsFromXML(req.Params)
 	policy, createErr := h.Backend.CreateCachePolicy(
 		req.Name,
 		req.Comment,
 		req.DefaultTTL,
 		req.MaxTTL,
 		req.MinTTL,
+		params,
 	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
 
-	resp := fmt.Sprintf(
-		`<?xml version="1.0" encoding="UTF-8"?>`+
-			`<CachePolicy xmlns="%s">`+
-			`<Id>%s</Id>`+
-			`<CachePolicyConfig>`+
-			`<Name>%s</Name>`+
-			`<Comment>%s</Comment>`+
-			`<DefaultTTL>%d</DefaultTTL>`+
-			`<MaxTTL>%d</MaxTTL>`+
-			`<MinTTL>%d</MinTTL>`+
-			`</CachePolicyConfig>`+
-			`</CachePolicy>`,
-		cfNS,
-		policy.ID,
-		policy.Name,
-		policy.Comment,
-		policy.DefaultTTL,
-		policy.MaxTTL,
-		policy.MinTTL,
-	)
-
 	c.Response().Header().Set("ETag", policy.ETag)
 	c.Response().Header().Set("Location", cfPathPrefix+"cache-policy/"+policy.ID)
 
-	return xmlResp(c, http.StatusCreated, resp)
+	return xmlResp(c, http.StatusCreated, cachePolicyResponseXML(policy))
 }
 
 func (h *Handler) handleCreateConnectionFunction(c *echo.Context) error {
@@ -3357,20 +3489,7 @@ func (h *Handler) handleGetCachePolicy(c *echo.Context, id string) error {
 
 	c.Response().Header().Set("ETag", p.ETag)
 
-	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<CachePolicy xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<CachePolicyConfig>`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`<DefaultTTL>%d</DefaultTTL>`+
-		`<MaxTTL>%d</MaxTTL>`+
-		`<MinTTL>%d</MinTTL>`+
-		`</CachePolicyConfig>`+
-		`</CachePolicy>`,
-		cfNS, p.ID, p.Name, p.Comment, p.DefaultTTL, p.MaxTTL, p.MinTTL)
-
-	return xmlResp(c, http.StatusOK, resp)
+	return xmlResp(c, http.StatusOK, cachePolicyResponseXML(p))
 }
 
 func (h *Handler) handleGetCachePolicyConfig(c *echo.Context, id string) error {

@@ -346,6 +346,14 @@ type RHPCustomHeader struct {
 	Override bool   `json:"override"`
 }
 
+// ResponseHeadersPolicyConfig carries optional full-config inputs for CreateResponseHeadersPolicy.
+type ResponseHeadersPolicyConfig struct {
+	CorsConfig      *RHPCorsConfig
+	SecurityHeaders *RHPSecurityHeaders
+	CustomHeaders   []RHPCustomHeader
+	RemoveHeaders   []string
+}
+
 // ResponseHeadersPolicy represents a CloudFront Response Headers Policy.
 type ResponseHeadersPolicy struct {
 	CorsConfig         *RHPCorsConfig      `json:"corsConfig,omitempty"`
@@ -369,12 +377,33 @@ type Function struct {
 	ARN          string `json:"arn"`
 }
 
+// ORPHeadersConfig controls which request headers are forwarded to the origin.
+type ORPHeadersConfig struct {
+	HeaderBehavior string   `json:"headerBehavior"` // none, whitelist, allViewer, allViewerAndWhitelistCloudFront
+	Headers        []string `json:"headers,omitempty"`
+}
+
+// ORPCookiesConfig controls which cookies are forwarded to the origin.
+type ORPCookiesConfig struct {
+	CookieBehavior string   `json:"cookieBehavior"` // none, whitelist, all, allExcept
+	Cookies        []string `json:"cookies,omitempty"`
+}
+
+// ORPQueryStringsConfig controls which query strings are forwarded to the origin.
+type ORPQueryStringsConfig struct {
+	QueryStringBehavior string   `json:"queryStringBehavior"` // none, whitelist, all, allExcept
+	QueryStrings        []string `json:"queryStrings,omitempty"`
+}
+
 // OriginRequestPolicy represents a CloudFront Origin Request Policy.
 type OriginRequestPolicy struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
-	ETag    string `json:"eTag"`
+	HeadersConfig      *ORPHeadersConfig      `json:"headersConfig,omitempty"`
+	CookiesConfig      *ORPCookiesConfig      `json:"cookiesConfig,omitempty"`
+	QueryStringsConfig *ORPQueryStringsConfig  `json:"queryStringsConfig,omitempty"`
+	ID                 string                 `json:"id"`
+	Name               string                 `json:"name"`
+	Comment            string                 `json:"comment,omitempty"`
+	ETag               string                 `json:"eTag"`
 }
 
 // FieldLevelEncryption represents a CloudFront Field Level Encryption config.
@@ -488,9 +517,12 @@ type InMemoryBackend struct {
 	distributionTenants         map[string]*DistributionTenant // key: tenant ID
 	distributionTenantsByDomain map[string]string              // key: domain → tenant ID
 	tenantInvalidations         map[string][]*Invalidation     // key: tenantID
-	mu                          *lockmetrics.RWMutex
-	accountID                   string
-	region                      string
+	// Audit batch additions.
+	keyValueStoreData map[string]map[string]string // KVS ID → key → value
+	keyValueDataETags map[string]string            // KVS ID → current data-plane ETag
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
 }
 
 // NewInMemoryBackend creates a new in-memory CloudFront backend.
@@ -543,6 +575,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		distributionTenants:                 make(map[string]*DistributionTenant),
 		distributionTenantsByDomain:         make(map[string]string),
 		tenantInvalidations:                 make(map[string][]*Invalidation),
+		keyValueStoreData:                   make(map[string]map[string]string),
+		keyValueDataETags:                   make(map[string]string),
 		mu:                                  lockmetrics.New("cloudfront"),
 		accountID:                           accountID,
 		region:                              region,
@@ -601,6 +635,8 @@ func (b *InMemoryBackend) Reset() {
 	b.distributionTenants = make(map[string]*DistributionTenant)
 	b.distributionTenantsByDomain = make(map[string]string)
 	b.tenantInvalidations = make(map[string][]*Invalidation)
+	b.keyValueStoreData = make(map[string]map[string]string)
+	b.keyValueDataETags = make(map[string]string)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -770,7 +806,7 @@ func (b *InMemoryBackend) CreateOAI(callerRef, comment string) (*OriginAccessIde
 	oai := &OriginAccessIdentity{
 		ID:                id,
 		ARN:               b.oaiARN(id),
-		S3CanonicalUserID: uuid.NewString(),
+		S3CanonicalUserID: oaiS3CanonicalUserID(id),
 		ETag:              uuid.NewString(),
 		CallerReference:   callerRef,
 		Comment:           comment,
@@ -906,6 +942,10 @@ func (b *InMemoryBackend) CreateInvalidation(
 	distributionID, callerRef string,
 	paths []string,
 ) (*Invalidation, error) {
+	if err := validateInvalidationPaths(paths); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateInvalidation")
 	defer b.mu.Unlock()
 
@@ -1109,6 +1149,7 @@ func (b *InMemoryBackend) CreateAnycastIPList(name string, ipCount int32) (*Anyc
 func (b *InMemoryBackend) CreateCachePolicy(
 	name, comment string,
 	defaultTTL, maxTTL, minTTL int64,
+	params ...*CachePolicyParams,
 ) (*CachePolicy, error) {
 	b.mu.Lock("CreateCachePolicy")
 	defer b.mu.Unlock()
@@ -1125,6 +1166,10 @@ func (b *InMemoryBackend) CreateCachePolicy(
 		return nil, fmt.Errorf("%w: DefaultTTL must be >= MinTTL", ErrValidation)
 	}
 
+	if maxTTL > maxCachePolicyTTL {
+		return nil, fmt.Errorf("%w: MaxTTL must be <= %d, got %d", ErrValidation, maxCachePolicyTTL, maxTTL)
+	}
+
 	if maxTTL < defaultTTL {
 		return nil, fmt.Errorf("%w: MaxTTL must be >= DefaultTTL", ErrValidation)
 	}
@@ -1137,6 +1182,11 @@ func (b *InMemoryBackend) CreateCachePolicy(
 		)
 	}
 
+	var p *CachePolicyParams
+	if len(params) > 0 {
+		p = params[0]
+	}
+
 	id := generateID()
 	policy := &CachePolicy{
 		ID:         id,
@@ -1146,6 +1196,7 @@ func (b *InMemoryBackend) CreateCachePolicy(
 		DefaultTTL: defaultTTL,
 		MaxTTL:     maxTTL,
 		MinTTL:     minTTL,
+		Params:     p,
 	}
 	b.cachePolicies[id] = policy
 	b.cachePolicyByName[name] = id
@@ -1381,6 +1432,7 @@ func (b *InMemoryBackend) ListCachePolicies() []*CachePolicy {
 func (b *InMemoryBackend) UpdateCachePolicy(
 	id, name, comment string,
 	defaultTTL, maxTTL, minTTL int64,
+	params ...*CachePolicyParams,
 ) (*CachePolicy, error) {
 	b.mu.Lock("UpdateCachePolicy")
 	defer b.mu.Unlock()
@@ -1400,6 +1452,10 @@ func (b *InMemoryBackend) UpdateCachePolicy(
 
 	if defaultTTL < minTTL {
 		return nil, fmt.Errorf("%w: DefaultTTL must be >= MinTTL", ErrValidation)
+	}
+
+	if maxTTL > maxCachePolicyTTL {
+		return nil, fmt.Errorf("%w: MaxTTL must be <= %d, got %d", ErrValidation, maxCachePolicyTTL, maxTTL)
 	}
 
 	if maxTTL < defaultTTL {
@@ -1426,6 +1482,9 @@ func (b *InMemoryBackend) UpdateCachePolicy(
 	p.MaxTTL = maxTTL
 	p.MinTTL = minTTL
 	p.ETag = uuid.NewString()
+	if len(params) > 0 {
+		p.Params = params[0]
+	}
 
 	cp := *p
 
@@ -1578,6 +1637,7 @@ func (b *InMemoryBackend) DeleteOriginAccessControl(id string) error {
 // CreateResponseHeadersPolicy creates a new Response Headers Policy.
 func (b *InMemoryBackend) CreateResponseHeadersPolicy(
 	name, comment string,
+	opts ...*ResponseHeadersPolicyConfig,
 ) (*ResponseHeadersPolicy, error) {
 	b.mu.Lock("CreateResponseHeadersPolicy")
 	defer b.mu.Unlock()
@@ -1601,6 +1661,15 @@ func (b *InMemoryBackend) CreateResponseHeadersPolicy(
 		Comment: comment,
 		ETag:    uuid.NewString(),
 	}
+
+	if len(opts) > 0 && opts[0] != nil {
+		cfg := opts[0]
+		p.CorsConfig = cfg.CorsConfig
+		p.SecurityHeaders = cfg.SecurityHeaders
+		p.CustomHeaders = cfg.CustomHeaders
+		p.RemoveHeaders = cfg.RemoveHeaders
+	}
+
 	b.responseHeadersPolicies[id] = p
 	b.responseHeadersPolicyByName[name] = id
 	cp := *p
@@ -1646,6 +1715,7 @@ func (b *InMemoryBackend) ListResponseHeadersPolicies() []*ResponseHeadersPolicy
 // UpdateResponseHeadersPolicy updates an existing Response Headers Policy.
 func (b *InMemoryBackend) UpdateResponseHeadersPolicy(
 	id, name, comment string,
+	opts ...*ResponseHeadersPolicyConfig,
 ) (*ResponseHeadersPolicy, error) {
 	b.mu.Lock("UpdateResponseHeadersPolicy")
 	defer b.mu.Unlock()
@@ -1679,6 +1749,14 @@ func (b *InMemoryBackend) UpdateResponseHeadersPolicy(
 	p.Name = name
 	p.Comment = comment
 	p.ETag = uuid.NewString()
+	if len(opts) > 0 && opts[0] != nil {
+		cfg := opts[0]
+		p.CorsConfig = cfg.CorsConfig
+		p.SecurityHeaders = cfg.SecurityHeaders
+		p.CustomHeaders = cfg.CustomHeaders
+		p.RemoveHeaders = cfg.RemoveHeaders
+	}
+
 	cp := *p
 
 	return &cp, nil
@@ -1710,6 +1788,10 @@ func (b *InMemoryBackend) DeleteResponseHeadersPolicy(id string) error {
 func (b *InMemoryBackend) CreateFunction(
 	name, comment, runtime, functionCode string,
 ) (*Function, error) {
+	if err := validateRuntime(runtime); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateFunction")
 	defer b.mu.Unlock()
 
@@ -1726,7 +1808,7 @@ func (b *InMemoryBackend) CreateFunction(
 		Comment:      comment,
 		Runtime:      runtime,
 		FunctionCode: functionCode,
-		Status:       "UNPUBLISHED",
+		Status:       "DEVELOPMENT",
 		ETag:         uuid.NewString(),
 		ARN:          b.functionARN(name),
 	}
@@ -1788,6 +1870,10 @@ func (b *InMemoryBackend) PublishFunction(name string) (*Function, error) {
 func (b *InMemoryBackend) UpdateFunction(
 	name, comment, runtime, functionCode string,
 ) (*Function, error) {
+	if err := validateRuntime(runtime); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateFunction")
 	defer b.mu.Unlock()
 
@@ -1799,7 +1885,7 @@ func (b *InMemoryBackend) UpdateFunction(
 	fn.Comment = comment
 	fn.Runtime = runtime
 	fn.FunctionCode = functionCode
-	fn.Status = "UNPUBLISHED"
+	fn.Status = "DEVELOPMENT"
 	fn.ETag = uuid.NewString()
 	cp := *fn
 
@@ -1822,9 +1908,17 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 
 // --- Origin Request Policy CRUD ---
 
+// OriginRequestPolicyConfig carries optional full-config inputs for CreateOriginRequestPolicy.
+type OriginRequestPolicyConfig struct {
+	HeadersConfig      *ORPHeadersConfig
+	CookiesConfig      *ORPCookiesConfig
+	QueryStringsConfig *ORPQueryStringsConfig
+}
+
 // CreateOriginRequestPolicy creates a new Origin Request Policy.
 func (b *InMemoryBackend) CreateOriginRequestPolicy(
 	name, comment string,
+	opts ...*OriginRequestPolicyConfig,
 ) (*OriginRequestPolicy, error) {
 	b.mu.Lock("CreateOriginRequestPolicy")
 	defer b.mu.Unlock()
@@ -1848,6 +1942,14 @@ func (b *InMemoryBackend) CreateOriginRequestPolicy(
 		Comment: comment,
 		ETag:    uuid.NewString(),
 	}
+
+	if len(opts) > 0 && opts[0] != nil {
+		cfg := opts[0]
+		p.HeadersConfig = cfg.HeadersConfig
+		p.CookiesConfig = cfg.CookiesConfig
+		p.QueryStringsConfig = cfg.QueryStringsConfig
+	}
+
 	b.originRequestPolicies[id] = p
 	b.originRequestPolicyByName[name] = id
 	cp := *p
@@ -1893,6 +1995,7 @@ func (b *InMemoryBackend) ListOriginRequestPolicies() []*OriginRequestPolicy {
 // UpdateOriginRequestPolicy updates an existing Origin Request Policy.
 func (b *InMemoryBackend) UpdateOriginRequestPolicy(
 	id, name, comment string,
+	opts ...*OriginRequestPolicyConfig,
 ) (*OriginRequestPolicy, error) {
 	b.mu.Lock("UpdateOriginRequestPolicy")
 	defer b.mu.Unlock()
@@ -1926,6 +2029,13 @@ func (b *InMemoryBackend) UpdateOriginRequestPolicy(
 	p.Name = name
 	p.Comment = comment
 	p.ETag = uuid.NewString()
+	if len(opts) > 0 && opts[0] != nil {
+		cfg := opts[0]
+		p.HeadersConfig = cfg.HeadersConfig
+		p.CookiesConfig = cfg.CookiesConfig
+		p.QueryStringsConfig = cfg.QueryStringsConfig
+	}
+
 	cp := *p
 
 	return &cp, nil
@@ -2201,6 +2311,12 @@ func (b *InMemoryBackend) DeleteFieldLevelEncryptionProfile(id string) error {
 func (b *InMemoryBackend) CreatePublicKey(
 	callerRef, name, comment, encodedKey string,
 ) (*PublicKey, error) {
+	if encodedKey != "" {
+		if err := validatePEMPublicKey(encodedKey); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.Lock("CreatePublicKey")
 	defer b.mu.Unlock()
 
@@ -2307,6 +2423,12 @@ func (b *InMemoryBackend) CreateKeyGroup(name, comment string, items []string) (
 		return nil, fmt.Errorf("%w: key group with name %q already exists", ErrAlreadyExists, name)
 	}
 
+	for _, itemID := range items {
+		if _, ok := b.publicKeys[itemID]; !ok {
+			return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, itemID)
+		}
+	}
+
 	id := generateID()
 	kg := &KeyGroup{
 		ID:      id,
@@ -2375,6 +2497,12 @@ func (b *InMemoryBackend) UpdateKeyGroup(
 		b.keyGroupByName[name] = id
 	}
 
+	for _, itemID := range items {
+		if _, ok := b.publicKeys[itemID]; !ok {
+			return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, itemID)
+		}
+	}
+
 	kg.Name = name
 	kg.Comment = comment
 	kg.Items = append([]string(nil), items...)
@@ -2419,6 +2547,10 @@ func (b *InMemoryBackend) CreateRealtimeLogConfig(
 	samplingRate int64,
 	fields []string,
 ) (*RealtimeLogConfig, error) {
+	if err := validateSamplingRate(samplingRate); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateRealtimeLogConfig")
 	defer b.mu.Unlock()
 
@@ -2502,6 +2634,10 @@ func (b *InMemoryBackend) UpdateRealtimeLogConfig(
 	samplingRate int64,
 	fields []string,
 ) (*RealtimeLogConfig, error) {
+	if err := validateSamplingRate(samplingRate); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateRealtimeLogConfig")
 	defer b.mu.Unlock()
 
