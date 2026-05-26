@@ -23,6 +23,9 @@ const (
 	kinesisanalyticsService      = "kinesisanalytics"
 	errInvalidArgumentException  = "InvalidArgumentException"
 	errLimitExceededException    = "LimitExceededException"
+
+	// nanosPerSecond converts nanoseconds to seconds as a float64 divisor.
+	nanosPerSecond = 1e9
 )
 
 var (
@@ -235,7 +238,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code = "InternalServiceException"
 	}
 
-	c.Response().Header().Set("x-amzn-ErrorType", code)
+	c.Response().Header().Set("X-Amzn-Errortype", code)
 
 	return c.JSON(status, errorResponse{Type: code, Message: err.Error()})
 }
@@ -516,11 +519,11 @@ func toApplicationDetail(app *Application) applicationDetail {
 	}
 
 	if app.CreateTimestamp != nil {
-		detail.CreateTimestamp = float64(app.CreateTimestamp.UnixNano()) / 1e9
+		detail.CreateTimestamp = float64(app.CreateTimestamp.UnixNano()) / nanosPerSecond
 	}
 
 	if app.LastUpdateTimestamp != nil {
-		detail.LastUpdateTimestamp = float64(app.LastUpdateTimestamp.UnixNano()) / 1e9
+		detail.LastUpdateTimestamp = float64(app.LastUpdateTimestamp.UnixNano()) / nanosPerSecond
 	}
 
 	return detail
@@ -577,10 +580,10 @@ func (h *Handler) handleAddApplicationInput(
 		return nil, err
 	}
 
-	if err := h.Backend.AddApplicationInput(
+	if addErr := h.Backend.AddApplicationInput(
 		in.ApplicationName, in.CurrentApplicationVersionID, desc,
-	); err != nil {
-		return nil, err
+	); addErr != nil {
+		return nil, addErr
 	}
 
 	return &struct{}{}, nil
@@ -626,10 +629,10 @@ func (h *Handler) handleAddApplicationOutput(
 		return nil, err
 	}
 
-	if err := h.Backend.AddApplicationOutput(
+	if addErr := h.Backend.AddApplicationOutput(
 		in.ApplicationName, in.CurrentApplicationVersionID, desc,
-	); err != nil {
-		return nil, err
+	); addErr != nil {
+		return nil, addErr
 	}
 
 	return &struct{}{}, nil
@@ -789,7 +792,7 @@ func (h *Handler) handleDiscoverInputSchema(
 	return &discoverInputSchemaOutput{
 		InputSchema: &SourceSchema{
 			RecordFormat: RecordFormat{
-				RecordFormatType: "JSON",
+				RecordFormatType: recordFormatJSON,
 				MappingParameters: &MappingParameters{
 					JSONMappingParameters: &JSONMappingParameters{RecordRowPath: "$"},
 				},

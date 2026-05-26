@@ -37,11 +37,11 @@ const (
 	statusStopping      = "STOPPING"
 	statusUpdating      = "UPDATING"
 	statusDeleting      = "DELETING"
-	statusAutoScaling   = "AUTOSCALING"   //nolint:deadcode,unused // AWS status constant
-	statusForceStopping = "FORCE_STOPPING" //nolint:deadcode,unused // AWS status constant
-	statusMaintenance   = "MAINTENANCE"   //nolint:deadcode,unused // AWS status constant
-	statusRollingBack   = "ROLLING_BACK"  //nolint:deadcode,unused // AWS status constant
-	statusRolledBack    = "ROLLED_BACK"   //nolint:deadcode,unused // AWS status constant
+	statusAutoScaling   = "AUTOSCALING"    //nolint:deadcode // AWS status constant
+	statusForceStopping = "FORCE_STOPPING" //nolint:deadcode // AWS status constant
+	statusMaintenance   = "MAINTENANCE"    //nolint:deadcode // AWS status constant
+	statusRollingBack   = "ROLLING_BACK"   //nolint:deadcode // AWS status constant
+	statusRolledBack    = "ROLLED_BACK"    //nolint:deadcode // AWS status constant
 
 	runtimeEnvironmentV1 = "SQL-1_0"
 
@@ -57,6 +57,9 @@ const (
 	maxAppNameLen = 128
 	maxAppDescLen = 1024
 	maxAppCodeLen = 102400
+
+	// recordFormatJSON is the JSON record format type constant.
+	recordFormatJSON = "JSON"
 
 	maxInputParallelism = 64
 	minInputParallelism = 1
@@ -100,7 +103,7 @@ type StorageBackend interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	apps        map[string]*Application
-	appsByARN   map[string]*Application      // application ARN → Application
+	appsByARN   map[string]*Application       // application ARN → Application
 	cancelFuncs map[string]context.CancelFunc // application name → lifecycle goroutine cancel
 	region      string
 	accountID   string
@@ -179,7 +182,7 @@ func validateTagKey(key string) error {
 	}
 
 	if strings.HasPrefix(key, "aws:") {
-		return fmt.Errorf("%w: tag key must not start with aws:", ErrValidation)
+		return fmt.Errorf("%w: tag key must not start with \"aws:\"", ErrValidation)
 	}
 
 	return nil
@@ -222,10 +225,12 @@ func validateAndMergeTags(existing, incoming map[string]string) error {
 }
 
 // validateARNShape verifies that an ARN refers to a kinesisanalytics application in this backend.
-// ARN format: arn:{partition}:kinesisanalytics:{region}:{accountID}:application/{name}
+// ARN format: arn:{partition}:kinesisanalytics:{region}:{accountID}:application/{name}.
 func (b *InMemoryBackend) validateARNShape(resourceARN string) error {
-	parts := strings.SplitN(resourceARN, ":", 6)
-	if len(parts) != 6 ||
+	const arnFieldCount = 6
+
+	parts := strings.SplitN(resourceARN, ":", arnFieldCount)
+	if len(parts) != arnFieldCount ||
 		parts[0] != "arn" ||
 		parts[2] != "kinesisanalytics" ||
 		!strings.HasPrefix(parts[5], "application/") {
@@ -379,7 +384,7 @@ func convertOutputConfig(cfg *applicationOutputConfig) (OutputDescription, error
 	}
 
 	ft := cfg.DestinationSchema.RecordFormatType
-	if ft != "JSON" && ft != "CSV" {
+	if ft != recordFormatJSON && ft != "CSV" {
 		return desc, fmt.Errorf(
 			"%w: DestinationSchema.RecordFormatType must be JSON or CSV", ErrValidation)
 	}
@@ -425,7 +430,10 @@ func (b *InMemoryBackend) CreateApplication(
 	defer b.mu.Unlock()
 
 	if len(b.apps) >= maxApplicationsPerRegion {
-		return nil, fmt.Errorf("%w: maximum of %d applications per account/region", ErrLimitExceeded, maxApplicationsPerRegion)
+		return nil, fmt.Errorf(
+			"%w: maximum of %d applications per account/region",
+			ErrLimitExceeded, maxApplicationsPerRegion,
+		)
 	}
 
 	if _, exists := b.apps[name]; exists {
@@ -490,7 +498,10 @@ func (b *InMemoryBackend) DeleteApplication(name string, createTimestamp *time.T
 	}
 
 	if app.CreateTimestamp != nil && createTimestamp.Unix() != app.CreateTimestamp.Unix() {
-		return fmt.Errorf("%w: CreateTimestamp does not match stored value", awserr.New("ConcurrentModificationException", awserr.ErrConflict))
+		return fmt.Errorf(
+			"%w: CreateTimestamp does not match stored value",
+			awserr.New("ConcurrentModificationException", awserr.ErrConflict),
+		)
 	}
 
 	// Cancel any in-flight lifecycle goroutine.
@@ -590,6 +601,38 @@ func (b *InMemoryBackend) ListApplications(exclusiveStart string, limit int) ([]
 	return all, false, nil
 }
 
+// validateAndApplyInputConfigs checks that all input configurations reference known input IDs
+// and applies starting position configurations. Must be called under b.mu.
+func validateAndApplyInputConfigs(app *Application, inputConfigs []inputConfiguration) error {
+	for _, ic := range inputConfigs {
+		if ic.ID == "" {
+			return fmt.Errorf("%w: InputConfigurations[].Id is required", ErrValidation)
+		}
+
+		idx := findInputIndex(app.Inputs, ic.ID)
+		if idx < 0 {
+			return fmt.Errorf("%w: input ID %q not found on application", ErrNotFound, ic.ID)
+		}
+
+		if ic.InputStartingPositionConfiguration != nil {
+			app.Inputs[idx].InputStartingPositionConfiguration = ic.InputStartingPositionConfiguration
+		}
+	}
+
+	return nil
+}
+
+// findInputIndex returns the index of the input with the given ID, or -1 if not found.
+func findInputIndex(inputs []InputDescription, inputID string) int {
+	for i := range inputs {
+		if inputs[i].InputID == inputID {
+			return i
+		}
+	}
+
+	return -1
+}
+
 // StartApplication transitions an application to RUNNING via a STARTING transient state.
 func (b *InMemoryBackend) StartApplication(name string, inputConfigs []inputConfiguration) error {
 	b.mu.Lock()
@@ -605,35 +648,8 @@ func (b *InMemoryBackend) StartApplication(name string, inputConfigs []inputConf
 			ErrResourceInUse, statusReady, app.ApplicationStatus)
 	}
 
-	// Validate InputConfigurations reference known input IDs.
-	for _, ic := range inputConfigs {
-		if ic.ID == "" {
-			return fmt.Errorf("%w: InputConfigurations[].Id is required", ErrValidation)
-		}
-
-		found := false
-
-		for _, inp := range app.Inputs {
-			if inp.InputID == ic.ID {
-				found = true
-
-				break
-			}
-		}
-
-		if !found {
-			return fmt.Errorf("%w: input ID %q not found on application", ErrNotFound, ic.ID)
-		}
-
-		if ic.InputStartingPositionConfiguration != nil {
-			for i := range app.Inputs {
-				if app.Inputs[i].InputID == ic.ID {
-					app.Inputs[i].InputStartingPositionConfiguration = ic.InputStartingPositionConfiguration
-
-					break
-				}
-			}
-		}
+	if err := validateAndApplyInputConfigs(app, inputConfigs); err != nil {
+		return err
 	}
 
 	now := time.Now().UTC()
@@ -703,6 +719,253 @@ func (b *InMemoryBackend) launchTransition(name, targetStatus string) {
 	}()
 }
 
+// applyInputUpdates applies input update operations to the application.
+func applyInputUpdates(app *Application, updates []inputUpdate) error {
+	for _, iu := range updates {
+		idx := findInputIndex(app.Inputs, iu.InputID)
+		if idx < 0 {
+			return fmt.Errorf("%w: InputId %q not found", ErrNotFound, iu.InputID)
+		}
+
+		applyOneInputUpdate(&app.Inputs[idx], &iu)
+	}
+
+	return nil
+}
+
+// applyOneInputUpdate applies a single input update to an InputDescription.
+func applyOneInputUpdate(inp *InputDescription, iu *inputUpdate) {
+	if iu.NamePrefixUpdate != "" {
+		inp.NamePrefix = iu.NamePrefixUpdate
+	}
+
+	if iu.KinesisStreamsInputUpdate != nil {
+		inp.KinesisStreamsInputDescription = &KinesisStreamsInputDesc{
+			ResourceARN: iu.KinesisStreamsInputUpdate.ResourceARN,
+			RoleARN:     iu.KinesisStreamsInputUpdate.RoleARN,
+		}
+		inp.KinesisFirehoseInputDescription = nil
+	}
+
+	if iu.KinesisFirehoseInputUpdate != nil {
+		inp.KinesisFirehoseInputDescription = &KinesisFirehoseInputDesc{
+			ResourceARN: iu.KinesisFirehoseInputUpdate.ResourceARN,
+			RoleARN:     iu.KinesisFirehoseInputUpdate.RoleARN,
+		}
+		inp.KinesisStreamsInputDescription = nil
+	}
+
+	if iu.InputSchemaUpdate != nil {
+		schema := convertSourceSchema(iu.InputSchemaUpdate)
+		inp.InputSchema = &schema
+	}
+
+	if iu.InputStartingPositionConfiguration != nil {
+		inp.InputStartingPositionConfiguration = iu.InputStartingPositionConfiguration
+	}
+
+	if iu.InputProcessingConfigurationUpdate != nil &&
+		iu.InputProcessingConfigurationUpdate.InputLambdaProcessor != nil {
+		inp.InputProcessingConfigurationDescription = &InputProcessingConfigurationDesc{
+			InputLambdaProcessor: &LambdaProcessorDesc{
+				ResourceARN: iu.InputProcessingConfigurationUpdate.InputLambdaProcessor.ResourceARN,
+				RoleARN:     iu.InputProcessingConfigurationUpdate.InputLambdaProcessor.RoleARN,
+			},
+		}
+	}
+
+	if inp.InputParallelism != nil {
+		inp.InAppStreamNames = inAppStreamNames(inp.NamePrefix, inp.InputParallelism.Count)
+	}
+}
+
+// applyOutputUpdates applies output update operations to the application.
+func applyOutputUpdates(app *Application, updates []outputUpdate) error {
+	for _, ou := range updates {
+		idx := findOutputIndex(app.Outputs, ou.OutputID)
+		if idx < 0 {
+			return fmt.Errorf("%w: OutputId %q not found", ErrNotFound, ou.OutputID)
+		}
+
+		if err := applyOneOutputUpdate(&app.Outputs[idx], &ou); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// findOutputIndex returns the index of the output with the given ID, or -1 if not found.
+func findOutputIndex(outputs []OutputDescription, outputID string) int {
+	for i := range outputs {
+		if outputs[i].OutputID == outputID {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// applyOneOutputUpdate applies a single output update to an OutputDescription.
+func applyOneOutputUpdate(out *OutputDescription, ou *outputUpdate) error {
+	if ou.NameUpdate != "" {
+		out.Name = ou.NameUpdate
+	}
+
+	if ou.KinesisStreamsOutputUpdate != nil {
+		out.KinesisStreamsOutputDescription = &KinesisStreamsOutputDesc{
+			ResourceARN: ou.KinesisStreamsOutputUpdate.ResourceARN,
+			RoleARN:     ou.KinesisStreamsOutputUpdate.RoleARN,
+		}
+		out.KinesisFirehoseOutputDescription = nil
+		out.LambdaOutputDescription = nil
+	}
+
+	if ou.KinesisFirehoseOutputUpdate != nil {
+		out.KinesisFirehoseOutputDescription = &KinesisFirehoseOutputDesc{
+			ResourceARN: ou.KinesisFirehoseOutputUpdate.ResourceARN,
+			RoleARN:     ou.KinesisFirehoseOutputUpdate.RoleARN,
+		}
+		out.KinesisStreamsOutputDescription = nil
+		out.LambdaOutputDescription = nil
+	}
+
+	if ou.LambdaOutputUpdate != nil {
+		out.LambdaOutputDescription = &LambdaOutputDesc{
+			ResourceARN: ou.LambdaOutputUpdate.ResourceARN,
+			RoleARN:     ou.LambdaOutputUpdate.RoleARN,
+		}
+		out.KinesisStreamsOutputDescription = nil
+		out.KinesisFirehoseOutputDescription = nil
+	}
+
+	if ou.DestinationSchemaUpdate != nil {
+		ft := ou.DestinationSchemaUpdate.RecordFormatType
+		if ft != recordFormatJSON && ft != "CSV" {
+			return fmt.Errorf(
+				"%w: DestinationSchema.RecordFormatType must be JSON or CSV",
+				ErrValidation,
+			)
+		}
+
+		out.DestinationSchema = &DestinationSchemaDesc{RecordFormatType: ft}
+	}
+
+	return nil
+}
+
+// applyReferenceDataSourceUpdates applies reference data source updates to the application.
+func applyReferenceDataSourceUpdates(
+	app *Application,
+	updates []referenceDataSourceUpdate,
+) error {
+	for _, ru := range updates {
+		idx := findReferenceIndex(app.ReferenceDataSources, ru.ReferenceID)
+		if idx < 0 {
+			return fmt.Errorf("%w: ReferenceId %q not found", ErrNotFound, ru.ReferenceID)
+		}
+
+		ref := &app.ReferenceDataSources[idx]
+
+		if ru.TableNameUpdate != "" {
+			ref.TableName = ru.TableNameUpdate
+		}
+
+		if ru.S3ReferenceDataSourceUpdate != nil {
+			ref.S3ReferenceDataSourceDescription = &S3ReferenceDataSourceDesc{
+				BucketARN: ru.S3ReferenceDataSourceUpdate.BucketARN,
+				FileKey:   ru.S3ReferenceDataSourceUpdate.FileKey,
+				RoleARN:   ru.S3ReferenceDataSourceUpdate.RoleARN,
+			}
+		}
+
+		if ru.ReferenceSchemaUpdate != nil {
+			schema := convertSourceSchema(ru.ReferenceSchemaUpdate)
+			ref.ReferenceSchema = &schema
+		}
+	}
+
+	return nil
+}
+
+// findReferenceIndex returns the index of the reference with the given ID, or -1.
+func findReferenceIndex(refs []ReferenceDataSourceDescription, refID string) int {
+	for i := range refs {
+		if refs[i].ReferenceID == refID {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// applyCWLOptionUpdates applies CloudWatch logging option updates to the application.
+func applyCWLOptionUpdates(
+	app *Application,
+	updates []cwlOptionUpdate,
+) error {
+	for _, cu := range updates {
+		idx := findCWLOptionIndex(
+			app.CloudWatchLoggingOptions,
+			cu.CloudWatchLoggingOptionID,
+		)
+		if idx < 0 {
+			return fmt.Errorf(
+				"%w: CloudWatchLoggingOptionId %q not found",
+				ErrNotFound, cu.CloudWatchLoggingOptionID,
+			)
+		}
+
+		opt := &app.CloudWatchLoggingOptions[idx]
+
+		if cu.LogStreamARNUpdate != "" {
+			opt.LogStreamARN = cu.LogStreamARNUpdate
+		}
+
+		if cu.RoleARNUpdate != "" {
+			opt.RoleARN = cu.RoleARNUpdate
+		}
+	}
+
+	return nil
+}
+
+// findCWLOptionIndex returns the index of the CWL option with the given ID, or -1.
+func findCWLOptionIndex(opts []CloudWatchLoggingOptionDesc, optID string) int {
+	for i := range opts {
+		if opts[i].CloudWatchLoggingOptionID == optID {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// applyUpdate applies the full application update payload. Must be called under b.mu.
+func applyUpdate(app *Application, update *applicationUpdate) error {
+	if update == nil {
+		return nil
+	}
+
+	if update.ApplicationCodeUpdate != "" {
+		app.ApplicationCode = update.ApplicationCodeUpdate
+	}
+
+	if err := applyInputUpdates(app, update.InputUpdates); err != nil {
+		return err
+	}
+
+	if err := applyOutputUpdates(app, update.OutputUpdates); err != nil {
+		return err
+	}
+
+	if err := applyReferenceDataSourceUpdates(app, update.ReferenceDataSourceUpdates); err != nil {
+		return err
+	}
+
+	return applyCWLOptionUpdates(app, update.CloudWatchLoggingOptionUpdates)
+}
+
 // UpdateApplication updates the application with the full update payload and bumps the version.
 func (b *InMemoryBackend) UpdateApplication(
 	name string,
@@ -718,198 +981,18 @@ func (b *InMemoryBackend) UpdateApplication(
 	}
 
 	if app.ApplicationStatus != statusReady && app.ApplicationStatus != statusRunning {
-		return nil, fmt.Errorf("%w: application must be in READY or RUNNING state to update (current: %s)",
-			ErrResourceInUse, app.ApplicationStatus)
+		return nil, fmt.Errorf(
+			"%w: application must be in READY or RUNNING state to update (current: %s)",
+			ErrResourceInUse, app.ApplicationStatus,
+		)
 	}
 
 	if app.ApplicationVersionID != currentVersionID {
 		return nil, ErrConcurrentUpdate
 	}
 
-	if update != nil {
-		if update.ApplicationCodeUpdate != "" {
-			app.ApplicationCode = update.ApplicationCodeUpdate
-		}
-
-		for _, iu := range update.InputUpdates {
-			idx := -1
-
-			for i := range app.Inputs {
-				if app.Inputs[i].InputID == iu.InputID {
-					idx = i
-
-					break
-				}
-			}
-
-			if idx < 0 {
-				return nil, fmt.Errorf("%w: InputId %q not found", ErrNotFound, iu.InputID)
-			}
-
-			inp := &app.Inputs[idx]
-
-			if iu.NamePrefixUpdate != "" {
-				inp.NamePrefix = iu.NamePrefixUpdate
-			}
-
-			if iu.KinesisStreamsInputUpdate != nil {
-				inp.KinesisStreamsInputDescription = &KinesisStreamsInputDesc{
-					ResourceARN: iu.KinesisStreamsInputUpdate.ResourceARN,
-					RoleARN:     iu.KinesisStreamsInputUpdate.RoleARN,
-				}
-				inp.KinesisFirehoseInputDescription = nil
-			}
-
-			if iu.KinesisFirehoseInputUpdate != nil {
-				inp.KinesisFirehoseInputDescription = &KinesisFirehoseInputDesc{
-					ResourceARN: iu.KinesisFirehoseInputUpdate.ResourceARN,
-					RoleARN:     iu.KinesisFirehoseInputUpdate.RoleARN,
-				}
-				inp.KinesisStreamsInputDescription = nil
-			}
-
-			if iu.InputSchemaUpdate != nil {
-				schema := convertSourceSchema(iu.InputSchemaUpdate)
-				inp.InputSchema = &schema
-			}
-
-			if iu.InputStartingPositionConfiguration != nil {
-				inp.InputStartingPositionConfiguration = iu.InputStartingPositionConfiguration
-			}
-
-			if iu.InputProcessingConfigurationUpdate != nil &&
-				iu.InputProcessingConfigurationUpdate.InputLambdaProcessor != nil {
-				inp.InputProcessingConfigurationDescription = &InputProcessingConfigurationDesc{
-					InputLambdaProcessor: &LambdaProcessorDesc{
-						ResourceARN: iu.InputProcessingConfigurationUpdate.InputLambdaProcessor.ResourceARN,
-						RoleARN:     iu.InputProcessingConfigurationUpdate.InputLambdaProcessor.RoleARN,
-					},
-				}
-			}
-
-			if inp.InputParallelism != nil {
-				inp.InAppStreamNames = inAppStreamNames(inp.NamePrefix, inp.InputParallelism.Count)
-			}
-		}
-
-		for _, ou := range update.OutputUpdates {
-			idx := -1
-
-			for i := range app.Outputs {
-				if app.Outputs[i].OutputID == ou.OutputID {
-					idx = i
-
-					break
-				}
-			}
-
-			if idx < 0 {
-				return nil, fmt.Errorf("%w: OutputId %q not found", ErrNotFound, ou.OutputID)
-			}
-
-			out := &app.Outputs[idx]
-
-			if ou.NameUpdate != "" {
-				out.Name = ou.NameUpdate
-			}
-
-			if ou.KinesisStreamsOutputUpdate != nil {
-				out.KinesisStreamsOutputDescription = &KinesisStreamsOutputDesc{
-					ResourceARN: ou.KinesisStreamsOutputUpdate.ResourceARN,
-					RoleARN:     ou.KinesisStreamsOutputUpdate.RoleARN,
-				}
-				out.KinesisFirehoseOutputDescription = nil
-				out.LambdaOutputDescription = nil
-			}
-
-			if ou.KinesisFirehoseOutputUpdate != nil {
-				out.KinesisFirehoseOutputDescription = &KinesisFirehoseOutputDesc{
-					ResourceARN: ou.KinesisFirehoseOutputUpdate.ResourceARN,
-					RoleARN:     ou.KinesisFirehoseOutputUpdate.RoleARN,
-				}
-				out.KinesisStreamsOutputDescription = nil
-				out.LambdaOutputDescription = nil
-			}
-
-			if ou.LambdaOutputUpdate != nil {
-				out.LambdaOutputDescription = &LambdaOutputDesc{
-					ResourceARN: ou.LambdaOutputUpdate.ResourceARN,
-					RoleARN:     ou.LambdaOutputUpdate.RoleARN,
-				}
-				out.KinesisStreamsOutputDescription = nil
-				out.KinesisFirehoseOutputDescription = nil
-			}
-
-			if ou.DestinationSchemaUpdate != nil {
-				ft := ou.DestinationSchemaUpdate.RecordFormatType
-				if ft != "JSON" && ft != "CSV" {
-					return nil, fmt.Errorf("%w: DestinationSchema.RecordFormatType must be JSON or CSV", ErrValidation)
-				}
-
-				out.DestinationSchema = &DestinationSchemaDesc{RecordFormatType: ft}
-			}
-		}
-
-		for _, ru := range update.ReferenceDataSourceUpdates {
-			idx := -1
-
-			for i := range app.ReferenceDataSources {
-				if app.ReferenceDataSources[i].ReferenceID == ru.ReferenceID {
-					idx = i
-
-					break
-				}
-			}
-
-			if idx < 0 {
-				return nil, fmt.Errorf("%w: ReferenceId %q not found", ErrNotFound, ru.ReferenceID)
-			}
-
-			ref := &app.ReferenceDataSources[idx]
-
-			if ru.TableNameUpdate != "" {
-				ref.TableName = ru.TableNameUpdate
-			}
-
-			if ru.S3ReferenceDataSourceUpdate != nil {
-				ref.S3ReferenceDataSourceDescription = &S3ReferenceDataSourceDesc{
-					BucketARN: ru.S3ReferenceDataSourceUpdate.BucketARN,
-					FileKey:   ru.S3ReferenceDataSourceUpdate.FileKey,
-					RoleARN:   ru.S3ReferenceDataSourceUpdate.RoleARN,
-				}
-			}
-
-			if ru.ReferenceSchemaUpdate != nil {
-				schema := convertSourceSchema(ru.ReferenceSchemaUpdate)
-				ref.ReferenceSchema = &schema
-			}
-		}
-
-		for _, cu := range update.CloudWatchLoggingOptionUpdates {
-			idx := -1
-
-			for i := range app.CloudWatchLoggingOptions {
-				if app.CloudWatchLoggingOptions[i].CloudWatchLoggingOptionID == cu.CloudWatchLoggingOptionID {
-					idx = i
-
-					break
-				}
-			}
-
-			if idx < 0 {
-				return nil, fmt.Errorf("%w: CloudWatchLoggingOptionId %q not found", ErrNotFound, cu.CloudWatchLoggingOptionID)
-			}
-
-			opt := &app.CloudWatchLoggingOptions[idx]
-
-			if cu.LogStreamARNUpdate != "" {
-				opt.LogStreamARN = cu.LogStreamARNUpdate
-			}
-
-			if cu.RoleARNUpdate != "" {
-				opt.RoleARN = cu.RoleARNUpdate
-			}
-		}
+	if err := applyUpdate(app, update); err != nil {
+		return nil, err
 	}
 
 	now := time.Now().UTC()
@@ -1176,7 +1259,11 @@ func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
 	}
 
 	if len(app.CloudWatchLoggingOptions) >= maxCWLOptions {
-		return fmt.Errorf("%w: maximum of %d CloudWatch logging options per application", ErrLimitExceeded, maxCWLOptions)
+		return fmt.Errorf(
+			"%w: maximum of %d CloudWatch logging options per application",
+			ErrLimitExceeded,
+			maxCWLOptions,
+		)
 	}
 
 	if err := checkAndBumpVersion(app, versionID); err != nil {

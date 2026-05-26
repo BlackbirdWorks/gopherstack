@@ -154,7 +154,11 @@ func TestHandler_DeleteApplication(t *testing.T) {
 			name: "deletes existing application",
 			setup: func(b *kinesisanalytics.InMemoryBackend) map[string]any {
 				app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-app", "", "", nil)
-				return map[string]any{"ApplicationName": "del-app", "CreateTimestamp": float64(app.CreateTimestamp.Unix())}
+
+				return map[string]any{
+					"ApplicationName": "del-app",
+					"CreateTimestamp": float64(app.CreateTimestamp.Unix()),
+				}
 			},
 			wantStatus: http.StatusOK,
 		},

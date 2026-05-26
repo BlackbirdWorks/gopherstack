@@ -49,7 +49,9 @@ func TestInMemoryBackend_CreateApplication(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, tt.appName, tt.description, tt.code, tt.tags)
+			app, err := kinesisanalytics.CreateApp(
+				b, testRegion, testAccountID, tt.appName, tt.description, tt.code, tt.tags,
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -244,9 +246,9 @@ func TestInMemoryBackend_StartApplication(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup   func(*kinesisanalytics.InMemoryBackend)
 		name    string
 		appName string
-		setup   func(*kinesisanalytics.InMemoryBackend)
 		wantErr bool
 	}{
 		{
@@ -289,9 +291,9 @@ func TestInMemoryBackend_StopApplication(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup   func(t *testing.T, b *kinesisanalytics.InMemoryBackend)
 		name    string
 		appName string
-		setup   func(t *testing.T, b *kinesisanalytics.InMemoryBackend)
 		wantErr bool
 	}{
 		{
@@ -597,14 +599,14 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 
 			// Verify appsByARN index is rebuilt: tag operations should work via ARN.
 			if tt.wantLen > 0 {
-				app, err := b2.DescribeApplication("persist-app-1")
-				require.NoError(t, err)
+				descApp, descErr := b2.DescribeApplication("persist-app-1")
+				require.NoError(t, descErr)
 
-				err = b2.TagResource(app.ApplicationARN, map[string]string{"new": "tag"})
-				require.NoError(t, err)
+				tagErr := b2.TagResource(descApp.ApplicationARN, map[string]string{"new": "tag"})
+				require.NoError(t, tagErr)
 
-				tags, err := b2.ListTagsForResource(app.ApplicationARN)
-				require.NoError(t, err)
+				tags, listErr := b2.ListTagsForResource(descApp.ApplicationARN)
+				require.NoError(t, listErr)
 				assert.Equal(t, "tag", tags["new"])
 				assert.Equal(t, "test", tags["env"])
 			}

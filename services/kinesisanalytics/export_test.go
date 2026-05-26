@@ -21,7 +21,10 @@ func HandlerOpsLen(h *Handler) int {
 }
 
 // CreateApp is a test helper that calls CreateApplication with the minimal (legacy) signature.
-func CreateApp(b *InMemoryBackend, region, accountID, name, description, code string, tags map[string]string) (*Application, error) {
+func CreateApp(
+	b *InMemoryBackend, region, accountID, name, description, code string,
+	tags map[string]string,
+) (*Application, error) {
 	return b.CreateApplication(region, accountID, name, description, code, "", nil, nil, nil, tags)
 }
 
