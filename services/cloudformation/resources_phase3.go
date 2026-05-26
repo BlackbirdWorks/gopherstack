@@ -11,6 +11,7 @@ import (
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
@@ -144,7 +145,12 @@ func (rc *ResourceCreator) createEFSFileSystem(
 
 	token := logicalID + "-token"
 
-	fs, err := rc.backends.EFS.Backend.CreateFileSystem(token, performanceMode, throughputMode, encrypted, nil)
+	fs, err := rc.backends.EFS.Backend.CreateFileSystem(efsbackend.CreateFileSystemRequest{
+		CreationToken:   token,
+		PerformanceMode: performanceMode,
+		ThroughputMode:  throughputMode,
+		Encrypted:       encrypted,
+	})
 	if err != nil {
 		return "", fmt.Errorf("create EFS file system: %w", err)
 	}
@@ -172,7 +178,10 @@ func (rc *ResourceCreator) createEFSMountTarget(
 	fileSystemID := strProp(props, "FileSystemId", params, physicalIDs)
 	subnetID := strProp(props, "SubnetId", params, physicalIDs)
 
-	mt, err := rc.backends.EFS.Backend.CreateMountTarget(fileSystemID, subnetID, "")
+	mt, err := rc.backends.EFS.Backend.CreateMountTarget(efsbackend.CreateMountTargetRequest{
+		FileSystemID: fileSystemID,
+		SubnetID:     subnetID,
+	})
 	if err != nil {
 		return "", fmt.Errorf("create EFS mount target: %w", err)
 	}

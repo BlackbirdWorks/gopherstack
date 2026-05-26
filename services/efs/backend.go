@@ -1,9 +1,12 @@
 package efs
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,21 +17,93 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// Package-local sentinels used as the inner error for wrapped error types.
+// They are not exported; callers should match via the exported Err* vars.
+var (
+	errTokenIdentical = errors.New("creation token exists with identical parameters")
+	errThrottled      = errors.New("too many requests")
+)
+
 const (
 	statusAvailable = "available"
+	statusCreating  = "creating"
+	statusDeleting  = "deleting"
+	statusDeleted   = "deleted"
+	statusUpdating  = "updating"
 )
+
+const (
+	protectionEnabled     = "ENABLED"
+	protectionDisabled    = "DISABLED"
+	protectionReplicating = "REPLICATING"
+)
+
+const (
+	backupStatusEnabled  = "ENABLED"
+	backupStatusEnabling = "ENABLING"
+	backupStatusDisabled = "DISABLED"
+)
+
+const (
+	managedKMSKeyARN = "arn:aws:kms:us-east-1:000000000000:key/mrk-00000000000000000000000000000000"
+
+	maxTagsPerResource = 50
+	maxTagKeyLen       = 128
+	maxTagValueLen     = 256
+
+	maxSecurityGroups = 5
+
+	maxFileSystemPolicyBytes = 20 * 1024
+
+	throughputCooldown = 24 * time.Hour
+)
+
+func isValidTransitionToIA(v string) bool {
+	switch v {
+	case "AFTER_7_DAYS", "AFTER_14_DAYS", "AFTER_30_DAYS", "AFTER_60_DAYS",
+		"AFTER_90_DAYS", "AFTER_180_DAYS", "AFTER_270_DAYS", "AFTER_365_DAYS", "NONE":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidTransitionToPrimary(v string) bool {
+	return v == "AFTER_1_ACCESS"
+}
+
+func isValidTransitionToArchive(v string) bool {
+	switch v {
+	case "AFTER_1_ACCESS", "AFTER_7_DAYS", "AFTER_14_DAYS", "AFTER_30_DAYS",
+		"AFTER_60_DAYS", "AFTER_90_DAYS", "AFTER_180_DAYS", "AFTER_270_DAYS",
+		"AFTER_365_DAYS", "AFTER_90_DAYS_1":
+		return true
+	default:
+		return false
+	}
+}
 
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("FileSystemNotFound", awserr.ErrNotFound)
-	// ErrAlreadyExists is returned when a resource with the same token already exists.
+	// ErrAlreadyExists is returned when a resource with the same token already exists but args differ.
 	ErrAlreadyExists = awserr.New("FileSystemAlreadyExists", awserr.ErrConflict)
+	// ErrCreationTokenExists is returned when the same creation token with identical args is reused.
+	ErrCreationTokenExists = awserr.New("FileSystemAlreadyExists", errTokenIdentical)
 	// ErrMountTargetNotFound is returned when a requested mount target does not exist.
 	ErrMountTargetNotFound = awserr.New("MountTargetNotFound", awserr.ErrNotFound)
 	// ErrAccessPointNotFound is returned when a requested access point does not exist.
 	ErrAccessPointNotFound = awserr.New("AccessPointNotFound", awserr.ErrNotFound)
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrFileSystemInUse is returned when attempting to delete a file system that has mount targets.
+	ErrFileSystemInUse = awserr.New("FileSystemInUse", awserr.ErrConflict)
+	// ErrMountTargetConflict is returned when a duplicate mount target is created in the same subnet.
+	ErrMountTargetConflict = awserr.New("MountTargetConflict", awserr.ErrConflict)
+	// ErrSecurityGroupLimitExceeded is returned when too many security groups are specified.
+	ErrSecurityGroupLimitExceeded = awserr.New("SecurityGroupLimitExceeded", awserr.ErrConflict)
+	// ErrTooManyRequests is returned when a throughput change cooldown is violated.
+	ErrTooManyRequests = awserr.New("TooManyRequests", errThrottled)
 )
 
 const (
@@ -39,37 +114,69 @@ const (
 	performanceModeMaxIO      = "maxIO"
 )
 
+// PosixUser represents the POSIX identity used for all file system operations
+// by NFS clients using the access point.
+type PosixUser struct {
+	SecondaryGids []int64 `json:"SecondaryGids,omitempty"`
+	UID           int64   `json:"Uid"`
+	GID           int64   `json:"Gid"`
+}
+
+// CreationInfo specifies the POSIX IDs and permissions to apply to the access
+// point's RootDirectory when it does not exist.
+type CreationInfo struct {
+	Permissions string `json:"Permissions"`
+	OwnerUID    int64  `json:"OwnerUid"`
+	OwnerGID    int64  `json:"OwnerGid"`
+}
+
+// RootDirectory specifies the directory on the Amazon EFS file system that the
+// access point provides access to.
+type RootDirectory struct {
+	CreationInfo *CreationInfo `json:"CreationInfo,omitempty"`
+	Path         string        `json:"Path,omitempty"`
+}
+
 // FileSystem represents an EFS file system.
 //
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via TagResource / CreateFileSystem.
 type FileSystem struct {
-	CreationTime         time.Time  `json:"creationTime"`
-	Tags                 *tags.Tags `json:"tags,omitempty"`
-	PerformanceMode      string     `json:"performanceMode"`
-	FileSystemArn        string     `json:"fileSystemArn"`
-	CreationToken        string     `json:"creationToken"`
-	Name                 string     `json:"name,omitempty"`
-	FileSystemID         string     `json:"fileSystemId"`
-	ThroughputMode       string     `json:"throughputMode"`
-	LifeCycleState       string     `json:"lifeCycleState"`
-	AccountID            string     `json:"accountId"`
-	Region               string     `json:"region"`
-	NumberOfMountTargets int32      `json:"numberOfMountTargets"`
-	Encrypted            bool       `json:"encrypted"`
+	CreationTime                   time.Time  `json:"creationTime"`
+	Tags                           *tags.Tags `json:"tags,omitempty"`
+	LastThroughputChange           time.Time  `json:"lastThroughputChange,omitzero"`
+	PerformanceMode                string     `json:"performanceMode"`
+	FileSystemArn                  string     `json:"fileSystemArn"`
+	CreationToken                  string     `json:"creationToken"`
+	Name                           string     `json:"name,omitempty"`
+	FileSystemID                   string     `json:"fileSystemId"`
+	ThroughputMode                 string     `json:"throughputMode"`
+	LifeCycleState                 string     `json:"lifeCycleState"`
+	AccountID                      string     `json:"accountId"`
+	Region                         string     `json:"region"`
+	KmsKeyID                       string     `json:"kmsKeyId,omitempty"`
+	AvailabilityZoneName           string     `json:"availabilityZoneName,omitempty"`
+	AvailabilityZoneID             string     `json:"availabilityZoneId,omitempty"`
+	ReplicationOverwriteProtection string     `json:"replicationOverwriteProtection,omitempty"`
+	ProvisionedThroughputMib       float64    `json:"provisionedThroughputMib,omitempty"`
+	NumberOfMountTargets           int32      `json:"numberOfMountTargets"`
+	Encrypted                      bool       `json:"encrypted"`
 }
 
 // MountTarget represents an EFS mount target.
 type MountTarget struct {
-	MountTargetID        string `json:"mountTargetId"`
-	MountTargetArn       string `json:"mountTargetArn"`
-	FileSystemID         string `json:"fileSystemId"`
-	SubnetID             string `json:"subnetId"`
-	VPCID                string `json:"vpcId"`
-	AvailabilityZoneName string `json:"availabilityZoneName"`
-	IPAddress            string `json:"ipAddress"`
-	LifeCycleState       string `json:"lifeCycleState"`
-	OwnerID              string `json:"ownerId"`
+	MountTargetID        string   `json:"mountTargetId"`
+	MountTargetArn       string   `json:"mountTargetArn"`
+	FileSystemID         string   `json:"fileSystemId"`
+	SubnetID             string   `json:"subnetId"`
+	VpcID                string   `json:"vpcId"`
+	AvailabilityZoneName string   `json:"availabilityZoneName"`
+	AvailabilityZoneID   string   `json:"availabilityZoneId"`
+	NetworkInterfaceID   string   `json:"networkInterfaceId"`
+	IPAddress            string   `json:"ipAddress"`
+	LifeCycleState       string   `json:"lifeCycleState"`
+	OwnerID              string   `json:"ownerId"`
+	SecurityGroups       []string `json:"securityGroups,omitempty"`
 }
 
 // AccessPoint represents an EFS access point.
@@ -77,13 +184,16 @@ type MountTarget struct {
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via TagResource.
 type AccessPoint struct {
-	AccessPointID  string     `json:"accessPointId"`
-	AccessPointArn string     `json:"accessPointArn"`
-	FileSystemID   string     `json:"fileSystemId"`
-	Name           string     `json:"name,omitempty"`
-	LifeCycleState string     `json:"lifeCycleState"`
-	Tags           *tags.Tags `json:"tags,omitempty"`
-	OwnerID        string     `json:"ownerId"`
+	AccessPointID  string         `json:"accessPointId"`
+	AccessPointArn string         `json:"accessPointArn"`
+	FileSystemID   string         `json:"fileSystemId"`
+	ClientToken    string         `json:"clientToken,omitempty"`
+	Name           string         `json:"name,omitempty"`
+	LifeCycleState string         `json:"lifeCycleState"`
+	Tags           *tags.Tags     `json:"tags,omitempty"`
+	PosixUser      *PosixUser     `json:"posixUser,omitempty"`
+	RootDirectory  *RootDirectory `json:"rootDirectory,omitempty"`
+	OwnerID        string         `json:"ownerId"`
 }
 
 // ReplicationDestination represents a destination in an EFS replication configuration.
@@ -91,7 +201,7 @@ type ReplicationDestination struct {
 	FileSystemID         string `json:"FileSystemId,omitempty"`
 	Region               string `json:"Region,omitempty"`
 	AvailabilityZoneName string `json:"AvailabilityZoneName,omitempty"`
-	KmsKeyID             string `json:"KmsKeyId,omitempty"`
+	KmsKeyID             string `json:"KmsKeyID,omitempty"`
 	Status               string `json:"Status,omitempty"`
 }
 
@@ -116,6 +226,35 @@ type UpdateFileSystemRequest struct {
 	ProvisionedThroughputMib float64 `json:"ProvisionedThroughputInMibps,omitempty"`
 }
 
+// CreateFileSystemRequest holds parameters for creating an EFS file system.
+type CreateFileSystemRequest struct {
+	Tags                     map[string]string
+	CreationToken            string
+	PerformanceMode          string
+	ThroughputMode           string
+	KmsKeyID                 string
+	AvailabilityZoneName     string
+	ProvisionedThroughputMib float64
+	Encrypted                bool
+}
+
+// CreateMountTargetRequest holds parameters for creating an EFS mount target.
+type CreateMountTargetRequest struct {
+	FileSystemID   string
+	SubnetID       string
+	IPAddress      string
+	SecurityGroups []string
+}
+
+// CreateAccessPointRequest holds parameters for creating an EFS access point.
+type CreateAccessPointRequest struct {
+	Tags          map[string]string
+	PosixUser     *PosixUser
+	RootDirectory *RootDirectory
+	FileSystemID  string
+	ClientToken   string
+}
+
 // InMemoryBackend is the in-memory store for EFS resources.
 type InMemoryBackend struct {
 	fileSystems               map[string]*FileSystem
@@ -125,11 +264,10 @@ type InMemoryBackend struct {
 	replicationConfigs        map[string]*ReplicationConfiguration
 	backupPolicies            map[string]string
 	fileSystemPolicies        map[string]string
-	fileSystemProtection      map[string]string
-	mountTargetSecurityGroups map[string][]string
 	fileSystemsByARN          map[string]*FileSystem
 	mountTargetsByARN         map[string]*MountTarget
 	accessPointsByARN         map[string]*AccessPoint
+	accessPointsByClientToken map[string]*AccessPoint
 	accountPreferences        AccountPreferences
 	mu                        *lockmetrics.RWMutex
 	accountID                 string
@@ -153,11 +291,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		replicationConfigs:        make(map[string]*ReplicationConfiguration),
 		backupPolicies:            make(map[string]string),
 		fileSystemPolicies:        make(map[string]string),
-		fileSystemProtection:      make(map[string]string),
-		mountTargetSecurityGroups: make(map[string][]string),
 		fileSystemsByARN:          make(map[string]*FileSystem),
 		mountTargetsByARN:         make(map[string]*MountTarget),
 		accessPointsByARN:         make(map[string]*AccessPoint),
+		accessPointsByClientToken: make(map[string]*AccessPoint),
 		accountPreferences:        AccountPreferences{ResourceIDType: "LONG_ID"},
 		accountID:                 accountID,
 		region:                    region,
@@ -184,89 +321,189 @@ func (b *InMemoryBackend) Reset() {
 	b.replicationConfigs = make(map[string]*ReplicationConfiguration)
 	b.backupPolicies = make(map[string]string)
 	b.fileSystemPolicies = make(map[string]string)
-	b.fileSystemProtection = make(map[string]string)
-	b.mountTargetSecurityGroups = make(map[string][]string)
 	b.fileSystemsByARN = make(map[string]*FileSystem)
 	b.mountTargetsByARN = make(map[string]*MountTarget)
 	b.accessPointsByARN = make(map[string]*AccessPoint)
+	b.accessPointsByClientToken = make(map[string]*AccessPoint)
 }
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
-// CreateFileSystem creates a new EFS file system.
-func (b *InMemoryBackend) CreateFileSystem(
-	creationToken, performanceMode, throughputMode string,
-	encrypted bool,
-	kv map[string]string,
-) (*FileSystem, error) {
-	b.mu.Lock("CreateFileSystem")
-	defer b.mu.Unlock()
+// validateTags returns an error if any tag key/value violates AWS constraints.
+func validateTags(kv map[string]string) error {
+	if len(kv) > maxTagsPerResource {
+		return fmt.Errorf(
+			"%w: too many tags: %d (max %d)",
+			ErrValidation,
+			len(kv),
+			maxTagsPerResource,
+		)
+	}
 
-	// Idempotency: if creationToken already used, return the existing file system.
-	for _, fs := range b.fileSystems {
-		if fs.CreationToken == creationToken {
-			cp := *fs
-
-			return &cp, fmt.Errorf(
-				"%w: file system with token %s already exists",
-				ErrAlreadyExists,
-				creationToken,
+	for k, v := range kv {
+		if len(k) == 0 || len(k) > maxTagKeyLen {
+			return fmt.Errorf(
+				"%w: tag key length must be 1-%d, got %d",
+				ErrValidation,
+				maxTagKeyLen,
+				len(k),
+			)
+		}
+		if strings.HasPrefix(k, "aws:") {
+			return fmt.Errorf("%w: tag key must not start with 'aws:'", ErrValidation)
+		}
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf(
+				"%w: tag value length must be 0-%d, got %d",
+				ErrValidation,
+				maxTagValueLen,
+				len(v),
 			)
 		}
 	}
 
-	if performanceMode == "" {
-		performanceMode = performanceModeGeneral
-	}
-	if throughputMode == "" {
-		throughputMode = throughputModeBursting
+	return nil
+}
+
+// CreateFileSystem creates a new EFS file system.
+// validateCreateFSRequest validates and normalizes a CreateFileSystemRequest,
+// returning the resolved KMS key ID on success.
+// validateProvisionedThroughput checks provisioned throughput constraints.
+func validateProvisionedThroughput(mode string, mib float64) error {
+	if mode == throughputModeProvisioned {
+		if mib < 1 || mib > 1024 {
+			return fmt.Errorf(
+				"%w: ProvisionedThroughputInMibps must be between 1 and 1024 when ThroughputMode is provisioned, got %g",
+				ErrValidation,
+				mib,
+			)
+		}
+	} else if mib != 0 {
+		return fmt.Errorf(
+			"%w: ProvisionedThroughputInMibps is only valid when ThroughputMode is provisioned",
+			ErrValidation,
+		)
 	}
 
-	if performanceMode != performanceModeGeneral && performanceMode != performanceModeMaxIO {
-		return nil, fmt.Errorf(
+	return nil
+}
+
+func validateCreateFSRequest(req *CreateFileSystemRequest) (string, error) {
+	if err := validateTags(req.Tags); err != nil {
+		return "", err
+	}
+
+	if req.PerformanceMode == "" {
+		req.PerformanceMode = performanceModeGeneral
+	}
+	if req.ThroughputMode == "" {
+		req.ThroughputMode = throughputModeBursting
+	}
+
+	if req.PerformanceMode != performanceModeGeneral &&
+		req.PerformanceMode != performanceModeMaxIO {
+		return "", fmt.Errorf(
 			"%w: invalid PerformanceMode %q, must be generalPurpose or maxIO",
 			ErrValidation,
-			performanceMode,
+			req.PerformanceMode,
 		)
 	}
-	if throughputMode != throughputModeBursting &&
-		throughputMode != throughputModeProvisioned &&
-		throughputMode != throughputModeElastic {
-		return nil, fmt.Errorf(
+	if req.ThroughputMode != throughputModeBursting &&
+		req.ThroughputMode != throughputModeProvisioned &&
+		req.ThroughputMode != throughputModeElastic {
+		return "", fmt.Errorf(
 			"%w: invalid ThroughputMode %q, must be bursting, provisioned, or elastic",
 			ErrValidation,
-			throughputMode,
+			req.ThroughputMode,
 		)
+	}
+
+	if err := validateProvisionedThroughput(req.ThroughputMode, req.ProvisionedThroughputMib); err != nil {
+		return "", err
+	}
+
+	kmsKeyID := req.KmsKeyID
+	if req.Encrypted && kmsKeyID == "" {
+		kmsKeyID = managedKMSKeyARN
+	}
+	if !req.Encrypted && kmsKeyID != "" {
+		return "", fmt.Errorf(
+			"%w: KmsKeyID can only be specified when Encrypted is true",
+			ErrValidation,
+		)
+	}
+
+	return kmsKeyID, nil
+}
+
+func (b *InMemoryBackend) CreateFileSystem(req CreateFileSystemRequest) (*FileSystem, error) {
+	kmsKeyID, err := validateCreateFSRequest(&req)
+	if err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("CreateFileSystem")
+	defer b.mu.Unlock()
+
+	// Idempotency: if creationToken already used, compare args.
+	for _, fs := range b.fileSystems {
+		if fs.CreationToken == req.CreationToken {
+			if fs.PerformanceMode == req.PerformanceMode &&
+				fs.ThroughputMode == req.ThroughputMode &&
+				fs.Encrypted == req.Encrypted &&
+				fs.KmsKeyID == req.KmsKeyID &&
+				fs.AvailabilityZoneName == req.AvailabilityZoneName {
+				cp := *fs
+
+				return &cp, fmt.Errorf(
+					"%w: file system with token %s already exists (identical args)",
+					ErrCreationTokenExists,
+					req.CreationToken,
+				)
+			}
+
+			cp := *fs
+
+			return &cp, fmt.Errorf(
+				"%w: file system with token %s already exists with different parameters (FileSystemId: %s)",
+				ErrAlreadyExists,
+				req.CreationToken,
+				fs.FileSystemID,
+			)
+		}
 	}
 
 	id := "fs-" + uuid.NewString()[:8]
 	fsARN := arn.Build("elasticfilesystem", b.region, b.accountID, "file-system/"+id)
 	t := tags.New("efs.filesystem." + id + ".tags")
 
-	tagCopy := make(map[string]string, len(kv))
-	maps.Copy(tagCopy, kv)
+	tagCopy := make(map[string]string, len(req.Tags))
+	maps.Copy(tagCopy, req.Tags)
 
 	if len(tagCopy) > 0 {
 		t.Merge(tagCopy)
 	}
 
-	// Derive name from tags if present.
-	name := kv["Name"]
+	name := req.Tags["Name"]
 
 	fs := &FileSystem{
-		FileSystemID:    id,
-		FileSystemArn:   fsARN,
-		CreationToken:   creationToken,
-		Name:            name,
-		PerformanceMode: performanceMode,
-		ThroughputMode:  throughputMode,
-		LifeCycleState:  statusAvailable,
-		Encrypted:       encrypted,
-		AccountID:       b.accountID,
-		Region:          b.region,
-		CreationTime:    time.Now().UTC(),
-		Tags:            t,
+		FileSystemID:                   id,
+		FileSystemArn:                  fsARN,
+		CreationToken:                  req.CreationToken,
+		Name:                           name,
+		PerformanceMode:                req.PerformanceMode,
+		ThroughputMode:                 req.ThroughputMode,
+		LifeCycleState:                 statusAvailable,
+		Encrypted:                      req.Encrypted,
+		KmsKeyID:                       kmsKeyID,
+		AvailabilityZoneName:           req.AvailabilityZoneName,
+		ProvisionedThroughputMib:       req.ProvisionedThroughputMib,
+		ReplicationOverwriteProtection: protectionDisabled,
+		AccountID:                      b.accountID,
+		Region:                         b.region,
+		CreationTime:                   time.Now().UTC(),
+		Tags:                           t,
 	}
 	b.fileSystems[id] = fs
 	b.fileSystemsByARN[fsARN] = fs
@@ -275,32 +512,36 @@ func (b *InMemoryBackend) CreateFileSystem(
 	return &cp, nil
 }
 
-// DescribeFileSystems returns all file systems, optionally filtered by ID.
-func (b *InMemoryBackend) DescribeFileSystems(fileSystemID string) ([]*FileSystem, error) {
+// DescribeFileSystems returns file systems, optionally filtered by ID, with pagination support.
+func (b *InMemoryBackend) DescribeFileSystems(
+	fileSystemID, marker string,
+	maxItems int,
+) ([]*FileSystem, string, error) {
 	b.mu.RLock("DescribeFileSystems")
 	defer b.mu.RUnlock()
 
 	if fileSystemID != "" {
 		fs, ok := b.fileSystems[fileSystemID]
 		if !ok {
-			return []*FileSystem{}, nil
+			return []*FileSystem{}, "", nil
 		}
 		cp := *fs
 
-		return []*FileSystem{&cp}, nil
+		return []*FileSystem{&cp}, "", nil
 	}
 
-	list := make([]*FileSystem, 0, len(b.fileSystems))
+	all := make([]*FileSystem, 0, len(b.fileSystems))
 	for _, fs := range b.fileSystems {
 		cp := *fs
-		list = append(list, &cp)
+		all = append(all, &cp)
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].FileSystemID < list[j].FileSystemID })
+	sort.Slice(all, func(i, j int) bool { return all[i].FileSystemID < all[j].FileSystemID })
 
-	return list, nil
+	return paginate(all, marker, maxItems, func(fs *FileSystem) string { return fs.FileSystemID })
 }
 
 // DeleteFileSystem deletes a file system by ID.
+// Returns ErrFileSystemInUse if any mount targets exist.
 func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
 	b.mu.Lock("DeleteFileSystem")
 	defer b.mu.Unlock()
@@ -309,6 +550,27 @@ func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
 	if !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
+
+	// Reject delete if mount targets or access points exist (AWS: FileSystemInUse).
+	for _, mt := range b.mountTargets {
+		if mt.FileSystemID == fileSystemID {
+			return fmt.Errorf(
+				"%w: file system %s has existing mount targets",
+				ErrFileSystemInUse,
+				fileSystemID,
+			)
+		}
+	}
+	for _, ap := range b.accessPoints {
+		if ap.FileSystemID == fileSystemID {
+			return fmt.Errorf(
+				"%w: file system %s has existing access points",
+				ErrFileSystemInUse,
+				fileSystemID,
+			)
+		}
+	}
+
 	delete(b.fileSystemsByARN, fs.FileSystemArn)
 	fs.Tags.Close()
 	delete(b.fileSystems, fileSystemID)
@@ -317,27 +579,15 @@ func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
 	delete(b.fileSystemPolicies, fileSystemID)
 	delete(b.replicationConfigs, fileSystemID)
 
-	for id, mt := range b.mountTargets {
-		if mt.FileSystemID == fileSystemID {
-			delete(b.mountTargetsByARN, mt.MountTargetArn)
-			delete(b.mountTargets, id)
-			delete(b.mountTargetSecurityGroups, id)
-		}
-	}
-
-	for id, ap := range b.accessPoints {
-		if ap.FileSystemID == fileSystemID {
-			delete(b.accessPointsByARN, ap.AccessPointArn)
-			ap.Tags.Close()
-			delete(b.accessPoints, id)
-		}
-	}
-
 	return nil
 }
 
 // TagResource adds or updates tags on a resource (file system or access point) by ARN or ID.
 func (b *InMemoryBackend) TagResource(resourceID string, kv map[string]string) error {
+	if err := validateTags(kv); err != nil {
+		return err
+	}
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
@@ -419,69 +669,125 @@ func (b *InMemoryBackend) ListTagsForResource(resourceID string) (map[string]str
 }
 
 // CreateMountTarget creates a mount target for a file system.
-func (b *InMemoryBackend) CreateMountTarget(
-	fileSystemID, subnetID, ipAddress string,
-) (*MountTarget, error) {
+// Returns ErrMountTargetConflict if a mount target already exists in the same subnet.
+func (b *InMemoryBackend) CreateMountTarget(req CreateMountTargetRequest) (*MountTarget, error) {
 	b.mu.Lock("CreateMountTarget")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems[fileSystemID]
+	fs, ok := b.fileSystems[req.FileSystemID]
 	if !ok {
-		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, req.FileSystemID)
+	}
+
+	// One mount target per subnet per file system.
+	if req.SubnetID != "" {
+		for _, mt := range b.mountTargets {
+			if mt.FileSystemID == req.FileSystemID && mt.SubnetID == req.SubnetID {
+				return nil, fmt.Errorf(
+					"%w: mount target already exists for file system %s in subnet %s",
+					ErrMountTargetConflict,
+					req.FileSystemID,
+					req.SubnetID,
+				)
+			}
+		}
+	}
+
+	if len(req.SecurityGroups) > maxSecurityGroups {
+		return nil, fmt.Errorf(
+			"%w: too many security groups: %d (max %d)",
+			ErrSecurityGroupLimitExceeded,
+			len(req.SecurityGroups),
+			maxSecurityGroups,
+		)
 	}
 
 	id := "fsmt-" + uuid.NewString()[:8]
 	mtARN := arn.Build("elasticfilesystem", b.region, b.accountID, "mount-target/"+id)
+	eniID := "eni-" + uuid.NewString()[:8]
+
+	sgs := make([]string, len(req.SecurityGroups))
+	copy(sgs, req.SecurityGroups)
+
 	mt := &MountTarget{
-		MountTargetID:  id,
-		MountTargetArn: mtARN,
-		FileSystemID:   fileSystemID,
-		SubnetID:       subnetID,
-		IPAddress:      ipAddress,
-		LifeCycleState: statusAvailable,
-		OwnerID:        b.accountID,
+		MountTargetID:      id,
+		MountTargetArn:     mtARN,
+		FileSystemID:       req.FileSystemID,
+		SubnetID:           req.SubnetID,
+		IPAddress:          req.IPAddress,
+		NetworkInterfaceID: eniID,
+		LifeCycleState:     statusAvailable,
+		OwnerID:            b.accountID,
+		SecurityGroups:     sgs,
 	}
 	b.mountTargets[id] = mt
 	b.mountTargetsByARN[mtARN] = mt
 	fs.NumberOfMountTargets++
 
 	cp := *mt
+	cp.SecurityGroups = make([]string, len(mt.SecurityGroups))
+	copy(cp.SecurityGroups, mt.SecurityGroups)
 
 	return &cp, nil
 }
 
+// describeByIDOrFilter is a generic helper for Describe* methods that look up
+// a single item by ID or filter a map by file-system ID, then paginate.
+func describeByIDOrFilter[T any](
+	items map[string]*T,
+	singleID string,
+	notFoundErr error,
+	fileSystemID string,
+	fsIDOf func(*T) string,
+	copyFn func(*T) *T,
+	idOf func(*T) string,
+	marker string,
+	maxItems int,
+) ([]*T, string, error) {
+	if singleID != "" {
+		item, ok := items[singleID]
+		if !ok {
+			return nil, "", fmt.Errorf("%w: %s not found", notFoundErr, singleID)
+		}
+
+		return []*T{copyFn(item)}, "", nil
+	}
+
+	all := make([]*T, 0, len(items))
+	for _, item := range items {
+		if fileSystemID != "" && fsIDOf(item) != fileSystemID {
+			continue
+		}
+		all = append(all, copyFn(item))
+	}
+	sort.Slice(all, func(i, j int) bool { return idOf(all[i]) < idOf(all[j]) })
+
+	return paginate(all, marker, maxItems, idOf)
+}
+
 // DescribeMountTargets returns mount targets, optionally filtered by file system ID or mount target ID.
 func (b *InMemoryBackend) DescribeMountTargets(
-	fileSystemID, mountTargetID string,
-) ([]*MountTarget, error) {
+	fileSystemID, mountTargetID, marker string, maxItems int,
+) ([]*MountTarget, string, error) {
 	b.mu.RLock("DescribeMountTargets")
 	defer b.mu.RUnlock()
 
-	if mountTargetID != "" {
-		mt, ok := b.mountTargets[mountTargetID]
-		if !ok {
-			return nil, fmt.Errorf(
-				"%w: mount target %s not found",
-				ErrMountTargetNotFound,
-				mountTargetID,
-			)
-		}
-		cp := *mt
+	return describeByIDOrFilter(
+		b.mountTargets, mountTargetID, ErrMountTargetNotFound,
+		fileSystemID,
+		func(mt *MountTarget) string { return mt.FileSystemID },
+		copyMountTarget,
+		func(mt *MountTarget) string { return mt.MountTargetID },
+		marker, maxItems,
+	)
+}
 
-		return []*MountTarget{&cp}, nil
-	}
+func copyMountTarget(mt *MountTarget) *MountTarget {
+	cp := *mt
+	cp.SecurityGroups = make([]string, len(mt.SecurityGroups))
+	copy(cp.SecurityGroups, mt.SecurityGroups)
 
-	list := make([]*MountTarget, 0, len(b.mountTargets))
-	for _, mt := range b.mountTargets {
-		if fileSystemID != "" && mt.FileSystemID != fileSystemID {
-			continue
-		}
-		cp := *mt
-		list = append(list, &cp)
-	}
-	sort.Slice(list, func(i, j int) bool { return list[i].MountTargetID < list[j].MountTargetID })
-
-	return list, nil
+	return &cp
 }
 
 // DeleteMountTarget deletes a mount target by ID.
@@ -498,83 +804,116 @@ func (b *InMemoryBackend) DeleteMountTarget(mountTargetID string) error {
 	}
 	delete(b.mountTargetsByARN, mt.MountTargetArn)
 	delete(b.mountTargets, mountTargetID)
-	delete(b.mountTargetSecurityGroups, mountTargetID)
 
 	return nil
 }
 
 // CreateAccessPoint creates an access point for a file system.
-func (b *InMemoryBackend) CreateAccessPoint(
-	fileSystemID string,
-	kv map[string]string,
-) (*AccessPoint, error) {
+// Supports ClientToken idempotency.
+func (b *InMemoryBackend) CreateAccessPoint(req CreateAccessPointRequest) (*AccessPoint, error) {
+	if err := validateTags(req.Tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateAccessPoint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
-		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	// ClientToken idempotency.
+	if req.ClientToken != "" {
+		if existing, ok := b.accessPointsByClientToken[req.ClientToken]; ok {
+			cp := copyAccessPoint(existing)
+
+			return cp, nil
+		}
+	}
+
+	if _, ok := b.fileSystems[req.FileSystemID]; !ok {
+		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, req.FileSystemID)
+	}
+
+	// Validate RootDirectory: require CreationInfo when path != "/".
+	if req.RootDirectory != nil && req.RootDirectory.Path != "" && req.RootDirectory.Path != "/" {
+		if req.RootDirectory.CreationInfo == nil {
+			return nil, fmt.Errorf(
+				"%w: CreationInfo is required when RootDirectory.Path is not /",
+				ErrValidation,
+			)
+		}
 	}
 
 	id := "fsap-" + uuid.NewString()[:8]
 	apARN := arn.Build("elasticfilesystem", b.region, b.accountID, "access-point/"+id)
 	t := tags.New("efs.accesspoint." + id + ".tags")
 
-	tagCopy := make(map[string]string, len(kv))
-	maps.Copy(tagCopy, kv)
+	tagCopy := make(map[string]string, len(req.Tags))
+	maps.Copy(tagCopy, req.Tags)
 
 	if len(tagCopy) > 0 {
 		t.Merge(tagCopy)
 	}
-	name := kv["Name"]
+	name := req.Tags["Name"]
 
 	ap := &AccessPoint{
 		AccessPointID:  id,
 		AccessPointArn: apARN,
-		FileSystemID:   fileSystemID,
+		FileSystemID:   req.FileSystemID,
+		ClientToken:    req.ClientToken,
 		Name:           name,
 		LifeCycleState: statusAvailable,
 		Tags:           t,
+		PosixUser:      req.PosixUser,
+		RootDirectory:  req.RootDirectory,
 		OwnerID:        b.accountID,
 	}
 	b.accessPoints[id] = ap
 	b.accessPointsByARN[apARN] = ap
+	if req.ClientToken != "" {
+		b.accessPointsByClientToken[req.ClientToken] = ap
+	}
+	cp := copyAccessPoint(ap)
+
+	return cp, nil
+}
+
+func copyAccessPoint(ap *AccessPoint) *AccessPoint {
 	cp := *ap
 
-	return &cp, nil
+	if ap.PosixUser != nil {
+		pu := *ap.PosixUser
+		if len(ap.PosixUser.SecondaryGids) > 0 {
+			pu.SecondaryGids = make([]int64, len(ap.PosixUser.SecondaryGids))
+			copy(pu.SecondaryGids, ap.PosixUser.SecondaryGids)
+		}
+		cp.PosixUser = &pu
+	}
+
+	if ap.RootDirectory != nil {
+		rd := *ap.RootDirectory
+		if ap.RootDirectory.CreationInfo != nil {
+			ci := *ap.RootDirectory.CreationInfo
+			rd.CreationInfo = &ci
+		}
+		cp.RootDirectory = &rd
+	}
+
+	return &cp
 }
 
 // DescribeAccessPoints returns access points, optionally filtered by file system ID or access point ID.
 func (b *InMemoryBackend) DescribeAccessPoints(
-	fileSystemID, accessPointID string,
-) ([]*AccessPoint, error) {
+	fileSystemID, accessPointID, marker string, maxItems int,
+) ([]*AccessPoint, string, error) {
 	b.mu.RLock("DescribeAccessPoints")
 	defer b.mu.RUnlock()
 
-	if accessPointID != "" {
-		ap, ok := b.accessPoints[accessPointID]
-		if !ok {
-			return nil, fmt.Errorf(
-				"%w: access point %s not found",
-				ErrAccessPointNotFound,
-				accessPointID,
-			)
-		}
-		cp := *ap
-
-		return []*AccessPoint{&cp}, nil
-	}
-
-	list := make([]*AccessPoint, 0, len(b.accessPoints))
-	for _, ap := range b.accessPoints {
-		if fileSystemID != "" && ap.FileSystemID != fileSystemID {
-			continue
-		}
-		cp := *ap
-		list = append(list, &cp)
-	}
-	sort.Slice(list, func(i, j int) bool { return list[i].AccessPointID < list[j].AccessPointID })
-
-	return list, nil
+	return describeByIDOrFilter(
+		b.accessPoints, accessPointID, ErrAccessPointNotFound,
+		fileSystemID,
+		func(ap *AccessPoint) string { return ap.FileSystemID },
+		copyAccessPoint,
+		func(ap *AccessPoint) string { return ap.AccessPointID },
+		marker, maxItems,
+	)
 }
 
 // DeleteAccessPoint deletes an access point by ID.
@@ -587,6 +926,9 @@ func (b *InMemoryBackend) DeleteAccessPoint(accessPointID string) error {
 		return fmt.Errorf("%w: access point %s not found", ErrAccessPointNotFound, accessPointID)
 	}
 	delete(b.accessPointsByARN, ap.AccessPointArn)
+	if ap.ClientToken != "" {
+		delete(b.accessPointsByClientToken, ap.ClientToken)
+	}
 	ap.Tags.Close()
 	delete(b.accessPoints, accessPointID)
 
@@ -615,11 +957,48 @@ func (b *InMemoryBackend) DescribeLifecycleConfiguration(
 	return result, nil
 }
 
+// validateLifecyclePolicies checks that each policy's transition fields are valid AWS enum values.
+func validateLifecyclePolicies(policies []LifecyclePolicy) error {
+	for i, p := range policies {
+		if p.TransitionToIA != "" && !isValidTransitionToIA(p.TransitionToIA) {
+			return fmt.Errorf(
+				"%w: invalid TransitionToIA value %q at index %d",
+				ErrValidation,
+				p.TransitionToIA,
+				i,
+			)
+		}
+		if p.TransitionToPrimaryStorageClass != "" &&
+			!isValidTransitionToPrimary(p.TransitionToPrimaryStorageClass) {
+			return fmt.Errorf(
+				"%w: invalid TransitionToPrimaryStorageClass value %q at index %d",
+				ErrValidation,
+				p.TransitionToPrimaryStorageClass,
+				i,
+			)
+		}
+		if p.TransitionToArchive != "" && !isValidTransitionToArchive(p.TransitionToArchive) {
+			return fmt.Errorf(
+				"%w: invalid TransitionToArchive value %q at index %d",
+				ErrValidation,
+				p.TransitionToArchive,
+				i,
+			)
+		}
+	}
+
+	return nil
+}
+
 // PutLifecycleConfiguration sets lifecycle policies for a file system.
 func (b *InMemoryBackend) PutLifecycleConfiguration(
 	fileSystemID string,
 	policies []LifecyclePolicy,
 ) ([]LifecyclePolicy, error) {
+	if err := validateLifecyclePolicies(policies); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("PutLifecycleConfiguration")
 	defer b.mu.Unlock()
 
@@ -676,6 +1055,9 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 	}
 	b.replicationConfigs[sourceFileSystemID] = rc
 
+	// Mark source file system as replicating.
+	fs.ReplicationOverwriteProtection = protectionReplicating
+
 	cp := *rc
 	cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
 	copy(cp.Destinations, rc.Destinations)
@@ -684,6 +1066,8 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 }
 
 // DeleteReplicationConfiguration deletes the replication configuration for a file system.
+// The destination file system (if tracked) becomes a standalone writable file system
+// with ReplicationOverwriteProtection set to ENABLED.
 func (b *InMemoryBackend) DeleteReplicationConfiguration(sourceFileSystemID string) error {
 	b.mu.Lock("DeleteReplicationConfiguration")
 	defer b.mu.Unlock()
@@ -701,6 +1085,11 @@ func (b *InMemoryBackend) DeleteReplicationConfiguration(sourceFileSystemID stri
 	}
 
 	delete(b.replicationConfigs, sourceFileSystemID)
+
+	// Reset source protection to DISABLED.
+	if fs, ok := b.fileSystems[sourceFileSystemID]; ok {
+		fs.ReplicationOverwriteProtection = protectionDisabled
+	}
 
 	return nil
 }
@@ -820,7 +1209,7 @@ func (b *InMemoryBackend) DescribeBackupPolicy(fileSystemID string) (string, err
 
 	status, ok := b.backupPolicies[fileSystemID]
 	if !ok {
-		return "DISABLED", nil
+		return backupStatusDisabled, nil
 	}
 
 	return status, nil
@@ -833,7 +1222,8 @@ func (b *InMemoryBackend) DescribeMountTargetSecurityGroups(
 	b.mu.RLock("DescribeMountTargetSecurityGroups")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.mountTargets[mountTargetID]; !ok {
+	mt, ok := b.mountTargets[mountTargetID]
+	if !ok {
 		return nil, fmt.Errorf(
 			"%w: mount target %s not found",
 			ErrMountTargetNotFound,
@@ -841,19 +1231,30 @@ func (b *InMemoryBackend) DescribeMountTargetSecurityGroups(
 		)
 	}
 
-	groups := b.mountTargetSecurityGroups[mountTargetID]
-	if groups == nil {
+	if mt.SecurityGroups == nil {
 		return []string{}, nil
 	}
 
-	result := make([]string, len(groups))
-	copy(result, groups)
+	result := make([]string, len(mt.SecurityGroups))
+	copy(result, mt.SecurityGroups)
 
 	return result, nil
 }
 
 // PutBackupPolicy sets the backup policy status for a file system.
+// Valid values: ENABLED, ENABLING, DISABLED, DISABLING.
 func (b *InMemoryBackend) PutBackupPolicy(fileSystemID, status string) error {
+	switch status {
+	case backupStatusEnabled, backupStatusEnabling, backupStatusDisabled, "DISABLING":
+		// valid
+	default:
+		return fmt.Errorf(
+			"%w: invalid backup policy status %q, must be ENABLED, ENABLING, DISABLED, or DISABLING",
+			ErrValidation,
+			status,
+		)
+	}
+
 	b.mu.Lock("PutBackupPolicy")
 	defer b.mu.Unlock()
 
@@ -867,7 +1268,20 @@ func (b *InMemoryBackend) PutBackupPolicy(fileSystemID, status string) error {
 }
 
 // PutFileSystemPolicy sets the resource-based policy for a file system.
+// The policy must be valid JSON and no larger than 20 KB.
 func (b *InMemoryBackend) PutFileSystemPolicy(fileSystemID, policy string) error {
+	if !json.Valid([]byte(policy)) {
+		return fmt.Errorf("%w: FileSystemPolicy is not valid JSON", ErrValidation)
+	}
+	if len(policy) > maxFileSystemPolicyBytes {
+		return fmt.Errorf(
+			"%w: FileSystemPolicy exceeds maximum size of %d bytes, got %d",
+			ErrValidation,
+			maxFileSystemPolicyBytes,
+			len(policy),
+		)
+	}
+
 	b.mu.Lock("PutFileSystemPolicy")
 	defer b.mu.Unlock()
 
@@ -880,7 +1294,49 @@ func (b *InMemoryBackend) PutFileSystemPolicy(fileSystemID, policy string) error
 	return nil
 }
 
+// applyThroughputModeChange validates and applies a throughput mode change to
+// a file system. Must be called under b.mu write lock.
+func (b *InMemoryBackend) applyThroughputModeChange(
+	fs *FileSystem,
+	req UpdateFileSystemRequest,
+) error {
+	if req.ThroughputMode != throughputModeBursting &&
+		req.ThroughputMode != throughputModeProvisioned &&
+		req.ThroughputMode != throughputModeElastic {
+		return fmt.Errorf(
+			"%w: invalid ThroughputMode %q, must be bursting, provisioned, or elastic",
+			ErrValidation,
+			req.ThroughputMode,
+		)
+	}
+
+	if !fs.LastThroughputChange.IsZero() &&
+		time.Since(fs.LastThroughputChange) < throughputCooldown {
+		return fmt.Errorf(
+			"%w: throughput mode was last changed at %s; must wait 24 hours between changes",
+			ErrTooManyRequests,
+			fs.LastThroughputChange.Format(time.RFC3339),
+		)
+	}
+
+	if req.ThroughputMode == throughputModeProvisioned {
+		if req.ProvisionedThroughputMib < 1 || req.ProvisionedThroughputMib > 1024 {
+			return fmt.Errorf(
+				"%w: ProvisionedThroughputInMibps must be between 1 and 1024 when ThroughputMode is provisioned, got %g",
+				ErrValidation,
+				req.ProvisionedThroughputMib,
+			)
+		}
+	}
+
+	fs.ThroughputMode = req.ThroughputMode
+	fs.LastThroughputChange = time.Now().UTC()
+
+	return nil
+}
+
 // UpdateFileSystem updates throughput settings for a file system.
+// Enforces a 24-hour cooldown between throughput mode changes.
 func (b *InMemoryBackend) UpdateFileSystem(
 	fileSystemID string,
 	req UpdateFileSystemRequest,
@@ -894,16 +1350,26 @@ func (b *InMemoryBackend) UpdateFileSystem(
 	}
 
 	if req.ThroughputMode != "" {
-		if req.ThroughputMode != throughputModeBursting &&
-			req.ThroughputMode != throughputModeProvisioned &&
-			req.ThroughputMode != throughputModeElastic {
+		if err := b.applyThroughputModeChange(fs, req); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.ProvisionedThroughputMib != 0 {
+		if fs.ThroughputMode != throughputModeProvisioned {
 			return nil, fmt.Errorf(
-				"%w: invalid ThroughputMode %q, must be bursting, provisioned, or elastic",
+				"%w: ProvisionedThroughputInMibps is only valid when ThroughputMode is provisioned",
 				ErrValidation,
-				req.ThroughputMode,
 			)
 		}
-		fs.ThroughputMode = req.ThroughputMode
+		if req.ProvisionedThroughputMib < 1 || req.ProvisionedThroughputMib > 1024 {
+			return nil, fmt.Errorf(
+				"%w: ProvisionedThroughputInMibps must be between 1 and 1024, got %g",
+				ErrValidation,
+				req.ProvisionedThroughputMib,
+			)
+		}
+		fs.ProvisionedThroughputMib = req.ProvisionedThroughputMib
 	}
 
 	cp := *fs
@@ -912,20 +1378,31 @@ func (b *InMemoryBackend) UpdateFileSystem(
 }
 
 // ModifyMountTargetSecurityGroups replaces the security groups for a mount target.
+// Enforces a maximum of 5 security groups.
 func (b *InMemoryBackend) ModifyMountTargetSecurityGroups(
 	mountTargetID string,
 	securityGroups []string,
 ) error {
+	if len(securityGroups) > maxSecurityGroups {
+		return fmt.Errorf(
+			"%w: too many security groups: %d (max %d)",
+			ErrSecurityGroupLimitExceeded,
+			len(securityGroups),
+			maxSecurityGroups,
+		)
+	}
+
 	b.mu.Lock("ModifyMountTargetSecurityGroups")
 	defer b.mu.Unlock()
 
-	if _, ok := b.mountTargets[mountTargetID]; !ok {
+	mt, ok := b.mountTargets[mountTargetID]
+	if !ok {
 		return fmt.Errorf("%w: mount target %s not found", ErrMountTargetNotFound, mountTargetID)
 	}
 
 	groups := make([]string, len(securityGroups))
 	copy(groups, securityGroups)
-	b.mountTargetSecurityGroups[mountTargetID] = groups
+	mt.SecurityGroups = groups
 
 	return nil
 }
@@ -952,16 +1429,61 @@ func (b *InMemoryBackend) PutAccountPreferences(resourceIDType string) (AccountP
 func (b *InMemoryBackend) UpdateFileSystemProtection(
 	fileSystemID, replicationOverwriteProtection string,
 ) error {
+	switch replicationOverwriteProtection {
+	case protectionEnabled, protectionDisabled, protectionReplicating:
+		// valid
+	default:
+		return fmt.Errorf(
+			"%w: invalid ReplicationOverwriteProtection value %q, must be ENABLED, DISABLED, or REPLICATING",
+			ErrValidation,
+			replicationOverwriteProtection,
+		)
+	}
+
 	b.mu.Lock("UpdateFileSystemProtection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	fs, ok := b.fileSystems[fileSystemID]
+	if !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
-	b.fileSystemProtection[fileSystemID] = replicationOverwriteProtection
+	fs.ReplicationOverwriteProtection = replicationOverwriteProtection
 
 	return nil
+}
+
+// paginate applies cursor-based pagination to a sorted slice.
+// Items after marker are returned up to maxItems. nextToken is non-empty when more items remain.
+func paginate[T any](
+	items []T,
+	marker string,
+	maxItems int,
+	keyFn func(T) string,
+) ([]T, string, error) {
+	if marker != "" {
+		start := -1
+		for i, item := range items {
+			if keyFn(item) == marker {
+				start = i + 1
+
+				break
+			}
+		}
+		if start == -1 {
+			return nil, "", fmt.Errorf("%w: invalid pagination marker", ErrValidation)
+		}
+		items = items[start:]
+	}
+
+	if maxItems <= 0 || maxItems >= len(items) {
+		return items, "", nil
+	}
+
+	page := items[:maxItems]
+	next := keyFn(items[maxItems])
+
+	return page, next, nil
 }
 
 // AddFileSystemInternal inserts a pre-built FileSystem directly into the backend (test seed helper).

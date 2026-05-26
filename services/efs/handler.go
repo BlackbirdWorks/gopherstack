@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -74,6 +76,8 @@ const (
 
 	// subresourcePathParts is the number of segments when splitting a path with a sub-resource.
 	subresourcePathParts = 2
+
+	defaultMaxItems = 10
 )
 
 // Handler is the Echo HTTP handler for AWS EFS operations (REST-JSON protocol).
@@ -534,16 +538,44 @@ func (h *Handler) dispatchTagAndMiscOps(c *echo.Context, route efsRoute, body []
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrValidation):
+		c.Response().Header().Set("x-amzn-ErrorType", "ValidationException")
+
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+	case errors.Is(err, ErrTooManyRequests):
+		c.Response().Header().Set("x-amzn-ErrorType", "TooManyRequests")
+
+		return c.JSON(http.StatusTooManyRequests, errResp("TooManyRequests", err.Error()))
+	case errors.Is(err, ErrFileSystemInUse):
+		c.Response().Header().Set("x-amzn-ErrorType", "FileSystemInUse")
+
+		return c.JSON(http.StatusConflict, errResp("FileSystemInUse", err.Error()))
+	case errors.Is(err, ErrMountTargetConflict):
+		c.Response().Header().Set("x-amzn-ErrorType", "MountTargetConflict")
+
+		return c.JSON(http.StatusConflict, errResp("MountTargetConflict", err.Error()))
+	case errors.Is(err, ErrSecurityGroupLimitExceeded):
+		c.Response().Header().Set("x-amzn-ErrorType", "SecurityGroupLimitExceeded")
+
+		return c.JSON(http.StatusConflict, errResp("SecurityGroupLimitExceeded", err.Error()))
 	case errors.Is(err, ErrNotFound):
+		c.Response().Header().Set("x-amzn-ErrorType", "FileSystemNotFound")
+
 		return c.JSON(http.StatusNotFound, errResp("FileSystemNotFound", err.Error()))
 	case errors.Is(err, ErrMountTargetNotFound):
+		c.Response().Header().Set("x-amzn-ErrorType", "MountTargetNotFound")
+
 		return c.JSON(http.StatusNotFound, errResp("MountTargetNotFound", err.Error()))
 	case errors.Is(err, ErrAccessPointNotFound):
+		c.Response().Header().Set("x-amzn-ErrorType", "AccessPointNotFound")
+
 		return c.JSON(http.StatusNotFound, errResp("AccessPointNotFound", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
+		c.Response().Header().Set("x-amzn-ErrorType", "FileSystemAlreadyExists")
+
 		return c.JSON(http.StatusConflict, errResp("FileSystemAlreadyExists", err.Error()))
 	default:
+		c.Response().Header().Set("x-amzn-ErrorType", "InternalServerError")
+
 		return c.JSON(http.StatusInternalServerError, errResp("InternalServerError", err.Error()))
 	}
 }
@@ -555,11 +587,14 @@ func errResp(code, msg string) map[string]string {
 // --- FileSystem handlers ---
 
 type createFileSystemBody struct {
-	CreationToken   string     `json:"CreationToken"`
-	PerformanceMode string     `json:"PerformanceMode"`
-	ThroughputMode  string     `json:"ThroughputMode"`
-	Tags            []tagEntry `json:"Tags"`
-	Encrypted       bool       `json:"Encrypted"`
+	CreationToken            string     `json:"CreationToken"`
+	PerformanceMode          string     `json:"PerformanceMode"`
+	ThroughputMode           string     `json:"ThroughputMode"`
+	KmsKeyID                 string     `json:"KmsKeyId"`
+	AvailabilityZoneName     string     `json:"AvailabilityZoneName"`
+	Tags                     []tagEntry `json:"Tags"`
+	ProvisionedThroughputMib float64    `json:"ProvisionedThroughputInMibps"`
+	Encrypted                bool       `json:"Encrypted"`
 }
 
 type tagEntry struct {
@@ -576,11 +611,13 @@ func tagsFromEntries(entries []tagEntry) map[string]string {
 	return m
 }
 
+// tagsToEntries converts a tag map to sorted entries for deterministic output.
 func tagsToEntries(m map[string]string) []tagEntry {
 	entries := make([]tagEntry, 0, len(m))
 	for k, v := range m {
 		entries = append(entries, tagEntry{Key: k, Value: v})
 	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
 
 	return entries
 }
@@ -595,12 +632,33 @@ func (h *Handler) handleCreateFileSystem(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "CreationToken is required"))
 	}
 
-	kv := tagsFromEntries(in.Tags)
-	fs, err := h.Backend.CreateFileSystem(in.CreationToken, in.PerformanceMode, in.ThroughputMode, in.Encrypted, kv)
+	req := CreateFileSystemRequest{
+		CreationToken:            in.CreationToken,
+		PerformanceMode:          in.PerformanceMode,
+		ThroughputMode:           in.ThroughputMode,
+		KmsKeyID:                 in.KmsKeyID,
+		AvailabilityZoneName:     in.AvailabilityZoneName,
+		ProvisionedThroughputMib: in.ProvisionedThroughputMib,
+		Encrypted:                in.Encrypted,
+		Tags:                     tagsFromEntries(in.Tags),
+	}
+
+	fs, err := h.Backend.CreateFileSystem(req)
 	if err != nil {
+		if errors.Is(err, ErrCreationTokenExists) {
+			// Identical token with identical args: return existing fs with 200 OK.
+			return c.JSON(http.StatusOK, fsToResponse(fs))
+		}
 		if errors.Is(err, ErrAlreadyExists) {
-			// EFS returns 409 with the existing file system description.
-			return c.JSON(http.StatusConflict, fsToResponse(fs))
+			// Different args: return 409 with file system ID in body.
+			c.Response().Header().Set("x-amzn-ErrorType", "FileSystemAlreadyExists")
+			resp := map[string]string{
+				"ErrorCode":    "FileSystemAlreadyExists",
+				"Message":      err.Error(),
+				"FileSystemId": fs.FileSystemID,
+			}
+
+			return c.JSON(http.StatusConflict, resp)
 		}
 
 		return h.handleError(c, err)
@@ -615,7 +673,10 @@ func (h *Handler) handleDescribeFileSystems(c *echo.Context, fileSystemID string
 		fileSystemID = c.Request().URL.Query().Get(keyFileSystemID)
 	}
 
-	fsList, err := h.Backend.DescribeFileSystems(fileSystemID)
+	marker := c.Request().URL.Query().Get("Marker")
+	maxItems := queryInt(c, "MaxItems", defaultMaxItems)
+
+	fsList, nextMarker, err := h.Backend.DescribeFileSystems(fileSystemID, marker, maxItems)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -625,9 +686,14 @@ func (h *Handler) handleDescribeFileSystems(c *echo.Context, fileSystemID string
 		items = append(items, fsToResponse(fs))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"FileSystems": items,
-	})
+	}
+	if nextMarker != "" {
+		resp["NextMarker"] = nextMarker
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteFileSystem(c *echo.Context, fileSystemID string) error {
@@ -655,9 +721,22 @@ func fsToResponse(fs *FileSystem) map[string]any {
 			"Value":     0,
 			"Timestamp": float64(fs.CreationTime.Unix()),
 		},
+		"FileSystemProtection": map[string]any{
+			"ReplicationOverwriteProtection": fs.ReplicationOverwriteProtection,
+		},
 	}
 	if fs.Name != "" {
 		resp["Name"] = fs.Name
+	}
+	if fs.KmsKeyID != "" {
+		resp["KmsKeyId"] = fs.KmsKeyID
+	}
+	if fs.AvailabilityZoneName != "" {
+		resp["AvailabilityZoneName"] = fs.AvailabilityZoneName
+		resp["AvailabilityZoneId"] = fs.AvailabilityZoneID
+	}
+	if fs.ProvisionedThroughputMib > 0 {
+		resp["ProvisionedThroughputInMibps"] = fs.ProvisionedThroughputMib
 	}
 
 	return resp
@@ -666,9 +745,10 @@ func fsToResponse(fs *FileSystem) map[string]any {
 // --- MountTarget handlers ---
 
 type createMountTargetBody struct {
-	FileSystemID string `json:"FileSystemId"`
-	SubnetID     string `json:"SubnetId"`
-	IPAddress    string `json:"IpAddress"`
+	FileSystemID   string   `json:"FileSystemId"`
+	SubnetID       string   `json:"SubnetId"`
+	IPAddress      string   `json:"IpAddress"`
+	SecurityGroups []string `json:"SecurityGroups"`
 }
 
 func (h *Handler) handleCreateMountTarget(c *echo.Context, body []byte) error {
@@ -681,7 +761,9 @@ func (h *Handler) handleCreateMountTarget(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "FileSystemId is required"))
 	}
 
-	mt, err := h.Backend.CreateMountTarget(in.FileSystemID, in.SubnetID, in.IPAddress)
+	req := CreateMountTargetRequest(in)
+
+	mt, err := h.Backend.CreateMountTarget(req)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -689,25 +771,50 @@ func (h *Handler) handleCreateMountTarget(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, mtToResponse(mt))
 }
 
-func (h *Handler) handleDescribeMountTargets(c *echo.Context, mountTargetID string) error {
+// describeListResponse is a generic helper that builds a paginated JSON response
+// for Describe* list endpoints, eliminating duplication between mount targets
+// and access points.
+func describeListResponse[T any](
+	c *echo.Context,
+	h *Handler,
+	listFn func(fsID, itemID, marker string, maxItems int) ([]*T, string, error),
+	toResp func(*T) map[string]any,
+	itemID, idQueryKey, markerKey, maxKey, respListKey, nextKey string,
+) error {
 	fsID := c.Request().URL.Query().Get(keyFileSystemID)
-	if mountTargetID == "" {
-		mountTargetID = c.Request().URL.Query().Get("MountTargetId")
+	if itemID == "" {
+		itemID = c.Request().URL.Query().Get(idQueryKey)
 	}
 
-	mts, err := h.Backend.DescribeMountTargets(fsID, mountTargetID)
+	marker := c.Request().URL.Query().Get(markerKey)
+	maxItems := queryInt(c, maxKey, defaultMaxItems)
+
+	results, nextMarker, err := listFn(fsID, itemID, marker, maxItems)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	items := make([]map[string]any, 0, len(mts))
-	for _, mt := range mts {
-		items = append(items, mtToResponse(mt))
+	items := make([]map[string]any, 0, len(results))
+	for _, item := range results {
+		items = append(items, toResp(item))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"MountTargets": items,
-	})
+	resp := map[string]any{
+		respListKey: items,
+	}
+	if nextMarker != "" {
+		resp[nextKey] = nextMarker
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleDescribeMountTargets(c *echo.Context, mountTargetID string) error {
+	return describeListResponse(
+		c, h,
+		h.Backend.DescribeMountTargets, mtToResponse,
+		mountTargetID, "MountTargetId", "Marker", "MaxItems", "MountTargets", "NextMarker",
+	)
 }
 
 func (h *Handler) handleDeleteMountTarget(c *echo.Context, mountTargetID string) error {
@@ -719,21 +826,33 @@ func (h *Handler) handleDeleteMountTarget(c *echo.Context, mountTargetID string)
 }
 
 func mtToResponse(mt *MountTarget) map[string]any {
-	return map[string]any{
-		"MountTargetId":   mt.MountTargetID,
-		keyFileSystemID:   mt.FileSystemID,
-		"SubnetId":        mt.SubnetID,
-		keyLifeCycleState: mt.LifeCycleState,
-		"IpAddress":       mt.IPAddress,
-		keyOwnerID:        mt.OwnerID,
+	resp := map[string]any{
+		"MountTargetId":        mt.MountTargetID,
+		keyFileSystemID:        mt.FileSystemID,
+		"SubnetId":             mt.SubnetID,
+		keyLifeCycleState:      mt.LifeCycleState,
+		"IpAddress":            mt.IPAddress,
+		keyOwnerID:             mt.OwnerID,
+		"NetworkInterfaceId":   mt.NetworkInterfaceID,
+		"VpcId":                mt.VpcID,
+		"AvailabilityZoneName": mt.AvailabilityZoneName,
+		"AvailabilityZoneId":   mt.AvailabilityZoneID,
 	}
+	if len(mt.SecurityGroups) > 0 {
+		resp["SecurityGroups"] = mt.SecurityGroups
+	}
+
+	return resp
 }
 
 // --- AccessPoint handlers ---
 
 type createAccessPointBody struct {
-	FileSystemID string     `json:"FileSystemId"`
-	Tags         []tagEntry `json:"Tags"`
+	PosixUser     *PosixUser     `json:"PosixUser"`
+	RootDirectory *RootDirectory `json:"RootDirectory"`
+	FileSystemID  string         `json:"FileSystemId"`
+	ClientToken   string         `json:"ClientToken"`
+	Tags          []tagEntry     `json:"Tags"`
 }
 
 func (h *Handler) handleCreateAccessPoint(c *echo.Context, body []byte) error {
@@ -746,8 +865,15 @@ func (h *Handler) handleCreateAccessPoint(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "FileSystemId is required"))
 	}
 
-	kv := tagsFromEntries(in.Tags)
-	ap, err := h.Backend.CreateAccessPoint(in.FileSystemID, kv)
+	req := CreateAccessPointRequest{
+		FileSystemID:  in.FileSystemID,
+		ClientToken:   in.ClientToken,
+		Tags:          tagsFromEntries(in.Tags),
+		PosixUser:     in.PosixUser,
+		RootDirectory: in.RootDirectory,
+	}
+
+	ap, err := h.Backend.CreateAccessPoint(req)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -756,24 +882,11 @@ func (h *Handler) handleCreateAccessPoint(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleDescribeAccessPoints(c *echo.Context, accessPointID string) error {
-	fsID := c.Request().URL.Query().Get(keyFileSystemID)
-	if accessPointID == "" {
-		accessPointID = c.Request().URL.Query().Get("AccessPointId")
-	}
-
-	aps, err := h.Backend.DescribeAccessPoints(fsID, accessPointID)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	items := make([]map[string]any, 0, len(aps))
-	for _, ap := range aps {
-		items = append(items, apToResponse(ap))
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"AccessPoints": items,
-	})
+	return describeListResponse(
+		c, h,
+		h.Backend.DescribeAccessPoints, apToResponse,
+		accessPointID, "AccessPointId", "NextToken", "MaxResults", "AccessPoints", "NextToken",
+	)
 }
 
 func (h *Handler) handleDeleteAccessPoint(c *echo.Context, accessPointID string) error {
@@ -795,6 +908,15 @@ func apToResponse(ap *AccessPoint) map[string]any {
 	}
 	if ap.Name != "" {
 		resp["Name"] = ap.Name
+	}
+	if ap.ClientToken != "" {
+		resp["ClientToken"] = ap.ClientToken
+	}
+	if ap.PosixUser != nil {
+		resp["PosixUser"] = ap.PosixUser
+	}
+	if ap.RootDirectory != nil {
+		resp["RootDirectory"] = ap.RootDirectory
 	}
 
 	return resp
@@ -1053,7 +1175,8 @@ func (h *Handler) handlePutBackupPolicy(c *echo.Context, fileSystemID string, bo
 // --- PutFileSystemPolicy handler ---
 
 type putFileSystemPolicyBody struct {
-	Policy string `json:"Policy"`
+	Policy                         string `json:"Policy"`
+	BypassPolicyLockoutSafetyCheck bool   `json:"BypassPolicyLockoutSafetyCheck"`
 }
 
 func (h *Handler) handlePutFileSystemPolicy(c *echo.Context, fileSystemID string, body []byte) error {
@@ -1171,4 +1294,18 @@ func (h *Handler) handleUpdateFileSystem(c *echo.Context, fileSystemID string, b
 	}
 
 	return c.JSON(http.StatusAccepted, fsToResponse(fs))
+}
+
+// queryInt reads a query parameter as an int, returning defaultVal if absent or invalid.
+func queryInt(c *echo.Context, key string, defaultVal int) int {
+	s := c.Request().URL.Query().Get(key)
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil || v <= 0 {
+		return defaultVal
+	}
+
+	return v
 }
