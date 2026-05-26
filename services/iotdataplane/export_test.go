@@ -1,5 +1,7 @@
 package iotdataplane
 
+import "encoding/json"
+
 // ShadowCount returns the total number of shadow entries across all things (for white-box testing).
 func ShadowCount(b *InMemoryBackend) int {
 	b.mu.RLock("ShadowCount")
@@ -51,14 +53,51 @@ func ForceSetShadowVersion(b *InMemoryBackend, thingName, shadowName string, ver
 	b.mu.Lock("ForceSetShadowVersion")
 	defer b.mu.Unlock()
 
-	if b.shadows[thingName] == nil {
+	thingShadows := b.shadows[thingName]
+	if thingShadows == nil {
 		return
 	}
 
-	entry, ok := b.shadows[thingName][shadowName]
+	entry, ok := thingShadows[shadowName]
 	if !ok {
 		return
 	}
 
 	entry.version = version
+}
+
+// GetShadowDesired returns the desired state map for white-box testing.
+func GetShadowDesired(b *InMemoryBackend, thingName, shadowName string) map[string]json.RawMessage {
+	b.mu.RLock("GetShadowDesired")
+	defer b.mu.RUnlock()
+
+	thingShadows := b.shadows[thingName]
+	if thingShadows == nil {
+		return nil
+	}
+
+	entry, ok := thingShadows[shadowName]
+	if !ok {
+		return nil
+	}
+
+	return entry.desired
+}
+
+// GetShadowReported returns the reported state map for white-box testing.
+func GetShadowReported(b *InMemoryBackend, thingName, shadowName string) map[string]json.RawMessage {
+	b.mu.RLock("GetShadowReported")
+	defer b.mu.RUnlock()
+
+	thingShadows := b.shadows[thingName]
+	if thingShadows == nil {
+		return nil
+	}
+
+	entry, ok := thingShadows[shadowName]
+	if !ok {
+		return nil
+	}
+
+	return entry.reported
 }

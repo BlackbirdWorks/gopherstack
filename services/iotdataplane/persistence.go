@@ -11,9 +11,12 @@ var ErrNoSnapshot = errors.New("backend does not support restore")
 
 // shadowEntrySnap is the serialisable form of a shadowEntry.
 type shadowEntrySnap struct {
-	UpdatedAt time.Time `json:"updatedAt"`
-	Document  []byte    `json:"document"`
-	Version   int       `json:"version"`
+	UpdatedAt    time.Time                        `json:"updatedAt"`
+	Version      int                              `json:"version"`
+	Desired      map[string]json.RawMessage       `json:"desired,omitempty"`
+	Reported     map[string]json.RawMessage       `json:"reported,omitempty"`
+	MetaDesired  map[string]int64                 `json:"metaDesired,omitempty"`
+	MetaReported map[string]int64                 `json:"metaReported,omitempty"`
 }
 
 // connectionEntrySnap is the serialisable form of a connectionEntry.
@@ -47,13 +50,44 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	for thingName, thingShadows := range b.shadows {
 		snapShadows := make(map[string]*shadowEntrySnap, len(thingShadows))
 		for shadowName, entry := range thingShadows {
-			cp := make([]byte, len(entry.document))
-			copy(cp, entry.document)
-			snapShadows[shadowName] = &shadowEntrySnap{
-				Document:  cp,
+			snap := &shadowEntrySnap{
 				Version:   entry.version,
 				UpdatedAt: entry.updatedAt,
 			}
+
+			if entry.desired != nil {
+				snap.Desired = make(map[string]json.RawMessage, len(entry.desired))
+				for k, v := range entry.desired {
+					cp := make(json.RawMessage, len(v))
+					copy(cp, v)
+					snap.Desired[k] = cp
+				}
+			}
+
+			if entry.reported != nil {
+				snap.Reported = make(map[string]json.RawMessage, len(entry.reported))
+				for k, v := range entry.reported {
+					cp := make(json.RawMessage, len(v))
+					copy(cp, v)
+					snap.Reported[k] = cp
+				}
+			}
+
+			if entry.metaDesired != nil {
+				snap.MetaDesired = make(map[string]int64, len(entry.metaDesired))
+				for k, v := range entry.metaDesired {
+					snap.MetaDesired[k] = v
+				}
+			}
+
+			if entry.metaReported != nil {
+				snap.MetaReported = make(map[string]int64, len(entry.metaReported))
+				for k, v := range entry.metaReported {
+					snap.MetaReported[k] = v
+				}
+			}
+
+			snapShadows[shadowName] = snap
 		}
 
 		shadows[thingName] = snapShadows
@@ -123,13 +157,44 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	for thingName, thingShadows := range snap.Shadows {
 		restored := make(map[string]*shadowEntry, len(thingShadows))
 		for shadowName, es := range thingShadows {
-			cp := make([]byte, len(es.Document))
-			copy(cp, es.Document)
-			restored[shadowName] = &shadowEntry{
-				document:  cp,
+			entry := &shadowEntry{
 				version:   es.Version,
 				updatedAt: es.UpdatedAt,
 			}
+
+			if es.Desired != nil {
+				entry.desired = make(map[string]json.RawMessage, len(es.Desired))
+				for k, v := range es.Desired {
+					cp := make(json.RawMessage, len(v))
+					copy(cp, v)
+					entry.desired[k] = cp
+				}
+			}
+
+			if es.Reported != nil {
+				entry.reported = make(map[string]json.RawMessage, len(es.Reported))
+				for k, v := range es.Reported {
+					cp := make(json.RawMessage, len(v))
+					copy(cp, v)
+					entry.reported[k] = cp
+				}
+			}
+
+			if es.MetaDesired != nil {
+				entry.metaDesired = make(map[string]int64, len(es.MetaDesired))
+				for k, v := range es.MetaDesired {
+					entry.metaDesired[k] = v
+				}
+			}
+
+			if es.MetaReported != nil {
+				entry.metaReported = make(map[string]int64, len(es.MetaReported))
+				for k, v := range es.MetaReported {
+					entry.metaReported[k] = v
+				}
+			}
+
+			restored[shadowName] = entry
 		}
 
 		b.shadows[thingName] = restored

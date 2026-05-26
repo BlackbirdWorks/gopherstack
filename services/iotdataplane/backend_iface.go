@@ -7,7 +7,7 @@ type MQTTPublisher interface {
 
 // StorageBackend defines the interface for the IoT Data Plane backend.
 type StorageBackend interface {
-	Publish(topic string, payload []byte, qos int32) error
+	Publish(topic string, payload []byte, qos int32, retain bool) error
 	SetBroker(broker MQTTPublisher)
 	GetThingShadow(thingName, shadowName string) ([]byte, error)
 	UpdateThingShadow(thingName, shadowName string, document []byte) ([]byte, error)

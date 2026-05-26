@@ -33,15 +33,12 @@ var ErrValidation = errors.New("InvalidRequestException")
 var ErrConnectionExists = errors.New("connection already exists")
 
 // maxRetainedMessages is the maximum number of retained messages stored in memory.
-// This prevents unbounded memory growth when many topics are used.
 const maxRetainedMessages = 1000
 
 // maxShadowsPerThing is the maximum number of shadows (classic + named) per thing.
-// AWS IoT enforces a similar limit; we cap here to prevent memory exhaustion.
 const maxShadowsPerThing = 100
 
 // maxShadowDocumentBytes is the maximum allowed shadow document size in bytes.
-// This matches the AWS IoT limit and prevents oversized documents from consuming memory.
 const maxShadowDocumentBytes = 8 * 1024
 
 // maxTopicLength is the maximum allowed MQTT topic length per AWS IoT rules.
@@ -51,24 +48,37 @@ const maxTopicLength = 256
 const maxShadowNameLength = 64
 
 // maxShadowVersion is the maximum shadow version before it resets to 1.
-// This prevents integer overflow for long-lived things.
 const maxShadowVersion = 1<<31 - 1
 
 // keyTimestamp is the JSON key for shadow response timestamp fields.
-// Defined as a constant to satisfy goconst (3+ occurrences across the package).
 const keyTimestamp = "timestamp"
 
 // shadowNameRe validates shadow names per AWS IoT rules: alphanumeric, colon, underscore, hyphen.
 var shadowNameRe = regexp.MustCompile(`^[a-zA-Z0-9:_-]+$`)
 
+// shadowReservedNames contains shadow names forbidden by AWS IoT rules.
+// Names that match shadow operation keywords are rejected to prevent routing ambiguity.
+var shadowReservedNames = map[string]bool{
+	"update":    true,
+	"get":       true,
+	"delete":    true,
+	"accepted":  true,
+	"rejected":  true,
+	"delta":     true,
+	"documents": true,
+}
+
 // compile-time interface check.
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
-// shadowEntry holds a shadow document together with its version and timestamp.
+// shadowEntry holds shadow state, per-field metadata timestamps, version and update time.
 type shadowEntry struct {
-	updatedAt time.Time
-	document  []byte
-	version   int
+	updatedAt    time.Time
+	version      int
+	desired      map[string]json.RawMessage // nil = not set
+	reported     map[string]json.RawMessage // nil = not set
+	metaDesired  map[string]int64           // field → epoch seconds of last update
+	metaReported map[string]int64           // field → epoch seconds of last update
 }
 
 // connectionEntry holds the state for a registered MQTT client connection.
@@ -115,8 +125,9 @@ func (b *InMemoryBackend) SetBroker(broker MQTTPublisher) {
 }
 
 // validateTopic checks that a topic string conforms to MQTT publishing rules.
-// Topics for publishing must not contain wildcards (# or +) and must not exceed
-// maxTopicLength characters. Empty topic segments (e.g. "a//b") are also rejected.
+// Wildcards (# or +) are forbidden, empty levels are rejected, and each segment
+// is validated for control characters. The reserved $aws/things/{name}/shadow/*
+// prefix is blocked for external publishers to prevent spoofing shadow events.
 func validateTopic(topic string) error {
 	if len(topic) > maxTopicLength {
 		return fmt.Errorf("%w: topic exceeds %d characters", ErrValidation, maxTopicLength)
@@ -126,9 +137,26 @@ func validateTopic(topic string) error {
 		return fmt.Errorf("%w: topic must not contain wildcards (# or +)", ErrValidation)
 	}
 
-	// Reject empty topic levels (consecutive slashes or leading/trailing slash after split).
-	if slices.Contains(strings.Split(topic, "/"), "") {
+	segments := strings.Split(topic, "/")
+
+	// Reject empty topic levels (consecutive slashes or leading/trailing slash).
+	if slices.Contains(segments, "") {
 		return fmt.Errorf("%w: topic must not contain empty levels", ErrValidation)
+	}
+
+	// Reject control characters (0x00–0x1F, 0x7F) in any segment.
+	for _, seg := range segments {
+		for _, ch := range seg {
+			if ch < 0x20 || ch == 0x7F {
+				return fmt.Errorf("%w: topic segment contains control character", ErrValidation)
+			}
+		}
+	}
+
+	// Gate $aws/things/{name}/shadow/* to internal callers; external publish would
+	// spoof the shadow event topics reserved for the backend.
+	if strings.HasPrefix(topic, "$aws/things/") && len(segments) >= 4 && segments[3] == "shadow" {
+		return fmt.Errorf("%w: publishing to $aws/things/{name}/shadow/* is reserved for internal use", ErrValidation)
 	}
 
 	return nil
@@ -149,11 +177,15 @@ func validateShadowName(name string) error {
 		return fmt.Errorf("%w: shadow name must match [a-zA-Z0-9:_-]+", ErrValidation)
 	}
 
+	// Reject reserved operation keywords per AWS IoT rules.
+	if shadowReservedNames[name] {
+		return fmt.Errorf("%w: shadow name %q is reserved and may not be used", ErrValidation, name)
+	}
+
 	return nil
 }
 
 // validateShadowDocument checks that doc is a non-empty JSON object.
-// AWS IoT rejects shadow documents that are not JSON objects (arrays, primitives, etc.).
 func validateShadowDocument(doc []byte) error {
 	if len(doc) == 0 {
 		return fmt.Errorf("%w: shadow document must not be empty", ErrValidation)
@@ -165,16 +197,152 @@ func validateShadowDocument(doc []byte) error {
 
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(doc, &obj); err != nil || obj == nil {
-		// json.Unmarshal succeeds for JSON null but yields a nil map — reject both.
 		return fmt.Errorf("%w: shadow document must be a valid JSON object", ErrValidation)
 	}
 
 	return nil
 }
 
+// isJSONNull reports whether v is the JSON null literal.
+func isJSONNull(v json.RawMessage) bool {
+	var x interface{}
+	return json.Unmarshal(v, &x) == nil && x == nil
+}
+
+// mergeStateFields merges patch into base: null-valued keys are deleted.
+// The result is a new map; base and patch are not modified.
+func mergeStateFields(base, patch map[string]json.RawMessage) map[string]json.RawMessage {
+	result := make(map[string]json.RawMessage, len(base))
+	for k, v := range base {
+		result[k] = v
+	}
+
+	for k, v := range patch {
+		if isJSONNull(v) {
+			delete(result, k)
+		} else {
+			result[k] = v
+		}
+	}
+
+	return result
+}
+
+// updateMetaFields returns a copy of meta with timestamps updated for keys present in patch.
+// Null-deleted keys are removed from the returned meta map.
+func updateMetaFields(meta map[string]int64, patch map[string]json.RawMessage, ts int64) map[string]int64 {
+	result := make(map[string]int64, len(meta)+len(patch))
+	for k, v := range meta {
+		result[k] = v
+	}
+
+	for k, v := range patch {
+		if isJSONNull(v) {
+			delete(result, k)
+		} else {
+			result[k] = ts
+		}
+	}
+
+	return result
+}
+
+// computeDelta returns a map of fields where desired differs from reported (or is absent in reported).
+// Returns nil when there is no delta.
+func computeDelta(desired, reported map[string]json.RawMessage) map[string]json.RawMessage {
+	if len(desired) == 0 {
+		return nil
+	}
+
+	delta := make(map[string]json.RawMessage)
+
+	for k, dv := range desired {
+		rv, ok := reported[k]
+		if !ok || string(rv) != string(dv) {
+			delta[k] = dv
+		}
+	}
+
+	if len(delta) == 0 {
+		return nil
+	}
+
+	return delta
+}
+
+// buildMetaTimestamps converts a flat field→epoch map to the AWS metadata format:
+// {"fieldName": {"timestamp": epochSeconds}}.
+func buildMetaTimestamps(meta map[string]int64) map[string]map[string]int64 {
+	if len(meta) == 0 {
+		return nil
+	}
+
+	result := make(map[string]map[string]int64, len(meta))
+	for k, ts := range meta {
+		result[k] = map[string]int64{keyTimestamp: ts}
+	}
+
+	return result
+}
+
+// buildShadowResponse assembles the full AWS shadow response JSON from an entry.
+// clientToken is echoed when non-empty (comes from the UpdateThingShadow request).
+func buildShadowResponse(entry *shadowEntry, clientToken string) ([]byte, error) {
+	desired := entry.desired
+	if desired == nil {
+		desired = map[string]json.RawMessage{}
+	}
+
+	reported := entry.reported
+	if reported == nil {
+		reported = map[string]json.RawMessage{}
+	}
+
+	state := map[string]any{
+		"desired":  desired,
+		"reported": reported,
+	}
+
+	delta := computeDelta(desired, reported)
+	if delta != nil {
+		state["delta"] = delta
+	}
+
+	resp := map[string]any{
+		"state":      state,
+		"version":    entry.version,
+		keyTimestamp: entry.updatedAt.Unix(),
+	}
+
+	// Add per-field metadata when available.
+	metaDesired := buildMetaTimestamps(entry.metaDesired)
+	metaReported := buildMetaTimestamps(entry.metaReported)
+
+	if metaDesired != nil || metaReported != nil {
+		meta := map[string]any{}
+		if metaDesired != nil {
+			meta["desired"] = metaDesired
+		}
+
+		if metaReported != nil {
+			meta["reported"] = metaReported
+		}
+
+		resp["metadata"] = meta
+	}
+
+	if clientToken != "" {
+		resp["clientToken"] = clientToken
+	}
+
+	return json.Marshal(resp)
+}
+
 // Publish delivers a message to the given MQTT topic.
-// If no broker is configured the call is a no-op (accepted but not forwarded).
-func (b *InMemoryBackend) Publish(topic string, payload []byte, qos int32) error {
+// If no broker is configured the call returns ErrNoBroker.
+// The retain flag is forwarded to the broker so live subscribers receive RETAIN=1
+// and the broker maintains retention canonically.
+func (b *InMemoryBackend) Publish(topic string, payload []byte, qos int32, retain bool) error {
 	b.mu.RLock("Publish")
 	broker := b.broker
 	b.mu.RUnlock()
@@ -189,7 +357,7 @@ func (b *InMemoryBackend) Publish(topic string, payload []byte, qos int32) error
 		qosByte = 1
 	}
 
-	return broker.Publish(topic, payload, false, qosByte)
+	return broker.Publish(topic, payload, retain, qosByte)
 }
 
 // sortedKeys returns a sorted copy of the keys of a map[string]V.
@@ -204,35 +372,7 @@ func sortedKeys[V any](m map[string]V) []string {
 	return keys
 }
 
-// buildShadowResponse merges version and timestamp into the stored shadow document.
-// If the document is a valid JSON object, the fields are injected directly;
-// otherwise the raw bytes are encoded as a JSON string under a "payload" key,
-// which always produces valid JSON regardless of the content of doc.
-func buildShadowResponse(doc []byte, version int, updatedAt time.Time) ([]byte, error) {
-	var m map[string]json.RawMessage
-
-	if err := json.Unmarshal(doc, &m); err != nil || m == nil {
-		// doc is not a JSON object (or is JSON null); encode it as a plain string so
-		// json.Marshal never fails on raw bytes that are not valid JSON.
-		return json.Marshal(map[string]any{
-			"payload":    string(doc),
-			"version":    version,
-			keyTimestamp: updatedAt.Unix(),
-		})
-	}
-
-	// json.Marshal on plain int/int64 values is infallible, so errors are ignored.
-	verBytes, _ := json.Marshal(version)
-	tsBytes, _ := json.Marshal(updatedAt.Unix())
-	m["version"] = verBytes
-	m[keyTimestamp] = tsBytes
-
-	return json.Marshal(m)
-}
-
 // GetThingShadow returns the shadow document for the named shadow of a thing.
-// The response includes "version" and "timestamp" metadata fields.
-// An empty shadowName refers to the classic (unnamed) shadow.
 func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, error) {
 	b.mu.RLock("GetThingShadow")
 	defer b.mu.RUnlock()
@@ -247,21 +387,29 @@ func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, 
 		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
 	}
 
-	return buildShadowResponse(entry.document, entry.version, entry.updatedAt)
+	return buildShadowResponse(entry, "")
 }
 
-// UpdateThingShadow stores or replaces the document for the named shadow of a thing.
-// If the document contains a "version" field it must equal the current shadow
-// version; a mismatch returns ErrVersionConflict (optimistic locking).
-// The version is incremented on every successful update and wraps around at
-// maxShadowVersion to prevent integer overflow for long-lived things.
-// The returned bytes represent the updated shadow response including the new version.
-// The response is constructed before mutating state so a marshal error cannot
-// leave a partial update behind.
+// UpdateThingShadow merges the desired/reported state from document into the stored shadow.
+// AWS merge semantics: null values delete keys; missing sections are left unchanged.
+// The version is incremented on every successful update.
+// Returns the updated shadow response including delta, metadata, and echoed clientToken.
 func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, document []byte) ([]byte, error) {
 	if err := validateShadowDocument(document); err != nil {
 		return nil, err
 	}
+
+	// Parse incoming document: extract state.desired, state.reported, version, clientToken.
+	var incoming struct {
+		State struct {
+			Desired  map[string]json.RawMessage `json:"desired"`
+			Reported map[string]json.RawMessage `json:"reported"`
+		} `json:"state"`
+		Version     *int   `json:"version,omitempty"`
+		ClientToken string `json:"clientToken,omitempty"`
+	}
+
+	_ = json.Unmarshal(document, &incoming)
 
 	b.mu.Lock("UpdateThingShadow")
 	defer b.mu.Unlock()
@@ -272,36 +420,27 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 
 	current := b.shadows[thingName][shadowName]
 
-	// Enforce per-thing shadow cap when creating a new shadow (not updating existing).
+	// Enforce per-thing shadow cap when creating a new shadow.
 	if current == nil && len(b.shadows[thingName]) >= maxShadowsPerThing {
 		return nil, fmt.Errorf("%w: shadow limit (%d) per thing exceeded for %s",
 			ErrValidation, maxShadowsPerThing, thingName)
 	}
 
-	// Check optimistic locking version if the caller supplied one.
-	// An unmarshal error here is intentional: if the document is not valid JSON
-	// or contains no "version" field, vc.Version stays nil and the lock is skipped.
-	var vc struct {
-		Version *int `json:"version,omitempty"`
-	}
-
-	_ = json.Unmarshal(document, &vc)
-
-	if vc.Version != nil {
+	// Optimistic-locking version check.
+	if incoming.Version != nil {
 		currentVersion := 0
 		if current != nil {
 			currentVersion = current.version
 		}
 
-		if *vc.Version != currentVersion {
+		if *incoming.Version != currentVersion {
 			return nil, fmt.Errorf("%w: expected %d, got %d",
-				ErrVersionConflict, currentVersion, *vc.Version)
+				ErrVersionConflict, currentVersion, *incoming.Version)
 		}
 	}
 
 	newVersion := 1
 	if current != nil {
-		// Wrap version at maxShadowVersion to avoid integer overflow.
 		if current.version >= maxShadowVersion {
 			newVersion = 1
 		} else {
@@ -310,29 +449,57 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	}
 
 	now := time.Now()
+	ts := now.Unix()
 
-	cp := make([]byte, len(document))
-	copy(cp, document)
+	// Deep merge desired and reported with existing state; update per-field metadata.
+	var existingDesired, existingReported map[string]json.RawMessage
+	var existingMetaDesired, existingMetaReported map[string]int64
 
-	// Build the response before writing state so a marshal error cannot leave
-	// a partial update behind.
-	resp, err := buildShadowResponse(cp, newVersion, now)
+	if current != nil {
+		existingDesired = current.desired
+		existingReported = current.reported
+		existingMetaDesired = current.metaDesired
+		existingMetaReported = current.metaReported
+	}
+
+	newDesired := existingDesired
+	newMetaDesired := existingMetaDesired
+
+	if incoming.State.Desired != nil {
+		newDesired = mergeStateFields(existingDesired, incoming.State.Desired)
+		newMetaDesired = updateMetaFields(existingMetaDesired, incoming.State.Desired, ts)
+	}
+
+	newReported := existingReported
+	newMetaReported := existingMetaReported
+
+	if incoming.State.Reported != nil {
+		newReported = mergeStateFields(existingReported, incoming.State.Reported)
+		newMetaReported = updateMetaFields(existingMetaReported, incoming.State.Reported, ts)
+	}
+
+	newEntry := &shadowEntry{
+		version:      newVersion,
+		updatedAt:    now,
+		desired:      newDesired,
+		reported:     newReported,
+		metaDesired:  newMetaDesired,
+		metaReported: newMetaReported,
+	}
+
+	// Build the response before writing state so a marshal error cannot leave a partial update.
+	resp, err := buildShadowResponse(newEntry, incoming.ClientToken)
 	if err != nil {
 		return nil, err
 	}
 
-	b.shadows[thingName][shadowName] = &shadowEntry{
-		document:  cp,
-		version:   newVersion,
-		updatedAt: now,
-	}
+	b.shadows[thingName][shadowName] = newEntry
 
 	return resp, nil
 }
 
 // DeleteThingShadow removes the document for the named shadow of a thing and
-// returns the last known shadow state (compatible with the AWS DeleteThingShadow
-// response which always returns a Payload).
+// returns the last known shadow state (AWS DeleteThingShadow response contract).
 func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byte, error) {
 	b.mu.Lock("DeleteThingShadow")
 	defer b.mu.Unlock()
@@ -347,10 +514,13 @@ func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byt
 		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
 	}
 
-	// Build the final state response before deletion so we can return it.
-	payload, err := buildShadowResponse(entry.document, entry.version, entry.updatedAt)
+	payload, err := buildShadowResponse(entry, "")
 	if err != nil {
-		payload = entry.document
+		// Fallback: return a minimal valid response.
+		payload, _ = json.Marshal(map[string]any{
+			"version":    entry.version,
+			keyTimestamp: entry.updatedAt.Unix(),
+		})
 	}
 
 	delete(thingShadows, shadowName)
@@ -466,6 +636,8 @@ func (b *InMemoryBackend) AddConnectionInternal(clientID string) {
 }
 
 // AddShadowInternal seeds a shadow entry for testing purposes.
+// The document is parsed to extract desired/reported state; if parsing fails or
+// no state key is present, the whole document is treated as the desired state.
 func (b *InMemoryBackend) AddShadowInternal(thingName, shadowName string, document []byte) {
 	b.mu.Lock("AddShadowInternal")
 	defer b.mu.Unlock()
@@ -474,19 +646,35 @@ func (b *InMemoryBackend) AddShadowInternal(thingName, shadowName string, docume
 		b.shadows[thingName] = make(map[string]*shadowEntry)
 	}
 
-	cp := make([]byte, len(document))
-	copy(cp, document)
-
-	b.shadows[thingName][shadowName] = &shadowEntry{
-		document:  cp,
+	entry := &shadowEntry{
 		version:   1,
 		updatedAt: time.Now(),
 	}
+
+	// Best-effort parse of state.desired / state.reported from the seeded document.
+	var doc struct {
+		State struct {
+			Desired  map[string]json.RawMessage `json:"desired"`
+			Reported map[string]json.RawMessage `json:"reported"`
+		} `json:"state"`
+	}
+
+	if json.Unmarshal(document, &doc) == nil {
+		if doc.State.Desired != nil {
+			entry.desired = doc.State.Desired
+		}
+		if doc.State.Reported != nil {
+			entry.reported = doc.State.Reported
+		}
+	}
+
+	b.shadows[thingName][shadowName] = entry
 }
 
 // StoreRetainedMessage saves a retained MQTT message for the given topic.
 // Calling this with an empty payload removes the retained message for that topic.
-// Returns ErrValidation if the cap would be exceeded or the payload is too large.
+// When the cap is reached, the oldest entry (by LastModifiedTime) is evicted to
+// make room, matching AWS LRU behaviour and preventing silent publish failures.
 func (b *InMemoryBackend) StoreRetainedMessage(topic string, payload []byte, qos int32) error {
 	if len(payload) > 0 && len(payload) > maxPublishBodyBytes {
 		return fmt.Errorf("%w: retained payload exceeds %d bytes", ErrValidation, maxPublishBodyBytes)
@@ -497,12 +685,12 @@ func (b *InMemoryBackend) StoreRetainedMessage(topic string, payload []byte, qos
 
 	if len(payload) == 0 {
 		delete(b.retainedMessages, topic)
-
 		return nil
 	}
 
+	// LRU eviction: when the cap is reached and the topic is new, evict the oldest entry.
 	if _, exists := b.retainedMessages[topic]; !exists && len(b.retainedMessages) >= maxRetainedMessages {
-		return fmt.Errorf("%w: retained message limit (%d) exceeded", ErrValidation, maxRetainedMessages)
+		b.evictOldestRetained()
 	}
 
 	cp := make([]byte, len(payload))
@@ -516,6 +704,25 @@ func (b *InMemoryBackend) StoreRetainedMessage(topic string, payload []byte, qos
 	}
 
 	return nil
+}
+
+// evictOldestRetained removes the retained message with the oldest LastModifiedTime.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) evictOldestRetained() {
+	var oldestTopic string
+
+	var oldestTime int64 = -1
+
+	for topic, msg := range b.retainedMessages {
+		if oldestTime < 0 || msg.LastModifiedTime < oldestTime {
+			oldestTime = msg.LastModifiedTime
+			oldestTopic = topic
+		}
+	}
+
+	if oldestTopic != "" {
+		delete(b.retainedMessages, oldestTopic)
+	}
 }
 
 // GetRetainedMessage returns the retained message stored for the given topic.

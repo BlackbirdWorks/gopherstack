@@ -31,10 +31,18 @@ const (
 	listThingsWithShadowsPath = "/api/things/shadow/ListThingsWithShadows"
 	// listNamedShadowsPrefix is the prefix for ListNamedShadowsForThing.
 	listNamedShadowsPrefix = "/api/things/shadow/ListNamedShadowsForThing/"
-	// connectionsPath is the URL path for managing connections.
-	connectionsPath = "/connections"
-	// connectionsPathSlash is the prefix for individual connection operations.
-	connectionsPathSlash = connectionsPath + "/"
+	// adminConnectionsPath is the Gopherstack-only admin path for managing connections.
+	// Prefixed with /_admin/ to distinguish from AWS API namespace.
+	adminConnectionsPath = "/_admin/connections"
+	// adminConnectionsPathSlash is the prefix for individual connection operations.
+	adminConnectionsPathSlash = adminConnectionsPath + "/"
+	// shadowNamedSegment is the URL segment introducing named shadow paths.
+	shadowNamedSegment = "/shadow/name/"
+
+	// defaultPageSize is the default number of items returned per page (AWS default).
+	defaultPageSize = 25
+	// maxPageSize is the maximum number of items returned per page (AWS cap).
+	maxPageSize = 100
 
 	keyError            = "error"
 	keyMessage          = "message"
@@ -98,22 +106,30 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			isShadowPath(path) ||
 			strings.HasPrefix(path, listNamedShadowsPrefix) ||
 			path == listThingsWithShadowsPath ||
-			path == connectionsPath ||
-			strings.HasPrefix(path, connectionsPathSlash) ||
+			path == adminConnectionsPath ||
+			strings.HasPrefix(path, adminConnectionsPathSlash) ||
 			path == retainedMessagePath ||
 			strings.HasPrefix(path, retainedMessagePathSlash)
 	}
 }
 
-// isShadowPath returns true for paths of the form /things/{thingName}/shadow
-// with no additional path segments after "shadow".
+// isShadowPath returns true for paths of the form:
+//   - /things/{thingName}/shadow                  (classic shadow)
+//   - /things/{thingName}/shadow?name=...          (named shadow via query)
+//   - /things/{thingName}/shadow/name/{shadowName} (named shadow via path)
 func isShadowPath(path string) bool {
 	after, ok := strings.CutPrefix(path, "/things/")
 	if !ok {
 		return false
 	}
 
-	// Must end with exactly /shadow or /shadow?... (no further segments).
+	// Accept /things/{name}/shadow/name/{shadowName} (path-style named shadow).
+	if idx := strings.Index(after, "/shadow/name/"); idx >= 0 {
+		// thingName must be non-empty.
+		return idx > 0
+	}
+
+	// Must end with exactly /shadow or /shadow?... (no other trailing segments).
 	parts := strings.SplitN(after, "/shadow", shadowPathParts)
 	if len(parts) != shadowPathParts {
 		return false
@@ -127,9 +143,9 @@ func isShadowPath(path string) bool {
 // MatchPriority returns the routing priority for the IoT Data Plane handler.
 func (h *Handler) MatchPriority() int { return iotDPMatchPriority }
 
-// extractConnectionOperation returns the operation name for /connections paths.
+// extractConnectionOperation returns the operation name for /_admin/connections paths.
 func extractConnectionOperation(path, method string) string {
-	if path == connectionsPath {
+	if path == adminConnectionsPath {
 		if method == http.MethodGet {
 			return "ListConnections"
 		}
@@ -172,7 +188,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "ListNamedShadowsForThing"
 	case path == listThingsWithShadowsPath:
 		return "ListThingsWithShadows"
-	case path == connectionsPath || strings.HasPrefix(path, connectionsPathSlash):
+	case path == adminConnectionsPath || strings.HasPrefix(path, adminConnectionsPathSlash):
 		return extractConnectionOperation(path, method)
 	case path == retainedMessagePath && method == http.MethodGet:
 		return "ListRetainedMessages"
@@ -200,11 +216,11 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	if path == connectionsPath {
+	if path == adminConnectionsPath {
 		return ""
 	}
 
-	if after, ok := strings.CutPrefix(path, connectionsPathSlash); ok {
+	if after, ok := strings.CutPrefix(path, adminConnectionsPathSlash); ok {
 		return after
 	}
 
@@ -216,18 +232,28 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return after
 	}
 
-	// /things/{thingName}/shadow
-	thingName := parseShadowPath(path)
+	thingName, _ := parseShadowPath(path)
 
 	return thingName
 }
 
-// parseShadowPath extracts thingName from a /things/{thingName}/shadow path.
-func parseShadowPath(path string) string {
+// parseShadowPath extracts thingName and shadowName from shadow URL paths.
+// Supports both /things/{name}/shadow?name=... and /things/{name}/shadow/name/{shadowName}.
+// shadowName is empty for the classic (unnamed) shadow.
+func parseShadowPath(path string) (thingName, shadowName string) {
 	trimmed := strings.TrimPrefix(path, "/things/")
+
+	// Path-style named shadow: /things/{name}/shadow/name/{shadowName}
+	if idx := strings.Index(trimmed, "/shadow/name/"); idx >= 0 {
+		thingName = trimmed[:idx]
+		shadowName = trimmed[idx+len("/shadow/name/"):]
+		return thingName, shadowName
+	}
+
+	// Classic or query-param named shadow: /things/{name}/shadow
 	parts := strings.SplitN(trimmed, "/shadow", shadowPathParts)
 
-	return parts[0]
+	return parts[0], ""
 }
 
 // handleError maps backend errors to appropriate HTTP status codes.
@@ -239,7 +265,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 			keyMessage: err.Error(),
 		})
 	case errors.Is(err, ErrVersionConflict):
-		return c.JSON(http.StatusConflict, map[string]string{
+		return c.JSON(http.StatusConflict, map[string]any{
+			"code":     http.StatusConflict,
 			keyError:   "VersionConflictException",
 			keyMessage: err.Error(),
 		})
@@ -269,9 +296,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleListNamedShadows(c)
 		case path == listThingsWithShadowsPath:
 			return h.handleListThingsWithShadows(c)
-		case path == connectionsPath:
+		case path == adminConnectionsPath:
 			return h.handleConnections(c)
-		case strings.HasPrefix(path, connectionsPathSlash):
+		case strings.HasPrefix(path, adminConnectionsPathSlash):
 			return h.handleConnectionByID(c)
 		case path == retainedMessagePath:
 			return h.handleListRetainedMessages(c)
@@ -286,7 +313,6 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 // parsePublishQoS extracts and validates the qos query parameter.
-// Returns ErrValidation wrapped with a description on invalid input.
 func parsePublishQoS(qosStr string) (int32, error) {
 	if qosStr == "" {
 		return 0, nil
@@ -300,9 +326,16 @@ func parsePublishQoS(qosStr string) (int32, error) {
 	return int32(qosVal), nil
 }
 
-// unwrapPublishPayload unwraps a JSON `{"payload":"..."}` envelope if present,
-// otherwise returns the original body bytes unchanged.
-func unwrapPublishPayload(body []byte) []byte {
+// unwrapPublishPayload unwraps a JSON `{"payload":"..."}` envelope when the
+// content type is JSON (or absent). Binary payloads (application/octet-stream)
+// are returned unchanged to avoid double-decoding.
+func unwrapPublishPayload(body []byte, contentType string) []byte {
+	// Skip JSON unwrap for explicit binary content types.
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if ct == "application/octet-stream" {
+		return body
+	}
+
 	var wrapper struct {
 		Payload *json.RawMessage `json:"payload"`
 	}
@@ -317,9 +350,13 @@ func unwrapPublishPayload(body []byte) []byte {
 	return body
 }
 
+// parseRetainFlag parses the ?retain= query parameter. Accepts "true", "1" (case-insensitive).
+func parseRetainFlag(retainStr string) bool {
+	v := strings.ToLower(retainStr)
+	return v == "true" || v == "1"
+}
+
 // handlePublish processes POST /topics/{topic} requests.
-// Query params: qos (int), retain (bool).
-// When no broker is configured the publish is silently accepted with HTTP 200.
 func (h *Handler) handlePublish(c *echo.Context) error {
 	log := logger.Load(c.Request().Context())
 
@@ -341,7 +378,9 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		return h.handleError(c, qosErr)
 	}
 
-	// Limit the request body size to prevent excessive memory usage.
+	retain := parseRetainFlag(c.Request().URL.Query().Get("retain"))
+	contentType := c.Request().Header.Get("Content-Type")
+
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxPublishBodyBytes)
 
 	body, err := io.ReadAll(c.Request().Body)
@@ -349,11 +388,10 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{keyError: "request body too large"})
 	}
 
-	payload := unwrapPublishPayload(body)
+	payload := unwrapPublishPayload(body, contentType)
 
-	if publishErr := h.Backend.Publish(topic, payload, qos); publishErr != nil {
+	if publishErr := h.Backend.Publish(topic, payload, qos, retain); publishErr != nil {
 		if errors.Is(publishErr, ErrNoBroker) {
-			// No broker is normal in test/local environments – accept the message.
 			log.Warn("iot data plane: no broker configured, message dropped", "topic", topic)
 		} else {
 			log.Error("iot data plane publish failed", "topic", topic, "error", publishErr)
@@ -362,15 +400,14 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		}
 	}
 
-	return h.handleRetain(c, topic, payload, qos)
+	return h.handleRetain(c, topic, payload, qos, retain)
 }
 
 // handleRetain stores a retained message when ?retain=true/1 is set.
-func (h *Handler) handleRetain(c *echo.Context, topic string, payload []byte, qos int32) error {
+func (h *Handler) handleRetain(c *echo.Context, topic string, payload []byte, qos int32, retain bool) error {
 	log := logger.Load(c.Request().Context())
 
-	retainStr := strings.ToLower(c.Request().URL.Query().Get("retain"))
-	if retainStr == "true" || retainStr == "1" {
+	if retain {
 		if storeErr := h.Backend.StoreRetainedMessage(topic, payload, qos); storeErr != nil {
 			if errors.Is(storeErr, ErrValidation) {
 				return h.handleError(c, storeErr)
@@ -383,7 +420,7 @@ func (h *Handler) handleRetain(c *echo.Context, topic string, payload []byte, qo
 	return c.JSON(http.StatusOK, map[string]string{})
 }
 
-// handleConnections dispatches GET /connections requests.
+// handleConnections dispatches GET /_admin/connections requests.
 func (h *Handler) handleConnections(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
 		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
@@ -392,7 +429,7 @@ func (h *Handler) handleConnections(c *echo.Context) error {
 	return h.handleListConnections(c)
 }
 
-// handleConnectionByID dispatches requests for /connections/{clientId}.
+// handleConnectionByID dispatches requests for /_admin/connections/{clientId}.
 func (h *Handler) handleConnectionByID(c *echo.Context) error {
 	switch c.Request().Method {
 	case http.MethodDelete:
@@ -404,7 +441,7 @@ func (h *Handler) handleConnectionByID(c *echo.Context) error {
 	}
 }
 
-// handleListConnections processes GET /connections requests.
+// handleListConnections processes GET /_admin/connections requests.
 func (h *Handler) handleListConnections(c *echo.Context) error {
 	conns := h.Backend.ListConnections()
 
@@ -426,9 +463,9 @@ func (h *Handler) handleListConnections(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"connections": out})
 }
 
-// handleRegisterConnection processes POST /connections/{clientId} requests.
+// handleRegisterConnection processes POST /_admin/connections/{clientId} requests.
 func (h *Handler) handleRegisterConnection(c *echo.Context) error {
-	clientID := strings.TrimPrefix(c.Request().URL.Path, connectionsPathSlash)
+	clientID := strings.TrimPrefix(c.Request().URL.Path, adminConnectionsPathSlash)
 	if clientID == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "clientId is required"})
 	}
@@ -442,10 +479,9 @@ func (h *Handler) handleRegisterConnection(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, map[string]string{"clientId": clientID})
 }
 
-// handleDeleteConnection processes DELETE /connections/{clientId} requests.
-// Query params: cleanSession (bool), preventWillMessage (bool) – accepted but not enforced.
+// handleDeleteConnection processes DELETE /_admin/connections/{clientId} requests.
 func (h *Handler) handleDeleteConnection(c *echo.Context) error {
-	clientID := strings.TrimPrefix(c.Request().URL.Path, connectionsPathSlash)
+	clientID := strings.TrimPrefix(c.Request().URL.Path, adminConnectionsPathSlash)
 	if clientID == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "clientId is required"})
 	}
@@ -473,6 +509,7 @@ func (h *Handler) handleGetRetainedMessage(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
+	// Typed response per AWS RetainedMessage shape; payload is base64 encoded by json.Marshal.
 	resp := map[string]any{
 		"topic":            msg.Topic,
 		"payload":          msg.Payload,
@@ -483,8 +520,50 @@ func (h *Handler) handleGetRetainedMessage(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
+// parsePageSize extracts the pagination page size from query params.
+// pageSize is the primary parameter (AWS convention); maxResults is accepted as an alias.
+// Returns the effective page size clamped to [1, maxPageSize], or defaultPageSize when absent.
+func parsePageSize(q interface{ Get(string) string }) int {
+	// pageSize takes precedence over maxResults (AWS convention).
+	raw := q.Get("pageSize")
+	if raw == "" {
+		raw = q.Get("maxResults")
+	}
+
+	if raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+			if v > maxPageSize {
+				return maxPageSize
+			}
+
+			return v
+		}
+	}
+
+	return defaultPageSize
+}
+
+// findCursorIndex returns the start index for the given nextToken cursor in items.
+// The cursor is the value of items[i]; returns i+1 so the cursor item itself is
+// not re-emitted on the next page (fixes the off-by-one in the previous implementation).
+// Returns 0 if the cursor is not found or is empty.
+func findCursorIndex(items []string, cursor string) int {
+	if cursor == "" {
+		return 0
+	}
+
+	for i, item := range items {
+		if item == cursor {
+			return i + 1 // start AFTER the cursor item
+		}
+	}
+
+	return 0
+}
+
 // handleListRetainedMessages processes GET /retainedMessage requests.
-// Query params: nextToken (string), maxResults (int).
+// Pagination: pageSize (primary) or maxResults (alias); default 25, max 100.
+// AWS RetainedMessageSummary does NOT include qos.
 func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
 		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
@@ -495,40 +574,27 @@ func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
-	// Apply simple nextToken pagination using the topic as the cursor.
-	nextTokenIn := c.Request().URL.Query().Get("nextToken")
-	maxResultsStr := c.Request().URL.Query().Get("maxResults")
+	q := c.Request().URL.Query()
+	nextTokenIn := q.Get("nextToken")
+	pageSize := parsePageSize(q)
 
-	maxResults := len(msgs)
-	if maxResultsStr != "" {
-		if v, parseErr := strconv.Atoi(maxResultsStr); parseErr == nil && v > 0 {
-			maxResults = v
-		}
+	// Extract topic strings for cursor lookup.
+	topics := make([]string, len(msgs))
+	for i, m := range msgs {
+		topics[i] = m.Topic
 	}
 
-	// Find the start index from the nextToken (which is a topic name cursor).
-	startIdx := 0
-
-	if nextTokenIn != "" {
-		for i, msg := range msgs {
-			if msg.Topic == nextTokenIn {
-				startIdx = i
-
-				break
-			}
-		}
-	}
-
-	end := min(startIdx+maxResults, len(msgs))
+	startIdx := findCursorIndex(topics, nextTokenIn)
+	end := min(startIdx+pageSize, len(msgs))
 
 	page := msgs[startIdx:end]
 
+	// AWS RetainedMessageSummary: {topic, payloadSize, lastModifiedTime} — qos excluded.
 	summaries := make([]map[string]any, 0, len(page))
 	for _, msg := range page {
 		summaries = append(summaries, map[string]any{
 			"topic":            msg.Topic,
 			"payloadSize":      int64(len(msg.Payload)),
-			"qos":              msg.Qos,
 			"lastModifiedTime": msg.LastModifiedTime,
 		})
 	}
@@ -545,6 +611,7 @@ func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 }
 
 // handleListThingsWithShadows processes GET /api/things/shadow/ListThingsWithShadows.
+// Pagination: pageSize (primary) or maxResults (alias); default 25, max 100.
 func (h *Handler) handleListThingsWithShadows(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
 		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
@@ -552,29 +619,12 @@ func (h *Handler) handleListThingsWithShadows(c *echo.Context) error {
 
 	things := h.Backend.ListThingsWithShadows()
 
-	// Apply simple nextToken pagination.
-	nextTokenIn := c.Request().URL.Query().Get("nextToken")
-	maxResultsStr := c.Request().URL.Query().Get("maxResults")
+	q := c.Request().URL.Query()
+	nextTokenIn := q.Get("nextToken")
+	pageSize := parsePageSize(q)
 
-	maxResults := len(things)
-	if maxResultsStr != "" {
-		if v, parseErr := strconv.Atoi(maxResultsStr); parseErr == nil && v > 0 {
-			maxResults = v
-		}
-	}
-
-	startIdx := 0
-	if nextTokenIn != "" {
-		for i, name := range things {
-			if name == nextTokenIn {
-				startIdx = i
-
-				break
-			}
-		}
-	}
-
-	end := min(startIdx+maxResults, len(things))
+	startIdx := findCursorIndex(things, nextTokenIn)
+	end := min(startIdx+pageSize, len(things))
 	page := things[startIdx:end]
 
 	if page == nil {
@@ -594,14 +644,20 @@ func (h *Handler) handleListThingsWithShadows(c *echo.Context) error {
 }
 
 // handleShadow dispatches GET/POST/DELETE /things/{thingName}/shadow requests.
+// Supports named shadows via path (/shadow/name/{name}) and query (?name=).
 func (h *Handler) handleShadow(c *echo.Context) error {
-	thingName := parseShadowPath(c.Request().URL.Path)
+	path := c.Request().URL.Path
+	thingName, shadowNameFromPath := parseShadowPath(path)
+
 	if thingName == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "thingName is required"})
 	}
 
-	// Named shadow support via ?name= query parameter.
-	shadowName := c.Request().URL.Query().Get("name")
+	// Path-style takes precedence over query-param style.
+	shadowName := shadowNameFromPath
+	if shadowName == "" {
+		shadowName = c.Request().URL.Query().Get("name")
+	}
 
 	if err := validateShadowName(shadowName); err != nil {
 		return h.handleError(c, err)
@@ -647,7 +703,6 @@ func (h *Handler) handleUpdateThingShadow(c *echo.Context, thingName, shadowName
 }
 
 // handleDeleteThingShadow processes DELETE /things/{thingName}/shadow.
-// Returns the deleted shadow state as payload (AWS contract).
 func (h *Handler) handleDeleteThingShadow(c *echo.Context, thingName, shadowName string) error {
 	payload, err := h.Backend.DeleteThingShadow(thingName, shadowName)
 	if err != nil {
@@ -658,7 +713,7 @@ func (h *Handler) handleDeleteThingShadow(c *echo.Context, thingName, shadowName
 }
 
 // handleListNamedShadows processes GET /api/things/shadow/ListNamedShadowsForThing/{thingName}.
-// Response includes results, nextToken (pagination), and timestamp (AWS SDK compat).
+// Pagination: pageSize (primary) or maxResults (alias); default 25, max 100.
 func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
 		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
@@ -674,34 +729,14 @@ func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
-	// Apply simple nextToken pagination using the shadow name as cursor.
-	nextTokenIn := c.Request().URL.Query().Get("nextToken")
-	maxResultsStr := c.Request().URL.Query().Get("maxResults")
+	q := c.Request().URL.Query()
+	nextTokenIn := q.Get("nextToken")
+	pageSize := parsePageSize(q)
 
-	maxResults := len(names)
-	if maxResultsStr != "" {
-		if v, parseErr := strconv.Atoi(maxResultsStr); parseErr == nil && v > 0 {
-			maxResults = v
-		}
-	}
-
-	startIdx := 0
-
-	if nextTokenIn != "" {
-		for i, name := range names {
-			if name == nextTokenIn {
-				startIdx = i
-
-				break
-			}
-		}
-	}
-
-	end := min(startIdx+maxResults, len(names))
+	startIdx := findCursorIndex(names, nextTokenIn)
+	end := min(startIdx+pageSize, len(names))
 
 	page := names[startIdx:end]
-
-	// Ensure page is never nil so the JSON encoder always emits [].
 	if page == nil {
 		page = []string{}
 	}
