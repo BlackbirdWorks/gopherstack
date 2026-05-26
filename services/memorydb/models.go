@@ -12,6 +12,7 @@ type Cluster struct {
 	Tags                    map[string]string `json:"tags"`
 	KmsKeyID                string            `json:"kmsKeyID"`
 	SnsTopicArn             string            `json:"snsTopicArn"`
+	SnsTopicStatus          string            `json:"snsTopicStatus"`
 	Description             string            `json:"description"`
 	NodeType                string            `json:"nodeType"`
 	EngineVersion           string            `json:"engineVersion"`
@@ -288,6 +289,7 @@ type clusterObject struct {
 	PendingUpdates           *pendingUpdatesObject     `json:"PendingUpdates,omitempty"`
 	SubnetGroupName          string                    `json:"SubnetGroupName,omitempty"`
 	SnsTopicArn              string                    `json:"SnsTopicArn,omitempty"`
+	SnsTopicStatus           string                    `json:"SnsTopicStatus,omitempty"`
 	Description              string                    `json:"Description,omitempty"`
 	Status                   string                    `json:"Status,omitempty"`
 	NodeType                 string                    `json:"NodeType,omitempty"`
@@ -355,12 +357,20 @@ type endpointObject struct {
 	Port    int32  `json:"Port"`
 }
 
+// aclPendingChangesObject represents pending user membership changes on an ACL.
+type aclPendingChangesObject struct {
+	UserNamesToAdd    []string `json:"UserNamesToAdd,omitempty"`
+	UserNamesToRemove []string `json:"UserNamesToRemove,omitempty"`
+}
+
 type aclObject struct {
-	ARN       string   `json:"ARN,omitempty"`
-	Name      string   `json:"Name,omitempty"`
-	Status    string   `json:"Status,omitempty"`
-	UserNames []string `json:"UserNames,omitempty"`
-	Clusters  []string `json:"Clusters,omitempty"`
+	ARN                  string                   `json:"ARN,omitempty"`
+	Name                 string                   `json:"Name,omitempty"`
+	Status               string                   `json:"Status,omitempty"`
+	UserNames            []string                 `json:"UserNames,omitempty"`
+	Clusters             []string                 `json:"Clusters,omitempty"`
+	MinimumEngineVersion string                   `json:"MinimumEngineVersion,omitempty"`
+	PendingChanges       *aclPendingChangesObject `json:"PendingChanges,omitempty"`
 }
 
 type subnetGroupObject struct {
@@ -381,11 +391,13 @@ type authenticationObject struct {
 }
 
 type userObject struct {
-	Authentication *authenticationObject `json:"Authentication,omitempty"`
-	ARN            string                `json:"ARN,omitempty"`
-	Name           string                `json:"Name,omitempty"`
-	AccessString   string                `json:"AccessString,omitempty"`
-	Status         string                `json:"Status,omitempty"`
+	Authentication       *authenticationObject `json:"Authentication,omitempty"`
+	ARN                  string                `json:"ARN,omitempty"`
+	Name                 string                `json:"Name,omitempty"`
+	AccessString         string                `json:"AccessString,omitempty"`
+	Status               string                `json:"Status,omitempty"`
+	MinimumEngineVersion string                `json:"MinimumEngineVersion,omitempty"`
+	UserGroupCount       int32                 `json:"UserGroupCount"`
 }
 
 type parameterGroupObject struct {
@@ -527,12 +539,20 @@ type Snapshot struct {
 
 // snapshotClusterConfig holds the cluster configuration recorded at snapshot time.
 type snapshotClusterConfig struct {
-	Name          string `json:"Name,omitempty"`
-	NodeType      string `json:"NodeType,omitempty"`
-	EngineVersion string `json:"EngineVersion,omitempty"`
-	Description   string `json:"Description,omitempty"`
-	Port          int32  `json:"Port,omitempty"`
-	NumShards     int32  `json:"NumShards,omitempty"`
+	Name                  string `json:"Name,omitempty"`
+	NodeType              string `json:"NodeType,omitempty"`
+	EngineVersion         string `json:"EngineVersion,omitempty"`
+	Description           string `json:"Description,omitempty"`
+	Port                  int32  `json:"Port,omitempty"`
+	NumShards             int32  `json:"NumShards,omitempty"`
+	Engine                string `json:"Engine,omitempty"`
+	MaintenanceWindow     string `json:"MaintenanceWindow,omitempty"`
+	TopicArn              string `json:"TopicArn,omitempty"`
+	ParameterGroupName    string `json:"ParameterGroupName,omitempty"`
+	SubnetGroupName       string `json:"SubnetGroupName,omitempty"`
+	VpcId                 string `json:"VpcId,omitempty"`
+	SnapshotRetentionLimit int32 `json:"SnapshotRetentionLimit,omitempty"`
+	SnapshotWindow        string `json:"SnapshotWindow,omitempty"`
 }
 
 // EngineVersion describes a supported MemoryDB engine version.
@@ -794,11 +814,14 @@ type describeParametersRequest struct {
 }
 
 type parameterObject struct {
-	Name          string `json:"Name,omitempty"`
-	Value         string `json:"Value,omitempty"`
-	Description   string `json:"Description,omitempty"`
-	DataType      string `json:"DataType,omitempty"`
-	AllowedValues string `json:"AllowedValues,omitempty"`
+	Name                 string `json:"Name,omitempty"`
+	Value                string `json:"Value,omitempty"`
+	Description          string `json:"Description,omitempty"`
+	DataType             string `json:"DataType,omitempty"`
+	AllowedValues        string `json:"AllowedValues,omitempty"`
+	MinimumEngineVersion string `json:"MinimumEngineVersion,omitempty"`
+	ChangeType           string `json:"ChangeType,omitempty"`
+	Source               string `json:"Source,omitempty"`
 }
 
 type describeParametersResponse struct {

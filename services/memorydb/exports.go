@@ -128,3 +128,6 @@ func HandlerOpsLen(h *Handler) int {
 
 // ExportedUpdateMultiRegionClusterRequest aliases updateMultiRegionClusterRequest for testing.
 type ExportedUpdateMultiRegionClusterRequest = updateMultiRegionClusterRequest
+
+// ExportedResetParameterGroupRequest aliases resetParameterGroupRequest for testing.
+type ExportedResetParameterGroupRequest = resetParameterGroupRequest

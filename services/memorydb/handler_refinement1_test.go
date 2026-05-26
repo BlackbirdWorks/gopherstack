@@ -61,7 +61,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	assert.Equal(t, 0, memorydb.SnapshotCount(b))
 	assert.Equal(t, 0, memorydb.UserCount(b))
 	assert.Equal(t, 0, memorydb.SubnetGroupCount(b))
-	assert.Equal(t, 0, memorydb.ParameterGroupCount(b))
+	assert.Equal(t, 4, memorydb.ParameterGroupCount(b)) // 4 default parameter groups re-seeded
 }
 
 // TestRefinement1_HandlerReset verifies that Handler.Reset() delegates to backend.
@@ -123,7 +123,7 @@ func TestRefinement1_SeedHelpers(t *testing.T) {
 			name:    "AddParameterGroupInternal",
 			seed:    func() { b.AddParameterGroupInternal("pg1", "memorydb_redis7") },
 			wantFn:  func() int { return memorydb.ParameterGroupCount(b) },
-			wantLen: 1,
+			wantLen: 5, // 4 defaults + 1 custom
 		},
 	}
 
@@ -163,7 +163,7 @@ func TestRefinement1_ExportHelpers(t *testing.T) {
 		{"SnapshotCount", memorydb.SnapshotCount(b), 0},
 		{"UserCount", memorydb.UserCount(b), 0},
 		{"SubnetGroupCount", memorydb.SubnetGroupCount(b), 0},
-		{"ParameterGroupCount", memorydb.ParameterGroupCount(b), 0},
+		{"ParameterGroupCount", memorydb.ParameterGroupCount(b), 4}, // 4 default parameter groups seeded
 		{"EventCount", memorydb.EventCount(b), 1},
 		{"MultiRegionClusterCount", memorydb.MultiRegionClusterCount(b), 0},
 		{"HandlerOpsLen", memorydb.HandlerOpsLen(h), 45},
@@ -392,7 +392,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, memorydb.SnapshotCount(b2))
 	assert.Equal(t, 1, memorydb.UserCount(b2))
 	assert.Equal(t, 1, memorydb.SubnetGroupCount(b2))
-	assert.Equal(t, 1, memorydb.ParameterGroupCount(b2))
+	assert.Equal(t, 5, memorydb.ParameterGroupCount(b2)) // 4 defaults + 1 custom (pg-a)
 }
 
 // TestRefinement1_HandlerPersistence verifies Handler Snapshot/Restore delegates to backend.

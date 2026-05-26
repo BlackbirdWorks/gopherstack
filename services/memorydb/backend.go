@@ -173,6 +173,30 @@ func validateResourceName(name string, resourceType string) error {
 	return nil
 }
 
+// validateMaintenanceWindow validates the AWS MemoryDB maintenance window format ddd:hh24:mi-ddd:hh24:mi.
+func validateMaintenanceWindow(w string) error {
+	if w == "" {
+		return nil
+	}
+	parts := strings.SplitN(w, "-", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("MaintenanceWindow must be in format ddd:hh24:mi-ddd:hh24:mi: %w", ErrValidation)
+	}
+	return nil
+}
+
+// validateSnapshotWindow validates the AWS MemoryDB snapshot window format hh24:mi-hh24:mi.
+func validateSnapshotWindow(w string) error {
+	if w == "" {
+		return nil
+	}
+	parts := strings.SplitN(w, "-", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("SnapshotWindow must be in format hh24:mi-hh24:mi: %w", ErrValidation)
+	}
+	return nil
+}
+
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
@@ -240,7 +264,7 @@ type StorageBackend interface {
 
 	// ParameterGroup operations
 	DescribeParameters(parameterGroupName string) (map[string]string, error)
-	ResetParameterGroup(name string) (*ParameterGroup, error)
+	ResetParameterGroup(name string, parameterNames []string, allParameters bool) (*ParameterGroup, error)
 
 	// Shard operations
 	FailoverShard(clusterName, shardConfiguration string) (*Cluster, error)
@@ -352,6 +376,9 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 		AutoUpdateStartDate: "2024-09-01",
 	}
 
+	// Seed default single-region parameter groups.
+	b.seedDefaultParameterGroupsLocked()
+
 	return b
 }
 
@@ -401,6 +428,38 @@ func (b *InMemoryBackend) Reset() {
 		Status:              clusterStatusAvailable,
 		Type:                "engine-update",
 		AutoUpdateStartDate: "2024-09-01",
+	}
+
+	// Re-seed default single-region parameter groups.
+	b.seedDefaultParameterGroupsLocked()
+}
+
+// seedDefaultParameterGroupsLocked seeds the built-in default parameter groups.
+// Caller must hold b.mu or be in the constructor (no concurrent access yet).
+func (b *InMemoryBackend) seedDefaultParameterGroupsLocked() {
+	families := []struct {
+		name   string
+		family string
+		desc   string
+	}{
+		{"default.memorydb-redis6", "memorydb_redis6", "Default parameter group for MemoryDB Redis 6.2"},
+		{"default.memorydb-redis7", "memorydb_redis7", "Default parameter group for MemoryDB Redis 7.x"},
+		{"default.memorydb-valkey7", "memorydb_valkey7", "Default parameter group for MemoryDB Valkey 7.x"},
+		{"default.memorydb-valkey8", "memorydb_valkey8", "Default parameter group for MemoryDB Valkey 8.x"},
+	}
+	for _, f := range families {
+		pgARN := arn.Build("memorydb", b.region, b.accountID, "parametergroup/"+f.name)
+		pg := &ParameterGroup{
+			Name:        f.name,
+			ARN:         pgARN,
+			Description: f.desc,
+			Family:      f.family,
+			Parameters:  defaultParametersByFamily(f.family),
+			Tags:        make(map[string]string),
+			CreatedAt:   time.Now(),
+		}
+		b.parameterGroups[f.name] = pg
+		b.arnToResource[pgARN] = resourceRef{Kind: resourceKindParameterGroup, Name: f.name}
 	}
 }
 
@@ -510,6 +569,14 @@ func resolveClusterDefaults(req *createClusterRequest) (clusterDefaults, error) 
 		d.tlsEnabled = *req.TLSEnabled
 	}
 
+	if d.numShards < 1 || d.numShards > 500 {
+		return d, fmt.Errorf("NumShards must be between 1 and 500: %w", ErrValidation)
+	}
+
+	if d.numReplicas < 0 || d.numReplicas > 5 {
+		return d, fmt.Errorf("NumReplicasPerShard must be between 0 and 5: %w", ErrValidation)
+	}
+
 	return d, nil
 }
 
@@ -547,12 +614,19 @@ func (b *InMemoryBackend) seedAutomatedSnapshotLocked(region, accountID string, 
 		Tags:         make(map[string]string),
 		CreatedAt:    time.Now(),
 		ClusterConfiguration: snapshotClusterConfig{
-			Name:          c.Name,
-			NodeType:      c.NodeType,
-			EngineVersion: c.EngineVersion,
-			Description:   c.Description,
-			Port:          c.Port,
-			NumShards:     c.NumShards,
+			Name:                   c.Name,
+			NodeType:               c.NodeType,
+			EngineVersion:          c.EngineVersion,
+			Description:            c.Description,
+			Port:                   c.Port,
+			NumShards:              c.NumShards,
+			Engine:                 c.Engine,
+			MaintenanceWindow:      c.MaintenanceWindow,
+			TopicArn:               c.SnsTopicArn,
+			ParameterGroupName:     c.ParameterGroupName,
+			SubnetGroupName:        c.SubnetGroupName,
+			SnapshotRetentionLimit: c.SnapshotRetentionLimit,
+			SnapshotWindow:         c.SnapshotWindow,
 		},
 	}
 	b.snapshots[autoName] = autoSnap
@@ -661,6 +735,13 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 	c.AvailabilityMode = availabilityMode
 	c.Endpoint = req.ClusterName + ".memorydb." + region + ".amazonaws.com"
 
+	if err := validateMaintenanceWindow(req.MaintenanceWindow); err != nil {
+		return nil, err
+	}
+	if err := validateSnapshotWindow(req.SnapshotWindow); err != nil {
+		return nil, err
+	}
+
 	b.clusters[req.ClusterName] = c
 	b.arnToResource[clusterARN] = resourceRef{Kind: resourceKindCluster, Name: req.ClusterName}
 
@@ -753,12 +834,19 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 			Tags:         make(map[string]string),
 			CreatedAt:    time.Now(),
 			ClusterConfiguration: snapshotClusterConfig{
-				Name:          c.Name,
-				NodeType:      c.NodeType,
-				EngineVersion: c.EngineVersion,
-				Description:   c.Description,
-				Port:          c.Port,
-				NumShards:     c.NumShards,
+				Name:                   c.Name,
+				NodeType:               c.NodeType,
+				EngineVersion:          c.EngineVersion,
+				Description:            c.Description,
+				Port:                   c.Port,
+				NumShards:              c.NumShards,
+				Engine:                 c.Engine,
+				MaintenanceWindow:      c.MaintenanceWindow,
+				TopicArn:               c.SnsTopicArn,
+				ParameterGroupName:     c.ParameterGroupName,
+				SubnetGroupName:        c.SubnetGroupName,
+				SnapshotRetentionLimit: c.SnapshotRetentionLimit,
+				SnapshotWindow:         c.SnapshotWindow,
 			},
 		}
 		b.snapshots[snapshotName] = s
@@ -807,6 +895,10 @@ func applyClusterStringUpdates(c *Cluster, req *updateClusterRequest) {
 
 	if req.IPDiscovery != "" {
 		c.IPDiscovery = req.IPDiscovery
+	}
+
+	if req.SnsTopicStatus != "" {
+		c.SnsTopicStatus = req.SnsTopicStatus
 	}
 }
 
@@ -1274,7 +1366,7 @@ func (b *InMemoryBackend) CreateParameterGroup(
 		ARN:         pgARN,
 		Description: req.Description,
 		Family:      req.Family,
-		Parameters:  make(map[string]string),
+		Parameters:  defaultParametersByFamily(req.Family),
 		Tags:        tagsFromSlice(req.Tags),
 		CreatedAt:   time.Now(),
 	}
@@ -1558,12 +1650,19 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 		Tags:         tagsFromSlice(req.Tags),
 		CreatedAt:    time.Now(),
 		ClusterConfiguration: snapshotClusterConfig{
-			Name:          c.Name,
-			NodeType:      c.NodeType,
-			EngineVersion: c.EngineVersion,
-			Description:   c.Description,
-			Port:          c.Port,
-			NumShards:     c.NumShards,
+			Name:                   c.Name,
+			NodeType:               c.NodeType,
+			EngineVersion:          c.EngineVersion,
+			Description:            c.Description,
+			Port:                   c.Port,
+			NumShards:              c.NumShards,
+			Engine:                 c.Engine,
+			MaintenanceWindow:      c.MaintenanceWindow,
+			TopicArn:               c.SnsTopicArn,
+			ParameterGroupName:     c.ParameterGroupName,
+			SubnetGroupName:        c.SubnetGroupName,
+			SnapshotRetentionLimit: c.SnapshotRetentionLimit,
+			SnapshotWindow:         c.SnapshotWindow,
 		},
 	}
 
@@ -1696,6 +1795,51 @@ func (b *InMemoryBackend) DeleteSnapshot(name string) (*Snapshot, error) {
 
 // -- EngineVersion operations ---------------------------------------------------
 
+// defaultParametersByFamily returns the built-in parameter defaults for each engine family.
+func defaultParametersByFamily(family string) map[string]string {
+	base := map[string]string{
+		"maxmemory-policy":               "noeviction",
+		"timeout":                        "0",
+		"tcp-keepalive":                  "300",
+		"lazyfree-lazy-eviction":         "no",
+		"lazyfree-lazy-expire":           "no",
+		"lazyfree-lazy-server-del":       "no",
+		"replica-lazy-flush":             "no",
+		"activedefrag":                   "no",
+		"active-expire-enabled":          "1",
+		"active-expire-effort":           "1",
+		"lfu-log-factor":                 "10",
+		"lfu-decay-time":                 "1",
+		"hash-max-listpack-entries":      "128",
+		"hash-max-listpack-value":        "64",
+		"list-max-listpack-size":         "-2",
+		"list-compress-depth":            "0",
+		"set-max-intset-entries":         "512",
+		"zset-max-listpack-entries":      "128",
+		"zset-max-listpack-value":        "64",
+		"activerehashing":                "yes",
+		"hz":                             "10",
+		"dynamic-hz":                     "yes",
+		"aof-rewrite-incremental-fsync":  "yes",
+		"rdb-save-incremental-fsync":     "yes",
+		"jemalloc-bg-thread":             "yes",
+		"close-on-slave-write":           "yes",
+		"repl-backlog-size":              "1048576",
+		"repl-backlog-ttl":               "3600",
+		"slowlog-log-slower-than":        "10000",
+		"slowlog-max-len":                "128",
+		"latency-monitor-threshold":      "0",
+		"tracking-table-max-keys":        "0",
+		"list-max-ziplist-size":          "-2",
+		"cluster-node-timeout":           "15000",
+		"cluster-migration-barrier":      "1",
+		"cluster-require-full-coverage":  "yes",
+		"cluster-allow-reads-when-down":  "no",
+	}
+	_ = family // family-specific overrides could go here
+	return base
+}
+
 // defaultEngineVersions returns the built-in list of supported engine versions.
 func defaultEngineVersions() []*EngineVersion {
 	return []*EngineVersion{
@@ -1782,7 +1926,9 @@ func (b *InMemoryBackend) appendEventLocked(ev *Event) {
 	b.events = append(b.events, ev)
 
 	if len(b.events) > maxEvents {
-		b.events = b.events[len(b.events)-maxEvents:]
+		trimmed := make([]*Event, maxEvents)
+		copy(trimmed, b.events[len(b.events)-maxEvents:])
+		b.events = trimmed
 	}
 }
 
@@ -2000,8 +2146,10 @@ func (b *InMemoryBackend) DescribeParameters(parameterGroupName string) (map[str
 	return maps.Clone(pg.Parameters), nil
 }
 
-// ResetParameterGroup resets all parameters in a parameter group to their default (empty) values.
-func (b *InMemoryBackend) ResetParameterGroup(name string) (*ParameterGroup, error) {
+// ResetParameterGroup resets parameters in a parameter group back to family defaults.
+// If parameterNames is non-empty and allParameters is false, only those keys are reset.
+// If allParameters is true or parameterNames is empty, all parameters are reset.
+func (b *InMemoryBackend) ResetParameterGroup(name string, parameterNames []string, allParameters bool) (*ParameterGroup, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2010,7 +2158,21 @@ func (b *InMemoryBackend) ResetParameterGroup(name string) (*ParameterGroup, err
 		return nil, ErrParameterGroupNotFound
 	}
 
-	pg.Parameters = make(map[string]string)
+	defaults := defaultParametersByFamily(pg.Family)
+
+	if len(parameterNames) > 0 && !allParameters {
+		// Reset only named parameters.
+		for _, pn := range parameterNames {
+			if dv, ok := defaults[pn]; ok {
+				pg.Parameters[pn] = dv
+			} else {
+				delete(pg.Parameters, pn)
+			}
+		}
+	} else {
+		// Reset all.
+		pg.Parameters = maps.Clone(defaults)
+	}
 
 	return cloneParameterGroup(pg), nil
 }
@@ -2362,7 +2524,7 @@ func (b *InMemoryBackend) ListClusters() []*Cluster {
 	result := make([]*Cluster, 0, len(b.clusters))
 
 	for _, c := range b.clusters {
-		result = append(result, c)
+		result = append(result, cloneCluster(c))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
