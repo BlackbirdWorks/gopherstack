@@ -590,7 +590,7 @@ type createFileSystemBody struct {
 	CreationToken            string     `json:"CreationToken"`
 	PerformanceMode          string     `json:"PerformanceMode"`
 	ThroughputMode           string     `json:"ThroughputMode"`
-	KmsKeyId                 string     `json:"KmsKeyId"`
+	KmsKeyID                 string     `json:"KmsKeyId"`
 	AvailabilityZoneName     string     `json:"AvailabilityZoneName"`
 	Tags                     []tagEntry `json:"Tags"`
 	ProvisionedThroughputMib float64    `json:"ProvisionedThroughputInMibps"`
@@ -636,7 +636,7 @@ func (h *Handler) handleCreateFileSystem(c *echo.Context, body []byte) error {
 		CreationToken:            in.CreationToken,
 		PerformanceMode:          in.PerformanceMode,
 		ThroughputMode:           in.ThroughputMode,
-		KmsKeyId:                 in.KmsKeyId,
+		KmsKeyID:                 in.KmsKeyID,
 		AvailabilityZoneName:     in.AvailabilityZoneName,
 		ProvisionedThroughputMib: in.ProvisionedThroughputMib,
 		Encrypted:                in.Encrypted,
@@ -728,12 +728,12 @@ func fsToResponse(fs *FileSystem) map[string]any {
 	if fs.Name != "" {
 		resp["Name"] = fs.Name
 	}
-	if fs.KmsKeyId != "" {
-		resp["KmsKeyId"] = fs.KmsKeyId
+	if fs.KmsKeyID != "" {
+		resp["KmsKeyId"] = fs.KmsKeyID
 	}
 	if fs.AvailabilityZoneName != "" {
 		resp["AvailabilityZoneName"] = fs.AvailabilityZoneName
-		resp["AvailabilityZoneId"] = fs.AvailabilityZoneId
+		resp["AvailabilityZoneId"] = fs.AvailabilityZoneID
 	}
 	if fs.ProvisionedThroughputMib > 0 {
 		resp["ProvisionedThroughputInMibps"] = fs.ProvisionedThroughputMib
@@ -761,12 +761,7 @@ func (h *Handler) handleCreateMountTarget(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "FileSystemId is required"))
 	}
 
-	req := CreateMountTargetRequest{
-		FileSystemID:   in.FileSystemID,
-		SubnetID:       in.SubnetID,
-		IPAddress:      in.IPAddress,
-		SecurityGroups: in.SecurityGroups,
-	}
+	req := CreateMountTargetRequest(in)
 
 	mt, err := h.Backend.CreateMountTarget(req)
 	if err != nil {
@@ -776,33 +771,50 @@ func (h *Handler) handleCreateMountTarget(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, mtToResponse(mt))
 }
 
-func (h *Handler) handleDescribeMountTargets(c *echo.Context, mountTargetID string) error {
+// describeListResponse is a generic helper that builds a paginated JSON response
+// for Describe* list endpoints, eliminating duplication between mount targets
+// and access points.
+func describeListResponse[T any](
+	c *echo.Context,
+	h *Handler,
+	listFn func(fsID, itemID, marker string, maxItems int) ([]*T, string, error),
+	toResp func(*T) map[string]any,
+	itemID, idQueryKey, markerKey, maxKey, respListKey, nextKey string,
+) error {
 	fsID := c.Request().URL.Query().Get(keyFileSystemID)
-	if mountTargetID == "" {
-		mountTargetID = c.Request().URL.Query().Get("MountTargetId")
+	if itemID == "" {
+		itemID = c.Request().URL.Query().Get(idQueryKey)
 	}
 
-	marker := c.Request().URL.Query().Get("Marker")
-	maxItems := queryInt(c, "MaxItems", defaultMaxItems)
+	marker := c.Request().URL.Query().Get(markerKey)
+	maxItems := queryInt(c, maxKey, defaultMaxItems)
 
-	mts, nextMarker, err := h.Backend.DescribeMountTargets(fsID, mountTargetID, marker, maxItems)
+	results, nextMarker, err := listFn(fsID, itemID, marker, maxItems)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	items := make([]map[string]any, 0, len(mts))
-	for _, mt := range mts {
-		items = append(items, mtToResponse(mt))
+	items := make([]map[string]any, 0, len(results))
+	for _, item := range results {
+		items = append(items, toResp(item))
 	}
 
 	resp := map[string]any{
-		"MountTargets": items,
+		respListKey: items,
 	}
 	if nextMarker != "" {
-		resp["NextMarker"] = nextMarker
+		resp[nextKey] = nextMarker
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleDescribeMountTargets(c *echo.Context, mountTargetID string) error {
+	return describeListResponse(
+		c, h,
+		h.Backend.DescribeMountTargets, mtToResponse,
+		mountTargetID, "MountTargetId", "Marker", "MaxItems", "MountTargets", "NextMarker",
+	)
 }
 
 func (h *Handler) handleDeleteMountTarget(c *echo.Context, mountTargetID string) error {
@@ -824,7 +836,7 @@ func mtToResponse(mt *MountTarget) map[string]any {
 		"NetworkInterfaceId":   mt.NetworkInterfaceID,
 		"VpcId":                mt.VpcID,
 		"AvailabilityZoneName": mt.AvailabilityZoneName,
-		"AvailabilityZoneId":   mt.AvailabilityZoneId,
+		"AvailabilityZoneId":   mt.AvailabilityZoneID,
 	}
 	if len(mt.SecurityGroups) > 0 {
 		resp["SecurityGroups"] = mt.SecurityGroups
@@ -836,11 +848,11 @@ func mtToResponse(mt *MountTarget) map[string]any {
 // --- AccessPoint handlers ---
 
 type createAccessPointBody struct {
+	PosixUser     *PosixUser     `json:"PosixUser"`
+	RootDirectory *RootDirectory `json:"RootDirectory"`
 	FileSystemID  string         `json:"FileSystemId"`
 	ClientToken   string         `json:"ClientToken"`
 	Tags          []tagEntry     `json:"Tags"`
-	PosixUser     *PosixUser     `json:"PosixUser"`
-	RootDirectory *RootDirectory `json:"RootDirectory"`
 }
 
 func (h *Handler) handleCreateAccessPoint(c *echo.Context, body []byte) error {
@@ -870,32 +882,11 @@ func (h *Handler) handleCreateAccessPoint(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleDescribeAccessPoints(c *echo.Context, accessPointID string) error {
-	fsID := c.Request().URL.Query().Get(keyFileSystemID)
-	if accessPointID == "" {
-		accessPointID = c.Request().URL.Query().Get("AccessPointId")
-	}
-
-	marker := c.Request().URL.Query().Get("NextToken")
-	maxItems := queryInt(c, "MaxResults", defaultMaxItems)
-
-	aps, nextToken, err := h.Backend.DescribeAccessPoints(fsID, accessPointID, marker, maxItems)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	items := make([]map[string]any, 0, len(aps))
-	for _, ap := range aps {
-		items = append(items, apToResponse(ap))
-	}
-
-	resp := map[string]any{
-		"AccessPoints": items,
-	}
-	if nextToken != "" {
-		resp["NextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
+	return describeListResponse(
+		c, h,
+		h.Backend.DescribeAccessPoints, apToResponse,
+		accessPointID, "AccessPointId", "NextToken", "MaxResults", "AccessPoints", "NextToken",
+	)
 }
 
 func (h *Handler) handleDeleteAccessPoint(c *echo.Context, accessPointID string) error {
@@ -1184,8 +1175,8 @@ func (h *Handler) handlePutBackupPolicy(c *echo.Context, fileSystemID string, bo
 // --- PutFileSystemPolicy handler ---
 
 type putFileSystemPolicyBody struct {
-	Policy                          string `json:"Policy"`
-	BypassPolicyLockoutSafetyCheck  bool   `json:"BypassPolicyLockoutSafetyCheck"`
+	Policy                         string `json:"Policy"`
+	BypassPolicyLockoutSafetyCheck bool   `json:"BypassPolicyLockoutSafetyCheck"`
 }
 
 func (h *Handler) handlePutFileSystemPolicy(c *echo.Context, fileSystemID string, body []byte) error {
@@ -1295,10 +1286,7 @@ func (h *Handler) handleUpdateFileSystem(c *echo.Context, fileSystemID string, b
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 
-	req := UpdateFileSystemRequest{
-		ThroughputMode:           in.ThroughputMode,
-		ProvisionedThroughputMib: in.ProvisionedThroughputMib,
-	}
+	req := UpdateFileSystemRequest(in)
 
 	fs, err := h.Backend.UpdateFileSystem(fileSystemID, req)
 	if err != nil {

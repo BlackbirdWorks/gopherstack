@@ -1,6 +1,7 @@
 package efs_test
 
 import (
+	"maps"
 	"net/http"
 	"testing"
 	"time"
@@ -18,10 +19,10 @@ func TestRefinement2_CreationTokenIdempotency(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErrIs  error
 		name       string
 		first      efs.CreateFileSystemRequest
 		second     efs.CreateFileSystemRequest
-		wantErrIs  error
 		wantSameFS bool
 	}{
 		{
@@ -118,11 +119,11 @@ func TestRefinement2_ProvisionedThroughput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		req         efs.CreateFileSystemRequest
-		wantErr     bool
-		wantErrIs   error
-		wantMibps   float64
+		wantErrIs error
+		name      string
+		req       efs.CreateFileSystemRequest
+		wantMibps float64
+		wantErr   bool
 	}{
 		{
 			name: "provisioned_with_valid_throughput",
@@ -192,7 +193,7 @@ func TestRefinement2_ProvisionedThroughput(t *testing.T) {
 				require.ErrorIs(t, err, tt.wantErrIs)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.wantMibps, fs.ProvisionedThroughputMib)
+				assert.InDelta(t, tt.wantMibps, fs.ProvisionedThroughputMib, 0.001)
 			}
 		})
 	}
@@ -211,8 +212,8 @@ func TestRefinement2_ProvisionedThroughput_InResponse(t *testing.T) {
 		{
 			name: "provisioned_mode_emits_throughput",
 			body: map[string]any{
-				"CreationToken":               "prov-resp",
-				"ThroughputMode":              "provisioned",
+				"CreationToken":                "prov-resp",
+				"ThroughputMode":               "provisioned",
 				"ProvisionedThroughputInMibps": 512.0,
 			},
 			wantMibps:  512.0,
@@ -247,18 +248,18 @@ func TestRefinement2_ProvisionedThroughput_InResponse(t *testing.T) {
 	}
 }
 
-// --- Issue #4: Encrypted + KmsKeyId ---
+// --- Issue #4: Encrypted + KmsKeyID ---
 
-// TestRefinement2_KmsKeyId verifies KmsKeyId auto-fill and validation.
+// TestRefinement2_KmsKeyId verifies KmsKeyID auto-fill and validation.
 func TestRefinement2_KmsKeyId(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		req         efs.CreateFileSystemRequest
-		wantErr     bool
-		wantErrIs   error
-		wantKmsSet  bool
+		wantErrIs  error
+		name       string
+		req        efs.CreateFileSystemRequest
+		wantErr    bool
+		wantKmsSet bool
 	}{
 		{
 			name: "encrypted_without_kms_autofills_managed_key",
@@ -273,7 +274,7 @@ func TestRefinement2_KmsKeyId(t *testing.T) {
 			req: efs.CreateFileSystemRequest{
 				CreationToken: "kms-custom",
 				Encrypted:     true,
-				KmsKeyId:      "arn:aws:kms:us-east-1:123456789012:key/custom-key",
+				KmsKeyID:      "arn:aws:kms:us-east-1:123456789012:key/custom-key",
 			},
 			wantKmsSet: true,
 		},
@@ -282,7 +283,7 @@ func TestRefinement2_KmsKeyId(t *testing.T) {
 			req: efs.CreateFileSystemRequest{
 				CreationToken: "kms-invalid",
 				Encrypted:     false,
-				KmsKeyId:      "arn:aws:kms:us-east-1:123456789012:key/some-key",
+				KmsKeyID:      "arn:aws:kms:us-east-1:123456789012:key/some-key",
 			},
 			wantErr:   true,
 			wantErrIs: efs.ErrValidation,
@@ -309,9 +310,9 @@ func TestRefinement2_KmsKeyId(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				if tt.wantKmsSet {
-					assert.NotEmpty(t, fs.KmsKeyId)
+					assert.NotEmpty(t, fs.KmsKeyID)
 				} else {
-					assert.Empty(t, fs.KmsKeyId)
+					assert.Empty(t, fs.KmsKeyID)
 				}
 			}
 		})
@@ -327,8 +328,8 @@ func TestRefinement2_FileSystemProtection(t *testing.T) {
 	tests := []struct {
 		name           string
 		protection     string
-		wantHTTPStatus int
 		wantProtection string
+		wantHTTPStatus int
 	}{
 		{
 			name:           "default_protection_is_disabled",
@@ -422,10 +423,10 @@ func TestRefinement2_MountTargetFields(t *testing.T) {
 			assert.NotEmpty(t, resp["OwnerId"])
 			assert.NotEmpty(t, resp["LifeCycleState"])
 			// VpcId and AZ fields are present (may be empty strings)
-			_, hasVpcId := resp["VpcId"]
+			_, hasVpcID := resp["VpcId"]
 			_, hasAZName := resp["AvailabilityZoneName"]
 			_, hasAZId := resp["AvailabilityZoneId"]
-			assert.True(t, hasVpcId)
+			assert.True(t, hasVpcID)
 			assert.True(t, hasAZName)
 			assert.True(t, hasAZId)
 		})
@@ -586,14 +587,14 @@ func TestRefinement2_AccessPointPosixUser(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		posixUser *efs.PosixUser
+		name      string
 	}{
 		{
 			name: "posix_user_persisted",
 			posixUser: &efs.PosixUser{
-				Uid:           1000,
-				Gid:           1001,
+				UID:           1000,
+				GID:           1001,
 				SecondaryGids: []int64{2000, 2001},
 			},
 		},
@@ -619,8 +620,8 @@ func TestRefinement2_AccessPointPosixUser(t *testing.T) {
 
 			if tt.posixUser != nil {
 				require.NotNil(t, ap.PosixUser)
-				assert.Equal(t, tt.posixUser.Uid, ap.PosixUser.Uid)
-				assert.Equal(t, tt.posixUser.Gid, ap.PosixUser.Gid)
+				assert.Equal(t, tt.posixUser.UID, ap.PosixUser.UID)
+				assert.Equal(t, tt.posixUser.GID, ap.PosixUser.GID)
 				assert.Equal(t, tt.posixUser.SecondaryGids, ap.PosixUser.SecondaryGids)
 			} else {
 				assert.Nil(t, ap.PosixUser)
@@ -634,10 +635,10 @@ func TestRefinement2_AccessPointRootDirectory(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		rootDirectory *efs.RootDirectory
-		wantErr       bool
 		wantErrIs     error
+		rootDirectory *efs.RootDirectory
+		name          string
+		wantErr       bool
 	}{
 		{
 			name: "root_path_no_creation_info_ok",
@@ -650,8 +651,8 @@ func TestRefinement2_AccessPointRootDirectory(t *testing.T) {
 			rootDirectory: &efs.RootDirectory{
 				Path: "/data",
 				CreationInfo: &efs.CreationInfo{
-					OwnerUid:    1000,
-					OwnerGid:    1001,
+					OwnerUID:    1000,
+					OwnerGID:    1001,
 					Permissions: "0755",
 				},
 			},
@@ -736,7 +737,8 @@ func TestRefinement2_AccessPointClientTokenIdempotency(t *testing.T) {
 			if tt.wantSameAP {
 				assert.Equal(t, ap1.AccessPointID, ap2.AccessPointID)
 				// Only one AP should exist.
-				aps, _, err := b.DescribeAccessPoints(fs.FileSystemID, "", "", 0)
+				var aps []*efs.AccessPoint
+				aps, _, err = b.DescribeAccessPoints(fs.FileSystemID, "", "", 0)
 				require.NoError(t, err)
 				assert.Len(t, aps, 1)
 			} else {
@@ -751,8 +753,8 @@ func TestRefinement2_AccessPointResponse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		body           map[string]any
+		body            map[string]any
+		name            string
 		wantClientToken bool
 		wantPosixUser   bool
 		wantRootDir     bool
@@ -794,10 +796,8 @@ func TestRefinement2_AccessPointResponse(t *testing.T) {
 
 			h := newRefinementHandler()
 			fsID := createFS(t, h, "tok-ap-resp-"+tt.name)
-			body := make(map[string]any)
-			for k, v := range tt.body {
-				body[k] = v
-			}
+			body := make(map[string]any, len(tt.body)+1)
+			maps.Copy(body, tt.body)
 			body["FileSystemId"] = fsID
 
 			rec := doRESTRefinement(t, h, http.MethodPost, "/2015-02-01/access-points", body)
@@ -827,10 +827,10 @@ func TestRefinement2_LifecyclePolicyValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		policy    efs.LifecyclePolicy
-		wantErr   bool
 		wantErrIs error
+		policy    efs.LifecyclePolicy
+		name      string
+		wantErr   bool
 	}{
 		{
 			name:   "valid_transition_to_ia",
@@ -924,10 +924,10 @@ func TestRefinement2_BackupPolicyValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErrIs error
 		name      string
 		status    string
 		wantErr   bool
-		wantErrIs error
 	}{
 		{name: "enabled_valid", status: "ENABLED"},
 		{name: "disabled_valid", status: "DISABLED"},
@@ -963,10 +963,10 @@ func TestRefinement2_FileSystemPolicyValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErrIs error
 		name      string
 		policy    string
 		wantErr   bool
-		wantErrIs error
 	}{
 		{
 			name:   "valid_json_accepted",
@@ -1013,10 +1013,10 @@ func TestRefinement2_DeleteFileSystem_FileSystemInUse(t *testing.T) {
 
 	tests := []struct {
 		name           string
+		wantErrCode    string
+		wantHTTPStatus int
 		createMT       bool
 		createAP       bool
-		wantHTTPStatus int
-		wantErrCode    string
 	}{
 		{
 			name:           "no_deps_delete_succeeds",
@@ -1075,14 +1075,14 @@ func TestRefinement2_TagValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		tags      map[string]string
-		wantErr   bool
 		wantErrIs error
+		tags      map[string]string
+		name      string
+		wantErr   bool
 	}{
 		{
-			name:   "valid_tags_accepted",
-			tags:   map[string]string{"env": "prod", "team": "eng"},
+			name: "valid_tags_accepted",
+			tags: map[string]string{"env": "prod", "team": "eng"},
 		},
 		{
 			name:      "aws_prefix_key_rejected",
@@ -1128,10 +1128,10 @@ func TestRefinement2_TagValidation_TagResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		tags      map[string]string
-		wantErr   bool
 		wantErrIs error
+		tags      map[string]string
+		name      string
+		wantErr   bool
 	}{
 		{
 			name: "valid_tags_accepted",
@@ -1171,12 +1171,12 @@ func TestRefinement2_ErrorBodyShape(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body          map[string]any
 		name          string
 		method        string
 		path          string
-		body          map[string]any
-		wantStatus    int
 		wantErrorType string
+		wantStatus    int
 	}{
 		{
 			name:          "not_found_sets_header",
@@ -1215,13 +1215,13 @@ func TestRefinement2_ErrorBodyShape(t *testing.T) {
 				})
 
 				var bodyBytes []byte
-				import_json := func() {
+				importJSON := func() {
 					// noop, just to ensure rec is captured
 				}
-				_ = import_json
+				_ = importJSON
 				rec := doRESTRefinement(t, h, http.MethodDelete, "/2015-02-01/file-systems/"+fsID, nil)
 				assert.Equal(t, tt.wantStatus, rec.Code)
-				assert.Equal(t, tt.wantErrorType, rec.Header().Get("x-amzn-ErrorType"))
+				assert.Equal(t, tt.wantErrorType, rec.Header().Get("X-Amzn-Errortype"))
 				_ = bodyBytes
 
 				return
@@ -1230,7 +1230,7 @@ func TestRefinement2_ErrorBodyShape(t *testing.T) {
 			h := newRefinementHandler()
 			rec := doRESTRefinement(t, h, tt.method, tt.path, tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
-			assert.Equal(t, tt.wantErrorType, rec.Header().Get("x-amzn-ErrorType"))
+			assert.Equal(t, tt.wantErrorType, rec.Header().Get("X-Amzn-Errortype"))
 		})
 	}
 }
@@ -1242,12 +1242,12 @@ func TestRefinement2_ThroughputCooldown(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		firstMode    string
-		secondMode   string
+		wantErrIs     error
+		name          string
+		firstMode     string
+		secondMode    string
 		allowCooldown bool
 		wantSecondErr bool
-		wantErrIs    error
 	}{
 		{
 			name:          "first_change_always_succeeds",
@@ -1387,8 +1387,8 @@ func TestRefinement2_DescribeMountTargets_Pagination(t *testing.T) {
 			require.NoError(t, err)
 
 			for i := range tt.numMTs {
-				_, err := b.CreateMountTarget(mtReq(fs.FileSystemID, "sn-"+string(rune('a'+i))))
-				require.NoError(t, err)
+				_, mtErr := b.CreateMountTarget(mtReq(fs.FileSystemID, "sn-"+string(rune('a'+i))))
+				require.NoError(t, mtErr)
 			}
 
 			list, nextMarker, err := b.DescribeMountTargets(fs.FileSystemID, "", "", tt.maxItems)
@@ -1440,8 +1440,8 @@ func TestRefinement2_DescribeAccessPoints_Pagination(t *testing.T) {
 			require.NoError(t, err)
 
 			for range tt.numAPs {
-				_, err := b.CreateAccessPoint(apReq(fs.FileSystemID))
-				require.NoError(t, err)
+				_, apErr := b.CreateAccessPoint(apReq(fs.FileSystemID))
+				require.NoError(t, apErr)
 			}
 
 			list, nextToken, err := b.DescribeAccessPoints(fs.FileSystemID, "", "", tt.maxItems)
@@ -1570,10 +1570,10 @@ func TestRefinement2_UpdateFileSystem_ProvisionedThroughput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErrIs error
 		name      string
 		updateReq efs.UpdateFileSystemRequest
 		wantErr   bool
-		wantErrIs error
 	}{
 		{
 			name: "update_provisioned_throughput_ok",

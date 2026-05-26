@@ -750,8 +750,8 @@ func TestRefinement1_UpdateFileSystem(t *testing.T) {
 	tests := []struct {
 		body       map[string]any
 		name       string
-		wantStatus int
 		wantMode   string
+		wantStatus int
 	}{
 		{
 			name:       "update_to_elastic",
@@ -762,7 +762,7 @@ func TestRefinement1_UpdateFileSystem(t *testing.T) {
 		{
 			name: "update_to_provisioned_with_throughput",
 			body: map[string]any{
-				"ThroughputMode":           "provisioned",
+				"ThroughputMode":               "provisioned",
 				"ProvisionedThroughputInMibps": 128.0,
 			},
 			wantStatus: http.StatusAccepted,
