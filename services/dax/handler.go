@@ -54,15 +54,24 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeClusters",
 		"UpdateCluster",
 		"DeleteCluster",
+		"IncreaseReplicationFactor",
+		"DecreaseReplicationFactor",
+		"RebootNode",
 		"TagResource",
 		"UntagResource",
 		"ListTags",
 		"CreateParameterGroup",
 		"DescribeParameterGroups",
+		"UpdateParameterGroup",
 		"DeleteParameterGroup",
+		"DescribeParameters",
+		"DescribeDefaultParameters",
+		"ResetParameterGroup",
 		"CreateSubnetGroup",
 		"DescribeSubnetGroups",
+		"UpdateSubnetGroup",
 		"DeleteSubnetGroup",
+		"DescribeEvents",
 	}
 }
 
@@ -136,6 +145,12 @@ func (h *Handler) dispatch(ctx context.Context, operation string, body []byte) (
 		return h.handleUpdateCluster(body)
 	case "DeleteCluster":
 		return h.handleDeleteCluster(body)
+	case "IncreaseReplicationFactor":
+		return h.handleIncreaseReplicationFactor(body)
+	case "DecreaseReplicationFactor":
+		return h.handleDecreaseReplicationFactor(body)
+	case "RebootNode":
+		return h.handleRebootNode(body)
 	case "TagResource":
 		return h.handleTagResource(body)
 	case "UntagResource":
@@ -146,14 +161,26 @@ func (h *Handler) dispatch(ctx context.Context, operation string, body []byte) (
 		return h.handleCreateParameterGroup(body)
 	case "DescribeParameterGroups":
 		return h.handleDescribeParameterGroups(body)
+	case "UpdateParameterGroup":
+		return h.handleUpdateParameterGroup(body)
 	case "DeleteParameterGroup":
 		return h.handleDeleteParameterGroup(body)
+	case "DescribeParameters":
+		return h.handleDescribeParameters(body)
+	case "DescribeDefaultParameters":
+		return h.handleDescribeDefaultParameters(body)
+	case "ResetParameterGroup":
+		return h.handleResetParameterGroup(body)
 	case "CreateSubnetGroup":
 		return h.handleCreateSubnetGroup(body)
 	case "DescribeSubnetGroups":
 		return h.handleDescribeSubnetGroups(body)
+	case "UpdateSubnetGroup":
+		return h.handleUpdateSubnetGroup(body)
 	case "DeleteSubnetGroup":
 		return h.handleDeleteSubnetGroup(body)
+	case "DescribeEvents":
+		return h.handleDescribeEvents(body)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, operation)
 	}
@@ -162,18 +189,20 @@ func (h *Handler) dispatch(ctx context.Context, operation string, body []byte) (
 // ---- request/response types ----
 
 type createClusterRequest struct {
-	Tags                       map[string]string `json:"Tags"`
-	NodeType                   string            `json:"NodeType"`
-	ClusterName                string            `json:"ClusterName"`
-	Description                string            `json:"Description"`
-	IamRoleArn                 string            `json:"IamRoleArn"`
-	SubnetGroupName            string            `json:"SubnetGroupName"`
-	PreferredMaintenanceWindow string            `json:"PreferredMaintenanceWindow"`
-	ParameterGroupName         string            `json:"ParameterGroupName"`
-	AvailabilityZones          []string          `json:"AvailabilityZones"`
-	SecurityGroupIDs           []string          `json:"SecurityGroupIds"`
-	ReplicationFactor          int               `json:"ReplicationFactor"`
-	SSESpecification           struct {
+	Tags                          map[string]string `json:"Tags"`
+	NodeType                      string            `json:"NodeType"`
+	ClusterName                   string            `json:"ClusterName"`
+	Description                   string            `json:"Description"`
+	IamRoleArn                    string            `json:"IamRoleArn"`
+	SubnetGroupName               string            `json:"SubnetGroupName"`
+	PreferredMaintenanceWindow    string            `json:"PreferredMaintenanceWindow"`
+	ParameterGroupName            string            `json:"ParameterGroupName"`
+	NotificationTopicArn          string            `json:"NotificationTopicArn"`
+	ClusterEndpointEncryptionType string            `json:"ClusterEndpointEncryptionType"`
+	AvailabilityZones             []string          `json:"AvailabilityZones"`
+	SecurityGroupIDs              []string          `json:"SecurityGroupIds"`
+	ReplicationFactor             int               `json:"ReplicationFactor"`
+	SSESpecification              struct {
 		Enabled bool `json:"Enabled"`
 	} `json:"SSESpecification"`
 }
@@ -185,8 +214,8 @@ type describeClustersRequest struct {
 }
 
 type updateClusterRequest struct {
+	Description                *string  `json:"Description"`
 	ClusterName                string   `json:"ClusterName"`
-	Description                string   `json:"Description"`
 	PreferredMaintenanceWindow string   `json:"PreferredMaintenanceWindow"`
 	ParameterGroupName         string   `json:"ParameterGroupName"`
 	NotificationTopicArn       string   `json:"NotificationTopicArn"`
@@ -196,6 +225,23 @@ type updateClusterRequest struct {
 
 type deleteClusterRequest struct {
 	ClusterName string `json:"ClusterName"`
+}
+
+type increaseReplicationFactorRequest struct {
+	ClusterName          string   `json:"ClusterName"`
+	NewReplicationFactor int      `json:"NewReplicationFactor"`
+	AvailabilityZones    []string `json:"AvailabilityZones"`
+}
+
+type decreaseReplicationFactorRequest struct {
+	ClusterName          string   `json:"ClusterName"`
+	NodeIDsToRemove      []string `json:"NodeIdsToRemove"`
+	NewReplicationFactor int      `json:"NewReplicationFactor"`
+}
+
+type rebootNodeRequest struct {
+	ClusterName string `json:"ClusterName"`
+	NodeID      string `json:"NodeId"`
 }
 
 type tagResourceRequest struct {
@@ -224,8 +270,34 @@ type describeParameterGroupsRequest struct {
 	MaxResults          int      `json:"MaxResults"`
 }
 
+type updateParameterGroupRequest struct {
+	ParameterGroupName  string               `json:"ParameterGroupName"`
+	ParameterNameValues []parameterNameValue `json:"ParameterNameValues"`
+}
+
+type parameterNameValue struct {
+	ParameterName  string `json:"ParameterName"`
+	ParameterValue string `json:"ParameterValue"`
+}
+
 type deleteParameterGroupRequest struct {
 	ParameterGroupName string `json:"ParameterGroupName"`
+}
+
+type describeParametersRequest struct {
+	ParameterGroupName string `json:"ParameterGroupName"`
+	NextToken          string `json:"NextToken"`
+	MaxResults         int    `json:"MaxResults"`
+}
+
+type describeDefaultParametersRequest struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type resetParameterGroupRequest struct {
+	ParameterGroupName string   `json:"ParameterGroupName"`
+	ParameterNames     []string `json:"ParameterNames"`
 }
 
 type createSubnetGroupRequest struct {
@@ -240,8 +312,23 @@ type describeSubnetGroupsRequest struct {
 	MaxResults       int      `json:"MaxResults"`
 }
 
+type updateSubnetGroupRequest struct {
+	SubnetGroupName string   `json:"SubnetGroupName"`
+	Description     string   `json:"Description"`
+	SubnetIDs       []string `json:"SubnetIds"`
+}
+
 type deleteSubnetGroupRequest struct {
 	SubnetGroupName string `json:"SubnetGroupName"`
+}
+
+type describeEventsRequest struct {
+	SourceName string `json:"SourceName"`
+	SourceType string `json:"SourceType"`
+	StartTime  string `json:"StartTime"`
+	EndTime    string `json:"EndTime"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 type tagItem struct {
@@ -252,22 +339,24 @@ type tagItem struct {
 // ---- cluster response helpers ----
 
 type clusterResponse struct {
-	ParameterGroup             *paramGroupStatus   `json:"ParameterGroup,omitempty"`
-	SSEDescription             *sseDescResponse    `json:"SSEDescription,omitempty"`
-	Endpoint                   *endpointResponse   `json:"ClusterDiscoveryEndpoint,omitempty"`
-	ClusterName                string              `json:"ClusterName"`
-	ClusterArn                 string              `json:"ClusterArn"`
-	Description                string              `json:"Description,omitempty"`
-	NodeType                   string              `json:"NodeType"`
-	Status                     string              `json:"ClusterStatus"`
-	SubnetGroup                string              `json:"SubnetGroup,omitempty"`
-	IamRoleArn                 string              `json:"IamRoleArn,omitempty"`
-	PreferredMaintenanceWindow string              `json:"PreferredMaintenanceWindow,omitempty"`
-	Nodes                      []nodeResponse      `json:"Nodes,omitempty"`
-	SecurityGroups             []securityGroupResp `json:"SecurityGroups,omitempty"`
-	Tags                       []tagItem           `json:"Tags,omitempty"`
-	TotalNodes                 int                 `json:"TotalNodes"`
-	ActiveNodes                int                 `json:"ActiveNodes"`
+	ParameterGroup                *paramGroupStatus          `json:"ParameterGroup,omitempty"`
+	SSEDescription                *sseDescResponse           `json:"SSEDescription,omitempty"`
+	Endpoint                      *endpointResponse          `json:"ClusterDiscoveryEndpoint,omitempty"`
+	NotificationConfiguration     *notificationConfigResp    `json:"NotificationConfiguration,omitempty"`
+	ClusterName                   string                     `json:"ClusterName"`
+	ClusterArn                    string                     `json:"ClusterArn"`
+	Description                   string                     `json:"Description,omitempty"`
+	NodeType                      string                     `json:"NodeType"`
+	Status                        string                     `json:"ClusterStatus"`
+	SubnetGroup                   string                     `json:"SubnetGroup,omitempty"`
+	IamRoleArn                    string                     `json:"IamRoleArn,omitempty"`
+	PreferredMaintenanceWindow    string                     `json:"PreferredMaintenanceWindow,omitempty"`
+	ClusterEndpointEncryptionType string                     `json:"ClusterEndpointEncryptionType,omitempty"`
+	Nodes                         []nodeResponse             `json:"Nodes,omitempty"`
+	SecurityGroups                []securityGroupResp        `json:"SecurityGroups,omitempty"`
+	Tags                          []tagItem                  `json:"Tags,omitempty"`
+	TotalNodes                    int                        `json:"TotalNodes"`
+	ActiveNodes                   int                        `json:"ActiveNodes"`
 }
 
 type endpointResponse struct {
@@ -300,9 +389,24 @@ type securityGroupResp struct {
 	Status                  string `json:"Status"`
 }
 
+type notificationConfigResp struct {
+	TopicArn    string `json:"TopicArn"`
+	TopicStatus string `json:"TopicStatus"`
+}
+
 type parameterGroupResponse struct {
 	ParameterGroupName string `json:"ParameterGroupName"`
 	Description        string `json:"Description,omitempty"`
+}
+
+type parameterResponse struct {
+	ParameterName  string `json:"ParameterName"`
+	ParameterValue string `json:"ParameterValue"`
+	Description    string `json:"Description,omitempty"`
+	Source         string `json:"Source,omitempty"`
+	DataType       string `json:"DataType,omitempty"`
+	IsModifiable   string `json:"IsModifiable,omitempty"`
+	ChangeType     string `json:"ChangeType,omitempty"`
 }
 
 type subnetGroupResponse struct {
@@ -319,19 +423,27 @@ type subnetItem struct {
 	} `json:"SubnetAvailabilityZone"`
 }
 
+type eventResponse struct {
+	SourceName string `json:"SourceName"`
+	SourceType string `json:"SourceType"`
+	Message    string `json:"Message"`
+	Date       string `json:"Date"`
+}
+
 // toClusterResponse converts a Cluster to its JSON response form.
 func toClusterResponse(c *Cluster) clusterResponse {
 	resp := clusterResponse{
-		ClusterName:                c.ClusterName,
-		ClusterArn:                 c.ClusterArn,
-		Description:                c.Description,
-		NodeType:                   c.NodeType,
-		Status:                     c.Status,
-		IamRoleArn:                 c.IamRoleArn,
-		SubnetGroup:                c.SubnetGroupName,
-		ActiveNodes:                c.ActiveNodes,
-		TotalNodes:                 c.TotalNodes,
-		PreferredMaintenanceWindow: c.PreferredMaintenanceWindow,
+		ClusterName:                   c.ClusterName,
+		ClusterArn:                    c.ClusterArn,
+		Description:                   c.Description,
+		NodeType:                      c.NodeType,
+		Status:                        c.Status,
+		IamRoleArn:                    c.IamRoleArn,
+		SubnetGroup:                   c.SubnetGroupName,
+		ActiveNodes:                   c.ActiveNodes,
+		TotalNodes:                    c.TotalNodes,
+		PreferredMaintenanceWindow:    c.PreferredMaintenanceWindow,
+		ClusterEndpointEncryptionType: c.ClusterEndpointEncryptionType,
 		ParameterGroup: &paramGroupStatus{
 			ParameterGroupName:   c.ParameterGroup.ParameterGroupName,
 			ParameterApplyStatus: c.ParameterGroup.ParameterApplyStatus,
@@ -344,6 +456,13 @@ func toClusterResponse(c *Cluster) clusterResponse {
 			Address: c.Endpoint.Address,
 			Port:    c.Endpoint.Port,
 			URL:     c.Endpoint.URL,
+		}
+	}
+
+	if c.NotificationConfiguration != nil {
+		resp.NotificationConfiguration = &notificationConfigResp{
+			TopicArn:    c.NotificationConfiguration.TopicArn,
+			TopicStatus: c.NotificationConfiguration.TopicStatus,
 		}
 	}
 
@@ -381,6 +500,40 @@ func toClusterResponse(c *Cluster) clusterResponse {
 	return resp
 }
 
+// toSubnetGroupResponse converts a SubnetGroup to its JSON response form.
+func toSubnetGroupResponse(sg *SubnetGroup) subnetGroupResponse {
+	items := make([]subnetItem, 0, len(sg.Subnets))
+
+	for _, entry := range sg.Subnets {
+		item := subnetItem{
+			SubnetIdentifier: entry.SubnetID,
+		}
+		item.SubnetAvailabilityZone.Name = entry.AvailabilityZone
+
+		items = append(items, item)
+	}
+
+	return subnetGroupResponse{
+		SubnetGroupName: sg.SubnetGroupName,
+		Description:     sg.Description,
+		VpcID:           sg.VpcID,
+		Subnets:         items,
+	}
+}
+
+// toParameterResponse converts a Parameter to its JSON response form.
+func toParameterResponse(p *Parameter) parameterResponse {
+	return parameterResponse{
+		ParameterName:  p.ParameterName,
+		ParameterValue: p.ParameterValue,
+		Description:    p.Description,
+		Source:         p.Source,
+		DataType:       p.DataType,
+		IsModifiable:   p.IsModifiable,
+		ChangeType:     p.ChangeType,
+	}
+}
+
 // ---- handlers ----
 
 func (h *Handler) handleCreateCluster(body []byte) (any, error) {
@@ -390,18 +543,20 @@ func (h *Handler) handleCreateCluster(body []byte) (any, error) {
 	}
 
 	cluster, err := h.Backend.CreateCluster(CreateClusterInput{
-		ClusterName:                req.ClusterName,
-		NodeType:                   req.NodeType,
-		Description:                req.Description,
-		IamRoleArn:                 req.IamRoleArn,
-		ReplicationFactor:          req.ReplicationFactor,
-		AvailabilityZones:          req.AvailabilityZones,
-		SubnetGroupName:            req.SubnetGroupName,
-		SecurityGroupIDs:           req.SecurityGroupIDs,
-		PreferredMaintenanceWindow: req.PreferredMaintenanceWindow,
-		ParameterGroupName:         req.ParameterGroupName,
-		Tags:                       req.Tags,
-		SSESpecificationEnabled:    req.SSESpecification.Enabled,
+		ClusterName:                   req.ClusterName,
+		NodeType:                      req.NodeType,
+		Description:                   req.Description,
+		IamRoleArn:                    req.IamRoleArn,
+		ReplicationFactor:             req.ReplicationFactor,
+		AvailabilityZones:             req.AvailabilityZones,
+		SubnetGroupName:               req.SubnetGroupName,
+		SecurityGroupIDs:              req.SecurityGroupIDs,
+		PreferredMaintenanceWindow:    req.PreferredMaintenanceWindow,
+		ParameterGroupName:            req.ParameterGroupName,
+		NotificationTopicArn:          req.NotificationTopicArn,
+		ClusterEndpointEncryptionType: req.ClusterEndpointEncryptionType,
+		Tags:                          req.Tags,
+		SSESpecificationEnabled:       req.SSESpecification.Enabled,
 	})
 	if err != nil {
 		return nil, err
@@ -451,17 +606,15 @@ func (h *Handler) handleUpdateCluster(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	cluster, err := h.Backend.UpdateCluster(
-		UpdateClusterInput{ //nolint:staticcheck // struct types differ due to json tags, conversion not possible
-			ClusterName:                req.ClusterName,
-			Description:                req.Description,
-			PreferredMaintenanceWindow: req.PreferredMaintenanceWindow,
-			SecurityGroupIDs:           req.SecurityGroupIDs,
-			ParameterGroupName:         req.ParameterGroupName,
-			NotificationTopicArn:       req.NotificationTopicArn,
-			NotificationTopicStatus:    req.NotificationTopicStatus,
-		},
-	)
+	cluster, err := h.Backend.UpdateCluster(UpdateClusterInput{
+		ClusterName:                req.ClusterName,
+		Description:                req.Description,
+		PreferredMaintenanceWindow: req.PreferredMaintenanceWindow,
+		SecurityGroupIDs:           req.SecurityGroupIDs,
+		ParameterGroupName:         req.ParameterGroupName,
+		NotificationTopicArn:       req.NotificationTopicArn,
+		NotificationTopicStatus:    req.NotificationTopicStatus,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -478,6 +631,62 @@ func (h *Handler) handleDeleteCluster(body []byte) (any, error) {
 	}
 
 	cluster, err := h.Backend.DeleteCluster(req.ClusterName)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		clusterResponseKey: toClusterResponse(cluster),
+	}, nil
+}
+
+func (h *Handler) handleIncreaseReplicationFactor(body []byte) (any, error) {
+	var req increaseReplicationFactorRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	cluster, err := h.Backend.IncreaseReplicationFactor(IncreaseReplicationFactorInput{
+		ClusterName:          req.ClusterName,
+		NewReplicationFactor: req.NewReplicationFactor,
+		AvailabilityZones:    req.AvailabilityZones,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		clusterResponseKey: toClusterResponse(cluster),
+	}, nil
+}
+
+func (h *Handler) handleDecreaseReplicationFactor(body []byte) (any, error) {
+	var req decreaseReplicationFactorRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	cluster, err := h.Backend.DecreaseReplicationFactor(DecreaseReplicationFactorInput{
+		ClusterName:          req.ClusterName,
+		NewReplicationFactor: req.NewReplicationFactor,
+		NodeIDsToRemove:      req.NodeIDsToRemove,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		clusterResponseKey: toClusterResponse(cluster),
+	}, nil
+}
+
+func (h *Handler) handleRebootNode(body []byte) (any, error) {
+	var req rebootNodeRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	cluster, err := h.Backend.RebootNode(req.ClusterName, req.NodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -602,6 +811,36 @@ func (h *Handler) handleDescribeParameterGroups(body []byte) (any, error) {
 	return result, nil
 }
 
+func (h *Handler) handleUpdateParameterGroup(body []byte) (any, error) {
+	var req updateParameterGroupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	pvs := make([]ParameterNameValue, 0, len(req.ParameterNameValues))
+	for _, pv := range req.ParameterNameValues {
+		pvs = append(pvs, ParameterNameValue{
+			ParameterName:  pv.ParameterName,
+			ParameterValue: pv.ParameterValue,
+		})
+	}
+
+	pg, err := h.Backend.UpdateParameterGroup(UpdateParameterGroupInput{
+		ParameterGroupName:  req.ParameterGroupName,
+		ParameterNameValues: pvs,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"ParameterGroup": parameterGroupResponse{
+			ParameterGroupName: pg.ParameterGroupName,
+			Description:        pg.Description,
+		},
+	}, nil
+}
+
 func (h *Handler) handleDeleteParameterGroup(body []byte) (any, error) {
 	var req deleteParameterGroupRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -614,6 +853,81 @@ func (h *Handler) handleDeleteParameterGroup(body []byte) (any, error) {
 
 	return map[string]any{
 		"DeletionMessage": fmt.Sprintf("ParameterGroup %s deleted", req.ParameterGroupName),
+	}, nil
+}
+
+func (h *Handler) handleDescribeParameters(body []byte) (any, error) {
+	var req describeParametersRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	params, nextToken, err := h.Backend.DescribeParameters(req.ParameterGroupName, req.MaxResults, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]parameterResponse, 0, len(params))
+	for _, p := range params {
+		items = append(items, toParameterResponse(p))
+	}
+
+	result := map[string]any{
+		"Parameters": items,
+	}
+
+	if nextToken != "" {
+		result["NextToken"] = nextToken
+	}
+
+	return result, nil
+}
+
+func (h *Handler) handleDescribeDefaultParameters(body []byte) (any, error) {
+	var req describeDefaultParametersRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+		}
+	}
+
+	params, nextToken, err := h.Backend.DescribeDefaultParameters(req.MaxResults, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]parameterResponse, 0, len(params))
+	for _, p := range params {
+		items = append(items, toParameterResponse(p))
+	}
+
+	result := map[string]any{
+		"Parameters": items,
+	}
+
+	if nextToken != "" {
+		result["NextToken"] = nextToken
+	}
+
+	return result, nil
+}
+
+func (h *Handler) handleResetParameterGroup(body []byte) (any, error) {
+	var req resetParameterGroupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	pg, err := h.Backend.ResetParameterGroup(req.ParameterGroupName, req.ParameterNames)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"ParameterGroup": parameterGroupResponse{
+			ParameterGroupName: pg.ParameterGroupName,
+			Description:        pg.Description,
+		},
 	}, nil
 }
 
@@ -666,6 +980,26 @@ func (h *Handler) handleDescribeSubnetGroups(body []byte) (any, error) {
 	return result, nil
 }
 
+func (h *Handler) handleUpdateSubnetGroup(body []byte) (any, error) {
+	var req updateSubnetGroupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	sg, err := h.Backend.UpdateSubnetGroup(UpdateSubnetGroupInput{
+		SubnetGroupName: req.SubnetGroupName,
+		Description:     req.Description,
+		SubnetIDs:       req.SubnetIDs,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"SubnetGroup": toSubnetGroupResponse(sg),
+	}, nil
+}
+
 func (h *Handler) handleDeleteSubnetGroup(body []byte) (any, error) {
 	var req deleteSubnetGroupRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -681,29 +1015,102 @@ func (h *Handler) handleDeleteSubnetGroup(body []byte) (any, error) {
 	}, nil
 }
 
-func toSubnetGroupResponse(sg *SubnetGroup) subnetGroupResponse {
-	items := make([]subnetItem, 0, len(sg.SubnetIDs))
-
-	for _, id := range sg.SubnetIDs {
-		item := subnetItem{
-			SubnetIdentifier: id,
+func (h *Handler) handleDescribeEvents(body []byte) (any, error) {
+	var req describeEventsRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
-		item.SubnetAvailabilityZone.Name = "us-east-1a" // placeholder
-
-		items = append(items, item)
 	}
 
-	return subnetGroupResponse{
-		SubnetGroupName: sg.SubnetGroupName,
-		Description:     sg.Description,
-		VpcID:           sg.VpcID,
-		Subnets:         items,
+	var startTime, endTime *time.Time
+
+	if req.StartTime != "" {
+		t, err := time.Parse(time.RFC3339, req.StartTime)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid StartTime format", errInvalidRequest)
+		}
+
+		startTime = &t
 	}
+
+	if req.EndTime != "" {
+		t, err := time.Parse(time.RFC3339, req.EndTime)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid EndTime format", errInvalidRequest)
+		}
+
+		endTime = &t
+	}
+
+	events, nextToken, err := h.Backend.DescribeEvents(
+		req.SourceName,
+		req.SourceType,
+		startTime,
+		endTime,
+		req.MaxResults,
+		req.NextToken,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]eventResponse, 0, len(events))
+	for _, ev := range events {
+		items = append(items, eventResponse{
+			SourceName: ev.SourceName,
+			SourceType: ev.SourceType,
+			Message:    ev.Message,
+			Date:       ev.Date.Format(time.RFC3339),
+		})
+	}
+
+	result := map[string]any{
+		"Events": items,
+	}
+
+	if nextToken != "" {
+		result["NextToken"] = nextToken
+	}
+
+	return result, nil
 }
 
 // mapError maps a backend error to an HTTP status code and error body.
+// Specific sentinel errors take priority over their parent error categories.
 func (h *Handler) mapError(err error) (int, map[string]any) {
+	// Specific not-found variants.
 	switch {
+	case errors.Is(err, ErrClusterNotFound):
+		return http.StatusBadRequest, daxError("ClusterNotFoundFault", err.Error())
+	case errors.Is(err, ErrParameterGroupNotFound):
+		return http.StatusBadRequest, daxError("ParameterGroupNotFoundFault", err.Error())
+	case errors.Is(err, ErrSubnetGroupNotFound):
+		return http.StatusBadRequest, daxError("SubnetGroupNotFoundFault", err.Error())
+	case errors.Is(err, ErrTagNotFound):
+		return http.StatusBadRequest, daxError("TagNotFoundFault", err.Error())
+	case errors.Is(err, ErrNodeNotFound):
+		return http.StatusBadRequest, daxError("NodeNotFoundFault", err.Error())
+
+	// Specific conflict variants.
+	case errors.Is(err, ErrClusterAlreadyExists):
+		return http.StatusBadRequest, daxError("ClusterAlreadyExistsFault", err.Error())
+	case errors.Is(err, ErrParameterGroupAlreadyExists):
+		return http.StatusBadRequest, daxError("ParameterGroupAlreadyExistsFault", err.Error())
+	case errors.Is(err, ErrSubnetGroupAlreadyExists):
+		return http.StatusBadRequest, daxError("SubnetGroupAlreadyExistsFault", err.Error())
+	case errors.Is(err, ErrInvalidClusterState):
+		return http.StatusBadRequest, daxError("InvalidClusterStateFault", err.Error())
+
+	// Specific invalid parameter variants.
+	case errors.Is(err, ErrInvalidARN):
+		return http.StatusBadRequest, daxError("InvalidARNFault", err.Error())
+	case errors.Is(err, ErrInvalidParameterValue):
+		return http.StatusBadRequest, daxError("InvalidParameterValueException", err.Error())
+	case errors.Is(err, ErrInvalidParameterCombination):
+		return http.StatusBadRequest, daxError("InvalidParameterCombinationException", err.Error())
+
+	// Generic fallbacks.
 	case errors.Is(err, awserr.ErrNotFound):
 		return http.StatusBadRequest, daxError("ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrConflict):
