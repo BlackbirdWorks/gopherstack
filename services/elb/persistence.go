@@ -29,6 +29,7 @@ type lbSnapshot struct {
 	Subnets                   []string                   `json:"subnets"`
 	TagPairs                  []tagPair                  `json:"tags,omitempty"`
 	Attributes                LoadBalancerAttributes     `json:"attributes"`
+	IsVPC                     bool                       `json:"isVpc,omitempty"`
 }
 
 // tagPair serialises a single key-value tag for persistence.
@@ -38,11 +39,15 @@ type tagPair struct {
 }
 
 // backendSnapshot is the top-level JSON structure for Snapshot/Restore.
+// Version 2 adds IsVPC to lbSnapshot.
+const snapshotVersion = 2
+
 type backendSnapshot struct {
 	LoadBalancers map[string]*lbSnapshot         `json:"loadBalancers"`
 	Policies      map[string]*LoadBalancerPolicy `json:"policies"`
 	AccountID     string                         `json:"accountId"`
 	Region        string                         `json:"region"`
+	Version       int                            `json:"version,omitempty"`
 }
 
 func (s *backendSnapshot) ensureNonNil() {
@@ -76,6 +81,7 @@ func toLBSnapshot(lb *LoadBalancer) *lbSnapshot {
 		SecurityGroups:            lb.SecurityGroups,
 		Subnets:                   lb.Subnets,
 		Attributes:                lb.Attributes,
+		IsVPC:                     lb.IsVPC,
 	}
 
 	if lb.Tags != nil {
@@ -110,6 +116,7 @@ func fromLBSnapshot(s *lbSnapshot) *LoadBalancer {
 		SecurityGroups:            s.SecurityGroups,
 		Subnets:                   s.Subnets,
 		Attributes:                s.Attributes,
+		IsVPC:                     s.IsVPC,
 		Tags:                      tags.New("elb." + s.LoadBalancerName),
 	}
 
@@ -160,6 +167,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Policies:      b.policies,
 		AccountID:     b.accountID,
 		Region:        b.region,
+		Version:       snapshotVersion,
 	}
 
 	data, err := json.Marshal(snap)
@@ -200,7 +208,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.lbs = newLBs
 	b.policies = snap.Policies
 	b.accountID = snap.AccountID
-	b.region = snap.Region
+
+	// Only adopt the persisted region when the backend has no region set yet,
+	// preventing region drift when a snapshot from a different region is loaded
+	// into an already-initialised backend.
+	if b.region == "" {
+		b.region = snap.Region
+	}
 
 	return nil
 }

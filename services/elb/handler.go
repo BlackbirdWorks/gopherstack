@@ -1,11 +1,14 @@
 package elb
 
 import (
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -126,7 +129,17 @@ func (h *Handler) ChaosServiceName() string { return "elasticloadbalancing" }
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
 // ChaosRegions returns all regions this handler instance handles.
-func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
+func (h *Handler) ChaosRegions() []string {
+	if h.Backend == nil {
+		return []string{config.DefaultRegion}
+	}
+
+	if ib, ok := h.Backend.(*InMemoryBackend); ok {
+		return []string{ib.region}
+	}
+
+	return []string{config.DefaultRegion}
+}
 
 // RouteMatcher returns a function that matches Classic ELB requests.
 // ELB requests are form-encoded POSTs with Version=2012-06-01.
@@ -312,24 +325,12 @@ func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 	startIdx := 0
 
 	if marker != "" {
-		found := false
-
-		for i, lb := range lbs {
-			if lb.LoadBalancerName == marker {
-				startIdx = i + 1
-				found = true
-
-				break
-			}
+		offset, decErr := decodePageMarker(marker)
+		if decErr != nil {
+			return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, decErr.Error())
 		}
 
-		if !found {
-			return nil, fmt.Errorf(
-				"%w: Marker %q does not match any existing load balancer",
-				ErrInvalidParameter,
-				marker,
-			)
-		}
+		startIdx = offset
 	}
 
 	if startIdx > len(lbs) {
@@ -341,7 +342,7 @@ func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 	nextMarker := ""
 
 	if len(lbs) > pageSize {
-		nextMarker = lbs[pageSize-1].LoadBalancerName
+		nextMarker = encodePageMarker(startIdx + pageSize)
 		lbs = lbs[:pageSize]
 	}
 
@@ -455,6 +456,24 @@ func parseHealthCheck(vals url.Values) (HealthCheck, error) {
 		target = strings.ToUpper(target[:colonIdx]) + target[colonIdx:]
 	}
 
+	// Normalize target: strip query string and fragment from HTTP/HTTPS paths.
+	if colonIdx := strings.Index(target, ":"); colonIdx > 0 {
+		proto := target[:colonIdx]
+		rest := target[colonIdx+1:]
+
+		switch proto {
+		case "HTTP", "HTTPS":
+			if slashIdx := strings.Index(rest, "/"); slashIdx >= 0 {
+				path := rest[slashIdx:]
+				if qIdx := strings.IndexAny(path, "?#"); qIdx >= 0 {
+					path = path[:qIdx]
+				}
+
+				target = proto + ":" + rest[:slashIdx] + path
+			}
+		}
+	}
+
 	interval, timeout, err := parseHealthCheckTimings(vals)
 	if err != nil {
 		return HealthCheck{}, err
@@ -526,8 +545,8 @@ func (h *Handler) handleAddTags(vals url.Values) (any, error) {
 	kvs := parseTagKVs(vals, "Tags.member")
 
 	for _, kv := range kvs {
-		if strings.HasPrefix(kv.Key, "aws:") {
-			return nil, fmt.Errorf("%w: Tag keys starting with 'aws:' are reserved", ErrInvalidParameter)
+		if err := validateTagKey(kv.Key); err != nil {
+			return nil, err
 		}
 	}
 
@@ -583,6 +602,10 @@ func (h *Handler) handleRemoveTags(vals url.Values) (any, error) {
 	}
 
 	keys := parseTagKeys(vals, "Tags.member")
+
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("%w: Tags must not be empty", ErrInvalidParameter)
+	}
 
 	if err := h.Backend.RemoveTags(names, keys); err != nil {
 		return nil, err
@@ -870,6 +893,10 @@ func (h *Handler) handleSetLoadBalancerListenerSSLCertificate(vals url.Values) (
 	certID := vals.Get("SSLCertificateId")
 	if certID == "" {
 		return nil, fmt.Errorf("%w: SSLCertificateId is required", ErrInvalidParameter)
+	}
+
+	if err := validateCertificateID(certID); err != nil {
+		return nil, err
 	}
 
 	if setErr := h.Backend.SetLoadBalancerListenerSSLCertificate(name, port, certID); setErr != nil {
@@ -1208,6 +1235,7 @@ func elbErrorCode(opErr error) (string, int) {
 		{ErrLoadBalancerNotFound, "LoadBalancerNotFound", http.StatusNotFound},
 		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
 		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
+		{ErrInvalidConfiguration, "InvalidConfigurationRequest", http.StatusBadRequest},
 		{awserr.ErrInvalidParameter, "ValidationError", http.StatusBadRequest},
 	}
 
@@ -1289,6 +1317,19 @@ func validateHealthCheckTarget(target string) error {
 		if err != nil || p < 1 || p > 65535 {
 			return fmt.Errorf("%w: HealthCheck.Target port must be between 1 and 65535", ErrInvalidParameter)
 		}
+
+		path := rest[slashIdx:]
+
+		const maxPathLen = 1024
+		if len(path) > maxPathLen {
+			return fmt.Errorf("%w: HealthCheck.Target path must not exceed %d characters", ErrInvalidParameter, maxPathLen)
+		}
+
+		for _, ch := range path {
+			if ch == '\r' || ch == '\n' || ch == ' ' {
+				return fmt.Errorf("%w: HealthCheck.Target path contains invalid whitespace or control characters", ErrInvalidParameter)
+			}
+		}
 	case "TCP", "SSL":
 		p, err := strconv.ParseInt(rest, 10, 32)
 
@@ -1302,19 +1343,49 @@ func validateHealthCheckTarget(target string) error {
 	return nil
 }
 
-// parseMembers extracts indexed form values (e.g. "LoadBalancerNames.member.1").
-func parseMembers(vals url.Values, prefix string) []string {
-	result := make([]string, 0)
+// collectMemberIndexes returns the sorted list of member indexes present in vals
+// for keys starting with the given dotPrefix (e.g. "AvailabilityZones.member.").
+func collectMemberIndexes(vals url.Values, dotPrefix string) []int {
+	seen := make(map[int]struct{})
 
-	for i := 1; ; i++ {
-		key := fmt.Sprintf("%s.%d", prefix, i)
-		v := vals.Get(key)
-
-		if v == "" {
-			break
+	for k := range vals {
+		if !strings.HasPrefix(k, dotPrefix) {
+			continue
 		}
 
-		result = append(result, v)
+		rest := k[len(dotPrefix):]
+		dotIdx := strings.Index(rest, ".")
+
+		var idxStr string
+		if dotIdx < 0 {
+			idxStr = rest
+		} else {
+			idxStr = rest[:dotIdx]
+		}
+
+		if n, err := strconv.Atoi(idxStr); err == nil && n > 0 {
+			seen[n] = struct{}{}
+		}
+	}
+
+	indexes := make([]int, 0, len(seen))
+	for i := range seen {
+		indexes = append(indexes, i)
+	}
+
+	sort.Ints(indexes)
+
+	return indexes
+}
+
+// parseMembers extracts indexed form values (e.g. "LoadBalancerNames.member.1").
+// It collects all present indexes rather than stopping at the first gap, matching AWS behavior.
+func parseMembers(vals url.Values, prefix string) []string {
+	indexes := collectMemberIndexes(vals, prefix+".")
+	result := make([]string, 0, len(indexes))
+
+	for _, i := range indexes {
+		result = append(result, vals.Get(fmt.Sprintf("%s.%d", prefix, i)))
 	}
 
 	return result
@@ -1322,12 +1393,13 @@ func parseMembers(vals url.Values, prefix string) []string {
 
 // parseListeners extracts listener definitions from Listeners.member.N.* form values.
 func parseListeners(vals url.Values) ([]Listener, error) {
-	result := make([]Listener, 0)
+	indexes := collectMemberIndexes(vals, "Listeners.member.")
+	result := make([]Listener, 0, len(indexes))
 
-	for i := 1; ; i++ {
+	for _, i := range indexes {
 		proto := vals.Get(fmt.Sprintf("Listeners.member.%d.Protocol", i))
 		if proto == "" {
-			break
+			continue
 		}
 
 		proto = strings.ToUpper(proto)
@@ -1343,9 +1415,22 @@ func parseListeners(vals url.Values) ([]Listener, error) {
 			return nil, fmt.Errorf("%w: LoadBalancerPort must be between 1 and 65535", ErrInvalidParameter)
 		}
 
+		// Port allowlist: 25/80/443/465/587/1024-65535
+		if !isAllowedListenerPort(lbPort) {
+			return nil, fmt.Errorf(
+				"%w: LoadBalancerPort %d is not in the allowed range (25, 80, 443, 465, 587, or 1024-65535)",
+				ErrInvalidParameter, lbPort,
+			)
+		}
+
 		instProto := strings.ToUpper(vals.Get(fmt.Sprintf("Listeners.member.%d.InstanceProtocol", i)))
 		if instProto == "" {
 			instProto = proto
+		}
+
+		// Validate protocol pairing
+		if err := validateProtocolPairing(proto, instProto); err != nil {
+			return nil, err
 		}
 
 		instPort, err := parseInt32(vals.Get(fmt.Sprintf("Listeners.member.%d.InstancePort", i)))
@@ -1354,6 +1439,14 @@ func parseListeners(vals url.Values) ([]Listener, error) {
 		}
 
 		certID := vals.Get(fmt.Sprintf("Listeners.member.%d.SSLCertificateId", i))
+
+		// HTTPS/SSL requires a certificate
+		if (proto == "HTTPS" || proto == "SSL") && certID == "" {
+			return nil, fmt.Errorf(
+				"%w: SSLCertificateId is required for %s listeners",
+				ErrInvalidParameter, proto,
+			)
+		}
 
 		result = append(result, Listener{
 			Protocol:         proto,
@@ -1367,62 +1460,95 @@ func parseListeners(vals url.Values) ([]Listener, error) {
 	return result, nil
 }
 
+// isAllowedListenerPort returns true if port is in the AWS-allowed ELB listener port set:
+// 25, 80, 443, 465, 587, and 1024-65535.
+func isAllowedListenerPort(port int32) bool {
+	switch port {
+	case 25, 80, 443, 465, 587:
+		return true
+	}
+
+	return port >= 1024 && port <= 65535
+}
+
+// validateProtocolPairing returns an error if the frontend/backend protocol pairing is invalid.
+// AWS rules: HTTP↔HTTP/HTTPS, HTTPS↔HTTP/HTTPS, TCP↔TCP, SSL↔TCP/SSL.
+func validateProtocolPairing(protocol, instanceProtocol string) error {
+	valid := map[string]map[string]bool{
+		"HTTP":  {"HTTP": true, "HTTPS": true},
+		"HTTPS": {"HTTP": true, "HTTPS": true},
+		"TCP":   {"TCP": true},
+		"SSL":   {"TCP": true, "SSL": true},
+	}
+
+	if allowed, ok := valid[protocol]; !ok || !allowed[instanceProtocol] {
+		return fmt.Errorf(
+			"%w: InstanceProtocol %q is not a valid pairing for Protocol %q",
+			ErrInvalidParameter, instanceProtocol, protocol,
+		)
+	}
+
+	return nil
+}
+
 // parseInstances extracts instance IDs from Instances.member.N.InstanceId form values.
+// Uses gap-tolerant scanning so sparse indexes (e.g. 1,3,5) are handled correctly.
 func parseInstances(vals url.Values) []Instance {
-	result := make([]Instance, 0)
+	indexes := collectMemberIndexes(vals, "Instances.member.")
+	result := make([]Instance, 0, len(indexes))
 
-	for i := 1; ; i++ {
+	for _, i := range indexes {
 		id := vals.Get(fmt.Sprintf("Instances.member.%d.InstanceId", i))
-		if id == "" {
-			break
+		if id != "" {
+			result = append(result, Instance{InstanceID: id})
 		}
-
-		result = append(result, Instance{InstanceID: id})
 	}
 
 	return result
 }
 
 // parseTagKVs extracts key-value tag pairs from Tags.member.N.Key/Value form values.
+// Uses gap-tolerant scanning.
 func parseTagKVs(vals url.Values, prefix string) []tags.KV {
-	result := make([]tags.KV, 0)
+	indexes := collectMemberIndexes(vals, prefix+".")
+	result := make([]tags.KV, 0, len(indexes))
 
-	for i := 1; ; i++ {
+	for _, i := range indexes {
 		k := vals.Get(fmt.Sprintf("%s.%d.Key", prefix, i))
-		if k == "" {
-			break
+		if k != "" {
+			result = append(result, tags.KV{Key: k, Value: vals.Get(fmt.Sprintf("%s.%d.Value", prefix, i))})
 		}
-
-		result = append(result, tags.KV{Key: k, Value: vals.Get(fmt.Sprintf("%s.%d.Value", prefix, i))})
 	}
 
 	return result
 }
 
 // parseTagKeys extracts tag keys from Tags.member.N.Key form values (for RemoveTags).
+// Uses gap-tolerant scanning.
 func parseTagKeys(vals url.Values, prefix string) []string {
-	result := make([]string, 0)
+	indexes := collectMemberIndexes(vals, prefix+".")
+	result := make([]string, 0, len(indexes))
 
-	for i := 1; ; i++ {
+	for _, i := range indexes {
 		k := vals.Get(fmt.Sprintf("%s.%d.Key", prefix, i))
-		if k == "" {
-			break
+		if k != "" {
+			result = append(result, k)
 		}
-
-		result = append(result, k)
 	}
 
 	return result
 }
 
 // parseListenerPorts extracts integer ports from LoadBalancerPorts.member.N form values.
+// Uses gap-tolerant scanning.
 func parseListenerPorts(vals url.Values, prefix string) []int32 {
-	result := make([]int32, 0)
+	indexes := collectMemberIndexes(vals, prefix+".")
+	result := make([]int32, 0, len(indexes))
 
-	for i := 1; ; i++ {
+	for _, i := range indexes {
 		v := vals.Get(fmt.Sprintf("%s.%d", prefix, i))
 		if v == "" {
-			break
+			continue
 		}
 
 		p, err := parseInt32(v)
@@ -1501,22 +1627,91 @@ func parseLoadBalancerAttributes(vals url.Values) LoadBalancerAttributes {
 }
 
 // parsePolicyAttributes extracts policy attribute pairs from PolicyAttributes.member.N.* form values.
+// Uses gap-tolerant scanning.
 func parsePolicyAttributes(vals url.Values) []PolicyAttribute {
-	result := make([]PolicyAttribute, 0)
+	indexes := collectMemberIndexes(vals, "PolicyAttributes.member.")
+	result := make([]PolicyAttribute, 0, len(indexes))
 
-	for i := 1; ; i++ {
+	for _, i := range indexes {
 		k := vals.Get(fmt.Sprintf("PolicyAttributes.member.%d.AttributeName", i))
-		if k == "" {
-			break
+		if k != "" {
+			result = append(result, PolicyAttribute{
+				AttributeName:  k,
+				AttributeValue: vals.Get(fmt.Sprintf("PolicyAttributes.member.%d.AttributeValue", i)),
+			})
 		}
-
-		result = append(result, PolicyAttribute{
-			AttributeName:  k,
-			AttributeValue: vals.Get(fmt.Sprintf("PolicyAttributes.member.%d.AttributeValue", i)),
-		})
 	}
 
 	return result
+}
+
+// tagKeyRe matches valid ELB tag keys.  Keys must not begin with the reserved
+// prefixes "aws:", "amazon:", or "elasticloadbalancing:".
+var tagKeyRe = regexp.MustCompile(`(?i)^(aws:|amazon:|elasticloadbalancing:)`)
+
+// validateTagKey returns an error if key uses a reserved tag prefix.
+func validateTagKey(key string) error {
+	if tagKeyRe.MatchString(key) {
+		return fmt.Errorf("%w: tag key %q uses a reserved prefix", ErrInvalidParameter, key)
+	}
+
+	return nil
+}
+
+// certIDRe matches an ACM or IAM certificate ARN.
+// ACM:  arn:aws:acm:<region>:<acct>:certificate/<uuid>
+// IAM:  arn:aws:iam::<acct>:server-certificate/<name>
+var certIDRe = regexp.MustCompile(`^arn:aws:(acm|iam):`)
+
+// validateCertificateID returns an error if certID does not look like a
+// valid ACM or IAM certificate ARN.
+func validateCertificateID(certID string) error {
+	if !certIDRe.MatchString(certID) {
+		return fmt.Errorf("%w: SSLCertificateId %q is not a valid certificate ARN", ErrInvalidParameter, certID)
+	}
+
+	return nil
+}
+
+// encodePageMarker encodes an integer offset as an opaque base64 page marker.
+func encodePageMarker(offset int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// decodePageMarker decodes a page marker produced by encodePageMarker.
+func decodePageMarker(marker string) (int, error) {
+	b, err := base64.StdEncoding.DecodeString(marker)
+	if err != nil {
+		return 0, fmt.Errorf("invalid Marker: %w", err)
+	}
+
+	n, err := strconv.Atoi(string(b))
+	if err != nil {
+		return 0, fmt.Errorf("invalid Marker payload: %w", err)
+	}
+
+	if n < 0 {
+		return 0, fmt.Errorf("invalid Marker: negative offset")
+	}
+
+	return n, nil
+}
+
+// computeSourceSecurityGroup returns the SourceSecurityGroup XML value for lb.
+// VPC LBs use the account ID as owner-alias; EC2-Classic LBs use the well-known
+// Amazon-managed group "amazon-elb" / "amazon-elb-sg".
+func computeSourceSecurityGroup(lb *LoadBalancer) xmlSourceSecurityGroup {
+	if lb.IsVPC {
+		return xmlSourceSecurityGroup{
+			GroupName:  "default",
+			OwnerAlias: lb.AccountID,
+		}
+	}
+
+	return xmlSourceSecurityGroup{
+		GroupName:  "amazon-elb-sg",
+		OwnerAlias: "amazon-elb",
+	}
 }
 
 // toXMLLoadBalancerAttributes converts a LoadBalancerAttributes to its XML wire representation.
@@ -1608,10 +1803,7 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancerDescription {
 		CreatedTime:               lb.CreatedTime.UTC().Format(time.RFC3339),
 		Scheme:                    lb.Scheme,
 		VPCId:                     lb.VPCId,
-		SourceSecurityGroup: xmlSourceSecurityGroup{
-			GroupName:  "default",
-			OwnerAlias: lb.AccountID,
-		},
+		SourceSecurityGroup: computeSourceSecurityGroup(lb),
 		AvailabilityZones:         xmlStringValueList{Members: azs},
 		SecurityGroups:            xmlStringValueList{Members: sgs},
 		Subnets:                   xmlStringValueList{Members: subnets},
