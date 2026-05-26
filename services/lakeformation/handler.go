@@ -386,7 +386,18 @@ func (h *Handler) handleRegisterResource(_ context.Context, c *echo.Context, bod
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "ResourceArn is required")
 	}
 
-	if err := h.Backend.RegisterResource(in.ResourceArn, in.RoleArn); err != nil {
+	if in.UseServiceLinkedRole && in.RoleArn != "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException",
+			"RoleArn must not be specified when UseServiceLinkedRole is true")
+	}
+
+	roleArn := in.RoleArn
+	if in.UseServiceLinkedRole {
+		roleArn = "arn:aws:iam::123456789012:role/aws-service-role/" +
+			"lakeformation.amazonaws.com/AWSServiceRoleForLakeFormationDataAccess"
+	}
+
+	if err := h.Backend.RegisterResource(in.ResourceArn, roleArn); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -498,7 +509,13 @@ func (h *Handler) handleListPermissions(_ context.Context, c *echo.Context, body
 		}
 	}
 
-	entries, nextToken := h.Backend.ListPermissions(in.ResourceArn, in.MaxResults, in.NextToken)
+	entries, nextToken := h.Backend.ListPermissions(
+		in.ResourceArn,
+		in.MaxResults,
+		in.NextToken,
+		in.Principal,
+		in.ResourceType,
+	)
 
 	return c.JSON(http.StatusOK, listPermissionsOutput{
 		PrincipalResourcePermissions: entries,
@@ -754,12 +771,15 @@ func (h *Handler) handleCreateLakeFormationIdentityCenterConfiguration(
 		catalogID = h.AccountID
 	}
 
-	appArn := h.Backend.CreateLakeFormationIdentityCenterConfiguration(
+	appArn, err := h.Backend.CreateLakeFormationIdentityCenterConfiguration(
 		catalogID,
 		in.InstanceArn,
 		in.ExternalFiltering,
 		in.ShareRecipients,
 	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
 
 	return c.JSON(http.StatusOK, createLakeFormationIdentityCenterConfigurationOutput{ApplicationArn: appArn})
 }
@@ -828,8 +848,15 @@ func (h *Handler) handleUpdateResource(_ context.Context, c *echo.Context, body 
 	return c.JSON(http.StatusOK, updateResourceOutput{})
 }
 
-func (h *Handler) handleStartTransaction(_ context.Context, c *echo.Context, _ []byte) error {
-	id := h.Backend.StartTransaction()
+func (h *Handler) handleStartTransaction(_ context.Context, c *echo.Context, body []byte) error {
+	var in startTransactionInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+
+	id := h.Backend.StartTransaction(in.TransactionType)
 
 	return c.JSON(http.StatusOK, startTransactionOutput{TransactionID: id})
 }
@@ -1002,7 +1029,12 @@ func (h *Handler) handleListLakeFormationOptIns(_ context.Context, c *echo.Conte
 		principalIdentifier = in.Principal.DataLakePrincipalIdentifier
 	}
 
-	optIns, nextToken := h.Backend.ListLakeFormationOptIns(principalIdentifier, in.MaxResults, in.NextToken)
+	optIns, nextToken := h.Backend.ListLakeFormationOptIns(
+		principalIdentifier,
+		in.Resource,
+		in.MaxResults,
+		in.NextToken,
+	)
 
 	return c.JSON(http.StatusOK, listLakeFormationOptInsOutput{
 		LakeFormationOptInsInfoList: optIns,
@@ -1070,6 +1102,7 @@ func (h *Handler) handleDescribeLakeFormationIdentityCenterConfiguration(
 		CatalogID:         cfg.CatalogID,
 		InstanceArn:       cfg.InstanceArn,
 		ApplicationArn:    cfg.ApplicationArn,
+		ApplicationStatus: cfg.ApplicationStatus,
 		ExternalFiltering: cfg.ExternalFiltering,
 		ShareRecipients:   cfg.ShareRecipients,
 	})

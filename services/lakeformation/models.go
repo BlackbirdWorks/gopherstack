@@ -5,9 +5,14 @@ import "time"
 // DataLakeSettings contains the data lake settings for an account.
 type DataLakeSettings struct {
 	DataLakeAdmins                   []DataLakePrincipal    `json:"DataLakeAdmins,omitempty"`
+	ReadOnlyAdmins                   []DataLakePrincipal    `json:"ReadOnlyAdmins,omitempty"`
 	CreateDatabaseDefaultPermissions []PrincipalPermissions `json:"CreateDatabaseDefaultPermissions,omitempty"`
 	CreateTableDefaultPermissions    []PrincipalPermissions `json:"CreateTableDefaultPermissions,omitempty"`
 	TrustedResourceOwners            []string               `json:"TrustedResourceOwners,omitempty"`
+	Parameters                       map[string]string      `json:"Parameters,omitempty"`
+	AllowExternalDataFiltering       *bool                  `json:"AllowExternalDataFiltering,omitempty"`
+	AllowFullTableExternalDataAccess *bool                  `json:"AllowFullTableExternalDataAccess,omitempty"`
+	AuthorizedSessionTagValueList    []string               `json:"AuthorizedSessionTagValueList,omitempty"`
 }
 
 // DataLakePrincipal represents an IAM principal in the data lake.
@@ -37,10 +42,19 @@ type LFTag struct {
 
 // Resource describes the resource to which permissions are granted.
 type Resource struct {
-	Catalog      *CatalogResource      `json:"Catalog,omitempty"`
-	Database     *DatabaseResource     `json:"Database,omitempty"`
-	Table        *TableResource        `json:"Table,omitempty"`
-	DataLocation *DataLocationResource `json:"DataLocation,omitempty"`
+	Catalog          *CatalogResource          `json:"Catalog,omitempty"`
+	Database         *DatabaseResource         `json:"Database,omitempty"`
+	Table            *TableResource            `json:"Table,omitempty"`
+	TableWithColumns *TableWithColumnsResource `json:"TableWithColumns,omitempty"`
+	DataLocation     *DataLocationResource     `json:"DataLocation,omitempty"`
+}
+
+// TableWithColumnsResource represents a table resource with column-level access.
+type TableWithColumnsResource struct {
+	CatalogID    string   `json:"CatalogId,omitempty"`
+	DatabaseName string   `json:"DatabaseName"`
+	Name         string   `json:"Name"`
+	ColumnNames  []string `json:"ColumnNames,omitempty"`
 }
 
 // CatalogResource represents the data catalog resource.
@@ -103,8 +117,11 @@ type putDataLakeSettingsInput struct {
 
 // registerResourceInput is the request body for RegisterResource.
 type registerResourceInput struct {
-	ResourceArn string `json:"ResourceArn"`
-	RoleArn     string `json:"RoleArn"`
+	ResourceArn          string `json:"ResourceArn"`
+	RoleArn              string `json:"RoleArn"`
+	UseServiceLinkedRole bool   `json:"UseServiceLinkedRole,omitempty"`
+	WithFederation       bool   `json:"WithFederation,omitempty"`
+	HybridAccessEnabled  bool   `json:"HybridAccessEnabled,omitempty"`
 }
 
 // registerResourceOutput is the response body for RegisterResource (empty).
@@ -166,9 +183,11 @@ type revokePermissionsOutput struct{}
 
 // listPermissionsInput is the request body for ListPermissions.
 type listPermissionsInput struct {
-	ResourceArn string `json:"ResourceArn,omitempty"`
-	NextToken   string `json:"NextToken,omitempty"`
-	MaxResults  int    `json:"MaxResults,omitempty"`
+	Principal    *DataLakePrincipal `json:"Principal,omitempty"`
+	ResourceArn  string             `json:"ResourceArn,omitempty"`
+	NextToken    string             `json:"NextToken,omitempty"`
+	ResourceType string             `json:"ResourceType,omitempty"`
+	MaxResults   int                `json:"MaxResults,omitempty"`
 }
 
 // listPermissionsOutput is the response body for ListPermissions.
@@ -274,12 +293,19 @@ type LFTagError struct {
 	Error *errorDetail `json:"Error,omitempty"`
 }
 
+// RowFilter holds a filter expression for a data cells filter.
+type RowFilter struct {
+	FilterExpression string `json:"FilterExpression,omitempty"`
+}
+
 // DataCellsFilter holds the definition of a cell-level access filter.
 type DataCellsFilter struct {
-	TableCatalogID string `json:"TableCatalogId"`
-	DatabaseName   string `json:"DatabaseName"`
-	TableName      string `json:"TableName"`
-	Name           string `json:"Name"`
+	TableCatalogID string     `json:"TableCatalogId"`
+	DatabaseName   string     `json:"DatabaseName"`
+	TableName      string     `json:"TableName"`
+	Name           string     `json:"Name"`
+	RowFilter      *RowFilter `json:"RowFilter,omitempty"`
+	ColumnNames    []string   `json:"ColumnNames,omitempty"`
 }
 
 // LFTagExpression holds a saved, named LF-tag expression.
@@ -292,8 +318,10 @@ type LFTagExpression struct {
 
 // Transaction represents an in-flight Lake Formation governed table transaction.
 type Transaction struct {
-	TransactionID     string `json:"TransactionId"`
-	TransactionStatus string `json:"TransactionStatus"`
+	TransactionID        string `json:"TransactionId"`
+	TransactionStatus    string `json:"TransactionStatus"`
+	TransactionStartTime string `json:"TransactionStartTime,omitempty"`
+	TransactionEndTime   string `json:"TransactionEndTime,omitempty"`
 }
 
 // IdentityCenterConfiguration holds the IAM Identity Center integration configuration.
@@ -302,13 +330,16 @@ type IdentityCenterConfiguration struct {
 	CatalogID         string                          `json:"CatalogId,omitempty"`
 	InstanceArn       string                          `json:"InstanceArn,omitempty"`
 	ApplicationArn    string                          `json:"ApplicationArn,omitempty"`
+	ApplicationStatus string                          `json:"ApplicationStatus,omitempty"`
 	ShareRecipients   []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
 }
 
 // LFOptIn associates a principal and resource for opt-in enforcement.
 type LFOptIn struct {
-	Principal *DataLakePrincipal `json:"Principal,omitempty"`
-	Resource  *Resource          `json:"Resource,omitempty"`
+	Principal     *DataLakePrincipal `json:"Principal,omitempty"`
+	Resource      *Resource          `json:"Resource,omitempty"`
+	LastModified  string             `json:"LastModified,omitempty"`
+	LastUpdatedBy string             `json:"LastUpdatedBy,omitempty"`
 }
 
 // --- Request / Response types for new operations ---
@@ -432,6 +463,11 @@ type updateResourceInput struct {
 
 // updateResourceOutput is the response body for UpdateResource (empty).
 type updateResourceOutput struct{}
+
+// startTransactionInput is the request body for StartTransaction.
+type startTransactionInput struct {
+	TransactionType string `json:"TransactionType,omitempty"`
+}
 
 // startTransactionOutput is the response body for StartTransaction.
 type startTransactionOutput struct {
@@ -673,6 +709,7 @@ type describeLakeFormationIdentityCenterConfigurationOutput struct {
 	CatalogID         string                          `json:"CatalogId,omitempty"`
 	InstanceArn       string                          `json:"InstanceArn,omitempty"`
 	ApplicationArn    string                          `json:"ApplicationArn,omitempty"`
+	ApplicationStatus string                          `json:"ApplicationStatus,omitempty"`
 	ShareRecipients   []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
 }
 

@@ -1390,7 +1390,13 @@ func TestBackend_CreateLakeFormationIdentityCenterConfiguration_ReturnsARN(t *te
 	t.Parallel()
 
 	b := lakeformation.NewInMemoryBackend()
-	appArn := b.CreateLakeFormationIdentityCenterConfiguration("123456789012", "arn:aws:sso:::instance/x", nil, nil)
+	appArn, err := b.CreateLakeFormationIdentityCenterConfiguration(
+		"123456789012",
+		"arn:aws:sso:::instance/x",
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
 	assert.NotEmpty(t, appArn)
 	assert.Contains(t, appArn, "123456789012")
 }

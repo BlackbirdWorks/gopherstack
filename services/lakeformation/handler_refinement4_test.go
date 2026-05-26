@@ -841,7 +841,12 @@ func TestRefinement4_UpdateIdentityCenter_ApplicationStatus(t *testing.T) {
 			h := lakeformation.NewHandler(b)
 
 			// First create the config
-			b.CreateLakeFormationIdentityCenterConfiguration("123456789012", "arn:aws:sso:::instance/i", nil, nil)
+			_, _ = b.CreateLakeFormationIdentityCenterConfiguration(
+				"123456789012",
+				"arn:aws:sso:::instance/i",
+				nil,
+				nil,
+			)
 
 			rec := postJSON(t, h, "/UpdateLakeFormationIdentityCenterConfiguration", map[string]any{
 				"CatalogId":         "123456789012",

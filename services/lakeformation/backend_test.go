@@ -337,12 +337,12 @@ func TestGrantRevokeListPermissions(t *testing.T) {
 
 			require.NoError(t, b.GrantPermissions(entry))
 
-			entries, _ := b.ListPermissions(tt.resourceArn, 0, "")
+			entries, _ := b.ListPermissions(tt.resourceArn, 0, "", nil, "")
 			assert.Len(t, entries, tt.wantCount)
 
 			require.NoError(t, b.RevokePermissions(entry))
 
-			entries, _ = b.ListPermissions(tt.resourceArn, 0, "")
+			entries, _ = b.ListPermissions(tt.resourceArn, 0, "", nil, "")
 			assert.Empty(t, entries)
 		})
 	}
@@ -458,7 +458,7 @@ func TestRevokePermissions_NoDanglingPointers(t *testing.T) {
 			// Revoke first entry.
 			require.NoError(t, b.RevokePermissions(p1))
 
-			entries, _ := b.ListPermissions("", 0, "")
+			entries, _ := b.ListPermissions("", 0, "", nil, "")
 			assert.Len(t, entries, 1)
 			assert.Equal(t, "arn:aws:iam::123:user/b", entries[0].Principal.DataLakePrincipalIdentifier)
 		})
@@ -527,7 +527,7 @@ func TestPermissionMatches_EdgeCases(t *testing.T) {
 			require.NoError(t, b.GrantPermissions(entry))
 			require.NoError(t, b.RevokePermissions(entry))
 
-			entries, _ := b.ListPermissions("", 0, "")
+			entries, _ := b.ListPermissions("", 0, "", nil, "")
 			assert.Len(t, entries, tt.wantRemain)
 		})
 	}
@@ -687,11 +687,11 @@ func TestPermissionMatches_NilHandling(t *testing.T) {
 			require.NoError(t, b.GrantPermissions(entry))
 
 			// Filter by a specific ARN - should not match the catalog resource.
-			filtered, _ := b.ListPermissions("arn:aws:s3:::no-match", 0, "")
+			filtered, _ := b.ListPermissions("arn:aws:s3:::no-match", 0, "", nil, "")
 			assert.Empty(t, filtered)
 
 			// Filter by empty ARN - should return the catalog entry.
-			all, _ := b.ListPermissions("", 0, "")
+			all, _ := b.ListPermissions("", 0, "", nil, "")
 			assert.Len(t, all, tt.wantCount)
 		})
 	}

@@ -9,16 +9,18 @@ import (
 
 // backendSnapshot is the serialisable form of InMemoryBackend state.
 type backendSnapshot struct {
-	DataLakeSettings      *DataLakeSettings                       `json:"DataLakeSettings"`
-	Resources             map[string]*ResourceInfo                `json:"Resources"`
-	LFTags                map[string]*LFTag                       `json:"LFTags"`
-	Transactions          map[string]string                       `json:"Transactions"`
-	DataCellsFilters      map[string]*DataCellsFilter             `json:"DataCellsFilters"`
-	LFTagExpressions      map[string]*LFTagExpression             `json:"LFTagExpressions"`
-	IdentityCenterConfigs map[string]*IdentityCenterConfiguration `json:"IdentityCenterConfigs"`
-	ResourceLFTags        map[string][]LFTagPair                  `json:"ResourceLFTags"`
-	Permissions           []*PermissionEntry                      `json:"Permissions"`
-	LakeFormationOptIns   []*LFOptIn                              `json:"LakeFormationOptIns"`
+	Resources              map[string]*ResourceInfo                `json:"Resources"`
+	LFTags                 map[string]*LFTag                       `json:"LFTags"`
+	Transactions           map[string]*transactionInfo             `json:"Transactions"`
+	DataCellsFilters       map[string]*DataCellsFilter             `json:"DataCellsFilters"`
+	LFTagExpressions       map[string]*LFTagExpression             `json:"LFTagExpressions"`
+	IdentityCenterConfigs  map[string]*IdentityCenterConfiguration `json:"IdentityCenterConfigs"`
+	ResourceLFTags         map[string][]LFTagPair                  `json:"ResourceLFTags"`
+	Queries                map[string]string                       `json:"Queries,omitempty"`
+	TableStorageOptimizers map[string][]StorageOptimizer           `json:"TableStorageOptimizers,omitempty"`
+	DataLakeSettings       *DataLakeSettings                       `json:"DataLakeSettings"`
+	Permissions            []*PermissionEntry                      `json:"Permissions"`
+	LakeFormationOptIns    []*LFOptIn                              `json:"LakeFormationOptIns"`
 }
 
 // Snapshot serialises the backend state to JSON for persistence.
@@ -27,16 +29,18 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		DataLakeSettings:      copyDataLakeSettings(b.dataLakeSettings),
-		Resources:             make(map[string]*ResourceInfo, len(b.resources)),
-		Permissions:           make([]*PermissionEntry, len(b.permissions)),
-		LFTags:                make(map[string]*LFTag, len(b.lfTags)),
-		Transactions:          make(map[string]string, len(b.transactions)),
-		DataCellsFilters:      make(map[string]*DataCellsFilter, len(b.dataCellsFilters)),
-		LFTagExpressions:      make(map[string]*LFTagExpression, len(b.lfTagExpressions)),
-		IdentityCenterConfigs: make(map[string]*IdentityCenterConfiguration, len(b.identityCenterConfigs)),
-		LakeFormationOptIns:   make([]*LFOptIn, len(b.lakeFormationOptIns)),
-		ResourceLFTags:        make(map[string][]LFTagPair, len(b.resourceLFTags)),
+		DataLakeSettings:       copyDataLakeSettings(b.dataLakeSettings),
+		Resources:              make(map[string]*ResourceInfo, len(b.resources)),
+		Permissions:            make([]*PermissionEntry, len(b.permissions)),
+		LFTags:                 make(map[string]*LFTag, len(b.lfTags)),
+		Transactions:           make(map[string]*transactionInfo, len(b.transactions)),
+		DataCellsFilters:       make(map[string]*DataCellsFilter, len(b.dataCellsFilters)),
+		LFTagExpressions:       make(map[string]*LFTagExpression, len(b.lfTagExpressions)),
+		IdentityCenterConfigs:  make(map[string]*IdentityCenterConfiguration, len(b.identityCenterConfigs)),
+		LakeFormationOptIns:    make([]*LFOptIn, len(b.lakeFormationOptIns)),
+		ResourceLFTags:         make(map[string][]LFTagPair, len(b.resourceLFTags)),
+		Queries:                make(map[string]string, len(b.queries)),
+		TableStorageOptimizers: make(map[string][]StorageOptimizer, len(b.tableStorageOptimizers)),
 	}
 
 	for k, v := range b.resources {
@@ -52,7 +56,18 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 		snap.LFTags[snapshotLFTagKey(k)] = copyLFTag(v)
 	}
 
-	maps.Copy(snap.Transactions, b.transactions)
+	for k, v := range b.transactions {
+		cp := *v
+		snap.Transactions[k] = &cp
+	}
+
+	maps.Copy(snap.Queries, b.queries)
+
+	for k, v := range b.tableStorageOptimizers {
+		cp := make([]StorageOptimizer, len(v))
+		copy(cp, v)
+		snap.TableStorageOptimizers[k] = cp
+	}
 
 	for k, v := range b.dataCellsFilters {
 		cp := *v
@@ -137,7 +152,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	b.transactions = snap.Transactions
 	if b.transactions == nil {
-		b.transactions = make(map[string]string)
+		b.transactions = make(map[string]*transactionInfo)
+	}
+
+	b.queries = snap.Queries
+	if b.queries == nil {
+		b.queries = make(map[string]string)
+	}
+
+	b.tableStorageOptimizers = snap.TableStorageOptimizers
+	if b.tableStorageOptimizers == nil {
+		b.tableStorageOptimizers = make(map[string][]StorageOptimizer)
 	}
 
 	b.dataCellsFilters = make(map[dataCellsFilterKey]*DataCellsFilter, len(snap.DataCellsFilters))

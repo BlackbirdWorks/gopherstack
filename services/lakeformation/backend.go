@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -20,10 +21,23 @@ const (
 	transactionStatusCommitted = "COMMITTED"
 	transactionStatusAborted   = "ABORTED"
 
+	transactionTypeReadOnly  = "READ_ONLY"
+	transactionTypeReadWrite = "READ_AND_WRITE"
+
 	randAccessKeyBytes  = 16
 	randSecretKeyBytes  = 20
 	randSessionKeyBytes = 32
+
+	errCodeInvalidInput = "InvalidInputException"
 )
+
+// transactionInfo holds transaction metadata.
+type transactionInfo struct {
+	Status    string `json:"Status"`
+	Type      string `json:"Type,omitempty"`
+	StartTime string `json:"StartTime,omitempty"`
+	EndTime   string `json:"EndTime,omitempty"`
+}
 
 // randomHex returns a random hex string of n bytes (2n hex chars).
 func randomHex(n int) string {
@@ -51,7 +65,13 @@ type StorageBackend interface {
 
 	GrantPermissions(entry *PermissionEntry) error
 	RevokePermissions(entry *PermissionEntry) error
-	ListPermissions(resourceArn string, maxResults int, nextToken string) ([]*PermissionEntry, string)
+	ListPermissions(
+		resourceArn string,
+		maxResults int,
+		nextToken string,
+		principal *DataLakePrincipal,
+		resourceType string,
+	) ([]*PermissionEntry, string)
 
 	CreateLFTag(catalogID, tagKey string, tagValues []string) error
 	DeleteLFTag(catalogID, tagKey string) error
@@ -71,7 +91,7 @@ type StorageBackend interface {
 		durationSeconds *int32,
 	) *SAMLCredentials
 
-	StartTransaction() string
+	StartTransaction(transactionType string) string
 	CancelTransaction(transactionID string) error
 	CommitTransaction(transactionID string) (string, error)
 	DescribeTransaction(transactionID string) (*Transaction, error)
@@ -93,7 +113,7 @@ type StorageBackend interface {
 		catalogID, instanceArn string,
 		externalFiltering *ExternalFilteringConfiguration,
 		shareRecipients []DataLakePrincipal,
-	) string
+	) (string, error)
 	DeleteLakeFormationIdentityCenterConfiguration(catalogID string) error
 	DescribeLakeFormationIdentityCenterConfiguration(catalogID string) (*IdentityCenterConfiguration, error)
 	UpdateLakeFormationIdentityCenterConfiguration(
@@ -104,7 +124,12 @@ type StorageBackend interface {
 
 	CreateLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error
 	DeleteLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error
-	ListLakeFormationOptIns(principalIdentifier string, maxResults int, nextToken string) ([]*LFOptIn, string)
+	ListLakeFormationOptIns(
+		principalIdentifier string,
+		resource *Resource,
+		maxResults int,
+		nextToken string,
+	) ([]*LFOptIn, string)
 
 	GetDataLakePrincipal() *DataLakePrincipal
 
@@ -166,7 +191,7 @@ type InMemoryBackend struct {
 	identityCenterConfigs  map[string]*IdentityCenterConfiguration
 	resources              map[string]*ResourceInfo
 	lfTags                 map[lfTagKey]*LFTag
-	transactions           map[string]string
+	transactions           map[string]*transactionInfo
 	dataCellsFilters       map[dataCellsFilterKey]*DataCellsFilter
 	lfTagExpressions       map[lfTagExpressionKey]*LFTagExpression
 	dataLakeSettings       *DataLakeSettings
@@ -187,7 +212,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		resources:              make(map[string]*ResourceInfo),
 		permissions:            make([]*PermissionEntry, 0),
 		lfTags:                 make(map[lfTagKey]*LFTag),
-		transactions:           make(map[string]string),
+		transactions:           make(map[string]*transactionInfo),
 		dataCellsFilters:       make(map[dataCellsFilterKey]*DataCellsFilter),
 		lfTagExpressions:       make(map[lfTagExpressionKey]*LFTagExpression),
 		identityCenterConfigs:  make(map[string]*IdentityCenterConfiguration),
@@ -208,7 +233,7 @@ func (b *InMemoryBackend) Reset() {
 	b.resources = make(map[string]*ResourceInfo)
 	b.permissions = make([]*PermissionEntry, 0)
 	b.lfTags = make(map[lfTagKey]*LFTag)
-	b.transactions = make(map[string]string)
+	b.transactions = make(map[string]*transactionInfo)
 	b.dataCellsFilters = make(map[dataCellsFilterKey]*DataCellsFilter)
 	b.lfTagExpressions = make(map[lfTagExpressionKey]*LFTagExpression)
 	b.identityCenterConfigs = make(map[string]*IdentityCenterConfiguration)
@@ -416,15 +441,38 @@ func (b *InMemoryBackend) GrantPermissions(entry *PermissionEntry) error {
 		return fmt.Errorf("resource is required: %w", ErrValidation)
 	}
 
+	if err := validatePermissions(entry.Permissions); err != nil {
+		return err
+	}
+
+	// Normalize TableWithColumns to Table for storage.
+	if entry.Resource.TableWithColumns != nil && entry.Resource.Table == nil {
+		twc := entry.Resource.TableWithColumns
+		entry.Resource.Table = &TableResource{
+			DatabaseName: twc.DatabaseName,
+			Name:         twc.Name,
+			CatalogID:    twc.CatalogID,
+		}
+	}
+
 	b.mu.Lock("GrantPermissions")
 	defer b.mu.Unlock()
+
+	// Merge into existing entry if same principal+resource.
+	if existing := b.findPermissionEntry(entry); existing != nil {
+		mergeStringSlice(&existing.Permissions, entry.Permissions)
+		mergeStringSlice(&existing.PermissionsWithGrantOption, entry.PermissionsWithGrantOption)
+
+		return nil
+	}
 
 	b.permissions = append(b.permissions, entry)
 
 	return nil
 }
 
-// RevokePermissions removes a matching permission entry.
+// RevokePermissions removes specific permissions from a matching entry.
+// If all permissions are revoked, the entry is deleted.
 func (b *InMemoryBackend) RevokePermissions(entry *PermissionEntry) error {
 	if entry == nil {
 		return fmt.Errorf("entry is required: %w", ErrValidation)
@@ -436,9 +484,25 @@ func (b *InMemoryBackend) RevokePermissions(entry *PermissionEntry) error {
 	updated := make([]*PermissionEntry, 0, len(b.permissions))
 
 	for _, p := range b.permissions {
-		if !permissionMatches(p, entry) {
+		if !principalEqual(p.Principal, entry.Principal) || !resourceEqual(p.Resource, entry.Resource) {
+			updated = append(updated, p)
+
+			continue
+		}
+
+		// Subtract the revoked permissions.
+		remaining := make([]string, 0, len(p.Permissions))
+		for _, perm := range p.Permissions {
+			if !slices.Contains(entry.Permissions, perm) {
+				remaining = append(remaining, perm)
+			}
+		}
+
+		if len(remaining) > 0 {
+			p.Permissions = remaining
 			updated = append(updated, p)
 		}
+		// If no permissions remain, entry is deleted (not added to updated).
 	}
 
 	b.permissions = updated
@@ -446,11 +510,14 @@ func (b *InMemoryBackend) RevokePermissions(entry *PermissionEntry) error {
 	return nil
 }
 
-// ListPermissions returns a paginated list of permission entries filtered by resource ARN.
+// ListPermissions returns a paginated list of permission entries filtered by resource ARN,
+// principal, and/or resource type.
 func (b *InMemoryBackend) ListPermissions(
 	resourceArn string,
 	maxResults int,
 	nextToken string,
+	principal *DataLakePrincipal,
+	resourceType string,
 ) ([]*PermissionEntry, string) {
 	b.mu.RLock("ListPermissions")
 	defer b.mu.RUnlock()
@@ -458,10 +525,22 @@ func (b *InMemoryBackend) ListPermissions(
 	filtered := make([]*PermissionEntry, 0, len(b.permissions))
 
 	for _, p := range b.permissions {
-		if resourceArn == "" || permissionMatchesARN(p, resourceArn) {
-			cp := deepCopyPermissionEntry(p)
-			filtered = append(filtered, cp)
+		if resourceArn != "" && !permissionMatchesARN(p, resourceArn) {
+			continue
 		}
+
+		if principal != nil && principal.DataLakePrincipalIdentifier != "" {
+			if p.Principal == nil || p.Principal.DataLakePrincipalIdentifier != principal.DataLakePrincipalIdentifier {
+				continue
+			}
+		}
+
+		if resourceType != "" && !permissionMatchesResourceType(p, resourceType) {
+			continue
+		}
+
+		cp := deepCopyPermissionEntry(p)
+		filtered = append(filtered, cp)
 	}
 
 	// Sort deterministically by principal identifier then by resource key.
@@ -627,7 +706,7 @@ func (b *InMemoryBackend) BatchGrantPermissions(entries []*PermissionEntry) []*B
 		if err := b.GrantPermissions(e); err != nil {
 			errCode := "InternalServiceException"
 			if errors.Is(err, ErrValidation) {
-				errCode = "InvalidInputException"
+				errCode = errCodeInvalidInput
 			}
 
 			failures = append(failures, &BatchFailureEntry{
@@ -651,7 +730,7 @@ func (b *InMemoryBackend) BatchRevokePermissions(entries []*PermissionEntry) []*
 		if err := b.RevokePermissions(e); err != nil {
 			errCode := "InternalServiceException"
 			if errors.Is(err, ErrValidation) {
-				errCode = "InvalidInputException"
+				errCode = errCodeInvalidInput
 			}
 
 			failures = append(failures, &BatchFailureEntry{
@@ -668,30 +747,24 @@ func (b *InMemoryBackend) BatchRevokePermissions(entries []*PermissionEntry) []*
 }
 
 // permissionMatches returns true if two permission entries have the same principal, resource,
-// and overlapping permissions (i.e., all revoke permissions are present in the stored entry).
-func permissionMatches(a, b *PermissionEntry) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-
-	if !principalEqual(a.Principal, b.Principal) {
-		return false
-	}
-
-	if !resourceEqual(a.Resource, b.Resource) {
-		return false
-	}
-
-	// If the revoke request specifies permissions, only match entries that contain them all.
-	if len(b.Permissions) > 0 {
-		for _, p := range b.Permissions {
-			if !slices.Contains(a.Permissions, p) {
-				return false
-			}
+// findPermissionEntry returns the existing entry matching the same principal+resource, or nil.
+func (b *InMemoryBackend) findPermissionEntry(entry *PermissionEntry) *PermissionEntry {
+	for _, p := range b.permissions {
+		if principalEqual(p.Principal, entry.Principal) && resourceEqual(p.Resource, entry.Resource) {
+			return p
 		}
 	}
 
-	return true
+	return nil
+}
+
+// mergeStringSlice appends values from src to dst if not already present.
+func mergeStringSlice(dst *[]string, src []string) {
+	for _, v := range src {
+		if !slices.Contains(*dst, v) {
+			*dst = append(*dst, v)
+		}
+	}
 }
 
 func principalEqual(a, b *DataLakePrincipal) bool {
@@ -745,6 +818,51 @@ func permissionMatchesARN(p *PermissionEntry, arn string) bool {
 	}
 
 	return false
+}
+
+// isValidPermission returns true if the given permission string is a known Lake Formation permission.
+func isValidPermission(perm string) bool {
+	switch perm {
+	case "ALL", "SELECT", "ALTER", "DROP", "DELETE", "INSERT", "DESCRIBE",
+		"CREATE_DATABASE", "CREATE_TABLE", "DATA_LOCATION_ACCESS",
+		"CREATE_TAG", "ASSOCIATE", "CREATE_LAKE_FORMATION_OPT_IN",
+		"GRANT_WITH_LF_TAG_EXPRESSION", "CREATE_LF_TAG", "CREATE_CATALOG", "SUPER":
+		return true
+	default:
+		return false
+	}
+}
+
+// validatePermissions checks that all permission strings are valid.
+func validatePermissions(perms []string) error {
+	for _, p := range perms {
+		if !isValidPermission(p) {
+			return fmt.Errorf("invalid permission: %s: %w", p, ErrValidation)
+		}
+	}
+
+	return nil
+}
+
+// permissionMatchesResourceType checks whether a permission entry's resource
+// matches the given resource type string (e.g. "DATABASE", "TABLE", "DATA_LOCATION").
+func permissionMatchesResourceType(p *PermissionEntry, resourceType string) bool {
+	if p.Resource == nil {
+		return false
+	}
+
+	switch strings.ToUpper(resourceType) {
+	case "DATABASE":
+		return p.Resource.Database != nil
+	case "TABLE":
+		return p.Resource.Table != nil || p.Resource.TableWithColumns != nil
+	case "DATA_LOCATION":
+		return p.Resource.DataLocation != nil
+	case "CATALOG":
+		return p.Resource.Catalog != nil
+	default:
+		return false
+	}
 }
 
 // paginate is a simple index-based paginator for slices.
@@ -810,6 +928,24 @@ func copyDataLakeSettings(s *DataLakeSettings) *DataLakeSettings {
 		copy(cp.TrustedResourceOwners, s.TrustedResourceOwners)
 	}
 
+	if s.ReadOnlyAdmins != nil {
+		cp.ReadOnlyAdmins = make([]DataLakePrincipal, len(s.ReadOnlyAdmins))
+		copy(cp.ReadOnlyAdmins, s.ReadOnlyAdmins)
+	}
+
+	if s.Parameters != nil {
+		cp.Parameters = make(map[string]string, len(s.Parameters))
+		maps.Copy(cp.Parameters, s.Parameters)
+	}
+
+	cp.AllowExternalDataFiltering = s.AllowExternalDataFiltering
+	cp.AllowFullTableExternalDataAccess = s.AllowFullTableExternalDataAccess
+
+	if s.AuthorizedSessionTagValueList != nil {
+		cp.AuthorizedSessionTagValueList = make([]string, len(s.AuthorizedSessionTagValueList))
+		copy(cp.AuthorizedSessionTagValueList, s.AuthorizedSessionTagValueList)
+	}
+
 	return cp
 }
 
@@ -866,7 +1002,8 @@ func (b *InMemoryBackend) AddLFTagsToResource(catalogID string, resource *Resour
 
 	for _, pair := range lfTags {
 		k := lfTagKey{CatalogID: catalogID, TagKey: pair.TagKey}
-		if _, ok := b.lfTags[k]; !ok {
+		tag, ok := b.lfTags[k]
+		if !ok {
 			failures = append(failures, LFTagError{
 				LFTag: &pair,
 				Error: &errorDetail{
@@ -875,6 +1012,27 @@ func (b *InMemoryBackend) AddLFTagsToResource(catalogID string, resource *Resour
 				},
 			})
 
+			continue
+		}
+
+		// Validate tag values against allowed values.
+		invalid := false
+		for _, v := range pair.TagValues {
+			if !slices.Contains(tag.TagValues, v) {
+				pair := pair
+				failures = append(failures, LFTagError{
+					LFTag: &pair,
+					Error: &errorDetail{
+						ErrorCode:    errCodeInvalidInput,
+						ErrorMessage: "invalid tag value: " + v,
+					},
+				})
+				invalid = true
+
+				break
+			}
+		}
+		if invalid {
 			continue
 		}
 
@@ -920,14 +1078,24 @@ func (b *InMemoryBackend) CancelTransaction(transactionID string) error {
 	b.mu.Lock("CancelTransaction")
 	defer b.mu.Unlock()
 
-	if status, ok := b.transactions[transactionID]; ok && status == transactionStatusCommitted {
+	if info, ok := b.transactions[transactionID]; ok && info.Status == transactionStatusCommitted {
 		return awserr.New(
 			fmt.Sprintf("transaction %s is already committed", transactionID),
 			awserr.ErrConflict,
 		)
 	}
 
-	b.transactions[transactionID] = transactionStatusAborted
+	now := time.Now().UTC().Format(time.RFC3339)
+	if info, ok := b.transactions[transactionID]; ok {
+		info.Status = transactionStatusAborted
+		info.EndTime = now
+	} else {
+		b.transactions[transactionID] = &transactionInfo{
+			Status:    transactionStatusAborted,
+			StartTime: now,
+			EndTime:   now,
+		}
+	}
 
 	return nil
 }
@@ -938,14 +1106,24 @@ func (b *InMemoryBackend) CommitTransaction(transactionID string) (string, error
 	b.mu.Lock("CommitTransaction")
 	defer b.mu.Unlock()
 
-	if status, ok := b.transactions[transactionID]; ok && status == transactionStatusAborted {
+	if info, ok := b.transactions[transactionID]; ok && info.Status == transactionStatusAborted {
 		return "", awserr.New(
 			fmt.Sprintf("transaction %s has been cancelled", transactionID),
 			awserr.ErrConflict,
 		)
 	}
 
-	b.transactions[transactionID] = transactionStatusCommitted
+	now := time.Now().UTC().Format(time.RFC3339)
+	if info, ok := b.transactions[transactionID]; ok {
+		info.Status = transactionStatusCommitted
+		info.EndTime = now
+	} else {
+		b.transactions[transactionID] = &transactionInfo{
+			Status:    transactionStatusCommitted,
+			StartTime: now,
+			EndTime:   now,
+		}
+	}
 
 	return transactionStatusCommitted, nil
 }
@@ -1035,9 +1213,16 @@ func (b *InMemoryBackend) CreateLakeFormationIdentityCenterConfiguration(
 	catalogID, instanceArn string,
 	externalFiltering *ExternalFilteringConfiguration,
 	shareRecipients []DataLakePrincipal,
-) string {
+) (string, error) {
 	b.mu.Lock("CreateLakeFormationIdentityCenterConfiguration")
 	defer b.mu.Unlock()
+
+	if _, ok := b.identityCenterConfigs[catalogID]; ok {
+		return "", awserr.New(
+			"identity center configuration already exists for catalog: "+catalogID,
+			awserr.ErrAlreadyExists,
+		)
+	}
 
 	appArn := fmt.Sprintf(
 		"arn:aws:sso::%s:application/ssoins-0000000000000000/apl-%s",
@@ -1053,7 +1238,7 @@ func (b *InMemoryBackend) CreateLakeFormationIdentityCenterConfiguration(
 		ShareRecipients:   shareRecipients,
 	}
 
-	return appArn
+	return appArn, nil
 }
 
 // CreateLakeFormationOptIn adds an opt-in enforcement entry for a principal and resource.
@@ -1067,9 +1252,12 @@ func (b *InMemoryBackend) CreateLakeFormationOptIn(principal *DataLakePrincipal,
 		}
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339)
 	b.lakeFormationOptIns = append(b.lakeFormationOptIns, &LFOptIn{
-		Principal: principal,
-		Resource:  resource,
+		Principal:     principal,
+		Resource:      resource,
+		LastModified:  now,
+		LastUpdatedBy: "lakeformation.amazonaws.com",
 	})
 
 	return nil
@@ -1209,6 +1397,15 @@ func copyResource(r *Resource) *Resource {
 		cp.Table = &tbl
 	}
 
+	if r.TableWithColumns != nil {
+		twc := *r.TableWithColumns
+		if r.TableWithColumns.ColumnNames != nil {
+			twc.ColumnNames = make([]string, len(r.TableWithColumns.ColumnNames))
+			copy(twc.ColumnNames, r.TableWithColumns.ColumnNames)
+		}
+		cp.TableWithColumns = &twc
+	}
+
 	if r.DataLocation != nil {
 		dl := *r.DataLocation
 		cp.DataLocation = &dl
@@ -1280,13 +1477,21 @@ func (b *InMemoryBackend) UpdateResource(resourceArn, roleArn string) error {
 }
 
 // StartTransaction begins a new in-flight transaction and returns its ID.
-func (b *InMemoryBackend) StartTransaction() string {
+func (b *InMemoryBackend) StartTransaction(transactionType string) string {
 	id := newTransactionID()
+
+	if transactionType == "" {
+		transactionType = transactionTypeReadWrite
+	}
 
 	b.mu.Lock("StartTransaction")
 	defer b.mu.Unlock()
 
-	b.transactions[id] = transactionStatusActive
+	b.transactions[id] = &transactionInfo{
+		Status:    transactionStatusActive,
+		Type:      transactionType,
+		StartTime: time.Now().UTC().Format(time.RFC3339),
+	}
 
 	return id
 }
@@ -1300,7 +1505,7 @@ func (b *InMemoryBackend) DescribeTransaction(transactionID string) (*Transactio
 	b.mu.RLock("DescribeTransaction")
 	defer b.mu.RUnlock()
 
-	status, ok := b.transactions[transactionID]
+	info, ok := b.transactions[transactionID]
 	if !ok {
 		return nil, awserr.New(
 			"transaction not found: "+transactionID,
@@ -1308,7 +1513,12 @@ func (b *InMemoryBackend) DescribeTransaction(transactionID string) (*Transactio
 		)
 	}
 
-	return &Transaction{TransactionID: transactionID, TransactionStatus: status}, nil
+	return &Transaction{
+		TransactionID:        transactionID,
+		TransactionStatus:    info.Status,
+		TransactionStartTime: info.StartTime,
+		TransactionEndTime:   info.EndTime,
+	}, nil
 }
 
 // ListTransactions returns a paginated list of transactions, optionally filtered by status.
@@ -1320,12 +1530,24 @@ func (b *InMemoryBackend) ListTransactions(
 
 	all := make([]*Transaction, 0, len(b.transactions))
 
-	for id, status := range b.transactions {
-		if statusFilter != "" && status != statusFilter {
-			continue
+	for id, info := range b.transactions {
+		if statusFilter != "" && statusFilter != "ALL" {
+			if statusFilter == "COMPLETED" {
+				// COMPLETED means both COMMITTED and ABORTED.
+				if info.Status != transactionStatusCommitted && info.Status != transactionStatusAborted {
+					continue
+				}
+			} else if info.Status != statusFilter {
+				continue
+			}
 		}
 
-		all = append(all, &Transaction{TransactionID: id, TransactionStatus: status})
+		all = append(all, &Transaction{
+			TransactionID:        id,
+			TransactionStatus:    info.Status,
+			TransactionStartTime: info.StartTime,
+			TransactionEndTime:   info.EndTime,
+		})
 	}
 
 	sort.Slice(all, func(i, j int) bool {
@@ -1528,6 +1750,7 @@ func (b *InMemoryBackend) DeleteLakeFormationOptIn(principal *DataLakePrincipal,
 // Optional principalIdentifier acts as a filter.
 func (b *InMemoryBackend) ListLakeFormationOptIns(
 	principalIdentifier string,
+	resource *Resource,
 	maxResults int,
 	nextToken string,
 ) ([]*LFOptIn, string) {
@@ -1540,8 +1763,14 @@ func (b *InMemoryBackend) ListLakeFormationOptIns(
 		if principalIdentifier != "" && principalID(o.Principal) != principalIdentifier {
 			continue
 		}
+		if resource != nil && !resourceEqual(o.Resource, resource) {
+			continue
+		}
 
-		cp := &LFOptIn{}
+		cp := &LFOptIn{
+			LastModified:  o.LastModified,
+			LastUpdatedBy: o.LastUpdatedBy,
+		}
 
 		if o.Principal != nil {
 			p := *o.Principal
@@ -1597,8 +1826,13 @@ func (b *InMemoryBackend) DescribeLakeFormationIdentityCenterConfiguration(
 
 // UpdateLakeFormationIdentityCenterConfiguration updates or creates the identity center config.
 func (b *InMemoryBackend) UpdateLakeFormationIdentityCenterConfiguration(
-	catalogID string, externalFiltering *ExternalFilteringConfiguration, _ string,
+	catalogID string, externalFiltering *ExternalFilteringConfiguration, appStatus string,
 ) error {
+	// Validate ApplicationStatus if provided.
+	if appStatus != "" && appStatus != "ENABLED" && appStatus != "DISABLED" {
+		return fmt.Errorf("invalid ApplicationStatus: %s: %w", appStatus, ErrValidation)
+	}
+
 	b.mu.Lock("UpdateLakeFormationIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 	cfg, ok := b.identityCenterConfigs[catalogID]
@@ -1606,12 +1840,16 @@ func (b *InMemoryBackend) UpdateLakeFormationIdentityCenterConfiguration(
 		b.identityCenterConfigs[catalogID] = &IdentityCenterConfiguration{
 			CatalogID:         catalogID,
 			ExternalFiltering: externalFiltering,
+			ApplicationStatus: appStatus,
 		}
 
 		return nil
 	}
 	if externalFiltering != nil {
 		cfg.ExternalFiltering = externalFiltering
+	}
+	if appStatus != "" {
+		cfg.ApplicationStatus = appStatus
 	}
 
 	return nil
@@ -1624,11 +1862,11 @@ func (b *InMemoryBackend) ExtendTransaction(transactionID string) error {
 	}
 	b.mu.RLock("ExtendTransaction")
 	defer b.mu.RUnlock()
-	status, ok := b.transactions[transactionID]
+	info, ok := b.transactions[transactionID]
 	if !ok {
 		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
 	}
-	if status != transactionStatusActive {
+	if info.Status != transactionStatusActive {
 		return awserr.New(fmt.Sprintf("transaction %s is not active", transactionID), awserr.ErrConflict)
 	}
 
@@ -1643,13 +1881,13 @@ func (b *InMemoryBackend) DeleteObjectsOnCancel(transactionID string) error {
 	}
 	b.mu.RLock("DeleteObjectsOnCancel")
 	defer b.mu.RUnlock()
-	status, ok := b.transactions[transactionID]
+	info, ok := b.transactions[transactionID]
 	if !ok {
 		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
 	}
-	if status != transactionStatusAborted {
+	if info.Status != transactionStatusAborted {
 		return awserr.New(
-			fmt.Sprintf("transaction %s must be in ABORTED state (current: %s)", transactionID, status),
+			fmt.Sprintf("transaction %s must be in ABORTED state (current: %s)", transactionID, info.Status),
 			awserr.ErrConflict,
 		)
 	}
@@ -1747,6 +1985,9 @@ func (b *InMemoryBackend) UpdateLFTagExpression(name, catalogID, description str
 	}
 	expr.Description = description
 	if expression != nil {
+		if len(expression) == 0 {
+			return fmt.Errorf("expression must not be empty: %w", ErrValidation)
+		}
 		cp := make([]LFTag, len(expression))
 		copy(cp, expression)
 		expr.Expression = cp
@@ -1759,7 +2000,7 @@ func (b *InMemoryBackend) UpdateLFTagExpression(name, catalogID, description str
 func (b *InMemoryBackend) GetEffectivePermissionsForPath(
 	resourceArn string, maxResults int, nextToken string,
 ) ([]*PermissionEntry, string) {
-	return b.ListPermissions(resourceArn, maxResults, nextToken)
+	return b.ListPermissions(resourceArn, maxResults, nextToken, nil, "")
 }
 
 // GetTemporaryCredentials returns synthetic temporary AWS credentials.
@@ -1783,8 +2024,12 @@ func (b *InMemoryBackend) UpdateTableObjects(transactionID string) error {
 	}
 	b.mu.RLock("UpdateTableObjects")
 	defer b.mu.RUnlock()
-	if _, ok := b.transactions[transactionID]; !ok {
+	info, ok := b.transactions[transactionID]
+	if !ok {
 		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
+	}
+	if info.Type == transactionTypeReadOnly {
+		return fmt.Errorf("cannot write to READ_ONLY transaction: %w", ErrValidation)
 	}
 
 	return nil
