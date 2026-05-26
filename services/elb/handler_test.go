@@ -138,6 +138,7 @@ func TestCreateLoadBalancer(t *testing.T) {
 				"Listeners.member.1.Protocol":         {"HTTP"},
 				"Listeners.member.1.LoadBalancerPort": {"80"},
 				"Listeners.member.1.InstancePort":     {"8080"},
+				"AvailabilityZones.member.1":          {"us-east-1a"},
 			},
 			wantStatus: http.StatusOK,
 		},
