@@ -12,6 +12,8 @@ type Application struct {
 	ApplicationDescription   string                           `json:"ApplicationDescription,omitempty"`
 	ApplicationCode          string                           `json:"ApplicationCode,omitempty"`
 	ApplicationName          string                           `json:"ApplicationName"`
+	ServiceExecutionRole     string                           `json:"ServiceExecutionRole,omitempty"`
+	RuntimeEnvironment       string                           `json:"RuntimeEnvironment,omitempty"`
 	CloudWatchLoggingOptions []CloudWatchLoggingOptionDesc    `json:"CloudWatchLoggingOptions,omitempty"`
 	ReferenceDataSources     []ReferenceDataSourceDescription `json:"ReferenceDataSources,omitempty"`
 	Outputs                  []OutputDescription              `json:"Outputs,omitempty"`
@@ -49,13 +51,27 @@ type KinesisFirehoseInputDesc struct {
 	RoleARN     string `json:"RoleARN,omitempty"`
 }
 
+// InputParallelism describes the in-application stream count for an input.
+type InputParallelism struct {
+	Count int `json:"Count"`
+}
+
+// InputStartingPositionConfiguration describes where to start reading from an input stream.
+type InputStartingPositionConfiguration struct {
+	InputStartingPosition string `json:"InputStartingPosition,omitempty"`
+}
+
 // InputDescription describes an application input configuration.
 type InputDescription struct {
-	InputProcessingConfigurationDescription *InputProcessingConfigurationDesc `json:"InputProcessingConfigurationDescription,omitempty"` //nolint:lll // AWS API name
-	KinesisStreamsInputDescription          *KinesisStreamsInputDesc          `json:"KinesisStreamsInputDescription,omitempty"`          //nolint:lll // AWS API name
-	KinesisFirehoseInputDescription         *KinesisFirehoseInputDesc         `json:"KinesisFirehoseInputDescription,omitempty"`         //nolint:lll // AWS API name
-	InputID                                 string                            `json:"InputId"`
-	NamePrefix                              string                            `json:"NamePrefix,omitempty"`
+	InputProcessingConfigurationDescription *InputProcessingConfigurationDesc   `json:"InputProcessingConfigurationDescription,omitempty"` //nolint:lll // AWS API name
+	InputStartingPositionConfiguration      *InputStartingPositionConfiguration `json:"InputStartingPositionConfiguration,omitempty"`      //nolint:lll // AWS API name
+	InputSchema                             *SourceSchema                       `json:"InputSchema,omitempty"`
+	InputParallelism                        *InputParallelism                   `json:"InputParallelism,omitempty"`
+	KinesisStreamsInputDescription          *KinesisStreamsInputDesc             `json:"KinesisStreamsInputDescription,omitempty"`  //nolint:lll // AWS API name
+	KinesisFirehoseInputDescription         *KinesisFirehoseInputDesc           `json:"KinesisFirehoseInputDescription,omitempty"` //nolint:lll // AWS API name
+	InputID                                 string                              `json:"InputId"`
+	NamePrefix                              string                              `json:"NamePrefix,omitempty"`
+	InAppStreamNames                        []string                            `json:"InAppStreamNames,omitempty"`
 }
 
 // KinesisStreamsOutputDesc describes a Kinesis Streams output.
@@ -152,10 +168,14 @@ type applicationSummary struct {
 
 // createApplicationInput is the request body for CreateApplication.
 type createApplicationInput struct {
-	ApplicationName        string     `json:"ApplicationName"`
-	ApplicationDescription string     `json:"ApplicationDescription"`
-	ApplicationCode        string     `json:"ApplicationCode"`
-	Tags                   []tagEntry `json:"Tags"`
+	CloudWatchLoggingOptions []cwlOptionInput          `json:"CloudWatchLoggingOptions,omitempty"`
+	Inputs                   []applicationInputConfig  `json:"Inputs,omitempty"`
+	Outputs                  []applicationOutputConfig `json:"Outputs,omitempty"`
+	Tags                     []tagEntry                `json:"Tags"`
+	ApplicationName          string                    `json:"ApplicationName"`
+	ApplicationDescription   string                    `json:"ApplicationDescription"`
+	ApplicationCode          string                    `json:"ApplicationCode"`
+	ServiceExecutionRole     string                    `json:"ServiceExecutionRole,omitempty"`
 }
 
 // createApplicationOutput is the response body for CreateApplication.
@@ -181,6 +201,8 @@ type applicationDetail struct {
 	ApplicationStatus                   string                           `json:"ApplicationStatus"`
 	ApplicationCode                     string                           `json:"ApplicationCode,omitempty"`
 	ApplicationDescription              string                           `json:"ApplicationDescription,omitempty"`
+	ServiceExecutionRole                string                           `json:"ServiceExecutionRole,omitempty"`
+	RuntimeEnvironment                  string                           `json:"RuntimeEnvironment,omitempty"`
 	CloudWatchLoggingOptionDescriptions []CloudWatchLoggingOptionDesc    `json:"CloudWatchLoggingOptionDescriptions,omitempty"` //nolint:lll // AWS API name
 	InputDescriptions                   []InputDescription               `json:"InputDescriptions,omitempty"`
 	OutputDescriptions                  []OutputDescription              `json:"OutputDescriptions,omitempty"`
@@ -207,9 +229,16 @@ type listApplicationsOutput struct {
 	HasMoreApplications  bool                 `json:"HasMoreApplications"`
 }
 
+// inputConfiguration describes where to start reading from a specific input.
+type inputConfiguration struct {
+	InputStartingPositionConfiguration *InputStartingPositionConfiguration `json:"InputStartingPositionConfiguration,omitempty"` //nolint:lll // AWS API name
+	ID                                 string                              `json:"Id"`
+}
+
 // startApplicationInput is the request body for StartApplication.
 type startApplicationInput struct {
-	ApplicationName string `json:"ApplicationName"`
+	InputConfigurations []inputConfiguration `json:"InputConfigurations,omitempty"`
+	ApplicationName     string               `json:"ApplicationName"`
 }
 
 // stopApplicationInput is the request body for StopApplication.
@@ -224,9 +253,49 @@ type updateApplicationInput struct {
 	CurrentApplicationVersionID int64              `json:"CurrentApplicationVersionId"`
 }
 
+// inputUpdate describes changes to an existing input configuration.
+type inputUpdate struct {
+	InputProcessingConfigurationUpdate *inputProcessingConfigInput         `json:"InputProcessingConfigurationUpdate,omitempty"` //nolint:lll // AWS API name
+	InputStartingPositionConfiguration *InputStartingPositionConfiguration `json:"InputStartingPositionConfiguration,omitempty"` //nolint:lll // AWS API name
+	InputSchemaUpdate                  *sourceSchemaInput                  `json:"InputSchemaUpdate,omitempty"`
+	KinesisStreamsInputUpdate          *kinesisStreamsInputConfig           `json:"KinesisStreamsInputUpdate,omitempty"`
+	KinesisFirehoseInputUpdate         *kinesisFirehoseInputConfig         `json:"KinesisFirehoseInputUpdate,omitempty"`
+	NamePrefixUpdate                   string                              `json:"NamePrefixUpdate,omitempty"`
+	InputID                            string                              `json:"InputId"`
+}
+
+// outputUpdate describes changes to an existing output configuration.
+type outputUpdate struct {
+	KinesisStreamsOutputUpdate  *kinesisStreamsOutputConfig  `json:"KinesisStreamsOutputUpdate,omitempty"`
+	KinesisFirehoseOutputUpdate *kinesisFirehoseOutputConfig `json:"KinesisFirehoseOutputUpdate,omitempty"`
+	LambdaOutputUpdate          *lambdaOutputConfig          `json:"LambdaOutputUpdate,omitempty"`
+	DestinationSchemaUpdate     *destinationSchemaInput      `json:"DestinationSchemaUpdate,omitempty"`
+	NameUpdate                  string                       `json:"NameUpdate,omitempty"`
+	OutputID                    string                       `json:"OutputId"`
+}
+
+// referenceDataSourceUpdate describes changes to an existing reference data source.
+type referenceDataSourceUpdate struct {
+	S3ReferenceDataSourceUpdate *s3ReferenceDataSourceConfig `json:"S3ReferenceDataSourceUpdate,omitempty"`
+	ReferenceSchemaUpdate       *sourceSchemaInput           `json:"ReferenceSchemaUpdate,omitempty"`
+	TableNameUpdate             string                       `json:"TableNameUpdate,omitempty"`
+	ReferenceID                 string                       `json:"ReferenceId"`
+}
+
+// cwlOptionUpdate describes changes to an existing CloudWatch logging option.
+type cwlOptionUpdate struct {
+	LogStreamARNUpdate        string `json:"LogStreamARNUpdate,omitempty"`
+	RoleARNUpdate             string `json:"RoleARNUpdate,omitempty"`
+	CloudWatchLoggingOptionID string `json:"CloudWatchLoggingOptionId"`
+}
+
 // applicationUpdate holds optional update fields.
 type applicationUpdate struct {
-	ApplicationCodeUpdate string `json:"ApplicationCodeUpdate,omitempty"`
+	InputUpdates                   []inputUpdate               `json:"InputUpdates,omitempty"`
+	OutputUpdates                  []outputUpdate              `json:"OutputUpdates,omitempty"`
+	ReferenceDataSourceUpdates     []referenceDataSourceUpdate `json:"ReferenceDataSourceUpdates,omitempty"`
+	CloudWatchLoggingOptionUpdates []cwlOptionUpdate           `json:"CloudWatchLoggingOptionUpdates,omitempty"`
+	ApplicationCodeUpdate          string                      `json:"ApplicationCodeUpdate,omitempty"`
 }
 
 // tagEntry is a key-value tag pair.
@@ -281,9 +350,16 @@ type addApplicationInputInput struct {
 }
 
 type applicationInputConfig struct {
-	KinesisStreamsInput  *kinesisStreamsInputConfig  `json:"KinesisStreamsInput,omitempty"`
-	KinesisFirehoseInput *kinesisFirehoseInputConfig `json:"KinesisFirehoseInput,omitempty"`
-	NamePrefix           string                      `json:"NamePrefix,omitempty"`
+	InputProcessingConfiguration *inputProcessingConfigInput `json:"InputProcessingConfiguration,omitempty"`
+	InputParallelism             *inputParallelismConfig     `json:"InputParallelism,omitempty"`
+	InputSchema                  *sourceSchemaInput          `json:"InputSchema,omitempty"`
+	KinesisStreamsInput          *kinesisStreamsInputConfig  `json:"KinesisStreamsInput,omitempty"`
+	KinesisFirehoseInput         *kinesisFirehoseInputConfig `json:"KinesisFirehoseInput,omitempty"`
+	NamePrefix                   string                      `json:"NamePrefix,omitempty"`
+}
+
+type inputParallelismConfig struct {
+	Count int `json:"Count"`
 }
 
 type kinesisStreamsInputConfig struct {
@@ -398,10 +474,19 @@ type deleteApplicationReferenceDataSourceInput struct {
 	CurrentApplicationVersionID int64  `json:"CurrentApplicationVersionId"`
 }
 
+// s3ConfigurationInput describes an S3 source for DiscoverInputSchema.
+type s3ConfigurationInput struct {
+	BucketARN        string `json:"BucketARN"`
+	FileKey          string `json:"FileKey"`
+	ReferenceRoleARN string `json:"ReferenceRoleARN"`
+}
+
 type discoverInputSchemaInput struct {
-	InputProcessingConfiguration *inputProcessingConfigInput `json:"InputProcessingConfiguration,omitempty"`
-	ResourceARN                  string                      `json:"ResourceARN,omitempty"`
-	RoleARN                      string                      `json:"RoleARN,omitempty"`
+	InputProcessingConfiguration       *inputProcessingConfigInput         `json:"InputProcessingConfiguration,omitempty"`
+	S3Configuration                    *s3ConfigurationInput               `json:"S3Configuration,omitempty"`
+	InputStartingPositionConfiguration *InputStartingPositionConfiguration `json:"InputStartingPositionConfiguration,omitempty"` //nolint:lll // AWS API name
+	ResourceARN                        string                              `json:"ResourceARN,omitempty"`
+	RoleARN                            string                              `json:"RoleARN,omitempty"`
 }
 
 type discoverInputSchemaOutput struct {
