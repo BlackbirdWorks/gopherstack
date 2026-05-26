@@ -919,8 +919,7 @@ func parseCFKVSDataPlanePath(method, suffix string) (string, string, string) {
 		return "", "", ""
 	}
 
-	if strings.HasPrefix(after, "/") {
-		key := strings.TrimPrefix(after, "/")
+	if key, ok := strings.CutPrefix(after, "/"); ok {
 		if key != "" && !strings.Contains(key, "/") {
 			switch method {
 			case http.MethodGet:
@@ -1422,7 +1421,7 @@ type distributionConfigMinimal struct {
 	CallerReference string `xml:"CallerReference"`
 	Comment         string `xml:"Comment"`
 	PriceClass      string `xml:"PriceClass"`
-	HttpVersion     string `xml:"HttpVersion"`
+	HTTPVersion     string `xml:"HttpVersion"`
 	IsIPV6Enabled   bool   `xml:"IsIPV6Enabled"`
 	Enabled         bool   `xml:"Enabled"`
 }
@@ -1798,6 +1797,10 @@ func (h *Handler) dispatchPublicKeyAndGroupOps(c *echo.Context, operation, resou
 
 // dispatchLogStoreVPCOps handles realtime log config, key value store, and VPC origin operations.
 func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource string) error {
+	if err := h.dispatchKVSOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
 	switch operation {
 	case opGetRealtimeLogConfig:
 		return h.handleGetRealtimeLogConfig(c, resource)
@@ -1805,21 +1808,6 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 		return h.handleUpdateRealtimeLogConfig(c, resource)
 	case opDeleteRealtimeLogConfig:
 		return h.handleDeleteRealtimeLogConfig(c, resource)
-	case opDescribeKeyValueStore:
-		return h.handleGetKeyValueStore(c, resource)
-	case opUpdateKeyValueStore:
-		return h.handleUpdateKeyValueStore(c, resource)
-	case opDeleteKeyValueStore:
-		return h.handleDeleteKeyValueStore(c, resource)
-	case opGetKVSKey:
-		kvsID, key, _ := strings.Cut(resource, "/")
-		return h.handleGetKVSKey(c, kvsID, key)
-	case opPutKVSKey:
-		kvsID, key, _ := strings.Cut(resource, "/")
-		return h.handlePutKVSKey(c, kvsID, key)
-	case opDeleteKVSKey:
-		kvsID, key, _ := strings.Cut(resource, "/")
-		return h.handleDeleteKVSKey(c, kvsID, key)
 	case opGetVpcOrigin:
 		return h.handleGetVpcOrigin(c, resource)
 	case opUpdateVpcOrigin:
@@ -1832,6 +1820,33 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 		return h.handleUpdateContinuousDeploymentPolicy(c, resource)
 	case opDeleteContinuousDeploymentPolicy:
 		return h.handleDeleteContinuousDeploymentPolicy(c, resource)
+	default:
+
+		return errNotDispatched
+	}
+}
+
+// dispatchKVSOps handles KVS control-plane and data-plane operations.
+func (h *Handler) dispatchKVSOps(c *echo.Context, operation, resource string) error {
+	switch operation {
+	case opDescribeKeyValueStore:
+		return h.handleGetKeyValueStore(c, resource)
+	case opUpdateKeyValueStore:
+		return h.handleUpdateKeyValueStore(c, resource)
+	case opDeleteKeyValueStore:
+		return h.handleDeleteKeyValueStore(c, resource)
+	case opGetKVSKey:
+		kvsID, key, _ := strings.Cut(resource, "/")
+
+		return h.handleGetKVSKey(c, kvsID, key)
+	case opPutKVSKey:
+		kvsID, key, _ := strings.Cut(resource, "/")
+
+		return h.handlePutKVSKey(c, kvsID, key)
+	case opDeleteKVSKey:
+		kvsID, key, _ := strings.Cut(resource, "/")
+
+		return h.handleDeleteKVSKey(c, kvsID, key)
 	default:
 
 		return errNotDispatched
@@ -2487,14 +2502,14 @@ func distributionSummaryPriceClass(d *Distribution) string {
 
 // distributionSummaryHTTPVersion returns the HttpVersion for a distribution.
 func distributionSummaryHTTPVersion(d *Distribution) string {
-	if d.HttpVersion != "" {
-		return d.HttpVersion
+	if d.HTTPVersion != "" {
+		return d.HTTPVersion
 	}
 
 	if len(d.RawConfig) > 0 {
 		var cfg distributionConfigMinimal
-		if err := xml.Unmarshal(d.RawConfig, &cfg); err == nil && cfg.HttpVersion != "" {
-			return cfg.HttpVersion
+		if err := xml.Unmarshal(d.RawConfig, &cfg); err == nil && cfg.HTTPVersion != "" {
+			return cfg.HTTPVersion
 		}
 	}
 
@@ -3914,13 +3929,13 @@ type rhpCustomHeaderXML struct {
 }
 
 type rhpConfigXML struct {
-	XMLName         xml.Name              `xml:"ResponseHeadersPolicyConfig"`
-	Name            string                `xml:"Name"`
-	Comment         string                `xml:"Comment"`
-	CorsConfig      *rhpCorsConfigXML     `xml:"CorsConfig"`
+	XMLName         xml.Name               `xml:"ResponseHeadersPolicyConfig"`
+	Name            string                 `xml:"Name"`
+	Comment         string                 `xml:"Comment"`
+	CorsConfig      *rhpCorsConfigXML      `xml:"CorsConfig"`
 	SecurityHeaders *rhpSecurityHeadersXML `xml:"SecurityHeadersConfig"`
-	CustomHeaders   []rhpCustomHeaderXML  `xml:"CustomHeadersConfig>Items>ResponseHeadersPolicyCustomHeader"`
-	RemoveHeaders   []string              `xml:"RemoveHeadersConfig>Items>ResponseHeadersPolicyRemoveHeader>Header"`
+	CustomHeaders   []rhpCustomHeaderXML   `xml:"CustomHeadersConfig>Items>ResponseHeadersPolicyCustomHeader"`
+	RemoveHeaders   []string               `xml:"RemoveHeadersConfig>Items>ResponseHeadersPolicyRemoveHeader>Header"`
 }
 
 func rhpConfigFromXML(x rhpConfigXML) *ResponseHeadersPolicyConfig {
@@ -3949,16 +3964,14 @@ func rhpConfigFromXML(x rhpConfigXML) *ResponseHeadersPolicyConfig {
 		}
 	}
 	for _, h := range x.CustomHeaders {
-		cfg.CustomHeaders = append(cfg.CustomHeaders, RHPCustomHeader{
-			Header:   h.Header,
-			Value:    h.Value,
-			Override: h.Override,
-		})
+		cfg.CustomHeaders = append(cfg.CustomHeaders, RHPCustomHeader(h))
 	}
 	cfg.RemoveHeaders = x.RemoveHeaders
-	if cfg.CorsConfig == nil && cfg.SecurityHeaders == nil && len(cfg.CustomHeaders) == 0 && len(cfg.RemoveHeaders) == 0 {
+	if cfg.CorsConfig == nil && cfg.SecurityHeaders == nil && len(cfg.CustomHeaders) == 0 &&
+		len(cfg.RemoveHeaders) == 0 {
 		return nil
 	}
+
 	return cfg
 }
 
@@ -4171,11 +4184,16 @@ func rhpResponseXML(p *ResponseHeadersPolicy) string {
 	if len(p.RemoveHeaders) > 0 {
 		sb.WriteString(`<RemoveHeadersConfig><Items>`)
 		for _, h := range p.RemoveHeaders {
-			fmt.Fprintf(&sb, `<ResponseHeadersPolicyRemoveHeader><Header>%s</Header></ResponseHeadersPolicyRemoveHeader>`, h)
+			fmt.Fprintf(
+				&sb,
+				`<ResponseHeadersPolicyRemoveHeader><Header>%s</Header></ResponseHeadersPolicyRemoveHeader>`,
+				h,
+			)
 		}
 		fmt.Fprintf(&sb, `</Items><Quantity>%d</Quantity></RemoveHeadersConfig>`, len(p.RemoveHeaders))
 	}
 	sb.WriteString(`</ResponseHeadersPolicyConfig></ResponseHeadersPolicy>`)
+
 	return sb.String()
 }
 
@@ -4480,6 +4498,7 @@ func orpConfigFromXML(x orpConfigXML) *OriginRequestPolicyConfig {
 	if cfg.HeadersConfig == nil && cfg.CookiesConfig == nil && cfg.QueryStringsConfig == nil {
 		return nil
 	}
+
 	return cfg
 }
 
@@ -4667,11 +4686,15 @@ func orpResponseXML(p *OriginRequestPolicy) string {
 			c.CookieBehavior, len(c.Cookies))
 	}
 	if q := p.QueryStringsConfig; q != nil {
-		fmt.Fprintf(&sb,
+		fmt.Fprintf(
+			&sb,
 			`<QueryStringsConfig><QueryStringBehavior>%s</QueryStringBehavior><Quantity>%d</Quantity></QueryStringsConfig>`,
-			q.QueryStringBehavior, len(q.QueryStrings))
+			q.QueryStringBehavior,
+			len(q.QueryStrings),
+		)
 	}
 	sb.WriteString(`</OriginRequestPolicyConfig></OriginRequestPolicy>`)
+
 	return sb.String()
 }
 

@@ -32,8 +32,8 @@ type kvsUpdateKeysRequestJSON struct {
 }
 
 type kvsUpdateKeysResponseJSON struct {
-	ETag     string `json:"eTag"`
-	ItemCount int   `json:"itemCount"`
+	ETag      string `json:"eTag"`
+	ItemCount int    `json:"itemCount"`
 }
 
 func (h *Handler) handleGetKVSKey(c *echo.Context, kvsID, key string) error {

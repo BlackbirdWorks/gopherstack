@@ -34,12 +34,6 @@ const (
 	minPublicKeyBits = 2048
 )
 
-// validRuntimes lists the allowed CloudFront Function runtimes.
-var validRuntimes = map[string]bool{
-	"cloudfront-js-1.0": true,
-	"cloudfront-js-2.0": true,
-}
-
 // oaiS3CanonicalUserID returns the AWS-style 64-char hex S3 canonical user ID for an OAI.
 // AWS derives this deterministically per OAI; we hash the OAI ID for a stable value.
 func oaiS3CanonicalUserID(id string) string {
@@ -50,14 +44,15 @@ func oaiS3CanonicalUserID(id string) string {
 
 // validateRuntime returns ErrValidation when the runtime is not a known CloudFront Function runtime.
 func validateRuntime(runtime string) error {
-	if !validRuntimes[runtime] {
-		return fmt.Errorf(
-			"%w: Runtime must be one of cloudfront-js-1.0 or cloudfront-js-2.0, got %q",
-			ErrValidation, runtime,
-		)
+	switch runtime {
+	case "cloudfront-js-1.0", "cloudfront-js-2.0":
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf(
+		"%w: Runtime must be one of cloudfront-js-1.0 or cloudfront-js-2.0, got %q",
+		ErrValidation, runtime,
+	)
 }
 
 // validateInvalidationPaths checks that every path starts with '/', there are no more than
@@ -110,12 +105,13 @@ func validatePEMPublicKey(encodedKey string) error {
 
 	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
-		return fmt.Errorf("%w: EncodedKey PEM parse failed: %v", ErrValidation, err)
+		return fmt.Errorf("%w: EncodedKey PEM parse failed: %w", ErrValidation, err)
 	}
 
+	const bitsPerByte = 8
 	// Only check bit-length for RSA keys; EC keys are accepted unconditionally.
 	if rsaPub, ok := pub.(interface{ Size() int }); ok {
-		bits := rsaPub.Size() * 8
+		bits := rsaPub.Size() * bitsPerByte
 		if bits < minPublicKeyBits {
 			return fmt.Errorf(
 				"%w: RSA key must be at least %d bits, got %d",
@@ -208,7 +204,7 @@ type Distribution struct {
 	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
 	RawConfig        []byte            `json:"rawConfig,omitempty"`
 	PriceClass       string            `json:"priceClass,omitempty"`
-	HttpVersion      string            `json:"httpVersion,omitempty"`
+	HTTPVersion      string            `json:"httpVersion,omitempty"`
 	IsIPV6Enabled    bool              `json:"isIPV6Enabled"`
 	Enabled          bool              `json:"enabled"`
 }
@@ -261,11 +257,11 @@ type CachePolicyQueryStringsConfig struct {
 
 // CachePolicyParams models ParametersInCacheKeyAndForwardedToOrigin.
 type CachePolicyParams struct {
-	HeadersConfig               CachePolicyHeadersConfig      `json:"headersConfig"`
-	CookiesConfig               CachePolicyCookiesConfig      `json:"cookiesConfig"`
-	QueryStringsConfig          CachePolicyQueryStringsConfig `json:"queryStringsConfig"`
-	EnableAcceptEncodingGzip    bool                          `json:"enableAcceptEncodingGzip"`
-	EnableAcceptEncodingBrotli  bool                          `json:"enableAcceptEncodingBrotli"`
+	HeadersConfig              CachePolicyHeadersConfig      `json:"headersConfig"`
+	CookiesConfig              CachePolicyCookiesConfig      `json:"cookiesConfig"`
+	QueryStringsConfig         CachePolicyQueryStringsConfig `json:"queryStringsConfig"`
+	EnableAcceptEncodingGzip   bool                          `json:"enableAcceptEncodingGzip"`
+	EnableAcceptEncodingBrotli bool                          `json:"enableAcceptEncodingBrotli"`
 }
 
 // CachePolicy represents a CloudFront cache policy.
@@ -360,14 +356,14 @@ type ResponseHeadersPolicyConfig struct {
 
 // ResponseHeadersPolicy represents a CloudFront Response Headers Policy.
 type ResponseHeadersPolicy struct {
-	CorsConfig         *RHPCorsConfig      `json:"corsConfig,omitempty"`
-	SecurityHeaders    *RHPSecurityHeaders `json:"securityHeaders,omitempty"`
-	CustomHeaders      []RHPCustomHeader   `json:"customHeaders,omitempty"`
-	RemoveHeaders      []string            `json:"removeHeaders,omitempty"`
-	ID                 string              `json:"id"`
-	Name               string              `json:"name"`
-	Comment            string              `json:"comment,omitempty"`
-	ETag               string              `json:"eTag"`
+	CorsConfig      *RHPCorsConfig      `json:"corsConfig,omitempty"`
+	SecurityHeaders *RHPSecurityHeaders `json:"securityHeaders,omitempty"`
+	CustomHeaders   []RHPCustomHeader   `json:"customHeaders,omitempty"`
+	RemoveHeaders   []string            `json:"removeHeaders,omitempty"`
+	ID              string              `json:"id"`
+	Name            string              `json:"name"`
+	Comment         string              `json:"comment,omitempty"`
+	ETag            string              `json:"eTag"`
 }
 
 // Function represents a CloudFront Function.
@@ -403,7 +399,7 @@ type ORPQueryStringsConfig struct {
 type OriginRequestPolicy struct {
 	HeadersConfig      *ORPHeadersConfig      `json:"headersConfig,omitempty"`
 	CookiesConfig      *ORPCookiesConfig      `json:"cookiesConfig,omitempty"`
-	QueryStringsConfig *ORPQueryStringsConfig  `json:"queryStringsConfig,omitempty"`
+	QueryStringsConfig *ORPQueryStringsConfig `json:"queryStringsConfig,omitempty"`
 	ID                 string                 `json:"id"`
 	Name               string                 `json:"name"`
 	Comment            string                 `json:"comment,omitempty"`
@@ -2502,7 +2498,7 @@ func (b *InMemoryBackend) UpdateKeyGroup(
 	}
 
 	for _, itemID := range items {
-		if _, ok := b.publicKeys[itemID]; !ok {
+		if _, exists := b.publicKeys[itemID]; !exists {
 			return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, itemID)
 		}
 	}
@@ -2783,8 +2779,10 @@ func (b *InMemoryBackend) kvsDataETag(id string) string {
 	if etag, ok := b.keyValueDataETags[id]; ok {
 		return etag
 	}
+
 	etag := uuid.NewString()
 	b.keyValueDataETags[id] = etag
+
 	return etag
 }
 

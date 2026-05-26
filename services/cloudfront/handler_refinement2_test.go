@@ -437,7 +437,12 @@ func TestPublicKeyCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				pk, err := h.Backend.CreatePublicKey("pk-get-cfg-ref", "get-pk-config", "comment", testRSA2048PublicKeyPEM)
+				pk, err := h.Backend.CreatePublicKey(
+					"pk-get-cfg-ref",
+					"get-pk-config",
+					"comment",
+					testRSA2048PublicKeyPEM,
+				)
 				require.NoError(t, err)
 
 				return "/2020-05-31/public-key/" + pk.ID + "/config"
