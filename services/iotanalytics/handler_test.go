@@ -221,8 +221,8 @@ func TestHandler_CreateAndDescribeDataset(t *testing.T) {
 	}{
 		{
 			name:        "success",
-			datasetName: "test-dataset",
-			wantStatus:  http.StatusCreated,
+			datasetName: "test_dataset",
+			wantStatus:  http.StatusOK,
 		},
 		{
 			name:        "empty_name",
@@ -255,8 +255,8 @@ func TestHandler_CreateAndDescribePipeline(t *testing.T) {
 	}{
 		{
 			name:         "success",
-			pipelineName: "test-pipeline",
-			wantStatus:   http.StatusCreated,
+			pipelineName: "test_pipeline",
+			wantStatus:   http.StatusOK,
 		},
 		{
 			name:         "empty_name",
@@ -276,7 +276,7 @@ func TestHandler_CreateAndDescribePipeline(t *testing.T) {
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			if tt.wantStatus == http.StatusCreated {
+			if tt.wantStatus == http.StatusOK {
 				rec2 := doRequest(t, h, http.MethodGet, "/pipelines/"+tt.pipelineName, nil)
 				assert.Equal(t, http.StatusOK, rec2.Code)
 			}
@@ -398,9 +398,9 @@ func TestHandler_BatchPutMessage(t *testing.T) {
 	}{
 		{
 			name:        "success_existing_channel",
-			channelSeed: "my-channel",
+			channelSeed: "my_channel",
 			messages: map[string]any{
-				"channelName": "my-channel",
+				"channelName": "my_channel",
 				"messages": []map[string]any{
 					{"messageId": "msg1", "payload": []byte("hello")},
 				},
@@ -462,7 +462,7 @@ func TestHandler_SampleChannelData(t *testing.T) {
 	}{
 		{
 			name:        "empty_channel",
-			channelName: "empty-channel",
+			channelName: "empty_channel",
 			seed:        true,
 			wantStatus:  http.StatusOK,
 		},
@@ -503,7 +503,7 @@ func TestHandler_StartAndCancelPipelineReprocessing(t *testing.T) {
 	}{
 		{
 			name:         "success",
-			pipelineName: "my-pipeline",
+			pipelineName: "my_pipeline",
 			seed:         true,
 			wantStart:    http.StatusCreated,
 			wantCancel:   http.StatusNoContent,
@@ -570,7 +570,7 @@ func TestHandler_DatasetContentLifecycle(t *testing.T) {
 	}{
 		{
 			name:        "full_lifecycle",
-			datasetName: "my-dataset",
+			datasetName: "my_dataset",
 			seed:        true,
 			wantCreate:  http.StatusOK,
 			wantGet:     http.StatusOK,

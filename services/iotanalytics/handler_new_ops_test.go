@@ -23,37 +23,37 @@ func TestHandler_Datastores(t *testing.T) {
 	}{
 		{
 			name:          "create_success",
-			datastoreName: "my-ds",
+			datastoreName: "my_ds",
 			op:            "create",
-			wantStatus:    http.StatusCreated,
+			wantStatus:    http.StatusOK,
 		},
 		{
 			name:          "list",
-			datastoreName: "list-ds",
+			datastoreName: "list_ds",
 			op:            "list",
 			wantStatus:    http.StatusOK,
 		},
 		{
 			name:          "describe_success",
-			datastoreName: "desc-ds",
+			datastoreName: "desc_ds",
 			op:            "describe",
 			wantStatus:    http.StatusOK,
 		},
 		{
 			name:          "update_success",
-			datastoreName: "update-ds",
+			datastoreName: "update_ds",
 			op:            "update",
 			wantStatus:    http.StatusOK,
 		},
 		{
 			name:          "delete_success",
-			datastoreName: "delete-ds",
+			datastoreName: "delete_ds",
 			op:            "delete",
 			wantStatus:    http.StatusNoContent,
 		},
 		{
 			name:          "describe_not_found",
-			datastoreName: "no-such-ds",
+			datastoreName: "no_such_ds",
 			op:            "describe_only",
 			wantStatus:    http.StatusNotFound,
 		},
@@ -84,7 +84,7 @@ func TestHandler_Datastores(t *testing.T) {
 					"/datastores",
 					map[string]string{"datastoreName": tt.datastoreName},
 				)
-				require.Equal(t, http.StatusCreated, rec.Code)
+				require.Equal(t, http.StatusOK, rec.Code)
 				listRec := doRequest(t, h, http.MethodGet, "/datastores", nil)
 				assert.Equal(t, tt.wantStatus, listRec.Code)
 				var resp map[string]any
@@ -128,31 +128,31 @@ func TestHandler_Datasets(t *testing.T) {
 	}{
 		{
 			name:        "list",
-			datasetName: "list-dataset",
+			datasetName: "list_dataset",
 			op:          "list",
 			wantStatus:  http.StatusOK,
 		},
 		{
 			name:        "describe_success",
-			datasetName: "desc-dataset",
+			datasetName: "desc_dataset",
 			op:          "describe",
 			wantStatus:  http.StatusOK,
 		},
 		{
 			name:        "update_success",
-			datasetName: "update-dataset",
+			datasetName: "update_dataset",
 			op:          "update",
 			wantStatus:  http.StatusOK,
 		},
 		{
 			name:        "delete_success",
-			datasetName: "delete-dataset",
+			datasetName: "delete_dataset",
 			op:          "delete",
 			wantStatus:  http.StatusNoContent,
 		},
 		{
 			name:        "describe_not_found",
-			datasetName: "no-such-dataset",
+			datasetName: "no_such_dataset",
 			op:          "describe_only",
 			wantStatus:  http.StatusNotFound,
 		},
@@ -210,31 +210,31 @@ func TestHandler_Pipelines(t *testing.T) {
 	}{
 		{
 			name:         "list",
-			pipelineName: "list-pipeline",
+			pipelineName: "list_pipeline",
 			op:           "list",
 			wantStatus:   http.StatusOK,
 		},
 		{
 			name:         "update_success",
-			pipelineName: "update-pipeline",
+			pipelineName: "update_pipeline",
 			op:           "update",
 			wantStatus:   http.StatusOK,
 		},
 		{
 			name:         "delete_success",
-			pipelineName: "delete-pipeline",
+			pipelineName: "delete_pipeline",
 			op:           "delete",
 			wantStatus:   http.StatusNoContent,
 		},
 		{
 			name:         "update_not_found",
-			pipelineName: "no-such-pipeline",
+			pipelineName: "no_such_pipeline",
 			op:           "update_only",
 			wantStatus:   http.StatusNotFound,
 		},
 		{
 			name:         "delete_not_found",
-			pipelineName: "no-such-pipeline",
+			pipelineName: "no_such_pipeline",
 			op:           "delete_only",
 			wantStatus:   http.StatusNotFound,
 		},
@@ -291,19 +291,19 @@ func TestHandler_Channels_UpdateDelete(t *testing.T) {
 	}{
 		{
 			name:        "update_success",
-			channelName: "update-channel",
+			channelName: "update_channel",
 			op:          "update",
 			wantStatus:  http.StatusOK,
 		},
 		{
 			name:        "delete_success",
-			channelName: "delete-channel",
+			channelName: "delete_channel",
 			op:          "delete",
 			wantStatus:  http.StatusNoContent,
 		},
 		{
 			name:        "delete_not_found",
-			channelName: "no-such-channel",
+			channelName: "no_such_channel",
 			op:          "delete_only",
 			wantStatus:  http.StatusNotFound,
 		},
@@ -382,9 +382,9 @@ func TestHandler_TagOperations(t *testing.T) {
 				h,
 				http.MethodPost,
 				"/channels",
-				map[string]string{"channelName": "tag-test-channel"},
+				map[string]string{"channelName": "tag_test_channel"},
 			)
-			require.Equal(t, http.StatusCreated, createRec.Code)
+			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
 			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
@@ -423,11 +423,11 @@ func TestHandler_DatasetContent_GetVersionSpecific(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	datasetName := "version-test-dataset"
+	datasetName := "version_test_dataset"
 
 	// Create dataset.
 	rec := doRequest(t, h, http.MethodPost, "/datasets", map[string]string{"datasetName": datasetName})
-	require.Equal(t, http.StatusCreated, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Create content.
 	createRec := doRequest(t, h, http.MethodPost, "/datasets/"+datasetName+"/content", nil)
@@ -461,11 +461,11 @@ func TestHandler_SampleChannelData_WithMessages(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	channelName := "sample-data-channel"
+	channelName := "sample_data_channel"
 
 	// Create channel.
 	rec := doRequest(t, h, http.MethodPost, "/channels", map[string]string{"channelName": channelName})
-	require.Equal(t, http.StatusCreated, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Ingest messages via BatchPutMessage.
 	batchRec := doRequest(t, h, http.MethodPost, "/messages/batch", map[string]any{
@@ -493,11 +493,11 @@ func TestHandler_CancelPipelineReprocessing_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	pipelineName := "cancel-test-pipeline"
+	pipelineName := "cancel_test_pipeline"
 
 	// Create pipeline.
 	rec := doRequest(t, h, http.MethodPost, "/pipelines", map[string]string{"pipelineName": pipelineName})
-	require.Equal(t, http.StatusCreated, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Cancel with non-existent reprocessing ID.
 	cancelRec := doRequest(t, h, http.MethodDelete, "/pipelines/"+pipelineName+"/reprocessing/nonexistent-id", nil)
