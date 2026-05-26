@@ -376,6 +376,14 @@ func (b *InMemoryBackend) CreateFileSystem(req CreateFileSystemRequest) (*FileSy
 		return nil, err
 	}
 
+	// Normalize defaults before idempotency comparison.
+	if req.PerformanceMode == "" {
+		req.PerformanceMode = performanceModeGeneral
+	}
+	if req.ThroughputMode == "" {
+		req.ThroughputMode = throughputModeBursting
+	}
+
 	b.mu.Lock("CreateFileSystem")
 	defer b.mu.Unlock()
 
@@ -404,13 +412,6 @@ func (b *InMemoryBackend) CreateFileSystem(req CreateFileSystemRequest) (*FileSy
 				fs.FileSystemID,
 			)
 		}
-	}
-
-	if req.PerformanceMode == "" {
-		req.PerformanceMode = performanceModeGeneral
-	}
-	if req.ThroughputMode == "" {
-		req.ThroughputMode = throughputModeBursting
 	}
 
 	if req.PerformanceMode != performanceModeGeneral && req.PerformanceMode != performanceModeMaxIO {
@@ -531,11 +532,20 @@ func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
-	// Reject delete if mount targets exist.
+	// Reject delete if mount targets or access points exist (AWS: FileSystemInUse).
 	for _, mt := range b.mountTargets {
 		if mt.FileSystemID == fileSystemID {
 			return fmt.Errorf(
 				"%w: file system %s has existing mount targets",
+				ErrFileSystemInUse,
+				fileSystemID,
+			)
+		}
+	}
+	for _, ap := range b.accessPoints {
+		if ap.FileSystemID == fileSystemID {
+			return fmt.Errorf(
+				"%w: file system %s has existing access points",
 				ErrFileSystemInUse,
 				fileSystemID,
 			)
@@ -549,17 +559,6 @@ func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
 	delete(b.backupPolicies, fileSystemID)
 	delete(b.fileSystemPolicies, fileSystemID)
 	delete(b.replicationConfigs, fileSystemID)
-
-	for id, ap := range b.accessPoints {
-		if ap.FileSystemID == fileSystemID {
-			delete(b.accessPointsByARN, ap.AccessPointArn)
-			if ap.ClientToken != "" {
-				delete(b.accessPointsByClientToken, ap.ClientToken)
-			}
-			ap.Tags.Close()
-			delete(b.accessPoints, id)
-		}
-	}
 
 	return nil
 }
@@ -1436,7 +1435,7 @@ func paginate[T any](items []T, marker string, maxItems int, keyFn func(T) strin
 		items = items[start:]
 	}
 
-	if maxItems <= 0 || maxItems > len(items) {
+	if maxItems <= 0 || maxItems >= len(items) {
 		return items, "", nil
 	}
 

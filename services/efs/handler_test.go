@@ -131,17 +131,38 @@ func TestFileSystemCRUD(t *testing.T) {
 			},
 		},
 		{
-			name: "create_duplicate_token_returns_409",
+			name: "create_duplicate_token_identical_args_returns_200",
 			ops: func(t *testing.T, h *efs.Handler) {
 				t.Helper()
 				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
 					"CreationToken": "dup-token",
 				})
 				require.Equal(t, http.StatusCreated, rec.Code)
+				firstID := parseResp(t, rec)["FileSystemId"].(string)
 
-				// Second create with same token should return 409.
+				// Second create with same token and identical args returns existing FS with 200.
 				rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
 					"CreationToken": "dup-token",
+				})
+				assert.Equal(t, http.StatusOK, rec2.Code)
+				secondID := parseResp(t, rec2)["FileSystemId"].(string)
+				assert.Equal(t, firstID, secondID)
+			},
+		},
+		{
+			name: "create_duplicate_token_different_args_returns_409",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken":   "dup-token2",
+					"PerformanceMode": "generalPurpose",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+
+				// Same token but different PerformanceMode returns 409 FileSystemAlreadyExists.
+				rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken":   "dup-token2",
+					"PerformanceMode": "maxIO",
 				})
 				assert.Equal(t, http.StatusConflict, rec2.Code)
 			},
