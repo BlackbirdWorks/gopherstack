@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -16,6 +17,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/appconfigdata"
 )
+
+func nowUTC() time.Time { return time.Now().UTC() }
 
 // --- helpers ---
 
@@ -586,20 +589,27 @@ func TestHandler_TokenRotation(t *testing.T) {
 
 	token := startSession(t, h, "app", "env", "profile")
 
-	// First poll succeeds.
+	// First poll succeeds and returns content.
 	rec1 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
 	require.Equal(t, http.StatusOK, rec1.Code)
 	nextToken := rec1.Header().Get("Next-Poll-Configuration-Token")
 	assert.NotEmpty(t, nextToken)
 	assert.NotEqual(t, token, nextToken)
 
-	// Old token is in grace period — should still work (idempotency).
+	// Old token is in grace period — idempotent replay returns the cached response.
 	rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
 	assert.Equal(t, http.StatusOK, rec2.Code, "old token should work during grace period")
 
-	// New token works.
+	// New token polls unchanged content → 204 No Content.
+	// The client already received the current version via T0, so T1's first poll yields empty body.
 	rec3 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+nextToken, nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
+	assert.Equal(t, http.StatusNoContent, rec3.Code)
+
+	// After a configuration update the next token returns new content → 200.
+	require.NoError(t, h.Backend.SetConfiguration("app", "env", "profile", `{"v":2}`, "application/json"))
+	nextToken2 := rec3.Header().Get("Next-Poll-Configuration-Token")
+	rec4 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+nextToken2, nil)
+	assert.Equal(t, http.StatusOK, rec4.Code, "changed content must yield 200")
 }
 
 // TestHandler_GraceTokenIdempotency verifies that replaying an old token within the grace
@@ -664,10 +674,6 @@ func TestHandler_PollIntervalValidation(t *testing.T) {
 			h := newTestHandler(t)
 			require.NoError(t, h.Backend.SetConfiguration("app", "env", "p", `{}`, "application/json"))
 
-			body := []byte(`{"ApplicationIdentifier":"app","EnvironmentIdentifier":"env",` +
-				`"ConfigurationProfileIdentifier":"p","RequiredMinimumPollIntervalInSeconds":` +
-				string(rune('0'+tt.interval/10)) + string(rune('0'+tt.interval%10)) + `}`)
-			// Use JSON properly for all intervals.
 			bodyJSON, err := json.Marshal(map[string]any{
 				"ApplicationIdentifier":                "app",
 				"EnvironmentIdentifier":                "env",
