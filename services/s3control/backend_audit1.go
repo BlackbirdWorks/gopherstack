@@ -191,7 +191,7 @@ func (b *InMemoryBackend) ListAllAccessGrantsInstances(accountID string) []*Acce
 	b.mu.RLock("ListAllAccessGrantsInstances")
 	defer b.mu.RUnlock()
 
-	var out []*AccessGrantsInstance
+	out := make([]*AccessGrantsInstance, 0)
 
 	for _, inst := range b.accessGrantsInstances {
 		if inst.AccountID == accountID {
