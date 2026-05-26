@@ -393,9 +393,9 @@ type updatePipeRequest struct {
 	LogConfiguration        *LogConfiguration        `json:"LogConfiguration"`
 	EnrichmentParameters    *EnrichmentParameters    `json:"EnrichmentParameters"`
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"RuntimeMetricsStreaming"`
+	Description             *string                  `json:"Description"`
 	RoleArn                 string                   `json:"RoleArn"`
 	Target                  string                   `json:"Target"`
-	Description             string                   `json:"Description"`
 	Enrichment              string                   `json:"Enrichment"`
 	KmsKeyIdentifier        string                   `json:"KmsKeyIdentifier"`
 	DesiredState            string                   `json:"DesiredState"`
