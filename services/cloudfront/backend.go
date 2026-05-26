@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"maps"
 	"math/rand/v2"
@@ -173,6 +174,9 @@ var (
 	// ErrVpcOriginNotFound is returned when a requested VPC origin does not exist.
 	ErrVpcOriginNotFound = awserr.New("NoSuchVpcOrigin", awserr.ErrNotFound)
 )
+
+// ErrPreconditionFailed is returned when an If-Match ETag check fails in a data-plane operation.
+var ErrPreconditionFailed = errors.New("PreconditionFailed")
 
 const (
 	// idChars are the uppercase alphanumeric characters used for CloudFront IDs.
@@ -2770,6 +2774,137 @@ func (b *InMemoryBackend) DeleteKeyValueStore(id string) error {
 	delete(b.keyValueStores, id)
 
 	return nil
+}
+
+// --- KVS Data Plane ---
+
+// kvsDataETag returns or creates the ETag for a KVS data store.
+func (b *InMemoryBackend) kvsDataETag(id string) string {
+	if etag, ok := b.keyValueDataETags[id]; ok {
+		return etag
+	}
+	etag := uuid.NewString()
+	b.keyValueDataETags[id] = etag
+	return etag
+}
+
+// GetKVSValue returns the value for a key in a Key Value Store.
+func (b *InMemoryBackend) GetKVSValue(kvsID, key string) (string, string, error) {
+	b.mu.RLock("GetKVSValue")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.keyValueStores[kvsID]; !ok {
+		return "", "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
+	}
+
+	data := b.keyValueStoreData[kvsID]
+	val, ok := data[key]
+	if !ok {
+		return "", "", fmt.Errorf("%w: key %q not found in kvs %s", ErrNotFound, key, kvsID)
+	}
+
+	return val, b.keyValueDataETags[kvsID], nil
+}
+
+// PutKVSValue creates or updates a key/value pair in a Key Value Store.
+func (b *InMemoryBackend) PutKVSValue(kvsID, key, value, ifMatch string) (string, error) {
+	b.mu.Lock("PutKVSValue")
+	defer b.mu.Unlock()
+
+	if _, ok := b.keyValueStores[kvsID]; !ok {
+		return "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
+	}
+
+	currentETag := b.kvsDataETag(kvsID)
+	if ifMatch != "" && ifMatch != currentETag {
+		return "", fmt.Errorf("%w: If-Match ETag mismatch", ErrPreconditionFailed)
+	}
+
+	if b.keyValueStoreData[kvsID] == nil {
+		b.keyValueStoreData[kvsID] = make(map[string]string)
+	}
+	b.keyValueStoreData[kvsID][key] = value
+	newETag := uuid.NewString()
+	b.keyValueDataETags[kvsID] = newETag
+
+	return newETag, nil
+}
+
+// DeleteKVSValue deletes a key from a Key Value Store.
+func (b *InMemoryBackend) DeleteKVSValue(kvsID, key, ifMatch string) (string, error) {
+	b.mu.Lock("DeleteKVSValue")
+	defer b.mu.Unlock()
+
+	if _, ok := b.keyValueStores[kvsID]; !ok {
+		return "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
+	}
+
+	currentETag := b.kvsDataETag(kvsID)
+	if ifMatch != "" && ifMatch != currentETag {
+		return "", fmt.Errorf("%w: If-Match ETag mismatch", ErrPreconditionFailed)
+	}
+
+	if b.keyValueStoreData[kvsID] != nil {
+		delete(b.keyValueStoreData[kvsID], key)
+	}
+	newETag := uuid.NewString()
+	b.keyValueDataETags[kvsID] = newETag
+
+	return newETag, nil
+}
+
+// KVSItem is a single key/value item in a Key Value Store.
+type KVSItem struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// ListKVSValues returns all key/value pairs in a Key Value Store.
+func (b *InMemoryBackend) ListKVSValues(kvsID string) ([]*KVSItem, string, error) {
+	b.mu.RLock("ListKVSValues")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.keyValueStores[kvsID]; !ok {
+		return nil, "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
+	}
+
+	data := b.keyValueStoreData[kvsID]
+	items := make([]*KVSItem, 0, len(data))
+	for k, v := range data {
+		items = append(items, &KVSItem{Key: k, Value: v})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Key < items[j].Key })
+
+	return items, b.kvsDataETag(kvsID), nil
+}
+
+// UpdateKVSValues performs a batch put/delete on a Key Value Store.
+func (b *InMemoryBackend) UpdateKVSValues(kvsID, ifMatch string, puts []*KVSItem, deletes []string) (string, error) {
+	b.mu.Lock("UpdateKVSValues")
+	defer b.mu.Unlock()
+
+	if _, ok := b.keyValueStores[kvsID]; !ok {
+		return "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
+	}
+
+	currentETag := b.kvsDataETag(kvsID)
+	if ifMatch != "" && ifMatch != currentETag {
+		return "", fmt.Errorf("%w: If-Match ETag mismatch", ErrPreconditionFailed)
+	}
+
+	if b.keyValueStoreData[kvsID] == nil {
+		b.keyValueStoreData[kvsID] = make(map[string]string)
+	}
+	for _, item := range puts {
+		b.keyValueStoreData[kvsID][item.Key] = item.Value
+	}
+	for _, key := range deletes {
+		delete(b.keyValueStoreData[kvsID], key)
+	}
+	newETag := uuid.NewString()
+	b.keyValueDataETags[kvsID] = newETag
+
+	return newETag, nil
 }
 
 // --- VPC Origin CRUD ---
