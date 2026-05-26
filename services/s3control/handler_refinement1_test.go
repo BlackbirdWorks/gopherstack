@@ -23,7 +23,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := s3control.NewHandler(s3control.NewInMemoryBackend())
-	assert.Equal(t, 100, s3control.HandlerOpsLen(h))
+	assert.Equal(t, 103, s3control.HandlerOpsLen(h))
 }
 
 func TestRefinement1_Provider_NilAppContext(t *testing.T) {

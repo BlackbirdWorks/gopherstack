@@ -127,8 +127,10 @@ func (h *Handler) handleGetStorageLensConfiguration(c *echo.Context) error {
 }
 
 type putStorageLensConfigRequestXML struct {
-	XMLName xml.Name
-	Config  string `xml:"Config,omitempty"`
+	XMLName    xml.Name
+	Config     string `xml:"Config,omitempty"`
+	IsEnabled  bool   `xml:"IsEnabled"`
+	HomeRegion string `xml:"HomeRegion,omitempty"`
 }
 
 func (h *Handler) handlePutStorageLensConfiguration(c *echo.Context) error {
@@ -143,6 +145,8 @@ func (h *Handler) handlePutStorageLensConfiguration(c *echo.Context) error {
 	if err := h.Backend.PutStorageLensConfiguration(accountID, configName, body.Config); err != nil {
 		return handleBackendError(c, err)
 	}
+
+	h.Backend.PutStorageLensConfigMeta(accountID, configName, body.IsEnabled, body.HomeRegion)
 
 	return c.NoContent(http.StatusOK)
 }
@@ -242,7 +246,10 @@ func (h *Handler) handleDeleteStorageLensConfigurationTagging(c *echo.Context) e
 // ---- List Storage Lens Configurations ----
 
 type listStorageLensConfigItemXML struct {
-	ID string `xml:"Id"`
+	ID             string `xml:"Id"`
+	StorageLensArn string `xml:"StorageLensArn,omitempty"`
+	HomeRegion     string `xml:"HomeRegion,omitempty"`
+	IsEnabled      bool   `xml:"IsEnabled"`
 }
 
 type listStorageLensConfigurationsResultXML struct {
@@ -253,11 +260,16 @@ type listStorageLensConfigurationsResultXML struct {
 func (h *Handler) handleListStorageLensConfigurations(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 
-	names := h.Backend.ListStorageLensConfigurations(accountID)
-	items := make([]listStorageLensConfigItemXML, 0, len(names))
+	metas := h.Backend.ListStorageLensConfigMeta(accountID)
+	items := make([]listStorageLensConfigItemXML, 0, len(metas))
 
-	for _, n := range names {
-		items = append(items, listStorageLensConfigItemXML{ID: n})
+	for _, m := range metas {
+		items = append(items, listStorageLensConfigItemXML{
+			ID:             m.ID,
+			StorageLensArn: m.StorageLensArn,
+			HomeRegion:     m.HomeRegion,
+			IsEnabled:      m.IsEnabled,
+		})
 	}
 
 	return writeXML(c, listStorageLensConfigurationsResultXML{Configs: items})

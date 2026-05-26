@@ -146,7 +146,8 @@ func supportedJobMRAPStorageLensOps() []string {
 		"PutStorageLensConfigurationTagging",
 		// Storage Lens Groups
 		"CreateStorageLensGroup", "DeleteStorageLensGroup", "GetStorageLensGroup",
-		"ListStorageLensGroups", "UpdateStorageLensGroup",
+		"GetStorageLensGroupTagging", "ListStorageLensGroups", "PutStorageLensGroupTagging",
+		"DeleteStorageLensGroupTagging", "UpdateStorageLensGroup",
 		// Resource Tags
 		"ListTagsForResource", "TagResource", "UntagResource",
 	}
@@ -705,6 +706,12 @@ func extractStorageLensGroupOp(path, method string) string {
 	}
 
 	switch {
+	case isPrefixSuffix(pathStorageLensGroupPrefix, path, "/tagging") && method == http.MethodGet:
+		return "GetStorageLensGroupTagging"
+	case isPrefixSuffix(pathStorageLensGroupPrefix, path, "/tagging") && method == http.MethodPut:
+		return "PutStorageLensGroupTagging"
+	case isPrefixSuffix(pathStorageLensGroupPrefix, path, "/tagging") && method == http.MethodDelete:
+		return "DeleteStorageLensGroupTagging"
 	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodGet:
 		return "GetStorageLensGroup"
 	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodPut:
@@ -1331,6 +1338,12 @@ func (h *Handler) dispatchStorageLensGroupDispatch(c *echo.Context, path, method
 	}
 
 	switch {
+	case isPrefixSuffix(pathStorageLensGroupPrefix, path, "/tagging") && method == http.MethodGet:
+		return true, h.handleGetStorageLensGroupTagging(c)
+	case isPrefixSuffix(pathStorageLensGroupPrefix, path, "/tagging") && method == http.MethodPut:
+		return true, h.handlePutStorageLensGroupTagging(c)
+	case isPrefixSuffix(pathStorageLensGroupPrefix, path, "/tagging") && method == http.MethodDelete:
+		return true, h.handleDeleteStorageLensGroupTagging(c)
 	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodGet:
 		return true, h.handleGetStorageLensGroup(c)
 	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodPut:
@@ -1785,9 +1798,17 @@ type createMRAPRegionXML struct {
 	Bucket string `xml:"Bucket"`
 }
 
+type createMRAPPABXML struct {
+	BlockPublicAcls       bool `xml:"BlockPublicAcls"`
+	IgnorePublicAcls      bool `xml:"IgnorePublicAcls"`
+	BlockPublicPolicy     bool `xml:"BlockPublicPolicy"`
+	RestrictPublicBuckets bool `xml:"RestrictPublicBuckets"`
+}
+
 type createMRAPDetailsXML struct {
-	Name    string                `xml:"Name"`
-	Regions []createMRAPRegionXML `xml:"Regions>Region"`
+	PublicAccessBlock *createMRAPPABXML     `xml:"PublicAccessBlock"`
+	Name              string                `xml:"Name"`
+	Regions           []createMRAPRegionXML `xml:"Regions>Region"`
 }
 
 type createMRAPRequestXML struct {
@@ -1818,6 +1839,17 @@ func (h *Handler) handleCreateMultiRegionAccessPoint(c *echo.Context) error {
 			buckets = append(buckets, r.Bucket)
 		}
 		_ = h.Backend.SetMRAPRegions(accountID, body.Details.Name, buckets)
+	}
+
+	// Persist PublicAccessBlock if provided.
+	if body.Details.PublicAccessBlock != nil {
+		pab := PublicAccessBlock{
+			BlockPublicAcls:       body.Details.PublicAccessBlock.BlockPublicAcls,
+			IgnorePublicAcls:      body.Details.PublicAccessBlock.IgnorePublicAcls,
+			BlockPublicPolicy:     body.Details.PublicAccessBlock.BlockPublicPolicy,
+			RestrictPublicBuckets: body.Details.PublicAccessBlock.RestrictPublicBuckets,
+		}
+		_ = h.Backend.SetMRAPPublicAccessBlock(accountID, body.Details.Name, pab)
 	}
 
 	return writeXML(c, createMRAPResponseXML{
@@ -2153,11 +2185,12 @@ type getMRAPRegionXML struct {
 }
 
 type getMRAPAccessPointXML struct {
-	Name      string             `xml:"Name"`
-	Alias     string             `xml:"Alias"`
-	Status    string             `xml:"Status"`
-	CreatedAt string             `xml:"CreatedAt,omitempty"`
-	Regions   []getMRAPRegionXML `xml:"Regions>Region,omitempty"`
+	PublicAccessBlock *mrapPABResponseXML `xml:"PublicAccessBlock,omitempty"`
+	Name              string              `xml:"Name"`
+	Alias             string              `xml:"Alias"`
+	Status            string              `xml:"Status"`
+	CreatedAt         string              `xml:"CreatedAt,omitempty"`
+	Regions           []getMRAPRegionXML  `xml:"Regions>Region,omitempty"`
 }
 
 type getMRAPResponseXML struct {
@@ -2181,11 +2214,12 @@ func (h *Handler) handleGetMultiRegionAccessPoint(c *echo.Context) error {
 
 	return writeXML(c, getMRAPResponseXML{
 		AccessPoint: getMRAPAccessPointXML{
-			Name:      mrap.Name,
-			Alias:     mrap.Alias,
-			Status:    mrap.Status,
-			CreatedAt: mrap.CreatedAt,
-			Regions:   regionItems,
+			Name:              mrap.Name,
+			Alias:             mrap.Alias,
+			Status:            mrap.Status,
+			CreatedAt:         mrap.CreatedAt,
+			Regions:           regionItems,
+			PublicAccessBlock: buildMRAPPABResponse(mrap.PublicAccessBlock),
 		},
 	})
 }
