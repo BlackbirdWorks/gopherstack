@@ -1154,9 +1154,27 @@ func (h *Handler) handleDescribeJobDefinitions(
 	_ context.Context,
 	in *describeJobDefinitionsInput,
 ) (*describeJobDefinitionsOutput, error) {
-	jds := h.Backend.DescribeJobDefinitions(in.JobDefinitions, in.Status, in.JobDefinitionName)
+	var maxResults int32
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
 
-	return &describeJobDefinitionsOutput{JobDefinitions: jds}, nil
+	var nextToken string
+	if in.NextToken != nil {
+		nextToken = *in.NextToken
+	}
+
+	jds, outToken, err := h.Backend.DescribeJobDefinitions(in.JobDefinitions, in.Status, in.JobDefinitionName, maxResults, nextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &describeJobDefinitionsOutput{JobDefinitions: jds}
+	if outToken != "" {
+		out.NextToken = &outToken
+	}
+
+	return out, nil
 }
 
 type deregisterJobDefinitionInput struct {

@@ -854,7 +854,16 @@ func (h *Handler) handleDescribeLifecycleHooks(vals url.Values) (any, error) {
 
 	members := make([]xmlLifecycleHook, 0, len(hooks))
 	for _, hook := range hooks {
-		members = append(members, xmlLifecycleHook(hook))
+		members = append(members, xmlLifecycleHook{
+			LifecycleHookName:     hook.LifecycleHookName,
+			AutoScalingGroupName:  hook.AutoScalingGroupName,
+			LifecycleTransition:   hook.LifecycleTransition,
+			DefaultResult:         hook.DefaultResult,
+			NotificationTargetARN: hook.NotificationTargetARN,
+			NotificationMetadata:  hook.NotificationMetadata,
+			RoleARN:               hook.RoleARN,
+			HeartbeatTimeout:      hook.HeartbeatTimeout,
+		})
 	}
 
 	return &describeLifecycleHooksResponse{
@@ -1108,7 +1117,7 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup {
 
 	tags := make([]xmlTag, 0, len(g.Tags))
 	for _, t := range g.Tags {
-		tags = append(tags, xmlTag(t))
+		tags = append(tags, xmlTag{Key: t.Key, Value: t.Value, PropagateAtLaunch: t.PropagateAtLaunch})
 	}
 
 	instances := make([]xmlInstance, 0, len(g.Instances))
@@ -1233,8 +1242,9 @@ type xmlStringValueList struct {
 }
 
 type xmlTag struct {
-	Key   string `xml:"Key"`
-	Value string `xml:"Value"`
+	Key               string `xml:"Key"`
+	Value             string `xml:"Value"`
+	PropagateAtLaunch bool   `xml:"PropagateAtLaunch,omitempty"`
 }
 
 type xmlTagList struct {
@@ -1570,8 +1580,10 @@ type xmlLifecycleHook struct {
 	LifecycleTransition   string `xml:"LifecycleTransition,omitempty"`
 	DefaultResult         string `xml:"DefaultResult,omitempty"`
 	NotificationTargetARN string `xml:"NotificationTargetARN,omitempty"`
+	NotificationMetadata  string `xml:"NotificationMetadata,omitempty"`
 	RoleARN               string `xml:"RoleARN,omitempty"`
 	HeartbeatTimeout      int32  `xml:"HeartbeatTimeout,omitempty"`
+	GlobalTimeout         int32  `xml:"GlobalTimeout,omitempty"`
 }
 
 type xmlLifecycleHookList struct {
@@ -1860,13 +1872,28 @@ func (h *Handler) handleDescribeInstanceRefreshes(vals url.Values) (any, error) 
 
 	members := make([]xmlInstanceRefresh, 0, len(refreshes))
 	for _, r := range refreshes {
+		endTime := ""
+		if !r.EndTime.IsZero() {
+			endTime = r.EndTime.UTC().Format(time.RFC3339)
+		}
+
 		members = append(members, xmlInstanceRefresh{
-			InstanceRefreshID:    r.InstanceRefreshID,
-			AutoScalingGroupName: r.AutoScalingGroupName,
-			Status:               r.Status,
-			StartTime:            r.StartTime.UTC().Format(time.RFC3339),
-			Strategy:             r.Strategy,
-			MinHealthyPercentage: r.MinHealthyPercentage,
+			InstanceRefreshID:         r.InstanceRefreshID,
+			AutoScalingGroupName:      r.AutoScalingGroupName,
+			Status:                    r.Status,
+			StatusReason:              r.StatusReason,
+			StartTime:                 r.StartTime.UTC().Format(time.RFC3339),
+			EndTime:                   endTime,
+			Strategy:                  r.Strategy,
+			PercentageComplete:        r.PercentageComplete,
+			InstancesToUpdate:         r.InstancesToUpdate,
+			MinHealthyPercentage:      r.Preferences.MinHealthyPercentage,
+			MaxHealthyPercentage:      r.Preferences.MaxHealthyPercentage,
+			InstanceWarmup:            r.Preferences.InstanceWarmup,
+			SkipMatching:              r.Preferences.SkipMatching,
+			AutoRollback:              r.Preferences.AutoRollback,
+			ScaleInProtectedInstances: r.Preferences.ScaleInProtectedInstances,
+			StandbyInstances:          r.Preferences.StandbyInstances,
 		})
 	}
 
@@ -1888,10 +1915,36 @@ func (h *Handler) handleStartInstanceRefresh(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: invalid Preferences.MinHealthyPercentage", ErrInvalidParameter)
 	}
 
+	maxHealthy, err := parseIntVal(vals.Get("Preferences.MaxHealthyPercentage"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Preferences.MaxHealthyPercentage", ErrInvalidParameter)
+	}
+
+	instanceWarmup, err := parseIntVal(vals.Get("Preferences.InstanceWarmup"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Preferences.InstanceWarmup", ErrInvalidParameter)
+	}
+
+	checkpointDelay, err := parseIntVal(vals.Get("Preferences.CheckpointDelay"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Preferences.CheckpointDelay", ErrInvalidParameter)
+	}
+
+	prefs := InstanceRefreshPreferences{
+		MinHealthyPercentage:      minHealthy,
+		MaxHealthyPercentage:      maxHealthy,
+		InstanceWarmup:            instanceWarmup,
+		CheckpointDelay:           checkpointDelay,
+		SkipMatching:              vals.Get("Preferences.SkipMatching") == formValueTrue,
+		AutoRollback:              vals.Get("Preferences.AutoRollback") == formValueTrue,
+		ScaleInProtectedInstances: vals.Get("Preferences.ScaleInProtectedInstances"),
+		StandbyInstances:          vals.Get("Preferences.StandbyInstances"),
+	}
+
 	refresh, err := h.Backend.StartInstanceRefreshWithInput(StartInstanceRefreshInput{
 		AutoScalingGroupName: groupName,
 		Strategy:             strategy,
-		MinHealthyPercentage: minHealthy,
+		Preferences:          prefs,
 	})
 	if err != nil {
 		return nil, err
@@ -2676,12 +2729,22 @@ type describeTerminationPolicyTypesResponse struct {
 }
 
 type xmlInstanceRefresh struct {
-	InstanceRefreshID    string `xml:"InstanceRefreshId"`
-	AutoScalingGroupName string `xml:"AutoScalingGroupName"`
-	Status               string `xml:"Status"`
-	StartTime            string `xml:"StartTime"`
-	Strategy             string `xml:"Strategy,omitempty"`
-	MinHealthyPercentage int32  `xml:"Preferences>MinHealthyPercentage,omitempty"`
+	InstanceRefreshID         string `xml:"InstanceRefreshId"`
+	AutoScalingGroupName      string `xml:"AutoScalingGroupName"`
+	Status                    string `xml:"Status"`
+	StatusReason              string `xml:"StatusReason,omitempty"`
+	StartTime                 string `xml:"StartTime"`
+	EndTime                   string `xml:"EndTime,omitempty"`
+	Strategy                  string `xml:"Strategy,omitempty"`
+	ScaleInProtectedInstances string `xml:"Preferences>ScaleInProtectedInstances,omitempty"`
+	StandbyInstances          string `xml:"Preferences>StandbyInstances,omitempty"`
+	MinHealthyPercentage      int32  `xml:"Preferences>MinHealthyPercentage,omitempty"`
+	MaxHealthyPercentage      int32  `xml:"Preferences>MaxHealthyPercentage,omitempty"`
+	InstanceWarmup            int32  `xml:"Preferences>InstanceWarmup,omitempty"`
+	PercentageComplete        int32  `xml:"PercentageComplete,omitempty"`
+	InstancesToUpdate         int32  `xml:"InstancesToUpdate,omitempty"`
+	SkipMatching              bool   `xml:"Preferences>SkipMatching,omitempty"`
+	AutoRollback              bool   `xml:"Preferences>AutoRollback,omitempty"`
 }
 
 type xmlInstanceRefreshList struct {
