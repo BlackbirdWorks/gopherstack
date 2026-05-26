@@ -182,23 +182,18 @@ func TestCodeBuild_ResourcePolicy(t *testing.T) {
 		assert.JSONEq(t, policy, getOut.Policy)
 	})
 
-	t.Run("get_missing_returns_empty_json", func(t *testing.T) {
+	t.Run("get_missing_returns_404", func(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
 		rec := doRequest(t, h, "GetResourcePolicy", map[string]any{
 			"resourceArn": "arn:aws:codebuild:us-east-1:000000000000:report-group/ghost",
 		})
-		require.Equal(t, http.StatusOK, rec.Code)
-
-		var out struct {
-			Policy string `json:"policy"`
-		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-		assert.Equal(t, "{}", out.Policy)
+		// AWS returns ResourceNotFoundException when no policy is set.
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
-	t.Run("delete_idempotent", func(t *testing.T) {
+	t.Run("delete_then_get_returns_404", func(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
@@ -213,13 +208,9 @@ func TestCodeBuild_ResourcePolicy(t *testing.T) {
 		del2 := doRequest(t, h, "DeleteResourcePolicy", map[string]any{"resourceArn": resArn})
 		assert.Equal(t, http.StatusOK, del2.Code)
 
-		// Policy should now return default.
+		// Policy should now be gone — AWS returns ResourceNotFoundException.
 		getRec := doRequest(t, h, "GetResourcePolicy", map[string]any{"resourceArn": resArn})
-		var out struct {
-			Policy string `json:"policy"`
-		}
-		require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
-		assert.Equal(t, "{}", out.Policy)
+		assert.Equal(t, http.StatusBadRequest, getRec.Code)
 	})
 
 	t.Run("put_missing_fields", func(t *testing.T) {
