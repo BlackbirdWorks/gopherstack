@@ -1255,7 +1255,7 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.JSON(
 			http.StatusOK,
-			map[string]any{"sessions": h.config.AppConfigDataOps.Backend.ListSessions()},
+			map[string]any{"sessions": h.config.AppConfigDataOps.Backend.ListSessionsSafe()},
 		)
 	})
 

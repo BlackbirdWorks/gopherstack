@@ -496,7 +496,7 @@ func (rc *ResourceCreator) createBackupPlan(
 		}
 	}
 
-	plan, err := rc.backends.Backup.Backend.CreateBackupPlan(name, nil, nil)
+	plan, err := rc.backends.Backup.Backend.CreateBackupPlan(name, nil, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("create Backup Plan %s: %w", name, err)
 	}
@@ -530,7 +530,7 @@ func (rc *ResourceCreator) createBackupSelection(
 	}
 
 	iamRoleArn := strProp(props, "IamRoleArn", params, physicalIDs)
-	sel, err := rc.backends.Backup.Backend.CreateBackupSelection(planID, selectionName, iamRoleArn)
+	sel, err := rc.backends.Backup.Backend.CreateBackupSelection(planID, selectionName, iamRoleArn, nil, nil, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("create Backup Selection %s: %w", selectionName, err)
 	}
