@@ -29,6 +29,8 @@ const (
 	nextPollTokenHeader          = "Next-Poll-Configuration-Token" //nolint:gosec // G101: header name, not credentials
 	nextPollIntervalHeader       = "Next-Poll-Interval-In-Seconds"
 	etagHeader                   = "ETag"
+	versionLabelHeader           = "X-Amzn-AppConfig-Version-Label"
+	retryAfterHeader             = "Retry-After"
 )
 
 // Handler is the Echo HTTP handler for AppConfigData operations.
@@ -171,14 +173,17 @@ func (h *Handler) handleStartConfigurationSession(c *echo.Context) error {
 	if err != nil {
 		log.Error("appconfigdata: StartConfigurationSession failed", "error", err)
 
-		if errors.Is(err, ErrInvalidPollInterval) {
+		switch {
+		case errors.Is(err, ErrInvalidPollInterval):
 			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+		case errors.Is(err, ErrNoActiveDeployment):
+			return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
+		default:
+			return c.JSON(
+				http.StatusInternalServerError,
+				map[string]string{keyMessageField: err.Error()},
+			)
 		}
-
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
 	}
 
 	return c.JSON(http.StatusCreated, startSessionResponse{InitialConfigurationToken: token})
@@ -194,7 +199,7 @@ func (h *Handler) handleGetLatestConfiguration(c *echo.Context, token string) er
 		)
 	}
 
-	content, contentType, nextToken, hash, err := h.Backend.GetLatestConfiguration(token)
+	content, contentType, nextToken, hash, versionLabel, err := h.Backend.GetLatestConfiguration(token)
 	if err != nil {
 		const redactLen = 8
 		redacted := token
@@ -209,14 +214,21 @@ func (h *Handler) handleGetLatestConfiguration(c *echo.Context, token string) er
 			err,
 		)
 
-		if errors.Is(err, ErrSessionNotFound) {
+		switch {
+		case errors.Is(err, ErrTokenExpired):
+			return c.JSON(http.StatusUnauthorized, map[string]string{keyMessageField: err.Error()})
+		case errors.Is(err, ErrSessionNotFound):
 			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+		case errors.Is(err, ErrPollTooFrequent):
+			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+		case errors.Is(err, ErrResourceRemoved):
+			return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
+		default:
+			return c.JSON(
+				http.StatusInternalServerError,
+				map[string]string{keyMessageField: err.Error()},
+			)
 		}
-
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
 	}
 
 	// Honor the client's requested minimum poll interval; use the larger of the two.
@@ -226,15 +238,23 @@ func (h *Handler) handleGetLatestConfiguration(c *echo.Context, token string) er
 		pollInterval = sess.PollIntervalInSeconds
 	}
 
+	// Always set poll-control headers regardless of whether content changed.
 	c.Response().Header().Set(nextPollTokenHeader, nextToken)
 	c.Response().Header().Set(nextPollIntervalHeader, strconv.Itoa(pollInterval))
-	c.Response().Header().Set("Content-Type", contentType)
-	if hash != "" {
-		c.Response().Header().Set(etagHeader, fmt.Sprintf(`"%s"`, hash))
+
+	if versionLabel != "" {
+		c.Response().Header().Set(versionLabelHeader, versionLabel)
 	}
 
 	if len(content) == 0 {
+		// 204 No Content: configuration unchanged since last poll.
+		// Must NOT set ETag or Content-Type — the body is empty and there is nothing to describe.
 		return c.NoContent(http.StatusNoContent)
+	}
+
+	// 200 OK: content changed or first poll.
+	if hash != "" {
+		c.Response().Header().Set(etagHeader, fmt.Sprintf(`"%s"`, hash))
 	}
 
 	c.Response().Header().Set("Content-Length", strconv.Itoa(len(content)))
