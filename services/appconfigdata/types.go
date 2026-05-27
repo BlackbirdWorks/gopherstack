@@ -26,6 +26,12 @@ const (
 	// tokenByteSize is the number of random bytes used per token (32 → 64 hex chars).
 	// Increased from 16 to 32 for stronger entropy, matching AWS token length expectations.
 	tokenByteSize = 32
+	// signingKeySize is the number of bytes used for the HMAC-SHA256 signing key.
+	signingKeySize = 32
+	// tokenParts is the expected number of parts when splitting a token by its separator.
+	tokenParts = 2
+	// familyIDSize is the number of random bytes used for a token family identifier.
+	familyIDSize = 8
 )
 
 var (
@@ -63,12 +69,13 @@ type ConfigVersion struct {
 	ContentType   string    `json:"contentType"`
 	ContentHash   string    `json:"contentHash"`
 	VersionLabel  string    `json:"versionLabel"`
-	VersionNumber int       `json:"versionNumber"`
 	DeploymentID  string    `json:"deploymentId"`
+	VersionNumber int       `json:"versionNumber"`
 }
 
 // ConfigurationProfile stores configuration content for an application/environment/profile combination.
 type ConfigurationProfile struct {
+	UpdatedAt                      time.Time       `json:"updatedAt"`
 	ApplicationIdentifier          string          `json:"applicationIdentifier"`
 	EnvironmentIdentifier          string          `json:"environmentIdentifier"`
 	ConfigurationProfileIdentifier string          `json:"configurationProfileIdentifier"`
@@ -76,10 +83,9 @@ type ConfigurationProfile struct {
 	ContentType                    string          `json:"contentType"`
 	ContentHash                    string          `json:"contentHash"`
 	VersionLabel                   string          `json:"versionLabel"`
-	VersionNumber                  int             `json:"versionNumber"`
 	DeploymentID                   string          `json:"deploymentId"`
-	UpdatedAt                      time.Time       `json:"updatedAt"`
 	History                        []ConfigVersion `json:"history"`
+	VersionNumber                  int             `json:"versionNumber"`
 }
 
 // Session represents an active configuration retrieval session.

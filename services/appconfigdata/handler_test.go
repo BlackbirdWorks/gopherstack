@@ -56,11 +56,11 @@ func doRequest(
 	return rec
 }
 
-// seedProfile sets a configuration profile and returns the handler.
-func seedProfile(t *testing.T, h *appconfigdata.Handler, app, env, profile, content, ct string) {
+// seedProfile sets a configuration profile with JSON content type.
+func seedProfile(t *testing.T, h *appconfigdata.Handler, app, env, profile, content string) {
 	t.Helper()
 
-	require.NoError(t, h.Backend.SetConfiguration(app, env, profile, content, ct))
+	require.NoError(t, h.Backend.SetConfiguration(app, env, profile, content, "application/json"))
 }
 
 // startSession seeds a profile if needed and starts a session, returning the initial token.
@@ -339,9 +339,9 @@ func TestHandler_StartConfigurationSession(t *testing.T) {
 			setup: func(h *appconfigdata.Handler) {
 				require.NoError(t, h.Backend.SetConfiguration("my-app", "prod", "my-profile", `{}`, "application/json"))
 			},
-			body: []byte(
-				`{"ApplicationIdentifier":"  my-app  ","EnvironmentIdentifier":"prod","ConfigurationProfileIdentifier":"my-profile"}`,
-			),
+			body: []byte(`{"ApplicationIdentifier":"  my-app  ",` +
+				`"EnvironmentIdentifier":"prod",` +
+				`"ConfigurationProfileIdentifier":"my-profile"}`),
 			wantStatus: http.StatusCreated,
 			wantToken:  true,
 		},
@@ -490,7 +490,7 @@ func TestHandler_NoContentHeaders(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	seedProfile(t, h, "app", "env", "p", `{"x":1}`, "application/json")
+	seedProfile(t, h, "app", "env", "p", `{"x":1}`)
 	token := startSession(t, h, "app", "env", "p")
 
 	// First poll sets PreviousContentHash.
@@ -515,7 +515,7 @@ func TestHandler_VersionLabelHeader(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	seedProfile(t, h, "app", "env", "p", `{"v":1}`, "application/json")
+	seedProfile(t, h, "app", "env", "p", `{"v":1}`)
 	token := startSession(t, h, "app", "env", "p")
 
 	rec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
@@ -529,7 +529,7 @@ func TestHandler_ProfileDeletedMidSession(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	seedProfile(t, h, "app", "env", "p", `{"v":1}`, "application/json")
+	seedProfile(t, h, "app", "env", "p", `{"v":1}`)
 	token := startSession(t, h, "app", "env", "p")
 
 	// Poll once to get a valid next token.
@@ -585,7 +585,7 @@ func TestHandler_TokenRotation(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	seedProfile(t, h, "app", "env", "profile", `{"v":1}`, "application/json")
+	seedProfile(t, h, "app", "env", "profile", `{"v":1}`)
 
 	token := startSession(t, h, "app", "env", "profile")
 
@@ -618,7 +618,7 @@ func TestHandler_GraceTokenIdempotency(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	seedProfile(t, h, "app", "env", "p", `{"val":42}`, "application/json")
+	seedProfile(t, h, "app", "env", "p", `{"val":42}`)
 	token := startSession(t, h, "app", "env", "p")
 
 	// First poll.
@@ -692,7 +692,7 @@ func TestHandler_PollIntervalDefault(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	seedProfile(t, h, "app", "env", "profile", `{}`, "application/json")
+	seedProfile(t, h, "app", "env", "profile", `{}`)
 	token := startSession(t, h, "app", "env", "profile")
 
 	cfgRec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
@@ -706,7 +706,7 @@ func TestHandler_PollIntervalHonored(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	seedProfile(t, h, "app", "env", "profile", `{}`, "application/json")
+	seedProfile(t, h, "app", "env", "profile", `{}`)
 
 	sessionBody, err := json.Marshal(map[string]any{
 		"ApplicationIdentifier":                "app",
@@ -754,10 +754,10 @@ func TestBackend_SetConfiguration_JSONValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr     error
 		name        string
 		content     string
 		contentType string
-		wantErr     error
 	}{
 		{
 			name:        "valid_json_accepted",
@@ -884,9 +884,9 @@ func TestBackend_StartSession_RequiresDeployment(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		setup   func(b *appconfigdata.InMemoryBackend)
 		wantErr error
+		setup   func(b *appconfigdata.InMemoryBackend)
+		name    string
 	}{
 		{
 			name:    "no_profile_returns_ErrNoActiveDeployment",
@@ -938,7 +938,7 @@ func TestBackend_TokenHasHighEntropy(t *testing.T) {
 
 	// Token format: <64-hex-random>.<16-hex-mac>
 	// Total length should be at least 64 chars (32 random bytes in hex).
-	assert.True(t, len(token) >= 64, "token must have >= 64 chars (32 random bytes in hex)")
+	assert.GreaterOrEqual(t, len(token), 64, "token must have >= 64 chars (32 random bytes in hex)")
 	assert.Contains(t, token, ".", "token must contain MAC separator")
 }
 
@@ -1026,7 +1026,7 @@ func TestBackend_ListSessionsSafe(t *testing.T) {
 				// TokenPrefix must be set (non-empty for tokens with content).
 				assert.NotEmpty(t, s.TokenPrefix)
 				// TokenPrefix must NOT be a full-length token.
-				assert.True(t, len(s.TokenPrefix) < 64,
+				assert.Less(t, len(s.TokenPrefix), 64,
 					"safe session token prefix must be shorter than full token")
 				// Must contain the ellipsis separator.
 				assert.Contains(t, s.TokenPrefix, "…",
@@ -1099,12 +1099,12 @@ func TestBackend_GetStats_PollCounts(t *testing.T) {
 	// Successful polls increment totalPolls.
 	_, _, token, _, _, err = b.GetLatestConfiguration(token)
 	require.NoError(t, err)
-	_, _, token, _, _, err = b.GetLatestConfiguration(token)
+	_, _, _, _, _, err = b.GetLatestConfiguration(token)
 	require.NoError(t, err)
 
 	// Failed poll increments totalFailures.
 	_, _, _, _, _, err = b.GetLatestConfiguration("bad-token")
-	assert.ErrorIs(t, err, appconfigdata.ErrSessionNotFound)
+	require.ErrorIs(t, err, appconfigdata.ErrSessionNotFound)
 
 	stats := b.GetStats()
 	assert.Equal(t, int64(2), stats.TotalPollCount)
@@ -1311,7 +1311,7 @@ func TestBackend_TruncateToken(t *testing.T) {
 	full := b.ListSessions()
 	require.Len(t, full, 1)
 
-	assert.True(t, len(safe[0].TokenPrefix) < len(full[0].Token),
+	assert.Less(t, len(safe[0].TokenPrefix), len(full[0].Token),
 		"safe token must be shorter than full token")
 	// Full token must start with the same prefix shown in safe token.
 	prefix := strings.Split(safe[0].TokenPrefix, "…")[0]
@@ -1325,7 +1325,7 @@ func TestHandler_ContentTypeNotSetOn204(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	seedProfile(t, h, "a", "e", "p", `{"x":1}`, "application/json")
+	seedProfile(t, h, "a", "e", "p", `{"x":1}`)
 	token := startSession(t, h, "a", "e", "p")
 
 	// First poll.

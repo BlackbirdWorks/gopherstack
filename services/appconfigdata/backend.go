@@ -22,12 +22,12 @@ import (
 // A client that retries with an old token receives the same response it would have
 // gotten on the first successful poll, preventing duplicate-delivery confusion.
 type graceEntry struct {
-	nextToken   string
-	content     []byte
-	contentType string
-	contentHash string
+	expiresAt    time.Time
+	nextToken    string
+	contentType  string
+	contentHash  string
 	versionLabel string
-	expiresAt   time.Time
+	content      []byte
 }
 
 // InMemoryBackend implements StorageBackend for AppConfigData.
@@ -36,17 +36,17 @@ type InMemoryBackend struct {
 	sessions    map[string]*Session
 	graceTokens map[string]*graceEntry // rotated token → cached response
 	mu          *lockmetrics.RWMutex
-	signingKey  []byte        // HMAC-SHA256 key for token integrity verification
-	lastSweepAt atomic.Int64  // unix nanoseconds; accessed without the lock
+	signingKey  []byte       // HMAC-SHA256 key for token integrity verification
+	lastSweepAt atomic.Int64 // unix nanoseconds; accessed without the lock
 
-	totalPolls   atomic.Int64
+	totalPolls    atomic.Int64
 	totalFailures atomic.Int64
 	totalChanges  atomic.Int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a freshly generated signing key.
 func NewInMemoryBackend() *InMemoryBackend {
-	key := make([]byte, 32)
+	key := make([]byte, signingKeySize)
 	if _, err := rand.Read(key); err != nil {
 		// Fallback: derive from a fixed phrase — only happens if the OS entropy pool is
 		// completely exhausted, which should never occur in practice.
@@ -75,8 +75,9 @@ func normalizedContentHash(content, contentType string) string {
 	if isJSONContentType(contentType) {
 		var v any
 		if err := json.Unmarshal([]byte(content), &v); err == nil {
-			if normalized, err := json.Marshal(v); err == nil {
+			if normalized, marshalErr := json.Marshal(v); marshalErr == nil {
 				sum := sha256.Sum256(normalized)
+
 				return hex.EncodeToString(sum[:])
 			}
 		}
@@ -107,7 +108,7 @@ func (b *InMemoryBackend) tokenMAC(rawToken, familyID string) string {
 }
 
 // generateToken mints a new signed token for the given family.
-// Format: <64-hex-random>.<16-hex-mac>
+// Format: <64-hex-random>.<16-hex-mac>.
 func (b *InMemoryBackend) generateToken(familyID string) (string, error) {
 	raw := make([]byte, tokenByteSize)
 	if _, err := rand.Read(raw); err != nil {
@@ -123,8 +124,8 @@ func (b *InMemoryBackend) generateToken(familyID string) (string, error) {
 // verifyTokenMAC returns true when the token's embedded MAC is valid for the given family.
 // An invalid MAC indicates tampering or cross-family reuse.
 func (b *InMemoryBackend) verifyTokenMAC(token, familyID string) bool {
-	parts := strings.SplitN(token, ".", 2)
-	if len(parts) != 2 {
+	parts := strings.SplitN(token, ".", tokenParts)
+	if len(parts) != tokenParts {
 		return false
 	}
 
@@ -264,6 +265,48 @@ func (b *InMemoryBackend) StartSession(
 	return token, nil
 }
 
+// validateSession looks up the session for token, checks expiry, poll interval, MAC, and
+// that the underlying profile still exists.  It returns the validated session and profile,
+// or an error.  Callers must hold b.mu.
+func (b *InMemoryBackend) validateSession(
+	token string, now time.Time,
+) (*Session, *ConfigurationProfile, error) {
+	sess, ok := b.sessions[token]
+	if !ok {
+		return nil, nil, ErrSessionNotFound
+	}
+
+	if now.After(sess.ExpiresAt) {
+		delete(b.sessions, token)
+
+		return nil, nil, ErrTokenExpired
+	}
+
+	if !sess.LastPollAt.IsZero() && sess.PollIntervalInSeconds > 0 {
+		minInterval := time.Duration(sess.PollIntervalInSeconds) * time.Second
+		if now.Sub(sess.LastPollAt) < minInterval {
+			return nil, nil, ErrPollTooFrequent
+		}
+	}
+
+	if !b.verifyTokenMAC(token, sess.TokenFamilyID) {
+		delete(b.sessions, token)
+
+		return nil, nil, ErrSessionNotFound
+	}
+
+	key := profileKey(sess.ApplicationIdentifier, sess.EnvironmentIdentifier, sess.ConfigurationProfileIdentifier)
+	profile := b.profiles[key]
+
+	if profile == nil {
+		delete(b.sessions, token)
+
+		return nil, nil, ErrResourceRemoved
+	}
+
+	return sess, profile, nil
+}
+
 // GetLatestConfiguration retrieves configuration data for the given token and returns a new token.
 // The token is rotated on every successful call; the old token enters a short grace window so
 // that clients can safely retry after a transient failure without losing their session.
@@ -288,53 +331,11 @@ func (b *InMemoryBackend) GetLatestConfiguration(
 		delete(b.graceTokens, token)
 	}
 
-	sess, ok := b.sessions[token]
-	if !ok {
+	sess, profile, err := b.validateSession(token, now)
+	if err != nil {
 		b.totalFailures.Add(1)
 
-		return nil, "", "", "", "", ErrSessionNotFound
-	}
-
-	// Reject expired sessions (absolute token TTL).
-	if now.After(sess.ExpiresAt) {
-		delete(b.sessions, token)
-		b.totalFailures.Add(1)
-
-		return nil, "", "", "", "", ErrTokenExpired
-	}
-
-	// Enforce minimum poll interval BEFORE any further processing (item 8).
-	if !sess.LastPollAt.IsZero() && sess.PollIntervalInSeconds > 0 {
-		elapsed := now.Sub(sess.LastPollAt)
-		minInterval := time.Duration(sess.PollIntervalInSeconds) * time.Second
-
-		if elapsed < minInterval {
-			b.totalFailures.Add(1)
-
-			return nil, "", "", "", "", ErrPollTooFrequent
-		}
-	}
-
-	// Verify token MAC to detect tampering / cross-family reuse.
-	if !b.verifyTokenMAC(token, sess.TokenFamilyID) {
-		delete(b.sessions, token)
-		b.totalFailures.Add(1)
-
-		return nil, "", "", "", "", ErrSessionNotFound
-	}
-
-	// Re-validate that the profile still exists (it may have been deleted mid-session).
-	key := profileKey(
-		sess.ApplicationIdentifier,
-		sess.EnvironmentIdentifier,
-		sess.ConfigurationProfileIdentifier,
-	)
-	profile := b.profiles[key]
-	if profile == nil {
-		delete(b.sessions, token)
-		b.totalFailures.Add(1)
-
-		return nil, "", "", "", "", ErrResourceRemoved
+		return nil, "", "", "", "", err
 	}
 
 	// Change detection: return empty content when the profile hash matches the previous poll.
@@ -543,7 +544,7 @@ func (b *InMemoryBackend) SweepExpiredSessions(ctx context.Context, ttl time.Dur
 
 // generateFamilyID mints an opaque identifier shared across all tokens in a session family.
 func generateFamilyID() (string, error) {
-	b := make([]byte, 8)
+	b := make([]byte, familyIDSize)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
